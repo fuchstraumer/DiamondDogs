@@ -7,6 +7,8 @@ __inline float maptosphere(float const &a, float const &b, float const &c) {
 	return result;
 }
 
+
+
 void Mesh::Clear() {
 	Vertices.clear(); Indices.clear();
 	Triangles.clear(); Faces.clear();
@@ -28,7 +30,7 @@ GLsizei Mesh::GetNumVerts() const {
 }
 
 // Get vertex reference at index
-const vertex_t & Mesh::GetVertex(index_t index) {
+const vertex_t & Mesh::GetVertex(index_t index) const {
 	return Vertices[index];
 }
 
@@ -85,7 +87,7 @@ face_t Mesh::CreateFace(const index_t &i0, const index_t &i1, const index_t &i2,
 }
 
 // Checking triangle for best edge for subdivision - returns key for searching the edges lookup
-edge_key Mesh::LongestEdge(tri_t const &tri) {
+edge_key Mesh::LongestEdge(tri_t const &tri) const {
 	/*
 		o\ i2
 		| \
@@ -139,10 +141,52 @@ void Mesh::SubdivideTriangles() {
 	*this = std::move(temp);
 }
 
-vertex_t Mesh::VertToSphere(vertex_t in, float radius) {
+vertex_t Mesh::VertToSphere(vertex_t in, float radius) const {
 	vertex_t result;
 	in.Position = glm::normalize(in.Position);
 	result.Normal = in.Position - glm::vec3(0.0f);
 	result.Position = glm::normalize(result.Normal * radius);
 	return result;
+}
+
+vertex_t Mesh::VertToUnitSphere(const vertex_t & in) const{
+	vertex_t result;
+	result.Position = glm::normalize(in.Position);
+	result.Normal = in.Position - glm::vec3(0.0f);
+	result.Position = glm::normalize(result.Normal);
+	return result;
+}
+
+void Mesh::BuildRenderData(){
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO); glGenBuffers(1, &EBO);
+	glBindVertexArray(VAO);
+	// Bind the vertex buffer and then specify what data it will be loaded with
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, GetNumVerts() * sizeof(vertex_t), &(Vertices[0]), GL_DYNAMIC_DRAW);
+	// Bind the element array (indice) buffer and fill it with data
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, GetNumIndices() * sizeof(index_t), &(Indices.front()), GL_DYNAMIC_DRAW);
+	// Pointer to the position attribute of a vertex
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)0);
+	// Pointer to the normal attribute of a vertex
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)offsetof(vertex_t, Normal));
+	Model = glm::translate(Model, Position);
+	NormTransform = glm::transpose(glm::inverse(Model));
+	glBindVertexArray(0);
+}
+
+void Mesh::Render(ShaderProgram & shader){
+	shader.Use();
+	//glFrontFace(GL_CCW);
+	glDepthFunc(GL_LEQUAL);
+	glBindVertexArray(VAO);
+	glDrawElements(GL_TRIANGLES, GetNumIndices(), GL_UNSIGNED_INT, 0);
+	GLint modelLoc = glGetUniformLocation(shader.Handle, "model");
+	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(Model));
+	GLint normTLoc = glGetUniformLocation(shader.Handle, "normTransform");
+	glUniformMatrix4fv(normTLoc, 1, GL_FALSE, glm::value_ptr(NormTransform));
+	glBindVertexArray(0);
 }

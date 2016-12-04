@@ -1,17 +1,14 @@
-// stdafx.h : include file for standard system include files,
-// or project specific include files that are used frequently, but
-// are changed infrequently
-//
-
+// STDAFX.H - used for precompilation of headers used everywhere in project
 #pragma once
 
-#include "targetver.h"
-
 #include <stdio.h>
-#include <tchar.h>
 #include <string>
 #include <vector>
 #include <iostream>
+#include <algorithm>
+#include <cmath>
+#include <numeric>
+#include <array>
 
 using uint = unsigned int;
 
@@ -25,12 +22,8 @@ using uint = unsigned int;
 #include "glm\glm.hpp"
 #include "glm\gtc\matrix_transform.hpp"
 #include "glm\gtc\type_ptr.hpp"
+#include "glm\gtc\quaternion.hpp"
 
 // GLFW declarations and definitions
 const GLuint SCR_WIDTH = 1440, SCR_HEIGHT = 900;
 
-const int SUN_RADIUS = 400;
-
-
-
-// TODO: reference additional headers your program requires here

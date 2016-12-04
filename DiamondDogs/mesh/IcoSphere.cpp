@@ -71,37 +71,10 @@ IcoSphere::IcoSphere(uint lod, float radius) : Mesh() {
 }
 
 void IcoSphere::BuildRenderData(){
-
-	glGenVertexArrays(1, &VAO);
-	glGenBuffers(1, &VBO); glGenBuffers(1, &EBO);
-	glBindVertexArray(VAO);
-	// Bind the vertex buffer and then specify what data it will be loaded with
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, GetNumVerts() * sizeof(vertex_t), &(Vertices[0]), GL_DYNAMIC_DRAW);
-	// Bind the element array (indice) buffer and fill it with data
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, GetNumIndices() * sizeof(index_t), &(Indices.front()), GL_DYNAMIC_DRAW);
-	// Pointer to the position attribute of a vertex
-	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)0);
-	// Pointer to the normal attribute of a vertex
-	glEnableVertexAttribArray(1);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)offsetof(vertex_t, Normal));
-	glm::vec3 scale(Radius / 2);
-	Model = glm::scale(Model, scale);
-	NormTransform = glm::transpose(glm::inverse(Model));
-	glBindVertexArray(0);
+	Mesh::BuildRenderData();
+	Model = glm::scale(Model, glm::vec3(Radius));
 }
 
 void IcoSphere::Render(ShaderProgram& shader){
-	shader.Use();
-	//glFrontFace(GL_CCW);
-	glDepthFunc(GL_LEQUAL);
-	glBindVertexArray(VAO);
-	glDrawElements(GL_TRIANGLES, GetNumIndices(), GL_UNSIGNED_INT, 0);
-	GLint modelLoc = glGetUniformLocation(shader.Handle, "model");
-	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(Model));
-	GLint normTLoc = glGetUniformLocation(shader.Handle, "normTransform");
-	glUniformMatrix4fv(normTLoc, 1, GL_FALSE, glm::value_ptr(NormTransform));
-	glBindVertexArray(0);
+	Mesh::Render(shader);
 }

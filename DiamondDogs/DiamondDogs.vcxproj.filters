@@ -21,12 +21,6 @@
     <ClInclude Include="stdafx.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="targetver.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="util\camera.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="util\lodepng.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -42,9 +36,6 @@
     <ClInclude Include="mesh\Skybox.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="mesh\SphereMesh.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="util\shaderold.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -57,11 +48,14 @@
     <ClInclude Include="mesh\IcoSphere.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="util\Camera.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="mesh\PlanarMesh.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="stdafx.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="DiamondDogs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -71,10 +65,16 @@
     <ClCompile Include="mesh\Mesh.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="mesh\SphereMesh.cpp">
+    <ClCompile Include="mesh\IcoSphere.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="mesh\IcoSphere.cpp">
+    <ClCompile Include="util\Camera.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="stdafx.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="mesh\PlanarMesh.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

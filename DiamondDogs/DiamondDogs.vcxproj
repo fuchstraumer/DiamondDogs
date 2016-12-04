@@ -154,11 +154,10 @@
     <ClInclude Include="mesh\IcoSphere.h" />
     <ClInclude Include="mesh\Mesh.h" />
     <ClInclude Include="mesh\MeshComponents.h" />
+    <ClInclude Include="mesh\PlanarMesh.h" />
     <ClInclude Include="mesh\Skybox.h" />
-    <ClInclude Include="mesh\SphereMesh.h" />
     <ClInclude Include="stdafx.h" />
-    <ClInclude Include="targetver.h" />
-    <ClInclude Include="util\camera.h" />
+    <ClInclude Include="util\Camera.h" />
     <ClInclude Include="util\fbo.h" />
     <ClInclude Include="util\lodepng.h" />
     <ClInclude Include="util\lodeTexture.h" />
@@ -167,16 +166,22 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DiamondDogs.cpp" />
-    <ClCompile Include="mesh\IcoSphere.cpp" />
-    <ClCompile Include="mesh\Mesh.cpp" />
-    <ClCompile Include="mesh\SphereMesh.cpp" />
-    <ClCompile Include="stdafx.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
+    <ClCompile Include="mesh\IcoSphere.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="util\lodepng.cpp" />
+    <ClCompile Include="mesh\Mesh.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="mesh\PlanarMesh.cpp" />
+    <ClCompile Include="stdafx.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="util\Camera.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="util\lodepng.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

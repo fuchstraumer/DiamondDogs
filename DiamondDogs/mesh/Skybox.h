@@ -3,8 +3,8 @@
 #define SKYBOX_H
 #include "../stdafx.h"
 #include "Mesh.h"
-#include "shader.h"
-
+#include "../util//Shader.h"
+#include <array>
 class Skybox : public Mesh {
 public:
 	Skybox() : Mesh() {
@@ -70,10 +70,10 @@ public:
 		glBindVertexArray(0);
 	}
 
-	void RenderSkybox(Shader& shader, glm::mat4 view_matrix, glm::mat4 projection_matrix) {
+	void RenderSkybox(ShaderProgram& shader, glm::mat4 view_matrix, glm::mat4 projection_matrix) {
 		shader.Use();
-		GLuint viewLoc = glGetUniformLocation(shader.Program, "view");
-		GLuint projLoc = glGetUniformLocation(shader.Program, "projection");
+		GLuint viewLoc = glGetUniformLocation(shader.Handle, "view");
+		GLuint projLoc = glGetUniformLocation(shader.Handle, "projection");
 		glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view_matrix));
 		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection_matrix));
 		glBindVertexArray(VAO);

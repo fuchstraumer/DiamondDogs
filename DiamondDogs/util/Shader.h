@@ -158,7 +158,7 @@ public:
 		buffer = (GLubyte*)malloc(blockSize);
 
 		// Now, query for the indices of each variable in this uniform block
-		glGetUniformIndices(Handle, uniform_names.size(), uniform_names.data(), indices.data());
+		glGetUniformIndices(Handle, (GLsizei)uniform_names.size(), uniform_names.data(), indices.data());
 
 		for (GLuint i = 0; i < uniform_names.size(); ++i) {
 			std::pair<std::string, GLuint> entry(uniform_names[i], indices[i]);
