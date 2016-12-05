@@ -1,3 +1,5 @@
+#version 440
+
 uniform mat4 normTransform
 
 layout(triangles) in;

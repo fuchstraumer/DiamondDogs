@@ -1,20 +1,19 @@
-#version 430
+#version 440
 
 uniform mat4 view;
 uniform mat4 projection;
 uniform mat4 model;
-uniform mat4 normTransform;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 
 out vec3 fPos;
+out vec3 vPosition;
 out vec3 vNormal;
 
 void main(){
     vec4 Position = vec4(position,1.0f);
     vNormal = mat3(normTransform) * normal;
-    vec4 vPosition = projection * view * model * Position;
-    fPos = (model * Position).xyz;
-    gl_Position = vPosition;
+    vPosition = projection * view * model * Position;
+    fPos = model * Position.xyz;
 }

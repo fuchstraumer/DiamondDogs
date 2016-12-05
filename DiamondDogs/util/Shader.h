@@ -36,6 +36,31 @@ enum ShaderType : GLenum {
 	COMPUTE_SHADER = GL_COMPUTE_SHADER,
 };
 
+inline std::string GetTypeName(const ShaderType& t) {
+	std::string res;
+	switch (t) {
+	case VERTEX_SHADER:
+		res = std::string("VERTEX_SHADER");
+		break;
+	case FRAGMENT_SHADER:
+		res = std::string("FRAGMENT_SHADER");
+		break;
+	case GEOMETRY_SHADER:
+		res = std::string("GEOMETRY_SHADER");
+		break;
+	case T_CONTROL_SHADER:
+		res = std::string("T_CONTROL_SHADER");
+		break;
+	case T_EVAL_SHADER:
+		res = std::string("T_EVAL_SHADER");
+		break;
+	case COMPUTE_SHADER:
+		res = std::string("COMPUTE_SHADER");
+		break;
+	}
+	return res;
+}
+
 
 class Shader {
 public:
@@ -76,7 +101,7 @@ public:
 		if (!success)
 		{
 			glGetShaderInfoLog(Handle, 1024, NULL, infoLog);
-			std::cout << "ERROR::SHADER::COMPILATION_FAILED\n" << infoLog << std::endl;
+			std::cout << "ERROR::" << GetTypeName(Type) << "::COMPILATION_FAILED\n" << infoLog << std::endl;
 			throw(std::runtime_error("Shader compiliation failed"));
 		}
 	}
@@ -96,12 +121,16 @@ using MapEntry = std::pair<std::string, GLuint>;
 class ShaderProgram {
 public:
 	ShaderProgram() {
-		Handle = glCreateProgram();
+		Handle = 0;
 	}
 	~ShaderProgram() {
 		glDeleteProgram(Handle);
 	}
 
+	// Init program
+	void Init() {
+		Handle = glCreateProgram();
+	}
 	// Feed in handles to other shaders 
 	void AttachShader(const Shader& shader) {
 		glAttachShader(Handle, shader.Handle);

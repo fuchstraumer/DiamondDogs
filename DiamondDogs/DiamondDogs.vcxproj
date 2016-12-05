@@ -164,6 +164,7 @@
     <ClInclude Include="util\lodeTexture.h" />
     <ClInclude Include="util\Shader.h" />
     <ClInclude Include="util\shaderold.h" />
+    <ClInclude Include="util\Viewport.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DiamondDogs.cpp" />
@@ -185,6 +186,16 @@
     <ClCompile Include="util\lodepng.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="util\Viewport.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\core\fragment.glsl" />
+    <None Include="shaders\core\vertex.glsl" />
+    <None Include="shaders\wireframe\fragment.glsl" />
+    <None Include="shaders\wireframe\geometry.glsl" />
+    <None Include="shaders\wireframe\vertex.glsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

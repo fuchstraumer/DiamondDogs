@@ -3,6 +3,8 @@
 
 const float NEAR_PLANE = 0.1f, FAR_PLANE = 2000.0f;
 
+const float MOUSE_SENSITIVITY = 0.250f;
+
 glm::vec3 Camera::UP = glm::vec3(0.0f, 1.0f, 0.0f);
 
 void Camera::SetupProjection(const float &FOV, const float &ASPECT_RATIO){
@@ -86,6 +88,45 @@ void Camera::Translate(const MovementDir &dir, const GLfloat &t){
 
 glm::vec3 Camera::GetTranslation() const{
 	return translation;
+}
+
+void Camera::ProcessMouseMovement(GLfloat xoffset, GLfloat yoffset, GLfloat zoffset){
+	xoffset *= MOUSE_SENSITIVITY;
+	yoffset *= MOUSE_SENSITIVITY;
+	zoffset *= MOUSE_SENSITIVITY;
+
+	this->yaw += xoffset;
+	this->pitch += yoffset;
+	this->roll += zoffset;
+
+	if (constrainYaw) {
+		if (yaw > 89.0f) {
+			yaw = 89.0f;
+		}
+		if (yaw < -89.0f) {
+			yaw = -89.0f;
+		}
+	}
+
+	if (constrainPitch) {
+		if (pitch > 89.0f) {
+			pitch = 89.0f;
+		}
+		if (pitch < -89.0f) {
+			pitch = -89.0f;
+		}
+	}
+
+	if (constrainRoll) {
+		if (roll > 89.0f) {
+			roll = 89.0f;
+		}
+		if (roll < -89.0f) {
+			roll = -89.0f;
+		}
+	}
+
+	UpdateRotation(yaw, pitch, roll);
 }
 
 

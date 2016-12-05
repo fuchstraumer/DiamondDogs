@@ -62,6 +62,9 @@ public:
 	// Returns the current translation for this camera
 	virtual glm::vec3 GetTranslation() const;
 
+	// Process mouse movement from GLFW functions
+	virtual void ProcessMouseMovement(GLfloat xoffset, GLfloat yoffset, GLfloat zoffset = 0.0f);
+
 	float speed;
 
 protected:
@@ -91,5 +94,8 @@ protected:
 
 	// Vector used to update the position on a timestep
 	glm::vec3 translation;
+
+	// Pitch constrain booleans
+	bool constrainYaw, constrainPitch, constrainRoll;
 };
 #endif // !CAMERA_H
