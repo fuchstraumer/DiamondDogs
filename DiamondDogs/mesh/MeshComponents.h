@@ -61,7 +61,6 @@ inline static vert getMiddlePoint(vert const &v0, vert const &v1) {
 }
 
 
-
 // Create an edge and add it, return to call
 using edge_key = std::pair<index_t, index_t>;
 
@@ -97,7 +96,7 @@ using edge_t = struct edge {
 };
 
 // Triangle struct - three vertices that make up the base drawn type
-using tri_t = struct tri {
+using triangle_t = struct tri {
 
 	// Create a triangle using the three vertex indices giving.
 	tri(index_t const &i0, index_t const &i1, index_t const &i2) {

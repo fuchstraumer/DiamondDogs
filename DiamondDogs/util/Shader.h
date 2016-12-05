@@ -7,7 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
-
+#include <string>
 /*
 	
 	SHADER_H
@@ -63,7 +63,7 @@ public:
 			std::cerr << "ERROR::SHADER::FILE_NOT_SUCCESFULLY_READ" << std::endl;
 		}
 		// Reformat into null-terminated C-like string for GLSL compiler
-		code = tmp.c_str();
+		const GLchar* code = tmp.c_str();
 
 		// Try to compile the shader.
 		Handle = glCreateShader(Type);
@@ -87,9 +87,6 @@ public:
 	
 	GLuint Handle;
 	ShaderType Type;
-
-protected:
-	const GLchar* code;
 	const char* filename;
 };
 

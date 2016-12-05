@@ -62,6 +62,7 @@ public:
 	// Returns the current translation for this camera
 	virtual glm::vec3 GetTranslation() const;
 
+	float speed;
 
 protected:
 

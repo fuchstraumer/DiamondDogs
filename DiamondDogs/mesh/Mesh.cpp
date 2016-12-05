@@ -45,7 +45,7 @@ const face_t& Mesh::GetFace(index_t f_index) const {
 }
 
 // Get tri at index and return a reference
-const tri_t & Mesh::GetTri(index_t t_index) const {
+const triangle_t & Mesh::GetTri(index_t t_index) const {
 	return Triangles[t_index];
 }
 // Add vert and return index to it
@@ -59,7 +59,7 @@ index_t Mesh::AddTriangle(const index_t &i0, const index_t &i1, const index_t &i
 	Indices.push_back(i0);
 	Indices.push_back(i1);
 	Indices.push_back(i2);
-	tri_t newTri(i0, i1, i2);
+	triangle_t newTri(i0, i1, i2);
 	Triangles.push_back(newTri);
 	index_t val = (index_t)Triangles.size() - 1;
 	// The triangle actually stores the edges, as well.
@@ -86,8 +86,12 @@ face_t Mesh::CreateFace(const index_t &i0, const index_t &i1, const index_t &i2,
 	return face_t(t0, t1);
 }
 
+face_t Mesh::CreateFace(const index_t& t0, const index_t& t1) const {
+	return face_t(t0, t1);
+}
+
 // Checking triangle for best edge for subdivision - returns key for searching the edges lookup
-edge_key Mesh::LongestEdge(tri_t const &tri) const {
+edge_key Mesh::LongestEdge(triangle_t const &tri) const {
 	/*
 		o\ i2
 		| \
@@ -155,6 +159,22 @@ vertex_t Mesh::VertToUnitSphere(const vertex_t & in) const{
 	result.Normal = in.Position - glm::vec3(0.0f);
 	result.Position = glm::normalize(result.Normal);
 	return result;
+}
+
+glm::vec3 Mesh::PointToUnitSphere(const glm::vec3 &in) const {
+	glm::vec3 res;
+	res = glm::normalize(in);
+	glm::vec3 dir = res - glm::vec3(0.0f);
+	res = glm::normalize(dir);
+	return res;
+}
+
+vertex_t Mesh::GetMiddlePoint(const index_t &i0, const index_t &i1) {
+	vertex_t res;
+	auto&& v0 = GetVertex(i0);
+	auto&& v1 = GetVertex(i1);
+	res.Position = (v0.Position + v1.Position) / 2.0f;
+	return res;
 }
 
 void Mesh::BuildRenderData(){

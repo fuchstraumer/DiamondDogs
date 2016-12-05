@@ -84,4 +84,8 @@ void Camera::Translate(const MovementDir &dir, const GLfloat &t){
 	}
 }
 
+glm::vec3 Camera::GetTranslation() const{
+	return translation;
+}
+
 

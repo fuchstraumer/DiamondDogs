@@ -108,7 +108,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>"OpenGL32.lib";"C:\MSVC\OpenGL\lib\\x64\glfw3dll.lib";"C:\MSVC\OpenGL\lib\x64\glew32s.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>"opengl32.lib";"C:\MSVC\OpenGL\lib\\x64\glfw3dll.lib";"C:\MSVC\OpenGL\lib\x64\glew32s.lib";%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>"C:\MSVC\OpenGL\lib\x64";</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -151,6 +151,7 @@
     <Text Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="objects\CubeSphere.h" />
     <ClInclude Include="mesh\IcoSphere.h" />
     <ClInclude Include="mesh\Mesh.h" />
     <ClInclude Include="mesh\MeshComponents.h" />
@@ -172,7 +173,9 @@
     <ClCompile Include="mesh\Mesh.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="mesh\PlanarMesh.cpp" />
+    <ClCompile Include="mesh\PlanarMesh.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
     </ClCompile>
