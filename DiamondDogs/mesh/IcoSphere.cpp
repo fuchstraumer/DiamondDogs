@@ -50,13 +50,13 @@ IcoSphere::IcoSphere(uint lod, float radius) : Mesh() {
 
 			vertex_t v00, v01, v02, v03;
 			v00.Position = p1;
-			v00.UV = uv1.xy;
+			//v00.UV = uv1.xy;
 			v01.Position = p2;
-			v01.UV = uv2.xy;
+			//v01.UV = uv2.xy;
 			v02.Position = p3;
-			v02.UV = uv3.xy;
+			//v02.UV = uv3.xy;
 			v03.Position = p4;
-			v03.UV = uv4.xy;
+			//v03.UV = uv4.xy;
 
 			index_t i0, i1, i2, i3;
 			i0 = AddVert(VertToSphere(v00, Radius));

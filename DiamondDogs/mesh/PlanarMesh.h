@@ -40,7 +40,7 @@ public:
 protected:
 	// Max subdivision level.
 	unsigned int Max_LOD;
-	CardinalFace face;
+	CardinalFace Face;
 };
 
 #endif // !PLANAR_MESH_H

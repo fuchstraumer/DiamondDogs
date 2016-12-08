@@ -1,4 +1,4 @@
-#version 430
+#version 400
 
 in vec3 fPos;
 in vec3 vNormal;

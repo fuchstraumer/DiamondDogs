@@ -1,6 +1,6 @@
 #include "../stdafx.h"
 #include "Camera.h"
-
+#include "glm/ext.hpp"
 const float NEAR_PLANE = 0.1f, FAR_PLANE = 2000.0f;
 
 const float MOUSE_SENSITIVITY = 0.250f;
@@ -30,6 +30,7 @@ void Camera::Update(const float & dt){
 void Camera::UpdateRotation(const float &Yaw, const float &Pitch, const float &Roll){
 	rotation = GetRotationMatrix(Yaw, Pitch, Roll); 
 	yaw = Yaw; pitch = Pitch; roll = Roll;
+	//std::cerr << "rotation: ( " << yaw << ", " << pitch << ", " << roll << " )" << std::endl;
 }
 
 const glm::mat4 Camera::GetViewMatrix(void) const{
@@ -84,6 +85,7 @@ void Camera::Translate(const MovementDir &dir, const GLfloat &t){
 	else if (dir == MovementDir::LEFT || dir == MovementDir::RIGHT) {
 		translation += (t * right);
 	}
+	std::cerr << "translation:" << glm::to_string(translation) << std::endl;
 }
 
 glm::vec3 Camera::GetTranslation() const{

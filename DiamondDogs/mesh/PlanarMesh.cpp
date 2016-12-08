@@ -79,15 +79,15 @@ inline std::array<index_t, 9> PlanarMesh::GetSubfaces(const face_t &f, const Pla
 	result[8] = i2;
 	result[6] = i3;
 	// v1 is midpoint of result[0]-result[2]
-	vertex_t v1 = GetMiddlePoint(result[0], result[2]);
+	vertex_t v1 = to.GetMiddlePoint(result[0], result[2]);
 	// v3 is midpoint of result[2]-result[8]
-	vertex_t v3 = GetMiddlePoint(result[2], result[8]);
+	vertex_t v3 = to.GetMiddlePoint(result[2], result[8]);
 	// v5 is midpoint of result[0]-result[6]
-	vertex_t v5 = GetMiddlePoint(result[0], result[6]);
+	vertex_t v5 = to.GetMiddlePoint(result[0], result[6]);
 	// v4 is midpoint of v3-v5
 	vertex_t v4 = getMiddlePoint(v3, v5);
 	// v7 is midpoint of result[6]-result[8]
-	vertex_t v7 = GetMiddlePoint(result[6], result[8]);
+	vertex_t v7 = to.GetMiddlePoint(result[6], result[8]);
 	// Add our new vertices to the mesh
 	i1 = to.AddVert(v1);
 	i3 = to.AddVert(v3);
@@ -131,9 +131,9 @@ inline auto buildface(int norm, glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, glm::v
 
 PlanarMesh::PlanarMesh(const uint &lod, const CardinalFace &f) {
 	Max_LOD = lod;
-	face = f;
+	Face = f;
 	// Generate the initial face defining this plane
-	switch (face) {
+	switch (Face) {
 	case CardinalFace::FRONT:
 		buildface(0, vertices[0], vertices[1], vertices[2], vertices[3], *this);
 		break;

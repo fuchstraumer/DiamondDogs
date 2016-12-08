@@ -9,6 +9,8 @@
 // Get middle point between two vertices
 class Mesh {
 public:
+	Mesh() = default;
+	~Mesh() = default;
 	
 	// Clears this mesh and attempts to free memory using "shrink_to_fit()"
 	void Clear();
@@ -76,12 +78,10 @@ public:
 	// used to check for need to subdivide later.
 	EdgeLookup Edges;
 
-protected:
 	void BuildRenderData();
 	// Renders this object using the given shader program
 	void Render(ShaderProgram& shader);
 
-private:
 	// Used to access GL buffer/array objects
 	GLuint VAO, VBO, EBO;
 	// Matrix defining this mesh's world transformation
@@ -90,7 +90,8 @@ private:
 	glm::mat4 NormTransform;
 	// This vector defines the position of this mesh in the world (barycentric)
 	glm::vec3 Position;
-	// Builds the render data for this object
+	// Tells us whether or not this object is ready to render
+	bool meshBuilt = false;
 };
 
 #endif // !MESH_H
