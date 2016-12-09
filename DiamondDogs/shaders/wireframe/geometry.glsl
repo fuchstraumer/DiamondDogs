@@ -1,10 +1,10 @@
 #version 440
 
-uniform mat4 normTransform
+uniform mat4 normTransform;
 
 layout(triangles) in;
 layout(triangle_strip, max_vertices = 3) out;
-in vec3 vPosition[3];
+in vec4 vPosition[3];
 in vec3 fPos[3];
 in vec3 vNormal[3];
 
@@ -15,9 +15,10 @@ out vec3 gNormal;
 
 
 void main(){
-    vec3 A = vPosition[2] - vPosition[0];
-    vec3 B = vPosition[1] - vPosition[0];
-    fNorm = mat3(normTransform) * normalize(cross(A,B));
+    mat3 NormalMatrix = mat3(normTransform);
+    vec3 A = vPosition[2].xyz - vPosition[0].xyz;
+    vec3 B = vPosition[1].xyz - vPosition[0].xyz;
+    fNorm = NormalMatrix * normalize(cross(A,B));
 
     gTriDist = vec3(1.0f, 0.0f, 0.0f);
     fragPos = fPos[0];

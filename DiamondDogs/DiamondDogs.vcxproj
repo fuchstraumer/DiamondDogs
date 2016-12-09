@@ -151,6 +151,7 @@
     <Text Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="bodies\Body.h" />
     <ClInclude Include="mesh\SpherifiedCube.h" />
     <ClInclude Include="objects\CubeSphere.h" />
     <ClInclude Include="mesh\IcoSphere.h" />
@@ -163,6 +164,7 @@
     <ClInclude Include="util\fbo.h" />
     <ClInclude Include="util\lodepng.h" />
     <ClInclude Include="util\lodeTexture.h" />
+    <ClInclude Include="util\Noise.h" />
     <ClInclude Include="util\Shader.h" />
     <ClInclude Include="util\shaderold.h" />
     <ClInclude Include="util\Viewport.h" />
@@ -187,6 +189,7 @@
     <ClCompile Include="util\lodepng.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="util\Noise.cpp" />
     <ClCompile Include="util\Viewport.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>

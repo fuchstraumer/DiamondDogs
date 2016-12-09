@@ -7,6 +7,8 @@ static Camera Cam(glm::vec3(0.0f, 0.0f, 3.0f));
 static bool keys[1024];
 // Previous mouse position
 static GLfloat lastX = (GLfloat)SCR_WIDTH / 2, lastY = (GLfloat)SCR_HEIGHT / 2;
+// say mouse is init
+static bool mouseInit = true;
 // Previous mouse zoom
 static GLfloat lastZoom;
 // Skybox textures
@@ -32,9 +34,9 @@ Viewport::Viewport(GLfloat width, GLfloat height){
 	glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
 	// Enable 2x anti-aliasing to soften edges just slightly
 	glfwWindowHint(GLFW_SAMPLES, 2);
-
+	
 	// Create the actual window instance
-	Window = glfwCreateWindow(Width, Height, "DiamondDogs", nullptr, nullptr);
+	Window = glfwCreateWindow(static_cast<int>(Width), static_cast<int>(Height), "DiamondDogs", nullptr, nullptr);
 
 	// Set the input mode - make the cursor invisible and don't allow it to enter/leave freely
 	glfwSetInputMode(Window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -54,7 +56,7 @@ Viewport::Viewport(GLfloat width, GLfloat height){
 		throw("GLEW has not initialized properly");
 	}
 	glewExperimental = GL_TRUE;
-	glEnable(GL_DEPTH_TEST | GL_MULTISAMPLE);
+	glEnable(GL_DEPTH_TEST);
 	//glDepthFunc(GL_LESS);
 	// Build shaders
 	Shader CoreVertex("./shaders/core/vertex.glsl", VERTEX_SHADER);
@@ -63,6 +65,15 @@ Viewport::Viewport(GLfloat width, GLfloat height){
 	CoreProgram.AttachShader(CoreVertex);
 	CoreProgram.AttachShader(CoreFragment);
 	CoreProgram.CompleteProgram();
+
+	Shader WireVert("./shaders/wireframe/vertex.glsl", VERTEX_SHADER);
+	Shader WireGeo("./shaders/wireframe/geometry.glsl", GEOMETRY_SHADER);
+	Shader WireFrag("./shaders/wireframe/fragment.glsl", FRAGMENT_SHADER);
+	WireframeProgram.Init();
+	WireframeProgram.AttachShader(WireVert);
+	WireframeProgram.AttachShader(WireGeo);
+	WireframeProgram.AttachShader(WireFrag);
+	WireframeProgram.CompleteProgram();
 
 	Shader SkyVert("./shaders/skybox/vertex.glsl", VERTEX_SHADER);
 	Shader SkyFrag("./shaders/skybox/fragment.glsl", FRAGMENT_SHADER);
@@ -78,6 +89,7 @@ Viewport::Viewport(GLfloat width, GLfloat height){
 		"projection",
 	};
 	CoreProgram.BuildUniformMap(Uniforms);
+	WireframeProgram.BuildUniformMap(Uniforms);
 	//WireframeProgram.BuildUniformMap(Uniforms);
 	Uniforms = std::vector<std::string>{
 		"projection",
@@ -86,8 +98,9 @@ Viewport::Viewport(GLfloat width, GLfloat height){
 	skyboxProgram.BuildUniformMap(Uniforms);
 
 	// Set viewport
-	glViewport(0, 0, Width, Height);
-
+	glViewport(0, 0, static_cast<GLsizei>(Width), static_cast<GLsizei>(Height));
+	// Set the clear color - sets default background color
+	glClearColor(160.0f / 255.0f, 239.0f / 255.0f, 1.0f, 1.0f);
 	// Set projection matrix. This shouldn't really change during runtime.
 	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), 0.1f, 3000.0f);
 	
@@ -113,8 +126,6 @@ void Viewport::Use() {
 		// Poll events, passing events to callback funcs
 		glfwPollEvents();
 		UpdateMovement();
-		// Set the clear color - sets default background color
-		glClearColor(160.0f / 255.0f, 239.0f / 255.0f, 1.0f, 1.0f);
 		// Clear the depth and color buffers
 		
 		
@@ -125,7 +136,7 @@ void Viewport::Use() {
 
 		// Store drawable objects as map, where key is the name of the object and the value is a reference to the object
 		// and a reference to the relevant shader program.
-		CoreProgram.Use();
+		WireframeProgram.Use();
 		glClear(GL_DEPTH_BUFFER_BIT);
 		View = Cam.GetViewMatrix();
 		GLuint viewloc = CoreProgram.GetUniformLocation("view");
@@ -140,7 +151,7 @@ void Viewport::Use() {
 		projLoc = skyboxProgram.GetUniformLocation("projection");
 		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(Projection));
 		View = glm::mat4(glm::mat3(Cam.GetViewMatrix()));
-		Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), 0.1f, 30000.0f);
+		
 		viewloc = skyboxProgram.GetUniformLocation("view");
 		glUniformMatrix4fv(viewloc, 1, GL_FALSE, glm::value_ptr(View));
 		// Use skybox shader and bind correct texture
@@ -167,15 +178,20 @@ void Viewport::MouseButtonCallback(GLFWwindow * window, int button, int action, 
 }
 
 void Viewport::MousePosCallback(GLFWwindow * window, double mouse_x, double mouse_y){
+	if (mouseInit) {
+		lastX = static_cast<GLfloat>(mouse_x);
+		lastY = static_cast<GLfloat>(mouse_y);
+		mouseInit = false;
+	}
 	// Keep track of mouse position
 	// Object picking?
-	GLfloat xoffset = (GLfloat)mouse_x - lastX;
-	GLfloat yoffset = (GLfloat)mouse_y - lastY;
+	GLfloat xoffset = static_cast<GLfloat>(mouse_x) - lastX;
+	GLfloat yoffset = static_cast<GLfloat>(mouse_y) - lastY;
 
 	lastX = static_cast<GLfloat>(mouse_x);
 	lastY = static_cast<GLfloat>(mouse_y);
 
-	Cam.ProcessMouseMovement(-xoffset, -yoffset);
+	Cam.ProcessMouseMovement(xoffset, -yoffset);
 }
 
 void Viewport::ScrollCallback(GLFWwindow * window, double x_offset, double y_offset){

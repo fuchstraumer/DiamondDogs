@@ -136,7 +136,7 @@ public:
 		glAttachShader(Handle, shader.Handle);
 	}
 	// Link and compile this program
-	void CompleteProgram(void) {
+	void CompleteProgram(void){
 		glLinkProgram(Handle);
 		GLint success;
 		GLchar infoLog[1024];

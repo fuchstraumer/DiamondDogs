@@ -8,11 +8,11 @@
 
 int main(){
 	
-	SpherifiedCube test(12);
+	SpherifiedCube test(48);
 	test.Spherify();
 	test.Model = glm::scale(test.Model, glm::vec3(10.0f));
 	Viewport MainWindow(SCR_WIDTH, SCR_HEIGHT);
-	RenderObject testObj(test, MainWindow.CoreProgram);
+	RenderObject testObj(test, MainWindow.WireframeProgram);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_LINES);
 	MainWindow.AddRenderObject(testObj, "core");
 

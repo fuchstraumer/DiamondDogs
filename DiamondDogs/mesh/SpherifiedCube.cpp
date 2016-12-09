@@ -5,8 +5,8 @@ float SpherifiedCube::UnitSphereDist(const index_t & i0, const index_t & i1) con
 	auto&& v0 = GetVertex(i0);
 	auto&& v1 = GetVertex(i1);
 	glm::vec3 p0, p1;
-	p0 = PointToUnitSphere(v0.Position);
-	p1 = PointToUnitSphere(v1.Position);
+	p0 = glm::normalize(v0.Position);
+	p1 = glm::normalize(v1.Position);
 
 	float dist = glm::distance(p0, p1);
 
@@ -120,7 +120,9 @@ SpherifiedCube::SpherifiedCube(int subdivisions){
 			AddVert(newVert);
 		}
 	}
+
 	Subdivision_Level -= 1;
+
 	for (int i = 0; i < 6; ++i) {
 		makeUnitCubeTriangles(i);
 	}
@@ -128,7 +130,8 @@ SpherifiedCube::SpherifiedCube(int subdivisions){
 
 void SpherifiedCube::Spherify(){
 	for (auto iter = Vertices.begin(); iter != Vertices.end(); ++iter) {
-		(*iter) = VertToUnitSphere(*iter);
+		//(*iter) = VertToUnitSphere(*iter);
+		(*iter).Position = glm::normalize((*iter).Position);
 	}
 }
 

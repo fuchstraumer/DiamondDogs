@@ -15,5 +15,5 @@ out vec4 fColor;
 void main(){
     vec3 norm = normalize(gNormal);
     vec4 color = vec4(0.1f, 0.8f, 0.3f, 1.0f);
-    fColor = mix(vec3(0.0f),vec3(0.50f),fade());
+    fColor = vec4(mix(vec3(0.0f),vec3(0.50f),fade()),1.0f);
 }
