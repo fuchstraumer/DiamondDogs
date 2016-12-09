@@ -2,20 +2,18 @@
 //
 
 #include "stdafx.h"
-#include "util\Camera.h"
 #include "util\Shader.h"
 #include "util\Viewport.h"
-#include "mesh\PlanarMesh.h"
+#include "mesh\SpherifiedCube.h"
 
 int main(){
 	
-	PlanarMesh test(4, CardinalFace::BOTTOM);
-	test.SubdivideForSphere();
-	test.ToUnitSphere();
-	
+	SpherifiedCube test(12);
+	test.Spherify();
+	test.Model = glm::scale(test.Model, glm::vec3(10.0f));
 	Viewport MainWindow(SCR_WIDTH, SCR_HEIGHT);
 	RenderObject testObj(test, MainWindow.CoreProgram);
-
+	glPolygonMode(GL_FRONT_AND_BACK, GL_LINES);
 	MainWindow.AddRenderObject(testObj, "core");
 
 	MainWindow.Use();

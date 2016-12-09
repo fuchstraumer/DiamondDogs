@@ -1,101 +1,137 @@
 #pragma once
 #ifndef CAMERA_H
 #define CAMERA_H
+// Std. Includes
+#include <vector>
+#include "glm/ext.hpp"
+// GL Includes
+#include "../stdafx.h"
+#include <iostream>
 
-/*
-	CAMERA_H
-
-	Defines base methods and members needed for any of the camera-type objects.
-	Most methods can be overridden.
-
-*/
-
-enum class MovementDir {
+// Defines several possible options for camera movement. Used as abstraction to stay away from window-system specific input methods
+enum Camera_Movement {
 	FORWARD,
 	BACKWARD,
-	UP, 
-	DOWN,
 	LEFT,
-	RIGHT,
+	RIGHT
 };
 
-class Camera {
+// Default camera values
+const GLfloat YAW = -90.0f;
+const GLfloat PITCH = 0.0f;
+const GLfloat SPEED = 20.0f;
+const GLfloat SENSITIVTY = 0.25f;
+const GLfloat ZOOM = 45.0f;
+
+
+// An abstract camera class that processes input and calculates the corresponding Eular Angles, Vectors and Matrices for use in OpenGL
+class Camera
+{
 public:
+	// Camera Attributes
+	glm::vec3 Position;
+	glm::vec3 Front;
+	glm::vec3 Up;
+	glm::vec3 Right;
+	glm::vec3 WorldUp;
+	// Eular Angles
+	GLfloat Yaw;
+	GLfloat Pitch;
+	// Camera options
+	GLfloat MovementSpeed;
+	GLfloat MouseSensitivity;
+	GLfloat Zoom;
 
-	Camera() = default;
-	~Camera() = default;
-	
-	// Sets up the projection matrix for this camera object, assuming the given FOV and aspect ratio 
-	// by default. Can be overridden in case different cameras need different FOV's
-	virtual void SetupProjection(const float &FOV = 80.0f, const float &ASPECT_RATIO = (16 / 9));
-	
-	// Update methods
-	virtual void Update(const float& dt);
-	// Update rotation alone - roll isn't used for many camera types
-	virtual void UpdateRotation(const float &yaw, const float &pitch, const float &roll = 0.0f);
+	// Constructor with vectors
+	Camera(glm::vec3 position = glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f), GLfloat yaw = YAW, GLfloat pitch = PITCH) : Front(glm::vec3(0.0f, 0.0f, -1.0f)), MovementSpeed(SPEED), MouseSensitivity(SENSITIVTY), Zoom(ZOOM)
+	{
+		this->Position = position;
+		this->WorldUp = up;
+		this->Yaw = yaw;
+		this->Pitch = pitch;
+		this->updateCameraVectors();
+	}
+	// Constructor with scalar values
+	Camera(GLfloat posX, GLfloat posY, GLfloat posZ, GLfloat upX, GLfloat upY, GLfloat upZ, GLfloat yaw, GLfloat pitch) : Front(glm::vec3(0.0f, 0.0f, -1.0f)), MovementSpeed(SPEED), MouseSensitivity(SENSITIVTY), Zoom(ZOOM)
+	{
+		this->Position = glm::vec3(posX, posY, posZ);
+		this->WorldUp = glm::vec3(upX, upY, upZ);
+		this->Yaw = yaw;
+		this->Pitch = pitch;
+		this->updateCameraVectors();
+	}
 
-	// Returns view matrix for this camera object
-	const glm::mat4 GetViewMatrix(void) const;
-	// Returns projection matrix for this camera object
-	const glm::mat4 GetProjMatrix(void) const;
+	// Returns the view matrix calculated using Eular Angles and the LookAt Matrix
+	glm::mat4 GetViewMatrix()
+	{
+		return glm::lookAt(this->Position, this->Position + this->Front, this->Up);
+	}
 
-	// Sets raw position
-	virtual void SetPosition(const glm::vec3 &p);
-	// Gets raw position
-	virtual const glm::vec3 GetPosition() const;
+	// Processes input received from any keyboard-like input system. Accepts input parameter in the form of camera defined ENUM (to abstract it from windowing systems)
+	void ProcessKeyboard(Camera_Movement direction, GLfloat deltaTime)
+	{
+		GLfloat velocity = this->MovementSpeed * deltaTime;
+		if (direction == FORWARD)
+			this->Position += this->Front * velocity;
+		if (direction == BACKWARD)
+			this->Position -= this->Front * velocity;
+		if (direction == LEFT)
+			this->Position -= this->Right * velocity;
+		if (direction == RIGHT)
+			this->Position += this->Right * velocity;
 
-	// Gets a rotation matrix
-	virtual glm::mat4 GetRotationMatrix(const float& yaw, const float& pitch, const float& roll = 0.0f) const;
+		std::cerr << glm::to_string(Position) << std::endl;
+		//auto dist = glm::distance(Position, glm::vec3(0.0f));
+		//std::cerr << "Distance from origin: " << dist << std::endl;
+	}
 
-	// Sets the FOV, updates projection matrix
-	virtual void SetFOV(const float& FOV);
-	// Gets the current FOV
-	virtual GLfloat GetFOV() const;
+	// Processes input received from a mouse input system. Expects the offset value in both the x and y direction.
+	void ProcessMouseMovement(GLfloat xoffset, GLfloat yoffset, GLboolean constrainPitch = true)
+	{
+		xoffset *= this->MouseSensitivity;
+		yoffset *= this->MouseSensitivity;
 
-	// Sets the aspect ratio, updates projection matrix
-	virtual void SetAspect(const float& aspect_ratio);
-	// Gets the current aspect ratio
-	virtual GLfloat GetAspect() const;
+		this->Yaw += xoffset;
+		this->Pitch += yoffset;
 
-	// Translate the vector by the given amount in
-	virtual void Translate(const MovementDir& dir, const GLfloat &t);
-	// Returns the current translation for this camera
-	virtual glm::vec3 GetTranslation() const;
+		// Make sure that when pitch is out of bounds, screen doesn't get flipped
+		if (constrainPitch)
+		{
+			if (this->Pitch > 89.0f)
+				this->Pitch = 89.0f;
+			if (this->Pitch < -89.0f)
+				this->Pitch = -89.0f;
+		}
 
-	// Process mouse movement from GLFW functions
-	virtual void ProcessMouseMovement(GLfloat xoffset, GLfloat yoffset, GLfloat zoffset = 0.0f);
+		// Update Front, Right and Up Vectors using the updated Eular angles
+		this->updateCameraVectors();
+	}
 
-	float speed;
+	// Processes input received from a mouse scroll-wheel event. Only requires input on the vertical wheel-axis
+	void ProcessMouseScroll(GLfloat yoffset)
+	{
+		if (this->Zoom >= 1.0f && this->Zoom <= 45.0f)
+			this->Zoom -= yoffset;
+		if (this->Zoom <= 1.0f)
+			this->Zoom = 1.0f;
+		if (this->Zoom >= 45.0f)
+			this->Zoom = 45.0f;
+	}
 
-protected:
-
-	GLfloat fov, aspectRatio;
-	// Defined based on world-up. Should be
-	// same across all instances of camera
-	static glm::vec3 UP;
-	// "looking" direction - also usually "forward"
-	glm::vec3 lookDir;
-	// World-Right vec
-	glm::vec3 right;
-	// World pos
-	glm::vec3 position;
-	// Up for this camera currently
-	glm::vec3 up;
-	// Rotation matrix
-	glm::mat4 rotation;
-	// Individual elements of the rotation
-	GLfloat yaw, pitch, roll;
-
-	// View matrix
-	glm::mat4 view;
-
-	// Projection matrix
-	glm::mat4 projection;
-
-	// Vector used to update the position on a timestep
-	glm::vec3 translation;
-
-	// Pitch constrain booleans
-	bool constrainYaw, constrainPitch, constrainRoll;
+private:
+	// Calculates the front vector from the Camera's (updated) Eular Angles
+	void updateCameraVectors()
+	{
+		// Calculate the new Front vector
+		glm::vec3 front;
+		front.x = cos(glm::radians(this->Yaw)) * cos(glm::radians(this->Pitch));
+		front.y = sin(glm::radians(this->Pitch));
+		front.z = sin(glm::radians(this->Yaw)) * cos(glm::radians(this->Pitch));
+		this->Front = glm::normalize(front);
+		// Also re-calculate the Right and Up vector
+		this->Right = glm::normalize(glm::cross(this->Front, this->WorldUp));  // Normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
+		this->Up = glm::normalize(glm::cross(this->Right, this->Front));
+	}
 };
+
 #endif // !CAMERA_H

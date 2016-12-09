@@ -2,13 +2,17 @@
 #include "Viewport.h"
 
 // Main camera instance
-static Camera Cam;
+static Camera Cam(glm::vec3(0.0f, 0.0f, 3.0f));
 // Tracking of key presses for movement and simultaneous actions
 static bool keys[1024];
 // Previous mouse position
 static GLfloat lastX = (GLfloat)SCR_WIDTH / 2, lastY = (GLfloat)SCR_HEIGHT / 2;
 // Previous mouse zoom
 static GLfloat lastZoom;
+// Skybox textures
+static CubemapTexture skyboxTex(skyboxTextures, 512);
+// Skybox itself
+static Skybox skybox;
 
 Viewport::Viewport(GLfloat width, GLfloat height){
 	Width = width;
@@ -21,7 +25,7 @@ Viewport::Viewport(GLfloat width, GLfloat height){
 
 	// Set OpenGL version and profile: 3.3 Compatability
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
 	// Don't allow the window to be resize (embedded in UI)
@@ -51,7 +55,7 @@ Viewport::Viewport(GLfloat width, GLfloat height){
 	}
 	glewExperimental = GL_TRUE;
 	glEnable(GL_DEPTH_TEST | GL_MULTISAMPLE);
-	glDepthFunc(GL_LEQUAL);
+	//glDepthFunc(GL_LESS);
 	// Build shaders
 	Shader CoreVertex("./shaders/core/vertex.glsl", VERTEX_SHADER);
 	Shader CoreFragment("./shaders/core/fragment.glsl", FRAGMENT_SHADER);
@@ -59,6 +63,13 @@ Viewport::Viewport(GLfloat width, GLfloat height){
 	CoreProgram.AttachShader(CoreVertex);
 	CoreProgram.AttachShader(CoreFragment);
 	CoreProgram.CompleteProgram();
+
+	Shader SkyVert("./shaders/skybox/vertex.glsl", VERTEX_SHADER);
+	Shader SkyFrag("./shaders/skybox/fragment.glsl", FRAGMENT_SHADER);
+	skyboxProgram.Init();
+	skyboxProgram.AttachShader(SkyVert);
+	skyboxProgram.AttachShader(SkyFrag);
+	skyboxProgram.CompleteProgram();
 
 	std::vector<std::string> Uniforms{
 		"normTransform",
@@ -68,21 +79,31 @@ Viewport::Viewport(GLfloat width, GLfloat height){
 	};
 	CoreProgram.BuildUniformMap(Uniforms);
 	//WireframeProgram.BuildUniformMap(Uniforms);
+	Uniforms = std::vector<std::string>{
+		"projection",
+		"view",
+	};
+	skyboxProgram.BuildUniformMap(Uniforms);
 
 	// Set viewport
 	glViewport(0, 0, Width, Height);
 
 	// Set projection matrix. This shouldn't really change during runtime.
-	Projection = glm::perspectiveFov(glm::radians(75.0f), Width, Height, 0.1f, 600.0f);
-	GLuint projLoc = CoreProgram.GetUniformLocation("projection");
-	glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(Projection));
+	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), 0.1f, 3000.0f);
+	
 	// Perform initial setup of view matrix. This is updated often, but this will work for
 	// initilization
-	View = glm::lookAt(glm::vec3(0.0f, 0.0f, -40.0f), glm::vec3(0.0f), UP);
+	//View = glm::lookAt(glm::vec3(0.0f, 0.0f, -40.0f), glm::vec3(0.0f), UP);
+
+	
+	skyboxTex.BuildTexture();
+	skybox.BuildRenderData();
 }
 
 void Viewport::Use() {
 	while (!glfwWindowShouldClose(Window)) {
+		glDepthFunc(GL_LESS);
+		glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 
 		// Update frame time values
 		GLfloat CurrentFrame = (GLfloat)glfwGetTime();
@@ -95,7 +116,7 @@ void Viewport::Use() {
 		// Set the clear color - sets default background color
 		glClearColor(160.0f / 255.0f, 239.0f / 255.0f, 1.0f, 1.0f);
 		// Clear the depth and color buffers
-		glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+		
 		
 		// How to pass in render objects? Standardize a renderable type/class?
 		// -- probably, have standard mesh format and vertices already combined with
@@ -104,15 +125,31 @@ void Viewport::Use() {
 
 		// Store drawable objects as map, where key is the name of the object and the value is a reference to the object
 		// and a reference to the relevant shader program.
-
+		CoreProgram.Use();
+		glClear(GL_DEPTH_BUFFER_BIT);
 		View = Cam.GetViewMatrix();
 		GLuint viewloc = CoreProgram.GetUniformLocation("view");
 		glUniformMatrix4fv(viewloc, 1, GL_FALSE, glm::value_ptr(View));
-
-		CoreProgram.Use();
-		
+		// set projection matrix in skybox shader
+		GLuint projLoc = CoreProgram.GetUniformLocation("projection");
+		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(Projection));
 		this->Render();
+		glDepthFunc(GL_LEQUAL);
+
+		skyboxProgram.Use();
+		projLoc = skyboxProgram.GetUniformLocation("projection");
+		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(Projection));
+		View = glm::mat4(glm::mat3(Cam.GetViewMatrix()));
+		Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), 0.1f, 30000.0f);
+		viewloc = skyboxProgram.GetUniformLocation("view");
+		glUniformMatrix4fv(viewloc, 1, GL_FALSE, glm::value_ptr(View));
+		// Use skybox shader and bind correct texture
+		//skyboxProgram.Use();
+		glActiveTexture(GL_TEXTURE0);
+		skyboxTex.BindTexture();
+		skybox.RenderSkybox();
 		// Before starting loop again, swap buffers (double-buffered rendering)
+		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glfwSwapBuffers(Window);
 	}
 	glfwTerminate();
@@ -138,7 +175,7 @@ void Viewport::MousePosCallback(GLFWwindow * window, double mouse_x, double mous
 	lastX = static_cast<GLfloat>(mouse_x);
 	lastY = static_cast<GLfloat>(mouse_y);
 
-	Cam.ProcessMouseMovement(xoffset, yoffset);
+	Cam.ProcessMouseMovement(-xoffset, -yoffset);
 }
 
 void Viewport::ScrollCallback(GLFWwindow * window, double x_offset, double y_offset){
@@ -170,22 +207,21 @@ void Viewport::KeyCallback(GLFWwindow * window, int key, int scancode, int actio
 
 void Viewport::UpdateMovement(){
 	if (keys[GLFW_KEY_W]) {
-		Cam.Translate(MovementDir::FORWARD, DeltaTime);
+		Cam.ProcessKeyboard(FORWARD, DeltaTime);
 		std::cerr << "W key pressed" << std::endl;
 	}
 	if (keys[GLFW_KEY_S]) {
-		Cam.Translate(MovementDir::BACKWARD, DeltaTime);
+		Cam.ProcessKeyboard(BACKWARD, DeltaTime);
 		std::cerr << "S key pressed" << std::endl;
 	}
 	if (keys[GLFW_KEY_A]) {
-		Cam.Translate(MovementDir::LEFT, DeltaTime);
+		Cam.ProcessKeyboard(LEFT, DeltaTime);
 		std::cerr << "A key pressed" << std::endl;
 	}
 	if (keys[GLFW_KEY_D]) {
-		Cam.Translate(MovementDir::RIGHT, DeltaTime);
+		Cam.ProcessKeyboard(RIGHT, DeltaTime);
 		std::cerr << "D key pressed" << std::endl;
 	}
-	Cam.Update(DeltaTime);
 }
 
 auto Viewport::GetRenderObjects(const std::string & shader_name) {

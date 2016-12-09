@@ -151,6 +151,7 @@
     <Text Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="mesh\SpherifiedCube.h" />
     <ClInclude Include="objects\CubeSphere.h" />
     <ClInclude Include="mesh\IcoSphere.h" />
     <ClInclude Include="mesh\Mesh.h" />
@@ -158,7 +159,7 @@
     <ClInclude Include="mesh\PlanarMesh.h" />
     <ClInclude Include="mesh\Skybox.h" />
     <ClInclude Include="stdafx.h" />
-    <ClInclude Include="util\Camera.h" />
+    <ClInclude Include="util\camera.h" />
     <ClInclude Include="util\fbo.h" />
     <ClInclude Include="util\lodepng.h" />
     <ClInclude Include="util\lodeTexture.h" />
@@ -177,11 +178,11 @@
     <ClCompile Include="mesh\PlanarMesh.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="mesh\SpherifiedCube.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
-    </ClCompile>
-    <ClCompile Include="util\Camera.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="util\lodepng.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>

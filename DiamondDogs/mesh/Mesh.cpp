@@ -10,13 +10,13 @@ __inline float maptosphere(float const &a, float const &b, float const &c) {
 
 
 void Mesh::Clear() {
-	Vertices.clear(); Indices.clear();
-	Triangles.clear(); Faces.clear();
+	Vertices.clear(); 
+	Indices.clear();
+	Triangles.clear(); 
 	Edges.clear();
 	Vertices.shrink_to_fit();
 	Indices.shrink_to_fit();
 	Triangles.shrink_to_fit();
-	Faces.shrink_to_fit();
 }
 
 // Return number of indices in this mesh
@@ -37,11 +37,6 @@ const vertex_t & Mesh::GetVertex(index_t index) const {
 // Get index reference at index
 const index_t & Mesh::GetIndex(index_t index) const {
 	return Indices[index];
-}
-
-// Get face at index and return a reference
-const face_t& Mesh::GetFace(index_t f_index) const {
-	return Faces[f_index];
 }
 
 // Get tri at index and return a reference
@@ -72,22 +67,6 @@ index_t Mesh::AddTriangle(const index_t &i0, const index_t &i1, const index_t &i
 	Edges.insert(std::pair<edge_key, index_t>(newTri.e1, val));
 	Edges.insert(std::pair<edge_key, index_t>(newTri.e2, val));
 	return val;
-}
-
-// Add face and return index to it
-index_t Mesh::AddFace(const face_t& face) {
-	Faces.push_back(face);
-	return (index_t)Faces.size() - 1;
-}
-
-face_t Mesh::CreateFace(const index_t &i0, const index_t &i1, const index_t &i2, const index_t &i3) {
-	index_t t0 = AddTriangle(i0, i1, i3);
-	index_t t1 = AddTriangle(i1, i2, i3);
-	return face_t(t0, t1);
-}
-
-face_t Mesh::CreateFace(const index_t& t0, const index_t& t1) const {
-	return face_t(t0, t1);
 }
 
 // Checking triangle for best edge for subdivision - returns key for searching the edges lookup
@@ -132,19 +111,6 @@ index_t Mesh::SplitEdge(edge_key const &edge) {
 	return newIndex;
 }
 
-void Mesh::SubdivideTriangles() {
-	Mesh temp = *this;
-	for (auto triangle : this->Triangles) {
-		// Find the longest edge in each triangle and split that.
-		auto&& edgeToSplit = LongestEdge(triangle);
-		index_t splitIndex = temp.SplitEdge(edgeToSplit);
-		face_t subdiv = temp.CreateFace(triangle.i0, triangle.i1, triangle.i2, splitIndex);
-		temp.AddFace(subdiv);
-	}
-	this->Clear();
-	*this = std::move(temp);
-}
-
 vertex_t Mesh::VertToSphere(vertex_t in, float radius) const {
 	vertex_t result;
 	in.Position = glm::normalize(in.Position);
@@ -155,17 +121,24 @@ vertex_t Mesh::VertToSphere(vertex_t in, float radius) const {
 
 vertex_t Mesh::VertToUnitSphere(const vertex_t & in) const{
 	vertex_t result;
-	result.Position = glm::normalize(in.Position);
-	result.Normal = in.Position - glm::vec3(0.0f);
-	result.Position = glm::normalize(result.Normal);
+	result.Position = PointToUnitSphere(in.Position);
+	result.Normal = result.Position - glm::vec3(0.0f);
 	return result;
 }
 
 glm::vec3 Mesh::PointToUnitSphere(const glm::vec3 &in) const {
 	glm::vec3 res;
-	res = glm::normalize(in);
-	glm::vec3 dir = res - glm::vec3(0.0f);
-	res = glm::normalize(dir);
+	auto coordToSphere = [](float a, float b, float c)->float {
+		float lambda;
+		float bSq, cSq;
+		bSq = b*b;
+		cSq = c*c;
+		lambda = std::sqrtf(1.0f - (bSq / 2.0f) - (cSq / 2.0f) + ((bSq*cSq)/3.0f));
+		return a * lambda;
+	};
+	res.x = coordToSphere(in.x, in.y, in.z);
+	res.y = coordToSphere(in.y, in.z, in.x);
+	res.z = coordToSphere(in.z, in.x, in.y);
 	return res;
 }
 
@@ -206,18 +179,11 @@ void Mesh::BuildRenderData(){
 }
 
 void Mesh::Render(ShaderProgram & shader){
-	GLenum err;
-	glGetError();
 	shader.Use();
 	glBindVertexArray(VAO);
-	//glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	//glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-	err = glGetError();
 	glDrawElements(GL_TRIANGLES, GetNumIndices(), GL_UNSIGNED_INT, 0);
 	GLint modelLoc = shader.GetUniformLocation("model");
 	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(Model));
 	GLint normTLoc = shader.GetUniformLocation("normTransform");
-	glUniformMatrix4fv(normTLoc, 1, GL_FALSE, glm::value_ptr(NormTransform));
-	err = glGetError();
 	glBindVertexArray(0);
 }

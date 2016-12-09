@@ -121,24 +121,6 @@ using triangle_t = struct tri {
 	}
 };
 
-// Face struct - "square" of two triangles
-using face_t = struct face {
-	face(index_t const & t0, index_t const & t1) {
-		this->t0 = t0;
-		this->t1 = t1;
-	}
-	face() { }
-
-	// Center point of this face
-	glm::vec3 Center;
-
-	// Normal for this face: average of vertices, effectively.
-	glm::vec3 Norm;
-
-	// Indices to the triangle that make up this mesh
-	index_t t0, t1;
-};
-
 // Edge class is part of the mesh: the key value is how the edge is stored in the edge map.
 // The key is the two indices to the vertices defining this edge.
 using EdgeLookup = std::unordered_map<std::pair<index_t, index_t>, index_t, HashIndex>;

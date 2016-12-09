@@ -4,6 +4,8 @@
 #include "shader.h"
 #include "camera.h"
 #include "../mesh/Mesh.h"
+#include "../mesh/Skybox.h"
+#include "../util/lodeTexture.h"
 /*
 	
 	VIEWPORT_H
@@ -13,6 +15,15 @@
 	independently.
 
 */
+
+static const std::vector<std::string> skyboxTextures{
+	"./rsrc/img/skybox/right.png",
+	"./rsrc/img/skybox/left.png",
+	"./rsrc/img/skybox/top.png",
+	"./rsrc/img/skybox/bottom.png",
+	"./rsrc/img/skybox/front.png",
+	"./rsrc/img/skybox/back.png",
+};
 
 static const glm::vec3 UP(0.0f, 1.0f, 0.0f);
 
@@ -90,7 +101,7 @@ public:
 	glm::mat4 Projection;
 
 private:
-	
+	ShaderProgram skyboxProgram;
 	// List of objects kept in the map
 	std::vector<std::string> shaderNames;
 

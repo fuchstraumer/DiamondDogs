@@ -1,4 +1,4 @@
-#version 400
+#version 440
 
 uniform mat4 view;
 uniform mat4 projection;
@@ -16,5 +16,5 @@ void main(){
     vNormal = mat3(normTransform) * normal;
     vec4 vPosition = projection * view * model * Position;
     fPos = (model * Position).xyz;
-    gl_Position = vPosition;
+    gl_Position = projection * view * model * vec4(position,1.0f);
 }

@@ -23,20 +23,20 @@ public:
 			// We'll need four indices and four vertices for the two tris defining a face.
 			index_t i0, i1, i2, i3;
 			vertex_t v0, v1, v2, v3;
+			
 			// Set the vertex positions.
-			v0.Position = p0;
-			v1.Position = p1;
-			v2.Position = p2;
-			v3.Position = p3;
-			// Set vertex normals.
+			v0.Position.xyz = p0;
+			v1.Position.xyz = p1;
+			v2.Position.xyz = p2;
+			v3.Position.xyz = p3;
 			// Add the verts to the Mesh's vertex container. Returns index to added vert.
 			i0 = AddVert(v0);
 			i1 = AddVert(v1);
 			i2 = AddVert(v2);
 			i3 = AddVert(v3);
 			// Add the triangles to the mesh, via indices
-			face_t newFace = CreateFace(i0, i1, i2, i3);
-			AddFace(newFace);
+			AddTriangle(i0, i1, i2); // Needs UVs {0,0}{1,0}{0,1}
+			AddTriangle(i0, i2, i3); // Needs UVs {1,0}{0,1}{1,1}
 		};
 		// Front
 		buildface(vertices[0], vertices[1], vertices[2], vertices[3]); // Using Points 0, 1, 2, 3 and Normal 0
@@ -70,15 +70,12 @@ public:
 		glBindVertexArray(0);
 	}
 
-	void RenderSkybox(ShaderProgram& shader, glm::mat4 view_matrix, glm::mat4 projection_matrix) {
-		shader.Use();
-		GLuint viewLoc = glGetUniformLocation(shader.Handle, "view");
-		GLuint projLoc = glGetUniformLocation(shader.Handle, "projection");
-		glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view_matrix));
-		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection_matrix));
+	void RenderSkybox() {
+
 		glBindVertexArray(VAO);
 		glDrawElements(GL_TRIANGLES, GetNumIndices(), GL_UNSIGNED_INT, 0);
 		glBindVertexArray(0);
+		glDepthFunc(GL_LESS);
 	}
 
 	GLuint VAO, VBO, EBO;

@@ -16,7 +16,7 @@ class PlanarMesh : public Mesh {
 public:
 	PlanarMesh() = default;
 
-	std::array<index_t, 9> GetSubfaces(const face_t &f, const PlanarMesh& from, PlanarMesh& to);
+	std::array<index_t, 9> GetSubfaces(const PlanarMesh& from, PlanarMesh& to);
 
 	PlanarMesh(const uint &lod, const CardinalFace &f);
 
