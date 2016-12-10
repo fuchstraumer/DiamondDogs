@@ -28,7 +28,12 @@ SpherifiedCube::SpherifiedCube(int subdivisions){
 }
 
 void SpherifiedCube::Spherify(){
-
+	for (auto&& face : Faces) {
+		for (auto iter = face.Vertices.begin(); iter != face.Vertices.end(); ++iter) {
+			(*iter).Position = glm::normalize((*iter).Position);
+			(*iter).Normal = glm::normalize((*iter).Position - glm::vec3(0.0f));
+		}
+	}
 }
 
 void SpherifiedCube::makeUnitCubeTriangles(int face){

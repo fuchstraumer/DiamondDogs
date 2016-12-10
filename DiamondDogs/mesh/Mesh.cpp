@@ -57,15 +57,6 @@ index_t Mesh::AddTriangle(const index_t &i0, const index_t &i1, const index_t &i
 	triangle_t newTri(i0, i1, i2);
 	Triangles.push_back(newTri);
 	index_t val = (index_t)Triangles.size() - 1;
-	// The triangle actually stores the edges, as well.
-	// The value the key points to tells us which triangle
-	// this edge is used by
-	// This is a multimap, so multiple copies of the same 
-	// key value can exist but will have different values.
-	// This lets us find all triangles that use an edge.
-	Edges.insert(std::pair<edge_key, index_t>(newTri.e0, val));
-	Edges.insert(std::pair<edge_key, index_t>(newTri.e1, val));
-	Edges.insert(std::pair<edge_key, index_t>(newTri.e2, val));
 	return val;
 }
 
@@ -185,5 +176,6 @@ void Mesh::Render(ShaderProgram & shader) const {
 	GLint modelLoc = shader.GetUniformLocation("model");
 	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(Model));
 	GLint normTLoc = shader.GetUniformLocation("normTransform");
+	glUniformMatrix4fv(normTLoc, 1, GL_FALSE, glm::value_ptr(NormTransform));
 	glBindVertexArray(0);
 }

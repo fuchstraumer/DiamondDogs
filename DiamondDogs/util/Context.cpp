@@ -1,5 +1,5 @@
 #include "../stdafx.h"
-#include "Viewport.h"
+#include "Context.h"
 
 // Main camera instance
 static Camera Cam(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -16,7 +16,7 @@ static CubemapTexture skyboxTex(skyboxTextures, 512);
 // Skybox itself
 static Skybox skybox;
 
-Viewport::Viewport(GLfloat width, GLfloat height){
+Context::Context(GLfloat width, GLfloat height){
 	Width = width;
 	Height = height;
 
@@ -57,6 +57,7 @@ Viewport::Viewport(GLfloat width, GLfloat height){
 	}
 	glewExperimental = GL_TRUE;
 	glEnable(GL_DEPTH_TEST);
+	//glEnable(GL_CULL_FACE);
 	//glDepthFunc(GL_LESS);
 	// Build shaders
 	Shader CoreVertex("./shaders/core/vertex.glsl", VERTEX_SHADER);
@@ -137,6 +138,7 @@ void Viewport::Use() {
 		// Store drawable objects as map, where key is the name of the object and the value is a reference to the object
 		// and a reference to the relevant shader program.
 		WireframeProgram.Use();
+		
 		glClear(GL_DEPTH_BUFFER_BIT);
 		View = Cam.GetViewMatrix();
 		GLuint viewloc = CoreProgram.GetUniformLocation("view");
@@ -168,7 +170,7 @@ void Viewport::Use() {
 
 
 
-void Viewport::MouseButtonCallback(GLFWwindow * window, int button, int action, int mods){
+void Context::MouseButtonCallback(GLFWwindow * window, int button, int action, int mods){
 	if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
 		// Mouse down, begin to track movement for dragging
 	}
@@ -177,7 +179,7 @@ void Viewport::MouseButtonCallback(GLFWwindow * window, int button, int action, 
 	}
 }
 
-void Viewport::MousePosCallback(GLFWwindow * window, double mouse_x, double mouse_y){
+void Context::MousePosCallback(GLFWwindow * window, double mouse_x, double mouse_y){
 	if (mouseInit) {
 		lastX = static_cast<GLfloat>(mouse_x);
 		lastY = static_cast<GLfloat>(mouse_y);
@@ -194,13 +196,13 @@ void Viewport::MousePosCallback(GLFWwindow * window, double mouse_x, double mous
 	Cam.ProcessMouseMovement(xoffset, -yoffset);
 }
 
-void Viewport::ScrollCallback(GLFWwindow * window, double x_offset, double y_offset){
+void Context::ScrollCallback(GLFWwindow * window, double x_offset, double y_offset){
 	// scroll_amount is movement along the y-axis
 	double scrollAmount = y_offset;
 	// change the camera's zoom based on scrollAmount
 }
 
-void Viewport::KeyCallback(GLFWwindow * window, int key, int scancode, int action, int mods){
+void Context::KeyCallback(GLFWwindow * window, int key, int scancode, int action, int mods){
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
 		glfwSetWindowShouldClose(window, GL_TRUE);
 	}
@@ -221,7 +223,7 @@ void Viewport::KeyCallback(GLFWwindow * window, int key, int scancode, int actio
 	}
 }
 
-void Viewport::UpdateMovement(){
+void Context::UpdateMovement(){
 	if (keys[GLFW_KEY_W]) {
 		Cam.ProcessKeyboard(FORWARD, DeltaTime);
 		std::cerr << "W key pressed" << std::endl;
@@ -241,14 +243,14 @@ void Viewport::UpdateMovement(){
 }
 
 
-void Viewport::Render() {
+void Context::Render() {
 	for (auto obj : RenderObjects) {
-		auto&& mesh = obj.first.get();
+		auto&& mesh = obj.first;
 		auto&& shader = obj.second.get();
 		mesh.Render(shader);
 	}
 }
 
-void Viewport::AddRenderObject(const RenderObject obj) {
+void Context::AddRenderObject(const RenderObject obj) {
 	RenderObjects.push_back(obj);
 }

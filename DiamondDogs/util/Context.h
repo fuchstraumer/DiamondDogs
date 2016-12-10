@@ -1,6 +1,6 @@
 #pragma once
-#ifndef VIEWPORT_H
-#define VIEWPORT_H
+#ifndef CONTEXT_H
+#define CONTEXT_H
 #include "shader.h"
 #include "camera.h"
 #include "../mesh/Mesh.h"
@@ -8,9 +8,9 @@
 #include "../util/lodeTexture.h"
 /*
 	
-	VIEWPORT_H
+	CONTEXT_H
 
-	Defines a viewport for viewing imported meshes and models.
+	Defines a single rendering context for viewing imported meshes and models.
 	Each mesh has different render modes, and they can be toggled
 	independently.
 
@@ -29,19 +29,19 @@ static const glm::vec3 UP(0.0f, 1.0f, 0.0f);
 
 // A renderable object consists of a mesh (mesh being an ABC), and the shader for rendering it
 // Using reference wrapper means we can insert references into a container, yay!
-using RenderObject = std::pair<std::reference_wrapper<const Mesh>, std::reference_wrapper<ShaderProgram>>;
+using RenderObject = std::pair<Mesh, std::reference_wrapper<ShaderProgram>>;
 // The map then has a key that is the "alias" for a shader so to speak, and a value that is a renderable object
 // This is a multimap, so we can have entries that have the same key but different values, or in this case: same shader, different meshes
 using RenderObjContainer = std::vector<RenderObject>;
 // Because I'm too lazy to type that pair out, just defining an alias for it here too
 //using RenderMapEntry = std::pair<std::string, RenderObject>;
 
-class Viewport {
+class Context {
 public:
-	// Performs setup and initialization for a viewport object
-	Viewport(GLfloat width, GLfloat height);
+	// Performs setup and initialization for a Context object
+	Context(GLfloat width, GLfloat height);
 
-	// Activates this viewport and runs it until the escape key is pressed
+	// Activates this Context and runs it until the escape key is pressed
 	void Use();
 
 	// GLFW function for processing mouse button actions
@@ -56,7 +56,7 @@ public:
 	// GLFW function for processing keyboard presses
 	static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
-	// Render all objects attached to this viewport
+	// Render all objects attached to this Context
 	void Render();
 
 	// Add an object to the renderable list
@@ -104,4 +104,4 @@ private:
 
 };
 
-#endif // !VIEWPORT_H
+#endif // !Context_H

@@ -11,6 +11,7 @@ class SpherifiedCube {
 public:
 	float UnitSphereDist(const int& face, const index_t & i0, const index_t & i1) const;
 	SpherifiedCube(int subdivisions);
+	void IncreaseLOD(int subdivisions);
 	SpherifiedCube() = default;
 	~SpherifiedCube() = default;
 	void Spherify();
