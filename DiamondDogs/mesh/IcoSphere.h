@@ -11,7 +11,7 @@ using uint = unsigned int;
 class IcoSphere : public Mesh {
 public:
 	IcoSphere(uint lod, float radius);
-
+	IcoSphere() = default;
 	~IcoSphere() = default;
 
 	void BuildRenderData();

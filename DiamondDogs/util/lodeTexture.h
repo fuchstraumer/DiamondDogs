@@ -127,6 +127,19 @@ public:
 	}
 };
 
+class NormalCubemap : public Texture {
+public:
+
+};
+
+class HeightCubemap : public Texture {
+
+};
+
+class BumpCubemap : public Texture {
+
+};
+
 class Texture1D : public Texture{
 public:
 	Texture1D(const char* file, uint texture_size) : Texture() {

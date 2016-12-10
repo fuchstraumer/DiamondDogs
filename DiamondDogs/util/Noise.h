@@ -2,6 +2,7 @@
 #ifndef NOISE_H
 #define NOISE_H
 #include <random>
+
 /*
 	Class: Noise Generator
 	Primary noise generation system for this library/engine.
@@ -15,13 +16,13 @@
 */
 
 // Load of default values for noise gens
-static const double FBM_FREQ = 0.0002; static const int FBM_OCTAVES = 5;
+static const float FBM_FREQ = 0.0002f; static const int FBM_OCTAVES = 5;
 static const float FBM_LACUN = 2.0f; static const float FBM_GAIN = 1.5f;
-static const double BILLOW_FREQ = 0.0018; static const int BILLOW_OCTAVES = 4;
+static const float BILLOW_FREQ = 0.0018f; static const int BILLOW_OCTAVES = 4;
 static const float BILLOW_LACUN = 2.50f; static const float BILLOW_GAIN = 1.20f;
-static const double RIDGED_FREQ = 0.00008; static const int RIDGED_OCTAVES = 6;
+static const float RIDGED_FREQ = 0.00008f; static const int RIDGED_OCTAVES = 6;
 static const float RIDGED_LACUN = 2.50f; static const float RIDGED_GAIN = 2.20f;
-static double SWISS_FREQ = 0.008; static double SWISS_OCTAVES = 7; // This is a slow terrain function because of high octaves
+static float SWISS_FREQ = 0.008f; static float SWISS_OCTAVES = 7; // This is a slow terrain function because of high octaves
 static float SWISS_LACUNARITY = 3.0f; static float SWISS_GAIN = 1.5f;
 
 class NoiseGenerator {
@@ -39,32 +40,32 @@ public:
 
 	// Noise generation functions
 	// Fractal-Brownian-Motion perlin noise based terrain gen.
-	double PerlinFBM(int x, int y, int z, double frequency, int octaves, float lacunarity, float gain);
-	//double SimplexFBM(int x, int y, int z, double frequency, int octaves, float lacunarity, float gain);
-	double SimplexFBM(int x, int y, double freq = FBM_FREQ, int octaves = FBM_OCTAVES, float lac = FBM_LACUN, float gain = FBM_GAIN);
+	float PerlinFBM(int x, int y, int z, float frequency, int octaves, float lacunarity, float gain);
+	//float SimplexFBM(int x, int y, int z, float frequency, int octaves, float lacunarity, float gain);
+	float SimplexFBM(int x, int y, float freq = FBM_FREQ, int octaves = FBM_OCTAVES, float lac = FBM_LACUN, float gain = FBM_GAIN);
 
 	// Billowy perlin generator, takes the absolute value of the perlin gen and generally works at low gain and low freq
-	double PerlinBillow(int x, int y, int z, double frequency, int octaves, float lacunarity, float gain);
-	//double SimplexBillow(int x, int y, int z, double frequency, int octaves, float lacunarity, float gain);
-	double SimplexBillow(int x, int y, double freq = BILLOW_FREQ, int octaves = BILLOW_OCTAVES, float lac = BILLOW_LACUN, float gain = BILLOW_GAIN);
+	float PerlinBillow(int x, int y, int z, float frequency, int octaves, float lacunarity, float gain);
+	//float SimplexBillow(int x, int y, int z, float frequency, int octaves, float lacunarity, float gain);
+	float SimplexBillow(int x, int y, float freq = BILLOW_FREQ, int octaves = BILLOW_OCTAVES, float lac = BILLOW_LACUN, float gain = BILLOW_GAIN);
 
 	// Generates ridges and other bizarre patterns. Currently broken.
-	double PerlinRidged(int x, int y, int z, double freq, int octaves, float lac, float gain);
-	//double SimplexRidged(int x, int y, int z, double freq, int octaves, float lac, float gain);;
-	double SimplexRidged(int x, int y, double freq = RIDGED_FREQ, int octaves = RIDGED_OCTAVES, float lac = RIDGED_LACUN, float gain = RIDGED_GAIN);
+	float PerlinRidged(int x, int y, int z, float freq, int octaves, float lac, float gain);
+	//float SimplexRidged(int x, int y, int z, float freq, int octaves, float lac, float gain);;
+	float SimplexRidged(int x, int y, float freq = RIDGED_FREQ, int octaves = RIDGED_OCTAVES, float lac = RIDGED_LACUN, float gain = RIDGED_GAIN);
 
 private:
 
 	// Hash table containing values to be used for gradient vectors
 	// Leave as unsigned char - getting this to fit in the cache is optimal
-	unsigned char hashTable[512];
+	unsigned char hash[512];
 
 	// Build the hash table for this generator
 	void buildHash();
 
 	// Finds the dot product of x,y,z and the gradient vector "hash". 
 	// Source: http://riven8192.blogspot.com/2010/08/calculate-perlinnoise-twice-as-fast.html //
-	double grad(int hash, double x, double y, double z)
+	float grad(int hash, float x, float y, float z)
 	{
 		switch (hash & 0xF)
 		{
@@ -89,16 +90,16 @@ private:
 	}
 
 	// Perlin noise generation function
-	double perlin(double x, double y, double z);
+	float perlin(float x, float y, float z);
 
 	// Simplex noise generation functions
 	// return the derivatives to the pointers given if non-null
-	double simplex(double x, double y, double* dx, double* dy);
-	double simplex(const glm::dvec2& pos, const glm::dvec2* deriv);
-	double simplex(double x, double y, double z, double* dx, double *dy, double *dz);
-	double simplex(const glm::dvec3& pos, const glm::dvec3* deriv);
-	double simplex(double x, double y, double z, double w, double *dx, double *dy, double *dz, double *dw);
-	double simplex(const glm::dvec4& pos, const glm::dvec4* deriv);
+	float simplex(float x, float y, float* dx, float* dy);
+	float simplex( glm::vec2& pos,  glm::vec2* deriv);
+	float simplex(float x, float y, float z, float* dx, float *dy, float *dz);
+	float simplex( glm::vec3& pos, glm::vec3* deriv);
+	float simplex(float x, float y, float z, float w, float *dx, float *dy, float *dz, float *dw);
+	float simplex(const glm::vec4& pos, const glm::vec4* deriv);
 
 };
 

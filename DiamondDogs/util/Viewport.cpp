@@ -240,26 +240,15 @@ void Viewport::UpdateMovement(){
 	}
 }
 
-auto Viewport::GetRenderObjects(const std::string & shader_name) {
-	return RenderObjects.equal_range(shader_name);
-}
 
 void Viewport::Render() {
-	for (auto str : shaderNames) {
-		auto& search = GetRenderObjects(str);
-		for (auto iter = search.first; iter != search.second; ++iter) {
-			auto& shader = (*iter).second.second;
-			auto& obj = (*iter).second.first;
-			obj.get().Render(shader);
-		}
+	for (auto obj : RenderObjects) {
+		auto&& mesh = obj.first.get();
+		auto&& shader = obj.second.get();
+		mesh.Render(shader);
 	}
 }
 
-void Viewport::AddRenderObject(const RenderObject & obj, std::string shader_name) {
-	RenderMapEntry entry(shader_name, obj);
-	if (!obj.first.get().meshBuilt) {
-		obj.first.get().BuildRenderData();
-	}
-	RenderObjects.insert(entry);
-	shaderNames.push_back(shader_name);
+void Viewport::AddRenderObject(const RenderObject obj) {
+	RenderObjects.push_back(obj);
 }

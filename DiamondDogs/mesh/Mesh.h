@@ -64,7 +64,7 @@ public:
 
 	void BuildRenderData();
 	// Renders this object using the given shader program
-	void Render(ShaderProgram& shader);
+	void Render(ShaderProgram& shader) const;
 
 	// Used to access GL buffer/array objects
 	GLuint VAO, VBO, EBO;

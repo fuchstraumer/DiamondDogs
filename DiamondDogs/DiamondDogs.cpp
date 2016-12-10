@@ -7,15 +7,15 @@
 #include "mesh\SpherifiedCube.h"
 
 int main(){
-	
+	Viewport MainWindow(static_cast<GLfloat>(SCR_WIDTH), static_cast<GLfloat>(SCR_HEIGHT));
 	SpherifiedCube test(48);
 	test.Spherify();
-	test.Model = glm::scale(test.Model, glm::vec3(10.0f));
-	Viewport MainWindow(SCR_WIDTH, SCR_HEIGHT);
-	RenderObject testObj(test, MainWindow.WireframeProgram);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINES);
-	MainWindow.AddRenderObject(testObj, "core");
-
+	for (auto face : test.Faces) {
+		face.Model = glm::scale(face.Model, glm::vec3(10.0f));
+		face.BuildRenderData();
+		RenderObject testObj = MainWindow.CreateRenderObject(std::move(face), MainWindow.CoreProgram);
+		MainWindow.AddRenderObject(std::move(testObj));
+	}
 	MainWindow.Use();
 	
     return 0;

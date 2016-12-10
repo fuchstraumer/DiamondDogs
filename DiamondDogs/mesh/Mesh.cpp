@@ -178,7 +178,7 @@ void Mesh::BuildRenderData(){
 	meshBuilt = true;
 }
 
-void Mesh::Render(ShaderProgram & shader){
+void Mesh::Render(ShaderProgram & shader) const {
 	shader.Use();
 	glBindVertexArray(VAO);
 	glDrawElements(GL_TRIANGLES, GetNumIndices(), GL_UNSIGNED_INT, 0);
