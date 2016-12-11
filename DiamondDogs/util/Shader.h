@@ -65,54 +65,18 @@ inline std::string GetTypeName(const ShaderType& t) {
 class Shader {
 public:
 	Shader() = default;
-
-	Shader(const char* file, ShaderType type) {
-		Type = type;
-		filename = file;
-		std::ifstream code_stream;
-		std::string tmp; // tmp string for holding the code
-		code_stream.exceptions(std::ifstream::badbit);
-		try {
-			// Attempt to open the given file
-			code_stream.open(filename);
-			// Create a string stream object
-			std::stringstream str;
-			// Write the file into the stream
-			str << code_stream.rdbuf();
-			// And write the stream into this class' code object
-			tmp = str.str();
-			// Close the file, we're done now
-			code_stream.close();
-		}
-		catch (std::ifstream::failure e){
-			std::cerr << "ERROR::SHADER::FILE_NOT_SUCCESFULLY_READ" << std::endl;
-		}
-		// Reformat into null-terminated C-like string for GLSL compiler
-		const GLchar* code = tmp.c_str();
-
-		// Try to compile the shader.
-		Handle = glCreateShader(Type);
-		glShaderSource(Handle, 1, &code, NULL);
-		glCompileShader(Handle);
-		// Print compile errors if any
-		GLint success;
-		GLchar infoLog[1024];
-		glGetShaderiv(Handle, GL_COMPILE_STATUS, &success);
-		if (!success)
-		{
-			glGetShaderInfoLog(Handle, 1024, NULL, infoLog);
-			std::cout << "ERROR::" << GetTypeName(Type) << "::COMPILATION_FAILED\n" << infoLog << std::endl;
-			throw(std::runtime_error("Shader compiliation failed"));
-		}
+	~Shader();
+	Shader& operator=(Shader&& other) {
+		this->Handle = other.Handle;
+		other.Handle = 0;
 	}
-
-	~Shader() {
-		glDeleteShader(Handle);
+	Shader(Shader& other) : Handle(other.Handle) {
+		other.Handle = 0;
 	}
+	Shader& operator=(const Shader& other) & = delete;
+	Shader(const char* file, ShaderType type);
 	
 	GLuint Handle;
-	ShaderType Type;
-	const char* filename;
 };
 
 using UniformMap = std::unordered_map<std::string, GLuint>;
@@ -120,96 +84,30 @@ using MapEntry = std::pair<std::string, GLuint>;
 
 class ShaderProgram {
 public:
-	ShaderProgram() {
-		Handle = 0;
-	}
+	ShaderProgram() = default;
 	~ShaderProgram() {
 		glDeleteProgram(Handle);
 	}
 
+	ShaderProgram& operator=(const ShaderProgram& other) & = delete;
 	// Init program
-	void Init() {
-		Handle = glCreateProgram();
-	}
-	// Feed in handles to other shaders 
-	void AttachShader(const Shader& shader) {
-		glAttachShader(Handle, shader.Handle);
-	}
-	// Link and compile this program
-	void CompleteProgram(void){
-		glLinkProgram(Handle);
-		GLint success;
-		GLchar infoLog[1024];
-		// Print linking errors if any
-		glGetProgramiv(Handle, GL_LINK_STATUS, &success);
-		if (!success)
-		{
-			glGetProgramInfoLog(Handle, 1024, NULL, infoLog);
-			std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-			throw(std::runtime_error("Shader program linking failed"));
-		}
-	}
+	void Init();
 
-	void Use(void) {
-		glUseProgram(Handle);
-	}
+	// Feed in handles to other shaders 
+	void AttachShader(const Shader& shader);
+	// Link and compile this program
+	void CompleteProgram(void);
+
+	void Use(void);
+
 	GLuint Handle;
 
-	void BuildUniformMap(const std::vector<std::string>& uniforms) {
-		for (auto str : uniforms) {
-			GLuint loc = glGetUniformLocation(Handle, str.c_str());
-			Uniforms.insert(MapEntry(str, loc));
-		}
-	}
+	void BuildUniformMap(const std::vector<std::string>& uniforms);
 
-	GLuint GetUniformLocation(const std::string& uniform) {
-		return Uniforms.at(uniform);
-	}
-
-	void BuildUniformBlock(const GLchar* block_name, const std::vector<GLchar*>& uniform_names) {
-
-		// Prepare index vector for when we get uniform locations.
-		std::vector<GLuint> indices;
-		indices.resize(uniform_names.size());
-
-		// Get location of the uniform block
-		GLuint blockLoc = glGetUniformBlockIndex(Handle, block_name);
-
-		// Get size of region we need to allocate for
-		GLint blockSize;
-		glGetActiveUniformBlockiv(Handle, blockLoc, GL_UNIFORM_BLOCK_DATA_SIZE, &blockSize);
-
-		// Allocate for the region
-		GLubyte *buffer;
-		buffer = (GLubyte*)malloc(blockSize);
-
-		// Now, query for the indices of each variable in this uniform block
-		glGetUniformIndices(Handle, (GLsizei)uniform_names.size(), uniform_names.data(), indices.data());
-
-		for (GLuint i = 0; i < uniform_names.size(); ++i) {
-			std::pair<std::string, GLuint> entry(uniform_names[i], indices[i]);
-			Uniforms.insert(entry);
-		}
-	}
+	GLuint GetUniformLocation(const std::string& uniform);
 
 	UniformMap Uniforms;
 	
 };
 
-// Key is an alias used to name the program, value is the GLuint corresponding
-// to the program
-using ProgramMap = std::unordered_map<std::string, GLuint>;
-
-class ProgramManager {
-public:
-	// Stores several shader programs and manages them.
-	ProgramManager() = default;
-	~ProgramManager() {
-		for (auto prgm : Map) {
-			
-		}
-	}
-
-	ProgramMap Map;
-};
 #endif // !SHADER_H

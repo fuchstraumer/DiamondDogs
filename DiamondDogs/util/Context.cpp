@@ -12,9 +12,10 @@ static bool mouseInit = true;
 // Previous mouse zoom
 static GLfloat lastZoom;
 // Skybox textures
-static CubemapTexture skyboxTex(skyboxTextures, 512);
+static CubemapTexture skyboxTex(skyboxTextures, 2048);
 // Skybox itself
 static Skybox skybox;
+static Terrestrial TestBody(100.0f, 3e8, 48);
 
 Context::Context(GLfloat width, GLfloat height){
 	Width = width;
@@ -23,11 +24,13 @@ Context::Context(GLfloat width, GLfloat height){
 	// Init GLFW
 	glfwInit();
 
+	
+
 	// Base options
 
 	// Set OpenGL version and profile: 3.3 Compatability
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
 	// Don't allow the window to be resize (embedded in UI)
@@ -58,6 +61,8 @@ Context::Context(GLfloat width, GLfloat height){
 	glewExperimental = GL_TRUE;
 	glEnable(GL_DEPTH_TEST);
 
+	// Setup test terrestrial body
+
 	// Set up skybox shaders
 	Shader SkyVert("./shaders/skybox/vertex.glsl", VERTEX_SHADER);
 	Shader SkyFrag("./shaders/skybox/fragment.glsl", FRAGMENT_SHADER);
@@ -71,7 +76,7 @@ Context::Context(GLfloat width, GLfloat height){
 	};
 	skyboxProgram.BuildUniformMap(Uniforms);
 
-	sceneFBO = Framebuffer(Width, Height, true);
+	//sceneFBO = Framebuffer(Width, Height, true);
 
 	// Set viewport
 	glViewport(0, 0, static_cast<GLsizei>(Width), static_cast<GLsizei>(Height));
@@ -80,9 +85,10 @@ Context::Context(GLfloat width, GLfloat height){
 	// Set projection matrix. This shouldn't really change during runtime.
 	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), 0.1f, 3000.0f);
 
-	
 	skyboxTex.BuildTexture();
 	skybox.BuildRenderData();
+
+	
 }
 
 void Context::Use() {
@@ -108,24 +114,15 @@ void Context::Use() {
 
 		// Store drawable objects as map, where key is the name of the object and the value is a reference to the object
 		// and a reference to the relevant shader program.
-		WireframeProgram.Use();
 		
-		glClear(GL_DEPTH_BUFFER_BIT);
-		View = Cam.GetViewMatrix();
-		GLuint viewloc = CoreProgram.GetUniformLocation("view");
-		glUniformMatrix4fv(viewloc, 1, GL_FALSE, glm::value_ptr(View));
-		// set projection matrix in skybox shader
-		GLuint projLoc = CoreProgram.GetUniformLocation("projection");
-		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(Projection));
-		this->Render();
 		glDepthFunc(GL_LEQUAL);
 
 		skyboxProgram.Use();
-		projLoc = skyboxProgram.GetUniformLocation("projection");
+		GLuint projLoc = skyboxProgram.GetUniformLocation("projection");
 		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(Projection));
 		View = glm::mat4(glm::mat3(Cam.GetViewMatrix()));
 		
-		viewloc = skyboxProgram.GetUniformLocation("view");
+		GLuint viewloc = skyboxProgram.GetUniformLocation("view");
 		glUniformMatrix4fv(viewloc, 1, GL_FALSE, glm::value_ptr(View));
 		// Use skybox shader and bind correct texture
 		//skyboxProgram.Use();
@@ -134,6 +131,8 @@ void Context::Use() {
 
 		skyboxTex.BindTexture();
 		skybox.RenderSkybox();
+
+		TestBody.Render(View, Projection, Cam.Position);
 		// Before starting loop again, swap buffers (double-buffered rendering)
 		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glfwSwapBuffers(Window);

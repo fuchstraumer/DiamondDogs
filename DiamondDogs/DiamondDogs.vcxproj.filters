@@ -113,6 +113,9 @@
     <ClCompile Include="bodies\Terrestrial.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="util\Shader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\core\fragment.glsl" />
@@ -120,5 +123,7 @@
     <None Include="shaders\wireframe\fragment.glsl" />
     <None Include="shaders\wireframe\geometry.glsl" />
     <None Include="shaders\wireframe\vertex.glsl" />
+    <None Include="shaders\terrestrial\fragment.glsl" />
+    <None Include="shaders\terrestrial\vertex.glsl" />
   </ItemGroup>
 </Project>

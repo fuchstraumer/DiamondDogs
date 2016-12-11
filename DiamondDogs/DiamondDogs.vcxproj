@@ -174,7 +174,9 @@
     <ClInclude Include="util\shaderold.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="bodies\Terrestrial.cpp" />
+    <ClCompile Include="bodies\Terrestrial.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="mesh\IcoSphere.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
@@ -192,17 +194,24 @@
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="util\Context.cpp" />
+    <ClCompile Include="util\Context.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="util\lodepng.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="util\Noise.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="util\Shader.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\core\fragment.glsl" />
     <None Include="shaders\core\vertex.glsl" />
+    <None Include="shaders\terrestrial\fragment.glsl" />
+    <None Include="shaders\terrestrial\vertex.glsl" />
     <None Include="shaders\wireframe\fragment.glsl" />
     <None Include="shaders\wireframe\geometry.glsl" />
     <None Include="shaders\wireframe\vertex.glsl" />

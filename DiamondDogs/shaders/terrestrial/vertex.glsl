@@ -1,4 +1,4 @@
-#version 440
+#version 450 core
 
 // Input data
 layout(location = 0) in vec3 position;
@@ -15,7 +15,7 @@ uniform vec4 lightPosition;
 
 // Atmospheric uniforms
 uniform vec3 cameraPos;			// The camera's current position
-uniform vec3 lightPos;			// The direction vector to the light source
+uniform vec3 lightDir;			// The direction vector to the light source
 uniform vec3 invWavelength;		// 1 / pow(wavelength, 4) for the red, green, and blue channels
 uniform float cameraHeight;		// The camera's current height
 uniform float cameraHeight2;		// fCameraHeight^2
@@ -37,12 +37,12 @@ uniform int samples;
 out vec3 fPos;
 out vec3 fNorm;
 out vec4 frontColor;
-out vec3 frontSecondaryColor;
+out vec4 frontSecondaryColor;
 out float cameraDistance;
-out vec3 lightDir;
+out vec3 f_lightDir;
 
 // Scaling function for correctly applying bias
-float scale(float Cos){
+float scalefunc(float Cos){
 	float x = 1.0f - Cos;
 	return scaleDepth * exp(-0.00287f + x * (0.459f + x * (3.83f + x * (-6.80f + x * 5.25f))));
 }
@@ -52,19 +52,20 @@ void main(){
     // setting fragment position
     mat4 modelView =  model * view;
     // Norm transform is calculated on the CPU
-    mat3 normalMatrix = normTransform;
+    mat3 normalMatrix = mat3(normTransform);
     // normal vector normalized for use later (fragment shader)
     vec3 n = normalize(normalMatrix * normal);
+    fNorm = n;
     // Vertex in view-space
     vec4 vertViewSpace = modelView * vec4(position, 1.0f);
     // Nothing special - usual model-view transformation for fragment position
     fPos = vertViewSpace.xyz;
 
     // Light direction
-    lightDir = normalize(lightPos.xyz - vertViewSpace.xyz);
+    f_lightDir = normalize(lightDir.xyz - vertViewSpace.xyz);
 
     // Scattering portion    
-    vec3 vertexPosition = model * vec4(position, 1.0f);
+    vec3 vertexPosition = (model * vec4(position, 1.0f)).xyz;
     vec3 vertexRay = vertexPosition - cameraPos;
     float rayMag = length(vertexRay);
     vertexRay /= rayMag;
@@ -110,22 +111,23 @@ void main(){
 
     // Initialize sampling loop variables
     float cameraAngle = dot(-vertexRay, vertexPosition) / length(vertexPosition);
-    float lightAngle = dot(lightPos, vertexPosition) / length(vertexPosition);
-    float cameraScale = scale(cameraAngle);
-    float lightScale = scale(lightAngle);
+    float lightAngle = dot(lightDir, vertexPosition) / length(vertexPosition);
+    float cameraScale = scalefunc(cameraAngle);
+    float lightScale = scalefunc(lightAngle);
     float cameraOffset = Depth * cameraScale;
     float tmp = (lightScale + cameraScale);
     float sampleLength = rayMag / samples;
     float scaledLength = sampleLength * scale;
     vec3 sampleRay = vertexRay * sampleLength;
     vec3 samplePoint = rayStart + sampleRay * 0.50f;
-    vec3 tmpColor;
     // Now loop through all the sample rays
+    vec3 attenuate = vec3(0.0f);
+    vec3 tmpColor = vec3(0.0f);
     for(int i = 0; i < samples; ++i){
         float Height = length(samplePoint);
         float Depth = exp(scaleOverScaleDepth * (innerRadius - Height));
         float Scatter = Depth*tmp - cameraOffset;
-        vec3 attenuate = exp(-Scatter * (invWavelength * Kr4PI + Km4PI));
+        attenuate = exp(-Scatter * (invWavelength * Kr4PI + Km4PI));
         tmpColor += attenuate * (Depth * scaledLength);
         samplePoint += sampleRay;
     }

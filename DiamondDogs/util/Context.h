@@ -6,7 +6,7 @@
 #include "../mesh/Mesh.h"
 #include "../mesh/Skybox.h"
 #include "../util/lodeTexture.h"
-#include "../util/Framebuffer.h"
+#include "../bodies/Terrestrial.h"
 /*
 	
 	CONTEXT_H
@@ -105,7 +105,7 @@ private:
 	// Keeps track of active texture count so we know which texture unit to use
 	GLuint texCount;
 	// Framebuffer used for this scene
-	Framebuffer sceneFBO;
+	//Framebuffer sceneFBO;
 };
 
 #endif // !Context_H

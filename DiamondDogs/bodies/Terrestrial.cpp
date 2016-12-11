@@ -8,6 +8,7 @@ static const std::vector<std::string> atmoUniforms{
 	"normTransform",
 	"cameraPos",
 	"lightDir",
+	"lightPosition",
 	"cameraHeight",
 	"cameraHeightSq",
 	"invWavelength",
@@ -27,12 +28,15 @@ static const std::vector<std::string> atmoUniforms{
 	"samples",
 };
 
+// Light Variables
+static const glm::vec4 lightColor(1.25, 1.25, 1.25, 1.0);
+static const glm::vec4 lightPosition(100.0, 0.0, 100.0, 1.0);
+
 static const float pi = 3.14159265358979323846264338327950288f;
 
 Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_radius, float atmo_density) : Body() {
 	Radius = radius;
 	Mass = mass;
-
 	// Set up the main "ground" mesh and shaders
 
 	Mesh = SpherifiedCube(LOD);
@@ -56,20 +60,27 @@ Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_radius, 
 	
 	atmosphere = IcoSphere(static_cast<unsigned int>(LOD), atmoRadius);
 	atmoShader.Init();
-	Shader atmoVert("./shaders/atmo/vertex.glsl", VERTEX_SHADER);
-	Shader atmoFrag("./shaders/atmo/fragment.glsl", FRAGMENT_SHADER);
+	Shader atmoVert("./shaders/atmosphere/vertex.glsl", VERTEX_SHADER);
+	Shader atmoFrag("./shaders/atmosphere/fragment.glsl", FRAGMENT_SHADER);
 	atmoShader.AttachShader(atmoVert);
 	atmoShader.AttachShader(atmoFrag);
 	atmoShader.CompleteProgram();
 	glm::vec3 initDiffuse = glm::vec3(1.0f, 0.941f, 0.898f);
 	SetDiffuseColor(initDiffuse);
 	// Build uniform map
+	MainShader.BuildUniformMap(atmoUniforms);
 	atmoShader.BuildUniformMap(atmoUniforms);
 	// Set the uniform attributes
 
 	SetAtmoUniforms(atmoShader);
 	SetAtmoUniforms(MainShader);
 	
+	for (auto&& face : Mesh.Faces) {
+		face.BuildRenderData();
+	}
+
+	atmosphere.BuildRenderData();
+
 }
 
 void Terrestrial::SetAtmoUniforms(ShaderProgram& shader) {
@@ -94,9 +105,10 @@ void Terrestrial::SetAtmoUniforms(ShaderProgram& shader) {
 	glUniform1f(shader.GetUniformLocation("scaleDepth"), scaleDepth);
 	glUniform1f(shader.GetUniformLocation("g"), g);
 	glUniform1f(shader.GetUniformLocation("g2"), g*g);
+	glUniform3f(shader.GetUniformLocation("lightPosition"), lightPosition.x, lightPosition.y, lightPosition.z);
 	// Amount of samples to take when getting scattering
 	glUniform1i(shader.GetUniformLocation("samples"), 4);
-	glUseProgram(0);
+	//glUseProgram(0);
 }
 
 void Terrestrial::SetDiffuseColor(const glm::vec3 & color){
@@ -131,6 +143,29 @@ glm::vec4 Terrestrial::GetAtmoColor() const{
 	return atmoSpectrum;
 }
 
-void Terrestrial::Render(const glm::mat4 & view, const glm::mat4 & projection, const glm::vec3 & cameraPos, const glm::vec3 & lightPos){
+void Terrestrial::Render(const glm::mat4 & view, const glm::mat4 & projection, const glm::vec3 & camera_pos){
+	GLfloat cameraHeight = glm::length(camera_pos);
+	glm::vec3 lightPos = glm::normalize(lightPosition.xyz - camera_pos);
+	
+	MainShader.Use();
+	glUniform3f(MainShader.GetUniformLocation("lightDir"), lightPos.x, lightPos.y, lightPos.z);
+	glUniform3f(MainShader.GetUniformLocation("cameraPos"), camera_pos.x, camera_pos.y, camera_pos.z);
+	glUniform1f(MainShader.GetUniformLocation("cameraHeight"), cameraHeight);
+	glUniform1f(MainShader.GetUniformLocation("cameraHeightSq"), cameraHeight*cameraHeight);
+	glUniformMatrix4fv(MainShader.GetUniformLocation("view"), 1, GL_FALSE, glm::value_ptr(view));
+	glUniformMatrix4fv(MainShader.GetUniformLocation("projection"), 1, GL_FALSE, glm::value_ptr(projection));
+	for (auto&& face : Mesh.Faces) {
+		glUseProgram(MainShader.Handle);
+		face.Render(MainShader);
+	}
+	// Now render atmosphere sphere
+	atmoShader.Use();
+	glUniform3f(atmoShader.GetUniformLocation("lightDir"), lightPos.x, lightPos.y, lightPos.z);
+	glUniform3f(atmoShader.GetUniformLocation("cameraPos"), camera_pos.x, camera_pos.y, camera_pos.z);
+	glUniform1f(atmoShader.GetUniformLocation("cameraHeight"), cameraHeight);
+	glUniform1f(atmoShader.GetUniformLocation("cameraHeightSq"), cameraHeight);
+	glUniformMatrix4fv(atmoShader.GetUniformLocation("view"), 1, GL_FALSE, glm::value_ptr(view));
+	glUniformMatrix4fv(MainShader.GetUniformLocation("projection"), 1, GL_FALSE, glm::value_ptr(projection));
+	atmosphere.Render(atmoShader);
 
 }

@@ -7,6 +7,9 @@
 
 class Terrestrial : public Body {
 public:
+	Terrestrial() = default;
+	~Terrestrial() = default;
+
 	Terrestrial(float radius, double mass, int LOD, float atmo_radius = 1.0f, float atmo_density = 1.0f);
 
 	void SetAtmoUniforms(ShaderProgram & shader);
@@ -27,7 +30,7 @@ public:
 
 	glm::vec4 GetAtmoColor() const;
 
-	void Render(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, const glm::vec3& lightPos);
+	void Render(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
 
 private:
 	// Controls radius of the atmosphere

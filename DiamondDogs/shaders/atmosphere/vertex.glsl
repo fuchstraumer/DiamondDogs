@@ -1,4 +1,4 @@
-#version 440
+#version 450 core
 
 // input variables
 layout(location = 0) in vec3 position;
@@ -36,9 +36,11 @@ uniform int samples;
 // Output to fragment shader
 
 out vec3 dir;
+out vec4 frontColor;
+out vec4 frontSecondaryColor;
 
 // Scaling function for correctly applying bias
-float scale(float Cos){
+float scalefunc(float Cos){
 	float x = 1.0f - Cos;
 	return scaleDepth * exp(-0.00287f + x * (0.459f + x * (3.83f + x * (-6.80f + x * 5.25f))));
 }
@@ -86,17 +88,17 @@ void main(){
         startAngle = dot(vertexRay, rayStart) / outerRadius;
     }
     else{
-        startAngle = dot(vertex, rayStart) / height;
+        startAngle = dot(vertexPos, rayStart) / height;
     }
 
     float startDepth = exp(-1.0f / scaleDepth);
 
     float startOffset;
     if(offSurface){
-        startOffset = startDepth * scale(startAngle);
+        startOffset = startDepth * scalefunc(startAngle);
     }
     else{
-        startOffset = depth * scale(startAngle);
+        startOffset = depth * scalefunc(startAngle);
     }
 
     // Scattering loop variables
@@ -116,15 +118,15 @@ void main(){
         float Depth = exp(scaleOverScaleDepth * (innerRadius - Height));
         float lightAngle = dot(lightDir, samplePoint) / Height;
         float cameraAngle = dot(vertexRay, samplePoint) / Height;
-        float scatter = (startOffset + Depth * (scale(lightAngle) - scale(cameraAngle)));
+        float scatter = (startOffset + Depth * (scalefunc(lightAngle) - scalefunc(cameraAngle)));
         vec3 attenuate = exp(-scatter * (invWavelength * Kr4PI + Km4PI));
         fColor += attenuate * (Depth * scaledLength);
         samplePoint += sampleRay;
     }
 
     // Scale colors and set the corresponding values for the fragment shader
-    gl_FrontSecondaryColor.rgb = fColor * KmESun;
-    gl_FrontColor.rgb = fColor * (invWavelength * KrESun);
+    frontSecondaryColor.rgb = fColor * KmESun;
+    frontColor.rgb = fColor * (invWavelength * KrESun);
     gl_Position = projection * view * model * vec4(position, 1.0f);
 
     // Set direction vector (using vertices model position)

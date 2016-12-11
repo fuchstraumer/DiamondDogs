@@ -63,7 +63,8 @@ IcoSphere::IcoSphere(uint lod, float radius) : Mesh() {
 			i1 = AddVert(VertToSphere(v01, Radius));
 			i2 = AddVert(VertToSphere(v02, Radius));
 			i3 = AddVert(VertToSphere(v03, Radius));
-
+			AddTriangle(i0, i1, i2);
+			AddTriangle(i2, i1, i3);
 			//face_t newFace = CreateFace(i3, i2, i1, i0);
 			//AddFace(newFace);
 		}
