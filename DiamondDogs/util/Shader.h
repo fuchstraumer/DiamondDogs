@@ -64,16 +64,20 @@ inline std::string GetTypeName(const ShaderType& t) {
 
 class Shader {
 public:
-	Shader() = default;
+
 	~Shader();
+
 	Shader& operator=(Shader&& other) {
 		this->Handle = other.Handle;
 		other.Handle = 0;
 	}
-	Shader(Shader& other) : Handle(other.Handle) {
+
+	Shader(Shader&& other) : Handle(other.Handle) {
 		other.Handle = 0;
 	}
+
 	Shader& operator=(const Shader& other) & = delete;
+	Shader(const Shader&) = delete;
 	Shader(const char* file, ShaderType type);
 	
 	GLuint Handle;
@@ -84,12 +88,24 @@ using MapEntry = std::pair<std::string, GLuint>;
 
 class ShaderProgram {
 public:
-	ShaderProgram() = default;
+	ShaderProgram() {
+		Handle = 0;
+	}
+
 	~ShaderProgram() {
 		glDeleteProgram(Handle);
 	}
 
 	ShaderProgram& operator=(const ShaderProgram& other) & = delete;
+
+	ShaderProgram& operator=(ShaderProgram&& other) {
+		this->Handle = other.Handle;
+		other.Handle = 0;
+	}
+
+	ShaderProgram(ShaderProgram&& other) : Handle(other.Handle) {
+		other.Handle = 0;
+	}
 	// Init program
 	void Init();
 

@@ -19,6 +19,8 @@ public:
 	std::array<PlanarMesh, 6> Faces;
 protected:
 	void makeUnitCubeTriangles(int face);
+	// Get world coordinates from cubemap coordinates
+	glm::vec3 ToCartesian(const CardinalFace & face, const glm::vec2 & cubemap_coords) const;
 	// To stop precision issues, the position of each vertex is given 
 	// relative to the center of this object, and transformed on the CPU
 	// before rendering.
