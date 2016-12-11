@@ -39,6 +39,8 @@ using RenderObjContainer = std::vector<RenderObject>;
 
 class Context {
 public:
+	Terrestrial TestBody;
+
 	// Performs setup and initialization for a Context object
 	Context(GLfloat width, GLfloat height);
 

@@ -15,7 +15,6 @@ static GLfloat lastZoom;
 static CubemapTexture skyboxTex(skyboxTextures, 2048);
 // Skybox itself
 static Skybox skybox;
-static Terrestrial TestBody(100.0f, 3e8, 48);
 
 Context::Context(GLfloat width, GLfloat height){
 	Width = width;
@@ -62,6 +61,7 @@ Context::Context(GLfloat width, GLfloat height){
 	glEnable(GL_DEPTH_TEST);
 
 	// Setup test terrestrial body
+	
 
 	// Set up skybox shaders
 	Shader SkyVert("./shaders/skybox/vertex.glsl", VERTEX_SHADER);
@@ -88,7 +88,7 @@ Context::Context(GLfloat width, GLfloat height){
 	skyboxTex.BuildTexture();
 	skybox.BuildRenderData();
 
-	
+	TestBody = Terrestrial(100.0f, 2e10, 48);
 }
 
 void Context::Use() {
