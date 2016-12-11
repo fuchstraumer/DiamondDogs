@@ -6,31 +6,51 @@
 #include "../util/Shader.h"
 
 class Terrestrial : public Body {
-	Terrestrial(float radius, double mass, int LOD, float atmo_radius = 1.0f, float atmo_density = 1.0f) : Body(LOD) {
-		Radius = radius;
-		Mass = mass;
-		if (atmo_radius == 1.0f) {
-			AtmoRadius = 1.20f * Radius;
-		}
-		else {
-			AtmoRadius = atmo_radius;
-		}
-		AtmoDensity = atmo_density;
-		Atmosphere = IcoSphere(static_cast<unsigned int>(LOD), AtmoRadius);
-	}
+public:
+	Terrestrial(float radius, double mass, int LOD, float atmo_radius = 1.0f, float atmo_density = 1.0f);
 
-	// Controls radius of the atmosphere
-	float AtmoRadius;
-	// Controls density of the atmosphere.
-	float AtmoDensity;
-	// Controls the refraction spectrum of this atmosphere, or its color
-	glm::vec4 AtmoSpectrum;
+	void SetAtmoUniforms(ShaderProgram & shader);
+
+	void SetDiffuseColor(const glm::vec3& color);
+
+	glm::vec3 GetDiffuseColor() const;
+
+	float GetAtmoRadius() const;
+
+	void SetAtmoRadius(const float& rad);
+
+	float GetAtmoDensity() const;
+
+	void SetAtmoDensity(const float& density);
+
+	void SetAtmoColor(const glm::vec4& new_spectrum);
+
+	glm::vec4 GetAtmoColor() const;
+
+	void Render(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, const glm::vec3& lightPos);
 
 private:
-
+	// Controls radius of the atmosphere
+	float atmoRadius;
+	// Controls density of the atmosphere.
+	float atmoDensity;
+	// Controls the refraction spectrum of this atmosphere, or its color
+	glm::vec4 atmoSpectrum;
+	// Controls the diffuse color of the surface of the object
+	glm::vec4 surfaceDiffuse;
 	// Mesh used to generate the atmosphere
-	IcoSphere Atmosphere;
+	IcoSphere atmosphere;
 	// Shader for the atmosphere alone
-	ShaderProgram AtmoShader;
+	ShaderProgram atmoShader;
+	// Model matrix for this object
+	glm::mat4 model;
+	// Scale matrix
+	glm::mat4 scale;
+	// Translation matrix
+	glm::mat4 translation;
+	// Mesh for this object
+	SpherifiedCube Mesh;
+	// Main shader for drawing the surface of this object
+	ShaderProgram MainShader;
 };
 #endif // !TERRESTRIAL_H

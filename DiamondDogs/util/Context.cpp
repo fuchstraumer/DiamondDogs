@@ -19,7 +19,7 @@ static Skybox skybox;
 Context::Context(GLfloat width, GLfloat height){
 	Width = width;
 	Height = height;
-
+	texCount = 0;
 	// Init GLFW
 	glfwInit();
 
@@ -57,46 +57,21 @@ Context::Context(GLfloat width, GLfloat height){
 	}
 	glewExperimental = GL_TRUE;
 	glEnable(GL_DEPTH_TEST);
-	//glEnable(GL_CULL_FACE);
-	//glDepthFunc(GL_LESS);
-	// Build shaders
-	Shader CoreVertex("./shaders/core/vertex.glsl", VERTEX_SHADER);
-	Shader CoreFragment("./shaders/core/fragment.glsl", FRAGMENT_SHADER);
-	CoreProgram.Init();
-	CoreProgram.AttachShader(CoreVertex);
-	CoreProgram.AttachShader(CoreFragment);
-	CoreProgram.CompleteProgram();
 
-	Shader WireVert("./shaders/wireframe/vertex.glsl", VERTEX_SHADER);
-	Shader WireGeo("./shaders/wireframe/geometry.glsl", GEOMETRY_SHADER);
-	Shader WireFrag("./shaders/wireframe/fragment.glsl", FRAGMENT_SHADER);
-	WireframeProgram.Init();
-	WireframeProgram.AttachShader(WireVert);
-	WireframeProgram.AttachShader(WireGeo);
-	WireframeProgram.AttachShader(WireFrag);
-	WireframeProgram.CompleteProgram();
-
+	// Set up skybox shaders
 	Shader SkyVert("./shaders/skybox/vertex.glsl", VERTEX_SHADER);
 	Shader SkyFrag("./shaders/skybox/fragment.glsl", FRAGMENT_SHADER);
 	skyboxProgram.Init();
 	skyboxProgram.AttachShader(SkyVert);
 	skyboxProgram.AttachShader(SkyFrag);
 	skyboxProgram.CompleteProgram();
-
-	std::vector<std::string> Uniforms{
-		"normTransform",
-		"model",
-		"view",
-		"projection",
-	};
-	CoreProgram.BuildUniformMap(Uniforms);
-	WireframeProgram.BuildUniformMap(Uniforms);
-	//WireframeProgram.BuildUniformMap(Uniforms);
-	Uniforms = std::vector<std::string>{
+	std::vector<std::string> Uniforms = std::vector<std::string>{
 		"projection",
 		"view",
 	};
 	skyboxProgram.BuildUniformMap(Uniforms);
+
+	sceneFBO = Framebuffer(Width, Height, true);
 
 	// Set viewport
 	glViewport(0, 0, static_cast<GLsizei>(Width), static_cast<GLsizei>(Height));
@@ -104,17 +79,13 @@ Context::Context(GLfloat width, GLfloat height){
 	glClearColor(160.0f / 255.0f, 239.0f / 255.0f, 1.0f, 1.0f);
 	// Set projection matrix. This shouldn't really change during runtime.
 	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), 0.1f, 3000.0f);
-	
-	// Perform initial setup of view matrix. This is updated often, but this will work for
-	// initilization
-	//View = glm::lookAt(glm::vec3(0.0f, 0.0f, -40.0f), glm::vec3(0.0f), UP);
 
 	
 	skyboxTex.BuildTexture();
 	skybox.BuildRenderData();
 }
 
-void Viewport::Use() {
+void Context::Use() {
 	while (!glfwWindowShouldClose(Window)) {
 		glDepthFunc(GL_LESS);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
@@ -158,12 +129,15 @@ void Viewport::Use() {
 		glUniformMatrix4fv(viewloc, 1, GL_FALSE, glm::value_ptr(View));
 		// Use skybox shader and bind correct texture
 		//skyboxProgram.Use();
-		glActiveTexture(GL_TEXTURE0);
+		glActiveTexture(GL_TEXTURE0 + texCount);
+		texCount++;
+
 		skyboxTex.BindTexture();
 		skybox.RenderSkybox();
 		// Before starting loop again, swap buffers (double-buffered rendering)
 		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glfwSwapBuffers(Window);
+
 	}
 	glfwTerminate();
 }

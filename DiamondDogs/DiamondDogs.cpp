@@ -5,17 +5,10 @@
 #include "util\Shader.h"
 #include "util\Context.h"
 #include "mesh\SpherifiedCube.h"
-
+#include "bodies\Terrestrial.h"
 int main(){
 	Context MainWindow(static_cast<GLfloat>(SCR_WIDTH), static_cast<GLfloat>(SCR_HEIGHT));
-	SpherifiedCube test(128);
-	test.Spherify();
-	for (auto&& face : test.Faces) {
-		face.Model = glm::scale(face.Model, glm::vec3(100.0f));
-		face.BuildRenderData();
-		RenderObject testObj = MainWindow.CreateRenderObject(std::move(face), MainWindow.WireframeProgram);
-		MainWindow.AddRenderObject(std::move(testObj));
-	}
+	Terrestrial test(100.0f, 3e10, 30);
 	MainWindow.Use();
 	
     return 0;

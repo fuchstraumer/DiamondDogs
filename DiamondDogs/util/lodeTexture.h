@@ -233,8 +233,7 @@ public:
 		glGenTextures(1, &gl_Handle);
 		glBindTexture(GL_TEXTURE_2D, gl_Handle);
 		// Generate empty texture - this is an FBO, so we're going to write to it eventually
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, width, height,
-			0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, width, height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
 
 		//texture parameters
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);

@@ -152,8 +152,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
+    <ClInclude Include="bodies\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
+    <ClInclude Include="mesh\Quad.h" />
     <ClInclude Include="mesh\SpherifiedCube.h" />
     <ClInclude Include="objects\CubeSphere.h" />
     <ClInclude Include="mesh\IcoSphere.h" />
@@ -164,7 +166,6 @@
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="util\camera.h" />
     <ClInclude Include="util\Context.h" />
-    <ClInclude Include="util\fbo.h" />
     <ClInclude Include="util\Framebuffer.h" />
     <ClInclude Include="util\lodepng.h" />
     <ClInclude Include="util\lodeTexture.h" />
@@ -173,6 +174,7 @@
     <ClInclude Include="util\shaderold.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="bodies\Terrestrial.cpp" />
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="mesh\IcoSphere.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>

@@ -19,6 +19,12 @@ public:
 	std::array<PlanarMesh, 6> Faces;
 protected:
 	void makeUnitCubeTriangles(int face);
+	// To stop precision issues, the position of each vertex is given 
+	// relative to the center of this object, and transformed on the CPU
+	// before rendering.
+	glm::vec3 Center;
+	// Scale of this object
+	glm::vec3 Scale;
 };
 
 #endif // !SPHERIFIED_CUBE_H

@@ -6,6 +6,7 @@
 #include "../mesh/Mesh.h"
 #include "../mesh/Skybox.h"
 #include "../util/lodeTexture.h"
+#include "../util/Framebuffer.h"
 /*
 	
 	CONTEXT_H
@@ -101,7 +102,10 @@ private:
 	ShaderProgram skyboxProgram;
 	// List of objects kept in the map
 	std::vector<std::string> shaderNames;
-
+	// Keeps track of active texture count so we know which texture unit to use
+	GLuint texCount;
+	// Framebuffer used for this scene
+	Framebuffer sceneFBO;
 };
 
 #endif // !Context_H
