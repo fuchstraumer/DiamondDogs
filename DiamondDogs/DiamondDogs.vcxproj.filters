@@ -42,9 +42,6 @@
     <ClInclude Include="util\Shader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="mesh\IcoSphere.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="mesh\PlanarMesh.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -81,6 +78,9 @@
     <ClInclude Include="bodies\Star.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="mesh\GlobeMesh.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DiamondDogs.cpp">
@@ -90,9 +90,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="mesh\Mesh.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="mesh\IcoSphere.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="stdafx.cpp">
@@ -116,7 +113,7 @@
     <ClCompile Include="util\Shader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="bodies\Body.cpp">
+    <ClCompile Include="mesh\GlobeMesh.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

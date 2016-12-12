@@ -2,7 +2,7 @@
 #ifndef TERRESTRIAL_H
 #define TERRESTRIAL_H
 #include "Body.h"
-#include "../mesh/IcoSphere.h"
+#include "../mesh/GlobeMesh.h"
 #include "../util/Shader.h"
 
 class Terrestrial : public Body {
@@ -42,7 +42,7 @@ private:
 	// Controls the diffuse color of the surface of the object
 	glm::vec4 surfaceDiffuse;
 	// Mesh used to generate the atmosphere
-	IcoSphere atmosphere;
+	GlobeMesh atmosphere;
 	// Shader for the atmosphere alone
 	ShaderProgram atmoShader;
 	// Model matrix for this object

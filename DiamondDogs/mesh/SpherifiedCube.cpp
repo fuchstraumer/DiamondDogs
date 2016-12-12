@@ -41,7 +41,7 @@ void SpherifiedCube::Spherify(){
 		//    from the origin to the new position (and normalizing that in turn)
 		for (auto iter = face.Vertices.begin(); iter != face.Vertices.end(); ++iter) {
 			(*iter).Position = glm::normalize((*iter).Position);
-			(*iter).Normal = glm::normalize((*iter).Position - glm::vec3(0.0f));
+			(*iter).Normal = (*iter).Position - glm::vec3(0.0f);
 		}
 	}
 }

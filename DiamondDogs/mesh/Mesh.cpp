@@ -55,7 +55,7 @@ index_t Mesh::AddTriangle(const index_t &i0, const index_t &i1, const index_t &i
 	Indices.push_back(i1);
 	Indices.push_back(i2);
 	triangle_t newTri(i0, i1, i2);
-	Triangles.push_back(newTri);
+	Triangles.push_back(std::move(newTri));
 	index_t val = (index_t)Triangles.size() - 1;
 	return val;
 }
@@ -112,8 +112,8 @@ vertex_t Mesh::VertToSphere(vertex_t in, float radius) const {
 
 vertex_t Mesh::VertToUnitSphere(const vertex_t & in) const{
 	vertex_t result;
-	result.Position = PointToUnitSphere(in.Position);
-	result.Normal = result.Position - glm::vec3(0.0f);
+	result.Position = glm::normalize(in.Position);
+	result.Normal = glm::normalize(result.Position - glm::vec3(0.0f));
 	return result;
 }
 
@@ -162,8 +162,14 @@ void Mesh::BuildRenderData(){
 	// Pointer to the normal attribute of a vertex
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)offsetof(vertex_t, Normal));
 	glEnableVertexAttribArray(1);
-	err = glGetError();
-	Model = glm::translate(Model, Position);
+	glm::mat4 scale = glm::scale(glm::mat4(1.0f), Scale);
+	glm::mat4 translation = glm::translate(glm::mat4(1.0f), Position);
+	glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), Angle.x, glm::vec3(1.0f, 0.0f, 0.0f));
+	glm::mat4 rotY = glm::rotate(glm::mat4(1.0f), Angle.y, glm::vec3(0.0f, 1.0f, 0.0f));
+	glm::mat4 rotZ = glm::rotate(glm::mat4(1.0f), Angle.z, glm::vec3(0.0f, 0.0f, 1.0f));
+
+	Model = scale * rotX * rotY * rotZ * translation;
+
 	NormTransform = glm::transpose(glm::inverse(Model));
 	glBindVertexArray(0);
 	meshBuilt = true;
@@ -172,10 +178,10 @@ void Mesh::BuildRenderData(){
 void Mesh::Render(ShaderProgram & shader) const {
 	shader.Use();
 	glBindVertexArray(VAO);
-	glDrawElements(GL_TRIANGLES, GetNumIndices(), GL_UNSIGNED_INT, 0);
 	GLint modelLoc = shader.GetUniformLocation("model");
 	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(Model));
 	GLint normTLoc = shader.GetUniformLocation("normTransform");
 	glUniformMatrix4fv(normTLoc, 1, GL_FALSE, glm::value_ptr(NormTransform));
+	glDrawElements(GL_TRIANGLES, GetNumIndices(), GL_UNSIGNED_INT, 0);
 	glBindVertexArray(0);
 }

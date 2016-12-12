@@ -92,18 +92,19 @@ public:
 		Handle = 0;
 	}
 
-	~ShaderProgram() {
-		glDeleteProgram(Handle);
+	ShaderProgram& operator=(const ShaderProgram& other) & {
+		this->Handle = other.Handle;
+		this->Uniforms = other.Uniforms;
+		return *this;
 	}
-
-	ShaderProgram& operator=(const ShaderProgram& other) & = delete;
 
 	ShaderProgram& operator=(ShaderProgram&& other) {
 		this->Handle = other.Handle;
+		this->Uniforms = other.Uniforms;
 		other.Handle = 0;
 	}
 
-	ShaderProgram(ShaderProgram&& other) : Handle(other.Handle) {
+	ShaderProgram(ShaderProgram&& other) : Handle(other.Handle), Uniforms(other.Uniforms) {
 		other.Handle = 0;
 	}
 	// Init program

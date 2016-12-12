@@ -29,8 +29,8 @@ static const std::vector<std::string> atmoUniforms{
 };
 
 // Light Variables
-static const glm::vec4 lightColor(1.25, 1.25, 1.25, 1.0);
-static const glm::vec4 lightPosition(100.0, 0.0, 100.0, 1.0);
+static const glm::vec4 lightColor(1.25f, 1.25f, 1.25f, 1.0f);
+static const glm::vec4 lightPosition(100.0f, 0.0f, 100.0f, 1.0f);
 
 static const float pi = 3.14159265358979323846264338327950288f;
 
@@ -58,7 +58,8 @@ Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_radius, 
 	atmoDensity = atmo_density;
 
 	
-	atmosphere = IcoSphere(static_cast<unsigned int>(LOD), atmoRadius);
+	atmosphere = GlobeMesh(24);
+	atmosphere.Scale = glm::vec3(atmoRadius);
 	atmoShader.Init();
 	Shader atmoVert("./shaders/atmosphere/vertex.glsl", VERTEX_SHADER);
 	Shader atmoFrag("./shaders/atmosphere/fragment.glsl", FRAGMENT_SHADER);
@@ -71,14 +72,18 @@ Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_radius, 
 	MainShader.BuildUniformMap(atmoUniforms);
 	atmoShader.BuildUniformMap(atmoUniforms);
 	// Set the uniform attributes
-
+	
 	SetAtmoUniforms(atmoShader);
 	SetAtmoUniforms(MainShader);
-	
+	Mesh.Spherify();
+
 	for (auto&& face : Mesh.Faces) {
+		face.Scale = glm::vec3(Radius);
+		face.Position = glm::vec3(0.0f);
 		face.BuildRenderData();
 	}
-
+	atmosphere.Position = glm::vec3(0.0f);
+	atmosphere.Model = glm::scale(atmosphere.Model, glm::vec3(atmoRadius));
 	atmosphere.BuildRenderData();
 
 }
@@ -155,7 +160,6 @@ void Terrestrial::Render(const glm::mat4 & view, const glm::mat4 & projection, c
 	glUniformMatrix4fv(MainShader.GetUniformLocation("view"), 1, GL_FALSE, glm::value_ptr(view));
 	glUniformMatrix4fv(MainShader.GetUniformLocation("projection"), 1, GL_FALSE, glm::value_ptr(projection));
 	for (auto&& face : Mesh.Faces) {
-		glUseProgram(MainShader.Handle);
 		face.Render(MainShader);
 	}
 	// Now render atmosphere sphere
@@ -165,7 +169,8 @@ void Terrestrial::Render(const glm::mat4 & view, const glm::mat4 & projection, c
 	glUniform1f(atmoShader.GetUniformLocation("cameraHeight"), cameraHeight);
 	glUniform1f(atmoShader.GetUniformLocation("cameraHeightSq"), cameraHeight);
 	glUniformMatrix4fv(atmoShader.GetUniformLocation("view"), 1, GL_FALSE, glm::value_ptr(view));
-	glUniformMatrix4fv(MainShader.GetUniformLocation("projection"), 1, GL_FALSE, glm::value_ptr(projection));
+	glUniformMatrix4fv(atmoShader.GetUniformLocation("projection"), 1, GL_FALSE, glm::value_ptr(projection));
+	
 	atmosphere.Render(atmoShader);
 
 }

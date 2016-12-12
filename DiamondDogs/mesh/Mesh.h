@@ -74,6 +74,10 @@ public:
 	glm::mat4 NormTransform;
 	// This vector defines the position of this mesh in the world (barycentric)
 	glm::vec3 Position;
+	// Scale of this object
+	glm::vec3 Scale;
+	// Angle of this object relative to world axis
+	glm::vec3 Angle = glm::vec3(0.0f, 0.0f, 0.0f);
 	// Tells us whether or not this object is ready to render
 	bool meshBuilt = false;
 };

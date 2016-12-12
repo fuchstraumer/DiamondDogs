@@ -2,7 +2,7 @@
 #include "Context.h"
 
 // Main camera instance
-static Camera Cam(glm::vec3(0.0f, 0.0f, 3.0f));
+static Camera Cam(glm::vec3(0.0f, 0.0f, 30.0f));
 // Tracking of key presses for movement and simultaneous actions
 static bool keys[1024];
 // Previous mouse position
@@ -88,7 +88,7 @@ Context::Context(GLfloat width, GLfloat height){
 	skyboxTex.BuildTexture();
 	skybox.BuildRenderData();
 
-	TestBody = Terrestrial(100.0f, 2e10, 48);
+	TestBody = Terrestrial(10.0f, 2e10, 48);
 }
 
 void Context::Use() {
@@ -111,7 +111,8 @@ void Context::Use() {
 		// -- probably, have standard mesh format and vertices already combined with
 		// mesh methods to do so. As long as all drawable objects inherit from this, 
 		// things should work.
-
+		View = Cam.GetViewMatrix();
+		TestBody.Render(View, Projection, Cam.Position);
 		// Store drawable objects as map, where key is the name of the object and the value is a reference to the object
 		// and a reference to the relevant shader program.
 		
@@ -128,11 +129,10 @@ void Context::Use() {
 		//skyboxProgram.Use();
 		glActiveTexture(GL_TEXTURE0 + texCount);
 		texCount++;
-
 		skyboxTex.BindTexture();
 		skybox.RenderSkybox();
-
-		TestBody.Render(View, Projection, Cam.Position);
+		glDepthFunc(GL_LESS);
+		
 		// Before starting loop again, swap buffers (double-buffered rendering)
 		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glfwSwapBuffers(Window);

@@ -1,4 +1,4 @@
-#version 450 core
+#version 450 core 
 
 // input variables
 layout(location = 0) in vec3 position;
@@ -8,6 +8,7 @@ layout(location = 1) in vec3 normal;
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform mat4 normTransform;
 
 // Uniforms from the camera's location
 uniform vec3 cameraPos;
@@ -29,8 +30,6 @@ uniform float Km4PI;
 uniform float scale;
 uniform float scaleDepth;
 uniform float scaleOverScaleDepth;
-uniform float g;
-uniform float g2;
 uniform int samples;
 
 // Output to fragment shader
@@ -61,6 +60,7 @@ void main(){
     float C = cameraHeightSq - outerRadiusSq;
     float determinant = max(0.0f, B*B - 4.0f * C);
     float near = 0.50f * (-B - sqrt(determinant));
+
     // Are we within the atmosphere?
     bool offSurface;
     if(cameraHeight > outerRadius){
@@ -69,6 +69,7 @@ void main(){
     else{
         offSurface = false;
     }
+
     // Get the ray's starting position
     vec3 rayStart;
     if(offSurface){

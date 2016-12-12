@@ -65,7 +65,7 @@ void main(){
     f_lightDir = normalize(lightDir.xyz - vertViewSpace.xyz);
 
     // Scattering portion    
-    vec3 vertexPosition = (model * vec4(position, 1.0f)).xyz;
+    vec3 vertexPosition = position;
     vec3 vertexRay = vertexPosition - cameraPos;
     float rayMag = length(vertexRay);
     vertexRay /= rayMag;
