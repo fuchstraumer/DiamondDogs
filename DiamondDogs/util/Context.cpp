@@ -29,13 +29,13 @@ Context::Context(GLfloat width, GLfloat height){
 
 	// Set OpenGL version and profile: 3.3 Compatability
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
 	// Don't allow the window to be resize (embedded in UI)
 	glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
 	// Enable 2x anti-aliasing to soften edges just slightly
-	glfwWindowHint(GLFW_SAMPLES, 2);
+	//glfwWindowHint(GLFW_SAMPLES, 2);
 	
 	// Create the actual window instance
 	Window = glfwCreateWindow(static_cast<int>(Width), static_cast<int>(Height), "DiamondDogs", nullptr, nullptr);
@@ -88,7 +88,7 @@ Context::Context(GLfloat width, GLfloat height){
 	skyboxTex.BuildTexture();
 	skybox.BuildRenderData();
 
-	TestBody = Terrestrial(10.0f, 2e10, 48);
+	TestBody = Terrestrial(50.0f, 2e10, 32);
 }
 
 void Context::Use() {

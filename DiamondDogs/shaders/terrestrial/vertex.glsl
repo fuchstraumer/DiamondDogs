@@ -1,4 +1,4 @@
-#version 450 core
+#version 430 core
 
 // Input data
 layout(location = 0) in vec3 position;
@@ -65,7 +65,7 @@ void main(){
     f_lightDir = normalize(lightDir.xyz - vertViewSpace.xyz);
 
     // Scattering portion    
-    vec3 vertexPosition = position;
+    vec3 vertexPosition = mat3(model) * position;
     vec3 vertexRay = vertexPosition - cameraPos;
     float rayMag = length(vertexRay);
     vertexRay /= rayMag;

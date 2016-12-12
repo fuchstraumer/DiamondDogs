@@ -34,7 +34,7 @@ static const glm::vec4 lightPosition(100.0f, 0.0f, 100.0f, 1.0f);
 
 static const float pi = 3.14159265358979323846264338327950288f;
 
-Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_radius, float atmo_density) : Body() {
+Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_density) : Body() {
 	Radius = radius;
 	Mass = mass;
 	// Set up the main "ground" mesh and shaders
@@ -49,12 +49,7 @@ Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_radius, 
 	
 	// Set up atmosphere 
 
-	if (atmo_radius == 1.0f) {
-		atmoRadius = 1.30f * Radius;
-	}
-	else {
-		atmoRadius = atmo_radius;
-	}
+	atmoRadius = 1.30f * Radius;
 	atmoDensity = atmo_density;
 
 	
@@ -83,7 +78,6 @@ Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_radius, 
 		face.BuildRenderData();
 	}
 	atmosphere.Position = glm::vec3(0.0f);
-	atmosphere.Model = glm::scale(atmosphere.Model, glm::vec3(atmoRadius));
 	atmosphere.BuildRenderData();
 
 }
@@ -112,7 +106,7 @@ void Terrestrial::SetAtmoUniforms(ShaderProgram& shader) {
 	glUniform1f(shader.GetUniformLocation("g2"), g*g);
 	glUniform3f(shader.GetUniformLocation("lightPosition"), lightPosition.x, lightPosition.y, lightPosition.z);
 	// Amount of samples to take when getting scattering
-	glUniform1i(shader.GetUniformLocation("samples"), 4);
+	glUniform1i(shader.GetUniformLocation("samples"), 8);
 	//glUseProgram(0);
 }
 
@@ -167,7 +161,7 @@ void Terrestrial::Render(const glm::mat4 & view, const glm::mat4 & projection, c
 	glUniform3f(atmoShader.GetUniformLocation("lightDir"), lightPos.x, lightPos.y, lightPos.z);
 	glUniform3f(atmoShader.GetUniformLocation("cameraPos"), camera_pos.x, camera_pos.y, camera_pos.z);
 	glUniform1f(atmoShader.GetUniformLocation("cameraHeight"), cameraHeight);
-	glUniform1f(atmoShader.GetUniformLocation("cameraHeightSq"), cameraHeight);
+	glUniform1f(atmoShader.GetUniformLocation("cameraHeightSq"), cameraHeight*cameraHeight);
 	glUniformMatrix4fv(atmoShader.GetUniformLocation("view"), 1, GL_FALSE, glm::value_ptr(view));
 	glUniformMatrix4fv(atmoShader.GetUniformLocation("projection"), 1, GL_FALSE, glm::value_ptr(projection));
 	

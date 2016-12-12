@@ -10,7 +10,7 @@ public:
 	Terrestrial() = default;
 	~Terrestrial() = default;
 
-	Terrestrial(float radius, double mass, int LOD, float atmo_radius = 1.0f, float atmo_density = 1.0f);
+	Terrestrial(float radius, double mass, int LOD, float atmo_density = 1.0f);
 
 	void SetAtmoUniforms(ShaderProgram & shader);
 
