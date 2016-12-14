@@ -301,3 +301,8 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+DiamondDogs/terrainnormal.bmp
+DiamondDogs/terrain.raw
+DiamondDogs/terrainspec.bmp
+DiamondDogs/terrain.bmp
+DiamondDogs/terrainsurface.bmp

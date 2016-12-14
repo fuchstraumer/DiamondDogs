@@ -27,9 +27,7 @@
 #include <string.h>
 #include <string>
 
-#include <noise/noise.h>
-
-using namespace noise;
+#include "noise\noise.h"
 
 namespace noise
 {
@@ -96,7 +94,7 @@ namespace noise
     /// a function with this signature to the NoiseMapBuilder::SetCallback()
     /// method.
     typedef void(*NoiseMapCallback) (int row);
-
+	
     /// Number of meters per point in a Terragen terrain (TER) file.
     const double DEFAULT_METERS_PER_POINT = 30.0;
 

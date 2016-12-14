@@ -78,13 +78,13 @@
     <ClInclude Include="mesh\GlobeMesh.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="util\noise\Noise.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="util\noise\Mods.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="util\noise\TerrainBuilder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="util\noise\NOISEUTILS.H">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -119,7 +119,7 @@
     <ClCompile Include="mesh\GlobeMesh.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="util\noise\Noise.cpp">
+    <ClCompile Include="util\noise\noiseutils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

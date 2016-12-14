@@ -4,7 +4,7 @@
 #include "Body.h"
 #include "../mesh/GlobeMesh.h"
 #include "../util/Shader.h"
-#include "../util/noise/Noise.h"
+
 
 class Terrestrial : public Body {
 public:
@@ -29,8 +29,6 @@ public:
 
 	glm::vec4 GetAtmoColor() const;
 
-	// TODO: add params
-	void BuildTerrain();
 
 	void Render(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
 
@@ -58,6 +56,5 @@ private:
 	// Main shader for drawing the surface of this object
 	ShaderProgram MainShader;
 	// Terrain generator
-	NoiseGenerator terrainGen;
 };
 #endif // !TERRESTRIAL_H
