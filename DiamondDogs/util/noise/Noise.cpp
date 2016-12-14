@@ -1,4 +1,4 @@
-#include "../stdafx.h"
+
 #include "Noise.h"
 
 // Faster flooring function than std::floor()
@@ -207,10 +207,6 @@ float NoiseGenerator::simplex(float x, float y, float* dx, float* dy) {
 	return noise;
 }
 
-float NoiseGenerator::simplex(glm::vec2 & pos, glm::vec2 * deriv){
-	return simplex(pos.x, pos.y, &deriv->x, &deriv->y);
-}
-
 float NoiseGenerator::simplex(float x, float y, float z, float * dx, float * dy, float * dz){
 	float n0, n1, n2, n3; /* Noise contributions from the four simplex corners */
 	float noise;          /* Return value */
@@ -365,32 +361,31 @@ float NoiseGenerator::simplex(float x, float y, float z, float * dx, float * dy,
 	return noise;
 }
 
-float NoiseGenerator::simplex(glm::vec3 & pos, glm::vec3 * deriv){
-	return simplex(pos.x, pos.y, pos.z, &deriv->x, &deriv->y, &deriv->z);
-}
-
-float NoiseGenerator::SimplexFBM(int x, int y, float freq, int octaves, float lac, float gain){
-	float sum = 0;
-	float amplitude = 1.0;
-	glm::vec2 f; f.x = x * freq;
-	f.y = y * freq;
+float NoiseGenerator::SimplexFBM_3D(float x, float y, float z, float freq, int octaves, float lac, float gain) {
+	float sum = 0.0f;
+	float amplitude = 1.0f;
+	float max = 0.0f;
 	for (int i = 0; i < octaves; ++i) {
-		float n = simplex(f.x, f.y, nullptr, nullptr);
+		float n = simplex(x * freq, y * freq, z * freq, nullptr, nullptr, nullptr);
 		sum += n*amplitude;
 		freq *= lac;
 		amplitude *= gain;
+		max += amplitude;
 	}
-	float temp = (sum / amplitude);
+	float temp = (sum / max);
 	return temp;
+}
+
+float NoiseGenerator::SimplexFBM_3DBounded(float x, float y, float z, float low, float high, float freq, int octaves, float lac, float gain){
+	float tmp = SimplexFBM_3D(x, y, z, freq, octaves, lac, gain) * (high - low) / 2.0f + (high + low) / 2.0f;
+	return tmp;
 }
 
 float NoiseGenerator::SimplexBillow(int x, int y, float freq, int octaves, float lac, float gain){
 	float sum = 0;
 	float amplitude = 1.0;
-	glm::vec2 f;
-	f.x = x * freq; f.y = y * freq;
 	for (int i = 0; i < octaves; ++i) {
-		float n = abs(simplex(f.x, f.y, nullptr, nullptr));
+		float n = abs(simplex(x * freq, y * freq, nullptr, nullptr));
 		sum += n*amplitude;
 		freq *= lac;
 		amplitude *= gain;
@@ -399,12 +394,28 @@ float NoiseGenerator::SimplexBillow(int x, int y, float freq, int octaves, float
 	return temp;
 }
 
+float NoiseGenerator::SimplexBillow_3D(float x, float y, float z, float freq, int octaves, float lac, float gain){
+	float sum = 0.0f;
+	float amplitude = 1.0f;
+	float max = 0.0f;
+	for (int i = 0; i < octaves; ++i) {
+		float n = abs(simplex(x*freq, y*freq, z*freq, nullptr, nullptr, nullptr));
+		sum += n*amplitude;
+		freq *= lac;
+		amplitude *= gain;
+		max += amplitude;
+	}
+	return (sum / max);
+}
+
+float NoiseGenerator::SimplexBillow_3DBounded(float x, float y, float z, float low, float high, float freq, int octaves, float lac, float gain){
+	float tmp = SimplexBillow_3D(x, y, z, freq, octaves, lac, gain) * (high - low) / 2.0f + (high + low) / 2.0f;
+	return tmp;
+}
+
 float NoiseGenerator::SimplexRidged(int x, int y, float freq, int octaves, float lac, float gain){
 	float sum = 0;
 	float amplitude = 1.0f;
-	glm::vec2 f;
-	f.x = x * freq;
-	f.y = y * freq;
 	for (int i = 0; i < octaves; ++i) {
 		float n = 1.0f - abs(simplex(x*freq, y*freq, nullptr, nullptr));
 		sum += n*amplitude;
@@ -413,6 +424,89 @@ float NoiseGenerator::SimplexRidged(int x, int y, float freq, int octaves, float
 	}
 	float temp = (sum / amplitude);
 	return temp;
+}
+
+float NoiseGenerator::SimplexRidged_3D(float x, float y, float z, float freq, int octaves, float lac, float gain) {
+	float sum = 0;
+	float amplitude = 1.0f;
+	float max = 0.0f;
+	for (int i = 0; i < octaves; ++i) {
+		float n = 1.0f - abs(simplex(x*freq, y*freq, z*freq, nullptr, nullptr, nullptr));
+		sum += n*amplitude;
+		freq *= lac;
+		amplitude *= gain;
+		max += amplitude;
+	}
+	return sum / max;
+}
+
+float NoiseGenerator::SimplexRidged_3DBounded(float x, float y, float z, float low, float high, float freq, int octaves, float lac, float gain){
+	float tmp = SimplexRidged_3D(x, y, z, freq, octaves, lac, gain) * (high - low) / 2.0f + (high + low) / 2.0f;
+	return tmp;
+}
+
+float NoiseGenerator::Simplex_iQ_3D(float x, float y, float z, float freq, int octaves, float lac, float gain){
+	float sum = 0.50f;
+	float amplitude = 1.0f;
+	float max = 0.0f;
+	float *dx = new float; 
+	float *dy = new float;
+	float *dz = new float;
+	float dsumX = 0.0f, dsumY = 0.0f, dsumZ = 0.0f;
+	for (int i = 0; i < octaves; ++i) {
+		float n = simplex(x * freq, y * freq, z * freq, dx, dy, dz) * amplitude;
+		dsumX += *dx;
+		dsumY += *dy;
+		dsumZ += *dz;
+		float dt = (dsumX * dsumX) * (dsumY * dsumY) * (dsumZ * dsumZ);
+		sum += abs((n * 10.0f) / (1.0f + dt));
+		freq *= lac;
+		amplitude *= gain;
+		max += amplitude;
+	}
+	delete dx, dy, dz;
+	return sum / max;
+}
+
+float NoiseGenerator::Simplex_iQ_3DBounded(float x, float y, float z, float low, float high, float freq, int octaves, float lac, float gain){
+	float tmp = Simplex_iQ_3D(x, y, z, freq, octaves, lac, gain) * (high - low) / 2.0f + (high + low) / 2.0f;
+	return tmp;
+}
+
+float NoiseGenerator::SimplexJordan_3D(float x, float y, float z, float freq, int octaves, float lac, float gain){
+	return 0.0f;
+}
+
+float NoiseGenerator::SimplexSwiss_3D(float x, float y, float z, float freq, int octaves, float lac, float gain){
+	// As magnitude of the derivative increases, noise magnitude should increase too
+	float sum = 0.0f;
+	float warp = 0.15f;
+	float *dx = new float;
+	float *dy = new float;
+	float *dz = new float;
+	float amplitude = 1.0f;
+	float max = 0.0f;
+	float dsumX = 0.0f, dsumY = 0.0f, dsumZ = 0.0f;
+	for (int i = 0; i < octaves; ++i) {
+		x += (warp * dsumX);
+		y += (warp * dsumY);
+		z += (warp * dsumZ);
+		float n = simplex(x * freq, y * freq, z * freq, dx, dy, dz) * amplitude;
+		dsumX += -n * (*dx);
+		dsumY += -n * (*dy);
+		dsumZ += -n * (*dz);
+		sum += 1.0f - abs(n);
+		freq *= lac;
+		amplitude *= gain + glm::clamp(sum, 0.0f, 1.0f);
+		max += amplitude;
+	}
+	delete dx, dy, dz;
+	return sum / max;
+}
+
+float NoiseGenerator::SimplexSwiss_3DBounded(float x, float y, float z, float low, float high, float freq, int octaves, float lac, float gain){
+	float tmp = SimplexSwiss_3D(x, y, z, freq, octaves, lac, gain) * (high - low) / 2.0f + (high + low) / 2.0f;
+	return tmp;
 }
 
 void NoiseGenerator::buildHash(){

@@ -224,6 +224,31 @@ public:
 	}
 };
 
+class EmptyTexture2D : public Texture {
+public:
+
+	EmptyTexture2D() : Texture() { }
+
+	EmptyTexture2D(uint width, uint height) : Texture() {
+		glGenTextures(1, &gl_Handle);
+		glBindTexture(GL_TEXTURE_2D, gl_Handle);
+
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_FLOAT, NULL);
+
+		//texture parameters
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	virtual void BindTexture() const override {
+		glBindTexture(GL_TEXTURE_2D, gl_Handle);
+	}
+};
+
 class FBO_DepthTexture2D : public Texture {
 public:
 

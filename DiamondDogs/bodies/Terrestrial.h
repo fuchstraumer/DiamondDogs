@@ -4,6 +4,7 @@
 #include "Body.h"
 #include "../mesh/GlobeMesh.h"
 #include "../util/Shader.h"
+#include "../util/noise/Noise.h"
 
 class Terrestrial : public Body {
 public:
@@ -11,8 +12,6 @@ public:
 	~Terrestrial() = default;
 
 	Terrestrial(float radius, double mass, int LOD, float atmo_density = 1.0f);
-
-	void SetAtmoUniforms(ShaderProgram & shader);
 
 	void SetDiffuseColor(const glm::vec3& color);
 
@@ -29,6 +28,9 @@ public:
 	void SetAtmoColor(const glm::vec4& new_spectrum);
 
 	glm::vec4 GetAtmoColor() const;
+
+	// TODO: add params
+	void BuildTerrain();
 
 	void Render(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
 
@@ -55,5 +57,7 @@ private:
 	SpherifiedCube Mesh;
 	// Main shader for drawing the surface of this object
 	ShaderProgram MainShader;
+	// Terrain generator
+	NoiseGenerator terrainGen;
 };
 #endif // !TERRESTRIAL_H

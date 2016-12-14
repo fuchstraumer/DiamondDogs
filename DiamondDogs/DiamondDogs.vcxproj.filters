@@ -57,9 +57,6 @@
     <ClInclude Include="bodies\Body.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="util\Noise.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="bodies\Terrestial.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -81,6 +78,12 @@
     <ClInclude Include="mesh\GlobeMesh.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="util\noise\Noise.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="util\noise\Mods.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DiamondDogs.cpp">
@@ -98,9 +101,6 @@
     <ClCompile Include="mesh\SpherifiedCube.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="util\Noise.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="mesh\PlanarMesh.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -114,6 +114,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="mesh\GlobeMesh.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="util\noise\Noise.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

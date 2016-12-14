@@ -162,6 +162,9 @@ void Mesh::BuildRenderData(){
 	// Pointer to the normal attribute of a vertex
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)offsetof(vertex_t, Normal));
 	glEnableVertexAttribArray(1);
+	// Color attribute of a vertex
+	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)offsetof(vertex_t, Color));
+	glEnableVertexAttribArray(2);
 	glm::mat4 scale = glm::scale(glm::mat4(1.0f), Scale);
 	glm::mat4 translation = glm::translate(glm::mat4(1.0f), Position);
 	glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), Angle.x, glm::vec3(1.0f, 0.0f, 0.0f));

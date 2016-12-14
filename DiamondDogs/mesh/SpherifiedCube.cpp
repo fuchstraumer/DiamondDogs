@@ -25,7 +25,6 @@ SpherifiedCube::SpherifiedCube(int subdivisions){
 	Faces[3] = PlanarMesh(subdivisions, CardinalFace::LEFT);
 	Faces[4] = PlanarMesh(subdivisions, CardinalFace::TOP);
 	Faces[5] = PlanarMesh(subdivisions, CardinalFace::BOTTOM);
-
 	for (int i = 0; i < 6; ++i) {
 		// Make the correct triangles for each mesh
 		// setting up the indices correctly

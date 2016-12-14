@@ -2,7 +2,7 @@
 #ifndef STAR_H
 #define STAR_H
 #include "Body.h"
-#include "../mesh/IcoSphere.h"
+#include "../mesh/GlobeMesh.h"
 #include "../util/Shader.h"
 /*
 	
@@ -19,15 +19,17 @@
 class Star : public Body {
 public:
 	Star(glm::vec3 spectrum, glm::vec3 position, float radius, int LOD) {
-		Mesh = IcoSphere(LOD, radius);
+		Mesh = GlobeMesh(LOD);
 		Radius = radius;
+		Mesh.Scale = glm::vec3(Radius);
 		WorldPosition = position;
+		Mesh.Position = glm::vec3(WorldPosition);
 		starSpectrum = spectrum;
 	}
 
 private:
 	glm::vec3 starSpectrum;
-	IcoSphere Mesh;
+	GlobeMesh Mesh;
 	ShaderProgram StarProgram;
 };
 #endif // !STAR_H

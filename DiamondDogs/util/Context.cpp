@@ -1,10 +1,12 @@
 #include "../stdafx.h"
 #include "Context.h"
-
+#include "../bodies/Star.h"
 // Main camera instance
 static Camera Cam(glm::vec3(0.0f, 0.0f, 30.0f));
 // Tracking of key presses for movement and simultaneous actions
 static bool keys[1024];
+// Tracking of key toggle
+static bool keyRelease[1024];
 // Previous mouse position
 static GLfloat lastX = (GLfloat)SCR_WIDTH / 2, lastY = (GLfloat)SCR_HEIGHT / 2;
 // say mouse is init
@@ -15,6 +17,8 @@ static GLfloat lastZoom;
 static CubemapTexture skyboxTex(skyboxTextures, 2048);
 // Skybox itself
 static Skybox skybox;
+// Star instance
+//static Star Sun(glm::vec3(1.0f, 1.0f, 0.95f), glm::vec3(0.0f, 0.0f, -10000.0f), 10000.0f, 48);
 
 Context::Context(GLfloat width, GLfloat height){
 	Width = width;
@@ -83,12 +87,13 @@ Context::Context(GLfloat width, GLfloat height){
 	// Set the clear color - sets default background color
 	glClearColor(160.0f / 255.0f, 239.0f / 255.0f, 1.0f, 1.0f);
 	// Set projection matrix. This shouldn't really change during runtime.
-	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), 0.1f, 3000.0f);
+	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), 0.1f, 30000.0f);
 
 	skyboxTex.BuildTexture();
 	skybox.BuildRenderData();
 
-	TestBody = Terrestrial(50.0f, 2e10, 32);
+	TestBody = Terrestrial(500.0f, 2e10, 512);
+	//TestBody.BuildTerrain();
 }
 
 void Context::Use() {
@@ -185,6 +190,18 @@ void Context::KeyCallback(GLFWwindow * window, int key, int scancode, int action
 	if (key == GLFW_KEY_LEFT_ALT && action == GLFW_RELEASE) {
 		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 	}
+	// Decrease camera base speed
+	if (key == GLFW_KEY_LEFT_BRACKET && action == GLFW_PRESS) {
+		Cam.MovementSpeed -= 50.0f;
+	}
+	// Increase camera base speed
+	if (key == GLFW_KEY_RIGHT_BRACKET && action == GLFW_PRESS) {
+		Cam.MovementSpeed += 50.0f;
+	}
+	// Reset camera to default speed
+	if (key == GLFW_KEY_P && action == GLFW_PRESS) {
+		Cam.MovementSpeed = 50.0f;
+	}
 	// Grab all keys pressed at a given instance and set the appropriate value to true 
 	if (key >= 0 && key < 1024) {
 		if (action == GLFW_PRESS) {
@@ -192,26 +209,41 @@ void Context::KeyCallback(GLFWwindow * window, int key, int scancode, int action
 		}
 		else if (action == GLFW_RELEASE) {
 			keys[key] = false;
+			keyRelease[key] = true;
 		}
+	}
+	// Double camera speed while left_shift is held down
+	if (key == GLFW_KEY_LEFT_SHIFT && action == GLFW_PRESS) {
+		Cam.MovementSpeed *= 2.0f;
+	}
+	if (key == GLFW_KEY_LEFT_SHIFT && action == GLFW_RELEASE) {
+		Cam.MovementSpeed /= 2.0f;
+	}
+	// Halve camera speed while left_shift is held down
+	if (key == GLFW_KEY_LEFT_CONTROL && action == GLFW_PRESS) {
+		Cam.MovementSpeed /= 2.0f;
+	}
+	if (key == GLFW_KEY_LEFT_CONTROL && action == GLFW_RELEASE) {
+		Cam.MovementSpeed *= 2.0f;
 	}
 }
 
 void Context::UpdateMovement(){
 	if (keys[GLFW_KEY_W]) {
 		Cam.ProcessKeyboard(FORWARD, DeltaTime);
-		std::cerr << "W key pressed" << std::endl;
+		//std::cerr << "W key pressed" << std::endl;
 	}
 	if (keys[GLFW_KEY_S]) {
 		Cam.ProcessKeyboard(BACKWARD, DeltaTime);
-		std::cerr << "S key pressed" << std::endl;
+		//std::cerr << "S key pressed" << std::endl;
 	}
 	if (keys[GLFW_KEY_A]) {
 		Cam.ProcessKeyboard(LEFT, DeltaTime);
-		std::cerr << "A key pressed" << std::endl;
+		//std::cerr << "A key pressed" << std::endl;
 	}
 	if (keys[GLFW_KEY_D]) {
 		Cam.ProcessKeyboard(RIGHT, DeltaTime);
-		std::cerr << "D key pressed" << std::endl;
+		//std::cerr << "D key pressed" << std::endl;
 	}
 }
 
