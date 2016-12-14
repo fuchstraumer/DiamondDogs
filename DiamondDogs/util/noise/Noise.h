@@ -64,7 +64,7 @@ public:
 	//float SimplexRidged(int x, int y, int z, float freq, int octaves, float lac, float gain);;
 	float SimplexRidged(int x, int y, float freq = RIDGED_FREQ, int octaves = RIDGED_OCTAVES, float lac = RIDGED_LACUN, float gain = RIDGED_GAIN);
 	float SimplexRidged_3D(float x, float y, float z, float freq = RIDGED_FREQ, int octaves = RIDGED_OCTAVES, float lac = RIDGED_LACUN, float gain = RIDGED_GAIN);
-	float SimplexRidged_3DBounded(float x, float y, float z, float low, float high, float freq = FBM_FREQ, int octaves = FBM_OCTAVES, float lac = FBM_LACUN, float gain = FBM_GAIN);
+	float SimplexRidged_3DBounded(float x, float y, float z, float low, float high, float freq = RIDGED_FREQ, int octaves = RIDGED_OCTAVES, float lac = RIDGED_LACUN, float gain = RIDGED_GAIN);
 
 	// iQ noise
 	float Simplex_iQ_3D(float x, float y, float z, float freq = iQ_FREQ, int octaves = iQ_OCTAVES, float lac = iQ_LACUN, float gain = iQ_GAIN);

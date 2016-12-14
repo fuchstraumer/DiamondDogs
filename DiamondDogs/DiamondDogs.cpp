@@ -6,6 +6,7 @@
 #include "util\Context.h"
 #include "mesh\SpherifiedCube.h"
 #include "bodies\Terrestrial.h"
+#include "util\noise\TerrainBuilder.h"
 int main(){
 	Context MainWindow(static_cast<GLfloat>(SCR_WIDTH), static_cast<GLfloat>(SCR_HEIGHT));
 	//Terrestrial test(100.0f, 3e10, 30);

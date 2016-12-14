@@ -124,14 +124,17 @@ void Terrestrial::BuildTerrain(){
 			
 			if (noise > LANDMASS_PREVALENCE) {
 				f.Vertices[i].Color = glm::vec3(0.1f, 0.9f, 0.3f);
-				float scale = (noise - LANDMASS_PREVALENCE) / (max - LANDMASS_PREVALENCE);
+				float scale = (noise - LANDMASS_PREVALENCE) / (0.78f - LANDMASS_PREVALENCE);
 				float h = terrainGen.SimplexRidged_3DBounded(pos.x, pos.y, pos.z, 0.95f, 1.05f);
 				h *= scale;
-				h = glm::clamp(h, 0.95f, 1.05f);
-				if (h >= 1.04f) {
+				h = easeCurve(h);
+				if (h >= 1.25f) {
 					f.Vertices[i].Color = glm::vec3(0.3f, 0.95f, 0.35f);
+					if (h > 35.00f) {
+						f.Vertices[i].Color = glm::vec3(0.8f, 0.8f, 0.8f);
+					}
 				}
-				else if (h <= 0.951f) {
+				else if (h <= 0.35f) {
 					f.Vertices[i].Color = glm::vec3(0.96f, 0.870f, 0.701f);
 				}
 			}

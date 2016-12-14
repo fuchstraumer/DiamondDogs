@@ -150,7 +150,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>"C:\MSVC\OpenGL\lib\x64";</AdditionalLibraryDirectories>
-      <AdditionalDependencies>"OpenGL32.lib";"C:\MSVC\OpenGL\lib\\x64\glfw3dll.lib";"C:\MSVC\OpenGL\lib\x64\glew32s.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>"OpenGL32.lib";"C:\MSVC\OpenGL\lib\\x64\glfw3dll.lib";"C:\MSVC\OpenGL\lib\x64\glew32s.lib";"C:\MSVC\OpenGL\lib\libnoise.lib";%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -177,6 +177,7 @@
     <ClInclude Include="util\lodeTexture.h" />
     <ClInclude Include="util\noise\Mods.h" />
     <ClInclude Include="util\noise\Noise.h" />
+    <ClInclude Include="util\noise\TerrainBuilder.h" />
     <ClInclude Include="util\Shader.h" />
     <ClInclude Include="util\shaderold.h" />
   </ItemGroup>
