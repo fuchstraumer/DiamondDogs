@@ -16,12 +16,12 @@ int main(){
     return 0;
 }
 
-
+#include "./util/noise/NOISEUTILS.H"
 #include <fstream>
 
-#include <noise/noise.h>
+#include "noise.h"
 
-#include "./util/noise/NOISEUTILS.H"
+
 
 using namespace noise;
 
@@ -51,10 +51,10 @@ int buildmap()
 	const double EAST_COORD = 180;
 
 	// Width of elevation grid, in points.
-	const int GRID_WIDTH = 32767;
+	const int GRID_WIDTH = 4096;
 
 	// Height of elevation grid, in points.
-	const int GRID_HEIGHT = 16384;
+	const int GRID_HEIGHT = 2048;
 
 	// Planet seed.  Change this to generate a different planet.
 	const int CUR_SEED = 4355624524;
@@ -179,7 +179,7 @@ int buildmap()
 	baseContinentDef_pe0.SetFrequency(CONTINENT_FREQUENCY);
 	baseContinentDef_pe0.SetPersistence(0.5);
 	baseContinentDef_pe0.SetLacunarity(CONTINENT_LACUNARITY);
-	baseContinentDef_pe0.SetOctaveCount(14);
+	baseContinentDef_pe0.SetOctaveCount(10);
 	baseContinentDef_pe0.SetNoiseQuality(QUALITY_STD);
 
 	// 2: [Continent-with-ranges module]: Next, a curve module modifies the
@@ -265,7 +265,7 @@ int buildmap()
 	module::Turbulence continentDef_tu0;
 	continentDef_tu0.SetSourceModule(0, baseContinentDef);
 	continentDef_tu0.SetSeed(CUR_SEED + 10);
-	continentDef_tu0.SetFrequency(CONTINENT_FREQUENCY * 15.25);
+	continentDef_tu0.SetFrequency(CONTINENT_FREQUENCY * 11.25);
 	continentDef_tu0.SetPower(CONTINENT_FREQUENCY / 113.75);
 	continentDef_tu0.SetRoughness(13);
 
@@ -276,7 +276,7 @@ int buildmap()
 	module::Turbulence continentDef_tu1;
 	continentDef_tu1.SetSourceModule(0, continentDef_tu0);
 	continentDef_tu1.SetSeed(CUR_SEED + 11);
-	continentDef_tu1.SetFrequency(CONTINENT_FREQUENCY * 47.25);
+	continentDef_tu1.SetFrequency(CONTINENT_FREQUENCY * 37.25);
 	continentDef_tu1.SetPower(CONTINENT_FREQUENCY / 433.75);
 	continentDef_tu1.SetRoughness(12);
 
@@ -287,7 +287,7 @@ int buildmap()
 	module::Turbulence continentDef_tu2;
 	continentDef_tu2.SetSourceModule(0, continentDef_tu1);
 	continentDef_tu2.SetSeed(CUR_SEED + 12);
-	continentDef_tu2.SetFrequency(CONTINENT_FREQUENCY * 95.25);
+	continentDef_tu2.SetFrequency(CONTINENT_FREQUENCY * 75.25);
 	continentDef_tu2.SetPower(CONTINENT_FREQUENCY / 1019.75);
 	continentDef_tu2.SetRoughness(11);
 

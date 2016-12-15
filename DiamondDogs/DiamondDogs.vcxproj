@@ -139,7 +139,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\MSVC\OpenGL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\MSVC\OpenGL\include;C:\MSVC\OpenGL\include\libnoise;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
@@ -151,7 +151,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>"C:\MSVC\OpenGL\lib\x64";</AdditionalLibraryDirectories>
-      <AdditionalDependencies>"OpenGL32.lib";"C:\MSVC\OpenGL\lib\x64\glfw3dll.lib";"C:\MSVC\OpenGL\lib\x64\glew32s.lib";"C:\MSVC\OpenGL\lib\libnoise.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>"OpenGL32.lib";"C:\MSVC\OpenGL\lib\x64\glfw3dll.lib";"C:\MSVC\OpenGL\lib\x64\glew32s.lib";"C:\MSVC\OpenGL\lib\x64\libnoise.lib";%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
