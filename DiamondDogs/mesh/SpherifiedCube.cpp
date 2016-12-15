@@ -19,12 +19,12 @@ SpherifiedCube::SpherifiedCube(int subdivisions){
 	Subdivision_Level = subdivisions;
 	// Create the six faces of this cube, but don't create the triangles
 	// or spherify things yet
-	Faces[0] = PlanarMesh(subdivisions, CardinalFace::BACK);
-	Faces[1] = PlanarMesh(subdivisions, CardinalFace::RIGHT);
-	Faces[2] = PlanarMesh(subdivisions, CardinalFace::FRONT);
-	Faces[3] = PlanarMesh(subdivisions, CardinalFace::LEFT);
-	Faces[4] = PlanarMesh(subdivisions, CardinalFace::TOP);
-	Faces[5] = PlanarMesh(subdivisions, CardinalFace::BOTTOM);
+	Faces[0] = PlanarMesh(subdivisions, CardinalFace::BACK, "../rsrc/test_face.png");
+	Faces[1] = PlanarMesh(subdivisions, CardinalFace::RIGHT, "../rsrc/test_face.png");
+	Faces[2] = PlanarMesh(subdivisions, CardinalFace::FRONT, "../rsrc/test_face.png");
+	Faces[3] = PlanarMesh(subdivisions, CardinalFace::LEFT, "../rsrc/test_face.png");
+	Faces[4] = PlanarMesh(subdivisions, CardinalFace::TOP, "../rsrc/test_face.png");
+	Faces[5] = PlanarMesh(subdivisions, CardinalFace::BOTTOM, "../rsrc/test_face.png");
 	for (int i = 0; i < 6; ++i) {
 		// Make the correct triangles for each mesh
 		// setting up the indices correctly

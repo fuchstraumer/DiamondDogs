@@ -3,6 +3,7 @@
 #define MESH_H
 #include "../stdafx.h"
 #include "../util/Shader.h"
+#include "../util/lodeTexture.h"
 #include <unordered_map>
 #include <cstdint>
 #include "MeshComponents.h"
@@ -80,6 +81,13 @@ public:
 	glm::vec3 Angle = glm::vec3(0.0f, 0.0f, 0.0f);
 	// Tells us whether or not this object is ready to render
 	bool meshBuilt = false;
+
+	// Color texture
+	Texture2D texture;
+	// Normal texture
+	Texture2D normal;
+	// Specular texture
+	Texture2D spec;
 };
 
 #endif // !MESH_H

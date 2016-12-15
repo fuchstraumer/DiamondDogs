@@ -108,12 +108,13 @@ static float LANDMASS_PREVALENCE = 0.71f;
 
 
 
-void Terrestrial::Render(const glm::mat4 & view, const glm::mat4 & projection, const glm::vec3 & camera_pos){
+void Terrestrial::Render(const glm::mat4 & view, const glm::mat4 & projection, const glm::vec3 & camera_pos, int texCount){
 	MainShader.Use();
 	glUniformMatrix4fv(MainShader.GetUniformLocation("view"), 1, GL_FALSE, glm::value_ptr(view));
 	glUniformMatrix4fv(MainShader.GetUniformLocation("projection"), 1, GL_FALSE, glm::value_ptr(projection));
 	
 	for (auto&& face : Mesh.Faces) {
+		glActiveTexture(GL_TEXTURE0 + texCount);
 		face.Render(MainShader);
 	}
 }

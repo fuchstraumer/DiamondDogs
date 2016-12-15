@@ -30,7 +30,7 @@ public:
 	glm::vec4 GetAtmoColor() const;
 
 
-	void Render(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
+	void Render(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, int texCount);
 
 private:
 	// Controls radius of the atmosphere

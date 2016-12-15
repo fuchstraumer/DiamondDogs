@@ -163,7 +163,7 @@ void Mesh::BuildRenderData(){
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)offsetof(vertex_t, Normal));
 	glEnableVertexAttribArray(1);
 	// Color attribute of a vertex
-	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)offsetof(vertex_t, Color));
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)offsetof(vertex_t, UV));
 	glEnableVertexAttribArray(2);
 	glm::mat4 scale = glm::scale(glm::mat4(1.0f), Scale);
 	glm::mat4 translation = glm::translate(glm::mat4(1.0f), Position);
@@ -181,6 +181,7 @@ void Mesh::BuildRenderData(){
 void Mesh::Render(ShaderProgram & shader) const {
 	shader.Use();
 	glBindVertexArray(VAO);
+	texture.BindTexture();
 	GLint modelLoc = shader.GetUniformLocation("model");
 	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(Model));
 	GLint normTLoc = shader.GetUniformLocation("normTransform");

@@ -1,12 +1,14 @@
-#version 440
+#version 430
 
 uniform vec3 lightPos;
 uniform vec3 lightColor;
+uniform sampler2D colorTex;
 
 in vec3 fragPos;
 in vec3 gTriDist;
 in vec3 gNormal;
-in vec3 gColor;
+in vec2 gUV;
+
 float fade(){
     vec3 d = fwidth(gTriDist);
     vec3 a3 = smoothstep(vec3(0.0f),d*1.50f,gTriDist);
@@ -17,7 +19,7 @@ out vec4 fColor;
 
 void main(){
     vec3 norm = normalize(gNormal);
-    vec4 Color = vec4(gColor, 1.0f);
+    vec4 Color =  texture(colorTex, gUV);
 
 	float ambientStr = 0.40f;
 	vec3 ambient = ambientStr * Color.xyz;

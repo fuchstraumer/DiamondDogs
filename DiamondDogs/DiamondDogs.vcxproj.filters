@@ -45,9 +45,6 @@
     <ClInclude Include="mesh\PlanarMesh.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="objects\CubeSphere.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="mesh\SpherifiedCube.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -63,28 +60,13 @@
     <ClInclude Include="bodies\Terrestrial.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="util\Framebuffer.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="util\Context.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="mesh\Quad.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="bodies\Star.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="mesh\GlobeMesh.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="util\noise\Mods.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="util\noise\TerrainBuilder.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="util\noise\NOISEUTILS.H">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -116,20 +98,17 @@
     <ClCompile Include="util\Shader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="mesh\GlobeMesh.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="util\noise\noiseutils.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="shaders\core\fragment.glsl" />
-    <None Include="shaders\core\vertex.glsl" />
     <None Include="shaders\wireframe\fragment.glsl" />
     <None Include="shaders\wireframe\geometry.glsl" />
     <None Include="shaders\wireframe\vertex.glsl" />
-    <None Include="shaders\terrestrial\fragment.glsl" />
-    <None Include="shaders\terrestrial\vertex.glsl" />
+    <None Include="shaders\debug\fragment.glsl" />
+    <None Include="shaders\debug\vertex.glsl" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="rsrc\test_face.png">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
 </Project>

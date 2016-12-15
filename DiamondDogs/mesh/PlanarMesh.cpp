@@ -1,7 +1,7 @@
 #include "../stdafx.h"
 #include "PlanarMesh.h"
 
-PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){
+PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f, const char* colorTex){
 	Max_LOD = lod;
 	float xAngle, yAngle, zAngle;
 	// This controls the size we step in angular terms
@@ -61,6 +61,11 @@ PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){
 				xAngle = -aInitial + (dAngle * i);
 				yAngle = -aInitial + (dAngle * j);
 				vertex_t newVert;
+				float u, v;
+				u = (static_cast<float>(tan(xAngle)) / 2.0f) + 0.5f;
+				v = (static_cast<float>(tan(yAngle)) / 2.0f) + 0.5f;
+				newVert.UV.x = u;
+				newVert.UV.y = v;
 				newVert.Position.x = static_cast<float>(tan(xAngle));
 				newVert.Position.y = static_cast<float>(tan(yAngle));
 				newVert.Position.z = -1.0f;
@@ -108,5 +113,5 @@ PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){
 		}
 		break;
 	}
-	
+	texture = Texture2D(colorTex, 2048, 2048);
 }

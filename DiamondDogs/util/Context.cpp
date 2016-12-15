@@ -92,7 +92,7 @@ Context::Context(GLfloat width, GLfloat height){
 	skyboxTex.BuildTexture();
 	skybox.BuildRenderData();
 
-	TestBody = Terrestrial(500.0f, 2e10, 512);
+	TestBody = Terrestrial(100.0f, 2e10, 128);
 	//TestBody.BuildTerrain();
 }
 
@@ -117,7 +117,8 @@ void Context::Use() {
 		// mesh methods to do so. As long as all drawable objects inherit from this, 
 		// things should work.
 		View = Cam.GetViewMatrix();
-		TestBody.Render(View, Projection, Cam.Position);
+		TestBody.Render(View, Projection, Cam.Position, texCount);
+		texCount += 6;
 		// Store drawable objects as map, where key is the name of the object and the value is a reference to the object
 		// and a reference to the relevant shader program.
 		

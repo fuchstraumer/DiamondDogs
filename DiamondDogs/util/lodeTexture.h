@@ -30,6 +30,22 @@ public:
 	// Once this function is called the texture WILL be used/active
 	virtual void BindTexture() const { }
 
+	Texture& operator=(Texture&& other) {
+		this->gl_Handle = other.gl_Handle;
+		return *this;
+	}
+
+	Texture(Texture&& other) : gl_Handle(other.gl_Handle) {
+	}
+
+	Texture& operator=(const Texture& other) {
+		this->gl_Handle = other.gl_Handle;
+		return *this;
+	}
+
+	Texture(const Texture& other) : gl_Handle(other.gl_Handle) {
+	}
+
 protected:
 	// List of files to import
 	std::vector<std::string> fileList;
@@ -177,6 +193,8 @@ public:
 		Height = height;
 		fileList.push_back(filename);
 	}
+
+	Texture2D() = default;
 
 	virtual void BuildTexture() override {
 		unsigned char* data;

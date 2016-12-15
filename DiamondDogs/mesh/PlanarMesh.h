@@ -2,7 +2,6 @@
 #ifndef PLANAR_MESH_H
 #define PLANAR_MESH_H
 #include "Mesh.h"
-
 enum class CardinalFace {
 	FRONT,
 	BACK,
@@ -16,7 +15,7 @@ class PlanarMesh : public Mesh {
 public:
 	PlanarMesh() = default;
 
-	PlanarMesh(const uint &lod, const CardinalFace &f);
+	PlanarMesh(const uint &lod, const CardinalFace &f, const char* colorTex);
 
 	~PlanarMesh() = default;
 
@@ -31,6 +30,7 @@ protected:
 	// Max subdivision level.
 	int Max_LOD;
 	CardinalFace Face;
+	
 };
 
 #endif // !PLANAR_MESH_H
