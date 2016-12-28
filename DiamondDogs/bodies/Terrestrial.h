@@ -2,7 +2,6 @@
 #ifndef TERRESTRIAL_H
 #define TERRESTRIAL_H
 #include "Body.h"
-#include "../mesh/GlobeMesh.h"
 #include "../util/Shader.h"
 
 
@@ -41,8 +40,6 @@ private:
 	glm::vec4 atmoSpectrum;
 	// Controls the diffuse color of the surface of the object
 	glm::vec4 surfaceDiffuse;
-	// Mesh used to generate the atmosphere
-	GlobeMesh atmosphere;
 	// Shader for the atmosphere alone
 	ShaderProgram atmoShader;
 	// Model matrix for this object

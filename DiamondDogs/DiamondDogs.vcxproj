@@ -159,9 +159,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
-    <ClInclude Include="bodies\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
+    <ClInclude Include="mesh\Icosphere.h" />
     <ClInclude Include="mesh\SpherifiedCube.h" />
     <ClInclude Include="mesh\Mesh.h" />
     <ClInclude Include="mesh\MeshComponents.h" />
@@ -181,6 +181,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="DiamondDogs.cpp" />
+    <ClCompile Include="mesh\Icosphere.cpp" />
     <ClCompile Include="mesh\Mesh.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>

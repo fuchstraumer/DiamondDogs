@@ -63,10 +63,10 @@
     <ClInclude Include="util\Context.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="bodies\Star.h">
+    <ClInclude Include="util\noise\TerrainBuilder.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="util\noise\TerrainBuilder.h">
+    <ClInclude Include="mesh\Icosphere.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -96,6 +96,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="util\Shader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="mesh\Icosphere.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

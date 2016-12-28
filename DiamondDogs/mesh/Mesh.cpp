@@ -60,6 +60,14 @@ index_t Mesh::AddTriangle(const index_t &i0, const index_t &i1, const index_t &i
 	return val;
 }
 
+index_t Mesh::AddTriangle(const triangle_t &tri) {
+	Indices.push_back(tri.i0);
+	Indices.push_back(tri.i1);
+	Indices.push_back(tri.i2);
+	Triangles.push_back(tri);
+	return static_cast<index_t>(Triangles.size() - 1);
+}
+
 // Checking triangle for best edge for subdivision - returns key for searching the edges lookup
 edge_key Mesh::LongestEdge(triangle_t const &tri) const {
 	/*
@@ -133,11 +141,18 @@ glm::vec3 Mesh::PointToUnitSphere(const glm::vec3 &in) const {
 	return res;
 }
 
-vertex_t Mesh::GetMiddlePoint(const index_t &i0, const index_t &i1) {
+vertex_t Mesh::GetMiddlePoint(const index_t &i0, const index_t &i1) const {
 	vertex_t res;
 	auto&& v0 = GetVertex(i0);
 	auto&& v1 = GetVertex(i1);
 	res.Position = (v0.Position + v1.Position) / 2.0f;
+	return res;
+}
+
+vertex_t Mesh::GetMiddlePoint(const vertex_t &v0, const vertex_t &v1) const {
+	vertex_t res;
+	res.Position = (v0.Position + v1.Position) / 2.0f;
+	res.Normal = glm::normalize(res.Position - glm::vec3(0.0f));
 	return res;
 }
 
