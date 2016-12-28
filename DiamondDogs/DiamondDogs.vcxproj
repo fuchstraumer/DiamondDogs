@@ -159,6 +159,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
+    <ClInclude Include="bodies\GasGiant.h" />
+    <ClInclude Include="bodies\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
     <ClInclude Include="mesh\Icosphere.h" />

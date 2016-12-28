@@ -69,6 +69,12 @@
     <ClInclude Include="mesh\Icosphere.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="bodies\Star.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="bodies\GasGiant.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DiamondDogs.cpp">
