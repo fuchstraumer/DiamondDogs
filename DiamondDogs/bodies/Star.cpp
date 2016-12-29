@@ -1,6 +1,8 @@
 #include "Star.h"
 #include "glm/gtc/matrix_transform.hpp"
+
 Texture1D Star::starColor = Texture1D("./rsrc/img/star/star_spectrum.png", 1024);
+
 
 // Simple method to get a stars color based on its temperature
 inline glm::vec3 getStarColor(unsigned int temperature) {
@@ -9,7 +11,7 @@ inline glm::vec3 getStarColor(unsigned int temperature) {
 		temperature * (0.0735 / 255.0) - (115.0 / 255.0));
 }
 
-Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection) {
+Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection) : corona(glm::vec3(0.0f),_radius,projection) {
 	radius = _radius;
 	temperature = temp;
 	mesh = Icosphere(lod_level, radius);
@@ -52,11 +54,12 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 	starColor.BuildTexture();
 }
 
-void Star::Render(const glm::mat4 & view){
+void Star::Render(const glm::mat4 & view, const glm::vec3& camera_position){
 	GLuint viewLoc = shader.GetUniformLocation("view");
 	shader.Use();
 	glActiveTexture(GL_TEXTURE1);
 	starColor.BindTexture();
 	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 	mesh.Render(shader);
+	corona.Render(view,camera_position);
 }

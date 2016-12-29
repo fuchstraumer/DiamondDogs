@@ -35,7 +35,7 @@ Context::Context(GLfloat width, GLfloat height){
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	glfwWindowHint(GLFW_SAMPLES, 8);
+	//glfwWindowHint(GLFW_SAMPLES, 8);
 	// Don't allow the window to be resize (embedded in UI)
 	glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
 	// Enable 2x anti-aliasing to soften edges just slightly
@@ -63,9 +63,9 @@ Context::Context(GLfloat width, GLfloat height){
 	}
 	glewExperimental = GL_TRUE;
 	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_MULTISAMPLE);
+	//glEnable(GL_MULTISAMPLE);
 	// Set projection matrix. This shouldn't really change during runtime.
-	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), 0.1f, 30000.0f);
+	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), nearDepth, farDepth);
 
 	// Set up skybox shaders
 	Shader SkyVert("./shaders/skybox/vertex.glsl", VERTEX_SHADER);
@@ -80,7 +80,7 @@ Context::Context(GLfloat width, GLfloat height){
 	};
 	skyboxProgram.BuildUniformMap(Uniforms);
 
-	testStar = Star(5, 3000.0f, 3000, Projection);
+	testStar = Star(3, 100.0f, 6000, Projection);
 	
 	// Set skybox uniforms
 	skyboxProgram.Use();
@@ -115,7 +115,7 @@ void Context::Use() {
 		View = Cam.GetViewMatrix();
 
 		// Set uniforms for wireframe program
-		testStar.Render(View);
+		testStar.Render(View, Cam.Position);
 
 		glDepthFunc(GL_LEQUAL);
 

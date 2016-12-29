@@ -176,7 +176,10 @@ public:
 
 class Texture2D : public Texture {
 public:
+	Texture2D() { }
+
 	Texture2D(std::string filename, uint width, uint height) : Texture() {
+		glGenTextures(1, &this->gl_Handle);
 		Width = width;
 		Height = height;
 		fileList.push_back(filename);

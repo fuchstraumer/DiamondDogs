@@ -5,6 +5,9 @@
 #include "../util/Shader.h"
 #include "glm\gtc\matrix_transform.hpp"
 
+// Vector pointing up, constant since in most cases we don't want billboard rotating.
+static const glm::vec3 WORLD_UP = glm::vec3(0.0f, 1.0f, 0.0f);
+
 class Billboard2D {
 
 };
@@ -12,7 +15,7 @@ class Billboard2D {
 // Quad vertices used for the 3d billboard quad
 
 // x,y vertex positions and UVs
-GLfloat quad_vertices[] = {
+static const GLfloat quad_vertices[] = {
 	-1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
 	1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
 	1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
@@ -26,12 +29,17 @@ class Billboard3D {
 public:
 	// The exact usage of this billboard depends on which shader program is supplied
 	// with the constructor.
-	Billboard3D(ShaderProgram _shader) {
-		shader = _shader;
+	Billboard3D(ShaderProgram& _shader) : shader(_shader) {
+
 	}
 	~Billboard3D() = default;
 
-	void BuildRenderData() {
+	Billboard3D &Billboard3D::operator =(const Billboard3D &other) {
+		this->shader = other.shader;
+		return *this;
+	}
+
+	void BuildRenderData(const glm::mat4& projection) {
 		// Setup up VAO
 		glGenVertexArrays(1, &VAO);
 		glBindVertexArray(VAO);
@@ -57,15 +65,34 @@ public:
 		normTransform = glm::transpose(glm::inverse(model));
 		// Acquire locations of uniforms and set them appropriately.
 		GLuint modelLoc = shader.GetUniformLocation("model");
-		GLuint normTLoc = shader.GetUniformLocation("normTransform");
+
+		GLuint projLoc = shader.GetUniformLocation("projection");
+		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
 		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-		glUniformMatrix4fv(normTLoc, 1, GL_FALSE, glm::value_ptr(normTransform));
+
 		// Unbind vertex array
 		glBindVertexArray(0);
 	}
 
-	void Render() {
+	void Render(const glm::mat4& view, const glm::vec3& camera_position) {
 		shader.Use();
+		// Vector that decides which direction this object points
+		glm::vec3 look = glm::normalize(camera_position - Position);
+		// Get right directional vector
+		glm::vec3 right = WORLD_UP * look;
+		// Get final up vector
+		glm::vec3 up = look * right;
+		// Build transformation matrix
+		glm::mat4 viewTransform{
+			right.x, up.x, look.x, Position.x,
+			right.y, up.y, look.y, Position.y,
+			right.z, up.z, look.z, Position.z,
+			0.0f,	 0.0f, 0.0f,   1.0f,
+		};
+		GLuint viewTLoc = shader.GetUniformLocation("viewTransform");
+		glUniformMatrix4fv(viewTLoc, 1, GL_FALSE, glm::value_ptr(viewTransform));
+		GLuint viewLoc = shader.GetUniformLocation("view");
+		glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 		glBindVertexArray(VAO);
 		glDrawArrays(GL_TRIANGLES, 0, 6);
 		glBindVertexArray(0);
@@ -74,7 +101,7 @@ public:
 	glm::vec3 Scale, Position, Angle;
 private:
 	GLuint VAO, VBO;
-	ShaderProgram shader;
+	ShaderProgram& shader;
 	glm::mat4 model, normTransform;
 };
 #endif // !BILLBOARD_H

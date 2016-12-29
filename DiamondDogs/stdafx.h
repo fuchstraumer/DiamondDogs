@@ -36,4 +36,6 @@ using uint = unsigned int;
 
 // GLFW declarations and definitions
 const GLuint SCR_WIDTH = 1440, SCR_HEIGHT = 900;
+// Defines depth rendering ranges for projection matrix.
+const GLfloat nearDepth = 0.1f, farDepth = 5000.0f;
 

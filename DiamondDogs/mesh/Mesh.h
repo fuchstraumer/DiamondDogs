@@ -9,7 +9,9 @@
 #include "MeshComponents.h"
 class Mesh {
 public:
-	Mesh() = default;
+	Mesh() {
+
+	}
 	~Mesh() = default;
 	
 	// Clears this mesh and attempts to free memory using "shrink_to_fit()"
