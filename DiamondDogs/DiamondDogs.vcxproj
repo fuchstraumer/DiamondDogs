@@ -163,10 +163,7 @@
     <ClInclude Include="bodies\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
-<<<<<<< HEAD
     <ClInclude Include="mesh\Billboard.h" />
-=======
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
     <ClInclude Include="mesh\Icosphere.h" />
     <ClInclude Include="mesh\SpherifiedCube.h" />
     <ClInclude Include="mesh\Mesh.h" />
@@ -188,15 +185,12 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="DiamondDogs.cpp" />
-<<<<<<< HEAD
     <ClCompile Include="mesh\Icosphere.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-=======
     <ClCompile Include="mesh\Icosphere.cpp" />
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
     <ClCompile Include="mesh\Mesh.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
@@ -229,33 +223,6 @@
     <None Include="shaders\wireframe\fragment.glsl" />
     <None Include="shaders\wireframe\geometry.glsl" />
     <None Include="shaders\wireframe\vertex.glsl" />
-  </ItemGroup>
-<<<<<<< HEAD
-<<<<<<< HEAD
-  <ItemGroup>
-    <Image Include="rsrc\terr\mip1\_back.png" />
-    <Image Include="rsrc\terr\mip1\_back_norm.png" />
-    <Image Include="rsrc\terr\mip1\_back_specular.png" />
-    <Image Include="rsrc\terr\mip1\_bottom.png" />
-    <Image Include="rsrc\terr\mip1\_bottom_norm.png" />
-    <Image Include="rsrc\terr\mip1\_front.png" />
-    <Image Include="rsrc\terr\mip1\_front_norm.png" />
-    <Image Include="rsrc\terr\mip1\_front_specular.png" />
-    <Image Include="rsrc\terr\mip1\_left.png" />
-    <Image Include="rsrc\terr\mip1\_left_norm.png" />
-    <Image Include="rsrc\terr\mip1\_left_specular.png" />
-    <Image Include="rsrc\terr\mip1\_right.png" />
-    <Image Include="rsrc\terr\mip1\_right_norm.png" />
-    <Image Include="rsrc\terr\mip1\_right_specular.png" />
-    <Image Include="rsrc\terr\mip1\_top.png" />
-    <Image Include="rsrc\terr\mip1\_top_norm.png" />
-    <Image Include="rsrc\test_face.png" />
-  </ItemGroup>
-=======
->>>>>>> parent of 2f9d996... Cubemap textures, basic python conversion script
-=======
-  <ItemGroup>
-    <Image Include="rsrc\test_face.png" />
   </ItemGroup>
 >>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

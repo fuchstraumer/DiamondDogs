@@ -6,7 +6,6 @@
 #include "bodies\Terrestrial.h"
 
 <<<<<<< HEAD
-<<<<<<< HEAD
 int main() {
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 	Context MainWindow(static_cast<GLfloat>(SCR_WIDTH), static_cast<GLfloat>(SCR_HEIGHT));
@@ -1921,12 +1920,3 @@ int buildmap()
 }
 
 >>>>>>> parent of 2f9d996... Cubemap textures, basic python conversion script
-=======
-int main() {
-
-	Context MainWindow(static_cast<GLfloat>(SCR_WIDTH), static_cast<GLfloat>(SCR_HEIGHT));
-	MainWindow.Use();
-
-	return 0;
-}
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b

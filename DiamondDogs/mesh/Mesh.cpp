@@ -147,7 +147,6 @@ vertex_t Mesh::GetMiddlePoint(const index_t &i0, const index_t &i1) const {
 	return res;
 }
 
-<<<<<<< HEAD
 void Mesh::SetTextures(const char * color_tex, const char * normal_tex, const char * spec_tex, uint width, uint height){
 	texture = Texture2D(color_tex, width, height);
 	normal = Texture2D(normal_tex, width, height);
@@ -161,8 +160,6 @@ void Mesh::BuildTextureData() {
 	hasTextures = true;
 }
 
-=======
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 vertex_t Mesh::GetMiddlePoint(const vertex_t &v0, const vertex_t &v1) const {
 	vertex_t res;
 	res.Position = (v0.Position + v1.Position) / 2.0f;
@@ -214,7 +211,6 @@ void Mesh::BuildRenderData(){
 void Mesh::Render(ShaderProgram & shader) const {
 	shader.Use();
 	glBindVertexArray(VAO);
-	texture.BindTexture();
 	GLint modelLoc = shader.GetUniformLocation("model");
 	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(Model));
 	GLint normTLoc = shader.GetUniformLocation("normTransform");

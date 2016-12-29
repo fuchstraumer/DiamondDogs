@@ -2,11 +2,8 @@
 #ifndef PLANAR_MESH_H
 #define PLANAR_MESH_H
 #include "Mesh.h"
-<<<<<<< HEAD
 
 
-=======
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 enum class CardinalFace {
 	FRONT,
 	BACK,
@@ -20,7 +17,7 @@ class PlanarMesh : public Mesh {
 public:
 	PlanarMesh() = default;
 
-	PlanarMesh(const uint &lod, const CardinalFace &f, const char* colorTex);
+	PlanarMesh(const uint &lod, const CardinalFace &f);
 
 	~PlanarMesh() = default;
 

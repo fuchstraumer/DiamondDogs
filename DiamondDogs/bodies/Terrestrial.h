@@ -2,7 +2,6 @@
 #ifndef TERRESTRIAL_H
 #define TERRESTRIAL_H
 #include "Body.h"
-<<<<<<< HEAD
 #include "../util/Shader.h"
 <<<<<<< HEAD
 #include "../util/lodeTexture.h"
@@ -10,9 +9,6 @@
 =======
 
 >>>>>>> parent of 2f9d996... Cubemap textures, basic python conversion script
-=======
-#include "../mesh/SpherifiedCube.h"
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 
 class Terrestrial : public Body {
 public:
@@ -38,7 +34,7 @@ public:
 	glm::vec4 GetAtmoColor() const;
 
 
-	void Render(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos, int texCount);
+	void Render(const glm::mat4& view, const glm::mat4& projection, const glm::vec3& cameraPos);
 
 private:
 	// Controls radius of the atmosphere

@@ -7,7 +7,6 @@
 class Star : public Body {
 public:
 	// Creates a star, randomly selecting all values from within reasonable ranges
-<<<<<<< HEAD
 	Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection);
 	// Creates a star, using supplied values or reasonably shuffled defaults otherwise.
 
@@ -15,12 +14,6 @@ public:
 	Star() = default;
 	// Render this star, supplying the view matrix needed
 	void Render(const glm::mat4& view);
-=======
-
-	// Creates a star, using supplied values or reasonably shuffled defaults otherwise.
-
-	~Star() = default;
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 private:
 	// Temperature selects color, and specifies which texture coordinate to use for all
 	// vertices in this object since the base color is uniform
@@ -29,11 +22,7 @@ private:
 	float radius;
 	Icosphere mesh;
 	ShaderProgram shader;
-<<<<<<< HEAD
 	static Texture1D starColor;
-=======
-	Texture1D starColor;
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 };
 
 #endif // !STAR_H

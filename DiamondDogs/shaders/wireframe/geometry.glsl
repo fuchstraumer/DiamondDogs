@@ -7,21 +7,13 @@ layout(triangle_strip, max_vertices = 3) out;
 in vec4 vPosition[3];
 in vec3 fPos[3];
 in vec3 vNormal[3];
-<<<<<<< HEAD
 
-=======
-in vec2 vUV[3];
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 
 out vec3 fNorm;
 out vec3 fragPos;
 out vec3 gTriDist;
 out vec3 gNormal;
-<<<<<<< HEAD
 
-=======
-out vec2 gUV;
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 
 
 void main(){
@@ -33,33 +25,21 @@ void main(){
     gTriDist = vec3(1.0f, 0.0f, 0.0f);
     fragPos = fPos[0];
     gNormal = vNormal[0];
-<<<<<<< HEAD
 
-=======
-	gUV = vUV[0];
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
     gl_Position = vPosition[0];
     EmitVertex();
 
     gTriDist = vec3(0.0f, 0.0f, 1.0f);
     fragPos = fPos[1];
     gNormal = vNormal[1];
-<<<<<<< HEAD
 
-=======
-	gUV = vUV[1];
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
     gl_Position = vPosition[1];
     EmitVertex();
 
     gTriDist = vec3(0.0f, 1.0f, 0.0f);
     fragPos = fPos[2];
     gNormal = vNormal[2];
-<<<<<<< HEAD
 
-=======
-	gUV = vUV[2];
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
     gl_Position = vPosition[2];
     EmitVertex();
 }
