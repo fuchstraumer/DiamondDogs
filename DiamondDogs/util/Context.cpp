@@ -17,17 +17,17 @@ static GLfloat lastZoom;
 static CubemapTexture skyboxTex(skyboxTextures, 2048);
 // Skybox itself
 static Skybox skybox;
-// Star instance
-//static Star Sun(glm::vec3(1.0f, 1.0f, 0.95f), glm::vec3(0.0f, 0.0f, -10000.0f), 10000.0f, 48);
+// Icosphere
+static Star testStar;
+
+static const glm::vec4 lightColor(1.0f, 1.0f, 0.98f, 1.0f);
+static const glm::vec4 lightPosition(3200.0f, -400.0f, 2700.0f, 1.0f);
 
 Context::Context(GLfloat width, GLfloat height){
 	Width = width;
 	Height = height;
-	texCount = 0;
 	// Init GLFW
 	glfwInit();
-
-	
 
 	// Base options
 
@@ -35,7 +35,7 @@ Context::Context(GLfloat width, GLfloat height){
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
+	glfwWindowHint(GLFW_SAMPLES, 8);
 	// Don't allow the window to be resize (embedded in UI)
 	glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
 	// Enable 2x anti-aliasing to soften edges just slightly
@@ -63,9 +63,9 @@ Context::Context(GLfloat width, GLfloat height){
 	}
 	glewExperimental = GL_TRUE;
 	glEnable(GL_DEPTH_TEST);
-
-	// Setup test terrestrial body
-	
+	glEnable(GL_MULTISAMPLE);
+	// Set projection matrix. This shouldn't really change during runtime.
+	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), 0.1f, 30000.0f);
 
 	// Set up skybox shaders
 	Shader SkyVert("./shaders/skybox/vertex.glsl", VERTEX_SHADER);
@@ -80,20 +80,23 @@ Context::Context(GLfloat width, GLfloat height){
 	};
 	skyboxProgram.BuildUniformMap(Uniforms);
 
-	//sceneFBO = Framebuffer(Width, Height, true);
+	testStar = Star(5, 3000.0f, 3000, Projection);
+	
+	// Set skybox uniforms
+	skyboxProgram.Use();
+	GLuint projLoc = skyboxProgram.GetUniformLocation("projection");
+	glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(Projection));
 
 	// Set viewport
 	glViewport(0, 0, static_cast<GLsizei>(Width), static_cast<GLsizei>(Height));
 	// Set the clear color - sets default background color
 	glClearColor(160.0f / 255.0f, 239.0f / 255.0f, 1.0f, 1.0f);
-	// Set projection matrix. This shouldn't really change during runtime.
-	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), 0.1f, 30000.0f);
+	
 
 	skyboxTex.BuildTexture();
 	skybox.BuildRenderData();
 
-	TestBody = Terrestrial(500.0f, 2e10, 512);
-	//TestBody.BuildTerrain();
+	
 }
 
 void Context::Use() {
@@ -109,31 +112,20 @@ void Context::Use() {
 		// Poll events, passing events to callback funcs
 		glfwPollEvents();
 		UpdateMovement();
-		// Clear the depth and color buffers
-		
-		
-		// How to pass in render objects? Standardize a renderable type/class?
-		// -- probably, have standard mesh format and vertices already combined with
-		// mesh methods to do so. As long as all drawable objects inherit from this, 
-		// things should work.
 		View = Cam.GetViewMatrix();
-		TestBody.Render(View, Projection, Cam.Position);
-		// Store drawable objects as map, where key is the name of the object and the value is a reference to the object
-		// and a reference to the relevant shader program.
-		
+
+		// Set uniforms for wireframe program
+		testStar.Render(View);
+
 		glDepthFunc(GL_LEQUAL);
 
 		skyboxProgram.Use();
-		GLuint projLoc = skyboxProgram.GetUniformLocation("projection");
-		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(Projection));
 		View = glm::mat4(glm::mat3(Cam.GetViewMatrix()));
-		
 		GLuint viewloc = skyboxProgram.GetUniformLocation("view");
 		glUniformMatrix4fv(viewloc, 1, GL_FALSE, glm::value_ptr(View));
 		// Use skybox shader and bind correct texture
 		//skyboxProgram.Use();
-		glActiveTexture(GL_TEXTURE0 + texCount);
-		texCount++;
+		glActiveTexture(GL_TEXTURE0);
 		skyboxTex.BindTexture();
 		skybox.RenderSkybox();
 		glDepthFunc(GL_LESS);

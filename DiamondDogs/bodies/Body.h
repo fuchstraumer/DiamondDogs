@@ -2,8 +2,8 @@
 #ifndef BODY_H
 #define BODY_H
 #include "../stdafx.h"
-#include "../mesh/SpherifiedCube.h"
-
+#include "../util/Shader.h"
+#include "../util/lodeTexture.h"
 
 class Body {
 public:

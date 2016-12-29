@@ -7,8 +7,6 @@ __inline float maptosphere(float const &a, float const &b, float const &c) {
 	return result;
 }
 
-
-
 void Mesh::Clear() {
 	Vertices.clear(); 
 	Indices.clear();
@@ -46,7 +44,7 @@ const triangle_t & Mesh::GetTri(index_t t_index) const {
 // Add vert and return index to it
 index_t Mesh::AddVert(const vertex_t & vert) {
 	Vertices.push_back(vert);
-	return (index_t)Vertices.size() - 1;
+	return static_cast<index_t>(Vertices.size() - 1);
 }
 
 // Add triangle using three indices and return a reference to this triangle
@@ -56,8 +54,16 @@ index_t Mesh::AddTriangle(const index_t &i0, const index_t &i1, const index_t &i
 	Indices.push_back(i2);
 	triangle_t newTri(i0, i1, i2);
 	Triangles.push_back(std::move(newTri));
-	index_t val = (index_t)Triangles.size() - 1;
+	index_t val = static_cast<index_t>(Triangles.size() - 1);
 	return val;
+}
+
+index_t Mesh::AddTriangle(const triangle_t &tri) {
+	Indices.push_back(tri.i0);
+	Indices.push_back(tri.i1);
+	Indices.push_back(tri.i2);
+	Triangles.push_back(tri);
+	return static_cast<index_t>(Triangles.size() - 1);
 }
 
 // Checking triangle for best edge for subdivision - returns key for searching the edges lookup
@@ -133,11 +139,31 @@ glm::vec3 Mesh::PointToUnitSphere(const glm::vec3 &in) const {
 	return res;
 }
 
-vertex_t Mesh::GetMiddlePoint(const index_t &i0, const index_t &i1) {
+vertex_t Mesh::GetMiddlePoint(const index_t &i0, const index_t &i1) const {
 	vertex_t res;
 	auto&& v0 = GetVertex(i0);
 	auto&& v1 = GetVertex(i1);
 	res.Position = (v0.Position + v1.Position) / 2.0f;
+	return res;
+}
+
+void Mesh::SetTextures(const char * color_tex, const char * normal_tex, const char * spec_tex, uint width, uint height){
+	texture = Texture2D(color_tex, width, height);
+	normal = Texture2D(normal_tex, width, height);
+	specular = Texture2D(spec_tex, width, height);
+}
+
+void Mesh::BuildTextureData() {
+	texture.BuildTexture();
+	normal.BuildTexture();
+	specular.BuildTexture();
+	hasTextures = true;
+}
+
+vertex_t Mesh::GetMiddlePoint(const vertex_t &v0, const vertex_t &v1) const {
+	vertex_t res;
+	res.Position = (v0.Position + v1.Position) / 2.0f;
+	res.Normal = glm::normalize(res.Position - glm::vec3(0.0f));
 	return res;
 }
 
@@ -163,7 +189,7 @@ void Mesh::BuildRenderData(){
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)offsetof(vertex_t, Normal));
 	glEnableVertexAttribArray(1);
 	// Color attribute of a vertex
-	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)offsetof(vertex_t, Color));
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)offsetof(vertex_t, UV));
 	glEnableVertexAttribArray(2);
 	glm::mat4 scale = glm::scale(glm::mat4(1.0f), Scale);
 	glm::mat4 translation = glm::translate(glm::mat4(1.0f), Position);
@@ -174,6 +200,10 @@ void Mesh::BuildRenderData(){
 	Model = scale * rotX * rotY * rotZ * translation;
 
 	NormTransform = glm::transpose(glm::inverse(Model));
+
+	// Set texture sampler locations
+	// Location 0 is for the color sampler
+	
 	glBindVertexArray(0);
 	meshBuilt = true;
 }

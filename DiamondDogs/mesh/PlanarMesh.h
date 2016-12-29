@@ -3,6 +3,7 @@
 #define PLANAR_MESH_H
 #include "Mesh.h"
 
+
 enum class CardinalFace {
 	FRONT,
 	BACK,
@@ -31,6 +32,7 @@ protected:
 	// Max subdivision level.
 	int Max_LOD;
 	CardinalFace Face;
+	
 };
 
 #endif // !PLANAR_MESH_H

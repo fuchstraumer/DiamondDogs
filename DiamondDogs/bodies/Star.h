@@ -2,34 +2,27 @@
 #ifndef STAR_H
 #define STAR_H
 #include "Body.h"
-#include "../mesh/GlobeMesh.h"
-#include "../util/Shader.h"
-/*
-	
-	STAR_H
-
-	Objects of this type are stars, and will be rendered with appropriate
-	properties to match their type. Spectral types can be specified, and the
-	spectrum of a star can be changed. The base mesh is an icosphere, since
-	this is is easier to render/build and we don't need the properties unique
-	to cubemaps
-
-*/
+#include "../mesh/Icosphere.h"
 
 class Star : public Body {
 public:
-	Star(glm::vec3 spectrum, glm::vec3 position, float radius, int LOD) {
-		Mesh = GlobeMesh(LOD);
-		Radius = radius;
-		Mesh.Scale = glm::vec3(Radius);
-		WorldPosition = position;
-		Mesh.Position = glm::vec3(WorldPosition);
-		starSpectrum = spectrum;
-	}
+	// Creates a star, randomly selecting all values from within reasonable ranges
+	Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection);
+	// Creates a star, using supplied values or reasonably shuffled defaults otherwise.
 
+	~Star() = default;
+	Star() = default;
+	// Render this star, supplying the view matrix needed
+	void Render(const glm::mat4& view);
 private:
-	glm::vec3 starSpectrum;
-	GlobeMesh Mesh;
-	ShaderProgram StarProgram;
+	// Temperature selects color, and specifies which texture coordinate to use for all
+	// vertices in this object since the base color is uniform
+	unsigned int temperature;
+	// Radius is useful to know, but will mainly be set in the mesh since we care about it most there
+	float radius;
+	Icosphere mesh;
+	ShaderProgram shader;
+	static Texture1D starColor;
 };
+
 #endif // !STAR_H

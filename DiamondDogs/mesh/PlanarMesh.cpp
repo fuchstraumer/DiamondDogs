@@ -34,6 +34,11 @@ PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){
 				// We're traversing the Y-axis in the positive y direciton here
 				yAngle = -aInitial + (dAngle * j);
 				vertex_t newVert;
+				float u, v;
+				u = static_cast<float>(tan(xAngle) / 2.0f) + 0.5f;
+				v = static_cast<float>(tan(yAngle) / 2.0f) + 0.5f;
+				newVert.UV.x = -u;
+				newVert.UV.y = v;
 				newVert.Position.x = static_cast<float>(tan(xAngle));
 				newVert.Position.y = static_cast<float>(tan(yAngle));
 				newVert.Position.z = 1.0f;
@@ -48,6 +53,11 @@ PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){
 				yAngle = aInitial - (dAngle * j);
 				zAngle = aInitial - (dAngle * i);
 				vertex_t newVert;
+				float u, v;
+				u = static_cast<float>(tan(zAngle) / 2.0f) + 0.5f;
+				v = static_cast<float>(tan(yAngle) / 2.0f) + 0.5f;
+				newVert.UV.x = u;
+				newVert.UV.y = v;
 				newVert.Position.x = 1.0f;
 				newVert.Position.y = static_cast<float>(tan(yAngle));
 				newVert.Position.z = static_cast<float>(tan(zAngle));
@@ -61,6 +71,11 @@ PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){
 				xAngle = -aInitial + (dAngle * i);
 				yAngle = -aInitial + (dAngle * j);
 				vertex_t newVert;
+				float u, v;
+				u = (static_cast<float>(tan(xAngle)) / 2.0f) + 0.5f;
+				v = (static_cast<float>(tan(yAngle)) / 2.0f) + 0.5f;
+				newVert.UV.x = u;
+				newVert.UV.y = v;
 				newVert.Position.x = static_cast<float>(tan(xAngle));
 				newVert.Position.y = static_cast<float>(tan(yAngle));
 				newVert.Position.z = -1.0f;
@@ -74,6 +89,11 @@ PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){
 				yAngle = -aInitial + (dAngle * i);
 				zAngle = aInitial - (dAngle * j);
 				vertex_t newVert;
+				float u, v;
+				u = static_cast<float>(tan(zAngle) / 2.0f) + 0.5f;
+				v = static_cast<float>(tan(yAngle) / 2.0f) + 0.5f;
+				newVert.UV.x = -u;
+				newVert.UV.y = v;
 				newVert.Position.x = -1.0f;
 				newVert.Position.y = static_cast<float>(tan(yAngle));
 				newVert.Position.z = static_cast<float>(tan(zAngle));
@@ -87,6 +107,11 @@ PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){
 				xAngle = aInitial - (dAngle * i);
 				zAngle = aInitial - (dAngle * j);
 				vertex_t newVert;
+				float u, v;
+				u = static_cast<float>(tan(xAngle) / 2.0f) + 0.5f;
+				v = static_cast<float>(tan(zAngle) / 2.0f) + 0.5f;
+				newVert.UV.x = v;
+				newVert.UV.y = -u;
 				newVert.Position.x = static_cast<float>(tan(xAngle));
 				newVert.Position.y = 1.0f;
 				newVert.Position.z = static_cast<float>(tan(zAngle));
@@ -108,5 +133,5 @@ PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){
 		}
 		break;
 	}
-	
+	Vertices.shrink_to_fit();
 }

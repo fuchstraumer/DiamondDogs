@@ -52,6 +52,8 @@ void SpherifiedCube::Spherify(){
 // we can greatly decrease this distortion.
 void SpherifiedCube::makeUnitCubeTriangles(int face){
 	index_t v1, v2, v3, v4;
+	Faces[face].Indices.reserve(6 * Faces[face].Vertices.size());
+	Faces[face].Triangles.reserve(3 * Faces[face].Vertices.size());
 	for (int i = 0; i < Subdivision_Level; ++i) {
 		for (int j = 0; j < Subdivision_Level; ++j) {
 
@@ -81,6 +83,8 @@ void SpherifiedCube::makeUnitCubeTriangles(int face){
 			}
 		}
 	}
+	Faces[face].Indices.shrink_to_fit();
+	Faces[face].Triangles.shrink_to_fit();
 }
 
 // Convert from cubemap coords to cartesian coords

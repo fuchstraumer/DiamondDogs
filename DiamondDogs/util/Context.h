@@ -104,8 +104,6 @@ private:
 	ShaderProgram skyboxProgram;
 	// List of objects kept in the map
 	std::vector<std::string> shaderNames;
-	// Keeps track of active texture count so we know which texture unit to use
-	GLuint texCount;
 	// Framebuffer used for this scene
 	//Framebuffer sceneFBO;
 };

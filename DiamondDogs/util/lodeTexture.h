@@ -2,17 +2,20 @@
 #ifndef LODE_TEXTURE_H
 #define LODE_TEXTURE_H
 #include "lodepng.h"
+#define _CRTDBG_MAP_ALLOC
 #include "../stdafx.h"
 #include "shader.h"
 #include <unordered_map>
-
+#include <memory>
 using uint = unsigned int;
 
 // Baseline texture class
 
 class Texture {
 public:
-	Texture() = default;
+	Texture() {
+		
+	}
 
 	~Texture() {
 		glDeleteTextures(1, &gl_Handle);
@@ -29,6 +32,8 @@ public:
 	virtual void BuildTexture(){ }
 	// Once this function is called the texture WILL be used/active
 	virtual void BindTexture() const { }
+
+	
 
 protected:
 	// List of files to import
@@ -95,6 +100,7 @@ public:
 
 	// The handle used to activate this texture
 	CubemapTexture(std::vector<std::string> filelist, uint texture_dims) : Texture() {
+		glGenTextures(1, &this->gl_Handle);
 		Width = texture_dims;
 		Height = texture_dims;
 		fileList = filelist;
@@ -106,9 +112,7 @@ public:
 			lodepng_decode32_file(&data, &Width, &Height, str.data());
 			textureData.push_back(data);
 		}
-		glGenTextures(1, &this->gl_Handle);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, gl_Handle);
-
 		for (uint i = 0; i < 6; ++i) {
 			glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA, Width, Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, textureData[i]);
 		}
@@ -143,6 +147,7 @@ class BumpCubemap : public Texture {
 class Texture1D : public Texture{
 public:
 	Texture1D(const char* file, uint texture_size) : Texture() {
+		glGenTextures(1, &this->gl_Handle);
 		Width = texture_size;
 		fileList.push_back(file);
 	}
@@ -152,7 +157,6 @@ public:
 		uint height = 1;
 		lodepng_decode32_file(&data, &Width, &height, fileList[0].data());
 		textureData.push_back(data);
-		glGenTextures(1, &gl_Handle);
 		glBindTexture(GL_TEXTURE_1D, gl_Handle);
 
 		glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA, Width, 0, GL_RGBA, GL_UNSIGNED_BYTE, textureData[0]);
@@ -179,6 +183,7 @@ public:
 	}
 
 	virtual void BuildTexture() override {
+		
 		unsigned char* data;
 		lodepng_decode32_file(&data, &Width, &Height, fileList[0].data());
 		glGenTextures(1, &gl_Handle);
@@ -192,6 +197,7 @@ public:
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 		glGenerateMipmap(GL_TEXTURE_2D);
 		glBindTexture(GL_TEXTURE_2D, 0);
+
 	}
 
 	virtual void BindTexture() const override {

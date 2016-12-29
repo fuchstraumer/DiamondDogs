@@ -3,10 +3,12 @@
 #define MESH_H
 #include "../stdafx.h"
 #include "../util/Shader.h"
+#include "../util/lodeTexture.h"
 #include <unordered_map>
 #include <cstdint>
 #include "MeshComponents.h"
 // Get middle point between two vertices
+#define _CRTDBG_MAP_ALLOC
 class Mesh {
 public:
 	Mesh() = default;
@@ -33,15 +35,14 @@ public:
 	// Add triangle to the mesh, using three indices specified, return index
 	index_t AddTriangle(const index_t &i0, const index_t &i1, const index_t &i2);
 
+	index_t AddTriangle(const triangle_t & tri);
+
 	// Return the longest edge in a given triangle tri
 	edge_key LongestEdge(triangle_t const & tri) const;
 
 	// Splits the input edge, first checking to make sure we actually need to add a new vert
 	// Returns index to the newly added vertex, or an index to whatever vertex already works
 	index_t SplitEdge(edge_key const & edge);
-
-	// Subdivides all the triangles in this mesh
-	void SubdivideTriangles();
 
 	// Maps an input vertex to a sphere
 	vertex_t VertToSphere(vertex_t in, float radius) const;
@@ -52,7 +53,10 @@ public:
 	glm::vec3 PointToUnitSphere(const glm::vec3 & in) const;
 
 	// Get the vertex in between the two vertices given by i0 and i1
-	vertex_t GetMiddlePoint(const index_t & i0, const index_t & i1);
+	vertex_t GetMiddlePoint(const index_t & i0, const index_t & i1) const;
+
+	// Get the vertex in between the input vertices v0 and v1
+	vertex_t GetMiddlePoint(const vertex_t& v0, const vertex_t& v1) const;
 	
 	// Members
 	std::vector<index_t> Indices;
@@ -61,6 +65,10 @@ public:
 	// Unordered map that keeps all edges in mesh,
 	// used to check for need to subdivide later.
 	EdgeLookup Edges;
+	// Sets texture file paths for this mesh
+	void SetTextures(const char* color_tex, const char* normal_tex, const char* spec_tex, uint width, uint height);
+	// Builds texture data for this mesh
+	void BuildTextureData();
 
 	void BuildRenderData();
 	// Renders this object using the given shader program
@@ -80,6 +88,16 @@ public:
 	glm::vec3 Angle = glm::vec3(0.0f, 0.0f, 0.0f);
 	// Tells us whether or not this object is ready to render
 	bool meshBuilt = false;
+
+	// Color texture
+	Texture2D texture;
+	// Normal texture
+	Texture2D normal;
+	// Specular texture
+	Texture2D specular;
+
+	// Tells the rendering function whether or not this mesh instance has textures
+	bool hasTextures;
 };
 
 #endif // !MESH_H

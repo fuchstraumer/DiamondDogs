@@ -83,7 +83,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -98,7 +98,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -115,7 +115,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -139,7 +139,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\MSVC\OpenGL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\MSVC\OpenGL\include;C:\MSVC\OpenGL\include\libnoise;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
@@ -151,7 +151,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>"C:\MSVC\OpenGL\lib\x64";</AdditionalLibraryDirectories>
-      <AdditionalDependencies>"OpenGL32.lib";"C:\MSVC\OpenGL\lib\x64\glfw3dll.lib";"C:\MSVC\OpenGL\lib\x64\glew32s.lib";"C:\MSVC\OpenGL\lib\libnoise.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>"OpenGL32.lib";"C:\MSVC\OpenGL\lib\x64\glfw3dll.lib";"C:\MSVC\OpenGL\lib\x64\glew32s.lib";"C:\MSVC\OpenGL\lib\x64\libnoise.lib";%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -159,13 +159,13 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
+    <ClInclude Include="bodies\GasGiant.h" />
     <ClInclude Include="bodies\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
-    <ClInclude Include="mesh\GlobeMesh.h" />
-    <ClInclude Include="mesh\Quad.h" />
+    <ClInclude Include="mesh\Billboard.h" />
+    <ClInclude Include="mesh\Icosphere.h" />
     <ClInclude Include="mesh\SpherifiedCube.h" />
-    <ClInclude Include="objects\CubeSphere.h" />
     <ClInclude Include="mesh\Mesh.h" />
     <ClInclude Include="mesh\MeshComponents.h" />
     <ClInclude Include="mesh\PlanarMesh.h" />
@@ -173,21 +173,21 @@
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="util\camera.h" />
     <ClInclude Include="util\Context.h" />
-    <ClInclude Include="util\Framebuffer.h" />
     <ClInclude Include="util\lodepng.h" />
     <ClInclude Include="util\lodeTexture.h" />
-    <ClInclude Include="util\noise\Mods.h" />
-    <ClInclude Include="util\noise\NOISEUTILS.H" />
     <ClInclude Include="util\noise\TerrainBuilder.h" />
     <ClInclude Include="util\Shader.h" />
     <ClInclude Include="util\shaderold.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="bodies\Star.cpp" />
     <ClCompile Include="bodies\Terrestrial.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="DiamondDogs.cpp" />
-    <ClCompile Include="mesh\GlobeMesh.cpp">
+    <ClCompile Include="mesh\Icosphere.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="mesh\Mesh.cpp">
@@ -202,6 +202,9 @@
     </ClCompile>
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="util\Context.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
@@ -209,20 +212,39 @@
     <ClCompile Include="util\lodepng.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="util\noise\noiseutils.cpp" />
     <ClCompile Include="util\Shader.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="shaders\core\fragment.glsl" />
-    <None Include="shaders\core\vertex.glsl" />
-    <None Include="shaders\terrestrial\fragment.glsl" />
-    <None Include="shaders\terrestrial\vertex.glsl" />
+    <None Include="shaders\debug\fragment.glsl" />
+    <None Include="shaders\debug\vertex.glsl" />
     <None Include="shaders\wireframe\fragment.glsl" />
     <None Include="shaders\wireframe\geometry.glsl" />
     <None Include="shaders\wireframe\vertex.glsl" />
   </ItemGroup>
+<<<<<<< HEAD
+  <ItemGroup>
+    <Image Include="rsrc\terr\mip1\_back.png" />
+    <Image Include="rsrc\terr\mip1\_back_norm.png" />
+    <Image Include="rsrc\terr\mip1\_back_specular.png" />
+    <Image Include="rsrc\terr\mip1\_bottom.png" />
+    <Image Include="rsrc\terr\mip1\_bottom_norm.png" />
+    <Image Include="rsrc\terr\mip1\_front.png" />
+    <Image Include="rsrc\terr\mip1\_front_norm.png" />
+    <Image Include="rsrc\terr\mip1\_front_specular.png" />
+    <Image Include="rsrc\terr\mip1\_left.png" />
+    <Image Include="rsrc\terr\mip1\_left_norm.png" />
+    <Image Include="rsrc\terr\mip1\_left_specular.png" />
+    <Image Include="rsrc\terr\mip1\_right.png" />
+    <Image Include="rsrc\terr\mip1\_right_norm.png" />
+    <Image Include="rsrc\terr\mip1\_right_specular.png" />
+    <Image Include="rsrc\terr\mip1\_top.png" />
+    <Image Include="rsrc\terr\mip1\_top_norm.png" />
+    <Image Include="rsrc\test_face.png" />
+  </ItemGroup>
+=======
+>>>>>>> parent of 2f9d996... Cubemap textures, basic python conversion script
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

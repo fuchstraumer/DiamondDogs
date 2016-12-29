@@ -3,10 +3,14 @@
 
 // Light Variables
 static const glm::vec4 lightColor(1.0f, 1.0f, 0.98f, 1.0f);
-static const glm::vec4 lightPosition(130.0f, 120.0f, 100.0f, 1.0f);
+static const glm::vec4 lightPosition(3200.0f, -400.0f, 2700.0f, 1.0f);
 
 static constexpr float pi = 3.14159265358979f;
 
+<<<<<<< HEAD
+
+=======
+>>>>>>> parent of 2f9d996... Cubemap textures, basic python conversion script
 Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_density) : Body() {
 	Radius = radius;
 	Mass = mass;
@@ -29,18 +33,50 @@ Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_density)
 		"normTransform",
 		"lightPos",
 		"lightColor",
+		"colorTex",
+		"normal",
+		"specular",
+		"viewPos",
 	};
 	
 	MainShader.BuildUniformMap(uniforms);
 	// Set up atmosphere 
 	glUniform3f(MainShader.GetUniformLocation("lightPos"), lightPosition.x, lightPosition.y, lightPosition.z);
 	glUniform3f(MainShader.GetUniformLocation("lightColor"), lightColor.x, lightColor.y, lightColor.z);
-
+	
+	GLuint colorLoc = MainShader.GetUniformLocation("colorTex");
+	GLuint normLoc = MainShader.GetUniformLocation("normal");
+	GLuint specLoc = MainShader.GetUniformLocation("specular");
+	glUniform1i(colorLoc, 0);
+	glUniform1i(normLoc, 1);
+	glUniform1i(specLoc, 2);
 	atmoRadius = 1.30f * Radius;
 	atmoDensity = atmo_density;
 
+	static std::vector<std::string> textures{
+		("./rsrc/terr/mip1/_back.png"),("./rsrc/terr/mip1/_back_norm.png"),("./rsrc/terr/mip1/_back_specular.png"),
+		("./rsrc/terr/mip1/_right.png"),("./rsrc/terr/mip1/_right_norm.png"),("./rsrc/terr/mip1/_right_specular.png"),
+		("./rsrc/terr/mip1/_front.png"),("./rsrc/terr/mip1/_front_norm.png"),("./rsrc/terr/mip1/_front_specular.png"),
+		("./rsrc/terr/mip1/_left.png"),("./rsrc/terr/mip1/_left_norm.png"),("./rsrc/terr/mip1/_left_specular.png"),
+		("./rsrc/terr/mip1/_top.png"),("./rsrc/terr/mip1/_top_norm.png"),("./rsrc/terr/mip1/_top_specular.png"),
+		("./rsrc/terr/mip1/_bottom.png"),("./rsrc/terr/mip1/_bottom_norm.png"),("./rsrc/terr/mip1/_bottom_specular.png"),
+	};
+
 	// Set the uniform attributes
 	Mesh.Spherify();
+<<<<<<< HEAD
+	int j = 0;
+	for (int i = 0; i < Mesh.Faces.size(); ++i) {
+		Mesh.Faces[i].Scale = glm::vec3(Radius);
+		Mesh.Faces[i].Position = glm::vec3(0.0f);
+		Mesh.Faces[i].SetTextures(textures[j].c_str(), textures[j + 1].c_str(), textures[j + 2].c_str(), 2048, 2048);
+		Mesh.Faces[i].BuildTextureData();
+		Mesh.Faces[i].BuildRenderData();
+		Mesh.Faces[i].Vertices.shrink_to_fit();
+		Mesh.Faces[i].Indices.shrink_to_fit();
+		Mesh.Faces[i].Triangles.shrink_to_fit();
+		j += 3;
+=======
 	for (auto&& face : Mesh.Faces) {
 		face.Scale = glm::vec3(Radius);
 		face.Position = glm::vec3(0.0f);
@@ -48,6 +84,7 @@ Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_density)
 		face.Vertices.shrink_to_fit();
 		face.Indices.shrink_to_fit();
 		face.Triangles.shrink_to_fit();
+>>>>>>> parent of 2f9d996... Cubemap textures, basic python conversion script
 	}
 
 }
@@ -112,7 +149,7 @@ void Terrestrial::Render(const glm::mat4 & view, const glm::mat4 & projection, c
 	MainShader.Use();
 	glUniformMatrix4fv(MainShader.GetUniformLocation("view"), 1, GL_FALSE, glm::value_ptr(view));
 	glUniformMatrix4fv(MainShader.GetUniformLocation("projection"), 1, GL_FALSE, glm::value_ptr(projection));
-	
+	glUniform3f(MainShader.GetUniformLocation("viewPos"), camera_pos.x, camera_pos.y, camera_pos.z);
 	for (auto&& face : Mesh.Faces) {
 		face.Render(MainShader);
 	}
