@@ -160,6 +160,8 @@
     <ClInclude Include="bodies\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
+    <ClInclude Include="mesh\Billboard.h" />
+    <ClInclude Include="mesh\Icosphere.h" />
     <ClInclude Include="mesh\SpherifiedCube.h" />
     <ClInclude Include="mesh\Mesh.h" />
     <ClInclude Include="mesh\MeshComponents.h" />

@@ -3,12 +3,9 @@
 #define TERRESTRIAL_H
 #include "Body.h"
 #include "../util/Shader.h"
-<<<<<<< HEAD
 #include "../util/lodeTexture.h"
 #include "../mesh/SpherifiedCube.h"
-=======
 
->>>>>>> parent of 2f9d996... Cubemap textures, basic python conversion script
 
 class Terrestrial : public Body {
 public:

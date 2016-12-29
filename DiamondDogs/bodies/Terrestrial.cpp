@@ -7,10 +7,6 @@ static const glm::vec4 lightPosition(3200.0f, -400.0f, 2700.0f, 1.0f);
 
 static constexpr float pi = 3.14159265358979f;
 
-<<<<<<< HEAD
-
-=======
->>>>>>> parent of 2f9d996... Cubemap textures, basic python conversion script
 Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_density) : Body() {
 	Radius = radius;
 	Mass = mass;
@@ -52,41 +48,6 @@ Terrestrial::Terrestrial(float radius, double mass, int LOD, float atmo_density)
 	glUniform1i(specLoc, 2);
 	atmoRadius = 1.30f * Radius;
 	atmoDensity = atmo_density;
-
-	static std::vector<std::string> textures{
-		("./rsrc/terr/mip1/_back.png"),("./rsrc/terr/mip1/_back_norm.png"),("./rsrc/terr/mip1/_back_specular.png"),
-		("./rsrc/terr/mip1/_right.png"),("./rsrc/terr/mip1/_right_norm.png"),("./rsrc/terr/mip1/_right_specular.png"),
-		("./rsrc/terr/mip1/_front.png"),("./rsrc/terr/mip1/_front_norm.png"),("./rsrc/terr/mip1/_front_specular.png"),
-		("./rsrc/terr/mip1/_left.png"),("./rsrc/terr/mip1/_left_norm.png"),("./rsrc/terr/mip1/_left_specular.png"),
-		("./rsrc/terr/mip1/_top.png"),("./rsrc/terr/mip1/_top_norm.png"),("./rsrc/terr/mip1/_top_specular.png"),
-		("./rsrc/terr/mip1/_bottom.png"),("./rsrc/terr/mip1/_bottom_norm.png"),("./rsrc/terr/mip1/_bottom_specular.png"),
-	};
-
-	// Set the uniform attributes
-	Mesh.Spherify();
-<<<<<<< HEAD
-	int j = 0;
-	for (int i = 0; i < Mesh.Faces.size(); ++i) {
-		Mesh.Faces[i].Scale = glm::vec3(Radius);
-		Mesh.Faces[i].Position = glm::vec3(0.0f);
-		Mesh.Faces[i].SetTextures(textures[j].c_str(), textures[j + 1].c_str(), textures[j + 2].c_str(), 2048, 2048);
-		Mesh.Faces[i].BuildTextureData();
-		Mesh.Faces[i].BuildRenderData();
-		Mesh.Faces[i].Vertices.shrink_to_fit();
-		Mesh.Faces[i].Indices.shrink_to_fit();
-		Mesh.Faces[i].Triangles.shrink_to_fit();
-		j += 3;
-=======
-	for (auto&& face : Mesh.Faces) {
-		face.Scale = glm::vec3(Radius);
-		face.Position = glm::vec3(0.0f);
-		face.BuildRenderData();
-		face.Vertices.shrink_to_fit();
-		face.Indices.shrink_to_fit();
-		face.Triangles.shrink_to_fit();
->>>>>>> parent of 2f9d996... Cubemap textures, basic python conversion script
-	}
-
 }
 
 void Terrestrial::SetDiffuseColor(const glm::vec3 & color){

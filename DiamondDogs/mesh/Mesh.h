@@ -7,8 +7,6 @@
 #include <unordered_map>
 #include <cstdint>
 #include "MeshComponents.h"
-// Get middle point between two vertices
-#define _CRTDBG_MAP_ALLOC
 class Mesh {
 public:
 	Mesh() = default;

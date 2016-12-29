@@ -1,6 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <ClCompile Include="bodies\Star.cpp" />
     <ClCompile Include="bodies\Terrestrial.cpp" />
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="mesh\Icosphere.cpp" />
@@ -11,16 +12,13 @@
     <ClCompile Include="util\Context.cpp" />
     <ClCompile Include="util\lodepng.cpp" />
     <ClCompile Include="util\Shader.cpp" />
-    <ClCompile Include="bodies\Star.cpp" />
   </ItemGroup>
   <ItemGroup>
-<<<<<<< HEAD
     <ClInclude Include="bodies\Body.h" />
     <ClInclude Include="bodies\GasGiant.h" />
     <ClInclude Include="bodies\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
-    <ClInclude Include="mesh\Icosphere.h" />
     <ClInclude Include="mesh\SpherifiedCube.h" />
     <ClInclude Include="mesh\Mesh.h" />
     <ClInclude Include="mesh\MeshComponents.h" />
@@ -35,25 +33,7 @@
     <ClInclude Include="util\Shader.h" />
     <ClInclude Include="util\shaderold.h" />
     <ClInclude Include="mesh\Billboard.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <Image Include="rsrc\terr\mip1\_back.png" />
-    <Image Include="rsrc\terr\mip1\_back_norm.png" />
-    <Image Include="rsrc\terr\mip1\_back_specular.png" />
-    <Image Include="rsrc\terr\mip1\_bottom.png" />
-    <Image Include="rsrc\terr\mip1\_bottom_norm.png" />
-    <Image Include="rsrc\terr\mip1\_front.png" />
-    <Image Include="rsrc\terr\mip1\_front_norm.png" />
-    <Image Include="rsrc\terr\mip1\_front_specular.png" />
-    <Image Include="rsrc\terr\mip1\_left.png" />
-    <Image Include="rsrc\terr\mip1\_left_norm.png" />
-    <Image Include="rsrc\terr\mip1\_left_specular.png" />
-    <Image Include="rsrc\terr\mip1\_right.png" />
-    <Image Include="rsrc\terr\mip1\_right_norm.png" />
-    <Image Include="rsrc\terr\mip1\_right_specular.png" />
-    <Image Include="rsrc\terr\mip1\_top.png" />
-    <Image Include="rsrc\terr\mip1\_top_norm.png" />
-    <Image Include="rsrc\test_face.png" />
+    <ClInclude Include="mesh\Icosphere.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />
@@ -61,117 +41,5 @@
     <None Include="shaders\wireframe\fragment.glsl" />
     <None Include="shaders\wireframe\geometry.glsl" />
     <None Include="shaders\wireframe\vertex.glsl" />
-=======
-    <Text Include="ReadMe.txt" />
   </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="stdafx.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="util\lodepng.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="util\lodeTexture.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="mesh\Mesh.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="mesh\MeshComponents.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="mesh\Skybox.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="util\shaderold.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="util\Shader.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="mesh\PlanarMesh.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="mesh\SpherifiedCube.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="util\camera.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="bodies\Body.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="bodies\Terrestial.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="bodies\Terrestrial.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="util\Context.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="util\noise\TerrainBuilder.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="mesh\Icosphere.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="bodies\Star.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="bodies\GasGiant.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="DiamondDogs.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="util\lodepng.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="mesh\Mesh.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="stdafx.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="mesh\SpherifiedCube.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="mesh\PlanarMesh.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="util\Context.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="bodies\Terrestrial.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="util\Shader.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="mesh\Icosphere.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="shaders\wireframe\fragment.glsl" />
-    <None Include="shaders\wireframe\geometry.glsl" />
-    <None Include="shaders\wireframe\vertex.glsl" />
-    <None Include="shaders\debug\fragment.glsl" />
-    <None Include="shaders\debug\vertex.glsl" />
-  </ItemGroup>
-  <ItemGroup>
-    <Image Include="rsrc\test_face.png">
-      <Filter>Resource Files</Filter>
-    </Image>
->>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
-  </ItemGroup>
-<<<<<<< HEAD
-  <ItemGroup>
-    <Text Include="ReadMe.txt" />
-  </ItemGroup>
-=======
->>>>>>> parent of 2f9d996... Cubemap textures, basic python conversion script
 </Project>
