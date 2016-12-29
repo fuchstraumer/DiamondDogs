@@ -94,10 +94,14 @@ public:
 	// Normal texture
 	Texture2D normal;
 	// Specular texture
+<<<<<<< HEAD
 	Texture2D specular;
 
 	// Tells the rendering function whether or not this mesh instance has textures
 	bool hasTextures;
+=======
+	Texture2D spec;
+>>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 };
 
 #endif // !MESH_H

@@ -1,5 +1,6 @@
 #include "../stdafx.h"
 #include "Icosphere.h"
+<<<<<<< HEAD
 #include <unordered_map>
 
 // Isochadron generation method "liberated" from Seeds of Andromeda: see blogpost 
@@ -9,6 +10,11 @@
 // Subdivides a triangle "tri" in "to", getting vertices out of "from", adding new parts back into "to" and leaving "from"
 // unmodified
 // DEPRECATED: Using new method below, leaving this as an example of what's happening in general.
+=======
+
+// Subdivides a triangle "tri" in "to", getting vertices out of "from", adding new parts back into "to" and leaving "from"
+// unmodified
+>>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 inline void SubdivideTriangle(const triangle_t& tri, const Icosphere& from, Icosphere& to) {
 	vertex_t v0, v1, v2;
 	/*
@@ -57,6 +63,7 @@ inline void SubdivideTriangle(const triangle_t& tri, const Icosphere& from, Icos
 	to.AddTriangle(i3, i4, i5);
 }
 
+<<<<<<< HEAD
 // Functions required to add a glm::vec3 into an unordered map: hashing functions, essentially
 struct vecHash {
 	// Hashing function, required for using an unordered map and being able to retrieve values
@@ -136,6 +143,8 @@ static const std::vector<index_t> initialIndices = {
 const int NUM_ISOCAHEDRON_VERTICES = 12;
 const int NUM_ISOCAHEDRON_INDICES = 60;
 
+=======
+>>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 position, glm::vec3 rotation) {
 	// Set properties affecting this mesh
 	Position = position;
@@ -144,6 +153,7 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 position, g
 	Angle = rotation;
 	LOD_Level = lod_level;
 	// Routine for generating the actual mesh
+<<<<<<< HEAD
 	vertLookup vertexLookup;
 	// Temporary buffer for new indices
 	std::vector<index_t> newIndices;
@@ -234,5 +244,44 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 position, g
 
 	for (unsigned int i = 0; i < Vertices.size(); ++i) {
 		Vertices[i].Normal = glm::normalize(Vertices[i].Position - glm::vec3(0.0f));
+=======
+	// Constants affecting position of initial verts
+	const float x = 0.525731112119133606f;
+	const float z = 0.850650808352039932f;
+	const float n = 0.0f;
+
+	// Creation of individual vertices.
+	static const std::vector<vertex_t> initialVertices = {
+		vertex_t(glm::vec3(-x,n,z)),vertex_t(glm::vec3(x,n,z)),
+		vertex_t(glm::vec3(-x,n,-z)),vertex_t(glm::vec3(x,n,-z)),
+		vertex_t(glm::vec3(n,z,x)),vertex_t(glm::vec3(n,z,-x)),
+		vertex_t(glm::vec3(n,-z,x)),vertex_t(glm::vec3(n,-z,-x)),
+		vertex_t(glm::vec3(z,x,n)),vertex_t(glm::vec3(-z,x,n)),
+		vertex_t(glm::vec3(z,-x,n)),vertex_t(glm::vec3(-z,-x,n)),
+	};
+	// Add verts to mesh
+	for (auto vert : initialVertices) {
+		AddVert(vert);
+	}
+	// Specification of triangles.
+	static const std::vector<triangle_t> initialTris = {
+		triangle_t(0,4,1),triangle_t(0,9,4),triangle_t(9,5,4),triangle_t(4,5,8),triangle_t(4,8,1),
+		triangle_t(8,10,1),triangle_t(8,3,10),triangle_t(5,3,8),triangle_t(5,2,3),triangle_t(2,7,3),
+		triangle_t(7,10,3),triangle_t(7,6,10),triangle_t(7,11,6),triangle_t(11,0,6),triangle_t(0,1,6),
+		triangle_t(6,1,10),triangle_t(9,0,11),triangle_t(9,11,2),triangle_t(9,2,5),triangle_t(7,2,11),
+	};
+	// Add triangles to mesh, which have indices to the vertices we added earlier
+	for (auto tri : initialTris) {
+		AddTriangle(tri);
+	}
+	// Subdivide now, using LOD_Level to control the outer loop and using triangles in a temp mesh to control the inner
+	for (unsigned int i = 0; i < LOD_Level; ++i) {
+		Icosphere temp;
+		for (auto&& tri : this->Triangles) {
+			SubdivideTriangle(tri, *this, temp);
+		}
+		*this = std::move(temp);
+		temp.Clear();
+>>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 	}
 }

@@ -1,7 +1,7 @@
 #include "../stdafx.h"
 #include "PlanarMesh.h"
 
-PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){
+PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f, const char* colorTex){
 	Max_LOD = lod;
 	float xAngle, yAngle, zAngle;
 	// This controls the size we step in angular terms
@@ -133,5 +133,9 @@ PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){
 		}
 		break;
 	}
+<<<<<<< HEAD
 	Vertices.shrink_to_fit();
+=======
+	texture = Texture2D(colorTex, 2048, 2048);
+>>>>>>> a13f8af3fadbc3153e6c23b04bd9d5c84982e86b
 }
