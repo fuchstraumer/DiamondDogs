@@ -306,3 +306,6 @@ DiamondDogs/terrain.raw
 DiamondDogs/terrainspec.bmp
 DiamondDogs/terrain.bmp
 DiamondDogs/terrainsurface.bmp
+
+# Files created by Nsight
+*.nvact
