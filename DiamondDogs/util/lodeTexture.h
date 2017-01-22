@@ -100,13 +100,14 @@ public:
 
 	// The handle used to activate this texture
 	CubemapTexture(std::vector<std::string> filelist, uint texture_dims) : Texture() {
-		glGenTextures(1, &this->gl_Handle);
+		
 		Width = texture_dims;
 		Height = texture_dims;
 		fileList = filelist;
 	}
 
 	virtual void BuildTexture() override {
+		glGenTextures(1, &this->gl_Handle);
 		for (auto str : fileList) {
 			unsigned char* data;
 			lodepng_decode32_file(&data, &Width, &Height, str.data());
@@ -147,12 +148,13 @@ class BumpCubemap : public Texture {
 class Texture1D : public Texture{
 public:
 	Texture1D(const char* file, uint texture_size) : Texture() {
-		glGenTextures(1, &this->gl_Handle);
+		
 		Width = texture_size;
 		fileList.push_back(file);
 	}
 
 	virtual void BuildTexture() override {
+		glGenTextures(1, &this->gl_Handle);
 		unsigned char* data;
 		uint height = 1;
 		lodepng_decode32_file(&data, &Width, &height, fileList[0].data());
@@ -179,14 +181,14 @@ public:
 	Texture2D() { }
 
 	Texture2D(std::string filename, uint width, uint height) : Texture() {
-		glGenTextures(1, &this->gl_Handle);
+		
 		Width = width;
 		Height = height;
 		fileList.push_back(filename);
 	}
 
 	virtual void BuildTexture() override {
-		
+		glGenTextures(1, &this->gl_Handle);
 		unsigned char* data;
 		lodepng_decode32_file(&data, &Width, &Height, fileList[0].data());
 		glGenTextures(1, &gl_Handle);

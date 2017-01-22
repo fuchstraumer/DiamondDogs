@@ -1,19 +1,28 @@
-#version 430
+#version 440
 
 uniform mat4 model;
-uniform mat4 view;
 uniform mat4 projection;
-uniform mat4 viewTransform;
+uniform mat4 view;
+uniform vec3 center;
+// Size of the billboard, in world units (i.e radius of star + size of this object)
+uniform vec2 size;
+// Camera "up" vector. 
+uniform vec3 cameraUp;
+// Camera "right" vector
+uniform vec3 cameraRight;
 
 layout(location = 0) in vec3 position;
-layout(location = 1) in vec2 uv;
 
-out vec3 vPos;
-out vec2 vUV;
+out vec4 vPos;
 
 void main(){
-    vUV = uv;
-    vPos = position;
-    vec4 Position = projection * view * model * vec4(position, 1.0f);
-    gl_Position = viewTransform * Position;
+    // Center of billboard in world-space
+    vec3 worldSpaceCenter = center;
+    // Vertex position in worldspace
+    vec3 vPosWorldSpace = worldSpaceCenter + cameraRight * position.x * size.x + 
+    cameraUp * position.y * size.y;
+    // Output position
+    gl_Position = projection * view * vec4(vPosWorldSpace, 1.0f);
+    // Output UV given to fragment shader
+    vPos = vec4(position,1.0f);
 }

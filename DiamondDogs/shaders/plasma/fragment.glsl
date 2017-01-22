@@ -327,18 +327,18 @@ void main(){
       corona *= pow(dist * (1.0f / Radius), 24.0f);
       // Get surface texture
       vec3 noisePos = fPos + (frame * 0.01f);
-      n = (noise(noisePos, 5, 0.25f, 0.16f, grad) * 0.40f);
+      n = (noise(noisePos, 4, 0.25f, 0.10f, grad) * 0.40f);
       float sampleOffset = (n * brightness * 4.50f * frame);
-      n2 = (noise(noisePos + sampleOffset, 4, 0.25f, 0.20f) * 0.40f);
+      n2 = (noise(noisePos + sampleOffset, 2, 0.25f, 0.09f) * 0.40f);
       // Get texture coordinate from temperature
       u = (temperature - 800.0f)/29200.0f;
       color = texture(blackbody, u);
       // Intermediate color based on blackbody spectrum, colorshift, and noise value
       color = (vec4(colorShift,1.0f) + color);
     }
-    color *= n;
+
     float starGlow = min(max(1.0f - dist * (1.0f - brightness), 0.0f), 1.0f);
     vec4 starGlowColor = texture(blackbody, (temperature / 29200.0f));
-    fragColor.rgb = vec3(f * (0.75f + brightness * 0.30f) * color.xyz) + (starGlow * starGlowColor.xyz * n2) + corona * color.xyz;
+    fragColor.rgb = vec3(f * (0.75f + brightness * 0.30f) * color.xyz) + n + (starGlow * starGlowColor.xyz + n2) + corona * color.xyz;
     fragColor.a = 1.0f;
 }

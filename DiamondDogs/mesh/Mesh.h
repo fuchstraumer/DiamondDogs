@@ -74,6 +74,9 @@ public:
 	// Renders this object using the given shader program
 	void Render(ShaderProgram& shader) const;
 
+	// Updates model matrix assuming that Angle, Scale, or Position have been changed
+	void UpdateModelMatrix();
+
 	// Used to access GL buffer/array objects
 	GLuint VAO, VBO, EBO;
 	// Matrix defining this mesh's world transformation

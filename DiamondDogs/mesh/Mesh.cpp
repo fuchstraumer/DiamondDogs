@@ -218,3 +218,13 @@ void Mesh::Render(ShaderProgram & shader) const {
 	glDrawElements(GL_TRIANGLES, GetNumIndices(), GL_UNSIGNED_INT, 0);
 	glBindVertexArray(0);
 }
+
+void Mesh::UpdateModelMatrix(){
+	glm::mat4 scale = glm::scale(glm::mat4(1.0f), Scale);
+	glm::mat4 translation = glm::translate(glm::mat4(1.0f), Position);
+	glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), Angle.x, glm::vec3(1.0f, 0.0f, 0.0f));
+	glm::mat4 rotY = glm::rotate(glm::mat4(1.0f), Angle.y, glm::vec3(0.0f, 1.0f, 0.0f));
+	glm::mat4 rotZ = glm::rotate(glm::mat4(1.0f), Angle.z, glm::vec3(0.0f, 0.0f, 1.0f));
+	Model = scale * rotX * rotY * rotZ * translation;
+	NormTransform = glm::transpose(glm::inverse(Model));
+}

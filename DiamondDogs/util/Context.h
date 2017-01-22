@@ -100,6 +100,8 @@ public:
 	// Projection matrix
 	glm::mat4 Projection;
 
+
+
 private:
 	ShaderProgram skyboxProgram;
 	// List of objects kept in the map

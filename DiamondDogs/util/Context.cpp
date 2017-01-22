@@ -33,7 +33,7 @@ Context::Context(GLfloat width, GLfloat height){
 
 	// Set OpenGL version and profile: 3.3 Compatability
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	//glfwWindowHint(GLFW_SAMPLES, 8);
 	// Don't allow the window to be resize (embedded in UI)
@@ -80,8 +80,8 @@ Context::Context(GLfloat width, GLfloat height){
 	};
 	skyboxProgram.BuildUniformMap(Uniforms);
 
-	testStar = Star(3, 100.0f, 6000, Projection);
-	
+	testStar = Star(5, 100.0f, 2000, Projection);
+	testStar.BuildCorona(glm::vec3(0.0f), 100.0f, Projection);
 	// Set skybox uniforms
 	skyboxProgram.Use();
 	GLuint projLoc = skyboxProgram.GetUniformLocation("projection");
@@ -96,7 +96,7 @@ Context::Context(GLfloat width, GLfloat height){
 	skyboxTex.BuildTexture();
 	skybox.BuildRenderData();
 
-	
+
 }
 
 void Context::Use() {
@@ -113,10 +113,7 @@ void Context::Use() {
 		glfwPollEvents();
 		UpdateMovement();
 		View = Cam.GetViewMatrix();
-
-		// Set uniforms for wireframe program
-		testStar.Render(View, Cam.Position);
-
+		testStar.Render(View, Projection);
 		glDepthFunc(GL_LEQUAL);
 
 		skyboxProgram.Use();
@@ -130,6 +127,8 @@ void Context::Use() {
 		skybox.RenderSkybox();
 		glDepthFunc(GL_LESS);
 		
+		
+
 		// Before starting loop again, swap buffers (double-buffered rendering)
 		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glfwSwapBuffers(Window);
