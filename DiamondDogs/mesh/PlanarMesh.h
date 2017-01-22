@@ -13,7 +13,7 @@ enum class CardinalFace {
 	RIGHT
 };
 
-class PlanarMesh : public Mesh {
+class PlanarMesh : public Mesh<> {
 public:
 	PlanarMesh() = default;
 

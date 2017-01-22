@@ -9,6 +9,7 @@
 #include <cmath>
 #include <numeric>
 #include <array>
+#include <memory>
 
 using uint = unsigned int;
 #include <stdlib.h>  

@@ -1,4 +1,4 @@
-#include "../stdafx.h"
+#include "stdafx.h"
 #include "PlanarMesh.h"
 
 PlanarMesh::PlanarMesh(const uint & lod, const CardinalFace & f){

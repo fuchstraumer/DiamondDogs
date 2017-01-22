@@ -1,4 +1,4 @@
-#include "../stdafx.h"
+#include "stdafx.h"
 #include "Icosphere.h"
 #include <unordered_map>
 
@@ -9,7 +9,7 @@
 // Subdivides a triangle "tri" in "to", getting vertices out of "from", adding new parts back into "to" and leaving "from"
 // unmodified
 // DEPRECATED: Using new method below, leaving this as an example of what's happening in general.
-inline void SubdivideTriangle(const triangle_t& tri, const Icosphere& from, Icosphere& to) {
+inline void SubdivideTriangle(const triangle_t<>& tri, const Icosphere& from, Icosphere& to) {
 	vertex_t v0, v1, v2;
 	/*
 			  v2

@@ -5,7 +5,7 @@
 #include "Mesh.h"
 #include "../util//Shader.h"
 #include <array>
-class Skybox : public Mesh {
+class Skybox : public Mesh<> {
 public:
 	Skybox() : Mesh() {
 		std::array<glm::vec3, 8> vertices{

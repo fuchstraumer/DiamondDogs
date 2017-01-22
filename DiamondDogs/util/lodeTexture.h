@@ -2,8 +2,7 @@
 #ifndef LODE_TEXTURE_H
 #define LODE_TEXTURE_H
 #include "lodepng.h"
-#define _CRTDBG_MAP_ALLOC
-#include "../stdafx.h"
+#include "stdafx.h"
 #include "shader.h"
 #include <unordered_map>
 #include <memory>

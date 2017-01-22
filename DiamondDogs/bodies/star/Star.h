@@ -1,9 +1,9 @@
 #pragma once
 #ifndef STAR_H
 #define STAR_H
-#include "Body.h"
-#include "../mesh/Icosphere.h"
-#include "../mesh/Billboard.h"
+#include "../Body.h"
+#include "../../mesh/Icosphere.h"
+#include "../../mesh/Billboard.h"
 
 // Structure defining a stars corona
 struct Corona {
@@ -31,7 +31,7 @@ struct Corona {
 			"temperature",
 		};
 		coronaProgram->BuildUniformMap(uniforms);
-		mesh.Shader = coronaProgram;
+		mesh.Program = coronaProgram;
 		mesh.Scale = glm::vec3(4 * radius);
 		mesh.Radius = 4.0f * radius;
 		mesh.Position = position;

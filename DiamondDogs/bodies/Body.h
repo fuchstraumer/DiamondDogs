@@ -1,7 +1,7 @@
 #pragma once
 #ifndef BODY_H
 #define BODY_H
-#include "../stdafx.h"
+#include "stdafx.h"
 #include "../util/Shader.h"
 #include "../util/lodeTexture.h"
 
@@ -17,8 +17,6 @@ public:
 	float Radius;
 	// Mass of this body
 	double Mass;
-
-
 
 };
 #endif // !BODY_H

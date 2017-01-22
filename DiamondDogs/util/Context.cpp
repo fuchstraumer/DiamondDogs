@@ -1,6 +1,6 @@
-#include "../stdafx.h"
+#include "stdafx.h"
 #include "Context.h"
-#include "../bodies/Star.h"
+#include "../bodies/star/Star.h"
 // Main camera instance
 static Camera Cam(glm::vec3(0.0f, 0.0f, 30.0f));
 // Tracking of key presses for movement and simultaneous actions
@@ -240,13 +240,4 @@ void Context::UpdateMovement(){
 
 
 void Context::Render() {
-	for (auto obj : RenderObjects) {
-		auto&& mesh = obj.first;
-		auto&& shader = obj.second.get();
-		mesh.Render(shader);
-	}
-}
-
-void Context::AddRenderObject(const RenderObject obj) {
-	RenderObjects.push_back(obj);
 }

@@ -1,3 +1,4 @@
+#include "stdafx.h"
 #include "Star.h"
 #include "glm/gtc/matrix_transform.hpp"
 
@@ -87,8 +88,6 @@ void Star::Render(const glm::mat4 & view, const glm::mat4& projection){
 		// Wrap time back to zero.
 		frame = 0;
 	}
-	GLuint modelLoc = shader.GetUniformLocation("model");
-	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(this->mesh.Model));
 	mesh.Render(shader);
 	corona.mesh.Render(view,projection);
 }

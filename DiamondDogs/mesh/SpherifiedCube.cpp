@@ -1,4 +1,4 @@
-#include "../stdafx.h"
+#include "stdafx.h"
 #include "SpherifiedCube.h"
 
 // Get the distance between two input vertices that are part of Face "face" when they are mapped to the unit sphere
