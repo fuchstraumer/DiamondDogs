@@ -3,8 +3,8 @@
 #define STAR_H
 #include "../Body.h"
 #include "Corona.h"
-#include "../../mesh/Icosphere.h"
-#include "../../mesh/Billboard.h"
+#include "..\..\engine\mesh\Icosphere.h"
+#include "..\..\engine\mesh\Billboard.h"
 
 class Star : public Body {
 public:
@@ -30,7 +30,7 @@ private:
 	Billboard3D StarDistant;
 	ShaderProgram shaderClose;
 	// Shader used to render the sun when its distant.
-	ShaderProgram shaderDistant;
+	std::shared_ptr<ShaderProgram> shaderDistant;
 	// Texture used to get color: blackbody radiation curve.
 	static Texture1D starColor;
 	// Texture used to get texture (appearance of surface)

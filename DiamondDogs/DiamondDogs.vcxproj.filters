@@ -3,41 +3,41 @@
   <ItemGroup>
     <ClCompile Include="bodies\Terrestrial.cpp" />
     <ClCompile Include="DiamondDogs.cpp" />
-    <ClCompile Include="mesh\Icosphere.cpp" />
-    <ClCompile Include="mesh\PlanarMesh.cpp" />
-    <ClCompile Include="mesh\SpherifiedCube.cpp" />
     <ClCompile Include="stdafx.cpp" />
-    <ClCompile Include="util\Context.cpp" />
     <ClCompile Include="util\lodepng.cpp" />
-    <ClCompile Include="util\Shader.cpp" />
     <ClCompile Include="bodies\star\Star.cpp" />
-    <ClCompile Include="mesh\Billboard.cpp" />
     <ClCompile Include="bodies\gaseous\GasGiant.cpp" />
+    <ClCompile Include="engine\mesh\Billboard.cpp" />
+    <ClCompile Include="engine\mesh\Icosphere.cpp" />
+    <ClCompile Include="engine\mesh\PlanarMesh.cpp" />
+    <ClCompile Include="engine\mesh\SpherifiedCube.cpp" />
+    <ClCompile Include="engine\rendering\Shader.cpp" />
+    <ClCompile Include="engine\Context.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
     <ClInclude Include="bodies\GasGiant.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
-    <ClInclude Include="mesh\SpherifiedCube.h" />
-    <ClInclude Include="mesh\Mesh.h" />
-    <ClInclude Include="mesh\MeshComponents.h" />
-    <ClInclude Include="mesh\PlanarMesh.h" />
-    <ClInclude Include="mesh\Skybox.h" />
     <ClInclude Include="stdafx.h" />
-    <ClInclude Include="util\camera.h" />
-    <ClInclude Include="util\Context.h" />
     <ClInclude Include="util\lodepng.h" />
-    <ClInclude Include="util\lodeTexture.h" />
     <ClInclude Include="util\noise\TerrainBuilder.h" />
-    <ClInclude Include="util\Shader.h" />
     <ClInclude Include="util\shaderold.h" />
-    <ClInclude Include="mesh\Billboard.h" />
-    <ClInclude Include="mesh\Icosphere.h" />
     <ClInclude Include="bodies\star\Star.h" />
     <ClInclude Include="bodies\star\Corona.h" />
     <ClInclude Include="bodies\terrestrial\Barren.h" />
     <ClInclude Include="bodies\gaseous\GasGiant.h" />
+    <ClInclude Include="engine\mesh\Billboard.h" />
+    <ClInclude Include="engine\mesh\Icosphere.h" />
+    <ClInclude Include="engine\mesh\Mesh.h" />
+    <ClInclude Include="engine\mesh\MeshComponents.h" />
+    <ClInclude Include="engine\mesh\PlanarMesh.h" />
+    <ClInclude Include="engine\mesh\Skybox.h" />
+    <ClInclude Include="engine\mesh\SpherifiedCube.h" />
+    <ClInclude Include="engine\rendering\camera.h" />
+    <ClInclude Include="engine\rendering\Shader.h" />
+    <ClInclude Include="engine\Context.h" />
+    <ClInclude Include="util\lodeTexture.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

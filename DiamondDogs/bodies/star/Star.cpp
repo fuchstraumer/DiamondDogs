@@ -16,7 +16,7 @@ inline glm::vec3 getStarColor(unsigned int temperature) {
 Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection) : corona() {
 	radius = _radius;
 	temperature = temp;
-	LOD_SwitchDistance = radius * 3000.0f;
+	LOD_SwitchDistance = radius * 10.0f;
 	// Setup primary meshes.
 	mesh = Icosphere(lod_level, radius);
 	mesh2 = Icosphere(lod_level + 1, radius * 1.02f);
@@ -83,12 +83,13 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 	// Setup the billboard used when we want to render the star from a long distance.
 
 	// First, setup the program used to render at this distance.
+	shaderDistant = std::make_shared<ShaderProgram>();
 	Shader farVert("./shaders/star/far/vertex.glsl", VERTEX_SHADER);
 	Shader farFrag("./shaders/star/far/fragment.glsl", FRAGMENT_SHADER);
-	shaderDistant.Init();
-	shaderDistant.AttachShader(farVert);
-	shaderDistant.AttachShader(farFrag);
-	shaderDistant.CompleteProgram();
+	shaderDistant->Init();
+	shaderDistant->AttachShader(farVert);
+	shaderDistant->AttachShader(farFrag);
+	shaderDistant->CompleteProgram();
 
 	// Setup uniforms for this program.
 	uniforms = std::vector<std::string>{
@@ -103,13 +104,28 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 		"temperature",
 		"glowTex",
 	};
-	shaderDistant.BuildUniformMap(uniforms);
+	shaderDistant->BuildUniformMap(uniforms);
 
+	// Set shader in billboard
+	StarDistant.Program = shaderDistant;
 	// Make sure to build the texture and set it's location
 	starGlow.BuildTexture();
+	StarDistant.Program->Use();
 
-	projLoc = shaderDistant.GetUniformLocation("projection");
-	tempLoc = shaderDistant.GetUniformLocation("temperature");
+	// Build render data.
+	StarDistant.BuildRenderData();
+
+	// Get locations of uniforms we can set right now.
+	projLoc = StarDistant.Program->GetUniformLocation("projection");
+	tempLoc = StarDistant.Program->GetUniformLocation("temperature");
+	starTexLoc = StarDistant.Program->GetUniformLocation("glowTex");
+	GLuint centerLoc = StarDistant.Program->GetUniformLocation("center");
+
+	// Set uniforms
+	glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+	glUniform1i(tempLoc, temperature);
+	glUniform1i(starTexLoc, 5);
+	glUniform3f(centerLoc, StarDistant.Position.x, StarDistant.Position.y, StarDistant.Position.z);
 
 }
 
@@ -128,14 +144,10 @@ void Star::Render(const glm::mat4 & view, const glm::mat4& projection, const glm
 		glActiveTexture(GL_TEXTURE1);
 		starColor.BindTexture();
 		glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-		glUniform1i(timeLoc, frame);
+		glUniform1i(timeLoc, static_cast<GLint>(frame));
 		glUniform3f(cPosLoc, camera_position.x, camera_position.y, camera_position.z);
-		if (frame < std::numeric_limits<uint64_t>::max()) {
+		if (frame < std::numeric_limits<GLint>::max()) {
 			frame++;
-			this->mesh.Angle = glm::vec3(0.0f, 0.01f * frame, 0.0f);
-			this->mesh2.Angle = glm::vec3(-0.01f * frame, 0.0f, 0.02f * frame);
-			this->mesh2.UpdateModelMatrix();
-			this->mesh.UpdateModelMatrix();
 		}
 		else {
 			// Wrap time back to zero.
@@ -160,11 +172,12 @@ void Star::Render(const glm::mat4 & view, const glm::mat4& projection, const glm
 		// note: shouldn't constexpr this in case we change it later.
 		float aspectRatio = static_cast<GLfloat>(SCR_WIDTH) / static_cast<GLfloat>(SCR_HEIGHT);
 		// Set the size in the shader.
-		glm::vec2 size = glm::vec2(glowSize(radius * 2.0, temperature, glm::distance(camera_position, WorldPosition)));
+		glm::vec2 size = glm::vec2(glowSize(radius * 2.0, static_cast<float>(temperature), glm::distance(camera_position, WorldPosition)));
 		size.y *= aspectRatio;
-		GLuint sizeLoc = shaderDistant.GetUniformLocation("size");
+		GLuint sizeLoc = StarDistant.Program->GetUniformLocation("size");
 		glUniform2f(sizeLoc, size.x, size.y);
 		glActiveTexture(GL_TEXTURE5);
 		starGlow.BindTexture();
+		StarDistant.Render(view, projection);
 	}
 }

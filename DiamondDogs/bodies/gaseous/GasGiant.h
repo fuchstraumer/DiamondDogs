@@ -1,9 +1,9 @@
 #pragma once
 #ifndef GAS_GIANT_H
 #define GAS_GIANT_H
-#include "../Body.h"
-#include "../../mesh/SpherifiedCube.h"
-#include "../../util/lodeTexture.h"
+#include "..\Body.h"
+#include "..\..\engine\mesh\SpherifiedCube.h"
+#include "..\..\util\lodeTexture.h"
 /*
 	
 	Gas Giant:

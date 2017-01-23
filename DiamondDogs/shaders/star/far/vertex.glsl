@@ -12,8 +12,10 @@ uniform vec3 cameraUp;
 uniform vec3 cameraRight;
 
 layout(location = 0) in vec3 position;
+layout(location = 1) in vec2 uv;
 
 out vec4 vPos;
+out vec2 vUV;
 
 void main(){
     // Center of billboard in world-space
@@ -25,4 +27,5 @@ void main(){
     gl_Position = projection * view * vec4(vPosWorldSpace, 1.0f);
     // Output UV given to fragment shader
     vPos = vec4(position,1.0f);
+    vUV = uv;
 }

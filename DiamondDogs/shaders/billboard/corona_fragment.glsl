@@ -184,6 +184,9 @@ void main() {
     }
     vec3 color = getStarColor(u);
     fColor = vec4(color,0.6f) * brightness;
-    float transparency = (1.0f / (cdist * cdist)) * 0.12f;
+    float transparency = (1.0f / (cdist * cdist)) * 0.09f;
     fColor.a = transparency;
+    if(fColor.a < 0.04f){
+      discard;
+    }
 }

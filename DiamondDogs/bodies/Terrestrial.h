@@ -2,9 +2,8 @@
 #ifndef TERRESTRIAL_H
 #define TERRESTRIAL_H
 #include "Body.h"
-#include "../util/Shader.h"
-#include "../util/lodeTexture.h"
-#include "../mesh/SpherifiedCube.h"
+#include "..\engine\rendering\Shader.h"
+#include "..\engine\mesh\SpherifiedCube.h"
 
 
 class Terrestrial : public Body {

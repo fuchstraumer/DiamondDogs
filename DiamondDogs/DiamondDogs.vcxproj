@@ -41,7 +41,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v140</PlatformToolset>
+    <PlatformToolset>v141</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
@@ -87,13 +87,13 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\MSVC\OpenGL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\OpenGL\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\MSVC\OpenGL\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>"OpenGL32.lib";"C:\MSVC\OpenGL\lib\glfw3dll.lib";"C:\MSVC\OpenGL\lib\glew32s.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>"OpenGL32.lib";"$(SolutionDir)\OpenGL\lib\glfw3dll.lib";"$(SolutionDir)\OpenGL\lib\glew32s.lib";%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -102,13 +102,13 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\MSVC\OpenGL\include;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)lib\OpenGL\include;$(SolutionDir)lib\OpenAL\include;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>"opengl32.lib";"C:\MSVC\OpenGL\lib\\x64\glfw3dll.lib";"C:\MSVC\OpenGL\lib\x64\glew32s.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>"opengl32.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glfw3dll.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glew32s.lib";"$(SolutionDir)lib\OpenAL\lib\x64\OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>"C:\MSVC\OpenGL\lib\x64";</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -163,20 +163,20 @@
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
     <ClInclude Include="bodies\terrestrial\Barren.h" />
-    <ClInclude Include="mesh\Billboard.h" />
-    <ClInclude Include="mesh\Icosphere.h" />
-    <ClInclude Include="mesh\SpherifiedCube.h" />
-    <ClInclude Include="mesh\Mesh.h" />
-    <ClInclude Include="mesh\MeshComponents.h" />
-    <ClInclude Include="mesh\PlanarMesh.h" />
-    <ClInclude Include="mesh\Skybox.h" />
+    <ClInclude Include="engine\mesh\Billboard.h" />
+    <ClInclude Include="engine\mesh\Icosphere.h" />
+    <ClInclude Include="engine\mesh\SpherifiedCube.h" />
+    <ClInclude Include="engine\mesh\Mesh.h" />
+    <ClInclude Include="engine\mesh\MeshComponents.h" />
+    <ClInclude Include="engine\mesh\PlanarMesh.h" />
+    <ClInclude Include="engine\mesh\Skybox.h" />
     <ClInclude Include="stdafx.h" />
-    <ClInclude Include="util\camera.h" />
-    <ClInclude Include="util\Context.h" />
+    <ClInclude Include="engine\rendering\camera.h" />
+    <ClInclude Include="engine\Context.h" />
     <ClInclude Include="util\lodepng.h" />
     <ClInclude Include="util\lodeTexture.h" />
     <ClInclude Include="util\noise\TerrainBuilder.h" />
-    <ClInclude Include="util\Shader.h" />
+    <ClInclude Include="engine\rendering\Shader.h" />
     <ClInclude Include="util\shaderold.h" />
   </ItemGroup>
   <ItemGroup>
@@ -188,18 +188,18 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="DiamondDogs.cpp" />
-    <ClCompile Include="mesh\Billboard.cpp">
+    <ClCompile Include="engine\mesh\Billboard.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="mesh\Icosphere.cpp">
+    <ClCompile Include="engine\mesh\Icosphere.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="mesh\PlanarMesh.cpp">
+    <ClCompile Include="engine\mesh\PlanarMesh.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="mesh\SpherifiedCube.cpp">
+    <ClCompile Include="engine\mesh\SpherifiedCube.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="stdafx.cpp">
@@ -208,14 +208,14 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="util\Context.cpp">
+    <ClCompile Include="engine\Context.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="util\lodepng.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="util\Shader.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    <ClCompile Include="engine\rendering\Shader.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

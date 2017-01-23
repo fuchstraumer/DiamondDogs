@@ -2,8 +2,8 @@
 #ifndef CORONA_H
 #define CORONA_H
 #include "stdafx.h"
-#include "../../util/Shader.h"
-#include "../../mesh/Billboard.h"
+#include "../../engine/rendering/Shader.h"
+#include "../../engine/mesh/Billboard.h"
 #include "../../util/lodeTexture.h"
 
 // Structure defining a stars corona
@@ -45,6 +45,8 @@ struct Corona {
 	}
 
 	void BuildRenderData(const int& star_temperature) {
+		// Set frame counter to zero
+		frame = 0;
 		GLuint tempLoc = coronaProgram->GetUniformLocation("temperature");
 		glUniform1i(tempLoc, star_temperature);
 		GLuint texLoc = coronaProgram->GetUniformLocation("blackbody");
@@ -56,12 +58,26 @@ struct Corona {
 	void Render(const glm::mat4 & view, const glm::mat4& projection) {
 		glActiveTexture(GL_TEXTURE3);
 		Blackbody.BindTexture();
+		coronaProgram->Use();
+		// If frame counter is equal to limits of numeric precision,
+		if (frame == std::numeric_limits<GLint>::max()) {
+			// Reset frame counter
+			frame = 0;
+		}
+		// Otherwise, increment it
+		else {
+			frame++;
+		}
+		// Set frame value in Program
+		GLuint frameLoc = coronaProgram->GetUniformLocation("frame");
+		glUniform1i(frameLoc, static_cast<GLint>(frame));
 		mesh.Render(view, projection);
 	}
 
 	Billboard3D mesh;
 	std::shared_ptr<ShaderProgram> coronaProgram;
 	Texture1D Blackbody;
+	uint64_t frame;
 };
 
 

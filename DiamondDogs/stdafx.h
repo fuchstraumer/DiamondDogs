@@ -15,6 +15,8 @@ using uint = unsigned int;
 #include <stdlib.h>  
 #include <iostream>
 
+// OpenGL includes.
+
 #define GLEW_STATIC
 #include "GL\glew.h"
 
@@ -30,5 +32,5 @@ using uint = unsigned int;
 // GLFW declarations and definitions
 const GLuint SCR_WIDTH = 1920, SCR_HEIGHT = 1080;
 // Defines depth rendering ranges for projection matrix.
-const GLfloat nearDepth = 0.1f, farDepth = 5000.0f;
+const GLfloat nearDepth = 1.0f, farDepth = 500000.0f;
 

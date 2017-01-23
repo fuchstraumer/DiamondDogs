@@ -3,9 +3,7 @@
 #define LODE_TEXTURE_H
 #include "lodepng.h"
 #include "stdafx.h"
-#include "shader.h"
 #include <unordered_map>
-#include <memory>
 using uint = unsigned int;
 
 // Baseline texture class
