@@ -12,6 +12,7 @@
     <ClCompile Include="util\Shader.cpp" />
     <ClCompile Include="bodies\star\Star.cpp" />
     <ClCompile Include="mesh\Billboard.cpp" />
+    <ClCompile Include="bodies\gaseous\GasGiant.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
@@ -35,6 +36,8 @@
     <ClInclude Include="mesh\Icosphere.h" />
     <ClInclude Include="bodies\star\Star.h" />
     <ClInclude Include="bodies\star\Corona.h" />
+    <ClInclude Include="bodies\terrestrial\Barren.h" />
+    <ClInclude Include="bodies\gaseous\GasGiant.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

@@ -30,7 +30,7 @@ public:
 	Billboard3D() = default;
 	~Billboard3D() = default;
 
-	void BuildRenderData(const float& temperature);
+	void BuildRenderData();
 
 	void Render(const glm::mat4& view, const glm::mat4& projection);
 

@@ -11,7 +11,7 @@ auto buildModelMatrix = [](glm::vec3 position, glm::vec3 scale, glm::vec3 angle)
 	return result;
 };
 
-void Billboard3D::BuildRenderData(const float & temperature){
+void Billboard3D::BuildRenderData(){
 	// Set frame counter to zero
 	frame = 0;
 	// Bind Program
@@ -38,9 +38,6 @@ void Billboard3D::BuildRenderData(const float & temperature){
 	// Acquire locations of uniforms and set them appropriately.
 	GLuint modelLoc = Program->GetUniformLocation("model");
 	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-	// Pass temperature value
-	GLuint tempLoc = Program->GetUniformLocation("temperature");
-	glUniform1i(tempLoc, temperature);
 	// Unbind vertex array
 	glBindVertexArray(0);
 }
@@ -67,7 +64,7 @@ void Billboard3D::Render(const glm::mat4 & view, const glm::mat4 & projection) {
 	GLuint centerLoc = Program->GetUniformLocation("center");
 	glUniform3f(centerLoc, center.x, center.y, center.z);
 	// If frame counter is equal to limits of numeric precision,
-	if (frame < std::numeric_limits<uint64_t>::max()) {
+	if (frame == std::numeric_limits<uint64_t>::max()) {
 		// Reset frame counter
 		frame = 0;
 	}

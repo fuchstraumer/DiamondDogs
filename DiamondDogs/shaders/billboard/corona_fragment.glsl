@@ -156,9 +156,9 @@ void main() {
     vec3 fPos = vPos.xyz;
     // Time component of vector is length of vPos, or distance from center.
     // Makes corona appear to radiate outwards.
-    float t = (frame * 2) - length(vPos);
+    float t = (frame * 0.0001f) - length(vPos);
     // Get three noise samples.
-    float frequency = 2.0f;
+    float frequency = 1.5f;
     float ox = snoise(vec4(fPos, t) * frequency);
     float oy = snoise(vec4(fPos + 2000.0f, t) * frequency);
     float oz = snoise(vec4(fPos + 4000.0f, t) * frequency);
@@ -172,7 +172,7 @@ void main() {
 
     // Using position found above, calculate brightness 
     float cdist = length(noisePosition) * 3.0f;
-    float brightness = (1.0f / (cdist * cdist) - 0.10f) * 0.70f;
+    float brightness = (1.0f / (cdist * cdist) - 0.10f) * 0.80f;
     
     // Placeholder color until I use parent star's texture color for this too
     float u;
@@ -184,6 +184,6 @@ void main() {
     }
     vec3 color = getStarColor(u);
     fColor = vec4(color,0.6f) * brightness;
-    float transparency = (1.0f / (cdist * cdist));
+    float transparency = (1.0f / (cdist * cdist)) * 0.12f;
     fColor.a = transparency;
 }

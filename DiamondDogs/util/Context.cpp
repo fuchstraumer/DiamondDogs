@@ -20,9 +20,6 @@ static Skybox skybox;
 // Icosphere
 static Star testStar;
 
-static const glm::vec4 lightColor(1.0f, 1.0f, 0.98f, 1.0f);
-static const glm::vec4 lightPosition(3200.0f, -400.0f, 2700.0f, 1.0f);
-
 Context::Context(GLfloat width, GLfloat height){
 	Width = width;
 	Height = height;
@@ -63,6 +60,8 @@ Context::Context(GLfloat width, GLfloat height){
 	}
 	glewExperimental = GL_TRUE;
 	glEnable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
 	//glEnable(GL_MULTISAMPLE);
 	// Set projection matrix. This shouldn't really change during runtime.
 	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), nearDepth, farDepth);
@@ -80,7 +79,7 @@ Context::Context(GLfloat width, GLfloat height){
 	};
 	skyboxProgram.BuildUniformMap(Uniforms);
 
-	testStar = Star(5, 100.0f, 2000, Projection);
+	testStar = Star(5, 100.0f, 6000, Projection);
 	testStar.BuildCorona(glm::vec3(0.0f), 100.0f, Projection);
 	// Set skybox uniforms
 	skyboxProgram.Use();
@@ -112,8 +111,6 @@ void Context::Use() {
 		// Poll events, passing events to callback funcs
 		glfwPollEvents();
 		UpdateMovement();
-		View = Cam.GetViewMatrix();
-		testStar.Render(View, Projection);
 		glDepthFunc(GL_LEQUAL);
 
 		skyboxProgram.Use();
@@ -127,7 +124,9 @@ void Context::Use() {
 		skybox.RenderSkybox();
 		glDepthFunc(GL_LESS);
 		
-		
+		// Render this last, for Alpha blending to work.
+		View = Cam.GetViewMatrix();
+		testStar.Render(View, Projection, Cam.Position);
 
 		// Before starting loop again, swap buffers (double-buffered rendering)
 		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
