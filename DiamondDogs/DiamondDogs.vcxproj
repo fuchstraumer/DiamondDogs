@@ -108,7 +108,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>"opengl32.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glfw3dll.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glew32s.lib";"$(SolutionDir)lib\OpenAL\lib\x64\OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>"opengl32.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glfw3dll.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glew32s.lib";"$(SolutionDir)lib\OpenAL\lib\x64\OpenAL32.lib";"$(SolutionDir)lib\OpenAL\lib\x64\libogg_static.lib";"$(SolutionDir)lib\OpenAL\lib\x64\libvorbis_static.lib";"$(SolutionDir)lib\OpenAL\lib\x64\libvorbisfile_static.lib";%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>"C:\MSVC\OpenGL\lib\x64";</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -163,6 +163,7 @@
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
     <ClInclude Include="bodies\terrestrial\Barren.h" />
+    <ClInclude Include="engine\audio\AudioManager.h" />
     <ClInclude Include="engine\mesh\Billboard.h" />
     <ClInclude Include="engine\mesh\Icosphere.h" />
     <ClInclude Include="engine\mesh\SpherifiedCube.h" />

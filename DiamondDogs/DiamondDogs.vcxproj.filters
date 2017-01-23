@@ -38,6 +38,7 @@
     <ClInclude Include="engine\rendering\Shader.h" />
     <ClInclude Include="engine\Context.h" />
     <ClInclude Include="util\lodeTexture.h" />
+    <ClInclude Include="engine\audio\AudioManager.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />
