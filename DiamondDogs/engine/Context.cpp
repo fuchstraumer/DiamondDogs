@@ -66,63 +66,28 @@ Context::Context(GLfloat width, GLfloat height){
 	// Set projection matrix. This shouldn't really change during runtime.
 	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), nearDepth, farDepth);
 
-	// Set up skybox shaders
-	Shader SkyVert("./shaders/skybox/vertex.glsl", VERTEX_SHADER);
-	Shader SkyFrag("./shaders/skybox/fragment.glsl", FRAGMENT_SHADER);
-	skyboxProgram.Init();
-	skyboxProgram.AttachShader(SkyVert);
-	skyboxProgram.AttachShader(SkyFrag);
-	skyboxProgram.CompleteProgram();
-	std::vector<std::string> Uniforms = std::vector<std::string>{
-		"projection",
-		"view",
-	};
-	skyboxProgram.BuildUniformMap(Uniforms);
-
 	testStar = std::move(Star(5, 100.0f, 6000, Projection));
 	testStar.BuildCorona(glm::vec3(0.0f), 100.0f, Projection);
-	// Set skybox uniforms
-	skyboxProgram.Use();
-	GLuint projLoc = skyboxProgram.GetUniformLocation("projection");
-	glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(Projection));
-
+	
 	// Set viewport
 	glViewport(0, 0, static_cast<GLsizei>(Width), static_cast<GLsizei>(Height));
 	// Set the clear color - sets default background color
 	glClearColor(160.0f / 255.0f, 239.0f / 255.0f, 1.0f, 1.0f);
-	
-	skyboxTex = new ldtex::CubemapTexture(skyboxTextures, 4092);
-	skyboxTex->BuildTexture();
-	skybox.BuildRenderData();
-
-
 }
 
 void Context::Use() {
 	while (!glfwWindowShouldClose(Window)) {
-		glDepthFunc(GL_LESS);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 
 		// Update frame time values
-		GLfloat CurrentFrame = (GLfloat)glfwGetTime();
+		GLfloat CurrentFrame = static_cast<GLfloat>(glfwGetTime());
 		DeltaTime = CurrentFrame - LastFrame;
 		LastFrame = CurrentFrame;
 
 		// Poll events, passing events to callback funcs
 		glfwPollEvents();
 		UpdateMovement();
-		glDepthFunc(GL_LEQUAL);
-
-		skyboxProgram.Use();
-		View = glm::mat4(glm::mat3(Cam.GetViewMatrix()));
-		GLuint viewloc = skyboxProgram.GetUniformLocation("view");
-		glUniformMatrix4fv(viewloc, 1, GL_FALSE, glm::value_ptr(View));
-		// Use skybox shader and bind correct texture
-		//skyboxProgram.Use();
-		glActiveTexture(GL_TEXTURE0);
-		skyboxTex->BindTexture();
-		skybox.RenderSkybox();
-		glDepthFunc(GL_LESS);
+		View = Cam.GetViewMatrix();
 		
 		// Render this last, for Alpha blending to work.
 		View = Cam.GetViewMatrix();

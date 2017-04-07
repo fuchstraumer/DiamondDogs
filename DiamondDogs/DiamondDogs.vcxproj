@@ -169,6 +169,7 @@
     <ClInclude Include="engine\mesh\MeshComponents.h" />
     <ClInclude Include="engine\mesh\PlanarMesh.h" />
     <ClInclude Include="engine\mesh\Skybox.h" />
+    <ClInclude Include="scenes\StarDemo.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="engine\rendering\camera.h" />
     <ClInclude Include="engine\Context.h" />

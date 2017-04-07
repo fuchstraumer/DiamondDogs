@@ -7,7 +7,7 @@
 
 class Skybox : public Mesh<> {
 public:
-	Skybox() : Mesh() {
+	Skybox(const glm::mat4& projection,const std::vector<std::string>& texture_paths) : Mesh() {
 		std::array<glm::vec3, 8> vertices{
 			{ glm::vec3(-1.0f, -1.0f, +1.0f), // Point 0, left lower front UV{0,0}
 			glm::vec3(+1.0f, -1.0f, +1.0f), // Point 1, right lower front UV{1,0}
@@ -51,7 +51,26 @@ public:
 		// Back
 		buildface(vertices[4], vertices[5], vertices[6], vertices[7]); // Using Points 4, 5, 6, 7 and Normal 5
 		
-
+																	   // Set up skybox shaders
+		Shader SkyVert("./shaders/skybox/vertex.glsl", VERTEX_SHADER);
+		Shader SkyFrag("./shaders/skybox/fragment.glsl", FRAGMENT_SHADER);
+		Program.Init();
+		Program.AttachShader(SkyVert);
+		Program.AttachShader(SkyFrag);
+		Program.CompleteProgram();
+		std::vector<std::string> Uniforms = std::vector<std::string>{
+			"projection",
+			"view",
+		};
+		Program.BuildUniformMap(Uniforms);
+		// Set projection matrix.
+		Program.Use();
+		GLuint projLoc = Program.GetUniformLocation("projection");
+		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+		// Setup textures
+		Tex = new ldtex::CubemapTexture(texture_paths, 4092);
+		Tex->BuildTexture();
+		skybox.BuildRenderData();
 	}
 
 	void BuildRenderData() {
@@ -60,18 +79,19 @@ public:
 		glBindVertexArray(VAO);
 		// Bind the vertex buffer and then specify what data it will be loaded with
 		glBindBuffer(GL_ARRAY_BUFFER, VBO);
-		glBufferData(GL_ARRAY_BUFFER, GetNumVerts() * sizeof(vertex_t), &(Vertices[0]), GL_DYNAMIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, GetNumVerts() * sizeof(vertex_t), &Vertices[0], GL_STATIC_DRAW);
 		// Bind the element array (indice) buffer and fill it with data
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, GetNumIndices() * sizeof(index_t), &(Indices.front()), GL_DYNAMIC_DRAW);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, GetNumIndices() * sizeof(index_t), &Indices[0], GL_STATIC_DRAW);
 		// Pointer to the position attribute of a vertex
 		glEnableVertexAttribArray(0);
 		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)0);
 		glBindVertexArray(0);
 	}
 
-	void RenderSkybox() {
-
+	void Render(const glm::mat4& view) {
+		// Change depth function to whats required to render skybox, then change it back when done.
+		glDepthFunc(GL_LEQUAL);
 		glBindVertexArray(VAO);
 		glDrawElements(GL_TRIANGLES, GetNumIndices(), GL_UNSIGNED_INT, 0);
 		glBindVertexArray(0);
@@ -79,6 +99,10 @@ public:
 	}
 
 	GLuint VAO, VBO, EBO;
+
+	ShaderProgram Program;
+
+	ldtex::CubemapTexture* Tex;
 };
 
 #endif // !SKYBOX_H
