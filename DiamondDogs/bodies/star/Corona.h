@@ -11,10 +11,25 @@ struct Corona {
 
 	Corona() : Blackbody("./rsrc/img/star/star_spectrum.png", 1024) {}
 
-	~Corona() = default;
+	Corona(const Corona& other) = delete;
+	Corona& operator=(const Corona& other) = delete;
+
+	Corona(Corona&& other) : Blackbody(std::move(other.Blackbody)), coronaProgram(std::move(other.coronaProgram)), mesh(std::move(other.mesh)), frame(std::move(other.frame)) {}
+
+	Corona& operator=(Corona&& other) {
+		Blackbody = std::move(other.Blackbody);
+		coronaProgram = std::move(other.coronaProgram);
+		mesh = std::move(other.mesh);
+		frame = std::move(other.frame);
+		return *this;
+	}
+
+	~Corona() {
+		delete coronaProgram;
+	}
 
 	Corona(const glm::vec3& position, const float& radius) : Blackbody("./rsrc/img/star/star_spectrum.png", 1024) {
-		coronaProgram = std::make_shared<ShaderProgram>();
+		coronaProgram = new ShaderProgram();
 		coronaProgram->Init();
 		Shader cVert("./shaders/billboard/corona_vertex.glsl", VERTEX_SHADER);
 		Shader cFrag("./shaders/billboard/corona_fragment.glsl", FRAGMENT_SHADER);
@@ -75,8 +90,8 @@ struct Corona {
 	}
 
 	Billboard3D mesh;
-	std::shared_ptr<ShaderProgram> coronaProgram;
-	Texture1D Blackbody;
+	ShaderProgram* coronaProgram;
+	ldtex::Texture1D Blackbody;
 	uint64_t frame;
 };
 

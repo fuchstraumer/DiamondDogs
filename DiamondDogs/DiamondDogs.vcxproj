@@ -156,14 +156,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
-    <ClInclude Include="bodies\gaseous\GasGiant.h" />
-    <ClInclude Include="bodies\GasGiant.h" />
     <ClInclude Include="bodies\star\Corona.h" />
     <ClInclude Include="bodies\star\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
     <ClInclude Include="bodies\terrestrial\Barren.h" />
-    <ClInclude Include="engine\audio\AudioManager.h" />
+    <ClInclude Include="engine\audio\audio.h" />
     <ClInclude Include="engine\mesh\Billboard.h" />
     <ClInclude Include="engine\mesh\Icosphere.h" />
     <ClInclude Include="engine\mesh\SpherifiedCube.h" />
@@ -181,7 +179,6 @@
     <ClInclude Include="util\shaderold.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="bodies\gaseous\GasGiant.cpp" />
     <ClCompile Include="bodies\star\Star.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
@@ -189,7 +186,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="DiamondDogs.cpp" />
-    <ClCompile Include="engine\audio\AudioManager.cpp" />
+    <ClCompile Include="engine\audio\audio.cpp" />
     <ClCompile Include="engine\mesh\Billboard.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>

@@ -92,19 +92,16 @@ public:
 		Handle = 0;
 	}
 
-	ShaderProgram& operator=(const ShaderProgram& other) & {
-		this->Handle = other.Handle;
-		this->Uniforms = other.Uniforms;
+	ShaderProgram& operator=(const ShaderProgram& other) & = delete;
+
+	ShaderProgram& operator=(ShaderProgram&& other) {
+		this->Handle = std::move(other.Handle);
+		this->Uniforms = std::move(other.Uniforms);
+		other.Handle = 0;
 		return *this;
 	}
 
-	ShaderProgram& operator=(ShaderProgram&& other) {
-		this->Handle = other.Handle;
-		this->Uniforms = other.Uniforms;
-		other.Handle = 0;
-	}
-
-	ShaderProgram(ShaderProgram&& other) : Handle(other.Handle), Uniforms(other.Uniforms) {
+	ShaderProgram(ShaderProgram&& other) : Handle(std::move(other.Handle)), Uniforms(std::move(other.Uniforms)) {
 		other.Handle = 0;
 	}
 	// Init program

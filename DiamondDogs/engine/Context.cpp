@@ -17,7 +17,7 @@ static bool mouseInit = true;
 // Previous mouse zoom
 static GLfloat lastZoom;
 // Skybox textures
-static CubemapTexture skyboxTex(skyboxTextures, 2048);
+static ldtex::CubemapTexture skyboxTex(skyboxTextures, 2048);
 // Skybox itself
 static Skybox skybox;
 // Icosphere
@@ -82,7 +82,7 @@ Context::Context(GLfloat width, GLfloat height){
 	};
 	skyboxProgram.BuildUniformMap(Uniforms);
 
-	testStar = Star(5, 100.0f, 6000, Projection);
+	testStar = std::move(Star(5, 100.0f, 6000, Projection));
 	testStar.BuildCorona(glm::vec3(0.0f), 100.0f, Projection);
 	// Set skybox uniforms
 	skyboxProgram.Use();

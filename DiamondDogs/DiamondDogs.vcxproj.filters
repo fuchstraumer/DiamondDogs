@@ -6,18 +6,16 @@
     <ClCompile Include="stdafx.cpp" />
     <ClCompile Include="util\lodepng.cpp" />
     <ClCompile Include="bodies\star\Star.cpp" />
-    <ClCompile Include="bodies\gaseous\GasGiant.cpp" />
     <ClCompile Include="engine\mesh\Billboard.cpp" />
     <ClCompile Include="engine\mesh\Icosphere.cpp" />
     <ClCompile Include="engine\mesh\PlanarMesh.cpp" />
     <ClCompile Include="engine\mesh\SpherifiedCube.cpp" />
     <ClCompile Include="engine\rendering\Shader.cpp" />
     <ClCompile Include="engine\Context.cpp" />
-    <ClCompile Include="engine\audio\AudioManager.cpp" />
+    <ClCompile Include="engine\audio\audio.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
-    <ClInclude Include="bodies\GasGiant.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
     <ClInclude Include="stdafx.h" />
@@ -27,7 +25,6 @@
     <ClInclude Include="bodies\star\Star.h" />
     <ClInclude Include="bodies\star\Corona.h" />
     <ClInclude Include="bodies\terrestrial\Barren.h" />
-    <ClInclude Include="bodies\gaseous\GasGiant.h" />
     <ClInclude Include="engine\mesh\Billboard.h" />
     <ClInclude Include="engine\mesh\Icosphere.h" />
     <ClInclude Include="engine\mesh\Mesh.h" />
@@ -39,7 +36,7 @@
     <ClInclude Include="engine\rendering\Shader.h" />
     <ClInclude Include="engine\Context.h" />
     <ClInclude Include="util\lodeTexture.h" />
-    <ClInclude Include="engine\audio\AudioManager.h" />
+    <ClInclude Include="engine\audio\audio.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

@@ -2,9 +2,9 @@
 #include "Star.h"
 #include "glm/gtc/matrix_transform.hpp"
 
-Texture1D Star::starColor = Texture1D("./rsrc/img/star/star_spectrum.png", 1024);
-Texture2D Star::starTex = Texture2D("./rsrc/img/star/star_tex.png", 1024, 1024);
-Texture2D Star::starGlow = Texture2D("./rsrc/img/star/star_glow.png", 2048, 2048);
+ldtex::Texture1D Star::starColor("./rsrc/img/star/star_spectrum.png", 1024);
+ldtex::Texture2D Star::starTex("./rsrc/img/star/star_tex.png", 1024, 1024);
+ldtex::Texture2D Star::starGlow("./rsrc/img/star/star_glow.png", 2048, 2048);
 
 // Simple method to get a stars color based on its temperature
 inline glm::vec3 getStarColor(unsigned int temperature) {
@@ -83,7 +83,7 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 	// Setup the billboard used when we want to render the star from a long distance.
 
 	// First, setup the program used to render at this distance.
-	shaderDistant = std::make_shared<ShaderProgram>();
+	shaderDistant = new ShaderProgram();
 	Shader farVert("./shaders/star/far/vertex.glsl", VERTEX_SHADER);
 	Shader farFrag("./shaders/star/far/fragment.glsl", FRAGMENT_SHADER);
 	shaderDistant->Init();
@@ -132,6 +132,22 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 void Star::BuildCorona(const glm::vec3& position, const float& radius, const glm::mat4& projection) {
 	this->corona = Corona(position, radius);
 	corona.BuildRenderData(temperature);
+}
+
+Star& Star::operator=(Star && other){
+	temperature = std::move(other.temperature);
+	radius = std::move(other.radius);
+	mesh = std::move(other.mesh);
+	mesh2 = std::move(other.mesh2);
+	StarDistant = std::move(other.StarDistant);
+	shaderClose = std::move(other.shaderClose);
+	starColor = std::move(other.starColor);
+	starTex = std::move(other.starTex);
+	starGlow = std::move(other.starGlow);
+	corona = std::move(other.corona);
+	frame = std::move(other.frame);
+	LOD_SwitchDistance = std::move(other.LOD_SwitchDistance);
+	return *this;
 }
 
 void Star::Render(const glm::mat4 & view, const glm::mat4& projection, const glm::vec3& camera_position){

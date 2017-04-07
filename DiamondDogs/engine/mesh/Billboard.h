@@ -42,7 +42,7 @@ public:
 	glm::vec3 Scale, Position, Angle;
 	// Pointer to the shader object: required to avoid issues with 
 	// building a Shader program before GL init due to default constructors
-	std::shared_ptr<ShaderProgram> Program;
+	ShaderProgram* Program;
 	
 	GLuint starColor;
 
