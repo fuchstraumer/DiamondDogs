@@ -2,10 +2,6 @@
 #include "Star.h"
 #include "glm/gtc/matrix_transform.hpp"
 
-ldtex::Texture1D Star::starColor("./rsrc/img/star/star_spectrum.png", 1024);
-ldtex::Texture2D Star::starTex("./rsrc/img/star/star_tex.png", 1024, 1024);
-ldtex::Texture2D Star::starGlow("./rsrc/img/star/star_glow.png", 2048, 2048);
-
 // Simple method to get a stars color based on its temperature
 inline glm::vec3 getStarColor(unsigned int temperature) {
 	return glm::vec3(temperature * (0.0534f / 255.0f) - (43.0f / 255.0f),
@@ -21,7 +17,10 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 	mesh = Icosphere(lod_level, radius);
 	mesh2 = Icosphere(lod_level + 1, radius * 1.02f);
 	mesh2.Angle = glm::vec3(30.0f, 45.0f, 90.0f);
-	// Setup long-distance billboard.
+	
+	starColor = new ldtex::Texture1D("./rsrc/img/star/star_spectrum.png", 1024);
+	starTex = new ldtex::Texture2D("./rsrc/img/star/star_tex.png", 1024, 1024);
+	starGlow = new ldtex::Texture2D("./rsrc/img/star/star_glow.png", 2048, 2048);
 
 	// Time starts at 0
 	frame = 0;
@@ -78,18 +77,17 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 	// Set texture location and build the texture data
 	GLuint starTexLoc = shaderClose.GetUniformLocation("blackbody");
 	glUniform1i(starTexLoc, 1);
-	starColor.BuildTexture();
+	starColor->BuildTexture();
 
 	// Setup the billboard used when we want to render the star from a long distance.
 
 	// First, setup the program used to render at this distance.
-	shaderDistant = new ShaderProgram();
 	Shader farVert("./shaders/star/far/vertex.glsl", VERTEX_SHADER);
 	Shader farFrag("./shaders/star/far/fragment.glsl", FRAGMENT_SHADER);
-	shaderDistant->Init();
-	shaderDistant->AttachShader(farVert);
-	shaderDistant->AttachShader(farFrag);
-	shaderDistant->CompleteProgram();
+	shaderDistant.Init();
+	shaderDistant.AttachShader(farVert);
+	shaderDistant.AttachShader(farFrag);
+	shaderDistant.CompleteProgram();
 
 	// Setup uniforms for this program.
 	uniforms = std::vector<std::string>{
@@ -104,22 +102,22 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 		"temperature",
 		"glowTex",
 	};
-	shaderDistant->BuildUniformMap(uniforms);
+	shaderDistant.BuildUniformMap(uniforms);
 
 	// Set shader in billboard
 	StarDistant.Program = shaderDistant;
 	// Make sure to build the texture and set it's location
-	starGlow.BuildTexture();
-	StarDistant.Program->Use();
+	starGlow->BuildTexture();
+	StarDistant.Program.Use();
 
 	// Build render data.
 	StarDistant.BuildRenderData();
 
 	// Get locations of uniforms we can set right now.
-	projLoc = StarDistant.Program->GetUniformLocation("projection");
-	tempLoc = StarDistant.Program->GetUniformLocation("temperature");
-	starTexLoc = StarDistant.Program->GetUniformLocation("glowTex");
-	GLuint centerLoc = StarDistant.Program->GetUniformLocation("center");
+	projLoc = StarDistant.Program.GetUniformLocation("projection");
+	tempLoc = StarDistant.Program.GetUniformLocation("temperature");
+	starTexLoc = StarDistant.Program.GetUniformLocation("glowTex");
+	GLuint centerLoc = StarDistant.Program.GetUniformLocation("center");
 
 	// Set uniforms
 	glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
@@ -158,7 +156,7 @@ void Star::Render(const glm::mat4 & view, const glm::mat4& projection, const glm
 		GLuint opacityLoc = shaderClose.GetUniformLocation("opacity");
 		shaderClose.Use();
 		glActiveTexture(GL_TEXTURE1);
-		starColor.BindTexture();
+		starColor->BindTexture();
 		glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 		glUniform1i(timeLoc, static_cast<GLint>(frame));
 		glUniform3f(cPosLoc, camera_position.x, camera_position.y, camera_position.z);
@@ -190,10 +188,10 @@ void Star::Render(const glm::mat4 & view, const glm::mat4& projection, const glm
 		// Set the size in the shader.
 		glm::vec2 size = glm::vec2(glowSize(radius * 2.0, static_cast<float>(temperature), glm::distance(camera_position, WorldPosition)));
 		size.y *= aspectRatio;
-		GLuint sizeLoc = StarDistant.Program->GetUniformLocation("size");
+		GLuint sizeLoc = StarDistant.Program.GetUniformLocation("size");
 		glUniform2f(sizeLoc, size.x, size.y);
 		glActiveTexture(GL_TEXTURE5);
-		starGlow.BindTexture();
+		starGlow->BindTexture();
 		StarDistant.Render(view, projection);
 	}
 }

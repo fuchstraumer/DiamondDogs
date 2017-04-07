@@ -30,6 +30,10 @@ public:
 	Billboard3D() = default;
 	~Billboard3D() = default;
 
+	Billboard3D(Billboard3D&& other) noexcept;
+
+	Billboard3D & operator=(Billboard3D && other) noexcept;
+
 	void BuildRenderData();
 
 	void Render(const glm::mat4& view, const glm::mat4& projection);
@@ -42,7 +46,7 @@ public:
 	glm::vec3 Scale, Position, Angle;
 	// Pointer to the shader object: required to avoid issues with 
 	// building a Shader program before GL init due to default constructors
-	ShaderProgram* Program;
+	ShaderProgram Program;
 	
 	GLuint starColor;
 

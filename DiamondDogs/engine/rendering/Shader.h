@@ -92,7 +92,11 @@ public:
 		Handle = 0;
 	}
 
-	ShaderProgram& operator=(const ShaderProgram& other) & = delete;
+	ShaderProgram& operator=(const ShaderProgram& other) & {
+		Handle = other.Handle;
+		Uniforms = other.Uniforms;
+		return *this;
+	}
 
 	ShaderProgram& operator=(ShaderProgram&& other) {
 		this->Handle = std::move(other.Handle);

@@ -11,9 +11,26 @@ auto buildModelMatrix = [](glm::vec3 position, glm::vec3 scale, glm::vec3 angle)
 	return result;
 };
 
+Billboard3D::Billboard3D(Billboard3D && other) noexcept : Program(std::move(other.Program)), Radius(std::move(other.Radius)), Scale(other.Scale), Position(other.Position), Angle(other.Angle), starColor(other.starColor), VAO(std::move(other.VAO)), VBO(std::move(other.VBO)), model(other.model), normTransform(other.normTransform) {
+}
+
+Billboard3D& Billboard3D::operator=(Billboard3D&& other) noexcept {
+	Program = (std::move(other.Program));
+	Radius = (std::move(other.Radius)); 
+	Scale = other.Scale; 
+	Position = other.Position; 
+	Angle = other.Angle; 
+	starColor = other.starColor;
+	VAO = std::move(other.VAO); 
+	VBO = std::move(other.VBO); 
+	model = other.model; 
+	normTransform = other.normTransform;
+	return *this;
+}
+
 void Billboard3D::BuildRenderData(){
 	// Bind Program
-	Program->Use();
+	Program.Use();
 	// Setup up VAO
 	glGenVertexArrays(1, &this->VAO);
 	glBindVertexArray(this->VAO);
@@ -35,32 +52,32 @@ void Billboard3D::BuildRenderData(){
 	// Normally, getting this element is actually fairly expensive
 	normTransform = glm::transpose(glm::inverse(model));
 	// Acquire locations of uniforms and set them appropriately.
-	GLuint modelLoc = Program->GetUniformLocation("model");
+	GLuint modelLoc = Program.GetUniformLocation("model");
 	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 	// Unbind vertex array
 	glBindVertexArray(0);
 }
 
 void Billboard3D::Render(const glm::mat4 & view, const glm::mat4 & projection) {
-	Program->Use();
+	Program.Use();
 	glBindVertexArray(this->VAO);
 	// Set size of billboard
-	GLuint sizeLoc = Program->GetUniformLocation("size");
+	GLuint sizeLoc = Program.GetUniformLocation("size");
 	glUniform2f(sizeLoc, Radius, Radius);
 	// Pass in the matrices we need
-	GLuint viewLoc = Program->GetUniformLocation("view");
+	GLuint viewLoc = Program.GetUniformLocation("view");
 	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-	GLuint projLoc = Program->GetUniformLocation("projection");
+	GLuint projLoc = Program.GetUniformLocation("projection");
 	glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
 	// Extract vectors we need from the view matrix
 	glm::vec3 camera_right = glm::vec3(view[0][0], view[1][0], view[2][0]);
 	glm::vec3 camera_up = glm::vec3(view[0][1], view[1][1], view[2][1]);
-	GLuint cRLoc = Program->GetUniformLocation("cameraRight");
-	GLuint cULoc = Program->GetUniformLocation("cameraUp");
+	GLuint cRLoc = Program.GetUniformLocation("cameraRight");
+	GLuint cULoc = Program.GetUniformLocation("cameraUp");
 	glUniform3f(cRLoc, camera_right.x, camera_right.y, camera_right.z);
 	glUniform3f(cULoc, camera_up.x, camera_up.y, camera_up.z);
 	// Set last few uniforms
-	GLuint centerLoc = Program->GetUniformLocation("center");
+	GLuint centerLoc = Program.GetUniformLocation("center");
 	glUniform3f(centerLoc, center.x, center.y, center.z);
 	// Draw the billboard
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);

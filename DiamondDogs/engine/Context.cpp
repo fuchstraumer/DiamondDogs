@@ -16,8 +16,6 @@ static GLfloat lastX = (GLfloat)SCR_WIDTH / 2, lastY = (GLfloat)SCR_HEIGHT / 2;
 static bool mouseInit = true;
 // Previous mouse zoom
 static GLfloat lastZoom;
-// Skybox textures
-static ldtex::CubemapTexture skyboxTex(skyboxTextures, 2048);
 // Skybox itself
 static Skybox skybox;
 // Icosphere
@@ -28,7 +26,6 @@ Context::Context(GLfloat width, GLfloat height){
 	Height = height;
 	// Init GLFW
 	glfwInit();
-
 	// Base options
 
 	// Set OpenGL version and profile: 3.3 Compatability
@@ -94,8 +91,8 @@ Context::Context(GLfloat width, GLfloat height){
 	// Set the clear color - sets default background color
 	glClearColor(160.0f / 255.0f, 239.0f / 255.0f, 1.0f, 1.0f);
 	
-
-	skyboxTex.BuildTexture();
+	skyboxTex = new ldtex::CubemapTexture(skyboxTextures, 4092);
+	skyboxTex->BuildTexture();
 	skybox.BuildRenderData();
 
 
@@ -123,7 +120,7 @@ void Context::Use() {
 		// Use skybox shader and bind correct texture
 		//skyboxProgram.Use();
 		glActiveTexture(GL_TEXTURE0);
-		skyboxTex.BindTexture();
+		skyboxTex->BindTexture();
 		skybox.RenderSkybox();
 		glDepthFunc(GL_LESS);
 		

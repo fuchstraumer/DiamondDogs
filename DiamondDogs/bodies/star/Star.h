@@ -30,13 +30,13 @@ private:
 	Billboard3D StarDistant;
 	ShaderProgram shaderClose;
 	// Shader used to render the sun when its distant.
-	ShaderProgram* shaderDistant;
+	ShaderProgram shaderDistant;
 	// Texture used to get color: blackbody radiation curve.
-	static ldtex::Texture1D starColor;
+	ldtex::Texture1D* starColor;
 	// Texture used to get texture (appearance of surface)
-	static ldtex::Texture2D starTex;
+	ldtex::Texture2D* starTex;
 	// Texture used to render star from a large distance.
-	static ldtex::Texture2D starGlow;
+	ldtex::Texture2D* starGlow;
 	// Corona object for this star
 	Corona corona;
 	// Used to permute the star

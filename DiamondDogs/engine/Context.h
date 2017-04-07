@@ -18,12 +18,12 @@
 */
 
 static const std::vector<std::string> skyboxTextures{
-	"../rsrc/img/skybox/right.png",
-	"../rsrc/img/skybox/left.png",
-	"../rsrc/img/skybox/top.png",
-	"../rsrc/img/skybox/bottom.png",
-	"../rsrc/img/skybox/front.png",
-	"../rsrc/img/skybox/back.png",
+	"./rsrc/img/skybox/right.png",
+	"./rsrc/img/skybox/left.png",
+	"./rsrc/img/skybox/top.png",
+	"./rsrc/img/skybox/bottom.png",
+	"./rsrc/img/skybox/front.png",
+	"./rsrc/img/skybox/back.png",
 };
 
 static const glm::vec3 UP(0.0f, 1.0f, 0.0f);
@@ -78,6 +78,7 @@ public:
 	// Projection matrix
 	glm::mat4 Projection;
 
+	ldtex::CubemapTexture* skyboxTex;
 
 
 private:
