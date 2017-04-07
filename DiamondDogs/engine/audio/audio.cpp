@@ -1,22 +1,35 @@
 #include "stdafx.h"
-#include "AudioManager.h"
+#include "audio.h"
 
-AudioManager::AudioManager(){
+AudioDevice::AudioDevice(){
 	// Request opening default device for current system.
 	alcOpenDevice(nullptr);
-
 }
 
-AudioManager::audioBuffer::audioBuffer() : Ready(false) {
+audioBuffer::audioBuffer() : Ready(false) {
 	// Generate buffer object
 	alGenBuffers(1, &ID);
 }
 
-AudioManager::audioBuffer::~audioBuffer(){
+audioBuffer::~audioBuffer(){
 	alDeleteBuffers(1, &ID);
 }
 
-void AudioManager::audioBuffer::LoadOGG(const char * filename){
+audioBuffer::audioBuffer(audioBuffer && other) noexcept : ID(std::move(other.ID)), Format(std::move(other.Format)), SampleRate(std::move(other.SampleRate)), Ready(std::move(other.Ready)) {
+	// make sure to set other.ID = 0
+	other.ID = 0;
+}
+
+audioBuffer & audioBuffer::operator=(audioBuffer && other) noexcept{
+	ID = std::move(other.ID);
+	Format = std::move(other.Format);
+	SampleRate = std::move(other.SampleRate);
+	Ready = std::move(other.Ready);
+	other.ID = 0;
+	return *this;
+}
+
+void audioBuffer::LoadOGG(const char * filename){
 
 	// Going to read in 32KB chunks for buffering
 	constexpr size_t bufferSize = 32768;
@@ -69,47 +82,61 @@ void AudioManager::audioBuffer::LoadOGG(const char * filename){
 
 }
 
-void AudioManager::audioBuffer::BuildBuffers(){
+void audioBuffer::BuildBuffer(){
 	alBufferData(ID, Format, &Data[0], static_cast<ALsizei>(Data.size()), SampleRate);
 	Ready = true;
 }
 
-AudioManager::audioSource::audioSource(const glm::vec3 & pos) : Position(pos) {
+audioSource::audioSource(const glm::vec3 & pos) : Position(pos) {
 	// Generate this source.
 	alGenSources(1, &ID);
 	// Set position.
 	alSource3f(ID, AL_POSITION, Position.x, Position.y, Position.z);
 }
 
-AudioManager::audioSource::~audioSource(){
+audioSource::~audioSource(){
 	alDeleteSources(1, &ID);
 }
 
-void AudioManager::audioSource::SetPosition(const glm::vec3 & pos){
+audioSource::audioSource(audioSource && other) noexcept : State(std::move(other.State)), ID(std::move(other.ID)), Position(std::move(other.Position)) {
+	other.State = 0;
+	other.ID = 0;
+}
+
+audioSource & audioSource::operator=(audioSource && other) noexcept{
+	State = std::move(other.State);
+	ID = std::move(other.ID);
+	Position = std::move(other.Position);
+	other.State = 0;
+	other.ID = 0;
+	return *this;
+}
+
+void audioSource::SetPosition(const glm::vec3 & pos){
 	// Update position of this object
 	Position = pos;
 	// Update position in AL API
 	alSource3f(ID, AL_POSITION, Position.x, Position.y, Position.z);
 }
 
-void AudioManager::audioSource::BindBuffer(const ALuint& buffer_id){
+void audioSource::BindBuffer(const ALuint& buffer_id){
 	// Attach given sound buffer to this source.
 	alSourcei(ID, AL_BUFFER, buffer_id);
 }
 
-void AudioManager::audioSource::Play(){
+void audioSource::Play(){
 	// Play this object.
 	alSourcePlay(ID);
 }
 
-AudioManager::audioListener::audioListener(const glm::vec3 & pos) : Position(pos) {
+audioListener::audioListener(const glm::vec3 & pos) : Position(pos) {
 	// Setup this listener.
 
 	// Set position.
 	alListener3f(AL_POSITION, Position.x, Position.y, Position.z);
 }
 
-void AudioManager::audioListener::SetPosition(const glm::vec3 & pos){
+void audioListener::SetPosition(const glm::vec3 & pos){
 	// Update position of this object.
 	Position = pos;
 	// Update position in AL API

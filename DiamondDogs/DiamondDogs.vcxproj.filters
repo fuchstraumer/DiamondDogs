@@ -13,6 +13,7 @@
     <ClCompile Include="engine\mesh\SpherifiedCube.cpp" />
     <ClCompile Include="engine\rendering\Shader.cpp" />
     <ClCompile Include="engine\Context.cpp" />
+    <ClCompile Include="engine\audio\AudioManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
