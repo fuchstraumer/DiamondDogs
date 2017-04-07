@@ -5,6 +5,7 @@
 #include "stdafx.h"
 #include "../engine/Context.h"
 #include "bodies\star\Star.h"
+#include "engine\mesh\Skybox.h"
 
 namespace demo {
 	static const std::vector<std::string> skyboxTextures{
@@ -14,6 +15,17 @@ namespace demo {
 		"./rsrc/img/skybox/bottom.png",
 		"./rsrc/img/skybox/front.png",
 		"./rsrc/img/skybox/back.png",
+	};
+
+	class StarDemo : public Context {
+	public:
+
+		StarDemo();
+
+		virtual void Render() override;
+
+		Star demoStar;
+		Skybox demoSkybox;
 	};
 }
 

@@ -12,7 +12,7 @@
     <ClCompile Include="engine\mesh\SpherifiedCube.cpp" />
     <ClCompile Include="engine\rendering\Shader.cpp" />
     <ClCompile Include="engine\Context.cpp" />
-    <ClCompile Include="engine\audio\audio.cpp" />
+    <ClCompile Include="scenes\StarDemo.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
@@ -36,7 +36,6 @@
     <ClInclude Include="engine\rendering\Shader.h" />
     <ClInclude Include="engine\Context.h" />
     <ClInclude Include="util\lodeTexture.h" />
-    <ClInclude Include="engine\audio\audio.h" />
     <ClInclude Include="scenes\StarDemo.h" />
   </ItemGroup>
   <ItemGroup>

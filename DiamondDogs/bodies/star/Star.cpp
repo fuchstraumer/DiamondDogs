@@ -149,49 +149,26 @@ Star& Star::operator=(Star && other){
 }
 
 void Star::Render(const glm::mat4 & view, const glm::mat4& projection, const glm::vec3& camera_position){
-	if (glm::distance(camera_position, WorldPosition) <= LOD_SwitchDistance) {
-		GLuint viewLoc = shaderClose.GetUniformLocation("view");
-		GLuint timeLoc = shaderClose.GetUniformLocation("frame");
-		GLuint cPosLoc = shaderClose.GetUniformLocation("cameraPos");
-		GLuint opacityLoc = shaderClose.GetUniformLocation("opacity");
-		shaderClose.Use();
-		glActiveTexture(GL_TEXTURE1);
-		starColor->BindTexture();
-		glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-		glUniform1i(timeLoc, static_cast<GLint>(frame));
-		glUniform3f(cPosLoc, camera_position.x, camera_position.y, camera_position.z);
-		if (frame < std::numeric_limits<GLint>::max()) {
-			frame++;
-		}
-		else {
-			// Wrap time back to zero.
-			frame = 0;
-		}
-		glUniform1f(opacityLoc, 1.0f);
-		mesh.Render(shaderClose);
-		glUniform1f(opacityLoc, 0.6f);
-		mesh2.Render(shaderClose);
-		corona.Render(view, projection);
+	GLuint viewLoc = shaderClose.GetUniformLocation("view");
+	GLuint timeLoc = shaderClose.GetUniformLocation("frame");
+	GLuint cPosLoc = shaderClose.GetUniformLocation("cameraPos");
+	GLuint opacityLoc = shaderClose.GetUniformLocation("opacity");
+	shaderClose.Use();
+	glActiveTexture(GL_TEXTURE1);
+	starColor->BindTexture();
+	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+	glUniform1i(timeLoc, static_cast<GLint>(frame));
+	glUniform3f(cPosLoc, camera_position.x, camera_position.y, camera_position.z);
+	if (frame < std::numeric_limits<GLint>::max()) {
+		frame++;
 	}
 	else {
-		// Calculate size of the glow ("far") billboard
-		// Constants based on our actual sun, Sol
-		constexpr double dSun = 1382684.0;
-		constexpr double tSun = 5778.0;
-		auto glowSize = [dSun, tSun](float diameter, float temp, double distance)->float {
-			double D = diameter * dSun;
-			double L = (D*D) * pow(temp / tSun, 4.0);
-			return static_cast<float>(0.016 * pow(L, 0.25) / pow(distance, 0.50));
-		};
-		// note: shouldn't constexpr this in case we change it later.
-		float aspectRatio = static_cast<GLfloat>(SCR_WIDTH) / static_cast<GLfloat>(SCR_HEIGHT);
-		// Set the size in the shader.
-		glm::vec2 size = glm::vec2(glowSize(radius * 2.0, static_cast<float>(temperature), glm::distance(camera_position, WorldPosition)));
-		size.y *= aspectRatio;
-		GLuint sizeLoc = StarDistant.Program.GetUniformLocation("size");
-		glUniform2f(sizeLoc, size.x, size.y);
-		glActiveTexture(GL_TEXTURE5);
-		starGlow->BindTexture();
-		StarDistant.Render(view, projection);
+		// Wrap time back to zero.
+		frame = 0;
 	}
+	glUniform1f(opacityLoc, 1.0f);
+	mesh.Render(shaderClose);
+	glUniform1f(opacityLoc, 0.6f);
+	mesh2.Render(shaderClose);
+	corona.Render(view, projection);
 }

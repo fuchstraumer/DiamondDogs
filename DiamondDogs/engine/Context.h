@@ -3,10 +3,7 @@
 #define CONTEXT_H
 #include "rendering\shader.h"
 #include "rendering\camera.h"
-#include "mesh/Mesh.h"
-#include "mesh/Skybox.h"
 #include "../util/lodeTexture.h"
-#include "../bodies/Terrestrial.h"
 /*
 	
 	CONTEXT_H
@@ -16,8 +13,6 @@
 	independently.
 
 */
-
-
 
 static const glm::vec3 UP(0.0f, 1.0f, 0.0f);
 
@@ -43,7 +38,7 @@ public:
 	static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 	// Render all objects attached to this Context
-	void Render();
+	virtual void Render() = 0;
 
 	// This function checks all of the possible keys (1024 in total) for actions and updates each.
 	// With just the keycallback, we will be unable to handle multiple movement inputs at once so we need
@@ -59,27 +54,16 @@ public:
 	// Pointer to window instance
 	GLFWwindow* Window;
 
-	// Main shader
-	ShaderProgram CoreProgram;
-
-	// Shader for wireframe: highlights vertices, if supported
-	ShaderProgram WireframeProgram;
-
 	// View matrix
 	glm::mat4 View;
 
-	// Projection matrix
+	// Projection matrix. Only matrix that should be kept as part of the window, as 
+	// the dimensions of the window affect the projection matrix
 	glm::mat4 Projection;
 
-	ldtex::CubemapTexture* skyboxTex;
+	// Camera position
+	glm::vec3 CameraPosition;
 
-
-private:
-	ShaderProgram skyboxProgram;
-	// List of objects kept in the map
-	std::vector<std::string> shaderNames;
-	// Framebuffer used for this scene
-	//Framebuffer sceneFBO;
 };
 
 #endif // !Context_H

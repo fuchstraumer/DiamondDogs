@@ -1,9 +1,6 @@
 #include "stdafx.h"
 #include "Context.h"
 
-// Include test star object.
-#include "..\bodies\star\Star.h"
-
 // Main camera instance
 static Camera Cam(glm::vec3(0.0f, 0.0f, 30.0f));
 // Tracking of key presses for movement and simultaneous actions
@@ -16,10 +13,7 @@ static GLfloat lastX = (GLfloat)SCR_WIDTH / 2, lastY = (GLfloat)SCR_HEIGHT / 2;
 static bool mouseInit = true;
 // Previous mouse zoom
 static GLfloat lastZoom;
-// Skybox itself
-static Skybox skybox;
-// Icosphere
-static Star testStar;
+
 
 Context::Context(GLfloat width, GLfloat height){
 	Width = width;
@@ -32,12 +26,9 @@ Context::Context(GLfloat width, GLfloat height){
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	//glfwWindowHint(GLFW_SAMPLES, 8);
-	// Don't allow the window to be resize (embedded in UI)
+	glfwWindowHint(GLFW_SAMPLES, 2);
 	glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
-	// Enable 2x anti-aliasing to soften edges just slightly
-	//glfwWindowHint(GLFW_SAMPLES, 2);
-	
+
 	// Create the actual window instance
 	Window = glfwCreateWindow(static_cast<int>(Width), static_cast<int>(Height), "DiamondDogs", nullptr, nullptr);
 
@@ -66,9 +57,6 @@ Context::Context(GLfloat width, GLfloat height){
 	// Set projection matrix. This shouldn't really change during runtime.
 	Projection = glm::perspective(Cam.Zoom, static_cast<GLfloat>(Width) / static_cast<GLfloat>(Height), nearDepth, farDepth);
 
-	testStar = std::move(Star(5, 100.0f, 6000, Projection));
-	testStar.BuildCorona(glm::vec3(0.0f), 100.0f, Projection);
-	
 	// Set viewport
 	glViewport(0, 0, static_cast<GLsizei>(Width), static_cast<GLsizei>(Height));
 	// Set the clear color - sets default background color
@@ -88,10 +76,10 @@ void Context::Use() {
 		glfwPollEvents();
 		UpdateMovement();
 		View = Cam.GetViewMatrix();
-		
-		// Render this last, for Alpha blending to work.
-		View = Cam.GetViewMatrix();
-		testStar.Render(View, Projection, Cam.Position);
+		CameraPosition = Cam.Position;
+
+		// Call virtual rendering function, which should pass control ot derived scenes.
+		Render();
 
 		// Before starting loop again, swap buffers (double-buffered rendering)
 		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -200,8 +188,4 @@ void Context::UpdateMovement(){
 		Cam.ProcessKeyboard(RIGHT, DeltaTime);
 		//std::cerr << "D key pressed" << std::endl;
 	}
-}
-
-
-void Context::Render() {
 }

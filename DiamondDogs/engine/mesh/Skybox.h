@@ -3,11 +3,10 @@
 #define SKYBOX_H
 #include "stdafx.h"
 #include "Mesh.h"
-#include "..\rendering\Shader.h"
 
 class Skybox : public Mesh<> {
 public:
-	Skybox(const glm::mat4& projection,const std::vector<std::string>& texture_paths) : Mesh() {
+	Skybox(const std::vector<std::string>& texture_paths) : Mesh() {
 		std::array<glm::vec3, 8> vertices{
 			{ glm::vec3(-1.0f, -1.0f, +1.0f), // Point 0, left lower front UV{0,0}
 			glm::vec3(+1.0f, -1.0f, +1.0f), // Point 1, right lower front UV{1,0}
@@ -65,15 +64,14 @@ public:
 		Program.BuildUniformMap(Uniforms);
 		// Set projection matrix.
 		Program.Use();
-		GLuint projLoc = Program.GetUniformLocation("projection");
-		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
 		// Setup textures
-		Tex = new ldtex::CubemapTexture(texture_paths, 4092);
+		Tex = new ldtex::CubemapTexture(texture_paths, 2048);
 		Tex->BuildTexture();
-		skybox.BuildRenderData();
 	}
 
-	void BuildRenderData() {
+	void BuildRenderData(const glm::mat4& projection) {
+		GLuint projLoc = Program.GetUniformLocation("projection");
+		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
 		glGenVertexArrays(1, &VAO);
 		glGenBuffers(1, &VBO); glGenBuffers(1, &EBO);
 		glBindVertexArray(VAO);
@@ -90,8 +88,13 @@ public:
 	}
 
 	void Render(const glm::mat4& view) {
-		// Change depth function to whats required to render skybox, then change it back when done.
+		Program.Use();
 		glDepthFunc(GL_LEQUAL);
+		GLuint viewloc = Program.GetUniformLocation("view");
+		glUniformMatrix4fv(viewloc, 1, GL_FALSE, glm::value_ptr(glm::mat4(glm::mat3(view))));
+		glActiveTexture(GL_TEXTURE0);
+		Tex->BindTexture();
+		// Change depth function to whats required to render skybox, then change it back when done.
 		glBindVertexArray(VAO);
 		glDrawElements(GL_TRIANGLES, GetNumIndices(), GL_UNSIGNED_INT, 0);
 		glBindVertexArray(0);

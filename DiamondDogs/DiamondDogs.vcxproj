@@ -108,7 +108,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>"opengl32.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glfw3dll.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glew32s.lib";"$(SolutionDir)lib\OpenAL\lib\x64\OpenAL32.lib";"$(SolutionDir)lib\OpenAL\lib\x64\libogg_static.lib";"$(SolutionDir)lib\OpenAL\lib\x64\libvorbis_static.lib";"$(SolutionDir)lib\OpenAL\lib\x64\libvorbisfile_static.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>"opengl32.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glfw3dll.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glew32s.lib";"$(SolutionDir)lib\OpenAL\lib\x64\OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>"C:\MSVC\OpenGL\lib\x64";</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -139,7 +139,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>C:\MSVC\OpenGL\include;C:\MSVC\OpenGL\include\libnoise;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)lib\OpenGL\include;$(SolutionDir)lib\OpenAL\include;$(ProjectDir);$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
@@ -151,7 +151,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>"C:\MSVC\OpenGL\lib\x64";</AdditionalLibraryDirectories>
-      <AdditionalDependencies>"OpenGL32.lib";"C:\MSVC\OpenGL\lib\x64\glfw3dll.lib";"C:\MSVC\OpenGL\lib\x64\glew32s.lib";"C:\MSVC\OpenGL\lib\x64\libnoise.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>"opengl32.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glfw3dll.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glew32s.lib";"$(SolutionDir)lib\OpenAL\lib\x64\OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -161,7 +161,6 @@
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\Terrestrial.h" />
     <ClInclude Include="bodies\terrestrial\Barren.h" />
-    <ClInclude Include="engine\audio\audio.h" />
     <ClInclude Include="engine\mesh\Billboard.h" />
     <ClInclude Include="engine\mesh\Icosphere.h" />
     <ClInclude Include="engine\mesh\SpherifiedCube.h" />
@@ -187,7 +186,6 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="DiamondDogs.cpp" />
-    <ClCompile Include="engine\audio\audio.cpp" />
     <ClCompile Include="engine\mesh\Billboard.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
@@ -202,6 +200,7 @@
     <ClCompile Include="engine\mesh\SpherifiedCube.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="scenes\StarDemo.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

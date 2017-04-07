@@ -1,10 +1,9 @@
 #include "stdafx.h"
-#include "engine\Context.h"
+#include "scenes\StarDemo.h"
 #include "bodies\Terrestrial.h"
 
 int main() {
-	glfwInit();
-	Context MainWindow(static_cast<GLfloat>(SCR_WIDTH), static_cast<GLfloat>(SCR_HEIGHT));
-	MainWindow.Use();
+	demo::StarDemo test;
+	test.Use();
 	return 0;
 }

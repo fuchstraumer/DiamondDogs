@@ -30,7 +30,7 @@ using uint = unsigned int;
 #include "glm\gtc\quaternion.hpp"
 
 // GLFW declarations and definitions
-const GLuint SCR_WIDTH = 1920, SCR_HEIGHT = 1080;
+const GLuint SCR_WIDTH = 720, SCR_HEIGHT = 480;
 // Defines depth rendering ranges for projection matrix.
 const GLfloat nearDepth = 1.0f, farDepth = 500000.0f;
 
