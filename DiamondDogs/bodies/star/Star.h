@@ -3,14 +3,14 @@
 #define STAR_H
 #include "../Body.h"
 #include "Corona.h"
-#include "..\..\engine\mesh\Icosphere.h"
-#include "..\..\engine\mesh\Billboard.h"
+#include "..\..\engine\objects\Icosphere.h"
+#include "..\..\engine\objects\Billboard.h"
+
 
 class Star : public Body {
 public:
 	// Creates a star, randomly selecting all values from within reasonable ranges
-	Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection);
-	void BuildCorona(const glm::vec3 & position, const float & radius, const glm::mat4 & projection);
+	Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection, const glm::vec3& position = glm::vec3(0.0f));
 	// Creates a star, using supplied values or reasonably shuffled defaults otherwise.
 	~Star() = default;
 	Star() = default;
@@ -29,8 +29,6 @@ private:
 	// Meshes used when star is far away.
 	Billboard3D StarDistant;
 	ShaderProgram shaderClose;
-	// Shader used to render the sun when its distant.
-	ShaderProgram shaderDistant;
 	// Texture used to get color: blackbody radiation curve.
 	ldtex::Texture1D* starColor;
 	// Texture used to get texture (appearance of surface)

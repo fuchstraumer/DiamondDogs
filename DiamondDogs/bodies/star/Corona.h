@@ -2,14 +2,12 @@
 #ifndef CORONA_H
 #define CORONA_H
 #include "stdafx.h"
-#include "../../engine/rendering/Shader.h"
-#include "../../engine/mesh/Billboard.h"
+#include "../../engine/renderer/Shader.h"
+#include "../../engine/objects/Billboard.h"
 #include "../../util/lodeTexture.h"
 
 // Structure defining a stars corona
 struct Corona {
-
-	Corona() = default;
 
 	Corona(const Corona& other) = delete;
 	Corona& operator=(const Corona& other) = delete;
@@ -24,7 +22,7 @@ struct Corona {
 		return *this;
 	}
 
-	Corona(const glm::vec3& position, const float& radius) {
+	Corona(const float& radius, const glm::vec3& position = glm::vec3(0.0f)) : mesh(radius, position) {
 		coronaProgram.Init();
 		Shader cVert("./shaders/billboard/corona_vertex.glsl", VERTEX_SHADER);
 		Shader cFrag("./shaders/billboard/corona_fragment.glsl", FRAGMENT_SHADER);
@@ -46,12 +44,6 @@ struct Corona {
 			"blackbody",
 		};
 		coronaProgram.BuildUniformMap(uniforms);
-		
-		mesh.Scale = glm::vec3(6 * radius);
-		mesh.Radius = 6.0f * radius;
-		mesh.Position = position;
-		mesh.Angle = glm::vec3(0.0f);
-
 	}
 
 	void BuildRenderData(const int& star_temperature) {
@@ -62,14 +54,14 @@ struct Corona {
 		glUniform1i(tempLoc, star_temperature);
 		GLuint texLoc = coronaProgram.GetUniformLocation("blackbody");
 		glUniform1i(texLoc, 0);
-		mesh.Program = coronaProgram;
+		mesh.Program = std::move(coronaProgram);
 		mesh.BuildRenderData();
 	}
 
 	void Render(const glm::mat4 & view, const glm::mat4& projection) {
 		glActiveTexture(GL_TEXTURE3);
 		Blackbody->BindTexture();
-		coronaProgram.Use();
+		mesh.Program.Use();
 		// If frame counter is equal to limits of numeric precision,
 		if (frame == std::numeric_limits<GLint>::max()) {
 			// Reset frame counter
@@ -80,7 +72,7 @@ struct Corona {
 			frame++;
 		}
 		// Set frame value in Program
-		GLuint frameLoc = coronaProgram.GetUniformLocation("frame");
+		GLuint frameLoc = mesh.Program.GetUniformLocation("frame");
 		glUniform1i(frameLoc, static_cast<GLint>(frame));
 		mesh.Render(view, projection);
 	}

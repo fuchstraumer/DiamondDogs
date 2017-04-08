@@ -80,6 +80,8 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(SolutionDir)\$(Configuration)\</OutDir>
+    <IntDir>$(Configuration)\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -102,8 +104,9 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(SolutionDir)lib\OpenGL\include;$(SolutionDir)lib\OpenAL\include;$(ProjectDir);$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)lib\OpenGL\include;$(SolutionDir)lib\OpenAL\include;$(ProjectDir);$(SolutionDir)lib\Boost;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>false</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp14</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -159,45 +162,45 @@
     <ClInclude Include="bodies\star\Corona.h" />
     <ClInclude Include="bodies\star\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
-    <ClInclude Include="bodies\Terrestrial.h" />
     <ClInclude Include="bodies\terrestrial\Barren.h" />
-    <ClInclude Include="engine\mesh\Billboard.h" />
-    <ClInclude Include="engine\mesh\Icosphere.h" />
-    <ClInclude Include="engine\mesh\SpherifiedCube.h" />
-    <ClInclude Include="engine\mesh\Mesh.h" />
-    <ClInclude Include="engine\mesh\MeshComponents.h" />
-    <ClInclude Include="engine\mesh\PlanarMesh.h" />
-    <ClInclude Include="engine\mesh\Skybox.h" />
+    <ClInclude Include="engine\objects\Billboard.h" />
+    <ClInclude Include="engine\objects\Icosphere.h" />
+    <ClInclude Include="engine\objects\mesh.h" />
+    <ClInclude Include="engine\objects\MeshComponents.h" />
+    <ClInclude Include="engine\objects\SpherifiedCube.h" />
+    <ClInclude Include="engine\objects\PlanarMesh.h" />
+    <ClInclude Include="engine\objects\Skybox.h" />
+    <ClInclude Include="engine\renderer\objects\buffer.h" />
+    <ClInclude Include="engine\renderer\objects\device_object.h" />
+    <ClInclude Include="engine\renderer\objects\framebuffer.h" />
+    <ClInclude Include="scenes\AtmosphereDemo.h" />
     <ClInclude Include="scenes\StarDemo.h" />
     <ClInclude Include="stdafx.h" />
-    <ClInclude Include="engine\rendering\camera.h" />
+    <ClInclude Include="engine\renderer\camera.h" />
     <ClInclude Include="engine\Context.h" />
     <ClInclude Include="util\lodepng.h" />
     <ClInclude Include="util\lodeTexture.h" />
     <ClInclude Include="util\noise\TerrainBuilder.h" />
-    <ClInclude Include="engine\rendering\Shader.h" />
+    <ClInclude Include="engine\renderer\Shader.h" />
     <ClInclude Include="util\shaderold.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="bodies\star\Star.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="bodies\Terrestrial.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
-    </ClCompile>
     <ClCompile Include="DiamondDogs.cpp" />
-    <ClCompile Include="engine\mesh\Billboard.cpp">
+    <ClCompile Include="engine\objects\Billboard.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="engine\mesh\Icosphere.cpp">
+    <ClCompile Include="engine\objects\Icosphere.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="engine\mesh\PlanarMesh.cpp">
+    <ClCompile Include="engine\objects\PlanarMesh.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="engine\mesh\SpherifiedCube.cpp">
+    <ClCompile Include="engine\objects\SpherifiedCube.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="scenes\StarDemo.cpp" />
@@ -213,7 +216,7 @@
     <ClCompile Include="util\lodepng.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="engine\rendering\Shader.cpp">
+    <ClCompile Include="engine\renderer\Shader.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
   </ItemGroup>

@@ -2,7 +2,7 @@
 #ifndef BODY_H
 #define BODY_H
 #include "stdafx.h"
-#include "../engine/rendering/Shader.h"
+#include "../engine/renderer/Shader.h"
 #include "../util/lodeTexture.h"
 
 class Body {

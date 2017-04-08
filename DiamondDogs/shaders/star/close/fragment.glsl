@@ -128,11 +128,12 @@ float snoise(vec4 v){
     float total = 0.0; // Total value so far
     float maxAmplitude = 0.0; // Accumulates highest theoretical amplitude
     float amplitude = 1.0;
+	position *= frequency;
     for (int i = 0; i < octaves; i++) {
         // Get the noise sample
-        total += snoise(position * frequency) * amplitude;
+        total += snoise(position) * amplitude;
         // Make the wavelength twice as small
-        frequency *= 2.0;
+        position *= 1.95f;
         // Add to our maximum possible amplitude
         maxAmplitude += amplitude;
         // Reduce amplitude according to persistence for the next octave

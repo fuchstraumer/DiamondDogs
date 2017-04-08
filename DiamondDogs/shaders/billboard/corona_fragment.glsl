@@ -129,13 +129,15 @@ float snoise(vec4 v){
 // Octaved "o" noise
  float onoise(vec4 position, int octaves, float frequency, float persistence) {
     float total = 0.0; // Total value so far
-    float maxAmplitude = 0.0; // Accumulates highest theoretical amplitude
-    float amplitude = 1.0;
+    float maxAmplitude = 0.0f; // Accumulates highest theoretical amplitude
+    float amplitude = 1.0f;
+    position *= frequency;
+    float lacunarity = 1.95f;
     for (int i = 0; i < octaves; i++) {
         // Get the noise sample
-        total += snoise(position * frequency) * amplitude;
+        total += (abs(snoise(position))) * amplitude;
         // Make the wavelength twice as small
-        frequency *= 2.0;
+		position *= lacunarity;
         // Add to our maximum possible amplitude
         maxAmplitude += amplitude;
         // Reduce amplitude according to persistence for the next octave

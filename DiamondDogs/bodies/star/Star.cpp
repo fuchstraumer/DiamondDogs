@@ -1,6 +1,5 @@
 #include "stdafx.h"
 #include "Star.h"
-#include "glm/gtc/matrix_transform.hpp"
 
 // Simple method to get a stars color based on its temperature
 inline glm::vec3 getStarColor(unsigned int temperature) {
@@ -9,13 +8,13 @@ inline glm::vec3 getStarColor(unsigned int temperature) {
 		temperature * (0.0735f / 255.0f) - (115.0f / 255.0f));
 }
 
-Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection) : corona() {
+Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection, const glm::vec3& position) : corona(_radius * 6.0f, position), StarDistant(_radius, position) {
 	radius = _radius;
 	temperature = temp;
 	LOD_SwitchDistance = radius * 10.0f;
 	// Setup primary meshes.
 	mesh = Icosphere(lod_level, radius);
-	mesh2 = Icosphere(lod_level + 1, radius * 1.02f);
+	mesh2 = Icosphere(lod_level, radius * 1.0025f);
 	mesh2.Angle = glm::vec3(30.0f, 45.0f, 90.0f);
 	
 	starColor = new ldtex::Texture1D("./rsrc/img/star/star_spectrum.png", 1024);
@@ -84,10 +83,10 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 	// First, setup the program used to render at this distance.
 	Shader farVert("./shaders/star/far/vertex.glsl", VERTEX_SHADER);
 	Shader farFrag("./shaders/star/far/fragment.glsl", FRAGMENT_SHADER);
-	shaderDistant.Init();
-	shaderDistant.AttachShader(farVert);
-	shaderDistant.AttachShader(farFrag);
-	shaderDistant.CompleteProgram();
+	StarDistant.Program.Init();
+	StarDistant.Program.AttachShader(farVert);
+	StarDistant.Program.AttachShader(farFrag);
+	StarDistant.Program.CompleteProgram();
 
 	// Setup uniforms for this program.
 	uniforms = std::vector<std::string>{
@@ -102,10 +101,7 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 		"temperature",
 		"glowTex",
 	};
-	shaderDistant.BuildUniformMap(uniforms);
-
-	// Set shader in billboard
-	StarDistant.Program = shaderDistant;
+	StarDistant.Program.BuildUniformMap(uniforms);
 	// Make sure to build the texture and set it's location
 	starGlow->BuildTexture();
 	StarDistant.Program.Use();
@@ -125,11 +121,9 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 	glUniform1i(starTexLoc, 5);
 	glUniform3f(centerLoc, StarDistant.Position.x, StarDistant.Position.y, StarDistant.Position.z);
 
-}
-
-void Star::BuildCorona(const glm::vec3& position, const float& radius, const glm::mat4& projection) {
-	this->corona = Corona(position, radius);
+	// Finish setting up the corona 
 	corona.BuildRenderData(temperature);
+
 }
 
 Star& Star::operator=(Star && other){
@@ -138,7 +132,6 @@ Star& Star::operator=(Star && other){
 	mesh = std::move(other.mesh);
 	mesh2 = std::move(other.mesh2);
 	StarDistant = std::move(other.StarDistant);
-	shaderClose = std::move(other.shaderClose);
 	starColor = std::move(other.starColor);
 	starTex = std::move(other.starTex);
 	starGlow = std::move(other.starGlow);

@@ -5,7 +5,7 @@
 #include "stdafx.h"
 #include "../engine/Context.h"
 #include "bodies\star\Star.h"
-#include "engine\mesh\Skybox.h"
+#include "engine\objects\Skybox.h"
 
 namespace demo {
 	static const std::vector<std::string> skyboxTextures{
