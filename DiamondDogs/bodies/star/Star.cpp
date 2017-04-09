@@ -8,7 +8,7 @@ inline glm::vec3 getStarColor(unsigned int temperature) {
 		temperature * (0.0735f / 255.0f) - (115.0f / 255.0f));
 }
 
-Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection, const glm::vec3& position) : corona(_radius * 6.0f, position), StarDistant(_radius, position) {
+Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection, const glm::vec3& position) : corona(_radius * 6.0f, position) {
 	radius = _radius;
 	temperature = temp;
 	LOD_SwitchDistance = radius * 10.0f;
@@ -78,49 +78,6 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 	glUniform1i(starTexLoc, 1);
 	starColor->BuildTexture();
 
-	// Setup the billboard used when we want to render the star from a long distance.
-
-	// First, setup the program used to render at this distance.
-	Shader farVert("./shaders/star/far/vertex.glsl", VERTEX_SHADER);
-	Shader farFrag("./shaders/star/far/fragment.glsl", FRAGMENT_SHADER);
-	StarDistant.Program.Init();
-	StarDistant.Program.AttachShader(farVert);
-	StarDistant.Program.AttachShader(farFrag);
-	StarDistant.Program.CompleteProgram();
-
-	// Setup uniforms for this program.
-	uniforms = std::vector<std::string>{
-		"view",
-		"projection",
-		"model",
-		"normTransform",
-		"center",
-		"size", // Size of corona in world-space units.
-		"cameraUp",
-		"cameraRight",
-		"temperature",
-		"glowTex",
-	};
-	StarDistant.Program.BuildUniformMap(uniforms);
-	// Make sure to build the texture and set it's location
-	starGlow->BuildTexture();
-	StarDistant.Program.Use();
-
-	// Build render data.
-	StarDistant.BuildRenderData();
-
-	// Get locations of uniforms we can set right now.
-	projLoc = StarDistant.Program.GetUniformLocation("projection");
-	tempLoc = StarDistant.Program.GetUniformLocation("temperature");
-	starTexLoc = StarDistant.Program.GetUniformLocation("glowTex");
-	GLuint centerLoc = StarDistant.Program.GetUniformLocation("center");
-
-	// Set uniforms
-	glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
-	glUniform1i(tempLoc, temperature);
-	glUniform1i(starTexLoc, 5);
-	glUniform3f(centerLoc, StarDistant.Position.x, StarDistant.Position.y, StarDistant.Position.z);
-
 	// Finish setting up the corona 
 	corona.BuildRenderData(temperature);
 
@@ -131,7 +88,6 @@ Star& Star::operator=(Star && other){
 	radius = std::move(other.radius);
 	mesh = std::move(other.mesh);
 	mesh2 = std::move(other.mesh2);
-	StarDistant = std::move(other.StarDistant);
 	starColor = std::move(other.starColor);
 	starTex = std::move(other.starTex);
 	starGlow = std::move(other.starGlow);

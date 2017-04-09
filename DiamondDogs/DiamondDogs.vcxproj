@@ -74,6 +74,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
+    <IntDir>$(Configuration)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
@@ -170,9 +171,11 @@
     <ClInclude Include="engine\objects\SpherifiedCube.h" />
     <ClInclude Include="engine\objects\PlanarMesh.h" />
     <ClInclude Include="engine\objects\Skybox.h" />
-    <ClInclude Include="engine\renderer\objects\buffer.h" />
     <ClInclude Include="engine\renderer\objects\device_object.h" />
     <ClInclude Include="engine\renderer\objects\framebuffer.h" />
+    <ClInclude Include="engine\renderer\objects\pipeline_object.h" />
+    <ClInclude Include="engine\renderer\objects\shader_object.h" />
+    <ClInclude Include="engine\renderer\objects\texture.h" />
     <ClInclude Include="scenes\AtmosphereDemo.h" />
     <ClInclude Include="scenes\StarDemo.h" />
     <ClInclude Include="stdafx.h" />

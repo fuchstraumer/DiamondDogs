@@ -2,9 +2,11 @@
 #ifndef CORONA_H
 #define CORONA_H
 #include "stdafx.h"
-#include "../../engine/renderer/Shader.h"
-#include "../../engine/objects/Billboard.h"
-#include "../../util/lodeTexture.h"
+
+#include "engine/objects/Billboard.h"
+#include "engine\renderer\objects\texture.h"
+#include "engine\renderer\objects\shader_object.h"
+#include "engine\renderer\objects\pipeline_object.h"
 
 // Structure defining a stars corona
 struct Corona {
@@ -12,56 +14,37 @@ struct Corona {
 	Corona(const Corona& other) = delete;
 	Corona& operator=(const Corona& other) = delete;
 
-	Corona(Corona&& other) : Blackbody(std::move(other.Blackbody)), coronaProgram(std::move(other.coronaProgram)), mesh(std::move(other.mesh)), frame(std::move(other.frame)) {}
+	Corona(Corona&& other) : Blackbody(std::move(other.Blackbody)), Program(std::move(other.Program)), mesh(std::move(other.mesh)), frame(std::move(other.frame)) {}
 
 	Corona& operator=(Corona&& other) {
 		Blackbody = std::move(other.Blackbody);
-		coronaProgram = std::move(other.coronaProgram);
+		Program = std::move(other.Program);
 		mesh = std::move(other.mesh);
 		frame = std::move(other.frame);
 		return *this;
 	}
 
-	Corona(const float& radius, const glm::vec3& position = glm::vec3(0.0f)) : mesh(radius, position) {
-		coronaProgram.Init();
-		Shader cVert("./shaders/billboard/corona_vertex.glsl", VERTEX_SHADER);
-		Shader cFrag("./shaders/billboard/corona_fragment.glsl", FRAGMENT_SHADER);
-		coronaProgram.AttachShader(cVert);
-		coronaProgram.AttachShader(cFrag);
-		coronaProgram.CompleteProgram();
-		// Setup uniforms for billboard
-		std::vector<std::string> uniforms{
-			"view",
-			"projection",
-			"model",
-			"normTransform",
-			"center",
-			"size", // Size of corona in world-space units.
-			"cameraUp",
-			"cameraRight",
-			"frame",
-			"temperature",
-			"blackbody",
-		};
-		coronaProgram.BuildUniformMap(uniforms);
+	Corona(const float& radius, const glm::vec3& position = glm::vec3(0.0f)) : mesh(radius, position), Blackbody("./rsrc/img/star/star_spectrum.png", 1024) {
+		vulpes::shader_object<vulpes::vertex_shader_t> cVert("./shaders/billboard/corona_vertex.glsl");
+		vulpes::shader_object<vulpes::fragment_shader_t> cFrag("./shaders/billboard/corona_fragment.glsl");
+		glUseProgramStages(Program.handles[0], GL_VERTEX_SHADER_BIT, cVert.ID);
+		glUseProgramStages(Program.handles[0], GL_FRAGMENT_SHADER_BIT, cFrag.ID);
+		Program.setup_uniforms();
 	}
 
 	void BuildRenderData(const int& star_temperature) {
-		Blackbody = new ldtex::Texture1D("./rsrc/img/star/star_spectrum.png", 1024);
 		// Set frame counter to zero
 		frame = 0;
-		GLuint tempLoc = coronaProgram.GetUniformLocation("temperature");
-		glUniform1i(tempLoc, star_temperature);
-		GLuint texLoc = coronaProgram.GetUniformLocation("blackbody");
-		glUniform1i(texLoc, 0);
-		mesh.Program = std::move(coronaProgram);
+		GLuint tempLoc = Program.uniforms.at("temperature");
+		glProgramUniform1i(Program.handles[0], tempLoc, star_temperature);
+		GLuint texLoc = Program.uniforms.at("blackbody");
+		glProgramUniform1i(Program.handles[0], texLoc, 0);
+		mesh.Program = std::move(Program);
 		mesh.BuildRenderData();
 	}
 
 	void Render(const glm::mat4 & view, const glm::mat4& projection) {
-		glActiveTexture(GL_TEXTURE3);
-		Blackbody->BindTexture();
-		mesh.Program.Use();
+		glBindTextureUnit(3, Blackbody.handles[0]);
 		// If frame counter is equal to limits of numeric precision,
 		if (frame == std::numeric_limits<GLint>::max()) {
 			// Reset frame counter
@@ -72,14 +55,14 @@ struct Corona {
 			frame++;
 		}
 		// Set frame value in Program
-		GLuint frameLoc = mesh.Program.GetUniformLocation("frame");
-		glUniform1i(frameLoc, static_cast<GLint>(frame));
+		GLuint frameLoc = mesh.Program.uniforms.at("frame");
+		glProgramUniform1i(mesh.Program.handles[0], frameLoc, static_cast<GLint>(frame));
 		mesh.Render(view, projection);
 	}
 
 	Billboard3D mesh;
-	ShaderProgram coronaProgram;
-	ldtex::Texture1D* Blackbody;
+	vulpes::program_pipeline_object Program;
+	vulpes::texture_1d Blackbody;
 	uint64_t frame;
 };
 

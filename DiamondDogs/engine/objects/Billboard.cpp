@@ -31,8 +31,6 @@ Billboard3D& Billboard3D::operator=(Billboard3D&& other) noexcept {
 }
 
 void Billboard3D::BuildRenderData(){
-	// Bind Program
-	Program.Use();
 	// Upload data to VBO
 	glNamedBufferData(VBO[0], sizeof(quad_vertices), quad_vertices, GL_STATIC_DRAW);
 	// Setup up VAO
@@ -45,30 +43,30 @@ void Billboard3D::BuildRenderData(){
 	model = buildModelMatrix(Position, Scale, Angle);
 
 	// Acquire locations of uniforms and set them appropriately.
-	GLuint modelLoc = Program.GetUniformLocation("model");
-	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-	GLuint centerLoc = Program.GetUniformLocation("center");
-	glUniform3f(centerLoc, Position.x, Position.y, Position.z);
-	GLuint sizeLoc = Program.GetUniformLocation("size");
-	glUniform2f(sizeLoc, Radius, Radius);
+	GLuint modelLoc = Program.uniforms.at("model");
+	glProgramUniformMatrix4fv(Program.handles[0], modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+	GLuint centerLoc = Program.uniforms.at("center");
+	glProgramUniform3f(Program.handles[0], centerLoc, Position.x, Position.y, Position.z);
+	GLuint sizeLoc = Program.uniforms.at("size");
+	glProgramUniform2f(Program.handles[0], sizeLoc, Radius, Radius);
 }
 
 void Billboard3D::Render(const glm::mat4 & view, const glm::mat4 & projection) {
-	Program.Use();
-	glBindVertexArray(VAO[0]);
 	// Pass in the matrices we need
-	GLuint viewLoc = Program.GetUniformLocation("view");
-	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-	GLuint projLoc = Program.GetUniformLocation("projection");
-	glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+	GLuint viewLoc = Program.uniforms.at("view");
+	glProgramUniformMatrix4fv(Program.handles[0], viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+	GLuint projLoc = Program.uniforms.at("projection");
+	glProgramUniformMatrix4fv(Program.handles[0], projLoc, 1, GL_FALSE, glm::value_ptr(projection));
 	// Extract vectors we need from the view matrix
 	glm::vec3 camera_right = glm::vec3(view[0][0], view[1][0], view[2][0]);
 	glm::vec3 camera_up = glm::vec3(view[0][1], view[1][1], view[2][1]);
-	GLuint cRLoc = Program.GetUniformLocation("cameraRight");
-	GLuint cULoc = Program.GetUniformLocation("cameraUp");
-	glUniform3f(cRLoc, camera_right.x, camera_right.y, camera_right.z);
-	glUniform3f(cULoc, camera_up.x, camera_up.y, camera_up.z);
+	GLuint cRLoc = Program.uniforms.at("cameraRight");
+	GLuint cULoc = Program.uniforms.at("cameraUp");
+	glProgramUniform3f(Program.handles[0], cRLoc, camera_right.x, camera_right.y, camera_right.z);
+	glProgramUniform3f(Program.handles[0], cULoc, camera_up.x, camera_up.y, camera_up.z);
 	// Draw the billboard
+	glBindProgramPipeline(Program.handles[0]);
+	glBindVertexArray(VAO[0]);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 

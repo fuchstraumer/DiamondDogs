@@ -34,11 +34,13 @@
     <ClInclude Include="engine\objects\SpherifiedCube.h" />
     <ClInclude Include="engine\renderer\camera.h" />
     <ClInclude Include="engine\renderer\Shader.h" />
-    <ClInclude Include="engine\renderer\objects\buffer.h" />
     <ClInclude Include="engine\renderer\objects\device_object.h" />
     <ClInclude Include="engine\renderer\objects\framebuffer.h" />
     <ClInclude Include="engine\objects\MeshComponents.h" />
     <ClInclude Include="engine\objects\mesh.h" />
+    <ClInclude Include="engine\renderer\objects\texture.h" />
+    <ClInclude Include="engine\renderer\objects\shader_object.h" />
+    <ClInclude Include="engine\renderer\objects\pipeline_object.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

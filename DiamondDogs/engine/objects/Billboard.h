@@ -4,6 +4,7 @@
 #include "stdafx.h"
 #include "../renderer/Shader.h"
 #include "engine\renderer\objects\device_object.h"
+#include "engine\renderer\objects\pipeline_object.h"
 // Vector pointing up, constant since in most cases we don't want billboard rotating.
 static const glm::vec3 WORLD_UP = glm::vec3(0.0f, 1.0f, 0.0f);
 
@@ -44,7 +45,7 @@ public:
 	glm::vec3 Scale, Position, Angle;
 	// Pointer to the shader object: required to avoid issues with 
 	// building a Shader program before GL init due to default constructors
-	ShaderProgram Program;
+	vulpes::program_pipeline_object Program;
 	
 	GLuint starColor;
 

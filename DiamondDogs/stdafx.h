@@ -5,11 +5,16 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <sstream>
+#include <fstream>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 #include <array>
 #include <memory>
+#include <regex>
+#include <type_traits>
+#include <unordered_map>
 
 using uint = unsigned int;
 #include <stdlib.h>  

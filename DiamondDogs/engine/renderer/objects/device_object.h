@@ -9,9 +9,11 @@ namespace vulpes {
 	using named_buffer_t = std::integral_constant<unsigned int, 1>;
 	using named_framebuffer_t = std::integral_constant<unsigned int, 2>;
 	using program_pipeline_t = std::integral_constant<unsigned int, 4>;
+	using shader_object_t = std::integral_constant<unsigned int, 5>;
 	using texture_1d_t = std::integral_constant<unsigned int, 6>;
 	using texture_2d_t = std::integral_constant<unsigned int, 7>;
 	using texture_3d_t = std::integral_constant<unsigned int, 8>;
+	using texture_cubemap_t = std::integral_constant<unsigned int, 9>;
 
 	template<typename object_type, size_t num_objects = 1>
 	struct device_object {
@@ -98,6 +100,11 @@ namespace vulpes {
 		glCreateProgramPipelines(cnt, &object.handles[0]);
 	}
 
+	template<typename T, size_t cnt>
+	void generate_object_impl(device_object<T, cnt>& object, texture_cubemap_t) {
+		glCreateTextures(GL_TEXTURE_CUBE_MAP, cnt, &object.handles[0]);
+	}
+
 	/*
 		Destroy/Delete OpenGL objects
 	*/
@@ -124,6 +131,11 @@ namespace vulpes {
 
 	template<typename T, size_t cnt>
 	void destroy_object_impl(device_object<T, cnt>& object, texture_3d_t) {
+		glDeleteTextures(cnt, &object.handles[0]);
+	}
+
+	template<typename T, size_t cnt>
+	void destroy_object_impl(device_object<T, cnt>& object, texture_cubemap_t) {
 		glDeleteTextures(cnt, &object.handles[0]);
 	}
 

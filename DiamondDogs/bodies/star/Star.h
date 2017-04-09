@@ -27,7 +27,6 @@ private:
 	Icosphere mesh;
 	Icosphere mesh2;
 	// Meshes used when star is far away.
-	Billboard3D StarDistant;
 	ShaderProgram shaderClose;
 	// Texture used to get color: blackbody radiation curve.
 	ldtex::Texture1D* starColor;
