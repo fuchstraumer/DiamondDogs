@@ -93,7 +93,7 @@ inline glm::mat4 Mesh<vertex_type>::get_model_matrix(glm::vec3 position, glm::ve
 
 template<typename vertex_type>
 inline Mesh<vertex_type>::Mesh(Mesh && other) : vertices(std::move(other.vertices)), indices(std::move(other.indices)), Model(std::move(other.Model)), 
-	normTransform(std::move(other.normTransform)), position(std::move(other.position)), angle(std::move(other.angle)), scale(std::move(other.scale)), 
+	NormTransform(std::move(other.NormTransform)), position(std::move(other.position)), angle(std::move(other.angle)), scale(std::move(other.scale)), 
 	vbo(std::move(other.vbo)), ebo(std::move(other.ebo)), vao(std::move(other.vao)) {}
 
 template<typename vertex_type>
@@ -103,9 +103,18 @@ inline GLuint Mesh<vertex_type>::add_vertex(const vertex_type & vert){
 }
 
 template<typename vertex_type>
-inline Mesh & Mesh<vertex_type>::operator=(Mesh && other)
-{
-	// TODO: insert return statement here
+inline Mesh<vertex_type> & Mesh<vertex_type>::operator=(Mesh && other){
+	vertices = std::move(other.vertices);
+	indices = std::move(other.indices);
+	Model = std::move(other.Model);
+	NormTransform = std::move(other.NormTransform);
+	position = std::move(other.position);
+	angle = std::move(other.angle);
+	scale = std::move(other.scale);
+	vbo = std::move(other.vbo);
+	ebo = std::move(other.ebo);
+	vao = std::move(other.vao);
+	return *this;
 }
 
 template<typename vertex_type>
@@ -156,7 +165,7 @@ template<typename vertex_type = vertex_t>
 void Mesh<vertex_type>::render(vulpes::program_pipeline_object& pipeline) const {
 
 	// Bind the VAO we will be using.
-	glBindVertexArray(VAO);
+	glBindVertexArray(vao[0]);
 
 	glProgramUniformMatrix4fv(pipeline.program_id, pipeline.at("model"), 1, GL_FALSE, glm::value_ptr(Model));
 	if (pipeline.uniforms.count("normTransform") > 0) {

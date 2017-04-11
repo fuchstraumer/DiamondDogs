@@ -3,7 +3,6 @@
 #define LODE_TEXTURE_H
 #include "stdafx.h"
 #include "lodepng.h"
-#include "engine/renderer/Shader.h"
 
 namespace ldtex {
 

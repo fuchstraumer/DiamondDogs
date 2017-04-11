@@ -91,6 +91,13 @@ static const std::vector<index_t> initialIndices = {
 const int NUM_ISOCAHEDRON_VERTICES = 12;
 const int NUM_ISOCAHEDRON_INDICES = 60;
 
+Icosphere::Icosphere(Icosphere && other) noexcept : LOD_Level(std::move(other.LOD_Level)) {}
+
+Icosphere & Icosphere::operator=(Icosphere && other) noexcept{
+	LOD_Level = std::move(other.LOD_Level);
+	return *this;
+}
+
 Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 _position, glm::vec3 rotation) {
 	// Set properties affecting this mesh
 	position = _position;

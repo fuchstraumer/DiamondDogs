@@ -3,10 +3,10 @@
 #define SKYBOX_H
 #include "stdafx.h"
 #include "Mesh.h"
-
+#include "util\lodeTexture.h"
 class Skybox : public Mesh<> {
 public:
-	Skybox(const std::vector<std::string>& texture_paths) : Mesh() {
+	Skybox(const std::vector<std::string>& texture_paths) {
 		std::array<glm::vec3, 8> vertices{
 		{   
 			glm::vec3(-1.0f, -1.0f, +1.0f), // Point 0, left lower front UV{0,0}
@@ -21,7 +21,7 @@ public:
 		// Build mesh (six faces defining the cube)
 		auto buildface = [this](glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, glm::vec3 p3) {
 			// We'll need four indices and four vertices for the two tris defining a face.
-			index_t i0, i1, i2, i3;
+			GLuint i0, i1, i2, i3;
 			vertex_t v0, v1, v2, v3;
 			
 			// Set the vertex positions.
@@ -51,63 +51,61 @@ public:
 		// Back
 		buildface(vertices[4], vertices[5], vertices[6], vertices[7]); // Using Points 4, 5, 6, 7 and Normal 5
 		
-																	   // Set up skybox shaders
-		Shader SkyVert("./shaders/skybox/vertex.glsl", VERTEX_SHADER);
-		Shader SkyFrag("./shaders/skybox/fragment.glsl", FRAGMENT_SHADER);
-		Program.Init();
-		Program.AttachShader(SkyVert);
-		Program.AttachShader(SkyFrag);
-		Program.CompleteProgram();
-		std::vector<std::string> Uniforms = std::vector<std::string>{
-			"projection",
-			"view",
-		};
-		Program.BuildUniformMap(Uniforms);
-		// Set projection matrix.
-		Program.Use();
+		vulpes::compiler cl(vulpes::profile::CORE, 450);
+		cl.add_shader<vulpes::vertex_shader_t>("./shaders/skybox/vertex.glsl");
+		cl.add_shader<vulpes::fragment_shader_t>("./shaders/skybox/fragment.glsl");
+		GLuint program_id = cl.link();
+		GLbitfield stages = cl.get_program_stages();
+		Program.attach_program(program_id, stages);
+		Program.setup_uniforms();
+		glActiveShaderProgram(Program[0], Program.program_id);
 		// Setup textures
 		Tex = new ldtex::CubemapTexture(texture_paths, 2048);
 		Tex->BuildTexture();
 	}
 
 	void BuildRenderData(const glm::mat4& projection) {
-		GLuint projLoc = Program.GetUniformLocation("projection");
+		GLuint projLoc = Program.at("projection");
 		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
-		glGenVertexArrays(1, &VAO);
-		glGenBuffers(1, &VBO); glGenBuffers(1, &EBO);
-		glBindVertexArray(VAO);
-		// Bind the vertex buffer and then specify what data it will be loaded with
-		glBindBuffer(GL_ARRAY_BUFFER, VBO);
-		glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(vertex_t), &Vertices[0], GL_STATIC_DRAW);
-		// Bind the element array (indice) buffer and fill it with data
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, GetNumIndices() * sizeof(index_t), &Indices[0], GL_STATIC_DRAW);
+		glNamedBufferData(vbo[0], vertices.size() * sizeof(vertex_t), &vertices[0], GL_STATIC_DRAW);
+		glNamedBufferData(ebo[0], indices.size() * sizeof(GLuint), &indices[0], GL_STATIC_DRAW);
 		// Pointer to the position attribute of a vertex
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(vertex_t), (GLvoid*)0);
-		glBindVertexArray(0);
+		glEnableVertexArrayAttrib(vao[0], 0);
+		glVertexArrayVertexBuffer(vao[0], 0, vbo[0], 0, sizeof(vertex_t));
+		glVertexArrayAttribFormat(vao[0], 0, 3, GL_FLOAT, GL_FALSE, 0);
+		glVertexArrayElementBuffer(vao[0], ebo[0]);
 	}
 
 	void Render(const glm::mat4& view) {
-		Program.Use();
+		glActiveShaderProgram(Program[0], Program.program_id);
 		glDepthFunc(GL_LEQUAL);
-		GLuint viewloc = Program.GetUniformLocation("view");
-		glUniformMatrix4fv(viewloc, 1, GL_FALSE, glm::value_ptr(glm::mat4(glm::mat3(view))));
+		glProgramUniformMatrix4fv(Program.program_id, Program.at("view"), 1, GL_FALSE, glm::value_ptr(glm::mat4(glm::mat3(view))));
 		glActiveTexture(GL_TEXTURE0);
 		Tex->BindTexture();
 		// Change depth function to whats required to render skybox, then change it back when done.
-		glBindVertexArray(VAO);
-		glDrawElements(GL_TRIANGLES, GetNumIndices(), GL_UNSIGNED_INT, 0);
+		glBindVertexArray(vao[0]);
+		glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
 		glBindVertexArray(0);
 		glDepthFunc(GL_LESS);
 	}
 
+	void add_triangle(GLuint&& i0, GLuint&& i1, GLuint&& i2) {
+		indices.push_back(std::move(i0));
+		indices.push_back(std::move(i1));
+		indices.push_back(std::move(i2));
+	}
 
+	void add_triangle(const GLuint& i0, const GLuint& i1, const GLuint& i2) {
+		indices.push_back(i0);
+		indices.push_back(i1);
+		indices.push_back(i2);
+	}
 
-	GLuint VAO, VBO, EBO;
-
-	ShaderProgram Program;
-
+	vulpes::device_object<vulpes::named_buffer_t> vbo, ebo;
+	vulpes::device_object<vulpes::vertex_array_t> vao;
+	vulpes::program_pipeline_object Program;
+	std::vector<vertex_t> vertices;
+	std::vector<GLuint> indices;
 	ldtex::CubemapTexture* Tex;
 };
 

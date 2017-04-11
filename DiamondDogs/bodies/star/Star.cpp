@@ -31,8 +31,8 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 	pipeline.setup_uniforms();
 
 	glUseProgram(program_id);
-	mesh.BuildRenderData();
-	mesh2.BuildRenderData();
+	mesh.build_render_data();
+	mesh2.build_render_data();
 
 	// Set projection matrix
 	glProgramUniformMatrix4fv(program_id, pipeline.at("projection"), 1, GL_FALSE, glm::value_ptr(projection));
@@ -75,9 +75,9 @@ void Star::Render(const glm::mat4 & view, const glm::mat4& projection, const glm
 		frame = 0;
 	}
 	glProgramUniform1f(pipeline.program_id, pipeline.at("opacity"), 1.0f);
-	mesh.Render(pipeline);
+	mesh.render(pipeline);
 	glProgramUniform1f(pipeline.program_id, pipeline.at("opacity"), 0.6f);
-	mesh2.Render(pipeline);
+	mesh2.render(pipeline);
 	glUseProgram(0);
 	corona.Render(view);
 }
