@@ -30,7 +30,9 @@ namespace vulpes {
 
 		program_pipeline_object& operator=(program_pipeline_object&& other) noexcept;
 
-		void attach_program(GLuint _program_id, GLbitfield stages);
+		void attach_program(const GLuint& _program_id, GLbitfield stages);
+
+		void use();
 
 		const GLuint at(const std::string& uniform_name) const;
 

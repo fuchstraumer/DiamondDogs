@@ -14,7 +14,7 @@
 
 */
 
-class Icosphere : public Mesh<> {
+class Icosphere : public SOA_Mesh {
 public:
 
 	Icosphere(Icosphere&& other) noexcept;

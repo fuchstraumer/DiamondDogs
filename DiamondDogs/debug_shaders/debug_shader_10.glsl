@@ -1,3 +1,4 @@
+#version 450 core
 
 in vec3 position;
 

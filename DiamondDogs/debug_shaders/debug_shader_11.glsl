@@ -1,3 +1,4 @@
+#version 450 core
 
 uniform samplerCube skybox;
 

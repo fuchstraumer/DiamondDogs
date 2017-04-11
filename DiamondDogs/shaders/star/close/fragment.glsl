@@ -1,3 +1,4 @@
+
 #include "simplex.glsl"
 // Used to find color in texture map
 uniform int temperature;

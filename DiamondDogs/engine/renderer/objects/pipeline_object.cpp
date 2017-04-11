@@ -18,10 +18,15 @@ vulpes::program_pipeline_object& vulpes::program_pipeline_object::operator=(prog
 	return *this;
 }
 
-void vulpes::program_pipeline_object::attach_program(GLuint _program_id, GLbitfield stages) {
-	glUseProgramStages(this->handles[0], stages, program_id);
+void vulpes::program_pipeline_object::attach_program(const GLuint& _program_id, GLbitfield stages) {
+	// glUseProgramStages(this->handles[0], stages, program_id);
 	program_id = _program_id;
 }
+
+void vulpes::program_pipeline_object::use() {
+	glBindProgramPipeline(handles[0]);
+}
+
 const GLuint vulpes::program_pipeline_object::at(const std::string & uniform_name) const {
 	return uniforms.at(uniform_name);
 }

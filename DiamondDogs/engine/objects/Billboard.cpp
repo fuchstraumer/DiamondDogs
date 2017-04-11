@@ -64,7 +64,7 @@ void Billboard3D::Render(const glm::mat4 & view) {
 	glProgramUniform3f(Program.program_id, cRLoc, camera_right.x, camera_right.y, camera_right.z);
 	glProgramUniform3f(Program.program_id, cULoc, camera_up.x, camera_up.y, camera_up.z);
 	// Draw the billboard
-	glBindProgramPipeline(Program.program_id);
+	glUseProgram(Program.program_id);
 	glBindVertexArray(VAO[0]);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }

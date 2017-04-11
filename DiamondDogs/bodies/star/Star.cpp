@@ -8,13 +8,11 @@ inline glm::vec3 getStarColor(unsigned int temperature) {
 		temperature * (0.0735f / 255.0f) - (115.0f / 255.0f));
 }
 
-Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection, const glm::vec3& position) : corona(_radius * 6.0f, position), star_color("./rsrc/img/star/star_spectrum.png", 1024) {
+Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection, const glm::vec3& position) : corona(_radius * 6.0f, position), star_color("./rsrc/img/star/star_spectrum.png", 1024), mesh(lod_level, radius), mesh2(lod_level, radius * 1.0025f) {
 	radius = _radius;
 	temperature = temp;
 	LOD_SwitchDistance = radius * 10.0f;
 	// Setup primary meshes.
-	mesh = Icosphere(lod_level, radius);
-	mesh2 = Icosphere(lod_level, radius * 1.0025f);
 	mesh2.angle = glm::vec3(30.0f, 45.0f, 90.0f);
 
 	// Time starts at 0
@@ -31,8 +29,8 @@ Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& pro
 	pipeline.setup_uniforms();
 
 	glUseProgram(program_id);
-	mesh.build_render_data();
-	mesh2.build_render_data();
+	mesh.build_render_data(pipeline, projection);
+	mesh2.build_render_data(pipeline, projection);
 
 	// Set projection matrix
 	glProgramUniformMatrix4fv(program_id, pipeline.at("projection"), 1, GL_FALSE, glm::value_ptr(projection));
@@ -64,6 +62,7 @@ Star& Star::operator=(Star && other){
 void Star::Render(const glm::mat4 & view, const glm::mat4& projection, const glm::vec3& camera_position){
 	glUseProgram(pipeline.program_id);
 	glBindTextureUnit(1, star_color.handles[0]);
+	glProgramUniform1i(pipeline.program_id, pipeline.at("blackbody"), 1);
 	glProgramUniformMatrix4fv(pipeline.program_id, pipeline.at("view"), 1, GL_FALSE, glm::value_ptr(view));
 	glProgramUniform1i(pipeline.program_id, pipeline.at("frame"), static_cast<GLint>(frame));
 	glProgramUniform3f(pipeline.program_id, pipeline.at("cameraPos"), camera_position.x, camera_position.y, camera_position.z);
@@ -75,9 +74,9 @@ void Star::Render(const glm::mat4 & view, const glm::mat4& projection, const glm
 		frame = 0;
 	}
 	glProgramUniform1f(pipeline.program_id, pipeline.at("opacity"), 1.0f);
-	mesh.render(pipeline);
+	mesh.render(pipeline, view);
 	glProgramUniform1f(pipeline.program_id, pipeline.at("opacity"), 0.6f);
-	mesh2.render(pipeline);
+	mesh2.render(pipeline, view);
 	glUseProgram(0);
 	corona.Render(view);
 }

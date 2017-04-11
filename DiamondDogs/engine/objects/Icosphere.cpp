@@ -113,7 +113,7 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 _position, 
 	// Set initial vertices
 	vertices.resize(NUM_ISOCAHEDRON_VERTICES);
 	for (index_t i = 0; i < NUM_ISOCAHEDRON_VERTICES; ++i) {
-		vertices[i].Position = glm::normalize(initialVertices[i].Position);
+		vertices.positions[i] = glm::normalize(initialVertices[i].Position);
 		vertexLookup[glm::normalize(initialVertices[i].Position)] = i;
 	}
 	// Set initial indices
@@ -131,9 +131,9 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 _position, 
 			j+1    mp23   j+2
 			*/
 			// Defined in counter clockwise order
-			glm::vec3 vertex1 = vertices[indices[j + 0]].Position;
-			glm::vec3 vertex2 = vertices[indices[j + 1]].Position;
-			glm::vec3 vertex3 = vertices[indices[j + 2]].Position;
+			const glm::vec3& vertex1 = vertices.positions[indices[j + 0]];
+			const glm::vec3& vertex2 = vertices.positions[indices[j + 1]];
+			const glm::vec3& vertex3 = vertices.positions[indices[j + 2]];
 
 			glm::vec3 midPoint12 = findMidpoint(vertex1, vertex2);
 			glm::vec3 midPoint23 = findMidpoint(vertex2, vertex3);
@@ -148,8 +148,7 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 _position, 
 				mp12Index = iter->second;
 			}
 			else { // Not in the map
-				mp12Index = static_cast<index_t>(vertices.size());
-				vertices.push_back(vertex_t(midPoint12));
+				mp12Index = add_vertex(vertex_t(midPoint12));
 				vertexLookup[midPoint12] = mp12Index;
 			}
 
@@ -158,8 +157,7 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 _position, 
 				mp23Index = iter->second;
 			}
 			else { // Not in the map
-				mp23Index = static_cast<index_t>(vertices.size());
-				vertices.push_back(vertex_t(midPoint23));
+				mp23Index = add_vertex(vertex_t(midPoint23));
 				vertexLookup[midPoint23] = mp23Index;
 			}
 
@@ -168,8 +166,7 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 _position, 
 				mp13Index = iter->second;
 			}
 			else { // Not in the map
-				mp13Index = static_cast<index_t>(vertices.size());
-				vertices.push_back(vertex_t(midPoint13));
+				mp13Index = add_vertex(vertex_t(midPoint13));
 				vertexLookup[midPoint13] = mp13Index;
 			}
 			// Add our four new triangles to the mesh
@@ -194,7 +191,7 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 _position, 
 		newIndices.clear();
 	}
 
-	for (unsigned int i = 0; i < vertices.size(); ++i) {
-		vertices[i].Normal = glm::normalize(vertices[i].Position - glm::vec3(0.0f));
-	}
+	//for (unsigned int i = 0; i < vertices.size(); ++i) {
+	//	vertices[i].Normal = glm::normalize(vertices[i].Position - glm::vec3(0.0f));
+	//}
 }

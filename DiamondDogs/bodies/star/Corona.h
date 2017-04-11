@@ -46,7 +46,7 @@ struct Corona {
 	}
 
 	void Render(const glm::mat4 & view) {
-		glUseProgram(mesh.Program.program_id);
+		glUseProgram(Program.program_id);
 		glBindTextureUnit(3, Blackbody.handles[0]);
 		// If frame counter is equal to limits of numeric precision,
 		if (frame == std::numeric_limits<GLint>::max()) {

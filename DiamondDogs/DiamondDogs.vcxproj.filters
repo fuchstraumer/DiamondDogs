@@ -10,6 +10,7 @@
     <ClCompile Include="engine\objects\Billboard.cpp" />
     <ClCompile Include="engine\objects\Icosphere.cpp" />
     <ClCompile Include="engine\renderer\objects\pipeline_object.cpp" />
+    <ClCompile Include="engine\objects\Mesh.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
@@ -31,7 +32,6 @@
     <ClInclude Include="engine\renderer\camera.h" />
     <ClInclude Include="engine\renderer\objects\device_object.h" />
     <ClInclude Include="engine\objects\MeshComponents.h" />
-    <ClInclude Include="engine\objects\mesh.h" />
     <ClInclude Include="engine\renderer\objects\texture.h" />
     <ClInclude Include="engine\renderer\objects\shader_object.h" />
     <ClInclude Include="engine\renderer\objects\pipeline_object.h" />
@@ -39,6 +39,7 @@
     <ClInclude Include="engine\renderer\objects\program_object.h" />
     <ClInclude Include="engine\renderer\types\vertex_types.h" />
     <ClInclude Include="engine\renderer\objects\uniform_buffer.h" />
+    <ClInclude Include="engine\objects\Mesh.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

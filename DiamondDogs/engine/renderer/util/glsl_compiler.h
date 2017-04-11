@@ -32,7 +32,7 @@ namespace vulpes {
 					std::cerr << "ERROR::SHADER::INCLUDED_FILE_NOT_SUCCESFULLY_READ: " << include_file << std::endl;
 				}
 				output.push_back(include_string);
-				input.erase(matches.position(), matches.position() + matches.length());
+				input.erase(matches.position(), matches.position() + matches.length() + 1);
 			}
 		}
 	}
@@ -74,8 +74,8 @@ namespace vulpes {
 	struct compiler {
 
 		// Used to find/retrieve shader objects, where first entry is type of shader and second is handle/name of that shader object
-		using shaders_map = std::unordered_map<GLenum, GLuint>;
-			
+		using shader_objects_map = std::unordered_map<GLenum, GLuint>;
+		//using shader_programs_map = std::unordered_map<std::pair<GLenum, GLbitfield>, GLuint>;
 		compiler(profile _prof, unsigned int _version) : prof(_prof), version(_version) {}
 
 		template<typename shader_type>
@@ -88,8 +88,8 @@ namespace vulpes {
 		GLuint link();
 
 		// stores completed shader objects by type
-		shaders_map shader_objects;
-
+		shader_objects_map shader_objects;
+		//shader_programs_map shader_programs;
 		// Used when compiling
 		profile prof;
 		unsigned int version;
@@ -219,7 +219,7 @@ namespace vulpes {
 
 	inline GLbitfield compiler::get_program_stages() {
 		// Create bitfield defining stages.
-		GLbitfield program_stages;
+		GLbitfield program_stages = 0;
 		for (const auto& shader : shader_objects) {
 			program_stages |= shader.first;
 		}

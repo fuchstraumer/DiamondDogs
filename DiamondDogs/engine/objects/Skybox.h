@@ -4,10 +4,10 @@
 #include "stdafx.h"
 #include "Mesh.h"
 #include "util\lodeTexture.h"
-class Skybox : public Mesh<> {
+class Skybox {
 public:
 	Skybox(const std::vector<std::string>& texture_paths) {
-		std::array<glm::vec3, 8> vertices{
+		std::array<glm::vec3, 8> positions{
 		{   
 			glm::vec3(-1.0f, -1.0f, +1.0f), // Point 0, left lower front UV{0,0}
 			glm::vec3(+1.0f, -1.0f, +1.0f), // Point 1, right lower front UV{1,0}
@@ -19,37 +19,37 @@ public:
 			glm::vec3(+1.0f, +1.0f, -1.0f), } // Point 7, right upper rear
 		};
 		// Build mesh (six faces defining the cube)
-		auto buildface = [this](glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, glm::vec3 p3) {
+		auto buildface = [this](const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3) {
 			// We'll need four indices and four vertices for the two tris defining a face.
 			GLuint i0, i1, i2, i3;
 			vertex_t v0, v1, v2, v3;
 			
 			// Set the vertex positions.
-			v0.Position.xyz = p0;
-			v1.Position.xyz = p1;
-			v2.Position.xyz = p2;
-			v3.Position.xyz = p3;
+			v0.Position = p0;
+			v1.Position = p1;
+			v2.Position = p2;
+			v3.Position = p3;
 			// Add the verts to the Mesh's vertex container. Returns index to added vert.
-			i0 = add_vertex(v0);
-			i1 = add_vertex(v1);
-			i2 = add_vertex(v2);
-			i3 = add_vertex(v3);
+			i0 = add_vertex(std::move(v0));
+			i1 = add_vertex(std::move(v1));
+			i2 = add_vertex(std::move(v2));
+			i3 = add_vertex(std::move(v3));
 			// Add the triangles to the mesh, via indices
 			add_triangle(i0, i1, i2); // Needs UVs {0,0}{1,0}{0,1}
 			add_triangle(i0, i2, i3); // Needs UVs {1,0}{0,1}{1,1}
 		};
 		// Front
-		buildface(vertices[0], vertices[1], vertices[2], vertices[3]); // Using Points 0, 1, 2, 3 and Normal 0
+		buildface(positions[0], positions[1], positions[2], positions[3]); // Using Points 0, 1, 2, 3 and Normal 0
 		// Right
-		buildface(vertices[1], vertices[4], vertices[7], vertices[2]); // Using Points 1, 4, 7, 2 and Normal 1
+		buildface(positions[1], positions[4], positions[7], positions[2]); // Using Points 1, 4, 7, 2 and Normal 1
 		// Top
-		buildface(vertices[3], vertices[2], vertices[7], vertices[6]); // Using Points 3, 2, 7, 6 and Normal 2
+		buildface(positions[3], positions[2], positions[7], positions[6]); // Using Points 3, 2, 7, 6 and Normal 2
 		// Left
-		buildface(vertices[5], vertices[0], vertices[3], vertices[6]); // Using Points 5, 0, 3, 6 and Normal 3
+		buildface(positions[5], positions[0], positions[3], positions[6]); // Using Points 5, 0, 3, 6 and Normal 3
 		// Bottom
-		buildface(vertices[5], vertices[4], vertices[1], vertices[0]); // Using Points 5, 4, 1, 0 and Normal 4
+		buildface(positions[5], positions[4], positions[1], positions[0]); // Using Points 5, 4, 1, 0 and Normal 4
 		// Back
-		buildface(vertices[4], vertices[5], vertices[6], vertices[7]); // Using Points 4, 5, 6, 7 and Normal 5
+		buildface(positions[4], positions[5], positions[6], positions[7]); // Using Points 4, 5, 6, 7 and Normal 5
 		
 		vulpes::compiler cl(vulpes::profile::CORE, 450);
 		cl.add_shader<vulpes::vertex_shader_t>("./shaders/skybox/vertex.glsl");
@@ -66,7 +66,7 @@ public:
 
 	void BuildRenderData(const glm::mat4& projection) {
 		GLuint projLoc = Program.at("projection");
-		glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+		glProgramUniformMatrix4fv(Program.program_id, projLoc, 1, GL_FALSE, glm::value_ptr(projection));
 		glNamedBufferData(vbo[0], vertices.size() * sizeof(vertex_t), &vertices[0], GL_STATIC_DRAW);
 		glNamedBufferData(ebo[0], indices.size() * sizeof(GLuint), &indices[0], GL_STATIC_DRAW);
 		// Pointer to the position attribute of a vertex
@@ -77,7 +77,7 @@ public:
 	}
 
 	void Render(const glm::mat4& view) {
-		glActiveShaderProgram(Program[0], Program.program_id);
+		glUseProgram(Program.program_id);
 		glDepthFunc(GL_LEQUAL);
 		glProgramUniformMatrix4fv(Program.program_id, Program.at("view"), 1, GL_FALSE, glm::value_ptr(glm::mat4(glm::mat3(view))));
 		glActiveTexture(GL_TEXTURE0);
@@ -87,6 +87,12 @@ public:
 		glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
 		glBindVertexArray(0);
 		glDepthFunc(GL_LESS);
+		glUseProgram(0);
+	}
+
+	GLuint add_vertex(const vertex_t& v) {
+		vertices.push_back(v);
+		return static_cast<GLuint>(vertices.size() - 1);
 	}
 
 	void add_triangle(GLuint&& i0, GLuint&& i1, GLuint&& i2) {
