@@ -5,7 +5,7 @@
 #include "Corona.h"
 #include "..\..\engine\objects\Icosphere.h"
 #include "..\..\engine\objects\Billboard.h"
-
+#include "../../engine/renderer/objects/texture.h"
 
 class Star : public Body {
 public:
@@ -26,21 +26,14 @@ private:
 	// Meshes used for up-close rendering.
 	Icosphere mesh;
 	Icosphere mesh2;
-	// Meshes used when star is far away.
-	ShaderProgram shaderClose;
-	// Texture used to get color: blackbody radiation curve.
-	ldtex::Texture1D* starColor;
-	// Texture used to get texture (appearance of surface)
-	ldtex::Texture2D* starTex;
-	// Texture used to render star from a large distance.
-	ldtex::Texture2D* starGlow;
 	// Corona object for this star
 	Corona corona;
 	// Used to permute the star
 	uint64_t frame;
 	// Distance we switch LODs
 	float LOD_SwitchDistance;
-	
+	vulpes::program_pipeline_object pipeline;
+	vulpes::texture_1d star_color;
 };
 
 #endif // !STAR_H

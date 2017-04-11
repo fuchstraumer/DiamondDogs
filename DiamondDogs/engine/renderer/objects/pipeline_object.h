@@ -22,20 +22,21 @@ namespace vulpes {
 
 	struct program_pipeline_object : device_object<program_pipeline_t> {
 
-		program_pipeline_object() : device_object() {}
+		program_pipeline_object();
 
-		void setup_uniforms(GLuint program_id) {
-			GLint uniform_count = 0;
-			GLsizei length = 0, size = 0;
-			GLenum type = GL_NONE;
-			glActiveShaderProgram(this->handles[0], program_id);
-			glGetProgramiv(this->handles[0], GL_ACTIVE_UNIFORMS, &uniform_count);
-			for (GLint i = 0; i < uniform_count; i++){
-				std::array<GLchar, 0xff> uniform_name = {};
-				glGetActiveUniform(this->handles[0], i, uniform_name.size(), &length, &size, &type, uniform_name.data());
-				uniforms[uniform_name.data()] = glGetUniformLocation(this->handles[0], uniform_name.data());
-			}
-		}
+		~program_pipeline_object();
+
+		program_pipeline_object(program_pipeline_object&& other) noexcept;
+
+		program_pipeline_object& operator=(program_pipeline_object&& other) noexcept;
+
+		void attach_program(GLuint _program_id, GLbitfield stages);
+
+		const GLuint at(const std::string& uniform_name) const;
+
+		void setup_uniforms();
+
+		GLuint program_id;
 
 		std::unordered_map<std::string, GLint> uniforms;
 	};

@@ -8,7 +8,8 @@ class Skybox : public Mesh<> {
 public:
 	Skybox(const std::vector<std::string>& texture_paths) : Mesh() {
 		std::array<glm::vec3, 8> vertices{
-			{ glm::vec3(-1.0f, -1.0f, +1.0f), // Point 0, left lower front UV{0,0}
+		{   
+			glm::vec3(-1.0f, -1.0f, +1.0f), // Point 0, left lower front UV{0,0}
 			glm::vec3(+1.0f, -1.0f, +1.0f), // Point 1, right lower front UV{1,0}
 			glm::vec3(+1.0f, +1.0f, +1.0f), // Point 2, right upper front UV{1,1}
 			glm::vec3(-1.0f, +1.0f, +1.0f), // Point 3, left upper front UV{0,1}
@@ -29,13 +30,13 @@ public:
 			v2.Position.xyz = p2;
 			v3.Position.xyz = p3;
 			// Add the verts to the Mesh's vertex container. Returns index to added vert.
-			i0 = AddVert(v0);
-			i1 = AddVert(v1);
-			i2 = AddVert(v2);
-			i3 = AddVert(v3);
+			i0 = add_vertex(v0);
+			i1 = add_vertex(v1);
+			i2 = add_vertex(v2);
+			i3 = add_vertex(v3);
 			// Add the triangles to the mesh, via indices
-			AddTriangle(i0, i1, i2); // Needs UVs {0,0}{1,0}{0,1}
-			AddTriangle(i0, i2, i3); // Needs UVs {1,0}{0,1}{1,1}
+			add_triangle(i0, i1, i2); // Needs UVs {0,0}{1,0}{0,1}
+			add_triangle(i0, i2, i3); // Needs UVs {1,0}{0,1}{1,1}
 		};
 		// Front
 		buildface(vertices[0], vertices[1], vertices[2], vertices[3]); // Using Points 0, 1, 2, 3 and Normal 0
@@ -77,7 +78,7 @@ public:
 		glBindVertexArray(VAO);
 		// Bind the vertex buffer and then specify what data it will be loaded with
 		glBindBuffer(GL_ARRAY_BUFFER, VBO);
-		glBufferData(GL_ARRAY_BUFFER, GetNumVerts() * sizeof(vertex_t), &Vertices[0], GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(vertex_t), &Vertices[0], GL_STATIC_DRAW);
 		// Bind the element array (indice) buffer and fill it with data
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
 		glBufferData(GL_ELEMENT_ARRAY_BUFFER, GetNumIndices() * sizeof(index_t), &Indices[0], GL_STATIC_DRAW);
@@ -100,6 +101,8 @@ public:
 		glBindVertexArray(0);
 		glDepthFunc(GL_LESS);
 	}
+
+
 
 	GLuint VAO, VBO, EBO;
 

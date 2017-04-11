@@ -75,6 +75,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <IntDir>$(Configuration)\</IntDir>
+    <OutDir>$(SolutionDir)\$(Configuration)\</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
@@ -143,7 +144,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(SolutionDir)lib\OpenGL\include;$(SolutionDir)lib\OpenAL\include;$(ProjectDir);$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)lib\OpenGL\include;$(SolutionDir)lib\OpenAL\include;$(ProjectDir);$(SolutionDir)lib\Boost;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
@@ -168,8 +169,6 @@
     <ClInclude Include="engine\objects\Icosphere.h" />
     <ClInclude Include="engine\objects\mesh.h" />
     <ClInclude Include="engine\objects\MeshComponents.h" />
-    <ClInclude Include="engine\objects\SpherifiedCube.h" />
-    <ClInclude Include="engine\objects\PlanarMesh.h" />
     <ClInclude Include="engine\objects\Skybox.h" />
     <ClInclude Include="engine\renderer\objects\device_object.h" />
     <ClInclude Include="engine\renderer\objects\pipeline_object.h" />
@@ -178,7 +177,6 @@
     <ClInclude Include="engine\renderer\objects\texture.h" />
     <ClInclude Include="engine\renderer\objects\uniform_buffer.h" />
     <ClInclude Include="engine\renderer\types\vertex_types.h" />
-    <ClInclude Include="engine\renderer\util\bind_system.h" />
     <ClInclude Include="engine\renderer\util\glsl_compiler.h" />
     <ClInclude Include="scenes\AtmosphereDemo.h" />
     <ClInclude Include="scenes\StarDemo.h" />
@@ -188,7 +186,6 @@
     <ClInclude Include="util\lodepng.h" />
     <ClInclude Include="util\lodeTexture.h" />
     <ClInclude Include="util\noise\TerrainBuilder.h" />
-    <ClInclude Include="engine\renderer\Shader.h" />
     <ClInclude Include="util\shaderold.h" />
   </ItemGroup>
   <ItemGroup>
@@ -204,12 +201,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="engine\objects\PlanarMesh.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
-    </ClCompile>
-    <ClCompile Include="engine\objects\SpherifiedCube.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
-    </ClCompile>
+    <ClCompile Include="engine\renderer\objects\pipeline_object.cpp" />
     <ClCompile Include="scenes\StarDemo.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
@@ -222,9 +214,6 @@
     </ClCompile>
     <ClCompile Include="util\lodepng.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
-    </ClCompile>
-    <ClCompile Include="engine\renderer\Shader.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

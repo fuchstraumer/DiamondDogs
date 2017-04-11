@@ -1,6 +1,6 @@
 #include "stdafx.h"
 #include "Star.h"
-
+#include "../../engine/renderer/util/glsl_compiler.h"
 // Simple method to get a stars color based on its temperature
 inline glm::vec3 getStarColor(unsigned int temperature) {
 	return glm::vec3(temperature * (0.0534f / 255.0f) - (43.0f / 255.0f),
@@ -8,78 +8,44 @@ inline glm::vec3 getStarColor(unsigned int temperature) {
 		temperature * (0.0735f / 255.0f) - (115.0f / 255.0f));
 }
 
-Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection, const glm::vec3& position) : corona(_radius * 6.0f, position) {
+Star::Star(int lod_level, float _radius, unsigned int temp, const glm::mat4& projection, const glm::vec3& position) : corona(_radius * 6.0f, position), star_color("./rsrc/img/star/star_spectrum.png", 1024) {
 	radius = _radius;
 	temperature = temp;
 	LOD_SwitchDistance = radius * 10.0f;
 	// Setup primary meshes.
 	mesh = Icosphere(lod_level, radius);
 	mesh2 = Icosphere(lod_level, radius * 1.0025f);
-	mesh2.Angle = glm::vec3(30.0f, 45.0f, 90.0f);
-	
-	starColor = new ldtex::Texture1D("./rsrc/img/star/star_spectrum.png", 1024);
-	starTex = new ldtex::Texture2D("./rsrc/img/star/star_tex.png", 1024, 1024);
-	starGlow = new ldtex::Texture2D("./rsrc/img/star/star_glow.png", 2048, 2048);
+	mesh2.angle = glm::vec3(30.0f, 45.0f, 90.0f);
 
 	// Time starts at 0
 	frame = 0;
-	// Setup shader program for rendering star when close.
+	// Setup shader program for rendering star
 
-	// Build program elements
-	Shader vert("./shaders/star/close/vertex.glsl", VERTEX_SHADER);
-	Shader frag("./shaders/star/close/fragment.glsl", FRAGMENT_SHADER);
-	shaderClose.Init();
-	shaderClose.AttachShader(vert);
-	shaderClose.AttachShader(frag);
+	vulpes::compiler cl(vulpes::profile::CORE, 450);
+	cl.add_shader<vulpes::vertex_shader_t>("./shaders/star/close/vertex.glsl");
+	cl.add_shader<vulpes::fragment_shader_t>("./shaders/star/close/fragment.glsl");
+	GLuint program_id = cl.link();
+	GLbitfield program_stages = cl.get_program_stages();
 
-	// Complete and compile program
-	shaderClose.CompleteProgram();
+	pipeline.attach_program(program_id, program_stages);
+	pipeline.setup_uniforms();
 
-	// Build map of uniform locations
-	std::vector<std::string> uniforms{
-		"model",
-		"view",
-		"projection",
-		"normTransform",
-		"radius",
-		"colorShift",
-		"temperature",
-		"blackbody",
-		"cameraPos",
-		"frame",
-		"opacity",
-	};
-	shaderClose.BuildUniformMap(uniforms);
-
-	// Prepare mesh for rendering.
-	shaderClose.Use();
+	glUseProgram(program_id);
 	mesh.BuildRenderData();
 	mesh2.BuildRenderData();
 
 	// Set projection matrix
-	GLuint projLoc = shaderClose.GetUniformLocation("projection");
-	glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
-
-	// Set radius
-	GLuint radLoc = shaderClose.GetUniformLocation("radius");
-	glUniform1f(radLoc, radius);
+	glProgramUniformMatrix4fv(program_id, pipeline.at("projection"), 1, GL_FALSE, glm::value_ptr(projection));
 
 	// Get the colorshift/radiosity increase based on the temp
-	GLuint colorLoc = shaderClose.GetUniformLocation("colorShift");
 	glm::vec3 color = getStarColor(temperature);
-	glUniform3f(colorLoc, color.x, color.y, color.z);
+	glProgramUniform3f(program_id, pipeline.at("colorShift"), color.x, color.y, color.z);
 
 	// Get temperature location and set the parameter appropriately
-	GLuint tempLoc = shaderClose.GetUniformLocation("temperature");
-	glUniform1i(tempLoc, temperature);
-
-	// Set texture location and build the texture data
-	GLuint starTexLoc = shaderClose.GetUniformLocation("blackbody");
-	glUniform1i(starTexLoc, 1);
-	starColor->BuildTexture();
+	glProgramUniform1i(program_id, pipeline.at("temperature"), temperature);
 
 	// Finish setting up the corona 
-	corona.BuildRenderData(temperature);
+	corona.BuildRenderData(temperature, projection);
 
 }
 
@@ -88,9 +54,7 @@ Star& Star::operator=(Star && other){
 	radius = std::move(other.radius);
 	mesh = std::move(other.mesh);
 	mesh2 = std::move(other.mesh2);
-	starColor = std::move(other.starColor);
-	starTex = std::move(other.starTex);
-	starGlow = std::move(other.starGlow);
+	star_color = std::move(other.star_color);
 	corona = std::move(other.corona);
 	frame = std::move(other.frame);
 	LOD_SwitchDistance = std::move(other.LOD_SwitchDistance);
@@ -98,16 +62,11 @@ Star& Star::operator=(Star && other){
 }
 
 void Star::Render(const glm::mat4 & view, const glm::mat4& projection, const glm::vec3& camera_position){
-	GLuint viewLoc = shaderClose.GetUniformLocation("view");
-	GLuint timeLoc = shaderClose.GetUniformLocation("frame");
-	GLuint cPosLoc = shaderClose.GetUniformLocation("cameraPos");
-	GLuint opacityLoc = shaderClose.GetUniformLocation("opacity");
-	shaderClose.Use();
-	glActiveTexture(GL_TEXTURE1);
-	starColor->BindTexture();
-	glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-	glUniform1i(timeLoc, static_cast<GLint>(frame));
-	glUniform3f(cPosLoc, camera_position.x, camera_position.y, camera_position.z);
+	glUseProgram(pipeline.program_id);
+	glBindTextureUnit(1, star_color.handles[0]);
+	glProgramUniformMatrix4fv(pipeline.program_id, pipeline.at("view"), 1, GL_FALSE, glm::value_ptr(view));
+	glProgramUniform1i(pipeline.program_id, pipeline.at("frame"), static_cast<GLint>(frame));
+	glProgramUniform3f(pipeline.program_id, pipeline.at("cameraPos"), camera_position.x, camera_position.y, camera_position.z);
 	if (frame < std::numeric_limits<GLint>::max()) {
 		frame++;
 	}
@@ -115,9 +74,10 @@ void Star::Render(const glm::mat4 & view, const glm::mat4& projection, const glm
 		// Wrap time back to zero.
 		frame = 0;
 	}
-	glUniform1f(opacityLoc, 1.0f);
-	mesh.Render(shaderClose);
-	glUniform1f(opacityLoc, 0.6f);
-	mesh2.Render(shaderClose);
-	corona.Render(view, projection);
+	glProgramUniform1f(pipeline.program_id, pipeline.at("opacity"), 1.0f);
+	mesh.Render(pipeline);
+	glProgramUniform1f(pipeline.program_id, pipeline.at("opacity"), 0.6f);
+	mesh2.Render(pipeline);
+	glUseProgram(0);
+	corona.Render(view);
 }

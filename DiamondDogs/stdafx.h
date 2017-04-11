@@ -1,6 +1,6 @@
 // STDAFX.H - used for precompilation of headers used everywhere in project
 #pragma once
-
+#define GLSL_COMPILER_DEBUG_STRINGS
 #include <stdio.h>
 #include <string>
 #include <vector>
@@ -43,4 +43,5 @@ const GLfloat nearDepth = 1.0f, farDepth = 500000.0f;
 #include <boost/mpl/eval_if.hpp>
 #include <boost/mpl/identity.hpp>
 #include <boost/fusion/mpl.hpp>
+#include <boost/mpl/sizeof.hpp>
 

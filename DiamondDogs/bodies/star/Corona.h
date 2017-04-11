@@ -28,24 +28,25 @@ struct Corona {
 		vulpes::compiler cl(vulpes::profile::CORE, 450);
 		cl.add_shader<vulpes::vertex_shader_t>("./shaders/billboard/corona_vertex.glsl");
 		cl.add_shader<vulpes::fragment_shader_t>("./shaders/billboard/corona_fragment.glsl");
-		GLuint program = cl.link();
+		GLuint program_name = cl.link();
 		GLbitfield stages = cl.get_program_stages();
-		glUseProgramStages(Program.handles[0], stages, program);
-		Program.setup_uniforms(program);
+		Program.attach_program(program_name, stages);
+		Program.setup_uniforms();
 	}
 
-	void BuildRenderData(const int& star_temperature) {
+	void BuildRenderData(const int& star_temperature, const glm::mat4& projection) {
+		glUseProgram(Program.program_id);
 		// Set frame counter to zero
 		frame = 0;
 		GLuint tempLoc = Program.uniforms.at("temperature");
-		glProgramUniform1i(Program.handles[0], tempLoc, star_temperature);
-		GLuint texLoc = Program.uniforms.at("blackbody");
-		glProgramUniform1i(Program.handles[0], texLoc, 0);
+		glProgramUniform1i(Program.program_id, tempLoc, star_temperature);
 		mesh.Program = std::move(Program);
+		mesh.Projection = projection;
 		mesh.BuildRenderData();
 	}
 
-	void Render(const glm::mat4 & view, const glm::mat4& projection) {
+	void Render(const glm::mat4 & view) {
+		glUseProgram(mesh.Program.program_id);
 		glBindTextureUnit(3, Blackbody.handles[0]);
 		// If frame counter is equal to limits of numeric precision,
 		if (frame == std::numeric_limits<GLint>::max()) {
@@ -58,8 +59,8 @@ struct Corona {
 		}
 		// Set frame value in Program
 		GLuint frameLoc = mesh.Program.uniforms.at("frame");
-		glProgramUniform1i(mesh.Program.handles[0], frameLoc, static_cast<GLint>(frame));
-		mesh.Render(view, projection);
+		glProgramUniform1i(mesh.Program.program_id, frameLoc, static_cast<GLint>(frame));
+		mesh.Render(view);
 	}
 
 	Billboard3D mesh;

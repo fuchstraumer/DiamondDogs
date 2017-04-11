@@ -1,9 +1,7 @@
 #pragma once
 #ifndef CONTEXT_H
 #define CONTEXT_H
-#include "renderer\shader.h"
 #include "renderer\camera.h"
-#include "../util/lodeTexture.h"
 /*
 	
 	CONTEXT_H

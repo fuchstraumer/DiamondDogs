@@ -37,22 +37,6 @@ namespace vulpes {
 		}
 	}
 
-	static void find_defines(std::string& input, std::vector<std::string>& output) {
-		static const std::basic_regex<char> re("^[ ]*#[ ]*define[ ]+[\"<](.*)[\">].*");
-		std::stringstream input_stream;
-		input_stream << input;
-		std::smatch matches;
-		// Current line
-		std::string line;
-		while (std::getline(input_stream, line)) {
-			if (std::regex_search(line, matches, re)) {
-				std::string define_item = matches[1];
-				output.push_back(define_item);
-				input.erase(matches.position(), matches.position() + matches.length());
-			}
-		}
-	}
-
 	static std::string import_file(const std::string& filename) {
 		std::ifstream shader_file;
 		std::string result;
@@ -129,8 +113,7 @@ namespace vulpes {
 			std::cerr << "Shader file not found, quitting" << std::endl;
 		}
 
-		std::vector<std::string> defines, includes;
-		find_defines(shader_code, defines);
+		std::vector<std::string> includes;
 		find_includes(shader_code, includes);
 		
 
@@ -138,13 +121,9 @@ namespace vulpes {
 		final_code = std::string("#version ") + std::to_string(cl.version);
 		final_code += profile_string(cl.prof);
 
-		if (includes.size() != 0 || defines.size() != 0) {
+		if (includes.size() != 0) {
 			// Accumulate defines and includes into preprocessor_elems
 			std::string preprocessor_elems;
-
-			for (auto& str : defines) {
-				preprocessor_elems += str;
-			}
 			for (auto& str : includes) {
 				preprocessor_elems += str;
 			}
@@ -163,6 +142,14 @@ namespace vulpes {
 		char const* src = final_code.c_str();
 		glShaderSource(ID, 1, &src, nullptr);
 		glCompileShader(ID);
+
+#ifdef GLSL_COMPILER_DEBUG_STRINGS
+		char fname[64];
+		sprintf(fname, "./debug_shaders/debug_shader_%i.glsl", ID);
+		std::ofstream output(fname);
+		output << final_code;
+		output.close();
+#endif 
 
 		// Check for compiliation errors
 		GLint success;

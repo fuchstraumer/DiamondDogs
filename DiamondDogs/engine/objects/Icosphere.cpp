@@ -5,56 +5,11 @@
 // Isochadron generation method "liberated" from Seeds of Andromeda: see blogpost 
 // on gas giant generation. Raw source here: http://pastebin.com/raw/aFdWi5eQ
 
-
-// Subdivides a triangle "tri" in "to", getting vertices out of "from", adding new parts back into "to" and leaving "from"
-// unmodified
-// DEPRECATED: Using new method below, leaving this as an example of what's happening in general.
-inline void SubdivideTriangle(const triangle_t<>& tri, const Icosphere& from, Icosphere& to) {
-	vertex_t v0, v1, v2;
-	/*
-			  v2
-			  *
-			/	 \
-		   /	  \
-		  /	       \
-		 /          \
-		/			 \	
-	v0	*____________*	v1	
-
-		New:
-			  v2
-			  *
-			/	 \
-		   /	  \
-		v6*	      *v4
-		 /          \
-		/	  v3     \	
-	v0	*_____*______*	v1	
-	*/
-	// Get initial vertices from input triangle
-	v0 = from.GetVertex(tri.i0);
-	v1 = from.GetVertex(tri.i1);
-	v2 = from.GetVertex(tri.i2);
-	// New vertices
-	vertex_t v3, v4, v5;
-	// Get the new vertices by getting a number of midpoints
-	v3 = from.GetMiddlePoint(v0, v1);
-	v4 = from.GetMiddlePoint(v1, v2);
-	v5 = from.GetMiddlePoint(v0, v2);
-	// Indices to new vertices
-	index_t i0, i1, i2, i3, i4, i5;
-	// Set the indices by adding all of our vertices, "old" and new to the destination
-	i0 = to.AddVert(v0);
-	i1 = to.AddVert(v1);
-	i2 = to.AddVert(v2);
-	i3 = to.AddVert(v3);
-	i4 = to.AddVert(v4);
-	i5 = to.AddVert(v5);
-	// Add triangles using the previously added indices.
-	to.AddTriangle(i0, i3, i5);
-	to.AddTriangle(i1, i4, i3);
-	to.AddTriangle(i2, i5, i4);
-	to.AddTriangle(i3, i4, i5);
+inline vertex_t get_middle_vertex(const vertex_t& v0, const vertex_t& v1) {
+	vertex_t res;
+	res.Position = (v0.Position + v1.Position) / 2.0f;
+	res.Normal = glm::normalize(res.Position - glm::vec3(0.0f));
+	return res;
 }
 
 // Functions required to add a glm::vec3 into an unordered map: hashing functions, essentially
@@ -84,12 +39,12 @@ inline glm::vec3 findMidpoint(glm::vec3 vertex1, glm::vec3 vertex2) {
 
 // Constants used to generate the icosphere: key numeric constants, along with 12 initial vertices + triangles
 
-const static float GOLDEN_RATIO = 1.61803398875f;
+constexpr float GOLDEN_RATIO = 1.61803398875f;
 
 // Initial vertices, already normalized to unit sphere
 
-static const std::vector<vertex_t> initialVertices = {
-	vertex_t(glm::vec3(-1.0f, GOLDEN_RATIO, 0.0f)),
+static const std::array<vertex_t, 12> initialVertices = {
+	vertex_t{glm::vec3(-1.0f, GOLDEN_RATIO, 0.0f)},
 	vertex_t(glm::vec3(1.0f, GOLDEN_RATIO, 0.0f)),
 	vertex_t(glm::vec3(-1.0f, -GOLDEN_RATIO, 0.0f)),
 	vertex_t(glm::vec3(1.0f, -GOLDEN_RATIO, 0.0f)),
@@ -136,12 +91,12 @@ static const std::vector<index_t> initialIndices = {
 const int NUM_ISOCAHEDRON_VERTICES = 12;
 const int NUM_ISOCAHEDRON_INDICES = 60;
 
-Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 position, glm::vec3 rotation) {
+Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 _position, glm::vec3 rotation) {
 	// Set properties affecting this mesh
-	Position = position;
+	position = _position;
 	// We are generating a sphere: scale uniformly with magnitude given by radius.
-	Scale = glm::vec3(radius);
-	Angle = rotation;
+	scale = glm::vec3(radius);
+	angle = rotation;
 	LOD_Level = lod_level;
 	// Routine for generating the actual mesh
 	vertLookup vertexLookup;
@@ -149,29 +104,29 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 position, g
 	std::vector<index_t> newIndices;
 	newIndices.reserve(256);
 	// Set initial vertices
-	Vertices.resize(NUM_ISOCAHEDRON_VERTICES);
+	vertices.resize(NUM_ISOCAHEDRON_VERTICES);
 	for (index_t i = 0; i < NUM_ISOCAHEDRON_VERTICES; ++i) {
-		Vertices[i].Position = glm::normalize(initialVertices[i].Position);
+		vertices[i].Position = glm::normalize(initialVertices[i].Position);
 		vertexLookup[glm::normalize(initialVertices[i].Position)] = i;
 	}
 	// Set initial indices
-	Indices.resize(NUM_ISOCAHEDRON_INDICES);
+	indices.resize(NUM_ISOCAHEDRON_INDICES);
 	for (index_t i = 0; i < NUM_ISOCAHEDRON_INDICES; ++i) {
-		Indices[i] = initialIndices[i];
+		indices[i] = initialIndices[i];
 	}
 	// Begin subdividing the mesh.
 	for (size_t i = 0; i < static_cast<size_t>(lod_level); ++i) {
-		newIndices.reserve(Indices.size() * 4);
-		for (size_t j = 0; j < Indices.size(); j += 3) {
+		newIndices.reserve(indices.size() * 4);
+		for (size_t j = 0; j < indices.size(); j += 3) {
 			/*
 			j
 			mp12   mp13
 			j+1    mp23   j+2
 			*/
 			// Defined in counter clockwise order
-			glm::vec3 vertex1 = Vertices[Indices[j + 0]].Position;
-			glm::vec3 vertex2 = Vertices[Indices[j + 1]].Position;
-			glm::vec3 vertex3 = Vertices[Indices[j + 2]].Position;
+			glm::vec3 vertex1 = vertices[indices[j + 0]].Position;
+			glm::vec3 vertex2 = vertices[indices[j + 1]].Position;
+			glm::vec3 vertex3 = vertices[indices[j + 2]].Position;
 
 			glm::vec3 midPoint12 = findMidpoint(vertex1, vertex2);
 			glm::vec3 midPoint23 = findMidpoint(vertex2, vertex3);
@@ -186,8 +141,8 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 position, g
 				mp12Index = iter->second;
 			}
 			else { // Not in the map
-				mp12Index = static_cast<index_t>(Vertices.size());
-				Vertices.push_back(vertex_t(midPoint12));
+				mp12Index = static_cast<index_t>(vertices.size());
+				vertices.push_back(vertex_t(midPoint12));
 				vertexLookup[midPoint12] = mp12Index;
 			}
 
@@ -196,8 +151,8 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 position, g
 				mp23Index = iter->second;
 			}
 			else { // Not in the map
-				mp23Index = static_cast<index_t>(Vertices.size());
-				Vertices.push_back(vertex_t(midPoint23));
+				mp23Index = static_cast<index_t>(vertices.size());
+				vertices.push_back(vertex_t(midPoint23));
 				vertexLookup[midPoint23] = mp23Index;
 			}
 
@@ -206,33 +161,33 @@ Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 position, g
 				mp13Index = iter->second;
 			}
 			else { // Not in the map
-				mp13Index = static_cast<index_t>(Vertices.size());
-				Vertices.push_back(vertex_t(midPoint13));
+				mp13Index = static_cast<index_t>(vertices.size());
+				vertices.push_back(vertex_t(midPoint13));
 				vertexLookup[midPoint13] = mp13Index;
 			}
 			// Add our four new triangles to the mesh
-			newIndices.push_back(Indices[j]);
+			newIndices.push_back(indices[j]);
 			newIndices.push_back(mp12Index);
 			newIndices.push_back(mp13Index);
 
 			newIndices.push_back(mp12Index);
-			newIndices.push_back(Indices[j + 1]);
+			newIndices.push_back(indices[j + 1]);
 			newIndices.push_back(mp23Index);
 
 			newIndices.push_back(mp13Index);
 			newIndices.push_back(mp23Index);
-			newIndices.push_back(Indices[j + 2]);
+			newIndices.push_back(indices[j + 2]);
 
 			newIndices.push_back(mp12Index);
 			newIndices.push_back(mp23Index);
 			newIndices.push_back(mp13Index);
 		}
 		newIndices.shrink_to_fit();
-		Indices.swap(newIndices);
+		indices.swap(newIndices);
 		newIndices.clear();
 	}
 
-	for (unsigned int i = 0; i < Vertices.size(); ++i) {
-		Vertices[i].Normal = glm::normalize(Vertices[i].Position - glm::vec3(0.0f));
+	for (unsigned int i = 0; i < vertices.size(); ++i) {
+		vertices[i].Normal = glm::normalize(vertices[i].Position - glm::vec3(0.0f));
 	}
 }

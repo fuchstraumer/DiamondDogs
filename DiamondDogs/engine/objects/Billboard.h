@@ -2,7 +2,6 @@
 #ifndef BILLBOARD_H
 #define BILLBOARD_H
 #include "stdafx.h"
-#include "../renderer/Shader.h"
 #include "engine\renderer\objects\device_object.h"
 #include "engine\renderer\objects\pipeline_object.h"
 #include "engine/renderer/types/vertex_types.h"
@@ -35,7 +34,7 @@ public:
 
 	void BuildRenderData();
 
-	void Render(const glm::mat4& view, const glm::mat4& projection);
+	void Render(const glm::mat4& view);
 
 	void UpdateModelMatrix(glm::vec3 position, glm::vec3 scale, glm::vec3 angle);
 
@@ -46,7 +45,7 @@ public:
 	// Pointer to the shader object: required to avoid issues with 
 	// building a Shader program before GL init due to default constructors
 	vulpes::program_pipeline_object Program;
-	
+	glm::mat4 Projection;
 	GLuint starColor;
 
 private:
