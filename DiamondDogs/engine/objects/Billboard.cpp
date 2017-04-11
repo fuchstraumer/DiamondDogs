@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "Billboard.h"
+#include "engine/renderer/util/bind_system.h"
 
 auto buildModelMatrix = [](glm::vec3 position, glm::vec3 scale, glm::vec3 angle)->glm::mat4 {
 	glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);

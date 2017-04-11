@@ -2,7 +2,7 @@
 @file
 Forward declares `boost::hana::map`.
 
-@copyright Louis Dionne 2013-2017
+@copyright Louis Dionne 2013-2016
 Distributed under the Boost Software License, Version 1.0.
 (See accompanying file LICENSE.md or copy at http://boost.org/LICENSE_1_0.txt)
  */
@@ -17,16 +17,13 @@ Distributed under the Boost Software License, Version 1.0.
 #include <boost/hana/fwd/insert.hpp>
 #include <boost/hana/fwd/keys.hpp>
 
+#include <utility>
+
 
 BOOST_HANA_NAMESPACE_BEGIN
     //! Tag representing `hana::map`s.
     //! @relates hana::map
     struct map_tag { };
-
-    namespace detail {
-        template <typename ...Pairs>
-        struct make_map_type;
-    }
 
     //! @ingroup group-datatypes
     //! Basic associative container requiring unique, `Comparable` and
@@ -45,7 +42,7 @@ BOOST_HANA_NAMESPACE_BEGIN
     //! - the fact that `hana::map<Pairs...>` is, or is not, a dependent type
     //!
     //! In particular, the last point is very important; `hana::map<Pairs...>`
-    //! is basically equivalent to
+    //! is only a shortcut for
     //! @code
     //!     decltype(hana::make_pair(std::declval<Pairs>()...))
     //! @endcode
@@ -109,14 +106,6 @@ BOOST_HANA_NAMESPACE_BEGIN
         template <typename ...P>
         explicit constexpr map(P&& ...pairs);
 
-        //! Assign a map to another map __with the exact same type__. Only
-        //! exists when all the elements of the map are copy-assignable.
-        constexpr map& operator=(map const& other);
-
-        //! Move-assign a map to another map __with the exact same type__.
-        //! Only exists when all the elements of the map are move-assignable.
-        constexpr map& operator=(map&& other);
-
         //! Equivalent to `hana::equal`
         template <typename X, typename Y>
         friend constexpr auto operator==(X&& x, Y&& y);
@@ -131,7 +120,7 @@ BOOST_HANA_NAMESPACE_BEGIN
     };
 #else
     template <typename ...Pairs>
-    using map = typename detail::make_map_type<Pairs...>::type;
+    using map = decltype(hana::make<map_tag>(std::declval<Pairs>()...));
 #endif
 
     //! Function object for creating a `hana::map`.

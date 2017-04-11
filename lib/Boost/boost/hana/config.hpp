@@ -2,7 +2,7 @@
 @file
 Defines configuration macros used throughout the library.
 
-@copyright Louis Dionne 2013-2017
+@copyright Louis Dionne 2013-2016
 Distributed under the Boost Software License, Version 1.0.
 (See accompanying file LICENSE.md or copy at http://boost.org/LICENSE_1_0.txt)
  */
@@ -20,9 +20,7 @@ Distributed under the Boost Software License, Version 1.0.
 #if defined(_MSC_VER) && !defined(__clang__) // MSVC
     // This must be checked first, because otherwise it produces a fatal
     // error due to unrecognized #warning directives used below.
-#   if _MSV_VER > 1910
-#       define BOOST_HANA_CONFIG_LIBMSVCCXX
-#endif 
+#   pragma message("Warning: the native Microsoft compiler is not supported due to lack of proper C++14 support.")
 
 #elif defined(__clang__) && defined(_MSC_VER) // Clang-cl (Clang for Windows)
 

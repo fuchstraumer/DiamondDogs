@@ -107,7 +107,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(SolutionDir)lib\OpenGL\include;$(SolutionDir)lib\OpenAL\include;$(ProjectDir);$(SolutionDir)lib\Boost;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>false</MultiProcessorCompilation>
-      <LanguageStandard>stdcpp14</LanguageStandard>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -172,10 +172,14 @@
     <ClInclude Include="engine\objects\PlanarMesh.h" />
     <ClInclude Include="engine\objects\Skybox.h" />
     <ClInclude Include="engine\renderer\objects\device_object.h" />
-    <ClInclude Include="engine\renderer\objects\framebuffer.h" />
     <ClInclude Include="engine\renderer\objects\pipeline_object.h" />
+    <ClInclude Include="engine\renderer\objects\program_object.h" />
     <ClInclude Include="engine\renderer\objects\shader_object.h" />
     <ClInclude Include="engine\renderer\objects\texture.h" />
+    <ClInclude Include="engine\renderer\objects\uniform_buffer.h" />
+    <ClInclude Include="engine\renderer\types\vertex_types.h" />
+    <ClInclude Include="engine\renderer\util\bind_system.h" />
+    <ClInclude Include="engine\renderer\util\glsl_compiler.h" />
     <ClInclude Include="scenes\AtmosphereDemo.h" />
     <ClInclude Include="scenes\StarDemo.h" />
     <ClInclude Include="stdafx.h" />

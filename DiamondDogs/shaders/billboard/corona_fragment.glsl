@@ -30,7 +30,7 @@ void main() {
     vec3 dist = normalize(fPos + offset);
 
     // Get noise with normalized position ot offset original position.
-    vec3 noisePosition = fPos + onoise(vec4(dist, t), 5, 2.0f, 0.70f) * 0.10f;
+    vec3 noisePosition = fPos + noise(vec4(dist, t), 5, 2.0f, 0.70f) * 0.10f;
 
     // Using position found above, calculate brightness 
     float cdist = length(noisePosition) * 3.0f;

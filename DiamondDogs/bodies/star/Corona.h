@@ -5,7 +5,7 @@
 
 #include "engine/objects/Billboard.h"
 #include "engine\renderer\objects\texture.h"
-#include "engine\renderer\objects\shader_object.h"
+#include "engine\renderer\util\glsl_compiler.h"
 #include "engine\renderer\objects\pipeline_object.h"
 
 // Structure defining a stars corona
@@ -25,11 +25,13 @@ struct Corona {
 	}
 
 	Corona(const float& radius, const glm::vec3& position = glm::vec3(0.0f)) : mesh(radius, position), Blackbody("./rsrc/img/star/star_spectrum.png", 1024) {
-		vulpes::shader_object<vulpes::vertex_shader_t> cVert("./shaders/billboard/corona_vertex.glsl");
-		vulpes::shader_object<vulpes::fragment_shader_t> cFrag("./shaders/billboard/corona_fragment.glsl");
-		glUseProgramStages(Program.handles[0], GL_VERTEX_SHADER_BIT, cVert.ID);
-		glUseProgramStages(Program.handles[0], GL_FRAGMENT_SHADER_BIT, cFrag.ID);
-		Program.setup_uniforms();
+		vulpes::compiler cl(vulpes::profile::CORE, 450);
+		cl.add_shader<vulpes::vertex_shader_t>("./shaders/billboard/corona_vertex.glsl");
+		cl.add_shader<vulpes::fragment_shader_t>("./shaders/billboard/corona_fragment.glsl");
+		GLuint program = cl.link();
+		GLbitfield stages = cl.get_program_stages();
+		glUseProgramStages(Program.handles[0], stages, program);
+		Program.setup_uniforms(program);
 	}
 
 	void BuildRenderData(const int& star_temperature) {

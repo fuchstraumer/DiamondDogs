@@ -11,6 +11,10 @@ uniform vec3 cameraRight;
 
 layout(location = 0) in vec3 position;
 
+out gl_PerVertex {
+    vec4 gl_Position;
+};
+
 out vec4 vPos;
 
 void main(){

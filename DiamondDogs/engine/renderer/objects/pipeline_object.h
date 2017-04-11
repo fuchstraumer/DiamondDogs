@@ -24,10 +24,11 @@ namespace vulpes {
 
 		program_pipeline_object() : device_object() {}
 
-		void setup_uniforms() {
+		void setup_uniforms(GLuint program_id) {
 			GLint uniform_count = 0;
 			GLsizei length = 0, size = 0;
 			GLenum type = GL_NONE;
+			glActiveShaderProgram(this->handles[0], program_id);
 			glGetProgramiv(this->handles[0], GL_ACTIVE_UNIFORMS, &uniform_count);
 			for (GLint i = 0; i < uniform_count; i++){
 				std::array<GLchar, 0xff> uniform_name = {};

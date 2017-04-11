@@ -9,7 +9,6 @@ namespace vulpes {
 	using named_buffer_t = std::integral_constant<unsigned int, 1>;
 	using named_framebuffer_t = std::integral_constant<unsigned int, 2>;
 	using program_pipeline_t = std::integral_constant<unsigned int, 4>;
-	using shader_object_t = std::integral_constant<unsigned int, 5>;
 	using texture_1d_t = std::integral_constant<unsigned int, 6>;
 	using texture_2d_t = std::integral_constant<unsigned int, 7>;
 	using texture_3d_t = std::integral_constant<unsigned int, 8>;
@@ -50,12 +49,12 @@ namespace vulpes {
 
 		// Move ctor and operator okay, just have to zero other array.
 		device_object(device_object&& other) noexcept : handles(other.handles) {
-			other.handles.assign(0);
+			other.handles.fill(0);
 		}
 
 		device_object& operator=(device_object&& other) noexcept {
 			handles = other.handles;
-			other.handles.assign(0);
+			other.handles.fill(0);
 			return *this;
 		}
 

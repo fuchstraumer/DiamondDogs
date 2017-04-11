@@ -39,3 +39,8 @@ const GLuint SCR_WIDTH = 1920, SCR_HEIGHT = 1080;
 // Defines depth rendering ranges for projection matrix.
 const GLfloat nearDepth = 1.0f, farDepth = 500000.0f;
 
+#include <boost/type_traits.hpp>
+#include <boost/mpl/eval_if.hpp>
+#include <boost/mpl/identity.hpp>
+#include <boost/fusion/mpl.hpp>
+

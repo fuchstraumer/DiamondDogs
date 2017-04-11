@@ -5,6 +5,7 @@
 #include "../renderer/Shader.h"
 #include "engine\renderer\objects\device_object.h"
 #include "engine\renderer\objects\pipeline_object.h"
+#include "engine/renderer/types/vertex_types.h"
 // Vector pointing up, constant since in most cases we don't want billboard rotating.
 static const glm::vec3 WORLD_UP = glm::vec3(0.0f, 1.0f, 0.0f);
 
@@ -21,7 +22,6 @@ static const GLfloat quad_vertices[] = {
 	-0.5f,  0.5f, 0.0f,
 	0.5f,  0.5f, 0.0f,
 };
-
 
 
 class Billboard3D {
