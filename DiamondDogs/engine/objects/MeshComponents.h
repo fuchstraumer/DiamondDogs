@@ -38,6 +38,12 @@ public:
 	// Texture coordinate to be used for this vertex
 	glm::vec2 UV;
 };
+
+struct rte_vertex_t {
+	glm::vec3 position_low, position_high;
+	glm::vec3 normal;
+	glm::vec2 uv;
+};
 // Triangle struct. Holds indices to member vertices. Useful for geometry queries. 
 template<typename index_type = index_t>
 struct triangle_t {

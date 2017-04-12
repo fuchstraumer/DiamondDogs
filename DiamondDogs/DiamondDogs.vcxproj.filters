@@ -38,8 +38,9 @@
     <ClInclude Include="engine\renderer\util\glsl_compiler.h" />
     <ClInclude Include="engine\renderer\objects\program_object.h" />
     <ClInclude Include="engine\renderer\types\vertex_types.h" />
-    <ClInclude Include="engine\renderer\objects\uniform_buffer.h" />
     <ClInclude Include="engine\objects\Mesh.h" />
+    <ClInclude Include="engine\renderer\objects\uniform_buffer_object.h" />
+    <ClInclude Include="engine\renderer\util\common.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

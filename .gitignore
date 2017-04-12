@@ -307,3 +307,4 @@ DiamondDogs/terrainsurface.bmp
 
 # Files created by Nsight
 *.nvact
+DiamondDogs/debug_shaders/

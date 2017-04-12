@@ -28,7 +28,7 @@ void SOA_Mesh::add_triangle(const GLuint & i0, const GLuint & i1, const GLuint &
 void SOA_Mesh::build_render_data(const vulpes::program_pipeline_object& shader, const glm::mat4 & projection){
 	glProgramUniformMatrix4fv(shader.program_id, shader.at("model"), 1, GL_FALSE, glm::value_ptr(get_model_matrix()));
 	glProgramUniformMatrix4fv(shader.program_id, shader.at("projection"), 1, GL_FALSE, glm::value_ptr(projection));
-
+	
 	// Upload data to vbo's and perform setup.
 	glNamedBufferData(vbo[0], sizeof(glm::vec3) * vertices.size(), &vertices.positions[0], GL_DYNAMIC_DRAW);
 	glEnableVertexArrayAttrib(vao[0], 0);
@@ -44,7 +44,6 @@ void SOA_Mesh::build_render_data(const vulpes::program_pipeline_object& shader, 
 	glEnableVertexArrayAttrib(vao[0], 2);
 	glVertexArrayVertexBuffer(vao[0], 2, vbo[2], 0, sizeof(glm::vec2));
 	glVertexArrayAttribFormat(vao[0], 2, 2, GL_FLOAT, GL_FALSE, 0);
-
 
 	glNamedBufferData(ebo[0], sizeof(GLuint) * indices.size(), &indices[0], GL_STATIC_DRAW);
 	glVertexArrayElementBuffer(vao[0], ebo[0]);
@@ -69,4 +68,10 @@ glm::mat4 SOA_Mesh::get_model_matrix() const{
 	glm::mat4 rotZ = glm::rotate(glm::mat4(1.0f), angle.z, glm::vec3(0.0f, 0.0f, 1.0f));
 	glm::mat4 result = scaleMatrix * rotX * rotY * rotZ * translationMatrix;
 	return result;
+}
+
+glm::mat4 SOA_Mesh::get_rte_mv(const glm::mat4& view) const{
+	glm::mat4 mv = view * model;
+	mv[0][3] = mv[1][3] = mv[2][3] = 0.0f;
+	return glm::mat4();
 }
