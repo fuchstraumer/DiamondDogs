@@ -46,6 +46,8 @@ namespace vulpes {
 
 		uint32_t GetPhysicalDeviceID() const noexcept;
 
+		const PhysicalDevice& GetPhysicalDevice() const noexcept;
+
 	private:
 		VkQueue graphics = VK_NULL_HANDLE, compute = VK_NULL_HANDLE;
 		VkQueue present = VK_NULL_HANDLE, binding = VK_NULL_HANDLE;

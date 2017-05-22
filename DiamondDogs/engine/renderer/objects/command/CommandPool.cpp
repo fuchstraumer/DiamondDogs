@@ -102,6 +102,7 @@ namespace vulpes {
 		VkCommandBufferBeginInfo beginInfo = {};
 		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		beginInfo.pInheritanceInfo = nullptr;
 
 		vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
@@ -117,6 +118,7 @@ namespace vulpes {
 		submitInfo.pCommandBuffers = &cmd_buffer;
 
 		vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+		
 		vkQueueWaitIdle(queue);
 
 		vkFreeCommandBuffers(parent->vkHandle(), handle, 1, &cmd_buffer);

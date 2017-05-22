@@ -163,4 +163,8 @@ namespace vulpes {
 		return parent->Properties.deviceID;
 	}
 
+	const PhysicalDevice & Device::GetPhysicalDevice() const noexcept{
+		return *parent;
+	}
+
 }

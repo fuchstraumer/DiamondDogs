@@ -203,6 +203,9 @@ namespace vulpes {
 		image_range_info.levelCount = mipLevels;
 		image_range_info.layerCount = 6;
 
+		VkFence transfer_fence;
+		result = vkCreateFence(parent->vkHandle(), &vk_fence_create_info_base, nullptr, &transfer_fence);
+
 		VkCommandBuffer copy_cmd = pool->StartSingleCmdBuffer();
 
 			// Change Texture2D layout
@@ -217,7 +220,7 @@ namespace vulpes {
 			image_barrier = GetMemoryBarrier(image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			vkCmdPipelineBarrier(copy_cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &image_barrier);
 
-		pool->EndSingleCmdBuffer(copy_cmd, queue);
+		pool->EndSingleCmdBuffer(copy_cmd, queue, transfer_fence);
 
 		// Create sampler
 		VkSamplerCreateInfo sampler_info = vk_sampler_create_info_base;
@@ -237,6 +240,7 @@ namespace vulpes {
 
 		finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
+		
 		vkFreeMemory(parent->vkHandle(), stagingMemory, allocators);
 		vkDestroyBuffer(parent->vkHandle(), stagingBuffer, allocators);
 		textureData.clear();

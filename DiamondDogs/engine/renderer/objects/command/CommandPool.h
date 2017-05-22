@@ -36,10 +36,25 @@ namespace vulpes {
 
 		VkCommandBuffer StartSingleCmdBuffer();
 		void EndSingleCmdBuffer(VkCommandBuffer& cmd_buffer, const VkQueue & queue);
-
 		const size_t size() const noexcept;
 
+	protected:
+		std::vector<VkCommandBuffer> cmdBuffers;
+		VkCommandPool handle;
+		VkCommandPoolCreateInfo createInfo;
+		const Device* parent;
+		const VkAllocationCallbacks* allocators = nullptr;
+	};
+
+
+	class TransferPool {
+	public:
+
+
+
 	private:
+		VkFence submitFence;
+		VkQueue submitQueue;
 		std::vector<VkCommandBuffer> cmdBuffers;
 		VkCommandPool handle;
 		VkCommandPoolCreateInfo createInfo;

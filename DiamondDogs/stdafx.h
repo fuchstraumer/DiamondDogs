@@ -19,10 +19,6 @@
 #include <iostream>
 #include <chrono>
 
-#ifdef NDEBUG
-#define GLFW_DLL
-#endif // NDEBUG
-
 #define GLFW_INCLUDE_VULKAN
 #include "glfw\glfw3.h"
 
@@ -42,7 +38,7 @@
 #include "common/vk_constants.h"
 
 // GLFW declarations and definitions
-constexpr uint32_t DEFAULT_WIDTH = 1920, DEFAULT_HEIGHT = 1080;
+constexpr uint32_t DEFAULT_WIDTH = 1440, DEFAULT_HEIGHT = 720;
 // Defines depth rendering ranges for projection matrix.
 constexpr float nearDepth = 1.0f, farDepth = 500000.0f;
 

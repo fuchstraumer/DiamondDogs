@@ -48,7 +48,7 @@ namespace vulpes {
 		VkImageMemoryBarrier barrier = vk_image_memory_barrier_base;
 		barrier = GetMemoryBarrier(image, format, initial, final);
 		VkCommandBuffer cmd = pool->StartSingleCmdBuffer();
-			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);	
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1);	
 		pool->EndSingleCmdBuffer(cmd, queue);
 	}
 

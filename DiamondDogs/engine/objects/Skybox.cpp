@@ -5,7 +5,7 @@
 #include "engine\renderer\objects\resource\Buffer.h"
 #include "engine\renderer\objects\resource\ShaderModule.h"
 #include "engine\renderer\objects\render\GraphicsPipeline.h"
-
+#include "engine\renderer\objects\core\PhysicalDevice.h"
 namespace vulpes {
 
 	Skybox::Skybox(const Device* _device) : device(_device) {
@@ -52,7 +52,9 @@ namespace vulpes {
 		buildface(positions[5], positions[4], positions[1], positions[0]); // Using Points 5, 4, 1, 0 and Normal 4
 																		   // Back
 		buildface(positions[4], positions[5], positions[6], positions[7]); // Using Points 4, 5, 6, 7 and Normal 5
-
+		
+		auto& phys_device = device->GetPhysicalDevice();
+		assert(phys_device.Properties.limits.maxImageDimensionCube >= 4096);
 		texture = new TextureCubemap("rsrc/img/skybox/deep_thought_bc7.dds", device);
 		texture->SetFormat(VK_FORMAT_BC7_UNORM_BLOCK);
 	}
