@@ -1,77 +1,83 @@
 #include "stdafx.h"
 #include "Mesh.h"
 
-vertex_t SOA_Mesh::get_vertex(const GLuint & idx) const{
-	return vertices[idx];
-}
+#include "engine\renderer\objects\resource\ShaderModule.h"
+#include "engine\renderer\objects\resource\Buffer.h"
+#include "engine\renderer\objects\core\LogicalDevice.h"
 
-GLuint SOA_Mesh::add_vertex(const vertex_t & v){
-	vertices.positions.push_back(v.Position);
-	vertices.normals.push_back(v.Normal);
-	vertices.uvs.push_back(v.UV);
-	return static_cast<GLuint>(vertices.positions.size() - 1);
-}
+namespace vulpes {
 
-GLuint SOA_Mesh::add_vertex(vertex_t && v){
-	vertices.positions.push_back(std::move(v.Position));
-	vertices.normals.push_back(std::move(v.Normal));
-	vertices.uvs.push_back(std::move(v.UV));
-	return static_cast<GLuint>(vertices.positions.size() - 1);
-}
-
-void SOA_Mesh::add_triangle(const GLuint & i0, const GLuint & i1, const GLuint & i2){
-	indices.push_back(i0);
-	indices.push_back(i1);
-	indices.push_back(i2);
-}
-
-void SOA_Mesh::build_render_data(const vulpes::program_pipeline_object& shader, const glm::mat4 & projection){
-	glProgramUniformMatrix4fv(shader.program_id, shader.at("model"), 1, GL_FALSE, glm::value_ptr(get_model_matrix()));
-	glProgramUniformMatrix4fv(shader.program_id, shader.at("projection"), 1, GL_FALSE, glm::value_ptr(projection));
-	
-	// Upload data to vbo's and perform setup.
-	glNamedBufferData(vbo[0], sizeof(glm::vec3) * vertices.size(), &vertices.positions[0], GL_DYNAMIC_DRAW);
-	glEnableVertexArrayAttrib(vao[0], 0);
-	glVertexArrayVertexBuffer(vao[0], 0, vbo[0], 0, sizeof(glm::vec3));
-	glVertexArrayAttribFormat(vao[0], 0, 3, GL_FLOAT, GL_FALSE, 0);
-
-	glNamedBufferData(vbo[1], sizeof(glm::vec3) * vertices.size(), &vertices.normals[0], GL_STATIC_DRAW);
-	glEnableVertexArrayAttrib(vao[0], 1);
-	glVertexArrayVertexBuffer(vao[0], 1, vbo[1], 0, sizeof(glm::vec3));
-	glVertexArrayAttribFormat(vao[0], 1, 3, GL_FLOAT, GL_FALSE, 0);
-
-	glNamedBufferData(vbo[2], sizeof(glm::vec2) * vertices.size(), &vertices.uvs[0], GL_STATIC_DRAW);
-	glEnableVertexArrayAttrib(vao[0], 2);
-	glVertexArrayVertexBuffer(vao[0], 2, vbo[2], 0, sizeof(glm::vec2));
-	glVertexArrayAttribFormat(vao[0], 2, 2, GL_FLOAT, GL_FALSE, 0);
-
-	glNamedBufferData(ebo[0], sizeof(GLuint) * indices.size(), &indices[0], GL_STATIC_DRAW);
-	glVertexArrayElementBuffer(vao[0], ebo[0]);
-}
-
-void SOA_Mesh::render(const vulpes::program_pipeline_object & shader, const glm::mat4& view){
-	glUseProgram(shader.program_id);
-	glBindVertexArray(vao[0]);
-	glProgramUniformMatrix4fv(shader.program_id, shader.at("view"), 1, GL_FALSE, glm::value_ptr(view));
-	if (shader.uniforms.count("normTransform") > 0) {
-		// glProgramUniformMatrix4fv(pipeline.program_id, pipeline.at("normTransform"), 1, GL_FALSE, glm::value_ptr(NormTransform));
+	Mesh::~Mesh() {
+		delete vbo[0];
+		delete vbo[1];
+		delete ebo;
 	}
 
-	glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
-}
+	vertex_t Mesh::get_vertex(const uint32_t& idx) const {
+		return vertices.positions[idx];
+	}
 
-glm::mat4 SOA_Mesh::get_model_matrix() const{
-	glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
-	glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), position);
-	glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), angle.x, glm::vec3(1.0f, 0.0f, 0.0f));
-	glm::mat4 rotY = glm::rotate(glm::mat4(1.0f), angle.y, glm::vec3(0.0f, 1.0f, 0.0f));
-	glm::mat4 rotZ = glm::rotate(glm::mat4(1.0f), angle.z, glm::vec3(0.0f, 0.0f, 1.0f));
-	glm::mat4 result = scaleMatrix * rotX * rotY * rotZ * translationMatrix;
-	return result;
-}
+	uint32_t Mesh::add_vertex(const vertex_t & v) {
+		vertices.positions.push_back(v.Position);
+		vertices.normals_uvs.push_back(vert_data{ v.Normal, v.UV });
+		return static_cast<uint32_t>(vertices.positions.size() - 1);
+	}
 
-glm::mat4 SOA_Mesh::get_rte_mv(const glm::mat4& view) const{
-	glm::mat4 mv = view * model;
-	mv[0][3] = mv[1][3] = mv[2][3] = 0.0f;
-	return glm::mat4();
+	uint32_t Mesh::add_vertex(vertex_t && v) {
+		vertices.positions.push_back(std::move(v.Position));
+		vertices.normals_uvs.push_back(std::move(vert_data{ v.Normal, v.UV }));
+		return static_cast<uint32_t>(vertices.positions.size() - 1);
+	}
+
+	void Mesh::add_triangle(const uint32_t & i0, const uint32_t & i1, const uint32_t & i2) {
+		indices.push_back(i0);
+		indices.push_back(i1);
+		indices.push_back(i2);
+	}
+
+	glm::mat4 Mesh::get_model_matrix() const {
+		glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
+		glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), position);
+		glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), angle.x, glm::vec3(1.0f, 0.0f, 0.0f));
+		glm::mat4 rotY = glm::rotate(glm::mat4(1.0f), angle.y, glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::mat4 rotZ = glm::rotate(glm::mat4(1.0f), angle.z, glm::vec3(0.0f, 0.0f, 1.0f));
+		glm::mat4 result = scaleMatrix * rotX * rotY * rotZ * translationMatrix;
+		return result;
+	}
+
+	glm::mat4 Mesh::get_rte_mv(const glm::mat4& view) const {
+		glm::mat4 mv = view * model;
+		mv[0][3] = mv[1][3] = mv[2][3] = 0.0f;
+		return glm::mat4();
+	}
+
+	void Mesh::create_vbo(const Device* render_device, CommandPool* cmd_pool, const VkQueue& queue) {
+		this->device = render_device;
+
+		VkDeviceSize sz = vertices.size() * sizeof(glm::vec3);
+
+		vbo[0] = new Buffer(device);
+		vbo[0]->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sz);
+		vbo[0]->CopyTo(vertices.positions.data(), cmd_pool, queue, sz);
+		
+		sz = vertices.normals_uvs.size() * sizeof(vert_data);
+		vbo[1] = new Buffer(device);
+		vbo[1]->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sz);
+		vbo[1]->CopyTo(vertices.normals_uvs.data(), cmd_pool, queue, sz);
+	}
+
+	void Mesh::create_ebo(CommandPool * cmd_pool, const VkQueue & queue) {
+		ebo = new Buffer(device);
+		ebo->CreateBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indices.size() * sizeof(uint32_t));
+		ebo->CopyTo(indices.data(), cmd_pool, queue, indices.size() * sizeof(uint32_t));
+	}
+
+	void Mesh::render(const VkCommandBuffer & cmd) {
+		static const VkDeviceSize offsets[]{ 0 };
+		VkBuffer buffers[3]{ vbo[0]->vkHandle(), vbo[1]->vkHandle() };
+		vkCmdBindVertexBuffers(cmd, 0, 2, buffers, offsets);
+		vkCmdBindIndexBuffer(cmd, ebo->vkHandle(), 0, VK_INDEX_TYPE_UINT32);
+		vkCmdDrawIndexed(cmd, indices.size(), 1, 0, 0, 0);
+	}
+
 }

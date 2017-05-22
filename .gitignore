@@ -308,3 +308,9 @@ DiamondDogs/terrainsurface.bmp
 # Files created by Nsight
 *.nvact
 DiamondDogs/debug_shaders/
+*.vkdat
+DiamondDogs/rsrc/img/skybox/deep_thought.dds
+DiamondDogs/rsrc/img/skybox/deep_thought_etc2.dds
+DiamondDogs/rsrc/img/skybox/deep_thought_s3.dds
+ext/lib/assimp-vc140-mt-gd.lib
+ext/lib/assimp-vc140-mt.lib

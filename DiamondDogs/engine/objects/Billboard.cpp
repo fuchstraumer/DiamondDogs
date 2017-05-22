@@ -43,24 +43,24 @@ void Billboard3D::BuildRenderData(){
 	model = buildModelMatrix(Position, Scale, Angle);
 
 	// Acquire locations of uniforms and set them appropriately.
-	GLuint centerLoc = Program.uniforms.at("center");
+	uint32_tcenterLoc = Program.uniforms.at("center");
 	glProgramUniform3f(Program.program_id, centerLoc, Position.x, Position.y, Position.z);
-	GLuint sizeLoc = Program.uniforms.at("size");
+	uint32_t sizeLoc = Program.uniforms.at("size");
 	glProgramUniform2f(Program.program_id, sizeLoc, Radius, Radius);
-	GLuint projLoc = Program.uniforms.at("projection");
+	uint32_t projLoc = Program.uniforms.at("projection");
 	glProgramUniformMatrix4fv(Program.program_id, projLoc, 1, GL_FALSE, glm::value_ptr(Projection));
 }
 
 void Billboard3D::Render(const glm::mat4 & view) {
 	// Pass in the matrices we need
-	GLuint viewLoc = Program.uniforms.at("view");
+	uint32_t viewLoc = Program.uniforms.at("view");
 	glProgramUniformMatrix4fv(Program.program_id, viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 	
 	// Extract vectors we need from the view matrix
 	glm::vec3 camera_right = glm::vec3(view[0][0], view[1][0], view[2][0]);
 	glm::vec3 camera_up = glm::vec3(view[0][1], view[1][1], view[2][1]);
-	GLuint cRLoc = Program.uniforms.at("cameraRight");
-	GLuint cULoc = Program.uniforms.at("cameraUp");
+	uint32_t cRLoc = Program.uniforms.at("cameraRight");
+	uint32_t cULoc = Program.uniforms.at("cameraUp");
 	glProgramUniform3f(Program.program_id, cRLoc, camera_right.x, camera_right.y, camera_right.z);
 	glProgramUniform3f(Program.program_id, cULoc, camera_up.x, camera_up.y, camera_up.z);
 	// Draw the billboard

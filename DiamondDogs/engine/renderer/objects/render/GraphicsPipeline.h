@@ -1,0 +1,76 @@
+#pragma once
+#ifndef VULPES_VK_GRAPHICS_PIPELINE_H
+#define VULPES_VK_GRAPHICS_PIPELINE_H
+
+#include "stdafx.h"
+#include "engine/renderer/objects\ForwardDecl.h"
+#include "engine/renderer/objects\NonCopyable.h"
+#include "engine/renderer/objects/resource/ShaderModule.h"
+
+namespace vulpes {
+
+	struct GraphicsPipelineInfo {
+		VkPipelineInputAssemblyStateCreateInfo AssemblyInfo = vk_pipeline_input_assembly_create_info_base;
+		VkPipelineRasterizationStateCreateInfo RasterizationInfo = vk_pipeline_rasterization_create_info_base;
+		VkPipelineColorBlendStateCreateInfo ColorBlendInfo = vk_pipeline_color_blend_create_info_base;
+		VkPipelineDepthStencilStateCreateInfo DepthStencilInfo = vk_pipeline_depth_stencil_create_info_base;
+		VkPipelineViewportStateCreateInfo ViewportInfo = vk_pipeline_viewport_create_info_base;
+		VkPipelineMultisampleStateCreateInfo MultisampleInfo = vk_pipeline_multisample_create_info_base;
+		VkPipelineDynamicStateCreateInfo DynamicStateInfo = vk_pipeline_dynamic_state_create_info_base;
+		VkPipelineVertexInputStateCreateInfo VertexInfo = vk_pipeline_vertex_input_state_create_info_base;
+		GraphicsPipelineInfo() {}
+	};
+
+
+	class PipelineCache {
+		PipelineCache(const PipelineCache& other) = delete;
+		PipelineCache& operator=(const PipelineCache& other) = delete;
+	public:
+
+		PipelineCache(const Device* parent);
+
+		~PipelineCache();
+
+		VkResult save_to_file();
+
+		const VkPipelineCache& vkHandle() const noexcept;
+
+	private:
+		std::string filename;
+		VkPipelineCacheCreateInfo createInfo;
+		VkPipelineCache handle;
+		const Device* parent;
+	};
+
+	class GraphicsPipeline : public NonCopyable {
+	public:
+
+		GraphicsPipeline(const Device* parent, const GraphicsPipelineInfo& info = GraphicsPipelineInfo());
+
+		GraphicsPipeline(const Device* parent, const Swapchain* swapchain);
+
+		~GraphicsPipeline();
+
+		void AddShaderModule(const char* filename, const VkShaderStageFlagBits& stages, const char* shader_name = nullptr);
+
+		void Init(VkGraphicsPipelineCreateInfo& create_info, const VkPipelineCache& cache = VK_NULL_HANDLE);
+		void Init();
+
+		void SetRenderpass(const VkRenderPass& renderpass);
+
+		const VkPipeline& vkHandle() const noexcept;
+
+	private:
+		const VkAllocationCallbacks* allocators = nullptr;
+		const Device* parent;
+		VkPipeline handle;
+		VkPipelineCache cache;
+		VkPipelineLayout layout;
+		GraphicsPipelineInfo info;
+		VkGraphicsPipelineCreateInfo createInfo;
+		std::vector<ShaderModule> shaders;
+		std::vector<VkPipelineShaderStageCreateInfo> shaderPipelineInfos;
+	};
+
+}
+#endif // !VULPES_VK_GRAPHICS_PIPELINE_H

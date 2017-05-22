@@ -1,6 +1,5 @@
 // STDAFX.H - used for precompilation of headers used everywhere in project
 #pragma once
-#define GLSL_COMPILER_DEBUG_STRINGS
 #include <stdio.h>
 #include <string>
 #include <vector>
@@ -15,33 +14,36 @@
 #include <regex>
 #include <type_traits>
 #include <unordered_map>
-
-using uint = unsigned int;
+#include <map>
 #include <stdlib.h>  
 #include <iostream>
+#include <chrono>
 
-// OpenGL includes.
-
-#define GLEW_STATIC
-#include "GL\glew.h"
-
+#ifdef NDEBUG
 #define GLFW_DLL
+#endif // NDEBUG
+
+#define GLFW_INCLUDE_VULKAN
 #include "glfw\glfw3.h"
 
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_SWIZZLE
 #include "glm\glm.hpp"
 #include "glm\gtc\matrix_transform.hpp"
 #include "glm\gtc\type_ptr.hpp"
 #include "glm\gtc\quaternion.hpp"
+#pragma warning(push, 0)
+#include "gli\gli.hpp"
+#pragma warning(pop)
+#include "vulkan/vulkan.h"
+#include "common/CreateInfoBase.h"
+#include "common/vkAssert.h"
+#include "common/vk_constants.h"
 
 // GLFW declarations and definitions
-const GLuint SCR_WIDTH = 1920, SCR_HEIGHT = 1080;
+constexpr uint32_t DEFAULT_WIDTH = 1920, DEFAULT_HEIGHT = 1080;
 // Defines depth rendering ranges for projection matrix.
-const GLfloat nearDepth = 1.0f, farDepth = 500000.0f;
+constexpr float nearDepth = 1.0f, farDepth = 500000.0f;
 
-#include <boost/type_traits.hpp>
-#include <boost/mpl/eval_if.hpp>
-#include <boost/mpl/identity.hpp>
-#include <boost/fusion/mpl.hpp>
-#include <boost/mpl/sizeof.hpp>
 

@@ -87,111 +87,114 @@ static const std::vector<index_t> initialIndices = {
 	9, 8, 1
 };
 
-// Number of vertices and indices we start with, respectively.
-const int NUM_ISOCAHEDRON_VERTICES = 12;
-const int NUM_ISOCAHEDRON_INDICES = 60;
+namespace vulpes {
 
-Icosphere::Icosphere(Icosphere && other) noexcept : LOD_Level(std::move(other.LOD_Level)) {}
+	// Number of vertices and indices we start with, respectively.
+	const int NUM_ISOCAHEDRON_VERTICES = 12;
+	const int NUM_ISOCAHEDRON_INDICES = 60;
 
-Icosphere & Icosphere::operator=(Icosphere && other) noexcept{
-	LOD_Level = std::move(other.LOD_Level);
-	return *this;
-}
+	Icosphere::Icosphere(Icosphere && other) noexcept : LOD_Level(std::move(other.LOD_Level)) {}
 
-Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 _position, glm::vec3 rotation) {
-	// Set properties affecting this mesh
-	position = _position;
-	// We are generating a sphere: scale uniformly with magnitude given by radius.
-	scale = glm::vec3(radius);
-	angle = rotation;
-	LOD_Level = lod_level;
-	// Routine for generating the actual mesh
-	vertLookup vertexLookup;
-	// Temporary buffer for new indices
-	std::vector<index_t> newIndices;
-	newIndices.reserve(256);
-	// Set initial vertices
-	vertices.resize(NUM_ISOCAHEDRON_VERTICES);
-	for (index_t i = 0; i < NUM_ISOCAHEDRON_VERTICES; ++i) {
-		vertices.positions[i] = glm::normalize(initialVertices[i].Position);
-		vertexLookup[glm::normalize(initialVertices[i].Position)] = i;
+	Icosphere & Icosphere::operator=(Icosphere && other) noexcept {
+		LOD_Level = std::move(other.LOD_Level);
+		return *this;
 	}
-	// Set initial indices
-	indices.resize(NUM_ISOCAHEDRON_INDICES);
-	for (index_t i = 0; i < NUM_ISOCAHEDRON_INDICES; ++i) {
-		indices[i] = initialIndices[i];
-	}
-	// Begin subdividing the mesh.
-	for (size_t i = 0; i < static_cast<size_t>(lod_level); ++i) {
-		newIndices.reserve(indices.size() * 4);
-		for (size_t j = 0; j < indices.size(); j += 3) {
-			/*
-			j
-			mp12   mp13
-			j+1    mp23   j+2
-			*/
-			// Defined in counter clockwise order
-			const glm::vec3& vertex1 = vertices.positions[indices[j + 0]];
-			const glm::vec3& vertex2 = vertices.positions[indices[j + 1]];
-			const glm::vec3& vertex3 = vertices.positions[indices[j + 2]];
 
-			glm::vec3 midPoint12 = findMidpoint(vertex1, vertex2);
-			glm::vec3 midPoint23 = findMidpoint(vertex2, vertex3);
-			glm::vec3 midPoint13 = findMidpoint(vertex1, vertex3);
-
-			uint32_t mp12Index;
-			uint32_t mp23Index;
-			uint32_t mp13Index;
-
-			auto iter = vertexLookup.find(midPoint12);
-			if (iter != vertexLookup.end()) { // It is in the map
-				mp12Index = iter->second;
-			}
-			else { // Not in the map
-				mp12Index = add_vertex(vertex_t(midPoint12));
-				vertexLookup[midPoint12] = mp12Index;
-			}
-
-			iter = vertexLookup.find(midPoint23);
-			if (iter != vertexLookup.end()) { // It is in the map
-				mp23Index = iter->second;
-			}
-			else { // Not in the map
-				mp23Index = add_vertex(vertex_t(midPoint23));
-				vertexLookup[midPoint23] = mp23Index;
-			}
-
-			iter = vertexLookup.find(midPoint13);
-			if (iter != vertexLookup.end()) { // It is in the map
-				mp13Index = iter->second;
-			}
-			else { // Not in the map
-				mp13Index = add_vertex(vertex_t(midPoint13));
-				vertexLookup[midPoint13] = mp13Index;
-			}
-			// Add our four new triangles to the mesh
-			newIndices.push_back(indices[j]);
-			newIndices.push_back(mp12Index);
-			newIndices.push_back(mp13Index);
-
-			newIndices.push_back(mp12Index);
-			newIndices.push_back(indices[j + 1]);
-			newIndices.push_back(mp23Index);
-
-			newIndices.push_back(mp13Index);
-			newIndices.push_back(mp23Index);
-			newIndices.push_back(indices[j + 2]);
-
-			newIndices.push_back(mp12Index);
-			newIndices.push_back(mp23Index);
-			newIndices.push_back(mp13Index);
+	Icosphere::Icosphere(unsigned int lod_level, float radius, glm::vec3 _position, glm::vec3 rotation) {
+		// Set properties affecting this mesh
+		position = _position;
+		// We are generating a sphere: scale uniformly with magnitude given by radius.
+		scale = glm::vec3(radius);
+		angle = rotation;
+		LOD_Level = lod_level;
+		// Routine for generating the actual mesh
+		vertLookup vertexLookup;
+		// Temporary buffer for new indices
+		std::vector<index_t> newIndices;
+		newIndices.reserve(256);
+		// Set initial vertices
+		vertices.resize(NUM_ISOCAHEDRON_VERTICES);
+		for (index_t i = 0; i < NUM_ISOCAHEDRON_VERTICES; ++i) {
+			vertices.positions[i] = glm::normalize(initialVertices[i].Position);
+			vertexLookup[glm::normalize(initialVertices[i].Position)] = i;
 		}
-		newIndices.shrink_to_fit();
-		indices.swap(newIndices);
-		newIndices.clear();
-	}
+		// Set initial indices
+		indices.resize(NUM_ISOCAHEDRON_INDICES);
+		for (index_t i = 0; i < NUM_ISOCAHEDRON_INDICES; ++i) {
+			indices[i] = initialIndices[i];
+		}
+		// Begin subdividing the mesh.
+		for (size_t i = 0; i < static_cast<size_t>(lod_level); ++i) {
+			newIndices.reserve(indices.size() * 4);
+			for (size_t j = 0; j < indices.size(); j += 3) {
+				/*
+				j
+				mp12   mp13
+				j+1    mp23   j+2
+				*/
+				// Defined in counter clockwise order
+				const glm::vec3& vertex1 = vertices.positions[indices[j + 0]];
+				const glm::vec3& vertex2 = vertices.positions[indices[j + 1]];
+				const glm::vec3& vertex3 = vertices.positions[indices[j + 2]];
 
-	//for (unsigned int i = 0; i < vertices.size(); ++i) {
-	//	vertices[i].Normal = glm::normalize(vertices[i].Position - glm::vec3(0.0f));
-	//}
+				glm::vec3 midPoint12 = findMidpoint(vertex1, vertex2);
+				glm::vec3 midPoint23 = findMidpoint(vertex2, vertex3);
+				glm::vec3 midPoint13 = findMidpoint(vertex1, vertex3);
+
+				uint32_t mp12Index;
+				uint32_t mp23Index;
+				uint32_t mp13Index;
+
+				auto iter = vertexLookup.find(midPoint12);
+				if (iter != vertexLookup.end()) { // It is in the map
+					mp12Index = iter->second;
+				}
+				else { // Not in the map
+					mp12Index = add_vertex(vertex_t(midPoint12));
+					vertexLookup[midPoint12] = mp12Index;
+				}
+
+				iter = vertexLookup.find(midPoint23);
+				if (iter != vertexLookup.end()) { // It is in the map
+					mp23Index = iter->second;
+				}
+				else { // Not in the map
+					mp23Index = add_vertex(vertex_t(midPoint23));
+					vertexLookup[midPoint23] = mp23Index;
+				}
+
+				iter = vertexLookup.find(midPoint13);
+				if (iter != vertexLookup.end()) { // It is in the map
+					mp13Index = iter->second;
+				}
+				else { // Not in the map
+					mp13Index = add_vertex(vertex_t(midPoint13));
+					vertexLookup[midPoint13] = mp13Index;
+				}
+				// Add our four new triangles to the mesh
+				newIndices.push_back(indices[j]);
+				newIndices.push_back(mp12Index);
+				newIndices.push_back(mp13Index);
+
+				newIndices.push_back(mp12Index);
+				newIndices.push_back(indices[j + 1]);
+				newIndices.push_back(mp23Index);
+
+				newIndices.push_back(mp13Index);
+				newIndices.push_back(mp23Index);
+				newIndices.push_back(indices[j + 2]);
+
+				newIndices.push_back(mp12Index);
+				newIndices.push_back(mp23Index);
+				newIndices.push_back(mp13Index);
+			}
+			newIndices.shrink_to_fit();
+			indices.swap(newIndices);
+			newIndices.clear();
+		}
+
+		for (unsigned int i = 0; i < vertices.size(); ++i) {
+			vertices.normals_uvs[i].normal = glm::normalize(vertices.positions[i] - glm::vec3(0.0f));
+		}
+	}
 }

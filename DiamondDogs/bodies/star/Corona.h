@@ -28,7 +28,7 @@ struct Corona {
 		vulpes::compiler cl(vulpes::profile::CORE, 450);
 		cl.add_shader<vulpes::vertex_shader_t>("./shaders/billboard/corona_vertex.glsl");
 		cl.add_shader<vulpes::fragment_shader_t>("./shaders/billboard/corona_fragment.glsl");
-		GLuint program_name = cl.link();
+		uint32_tprogram_name = cl.link();
 		GLbitfield stages = cl.get_program_stages();
 		Program.attach_program(program_name, stages);
 		Program.setup_uniforms();
@@ -38,7 +38,7 @@ struct Corona {
 		glUseProgram(Program.program_id);
 		// Set frame counter to zero
 		frame = 0;
-		GLuint tempLoc = Program.uniforms.at("temperature");
+		uint32_t tempLoc = Program.uniforms.at("temperature");
 		glProgramUniform1i(Program.program_id, tempLoc, star_temperature);
 		mesh.Program = std::move(Program);
 		mesh.Projection = projection;
@@ -58,7 +58,7 @@ struct Corona {
 			frame++;
 		}
 		// Set frame value in Program
-		GLuint frameLoc = mesh.Program.uniforms.at("frame");
+		uint32_t frameLoc = mesh.Program.uniforms.at("frame");
 		glProgramUniform1i(mesh.Program.program_id, frameLoc, static_cast<GLint>(frame));
 		mesh.Render(view);
 	}

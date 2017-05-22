@@ -1,8 +1,10 @@
 #include "stdafx.h"
-#include "scenes\StarDemo.h"
+
+#include "scenes\StarScene.h"
+
 
 int main() {
-	demo::StarDemo test;
-	test.Use();
+	star_scene::StarScene scene;
+	scene.RenderLoop();
 	return 0;
 }

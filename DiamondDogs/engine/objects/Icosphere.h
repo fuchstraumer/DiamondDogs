@@ -13,19 +13,21 @@
 	benefit from highly uniform spherical meshes.
 
 */
+namespace vulpes {
 
-class Icosphere : public SOA_Mesh {
-public:
+	class Icosphere : public Mesh {
+	public:
 
-	Icosphere(Icosphere&& other) noexcept;
-	Icosphere& operator=(Icosphere&& other) noexcept;
+		Icosphere(Icosphere&& other) noexcept;
+		Icosphere& operator=(Icosphere&& other) noexcept;
 
-	Icosphere(unsigned int lod_level, float radius = 1.0f, glm::vec3 position = glm::vec3(0.0f), glm::vec3 rotation = glm::vec3(0.0f));
+		Icosphere(unsigned int lod_level, float radius = 1.0f, glm::vec3 position = glm::vec3(0.0f), glm::vec3 rotation = glm::vec3(0.0f));
 
-	unsigned int LOD_Level;
+		unsigned int LOD_Level;
 
-	~Icosphere() = default;
-	Icosphere() = default;
-};
+		~Icosphere() = default;
+		Icosphere() = default;
+	};
 
+}
 #endif // !ICOSPHERE_H

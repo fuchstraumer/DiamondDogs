@@ -22,7 +22,7 @@
     <ProjectGuid>{28A18A23-177F-45EF-A3EE-2BF3596255E7}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>DiamondDogs</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.14393.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.15063.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -106,15 +106,15 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(SolutionDir)lib\OpenGL\include;$(SolutionDir)lib\OpenAL\include;$(ProjectDir);$(SolutionDir)lib\Boost;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\include;$(ProjectDir);$(SolutionDir)ext\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>false</MultiProcessorCompilation>
       <LanguageStandard>stdcpplatest</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>"opengl32.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glfw3dll.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glew32s.lib";"$(SolutionDir)lib\OpenAL\lib\x64\OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>"C:\MSVC\OpenGL\lib\x64";</AdditionalLibraryDirectories>
+      <AdditionalDependencies>vulkan-1.lib;"debug/glfw3.lib";"OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)ext\lib\x64;$(VULKAN_SDK)\Lib;</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -144,7 +144,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(SolutionDir)lib\OpenGL\include;$(SolutionDir)lib\OpenAL\include;$(ProjectDir);$(SolutionDir)lib\Boost;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\include;$(ProjectDir);$(SolutionDir)ext\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
@@ -155,37 +155,45 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>"C:\MSVC\OpenGL\lib\x64";</AdditionalLibraryDirectories>
-      <AdditionalDependencies>"opengl32.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glfw3dll.lib";"$(SolutionDir)lib\OpenGL\lib\x64\glew32s.lib";"$(SolutionDir)lib\OpenAL\lib\x64\OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)ext\lib\x64;$(VULKAN_SDK)\Lib;</AdditionalLibraryDirectories>
+      <AdditionalDependencies>vulkan-1.lib;"rel_deb_info/glfw3dll.lib";"OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreAllDefaultLibraries>false</IgnoreAllDefaultLibraries>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
-    <ClInclude Include="bodies\star\Corona.h" />
     <ClInclude Include="bodies\star\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
-    <ClInclude Include="bodies\terrestrial\Barren.h" />
-    <ClInclude Include="engine\objects\Billboard.h" />
+    <ClInclude Include="bodies\terrestrial\Terrestrial.h" />
+    <ClInclude Include="common\VkDebug.h" />
     <ClInclude Include="engine\objects\Icosphere.h" />
     <ClInclude Include="engine\objects\Mesh.h" />
     <ClInclude Include="engine\objects\MeshComponents.h" />
+    <ClInclude Include="common\CreateInfoBase.h" />
+    <ClInclude Include="common\vkAssert.h" />
+    <ClInclude Include="common\vk_constants.h" />
     <ClInclude Include="engine\objects\Skybox.h" />
-    <ClInclude Include="engine\renderer\objects\device_object.h" />
-    <ClInclude Include="engine\renderer\objects\pipeline_object.h" />
-    <ClInclude Include="engine\renderer\objects\program_object.h" />
-    <ClInclude Include="engine\renderer\objects\shader_object.h" />
-    <ClInclude Include="engine\renderer\objects\texture.h" />
-    <ClInclude Include="engine\renderer\objects\uniform_buffer_object.h" />
-    <ClInclude Include="engine\renderer\types\vertex_types.h" />
-    <ClInclude Include="engine\renderer\util\common.h" />
-    <ClInclude Include="engine\renderer\util\glsl_compiler.h" />
-    <ClInclude Include="scenes\AtmosphereDemo.h" />
-    <ClInclude Include="scenes\StarDemo.h" />
+    <ClInclude Include="engine\renderer\objects\command\CommandPool.h" />
+    <ClInclude Include="engine\renderer\objects\core\Camera.h" />
+    <ClInclude Include="engine\renderer\objects\core\Instance.h" />
+    <ClInclude Include="engine\renderer\objects\core\LogicalDevice.h" />
+    <ClInclude Include="engine\renderer\objects\core\PhysicalDevice.h" />
+    <ClInclude Include="engine\renderer\objects\ForwardDecl.h" />
+    <ClInclude Include="engine\renderer\objects\NonCopyable.h" />
+    <ClInclude Include="engine\renderer\objects\render\DepthStencil.h" />
+    <ClInclude Include="engine\renderer\objects\render\Framebuffer.h" />
+    <ClInclude Include="engine\renderer\objects\render\GraphicsPipeline.h" />
+    <ClInclude Include="engine\renderer\objects\render\Renderpass.h" />
+    <ClInclude Include="engine\renderer\objects\render\Swapchain.h" />
+    <ClInclude Include="engine\renderer\objects\resource\Buffer.h" />
+    <ClInclude Include="engine\renderer\objects\resource\Image.h" />
+    <ClInclude Include="engine\renderer\objects\resource\Model.h" />
+    <ClInclude Include="engine\renderer\objects\resource\ShaderModule.h" />
+    <ClInclude Include="engine\renderer\objects\resource\Texture.h" />
+    <ClInclude Include="engine\renderer\objects\resource\VertexTypes.h" />
+    <ClInclude Include="scenes\BaseScene.h" />
+    <ClInclude Include="scenes\StarScene.h" />
     <ClInclude Include="stdafx.h" />
-    <ClInclude Include="engine\renderer\camera.h" />
-    <ClInclude Include="engine\Context.h" />
-    <ClInclude Include="util\lodepng.h" />
-    <ClInclude Include="util\lodeTexture.h" />
     <ClInclude Include="util\noise\TerrainBuilder.h" />
     <ClInclude Include="util\shaderold.h" />
   </ItemGroup>
@@ -193,37 +201,39 @@
     <ClCompile Include="bodies\star\Star.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="common\VkDebug.cpp" />
     <ClCompile Include="DiamondDogs.cpp" />
-    <ClCompile Include="engine\objects\Billboard.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
-    </ClCompile>
     <ClCompile Include="engine\objects\Icosphere.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="engine\objects\Mesh.cpp" />
-    <ClCompile Include="engine\renderer\objects\pipeline_object.cpp" />
-    <ClCompile Include="scenes\StarDemo.cpp" />
+    <ClCompile Include="engine\objects\Skybox.cpp" />
+    <ClCompile Include="engine\renderer\objects\command\CommandPool.cpp" />
+    <ClCompile Include="engine\renderer\objects\core\Instance.cpp" />
+    <ClCompile Include="engine\renderer\objects\core\LogicalDevice.cpp" />
+    <ClCompile Include="engine\renderer\objects\core\PhysicalDevice.cpp" />
+    <ClCompile Include="engine\renderer\objects\render\DepthStencil.cpp" />
+    <ClCompile Include="engine\renderer\objects\render\Framebuffer.cpp" />
+    <ClCompile Include="engine\renderer\objects\render\GraphicsPipeline.cpp" />
+    <ClCompile Include="engine\renderer\objects\render\Renderpass.cpp" />
+    <ClCompile Include="engine\renderer\objects\render\Swapchain.cpp" />
+    <ClCompile Include="engine\renderer\objects\resource\Buffer.cpp" />
+    <ClCompile Include="engine\renderer\objects\resource\Image.cpp" />
+    <ClCompile Include="engine\renderer\objects\resource\ShaderModule.cpp" />
+    <ClCompile Include="engine\renderer\objects\resource\Texture.cpp" />
+    <ClCompile Include="scenes\BaseScene.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="engine\Context.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
-    </ClCompile>
-    <ClCompile Include="util\lodepng.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />
     <None Include="shaders\debug\vertex.glsl" />
-    <None Include="shaders\wireframe\fragment.glsl" />
-    <None Include="shaders\wireframe\geometry.glsl" />
-    <None Include="shaders\wireframe\vertex.glsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

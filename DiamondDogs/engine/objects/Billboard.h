@@ -46,7 +46,7 @@ public:
 	// building a Shader program before GL init due to default constructors
 	vulpes::program_pipeline_object Program;
 	glm::mat4 Projection;
-	GLuint starColor;
+	uint32_tstarColor;
 
 private:
 
