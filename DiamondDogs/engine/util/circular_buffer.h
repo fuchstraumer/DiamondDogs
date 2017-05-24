@@ -1,7 +1,9 @@
 #ifndef VULPES_UTIL_CIRCULAR_BUFFER_H
 #define VULPES_UTIL_CIRCULAR_BUFFER_H
 
-#include "stdafx.h"
+#include <memory>
+#include <iterator>
+#include <type_traits>
 
 namespace vulpes {
 
@@ -40,18 +42,22 @@ namespace vulpes {
         }
 
         template<typename T, size_t num, typename allocator = std::allocator<T>> 
-        class CircularBuffer {
+        class circular_buffer {
 
+			typedef allocator allocator_type;
             typedef T value_type;
-            typedef T* pointer;
-            typedef const T* const_pointer;
+            typedef typename allocator::pointer pointer;
+            typedef typename allocator::const_pointer const_pointer;
             typedef T& reference;
             typedef const T& const_reference;
-            typedef size_t size_type;
-            typedef ptrdiff_t difference_type;
-            typedef CircularBuffer self_type;
-            typedef circular_buffer_iter<self_type> iterator;
-            typedef const circular_buffer_iter<self_type> const_iterator;
+            typedef typename allocator::size_type size_type;
+            typedef typename allocator::difference_type difference_type;
+            typedef circular_buffer self_type;
+            typedef typename circular_buffer_iter<self_type> iterator;
+            typedef typename const circular_buffer_iter<self_type> const_iterator;
+
+			
+			
 
             pointer data;
             size_type memory_size;
@@ -59,16 +65,16 @@ namespace vulpes {
             size_type tail_idx;
             size_type num_elements;
 
-            CircularBuffer(const CircularBuffer&) = delete;
-            CircularBuffer& operator=(const CircularBuffer&) = delete;
+            circular_buffer(const circular_buffer&) = delete;
+            circular_buffer& operator=(const circular_buffer&) = delete;
 
-            CircularBuffer() = delete;
+            circular_buffer() = delete;
 
         public:
 
-            explicit CircularBuffer(const size_type& capacity) : data(allocator.allocate(num)), num_elements(0), head_idx(0), tail_idx(0) {}
+            explicit circular_buffer(const size_type& capacity) : data(allocator.allocate(num)), num_elements(0), head_idx(0), tail_idx(0) {}
             
-            ~CircularBuffer() {
+            ~circular_buffer() {
                 allocator.deallocate(num);
             }
 
