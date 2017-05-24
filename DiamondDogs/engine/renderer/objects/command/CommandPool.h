@@ -29,6 +29,8 @@ namespace vulpes {
 
 		void CreateCommandBuffers(const uint32_t& num_buffers);
 
+		void FreeCommandBuffers();
+
 		const VkCommandPool& vkHandle() const noexcept;
 		const VkCommandBuffer& operator[](const size_t& idx) const;
 

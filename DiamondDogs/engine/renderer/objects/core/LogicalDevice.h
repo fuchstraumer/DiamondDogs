@@ -32,6 +32,8 @@ namespace vulpes {
 
 		const VkDevice& vkHandle() const;
 
+		void CheckSurfaceSupport(const VkSurfaceKHR& surf);
+
 		VkQueue GraphicsQueue(const uint32_t & idx = 0) const;
 		const void TransferQueue(const uint32_t & idx, VkQueue& queue) const;
 		VkQueue PresentQueue(const uint32_t & idx = 0) const;

@@ -51,12 +51,14 @@ namespace vulpes {
 		return result;
 	}
 
-	VkExtent2D SwapchainInfo::ChooseSwapchainExtent() const{
+	VkExtent2D SwapchainInfo::ChooseSwapchainExtent(const Instance* instance) const{
 		if (Capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
 			return Capabilities.currentExtent;
 		}
 		else {
-			VkExtent2D actual_extent = { DEFAULT_WIDTH, DEFAULT_HEIGHT };
+			int glfw_width, glfw_height;
+			glfwGetWindowSize(reinterpret_cast<const InstanceGLFW*>(instance)->Window, &glfw_width, &glfw_height);
+			VkExtent2D actual_extent = { static_cast<uint32_t>(glfw_width), static_cast<uint32_t>(glfw_height) };
 			actual_extent.width = std::max(Capabilities.minImageExtent.width, std::min(Capabilities.maxImageExtent.width, actual_extent.width));
 			actual_extent.height = std::max(Capabilities.minImageExtent.height, std::min(Capabilities.maxImageExtent.height, actual_extent.height));
 			return actual_extent;
@@ -75,7 +77,7 @@ namespace vulpes {
 		VkSurfaceFormatKHR surf_fmt = Info->GetBestFormat();
 		ColorFormat = surf_fmt.format;
 		VkPresentModeKHR present_mode = Info->GetBestPresentMode();
-		Extent = Info->ChooseSwapchainExtent();
+		Extent = Info->ChooseSwapchainExtent(instance);
 
 		// Create one more image than minspec to implement triple buffering (in hope we got mailbox present mode)
 		ImageCount = Info->Capabilities.minImageCount + 1;
@@ -136,11 +138,12 @@ namespace vulpes {
 	}
 
 	void Swapchain::Recreate(){
+		delete Info;
 		Info = new SwapchainInfo(phys_device->vkHandle(), instance->GetSurface());
 		VkSurfaceFormatKHR surf_fmt = Info->GetBestFormat();
 		ColorFormat = surf_fmt.format;
 		VkPresentModeKHR present_mode = Info->GetBestPresentMode();
-		Extent = Info->ChooseSwapchainExtent();
+		Extent = Info->ChooseSwapchainExtent(instance);
 
 		// Create one more image than minspec to implement triple buffering (in hope we got mailbox present mode)
 		ImageCount = Info->Capabilities.minImageCount + 1;
@@ -154,6 +157,7 @@ namespace vulpes {
 		create_info.imageColorSpace = surf_fmt.colorSpace;
 		create_info.imageExtent = Extent;
 		create_info.imageArrayLayers = 1;
+		create_info.minImageCount = ImageCount;
 		create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
 		uint32_t indices[2] = { static_cast<uint32_t>(device->QueueFamilyIndices.Present), static_cast<uint32_t>(device->QueueFamilyIndices.Graphics) };

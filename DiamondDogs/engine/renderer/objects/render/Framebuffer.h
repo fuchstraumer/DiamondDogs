@@ -19,11 +19,31 @@ namespace vulpes {
 		
 		void Destroy();
 
-	private:
+	protected:
 
 		const Device* parent;
 		const VkAllocationCallbacks* allocators = nullptr;
 		VkFramebuffer handle;
+	};
+
+
+	class OffscreenFramebuffer : public Framebuffer {
+		struct Attachment {
+			VkImage image = VK_NULL_HANDLE;
+			VkDeviceMemory memory = VK_NULL_HANDLE;
+			VkImageView view = VK_NULL_HANDLE;
+			VkFormat format = VK_FORMAT_UNDEFINED;
+			void destroy(const Device* dvc);
+		};
+	public:
+
+		OffscreenFramebuffer(const Device* parent, const VkFramebufferCreateInfo& create_info);
+
+		std::array<Attachment, 2> ColorAttachments;
+		Attachment DepthAttachment;
+	protected:
+
+		VkSampler sampler;
 	};
 }
 #endif // !VULPES_VK_FRAMEBUFFER_H

@@ -109,6 +109,12 @@ namespace vulpes {
 		return handle;
 	}
 
+	void Device::CheckSurfaceSupport(const VkSurfaceKHR& surf) {
+		VkBool32 supported;
+		vkGetPhysicalDeviceSurfaceSupportKHR(parent->vkHandle(), QueueFamilyIndices.Present, surf, &supported);
+		assert(supported);
+	}
+
 	VkQueue Device::GraphicsQueue(const uint32_t & idx) const{
 		assert(idx < numGraphicsQueues);
 		VkQueue result;

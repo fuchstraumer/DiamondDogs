@@ -18,7 +18,7 @@ namespace vulpes {
 	class BaseScene {
 	public:
 
-		BaseScene();
+		BaseScene(const uint32_t& width = DEFAULT_WIDTH, const uint32_t& height = DEFAULT_HEIGHT);
 
 		~BaseScene();
 
@@ -30,8 +30,16 @@ namespace vulpes {
 
 		virtual void SetupFramebuffers();
 
+		virtual void RecreateSwapchain(const bool& windowed_fullscreen = false);
+
+		virtual void WindowResized() = 0;
+
+		virtual void RecreateObjects() = 0;
+
+		virtual void RecordCommands() = 0;
 	protected:
 
+		uint32_t width, height;
 		VkSemaphore semaphores[2];
 		InstanceGLFW* instance;
 		Device* device;

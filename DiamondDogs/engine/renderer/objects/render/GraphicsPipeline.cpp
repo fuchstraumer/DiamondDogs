@@ -62,6 +62,26 @@ namespace vulpes {
 		VkAssert(result);
 	}
 
+	PipelineCache::PipelineCache(const Device * _parent, const uint16_t& scene_id_hash) : parent(_parent) {
+		std::string cache_dir = std::string("./shader_cache/");
+		std::string fname = cache_dir + std::to_string(scene_id_hash) + std::string(".vkdat");
+		filename = fname;
+		createInfo = VkPipelineCacheCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO, nullptr, 0, 0, nullptr };
+		std::ifstream cache(filename, std::ios::in);
+		if (cache) {
+#ifndef NDEBUG
+			std::cerr << "Pre-existing cache file" << fname << " found, loading... " << std::endl;
+#endif // !NDEBUG
+			std::string cache_str((std::istreambuf_iterator<char>(cache)), std::istreambuf_iterator<char>());
+			uint32_t cache_size = cache_str.size() * sizeof(char);
+			createInfo.initialDataSize = cache_size;
+			createInfo.pInitialData = cache_str.data();
+		}
+
+		VkResult result = vkCreatePipelineCache(parent->vkHandle(), &createInfo, nullptr, &handle);
+		VkAssert(result);
+	}
+
 	PipelineCache::~PipelineCache(){
 		save_to_file();
 		vkDeviceWaitIdle(parent->vkHandle());

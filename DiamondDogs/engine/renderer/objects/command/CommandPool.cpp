@@ -76,6 +76,10 @@ namespace vulpes {
 		alloc_info.commandBufferCount = num_buffers;
 		VkResult result = vkAllocateCommandBuffers(parent->vkHandle(), &alloc_info, cmdBuffers.data());
 	}
+
+	void CommandPool::FreeCommandBuffers(){
+		vkFreeCommandBuffers(parent->vkHandle(), handle, static_cast<uint32_t>(cmdBuffers.size()), cmdBuffers.data());
+	}
 	
 	const VkCommandPool & CommandPool::vkHandle() const noexcept{
 		return handle;
@@ -116,11 +120,15 @@ namespace vulpes {
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &cmd_buffer;
+		VkFence fence;
+		VkFenceCreateInfo fence_info = vk_fence_create_info_base;
+		vkCreateFence(parent->vkHandle(), &fence_info, allocators, &fence);
 
-		vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+		vkQueueSubmit(queue, 1, &submitInfo, fence);
 		
-		vkQueueWaitIdle(queue);
+		vkWaitForFences(parent->vkHandle(), 1, &fence, VK_TRUE, vk_default_fence_timeout);
 
+		vkDestroyFence(parent->vkHandle(), fence, allocators);
 		vkFreeCommandBuffers(parent->vkHandle(), handle, 1, &cmd_buffer);
 	}
 

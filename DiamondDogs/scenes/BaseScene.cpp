@@ -10,9 +10,10 @@
 #include "engine\renderer\objects\command\CommandPool.h"
 #include "engine\renderer\objects\render\DepthStencil.h"
 
-vulpes::BaseScene::BaseScene(){
+vulpes::BaseScene::BaseScene(const uint32_t& _width, const uint32_t& _height) : width(_width), height(_height) {
 	VkInstanceCreateInfo create_info = vk_base_instance_info;
-	instance = new InstanceGLFW(&create_info, false);
+	instance = new InstanceGLFW(create_info, false);
+	glfwSetWindowUserPointer(instance->Window, this);
 	instance->SetupPhysicalDevices();
 	instance->SetupSurface();
 	device = new Device(instance, instance->physicalDevice);
@@ -128,4 +129,39 @@ void vulpes::BaseScene::SetupFramebuffers(){
 		f_info.layers = 1;
 		framebuffers.push_back(std::move(Framebuffer(device, f_info)));
 	}
+}
+
+void vulpes::BaseScene::RecreateSwapchain(const bool& windowed_fullscreen){
+	// First wait to make sure nothing is in use.
+	vkDeviceWaitIdle(device->vkHandle());
+
+	depthStencil->Destroy();
+
+	framebuffers.clear();
+	framebuffers.shrink_to_fit();
+
+	transferPool->FreeCommandBuffers();
+	graphicsPool->FreeCommandBuffers();
+
+	WindowResized();
+
+	renderPass->Destroy();
+
+	swapchain->Destroy();
+
+	/*
+		Done destroying resources, recreate resources and objects now
+	*/
+
+	swapchain->Recreate();
+
+	graphicsPool->CreateCommandBuffers(swapchain->ImageCount);
+	transferPool->CreateCommandBuffers(1);
+	SetupRenderpass();
+	RecreateObjects();
+	SetupDepthStencil();
+	SetupFramebuffers();
+	RecordCommands();
+
+	vkDeviceWaitIdle(device->vkHandle());
 }

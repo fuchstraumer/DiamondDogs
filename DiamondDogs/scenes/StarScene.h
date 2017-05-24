@@ -33,12 +33,28 @@ namespace star_scene {
 			RecordCommands();
 		}
 
+		virtual void RecreateObjects() override {
+			object = new Star(device, 5, 300.0f, 4000, instance->GetProjectionMatrix());
+			skybox = new Skybox(device);
+			VkQueue transfer;
+			device->TransferQueue(0, transfer);
+			object->BuildMesh(transferPool, transfer);
+			object->BuildPipeline(renderPass->vkHandle(), swapchain, pipelineCache);
+			skybox->CreateData(transferPool, transfer, instance->GetProjectionMatrix());
+			skybox->CreatePipeline(renderPass->vkHandle(), swapchain, pipelineCache);
+		}
+
+		virtual void WindowResized() override {
+			delete object;
+			delete skybox;
+		}
+
 		~StarScene() {
 			delete skybox;
 			delete object;
 		}
 
-		void RecordCommands() {
+		virtual void RecordCommands() override {
 				for (uint32_t i = 0; i < graphicsPool->size(); ++i) {
 
 					static VkCommandBufferBeginInfo begin = vk_command_buffer_begin_info_base;
@@ -63,13 +79,13 @@ namespace star_scene {
 					vkCmdBeginRenderPass(graphicsPool->GetCmdBuffer(i), &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
 
 					VkViewport viewport = vk_default_viewport;
-					viewport.width = DEFAULT_WIDTH;
-					viewport.height = DEFAULT_HEIGHT;
+					viewport.width = swapchain->Extent.width;
+					viewport.height = swapchain->Extent.height;
 					vkCmdSetViewport(graphicsPool->GetCmdBuffer(i), 0, 1, &viewport);
 
 					VkRect2D scissor = vk_default_viewport_scissor;
-					scissor.extent.width = DEFAULT_WIDTH;
-					scissor.extent.height = DEFAULT_HEIGHT;
+					scissor.extent.width = swapchain->Extent.width;
+					scissor.extent.height = swapchain->Extent.height;
 					vkCmdSetScissor(graphicsPool->GetCmdBuffer(i), 0, 1, &scissor);
 
 					skybox->RecordCommands(graphicsPool->GetCmdBuffer(i));

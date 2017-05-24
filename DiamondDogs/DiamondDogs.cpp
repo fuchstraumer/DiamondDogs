@@ -1,10 +1,10 @@
 #include "stdafx.h"
 
-#include "scenes\StarScene.h"
+#include "scenes\AtmoScene.h"
 
 
 int main() {
-	star_scene::StarScene scene;
+	atmo_scene::AtmoScene scene;
 	scene.RenderLoop();
 	return 0;
 }

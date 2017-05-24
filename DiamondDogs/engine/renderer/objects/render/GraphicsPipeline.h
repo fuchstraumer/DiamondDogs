@@ -29,6 +29,9 @@ namespace vulpes {
 
 		PipelineCache(const Device* parent);
 
+		// uses scene_ptr to create a hash relevant to the currently active scene.
+		PipelineCache(const Device* parent, const uint16_t& type_id);
+
 		~PipelineCache();
 
 		VkResult save_to_file();

@@ -220,7 +220,7 @@ namespace vulpes {
 			image_barrier = GetMemoryBarrier(image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			vkCmdPipelineBarrier(copy_cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &image_barrier);
 
-		pool->EndSingleCmdBuffer(copy_cmd, queue, transfer_fence);
+		pool->EndSingleCmdBuffer(copy_cmd, queue);
 
 		// Create sampler
 		VkSamplerCreateInfo sampler_info = vk_sampler_create_info_base;

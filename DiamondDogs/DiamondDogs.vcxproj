@@ -14,7 +14,7 @@
     <ProjectGuid>{28A18A23-177F-45EF-A3EE-2BF3596255E7}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>DiamondDogs</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.14393.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.15063.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
@@ -99,6 +99,7 @@
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\terrestrial\Terrestrial.h" />
     <ClInclude Include="common\VkDebug.h" />
+    <ClInclude Include="engine\objects\Atmosphere.h" />
     <ClInclude Include="engine\objects\Icosphere.h" />
     <ClInclude Include="engine\objects\Mesh.h" />
     <ClInclude Include="engine\objects\MeshComponents.h" />
@@ -124,6 +125,7 @@
     <ClInclude Include="engine\renderer\objects\resource\ShaderModule.h" />
     <ClInclude Include="engine\renderer\objects\resource\Texture.h" />
     <ClInclude Include="engine\renderer\objects\resource\VertexTypes.h" />
+    <ClInclude Include="scenes\Atmoscene.h" />
     <ClInclude Include="scenes\BaseScene.h" />
     <ClInclude Include="scenes\StarScene.h" />
     <ClInclude Include="stdafx.h" />
@@ -136,6 +138,7 @@
     </ClCompile>
     <ClCompile Include="common\VkDebug.cpp" />
     <ClCompile Include="DiamondDogs.cpp" />
+    <ClCompile Include="engine\objects\Atmosphere.cpp" />
     <ClCompile Include="engine\objects\Icosphere.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>

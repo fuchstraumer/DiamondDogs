@@ -55,13 +55,17 @@ namespace vulpes {
 	protected:
 		static Camera cam;
 		VkInstance handle;
+		uint32_t width, height;
+		VkInstanceCreateInfo createInfo;
 	};
 
 
 	class InstanceGLFW : public Instance {
 	public:
 
-		InstanceGLFW(VkInstanceCreateInfo* create_info, const bool& enable_validation, const uint32_t& width = DEFAULT_WIDTH, const uint32_t& height = DEFAULT_HEIGHT);
+		InstanceGLFW(VkInstanceCreateInfo create_info, const bool& enable_validation, const uint32_t& width = DEFAULT_WIDTH, const uint32_t& height = DEFAULT_HEIGHT);
+
+		void CreateWindow(const bool& fullscreen_enabled = false);
 
 		virtual void SetupSurface() override;
 
@@ -71,6 +75,7 @@ namespace vulpes {
 		//static void MouseButtonCallback(GLFWwindow* window, int button, int action, int code);
 		//static void MouseScrollCallback(GLFWwindow* window, double x_offset, double y_offset);
 		static void KeyboardCallback(GLFWwindow* window, int key, int scan_code, int action, int mods);
+		static void ResizeCallback(GLFWwindow* window, int width, int height);
 	};
 
 	class InstanceAndroid : public Instance {

@@ -2,6 +2,7 @@
 #include "Instance.h"
 #include "common/VkDebug.h"
 #include "PhysicalDevice.h"
+#include "scenes\BaseScene.h"
 
 #ifndef VK_CUSTOM_ALLOCATION_CALLBACKS
 const VkAllocationCallbacks* vulpes::Instance::AllocationCallbacks = nullptr;
@@ -81,16 +82,17 @@ namespace vulpes {
 		cam.Position = pos;
 	}
 
-	InstanceGLFW::InstanceGLFW(VkInstanceCreateInfo * create_info, const bool & enable_validation, const uint32_t& width, const uint32_t& height) {
+	InstanceGLFW::InstanceGLFW(VkInstanceCreateInfo create_info, const bool & enable_validation, const uint32_t& _width, const uint32_t& _height)  {
 		
+		width = _width;
+		height = _height;
+		createInfo = create_info;
+
 		glfwInit();
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-		Window = glfwCreateWindow(width, height, create_info->pApplicationInfo->pApplicationName, nullptr, nullptr);
-		glfwSetCursorPosCallback(Window, MousePosCallback);
-		glfwSetKeyCallback(Window, KeyboardCallback);
 
-		glfwSetInputMode(Window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+		CreateWindow();
+		
 		std::vector<const char*> ext;
 		validationEnabled = enable_validation;
 		{
@@ -103,18 +105,18 @@ namespace vulpes {
 		}
 
 		if (enable_validation) {
-			create_info->enabledLayerCount = 1;
-			create_info->ppEnabledLayerNames = validation_layers.data();
+			create_info.enabledLayerCount = 1;
+			create_info.ppEnabledLayerNames = validation_layers.data();
 			ext.push_back(debug_callback_extension);
 			
 		}
 		else {
-			create_info->ppEnabledLayerNames = nullptr;
-			create_info->enabledLayerCount = 0;
+			createInfo.ppEnabledLayerNames = nullptr;
+			createInfo.enabledLayerCount = 0;
 		}
-		create_info->ppEnabledExtensionNames = ext.data();
-		create_info->enabledExtensionCount = static_cast<uint32_t>(ext.size());
-		VkResult err = vkCreateInstance(create_info, AllocationCallbacks, &this->handle);
+		createInfo.ppEnabledExtensionNames = ext.data();
+		createInfo.enabledExtensionCount = static_cast<uint32_t>(ext.size());
+		VkResult err = vkCreateInstance(&createInfo, AllocationCallbacks, &this->handle);
 		VkAssert(err);
 
 		if (validationEnabled) {
@@ -125,8 +127,31 @@ namespace vulpes {
 			CreateDebugCallback(*this, VK_DEBUG_REPORT_DEBUG_BIT_EXT, &vkCallback, AllocationCallbacks);
 		}
 		
-		projection = glm::perspective(glm::radians(75.0f), static_cast<float>(width) / static_cast<float>(height), 0.1f, 10000.0f);
+		projection = glm::perspective(glm::radians(75.0f), static_cast<float>(width) / static_cast<float>(height), 1.0f, 40000.0f);
 		projection[1][1] *= -1.0f;
+	}
+
+	void InstanceGLFW::CreateWindow(const bool & fullscreen_enabled) {
+		if (!fullscreen_enabled) {
+			Window = glfwCreateWindow(width, height, createInfo.pApplicationInfo->pApplicationName, nullptr, nullptr);
+			glfwSetCursorPosCallback(Window, MousePosCallback);
+			glfwSetKeyCallback(Window, KeyboardCallback);
+			glfwSetWindowSizeCallback(Window, ResizeCallback);
+
+			glfwSetInputMode(Window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+		}
+		else {
+			GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+			// Get data needed from primary monitor to go fullscreen.
+			const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+			glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+			glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+			glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+			glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+			GLFWwindow* window = glfwCreateWindow(mode->width, mode->height, createInfo.pApplicationInfo->pApplicationName, monitor, NULL);
+			vkDestroySurfaceKHR(handle, surface, AllocationCallbacks);
+			SetupSurface();
+		}
 	}
 
 	void InstanceGLFW::SetupSurface(){
@@ -151,9 +176,17 @@ namespace vulpes {
 		}
 		if (key == GLFW_KEY_LEFT_ALT && action == GLFW_PRESS) {
 			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+			return;
 		}
 		if (key == GLFW_KEY_LEFT_ALT && action == GLFW_RELEASE) {
 			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+		}
+		if (key == GLFW_KEY_LEFT_BRACKET && action == GLFW_PRESS) {
+			cam.MovementSpeed += 25.0f;
+		}
+		if (key == GLFW_KEY_RIGHT_BRACKET && action == GLFW_PRESS) {
+			cam.MovementSpeed -= 25.0f;
 		}
 		// Rest feed into movement
 		if (key >= 0 && key < 1024) {
@@ -164,6 +197,15 @@ namespace vulpes {
 				keys[key] = false;
 			}
 		}
+	}
+
+	void InstanceGLFW::ResizeCallback(GLFWwindow * window, int width, int height) {
+		if (width == 0 || height == 0) {
+			return;
+		}
+
+		BaseScene* scene = reinterpret_cast<BaseScene*>(glfwGetWindowUserPointer(window));
+		scene->RecreateSwapchain();
 	}
 
 	InstanceAndroid::InstanceAndroid(VkInstanceCreateInfo * create_info, const bool & enable_validation, const uint32_t & width, const uint32_t & height)

@@ -15,6 +15,8 @@ namespace vulpes {
 
 		~Renderpass();
 
+		void Destroy();
+
 		const VkRenderPass& vkHandle() const noexcept;
 		operator VkRenderPass() const noexcept;
 

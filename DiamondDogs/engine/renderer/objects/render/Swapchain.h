@@ -14,7 +14,7 @@ namespace vulpes {
 		std::vector<VkPresentModeKHR> PresentModes;
 		VkSurfaceFormatKHR GetBestFormat() const;
 		VkPresentModeKHR GetBestPresentMode() const;
-		VkExtent2D ChooseSwapchainExtent() const;
+		VkExtent2D ChooseSwapchainExtent(const Instance* _instance) const;
 	};
 
 	class Swapchain : public NonCopyable {
