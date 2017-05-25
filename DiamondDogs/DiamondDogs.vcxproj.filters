@@ -62,6 +62,10 @@
     <ClInclude Include="bodies\terrestrial\Terrestrial.h" />
     <ClInclude Include="engine\objects\Atmosphere.h" />
     <ClInclude Include="scenes\Atmoscene.h" />
+    <ClInclude Include="engine\util\circular_buffer.h" />
+    <ClInclude Include="engine\terrain\TerrainNode.h" />
+    <ClInclude Include="engine\util\AABB.h" />
+    <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

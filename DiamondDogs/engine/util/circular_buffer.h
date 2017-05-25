@@ -56,9 +56,6 @@ namespace vulpes {
             typedef typename circular_buffer_iter<self_type> iterator;
             typedef typename const circular_buffer_iter<self_type> const_iterator;
 
-			
-			
-
             pointer data;
             size_type memory_size;
             size_type head_idx;
