@@ -4,7 +4,7 @@
 
 #include "stdafx.h"
 #include "Icosphere.h"
-#include "engine\renderer\objects\ForwardDecl.h"
+#include "engine\renderer\ForwardDecl.h"
 namespace vulpes {	
 	class Atmosphere {
 

@@ -8,71 +8,119 @@
 namespace vulpes {
 
     namespace util {
-        
-        namespace detail {
-            template<typename T>
-            class circular_buffer_iter {
 
-                typedef T buff_type;
-                typedef T::value_type value_type;
-                typedef T::reference reference;
-                typedef T::const_reference const_reference;
-                typedef T::pointer pointer;
-                typedef T::const_pointer const_pointer;
-                typedef size_t size_type;
-                typedef ptrdiff_t difference_type;
 
-            public:
-
-                circular_buffer_iter(buff_type *_buffer, size_t _start_position) : buffer(_buffer), start_position(_start_position) {}
-                
-                T& operator*() {
-                    return *buffer[position];
-                }
-
-                T* operator->() {
-                    return &(operator*());
-                }
-
-            private:
-                buff_type* buffer;
-                size_t start_position;
-                size_t position;
-            };
-        }
-
-        template<typename T, size_t num, typename allocator = std::allocator<T>> 
+        template<typename T, size_t capacity, typename allocator = std::allocator<T>> 
         class circular_buffer {
 
 			typedef allocator allocator_type;
-            typedef T value_type;
+            typedef typename allocator::value_type value_type;
             typedef typename allocator::pointer pointer;
             typedef typename allocator::const_pointer const_pointer;
-            typedef T& reference;
-            typedef const T& const_reference;
+            typedef typename allocator::reference reference;
+            typedef typename allocator::const_reference const_reference;
             typedef typename allocator::size_type size_type;
             typedef typename allocator::difference_type difference_type;
-            typedef circular_buffer self_type;
-            typedef typename circular_buffer_iter<self_type> iterator;
-            typedef typename const circular_buffer_iter<self_type> const_iterator;
-
-            pointer data;
-            size_type memory_size;
-            size_type head_idx;
-            size_type tail_idx;
-            size_type num_elements;
+			typedef circular_buffer self_type;
 
             circular_buffer(const circular_buffer&) = delete;
             circular_buffer& operator=(const circular_buffer&) = delete;
 
             circular_buffer() = delete;
 
+			template<typename T, typename elem_type = typename T::value_type>
+			class circular_buffer_iter {
+
+				typedef T buff_type;
+				typedef elem_type value_type;
+				typedef T::reference reference;
+				typedef T::const_reference const_reference;
+				typedef T::pointer pointer;
+				typedef T::const_pointer const_pointer;
+				typedef size_t size_type;
+				typedef ptrdiff_t difference_type;
+
+			public:
+
+				circular_buffer_iter(buff_type *_buffer, size_t _start_position) : buffer(_buffer), start_position(_start_position) {}
+
+				circular_buffer_iter(const circular_buffer_iter& other) : buffer(other.buffer), start_position(other.start_position), 
+
+				value_type& operator*() {
+					return *buffer[position];
+				}
+
+				value_type* operator->() {
+					return &(operator*());
+				}
+
+				circular_buffer_iter& operator++() {
+					++position;
+					return *this;
+				}
+
+				circular_buffer_iter& operator++(int) {
+					circular_buffer_iter tmp(*this);
+					++(*this);
+					return tmp;
+				}
+
+				circular_buffer_iter& operator--() {
+					--position;
+					return *this;
+				}
+
+				circular_buffer_iter& operator--(int) {
+					circular_buffer_iter tmp(*this);
+					--(*this);
+					return *this;
+				}
+
+				circular_buffer_iter operator+(difference_type n) {
+					circular_buffer_iter result(*this);
+					result.position += n;
+					return result;
+				}
+
+				circular_buffer_iter& operator+=(difference_type n) {
+					position += n;
+					return *this;
+				}
+
+				circular_buffer_iter operator-(difference_type n) {
+					circular_buffer_iter result(*this);
+					result.position -= n;
+					return result;
+				}
+
+				circular_buffer_iter& operator-=(difference_type n) {
+					position -= n;
+					return *this;
+				}
+
+				bool operator==(const circular_buffer_iter& other) {
+					return buffer == other.buffer;
+				}
+
+				bool operator!=(const circular_buffer_iter& other) {
+					return buffer != other.buffer;
+				}
+
+			private:
+				buff_type* buffer;
+				size_t start_position;
+				size_t position;
+			};
+
+			typedef typename circular_buffer_iter<self_type, value_type> iterator;
+			typedef typename const circular_buffer_iter<const self_type, const value_type> const_iterator;
+
         public:
 
-            explicit circular_buffer(const size_type& capacity) : data(allocator.allocate(num)), num_elements(0), head_idx(0), tail_idx(0) {}
+            explicit circular_buffer(const size_type& capacity) : data(allocator.allocate(capacity)), num_elements(0), head_idx(0), tail_idx(0) {}
             
             ~circular_buffer() {
-                allocator.deallocate(num);
+                allocator.deallocate(capacity);
             }
 
             void push_back(T item) {
@@ -81,7 +129,7 @@ namespace vulpes {
                     tail_idx = head_idx;
                     ++num_elements;
                 }
-                else if (num_elements != num) {
+                else if (num_elements != capacity) {
                     tail_increment();
                     data[tail_idx] = std::move(item);
                 }
@@ -98,11 +146,11 @@ namespace vulpes {
             }
 
             size_type capacity() const noexcept {
-                return num;
+                return capacity;
             }
 
             size_type memory_footprint() const noexcept {
-                return sizeof(T) * num;
+                return sizeof(T) * capacity;
             }
 
             bool empty() const noexcept {
@@ -118,7 +166,7 @@ namespace vulpes {
 
             // returns front element if at() is out of range
             const_reference at(const size_t& idx) const noexcept {
-                if(idx < num || idx > num) {
+                if(idx < capacity || idx > capacity) {
                     return data[idx];
                 }
                 return data[head_idx];
@@ -159,7 +207,7 @@ namespace vulpes {
             }
 
             reference at(const size_t& idx) noexcept {
-                if(idx < num || idx > num) {
+                if(idx < capacity || idx > capacity) {
                     return data[idx];
                 }
                 return data[head_idx];
@@ -169,7 +217,7 @@ namespace vulpes {
             void tail_increment() {
                 ++tail_idx;
                 ++num_elements;
-                if(tail_idx == num) {
+                if(tail_idx == capacity) {
                     tail_idx = 0;
                 }
             }
@@ -178,10 +226,20 @@ namespace vulpes {
                 if(empty()){ return; }
                 ++head_idx;
                 --num_elements;
-                if(head_idx == num) {
+                if(head_idx == capacity) {
                     head_idx = 0;
                 }
             }
+
+			/*
+				Data members
+			*/
+
+			pointer data;
+			size_type memory_size;
+			size_type head_idx;
+			size_type tail_idx;
+			size_type num_elements;
 
         };
 

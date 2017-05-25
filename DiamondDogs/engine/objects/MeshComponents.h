@@ -40,6 +40,27 @@ public:
 };
 
 struct rte_vertex_t {
+	rte_vertex_t(const glm::dvec3& pos, const glm::vec3& _normal = glm::vec3(0.0f), const glm::vec2& _uv = glm::vec2(0.0f)) : normal(_normal), uv(_uv) {
+		auto double_to_floats = [](const double& value)->std::pair<float, float> {
+			std::pair<float, float> result;
+			if (value >= 0.0) {
+				double high = floorf(value / 65536.0) * 65536.0;
+				result.first = (float)high;
+				result.second = (float)(value - high);
+			}
+			else {
+				double high = floorf(-value / 65536.0) * 65536.0;
+				result.first = (float)-high;
+				result.second = (float)(value + high);
+			}
+			return result;
+		};
+		auto xx = double_to_floats(pos.x);
+		auto yy = double_to_floats(pos.y);
+		auto zz = double_to_floats(pos.z);
+		position_high = glm::vec3(xx.first, yy.first, zz.first);
+		position_low = glm::vec3(xx.second, yy.second, zz.second);
+	}
 	glm::vec3 position_low, position_high;
 	glm::vec3 normal;
 	glm::vec2 uv;

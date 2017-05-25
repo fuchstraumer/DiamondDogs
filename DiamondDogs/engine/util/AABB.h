@@ -14,6 +14,10 @@ namespace vulpes {
 			glm::vec3 Center;
 			glm::vec3 Extents;
 
+			bool IntersectsTriangle(const glm::vec3& ray_origin, const glm::vec3& ray_direction, const std::array<glm::vec3, 3>& vertices);
+
+			float TriangleDistance(const glm::vec3& ray_origin, const glm::vec3& ray_direction, const std::array<glm::vec3, 3>& vertices);
+
 		};
 
 	}

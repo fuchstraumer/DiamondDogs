@@ -1,9 +1,9 @@
 #include "stdafx.h"
 #include "Mesh.h"
 
-#include "engine\renderer\objects\resource\ShaderModule.h"
-#include "engine\renderer\objects\resource\Buffer.h"
-#include "engine\renderer\objects\core\LogicalDevice.h"
+#include "engine\renderer\resource\ShaderModule.h"
+#include "engine\renderer\resource\Buffer.h"
+#include "engine\renderer\core\LogicalDevice.h"
 
 namespace vulpes {
 
@@ -78,6 +78,28 @@ namespace vulpes {
 		vkCmdBindVertexBuffers(cmd, 0, 2, buffers, offsets);
 		vkCmdBindIndexBuffer(cmd, ebo->vkHandle(), 0, VK_INDEX_TYPE_UINT32);
 		vkCmdDrawIndexed(cmd, indices.size(), 1, 0, 0, 0);
+	}
+
+	void Mesh::cleanup() {
+		free_cpu_data();
+		destroy_vk_resources();
+	}
+
+	void Mesh::free_cpu_data() {
+		vertices.positions.clear();
+		vertices.positions.shrink_to_fit();
+		vertices.normals_uvs.clear();
+		vertices.normals_uvs.shrink_to_fit();
+	}
+
+	void Mesh::destroy_vk_resources() {
+		if (vbo[0] != nullptr && vbo[1] != nullptr) {
+			vbo[0]->Destroy();
+			vbo[1]->Destroy();
+		}
+		if (ebo != nullptr) {
+			ebo->Destroy();
+		}
 	}
 
 }

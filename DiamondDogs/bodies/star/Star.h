@@ -2,7 +2,7 @@
 #ifndef STAR_H
 #define STAR_H
 #include "engine\objects\Icosphere.h"
-#include "engine\renderer\objects\ForwardDecl.h"
+#include "engine\renderer\ForwardDecl.h"
 
 namespace vulpes {
 

@@ -1,11 +1,11 @@
 #include "stdafx.h"
 #include "Skybox.h"
-#include "engine\renderer\objects\resource\Texture.h"
-#include "engine\renderer\objects\core\LogicalDevice.h"
-#include "engine\renderer\objects\resource\Buffer.h"
-#include "engine\renderer\objects\resource\ShaderModule.h"
-#include "engine\renderer\objects\render\GraphicsPipeline.h"
-#include "engine\renderer\objects\core\PhysicalDevice.h"
+#include "engine\renderer\resource\Texture.h"
+#include "engine\renderer\core\LogicalDevice.h"
+#include "engine\renderer\resource\Buffer.h"
+#include "engine\renderer\resource\ShaderModule.h"
+#include "engine\renderer\render\GraphicsPipeline.h"
+#include "engine\renderer\core\PhysicalDevice.h"
 namespace vulpes {
 
 	Skybox::Skybox(const Device* _device) : device(_device) {

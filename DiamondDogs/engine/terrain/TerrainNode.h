@@ -4,23 +4,37 @@
 
 #include "stdafx.h"
 #include "engine\util\AABB.h"
-
+#include "engine\renderer\ForwardDecl.h"
+#include "engine\objects\Mesh.h"
 namespace vulpes {
 
 	namespace terrain {
 
+		constexpr size_t MAX_LOD_LEVEL = 16;
+
+		using height_sampler = std::function<float(glm::vec3&)>;
+
 		class TerrainNode {
 		private:
 
-			std::array<std::shared_ptr<TerrainNode>, 4> Children;
-			std::array<std::shared_ptr<TerrainNode>, 4> Neighbors;
-			std::weak_ptr<const TerrainNode> Parent;
+			enum class node_status {
+				Undefined, // Likely not constructed fully or used at all
+				OutOfFrustum,
+				OutOfRange,
+				Active, // Being used in next renderpass
+			};
+
+			std::array<std::shared_ptr<TerrainNode>, 4> children;
+			std::array<bool, 4> neighbors;
+			std::weak_ptr<const TerrainNode> parent;
 
 			// depth in quadtree: 0 is the root, N is the deepest level etc
 			size_t depth;
 			
 			/*
-				The logical coordinates of a node specify its position in the quadtree "grid". 
+				The logical coordinates of a node specify its position (this coordinate == lower left corner)
+				in the quadtree "grid". 
+
 				A node of depth 3 and in the upper-right corner has logical coordinates of 
 				(3, 3) - the magnitude of the x/y coordinates is found as 3^depth - 1.
 			*/
@@ -43,6 +57,8 @@ namespace vulpes {
 
 			// Creates children.
 			void subdivide(); 
+			
+			Mesh mesh;
 
 		public:
 
@@ -53,11 +69,18 @@ namespace vulpes {
 
 			// Returns number of nodes below this one in the heirarchy
 			size_t NumBelow() const noexcept;
-			
 
 			void Update();
 
+			void Render(VkCommandBuffer& cmd);
 
+			// Recursive method to clean up node tree
+			void Prune();
+			
+			// De-allocates GPU resources.
+			void FreeVkData();
+
+			node_status Status;
 
 		};
 

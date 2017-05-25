@@ -2,7 +2,11 @@
 #ifndef VULPES_TERRAIN_QUADTREE_H
 #define VULPES_TERRAIN_QUADTREE_H
 #include "stdafx.h"
+#include <forward_list>
 #include "TerrainNode.h"
+#include "NodeSubset.h"
+#include "engine\renderer\ForwardDecl.h"
+#include "engine\util\view_frustum.h"
 /*
 	
 	Parent quadtree class that spawns/manages quadtree nodes
@@ -13,9 +17,26 @@ namespace vulpes {
 
 	namespace terrain {
 
+		/*
+			
+			Subset of nodes that represent the currently observable terrain data.
+			This subset is used for rendering.
+		*/
+
+		
+
 		class TerrainQuadtree {
 
-			std::unique_ptr<TerrainNode> Root;
+			struct vsUBO {
+				glm::mat4 model;
+				glm::mat4 view, projection;
+			};
+
+			std::unique_ptr<TerrainNode> root;
+
+			// should be created with make_shared by this class, and shared_ptrs shared to others.
+			// if node[node_to_create_idx] == nullptr, then call create func to create node.
+			std::vector<std::shared_ptr<TerrainNode>> nodes;
 
 			// Based on the viewer distance, a node will be subdivided when the number (side_length) * splitFactor 
 			// is greater than the viewers distance from the object (i.e, the viewer is approaching a range where increased detail
@@ -36,11 +57,14 @@ namespace vulpes {
 
 			float splitDistance, distanceFactor;
 
+			// Pointer to this is shared among all nodes, they write to model section when rendering.
+			std::shared_ptr<Buffer> masterUBO;
+
 			TerrainQuadtree(const TerrainQuadtree&) = delete;
 			TerrainQuadtree& operator=(const TerrainQuadtree&) = delete;
 		public:
 
-			TerrainQuadtree(const float& split_factor, const size_t& max_detail_level);
+			TerrainQuadtree(const float& split_factor, const size_t& max_detail_level, const glm::ivec2& dimensions);
 
 			glm::dvec3 GetCameraPos() const;
 
@@ -49,7 +73,7 @@ namespace vulpes {
 			// Distance at which we will subdivide.
 			float GetSubDivideDistance() const;
 
-
+			void UpdateActiveNodes(NodeSubset* active_nodes);
 
 		};
 

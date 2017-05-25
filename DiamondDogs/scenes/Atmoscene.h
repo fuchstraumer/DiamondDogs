@@ -6,7 +6,7 @@
 #include "BaseScene.h"
 #include "engine\objects\Skybox.h"
 #include "engine\objects\Atmosphere.h"
-#include "engine\renderer\objects\render\GraphicsPipeline.h"
+#include "engine\renderer\render\GraphicsPipeline.h"
 
 namespace atmo_scene {
 

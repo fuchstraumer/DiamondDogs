@@ -6,7 +6,7 @@
 #include "BaseScene.h"
 #include "bodies\star\Star.h"
 #include "engine\objects\Skybox.h"
-#include "engine\renderer\objects\render\GraphicsPipeline.h"
+#include "engine\renderer\render\GraphicsPipeline.h"
 namespace star_scene {
 	
 	using namespace vulpes;

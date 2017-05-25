@@ -3,7 +3,7 @@
 #define VULPES_MESH_H
 #include "stdafx.h"
 #include "MeshComponents.h"
-#include "engine/renderer/objects\ForwardDecl.h"
+#include "engine/renderer/ForwardDecl.h"
 
 
 namespace vulpes {
@@ -86,6 +86,12 @@ namespace vulpes {
 
 		void render(const VkCommandBuffer& cmd);
 
+		void cleanup();
+
+		void free_cpu_data();
+
+		void destroy_vk_resources();
+
 	protected:
 		Vertices vertices;
 		std::vector<uint32_t> indices;
@@ -97,58 +103,6 @@ namespace vulpes {
 		Buffer* ebo;
 
 		const Device* device;
-	};
-
-	/*
-		Specialized mesh instance for rendering relative-to-eye
-	*/
-
-	struct SOA_vertices_rte {
-
-		std::vector<glm::vec3> positions_low;
-		std::vector<glm::vec3> positions_high;
-		std::vector<glm::vec3> normals;
-		std::vector<glm::vec2> uvs;
-
-		rte_vertex_t operator[](const uint32_t& idx) const {
-			return rte_vertex_t{ positions_low[idx], positions_high[idx], normals[idx], uvs[idx] };
-		}
-
-		size_t size() const {
-			return positions_low.size();
-		}
-
-		uint32_t add_vertex(const glm::dvec3& double_position, const glm::vec3& normal = glm::vec3(0.0f), const glm::vec2& uv = glm::vec2(0.0f)) {
-			auto double_to_floats = [](const double& value)->std::pair<float, float> {
-				std::pair<float, float> result;
-				if (value >= 0.0) {
-					double high = floorf(value / 65536.0) * 65536.0;
-					result.first = (float)high;
-					result.second = (float)(value - high);
-				}
-				else {
-					double high = floorf(-value / 65536.0) * 65536.0;
-					result.first = (float)-high;
-					result.second = (float)(value + high);
-				}
-				return result;
-			};
-			auto xx = double_to_floats(double_position.x);
-			auto yy = double_to_floats(double_position.y);
-			auto zz = double_to_floats(double_position.z);
-			positions_high.push_back(glm::vec3(xx.first, yy.first, zz.first));
-			positions_low.push_back(glm::vec3(xx.second, yy.second, zz.second));
-			normals.push_back(normal);
-			uvs.push_back(uv);
-			return static_cast<uint32_t>(positions_high.size() - 1);
-		}
-
-		void resize(const size_t& amt) {
-			positions_low.resize(amt);
-			positions_high.resize(amt);
-			normals.resize(amt);
-			uvs.resize(amt);
-		}
 	};
 
 }

@@ -3,7 +3,7 @@
 #define SKYBOX_H
 #include "stdafx.h"
 
-#include "engine\renderer\objects\ForwardDecl.h"
+#include "engine\renderer\ForwardDecl.h"
 namespace vulpes {
 
 	class Skybox {

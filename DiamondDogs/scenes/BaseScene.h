@@ -4,14 +4,14 @@
 
 #include "stdafx.h"
 
-#include "engine\renderer\objects\core\Instance.h"
-#include "engine\renderer\objects\core\LogicalDevice.h"
-#include "engine\renderer\objects\core\PhysicalDevice.h"
-#include "engine\renderer\objects\render\Swapchain.h"
-#include "engine\renderer\objects\render\Renderpass.h"
-#include "engine\renderer\objects\render\Framebuffer.h"
-#include "engine\renderer\objects\command\CommandPool.h"
-#include "engine\renderer\objects\render\DepthStencil.h"
+#include "engine\renderer\core\Instance.h"
+#include "engine\renderer\core\LogicalDevice.h"
+#include "engine\renderer\core\PhysicalDevice.h"
+#include "engine\renderer\render\Swapchain.h"
+#include "engine\renderer\render\Renderpass.h"
+#include "engine\renderer\render\Framebuffer.h"
+#include "engine\renderer\command\CommandPool.h"
+#include "engine\renderer\render\DepthStencil.h"
 
 namespace vulpes {
 
