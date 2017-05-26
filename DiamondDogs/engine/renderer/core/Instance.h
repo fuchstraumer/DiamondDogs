@@ -2,8 +2,8 @@
 #ifndef VULPES_VK_INSTANCE_H
 #define VULPES_VK_INSTANCE_H
 #include "stdafx.h"
-#include "engine/renderer/objects\ForwardDecl.h"
-#include "engine/renderer/objects\NonCopyable.h"
+#include "engine/renderer/ForwardDecl.h"
+#include "engine/renderer/NonCopyable.h"
 #include "Camera.h"
 namespace vulpes {
 

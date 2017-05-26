@@ -89,7 +89,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)ext\lib\x64;$(VULKAN_SDK)\Lib;</AdditionalLibraryDirectories>
-      <AdditionalDependencies>vulkan-1.lib;"rel_deb_info/glfw3.lib";"OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>vulkan-1.lib;"glfw3.lib";"OpenAL32.lib";msvcrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <IgnoreAllDefaultLibraries>false</IgnoreAllDefaultLibraries>
     </Link>
   </ItemDefinitionGroup>
@@ -98,6 +98,8 @@
     <ClInclude Include="bodies\star\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\terrestrial\Terrestrial.h" />
+    <ClInclude Include="common\CommonDef.h" />
+    <ClInclude Include="common\CommonUtil.h" />
     <ClInclude Include="common\VkDebug.h" />
     <ClInclude Include="engine\objects\Atmosphere.h" />
     <ClInclude Include="engine\objects\Icosphere.h" />
@@ -130,6 +132,7 @@
     <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
     <ClInclude Include="engine\util\AABB.h" />
     <ClInclude Include="engine\util\circular_buffer.h" />
+    <ClInclude Include="engine\util\sphere.h" />
     <ClInclude Include="engine\util\view_frustum.h" />
     <ClInclude Include="scenes\Atmoscene.h" />
     <ClInclude Include="scenes\BaseScene.h" />
@@ -164,6 +167,7 @@
     <ClCompile Include="engine\renderer\resource\ShaderModule.cpp" />
     <ClCompile Include="engine\renderer\resource\Texture.cpp" />
     <ClCompile Include="engine\terrain\TerrainNode.cpp" />
+    <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
     <ClCompile Include="scenes\BaseScene.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

@@ -2,9 +2,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "Texture.h"
 
-#include "engine/renderer/objects/core\LogicalDevice.h"
-#include "engine/renderer/objects\command\CommandPool.h"
-#include "engine/renderer/objects\resource\Buffer.h"
+#include "engine/renderer/core\LogicalDevice.h"
+#include "engine/renderer\command\CommandPool.h"
+#include "engine/renderer\resource\Buffer.h"
 
 namespace vulpes {
 

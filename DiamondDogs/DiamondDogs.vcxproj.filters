@@ -24,6 +24,7 @@
     <ClCompile Include="engine\renderer\resource\Image.cpp" />
     <ClCompile Include="engine\renderer\resource\ShaderModule.cpp" />
     <ClCompile Include="engine\renderer\resource\Texture.cpp" />
+    <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -69,6 +70,9 @@
     <ClInclude Include="engine\renderer\resource\VertexTypes.h" />
     <ClInclude Include="engine\renderer\ForwardDecl.h" />
     <ClInclude Include="engine\renderer\NonCopyable.h" />
+    <ClInclude Include="engine\util\sphere.h" />
+    <ClInclude Include="common\CommonUtil.h" />
+    <ClInclude Include="common\CommonDef.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

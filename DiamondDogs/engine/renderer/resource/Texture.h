@@ -5,8 +5,8 @@
 #include "stdafx.h"
 
 #include "stb\stb_image.h"
-#include "engine/renderer/objects\ForwardDecl.h"
-#include "engine/renderer/objects\NonCopyable.h"
+#include "engine/renderer\ForwardDecl.h"
+#include "engine/renderer\NonCopyable.h"
 #include "Image.h"
 
 namespace vulpes {

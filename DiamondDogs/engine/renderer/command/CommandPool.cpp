@@ -1,6 +1,6 @@
 #include "stdafx.h"
 #include "CommandPool.h"
-#include "engine/renderer/objects/core/LogicalDevice.h"
+#include "engine/renderer/core/LogicalDevice.h"
 
 namespace vulpes {
 	CommandPool CommandPool::CreateTransferPool(const Device * parent){

@@ -1,7 +1,7 @@
 #include "stdafx.h"
 #include "Image.h"
-#include "engine/renderer/objects\core\LogicalDevice.h"
-#include "engine/renderer/objects\command\CommandPool.h"
+#include "engine/renderer\core\LogicalDevice.h"
+#include "engine/renderer\command\CommandPool.h"
 
 namespace vulpes {
 

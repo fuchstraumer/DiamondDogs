@@ -12,7 +12,7 @@ namespace vulpes {
 	namespace terrain {
 
 		struct NodeSubset {
-			std::forward_list<TerrainNode*> activeNodes;
+			std::forward_list<TerrainNode*> nodes;
 			glm::vec3 viewerPosition;
 			static float viewDistanceRatio;
 			static float maxDrawDistance;

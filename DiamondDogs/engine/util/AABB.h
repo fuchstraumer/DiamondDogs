@@ -3,6 +3,7 @@
 #define VULPES_UTIL_AABB_H
 
 #include "stdafx.h"
+#include "view_frustum.h"
 
 namespace vulpes {
 

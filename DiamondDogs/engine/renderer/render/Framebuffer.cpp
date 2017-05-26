@@ -1,6 +1,6 @@
 #include "stdafx.h"
 #include "Framebuffer.h"
-#include "engine/renderer/objects\core\LogicalDevice.h"
+#include "engine/renderer\core\LogicalDevice.h"
 namespace vulpes {
 
 	Framebuffer::Framebuffer(const Device * _parent, const VkFramebufferCreateInfo & create_info) : parent(_parent) {

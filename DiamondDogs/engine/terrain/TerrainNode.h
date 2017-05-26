@@ -10,13 +10,25 @@ namespace vulpes {
 
 	namespace terrain {
 
-		constexpr size_t MAX_LOD_LEVEL = 16;
+		enum class CubemapFace {
+			FRONT,
+			BACK,
+			LEFT,
+			RIGHT,
+			TOP,
+			BOTTOM,
+		};
+
+		static constexpr size_t NodeDimensionOrder = 6;
+		static constexpr size_t NodeDimension = 1 << NodeDimensionOrder;
+		static constexpr double MinSwitchDistance = 2.0 * static_cast<double>(NodeDimension);
+
 
 		using height_sampler = std::function<float(glm::vec3&)>;
 
 		class TerrainNode {
-		private:
-
+		public:
+		
 			enum class node_status {
 				Undefined, // Likely not constructed fully or used at all
 				OutOfFrustum,
@@ -26,10 +38,10 @@ namespace vulpes {
 
 			std::array<std::shared_ptr<TerrainNode>, 4> children;
 			std::array<bool, 4> neighbors;
-			std::weak_ptr<const TerrainNode> parent;
+			const TerrainNode* parent;
 
 			// depth in quadtree: 0 is the root, N is the deepest level etc
-			size_t depth;
+			size_t Depth;
 			
 			/*
 				The logical coordinates of a node specify its position (this coordinate == lower left corner)
@@ -38,17 +50,17 @@ namespace vulpes {
 				A node of depth 3 and in the upper-right corner has logical coordinates of 
 				(3, 3) - the magnitude of the x/y coordinates is found as 3^depth - 1.
 			*/
-			glm::ivec2 logicalCoordinates;
+			glm::vec2 LogicalCoordinates;
 
 			/*
 				Spatial coordinates of a node are given relative to the root node, but these are
 				used during rendering to place the node at an appropriate position in world-space.
 			*/
-			glm::vec3 spatialCoordinates;
+			glm::vec3 SpatialCoordinates;
 
 			// Length of one side of the node: should be equivalent to (1 / depth) * L, where L is the
 			// length of the root nodes side.
-			double length;
+			double SideLength;
 
 			util::AABB aabb;
 
@@ -56,19 +68,16 @@ namespace vulpes {
 			TerrainNode& operator=(const TerrainNode& other) = delete;
 
 			// Creates children.
-			void subdivide(); 
+			void CreateChild(const size_t& idx);
 			
 			Mesh mesh;
 
-		public:
+			TerrainNode(const TerrainNode* parent, glm::vec2 logical_coords, double _length, const CubemapFace& face);
 
-			TerrainNode(const TerrainNode* parent, glm::ivec2 logical_coords, glm::vec3 spatial_coords, double _length);
+			void CreateMesh();
 
 			// true if all of the Child pointers are nullptr
 			bool Leaf() const noexcept;
-
-			// Returns number of nodes below this one in the heirarchy
-			size_t NumBelow() const noexcept;
 
 			void Update();
 
@@ -76,11 +85,15 @@ namespace vulpes {
 
 			// Recursive method to clean up node tree
 			void Prune();
-			
-			// De-allocates GPU resources.
-			void FreeVkData();
+
+			double Size();
 
 			node_status Status;
+
+			// used to join edges.
+			CubemapFace Face;
+
+			void CalculateExtrema();
 
 		};
 

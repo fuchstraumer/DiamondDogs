@@ -1,7 +1,7 @@
 #include "stdafx.h"
 #include "Buffer.h"
-#include "engine/renderer/objects\core\LogicalDevice.h"
-#include "engine/renderer/objects\command\CommandPool.h"
+#include "engine/renderer\core\LogicalDevice.h"
+#include "engine/renderer\command\CommandPool.h"
 namespace vulpes {
 
 	Buffer::Buffer(const Device * _parent) : parent(_parent), createInfo(vk_buffer_create_info_base) {}
