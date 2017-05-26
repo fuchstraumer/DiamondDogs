@@ -11,13 +11,19 @@ namespace vulpes {
 
 		struct AABB {
 
-			glm::vec3 Min, Max;
-			glm::vec3 Center;
-			glm::vec3 Extents;
+			glm::dvec3 Min, Max;
+			
+			glm::dvec3 Extents() const {
+				return Min - Max * 0.5;
+			}
 
 			bool IntersectsTriangle(const glm::vec3& ray_origin, const glm::vec3& ray_direction, const std::array<glm::vec3, 3>& vertices);
 
 			float TriangleDistance(const glm::vec3& ray_origin, const glm::vec3& ray_direction, const std::array<glm::vec3, 3>& vertices);
+
+			glm::dvec3 Center() const {
+				return (Min + Max) / 2.0;
+			}
 
 		};
 

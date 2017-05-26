@@ -52,6 +52,11 @@ namespace vulpes {
 	}
 
 	void Mesh::create_vbo(const Device* render_device, CommandPool* cmd_pool, const VkQueue& queue) {
+
+		if (ready) {
+			return;
+		}
+
 		this->device = render_device;
 
 		VkDeviceSize sz = vertices.size() * sizeof(glm::vec3);
@@ -64,6 +69,9 @@ namespace vulpes {
 		vbo[1] = new Buffer(device);
 		vbo[1]->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sz);
 		vbo[1]->CopyTo(vertices.normals_uvs.data(), cmd_pool, queue, sz);
+
+		create_ebo(cmd_pool, queue);
+		ready = true;
 	}
 
 	void Mesh::create_ebo(CommandPool * cmd_pool, const VkQueue & queue) {
@@ -72,7 +80,7 @@ namespace vulpes {
 		ebo->CopyTo(indices.data(), cmd_pool, queue, indices.size() * sizeof(uint32_t));
 	}
 
-	void Mesh::render(const VkCommandBuffer & cmd) {
+	void Mesh::render(const VkCommandBuffer & cmd) const {
 		static const VkDeviceSize offsets[]{ 0 };
 		VkBuffer buffers[3]{ vbo[0]->vkHandle(), vbo[1]->vkHandle() };
 		vkCmdBindVertexBuffers(cmd, 0, 2, buffers, offsets);
@@ -83,6 +91,7 @@ namespace vulpes {
 	void Mesh::cleanup() {
 		free_cpu_data();
 		destroy_vk_resources();
+		ready = false;
 	}
 
 	void Mesh::free_cpu_data() {
@@ -90,6 +99,9 @@ namespace vulpes {
 		vertices.positions.shrink_to_fit();
 		vertices.normals_uvs.clear();
 		vertices.normals_uvs.shrink_to_fit();
+		if (ready) {
+			ready = false;
+		}
 	}
 
 	void Mesh::destroy_vk_resources() {
@@ -99,6 +111,9 @@ namespace vulpes {
 		}
 		if (ebo != nullptr) {
 			ebo->Destroy();
+		}
+		if (ready) {
+			ready = false;
 		}
 	}
 

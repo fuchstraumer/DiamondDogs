@@ -166,8 +166,10 @@
     <ClCompile Include="engine\renderer\resource\Image.cpp" />
     <ClCompile Include="engine\renderer\resource\ShaderModule.cpp" />
     <ClCompile Include="engine\renderer\resource\Texture.cpp" />
+    <ClCompile Include="engine\terrain\NodeSubset.cpp" />
     <ClCompile Include="engine\terrain\TerrainNode.cpp" />
     <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
+    <ClCompile Include="engine\util\AABB.cpp" />
     <ClCompile Include="scenes\BaseScene.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

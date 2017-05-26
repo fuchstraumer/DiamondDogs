@@ -4,11 +4,36 @@
 
 #include "stdafx.h"
 #include "engine\util\AABB.h"
+#include "engine\util\view_frustum.h"
 #include "engine\renderer\ForwardDecl.h"
 #include "engine\objects\Mesh.h"
 namespace vulpes {
 
 	namespace terrain {
+
+		static constexpr double MaxRenderDistance = 3000.0;
+
+		static const std::array<glm::vec3, 8> aabb_vertices{
+			glm::vec3{-1.0f,-1.0f, 1.0f},
+			glm::vec3{ 1.0f,-1.0f, 1.0f},
+			glm::vec3{ 1.0f, 1.0f, 1.0f},
+			glm::vec3{-1.0f, 1.0f, 1.0f},
+			glm::vec3{-1.0f,-1.0f,-1.0f},
+			glm::vec3{ 1.0f,-1.0f,-1.0f},
+			glm::vec3{ 1.0f, 1.0f,-1.0f},
+			glm::vec3{-1.0f, 1.0f,-1.0f},
+		};
+
+		static constexpr std::array<uint32_t, 36> aabb_indices{
+			0,1,2, 2,3,0, 
+			1,5,6, 6,2,1, 
+			7,6,5, 5,4,7, 
+			4,0,3, 3,7,4, 
+			4,5,1, 1,0,4, 
+			3,2,6, 6,7,3,
+		};
+
+		class NodeSubset;
 
 		enum class CubemapFace {
 			FRONT,
@@ -19,9 +44,7 @@ namespace vulpes {
 			BOTTOM,
 		};
 
-		static constexpr size_t NodeDimensionOrder = 6;
-		static constexpr size_t NodeDimension = 1 << NodeDimensionOrder;
-		static constexpr double MinSwitchDistance = 2.0 * static_cast<double>(NodeDimension);
+		static constexpr size_t MaxLOD = 10;
 
 
 		using height_sampler = std::function<float(glm::vec3&)>;
@@ -34,9 +57,10 @@ namespace vulpes {
 				OutOfFrustum,
 				OutOfRange,
 				Active, // Being used in next renderpass
+				Subdivided, // Has been subdivided, render children instead of this.
 			};
 
-			std::array<std::shared_ptr<TerrainNode>, 4> children;
+			std::array<std::unique_ptr<TerrainNode>, 4> children;
 			std::array<bool, 4> neighbors;
 			const TerrainNode* parent;
 
@@ -50,7 +74,7 @@ namespace vulpes {
 				A node of depth 3 and in the upper-right corner has logical coordinates of 
 				(3, 3) - the magnitude of the x/y coordinates is found as 3^depth - 1.
 			*/
-			glm::vec2 LogicalCoordinates;
+			glm::ivec2 LogicalCoordinates;
 
 			/*
 				Spatial coordinates of a node are given relative to the root node, but these are
@@ -68,27 +92,29 @@ namespace vulpes {
 			TerrainNode& operator=(const TerrainNode& other) = delete;
 
 			// Creates children.
-			void CreateChild(const size_t& idx);
+			void Subdivide();
 			
 			Mesh mesh;
 
-			TerrainNode(const TerrainNode* parent, glm::vec2 logical_coords, double _length, const CubemapFace& face);
+			TerrainNode(const TerrainNode* parent, glm::ivec2 logical_coords, const glm::vec3& position, double _length, const CubemapFace& face);
 
-			void CreateMesh();
+			bool operator<(const TerrainNode& other) const;
+
+			void CreateMesh(const Device* render_device, CommandPool* cmd_pool, const VkQueue& queue);
 
 			// true if all of the Child pointers are nullptr
 			bool Leaf() const noexcept;
 
-			void Update();
+			void Update(const glm::dvec3 & camera_position, NodeSubset* active_nodes, const util::view_frustum& view);
 
-			void Render(VkCommandBuffer& cmd);
+			void Render(VkCommandBuffer& cmd) const;
 
 			// Recursive method to clean up node tree
 			void Prune();
 
 			double Size();
 
-			node_status Status;
+			node_status Status = node_status::Undefined;
 
 			// used to join edges.
 			CubemapFace Face;

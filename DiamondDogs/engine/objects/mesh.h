@@ -60,7 +60,7 @@ namespace vulpes {
 
 	class Mesh {
 	public:
-		Mesh() : position(0.0f), scale(1.0f, 1.0f, 1.0f), angle(0.0f) {
+		Mesh(const glm::vec3& pos = glm::vec3(0.0f), const glm::vec3& _scale = glm::vec3(1.0f), const glm::vec3& _angle = glm::vec3(0.0f)) : position(pos), scale(_scale), angle(_angle) {
 			model = get_model_matrix();
 		}
 
@@ -82,9 +82,7 @@ namespace vulpes {
 
 		void create_vbo(const Device* render_device, CommandPool* cmd_pool, const VkQueue& queue);
 
-		void create_ebo(CommandPool* cmd_pool, const VkQueue& queue);
-
-		void render(const VkCommandBuffer& cmd);
+		void render(const VkCommandBuffer& cmd) const;
 
 		void cleanup();
 
@@ -92,7 +90,10 @@ namespace vulpes {
 
 		void destroy_vk_resources();
 
+		bool Ready() const noexcept { return ready; }
+
 	protected:
+		void create_ebo(CommandPool* cmd_pool, const VkQueue& queue);
 		Vertices vertices;
 		std::vector<uint32_t> indices;
 	private:
@@ -101,7 +102,7 @@ namespace vulpes {
 
 		// Indices.
 		Buffer* ebo;
-
+		bool ready = false;
 		const Device* device;
 	};
 
