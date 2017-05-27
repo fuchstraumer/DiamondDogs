@@ -27,47 +27,22 @@ namespace vulpes {
 
 		class TerrainQuadtree {
 
-			friend class TerrainNode;
-
-			struct vsUBO {
-				glm::mat4 model;
-				glm::mat4 view, projection;
-			};
-
 			std::unique_ptr<TerrainNode> root;
 
 			NodeSubset activeNodes;
 
-			// Based on the viewer distance, a node will be subdivided when the number (side_length) * splitFactor 
-			// is greater than the viewers distance from the object (i.e, the viewer is approaching a range where increased detail
-			// would be visible.
-			float splitFactor;
-
 			// take time to update faces that are primitively culled during mesh construction.
 			bool updateCulledFaces = false;
-
-			// Quadtree depth at which no more nodes shall be generated.
-			size_t maxDetailLevel; 
-
-			float viewerHeight;
-
-			float nextViewerHeight;
-
-			glm::dvec3 localViewerPosition;
-
-			float splitDistance, distanceFactor;
-
-			// Pointer to this is shared among all nodes, they write to model section when rendering.
-			std::shared_ptr<Buffer> masterUBO;
-			std::shared_ptr<vsUBO> masterUBO_Data;
 
 			TerrainQuadtree(const TerrainQuadtree&) = delete;
 			TerrainQuadtree& operator=(const TerrainQuadtree&) = delete;
 		public:
 
-			TerrainQuadtree(const float& split_factor, const size_t& max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position);
+			TerrainQuadtree(const Device* device, const float& split_factor, const size_t& max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position);
 
-			void Render();
+			void UpdateQuadtree(const glm::dvec3 & camera_position, const glm::mat4& view);
+
+			void BuildCommandBuffers(VkCommandBuffer& cmd);
 
 		};
 

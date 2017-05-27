@@ -37,7 +37,7 @@ void vulpes::terrain::TerrainNode::CreateMesh(const Device* render_device, Comma
 }
 
 bool vulpes::terrain::TerrainNode::Leaf() const noexcept {
-	return std::all_of(children.cbegin(), children.cend(), [](const std::shared_ptr<TerrainNode>& node) { return node.get() == nullptr; });
+	return std::all_of(children.cbegin(), children.cend(), [](const std::shared_ptr<TerrainNode>& node) { return node.get() != nullptr; });
 }
 
 void vulpes::terrain::TerrainNode::Update(const glm::dvec3 & camera_position, NodeSubset* active_nodes, const util::view_frustum& view) {
@@ -81,7 +81,7 @@ void vulpes::terrain::TerrainNode::Update(const glm::dvec3 & camera_position, No
 	}
 }
 
-void vulpes::terrain::TerrainNode::Render(VkCommandBuffer & cmd) const {
+void vulpes::terrain::TerrainNode::BuildCommandBuffer(VkCommandBuffer & cmd) const {
 	mesh.render(cmd);
 }
 
@@ -91,6 +91,8 @@ void vulpes::terrain::TerrainNode::Prune(){
 			continue;
 		}
 		child->Prune();
+		auto deleter = child.get_deleter();
+		deleter(child.get());
 	}
 	mesh.cleanup();
 }

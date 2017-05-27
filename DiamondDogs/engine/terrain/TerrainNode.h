@@ -51,6 +51,25 @@ namespace vulpes {
 
 		class TerrainNode {
 		public:
+
+
+			TerrainNode(const TerrainNode* parent, glm::ivec2 logical_coords, const glm::vec3& position, double _length, const CubemapFace& face);
+
+			bool operator<(const TerrainNode& other) const;
+
+			void CreateMesh(const Device* render_device, CommandPool* cmd_pool, const VkQueue& queue);
+
+			// true if all of the Child pointers are nullptr
+			bool Leaf() const noexcept;
+
+			void Update(const glm::dvec3 & camera_position, NodeSubset* active_nodes, const util::view_frustum& view);
+
+			void BuildCommandBuffer(VkCommandBuffer& cmd) const;
+
+			// Recursive method to clean up node tree
+			void Prune();
+
+			double Size();
 		
 			enum class node_status {
 				Undefined, // Likely not constructed fully or used at all
@@ -96,30 +115,10 @@ namespace vulpes {
 			
 			Mesh mesh;
 
-			TerrainNode(const TerrainNode* parent, glm::ivec2 logical_coords, const glm::vec3& position, double _length, const CubemapFace& face);
-
-			bool operator<(const TerrainNode& other) const;
-
-			void CreateMesh(const Device* render_device, CommandPool* cmd_pool, const VkQueue& queue);
-
-			// true if all of the Child pointers are nullptr
-			bool Leaf() const noexcept;
-
-			void Update(const glm::dvec3 & camera_position, NodeSubset* active_nodes, const util::view_frustum& view);
-
-			void Render(VkCommandBuffer& cmd) const;
-
-			// Recursive method to clean up node tree
-			void Prune();
-
-			double Size();
-
 			node_status Status = node_status::Undefined;
 
 			// used to join edges.
 			CubemapFace Face;
-
-			void CalculateExtrema();
 
 		};
 

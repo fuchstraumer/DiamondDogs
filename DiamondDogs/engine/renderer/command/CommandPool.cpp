@@ -136,4 +136,64 @@ namespace vulpes {
 		return cmdBuffers.size();
 	}
 
+	TransferPool::TransferPool(const Device * parent, const VkCommandPoolCreateInfo & create_info) : createInfo(create_info) {
+
+		createInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		VkResult result = vkCreateCommandPool(parent->vkHandle(), &createInfo, allocators, &handle);
+		VkAssert(result);
+
+		VkCommandBufferAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		allocInfo.commandPool = handle;
+		allocInfo.commandBufferCount = 1;
+
+		result = vkAllocateCommandBuffers(parent->vkHandle(), &allocInfo, &cmdBuffer);
+		VkAssert(result);
+
+		VkFenceCreateInfo fence_info = vk_fence_create_info_base;
+		result = vkCreateFence(parent->vkHandle(), &fence_info, allocators, &submitFence);
+	}
+
+	TransferPool::~TransferPool() {
+		vkQueueWaitIdle(submitQueue);
+		vkDestroyFence(parent->vkHandle(), submitFence, allocators);
+		vkFreeCommandBuffers(parent->vkHandle(), handle, 1, &cmdBuffer);
+		vkDestroyCommandPool(parent->vkHandle(), handle, allocators);
+	}
+
+	void TransferPool::SetSubmitQueue(VkQueue & queue){
+		submitQueue = queue;
+	}
+
+	VkCommandBuffer& TransferPool::Start() {
+
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		beginInfo.pInheritanceInfo = nullptr;
+
+		vkBeginCommandBuffer(cmdBuffer, &beginInfo);
+
+		return cmdBuffer;
+	}
+
+	void TransferPool::Submit() {
+		vkEndCommandBuffer(cmdBuffer);
+
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &cmdBuffer;
+
+		vkQueueSubmit(submitQueue, 1, &submitInfo, submitFence);
+
+		vkWaitForFences(parent->vkHandle(), 1, &submitFence, VK_TRUE, vk_default_fence_timeout);
+		vkResetCommandBuffer(cmdBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+	}
+
+	VkCommandBuffer & TransferPool::CmdBuffer() noexcept {
+		return cmdBuffer;
+	}
+
 }

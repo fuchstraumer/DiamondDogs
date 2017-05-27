@@ -52,12 +52,22 @@ namespace vulpes {
 	class TransferPool {
 	public:
 
+		TransferPool(const Device* parent, const VkCommandPoolCreateInfo& create_info);
 
+		~TransferPool();
+
+		void SetSubmitQueue(VkQueue& queue);
+
+		VkCommandBuffer& Start();
+
+		void Submit();
+
+		VkCommandBuffer& CmdBuffer() noexcept;
 
 	private:
 		VkFence submitFence;
 		VkQueue submitQueue;
-		std::vector<VkCommandBuffer> cmdBuffers;
+		VkCommandBuffer cmdBuffer;
 		VkCommandPool handle;
 		VkCommandPoolCreateInfo createInfo;
 		const Device* parent;

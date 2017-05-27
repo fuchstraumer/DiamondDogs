@@ -137,6 +137,7 @@
     <ClInclude Include="scenes\Atmoscene.h" />
     <ClInclude Include="scenes\BaseScene.h" />
     <ClInclude Include="scenes\StarScene.h" />
+    <ClInclude Include="scenes\Terrain.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="util\noise\TerrainBuilder.h" />
     <ClInclude Include="util\shaderold.h" />

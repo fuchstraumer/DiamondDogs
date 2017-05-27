@@ -9,6 +9,7 @@ namespace vulpes {
 
 		struct view_frustum {
 			std::array<glm::vec4, 6> planes;
+			glm::vec4& operator[](const size_t& idx) { return planes[idx]; }
 		};
 
 	}

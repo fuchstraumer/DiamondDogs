@@ -23,6 +23,8 @@ namespace vulpes {
 
 		void CopyTo(void* data, const VkDeviceSize& size = 0, const VkDeviceSize& offset = 0);
 
+		void CopyTo(void * data, VkCommandBuffer & transfer_cmd);
+
 		void CopyTo(void* data, CommandPool* cmd_pool, const VkQueue & transfer_queue, const VkDeviceSize& size, const VkDeviceSize& offset = 0);
 
 		void Map(const VkDeviceSize& size = 0, const VkDeviceSize& offset = 0);
@@ -56,7 +58,7 @@ namespace vulpes {
 		VkBufferView view;
 		VkDeviceMemory memory;
 		VkDeviceSize allocSize;
-
+		VkDeviceSize dataSize;
 
 	};
 

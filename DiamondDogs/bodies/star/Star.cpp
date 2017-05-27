@@ -19,7 +19,7 @@ namespace vulpes {
 		static std::array<VkDescriptorPoolSize, 1> pools{
 			VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2 },
 		};
-		std::cerr << sizeof(fs_ubo_data) << std::endl;
+
 		mesh0.scale = glm::vec3(radius);
 		mesh0.position = position;
 		VkDescriptorPoolCreateInfo pool_info = vk_descriptor_pool_create_info_base;
@@ -154,7 +154,6 @@ namespace vulpes {
 
 	void Star::BuildMesh(CommandPool * pool, const VkQueue & queue){
 		mesh0.create_vbo(device, pool, queue);
-		mesh0.create_ebo(pool, queue);
 		
 		vsUboData.model = mesh0.get_model_matrix();
 		vsUboData.normTransform = glm::transpose(glm::inverse(vsUboData.model));

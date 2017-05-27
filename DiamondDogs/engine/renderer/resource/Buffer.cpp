@@ -10,10 +10,11 @@ namespace vulpes {
 		Destroy();
 	}
 
-	void Buffer::CreateBuffer(const VkBufferUsageFlags & usage_flags, const VkMemoryPropertyFlags & memory_flags, const VkDeviceSize & size, const VkDeviceSize & offset){
+	void Buffer::CreateBuffer(const VkBufferUsageFlags & usage_flags, const VkMemoryPropertyFlags & memory_flags, const VkDeviceSize & size, const VkDeviceSize & offset) {
 		if (parent == nullptr) {
 			throw(std::runtime_error("Set the parent of a buffer before trying to populate it, you dolt."));
 		}
+		dataSize = size;
 		createInfo.usage = usage_flags;
 		createInfo.size = size;
 		createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -51,6 +52,25 @@ namespace vulpes {
 		else {
 			memcpy(MappedMemory, data, size);
 		}
+	}
+
+	void Buffer::CopyTo(void* data, VkCommandBuffer& transfer_cmd) {
+
+		VkBuffer staging_buffer;
+		VkDeviceMemory staging_memory;
+		createStagingBuffer(dataSize, 0, staging_buffer, staging_memory);
+
+		void* mapped;
+		VkResult result = vkMapMemory(parent->vkHandle(), staging_memory, 0, dataSize, 0, &mapped);
+		VkAssert(result);
+		memcpy(mapped, data, dataSize);
+		vkUnmapMemory(parent->vkHandle(), staging_memory);
+
+		VkBufferCopy copy{};
+		copy.size = dataSize;
+
+		vkCmdCopyBuffer(transfer_cmd, staging_buffer, handle, 1, &copy);
+
 	}
 
 	void Buffer::CopyTo(void * data, CommandPool* cmd_pool, const VkQueue & transfer_queue, const VkDeviceSize & size, const VkDeviceSize & offset){
