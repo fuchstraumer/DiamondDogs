@@ -21,6 +21,7 @@ namespace vulpes {
 	class Framebuffer;
 	class Renderpass;
 	class CommandPool;
+	class TransferPool;
 	class GraphicsPipeline;
 	class PipelineCache;
 }

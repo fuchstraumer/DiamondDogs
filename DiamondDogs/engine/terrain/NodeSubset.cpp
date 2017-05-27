@@ -5,6 +5,7 @@
 #include "engine\renderer\resource\ShaderModule.h"
 #include "engine\renderer\render\GraphicsPipeline.h"
 #include "engine\renderer\resource\Buffer.h"
+#include "engine\renderer\command\CommandPool.h"
 
 vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(parent_dvc) {
 
@@ -113,41 +114,32 @@ void vulpes::terrain::NodeSubset::CreateUBO(const glm::mat4 & projection) {
 void vulpes::terrain::NodeSubset::AddNode(const TerrainNode * node){
 	// Since LOD level is based on distance, we use LOD level to compare
 	// nodes and place highest LOD level first, in hopes that it renders first.
-	if (sortNodesByDistance) {
-		nodes.push_front(node);
-		std::push_heap(nodes.begin(), nodes.end());
-	}
-	else {
-		nodes.push_front(node);
-	}
+	nodes.insert(std::make_pair(node->Status, node));
 }
 
 void vulpes::terrain::NodeSubset::BuildCommandBuffers(VkCommandBuffer& cmd) {
 	// First, attempt to quickly transfer resources.
 	auto transfer_cmd = transferPool->Start();
 	for (auto& node : nodes) {
-		node->
+		
 	}
 	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 	for(const auto& node : nodes) {
-		auto& node = nodes.front();
-		node->BuildCommandBuffer(cmd);
+	
 	}
 }
 
-void vulpes::terrain::NodeSubset::SetTransferObjects(CommandPool * transfer_pool, VkQueue * transfer_queue){
-	transferPool = transfer_pool;
-	transferQueue = transfer_queue;
+void vulpes::terrain::NodeSubset::Update() {
+	if (nodes.count(NodeStatus::MeshUnbuilt) != 0) {
+		auto transfer_iter = nodes.find(NodeStatus::MeshUnbuilt);
+	}
+	if (nodes.count(NodeStatus::Active) != 0) {
+		auto active_iter = nodes.find(NodeStatus::Active);
+	}
 }
 
 void vulpes::terrain::NodeSubset::UpdateUBO(const glm::mat4 & view) {
 	uboData.view = view;
-	while(!nodes.empty()) {
-		ubo->Map();
-		uboData.model = nodes.front()->mesh.get_model_matrix();
-		ubo->CopyTo(&uboData, VK_WHOLE_SIZE);
-		nodes.pop_front();
-		ubo->Unmap();
-	}
+
 }

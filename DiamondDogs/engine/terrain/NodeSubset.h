@@ -25,8 +25,17 @@ namespace vulpes {
 			VkFence fence;
 		};
 
+		enum class NodeStatus {
+			Undefined, // Likely not constructed fully or used at all
+			OutOfFrustum,
+			OutOfRange,
+			Active, // Being used in next renderpass
+			Subdivided, // Has been subdivided, render children instead of this.
+			MeshUnbuilt,
+		};
+
 		struct NodeSubset {
-			std::forward_list<const TerrainNode*> nodes;
+			std::unordered_multimap<NodeStatus, const TerrainNode*> nodes;
 			static const bool sortNodesByDistance = false;
 
 			VkDescriptorSetLayout descriptorSetLayout;
@@ -62,7 +71,7 @@ namespace vulpes {
 
 			void BuildCommandBuffers(VkCommandBuffer& cmd);
 
-			void SetTransferObjects(CommandPool* transfer_pool, VkQueue* transfer_queue);
+			void Update();
 
 			void UpdateUBO(const glm::mat4& view);
 		};

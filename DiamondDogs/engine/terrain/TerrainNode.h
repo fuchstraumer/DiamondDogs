@@ -35,29 +35,17 @@ namespace vulpes {
 
 		class NodeSubset;
 
-		enum class CubemapFace {
-			FRONT,
-			BACK,
-			LEFT,
-			RIGHT,
-			TOP,
-			BOTTOM,
-		};
-
 		static constexpr size_t MaxLOD = 10;
-
-
-		using height_sampler = std::function<float(glm::vec3&)>;
 
 		class TerrainNode {
 		public:
 
 
-			TerrainNode(const TerrainNode* parent, glm::ivec2 logical_coords, const glm::vec3& position, double _length, const CubemapFace& face);
+			TerrainNode(const size_t& depth, const glm::ivec2& logical_coords, const glm::vec3& position, const double& length);
 
-			bool operator<(const TerrainNode& other) const;
+			void CreateMesh(const Device* render_device);
 
-			void CreateMesh(const Device* render_device, CommandPool* cmd_pool, const VkQueue& queue);
+			void BuildMesh(VkCommandBuffer& cmd);
 
 			// true if all of the Child pointers are nullptr
 			bool Leaf() const noexcept;
@@ -70,18 +58,9 @@ namespace vulpes {
 			void Prune();
 
 			double Size();
-		
-			enum class node_status {
-				Undefined, // Likely not constructed fully or used at all
-				OutOfFrustum,
-				OutOfRange,
-				Active, // Being used in next renderpass
-				Subdivided, // Has been subdivided, render children instead of this.
-			};
 
 			std::array<std::unique_ptr<TerrainNode>, 4> children;
 			std::array<bool, 4> neighbors;
-			const TerrainNode* parent;
 
 			// depth in quadtree: 0 is the root, N is the deepest level etc
 			size_t Depth;
@@ -114,11 +93,6 @@ namespace vulpes {
 			void Subdivide();
 			
 			Mesh mesh;
-
-			node_status Status = node_status::Undefined;
-
-			// used to join edges.
-			CubemapFace Face;
 
 		};
 
