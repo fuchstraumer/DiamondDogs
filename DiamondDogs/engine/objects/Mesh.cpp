@@ -49,12 +49,7 @@ namespace vulpes {
 	}
 
 	glm::mat4 Mesh::get_model_matrix() const {
-		glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
-		glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), position);
-		glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), angle.x, glm::vec3(1.0f, 0.0f, 0.0f));
-		glm::mat4 rotY = glm::rotate(glm::mat4(1.0f), angle.y, glm::vec3(0.0f, 1.0f, 0.0f));
-		glm::mat4 rotZ = glm::rotate(glm::mat4(1.0f), angle.z, glm::vec3(0.0f, 0.0f, 1.0f));
-		return translationMatrix * rotX * rotY * rotZ * scaleMatrix;
+		return model;
 	}
 
 	glm::mat4 Mesh::get_rte_mv(const glm::mat4& view) const {
@@ -134,6 +129,9 @@ namespace vulpes {
 	}
 
 	void Mesh::cleanup() {
+		if (!ready) {
+			return;
+		}
 		free_cpu_data();
 		destroy_vk_resources();
 		ready = false;

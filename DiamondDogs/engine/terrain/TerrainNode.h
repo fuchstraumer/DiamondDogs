@@ -51,10 +51,12 @@ namespace vulpes {
 			// Creates children.
 			void Subdivide();
 
+			void InitChild(size_t i);
+
 			// true if all of the Child pointers are nullptr
 			bool Leaf() const noexcept;
 
-			void Update(const glm::dvec3 & camera_position, NodeSubset* active_nodes, const util::view_frustum& view);
+			void Update(const glm::vec3 & camera_position, NodeSubset* active_nodes, const util::view_frustum& view);
 
 			void BuildCommandBuffer(VkCommandBuffer& cmd) const;
 
@@ -91,7 +93,7 @@ namespace vulpes {
 			
 			Mesh mesh;
 
-			const double MaxRenderDistance = 100000;
+			const float MaxRenderDistance = 3000.0f;
 
 			const Device* device;
 

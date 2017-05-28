@@ -66,6 +66,12 @@ namespace vulpes {
 		Mesh(const glm::vec3& pos = glm::vec3(0.0f), const glm::vec3& _scale = glm::vec3(1.0f), const glm::vec3& _angle = glm::vec3(0.0f)) : position(pos), scale(_scale), angle(_angle) {
 			vbo.fill(nullptr);
 			ebo = nullptr;
+			glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
+			glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), position);
+			glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), angle.x, glm::vec3(1.0f, 0.0f, 0.0f));
+			glm::mat4 rotY = glm::rotate(glm::mat4(1.0f), angle.y, glm::vec3(0.0f, 1.0f, 0.0f));
+			glm::mat4 rotZ = glm::rotate(glm::mat4(1.0f), angle.z, glm::vec3(0.0f, 0.0f, 1.0f));
+			model = translationMatrix * rotX * rotY * rotZ * scaleMatrix;
 		}
 
 		Mesh(Mesh&& other);

@@ -84,7 +84,7 @@ namespace vulpes {
 			if (direction == Direction::RIGHT) {
 				this->Position += this->Right * velocity;
 			}
-
+			LOG_EVERY_N(50, INFO) << glm::to_string(Position);
 		}
 
 		// Processes input received from a mouse input system. Expects the offset value in both the x and y direction.

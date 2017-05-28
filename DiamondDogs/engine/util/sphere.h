@@ -23,17 +23,13 @@ namespace vulpes {
 			}
 
 			bool CoincidesWithFrustum(const view_frustum& frustum) const {
-				for (const auto& plane : frustum.planes) {
-					double dist = glm::dot(glm::dvec3(static_cast<double>(plane.x), static_cast<double>(plane.y), static_cast<double>(plane.z)), Origin) + static_cast<double>(plane.w);
-					if (dist < -1.0 * Radius) {
+				for (auto i = 0; i < frustum.planes.size(); i++)
+				{
+					if ((frustum.planes[i].x * Origin.x) + (frustum.planes[i].y * Origin.y) + (frustum.planes[i].z * Origin.z) + frustum.planes[i].w <= -Radius)
+					{
 						return false;
 					}
-
-					if (std::abs(dist) < Radius) {
-						return true;
-					}
 				}
-
 				return true;
 			}
 

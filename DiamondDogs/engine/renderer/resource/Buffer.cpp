@@ -168,13 +168,11 @@ namespace vulpes {
 		for (auto& buff : stagingBuffers) {
 			vkDestroyBuffer(device->vkHandle(), buff, nullptr);
 		}
-		LOG(INFO) << "Destroyed " << stagingBuffers.size() << " staging buffers.";
 		stagingBuffers.clear(); 
 		stagingBuffers.shrink_to_fit();
 		for (auto& mem : stagingMemory) {
 			vkFreeMemory(device->vkHandle(), mem, nullptr);
 		}
-		LOG(INFO) << "Destroyed " << stagingMemory.size() << " staging memory objects.";
 		stagingMemory.clear();
 		stagingMemory.shrink_to_fit();
 	}

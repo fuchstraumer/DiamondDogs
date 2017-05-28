@@ -25,6 +25,10 @@ namespace vulpes {
 				return (Min + Max) / 2.0;
 			}
 
+			bool InFrustum(const view_frustum& view) {
+
+			}
+
 		};
 
 	}

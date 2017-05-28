@@ -35,9 +35,9 @@ vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(pare
 	VkPipelineLayoutCreateInfo pipeline_info = vk_pipeline_layout_create_info_base;
 	pipeline_info.setLayoutCount = 1;
 	pipeline_info.pSetLayouts = &descriptorSetLayout;
-	VkPushConstantRange range{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO) };
-	pipeline_info.pushConstantRangeCount = 1;
-	pipeline_info.pPushConstantRanges = &range;
+	VkPushConstantRange ranges[2]{ VkPushConstantRange{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO)}, VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4)} };
+	pipeline_info.pushConstantRangeCount = 2;
+	pipeline_info.pPushConstantRanges = ranges;
 
 	result = vkCreatePipelineLayout(device->vkHandle(), &pipeline_info, nullptr, &pipelineLayout);
 	VkAssert(result);
@@ -124,12 +124,30 @@ void vulpes::terrain::NodeSubset::CreateUBO(const glm::mat4 & projection) {
 
 void vulpes::terrain::NodeSubset::AddNode(TerrainNode * node, bool ready){
 	if (ready) {
-		readyNodes.push_front(node);
+		auto inserted = readyNodes.insert(node);
 	}
 	else {
 		transferNodes.push_front(node);
 	}
 }
+
+static const std::array<glm::vec4, 16> LOD_COLORS{
+	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+	glm::vec4(0.9f, 0.1f, 0.0f, 1.0f),
+	glm::vec4(0.8f, 0.2f, 0.0f, 1.0f),
+	glm::vec4(0.7f, 0.3f, 0.0f, 1.0f),
+	glm::vec4(0.6f, 0.4f, 0.0f, 1.0f),
+	glm::vec4(0.5f, 0.5f, 0.0f, 1.0f),
+	glm::vec4(0.4f, 0.6f, 0.0f, 1.0f),
+	glm::vec4(0.3f, 0.7f, 0.0f, 1.0f),
+	glm::vec4(0.2f, 0.8f, 0.1f, 1.0f),
+	glm::vec4(0.1f, 0.9f, 0.2f, 1.0f),
+	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+};
 
 void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor) {
 	uboData.view = view;
@@ -145,9 +163,9 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 		auto iter = readyNodes.begin();
 		while (iter != readyNodes.end()) {
 			TerrainNode* curr = *iter;
-			NodeStatus curr_status = curr->Status;
-			switch (curr_status) {
-			case NodeStatus::OutOfFrustum:
+			switch (curr->Status) {
+			case NodeStatus::NeedsUnload:
+				LOG_EVERY_N(10, INFO) << "10 nodes unloaded.";
 				(*iter)->mesh.cleanup();
 				readyNodes.erase(iter++);
 				break;
@@ -155,13 +173,11 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 				(*iter)->mesh.cleanup();
 				readyNodes.erase(iter++);
 				break;
-			case NodeStatus::OutOfRange:
-				(*iter)->mesh.cleanup();
-				readyNodes.erase(iter++);
 			case NodeStatus::Active:
 				// Push constant block contains our 3 matrices, update that now.
 				uboData.model = curr->mesh.get_model_matrix();
 				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO), &uboData);
+				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4), &LOD_COLORS[curr->Depth]);
 				// Generates draw commands
 				curr->BuildCommandBuffer(graphics_cmd);
 				++iter;
@@ -170,6 +186,7 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 				++iter;
 				break;
 			default:
+				readyNodes.erase(iter++);
 				break;
 			}
 		}
@@ -190,7 +207,7 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 		curr->CreateMesh();
 		curr->TransferMesh(transferPool->CmdBuffer());
 		curr->Status = NodeStatus::Active;
-		readyNodes.push_front(curr);
+		auto inserted = readyNodes.insert(curr);
 		transferNodes.pop_front();
 		++node_count;
 	}
@@ -199,7 +216,7 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 		auto end = std::chrono::high_resolution_clock::now();
 		auto dur = end - start;
 		transferPool->Submit();
-		LOG(INFO) << "Transferring " << node_count << " nodes took " << std::chrono::duration_cast<std::chrono::milliseconds>(dur).count() << " ms";
+		LOG_EVERY_N(20, INFO) << "Transferring " << node_count << " nodes took " << std::chrono::duration_cast<std::chrono::milliseconds>(dur).count() << " ms";
 		Buffer::DestroyStagingResources(device);
 	}
 }

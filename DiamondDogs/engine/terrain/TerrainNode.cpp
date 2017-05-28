@@ -8,7 +8,7 @@ void vulpes::terrain::TerrainNode::Subdivide() {
 	double child_length = SideLength / 2.0;
 	double child_offset = SideLength / 4.0;
 	glm::ivec2 grid_pos = glm::ivec2(2 * LogicalCoordinates.x, 2 * LogicalCoordinates.y);
-	glm::vec3 pos = glm::vec3(SpatialCoordinates.x, 0.0f, SpatialCoordinates.z);
+	glm::vec3 pos = glm::vec3(SpatialCoordinates.x + child_offset, child_length, SpatialCoordinates.z - child_offset);
 	children[0] = std::make_unique<TerrainNode>(device, Depth + 1, grid_pos, pos + glm::vec3(-child_offset, 0.0f, child_offset), child_length, MaxLOD);
 	children[1] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x + 1, grid_pos.y), pos + glm::vec3(child_offset, 0.0f, child_offset), child_length, MaxLOD);
 	children[2] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x, grid_pos.y + 1), pos + glm::vec3(-child_offset, 0.0f, -child_offset), child_length, MaxLOD);
@@ -23,7 +23,7 @@ void vulpes::terrain::TerrainNode::CreateMesh() {
 	if (mesh.Ready()) {
 		return;
 	}
-	mesh = std::move(Mesh(SpatialCoordinates, glm::vec3(SideLength, 1.0f, SideLength)));
+	mesh = std::move(Mesh(SpatialCoordinates, glm::vec3(SideLength, SideLength, SideLength)));
 	int i = 0;
 	for (auto& vert : aabb_vertices) {
 		mesh.add_vertex(vertex_t{ (vert / 2.0f) + glm::vec3(0.5f, 0.5f, -0.5f) });
@@ -39,42 +39,51 @@ void vulpes::terrain::TerrainNode::TransferMesh(VkCommandBuffer & cmd) {
 
 bool vulpes::terrain::TerrainNode::Leaf() const noexcept {
 	for (auto& child : children) {
-		if (child != nullptr) {
+		if (child) {
 			return false;
 		}
 	}
 	return true;
 }
 
-void vulpes::terrain::TerrainNode::Update(const glm::dvec3 & camera_position, NodeSubset* active_nodes, const util::view_frustum& view) {
+void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, NodeSubset* active_nodes, const util::view_frustum& view) {
 	// Get distance from camera to bounds of this node.
 	// Radius of sphere is 1.1 times current node side length, which specifies
 	// the range from a node we consider to be the LOD switch distance
 	const util::Sphere lod_sphere{ camera_position, SideLength * 1.10 };
-	const util::Sphere render_sphere{ camera_position, glm::length(mesh.scale) };
-	// If this Node isn't already part of the highest detail level and we're in LOD switch
-	// range, subdivide the node and set status.
-	if (Depth < MaxLOD && !lod_sphere.CoincidesWith(this->aabb)) {
+	const util::Sphere aabb_sphere{ SpatialCoordinates, SideLength };
+	 
+	// Depth is less than max subdivide level and we're in subdivide range.
+	if (Depth < MaxLOD && lod_sphere.CoincidesWith(this->aabb)) {
 		if (Leaf()) {
 			Subdivide();
+			Status = NodeStatus::Subdivided;
 		}
-
+		// Update children after they've been created.
 		for (auto& child : children) {
 			child->Update(camera_position, active_nodes, view);
 		}
-
-		Status = NodeStatus::Subdivided;
 	}
 	else {
-		
-		if (glm::distance(aabb.Center(), camera_position) > MaxRenderDistance) {
-			Status = NodeStatus::OutOfRange;
+		// If not a leaf, update the children.
+		if (!Leaf()) {
+			for (auto& child : children) {
+				child->Update(camera_position, active_nodes, view);
+			}
 		}
-
 		// Update statuses, add to renderlist if still active.
-		if (render_sphere.CoincidesWithFrustum(view)) {
+		if (glm::distance(SpatialCoordinates, camera_position) > MaxRenderDistance) {
+			Status = NodeStatus::NeedsUnload;
+			Prune();
+		}
+		else if (!aabb_sphere.CoincidesWithFrustum(view)) {
+			Status = NodeStatus::NeedsUnload;
+			Prune();
+		}
+		else {
 			if (mesh.Ready()) {
 				Status = NodeStatus::Active;
+				active_nodes->AddNode(this, true);
 			}
 			else {
 				CreateMesh();
@@ -82,11 +91,9 @@ void vulpes::terrain::TerrainNode::Update(const glm::dvec3 & camera_position, No
 				active_nodes->AddNode(this, false);
 			}
 		}
-		else if (!render_sphere.CoincidesWithFrustum(view)) {
-			Status = NodeStatus::OutOfFrustum;
-		}
+
 	}
-	
+
 }
 
 void vulpes::terrain::TerrainNode::BuildCommandBuffer(VkCommandBuffer & cmd) const {

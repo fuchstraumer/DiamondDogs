@@ -27,7 +27,7 @@ namespace vulpes {
 
 		class NodeSubset {
 			
-			std::list<TerrainNode*> readyNodes;
+			std::unordered_set<TerrainNode*> readyNodes;
 			std::forward_list<TerrainNode*> transferNodes;
 
 			static const bool sortNodesByDistance = false;

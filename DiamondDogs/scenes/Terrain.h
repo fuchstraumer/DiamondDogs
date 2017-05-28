@@ -140,6 +140,8 @@ namespace terrain_scene {
 
 				vkEndCommandBuffer(skybox_buff);
 
+				//vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), 1, &skybox_buff);
+
 				object->UpdateNodes(skybox_buff, begin_info, instance->GetViewMatrix(), viewport, scissor);
 
 				// Execute commands in secondary command buffer
