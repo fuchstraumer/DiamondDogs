@@ -1,16 +1,9 @@
 #include "stdafx.h"
-
-#include "scenes\StarScene.h"
-
+#include "scenes\Terrain.h"
+INITIALIZE_EASYLOGGINGPP
 int main() {
-	using namespace star_scene;
-	enum class NodeFlag : uint8_t {
-		Ready,
-		Transfer,
-		Prune,
-	};
-
-	std::unordered_multimap<NodeFlag, uint64_t*> node_map;
-
+	using namespace terrain_scene;
+	TerrainScene scene;
+	scene.RenderLoop();
 	return 0;
 }

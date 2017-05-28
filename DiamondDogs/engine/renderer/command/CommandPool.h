@@ -27,7 +27,7 @@ namespace vulpes {
 
 		void Destroy();
 
-		void CreateCommandBuffers(const uint32_t& num_buffers);
+		void CreateCommandBuffers(const uint32_t& num_buffers, const VkCommandBufferAllocateInfo& alloc_info = vk_command_buffer_allocate_info_base);
 
 		void FreeCommandBuffers();
 
@@ -35,6 +35,7 @@ namespace vulpes {
 		const VkCommandBuffer& operator[](const size_t& idx) const;
 
 		VkCommandBuffer& GetCmdBuffer(const size_t& idx);
+		const std::vector<VkCommandBuffer>& GetCmdBuffers() const;
 
 		VkCommandBuffer StartSingleCmdBuffer();
 		void EndSingleCmdBuffer(VkCommandBuffer& cmd_buffer, const VkQueue & queue);

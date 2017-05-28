@@ -3,13 +3,14 @@
 #include "engine/renderer/resource/Buffer.h"
 
 vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, const float & split_factor, const size_t & max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position) : activeNodes(device) {
-	root = std::make_unique<TerrainNode>(nullptr, glm::ivec2(0, 0), root_tile_position, root_side_length, CubemapFace::TOP);
+	root = std::make_unique<TerrainNode>(device, 0, glm::ivec2(0, 0), root_tile_position, root_side_length, max_detail_level);
+}
+
+void vulpes::terrain::TerrainQuadtree::SetupNodePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4 & projection) {
+	activeNodes.CreatePipeline(renderpass, swapchain, cache, projection);
 }
 
 void vulpes::terrain::TerrainQuadtree::UpdateQuadtree(const glm::dvec3 & camera_position, const glm::mat4& view) {
-	if (!activeNodes.nodes.empty()) {
-		activeNodes.nodes.clear();
-	}
 
 	// Create new view frustum
 	util::view_frustum view_f;
@@ -28,13 +29,9 @@ void vulpes::terrain::TerrainQuadtree::UpdateQuadtree(const glm::dvec3 & camera_
 	}
 
 	root->Update(camera_position, &activeNodes, view_f);
-	if (!activeNodes.nodes.empty()) {
-		activeNodes.UpdateUBO(view);
-	}
 }
 
-void vulpes::terrain::TerrainQuadtree::BuildCommandBuffers(VkCommandBuffer & cmd) {
-	// We don't explicitly call the root, we hand this off to the node subset and let it build commands
-	// only for the currently active nodes in this frame.
-	activeNodes.BuildCommandBuffers(cmd);
+void vulpes::terrain::TerrainQuadtree::UpdateNodes(VkCommandBuffer & graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& rect) {
+	activeNodes.Update(graphics_cmd, begin_info, view, viewport, rect);
 }
+

@@ -43,7 +43,7 @@ namespace vulpes {
 
 	PipelineCache::PipelineCache(const Device * _parent) : parent(_parent) {
 		std::string cache_dir = std::string("./shader_cache/");
-		uint16_t hash_id = std::hash<unsigned int>{}(static_cast<unsigned int>(parent->GetPhysicalDeviceID()));
+		uint16_t hash_id = static_cast<uint16_t>(std::hash<unsigned int>{}(static_cast<unsigned int>(parent->GetPhysicalDeviceID())));
 		std::string fname = cache_dir + std::to_string(hash_id) + std::string(".vkdat");
 		filename = fname;
 		createInfo = VkPipelineCacheCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO, nullptr, 0, 0, nullptr };
@@ -53,7 +53,7 @@ namespace vulpes {
 			std::cerr << "Pre-existing cache file" << fname << " found, loading... " << std::endl;
 #endif // !NDEBUG
 			std::string cache_str((std::istreambuf_iterator<char>(cache)), std::istreambuf_iterator<char>());
-			uint32_t cache_size = cache_str.size() * sizeof(char);
+			uint32_t cache_size = static_cast<uint32_t>(cache_str.size() * sizeof(char));
 			createInfo.initialDataSize = cache_size;
 			createInfo.pInitialData = cache_str.data();
 		}
@@ -73,7 +73,7 @@ namespace vulpes {
 			std::cerr << "Pre-existing cache file" << fname << " found, loading... " << std::endl;
 #endif // !NDEBUG
 			std::string cache_str((std::istreambuf_iterator<char>(cache)), std::istreambuf_iterator<char>());
-			uint32_t cache_size = cache_str.size() * sizeof(char);
+			uint32_t cache_size = static_cast<uint32_t>(cache_str.size() * sizeof(char));
 			createInfo.initialDataSize = cache_size;
 			createInfo.pInitialData = cache_str.data();
 		}

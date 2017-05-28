@@ -32,7 +32,7 @@ namespace vulpes {
 		khr_swapchain_extension,
 	};
 
-	constexpr uint64_t vk_default_fence_timeout = 10000000;
+	constexpr uint64_t vk_default_fence_timeout = std::numeric_limits<uint64_t>::max();
 
 	enum class Platform {
 		WINDOWS,

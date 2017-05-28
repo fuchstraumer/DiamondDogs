@@ -4,6 +4,9 @@
 #include "engine/renderer\command\CommandPool.h"
 namespace vulpes {
 
+	std::vector<VkBuffer> Buffer::stagingBuffers = std::vector<VkBuffer>();
+	std::vector<VkDeviceMemory> Buffer::stagingMemory = std::vector<VkDeviceMemory>();
+
 	Buffer::Buffer(const Device * _parent) : parent(_parent), createInfo(vk_buffer_create_info_base) {}
 
 	Buffer::~Buffer(){
@@ -47,7 +50,7 @@ namespace vulpes {
 			Map();
 		}
 		if (size == 0) {
-			memcpy(MappedMemory, data, createInfo.size);
+			memcpy(MappedMemory, data, dataSize);
 		}
 		else {
 			memcpy(MappedMemory, data, size);
@@ -71,6 +74,8 @@ namespace vulpes {
 
 		vkCmdCopyBuffer(transfer_cmd, staging_buffer, handle, 1, &copy);
 
+		stagingBuffers.push_back(std::move(staging_buffer));
+		stagingMemory.push_back(std::move(staging_memory));
 	}
 
 	void Buffer::CopyTo(void * data, CommandPool* cmd_pool, const VkQueue & transfer_queue, const VkDeviceSize & size, const VkDeviceSize & offset){
@@ -157,6 +162,21 @@ namespace vulpes {
 		VkAssert(result);
 		result = vkBindBufferMemory(dvc->vkHandle(), dest, dest_memory, 0);
 		VkAssert(result);
+	}
+
+	void Buffer::DestroyStagingResources(const Device* device){
+		for (auto& buff : stagingBuffers) {
+			vkDestroyBuffer(device->vkHandle(), buff, nullptr);
+		}
+		LOG(INFO) << "Destroyed " << stagingBuffers.size() << " staging buffers.";
+		stagingBuffers.clear(); 
+		stagingBuffers.shrink_to_fit();
+		for (auto& mem : stagingMemory) {
+			vkFreeMemory(device->vkHandle(), mem, nullptr);
+		}
+		LOG(INFO) << "Destroyed " << stagingMemory.size() << " staging memory objects.";
+		stagingMemory.clear();
+		stagingMemory.shrink_to_fit();
 	}
 
 	void Buffer::createStagingBuffer(const VkDeviceSize & size, const VkDeviceSize & offset, VkBuffer & staging_buffer, VkDeviceMemory & staging_memory){

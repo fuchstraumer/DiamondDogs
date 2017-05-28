@@ -132,6 +132,7 @@
     <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
     <ClInclude Include="engine\util\AABB.h" />
     <ClInclude Include="engine\util\circular_buffer.h" />
+    <ClInclude Include="engine\util\easylogging++.h" />
     <ClInclude Include="engine\util\sphere.h" />
     <ClInclude Include="engine\util\view_frustum.h" />
     <ClInclude Include="scenes\Atmoscene.h" />
@@ -171,6 +172,9 @@
     <ClCompile Include="engine\terrain\TerrainNode.cpp" />
     <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
     <ClCompile Include="engine\util\AABB.cpp" />
+    <ClCompile Include="engine\util\easylogging++.cc">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="scenes\BaseScene.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

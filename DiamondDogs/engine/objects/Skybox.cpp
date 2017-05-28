@@ -202,7 +202,7 @@ namespace vulpes {
 		static const VkDeviceSize offsets[]{ 0 };
 		vkCmdBindVertexBuffers(cmd, 0, 1, &vbo->vkHandle(), offsets);
 		vkCmdBindIndexBuffer(cmd, ebo->vkHandle(), 0, VK_INDEX_TYPE_UINT32);
-		vkCmdDrawIndexed(cmd, indices.size(), 1, 0, 0, 0);
+		vkCmdDrawIndexed(cmd, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 	}
 
 	uint32_t Skybox::add_vertex(const vertex_t & v) {

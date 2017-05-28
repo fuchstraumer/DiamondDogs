@@ -25,17 +25,11 @@ namespace vulpes {
 			VkFence fence;
 		};
 
-		enum class NodeStatus {
-			Undefined, // Likely not constructed fully or used at all
-			OutOfFrustum,
-			OutOfRange,
-			Active, // Being used in next renderpass
-			Subdivided, // Has been subdivided, render children instead of this.
-			MeshUnbuilt,
-		};
+		class NodeSubset {
+			
+			std::list<TerrainNode*> readyNodes;
+			std::forward_list<TerrainNode*> transferNodes;
 
-		struct NodeSubset {
-			std::unordered_multimap<NodeStatus, const TerrainNode*> nodes;
 			static const bool sortNodesByDistance = false;
 
 			VkDescriptorSetLayout descriptorSetLayout;
@@ -52,8 +46,6 @@ namespace vulpes {
 				glm::mat4 model;
 				glm::mat4 view, projection;
 			};
-
-			vsUBO uboData;
 			Buffer* ubo;
 
 			TransferPool* transferPool;
@@ -61,19 +53,18 @@ namespace vulpes {
 
 		public:
 
+			vsUBO uboData;
+
 			NodeSubset(const Device* parent_dvc);
 
-			void CreatePipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& cache);
+			void CreatePipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection);
 
 			void CreateUBO(const glm::mat4& projection);
 
-			void AddNode(const TerrainNode* node);
+			void AddNode(TerrainNode * node, bool ready);
 
-			void BuildCommandBuffers(VkCommandBuffer& cmd);
+			void Update(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor);
 
-			void Update();
-
-			void UpdateUBO(const glm::mat4& view);
 		};
 
 	}

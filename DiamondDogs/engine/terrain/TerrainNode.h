@@ -11,8 +11,6 @@ namespace vulpes {
 
 	namespace terrain {
 
-		static constexpr double MaxRenderDistance = 3000.0;
-
 		static const std::array<glm::vec3, 8> aabb_vertices{
 			glm::vec3{-1.0f,-1.0f, 1.0f},
 			glm::vec3{ 1.0f,-1.0f, 1.0f},
@@ -33,19 +31,25 @@ namespace vulpes {
 			3,2,6, 6,7,3,
 		};
 
-		class NodeSubset;
+		static constexpr size_t MemoryResidencyTime = 10e8;
 
-		static constexpr size_t MaxLOD = 10;
+		class NodeSubset;
 
 		class TerrainNode {
 		public:
 
 
-			TerrainNode(const size_t& depth, const glm::ivec2& logical_coords, const glm::vec3& position, const double& length);
+			TerrainNode(const Device* device, const size_t& depth, const glm::ivec2& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod);
 
-			void CreateMesh(const Device* render_device);
+			void CreateMesh();
 
-			void BuildMesh(VkCommandBuffer& cmd);
+			void TransferMesh(VkCommandBuffer& cmd);
+
+			TerrainNode(const TerrainNode& other) = delete;
+			TerrainNode& operator=(const TerrainNode& other) = delete;
+
+			// Creates children.
+			void Subdivide();
 
 			// true if all of the Child pointers are nullptr
 			bool Leaf() const noexcept;
@@ -60,11 +64,10 @@ namespace vulpes {
 			double Size();
 
 			std::array<std::unique_ptr<TerrainNode>, 4> children;
-			std::array<bool, 4> neighbors;
-
+			NodeStatus Status;
 			// depth in quadtree: 0 is the root, N is the deepest level etc
 			size_t Depth;
-			
+			size_t MaxLOD;
 			/*
 				The logical coordinates of a node specify its position (this coordinate == lower left corner)
 				in the quadtree "grid". 
@@ -85,14 +88,12 @@ namespace vulpes {
 			double SideLength;
 
 			util::AABB aabb;
-
-			TerrainNode(const TerrainNode& other) = delete;
-			TerrainNode& operator=(const TerrainNode& other) = delete;
-
-			// Creates children.
-			void Subdivide();
 			
 			Mesh mesh;
+
+			const double MaxRenderDistance = 100000;
+
+			const Device* device;
 
 		};
 

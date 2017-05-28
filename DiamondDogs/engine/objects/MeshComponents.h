@@ -44,12 +44,12 @@ struct rte_vertex_t {
 		auto double_to_floats = [](const double& value)->std::pair<float, float> {
 			std::pair<float, float> result;
 			if (value >= 0.0) {
-				double high = floorf(value / 65536.0) * 65536.0;
+				double high = floor(value / 65536.0) * 65536.0;
 				result.first = (float)high;
 				result.second = (float)(value - high);
 			}
 			else {
-				double high = floorf(-value / 65536.0) * 65536.0;
+				double high = floor(-value / 65536.0) * 65536.0;
 				result.first = (float)-high;
 				result.second = (float)(value + high);
 			}

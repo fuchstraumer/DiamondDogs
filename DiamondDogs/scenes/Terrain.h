@@ -16,6 +16,8 @@ namespace terrain_scene {
 	public:
 
 		TerrainScene() : BaseScene() {
+			
+			
 
 			CreateCommandPools();
 			SetupRenderpass();
@@ -27,10 +29,12 @@ namespace terrain_scene {
 			pipelineCache = std::make_shared<PipelineCache>(device, hash);
 
 			VkQueue transfer;
-			transfer = device->GraphicsQueue(4);
+			transfer = device->GraphicsQueue(0);
 
 			instance->SetCamPos(glm::vec3(0.0f, 200.0f, 0.0f));
 
+			object = new terrain::TerrainQuadtree(device, 1.1f, 6, 1000.0, glm::vec3(0.0f));
+			object->SetupNodePipeline(renderPass->vkHandle(), swapchain, pipelineCache, instance->GetProjectionMatrix());
 
 			skybox = new Skybox(device);
 			skybox->CreateData(transferPool, transfer, instance->GetProjectionMatrix());
@@ -49,20 +53,23 @@ namespace terrain_scene {
 
 		virtual void CreateCommandPools() override {
 			VkCommandPoolCreateInfo pool_info = vk_command_pool_info_base;
-			pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
 			pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+			pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
 			graphicsPool = new CommandPool(device, pool_info);
-			graphicsPool->CreateCommandBuffers(swapchain->ImageCount);
 
+			VkCommandBufferAllocateInfo alloc_info = vk_command_buffer_allocate_info_base;
+			graphicsPool->CreateCommandBuffers(swapchain->ImageCount, alloc_info);
+
+			
 			pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
 			transferPool = new CommandPool(device, pool_info);
 			transferPool->CreateCommandBuffers(1);
 
-			pool_info.queueFamilyIndex = device->QueueFamilyIndices.Transfer;
-			terrainTransferPool = new TransferPool(device, pool_info);
-			VkQueue transfer;
-			device->TransferQueue(0, transfer);
-			terrainTransferPool->SetSubmitQueue(transfer);
+			pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
+			secondaryPool = new CommandPool(device, pool_info);
+			alloc_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+			secondaryPool->CreateCommandBuffers(swapchain->ImageCount * 2, alloc_info);
+
 		}
 
 		virtual void WindowResized() override {
@@ -74,44 +81,71 @@ namespace terrain_scene {
 		}
 
 		virtual void RecordCommands() override {
+			
+			// Clear color value, clear depth value
+			static const std::array<VkClearValue, 2> clear_values{ VkClearValue{ 0.025f, 0.025f, 0.085f, 1.0f }, VkClearValue{ 1.0f, 0 } };
+
+			// Given at each frame in framebuffer to describe layout of framebuffer
+			static VkRenderPassBeginInfo renderpass_begin{
+				VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+				nullptr,
+				renderPass->vkHandle(),
+				VK_NULL_HANDLE, // update this every frame
+				VkRect2D{ VkOffset2D{0, 0}, swapchain->Extent },
+				2,
+				clear_values.data(),
+			};
+
+			static VkCommandBufferInheritanceInfo inherit_info = vk_command_buffer_inheritance_info_base;
+			inherit_info.renderPass = renderPass->vkHandle();
+			inherit_info.subpass = 0;
+
 			for (uint32_t i = 0; i < graphicsPool->size(); ++i) {
 
-				static VkCommandBufferBeginInfo begin = vk_command_buffer_begin_info_base;
-				begin.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-				begin.pInheritanceInfo = nullptr;
+				VkCommandBufferBeginInfo begin_info = vk_command_buffer_begin_info_base;
+				begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+				begin_info.pInheritanceInfo = nullptr;
 
-				VkResult err = vkBeginCommandBuffer(graphicsPool->GetCmdBuffer(i), &begin);
+				VkResult err = vkBeginCommandBuffer(graphicsPool->GetCmdBuffer(i), &begin_info);
 				VkAssert(err);
+				
+				renderpass_begin.framebuffer = framebuffers[i].vkHandle();
+				renderpass_begin.renderArea.extent = swapchain->Extent;
+				inherit_info.framebuffer = framebuffers[i].vkHandle();
 
-				VkRenderPassBeginInfo rp_begin = vk_renderpass_begin_info_base;
-				rp_begin.renderPass = *renderPass;
-				rp_begin.framebuffer = framebuffers[i].vkHandle();
-				rp_begin.renderArea.offset = { 0, 0 };
-				rp_begin.renderArea.extent = swapchain->Extent;
-				VkClearValue clear_color = { 0.025f, 0.025f, 0.085f, 1.0f };
-				VkClearValue clear_depth = { 1.0f, 0 };
-				std::array<VkClearValue, 2> clear_vals{ clear_color, clear_depth };
-				rp_begin.clearValueCount = clear_vals.size();
-				rp_begin.pClearValues = clear_vals.data();
 				static VkDeviceSize offsets[1]{ 0 };
-
-				vkCmdBeginRenderPass(graphicsPool->GetCmdBuffer(i), &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
 
 				VkViewport viewport = vk_default_viewport;
 				viewport.width = swapchain->Extent.width;
 				viewport.height = swapchain->Extent.height;
-				vkCmdSetViewport(graphicsPool->GetCmdBuffer(i), 0, 1, &viewport);
 
 				VkRect2D scissor = vk_default_viewport_scissor;
 				scissor.extent.width = swapchain->Extent.width;
 				scissor.extent.height = swapchain->Extent.height;
-				vkCmdSetScissor(graphicsPool->GetCmdBuffer(i), 0, 1, &scissor);
 
-				skybox->RecordCommands(graphicsPool->GetCmdBuffer(i));
-				object->BuildCommandBuffers(graphicsPool->GetCmdBuffer(i));
+				vkCmdBeginRenderPass(graphicsPool->GetCmdBuffer(i), &renderpass_begin, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+				
+				begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+				inherit_info.framebuffer = framebuffers[i].vkHandle();
+				begin_info.pInheritanceInfo = &inherit_info;
+
+				VkCommandBuffer& skybox_buff = secondaryPool->GetCmdBuffer(i + swapchain->ImageCount);
+
+
+				vkBeginCommandBuffer(skybox_buff, &begin_info);
+				vkCmdSetViewport(skybox_buff, 0, 1, &viewport);
+				vkCmdSetScissor(skybox_buff, 0, 1, &scissor);
+
+				skybox->RecordCommands(skybox_buff);
+
+				vkEndCommandBuffer(skybox_buff);
+
+				object->UpdateNodes(skybox_buff, begin_info, instance->GetViewMatrix(), viewport, scissor);
+
+				// Execute commands in secondary command buffer
+				vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), 1, &skybox_buff);
 
 				vkCmdEndRenderPass(graphicsPool->GetCmdBuffer(i));
-
 				err = vkEndCommandBuffer(graphicsPool->GetCmdBuffer(i));
 				VkAssert(err);
 			}
@@ -136,11 +170,10 @@ namespace terrain_scene {
 
 				RecordCommands();
 
-				draw_frame();
+				submit_frame();
 
-				for (size_t i = 0; i < swapchain->ImageCount; ++i) {
-					vkResetCommandBuffer(graphicsPool->GetCmdBuffer(i), VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
-				}
+				vkResetCommandPool(device->vkHandle(), secondaryPool->vkHandle(), VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+				vkResetCommandPool(device->vkHandle(), graphicsPool->vkHandle(), VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 			}
 			vkDeviceWaitIdle(device->vkHandle());
 			glfwTerminate();
@@ -148,7 +181,7 @@ namespace terrain_scene {
 
 	private:
 
-		void draw_frame() {
+		void submit_frame() {
 			
 			uint32_t image_idx;
 			vkAcquireNextImageKHR(device->vkHandle(), swapchain->vkHandle(), std::numeric_limits<uint64_t>::max(), semaphores[0], VK_NULL_HANDLE, &image_idx);
@@ -163,6 +196,7 @@ namespace terrain_scene {
 			submit_info.pSignalSemaphores = &semaphores[1];
 			VkResult result = vkQueueSubmit(device->GraphicsQueue(), 1, &submit_info, VK_NULL_HANDLE);
 			VkAssert(result);
+
 			VkPresentInfoKHR present_info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 			present_info.waitSemaphoreCount = 1;
 			present_info.pWaitSemaphores = &semaphores[1];
@@ -170,14 +204,15 @@ namespace terrain_scene {
 			present_info.pSwapchains = &swapchain->vkHandle();
 			present_info.pImageIndices = &image_idx;
 			present_info.pResults = nullptr;
-			vkQueuePresentKHR(device->GraphicsQueue(), &present_info);
 
+			vkQueuePresentKHR(device->GraphicsQueue(), &present_info);
+			vkQueueWaitIdle(device->GraphicsQueue());
 		}
 
 		std::shared_ptr<PipelineCache> pipelineCache;
 		terrain::TerrainQuadtree* object;
 		Skybox* skybox;
-		TransferPool* terrainTransferPool;
+		CommandPool* secondaryPool;
 	};
 
 }

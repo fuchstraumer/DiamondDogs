@@ -12,6 +12,7 @@ vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(pare
 	static std::array<VkDescriptorPoolSize, 1> pools{
 		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 },
 	};
+
 	VkDescriptorPoolCreateInfo pool_info = vk_descriptor_pool_create_info_base;
 	pool_info.maxSets = 1;
 	pool_info.poolSizeCount = 1;
@@ -25,7 +26,7 @@ vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(pare
 	};
 
 	VkDescriptorSetLayoutCreateInfo layout_info = vk_descriptor_set_layout_create_info_base;
-	layout_info.bindingCount = 2;
+	layout_info.bindingCount = 1;
 	layout_info.pBindings = bindings.data();
 
 	result = vkCreateDescriptorSetLayout(device->vkHandle(), &layout_info, nullptr, &descriptorSetLayout);
@@ -34,6 +35,9 @@ vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(pare
 	VkPipelineLayoutCreateInfo pipeline_info = vk_pipeline_layout_create_info_base;
 	pipeline_info.setLayoutCount = 1;
 	pipeline_info.pSetLayouts = &descriptorSetLayout;
+	VkPushConstantRange range{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO) };
+	pipeline_info.pushConstantRangeCount = 1;
+	pipeline_info.pPushConstantRanges = &range;
 
 	result = vkCreatePipelineLayout(device->vkHandle(), &pipeline_info, nullptr, &pipelineLayout);
 	VkAssert(result);
@@ -46,12 +50,19 @@ vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(pare
 	result = vkAllocateDescriptorSets(device->vkHandle(), &alloc_info, &descriptorSet);
 	VkAssert(result);
 
-	vert = new ShaderModule(device, "shaders/aabb/aabb.vert", VK_SHADER_STAGE_VERTEX_BIT);
-	frag = new ShaderModule(device, "shaders/aabb/aabb.frag", VK_SHADER_STAGE_FRAGMENT_BIT);
+	vert = new ShaderModule(device, "shaders/aabb/aabb.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+	frag = new ShaderModule(device, "shaders/aabb/aabb.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
+	VkCommandPoolCreateInfo transfer_pool_info = vk_command_pool_info_base;
+	transfer_pool_info.queueFamilyIndex = device->QueueFamilyIndices.Transfer;
+
+	transferPool = new TransferPool(device, transfer_pool_info);
 }
 
-void vulpes::terrain::NodeSubset::CreatePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache) {
+void vulpes::terrain::NodeSubset::CreatePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection) {
+
+	CreateUBO(projection);
+
 	const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
 	VkPipelineVertexInputStateCreateInfo vert_info = Vertices::PipelineInfo();
 
@@ -94,7 +105,7 @@ void vulpes::terrain::NodeSubset::CreatePipeline(const VkRenderPass & renderpass
 	pipeline_create_info.basePipelineIndex = -1;
 
 	pipeline = new GraphicsPipeline(device, swapchain);
-	pipeline->Init(pipeline_create_info, pipelineCache->vkHandle());
+	pipeline->Init(pipeline_create_info, cache->vkHandle());
 }
 
 void vulpes::terrain::NodeSubset::CreateUBO(const glm::mat4 & projection) {
@@ -111,35 +122,85 @@ void vulpes::terrain::NodeSubset::CreateUBO(const glm::mat4 & projection) {
 
 }
 
-void vulpes::terrain::NodeSubset::AddNode(const TerrainNode * node){
-	// Since LOD level is based on distance, we use LOD level to compare
-	// nodes and place highest LOD level first, in hopes that it renders first.
-	nodes.insert(std::make_pair(node->Status, node));
-}
-
-void vulpes::terrain::NodeSubset::BuildCommandBuffers(VkCommandBuffer& cmd) {
-	// First, attempt to quickly transfer resources.
-	auto transfer_cmd = transferPool->Start();
-	for (auto& node : nodes) {
-		
+void vulpes::terrain::NodeSubset::AddNode(TerrainNode * node, bool ready){
+	if (ready) {
+		readyNodes.push_front(node);
 	}
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-	for(const auto& node : nodes) {
-	
+	else {
+		transferNodes.push_front(node);
 	}
 }
 
-void vulpes::terrain::NodeSubset::Update() {
-	if (nodes.count(NodeStatus::MeshUnbuilt) != 0) {
-		auto transfer_iter = nodes.find(NodeStatus::MeshUnbuilt);
-	}
-	if (nodes.count(NodeStatus::Active) != 0) {
-		auto active_iter = nodes.find(NodeStatus::Active);
-	}
-}
-
-void vulpes::terrain::NodeSubset::UpdateUBO(const glm::mat4 & view) {
+void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor) {
 	uboData.view = view;
+	
+	if (!readyNodes.empty()) {
+		vkBeginCommandBuffer(graphics_cmd, &begin_info);
+		// Record commands for all nodes now
+		vkCmdSetViewport(graphics_cmd, 0, 1, &viewport);
+		vkCmdSetScissor(graphics_cmd, 0, 1, &scissor);
+		vkCmdBindPipeline(graphics_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
+		vkCmdBindDescriptorSets(graphics_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+		
+		auto iter = readyNodes.begin();
+		while (iter != readyNodes.end()) {
+			TerrainNode* curr = *iter;
+			NodeStatus curr_status = curr->Status;
+			switch (curr_status) {
+			case NodeStatus::OutOfFrustum:
+				(*iter)->mesh.cleanup();
+				readyNodes.erase(iter++);
+				break;
+			case NodeStatus::Subdivided:
+				(*iter)->mesh.cleanup();
+				readyNodes.erase(iter++);
+				break;
+			case NodeStatus::OutOfRange:
+				(*iter)->mesh.cleanup();
+				readyNodes.erase(iter++);
+			case NodeStatus::Active:
+				// Push constant block contains our 3 matrices, update that now.
+				uboData.model = curr->mesh.get_model_matrix();
+				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO), &uboData);
+				// Generates draw commands
+				curr->BuildCommandBuffer(graphics_cmd);
+				++iter;
+				break;
+			case NodeStatus::NeedsTransfer:
+				++iter;
+				break;
+			default:
+				break;
+			}
+		}
+		vkEndCommandBuffer(graphics_cmd);
+	}
+	
 
+	bool submit_transfer = false;
+	if (!transferNodes.empty()) {
+		transferPool->Start();
+		submit_transfer = true;
+	}
+
+	auto start = std::chrono::high_resolution_clock::now();
+	size_t node_count = 0;
+	while (!transferNodes.empty()) {
+		TerrainNode* curr = transferNodes.front();
+		curr->CreateMesh();
+		curr->TransferMesh(transferPool->CmdBuffer());
+		curr->Status = NodeStatus::Active;
+		readyNodes.push_front(curr);
+		transferNodes.pop_front();
+		++node_count;
+	}
+
+	if (submit_transfer) {
+		auto end = std::chrono::high_resolution_clock::now();
+		auto dur = end - start;
+		transferPool->Submit();
+		LOG(INFO) << "Transferring " << node_count << " nodes took " << std::chrono::duration_cast<std::chrono::milliseconds>(dur).count() << " ms";
+		Buffer::DestroyStagingResources(device);
+	}
 }
+

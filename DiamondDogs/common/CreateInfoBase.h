@@ -101,7 +101,7 @@ namespace vulpes {
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 		nullptr,
 		VK_NULL_HANDLE,
-		VK_COMMAND_BUFFER_LEVEL_MAX_ENUM,
+		VK_COMMAND_BUFFER_LEVEL_PRIMARY,
 		0,
 	};
 
@@ -110,6 +110,17 @@ namespace vulpes {
 		nullptr,
 		0,
 		nullptr,
+	};
+
+	constexpr VkCommandBufferInheritanceInfo vk_command_buffer_inheritance_info_base{
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+		nullptr,
+		VK_NULL_HANDLE,
+		0,
+		VK_NULL_HANDLE,
+		VK_FALSE,
+		0,
+		0,
 	};
 
 	constexpr VkRenderPassBeginInfo vk_renderpass_begin_info_base{

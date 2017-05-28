@@ -38,6 +38,13 @@
 #include "common/vkAssert.h"
 #include "common/vk_constants.h"
 
+#include "common\CommonDef.h"
+
+#define NOMINMAX
+#include "engine\util\easylogging++.h"
+#undef NOMINMAX
+
+
 // GLFW declarations and definitions
 constexpr uint32_t DEFAULT_WIDTH = 1920, DEFAULT_HEIGHT = 1080;
 // Defines depth rendering ranges for projection matrix.

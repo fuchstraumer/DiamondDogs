@@ -59,10 +59,17 @@ namespace vulpes {
 
 
 	class Mesh {
+		Mesh(const Mesh& other) = delete;
+		Mesh& operator=(const Mesh& other) = delete;
+
 	public:
 		Mesh(const glm::vec3& pos = glm::vec3(0.0f), const glm::vec3& _scale = glm::vec3(1.0f), const glm::vec3& _angle = glm::vec3(0.0f)) : position(pos), scale(_scale), angle(_angle) {
-			model = get_model_matrix();
+			vbo.fill(nullptr);
+			ebo = nullptr;
 		}
+
+		Mesh(Mesh&& other);
+		Mesh& operator=(Mesh&& other);
 
 		~Mesh();
 
@@ -81,6 +88,12 @@ namespace vulpes {
 		glm::mat4 get_rte_mv(const glm::mat4& view) const;
 
 		void create_vbo(const Device* render_device, CommandPool* cmd_pool, const VkQueue& queue);
+
+		void create_buffers(const Device* device);
+
+		void transfer_to_device(CommandPool* cmd_pool, const VkQueue& queue);
+
+		void record_transfer_commands(VkCommandBuffer& transfer_cmd);
 
 		void render(const VkCommandBuffer& cmd) const;
 

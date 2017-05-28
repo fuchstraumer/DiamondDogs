@@ -65,7 +65,7 @@ namespace vulpes {
 
 		InstanceGLFW(VkInstanceCreateInfo create_info, const bool& enable_validation, const uint32_t& width = DEFAULT_WIDTH, const uint32_t& height = DEFAULT_HEIGHT);
 
-		void CreateWindow(const bool& fullscreen_enabled = false);
+		void CreateWindowGLFW(const bool& fullscreen_enabled = false);
 
 		virtual void SetupSurface() override;
 

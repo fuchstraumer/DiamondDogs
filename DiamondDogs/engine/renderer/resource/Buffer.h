@@ -47,7 +47,12 @@ namespace vulpes {
 
 		static void CreateStagingBuffer(const Device* dvc, const VkDeviceSize& size, VkBuffer& dest, VkDeviceMemory& dest_memory);
 
+		static void DestroyStagingResources(const Device* device);
+
 	private:
+
+		static std::vector<VkBuffer> stagingBuffers;
+		static std::vector<VkDeviceMemory> stagingMemory;
 
 		void createStagingBuffer(const VkDeviceSize& size, const VkDeviceSize& offset, VkBuffer& staging_buffer, VkDeviceMemory& staging_memory);
 

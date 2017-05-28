@@ -4,13 +4,26 @@
 #include "engine\renderer\resource\ShaderModule.h"
 #include "engine\renderer\resource\Buffer.h"
 #include "engine\renderer\core\LogicalDevice.h"
+#include "engine\renderer\command\CommandPool.h"
 
 namespace vulpes {
-
+	Mesh & Mesh::operator=(Mesh && other) {
+		vbo = std::move(other.vbo);
+		ebo = std::move(other.ebo);
+		vertices = std::move(other.vertices);
+		indices = std::move(other.indices);
+		ready = std::move(other.ready);
+		device = std::move(other.device);
+		model = std::move(other.model);
+		angle = std::move(other.angle);
+		position = std::move(other.position);
+		scale = std::move(other.scale);
+		other.vbo.fill(nullptr);
+		other.ebo = nullptr;
+		return *this;
+	}
 	Mesh::~Mesh() {
-		delete vbo[0];
-		delete vbo[1];
-		delete ebo;
+		cleanup();
 	}
 
 	vertex_t Mesh::get_vertex(const uint32_t& idx) const {
@@ -41,8 +54,7 @@ namespace vulpes {
 		glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), angle.x, glm::vec3(1.0f, 0.0f, 0.0f));
 		glm::mat4 rotY = glm::rotate(glm::mat4(1.0f), angle.y, glm::vec3(0.0f, 1.0f, 0.0f));
 		glm::mat4 rotZ = glm::rotate(glm::mat4(1.0f), angle.z, glm::vec3(0.0f, 0.0f, 1.0f));
-		glm::mat4 result = scaleMatrix * rotX * rotY * rotZ * translationMatrix;
-		return result;
+		return translationMatrix * rotX * rotY * rotZ * scaleMatrix;
 	}
 
 	glm::mat4 Mesh::get_rte_mv(const glm::mat4& view) const {
@@ -63,29 +75,62 @@ namespace vulpes {
 
 		vbo[0] = new Buffer(device);
 		vbo[0]->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sz);
-		vbo[0]->CopyTo(vertices.positions.data(), cmd_pool, queue, sz);
 		
 		sz = vertices.normals_uvs.size() * sizeof(vert_data);
 		vbo[1] = new Buffer(device);
 		vbo[1]->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sz);
-		vbo[1]->CopyTo(vertices.normals_uvs.data(), cmd_pool, queue, sz);
 
 		create_ebo(cmd_pool, queue);
+
 		ready = true;
+	}
+
+	void Mesh::create_buffers(const Device * _device) {
+		if (ready) {
+			return;
+		}
+
+		this->device = _device;
+
+		VkDeviceSize sz = vertices.size() * sizeof(glm::vec3);
+
+		vbo[0] = new Buffer(device);
+		vbo[0]->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sz);
+
+		sz = vertices.normals_uvs.size() * sizeof(vert_data);
+		vbo[1] = new Buffer(device);
+		vbo[1]->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sz);
+
+		ebo = new Buffer(device);
+		ebo->CreateBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indices.size() * sizeof(uint32_t));
+
+		ready = true;
+	}
+
+	void Mesh::transfer_to_device(CommandPool * cmd_pool, const VkQueue & queue) {
+		VkCommandBuffer transfer_cmd = cmd_pool->StartSingleCmdBuffer();
+		record_transfer_commands(transfer_cmd);
+		cmd_pool->EndSingleCmdBuffer(transfer_cmd, queue);
 	}
 
 	void Mesh::create_ebo(CommandPool * cmd_pool, const VkQueue & queue) {
 		ebo = new Buffer(device);
 		ebo->CreateBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indices.size() * sizeof(uint32_t));
-		ebo->CopyTo(indices.data(), cmd_pool, queue, indices.size() * sizeof(uint32_t));
+	}
+
+	void Mesh::record_transfer_commands(VkCommandBuffer & transfer_cmd) {
+		vbo[0]->CopyTo(vertices.positions.data(), transfer_cmd);
+		vbo[1]->CopyTo(vertices.normals_uvs.data(), transfer_cmd);
+		ebo->CopyTo(indices.data(), transfer_cmd);
+		//free_cpu_data();
 	}
 
 	void Mesh::render(const VkCommandBuffer & cmd) const {
 		static const VkDeviceSize offsets[]{ 0 };
-		VkBuffer buffers[3]{ vbo[0]->vkHandle(), vbo[1]->vkHandle() };
+		VkBuffer buffers[2]{ vbo[0]->vkHandle(), vbo[1]->vkHandle() };
 		vkCmdBindVertexBuffers(cmd, 0, 2, buffers, offsets);
 		vkCmdBindIndexBuffer(cmd, ebo->vkHandle(), 0, VK_INDEX_TYPE_UINT32);
-		vkCmdDrawIndexed(cmd, indices.size(), 1, 0, 0, 0);
+		vkCmdDrawIndexed(cmd, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 	}
 
 	void Mesh::cleanup() {
@@ -105,16 +150,16 @@ namespace vulpes {
 	}
 
 	void Mesh::destroy_vk_resources() {
-		if (vbo[0] != nullptr && vbo[1] != nullptr) {
+		if (vbo[0]) {
 			vbo[0]->Destroy();
+		}
+		if (vbo[1]) {
 			vbo[1]->Destroy();
 		}
-		if (ebo != nullptr) {
+		if (ebo) {
 			ebo->Destroy();
 		}
-		if (ready) {
-			ready = false;
-		}
+		ready = false;
 	}
 
 }

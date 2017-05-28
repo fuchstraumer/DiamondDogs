@@ -112,8 +112,7 @@ void vulpes::BaseScene::SetupRenderpass() {
 }
 
 void vulpes::BaseScene::SetupDepthStencil(){
-	VkQueue depth_queue;
-	device->TransferQueue(0, depth_queue);
+	VkQueue depth_queue = device->GraphicsQueue(0);
 	depthStencil = new DepthStencil(device, VkExtent3D{ swapchain->Extent.width, swapchain->Extent.height, 1 }, transferPool, depth_queue);
 }
 

@@ -91,7 +91,7 @@ namespace vulpes {
 		glfwInit();
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-		CreateWindow();
+		CreateWindowGLFW();
 		
 		std::vector<const char*> ext;
 		validationEnabled = enable_validation;
@@ -131,7 +131,7 @@ namespace vulpes {
 		projection[1][1] *= -1.0f;
 	}
 
-	void InstanceGLFW::CreateWindow(const bool & fullscreen_enabled) {
+	void InstanceGLFW::CreateWindowGLFW(const bool & fullscreen_enabled) {
 		if (!fullscreen_enabled) {
 			Window = glfwCreateWindow(width, height, createInfo.pApplicationInfo->pApplicationName, nullptr, nullptr);
 			glfwSetCursorPosCallback(Window, MousePosCallback);
