@@ -31,15 +31,18 @@ namespace vulpes {
 			3,2,6, 6,7,3,
 		};
 
-		static constexpr size_t MemoryResidencyTime = 10e8;
+		static constexpr size_t MemoryResidencyTime = 10e6;
 
 		class NodeSubset;
 
 		class TerrainNode {
 		public:
 
+			static bool DrawAABB;
 
-			TerrainNode(const Device* device, const size_t& depth, const glm::ivec2& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod);
+			TerrainNode(const Device* device, const size_t& depth, const glm::ivec2& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod, const double& switch_ratio);
+
+			~TerrainNode();
 
 			void CreateMesh();
 
@@ -93,7 +96,11 @@ namespace vulpes {
 			
 			Mesh mesh;
 
-			const float MaxRenderDistance = 3000.0f;
+			Mesh aabb_mesh;
+
+			double switchRatio;
+
+			const float MaxRenderDistance = 9000.0f;
 
 			const Device* device;
 

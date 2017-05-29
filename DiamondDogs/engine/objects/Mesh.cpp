@@ -48,6 +48,10 @@ namespace vulpes {
 		indices.push_back(i2);
 	}
 
+	void Mesh::resize(const uint32_t & sz) {
+		vertices.resize(sz);
+	}
+
 	glm::mat4 Mesh::get_model_matrix() const {
 		return model;
 	}

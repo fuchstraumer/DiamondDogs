@@ -86,6 +86,8 @@ namespace vulpes {
 
 		void add_triangle(const uint32_t& i0, const uint32_t& i1, const uint32_t& i2);
 
+		void resize(const uint32_t& sz);
+
 		glm::mat4 model;
 		glm::vec3 position, scale, angle;
 

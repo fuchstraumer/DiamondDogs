@@ -3,7 +3,7 @@
 #include "engine/renderer/resource/Buffer.h"
 
 vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, const float & split_factor, const size_t & max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position) : activeNodes(device) {
-	root = std::make_unique<TerrainNode>(device, 0, glm::ivec2(0, 0), root_tile_position, root_side_length, max_detail_level);
+	root = std::make_unique<TerrainNode>(device, 0, glm::ivec2(0, 0), root_tile_position, root_side_length, max_detail_level, split_factor);
 }
 
 void vulpes::terrain::TerrainQuadtree::SetupNodePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4 & projection) {

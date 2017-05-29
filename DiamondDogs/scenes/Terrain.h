@@ -31,9 +31,7 @@ namespace terrain_scene {
 			VkQueue transfer;
 			transfer = device->GraphicsQueue(0);
 
-			instance->SetCamPos(glm::vec3(0.0f, 200.0f, 0.0f));
-
-			object = new terrain::TerrainQuadtree(device, 1.1f, 6, 1000.0, glm::vec3(0.0f));
+			object = new terrain::TerrainQuadtree(device, 1.25f, 10, 1000.0, glm::vec3(0.0f));
 			object->SetupNodePipeline(renderPass->vkHandle(), swapchain, pipelineCache, instance->GetProjectionMatrix());
 
 			skybox = new Skybox(device);
@@ -42,13 +40,13 @@ namespace terrain_scene {
 
 			SetupFramebuffers();
 
-			RecordCommands();
 
 		}
 
 		~TerrainScene() {
 			delete skybox;
 			delete object;
+			delete secondaryPool;
 		}
 
 		virtual void CreateCommandPools() override {
@@ -129,23 +127,22 @@ namespace terrain_scene {
 				inherit_info.framebuffer = framebuffers[i].vkHandle();
 				begin_info.pInheritanceInfo = &inherit_info;
 
-				VkCommandBuffer& skybox_buff = secondaryPool->GetCmdBuffer(i + swapchain->ImageCount);
+				VkCommandBuffer& skybox_buffer = secondaryPool->GetCmdBuffer(i + swapchain->ImageCount);
+				VkCommandBuffer& terrain_buffer = secondaryPool->GetCmdBuffer(i);
 
+				vkBeginCommandBuffer(skybox_buffer, &begin_info);
+				vkCmdSetViewport(skybox_buffer, 0, 1, &viewport);
+				vkCmdSetScissor(skybox_buffer, 0, 1, &scissor);
 
-				vkBeginCommandBuffer(skybox_buff, &begin_info);
-				vkCmdSetViewport(skybox_buff, 0, 1, &viewport);
-				vkCmdSetScissor(skybox_buff, 0, 1, &scissor);
+				skybox->RecordCommands(skybox_buffer);
 
-				skybox->RecordCommands(skybox_buff);
+				vkEndCommandBuffer(skybox_buffer);;
 
-				vkEndCommandBuffer(skybox_buff);
-
-				//vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), 1, &skybox_buff);
-
-				object->UpdateNodes(skybox_buff, begin_info, instance->GetViewMatrix(), viewport, scissor);
+				object->UpdateNodes(terrain_buffer, begin_info, instance->GetViewMatrix(), viewport, scissor);
 
 				// Execute commands in secondary command buffer
-				vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), 1, &skybox_buff);
+				std::vector<VkCommandBuffer> buffers{ skybox_buffer, terrain_buffer };
+				vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), 2, buffers.data());
 
 				vkCmdEndRenderPass(graphicsPool->GetCmdBuffer(i));
 				err = vkEndCommandBuffer(graphicsPool->GetCmdBuffer(i));

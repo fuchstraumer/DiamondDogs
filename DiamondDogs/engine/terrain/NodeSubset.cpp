@@ -59,6 +59,17 @@ vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(pare
 	transferPool = new TransferPool(device, transfer_pool_info);
 }
 
+vulpes::terrain::NodeSubset::~NodeSubset() {
+	vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
+	vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
+	vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
+	delete transferPool;
+	delete ubo;
+	delete pipeline;
+	delete frag;
+	delete vert;
+}
+
 void vulpes::terrain::NodeSubset::CreatePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection) {
 
 	CreateUBO(projection);
@@ -131,7 +142,7 @@ void vulpes::terrain::NodeSubset::AddNode(TerrainNode * node, bool ready){
 	}
 }
 
-static const std::array<glm::vec4, 16> LOD_COLORS{
+static const std::array<glm::vec4, 20> LOD_COLORS{
 	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
 	glm::vec4(0.9f, 0.1f, 0.0f, 1.0f),
 	glm::vec4(0.8f, 0.2f, 0.0f, 1.0f),
@@ -142,18 +153,23 @@ static const std::array<glm::vec4, 16> LOD_COLORS{
 	glm::vec4(0.3f, 0.7f, 0.0f, 1.0f),
 	glm::vec4(0.2f, 0.8f, 0.1f, 1.0f),
 	glm::vec4(0.1f, 0.9f, 0.2f, 1.0f),
-	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
-	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
-	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
-	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
-	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+	glm::vec4(0.0f, 0.8f, 0.2f, 1.0f),
+	glm::vec4(0.0f, 0.7f, 0.3f, 1.0f),
+	glm::vec4(0.0f, 0.6f, 0.4f, 1.0f),
+	glm::vec4(0.0f, 0.5f, 0.5f, 1.0f),
+	glm::vec4(0.0f, 0.4f, 0.6f, 1.0f),
+	glm::vec4(0.0f, 0.3f, 0.7f, 1.0f),
+	glm::vec4(0.0f, 0.2f, 0.8f, 1.0f),
+	glm::vec4(0.0f, 0.1f, 0.9f, 1.0f),
+	glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
 };
 
 void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor) {
 	uboData.view = view;
-	
+	VkResult result = vkBeginCommandBuffer(graphics_cmd, &begin_info);
+	VkAssert(result);
 	if (!readyNodes.empty()) {
-		vkBeginCommandBuffer(graphics_cmd, &begin_info);
+		
 		// Record commands for all nodes now
 		vkCmdSetViewport(graphics_cmd, 0, 1, &viewport);
 		vkCmdSetScissor(graphics_cmd, 0, 1, &scissor);
@@ -165,12 +181,9 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 			TerrainNode* curr = *iter;
 			switch (curr->Status) {
 			case NodeStatus::NeedsUnload:
-				LOG_EVERY_N(10, INFO) << "10 nodes unloaded.";
-				(*iter)->mesh.cleanup();
 				readyNodes.erase(iter++);
 				break;
 			case NodeStatus::Subdivided:
-				(*iter)->mesh.cleanup();
 				readyNodes.erase(iter++);
 				break;
 			case NodeStatus::Active:
@@ -190,8 +203,9 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 				break;
 			}
 		}
-		vkEndCommandBuffer(graphics_cmd);
 	}
+	result = vkEndCommandBuffer(graphics_cmd);
+	VkAssert(result);
 	
 
 	bool submit_transfer = false;

@@ -127,7 +127,7 @@ namespace vulpes {
 			CreateDebugCallback(*this, VK_DEBUG_REPORT_DEBUG_BIT_EXT, &vkCallback, AllocationCallbacks);
 		}
 		
-		projection = glm::perspective(glm::radians(75.0f), static_cast<float>(width) / static_cast<float>(height), 1.0f, 40000.0f);
+		projection = glm::perspective(glm::radians(75.0f), static_cast<float>(width) / static_cast<float>(height), 0.01f, 40000.0f);
 		projection[1][1] *= -1.0f;
 	}
 
