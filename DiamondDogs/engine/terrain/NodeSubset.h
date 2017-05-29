@@ -36,8 +36,11 @@ namespace vulpes {
 			VkDescriptorSet descriptorSet;
 			VkDescriptorPool descriptorPool;
 			VkPipelineLayout pipelineLayout;
+			VkPipelineLayout aabbPipelineLayout;
 			ShaderModule *vert, *frag;
 			const Device* device;
+
+			Texture2D *height, *normal;
 
 			GraphicsPipeline* pipeline;
 			std::shared_ptr<PipelineCache> pipelineCache;
@@ -56,6 +59,8 @@ namespace vulpes {
 			vsUBO uboData;
 
 			NodeSubset(const Device* parent_dvc);
+
+			~NodeSubset();
 
 			void CreatePipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection);
 

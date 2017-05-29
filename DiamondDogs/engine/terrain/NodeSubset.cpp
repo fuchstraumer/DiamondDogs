@@ -9,13 +9,14 @@
 
 vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(parent_dvc) {
 
-	static std::array<VkDescriptorPoolSize, 1> pools{
+	static const std::array<VkDescriptorPoolSize, 2> pools{
 		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 },
+		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2},
 	};
 
 	VkDescriptorPoolCreateInfo pool_info = vk_descriptor_pool_create_info_base;
 	pool_info.maxSets = 1;
-	pool_info.poolSizeCount = 1;
+	pool_info.poolSizeCount = 2;
 	pool_info.pPoolSizes = pools.data();
 
 	VkResult result = vkCreateDescriptorPool(device->vkHandle(), &pool_info, nullptr, &descriptorPool);
@@ -23,6 +24,7 @@ vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(pare
 
 	static std::array<VkDescriptorSetLayoutBinding, 2> bindings{
 		VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr },
+		VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, VK_SHADER_STAGE_VERTEX_BIT, nullptr }
 	};
 
 	VkDescriptorSetLayoutCreateInfo layout_info = vk_descriptor_set_layout_create_info_base;
@@ -179,6 +181,9 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 		auto iter = readyNodes.begin();
 		while (iter != readyNodes.end()) {
 			TerrainNode* curr = *iter;
+			if (!curr) {
+				readyNodes.erase(iter++);
+			}
 			switch (curr->Status) {
 			case NodeStatus::NeedsUnload:
 				readyNodes.erase(iter++);

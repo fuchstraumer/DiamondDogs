@@ -32,7 +32,7 @@ vulpes::terrain::TerrainNode::~TerrainNode() {
 	}
 }
 
-constexpr size_t N_VERTS_PER_SIDE = 8;
+constexpr size_t N_VERTS_PER_SIDE = 16;
 
 void vulpes::terrain::TerrainNode::CreateMesh() {
 	if (mesh.Ready()) {
@@ -42,12 +42,12 @@ void vulpes::terrain::TerrainNode::CreateMesh() {
 	
 	{
 		int i = 0;
-		float step_size = 1.0f / N_VERTS_PER_SIDE;
+		float step_size = 2.0f / N_VERTS_PER_SIDE;
 		int v_count = N_VERTS_PER_SIDE;
 		int v_count2 = v_count * v_count;
 		for (int z = 0; z < v_count2; ++z) {
 			for (int x = 0; x < v_count2; ++x) {
-				mesh.add_vertex(glm::vec3(x * step_size - 1.0f, 0.0f, z * step_size - 1.0f));
+				mesh.add_vertex(glm::vec3(x * step_size, 0.0f, z * step_size));
 			}
 		}
 
@@ -81,7 +81,7 @@ void vulpes::terrain::TerrainNode::TransferMesh(VkCommandBuffer & cmd) {
 	}
 }
 
-bool vulpes::terrain::TerrainNode::Leaf() const noexcept {
+bool vulpes::terrain::TerrainNode::Leaf() const {
 	for (auto& child : children) {
 		if (child) {
 			return false;
@@ -94,7 +94,7 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, Nod
 	// Get distance from camera to bounds of this node.
 	// Radius of sphere is 1.1 times current node side length, which specifies
 	// the range from a node we consider to be the LOD switch distance
-	const util::Sphere lod_sphere{ camera_position, SideLength * 1.10 };
+	const util::Sphere lod_sphere{ camera_position, SideLength * switchRatio };
 	const util::Sphere aabb_sphere{ SpatialCoordinates, SideLength };
 	 
 	// Depth is less than max subdivide level and we're in subdivide range.

@@ -57,7 +57,7 @@ namespace vulpes {
 			void InitChild(size_t i);
 
 			// true if all of the Child pointers are nullptr
-			bool Leaf() const noexcept;
+			bool Leaf() const;
 
 			void Update(const glm::vec3 & camera_position, NodeSubset* active_nodes, const util::view_frustum& view);
 
