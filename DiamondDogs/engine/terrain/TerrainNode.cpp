@@ -7,6 +7,9 @@
 
 bool vulpes::terrain::TerrainNode::DrawAABB = false;
 
+gli::texture2d vulpes::terrain::TerrainNode::heightmap = gli::texture2d(gli::load("rsrc/img/terrain_height.dds"));
+gli::texture2d vulpes::terrain::TerrainNode::normalmap = gli::texture2d(gli::load("rsrc/img/terrain_normals.dds"));
+
 void vulpes::terrain::TerrainNode::Subdivide() {
 	double child_length = SideLength / 2.0;
 	double child_offset = SideLength / 4.0;
@@ -50,10 +53,17 @@ void vulpes::terrain::TerrainNode::CreateMesh() {
 		float scale = 1.0f / N_VERTS_PER_SIDE;
 		glm::vec3 offset = glm::vec3(0.5f, 0.0f, -0.5f);
 		int idx = 0;
+
+		auto height_sample = [this](uint32_t x, uint32_t y) {
+			const auto dim = static_cast<uint32_t>(heightmap.extent().x);
+			const auto h_scale = dim / (N_VERTS_PER_SIDE * (Depth + 1));
+
+		};
+
 		for (int y = 0; y < vcount2; ++y) {
 			for (int x = 0; x < vcount2; ++x) {
 				mesh.vertices.positions[idx] = glm::vec3(static_cast<float>(x) * scale - 0.5f + offset.x, 0.0f, static_cast<float>(y)*scale - 1.0f);
-				mesh.vertices.normals_uvs[idx].uv = glm::vec2(x * scale, y * scale);
+				mesh.vertices.normals_uvs[idx].uv = glm::vec2((x * scale) / Depth, (y * scale) / Depth);
 				++idx;
 			}
 		}

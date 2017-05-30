@@ -72,6 +72,8 @@ namespace vulpes {
 
 		void RecordTransferCmd(VkCommandBuffer& transfer_cmd);
 
+		void DestroyStagingObjects();
+
 		void CreateSampler(const VkSamplerCreateInfo& info);
 
 		VkDescriptorImageInfo GetDescriptor() const noexcept;
@@ -80,7 +82,7 @@ namespace vulpes {
 	private:
 
 		gli::texture2d textureData;
-
+		std::vector<VkBufferImageCopy> copyData;
 		VkBuffer stagingBuffer;
 		VkDeviceMemory stagingMemory;
 

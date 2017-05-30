@@ -6,25 +6,24 @@
 #include "engine\renderer\render\GraphicsPipeline.h"
 #include "engine\renderer\resource\Buffer.h"
 #include "engine\renderer\command\CommandPool.h"
+#include "engine\renderer\resource\Texture.h"
 
 vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(parent_dvc) {
 
-	static const std::array<VkDescriptorPoolSize, 2> pools{
-		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 },
-		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2},
+	static const std::array<VkDescriptorPoolSize, 1> pools{
+		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
 	};
 
 	VkDescriptorPoolCreateInfo pool_info = vk_descriptor_pool_create_info_base;
 	pool_info.maxSets = 1;
-	pool_info.poolSizeCount = 2;
+	pool_info.poolSizeCount = pools.size();
 	pool_info.pPoolSizes = pools.data();
 
 	VkResult result = vkCreateDescriptorPool(device->vkHandle(), &pool_info, nullptr, &descriptorPool);
 	VkAssert(result);
 
 	static std::array<VkDescriptorSetLayoutBinding, 2> bindings{
-		VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr },
-		VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2, VK_SHADER_STAGE_VERTEX_BIT, nullptr }
+		VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr }
 	};
 
 	VkDescriptorSetLayoutCreateInfo layout_info = vk_descriptor_set_layout_create_info_base;
@@ -52,13 +51,20 @@ vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(pare
 	result = vkAllocateDescriptorSets(device->vkHandle(), &alloc_info, &descriptorSet);
 	VkAssert(result);
 
-	vert = new ShaderModule(device, "shaders/aabb/aabb.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-	frag = new ShaderModule(device, "shaders/aabb/aabb.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+	vert = new ShaderModule(device, "shaders/terrain/terrain.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+	frag = new ShaderModule(device, "shaders/terrain/terrain.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
 	VkCommandPoolCreateInfo transfer_pool_info = vk_command_pool_info_base;
 	transfer_pool_info.queueFamilyIndex = device->QueueFamilyIndices.Transfer;
 
 	transferPool = new TransferPool(device, transfer_pool_info);
+
+	heightmap = new Texture2D(device);
+	heightmap->CreateFromFile("rsrc/img/terrain_height.dds", VK_FORMAT_BC4_UNORM_BLOCK);
+	auto cmd = transferPool->Start();
+	heightmap->RecordTransferCmd(cmd);
+	transferPool->Submit();
+	heightmap->DestroyStagingObjects();
 }
 
 vulpes::terrain::NodeSubset::~NodeSubset() {
@@ -66,7 +72,7 @@ vulpes::terrain::NodeSubset::~NodeSubset() {
 	vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
 	vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
 	delete transferPool;
-	delete ubo;
+
 	delete pipeline;
 	delete frag;
 	delete vert;
@@ -122,13 +128,13 @@ void vulpes::terrain::NodeSubset::CreatePipeline(const VkRenderPass & renderpass
 }
 
 void vulpes::terrain::NodeSubset::CreateUBO(const glm::mat4 & projection) {
-	ubo = new Buffer(device);
-	ubo->CreateBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, sizeof(vsUBO));
 	uboData.projection = projection;
-
-	auto vs_info = ubo->GetDescriptor();
-	const std::array<VkWriteDescriptorSet, 2> writes{
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, 0, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &vs_info, nullptr },
+	VkSamplerCreateInfo sampler_info = vk_sampler_create_info_base;
+	sampler_info.unnormalizedCoordinates = VK_TRUE;
+	heightmap->CreateSampler(sampler_info);
+	auto descr = heightmap->GetDescriptor();
+	const std::array<VkWriteDescriptorSet, 1> writes{
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, 0, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &descr, nullptr, nullptr },
 	};
 
 	vkUpdateDescriptorSets(device->vkHandle(), 1, writes.data(), 0, nullptr);

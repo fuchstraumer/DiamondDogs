@@ -104,6 +104,8 @@ namespace vulpes {
 
 			const Device* device;
 
+			static gli::texture2d heightmap, normalmap;
+
 		};
 
 	}

@@ -367,6 +367,90 @@ namespace vulpes {
 		VkAssert(result);
 	}
 
+	void Texture2D::CreateFromFile(const char * filename, const VkFormat & texture_format) {
+		// Load data from file and get parameters from said file.
+		textureData = std::move(gli::texture2d(gli::load(filename)));
+		width = static_cast<uint32_t>(textureData.extent().x);
+		height = static_cast<uint32_t>(textureData.extent().y);
+		mipLevels = static_cast<uint32_t>(textureData.levels());
+		layerCount = static_cast<uint32_t>(textureData.layers());
+		format = texture_format;
+
+		Buffer::CreateStagingBuffer(parent, textureData.size(), stagingBuffer, stagingMemory);
+
+		VkResult result = VK_SUCCESS;
+		void* mapped;
+		result = vkMapMemory(parent->vkHandle(), stagingMemory, 0, VK_WHOLE_SIZE, 0, &mapped);
+		VkAssert(result);
+
+		memcpy(mapped, textureData.data(), textureData.size());
+
+		vkUnmapMemory(parent->vkHandle(), stagingMemory);
+
+		copyData.resize(mipLevels);
+		uint32_t offset = 0;
+		for (uint32_t i = 0; i < mipLevels; ++i) {
+			copyData[i] = VkBufferImageCopy{
+				offset,
+				0,
+				0,
+				VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, i, 0, layerCount },
+				VkOffset3D{ 0, 0, 0 },
+				VkExtent3D{ static_cast<uint32_t>(textureData[i].extent().x), static_cast<uint32_t>(textureData[i].extent().y), 1 }
+			};
+			offset += static_cast<uint32_t>(textureData[i].size());
+		}
+
+		createInfo.imageType = VK_IMAGE_TYPE_2D;
+		createInfo.format = texture_format;
+		createInfo.mipLevels = mipLevels;
+		createInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		createInfo.extent = VkExtent3D{ width, height, 1 };
+		createInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		createInfo.arrayLayers = layerCount;
+
+		result = vkCreateImage(parent->vkHandle(), &createInfo, allocators, &image);
+		VkAssert(result);
+
+		VkMemoryAllocateInfo alloc = vk_allocation_info_base;
+		VkMemoryRequirements reqs;
+
+		vkGetImageMemoryRequirements(parent->vkHandle(), image, &reqs);
+		alloc.allocationSize = reqs.size;
+		alloc.memoryTypeIndex = parent->GetMemoryTypeIdx(reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+		result = vkAllocateMemory(parent->vkHandle(), &alloc, nullptr, &memory);
+		VkAssert(result);
+		result = vkBindImageMemory(parent->vkHandle(), image, memory, 0);
+		VkAssert(result);
+
+		VkImageViewCreateInfo view_info = vk_image_view_create_info_base;
+		view_info.subresourceRange.levelCount = mipLevels;
+		view_info.subresourceRange.layerCount = layerCount;
+		view_info.image = image;
+		view_info.format = format;
+
+		result = vkCreateImageView(parent->vkHandle(), &view_info, allocators, &view);
+		VkAssert(result);
+	}
+
+	void Texture2D::RecordTransferCmd(VkCommandBuffer & transfer_cmd) {
+
+		auto barrier0 = Image::GetMemoryBarrier(image, format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		barrier0.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevels, 0, layerCount };
+		auto barrier1 = Image::GetMemoryBarrier(image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		barrier1.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevels, 0, layerCount };
+
+		vkCmdPipelineBarrier(transfer_cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier0);
+		vkCmdCopyBufferToImage(transfer_cmd, stagingBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copyData.size()), copyData.data());
+		vkCmdPipelineBarrier(transfer_cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier1);
+	}
+
+	void Texture2D::DestroyStagingObjects() {
+		vkFreeMemory(parent->vkHandle(), stagingMemory, allocators);
+		vkDestroyBuffer(parent->vkHandle(), stagingBuffer, allocators);
+	}
+
 	void Texture2D::CreateSampler(const VkSamplerCreateInfo & info){
 		VkResult result = VK_SUCCESS;
 		result = vkCreateSampler(parent->vkHandle(), &info, allocators, &sampler);
