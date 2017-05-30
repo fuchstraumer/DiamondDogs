@@ -110,7 +110,6 @@
     <ClInclude Include="common\vk_constants.h" />
     <ClInclude Include="engine\objects\Skybox.h" />
     <ClInclude Include="engine\renderer\command\CommandPool.h" />
-    <ClInclude Include="engine\renderer\command\Submitter.h" />
     <ClInclude Include="engine\renderer\command\TransferPool.h" />
     <ClInclude Include="engine\renderer\core\Camera.h" />
     <ClInclude Include="engine\renderer\core\Instance.h" />

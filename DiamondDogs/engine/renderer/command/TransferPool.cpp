@@ -1,9 +1,10 @@
+#include "stdafx.h"
 #include "TransferPool.h"
 #include "../core/LogicalDevice.h"
 
 namespace vulpes {
 
-    TransferPool::TransferPool(const Device * _parent) : CommandPool(parent) {
+    TransferPool::TransferPool(const Device * _parent) : CommandPool(_parent) {
 		
 		createInfo = transfer_pool_info;
 		createInfo.queueFamilyIndex = parent->QueueFamilyIndices.Transfer;
@@ -17,6 +18,11 @@ namespace vulpes {
 		allocInfo.commandBufferCount = 1;
 
 		CreateCommandBuffers(1);
+
+		result = vkCreateFence(parent->vkHandle(), &vk_fence_create_info_base, allocators, &fence);
+		VkAssert(result);
+
+		parent->TransferQueue(0, queue);
 
 	}
 
@@ -37,8 +43,25 @@ namespace vulpes {
 		VkAssert(result);
 	}
 
-	VkCommandBuffer & TransferPool::CmdBuffer() noexcept {
-		return cmdBuffer;
+	void TransferPool::Submit() {
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = cmdBuffers.data();
+
+		VkResult result = vkQueueSubmit(queue, 1, &submitInfo, fence);
+		VkAssert(result);
+
+		result = vkWaitForFences(parent->vkHandle(), 1, &fence, VK_TRUE, vk_default_fence_timeout);
+		VkAssert(result);
+		vkResetFences(parent->vkHandle(), 1, &fence);
+
+		// Reset command buffer so we can re-record shortly.
+		ResetCommandBuffer(0);
+	}
+
+	VkCommandBuffer& TransferPool::CmdBuffer() noexcept {
+		return cmdBuffers.front();
 	}
 
 }

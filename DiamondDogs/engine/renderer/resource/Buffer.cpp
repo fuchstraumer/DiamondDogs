@@ -7,7 +7,7 @@ namespace vulpes {
 	std::vector<VkBuffer> Buffer::stagingBuffers = std::vector<VkBuffer>();
 	std::vector<VkDeviceMemory> Buffer::stagingMemory = std::vector<VkDeviceMemory>();
 
-	Buffer::Buffer(const Device * _parent) : parent(_parent), createInfo(vk_buffer_create_info_base) {}
+	Buffer::Buffer(const Device * _parent) : parent(_parent), createInfo(vk_buffer_create_info_base), handle(VK_NULL_HANDLE), memory(VK_NULL_HANDLE) {}
 
 	Buffer::~Buffer(){
 		Destroy();
@@ -39,9 +39,11 @@ namespace vulpes {
 	void Buffer::Destroy(){
 		if (memory != VK_NULL_HANDLE) {
 			vkFreeMemory(parent->vkHandle(), memory, allocators);
+			memory = VK_NULL_HANDLE;
 		}
 		if (handle != VK_NULL_HANDLE) {
 			vkDestroyBuffer(parent->vkHandle(), handle, allocators);
+			memory = VK_NULL_HANDLE;
 		}
 	}
 
@@ -167,11 +169,13 @@ namespace vulpes {
 	void Buffer::DestroyStagingResources(const Device* device){
 		for (auto& buff : stagingBuffers) {
 			vkDestroyBuffer(device->vkHandle(), buff, nullptr);
+			buff = VK_NULL_HANDLE;
 		}
 		stagingBuffers.clear(); 
 		stagingBuffers.shrink_to_fit();
 		for (auto& mem : stagingMemory) {
 			vkFreeMemory(device->vkHandle(), mem, nullptr);
+			mem = VK_NULL_HANDLE;
 		}
 		stagingMemory.clear();
 		stagingMemory.shrink_to_fit();

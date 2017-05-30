@@ -93,7 +93,9 @@ void vulpes::terrain::TerrainNode::CreateMesh() {
 		}
 		aabb_mesh.create_buffers(device);
 	}
-	
+	mesh.vertices.positions.shrink_to_fit();
+	mesh.vertices.normals_uvs.shrink_to_fit();
+	mesh.indices.shrink_to_fit();
 	mesh.create_buffers(device);
 }
 

@@ -6,6 +6,7 @@
 #include "engine\renderer\render\GraphicsPipeline.h"
 #include "engine\renderer\resource\Buffer.h"
 #include "engine\renderer\command\CommandPool.h"
+#include "engine\renderer\command\TransferPool.h"
 #include "engine\renderer\resource\Texture.h"
 
 vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(parent_dvc) {
@@ -57,13 +58,14 @@ vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(pare
 	VkCommandPoolCreateInfo transfer_pool_info = vk_command_pool_info_base;
 	transfer_pool_info.queueFamilyIndex = device->QueueFamilyIndices.Transfer;
 
-	transferPool = new TransferPool(device, transfer_pool_info);
+	transferPool = new TransferPool(device);
 
 	heightmap = new Texture2D(device);
 	heightmap->CreateFromFile("rsrc/img/terrain_height.dds", VK_FORMAT_BC4_UNORM_BLOCK);
 	auto cmd = transferPool->Begin();
 	heightmap->RecordTransferCmd(cmd);
 	transferPool->End();
+	transferPool->Submit();
 	heightmap->DestroyStagingObjects();
 }
 
@@ -241,7 +243,7 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 		auto end = std::chrono::high_resolution_clock::now();
 		auto dur = end - start;
 		transferPool->End();
-		LOG_EVERY_N(20, INFO) << "Transferring " << node_count << " nodes took " << std::chrono::duration_cast<std::chrono::milliseconds>(dur).count() << " ms";
+		transferPool->Submit();
 		Buffer::DestroyStagingResources(device);
 	}
 }

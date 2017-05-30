@@ -82,7 +82,6 @@
     <ClInclude Include="engine\util\ref_counter.h" />
     <ClInclude Include="engine\renderer\resource\VkResource.h" />
     <ClInclude Include="engine\renderer\command\TransferPool.h" />
-    <ClInclude Include="engine\renderer\command\Submitter.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

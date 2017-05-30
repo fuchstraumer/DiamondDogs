@@ -26,17 +26,21 @@ namespace vulpes {
     class TransferPool : public CommandPool {
 	public:
 
-		TransferPool(const Device* parent);
+		TransferPool(const Device* _parent);
 
-		~TransferPool();
-
-		void SetSubmitQueue(VkQueue& queue);
+		~TransferPool() = default;
 
 		VkCommandBuffer& Begin();
 
 		void End();
 
+		void Submit();
+
 		VkCommandBuffer& CmdBuffer() noexcept;
+
+	protected:
+		VkFence fence;
+		VkQueue queue;
 	};
 
 }
