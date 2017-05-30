@@ -31,7 +31,7 @@ namespace terrain_scene {
 			VkQueue transfer;
 			transfer = device->GraphicsQueue(0);
 
-			object = new terrain::TerrainQuadtree(device, 1.25f, 10, 1000.0, glm::vec3(0.0f));
+			object = new terrain::TerrainQuadtree(device, 1.30f, 16, 10000.0, glm::vec3(0.0f));
 			object->SetupNodePipeline(renderPass->vkHandle(), swapchain, pipelineCache, instance->GetProjectionMatrix());
 
 			skybox = new Skybox(device);

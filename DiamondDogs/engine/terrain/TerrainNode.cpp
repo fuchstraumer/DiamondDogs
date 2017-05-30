@@ -5,17 +5,17 @@
 #include "NodeSubset.h"
 #include "glm\ext.hpp"
 
-bool vulpes::terrain::TerrainNode::DrawAABB = true;
+bool vulpes::terrain::TerrainNode::DrawAABB = false;
 
 void vulpes::terrain::TerrainNode::Subdivide() {
 	double child_length = SideLength / 2.0;
 	double child_offset = SideLength / 4.0;
 	glm::ivec2 grid_pos = glm::ivec2(2 * LogicalCoordinates.x, 2 * LogicalCoordinates.y);
-	glm::vec3 pos = glm::vec3(SpatialCoordinates.x + child_offset, 0.0f, SpatialCoordinates.z - child_offset);
-	children[0] = std::make_unique<TerrainNode>(device, Depth + 1, grid_pos, pos + glm::vec3(-child_offset, 0.0f, child_offset), child_length, MaxLOD, switchRatio);
-	children[1] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x + 1, grid_pos.y), pos + glm::vec3(child_offset, 0.0f, child_offset), child_length, MaxLOD, switchRatio);
-	children[2] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x, grid_pos.y + 1), pos + glm::vec3(-child_offset, 0.0f, -child_offset), child_length, MaxLOD, switchRatio);
-	children[3] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x + 1, grid_pos.y + 1), pos + glm::vec3(child_offset, 0.0f, -child_offset), child_length, MaxLOD, switchRatio);
+	glm::vec3 pos = glm::vec3(SpatialCoordinates.x, 0.0f, SpatialCoordinates.z);
+	children[0] = std::make_unique<TerrainNode>(device, Depth + 1, grid_pos, pos, child_length, MaxLOD, switchRatio);
+	children[1] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x + 1, grid_pos.y), pos + glm::vec3(child_length, 0.0f, 0.0f), child_length, MaxLOD, switchRatio);
+	children[2] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x, grid_pos.y + 1), pos + glm::vec3(0.0f, 0.0f, -child_length), child_length, MaxLOD, switchRatio);
+	children[3] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x + 1, grid_pos.y + 1), pos + glm::vec3(child_length, 0.0f, -child_length), child_length, MaxLOD, switchRatio);
 }
 
 vulpes::terrain::TerrainNode::TerrainNode(const Device* device, const size_t& depth, const glm::ivec2& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod, const double& switch_ratio) : LogicalCoordinates(logical_coords), SideLength(length), Depth(depth), aabb({ position - static_cast<float>(length / 2.0), position + static_cast<float>(length / 2.0) }), SpatialCoordinates(position), device(device), MaxLOD(max_lod), switchRatio(switch_ratio) {}
@@ -38,39 +38,37 @@ void vulpes::terrain::TerrainNode::CreateMesh() {
 	if (mesh.Ready()) {
 		return;
 	}
-	mesh = std::move(Mesh(aabb.Min, glm::vec3(SideLength, SideLength / 2.0f, SideLength)));
+	mesh = std::move(Mesh(SpatialCoordinates, glm::vec3(SideLength, SideLength / 2.0f, SideLength)));
 	
 	{
 
-		glm::vec3 offset = glm::vec3(-1.0f, 0.0f, -1.0f);
-		const float extent = aabb.Extents().x;
-		const float scale = extent / N_VERTS_PER_SIDE;
-		const float step = 1.0f / N_VERTS_PER_SIDE;
-		mesh.vertices.resize(N_VERTS_PER_SIDE * N_VERTS_PER_SIDE * 4);
-		for (int x = 0; x < N_VERTS_PER_SIDE; ++x) {
-			for (int y = 0; y < N_VERTS_PER_SIDE; ++y) {
-				uint32_t idx = x + y * N_VERTS_PER_SIDE;
-				mesh.vertices.positions[idx].x = (x * step);
-				mesh.vertices.positions[idx].y = 0.0f;
-				mesh.vertices.positions[idx].z = -(y * step);
+		int vcount2 = N_VERTS_PER_SIDE + 1;
+		int num_tris = N_VERTS_PER_SIDE * N_VERTS_PER_SIDE * 6;
+		int num_verts = vcount2 * vcount2;
+		mesh.vertices.resize(num_verts);
 
-				mesh.vertices.normals_uvs[idx].uv = glm::vec2(static_cast<float>(x) / N_VERTS_PER_SIDE, static_cast<float>(y) / N_VERTS_PER_SIDE);
+		float scale = 1.0f / N_VERTS_PER_SIDE;
+		glm::vec3 offset = glm::vec3(0.5f, 0.0f, -0.5f);
+		int idx = 0;
+		for (int y = 0; y < vcount2; ++y) {
+			for (int x = 0; x < vcount2; ++x) {
+				mesh.vertices.positions[idx] = glm::vec3(static_cast<float>(x) * scale - 0.5f + offset.x, 0.0f, static_cast<float>(y)*scale - 1.0f);
+				mesh.vertices.normals_uvs[idx].uv = glm::vec2(x * scale, y * scale);
+				++idx;
 			}
 		}
 
-
-		uint32_t array_width = N_VERTS_PER_SIDE - 1;
-		mesh.indices.resize(array_width * array_width * 6);
-
-		for (uint32_t x = 0; x < array_width; ++x) {
-			for (uint32_t y = 0; y < array_width; ++y) {
-				uint32_t idx = (x + y * array_width) * 6;
-				mesh.indices[idx] = x + y * N_VERTS_PER_SIDE;
-				mesh.indices[idx + 1] = mesh.indices[idx] + N_VERTS_PER_SIDE;
-				mesh.indices[idx + 2] = mesh.indices[idx + 1] + 1;
-				mesh.indices[idx + 3] = mesh.indices[idx + 1] + 1;
-				mesh.indices[idx + 4] = mesh.indices[idx] + 1;
-				mesh.indices[idx + 5] = mesh.indices[idx];
+		mesh.indices.resize(num_tris);
+		idx = 0;
+		for (int y = 0; y < N_VERTS_PER_SIDE; ++y) {
+			for (int x = 0; x < N_VERTS_PER_SIDE; ++x) {
+				mesh.indices[idx+0] = (y * vcount2) + x;
+				mesh.indices[idx+1] = ((y + 1) * vcount2) + x;
+				mesh.indices[idx+2] = (y * vcount2) + x + 1;
+				mesh.indices[idx+3] = ((y + 1) * vcount2) + x;
+				mesh.indices[idx+4] = ((y + 1) * vcount2) + x + 1;
+				mesh.indices[idx+5] = (y * vcount2) + x + 1;
+				idx += 6;
 			}
 		}
 
@@ -110,7 +108,7 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, Nod
 	// Radius of sphere is 1.1 times current node side length, which specifies
 	// the range from a node we consider to be the LOD switch distance
 	const util::Sphere lod_sphere{ camera_position, SideLength * switchRatio };
-	const util::Sphere aabb_sphere{ SpatialCoordinates, SideLength };
+	const util::Sphere aabb_sphere{ aabb.Center(), SideLength };
 	 
 	// Depth is less than max subdivide level and we're in subdivide range.
 	if (Depth < MaxLOD && lod_sphere.CoincidesWith(this->aabb)) {

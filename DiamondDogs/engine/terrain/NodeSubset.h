@@ -53,6 +53,7 @@ namespace vulpes {
 
 			TransferPool* transferPool;
 			VkQueue* transferQueue;
+			Texture2D* heightmap;
 
 		public:
 
