@@ -32,30 +32,45 @@ vulpes::terrain::TerrainNode::~TerrainNode() {
 	}
 }
 
-constexpr size_t N_VERTS_PER_SIDE = 16;
+constexpr size_t N_VERTS_PER_SIDE = 4;
 
 void vulpes::terrain::TerrainNode::CreateMesh() {
 	if (mesh.Ready()) {
 		return;
 	}
-	mesh = std::move(Mesh(SpatialCoordinates, glm::vec3(SideLength - 0.001, SideLength / 2.0f, SideLength - 0.001)));
+	mesh = std::move(Mesh(aabb.Min, glm::vec3(SideLength, SideLength / 2.0f, SideLength)));
 	
 	{
-		int i = 0;
-		float step_size = 2.0f / N_VERTS_PER_SIDE;
-		int v_count = N_VERTS_PER_SIDE;
-		int v_count2 = v_count * v_count;
-		for (int z = 0; z < v_count2; ++z) {
-			for (int x = 0; x < v_count2; ++x) {
-				mesh.add_vertex(glm::vec3(x * step_size, 0.0f, z * step_size));
+
+		glm::vec3 offset = glm::vec3(-1.0f, 0.0f, -1.0f);
+		const float extent = aabb.Extents().x;
+		const float scale = extent / N_VERTS_PER_SIDE;
+		const float step = 1.0f / N_VERTS_PER_SIDE;
+		mesh.vertices.resize(N_VERTS_PER_SIDE * N_VERTS_PER_SIDE * 4);
+		for (int x = 0; x < N_VERTS_PER_SIDE; ++x) {
+			for (int y = 0; y < N_VERTS_PER_SIDE; ++y) {
+				uint32_t idx = x + y * N_VERTS_PER_SIDE;
+				mesh.vertices.positions[idx].x = (x * step);
+				mesh.vertices.positions[idx].y = 0.0f;
+				mesh.vertices.positions[idx].z = -(y * step);
+
+				mesh.vertices.normals_uvs[idx].uv = glm::vec2(static_cast<float>(x) / N_VERTS_PER_SIDE, static_cast<float>(y) / N_VERTS_PER_SIDE);
 			}
 		}
 
-		
-		for (int z = 0; z < N_VERTS_PER_SIDE; ++z) {
-			for (int x = 0; x < N_VERTS_PER_SIDE; ++x) {
-				mesh.add_triangle((z * v_count2) + x, ((z + 1) * v_count2) + x, (z * v_count2) + x + 1);
-				mesh.add_triangle(((z + 1) * v_count2) + x, (z * v_count2) + x + 1, (z * v_count2) + x + 1);
+
+		uint32_t array_width = N_VERTS_PER_SIDE - 1;
+		mesh.indices.resize(array_width * array_width * 6);
+
+		for (uint32_t x = 0; x < array_width; ++x) {
+			for (uint32_t y = 0; y < array_width; ++y) {
+				uint32_t idx = (x + y * array_width) * 6;
+				mesh.indices[idx] = x + y * N_VERTS_PER_SIDE;
+				mesh.indices[idx + 1] = mesh.indices[idx] + N_VERTS_PER_SIDE;
+				mesh.indices[idx + 2] = mesh.indices[idx + 1] + 1;
+				mesh.indices[idx + 3] = mesh.indices[idx + 1] + 1;
+				mesh.indices[idx + 4] = mesh.indices[idx] + 1;
+				mesh.indices[idx + 5] = mesh.indices[idx];
 			}
 		}
 

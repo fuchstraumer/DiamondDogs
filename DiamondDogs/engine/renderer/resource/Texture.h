@@ -67,6 +67,11 @@ namespace vulpes {
 
 		void CreateFromFile(const char* filename, const VkFormat& texture_format, CommandPool* pool, VkQueue& queue);
 
+		// Does not implicitly transfer the object.
+		void CreateFromFile(const char* filename, const VkFormat& texture_format);
+
+		void RecordTransferCmd(VkCommandBuffer& transfer_cmd);
+
 		void CreateSampler(const VkSamplerCreateInfo& info);
 
 		VkDescriptorImageInfo GetDescriptor() const noexcept;

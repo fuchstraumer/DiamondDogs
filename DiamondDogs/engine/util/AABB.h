@@ -3,9 +3,11 @@
 #define VULPES_UTIL_AABB_H
 
 #include "stdafx.h"
+#include "engine\objects\Mesh.h"
 #include "view_frustum.h"
 #include "engine\renderer\render\GraphicsPipeline.h"
 #include "engine\renderer\resource\ShaderModule.h"
+
 
 namespace vulpes {
 
@@ -15,17 +17,10 @@ namespace vulpes {
 
 			glm::dvec3 Min, Max;
 			
-			glm::dvec3 Extents() const {
-				return Min - Max * 0.5;
-			}
+			glm::dvec3 Extents() const;
 
-			glm::dvec3 Center() const {
-				return (Min + Max) / 2.0;
-			}
+			glm::dvec3 Center() const;
 
-			bool InFrustum(const view_frustum& view) {
-
-			}
 
 		};
 

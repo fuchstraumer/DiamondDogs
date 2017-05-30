@@ -78,6 +78,8 @@
     <ClInclude Include="common\CommonDef.h" />
     <ClInclude Include="scenes\Terrain.h" />
     <ClInclude Include="engine\util\easylogging++.h" />
+    <ClInclude Include="engine\util\ref_counter.h" />
+    <ClInclude Include="engine\renderer\resource\VkResource.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

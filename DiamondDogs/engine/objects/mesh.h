@@ -113,10 +113,12 @@ namespace vulpes {
 
 		bool Ready() const noexcept { return ready; }
 
-	protected:
-		void create_ebo(CommandPool* cmd_pool, const VkQueue& queue);
 		Vertices vertices;
 		std::vector<uint32_t> indices;
+
+	protected:
+		void create_ebo(CommandPool* cmd_pool, const VkQueue& queue);
+		
 	private:
 		// Position, normal, UV
 		std::array<Buffer*, 2> vbo;

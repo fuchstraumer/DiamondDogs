@@ -22,6 +22,7 @@ namespace vulpes {
 		other.ebo = nullptr;
 		return *this;
 	}
+
 	Mesh::~Mesh() {
 		cleanup();
 	}
