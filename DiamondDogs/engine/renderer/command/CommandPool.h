@@ -10,26 +10,25 @@ namespace vulpes {
 	class CommandPool : public NonCopyable {
 	public:
 
-		static CommandPool CreateTransferPool(const Device* parent);
+		CommandPool(const Device* parent, const VkCommandPoolCreateInfo& create_info, bool primary = true);
 
-		static void SubmitTransferCommand(const VkCommandBuffer& buffer, const VkQueue& transfer_queue);
-
-		CommandPool() : handle(VK_NULL_HANDLE), parent(nullptr) {}
-
-		CommandPool(const Device* parent, const VkCommandPoolCreateInfo& create_info);
+		CommandPool(const Device* parent, bool primary = true);
 
 		void Create();
+		void Reset();
 
 		CommandPool(CommandPool&& other) noexcept;
 		CommandPool& operator=(CommandPool&& other) noexcept;
 
-		~CommandPool();
+		virtual ~CommandPool();
 
 		void Destroy();
 
 		void CreateCommandBuffers(const uint32_t& num_buffers, const VkCommandBufferAllocateInfo& alloc_info = vk_command_buffer_allocate_info_base);
 
 		void FreeCommandBuffers();
+
+		void ResetCommandBuffer(const size_t& idx);
 
 		const VkCommandPool& vkHandle() const noexcept;
 		const VkCommandBuffer& operator[](const size_t& idx) const;
@@ -47,32 +46,10 @@ namespace vulpes {
 		VkCommandPoolCreateInfo createInfo;
 		const Device* parent;
 		const VkAllocationCallbacks* allocators = nullptr;
+		bool primary;
 	};
 
 
-	class TransferPool {
-	public:
-
-		TransferPool(const Device* parent, const VkCommandPoolCreateInfo& create_info);
-
-		~TransferPool();
-
-		void SetSubmitQueue(VkQueue& queue);
-
-		VkCommandBuffer& Start();
-
-		void Submit();
-
-		VkCommandBuffer& CmdBuffer() noexcept;
-
-	private:
-		VkFence submitFence;
-		VkQueue submitQueue;
-		VkCommandBuffer cmdBuffer;
-		VkCommandPool handle;
-		VkCommandPoolCreateInfo createInfo;
-		const Device* parent;
-		const VkAllocationCallbacks* allocators = nullptr;
-	};
+	
 }
 #endif // !VULPES_VK_COMMAND_POOL_H

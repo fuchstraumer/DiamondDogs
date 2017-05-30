@@ -28,6 +28,7 @@
     <ClCompile Include="engine\terrain\NodeSubset.cpp" />
     <ClCompile Include="engine\util\AABB.cpp" />
     <ClCompile Include="engine\util\easylogging++.cc" />
+    <ClCompile Include="engine\renderer\command\TransferPool.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -80,6 +81,8 @@
     <ClInclude Include="engine\util\easylogging++.h" />
     <ClInclude Include="engine\util\ref_counter.h" />
     <ClInclude Include="engine\renderer\resource\VkResource.h" />
+    <ClInclude Include="engine\renderer\command\TransferPool.h" />
+    <ClInclude Include="engine\renderer\command\Submitter.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

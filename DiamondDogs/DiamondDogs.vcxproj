@@ -110,6 +110,8 @@
     <ClInclude Include="common\vk_constants.h" />
     <ClInclude Include="engine\objects\Skybox.h" />
     <ClInclude Include="engine\renderer\command\CommandPool.h" />
+    <ClInclude Include="engine\renderer\command\Submitter.h" />
+    <ClInclude Include="engine\renderer\command\TransferPool.h" />
     <ClInclude Include="engine\renderer\core\Camera.h" />
     <ClInclude Include="engine\renderer\core\Instance.h" />
     <ClInclude Include="engine\renderer\core\LogicalDevice.h" />
@@ -158,6 +160,7 @@
     <ClCompile Include="engine\objects\Mesh.cpp" />
     <ClCompile Include="engine\objects\Skybox.cpp" />
     <ClCompile Include="engine\renderer\command\CommandPool.cpp" />
+    <ClCompile Include="engine\renderer\command\TransferPool.cpp" />
     <ClCompile Include="engine\renderer\core\Instance.cpp" />
     <ClCompile Include="engine\renderer\core\LogicalDevice.cpp" />
     <ClCompile Include="engine\renderer\core\PhysicalDevice.cpp" />

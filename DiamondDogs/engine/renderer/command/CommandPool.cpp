@@ -3,39 +3,21 @@
 #include "engine/renderer/core/LogicalDevice.h"
 
 namespace vulpes {
-	CommandPool CommandPool::CreateTransferPool(const Device * parent){
-		VkCommandPoolCreateInfo create = vk_command_pool_info_base;
-		create.queueFamilyIndex = parent->QueueFamilyIndices.Transfer;
-		create.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-		CommandPool result(parent, create);
-		result.CreateCommandBuffers(1);
-		return std::move(result);
+
+	CommandPool::CommandPool(const Device * _parent, const VkCommandPoolCreateInfo & create_info, bool _primary) : parent(_parent), createInfo(create_info), primary(_primary) {
+		Create();
 	}
 
-	void CommandPool::SubmitTransferCommand(const VkCommandBuffer & buffer, const VkQueue & transfer_queue){
-		assert(buffer != VK_NULL_HANDLE && transfer_queue != VK_NULL_HANDLE);
-
-		VkResult result = vkEndCommandBuffer(buffer);
-		VkAssert(result);
-
-		VkSubmitInfo submit = vk_submit_info_base;
-		submit.commandBufferCount = 1;
-		submit.pCommandBuffers = &buffer;
-		result = vkQueueSubmit(transfer_queue, 1, &submit, VK_NULL_HANDLE);
-		VkAssert(result);
-
-		vkQueueWaitIdle(transfer_queue);
-		
-	}
-
-	CommandPool::CommandPool(const Device * _parent, const VkCommandPoolCreateInfo & create_info) : parent(_parent), createInfo(create_info) {
-		VkResult result = vkCreateCommandPool(parent->vkHandle(), &createInfo, allocators, &handle);
-		VkAssert(result);
-	}
+	CommandPool::CommandPool(const Device * _parent, bool _primary) : parent(_parent), primary(_primary) {}
 
 	void CommandPool::Create() {
 		VkResult result = vkCreateCommandPool(parent->vkHandle(), &createInfo, allocators, &handle);
 		VkAssert(result);
+	}
+
+	void CommandPool::Reset() {
+		assert(createInfo.flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+		vkResetCommandPool(parent->vkHandle(), handle, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 	}
 
 	CommandPool::CommandPool(CommandPool && other) noexcept{
@@ -71,6 +53,7 @@ namespace vulpes {
 	void CommandPool::CreateCommandBuffers(const uint32_t & num_buffers, const VkCommandBufferAllocateInfo& _alloc_info){
 		cmdBuffers.resize(num_buffers);
 		auto alloc_info = _alloc_info;
+		alloc_info.level = primary ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 		alloc_info.commandPool = handle;
 		alloc_info.commandBufferCount = num_buffers;
 		VkResult result = vkAllocateCommandBuffers(parent->vkHandle(), &alloc_info, cmdBuffers.data());
@@ -78,6 +61,11 @@ namespace vulpes {
 
 	void CommandPool::FreeCommandBuffers(){
 		vkFreeCommandBuffers(parent->vkHandle(), handle, static_cast<uint32_t>(cmdBuffers.size()), cmdBuffers.data());
+	}
+
+	void CommandPool::ResetCommandBuffer(const size_t & idx) {
+		assert(createInfo.flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+		vkResetCommandBuffer(cmdBuffers[idx], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 	}
 	
 	const VkCommandPool & CommandPool::vkHandle() const noexcept{
@@ -135,73 +123,6 @@ namespace vulpes {
 
 	const size_t CommandPool::size() const noexcept{
 		return cmdBuffers.size();
-	}
-
-	TransferPool::TransferPool(const Device * _parent, const VkCommandPoolCreateInfo & create_info) : createInfo(create_info), parent(_parent) {
-		
-		createInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-		VkResult result = vkCreateCommandPool(parent->vkHandle(), &createInfo, allocators, &handle);
-		VkAssert(result);
-
-		VkCommandBufferAllocateInfo allocInfo = {};
-		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		allocInfo.commandPool = handle;
-		allocInfo.commandBufferCount = 1;
-
-		result = vkAllocateCommandBuffers(parent->vkHandle(), &allocInfo, &cmdBuffer);
-		VkAssert(result);
-
-		VkFenceCreateInfo fence_info = vk_fence_create_info_base;
-		result = vkCreateFence(parent->vkHandle(), &fence_info, allocators, &submitFence);
-
-		parent->TransferQueue(0, submitQueue);
-	}
-
-	TransferPool::~TransferPool() {
-		vkQueueWaitIdle(submitQueue);
-		vkDestroyFence(parent->vkHandle(), submitFence, allocators);
-		vkFreeCommandBuffers(parent->vkHandle(), handle, 1, &cmdBuffer);
-		vkDestroyCommandPool(parent->vkHandle(), handle, allocators);
-	}
-
-	void TransferPool::SetSubmitQueue(VkQueue & queue){
-		submitQueue = queue;
-	}
-
-	VkCommandBuffer& TransferPool::Start() {
-
-		VkCommandBufferBeginInfo beginInfo = {};
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		beginInfo.pInheritanceInfo = nullptr;
-
-		vkBeginCommandBuffer(cmdBuffer, &beginInfo);
-
-		return cmdBuffer;
-	}
-
-	void TransferPool::Submit() {
-		VkResult result = vkEndCommandBuffer(cmdBuffer);
-		VkAssert(result);
-
-		VkSubmitInfo submitInfo = {};
-		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &cmdBuffer;
-
-		result = vkQueueSubmit(submitQueue, 1, &submitInfo, submitFence);
-		VkAssert(result);
-
-		result = vkWaitForFences(parent->vkHandle(), 1, &submitFence, VK_TRUE, vk_default_fence_timeout);
-		VkAssert(result);
-		vkResetFences(parent->vkHandle(), 1, &submitFence);
-		result = vkResetCommandBuffer(cmdBuffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
-		VkAssert(result);
-	}
-
-	VkCommandBuffer & TransferPool::CmdBuffer() noexcept {
-		return cmdBuffer;
 	}
 
 }

@@ -61,9 +61,9 @@ vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(pare
 
 	heightmap = new Texture2D(device);
 	heightmap->CreateFromFile("rsrc/img/terrain_height.dds", VK_FORMAT_BC4_UNORM_BLOCK);
-	auto cmd = transferPool->Start();
+	auto cmd = transferPool->Begin();
 	heightmap->RecordTransferCmd(cmd);
-	transferPool->Submit();
+	transferPool->End();
 	heightmap->DestroyStagingObjects();
 }
 
@@ -221,7 +221,7 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 
 	bool submit_transfer = false;
 	if (!transferNodes.empty()) {
-		transferPool->Start();
+		transferPool->Begin();
 		submit_transfer = true;
 	}
 
@@ -240,7 +240,7 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 	if (submit_transfer) {
 		auto end = std::chrono::high_resolution_clock::now();
 		auto dur = end - start;
-		transferPool->Submit();
+		transferPool->End();
 		LOG_EVERY_N(20, INFO) << "Transferring " << node_count << " nodes took " << std::chrono::duration_cast<std::chrono::milliseconds>(dur).count() << " ms";
 		Buffer::DestroyStagingResources(device);
 	}
