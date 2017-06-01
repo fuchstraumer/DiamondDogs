@@ -15,7 +15,7 @@ namespace terrain_scene {
 	class TerrainScene : public BaseScene {
 	public:
 
-		TerrainScene() : BaseScene(3 * 3) {
+		TerrainScene() : BaseScene(3) {
 
 			const std::type_info& id = typeid(TerrainScene);
 			uint16_t hash = static_cast<uint16_t>(id.hash_code());

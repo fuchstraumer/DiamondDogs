@@ -24,7 +24,7 @@ vulpes::BaseScene::BaseScene(const size_t& num_secondary_buffers, const uint32_t
 	swapchain = new Swapchain();
 	swapchain->Init(instance, instance->physicalDevice, device);
 
-	CreateCommandPools(num_secondary_buffers);
+	CreateCommandPools(num_secondary_buffers * swapchain->ImageCount);
 	SetupRenderpass();
 	SetupDepthStencil();
 
