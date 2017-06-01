@@ -5,7 +5,7 @@
 #include "NodeSubset.h"
 #include "glm\ext.hpp"
 
-bool vulpes::terrain::TerrainNode::DrawAABB = false;
+bool vulpes::terrain::TerrainNode::DrawAABB = true;
 
 gli::texture2d vulpes::terrain::TerrainNode::heightmap = gli::texture2d(gli::load("rsrc/img/terrain_height.dds"));
 gli::texture2d vulpes::terrain::TerrainNode::normalmap = gli::texture2d(gli::load("rsrc/img/terrain_normals.dds"));

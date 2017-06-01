@@ -74,8 +74,8 @@ namespace vulpes {
 			VkResult result = vkCreatePipelineLayout(device->vkHandle(), &pipeline_layout_info, allocators, &pipelineLayout);
 			VkAssert(result);
 
-			vert = std::make_unique<ShaderModule>(device, "shaders/terrain/terrain.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-			frag = std::make_unique<ShaderModule>(device, "shaders/terrain/terrain.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+			vert = std::make_unique<ShaderModule>(device, "shaders/aabb/aabb.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+			frag = std::make_unique<ShaderModule>(device, "shaders/aabb/aabb.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
 			const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
 			VkPipelineVertexInputStateCreateInfo vert_info = Vertices::PipelineInfo();
