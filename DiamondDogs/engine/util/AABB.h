@@ -25,7 +25,7 @@ namespace vulpes {
 
 			void Render(VkCommandBuffer & cmd);
 
-			static void SetupRenderData(const Device* dvc, const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection);
+			static void SetupRenderData(const Device* dvc, const VkRenderPass& renderpass, const Swapchain* swapchain, const glm::mat4& projection);
 			static void RenderAABBs(const glm::mat4& view, VkCommandBuffer& cmd, const VkViewport& viewport, const VkRect2D& scissor);
 			static void CleanupVkResources();
 			static VkPipelineLayout pipelineLayout;

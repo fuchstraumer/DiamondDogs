@@ -91,7 +91,10 @@ namespace vulpes {
 	VkResult PipelineCache::save_to_file() {
 		VkResult result = VK_SUCCESS;
 		size_t cache_size;
-
+		if (!parent) {
+			std::cerr << "Attempted to delete/save a non-existent cache!";
+			return VK_ERROR_DEVICE_LOST;
+		}
 		result = vkGetPipelineCacheData(parent->vkHandle(), handle, &cache_size, nullptr);
 		VkAssert(result);
 		if (cache_size != 0) {

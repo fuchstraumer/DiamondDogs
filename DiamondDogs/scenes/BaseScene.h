@@ -18,11 +18,11 @@ namespace vulpes {
 	class BaseScene {
 	public:
 
-		BaseScene(const uint32_t& width = DEFAULT_WIDTH, const uint32_t& height = DEFAULT_HEIGHT);
+		BaseScene(const size_t& num_secondary_buffers = 1, const uint32_t& width = DEFAULT_WIDTH, const uint32_t& height = DEFAULT_HEIGHT);
 
 		~BaseScene();
 
-		virtual void CreateCommandPools();
+		virtual void CreateCommandPools(const size_t& num_secondary_buffers);
 
 		virtual void SetupRenderpass();
 
@@ -46,7 +46,7 @@ namespace vulpes {
 		Swapchain* swapchain;
 		std::vector<Framebuffer> framebuffers;
 		DepthStencil* depthStencil;
-		CommandPool *transferPool, *graphicsPool;
+		CommandPool *transferPool, *graphicsPool, *secondaryPool;
 		Renderpass* renderPass;
 	};
 

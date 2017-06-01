@@ -15,11 +15,7 @@ namespace terrain_scene {
 	class TerrainScene : public BaseScene {
 	public:
 
-		TerrainScene() : BaseScene() {
-			
-			CreateCommandPools();
-			SetupRenderpass();
-			SetupDepthStencil();
+		TerrainScene() : BaseScene(3 * 3) {
 
 			const std::type_info& id = typeid(TerrainScene);
 			uint16_t hash = static_cast<uint16_t>(id.hash_code());
@@ -27,8 +23,6 @@ namespace terrain_scene {
 
 			VkQueue transfer;
 			transfer = device->GraphicsQueue(0);
-
-			util::AABB::cache = std::make_unique<PipelineCache>(device, static_cast<uint16_t>(typeid(util::AABB).hash_code()));
 
 			object = new terrain::TerrainQuadtree(device, 1.30f, 16, 10000.0, glm::vec3(0.0f));
 			object->SetupNodePipeline(renderPass->vkHandle(), swapchain, pipelineCache, instance->GetProjectionMatrix());
@@ -42,35 +36,13 @@ namespace terrain_scene {
 
 		}
 
-		~TerrainScene() {
+		~TerrainScene() {	
 			if (!util::aabbPool.empty()) {
 				util::aabbPool.clear();
 				util::AABB::CleanupVkResources();
 			}
 			delete skybox;
 			delete object;
-			delete secondaryPool;
-		}
-
-		virtual void CreateCommandPools() override {
-			VkCommandPoolCreateInfo pool_info = vk_command_pool_info_base;
-			pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-			pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
-			graphicsPool = new CommandPool(device, pool_info);
-
-			VkCommandBufferAllocateInfo alloc_info = vk_command_buffer_allocate_info_base;
-			graphicsPool->CreateCommandBuffers(swapchain->ImageCount, alloc_info);
-
-			
-			pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
-			transferPool = new CommandPool(device, pool_info);
-			transferPool->CreateCommandBuffers(1);
-
-			pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
-			secondaryPool = new CommandPool(device, pool_info);
-			alloc_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-			secondaryPool->CreateCommandBuffers(swapchain->ImageCount * 3, alloc_info);
-
 		}
 
 		virtual void WindowResized() override {
@@ -219,7 +191,6 @@ namespace terrain_scene {
 		std::shared_ptr<PipelineCache> pipelineCache;
 		terrain::TerrainQuadtree* object;
 		Skybox* skybox;
-		CommandPool* secondaryPool;
 	};
 
 }

@@ -59,7 +59,7 @@ namespace vulpes {
 
 		}
 
-		void AABB::SetupRenderData(const Device* dvc, const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4 & projection) {
+		void AABB::SetupRenderData(const Device* dvc, const VkRenderPass & renderpass, const Swapchain * swapchain, const glm::mat4 & projection) {
 			uboData.projection = projection;
 			device = dvc;
 
@@ -137,6 +137,10 @@ namespace vulpes {
 
 		void AABB::CleanupVkResources() {
 			vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, allocators);
+			cache.reset();
+			pipeline.reset();
+			vert.reset();
+			frag.reset();
 		}
 
 	}

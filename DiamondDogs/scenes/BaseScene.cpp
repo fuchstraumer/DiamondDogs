@@ -9,16 +9,27 @@
 #include "engine\renderer\render\Framebuffer.h"
 #include "engine\renderer\command\CommandPool.h"
 #include "engine\renderer\render\DepthStencil.h"
+#include "engine\util\AABB.h"
 
-vulpes::BaseScene::BaseScene(const uint32_t& _width, const uint32_t& _height) : width(_width), height(_height) {
+vulpes::BaseScene::BaseScene(const size_t& num_secondary_buffers, const uint32_t& _width, const uint32_t& _height) : width(_width), height(_height) {
+
 	VkInstanceCreateInfo create_info = vk_base_instance_info;
 	instance = new InstanceGLFW(create_info, false);
 	glfwSetWindowUserPointer(instance->Window, this);
 	instance->SetupPhysicalDevices();
 	instance->SetupSurface();
+
 	device = new Device(instance, instance->physicalDevice);
+
 	swapchain = new Swapchain();
 	swapchain->Init(instance, instance->physicalDevice, device);
+
+	CreateCommandPools(num_secondary_buffers);
+	SetupRenderpass();
+	SetupDepthStencil();
+
+	util::AABB::cache = std::make_unique<PipelineCache>(device, static_cast<uint16_t>(typeid(util::AABB).hash_code()));
+	util::AABB::SetupRenderData(device, renderPass->vkHandle(), swapchain, instance->GetProjectionMatrix());
 
 	VkSemaphoreCreateInfo semaphore_info{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
 	VkResult result = vkCreateSemaphore(device->vkHandle(), &semaphore_info, nullptr, &semaphores[0]);
@@ -28,11 +39,13 @@ vulpes::BaseScene::BaseScene(const uint32_t& _width, const uint32_t& _height) : 
 }
 
 vulpes::BaseScene::~BaseScene() {
+	util::AABB::CleanupVkResources();
 	for (const auto& fbuf : framebuffers) {
 		vkDestroyFramebuffer(device->vkHandle(), fbuf, nullptr);
 	}
 	delete swapchain;
 	delete renderPass;
+	delete secondaryPool;
 	delete transferPool;
 	delete graphicsPool;
 	vkDestroySemaphore(device->vkHandle(), semaphores[1], nullptr);
@@ -41,15 +54,23 @@ vulpes::BaseScene::~BaseScene() {
 	delete instance;
 }
 
-void vulpes::BaseScene::CreateCommandPools() {
+void vulpes::BaseScene::CreateCommandPools(const size_t& num_secondary_buffers) {
 	VkCommandPoolCreateInfo pool_info = vk_command_pool_info_base;
+	pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 	pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
 	graphicsPool = new CommandPool(device, pool_info);
-	graphicsPool->CreateCommandBuffers(swapchain->ImageCount);
 
-	pool_info.queueFamilyIndex = device->QueueFamilyIndices.Transfer;
+	VkCommandBufferAllocateInfo alloc_info = vk_command_buffer_allocate_info_base;
+	graphicsPool->CreateCommandBuffers(swapchain->ImageCount, alloc_info);
+
+	pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
 	transferPool = new CommandPool(device, pool_info);
 	transferPool->CreateCommandBuffers(1);
+
+	pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
+	secondaryPool = new CommandPool(device, pool_info);
+	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+	secondaryPool->CreateCommandBuffers(swapchain->ImageCount * num_secondary_buffers, alloc_info);
 }
 
 void vulpes::BaseScene::SetupRenderpass() {
@@ -141,6 +162,8 @@ void vulpes::BaseScene::RecreateSwapchain(const bool& windowed_fullscreen){
 
 	transferPool->FreeCommandBuffers();
 	graphicsPool->FreeCommandBuffers();
+	size_t num_secondary_buffers = secondaryPool->size();
+	secondaryPool->FreeCommandBuffers();
 
 	WindowResized();
 
@@ -156,6 +179,7 @@ void vulpes::BaseScene::RecreateSwapchain(const bool& windowed_fullscreen){
 
 	graphicsPool->CreateCommandBuffers(swapchain->ImageCount);
 	transferPool->CreateCommandBuffers(1);
+	secondaryPool->CreateCommandBuffers(num_secondary_buffers);
 	SetupRenderpass();
 	RecreateObjects();
 	SetupDepthStencil();
