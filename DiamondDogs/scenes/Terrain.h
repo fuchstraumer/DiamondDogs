@@ -17,19 +17,18 @@ namespace terrain_scene {
 
 		TerrainScene() : BaseScene() {
 			
-			
-
 			CreateCommandPools();
 			SetupRenderpass();
 			SetupDepthStencil();
 
 			const std::type_info& id = typeid(TerrainScene);
 			uint16_t hash = static_cast<uint16_t>(id.hash_code());
-
 			pipelineCache = std::make_shared<PipelineCache>(device, hash);
 
 			VkQueue transfer;
 			transfer = device->GraphicsQueue(0);
+
+			util::AABB::cache = std::make_unique<PipelineCache>(device, static_cast<uint16_t>(typeid(util::AABB).hash_code()));
 
 			object = new terrain::TerrainQuadtree(device, 1.30f, 16, 10000.0, glm::vec3(0.0f));
 			object->SetupNodePipeline(renderPass->vkHandle(), swapchain, pipelineCache, instance->GetProjectionMatrix());
@@ -44,6 +43,10 @@ namespace terrain_scene {
 		}
 
 		~TerrainScene() {
+			if (!util::aabbPool.empty()) {
+				util::aabbPool.clear();
+				util::AABB::CleanupVkResources();
+			}
 			delete skybox;
 			delete object;
 			delete secondaryPool;
@@ -66,7 +69,7 @@ namespace terrain_scene {
 			pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
 			secondaryPool = new CommandPool(device, pool_info);
 			alloc_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-			secondaryPool->CreateCommandBuffers(swapchain->ImageCount * 2, alloc_info);
+			secondaryPool->CreateCommandBuffers(swapchain->ImageCount * 3, alloc_info);
 
 		}
 
@@ -127,8 +130,13 @@ namespace terrain_scene {
 				inherit_info.framebuffer = framebuffers[i].vkHandle();
 				begin_info.pInheritanceInfo = &inherit_info;
 
-				VkCommandBuffer& skybox_buffer = secondaryPool->GetCmdBuffer(i + swapchain->ImageCount);
 				VkCommandBuffer& terrain_buffer = secondaryPool->GetCmdBuffer(i);
+				VkCommandBuffer& skybox_buffer = secondaryPool->GetCmdBuffer(i + swapchain->ImageCount);
+				VkCommandBuffer& aabb_buffer = secondaryPool->GetCmdBuffer(i + (2 * swapchain->ImageCount));
+
+				if (!util::aabbPool.empty()) {
+					util::AABB::RenderAABBs(instance->GetViewMatrix(), aabb_buffer, viewport, scissor);
+				}
 
 				vkBeginCommandBuffer(skybox_buffer, &begin_info);
 				vkCmdSetViewport(skybox_buffer, 0, 1, &viewport);

@@ -11,6 +11,16 @@ namespace vulpes {
 
 	namespace terrain {
 
+		/*
+			
+			Node Subset - 
+
+			represents a group of nodes that will be rendered using the same
+			pipeline and most of the same rendering parameters. Individual model
+			matrices will be used, and nodes can have unique mesh construction methods.
+		
+		*/
+
 		class TerrainNode;
 		
 		struct terrain_push_ubo {
@@ -49,6 +59,7 @@ namespace vulpes {
 				glm::mat4 model;
 				glm::mat4 view, projection;
 			};
+
 			Buffer* ubo;
 
 			TransferPool* transferPool;

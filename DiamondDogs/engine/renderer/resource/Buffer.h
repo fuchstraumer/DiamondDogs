@@ -27,6 +27,8 @@ namespace vulpes {
 
 		void CopyTo(void* data, CommandPool* cmd_pool, const VkQueue & transfer_queue, const VkDeviceSize& size, const VkDeviceSize& offset = 0);
 
+		void UpdateCmd(VkCommandBuffer& cmd, const VkDeviceSize& data_sz, const VkDeviceSize& offset, const void* data);
+
 		void Map(const VkDeviceSize& size = 0, const VkDeviceSize& offset = 0);
 
 		void Unmap();

@@ -7,6 +7,22 @@
 #include "engine\renderer\command\CommandPool.h"
 
 namespace vulpes {
+
+	Mesh::Mesh(Mesh && other) {
+		vbo = std::move(other.vbo);
+		ebo = std::move(other.ebo);
+		vertices = std::move(other.vertices);
+		indices = std::move(other.indices);
+		ready = std::move(other.ready);
+		device = std::move(other.device);
+		model = std::move(other.model);
+		angle = std::move(other.angle);
+		position = std::move(other.position);
+		scale = std::move(other.scale);
+		other.vbo.fill(nullptr);
+		other.ebo = nullptr;
+	}
+
 	Mesh & Mesh::operator=(Mesh && other) {
 		vbo = std::move(other.vbo);
 		ebo = std::move(other.ebo);

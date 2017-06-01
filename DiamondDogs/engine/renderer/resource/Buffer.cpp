@@ -103,6 +103,11 @@ namespace vulpes {
 		vkDestroyBuffer(parent->vkHandle(), staging_buffer, allocators);
 	}
 
+	void Buffer::UpdateCmd(VkCommandBuffer & cmd, const VkDeviceSize & data_sz, const VkDeviceSize & offset, const void * data) {
+		assert(MappedMemory);
+		vkCmdUpdateBuffer(cmd, handle, offset, data_sz, data);
+	}
+
 	void Buffer::Map(const VkDeviceSize& size, const VkDeviceSize& offset){
 		if (size == 0) {
 			VkResult result = vkMapMemory(parent->vkHandle(), memory, offset, allocSize, 0, &MappedMemory);

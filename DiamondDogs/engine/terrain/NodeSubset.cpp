@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "NodeSubset.h"
 #include "TerrainNode.h"
+#include "common\CommonDef.h"
 #include "engine\renderer\core\LogicalDevice.h"
 #include "engine\renderer\resource\ShaderModule.h"
 #include "engine\renderer\render\GraphicsPipeline.h"
@@ -8,6 +9,28 @@
 #include "engine\renderer\command\CommandPool.h"
 #include "engine\renderer\command\TransferPool.h"
 #include "engine\renderer\resource\Texture.h"
+
+static const std::array<glm::vec4, 20> LOD_COLOR_ARRAY = {
+	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+	glm::vec4(0.9f, 0.1f, 0.0f, 1.0f),
+	glm::vec4(0.8f, 0.2f, 0.0f, 1.0f),
+	glm::vec4(0.7f, 0.3f, 0.0f, 1.0f),
+	glm::vec4(0.6f, 0.4f, 0.0f, 1.0f),
+	glm::vec4(0.5f, 0.5f, 0.0f, 1.0f),
+	glm::vec4(0.4f, 0.6f, 0.0f, 1.0f),
+	glm::vec4(0.3f, 0.7f, 0.0f, 1.0f),
+	glm::vec4(0.2f, 0.8f, 0.1f, 1.0f),
+	glm::vec4(0.1f, 0.9f, 0.2f, 1.0f),
+	glm::vec4(0.0f, 0.8f, 0.2f, 1.0f),
+	glm::vec4(0.0f, 0.7f, 0.3f, 1.0f),
+	glm::vec4(0.0f, 0.6f, 0.4f, 1.0f),
+	glm::vec4(0.0f, 0.5f, 0.5f, 1.0f),
+	glm::vec4(0.0f, 0.4f, 0.6f, 1.0f),
+	glm::vec4(0.0f, 0.3f, 0.7f, 1.0f),
+	glm::vec4(0.0f, 0.2f, 0.8f, 1.0f),
+	glm::vec4(0.0f, 0.1f, 0.9f, 1.0f),
+	glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
+};
 
 vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(parent_dvc) {
 
@@ -152,27 +175,7 @@ void vulpes::terrain::NodeSubset::AddNode(TerrainNode * node, bool ready){
 	}
 }
 
-static const std::array<glm::vec4, 20> LOD_COLORS{
-	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
-	glm::vec4(0.9f, 0.1f, 0.0f, 1.0f),
-	glm::vec4(0.8f, 0.2f, 0.0f, 1.0f),
-	glm::vec4(0.7f, 0.3f, 0.0f, 1.0f),
-	glm::vec4(0.6f, 0.4f, 0.0f, 1.0f),
-	glm::vec4(0.5f, 0.5f, 0.0f, 1.0f),
-	glm::vec4(0.4f, 0.6f, 0.0f, 1.0f),
-	glm::vec4(0.3f, 0.7f, 0.0f, 1.0f),
-	glm::vec4(0.2f, 0.8f, 0.1f, 1.0f),
-	glm::vec4(0.1f, 0.9f, 0.2f, 1.0f),
-	glm::vec4(0.0f, 0.8f, 0.2f, 1.0f),
-	glm::vec4(0.0f, 0.7f, 0.3f, 1.0f),
-	glm::vec4(0.0f, 0.6f, 0.4f, 1.0f),
-	glm::vec4(0.0f, 0.5f, 0.5f, 1.0f),
-	glm::vec4(0.0f, 0.4f, 0.6f, 1.0f),
-	glm::vec4(0.0f, 0.3f, 0.7f, 1.0f),
-	glm::vec4(0.0f, 0.2f, 0.8f, 1.0f),
-	glm::vec4(0.0f, 0.1f, 0.9f, 1.0f),
-	glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
-};
+
 
 void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor) {
 	uboData.view = view;
@@ -203,9 +206,9 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 				// Push constant block contains our 3 matrices, update that now.
 				uboData.model = curr->mesh.get_model_matrix();
 				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO), &uboData);
-				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4), &LOD_COLORS[curr->Depth]);
+				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4), &LOD_COLOR_ARRAY[curr->Depth]);
 				// Generates draw commands
-				curr->BuildCommandBuffer(graphics_cmd);
+				curr->RecordGraphicsCmds(graphics_cmd);
 				++iter;
 				break;
 			case NodeStatus::NeedsTransfer:
@@ -232,7 +235,7 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 	while (!transferNodes.empty()) {
 		TerrainNode* curr = transferNodes.front();
 		curr->CreateMesh();
-		curr->TransferMesh(transferPool->CmdBuffer());
+		curr->RecordTransferCmd(transferPool->CmdBuffer());
 		curr->Status = NodeStatus::Active;
 		auto inserted = readyNodes.insert(curr);
 		transferNodes.pop_front();

@@ -9,29 +9,31 @@ bool vulpes::terrain::TerrainNode::DrawAABB = false;
 
 gli::texture2d vulpes::terrain::TerrainNode::heightmap = gli::texture2d(gli::load("rsrc/img/terrain_height.dds"));
 gli::texture2d vulpes::terrain::TerrainNode::normalmap = gli::texture2d(gli::load("rsrc/img/terrain_normals.dds"));
+float vulpes::terrain::TerrainNode::MaxRenderDistance = 12000.0f;
+
 
 void vulpes::terrain::TerrainNode::Subdivide() {
 	double child_length = SideLength / 2.0;
 	double child_offset = SideLength / 4.0;
-	glm::ivec2 grid_pos = glm::ivec2(2 * LogicalCoordinates.x, 2 * LogicalCoordinates.y);
+	glm::ivec2 grid_pos = glm::ivec2(2 * GridCoordinates.x, 2 * GridCoordinates.y);
 	glm::vec3 pos = glm::vec3(SpatialCoordinates.x, 0.0f, SpatialCoordinates.z);
-	children[0] = std::make_unique<TerrainNode>(device, Depth + 1, grid_pos, pos, child_length, MaxLOD, switchRatio);
-	children[1] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x + 1, grid_pos.y), pos + glm::vec3(child_length, 0.0f, 0.0f), child_length, MaxLOD, switchRatio);
-	children[2] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x, grid_pos.y + 1), pos + glm::vec3(0.0f, 0.0f, -child_length), child_length, MaxLOD, switchRatio);
-	children[3] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x + 1, grid_pos.y + 1), pos + glm::vec3(child_length, 0.0f, -child_length), child_length, MaxLOD, switchRatio);
+	Children[0] = std::make_unique<TerrainNode>(device, Depth + 1, grid_pos, pos, child_length, MaxLOD, SwitchRatio);
+	Children[1] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x + 1, grid_pos.y), pos + glm::vec3(child_length, 0.0f, 0.0f), child_length, MaxLOD, SwitchRatio);
+	Children[2] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x, grid_pos.y + 1), pos + glm::vec3(0.0f, 0.0f, -child_length), child_length, MaxLOD, SwitchRatio);
+	Children[3] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x + 1, grid_pos.y + 1), pos + glm::vec3(child_length, 0.0f, -child_length), child_length, MaxLOD, SwitchRatio);
 }
 
-vulpes::terrain::TerrainNode::TerrainNode(const Device* device, const size_t& depth, const glm::ivec2& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod, const double& switch_ratio) : LogicalCoordinates(logical_coords), SideLength(length), Depth(depth), aabb({ position - static_cast<float>(length / 2.0), position + static_cast<float>(length / 2.0) }), SpatialCoordinates(position), device(device), MaxLOD(max_lod), switchRatio(switch_ratio) {}
+vulpes::terrain::TerrainNode::TerrainNode(const Device* device, const size_t& depth, const glm::ivec2& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod, const double& switch_ratio) : GridCoordinates(logical_coords), SideLength(length), Depth(depth), aabb({ position - static_cast<float>(length / 2.0), position + static_cast<float>(length / 2.0) }), SpatialCoordinates(position), device(device), MaxLOD(max_lod), SwitchRatio(switch_ratio) {}
 
 vulpes::terrain::TerrainNode::~TerrainNode() {
 	if (!Leaf()) {
-		for (auto& child : children) {
+		for (auto& child : Children) {
 			child.reset();
 		}
 	}
 	mesh.cleanup();
 	if (DrawAABB) {
-		aabb_mesh.cleanup();
+		util::aabbPool.erase(reinterpret_cast<uint64_t>(this));
 	}
 }
 
@@ -84,30 +86,25 @@ void vulpes::terrain::TerrainNode::CreateMesh() {
 
 	}
 	if (DrawAABB) {
-		aabb_mesh = std::move(Mesh(SpatialCoordinates, glm::vec3(SideLength, SideLength / 2.0f, SideLength)));
-		int i = 0;
-		for (auto& vert : aabb_vertices) {
-			aabb_mesh.add_vertex(vertex_t{ (vert / 2.0f) + glm::vec3(0.5f, 0.5f, -0.5f) });
-			aabb_mesh.add_triangle(aabb_indices[i * 3], aabb_indices[i * 3 + 1], aabb_indices[i * 3 + 2]);
-			++i;
-		}
-		aabb_mesh.create_buffers(device);
+		aabb.CreateMesh();
 	}
+
 	mesh.vertices.positions.shrink_to_fit();
 	mesh.vertices.normals_uvs.shrink_to_fit();
 	mesh.indices.shrink_to_fit();
 	mesh.create_buffers(device);
 }
 
-void vulpes::terrain::TerrainNode::TransferMesh(VkCommandBuffer & cmd) {
+void vulpes::terrain::TerrainNode::RecordTransferCmd(VkCommandBuffer & cmd) {
 	mesh.record_transfer_commands(cmd);
 	if(DrawAABB){
-		aabb_mesh.record_transfer_commands(cmd);
+		aabb.mesh.record_transfer_commands(cmd);
+		util::aabbPool.insert(std::make_pair(reinterpret_cast<uint64_t>(this), &aabb));
 	}
 }
 
 bool vulpes::terrain::TerrainNode::Leaf() const {
-	for (auto& child : children) {
+	for (auto& child : Children) {
 		if (child) {
 			return false;
 		}
@@ -119,7 +116,7 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, Nod
 	// Get distance from camera to bounds of this node.
 	// Radius of sphere is 1.1 times current node side length, which specifies
 	// the range from a node we consider to be the LOD switch distance
-	const util::Sphere lod_sphere{ camera_position, SideLength * switchRatio };
+	const util::Sphere lod_sphere{ camera_position, SideLength * SwitchRatio };
 	const util::Sphere aabb_sphere{ aabb.Center(), SideLength };
 	 
 	// Depth is less than max subdivide level and we're in subdivide range.
@@ -128,11 +125,12 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, Nod
 			Status = NodeStatus::Subdivided;
 			mesh.cleanup();
 			if (DrawAABB) {
-				aabb_mesh.cleanup();
+				util::aabbPool.erase(reinterpret_cast<uint64_t>(this));
+				aabb.mesh.cleanup();
 			}
 			Subdivide();
 		}
-		for (auto& child : children) {
+		for (auto& child : Children) {
 			child->Update(camera_position, active_nodes, view);
 		}
 	}
@@ -160,15 +158,12 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, Nod
 	
 }
 
-void vulpes::terrain::TerrainNode::BuildCommandBuffer(VkCommandBuffer & cmd) const {
+void vulpes::terrain::TerrainNode::RecordGraphicsCmds(VkCommandBuffer & cmd) const {
 	mesh.render(cmd);
-	if (DrawAABB) {
-		aabb_mesh.render(cmd);
-	}
 }
 
 void vulpes::terrain::TerrainNode::Prune(){
-	for (auto& child : children) {
+	for (auto& child : Children) {
 		if (!child) {
 			continue;
 		}
@@ -176,8 +171,3 @@ void vulpes::terrain::TerrainNode::Prune(){
 		child.reset();
 	}
 }
-
-double vulpes::terrain::TerrainNode::Size(){
-	return pow(2, static_cast<double>(Depth));
-}
-
