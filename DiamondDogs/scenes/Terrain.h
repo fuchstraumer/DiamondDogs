@@ -107,7 +107,9 @@ namespace terrain_scene {
 				VkCommandBuffer& aabb_buffer = secondaryPool->GetCmdBuffer(i + (2 * swapchain->ImageCount));
 
 				if (!util::aabbPool.empty()) {
+					vkBeginCommandBuffer(aabb_buffer, &begin_info);
 					util::AABB::RenderAABBs(instance->GetViewMatrix(), aabb_buffer, viewport, scissor);
+					vkEndCommandBuffer(aabb_buffer);
 				}
 
 				vkBeginCommandBuffer(skybox_buffer, &begin_info);
