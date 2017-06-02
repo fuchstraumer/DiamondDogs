@@ -13,6 +13,29 @@ namespace vulpes {
 		Destroy();
 	}
 
+	Buffer::Buffer(Buffer && other) noexcept : allocators(std::move(other.allocators)), allocSize(std::move(other.allocSize)), createInfo(std::move(other.createInfo)), dataSize(std::move(other.dataSize)), handle(std::move(other.handle)), memory(std::move(other.memory)), parent(std::move(other.parent)), MappedMemory(std::move(other.MappedMemory)), view(std::move(other.view)) {
+		// Make sure to nullify so destructor checks safer/more likely to succeed.
+		other.handle = VK_NULL_HANDLE;
+		other.memory = VK_NULL_HANDLE;
+		other.MappedMemory = nullptr;
+	}
+
+	Buffer & Buffer::operator=(Buffer && other) noexcept {
+		allocators = std::move(other.allocators);
+		allocSize = std::move(other.allocSize);
+		createInfo = std::move(other.createInfo);
+		dataSize = std::move(other.dataSize);
+		handle = std::move(other.handle);
+		memory = std::move(other.memory);
+		parent = std::move(other.parent);
+		MappedMemory = std::move(other.MappedMemory);
+		view = std::move(other.view);
+		other.handle = VK_NULL_HANDLE;
+		other.memory = VK_NULL_HANDLE;
+		other.MappedMemory = nullptr;
+		return *this;
+	}
+
 	void Buffer::CreateBuffer(const VkBufferUsageFlags & usage_flags, const VkMemoryPropertyFlags & memory_flags, const VkDeviceSize & size, const VkDeviceSize & offset) {
 		if (parent == nullptr) {
 			throw(std::runtime_error("Set the parent of a buffer before trying to populate it, you dolt."));
@@ -147,8 +170,7 @@ namespace vulpes {
 		return allocSize;
 	}
 
-	VkDeviceSize Buffer::DataSize() const noexcept
-	{
+	VkDeviceSize Buffer::DataSize() const noexcept{
 		return createInfo.size;
 	}
 
@@ -203,6 +225,44 @@ namespace vulpes {
 		VkAssert(result);
 		result = vkBindBufferMemory(parent->vkHandle(), staging_buffer, staging_memory, offset);
 		VkAssert(result);
+	}
+
+	PooledBuffer::PooledBuffer(const Device* dvc) : Buffer(dvc) {}
+
+	void PooledBuffer::CreateBuffers(const VkBufferUsageFlags & usage, const VkMemoryPropertyFlags & memory_flags, const VkDeviceSize & total_size, const std::vector<VkDeviceSize>& offsets) {
+		// total size we require will probably end up being different than allocated size due to alignment reqs
+		dataSize = total_size;
+		createInfo = vk_buffer_create_info_base;
+		createInfo.usage = usage;
+		createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		VkDeviceSize total_offset = 0;
+		VkMemoryAllocateInfo alloc = vk_allocation_info_base;
+		uint32_t req_mem_type_bitfield = 0;
+
+		// Create buffer objects
+		for (auto& offset : offsets) {
+			
+			VkDeviceSize buff_size = offset - total_offset;
+			createInfo.size = buff_size;
+			VkBuffer new_buffer;
+			VkResult result = vkCreateBuffer(parent->vkHandle(), &createInfo, allocators, &new_buffer);
+			total_offset += offset;
+
+			// Get memory requirements of buffer objects
+			VkMemoryRequirements memreqs;
+			vkGetBufferMemoryRequirements(parent->vkHandle(), new_buffer, &memreqs);
+			alloc.allocationSize += memreqs.size;
+			if (alloc.allocationSize % memreqs.alignment != 0) {
+				alloc.allocationSize += (alloc.allocationSize % memreqs.alignment); 
+			}
+			req_mem_type_bitfield |= memreqs.memoryTypeBits;
+
+
+			buffers.insert(std::make_pair(offset, std::move(new_buffer)));
+		}
+
+		
+		
 	}
 
 }

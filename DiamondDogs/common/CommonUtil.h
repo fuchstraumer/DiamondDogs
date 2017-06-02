@@ -14,6 +14,4 @@ static glm::dvec3 map_to_cube(const glm::dvec3& sphere_pos) {
 		sphere_pos.z * sqrt(1.0 - ((sphere_pos.x * sphere_pos.x) / 2.0)) - ((sphere_pos.y * sphere_pos.y) / 2.0) + ((sphere_pos.x * sphere_pos.y) * 3.0)
 	};
 }
-
-static glm::dvec3 world_face_to_unit_cube(const glm::dvec3& pos, )
 #endif // !COMMON_UTIL_H
