@@ -84,14 +84,30 @@ namespace vulpes {
 		create_info.pQueueCreateInfos = queue_infos.data();
 		
 		create_info.pEnabledFeatures = &device->Features;
-		create_info.enabledExtensionCount = 1;
-		create_info.ppEnabledExtensionNames = device_extensions.data();
 
 		if (instance->validationEnabled) {
+			std::vector<VkExtensionProperties> extensions;
+			uint32_t cnt = 0;
+			vkEnumerateDeviceExtensionProperties(parent->vkHandle(), nullptr, &cnt, nullptr);
+			extensions.resize(cnt);
+			vkEnumerateDeviceExtensionProperties(parent->vkHandle(), nullptr, &cnt, extensions.data());
+			for (auto&& ext : extensions) {
+				if (!strcmp(ext.extensionName, VK_EXT_DEBUG_MARKER_EXTENSION_NAME)) {
+					MarkersEnabled = true;
+				}
+			}
+			MarkersEnabled = false;
+		}
+
+		if (MarkersEnabled) {
 			create_info.enabledLayerCount = 1;
 			create_info.ppEnabledLayerNames = &standard_validation_layer;
+			create_info.enabledExtensionCount = 2;
+			create_info.ppEnabledExtensionNames = device_extensions_debug.data();
 		}
 		else {
+			create_info.enabledExtensionCount = 1;
+			create_info.ppEnabledExtensionNames = device_extensions.data();
 			create_info.enabledLayerCount = 0;
 			create_info.ppEnabledLayerNames = nullptr;
 		}
@@ -99,6 +115,15 @@ namespace vulpes {
 		VkResult result = vkCreateDevice(parent->vkHandle(), &create_info, AllocCallbacks, &handle);
 		VkAssert(result);
 		
+		{
+			// Get debug marker function pointers
+			pfnDebugMarkerSetObjectTag = reinterpret_cast<PFN_vkDebugMarkerSetObjectTagEXT>(vkGetDeviceProcAddr(handle, "vkDebugMarkerSetObjectTagEXT"));
+			pfnDebugMarkerSetObjectName = reinterpret_cast<PFN_vkDebugMarkerSetObjectNameEXT>(vkGetDeviceProcAddr(handle, "vkDebugMarkerSetObjectNameEXT"));
+			pfnCmdDebugMarkerBegin = reinterpret_cast<PFN_vkCmdDebugMarkerBeginEXT>(vkGetDeviceProcAddr(handle, "vkCmdDebugMarkerBeginEXT"));
+			pfnCmdDebugMarkerEnd = reinterpret_cast<PFN_vkCmdDebugMarkerEndEXT>(vkGetDeviceProcAddr(handle, "vkCmdDebugMarkerEndEXT"));
+			pfnCmdDebugMarkerInsert = reinterpret_cast<PFN_vkCmdDebugMarkerInsertEXT>(vkGetDeviceProcAddr(handle, "vkCmdDebugMarkerInsertEXT"));
+		}
+
 	}
 
 	Device::~Device(){
@@ -171,6 +196,53 @@ namespace vulpes {
 
 	const PhysicalDevice & Device::GetPhysicalDevice() const noexcept{
 		return *parent;
+	}
+
+	void Device::vkSetObjectDebugMarkerName(const uint64_t & object_handle, const VkDebugReportObjectTypeEXT & object_type, const char * name) const {
+		if (pfnDebugMarkerSetObjectName) {
+			VkDebugMarkerObjectNameInfoEXT name_info = vk_debug_marker_object_name_info_base;
+			name_info.objectType = object_type;
+			name_info.object = object_handle;
+			name_info.pObjectName = name;
+			VkResult result = pfnDebugMarkerSetObjectName(handle, &name_info);
+			VkAssert(result);
+		}
+	}
+
+	void Device::vkSetObjectDebugMarkerTag(const uint64_t & object_handle, const VkDebugReportObjectTypeEXT & object_type, uint64_t name, size_t tag_size, const void * tag) const {
+		if (pfnDebugMarkerSetObjectTag) {
+			VkDebugMarkerObjectTagInfoEXT tag_info{ VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_TAG_INFO_EXT, nullptr };
+			tag_info.objectType = object_type;
+			tag_info.object = object_handle;
+			tag_info.tagName = name;
+			tag_info.tagSize = tag_size;
+			tag_info.pTag = tag;
+			pfnDebugMarkerSetObjectTag(handle, &tag_info);
+		}
+	}
+
+	void Device::vkCmdBeginDebugMarkerRegion(VkCommandBuffer & cmd, const char * region_name, const glm::vec4 & region_color) const {
+		if (pfnCmdDebugMarkerBegin) {
+			VkDebugMarkerMarkerInfoEXT marker_info{ VK_STRUCTURE_TYPE_DEBUG_MARKER_MARKER_INFO_EXT };
+			memcpy(marker_info.color, glm::value_ptr(region_color), sizeof(float) * 4);
+			marker_info.pMarkerName = region_name;
+			pfnCmdDebugMarkerBegin(cmd, &marker_info);
+		}
+	}
+
+	void Device::vkCmdInsertDebugMarker(VkCommandBuffer & cmd, const char * marker_name, const glm::vec4 & marker_color) const {
+		if (pfnCmdDebugMarkerInsert) {
+			VkDebugMarkerMarkerInfoEXT marker_info{ VK_STRUCTURE_TYPE_DEBUG_MARKER_MARKER_INFO_EXT };
+			memcpy(marker_info.color, glm::value_ptr(marker_color), sizeof(float) * 4);
+			marker_info.pMarkerName = marker_name;
+			pfnCmdDebugMarkerInsert(cmd, &marker_info);
+		}
+	}
+
+	void Device::vkCmdEndDebugMarkerRegion(VkCommandBuffer & cmd) const {
+		if (pfnCmdDebugMarkerEnd) {
+			pfnCmdDebugMarkerEnd(cmd);
+		}
 	}
 
 }

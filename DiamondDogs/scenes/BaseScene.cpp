@@ -14,7 +14,7 @@
 vulpes::BaseScene::BaseScene(const size_t& num_secondary_buffers, const uint32_t& _width, const uint32_t& _height) : width(_width), height(_height) {
 
 	VkInstanceCreateInfo create_info = vk_base_instance_info;
-	instance = new InstanceGLFW(create_info, false);
+	instance = new InstanceGLFW(create_info, true);
 	glfwSetWindowUserPointer(instance->Window, this);
 	instance->SetupPhysicalDevices();
 	instance->SetupSurface();

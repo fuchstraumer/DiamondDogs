@@ -24,6 +24,8 @@ namespace vulpes {
 	};
 
     class TransferPool : public CommandPool {
+		TransferPool(TransferPool&& other) = delete;
+		TransferPool& operator=(TransferPool&& other) = delete;
 	public:
 
 		TransferPool(const Device* _parent);

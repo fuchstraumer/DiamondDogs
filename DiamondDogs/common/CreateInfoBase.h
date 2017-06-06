@@ -544,6 +544,11 @@ namespace vulpes {
 		0,
 	};
 
+	constexpr VkDebugMarkerObjectNameInfoEXT vk_debug_marker_object_name_info_base{
+		VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT,
+		nullptr,
+	};
+
 }
 
 #endif // !VULPES_VK_CREATE_INFO_BASE_H

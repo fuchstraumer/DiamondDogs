@@ -61,6 +61,7 @@ namespace vulpes {
 		VkInstance handle;
 		uint32_t width, height;
 		VkInstanceCreateInfo createInfo;
+
 	};
 
 

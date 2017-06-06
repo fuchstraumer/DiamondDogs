@@ -25,35 +25,54 @@ namespace vulpes {
 			Sampler(const Sampler& other) = delete;
 			Sampler& operator=(const Sampler& other) = delete;
 		public:
-
-			enum class addressMode {
-				CLAMP,
-				REPEAT,
-				MIRROR,
-			};
-
-			addressMode AddressMode = addressMode::CLAMP;
 			
-			Sampler(const size_t& width, const size_t& height);
+			Sampler() = default;
 
-			virtual ~Sampler();
+			virtual ~Sampler() = default;
 
 			virtual float Sample(const size_t& x, const size_t& y) = 0;
 
-		protected:
-			
-			std::unique_ptr<Sampler> prev = std::unique_ptr<Sampler>(nullptr);
+		};
 
+		enum class ModType {
+			ADD,
+			SUBTRACT,
+			MULTIPLY,
+			DIVIDE,
+			POW,
+			LERP,
+		};
+
+		class Modifier : public Sampler {
+		public:
+
+			Modifier(ModType modifier_type, Sampler* left, Sampler* right);
+
+			virtual float Sample(const size_t& x, const size_t& y);
+
+			ModType ModifierType;
+
+		private:
+			
+			std::unique_ptr<Sampler> leftOperand, rightOperand;
+		};
+
+		enum class addressMode {
+			CLAMP,
+			REPEAT,
+			MIRROR,
 		};
 
 		class HeightmapSampler : public Sampler {
 		public:
 
-			HeightmapSampler(const char* filename, const size_t& width, const size_t& height);
+			HeightmapSampler(const char* filename, addressMode addr_mode);
 
 			~HeightmapSampler() = default;
 
 			virtual float Sample(const size_t& x, const size_t& y) override;
+
+			addressMode AddressMode;
 
 		protected:
 

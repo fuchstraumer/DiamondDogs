@@ -78,6 +78,7 @@ namespace terrain_scene {
 			inherit_info.subpass = 0;
 
 			for (uint32_t i = 0; i < graphicsPool->size(); ++i) {
+
 				// holds secondary buffers
 				std::vector<VkCommandBuffer> buffers;
 
@@ -89,6 +90,11 @@ namespace terrain_scene {
 
 				VkResult err = vkBeginCommandBuffer(graphicsPool->GetCmdBuffer(i), &begin_info);
 				VkAssert(err);
+
+				if (device->MarkersEnabled) {
+					std::string region_name = std::string("Main render loop, Swapchain image ") + std::to_string(i);
+					device->vkCmdBeginDebugMarkerRegion(graphicsPool->GetCmdBuffer(i), region_name.c_str(), glm::vec4(0.0f, 0.2f, 0.8f, 1.0f));
+				}
 
 				renderpass_begin.framebuffer = framebuffers[i].vkHandle();
 				renderpass_begin.renderArea.extent = swapchain->Extent;
@@ -156,10 +162,16 @@ namespace terrain_scene {
 				vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), static_cast<uint32_t>(buffers.size()), buffers.data());
 
 				vkCmdEndRenderPass(graphicsPool->GetCmdBuffer(i));
+
+				if (device->MarkersEnabled) {
+					device->vkCmdEndDebugMarkerRegion(graphicsPool->GetCmdBuffer(i));
+				}
+
 				err = vkEndCommandBuffer(graphicsPool->GetCmdBuffer(i));
 				VkAssert(err);
 				buffers.clear();
 				buffers.shrink_to_fit();
+
 			}
 
 		}

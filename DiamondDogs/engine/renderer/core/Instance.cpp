@@ -45,7 +45,6 @@ namespace vulpes {
 			DestroyDebugCallback(handle, warningCallback, AllocationCallbacks);
 			DestroyDebugCallback(handle, infoCallback, AllocationCallbacks);
 			DestroyDebugCallback(handle, perfCallback, AllocationCallbacks);
-			DestroyDebugCallback(handle, vkCallback, AllocationCallbacks);
 		}
 		vkDestroyInstance(handle, AllocationCallbacks);
 	}
@@ -82,11 +81,12 @@ namespace vulpes {
 		cam.Position = pos;
 	}
 
-	InstanceGLFW::InstanceGLFW(VkInstanceCreateInfo create_info, const bool & enable_validation, const uint32_t& _width, const uint32_t& _height)  {
+	InstanceGLFW::InstanceGLFW(VkInstanceCreateInfo create_info, const bool & enable_validation, const uint32_t& _width, const uint32_t& _height) {
 		
 		width = _width;
 		height = _height;
 		createInfo = create_info;
+		validationEnabled = enable_validation;
 
 		glfwInit();
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -94,7 +94,7 @@ namespace vulpes {
 		CreateWindowGLFW();
 		
 		std::vector<const char*> ext;
-		validationEnabled = enable_validation;
+
 		{
 			uint32_t cnt = 0;
 			const char** names;
@@ -124,7 +124,6 @@ namespace vulpes {
 			CreateDebugCallback(*this, VK_DEBUG_REPORT_ERROR_BIT_EXT, &errorCallback, AllocationCallbacks);
 			CreateDebugCallback(*this, VK_DEBUG_REPORT_INFORMATION_BIT_EXT, &infoCallback, AllocationCallbacks);
 			CreateDebugCallback(*this, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, &perfCallback, AllocationCallbacks);
-			CreateDebugCallback(*this, VK_DEBUG_REPORT_DEBUG_BIT_EXT, &vkCallback, AllocationCallbacks);
 		}
 		
 		projection = glm::perspective(glm::radians(75.0f), static_cast<float>(width) / static_cast<float>(height), 0.01f, 40000.0f);

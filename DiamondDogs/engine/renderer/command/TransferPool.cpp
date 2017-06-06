@@ -24,6 +24,10 @@ namespace vulpes {
 
 		parent->TransferQueue(0, queue);
 
+		if (parent->MarkersEnabled) {
+			parent->vkSetObjectDebugMarkerName((uint64_t)handle, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_POOL_EXT, "TransferPool");
+		}
+
 	}
 
 	VkCommandBuffer& TransferPool::Begin() {

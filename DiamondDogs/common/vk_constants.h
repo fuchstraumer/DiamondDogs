@@ -30,6 +30,12 @@ namespace vulpes {
 
 	constexpr std::array<const char*, 1> device_extensions = {
 		khr_swapchain_extension,
+
+	};
+
+	constexpr std::array<const char*, 2> device_extensions_debug = {
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+		VK_EXT_DEBUG_MARKER_EXTENSION_NAME,
 	};
 
 	constexpr uint64_t vk_default_fence_timeout = std::numeric_limits<uint64_t>::max();
