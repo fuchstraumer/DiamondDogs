@@ -3,6 +3,9 @@
 #include "engine/renderer/resource/Buffer.h"
 #include "engine\util\sphere.h"
 
+size_t vulpes::terrain::TerrainQuadtree::MaxLOD = 12;
+double vulpes::terrain::TerrainQuadtree::SwitchRatio = 1.20;
+
 void vulpes::terrain::TerrainQuadtree::pruneNode(std::shared_ptr<TerrainNode>& node) {
 	if (!node->Leaf()) {
 		eraseChildren(node);
@@ -17,8 +20,8 @@ void vulpes::terrain::TerrainQuadtree::eraseChildren(std::shared_ptr<TerrainNode
 	activeNodes.erase(node);
 }
 
-vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, const float & split_factor, const size_t & max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position) {
-	root = new TerrainNode(glm::ivec3(0, 0, 0), root_tile_position, root_side_length, max_detail_level, split_factor);
+vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, const float & split_factor, const size_t & max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position) : nodeRenderer(device) {
+	root = new TerrainNode(glm::ivec3(0, 0, 0), root_tile_position, root_side_length);
 	activeNodes.insert(std::shared_ptr<TerrainNode>(root));
 	// cachedNodes.insert(std::make_pair(glm::ivec2(0, 0), std::shared_ptr<TerrainNode>(root));
 }
@@ -52,11 +55,11 @@ void vulpes::terrain::TerrainQuadtree::UpdateQuadtree(const glm::vec3 & camera_p
 		// Radius of sphere is 1.1 times current node side length, which specifies
 		// the range from a node we consider to be the LOD switch distance
 		const auto curr = *iter;
-		const util::Sphere lod_sphere{ camera_position, curr->SideLength * curr->SwitchRatio };
+		const util::Sphere lod_sphere{ camera_position, curr->SideLength * SwitchRatio };
 		const util::Sphere aabb_sphere{ curr->SpatialCoordinates + static_cast<float>(curr->SideLength), curr->SideLength };
 
 		// Depth is less than max subdivide level and we're in subdivide range.
-		if (curr->Depth < MaxLOD && lod_sphere.CoincidesWith(curr->aabb)) {
+		if (curr->Depth() < MaxLOD && lod_sphere.CoincidesWith(curr->aabb)) {
 			if (curr->Leaf()) {
 				curr->Status = NodeStatus::Subdivided;
 				if (NodeRenderer::DrawAABBs) {

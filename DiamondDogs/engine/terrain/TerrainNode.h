@@ -18,7 +18,7 @@ namespace vulpes {
 			TerrainNode& operator=(const TerrainNode& other) = delete;
 		public:
 
-			TerrainNode(const glm::ivec3& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod, const double& switch_ratio);
+			TerrainNode(const glm::ivec3& logical_coords, const glm::vec3& position, const double& length);
 
 			~TerrainNode();
 

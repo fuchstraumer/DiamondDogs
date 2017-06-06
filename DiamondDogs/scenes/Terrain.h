@@ -16,7 +16,7 @@ namespace terrain_scene {
 	public:
 
 		TerrainScene() : BaseScene(4) {
-			terrain::TerrainNode::DrawAABB = false;
+			terrain::NodeRenderer::DrawAABBs = false;
 			renderSkybox = true;
 			const std::type_info& id = typeid(TerrainScene);
 			uint16_t hash = static_cast<uint16_t>(id.hash_code());
@@ -144,7 +144,7 @@ namespace terrain_scene {
 					vkEndCommandBuffer(skybox_buffer);
 				}
 				
-				if (terrain::TerrainNode::DrawAABB) {
+				if (terrain::NodeRenderer::DrawAABBs) {
 					vkBeginCommandBuffer(aabb_buffer, &begin_info);
 					if (device->MarkersEnabled) {
 						device->vkCmdInsertDebugMarker(skybox_buffer, "Draw AABBs", glm::vec4(0.7f, 0.3f, 0.0f, 1.0f));

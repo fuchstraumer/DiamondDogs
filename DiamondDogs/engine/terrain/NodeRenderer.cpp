@@ -33,6 +33,9 @@ static const std::array<glm::vec4, 20> LOD_COLOR_ARRAY = {
 	glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
 };
 
+bool vulpes::terrain::NodeRenderer::DrawAABBs = false;
+float vulpes::terrain::NodeRenderer::MaxRenderDistance = 100000.0f;
+
 vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(parent_dvc) {
 
 	static const std::array<VkDescriptorPoolSize, 1> pools{
@@ -183,7 +186,7 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 			Mesh* curr = (*iter).second;
 			uboData.model = curr->get_model_matrix();
 			vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO), &uboData);
-			vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4), &LOD_COLOR_ARRAY[(*iter).first->Depth]);
+			vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4), &LOD_COLOR_ARRAY[(*iter).first->Depth()]);
 			// Generates draw commands
 			curr->render(graphics_cmd);
 
@@ -200,7 +203,7 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	ImGui::Begin("Debug");
 	int num_nodes = readyNodes.size();
 	ImGui::InputInt("Number of Nodes", &num_nodes);
-	ImGui::Checkbox("Render AABBs", &TerrainNode::DrawAABB);
+	ImGui::Checkbox("Render AABBs", &DrawAABBs);
 	ImGui::End();
 
 }

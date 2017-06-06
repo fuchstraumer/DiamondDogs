@@ -33,7 +33,8 @@ namespace vulpes {
 
 			NodeRenderer nodeRenderer;
 			nodeSubset activeNodes;
-			size_t MaxLOD;
+			static size_t MaxLOD;
+			static double SwitchRatio;
 			// Will use this to keep recent nodes around, and also cache by locality using grid coords
 			// Should consider "age" member of a node, and deleting nodes in cache at certain age.
 			nodeCache cachedNodes;

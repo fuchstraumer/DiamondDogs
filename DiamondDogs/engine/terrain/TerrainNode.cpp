@@ -13,7 +13,7 @@ void vulpes::terrain::TerrainNode::Subdivide() {
 	Children[3] = std::make_shared<TerrainNode>(glm::ivec3(grid_pos.x + 1, grid_pos.y + 1, grid_pos.z), pos + glm::vec3(child_length, 0.0f, -child_length), child_length);
 }
 
-vulpes::terrain::TerrainNode::TerrainNode(const glm::ivec3& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod, const double& switch_ratio) : 
+vulpes::terrain::TerrainNode::TerrainNode(const glm::ivec3& logical_coords, const glm::vec3& position, const double& length) : 
 	GridCoordinates(logical_coords), SideLength(length), aabb({ position, position + static_cast<float>(length) }), 
 	SpatialCoordinates(position) {}
 

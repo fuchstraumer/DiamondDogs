@@ -15,7 +15,7 @@ namespace vulpes {
 		std::unique_ptr<PipelineCache> AABB::cache = std::unique_ptr<PipelineCache>(nullptr);
 		const Device* AABB::device = nullptr;
 		VkPipelineLayout AABB::pipelineLayout = VK_NULL_HANDLE;
-		std::unordered_multimap<glm::ivec2, AABB*> AABB::aabbPool = std::unordered_multimap<glm::ivec2, AABB*>();
+		std::unordered_multimap<glm::ivec3, AABB*> AABB::aabbPool = std::unordered_multimap<glm::ivec3, AABB*>();
 
 		static const std::array<glm::vec3, 8> aabb_vertices{
 			glm::vec3{-1.0f,-1.0f, 1.0f },
