@@ -29,6 +29,9 @@
     <ClCompile Include="engine\util\AABB.cpp" />
     <ClCompile Include="engine\util\easylogging++.cc" />
     <ClCompile Include="engine\renderer\command\TransferPool.cpp" />
+    <ClCompile Include="engine\renderer\gui\imgui_lib\imgui_draw.cpp" />
+    <ClCompile Include="engine\renderer\gui\imgui_lib\imgui.cpp" />
+    <ClCompile Include="engine\renderer\gui\imguiWrapper.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -85,9 +88,17 @@
     <ClInclude Include="engine\util\alloc\Page.h" />
     <ClInclude Include="engine\renderer\resource\Memory.h" />
     <ClInclude Include="engine\renderer\resource\Resource.h" />
+    <ClInclude Include="engine\renderer\gui\imguiShaders.h" />
+    <ClInclude Include="engine\renderer\gui\imguiWrapper.h" />
+    <ClInclude Include="engine\renderer\gui\imgui_lib\imgui.h" />
+    <ClInclude Include="engine\renderer\gui\imgui_lib\imconfig.h" />
+    <ClInclude Include="engine\renderer\gui\imgui_lib\imgui_internal.h" />
+    <ClInclude Include="engine\terrain\TerrainSampler.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />
     <None Include="shaders\debug\vertex.glsl" />
+    <None Include="shaders\gui\ui.frag" />
+    <None Include="shaders\gui\ui.vert" />
   </ItemGroup>
 </Project>

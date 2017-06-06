@@ -5,14 +5,15 @@
 #include "engine/renderer/ForwardDecl.h"
 #include "engine/renderer/NonCopyable.h"
 #include "Camera.h"
+#include "../gui/imguiWrapper.h"
+
 namespace vulpes {
 
 	struct PhysicalDeviceFactory;
 
-
 	class Instance : NonMovable {
 	public:
-
+		
 		Instance() = default;
 
 		virtual void SetupSurface() = 0;
@@ -35,8 +36,11 @@ namespace vulpes {
 		std::vector<const char*> layers;
 
 		static std::array<bool, 1024> keys;
+		static std::array<bool, 3> mouse_buttons;
 		static float LastX, LastY;
 		static float mouseDx, mouseDy;
+		float frameTime;
+		static bool cameraLock;
 
 		VkSurfaceKHR surface = VK_NULL_HANDLE;
 		

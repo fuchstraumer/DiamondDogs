@@ -15,6 +15,7 @@ namespace vulpes {
 		std::unique_ptr<PipelineCache> AABB::cache = std::unique_ptr<PipelineCache>(nullptr);
 		const Device* AABB::device = nullptr;
 		VkPipelineLayout AABB::pipelineLayout = VK_NULL_HANDLE;
+		std::unordered_multimap<glm::ivec2, AABB*> AABB::aabbPool = std::unordered_multimap<glm::ivec2, AABB*>();
 
 		static const std::array<glm::vec3, 8> aabb_vertices{
 			glm::vec3{-1.0f,-1.0f, 1.0f },
@@ -37,7 +38,7 @@ namespace vulpes {
 		};
 
 		glm::dvec3 vulpes::util::AABB::Extents() const {
-			return Min - Max * 0.5;
+			return (Min - Max);
 		}
 
 		glm::dvec3 vulpes::util::AABB::Center() const {
@@ -127,12 +128,13 @@ namespace vulpes {
 			vkCmdSetViewport(cmd, 0, 1, &viewport);
 			vkCmdSetScissor(cmd, 0, 1, &scissor);
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
+			//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 0, nullptr , 0, nullptr);
+			size_t aabb_pool_size = aabbPool.size();
 			for (auto& aabb : aabbPool) {
 				uboData.model = aabb.second->mesh.get_model_matrix();
 				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ubo_data), &uboData);
 				aabb.second->mesh.render(cmd);
 			}
-			
 		}
 
 		void AABB::CleanupVkResources() {

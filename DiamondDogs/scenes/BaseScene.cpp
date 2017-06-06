@@ -43,6 +43,7 @@ vulpes::BaseScene::~BaseScene() {
 	for (const auto& fbuf : framebuffers) {
 		vkDestroyFramebuffer(device->vkHandle(), fbuf, nullptr);
 	}
+	delete gui;
 	delete swapchain;
 	delete renderPass;
 	delete secondaryPool;
@@ -187,4 +188,8 @@ void vulpes::BaseScene::RecreateSwapchain(const bool& windowed_fullscreen){
 	RecordCommands();
 
 	vkDeviceWaitIdle(device->vkHandle());
+}
+
+float vulpes::BaseScene::GetFrameTime(){
+	return frameTime;
 }

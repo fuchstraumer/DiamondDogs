@@ -44,7 +44,7 @@ namespace vulpes {
 		VkFormat FindSupportedFormat(const std::vector<VkFormat>& options, const VkImageTiling& tiling, const VkFormatFeatureFlags& flags) const;
 		VkFormat FindDepthFormat() const;
 
-		uint32_t GetMemoryTypeIdx(uint32_t& type_bitfield, const VkMemoryPropertyFlags& property_flags, VkBool32* memory_type_found = nullptr) const;
+		uint32_t GetMemoryTypeIdx(const uint32_t& type_bitfield, const VkMemoryPropertyFlags& property_flags, VkBool32* memory_type_found = nullptr) const;
 
 		uint32_t GetPhysicalDeviceID() const noexcept;
 

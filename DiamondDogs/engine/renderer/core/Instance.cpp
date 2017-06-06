@@ -3,7 +3,6 @@
 #include "common/VkDebug.h"
 #include "PhysicalDevice.h"
 #include "scenes\BaseScene.h"
-
 #ifndef VK_CUSTOM_ALLOCATION_CALLBACKS
 const VkAllocationCallbacks* vulpes::Instance::AllocationCallbacks = nullptr;
 #endif // !VK_CUSTOM_ALLOCATION_CALLBACKS
@@ -17,6 +16,7 @@ namespace vulpes {
 	float Instance::LastY = DEFAULT_HEIGHT / 2.0f;
 	float Instance::mouseDx = 0.0f;
 	float Instance::mouseDy = 0.0f;
+	bool Instance::cameraLock = false;
 
 	void Instance::SetupPhysicalDevices(){
 		physicalDeviceFactory = new PhysicalDeviceFactory();
@@ -152,6 +152,32 @@ namespace vulpes {
 			vkDestroySurfaceKHR(handle, surface, AllocationCallbacks);
 			SetupSurface();
 		}
+
+
+		ImGuiIO& io = ImGui::GetIO();
+		io.KeyMap[ImGuiKey_Tab] = GLFW_KEY_TAB;                         // Keyboard mapping. ImGui will use those indices to peek into the io.KeyDown[] array.
+		io.KeyMap[ImGuiKey_LeftArrow] = GLFW_KEY_LEFT;
+		io.KeyMap[ImGuiKey_RightArrow] = GLFW_KEY_RIGHT;
+		io.KeyMap[ImGuiKey_UpArrow] = GLFW_KEY_UP;
+		io.KeyMap[ImGuiKey_DownArrow] = GLFW_KEY_DOWN;
+		io.KeyMap[ImGuiKey_PageUp] = GLFW_KEY_PAGE_UP;
+		io.KeyMap[ImGuiKey_PageDown] = GLFW_KEY_PAGE_DOWN;
+		io.KeyMap[ImGuiKey_Home] = GLFW_KEY_HOME;
+		io.KeyMap[ImGuiKey_End] = GLFW_KEY_END;
+		io.KeyMap[ImGuiKey_Delete] = GLFW_KEY_DELETE;
+		io.KeyMap[ImGuiKey_Backspace] = GLFW_KEY_BACKSPACE;
+		io.KeyMap[ImGuiKey_Enter] = GLFW_KEY_ENTER;
+		io.KeyMap[ImGuiKey_Escape] = GLFW_KEY_ESCAPE;
+		io.KeyMap[ImGuiKey_A] = GLFW_KEY_A;
+		io.KeyMap[ImGuiKey_C] = GLFW_KEY_C;
+		io.KeyMap[ImGuiKey_V] = GLFW_KEY_V;
+		io.KeyMap[ImGuiKey_X] = GLFW_KEY_X;
+		io.KeyMap[ImGuiKey_Y] = GLFW_KEY_Y;
+		io.KeyMap[ImGuiKey_Z] = GLFW_KEY_Z;
+
+		io.ImeWindowHandle = glfwGetWin32Window(Window);
+		io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
+		io.DisplaySize = ImVec2(DEFAULT_WIDTH, DEFAULT_HEIGHT);
 	}
 
 	void InstanceGLFW::SetupSurface(){
@@ -166,22 +192,19 @@ namespace vulpes {
 		LastX = static_cast<float>(mouse_x);
 		LastY = static_cast<float>(mouse_y);
 
-		cam.ProcessMouseMovement(mouseDx, mouseDy);
+		if (!cameraLock) {
+			cam.ProcessMouseMovement(mouseDx, mouseDy);
+		}
 	}
 
 	void InstanceGLFW::KeyboardCallback(GLFWwindow * window, int key, int scan_code, int action, int mods){
+		
+		auto io = ImGui::GetIO();
 		// Escape key isn't fed into movement update call, just sets a flag
 		if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
 			glfwSetWindowShouldClose(window, true);
 		}
-		if (key == GLFW_KEY_LEFT_ALT && action == GLFW_PRESS) {
-			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-			return;
-		}
-		if (key == GLFW_KEY_LEFT_ALT && action == GLFW_RELEASE) {
-			glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-		}
 		if (key == GLFW_KEY_LEFT_BRACKET && action == GLFW_PRESS) {
 			cam.MovementSpeed += 25.0f;
 		}
@@ -192,9 +215,11 @@ namespace vulpes {
 		if (key >= 0 && key < 1024) {
 			if (action == GLFW_PRESS) {
 				keys[key] = true;
+				io.KeysDown[key] = true;
 			}
 			else if (action == GLFW_RELEASE) {
 				keys[key] = false;
+				io.KeysDown[key] = false;
 			}
 		}
 	}

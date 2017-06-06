@@ -82,20 +82,21 @@ namespace vulpes {
 		}
 	}
 
-	void Buffer::CopyTo(void* data, VkCommandBuffer& transfer_cmd) {
+	void Buffer::CopyTo(void* data, VkCommandBuffer& transfer_cmd, const VkDeviceSize& copy_size, const VkDeviceSize& copy_offset) {
 
 		VkBuffer staging_buffer;
 		VkDeviceMemory staging_memory;
-		createStagingBuffer(dataSize, 0, staging_buffer, staging_memory);
+		createStagingBuffer(copy_size, 0, staging_buffer, staging_memory);
 
 		void* mapped;
-		VkResult result = vkMapMemory(parent->vkHandle(), staging_memory, 0, dataSize, 0, &mapped);
+		VkResult result = vkMapMemory(parent->vkHandle(), staging_memory, 0, copy_size, 0, &mapped);
 		VkAssert(result);
 		memcpy(mapped, data, dataSize);
 		vkUnmapMemory(parent->vkHandle(), staging_memory);
 
 		VkBufferCopy copy{};
-		copy.size = dataSize;
+		copy.size = copy_size;
+		copy.dstOffset = copy_offset;
 
 		vkCmdCopyBuffer(transfer_cmd, staging_buffer, handle, 1, &copy);
 

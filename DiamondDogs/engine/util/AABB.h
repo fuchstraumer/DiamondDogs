@@ -13,6 +13,8 @@ namespace vulpes {
 
 	namespace util {
 
+		class TerrainNode;
+
 		struct AABB {
 
 			glm::dvec3 Min, Max;
@@ -45,10 +47,10 @@ namespace vulpes {
 			static ubo_data uboData;
 
 			static const VkAllocationCallbacks* allocators;
-
+			static std::unordered_multimap<glm::ivec2, AABB*> aabbPool;
 		};
 
-		static std::unordered_multimap<uint64_t, AABB*> aabbPool;
+		
 
 	}
 

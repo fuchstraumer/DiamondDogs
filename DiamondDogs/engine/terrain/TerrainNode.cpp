@@ -11,7 +11,6 @@ gli::texture2d vulpes::terrain::TerrainNode::heightmap = gli::texture2d(gli::loa
 gli::texture2d vulpes::terrain::TerrainNode::normalmap = gli::texture2d(gli::load("rsrc/img/terrain_normals.dds"));
 float vulpes::terrain::TerrainNode::MaxRenderDistance = 12000.0f;
 
-
 void vulpes::terrain::TerrainNode::Subdivide() {
 	double child_length = SideLength / 2.0;
 	double child_offset = SideLength / 4.0;
@@ -23,7 +22,9 @@ void vulpes::terrain::TerrainNode::Subdivide() {
 	Children[3] = std::make_unique<TerrainNode>(device, Depth + 1, glm::ivec2(grid_pos.x + 1, grid_pos.y + 1), pos + glm::vec3(child_length, 0.0f, -child_length), child_length, MaxLOD, SwitchRatio);
 }
 
-vulpes::terrain::TerrainNode::TerrainNode(const Device* device, const size_t& depth, const glm::ivec2& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod, const double& switch_ratio) : GridCoordinates(logical_coords), SideLength(length), Depth(depth), aabb({ position - static_cast<float>(length / 2.0), position + static_cast<float>(length / 2.0) }), SpatialCoordinates(position), device(device), MaxLOD(max_lod), SwitchRatio(switch_ratio) {}
+vulpes::terrain::TerrainNode::TerrainNode(const Device* device, const size_t& depth, const glm::ivec2& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod, const double& switch_ratio) : 
+	GridCoordinates(logical_coords), SideLength(length), Depth(depth), aabb({ position, position + static_cast<float>(length) }), 
+	SpatialCoordinates(position), device(device), MaxLOD(max_lod), SwitchRatio(switch_ratio) {}
 
 vulpes::terrain::TerrainNode::~TerrainNode() {
 	if (!Leaf()) {
@@ -33,7 +34,7 @@ vulpes::terrain::TerrainNode::~TerrainNode() {
 	}
 	mesh.cleanup();
 	if (DrawAABB) {
-		util::aabbPool.erase(reinterpret_cast<uint64_t>(this));
+		util::AABB::aabbPool.erase(GridCoordinates);
 	}
 }
 
@@ -53,6 +54,7 @@ void vulpes::terrain::TerrainNode::CreateMesh() {
 		mesh.vertices.resize(num_verts);
 
 		float scale = 1.0f / N_VERTS_PER_SIDE;
+		float uv_scale = (1.0f / (std::exp2(Depth))) / N_VERTS_PER_SIDE;
 		glm::vec3 offset = glm::vec3(0.5f, 0.0f, -0.5f);
 		int idx = 0;
 
@@ -65,7 +67,8 @@ void vulpes::terrain::TerrainNode::CreateMesh() {
 		for (int y = 0; y < vcount2; ++y) {
 			for (int x = 0; x < vcount2; ++x) {
 				mesh.vertices.positions[idx] = glm::vec3(static_cast<float>(x) * scale - 0.5f + offset.x, 0.0f, static_cast<float>(y)*scale - 1.0f);
-				mesh.vertices.normals_uvs[idx].uv = glm::vec2((x * scale) / Depth, (y * scale) / Depth);
+				glm::vec2 grid_offset = (GridCoordinates * SideLength) / (SideLength * (std::exp2(Depth)));
+				mesh.vertices.normals_uvs[idx].uv = glm::vec2((x * uv_scale) + grid_offset.x, 1.0f - ((y * uv_scale) + grid_offset.y));
 				++idx;
 			}
 		}
@@ -85,6 +88,7 @@ void vulpes::terrain::TerrainNode::CreateMesh() {
 		}
 
 	}
+
 	if (DrawAABB) {
 		aabb.CreateMesh();
 	}
@@ -99,7 +103,7 @@ void vulpes::terrain::TerrainNode::RecordTransferCmd(VkCommandBuffer & cmd) {
 	mesh.record_transfer_commands(cmd);
 	if(DrawAABB){
 		aabb.mesh.record_transfer_commands(cmd);
-		util::aabbPool.insert(std::make_pair(reinterpret_cast<uint64_t>(this), &aabb));
+		auto inserted = util::AABB::aabbPool.insert(std::make_pair(GridCoordinates, &aabb));
 	}
 }
 
@@ -117,7 +121,7 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, Nod
 	// Radius of sphere is 1.1 times current node side length, which specifies
 	// the range from a node we consider to be the LOD switch distance
 	const util::Sphere lod_sphere{ camera_position, SideLength * SwitchRatio };
-	const util::Sphere aabb_sphere{ aabb.Center(), SideLength };
+	const util::Sphere aabb_sphere{ SpatialCoordinates + static_cast<float>(SideLength), SideLength };
 	 
 	// Depth is less than max subdivide level and we're in subdivide range.
 	if (Depth < MaxLOD && lod_sphere.CoincidesWith(this->aabb)) {
@@ -125,7 +129,7 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, Nod
 			Status = NodeStatus::Subdivided;
 			mesh.cleanup();
 			if (DrawAABB) {
-				util::aabbPool.erase(reinterpret_cast<uint64_t>(this));
+				util::AABB::aabbPool.erase(GridCoordinates);
 				aabb.mesh.cleanup();
 			}
 			Subdivide();

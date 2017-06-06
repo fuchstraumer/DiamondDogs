@@ -135,9 +135,9 @@ namespace vulpes {
 	}
 
 	void Mesh::record_transfer_commands(VkCommandBuffer & transfer_cmd) {
-		vbo[0]->CopyTo(vertices.positions.data(), transfer_cmd);
-		vbo[1]->CopyTo(vertices.normals_uvs.data(), transfer_cmd);
-		ebo->CopyTo(indices.data(), transfer_cmd);
+		vbo[0]->CopyTo(vertices.positions.data(), transfer_cmd, vbo[0]->AllocSize(), 0);
+		vbo[1]->CopyTo(vertices.normals_uvs.data(), transfer_cmd, vbo[1]->AllocSize(), 0);
+		ebo->CopyTo(indices.data(), transfer_cmd, ebo->AllocSize(), 0);
 		//free_cpu_data();
 	}
 

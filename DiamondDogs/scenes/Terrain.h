@@ -15,8 +15,9 @@ namespace terrain_scene {
 	class TerrainScene : public BaseScene {
 	public:
 
-		TerrainScene() : BaseScene(3) {
-
+		TerrainScene() : BaseScene(4) {
+			terrain::TerrainNode::DrawAABB = false;
+			renderSkybox = true;
 			const std::type_info& id = typeid(TerrainScene);
 			uint16_t hash = static_cast<uint16_t>(id.hash_code());
 			pipelineCache = std::make_shared<PipelineCache>(device, hash);
@@ -24,7 +25,7 @@ namespace terrain_scene {
 			VkQueue transfer;
 			transfer = device->GraphicsQueue(0);
 
-			object = new terrain::TerrainQuadtree(device, 1.30f, 16, 10000.0, glm::vec3(0.0f));
+			object = new terrain::TerrainQuadtree(device, 1.30f, 8, 10000.0, glm::vec3(0.0f));
 			object->SetupNodePipeline(renderPass->vkHandle(), swapchain, pipelineCache, instance->GetProjectionMatrix());
 
 			skybox = new Skybox(device);
@@ -33,12 +34,15 @@ namespace terrain_scene {
 
 			SetupFramebuffers();
 
-
+			auto gui_cache = std::make_shared<PipelineCache>(device, static_cast<uint16_t>(typeid(imguiWrapper).hash_code()));
+			gui = new imguiWrapper;
+			gui->Init(device, gui_cache, renderPass->vkHandle(), swapchain);
+			gui->UploadTextureData(graphicsPool);
 		}
 
 		~TerrainScene() {	
-			if (!util::aabbPool.empty()) {
-				util::aabbPool.clear();
+			if (!util::AABB::aabbPool.empty()) {
+				util::AABB::aabbPool.clear();
 				util::AABB::CleanupVkResources();
 			}
 			delete skybox;
@@ -74,6 +78,10 @@ namespace terrain_scene {
 			inherit_info.subpass = 0;
 
 			for (uint32_t i = 0; i < graphicsPool->size(); ++i) {
+				// holds secondary buffers
+				std::vector<VkCommandBuffer> buffers;
+
+				gui->NewFrame(instance, true);
 
 				VkCommandBufferBeginInfo begin_info = vk_command_buffer_begin_info_base;
 				begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
@@ -81,7 +89,7 @@ namespace terrain_scene {
 
 				VkResult err = vkBeginCommandBuffer(graphicsPool->GetCmdBuffer(i), &begin_info);
 				VkAssert(err);
-				
+
 				renderpass_begin.framebuffer = framebuffers[i].vkHandle();
 				renderpass_begin.renderArea.extent = swapchain->Extent;
 				inherit_info.framebuffer = framebuffers[i].vkHandle();
@@ -97,39 +105,61 @@ namespace terrain_scene {
 				scissor.extent.height = swapchain->Extent.height;
 
 				vkCmdBeginRenderPass(graphicsPool->GetCmdBuffer(i), &renderpass_begin, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-				
-				begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+
+				begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 				inherit_info.framebuffer = framebuffers[i].vkHandle();
 				begin_info.pInheritanceInfo = &inherit_info;
 
-				VkCommandBuffer& terrain_buffer = secondaryPool->GetCmdBuffer(i);
-				VkCommandBuffer& skybox_buffer = secondaryPool->GetCmdBuffer(i + swapchain->ImageCount);
-				VkCommandBuffer& aabb_buffer = secondaryPool->GetCmdBuffer(i + (2 * swapchain->ImageCount));
+				VkCommandBuffer& terrain_buffer = secondaryPool->GetCmdBuffer(i * swapchain->ImageCount);
+				VkCommandBuffer& skybox_buffer = secondaryPool->GetCmdBuffer(1 + (i * swapchain->ImageCount));
+				VkCommandBuffer& gui_buffer = secondaryPool->GetCmdBuffer(2 + (i * swapchain->ImageCount));
+				VkCommandBuffer& aabb_buffer = secondaryPool->GetCmdBuffer(3 + (i * swapchain->ImageCount));
 
-				if (!util::aabbPool.empty()) {
+				ImGui::Begin("Debug");
+				ImGui::Checkbox("Render Skybox", &renderSkybox);
+				ImGui::End();
+
+				if (renderSkybox) {
+					vkBeginCommandBuffer(skybox_buffer, &begin_info);
+					vkCmdSetViewport(skybox_buffer, 0, 1, &viewport);
+					vkCmdSetScissor(skybox_buffer, 0, 1, &scissor);
+					skybox->RecordCommands(skybox_buffer);
+					vkEndCommandBuffer(skybox_buffer);
+					buffers.push_back(skybox_buffer);
+				}
+				else {
+					vkBeginCommandBuffer(skybox_buffer, &begin_info);
+					vkEndCommandBuffer(skybox_buffer);
+				}
+				
+				if (terrain::TerrainNode::DrawAABB) {
 					vkBeginCommandBuffer(aabb_buffer, &begin_info);
 					util::AABB::RenderAABBs(instance->GetViewMatrix(), aabb_buffer, viewport, scissor);
 					vkEndCommandBuffer(aabb_buffer);
+					buffers.push_back(aabb_buffer);
+				}
+				else {
+					vkBeginCommandBuffer(aabb_buffer, &begin_info);
+					vkEndCommandBuffer(aabb_buffer);
 				}
 
-				vkBeginCommandBuffer(skybox_buffer, &begin_info);
-				vkCmdSetViewport(skybox_buffer, 0, 1, &viewport);
-				vkCmdSetScissor(skybox_buffer, 0, 1, &scissor);
-
-				skybox->RecordCommands(skybox_buffer);
-
-				vkEndCommandBuffer(skybox_buffer);;
-
 				object->UpdateNodes(terrain_buffer, begin_info, instance->GetViewMatrix(), viewport, scissor);
+				buffers.push_back(terrain_buffer);
 
-				// Execute commands in secondary command buffer
-				std::vector<VkCommandBuffer> buffers{ skybox_buffer, terrain_buffer };
-				vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), 2, buffers.data());
+				ImGui::Render();
+				gui->UpdateBuffers();
+				vkBeginCommandBuffer(gui_buffer, &begin_info);
+				gui->DrawFrame(gui_buffer);
+				vkEndCommandBuffer(gui_buffer);
+				buffers.push_back(gui_buffer);
+
+				vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), static_cast<uint32_t>(buffers.size()), buffers.data());
 
 				vkCmdEndRenderPass(graphicsPool->GetCmdBuffer(i));
 				err = vkEndCommandBuffer(graphicsPool->GetCmdBuffer(i));
 				VkAssert(err);
 			}
+
 		}
 
 		void RenderLoop() {
@@ -140,6 +170,7 @@ namespace terrain_scene {
 				// Update frame time values
 				float CurrentFrame = static_cast<float>(glfwGetTime());
 				DeltaTime = CurrentFrame - LastFrame;
+				instance->frameTime = DeltaTime;
 				LastFrame = CurrentFrame;
 				glfwPollEvents();
 
@@ -193,6 +224,7 @@ namespace terrain_scene {
 		std::shared_ptr<PipelineCache> pipelineCache;
 		terrain::TerrainQuadtree* object;
 		Skybox* skybox;
+		bool renderSkybox;
 	};
 
 }

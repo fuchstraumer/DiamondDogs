@@ -74,10 +74,9 @@ namespace vulpes {
 		}
 	}
 
-	uint32_t PhysicalDevice::GetMemoryTypeIdx(uint32_t & type_bitfield, const VkMemoryPropertyFlags & property_flags, VkBool32 * memory_type_found) const{
+	uint32_t PhysicalDevice::GetMemoryTypeIdx(const uint32_t & type_bitfield, const VkMemoryPropertyFlags & property_flags, VkBool32 * memory_type_found) const{
+		auto bitfield = type_bitfield;
 		for (uint32_t i = 0; i < MemoryProperties.memoryTypeCount; ++i) {
-			// check for valid bitfield
-			if ((type_bitfield & 1) == 1) {
 				// check if property flags match
 				if ((MemoryProperties.memoryTypes[i].propertyFlags & property_flags) == property_flags) {
 					if (memory_type_found) {
@@ -85,8 +84,7 @@ namespace vulpes {
 					}
 					return i;
 				}
-			}
-			type_bitfield >>= 1;
+			bitfield >>= 1;
 		}
 		return std::numeric_limits<uint32_t>::max();
 	}

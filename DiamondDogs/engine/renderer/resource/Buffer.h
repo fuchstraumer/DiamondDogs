@@ -22,7 +22,7 @@ namespace vulpes {
 		void Destroy();
 
 		void CopyTo(void* data, const VkDeviceSize& size = 0, const VkDeviceSize& offset = 0);
-		void CopyTo(void * data, VkCommandBuffer & transfer_cmd);
+		void CopyTo(void * data, VkCommandBuffer & transfer_cmd, const VkDeviceSize& copy_size, const VkDeviceSize& copy_offset);
 		void CopyTo(void* data, CommandPool* cmd_pool, const VkQueue & transfer_queue, const VkDeviceSize& size, const VkDeviceSize& offset = 0);
 
 		void UpdateCmd(VkCommandBuffer& cmd, const VkDeviceSize& data_sz, const VkDeviceSize& offset, const void* data);

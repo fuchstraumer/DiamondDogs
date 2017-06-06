@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "NodeSubset.h"
 #include "TerrainNode.h"
+#include <imgui\imgui.h>
 #include "common\CommonDef.h"
 #include "engine\renderer\core\LogicalDevice.h"
 #include "engine\renderer\resource\ShaderModule.h"
@@ -155,7 +156,6 @@ void vulpes::terrain::NodeSubset::CreatePipeline(const VkRenderPass & renderpass
 void vulpes::terrain::NodeSubset::CreateUBO(const glm::mat4 & projection) {
 	uboData.projection = projection;
 	VkSamplerCreateInfo sampler_info = vk_sampler_create_info_base;
-	sampler_info.unnormalizedCoordinates = VK_TRUE;
 	heightmap->CreateSampler(sampler_info);
 	auto descr = heightmap->GetDescriptor();
 	const std::array<VkWriteDescriptorSet, 1> writes{
@@ -181,8 +181,15 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 	uboData.view = view;
 	VkResult result = vkBeginCommandBuffer(graphics_cmd, &begin_info);
 	VkAssert(result);
+
+	ImGui::Begin("Debug");
+	int num_nodes = static_cast<int>(readyNodes.size());
+	ImGui::InputInt("Number of Nodes", &num_nodes);
+	ImGui::Checkbox("Render AABBs", &TerrainNode::DrawAABB);
+	ImGui::End();
+
 	if (!readyNodes.empty()) {
-		
+
 		// Record commands for all nodes now
 		vkCmdSetViewport(graphics_cmd, 0, 1, &viewport);
 		vkCmdSetScissor(graphics_cmd, 0, 1, &scissor);

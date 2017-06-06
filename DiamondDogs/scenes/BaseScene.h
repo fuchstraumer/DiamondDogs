@@ -37,8 +37,11 @@ namespace vulpes {
 		virtual void RecreateObjects() = 0;
 
 		virtual void RecordCommands() = 0;
-	protected:
 
+		virtual float GetFrameTime();
+
+	protected:
+		imguiWrapper* gui;
 		uint32_t width, height;
 		VkSemaphore semaphores[2];
 		InstanceGLFW* instance;
@@ -48,6 +51,7 @@ namespace vulpes {
 		DepthStencil* depthStencil;
 		CommandPool *transferPool, *graphicsPool, *secondaryPool;
 		Renderpass* renderPass;
+		float frameTime;
 	};
 
 }

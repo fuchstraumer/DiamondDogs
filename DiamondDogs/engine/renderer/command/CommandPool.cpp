@@ -53,7 +53,6 @@ namespace vulpes {
 	void CommandPool::CreateCommandBuffers(const uint32_t & num_buffers, const VkCommandBufferAllocateInfo& _alloc_info){
 		cmdBuffers.resize(num_buffers);
 		auto alloc_info = _alloc_info;
-		alloc_info.level = primary ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 		alloc_info.commandPool = handle;
 		alloc_info.commandBufferCount = num_buffers;
 		VkResult result = vkAllocateCommandBuffers(parent->vkHandle(), &alloc_info, cmdBuffers.data());

@@ -12,7 +12,7 @@ namespace vulpes {
 
 		PhysicalDevice(const VkPhysicalDevice& handle);
 
-		uint32_t GetMemoryTypeIdx(uint32_t& type_bitfield, const VkMemoryPropertyFlags& property_flags, VkBool32* memory_type_found = nullptr) const;
+		uint32_t GetMemoryTypeIdx(const uint32_t& type_bitfield, const VkMemoryPropertyFlags& property_flags, VkBool32* memory_type_found = nullptr) const;
 		uint32_t GetQueueFamilyIndex(const VkQueueFlagBits& bitfield) const;
 		VkQueueFamilyProperties GetQueueFamilyProperties(const VkQueueFlagBits& bitfield) const;
 
