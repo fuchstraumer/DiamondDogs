@@ -23,7 +23,7 @@ namespace terrain_scene {
 			pipelineCache = std::make_shared<PipelineCache>(device, hash);
 
 			VkQueue transfer;
-			transfer = device->GraphicsQueue(3);
+			transfer = device->GraphicsQueue(0);
 			instance->SetCamPos(glm::vec3(0.0f, 400.0f, 0.0f));
 			object = new terrain::TerrainQuadtree(device, 1.30f, 7, 10000.0, glm::vec3(0.0f));
 			object->SetupNodePipeline(renderPass->vkHandle(), swapchain, pipelineCache, instance->GetProjectionMatrix());
@@ -127,6 +127,9 @@ namespace terrain_scene {
 
 				if (renderSkybox) {
 					vkBeginCommandBuffer(skybox_buffer, &begin_info);
+					if (device->MarkersEnabled) {
+						device->vkCmdInsertDebugMarker(skybox_buffer, "Draw skybox", glm::vec4(0.2f, 0.2f, 0.9f, 1.0f));
+					}
 					vkCmdSetViewport(skybox_buffer, 0, 1, &viewport);
 					vkCmdSetScissor(skybox_buffer, 0, 1, &scissor);
 					skybox->RecordCommands(skybox_buffer);
@@ -140,6 +143,9 @@ namespace terrain_scene {
 				
 				if (terrain::TerrainNode::DrawAABB) {
 					vkBeginCommandBuffer(aabb_buffer, &begin_info);
+					if (device->MarkersEnabled) {
+						device->vkCmdInsertDebugMarker(skybox_buffer, "Draw AABBs", glm::vec4(0.7f, 0.3f, 0.1f, 1.0f));
+					}
 					util::AABB::RenderAABBs(instance->GetViewMatrix(), aabb_buffer, viewport, scissor);
 					vkEndCommandBuffer(aabb_buffer);
 					buffers.push_back(aabb_buffer);

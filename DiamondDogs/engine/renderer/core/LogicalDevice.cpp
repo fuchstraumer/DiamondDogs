@@ -91,12 +91,17 @@ namespace vulpes {
 			vkEnumerateDeviceExtensionProperties(parent->vkHandle(), nullptr, &cnt, nullptr);
 			extensions.resize(cnt);
 			vkEnumerateDeviceExtensionProperties(parent->vkHandle(), nullptr, &cnt, extensions.data());
-			for (auto&& ext : extensions) {
+			for (auto& ext : extensions) {
 				if (!strcmp(ext.extensionName, VK_EXT_DEBUG_MARKER_EXTENSION_NAME)) {
 					MarkersEnabled = true;
+					std::cerr << "Markers enabled\n";
+				}
+				else {
+					MarkersEnabled = false;
+					std::cerr << "Markers disabled\n";
 				}
 			}
-			MarkersEnabled = false;
+			
 		}
 
 		if (MarkersEnabled) {

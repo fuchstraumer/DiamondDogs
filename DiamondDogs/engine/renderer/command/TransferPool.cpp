@@ -38,11 +38,16 @@ namespace vulpes {
 		beginInfo.pInheritanceInfo = nullptr;
 
 		vkBeginCommandBuffer(cmdBuffers.front(), &beginInfo);
-
+		if (parent->MarkersEnabled) {
+			parent->vkCmdBeginDebugMarkerRegion(cmdBuffers.front(), "Transfer data", glm::vec4(0.7f, 0.7f, 0.0f, 1.0f));
+		}
 		return cmdBuffers.front();
 	}
 
 	void TransferPool::End() {
+		if (parent->MarkersEnabled) {
+			parent->vkCmdEndDebugMarkerRegion(cmdBuffers.front());
+		}
 		VkResult result = vkEndCommandBuffer(cmdBuffers.front());
 		VkAssert(result);
 	}

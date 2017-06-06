@@ -181,7 +181,9 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 	uboData.view = view;
 	VkResult result = vkBeginCommandBuffer(graphics_cmd, &begin_info);
 	VkAssert(result);
-
+	if (device->MarkersEnabled) {
+		device->vkCmdInsertDebugMarker(graphics_cmd, "Draw Terrain", glm::vec4(0.0f, 0.9f, 0.1f, 1.0f));
+	}
 	ImGui::Begin("Debug");
 	int num_nodes = static_cast<int>(readyNodes.size());
 	ImGui::InputInt("Number of Nodes", &num_nodes);
