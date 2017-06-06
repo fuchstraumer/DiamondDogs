@@ -1,6 +1,6 @@
 #pragma once
-#ifndef VULPES_TERRAIN_NODE_SUBSET_H
-#define VULPES_TERRAIN_NODE_SUBSET_H
+#ifndef VULPES_TERRAIN_NODE_RENDERER_H
+#define VULPES_TERRAIN_NODE_RENDERER_H
 
 #include "stdafx.h"
 #include "engine\renderer\ForwardDecl.h"
@@ -13,7 +13,7 @@ namespace vulpes {
 
 		/*
 			
-			Node Subset - 
+			Node Renderer - 
 
 			represents a group of nodes that will be rendered using the same
 			pipeline and most of the same rendering parameters. Individual model
@@ -35,9 +35,9 @@ namespace vulpes {
 			VkFence fence;
 		};
 
-		class NodeSubset {
+		class NodeRenderer {
 			
-			std::unordered_set<TerrainNode*> readyNodes;
+			std::unordered_map<TerrainNode*, Mesh*> readyNodes;
 			std::forward_list<TerrainNode*> transferNodes;
 
 			static const bool sortNodesByDistance = false;
@@ -70,9 +70,9 @@ namespace vulpes {
 
 			vsUBO uboData;
 
-			NodeSubset(const Device* parent_dvc);
+			NodeRenderer(const Device* parent_dvc);
 
-			~NodeSubset();
+			~NodeRenderer();
 
 			void CreatePipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection);
 
@@ -80,7 +80,7 @@ namespace vulpes {
 
 			void AddNode(TerrainNode * node, bool ready);
 
-			void Update(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor);
+			void Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor);
 
 		};
 

@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "NodeSubset.h"
+#include "NodeRenderer.h"
 #include "TerrainNode.h"
 #include <imgui\imgui.h>
 #include "common\CommonDef.h"
@@ -33,7 +33,7 @@ static const std::array<glm::vec4, 20> LOD_COLOR_ARRAY = {
 	glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
 };
 
-vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(parent_dvc) {
+vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(parent_dvc) {
 
 	static const std::array<VkDescriptorPoolSize, 1> pools{
 		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
@@ -93,7 +93,7 @@ vulpes::terrain::NodeSubset::NodeSubset(const Device * parent_dvc) : device(pare
 	heightmap->DestroyStagingObjects();
 }
 
-vulpes::terrain::NodeSubset::~NodeSubset() {
+vulpes::terrain::NodeRenderer::~NodeRenderer() {
 	vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
 	vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
 	vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
@@ -104,7 +104,7 @@ vulpes::terrain::NodeSubset::~NodeSubset() {
 	delete vert;
 }
 
-void vulpes::terrain::NodeSubset::CreatePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection) {
+void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection) {
 
 	CreateUBO(projection);
 
@@ -153,7 +153,7 @@ void vulpes::terrain::NodeSubset::CreatePipeline(const VkRenderPass & renderpass
 	pipeline->Init(pipeline_create_info, cache->vkHandle());
 }
 
-void vulpes::terrain::NodeSubset::CreateUBO(const glm::mat4 & projection) {
+void vulpes::terrain::NodeRenderer::CreateUBO(const glm::mat4 & projection) {
 	uboData.projection = projection;
 	VkSamplerCreateInfo sampler_info = vk_sampler_create_info_base;
 	heightmap->CreateSampler(sampler_info);
@@ -166,29 +166,26 @@ void vulpes::terrain::NodeSubset::CreateUBO(const glm::mat4 & projection) {
 
 }
 
-void vulpes::terrain::NodeSubset::AddNode(TerrainNode * node, bool ready){
-	if (ready) {
+void vulpes::terrain::NodeRenderer::AddNode(TerrainNode * node, bool ready){
+	/*if (ready) {
 		auto inserted = readyNodes.insert(node);
 	}
 	else {
 		transferNodes.push_front(node);
-	}
+	}*/
 }
 
 
 
-void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor) {
+void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor) {
 	uboData.view = view;
 	VkResult result = vkBeginCommandBuffer(graphics_cmd, &begin_info);
 	VkAssert(result);
 	if (device->MarkersEnabled) {
 		device->vkCmdBeginDebugMarkerRegion(graphics_cmd, "Draw Terrain", glm::vec4(0.0f, 0.9f, 0.1f, 1.0f));
 	}
-	ImGui::Begin("Debug");
-	int num_nodes = static_cast<int>(readyNodes.size());
-	ImGui::InputInt("Number of Nodes", &num_nodes);
-	ImGui::Checkbox("Render AABBs", &TerrainNode::DrawAABB);
-	ImGui::End();
+	
+	int num_nodes = 0;
 
 	if (!readyNodes.empty()) {
 
@@ -197,69 +194,29 @@ void vulpes::terrain::NodeSubset::Update(VkCommandBuffer& graphics_cmd, VkComman
 		vkCmdSetScissor(graphics_cmd, 0, 1, &scissor);
 		vkCmdBindPipeline(graphics_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
 		vkCmdBindDescriptorSets(graphics_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-		
-		auto iter = readyNodes.begin();
-		while (iter != readyNodes.end()) {
-			TerrainNode* curr = *iter;
-			if (!curr) {
-				readyNodes.erase(iter++);
-			}
-			switch (curr->Status) {
-			case NodeStatus::NeedsUnload:
-				readyNodes.erase(iter++);
-				break;
-			case NodeStatus::Subdivided:
-				readyNodes.erase(iter++);
-				break;
-			case NodeStatus::Active:
-				// Push constant block contains our 3 matrices, update that now.
-				uboData.model = curr->mesh.get_model_matrix();
-				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO), &uboData);
-				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4), &LOD_COLOR_ARRAY[curr->Depth]);
-				// Generates draw commands
-				curr->RecordGraphicsCmds(graphics_cmd);
-				++iter;
-				break;
-			case NodeStatus::NeedsTransfer:
-				++iter;
-				break;
-			default:
-				readyNodes.erase(iter++);
-				break;
-			}
+
+		for (auto iter = readyNodes.begin(); iter != readyNodes.end(); ++iter) {
+			// Push constant block contains our 3 matrices, update that now.
+			Mesh* curr = (*iter).second;
+			uboData.model = curr->get_model_matrix();
+			vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO), &uboData);
+			vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4), &LOD_COLOR_ARRAY[(*iter).first->Depth]);
+			// Generates draw commands
+			curr->render(graphics_cmd);
 		}
 	}
+
 	if (device->MarkersEnabled) {
 		device->vkCmdEndDebugMarkerRegion(graphics_cmd);
 	}
+
 	result = vkEndCommandBuffer(graphics_cmd);
 	VkAssert(result);
-	
 
-	bool submit_transfer = false;
-	if (!transferNodes.empty()) {
-		transferPool->Begin();
-		submit_transfer = true;
-	}
+	ImGui::Begin("Debug");
+	ImGui::InputInt("Number of Nodes", &num_nodes);
+	ImGui::Checkbox("Render AABBs", &TerrainNode::DrawAABB);
+	ImGui::End();
 
-	auto start = std::chrono::high_resolution_clock::now();
-	size_t node_count = 0;
-	while (!transferNodes.empty()) {
-		TerrainNode* curr = transferNodes.front();
-		curr->CreateMesh();
-		curr->RecordTransferCmd(transferPool->CmdBuffer());
-		curr->Status = NodeStatus::Active;
-		auto inserted = readyNodes.insert(curr);
-		transferNodes.pop_front();
-		++node_count;
-	}
-
-	if (submit_transfer) {
-		auto end = std::chrono::high_resolution_clock::now();
-		auto dur = end - start;
-		transferPool->End();
-		transferPool->Submit();
-		Buffer::DestroyStagingResources(device);
-	}
 }
 

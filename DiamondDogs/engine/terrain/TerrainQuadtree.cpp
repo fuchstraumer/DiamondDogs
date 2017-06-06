@@ -32,6 +32,51 @@ void vulpes::terrain::TerrainQuadtree::UpdateQuadtree(const glm::dvec3 & camera_
 }
 
 void vulpes::terrain::TerrainQuadtree::UpdateNodes(VkCommandBuffer & graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& rect) {
-	activeNodes.Update(graphics_cmd, begin_info, view, viewport, rect);
+	activeNodes.Update(graphics_cmd, begin_info, view, viewport, rect); \
+	{
+		// Get distance from camera to bounds of this node.
+		// Radius of sphere is 1.1 times current node side length, which specifies
+		// the range from a node we consider to be the LOD switch distance
+		const util::Sphere lod_sphere{ camera_position, SideLength * SwitchRatio };
+		const util::Sphere aabb_sphere{ SpatialCoordinates + static_cast<float>(SideLength), SideLength };
+
+		// Depth is less than max subdivide level and we're in subdivide range.
+		if (Depth < MaxLOD && lod_sphere.CoincidesWith(this->aabb)) {
+			if (Leaf()) {
+				Status = NodeStatus::Subdivided;
+				mesh.cleanup();
+				if (DrawAABB) {
+					util::AABB::aabbPool.erase(GridCoordinates);
+					aabb.mesh.cleanup();
+				}
+				Subdivide();
+			}
+			for (auto& child : Children) {
+				child->Update(camera_position, active_nodes, view);
+			}
+		}
+		else if (glm::distance(camera_position, SpatialCoordinates) > MaxRenderDistance) {
+			Status = NodeStatus::NeedsUnload;
+			if (!Leaf()) {
+				Prune();
+			}
+		}
+		else {
+			if (aabb_sphere.CoincidesWithFrustum(view)) {
+				if (mesh.Ready()) {
+					Status = NodeStatus::Active;
+					active_nodes->AddNode(this, true);
+				}
+				else {
+					Status = NodeStatus::NeedsTransfer;
+					active_nodes->AddNode(this, false);
+				}
+			}
+			if (!Leaf()) {
+				Prune();
+			}
+		}
+
+	}
 }
 

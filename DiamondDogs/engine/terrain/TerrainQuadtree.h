@@ -4,7 +4,7 @@
 #include "stdafx.h"
 #include <forward_list>
 #include "TerrainNode.h"
-#include "NodeSubset.h"
+#include "NodeRenderer.h"
 #include "engine\renderer\ForwardDecl.h"
 #include "engine\util\view_frustum.h"
 /*
@@ -29,7 +29,7 @@ namespace vulpes {
 
 			std::unique_ptr<TerrainNode> root;
 
-			NodeSubset activeNodes;
+			NodeRenderer nodeRenderer;
 
 			// take time to update faces that are primitively culled during mesh construction.
 			bool updateCulledFaces = false;

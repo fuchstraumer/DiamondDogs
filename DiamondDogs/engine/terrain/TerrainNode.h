@@ -22,20 +22,11 @@ namespace vulpes {
 
 			~TerrainNode();
 
-			void Update(const glm::vec3 & camera_position, NodeSubset* active_nodes, const util::view_frustum& view);
-
-			// Create creates CPU-side data, and RecordTransferCmd prepares this for transfer to the GPU.
-			// These are separated as individual transfer would be expensive, and batching can really help performance.
-			void CreateMesh();
-			void RecordTransferCmd(VkCommandBuffer& cmd);
-			void RecordGraphicsCmds(VkCommandBuffer& cmd) const;
-
 			void Subdivide();
 			// true if all of the Child pointers are nullptr
 			bool Leaf() const;
 			// Recursive method to clean up node tree
 			void Prune();
-
 
 			std::array<std::unique_ptr<TerrainNode>, 4> Children;
 			NodeStatus Status;
@@ -63,8 +54,6 @@ namespace vulpes {
 
 			static float MaxRenderDistance;
 			static bool DrawAABB;
-			// Textures should be shared between all nodes, UV coords easily found with grid coords.
-			static gli::texture2d heightmap, normalmap;
 
 		};
 
