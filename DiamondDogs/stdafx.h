@@ -20,7 +20,7 @@
 #include <iostream>
 #include <chrono>
 #include <forward_list>
-
+#define GLFW_DLL
 #define GLFW_INCLUDE_VULKAN
 #include "glfw\glfw3.h"
 #ifdef _WIN32
@@ -40,6 +40,7 @@
 #pragma warning(push, 0)
 #include "gli\gli.hpp"
 #pragma warning(pop)
+#define  VK_FORCE_ASSERT
 #include "vulkan/vulkan.h"
 #include "common/CreateInfoBase.h"
 #include "common/vkAssert.h"

@@ -89,7 +89,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)ext\lib\x64;$(VULKAN_SDK)\Lib;</AdditionalLibraryDirectories>
-      <AdditionalDependencies>vulkan-1.lib;"glfw3.lib";"OpenAL32.lib";msvcrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>vulkan-1.lib;"glfw3dll.lib";"OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
       <IgnoreAllDefaultLibraries>false</IgnoreAllDefaultLibraries>
     </Link>
   </ItemDefinitionGroup>
@@ -159,7 +159,6 @@
     <ClCompile Include="bodies\star\Star.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="common\VkDebug.cpp" />
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="engine\objects\Atmosphere.cpp" />
     <ClCompile Include="engine\objects\Icosphere.cpp">

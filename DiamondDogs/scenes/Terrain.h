@@ -23,9 +23,9 @@ namespace terrain_scene {
 			pipelineCache = std::make_shared<PipelineCache>(device, hash);
 
 			VkQueue transfer;
-			transfer = device->GraphicsQueue(0);
-
-			object = new terrain::TerrainQuadtree(device, 1.30f, 8, 10000.0, glm::vec3(0.0f));
+			transfer = device->GraphicsQueue(3);
+			instance->SetCamPos(glm::vec3(0.0f, 400.0f, 0.0f));
+			object = new terrain::TerrainQuadtree(device, 1.30f, 7, 10000.0, glm::vec3(0.0f));
 			object->SetupNodePipeline(renderPass->vkHandle(), swapchain, pipelineCache, instance->GetProjectionMatrix());
 
 			skybox = new Skybox(device);
@@ -158,6 +158,8 @@ namespace terrain_scene {
 				vkCmdEndRenderPass(graphicsPool->GetCmdBuffer(i));
 				err = vkEndCommandBuffer(graphicsPool->GetCmdBuffer(i));
 				VkAssert(err);
+				buffers.clear();
+				buffers.shrink_to_fit();
 			}
 
 		}
@@ -207,7 +209,7 @@ namespace terrain_scene {
 			submit_info.signalSemaphoreCount = 1;
 			submit_info.pSignalSemaphores = &semaphores[1];
 			VkResult result = vkQueueSubmit(device->GraphicsQueue(), 1, &submit_info, VK_NULL_HANDLE);
-			VkAssert(result);
+			//VkAssert(result);
 
 			VkPresentInfoKHR present_info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 			present_info.waitSemaphoreCount = 1;

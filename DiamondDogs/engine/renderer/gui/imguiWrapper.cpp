@@ -108,7 +108,7 @@ namespace vulpes {
 		set_alloc.descriptorSetCount = 1;
 		set_alloc.pSetLayouts = &descriptorSetLayout;
 		result = vkAllocateDescriptorSets(device->vkHandle(), &set_alloc, &descriptorSet);
-		VkAssert(result)
+		VkAssert(result);
 		
 
 		VkPushConstantRange push_constant{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float) * 4 };

@@ -7,7 +7,6 @@
     <ClCompile Include="engine\objects\Mesh.cpp" />
     <ClCompile Include="bodies\star\Star.cpp" />
     <ClCompile Include="scenes\BaseScene.cpp" />
-    <ClCompile Include="common\VkDebug.cpp" />
     <ClCompile Include="engine\objects\Skybox.cpp" />
     <ClCompile Include="engine\objects\Atmosphere.cpp" />
     <ClCompile Include="engine\terrain\TerrainNode.cpp" />

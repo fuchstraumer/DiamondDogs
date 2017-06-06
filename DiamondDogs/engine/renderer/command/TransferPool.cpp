@@ -30,7 +30,7 @@ namespace vulpes {
 
 		VkCommandBufferBeginInfo beginInfo = {};
 		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 		beginInfo.pInheritanceInfo = nullptr;
 
 		vkBeginCommandBuffer(cmdBuffers.front(), &beginInfo);
@@ -54,10 +54,12 @@ namespace vulpes {
 
 		result = vkWaitForFences(parent->vkHandle(), 1, &fence, VK_TRUE, vk_default_fence_timeout);
 		VkAssert(result);
-		vkResetFences(parent->vkHandle(), 1, &fence);
-
+		result = vkResetFences(parent->vkHandle(), 1, &fence);
+		VkAssert(result);
+		
 		// Reset command buffer so we can re-record shortly.
-		ResetCommandBuffer(0);
+		result = vkResetCommandPool(parent->vkHandle(), handle, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+		VkAssert(result);
 	}
 
 	VkCommandBuffer& TransferPool::CmdBuffer() noexcept {
