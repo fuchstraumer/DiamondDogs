@@ -11,14 +11,14 @@ namespace vulpes {
 
 	namespace terrain {
 
-		class NodeSubset;
+		class NodeRenderer;
 
 		class TerrainNode {
 			TerrainNode(const TerrainNode& other) = delete;
 			TerrainNode& operator=(const TerrainNode& other) = delete;
 		public:
 
-			TerrainNode(const Device* device, const size_t& depth, const glm::ivec2& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod, const double& switch_ratio);
+			TerrainNode(const glm::ivec3& logical_coords, const glm::vec3& position, const double& length, const size_t& max_lod, const double& switch_ratio);
 
 			~TerrainNode();
 
@@ -28,15 +28,15 @@ namespace vulpes {
 			// Recursive method to clean up node tree
 			void Prune();
 
-			std::array<std::unique_ptr<TerrainNode>, 4> Children;
+			int Depth() const;
+
+			std::array<std::shared_ptr<TerrainNode>, 4> Children;
 			NodeStatus Status;
 
-			// depth in quadtree: 0 is the root, N is the deepest level etc
-			size_t Depth;
-			size_t MaxLOD;
+
 	
 			// Coordinates of this node in the grid defining the quadtree
-			glm::ivec2 GridCoordinates;
+			glm::ivec3 GridCoordinates;
 
 			// world-relative spatial coordinates. 
 			// TODO: Investigate root-node relative, for the sake of large-scale rendering.
@@ -45,16 +45,8 @@ namespace vulpes {
 			// Length of one side of the node: should be equivalent to (1 / depth) * L, where L is the
 			// length of the root nodes side.
 			double SideLength;
-			double SwitchRatio;
 
 			util::AABB aabb;
-			Mesh mesh;
-
-			const Device* device;
-
-			static float MaxRenderDistance;
-			static bool DrawAABB;
-
 		};
 
 	}

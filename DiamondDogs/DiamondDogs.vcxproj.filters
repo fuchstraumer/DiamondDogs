@@ -24,13 +24,13 @@
     <ClCompile Include="engine\renderer\resource\ShaderModule.cpp" />
     <ClCompile Include="engine\renderer\resource\Texture.cpp" />
     <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
-    <ClCompile Include="engine\terrain\NodeSubset.cpp" />
     <ClCompile Include="engine\util\AABB.cpp" />
     <ClCompile Include="engine\util\easylogging++.cc" />
     <ClCompile Include="engine\renderer\command\TransferPool.cpp" />
     <ClCompile Include="engine\renderer\gui\imgui_lib\imgui_draw.cpp" />
     <ClCompile Include="engine\renderer\gui\imgui_lib\imgui.cpp" />
     <ClCompile Include="engine\renderer\gui\imguiWrapper.cpp" />
+    <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -57,7 +57,6 @@
     <ClInclude Include="engine\util\AABB.h" />
     <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
     <ClInclude Include="engine\util\view_frustum.h" />
-    <ClInclude Include="engine\terrain\NodeSubset.h" />
     <ClInclude Include="engine\renderer\command\CommandPool.h" />
     <ClInclude Include="engine\renderer\core\Camera.h" />
     <ClInclude Include="engine\renderer\core\Instance.h" />
@@ -93,6 +92,7 @@
     <ClInclude Include="engine\renderer\gui\imgui_lib\imconfig.h" />
     <ClInclude Include="engine\renderer\gui\imgui_lib\imgui_internal.h" />
     <ClInclude Include="engine\terrain\TerrainSampler.h" />
+    <ClInclude Include="engine\terrain\NodeRenderer.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

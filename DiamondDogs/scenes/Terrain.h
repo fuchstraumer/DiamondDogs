@@ -158,7 +158,7 @@ namespace terrain_scene {
 					vkEndCommandBuffer(aabb_buffer);
 				}
 
-				object->UpdateNodes(terrain_buffer, begin_info, instance->GetViewMatrix(), viewport, scissor);
+				object->RenderNodes(terrain_buffer, begin_info, instance->GetViewMatrix(), viewport, scissor);
 				buffers.push_back(terrain_buffer);
 
 				ImGui::Render();

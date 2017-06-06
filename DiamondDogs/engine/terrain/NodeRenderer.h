@@ -40,8 +40,6 @@ namespace vulpes {
 			std::unordered_map<TerrainNode*, Mesh*> readyNodes;
 			std::forward_list<TerrainNode*> transferNodes;
 
-			static const bool sortNodesByDistance = false;
-
 			VkDescriptorSetLayout descriptorSetLayout;
 			VkDescriptorSet descriptorSet;
 			VkDescriptorPool descriptorPool;
@@ -62,11 +60,10 @@ namespace vulpes {
 
 			Buffer* ubo;
 
-			TransferPool* transferPool;
-			VkQueue* transferQueue;
-			Texture2D* heightmap;
-
 		public:
+
+			static bool DrawAABBs;
+			static float MaxRenderDistance;
 
 			vsUBO uboData;
 

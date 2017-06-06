@@ -78,27 +78,12 @@ vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(
 
 	vert = new ShaderModule(device, "shaders/terrain/terrain.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
 	frag = new ShaderModule(device, "shaders/terrain/terrain.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-
-	VkCommandPoolCreateInfo transfer_pool_info = vk_command_pool_info_base;
-	transfer_pool_info.queueFamilyIndex = device->QueueFamilyIndices.Transfer;
-
-	transferPool = new TransferPool(device);
-
-	heightmap = new Texture2D(device);
-	heightmap->CreateFromFile("rsrc/img/terrain_height.dds", VK_FORMAT_BC4_UNORM_BLOCK);
-	auto cmd = transferPool->Begin();
-	heightmap->RecordTransferCmd(cmd);
-	transferPool->End();
-	transferPool->Submit();
-	heightmap->DestroyStagingObjects();
 }
 
 vulpes::terrain::NodeRenderer::~NodeRenderer() {
 	vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
 	vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
 	vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
-	delete transferPool;
-
 	delete pipeline;
 	delete frag;
 	delete vert;
@@ -155,14 +140,14 @@ void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpa
 
 void vulpes::terrain::NodeRenderer::CreateUBO(const glm::mat4 & projection) {
 	uboData.projection = projection;
-	VkSamplerCreateInfo sampler_info = vk_sampler_create_info_base;
-	heightmap->CreateSampler(sampler_info);
-	auto descr = heightmap->GetDescriptor();
-	const std::array<VkWriteDescriptorSet, 1> writes{
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, 0, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &descr, nullptr, nullptr },
-	};
+	//VkSamplerCreateInfo sampler_info = vk_sampler_create_info_base;
+	//heightmap->CreateSampler(sampler_info);
+	//auto descr = heightmap->GetDescriptor();
+	//const std::array<VkWriteDescriptorSet, 1> writes{
+	//	VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, 0, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &descr, nullptr, nullptr },
+	//};
 
-	vkUpdateDescriptorSets(device->vkHandle(), 1, writes.data(), 0, nullptr);
+	// vkUpdateDescriptorSets(device->vkHandle(), 1, writes.data(), 0, nullptr);
 
 }
 
@@ -184,8 +169,6 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	if (device->MarkersEnabled) {
 		device->vkCmdBeginDebugMarkerRegion(graphics_cmd, "Draw Terrain", glm::vec4(0.0f, 0.9f, 0.1f, 1.0f));
 	}
-	
-	int num_nodes = 0;
 
 	if (!readyNodes.empty()) {
 
@@ -203,6 +186,7 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 			vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4), &LOD_COLOR_ARRAY[(*iter).first->Depth]);
 			// Generates draw commands
 			curr->render(graphics_cmd);
+
 		}
 	}
 
@@ -214,6 +198,7 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	VkAssert(result);
 
 	ImGui::Begin("Debug");
+	int num_nodes = readyNodes.size();
 	ImGui::InputInt("Number of Nodes", &num_nodes);
 	ImGui::Checkbox("Render AABBs", &TerrainNode::DrawAABB);
 	ImGui::End();

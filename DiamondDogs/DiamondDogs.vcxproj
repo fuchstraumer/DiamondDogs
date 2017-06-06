@@ -136,7 +136,7 @@
     <ClInclude Include="engine\renderer\resource\Texture.h" />
     <ClInclude Include="engine\renderer\resource\VertexTypes.h" />
     <ClInclude Include="engine\renderer\resource\VkResource.h" />
-    <ClInclude Include="engine\terrain\NodeSubset.h" />
+    <ClInclude Include="engine\terrain\NodeRenderer.h" />
     <ClInclude Include="engine\terrain\TerrainNode.h" />
     <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
     <ClInclude Include="engine\terrain\TerrainSampler.h" />
@@ -187,7 +187,7 @@
     <ClCompile Include="engine\renderer\resource\Image.cpp" />
     <ClCompile Include="engine\renderer\resource\ShaderModule.cpp" />
     <ClCompile Include="engine\renderer\resource\Texture.cpp" />
-    <ClCompile Include="engine\terrain\NodeSubset.cpp" />
+    <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
     <ClCompile Include="engine\terrain\TerrainNode.cpp" />
     <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
     <ClCompile Include="engine\util\AABB.cpp" />
