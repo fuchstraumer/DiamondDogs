@@ -128,11 +128,14 @@ namespace terrain_scene {
 				if (renderSkybox) {
 					vkBeginCommandBuffer(skybox_buffer, &begin_info);
 					if (device->MarkersEnabled) {
-						device->vkCmdInsertDebugMarker(skybox_buffer, "Draw skybox", glm::vec4(0.2f, 0.2f, 0.9f, 1.0f));
+						device->vkCmdBeginDebugMarkerRegion(skybox_buffer, "Draw skybox", glm::vec4(0.8f, 0.0f, 0.9f, 1.0f));
 					}
 					vkCmdSetViewport(skybox_buffer, 0, 1, &viewport);
 					vkCmdSetScissor(skybox_buffer, 0, 1, &scissor);
 					skybox->RecordCommands(skybox_buffer);
+					if (device->MarkersEnabled) {
+						device->vkCmdEndDebugMarkerRegion(skybox_buffer);
+					}
 					vkEndCommandBuffer(skybox_buffer);
 					buffers.push_back(skybox_buffer);
 				}
@@ -144,7 +147,7 @@ namespace terrain_scene {
 				if (terrain::TerrainNode::DrawAABB) {
 					vkBeginCommandBuffer(aabb_buffer, &begin_info);
 					if (device->MarkersEnabled) {
-						device->vkCmdInsertDebugMarker(skybox_buffer, "Draw AABBs", glm::vec4(0.7f, 0.3f, 0.1f, 1.0f));
+						device->vkCmdInsertDebugMarker(skybox_buffer, "Draw AABBs", glm::vec4(0.7f, 0.3f, 0.0f, 1.0f));
 					}
 					util::AABB::RenderAABBs(instance->GetViewMatrix(), aabb_buffer, viewport, scissor);
 					vkEndCommandBuffer(aabb_buffer);
@@ -159,9 +162,18 @@ namespace terrain_scene {
 				buffers.push_back(terrain_buffer);
 
 				ImGui::Render();
+				if (device->MarkersEnabled) {
+					device->vkCmdInsertDebugMarker(graphicsPool->GetCmdBuffer(i), "Update GUI", glm::vec4(0.6f, 0.6f, 0.0f, 1.0f));
+				}
 				gui->UpdateBuffers();
 				vkBeginCommandBuffer(gui_buffer, &begin_info);
+				if (device->MarkersEnabled) {
+					device->vkCmdBeginDebugMarkerRegion(gui_buffer, "Draw GUI", glm::vec4(0.6f, 0.7f, 0.0f, 1.0f));
+				}
 				gui->DrawFrame(gui_buffer);
+				if (device->MarkersEnabled) {
+					device->vkCmdEndDebugMarkerRegion(gui_buffer);
+				}
 				vkEndCommandBuffer(gui_buffer);
 				buffers.push_back(gui_buffer);
 
