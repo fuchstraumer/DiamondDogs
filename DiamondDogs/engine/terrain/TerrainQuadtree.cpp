@@ -6,18 +6,18 @@
 size_t vulpes::terrain::TerrainQuadtree::MaxLOD = 12;
 double vulpes::terrain::TerrainQuadtree::SwitchRatio = 1.20;
 
-void vulpes::terrain::TerrainQuadtree::pruneNode(std::shared_ptr<TerrainNode>& node) {
+void vulpes::terrain::TerrainQuadtree::pruneNode(const std::shared_ptr<TerrainNode>& node) {
 	if (!node->Leaf()) {
 		eraseChildren(node);
 	}
 	activeNodes.erase(node);
 }
 
-void vulpes::terrain::TerrainQuadtree::eraseChildren(std::shared_ptr<TerrainNode>& node) {
+void vulpes::terrain::TerrainQuadtree::eraseChildren(const std::shared_ptr<TerrainNode>& node) {
 	for (auto& child : node->Children) {
+		child->Status = NodeStatus::NeedsUnload;
 		pruneNode(node);
 	}
-	activeNodes.erase(node);
 }
 
 vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, const float & split_factor, const size_t & max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position) : nodeRenderer(device) {
@@ -48,13 +48,13 @@ void vulpes::terrain::TerrainQuadtree::UpdateQuadtree(const glm::vec3 & camera_p
 		view_f[i] /= length;
 	}
 
-	auto iter = activeNodes.begin();
+	nodeSubset::iterator iter = activeNodes.begin();
 
 	while(iter != activeNodes.end()) {
 		// Get distance from camera to bounds of this node.
 		// Radius of sphere is 1.1 times current node side length, which specifies
 		// the range from a node we consider to be the LOD switch distance
-		const auto curr = *iter;
+		auto& curr = *iter;
 		const util::Sphere lod_sphere{ camera_position, curr->SideLength * SwitchRatio };
 		const util::Sphere aabb_sphere{ curr->SpatialCoordinates + static_cast<float>(curr->SideLength), curr->SideLength };
 
@@ -71,20 +71,22 @@ void vulpes::terrain::TerrainQuadtree::UpdateQuadtree(const glm::vec3 & camera_p
 			for (auto& child : curr->Children) {
 				activeNodes.insert(child);
 			}
+			activeNodes.erase(iter++);
 		}
-		else if (glm::distance(camera_position, curr->SpatialCoordinates) > NodeRenderer::MaxRenderDistance) {
+		else if ((glm::distance(camera_position, curr->SpatialCoordinates) > NodeRenderer::MaxRenderDistance) || (curr->Status == NodeStatus::NeedsUnload)) {
 			curr->Status = NodeStatus::NeedsUnload;
 			if (!curr->Leaf()) {
 				curr->Prune();
 			}
+			activeNodes.erase(iter++);
 		}
 		else {
 			if (aabb_sphere.CoincidesWithFrustum(view_f)) {
 					curr->Status = NodeStatus::Active;
-					//active_nodes->AddNode(this, true);
+					++iter;
 			}
 			if (!curr->Leaf()) {
-				curr->Prune();
+				eraseChildren(curr);
 			}
 		}
 
