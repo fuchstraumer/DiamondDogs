@@ -23,7 +23,6 @@ namespace vulpes {
 			This subset is used for rendering.
 		*/
 
-		using nodeSubset = std::unordered_set<std::shared_ptr<TerrainNode>>;
 		// stores nodes by grid coordinates
 		using nodeCache = std::unordered_map<glm::ivec3, std::shared_ptr<TerrainNode>>;
 
@@ -32,19 +31,14 @@ namespace vulpes {
 			TerrainNode* root;
 
 			NodeRenderer nodeRenderer;
-			nodeSubset activeNodes;
-			static size_t MaxLOD;
-			static double SwitchRatio;
+
 			// Will use this to keep recent nodes around, and also cache by locality using grid coords
 			// Should consider "age" member of a node, and deleting nodes in cache at certain age.
 			nodeCache cachedNodes;
-			// take time to update faces that are primitively culled during mesh construction.
-			bool updateCulledFaces = false;
 
 			TerrainQuadtree(const TerrainQuadtree&) = delete;
 			TerrainQuadtree& operator=(const TerrainQuadtree&) = delete;
 
-			void pruneNode(const std::shared_ptr<TerrainNode>& node);
 
 		public:
 

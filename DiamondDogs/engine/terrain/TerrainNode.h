@@ -1,28 +1,36 @@
 #pragma once
 #ifndef VULPES_TERRAIN_NODE_H
 #define VULPES_TERRAIN_NODE_H
-
 #include "stdafx.h"
+
 #include "engine\util\AABB.h"
-#include "engine\util\view_frustum.h"
 #include "engine\renderer\ForwardDecl.h"
 #include "engine\objects\PlanarMesh.h"
 namespace vulpes {
 
 	namespace terrain {
 
+		class NodeRenderer;
+
 		class TerrainNode {
 			TerrainNode(const TerrainNode& other) = delete;
 			TerrainNode& operator=(const TerrainNode& other) = delete;
 		public:
+
+			static size_t MaxLOD;
+			static double SwitchRatio;
 
 			TerrainNode(const glm::ivec3& logical_coords, const glm::vec3& position, const double& length);
 
 			~TerrainNode();
 
 			void Subdivide();
+
+			void Update(const glm::vec3 & camera_position, const util::view_frustum& view, NodeRenderer* node_pool);
+
 			// true if all of the Child pointers are nullptr
 			bool Leaf() const;
+
 			// Recursive method to clean up node tree
 			void Prune();
 

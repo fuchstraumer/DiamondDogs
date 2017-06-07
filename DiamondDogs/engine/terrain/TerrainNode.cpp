@@ -1,6 +1,11 @@
 #include "stdafx.h"
 #include "TerrainNode.h"
+#include "engine\util\sphere.h"
+#include "engine\util\view_frustum.h"
+#include "engine\terrain\NodeRenderer.h"
 
+size_t vulpes::terrain::TerrainNode::MaxLOD = 12;
+double vulpes::terrain::TerrainNode::SwitchRatio = 1.20;
 
 void vulpes::terrain::TerrainNode::Subdivide() {
 	double child_length = SideLength / 2.0;
@@ -11,6 +16,47 @@ void vulpes::terrain::TerrainNode::Subdivide() {
 	Children[1] = std::make_shared<TerrainNode>(glm::ivec3(grid_pos.x + 1, grid_pos.y, grid_pos.z), pos + glm::vec3(child_length, 0.0f, 0.0f), child_length);
 	Children[2] = std::make_shared<TerrainNode>(glm::ivec3(grid_pos.x, grid_pos.y + 1, grid_pos.z), pos + glm::vec3(0.0f, 0.0f, -child_length), child_length);
 	Children[3] = std::make_shared<TerrainNode>(glm::ivec3(grid_pos.x + 1, grid_pos.y + 1, grid_pos.z), pos + glm::vec3(child_length, 0.0f, -child_length), child_length);
+}
+
+void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, const util::view_frustum & view, NodeRenderer* node_pool) {
+	// Get distance from camera to bounds of this node.
+	// Radius of sphere is 1.1 times current node side length, which specifies
+	// the range from a node we consider to be the LOD switch distance
+	const util::Sphere lod_sphere{ camera_position, SideLength * SwitchRatio };
+	const util::Sphere aabb_sphere{ SpatialCoordinates + static_cast<float>(SideLength), SideLength };
+
+	// Depth is less than max subdivide level and we're in subdivide range.
+	if (Depth() < MaxLOD && lod_sphere.CoincidesWith(this->aabb)) {
+		if (Leaf()) {
+			Status = NodeStatus::Subdivided;
+			mesh.cleanup();
+			Subdivide();
+		}
+		for (auto& child : Children) {
+			child->Update(camera_position, view, node_pool);
+		}
+	}
+	else if (glm::distance(camera_position, SpatialCoordinates) > NodeRenderer::MaxRenderDistance) {
+		Status = NodeStatus::NeedsUnload;
+		if (!Leaf()) {
+			Prune();
+		}
+	}
+	else {
+		if (aabb_sphere.CoincidesWithFrustum(view)) {
+			if (mesh.Ready()) {
+				Status = NodeStatus::Active;
+				node_pool->AddNode(this, true);
+			}
+			else {
+				Status = NodeStatus::NeedsTransfer;
+				node_pool->AddNode(this, false);
+			}
+		}
+		if (!Leaf()) {
+			Prune();
+		}
+	}
 }
 
 vulpes::terrain::TerrainNode::TerrainNode(const glm::ivec3& logical_coords, const glm::vec3& position, const double& length) : 
