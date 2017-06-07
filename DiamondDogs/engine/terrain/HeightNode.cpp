@@ -16,7 +16,7 @@ void vulpes::terrain::HeightNode::SampleFromParent(const HeightNode & node) {
 	parent_x = 1 + (gridCoords.x % 2) * tile_size / 2;
 	parent_y = 1 + (gridCoords.y % 2) * tile_size / 2;
 	const int num_samples = tile_size + 5;
-	finalSamples.resize(num_samples * num_samples);
+	samples.resize(num_samples * num_samples);
 	for (size_t j = 0; j <= tile_size + 4; ++j) {
 		for (size_t i = 0; i <= tile_size + 4; ++i) {
 			float sample;
@@ -54,16 +54,17 @@ void vulpes::terrain::HeightNode::SampleFromParent(const HeightNode & node) {
 					}
 				}
 			}
-			finalSamples[i + (j * num_samples)] = std::move(sample);
+			samples[i + (j * num_samples)].Height() = std::move(sample);
+			samples[i + (j * num_samples)].ParentHeight() = node.Sample(i / 2 + parent_x + (j / 2 + parent_y)*num_samples);
 		}
 	}
 }
 
 
 float vulpes::terrain::HeightNode::Sample(const size_t & x, const size_t & y) const {
-	return finalSamples[x + (y * gridSize)];
+	return samples[x + (y * gridSize)].x;
 }
 
 float vulpes::terrain::HeightNode::Sample(const size_t & idx) const {
-	return finalSamples[idx];
+	return samples[idx].x;
 }

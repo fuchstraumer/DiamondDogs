@@ -3,7 +3,7 @@
 #define VULPES_UTIL_AABB_H
 
 #include "stdafx.h"
-#include "engine\objects\Mesh.h"
+#include "engine\objects\mesh\Mesh.h"
 #include "view_frustum.h"
 #include "engine\renderer\render\GraphicsPipeline.h"
 #include "engine\renderer\resource\ShaderModule.h"

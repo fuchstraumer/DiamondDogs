@@ -166,7 +166,6 @@
     <ClCompile Include="engine\objects\mesh\Icosphere.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="engine\objects\mesh\Mesh.cpp" />
     <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
     <ClCompile Include="engine\objects\Skybox.cpp" />
     <ClCompile Include="engine\renderer\command\CommandPool.cpp" />

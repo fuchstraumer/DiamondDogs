@@ -7,6 +7,8 @@
 namespace vulpes {
 
 	/*
+			
+		Effective upsampling filter applied when sampling from parent
 	
 		 1 -9 -9  1		   -1		  1 -9 -9  1
 		-9 81 81 -9			9		 -9 81 81 -9
@@ -23,6 +25,13 @@ namespace vulpes {
 	*/
 
 	namespace terrain {
+
+		struct HeightSample : public glm::vec2 {
+			float& Height() { return this->x; };
+			// we use this height to "morph" between LODs.
+			// becomes fourth element of terrain vertex.
+			float& ParentHeight() { return this->y; };
+		};
 
 		class HeightNode {
 		public:
@@ -48,15 +57,13 @@ namespace vulpes {
 			size_t gridSize;
 			static size_t rootNodeSize;
 			glm::ivec3 gridCoords;
-			std::vector<float> residualSamples;
-			std::vector<float> finalSamples;
+			std::vector<HeightSample> samples;
 		};
 
 		size_t HeightNode::rootNodeSize = 4;
 
 		class HeightmapLoader {
-			template<typename pixel_type>
-			static Heightmap<pixel_type>* CreateHeightmap(const char* filename);
+
 		};
 
 

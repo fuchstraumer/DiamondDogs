@@ -153,7 +153,7 @@ namespace vulpes {
 	}
 
 	void Star::BuildMesh(CommandPool * pool, const VkQueue & queue){
-		mesh0.create_vbo(device, pool, queue);
+		mesh0.create_buffers(device, pool, queue);
 		
 		vsUboData.model = mesh0.get_model_matrix();
 		vsUboData.normTransform = glm::transpose(glm::inverse(vsUboData.model));

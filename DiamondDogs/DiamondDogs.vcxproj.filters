@@ -31,7 +31,6 @@
     <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
     <ClCompile Include="engine\terrain\TerrainSampler.cpp" />
     <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
-    <ClCompile Include="engine\objects\mesh\Mesh.cpp" />
     <ClCompile Include="engine\objects\mesh\Icosphere.cpp" />
     <ClCompile Include="engine\terrain\HeightNode.cpp" />
   </ItemGroup>
