@@ -31,6 +31,7 @@
     <ClCompile Include="engine\renderer\gui\imgui_lib\imgui.cpp" />
     <ClCompile Include="engine\renderer\gui\imguiWrapper.cpp" />
     <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
+    <ClCompile Include="engine\objects\PlanarMesh.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -93,6 +94,7 @@
     <ClInclude Include="engine\renderer\gui\imgui_lib\imgui_internal.h" />
     <ClInclude Include="engine\terrain\TerrainSampler.h" />
     <ClInclude Include="engine\terrain\NodeRenderer.h" />
+    <ClInclude Include="engine\objects\PlanarMesh.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

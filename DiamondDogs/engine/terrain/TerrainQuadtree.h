@@ -45,7 +45,6 @@ namespace vulpes {
 			TerrainQuadtree& operator=(const TerrainQuadtree&) = delete;
 
 			void pruneNode(const std::shared_ptr<TerrainNode>& node);
-			void eraseChildren(const std::shared_ptr<TerrainNode>& node);
 
 		public:
 

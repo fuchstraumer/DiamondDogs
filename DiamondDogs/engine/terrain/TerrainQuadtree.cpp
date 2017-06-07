@@ -8,16 +8,12 @@ double vulpes::terrain::TerrainQuadtree::SwitchRatio = 1.20;
 
 void vulpes::terrain::TerrainQuadtree::pruneNode(const std::shared_ptr<TerrainNode>& node) {
 	if (!node->Leaf()) {
-		eraseChildren(node);
+		for (auto& child : node->Children) {
+			pruneNode(child);
+		}
 	}
 	activeNodes.erase(node);
-}
-
-void vulpes::terrain::TerrainQuadtree::eraseChildren(const std::shared_ptr<TerrainNode>& node) {
-	for (auto& child : node->Children) {
-		child->Status = NodeStatus::NeedsUnload;
-		pruneNode(node);
-	}
+	nodeRenderer.RemoveNode(node.get());
 }
 
 vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, const float & split_factor, const size_t & max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position) : nodeRenderer(device) {
@@ -66,30 +62,47 @@ void vulpes::terrain::TerrainQuadtree::UpdateQuadtree(const glm::vec3 & camera_p
 					util::AABB::aabbPool.erase(curr->GridCoordinates);
 					curr->aabb.mesh.cleanup();
 				}
+				curr->mesh.cleanup();
 				curr->Subdivide();
 			}
 			for (auto& child : curr->Children) {
 				activeNodes.insert(child);
 			}
+			nodeRenderer.RemoveNode(&(*curr));
 			activeNodes.erase(iter++);
+			continue;
 		}
 		else if ((glm::distance(camera_position, curr->SpatialCoordinates) > NodeRenderer::MaxRenderDistance) || (curr->Status == NodeStatus::NeedsUnload)) {
 			curr->Status = NodeStatus::NeedsUnload;
 			if (!curr->Leaf()) {
-				curr->Prune();
+				pruneNode(curr);
+				++iter;
 			}
-			activeNodes.erase(iter++);
+			else {
+				nodeRenderer.RemoveNode(&(*curr));
+				activeNodes.erase(iter++);
+			}
+			continue;
 		}
 		else {
 			if (aabb_sphere.CoincidesWithFrustum(view_f)) {
+				if (curr->mesh.Ready()) {
 					curr->Status = NodeStatus::Active;
-					++iter;
+					nodeRenderer.AddNode(&(*curr), true);
+				}
+				else {
+					curr->Status = NodeStatus::NeedsTransfer;
+					nodeRenderer.AddNode(&(*curr), false);
+				}
 			}
 			if (!curr->Leaf()) {
-				eraseChildren(curr);
+				for (auto& child : curr->Children) {
+					pruneNode(child);
+				}
 			}
+			++iter;
 		}
-
+		
 	}
 }
 

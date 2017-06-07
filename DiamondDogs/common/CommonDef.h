@@ -9,6 +9,7 @@ namespace vulpes {
 		Active, // Being used in next frame
 		Subdivided, // Has been subdivided, render children instead of this.
 		NeedsUnload, // Erase and unload resources.
+		NeedsTransfer,
 	};
 }
 

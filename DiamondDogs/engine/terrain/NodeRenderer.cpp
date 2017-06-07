@@ -81,6 +81,8 @@ vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(
 
 	vert = new ShaderModule(device, "shaders/terrain/terrain.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
 	frag = new ShaderModule(device, "shaders/terrain/terrain.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+
+	transferPool = new TransferPool(device);
 }
 
 vulpes::terrain::NodeRenderer::~NodeRenderer() {
@@ -143,27 +145,21 @@ void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpa
 
 void vulpes::terrain::NodeRenderer::CreateUBO(const glm::mat4 & projection) {
 	uboData.projection = projection;
-	//VkSamplerCreateInfo sampler_info = vk_sampler_create_info_base;
-	//heightmap->CreateSampler(sampler_info);
-	//auto descr = heightmap->GetDescriptor();
-	//const std::array<VkWriteDescriptorSet, 1> writes{
-	//	VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, 0, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &descr, nullptr, nullptr },
-	//};
-
-	// vkUpdateDescriptorSets(device->vkHandle(), 1, writes.data(), 0, nullptr);
 
 }
 
 void vulpes::terrain::NodeRenderer::AddNode(TerrainNode * node, bool ready){
-	/*if (ready) {
-		auto inserted = readyNodes.insert(node);
+	if (ready) {
+		readyNodes.insert(node);
 	}
 	else {
 		transferNodes.push_front(node);
-	}*/
+	}
 }
 
-
+void vulpes::terrain::NodeRenderer::RemoveNode(TerrainNode* node) {
+	readyNodes.erase(node);
+}
 
 void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor) {
 	uboData.view = view;
@@ -181,24 +177,66 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 		vkCmdBindPipeline(graphics_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
 		vkCmdBindDescriptorSets(graphics_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
-		for (auto iter = readyNodes.begin(); iter != readyNodes.end(); ++iter) {
-			// Push constant block contains our 3 matrices, update that now.
-			Mesh* curr = (*iter).second;
-			uboData.model = curr->get_model_matrix();
-			vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO), &uboData);
-			vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4), &LOD_COLOR_ARRAY[(*iter).first->Depth()]);
-			// Generates draw commands
-			curr->render(graphics_cmd);
-
+		auto iter = readyNodes.begin();
+		while (iter != readyNodes.end()) {
+			TerrainNode* curr = *iter;
+			if (!curr) {
+				readyNodes.erase(iter++);
+			}
+			switch (curr->Status) {
+			case NodeStatus::NeedsUnload:
+				readyNodes.erase(iter++);
+				break;
+			case NodeStatus::Subdivided:
+				readyNodes.erase(iter++);
+				break;
+			case NodeStatus::Active:
+				// Push constant block contains our 3 matrices, update that now.
+				uboData.model = curr->mesh.get_model_matrix();
+				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO), &uboData);
+				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4), &LOD_COLOR_ARRAY[curr->Depth()]);
+				// Generates draw commands
+				curr->mesh.render(graphics_cmd);
+				++iter;
+				break;
+			case NodeStatus::NeedsTransfer:
+				++iter;
+				break;
+			default:
+				readyNodes.erase(iter++);
+				break;
+			}
 		}
 	}
-
-	if (device->MarkersEnabled) {
-		device->vkCmdEndDebugMarkerRegion(graphics_cmd);
-	}
-
 	result = vkEndCommandBuffer(graphics_cmd);
 	VkAssert(result);
+
+
+	bool submit_transfer = false;
+	if (!transferNodes.empty()) {
+		transferPool->Begin();
+		submit_transfer = true;
+	}
+
+	auto start = std::chrono::high_resolution_clock::now();
+	size_t node_count = 0;
+	while (!transferNodes.empty()) {
+		TerrainNode* curr = transferNodes.front();
+		curr->CreateMesh(device);
+		curr->mesh.record_transfer_commands(transferPool->CmdBuffer());
+		curr->Status = NodeStatus::Active;
+		auto inserted = readyNodes.insert(curr);
+		transferNodes.pop_front();
+		++node_count;
+	}
+
+	if (submit_transfer) {
+		auto end = std::chrono::high_resolution_clock::now();
+		auto dur = end - start;
+		transferPool->End();
+		transferPool->Submit();
+		Buffer::DestroyStagingResources(device);
+	}
 
 	ImGui::Begin("Debug");
 	int num_nodes = readyNodes.size();

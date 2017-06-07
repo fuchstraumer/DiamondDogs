@@ -5,7 +5,7 @@
 #include "stdafx.h"
 #include "engine\renderer\ForwardDecl.h"
 #include "engine\util\AABB.h"
-
+#include <set>
 
 namespace vulpes {
 
@@ -37,7 +37,7 @@ namespace vulpes {
 
 		class NodeRenderer {
 			
-			std::unordered_map<TerrainNode*, Mesh*> readyNodes;
+			std::set<TerrainNode*> readyNodes;
 			std::forward_list<TerrainNode*> transferNodes;
 
 			VkDescriptorSetLayout descriptorSetLayout;
@@ -59,6 +59,7 @@ namespace vulpes {
 			};
 
 			Buffer* ubo;
+			TransferPool* transferPool;
 
 		public:
 
@@ -76,6 +77,8 @@ namespace vulpes {
 			void CreateUBO(const glm::mat4& projection);
 
 			void AddNode(TerrainNode * node, bool ready);
+
+			void RemoveNode(TerrainNode * node);
 
 			void Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor);
 

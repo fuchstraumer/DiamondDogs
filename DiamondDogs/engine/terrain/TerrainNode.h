@@ -6,12 +6,10 @@
 #include "engine\util\AABB.h"
 #include "engine\util\view_frustum.h"
 #include "engine\renderer\ForwardDecl.h"
-#include "engine\objects\Mesh.h"
+#include "engine\objects\PlanarMesh.h"
 namespace vulpes {
 
 	namespace terrain {
-
-		class NodeRenderer;
 
 		class TerrainNode {
 			TerrainNode(const TerrainNode& other) = delete;
@@ -33,8 +31,10 @@ namespace vulpes {
 			std::array<std::shared_ptr<TerrainNode>, 4> Children;
 			NodeStatus Status;
 
+			void CreateMesh(const Device* dvc);
 
-	
+			PlanarMesh mesh;
+
 			// Coordinates of this node in the grid defining the quadtree
 			glm::ivec3 GridCoordinates;
 

@@ -108,6 +108,7 @@
     <ClInclude Include="common\CreateInfoBase.h" />
     <ClInclude Include="common\vkAssert.h" />
     <ClInclude Include="common\vk_constants.h" />
+    <ClInclude Include="engine\objects\PlanarMesh.h" />
     <ClInclude Include="engine\objects\Skybox.h" />
     <ClInclude Include="engine\renderer\command\CommandPool.h" />
     <ClInclude Include="engine\renderer\command\TransferPool.h" />
@@ -165,6 +166,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="engine\objects\Mesh.cpp" />
+    <ClCompile Include="engine\objects\PlanarMesh.cpp" />
     <ClCompile Include="engine\objects\Skybox.cpp" />
     <ClCompile Include="engine\renderer\command\CommandPool.cpp" />
     <ClCompile Include="engine\renderer\command\TransferPool.cpp" />

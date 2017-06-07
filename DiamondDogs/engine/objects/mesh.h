@@ -69,7 +69,7 @@ namespace vulpes {
 		Mesh(Mesh&& other);
 		Mesh& operator=(Mesh&& other);
 
-		~Mesh();
+		virtual ~Mesh();
 
 		vertex_t get_vertex(const uint32_t& idx) const;
 
@@ -107,11 +107,9 @@ namespace vulpes {
 
 		Vertices vertices;
 		std::vector<uint32_t> indices;
-
-	protected:
 		void create_ebo(CommandPool* cmd_pool, const VkQueue& queue);
 		
-	private:
+	protected:
 		// Position, normal, UV
 		std::array<Buffer*, 2> vbo;
 
