@@ -8,7 +8,7 @@
 
 static const glm::vec4 light_color = glm::vec4(0.98f, 0.95f, 0.93f, 1.0f);
 
-vulpes::Atmosphere::Atmosphere(const Device * _device, const float & radius, const glm::mat4 & projection, const glm::vec3 & position) : mesh(6, radius, position), device(_device) {
+vulpes::Atmosphere::Atmosphere(const Device * _device, const float & radius, const glm::mat4 & projection, const glm::vec3 & position) : mesh(mesh::Icosphere(6, radius, position)), device(_device) {
 
 	uboData.projection = projection;
 
@@ -106,15 +106,15 @@ void vulpes::Atmosphere::BuildPipeline(const VkRenderPass & renderpass, const Sw
 	static const VkDynamicState states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 	pipeline_info.DynamicStateInfo.pDynamicStates = states;
 
-	VkPipelineVertexInputStateCreateInfo vert_info = Vertices::PipelineInfo();
+	VkPipelineVertexInputStateCreateInfo vert_info = mesh::Vertices::PipelineInfo();
 
 	VkGraphicsPipelineCreateInfo pipeline_create_info = vk_graphics_pipeline_create_info_base;
 	pipeline_create_info.flags = 0;
 	pipeline_create_info.stageCount = 2;
 	pipeline_create_info.pStages = shader_stages.data();
 	pipeline_create_info.pVertexInputState = &vert_info;
-	auto descr = Vertices::BindDescr();
-	auto attr = Vertices::AttrDescr();
+	auto descr = mesh::Vertices::BindDescr();
+	auto attr = mesh::Vertices::AttrDescr();
 	vert_info.pVertexBindingDescriptions = descr.data();
 	vert_info.pVertexAttributeDescriptions = attr.data();
 	pipeline_create_info.pInputAssemblyState = &pipeline_info.AssemblyInfo;

@@ -102,13 +102,14 @@
     <ClInclude Include="common\CommonUtil.h" />
     <ClInclude Include="common\VkDebug.h" />
     <ClInclude Include="engine\objects\Atmosphere.h" />
-    <ClInclude Include="engine\objects\Icosphere.h" />
-    <ClInclude Include="engine\objects\Mesh.h" />
-    <ClInclude Include="engine\objects\MeshComponents.h" />
+    <ClInclude Include="engine\terrain\HeightNode.h" />
+    <ClInclude Include="engine\objects\mesh\Icosphere.h" />
+    <ClInclude Include="engine\objects\mesh\Mesh.h" />
+    <ClInclude Include="engine\objects\mesh\MeshComponents.h" />
     <ClInclude Include="common\CreateInfoBase.h" />
     <ClInclude Include="common\vkAssert.h" />
     <ClInclude Include="common\vk_constants.h" />
-    <ClInclude Include="engine\objects\PlanarMesh.h" />
+    <ClInclude Include="engine\objects\mesh\PlanarMesh.h" />
     <ClInclude Include="engine\objects\Skybox.h" />
     <ClInclude Include="engine\renderer\command\CommandPool.h" />
     <ClInclude Include="engine\renderer\command\TransferPool.h" />
@@ -162,11 +163,11 @@
     </ClCompile>
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="engine\objects\Atmosphere.cpp" />
-    <ClCompile Include="engine\objects\Icosphere.cpp">
+    <ClCompile Include="engine\objects\mesh\Icosphere.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="engine\objects\Mesh.cpp" />
-    <ClCompile Include="engine\objects\PlanarMesh.cpp" />
+    <ClCompile Include="engine\objects\mesh\Mesh.cpp" />
+    <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
     <ClCompile Include="engine\objects\Skybox.cpp" />
     <ClCompile Include="engine\renderer\command\CommandPool.cpp" />
     <ClCompile Include="engine\renderer\command\TransferPool.cpp" />
@@ -189,9 +190,11 @@
     <ClCompile Include="engine\renderer\resource\Image.cpp" />
     <ClCompile Include="engine\renderer\resource\ShaderModule.cpp" />
     <ClCompile Include="engine\renderer\resource\Texture.cpp" />
+    <ClCompile Include="engine\terrain\HeightNode.cpp" />
     <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
     <ClCompile Include="engine\terrain\TerrainNode.cpp" />
     <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
+    <ClCompile Include="engine\terrain\TerrainSampler.cpp" />
     <ClCompile Include="engine\util\AABB.cpp" />
     <ClCompile Include="engine\util\easylogging++.cc">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>

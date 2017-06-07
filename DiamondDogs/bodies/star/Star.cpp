@@ -15,7 +15,7 @@ namespace vulpes {
 			temperature * (0.0735f / 255.0f) - (115.0f / 255.0f));
 	}
 
-	Star::Star(const Device* _device, int lod_level, float _radius, unsigned int _temp, const glm::mat4 & projection, const glm::vec3 & position) : mesh0(lod_level), device(_device), radius(_radius), temperature(_temp) {
+	Star::Star(const Device* _device, int lod_level, float _radius, unsigned int _temp, const glm::mat4 & projection, const glm::vec3 & position) : mesh0(mesh::Icosphere(lod_level)), device(_device), radius(_radius), temperature(_temp) {
 		static std::array<VkDescriptorPoolSize, 1> pools{
 			VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2 },
 		};
@@ -108,7 +108,7 @@ namespace vulpes {
 		pipelineCache = _cache;
 
 		const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
-		VkPipelineVertexInputStateCreateInfo vert_info = Vertices::PipelineInfo();
+		VkPipelineVertexInputStateCreateInfo vert_info = mesh::Vertices::PipelineInfo();
 
 		GraphicsPipelineInfo pipeline_info;
 
@@ -124,8 +124,8 @@ namespace vulpes {
 		pipeline_create_info.stageCount = 2;
 		pipeline_create_info.pStages = shader_infos.data();
 		pipeline_create_info.pVertexInputState = &vert_info;
-		auto descr = Vertices::BindDescr();
-		auto attr = Vertices::AttrDescr();
+		auto descr = mesh::Vertices::BindDescr();
+		auto attr = mesh::Vertices::AttrDescr();
 		vert_info.pVertexBindingDescriptions = descr.data();
 		vert_info.pVertexAttributeDescriptions = attr.data();
 		pipeline_create_info.pInputAssemblyState = &pipeline_info.AssemblyInfo;

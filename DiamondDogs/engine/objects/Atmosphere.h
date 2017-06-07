@@ -45,7 +45,7 @@ namespace vulpes {
 		VkDescriptorPool descriptorPool;
 		VkPipelineLayout pipelineLayout;
 		ShaderModule *vert, *frag;
-		Icosphere mesh;
+		mesh::Icosphere mesh;
 		std::array<VkSpecializationMapEntry, 7> specializationMap;
 	};
 

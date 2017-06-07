@@ -20,6 +20,7 @@ namespace vulpes {
 		
 		*/
 
+		class Heightmap;
 
 		class Sampler {
 			Sampler(const Sampler& other) = delete;
@@ -63,6 +64,7 @@ namespace vulpes {
 			MIRROR,
 		};
 
+		
 		class HeightmapSampler : public Sampler {
 		public:
 
@@ -76,7 +78,8 @@ namespace vulpes {
 
 		protected:
 
-			gli::texture2d heightmap;
+			std::shared_ptr<Heightmap> heightmap;
+
 		};
 
 	}

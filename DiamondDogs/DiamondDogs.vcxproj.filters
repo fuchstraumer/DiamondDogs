@@ -3,8 +3,6 @@
   <ItemGroup>
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="stdafx.cpp" />
-    <ClCompile Include="engine\objects\Icosphere.cpp" />
-    <ClCompile Include="engine\objects\Mesh.cpp" />
     <ClCompile Include="bodies\star\Star.cpp" />
     <ClCompile Include="scenes\BaseScene.cpp" />
     <ClCompile Include="engine\objects\Skybox.cpp" />
@@ -31,16 +29,17 @@
     <ClCompile Include="engine\renderer\gui\imgui_lib\imgui.cpp" />
     <ClCompile Include="engine\renderer\gui\imguiWrapper.cpp" />
     <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
-    <ClCompile Include="engine\objects\PlanarMesh.cpp" />
+    <ClCompile Include="engine\terrain\TerrainSampler.cpp" />
+    <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
+    <ClCompile Include="engine\objects\mesh\Mesh.cpp" />
+    <ClCompile Include="engine\objects\mesh\Icosphere.cpp" />
+    <ClCompile Include="engine\terrain\HeightNode.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="util\noise\TerrainBuilder.h" />
     <ClInclude Include="util\shaderold.h" />
-    <ClInclude Include="engine\objects\Icosphere.h" />
-    <ClInclude Include="engine\objects\MeshComponents.h" />
-    <ClInclude Include="engine\objects\Mesh.h" />
     <ClInclude Include="common\CreateInfoBase.h" />
     <ClInclude Include="common\vk_constants.h" />
     <ClInclude Include="common\vkAssert.h" />
@@ -94,7 +93,11 @@
     <ClInclude Include="engine\renderer\gui\imgui_lib\imgui_internal.h" />
     <ClInclude Include="engine\terrain\TerrainSampler.h" />
     <ClInclude Include="engine\terrain\NodeRenderer.h" />
-    <ClInclude Include="engine\objects\PlanarMesh.h" />
+    <ClInclude Include="engine\objects\mesh\PlanarMesh.h" />
+    <ClInclude Include="engine\objects\mesh\MeshComponents.h" />
+    <ClInclude Include="engine\objects\mesh\Mesh.h" />
+    <ClInclude Include="engine\objects\mesh\Icosphere.h" />
+    <ClInclude Include="engine\terrain\HeightNode.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

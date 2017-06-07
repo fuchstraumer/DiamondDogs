@@ -46,7 +46,7 @@ namespace vulpes {
 		}
 
 		void AABB::CreateMesh() {
-			mesh = std::move(Mesh(Center(), Extents()));
+			mesh = std::move(mesh::Mesh(Center(), Extents()));
 			int i = 0;
 			for (auto& vert : aabb_vertices) {
 				mesh.add_vertex(vertex_t{ (vert / 2.0f) + glm::vec3(0.5f, 0.5f, -0.5f) });
@@ -79,7 +79,7 @@ namespace vulpes {
 			frag = std::make_unique<ShaderModule>(device, "shaders/aabb/aabb.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
 			const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
-			VkPipelineVertexInputStateCreateInfo vert_info = Vertices::PipelineInfo();
+			VkPipelineVertexInputStateCreateInfo vert_info = mesh::Vertices::PipelineInfo();
 
 			GraphicsPipelineInfo pipeline_info;
 
@@ -99,8 +99,8 @@ namespace vulpes {
 			pipeline_create_info.pStages = shader_infos.data();
 			pipeline_create_info.pVertexInputState = &vert_info;
 
-			auto descr = Vertices::BindDescr();
-			auto attr = Vertices::AttrDescr();
+			auto descr = mesh::Vertices::BindDescr();
+			auto attr = mesh::Vertices::AttrDescr();
 
 			vert_info.pVertexBindingDescriptions = descr.data();
 			vert_info.pVertexAttributeDescriptions = attr.data();

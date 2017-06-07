@@ -41,7 +41,7 @@ namespace vulpes {
 
 			void CreateMesh(const Device* dvc);
 
-			PlanarMesh mesh;
+			mesh::PlanarMesh mesh;
 
 			// Coordinates of this node in the grid defining the quadtree
 			glm::ivec3 GridCoordinates;

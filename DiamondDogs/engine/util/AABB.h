@@ -36,7 +36,7 @@ namespace vulpes {
 			static std::unique_ptr<PipelineCache> cache;
 			static std::unique_ptr<ShaderModule> vert, frag;
 			static std::unique_ptr<GraphicsPipeline> pipeline;
-			Mesh mesh;
+			mesh::Mesh mesh;
 			
 			struct ubo_data {
 				glm::mat4 model;

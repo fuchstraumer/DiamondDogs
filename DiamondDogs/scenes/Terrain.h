@@ -28,7 +28,7 @@ namespace terrain_scene {
 			object = new terrain::TerrainQuadtree(device, 1.30f, 7, 10000.0, glm::vec3(0.0f));
 			object->SetupNodePipeline(renderPass->vkHandle(), swapchain, pipelineCache, instance->GetProjectionMatrix());
 
-			skybox = new Skybox(device);
+			skybox = new obj::Skybox(device);
 			skybox->CreateData(transferPool, transfer, instance->GetProjectionMatrix());
 			skybox->CreatePipeline(renderPass->vkHandle(), swapchain, pipelineCache);
 
@@ -255,7 +255,7 @@ namespace terrain_scene {
 
 		std::shared_ptr<PipelineCache> pipelineCache;
 		terrain::TerrainQuadtree* object;
-		Skybox* skybox;
+		obj::Skybox* skybox;
 		bool renderSkybox;
 	};
 

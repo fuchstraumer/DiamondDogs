@@ -55,7 +55,7 @@ namespace vulpes {
 		// Radius is useful to know, but will mainly be set in the mesh since we care about it most there
 		float radius;
 		// Meshes used for up-close rendering.
-		Icosphere mesh0;
+		mesh::Icosphere mesh0;
 		//Icosphere mesh1;
 		// Corona object for this star
 

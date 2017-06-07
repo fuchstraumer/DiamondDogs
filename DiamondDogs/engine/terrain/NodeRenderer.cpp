@@ -1,8 +1,10 @@
 #include "stdafx.h"
 #include "NodeRenderer.h"
-#include "TerrainNode.h"
 #include <imgui\imgui.h>
+#include "TerrainNode.h"
+
 #include "common\CommonDef.h"
+
 #include "engine\renderer\core\LogicalDevice.h"
 #include "engine\renderer\resource\ShaderModule.h"
 #include "engine\renderer\render\GraphicsPipeline.h"
@@ -11,6 +13,10 @@
 #include "engine\renderer\command\TransferPool.h"
 #include "engine\renderer\resource\Texture.h"
 
+bool vulpes::terrain::NodeRenderer::DrawAABBs = false;
+float vulpes::terrain::NodeRenderer::MaxRenderDistance = 100000.0f;
+
+// Used to simply color nodes based on LOD level
 static const std::array<glm::vec4, 20> LOD_COLOR_ARRAY = {
 	glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
 	glm::vec4(0.9f, 0.1f, 0.0f, 1.0f),
@@ -32,9 +38,6 @@ static const std::array<glm::vec4, 20> LOD_COLOR_ARRAY = {
 	glm::vec4(0.0f, 0.1f, 0.9f, 1.0f),
 	glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
 };
-
-bool vulpes::terrain::NodeRenderer::DrawAABBs = false;
-float vulpes::terrain::NodeRenderer::MaxRenderDistance = 100000.0f;
 
 vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(parent_dvc) {
 
@@ -99,7 +102,7 @@ void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpa
 	CreateUBO(projection);
 
 	const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
-	VkPipelineVertexInputStateCreateInfo vert_info = Vertices::PipelineInfo();
+	VkPipelineVertexInputStateCreateInfo vert_info = mesh::Vertices::PipelineInfo();
 
 	GraphicsPipelineInfo pipeline_info;
 
@@ -119,8 +122,8 @@ void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpa
 	pipeline_create_info.pStages = shader_infos.data();
 	pipeline_create_info.pVertexInputState = &vert_info;
 
-	auto descr = Vertices::BindDescr();
-	auto attr = Vertices::AttrDescr();
+	auto descr = mesh::Vertices::BindDescr();
+	auto attr = mesh::Vertices::AttrDescr();
 
 	vert_info.pVertexBindingDescriptions = descr.data();
 	vert_info.pVertexAttributeDescriptions = attr.data();
