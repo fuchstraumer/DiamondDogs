@@ -152,7 +152,7 @@ namespace vulpes {
 						mp12Index = iter->second;
 					}
 					else { // Not in the map
-						mp12Index = add_vertex(vertex_t(midPoint12));
+						mp12Index = add_vertex(vertex_t{ midPoint12 });
 						vertexLookup[midPoint12] = mp12Index;
 					}
 

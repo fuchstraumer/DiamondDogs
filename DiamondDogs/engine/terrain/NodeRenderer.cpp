@@ -47,7 +47,7 @@ vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(
 
 	VkDescriptorPoolCreateInfo pool_info = vk_descriptor_pool_create_info_base;
 	pool_info.maxSets = 1;
-	pool_info.poolSizeCount = pools.size();
+	pool_info.poolSizeCount = static_cast<uint32_t>(pools.size());
 	pool_info.pPoolSizes = pools.data();
 
 	VkResult result = vkCreateDescriptorPool(device->vkHandle(), &pool_info, nullptr, &descriptorPool);
@@ -242,8 +242,8 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	}
 
 	ImGui::Begin("Debug");
-	int num_nodes = readyNodes.size();
-	ImGui::InputInt("Number of Nodes", &num_nodes);
+	size_t num_nodes = readyNodes.size();
+	ImGui::InputInt("Number of Nodes", reinterpret_cast<int*>(&num_nodes));
 	ImGui::Checkbox("Render AABBs", &DrawAABBs);
 	ImGui::Checkbox("Update LOD", &UpdateLOD);
 	ImGui::End();

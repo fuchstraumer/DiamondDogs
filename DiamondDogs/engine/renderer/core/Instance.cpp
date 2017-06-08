@@ -176,7 +176,7 @@ namespace vulpes {
 
 		io.ImeWindowHandle = glfwGetWin32Window(Window);
 		io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
-		io.DisplaySize = ImVec2(DEFAULT_WIDTH, DEFAULT_HEIGHT);
+		io.DisplaySize = ImVec2(static_cast<float>(DEFAULT_WIDTH), static_cast<float>(DEFAULT_HEIGHT));
 	}
 
 	void InstanceGLFW::SetupSurface(){

@@ -71,7 +71,7 @@ void vulpes::BaseScene::CreateCommandPools(const size_t& num_secondary_buffers) 
 	pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
 	secondaryPool = new CommandPool(device, pool_info);
 	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-	secondaryPool->CreateCommandBuffers(swapchain->ImageCount * num_secondary_buffers, alloc_info);
+	secondaryPool->CreateCommandBuffers(swapchain->ImageCount * static_cast<uint32_t>(num_secondary_buffers), alloc_info);
 }
 
 void vulpes::BaseScene::SetupRenderpass() {
@@ -180,7 +180,7 @@ void vulpes::BaseScene::RecreateSwapchain(const bool& windowed_fullscreen){
 
 	graphicsPool->CreateCommandBuffers(swapchain->ImageCount);
 	transferPool->CreateCommandBuffers(1);
-	secondaryPool->CreateCommandBuffers(num_secondary_buffers);
+	secondaryPool->CreateCommandBuffers(static_cast<uint32_t>(num_secondary_buffers));
 	SetupRenderpass();
 	RecreateObjects();
 	SetupDepthStencil();

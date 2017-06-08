@@ -103,8 +103,8 @@ namespace terrain_scene {
 				static VkDeviceSize offsets[1]{ 0 };
 
 				VkViewport viewport = vk_default_viewport;
-				viewport.width = swapchain->Extent.width;
-				viewport.height = swapchain->Extent.height;
+				viewport.width = static_cast<float>(swapchain->Extent.width);
+				viewport.height = static_cast<float>(swapchain->Extent.height);
 
 				VkRect2D scissor = vk_default_viewport_scissor;
 				scissor.extent.width = swapchain->Extent.width;

@@ -25,7 +25,7 @@ namespace vulpes {
 			size_t count2 = SubdivisionLevel + 1;
 			size_t numTris = SubdivisionLevel*SubdivisionLevel * 6;
 			size_t numVerts = count2*count2;
-			float scale = SideLength / SubdivisionLevel;
+			float scale = static_cast<float>(SideLength) / static_cast<float>(SubdivisionLevel);
 			size_t idx = 0;
 			vertices.resize(numVerts);
 			for (float y = 0.0f; y < static_cast<float>(count2); ++y) {
@@ -39,15 +39,18 @@ namespace vulpes {
 			indices.resize(numTris + 1);
 			for (size_t y = 0; y < SubdivisionLevel; ++y) {
 				for (size_t x = 0; x < SubdivisionLevel; ++x) {
-					indices[idx] = (y * count2) + x;
-					indices[idx + 1] = ((y + 1) * count2) + x;
-					indices[idx + 2] = (y * count2) + x + 1;
-					indices[idx + 3] = ((y + 1) * count2) + x;
-					indices[idx + 4] = ((y + 1) * count2) + x + 1;
-					indices[idx + 5] = (y * count2) + x + 1;
+					indices[idx] = static_cast<uint32_t>((y * count2) + x);
+					indices[idx + 1] = static_cast<uint32_t>(((y + 1) * count2) + x);
+					indices[idx + 2] = static_cast<uint32_t>((y * count2) + x + 1);
+					indices[idx + 3] = static_cast<uint32_t>(((y + 1) * count2) + x);
+					indices[idx + 4] = static_cast<uint32_t>(((y + 1) * count2) + x + 1);
+					indices[idx + 5] = static_cast<uint32_t>((y * count2) + x + 1);
 					idx += 6;
 				}
 			}
+			indices.shrink_to_fit();
+			vertices.shrink_to_fit();
 		}
+		
 	}
 }

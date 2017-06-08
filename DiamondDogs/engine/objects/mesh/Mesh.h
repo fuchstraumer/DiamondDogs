@@ -191,10 +191,10 @@ namespace vulpes {
 		protected:
 
 			// Position, normal, UV
-			std::array<Buffer*, 2> vbo;
+			std::array<std::unique_ptr<Buffer>, 2> vbo;
 
 			// Indices.
-			Buffer* ebo;
+			std::unique_ptr<Buffer> ebo;
 			bool ready = false;
 			const Device* device;
 		};
@@ -202,8 +202,7 @@ namespace vulpes {
 
 		template<typename vertices_type, typename vertex_type, typename index_type>
 		inline Mesh<vertices_type, vertex_type, index_type>::Mesh(const glm::vec3 & pos, const glm::vec3 & _scale, const glm::vec3 & _angle) : position(pos), scale(_scale), angle(_angle) {
-			vbo.fill(nullptr);
-			ebo = nullptr;
+			
 			glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
 			glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), position);
 			glm::mat4 rotX = glm::rotate(glm::mat4(1.0f), angle.x, glm::vec3(1.0f, 0.0f, 0.0f));
@@ -224,8 +223,6 @@ namespace vulpes {
 			angle = std::move(other.angle);
 			position = std::move(other.position);
 			scale = std::move(other.scale);
-			other.vbo.fill(nullptr);
-			other.ebo = nullptr;
 		}
 
 		template<typename vertices_type, typename vertex_type, typename index_type>
@@ -240,8 +237,6 @@ namespace vulpes {
 			angle = std::move(other.angle);
 			position = std::move(other.position);
 			scale = std::move(other.scale);
-			other.vbo.fill(nullptr);
-			other.ebo = nullptr;
 			return *this;
 		}
 		
@@ -258,13 +253,13 @@ namespace vulpes {
 		template<typename vertices_type, typename vertex_type, typename index_type>
 		inline index_type Mesh<vertices_type, vertex_type, index_type>::add_vertex(const vertex_type & v){
 			vertices.push_back(v);
-			return vertices.size() - 1;
+			return static_cast<index_type>(vertices.size() - 1);
 		}
 
 		template<typename vertices_type, typename vertex_type, typename index_type>
 		inline index_type Mesh<vertices_type, vertex_type, index_type>::add_vertex(vertex_type && v) {
 			vertices.push_back(std::move(v));
-			return vertices.size() - 1;
+			return static_cast<index_type>(vertices.size() - 1);
 		}
 
 		template<typename vertices_type, typename vertex_type, typename index_type>
@@ -303,14 +298,14 @@ namespace vulpes {
 
 			VkDeviceSize sz = vertices.PositionsSize();
 
-			vbo[0] = new Buffer(device);
+			vbo[0] = std::move(std::make_unique<Buffer>(device));
 			vbo[0]->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sz);
 
 			sz = vertices.DataSize();
-			vbo[1] = new Buffer(device);
+			vbo[1] = std::move(std::make_unique<Buffer>(device));
 			vbo[1]->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sz);
 
-			ebo = new Buffer(device);
+			ebo = std::move(std::make_unique<Buffer>(device));
 			ebo->CreateBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indices.size() * sizeof(index_type));
 
 			ready = true;
