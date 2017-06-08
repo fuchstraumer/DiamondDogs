@@ -23,7 +23,7 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, con
 	// Radius of sphere is 1.1 times current node side length, which specifies
 	// the range from a node we consider to be the LOD switch distance
 	const util::Sphere lod_sphere{ camera_position, SideLength * SwitchRatio };
-	const util::Sphere aabb_sphere{ SpatialCoordinates + static_cast<float>(SideLength), SideLength };
+	const util::Sphere aabb_sphere{ SpatialCoordinates + static_cast<float>(SideLength / 2.0f), SideLength / 2.0f };
 
 	// Depth is less than max subdivide level and we're in subdivide range.
 	if (Depth() < MaxLOD && lod_sphere.CoincidesWith(this->aabb)) {
@@ -95,7 +95,7 @@ int vulpes::terrain::TerrainNode::Depth() const {
 }
 
 void vulpes::terrain::TerrainNode::CreateMesh(const Device * dvc) {
-	mesh = mesh::PlanarMesh(SideLength, 13, aabb.Center(), glm::vec3(1.0f));
+	mesh = mesh::PlanarMesh(SideLength, 13, SpatialCoordinates + glm::vec3(0.0f, 0.0f, -SideLength), glm::vec3(1.0f));
 	mesh.Generate();
 	mesh.create_buffers(dvc);
 }

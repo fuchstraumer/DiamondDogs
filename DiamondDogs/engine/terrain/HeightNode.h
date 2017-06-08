@@ -26,6 +26,16 @@ namespace vulpes {
 
 	namespace terrain {
 
+		struct Heightmap {
+			Heightmap(const char* filename) {
+				pixels.reserve(2048 * 2048);
+				unsigned width, height;
+				lodepng::decode(pixels, width, height, filename);
+			}
+
+			std::vector<unsigned char> pixels;
+		};
+
 		struct HeightSample : public glm::vec2 {
 			float& Height() { return this->x; };
 			// we use this height to "morph" between LODs.
@@ -55,12 +65,11 @@ namespace vulpes {
 			float maxError;
 			size_t nodeSize = 4;
 			size_t gridSize;
-			static size_t rootNodeSize;
+			static const size_t rootNodeSize = 4;
 			glm::ivec3 gridCoords;
 			std::vector<HeightSample> samples;
 		};
 
-		size_t HeightNode::rootNodeSize = 4;
 
 		class HeightmapLoader {
 

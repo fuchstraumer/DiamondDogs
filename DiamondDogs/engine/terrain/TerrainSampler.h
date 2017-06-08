@@ -20,8 +20,6 @@ namespace vulpes {
 		
 		*/
 
-		class Heightmap;
-
 		class Sampler {
 			Sampler(const Sampler& other) = delete;
 			Sampler& operator=(const Sampler& other) = delete;
@@ -78,7 +76,7 @@ namespace vulpes {
 
 		protected:
 
-			std::shared_ptr<Heightmap> heightmap;
+			//std::shared_ptr<Heightmap> heightmap;
 
 		};
 

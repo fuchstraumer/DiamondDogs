@@ -3,10 +3,9 @@
 
 namespace vulpes {
 	namespace mesh {
-
 		PlanarMesh::PlanarMesh(const double& side_length, const size_t& subdivision_level, const glm::vec3& pos, const glm::vec3& scale, const glm::vec3& angle) : Mesh(pos, scale, angle), SubdivisionLevel(subdivision_level), SideLength(side_length) {}
 
-		PlanarMesh& PlanarMesh::operator=(PlanarMesh && other){
+		PlanarMesh& PlanarMesh::operator=(PlanarMesh && other) {
 			SideLength = std::move(other.SideLength);
 			SubdivisionLevel = std::move(other.SubdivisionLevel);
 			position = std::move(other.position);
@@ -22,26 +21,33 @@ namespace vulpes {
 		}
 
 		void PlanarMesh::Generate() {
-			double step = SideLength / static_cast<double>(SubdivisionLevel);
-			vertices.positions.reserve(SubdivisionLevel*SubdivisionLevel);
-			vertices.normals_uvs.reserve(SubdivisionLevel*SubdivisionLevel);
-			for (size_t i = 0; i <= SubdivisionLevel; ++i) {
-				for (size_t j = 0; j <= SubdivisionLevel; ++j) {
-					add_vertex({ glm::vec3(static_cast<float>(i) * static_cast<float>(step), 0.0f, static_cast<float>(j) * static_cast<float>(step)) });
+			//glm::vec3 offset = glm::vec3(-0.5f, 0.0f, -0.5f);
+			size_t count2 = SubdivisionLevel + 1;
+			size_t numTris = SubdivisionLevel*SubdivisionLevel * 6;
+			size_t numVerts = count2*count2;
+			float scale = SideLength / SubdivisionLevel;
+			size_t idx = 0;
+			vertices.resize(numVerts);
+			for (float y = 0.0f; y < static_cast<float>(count2); ++y) {
+				for (float x = 0.0f; x < static_cast<float>(count2); ++x) {
+					vertices.positions[idx] = glm::vec3(x * scale, 0.0f, y * scale);/// -offset;
+					++idx;
 				}
 			}
-			indices.reserve(SubdivisionLevel*SubdivisionLevel);
-			for (size_t i = 0; i < SubdivisionLevel; ++i) {
-				for (size_t j = 0; j < SubdivisionLevel; ++j) {
-					index_t i0 = i + (j * SubdivisionLevel + 1);
-					index_t i1 = i0 + 1;
-					index_t i2 = i0 + SubdivisionLevel + 1;
-					index_t i3 = i2 + 1;
-					add_triangle(i0, i1, i2);
-					add_triangle(i2, i1, i3);
+
+			idx = 0;
+			indices.resize(numTris + 1);
+			for (size_t y = 0; y < SubdivisionLevel; ++y) {
+				for (size_t x = 0; x < SubdivisionLevel; ++x) {
+					indices[idx] = (y * count2) + x;
+					indices[idx + 1] = ((y + 1) * count2) + x;
+					indices[idx + 2] = (y * count2) + x + 1;
+					indices[idx + 3] = ((y + 1) * count2) + x;
+					indices[idx + 4] = ((y + 1) * count2) + x + 1;
+					indices[idx + 5] = (y * count2) + x + 1;
+					idx += 6;
 				}
 			}
-			indices.shrink_to_fit();
 		}
 	}
 }

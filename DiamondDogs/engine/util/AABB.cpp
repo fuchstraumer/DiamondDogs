@@ -1,7 +1,7 @@
 #include "stdafx.h"
 #include "AABB.h"
 #include "engine\renderer\core\LogicalDevice.h"
-#include "engine\objects\mesh.h"
+#include "engine\objects\mesh\mesh.h"
 
 namespace vulpes {
 
@@ -46,7 +46,7 @@ namespace vulpes {
 		}
 
 		void AABB::CreateMesh() {
-			mesh = std::move(mesh::Mesh(Center(), Extents()));
+			mesh = std::move(mesh::Mesh<>(Center(), Extents()));
 			int i = 0;
 			for (auto& vert : aabb_vertices) {
 				mesh.add_vertex(vertex_t{ (vert / 2.0f) + glm::vec3(0.5f, 0.5f, -0.5f) });

@@ -52,9 +52,10 @@
 #include "engine\util\easylogging++.h"
 #undef NOMINMAX
 
+#include "engine\util\lodepng.h"
 
 // GLFW declarations and definitions
-constexpr uint32_t DEFAULT_WIDTH = 1024, DEFAULT_HEIGHT = 720;
+constexpr uint32_t DEFAULT_WIDTH = 1920, DEFAULT_HEIGHT = 1080;
 // Defines depth rendering ranges for projection matrix.
 constexpr float nearDepth = 1.0f, farDepth = 500000.0f;
 

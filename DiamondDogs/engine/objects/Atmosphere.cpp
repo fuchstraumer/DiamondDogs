@@ -143,7 +143,7 @@ void vulpes::Atmosphere::BuildPipeline(const VkRenderPass & renderpass, const Sw
 }
 
 void vulpes::Atmosphere::BuildMesh(CommandPool * pool, const VkQueue & queue) {
-	mesh.create_buffers(device, pool, queue);
+	mesh.create_buffers(device);
 	uboData.model = mesh.get_model_matrix();
 }
 

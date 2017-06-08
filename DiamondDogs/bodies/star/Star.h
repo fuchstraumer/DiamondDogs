@@ -1,7 +1,7 @@
 #pragma once
 #ifndef STAR_H
 #define STAR_H
-#include "engine\objects\Icosphere.h"
+#include "engine\objects\mesh\Icosphere.h"
 #include "engine\renderer\ForwardDecl.h"
 
 namespace vulpes {

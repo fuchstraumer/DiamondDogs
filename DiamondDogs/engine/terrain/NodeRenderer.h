@@ -58,11 +58,12 @@ namespace vulpes {
 				glm::mat4 view, projection;
 			};
 
+			
 			Buffer* ubo;
 			TransferPool* transferPool;
 
 		public:
-
+			bool UpdateLOD = true;
 			static bool DrawAABBs;
 			static float MaxRenderDistance;
 

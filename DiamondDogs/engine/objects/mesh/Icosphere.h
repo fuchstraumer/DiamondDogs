@@ -17,7 +17,7 @@ namespace vulpes {
 	
 	namespace mesh {
 
-		class Icosphere : public Mesh {
+		class Icosphere : public Mesh<> {
 		public:
 
 			Icosphere(Icosphere&& other) noexcept;

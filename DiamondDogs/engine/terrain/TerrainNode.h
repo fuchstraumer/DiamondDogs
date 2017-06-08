@@ -5,7 +5,7 @@
 
 #include "engine\util\AABB.h"
 #include "engine\renderer\ForwardDecl.h"
-#include "engine\objects\PlanarMesh.h"
+#include "engine\objects\mesh\PlanarMesh.h"
 namespace vulpes {
 
 	namespace terrain {

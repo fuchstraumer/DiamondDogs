@@ -3,8 +3,8 @@
 #define VULPES_MESH_H
 #include "stdafx.h"
 #include "MeshComponents.h"
-#include "engine/renderer/ForwardDecl.h"
-
+#include "engine/renderer//core//LogicalDevice.h"
+#include "engine/renderer/resource/Buffer.h"
 
 namespace vulpes {
 
@@ -36,6 +36,11 @@ namespace vulpes {
 			void shrink_to_fit() noexcept {
 				positions.shrink_to_fit();
 				normals_uvs.shrink_to_fit();
+			}
+
+			void push_back(vertex_t vert) {
+				positions.push_back(std::move(vert.Position));
+				normals_uvs.push_back(std::move(vert_data{ std::move(vert.Normal), std::move(vert.UV) }));
 			}
 
 			size_t PositionsSize() const noexcept {
@@ -139,7 +144,7 @@ namespace vulpes {
 		};
 
 
-		template<typename vertices_type, typename vertex_type = vertex_t, typename index_type = uint32_t>
+		template<typename vertices_type = Vertices, typename vertex_type = vertex_t, typename index_type = uint32_t>
 		class Mesh {
 			Mesh(const Mesh& other) = delete;
 			Mesh& operator=(const Mesh& other) = delete;
@@ -224,7 +229,7 @@ namespace vulpes {
 		}
 
 		template<typename vertices_type, typename vertex_type, typename index_type>
-		inline Mesh & Mesh<vertices_type, vertex_type, index_type>::operator=(Mesh && other) {
+		inline Mesh<vertices_type, vertex_type, index_type>& Mesh<vertices_type, vertex_type, index_type>::operator=(Mesh && other) {
 			vbo = std::move(other.vbo);
 			ebo = std::move(other.ebo);
 			vertices = std::move(other.vertices);
@@ -258,7 +263,7 @@ namespace vulpes {
 
 		template<typename vertices_type, typename vertex_type, typename index_type>
 		inline index_type Mesh<vertices_type, vertex_type, index_type>::add_vertex(vertex_type && v) {
-			vertices.insert(std::move(v));
+			vertices.push_back(std::move(v));
 			return vertices.size() - 1;
 		}
 

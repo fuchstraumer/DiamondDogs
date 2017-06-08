@@ -3,7 +3,7 @@
 #define VULPES_ATMOSPHERE_OBJECT_H
 
 #include "stdafx.h"
-#include "Icosphere.h"
+#include "mesh\Icosphere.h"
 #include "engine\renderer\ForwardDecl.h"
 namespace vulpes {	
 	class Atmosphere {

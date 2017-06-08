@@ -245,6 +245,7 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	int num_nodes = readyNodes.size();
 	ImGui::InputInt("Number of Nodes", &num_nodes);
 	ImGui::Checkbox("Render AABBs", &DrawAABBs);
+	ImGui::Checkbox("Update LOD", &UpdateLOD);
 	ImGui::End();
 
 }
