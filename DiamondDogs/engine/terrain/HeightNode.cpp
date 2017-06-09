@@ -194,20 +194,20 @@ namespace vulpes {
 
 		float HeightNodeLoader::GetHeight(const size_t& lod_level, const glm::vec2 world_pos) {
 
-			double curr_size = RootNodeLength / (1 << lod_level);
-			double s = RootNodeLength / 2.0;
+			double curr_size = 10000.0 / (1 << lod_level);
+			double s = curr_size / 2.0;
 			// Make sure query is in range of current node.
-			if (world_pos.x <= -s || world_pos.x >= s || world_pos.y <= -s || world_pos.y >= s) {
+			if (abs(world_pos.x) >= s || abs(world_pos.y) >= s) {
 				throw std::out_of_range("Attempted to sample out of range of heightnode");
 			}
 
 			float x, y;
 			x = world_pos.x + s;
-			y = world_pos.y + s;
+			y = world_pos.y - s;
 
 			size_t lx, ly;
-			lx = static_cast<size_t>(floorf(x / curr_size));
-			ly = static_cast<size_t>(floorf(y / curr_size));
+			lx = 1 + static_cast<size_t>(floorf(x / curr_size));
+			ly = static_cast<size_t>(floorf(-y / curr_size));
 
 			if (!HasNode(glm::ivec3(lx, ly, lod_level))) {
 				throw std::out_of_range("Desired node doesn't exist.");
@@ -217,7 +217,7 @@ namespace vulpes {
 			size_t curr_grid_size = node->GridSize();
 			
 			x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
-			y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
+			y = 2.0f + (fmod(abs(y), curr_size) / curr_size) * curr_grid_size;
 
 			// Sample coords
 			size_t sx = floorf(x), sy = floorf(y);
