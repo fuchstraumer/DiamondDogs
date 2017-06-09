@@ -41,6 +41,18 @@ static const std::array<glm::vec4, 20> LOD_COLOR_ARRAY = {
 
 vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(parent_dvc) {
 
+	HeightmapNoise init_hm(HeightNode::RootNodeSize + 5, glm::vec3(0.0f), 1.0f);
+	glm::ivec3 grid_pos = glm::ivec3(0, 0, 0);
+	std::shared_ptr<HeightNode> root = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), init_hm.samples);
+	heightNodeLoader = HeightNodeLoader(10000.0, root);
+	// Generate first few levels of data tree.
+	heightNodeLoader.SubdivideNode(root->GridCoords());
+	heightNodeLoader.SubdivideNode(root->GridCoords() + glm::ivec3(0, 0, 1));
+	heightNodeLoader.SubdivideNode(root->GridCoords() + glm::ivec3(1, 0, 1));
+	heightNodeLoader.SubdivideNode(root->GridCoords() + glm::ivec3(0, 1, 1));
+	heightNodeLoader.SubdivideNode(root->GridCoords() + glm::ivec3(1, 1, 1));
+	heightNodeLoader.LoadNodes();
+
 	static const std::array<VkDescriptorPoolSize, 1> pools{
 		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
 	};
@@ -158,6 +170,11 @@ void vulpes::terrain::NodeRenderer::AddNode(TerrainNode * node, bool ready){
 	else {
 		transferNodes.push_front(node);
 	}
+	heightNodeLoader.LoadNode(node->GridCoordinates, node->ParentGridCoordinates);
+}
+
+void vulpes::terrain::NodeRenderer::SubdivideNodeHeights(TerrainNode * node) {
+	heightNodeLoader.SubdivideNode(node->GridCoordinates);
 }
 
 void vulpes::terrain::NodeRenderer::RemoveNode(TerrainNode* node) {
@@ -214,6 +231,7 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	result = vkEndCommandBuffer(graphics_cmd);
 	VkAssert(result);
 
+	heightNodeLoader.LoadNodes();
 
 	bool submit_transfer = false;
 	if (!transferNodes.empty()) {
@@ -225,7 +243,7 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	size_t node_count = 0;
 	while (!transferNodes.empty()) {
 		TerrainNode* curr = transferNodes.front();
-		curr->CreateMesh(device);
+		curr->CreateMesh(device, &heightNodeLoader);
 		curr->mesh.record_transfer_commands(transferPool->CmdBuffer());
 		curr->Status = NodeStatus::Active;
 		auto inserted = readyNodes.insert(curr);

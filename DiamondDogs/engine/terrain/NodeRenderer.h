@@ -6,6 +6,7 @@
 #include "engine\renderer\ForwardDecl.h"
 #include "engine\util\AABB.h"
 #include <set>
+#include "HeightNode.h"
 
 namespace vulpes {
 
@@ -61,6 +62,7 @@ namespace vulpes {
 			
 			Buffer* ubo;
 			TransferPool* transferPool;
+			HeightNodeLoader heightNodeLoader;
 
 		public:
 			bool UpdateLOD = true;
@@ -78,6 +80,8 @@ namespace vulpes {
 			void CreateUBO(const glm::mat4& projection);
 
 			void AddNode(TerrainNode * node, bool ready);
+
+			void SubdivideNodeHeights(TerrainNode* node);
 
 			void RemoveNode(TerrainNode * node);
 

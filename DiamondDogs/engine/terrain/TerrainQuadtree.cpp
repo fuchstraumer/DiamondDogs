@@ -2,15 +2,10 @@
 #include "TerrainQuadtree.h"
 #include "engine/renderer/resource/Buffer.h"
 #include "engine\util\sphere.h"
-#include "HeightNode.h"
+
 
 vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, const float & split_factor, const size_t & max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position) : nodeRenderer(device) {
-	root = new TerrainNode(glm::ivec3(0, 0, 0), root_tile_position, root_side_length);
-
-	HeightmapNoise init_hm(HeightNode::RootNodeSize + 5, glm::vec3(0.0f), 1.0f);
-	glm::ivec3 grid_pos = glm::ivec3(0, 0, 0);
-	std::shared_ptr<HeightNode> root = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), init_hm.samples);
-	HeightNodeLoader loader(3000.0, root);
+	root = new TerrainNode(glm::ivec3(0, 0, 0), glm::ivec3(0, 0, 0), root_tile_position, root_side_length);
 }
 
 void vulpes::terrain::TerrainQuadtree::SetupNodePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4 & projection) {

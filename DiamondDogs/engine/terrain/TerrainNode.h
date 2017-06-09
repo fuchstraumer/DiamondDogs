@@ -6,6 +6,8 @@
 #include "engine\util\AABB.h"
 #include "engine\renderer\ForwardDecl.h"
 #include "engine\objects\mesh\PlanarMesh.h"
+#include "HeightNode.h"
+
 namespace vulpes {
 
 	namespace terrain {
@@ -20,7 +22,7 @@ namespace vulpes {
 			static size_t MaxLOD;
 			static double SwitchRatio;
 
-			TerrainNode(const glm::ivec3& logical_coords, const glm::vec3& position, const double& length);
+			TerrainNode(const glm::ivec3& parent_coords, const glm::ivec3& logical_coords, const glm::vec3& position, const double& length);
 
 			~TerrainNode();
 
@@ -37,14 +39,17 @@ namespace vulpes {
 			int Depth() const;
 
 			std::array<std::shared_ptr<TerrainNode>, 4> Children;
+			std::shared_ptr<HeightNode> HeightData;
+
 			NodeStatus Status;
 
-			void CreateMesh(const Device* dvc);
+			void CreateMesh(const Device* dvc, HeightNodeLoader* height_loader);
 
 			mesh::PlanarMesh mesh;
 
 			// Coordinates of this node in the grid defining the quadtree
 			glm::ivec3 GridCoordinates;
+			glm::ivec3 ParentGridCoordinates;
 
 			// world-relative spatial coordinates. 
 			// TODO: Investigate root-node relative, for the sake of large-scale rendering.

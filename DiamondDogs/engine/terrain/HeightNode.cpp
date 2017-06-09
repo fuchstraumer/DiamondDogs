@@ -29,7 +29,7 @@ namespace vulpes {
 
 			// Tile size is the number of vertices we directly use: we add 5 as we sample the borders,
 			// which helps with the upsampling process.
-			const size_t gridSize = tile_size - 5;
+			gridSize = tile_size - 5;
 
 			// These aren't the parent grid coords: these are the offsets from the parent height samples that we 
 			// use to sample from the parents data.
@@ -115,11 +115,43 @@ namespace vulpes {
 				std::pair<glm::ivec3, std::shared_ptr<HeightNode>> new_node;
 				new_node.first = iter->first;
 				new_node.second = iter->second.get();
-				nodeCache.insert(new_node);
+				auto inserted = nodeCache.insert(new_node);
+				if (!inserted.second) {
+					throw std::runtime_error("Failed to insert. Possible hash collision?");
+				}
 				++nodes_loaded;
 				wipNodeCache.erase(iter++);
 			}
 			return nodes_loaded;
+		}
+
+		height_node_iterator_t HeightNodeLoader::begin(){
+			return nodeCache.begin();
+		}
+
+		height_node_iterator_t HeightNodeLoader::end() {
+			return nodeCache.end();
+		}
+
+		const_height_node_iterator_t HeightNodeLoader::begin() const {
+			return nodeCache.begin();
+		}
+
+		const_height_node_iterator_t HeightNodeLoader::end() const{
+			return nodeCache.end();
+		}
+
+		const_height_node_iterator_t HeightNodeLoader::cbegin() const{
+			return nodeCache.cbegin();
+		}
+
+		const_height_node_iterator_t HeightNodeLoader::cend() const {
+			return nodeCache.cend();
+		}
+
+		size_t HeightNodeLoader::size() const
+		{
+			return size_t();
 		}
 
 		bool HeightNodeLoader::SubdivideNode(const glm::ivec3 & node_pos) {
@@ -140,7 +172,10 @@ namespace vulpes {
 				}
 				// Parent loaded but child isn't. Create child now.
 				const std::shared_ptr<HeightNode>& parent_node = nodeCache.at(parent_pos);
-				wipNodeCache.insert(std::make_pair(node_pos, std::async(std::launch::async, CreateNode, node_pos, *parent_node)));
+				auto inserted = wipNodeCache.insert(std::make_pair(node_pos, std::async(std::launch::async, CreateNode, node_pos, *parent_node)));
+				if (!inserted.second) {
+					throw std::runtime_error("Failed to insert. Possible hash collision?");
+				}
 				return true;
 			}
 			// Parent isn't loaded: need parent to be loaded before we can create a new node.
@@ -179,7 +214,7 @@ namespace vulpes {
 			}
 
 			auto& node = nodeCache.at(glm::ivec3(lx, ly, lod_level));
-			size_t curr_grid_size = node->GridSize() - 5;
+			size_t curr_grid_size = node->GridSize();
 			
 			x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
 			y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;

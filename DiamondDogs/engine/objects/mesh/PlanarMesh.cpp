@@ -3,7 +3,7 @@
 
 namespace vulpes {
 	namespace mesh {
-		PlanarMesh::PlanarMesh(const double& side_length, const size_t& subdivision_level, const glm::vec3& pos, const glm::vec3& scale, const glm::vec3& angle) : Mesh(pos, scale, angle), SubdivisionLevel(subdivision_level), SideLength(side_length) {}
+		PlanarMesh::PlanarMesh(const double& side_length, const glm::ivec3& grid_pos, const glm::vec3& pos, const glm::vec3& scale, const glm::vec3& angle) : Mesh(pos, scale, angle), SideLength(side_length), GridPos(grid_pos) {}
 
 		PlanarMesh& PlanarMesh::operator=(PlanarMesh && other) {
 			SideLength = std::move(other.SideLength);
@@ -17,11 +17,13 @@ namespace vulpes {
 			model = std::move(other.model);
 			indices = std::move(other.indices);
 			vertices = std::move(other.vertices);
+			GridPos = std::move(other.GridPos);
 			return *this;
 		}
 
-		void PlanarMesh::Generate() {
-			//glm::vec3 offset = glm::vec3(-0.5f, 0.0f, -0.5f);
+		void PlanarMesh::Generate(terrain::HeightNodeLoader* height_nodes) {
+			SubdivisionLevel = terrain::HeightNode::RootNodeSize;
+
 			size_t count2 = SubdivisionLevel + 1;
 			size_t numTris = SubdivisionLevel*SubdivisionLevel * 6;
 			size_t numVerts = count2*count2;
@@ -30,7 +32,7 @@ namespace vulpes {
 			vertices.resize(numVerts);
 			for (float y = 0.0f; y < static_cast<float>(count2); ++y) {
 				for (float x = 0.0f; x < static_cast<float>(count2); ++x) {
-					vertices.positions[idx] = glm::vec3(x * scale, 0.0f, y * scale);/// -offset;
+					vertices.positions[idx] = glm::vec3(x * scale, height_nodes->GetHeight(GridPos.z, glm::vec2(x * scale, y * scale)), y * scale);
 					++idx;
 				}
 			}
