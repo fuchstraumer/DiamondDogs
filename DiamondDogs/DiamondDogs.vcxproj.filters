@@ -34,6 +34,7 @@
     <ClCompile Include="engine\terrain\HeightNode.cpp" />
     <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
     <ClCompile Include="engine\util\lodepng.cpp" />
+    <ClCompile Include="engine\util\noise.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -73,7 +74,6 @@
     <ClInclude Include="engine\renderer\resource\ShaderModule.h" />
     <ClInclude Include="engine\renderer\resource\Texture.h" />
     <ClInclude Include="engine\renderer\resource\VertexTypes.h" />
-    <ClInclude Include="engine\renderer\ForwardDecl.h" />
     <ClInclude Include="engine\renderer\NonCopyable.h" />
     <ClInclude Include="engine\util\sphere.h" />
     <ClInclude Include="common\CommonUtil.h" />
@@ -99,6 +99,8 @@
     <ClInclude Include="engine\objects\mesh\Icosphere.h" />
     <ClInclude Include="engine\terrain\HeightNode.h" />
     <ClInclude Include="engine\util\lodepng.h" />
+    <ClInclude Include="engine\renderer\ForwardDecl.h" />
+    <ClInclude Include="engine\util\noise.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

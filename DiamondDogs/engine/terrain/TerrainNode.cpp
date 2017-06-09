@@ -96,7 +96,7 @@ int vulpes::terrain::TerrainNode::Depth() const {
 }
 
 void vulpes::terrain::TerrainNode::CreateMesh(const Device * dvc) {
-	mesh = mesh::PlanarMesh(SideLength, 8, SpatialCoordinates + glm::vec3(0.0f, 0.0f, -SideLength), glm::vec3(1.0f));
+	mesh = mesh::PlanarMesh(SideLength, 24, SpatialCoordinates + glm::vec3(0.0f, 0.0f, -SideLength), glm::vec3(1.0f));
 	mesh.Generate();
 	mesh.create_buffers(dvc);
 }

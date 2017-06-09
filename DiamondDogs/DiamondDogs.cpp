@@ -4,7 +4,9 @@
 
 INITIALIZE_EASYLOGGINGPP
 int main() {
-	vulpes::terrain::Heightmap hm("rsrc/img/terrain_height.png");
+	using namespace vulpes::terrain;
+
+
 	using namespace terrain_scene;
 	TerrainScene scene;
 	scene.RenderLoop();

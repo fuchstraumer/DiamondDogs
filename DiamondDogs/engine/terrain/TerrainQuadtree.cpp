@@ -2,10 +2,15 @@
 #include "TerrainQuadtree.h"
 #include "engine/renderer/resource/Buffer.h"
 #include "engine\util\sphere.h"
-
+#include "HeightNode.h"
 
 vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, const float & split_factor, const size_t & max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position) : nodeRenderer(device) {
 	root = new TerrainNode(glm::ivec3(0, 0, 0), root_tile_position, root_side_length);
+
+	HeightmapNoise init_hm(HeightNode::RootNodeSize + 5, glm::vec3(0.0f), 1.0f);
+	glm::ivec3 grid_pos = glm::ivec3(0, 0, 0);
+	std::shared_ptr<HeightNode> root = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), init_hm.samples);
+	HeightNodeLoader loader(3000.0, root);
 }
 
 void vulpes::terrain::TerrainQuadtree::SetupNodePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4 & projection) {
@@ -13,7 +18,6 @@ void vulpes::terrain::TerrainQuadtree::SetupNodePipeline(const VkRenderPass & re
 }
 
 void vulpes::terrain::TerrainQuadtree::UpdateQuadtree(const glm::vec3 & camera_position, const glm::mat4& view) {
-
 	if (nodeRenderer.UpdateLOD) {
 		// Create new view frustum
 		util::view_frustum view_f;
@@ -32,7 +36,6 @@ void vulpes::terrain::TerrainQuadtree::UpdateQuadtree(const glm::vec3 & camera_p
 		}
 
 		root->Update(camera_position, view_f, &nodeRenderer);
-
 	}
 }
 

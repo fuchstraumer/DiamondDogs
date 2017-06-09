@@ -147,6 +147,7 @@
     <ClInclude Include="engine\util\circular_buffer.h" />
     <ClInclude Include="engine\util\easylogging++.h" />
     <ClInclude Include="engine\util\lodepng.h" />
+    <ClInclude Include="engine\util\noise.h" />
     <ClInclude Include="engine\util\ref_counter.h" />
     <ClInclude Include="engine\util\sphere.h" />
     <ClInclude Include="engine\util\view_frustum.h" />
@@ -202,6 +203,7 @@
     <ClCompile Include="engine\util\lodepng.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="engine\util\noise.cpp" />
     <ClCompile Include="scenes\BaseScene.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

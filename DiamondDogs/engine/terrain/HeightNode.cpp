@@ -1,10 +1,17 @@
 #include "stdafx.h"
 #include "HeightNode.h"
+#include "engine\util\noise.h"
 
 namespace vulpes {
 	namespace terrain {
 
-		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates) : gridCoords(node_grid_coordinates) {}
+
+		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<float>& init_samples) : gridCoords(node_grid_coordinates) {
+			assert(node_grid_coordinates.z == 0);
+			for (auto&& val : init_samples) {
+				samples.push_back(HeightSample{ std::move(val), 0.0f });
+			}
+		}
 
 		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()) {
 			SampleFromParent(parent);
@@ -18,19 +25,19 @@ namespace vulpes {
 
 		void HeightNode::SampleFromParent(const HeightNode & node) {
 			// See: proland/preprocess/terrain/HeightMipmap.cpp to find original implementation
-			size_t tile_size = std::min(rootNodeSize << gridCoords.z, nodeSize);
-			// These aren't the parent grid coords: these are the offsets from the parent height samples that we 
-			// use to sample from the parents data.
-			size_t parent_x, parent_y;
-			parent_x = 1 + (gridCoords.x % 2) * tile_size / 2;
-			parent_y = 1 + (gridCoords.y % 2) * tile_size / 2;
+			size_t tile_size = std::min(RootNodeSize << gridCoords.z, nodeSize);
 
 			// Tile size is the number of vertices we directly use: we add 5 as we sample the borders,
 			// which helps with the upsampling process.
-			const size_t num_samples = tile_size + 5;
-			gridSize = num_samples;
+			const size_t gridSize = tile_size - 5;
 
-			samples.resize(num_samples * num_samples);
+			// These aren't the parent grid coords: these are the offsets from the parent height samples that we 
+			// use to sample from the parents data.
+			size_t parent_x, parent_y;
+			parent_x = 1 + (gridCoords.x % 2) * gridSize / 2;
+			parent_y = 1 + (gridCoords.y % 2) * gridSize / 2;
+
+			samples.resize(nodeSize * nodeSize);
 
 			/*
 				Upsampling: Here we check the current i,j pair representing our local grid coordinates.
@@ -41,29 +48,29 @@ namespace vulpes {
 				We change the residual magnitude and functions based on the LOD level of this tile, though, 
 				as we will still be losing some detail at high LOD levels.
 			*/
-			for (size_t j = 0; j <= tile_size + 4; ++j) {
-				for (size_t i = 0; i <= tile_size + 4; ++i) {
+			for (size_t j = 0; j < nodeSize; ++j) {
+				for (size_t i = 0; i < nodeSize; ++i) {
 					float sample;
 					if (j % 2 == 0) {
 						if (i % 2 == 0) {
-							sample = node.Sample(i / 2 + parent_x - 1 + (j / 2 + parent_y) * num_samples);
+							sample = node.Sample(i / 2 + parent_x - 1 + (j / 2 + parent_y) * nodeSize);
 						}
 						else {
 							float z0, z1, z2, z3;
-							z0 = node.Sample(i / 2 + parent_x - 1 + (j / 2 + parent_y) * num_samples);
-							z1 = node.Sample(i / 2 + parent_x + (j / 2 * parent_y) * num_samples);
-							z2 = node.Sample(i / 2 + parent_x + 1 + (j / 2 * parent_y) * num_samples);
-							z3 = node.Sample(i / 2 + parent_x + 2 + (j / 2 * parent_y) * num_samples);
+							z0 = node.Sample(i / 2 + parent_x - 1 + (j / 2 + parent_y) * nodeSize);
+							z1 = node.Sample(i / 2 + parent_x + (j / 2 + parent_y) * nodeSize);
+							z2 = node.Sample(i / 2 + parent_x + 1 + (j / 2 + parent_y) * nodeSize);
+							z3 = node.Sample(i / 2 + parent_x + 2 + (j / 2 + parent_y) * nodeSize);
 							sample = ((z1 + z2) * 9.0f - (z0 + z3)) / 16.0f;
 						}
 					}
 					else {
 						if (i % 2 == 0) {
 							float z0, z1, z2, z3;
-							z0 = node.Sample(i / 2 + parent_x + (j / 2 - 1 + parent_y)*num_samples);
-							z1 = node.Sample(i / 2 + parent_x + (j / 2 + parent_y)*num_samples);
-							z2 = node.Sample(i / 2 + parent_x + (j / 2 + 1 + parent_y)*num_samples);
-							z3 = node.Sample(i / 2 + parent_x + (j / 2 + 2 + parent_y)*num_samples);
+							z0 = node.Sample(i / 2 + parent_x + (j / 2 - 1 + parent_y)*nodeSize);
+							z1 = node.Sample(i / 2 + parent_x + (j / 2 + parent_y)*nodeSize);
+							z2 = node.Sample(i / 2 + parent_x + (j / 2 + 1 + parent_y)*nodeSize);
+							z3 = node.Sample(i / 2 + parent_x + (j / 2 + 2 + parent_y)*nodeSize);
 							sample = ((z1 + z2) * 9.0f - (z0 + z3)) / 16.0f;
 						}
 						else {
@@ -73,14 +80,14 @@ namespace vulpes {
 								float f = (dJ == -1 || dJ == 2) ? (-1.0f / 16.0f) : (9.0f / 16.0f);
 								for (dI = -1; dI <= 2; ++dI) {
 									float g = (dI == -1 || dI == 2) ? (-1.0f / 16.0f) : (9.0f / 16.0f);
-									sample += f * g * node.Sample(i / 2 + dI + parent_x + (j / 2 + dJ + parent_y)*num_samples);
+									sample += f * g * node.Sample(i / 2 + dI + parent_x + (j / 2 + dJ + parent_y)*nodeSize);
 								}
 							}
 						}
 					}
-					samples[i + (j * num_samples)].Height() = std::move(sample);
+					samples[i + (j * nodeSize)].Height() = std::move(sample);
 					// Parent height is used to morph between LOD levels, so that we don't notice much pop-in as new mesh tiles are loaded.
-					samples[i + (j * num_samples)].ParentHeight() = node.Sample(i / 2 + parent_x + (j / 2 + parent_y)*num_samples);
+					// samples[i + (j * num_samples)].ParentHeight() = node.Sample(i / 2 + parent_x + (j / 2 + parent_y)*num_samples);
 				}
 			}
 		}
@@ -97,16 +104,31 @@ namespace vulpes {
 			return gridCoords;
 		}
 
+		size_t HeightNode::GridSize() const noexcept {
+			return gridSize;
+		}
+
 		size_t HeightNodeLoader::LoadNodes() {
 			size_t nodes_loaded = 0;
-			for (auto& node_future : wipNodeCache) {
+			auto iter = wipNodeCache.begin();
+			while (iter != wipNodeCache.end()) {
 				std::pair<glm::ivec3, std::shared_ptr<HeightNode>> new_node;
-				new_node.first = node_future.first;
-				new_node.second = node_future.second.get();
+				new_node.first = iter->first;
+				new_node.second = iter->second.get();
 				nodeCache.insert(new_node);
 				++nodes_loaded;
+				wipNodeCache.erase(iter++);
 			}
 			return nodes_loaded;
+		}
+
+		bool HeightNodeLoader::SubdivideNode(const glm::ivec3 & node_pos) {
+			bool loaded;
+			loaded = LoadNode(glm::ivec3{ node_pos.x, node_pos.y, node_pos.z + 1 }, node_pos);
+			loaded |= LoadNode(glm::ivec3{ node_pos.x + 1, node_pos.y, node_pos.z + 1 }, node_pos);
+			loaded |= LoadNode(glm::ivec3{ node_pos.x, node_pos.y + 1, node_pos.z + 1 }, node_pos);
+			loaded |= LoadNode(glm::ivec3{ node_pos.x + 1, node_pos.y + 1, node_pos.z + 1 }, node_pos);
+			return loaded;
 		}
 
 		bool HeightNodeLoader::LoadNode(const glm::ivec3 & node_pos, const glm::ivec3 & parent_pos) {
@@ -117,7 +139,7 @@ namespace vulpes {
 					return true;
 				}
 				// Parent loaded but child isn't. Create child now.
-				const std::shared_ptr<HeightNode>& parent_node = nodeCache.at(node_pos);
+				const std::shared_ptr<HeightNode>& parent_node = nodeCache.at(parent_pos);
 				wipNodeCache.insert(std::make_pair(node_pos, std::async(std::launch::async, CreateNode, node_pos, *parent_node)));
 				return true;
 			}
@@ -126,12 +148,65 @@ namespace vulpes {
 		}
 
 		bool HeightNodeLoader::HasNode(const glm::ivec3 & node_pos) {
-			return (nodeCache.count(node_pos) != 0);
+			if (nodeCache.count(node_pos) != 0) {
+				return true;
+			}
+			else if (wipNodeCache.count(node_pos) != 0) {
+				return LoadNodes() >= 1;
+			}
+			return false;
 		}
+
+		float HeightNodeLoader::GetHeight(const size_t& lod_level, const glm::vec2 world_pos) {
+
+			double curr_size = RootNodeLength / (1 << lod_level);
+			double s = RootNodeLength / 2.0;
+			// Make sure query is in range of current node.
+			if (world_pos.x <= -s || world_pos.x >= s || world_pos.y <= -s || world_pos.y >= s) {
+				throw std::out_of_range("Attempted to sample out of range of heightnode");
+			}
+
+			float x, y;
+			x = world_pos.x + s;
+			y = world_pos.y + s;
+
+			size_t lx, ly;
+			lx = static_cast<size_t>(floorf(x / curr_size));
+			ly = static_cast<size_t>(floorf(y / curr_size));
+
+			if (!HasNode(glm::ivec3(lx, ly, lod_level))) {
+				throw std::out_of_range("Desired node doesn't exist.");
+			}
+
+			auto& node = nodeCache.at(glm::ivec3(lx, ly, lod_level));
+			size_t curr_grid_size = node->GridSize() - 5;
+			
+			x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
+			y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
+
+			// Sample coords
+			size_t sx = floorf(x), sy = floorf(y);
+
+			return node->Sample(sx, sy);
+		}
+
 
 		std::shared_ptr<HeightNode> HeightNodeLoader::CreateNode(const glm::ivec3 & pos, const HeightNode & parent) {
 			return std::make_shared<HeightNode>(pos, parent);
 		}
 
-	}
+		HeightmapNoise::HeightmapNoise(const size_t & num_samples, const glm::vec3& starting_pos, const float& step_size) {
+			noise::GeneratorBase gen(step_size);
+			samples.resize(num_samples * num_samples);
+			glm::vec2 xy = starting_pos.xz;
+			for (size_t i = 0; i < num_samples; ++i) {
+				for (size_t j = 0; j < num_samples; ++j) {
+					samples[j + (i * num_samples)] = gen.SimplexFBM(static_cast<double>(xy.x), static_cast<double>(xy.y));
+					xy.x += step_size;
+				}
+				xy.y += step_size;
+			}
+		}
+
+}
 }

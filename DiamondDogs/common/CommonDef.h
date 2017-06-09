@@ -11,6 +11,8 @@ namespace vulpes {
 		NeedsUnload, // Erase and unload resources.
 		NeedsTransfer,
 	};
+
+	
 }
 
 
