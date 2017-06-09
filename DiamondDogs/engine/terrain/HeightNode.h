@@ -83,10 +83,10 @@ namespace vulpes {
 			const glm::ivec3& GridCoords() const noexcept;
 			size_t GridSize() const noexcept;
 
-			static const size_t RootNodeSize = 48;
+			static const size_t RootNodeSize = 24;
 		protected:
 
-			size_t nodeSize = 53;
+			size_t nodeSize = 29;
 			size_t gridSize;
 			
 			glm::ivec3 gridCoords;

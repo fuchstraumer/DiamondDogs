@@ -197,17 +197,17 @@ namespace vulpes {
 			double curr_size = 10000.0 / (1 << lod_level);
 			double s = curr_size / 2.0;
 			// Make sure query is in range of current node.
-			if (abs(world_pos.x) >= s || abs(world_pos.y) >= s) {
+			if (abs(world_pos.x) >= curr_size + 1.0 || abs(world_pos.y) >= curr_size + 1.0) {
 				throw std::out_of_range("Attempted to sample out of range of heightnode");
 			}
 
 			float x, y;
-			x = world_pos.x + s;
-			y = world_pos.y - s;
+			x = world_pos.x;
+			y = world_pos.y;
 
 			size_t lx, ly;
-			lx = 1 + static_cast<size_t>(floorf(x / curr_size));
-			ly = static_cast<size_t>(floorf(-y / curr_size));
+			lx = static_cast<size_t>(floorf(x / curr_size));
+			ly = static_cast<size_t>(floorf(abs(y) / curr_size));
 
 			if (!HasNode(glm::ivec3(lx, ly, lod_level))) {
 				throw std::out_of_range("Desired node doesn't exist.");
@@ -236,7 +236,7 @@ namespace vulpes {
 			glm::vec2 xy = starting_pos.xz;
 			for (size_t i = 0; i < num_samples; ++i) {
 				for (size_t j = 0; j < num_samples; ++j) {
-					samples[j + (i * num_samples)] = gen.SimplexFBM(static_cast<double>(xy.x), static_cast<double>(xy.y));
+					samples[j + (i * num_samples)] = 100.0f * gen.SimplexFBM(static_cast<double>(xy.x), static_cast<double>(xy.y));
 					xy.x += step_size;
 				}
 				xy.y += step_size;

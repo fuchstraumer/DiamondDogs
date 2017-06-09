@@ -314,3 +314,4 @@ DiamondDogs/rsrc/img/skybox/deep_thought_etc2.dds
 DiamondDogs/rsrc/img/skybox/deep_thought_s3.dds
 ext/lib/assimp-vc140-mt-gd.lib
 ext/lib/assimp-vc140-mt.lib
+cloc.exe
