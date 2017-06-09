@@ -30,8 +30,9 @@ namespace vulpes {
 			float scale = static_cast<float>(SideLength) / static_cast<float>(SubdivisionLevel);
 			size_t idx = 0;
 			vertices.resize(numVerts);
-			for (float y = 0.0f; y < static_cast<float>(count2); ++y) {
-				for (float x = 0.0f; x < static_cast<float>(count2); ++x) {
+			float half_count2 = static_cast<float>(count2 / 2);
+			for (float y = -half_count2; y < half_count2; ++y) {
+				for (float x = -half_count2; x < half_count2; ++x) {
 					vertices.positions[idx] = glm::vec3(x * scale, height_nodes->GetHeight(GridPos.z, glm::vec2(x * scale, y * scale)), y * scale);
 					++idx;
 				}
