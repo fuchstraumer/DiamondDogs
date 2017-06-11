@@ -21,7 +21,7 @@ namespace vulpes {
 			return *this;
 		}
 
-		void PlanarMesh::Generate(terrain::HeightNodeLoader* height_nodes) {
+		void PlanarMesh::Generate(terrain::HeightNode* height_nodes) {
 			SubdivisionLevel = terrain::HeightNode::RootNodeSize;
 
 			size_t count2 = SubdivisionLevel + 1;
@@ -30,9 +30,10 @@ namespace vulpes {
 			float scale = static_cast<float>(SideLength) / static_cast<float>(SubdivisionLevel);
 			size_t idx = 0;
 			vertices.resize(numVerts);
-			for (float y = 0; y < count2; ++y) {
-				for (float x = 0; x < count2; ++x) {
-					vertices.positions[idx] = glm::vec3(x * scale, height_nodes->GetHeight(GridPos.z, glm::vec2(x * scale, y * scale)), y * scale);
+			
+			for (float y = 0.0f; y < static_cast<float>(count2); ++y) {
+				for (float x = 0.0f; x < static_cast<float>(count2); ++x) {
+					vertices.positions[idx] = glm::vec3(x * scale, height_nodes->GetHeight(GridPos, glm::vec2(x * scale, -y * scale)), y * scale);
 					++idx;
 				}
 			}

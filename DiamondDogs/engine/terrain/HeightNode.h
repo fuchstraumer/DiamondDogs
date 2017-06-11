@@ -28,12 +28,7 @@ namespace vulpes {
 
 	namespace terrain {
 
-		struct HeightmapNoise {
-
-			HeightmapNoise(const size_t& num_samples, const glm::vec3&  starting_pos, const float& step_size);
-
-			std::vector<float> samples;
-		};
+		
 
 		template<typename uint8_t>
 		struct HeightmapPNG {
@@ -46,34 +41,37 @@ namespace vulpes {
 			std::vector<uint8_t> Pixels;
 		};
 
-		struct HeightSample : public glm::vec2 {
+		struct HeightSample {
 
-			HeightSample() : glm::vec2() {}
+			HeightSample() {}
 
-			HeightSample(float x, float y) : glm::vec2(std::move(x), std::move(y)) {}
+			glm::vec3 Sample, Normal;
+		};
 
-			float& Height() { return this->x; };
-			// we use this height to "morph" between LODs.
-			// becomes fourth element of terrain vertex.
-			float& ParentHeight() { return this->y; };
+		struct HeightmapNoise {
+
+			HeightmapNoise(const size_t& num_samples, const glm::vec3&  starting_pos, const float& step_size);
+
+			std::vector<HeightSample> samples;
 		};
 
 		class HeightNode {
 		public:
 
 			// Used once, for root node.
-			HeightNode(const glm::ivec3& node_grid_coordinates, std::vector<float>& init_samples);
+			HeightNode(const glm::ivec3& node_grid_coordinates, std::vector<HeightSample>& init_samples);
 
 			// Used for most nodes.
 			HeightNode(const glm::ivec3& node_grid_coordinates, const HeightNode& parent);
 
 			~HeightNode() = default;
 
-			void SampleResiduals(const Sampler& sampler);
+			void SampleFromResiduals(glm::ivec3& node_coords, const Sampler& sampler);
 			
 			void SampleFromParent(const HeightNode& node);
 
 			float Sample(const size_t& x, const size_t& y) const;
+			glm::vec3 Normal(const size_t& x, const size_t& y) const;
 			float Sample(const size_t& idx) const;
 
 			// Used once, with root node
@@ -83,7 +81,11 @@ namespace vulpes {
 			const glm::ivec3& GridCoords() const noexcept;
 			size_t GridSize() const noexcept;
 
-			static const size_t RootNodeSize = 24;
+			static void SetRootNodeSize(const size_t& new_size);
+			static void SetRootNodeLength(const double& new_length);
+
+			static size_t RootNodeSize;
+			static double RootNodeLength;
 		protected:
 
 			size_t nodeSize = 29;
@@ -119,6 +121,8 @@ namespace vulpes {
 				nodeCache.insert(std::make_pair(root_node->GridCoords(), std::move(root_node)));
 			}
 
+			std::shared_ptr<HeightNode> GetNode(const glm::ivec3& node);
+
 			// Completes node tasks launched with "LoadNode()", dumps them in nodeCache, returns quantity loaded.
 			size_t LoadNodes();
 
@@ -130,12 +134,14 @@ namespace vulpes {
 			const_height_node_iterator_t cend() const;
 
 			size_t size() const;
-
+			
 			bool SubdivideNode(const glm::ivec3& node_pos);
 			bool LoadNode(const glm::ivec3& node_pos, const glm::ivec3& parent_pos);
 			bool HasNode(const glm::ivec3& node_pos);
 
-			float GetHeight(const size_t& lod_level, const glm::vec2 world_pos);
+			float GetHeight(const glm::ivec3 & node, const glm::vec2 world_pos);
+
+			//float GetHeight(const size_t& lod_level, const glm::vec2 world_pos);
 
 			//const Heightmap& GetHeightmap() const noexcept;
 			// uint8_t SampleHeightmap() const;

@@ -41,10 +41,10 @@ static const std::array<glm::vec4, 20> LOD_COLOR_ARRAY = {
 
 vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(parent_dvc) {
 
-	HeightmapNoise init_hm(HeightNode::RootNodeSize + 5, glm::vec3(0.0f), 1.0f);
+	HeightmapNoise init_hm(HeightNode::RootNodeSize + 5, glm::vec3(0.0f), 10.0f);
 	glm::ivec3 grid_pos = glm::ivec3(0, 0, 0);
 	std::shared_ptr<HeightNode> root = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), init_hm.samples);
-	heightNodeLoader = HeightNodeLoader(10000.0, root);
+	heightNodeLoader = HeightNodeLoader(1000.0, root);
 	// Generate first few levels of data tree.
 	heightNodeLoader.SubdivideNode(root->GridCoords());
 	heightNodeLoader.SubdivideNode(root->GridCoords() + glm::ivec3(0, 0, 1));
@@ -79,7 +79,7 @@ vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(
 	VkPipelineLayoutCreateInfo pipeline_info = vk_pipeline_layout_create_info_base;
 	pipeline_info.setLayoutCount = 1;
 	pipeline_info.pSetLayouts = &descriptorSetLayout;
-	VkPushConstantRange ranges[2]{ VkPushConstantRange{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO)}, VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4)} };
+	VkPushConstantRange ranges[2]{ VkPushConstantRange{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO)}, VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4) * 2 } };
 	pipeline_info.pushConstantRangeCount = 2;
 	pipeline_info.pPushConstantRanges = ranges;
 
@@ -120,7 +120,6 @@ void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpa
 
 	pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_NONE;
 	pipeline_info.RasterizationInfo.polygonMode = VK_POLYGON_MODE_LINE;
-
 	// Set this through dynamic state so we can do it when rendering.
 	pipeline_info.DynamicStateInfo.dynamicStateCount = 2;
 	static const VkDynamicState states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
@@ -181,13 +180,15 @@ void vulpes::terrain::NodeRenderer::RemoveNode(TerrainNode* node) {
 	readyNodes.erase(node);
 }
 
-void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor) {
+void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const glm::vec3& view_pos, const VkViewport& viewport, const VkRect2D& scissor) {
 	uboData.view = view;
 	VkResult result = vkBeginCommandBuffer(graphics_cmd, &begin_info);
 	VkAssert(result);
 	if (device->MarkersEnabled) {
 		device->vkCmdBeginDebugMarkerRegion(graphics_cmd, "Draw Terrain", glm::vec4(0.0f, 0.9f, 0.1f, 1.0f));
 	}
+
+	heightNodeLoader.LoadNodes();
 
 	if (!readyNodes.empty()) {
 
@@ -196,7 +197,8 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 		vkCmdSetScissor(graphics_cmd, 0, 1, &scissor);
 		vkCmdBindPipeline(graphics_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
 		vkCmdBindDescriptorSets(graphics_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-
+		glm::vec4 camera_push = glm::vec4(view_pos.x, view_pos.y, view_pos.z, 1.0f);
+		vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO) + sizeof(glm::vec4), sizeof(glm::vec4), glm::value_ptr(camera_push));
 		auto iter = readyNodes.begin();
 		while (iter != readyNodes.end()) {
 			TerrainNode* curr = *iter;
@@ -230,8 +232,6 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	}
 	result = vkEndCommandBuffer(graphics_cmd);
 	VkAssert(result);
-
-	heightNodeLoader.LoadNodes();
 
 	bool submit_transfer = false;
 	if (!transferNodes.empty()) {

@@ -63,7 +63,7 @@ namespace vulpes {
 			Buffer* ubo;
 			TransferPool* transferPool;
 			HeightNodeLoader heightNodeLoader;
-
+			
 		public:
 			bool UpdateLOD = true;
 			static bool DrawAABBs;
@@ -85,7 +85,7 @@ namespace vulpes {
 
 			void RemoveNode(TerrainNode * node);
 
-			void Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& scissor);
+			void Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const glm::vec3& view_pos, const VkViewport& viewport, const VkRect2D& scissor);
 
 		};
 

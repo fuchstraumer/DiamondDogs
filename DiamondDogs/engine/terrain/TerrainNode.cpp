@@ -4,7 +4,7 @@
 #include "engine\util\view_frustum.h"
 #include "engine\terrain\NodeRenderer.h"
 
-size_t vulpes::terrain::TerrainNode::MaxLOD = 12;
+size_t vulpes::terrain::TerrainNode::MaxLOD = 3;
 double vulpes::terrain::TerrainNode::SwitchRatio = 1.20;
 
 void vulpes::terrain::TerrainNode::Subdivide() {
@@ -12,10 +12,14 @@ void vulpes::terrain::TerrainNode::Subdivide() {
 	double child_offset = SideLength / 4.0;
 	glm::ivec3 grid_pos = glm::ivec3(2 * GridCoordinates.x, 2 * GridCoordinates.y, Depth() + 1);
 	glm::vec3 pos = glm::vec3(SpatialCoordinates.x, 0.0f, SpatialCoordinates.z);
-	Children[0] = std::make_shared<TerrainNode>(grid_pos, grid_pos, pos, child_length);
-	Children[1] = std::make_shared<TerrainNode>(grid_pos, glm::ivec3(grid_pos.x + 1, grid_pos.y, grid_pos.z), pos + glm::vec3(child_length, 0.0f, 0.0f), child_length);
-	Children[2] = std::make_shared<TerrainNode>(grid_pos, glm::ivec3(grid_pos.x, grid_pos.y + 1, grid_pos.z), pos + glm::vec3(0.0f, 0.0f, -child_length), child_length);
-	Children[3] = std::make_shared<TerrainNode>(grid_pos, glm::ivec3(grid_pos.x + 1, grid_pos.y + 1, grid_pos.z), pos + glm::vec3(child_length, 0.0f, -child_length), child_length);
+	Children[0] = std::make_shared<TerrainNode>(GridCoordinates, grid_pos, pos, child_length);
+	Children[0]->CreateHeightData(*HeightData);
+	Children[1] = std::make_shared<TerrainNode>(GridCoordinates, glm::ivec3(grid_pos.x + 1, grid_pos.y, grid_pos.z), pos + glm::vec3(child_length, 0.0f, 0.0f), child_length);
+	Children[1]->CreateHeightData(*HeightData);
+	Children[2] = std::make_shared<TerrainNode>(GridCoordinates, glm::ivec3(grid_pos.x, grid_pos.y + 1, grid_pos.z), pos + glm::vec3(0.0f, 0.0f, -child_length), child_length);
+	Children[2]->CreateHeightData(*HeightData);
+	Children[3] = std::make_shared<TerrainNode>(GridCoordinates, glm::ivec3(grid_pos.x + 1, grid_pos.y + 1, grid_pos.z), pos + glm::vec3(child_length, 0.0f, -child_length), child_length);
+	Children[3]->CreateHeightData(*HeightData);
 }
 
 void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, const util::view_frustum & view, NodeRenderer* node_pool) {
@@ -31,7 +35,6 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, con
 			Status = NodeStatus::Subdivided;
 			mesh.cleanup();
 			Subdivide();
-			node_pool->SubdivideNodeHeights(this);
 		}
 		for (auto& child : Children) {
 			child->Update(camera_position, view, node_pool);
@@ -98,11 +101,10 @@ int vulpes::terrain::TerrainNode::Depth() const {
 
 void vulpes::terrain::TerrainNode::CreateMesh(const Device * dvc, terrain::HeightNodeLoader* node_loader) {
 	mesh = mesh::PlanarMesh(SideLength, GridCoordinates, SpatialCoordinates + glm::vec3(0.0f, 0.0f, -SideLength), glm::vec3(1.0f));
-	if (!node_loader->HasNode(GridCoordinates)) {
-		node_loader->LoadNode(this->GridCoordinates, this->ParentGridCoordinates);
-		node_loader->LoadNodes();
-		LOG(WARNING) << "Node height data had to be loaded in create mesh function. This is costly and sub-optimal!";
-	}
-	mesh.Generate(node_loader);
+	mesh.Generate(HeightData.get());
 	mesh.create_buffers(dvc);
+}
+
+void vulpes::terrain::TerrainNode::CreateHeightData(const HeightNode & parent_node) {
+	HeightData = std::make_shared<HeightNode>(GridCoordinates, parent_node);
 }

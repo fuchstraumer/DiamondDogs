@@ -44,6 +44,7 @@ namespace vulpes {
 			NodeStatus Status;
 
 			void CreateMesh(const Device* dvc, HeightNodeLoader* height_loader);
+			void CreateHeightData(const HeightNode& parent_node);
 
 			mesh::PlanarMesh mesh;
 

@@ -25,7 +25,7 @@ namespace vulpes {
 			size_t SubdivisionLevel;
 			double SideLength;
 			glm::ivec3 GridPos;
-			void Generate(terrain::HeightNodeLoader* height_nodes);
+			void Generate(terrain::HeightNode* height_nodes);
 
 		};
 

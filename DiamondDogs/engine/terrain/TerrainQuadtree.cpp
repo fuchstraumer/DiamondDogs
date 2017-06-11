@@ -34,7 +34,7 @@ void vulpes::terrain::TerrainQuadtree::UpdateQuadtree(const glm::vec3 & camera_p
 	}
 }
 
-void vulpes::terrain::TerrainQuadtree::RenderNodes(VkCommandBuffer & graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const VkViewport& viewport, const VkRect2D& rect) {
-	nodeRenderer.Render(graphics_cmd, begin_info, view, viewport, rect); 
+void vulpes::terrain::TerrainQuadtree::RenderNodes(VkCommandBuffer & graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const glm::vec3& camera_pos, const VkViewport& viewport, const VkRect2D& rect) {
+	nodeRenderer.Render(graphics_cmd, begin_info, view, camera_pos, viewport, rect); 
 }
 

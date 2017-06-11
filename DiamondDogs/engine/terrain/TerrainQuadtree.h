@@ -48,7 +48,7 @@ namespace vulpes {
 
 			void UpdateQuadtree(const glm::vec3 & camera_position, const glm::mat4& view);
 
-			void RenderNodes(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4& view, const VkViewport& viewport, const VkRect2D& rect);
+			void RenderNodes(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4& view, const glm::vec3& camera_pos, const VkViewport& viewport, const VkRect2D& rect);
 
 		};
 

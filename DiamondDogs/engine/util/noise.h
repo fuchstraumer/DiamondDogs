@@ -124,6 +124,7 @@ namespace noise {
 
 		//double SimplexBillow(int x, int y, int z, double frequency, int octaves, float lacunarity, float gain);
 		double SimplexBillow(double x, double y, double freq = BILLOW_FREQ, int octaves = BILLOW_OCTAVES, float lac = BILLOW_LACUN, float gain = BILLOW_GAIN);
+		double SimplexBillow3D(const glm::vec3& pos, glm::vec3& deriv, double freq = BILLOW_FREQ, int octaves = BILLOW_OCTAVES, float lac = BILLOW_LACUN, float gain = BILLOW_GAIN) const;
 
 		//double SimplexRidged(int x, int y, int z, double freq, int octaves, float lac, float gain);;
 		double SimplexRidged(int x, int y, double freq = RIDGED_FREQ, int octaves = RIDGED_OCTAVES, float lac = RIDGED_LACUN, float gain = RIDGED_GAIN);
@@ -133,6 +134,8 @@ namespace noise {
 
 		// Jordan noise - not implemented yet.
 		double SimplexJordan(int x, int y, double freq, int octaves, float lac, float gain);
+
+		
 
 	protected:
 
@@ -153,13 +156,13 @@ namespace noise {
 		// Finds the dot product of x,y,z and the gradient vector "hash". 
 		// Source: http://riven8192.blogspot.com/2010/08/calculate-perlinnoise-twice-as-fast.html //
 		// Forcing inline to increase speed (I hope).
-		__forceinline double grad(int hash, double x, double y, double z);
+		double grad(int hash, double x, double y, double z);
 
 		// Function for finding gradient of simplex noise in 2D
-		__forceinline double sGrad(int hash, double x, double y);
+		double sGrad(int hash, double x, double y);
 
 		// Function for finding gradient of simplex noise in 3D
-		__forceinline double sGrad(int hash, double x, double y, double z);
+		double sGrad(int hash, double x, double y, double z);
 
 		// Simplex noise gens
 		// return the derivatives at x,y if non-null pointers dx,dy are supplied
@@ -168,6 +171,7 @@ namespace noise {
 		// Returns value of noise at given point xyz
 		double simplex(double x, double y, double z);
 
+		float simplex3D(const glm::vec3 & p, glm::vec3 & dNoise) const;
 	};
 
 }

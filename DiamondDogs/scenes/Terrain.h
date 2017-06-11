@@ -25,7 +25,7 @@ namespace terrain_scene {
 			VkQueue transfer;
 			transfer = device->GraphicsQueue(0);
 			instance->SetCamPos(glm::vec3(0.0f, 400.0f, 0.0f));
-			object = new terrain::TerrainQuadtree(device, 1.30f, 3, 10000.0, glm::vec3(0.0f));
+			object = new terrain::TerrainQuadtree(device, 1.30f, 3, 1000.0, glm::vec3(0.0f));
 			object->SetupNodePipeline(renderPass->vkHandle(), swapchain, pipelineCache, instance->GetProjectionMatrix());
 
 			skybox = new obj::Skybox(device);
@@ -158,7 +158,7 @@ namespace terrain_scene {
 					vkEndCommandBuffer(aabb_buffer);
 				}
 
-				object->RenderNodes(terrain_buffer, begin_info, instance->GetViewMatrix(), viewport, scissor);
+				object->RenderNodes(terrain_buffer, begin_info, instance->GetViewMatrix(), instance->GetCamPos(), viewport, scissor);
 				buffers.push_back(terrain_buffer);
 
 				ImGui::Render();

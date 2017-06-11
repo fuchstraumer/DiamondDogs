@@ -23,10 +23,8 @@ namespace vulpes {
 			}
 
 			bool CoincidesWithFrustum(const view_frustum& frustum) const {
-				for (auto i = 0; i < frustum.planes.size(); i++)
-				{
-					if ((frustum.planes[i].x * Origin.x) + (frustum.planes[i].y * Origin.y) + (frustum.planes[i].z * Origin.z) + frustum.planes[i].w <= -Radius)
-					{
+				for (auto i = 0; i < frustum.planes.size(); i++) {
+					if ((frustum.planes[i].x * Origin.x) + (frustum.planes[i].y * Origin.y) + (frustum.planes[i].z * Origin.z) + frustum.planes[i].w <= -Radius) {
 						return false;
 					}
 				}
