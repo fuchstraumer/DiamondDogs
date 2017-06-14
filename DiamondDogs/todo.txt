@@ -19,8 +19,7 @@ RENDERER:
 - Antialiasing or MSAA of any kind
 - Implement rest of texture formats, i.e 2D arrays and clean up duplicate code in texture variants
 TERRAIN: 
-- Fix duplicated data between tiles.
-- Fix LOD scheme being off-center
+- Fix duplicated data between tiles - this is STILL a problem
 - Implement pruning/clearing of unused terrain height tiles.
 - Develop more terrain sampler sub-classes, implement terrain sampler as part of
   HeightNode system

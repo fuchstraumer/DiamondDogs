@@ -28,11 +28,3 @@ float vulpes::terrain::Modifier::Sample(const size_t & x, const size_t & y) {
 	}
 	return result;
 }
-
-vulpes::terrain::NoiseSampler::NoiseSampler(const float & freq_init, const size_t & octaves, const float & lacun, const float & gain, const size_t & seed) : tgen(seed) {
-
-}
-
-float vulpes::terrain::NoiseSampler::Sample(const size_t & lod_level, const glm::vec3 & pos, glm::vec3 & normal) const {
-	return tgen.SimplexBillow3D(pos, normal, freq / (1 << lod_level), octaves, lacun, gain);
-}

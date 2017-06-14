@@ -21,8 +21,8 @@ namespace vulpes {
 			return *this;
 		}
 
-		void PlanarMesh::Generate(terrain::HeightNode* height_nodes) {
-			SubdivisionLevel = terrain::HeightNode::RootNodeSize;
+		void PlanarMesh::Generate(terrain::HeightNode* height_node) {
+			SubdivisionLevel = height_node->GridSize();
 
 			size_t count2 = SubdivisionLevel + 1;
 			size_t numTris = SubdivisionLevel*SubdivisionLevel * 6;
@@ -33,7 +33,8 @@ namespace vulpes {
 			
 			for (float y = 0.0f; y < static_cast<float>(count2); ++y) {
 				for (float x = 0.0f; x < static_cast<float>(count2); ++x) {
-					vertices.positions[idx] = glm::vec3(x * scale, height_nodes->GetHeight(GridPos, glm::vec2(x * scale, -y * scale)), y * scale);
+					vertices.positions[idx] = glm::vec3(x * scale, height_node->GetHeight(glm::vec2(x * scale, y * scale)), y * scale);
+					vertices.normals_uvs[idx].normal = glm::vec3(0.0f);
 					++idx;
 				}
 			}
@@ -42,15 +43,52 @@ namespace vulpes {
 			indices.resize(numTris + 1);
 			for (size_t y = 0; y < SubdivisionLevel; ++y) {
 				for (size_t x = 0; x < SubdivisionLevel; ++x) {
-					indices[idx] = static_cast<uint32_t>((y * count2) + x);
-					indices[idx + 1] = static_cast<uint32_t>(((y + 1) * count2) + x);
-					indices[idx + 2] = static_cast<uint32_t>((y * count2) + x + 1);
-					indices[idx + 3] = static_cast<uint32_t>(((y + 1) * count2) + x);
+					/*
+						wrong diagonal
+						indices[idx] = static_cast<uint32_t>((y * count2) + x);
+						indices[idx + 1] = static_cast<uint32_t>((y  * count2) + x + 1);
+						indices[idx + 2] = static_cast<uint32_t>(((y + 1) * count2) + x);
+					*/
+					indices[idx] = static_cast<uint32_t>((y  * count2) + x + 1);
+					indices[idx + 1] = static_cast<uint32_t>(((y + 1) * count2) + x + 1);
+					indices[idx + 2] = static_cast<uint32_t>((y * count2) + x);
+					{
+						// Generate normals for this triangle.
+						const glm::vec3 edge0 = vertices.positions[indices[idx]] - vertices.positions[indices[idx + 1]];
+						const glm::vec3 edge1 = vertices.positions[indices[idx + 2]] - vertices.positions[indices[idx + 1]];
+						glm::vec3 normal = glm::cross(edge0, edge1);
+						vertices.normals_uvs[indices[idx]].normal += normal;
+						vertices.normals_uvs[indices[idx + 1]].normal += normal;
+						vertices.normals_uvs[indices[idx + 2]].normal += normal;
+					}
+					/*
+						wrong diagonal
+						indices[idx + 3] = static_cast<uint32_t>(((y + 1) * count2) + x);
+						indices[idx + 4] = static_cast<uint32_t>((y * count2) + x + 1);
+						indices[idx + 5] = static_cast<uint32_t>(((y + 1) * count2) + x + 1);
+					*/
+					indices[idx + 3] = static_cast<uint32_t>((y * count2) + x);
 					indices[idx + 4] = static_cast<uint32_t>(((y + 1) * count2) + x + 1);
-					indices[idx + 5] = static_cast<uint32_t>((y * count2) + x + 1);
+					indices[idx + 5] = static_cast<uint32_t>(((y + 1) * count2) + x);
+					
+					{
+						// Next set of normals.
+						const glm::vec3 edge0 = vertices.positions[indices[idx + 3]] - vertices.positions[indices[idx + 4]];
+						const glm::vec3 edge1 = vertices.positions[indices[idx + 5]] - vertices.positions[indices[idx + 4]];
+						glm::vec3 normal = glm::cross(edge0, edge1);
+						vertices.normals_uvs[indices[idx + 3]].normal += normal;
+						vertices.normals_uvs[indices[idx + 4]].normal += normal;
+						vertices.normals_uvs[indices[idx + 5]].normal += normal;
+					}
 					idx += 6;
 				}
 			}
+
+
+			for (auto iter = vertices.normals_uvs.begin(); iter != vertices.normals_uvs.end(); ++iter) {
+				iter->normal = glm::normalize(iter->normal);
+			}
+
 			indices.shrink_to_fit();
 			vertices.shrink_to_fit();
 		}

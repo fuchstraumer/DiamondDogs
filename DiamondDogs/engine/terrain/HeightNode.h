@@ -45,6 +45,10 @@ namespace vulpes {
 
 			HeightSample() {}
 
+			bool operator<(const HeightSample& other) const;
+			bool operator>(const HeightSample& other) const;
+			bool operator==(const HeightSample& other) const;
+
 			glm::vec3 Sample, Normal;
 		};
 
@@ -53,6 +57,8 @@ namespace vulpes {
 			HeightmapNoise(const size_t& num_samples, const glm::vec3&  starting_pos, const float& step_size);
 
 			std::vector<HeightSample> samples;
+
+			
 		};
 
 		class HeightNode {
@@ -70,13 +76,11 @@ namespace vulpes {
 			
 			void SampleFromParent(const HeightNode& node);
 
-			float Sample(const size_t& x, const size_t& y) const;
-			glm::vec3 Normal(const size_t& x, const size_t& y) const;
-			float Sample(const size_t& idx) const;
+			float GetHeight(const glm::vec2 world_pos) const;
+			glm::vec3 GetNormal(const glm::vec2 world_pos) const;
 
-			// Used once, with root node
-			template<typename pixel_type>
-			void SampleHeightmap(const std::vector<pixel_type>& pixels);
+			float Sample(const size_t& x, const size_t& y) const;
+			float Sample(const size_t& idx) const;
 
 			const glm::ivec3& GridCoords() const noexcept;
 			size_t GridSize() const noexcept;
@@ -86,9 +90,11 @@ namespace vulpes {
 
 			static size_t RootNodeSize;
 			static double RootNodeLength;
+
+			float MinZ, MaxZ;
 		protected:
 
-			size_t nodeSize = 29;
+			size_t nodeSize = 32;
 			size_t gridSize;
 			
 			glm::ivec3 gridCoords;
@@ -96,69 +102,6 @@ namespace vulpes {
 			std::vector<HeightSample> samples;
 		};
 
-
-		/*
-		
-			HeightNodeLoader: used by the node renderer class to load/create height
-			nodes as needed. Caches nodes in an unordered map that stores height nodes
-			based on the grid position, which cna be used to check for nodes before 
-			just creating them.
-			
-		*/
-
-		using height_node_cache_t = std::unordered_map<glm::ivec3, std::shared_ptr<HeightNode>>;
-		using height_node_future_cache_t = std::unordered_map<glm::ivec3, std::future<std::shared_ptr<HeightNode>>>;
-
-		using height_node_iterator_t = height_node_cache_t::iterator;
-		using const_height_node_iterator_t = height_node_cache_t::const_iterator;
-
-		class HeightNodeLoader {
-		public:
-
-			HeightNodeLoader() = default;
-
-			HeightNodeLoader(const double& root_node_length, std::shared_ptr<HeightNode> root_node) : RootNodeLength(root_node_length) {
-				nodeCache.insert(std::make_pair(root_node->GridCoords(), std::move(root_node)));
-			}
-
-			std::shared_ptr<HeightNode> GetNode(const glm::ivec3& node);
-
-			// Completes node tasks launched with "LoadNode()", dumps them in nodeCache, returns quantity loaded.
-			size_t LoadNodes();
-
-			height_node_iterator_t begin();
-			height_node_iterator_t end();
-			const_height_node_iterator_t begin() const;
-			const_height_node_iterator_t end() const;
-			const_height_node_iterator_t cbegin() const;
-			const_height_node_iterator_t cend() const;
-
-			size_t size() const;
-			
-			bool SubdivideNode(const glm::ivec3& node_pos);
-			bool LoadNode(const glm::ivec3& node_pos, const glm::ivec3& parent_pos);
-			bool HasNode(const glm::ivec3& node_pos);
-
-			float GetHeight(const glm::ivec3 & node, const glm::vec2 world_pos);
-
-			//float GetHeight(const size_t& lod_level, const glm::vec2 world_pos);
-
-			//const Heightmap& GetHeightmap() const noexcept;
-			// uint8_t SampleHeightmap() const;
-
-			double RootNodeLength;
-
-		protected:
-			static std::shared_ptr<HeightNode> CreateNode(const glm::ivec3& pos, const HeightNode& parent);
-			//Heightmap heightmap;
-			height_node_cache_t nodeCache;
-			// Nodes in-progress that have been launched with an async task. Futures stored here, 
-			height_node_future_cache_t wipNodeCache;
-		};
-
-
-			
-		
 	}
 }
 

@@ -74,7 +74,7 @@ namespace vulpes {
 			float freq, lacun, gain;
 			size_t octaves;
 			size_t seed;
-			noise::GeneratorBase tgen;
+
 		};
 
 		

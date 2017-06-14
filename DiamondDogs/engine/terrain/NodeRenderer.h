@@ -62,7 +62,7 @@ namespace vulpes {
 			
 			Buffer* ubo;
 			TransferPool* transferPool;
-			HeightNodeLoader heightNodeLoader;
+		
 			
 		public:
 			bool UpdateLOD = true;
@@ -81,7 +81,7 @@ namespace vulpes {
 
 			void AddNode(TerrainNode * node, bool ready);
 
-			void SubdivideNodeHeights(TerrainNode* node);
+			
 
 			void RemoveNode(TerrainNode * node);
 

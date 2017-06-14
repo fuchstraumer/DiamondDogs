@@ -34,7 +34,7 @@
     <ClCompile Include="engine\terrain\HeightNode.cpp" />
     <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
     <ClCompile Include="engine\util\lodepng.cpp" />
-    <ClCompile Include="engine\util\noise.cpp" />
+    <ClCompile Include="engine\util\Noise.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -100,7 +100,7 @@
     <ClInclude Include="engine\terrain\HeightNode.h" />
     <ClInclude Include="engine\util\lodepng.h" />
     <ClInclude Include="engine\renderer\ForwardDecl.h" />
-    <ClInclude Include="engine\util\noise.h" />
+    <ClInclude Include="engine\util\Noise.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />
