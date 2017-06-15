@@ -18,7 +18,6 @@ namespace vulpes {
 		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), sampleGridSize(RootMeshGridSize + 5) {
 			SampleFromParent(parent);
 		}
-
 		
 		void HeightNode::SampleFromParent(const HeightNode & node) {
 			// See: proland/preprocess/terrain/HeightMipmap.cpp to find original implementation
@@ -95,7 +94,7 @@ namespace vulpes {
 		}
 
 		float HeightNode::GetHeight(const glm::vec2 world_pos) const {
-
+			// GridCoords.z == LOD level.
 			double curr_size = RootNodeLength / (1 << gridCoords.z);
 			double s = curr_size / 2.0;
 			// Make sure query is in range of current node.
@@ -108,6 +107,8 @@ namespace vulpes {
 			y = world_pos.y;
 
 			size_t curr_grid_size = GridSize();
+
+			// offset samples to avoid going out of bounds of mesh grid
 			/*if (x == curr_size) {
 				x = nodeSize - 3.0f;
 			}
@@ -126,29 +127,6 @@ namespace vulpes {
 			size_t sx = floorf(x), sy = floorf(y);
 
 			return Sample(sx, sy);
-		}
-
-		glm::vec3 HeightNode::GetNormal(const glm::vec2 world_pos) const {
-			double curr_size = RootNodeLength / (1 << gridCoords.z);
-
-			// Make sure query is in range of current node.
-			if (abs(world_pos.x) >= curr_size + 1.0 || abs(world_pos.y) >= curr_size + 1.0) {
-				throw std::out_of_range("Attempted to sample out of range of heightnode");
-			}
-
-			float x, y;
-			x = world_pos.x;
-			y = world_pos.y;
-
-			size_t curr_grid_size = GridSize();
-
-			x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
-			y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
-
-			// Sample coords
-			size_t sx = floorf(x), sy = floorf(y);
-
-			return glm::normalize(samples[sx + (sy * sampleGridSize)].Normal);
 		}
 
 		float HeightNode::Sample(const size_t & x, const size_t & y) const{
@@ -172,14 +150,17 @@ namespace vulpes {
 		HeightmapNoise::HeightmapNoise(const size_t & num_samples, const glm::vec3& starting_pos, const float& step_size) {
 			samples.resize(num_samples * num_samples);
 			glm::vec2 xy = starting_pos.xz;
+			/*
+			Test method that generates alternating diagonal lines at a height of +/- 30.0f
 			samples = MakeCheckerboard(num_samples, num_samples);
-			/*for (size_t j = 0; j < num_samples; ++j) {
+			*/
+			for (size_t j = 0; j < num_samples; ++j) {
 				for (size_t i = 0; i < num_samples; ++i) {
 					glm::vec3 pos = glm::vec3(xy.x + (i * step_size), xy.y + (j * step_size), 0.0f);
 					glm::vec3 deriv;
 					samples[i + (j * num_samples)].Sample.x = 100.0f * SNoise::FBM_Bounded(glm::vec3(pos.x + 0.01f, pos.y + 0.01f, 0.0f), 542523, 1e-4, 9, 1.6f, 1.8f, -20.0f, 80.0f);
 				}
-			}*/
+			}
 		}
 
 		const glm::ivec3 & HeightNode::GridCoords() const noexcept{
