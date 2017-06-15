@@ -28,6 +28,7 @@ namespace vulpes {
 
 			void Subdivide();
 
+			// updates this nodes status, and then the node adds itself to the renderer's pool of nodes if its going to be rendered.
 			void Update(const glm::vec3 & camera_position, const util::view_frustum& view, NodeRenderer* node_pool);
 
 			// true if all of the Child pointers are nullptr
@@ -41,6 +42,8 @@ namespace vulpes {
 			std::array<std::shared_ptr<TerrainNode>, 4> Children;
 			std::shared_ptr<HeightNode> HeightData;
 
+			// used w/ node renderer to decide if this is being rendered and/or if it needs data transferred
+			// to the device (so we can batch transfer commands)
 			NodeStatus Status;
 
 			void CreateMesh(const Device* dvc);
@@ -50,6 +53,7 @@ namespace vulpes {
 			mesh::PlanarMesh mesh;
 
 			// Coordinates of this node in the grid defining the quadtree
+			// xy are the grid positions, z is the LOD level.
 			glm::ivec3 GridCoordinates;
 			glm::ivec3 ParentGridCoordinates;
 

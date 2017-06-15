@@ -12,6 +12,7 @@ void vulpes::terrain::TerrainNode::Subdivide() {
 	double child_offset = SideLength / 4.0;
 	glm::ivec3 grid_pos = glm::ivec3(2 * GridCoordinates.x, 2 * GridCoordinates.y, Depth() + 1);
 	glm::vec3 pos = glm::vec3(SpatialCoordinates.x, 0.0f, SpatialCoordinates.z);
+	// Create child node, then populate childs height data using this objects height data.
 	Children[0] = std::make_shared<TerrainNode>(GridCoordinates, grid_pos, pos + glm::vec3(0.0f, 0.0f, -child_length), child_length);
 	Children[0]->CreateHeightData(*HeightData);
 	Children[1] = std::make_shared<TerrainNode>(GridCoordinates, glm::ivec3(grid_pos.x + 1, grid_pos.y, grid_pos.z), pos + glm::vec3(child_length, 0.0f, -child_length), child_length);
@@ -28,7 +29,7 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, con
 	// the range from a node we consider to be the LOD switch distance
 	const util::Sphere lod_sphere{ camera_position, SideLength * SwitchRatio };
 	const util::Sphere aabb_sphere{ SpatialCoordinates + static_cast<float>(SideLength / 2.0f), SideLength / 2.0f };
-
+	// TODO: Investigate why the "LOD radius" of nodes appears to be off-center relative to the viewer.
 	// Depth is less than max subdivide level and we're in subdivide range.
 	if (Depth() < MaxLOD && lod_sphere.CoincidesWith(this->aabb)) {
 		if (Leaf()) {
@@ -47,6 +48,7 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, con
 		}
 	}
 	else {
+		// TODO: Frustum culling appears to be super broken, as it stands.
 		if (aabb_sphere.CoincidesWithFrustum(view)) {
 			if (mesh.Ready()) {
 				Status = NodeStatus::Active;

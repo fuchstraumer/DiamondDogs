@@ -43,6 +43,9 @@ namespace vulpes {
 
 				We change the residual magnitude and functions based on the LOD level of this tile, though, 
 				as we will still be losing some detail at high LOD levels.
+
+				original implementation from Proland: https://proland.inrialpes.fr/doc/proland-4.0/terrain/html/index.html
+				Found in source as "CPUElevationProducer.cpp"
 			*/
 
 			for (size_t j = 0; j < sampleGridSize; ++j) {
@@ -85,6 +88,8 @@ namespace vulpes {
 					samples[i + (j * sampleGridSize)].Sample.x = std::move(sample);
 					
 					// Parent height is used to morph between LOD levels, so that we don't notice much pop-in as new mesh tiles are loaded.
+					// disabled this until integrated in rendering: possibly good use for push constant into vertex shader? otherwise, set
+					// as 4th element of position since vec4s align so well.
 					// samples[i + (j * num_samples)].ParentHeight() = node.Sample(i / 2 + parent_x + (j / 2 + parent_y)*num_samples);
 				}
 			}
@@ -97,6 +102,7 @@ namespace vulpes {
 			// GridCoords.z == LOD level.
 			double curr_size = RootNodeLength / (1 << gridCoords.z);
 			double s = curr_size / 2.0;
+
 			// Make sure query is in range of current node.
 			//if (abs(world_pos.x) >= curr_size + 1.0 || abs(world_pos.y) >= curr_size + 1.0) {
 			//	throw std::out_of_range("Attempted to sample out of range of heightnode");

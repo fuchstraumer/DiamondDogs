@@ -31,6 +31,7 @@ namespace vulpes {
 			size_t idx = 0;
 			vertices.resize(numVerts);
 			
+			// Place vertices and set normal to 0.0f
 			for (float y = 0.0f; y < static_cast<float>(count2); ++y) {
 				for (float x = 0.0f; x < static_cast<float>(count2); ++x) {
 					vertices.positions[idx] = glm::vec3(x * scale, height_node->GetHeight(glm::vec2(x * scale, y * scale)), y * scale);
@@ -44,7 +45,9 @@ namespace vulpes {
 			for (size_t y = 0; y < SubdivisionLevel; ++y) {
 				for (size_t x = 0; x < SubdivisionLevel; ++x) {
 					/*
-						wrong diagonal
+						wrong diagonal: flipped as required by Proland's sampling system
+						https://proland.inrialpes.fr/doc/proland-4.0/terrain/html/index.html -> See sec. 2.2.2 
+						"note: the mesh diagonal must be oriented from "north west" to "south east""
 						indices[idx] = static_cast<uint32_t>((y * count2) + x);
 						indices[idx + 1] = static_cast<uint32_t>((y  * count2) + x + 1);
 						indices[idx + 2] = static_cast<uint32_t>(((y + 1) * count2) + x);
@@ -84,7 +87,7 @@ namespace vulpes {
 				}
 			}
 
-
+			// normalize each normal vector, otherwise normal vectors don't behave like normals.
 			for (auto iter = vertices.normals_uvs.begin(); iter != vertices.normals_uvs.end(); ++iter) {
 				iter->normal = glm::normalize(iter->normal);
 			}
