@@ -20,11 +20,10 @@ namespace vulpes {
 		}
 		
 		void HeightNode::SampleFromParent(const HeightNode & node) {
-			// See: proland/preprocess/terrain/HeightMipmap.cpp to find original implementation
 			size_t tile_size = std::min(RootMeshGridSize << gridCoords.z, sampleGridSize);
 
-			// Tile size is the number of vertices we directly use: we add 5 as we sample the borders,
-			// which helps with the upsampling process.
+			// Mesh grid size is 5 smaller than the parent grid used for sampling: extra border samples
+			// needed to sustain the upsampling process.
 			meshGridSize = tile_size - 5;
 
 			// These aren't the parent grid coords: these are the offsets from the parent height samples that we 
