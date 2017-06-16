@@ -88,7 +88,7 @@ namespace vulpes {
 			static void SetRootNodeSize(const size_t& new_size);
 			static void SetRootNodeLength(const double& new_length);
 
-			static size_t RootMeshGridSize;
+			static size_t RootSampleGridSize;
 			static double RootNodeLength;
 
 			float MinZ, MaxZ;
