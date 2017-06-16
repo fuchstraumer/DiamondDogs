@@ -35,6 +35,7 @@
     <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
     <ClCompile Include="engine\util\lodepng.cpp" />
     <ClCompile Include="engine\util\Noise.cpp" />
+    <ClCompile Include="engine\renderer\render\MSAA.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -101,6 +102,7 @@
     <ClInclude Include="engine\util\lodepng.h" />
     <ClInclude Include="engine\renderer\ForwardDecl.h" />
     <ClInclude Include="engine\util\Noise.h" />
+    <ClInclude Include="engine\renderer\render\MSAA.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

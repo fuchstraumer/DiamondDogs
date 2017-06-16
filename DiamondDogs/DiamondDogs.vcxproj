@@ -102,6 +102,7 @@
     <ClInclude Include="common\CommonUtil.h" />
     <ClInclude Include="common\VkDebug.h" />
     <ClInclude Include="engine\objects\Atmosphere.h" />
+    <ClInclude Include="engine\renderer\render\MSAA.h" />
     <ClInclude Include="engine\terrain\HeightNode.h" />
     <ClInclude Include="engine\objects\mesh\Icosphere.h" />
     <ClInclude Include="engine\objects\mesh\Mesh.h" />
@@ -185,6 +186,7 @@
     <ClCompile Include="engine\renderer\render\DepthStencil.cpp" />
     <ClCompile Include="engine\renderer\render\Framebuffer.cpp" />
     <ClCompile Include="engine\renderer\render\GraphicsPipeline.cpp" />
+    <ClCompile Include="engine\renderer\render\MSAA.cpp" />
     <ClCompile Include="engine\renderer\render\Renderpass.cpp" />
     <ClCompile Include="engine\renderer\render\Swapchain.cpp" />
     <ClCompile Include="engine\renderer\resource\Buffer.cpp" />

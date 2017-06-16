@@ -6,6 +6,7 @@
 #include "engine\renderer\render\Swapchain.h"
 #include "engine\renderer\core\PhysicalDevice.h"
 #include "engine\renderer\core\Instance.h"
+#include "engine\renderer\render\MSAA.h"
 
 namespace vulpes {
 
@@ -172,6 +173,8 @@ namespace vulpes {
 
 		//pipelineInfo.DepthStencilInfo.depthTestEnable = VK_FALSE;
 		pipelineInfo.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+		pipelineInfo.MultisampleInfo.rasterizationSamples = Multisampling::SampleCount;
 
 		VkGraphicsPipelineCreateInfo pipeline_create_info = vk_graphics_pipeline_create_info_base;
 		pipeline_create_info.flags = 0;

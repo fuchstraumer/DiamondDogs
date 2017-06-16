@@ -43,6 +43,8 @@ vulpes::BaseScene::~BaseScene() {
 	for (const auto& fbuf : framebuffers) {
 		vkDestroyFramebuffer(device->vkHandle(), fbuf, nullptr);
 	}
+	msaa->ColorBufferMS.reset();
+	msaa->DepthBufferMS.reset();
 	delete gui;
 	delete swapchain;
 	delete renderPass;
@@ -74,7 +76,10 @@ void vulpes::BaseScene::CreateCommandPools(const size_t& num_secondary_buffers) 
 	secondaryPool->CreateCommandBuffers(swapchain->ImageCount * static_cast<uint32_t>(num_secondary_buffers), alloc_info);
 }
 
-void vulpes::BaseScene::SetupRenderpass() {
+void vulpes::BaseScene::SetupRenderpass(const VkSampleCountFlagBits& sample_count) {
+
+	std::array<VkAttachmentDescription, 4> attachments;
+
 	VkAttachmentDescription attach_descr = vk_attachment_description_base;
 	attach_descr.format = swapchain->ColorFormat;
 	attach_descr.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -84,6 +89,8 @@ void vulpes::BaseScene::SetupRenderpass() {
 	attach_descr.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	attach_descr.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	attach_descr.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	attachments[1] = attach_descr;
 
 	VkAttachmentDescription depth_descr = {
 		0,
@@ -97,8 +104,42 @@ void vulpes::BaseScene::SetupRenderpass() {
 		VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
 	};
 
-	VkAttachmentReference attach_ref{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-	VkAttachmentReference depth_ref{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+	attachments[3] = depth_descr;
+
+	/*
+		Setup MSAA
+	*/
+
+	msaa = std::make_unique<Multisampling>(device, swapchain, sample_count, swapchain->Extent.width, swapchain->Extent.height);
+	Multisampling::SampleCount = sample_count;
+
+	VkAttachmentDescription msaa_color_attachment = vk_attachment_description_base;
+	msaa_color_attachment.format = swapchain->ColorFormat;
+	msaa_color_attachment.samples = sample_count;
+	msaa_color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	msaa_color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	msaa_color_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	msaa_color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	msaa_color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	msaa_color_attachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	attachments[0] = msaa_color_attachment;
+
+	VkAttachmentDescription msaa_depth_attachment = vk_attachment_description_base;
+	msaa_depth_attachment.format = device->FindDepthFormat();
+	msaa_depth_attachment.samples = sample_count;
+	msaa_depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	msaa_depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	msaa_depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	msaa_depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	msaa_depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	msaa_depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	attachments[2] = msaa_depth_attachment;
+
+	VkAttachmentReference color_ref{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+	VkAttachmentReference depth_ref{  2, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+	VkAttachmentReference resolve_ref{ 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 
 	VkSubpassDescription su_descr = vk_subpass_description_base;
 	su_descr.flags = 0;
@@ -106,29 +147,39 @@ void vulpes::BaseScene::SetupRenderpass() {
 	su_descr.inputAttachmentCount = 0;
 	su_descr.pInputAttachments = nullptr;
 	su_descr.colorAttachmentCount = 1;
-	su_descr.pColorAttachments = &attach_ref;
-	su_descr.pResolveAttachments = nullptr;
+	su_descr.pColorAttachments = &color_ref;
+	su_descr.pResolveAttachments = &resolve_ref;
 	su_descr.pDepthStencilAttachment = &depth_ref;
 	su_descr.preserveAttachmentCount = 0;
 	su_descr.pPreserveAttachments = nullptr;
 
-	VkSubpassDependency su_depend;
-	su_depend.srcSubpass = VK_SUBPASS_EXTERNAL;
-	su_depend.dstSubpass = 0;
-	su_depend.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	su_depend.srcAccessMask = 0;
-	su_depend.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	su_depend.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	su_depend.dependencyFlags = 0;
+	std::array<VkSubpassDependency, 2> subpasses;
+
+	subpasses[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	subpasses[0].dstSubpass = 0;
+	subpasses[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	subpasses[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpasses[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	subpasses[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	subpasses[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	subpasses[1].srcSubpass = 0;
+	subpasses[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	subpasses[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpasses[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	subpasses[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	subpasses[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	subpasses[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
 
 	std::array<VkAttachmentDescription, 2> decriptions{ attach_descr, depth_descr };
 	VkRenderPassCreateInfo rp_info = vk_render_pass_create_info_base;
-	rp_info.attachmentCount = static_cast<uint32_t>(decriptions.size());
-	rp_info.pAttachments = decriptions.data();
+	rp_info.attachmentCount = static_cast<uint32_t>(attachments.size());
+	rp_info.pAttachments = attachments.data();
 	rp_info.subpassCount = 1;
 	rp_info.pSubpasses = &su_descr;
-	rp_info.dependencyCount = 1;
-	rp_info.pDependencies = &su_depend;
+	rp_info.dependencyCount = static_cast<uint32_t>(subpasses.size());
+	rp_info.pDependencies = subpasses.data();
 
 	renderPass = new Renderpass(device, rp_info);
 }
@@ -142,7 +193,7 @@ void vulpes::BaseScene::SetupFramebuffers(){
 	for (uint32_t i = 0; i < swapchain->ImageCount; ++i) {
 		VkFramebufferCreateInfo f_info = vk_framebuffer_create_info_base;
 		f_info.renderPass = *renderPass;
-		std::array<VkImageView, 2> attachments{ swapchain->ImageViews[i], depthStencil->View() };
+		std::array<VkImageView, 4> attachments{ msaa->ColorBufferMS->View(), swapchain->ImageViews[i], msaa->DepthBufferMS->View(), depthStencil->View() };
 		f_info.attachmentCount = static_cast<uint32_t>(attachments.size());
 		f_info.pAttachments = attachments.data();
 		f_info.width = swapchain->Extent.width;

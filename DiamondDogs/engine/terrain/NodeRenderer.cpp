@@ -12,6 +12,7 @@
 #include "engine\renderer\command\CommandPool.h"
 #include "engine\renderer\command\TransferPool.h"
 #include "engine\renderer\resource\Texture.h"
+#include "engine\\renderer\render\MSAA.h"
 
 bool vulpes::terrain::NodeRenderer::DrawAABBs = false;
 float vulpes::terrain::NodeRenderer::MaxRenderDistance = 100000.0f;
@@ -111,11 +112,13 @@ void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpa
 	GraphicsPipelineInfo pipeline_info;
 
 	pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_NONE;
-	pipeline_info.RasterizationInfo.polygonMode = VK_POLYGON_MODE_LINE;
+	//pipeline_info.RasterizationInfo.polygonMode = VK_POLYGON_MODE_LINE;
 	// Set this through dynamic state so we can do it when rendering.
 	pipeline_info.DynamicStateInfo.dynamicStateCount = 2;
 	static const VkDynamicState states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 	pipeline_info.DynamicStateInfo.pDynamicStates = states;
+
+	pipeline_info.MultisampleInfo.rasterizationSamples = Multisampling::SampleCount;
 
 	VkGraphicsPipelineCreateInfo pipeline_create_info = vk_graphics_pipeline_create_info_base;
 

@@ -60,7 +60,7 @@ namespace terrain_scene {
 		virtual void RecordCommands() override {
 			
 			// Clear color value, clear depth value
-			static const std::array<VkClearValue, 2> clear_values{ VkClearValue{ 0.025f, 0.025f, 0.085f, 1.0f }, VkClearValue{ 1.0f, 0 } };
+			static const std::array<VkClearValue, 3> clear_values{ VkClearValue{ 0.025f, 0.025f, 0.085f, 1.0f }, VkClearValue{ 0.025f, 0.025f, 0.085f, 1.0f }, VkClearValue{ 1.0f, 0 } };
 
 			// Given at each frame in framebuffer to describe layout of framebuffer
 			static VkRenderPassBeginInfo renderpass_begin{
@@ -69,7 +69,7 @@ namespace terrain_scene {
 				renderPass->vkHandle(),
 				VK_NULL_HANDLE, // update this every frame
 				VkRect2D{ VkOffset2D{0, 0}, swapchain->Extent },
-				2,
+				static_cast<uint32_t>(clear_values.size()),
 				clear_values.data(),
 			};
 

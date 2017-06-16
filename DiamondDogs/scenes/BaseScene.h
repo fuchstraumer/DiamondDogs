@@ -12,6 +12,7 @@
 #include "engine\renderer\render\Framebuffer.h"
 #include "engine\renderer\command\CommandPool.h"
 #include "engine\renderer\render\DepthStencil.h"
+#include "engine\renderer\render\MSAA.h"
 
 namespace vulpes {
 
@@ -24,7 +25,7 @@ namespace vulpes {
 
 		virtual void CreateCommandPools(const size_t& num_secondary_buffers);
 
-		virtual void SetupRenderpass();
+		virtual void SetupRenderpass(const VkSampleCountFlagBits& sample_count = VK_SAMPLE_COUNT_8_BIT);
 
 		virtual void SetupDepthStencil();
 
@@ -41,6 +42,7 @@ namespace vulpes {
 		virtual float GetFrameTime();
 
 	protected:
+		std::unique_ptr<Multisampling> msaa;
 		imguiWrapper* gui;
 		uint32_t width, height;
 		VkSemaphore semaphores[2];

@@ -7,7 +7,7 @@
 namespace vulpes {
 	namespace terrain {
 
-		size_t HeightNode::RootSampleGridSize = 64;
+		size_t HeightNode::RootSampleGridSize = 32;
 		double HeightNode::RootNodeLength = 1000;
 
 		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<HeightSample>& init_samples) : gridCoords(node_grid_coordinates), sampleGridSize(RootSampleGridSize), meshGridSize(RootSampleGridSize - 5) {
@@ -155,8 +155,21 @@ namespace vulpes {
 			x = world_pos.x;
 			y = world_pos.y;
 
-			x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
-			y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
+			if (x == curr_size) {
+				x = sampleGridSize - 3.0f;
+			}
+			else {
+				x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
+			}
+			if (y == curr_size) {
+				y = sampleGridSize - 3.0f;
+			}
+			else {
+				y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
+			}
+
+			//x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
+			//y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
 			size_t sx = floorf(x), sy = floorf(y);
 
 			return Sample(sx, sy);
@@ -206,14 +219,14 @@ namespace vulpes {
 		HeightmapNoise::HeightmapNoise(const size_t & num_samples, const glm::vec3& starting_pos, const float& step_size) {
 			samples.resize(num_samples * num_samples);
 			glm::vec2 xy = starting_pos.xz;
-			samples = MakeCheckerboard(num_samples, num_samples);
-			/*for (size_t j = 0; j < num_samples; ++j) {
+			//samples = MakeCheckerboard(num_samples, num_samples);
+			for (size_t j = 0; j < num_samples; ++j) {
 				for (size_t i = 0; i < num_samples; ++i) {
 					glm::vec3 pos = glm::vec3(xy.x + (i * step_size), xy.y + (j * step_size), 0.0f);
 					glm::vec3 deriv;
 					samples[i + (j * num_samples)].Sample.x = 100.0f * SNoise::FBM_Bounded(glm::vec3(pos.x + 0.01f, pos.y + 0.01f, 0.0f), 542523, 1e-4, 9, 1.6f, 1.8f, -20.0f, 80.0f);
 				}
-			}*/
+			}
 		}
 
 		const glm::ivec3 & HeightNode::GridCoords() const noexcept{
@@ -221,7 +234,7 @@ namespace vulpes {
 		}
 
 		size_t HeightNode::GridSize() const noexcept {
-			return sampleGridSize;
+			return meshGridSize;
 		}
 
 		void HeightNode::SetRootNodeSize(const size_t & new_size) {

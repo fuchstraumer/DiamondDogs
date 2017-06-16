@@ -23,11 +23,16 @@ namespace vulpes {
 		}
 	}
 
+	void Image::Create(const VkImageCreateInfo & create_info, const VkMemoryPropertyFlagBits& memory_flags) {
+		this->createInfo = create_info;
+		CreateImage(image, memory, parent, createInfo, memory_flags);
+	}
+
 	void Image::Create(const VkExtent3D& _extents, const VkFormat& _format, const VkImageUsageFlags& usage_flags, const VkImageLayout& init_layout) {
 		extents = _extents;
 		format = _format;
 		usageFlags = usage_flags;
-		CreateImage(image, memory, imageDataSize, parent, extents, format, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, usageFlags, VK_IMAGE_TILING_OPTIMAL, init_layout);
+		CreateImage(image, memory, parent, extents, format, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, usageFlags, VK_IMAGE_TILING_OPTIMAL, init_layout);
 	}
 
 	void Image::CreateView(const VkImageViewCreateInfo & info){
@@ -103,7 +108,7 @@ namespace vulpes {
 		return barrier;
 	}
 
-	void Image::CreateImage(VkImage & dest_image, VkDeviceMemory & dest_memory, VkDeviceSize& dest_image_size, const Device* parent, const VkExtent3D & extents, const VkFormat & image_format, const VkMemoryPropertyFlags & memory_flags, const VkImageUsageFlags & usage_flags, const VkImageTiling& tiling, const VkImageLayout& init_layout) {
+	void Image::CreateImage(VkImage & dest_image, VkDeviceMemory & dest_memory, const Device* parent, const VkExtent3D & extents, const VkFormat & image_format, const VkMemoryPropertyFlags & memory_flags, const VkImageUsageFlags & usage_flags, const VkImageTiling& tiling, const VkImageLayout& init_layout) {
 
 		VkImageCreateInfo create_info = vk_image_create_info_base;
 		create_info.imageType = VK_IMAGE_TYPE_2D;
@@ -125,7 +130,6 @@ namespace vulpes {
 
 		VkMemoryAllocateInfo alloc_info = vk_allocation_info_base;
 		alloc_info.allocationSize = mem_reqs.size;
-		dest_image_size = mem_reqs.size;
 		alloc_info.memoryTypeIndex = parent->GetMemoryTypeIdx(mem_reqs.memoryTypeBits, memory_flags);
 
 		result = vkAllocateMemory(parent->vkHandle(), &alloc_info, nullptr, &dest_memory);
@@ -135,7 +139,7 @@ namespace vulpes {
 		VkAssert(result);
 	}
 
-	void Image::CreateImage(VkImage & dest_image, VkDeviceMemory & dest_memory, VkDeviceSize & dest_image_size, const Device * parent, const VkImageCreateInfo & create_info, const VkMemoryPropertyFlags & memory_flags) {
+	void Image::CreateImage(VkImage & dest_image, VkDeviceMemory & dest_memory, const Device * parent, const VkImageCreateInfo & create_info, const VkMemoryPropertyFlags & memory_flags) {
 		VkResult result = vkCreateImage(parent->vkHandle(), &create_info, nullptr, &dest_image);
 		VkAssert(result);
 
@@ -144,7 +148,6 @@ namespace vulpes {
 
 		VkMemoryAllocateInfo alloc_info = vk_allocation_info_base;
 		alloc_info.allocationSize = mem_reqs.size;
-		dest_image_size = mem_reqs.size;
 		alloc_info.memoryTypeIndex = parent->GetMemoryTypeIdx(mem_reqs.memoryTypeBits, memory_flags);
 
 		result = vkAllocateMemory(parent->vkHandle(), &alloc_info, nullptr, &dest_memory);

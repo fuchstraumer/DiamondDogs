@@ -71,9 +71,7 @@ namespace vulpes {
 
 	void Texture2D_STB::CopyToStaging(void * data, const VkQueue & transfer_queue, const VkDeviceSize & copy_size, const VkDeviceSize & offset){
 		
-		// Create staging image
-		VkDeviceSize dummy_size = 0;
-		CreateImage(staging_image, staging_memory, dummy_size, this->parent, extents, format, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_TILING_LINEAR);
+		CreateImage(staging_image, staging_memory, this->parent, extents, format, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_TILING_LINEAR);
 
 		// prepare to copy from host->staging and then staging->device
 		void* mapped;

@@ -6,6 +6,8 @@
 #include "engine\renderer\resource\ShaderModule.h"
 #include "engine\renderer\render\GraphicsPipeline.h"
 #include "engine\renderer\core\PhysicalDevice.h"
+#include "engine\renderer\render\MSAA.h"
+
 namespace vulpes {
 	namespace obj {
 		Skybox::Skybox(const Device* _device) : device(_device) {
@@ -162,6 +164,8 @@ namespace vulpes {
 			pipeline_info.VertexInfo.pVertexBindingDescriptions = &bind_descr;
 			pipeline_info.VertexInfo.vertexAttributeDescriptionCount = 1;
 			pipeline_info.VertexInfo.pVertexAttributeDescriptions = &attr_descr;
+
+			pipeline_info.MultisampleInfo.rasterizationSamples = Multisampling::SampleCount;
 
 			VkGraphicsPipelineCreateInfo pipeline_create_info = vk_graphics_pipeline_create_info_base;
 			pipeline_create_info.flags = 0;
