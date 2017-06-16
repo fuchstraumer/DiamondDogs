@@ -1,24 +1,61 @@
 #include "stdafx.h"
 #include "HeightNode.h"
 #include "engine\util\Noise.h"
+#include "engine/util/lodepng.h"
+#include "glm/ext.hpp"
 
 namespace vulpes {
 	namespace terrain {
 
-		size_t HeightNode::RootNodeSize = 32;
+		size_t HeightNode::RootNodeSize = 64;
 		double HeightNode::RootNodeLength = 1000;
 
-		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<HeightSample>& init_samples) : gridCoords(node_grid_coordinates), nodeSize(RootNodeSize + 5), gridSize(RootNodeSize) {
+		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<HeightSample>& init_samples) : gridCoords(node_grid_coordinates), nodeSize(RootNodeSize), gridSize(RootNodeSize) {
 			samples = std::move(init_samples);
 			auto min_max = std::minmax_element(samples.cbegin(), samples.cend());
 			MinZ = samples.at(min_max.first - samples.cbegin()).Sample.x;
 			MaxZ = samples.at(min_max.second - samples.cbegin()).Sample.x;
 		}
 
-		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), nodeSize(RootNodeSize + 5) {
+		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), nodeSize(RootNodeSize) {
 			SampleFromParent(parent);
 		}
 
+		static constexpr bool save_to_file = true;
+
+		static inline void save_hm_to_file(const std::vector<float>& vals, const float& min, const float& max, const char* filename, unsigned width, unsigned height) {
+
+			auto normalize = [&min, &max](const float& val) {
+				return (val - min) / (max - min);
+			};
+
+			std::vector<float> normalized;
+			normalized.resize(vals.size());
+
+			for (size_t j = 0; j < height; ++j) {
+				for (size_t i = 0; i < width; ++i) {
+					normalized[i + (j * width)] = normalize(vals[i + (j * width)]);
+				}
+			}
+
+			auto make_pixel = [](const float& val)->unsigned char {
+				return static_cast<unsigned char>(val * 255.0f);
+			};
+
+			std::vector<unsigned char> pixels(width * height);
+
+			for (size_t j = 0; j < height; ++j) {
+				for (size_t i = 0; i < width; ++i) {
+					pixels[i + (j * width)] = make_pixel(normalized[i + (j * width)]);
+				}
+			}
+
+
+			unsigned error = lodepng::encode(filename, pixels, width, height, LodePNGColorType::LCT_GREY, 8);
+			if (error) {
+				std::cerr << lodepng_error_text(error) << std::endl;
+			}
+		}
 		
 		void HeightNode::SampleFromParent(const HeightNode & node) {
 			// See: proland/preprocess/terrain/HeightMipmap.cpp to find original implementation
@@ -90,37 +127,34 @@ namespace vulpes {
 				}
 			}
 			auto min_max = std::minmax_element(samples.cbegin(), samples.cend());
-			MinZ = samples.at(min_max.first - samples.cbegin()).Sample.x;
-			MaxZ = samples.at(min_max.second - samples.cbegin()).Sample.x;
+			float min_z, max_z;
+			MinZ = min_z = samples.at(min_max.first - samples.cbegin()).Sample.x;
+			MaxZ = max_z = samples.at(min_max.second - samples.cbegin()).Sample.x;
+
+			if (save_to_file) {
+				std::vector<float> height_values;
+				for (const auto& sample : samples) {
+					height_values.push_back(sample.Sample.x);
+				}
+				std::string fname = std::string("./test_img/terrain_chunk") + glm::to_string(gridCoords) + std::string(".png");
+				std::async(std::launch::async, save_hm_to_file, height_values, min_z, max_z, fname.c_str(), nodeSize, nodeSize);
+			}
+
 		}
 
 		float HeightNode::GetHeight(const glm::vec2 world_pos) const {
 
 			double curr_size = RootNodeLength / (1 << gridCoords.z);
-			double s = curr_size / 2.0;
+			double s = RootNodeLength / 2.0;
 			// Make sure query is in range of current node.
 			//if (abs(world_pos.x) >= curr_size + 1.0 || abs(world_pos.y) >= curr_size + 1.0) {
 			//	throw std::out_of_range("Attempted to sample out of range of heightnode");
 			//}
-
+			auto curr_grid_size = GridSize();
 			float x, y;
 			x = world_pos.x;
 			y = world_pos.y;
-
-			size_t curr_grid_size = GridSize();
-			/*if (x == curr_size) {
-				x = nodeSize - 3.0f;
-			}
-			else {
-				x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
-			}
-			if (y == curr_size) {
-				y = nodeSize - 3.0f;
-			}
-			else {
-				y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
-			}*/
-			// Sample coords
+			if(x == s)
 			x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
 			y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
 			size_t sx = floorf(x), sy = floorf(y);
