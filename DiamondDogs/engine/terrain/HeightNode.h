@@ -88,14 +88,14 @@ namespace vulpes {
 			static void SetRootNodeSize(const size_t& new_size);
 			static void SetRootNodeLength(const double& new_length);
 
-			static size_t RootNodeSize;
+			static size_t RootMeshGridSize;
 			static double RootNodeLength;
 
 			float MinZ, MaxZ;
 		protected:
 
-			size_t nodeSize = 32;
-			size_t gridSize;
+			size_t sampleGridSize = 32;
+			size_t meshGridSize;
 			
 			glm::ivec3 gridCoords;
 			glm::ivec3 parentGridCoords;
