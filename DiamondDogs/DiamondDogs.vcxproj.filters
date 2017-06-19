@@ -37,6 +37,7 @@
     <ClCompile Include="engine\util\Noise.cpp" />
     <ClCompile Include="engine\renderer\render\MSAA.cpp" />
     <ClCompile Include="engine\util\FastNoise.cpp" />
+    <ClCompile Include="engine\terrain\DataProducer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />

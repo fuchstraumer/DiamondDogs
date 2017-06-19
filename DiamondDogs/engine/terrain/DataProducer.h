@@ -26,33 +26,25 @@ namespace vulpes {
 		std::unique_ptr<Buffer> Data;
 	};
 
+	/*
+		Request to run a pipeline 
+		- Shader contains the VkShaderModule unique to this request. I assume the "name" is just "main". Stage flags are just VK_SHADER_STAGE_COMPUTE_BIT
+		- Specializations contain (if applicable) specialization constants that are being modified for this invocation
+		- Input is the input texture being operated on (readonly), Output is texture being written to
+		- Result is a weak pointer, so that we can check if it's ready or not.
+	*/
 	struct DataRequest {
-		// request to dispatch and return a compute job.
+		
 		VkShaderModule Shader;
 		std::vector<VkSpecializationMapEntry> Specializations;
 		Texture2D *Input, *Output;
-		// each data request will create a unique pipeline that is dispatched, completed,
-		// and then destroyed when done.
-		VkPipeline Pipeline = VK_NULL_HANDLE;
 
 		std::weak_ptr<DataResult> Result;
 
-		bool Complete() const {
-			if (auto check = Result.lock()) {
-				return true;
-			}
-			else {
-				return false;
-			}
-		}
+		bool Complete() const;
 
-		Buffer* GetData() const {
-			if (!Complete()) {
-				throw std::runtime_error("Tried to access data before it was generated.");
-			}
+		Buffer* GetData() const;
 
-
-		}
 	};
 
 	

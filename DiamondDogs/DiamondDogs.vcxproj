@@ -195,6 +195,7 @@
     <ClCompile Include="engine\renderer\resource\Image.cpp" />
     <ClCompile Include="engine\renderer\resource\ShaderModule.cpp" />
     <ClCompile Include="engine\renderer\resource\Texture.cpp" />
+    <ClCompile Include="engine\terrain\DataProducer.cpp" />
     <ClCompile Include="engine\terrain\HeightNode.cpp" />
     <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
     <ClCompile Include="engine\terrain\TerrainNode.cpp" />
