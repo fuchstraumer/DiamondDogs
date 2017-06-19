@@ -1,0 +1,41 @@
+#version 450 core
+
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
+
+// minimum max dimensionality in xy is 128, process textures in chunks of that size.
+layout(local_size_x = 128, local_size_y = 128, local_size_z = 1) in;
+
+layout(std430, binding = 0) buffer samples {
+	vec3[] data;
+};
+
+// if true, we sample from noise-based residuals.
+layout(constant_id = 0) const bool use_residuals = false;
+
+mat4 upsample_matrices[4] = mat4[4] (
+	mat4(0.0, 0.0, 0.0, 0.0,
+         0.0, 1.0, 0.0, 0.0,
+         0.0, 0.0, 0.0, 0.0,
+         0.0, 0.0, 0.0, 0.0),
+    mat4(0.0, 0.0, 0.0, 0.0,
+         -1.0/16.0, 9.0/16.0, 9.0/16.0, -1.0/16.0,
+         0.0, 0.0, 0.0, 0.0,
+         0.0, 0.0, 0.0, 0.0),
+    mat4(0.0, -1.0/16.0, 0.0, 0.0,
+         0.0, 9.0/16.0, 0.0, 0.0,
+         0.0, 9.0/16.0, 0.0, 0.0,
+         0.0, -1.0/16.0, 0.0, 0.0),
+    mat4(1.0/256.0, -9.0/256.0, -9.0/256.0, 1.0/256.0,
+         -9.0/256.0, 81.0/256.0, 81.0/256.0, -9.0/256.0,
+         -9.0/256.0, 81.0/256.0, 81.0/256.0, -9.0/256.0,
+         1.0/256.0, -9.0/256.0, -9.0/256.0, 1.0/256.0)
+);
+
+float matrix_dot(const mat4& a, const mat4& b) {
+	return dot(a[0], b[0]) + dot(a[1], b[1]) + dot(a[2], b[2]) + dot(a[3], b[3]);
+}
+
+void main() {
+	
+}

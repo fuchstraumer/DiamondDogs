@@ -12,8 +12,6 @@ namespace vulpes {
 		size_t HeightNode::RootSampleGridSize = 261;
 		double HeightNode::RootNodeLength = 10000;
 
-		static FastNoise noise_gen;
-
 		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<HeightSample>& init_samples) : gridCoords(node_grid_coordinates), sampleGridSize(RootSampleGridSize), meshGridSize(RootSampleGridSize - 5) {
 			samples = std::move(init_samples);
 			auto min_max = std::minmax_element(samples.cbegin(), samples.cend());
@@ -125,14 +123,9 @@ namespace vulpes {
 						}
 					}
 
-					if (sample == 0.0f) {
-						std::cerr << "Sample zero'd at ( " << std::to_string(i) << ", " << std::to_string(j) << ")\n";
-					}
-
 					samples[i + (j * sampleGridSize)].Sample.x = std::move(sample);
-					
 					// Parent height is used to morph between LOD levels, so that we don't notice much pop-in as new mesh tiles are loaded.
-					// samples[i + (j * num_samples)].ParentHeight() = node.Sample(i / 2 + parent_x + (j / 2 + parent_y)*num_samples);
+					samples[i + (j * sampleGridSize)].Sample.y = node.Sample(i / 2 + parent_x + (j / 2 + parent_y)*sampleGridSize);
 				}
 			}
 			auto min_max = std::minmax_element(samples.cbegin(), samples.cend());
@@ -140,21 +133,12 @@ namespace vulpes {
 			MinZ = min_z = samples.at(min_max.first - samples.cbegin()).Sample.x;
 			MaxZ = max_z = samples.at(min_max.second - samples.cbegin()).Sample.x;
 
-			if (save_to_file) {
-				std::vector<float> height_values;
-				for (const auto& sample : samples) {
-					height_values.push_back(sample.Sample.x);
-				}
-				std::string fname = std::string("./test_img/terrain_chunk") + glm::to_string(gridCoords) + std::string(".png");
-				std::async(std::launch::async, save_hm_to_file, height_values, min_z, max_z, fname.c_str(), sampleGridSize, sampleGridSize);
-			}
-
 		}
 
 		float HeightNode::GetHeight(const glm::vec2 world_pos) const {
 
 			double curr_size = RootNodeLength / (1 << gridCoords.z);
-			double s = RootNodeLength / 2.0;
+			double s = curr_size / 2.0;
 			// Make sure query is in range of current node.
 			//if (abs(world_pos.x) >= curr_size + 1.0 || abs(world_pos.y) >= curr_size + 1.0) {
 			//	throw std::out_of_range("Attempted to sample out of range of heightnode");
@@ -231,8 +215,7 @@ namespace vulpes {
 			//samples = MakeCheckerboard(num_samples, num_samples);
 			for (size_t j = 0; j < num_samples; ++j) {
 				for (size_t i = 0; i < num_samples; ++i) {
-					glm::vec3 pos = glm::vec3(xy.x + (i * step_size), xy.y + (j * step_size), 0.0f);
-					samples[i + (j * num_samples)].Sample.x = SNoise::DecarpientierSwiss(glm::vec3(pos.x, 0.0f, pos.y), 45867, 1.9, 12, 2.2f, 1.8f);
+					samples[i + (j * num_samples)].Sample.x = 25.0f * SNoise::FBM(glm::vec2(xy.x + (i * step_size), xy.y + (j * step_size)), 45867, 1.9, 12, 2.2f, 1.8f);
 				}
 			}
 		}

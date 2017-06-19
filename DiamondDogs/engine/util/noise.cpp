@@ -49,8 +49,46 @@ namespace vulpes {
 		{ 0,0,1 }, { 0,0,-1 }, { 0,1,0 }, { 0,-1,0 }
 	};
 
+	constexpr static int16_t GRADIENT_2D_LUT[256][2]{
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+		{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },{ 0,1 },{ 0,-1 },{ 1,0 },{ -1,0 },
+	};
+
 	constexpr static float SIMPLEX_F3 = 0.33333333f;
 	constexpr static float SIMPLEX_G3 = 0.16666667f;
+
+	constexpr static float SIMPLEX_F2 = 0.366035403f;
+	constexpr static float SIMPLEX_G2 = 0.211324865f;
 
 	constexpr static uint32_t FNV_32_A_BUF(void* buff, const uint32_t& len) {
 		uint32_t hval = FNV_32_INIT;
@@ -65,6 +103,16 @@ namespace vulpes {
 
 	constexpr static uint8_t XOR_FOLD_HASH(const uint32_t& hash) {
 		return ((hash >> 8) ^ (hash & FNV_MASK_8));
+	}
+
+	constexpr static uint8_t hash2D(const glm::ivec2& pos, const int& seed) {
+		uint32_t val[3]{ pos.x, pos.y, seed };
+		return XOR_FOLD_HASH(FNV_32_A_BUF(val, 3));
+	}
+
+	constexpr static uint32_t hash2D_float(const glm::vec2& pos, const int& seed) {
+		uint32_t val[3]{ static_cast<uint32_t>(pos.x), static_cast<uint32_t>(pos.y), seed };
+		return XOR_FOLD_HASH(FNV_32_A_BUF(val, 3));
 	}
 
 	constexpr static uint8_t hash3D(const glm::ivec3& pos, const int& seed) {
@@ -95,6 +143,24 @@ namespace vulpes {
 		return (FBM(pos, seed, freq, octaves, lacun, persistence) - min) / (max - min);
 	}
 
+	float SNoise::FBM(const glm::vec2 & pos, const int32_t & seed, const float & freq, const size_t & octaves, const float & lacun, const float & persistance) {
+		glm::vec2 npos = pos * freq;
+		float sum = 0.0f, amplitude = 1.0f;
+
+		for (size_t i = 0; i < octaves; ++i) {
+			int32_t oct_seed = (seed + i) & 0xfffffff;
+			sum += SimplexBase(npos, glm::vec2(), oct_seed) * amplitude;
+			npos *= lacun;
+			amplitude *= persistance;
+		}
+
+		return sum;
+	}
+
+	float SNoise::FBM_Bounded(const glm::vec2 & pos, const int32_t & seed, const float & freq, const size_t & octaves, const float & lacun, const float & persistence, const float & min, const float & max) {
+		return (FBM(pos, seed, freq, octaves, lacun, persistence) - min) / (max - min);
+	}
+
 	float SNoise::DecarpientierSwiss(const glm::vec3 & pos, const int32_t & seed, const float & freq, const size_t & octaves, const float & lacun, const float & persistance) {
 		float sum = 0.0f;
 		float amplitude = 1.0f;
@@ -119,6 +185,28 @@ namespace vulpes {
 
 	float SNoise::DecarpientierSwiss_Bounded(const glm::vec3 & pos, const int32_t & seed, const float & freq, const size_t & octaves, const float & lacun, const float & persistence, const float & min, const float & max) {
 		return (DecarpientierSwiss(pos, seed, freq, octaves, lacun, persistence) - min) / (max - min);
+	}
+
+	float SNoise::DecarpientierSwiss(const glm::vec2 & pos, const int32_t & seed, const float & freq, const size_t & octaves, const float & lacun, const float & persistance) {
+		float sum = 0.0f;
+		float amplitude = 1.0f;
+		float warp = 0.1f;
+
+		glm::vec2 sp = pos * freq;
+		glm::vec2 dSum = glm::vec2(0.0f);
+
+		for (size_t i = 0; i < octaves; ++i) {
+			int32_t seed = (seed + i) & 0xffffffff;
+			glm::vec2 deriv;
+			float n = SimplexBase(sp, deriv, seed);
+			sum += (1.0f - fabsf(n)) * amplitude;
+			dSum += amplitude * -n * deriv;
+			sp *= lacun;
+			sp += (warp * dSum);
+			amplitude *= (glm::clamp(sum, 0.0f, 1.0f) * persistance);
+		}
+
+		return sum;
 	}
 
 	float SNoise::SimplexBase(const glm::vec3 & pos, glm::vec3 & norm, const int32_t& seed) {
@@ -278,5 +366,81 @@ namespace vulpes {
 		return noise;
 	}
 
+	float SNoise::SimplexBase(const glm::vec2& pos, glm::vec2& deriv, const int32_t& seed) {
+		float n0 = 0.0f, n1 = 0.0f, n2 = 0.0f;
+
+		glm::vec2 ipos;
+		ipos.x = floorf(pos.x + ((pos.x + pos.y)*SIMPLEX_F2));
+		ipos.y = floorf(pos.y + ((pos.x + pos.y)*SIMPLEX_F2));
+
+		glm::vec2 p0 = pos - (ipos - ((ipos.x * ipos.y) * SIMPLEX_G2));
+
+		glm::vec2 ij;
+		p0.x > p0.y ? ij = glm::vec2(1.0f, 0.0f) : ij = glm::vec2(0.0f, 1.0f);
+		
+		glm::vec2 p1, p2;
+		p1 = p0 - ij + SIMPLEX_G2;
+		p2 = p0 - 1.0f + (2.0f * SIMPLEX_G2);
+
+		auto h0 = hash2D(ipos, seed);
+		auto h1 = hash2D(ipos + ij, seed);
+		auto h2 = hash2D(ipos + 1.0f, seed);
+
+		glm::vec2 g0, g1, g2;
+		g0 = glm::vec2(GRADIENT_2D_LUT[h0][0], GRADIENT_2D_LUT[h0][1]);
+		g1 = glm::vec2(GRADIENT_2D_LUT[h1][0], GRADIENT_2D_LUT[h1][1]);
+		g2 = glm::vec2(GRADIENT_2D_LUT[h2][0], GRADIENT_2D_LUT[h2][1]);
+
+		float t0 = 0.50f - p0.x*p0.x - p0.y*p0.y;
+		float t0_2, t0_4;
+		if (t0 < 0.0f) {
+			n0 = t0 = t0_2 = t0_4 = 0.0f;
+		}
+		else {
+			t0_2 = t0 * t0;
+			t0_4 = t0_2 * t0_2;
+			n0 = t0_4 * (g0.x*p0.y + g0.y*p0.y);
+		}
+
+		float t1 = 0.50f - p1.x*p1.x - p1.y*p1.y;
+		float t1_2, t1_4;
+		if (t1 < 0.0f) {
+			n1 = t1 = t1_2 = t1_4 = 0.0f;
+		}
+		else {
+			t1_2 = t1 * t1;
+			t1_4 = t1_2 * t1_2;
+			n1 = t1_4 * (g1.x*p1.x + g1.y*p1.y);
+		}
+
+		float t2 = 0.50f - p2.x*p2.x - p2.y*p2.y;
+		float t2_2, t2_4;
+		if (t2 < 0.0f) {
+			n2 = t2 = t2_2 = t2_4 = 0.0f;
+		}
+		else {
+			t2_2 = t2 * t2;
+			t2_4 = t2_2 * t2_2;
+			n2 = t2_4 * (g2.x*p2.x + g2.y*p2.y);
+		}
+
+		{
+			deriv.x = (t0_2 * t0 * (g0.x*p0.x + g0.y*p0.y)) * p0.x;
+			deriv.y = (t0_2 * t0 * (g0.x*p0.x + g0.y*p0.y)) * p0.y;
+			deriv.x += (t1_2 * t1 * (g1.x*p1.x + g1.y*p1.y)) * p1.x;
+			deriv.y += (t1_2 * t1 * (g1.x*p1.x + g1.y*p1.y)) * p1.y;
+			deriv.x += (t2_2 * t2 * (g2.x*p2.x + g2.y*p2.y)) * p2.x;
+			deriv.y += (t2_2 * t2 * (g2.x*p2.x + g2.y*p2.y)) * p2.y;
+			deriv.x *= -8.0f;
+			deriv.y *= -8.0f;
+			deriv.x += (t0_4 * g0.x + t1_4 * g1.x + t2_4 * g2.x);
+			deriv.y += (t0_4 * g0.y + t1_4 * g1.y + t2_4 * g2.y);
+			deriv.x *= 40.0f;
+			deriv.y *= 40.0f;
+		}
+
+	
+		return 40.0f * (n0 + n1 + n2);
+	}
 }
 
