@@ -1,14 +1,18 @@
 #include "stdafx.h"
 #include "HeightNode.h"
-#include "engine\util\Noise.h"
+#include "engine\util\FastNoise.h"
 #include "engine/util/lodepng.h"
 #include "glm/ext.hpp"
+#include "engine/util/Noise.h"
+
 
 namespace vulpes {
 	namespace terrain {
 
-		size_t HeightNode::RootSampleGridSize = 32;
-		double HeightNode::RootNodeLength = 1000;
+		size_t HeightNode::RootSampleGridSize = 261;
+		double HeightNode::RootNodeLength = 10000;
+
+		static FastNoise noise_gen;
 
 		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<HeightSample>& init_samples) : gridCoords(node_grid_coordinates), sampleGridSize(RootSampleGridSize), meshGridSize(RootSampleGridSize - 5) {
 			samples = std::move(init_samples);
@@ -17,11 +21,11 @@ namespace vulpes {
 			MaxZ = samples.at(min_max.second - samples.cbegin()).Sample.x;
 		}
 
-		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), sampleGridSize(RootSampleGridSize) {
+		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), sampleGridSize(37) {
 			SampleFromParent(parent);
 		}
 
-		static constexpr bool save_to_file = true;
+		static constexpr bool save_to_file = false;
 
 		static inline void save_hm_to_file(const std::vector<float>& vals, const float& min, const float& max, const char* filename, unsigned width, unsigned height) {
 
@@ -67,7 +71,7 @@ namespace vulpes {
 
 			// These aren't the parent grid coords: these are the offsets from the parent height samples that we 
 			// use to sample from the parents data.
-			size_t parent_x, parent_y;
+			int parent_x, parent_y;
 			parent_x = 1 + (gridCoords.x % 2) * meshGridSize / 2;
 			parent_y = 1 + (gridCoords.y % 2) * meshGridSize / 2;
 
@@ -88,7 +92,7 @@ namespace vulpes {
 					float sample;
 					if (j % 2 == 0) {
 						if (i % 2 == 0) {
-							sample = node.Sample(i / 2 + parent_x - 1 + (j / 2 + parent_y) * sampleGridSize);
+							sample = node.Sample(i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize);
 						}
 						else {
 							float z0, z1, z2, z3;
@@ -120,6 +124,11 @@ namespace vulpes {
 							}
 						}
 					}
+
+					if (sample == 0.0f) {
+						std::cerr << "Sample zero'd at ( " << std::to_string(i) << ", " << std::to_string(j) << ")\n";
+					}
+
 					samples[i + (j * sampleGridSize)].Sample.x = std::move(sample);
 					
 					// Parent height is used to morph between LOD levels, so that we don't notice much pop-in as new mesh tiles are loaded.
@@ -223,8 +232,7 @@ namespace vulpes {
 			for (size_t j = 0; j < num_samples; ++j) {
 				for (size_t i = 0; i < num_samples; ++i) {
 					glm::vec3 pos = glm::vec3(xy.x + (i * step_size), xy.y + (j * step_size), 0.0f);
-					glm::vec3 deriv;
-					samples[i + (j * num_samples)].Sample.x = 100.0f * SNoise::FBM_Bounded(glm::vec3(pos.x + 0.01f, pos.y + 0.01f, 0.0f), 542523, 1e-4, 9, 1.6f, 1.8f, -20.0f, 80.0f);
+					samples[i + (j * num_samples)].Sample.x = SNoise::DecarpientierSwiss(glm::vec3(pos.x, 0.0f, pos.y), 45867, 1.9, 12, 2.2f, 1.8f);
 				}
 			}
 		}

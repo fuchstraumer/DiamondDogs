@@ -95,6 +95,32 @@ namespace vulpes {
 		return (FBM(pos, seed, freq, octaves, lacun, persistence) - min) / (max - min);
 	}
 
+	float SNoise::DecarpientierSwiss(const glm::vec3 & pos, const int32_t & seed, const float & freq, const size_t & octaves, const float & lacun, const float & persistance) {
+		float sum = 0.0f;
+		float amplitude = 1.0f;
+		float warp = 0.03f;
+
+		glm::vec3 sp = pos * freq;
+		glm::vec3 dSum = glm::vec3(0.0f);
+
+		for (size_t i = 0; i < octaves; ++i) {
+			int32_t seed = (seed + i) & 0xffffffff;
+			glm::vec3 deriv;
+			float n = SimplexBase(sp, deriv, seed);
+			sum += (1.0f - fabsf(n)) * amplitude;
+			dSum += amplitude * -n * deriv;
+			sp *= lacun;
+			sp += (warp * dSum);
+			amplitude *= (glm::clamp(sum, 0.0f, 1.0f) * persistance);
+		}
+
+		return sum;
+	}
+
+	float SNoise::DecarpientierSwiss_Bounded(const glm::vec3 & pos, const int32_t & seed, const float & freq, const size_t & octaves, const float & lacun, const float & persistence, const float & min, const float & max) {
+		return (DecarpientierSwiss(pos, seed, freq, octaves, lacun, persistence) - min) / (max - min);
+	}
+
 	float SNoise::SimplexBase(const glm::vec3 & pos, glm::vec3 & norm, const int32_t& seed) {
 		glm::vec3 s = pos + ((pos.x + pos.y + pos.z) * SIMPLEX_F3);
 		glm::ivec3 i_s = glm::ivec3(floorf(s.x), floorf(s.y), floorf(s.z));

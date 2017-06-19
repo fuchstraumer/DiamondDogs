@@ -4,8 +4,8 @@
 #include "engine\util\view_frustum.h"
 #include "engine\terrain\NodeRenderer.h"
 
-size_t vulpes::terrain::TerrainNode::MaxLOD = 9;
-double vulpes::terrain::TerrainNode::SwitchRatio = 1.20;
+size_t vulpes::terrain::TerrainNode::MaxLOD = 16;
+double vulpes::terrain::TerrainNode::SwitchRatio = 1.80;
 
 void vulpes::terrain::TerrainNode::Subdivide() {
 	double child_length = SideLength / 2.0;
@@ -24,11 +24,12 @@ void vulpes::terrain::TerrainNode::Subdivide() {
 }
 
 void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, const util::view_frustum & view, NodeRenderer* node_pool) {
+	
 	// Get distance from camera to bounds of this node.
 	// Radius of sphere is 1.1 times current node side length, which specifies
 	// the range from a node we consider to be the LOD switch distance
 	const util::Sphere lod_sphere{ camera_position, SideLength * SwitchRatio };
-	const util::Sphere aabb_sphere{ SpatialCoordinates + static_cast<float>(SideLength / 2.0f), SideLength / 2.0f };
+	const util::Sphere aabb_sphere{ aabb.Center() + static_cast<float>(SideLength / 2.0f), SideLength / 2.0f };
 	// TODO: Investigate why the "LOD radius" of nodes appears to be off-center relative to the viewer.
 	// Depth is less than max subdivide level and we're in subdivide range.
 	if (Depth() < MaxLOD && lod_sphere.CoincidesWith(this->aabb)) {
@@ -109,6 +110,7 @@ void vulpes::terrain::TerrainNode::CreateMesh(const Device * dvc) {
 
 void vulpes::terrain::TerrainNode::CreateHeightData(const HeightNode & parent_node) {
 	HeightData = std::make_shared<HeightNode>(GridCoordinates, parent_node);
+	aabb.UpdateMinMax(HeightData->MinZ, HeightData->MaxZ);
 }
 
 void vulpes::terrain::TerrainNode::SetHeightData(const std::shared_ptr<HeightNode>& height_node) {

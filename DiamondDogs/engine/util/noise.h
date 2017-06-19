@@ -16,6 +16,9 @@ namespace vulpes {
 		static float FBM(const glm::vec3& pos, const int32_t& seed, const float& freq, const size_t& octaves, const float& lacun, const float& persistance);
 		static float FBM_Bounded(const glm::vec3& pos, const int32_t& seed, const float& freq, const size_t& octaves, const float& lacun, const float& persistence, const float& min, const float& max);
 
+		static float DecarpientierSwiss(const glm::vec3& pos, const int32_t& seed, const float& freq, const size_t& octaves, const float& lacun, const float& persistance);
+		static float DecarpientierSwiss_Bounded(const glm::vec3& pos, const int32_t& seed, const float& freq, const size_t& octaves, const float& lacun, const float& persistence, const float& min, const float& max);
+
 		static float SimplexBase(const glm::vec3& pos, glm::vec3& norm, const int32_t& seed);
 		
 	private:

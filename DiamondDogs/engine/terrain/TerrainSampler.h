@@ -3,6 +3,8 @@
 
 #include "stdafx.h"
 #include "engine\util\noise.h"
+#include "engine\util\FastNoise.h"
+
 namespace vulpes {
 
 	namespace terrain {
@@ -66,32 +68,15 @@ namespace vulpes {
 		class NoiseSampler : public Sampler {
 		public:
 
-			NoiseSampler(const float& freq_init, const size_t& octaves, const float& lacun, const float& gain, const size_t& seed = 6266);
+			NoiseSampler(const FastNoise::NoiseType& noise_type, const FastNoise::FractalType& fractal_type, const float& freq, const size_t& octaves, const float& lacun, const float& gain, const size_t& seed = 6266);
 
 			virtual float Sample(const size_t& lod_level, const glm::vec3& pos, glm::vec3& normal) const override;
 			virtual float Sample(const size_t& x, const size_t& y) override { return 0.0f; }
+
 		private:
 			float freq, lacun, gain;
 			size_t octaves;
 			size_t seed;
-
-		};
-
-		
-		class HeightmapSampler : public Sampler {
-		public:
-
-			HeightmapSampler(const char* filename, addressMode addr_mode);
-
-			~HeightmapSampler() = default;
-
-			virtual float Sample(const size_t& x, const size_t& y) override;
-
-			addressMode AddressMode;
-
-		protected:
-
-			//std::shared_ptr<Heightmap> heightmap;
 
 		};
 

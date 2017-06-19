@@ -36,6 +36,7 @@
     <ClCompile Include="engine\util\lodepng.cpp" />
     <ClCompile Include="engine\util\Noise.cpp" />
     <ClCompile Include="engine\renderer\render\MSAA.cpp" />
+    <ClCompile Include="engine\util\FastNoise.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -103,6 +104,8 @@
     <ClInclude Include="engine\renderer\ForwardDecl.h" />
     <ClInclude Include="engine\util\Noise.h" />
     <ClInclude Include="engine\renderer\render\MSAA.h" />
+    <ClInclude Include="engine\util\FastNoise.h" />
+    <ClInclude Include="engine\terrain\DataProducer.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

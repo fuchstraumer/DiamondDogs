@@ -17,13 +17,15 @@ namespace vulpes {
 
 		struct AABB {
 
-			glm::dvec3 Min, Max;
+			glm::vec3 Min, Max;
 			
-			glm::dvec3 Extents() const;
+			glm::vec3 Extents() const;
 
-			glm::dvec3 Center() const;
+			glm::vec3 Center() const;
 
 			void CreateMesh();
+
+			void UpdateMinMax(const double& y_min, const double& y_max);
 
 			void Render(VkCommandBuffer & cmd);
 

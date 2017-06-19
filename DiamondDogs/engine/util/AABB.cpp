@@ -37,12 +37,12 @@ namespace vulpes {
 			3,2,6, 6,7,3,
 		};
 
-		glm::dvec3 vulpes::util::AABB::Extents() const {
+		glm::vec3 vulpes::util::AABB::Extents() const {
 			return (Min - Max);
 		}
 
-		glm::dvec3 vulpes::util::AABB::Center() const {
-			return (Min + Max) / 2.0;
+		glm::vec3 vulpes::util::AABB::Center() const {
+			return (Min + Max) / 2.0f;
 		}
 
 		void AABB::CreateMesh() {
@@ -54,6 +54,11 @@ namespace vulpes {
 				++i;
 			}
 			mesh.create_buffers(device);
+		}
+
+		void AABB::UpdateMinMax(const double & y_min, const double & y_max) {
+			Min.y = y_min;
+			Max.y = y_max;
 		}
 
 		void AABB::Render(VkCommandBuffer& cmd) {
