@@ -7,6 +7,7 @@
 #include "engine/renderer/NonCopyable.h"
 #include "engine/renderer/command/CommandPool.h"
 #include "engine/renderer/resource/Buffer.h"
+#include <queue>
 
 /*
 	
@@ -39,6 +40,11 @@ namespace vulpes {
 		std::vector<VkSpecializationMapEntry> Specializations;
 		Texture2D *Input, *Output;
 
+		// each request could have a unique layout or descriptor set.
+		VkPipelineLayout pipelineLayout;
+		VkDescriptorSetLayout descriptorSetLayout;
+		VkDescriptorSet descriptorSet;
+
 		std::weak_ptr<DataResult> Result;
 
 		bool Complete() const;
@@ -54,17 +60,29 @@ namespace vulpes {
 
 		DataProducer(const Device* parent);
 
+		void Request(DataRequest* req);
+
+		// submit availQueues.size() requests, return num submitted.
+		size_t Submit();
+
+		// returns true when requests.empty()
+		bool Complete() const;
+
 	private:
+
+		// we iterate through this and attach one request per submit.
+		std::forward_list<VkQueue> availQueues;
+
+		std::list<DataRequest*> requests;
+
+		static size_t numProducers;
 
 		const Device* parent;
 		const VkAllocationCallbacks* allocators;
-		VkQueue computeQueueHandle;
 		VkFence computeFence;
 		std::unique_ptr<CommandPool> computePool;
 		std::unique_ptr<PipelineCache> pipelineCache;
-		VkPipelineLayout pipelineLayout;
-		VkDescriptorSetLayout descriptorSetLayout;
-		VkDescriptorSet descriptorSet;
+		
 		uint32_t computeFamilyIndex;
 
 		// single descriptor, updated each invocation with current input/outputs.

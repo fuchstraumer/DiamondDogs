@@ -203,6 +203,15 @@ namespace vulpes {
 		return *parent;
 	}
 
+	bool Device::HasDedicatedComputeQueues() const {
+		for (uint32_t i = 0; i < static_cast<uint32_t>(parent->QueueFamilyProperties.size()); ++i) {
+			if ((parent->QueueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) && ((parent->QueueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	void Device::vkSetObjectDebugMarkerName(const uint64_t & object_handle, const VkDebugReportObjectTypeEXT & object_type, const char * name) const {
 		if (pfnDebugMarkerSetObjectName) {
 			VkDebugMarkerObjectNameInfoEXT name_info = vk_debug_marker_object_name_info_base;

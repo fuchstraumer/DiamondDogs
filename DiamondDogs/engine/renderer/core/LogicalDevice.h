@@ -50,6 +50,8 @@ namespace vulpes {
 
 		const PhysicalDevice& GetPhysicalDevice() const noexcept;
 
+		bool HasDedicatedComputeQueues() const;
+
 		void vkSetObjectDebugMarkerName(const uint64_t& object_handle, const VkDebugReportObjectTypeEXT& object_type, const char* name) const;
 		void vkSetObjectDebugMarkerTag(const uint64_t& object_handle, const VkDebugReportObjectTypeEXT& object_type, uint64_t name, size_t tagSize, const void* tag) const;
 		void vkCmdBeginDebugMarkerRegion(VkCommandBuffer& cmd, const char* region_name, const glm::vec4& region_color) const;
@@ -57,6 +59,7 @@ namespace vulpes {
 		void vkCmdEndDebugMarkerRegion(VkCommandBuffer& cmd) const;
 		bool MarkersEnabled;
 
+		uint32_t numGraphicsQueues, numComputeQueues, numTransferQueues;
 	private:
 		VkQueue graphics = VK_NULL_HANDLE, compute = VK_NULL_HANDLE;
 		VkQueue present = VK_NULL_HANDLE, binding = VK_NULL_HANDLE;
@@ -66,7 +69,7 @@ namespace vulpes {
 		VkDevice handle;
 
 		const PhysicalDevice* parent;
-		uint32_t numGraphicsQueues, numComputeQueues, numTransferQueues;
+		
 
 		PFN_vkDebugMarkerSetObjectTagEXT pfnDebugMarkerSetObjectTag;
 		PFN_vkDebugMarkerSetObjectNameEXT pfnDebugMarkerSetObjectName;
