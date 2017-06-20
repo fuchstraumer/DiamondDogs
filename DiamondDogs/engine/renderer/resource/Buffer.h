@@ -29,6 +29,8 @@ namespace vulpes {
 		void Map(const VkDeviceSize& size = 0, const VkDeviceSize& offset = 0);
 		void Unmap();
 
+		void* GetData();
+
 		const VkBuffer& vkHandle() const noexcept;
 		VkBuffer& vkHandle() noexcept;
 		const VkDeviceMemory& DvcMemory() const noexcept;

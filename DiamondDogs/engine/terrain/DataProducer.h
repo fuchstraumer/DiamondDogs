@@ -48,7 +48,7 @@ namespace vulpes {
 			delete Output;
 		}
 
-		VkShaderModule Shader;
+		ShaderModule* Shader;
 		Buffer *Input, *Output;
 		std::unique_ptr<Buffer> Result;
 
@@ -57,13 +57,18 @@ namespace vulpes {
 		size_t Width, Height;
 
 		VkComputePipelineCreateInfo pipelineCreateInfo;
+		VkPipelineShaderStageCreateInfo shaderInfo;
+		VkSpecializationInfo specializationInfo;
+		std::vector<VkSpecializationMapEntry> specializations;
 		terrain::HeightNode *node, *parent;
 		bool Complete() const;
 		Buffer* GetData();
+
+		static DataRequest* UpsampleRequest(terrain::HeightNode* node, terrain::HeightNode* parent, const Device* dvc);
 	};
 
 
-	static DataRequest* UpsampleRequest(terrain::HeightNode* node, terrain::HeightNode* parent, const Device* dvc);
+	
 
 	class DataProducer : public NonMovable {
 	public:
@@ -110,6 +115,9 @@ namespace vulpes {
 		std::unique_ptr<PipelineCache> pipelineCache;
 
 	};
+
+
+	
 
 }
 

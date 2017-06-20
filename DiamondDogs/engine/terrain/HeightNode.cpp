@@ -9,7 +9,7 @@
 namespace vulpes {
 	namespace terrain {
 
-		size_t HeightNode::RootSampleGridSize = 261;
+		size_t HeightNode::RootSampleGridSize = 69;
 		double HeightNode::RootNodeLength = 10000;
 
 		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<HeightSample>& init_samples) : gridCoords(node_grid_coordinates), sampleGridSize(RootSampleGridSize), meshGridSize(RootSampleGridSize - 5) {
@@ -27,39 +27,7 @@ namespace vulpes {
 
 		static constexpr bool save_to_file = false;
 
-		static inline void save_hm_to_file(const std::vector<float>& vals, const float& min, const float& max, const char* filename, unsigned width, unsigned height) {
-
-			auto normalize = [&min, &max](const float& val) {
-				return (val - min) / (max - min);
-			};
-
-			std::vector<float> normalized;
-			normalized.resize(vals.size());
-
-			for (size_t j = 0; j < height; ++j) {
-				for (size_t i = 0; i < width; ++i) {
-					normalized[i + (j * width)] = normalize(vals[i + (j * width)]);
-				}
-			}
-
-			auto make_pixel = [](const float& val)->unsigned char {
-				return static_cast<unsigned char>(val * 255.0f);
-			};
-
-			std::vector<unsigned char> pixels(width * height);
-
-			for (size_t j = 0; j < height; ++j) {
-				for (size_t i = 0; i < width; ++i) {
-					pixels[i + (j * width)] = make_pixel(normalized[i + (j * width)]);
-				}
-			}
-
-
-			unsigned error = lodepng::encode(filename, pixels, width, height, LodePNGColorType::LCT_GREY, 8);
-			if (error) {
-				std::cerr << lodepng_error_text(error) << std::endl;
-			}
-		}
+	
 		
 		void HeightNode::SampleFromParent(const HeightNode & node) {
 			// See: proland/preprocess/terrain/HeightMipmap.cpp to find original implementation
@@ -234,11 +202,11 @@ namespace vulpes {
 			return sampleGridSize * sampleGridSize;
 		}
 
-		std::vector<float> HeightNode::GetHeights() const {
-			std::vector<float> results(sampleGridSize * sampleGridSize);
+		std::vector<glm::vec2> HeightNode::GetHeights() const {
+			std::vector<glm::vec2> results(sampleGridSize * sampleGridSize);
 			for (size_t j = 0; j < sampleGridSize; ++j) {
 				for (size_t i = 0; i < sampleGridSize; ++i) {
-					results[i + (j * sampleGridSize)] = samples[i + (j * sampleGridSize)].Sample.x;
+					results[i + (j * sampleGridSize)] = samples[i + (j * sampleGridSize)].Sample.xy;
 				}
 			}
 			return results;

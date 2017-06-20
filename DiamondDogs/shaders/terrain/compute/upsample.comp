@@ -4,7 +4,7 @@
 #extension GL_ARB_shading_language_420pack : enable
 
 // minimum max dimensionality in xy is 128, process textures in chunks of that size.
-layout(local_size_x = 128, local_size_y = 128, local_size_z = 1) in;
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
 layout(std430, binding = 0) readonly buffer input_buffer {
 	vec2[] data;

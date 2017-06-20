@@ -40,7 +40,7 @@ namespace vulpes {
 
 			assert(parent->numGraphicsQueues >= 2);
 			// Check if we have more than one graphics queue
-			for (uint32_t i = 0; i < parent->numGraphicsQueues / 2; ++i) {
+			for (uint32_t i = parent->numGraphicsQueues / 2; i < parent->numGraphicsQueues; ++i) {
 				availQueues.push_front(parent->GraphicsQueue(i));
 			}
 			
@@ -137,14 +137,15 @@ namespace vulpes {
 	void DataProducer::Request(DataRequest * req) {
 		// add to back, to preserve priority.
 		requests.push_back(req);
-		req->Status = RequestStatus::Received;
+		
 	}
 
-	size_t DataProducer::RecordCommands() {
+	size_t DataProducer::RecordCommands() {	
+
 		size_t submitted = 0;
 
 		VkCommandBufferBeginInfo begin_info = vk_command_buffer_begin_info_base;
-		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 
 		VkBufferMemoryBarrier host_transition_barrier{
 			VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -184,12 +185,11 @@ namespace vulpes {
 		std::forward_list<DataRequest*> transfer_list;
 
 		for (auto iter = availQueues.begin(); iter != availQueues.end(); ++iter) {
+			if (requests.empty()) {
+				break;
+			}
 			auto req = requests.front();
 			requests.pop_front();
-			// should be transferred before we get here, if not we have one spare general-use queue.
-			if (req->Status == RequestStatus::NeedsTransfer) {
-				transfer_list.push_front(req);
-			}
 
 			/*
 				Update write descriptors
@@ -200,14 +200,26 @@ namespace vulpes {
 			write_dscr[1].pBufferInfo = &output_info;
 			vkUpdateDescriptorSets(parent->vkHandle(), 2, write_dscr.data(), 0, nullptr);
 
+			auto& pipeline_info = req->pipelineCreateInfo;
+			pipeline_info.layout = pipelineLayout;
+			VkResult result = vkCreateComputePipelines(parent->vkHandle(), pipelineCache->vkHandle(), 1, &req->pipelineCreateInfo, nullptr, &pipelines[submitted]);
+			VkAssert(result);
+
+			// should be transferred before we get here, if not we have one spare general-use queue.
+			if (req->Status == RequestStatus::NeedsTransfer) {
+				transfer_list.push_front(req);
+			}
+
+
 			/*
 				Record commands
 			*/
 			auto cmd = computePool->GetCmdBuffer(submitted);
-			vkBeginCommandBuffer(cmd, &begin_info);
+			result = vkBeginCommandBuffer(cmd, &begin_info);
+			VkAssert(result);
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines[submitted]);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-			vkCmdDispatch(cmd, req->Width / 16, req->Height / 16, 1);
+			vkCmdDispatch(cmd, req->Width / 32, req->Height / 32, 1);
 			compute_complete_barrier.buffer = req->Output->vkHandle();
 			compute_complete_barrier.size = req->Output->AllocSize();
 			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &compute_complete_barrier, 0, nullptr);
@@ -220,30 +232,23 @@ namespace vulpes {
 			host_transition_barrier.buffer = req->Result->vkHandle();
 			host_transition_barrier.size = req->Result->AllocSize();
 			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &host_transition_barrier, 0, nullptr);
-			vkEndCommandBuffer(cmd);
+			result = vkEndCommandBuffer(cmd);
+			VkAssert(result);
 			submittedRequests.push_front(req);
 			++submitted;
 		}
 
-		vkBeginCommandBuffer(transferPool->GetCmdBuffer(0), &begin_info);
+		VkResult result = vkBeginCommandBuffer(transferPool->GetCmdBuffer(0), &begin_info);
+		VkAssert(result);
 		while (!transfer_list.empty()) {
 			auto req = transfer_list.front();
 			transfer_list.pop_front();
-			auto input_heights = req->node->GetHeights();
-			auto output_heights = req->node->GetHeights();
-			vkBeginCommandBuffer(transferPool->GetCmdBuffer(0), &begin_info);
-			req->Input->CopyTo(input_heights.data(), transferPool->GetCmdBuffer(0), sizeof(float) * input_heights.size(), 0);
-			req->Output->CopyTo(output_heights.data(), transferPool->GetCmdBuffer(0), sizeof(float) * output_heights.size(), 0);
+			auto input_heights = req->parent->GetHeights();
+			req->Input->CopyTo(input_heights.data(), transferPool->GetCmdBuffer(0), sizeof(glm::vec2) * input_heights.size(), 0);
 		}
-		vkEndCommandBuffer(transferPool->GetCmdBuffer(0));
-
-		std::vector<VkComputePipelineCreateInfo> compute_infos;
-		for (const auto& req : submittedRequests) {
-			req->pipelineCreateInfo.layout = pipelineLayout;
-			compute_infos.push_back(req->pipelineCreateInfo);
-		}
-
-		VkResult result = vkCreateComputePipelines(parent->vkHandle(), pipelineCache->vkHandle(), static_cast<uint32_t>(compute_infos.size()), compute_infos.data(), nullptr, pipelines.data());
+		result = vkEndCommandBuffer(transferPool->GetCmdBuffer(0));
+		VkAssert(result);
+	
 		
 		return submitted;
 	}
@@ -253,24 +258,34 @@ namespace vulpes {
 
 		VkSubmitInfo submit_info = vk_submit_info_base;
 		submit_info.commandBufferCount = 1;
+		VkResult result = VK_SUCCESS;
 
 		{
 			// will signal all semaphores when complete
 			submit_info.signalSemaphoreCount = static_cast<uint32_t>(semaphores.size());
 			submit_info.pSignalSemaphores = semaphores.data();
-			vkQueueSubmit(spareQueue, 1, &submit_info, VK_NULL_HANDLE);
+			submit_info.pCommandBuffers = &transferPool->GetCmdBuffer(0);
+			result = vkQueueSubmit(spareQueue, 1, &submit_info, VK_NULL_HANDLE);
+			VkAssert(result);
 			submit_info.signalSemaphoreCount = 0;
 			submit_info.pSignalSemaphores = nullptr;
 		}
 
 		submit_info.waitSemaphoreCount = 1;
+		
 
 		for (auto iter = availQueues.begin(); iter != availQueues.end(); ++iter) {
+			if (submittedRequests.empty()) {
+				break;
+			}
 			// queues execute independently when their corresponding semaphore is signaled,
 			// indicated resources have been transferred and work can continue.
 			submit_info.pCommandBuffers = &computePool->GetCmdBuffer(submitted);
 			submit_info.pWaitSemaphores = &semaphores[submitted];
-			vkQueueSubmit(*iter, 1, &submit_info, fences[submitted]);
+			result = vkQueueSubmit(*iter, 1, &submit_info, fences[submitted]);
+			VkAssert(result);
+			result = vkQueueWaitIdle(*iter);
+			VkAssert(result);
 			++submitted;
 			submittedRequests.front()->Status = RequestStatus::Complete;
 			submittedRequests.pop_front();
@@ -295,6 +310,7 @@ namespace vulpes {
 
 		// cleanup any staging resources used.
 		Buffer::DestroyStagingResources(parent);
+	
 		return submitted;
 	}
 
@@ -302,54 +318,56 @@ namespace vulpes {
 		return requests.empty();
 	}
 
-	DataRequest* UpsampleRequest(terrain::HeightNode * node, terrain::HeightNode * parent, const Device* dvc) {
+	
+	DataRequest* DataRequest::UpsampleRequest(terrain::HeightNode * node, terrain::HeightNode * parent, const Device * dvc) {
 
 		DataRequest* request = new DataRequest;
 
 		request->Input = new Buffer(dvc);
-		request->Input->CreateBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sizeof(float) * parent->NumSamples());
+		request->Input->CreateBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sizeof(glm::vec2) * parent->NumSamples());
 		request->Output = new Buffer(dvc);
-		request->Input->CreateBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sizeof(float) * node->NumSamples());
+		request->Output->CreateBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sizeof(glm::vec2) * node->NumSamples());
 		request->Result = std::make_unique<Buffer>(dvc);
-		request->Result->CreateBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sizeof(float) * node->NumSamples());
+		request->Result->CreateBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sizeof(glm::vec2) * node->NumSamples());
 		request->node = node;
 		request->parent = parent;
 		request->Width = request->Height = node->NumSamples();
 
-		std::array<VkSpecializationMapEntry, 4> specializations{
+		request->specializations = {
 			VkSpecializationMapEntry{ 0, sizeof(int), 0 },
 			VkSpecializationMapEntry{ 1, sizeof(int), sizeof(int) },
 			VkSpecializationMapEntry{ 2, sizeof(int), 2 * sizeof(int) },
 			VkSpecializationMapEntry{ 3, sizeof(int), 3 * sizeof(int) },
 		};
 
-		glm::ivec4 specialization_data = glm::ivec4(node->GridSize(), node->GridSize() - 5, node->GridCoords().x, node->GridCoords().y);
+		glm::ivec4* specialization_data = new glm::ivec4(node->GridSize(), node->GridSize() - 5, node->GridCoords().x, node->GridCoords().y);
 
-		VkSpecializationInfo spec_info{
-			static_cast<uint32_t>(specializations.size()),
-			specializations.data(),
+		request->specializationInfo = VkSpecializationInfo{
+			static_cast<uint32_t>(request->specializations.size()),
+			request->specializations.data(),
 			sizeof(glm::ivec4),
-			glm::value_ptr(specialization_data),
+			glm::value_ptr(*specialization_data),
 		};
 
-		ShaderModule comp(dvc, "shaders/terrain/compute/upsample.comp.spv", VK_SHADER_STAGE_COMPUTE_BIT, "main");
-		VkPipelineShaderStageCreateInfo comp_info = vk_pipeline_shader_stage_create_info_base;
-		comp_info.module = comp.vkHandle();
-		comp_info.pSpecializationInfo = &spec_info;
-		comp_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+		request->Shader = new ShaderModule(dvc, "shaders/terrain/compute/upsample.comp.spv", VK_SHADER_STAGE_COMPUTE_BIT, "main");
+		request->shaderInfo = vk_pipeline_shader_stage_create_info_base;
+		request->shaderInfo.module = request->Shader->vkHandle();
+		request->shaderInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+		request->shaderInfo.pName = "main";
+		request->shaderInfo.pSpecializationInfo = &request->specializationInfo;
 
 		VkComputePipelineCreateInfo compute_info{
-			VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, 
+			VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
 			nullptr,
 			0,
-			comp_info,
+			request->shaderInfo,
 			VK_NULL_HANDLE,
-			VK_NULL_HANDLE, 
+			VK_NULL_HANDLE,
 			-1,
 		};
 
 		request->pipelineCreateInfo = compute_info;
-
+		request->Status = RequestStatus::NeedsTransfer;
 		return request;
 	}
 

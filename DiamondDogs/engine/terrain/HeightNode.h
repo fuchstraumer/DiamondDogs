@@ -28,7 +28,39 @@ namespace vulpes {
 
 	namespace terrain {
 
-		static inline void save_hm_to_file(const std::vector<float>& vals, const float& min, const float& max, const char* filename, unsigned width, unsigned height);
+		static inline void save_hm_to_file(const std::vector<float>& vals, const float& min, const float& max, const char* filename, unsigned width, unsigned height) {
+
+			auto normalize = [&min, &max](const float& val) {
+				return (val - min) / (max - min);
+			};
+
+			std::vector<float> normalized;
+			normalized.resize(vals.size());
+
+			for (size_t j = 0; j < height; ++j) {
+				for (size_t i = 0; i < width; ++i) {
+					normalized[i + (j * width)] = normalize(vals[i + (j * width)]);
+				}
+			}
+
+			auto make_pixel = [](const float& val)->unsigned char {
+				return static_cast<unsigned char>(val * 255.0f);
+			};
+
+			std::vector<unsigned char> pixels(width * height);
+
+			for (size_t j = 0; j < height; ++j) {
+				for (size_t i = 0; i < width; ++i) {
+					pixels[i + (j * width)] = make_pixel(normalized[i + (j * width)]);
+				}
+			}
+
+
+			unsigned error = lodepng::encode(filename, pixels, width, height, LodePNGColorType::LCT_GREY, 8);
+			if (error) {
+				std::cerr << lodepng_error_text(error) << std::endl;
+			}
+		}
 
 		template<typename uint8_t>
 		struct HeightmapPNG {
@@ -85,7 +117,7 @@ namespace vulpes {
 			const glm::ivec3& GridCoords() const noexcept;
 			size_t GridSize() const noexcept;
 			size_t NumSamples() const noexcept;
-			std::vector<float> GetHeights() const;
+			std::vector<glm::vec2> GetHeights() const;
 
 			static void SetRootNodeSize(const size_t& new_size);
 			static void SetRootNodeLength(const double& new_length);

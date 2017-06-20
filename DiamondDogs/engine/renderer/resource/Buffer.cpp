@@ -147,6 +147,14 @@ namespace vulpes {
 		vkUnmapMemory(parent->vkHandle(), memory);
 	}
 
+	void * Buffer::GetData() {
+		Map(allocSize, 0);
+		void* result;
+		memcpy(result, MappedMemory, allocSize);
+		Unmap();
+		return result;
+	}
+
 	const VkBuffer & Buffer::vkHandle() const noexcept{
 		return handle;
 	}
@@ -164,7 +172,7 @@ namespace vulpes {
 	}
 
 	VkDescriptorBufferInfo Buffer::GetDescriptor() const noexcept{
-		return VkDescriptorBufferInfo{ handle, 0, VK_WHOLE_SIZE };
+		return VkDescriptorBufferInfo{ handle, 0, allocSize };
 	}
 
 	VkDeviceSize Buffer::AllocSize() const noexcept{
