@@ -107,6 +107,7 @@
     <ClInclude Include="engine\renderer\render\MSAA.h" />
     <ClInclude Include="engine\util\FastNoise.h" />
     <ClInclude Include="engine\terrain\DataProducer.h" />
+    <ClInclude Include="engine\util\ThreadWrapper.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

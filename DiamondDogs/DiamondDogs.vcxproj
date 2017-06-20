@@ -153,6 +153,7 @@
     <ClInclude Include="engine\util\Noise.h" />
     <ClInclude Include="engine\util\ref_counter.h" />
     <ClInclude Include="engine\util\sphere.h" />
+    <ClInclude Include="engine\util\ThreadWrapper.h" />
     <ClInclude Include="engine\util\view_frustum.h" />
     <ClInclude Include="scenes\Atmoscene.h" />
     <ClInclude Include="scenes\BaseScene.h" />
