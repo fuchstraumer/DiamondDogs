@@ -23,9 +23,13 @@
 
 namespace vulpes {
 
-	struct DataResult {
-		std::unique_ptr<Buffer> Data;
+	enum class RequestStatus : uint8_t {
+		Received, // in a producer
+		Queued, // commands recording/recorded
+		Submitted, // commands submitted
+		Complete, // request complete, data ready.
 	};
+
 
 	/*
 		Request to run a pipeline 
@@ -38,20 +42,22 @@ namespace vulpes {
 		
 		VkShaderModule Shader;
 		std::vector<VkSpecializationMapEntry> Specializations;
-		Texture2D *Input, *Output;
-
-		// each request could have a unique layout or descriptor set.
-		VkPipelineLayout pipelineLayout;
-		VkDescriptorSetLayout descriptorSetLayout;
-		VkDescriptorSet descriptorSet;
-
-		std::weak_ptr<DataResult> Result;
+		Buffer *Input, *Output;
+		std::unique_ptr<Buffer> Result;
 
 		bool Complete() const;
 
-		Buffer* GetData() const;
+		Buffer* GetData();
+
+		RequestStatus Status;
+
+		size_t Width, Height;
 
 	};
+
+	inline static DataRequest UpsampleRequest() {
+
+	}
 
 	
 
@@ -63,6 +69,8 @@ namespace vulpes {
 		void Request(DataRequest* req);
 
 		// submit availQueues.size() requests, return num submitted.
+		size_t RecordCommands();
+
 		size_t Submit();
 
 		// returns true when requests.empty()
@@ -70,8 +78,15 @@ namespace vulpes {
 
 	private:
 
+		// each request could have a unique layout or descriptor set.
+		VkPipelineLayout pipelineLayout;
+		VkDescriptorSetLayout descriptorSetLayout;
+		VkDescriptorSet descriptorSet;
+		VkPipeline pipeline;
 		// we iterate through this and attach one request per submit.
 		std::forward_list<VkQueue> availQueues;
+		std::forward_list<DataRequest*> submittedRequests;
+		std::vector<VkFence> fences;
 
 		std::list<DataRequest*> requests;
 
