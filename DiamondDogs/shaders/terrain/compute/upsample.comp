@@ -6,36 +6,71 @@
 // minimum max dimensionality in xy is 128, process textures in chunks of that size.
 layout(local_size_x = 128, local_size_y = 128, local_size_z = 1) in;
 
-layout(std430, binding = 0) buffer samples {
-	vec3[] data;
-};
+layout(std430, binding = 0) readonly buffer input_buffer {
+	vec2[] data;
+} input_data;
 
-// if true, we sample from noise-based residuals.
-layout(constant_id = 0) const bool use_residuals = false;
+layout(std430, binding = 1) writeonly buffer output_buffer {
+	vec2[] data;
+} output_data;
 
-mat4 upsample_matrices[4] = mat4[4] (
-	mat4(0.0, 0.0, 0.0, 0.0,
-         0.0, 1.0, 0.0, 0.0,
-         0.0, 0.0, 0.0, 0.0,
-         0.0, 0.0, 0.0, 0.0),
-    mat4(0.0, 0.0, 0.0, 0.0,
-         -1.0/16.0, 9.0/16.0, 9.0/16.0, -1.0/16.0,
-         0.0, 0.0, 0.0, 0.0,
-         0.0, 0.0, 0.0, 0.0),
-    mat4(0.0, -1.0/16.0, 0.0, 0.0,
-         0.0, 9.0/16.0, 0.0, 0.0,
-         0.0, 9.0/16.0, 0.0, 0.0,
-         0.0, -1.0/16.0, 0.0, 0.0),
-    mat4(1.0/256.0, -9.0/256.0, -9.0/256.0, 1.0/256.0,
-         -9.0/256.0, 81.0/256.0, 81.0/256.0, -9.0/256.0,
-         -9.0/256.0, 81.0/256.0, 81.0/256.0, -9.0/256.0,
-         1.0/256.0, -9.0/256.0, -9.0/256.0, 1.0/256.0)
-);
 
-float matrix_dot(const mat4& a, const mat4& b) {
-	return dot(a[0], b[0]) + dot(a[1], b[1]) + dot(a[2], b[2]) + dot(a[3], b[3]);
-}
+layout(constant_id = 0) const int sampleGridSize = 37;
+layout(constant_id = 1) const int meshGridSize = sampleGridSize - 5;
+layout(constant_id = 2) const int gridX = 0;
+layout(constant_id = 3) const int gridY = 0;
+
 
 void main() {
-	
+
+	int parent_x = 1 + (gridX % 2) * (meshGridSize / 2);
+	int parent_y = 1 + (gridY % 2) * (meshGridSize / 2);
+
+	for(int j = 0; j < sampleGridSize; ++j) {
+		for(int i = 0; i < sampleGridSize; ++i) {
+			if(j % 2 == 0) {
+				if(i % 2 == 0) {
+					output_data.data[i + (j * sampleGridSize)] = 
+					vec2(input_data.data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x, input_data.data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x);
+					continue;
+				}
+				else {
+					vec4 z;
+					z.x = input_data.data[i / 2 + parent_x + (j / 2 - 1 + parent_y) * sampleGridSize].x;
+					z.y = input_data.data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x;
+					z.z = input_data.data[i / 2 + parent_x + (j / 2 + 1 + parent_y) * sampleGridSize].x;
+					z.w = input_data.data[i / 2 + parent_x + (j / 2 + 2 + parent_y) * sampleGridSize].x;
+					output_data.data[i + (j * sampleGridSize)] = 
+					vec2(((z.y + z.z) * 9.0f - (z.x + z.w)) / 16.0f, input_data.data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x);
+					continue;
+				}
+			}
+			else {
+				if(i % 2 == 0) {
+					vec4 z;
+					z.x = input_data.data[i / 2 + parent_x - 1 + (j / 2 + parent_y) * sampleGridSize].x;
+					z.y = input_data.data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x;
+					z.z = input_data.data[i / 2 + parent_x + 1 + (j / 2 + parent_y) * sampleGridSize].x;
+					z.w = input_data.data[i / 2 + parent_x + 2 + (j / 2 + parent_y) * sampleGridSize].x;
+					output_data.data[i + (j * sampleGridSize)] = 
+					vec2(((z.y + z.z) * 9.0f - (z.x + z.w)) / 16.0f, input_data.data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x);
+					continue;
+				}
+				else {
+					int dI, dJ;
+					float sum = 0.0f;
+					for(dJ = -1; dJ <= 2; ++dJ) {
+						float f = (dJ == -1 || dJ == 2) ? (-1.0f / 16.0f) : (9.0f / 16.0f);
+						for(dI = -1; dI <= 2; ++dI) {
+							float g = (dI == -1 || dI == 2) ? (-1.0f / 16.0f) : (9.0f / 16.0f);
+							sum += f * g * input_data.data[i / 2 + dI + parent_x + (j / 2 + dJ + parent_y) * sampleGridSize].x;
+						}
+					}
+					output_data.data[i + (j * sampleGridSize)] = 
+					vec2(sum, input_data.data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x);
+					continue;
+				}
+			}
+		}
+	}
 }

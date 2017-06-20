@@ -158,10 +158,6 @@ namespace vulpes {
 		return;
 	}
 
-	VkQueue Device::PresentQueue(const uint32_t & idx) const{
-		return present;
-	}
-
 	VkQueue Device::ComputeQueue(const uint32_t & idx) const{
 		assert(idx < numComputeQueues);
 		VkQueue result;
@@ -210,6 +206,20 @@ namespace vulpes {
 			}
 		}
 		return false;
+	}
+
+	VkQueue Device::GetGeneralQueue() const {
+		uint32_t idx = 0;
+		for (uint32_t i = 0; i < static_cast<uint32_t>(parent->QueueFamilyProperties.size()); ++i) {
+			if ((parent->QueueFamilyProperties[i].queueFlags | VK_QUEUE_TRANSFER_BIT) && (parent->QueueFamilyProperties[i].queueFlags | VK_QUEUE_GRAPHICS_BIT)) {
+				idx = i;
+				break;
+			}
+		}
+		assert(idx == QueueFamilyIndices.Graphics);
+		VkQueue result;
+		vkGetDeviceQueue(vkHandle(), idx, numGraphicsQueues - 1, &result);
+		return result;
 	}
 
 	void Device::vkSetObjectDebugMarkerName(const uint64_t & object_handle, const VkDebugReportObjectTypeEXT & object_type, const char * name) const {

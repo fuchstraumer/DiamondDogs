@@ -37,6 +37,33 @@ namespace vulpes {
 
 	}
 
+	ShaderModule::ShaderModule(const Device * device, const char * filename, VkPipelineShaderStageCreateInfo & create_info) : pipelineInfo(create_info), createInfo(vk_shader_module_create_info_base), parent(device) {
+
+		try {
+			std::ifstream input(filename, std::ios::binary | std::ios::in | std::ios::ate);
+			input.exceptions(std::ios::failbit | std::ios::badbit);
+			codeSize = static_cast<uint32_t>(input.tellg());
+			assert(codeSize > 0);
+			code.resize(codeSize);
+			input.seekg(0, std::ios::beg);
+			input.read(code.data(), codeSize);
+			input.close();
+			createInfo.codeSize = codeSize;
+			std::vector<uint32_t> code_aligned(code.size() / sizeof(uint32_t) + 1);
+			memcpy(code_aligned.data(), code.data(), code.size());
+			createInfo.pCode = code_aligned.data();
+			
+		}
+		catch (std::ifstream::failure&) {
+			std::cerr << "OBJECTS::RESOURCE::SHADER_MODULE: Failure opening or reading shader file." << std::endl;
+			throw(std::runtime_error("OBJECTS::RESOURCE::SHADER_MODULE: Failure opening or reading shader file."));
+		}
+
+		VkResult result = vkCreateShaderModule(device->vkHandle(), &createInfo, allocators, &handle);
+		VkAssert(result);
+	}
+	
+
 	ShaderModule::~ShaderModule(){
 		if (handle != VK_NULL_HANDLE) {
 			vkDestroyShaderModule(parent->vkHandle(), handle, allocators);

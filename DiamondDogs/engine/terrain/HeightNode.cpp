@@ -228,6 +228,20 @@ namespace vulpes {
 			return meshGridSize;
 		}
 
+		size_t HeightNode::NumSamples() const noexcept {
+			return sampleGridSize * sampleGridSize;
+		}
+
+		std::vector<float> HeightNode::GetHeights() const {
+			std::vector<float> results(sampleGridSize * sampleGridSize);
+			for (size_t j = 0; j < sampleGridSize; ++j) {
+				for (size_t i = 0; i < sampleGridSize; ++i) {
+					results[i + (j * sampleGridSize)] = samples[i + (j * sampleGridSize)].Sample.x;
+				}
+			}
+			return results;
+		}
+
 		void HeightNode::SetRootNodeSize(const size_t & new_size) {
 			RootSampleGridSize = new_size;
 		}

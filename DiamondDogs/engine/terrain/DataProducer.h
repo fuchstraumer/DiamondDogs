@@ -23,10 +23,13 @@
 
 namespace vulpes {
 
+	namespace terrain {
+		class HeightNode;
+	}
+
 	enum class RequestStatus : uint8_t {
 		Received, // in a producer
-		Queued, // commands recording/recorded
-		Submitted, // commands submitted
+		NeedsTransfer, // request data not on device ready, can't dispatch shader.
 		Complete, // request complete, data ready.
 	};
 
@@ -35,36 +38,38 @@ namespace vulpes {
 		Request to run a pipeline 
 		- Shader contains the VkShaderModule unique to this request. I assume the "name" is just "main". Stage flags are just VK_SHADER_STAGE_COMPUTE_BIT
 		- Specializations contain (if applicable) specialization constants that are being modified for this invocation
-		- Input is the input texture being operated on (readonly), Output is texture being written to
-		- Result is a weak pointer, so that we can check if it's ready or not.
+		- Input is the input buffer being operated on (readonly), Output is buffer being written to
 	*/
 	struct DataRequest {
 		
+		~DataRequest() {
+			delete Input;
+			delete Output;
+		}
+
 		VkShaderModule Shader;
-		std::vector<VkSpecializationMapEntry> Specializations;
 		Buffer *Input, *Output;
 		std::unique_ptr<Buffer> Result;
-
-		bool Complete() const;
-
-		Buffer* GetData();
 
 		RequestStatus Status;
 
 		size_t Width, Height;
 
+		VkComputePipelineCreateInfo pipelineCreateInfo;
+		terrain::HeightNode *node, *parent;
+		bool Complete() const;
+		Buffer* GetData();
 	};
 
-	inline static DataRequest UpsampleRequest() {
 
-	}
-
-	
+	static DataRequest* UpsampleRequest(terrain::HeightNode* node, terrain::HeightNode* parent, const Device* dvc);
 
 	class DataProducer : public NonMovable {
 	public:
 
 		DataProducer(const Device* parent);
+
+		~DataProducer();
 
 		void Request(DataRequest* req);
 
@@ -82,26 +87,27 @@ namespace vulpes {
 		VkPipelineLayout pipelineLayout;
 		VkDescriptorSetLayout descriptorSetLayout;
 		VkDescriptorSet descriptorSet;
-		VkPipeline pipeline;
+		VkDescriptorPool descriptorPool;
+
 		// we iterate through this and attach one request per submit.
 		std::forward_list<VkQueue> availQueues;
+		VkQueue spareQueue; // general-use queue used for transfers, if needed.
+		
 		std::forward_list<DataRequest*> submittedRequests;
+
 		std::vector<VkFence> fences;
+		std::vector<VkSemaphore> semaphores;
+		std::vector<VkPipeline> pipelines;
 
 		std::list<DataRequest*> requests;
 
 		static size_t numProducers;
 
 		const Device* parent;
-		const VkAllocationCallbacks* allocators;
-		VkFence computeFence;
 		std::unique_ptr<CommandPool> computePool;
+		std::unique_ptr<CommandPool> transferPool;
 		std::unique_ptr<PipelineCache> pipelineCache;
-		
-		uint32_t computeFamilyIndex;
 
-		// single descriptor, updated each invocation with current input/outputs.
-		VkDescriptorImageInfo imageInfo;
 	};
 
 }

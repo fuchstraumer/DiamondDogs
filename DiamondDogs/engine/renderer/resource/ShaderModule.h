@@ -11,6 +11,7 @@ namespace vulpes {
 	public:
 	
 		ShaderModule(const Device* device, const char* filename, const VkShaderStageFlagBits& stages, const char* shader_name = nullptr);
+		ShaderModule(const Device* device, const char* filename, VkPipelineShaderStageCreateInfo& create_info);
 		~ShaderModule();
 
 		ShaderModule(ShaderModule&& other) noexcept;

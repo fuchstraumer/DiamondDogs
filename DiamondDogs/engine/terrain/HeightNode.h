@@ -84,6 +84,8 @@ namespace vulpes {
 
 			const glm::ivec3& GridCoords() const noexcept;
 			size_t GridSize() const noexcept;
+			size_t NumSamples() const noexcept;
+			std::vector<float> GetHeights() const;
 
 			static void SetRootNodeSize(const size_t& new_size);
 			static void SetRootNodeLength(const double& new_length);

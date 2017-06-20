@@ -35,6 +35,7 @@ namespace vulpes {
 		void CheckSurfaceSupport(const VkSurfaceKHR& surf);
 
 		VkQueue GraphicsQueue(const uint32_t & idx = 0) const;
+		VkQueue GeneralQueue(const uint32_t& idx = 0) const;
 		const void TransferQueue(const uint32_t & idx, VkQueue& queue) const;
 		VkQueue PresentQueue(const uint32_t & idx = 0) const;
 		VkQueue ComputeQueue(const uint32_t & idx = 0) const;
@@ -52,6 +53,8 @@ namespace vulpes {
 
 		bool HasDedicatedComputeQueues() const;
 
+		VkQueue GetGeneralQueue() const;
+
 		void vkSetObjectDebugMarkerName(const uint64_t& object_handle, const VkDebugReportObjectTypeEXT& object_type, const char* name) const;
 		void vkSetObjectDebugMarkerTag(const uint64_t& object_handle, const VkDebugReportObjectTypeEXT& object_type, uint64_t name, size_t tagSize, const void* tag) const;
 		void vkCmdBeginDebugMarkerRegion(VkCommandBuffer& cmd, const char* region_name, const glm::vec4& region_color) const;
@@ -60,9 +63,8 @@ namespace vulpes {
 		bool MarkersEnabled;
 
 		uint32_t numGraphicsQueues, numComputeQueues, numTransferQueues;
+		uint32_t numGeneralQueues;
 	private:
-		VkQueue graphics = VK_NULL_HANDLE, compute = VK_NULL_HANDLE;
-		VkQueue present = VK_NULL_HANDLE, binding = VK_NULL_HANDLE;
 
 		const VkAllocationCallbacks* AllocCallbacks = nullptr;
 
