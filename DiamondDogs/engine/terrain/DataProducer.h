@@ -7,6 +7,7 @@
 #include "engine/renderer/NonCopyable.h"
 #include "engine/renderer/command/CommandPool.h"
 #include "engine/renderer/resource/Buffer.h"
+#include "engine/renderer/resource/PipelineCache.h"
 #include <queue>
 
 /*
@@ -90,7 +91,7 @@ namespace vulpes {
 		VkDescriptorPool descriptorPool;
 
 		// we iterate through this and attach one request per submit.
-		std::forward_list<VkQueue> availQueues;
+		std::list<VkQueue> availQueues;
 		VkQueue spareQueue; // general-use queue used for transfers, if needed.
 		
 		std::forward_list<DataRequest*> submittedRequests;

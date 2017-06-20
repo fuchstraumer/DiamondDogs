@@ -36,13 +36,22 @@ namespace vulpes {
 				availQueues.push_front(parent->ComputeQueue(i));
 			}
 		}
+		else {
+
+			assert(parent->numGraphicsQueues >= 2);
+			// Check if we have more than one graphics queue
+			for (uint32_t i = 0; i < parent->numGraphicsQueues / 2; ++i) {
+				availQueues.push_front(parent->GraphicsQueue(i));
+			}
+			
+		}
 
 		VkCommandPoolCreateInfo pool_info = vk_command_pool_info_base;
 		pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 		pool_info.queueFamilyIndex = parent->QueueFamilyIndices.Compute;
 
 		computePool = std::make_unique<CommandPool>(parent, pool_info);
-		computePool->CreateCommandBuffers(availQueues.max_size());
+		computePool->CreateCommandBuffers(availQueues.size());
 
 		spareQueue = parent->GetGeneralQueue();
 		pool_info.queueFamilyIndex = parent->QueueFamilyIndices.Graphics;
@@ -50,11 +59,11 @@ namespace vulpes {
 		transferPool = std::make_unique<CommandPool>(parent, pool_info);
 		transferPool->CreateCommandBuffers(1);
 
-		fences.resize(availQueues.max_size());
-		semaphores.resize(availQueues.max_size());
-		pipelines.resize(availQueues.max_size());
+		fences.resize(availQueues.size());
+		semaphores.resize(availQueues.size());
+		pipelines.resize(availQueues.size());
 		VkResult result = VK_SUCCESS;
-		for (size_t i = 0; i < availQueues.max_size(); ++i) {
+		for (size_t i = 0; i < availQueues.size(); ++i) {
 			result = vkCreateFence(parent->vkHandle(), &vk_fence_create_info_base, nullptr, &fences[i]);
 			VkAssert(result);
 			VkSemaphoreCreateInfo semaphore_info{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
@@ -257,6 +266,8 @@ namespace vulpes {
 		submit_info.waitSemaphoreCount = 1;
 
 		for (auto iter = availQueues.begin(); iter != availQueues.end(); ++iter) {
+			// queues execute independently when their corresponding semaphore is signaled,
+			// indicated resources have been transferred and work can continue.
 			submit_info.pCommandBuffers = &computePool->GetCmdBuffer(submitted);
 			submit_info.pWaitSemaphores = &semaphores[submitted];
 			vkQueueSubmit(*iter, 1, &submit_info, fences[submitted]);

@@ -38,6 +38,7 @@
     <ClCompile Include="engine\renderer\render\MSAA.cpp" />
     <ClCompile Include="engine\util\FastNoise.cpp" />
     <ClCompile Include="engine\terrain\DataProducer.cpp" />
+    <ClCompile Include="engine\renderer\resource\PipelineCache.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -108,6 +109,8 @@
     <ClInclude Include="engine\util\FastNoise.h" />
     <ClInclude Include="engine\terrain\DataProducer.h" />
     <ClInclude Include="engine\util\ThreadWrapper.h" />
+    <ClInclude Include="scenes\ComputeTests.h" />
+    <ClInclude Include="engine\renderer\resource\PipelineCache.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

@@ -4,6 +4,7 @@
 #include "engine\renderer\resource\Buffer.h"
 #include "engine\renderer\resource\ShaderModule.h"
 #include "engine\renderer\render\GraphicsPipeline.h"
+#include "engine/renderer/resource/PipelineCache.h"
 #include "engine\renderer\render\Swapchain.h"
 
 static const glm::vec4 light_color = glm::vec4(0.98f, 0.95f, 0.93f, 1.0f);

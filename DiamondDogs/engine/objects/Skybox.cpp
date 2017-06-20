@@ -7,6 +7,7 @@
 #include "engine\renderer\render\GraphicsPipeline.h"
 #include "engine\renderer\core\PhysicalDevice.h"
 #include "engine\renderer\render\MSAA.h"
+#include "engine/renderer/resource/PipelineCache.h"
 
 namespace vulpes {
 	namespace obj {

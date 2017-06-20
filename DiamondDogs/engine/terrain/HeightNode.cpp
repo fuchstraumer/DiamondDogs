@@ -19,8 +19,10 @@ namespace vulpes {
 			MaxZ = samples.at(min_max.second - samples.cbegin()).Sample.x;
 		}
 
-		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), sampleGridSize(37) {
-			SampleFromParent(parent);
+		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent, const bool& sample_now) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), sampleGridSize(37) {
+			if (sample_now) {
+				SampleFromParent(parent);
+			}
 		}
 
 		static constexpr bool save_to_file = false;

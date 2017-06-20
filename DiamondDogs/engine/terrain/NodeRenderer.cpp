@@ -12,7 +12,8 @@
 #include "engine\renderer\command\CommandPool.h"
 #include "engine\renderer\command\TransferPool.h"
 #include "engine\renderer\resource\Texture.h"
-#include "engine\\renderer\render\MSAA.h"
+#include "engine\renderer\render\MSAA.h"
+#include "engine/renderer/resource/PipelineCache.h"
 
 bool vulpes::terrain::NodeRenderer::DrawAABBs = false;
 float vulpes::terrain::NodeRenderer::MaxRenderDistance = 100000.0f;

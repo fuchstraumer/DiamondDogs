@@ -5,6 +5,7 @@
 #include "engine\renderer\resource\ShaderModule.h"
 #include "engine\renderer\render\GraphicsPipeline.h"
 #include "engine\renderer\render\Swapchain.h"
+#include "engine/renderer/resource/PipelineCache.h"
 
 namespace vulpes {
 

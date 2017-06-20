@@ -22,29 +22,6 @@ namespace vulpes {
 	};
 
 
-	class PipelineCache {
-		PipelineCache(const PipelineCache& other) = delete;
-		PipelineCache& operator=(const PipelineCache& other) = delete;
-	public:
-
-		PipelineCache(const Device* parent);
-
-		// uses scene_ptr to create a hash relevant to the currently active scene.
-		PipelineCache(const Device* parent, const uint16_t& type_id);
-
-		~PipelineCache();
-
-		VkResult save_to_file();
-
-		const VkPipelineCache& vkHandle() const noexcept;
-
-	private:
-		std::string filename;
-		VkPipelineCacheCreateInfo createInfo;
-		VkPipelineCache handle;
-		const Device* parent;
-	};
-
 	class GraphicsPipeline : public NonCopyable {
 	public:
 

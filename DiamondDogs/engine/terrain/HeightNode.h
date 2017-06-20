@@ -28,7 +28,7 @@ namespace vulpes {
 
 	namespace terrain {
 
-		
+		static inline void save_hm_to_file(const std::vector<float>& vals, const float& min, const float& max, const char* filename, unsigned width, unsigned height);
 
 		template<typename uint8_t>
 		struct HeightmapPNG {
@@ -68,7 +68,7 @@ namespace vulpes {
 			HeightNode(const glm::ivec3& node_grid_coordinates, std::vector<HeightSample>& init_samples);
 
 			// Used for most nodes.
-			HeightNode(const glm::ivec3& node_grid_coordinates, const HeightNode& parent);
+			HeightNode(const glm::ivec3& node_grid_coordinates, const HeightNode& parent, const bool& sample_now = true);
 
 			~HeightNode() = default;
 

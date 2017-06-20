@@ -103,6 +103,7 @@
     <ClInclude Include="common\VkDebug.h" />
     <ClInclude Include="engine\objects\Atmosphere.h" />
     <ClInclude Include="engine\renderer\render\MSAA.h" />
+    <ClInclude Include="engine\renderer\resource\PipelineCache.h" />
     <ClInclude Include="engine\terrain\DataProducer.h" />
     <ClInclude Include="engine\terrain\HeightNode.h" />
     <ClInclude Include="engine\objects\mesh\Icosphere.h" />
@@ -157,6 +158,7 @@
     <ClInclude Include="engine\util\view_frustum.h" />
     <ClInclude Include="scenes\Atmoscene.h" />
     <ClInclude Include="scenes\BaseScene.h" />
+    <ClInclude Include="scenes\ComputeTests.h" />
     <ClInclude Include="scenes\StarScene.h" />
     <ClInclude Include="scenes\Terrain.h" />
     <ClInclude Include="stdafx.h" />
@@ -194,6 +196,7 @@
     <ClCompile Include="engine\renderer\render\Swapchain.cpp" />
     <ClCompile Include="engine\renderer\resource\Buffer.cpp" />
     <ClCompile Include="engine\renderer\resource\Image.cpp" />
+    <ClCompile Include="engine\renderer\resource\PipelineCache.cpp" />
     <ClCompile Include="engine\renderer\resource\ShaderModule.cpp" />
     <ClCompile Include="engine\renderer\resource\Texture.cpp" />
     <ClCompile Include="engine\terrain\DataProducer.cpp" />

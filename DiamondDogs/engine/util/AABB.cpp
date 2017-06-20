@@ -2,7 +2,7 @@
 #include "AABB.h"
 #include "engine\renderer\core\LogicalDevice.h"
 #include "engine\objects\mesh\mesh.h"
-
+#include "engine/renderer/resource/PipelineCache.h"
 namespace vulpes {
 
 	namespace util {
