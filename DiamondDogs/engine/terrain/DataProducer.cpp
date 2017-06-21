@@ -60,16 +60,19 @@ namespace vulpes {
 		transferPool->CreateCommandBuffers(1);
 
 		fences.resize(availQueues.size());
-		semaphores.resize(availQueues.size());
+
 		pipelines.resize(availQueues.size());
 		VkResult result = VK_SUCCESS;
 		for (size_t i = 0; i < availQueues.size(); ++i) {
 			result = vkCreateFence(parent->vkHandle(), &vk_fence_create_info_base, nullptr, &fences[i]);
 			VkAssert(result);
-			VkSemaphoreCreateInfo semaphore_info{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
-			result = vkCreateSemaphore(parent->vkHandle(), &semaphore_info, nullptr, &semaphores[i]);
-			VkAssert(result);
+			
 		}
+
+		semaphores.resize(1);
+		VkSemaphoreCreateInfo semaphore_info{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
+		result = vkCreateSemaphore(parent->vkHandle(), &semaphore_info, nullptr, &semaphores[0]);
+		VkAssert(result);
 
 		/*
 			setup descriptors, layouts, bindings, pools, etc
@@ -219,10 +222,11 @@ namespace vulpes {
 			VkAssert(result);
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines[submitted]);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-			vkCmdDispatch(cmd, req->Width / 32, req->Height / 32, 1);
+			vkCmdDispatch(cmd, req->Width / 16, req->Height / 16, 1);
 			compute_complete_barrier.buffer = req->Output->vkHandle();
 			compute_complete_barrier.size = req->Output->AllocSize();
 			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &compute_complete_barrier, 0, nullptr);
+			vkCmdFillBuffer(cmd, req->Output->vkHandle(), 0, req->Output->AllocSize(), 0xffffffff);
 			output_result_copy.size = req->Output->AllocSize();
 			vkCmdCopyBuffer(cmd, req->Output->vkHandle(), req->Result->vkHandle(), 1, &output_result_copy);
 
@@ -262,17 +266,16 @@ namespace vulpes {
 
 		{
 			// will signal all semaphores when complete
-			submit_info.signalSemaphoreCount = static_cast<uint32_t>(semaphores.size());
-			submit_info.pSignalSemaphores = semaphores.data();
+			//submit_info.signalSemaphoreCount = static_cast<uint32_t>(semaphores.size());
+			//submit_info.pSignalSemaphores = semaphores.data();
 			submit_info.pCommandBuffers = &transferPool->GetCmdBuffer(0);
 			result = vkQueueSubmit(spareQueue, 1, &submit_info, VK_NULL_HANDLE);
 			VkAssert(result);
-			submit_info.signalSemaphoreCount = 0;
-			submit_info.pSignalSemaphores = nullptr;
+			//submit_info.signalSemaphoreCount = 0;
+			//submit_info.pSignalSemaphores = nullptr;
+			vkQueueWaitIdle(spareQueue);
 		}
 
-		submit_info.waitSemaphoreCount = 1;
-		
 
 		for (auto iter = availQueues.begin(); iter != availQueues.end(); ++iter) {
 			if (submittedRequests.empty()) {
@@ -280,11 +283,9 @@ namespace vulpes {
 			}
 			// queues execute independently when their corresponding semaphore is signaled,
 			// indicated resources have been transferred and work can continue.
-			submit_info.pCommandBuffers = &computePool->GetCmdBuffer(submitted);
-			submit_info.pWaitSemaphores = &semaphores[submitted];
+			//submit_info.pCommandBuffers = &computePool->GetCmdBuffer(submitted);
+			//submit_info.pWaitSemaphores = &semaphores[submitted];
 			result = vkQueueSubmit(*iter, 1, &submit_info, fences[submitted]);
-			VkAssert(result);
-			result = vkQueueWaitIdle(*iter);
 			VkAssert(result);
 			++submitted;
 			submittedRequests.front()->Status = RequestStatus::Complete;

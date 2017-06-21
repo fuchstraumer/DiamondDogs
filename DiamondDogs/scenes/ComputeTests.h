@@ -59,24 +59,23 @@ namespace compute_tests {
 			for (size_t i = 0; i < 8; ++i) {
 				auto& result = lod_1_requests[i]->Result;
 
-				result->Map(result->DataSize());
 				size_t num_samples = lod_1_requests[i]->node->NumSamples();
-				std::vector<float> result_heights(num_samples);
-				std::vector<glm::vec2> result_vecs;
-				result_vecs.reserve(num_samples);
-				std::copy(&reinterpret_cast<glm::vec2*>(result->MappedMemory)[0], &reinterpret_cast<glm::vec2*>(result->MappedMemory)[num_samples], std::back_inserter(result_vecs));
+				
+				glm::vec2* mapped;
+				vkMapMemory(device->vkHandle(), result->DvcMemory(), 0, VK_WHOLE_SIZE, 0, reinterpret_cast<void**>(&mapped));
+				
 				for (size_t i = 0; i < num_samples; ++i) {
-					result_heights[i] = reinterpret_cast<glm::vec2*>(result->MappedMemory)[i].x;
+					std::cout << glm::to_string(mapped[i]) << "\n";
 				}
 
-				auto min_max = std::minmax_element(result_heights.cbegin(), result_heights.cend());
+				/*auto min_max = std::minmax_element(result_heights.cbegin(), result_heights.cend());
 				float min_z, max_z;
 				min_z = result_heights.at(min_max.first - result_heights.cbegin());
-				max_z = result_heights.at(min_max.second - result_heights.cbegin());
+				max_z = result_heights.at(min_max.second - result_heights.cbegin());*/
 				std::string fname("compute_test_node_");
 				fname += std::to_string(i);
 				fname += std::string(".png");
-				save_hm_to_file(result_heights, min_z, max_z, fname.c_str(), num_samples / num_samples, num_samples / num_samples);
+				//save_hm_to_file(result_heights, min_z, max_z, fname.c_str(), num_samples / num_samples, num_samples / num_samples);
 				result->Unmap();
 			}
 		}

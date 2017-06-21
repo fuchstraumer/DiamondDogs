@@ -4,13 +4,13 @@
 #extension GL_ARB_shading_language_420pack : enable
 
 // minimum max dimensionality in xy is 128, process textures in chunks of that size.
-layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
-layout(std430, binding = 0) readonly buffer input_buffer {
+layout(binding = 0) readonly buffer input_buffer {
 	vec2[] data;
 } input_data;
 
-layout(std430, binding = 1) writeonly buffer output_buffer {
+layout(binding = 1) buffer output_buffer {
 	vec2[] data;
 } output_data;
 
@@ -23,16 +23,21 @@ layout(constant_id = 3) const int gridY = 0;
 
 void main() {
 
+	uint i, j;
+	i = gl_GlobalInvocationID.x;
+	j = gl_GlobalInvocationID.y;
+
+	if(i > sampleGridSize || j > sampleGridSize) {
+		return;
+	}
+
 	int parent_x = 1 + (gridX % 2) * (meshGridSize / 2);
 	int parent_y = 1 + (gridY % 2) * (meshGridSize / 2);
 
-	for(int j = 0; j < sampleGridSize; ++j) {
-		for(int i = 0; i < sampleGridSize; ++i) {
 			if(j % 2 == 0) {
 				if(i % 2 == 0) {
 					output_data.data[i + (j * sampleGridSize)] = 
 					vec2(input_data.data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x, input_data.data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x);
-					continue;
 				}
 				else {
 					vec4 z;
@@ -42,7 +47,6 @@ void main() {
 					z.w = input_data.data[i / 2 + parent_x + (j / 2 + 2 + parent_y) * sampleGridSize].x;
 					output_data.data[i + (j * sampleGridSize)] = 
 					vec2(((z.y + z.z) * 9.0f - (z.x + z.w)) / 16.0f, input_data.data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x);
-					continue;
 				}
 			}
 			else {
@@ -54,7 +58,6 @@ void main() {
 					z.w = input_data.data[i / 2 + parent_x + 2 + (j / 2 + parent_y) * sampleGridSize].x;
 					output_data.data[i + (j * sampleGridSize)] = 
 					vec2(((z.y + z.z) * 9.0f - (z.x + z.w)) / 16.0f, input_data.data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x);
-					continue;
 				}
 				else {
 					int dI, dJ;
@@ -68,9 +71,8 @@ void main() {
 					}
 					output_data.data[i + (j * sampleGridSize)] = 
 					vec2(sum, input_data.data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x);
-					continue;
 				}
 			}
-		}
-	}
+
+	
 }
