@@ -36,28 +36,28 @@ void main() {
 
 	if(j % 2 == 0) {
 		if(i % 2 == 0) {
-			output_data.data[i + (j * sampleGridSize)] = 
-			vec2(input_data.data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x, input_data.data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x);
+			out_data[i + (j * sampleGridSize)] = 
+			vec2(in_data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x, in_data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x);
 		}
 		else {
 			vec4 z;
-			z.x = input_data.data[i / 2 + parent_x + (j / 2 - 1 + parent_y) * sampleGridSize].x;
-			z.y = input_data.data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x;
-			z.z = input_data.data[i / 2 + parent_x + (j / 2 + 1 + parent_y) * sampleGridSize].x;
-			z.w = input_data.data[i / 2 + parent_x + (j / 2 + 2 + parent_y) * sampleGridSize].x;
-			output_data.data[i + (j * sampleGridSize)] = 
-			vec2(((z.y + z.z) * 9.0f - (z.x + z.w)) / 16.0f, input_data.data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x);
+			z.x = in_data[i / 2 + parent_x + (j / 2 - 1 + parent_y) * sampleGridSize].x;
+			z.y = in_data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x;
+			z.z = in_data[i / 2 + parent_x + (j / 2 + 1 + parent_y) * sampleGridSize].x;
+			z.w = in_data[i / 2 + parent_x + (j / 2 + 2 + parent_y) * sampleGridSize].x;
+			out_data[i + (j * sampleGridSize)] = 
+			vec2(((z.y + z.z) * 9.0f - (z.x + z.w)) / 16.0f, in_data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x);
 		}
 	}
 	else {
 		if(i % 2 == 0) {
 			vec4 z;
-			z.x = input_data.data[i / 2 + parent_x - 1 + (j / 2 + parent_y) * sampleGridSize].x;
-			z.y = input_data.data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x;
-			z.z = input_data.data[i / 2 + parent_x + 1 + (j / 2 + parent_y) * sampleGridSize].x;
-			z.w = input_data.data[i / 2 + parent_x + 2 + (j / 2 + parent_y) * sampleGridSize].x;
-			output_data.data[i + (j * sampleGridSize)] = 
-			vec2(((z.y + z.z) * 9.0f - (z.x + z.w)) / 16.0f, input_data.data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x);
+			z.x = in_data[i / 2 + parent_x - 1 + (j / 2 + parent_y) * sampleGridSize].x;
+			z.y = in_data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x;
+			z.z = in_data[i / 2 + parent_x + 1 + (j / 2 + parent_y) * sampleGridSize].x;
+			z.w = in_data[i / 2 + parent_x + 2 + (j / 2 + parent_y) * sampleGridSize].x;
+			out_data[i + (j * sampleGridSize)] = 
+			vec2(((z.y + z.z) * 9.0f - (z.x + z.w)) / 16.0f, in_data[i / 2 + parent_x + (j /2 + parent_y) * sampleGridSize].x);
 		}
 		else {
 			int dI, dJ;
@@ -66,14 +66,15 @@ void main() {
 				float f = (dJ == -1 || dJ == 2) ? (-1.0f / 16.0f) : (9.0f / 16.0f);
 				for(dI = -1; dI <= 2; ++dI) {
 					float g = (dI == -1 || dI == 2) ? (-1.0f / 16.0f) : (9.0f / 16.0f);
-					sum += f * g * input_data.data[i / 2 + dI + parent_x + (j / 2 + dJ + parent_y) * sampleGridSize].x;
+					sum += f * g * in_data[i / 2 + dI + parent_x + (j / 2 + dJ + parent_y) * sampleGridSize].x;
 				}
 			}
-			output_data.data[i + (j * sampleGridSize)] = 
-			vec2(sum, input_data.data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x);
+			out_data[i + (j * sampleGridSize)] = 
+			vec2(sum, in_data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x);
 		}
 	}
-		
-		out_data[i + (j * sampleGridSize)] = vec2(1.0f, 0.0f);
-	
+	/*
+	attempted to force output values, to no avail.
+	out_data[i + (j * sampleGridSize)] = vec2(1.0f, 0.0f);
+	*/
 }
