@@ -18,11 +18,7 @@
 #include <stdafx.h>
 #include <random>
 #include "sdnoise1234.h" /* We strictly don't need this, but play nice. */
-
-constexpr static int FASTFLOOR(const float& x) {
-	return (x > 0) ? static_cast<int>(x) : static_cast<int>(x) - 1;
-}
-
+#define FASTFLOOR(x) ( ((x)>0) ? ((int)x) : (((int)x)-1) )
 /*
  * Gradient tables. These could be programmed the Ken Perlin way with
  * some clever bit-twiddling, but this is more clear, and not really slower.
@@ -116,7 +112,8 @@ static void grad4( int hash, float *gx, float *gy, float *gz, float *gw) {
 NoiseGen::NoiseGen() {
 	std::random_device rd;
 	std::mt19937 rng(rd());
-	std::iota(perm.begin(), perm.end(), 0);
+	std::iota(perm.begin(), perm.begin() + 256, 0);
+	std::iota(perm.begin() + 256, perm.end(), 0);
 	std::shuffle(perm.begin(), perm.end(), rng);
 }
 
@@ -357,9 +354,9 @@ float NoiseGen::sdnoise3( float x, float y, float z, glm::vec3* deriv)
     z3 = z0 - 1.0f + 3.0f * G3;
 
     /* Wrap the integer indices at 256, to avoid indexing perm[] out of bounds */
-    ii = i % 256;
-    jj = j % 256;
-    kk = k % 256;
+    ii = abs(i % 256);
+    jj = abs(j % 256);
+    kk = abs(k % 256);
 
     /* Calculate the contribution from the four corners */
     t0 = 0.6f - x0*x0 - y0*y0 - z0*z0;

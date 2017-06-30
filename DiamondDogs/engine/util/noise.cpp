@@ -104,8 +104,6 @@ namespace vulpes {
 		float sum = 0.0f, amplitude = 1.0f;
 		NoiseGen ng;
 		for (size_t i = 0; i < octaves; ++i) {
-			int32_t oct_seed = (seed + i) & 0xfffffff;
-			//sum += SimplexBase(npos, glm::vec3(), oct_seed, perm) * amplitude;
 			sum += ng.sdnoise3(npos.x, npos.y, npos.z, nullptr) * amplitude;
 			npos *= lacun;
 			amplitude *= persistance;
@@ -156,8 +154,6 @@ namespace vulpes {
 		float sum = 0.0f, amplitude = 1.0f;
 		NoiseGen ng;
 		for (size_t i = 0; i < octaves; ++i) {
-			int32_t oct_seed = (seed + i) & 0xfffffff;
-			//sum += SimplexBase(npos, glm::vec3(), oct_seed, perm) * amplitude;
 			sum += 1.0f - fabsf(ng.sdnoise3(npos.x, npos.y, npos.z, nullptr)) * amplitude;
 			npos *= lacun;
 			amplitude *= persistance;

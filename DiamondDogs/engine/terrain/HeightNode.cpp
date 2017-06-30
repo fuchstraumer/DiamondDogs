@@ -190,11 +190,17 @@ namespace vulpes {
 			samples.resize(num_samples * num_samples);
 			glm::vec2 xy = starting_pos.xz;
 			xy += 0.02f;
+			NoiseGen ng;
 			//samples = MakeCheckerboard(num_samples, num_samples);
 			for (size_t j = 0; j < num_samples; ++j) {
 				for (size_t i = 0; i < num_samples; ++i) {
-
-					samples[i + (j * num_samples)].Sample.x = SNoise::FBM(glm::vec3(i * step_size, j * step_size, 0.0f), 12, 0.5, 16, 2.2f, 0.50f);
+					glm::vec3 npos(xy.x + i * step_size, xy.y + j * step_size, 0.0f);
+					float ampl = 1.0f;
+					for (size_t k = 0; k < 12; ++k) {
+						samples[i + (j * num_samples)].Sample.x += ng.sdnoise3(npos.x, npos.y, npos.z, nullptr) * ampl;
+						npos *= 1.80f;
+						ampl *= 0.80f;
+					}
 				}
 			}
 		}
