@@ -131,7 +131,7 @@ namespace vulpes {
 			float MinZ, MaxZ;
 		protected:
 
-			size_t sampleGridSize = 256;
+			size_t sampleGridSize = 512;
 			size_t meshGridSize;
 			
 			glm::ivec3 gridCoords;

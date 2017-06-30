@@ -9,7 +9,7 @@
 namespace vulpes {
 	namespace terrain {
 
-		size_t HeightNode::RootSampleGridSize = 256;
+		size_t HeightNode::RootSampleGridSize = 512;
 		double HeightNode::RootNodeLength = 10000;
 
 		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<HeightSample>& init_samples) : gridCoords(node_grid_coordinates), sampleGridSize(RootSampleGridSize), meshGridSize(RootSampleGridSize - 5) {
@@ -197,8 +197,8 @@ namespace vulpes {
 					glm::vec3 npos(xy.x + i * step_size, xy.y + j * step_size, 0.0f);
 					float ampl = 1.0f;
 					for (size_t k = 0; k < 12; ++k) {
-						samples[i + (j * num_samples)].Sample.x += ng.sdnoise3(npos.x, npos.y, npos.z, nullptr) * ampl;
-						npos *= 1.80f;
+						samples[i + (j * num_samples)].Sample.x += 1.0f - fabsf(ng.sdnoise3(npos.x, npos.y, npos.z, nullptr) * ampl);
+						npos *= 2.10f;
 						ampl *= 0.80f;
 					}
 				}
