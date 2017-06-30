@@ -31,7 +31,7 @@ namespace compute_tests {
 			DataProducer producer(device);
 			using namespace terrain;
 			TerrainNode root_node(glm::ivec3(0, 0, 0), glm::ivec3(0, 0, 0), glm::vec3(0.0f), root_node_length);
-			HeightmapNoise root_noise(HeightNode::RootSampleGridSize, glm::vec3(0.0f), 1.0f);
+			HeightmapNoise root_noise(HeightNode::RootSampleGridSize, glm::vec3(0.05f), 1.0f / 100.0f);
 			auto root_height = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), root_noise.samples);
 			root_node.SetHeightData(root_height);
 

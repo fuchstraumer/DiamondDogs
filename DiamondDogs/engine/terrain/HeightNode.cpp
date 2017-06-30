@@ -189,10 +189,11 @@ namespace vulpes {
 		HeightmapNoise::HeightmapNoise(const size_t & num_samples, const glm::vec3& starting_pos, const float& step_size) {
 			samples.resize(num_samples * num_samples);
 			glm::vec2 xy = starting_pos.xz;
+			xy += 0.02f;
 			//samples = MakeCheckerboard(num_samples, num_samples);
 			for (size_t j = 0; j < num_samples; ++j) {
 				for (size_t i = 0; i < num_samples; ++i) {
-					samples[i + (j * num_samples)].Sample.x = SNoise::DecarpientierSwiss(glm::vec3(xy.x + (i * step_size), xy.y + (j * step_size), 0.0f), 487645, 0.05, 12, 2.2f, 1.8f);
+					samples[i + (j * num_samples)].Sample.x = SNoise::FBM(glm::vec2(xy.x + (i * step_size), xy.y + (j * step_size)), 5, 1.0, 16, 2.2f, 0.50f);
 				}
 			}
 		}

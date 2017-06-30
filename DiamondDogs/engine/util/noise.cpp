@@ -105,7 +105,7 @@ namespace vulpes {
 		return ((hash >> 8) ^ (hash & FNV_MASK_8));
 	}
 
-	constexpr static uint8_t hash2D(const glm::ivec2& pos, const int& seed) {
+	constexpr static uint32_t hash2D(const glm::ivec2& pos, const int& seed) {
 		uint32_t val[3]{ pos.x, pos.y, seed };
 		return XOR_FOLD_HASH(FNV_32_A_BUF(val, 3));
 	}
@@ -373,7 +373,7 @@ namespace vulpes {
 		ipos.x = floorf(pos.x + ((pos.x + pos.y)*SIMPLEX_F2));
 		ipos.y = floorf(pos.y + ((pos.x + pos.y)*SIMPLEX_F2));
 
-		glm::vec2 p0 = pos - (ipos - ((ipos.x * ipos.y) * SIMPLEX_G2));
+		glm::vec2 p0 = pos - (ipos - ((ipos.x + ipos.y) * SIMPLEX_G2));
 
 		glm::vec2 ij;
 		p0.x > p0.y ? ij = glm::vec2(1.0f, 0.0f) : ij = glm::vec2(0.0f, 1.0f);
