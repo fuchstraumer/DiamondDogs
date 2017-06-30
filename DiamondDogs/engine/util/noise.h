@@ -36,11 +36,6 @@ namespace vulpes {
 
 		static float DecarpientierSwiss(const glm::vec2& pos, const int32_t& seed, const float& freq, const size_t& octaves, const float& lacun, const float& persistance);
 		
-	private:
-
-		
-		std::mt19937 rng;
-
 	};
 
 }
