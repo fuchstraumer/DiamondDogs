@@ -6,11 +6,11 @@
 // minimum max dimensionality in xy is 128, process textures in chunks of that size.
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
-layout(std140, binding = 0) buffer input_buffer {
+layout(std430, binding = 0) buffer input_buffer {
 	vec2 in_data[];
 };
 
-layout(std140, binding = 1) buffer output_buffer {
+layout(std430, binding = 1) buffer output_buffer {
 	vec2 out_data[];
 };
 
@@ -33,7 +33,7 @@ void main() {
 
 	int parent_x = 1 + (gridX % 2) * (meshGridSize / 2);
 	int parent_y = 1 + (gridY % 2) * (meshGridSize / 2);
-
+	
 	if(j % 2 == 0) {
 		if(i % 2 == 0) {
 			out_data[i + (j * sampleGridSize)] = 
@@ -73,8 +73,7 @@ void main() {
 			vec2(sum, in_data[i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize].x);
 		}
 	}
-	/*
-	attempted to force output values, to no avail.
-	out_data[i + (j * sampleGridSize)] = vec2(1.0f, 0.0f);
-	*/
+
+	//out_data[i + (j * sampleGridSize)] = vec4(1.0f, 0.0f, 1.0f, 0.0f);
+	
 }

@@ -261,8 +261,8 @@ namespace vulpes {
 
 		{
 			// will signal all semaphores when complete
-			//submit_info.signalSemaphoreCount = static_cast<uint32_t>(semaphores.size());
-			//submit_info.pSignalSemaphores = semaphores.data();
+			submit_info.signalSemaphoreCount = static_cast<uint32_t>(semaphores.size());
+			submit_info.pSignalSemaphores = semaphores.data();
 			submit_info.pCommandBuffers = &transferPool->GetCmdBuffer(0);
 			result = vkQueueSubmit(spareQueue, 1, &submit_info, VK_NULL_HANDLE);
 			VkAssert(result);
@@ -278,8 +278,9 @@ namespace vulpes {
 			}
 			// queues execute independently when their corresponding semaphore is signaled,
 			// indicated resources have been transferred and work can continue.
-			//submit_info.pCommandBuffers = &computePool->GetCmdBuffer(submitted);
-			//submit_info.pWaitSemaphores = &semaphores[submitted];
+			submit_info.pCommandBuffers = &computePool->GetCmdBuffer(submitted);
+			//submit_info.waitSemaphoreCount = static_cast<uint32_t>(semaphores.size());
+			//submit_info.pWaitSemaphores = semaphores.data();
 			result = vkQueueSubmit(*iter, 1, &submit_info, fences[submitted]);
 			VkAssert(result);
 			++submitted;
