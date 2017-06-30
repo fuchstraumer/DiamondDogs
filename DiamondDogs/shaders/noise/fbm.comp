@@ -14,11 +14,16 @@ layout(std430, binding = 0) buffer output_buffer {
 	vec4 out_data[];
 };
 
+layout(push_constant) uniform _noise_cfg {
+	float freq;
+	float lacun;
+	float persist;
+} noise_cfg;
 
 layout(constant_id = 0) const int sampleGridSize = 133;
-layout(constant_id = 1) const int meshGridSize = 128;
-layout(constant_id = 2) const int gridX = 0;
-layout(constant_id = 3) const int gridY = 1;
+layout(constant_id = 1) const int octaves = 12;
+
+// simplex methods
 
 const vec2 C = vec2(1.0f / 6.0f, 1.0f / 3.0f);
 const vec4 D = vec4(0.0f, 0.5f, 1.0f, 2.0f);
@@ -39,20 +44,7 @@ vec4 taylorInvSqrt(vec4 r) {
 	return 1.79284291400159f - 0.86373472095314f * r;
 }
 
-
-
-void main() {
-
-	uint i, j;
-	i = gl_GlobalInvocationID.x;
-	j = gl_GlobalInvocationID.y;
-
-	if(i >= sampleGridSize || j >= sampleGridSize) {
-		return;
-	}
-
-	vec3 pos = positions[i + j * sampleGridSize];
-	
+vec4 snoise(vec3 pos) {
 	vec3 is = floor(pos + dot(pos, C.yyy));
 	vec3 x0 = pos - is + dot(is, C.xxx);
 
@@ -116,7 +108,29 @@ void main() {
 	gradient += m4.x * p0 + m4.y * p1 + m4.z * p2 + m4.w * p3;
 	gradient *= 42.0f;
 
-	out_data[i + j * sampleGridSize].x = 42.0f * dot(m4, pdotx);
-	out_data[i + j * sampleGridSize].yzw = gradient;
+	return vec4(42.0f * dot(m4, pdotx), gradient.x, gradient.y, gradient.z);
+}
 
+void main() {
+
+	uint i, j;
+	i = gl_GlobalInvocationID.x;
+	j = gl_GlobalInvocationID.y;
+
+	if(i >= sampleGridSize || j >= sampleGridSize) {
+		return;
+	}
+
+	vec3 pos = positions[i + j * sampleGridSize];
+	pos *= noise_cfg.freq;
+	vec4 sum = vec4(0.0f);
+	float amplitude = 1.0f;
+
+	for(int i = 0; i < octaves; ++i) {
+		sum += snoise(pos) * amplitude;
+		pos *= noise_cfg.lacun;
+		amplitude *= noise_cfg.persist;
+	}
+
+	out_data[i + j * sampleGridSize] = sum;
 }
