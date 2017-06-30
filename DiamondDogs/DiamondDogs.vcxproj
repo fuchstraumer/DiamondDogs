@@ -153,6 +153,7 @@
     <ClInclude Include="engine\util\lodepng.h" />
     <ClInclude Include="engine\util\Noise.h" />
     <ClInclude Include="engine\util\ref_counter.h" />
+    <ClInclude Include="engine\util\sdnoise1234.h" />
     <ClInclude Include="engine\util\sphere.h" />
     <ClInclude Include="engine\util\ThreadWrapper.h" />
     <ClInclude Include="engine\util\view_frustum.h" />
@@ -216,6 +217,9 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="engine\util\Noise.cpp" />
+    <ClCompile Include="engine\util\sdnoise1234.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="scenes\BaseScene.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

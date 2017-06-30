@@ -59,6 +59,7 @@ namespace vulpes {
 			unsigned error = lodepng::encode(filename, pixels, width, height, LodePNGColorType::LCT_GREY, 8);
 			if (error) {
 				std::cerr << lodepng_error_text(error) << std::endl;
+				throw;
 			}
 		}
 
@@ -116,6 +117,7 @@ namespace vulpes {
 
 			const glm::ivec3& GridCoords() const noexcept;
 			size_t MeshGridSize() const noexcept;
+			size_t SampleGridSize() const noexcept;
 			size_t NumSamples() const noexcept;
 			std::vector<glm::vec2> GetHeights() const;
 
@@ -129,7 +131,7 @@ namespace vulpes {
 			float MinZ, MaxZ;
 		protected:
 
-			size_t sampleGridSize = 512;
+			size_t sampleGridSize = 256;
 			size_t meshGridSize;
 			
 			glm::ivec3 gridCoords;

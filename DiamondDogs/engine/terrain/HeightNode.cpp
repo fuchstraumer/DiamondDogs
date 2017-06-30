@@ -9,7 +9,7 @@
 namespace vulpes {
 	namespace terrain {
 
-		size_t HeightNode::RootSampleGridSize = 512;
+		size_t HeightNode::RootSampleGridSize = 256;
 		double HeightNode::RootNodeLength = 10000;
 
 		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<HeightSample>& init_samples) : gridCoords(node_grid_coordinates), sampleGridSize(RootSampleGridSize), meshGridSize(RootSampleGridSize - 5) {
@@ -193,7 +193,8 @@ namespace vulpes {
 			//samples = MakeCheckerboard(num_samples, num_samples);
 			for (size_t j = 0; j < num_samples; ++j) {
 				for (size_t i = 0; i < num_samples; ++i) {
-					samples[i + (j * num_samples)].Sample.x = SNoise::FBM(glm::vec2(xy.x + (i * step_size), xy.y + (j * step_size)), 5, 1.0, 16, 2.2f, 0.50f);
+
+					samples[i + (j * num_samples)].Sample.x = SNoise::FBM(glm::vec3(i * step_size, j * step_size, 0.0f), 12, 0.5, 16, 2.2f, 0.50f);
 				}
 			}
 		}
@@ -204,6 +205,10 @@ namespace vulpes {
 
 		size_t HeightNode::MeshGridSize() const noexcept {
 			return meshGridSize;
+		}
+
+		size_t HeightNode::SampleGridSize() const noexcept {
+			return sampleGridSize;
 		}
 
 		size_t HeightNode::NumSamples() const noexcept {

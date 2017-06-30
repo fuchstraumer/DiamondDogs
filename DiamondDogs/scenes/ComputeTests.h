@@ -35,9 +35,12 @@ namespace compute_tests {
 			auto root_height = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), root_noise.samples);
 			root_node.SetHeightData(root_height);
 
-			std::vector<float> height_samples;
-			for (const auto& sample : root_height->samples) {
-				height_samples.push_back(sample.Sample.x);
+			std::vector<float> height_samples(root_height->NumSamples());
+			size_t sample_grid_size = root_height->SampleGridSize();
+			for (size_t j = 0; j < sample_grid_size; ++j) {
+				for (size_t i = 0; i < sample_grid_size; ++i) {
+					height_samples[j + (i * sample_grid_size)] = root_height->samples[i + (j * sample_grid_size)].Sample.x;
+				}
 			}
 
 			auto min_maxh = std::minmax_element(height_samples.cbegin(), height_samples.cend());

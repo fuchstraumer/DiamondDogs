@@ -39,6 +39,7 @@
     <ClCompile Include="engine\util\FastNoise.cpp" />
     <ClCompile Include="engine\terrain\DataProducer.cpp" />
     <ClCompile Include="engine\renderer\resource\PipelineCache.cpp" />
+    <ClCompile Include="engine\util\sdnoise1234.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -111,6 +112,7 @@
     <ClInclude Include="engine\util\ThreadWrapper.h" />
     <ClInclude Include="scenes\ComputeTests.h" />
     <ClInclude Include="engine\renderer\resource\PipelineCache.h" />
+    <ClInclude Include="engine\util\sdnoise1234.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />
