@@ -115,7 +115,7 @@ namespace vulpes {
 			float Sample(const size_t& idx) const;
 
 			const glm::ivec3& GridCoords() const noexcept;
-			size_t GridSize() const noexcept;
+			size_t MeshGridSize() const noexcept;
 			size_t NumSamples() const noexcept;
 			std::vector<glm::vec2> GetHeights() const;
 
@@ -125,15 +125,16 @@ namespace vulpes {
 			static size_t RootSampleGridSize;
 			static double RootNodeLength;
 
+			std::vector<HeightSample> samples;
 			float MinZ, MaxZ;
 		protected:
 
-			size_t sampleGridSize = 32;
+			size_t sampleGridSize = 512;
 			size_t meshGridSize;
 			
 			glm::ivec3 gridCoords;
 			glm::ivec3 parentGridCoords;
-			std::vector<HeightSample> samples;
+			
 		};
 
 	}

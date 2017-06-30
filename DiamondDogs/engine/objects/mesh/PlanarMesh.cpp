@@ -22,7 +22,7 @@ namespace vulpes {
 		}
 
 		void PlanarMesh::Generate(terrain::HeightNode* height_node) {
-			SubdivisionLevel = height_node->GridSize();
+			SubdivisionLevel = height_node->MeshGridSize();
 
 			size_t count2 = SubdivisionLevel + 1;
 			size_t numTris = SubdivisionLevel*SubdivisionLevel * 6;

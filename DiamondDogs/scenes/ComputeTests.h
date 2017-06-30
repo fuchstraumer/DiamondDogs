@@ -31,9 +31,20 @@ namespace compute_tests {
 			DataProducer producer(device);
 			using namespace terrain;
 			TerrainNode root_node(glm::ivec3(0, 0, 0), glm::ivec3(0, 0, 0), glm::vec3(0.0f), root_node_length);
-			HeightmapNoise root_noise(HeightNode::RootSampleGridSize, glm::vec3(0.0f), HeightNode::RootSampleGridSize / (HeightNode::RootNodeLength * 2.0));
+			HeightmapNoise root_noise(HeightNode::RootSampleGridSize, glm::vec3(0.0f), 1.0f);
 			auto root_height = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), root_noise.samples);
 			root_node.SetHeightData(root_height);
+
+			std::vector<float> height_samples;
+			for (const auto& sample : root_height->samples) {
+				height_samples.push_back(sample.Sample.x);
+			}
+
+			auto min_maxh = std::minmax_element(height_samples.cbegin(), height_samples.cend());
+			float hmin, hmax;
+			hmin = height_samples.at(min_maxh.first - height_samples.cbegin());
+			hmax = height_samples.at(min_maxh.second - height_samples.cbegin());
+			save_hm_to_file(height_samples, hmin, hmax, "root_noise.png", HeightNode::RootSampleGridSize, HeightNode::RootSampleGridSize);
 
 			// Subdivide first four nodes
 			std::array<DataRequest*, 8> lod_1_requests;
@@ -64,20 +75,18 @@ namespace compute_tests {
 				void* mapped = nullptr;
 				vkMapMemory(device->vkHandle(), result->DvcMemory(), 0, result->AllocSize(), 0, &mapped);
 				glm::vec2* result_vecs = reinterpret_cast<glm::vec2*>(mapped);
-				
+				std::vector<float> result_heights(num_samples);
 				for (size_t i = 0; i < num_samples; ++i) {
-					std::cout << glm::to_string(result_vecs[i]) << "\n";
+					result_heights[i] = result_vecs[i].x;
 				}
-
-
-				/*auto min_max = std::minmax_element(result_heights.cbegin(), result_heights.cend());
+				auto min_max = std::minmax_element(result_heights.cbegin(), result_heights.cend());
 				float min_z, max_z;
 				min_z = result_heights.at(min_max.first - result_heights.cbegin());
-				max_z = result_heights.at(min_max.second - result_heights.cbegin());*/
+				max_z = result_heights.at(min_max.second - result_heights.cbegin());
 				std::string fname("compute_test_node_");
 				fname += std::to_string(i);
 				fname += std::string(".png");
-				//save_hm_to_file(result_heights, min_z, max_z, fname.c_str(), num_samples / num_samples, num_samples / num_samples);
+				save_hm_to_file(result_heights, min_z, max_z, fname.c_str(), sqrt(num_samples), sqrt(num_samples));
 				result->Unmap();
 			}
 		}

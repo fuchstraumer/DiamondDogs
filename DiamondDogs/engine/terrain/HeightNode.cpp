@@ -9,7 +9,7 @@
 namespace vulpes {
 	namespace terrain {
 
-		size_t HeightNode::RootSampleGridSize = 69;
+		size_t HeightNode::RootSampleGridSize = 512;
 		double HeightNode::RootNodeLength = 10000;
 
 		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<HeightSample>& init_samples) : gridCoords(node_grid_coordinates), sampleGridSize(RootSampleGridSize), meshGridSize(RootSampleGridSize - 5) {
@@ -19,13 +19,13 @@ namespace vulpes {
 			MaxZ = samples.at(min_max.second - samples.cbegin()).Sample.x;
 		}
 
-		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent, const bool& sample_now) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), sampleGridSize(37) {
+		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent, const bool& sample_now) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), meshGridSize(sampleGridSize - 5) {
 			if (sample_now) {
 				SampleFromParent(parent);
 			}
 		}
 
-		static constexpr bool save_to_file = false;
+		static constexpr bool save_to_file = true;
 
 	
 		
@@ -102,7 +102,14 @@ namespace vulpes {
 			float min_z, max_z;
 			MinZ = min_z = samples.at(min_max.first - samples.cbegin()).Sample.x;
 			MaxZ = max_z = samples.at(min_max.second - samples.cbegin()).Sample.x;
-
+			if (save_to_file) {
+				std::vector<float> height_values;
+				for (const auto& sample : samples) {
+					height_values.push_back(sample.Sample.x);
+				}
+				std::string fname = std::string("./test_img/terrain_chunk") + glm::to_string(gridCoords) + std::string(".png");
+				std::async(std::launch::async, save_hm_to_file, height_values, min_z, max_z, fname.c_str(), sampleGridSize, sampleGridSize);
+			}
 		}
 
 		float HeightNode::GetHeight(const glm::vec2 world_pos) const {
@@ -113,7 +120,7 @@ namespace vulpes {
 			//if (abs(world_pos.x) >= curr_size + 1.0 || abs(world_pos.y) >= curr_size + 1.0) {
 			//	throw std::out_of_range("Attempted to sample out of range of heightnode");
 			//}
-			auto curr_grid_size = GridSize();
+			auto curr_grid_size = MeshGridSize();
 			float x, y;
 			x = world_pos.x;
 			y = world_pos.y;
@@ -150,7 +157,7 @@ namespace vulpes {
 			x = world_pos.x;
 			y = world_pos.y;
 
-			size_t curr_grid_size = GridSize();
+			size_t curr_grid_size = MeshGridSize();
 
 			x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
 			y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
@@ -185,7 +192,7 @@ namespace vulpes {
 			//samples = MakeCheckerboard(num_samples, num_samples);
 			for (size_t j = 0; j < num_samples; ++j) {
 				for (size_t i = 0; i < num_samples; ++i) {
-					samples[i + (j * num_samples)].Sample.x = 25.0f * SNoise::FBM(glm::vec2(xy.x + (i * step_size), xy.y + (j * step_size)), 45867, 1.9, 12, 2.2f, 1.8f);
+					samples[i + (j * num_samples)].Sample.x = SNoise::DecarpientierSwiss(glm::vec3(xy.x + (i * step_size), xy.y + (j * step_size), 0.0f), 487645, 0.05, 12, 2.2f, 1.8f);
 				}
 			}
 		}
@@ -194,7 +201,7 @@ namespace vulpes {
 			return gridCoords;
 		}
 
-		size_t HeightNode::GridSize() const noexcept {
+		size_t HeightNode::MeshGridSize() const noexcept {
 			return meshGridSize;
 		}
 

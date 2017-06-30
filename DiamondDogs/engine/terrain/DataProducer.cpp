@@ -222,9 +222,9 @@ namespace vulpes {
 			VkAssert(result);
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines[submitted]);
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-			vkCmdDispatch(cmd, ceil(req->Width / 32), ceil(req->Height / 32), 1);
-			compute_complete_barrier.buffer = req->Output->vkHandle();
-			compute_complete_barrier.size = req->Output->AllocSize();
+			vkCmdDispatch(cmd, ceil(req->Width / 16), ceil(req->Height / 16), 1);
+			compute_complete_barrier.buffer = req->Input->vkHandle();
+			compute_complete_barrier.size = req->Input->AllocSize();
 			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &compute_complete_barrier, 0, nullptr);
 			output_result_copy.size = req->Output->AllocSize();
 			vkCmdCopyBuffer(cmd, req->Output->vkHandle(), req->Result->vkHandle(), 1, &output_result_copy);
@@ -328,22 +328,22 @@ namespace vulpes {
 		request->Result->CreateBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sizeof(glm::vec2) * node->NumSamples());
 		request->node = node;
 		request->parent = parent;
-		request->Width = request->Height = node->NumSamples();
+		request->Width = request->Height = sqrt(node->NumSamples());
 
 		request->specializations = {
-			VkSpecializationMapEntry{ 0, sizeof(int), 0 },
+			VkSpecializationMapEntry{ 0, 0, sizeof(int) },
 			VkSpecializationMapEntry{ 1, sizeof(int), sizeof(int) },
-			VkSpecializationMapEntry{ 2, sizeof(int), 2 * sizeof(int) },
-			VkSpecializationMapEntry{ 3, sizeof(int), 3 * sizeof(int) },
+			VkSpecializationMapEntry{ 2, 2 * sizeof(int), sizeof(int) },
+			VkSpecializationMapEntry{ 3, 3 * sizeof(int), sizeof(int) },
 		};
 
-		glm::ivec4* specialization_data = new glm::ivec4(node->GridSize(), node->GridSize() - 5, node->GridCoords().x, node->GridCoords().y);
+		request->specData = glm::ivec4(node->MeshGridSize() + 5, node->MeshGridSize(), node->GridCoords().x, node->GridCoords().y);
 
 		request->specializationInfo = VkSpecializationInfo{
 			static_cast<uint32_t>(request->specializations.size()),
 			request->specializations.data(),
 			sizeof(glm::ivec4),
-			glm::value_ptr(*specialization_data),
+			&request->specData
 		};
 
 		request->Shader = new ShaderModule(dvc, "shaders/terrain/compute/upsample.comp.spv", VK_SHADER_STAGE_COMPUTE_BIT, "main");

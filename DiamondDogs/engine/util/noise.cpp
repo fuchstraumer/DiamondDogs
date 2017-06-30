@@ -214,9 +214,9 @@ namespace vulpes {
 		glm::ivec3 i_s = glm::ivec3(floorf(s.x), floorf(s.y), floorf(s.z));
 
 		glm::vec3 p0;
-		p0.x = pos.x - (i_s.x - ((i_s.x + i_s.y + i_s.y) * SIMPLEX_G3));
-		p0.y = pos.y - (i_s.y - ((i_s.x + i_s.y + i_s.y) * SIMPLEX_G3));
-		p0.z = pos.z - (i_s.z - ((i_s.x + i_s.y + i_s.y) * SIMPLEX_G3));
+		p0.x = pos.x - (i_s.x - ((i_s.x + i_s.y + i_s.z) * SIMPLEX_G3));
+		p0.y = pos.y - (i_s.y - ((i_s.x + i_s.y + i_s.z) * SIMPLEX_G3));
+		p0.z = pos.z - (i_s.z - ((i_s.x + i_s.y + i_s.z) * SIMPLEX_G3));
 
 		glm::ivec3 i1, i2;
 

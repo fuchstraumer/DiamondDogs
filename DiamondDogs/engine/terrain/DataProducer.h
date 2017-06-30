@@ -51,7 +51,7 @@ namespace vulpes {
 		ShaderModule* Shader;
 		Buffer *Input, *Output;
 		std::unique_ptr<Buffer> Result;
-
+		glm::ivec4 specData;
 		RequestStatus Status;
 
 		size_t Width, Height;
