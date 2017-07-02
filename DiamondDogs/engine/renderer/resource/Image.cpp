@@ -1,7 +1,8 @@
 #include "stdafx.h"
 #include "Image.h"
-#include "engine/renderer\core\LogicalDevice.h"
-#include "engine/renderer\command\CommandPool.h"
+#include "engine/renderer/core/LogicalDevice.h"
+#include "engine/renderer/command/CommandPool.h"
+#include "engine/renderer/resource/Allocator.h"
 
 namespace vulpes {
 
@@ -12,27 +13,19 @@ namespace vulpes {
 	}
 
 	void Image::Destroy(){
-		if (view != VK_NULL_HANDLE) {
-			vkDestroyImageView(parent->vkHandle(), view, allocators);
-		}
-		if (memory != VK_NULL_HANDLE) {
-			vkFreeMemory(parent->vkHandle(), memory, allocators);
-		}
-		if (image != VK_NULL_HANDLE) {
-			vkDestroyImage(parent->vkHandle(), image, allocators);
-		}
+		parent->vkAllocator->DestroyImage(handle);
 	}
 
 	void Image::Create(const VkImageCreateInfo & create_info, const VkMemoryPropertyFlagBits& memory_flags) {
 		this->createInfo = create_info;
-		CreateImage(image, memory, parent, createInfo, memory_flags);
+		CreateImage(handle, memory, parent, createInfo, memory_flags);
 	}
 
 	void Image::Create(const VkExtent3D& _extents, const VkFormat& _format, const VkImageUsageFlags& usage_flags, const VkImageLayout& init_layout) {
 		extents = _extents;
 		format = _format;
 		usageFlags = usage_flags;
-		CreateImage(image, memory, parent, extents, format, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, usageFlags, VK_IMAGE_TILING_OPTIMAL, init_layout);
+		CreateImage(handle, memory, parent, extents, format, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, usageFlags, VK_IMAGE_TILING_OPTIMAL, init_layout);
 	}
 
 	void Image::CreateView(const VkImageViewCreateInfo & info){
@@ -43,7 +36,7 @@ namespace vulpes {
 	void Image::CreateView(const VkImageAspectFlags & aspect_flags){
 		VkImageViewCreateInfo view_info = vk_image_view_create_info_base;
 		view_info.subresourceRange.aspectMask = aspect_flags;
-		view_info.image = image;
+		view_info.image = handle;
 		view_info.format = format;
 		VkResult result = vkCreateImageView(parent->vkHandle(), &view_info, allocators, &view);
 		VkAssert(result);
@@ -51,7 +44,7 @@ namespace vulpes {
 
 	void Image::TransitionLayout(const VkImageLayout & initial, const VkImageLayout & final, CommandPool* pool, VkQueue & queue) {
 		VkImageMemoryBarrier barrier = vk_image_memory_barrier_base;
-		barrier = GetMemoryBarrier(image, format, initial, final);
+		barrier = GetMemoryBarrier(handle, format, initial, final);
 		VkCommandBuffer cmd = pool->StartSingleCmdBuffer();
 			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);	
 		pool->EndSingleCmdBuffer(cmd, queue);
@@ -108,7 +101,7 @@ namespace vulpes {
 		return barrier;
 	}
 
-	void Image::CreateImage(VkImage & dest_image, VkDeviceMemory & dest_memory, const Device* parent, const VkExtent3D & extents, const VkFormat & image_format, const VkMemoryPropertyFlags & memory_flags, const VkImageUsageFlags & usage_flags, const VkImageTiling& tiling, const VkImageLayout& init_layout) {
+	void Image::CreateImage(VkImage & dest_image, VkMappedMemoryRange& dest_memory_range, const Device* parent, const VkExtent3D & extents, const VkFormat & image_format, const VkMemoryPropertyFlags & memory_flags, const VkImageUsageFlags & usage_flags, const VkImageTiling& tiling, const VkImageLayout& init_layout) {
 
 		VkImageCreateInfo create_info = vk_image_create_info_base;
 		create_info.imageType = VK_IMAGE_TYPE_2D;
@@ -122,50 +115,32 @@ namespace vulpes {
 		create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		create_info.usage = usage_flags;
 
-		VkResult result = vkCreateImage(parent->vkHandle(), &create_info, nullptr, &dest_image);
-		VkAssert(result);
+		AllocationRequirements alloc_reqs;
+		alloc_reqs.requiredFlags = memory_flags;
 
-		VkMemoryRequirements mem_reqs;
-		vkGetImageMemoryRequirements(parent->vkHandle(), dest_image, &mem_reqs);
-
-		VkMemoryAllocateInfo alloc_info = vk_allocation_info_base;
-		alloc_info.allocationSize = mem_reqs.size;
-		alloc_info.memoryTypeIndex = parent->GetMemoryTypeIdx(mem_reqs.memoryTypeBits, memory_flags);
-
-		result = vkAllocateMemory(parent->vkHandle(), &alloc_info, nullptr, &dest_memory);
-		VkAssert(result);
-
-		result = vkBindImageMemory(parent->vkHandle(), dest_image, dest_memory, 0);
+		VkResult result = parent->vkAllocator->CreateImage(&dest_image, &dest_memory_range, &create_info, alloc_reqs);
 		VkAssert(result);
 	}
 
-	void Image::CreateImage(VkImage & dest_image, VkDeviceMemory & dest_memory, const Device * parent, const VkImageCreateInfo & create_info, const VkMemoryPropertyFlags & memory_flags) {
-		VkResult result = vkCreateImage(parent->vkHandle(), &create_info, nullptr, &dest_image);
+	void Image::CreateImage(VkImage & dest_image, VkMappedMemoryRange& dest_memory_range, const Device * parent, const VkImageCreateInfo & create_info, const VkMemoryPropertyFlags & memory_flags) {
+		
+		AllocationRequirements alloc_reqs;
+		alloc_reqs.requiredFlags = memory_flags;
+		
+		VkResult result = parent->vkAllocator->CreateImage(&dest_image, &dest_memory_range, &create_info, alloc_reqs);
 		VkAssert(result);
 
-		VkMemoryRequirements mem_reqs;
-		vkGetImageMemoryRequirements(parent->vkHandle(), dest_image, &mem_reqs);
-
-		VkMemoryAllocateInfo alloc_info = vk_allocation_info_base;
-		alloc_info.allocationSize = mem_reqs.size;
-		alloc_info.memoryTypeIndex = parent->GetMemoryTypeIdx(mem_reqs.memoryTypeBits, memory_flags);
-
-		result = vkAllocateMemory(parent->vkHandle(), &alloc_info, nullptr, &dest_memory);
-		VkAssert(result);
-
-		result = vkBindImageMemory(parent->vkHandle(), dest_image, dest_memory, 0);
-		VkAssert(result);
 	}
 
 	const VkImage & Image::vkHandle() const noexcept{
-		return image;
+		return handle;
 	}
 
 	const VkImageView & Image::View() const noexcept{	
 		return view;
 	}
 
-	const VkDeviceMemory & Image::Memory() const noexcept{
+	const VkMappedMemoryRange& Image::Memory() const noexcept{
 		return memory;
 	}
 
