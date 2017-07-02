@@ -113,7 +113,7 @@ namespace vulpes {
 
 	template<typename T>
 	constexpr static T AlignUp(const T& offset, const T& alignment) {
-		return (offset + alignment - 1) / (alignment * alignment);
+		return (offset + alignment - 1) / alignment * alignment;
 	}
 
 	/*
@@ -428,8 +428,8 @@ namespace vulpes {
 		// called from "FreeMemory" if memory to free isn't found in the allocation vectors for any of our active memory types.
 		bool freePrivateMemory(const VkMappedMemoryRange* memory_to_free);
 
-		std::array<AllocationCollection*, vkMaxMemoryTypes> allocations;
-		std::array<bool, vkMaxMemoryTypes> emptyAllocations;
+		std::vector<AllocationCollection*> allocations;
+		std::vector<bool> emptyAllocations;
 
 		std::array<privateSuballocation, vkMaxMemoryTypes> privateAllocations;
 

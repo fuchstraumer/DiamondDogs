@@ -48,13 +48,16 @@ namespace vulpes {
 		AllocationRequirements reqs;
 		reqs.preferredFlags = 0;
 		reqs.privateMemory = false;
-		reqs.requiredFlags = createInfo.usage;
+		reqs.requiredFlags = memory_flags;
 		VkResult result = parent->vkAllocator->CreateBuffer(&handle, &memoryRange, &createInfo, reqs);
 		VkAssert(result);
+		allocSize = memoryRange.size;
 	}
 
 	void Buffer::Destroy(){
-		parent->vkAllocator->DestroyBuffer(handle);
+		if (handle != VK_NULL_HANDLE) {
+			parent->vkAllocator->DestroyBuffer(handle);
+		}
 	}
 
 	void Buffer::CopyTo(void * data, const VkDeviceSize & size, const VkDeviceSize& offset){
@@ -119,15 +122,9 @@ namespace vulpes {
 		vkCmdUpdateBuffer(cmd, handle, memoryRange.offset + offset, data_sz, data);
 	}
 
-	void Buffer::Map(const VkDeviceSize& size, const VkDeviceSize& offset){
-		if (size == 0) {
-			VkResult result = vkMapMemory(parent->vkHandle(), memoryRange.memory, memoryRange.offset + offset, allocSize, 0, &MappedMemory);
-			VkAssert(result);
-		}
-		else {
-			VkResult result = vkMapMemory(parent->vkHandle(), memoryRange.memory, memoryRange.offset, memoryRange.size, 0, &MappedMemory);
-			VkAssert(result);
-		}
+	void Buffer::Map(){
+		VkResult result = vkMapMemory(parent->vkHandle(), memoryRange.memory, memoryRange.offset, memoryRange.size, 0, &MappedMemory);
+		VkAssert(result);
 	}
 
 	void Buffer::Unmap(){
@@ -135,9 +132,9 @@ namespace vulpes {
 	}
 
 	void * Buffer::GetData() {
-		Map(allocSize, 0);
+		Map();
 		void* result;
-		memcpy(result, MappedMemory, allocSize);
+		memcpy(result, MappedMemory, memoryRange.size);
 		Unmap();
 		return result;
 	}

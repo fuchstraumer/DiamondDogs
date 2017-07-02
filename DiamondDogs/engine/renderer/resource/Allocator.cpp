@@ -23,16 +23,16 @@ namespace vulpes {
 		Size = new_size;
 		freeCount = 1;
 		availSize = new_size;
-
 		Suballocations.clear();
 		availSuballocations.clear();
 
 		// note/create suballocation defining our singular free region.
 		Suballocation suballoc{ 0, new_size, SuballocationType::Free };
-		Suballocations.push_back(std::move(suballoc));
+		Suballocations.push_back(suballoc);
 
 		// add location of that suballocation to mapping vector
 		auto suballoc_iter = Suballocations.end();
+		--suballoc_iter;
 		availSuballocations.push_back(suballoc_iter);
 
 	}
@@ -137,7 +137,6 @@ namespace vulpes {
 			return ValidationCode::FREE_SUBALLOC_COUNT_MISMATCH;
 		}
 
-		// shouldn't return this
 		return ValidationCode::VALIDATION_PASSED;
 	}
 
@@ -151,7 +150,7 @@ namespace vulpes {
 
 		// use lower_bound to find location of avail suballocation
 
-		size_t avail_idx;
+		size_t avail_idx = 0;
 		for (auto iter = availSuballocations.cbegin(); iter != availSuballocations.cend(); ++iter) {
 			if ((*iter)->size < allocation_size) {
 				avail_idx = iter - availSuballocations.cbegin();
@@ -181,7 +180,7 @@ namespace vulpes {
 		assert(dest_offset != nullptr);
 
 		const Suballocation& suballoc = *dest_suballocation_location;
-		assert(suballoc.type != SuballocationType::Free);
+		assert(suballoc.type == SuballocationType::Free);
 
 		if (suballoc.size < allocation_size) {
 			return false;
@@ -281,8 +280,6 @@ namespace vulpes {
 			// insert_iter returns iterator giving location of inserted item
 			insertFreeSuballocation(insert_iter);
 			++freeCount;
-			// TODO: Verify that we should be doing this
-			availSize += padding_end;
 		}
 
 		// if there's any remaining memory before the allocation, register it.
@@ -293,7 +290,6 @@ namespace vulpes {
 			const auto insert_iter = Suballocations.insert(next_iter, padding_suballoc);
 			insertFreeSuballocation(insert_iter);
 			++freeCount;
-			availSize += padding_begin;
 		}
 
 	}
@@ -505,13 +501,15 @@ namespace vulpes {
 		}
 	}
 
-	Allocator::Allocator(const Device * parent_dvc) : parent(parent_dvc) {
+	Allocator::Allocator(const Device * parent_dvc) : parent(parent_dvc), preferredSmallHeapBlockSize(DefaultSmallHeapBlockSize), preferredLargeHeapBlockSize(DefaultLargeHeapBlockSize) {
 		deviceProperties = parent->GetPhysicalDevice().Properties;
 		deviceMemoryProperties = parent->GetPhysicalDevice().MemoryProperties;
-
+		allocations.resize(GetMemoryTypeCount());
+		emptyAllocations.resize(GetMemoryTypeCount());
 		// initialize base pools, one per memory type.
 		for (size_t i = 0; i < GetMemoryTypeCount(); ++i) {
 			allocations[i] = new AllocationCollection(this);
+			emptyAllocations[i] = true;
 		}
 	}
 
@@ -540,7 +538,7 @@ namespace vulpes {
 
 	VkDeviceSize Allocator::GetPreferredBlockSize(const uint32_t& memory_type_idx) const noexcept {
 		VkDeviceSize heapSize = deviceMemoryProperties.memoryHeaps[deviceMemoryProperties.memoryTypes[memory_type_idx].heapIndex].size;
-		return (heapSize <= SmallHeapMaxSize) ? preferredSmallHeapBlockSize : preferredLargeHeapBlockSize;
+		return (heapSize <= DefaultSmallHeapBlockSize) ? preferredSmallHeapBlockSize : preferredLargeHeapBlockSize;
 	}
 
 	VkDeviceSize Allocator::GetBufferImageGranularity() const noexcept {
@@ -628,15 +626,19 @@ namespace vulpes {
 			req_flags = preferred_flags;
 		}
 
+		if (preferred_flags == 0) {
+			preferred_flags = req_flags;
+		}
+
 		uint32_t min_cost = std::numeric_limits<uint32_t>::max();
 		uint32_t result_idx = std::numeric_limits<uint32_t>::max();
 		// preferred_flags, if not zero, must be a subset of req_flags
-		for (uint32_t type_idx = 0, memory_type_bit = 1; type_idx < GetMemoryTypeCount(); ++type_idx) {
+		for (uint32_t type_idx = 0, memory_type_bit = 1; type_idx < GetMemoryTypeCount(); ++type_idx, memory_type_bit <<= 1) {
 			// memory type of idx is acceptable according to mem_reqs
 			if ((memory_type_bit & mem_reqs.memoryTypeBits) != 0) {
 				const VkMemoryPropertyFlags& curr_flags = deviceMemoryProperties.memoryTypes[type_idx].propertyFlags;
 				// current type contains required flags.
-				if ((req_flags & curr_flags) == 0) {
+				if ((req_flags & ~curr_flags) == 0) {
 					// calculate the cost of the memory type as the number of bits from preferred_flags
 					// not present in current type at type_idx.
 					uint32_t cost = countBitsSet(preferred_flags & ~req_flags);
@@ -692,6 +694,7 @@ namespace vulpes {
 						ValidationCode result_code = alloc->Validate();
 						if (result_code != ValidationCode::VALIDATION_PASSED) {
 							LOG(ERROR) << "Validation of new allocation failed with reason: " << result_code;
+							throw std::runtime_error("");
 						}
 					}
 					return VK_SUCCESS;
@@ -707,7 +710,7 @@ namespace vulpes {
 				VkMemoryAllocateInfo alloc_info{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr, preferredBlockSize, memory_type_idx };
 				VkDeviceMemory new_memory = VK_NULL_HANDLE;
 				VkResult result = vkAllocateMemory(parent->vkHandle(), &alloc_info, nullptr, &new_memory);
-				assert(result != VK_ERROR_OUT_OF_DEVICE_MEMORY); // make sure we're not over-allocating and using all device memory.
+				//assert(result != VK_ERROR_OUT_OF_DEVICE_MEMORY); // make sure we're not over-allocating and using all device memory.
 				if (result != VK_SUCCESS) {
 					// halve allocation size
 					alloc_info.allocationSize /= 2;
@@ -758,6 +761,7 @@ namespace vulpes {
 	}
 
 	VkResult Allocator::allocatePrivateMemory(const VkDeviceSize & size, const SuballocationType & type, const uint32_t & memory_type_idx, VkMappedMemoryRange * memory_range) {
+		VkMemoryAllocateInfo alloc_info{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr, size, memory_type_idx };
 		return VK_ERROR_VALIDATION_FAILED_EXT;
 	}
 
