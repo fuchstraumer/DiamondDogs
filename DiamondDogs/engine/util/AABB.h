@@ -13,8 +13,6 @@ namespace vulpes {
 
 	namespace util {
 
-		class TerrainNode;
-
 		struct AABB {
 
 			glm::vec3 Min, Max;

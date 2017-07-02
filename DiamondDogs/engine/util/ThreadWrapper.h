@@ -6,9 +6,7 @@
 
 namespace vulpes {
 
-	namespace util {
-
-		class Thread {
+		class ThreadWrapped {
 		private:
 			bool destroying = false;
 			std::thread worker;
@@ -37,11 +35,11 @@ namespace vulpes {
 			}
 
 		public:
-			Thread() {
-				worker = std::thread(&Thread::jobLoop, this);
+			ThreadWrapped() {
+				worker = std::thread(&ThreadWrapped::jobLoop, this);
 			}
 
-			~Thread() {
+			~ThreadWrapped() {
 				if (worker.joinable()) {
 					Wait();
 					queueMutex.lock();
@@ -66,7 +64,6 @@ namespace vulpes {
 			}
 		};
 
-	}
 
 }
 

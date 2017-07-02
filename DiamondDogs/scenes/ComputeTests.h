@@ -50,7 +50,7 @@ namespace compute_tests {
 			save_hm_to_file(height_samples, hmin, hmax, "root_noise.png", HeightNode::RootSampleGridSize, HeightNode::RootSampleGridSize);
 
 			// Subdivide first four nodes
-			std::array<DataRequest*, 8> lod_1_requests;
+			std::array<std::shared_ptr<DataRequest>, 8> lod_1_requests;
 			std::array<HeightNode*, 8> lod_1_nodes;
 			glm::ivec3 grid_pos = glm::ivec3(root_node.GridCoordinates.x * 2, root_node.GridCoordinates.y * 2, root_node.Depth() + 1);
 			lod_1_nodes[0] = new HeightNode(grid_pos, *root_node.HeightData, false);
@@ -59,12 +59,12 @@ namespace compute_tests {
 			lod_1_nodes[3] = new HeightNode(grid_pos + glm::ivec3(1, 1, 0), *root_node.HeightData, false);
 			for (size_t i = 0; i < 4; ++i) {
 				lod_1_requests[i] = DataRequest::UpsampleRequest(lod_1_nodes[i], root_node.HeightData.get(), device);
-				producer.Request(lod_1_requests[i]);
+				producer.Request(lod_1_requests[i].get());
 			}
 
 			for (size_t i = 4; i < 8; ++i) {
 				lod_1_requests[i] = lod_1_requests[i - 4];
-				producer.Request(lod_1_requests[i]);
+				producer.Request(lod_1_requests[i].get());
 			}
 
 			producer.RecordCommands();

@@ -2,12 +2,10 @@
 #ifndef VULPES_TERRAIN_QUADTREE_H
 #define VULPES_TERRAIN_QUADTREE_H
 #include "stdafx.h"
-#include <forward_list>
 #include "TerrainNode.h"
 #include "NodeRenderer.h"
 #include "engine\renderer\ForwardDecl.h"
 #include "engine\util\view_frustum.h"
-#include "engine/util/ThreadWrapper.h"
 /*
 	
 	Parent quadtree class that spawns/manages quadtree nodes
@@ -39,8 +37,6 @@ namespace vulpes {
 
 			TerrainQuadtree(const TerrainQuadtree&) = delete;
 			TerrainQuadtree& operator=(const TerrainQuadtree&) = delete;
-
-			util::Thread computeThread;
 
 		public:
 

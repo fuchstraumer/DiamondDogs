@@ -35,6 +35,10 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, con
 	if (Depth() < MaxLOD && lod_sphere.CoincidesWith(this->aabb)) {
 		if (Leaf()) {
 			Status = NodeStatus::Subdivided;
+			if (!upsampleRequest && (Depth() > 0)) {
+				Status = NodeStatus::RequestData;
+				node_pool->AddRequest(this);
+			}
 			mesh.cleanup();
 			Subdivide();
 		}
@@ -53,11 +57,19 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, con
 		if (aabb_sphere.CoincidesWithFrustum(view)) {
 			if (mesh.Ready()) {
 				Status = NodeStatus::Active;
-				node_pool->AddNode(this, true);
+				node_pool->AddNode(this);
 			}
 			else {
-				Status = NodeStatus::NeedsTransfer;
-				node_pool->AddNode(this, false);
+				if (!upsampleRequest) {
+					Status = NodeStatus::RequestData;
+					node_pool->AddRequest(this);
+				}
+				else {
+					if (upsampleRequest->Complete()) {
+						Status = NodeStatus::NeedsTransfer;
+						node_pool->AddNode(this);
+					}
+				}
 			}
 		}
 		if (!Leaf()) {
@@ -110,7 +122,6 @@ void vulpes::terrain::TerrainNode::CreateMesh(const Device * dvc) {
 
 void vulpes::terrain::TerrainNode::CreateHeightData(const HeightNode & parent_node) {
 	HeightData = std::make_shared<HeightNode>(GridCoordinates, parent_node);
-	aabb.UpdateMinMax(HeightData->MinZ, HeightData->MaxZ);
 }
 
 void vulpes::terrain::TerrainNode::SetHeightData(const std::shared_ptr<HeightNode>& height_node) {

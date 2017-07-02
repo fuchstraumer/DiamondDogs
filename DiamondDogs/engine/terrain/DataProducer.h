@@ -42,15 +42,9 @@ namespace vulpes {
 		- Input is the input buffer being operated on (readonly), Output is buffer being written to
 	*/
 	struct DataRequest {
-		
-		~DataRequest() {
-			delete Input;
-			delete Output;
-		}
 
 		ShaderModule* Shader;
-		Buffer *Input, *Output;
-		std::unique_ptr<Buffer> Result;
+		std::unique_ptr<Buffer> Result, Input, Output;
 		glm::ivec4 specData;
 		RequestStatus Status;
 
@@ -60,11 +54,14 @@ namespace vulpes {
 		VkPipelineShaderStageCreateInfo shaderInfo;
 		VkSpecializationInfo specializationInfo;
 		std::vector<VkSpecializationMapEntry> specializations;
-		terrain::HeightNode *node, *parent;
+		terrain::HeightNode *node;
+		const terrain::HeightNode* parent;
 		bool Complete() const;
 		Buffer* GetData();
 
-		static DataRequest* UpsampleRequest(terrain::HeightNode* node, terrain::HeightNode* parent, const Device* dvc);
+		bool operator<(const DataRequest& other) const;
+
+		static std::shared_ptr<DataRequest> UpsampleRequest(terrain::HeightNode* node, const terrain::HeightNode* parent, const Device* dvc);
 	};
 
 

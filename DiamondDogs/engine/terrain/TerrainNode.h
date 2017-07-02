@@ -7,6 +7,7 @@
 #include "engine\renderer\ForwardDecl.h"
 #include "engine\objects\mesh\PlanarMesh.h"
 #include "HeightNode.h"
+#include "DataProducer.h"
 
 namespace vulpes {
 
@@ -41,6 +42,9 @@ namespace vulpes {
 
 			std::array<std::shared_ptr<TerrainNode>, 4> Children;
 			std::shared_ptr<HeightNode> HeightData;
+
+			// Load data from this when flag == ready, adding it to HeightData
+			std::shared_ptr<DataRequest> upsampleRequest;
 
 			// used w/ node renderer to decide if this is being rendered and/or if it needs data transferred
 			// to the device (so we can batch transfer commands)

@@ -97,17 +97,20 @@ namespace vulpes {
 		class HeightNode {
 		public:
 
-			// Used once, for root node.
+			// Used for root node 
 			HeightNode(const glm::ivec3& node_grid_coordinates, std::vector<HeightSample>& init_samples);
 
 			// Used for most nodes.
-			HeightNode(const glm::ivec3& node_grid_coordinates, const HeightNode& parent, const bool& sample_now = true);
+			HeightNode(const glm::ivec3& node_grid_coordinates, const HeightNode& parent, const bool& sample_now = false);
 
 			~HeightNode() = default;
 
 			void SampleFromResiduals(glm::ivec3& node_coords, const Sampler& sampler);
 			
 			void SampleFromParent(const HeightNode& node);
+
+			void SetSamples(const std::vector<HeightSample> &samples);
+			void SetSamples(std::vector<HeightSample>&& samples);
 
 			float GetHeight(const glm::vec2 world_pos) const;
 			glm::vec3 GetNormal(const glm::vec2 world_pos) const;
@@ -129,9 +132,10 @@ namespace vulpes {
 
 			std::vector<HeightSample> samples;
 			float MinZ, MaxZ;
+			const HeightNode* Parent;
 		protected:
 
-			size_t sampleGridSize = 512;
+			size_t sampleGridSize = 16;
 			size_t meshGridSize;
 			
 			glm::ivec3 gridCoords;

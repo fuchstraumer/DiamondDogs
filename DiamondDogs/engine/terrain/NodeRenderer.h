@@ -7,6 +7,8 @@
 #include "engine\util\AABB.h"
 #include <set>
 #include "HeightNode.h"
+#include "DataProducer.h"
+#include "engine/util/ThreadWrapper.h"
 
 namespace vulpes {
 
@@ -53,6 +55,7 @@ namespace vulpes {
 
 			GraphicsPipeline* pipeline;
 			std::shared_ptr<PipelineCache> pipelineCache;
+			std::unique_ptr<DataProducer> dataProducer;
 
 			struct vsUBO {
 				glm::mat4 model;
@@ -62,7 +65,7 @@ namespace vulpes {
 			
 			Buffer* ubo;
 			TransferPool* transferPool;
-		
+			ThreadWrapped upsampleThread;
 			
 		public:
 			bool UpdateLOD = true;
@@ -79,13 +82,15 @@ namespace vulpes {
 
 			void CreateUBO(const glm::mat4& projection);
 
-			void AddNode(TerrainNode * node, bool ready);
+			void AddNode(TerrainNode * node);
 
-			
+			void AddRequest(TerrainNode* node);
 
 			void RemoveNode(TerrainNode * node);
 
 			void Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const glm::vec3& view_pos, const VkViewport& viewport, const VkRect2D& scissor);
+
+			void SendRequests();
 
 		};
 

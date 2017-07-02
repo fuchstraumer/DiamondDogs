@@ -10,6 +10,7 @@ namespace vulpes {
 		Subdivided, // Has been subdivided, render children instead of this.
 		NeedsUnload, // Erase and unload resources.
 		NeedsTransfer,
+		RequestData, // Request height data from the upsampling DataProducer
 	};
 
 	

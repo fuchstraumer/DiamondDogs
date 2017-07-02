@@ -22,6 +22,10 @@ namespace vulpes {
 		return Result.release();
 	}
 
+	bool DataRequest::operator<(const DataRequest & other) const {
+		return node->GridCoords().z < other.node->GridCoords().z;
+	}
+
 	DataProducer::DataProducer(const Device * _parent) : parent(_parent) {
 		
 		pipelineCache = std::make_unique<PipelineCache>(parent, typeid(DataProducer).hash_code() + numProducers);
@@ -69,11 +73,12 @@ namespace vulpes {
 			
 		}
 
-		semaphores.resize(1);
+		semaphores.resize(availQueues.size());
 		VkSemaphoreCreateInfo semaphore_info{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
-		result = vkCreateSemaphore(parent->vkHandle(), &semaphore_info, nullptr, &semaphores[0]);
-		VkAssert(result);
-
+		for (size_t i = 0; i < semaphores.size(); ++i) {
+			result = vkCreateSemaphore(parent->vkHandle(), &semaphore_info, nullptr, &semaphores[i]);
+			VkAssert(result);
+		}
 		/*
 			setup descriptors, layouts, bindings, pools, etc
 		*/
@@ -145,6 +150,12 @@ namespace vulpes {
 
 	size_t DataProducer::RecordCommands() {	
 
+		if (requests.empty()) {
+			return 0;
+		}
+
+		requests.sort([&](const DataRequest* r0, const DataRequest* r1) { return *r0 < *r1; });
+
 		size_t submitted = 0;
 
 		VkCommandBufferBeginInfo begin_info = vk_command_buffer_begin_info_base;
@@ -191,6 +202,8 @@ namespace vulpes {
 			if (requests.empty()) {
 				break;
 			}
+
+			// Pop current request off of list
 			auto req = requests.front();
 			requests.pop_front();
 
@@ -242,6 +255,9 @@ namespace vulpes {
 		while (!transfer_list.empty()) {
 			auto req = transfer_list.front();
 			transfer_list.pop_front();
+			if (req->parent->samples.empty()) {
+				continue;
+			}
 			auto input_heights = req->parent->GetHeights();
 			req->Input->CopyTo(input_heights.data(), transferPool->GetCmdBuffer(0), sizeof(glm::vec2) * input_heights.size(), 0);
 		}
@@ -253,6 +269,11 @@ namespace vulpes {
 	}
 
 	size_t DataProducer::Submit() {
+
+		if (requests.empty()) {
+			return 0;
+		}
+
 		size_t submitted = 0;
 
 		VkSubmitInfo submit_info = vk_submit_info_base;
@@ -266,11 +287,10 @@ namespace vulpes {
 			submit_info.pCommandBuffers = &transferPool->GetCmdBuffer(0);
 			result = vkQueueSubmit(spareQueue, 1, &submit_info, VK_NULL_HANDLE);
 			VkAssert(result);
-			//submit_info.signalSemaphoreCount = 0;
-			//submit_info.pSignalSemaphores = nullptr;
-			vkQueueWaitIdle(spareQueue);
 		}
 
+		VkPipelineStageFlags stage_flag = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		submit_info.pWaitDstStageMask = &stage_flag;
 
 		for (auto iter = availQueues.begin(); iter != availQueues.end(); ++iter) {
 			if (submittedRequests.empty()) {
@@ -279,8 +299,8 @@ namespace vulpes {
 			// queues execute independently when their corresponding semaphore is signaled,
 			// indicated resources have been transferred and work can continue.
 			submit_info.pCommandBuffers = &computePool->GetCmdBuffer(submitted);
-			//submit_info.waitSemaphoreCount = static_cast<uint32_t>(semaphores.size());
-			//submit_info.pWaitSemaphores = semaphores.data();
+			submit_info.waitSemaphoreCount = 1;
+			submit_info.pWaitSemaphores = &semaphores[submitted];
 			result = vkQueueSubmit(*iter, 1, &submit_info, fences[submitted]);
 			VkAssert(result);
 			++submitted;
@@ -316,13 +336,13 @@ namespace vulpes {
 	}
 
 	
-	DataRequest* DataRequest::UpsampleRequest(terrain::HeightNode * node, terrain::HeightNode * parent, const Device * dvc) {
+	std::shared_ptr<DataRequest> DataRequest::UpsampleRequest(terrain::HeightNode * node, const terrain::HeightNode* parent, const Device * dvc) {
 
-		DataRequest* request = new DataRequest;
+		auto request = std::make_shared<DataRequest>();
 
-		request->Input = new Buffer(dvc);
+		request->Input = std::make_unique<Buffer>(dvc);
 		request->Input->CreateBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sizeof(glm::vec2) * parent->NumSamples());
-		request->Output = new Buffer(dvc);
+		request->Output = std::make_unique<Buffer>(dvc);
 		request->Output->CreateBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sizeof(glm::vec2) * node->NumSamples());
 		request->Result = std::make_unique<Buffer>(dvc);
 		request->Result->CreateBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sizeof(glm::vec2) * node->NumSamples());

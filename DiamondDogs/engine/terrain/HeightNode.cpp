@@ -9,7 +9,7 @@
 namespace vulpes {
 	namespace terrain {
 
-		size_t HeightNode::RootSampleGridSize = 512;
+		size_t HeightNode::RootSampleGridSize = 16;
 		double HeightNode::RootNodeLength = 10000;
 
 		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<HeightSample>& init_samples) : gridCoords(node_grid_coordinates), sampleGridSize(RootSampleGridSize), meshGridSize(RootSampleGridSize - 5) {
@@ -19,13 +19,13 @@ namespace vulpes {
 			MaxZ = samples.at(min_max.second - samples.cbegin()).Sample.x;
 		}
 
-		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent, const bool& sample_now) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), meshGridSize(sampleGridSize - 5) {
+		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent, const bool& sample_now) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), meshGridSize(sampleGridSize - 5), Parent(&parent) {
 			if (sample_now) {
 				SampleFromParent(parent);
 			}
 		}
 
-		static constexpr bool save_to_file = true;
+		static constexpr bool save_to_file = false;
 
 	
 		
@@ -110,6 +110,10 @@ namespace vulpes {
 				std::string fname = std::string("./test_img/terrain_chunk") + glm::to_string(gridCoords) + std::string(".png");
 				std::async(std::launch::async, save_hm_to_file, height_values, min_z, max_z, fname.c_str(), sampleGridSize, sampleGridSize);
 			}
+		}
+
+		void HeightNode::SetSamples(std::vector<HeightSample>&& _samples) {
+			samples = std::move(_samples);
 		}
 
 		float HeightNode::GetHeight(const glm::vec2 world_pos) const {

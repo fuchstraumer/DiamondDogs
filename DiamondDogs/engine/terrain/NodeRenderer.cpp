@@ -92,6 +92,8 @@ vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(
 	frag = new ShaderModule(device, "shaders/terrain/terrain.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
 	transferPool = new TransferPool(device);
+
+	dataProducer = std::make_unique<DataProducer>(device);
 }
 
 vulpes::terrain::NodeRenderer::~NodeRenderer() {
@@ -158,14 +160,21 @@ void vulpes::terrain::NodeRenderer::CreateUBO(const glm::mat4 & projection) {
 
 }
 
-void vulpes::terrain::NodeRenderer::AddNode(TerrainNode * node, bool ready){
-	if (ready) {
-		readyNodes.insert(node);
-	}
-	else {
+void vulpes::terrain::NodeRenderer::AddNode(TerrainNode * node){
+	if (node->Status == NodeStatus::NeedsTransfer) {
 		transferNodes.push_front(node);
 	}
+	else if (node->Status == NodeStatus::Active) {
+		assert(node->mesh.Ready());
+		readyNodes.insert(node);
+	}
 	
+}
+
+void vulpes::terrain::NodeRenderer::AddRequest(TerrainNode * node) {
+	auto new_request = DataRequest::UpsampleRequest(node->HeightData.get(), node->HeightData->Parent, device);
+	node->upsampleRequest = new_request;
+	dataProducer->Request(new_request.get());
 }
 
 void vulpes::terrain::NodeRenderer::RemoveNode(TerrainNode* node) {
@@ -176,6 +185,7 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	uboData.view = view;
 	VkResult result = vkBeginCommandBuffer(graphics_cmd, &begin_info);
 	VkAssert(result);
+
 	if (device->MarkersEnabled) {
 		device->vkCmdBeginDebugMarkerRegion(graphics_cmd, "Draw Terrain", glm::vec4(0.0f, 0.9f, 0.1f, 1.0f));
 	}
@@ -214,8 +224,8 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 			case NodeStatus::NeedsTransfer:
 				++iter;
 				break;
-			default:
-				readyNodes.erase(iter++);
+			case NodeStatus::RequestData:
+				++iter;
 				break;
 			}
 		}
@@ -232,7 +242,28 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	auto start = std::chrono::high_resolution_clock::now();
 	size_t node_count = 0;
 	while (!transferNodes.empty()) {
+
+		// Get references/counts we need.
 		TerrainNode* curr = transferNodes.front();
+		auto& result = curr->upsampleRequest->Result;
+		assert(curr->upsampleRequest->Complete());
+		size_t num_samples = curr->upsampleRequest->node->NumSamples();
+		
+		// Map the compute shader result buffer
+		void* mapped = nullptr;
+		vkMapMemory(device->vkHandle(), result->DvcMemory(), 0, result->AllocSize(), 0, &mapped);
+		glm::vec2* result_vecs = reinterpret_cast<glm::vec2*>(mapped);
+		
+		// Copy result buffer into HeightSample Vector.
+		std::vector<HeightSample> result_heights(num_samples);
+		for (size_t i = 0; i < num_samples; ++i) {
+			result_heights[i].Sample.xy = result_vecs[i];
+		}
+
+		// Set height data for curr.
+		curr->HeightData->SetSamples(std::move(result_heights));
+
+		// Create mesh data for curr
 		curr->CreateMesh(device);
 		curr->mesh.record_transfer_commands(transferPool->CmdBuffer());
 		curr->Status = NodeStatus::Active;
@@ -249,6 +280,10 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 		Buffer::DestroyStagingResources(device);
 	}
 
+	//std::async(std::launch::async, &vulpes::terrain::NodeRenderer::SendRequests, this);
+	upsampleThread.AddTask([&] { SendRequests(); });
+	upsampleThread.Wait();
+
 	ImGui::Begin("Debug");
 	size_t num_nodes = readyNodes.size();
 	ImGui::InputInt("Number of Nodes", reinterpret_cast<int*>(&num_nodes));
@@ -256,5 +291,13 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	ImGui::Checkbox("Update LOD", &UpdateLOD);
 	ImGui::End();
 
+}
+
+void vulpes::terrain::NodeRenderer::SendRequests() {
+	size_t ready = dataProducer->RecordCommands();
+	if (ready == 0) {
+		return;
+	}
+	dataProducer->Submit();
 }
 
