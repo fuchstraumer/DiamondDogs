@@ -43,6 +43,7 @@ namespace vulpes {
 
 		createInfo.usage = usage_flags;
 		createInfo.size = _size;
+		dataSize = _size;
 		createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		AllocationRequirements reqs;
 		reqs.preferredFlags = 0;
@@ -141,6 +142,10 @@ namespace vulpes {
 
 	VkDeviceSize Buffer::Size() const noexcept{
 		return size;
+	}
+
+	VkDeviceSize Buffer::InitDataSize() const noexcept {
+		return dataSize;
 	}
 
 	void Buffer::CreateStagingBuffer(const Device * dvc, const VkDeviceSize & size, VkBuffer & dest, VkMappedMemoryRange& dest_memory_range){

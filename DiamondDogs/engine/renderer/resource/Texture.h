@@ -59,7 +59,7 @@ namespace vulpes {
 	};
 
 	template<typename gli_texture_type>
-	inline Texture<gli_texture_type>::Texture(const Device * _parent, const VkImageUsageFlags & flags) : Image(parent) {
+	inline Texture<gli_texture_type>::Texture(const Device * _parent, const VkImageUsageFlags & flags) : Image(_parent) {
 		createInfo = vk_image_create_info_base;
 		createInfo.usage = flags;
 	}

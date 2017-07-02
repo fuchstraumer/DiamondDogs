@@ -73,6 +73,8 @@ namespace vulpes {
 		// Create texture
 		texture = new Texture<gli::texture2d>(device);
 		texture->CreateFromBuffer(std::move(staging_buffer), VK_FORMAT_R8G8B8A8_UNORM, staging_copy);
+		fontSampler = texture->Sampler();
+		fontView = texture->View();
 
 		VkDescriptorSetLayoutBinding layout_binding{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &fontSampler };
 		VkDescriptorSetLayoutCreateInfo layout_info = vk_descriptor_set_layout_create_info_base;
@@ -252,7 +254,7 @@ namespace vulpes {
 		VkDeviceSize vtx_size = draw_data->TotalVtxCount * sizeof(ImDrawVert);
 		VkDeviceSize idx_size = draw_data->TotalIdxCount * sizeof(ImDrawIdx);
 
-		if (vbo->Size() != vtx_size) {
+		if (vbo->InitDataSize() != vtx_size) {
 			if (vbo) {
 				delete vbo;
 			}
@@ -261,7 +263,7 @@ namespace vulpes {
 			vbo->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vtx_size);
 		}
 
-		if (ebo->Size() != idx_size) {
+		if (ebo->InitDataSize() != idx_size) {
 			if (ebo) {
 				delete ebo;
 			}

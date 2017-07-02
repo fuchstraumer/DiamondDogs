@@ -37,6 +37,10 @@ namespace vulpes {
 
 		VkDeviceSize Size() const noexcept;
 
+		// Due to alignment requirements, the size reported by Size() might not reflect the size of the data uploaded.
+		// Use this when we are checking against data uploaded (for changes)
+		VkDeviceSize InitDataSize() const noexcept;
+
 		void* MappedMemory = nullptr;
 
 		static void CreateStagingBuffer(const Device* dvc, const VkDeviceSize& size, VkBuffer& dest, VkMappedMemoryRange& dest_memory_range);
@@ -55,7 +59,7 @@ namespace vulpes {
 		VkBufferView view;
 		VkMappedMemoryRange memoryRange;
 		VkDeviceSize size;
-
+		VkDeviceSize dataSize;
 	};
 	
 }
