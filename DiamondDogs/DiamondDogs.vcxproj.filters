@@ -3,7 +3,6 @@
   <ItemGroup>
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="stdafx.cpp" />
-    <ClCompile Include="bodies\star\Star.cpp" />
     <ClCompile Include="scenes\BaseScene.cpp" />
     <ClCompile Include="engine\objects\Skybox.cpp" />
     <ClCompile Include="engine\objects\Atmosphere.cpp" />
@@ -20,7 +19,6 @@
     <ClCompile Include="engine\renderer\resource\Buffer.cpp" />
     <ClCompile Include="engine\renderer\resource\Image.cpp" />
     <ClCompile Include="engine\renderer\resource\ShaderModule.cpp" />
-    <ClCompile Include="engine\renderer\resource\Texture.cpp" />
     <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
     <ClCompile Include="engine\util\AABB.cpp" />
     <ClCompile Include="engine\util\easylogging++.cc" />
@@ -50,7 +48,6 @@
     <ClInclude Include="common\CreateInfoBase.h" />
     <ClInclude Include="common\vk_constants.h" />
     <ClInclude Include="common\vkAssert.h" />
-    <ClInclude Include="bodies\star\Star.h" />
     <ClInclude Include="bodies\Body.h" />
     <ClInclude Include="scenes\BaseScene.h" />
     <ClInclude Include="common\VkDebug.h" />
@@ -78,7 +75,6 @@
     <ClInclude Include="engine\renderer\resource\Image.h" />
     <ClInclude Include="engine\renderer\resource\Model.h" />
     <ClInclude Include="engine\renderer\resource\ShaderModule.h" />
-    <ClInclude Include="engine\renderer\resource\Texture.h" />
     <ClInclude Include="engine\renderer\resource\VertexTypes.h" />
     <ClInclude Include="engine\renderer\NonCopyable.h" />
     <ClInclude Include="engine\util\sphere.h" />
@@ -87,7 +83,6 @@
     <ClInclude Include="scenes\Terrain.h" />
     <ClInclude Include="engine\util\easylogging++.h" />
     <ClInclude Include="engine\util\ref_counter.h" />
-    <ClInclude Include="engine\renderer\resource\VkResource.h" />
     <ClInclude Include="engine\renderer\command\TransferPool.h" />
     <ClInclude Include="engine\util\alloc\Page.h" />
     <ClInclude Include="engine\renderer\resource\Memory.h" />
@@ -115,6 +110,7 @@
     <ClInclude Include="engine\renderer\resource\PipelineCache.h" />
     <ClInclude Include="engine\util\sdnoise1234.h" />
     <ClInclude Include="engine\renderer\resource\Allocator.h" />
+    <ClInclude Include="engine\renderer\resource\Texture.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

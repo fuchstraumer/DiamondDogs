@@ -75,7 +75,7 @@ namespace vulpes {
 		vs_info = vsUBO->GetDescriptor();
 		vs_info.range = 32;
 		fs_info = fsUBO->GetDescriptor();
-		fs_info.range = fsUBO->AllocSize();
+		fs_info.range = fsUBO->Size();
 
 		const std::array<VkWriteDescriptorSet, 2> writes{
 			VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, 0, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &vs_info, nullptr},

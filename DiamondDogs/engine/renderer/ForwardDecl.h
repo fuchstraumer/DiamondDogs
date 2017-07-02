@@ -12,10 +12,6 @@ namespace vulpes {
 	class Device;
 	class Buffer;
 	class Image;
-	class Texture2D_STB;
-	class Texture2D;
-	class TextureCubemap;
-	class TextureArray;
 	class Swapchain;
 	class ShaderModule;
 	class DeviceMemory;

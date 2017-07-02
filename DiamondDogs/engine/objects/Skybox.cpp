@@ -1,6 +1,6 @@
 #include "stdafx.h"
 #include "Skybox.h"
-#include "engine\renderer\resource\Texture.h"
+
 #include "engine\renderer\core\LogicalDevice.h"
 #include "engine\renderer\resource\Buffer.h"
 #include "engine\renderer\resource\ShaderModule.h"
@@ -58,8 +58,9 @@ namespace vulpes {
 
 			auto& phys_device = device->GetPhysicalDevice();
 			assert(phys_device.Properties.limits.maxImageDimensionCube >= 4096);
-			texture = new TextureCubemap("rsrc/img/skybox/deep_thought_bc7.dds", device);
-			texture->SetFormat(VK_FORMAT_BC7_UNORM_BLOCK);
+			texture = new Texture<gli::texture_cube>(device);
+			texture->CreateFromFile("rsrc/img/skybox/deep_thought_bc7.dds", VK_FORMAT_BC7_UNORM_BLOCK);
+
 		}
 
 		Skybox::~Skybox() {
@@ -77,8 +78,6 @@ namespace vulpes {
 		}
 
 		void Skybox::CreateData(CommandPool * pool, const VkQueue & queue, const glm::mat4& projection) {
-
-			texture->Create(pool, queue);
 
 			vbo = new Buffer(device);
 			vbo->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertices.size() * sizeof(vertex_t));

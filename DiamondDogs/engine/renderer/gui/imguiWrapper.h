@@ -5,6 +5,7 @@
 #include <imgui\imgui.h>
 #include "imguiShaders.h"
 #include "engine\renderer\command\TransferPool.h"
+#include "engine/renderer/resource/Texture.h"
 namespace vulpes {
 
 	struct imguiSettings {
@@ -36,7 +37,7 @@ namespace vulpes {
 		std::shared_ptr<PipelineCache> cache;
 		GraphicsPipeline* pipeline;
 		Buffer *vbo, *ebo;
-		Texture2D* texture;
+		Texture<gli::texture2d>* texture;
 		ShaderModule *vert, *frag;
 
 		VkDescriptorPool descriptorPool;
@@ -50,9 +51,6 @@ namespace vulpes {
 		VkDeviceMemory fontMemory;
 		VkDescriptorImageInfo fontInfo;
 		VkWriteDescriptorSet fontWriteSet;
-
-		VkBuffer transferBuffer;
-		VkDeviceMemory transferMemory;
 
 		imguiSettings settings;
 

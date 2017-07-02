@@ -2,8 +2,9 @@
 #ifndef SKYBOX_H
 #define SKYBOX_H
 #include "stdafx.h"
-
 #include "engine\renderer\ForwardDecl.h"
+#include "engine\renderer\resource\Texture.h"
+
 namespace vulpes {
 	namespace obj {
 		class Skybox {
@@ -36,7 +37,7 @@ namespace vulpes {
 			const VkVertexInputAttributeDescription attr_descr{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 };
 			std::vector<vertex_t> vertices;
 			std::vector<uint32_t> indices;
-			TextureCubemap* texture;
+			Texture<gli::texture_cube>* texture;
 			Buffer *vbo, *ebo, *ubo;
 			vs_ubo_data uboData;
 			ShaderModule *vert, *frag;

@@ -3,6 +3,7 @@
 #define STAR_H
 #include "engine\objects\mesh\Icosphere.h"
 #include "engine\renderer\ForwardDecl.h"
+#include "engine/renderer/resource/Texture.h"
 
 namespace vulpes {
 
@@ -39,7 +40,7 @@ namespace vulpes {
 		GraphicsPipeline* pipeline;
 		std::shared_ptr<PipelineCache> pipelineCache;
 		Buffer *vsUBO, *fsUBO;
-		Texture2D_STB* blackbody;
+		Texture<gli::texture1d> blackbody;
 		VkDescriptorSetLayout descriptorSetLayout;
 		VkDescriptorSet descriptorSet;
 		VkDescriptorPool descriptorPool;

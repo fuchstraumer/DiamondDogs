@@ -95,7 +95,6 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
-    <ClInclude Include="bodies\star\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\terrestrial\Terrestrial.h" />
     <ClInclude Include="common\CommonDef.h" />
@@ -141,7 +140,6 @@
     <ClInclude Include="engine\renderer\resource\ShaderModule.h" />
     <ClInclude Include="engine\renderer\resource\Texture.h" />
     <ClInclude Include="engine\renderer\resource\VertexTypes.h" />
-    <ClInclude Include="engine\renderer\resource\VkResource.h" />
     <ClInclude Include="engine\terrain\NodeRenderer.h" />
     <ClInclude Include="engine\terrain\TerrainNode.h" />
     <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
@@ -168,9 +166,6 @@
     <ClInclude Include="util\shaderold.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="bodies\star\Star.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
-    </ClCompile>
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="engine\objects\Atmosphere.cpp" />
     <ClCompile Include="engine\objects\mesh\Icosphere.cpp">
@@ -201,7 +196,6 @@
     <ClCompile Include="engine\renderer\resource\Image.cpp" />
     <ClCompile Include="engine\renderer\resource\PipelineCache.cpp" />
     <ClCompile Include="engine\renderer\resource\ShaderModule.cpp" />
-    <ClCompile Include="engine\renderer\resource\Texture.cpp" />
     <ClCompile Include="engine\terrain\DataProducer.cpp" />
     <ClCompile Include="engine\terrain\HeightNode.cpp" />
     <ClCompile Include="engine\terrain\NodeRenderer.cpp" />

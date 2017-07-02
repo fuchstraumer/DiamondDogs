@@ -35,7 +35,7 @@ namespace vulpes {
 		frag = new ShaderModule(device, "shaders/gui/ui.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
 		{
-			std::array<VkDescriptorPoolSize, 11> pool_sizes{
+			std::array<VkDescriptorPoolSize, 1> pool_sizes{
 				VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 },
 			};
 			VkDescriptorPoolCreateInfo pool_info = vk_descriptor_pool_create_info_base;
@@ -49,54 +49,31 @@ namespace vulpes {
 
 		// Load texture.
 		ImGuiIO& io = ImGui::GetIO();
-
 		unsigned char* pixels;
 		io.Fonts->GetTexDataAsRGBA32(&pixels, &imgWidth, &imgHeight);
 		size_t data_size = imgWidth * imgHeight * 4 * sizeof(char);
 
 		// Upload pixel data to staging/transfer buffer object
-		Buffer::CreateStagingBuffer(device, data_size, transferBuffer, transferMemory);
+		VkBuffer staging_buffer;
+		VkMappedMemoryRange staging_memory;
+		Buffer::CreateStagingBuffer(device, data_size, staging_buffer, staging_memory);
 		void* mapped;
-		VkResult result = vkMapMemory(device->vkHandle(), transferMemory, 0, data_size, 0, &mapped);
+		VkResult result = vkMapMemory(device->vkHandle(), staging_memory.memory, staging_memory.offset, data_size, 0, &mapped);
 		VkAssert(result);
 		memcpy(mapped, pixels, data_size);
-		vkUnmapMemory(device->vkHandle(), transferMemory);
+		vkUnmapMemory(device->vkHandle(), staging_memory.memory);
 
-		// Create image
-		VkImageCreateInfo image_info = vk_image_create_info_base;
-		image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-		image_info.extent = VkExtent3D{ static_cast<uint32_t>(imgWidth), static_cast<uint32_t>(imgHeight), 1 };
-		image_info.mipLevels = 1;
-		image_info.arrayLayers = 1;
-		image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-		image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-		image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		result = vkCreateImage(device->vkHandle(), &image_info, nullptr, &fontImage);
-		VkAssert(result);
-		VkMemoryRequirements memreqs;
-		vkGetImageMemoryRequirements(device->vkHandle(), fontImage, &memreqs);
-		VkMemoryAllocateInfo alloc = vk_allocation_info_base;
-		alloc.allocationSize = memreqs.size;
-		alloc.memoryTypeIndex = device->GetMemoryTypeIdx(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-		result = vkAllocateMemory(device->vkHandle(), &alloc, nullptr, &fontMemory);
-		VkAssert(result);
-		result = vkBindImageMemory(device->vkHandle(), fontImage, fontMemory, 0);
-		VkAssert(result);
+		std::vector<VkBufferImageCopy> staging_copy;
+		VkBufferImageCopy buffer_image_copy{};
+		buffer_image_copy.imageSubresource = VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+		buffer_image_copy.imageExtent = VkExtent3D{ static_cast<uint32_t>(imgWidth), static_cast<uint32_t>(imgHeight), 1 };
+		buffer_image_copy.imageSubresource = VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+		staging_copy.push_back(std::move(buffer_image_copy));
 
+		// Create texture
+		texture = new Texture<gli::texture2d>(device);
+		texture->CreateFromBuffer(std::move(staging_buffer), VK_FORMAT_R8G8B8A8_UNORM, staging_copy);
 
-		VkImageViewCreateInfo view_info = vk_image_view_create_info_base;
-		view_info.image = fontImage;
-		view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-		view_info.subresourceRange = VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-		result = vkCreateImageView(device->vkHandle(), &view_info, nullptr, &fontView);
-		VkAssert(result);
-
-
-		VkSamplerCreateInfo sampler_info = vk_sampler_create_info_base;
-		result = vkCreateSampler(device->vkHandle(), &sampler_info, nullptr, &fontSampler);
-		VkAssert(result);
-
-		
 		VkDescriptorSetLayoutBinding layout_binding{ 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &fontSampler };
 		VkDescriptorSetLayoutCreateInfo layout_info = vk_descriptor_set_layout_create_info_base;
 		layout_info.bindingCount = 1;
@@ -204,27 +181,10 @@ namespace vulpes {
 	void imguiWrapper::UploadTextureData(CommandPool * transfer_pool) {
 		// Transfer image data from transfer buffer onto the device.
 		auto cmd = transfer_pool->StartSingleCmdBuffer();
+
+		texture->TransferToDevice(cmd);
+
 		VkQueue queue = device->GraphicsQueue(0);
-		VkImageMemoryBarrier image_barrier = vk_image_memory_barrier_base;
-		image_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		image_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		image_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-		image_barrier.srcAccessMask = 0;
-		image_barrier.image = fontImage;
-		image_barrier.subresourceRange = VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &image_barrier);
-
-		VkBufferImageCopy buff_copy{};
-		buff_copy.imageSubresource = VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-		buff_copy.imageExtent = VkExtent3D{ static_cast<uint32_t>(imgWidth), static_cast<uint32_t>(imgHeight), 1 };
-		vkCmdCopyBufferToImage(cmd, transferBuffer, fontImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buff_copy);
-
-		image_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-		image_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-		image_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		image_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &image_barrier);
-
 		transfer_pool->EndSingleCmdBuffer(cmd, queue);
 	}
 

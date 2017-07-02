@@ -320,9 +320,9 @@ namespace vulpes {
 
 		template<typename vertices_type, typename vertex_type, typename index_type>
 		inline void Mesh<vertices_type, vertex_type, index_type>::record_transfer_commands(VkCommandBuffer & transfer_cmd) {
-			vbo[0]->CopyTo(vertices.positions.data(), transfer_cmd, vbo[0]->AllocSize(), 0);
-			vbo[1]->CopyTo(vertices.normals_uvs.data(), transfer_cmd, vbo[1]->AllocSize(), 0);
-			ebo->CopyTo(indices.data(), transfer_cmd, ebo->AllocSize(), 0);
+			vbo[0]->CopyTo(vertices.positions.data(), transfer_cmd, vbo[0]->Size(), 0);
+			vbo[1]->CopyTo(vertices.normals_uvs.data(), transfer_cmd, vbo[1]->Size(), 0);
+			ebo->CopyTo(indices.data(), transfer_cmd, ebo->Size(), 0);
 		}
 
 		template<typename vertices_type, typename vertex_type, typename index_type>

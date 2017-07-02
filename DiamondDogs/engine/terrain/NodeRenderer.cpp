@@ -41,7 +41,7 @@ static const std::array<glm::vec4, 20> LOD_COLOR_ARRAY = {
 	glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
 };
 
-vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(parent_dvc), pipeline(nullptr), ubo(nullptr) {
+vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(parent_dvc), pipeline(nullptr) {
 
 	HeightmapNoise init_hm(HeightNode::RootSampleGridSize + 5, glm::vec3(0.0f), 1.0f);
 	glm::ivec3 grid_pos = glm::ivec3(0, 0, 0);
@@ -124,7 +124,7 @@ vulpes::terrain::NodeRenderer::~NodeRenderer() {
 
 void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection) {
 
-	CreateUBO(projection);
+	updateUBO(projection);
 
 	const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
 	VkPipelineVertexInputStateCreateInfo vert_info = mesh::Vertices::PipelineInfo();

@@ -42,6 +42,7 @@ namespace vulpes {
 
 		operator VkDevice() const;
 
+		VkImageTiling GetFormatTiling(const VkFormat& format, const VkFormatFeatureFlags & flags) const;
 		VkFormat FindSupportedFormat(const std::vector<VkFormat>& options, const VkImageTiling& tiling, const VkFormatFeatureFlags& flags) const;
 		VkFormat FindDepthFormat() const;
 

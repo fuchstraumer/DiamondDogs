@@ -173,6 +173,19 @@ namespace vulpes {
 		return handle;
 	}
 
+	VkImageTiling Device::GetFormatTiling(const VkFormat & format, const VkFormatFeatureFlags & flags) const {
+		VkFormatProperties properties;
+		vkGetPhysicalDeviceFormatProperties(parent->vkHandle(), format, &properties);
+		if (properties.optimalTilingFeatures & flags) {
+			return VK_IMAGE_TILING_OPTIMAL;
+		}
+		else {
+			// Check that the device at least supports the desired features for linear tiling
+			assert(properties.linearTilingFeatures & flags);
+			return VK_IMAGE_TILING_LINEAR;
+		}
+	}
+
 	VkFormat Device::FindSupportedFormat(const std::vector<VkFormat>& options, const VkImageTiling & tiling, const VkFormatFeatureFlags & flags) const {
 		for (const auto& fmt : options) {
 			VkFormatProperties properties;
