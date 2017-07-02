@@ -156,6 +156,8 @@ namespace vulpes {
 
 		VkResult result = dvc->vkAllocator->CreateBuffer(&dest, &dest_memory_range, &create_info, alloc_reqs);
 		VkAssert(result);
+
+		stagingBuffers.push_back(dest);
 	}
 
 	void Buffer::DestroyStagingResources(const Device* device){

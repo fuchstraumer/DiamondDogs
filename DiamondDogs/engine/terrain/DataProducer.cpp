@@ -237,12 +237,12 @@ namespace vulpes {
 			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 			vkCmdDispatch(cmd, ceil(req->Width / 16), ceil(req->Height / 16), 1);
 			compute_complete_barrier.buffer = req->Input->vkHandle();
-			compute_complete_barrier.size = req->Input->AllocSize();
+			compute_complete_barrier.size = req->Input->Size();
 			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &compute_complete_barrier, 0, nullptr);
-			output_result_copy.size = req->Output->AllocSize();
+			output_result_copy.size = req->Output->Size();
 			vkCmdCopyBuffer(cmd, req->Output->vkHandle(), req->Result->vkHandle(), 1, &output_result_copy);
 			host_transition_barrier.buffer = req->Result->vkHandle();
-			host_transition_barrier.size = req->Result->AllocSize();
+			host_transition_barrier.size = req->Result->Size();
 			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &host_transition_barrier, 0, nullptr);
 			result = vkEndCommandBuffer(cmd);
 			VkAssert(result);

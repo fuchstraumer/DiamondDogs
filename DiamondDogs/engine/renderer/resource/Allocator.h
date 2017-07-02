@@ -182,7 +182,7 @@ namespace vulpes {
 		static VkBool32 noNewAllocations;
 
 		// true if whatever allocation this belongs to should be in its own device memory object
-		VkBool32 privateMemory;
+		VkBool32 privateMemory = false;
 
 		VkMemoryPropertyFlags requiredFlags;
 		// acts as additional flags over above.

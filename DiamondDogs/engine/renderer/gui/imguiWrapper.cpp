@@ -292,7 +292,7 @@ namespace vulpes {
 		VkDeviceSize vtx_size = draw_data->TotalVtxCount * sizeof(ImDrawVert);
 		VkDeviceSize idx_size = draw_data->TotalIdxCount * sizeof(ImDrawIdx);
 
-		if (vbo->DataSize() != vtx_size) {
+		if (vbo->Size() != vtx_size) {
 			if (vbo) {
 				delete vbo;
 			}
@@ -301,7 +301,7 @@ namespace vulpes {
 			vbo->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vtx_size);
 		}
 
-		if (ebo->DataSize() != idx_size) {
+		if (ebo->Size() != idx_size) {
 			if (ebo) {
 				delete ebo;
 			}
