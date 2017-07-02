@@ -46,9 +46,23 @@ vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(
 	HeightmapNoise init_hm(HeightNode::RootSampleGridSize + 5, glm::vec3(0.0f), 1.0f);
 	glm::ivec3 grid_pos = glm::ivec3(0, 0, 0);
 	std::shared_ptr<HeightNode> root = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), init_hm.samples);
+	
+	setupDescriptors();
 
+	setupPipelineLayout();
+
+	allocateDescriptors();
+
+	createShaders();
+
+	transferPool = new TransferPool(device);
+
+	dataProducer = std::make_unique<DataProducer>(device);
+}
+
+void vulpes::terrain::NodeRenderer::setupDescriptors() {
 	static const std::array<VkDescriptorPoolSize, 1> pools{
-		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1},
+		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1 },
 	};
 
 	VkDescriptorPoolCreateInfo pool_info = vk_descriptor_pool_create_info_base;
@@ -69,40 +83,43 @@ vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(
 
 	result = vkCreateDescriptorSetLayout(device->vkHandle(), &layout_info, nullptr, &descriptorSetLayout);
 	VkAssert(result);
+}
 
+void vulpes::terrain::NodeRenderer::setupPipelineLayout() {
 	VkPipelineLayoutCreateInfo pipeline_info = vk_pipeline_layout_create_info_base;
 	pipeline_info.setLayoutCount = 1;
 	pipeline_info.pSetLayouts = &descriptorSetLayout;
-	VkPushConstantRange ranges[2]{ VkPushConstantRange{VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO)}, VkPushConstantRange{VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4) * 2 } };
+	VkPushConstantRange ranges[2]{ VkPushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(terrain_push_ubo) }, VkPushConstantRange{ VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(terrain_push_ubo), sizeof(glm::vec4) * 2 } };
 	pipeline_info.pushConstantRangeCount = 2;
 	pipeline_info.pPushConstantRanges = ranges;
 
-	result = vkCreatePipelineLayout(device->vkHandle(), &pipeline_info, nullptr, &pipelineLayout);
+	VkResult result = vkCreatePipelineLayout(device->vkHandle(), &pipeline_info, nullptr, &pipelineLayout);
 	VkAssert(result);
+}
 
+
+void vulpes::terrain::NodeRenderer::allocateDescriptors() {
 	VkDescriptorSetAllocateInfo alloc_info = vk_descriptor_set_alloc_info_base;
 	alloc_info.descriptorPool = descriptorPool;
 	alloc_info.descriptorSetCount = 1;
 	alloc_info.pSetLayouts = &descriptorSetLayout;
 
-	result = vkAllocateDescriptorSets(device->vkHandle(), &alloc_info, &descriptorSet);
+	VkResult result = vkAllocateDescriptorSets(device->vkHandle(), &alloc_info, &descriptorSet);
 	VkAssert(result);
+}
 
-	vert = new ShaderModule(device, "shaders/terrain/terrain.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-	frag = new ShaderModule(device, "shaders/terrain/terrain.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-
-	transferPool = new TransferPool(device);
-
-	dataProducer = std::make_unique<DataProducer>(device);
+void vulpes::terrain::NodeRenderer::createShaders() {
+	vert = std::make_unique<ShaderModule>(device, "shaders/terrain/terrain.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+	frag = std::make_unique<ShaderModule>(device, "shaders/terrain/terrain.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 }
 
 vulpes::terrain::NodeRenderer::~NodeRenderer() {
-	vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
+	VkResult result = vkFreeDescriptorSets(device->vkHandle(), descriptorPool, 1, &descriptorSet);
+	VkAssert(result);
 	vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
+	vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
 	vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
 	delete pipeline;
-	delete frag;
-	delete vert;
 }
 
 void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection) {
@@ -155,9 +172,8 @@ void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpa
 	pipeline->Init(pipeline_create_info, cache->vkHandle());
 }
 
-void vulpes::terrain::NodeRenderer::CreateUBO(const glm::mat4 & projection) {
+void vulpes::terrain::NodeRenderer::updateUBO(const glm::mat4 & projection) {
 	uboData.projection = projection;
-
 }
 
 void vulpes::terrain::NodeRenderer::AddNode(TerrainNode * node){
@@ -182,23 +198,37 @@ void vulpes::terrain::NodeRenderer::RemoveNode(TerrainNode* node) {
 }
 
 void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const glm::vec3& view_pos, const VkViewport& viewport, const VkRect2D& scissor) {
+	
+	frameViewport = &viewport;
+	frameScissorRect = &scissor;
+	frameCameraPos = &view_pos;
 	uboData.view = view;
-	VkResult result = vkBeginCommandBuffer(graphics_cmd, &begin_info);
+
+	renderNodes(graphics_cmd, begin_info);
+
+	transferNodesToDvc();
+
+	upsampleThread.AddTask([&] { SendRequests(); });
+	upsampleThread.Wait();
+
+}
+
+void vulpes::terrain::NodeRenderer::renderNodes(VkCommandBuffer& cmd_buffer, VkCommandBufferBeginInfo& begin_info) {
+	
+	VkResult result = vkBeginCommandBuffer(cmd_buffer, &begin_info);
 	VkAssert(result);
 
 	if (device->MarkersEnabled) {
-		device->vkCmdBeginDebugMarkerRegion(graphics_cmd, "Draw Terrain", glm::vec4(0.0f, 0.9f, 0.1f, 1.0f));
+		device->vkCmdBeginDebugMarkerRegion(cmd_buffer, "Draw Terrain", glm::vec4(0.0f, 0.9f, 0.1f, 1.0f));
 	}
 
 	if (!readyNodes.empty()) {
-
-		// Record commands for all nodes now
-		vkCmdSetViewport(graphics_cmd, 0, 1, &viewport);
-		vkCmdSetScissor(graphics_cmd, 0, 1, &scissor);
-		vkCmdBindPipeline(graphics_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
-		vkCmdBindDescriptorSets(graphics_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-		glm::vec4 camera_push = glm::vec4(view_pos.x, view_pos.y, view_pos.z, 1.0f);
-		vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO) + sizeof(glm::vec4), sizeof(glm::vec4), glm::value_ptr(camera_push));
+		vkCmdSetViewport(cmd_buffer, 0, 1, frameViewport);
+		vkCmdSetScissor(cmd_buffer, 0, 1, frameScissorRect);
+		vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
+		vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+		glm::vec4 camera_push = glm::vec4(frameCameraPos->x, frameCameraPos->y, frameCameraPos->z, 1.0f);
+		vkCmdPushConstants(cmd_buffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(terrain_push_ubo) + sizeof(glm::vec4), sizeof(glm::vec4), glm::value_ptr(camera_push));
 		auto iter = readyNodes.begin();
 		while (iter != readyNodes.end()) {
 			TerrainNode* curr = *iter;
@@ -215,10 +245,10 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 			case NodeStatus::Active:
 				// Push constant block contains our 3 matrices, update that now.
 				uboData.model = curr->mesh.get_model_matrix();
-				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vsUBO), &uboData);
-				vkCmdPushConstants(graphics_cmd, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(vsUBO), sizeof(glm::vec4), &LOD_COLOR_ARRAY[curr->Depth()]);
+				vkCmdPushConstants(cmd_buffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(terrain_push_ubo), &uboData);
+				vkCmdPushConstants(cmd_buffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(terrain_push_ubo), sizeof(glm::vec4), &LOD_COLOR_ARRAY[curr->Depth()]);
 				// Generates draw commands
-				curr->mesh.render(graphics_cmd);
+				curr->mesh.render(cmd_buffer);
 				++iter;
 				break;
 			case NodeStatus::NeedsTransfer:
@@ -230,68 +260,68 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 			}
 		}
 	}
-	result = vkEndCommandBuffer(graphics_cmd);
+
+	result = vkEndCommandBuffer(cmd_buffer);
 	VkAssert(result);
 
-	bool submit_transfer = false;
-	if (!transferNodes.empty()) {
-		transferPool->Begin();
-		submit_transfer = true;
+}
+
+void vulpes::terrain::NodeRenderer::transferNodesToDvc() {
+
+	if (transferNodes.empty()) {
+		return;
 	}
 
-	auto start = std::chrono::high_resolution_clock::now();
-	size_t node_count = 0;
+	transferPool->Begin();
+
 	while (!transferNodes.empty()) {
-
-		// Get references/counts we need.
 		TerrainNode* curr = transferNodes.front();
-		auto& result = curr->upsampleRequest->Result;
-		assert(curr->upsampleRequest->Complete());
-		size_t num_samples = curr->upsampleRequest->node->NumSamples();
-		
-		// Map the compute shader result buffer
-		void* mapped = nullptr;
-		result->Map();
-		glm::vec2* result_vecs = reinterpret_cast<glm::vec2*>(result->MappedMemory);
-		
-		// Copy result buffer into HeightSample Vector.
-		std::vector<HeightSample> result_heights(num_samples);
-		for (size_t i = 0; i < num_samples; ++i) {
-			result_heights[i].Sample.xy = result_vecs[i];
-		}
-
-		result->Unmap();
-		// Set height data for curr.
-		curr->HeightData->SetSamples(std::move(result_heights));
-
-		// Create mesh data for curr
-		curr->CreateMesh(device);
-		curr->mesh.record_transfer_commands(transferPool->CmdBuffer());
-		curr->Status = NodeStatus::Active;
-		auto inserted = readyNodes.insert(curr);
+		transferNodeToDvc(curr);
 		transferNodes.pop_front();
-		++node_count;
 	}
 
-	if (submit_transfer) {
-		auto end = std::chrono::high_resolution_clock::now();
-		auto dur = end - start;
-		transferPool->End();
-		transferPool->Submit();
-		Buffer::DestroyStagingResources(device);
+	transferPool->End();
+	transferPool->Submit();
+	Buffer::DestroyStagingResources(device);
+
+}
+
+void vulpes::terrain::NodeRenderer::transferNodeToDvc(TerrainNode* node_to_transfer) {
+	// Verify/Get compute shader results.
+	auto& result = node_to_transfer->upsampleRequest->Result;
+	assert(node_to_transfer->upsampleRequest->Complete());
+	size_t num_samples = node_to_transfer->upsampleRequest->node->NumSamples();
+
+	// Map the compute shader result buffer
+	void* mapped;
+	result->Map();
+	glm::vec2* result_vecs = reinterpret_cast<glm::vec2*>(result->MappedMemory);
+
+	// Copy result buffer into HeightSample Vector.
+	std::vector<HeightSample> result_heights(num_samples);
+	for (size_t i = 0; i < num_samples; ++i) {
+		result_heights[i].Sample.xy = result_vecs[i];
 	}
 
-	//std::async(std::launch::async, &vulpes::terrain::NodeRenderer::SendRequests, this);
-	upsampleThread.AddTask([&] { SendRequests(); });
-	upsampleThread.Wait();
+	result->Unmap();
+	// Set height data for curr.
+	node_to_transfer->HeightData->SetSamples(std::move(result_heights));
 
+	// Create mesh data for curr
+	node_to_transfer->CreateMesh(device);
+	node_to_transfer->mesh.record_transfer_commands(transferPool->CmdBuffer());
+	node_to_transfer->Status = NodeStatus::Active;
+
+	// Node is ready for next frame.
+	readyNodes.insert(node_to_transfer);
+}
+
+void vulpes::terrain::NodeRenderer::updateGUI() {
 	ImGui::Begin("Debug");
 	size_t num_nodes = readyNodes.size();
 	ImGui::InputInt("Number of Nodes", reinterpret_cast<int*>(&num_nodes));
-	ImGui::Checkbox("Render AABBs", &DrawAABBs);
 	ImGui::Checkbox("Update LOD", &UpdateLOD);
 	ImGui::End();
-
 }
 
 void vulpes::terrain::NodeRenderer::SendRequests() {
