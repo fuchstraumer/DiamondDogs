@@ -152,7 +152,7 @@ namespace vulpes {
 
 		size_t avail_idx = 0;
 		for (auto iter = availSuballocations.cbegin(); iter != availSuballocations.cend(); ++iter) {
-			if ((*iter)->size < allocation_size) {
+			if ((*iter)->size > allocation_size) {
 				avail_idx = iter - availSuballocations.cbegin();
 				break;
 			}
@@ -252,7 +252,7 @@ namespace vulpes {
 	}
 
 	bool Allocation::Empty() const {
-		return Suballocations.empty();
+		return (Suballocations.size() == 1) && (freeCount == 1);
 	}
 
 	void Allocation::Allocate(const SuballocationRequest & request, const SuballocationType & allocation_type, const VkDeviceSize & allocation_size) {
@@ -264,8 +264,6 @@ namespace vulpes {
 		const VkDeviceSize padding_end = suballoc.size - padding_begin - allocation_size;
 
 		removeFreeSuballocation(request.freeSuballocation);
-		--freeCount;
-		availSize -= allocation_size;
 		suballoc.offset = request.offset;
 		suballoc.size = allocation_size;
 		suballoc.type = allocation_type;
@@ -292,6 +290,9 @@ namespace vulpes {
 			++freeCount;
 		}
 
+		--freeCount;
+		availSize -= allocation_size;
+		Suballocations.sort();
 	}
 
 	void Allocation::Free(const VkMappedMemoryRange * memory_to_free) {
@@ -317,6 +318,8 @@ namespace vulpes {
 				}
 			}
 		}
+
+
 	}
 
 	VkDeviceSize Allocation::LargestAvailRegion() const noexcept {
@@ -376,9 +379,9 @@ namespace vulpes {
 		++next_iter;
 		assert(next_iter != Suballocations.cend());
 		// add item to merge's size to the size of the object after it
-		next_iter->size += item_to_merge->size;
+		item_to_merge->size += next_iter->size;
 		--freeCount;
-		Suballocations.erase(item_to_merge);
+		Suballocations.erase(next_iter);
 	}
 
 	void Allocation::freeSuballocation(const suballocationList::iterator & item_to_free) {
@@ -464,28 +467,13 @@ namespace vulpes {
 	}
 
 	size_t AllocationCollection::Free(const VkMappedMemoryRange * memory_to_free) {
-		bool forward_direction = memory_to_free->size >= availSize / 2;
 		size_t allocation_index = 0;
-		if (forward_direction) {
-			for (auto iter = allocations.begin(); iter != allocations.end(); ++iter) {
-				if ((*iter)->Memory() == memory_to_free->memory) {
-					(*iter)->Free(memory_to_free);
-					availSize -= memory_to_free->size;
-					return allocation_index;
-				}
-				++allocation_index;
+		for (auto iter = allocations.begin(); iter != allocations.end(); ++iter) {
+			if ((*iter)->Memory() == memory_to_free->memory) {
+				(*iter)->Free(memory_to_free);
+				return allocation_index;
 			}
-		}
-		else {
-			allocation_index = allocations.size() - 1;
-			for (auto iter = allocations.rbegin(); iter != allocations.rend(); ++iter) {
-				if ((*iter)->Memory() == memory_to_free->memory) {
-					(*iter)->Free(memory_to_free);
-					availSize -= memory_to_free->size;
-					return allocation_index;
-				}
-				--allocation_index;
-			}
+			++allocation_index;
 		}
 
 		return std::numeric_limits<size_t>::max();
@@ -509,7 +497,7 @@ namespace vulpes {
 		// initialize base pools, one per memory type.
 		for (size_t i = 0; i < GetMemoryTypeCount(); ++i) {
 			allocations[i] = new AllocationCollection(this);
-			emptyAllocations[i] = true;
+			emptyAllocations[i] = false;
 		}
 	}
 
@@ -567,10 +555,10 @@ namespace vulpes {
 	}
 
 	void Allocator::FreeMemory(const VkMappedMemoryRange * memory_to_free) {
-		
+		uint32_t type_idx = 0;
 		Allocation* alloc_to_delete = nullptr;
 		bool found = false; // searching for given memory range.
-		for (uint32_t type_idx = 0; type_idx = GetMemoryTypeCount(); ++type_idx) {
+		for (; type_idx < GetMemoryTypeCount(); ++type_idx) {
 			auto& allocation_collection = allocations[type_idx];
 			const size_t alloc_idx = allocation_collection->Free(memory_to_free);
 			if (alloc_idx != std::numeric_limits<size_t>::max()) {
@@ -605,8 +593,8 @@ namespace vulpes {
 				// need to cleanup resources first, before deleting the actual object.
 				alloc_to_delete->Destroy(this);
 				delete alloc_to_delete;
-				return;
 			}
+			return;
 		}
 
 		// memory_to_free not found, possible a privately/singularly allocated memory object
@@ -615,6 +603,7 @@ namespace vulpes {
 		}
 
 		LOG(ERROR) << "Failed to free memory.";
+		throw std::runtime_error("Unable to free given memory.");
 		return;
 	}
 
@@ -665,6 +654,7 @@ namespace vulpes {
 		
 		const VkDeviceSize preferredBlockSize = GetPreferredBlockSize(memory_type_idx);
 
+		// If given item is bigger than our preferred block size, we give it its own special allocation (using a single device memory object for this).
 		const bool private_memory = alloc_details.privateMemory || memory_reqs.size > preferredBlockSize / 2;
 
 		if (private_memory) {
@@ -762,11 +752,33 @@ namespace vulpes {
 
 	VkResult Allocator::allocatePrivateMemory(const VkDeviceSize & size, const SuballocationType & type, const uint32_t & memory_type_idx, VkMappedMemoryRange * memory_range) {
 		VkMemoryAllocateInfo alloc_info{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr, size, memory_type_idx };
-		return VK_ERROR_VALIDATION_FAILED_EXT;
+
+		privateSuballocation private_suballoc;
+		private_suballoc.size = size;
+		private_suballoc.type = type;
+
+		VkResult result = vkAllocateMemory(parent->vkHandle(), &alloc_info, nullptr, &private_suballoc.memory);
+		VkAssert(result);
+		
+		memory_range->memory = private_suballoc.memory;
+		memory_range->offset = 0;
+		memory_range->size = size;
+
+		privateAllocations.insert(std::make_pair(memory_range, private_suballoc));
+
+		return VK_SUCCESS;
 	}
 
-	bool Allocator::freePrivateMemory(const VkMappedMemoryRange * memory_to_free) {
-		return false;
+	bool Allocator::freePrivateMemory(const VkMappedMemoryRange * range_to_free) {
+		auto mem_to_free = privateAllocations.find(range_to_free);
+		if (mem_to_free != privateAllocations.cend()) {
+			auto& suballoc = mem_to_free->second;
+			vkFreeMemory(parent->vkHandle(), range_to_free->memory, nullptr);
+			return true;
+		}
+		else {
+			return false;
+		}
 	}
 
 	VkResult Allocator::AllocateForImage(VkImage & image_handle, const AllocationRequirements & details, const SuballocationType & alloc_type, VkMappedMemoryRange * dest_memory_range, uint32_t * memory_type_idx) {
@@ -787,37 +799,31 @@ namespace vulpes {
 	VkResult Allocator::CreateImage(VkImage * image_handle, VkMappedMemoryRange * dest_memory_range, const VkImageCreateInfo * img_create_info, const AllocationRequirements & alloc_reqs) {
 		VkMappedMemoryRange mem_range{};
 
-		{
-			// create image object first.
-			VkResult result = vkCreateImage(parent->vkHandle(), img_create_info, nullptr, image_handle);
-			VkAssert(result);
-		}
-
-		{
-			// allocate memory.
-			uint32_t type_idx = 0;
-			
-			SuballocationType suballoc_type = img_create_info->tiling == VK_IMAGE_TILING_OPTIMAL ? SuballocationType::ImageOptimal : SuballocationType::ImageLinear;
-			VkResult result = AllocateForImage(*image_handle, alloc_reqs, suballoc_type, &mem_range, &type_idx);
-			VkAssert(result);
-		}
+		// create image object first.
+		VkResult result = vkCreateImage(parent->vkHandle(), img_create_info, nullptr, image_handle);
+		VkAssert(result);
 		
-		{
-			// bind memory to image
-			if (dest_memory_range != nullptr) {
-				// update memory range
-				*dest_memory_range = mem_range;
-			}
-			VkResult result = vkBindImageMemory(parent->vkHandle(), *image_handle, mem_range.memory, mem_range.offset);
-			VkAssert(result);
-
-			// add to map
-			imageToMemoryMap.insert(std::make_pair(*image_handle, mem_range));
-			return VK_SUCCESS;
+		// allocate memory.
+		uint32_t type_idx = 0;
+			
+		SuballocationType suballoc_type = img_create_info->tiling == VK_IMAGE_TILING_OPTIMAL ? SuballocationType::ImageOptimal : SuballocationType::ImageLinear;
+		result = AllocateForImage(*image_handle, alloc_reqs, suballoc_type, &mem_range, &type_idx);
+		VkAssert(result);
+		
+		
+		
+		// bind memory to image
+		if (dest_memory_range != nullptr) {
+			// update memory range
+			*dest_memory_range = mem_range;
 		}
+		result = vkBindImageMemory(parent->vkHandle(), *image_handle, mem_range.memory, mem_range.offset);
+		VkAssert(result);
 
-		// shouldn't reach here: temporary while add in additional paths to above code
-		return VK_ERROR_VALIDATION_FAILED_EXT;
+		// add to map
+		imageToMemoryMap.insert(std::make_pair(*image_handle, mem_range));
+		return VK_SUCCESS;
+
 	}
 
 	VkResult Allocator::CreateBuffer(VkBuffer * buffer_handle, VkMappedMemoryRange * dest_memory_range, const VkBufferCreateInfo * buffer_create_info, const AllocationRequirements & alloc_reqs) {
@@ -839,6 +845,7 @@ namespace vulpes {
 		result = vkBindBufferMemory(parent->vkHandle(), *buffer_handle, mem_range.memory, mem_range.offset);
 		VkAssert(result);
 
+		bufferToMemoryMap.insert(std::make_pair(*buffer_handle, mem_range));
 		return VK_SUCCESS;
 	}
 
@@ -882,11 +889,9 @@ namespace vulpes {
 		}
 
 		range_to_free = search->second;
-		bufferToMemoryMap.erase(search);
-
 		vkDestroyBuffer(parent->vkHandle(), buffer_handle, nullptr);
 		FreeMemory(&range_to_free);
-
+		bufferToMemoryMap.erase(buffer_handle);
 	}
 
 }

@@ -191,7 +191,7 @@ namespace vulpes {
 
 	struct Suballocation {
 		bool operator<(const Suballocation& other) {
-			return size < other.size;
+			return offset < other.offset;
 		}
 		VkDeviceSize offset, size;
 		SuballocationType type;
@@ -207,6 +207,9 @@ namespace vulpes {
 		VkDeviceMemory memory;
 		VkDeviceSize size;
 		SuballocationType type;
+		bool operator==(const privateSuballocation& other) {
+			return (memory == other.memory) && (size == other.size) && (type == other.type);
+		}
 	};
 
 	using suballocationList = std::list<Suballocation>;
@@ -431,7 +434,7 @@ namespace vulpes {
 		std::vector<AllocationCollection*> allocations;
 		std::vector<bool> emptyAllocations;
 
-		std::array<privateSuballocation, vkMaxMemoryTypes> privateAllocations;
+		std::unordered_map<const VkMappedMemoryRange*, privateSuballocation> privateAllocations;
 
 		/*
 		These maps tie an objects handle to its mapped memory range, so we
