@@ -103,6 +103,7 @@
     <ClInclude Include="common\VkDebug.h" />
     <ClInclude Include="engine\objects\Atmosphere.h" />
     <ClInclude Include="engine\renderer\render\MSAA.h" />
+    <ClInclude Include="engine\renderer\resource\Allocator.h" />
     <ClInclude Include="engine\renderer\resource\PipelineCache.h" />
     <ClInclude Include="engine\terrain\DataProducer.h" />
     <ClInclude Include="engine\terrain\HeightNode.h" />
@@ -195,6 +196,7 @@
     <ClCompile Include="engine\renderer\render\MSAA.cpp" />
     <ClCompile Include="engine\renderer\render\Renderpass.cpp" />
     <ClCompile Include="engine\renderer\render\Swapchain.cpp" />
+    <ClCompile Include="engine\renderer\resource\Allocator.cpp" />
     <ClCompile Include="engine\renderer\resource\Buffer.cpp" />
     <ClCompile Include="engine\renderer\resource\Image.cpp" />
     <ClCompile Include="engine\renderer\resource\PipelineCache.cpp" />

@@ -3,7 +3,9 @@
 #define VULPES_VK_FORWARD_DECL_H
 
 namespace vulpes {
-
+	class Allocator;
+	class Allocation;
+	struct Suballocation;
 	class Instance;
 	class InstanceGLFW;
 	class PhysicalDevice;

@@ -98,7 +98,7 @@ namespace vulpes {
 		public:
 
 			// Used for root node 
-			HeightNode(const glm::ivec3& node_grid_coordinates, std::vector<HeightSample>& init_samples);
+			HeightNode(const glm::ivec3& node_grid_coordinates, std::vector<HeightSample> init_samples);
 
 			// Used for most nodes.
 			HeightNode(const glm::ivec3& node_grid_coordinates, const HeightNode& parent, const bool& sample_now = false);

@@ -2,6 +2,7 @@
 #include "LogicalDevice.h"
 #include "PhysicalDevice.h"
 #include "Instance.h"
+#include "../resource/Allocator.h"
 namespace vulpes {
 
 	Device::Device(const Instance* instance, const PhysicalDevice * device) : parent(device) {
@@ -129,9 +130,12 @@ namespace vulpes {
 			pfnCmdDebugMarkerInsert = reinterpret_cast<PFN_vkCmdDebugMarkerInsertEXT>(vkGetDeviceProcAddr(handle, "vkCmdDebugMarkerInsertEXT"));
 		}
 
+		vkAllocator = new Allocator(this);
+
 	}
 
 	Device::~Device(){
+		delete vkAllocator;
 		vkDestroyDevice(handle, AllocCallbacks);
 	}
 

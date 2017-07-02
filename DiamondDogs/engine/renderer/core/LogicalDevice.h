@@ -62,8 +62,10 @@ namespace vulpes {
 		void vkCmdEndDebugMarkerRegion(VkCommandBuffer& cmd) const;
 		bool MarkersEnabled;
 
-		uint32_t numGraphicsQueues, numComputeQueues, numTransferQueues;
-		uint32_t numGeneralQueues;
+		uint32_t numGraphicsQueues = 0, numComputeQueues = 0, numTransferQueues = 0;
+		uint32_t numGeneralQueues = 0;
+
+		Allocator* vkAllocator;
 	private:
 
 		const VkAllocationCallbacks* AllocCallbacks = nullptr;

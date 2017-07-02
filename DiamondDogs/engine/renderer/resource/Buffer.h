@@ -33,8 +33,6 @@ namespace vulpes {
 
 		const VkBuffer& vkHandle() const noexcept;
 		VkBuffer& vkHandle() noexcept;
-		const VkDeviceMemory& DvcMemory() const noexcept;
-		VkDeviceMemory& DvcMemory() noexcept;
 
 		VkDescriptorBufferInfo GetDescriptor() const noexcept;
 
@@ -57,32 +55,12 @@ namespace vulpes {
 		VkBuffer handle;
 		VkBufferCreateInfo createInfo;
 		VkBufferView view;
-		VkDeviceMemory memory;
+		VkMappedMemoryRange memoryRange;
 		VkDeviceSize allocSize;
 		VkDeviceSize dataSize;
 
 	};
-
-	/*
-		Represents a pooled buffer that uses one VkDeviceMemory object, 
-		but has several buffer objects that are bound to different
-		sub-offsets of the memory.
-	*/
-	class PooledBuffer : public Buffer {
-
-		PooledBuffer(const Device* dvc);
-
-		// Allocates total memory required, creates N buffers where N is size of offsets and binds memory to each buffer n as appropriate.
-		void CreateBuffers(const VkBufferUsageFlags& usage, const VkMemoryPropertyFlags& memory_flags, const VkDeviceSize& total_size, const std::vector<VkDeviceSize>& offsets);
-
-
-
-	protected:
-		// Buffers are sorted/indexed by their offsets.
-		std::unordered_map<VkDeviceSize, VkBuffer> buffers;
-	};
-
-
+	
 }
 
 #endif // !VULPES_VK_BUFFER_H

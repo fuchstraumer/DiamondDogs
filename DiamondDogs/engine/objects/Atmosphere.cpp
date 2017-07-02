@@ -9,7 +9,7 @@
 
 static const glm::vec4 light_color = glm::vec4(0.98f, 0.95f, 0.93f, 1.0f);
 
-vulpes::Atmosphere::Atmosphere(const Device * _device, const float & radius, const glm::mat4 & projection, const glm::vec3 & position) : mesh(mesh::Icosphere(6, radius, position)), device(_device) {
+vulpes::Atmosphere::Atmosphere(const Device * _device, const float & radius, const glm::mat4 & projection, const glm::vec3 & position) : mesh(mesh::Icosphere(6, radius, position)), device(_device), pipeline(nullptr) {
 
 	uboData.projection = projection;
 

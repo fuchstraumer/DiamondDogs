@@ -41,7 +41,7 @@ static const std::array<glm::vec4, 20> LOD_COLOR_ARRAY = {
 	glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
 };
 
-vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(parent_dvc) {
+vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(parent_dvc), pipeline(nullptr), ubo(nullptr) {
 
 	HeightmapNoise init_hm(HeightNode::RootSampleGridSize + 5, glm::vec3(0.0f), 1.0f);
 	glm::ivec3 grid_pos = glm::ivec3(0, 0, 0);
@@ -251,8 +251,8 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 		
 		// Map the compute shader result buffer
 		void* mapped = nullptr;
-		vkMapMemory(device->vkHandle(), result->DvcMemory(), 0, result->AllocSize(), 0, &mapped);
-		glm::vec2* result_vecs = reinterpret_cast<glm::vec2*>(mapped);
+		result->Map();
+		glm::vec2* result_vecs = reinterpret_cast<glm::vec2*>(result->MappedMemory);
 		
 		// Copy result buffer into HeightSample Vector.
 		std::vector<HeightSample> result_heights(num_samples);
@@ -260,6 +260,7 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 			result_heights[i].Sample.xy = result_vecs[i];
 		}
 
+		result->Unmap();
 		// Set height data for curr.
 		curr->HeightData->SetSamples(std::move(result_heights));
 

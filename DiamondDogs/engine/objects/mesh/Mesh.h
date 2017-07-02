@@ -201,7 +201,7 @@ namespace vulpes {
 
 
 		template<typename vertices_type, typename vertex_type, typename index_type>
-		inline Mesh<vertices_type, vertex_type, index_type>::Mesh(const glm::vec3 & pos, const glm::vec3 & _scale, const glm::vec3 & _angle) : position(pos), scale(_scale), angle(_angle) {
+		inline Mesh<vertices_type, vertex_type, index_type>::Mesh(const glm::vec3 & pos, const glm::vec3 & _scale, const glm::vec3 & _angle) : position(pos), scale(_scale), angle(_angle), device(nullptr) {
 			
 			glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
 			glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), position);

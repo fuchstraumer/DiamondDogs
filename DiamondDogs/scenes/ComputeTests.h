@@ -75,13 +75,13 @@ namespace compute_tests {
 
 				size_t num_samples = lod_1_requests[i]->node->NumSamples();
 				
-				void* mapped = nullptr;
-				vkMapMemory(device->vkHandle(), result->DvcMemory(), 0, result->AllocSize(), 0, &mapped);
-				glm::vec2* result_vecs = reinterpret_cast<glm::vec2*>(mapped);
+				result->Map();
+				glm::vec2* result_vecs = reinterpret_cast<glm::vec2*>(result->MappedMemory);
 				std::vector<float> result_heights(num_samples);
 				for (size_t i = 0; i < num_samples; ++i) {
 					result_heights[i] = result_vecs[i].x;
 				}
+				result->Unmap();
 				auto min_max = std::minmax_element(result_heights.cbegin(), result_heights.cend());
 				float min_z, max_z;
 				min_z = result_heights.at(min_max.first - result_heights.cbegin());

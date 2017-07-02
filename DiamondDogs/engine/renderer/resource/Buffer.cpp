@@ -2,21 +2,22 @@
 #include "Buffer.h"
 #include "engine/renderer\core\LogicalDevice.h"
 #include "engine/renderer\command\CommandPool.h"
+#include "engine/renderer/resource/Allocator.h"
 namespace vulpes {
 
 	std::vector<VkBuffer> Buffer::stagingBuffers = std::vector<VkBuffer>();
 	std::vector<VkDeviceMemory> Buffer::stagingMemory = std::vector<VkDeviceMemory>();
 
-	Buffer::Buffer(const Device * _parent) : parent(_parent), createInfo(vk_buffer_create_info_base), handle(VK_NULL_HANDLE), memory(VK_NULL_HANDLE) {}
+	Buffer::Buffer(const Device * _parent) : parent(_parent), createInfo(vk_buffer_create_info_base), handle(VK_NULL_HANDLE), memoryRange(VkMappedMemoryRange{ VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, nullptr }) {}
 
 	Buffer::~Buffer(){
 		Destroy();
 	}
 
-	Buffer::Buffer(Buffer && other) noexcept : allocators(std::move(other.allocators)), allocSize(std::move(other.allocSize)), createInfo(std::move(other.createInfo)), dataSize(std::move(other.dataSize)), handle(std::move(other.handle)), memory(std::move(other.memory)), parent(std::move(other.parent)), MappedMemory(std::move(other.MappedMemory)), view(std::move(other.view)) {
+	Buffer::Buffer(Buffer && other) noexcept : allocators(std::move(other.allocators)), allocSize(std::move(other.allocSize)), createInfo(std::move(other.createInfo)), dataSize(std::move(other.dataSize)), handle(std::move(other.handle)), memoryRange(std::move(other.memoryRange)), parent(std::move(other.parent)), MappedMemory(std::move(other.MappedMemory)), view(std::move(other.view)) {
 		// Make sure to nullify so destructor checks safer/more likely to succeed.
 		other.handle = VK_NULL_HANDLE;
-		other.memory = VK_NULL_HANDLE;
+		other.memoryRange.memory = VK_NULL_HANDLE;
 		other.MappedMemory = nullptr;
 	}
 
@@ -26,12 +27,12 @@ namespace vulpes {
 		createInfo = std::move(other.createInfo);
 		dataSize = std::move(other.dataSize);
 		handle = std::move(other.handle);
-		memory = std::move(other.memory);
+		memoryRange = std::move(other.memoryRange);
 		parent = std::move(other.parent);
 		MappedMemory = std::move(other.MappedMemory);
 		view = std::move(other.view);
 		other.handle = VK_NULL_HANDLE;
-		other.memory = VK_NULL_HANDLE;
+		other.memoryRange.memory = VK_NULL_HANDLE;
 		other.MappedMemory = nullptr;
 		return *this;
 	}
@@ -44,30 +45,16 @@ namespace vulpes {
 		createInfo.usage = usage_flags;
 		createInfo.size = size;
 		createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		VkResult result = vkCreateBuffer(parent->vkHandle(), &createInfo, allocators, &handle);
-		VkAssert(result);
-
-		VkMemoryRequirements memory_reqs;
-		VkMemoryAllocateInfo alloc_info = vk_allocation_info_base;
-		vkGetBufferMemoryRequirements(parent->vkHandle(), handle, &memory_reqs);
-		alloc_info.allocationSize = memory_reqs.size;
-		allocSize = alloc_info.allocationSize;
-		alloc_info.memoryTypeIndex = parent->GetMemoryTypeIdx(memory_reqs.memoryTypeBits, memory_flags);
-		result = vkAllocateMemory(parent->vkHandle(), &alloc_info, allocators, &memory);
-		VkAssert(result);
-		result = vkBindBufferMemory(parent->vkHandle(), handle, memory, offset);
+		AllocationRequirements reqs;
+		reqs.preferredFlags = 0;
+		reqs.privateMemory = false;
+		reqs.requiredFlags = createInfo.usage;
+		VkResult result = parent->vkAllocator->CreateBuffer(&handle, &memoryRange, &createInfo, reqs);
 		VkAssert(result);
 	}
 
 	void Buffer::Destroy(){
-		if (memory != VK_NULL_HANDLE) {
-			vkFreeMemory(parent->vkHandle(), memory, allocators);
-			memory = VK_NULL_HANDLE;
-		}
-		if (handle != VK_NULL_HANDLE) {
-			vkDestroyBuffer(parent->vkHandle(), handle, allocators);
-			memory = VK_NULL_HANDLE;
-		}
+		parent->vkAllocator->DestroyBuffer(handle);
 	}
 
 	void Buffer::CopyTo(void * data, const VkDeviceSize & size, const VkDeviceSize& offset){
@@ -129,22 +116,22 @@ namespace vulpes {
 
 	void Buffer::UpdateCmd(VkCommandBuffer & cmd, const VkDeviceSize & data_sz, const VkDeviceSize & offset, const void * data) {
 		assert(MappedMemory);
-		vkCmdUpdateBuffer(cmd, handle, offset, data_sz, data);
+		vkCmdUpdateBuffer(cmd, handle, memoryRange.offset + offset, data_sz, data);
 	}
 
 	void Buffer::Map(const VkDeviceSize& size, const VkDeviceSize& offset){
 		if (size == 0) {
-			VkResult result = vkMapMemory(parent->vkHandle(), memory, offset, allocSize, 0, &MappedMemory);
+			VkResult result = vkMapMemory(parent->vkHandle(), memoryRange.memory, memoryRange.offset + offset, allocSize, 0, &MappedMemory);
 			VkAssert(result);
 		}
 		else {
-			VkResult result = vkMapMemory(parent->vkHandle(), memory, offset, size, 0, &MappedMemory);
+			VkResult result = vkMapMemory(parent->vkHandle(), memoryRange.memory, memoryRange.offset, memoryRange.size, 0, &MappedMemory);
 			VkAssert(result);
 		}
 	}
 
 	void Buffer::Unmap(){
-		vkUnmapMemory(parent->vkHandle(), memory);
+		vkUnmapMemory(parent->vkHandle(), memoryRange.memory);
 	}
 
 	void * Buffer::GetData() {
@@ -163,13 +150,6 @@ namespace vulpes {
 		return handle;
 	}
 
-	const VkDeviceMemory & Buffer::DvcMemory() const noexcept{
-		return memory;
-	}
-
-	VkDeviceMemory & Buffer::DvcMemory() noexcept{
-		return memory;
-	}
 
 	VkDescriptorBufferInfo Buffer::GetDescriptor() const noexcept{
 		return VkDescriptorBufferInfo{ handle, 0, allocSize };
@@ -204,15 +184,10 @@ namespace vulpes {
 
 	void Buffer::DestroyStagingResources(const Device* device){
 		for (auto& buff : stagingBuffers) {
-			vkDestroyBuffer(device->vkHandle(), buff, nullptr);
-			buff = VK_NULL_HANDLE;
+			device->vkAllocator->DestroyBuffer(buff);
 		}
 		stagingBuffers.clear(); 
 		stagingBuffers.shrink_to_fit();
-		for (auto& mem : stagingMemory) {
-			vkFreeMemory(device->vkHandle(), mem, nullptr);
-			mem = VK_NULL_HANDLE;
-		}
 		stagingMemory.clear();
 		stagingMemory.shrink_to_fit();
 	}
@@ -234,44 +209,6 @@ namespace vulpes {
 		VkAssert(result);
 		result = vkBindBufferMemory(parent->vkHandle(), staging_buffer, staging_memory, offset);
 		VkAssert(result);
-	}
-
-	PooledBuffer::PooledBuffer(const Device* dvc) : Buffer(dvc) {}
-
-	void PooledBuffer::CreateBuffers(const VkBufferUsageFlags & usage, const VkMemoryPropertyFlags & memory_flags, const VkDeviceSize & total_size, const std::vector<VkDeviceSize>& offsets) {
-		// total size we require will probably end up being different than allocated size due to alignment reqs
-		dataSize = total_size;
-		createInfo = vk_buffer_create_info_base;
-		createInfo.usage = usage;
-		createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		VkDeviceSize total_offset = 0;
-		VkMemoryAllocateInfo alloc = vk_allocation_info_base;
-		uint32_t req_mem_type_bitfield = 0;
-
-		// Create buffer objects
-		for (auto& offset : offsets) {
-			
-			VkDeviceSize buff_size = offset - total_offset;
-			createInfo.size = buff_size;
-			VkBuffer new_buffer;
-			VkResult result = vkCreateBuffer(parent->vkHandle(), &createInfo, allocators, &new_buffer);
-			total_offset += offset;
-
-			// Get memory requirements of buffer objects
-			VkMemoryRequirements memreqs;
-			vkGetBufferMemoryRequirements(parent->vkHandle(), new_buffer, &memreqs);
-			alloc.allocationSize += memreqs.size;
-			if (alloc.allocationSize % memreqs.alignment != 0) {
-				alloc.allocationSize += (alloc.allocationSize % memreqs.alignment); 
-			}
-			req_mem_type_bitfield |= memreqs.memoryTypeBits;
-
-
-			buffers.insert(std::make_pair(offset, std::move(new_buffer)));
-		}
-
-		
-		
 	}
 
 }

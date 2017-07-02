@@ -42,6 +42,8 @@ namespace vulpes {
 
 			TerrainQuadtree(const Device* device, const float& split_factor, const size_t& max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position);
 
+			~TerrainQuadtree();
+
 			void SetupNodePipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection);
 
 			void UpdateQuadtree(const glm::vec3 & camera_position, const glm::mat4& view);

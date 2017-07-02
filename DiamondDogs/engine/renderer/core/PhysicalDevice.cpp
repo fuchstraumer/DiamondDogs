@@ -55,10 +55,9 @@ namespace vulpes {
 		return best_device;
 	}
 
-	PhysicalDevice::PhysicalDevice(const VkPhysicalDevice& _handle) : handle(_handle) {
+	PhysicalDevice::PhysicalDevice(const VkPhysicalDevice& _handle) : handle(_handle), AllocationCallbacks(nullptr) {
 		vkGetPhysicalDeviceProperties(handle, &Properties);
 		vkGetPhysicalDeviceFeatures(handle, &Features);
-		//EnabledFeatures = {};
 		vkGetPhysicalDeviceMemoryProperties(handle, &MemoryProperties);
 		uint32_t queue_family_cnt = 0;
 		vkGetPhysicalDeviceQueueFamilyProperties(handle, &queue_family_cnt, nullptr);
@@ -96,7 +95,6 @@ namespace vulpes {
 			for (uint32_t i = 0; i < static_cast<uint32_t>(QueueFamilyProperties.size()); ++i) {
 				if ((QueueFamilyProperties[i].queueFlags & bitfield) && ((QueueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0)) {
 					return i;
-					break;
 				}
 			}
 		}
@@ -105,7 +103,6 @@ namespace vulpes {
 			for (uint32_t i = 0; i < static_cast<uint32_t>(QueueFamilyProperties.size()); ++i) {
 				if ((QueueFamilyProperties[i].queueFlags & bitfield) && ((QueueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0) && ((QueueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) == 0)) {
 					return i;
-					break;
 				}
 			}
 		}
@@ -113,7 +110,6 @@ namespace vulpes {
 		for (uint32_t i = 0; i < static_cast<uint32_t>(QueueFamilyProperties.size()); ++i) {
 			if (QueueFamilyProperties[i].queueFlags & bitfield) {
 				return i;
-				break;
 			}
 		}
 
@@ -126,7 +122,6 @@ namespace vulpes {
 			for (uint32_t i = 0; i < static_cast<uint32_t>(QueueFamilyProperties.size()); ++i) {
 				if ((QueueFamilyProperties[i].queueFlags & bitfield) && ((QueueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0)) {
 					return QueueFamilyProperties[i];
-					break;
 				}
 			}
 		}
@@ -134,7 +129,6 @@ namespace vulpes {
 			for (uint32_t i = 0; i < static_cast<uint32_t>(QueueFamilyProperties.size()); ++i) {
 				if ((QueueFamilyProperties[i].queueFlags & bitfield) && ((QueueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0) && ((QueueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) == 0)) {
 					return QueueFamilyProperties[i];
-					break;
 				}
 			}
 		}
@@ -142,7 +136,6 @@ namespace vulpes {
 		for (uint32_t i = 0; i < static_cast<uint32_t>(QueueFamilyProperties.size()); ++i) {
 			if (QueueFamilyProperties[i].queueFlags & bitfield) {
 				return QueueFamilyProperties[i];
-				break;
 			}
 		}
 		return VkQueueFamilyProperties();

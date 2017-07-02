@@ -11,6 +11,10 @@ vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, const fl
 	root->SetHeightData(root_height);
 }
 
+vulpes::terrain::TerrainQuadtree::~TerrainQuadtree() { 
+	delete root;
+}
+
 void vulpes::terrain::TerrainQuadtree::SetupNodePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4 & projection) {
 	nodeRenderer.CreatePipeline(renderpass, swapchain, cache, projection);
 }

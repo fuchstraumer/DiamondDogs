@@ -11,7 +11,7 @@
 
 namespace vulpes {
 	namespace obj {
-		Skybox::Skybox(const Device* _device) : device(_device) {
+		Skybox::Skybox(const Device* _device) : device(_device), ebo(nullptr), ubo(nullptr), vbo(nullptr), vert(nullptr), frag(nullptr), pipeline(nullptr) {
 			std::array<glm::vec3, 8> positions{
 				{
 					glm::vec3(-1.0f, -1.0f, +1.0f), // Point 0, left lower front UV{0,0}
@@ -63,6 +63,7 @@ namespace vulpes {
 		}
 
 		Skybox::~Skybox() {
+			vkFreeDescriptorSets(device->vkHandle(), descriptorPool, 1, &descriptorSet);
 			vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
 			vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
 			vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);

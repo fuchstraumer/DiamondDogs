@@ -51,8 +51,6 @@ namespace vulpes {
 			ShaderModule *vert, *frag;
 			const Device* device;
 
-			Texture2D *height, *normal;
-
 			GraphicsPipeline* pipeline;
 			std::shared_ptr<PipelineCache> pipelineCache;
 			std::unique_ptr<DataProducer> dataProducer;

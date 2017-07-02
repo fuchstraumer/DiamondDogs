@@ -133,8 +133,7 @@ namespace vulpes {
 			vkCmdSetViewport(cmd, 0, 1, &viewport);
 			vkCmdSetScissor(cmd, 0, 1, &scissor);
 			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
-			//vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 0, nullptr , 0, nullptr);
-			size_t aabb_pool_size = aabbPool.size();
+
 			for (auto& aabb : aabbPool) {
 				uboData.model = aabb.second->mesh.get_model_matrix();
 				vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ubo_data), &uboData);

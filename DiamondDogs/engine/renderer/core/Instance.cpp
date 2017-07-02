@@ -36,6 +36,12 @@ namespace vulpes {
 		if (keys[GLFW_KEY_A]) {
 			cam.ProcessKeyboard(Direction::LEFT, dt);
 		}
+		if (keys[GLFW_KEY_X]) {
+			cam.ProcessKeyboard(Direction::DOWN, dt);
+		}
+		if (keys[GLFW_KEY_C]) {
+			cam.ProcessKeyboard(Direction::UP, dt);
+		}
 	}
 
 	Instance::~Instance(){
@@ -147,7 +153,7 @@ namespace vulpes {
 			glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
 			glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
 			glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
-			GLFWwindow* window = glfwCreateWindow(mode->width, mode->height, createInfo.pApplicationInfo->pApplicationName, monitor, NULL);
+			Window = glfwCreateWindow(mode->width, mode->height, createInfo.pApplicationInfo->pApplicationName, monitor, NULL);
 			vkDestroySurfaceKHR(handle, surface, AllocationCallbacks);
 			SetupSurface();
 		}

@@ -8,11 +8,12 @@ size_t vulpes::terrain::TerrainNode::MaxLOD = 16;
 double vulpes::terrain::TerrainNode::SwitchRatio = 1.80;
 
 void vulpes::terrain::TerrainNode::Subdivide() {
+
 	double child_length = SideLength / 2.0;
-	double child_offset = SideLength / 4.0;
 	glm::ivec3 grid_pos = glm::ivec3(2 * GridCoordinates.x, 2 * GridCoordinates.y, Depth() + 1);
 	glm::vec3 pos = glm::vec3(SpatialCoordinates.x, 0.0f, SpatialCoordinates.z);
-	// Create child node, then populate childs height data using this objects height data.
+
+	// Create child node, then create child's height data object (populated later by compute shader)
 	Children[0] = std::make_shared<TerrainNode>(GridCoordinates, grid_pos, pos + glm::vec3(0.0f, 0.0f, -child_length), child_length);
 	Children[0]->CreateHeightData(*HeightData);
 	Children[1] = std::make_shared<TerrainNode>(GridCoordinates, glm::ivec3(grid_pos.x + 1, grid_pos.y, grid_pos.z), pos + glm::vec3(child_length, 0.0f, -child_length), child_length);

@@ -3,7 +3,7 @@
 
 namespace vulpes {
 	namespace mesh {
-		PlanarMesh::PlanarMesh(const double& side_length, const glm::ivec3& grid_pos, const glm::vec3& pos, const glm::vec3& scale, const glm::vec3& angle) : Mesh(pos, scale, angle), SideLength(side_length), GridPos(grid_pos) {}
+		PlanarMesh::PlanarMesh(const double& side_length, const glm::ivec3& grid_pos, const glm::vec3& pos, const glm::vec3& scale, const glm::vec3& angle) : Mesh(pos, scale, angle), SideLength(side_length), GridPos(grid_pos), SubdivisionLevel(grid_pos.z) {}
 
 		PlanarMesh& PlanarMesh::operator=(PlanarMesh && other) {
 			SideLength = std::move(other.SideLength);

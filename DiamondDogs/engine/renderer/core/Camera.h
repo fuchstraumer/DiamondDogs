@@ -15,7 +15,9 @@ namespace vulpes {
 		FORWARD,
 		BACKWARD,
 		LEFT,
-		RIGHT
+		RIGHT,
+		UP,
+		DOWN,
 	};
 
 	// Default camera values
@@ -84,7 +86,12 @@ namespace vulpes {
 			if (direction == Direction::RIGHT) {
 				this->Position += this->Right * velocity;
 			}
-
+			if (direction == Direction::UP) {
+				this->Position += this->Up * velocity;
+			}
+			if (direction == Direction::DOWN) {
+				this->Position -= this->Up * velocity;
+			}
 		}
 
 		// Processes input received from a mouse input system. Expects the offset value in both the x and y direction.
