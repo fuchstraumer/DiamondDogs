@@ -25,6 +25,8 @@ namespace vulpes {
 		// from file, and check the gli object's "Format" field.
 		void CreateFromFile(const char* filename, const VkFormat& texture_format);
 
+		void CreateFromBuffer(VkBuffer&& staging_buffer, const VkFormat& texture_format, const std::vector<VkBufferImageCopy>& copy_info);
+
 		void TransferToDevice(VkCommandBuffer& transfer_cmd_buffer) const;
 
 		VkDescriptorImageInfo GetDescriptor() const noexcept;
@@ -67,6 +69,25 @@ namespace vulpes {
 		createTexture(); 
 		createView();
 		createSampler();
+	}
+
+	template<typename gli_texture_type>
+	inline void Texture<gli_texture_type>::CreateFromBuffer(VkBuffer&& staging_buffer, const VkFormat & texture_format, const std::vector<VkBufferImageCopy>& copy_info) {
+		
+		stagingBuffer = std::move(staging_buffer);
+		format = texture_format;
+		copyInfo = copy_info;
+
+		Width = copyInfo.front().imageExtent.width;
+		Height = copyInfo.front().imageExtent.height;
+		layerCount = copyInfo.front().imageSubresource.layerCount;
+		// mipLevels is taken as the quantity of mipmaps PER layer.
+		mipLevels = copyInfo.size() / layerCount;
+		
+		createTexture();
+		createView();
+		createSampler();
+
 	}
 
 	template<typename gli_texture_type>
