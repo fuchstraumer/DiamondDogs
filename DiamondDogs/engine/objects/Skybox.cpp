@@ -85,7 +85,7 @@ namespace vulpes {
 			vbo->CopyTo(vertices.data(), pool, queue, vertices.size() * sizeof(vertex_t));
 
 			ebo = new Buffer(device);
-			ebo->CreateBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_HEAP_DEVICE_LOCAL_BIT, indices.size() * sizeof(uint32_t));
+			ebo->CreateBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indices.size() * sizeof(uint32_t));
 			ebo->CopyTo(indices.data(), pool, queue, indices.size() * sizeof(uint32_t));
 
 			ubo = new Buffer(device);
