@@ -9,7 +9,6 @@
 /*
 	
 	TODO:
-	- Thread safety: GPU-Open uses mutexes. Would using/specializing std::atomic be possible?
 	- Further dividing allocation among three size pools, and then still dividing among type in those pools
 	- Measure costliness of Validate(), possibly use return codes to fix errors when possible.
 	- Some kind of fragmentation check/routine: at least a check to make sure it isn't happening
@@ -41,11 +40,6 @@ namespace vulpes {
 	constexpr bool VALIDATE_MEMORY = false;
 #endif // !NDEBUG
 
-	// below was removed until i verify it's needed and if other options are possible.
-	// if true, mutexes are used to protect allocation from threading issues.
-	// different threads can allocate/request from different types of memory, but not same type.
-	// constexpr bool THREAD_SAFE_ALLOCATIONS = true;
-
 	constexpr static size_t vkMaxMemoryTypes = 32;
 	// mininum size of suballoction objects to bother registering in our allocation's list's
 	constexpr static VkDeviceSize MinSuballocationSizeToRegister = 16;
@@ -67,7 +61,7 @@ namespace vulpes {
 		VALIDATION_PASSED = 0,
 		NULL_MEMORY_HANDLE, // allocation's memory handle is invalid
 		ZERO_MEMORY_SIZE, // allocation's memory size is zero
-		INCORRECT_SUBALLOC_OFFSET, // Offset of suballocation is incorrect: it may overlap with another, or it may 
+		INCORRECT_SUBALLOC_OFFSET, // Offset of suballocation is incorrect: it may overlap with another, or it may be placed beyond the range of the allocation
 		NEED_MERGE_SUBALLOCS, // two adjacent free suballoctions: merge them into one bigger suballocation
 		FREE_SUBALLOC_COUNT_MISMATCH, // we found more free suballocations while validating than there are in the free suballoc list
 		USED_SUBALLOC_IN_FREE_LIST, // non-free suballocation in free suballoc list
@@ -124,7 +118,7 @@ namespace vulpes {
 
 	/*
 		taken from spec section 11.6
-		Essentially, we need to insure that linear and non-linear resources are properly placed in adjacent memory so that
+		Essentially, we need to ensure that linear and non-linear resources are properly placed in adjacent memory so that
 		they avoid any accidental aliasing.
 
 		item_a = non-linaer object. item_b = linear object. page_size tends to be the bufferImageGranularity value retrieved by the allocators.

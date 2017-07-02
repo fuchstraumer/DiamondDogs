@@ -13,6 +13,10 @@ namespace vulpes {
 
 	Allocation::Allocation(Allocator * alloc) : allocator(alloc), availSize(0), freeCount(0), memory(VK_NULL_HANDLE), Size(0) {}
 
+	Allocation::~Allocation() {
+		assert(memory == VK_NULL_HANDLE);
+	}
+
 	void Allocation::Init(VkDeviceMemory & new_memory, const VkDeviceSize & new_size) {
 		assert(memory == VK_NULL_HANDLE);
 		memory = new_memory;
@@ -751,6 +755,14 @@ namespace vulpes {
 			}
 		}
 
+	}
+
+	VkResult Allocator::allocatePrivateMemory(const VkDeviceSize & size, const SuballocationType & type, const uint32_t & memory_type_idx, VkMappedMemoryRange * memory_range) {
+		return VK_ERROR_VALIDATION_FAILED_EXT;
+	}
+
+	bool Allocator::freePrivateMemory(const VkMappedMemoryRange * memory_to_free) {
+		return false;
 	}
 
 	VkResult Allocator::AllocateForImage(VkImage & image_handle, const AllocationRequirements & details, const SuballocationType & alloc_type, VkMappedMemoryRange * dest_memory_range, uint32_t * memory_type_idx) {
