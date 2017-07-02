@@ -5,6 +5,9 @@
 #include "engine/renderer/ForwardDecl.h"
 #include "engine/renderer/NonCopyable.h"
 #include "engine/renderer/resource/Allocator.h"
+#include "engine/renderer/resource/Buffer.h"
+#include "engine/renderer/core/LogicalDevice.h"
+#include "engine/renderer/render/MSAA.h"
 #include "Image.h"
 
 namespace vulpes {
@@ -13,17 +16,16 @@ namespace vulpes {
 	class Texture : public Image {
 	public:
 
-		Texture(const Device* _parent, const VkImageUsageFlags& flags);
+		Texture(const Device* _parent, const VkImageUsageFlags& flags = VK_IMAGE_USAGE_SAMPLED_BIT);
 
 		~Texture() = default;
 
-		void CreateFromFile(const char* filename);
+		// Having to use texture_format an unfortunate artifact of the range of formats supported by GLI and Vulkan, and the mismatch
+		// in specification, quantity, and naming between the two. When in doubt, set a breakpoint after loading the texture in question
+		// from file, and check the gli object's "Format" field.
+		void CreateFromFile(const char* filename, const VkFormat& texture_format);
 
-		// Avoid using this, when possible: Using a single-shot command buffer for a single transfer is a waste of device resources and time.
-		void TransferUsingPool(CommandPool* transfer_pool, VkQueue& transfer_queue) const;
-
-		// Preferred method: Create several textures, then transfer them all using one command buffer and queue submission
-		void TransferUsingCmdBuffer(VkCommandBuffer& transfer_cmd_buffer) const;
+		void TransferToDevice(VkCommandBuffer& transfer_cmd_buffer) const;
 
 		VkDescriptorImageInfo GetDescriptor() const noexcept;
 		const VkSampler& Sampler() const noexcept;
@@ -36,8 +38,6 @@ namespace vulpes {
 		void createTexture();
 		void createView();
 		void createSampler();
-
-		static void GetFormatFromGLI(const gli_texture_type& texture_data);
 
 		gli_texture_type loadTextureDataFromFile(const char* filename);
 		void updateTextureParameters(const gli_texture_type& texture_data);
@@ -61,7 +61,8 @@ namespace vulpes {
 	}
 
 	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::CreateFromFile(const char * filename) {
+	inline void Texture<gli_texture_type>::CreateFromFile(const char * filename, const VkFormat& texture_format) {
+		format = texture_format;
 		copyFromFileToStaging(filename);
 		createTexture(); 
 		createView();
@@ -69,7 +70,7 @@ namespace vulpes {
 	}
 
 	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::TransferUsingCmdBuffer(VkCommandBuffer & transfer_cmd_buffer) const {
+	inline void Texture<gli_texture_type>::TransferToDevice(VkCommandBuffer & transfer_cmd_buffer) const {
 
 		// Need barriers to transition layout from initial undefined/uninitialized layout to what we'll use in the shader this is for.
 		auto barrier0 = Image::GetMemoryBarrier(image, format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -87,94 +88,75 @@ namespace vulpes {
 	}
 
 	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::createSampler() {
-		throw std::runtime_error("Attempted to create VkSampler for an unsupported texture type.");
+	inline VkDescriptorImageInfo Texture<gli_texture_type>::GetDescriptor() const noexcept {
+		return VkDescriptorImageInfo{ sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 	}
 
 	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::createView() {
-		throw std::runtime_error("Attempted to create VkImageView for an unsupported texture type.");
-	}
-
-	template<typename gli_texture_type>
-	inline gli_texture_type Texture<gli_texture_type>::loadTextureDataFromFile(const char * filename) {
-		throw std::runtime_error("Attempt to load data for an unsupported texture type: add specialized method for this type, or use a supported type");
-	}
-
-	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::updateTextureParameters(const gli_texture_type& texture_data) {
-		throw std::runtime_error("Attempted to update parameters of an unsupported texture type.");
-	}
-
-	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::createCopyInformation(const gli_texture_type & texture_data) {
-		throw std::runtime_error("Attempted to create buffer-image copy information for an unsupported texture type.");
+	inline const VkSampler & Texture<gli_texture_type>::Sampler() const noexcept {
+		return sampler;
 	}
 
 	template<typename gli_texture_type>
 	inline void Texture<gli_texture_type>::copyFromFileToStaging(const char* filename) {
-		throw std::runtime_error("Attempted to copy unsupported texture type to staging - add support for texture type or use a supported type");
+
+		gli_texture_type texture_data = loadTextureDataFromFile(filename);
+
+		Buffer::CreateStagingBuffer(parent, texture_data.size(), stagingBuffer, stagingMemory);
+
+		VkResult result = VK_SUCCESS;
+		void* mapped;
+		result = vkMapMemory(parent->vkHandle(), stagingMemory.memory, stagingMemory.offset, stagingMemory.size, 0, &mapped);
+		VkAssert(result);
+		memcpy(mapped, texture_data.data(), texture_data.size());
+		vkUnmapMemory(parent->vkHandle(), stagingMemory.memory);
+
+	}
+
+	template<typename gli_texture_type>
+	inline void Texture<gli_texture_type>::updateTextureParameters(const gli_texture_type& texture_data) {
+		Width = static_cast<uint32_t>(texture_data.extent().x);
+		Height = static_cast<uint32_t>(texture_data.extent().y);
+		mipLevels = static_cast<uint32_t>(texture_data.levels());
+		layerCount = static_cast<uint32_t>(texture_data.layers());
 	}
 
 	template<>
-	inline void Texture<gli::texture2d>::CreateFromFile(const char* filename) {
-			
-		copyFromFileToStaging(filename);
+	inline void Texture<gli::texture2d>::createTexture() {
 
-		format = texture_format;
 		createInfo.imageType = VK_IMAGE_TYPE_2D;
-		createInfo.format = texture_format;
-		createInfo.mipLevels = mipLevels;
-		createInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		createInfo.format = format;
 		createInfo.extent = VkExtent3D{ Width, Height, 1 };
-		createInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		createInfo.mipLevels = mipLevels;
 		createInfo.arrayLayers = layerCount;
+		createInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		createInfo.samples = Multisampling::SampleCount;
+		createInfo.tiling = parent->GetFormatTiling(format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
 
 		Image::CreateImage(handle, memory, parent, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-		createView();
-		createSampler();
-			/*result = vkCreateImage(parent->vkHandle(), &createInfo, allocators, &image);
-			VkAssert(result);
+	}
 
-			VkMemoryAllocateInfo alloc = vk_allocation_info_base;
-			VkMemoryRequirements reqs;
+	template<>
+	inline void Texture<gli::texture2d>::createView() {
+		
+		VkImageViewCreateInfo view_create_info = vk_image_view_create_info_base;
+		view_create_info.subresourceRange.layerCount = layerCount;
+		view_create_info.subresourceRange.levelCount = mipLevels;
+		view_create_info.image = handle;
+		view_create_info.format = format;
+		view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
 
-			vkGetImageMemoryRequirements(parent->vkHandle(), image, &reqs);
-			alloc.allocationSize = reqs.size;
-			alloc.memoryTypeIndex = parent->GetMemoryTypeIdx(reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			
-			result = vkAllocateMemory(parent->vkHandle(), &alloc, nullptr, &memory);
-			VkAssert(result);
-			result = vkBindImageMemory(parent->vkHandle(), image, memory, 0);
-			VkAssert(result);
+		VkResult result = vkCreateImageView(parent->vkHandle(), &view_create_info, nullptr, &view);
+		VkAssert(result);
 
-			auto barrier0 = Image::GetMemoryBarrier(image, format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-			barrier0.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevels, 0, layerCount };
-			auto barrier1 = Image::GetMemoryBarrier(image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			barrier1.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevels, 0, layerCount };
+	}
 
-			auto cmd = pool->StartSingleCmdBuffer();
-
-			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier0);
-			
-			vkCmdCopyBufferToImage(cmd, stagingBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copy_data.size()), copy_data.data());
-
-			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier1);
-
-			pool->EndSingleCmdBuffer(cmd, queue);
-
-			vkFreeMemory(parent->vkHandle(), stagingMemory, allocators);
-			vkDestroyBuffer(parent->vkHandle(), stagingBuffer, allocators);
-
-			VkImageViewCreateInfo view_info = vk_image_view_create_info_base;
-			view_info.subresourceRange.levelCount = mipLevels;
-			view_info.subresourceRange.layerCount = layerCount;
-			view_info.image = image;
-			view_info.format = format;
-
-			result = vkCreateImageView(parent->vkHandle(), &view_info, allocators, &view);
-			VkAssert(result);*/
+	template<typename gli_texture_type>
+	inline void Texture<gli_texture_type>::createSampler() {
+		VkSamplerCreateInfo sampler_create_info = vk_sampler_create_info_base;
+		VkResult result = vkCreateSampler(parent->vkHandle(), &sampler_create_info, nullptr, &sampler);
+		VkAssert(result);
 	}
 
 	template<>
@@ -185,17 +167,8 @@ namespace vulpes {
 		return std::move(result);
 	}
 
-	template<> 
-	inline void Texture<gli::texture2d>::updateTextureParameters(const gli::texture2d& texture_data) {
-		Width = static_cast<uint32_t>(texture_data.extent().x);
-		Height = static_cast<uint32_t>(texture_data.extent().y);
-		Depth = 1;
-		mipLevels = static_cast<uint32_t>(texture_data.levels());
-		layerCount = static_cast<uint32_t>(texture_data.layers());
-	}
-
 	template<>
-	inline void vulpes::Texture<gli::texture2d>::createCopyInformation(const gli::texture2d& texture_data) {
+	inline void Texture<gli::texture2d>::createCopyInformation(const gli::texture2d& texture_data) {
 		assert(mipLevels != 0);
 		copyInfo.resize(mipLevels);
 		uint32_t offset = 0;
@@ -213,19 +186,66 @@ namespace vulpes {
 	}
 
 	template<>
-	inline void Texture<gli::texture2d>::copyFromFileToStaging(const char* filename) {
+	inline void Texture<gli::texture_cube>::createTexture() {
+		
+		createInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT; // Must be set for cubemaps: easy to miss!
+		createInfo.imageType = VK_IMAGE_TYPE_2D;
+		createInfo.format = format;
+		createInfo.extent = VkExtent3D{ Width, Height, 1 };
+		createInfo.mipLevels = mipLevels;
+		createInfo.arrayLayers = 6;
+		createInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		createInfo.samples = Multisampling::SampleCount;
+		createInfo.tiling = parent->GetFormatTiling(format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
 
-		gli::texture2d texture_data = loadTextureDataFromFile(filename);
+		Image::CreateImage(handle, memory, parent, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	}
 
-		Buffer::CreateStagingBuffer(parent, texture_data.size(), stagingBuffer, stagingMemory);
+	template<> 
+	inline void Texture<gli::texture_cube>::createView() {
 
-		VkResult result = VK_SUCCESS;
-		void* mapped;
-		result = vkMapMemory(parent->vkHandle(), stagingMemory.memory, stagingMemory.offset, stagingMemory.size, 0, &mapped);
+		VkImageViewCreateInfo view_create_info = vk_image_view_create_info_base;
+		view_create_info.subresourceRange.layerCount = layerCount;
+		view_create_info.subresourceRange.levelCount = mipLevels;
+		view_create_info.image = handle;
+		view_create_info.format = format;
+		view_create_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+
+		VkResult result = vkCreateImageView(parent->vkHandle(), &view_create_info, nullptr, &view);
 		VkAssert(result);
-		memcpy(mapped, texture_data.data(), texture_data.size());
-		vkUnmapMemory(parent->vkHandle(), stagingMemory.memory);
 
+	}
+
+	template<>
+	inline gli::texture_cube Texture<gli::texture_cube>::loadTextureDataFromFile(const char* filename) {
+		gli::texture_cube result = gli::texture_cube(gli::load(filename));
+		updateTextureParameters(result);
+		createCopyInformation(result);
+		return std::move(result);
+	}
+
+	template<>
+	inline void Texture<gli::texture_cube>::createCopyInformation(const gli::texture_cube& texture_data) {
+		// Texture cube case is complex: need to create copy info for all mips levels - of each of the six faces.
+		// Now set up buffer copy regions for each face and all of its mip levels.
+		size_t offset = 0;
+
+		for (uint32_t face_idx = 0; face_idx < 6; ++face_idx) {
+			for (uint32_t mip_level = 0; mip_level < mipLevels; ++mip_level) {
+				VkBufferImageCopy copy{};
+				copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				copy.imageSubresource.mipLevel = mip_level;
+				copy.imageSubresource.baseArrayLayer = face_idx;
+				copy.imageSubresource.layerCount = 1;
+				copy.imageExtent.width = static_cast<uint32_t>(texture_data[face_idx][mip_level].extent().x);
+				copy.imageExtent.height = static_cast<uint32_t>(texture_data[face_idx][mip_level].extent().y);
+				copy.imageExtent.depth = 1;
+				copy.bufferOffset = static_cast<uint32_t>(offset);
+				copyInfo.push_back(std::move(copy));
+				// Increment offset by datasize of last specified copy region
+				offset += texture_data[face_idx][mip_level].size();
+			}
+		}
 	}
 
 }
