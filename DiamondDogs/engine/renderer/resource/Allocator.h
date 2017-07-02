@@ -186,7 +186,7 @@ namespace vulpes {
 
 		VkMemoryPropertyFlags requiredFlags;
 		// acts as additional flags over above.
-		VkMemoryPropertyFlags preferredFlags;
+		VkMemoryPropertyFlags preferredFlags = VkMemoryPropertyFlags(0);
 	};
 
 	struct Suballocation {

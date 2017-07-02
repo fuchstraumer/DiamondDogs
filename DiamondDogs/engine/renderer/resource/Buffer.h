@@ -25,30 +25,28 @@ namespace vulpes {
 		void CopyTo(void * data, VkCommandBuffer & transfer_cmd, const VkDeviceSize& copy_size, const VkDeviceSize& copy_offset);
 		void CopyTo(void* data, CommandPool* cmd_pool, const VkQueue & transfer_queue, const VkDeviceSize& size, const VkDeviceSize& offset = 0);
 
-		void UpdateCmd(VkCommandBuffer& cmd, const VkDeviceSize& data_sz, const VkDeviceSize& offset, const void* data);
+		void Update(VkCommandBuffer& cmd, const VkDeviceSize& data_sz, const VkDeviceSize& offset, const void* data);
+
 		void Map();
 		void Unmap();
-
-		void* GetData();
 
 		const VkBuffer& vkHandle() const noexcept;
 		VkBuffer& vkHandle() noexcept;
 
 		VkDescriptorBufferInfo GetDescriptor() const noexcept;
 
-		VkDeviceSize AllocSize() const noexcept;
-		VkDeviceSize DataSize() const noexcept;
+		VkDeviceSize Size() const noexcept;
 
 		void* MappedMemory = nullptr;
-		static void CreateStagingBuffer(const Device* dvc, const VkDeviceSize& size, VkBuffer& dest, VkDeviceMemory& dest_memory);
+
+		static void CreateStagingBuffer(const Device* dvc, const VkDeviceSize& size, VkBuffer& dest, VkMappedMemoryRange& dest_memory_range);
 		static void DestroyStagingResources(const Device* device);
 
 	protected:
 
 		static std::vector<VkBuffer> stagingBuffers;
-		static std::vector<VkDeviceMemory> stagingMemory;
 
-		void createStagingBuffer(const VkDeviceSize& size, const VkDeviceSize& offset, VkBuffer& staging_buffer, VkDeviceMemory& staging_memory);
+		void createStagingBuffer(const VkDeviceSize& size, const VkDeviceSize& offset, VkBuffer& staging_buffer, VkMappedMemoryRange& dest_memory_range);
 
 		const Device* parent;
 		const VkAllocationCallbacks* allocators = nullptr;
@@ -56,8 +54,7 @@ namespace vulpes {
 		VkBufferCreateInfo createInfo;
 		VkBufferView view;
 		VkMappedMemoryRange memoryRange;
-		VkDeviceSize allocSize;
-		VkDeviceSize dataSize;
+		VkDeviceSize size;
 
 	};
 	
