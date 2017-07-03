@@ -6,23 +6,12 @@
 #include "NodeRenderer.h"
 #include "engine\renderer\ForwardDecl.h"
 #include "engine\util\view_frustum.h"
-/*
-	
-	Parent quadtree class that spawns/manages quadtree nodes
 
-*/
 
 namespace vulpes {
 
 	namespace terrain {
 
-		/*
-			
-			Subset of nodes that represent the currently observable terrain data.
-			This subset is used for rendering.
-		*/
-
-		// stores nodes by grid coordinates
 		using nodeCache = std::unordered_map<glm::ivec3, std::shared_ptr<HeightNode>>;
 
 		class TerrainQuadtree {
@@ -30,9 +19,6 @@ namespace vulpes {
 			TerrainNode* root;
 
 			NodeRenderer nodeRenderer;
-
-			// Will use this to keep recent nodes around, and also cache by locality using grid coords
-			// Should consider "age" member of a node, and deleting nodes in cache at certain age.
 			nodeCache cachedHeightData;
 
 			TerrainQuadtree(const TerrainQuadtree&) = delete;

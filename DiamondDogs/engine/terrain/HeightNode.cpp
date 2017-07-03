@@ -27,7 +27,6 @@ namespace vulpes {
 
 		static constexpr bool save_to_file = false;
 
-	
 		void HeightNode::SampleFromParent(const HeightNode & node) {
 			// See: proland/preprocess/terrain/HeightMipmap.cpp to find original implementation
 			size_t tile_size = std::min(RootSampleGridSize << gridCoords.z, sampleGridSize);

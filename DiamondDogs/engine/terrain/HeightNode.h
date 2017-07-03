@@ -73,11 +73,16 @@ namespace vulpes {
 			HeightSample& operator[](const size_t& idx);
 
 			const glm::ivec3& GridCoords() const noexcept;
+			const glm::ivec3& ParentGridCoords() const noexcept;
+
 			size_t MeshGridSize() const noexcept;
 			size_t SampleGridSize() const noexcept;
+
 			size_t NumSamples() const noexcept;
 			std::vector<glm::vec2> GetHeights() const;
 			std::vector<HeightSample> GetSamples() const;
+
+			size_t NodeID();
 
 			static void SetRootNodeSize(const size_t& new_size);
 			static void SetRootNodeLength(const double& new_length);
@@ -94,7 +99,7 @@ namespace vulpes {
 			std::vector<HeightSample> samples;
 			glm::ivec3 gridCoords;
 			glm::ivec3 parentGridCoords;
-			
+			size_t nodeID;
 		};
 
 	}
