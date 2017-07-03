@@ -10,6 +10,13 @@ namespace vulpes {
 
 	size_t DataProducer::numProducers = 0;
 
+#ifndef NDEBUG
+	constexpr bool save_requests_to_file = true;
+#else
+	constexpr bool save_requests_to_file = false;
+#endif // DEBUG
+
+
 	bool DataRequest::Complete() const {
 		return Status == RequestStatus::Complete;
 	}
@@ -37,6 +44,7 @@ namespace vulpes {
 		
 		createQueues();
 		pipelines.resize(availQueues.size());
+		pipelineInfos.resize(availQueues.size());
 		createCommandPool();
 		createFences();
 		createSemaphores();
@@ -154,8 +162,8 @@ namespace vulpes {
 
 		writeDescriptors = 
 		{
-			VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, 0, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, nullptr, nullptr },
-			VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, 1, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, nullptr, nullptr },
+			VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, VK_NULL_HANDLE, 0, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, nullptr, nullptr },
+			VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, VK_NULL_HANDLE, 1, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, nullptr, nullptr },
 		};
 	}
 
@@ -179,6 +187,8 @@ namespace vulpes {
 		VkResult result = vkAllocateDescriptorSets(parent->vkHandle(), &dscr_alloc_info, &descriptorSet);
 		VkAssert(result);
 
+		writeDescriptors[0].dstSet = descriptorSet;
+		writeDescriptors[1].dstSet = descriptorSet;
 	}
 
 	void DataProducer::createBarriers() {
@@ -223,6 +233,7 @@ namespace vulpes {
 		size_t curr_request_idx = 0;
 		std::forward_list<DataRequest*> transfer_list;
 
+		// First step sets things up so we can create the pipelines all in one go 
 		for (auto iter = availQueues.begin(); iter != availQueues.end(); ++iter) {
 
 			// Happens if we have fewer requests than currently available queues.
@@ -238,11 +249,19 @@ namespace vulpes {
 			}
 
 			updateWriteDescriptors(req);
-			createPipeline(req, curr_request_idx);
+			updatePipelineInfo(req, curr_request_idx);
+			submittedRequests.push_front(req);
+			++curr_request_idx;
+		}
+
+		createPipelines();
+
+		// Pipelines created, record commands.
+		curr_request_idx = 0;
+		for (auto iter = submittedRequests.begin(); iter != submittedRequests.end(); ++iter) {
+			auto req = *iter;
 			updateBarriers(req);
 			recordCommands(req, curr_request_idx);
-
-			submittedRequests.push_front(req);
 			++curr_request_idx;
 		}
 
@@ -258,11 +277,26 @@ namespace vulpes {
 		vkUpdateDescriptorSets(parent->vkHandle(), 2, writeDescriptors.data(), 0, nullptr);
 	}
 
-	void DataProducer::createPipeline(DataRequest* request, size_t curr_idx) {
-		auto& pipeline_info = request->pipelineCreateInfo;
-		pipeline_info.layout = pipelineLayout;
-		VkResult result = vkCreateComputePipelines(parent->vkHandle(), pipelineCache->vkHandle(), 1, &request->pipelineCreateInfo, nullptr, &pipelines[curr_idx]);
+	void DataProducer::updatePipelineInfo(const DataRequest * request, size_t curr_req_idx) {
+
+		pipelineInfos[curr_req_idx] = request->pipelineCreateInfo;
+		pipelineInfos[curr_req_idx].layout = pipelineLayout;
+
+		if (curr_req_idx == 0) {
+			pipelineInfos[curr_req_idx].flags = VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT;
+		}
+		else {
+			pipelineInfos[curr_req_idx].flags = VK_PIPELINE_CREATE_DERIVATIVE_BIT;
+			pipelineInfos[curr_req_idx].basePipelineIndex = 0;
+		}
+
+	}
+
+	void DataProducer::createPipelines() {
+
+		VkResult result = vkCreateComputePipelines(parent->vkHandle(), pipelineCache->vkHandle(), static_cast<uint32_t>(pipelineInfos.size()), pipelineInfos.data(), nullptr, pipelines.data());
 		VkAssert(result);
+
 	}
 
 	void DataProducer::updateBarriers(const DataRequest * request) {
@@ -322,67 +356,78 @@ namespace vulpes {
 
 	}
 
-	size_t DataProducer::Submit() {
-
+	void DataProducer::Submit() {
 		if (requests.empty()) {
-			return 0;
+			return;
 		}
 
-		size_t submitted = 0;
+		submitTransfers();
+		submitCompute();
+		resetObjects();
+		resetPipelines();
 
+		// cleanup any staging resources used.
+		Buffer::DestroyStagingResources(parent);
+	
+		return;
+	}
+
+	void DataProducer::submitTransfers() {
+		
 		VkSubmitInfo submit_info = vk_submit_info_base;
 		submit_info.commandBufferCount = 1;
-		VkResult result = VK_SUCCESS;
 
-		{
-			// will signal all semaphores when complete
-			submit_info.signalSemaphoreCount = static_cast<uint32_t>(semaphores.size());
-			submit_info.pSignalSemaphores = semaphores.data();
-			submit_info.pCommandBuffers = &transferPool->GetCmdBuffer(0);
-			result = vkQueueSubmit(spareQueue, 1, &submit_info, VK_NULL_HANDLE);
-			VkAssert(result);
-		}
+		submit_info.signalSemaphoreCount = static_cast<uint32_t>(semaphores.size());
+		submit_info.pSignalSemaphores = semaphores.data();
+		submit_info.pCommandBuffers = &transferPool->GetCmdBuffer(0);
+		VkResult result = vkQueueSubmit(spareQueue, 1, &submit_info, VK_NULL_HANDLE);
+		VkAssert(result);
+
+	}
+
+	void DataProducer::submitCompute() {
 
 		VkPipelineStageFlags stage_flag = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		VkSubmitInfo submit_info = vk_submit_info_base;
 		submit_info.pWaitDstStageMask = &stage_flag;
+		size_t curr_buffer_idx = 0;
 
 		for (auto iter = availQueues.begin(); iter != availQueues.end(); ++iter) {
 			if (submittedRequests.empty()) {
 				break;
 			}
-			// queues execute independently when their corresponding semaphore is signaled,
-			// indicated resources have been transferred and work can continue.
-			submit_info.pCommandBuffers = &computePool->GetCmdBuffer(submitted);
+			submit_info.pCommandBuffers = &computePool->GetCmdBuffer(curr_buffer_idx);
 			submit_info.waitSemaphoreCount = 1;
-			submit_info.pWaitSemaphores = &semaphores[submitted];
-			result = vkQueueSubmit(*iter, 1, &submit_info, fences[submitted]);
+			submit_info.pWaitSemaphores = &semaphores[curr_buffer_idx];
+
+			VkResult result = vkQueueSubmit(*iter, 1, &submit_info, fences[curr_buffer_idx]);
 			VkAssert(result);
-			++submitted;
+
+			++curr_buffer_idx;
 			submittedRequests.front()->Status = RequestStatus::Complete;
 			submittedRequests.pop_front();
+
 		}
 
-		VkResult submit_result = VK_SUCCESS;
-		submit_result = vkWaitForFences(parent->vkHandle(), static_cast<uint32_t>(fences.size()), fences.data(), VK_TRUE, vk_default_fence_timeout);
+		VkResult submit_result = vkWaitForFences(parent->vkHandle(), static_cast<uint32_t>(fences.size()), fences.data(), VK_TRUE, vk_default_fence_timeout);
 		VkAssert(submit_result);
 
-		submit_result = vkResetCommandPool(parent->vkHandle(), computePool->vkHandle(), VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
-		VkAssert(submit_result);
-		submit_result = vkResetCommandBuffer(transferPool->GetCmdBuffer(0), VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
-		VkAssert(submit_result);
-		submit_result = vkResetFences(parent->vkHandle(), static_cast<uint32_t>(fences.size()), fences.data());
-		VkAssert(submit_result);
+	}
 
-		// destroy pipelines
+	void DataProducer::resetObjects() {
+		VkResult result = vkResetCommandPool(parent->vkHandle(), computePool->vkHandle(), VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+		VkAssert(result);
+		result = vkResetCommandBuffer(transferPool->GetCmdBuffer(0), VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+		VkAssert(result);
+		result = vkResetFences(parent->vkHandle(), static_cast<uint32_t>(fences.size()), fences.data());
+		VkAssert(result);
+	}
+
+	void DataProducer::resetPipelines() {
 		for (auto& pipeline : pipelines) {
 			vkDestroyPipeline(parent->vkHandle(), pipeline, nullptr);
 			pipeline = VK_NULL_HANDLE;
 		}
-
-		// cleanup any staging resources used.
-		Buffer::DestroyStagingResources(parent);
-	
-		return submitted;
 	}
 
 	bool DataProducer::Complete() const {

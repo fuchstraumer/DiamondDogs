@@ -59,7 +59,7 @@ namespace vulpes {
 
 		void PrepareSubmissions();
 
-		size_t Submit();
+		void Submit();
 
 		bool Complete() const;
 
@@ -75,10 +75,16 @@ namespace vulpes {
 		void createBarriers();
 
 		void updateWriteDescriptors(const DataRequest * request);
-		void createPipeline(DataRequest * request, size_t curr_idx);
+		void updatePipelineInfo(const DataRequest* request, size_t curr_req_idx);
+		void createPipelines();
 		void updateBarriers(const DataRequest* request);
 		void recordCommands(const DataRequest * request, const size_t& curr_idx);
 		void uploadRequestData(std::forward_list<DataRequest*>& transfer_list);
+
+		void submitTransfers();
+		void submitCompute();
+		void resetObjects();
+		void resetPipelines();
 
 		// each request could have a unique layout or descriptor set.
 		VkPipelineLayout pipelineLayout;
@@ -98,7 +104,7 @@ namespace vulpes {
 		std::vector<VkFence> fences;
 		std::vector<VkSemaphore> semaphores;
 		std::vector<VkPipeline> pipelines;
-
+		std::vector<VkComputePipelineCreateInfo> pipelineInfos;
 		std::list<DataRequest*> requests;
 
 		static size_t numProducers;
