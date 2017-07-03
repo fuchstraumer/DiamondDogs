@@ -10,18 +10,6 @@
 #include "engine/renderer/resource/PipelineCache.h"
 #include <queue>
 
-/*
-	
-	Defines a general-use data producer that acts as a worker object.
-	Runs a compute shader invocation that takes input data and upsamples
-	it given a few special parameters.
-
-	If flag of a terrain or height node is set to NEEDS_DATA, this
-	object is still working on it. Once this flag changes to NEEDS_TRANFER
-	or READY, the object will be retaken by the node renderer.
-
-*/
-
 namespace vulpes {
 
 	namespace terrain {
@@ -34,13 +22,6 @@ namespace vulpes {
 		Complete, // request complete, data ready.
 	};
 
-
-	/*
-		Request to run a pipeline 
-		- Shader contains the VkShaderModule unique to this request. I assume the "name" is just "main". Stage flags are just VK_SHADER_STAGE_COMPUTE_BIT
-		- Specializations contain (if applicable) specialization constants that are being modified for this invocation
-		- Input is the input buffer being operated on (readonly), Output is buffer being written to
-	*/
 	struct DataRequest {
 
 		ShaderModule* Shader;
@@ -76,21 +57,37 @@ namespace vulpes {
 
 		void Request(DataRequest* req);
 
-		// submit availQueues.size() requests, return num submitted.
-		size_t RecordCommands();
+		void PrepareSubmissions();
 
 		size_t Submit();
 
-		// returns true when requests.empty()
 		bool Complete() const;
 
 	private:
+
+		void createQueues();
+		void createCommandPool();
+		void createFences();
+		void createSemaphores();
+		void setupDescriptors();
+		void createPipelineLayout();
+		void allocateDescriptors();
+		void createBarriers();
+
+		void updateWriteDescriptors(const DataRequest * request);
+		void createPipeline(DataRequest * request, size_t curr_idx);
+		void updateBarriers(const DataRequest* request);
+		void recordCommands(const DataRequest * request, const size_t& curr_idx);
+		void uploadRequestData(std::forward_list<DataRequest*>& transfer_list);
 
 		// each request could have a unique layout or descriptor set.
 		VkPipelineLayout pipelineLayout;
 		VkDescriptorSetLayout descriptorSetLayout;
 		VkDescriptorSet descriptorSet;
 		VkDescriptorPool descriptorPool;
+		std::array<VkWriteDescriptorSet, 2> writeDescriptors;
+
+		VkBufferMemoryBarrier computeCompleteBarrier, hostTransitionBarrier;
 
 		// we iterate through this and attach one request per submit.
 		std::list<VkQueue> availQueues;
