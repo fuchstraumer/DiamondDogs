@@ -56,7 +56,7 @@ namespace vulpes {
 			mesh.create_buffers(device);
 		}
 
-		void AABB::UpdateMinMax(const double & y_min, const double & y_max) {
+		void AABB::UpdateMinMax(const float & y_min, const float & y_max) {
 			Min.y = y_min;
 			Max.y = y_max;
 		}

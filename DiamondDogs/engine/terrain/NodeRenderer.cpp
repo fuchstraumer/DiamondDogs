@@ -97,7 +97,6 @@ void vulpes::terrain::NodeRenderer::setupPipelineLayout() {
 	VkAssert(result);
 }
 
-
 void vulpes::terrain::NodeRenderer::allocateDescriptors() {
 	VkDescriptorSetAllocateInfo alloc_info = vk_descriptor_set_alloc_info_base;
 	alloc_info.descriptorPool = descriptorPool;
@@ -325,10 +324,7 @@ void vulpes::terrain::NodeRenderer::updateGUI() {
 }
 
 void vulpes::terrain::NodeRenderer::SendRequests() {
-	size_t ready = dataProducer->RecordCommands();
-	if (ready == 0) {
-		return;
-	}
+	dataProducer->PrepareSubmissions();
 	dataProducer->Submit();
 }
 

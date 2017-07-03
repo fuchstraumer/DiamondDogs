@@ -27,7 +27,7 @@ static inline std::vector<T> convertRawData(const std::vector<float>& raw_data) 
 
 	// Like with the min/max of our set, we don't use max of T alone and instead can evaluate
 	// the expression its used with here (finding range of data type), instead of during every iteration
-	__m128 t_ratio = _mm_sub_ps(_mm_set1_ps(static_cast<float>(std::numeric_limits<T>::max()), t_min);
+	__m128 t_ratio = _mm_sub_ps(_mm_set1_ps(static_cast<float>(std::numeric_limits<T>::max()), t_min));
 
 	// Declare result vector and use resize so we can use memory offsets/addresses to store data in it.
 	std::vector<T> result;
@@ -64,6 +64,41 @@ static inline std::vector<T> convertRawData(const std::vector<float>& raw_data) 
 	// Return result, which can be (fairly) safely cast to the desired output type T. 
 	// At the least, the range of the data should better fit in the range offered by T.
 	return result;
+}
+
+static inline void save_hm_to_file(const std::vector<float>& vals, const float& min, const float& max, const char* filename, unsigned width, unsigned height) {
+
+	auto normalize = [&min, &max](const float& val) {
+		return (val - min) / (max - min);
+	};
+
+	std::vector<float> normalized;
+	normalized.resize(vals.size());
+
+	for (size_t j = 0; j < height; ++j) {
+		for (size_t i = 0; i < width; ++i) {
+			normalized[i + (j * width)] = normalize(vals[i + (j * width)]);
+		}
+	}
+
+	auto make_pixel = [](const float& val)->unsigned char {
+		return static_cast<unsigned char>(val * 255.0f);
+	};
+
+	std::vector<unsigned char> pixels(width * height);
+
+	for (size_t j = 0; j < height; ++j) {
+		for (size_t i = 0; i < width; ++i) {
+			pixels[i + (j * width)] = make_pixel(normalized[i + (j * width)]);
+		}
+	}
+
+
+	unsigned error = lodepng::encode(filename, pixels, width, height, LodePNGColorType::LCT_GREY, 8);
+	if (error) {
+		std::cerr << lodepng_error_text(error) << std::endl;
+		throw;
+	}
 }
 
 

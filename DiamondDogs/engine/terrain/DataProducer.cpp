@@ -187,6 +187,7 @@ namespace vulpes {
 		VkResult result = vkAllocateDescriptorSets(parent->vkHandle(), &dscr_alloc_info, &descriptorSet);
 		VkAssert(result);
 
+		// Setting this upon creation of these objects won't update them when descriptorSet is valid: has to be done after descriptorSet is made valid.
 		writeDescriptors[0].dstSet = descriptorSet;
 		writeDescriptors[1].dstSet = descriptorSet;
 	}
@@ -227,9 +228,6 @@ namespace vulpes {
 			return;
 		}
 
-		// Sort so that lowest LOD level is first, since higher levels depend on lower.
-		requests.sort([&](const DataRequest* r0, const DataRequest* r1) { return *r0 < *r1; });
-
 		size_t curr_request_idx = 0;
 		std::forward_list<DataRequest*> transfer_list;
 
@@ -237,7 +235,7 @@ namespace vulpes {
 		for (auto iter = availQueues.begin(); iter != availQueues.end(); ++iter) {
 
 			// Happens if we have fewer requests than currently available queues.
-			if (requests.empty()) {
+			if (requests.empty() || (submittedRequests.size() == availQueues.size())) {
 				break;
 			}
 
@@ -250,9 +248,11 @@ namespace vulpes {
 
 			updateWriteDescriptors(req);
 			updatePipelineInfo(req, curr_request_idx);
-			submittedRequests.push_front(req);
+			submittedRequests.push_back(req);
 			++curr_request_idx;
 		}
+
+		assert(submittedRequests.size() <= availQueues.size());
 
 		createPipelines();
 
@@ -270,8 +270,8 @@ namespace vulpes {
 	}
 
 	void DataProducer::updateWriteDescriptors(const DataRequest* request) {
-		auto input_info = request->Input->GetDescriptor();
-		auto output_info = request->Output->GetDescriptor();
+		VkDescriptorBufferInfo input_info = request->Input->GetDescriptor();
+		VkDescriptorBufferInfo output_info = request->Output->GetDescriptor();
 		writeDescriptors[0].pBufferInfo = &input_info;
 		writeDescriptors[1].pBufferInfo = &output_info;
 		vkUpdateDescriptorSets(parent->vkHandle(), 2, writeDescriptors.data(), 0, nullptr);
@@ -280,6 +280,7 @@ namespace vulpes {
 	void DataProducer::updatePipelineInfo(const DataRequest * request, size_t curr_req_idx) {
 
 		pipelineInfos[curr_req_idx] = request->pipelineCreateInfo;
+		// Layout overwritten by copy, update again.
 		pipelineInfos[curr_req_idx].layout = pipelineLayout;
 
 		if (curr_req_idx == 0) {
@@ -314,7 +315,7 @@ namespace vulpes {
 	void DataProducer::recordCommands(const DataRequest * request, const size_t& curr_idx) {
 
 		VkCommandBufferBeginInfo begin_info = vk_command_buffer_begin_info_base;
-		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		VkBufferCopy output_to_result_copy{ 0, 0, request->Output->Size() };
 		VkCommandBuffer cmd_buffer = computePool->GetCmdBuffer(curr_idx);
 
@@ -344,10 +345,8 @@ namespace vulpes {
 		while (!transfer_list.empty()) {
 			auto req = transfer_list.front();
 			transfer_list.pop_front();
-			if (req->parent->samples.empty()) {
-				continue;
-			}
 			auto input_heights = req->parent->GetHeights();
+			assert(!input_heights.empty());
 			req->Input->CopyTo(input_heights.data(), transferPool->GetCmdBuffer(0), sizeof(glm::vec2) * input_heights.size(), 0);
 		}
 
@@ -396,6 +395,7 @@ namespace vulpes {
 			if (submittedRequests.empty()) {
 				break;
 			}
+
 			submit_info.pCommandBuffers = &computePool->GetCmdBuffer(curr_buffer_idx);
 			submit_info.waitSemaphoreCount = 1;
 			submit_info.pWaitSemaphores = &semaphores[curr_buffer_idx];
@@ -411,13 +411,13 @@ namespace vulpes {
 
 		VkResult submit_result = vkWaitForFences(parent->vkHandle(), static_cast<uint32_t>(fences.size()), fences.data(), VK_TRUE, vk_default_fence_timeout);
 		VkAssert(submit_result);
-
+		assert(submittedRequests.empty());
 	}
 
 	void DataProducer::resetObjects() {
 		VkResult result = vkResetCommandPool(parent->vkHandle(), computePool->vkHandle(), VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 		VkAssert(result);
-		result = vkResetCommandBuffer(transferPool->GetCmdBuffer(0), VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+		result = vkResetCommandBuffer(transferPool->GetCmdBuffer(0), VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 		VkAssert(result);
 		result = vkResetFences(parent->vkHandle(), static_cast<uint32_t>(fences.size()), fences.data());
 		VkAssert(result);
@@ -446,7 +446,7 @@ namespace vulpes {
 		request->Result->CreateBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, sizeof(glm::vec2) * node->NumSamples());
 		request->node = node;
 		request->parent = parent;
-		request->Width = request->Height = sqrt(node->NumSamples());
+		request->Width = request->Height = static_cast<size_t>(sqrt(node->NumSamples()));
 
 		request->specializations = {
 			VkSpecializationMapEntry{ 0, 0, sizeof(int) },

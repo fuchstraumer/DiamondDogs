@@ -8,6 +8,7 @@
 #include "engine\renderer\render\GraphicsPipeline.h"
 #include "engine/renderer/resource/PipelineCache.h"
 #include "engine/terrain/DataProducer.h"
+#include "common/CommonUtil.h"
 namespace compute_tests {
 
 	using namespace vulpes;
@@ -39,7 +40,7 @@ namespace compute_tests {
 			size_t sample_grid_size = root_height->SampleGridSize();
 			for (size_t j = 0; j < sample_grid_size; ++j) {
 				for (size_t i = 0; i < sample_grid_size; ++i) {
-					height_samples[j + (i * sample_grid_size)] = root_height->samples[i + (j * sample_grid_size)].Sample.x;
+					height_samples[j + (i * sample_grid_size)] = (*root_height)[i + (j * sample_grid_size)].Sample.x;
 				}
 			}
 
@@ -47,7 +48,7 @@ namespace compute_tests {
 			float hmin, hmax;
 			hmin = height_samples.at(min_maxh.first - height_samples.cbegin());
 			hmax = height_samples.at(min_maxh.second - height_samples.cbegin());
-			save_hm_to_file(height_samples, hmin, hmax, "root_noise.png", HeightNode::RootSampleGridSize, HeightNode::RootSampleGridSize);
+			save_hm_to_file(height_samples, hmin, hmax, "root_noise.png", static_cast<unsigned int>(HeightNode::RootSampleGridSize), static_cast<unsigned int>(HeightNode::RootSampleGridSize));
 
 			// Subdivide first four nodes
 			std::array<std::shared_ptr<DataRequest>, 8> lod_1_requests;
@@ -67,7 +68,7 @@ namespace compute_tests {
 				producer.Request(lod_1_requests[i].get());
 			}
 
-			producer.RecordCommands();
+			producer.PrepareSubmissions();
 			producer.Submit();
 
 			for (size_t i = 0; i < 8; ++i) {
@@ -89,7 +90,8 @@ namespace compute_tests {
 				std::string fname("compute_test_node_");
 				fname += std::to_string(i);
 				fname += std::string(".png");
-				save_hm_to_file(result_heights, min_z, max_z, fname.c_str(), sqrt(num_samples), sqrt(num_samples));
+				unsigned int dim = static_cast<unsigned int>(sqrt(num_samples));
+				save_hm_to_file(result_heights, min_z, max_z, fname.c_str(), dim, dim);
 				result->Unmap();
 			}
 		}

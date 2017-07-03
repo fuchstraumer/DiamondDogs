@@ -84,7 +84,7 @@ namespace vulpes {
 		Height = copyInfo.front().imageExtent.height;
 		layerCount = copyInfo.front().imageSubresource.layerCount;
 		// mipLevels is taken as the quantity of mipmaps PER layer.
-		mipLevels = copyInfo.size() / layerCount;
+		mipLevels = static_cast<uint32_t>(copyInfo.size() / layerCount);
 		
 		createTexture();
 		createView();

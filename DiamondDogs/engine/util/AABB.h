@@ -23,7 +23,7 @@ namespace vulpes {
 
 			void CreateMesh();
 
-			void UpdateMinMax(const double& y_min, const double& y_max);
+			void UpdateMinMax(const float& y_min, const float& y_max);
 
 			void Render(VkCommandBuffer & cmd);
 

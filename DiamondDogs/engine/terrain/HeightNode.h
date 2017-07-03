@@ -28,52 +28,6 @@ namespace vulpes {
 
 	namespace terrain {
 
-		static inline void save_hm_to_file(const std::vector<float>& vals, const float& min, const float& max, const char* filename, unsigned width, unsigned height) {
-
-			auto normalize = [&min, &max](const float& val) {
-				return (val - min) / (max - min);
-			};
-
-			std::vector<float> normalized;
-			normalized.resize(vals.size());
-
-			for (size_t j = 0; j < height; ++j) {
-				for (size_t i = 0; i < width; ++i) {
-					normalized[i + (j * width)] = normalize(vals[i + (j * width)]);
-				}
-			}
-
-			auto make_pixel = [](const float& val)->unsigned char {
-				return static_cast<unsigned char>(val * 255.0f);
-			};
-
-			std::vector<unsigned char> pixels(width * height);
-
-			for (size_t j = 0; j < height; ++j) {
-				for (size_t i = 0; i < width; ++i) {
-					pixels[i + (j * width)] = make_pixel(normalized[i + (j * width)]);
-				}
-			}
-
-
-			unsigned error = lodepng::encode(filename, pixels, width, height, LodePNGColorType::LCT_GREY, 8);
-			if (error) {
-				std::cerr << lodepng_error_text(error) << std::endl;
-				throw;
-			}
-		}
-
-		template<typename uint8_t>
-		struct HeightmapPNG {
-
-			HeightmapPNG() = default;
-
-			HeightmapPNG(const char* filename);
-
-			uint32_t Width, Height;
-			std::vector<uint8_t> Pixels;
-		};
-
 		struct HeightSample {
 
 			HeightSample() {}
@@ -91,7 +45,6 @@ namespace vulpes {
 
 			std::vector<HeightSample> samples;
 
-			
 		};
 
 		class HeightNode {
@@ -109,35 +62,36 @@ namespace vulpes {
 			
 			void SampleFromParent(const HeightNode& node);
 
-			void SetSamples(const std::vector<HeightSample> &samples);
 			void SetSamples(std::vector<HeightSample>&& samples);
 
 			float GetHeight(const glm::vec2 world_pos) const;
-			glm::vec3 GetNormal(const glm::vec2 world_pos) const;
 
 			float Sample(const size_t& x, const size_t& y) const;
 			float Sample(const size_t& idx) const;
+
+			const HeightSample& operator[](const size_t& idx) const;
+			HeightSample& operator[](const size_t& idx);
 
 			const glm::ivec3& GridCoords() const noexcept;
 			size_t MeshGridSize() const noexcept;
 			size_t SampleGridSize() const noexcept;
 			size_t NumSamples() const noexcept;
 			std::vector<glm::vec2> GetHeights() const;
+			std::vector<HeightSample> GetSamples() const;
 
 			static void SetRootNodeSize(const size_t& new_size);
 			static void SetRootNodeLength(const double& new_length);
 
 			static size_t RootSampleGridSize;
 			static double RootNodeLength;
-
-			std::vector<HeightSample> samples;
+			
 			float MinZ, MaxZ;
 			const HeightNode* Parent;
 		protected:
 
 			size_t sampleGridSize = 16;
 			size_t meshGridSize;
-			
+			std::vector<HeightSample> samples;
 			glm::ivec3 gridCoords;
 			glm::ivec3 parentGridCoords;
 			

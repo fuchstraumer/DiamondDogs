@@ -99,7 +99,7 @@ namespace vulpes {
 		std::list<VkQueue> availQueues;
 		VkQueue spareQueue; // general-use queue used for transfers, if needed.
 		
-		std::forward_list<DataRequest*> submittedRequests;
+		std::list<DataRequest*> submittedRequests;
 
 		std::vector<VkFence> fences;
 		std::vector<VkSemaphore> semaphores;

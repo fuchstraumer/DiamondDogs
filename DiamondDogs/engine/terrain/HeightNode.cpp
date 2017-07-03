@@ -1,8 +1,9 @@
 #include "stdafx.h"
 #include "HeightNode.h"
-#include "engine\util\FastNoise.h"
-#include "engine/util/lodepng.h"
 #include "glm/ext.hpp"
+#include "common/CommonUtil.h"
+#include "engine/util/FastNoise.h"
+#include "engine/util/lodepng.h"
 #include "engine/util/Noise.h"
 
 
@@ -27,7 +28,6 @@ namespace vulpes {
 		static constexpr bool save_to_file = false;
 
 	
-		
 		void HeightNode::SampleFromParent(const HeightNode & node) {
 			// See: proland/preprocess/terrain/HeightMipmap.cpp to find original implementation
 			size_t tile_size = std::min(RootSampleGridSize << gridCoords.z, sampleGridSize);
@@ -39,8 +39,8 @@ namespace vulpes {
 			// These aren't the parent grid coords: these are the offsets from the parent height samples that we 
 			// use to sample from the parents data.
 			int parent_x, parent_y;
-			parent_x = 1 + (gridCoords.x % 2) * meshGridSize / 2;
-			parent_y = 1 + (gridCoords.y % 2) * meshGridSize / 2;
+			parent_x = 1 + static_cast<int>((gridCoords.x % 2) * meshGridSize / 2);
+			parent_y = 1 + static_cast<int>((gridCoords.y % 2) * meshGridSize / 2);
 
 			samples.resize(sampleGridSize * sampleGridSize);
 
@@ -119,56 +119,27 @@ namespace vulpes {
 
 			double curr_size = RootNodeLength / (1 << gridCoords.z);
 			double s = curr_size / 2.0;
-			// Make sure query is in range of current node.
-			//if (abs(world_pos.x) >= curr_size + 1.0 || abs(world_pos.y) >= curr_size + 1.0) {
-			//	throw std::out_of_range("Attempted to sample out of range of heightnode");
-			//}
 			auto curr_grid_size = MeshGridSize();
-			float x, y;
-			x = world_pos.x;
-			y = world_pos.y;
+			double x, y;
+			x = static_cast<double>(world_pos.x);
+			y = static_cast<double>(world_pos.y);
 
 			if (x == curr_size) {
-				x = sampleGridSize - 3.0f;
+				x = static_cast<double>(sampleGridSize - 3.0);
 			}
 			else {
-				x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
+				x = 2.0 + (fmod(x, curr_size) / curr_size) * curr_grid_size;
 			}
 			if (y == curr_size) {
-				y = sampleGridSize - 3.0f;
+				y = static_cast<double>(sampleGridSize - 3.0);
 			}
 			else {
-				y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
+				y = 2.0 + (fmod(y, curr_size) / curr_size) * curr_grid_size;
 			}
 
-			//x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
-			//y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
-			size_t sx = floorf(x), sy = floorf(y);
+			size_t sx = static_cast<size_t>(floor(x)), sy = static_cast<size_t>(floor(y));
 
 			return Sample(sx, sy);
-		}
-
-		glm::vec3 HeightNode::GetNormal(const glm::vec2 world_pos) const {
-			double curr_size = RootNodeLength / (1 << gridCoords.z);
-
-			// Make sure query is in range of current node.
-			if (abs(world_pos.x) >= curr_size + 1.0 || abs(world_pos.y) >= curr_size + 1.0) {
-				throw std::out_of_range("Attempted to sample out of range of heightnode");
-			}
-
-			float x, y;
-			x = world_pos.x;
-			y = world_pos.y;
-
-			size_t curr_grid_size = MeshGridSize();
-
-			x = 2.0f + (fmod(x, curr_size) / curr_size) * curr_grid_size;
-			y = 2.0f + (fmod(y, curr_size) / curr_size) * curr_grid_size;
-
-			// Sample coords
-			size_t sx = floorf(x), sy = floorf(y);
-
-			return glm::normalize(samples[sx + (sy * sampleGridSize)].Normal);
 		}
 
 		float HeightNode::Sample(const size_t & x, const size_t & y) const{
@@ -208,6 +179,14 @@ namespace vulpes {
 			}
 		}
 
+		const HeightSample & HeightNode::operator[](const size_t & idx) const {
+			return samples[idx];
+		}
+
+		HeightSample & HeightNode::operator[](const size_t & idx) {
+			return samples[idx];
+		}
+
 		const glm::ivec3 & HeightNode::GridCoords() const noexcept{
 			return gridCoords;
 		}
@@ -232,6 +211,10 @@ namespace vulpes {
 				}
 			}
 			return results;
+		}
+
+		std::vector<HeightSample> HeightNode::GetSamples() const {
+			return samples;
 		}
 
 		void HeightNode::SetRootNodeSize(const size_t & new_size) {
