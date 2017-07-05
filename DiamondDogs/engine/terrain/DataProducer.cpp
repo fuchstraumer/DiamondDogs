@@ -77,17 +77,17 @@ namespace vulpes {
 	void DataProducer::createQueues() {
 
 		if (parent->HasDedicatedComputeQueues()) {
-			for (uint32_t i = 0; i < parent->numComputeQueues; ++i) {
+			for (uint32_t i = 0; i < parent->NumComputeQueues; ++i) {
 				availQueues.push_front(parent->ComputeQueue(i));
 			}
 		}
 		else {
 			// Worst-case scenario, also occures when using a debugger like RenderDoc.
-			if (parent->numGraphicsQueues <= 2) {
+			if (parent->NumGraphicsQueues <= 2) {
 				availQueues.push_back(parent->GraphicsQueue(0));
 			}
 			else {
-				for (uint32_t i = parent->numGraphicsQueues / 2; i < parent->numGraphicsQueues; ++i) {
+				for (uint32_t i = parent->NumGraphicsQueues / 2; i < parent->NumGraphicsQueues; ++i) {
 					availQueues.push_front(parent->GraphicsQueue(i));
 				}
 			}
@@ -101,14 +101,14 @@ namespace vulpes {
 		pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 		pool_info.queueFamilyIndex = parent->QueueFamilyIndices.Compute;
 
-		computePool = std::make_unique<CommandPool>(parent, pool_info);
-		computePool->CreateCommandBuffers(availQueues.size());
+		computePool = std::make_unique<CommandPool>(parent, pool_info, true);
+		computePool->AllocateCmdBuffers(availQueues.size());
 
-		spareQueue = parent->GetGeneralQueue();
+		spareQueue = parent->GeneralQueue(0);
 		pool_info.queueFamilyIndex = parent->QueueFamilyIndices.Graphics;
 
-		transferPool = std::make_unique<CommandPool>(parent, pool_info);
-		transferPool->CreateCommandBuffers(1);
+		transferPool = std::make_unique<CommandPool>(parent, pool_info, true);
+		transferPool->AllocateCmdBuffers(1);
 
 		fences.resize(availQueues.size());
 

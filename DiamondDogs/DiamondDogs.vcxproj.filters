@@ -73,7 +73,6 @@
     <ClInclude Include="engine\renderer\render\Swapchain.h" />
     <ClInclude Include="engine\renderer\resource\Buffer.h" />
     <ClInclude Include="engine\renderer\resource\Image.h" />
-    <ClInclude Include="engine\renderer\resource\Model.h" />
     <ClInclude Include="engine\renderer\resource\ShaderModule.h" />
     <ClInclude Include="engine\renderer\resource\VertexTypes.h" />
     <ClInclude Include="engine\renderer\NonCopyable.h" />
@@ -85,8 +84,6 @@
     <ClInclude Include="engine\util\ref_counter.h" />
     <ClInclude Include="engine\renderer\command\TransferPool.h" />
     <ClInclude Include="engine\util\alloc\Page.h" />
-    <ClInclude Include="engine\renderer\resource\Memory.h" />
-    <ClInclude Include="engine\renderer\resource\Resource.h" />
     <ClInclude Include="engine\renderer\gui\imguiShaders.h" />
     <ClInclude Include="engine\renderer\gui\imguiWrapper.h" />
     <ClInclude Include="engine\renderer\gui\imgui_lib\imgui.h" />

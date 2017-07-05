@@ -15,7 +15,9 @@ namespace vulpes {
 		// Local vector copy of QueueCreateInfos: need raw data ptr for createInfo,
 		// and easier to insert/include the presentation queues this way.
 		std::vector<VkDeviceQueueCreateInfo> queue_infos;
-		queue_infos.assign(queueInfos.begin(), queueInfos.end());
+		for (const auto& queue_info_entry : queueInfos) {
+			queue_infos.push_back(queue_info_entry.second);
+		}
 
 		VerifyPresentationSupport();
 		
@@ -167,7 +169,7 @@ namespace vulpes {
 		assert(idx < NumTransferQueues);
 		VkQueue result;
 		vkGetDeviceQueue(vkHandle(), QueueFamilyIndices.Transfer, idx, &result);
-		assert(queue != VK_NULL_HANDLE);
+		assert(result != VK_NULL_HANDLE);
 		return result;
 
 	}
@@ -175,7 +177,7 @@ namespace vulpes {
 	VkQueue Device::ComputeQueue(const uint32_t & idx) const{
 
 		LOG_IF(QueueFamilyIndices.Compute == QueueFamilyIndices.Graphics, INFO) << "Retrieving queue that supports compute ops, but isn't dedicated compute queue.";
-		assert(idx < numComputeQueues);
+		assert(idx < NumComputeQueues);
 		VkQueue result;
 		vkGetDeviceQueue(vkHandle(), QueueFamilyIndices.Compute, idx, &result);
 		return result;
