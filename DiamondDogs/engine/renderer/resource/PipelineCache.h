@@ -22,12 +22,14 @@ namespace vulpes {
 		// device/system
 		bool Verify(const std::vector<int8_t>& cache_header) const;
 
+		void LoadCacheFromFile(const char * filename);
+
 		const VkPipelineCache& vkHandle() const;
 
 	private:
 
 		VkResult saveToFile() const;
-
+		uint16_t hashID;
 		std::string filename;
 		const Device* parent;
 		VkPipelineCache handle;
