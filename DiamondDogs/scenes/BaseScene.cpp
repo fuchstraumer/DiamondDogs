@@ -107,7 +107,7 @@ void vulpes::BaseScene::SetupRenderpass(const VkSampleCountFlagBits& sample_coun
 	attachments[3] = depth_descr;
 
 	/*
-		Setup MSAA
+		Setup Multisampling
 	*/
 
 	msaa = std::make_unique<Multisampling>(device, swapchain, sample_count, swapchain->Extent.width, swapchain->Extent.height);

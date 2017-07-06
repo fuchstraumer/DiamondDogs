@@ -7,7 +7,7 @@
 #include "engine/renderer/resource/Allocator.h"
 #include "engine/renderer/resource/Buffer.h"
 #include "engine/renderer/core/LogicalDevice.h"
-#include "engine/renderer/render/MSAA.h"
+#include "engine/renderer/render/Multisampling.h"
 #include "Image.h"
 
 namespace vulpes {

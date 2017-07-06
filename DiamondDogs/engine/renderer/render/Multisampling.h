@@ -1,11 +1,11 @@
 #pragma once
-#ifndef VULPES_VK_MSAA_H
-#define VULPES_VK_MSAA_H
+#ifndef VULPES_VK_MULTISAMPLING_H
+#define VULPES_VK_MULTISAMPLING_H
 
 #include "stdafx.h"
 #include "engine/renderer/ForwardDecl.h"
-#include "engine/renderer//NonCopyable.h"
-#include "engine/renderer//resource/Image.h"
+#include "engine/renderer/NonCopyable.h"
+#include "engine/renderer/resource/Image.h"
 namespace vulpes {
 
 	class Multisampling {
@@ -25,4 +25,4 @@ namespace vulpes {
 
 }
 
-#endif // !VULPES_VK_MSAA_H
+#endif // !VULPES_VK_Multisampling_H

@@ -32,12 +32,13 @@
     <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
     <ClCompile Include="engine\util\lodepng.cpp" />
     <ClCompile Include="engine\util\Noise.cpp" />
-    <ClCompile Include="engine\renderer\render\MSAA.cpp" />
     <ClCompile Include="engine\util\FastNoise.cpp" />
     <ClCompile Include="engine\terrain\DataProducer.cpp" />
     <ClCompile Include="engine\renderer\resource\PipelineCache.cpp" />
     <ClCompile Include="engine\util\sdnoise1234.cpp" />
     <ClCompile Include="engine\renderer\resource\Allocator.cpp" />
+    <ClCompile Include="bodies\star\Star.cpp" />
+    <ClCompile Include="engine\renderer\render\Multisampling.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -97,7 +98,6 @@
     <ClInclude Include="engine\util\lodepng.h" />
     <ClInclude Include="engine\renderer\ForwardDecl.h" />
     <ClInclude Include="engine\util\Noise.h" />
-    <ClInclude Include="engine\renderer\render\MSAA.h" />
     <ClInclude Include="engine\util\FastNoise.h" />
     <ClInclude Include="engine\terrain\DataProducer.h" />
     <ClInclude Include="engine\util\ThreadWrapper.h" />
@@ -105,6 +105,8 @@
     <ClInclude Include="engine\util\sdnoise1234.h" />
     <ClInclude Include="engine\renderer\resource\Allocator.h" />
     <ClInclude Include="engine\renderer\resource\Texture.h" />
+    <ClInclude Include="bodies\star\Star.h" />
+    <ClInclude Include="engine\renderer\render\Multisampling.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

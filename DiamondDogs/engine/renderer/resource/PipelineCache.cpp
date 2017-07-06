@@ -65,7 +65,7 @@ namespace vulpes {
 				return VK_SUCCESS;
 			}
 			catch (std::ofstream::failure& failure_except) {
-				LOG(WARNING) << "Saving of pipeline cache to file failed with unindentified failure.";
+				LOG(WARNING) << "Saving of pipeline cache to file failed with unindentified exception in std::ofstream.";
 				return VK_ERROR_VALIDATION_FAILED_EXT;
 			}
 		}

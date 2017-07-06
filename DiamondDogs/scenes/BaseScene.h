@@ -12,7 +12,7 @@
 #include "engine\renderer\render\Framebuffer.h"
 #include "engine\renderer\command\CommandPool.h"
 #include "engine\renderer\render\DepthStencil.h"
-#include "engine\renderer\render\MSAA.h"
+#include "engine\renderer\render\Multisampling.h"
 #include "engine/renderer/resource/PipelineCache.h"
 
 namespace vulpes {

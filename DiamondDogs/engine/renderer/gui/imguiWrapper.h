@@ -12,7 +12,7 @@
 #include "engine/renderer\render/Swapchain.h"
 #include "engine/renderer\core/PhysicalDevice.h"
 #include "engine/renderer\core/Instance.h"
-#include "engine/renderer/render/MSAA.h"
+#include "engine/renderer/render/Multisampling.h"
 #include "engine/renderer/resource/PipelineCache.h"
 
 namespace vulpes {

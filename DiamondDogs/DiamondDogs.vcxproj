@@ -95,13 +95,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Body.h" />
+    <ClInclude Include="bodies\star\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="bodies\terrestrial\Terrestrial.h" />
     <ClInclude Include="common\CommonDef.h" />
     <ClInclude Include="common\CommonUtil.h" />
     <ClInclude Include="common\VkDebug.h" />
     <ClInclude Include="engine\objects\Atmosphere.h" />
-    <ClInclude Include="engine\renderer\render\MSAA.h" />
+    <ClInclude Include="engine\renderer\render\Multisampling.h" />
     <ClInclude Include="engine\renderer\resource\Allocator.h" />
     <ClInclude Include="engine\renderer\resource\PipelineCache.h" />
     <ClInclude Include="engine\terrain\DataProducer.h" />
@@ -161,6 +162,7 @@
     <ClInclude Include="util\shaderold.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="bodies\star\Star.cpp" />
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="engine\objects\Atmosphere.cpp" />
     <ClCompile Include="engine\objects\mesh\Icosphere.cpp">
@@ -183,7 +185,7 @@
     <ClCompile Include="engine\renderer\render\DepthStencil.cpp" />
     <ClCompile Include="engine\renderer\render\Framebuffer.cpp" />
     <ClCompile Include="engine\renderer\render\GraphicsPipeline.cpp" />
-    <ClCompile Include="engine\renderer\render\MSAA.cpp" />
+    <ClCompile Include="engine\renderer\render\Multisampling.cpp" />
     <ClCompile Include="engine\renderer\render\Renderpass.cpp" />
     <ClCompile Include="engine\renderer\render\Swapchain.cpp" />
     <ClCompile Include="engine\renderer\resource\Allocator.cpp" />
