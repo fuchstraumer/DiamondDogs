@@ -4,7 +4,7 @@
 
 namespace vulpes {
 
-    TransferPool::TransferPool(const Device * _parent) : CommandPool(_parent) {
+    TransferPool::TransferPool(const Device * _parent) : CommandPool(_parent, true) {
 		
 		createInfo = transfer_pool_info;
 		createInfo.queueFamilyIndex = parent->QueueFamilyIndices.Transfer;
@@ -17,12 +17,12 @@ namespace vulpes {
 		allocInfo.commandPool = handle;
 		allocInfo.commandBufferCount = 1;
 
-		CreateCommandBuffers(1);
+		AllocateCmdBuffers(1);
 
 		result = vkCreateFence(parent->vkHandle(), &vk_fence_create_info_base, allocators, &fence);
 		VkAssert(result);
 
-		parent->TransferQueue(0, queue);
+		queue = parent->TransferQueue(0);
 
 		if (parent->MarkersEnabled) {
 			parent->vkSetObjectDebugMarkerName((uint64_t)handle, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_POOL_EXT, "TransferPool");

@@ -15,7 +15,7 @@ namespace vulpes {
 		VkAssert(result);
 	}
 
-	void CommandPool::Reset() {
+	void CommandPool::ResetCmdPool() {
 		assert(createInfo.flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 		vkResetCommandPool(parent->vkHandle(), handle, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 	}
@@ -50,7 +50,7 @@ namespace vulpes {
 		}
 	}
 
-	void CommandPool::CreateCommandBuffers(const uint32_t & num_buffers, const VkCommandBufferAllocateInfo& _alloc_info){
+	void CommandPool::AllocateCmdBuffers(const uint32_t & num_buffers, const VkCommandBufferAllocateInfo& _alloc_info){
 		cmdBuffers.resize(num_buffers);
 		auto alloc_info = _alloc_info;
 		alloc_info.commandPool = handle;
@@ -62,7 +62,7 @@ namespace vulpes {
 		vkFreeCommandBuffers(parent->vkHandle(), handle, static_cast<uint32_t>(cmdBuffers.size()), cmdBuffers.data());
 	}
 
-	void CommandPool::ResetCommandBuffer(const size_t & idx) {
+	void CommandPool::ResetCmdBuffer(const size_t & idx) {
 		assert(createInfo.flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 		vkResetCommandBuffer(cmdBuffers[idx], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
 	}
@@ -71,7 +71,7 @@ namespace vulpes {
 		return handle;
 	}
 
-	const VkCommandBuffer & vulpes::CommandPool::operator[](const size_t & idx) const{
+	VkCommandBuffer & vulpes::CommandPool::operator[](const size_t & idx) {
 		return cmdBuffers[idx];
 	}
 
@@ -95,7 +95,7 @@ namespace vulpes {
 
 		VkCommandBufferBeginInfo beginInfo = {};
 		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		beginInfo.pInheritanceInfo = nullptr;
 
 		vkBeginCommandBuffer(commandBuffer, &beginInfo);

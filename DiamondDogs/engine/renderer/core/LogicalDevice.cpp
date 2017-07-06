@@ -5,133 +5,139 @@
 #include "../resource/Allocator.h"
 namespace vulpes {
 
-	Device::Device(const Instance* instance, const PhysicalDevice * device) : parent(device) {
+	Device::Device(const Instance* instance, const PhysicalDevice * device) : parent(device), parentInstance(instance) {
 
+		SetupGraphicsQueues();
+		SetupComputeQueues();
+		SetupTransferQueues();
+		SetupSparseBindingQueues();
+
+		// Local vector copy of QueueCreateInfos: need raw data ptr for createInfo,
+		// and easier to insert/include the presentation queues this way.
 		std::vector<VkDeviceQueueCreateInfo> queue_infos;
+		for (const auto& queue_info_entry : queueInfos) {
+			queue_infos.push_back(queue_info_entry.second);
+		}
 
-		constexpr float queue_priority = 1.0f;
-
-		VkDeviceQueueCreateInfo graphics_info = vk_device_queue_create_info_base;
-		QueueFamilyIndices.Graphics = parent->GetQueueFamilyIndex(VK_QUEUE_GRAPHICS_BIT);
-		auto graphics_properties = parent->GetQueueFamilyProperties(VK_QUEUE_GRAPHICS_BIT);
-		graphics_info.queueCount = graphics_properties.queueCount;
-		numGraphicsQueues = graphics_properties.queueCount;
-		graphics_info.queueFamilyIndex = QueueFamilyIndices.Graphics;
-		std::vector<float> gqueue_priorities(numGraphicsQueues);
-		std::fill(gqueue_priorities.begin(), gqueue_priorities.end(), 1.0f);
-		graphics_info.pQueuePriorities = gqueue_priorities.data();
-		queue_infos.push_back(graphics_info);
+		VerifyPresentationSupport();
 		
-		QueueFamilyIndices.Compute = parent->GetQueueFamilyIndex(VK_QUEUE_COMPUTE_BIT);
-		if (QueueFamilyIndices.Compute != QueueFamilyIndices.Graphics) {
-			VkDeviceQueueCreateInfo compute_info = vk_device_queue_create_info_base;
-			VkQueueFamilyProperties compute_properties = parent->GetQueueFamilyProperties(VK_QUEUE_COMPUTE_BIT);
-			compute_info.queueCount = compute_properties.queueCount;
-			numComputeQueues = compute_properties.queueCount;
-			std::vector<float> queue_priorities(numComputeQueues);
-			std::fill(queue_priorities.begin(), queue_priorities.end(), 1.0f);
-			compute_info.pQueuePriorities = queue_priorities.data();
-			compute_info.queueFamilyIndex = QueueFamilyIndices.Compute;
-			queue_infos.push_back(compute_info);
-		}
-		else {
-			numComputeQueues = numGraphicsQueues;
-		}
-		
-		QueueFamilyIndices.Transfer = parent->GetQueueFamilyIndex(VK_QUEUE_TRANSFER_BIT);
-		if (QueueFamilyIndices.Transfer != QueueFamilyIndices.Graphics) {
-			VkDeviceQueueCreateInfo transfer_info = vk_device_queue_create_info_base;
-			VkQueueFamilyProperties transfer_properties = parent->GetQueueFamilyProperties(VK_QUEUE_TRANSFER_BIT);
-			transfer_info.queueCount = transfer_properties.queueCount;
-			numTransferQueues = transfer_properties.queueCount;
-			std::vector<float> queue_priorities(numTransferQueues);
-			std::fill(queue_priorities.begin(), queue_priorities.end(), 1.0f);
-			transfer_info.pQueuePriorities = queue_priorities.data();
-			transfer_info.queueFamilyIndex = QueueFamilyIndices.Transfer;
-			queue_infos.push_back(transfer_info);
-		}
-		else {
-			numTransferQueues = numGraphicsQueues;
-		}
-	
-		QueueFamilyIndices.SparseBinding = parent->GetQueueFamilyIndex(VK_QUEUE_SPARSE_BINDING_BIT);
-		if (QueueFamilyIndices.SparseBinding != QueueFamilyIndices.Graphics) {
-			VkDeviceQueueCreateInfo binding_info = vk_device_queue_create_info_base;
-			binding_info.queueFamilyIndex = QueueFamilyIndices.SparseBinding;
-			queue_infos.push_back(binding_info);
-		}
+		createInfo = vk_device_create_info_base;
+		createInfo.queueCreateInfoCount = static_cast<uint32_t>(queue_infos.size());
+		createInfo.pQueueCreateInfos = queue_infos.data();
+		createInfo.pEnabledFeatures = &device->Features;
 
-		{
-			// Get presentation support
-			VkBool32 present_support = false;
-			for (uint32_t i = 0; i < 3; ++i) {
-				vkGetPhysicalDeviceSurfaceSupportKHR(parent->vkHandle(), i, instance->GetSurface(), &present_support);
-				if (present_support) {
-					QueueFamilyIndices.Present = i;
-					break;
-				}
-			}
-		}
-
-		if (QueueFamilyIndices.Present != QueueFamilyIndices.Graphics) {
-			VkDeviceQueueCreateInfo present_info = vk_device_queue_create_info_base;
-			present_info.queueFamilyIndex = QueueFamilyIndices.Present;
-			present_info.pQueuePriorities = &queue_priority;
-			queue_infos.push_back(std::move(present_info));
-		}
-		
-		VkDeviceCreateInfo create_info = vk_device_create_info_base;
-		create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_infos.size());
-		create_info.pQueueCreateInfos = queue_infos.data();
-		
-		create_info.pEnabledFeatures = &device->Features;
-
-		if (instance->validationEnabled) {
-			std::vector<VkExtensionProperties> extensions;
-			uint32_t cnt = 0;
-			vkEnumerateDeviceExtensionProperties(parent->vkHandle(), nullptr, &cnt, nullptr);
-			extensions.resize(cnt);
-			vkEnumerateDeviceExtensionProperties(parent->vkHandle(), nullptr, &cnt, extensions.data());
-			for (auto& ext : extensions) {
-				if (!strcmp(ext.extensionName, VK_EXT_DEBUG_MARKER_EXTENSION_NAME)) {
-					MarkersEnabled = true;
-					std::cerr << "Markers enabled\n";
-				}
-				else {
-					MarkersEnabled = false;
-					std::cerr << "Markers disabled\n";
-				}
-			}
-			
+		if (parentInstance->validationEnabled) {
+			EnableValidation();
 		}
 
 		if (MarkersEnabled) {
-			create_info.enabledLayerCount = 1;
-			create_info.ppEnabledLayerNames = &standard_validation_layer;
-			create_info.enabledExtensionCount = 2;
-			create_info.ppEnabledExtensionNames = device_extensions_debug.data();
+			createInfo.enabledLayerCount = 1;
+			createInfo.ppEnabledLayerNames = &standard_validation_layer;
+			createInfo.enabledExtensionCount = 2;
+			createInfo.ppEnabledExtensionNames = device_extensions_debug.data();
 		}
 		else {
-			create_info.enabledExtensionCount = 1;
-			create_info.ppEnabledExtensionNames = device_extensions.data();
-			create_info.enabledLayerCount = 0;
-			create_info.ppEnabledLayerNames = nullptr;
+			createInfo.enabledExtensionCount = 1;
+			createInfo.ppEnabledExtensionNames = device_extensions.data();
+			createInfo.enabledLayerCount = 0;
+			createInfo.ppEnabledLayerNames = nullptr;
 		}
 
-		VkResult result = vkCreateDevice(parent->vkHandle(), &create_info, AllocCallbacks, &handle);
+		VkResult result = vkCreateDevice(parent->vkHandle(), &createInfo, AllocCallbacks, &handle);
 		VkAssert(result);
-		
-		{
-			// Get debug marker function pointers
-			pfnDebugMarkerSetObjectTag = reinterpret_cast<PFN_vkDebugMarkerSetObjectTagEXT>(vkGetDeviceProcAddr(handle, "vkDebugMarkerSetObjectTagEXT"));
-			pfnDebugMarkerSetObjectName = reinterpret_cast<PFN_vkDebugMarkerSetObjectNameEXT>(vkGetDeviceProcAddr(handle, "vkDebugMarkerSetObjectNameEXT"));
-			pfnCmdDebugMarkerBegin = reinterpret_cast<PFN_vkCmdDebugMarkerBeginEXT>(vkGetDeviceProcAddr(handle, "vkCmdDebugMarkerBeginEXT"));
-			pfnCmdDebugMarkerEnd = reinterpret_cast<PFN_vkCmdDebugMarkerEndEXT>(vkGetDeviceProcAddr(handle, "vkCmdDebugMarkerEndEXT"));
-			pfnCmdDebugMarkerInsert = reinterpret_cast<PFN_vkCmdDebugMarkerInsertEXT>(vkGetDeviceProcAddr(handle, "vkCmdDebugMarkerInsertEXT"));
+
+		if (MarkersEnabled) {
+			GetMarkerFuncPtrs();
 		}
 
 		vkAllocator = new Allocator(this);
 
+	}
+
+	void Device::SetupGraphicsQueues() {
+		QueueFamilyIndices.Graphics = parent->GetQueueFamilyIndex(VK_QUEUE_GRAPHICS_BIT);
+		auto create_info = SetupQueueFamily(parent->GetQueueFamilyProperties(VK_QUEUE_GRAPHICS_BIT));
+		create_info.queueFamilyIndex = QueueFamilyIndices.Graphics;
+		NumGraphicsQueues = create_info.queueCount;
+		queueInfos.insert(std::make_pair(VK_QUEUE_GRAPHICS_BIT, create_info));
+	}
+
+	void Device::SetupComputeQueues() {
+		QueueFamilyIndices.Compute = parent->GetQueueFamilyIndex(VK_QUEUE_COMPUTE_BIT);
+		if (QueueFamilyIndices.Compute != QueueFamilyIndices.Graphics) {
+			auto compute_info = SetupQueueFamily(parent->GetQueueFamilyProperties(VK_QUEUE_COMPUTE_BIT));
+			compute_info.queueFamilyIndex = QueueFamilyIndices.Compute;
+			NumComputeQueues = compute_info.queueCount;
+			queueInfos.insert(std::make_pair(VK_QUEUE_COMPUTE_BIT, compute_info));
+		}
+		else {
+			auto queue_properties = parent->GetQueueFamilyProperties(VK_QUEUE_COMPUTE_BIT);
+			if (queue_properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+				QueueFamilyIndices.Compute = QueueFamilyIndices.Graphics;
+				NumComputeQueues = NumGraphicsQueues;
+			}
+		}
+	}
+
+	void Device::SetupTransferQueues() {
+		QueueFamilyIndices.Transfer = parent->GetQueueFamilyIndex(VK_QUEUE_TRANSFER_BIT);
+		if (QueueFamilyIndices.Transfer != QueueFamilyIndices.Graphics) {
+			auto transfer_info = SetupQueueFamily(parent->GetQueueFamilyProperties(VK_QUEUE_TRANSFER_BIT));
+			transfer_info.queueFamilyIndex = QueueFamilyIndices.Transfer;
+			NumTransferQueues = transfer_info.queueCount;
+			queueInfos.insert(std::make_pair(VK_QUEUE_TRANSFER_BIT, transfer_info));
+		}
+		else {
+			auto queue_properties = parent->GetQueueFamilyProperties(VK_QUEUE_TRANSFER_BIT);
+			if (queue_properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+				QueueFamilyIndices.Transfer = QueueFamilyIndices.Graphics;
+				NumTransferQueues = NumGraphicsQueues;
+			}
+		}
+	}
+
+	void Device::SetupSparseBindingQueues() {
+		QueueFamilyIndices.SparseBinding = parent->GetQueueFamilyIndex(VK_QUEUE_SPARSE_BINDING_BIT);
+		if (QueueFamilyIndices.SparseBinding != QueueFamilyIndices.Graphics) {
+			auto sparse_info = SetupQueueFamily(parent->GetQueueFamilyProperties(VK_QUEUE_SPARSE_BINDING_BIT));
+			sparse_info.queueFamilyIndex = QueueFamilyIndices.SparseBinding;
+			NumSparseBindingQueues = sparse_info.queueCount;
+		}
+		else {
+			auto queue_properties = parent->GetQueueFamilyProperties(VK_QUEUE_SPARSE_BINDING_BIT);
+			if (queue_properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+				QueueFamilyIndices.SparseBinding = QueueFamilyIndices.Graphics;
+				NumSparseBindingQueues = NumGraphicsQueues;
+			}
+		}
+	}
+
+	void Device::VerifyPresentationSupport() {
+	
+		// Check presentation support
+		VkBool32 present_support = false;
+		for (uint32_t i = 0; i < 3; ++i) {
+			vkGetPhysicalDeviceSurfaceSupportKHR(parent->vkHandle(), i, parentInstance->GetSurface(), &present_support);
+			if (present_support) {
+				QueueFamilyIndices.Present = i;
+				break;
+			}
+		}
+
+		if (!present_support) {
+			LOG(ERROR) << "No queues found that support presentation to a surface.";
+			throw std::runtime_error("No queues found that support presentation to a surface!");
+		}
+
+	}
+
+	VkDeviceQueueCreateInfo Device::SetupQueueFamily(const VkQueueFamilyProperties & family_properties) {
+		VkDeviceQueueCreateInfo result = vk_device_queue_create_info_base;
+		result.queueCount = family_properties.queueCount;
+		std::vector<float> queue_priorities;
+		queue_priorities.assign(result.queueCount, 1.0f);
+		result.pQueuePriorities = std::move(queue_priorities.data());
+		return result;
 	}
 
 	Device::~Device(){
@@ -150,27 +156,48 @@ namespace vulpes {
 	}
 
 	VkQueue Device::GraphicsQueue(const uint32_t & idx) const{
-		assert(idx < numGraphicsQueues);
+		assert(idx < NumGraphicsQueues);
 		VkQueue result;
 		vkGetDeviceQueue(vkHandle(), QueueFamilyIndices.Graphics, idx, &result);
 		return result;
 	}
 
-	const void Device::TransferQueue(const uint32_t & idx, VkQueue& queue) const{
-		vkGetDeviceQueue(vkHandle(), QueueFamilyIndices.Transfer, idx, &queue);
-		assert(queue != VK_NULL_HANDLE);
-		return;
+	VkQueue Device::TransferQueue(const uint32_t & idx) const{
+
+		LOG_IF(QueueFamilyIndices.Compute == QueueFamilyIndices.Graphics, INFO) << "Retrieving queue that supports transfer ops, but isn't dedicated transfer queue.";
+
+		assert(idx < NumTransferQueues);
+		VkQueue result;
+		vkGetDeviceQueue(vkHandle(), QueueFamilyIndices.Transfer, idx, &result);
+		assert(result != VK_NULL_HANDLE);
+		return result;
+
 	}
 
 	VkQueue Device::ComputeQueue(const uint32_t & idx) const{
-		assert(idx < numComputeQueues);
+
+		LOG_IF(QueueFamilyIndices.Compute == QueueFamilyIndices.Graphics, INFO) << "Retrieving queue that supports compute ops, but isn't dedicated compute queue.";
+		assert(idx < NumComputeQueues);
 		VkQueue result;
 		vkGetDeviceQueue(vkHandle(), QueueFamilyIndices.Compute, idx, &result);
 		return result;
+
 	}
 
-	Device::operator VkDevice() const{
-		return handle;
+	VkQueue Device::SparseBindingQueue(const uint32_t & idx) const {
+		
+		if (!queueInfos.count(VK_QUEUE_SPARSE_BINDING_BIT)) {
+			LOG(ERROR) << "Current device does not support sparse binding queues!";
+			throw std::runtime_error("Requested unsuported queue family (Sparse Binding)");
+		}
+
+		LOG_IF(QueueFamilyIndices.Compute == QueueFamilyIndices.Graphics, INFO) << "Retrieving queue that supports sparse binding, but isn't dedicated sparse binding queue.";
+
+		assert(idx < NumSparseBindingQueues);
+		VkQueue result;
+		vkGetDeviceQueue(handle, QueueFamilyIndices.SparseBinding, idx, &result);
+		return result;
+
 	}
 
 	VkImageTiling Device::GetFormatTiling(const VkFormat & format, const VkFormatFeatureFlags & flags) const {
@@ -217,29 +244,59 @@ namespace vulpes {
 	}
 
 	bool Device::HasDedicatedComputeQueues() const {
-		for (uint32_t i = 0; i < static_cast<uint32_t>(parent->QueueFamilyProperties.size()); ++i) {
-			if ((parent->QueueFamilyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) && ((parent->QueueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0)) {
-				return true;
-			}
+		if (QueueFamilyIndices.Compute != QueueFamilyIndices.Graphics) {
+			return true;
 		}
 		return false;
 	}
 
-	VkQueue Device::GetGeneralQueue() const {
+	void Device::EnableValidation() {
+
+		std::vector<VkExtensionProperties> extensions;
+		uint32_t cnt = 0;
+		vkEnumerateDeviceExtensionProperties(parent->vkHandle(), nullptr, &cnt, nullptr);
+		extensions.resize(cnt);
+		vkEnumerateDeviceExtensionProperties(parent->vkHandle(), nullptr, &cnt, extensions.data());
+		for (auto& ext : extensions) {
+			if (!strcmp(ext.extensionName, VK_EXT_DEBUG_MARKER_EXTENSION_NAME)) {
+				MarkersEnabled = true;
+				std::cerr << "Markers enabled\n";
+			}
+			else {
+				MarkersEnabled = false;
+				std::cerr << "Markers disabled\n";
+			}
+		}
+
+	}
+
+	void Device::GetMarkerFuncPtrs() {
+		pfnDebugMarkerSetObjectTag = reinterpret_cast<PFN_vkDebugMarkerSetObjectTagEXT>(vkGetDeviceProcAddr(handle, "vkDebugMarkerSetObjectTagEXT"));
+		pfnDebugMarkerSetObjectName = reinterpret_cast<PFN_vkDebugMarkerSetObjectNameEXT>(vkGetDeviceProcAddr(handle, "vkDebugMarkerSetObjectNameEXT"));
+		pfnCmdDebugMarkerBegin = reinterpret_cast<PFN_vkCmdDebugMarkerBeginEXT>(vkGetDeviceProcAddr(handle, "vkCmdDebugMarkerBeginEXT"));
+		pfnCmdDebugMarkerEnd = reinterpret_cast<PFN_vkCmdDebugMarkerEndEXT>(vkGetDeviceProcAddr(handle, "vkCmdDebugMarkerEndEXT"));
+		pfnCmdDebugMarkerInsert = reinterpret_cast<PFN_vkCmdDebugMarkerInsertEXT>(vkGetDeviceProcAddr(handle, "vkCmdDebugMarkerInsertEXT"));
+	}
+
+	VkQueue Device::GeneralQueue(const uint32_t & desired_idx) const {
+		
 		uint32_t idx = 0;
+
 		for (uint32_t i = 0; i < static_cast<uint32_t>(parent->QueueFamilyProperties.size()); ++i) {
 			if ((parent->QueueFamilyProperties[i].queueFlags | VK_QUEUE_TRANSFER_BIT) && (parent->QueueFamilyProperties[i].queueFlags | VK_QUEUE_GRAPHICS_BIT)) {
 				idx = i;
 				break;
 			}
 		}
-		assert(idx == QueueFamilyIndices.Graphics);
+
 		VkQueue result;
-		vkGetDeviceQueue(vkHandle(), idx, numGraphicsQueues - 1, &result);
+		vkGetDeviceQueue(vkHandle(), idx, desired_idx, &result);
 		return result;
+
 	}
 
 	void Device::vkSetObjectDebugMarkerName(const uint64_t & object_handle, const VkDebugReportObjectTypeEXT & object_type, const char * name) const {
+		
 		if (pfnDebugMarkerSetObjectName) {
 			VkDebugMarkerObjectNameInfoEXT name_info = vk_debug_marker_object_name_info_base;
 			name_info.objectType = object_type;
@@ -248,9 +305,11 @@ namespace vulpes {
 			VkResult result = pfnDebugMarkerSetObjectName(handle, &name_info);
 			VkAssert(result);
 		}
+
 	}
 
 	void Device::vkSetObjectDebugMarkerTag(const uint64_t & object_handle, const VkDebugReportObjectTypeEXT & object_type, uint64_t name, size_t tag_size, const void * tag) const {
+
 		if (pfnDebugMarkerSetObjectTag) {
 			VkDebugMarkerObjectTagInfoEXT tag_info{ VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_TAG_INFO_EXT, nullptr };
 			tag_info.objectType = object_type;
@@ -260,30 +319,37 @@ namespace vulpes {
 			tag_info.pTag = tag;
 			pfnDebugMarkerSetObjectTag(handle, &tag_info);
 		}
+
 	}
 
 	void Device::vkCmdBeginDebugMarkerRegion(VkCommandBuffer & cmd, const char * region_name, const glm::vec4 & region_color) const {
+		
 		if (pfnCmdDebugMarkerBegin) {
 			VkDebugMarkerMarkerInfoEXT marker_info{ VK_STRUCTURE_TYPE_DEBUG_MARKER_MARKER_INFO_EXT };
 			memcpy(marker_info.color, glm::value_ptr(region_color), sizeof(float) * 4);
 			marker_info.pMarkerName = region_name;
 			pfnCmdDebugMarkerBegin(cmd, &marker_info);
 		}
+
 	}
 
 	void Device::vkCmdInsertDebugMarker(VkCommandBuffer & cmd, const char * marker_name, const glm::vec4 & marker_color) const {
+		
 		if (pfnCmdDebugMarkerInsert) {
 			VkDebugMarkerMarkerInfoEXT marker_info{ VK_STRUCTURE_TYPE_DEBUG_MARKER_MARKER_INFO_EXT };
 			memcpy(marker_info.color, glm::value_ptr(marker_color), sizeof(float) * 4);
 			marker_info.pMarkerName = marker_name;
 			pfnCmdDebugMarkerInsert(cmd, &marker_info);
 		}
+
 	}
 
 	void Device::vkCmdEndDebugMarkerRegion(VkCommandBuffer & cmd) const {
+		
 		if (pfnCmdDebugMarkerEnd) {
 			pfnCmdDebugMarkerEnd(cmd);
 		}
+
 	}
 
 }

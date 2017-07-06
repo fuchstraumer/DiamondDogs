@@ -14,17 +14,16 @@ namespace vulpes {
 		ShaderModule(const Device* device, const char* filename, VkPipelineShaderStageCreateInfo& create_info);
 		~ShaderModule();
 
+		void LoadCodeFromFile(const char* filename);
+
 		ShaderModule(ShaderModule&& other) noexcept;
 		ShaderModule& operator=(ShaderModule&& other) noexcept;
 
 		const VkShaderModule& vkHandle() const noexcept;
-		operator VkShaderModule() const noexcept;
 
 		const VkShaderStageFlagBits& StageBits() const noexcept;
 		const VkShaderModuleCreateInfo& CreateInfo() const noexcept;
 		const VkPipelineShaderStageCreateInfo& PipelineInfo() const noexcept;
-
-		void DiscardCode() noexcept;
 
 	private:
 		const Device* parent;

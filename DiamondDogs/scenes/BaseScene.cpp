@@ -61,19 +61,19 @@ void vulpes::BaseScene::CreateCommandPools(const size_t& num_secondary_buffers) 
 	VkCommandPoolCreateInfo pool_info = vk_command_pool_info_base;
 	pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 	pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
-	graphicsPool = new CommandPool(device, pool_info);
+	graphicsPool = new CommandPool(device, pool_info, true);
 
 	VkCommandBufferAllocateInfo alloc_info = vk_command_buffer_allocate_info_base;
-	graphicsPool->CreateCommandBuffers(swapchain->ImageCount, alloc_info);
+	graphicsPool->AllocateCmdBuffers(swapchain->ImageCount, alloc_info);
 
 	pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
-	transferPool = new CommandPool(device, pool_info);
-	transferPool->CreateCommandBuffers(1);
+	transferPool = new CommandPool(device, pool_info, true);
+	transferPool->AllocateCmdBuffers(1);
 
 	pool_info.queueFamilyIndex = device->QueueFamilyIndices.Graphics;
-	secondaryPool = new CommandPool(device, pool_info);
+	secondaryPool = new CommandPool(device, pool_info, false);
 	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-	secondaryPool->CreateCommandBuffers(swapchain->ImageCount * static_cast<uint32_t>(num_secondary_buffers), alloc_info);
+	secondaryPool->AllocateCmdBuffers(swapchain->ImageCount * static_cast<uint32_t>(num_secondary_buffers), alloc_info);
 }
 
 void vulpes::BaseScene::SetupRenderpass(const VkSampleCountFlagBits& sample_count) {
@@ -229,9 +229,9 @@ void vulpes::BaseScene::RecreateSwapchain(const bool& windowed_fullscreen){
 
 	swapchain->Recreate();
 
-	graphicsPool->CreateCommandBuffers(swapchain->ImageCount);
-	transferPool->CreateCommandBuffers(1);
-	secondaryPool->CreateCommandBuffers(static_cast<uint32_t>(num_secondary_buffers));
+	graphicsPool->AllocateCmdBuffers(swapchain->ImageCount);
+	transferPool->AllocateCmdBuffers(1);
+	secondaryPool->AllocateCmdBuffers(static_cast<uint32_t>(num_secondary_buffers));
 	SetupRenderpass();
 	RecreateObjects();
 	SetupDepthStencil();

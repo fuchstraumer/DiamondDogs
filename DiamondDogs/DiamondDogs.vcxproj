@@ -134,9 +134,6 @@
     <ClInclude Include="engine\renderer\render\Swapchain.h" />
     <ClInclude Include="engine\renderer\resource\Buffer.h" />
     <ClInclude Include="engine\renderer\resource\Image.h" />
-    <ClInclude Include="engine\renderer\resource\Memory.h" />
-    <ClInclude Include="engine\renderer\resource\Model.h" />
-    <ClInclude Include="engine\renderer\resource\Resource.h" />
     <ClInclude Include="engine\renderer\resource\ShaderModule.h" />
     <ClInclude Include="engine\renderer\resource\Texture.h" />
     <ClInclude Include="engine\renderer\resource\VertexTypes.h" />
