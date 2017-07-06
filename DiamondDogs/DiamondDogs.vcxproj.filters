@@ -27,7 +27,6 @@
     <ClCompile Include="engine\renderer\gui\imgui_lib\imgui.cpp" />
     <ClCompile Include="engine\renderer\gui\imguiWrapper.cpp" />
     <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
-    <ClCompile Include="engine\terrain\TerrainSampler.cpp" />
     <ClCompile Include="engine\objects\mesh\Icosphere.cpp" />
     <ClCompile Include="engine\terrain\HeightNode.cpp" />
     <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
@@ -89,7 +88,6 @@
     <ClInclude Include="engine\renderer\gui\imgui_lib\imgui.h" />
     <ClInclude Include="engine\renderer\gui\imgui_lib\imconfig.h" />
     <ClInclude Include="engine\renderer\gui\imgui_lib\imgui_internal.h" />
-    <ClInclude Include="engine\terrain\TerrainSampler.h" />
     <ClInclude Include="engine\terrain\NodeRenderer.h" />
     <ClInclude Include="engine\objects\mesh\PlanarMesh.h" />
     <ClInclude Include="engine\objects\mesh\MeshComponents.h" />
@@ -103,7 +101,6 @@
     <ClInclude Include="engine\util\FastNoise.h" />
     <ClInclude Include="engine\terrain\DataProducer.h" />
     <ClInclude Include="engine\util\ThreadWrapper.h" />
-    <ClInclude Include="scenes\ComputeTests.h" />
     <ClInclude Include="engine\renderer\resource\PipelineCache.h" />
     <ClInclude Include="engine\util\sdnoise1234.h" />
     <ClInclude Include="engine\renderer\resource\Allocator.h" />

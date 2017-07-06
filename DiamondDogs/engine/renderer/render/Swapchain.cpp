@@ -7,22 +7,28 @@
 namespace vulpes {
 
 	SwapchainInfo::SwapchainInfo(const VkPhysicalDevice & dvc, const VkSurfaceKHR& sfc){
+		
 		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dvc, sfc, &Capabilities);
 		uint32_t fmt_cnt = 0;
+		
 		vkGetPhysicalDeviceSurfaceFormatsKHR(dvc, sfc, &fmt_cnt, nullptr);
 		if (fmt_cnt != 0) {
 			Formats.resize(fmt_cnt);
 			vkGetPhysicalDeviceSurfaceFormatsKHR(dvc, sfc, &fmt_cnt, Formats.data());
 		}
+
 		uint32_t present_cnt = 0;
 		vkGetPhysicalDeviceSurfacePresentModesKHR(dvc, sfc, &present_cnt, nullptr);
+		
 		if (present_cnt != 0) {
 			PresentModes.resize(present_cnt);
 			vkGetPhysicalDeviceSurfacePresentModesKHR(dvc, sfc, &present_cnt, PresentModes.data());
 		}
+
 	}
 
 	VkSurfaceFormatKHR SwapchainInfo::GetBestFormat() const{
+		
 		if (Formats.size() == 1 && Formats.front().format == VK_FORMAT_UNDEFINED) {
 			return { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
 		}
@@ -34,9 +40,11 @@ namespace vulpes {
 			}
 			return Formats.front();
 		}
+
 	}
 
 	VkPresentModeKHR SwapchainInfo::GetBestPresentMode() const{
+		
 		VkPresentModeKHR result = VK_PRESENT_MODE_FIFO_KHR;
 		for (const auto& mode : PresentModes) {
 			// Best mix of all modes.
@@ -48,10 +56,13 @@ namespace vulpes {
 				result = VK_PRESENT_MODE_IMMEDIATE_KHR;
 			}
 		}
+
 		return result;
+
 	}
 
 	VkExtent2D SwapchainInfo::ChooseSwapchainExtent(const Instance* instance) const{
+		
 		if (Capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
 			return Capabilities.currentExtent;
 		}
@@ -63,6 +74,7 @@ namespace vulpes {
 			actual_extent.height = std::max(Capabilities.minImageExtent.height, std::min(Capabilities.maxImageExtent.height, actual_extent.height));
 			return actual_extent;
 		}
+
 	}
 
 	Swapchain::~Swapchain(){
@@ -70,6 +82,7 @@ namespace vulpes {
 	}
 
 	void Swapchain::Init(const Instance * _instance, const PhysicalDevice * _phys_device, const Device * _device) {
+		
 		instance = _instance;
 		device = _device;
 		phys_device = _phys_device;
@@ -85,6 +98,7 @@ namespace vulpes {
 	}
 
 	void Swapchain::Recreate() {
+		
 		delete Info;
 		
 		setParameters();

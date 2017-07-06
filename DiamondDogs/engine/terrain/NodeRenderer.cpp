@@ -43,9 +43,9 @@ static const std::array<glm::vec4, 20> LOD_COLOR_ARRAY = {
 
 vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(parent_dvc), pipeline(nullptr) {
 
-	HeightmapNoise init_hm(HeightNode::RootSampleGridSize + 5, glm::vec3(0.0f), 1.0f);
+	auto init_hm = GetNoiseHeightmap(HeightNode::RootSampleGridSize + 5, glm::vec3(0.0f), 1.0f);
 	glm::ivec3 grid_pos = glm::ivec3(0, 0, 0);
-	std::shared_ptr<HeightNode> root = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), init_hm.samples);
+	std::shared_ptr<HeightNode> root = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), init_hm);
 	
 	setupDescriptors();
 

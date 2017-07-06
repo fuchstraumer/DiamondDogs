@@ -140,7 +140,6 @@
     <ClInclude Include="engine\terrain\NodeRenderer.h" />
     <ClInclude Include="engine\terrain\TerrainNode.h" />
     <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
-    <ClInclude Include="engine\terrain\TerrainSampler.h" />
     <ClInclude Include="engine\util\AABB.h" />
     <ClInclude Include="engine\util\alloc\Page.h" />
     <ClInclude Include="engine\util\circular_buffer.h" />
@@ -197,7 +196,6 @@
     <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
     <ClCompile Include="engine\terrain\TerrainNode.cpp" />
     <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
-    <ClCompile Include="engine\terrain\TerrainSampler.cpp" />
     <ClCompile Include="engine\util\AABB.cpp" />
     <ClCompile Include="engine\util\easylogging++.cc">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>

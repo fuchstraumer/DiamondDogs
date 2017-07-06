@@ -53,7 +53,7 @@ namespace compute_tests {
 			// Subdivide first four nodes
 			std::array<std::shared_ptr<DataRequest>, 8> lod_1_requests;
 			std::array<HeightNode*, 8> lod_1_nodes;
-			glm::ivec3 grid_pos = glm::ivec3(root_node.GridCoordinates.x * 2, root_node.GridCoordinates.y * 2, root_node.Depth() + 1);
+			glm::ivec3 grid_pos = glm::ivec3(root_node.GridCoordinates.x * 2, root_node.GridCoordinates.y * 2, root_node.LOD_Level() + 1);
 			lod_1_nodes[0] = new HeightNode(grid_pos, *root_node.HeightData, false);
 			lod_1_nodes[1] = new HeightNode(grid_pos + glm::ivec3(1, 0, 0), *root_node.HeightData, false);
 			lod_1_nodes[2] = new HeightNode(grid_pos + glm::ivec3(0, 1, 0), *root_node.HeightData, false);

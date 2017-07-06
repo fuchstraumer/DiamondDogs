@@ -6,8 +6,8 @@
 
 vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, const float & split_factor, const size_t & max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position) : nodeRenderer(device) {
 	root = new TerrainNode(glm::ivec3(0, 0, 0), glm::ivec3(0, 0, 0), root_tile_position, root_side_length);
-	HeightmapNoise root_noise(HeightNode::RootSampleGridSize, glm::vec3(0.0f), static_cast<float>(HeightNode::RootSampleGridSize / (HeightNode::RootNodeLength * 2.0)));
-	auto root_height = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), root_noise.samples);
+	auto root_noise = GetNoiseHeightmap(HeightNode::RootSampleGridSize, glm::vec3(0.0f), static_cast<float>(HeightNode::RootSampleGridSize / (HeightNode::RootNodeLength * 2.0)));
+	auto root_height = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), root_noise);
 	root->SetHeightData(root_height);
 }
 

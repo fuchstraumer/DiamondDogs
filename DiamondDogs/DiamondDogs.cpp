@@ -1,7 +1,6 @@
 #include "stdafx.h"
 #include "engine\terrain\HeightNode.h"
 #include "scenes\Terrain.h"
-#include "scenes\ComputeTests.h"
 
 INITIALIZE_EASYLOGGINGPP
 int main() {
