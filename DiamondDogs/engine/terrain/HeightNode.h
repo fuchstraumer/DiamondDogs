@@ -8,24 +8,6 @@
 
 namespace vulpes {
 
-	/*
-			
-		Effective upsampling filter applied when sampling from parent
-	
-		 1 -9 -9  1		   -1		  1 -9 -9  1
-		-9 81 81 -9			9		 -9 81 81 -9
-		-9 81 81 -9			9		 -9 81 81 -9
-		 1 -9 -9  1/256	  -1/16	  1/256 -9 -9  1
-
-	   -1   9  9  -1/16		x	  -1/16  9  9 -1
-
-	     1 -9 -9  1/256	  -1/16   1/256 -9 -9  1
-		-9 81 81 -9			9        -9 81 81 -9
-		-9 81 81 -9			9		 -9 81 81 -9
-		 1 -9 -9  1		   -1		  1 -9 -9  1
-	
-	*/
-
 	namespace terrain {
 
 		struct HeightSample {
@@ -39,11 +21,20 @@ namespace vulpes {
 			glm::vec3 Sample, Normal;
 		};
 
-		struct HeightmapNoise {
+		static std::vector<HeightSample> GetNoiseHeightmap(const size_t& num_samples, const glm::vec3& starting_location, const float& noise_step_size);
 
-			HeightmapNoise(const size_t& num_samples, const glm::vec3&  starting_pos, const float& step_size);
 
-			std::vector<HeightSample> samples;
+		// HeightTile represents the height data itself: it also facilitates access
+		// to it, and retrieving simple information about the height data contained
+		struct HeightTile {
+
+			float SampleAt(const glm::ivec2& local_grid_pos) const;
+			float GetHeight(const glm::vec2& world_pos) const;
+
+			size_t TileSize;
+			std::vector<HeightSample> Samples;
+			float MinHeight, MaxHeight;
+
 
 		};
 
@@ -98,7 +89,6 @@ namespace vulpes {
 			size_t meshGridSize;
 			std::vector<HeightSample> samples;
 			glm::ivec3 gridCoords;
-			glm::ivec3 parentGridCoords;
 			size_t nodeID;
 		};
 

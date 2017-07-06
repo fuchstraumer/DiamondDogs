@@ -245,7 +245,7 @@ void vulpes::terrain::NodeRenderer::renderNodes(VkCommandBuffer& cmd_buffer, VkC
 				// Push constant block contains our 3 matrices, update that now.
 				uboData.model = curr->mesh.get_model_matrix();
 				vkCmdPushConstants(cmd_buffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(terrain_push_ubo), &uboData);
-				vkCmdPushConstants(cmd_buffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(terrain_push_ubo), sizeof(glm::vec4), &LOD_COLOR_ARRAY[curr->Depth()]);
+				vkCmdPushConstants(cmd_buffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(terrain_push_ubo), sizeof(glm::vec4), &LOD_COLOR_ARRAY[curr->LOD_Level()]);
 				// Generates draw commands
 				curr->mesh.render(cmd_buffer);
 				++iter;

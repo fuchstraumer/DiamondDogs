@@ -33,12 +33,12 @@ namespace vulpes {
 			void Update(const glm::vec3 & camera_position, const util::view_frustum& view, NodeRenderer* node_pool);
 
 			// true if all of the Child pointers are nullptr
-			bool Leaf() const;
+			bool IsLeaf() const;
 
 			// Recursive method to clean up node tree
 			void Prune();
 
-			int Depth() const;
+			int LOD_Level() const;
 
 			std::array<std::shared_ptr<TerrainNode>, 4> Children;
 			std::shared_ptr<HeightNode> HeightData;

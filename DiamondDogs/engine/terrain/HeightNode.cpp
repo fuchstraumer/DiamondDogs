@@ -19,7 +19,7 @@ namespace vulpes {
 			MaxZ = samples.at(min_max.second - samples.cbegin()).Sample.x;
 		}
 
-		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent, const bool& sample_now) : gridCoords(node_grid_coordinates), parentGridCoords(parent.GridCoords()), meshGridSize(sampleGridSize - 5), Parent(&parent) {
+		HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode & parent, const bool& sample_now) : gridCoords(node_grid_coordinates),  meshGridSize(sampleGridSize - 5), Parent(&parent) {
 			if (sample_now) {
 				SampleFromParent(parent);
 			}
@@ -160,22 +160,7 @@ namespace vulpes {
 		}
 
 		HeightmapNoise::HeightmapNoise(const size_t & num_samples, const glm::vec3& starting_pos, const float& step_size) {
-			samples.resize(num_samples * num_samples);
-			glm::vec2 xy = starting_pos.xz;
-			xy += 0.02f;
-			NoiseGen ng;
-			//samples = MakeCheckerboard(num_samples, num_samples);
-			for (size_t j = 0; j < num_samples; ++j) {
-				for (size_t i = 0; i < num_samples; ++i) {
-					glm::vec3 npos(xy.x + i * step_size, xy.y + j * step_size, 0.0f);
-					float ampl = 1.0f;
-					for (size_t k = 0; k < 12; ++k) {
-						samples[i + (j * num_samples)].Sample.x += 1.0f - fabsf(ng.sdnoise3(npos.x, npos.y, npos.z, nullptr) * ampl);
-						npos *= 2.10f;
-						ampl *= 0.80f;
-					}
-				}
-			}
+			
 		}
 
 		const HeightSample & HeightNode::operator[](const size_t & idx) const {
@@ -234,6 +219,29 @@ namespace vulpes {
 
 		bool HeightSample::operator==(const HeightSample & other) const {
 			return Sample == other.Sample;
+		}
+
+		std::vector<HeightSample> GetNoiseHeightmap(const size_t & num_samples, const glm::vec3 & starting_location, const float & noise_step_size) {
+			std::vector<HeightSample> samples;
+			samples.resize(num_samples * num_samples);
+			glm::vec3 init_pos = starting_location;
+			NoiseGen ng;
+
+			for (size_t j = 0; j < num_samples; ++j) {
+				for (size_t i = 0; i < num_samples; ++i) {
+					glm::vec3 npos(init_pos.x + i * noise_step_size, init_pos.y + j * noise_step_size, init_pos.z);
+					// doing ridged-multi fractal bit here, as it broke elsewhere.
+					// TODO: Figure out why this method fails in the noise generator class: but not when done right here.
+					float ampl = 1.0f;
+					for (size_t k = 0; k < 12; ++k) {
+						samples[i + (j * num_samples)].Sample.x += 1.0f - fabsf(ng.sdnoise3(npos.x, npos.y, npos.z, nullptr) * ampl);
+						npos *= 2.10f;
+						ampl *= 0.80f;
+					}
+				}
+			}
+
+			return samples;
 		}
 
 }

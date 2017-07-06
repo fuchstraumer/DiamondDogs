@@ -10,7 +10,7 @@ double vulpes::terrain::TerrainNode::SwitchRatio = 1.80;
 void vulpes::terrain::TerrainNode::Subdivide() {
 
 	double child_length = SideLength / 2.0;
-	glm::ivec3 grid_pos = glm::ivec3(2 * GridCoordinates.x, 2 * GridCoordinates.y, Depth() + 1);
+	glm::ivec3 grid_pos = glm::ivec3(2 * GridCoordinates.x, 2 * GridCoordinates.y, LOD_Level() + 1);
 	glm::vec3 pos = glm::vec3(SpatialCoordinates.x, 0.0f, SpatialCoordinates.z);
 
 	// Create child node, then create child's height data object (populated later by compute shader)
@@ -33,10 +33,10 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, con
 	const util::Sphere aabb_sphere{ aabb.Center() + static_cast<float>(SideLength / 2.0f), SideLength / 2.0f };
 	// TODO: Investigate why the "LOD radius" of nodes appears to be off-center relative to the viewer.
 	// Depth is less than max subdivide level and we're in subdivide range.
-	if (Depth() < MaxLOD && lod_sphere.CoincidesWith(this->aabb)) {
-		if (Leaf()) {
+	if (this->LOD_Level() < MaxLOD && lod_sphere.CoincidesWith(this->aabb)) {
+		if (this->IsLeaf()) {
 			Status = NodeStatus::Subdivided;
-			if (!upsampleRequest && (Depth() > 0)) {
+			if (!upsampleRequest && (LOD_Level() > 0)) {
 				Status = NodeStatus::RequestData;
 				node_pool->AddRequest(this);
 			}
@@ -49,7 +49,7 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, con
 	}
 	else if (glm::distance(camera_position, SpatialCoordinates) > NodeRenderer::MaxRenderDistance) {
 		Status = NodeStatus::NeedsUnload;
-		if (!Leaf()) {
+		if (!IsLeaf()) {
 			Prune();
 		}
 	}
@@ -73,7 +73,7 @@ void vulpes::terrain::TerrainNode::Update(const glm::vec3 & camera_position, con
 				}
 			}
 		}
-		if (!Leaf()) {
+		if (!IsLeaf()) {
 			Prune();
 		}
 	}
@@ -84,7 +84,7 @@ vulpes::terrain::TerrainNode::TerrainNode(const glm::ivec3& parent_coords, const
 	SpatialCoordinates(position) {}
 
 vulpes::terrain::TerrainNode::~TerrainNode() {
-	if (!Leaf()) {
+	if (!IsLeaf()) {
 		for (auto& child : Children) {
 			child.reset();
 		}
@@ -92,7 +92,7 @@ vulpes::terrain::TerrainNode::~TerrainNode() {
 	mesh.cleanup();
 }
 
-bool vulpes::terrain::TerrainNode::Leaf() const {
+bool vulpes::terrain::TerrainNode::IsLeaf() const {
 	for (auto& child : Children) {
 		if (child) {
 			return false;
@@ -111,7 +111,7 @@ void vulpes::terrain::TerrainNode::Prune(){
 	}
 }
 
-int vulpes::terrain::TerrainNode::Depth() const {
+int vulpes::terrain::TerrainNode::LOD_Level() const {
 	return GridCoordinates.z;
 }
 

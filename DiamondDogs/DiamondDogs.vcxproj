@@ -158,7 +158,6 @@
     <ClInclude Include="engine\util\view_frustum.h" />
     <ClInclude Include="scenes\Atmoscene.h" />
     <ClInclude Include="scenes\BaseScene.h" />
-    <ClInclude Include="scenes\ComputeTests.h" />
     <ClInclude Include="scenes\StarScene.h" />
     <ClInclude Include="scenes\Terrain.h" />
     <ClInclude Include="stdafx.h" />
