@@ -11,12 +11,12 @@ namespace vulpes {
 
 		struct vs_ubo_data {
 			glm::mat4 projection, view, model, normTransform;
-			glm::vec3 cameraPos;
+			glm::vec4 cameraPos;
 		};
 
-		struct alignas(32) fs_ubo_data {
-			glm::vec3 cameraPos;
-			glm::vec3 colorShift;
+		struct fs_ubo_data {
+			glm::vec4 cameraPos;
+			glm::vec4 colorShift;
 			uint64_t frame;
 		};
 
@@ -36,16 +36,32 @@ namespace vulpes {
 		void UpdateUBOfs();
 	private:
 
+		void setupDescriptors();
+
+		void createDescriptorPool();
+		void createDescriptorSetLayout();
+		void createPipelineLayout();
+		void allocateDescriptors();
+		void setupBuffers(const glm::mat4& projection);
+		void updateDescriptors();
+		void createShaders();
+
+		void setupPipelineInfo();
+		void setupPipelineCreateInfo(const VkRenderPass& renderpass);
+
 		const Device* device;
 		GraphicsPipeline* pipeline;
 		std::shared_ptr<PipelineCache> pipelineCache;
-		Buffer *vsUBO, *fsUBO;
+		Buffer *vsUBO;
 		Texture<gli::texture1d> blackbody;
 		VkDescriptorSetLayout descriptorSetLayout;
 		VkDescriptorSet descriptorSet;
 		VkDescriptorPool descriptorPool;
 		VkPipelineLayout pipelineLayout;
 		ShaderModule *vert, *frag;
+
+		GraphicsPipelineInfo pipelineStateInfo;
+		VkGraphicsPipelineCreateInfo pipelineCreateInfo;
 
 		vs_ubo_data vsUboData;
 		fs_ubo_data fsUboData;
