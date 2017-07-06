@@ -13,8 +13,11 @@
 namespace vulpes {
 
 	// TODO: 1D texture, 2D texture array.
+	using texture_1d = std::integral_constant<int, 0>;
+	using texture_2d = std::integral_constant<int, 1>;
+	
 
-	template<typename gli_texture_type>
+	template<typename texture_type>
 	class Texture : public Image {
 	public:
 
@@ -28,6 +31,8 @@ namespace vulpes {
 		void CreateFromFile(const char* filename, const VkFormat& texture_format);
 
 		void CreateFromBuffer(VkBuffer&& staging_buffer, const VkFormat& texture_format, const std::vector<VkBufferImageCopy>& copy_info);
+
+		void CreateEmptyTexture(const VkFormat& texture_format);
 
 		void TransferToDevice(VkCommandBuffer& transfer_cmd_buffer) const;
 
@@ -43,9 +48,9 @@ namespace vulpes {
 		void createView();
 		void createSampler();
 
-		gli_texture_type loadTextureDataFromFile(const char* filename);
-		void updateTextureParameters(const gli_texture_type& texture_data);
-		void createCopyInformation(const gli_texture_type& texture_data);
+		texture_type loadTextureDataFromFile(const char* filename);
+		void updateTextureParameters(const texture_type& texture_data);
+		void createCopyInformation(const texture_type& texture_data);
 		void copyFromFileToStaging(const char* filename);
 
 		VkSampler sampler;
@@ -58,14 +63,14 @@ namespace vulpes {
 		std::vector<VkBufferImageCopy> copyInfo;
 	};
 
-	template<typename gli_texture_type>
-	inline Texture<gli_texture_type>::Texture(const Device * _parent, const VkImageUsageFlags & flags) : Image(_parent) {
+	template<typename texture_type>
+	inline Texture<texture_type>::Texture(const Device * _parent, const VkImageUsageFlags & flags) : Image(_parent) {
 		createInfo = vk_image_create_info_base;
 		createInfo.usage = flags;
 	}
 
-	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::CreateFromFile(const char * filename, const VkFormat& texture_format) {
+	template<typename texture_type>
+	inline void Texture<texture_type>::CreateFromFile(const char * filename, const VkFormat& texture_format) {
 		format = texture_format;
 		copyFromFileToStaging(filename);
 		createTexture(); 
@@ -73,8 +78,8 @@ namespace vulpes {
 		createSampler();
 	}
 
-	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::CreateFromBuffer(VkBuffer&& staging_buffer, const VkFormat & texture_format, const std::vector<VkBufferImageCopy>& copy_info) {
+	template<typename texture_type>
+	inline void Texture<texture_type>::CreateFromBuffer(VkBuffer&& staging_buffer, const VkFormat & texture_format, const std::vector<VkBufferImageCopy>& copy_info) {
 		
 		stagingBuffer = std::move(staging_buffer);
 		format = texture_format;
@@ -92,8 +97,8 @@ namespace vulpes {
 
 	}
 
-	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::TransferToDevice(VkCommandBuffer & transfer_cmd_buffer) const {
+	template<typename texture_type>
+	inline void Texture<texture_type>::TransferToDevice(VkCommandBuffer & transfer_cmd_buffer) const {
 
 		// Need barriers to transition layout from initial undefined/uninitialized layout to what we'll use in the shader this is for.
 		auto barrier0 = Image::GetMemoryBarrier(handle, format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -110,20 +115,20 @@ namespace vulpes {
 		parent->vkAllocator->DestroyBuffer(stagingBuffer);
 	}
 
-	template<typename gli_texture_type>
-	inline VkDescriptorImageInfo Texture<gli_texture_type>::GetDescriptor() const noexcept {
+	template<typename texture_type>
+	inline VkDescriptorImageInfo Texture<texture_type>::GetDescriptor() const noexcept {
 		return VkDescriptorImageInfo{ sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 	}
 
-	template<typename gli_texture_type>
-	inline const VkSampler & Texture<gli_texture_type>::Sampler() const noexcept {
+	template<typename texture_type>
+	inline const VkSampler & Texture<texture_type>::Sampler() const noexcept {
 		return sampler;
 	}
 
-	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::copyFromFileToStaging(const char* filename) {
+	template<typename texture_type>
+	inline void Texture<texture_type>::copyFromFileToStaging(const char* filename) {
 
-		gli_texture_type texture_data = loadTextureDataFromFile(filename);
+		texture_type texture_data = loadTextureDataFromFile(filename);
 
 		Buffer::CreateStagingBuffer(parent, texture_data.size(), stagingBuffer, stagingMemory);
 
@@ -136,8 +141,8 @@ namespace vulpes {
 
 	}
 
-	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::updateTextureParameters(const gli_texture_type& texture_data) {
+	template<typename texture_type>
+	inline void Texture<texture_type>::updateTextureParameters(const texture_type& texture_data) {
 		Width = static_cast<uint32_t>(texture_data.extent().x);
 		Height = static_cast<uint32_t>(texture_data.extent().y);
 		mipLevels = static_cast<uint32_t>(texture_data.levels());
@@ -175,8 +180,8 @@ namespace vulpes {
 
 	}
 
-	template<typename gli_texture_type>
-	inline void Texture<gli_texture_type>::createSampler() {
+	template<typename texture_type>
+	inline void Texture<texture_type>::createSampler() {
 		VkSamplerCreateInfo sampler_create_info = vk_sampler_create_info_base;
 		VkResult result = vkCreateSampler(parent->vkHandle(), &sampler_create_info, nullptr, &sampler);
 		VkAssert(result);

@@ -99,6 +99,7 @@ void vulpes::terrain::NodeRenderer::setupPipelineLayout() {
 }
 
 void vulpes::terrain::NodeRenderer::allocateDescriptors() {
+
 	VkDescriptorSetAllocateInfo alloc_info = vk_descriptor_set_alloc_info_base;
 	alloc_info.descriptorPool = descriptorPool;
 	alloc_info.descriptorSetCount = 1;

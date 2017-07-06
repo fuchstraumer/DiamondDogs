@@ -3,6 +3,10 @@
 #include "engine/renderer\core\LogicalDevice.h"
 namespace vulpes {
 
+	Framebuffer::~Framebuffer() {
+		Destroy();
+	}
+
 	Framebuffer::Framebuffer(const Device * _parent, const VkFramebufferCreateInfo & create_info) : parent(_parent) {
 		VkResult result = vkCreateFramebuffer(parent->vkHandle(), &create_info, allocators, &handle);
 		VkAssert(result);
@@ -19,10 +23,6 @@ namespace vulpes {
 	}
 	
 	const VkFramebuffer & Framebuffer::vkHandle() const noexcept{
-		return handle;
-	}
-
-	Framebuffer::operator VkFramebuffer() const noexcept{
 		return handle;
 	}
 

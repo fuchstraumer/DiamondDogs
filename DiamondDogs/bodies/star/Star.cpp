@@ -31,6 +31,7 @@ namespace vulpes {
 	}
 
 	Star::~Star(){
+
 		vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
 		vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
 		vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
@@ -38,6 +39,7 @@ namespace vulpes {
 		delete vert;
 		delete vsUBO;
 		delete pipeline;
+
 	}
 
 	void Star::BuildPipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& _cache) {
