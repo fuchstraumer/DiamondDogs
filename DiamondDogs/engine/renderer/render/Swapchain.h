@@ -45,6 +45,15 @@ namespace vulpes {
 		VkColorSpaceKHR ColorSpace;
 		VkExtent2D Extent;
 	private:
+
+		void setParameters();
+		void setupCreateInfo();
+		void setupSwapImages();
+		void setupImageViews();
+
+		VkPresentModeKHR presentMode;
+		VkSurfaceFormatKHR surfaceFormat;
+		VkSwapchainCreateInfoKHR createInfo;
 		VkSwapchainKHR handle = VK_NULL_HANDLE;
 		const Instance* instance;
 		const PhysicalDevice* phys_device;
