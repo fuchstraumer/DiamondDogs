@@ -6,6 +6,15 @@
 #include "imguiShaders.h"
 #include "engine\renderer\command\TransferPool.h"
 #include "engine/renderer/resource/Texture.h"
+#include "engine/renderer/core/LogicalDevice.h"
+#include "engine/renderer\resource/Buffer.h"
+#include "engine/renderer\render/GraphicsPipeline.h"
+#include "engine/renderer\render/Swapchain.h"
+#include "engine/renderer\core/PhysicalDevice.h"
+#include "engine/renderer\core/Instance.h"
+#include "engine/renderer/render/MSAA.h"
+#include "engine/renderer/resource/PipelineCache.h"
+
 namespace vulpes {
 
 	struct imguiSettings {
@@ -29,32 +38,59 @@ namespace vulpes {
 
 		void DrawFrame(VkCommandBuffer& cmd);
 
+		imguiSettings settings;
+
+		int imgWidth, imgHeight;
+
+	private:
+
+		void createResources();
+		void createDescriptorPools();
+		size_t loadFontTextureData();
+		void uploadFontTextureData(const size_t& font_texture_size);
+		void createFontTexture();
+		void createDescriptorLayout();
+		void createPipelineLayout();
+		void allocateDescriptors();
+		void updateDescriptors();
+		void setupGraphicsPipelineInfo();
+		void setupGraphicsPipelineCreateInfo(const VkRenderPass& renderpass);
+
+		void validateBuffers();
+		void updateBufferData();
+		void updateFramegraph(const float& frame_time);
+		void freeMouse(Instance* instance);
+		void captureMouse(Instance* instance;
+
 		static float mouseWheel;
 		std::array<bool, 3> mouseClick;
 		size_t frameIdx;
 		VkCommandBuffer graphicsCmd;
 		const Device* device;
+
+		std::unique_ptr<unsigned char> fontTextureData;
 		std::shared_ptr<PipelineCache> cache;
-		GraphicsPipeline* pipeline;
-		Buffer *vbo, *ebo;
-		Texture<gli::texture2d>* texture;
-		ShaderModule *vert, *frag;
+		std::unique_ptr<GraphicsPipeline> pipeline;
+		std::unique_ptr<Buffer> vbo, ebo;
+		std::unique_ptr<Texture<gli::texture2d>> texture;
+		std::unique_ptr<ShaderModule> vert, frag;
+
+		GraphicsPipelineInfo pipelineStateInfo;
+		VkGraphicsPipelineCreateInfo pipelineCreateInfo;
 
 		VkDescriptorPool descriptorPool;
 		VkDescriptorSet descriptorSet;
 		VkDescriptorSetLayout descriptorSetLayout;
 		VkPipelineLayout pipelineLayout;
 
+		VkBuffer textureStaging;
+		VkBufferImageCopy stagingToTextureCopy;
 		VkImage fontImage;
 		VkImageView fontView;
 		VkSampler fontSampler;
-		VkDeviceMemory fontMemory;
+
 		VkDescriptorImageInfo fontInfo;
 		VkWriteDescriptorSet fontWriteSet;
-
-		imguiSettings settings;
-
-		int imgWidth, imgHeight;
 
 	};
 
