@@ -60,7 +60,7 @@ namespace vulpes {
 		void updateBufferData();
 		void updateFramegraph(const float& frame_time);
 		void freeMouse(Instance* instance);
-		void captureMouse(Instance* instance;
+		void captureMouse(Instance* instance);
 
 		static float mouseWheel;
 		std::array<bool, 3> mouseClick;

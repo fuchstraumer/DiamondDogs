@@ -132,6 +132,10 @@ namespace vulpes {
 
 	}
 
+	const VkImageCreateInfo & Image::CreateInfo() const noexcept {
+		return createInfo;
+	}
+
 	const VkImage & Image::vkHandle() const noexcept{
 		return handle;
 	}

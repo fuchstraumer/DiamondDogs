@@ -3,7 +3,6 @@
 #define VULPES_TERRAIN_HEIGHT_NODE_H
 
 #include "stdafx.h"
-#include "TerrainSampler.h"
 #include "engine\util\noise.h"
 
 namespace vulpes {
@@ -68,8 +67,6 @@ namespace vulpes {
 			HeightNode(const glm::ivec3& node_grid_coordinates, const HeightNode& parent, const bool& sample_now = false);
 
 			~HeightNode() = default;
-
-			void SampleFromResiduals(glm::ivec3& node_coords, const Sampler& sampler);
 			
 			void SampleFromParent(const HeightNode& node);
 

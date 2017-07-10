@@ -4,6 +4,7 @@
 #include "engine\objects\mesh\Icosphere.h"
 #include "engine\renderer\ForwardDecl.h"
 #include "engine/renderer/resource/Texture.h"
+#include "engine/renderer/render/GraphicsPipeline.h"
 
 namespace vulpes {
 
@@ -60,7 +61,7 @@ namespace vulpes {
 		VkPipelineLayout pipelineLayout;
 		ShaderModule *vert, *frag;
 
-		GraphicsPipelineInfo pipelineStateInfo;
+		GraphicsPipelineInfo pipelineInfo;
 		VkGraphicsPipelineCreateInfo pipelineCreateInfo;
 
 		vs_ubo_data vsUboData;

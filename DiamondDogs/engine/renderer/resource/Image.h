@@ -40,6 +40,7 @@ namespace vulpes {
 
 		static void CreateImage(VkImage& dest_image, VkMappedMemoryRange& dest_memory_range, const Device* parent, const VkImageCreateInfo& create_info, const VkMemoryPropertyFlags & memory_flags);
 
+		const VkImageCreateInfo& CreateInfo() const noexcept;
 		const VkImage& vkHandle() const noexcept;
 		const VkImageView& View() const noexcept;
 		const VkMappedMemoryRange& Memory() const noexcept;

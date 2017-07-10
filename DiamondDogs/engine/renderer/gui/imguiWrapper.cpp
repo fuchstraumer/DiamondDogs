@@ -181,7 +181,7 @@ namespace vulpes {
 		buffer_image_copy.imageSubresource = VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 		buffer_image_copy.imageExtent = VkExtent3D{ static_cast<uint32_t>(imgWidth), static_cast<uint32_t>(imgHeight), 1 };
 		buffer_image_copy.imageSubresource = VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-		stagingToTextureCopy = std::move(buffer_image_copy));
+		stagingToTextureCopy = std::move(buffer_image_copy);
 
 	}
 
@@ -372,16 +372,16 @@ namespace vulpes {
 		
 		std::rotate(settings.frameTimes.begin(), settings.frameTimes.begin() + 1, settings.frameTimes.end());
 		
-		float frame_time = 1000.0f / (frame_time);
+		float frame_time_scaled = 1000.0f / (frame_time);
 		
-		settings.frameTimes.back() = frame_time;
+		settings.frameTimes.back() = frame_time_scaled;
 		
-		if (frame_time < settings.frameTimeMin) {
-			settings.frameTimeMin = frame_time;
+		if (frame_time_scaled < settings.frameTimeMin) {
+			settings.frameTimeMin = frame_time_scaled;
 		}
 
-		if (frame_time > settings.frameTimeMax) {
-			settings.frameTimeMax = frame_time;
+		if (frame_time_scaled > settings.frameTimeMax) {
+			settings.frameTimeMax = frame_time_scaled;
 		}
 
 		ImGui::PlotLines("Frame Timer", &settings.frameTimes[0], static_cast<int>(settings.frameTimes.size()), 0, "", settings.frameTimeMin, settings.frameTimeMax, ImVec2(0, 80));

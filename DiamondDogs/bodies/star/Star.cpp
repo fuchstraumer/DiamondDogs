@@ -191,12 +191,12 @@ namespace vulpes {
 
 	void Star::setupPipelineInfo() {
 
-		pipelineStateInfo.RasterizationInfo.cullMode = VK_CULL_MODE_NONE;
-		pipelineStateInfo.DynamicStateInfo.dynamicStateCount = 2;
+		pipelineInfo.RasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+		pipelineInfo.DynamicStateInfo.dynamicStateCount = 2;
 		static const VkDynamicState states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-		pipelineStateInfo.DynamicStateInfo.pDynamicStates = states;
+		pipelineInfo.DynamicStateInfo.pDynamicStates = states;
 
-		pipelineStateInfo.MultisampleInfo.rasterizationSamples = Multisampling::SampleCount;
+		pipelineInfo.MultisampleInfo.rasterizationSamples = Multisampling::SampleCount;
 
 	}
 
@@ -214,14 +214,14 @@ namespace vulpes {
 		auto attr = mesh::Vertices::AttrDescr();
 		vert_info.pVertexBindingDescriptions = descr.data();
 		vert_info.pVertexAttributeDescriptions = attr.data();
-		pipelineCreateInfo.pInputAssemblyState = &pipelineStateInfo.AssemblyInfo;
+		pipelineCreateInfo.pInputAssemblyState = &pipelineInfo.AssemblyInfo;
 		pipelineCreateInfo.pTessellationState = nullptr;
-		pipelineCreateInfo.pViewportState = &pipelineStateInfo.ViewportInfo;
-		pipelineCreateInfo.pRasterizationState = &pipelineStateInfo.RasterizationInfo;
-		pipelineCreateInfo.pMultisampleState = &pipelineStateInfo.MultisampleInfo;
-		pipelineCreateInfo.pDepthStencilState = &pipelineStateInfo.DepthStencilInfo;
-		pipelineCreateInfo.pColorBlendState = &pipelineStateInfo.ColorBlendInfo;
-		pipelineCreateInfo.pDynamicState = &pipelineStateInfo.DynamicStateInfo;
+		pipelineCreateInfo.pViewportState = &pipelineInfo.ViewportInfo;
+		pipelineCreateInfo.pRasterizationState = &pipelineInfo.RasterizationInfo;
+		pipelineCreateInfo.pMultisampleState = &pipelineInfo.MultisampleInfo;
+		pipelineCreateInfo.pDepthStencilState = &pipelineInfo.DepthStencilInfo;
+		pipelineCreateInfo.pColorBlendState = &pipelineInfo.ColorBlendInfo;
+		pipelineCreateInfo.pDynamicState = &pipelineInfo.DynamicStateInfo;
 		pipelineCreateInfo.layout = pipelineLayout;
 		pipelineCreateInfo.renderPass = renderpass;
 		pipelineCreateInfo.subpass = 0;
