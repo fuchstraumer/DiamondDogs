@@ -51,6 +51,7 @@ namespace vulpes {
 		void createAttachmentDescriptions();
 		void createAttachmentReference(const size_t& attachment_idx, const VkImageLayout& final_attachment_layout);
 		void createAttachmentReferences();
+		void setupSubpassDescription();
 		void setupSubpassDependencies();
 
 		void createRenderpass();
@@ -61,11 +62,13 @@ namespace vulpes {
 		std::vector<Image> attachments;
 		std::vector<VkAttachmentDescription> attachmentDescriptions;
 		std::vector<VkAttachmentReference> attachmentReferences;
+		std::vector<VkSubpassDependency> subpassDependencies;
 
 		VkRenderPass renderpass;
 		VkSemaphore semaphore = VK_NULL_HANDLE;
 		VkSampler sampler;
 		VkExtent3D extents;
+		VkSubpassDescription subpassDescription;
 	};
 
 	template<typename offscreen_framebuffer_type>
@@ -152,6 +155,7 @@ namespace vulpes {
 		attachment_description.format = attachments[attachment_idx].Format();
 		
 		attachmentDescriptions.push_back(std::move(attachment_description));
+
 	}
 
 	template<>
@@ -173,10 +177,40 @@ namespace vulpes {
 	template<>
 	inline void OffscreenFramebuffer<hdr_framebuffer_t>::createAttachmentReferences() {
 
-		createAttachmentReference(0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-		createAttachmentReference(1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-		createAttachmentReference(2, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+		attachmentReferences.push_back(VkAttachmentReference{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL });
+		attachmentReferences.push_back(VkAttachmentReference{ 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL });
+		attachmentReferences.push_back(VkAttachmentReference{ 2, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL });
 
 	}
+
+	template<>
+	inline void OffscreenFramebuffer<hdr_framebuffer_t>::setupSubpassDescription() {
+
+		subpassDescription = VkSubpassDescription{
+			0,
+			VK_PIPELINE_BIND_POINT_GRAPHICS,
+			0,
+			nullptr,
+			2, 
+			attachmentReferences.data(),
+			nullptr,
+			&attachmentReferences[2],
+			0,
+			nullptr
+		};
+
+	}
+
+	template<>
+	inline void OffscreenFramebuffer<hdr_framebuffer_t>::setupSubpassDependencies() {
+
+		VkSubpassDependency first_dependency{
+			VK_SUBPASS_EXTERNAL,
+			0,
+			
+		};
+	}
+
+
 }
 #endif // !VULPES_VK_FRAMEBUFFER_H
