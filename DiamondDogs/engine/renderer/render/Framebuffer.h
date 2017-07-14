@@ -207,8 +207,58 @@ namespace vulpes {
 		VkSubpassDependency first_dependency{
 			VK_SUBPASS_EXTERNAL,
 			0,
-			
+			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			VK_ACCESS_MEMORY_READ_BIT,
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			VK_DEPENDENCY_BY_REGION_BIT,
 		};
+
+		VkSubpassDependency second_dependency{
+			0,
+			VK_SUBPASS_EXTERNAL,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			VK_ACCESS_MEMORY_READ_BIT,
+			VK_DEPENDENCY_BY_REGION_BIT,
+		};
+
+		subpassDependencies.push_back(std::move(first_dependency));
+		subpassDependencies.push_back(std::move(second_dependency));
+
+	}
+
+	template<typename offscreen_framebuffer_type>
+	inline void OffscreenFramebuffer<offscreen_framebuffer_type>::createRenderpass() {
+
+		VkRenderPassCreateInfo renderpass_info = vk_renderpass_create_info_base;
+		renderpass_info.attachmentCount = static_cast<uint32_t>(attachmentDescriptions.size());
+		renderpass_info.pAttachments = attachmentDescriptions.data();
+		renderpass_info.subpassCount = 1;
+		renderpass_info.pSubpasses = nullptr; // fix this
+		renderpass_info.dependencyCount = static_cast<uint32_t>(subpassDependencies.size());
+		renderpass_info.pDependencies = subpassDependencies.data();
+
+		VkResult result = vkCreateRenderPass(parent->vkHandle(), &renderpass_info, nullptr, &renderpass);
+		VkAssert(result);
+
+	}
+
+	template<typename offscreen_framebuffer_type>
+	inline void OffscreenFramebuffer<offscreen_framebuffer_type>::createFramebuffer() {
+
+		VkFramebufferCreateInfo framebuffer_info = vk_framebuffer_create_info_base;
+		framebuffer_info.renderPass = renderpass;
+		framebuffer_info.attachmentCount = static_cast<uint32_t>(attachments.size());
+		framebuffer_info.pAttachments = attachments.data();
+		framebuffer_info.width = extents.width;
+		framebuffer_info.height = extents.height;
+		framebuffer_info.layers = 1;
+
+		VkResult result = vkCreateFramebuffer(parent->vkHandle(), &framebuffer_info, nullptr, &handle);
+		VkAssert(result);
+
 	}
 
 
