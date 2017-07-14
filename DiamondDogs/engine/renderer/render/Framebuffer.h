@@ -55,7 +55,6 @@ namespace vulpes {
 		void setupSubpassDependencies();
 
 		void createRenderpass();
-		void createViews();
 		void createFramebuffer();
 		void createSampler();
 
@@ -65,10 +64,11 @@ namespace vulpes {
 		std::vector<VkSubpassDependency> subpassDependencies;
 
 		VkRenderPass renderpass;
+		
 		VkSemaphore semaphore = VK_NULL_HANDLE;
 		VkSampler sampler;
 		VkExtent3D extents;
-		VkSubpassDescription subpassDescription;
+		std::vector<VkSubpassDescription> subpassDescriptions;
 	};
 
 	template<typename offscreen_framebuffer_type>
@@ -186,7 +186,7 @@ namespace vulpes {
 	template<>
 	inline void OffscreenFramebuffer<hdr_framebuffer_t>::setupSubpassDescription() {
 
-		subpassDescription = VkSubpassDescription{
+		auto subpass_description = VkSubpassDescription{
 			0,
 			VK_PIPELINE_BIND_POINT_GRAPHICS,
 			0,
@@ -198,6 +198,8 @@ namespace vulpes {
 			0,
 			nullptr
 		};
+
+		subpassDescriptions.push_back(std::move(subpass_description));
 
 	}
 
@@ -235,8 +237,8 @@ namespace vulpes {
 		VkRenderPassCreateInfo renderpass_info = vk_renderpass_create_info_base;
 		renderpass_info.attachmentCount = static_cast<uint32_t>(attachmentDescriptions.size());
 		renderpass_info.pAttachments = attachmentDescriptions.data();
-		renderpass_info.subpassCount = 1;
-		renderpass_info.pSubpasses = nullptr; // fix this
+		renderpass_info.subpassCount = static_cast<uint32_t>(subpassDescriptions.size());
+		renderpass_info.pSubpasses = subpassDescriptions.data();
 		renderpass_info.dependencyCount = static_cast<uint32_t>(subpassDependencies.size());
 		renderpass_info.pDependencies = subpassDependencies.data();
 
@@ -248,15 +250,33 @@ namespace vulpes {
 	template<typename offscreen_framebuffer_type>
 	inline void OffscreenFramebuffer<offscreen_framebuffer_type>::createFramebuffer() {
 
+		std::vector<VkImageView> attachment_views;
+
+		for (const auto& attachment : attachments) {
+			attachment_views.push_back(attachment.View());
+		}
+
 		VkFramebufferCreateInfo framebuffer_info = vk_framebuffer_create_info_base;
 		framebuffer_info.renderPass = renderpass;
-		framebuffer_info.attachmentCount = static_cast<uint32_t>(attachments.size());
-		framebuffer_info.pAttachments = attachments.data();
+		framebuffer_info.attachmentCount = static_cast<uint32_t>(attachment_views.size());
+		framebuffer_info.pAttachments = attachment_views.data();
 		framebuffer_info.width = extents.width;
 		framebuffer_info.height = extents.height;
 		framebuffer_info.layers = 1;
 
 		VkResult result = vkCreateFramebuffer(parent->vkHandle(), &framebuffer_info, nullptr, &handle);
+		VkAssert(result);
+
+	}
+
+	template<typename offscreen_framebuffer_type>
+	inline void OffscreenFramebuffer<offscreen_framebuffer_type>::createSampler() {
+
+		VkSamplerCreateInfo sampler_info = vk_sampler_create_info_base;
+		sampler_info.magFilter = VK_FILTER_NEAREST;
+		sampler_info.minFilter = VK_FILTER_NEAREST;
+
+		VkResult result = vkCreateSampler(parent->vkHandle(), &sampler_info, nullptr, &sampler);
 		VkAssert(result);
 
 	}
