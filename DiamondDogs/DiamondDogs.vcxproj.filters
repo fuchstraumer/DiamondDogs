@@ -107,6 +107,7 @@
     <ClInclude Include="engine\renderer\resource\Texture.h" />
     <ClInclude Include="bodies\star\Star.h" />
     <ClInclude Include="engine\renderer\render\Multisampling.h" />
+    <ClInclude Include="engine\renderer\render\Deferred.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />

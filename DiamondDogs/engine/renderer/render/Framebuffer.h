@@ -39,7 +39,7 @@ namespace vulpes {
 
 		OffscreenFramebuffer(const Device* parent, const VkFramebufferCreateInfo& create_info, const VkExtent3D& extents);
 
-		void RecordRenderCmds(VkCommandBuffer& cmd_buffer) const;
+		void Create();
 
 	protected:
 		
@@ -70,6 +70,20 @@ namespace vulpes {
 		VkExtent3D extents;
 		std::vector<VkSubpassDescription> subpassDescriptions;
 	};
+
+	template<typename offscreen_framebuffer_type>
+	inline void OffscreenFramebuffer<offscreen_framebuffer_type>::Create() {
+		
+		createAttachments();
+		createAttachmentDescriptions();
+		createAttachmentReferences();
+		setupSubpassDescription();
+		setupSubpassDependencies();
+		createRenderpass();
+		createFramebuffer();
+		createSampler();
+
+	}
 
 	template<typename offscreen_framebuffer_type>
 	inline size_t OffscreenFramebuffer<offscreen_framebuffer_type>::createAttachment(const VkFormat & attachment_format, const VkImageUsageFlagBits & attachment_usage) {
