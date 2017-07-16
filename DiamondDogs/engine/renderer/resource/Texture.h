@@ -13,9 +13,8 @@
 namespace vulpes {
 
 	// TODO: 1D texture, 2D texture array.
-	using texture_1d = std::integral_constant<int, 0>;
-	using texture_2d = std::integral_constant<int, 1>;
-	
+	using texture_1d_t = std::integral_constant<int, 0>;
+	using texture_2d_t = std::integral_constant<int, 1>;
 
 	template<typename texture_type>
 	class Texture : public Image {
@@ -32,9 +31,11 @@ namespace vulpes {
 
 		void CreateFromBuffer(VkBuffer&& staging_buffer, const VkFormat& texture_format, const std::vector<VkBufferImageCopy>& copy_info);
 
-		void CreateEmptyTexture(const VkFormat& texture_format);
+		void CreateEmptyTexture(const VkFormat& texture_format, const uint32_t& width, const uint32_t& height);
 
 		void TransferToDevice(VkCommandBuffer& transfer_cmd_buffer) const;
+
+		void FreeStagingBuffer();
 
 		VkDescriptorImageInfo GetDescriptor() const noexcept;
 		const VkSampler& Sampler() const noexcept;
@@ -97,6 +98,21 @@ namespace vulpes {
 
 	}
 
+	template<>
+	inline void Texture<texture_1d_t>::CreateEmptyTexture(const VkFormat & texture_format, const uint32_t& width, const uint32_t& height) {
+
+		format = texture_format;
+		Width = width;
+		Height = height;
+		layerCount = 1;
+		mipLevels = 1;
+
+		createTexture();
+		createView();
+		createSampler();
+
+	}
+
 	template<typename texture_type>
 	inline void Texture<texture_type>::TransferToDevice(VkCommandBuffer & transfer_cmd_buffer) const {
 
@@ -111,6 +127,10 @@ namespace vulpes {
 		vkCmdCopyBufferToImage(transfer_cmd_buffer, stagingBuffer, handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copyInfo.size()), copyInfo.data());
 		vkCmdPipelineBarrier(transfer_cmd_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier1);
 
+	}
+
+	template<typename texture_type>
+	inline void Texture<texture_type>::FreeStagingBuffer() {
 		// can now destroy staging object
 		parent->vkAllocator->DestroyBuffer(stagingBuffer);
 	}
@@ -147,6 +167,37 @@ namespace vulpes {
 		Height = static_cast<uint32_t>(texture_data.extent().y);
 		mipLevels = static_cast<uint32_t>(texture_data.levels());
 		layerCount = static_cast<uint32_t>(texture_data.layers());
+	}
+
+	template<>
+	inline void Texture<texture_1d_t>::createTexture() {
+
+		createInfo.imageType = VK_IMAGE_TYPE_1D;
+		createInfo.format = format;
+		createInfo.extent = VkExtent3D{ Width, Height, 1 };
+		createInfo.mipLevels = mipLevels;
+		createInfo.arrayLayers = layerCount;
+		createInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		createInfo.samples = Multisampling::SampleCount;
+		createInfo.tiling = parent->GetFormatTiling(format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
+
+		Image::CreateImage(handle, memory, parent, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	}
+
+	template<>
+	inline void Texture<texture_1d_t>::createView() {
+
+		VkImageViewCreateInfo view_create_info = vk_image_view_create_info_base;
+		view_create_info.subresourceRange.layerCount = layerCount;
+		view_create_info.subresourceRange.levelCount = mipLevels;
+		view_create_info.image = handle;
+		view_create_info.format = format;
+		view_create_info.viewType = VK_IMAGE_VIEW_TYPE_1D;
+
+		VkResult result = vkCreateImageView(parent->vkHandle(), &view_create_info, nullptr, &view);
+		VkAssert(result);
+
 	}
 
 	template<>
@@ -223,7 +274,6 @@ namespace vulpes {
 		createInfo.mipLevels = mipLevels;
 		createInfo.arrayLayers = 6;
 		createInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-		createInfo.samples = Multisampling::SampleCount;
 		createInfo.tiling = parent->GetFormatTiling(format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
 
 		Image::CreateImage(handle, memory, parent, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
