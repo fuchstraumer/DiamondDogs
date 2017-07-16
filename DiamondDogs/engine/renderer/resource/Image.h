@@ -20,6 +20,9 @@ namespace vulpes {
 
 		Image(const Device* parent);
 
+		Image(Image&& other) noexcept;
+		Image& operator=(Image&& other) noexcept;
+
 		virtual ~Image();
 
 		void Destroy();
