@@ -13,8 +13,6 @@ namespace vulpes {
 			pipelineInfo.pName = "main";
 		}
 
-		LoadCodeFromFile(filename);
-
 		VkResult result = vkCreateShaderModule(device->vkHandle(), &createInfo, allocators, &handle);
 		VkAssert(result);
 
@@ -40,18 +38,19 @@ namespace vulpes {
 
 	void ShaderModule::LoadCodeFromFile(const char * filename) {
 		try {
+			std::vector<char> input_buff;
 			std::ifstream input(filename, std::ios::binary | std::ios::in | std::ios::ate);
 			input.exceptions(std::ios::failbit | std::ios::badbit);
 			codeSize = static_cast<uint32_t>(input.tellg());
 			assert(codeSize > 0);
-			code.resize(codeSize);
+			input_buff.resize(codeSize);
 			input.seekg(0, std::ios::beg);
-			input.read(code.data(), codeSize);
+			input.read(input_buff.data(), codeSize);
 			input.close();
 			createInfo.codeSize = codeSize;
-			std::vector<uint32_t> code_aligned(code.size() / sizeof(uint32_t) + 1);
-			memcpy(code_aligned.data(), code.data(), code.size());
-			createInfo.pCode = code_aligned.data();
+			code.resize(input_buff.size() / sizeof(uint32_t) + 1);
+			memcpy(code.data(), input_buff.data(), input_buff.size());
+			createInfo.pCode = code.data();
 
 		}
 		catch (std::ifstream::failure&) {

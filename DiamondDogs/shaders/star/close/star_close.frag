@@ -3,9 +3,9 @@
 #extension GL_ARB_separate_shader_objects : enable
 #extension GL_ARB_shading_language_420pack : enable
 
-layout(binding = 1) uniform UBO {
-	vec3 cameraPos;
-	vec3 colorShift;
+layout(push_constant) uniform UBO {
+	vec4 cameraPos;
+	vec4 colorShift;
 	int frame;
 } ubo;
 
@@ -155,7 +155,7 @@ void main(){
    
     vec4 color = vec4(0.9f, 0.1f, 0.2f, 1.0f);
 
-    vec3 viewDir = normalize(ubo.cameraPos - fPos);
+    vec3 viewDir = normalize(ubo.cameraPos.xyz - fPos);
 
     // Color edges slightly based on distance between ray from viewer and fragment ray
     float theta = 1.0f - dot(fPos, viewDir);
@@ -163,7 +163,7 @@ void main(){
     //color *= 1.5f;
     // Total value ot use for colormapping
     float total = n * 2.2f;
-    fragColor = (vec4(ubo.colorShift,1.0f) + color - theta) * total;
+    fragColor = (vec4(ubo.colorShift.xyz,1.0f) + color - theta) * total;
     fragColor.a = 1.0f;
 
 }
