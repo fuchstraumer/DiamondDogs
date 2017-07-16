@@ -68,7 +68,7 @@ namespace vulpes {
 		VkCommandBuffer graphicsCmd;
 		const Device* device;
 
-		std::unique_ptr<unsigned char> fontTextureData;
+		unsigned char* fontTextureData;
 		std::shared_ptr<PipelineCache> cache;
 		std::unique_ptr<GraphicsPipeline> pipeline;
 		std::unique_ptr<Buffer> vbo, ebo;

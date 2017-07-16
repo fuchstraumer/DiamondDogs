@@ -36,6 +36,13 @@ namespace vulpes {
 	
 		setupGraphicsPipelineInfo();
 		setupGraphicsPipelineCreateInfo(renderpass);
+
+		// This has to be done here, due to scoping issues and auto-destruction rules.
+		const std::array<VkPipelineShaderStageCreateInfo, 2> shader_stages{
+			vert->PipelineInfo(),
+			frag->PipelineInfo()
+		};
+		pipelineCreateInfo.pStages = shader_stages.data();
 		
 		pipeline = std::make_unique<GraphicsPipeline>(device, swapchain);
 		pipeline->Init(pipelineCreateInfo, cache->vkHandle());
@@ -157,8 +164,7 @@ namespace vulpes {
 
 	size_t imguiWrapper::loadFontTextureData() {
 		ImGuiIO& io = ImGui::GetIO();
-		unsigned char* pixels = fontTextureData.get();
-		io.Fonts->GetTexDataAsRGBA32(&pixels, &imgWidth, &imgHeight);
+		io.Fonts->GetTexDataAsRGBA32(&fontTextureData, &imgWidth, &imgHeight);
 		return imgWidth * imgHeight * 4 * sizeof(char);
 	}
 
@@ -171,17 +177,17 @@ namespace vulpes {
 		VkResult result = vkMapMemory(device->vkHandle(), staging_memory.memory, staging_memory.offset, font_texture_size, 0, &mapped);
 		VkAssert(result);
 
-		memcpy(mapped, fontTextureData.get(), font_texture_size);
+		memcpy(mapped, fontTextureData, font_texture_size);
 
 		vkUnmapMemory(device->vkHandle(), staging_memory.memory);
-
-		fontTextureData.reset();
 
 		VkBufferImageCopy buffer_image_copy{};
 		buffer_image_copy.imageSubresource = VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 		buffer_image_copy.imageExtent = VkExtent3D{ static_cast<uint32_t>(imgWidth), static_cast<uint32_t>(imgHeight), 1 };
 		buffer_image_copy.imageSubresource = VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 		stagingToTextureCopy = std::move(buffer_image_copy);
+		
+		delete fontTextureData;
 
 	}
 
@@ -292,15 +298,11 @@ namespace vulpes {
 
 	void imguiWrapper::setupGraphicsPipelineCreateInfo(const VkRenderPass& renderpass) {
 
-		const std::array<VkPipelineShaderStageCreateInfo, 2> shader_stages{
-			vert->PipelineInfo(),
-			frag->PipelineInfo()
-		};
+		
 
 		pipelineCreateInfo = vk_graphics_pipeline_create_info_base;
 		pipelineCreateInfo.flags = 0;
 		pipelineCreateInfo.stageCount = 2;
-		pipelineCreateInfo.pStages = shader_stages.data();
 		pipelineCreateInfo.pInputAssemblyState = &pipelineStateInfo.AssemblyInfo;
 		pipelineCreateInfo.pTessellationState = nullptr;
 		pipelineCreateInfo.pViewportState = &pipelineStateInfo.ViewportInfo;
