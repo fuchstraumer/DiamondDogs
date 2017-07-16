@@ -50,7 +50,7 @@ namespace vulpes {
 		InstanceGLFW* instance;
 		Device* device;
 		Swapchain* swapchain;
-		std::vector<Framebuffer> framebuffers;
+		std::vector<VkFramebuffer> framebuffers;
 		DepthStencil* depthStencil;
 		CommandPool *transferPool, *graphicsPool, *secondaryPool;
 		Renderpass* renderPass;

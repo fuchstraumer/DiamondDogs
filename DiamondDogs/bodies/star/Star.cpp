@@ -49,8 +49,17 @@ namespace vulpes {
 		setupPipelineInfo();
 		setupPipelineCreateInfo(renderpass);
 
+		const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
+		pipelineCreateInfo.pStages = shader_infos.data();
+		VkPipelineVertexInputStateCreateInfo vert_info = mesh::Vertices::PipelineInfo();
+		const auto attr = mesh::Vertices::AttrDescr();
+		const auto bind = mesh::Vertices::BindDescr();
+		vert_info.pVertexAttributeDescriptions = attr.data();
+		vert_info.pVertexBindingDescriptions = bind.data();
+		pipelineCreateInfo.pVertexInputState = &vert_info;
+
 		pipeline = new GraphicsPipeline(device, swapchain);
-		pipeline->Init(pipelineCreateInfo, pipelineCache->vkHandle());
+		pipeline->Init(std::move(pipelineCreateInfo), pipelineCache->vkHandle());
 
 	}
 
@@ -58,7 +67,6 @@ namespace vulpes {
 		
 		mesh0.create_buffers(device);
 		vsUboData.model = mesh0.get_model_matrix();
-		vsUboData.normTransform = glm::transpose(glm::inverse(vsUboData.model));
 
 	}
 
@@ -117,7 +125,6 @@ namespace vulpes {
 
 		static const std::array<VkDescriptorSetLayoutBinding, 2> bindings{
 			VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr },
-			VkDescriptorSetLayoutBinding{ 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr },
 		};
 
 		VkDescriptorSetLayoutCreateInfo layout_info = vk_descriptor_set_layout_create_info_base;
@@ -174,7 +181,7 @@ namespace vulpes {
 		VkDescriptorBufferInfo vs_info;
 		vs_info = vsUBO->GetDescriptor();
 
-		const std::array<VkWriteDescriptorSet, 2> writes{
+		const std::array<VkWriteDescriptorSet, 1> writes{
 			VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, 0, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &vs_info, nullptr },
 		};
 
@@ -202,18 +209,9 @@ namespace vulpes {
 
 	void Star::setupPipelineCreateInfo(const VkRenderPass& renderpass) {
 
-		VkPipelineVertexInputStateCreateInfo vert_info = mesh::Vertices::PipelineInfo();
-		const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
-
 		pipelineCreateInfo = vk_graphics_pipeline_create_info_base;
 		pipelineCreateInfo.flags = 0;
 		pipelineCreateInfo.stageCount = 2;
-		pipelineCreateInfo.pStages = shader_infos.data();
-		pipelineCreateInfo.pVertexInputState = &vert_info;
-		auto descr = mesh::Vertices::BindDescr();
-		auto attr = mesh::Vertices::AttrDescr();
-		vert_info.pVertexBindingDescriptions = descr.data();
-		vert_info.pVertexAttributeDescriptions = attr.data();
 		pipelineCreateInfo.pInputAssemblyState = &pipelineInfo.AssemblyInfo;
 		pipelineCreateInfo.pTessellationState = nullptr;
 		pipelineCreateInfo.pViewportState = &pipelineInfo.ViewportInfo;

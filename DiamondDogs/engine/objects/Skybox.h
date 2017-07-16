@@ -6,7 +6,9 @@
 #include "engine\renderer\resource\Texture.h"
 
 namespace vulpes {
+
 	namespace obj {
+
 		class Skybox {
 			struct vs_ubo_data {
 				glm::mat4 view, projection;
@@ -49,6 +51,7 @@ namespace vulpes {
 			VkDescriptorPool descriptorPool;
 			VkPipelineLayout pipelineLayout;
 		};
+
 	}
 
 }

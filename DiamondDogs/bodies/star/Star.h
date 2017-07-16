@@ -11,7 +11,7 @@ namespace vulpes {
 	class Star {
 
 		struct vs_ubo_data {
-			glm::mat4 projection, view, model, normTransform;
+			glm::mat4 projection, view, model;
 			glm::vec4 cameraPos;
 		};
 
@@ -54,7 +54,6 @@ namespace vulpes {
 		GraphicsPipeline* pipeline;
 		std::shared_ptr<PipelineCache> pipelineCache;
 		Buffer *vsUBO;
-		Texture<gli::texture1d> blackbody;
 		VkDescriptorSetLayout descriptorSetLayout;
 		VkDescriptorSet descriptorSet;
 		VkDescriptorPool descriptorPool;

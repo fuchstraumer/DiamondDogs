@@ -8,9 +8,11 @@
 #include "engine\renderer\core\PhysicalDevice.h"
 #include "engine\renderer\render\Multisampling.h"
 #include "engine/renderer/resource/PipelineCache.h"
+#include "engine/renderer/command/CommandPool.h"
 
 namespace vulpes {
 	namespace obj {
+
 		Skybox::Skybox(const Device* _device) : device(_device), ebo(nullptr), ubo(nullptr), vbo(nullptr), vert(nullptr), frag(nullptr), pipeline(nullptr) {
 			std::array<glm::vec3, 8> positions{
 				{
@@ -61,6 +63,7 @@ namespace vulpes {
 			texture = new Texture<gli::texture_cube>(device);
 			texture->CreateFromFile("rsrc/img/skybox/deep_thought_bc7.dds", VK_FORMAT_BC7_UNORM_BLOCK);
 
+
 		}
 
 		Skybox::~Skybox() {
@@ -90,6 +93,11 @@ namespace vulpes {
 			ubo = new Buffer(device);
 			ubo->CreateBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, sizeof(vs_ubo_data));
 			uboData.projection = projection;
+
+			VkCommandBuffer copy_cmd = pool->StartSingleCmdBuffer();
+			texture->TransferToDevice(copy_cmd);
+			pool->EndSingleCmdBuffer(copy_cmd, queue);
+			texture->FreeStagingBuffer();
 
 			vert = new ShaderModule(device, "shaders/skybox/skybox.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
 			frag = new ShaderModule(device, "shaders/skybox/skybox.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
@@ -145,15 +153,12 @@ namespace vulpes {
 		}
 
 		void Skybox::CreatePipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& cache) {
-#ifndef NDEBUG
-			auto start = std::chrono::high_resolution_clock::now();
-#endif // NDEBUG
+
 			const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
 			pipelineCache = cache;
 			GraphicsPipelineInfo pipeline_info;
 
 			pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_NONE;
-
 			pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
 			// Set this through dynamic state so we can do it when rendering.
@@ -189,11 +194,7 @@ namespace vulpes {
 
 			pipeline = new GraphicsPipeline(device, swapchain);
 			pipeline->Init(pipeline_create_info, pipelineCache->vkHandle());
-#ifndef NDEBUG
-			auto end = std::chrono::high_resolution_clock::now();
-			auto duration = end - start;
-			std::cerr << "Pipeline creation time: " << std::chrono::duration_cast<std::chrono::microseconds>(duration).count() << " microseconds" << std::endl;
-#endif // !NDEBUG
+
 		}
 
 		void Skybox::UpdateUBO(const glm::mat4 & view) {

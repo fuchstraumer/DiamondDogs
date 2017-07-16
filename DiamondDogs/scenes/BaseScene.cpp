@@ -28,9 +28,6 @@ vulpes::BaseScene::BaseScene(const size_t& num_secondary_buffers, const uint32_t
 	SetupRenderpass();
 	SetupDepthStencil();
 
-	util::AABB::cache = std::make_unique<PipelineCache>(device, static_cast<uint16_t>(typeid(util::AABB).hash_code()));
-	util::AABB::SetupRenderData(device, renderPass->vkHandle(), swapchain, instance->GetProjectionMatrix());
-
 	VkSemaphoreCreateInfo semaphore_info{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
 	VkResult result = vkCreateSemaphore(device->vkHandle(), &semaphore_info, nullptr, &semaphores[0]);
 	VkAssert(result);
@@ -39,7 +36,6 @@ vulpes::BaseScene::BaseScene(const size_t& num_secondary_buffers, const uint32_t
 }
 
 vulpes::BaseScene::~BaseScene() {
-	util::AABB::CleanupVkResources();
 	for (const auto& fbuf : framebuffers) {
 		vkDestroyFramebuffer(device->vkHandle(), fbuf, nullptr);
 	}
@@ -199,7 +195,9 @@ void vulpes::BaseScene::SetupFramebuffers(){
 		f_info.width = swapchain->Extent.width;
 		f_info.height = swapchain->Extent.height;
 		f_info.layers = 1;
-		framebuffers.push_back(std::move(Framebuffer(device, f_info)));
+		VkFramebuffer new_fbuff;
+		VkResult result = vkCreateFramebuffer(device->vkHandle(), &f_info, nullptr, &new_fbuff);
+		framebuffers.push_back(std::move(new_fbuff));
 	}
 }
 
