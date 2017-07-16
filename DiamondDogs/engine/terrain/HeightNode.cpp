@@ -2,8 +2,6 @@
 #include "HeightNode.h"
 #include "glm/ext.hpp"
 #include "common/CommonUtil.h"
-#include "engine/util/FastNoise.h"
-#include "engine/util/lodepng.h"
 #include "engine/util/Noise.h"
 
 
@@ -24,8 +22,6 @@ namespace vulpes {
 				SampleFromParent(parent);
 			}
 		}
-
-		static constexpr bool save_to_file = false;
 
 		void HeightNode::SampleFromParent(const HeightNode & node) {
 			// See: proland/preprocess/terrain/HeightMipmap.cpp to find original implementation
@@ -100,14 +96,7 @@ namespace vulpes {
 			float min_z, max_z;
 			MinZ = min_z = samples.at(min_max.first - samples.cbegin()).Sample.x;
 			MaxZ = max_z = samples.at(min_max.second - samples.cbegin()).Sample.x;
-			if (save_to_file) {
-				std::vector<float> height_values;
-				for (const auto& sample : samples) {
-					height_values.push_back(sample.Sample.x);
-				}
-				std::string fname = std::string("./test_img/terrain_chunk") + glm::to_string(gridCoords) + std::string(".png");
-				std::async(std::launch::async, save_hm_to_file, height_values, min_z, max_z, fname.c_str(), sampleGridSize, sampleGridSize);
-			}
+		
 		}
 
 		void HeightNode::SetSamples(std::vector<HeightSample>&& _samples) {
@@ -117,7 +106,6 @@ namespace vulpes {
 		float HeightNode::GetHeight(const glm::vec2 world_pos) const {
 
 			double curr_size = RootNodeLength / (1 << gridCoords.z);
-			double s = curr_size / 2.0;
 			auto curr_grid_size = MeshGridSize();
 			double x, y;
 			x = static_cast<double>(world_pos.x);
@@ -216,8 +204,6 @@ namespace vulpes {
 		bool HeightSample::operator==(const HeightSample & other) const {
 			return Sample == other.Sample;
 		}
-
-		
 
 }
 }

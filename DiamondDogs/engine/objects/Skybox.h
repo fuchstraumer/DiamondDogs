@@ -24,7 +24,7 @@ namespace vulpes {
 
 			void CreateData(CommandPool* pool, const VkQueue& queue, const glm::mat4& projection);
 
-			void CreatePipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& cache);
+			void CreatePipeline(const VkRenderPass& renderpass, std::shared_ptr<PipelineCache>& cache);
 
 			void UpdateUBO(const glm::mat4& view);
 

@@ -44,7 +44,7 @@ namespace vulpes {
 
 			~NodeRenderer();
 
-			void CreatePipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection);
+			void CreatePipeline(const VkRenderPass& renderpass, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection);
 
 			void AddNode(TerrainNode * node);
 

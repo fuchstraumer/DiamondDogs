@@ -56,10 +56,10 @@ namespace vulpes {
 	constexpr static float SIMPLEX_F2 = 0.366035403f;
 	constexpr static float SIMPLEX_G2 = 0.211324865f;
 
-	constexpr static uint32_t FNV_32_A_BUF(void* buff, const uint32_t& len) {
-		uint32_t hval = FNV_32_INIT;
-		uint32_t *bp = reinterpret_cast<uint32_t*>(buff);
-		uint32_t *be = bp + len;
+	constexpr static int32_t FNV_32_A_BUF(void* buff, const int32_t& len) {
+		int32_t hval = FNV_32_INIT;
+		int32_t *bp = reinterpret_cast<int32_t*>(buff);
+		int32_t *be = bp + len;
 		while (bp < be) {
 			hval ^= *bp++;
 			hval *= FNV_32_PRIME;
@@ -67,27 +67,27 @@ namespace vulpes {
 		return hval;
 	}
 
-	constexpr static uint8_t XOR_FOLD_HASH(const uint32_t& hash) {
-		return ((hash >> 8) ^ (hash & FNV_MASK_8));
+	constexpr static uint8_t XOR_FOLD_HASH(const int32_t& hash) {
+		return static_cast<uint8_t>((hash >> 8) ^ (hash & FNV_MASK_8));
 	}
 
-	constexpr static uint32_t hash2D(const glm::ivec2& pos, const int& seed) {
-		uint32_t val[3]{ pos.x, pos.y, seed };
+	constexpr static int32_t hash2D(const glm::ivec2& pos, const int& seed) {
+		int32_t val[3]{ static_cast<int32_t>(pos.x), static_cast<int32_t>(pos.y), static_cast<int32_t>(seed) };
 		return XOR_FOLD_HASH(FNV_32_A_BUF(val, 3));
 	}
 
-	constexpr static uint32_t hash2D_float(const glm::vec2& pos, const int& seed) {
-		uint32_t val[3]{ static_cast<uint32_t>(pos.x), static_cast<uint32_t>(pos.y), seed };
+	constexpr static int32_t hash2D_float(const glm::vec2& pos, const int& seed) {
+		int32_t val[3]{ static_cast<int32_t>(pos.x), static_cast<int32_t>(pos.y), seed };
 		return XOR_FOLD_HASH(FNV_32_A_BUF(val, 3));
 	}
 
 	constexpr static uint8_t hash3D(const glm::ivec3& pos, const int& seed) {
-		uint32_t val[4]{ pos.x, pos.y, pos.z, seed };
+		int32_t val[4]{ static_cast<int32_t>(pos.x), static_cast<int32_t>(pos.y), static_cast<int32_t>(pos.z), static_cast<int32_t>(seed) };
 		return XOR_FOLD_HASH(FNV_32_A_BUF(val, 4));
 	}
 
-	constexpr static uint32_t hash3D_float(const glm::vec3& pos, const int& seed) {
-		uint32_t val[4]{ static_cast<uint32_t>(pos.x), static_cast<uint32_t>(pos.y), static_cast<uint32_t>(pos.z), static_cast<uint32_t>(seed) };
+	constexpr static int32_t hash3D_float(const glm::vec3& pos, const int& seed) {
+		int32_t val[4]{ static_cast<int32_t>(pos.x), static_cast<int32_t>(pos.y), static_cast<int32_t>(pos.z), static_cast<int32_t>(seed) };
 		return XOR_FOLD_HASH(FNV_32_A_BUF(val, 4));
 	}
 

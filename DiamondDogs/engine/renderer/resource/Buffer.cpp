@@ -35,7 +35,7 @@ namespace vulpes {
 		return *this;
 	}
 
-	void Buffer::CreateBuffer(const VkBufferUsageFlags & usage_flags, const VkMemoryPropertyFlags & memory_flags, const VkDeviceSize & _size, const VkDeviceSize & offset) {
+	void Buffer::CreateBuffer(const VkBufferUsageFlags & usage_flags, const VkMemoryPropertyFlags & memory_flags, const VkDeviceSize & _size) {
 		
 		if (parent == nullptr) {
 			throw(std::runtime_error("Set the parent of a buffer before trying to populate it, you dolt."));
@@ -93,21 +93,22 @@ namespace vulpes {
 		stagingBuffers.push_back(std::move(staging_buffer));
 	}
 
-	void Buffer::CopyTo(void * data, CommandPool* cmd_pool, const VkQueue & transfer_queue, const VkDeviceSize & size, const VkDeviceSize & offset){
+	void Buffer::CopyTo(void * data, CommandPool* cmd_pool, const VkQueue & transfer_queue, const VkDeviceSize & copy_size, const VkDeviceSize & offset){
 		
 		VkBuffer staging_buffer;
 		VkMappedMemoryRange staging_range = vk_mapped_memory_base;
-		createStagingBuffer(size, offset, staging_buffer, staging_range);
+		createStagingBuffer(copy_size, offset, staging_buffer, staging_range);
 
 		void* mapped;
-		VkResult result = vkMapMemory(parent->vkHandle(), staging_range.memory, staging_range.offset + offset, size, 0, &mapped);
+		VkResult result = vkMapMemory(parent->vkHandle(), staging_range.memory, staging_range.offset + offset, copy_size, 0, &mapped);
 		VkAssert(result);
-			memcpy(mapped, data, size);
+			memcpy(mapped, data, copy_size);
 		vkUnmapMemory(parent->vkHandle(), staging_range.memory);
 
 		VkCommandBuffer copy_cmd = cmd_pool->StartSingleCmdBuffer();
 		VkBufferCopy copy_region{};
-		copy_region.size = size;
+		copy_region.size = copy_size;
+		size = copy_size;
 		vkCmdCopyBuffer(copy_cmd, staging_buffer, handle, 1, &copy_region);
 		cmd_pool->EndSingleCmdBuffer(copy_cmd, transfer_queue);
 
@@ -173,12 +174,13 @@ namespace vulpes {
 		stagingBuffers.shrink_to_fit();
 	}
 
-	void Buffer::createStagingBuffer(const VkDeviceSize & size, const VkDeviceSize & offset, VkBuffer & staging_buffer, VkMappedMemoryRange& dest_memory_range){
+	void Buffer::createStagingBuffer(const VkDeviceSize & staging_size, const VkDeviceSize & offset, VkBuffer & staging_buffer, VkMappedMemoryRange& dest_memory_range){
 		
 		VkBufferCreateInfo create_info = vk_buffer_create_info_base;
 		create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 		create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		create_info.size = size;
+		create_info.size = staging_size;
+		size = staging_size;
 
 		AllocationRequirements alloc_reqs;
 		alloc_reqs.privateMemory = false;

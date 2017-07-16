@@ -39,8 +39,8 @@ namespace vulpes {
 		else {
 			createInfo.enabledExtensionCount = 1;
 			createInfo.ppEnabledExtensionNames = device_extensions.data();
-			createInfo.enabledLayerCount = 0;
-			createInfo.ppEnabledLayerNames = nullptr;
+			createInfo.enabledLayerCount = 1;
+			createInfo.ppEnabledLayerNames = &standard_validation_layer;
 		}
 
 		VkResult result = vkCreateDevice(parent->vkHandle(), &createInfo, AllocCallbacks, &handle);

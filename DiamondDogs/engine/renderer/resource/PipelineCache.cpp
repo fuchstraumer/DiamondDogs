@@ -64,7 +64,7 @@ namespace vulpes {
 
 				return VK_SUCCESS;
 			}
-			catch (std::ofstream::failure& failure_except) {
+			catch (std::ofstream::failure&) {
 				LOG(WARNING) << "Saving of pipeline cache to file failed with unindentified exception in std::ofstream.";
 				return VK_ERROR_VALIDATION_FAILED_EXT;
 			}
@@ -101,11 +101,11 @@ namespace vulpes {
 		return true;
 	}
 
-	void PipelineCache::LoadCacheFromFile(const char * filename) {
+	void PipelineCache::LoadCacheFromFile(const char * _filename) {
 		/*
 		check for pre-existing cache file.
 		*/
-		std::ifstream cache(filename, std::ios::in);
+		std::ifstream cache(_filename, std::ios::in);
 		if (cache) {
 
 			// get header (4 uint32_t, 16 int8_t) = (32 int8_t)

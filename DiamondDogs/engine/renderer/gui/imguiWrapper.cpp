@@ -18,7 +18,7 @@ namespace vulpes {
 
 	}
 
-	void imguiWrapper::Init(const Device * dvc, std::shared_ptr<PipelineCache> _cache, const VkRenderPass & renderpass, const Swapchain * swapchain) {
+	void imguiWrapper::Init(const Device * dvc, std::shared_ptr<PipelineCache> _cache, const VkRenderPass & renderpass) {
 		
 		device = dvc;
 		cache = _cache;
@@ -44,7 +44,7 @@ namespace vulpes {
 		};
 		pipelineCreateInfo.pStages = shader_stages.data();
 		
-		pipeline = std::make_unique<GraphicsPipeline>(device, swapchain);
+		pipeline = std::make_unique<GraphicsPipeline>(device);
 		pipeline->Init(pipelineCreateInfo, cache->vkHandle());
 
 	}

@@ -55,7 +55,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <PrecompiledHeader>Use</PrecompiledHeader>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(VULKAN_SDK)\include;$(ProjectDir);$(SolutionDir)ext\include\;$(SolutionDir)DiamondDogs\engine\renderer\gui\imgui_lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -101,7 +101,6 @@
     <ClInclude Include="common\CommonDef.h" />
     <ClInclude Include="common\CommonUtil.h" />
     <ClInclude Include="common\VkDebug.h" />
-    <ClInclude Include="engine\objects\Atmosphere.h" />
     <ClInclude Include="engine\renderer\render\Deferred.h" />
     <ClInclude Include="engine\renderer\render\Multisampling.h" />
     <ClInclude Include="engine\renderer\resource\Allocator.h" />
@@ -144,17 +143,11 @@
     <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
     <ClInclude Include="engine\util\AABB.h" />
     <ClInclude Include="engine\util\alloc\Page.h" />
-    <ClInclude Include="engine\util\circular_buffer.h" />
     <ClInclude Include="engine\util\easylogging++.h" />
-    <ClInclude Include="engine\util\FastNoise.h" />
-    <ClInclude Include="engine\util\lodepng.h" />
     <ClInclude Include="engine\util\Noise.h" />
-    <ClInclude Include="engine\util\ref_counter.h" />
     <ClInclude Include="engine\util\sdnoise1234.h" />
-    <ClInclude Include="engine\util\sphere.h" />
     <ClInclude Include="engine\util\ThreadWrapper.h" />
     <ClInclude Include="engine\util\view_frustum.h" />
-    <ClInclude Include="scenes\Atmoscene.h" />
     <ClInclude Include="scenes\BaseScene.h" />
     <ClInclude Include="scenes\StarScene.h" />
     <ClInclude Include="scenes\Terrain.h" />
@@ -165,7 +158,6 @@
   <ItemGroup>
     <ClCompile Include="bodies\star\Star.cpp" />
     <ClCompile Include="DiamondDogs.cpp" />
-    <ClCompile Include="engine\objects\Atmosphere.cpp" />
     <ClCompile Include="engine\objects\mesh\Icosphere.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
@@ -203,17 +195,13 @@
     <ClCompile Include="engine\util\easylogging++.cc">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="engine\util\FastNoise.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
-    </ClCompile>
-    <ClCompile Include="engine\util\lodepng.cpp">
-      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
-    </ClCompile>
     <ClCompile Include="engine\util\Noise.cpp" />
     <ClCompile Include="engine\util\sdnoise1234.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="scenes\BaseScene.cpp" />
+    <ClCompile Include="scenes\BaseScene.cpp">
+      <WarningLevel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Level3</WarningLevel>
+    </ClCompile>
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>

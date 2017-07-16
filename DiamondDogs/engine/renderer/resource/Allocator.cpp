@@ -231,9 +231,9 @@ namespace vulpes {
 
 		// We checked previous allocations for conflicts: now, we'll check next suballocations
 		if(buffer_image_granularity > 1) {
-			auto next_iter = dest_suballocation_location;
-			++next_iter;
-			while (next_iter != Suballocations.cend()) {
+			auto next_suballoc_iter = dest_suballocation_location;
+			++next_suballoc_iter;
+			while (next_suballoc_iter != Suballocations.cend()) {
 				const auto& next_suballoc = *next_iter;
 				bool on_same_page = CheckBlocksOnSamePage(*dest_offset, allocation_size, next_suballoc.offset, buffer_image_granularity);
 				if (on_same_page) {
@@ -244,7 +244,7 @@ namespace vulpes {
 				else {
 					break;
 				}
-				++next_iter;
+				++next_suballoc_iter;
 			}
 		}
 
@@ -549,9 +549,14 @@ namespace vulpes {
 		
 		// find memory type (i.e idx) required for this allocation
 		uint32_t memory_type_idx = findMemoryTypeIdx(memory_reqs, alloc_details);
+		*dest_memory_type_idx = memory_type_idx;
 		if (memory_type_idx != std::numeric_limits<uint32_t>::max()) {
 			return allocateMemoryType(memory_reqs, alloc_details, memory_type_idx, suballoc_type, dest_memory_range);
 		}
+		else {
+			return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+		}
+
 	}
 
 	void Allocator::FreeMemory(const VkMappedMemoryRange * memory_to_free) {
@@ -771,8 +776,8 @@ namespace vulpes {
 
 	bool Allocator::freePrivateMemory(const VkMappedMemoryRange * range_to_free) {
 		auto mem_to_free = privateAllocations.find(range_to_free);
+		vkUnmapMemory(parent->vkHandle(), mem_to_free->first->memory);
 		if (mem_to_free != privateAllocations.cend()) {
-			auto& suballoc = mem_to_free->second;
 			vkFreeMemory(parent->vkHandle(), range_to_free->memory, nullptr);
 			return true;
 		}

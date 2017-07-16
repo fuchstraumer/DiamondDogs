@@ -13,6 +13,8 @@ namespace vulpes {
 			pipelineInfo.pName = "main";
 		}
 
+		LoadCodeFromFile(filename);
+
 		VkResult result = vkCreateShaderModule(device->vkHandle(), &createInfo, allocators, &handle);
 		VkAssert(result);
 

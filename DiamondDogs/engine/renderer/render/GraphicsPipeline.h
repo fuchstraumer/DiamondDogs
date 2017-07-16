@@ -25,16 +25,13 @@ namespace vulpes {
 	class GraphicsPipeline : public NonCopyable {
 	public:
 
-		GraphicsPipeline(const Device* parent, const GraphicsPipelineInfo& info = GraphicsPipelineInfo());
+		GraphicsPipeline(const Device* parent, const GraphicsPipelineInfo& info);
 
-		GraphicsPipeline(const Device* parent, const Swapchain* swapchain);
+		GraphicsPipeline(const Device* parent);
 
 		~GraphicsPipeline();
 
-		void AddShaderModule(const char* filename, const VkShaderStageFlagBits& stages, const char* shader_name = nullptr);
-
 		void Init(VkGraphicsPipelineCreateInfo& create_info, const VkPipelineCache& cache = VK_NULL_HANDLE);
-		void Init();
 
 		void SetRenderpass(const VkRenderPass& renderpass);
 
@@ -44,12 +41,9 @@ namespace vulpes {
 		const VkAllocationCallbacks* allocators = nullptr;
 		const Device* parent;
 		VkPipeline handle;
-		VkPipelineCache cache;
-		VkPipelineLayout layout;
 		GraphicsPipelineInfo info;
 		VkGraphicsPipelineCreateInfo createInfo;
-		std::vector<ShaderModule> shaders;
-		std::vector<VkPipelineShaderStageCreateInfo> shaderPipelineInfos;
+
 	};
 
 }

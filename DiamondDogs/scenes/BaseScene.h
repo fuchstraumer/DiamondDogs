@@ -32,7 +32,7 @@ namespace vulpes {
 
 		virtual void SetupFramebuffers();
 
-		virtual void RecreateSwapchain(const bool& windowed_fullscreen = false);
+		virtual void RecreateSwapchain();
 
 		virtual void WindowResized() = 0;
 

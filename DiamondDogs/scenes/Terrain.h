@@ -15,7 +15,7 @@ namespace terrain_scene {
 	class TerrainScene : public BaseScene {
 	public:
 
-		TerrainScene() : BaseScene(4) {
+		TerrainScene() : BaseScene(3) {
 			terrain::NodeRenderer::DrawAABBs = false;
 			renderSkybox = true;
 			const std::type_info& id = typeid(TerrainScene);
@@ -30,21 +30,17 @@ namespace terrain_scene {
 
 			skybox = new obj::Skybox(device);
 			skybox->CreateData(transferPool, transfer, instance->GetProjectionMatrix());
-			skybox->CreatePipeline(renderPass->vkHandle(), swapchain, pipelineCache);
+			skybox->CreatePipeline(renderPass->vkHandle(), pipelineCache);
 
 			SetupFramebuffers();
 
 			auto gui_cache = std::make_shared<PipelineCache>(device, static_cast<uint16_t>(typeid(imguiWrapper).hash_code()));
 			gui = new imguiWrapper;
-			gui->Init(device, gui_cache, renderPass->vkHandle(), swapchain);
+			gui->Init(device, gui_cache, renderPass->vkHandle());
 			gui->UploadTextureData(graphicsPool);
 		}
 
 		~TerrainScene() {	
-			if (!util::AABB::aabbPool.empty()) {
-				util::AABB::aabbPool.clear();
-				util::AABB::CleanupVkResources();
-			}
 			delete skybox;
 			delete object;
 		}
@@ -96,9 +92,9 @@ namespace terrain_scene {
 					device->vkCmdBeginDebugMarkerRegion(graphicsPool->GetCmdBuffer(i), region_name.c_str(), glm::vec4(0.0f, 0.2f, 0.8f, 1.0f));
 				}
 
-				renderpass_begin.framebuffer = framebuffers[i].vkHandle();
+				renderpass_begin.framebuffer = framebuffers[i];
 				renderpass_begin.renderArea.extent = swapchain->Extent;
-				inherit_info.framebuffer = framebuffers[i].vkHandle();
+				inherit_info.framebuffer = framebuffers[i];
 
 				static VkDeviceSize offsets[1]{ 0 };
 
@@ -113,13 +109,12 @@ namespace terrain_scene {
 				vkCmdBeginRenderPass(graphicsPool->GetCmdBuffer(i), &renderpass_begin, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
 				begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-				inherit_info.framebuffer = framebuffers[i].vkHandle();
+				inherit_info.framebuffer = framebuffers[i];
 				begin_info.pInheritanceInfo = &inherit_info;
 
 				VkCommandBuffer& terrain_buffer = secondaryPool->GetCmdBuffer(i * swapchain->ImageCount);
 				VkCommandBuffer& skybox_buffer = secondaryPool->GetCmdBuffer(1 + (i * swapchain->ImageCount));
 				VkCommandBuffer& gui_buffer = secondaryPool->GetCmdBuffer(2 + (i * swapchain->ImageCount));
-				VkCommandBuffer& aabb_buffer = secondaryPool->GetCmdBuffer(3 + (i * swapchain->ImageCount));
 
 				ImGui::Begin("Debug");
 				ImGui::Checkbox("Render Skybox", &renderSkybox);
@@ -142,20 +137,6 @@ namespace terrain_scene {
 				else {
 					vkBeginCommandBuffer(skybox_buffer, &begin_info);
 					vkEndCommandBuffer(skybox_buffer);
-				}
-				
-				if (terrain::NodeRenderer::DrawAABBs) {
-					vkBeginCommandBuffer(aabb_buffer, &begin_info);
-					if (device->MarkersEnabled) {
-						device->vkCmdInsertDebugMarker(skybox_buffer, "Draw AABBs", glm::vec4(0.7f, 0.3f, 0.0f, 1.0f));
-					}
-					util::AABB::RenderAABBs(instance->GetViewMatrix(), aabb_buffer, viewport, scissor);
-					vkEndCommandBuffer(aabb_buffer);
-					buffers.push_back(aabb_buffer);
-				}
-				else {
-					vkBeginCommandBuffer(aabb_buffer, &begin_info);
-					vkEndCommandBuffer(aabb_buffer);
 				}
 
 				object->RenderNodes(terrain_buffer, begin_info, instance->GetViewMatrix(), instance->GetCamPos(), viewport, scissor);
@@ -239,7 +220,7 @@ namespace terrain_scene {
 			submit_info.signalSemaphoreCount = 1;
 			submit_info.pSignalSemaphores = &semaphores[1];
 			VkResult result = vkQueueSubmit(device->GraphicsQueue(), 1, &submit_info, VK_NULL_HANDLE);
-			//VkAssert(result);
+			VkAssert(result);
 
 			VkPresentInfoKHR present_info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 			present_info.waitSemaphoreCount = 1;

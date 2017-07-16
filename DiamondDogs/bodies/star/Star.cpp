@@ -42,7 +42,7 @@ namespace vulpes {
 
 	}
 
-	void Star::BuildPipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& _cache) {
+	void Star::BuildPipeline(const VkRenderPass& renderpass, std::shared_ptr<PipelineCache>& _cache) {
 
 		pipelineCache = _cache;
 
@@ -58,12 +58,12 @@ namespace vulpes {
 		vert_info.pVertexBindingDescriptions = bind.data();
 		pipelineCreateInfo.pVertexInputState = &vert_info;
 
-		pipeline = new GraphicsPipeline(device, swapchain);
-		pipeline->Init(std::move(pipelineCreateInfo), pipelineCache->vkHandle());
+		pipeline = new GraphicsPipeline(device);
+		pipeline->Init(pipelineCreateInfo, pipelineCache->vkHandle());
 
 	}
 
-	void Star::BuildMesh(CommandPool * pool, const VkQueue & queue){
+	void Star::BuildMesh(){
 		
 		mesh0.create_buffers(device);
 		vsUboData.model = mesh0.get_model_matrix();

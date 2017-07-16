@@ -152,7 +152,7 @@ namespace vulpes {
 
 		}
 
-		void Skybox::CreatePipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& cache) {
+		void Skybox::CreatePipeline(const VkRenderPass& renderpass, std::shared_ptr<PipelineCache>& cache) {
 
 			const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
 			pipelineCache = cache;
@@ -192,7 +192,7 @@ namespace vulpes {
 			pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
 			pipeline_create_info.basePipelineIndex = -1;
 
-			pipeline = new GraphicsPipeline(device, swapchain);
+			pipeline = new GraphicsPipeline(device);
 			pipeline->Init(pipeline_create_info, pipelineCache->vkHandle());
 
 		}

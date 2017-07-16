@@ -36,7 +36,7 @@ namespace vulpes {
 
 	DataProducer::DataProducer(const Device * _parent) : parent(_parent) {
 		
-		pipelineCache = std::make_unique<PipelineCache>(parent, typeid(DataProducer).hash_code() + numProducers);
+		pipelineCache = std::make_unique<PipelineCache>(parent, static_cast<int16_t>(typeid(DataProducer).hash_code() + numProducers));
 
 		// we offset the hash used for pipeline cache by this: that way,
 		// each producer instance gets its own cache (so, split instances among distinct task types to leverage cache)
@@ -102,7 +102,7 @@ namespace vulpes {
 		pool_info.queueFamilyIndex = parent->QueueFamilyIndices.Compute;
 
 		computePool = std::make_unique<CommandPool>(parent, pool_info, true);
-		computePool->AllocateCmdBuffers(availQueues.size());
+		computePool->AllocateCmdBuffers(static_cast<uint32_t>(availQueues.size()));
 
 		spareQueue = parent->GeneralQueue(0);
 		pool_info.queueFamilyIndex = parent->QueueFamilyIndices.Graphics;
@@ -324,7 +324,7 @@ namespace vulpes {
 
 		vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines[curr_idx]);
 		vkCmdBindDescriptorSets(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-		vkCmdDispatch(cmd_buffer, ceil(request->Width / 16), ceil(request->Height / 16), 1);
+		vkCmdDispatch(cmd_buffer, static_cast<uint32_t>(ceil(request->Width / 16)), static_cast<uint32_t>(ceil(request->Height / 16)), 1);
 		vkCmdPipelineBarrier(cmd_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &computeCompleteBarrier, 0, nullptr);
 		vkCmdCopyBuffer(cmd_buffer, request->Output->vkHandle(), request->Result->vkHandle(), 1, &output_to_result_copy);
 		vkCmdPipelineBarrier(cmd_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &hostTransitionBarrier, 0, nullptr);

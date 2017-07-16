@@ -197,11 +197,12 @@ void vulpes::BaseScene::SetupFramebuffers(){
 		f_info.layers = 1;
 		VkFramebuffer new_fbuff;
 		VkResult result = vkCreateFramebuffer(device->vkHandle(), &f_info, nullptr, &new_fbuff);
+		VkAssert(result);
 		framebuffers.push_back(std::move(new_fbuff));
 	}
 }
 
-void vulpes::BaseScene::RecreateSwapchain(const bool& windowed_fullscreen){
+void vulpes::BaseScene::RecreateSwapchain(){
 	// First wait to make sure nothing is in use.
 	vkDeviceWaitIdle(device->vkHandle());
 

@@ -17,7 +17,7 @@ namespace vulpes {
 		Buffer(Buffer&& other) noexcept;
 		Buffer& operator=(Buffer&& other) noexcept;
 
-		void CreateBuffer(const VkBufferUsageFlags& usage_flags, const VkMemoryPropertyFlags& memory_flags, const VkDeviceSize& size, const VkDeviceSize& offset = 0);
+		void CreateBuffer(const VkBufferUsageFlags& usage_flags, const VkMemoryPropertyFlags& memory_flags, const VkDeviceSize& size);
 
 		void Destroy();
 

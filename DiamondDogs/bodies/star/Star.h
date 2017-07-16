@@ -29,8 +29,8 @@ namespace vulpes {
 		Star() = default;
 		Star& operator=(Star&& other);
 		
-		void BuildPipeline(const VkRenderPass& renderpass, const Swapchain* swapchain, std::shared_ptr<PipelineCache>& cache);
-		void BuildMesh(CommandPool* pool, const VkQueue& queue);
+		void BuildPipeline(const VkRenderPass& renderpass, std::shared_ptr<PipelineCache>& cache);
+		void BuildMesh();
 		void RecordCommands(VkCommandBuffer& dest_cmd);
 
 		void UpdateUBOs(const glm::mat4& view, const glm::vec3& camera_position);

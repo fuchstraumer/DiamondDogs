@@ -24,6 +24,8 @@ namespace vulpes {
 			TerrainQuadtree(const TerrainQuadtree&) = delete;
 			TerrainQuadtree& operator=(const TerrainQuadtree&) = delete;
 
+			size_t MaxLOD;
+
 		public:
 
 			TerrainQuadtree(const Device* device, const float& split_factor, const size_t& max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position);

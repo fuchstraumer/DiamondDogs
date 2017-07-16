@@ -67,8 +67,10 @@ namespace vulpes {
 			};
 
 			static const VkPipelineVertexInputStateCreateInfo PipelineInfo() noexcept {
-				auto bind = BindDescr();
-				auto attr = AttrDescr();
+				
+				const auto bind = BindDescr();
+				const auto attr = AttrDescr();
+
 				return VkPipelineVertexInputStateCreateInfo{
 					VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
 					nullptr,

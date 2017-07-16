@@ -101,7 +101,7 @@ namespace vulpes {
 			1,
 			Multisampling::SampleCount,
 			VK_IMAGE_TILING_OPTIMAL,
-			attachment_usage | VK_IMAGE_USAGE_SAMPLED_BIT,
+			VkImageUsageFlags(attachment_usage | VK_IMAGE_USAGE_SAMPLED_BIT),
 			VK_SHARING_MODE_EXCLUSIVE,
 			0,
 			nullptr,

@@ -27,14 +27,14 @@ namespace vulpes {
 			size_t count2 = SubdivisionLevel + 1;
 			size_t numTris = SubdivisionLevel*SubdivisionLevel * 6;
 			size_t numVerts = count2*count2;
-			float scale = static_cast<float>(SideLength) / static_cast<float>(SubdivisionLevel);
+			float grid_scale = static_cast<float>(SideLength) / static_cast<float>(SubdivisionLevel);
 			size_t idx = 0;
 			vertices.resize(numVerts);
 			
 			// Place vertices and set normal to 0.0f
 			for (float y = 0.0f; y < static_cast<float>(count2); ++y) {
 				for (float x = 0.0f; x < static_cast<float>(count2); ++x) {
-					vertices.positions[idx] = glm::vec3(x * scale, height_node->GetHeight(glm::vec2(x * scale, y * scale)), y * scale);
+					vertices.positions[idx] = glm::vec3(x * grid_scale, height_node->GetHeight(glm::vec2(x * grid_scale, y * grid_scale)), y * grid_scale);
 					vertices.normals_uvs[idx].normal = glm::vec3(0.0f);
 					++idx;
 				}

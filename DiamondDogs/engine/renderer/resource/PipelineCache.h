@@ -28,12 +28,13 @@ namespace vulpes {
 
 	private:
 
+		std::string filename;
 		VkResult saveToFile() const;
 		uint16_t hashID;
-		std::string filename;
 		const Device* parent;
 		VkPipelineCache handle;
 		VkPipelineCacheCreateInfo createInfo;
+
 	};
 
 }

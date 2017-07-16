@@ -22,7 +22,7 @@
 #include <chrono>
 #include <forward_list>
 #include <future>
-
+#pragma warning(push, 0)
 #define GLFW_DLL
 #define GLFW_INCLUDE_VULKAN
 #include "glfw\glfw3.h"
@@ -45,10 +45,10 @@
 #include "glm\gtx\hash.hpp"
 
 // Both of these have silly errors we can ignore.
-#pragma warning(push, 0)
+
 #include "gli\gli.hpp"
 #include "engine\util\lodepng.h"
-#pragma warning(pop)
+
 
 // Forces assert even in release mode: convienient for catching
 // errors that occur due to release optimizations.
@@ -58,14 +58,14 @@
 #include "common/vkAssert.h"
 #include "common/vk_constants.h"
 #include "common\CommonDef.h"
-
+#pragma warning(pop)
 // Number of odd/broken defines in this, as it includes windows.h 
 #define NOMINMAX
 #include "engine\util\easylogging++.h"
 #undef NOMINMAX
 
 // Default width/height of window. Should probably move this elsewhere and/or remove it entirely.
-constexpr uint32_t DEFAULT_WIDTH = 1024, DEFAULT_HEIGHT = 720;
+constexpr uint32_t DEFAULT_WIDTH = 1920, DEFAULT_HEIGHT = 1080;
 // Defines depth rendering ranges for projection matrix. Same as above, probably a bad idea.
 constexpr float nearDepth = 1.0f, farDepth = 500000.0f;
 

@@ -56,6 +56,7 @@ namespace vulpes {
 		alloc_info.commandPool = handle;
 		alloc_info.commandBufferCount = num_buffers;
 		VkResult result = vkAllocateCommandBuffers(parent->vkHandle(), &alloc_info, cmdBuffers.data());
+		VkAssert(result);
 	}
 
 	void CommandPool::FreeCommandBuffers(){

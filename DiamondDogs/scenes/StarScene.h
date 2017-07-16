@@ -16,7 +16,7 @@ namespace star_scene {
 
 		StarScene() : BaseScene(2) {
 
-			pipelineCache = std::make_shared<PipelineCache>(device, typeid(StarScene).hash_code());
+			pipelineCache = std::make_shared<PipelineCache>(device, static_cast<int16_t>(typeid(StarScene).hash_code()));
 
 			object = new Star(device, 5, 300.0f, 4000, instance->GetProjectionMatrix());
 			skybox = new obj::Skybox(device);
@@ -25,11 +25,11 @@ namespace star_scene {
 
 			VkQueue transfer = device->TransferQueue(0);
 
-			object->BuildMesh(transferPool, transfer);
-			object->BuildPipeline(renderPass->vkHandle(), swapchain, pipelineCache);
+			object->BuildMesh();
+			object->BuildPipeline(renderPass->vkHandle(), pipelineCache);
 
 			skybox->CreateData(transferPool, transfer, instance->GetProjectionMatrix());
-			skybox->CreatePipeline(renderPass->vkHandle(), swapchain, pipelineCache);
+			skybox->CreatePipeline(renderPass->vkHandle(), pipelineCache);
 
 			SetupFramebuffers();
 
@@ -39,10 +39,10 @@ namespace star_scene {
 			object = new Star(device, 5, 300.0f, 4000, instance->GetProjectionMatrix());
 			skybox = new obj::Skybox(device);
 			VkQueue transfer = device->TransferQueue(0);
-			object->BuildMesh(transferPool, transfer);
-			object->BuildPipeline(renderPass->vkHandle(), swapchain, pipelineCache);
+			object->BuildMesh();
+			object->BuildPipeline(renderPass->vkHandle(), pipelineCache);
 			skybox->CreateData(transferPool, transfer, instance->GetProjectionMatrix());
-			skybox->CreatePipeline(renderPass->vkHandle(), swapchain, pipelineCache);
+			skybox->CreatePipeline(renderPass->vkHandle(), pipelineCache);
 		}
 
 		virtual void WindowResized() override {
@@ -178,7 +178,7 @@ namespace star_scene {
 			submit_info.signalSemaphoreCount = 1;
 			submit_info.pSignalSemaphores = &semaphores[1];
 			VkResult result = vkQueueSubmit(device->GraphicsQueue(), 1, &submit_info, VK_NULL_HANDLE);
-			//VkAssert(result);
+			VkAssert(result);
 
 			VkPresentInfoKHR present_info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 			present_info.waitSemaphoreCount = 1;

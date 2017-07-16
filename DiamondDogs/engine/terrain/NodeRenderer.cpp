@@ -123,7 +123,7 @@ vulpes::terrain::NodeRenderer::~NodeRenderer() {
 	delete pipeline;
 }
 
-void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection) {
+void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpass, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection) {
 
 	updateUBO(projection);
 
@@ -169,7 +169,7 @@ void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpa
 	pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
 	pipeline_create_info.basePipelineIndex = -1;
 
-	pipeline = new GraphicsPipeline(device, swapchain);
+	pipeline = new GraphicsPipeline(device);
 	pipeline->Init(pipeline_create_info, cache->vkHandle());
 }
 
@@ -294,7 +294,6 @@ void vulpes::terrain::NodeRenderer::transferNodeToDvc(TerrainNode* node_to_trans
 	size_t num_samples = node_to_transfer->upsampleRequest->node->NumSamples();
 
 	// Map the compute shader result buffer
-	void* mapped;
 	result->Map();
 	glm::vec2* result_vecs = reinterpret_cast<glm::vec2*>(result->MappedMemory);
 

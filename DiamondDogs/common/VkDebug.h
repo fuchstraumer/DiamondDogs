@@ -118,7 +118,7 @@ namespace vulpes {
 
 		std::stringstream debug_msg;
 		debug_msg << prefix << " [" << layerPrefix << "]" << " [" << obj_type << "]\n";
-		debug_msg << "Obj. Handle: " << std::to_string(obj) << " Code: " << code << " : " << msg << "\n";
+		debug_msg << "Obj. Handle: " << std::to_string(obj) << " Code: " << code << " at " << std::to_string(location) << " : " << msg << "\n";
 		std::cout << debug_msg.str();
 		return VK_FALSE;
 	}
