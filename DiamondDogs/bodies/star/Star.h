@@ -51,14 +51,14 @@ namespace vulpes {
 		void setupPipelineCreateInfo(const VkRenderPass& renderpass);
 
 		const Device* device;
-		GraphicsPipeline* pipeline;
+		std::unique_ptr<GraphicsPipeline> pipeline;
 		std::shared_ptr<PipelineCache> pipelineCache;
-		Buffer *vsUBO;
+		std::unique_ptr<Buffer> vsUBO;
 		VkDescriptorSetLayout descriptorSetLayout;
 		VkDescriptorSet descriptorSet;
 		VkDescriptorPool descriptorPool;
 		VkPipelineLayout pipelineLayout;
-		ShaderModule *vert, *frag;
+		std::unique_ptr<ShaderModule> vert, frag;
 
 		GraphicsPipelineInfo pipelineInfo;
 		VkGraphicsPipelineCreateInfo pipelineCreateInfo;

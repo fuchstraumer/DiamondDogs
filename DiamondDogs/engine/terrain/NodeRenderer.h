@@ -50,8 +50,6 @@ namespace vulpes {
 
 			void AddRequest(TerrainNode* node);
 
-			void RemoveNode(TerrainNode * node);
-
 			void Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const glm::vec3& view_pos, const VkViewport& viewport, const VkRect2D& scissor);
 
 			void SendRequests();
@@ -72,12 +70,12 @@ namespace vulpes {
 
 			void transferNodesToDvc();
 
-			void transferNodeToDvc(TerrainNode * node_to_transfer);
+			void transferNodeToDvc(std::shared_ptr<TerrainNode> node_to_transfer);
 
 			void updateGUI();
 
-			std::set<TerrainNode*> readyNodes;
-			std::forward_list<TerrainNode*> transferNodes;
+			std::set<std::shared_ptr<TerrainNode>> readyNodes;
+			std::forward_list<std::shared_ptr<TerrainNode>> transferNodes;
 
 			VkDescriptorSetLayout descriptorSetLayout;
 			VkDescriptorSet descriptorSet;
@@ -86,7 +84,7 @@ namespace vulpes {
 			std::unique_ptr<ShaderModule> vert, frag;
 			const Device* device;
 
-			GraphicsPipeline* pipeline;
+			std::unique_ptr<GraphicsPipeline> pipeline;
 			std::shared_ptr<PipelineCache> pipelineCache;
 			std::unique_ptr<DataProducer> dataProducer;
 
@@ -94,7 +92,7 @@ namespace vulpes {
 			const VkRect2D* frameScissorRect;
 			const glm::vec3* frameCameraPos;
 
-			TransferPool* transferPool;
+			std::unique_ptr<TransferPool> transferPool;
 			ThreadWrapped upsampleThread;
 
 		};

@@ -2,7 +2,7 @@
 #include "LogicalDevice.h"
 #include "PhysicalDevice.h"
 #include "Instance.h"
-#include "../resource/Allocator.h"
+
 namespace vulpes {
 
 	Device::Device(const Instance* instance, const PhysicalDevice * device) : parent(device), parentInstance(instance) {
@@ -50,7 +50,7 @@ namespace vulpes {
 			GetMarkerFuncPtrs();
 		}
 
-		vkAllocator = new Allocator(this);
+		vkAllocator = std::make_unique<Allocator>(this);
 
 	}
 

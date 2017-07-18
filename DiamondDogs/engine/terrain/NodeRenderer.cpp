@@ -55,7 +55,7 @@ vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(
 
 	createShaders();
 
-	transferPool = new TransferPool(device);
+	transferPool = std::make_unique<TransferPool>(device);
 
 	dataProducer = std::make_unique<DataProducer>(device);
 }
@@ -120,7 +120,6 @@ vulpes::terrain::NodeRenderer::~NodeRenderer() {
 	vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
 	vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
 	vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
-	delete pipeline;
 }
 
 void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpass, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection) {
@@ -169,7 +168,7 @@ void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpa
 	pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
 	pipeline_create_info.basePipelineIndex = -1;
 
-	pipeline = new GraphicsPipeline(device);
+	pipeline = std::make_unique<GraphicsPipeline>(device);
 	pipeline->Init(pipeline_create_info, cache->vkHandle());
 }
 
@@ -179,11 +178,11 @@ void vulpes::terrain::NodeRenderer::updateUBO(const glm::mat4 & projection) {
 
 void vulpes::terrain::NodeRenderer::AddNode(TerrainNode * node){
 	if (node->Status == NodeStatus::NeedsTransfer) {
-		transferNodes.push_front(node);
+		transferNodes.push_front(std::shared_ptr<TerrainNode>(node));
 	}
 	else if (node->Status == NodeStatus::Active) {
 		assert(node->mesh.Ready());
-		readyNodes.insert(node);
+		readyNodes.insert(std::shared_ptr<TerrainNode>(node));
 	}
 	
 }
@@ -192,10 +191,6 @@ void vulpes::terrain::NodeRenderer::AddRequest(TerrainNode * node) {
 	auto new_request = DataRequest::UpsampleRequest(node->HeightData.get(), node->HeightData->Parent, device);
 	node->upsampleRequest = new_request;
 	dataProducer->Request(new_request.get());
-}
-
-void vulpes::terrain::NodeRenderer::RemoveNode(TerrainNode* node) {
-	readyNodes.erase(node);
 }
 
 void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const glm::vec3& view_pos, const VkViewport& viewport, const VkRect2D& scissor) {
@@ -232,7 +227,7 @@ void vulpes::terrain::NodeRenderer::renderNodes(VkCommandBuffer& cmd_buffer, VkC
 		vkCmdPushConstants(cmd_buffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(terrain_push_ubo) + sizeof(glm::vec4), sizeof(glm::vec4), glm::value_ptr(camera_push));
 		auto iter = readyNodes.begin();
 		while (iter != readyNodes.end()) {
-			TerrainNode* curr = *iter;
+			auto curr = *iter;
 			if (!curr) {
 				readyNodes.erase(iter++);
 			}
@@ -276,7 +271,7 @@ void vulpes::terrain::NodeRenderer::transferNodesToDvc() {
 	transferPool->Begin();
 
 	while (!transferNodes.empty()) {
-		TerrainNode* curr = transferNodes.front();
+		auto curr = transferNodes.front();
 		transferNodeToDvc(curr);
 		transferNodes.pop_front();
 	}
@@ -287,7 +282,7 @@ void vulpes::terrain::NodeRenderer::transferNodesToDvc() {
 
 }
 
-void vulpes::terrain::NodeRenderer::transferNodeToDvc(TerrainNode* node_to_transfer) {
+void vulpes::terrain::NodeRenderer::transferNodeToDvc(std::shared_ptr<TerrainNode> node_to_transfer) {
 	// Verify/Get compute shader results.
 	auto& result = node_to_transfer->upsampleRequest->Result;
 	assert(node_to_transfer->upsampleRequest->Complete());

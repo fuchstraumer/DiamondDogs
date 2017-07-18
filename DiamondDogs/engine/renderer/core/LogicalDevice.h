@@ -5,7 +5,7 @@
 #include "stdafx.h"
 #include "engine/renderer\ForwardDecl.h"
 #include "engine/renderer\NonCopyable.h"
-
+#include "../resource/Allocator.h"
 namespace vulpes {
 
 	struct vkQueueFamilyIndices {
@@ -76,7 +76,7 @@ namespace vulpes {
 		vkQueueFamilyIndices QueueFamilyIndices;
 		std::vector<const char*> Extensions;
 
-		Allocator* vkAllocator;
+		std::unique_ptr<Allocator> vkAllocator;
 
 	private:
 
