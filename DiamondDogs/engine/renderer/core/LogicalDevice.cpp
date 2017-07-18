@@ -141,7 +141,6 @@ namespace vulpes {
 	}
 
 	Device::~Device(){
-		delete vkAllocator;
 		vkDestroyDevice(handle, AllocCallbacks);
 	}
 
