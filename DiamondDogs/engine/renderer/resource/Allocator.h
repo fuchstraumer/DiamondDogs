@@ -159,7 +159,7 @@ namespace vulpes {
 			return false;
 		default:
 			LOG(WARNING) << "Reached default case in CheckBufferImageGranularity switch statement: this should NOT occur";
-			return false;
+			return true;
 		}
 	}
 
@@ -190,6 +190,19 @@ namespace vulpes {
 		VkMemoryPropertyFlags requiredFlags;
 		// acts as additional flags over above.
 		VkMemoryPropertyFlags preferredFlags = VkMemoryPropertyFlags(0);
+	};
+
+	struct AllocationInfo {
+		uint32_t memoryTypeIdx;
+		VkDeviceMemory memory;
+		VkDeviceSize offset;
+		VkDeviceSize size;
+		void* mappedData;
+	};
+
+	struct DefragInfo {
+		VkDeviceSize maxSizeToMove;
+		VkDeviceSize maxSuballocationsToMove;
 	};
 
 	struct Suballocation {
@@ -245,28 +258,75 @@ namespace vulpes {
 		std::mutex& mutex;
 	};
 
+	typedef std::vector<suballocationList::iterator>::iterator avail_suballocation_iterator_t;
+	typedef std::vector<suballocationList::iterator>::const_iterator const_avail_suballocation_iterator_t;
+	typedef suballocationList::iterator suballocation_iterator_t;
+	typedef suballocationList::const_iterator const_suballocation_iterator_t;
+
 
 	/*
 	
 		Main allocation classes and objects
 	
 	*/
+	
+	/*
+		
+		Allocation class represents a singular allocation: can be a private allocation (i.e, only user
+		of attached DeviceMemory) or a block allocation (bound to sub-region of device memory)
 
-	typedef std::vector<suballocationList::iterator>::iterator avail_suballocation_iterator_t;
-	typedef std::vector<suballocationList::iterator>::const_iterator const_avail_suballocation_iterator_t;
-	typedef suballocationList::iterator suballocation_iterator_t;
-	typedef suballocationList::const_iterator const_suballocation_iterator_t;
+	*/
+
+	struct Allocation {
+
+		enum class allocType {
+			BLOCK_ALLOCATION,
+			PRIVATE_ALLOCATION,
+		};
+
+		allocType Type;
+
+		Allocation() = default;
+
+		void Init(MemoryBlock* parent_block, const VkDeviceSize& offset, const VkDeviceSize& alignment, const VkDeviceSize& alloc_size, const SuballocationType& suballoc_type);
+		void Update(MemoryBlock* new_parent_block, const VkDeviceSize& new_offset);
+		void InitPrivate(const uint32_t& type_idx, VkDeviceMemory& dvc_memory, const SuballocationType& suballoc_type, bool persistently_mapped, void* mapped_data, const VkDeviceSize& data_size);
+
+		const VkDeviceMemory& Memory() const;
+		VkDeviceSize Offset() const noexcept;
+		uint32_t MemoryTypeIdx() const noexcept;
+
+		SuballocationType SuballocType;
+		VkDeviceSize Size, Alignment;
+
+		union {
+
+			struct BlockAllocation {
+				MemoryBlock* ParentBlock;
+				VkDeviceSize Offset;
+			} blockAllocation;
+
+			struct PrivateAllocation {
+				uint32_t MemoryTypeIdx;
+				VkDeviceMemory DvcMemory;
+				bool PersistentlyMapped;
+				void* MappedData;
+			} privateAllocation;
+
+		};
+
+	};
 
 	/*
-		Allocation class contains singular VkDeviceMemory object.
+		MemoryBlock class contains singular VkDeviceMemory object.
 		Should only have a handful of these at any one time.
 	*/
 
-	class Allocation {
+	class MemoryBlock {
 	public:
 
-		Allocation(Allocator* alloc);
-		~Allocation(); // just assert that memory has been free'd
+		MemoryBlock(Allocator* alloc);
+		~MemoryBlock(); // just assert that memory has been free'd
 
 		// new_memory is a fresh device memory object, new_size is size of this device memory object.
 		void Init(VkDeviceMemory& new_memory, const VkDeviceSize& new_size);
@@ -275,7 +335,7 @@ namespace vulpes {
 		void Destroy(Allocator* alloc);
 
 		// Used when sorting AllocationCollection
-		bool operator<(const Allocation& other);
+		bool operator<(const MemoryBlock& other);
 
 		VkDeviceSize AvailableMemory() const noexcept;
 		const VkDeviceMemory& Memory() const noexcept;
@@ -295,7 +355,7 @@ namespace vulpes {
 		void Allocate(const SuballocationRequest& request, const SuballocationType& allocation_type, const VkDeviceSize& allocation_size);
 
 		// Frees memory in region specified (i.e frees/destroys a suballocation)
-		void Free(const VkMappedMemoryRange* memory_to_free);
+		void Free(const Allocation* memory_to_free);
 
 		VkDeviceSize LargestAvailRegion() const noexcept;
 
@@ -320,6 +380,7 @@ namespace vulpes {
 		VkDeviceSize Size;
 		suballocationList Suballocations;
 		Allocator* allocator;
+		uint32_t MemoryTypeIdx;
 
 	protected:
 
@@ -346,25 +407,25 @@ namespace vulpes {
 		std::vector<suballocationList::iterator> availSuballocations;
 	};
 
-	typedef std::vector<Allocation*>::iterator allocation_iterator_t;
-	typedef std::vector<Allocation*>::const_iterator const_allocation_iterator_t;
+	typedef std::vector<MemoryBlock*>::iterator allocation_iterator_t;
+	typedef std::vector<MemoryBlock*>::const_iterator const_allocation_iterator_t;
 
 	struct AllocationCollection {
-		std::vector<Allocation*> allocations;
+		std::vector<MemoryBlock*> allocations;
 
 		AllocationCollection() = default;
 		AllocationCollection(Allocator* allocator);
 
 		~AllocationCollection();
 
-		Allocation* operator[](const size_t& idx);
-		const Allocation* operator[](const size_t& idx) const;
+		MemoryBlock* operator[](const size_t& idx);
+		const MemoryBlock* operator[](const size_t& idx) const;
 
 		bool Empty() const;
 
 		// attempts to free memory: returns index of free'd allocation or -1 if not 
 		// able to free or not able to find desired memory
-		size_t Free(const VkMappedMemoryRange* memory_to_free);
+		size_t Free(const Allocation* memory_to_free);
 
 		// performs single sort step, to order "allocations" so that it is sorted
 		// by total available free memory.
@@ -373,7 +434,14 @@ namespace vulpes {
 		
 	private:
 		Allocator* allocator;
-		size_t availSize;
+	};
+
+	class Defragmenter {
+		const Device* parent;
+		VkDeviceSize BufferImageGranularity;
+		uint32_t MemoryTypeIdx;
+		VkDeviceSize BytesMoved;
+		uint32_t AllocationsMoved;
 	};
 
 	class Allocator : public NonMovable {
@@ -390,37 +458,33 @@ namespace vulpes {
 
 		const VkDevice& DeviceHandle() const noexcept;
 
-		VkResult AllocateMemory(const VkMemoryRequirements& memory_reqs, const AllocationRequirements& alloc_details, const SuballocationType& suballoc_type, VkMappedMemoryRange* dest_memory_range, uint32_t* dest_memory_type_idx);
+		VkResult AllocateMemory(const VkMemoryRequirements& memory_reqs, const AllocationRequirements& alloc_details, const SuballocationType& suballoc_type, Allocation& dest_allocation);
 
-		void FreeMemory(const VkMappedMemoryRange * memory_to_free);
-
-		// Uses given handle to search the image map for the handle, returning its memory range object
-		VkMappedMemoryRange GetMemoryRange(const VkImage& image) const;
-		VkMappedMemoryRange GetMemoryRange(const VkBuffer& buffer) const;
+		void FreeMemory(const Allocation* memory_to_free);
 
 		//  Maps given memory range to given void** destination
-		VkResult MapMemoryRange(const VkMappedMemoryRange* range, void** dest);
+		VkResult MapMemoryAllocation(const Allocation& alloc_to_map, void** dest);
 
 		// Unmaps given range
-		VkResult UnmapMemoryRange(const VkMappedMemoryRange* range);
+		VkResult UnmapMemoryAllocation(const Allocation& range);
 
 		// Allocates memory for an image, using given handle to get requirements. Allocation information is written to dest_memory_range, so it can then be used to bind the resources together.
-		VkResult AllocateForImage(VkImage& image_handle, const AllocationRequirements& details, const SuballocationType& alloc_type, VkMappedMemoryRange* dest_memory_range, uint32_t* memory_type_idx);
+		VkResult AllocateForImage(VkImage& image_handle, const AllocationRequirements& details, const SuballocationType& alloc_type, Allocation& dest_allocation);
 
 		// Much like AllocateForImage: uses given handle to get requirements, writes details of allocation ot given range, making memory valid for binding.
-		VkResult AllocateForBuffer(VkBuffer& buffer_handle, const AllocationRequirements& details, const SuballocationType& alloc_type, VkMappedMemoryRange* dest_memory_range, uint32_t* memory_type_idx);
+		VkResult AllocateForBuffer(VkBuffer& buffer_handle, const AllocationRequirements& details, const SuballocationType& alloc_type, Allocation& dest_allocation);
 
 		// Creates an image object using given info. When finished, given handle is a valid image object (so long as the result value is VkSuccess). Also writes details to 
 		// dest_memory_range, but this method will try to bind the memory and image together too
-		VkResult CreateImage(VkImage* image_handle, VkMappedMemoryRange* dest_memory_range, const VkImageCreateInfo* img_create_info, const AllocationRequirements& alloc_reqs);
+		VkResult CreateImage(VkImage* image_handle, const VkImageCreateInfo* img_create_info, const AllocationRequirements& alloc_reqs, Allocation& dest_allocation);
 
 		// Creates a buffer object using given info. Given handle is valid for use if method returns VK_SUCCESS, and memory will also have been bound to the object. Details of the 
 		// memory used for this particular object are also written to dest_memory_range, however.
-		VkResult CreateBuffer(VkBuffer* buffer_handle, VkMappedMemoryRange* dest_memory_range, const VkBufferCreateInfo* buffer_create_info, const AllocationRequirements& alloc_reqs);
+		VkResult CreateBuffer(VkBuffer* buffer_handle, const VkBufferCreateInfo* buffer_create_info, const AllocationRequirements& alloc_reqs, Allocation& dest_allocation);
 
 		// Destroys image/buffer specified by given handle.
-		void DestroyImage(const VkImage& image_handle);
-		void DestroyBuffer(const VkBuffer& buffer_handle);
+		void DestroyImage(const VkImage& image_handle, Allocation& allocation_to_free);
+		void DestroyBuffer(const VkBuffer& buffer_handle, Allocation& allocation_to_free);
 
 	private:
 
@@ -428,24 +492,15 @@ namespace vulpes {
 		uint32_t findMemoryTypeIdx(const VkMemoryRequirements& mem_reqs, const AllocationRequirements& details) const noexcept;
 
 		// These allocation methods return VkResult's so that we can try different parameters (based partially on return code) in main allocation method.
-		VkResult allocateMemoryType(const VkMemoryRequirements& memory_reqs, const AllocationRequirements& alloc_details, const uint32_t& memory_type_idx, const SuballocationType& type, VkMappedMemoryRange* dest_memory_range);
-		VkResult allocatePrivateMemory(const VkDeviceSize& size, const SuballocationType& type, const uint32_t& memory_type_idx, VkMappedMemoryRange* memory_range);
+		VkResult allocateMemoryType(const VkMemoryRequirements& memory_reqs, const AllocationRequirements& alloc_details, const uint32_t& memory_type_idx, const SuballocationType& type, Allocation& dest_allocation);
+		VkResult allocatePrivateMemory(const VkDeviceSize& size, const SuballocationType& type, const uint32_t& memory_type_idx, Allocation& dest_allocation);
 
 		// called from "FreeMemory" if memory to free isn't found in the allocation vectors for any of our active memory types.
-		bool freePrivateMemory(const VkMappedMemoryRange* memory_to_free);
+		bool freePrivateMemory(const Allocation* memory_to_free);
 
 		std::vector<AllocationCollection*> allocations;
+		std::vector<AllocationCollection*> privateAllocations;
 		std::vector<bool> emptyAllocations;
-
-		std::unordered_map<const VkMappedMemoryRange*, privateSuballocation> privateAllocations;
-
-		/*
-		These maps tie an objects handle to its mapped memory range, so we
-		can use the handle (even from other objects) to query info about
-		the objects memory.
-		*/
-		std::unordered_map<VkBuffer, VkMappedMemoryRange> bufferToMemoryMap;
-		std::unordered_map<VkImage, VkMappedMemoryRange> imageToMemoryMap;
 
 		const Device* parent;
 

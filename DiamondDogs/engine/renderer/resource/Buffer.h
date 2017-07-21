@@ -4,7 +4,7 @@
 #include "stdafx.h"
 #include "engine/renderer/ForwardDecl.h"
 #include "engine/renderer/NonCopyable.h"
-
+#include "engine/renderer/resource/Allocator.h"
 namespace vulpes {
 
 	class Buffer : public NonCopyable {
@@ -43,21 +43,21 @@ namespace vulpes {
 
 		void* MappedMemory = nullptr;
 
-		static void CreateStagingBuffer(const Device* dvc, const VkDeviceSize& size, VkBuffer& dest, VkMappedMemoryRange& dest_memory_range);
+		static void CreateStagingBuffer(const Device* dvc, const VkDeviceSize& size, VkBuffer& dest, Allocation& dest_memory_range);
 		static void DestroyStagingResources(const Device* device);
 
 	protected:
 
-		static std::vector<VkBuffer> stagingBuffers;
+		static std::vector<std::pair<VkBuffer, Allocation>> stagingBuffers;
 
-		void createStagingBuffer(const VkDeviceSize& size, const VkDeviceSize& offset, VkBuffer& staging_buffer, VkMappedMemoryRange& dest_memory_range);
+		void createStagingBuffer(const VkDeviceSize& size, const VkDeviceSize& offset, VkBuffer& staging_buffer, Allocation& dest_memory_range);
 
 		const Device* parent;
 		const VkAllocationCallbacks* allocators = nullptr;
 		VkBuffer handle;
 		VkBufferCreateInfo createInfo;
 		VkBufferView view;
-		VkMappedMemoryRange memoryRange;
+		Allocation memoryAllocation;
 		VkDeviceSize size;
 		VkDeviceSize dataSize;
 	};

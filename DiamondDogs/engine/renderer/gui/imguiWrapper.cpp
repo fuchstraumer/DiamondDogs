@@ -170,16 +170,16 @@ namespace vulpes {
 
 	void imguiWrapper::uploadFontTextureData(const size_t& font_texture_size) {
 
-		VkMappedMemoryRange staging_memory;
-		Buffer::CreateStagingBuffer(device, font_texture_size, textureStaging, staging_memory);
+		Allocation staging_alloc;
+		Buffer::CreateStagingBuffer(device, font_texture_size, textureStaging, staging_alloc);
 
 		void* mapped;
-		VkResult result = vkMapMemory(device->vkHandle(), staging_memory.memory, staging_memory.offset, font_texture_size, 0, &mapped);
+		VkResult result = vkMapMemory(device->vkHandle(), staging_alloc.Memory(), staging_alloc.Offset(), staging_alloc.Size, 0, &mapped);
 		VkAssert(result);
 
 		memcpy(mapped, fontTextureData, font_texture_size);
 
-		vkUnmapMemory(device->vkHandle(), staging_memory.memory);
+		vkUnmapMemory(device->vkHandle(), staging_alloc.Memory());
 
 		VkBufferImageCopy buffer_image_copy{};
 		buffer_image_copy.imageSubresource = VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };

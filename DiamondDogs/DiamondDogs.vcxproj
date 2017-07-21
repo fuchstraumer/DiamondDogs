@@ -55,7 +55,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <PrecompiledHeader>Use</PrecompiledHeader>
-      <WarningLevel>Level4</WarningLevel>
+      <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(VULKAN_SDK)\include;$(ProjectDir);$(SolutionDir)ext\include\;$(SolutionDir)DiamondDogs\engine\renderer\gui\imgui_lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

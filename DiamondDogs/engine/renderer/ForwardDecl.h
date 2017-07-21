@@ -4,7 +4,7 @@
 
 namespace vulpes {
 	class Allocator;
-	class Allocation;
+	class MemoryBlock;
 	struct Suballocation;
 	class Instance;
 	class InstanceGLFW;

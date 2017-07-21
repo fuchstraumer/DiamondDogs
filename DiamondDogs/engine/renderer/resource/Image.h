@@ -4,7 +4,7 @@
 #include "stdafx.h"
 #include "engine/renderer/ForwardDecl.h"
 #include "engine/renderer/NonCopyable.h"
-
+#include "engine/renderer/resource/Allocator.h"
 /*
 
 	Wraps the common image creation, transfer, and staging methods. 
@@ -39,9 +39,9 @@ namespace vulpes {
 
 		static VkImageMemoryBarrier GetMemoryBarrier(const VkImage& image, const VkFormat& img_format, const VkImageLayout& prev, const VkImageLayout& next);
 
-		static void CreateImage(VkImage& dest_image, VkMappedMemoryRange& dest_memory_range, const Device* parent, const VkExtent3D& extents, const VkFormat& image_format, const VkMemoryPropertyFlags& memory_flags, const VkImageUsageFlags& usage_flags, const VkImageTiling& tiling = VK_IMAGE_TILING_OPTIMAL, const VkImageLayout& init_layout = VK_IMAGE_LAYOUT_PREINITIALIZED);
+		static void CreateImage(VkImage& dest_image, Allocation& dest_alloc, const Device* parent, const VkExtent3D& extents, const VkFormat& image_format, const VkMemoryPropertyFlags& memory_flags, const VkImageUsageFlags& usage_flags, const VkImageTiling& tiling = VK_IMAGE_TILING_OPTIMAL, const VkImageLayout& init_layout = VK_IMAGE_LAYOUT_PREINITIALIZED);
 
-		static void CreateImage(VkImage& dest_image, VkMappedMemoryRange& dest_memory_range, const Device* parent, const VkImageCreateInfo& create_info, const VkMemoryPropertyFlags & memory_flags);
+		static void CreateImage(VkImage& dest_image, Allocation& dest_alloc, const Device* parent, const VkImageCreateInfo& create_info, const VkMemoryPropertyFlags & memory_flags);
 
 		const VkImageCreateInfo& CreateInfo() const noexcept;
 		const VkImage& vkHandle() const noexcept;
@@ -63,7 +63,7 @@ namespace vulpes {
 
 		VkImage handle;
 		VkImageView view;
-		VkMappedMemoryRange memory;
+		Allocation memoryAllocation;
 
 		VkImageLayout finalLayout;
 		VkExtent3D extents;

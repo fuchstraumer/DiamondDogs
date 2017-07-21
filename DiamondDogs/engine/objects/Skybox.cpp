@@ -95,8 +95,9 @@ namespace vulpes {
 			uboData.projection = projection;
 
 			VkCommandBuffer copy_cmd = pool->StartSingleCmdBuffer();
+			VkQueue transfer_queue = device->TransferQueue();
 			texture->TransferToDevice(copy_cmd);
-			pool->EndSingleCmdBuffer(copy_cmd, queue);
+			pool->EndSingleCmdBuffer(copy_cmd, transfer_queue);
 			texture->FreeStagingBuffer();
 
 			vert = new ShaderModule(device, "shaders/skybox/skybox.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);

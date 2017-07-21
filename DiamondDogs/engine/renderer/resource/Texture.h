@@ -57,7 +57,7 @@ namespace vulpes {
 		VkSampler sampler;
 
 		VkBuffer stagingBuffer;
-		VkMappedMemoryRange stagingMemory;
+		Allocation stagingMemory;
 
 		uint32_t mipLevels = 0, layerCount = 0;
 
@@ -132,7 +132,7 @@ namespace vulpes {
 	template<typename texture_type>
 	inline void Texture<texture_type>::FreeStagingBuffer() {
 		// can now destroy staging object
-		parent->vkAllocator->DestroyBuffer(stagingBuffer);
+		parent->vkAllocator->DestroyBuffer(stagingBuffer, stagingMemory);
 	}
 
 	template<typename texture_type>
@@ -154,10 +154,10 @@ namespace vulpes {
 
 		VkResult result = VK_SUCCESS;
 		void* mapped;
-		result = vkMapMemory(parent->vkHandle(), stagingMemory.memory, stagingMemory.offset, stagingMemory.size, 0, &mapped);
+		result = vkMapMemory(parent->vkHandle(), stagingMemory.Memory(), stagingMemory.Offset(), stagingMemory.Size, 0, &mapped);
 		VkAssert(result);
 		memcpy(mapped, texture_data.data(), texture_data.size());
-		vkUnmapMemory(parent->vkHandle(), stagingMemory.memory);
+		vkUnmapMemory(parent->vkHandle(), stagingMemory.Memory());
 
 	}
 
@@ -165,6 +165,7 @@ namespace vulpes {
 	inline void Texture<texture_type>::updateTextureParameters(const texture_type& texture_data) {
 		Width = static_cast<uint32_t>(texture_data.extent().x);
 		Height = static_cast<uint32_t>(texture_data.extent().y);
+		Depth = 1;
 		mipLevels = static_cast<uint32_t>(texture_data.levels());
 		layerCount = static_cast<uint32_t>(texture_data.layers());
 	}
@@ -181,7 +182,7 @@ namespace vulpes {
 		createInfo.samples = Multisampling::SampleCount;
 		createInfo.tiling = parent->GetFormatTiling(format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
 
-		Image::CreateImage(handle, memory, parent, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		Image::CreateImage(handle, memoryAllocation, parent, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
 	}
 
@@ -212,7 +213,7 @@ namespace vulpes {
 		createInfo.samples = Multisampling::SampleCount;
 		createInfo.tiling = parent->GetFormatTiling(format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
 
-		Image::CreateImage(handle, memory, parent, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		Image::CreateImage(handle, memoryAllocation, parent, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
 	}
 
@@ -276,7 +277,7 @@ namespace vulpes {
 		createInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 		createInfo.tiling = parent->GetFormatTiling(format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT);
 
-		Image::CreateImage(handle, memory, parent, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		Image::CreateImage(handle, memoryAllocation, parent, createInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	}
 
 	template<> 
