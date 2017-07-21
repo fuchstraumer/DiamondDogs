@@ -35,10 +35,6 @@ namespace vulpes {
 		vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
 		vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
 		vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
-		delete frag;
-		delete vert;
-		delete vsUBO;
-		delete pipeline;
 
 	}
 
@@ -58,7 +54,7 @@ namespace vulpes {
 		vert_info.pVertexBindingDescriptions = bind.data();
 		pipelineCreateInfo.pVertexInputState = &vert_info;
 
-		pipeline = new GraphicsPipeline(device);
+		pipeline = std::make_unique<GraphicsPipeline>(device);
 		pipeline->Init(pipelineCreateInfo, pipelineCache->vkHandle());
 
 	}
@@ -165,7 +161,7 @@ namespace vulpes {
 
 	void Star::setupBuffers(const glm::mat4& projection) {
 
-		vsUBO = new Buffer(device);
+		vsUBO = std::make_unique<Buffer>(device);
 		vsUBO->CreateBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, sizeof(vs_ubo_data));
 		vsUboData.projection = projection;
 		vsUBO->Map();
@@ -191,8 +187,8 @@ namespace vulpes {
 
 	void Star::createShaders() {
 
-		vert = new ShaderModule(device, "shaders/star/close/star_close.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-		frag = new ShaderModule(device, "shaders/star/close/star_close.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+		vert = std::make_unique<ShaderModule>(device, "shaders/star/close/star_close.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+		frag = std::make_unique<ShaderModule>(device, "shaders/star/close/star_close.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
 	}
 

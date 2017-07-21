@@ -60,7 +60,7 @@ namespace vulpes {
 
 			auto& phys_device = device->GetPhysicalDevice();
 			assert(phys_device.Properties.limits.maxImageDimensionCube >= 4096);
-			texture = new Texture<gli::texture_cube>(device);
+			texture = std::make_unique<Texture<gli::texture_cube>>(device);
 			texture->CreateFromFile("rsrc/img/skybox/deep_thought_bc7.dds", VK_FORMAT_BC7_UNORM_BLOCK);
 
 
@@ -71,26 +71,19 @@ namespace vulpes {
 			vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
 			vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
 			vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
-			delete texture;
-			delete ubo;
-			delete ebo;
-			delete vbo;
-			delete vert;
-			delete frag;
-			delete pipeline;
 		}
 
 		void Skybox::CreateData(CommandPool * pool, const VkQueue & queue, const glm::mat4& projection) {
 
-			vbo = new Buffer(device);
+			vbo = std::make_unique<Buffer>(device);
 			vbo->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertices.size() * sizeof(vertex_t));
 			vbo->CopyTo(vertices.data(), pool, queue, vertices.size() * sizeof(vertex_t));
 
-			ebo = new Buffer(device);
+			ebo = std::make_unique<Buffer>(device);
 			ebo->CreateBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indices.size() * sizeof(uint32_t));
 			ebo->CopyTo(indices.data(), pool, queue, indices.size() * sizeof(uint32_t));
 
-			ubo = new Buffer(device);
+			ubo = std::make_unique<Buffer>(device);
 			ubo->CreateBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, sizeof(vs_ubo_data));
 			uboData.projection = projection;
 
@@ -100,8 +93,8 @@ namespace vulpes {
 			pool->EndSingleCmdBuffer(copy_cmd, transfer_queue);
 			texture->FreeStagingBuffer();
 
-			vert = new ShaderModule(device, "shaders/skybox/skybox.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-			frag = new ShaderModule(device, "shaders/skybox/skybox.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+			vert = std::make_unique<ShaderModule>(device, "shaders/skybox/skybox.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+			frag = std::make_unique<ShaderModule>(device, "shaders/skybox/skybox.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
 			static const VkDescriptorPoolSize descr_pool[2]{ VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}, VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1} };
 
@@ -193,7 +186,7 @@ namespace vulpes {
 			pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
 			pipeline_create_info.basePipelineIndex = -1;
 
-			pipeline = new GraphicsPipeline(device);
+			pipeline = std::make_unique<GraphicsPipeline>(device);
 			pipeline->Init(pipeline_create_info, pipelineCache->vkHandle());
 
 		}

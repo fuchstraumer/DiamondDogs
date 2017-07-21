@@ -2,8 +2,12 @@
 #ifndef SKYBOX_H
 #define SKYBOX_H
 #include "stdafx.h"
+
 #include "engine\renderer\ForwardDecl.h"
 #include "engine\renderer\resource\Texture.h"
+#include "engine\renderer\resource\Buffer.h"
+#include "engine\renderer\resource\ShaderModule.h"
+#include "engine\renderer\render\GraphicsPipeline.h"
 
 namespace vulpes {
 
@@ -39,11 +43,11 @@ namespace vulpes {
 			const VkVertexInputAttributeDescription attr_descr{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 };
 			std::vector<vertex_t> vertices;
 			std::vector<uint32_t> indices;
-			Texture<gli::texture_cube>* texture;
-			Buffer *vbo, *ebo, *ubo;
+			std::unique_ptr<Texture<gli::texture_cube>> texture;
+			std::unique_ptr<Buffer> vbo, ebo, ubo;
 			vs_ubo_data uboData;
-			ShaderModule *vert, *frag;
-			GraphicsPipeline* pipeline;
+			std::unique_ptr<ShaderModule> vert, frag;
+			std::unique_ptr<GraphicsPipeline> pipeline;
 			const Device* device;
 			std::shared_ptr<PipelineCache> pipelineCache;
 			VkDescriptorSetLayout descriptorSetLayout;
