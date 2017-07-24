@@ -1,0 +1,170 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{28A18A23-177F-45EF-A3EE-2BF3596255E7}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>DiamondDogs</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.15063.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v141</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <IntDir>$(Configuration)\</IntDir>
+    <OutDir>$(SolutionDir)\$(Configuration)\</OutDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(SolutionDir)\$(Configuration)\</OutDir>
+    <IntDir>$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\include;$(ProjectDir);$(SolutionDir)ext\include\;$(SolutionDir)DiamondDogs\engine\renderer\gui\imgui_lib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>false</MultiProcessorCompilation>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>vulkan-1.lib;"_debug/glfw3dll.lib";"OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)ext\lib\x64;$(VULKAN_SDK)\Lib;</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <Optimization>Disabled</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\include;$(ProjectDir);$(SolutionDir)ext\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(SolutionDir)ext\lib\x64;$(VULKAN_SDK)\Lib;</AdditionalLibraryDirectories>
+      <AdditionalDependencies>vulkan-1.lib;"glfw3dll.lib";"OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreAllDefaultLibraries>false</IgnoreAllDefaultLibraries>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="bodies\Body.h" />
+    <ClInclude Include="bodies\star\Star.h" />
+    <ClInclude Include="bodies\Terrestial.h" />
+    <ClInclude Include="bodies\terrestrial\Terrestrial.h" />
+    <ClInclude Include="common\CommonDef.h" />
+    <ClInclude Include="common\CommonUtil.h" />
+    <ClInclude Include="engine\terrain\DataProducer.h" />
+    <ClInclude Include="engine\terrain\HeightNode.h" />
+    <ClInclude Include="engine\objects\mesh\Icosphere.h" />
+    <ClInclude Include="engine\objects\mesh\Mesh.h" />
+    <ClInclude Include="engine\objects\mesh\MeshComponents.h" />
+    <ClInclude Include="engine\objects\mesh\PlanarMesh.h" />
+    <ClInclude Include="engine\objects\Skybox.h" />
+    <ClInclude Include="engine\terrain\NodeRenderer.h" />
+    <ClInclude Include="engine\terrain\TerrainNode.h" />
+    <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
+    <ClInclude Include="engine\util\AABB.h" />
+    <ClInclude Include="engine\util\alloc\Page.h" />
+    <ClInclude Include="engine\util\easylogging++.h" />
+    <ClInclude Include="engine\util\Noise.h" />
+    <ClInclude Include="engine\util\sdnoise1234.h" />
+    <ClInclude Include="engine\util\ThreadWrapper.h" />
+    <ClInclude Include="engine\util\view_frustum.h" />
+    <ClInclude Include="scenes\BaseScene.h" />
+    <ClInclude Include="scenes\StarScene.h" />
+    <ClInclude Include="scenes\Terrain.h" />
+    <ClInclude Include="stdafx.h" />
+    <ClInclude Include="util\noise\TerrainBuilder.h" />
+    <ClInclude Include="util\shaderold.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="bodies\star\Star.cpp" />
+    <ClCompile Include="DiamondDogs.cpp" />
+    <ClCompile Include="engine\objects\mesh\Icosphere.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
+    <ClCompile Include="engine\objects\Skybox.cpp" />
+    <ClCompile Include="engine\terrain\DataProducer.cpp" />
+    <ClCompile Include="engine\terrain\HeightNode.cpp" />
+    <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
+    <ClCompile Include="engine\terrain\TerrainNode.cpp" />
+    <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
+    <ClCompile Include="engine\util\AABB.cpp" />
+    <ClCompile Include="engine\util\easylogging++.cc">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="engine\util\Noise.cpp" />
+    <ClCompile Include="engine\util\sdnoise1234.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="scenes\BaseScene.cpp">
+      <WarningLevel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Level3</WarningLevel>
+    </ClCompile>
+    <ClCompile Include="stdafx.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\debug\fragment.glsl" />
+    <None Include="shaders\debug\vertex.glsl" />
+    <None Include="shaders\gui\ui.frag" />
+    <None Include="shaders\gui\ui.vert" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="VulpesRender\build\VulpesRender.vcxproj">
+      <Project>{3c89dc0f-c1d9-33c9-9e0c-b189eee0a034}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

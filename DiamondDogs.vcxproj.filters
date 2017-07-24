@@ -1,0 +1,58 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="DiamondDogs.cpp" />
+    <ClCompile Include="stdafx.cpp" />
+    <ClCompile Include="scenes\BaseScene.cpp" />
+    <ClCompile Include="engine\objects\Skybox.cpp" />
+    <ClCompile Include="engine\terrain\TerrainNode.cpp" />
+    <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
+    <ClCompile Include="engine\util\AABB.cpp" />
+    <ClCompile Include="engine\util\easylogging++.cc" />
+    <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
+    <ClCompile Include="engine\objects\mesh\Icosphere.cpp" />
+    <ClCompile Include="engine\terrain\HeightNode.cpp" />
+    <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
+    <ClCompile Include="engine\util\Noise.cpp" />
+    <ClCompile Include="engine\terrain\DataProducer.cpp" />
+    <ClCompile Include="engine\util\sdnoise1234.cpp" />
+    <ClCompile Include="bodies\star\Star.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="bodies\Terrestial.h" />
+    <ClInclude Include="stdafx.h" />
+    <ClInclude Include="util\noise\TerrainBuilder.h" />
+    <ClInclude Include="util\shaderold.h" />
+    <ClInclude Include="bodies\Body.h" />
+    <ClInclude Include="scenes\BaseScene.h" />
+    <ClInclude Include="scenes\StarScene.h" />
+    <ClInclude Include="engine\objects\Skybox.h" />
+    <ClInclude Include="bodies\terrestrial\Terrestrial.h" />
+    <ClInclude Include="engine\terrain\TerrainNode.h" />
+    <ClInclude Include="engine\util\AABB.h" />
+    <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
+    <ClInclude Include="engine\util\view_frustum.h" />
+    <ClInclude Include="common\CommonUtil.h" />
+    <ClInclude Include="common\CommonDef.h" />
+    <ClInclude Include="scenes\Terrain.h" />
+    <ClInclude Include="engine\util\easylogging++.h" />
+    <ClInclude Include="engine\util\alloc\Page.h" />
+    <ClInclude Include="engine\terrain\NodeRenderer.h" />
+    <ClInclude Include="engine\objects\mesh\PlanarMesh.h" />
+    <ClInclude Include="engine\objects\mesh\MeshComponents.h" />
+    <ClInclude Include="engine\objects\mesh\Mesh.h" />
+    <ClInclude Include="engine\objects\mesh\Icosphere.h" />
+    <ClInclude Include="engine\terrain\HeightNode.h" />
+    <ClInclude Include="engine\util\Noise.h" />
+    <ClInclude Include="engine\terrain\DataProducer.h" />
+    <ClInclude Include="engine\util\ThreadWrapper.h" />
+    <ClInclude Include="engine\util\sdnoise1234.h" />
+    <ClInclude Include="bodies\star\Star.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shaders\debug\fragment.glsl" />
+    <None Include="shaders\debug\vertex.glsl" />
+    <None Include="shaders\gui\ui.frag" />
+    <None Include="shaders\gui\ui.vert" />
+  </ItemGroup>
+</Project>

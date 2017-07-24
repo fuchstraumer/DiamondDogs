@@ -1,0 +1,136 @@
+#version 450 core
+
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
+
+// minimum max dimensionality in xy is 128, process textures in chunks of that size.
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(std430, binding = 0) buffer position_buffer {
+	vec3 positions[];
+};
+
+layout(std430, binding = 0) buffer output_buffer {
+	vec4 out_data[];
+};
+
+layout(push_constant) uniform _noise_cfg {
+	float freq;
+	float lacun;
+	float persist;
+} noise_cfg;
+
+layout(constant_id = 0) const int sampleGridSize = 133;
+layout(constant_id = 1) const int octaves = 12;
+
+// simplex methods
+
+const vec2 C = vec2(1.0f / 6.0f, 1.0f / 3.0f);
+const vec4 D = vec4(0.0f, 0.5f, 1.0f, 2.0f);
+
+vec3 mod289(vec3 x) {
+	return x - floor(x * (1.0f / 289.0f)) * 289.0f;
+}
+
+vec4 mod289(vec4 x) {
+	return x - floor(x * (1.0f / 289.0f)) * 289.0f;
+}
+
+vec4 permute(vec4 x) {
+	return mod289(((x * 34.0f) + 1.0f) * x);
+}
+
+vec4 taylorInvSqrt(vec4 r) {
+	return 1.79284291400159f - 0.86373472095314f * r;
+}
+
+vec4 snoise(vec3 pos) {
+	vec3 is = floor(pos + dot(pos, C.yyy));
+	vec3 x0 = pos - is + dot(is, C.xxx);
+
+	vec3 g = step(x0.yzx, x0.xyz);
+	vec3 l = 1.0f - g;
+	vec3 i1 = min(g.xyz, l.zxy);
+	vec3 i2 = max(g.xyz, l.zxy);
+
+	vec3 x1 = x0 - i1 + C.xxx;
+	vec3 x2 = x0 - i2 + C.yyy;
+	vec3 x3 = x0 - D.yyy;
+
+	is = mod289(is);
+
+	vec4 p = permute(permute(permute(
+				is.z + vec4(0.0f, i1.z, i2.z, 1.0f))
+			  + is.y + vec4(0.0f, i1.y, i2.y, 1.0f))
+			  + is.x + vec4(0.0f, i1.x, i2.x, 1.0f));
+
+	const float n = 0.142857142857;
+	vec3 ns = n * D.wyz - D.xzx;
+
+	vec4 js = p - 49.0f * floor(p * ns.z * ns.z);
+
+	vec4 x_ = floor(js * ns.z);
+	vec4 y_ = floor(js - 7.0f * x_);
+
+	vec4 x = x_ * ns.x + ns.yyyy;
+	vec4 y = y_ * ns.x + ns.yyyy;
+
+	vec4 h = 1.0f - abs(x) - abs(y);
+
+	vec4 b0 = vec4(x.xy, y.xy);
+	vec4 b1 = vec4(x.zw, y.zw);
+
+	vec4 s0 = floor(b0) * 2.0f + 1.0f;
+	vec4 s1 = floor(b1) * 2.0f + 1.0f;
+	vec4 sh = -step(h, vec4(0.0f));
+
+	vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+	vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+
+	vec3 p0 = vec3(a0.xy, h.x);
+	vec3 p1 = vec3(a0.zw, h.y);
+	vec3 p2 = vec3(a1.xy, h.z);
+	vec3 p3 = vec3(a1.zw, h.w);
+
+	vec4 _norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+	p0 *= _norm.x;
+	p1 *= _norm.y;
+	p2 *= _norm.z;
+	p3 *= _norm.w;
+
+	vec4 m = max(0.60f - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.0f);
+	vec4 m2 = m*m;
+	vec4 m4 = m2*m2;
+	vec4 pdotx = vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3));
+
+	vec4 temp = m2 * m * pdotx;
+	vec3 gradient = -8.0f * (temp.x * x0 + temp.y * x1 + temp.z * x2 + temp.w * x3);
+	gradient += m4.x * p0 + m4.y * p1 + m4.z * p2 + m4.w * p3;
+	gradient *= 42.0f;
+
+	return vec4(42.0f * dot(m4, pdotx), gradient.x, gradient.y, gradient.z);
+}
+
+void main() {
+
+	uint i, j;
+	i = gl_GlobalInvocationID.x;
+	j = gl_GlobalInvocationID.y;
+
+	if(i >= sampleGridSize || j >= sampleGridSize) {
+		return;
+	}
+
+	vec3 pos = positions[i + j * sampleGridSize];
+	pos *= noise_cfg.freq;
+	vec4 sum = vec4(0.0f);
+	float amplitude = 1.0f;
+
+	for(int i = 0; i < octaves; ++i) {
+		sum += snoise(pos) * amplitude;
+		pos *= noise_cfg.lacun;
+		amplitude *= noise_cfg.persist;
+	}
+
+	out_data[i + j * sampleGridSize] = sum;
+}

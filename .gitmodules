@@ -1,0 +1,3 @@
+[submodule "VulpesRender"]
+	path = VulpesRender
+	url = https://github.com/fuchstraumer/VulpesRender
