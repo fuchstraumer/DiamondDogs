@@ -1,19 +1,17 @@
 #include "stdafx.h"
 #include "NodeRenderer.h"
-#include <imgui\imgui.h>
 #include "TerrainNode.h"
-
 #include "common\CommonDef.h"
-
-#include "engine\renderer\core\LogicalDevice.h"
-#include "engine\renderer\resource\ShaderModule.h"
-#include "engine\renderer\render\GraphicsPipeline.h"
-#include "engine\renderer\resource\Buffer.h"
-#include "engine\renderer\command\CommandPool.h"
-#include "engine\renderer\command\TransferPool.h"
-#include "engine\renderer\resource\Texture.h"
-#include "engine\renderer\render\Multisampling.h"
-#include "engine/renderer/resource/PipelineCache.h"
+#include "core/LogicalDevice.h"
+#include "gui/imguiWrapper.h"
+#include "resource/ShaderModule.h"
+#include "render/GraphicsPipeline.h"
+#include "resource/Buffer.h"
+#include "command/CommandPool.h"
+#include "command/TransferPool.h"
+#include "resource/Texture.h"
+#include "render/Multisampling.h"
+#include "resource/PipelineCache.h"
 
 bool vulpes::terrain::NodeRenderer::DrawAABBs = false;
 float vulpes::terrain::NodeRenderer::MaxRenderDistance = 100000.0f;
@@ -203,9 +201,6 @@ void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkComm
 	renderNodes(graphics_cmd, begin_info);
 
 	transferNodesToDvc();
-
-	upsampleThread.AddTask([&] { SendRequests(); });
-	upsampleThread.Wait();
 
 }
 

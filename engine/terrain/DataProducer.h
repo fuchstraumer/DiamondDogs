@@ -3,11 +3,10 @@
 #define VULPES_TERRAIN_DATA_PRODUCER_H
 
 #include "stdafx.h"
-#include "VulpesRender/include/ForwardDecl.h"
-#include "VulpesRender/include/NonCopyable.h"
-#include "VulpesRender/include/command/CommandPool.h"
-#include "VulpesRender/include/resource/Buffer.h"
-#include "VulpesRender/include/resource/PipelineCache.h"
+#include "ForwardDecl.h"
+#include "command/CommandPool.h"
+#include "resource/Buffer.h"
+#include "resource/PipelineCache.h"
 #include <queue>
 
 namespace vulpes {
@@ -48,7 +47,9 @@ namespace vulpes {
 
 	
 
-	class DataProducer : public NonMovable {
+	class DataProducer {
+		DataProducer(const DataProducer&) = delete;
+		DataProducer& operator=(const DataProducer&) = delete;
 	public:
 
 		DataProducer(const Device* parent);

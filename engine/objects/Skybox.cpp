@@ -1,14 +1,14 @@
 #include "stdafx.h"
 #include "Skybox.h"
 
-#include "engine\renderer\core\LogicalDevice.h"
-#include "engine\renderer\resource\Buffer.h"
-#include "engine\renderer\resource\ShaderModule.h"
-#include "engine\renderer\render\GraphicsPipeline.h"
-#include "engine\renderer\core\PhysicalDevice.h"
-#include "engine\renderer\render\Multisampling.h"
-#include "engine/renderer/resource/PipelineCache.h"
-#include "engine/renderer/command/CommandPool.h"
+#include "core/LogicalDevice.h"
+#include "resource/Buffer.h"
+#include "resource/ShaderModule.h"
+#include "render/GraphicsPipeline.h"
+#include "core/PhysicalDevice.h"
+#include "render/Multisampling.h"
+#include "resource/PipelineCache.h"
+#include "command/CommandPool.h"
 
 namespace vulpes {
 	namespace obj {
@@ -67,7 +67,6 @@ namespace vulpes {
 		}
 
 		Skybox::~Skybox() {
-			vkFreeDescriptorSets(device->vkHandle(), descriptorPool, 1, &descriptorSet);
 			vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
 			vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
 			vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
@@ -77,24 +76,27 @@ namespace vulpes {
 
 			vbo = std::make_unique<Buffer>(device);
 			vbo->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertices.size() * sizeof(vertex_t));
-			vbo->CopyTo(vertices.data(), pool, queue, vertices.size() * sizeof(vertex_t));
+			vbo->CopyTo(vertices.data(), pool, queue, vertices.size() * sizeof(vertex_t), 0);
 
 			ebo = std::make_unique<Buffer>(device);
 			ebo->CreateBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indices.size() * sizeof(uint32_t));
-			ebo->CopyTo(indices.data(), pool, queue, indices.size() * sizeof(uint32_t));
+			ebo->CopyTo(indices.data(), pool, queue, indices.size() * sizeof(uint32_t), 0);
 
 			ubo = std::make_unique<Buffer>(device);
-			ubo->CreateBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, sizeof(vs_ubo_data));
+			ubo->CreateBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, sizeof(vs_ubo_data));
 			uboData.projection = projection;
+			uboData.view = glm::mat4(1.0f);
+			ubo->CopyToMapped(&uboData, 2 * sizeof(glm::mat4), 0);
 
 			VkCommandBuffer copy_cmd = pool->StartSingleCmdBuffer();
 			VkQueue transfer_queue = device->TransferQueue();
 			texture->TransferToDevice(copy_cmd);
+			
 			pool->EndSingleCmdBuffer(copy_cmd, transfer_queue);
 			texture->FreeStagingBuffer();
 
-			vert = std::make_unique<ShaderModule>(device, "shaders/skybox/skybox.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-			frag = std::make_unique<ShaderModule>(device, "shaders/skybox/skybox.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+			vert = std::make_unique<ShaderModule>(device, "rsrc/shaders/skybox/skybox.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+			frag = std::make_unique<ShaderModule>(device, "rsrc/shaders/skybox/skybox.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
 			static const VkDescriptorPoolSize descr_pool[2]{ VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}, VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1} };
 
@@ -193,7 +195,7 @@ namespace vulpes {
 
 		void Skybox::UpdateUBO(const glm::mat4 & view) {
 			uboData.view = glm::mat4(glm::mat3(view));
-			ubo->CopyTo(&uboData, sizeof(vs_ubo_data));
+			ubo->CopyToMapped(glm::value_ptr(uboData.view), sizeof(glm::mat4), 0);
 		}
 
 		void Skybox::RecordCommands(VkCommandBuffer & cmd) {

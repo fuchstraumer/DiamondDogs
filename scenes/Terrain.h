@@ -37,7 +37,7 @@ namespace terrain_scene {
 			auto gui_cache = std::make_shared<PipelineCache>(device.get(), static_cast<uint16_t>(typeid(imguiWrapper).hash_code()));
 			gui = std::make_unique<imguiWrapper>();
 			gui->Init(device.get(), gui_cache, renderPass->vkHandle());
-			gui->UploadTextureData(graphicsPool.get());
+			gui->UploadTextureData(transferPool.get());
 		}
 
 		~TerrainScene() {	

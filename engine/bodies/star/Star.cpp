@@ -1,12 +1,13 @@
 #include "stdafx.h"
 #include "Star.h"
-#include "engine\renderer\core\LogicalDevice.h"
-#include "engine\renderer\resource\Buffer.h"
-#include "engine\renderer\resource\ShaderModule.h"
-#include "engine\renderer\render\GraphicsPipeline.h"
-#include "engine\renderer\render\Swapchain.h"
-#include "engine/renderer/resource/PipelineCache.h"
-#include "engine/renderer/render/Multisampling.h"
+#include "core/LogicalDevice.h"
+#include "resource/Buffer.h"
+#include "resource/ShaderModule.h"
+#include "render/GraphicsPipeline.h"
+#include "render/Swapchain.h"
+#include "resource/PipelineCache.h"
+#include "render/Multisampling.h"
+#include "command/TransferPool.h"
 
 namespace vulpes {
 
@@ -21,7 +22,7 @@ namespace vulpes {
 		
 		mesh0.scale = glm::vec3(radius);
 		mesh0.position = position;
-		
+		mesh0.update_model_matrix();
 		setupDescriptors();
 		setupBuffers(projection);
 		updateDescriptors();
@@ -59,10 +60,14 @@ namespace vulpes {
 
 	}
 
-	void Star::BuildMesh(){
+	void Star::BuildMesh(TransferPool* transfer_pool){
 		
 		mesh0.create_buffers(device);
 		vsUboData.model = mesh0.get_model_matrix();
+		auto cmd = transfer_pool->Begin();
+		mesh0.record_transfer_commands(cmd);
+		transfer_pool->End();
+		transfer_pool->Submit();
 
 	}
 
@@ -79,7 +84,8 @@ namespace vulpes {
 		
 		vsUboData.view = view;
 		vsUboData.cameraPos = glm::vec4(camera_position.x, camera_position.y, camera_position.z, 0.0f);
-		
+		vsUBO->CopyToMapped(&vsUboData, sizeof(vsUboData), 0);
+
 		fsUboData.cameraPos = glm::vec4(camera_position.x, camera_position.y, camera_position.z, 0.0f);
 		if (fsUboData.frame < std::numeric_limits<uint64_t>::max()) {
 			fsUboData.frame++;
@@ -109,7 +115,7 @@ namespace vulpes {
 
 		VkDescriptorPoolCreateInfo pool_info = vk_descriptor_pool_create_info_base;
 		pool_info.maxSets = 1;
-		pool_info.poolSizeCount = 1;
+		pool_info.poolSizeCount = static_cast<uint32_t>(pools.size());
 		pool_info.pPoolSizes = pools.data();
 
 		VkResult result = vkCreateDescriptorPool(device->vkHandle(), &pool_info, nullptr, &descriptorPool);
@@ -119,12 +125,12 @@ namespace vulpes {
 
 	void Star::createDescriptorSetLayout() {
 
-		static const std::array<VkDescriptorSetLayoutBinding, 2> bindings{
+		static const std::array<VkDescriptorSetLayoutBinding, 1> bindings{
 			VkDescriptorSetLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr },
 		};
 
 		VkDescriptorSetLayoutCreateInfo layout_info = vk_descriptor_set_layout_create_info_base;
-		layout_info.bindingCount = 2;
+		layout_info.bindingCount = static_cast<uint32_t>(bindings.size());
 		layout_info.pBindings = bindings.data();
 
 		VkResult result = vkCreateDescriptorSetLayout(device->vkHandle(), &layout_info, nullptr, &descriptorSetLayout);
@@ -187,8 +193,8 @@ namespace vulpes {
 
 	void Star::createShaders() {
 
-		vert = std::make_unique<ShaderModule>(device, "shaders/star/close/star_close.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-		frag = std::make_unique<ShaderModule>(device, "shaders/star/close/star_close.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+		vert = std::make_unique<ShaderModule>(device, "rsrc/shaders/star/close/star_close.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+		frag = std::make_unique<ShaderModule>(device, "rsrc/shaders/star/close/star_close.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
 	}
 
@@ -198,7 +204,6 @@ namespace vulpes {
 		pipelineInfo.DynamicStateInfo.dynamicStateCount = 2;
 		static const VkDynamicState states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 		pipelineInfo.DynamicStateInfo.pDynamicStates = states;
-
 		pipelineInfo.MultisampleInfo.rasterizationSamples = Multisampling::SampleCount;
 
 	}

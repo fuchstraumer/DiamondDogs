@@ -1,12 +1,13 @@
 #include "stdafx.h"
 #include "DataProducer.h"
-#include "engine/renderer/core/LogicalDevice.h"
-#include "engine/renderer/resource/Texture.h"
+#include "core/LogicalDevice.h"
+#include "resource/Texture.h"
+#include "resource/ShaderModule.h"
+#include "render/GraphicsPipeline.h"
 #include "HeightNode.h"
-#include "engine/renderer/resource/ShaderModule.h"
-#include "engine/renderer/render/GraphicsPipeline.h"
 
 namespace vulpes {
+
 
 	size_t DataProducer::numProducers = 0;
 

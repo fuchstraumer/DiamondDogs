@@ -1,6 +1,5 @@
 #include "stdafx.h"
 #include "TerrainQuadtree.h"
-#include "engine/renderer/resource/Buffer.h"
 #include "engine\util\sphere.h"
 
 

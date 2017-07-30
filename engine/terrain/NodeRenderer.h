@@ -3,12 +3,11 @@
 #define VULPES_TERRAIN_NODE_RENDERER_H
 
 #include "stdafx.h"
-#include "VulpesRender/include/ForwardDecl.h"
+#include "ForwardDecl.h"
 #include "engine\util\AABB.h"
 #include "HeightNode.h"
 #include "DataProducer.h"
-#include "engine/util/ThreadWrapper.h"
-#include "VulpesRender/include/resource/ShaderModule.h"
+#include "resource/ShaderModule.h"
 
 namespace vulpes {
 
@@ -93,7 +92,6 @@ namespace vulpes {
 			const glm::vec3* frameCameraPos;
 
 			std::unique_ptr<TransferPool> transferPool;
-			ThreadWrapped upsampleThread;
 
 		};
 

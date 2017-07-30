@@ -6,6 +6,7 @@
 layout(push_constant) uniform UBO {
 	vec4 cameraPos;
 	vec4 colorShift;
+	vec4 noiseParams; // frequency, octaves, lacun, persistence
 	int frame;
 } ubo;
 
@@ -110,6 +111,7 @@ float noise(vec4 position, int octaves, float frequency, float persistence) {
 	float total = 0.0; // Total value so far
 	float maxAmplitude = 0.0; // Accumulates highest theoretical amplitude
 	float amplitude = 1.0;
+	float lacun = ubo.noiseParams.z;
 	position *= frequency;
 	for (int i = 0; i < octaves; i++) {
 		// Get the noise sample
@@ -118,6 +120,7 @@ float noise(vec4 position, int octaves, float frequency, float persistence) {
 		position *= 1.95f;
 		// Add to our maximum possible amplitude
 		maxAmplitude += amplitude;
+		position *= lacun;
 		// Reduce amplitude according to persistence for the next octave
 		amplitude *= persistence;
 	}
@@ -147,9 +150,9 @@ float onoise(vec4 position, int octaves, float frequency, float persistence) {
 
 void main(){
 	// Get base surface texture
-    vec4 noisePos = vec4(fPos,ubo.frame * 0.008f);
-
-    float n = noise(noisePos, 3, 0.25f, 0.70f) * 0.50f;
+    vec4 noisePos = vec4(fPos,ubo.frame * 0.1f);
+	highp int octaves = int(ubo.noiseParams.y);
+    float n = noise(noisePos, octaves, ubo.noiseParams.x, ubo.noiseParams.w) * 0.50f;
     
     // Get texture coordinate from temperature
    

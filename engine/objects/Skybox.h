@@ -3,11 +3,10 @@
 #define SKYBOX_H
 #include "stdafx.h"
 
-#include "VulpesRender/include/ForwardDecl.h"
-#include "VulpesRender/include/resource\Texture.h"
-#include "VulpesRender/include/resource\Buffer.h"
-#include "VulpesRender/include/resource\ShaderModule.h"
-#include "VulpesRender/include/render\GraphicsPipeline.h"
+#include "resource/Texture.h"
+#include "resource/Buffer.h"
+#include "resource/ShaderModule.h"
+#include "render/GraphicsPipeline.h"
 
 namespace vulpes {
 

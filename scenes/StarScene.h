@@ -3,10 +3,11 @@
 #define VULPES_STAR_SCENE_H
 
 #include "stdafx.h"
-#include "VulpesRender/include/BaseScene.h"
+#include "BaseScene.h"
+#include "resource/PipelineCache.h"
 #include "engine/bodies/star/Star.h"
-#include "engine\objects\Skybox.h"
-#include "VulpesRender/include/render\GraphicsPipeline.h"
+#include "engine/objects/Skybox.h"
+
 namespace star_scene {
 	
 	using namespace vulpes;
@@ -14,19 +15,23 @@ namespace star_scene {
 	class StarScene : public BaseScene {
 	public:
 
-		StarScene() : BaseScene(2) {
+		StarScene() : BaseScene(3) {
 
 			pipelineCache = std::make_shared<PipelineCache>(device.get(), static_cast<int16_t>(typeid(StarScene).hash_code()));
 
-			object = new Star(device.get(), 5, 300.0f, 4000, instance->GetProjectionMatrix());
-			skybox = new obj::Skybox(device.get());
+			star = std::make_unique<Star>(device.get(), 5, 3000.0f, 4000, instance->GetProjectionMatrix());
+			skybox = std::make_unique<obj::Skybox>(device.get());
+			auto gui_cache = std::make_shared<PipelineCache>(device.get(), static_cast<uint16_t>(typeid(imguiWrapper).hash_code()));
+			gui = std::make_unique<imguiWrapper>();
+			gui->Init(device.get(), gui_cache, renderPass->vkHandle());
+			gui->UploadTextureData(transferPool.get());
 
-			instance->SetCamPos(glm::vec3(450.0f, 0.0f, 0.0f));
+			instance->SetCamPos(glm::vec3(3300.0f, 0.0f, 0.0f));
 
 			VkQueue transfer = device->TransferQueue(0);
 
-			object->BuildMesh();
-			object->BuildPipeline(renderPass->vkHandle(), pipelineCache);
+			star->BuildMesh(transferPool.get());
+			star->BuildPipeline(renderPass->vkHandle(), pipelineCache);
 
 			skybox->CreateData(transferPool.get(), transfer, instance->GetProjectionMatrix());
 			skybox->CreatePipeline(renderPass->vkHandle(), pipelineCache);
@@ -36,23 +41,22 @@ namespace star_scene {
 		}
 
 		virtual void RecreateObjects() override {
-			object = new Star(device.get(), 5, 300.0f, 4000, instance->GetProjectionMatrix());
-			skybox = new obj::Skybox(device.get());
+			star = std::make_unique<Star>(device.get(), 5, 3000.0f, 4000, instance->GetProjectionMatrix());
+			skybox = std::make_unique<obj::Skybox>(device.get());
 			VkQueue transfer = device->TransferQueue(0);
-			object->BuildMesh();
-			object->BuildPipeline(renderPass->vkHandle(), pipelineCache);
+			star->BuildMesh(transferPool.get());
+			star->BuildPipeline(renderPass->vkHandle(), pipelineCache);
 			skybox->CreateData(transferPool.get(), transfer, instance->GetProjectionMatrix());
 			skybox->CreatePipeline(renderPass->vkHandle(), pipelineCache);
 		}
 
 		virtual void WindowResized() override {
-			delete object;
-			delete skybox;
+			skybox.reset();
+			star.reset();
 		}
 
 		~StarScene() {
-			delete skybox;
-			delete object;
+			gui.reset();
 		}
 
 		virtual void RecordCommands() override {
@@ -69,6 +73,7 @@ namespace star_scene {
 				static_cast<uint32_t>(clear_values.size()),
 				clear_values.data(),
 			};
+			renderpass_begin.renderPass = renderPass->vkHandle();
 
 			static VkCommandBufferInheritanceInfo inherit_info = vk_command_buffer_inheritance_info_base;
 			inherit_info.renderPass = renderPass->vkHandle();
@@ -77,6 +82,16 @@ namespace star_scene {
 			for (uint32_t i = 0; i < graphicsPool->size(); ++i) {
 
 				std::vector<VkCommandBuffer> secondary_buffers;
+
+				gui->NewFrame(instance.get(), false);
+
+				ImGui::Begin("Star Parameters");
+				ImGui::DragFloat("Noise Frequency", &star->fsUboData.noiseParams.frequency, 0.001f, 0.001f, 2.0f);
+				ImGui::DragInt("Noise Octaves", &noiseOctBuffer, 0.1f);
+				star->fsUboData.noiseParams.octaves = static_cast<float>(noiseOctBuffer);
+				ImGui::DragFloat("Noise Lacunarity", &star->fsUboData.noiseParams.lacunarity, 0.001f, 1.0f, 2.60f);
+				ImGui::DragFloat("Noise Persistence", &star->fsUboData.noiseParams.persistence, 0.001f, 0.01f, 0.9f);
+				ImGui::End();
 
 				static VkCommandBufferBeginInfo begin_info = vk_command_buffer_begin_info_base;
 				begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
@@ -105,6 +120,10 @@ namespace star_scene {
 
 				VkCommandBuffer& skybox_buffer = secondaryPool->GetCmdBuffer(i * swapchain->ImageCount);
 				VkCommandBuffer& star_buffer = secondaryPool->GetCmdBuffer(1 + (i * swapchain->ImageCount));
+				VkCommandBuffer& gui_buffer = secondaryPool->GetCmdBuffer(2 + (i * swapchain->ImageCount));
+
+				renderGUI(gui_buffer, begin_info, i);
+				secondary_buffers.push_back(gui_buffer);
 
 				{
 					vkBeginCommandBuffer(skybox_buffer, &begin_info);
@@ -117,9 +136,9 @@ namespace star_scene {
 
 				{
 					vkBeginCommandBuffer(star_buffer, &begin_info);
-					vkCmdSetViewport(skybox_buffer, 0, 1, &viewport);
-					vkCmdSetScissor(skybox_buffer, 0, 1, &scissor);
-					object->RecordCommands(star_buffer);
+					vkCmdSetViewport(star_buffer, 0, 1, &viewport);
+					vkCmdSetScissor(star_buffer, 0, 1, &scissor);
+					star->RecordCommands(star_buffer);
 					vkEndCommandBuffer(star_buffer);
 					secondary_buffers.push_back(star_buffer);
 				}
@@ -138,16 +157,32 @@ namespace star_scene {
 
 		void RenderLoop() {
 
-			float DeltaTime, LastFrame = 0.0f;
+			float DeltaTime, LastFrame = 0.0f; 
+			std::chrono::system_clock::time_point a = std::chrono::system_clock::now();
+			std::chrono::system_clock::time_point b = std::chrono::system_clock::now();
+			static constexpr double frame_time_desired = 16.0; // frametime desired in ms, 120Hz
 			
 			while (!glfwWindowShouldClose(instance->Window)) {
-				// Update frame time values
+
+				a = std::chrono::system_clock::now();
+				std::chrono::duration<double, std::milli> work_time = a - b;
+
+				if (work_time.count() < frame_time_desired) {
+					std::chrono::duration<double, std::milli> delta_ms(frame_time_desired - work_time.count());
+					auto delta_ms_dur = std::chrono::duration_cast<std::chrono::milliseconds>(delta_ms);
+					std::this_thread::sleep_for(std::chrono::milliseconds(delta_ms_dur.count()));
+				}
+
+				b = std::chrono::system_clock::now();
+
+
 				float CurrentFrame = static_cast<float>(glfwGetTime());
 				DeltaTime = CurrentFrame - LastFrame;
 				LastFrame = CurrentFrame;
 				glfwPollEvents();
+
 				instance->UpdateMovement(DeltaTime);
-				object->UpdateUBOs(instance->GetViewMatrix(), instance->GetCamPos());
+				star->UpdateUBOs(instance->GetViewMatrix(), instance->GetCamPos());
 				skybox->UpdateUBO(instance->GetViewMatrix());
 
 				RecordCommands();
@@ -163,6 +198,23 @@ namespace star_scene {
 		}
 
 	private:
+
+		void renderGUI(VkCommandBuffer& cmd, const VkCommandBufferBeginInfo& begin_info, const size_t& frame_idx) {
+			ImGui::Render();
+			if (device->MarkersEnabled) {
+				device->vkCmdInsertDebugMarker(graphicsPool->GetCmdBuffer(frame_idx), "Update GUI", glm::vec4(0.6f, 0.6f, 0.0f, 1.0f));
+			}
+			gui->UpdateBuffers();
+			vkBeginCommandBuffer(cmd, &begin_info);
+			if (device->MarkersEnabled) {
+				device->vkCmdBeginDebugMarkerRegion(cmd, "Draw GUI", glm::vec4(0.6f, 0.7f, 0.0f, 1.0f));
+			}
+			gui->DrawFrame(cmd);
+			if (device->MarkersEnabled) {
+				device->vkCmdEndDebugMarkerRegion(cmd);
+			}
+			vkEndCommandBuffer(cmd);
+		}
 
 		void draw_frame() {
 
@@ -194,8 +246,10 @@ namespace star_scene {
 		}
 
 		std::shared_ptr<PipelineCache> pipelineCache;
-		Star* object;
-		obj::Skybox* skybox;
+		std::unique_ptr<Star> star;
+		std::unique_ptr<obj::Skybox> skybox;
+		int noiseOctBuffer = 2;
+
 	};
 
 }

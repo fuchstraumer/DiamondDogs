@@ -15,9 +15,17 @@ namespace vulpes {
 			glm::vec4 cameraPos;
 		};
 
+		struct noiseCfg {
+			float frequency = 0.02f;
+			float octaves = 2.0f;
+			float lacunarity = 1.8f;
+			float persistence = 0.60f;
+		};
+
 		struct fs_ubo_data {
 			glm::vec4 cameraPos;
 			glm::vec4 colorShift;
+			noiseCfg noiseParams;
 			uint64_t frame;
 		};
 
@@ -30,11 +38,15 @@ namespace vulpes {
 		Star& operator=(Star&& other);
 		
 		void BuildPipeline(const VkRenderPass& renderpass, std::shared_ptr<PipelineCache>& cache);
-		void BuildMesh();
+		void BuildMesh(TransferPool* transfer_pool);
 		void RecordCommands(VkCommandBuffer& dest_cmd);
 
 		void UpdateUBOs(const glm::mat4& view, const glm::vec3& camera_position);
 		void UpdateUBOfs();
+
+		fs_ubo_data fsUboData;
+
+
 	private:
 
 		void setupDescriptors();
@@ -64,7 +76,7 @@ namespace vulpes {
 		VkGraphicsPipelineCreateInfo pipelineCreateInfo;
 
 		vs_ubo_data vsUboData;
-		fs_ubo_data fsUboData;
+		
 
 		// Temperature selects color, and specifies which texture coordinate to use for all
 		// vertices in this object since the base color is uniform
