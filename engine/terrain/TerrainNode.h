@@ -4,7 +4,7 @@
 #include "stdafx.h"
 
 #include "engine\util\AABB.h"
-#include "engine\renderer\ForwardDecl.h"
+#include "VulpesRender/include/ForwardDecl.h"
 #include "engine\objects\mesh\PlanarMesh.h"
 #include "HeightNode.h"
 #include "DataProducer.h"

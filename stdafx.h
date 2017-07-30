@@ -1,6 +1,7 @@
 // STDAFX.H - used for precompilation of headers used everywhere in project
 #pragma once
 
+#pragma warning(push, 0)
 #include <stdio.h>
 #include <string>
 #include <vector>
@@ -22,7 +23,7 @@
 #include <chrono>
 #include <forward_list>
 #include <future>
-#pragma warning(push, 0)
+
 #define GLFW_DLL
 #define GLFW_INCLUDE_VULKAN
 #include "glfw\glfw3.h"
@@ -49,16 +50,13 @@
 #include "gli\gli.hpp"
 #include "engine\util\lodepng.h"
 
-
 // Forces assert even in release mode: convienient for catching
 // errors that occur due to release optimizations.
 #define  VK_FORCE_ASSERT
 #include "vulkan/vulkan.h"
-#include "common/CreateInfoBase.h"
-#include "common/vkAssert.h"
-#include "common/vk_constants.h"
-#include "common\CommonDef.h"
+
 #pragma warning(pop)
+
 // Number of odd/broken defines in this, as it includes windows.h 
 #define NOMINMAX
 #include "engine\util\easylogging++.h"
@@ -66,7 +64,5 @@
 
 // Default width/height of window. Should probably move this elsewhere and/or remove it entirely.
 constexpr uint32_t DEFAULT_WIDTH = 1920, DEFAULT_HEIGHT = 1080;
-// Defines depth rendering ranges for projection matrix. Same as above, probably a bad idea.
-constexpr float nearDepth = 1.0f, farDepth = 500000.0f;
 
 

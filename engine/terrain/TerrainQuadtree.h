@@ -4,7 +4,7 @@
 #include "stdafx.h"
 #include "TerrainNode.h"
 #include "NodeRenderer.h"
-#include "engine\renderer\ForwardDecl.h"
+#include "VulpesRender/include/ForwardDecl.h"
 #include "engine\util\view_frustum.h"
 
 

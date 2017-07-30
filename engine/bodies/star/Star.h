@@ -2,9 +2,9 @@
 #ifndef STAR_H
 #define STAR_H
 #include "engine\objects\mesh\Icosphere.h"
-#include "engine\renderer\ForwardDecl.h"
-#include "engine/renderer/resource/Texture.h"
-#include "engine/renderer/render/GraphicsPipeline.h"
+#include "VulpesRender/include/ForwardDecl.h"
+#include "VulpesRender/include/resource/Texture.h"
+#include "VulpesRender/include/render/GraphicsPipeline.h"
 
 namespace vulpes {
 

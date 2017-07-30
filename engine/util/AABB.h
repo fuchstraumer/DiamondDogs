@@ -5,9 +5,9 @@
 #include "stdafx.h"
 #include "engine\objects\mesh\Mesh.h"
 #include "view_frustum.h"
-#include "engine\renderer\render\GraphicsPipeline.h"
-#include "engine\renderer\resource\ShaderModule.h"
-#include "engine\renderer\resource\Buffer.h"
+#include "VulpesRender/include/render\GraphicsPipeline.h"
+#include "VulpesRender/include/resource\ShaderModule.h"
+#include "VulpesRender/include/resource\Buffer.h"
 
 namespace vulpes {
 

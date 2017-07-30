@@ -3,12 +3,12 @@
 #define VULPES_TERRAIN_NODE_RENDERER_H
 
 #include "stdafx.h"
-#include "engine\renderer\ForwardDecl.h"
+#include "VulpesRender/include/ForwardDecl.h"
 #include "engine\util\AABB.h"
 #include "HeightNode.h"
 #include "DataProducer.h"
 #include "engine/util/ThreadWrapper.h"
-#include "engine/renderer/resource/ShaderModule.h"
+#include "VulpesRender/include/resource/ShaderModule.h"
 
 namespace vulpes {
 

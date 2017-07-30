@@ -3,11 +3,11 @@
 #define VULPES_TERRAIN_DATA_PRODUCER_H
 
 #include "stdafx.h"
-#include "engine/renderer/ForwardDecl.h"
-#include "engine/renderer/NonCopyable.h"
-#include "engine/renderer/command/CommandPool.h"
-#include "engine/renderer/resource/Buffer.h"
-#include "engine/renderer/resource/PipelineCache.h"
+#include "VulpesRender/include/ForwardDecl.h"
+#include "VulpesRender/include/NonCopyable.h"
+#include "VulpesRender/include/command/CommandPool.h"
+#include "VulpesRender/include/resource/Buffer.h"
+#include "VulpesRender/include/resource/PipelineCache.h"
 #include <queue>
 
 namespace vulpes {

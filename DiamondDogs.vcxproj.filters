@@ -3,7 +3,6 @@
   <ItemGroup>
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="stdafx.cpp" />
-    <ClCompile Include="scenes\BaseScene.cpp" />
     <ClCompile Include="engine\objects\Skybox.cpp" />
     <ClCompile Include="engine\terrain\TerrainNode.cpp" />
     <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
@@ -16,18 +15,15 @@
     <ClCompile Include="engine\util\Noise.cpp" />
     <ClCompile Include="engine\terrain\DataProducer.cpp" />
     <ClCompile Include="engine\util\sdnoise1234.cpp" />
-    <ClCompile Include="bodies\star\Star.cpp" />
+    <ClCompile Include="engine\bodies\star\Star.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="util\noise\TerrainBuilder.h" />
     <ClInclude Include="util\shaderold.h" />
-    <ClInclude Include="bodies\Body.h" />
-    <ClInclude Include="scenes\BaseScene.h" />
     <ClInclude Include="scenes\StarScene.h" />
     <ClInclude Include="engine\objects\Skybox.h" />
-    <ClInclude Include="bodies\terrestrial\Terrestrial.h" />
     <ClInclude Include="engine\terrain\TerrainNode.h" />
     <ClInclude Include="engine\util\AABB.h" />
     <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
@@ -47,12 +43,50 @@
     <ClInclude Include="engine\terrain\DataProducer.h" />
     <ClInclude Include="engine\util\ThreadWrapper.h" />
     <ClInclude Include="engine\util\sdnoise1234.h" />
-    <ClInclude Include="bodies\star\Star.h" />
+    <ClInclude Include="engine\bodies\star\Star.h" />
+    <ClInclude Include="engine\bodies\terrestrial\Terrestrial.h" />
+    <ClInclude Include="engine\bodies\Body.h" />
+    <ClInclude Include="VulpesRender\include\command\CommandPool.h" />
+    <ClInclude Include="VulpesRender\include\command\TransferPool.h" />
+    <ClInclude Include="VulpesRender\include\common\CommonDef.h" />
+    <ClInclude Include="VulpesRender\include\common\CommonInclude.h" />
+    <ClInclude Include="VulpesRender\include\common\CommonUtil.h" />
+    <ClInclude Include="VulpesRender\include\common\CreateInfoBase.h" />
+    <ClInclude Include="VulpesRender\include\common\vk_constants.h" />
+    <ClInclude Include="VulpesRender\include\common\vkAssert.h" />
+    <ClInclude Include="VulpesRender\include\common\VkDebug.h" />
+    <ClInclude Include="VulpesRender\include\core\Camera.h" />
+    <ClInclude Include="VulpesRender\include\core\Instance.h" />
+    <ClInclude Include="VulpesRender\include\core\LogicalDevice.h" />
+    <ClInclude Include="VulpesRender\include\core\PhysicalDevice.h" />
+    <ClInclude Include="VulpesRender\include\gui\imguiShaders.h" />
+    <ClInclude Include="VulpesRender\include\gui\imguiWrapper.h" />
+    <ClInclude Include="VulpesRender\include\render\Deferred.h" />
+    <ClInclude Include="VulpesRender\include\render\DepthStencil.h" />
+    <ClInclude Include="VulpesRender\include\render\Framebuffer.h" />
+    <ClInclude Include="VulpesRender\include\render\GraphicsPipeline.h" />
+    <ClInclude Include="VulpesRender\include\render\Multisampling.h" />
+    <ClInclude Include="VulpesRender\include\render\Renderpass.h" />
+    <ClInclude Include="VulpesRender\include\render\Swapchain.h" />
+    <ClInclude Include="VulpesRender\include\resource\Allocator.h" />
+    <ClInclude Include="VulpesRender\include\resource\Buffer.h" />
+    <ClInclude Include="VulpesRender\include\resource\Image.h" />
+    <ClInclude Include="VulpesRender\include\resource\PipelineCache.h" />
+    <ClInclude Include="VulpesRender\include\resource\ShaderModule.h" />
+    <ClInclude Include="VulpesRender\include\resource\Texture.h" />
+    <ClInclude Include="VulpesRender\include\resource\VertexTypes.h" />
+    <ClInclude Include="VulpesRender\include\scenes\House.h" />
+    <ClInclude Include="VulpesRender\include\util\AABB.h" />
+    <ClInclude Include="VulpesRender\include\util\easylogging++.h" />
+    <ClInclude Include="VulpesRender\include\BaseScene.h" />
+    <ClInclude Include="VulpesRender\include\ForwardDecl.h" />
+    <ClInclude Include="VulpesRender\include\NonCopyable.h" />
+    <ClInclude Include="VulpesRender\include\vpr_stdafx.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />
     <None Include="shaders\debug\vertex.glsl" />
-    <None Include="shaders\gui\ui.frag" />
-    <None Include="shaders\gui\ui.vert" />
+    <None Include="rsrc\shaders\gui\ui.frag" />
+    <None Include="rsrc\shaders\gui\ui.vert" />
   </ItemGroup>
 </Project>

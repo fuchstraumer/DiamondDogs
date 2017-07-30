@@ -77,7 +77,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(VULKAN_SDK)\include;$(ProjectDir);$(SolutionDir)ext\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(VULKAN_SDK)\include;$(ProjectDir);$(SolutionDir)ext\include\;VulpesRender\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
@@ -89,15 +89,15 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)ext\lib\x64;$(VULKAN_SDK)\Lib;</AdditionalLibraryDirectories>
-      <AdditionalDependencies>vulkan-1.lib;"glfw3dll.lib";"OpenAL32.lib";%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>vulkan-1.lib;"glfw3dll.lib";"OpenAL32.lib";$(ProjectDir)VulpesRender\lib\Debug\VulpesRender.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <IgnoreAllDefaultLibraries>false</IgnoreAllDefaultLibraries>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="bodies\Body.h" />
-    <ClInclude Include="bodies\star\Star.h" />
+    <ClInclude Include="engine\bodies\Body.h" />
+    <ClInclude Include="engine\bodies\star\Star.h" />
     <ClInclude Include="bodies\Terrestial.h" />
-    <ClInclude Include="bodies\terrestrial\Terrestrial.h" />
+    <ClInclude Include="engine\bodies\terrestrial\Terrestrial.h" />
     <ClInclude Include="common\CommonDef.h" />
     <ClInclude Include="common\CommonUtil.h" />
     <ClInclude Include="engine\terrain\DataProducer.h" />
@@ -117,22 +117,59 @@
     <ClInclude Include="engine\util\sdnoise1234.h" />
     <ClInclude Include="engine\util\ThreadWrapper.h" />
     <ClInclude Include="engine\util\view_frustum.h" />
-    <ClInclude Include="scenes\BaseScene.h" />
     <ClInclude Include="scenes\StarScene.h" />
     <ClInclude Include="scenes\Terrain.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="util\noise\TerrainBuilder.h" />
     <ClInclude Include="util\shaderold.h" />
+    <ClInclude Include="VulpesRender\include\BaseScene.h" />
+    <ClInclude Include="VulpesRender\include\command\CommandPool.h" />
+    <ClInclude Include="VulpesRender\include\command\TransferPool.h" />
+    <ClInclude Include="VulpesRender\include\common\CommonDef.h" />
+    <ClInclude Include="VulpesRender\include\common\CommonInclude.h" />
+    <ClInclude Include="VulpesRender\include\common\CommonUtil.h" />
+    <ClInclude Include="VulpesRender\include\common\CreateInfoBase.h" />
+    <ClInclude Include="VulpesRender\include\common\vkAssert.h" />
+    <ClInclude Include="VulpesRender\include\common\VkDebug.h" />
+    <ClInclude Include="VulpesRender\include\common\vk_constants.h" />
+    <ClInclude Include="VulpesRender\include\core\Camera.h" />
+    <ClInclude Include="VulpesRender\include\core\Instance.h" />
+    <ClInclude Include="VulpesRender\include\core\LogicalDevice.h" />
+    <ClInclude Include="VulpesRender\include\core\PhysicalDevice.h" />
+    <ClInclude Include="VulpesRender\include\ForwardDecl.h" />
+    <ClInclude Include="VulpesRender\include\gui\imguiShaders.h" />
+    <ClInclude Include="VulpesRender\include\gui\imguiWrapper.h" />
+    <ClInclude Include="VulpesRender\include\NonCopyable.h" />
+    <ClInclude Include="VulpesRender\include\render\Deferred.h" />
+    <ClInclude Include="VulpesRender\include\render\DepthStencil.h" />
+    <ClInclude Include="VulpesRender\include\render\Framebuffer.h" />
+    <ClInclude Include="VulpesRender\include\render\GraphicsPipeline.h" />
+    <ClInclude Include="VulpesRender\include\render\Multisampling.h" />
+    <ClInclude Include="VulpesRender\include\render\Renderpass.h" />
+    <ClInclude Include="VulpesRender\include\render\Swapchain.h" />
+    <ClInclude Include="VulpesRender\include\resource\Allocator.h" />
+    <ClInclude Include="VulpesRender\include\resource\Buffer.h" />
+    <ClInclude Include="VulpesRender\include\resource\Image.h" />
+    <ClInclude Include="VulpesRender\include\resource\PipelineCache.h" />
+    <ClInclude Include="VulpesRender\include\resource\ShaderModule.h" />
+    <ClInclude Include="VulpesRender\include\resource\Texture.h" />
+    <ClInclude Include="VulpesRender\include\resource\VertexTypes.h" />
+    <ClInclude Include="VulpesRender\include\scenes\House.h" />
+    <ClInclude Include="VulpesRender\include\util\AABB.h" />
+    <ClInclude Include="VulpesRender\include\util\easylogging++.h" />
+    <ClInclude Include="VulpesRender\include\vpr_stdafx.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="bodies\star\Star.cpp" />
+    <ClCompile Include="engine\bodies\star\Star.cpp" />
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="engine\objects\mesh\Icosphere.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Use</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
     <ClCompile Include="engine\objects\Skybox.cpp" />
-    <ClCompile Include="engine\terrain\DataProducer.cpp" />
+    <ClCompile Include="engine\terrain\DataProducer.cpp">
+      <AdditionalIncludeDirectories Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(VULKAN_SDK)\include;$(ProjectDir);$(SolutionDir)ext\include;$(ProjectDir)\VulpesRender\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <ClCompile Include="engine\terrain\HeightNode.cpp" />
     <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
     <ClCompile Include="engine\terrain\TerrainNode.cpp" />
@@ -145,9 +182,6 @@
     <ClCompile Include="engine\util\sdnoise1234.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="scenes\BaseScene.cpp">
-      <WarningLevel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Level3</WarningLevel>
-    </ClCompile>
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
@@ -156,8 +190,8 @@
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />
     <None Include="shaders\debug\vertex.glsl" />
-    <None Include="shaders\gui\ui.frag" />
-    <None Include="shaders\gui\ui.vert" />
+    <None Include="rsrc\shaders\gui\ui.frag" />
+    <None Include="rsrc\shaders\gui\ui.vert" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="VulpesRender\build\VulpesRender.vcxproj">

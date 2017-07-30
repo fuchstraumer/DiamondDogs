@@ -3,10 +3,10 @@
 #define VULPES_TERRAIN_SCENE_H
 
 #include "stdafx.h"
-#include "BaseScene.h"
+#include "VulpesRender/include/BaseScene.h"
 #include "engine\objects\Skybox.h"
 #include "engine\terrain\TerrainQuadtree.h"
-#include "engine\renderer\render\GraphicsPipeline.h"
+#include "VulpesRender/include/render\GraphicsPipeline.h"
 
 namespace terrain_scene {
 
@@ -20,24 +20,24 @@ namespace terrain_scene {
 			renderSkybox = true;
 			const std::type_info& id = typeid(TerrainScene);
 			uint16_t hash = static_cast<uint16_t>(id.hash_code());
-			pipelineCache = std::make_shared<PipelineCache>(device, hash);
+			pipelineCache = std::make_shared<PipelineCache>(device.get(), hash);
 
 			VkQueue transfer;
 			transfer = device->GraphicsQueue(0);
 			instance->SetCamPos(glm::vec3(0.0f, 400.0f, 0.0f));
-			object = new terrain::TerrainQuadtree(device, 1.30f, 1, 10000.0, glm::vec3(0.0f));
-			object->SetupNodePipeline(renderPass->vkHandle(), swapchain, pipelineCache, instance->GetProjectionMatrix());
+			object = new terrain::TerrainQuadtree(device.get(), 1.30f, 1, 10000.0, glm::vec3(0.0f));
+			object->SetupNodePipeline(renderPass->vkHandle(), swapchain.get(), pipelineCache, instance->GetProjectionMatrix());
 
-			skybox = new obj::Skybox(device);
-			skybox->CreateData(transferPool, transfer, instance->GetProjectionMatrix());
+			skybox = new obj::Skybox(device.get());
+			skybox->CreateData(transferPool.get(), transfer, instance->GetProjectionMatrix());
 			skybox->CreatePipeline(renderPass->vkHandle(), pipelineCache);
 
 			SetupFramebuffers();
 
-			auto gui_cache = std::make_shared<PipelineCache>(device, static_cast<uint16_t>(typeid(imguiWrapper).hash_code()));
-			gui = new imguiWrapper;
-			gui->Init(device, gui_cache, renderPass->vkHandle());
-			gui->UploadTextureData(graphicsPool);
+			auto gui_cache = std::make_shared<PipelineCache>(device.get(), static_cast<uint16_t>(typeid(imguiWrapper).hash_code()));
+			gui = std::make_unique<imguiWrapper>();
+			gui->Init(device.get(), gui_cache, renderPass->vkHandle());
+			gui->UploadTextureData(graphicsPool.get());
 		}
 
 		~TerrainScene() {	
@@ -78,7 +78,7 @@ namespace terrain_scene {
 				// holds secondary buffers
 				std::vector<VkCommandBuffer> buffers;
 
-				gui->NewFrame(instance, true);
+				gui->NewFrame(instance.get(), true);
 
 				VkCommandBufferBeginInfo begin_info = vk_command_buffer_begin_info_base;
 				begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;

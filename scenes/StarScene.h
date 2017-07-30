@@ -3,10 +3,10 @@
 #define VULPES_STAR_SCENE_H
 
 #include "stdafx.h"
-#include "BaseScene.h"
-#include "bodies\star\Star.h"
+#include "VulpesRender/include/BaseScene.h"
+#include "engine/bodies/star/Star.h"
 #include "engine\objects\Skybox.h"
-#include "engine\renderer\render\GraphicsPipeline.h"
+#include "VulpesRender/include/render\GraphicsPipeline.h"
 namespace star_scene {
 	
 	using namespace vulpes;
@@ -16,10 +16,10 @@ namespace star_scene {
 
 		StarScene() : BaseScene(2) {
 
-			pipelineCache = std::make_shared<PipelineCache>(device, static_cast<int16_t>(typeid(StarScene).hash_code()));
+			pipelineCache = std::make_shared<PipelineCache>(device.get(), static_cast<int16_t>(typeid(StarScene).hash_code()));
 
-			object = new Star(device, 5, 300.0f, 4000, instance->GetProjectionMatrix());
-			skybox = new obj::Skybox(device);
+			object = new Star(device.get(), 5, 300.0f, 4000, instance->GetProjectionMatrix());
+			skybox = new obj::Skybox(device.get());
 
 			instance->SetCamPos(glm::vec3(450.0f, 0.0f, 0.0f));
 
@@ -28,7 +28,7 @@ namespace star_scene {
 			object->BuildMesh();
 			object->BuildPipeline(renderPass->vkHandle(), pipelineCache);
 
-			skybox->CreateData(transferPool, transfer, instance->GetProjectionMatrix());
+			skybox->CreateData(transferPool.get(), transfer, instance->GetProjectionMatrix());
 			skybox->CreatePipeline(renderPass->vkHandle(), pipelineCache);
 
 			SetupFramebuffers();
@@ -36,12 +36,12 @@ namespace star_scene {
 		}
 
 		virtual void RecreateObjects() override {
-			object = new Star(device, 5, 300.0f, 4000, instance->GetProjectionMatrix());
-			skybox = new obj::Skybox(device);
+			object = new Star(device.get(), 5, 300.0f, 4000, instance->GetProjectionMatrix());
+			skybox = new obj::Skybox(device.get());
 			VkQueue transfer = device->TransferQueue(0);
 			object->BuildMesh();
 			object->BuildPipeline(renderPass->vkHandle(), pipelineCache);
-			skybox->CreateData(transferPool, transfer, instance->GetProjectionMatrix());
+			skybox->CreateData(transferPool.get(), transfer, instance->GetProjectionMatrix());
 			skybox->CreatePipeline(renderPass->vkHandle(), pipelineCache);
 		}
 
