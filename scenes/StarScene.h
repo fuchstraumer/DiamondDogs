@@ -67,12 +67,14 @@ namespace star_scene {
 			static VkRenderPassBeginInfo renderpass_begin{
 				VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 				nullptr,
-				renderPass->vkHandle(),
+				VK_NULL_HANDLE,
 				VK_NULL_HANDLE, // update this every frame
 				VkRect2D{ VkOffset2D{ 0, 0 }, swapchain->Extent },
 				static_cast<uint32_t>(clear_values.size()),
 				clear_values.data(),
 			};
+
+			// Update this too, as swapchain recreation can void it
 			renderpass_begin.renderPass = renderPass->vkHandle();
 
 			static VkCommandBufferInheritanceInfo inherit_info = vk_command_buffer_inheritance_info_base;
