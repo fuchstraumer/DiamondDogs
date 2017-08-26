@@ -18,9 +18,11 @@ out gl_PerVertex {
 };
 
 layout(location = 0) out vec3 fPos;
+layout(location = 1) out vec3 vNorm;
 
 void main(){
     vec4 Position = vec4(position,1.0f);
+	vNorm = normal;
     fPos = (ubo.model * Position).xyz;
     gl_Position = ubo.projection * ubo.view * ubo.model * Position;
 }
