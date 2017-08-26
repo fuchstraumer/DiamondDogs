@@ -7,55 +7,90 @@
 #include "resource/PipelineCache.h"
 #include "engine/bodies/star/Star.h"
 #include "engine/objects/Skybox.h"
+#include "engine/bodies/star/Corona.h"
+#include "util/imguiTabs.h"
 
 namespace star_scene {
 	
 	using namespace vulpes;
 
+	static const char* tab_names[] = { "Star settings", "Corona settings", "Toggle settings" };
+	static int tab_order[] = { 0, 1, 2 };
+	static int tab_active = 0;
+	static int noise_octave_buffer = 2;
+
+	static void drawStarSettings(std::unique_ptr<Star>& star) {
+		
+	}
+
+	static float size_buffer = 8500.0f;
+
+	static void drawCoronaSettings(std::unique_ptr<Corona>& corona) {
+		
+	}
+
+	enum class possibleTabs : int {
+		STAR_SETTINGS,
+		CORONA_SETTINGS,
+		TOGGLE_SETTINGS,
+	};
+
 	class StarScene : public BaseScene {
 	public:
 
-		StarScene() : BaseScene(3) {
-
-			pipelineCache = std::make_shared<PipelineCache>(device.get(), static_cast<int16_t>(typeid(StarScene).hash_code()));
-
-			star = std::make_unique<Star>(device.get(), 5, 3000.0f, 4000, instance->GetProjectionMatrix());
-			skybox = std::make_unique<obj::Skybox>(device.get());
-			auto gui_cache = std::make_shared<PipelineCache>(device.get(), static_cast<uint16_t>(typeid(imguiWrapper).hash_code()));
-			gui = std::make_unique<imguiWrapper>();
-			gui->Init(device.get(), gui_cache, renderPass->vkHandle());
-			gui->UploadTextureData(transferPool.get());
+		StarScene() : BaseScene(4) {
 
 			instance->SetCamPos(glm::vec3(3300.0f, 0.0f, 0.0f));
+
+			star = std::make_unique<Star>(device.get(), 5, 3000.0f, 4000, instance->GetProjectionMatrix());
+			corona = std::make_unique<Corona>(device.get(), 8500.0f);
+			skybox = std::make_unique<Skybox>(device.get());
+
+			gui = std::make_unique<imguiWrapper>();
+			gui->Init(device.get(), renderPass->vkHandle());
+			gui->UploadTextureData(transferPool.get());
 
 			VkQueue transfer = device->TransferQueue(0);
 
 			star->BuildMesh(transferPool.get());
-			star->BuildPipeline(renderPass->vkHandle(), pipelineCache);
+			star->BuildPipeline(renderPass->vkHandle());
 
 			skybox->CreateData(transferPool.get(), transfer, instance->GetProjectionMatrix());
-			skybox->CreatePipeline(renderPass->vkHandle(), pipelineCache);
+			skybox->CreatePipeline(renderPass->vkHandle());
+
+			corona->Init(renderPass->vkHandle(), instance->GetProjectionMatrix());
 
 			SetupFramebuffers();
+			secondaryBuffers.resize(swapchain->ImageCount);
 
 		}
 
 		virtual void RecreateObjects() override {
 			star = std::make_unique<Star>(device.get(), 5, 3000.0f, 4000, instance->GetProjectionMatrix());
-			skybox = std::make_unique<obj::Skybox>(device.get());
+			skybox = std::make_unique<Skybox>(device.get());
+			corona = std::make_unique<Corona>(device.get(), 8500.0f);
+			gui = std::make_unique<imguiWrapper>();
 			VkQueue transfer = device->TransferQueue(0);
 			star->BuildMesh(transferPool.get());
-			star->BuildPipeline(renderPass->vkHandle(), pipelineCache);
+			star->BuildPipeline(renderPass->vkHandle());
 			skybox->CreateData(transferPool.get(), transfer, instance->GetProjectionMatrix());
-			skybox->CreatePipeline(renderPass->vkHandle(), pipelineCache);
+			skybox->CreatePipeline(renderPass->vkHandle());
+			corona->Init(renderPass->vkHandle(), instance->GetProjectionMatrix());
+			gui->Init(device.get(), renderPass->vkHandle());
+			gui->UploadTextureData(transferPool.get());
 		}
 
 		virtual void WindowResized() override {
+			gui.reset();
 			skybox.reset();
 			star.reset();
+			corona.reset();
 		}
 
 		~StarScene() {
+			skybox.reset();
+			star.reset();
+			corona.reset();
 			gui.reset();
 		}
 
@@ -74,6 +109,9 @@ namespace star_scene {
 				clear_values.data(),
 			};
 
+			gui->NewFrame(instance.get(), true);
+			imguiDrawcalls();
+
 			// Update this too, as swapchain recreation can void it
 			renderpass_begin.renderPass = renderPass->vkHandle();
 
@@ -83,17 +121,11 @@ namespace star_scene {
 
 			for (uint32_t i = 0; i < graphicsPool->size(); ++i) {
 
-				std::vector<VkCommandBuffer> secondary_buffers;
+				if (!secondaryBuffers[i].empty()) {
+					secondaryBuffers[i].clear();
+				}
 
-				gui->NewFrame(instance.get(), false);
-
-				ImGui::Begin("Star Parameters");
-				ImGui::DragFloat("Noise Frequency", &star->fsUboData.noiseParams.frequency, 0.001f, 0.001f, 2.0f);
-				ImGui::DragInt("Noise Octaves", &noiseOctBuffer, 0.1f);
-				star->fsUboData.noiseParams.octaves = static_cast<float>(noiseOctBuffer);
-				ImGui::DragFloat("Noise Lacunarity", &star->fsUboData.noiseParams.lacunarity, 0.001f, 1.0f, 2.60f);
-				ImGui::DragFloat("Noise Persistence", &star->fsUboData.noiseParams.persistence, 0.001f, 0.01f, 0.9f);
-				ImGui::End();
+				
 
 				static VkCommandBufferBeginInfo begin_info = vk_command_buffer_begin_info_base;
 				begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
@@ -120,137 +152,109 @@ namespace star_scene {
 				begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 				begin_info.pInheritanceInfo = &inherit_info;
 
-				VkCommandBuffer& skybox_buffer = secondaryPool->GetCmdBuffer(i * swapchain->ImageCount);
-				VkCommandBuffer& star_buffer = secondaryPool->GetCmdBuffer(1 + (i * swapchain->ImageCount));
-				VkCommandBuffer& gui_buffer = secondaryPool->GetCmdBuffer(2 + (i * swapchain->ImageCount));
+				VkCommandBuffer& skybox_buffer = secondaryPool->GetCmdBuffer(i * (swapchain->ImageCount + 1));
+				// 0 1 2 3 || 4 5 6 7 || 8 9 10 11
+				// 
+				VkCommandBuffer& star_buffer = secondaryPool->GetCmdBuffer(1 + (i * (swapchain->ImageCount + 1)));
+				VkCommandBuffer& gui_buffer = secondaryPool->GetCmdBuffer(2 + (i * (swapchain->ImageCount + 1)));
+				VkCommandBuffer& corona_buffer = secondaryPool->GetCmdBuffer(3 + (i * (swapchain->ImageCount + 1)));
 
 				renderGUI(gui_buffer, begin_info, i);
-				secondary_buffers.push_back(gui_buffer);
+				secondaryBuffers[i].push_back(gui_buffer);
 
-				{
+				if (renderSkybox) {
 					vkBeginCommandBuffer(skybox_buffer, &begin_info);
 					vkCmdSetViewport(skybox_buffer, 0, 1, &viewport);
 					vkCmdSetScissor(skybox_buffer, 0, 1, &scissor);
+					skybox->UpdateUBO(instance->GetViewMatrix());
 					skybox->RecordCommands(skybox_buffer);
 					vkEndCommandBuffer(skybox_buffer);
-					secondary_buffers.push_back(skybox_buffer);
+					secondaryBuffers[i].push_back(skybox_buffer);
 				}
 
-				{
-					vkBeginCommandBuffer(star_buffer, &begin_info);
-					vkCmdSetViewport(star_buffer, 0, 1, &viewport);
-					vkCmdSetScissor(star_buffer, 0, 1, &scissor);
-					star->RecordCommands(star_buffer);
-					vkEndCommandBuffer(star_buffer);
-					secondary_buffers.push_back(star_buffer);
+				if (renderStar) {
+					star->SetViewport(viewport);
+					star->SetScissor(scissor);
+					star->UpdateUBOs(instance->GetViewMatrix(), instance->GetCamPos());
+					star->RecordCommands(star_buffer, begin_info);
+					secondaryBuffers[i].push_back(star_buffer);
 				}
 
-				vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), static_cast<uint32_t>(secondary_buffers.size()), secondary_buffers.data());
+				if (renderCorona) {
+					corona->SetViewport(viewport);
+					corona->SetScissor(scissor);
+					corona->RecordCommands(corona_buffer, begin_info, instance->GetViewMatrix());
+					secondaryBuffers[i].push_back(corona_buffer);
+					auto param = corona->CoronaParameters();
+				}
+
+				vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), static_cast<uint32_t>(secondaryBuffers[i].size()), secondaryBuffers[i].data());
 
 				vkCmdEndRenderPass(graphicsPool->GetCmdBuffer(i));
 
 				err = vkEndCommandBuffer(graphicsPool->GetCmdBuffer(i));
 				VkAssert(err);
-
-				secondary_buffers.clear();
-
+				assert(secondaryBuffers[i].size() <= 4);
 			}
 		}
 
-		void RenderLoop() {
-
-			float DeltaTime, LastFrame = 0.0f; 
-			std::chrono::system_clock::time_point a = std::chrono::system_clock::now();
-			std::chrono::system_clock::time_point b = std::chrono::system_clock::now();
-			static constexpr double frame_time_desired = 16.0; // frametime desired in ms, 120Hz
-			
-			while (!glfwWindowShouldClose(instance->Window)) {
-
-				a = std::chrono::system_clock::now();
-				std::chrono::duration<double, std::milli> work_time = a - b;
-
-				if (work_time.count() < frame_time_desired) {
-					std::chrono::duration<double, std::milli> delta_ms(frame_time_desired - work_time.count());
-					auto delta_ms_dur = std::chrono::duration_cast<std::chrono::milliseconds>(delta_ms);
-					std::this_thread::sleep_for(std::chrono::milliseconds(delta_ms_dur.count()));
-				}
-
-				b = std::chrono::system_clock::now();
-
-
-				float CurrentFrame = static_cast<float>(glfwGetTime());
-				DeltaTime = CurrentFrame - LastFrame;
-				LastFrame = CurrentFrame;
-				glfwPollEvents();
-
-				instance->UpdateMovement(DeltaTime);
-				star->UpdateUBOs(instance->GetViewMatrix(), instance->GetCamPos());
-				skybox->UpdateUBO(instance->GetViewMatrix());
-
-				RecordCommands();
-				draw_frame();
-
-				vkResetCommandPool(device->vkHandle(), secondaryPool->vkHandle(), VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
-				vkResetCommandPool(device->vkHandle(), graphicsPool->vkHandle(), VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
-			}
-
-			vkDeviceWaitIdle(device->vkHandle());
-			glfwTerminate();
-
-		}
+	
 
 	private:
 
-		void renderGUI(VkCommandBuffer& cmd, const VkCommandBufferBeginInfo& begin_info, const size_t& frame_idx) {
-			ImGui::Render();
-			if (device->MarkersEnabled) {
-				device->vkCmdInsertDebugMarker(graphicsPool->GetCmdBuffer(frame_idx), "Update GUI", glm::vec4(0.6f, 0.6f, 0.0f, 1.0f));
-			}
-			gui->UpdateBuffers();
-			vkBeginCommandBuffer(cmd, &begin_info);
-			if (device->MarkersEnabled) {
-				device->vkCmdBeginDebugMarkerRegion(cmd, "Draw GUI", glm::vec4(0.6f, 0.7f, 0.0f, 1.0f));
-			}
-			gui->DrawFrame(cmd);
-			if (device->MarkersEnabled) {
-				device->vkCmdEndDebugMarkerRegion(cmd);
-			}
-			vkEndCommandBuffer(cmd);
-		}
-
-		void draw_frame() {
-
-			uint32_t image_idx;
-			vkAcquireNextImageKHR(device->vkHandle(), swapchain->vkHandle(), std::numeric_limits<uint64_t>::max(), semaphores[0], VK_NULL_HANDLE, &image_idx);
-			VkSubmitInfo submit_info = vk_submit_info_base;
-			VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-			submit_info.waitSemaphoreCount = 1;
-			submit_info.pWaitSemaphores = &semaphores[0];
-			submit_info.pWaitDstStageMask = wait_stages;
-			submit_info.commandBufferCount = 1;
-			submit_info.pCommandBuffers = &graphicsPool->GetCmdBuffer(image_idx);
-			submit_info.signalSemaphoreCount = 1;
-			submit_info.pSignalSemaphores = &semaphores[1];
-			VkResult result = vkQueueSubmit(device->GraphicsQueue(), 1, &submit_info, VK_NULL_HANDLE);
+		virtual void endFrame(const size_t& idx) override {
+			VkResult result = vkWaitForFences(device->vkHandle(), 1, &presentFences[idx], VK_TRUE, vk_default_fence_timeout);
 			VkAssert(result);
+			secondaryBuffers[idx].clear();
+			secondaryBuffers[idx].shrink_to_fit();
+			result = vkResetFences(device->vkHandle(), 1, &presentFences[idx]);
+			VkAssert(result);
+		}
+			
+		virtual void imguiDrawcalls() override {
 
-			VkPresentInfoKHR present_info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-			present_info.waitSemaphoreCount = 1;
-			present_info.pWaitSemaphores = &semaphores[1];
-			present_info.swapchainCount = 1;
-			present_info.pSwapchains = &swapchain->vkHandle();
-			present_info.pImageIndices = &image_idx;
-			present_info.pResults = nullptr;
+			ImGui::Begin("Parameters");
+			const bool tab_change = ImGui::TabLabels(tab_names, sizeof(tab_names) / sizeof(tab_names[0]), tab_active, tab_order);
 
-			vkQueuePresentKHR(device->GraphicsQueue(), &present_info);
-			vkQueueWaitIdle(device->GraphicsQueue());
+			switch (static_cast<possibleTabs>(tab_active)) {
+			case possibleTabs::STAR_SETTINGS:
+				ImGui::PushID("Star Parameters");
+				ImGui::DragFloat("Noise Frequency", &star->fsUboData.noiseParams.frequency, 0.001f, 0.001f, 2.0f);
+				ImGui::DragInt("Noise Octaves", &noise_octave_buffer, 0.1f);
+				star->fsUboData.noiseParams.octaves = static_cast<float>(noise_octave_buffer);
+				ImGui::DragFloat("Noise Lacunarity", &star->fsUboData.noiseParams.lacunarity, 0.001f, 1.0f, 2.60f);
+				ImGui::DragFloat("Noise Persistence", &star->fsUboData.noiseParams.persistence, 0.001f, 0.01f, 0.9f);
+				ImGui::PopID();
+				break;
+			case possibleTabs::CORONA_SETTINGS:
+				ImGui::PushID("Corona parameters");
+				ImGui::DragFloat("Temperature", &corona->pushDataFS.parameters.temperature, 100.0f, 5000.0f, 29000.0f);
+				ImGui::DragFloat("Frequency", &corona->pushDataFS.parameters.frequency, 0.01f, 0.01f, 30.0f);
+				ImGui::DragFloat("Permutation speed", &corona->pushDataFS.parameters.speed, 0.0001f, 0.00001f, 1.0f);
+				ImGui::DragFloat("Alpha discard level", &corona->pushDataFS.parameters.alphaDiscardLevel, 0.001f, 0.001f, 0.95f);
+				ImGui::DragFloat("Size", &size_buffer, 100.0f, 1000.0f);
+				corona->pushDataVS.size = glm::vec4(size_buffer);
+				ImGui::PopID();
+				break;
+			case possibleTabs::TOGGLE_SETTINGS:
+				ImGui::PushID("Toggle settings");
+				ImGui::Checkbox("Render Skybox", &renderSkybox);
+				ImGui::Checkbox("Render Star", &renderStar);
+				ImGui::Checkbox("Render Corona", &renderCorona);
+				ImGui::PopID();
+			}
+
+			ImGui::End();
 
 		}
 
+		bool renderSkybox, renderStar, renderCorona;
 		std::shared_ptr<PipelineCache> pipelineCache;
 		std::unique_ptr<Star> star;
-		std::unique_ptr<obj::Skybox> skybox;
+		std::unique_ptr<Skybox> skybox;
+		std::unique_ptr<Corona> corona;
 		int noiseOctBuffer = 2;
+		std::vector<std::vector<VkCommandBuffer>> secondaryBuffers;
 
 	};
 
