@@ -6,7 +6,6 @@
 #include "VulpesRender/include/resource/Texture.h"
 #include "VulpesRender/include/render/GraphicsPipeline.h"
 
-namespace vulpes {
 
 	class Star {
 
@@ -30,22 +29,20 @@ namespace vulpes {
 		};
 
 	public:
-		// Creates a star, randomly selecting all values from within reasonable ranges
-		Star(const Device* device, int lod_level, float _radius, unsigned int temp, const glm::mat4& projection, const glm::vec3& position = glm::vec3(0.0f));
-		// Creates a star, using supplied values or reasonably shuffled defaults otherwise.
+
+		Star(const vulpes::Device* device, int lod_level, float _radius, unsigned int temp, const glm::mat4& projection, const glm::vec3& position = glm::vec3(0.0f));
 		~Star();
-		Star() = default;
-		Star& operator=(Star&& other);
-		
-		void BuildPipeline(const VkRenderPass& renderpass, std::shared_ptr<PipelineCache>& cache);
-		void BuildMesh(TransferPool* transfer_pool);
-		void RecordCommands(VkCommandBuffer& dest_cmd);
+
+		void BuildPipeline(const VkRenderPass& renderpass);
+		void BuildMesh(vulpes::TransferPool* transfer_pool);
+		void RecordCommands(VkCommandBuffer& dest_cmd, const VkCommandBufferBeginInfo& begin_info);
+
+		void SetViewport(const VkViewport& viewport);
+		void SetScissor(const VkRect2D& scissor);
 
 		void UpdateUBOs(const glm::mat4& view, const glm::vec3& camera_position);
-		void UpdateUBOfs();
 
 		fs_ubo_data fsUboData;
-
 
 	private:
 
@@ -62,38 +59,29 @@ namespace vulpes {
 		void setupPipelineInfo();
 		void setupPipelineCreateInfo(const VkRenderPass& renderpass);
 
-		const Device* device;
-		std::unique_ptr<GraphicsPipeline> pipeline;
-		std::shared_ptr<PipelineCache> pipelineCache;
-		std::unique_ptr<Buffer> vsUBO;
+		const vulpes::Device* device;
+		std::unique_ptr<vulpes::GraphicsPipeline> pipeline;
+		std::unique_ptr<vulpes::PipelineCache> pipelineCache;
+		std::unique_ptr<vulpes::ShaderModule> vert, frag;
+		std::unique_ptr<vulpes::Buffer> vsUBO;
+
 		VkDescriptorSetLayout descriptorSetLayout;
 		VkDescriptorSet descriptorSet;
 		VkDescriptorPool descriptorPool;
 		VkPipelineLayout pipelineLayout;
-		std::unique_ptr<ShaderModule> vert, frag;
-
-		GraphicsPipelineInfo pipelineInfo;
+		vulpes::GraphicsPipelineInfo pipelineInfo;
 		VkGraphicsPipelineCreateInfo pipelineCreateInfo;
+		VkViewport viewport;
+		VkRect2D scissor;
 
 		vs_ubo_data vsUboData;
-		
-
-		// Temperature selects color, and specifies which texture coordinate to use for all
-		// vertices in this object since the base color is uniform
 		unsigned int temperature;
-		// Radius is useful to know, but will mainly be set in the mesh since we care about it most there
-		float radius;
-		// Meshes used for up-close rendering.
-		mesh::Icosphere mesh0;
-		//Icosphere mesh1;
-		// Corona object for this star
-
-		// Used to permute the star
+		vulpes::mesh::Icosphere mesh0;
 		uint64_t frame;
-		// Distance we switch LODs
+
 
 	};
 
-}
+
 
 #endif // !STAR_H
