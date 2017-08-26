@@ -11,7 +11,7 @@
 #include "command/CommandPool.h"
 
 namespace vulpes {
-	namespace obj {
+
 
 		Skybox::Skybox(const Device* _device) : device(_device), ebo(nullptr), ubo(nullptr), vbo(nullptr), vert(nullptr), frag(nullptr), pipeline(nullptr) {
 			std::array<glm::vec3, 8> positions{
@@ -148,10 +148,10 @@ namespace vulpes {
 
 		}
 
-		void Skybox::CreatePipeline(const VkRenderPass& renderpass, std::shared_ptr<PipelineCache>& cache) {
+		void Skybox::CreatePipeline(const VkRenderPass& renderpass) {
 
 			const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
-			pipelineCache = cache;
+			pipelineCache = std::make_unique<PipelineCache>(device, static_cast<uint16_t>(typeid(Skybox).hash_code()));
 			GraphicsPipelineInfo pipeline_info;
 
 			pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_NONE;
@@ -218,6 +218,5 @@ namespace vulpes {
 			indices.push_back(i2);
 		}
 
-	} // !NAMESPACE_OBJ
 
 } // !NAMESPACE_VULPES

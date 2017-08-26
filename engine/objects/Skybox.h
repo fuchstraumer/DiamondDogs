@@ -10,8 +10,6 @@
 
 namespace vulpes {
 
-	namespace obj {
-
 		class Skybox {
 			struct vs_ubo_data {
 				glm::mat4 view, projection;
@@ -27,7 +25,7 @@ namespace vulpes {
 
 			void CreateData(CommandPool* pool, const VkQueue& queue, const glm::mat4& projection);
 
-			void CreatePipeline(const VkRenderPass& renderpass, std::shared_ptr<PipelineCache>& cache);
+			void CreatePipeline(const VkRenderPass& renderpass);
 
 			void UpdateUBO(const glm::mat4& view);
 
@@ -55,7 +53,7 @@ namespace vulpes {
 			VkPipelineLayout pipelineLayout;
 		};
 
-	}
+
 
 }
 #endif // !SKYBOX_H
