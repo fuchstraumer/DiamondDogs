@@ -1,13 +1,13 @@
 #include "stdafx.h"
-#include "Star.h"
-#include "core/LogicalDevice.h"
-#include "resource/Buffer.h"
-#include "resource/ShaderModule.h"
-#include "render/GraphicsPipeline.h"
-#include "render/Swapchain.h"
-#include "resource/PipelineCache.h"
-#include "render/Multisampling.h"
-#include "command/TransferPool.h"
+#include "Star.hpp"
+#include "core/Instance.hpp"
+#include "core/LogicalDevice.hpp"
+#include "resource/Buffer.hpp"
+#include "resource/ShaderModule.hpp"
+#include "render/GraphicsPipeline.hpp"
+#include "render/Swapchain.hpp"
+#include "resource/PipelineCache.hpp"
+#include "command/TransferPool.hpp"
 
 using namespace vulpes;
 
@@ -215,7 +215,7 @@ void Star::setupPipelineInfo() {
 	pipelineInfo.DynamicStateInfo.dynamicStateCount = 2;
 	static const VkDynamicState states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 	pipelineInfo.DynamicStateInfo.pDynamicStates = states;
-	pipelineInfo.MultisampleInfo.rasterizationSamples = Multisampling::SampleCount;
+	pipelineInfo.MultisampleInfo.rasterizationSamples = vulpes::Instance::VulpesInstanceConfig.MSAA_SampleCount;;
 
 }
 

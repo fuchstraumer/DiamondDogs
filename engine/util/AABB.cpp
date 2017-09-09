@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "AABB.h"
+#include "AABB.hpp"
 
 namespace vulpes {
 

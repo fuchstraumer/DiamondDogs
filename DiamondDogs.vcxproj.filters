@@ -4,18 +4,20 @@
     <ClCompile Include="DiamondDogs.cpp" />
     <ClCompile Include="stdafx.cpp" />
     <ClCompile Include="engine\objects\Skybox.cpp" />
-    <ClCompile Include="engine\terrain\TerrainNode.cpp" />
-    <ClCompile Include="engine\terrain\TerrainQuadtree.cpp" />
     <ClCompile Include="engine\util\AABB.cpp" />
     <ClCompile Include="engine\util\easylogging++.cc" />
-    <ClCompile Include="engine\terrain\NodeRenderer.cpp" />
     <ClCompile Include="engine\objects\mesh\Icosphere.cpp" />
-    <ClCompile Include="engine\terrain\HeightNode.cpp" />
     <ClCompile Include="engine\objects\mesh\PlanarMesh.cpp" />
     <ClCompile Include="engine\util\Noise.cpp" />
-    <ClCompile Include="engine\terrain\DataProducer.cpp" />
     <ClCompile Include="engine\util\sdnoise1234.cpp" />
     <ClCompile Include="engine\bodies\star\Star.cpp" />
+    <ClCompile Include="engine\objects\mesh\Billboard.cpp" />
+    <ClCompile Include="engine\bodies\star\Corona.cpp" />
+    <ClCompile Include="engine\subsystems\terrain\HeightNode.cpp" />
+    <ClCompile Include="engine\subsystems\terrain\NodeRenderer.cpp" />
+    <ClCompile Include="engine\subsystems\terrain\TerrainNode.cpp" />
+    <ClCompile Include="engine\subsystems\terrain\TerrainQuadtree.cpp" />
+    <ClCompile Include="engine\subsystems\files\FileSubsytem.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bodies\Terrestial.h" />
@@ -23,27 +25,12 @@
     <ClInclude Include="util\noise\TerrainBuilder.h" />
     <ClInclude Include="util\shaderold.h" />
     <ClInclude Include="scenes\StarScene.h" />
-    <ClInclude Include="engine\objects\Skybox.h" />
-    <ClInclude Include="engine\terrain\TerrainNode.h" />
-    <ClInclude Include="engine\util\AABB.h" />
-    <ClInclude Include="engine\terrain\TerrainQuadtree.h" />
-    <ClInclude Include="engine\util\view_frustum.h" />
     <ClInclude Include="common\CommonUtil.h" />
     <ClInclude Include="common\CommonDef.h" />
     <ClInclude Include="scenes\Terrain.h" />
     <ClInclude Include="engine\util\easylogging++.h" />
     <ClInclude Include="engine\util\alloc\Page.h" />
-    <ClInclude Include="engine\terrain\NodeRenderer.h" />
-    <ClInclude Include="engine\objects\mesh\PlanarMesh.h" />
-    <ClInclude Include="engine\objects\mesh\MeshComponents.h" />
-    <ClInclude Include="engine\objects\mesh\Mesh.h" />
-    <ClInclude Include="engine\objects\mesh\Icosphere.h" />
-    <ClInclude Include="engine\terrain\HeightNode.h" />
-    <ClInclude Include="engine\util\Noise.h" />
-    <ClInclude Include="engine\terrain\DataProducer.h" />
-    <ClInclude Include="engine\util\ThreadWrapper.h" />
     <ClInclude Include="engine\util\sdnoise1234.h" />
-    <ClInclude Include="engine\bodies\star\Star.h" />
     <ClInclude Include="engine\bodies\terrestrial\Terrestrial.h" />
     <ClInclude Include="engine\bodies\Body.h" />
     <ClInclude Include="VulpesRender\include\command\CommandPool.h" />
@@ -82,11 +69,31 @@
     <ClInclude Include="VulpesRender\include\ForwardDecl.h" />
     <ClInclude Include="VulpesRender\include\NonCopyable.h" />
     <ClInclude Include="VulpesRender\include\vpr_stdafx.h" />
+    <ClInclude Include="engine\subsystems\files\FileSubsytem.hpp" />
+    <ClInclude Include="engine\subsystems\terrain\HeightNode.hpp" />
+    <ClInclude Include="engine\subsystems\terrain\NodeRenderer.hpp" />
+    <ClInclude Include="engine\subsystems\terrain\TerrainNode.hpp" />
+    <ClInclude Include="engine\subsystems\terrain\TerrainQuadtree.hpp" />
+    <ClInclude Include="engine\objects\Skybox.hpp" />
+    <ClInclude Include="engine\bodies\star\Corona.hpp" />
+    <ClInclude Include="engine\bodies\star\Star.hpp" />
+    <ClInclude Include="engine\objects\mesh\Billboard.hpp" />
+    <ClInclude Include="engine\objects\mesh\Icosphere.hpp" />
+    <ClInclude Include="engine\objects\mesh\Mesh.hpp" />
+    <ClInclude Include="engine\objects\mesh\MeshComponents.hpp" />
+    <ClInclude Include="engine\objects\mesh\PlanarMesh.hpp" />
+    <ClInclude Include="engine\util\AABB.hpp" />
+    <ClInclude Include="engine\util\Noise.hpp" />
+    <ClInclude Include="engine\util\view_frustum.hpp" />
+    <ClInclude Include="engine\util\WorkerThread.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\debug\fragment.glsl" />
     <None Include="shaders\debug\vertex.glsl" />
     <None Include="rsrc\shaders\gui\ui.frag" />
     <None Include="rsrc\shaders\gui\ui.vert" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="rsrc\shaders\star\star_close.geom" />
   </ItemGroup>
 </Project>

@@ -3,8 +3,13 @@
 #define VULPES_PLANAR_MESH_H
 
 #include "stdafx.h"
-#include "mesh.h"
-#include "engine\terrain\HeightNode.h"
+#include "mesh.hpp"
+
+namespace vulpes {
+	namespace terrain {
+		class HeightNode;
+	}
+}
 
 namespace vulpes {
 

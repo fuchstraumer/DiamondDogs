@@ -4,11 +4,11 @@
 
 #include "stdafx.h"
 
-#include "resource/Buffer.h"
-#include "resource/PipelineLayout.h"
-#include "resource/ShaderModule.h"
-#include "resource/PipelineCache.h"
-#include "render/GraphicsPipeline.h"
+#include "resource/Buffer.hpp"
+#include "resource/PipelineLayout.hpp"
+#include "resource/ShaderModule.hpp"
+#include "resource/PipelineCache.hpp"
+#include "render/GraphicsPipeline.hpp"
 
 
 constexpr static std::array<float, 12> quad_vertices = {

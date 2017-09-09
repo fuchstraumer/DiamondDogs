@@ -1,222 +1,212 @@
 #include "stdafx.h"
-#include "Skybox.h"
-
-#include "core/LogicalDevice.h"
-#include "resource/Buffer.h"
-#include "resource/ShaderModule.h"
-#include "render/GraphicsPipeline.h"
-#include "core/PhysicalDevice.h"
-#include "render/Multisampling.h"
-#include "resource/PipelineCache.h"
-#include "command/CommandPool.h"
+#include "Skybox.hpp"
+#include "core/Instance.hpp"
+#include "core/LogicalDevice.hpp"
+#include "resource/Buffer.hpp"
+#include "resource/ShaderModule.hpp"
+#include "render/GraphicsPipeline.hpp"
+#include "core/PhysicalDevice.hpp"
+#include "resource/PipelineCache.hpp"
+#include "command/CommandPool.hpp"
 
 namespace vulpes {
 
-
-		Skybox::Skybox(const Device* _device) : device(_device), ebo(nullptr), ubo(nullptr), vbo(nullptr), vert(nullptr), frag(nullptr), pipeline(nullptr) {
-			std::array<glm::vec3, 8> positions{
-				{
-					glm::vec3(-1.0f, -1.0f, +1.0f), // Point 0, left lower front UV{0,0}
-					glm::vec3(+1.0f, -1.0f, +1.0f), // Point 1, right lower front UV{1,0}
-					glm::vec3(+1.0f, +1.0f, +1.0f), // Point 2, right upper front UV{1,1}
-					glm::vec3(-1.0f, +1.0f, +1.0f), // Point 3, left upper front UV{0,1}
-					glm::vec3(+1.0f, -1.0f, -1.0f), // Point 4, right lower rear
-					glm::vec3(-1.0f, -1.0f, -1.0f), // Point 5, left lower rear
-					glm::vec3(-1.0f, +1.0f, -1.0f), // Point 6, left upper rear
-					glm::vec3(+1.0f, +1.0f, -1.0f), } // Point 7, right upper rear
-			};
-			// Build mesh (six faces defining the cube)
-			auto buildface = [this](const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3) {
-				// We'll need four indices and four vertices for the two tris defining a face.
-				uint32_t i0, i1, i2, i3;
-				vertex_t v0, v1, v2, v3;
-
-				// Set the vertex positions.
-				v0.Position = p0;
-				v1.Position = p1;
-				v2.Position = p2;
-				v3.Position = p3;
-				// Add the verts to the Mesh's vertex container. Returns index to added vert.
-				i0 = add_vertex(std::move(v0));
-				i1 = add_vertex(std::move(v1));
-				i2 = add_vertex(std::move(v2));
-				i3 = add_vertex(std::move(v3));
-				// Add the triangles to the mesh, via indices
-				add_triangle(i0, i1, i2); // Needs UVs {0,0}{1,0}{0,1}
-				add_triangle(i0, i2, i3); // Needs UVs {1,0}{0,1}{1,1}
-			};
-			// Front
-			buildface(positions[0], positions[1], positions[2], positions[3]); // Using Points 0, 1, 2, 3 and Normal 0
-																			   // Right
-			buildface(positions[1], positions[4], positions[7], positions[2]); // Using Points 1, 4, 7, 2 and Normal 1
-																			   // Top
-			buildface(positions[3], positions[2], positions[7], positions[6]); // Using Points 3, 2, 7, 6 and Normal 2
-																			   // Left
-			buildface(positions[5], positions[0], positions[3], positions[6]); // Using Points 5, 0, 3, 6 and Normal 3
-																			   // Bottom
-			buildface(positions[5], positions[4], positions[1], positions[0]); // Using Points 5, 4, 1, 0 and Normal 4
-																			   // Back
-			buildface(positions[4], positions[5], positions[6], positions[7]); // Using Points 4, 5, 6, 7 and Normal 5
-
-			auto& phys_device = device->GetPhysicalDevice();
-			assert(phys_device.Properties.limits.maxImageDimensionCube >= 4096);
-			texture = std::make_unique<Texture<gli::texture_cube>>(device);
-			texture->CreateFromFile("rsrc/img/skybox/deep_thought_bc7.dds", VK_FORMAT_BC7_UNORM_BLOCK);
+	static const std::array<glm::vec3, 8> positions{
+			glm::vec3(-1.0f, -1.0f, +1.0f), // Point 0, left lower front UV{0,0}
+			glm::vec3(+1.0f, -1.0f, +1.0f), // Point 1, right lower front UV{1,0}
+			glm::vec3(+1.0f, +1.0f, +1.0f), // Point 2, right upper front UV{1,1}
+			glm::vec3(-1.0f, +1.0f, +1.0f), // Point 3, left upper front UV{0,1}
+			glm::vec3(+1.0f, -1.0f, -1.0f), // Point 4, right lower rear
+			glm::vec3(-1.0f, -1.0f, -1.0f), // Point 5, left lower rear
+			glm::vec3(-1.0f, +1.0f, -1.0f), // Point 6, left upper rear
+			glm::vec3(+1.0f, +1.0f, -1.0f), // Point 7, right upper rear
+	};
 
 
-		}
+	Skybox::Skybox(const Device* _device) : device(_device), ebo(nullptr), vbo(nullptr), vert(nullptr), frag(nullptr), pipeline(nullptr) {
+		createMesh();
+	}
 
-		Skybox::~Skybox() {
-			vkDestroyDescriptorPool(device->vkHandle(), descriptorPool, nullptr);
-			vkDestroyDescriptorSetLayout(device->vkHandle(), descriptorSetLayout, nullptr);
-			vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
-		}
+	void Skybox::createMesh() {
 
-		void Skybox::CreateData(CommandPool * pool, const VkQueue & queue, const glm::mat4& projection) {
+		auto build_face = [this](const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3) {
 
-			vbo = std::make_unique<Buffer>(device);
-			vbo->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertices.size() * sizeof(vertex_t));
-			vbo->CopyTo(vertices.data(), pool, queue, vertices.size() * sizeof(vertex_t), 0);
+			uint32_t i0, i1, i2, i3;
+			vertex_t v0, v1, v2, v3;
 
-			ebo = std::make_unique<Buffer>(device);
-			ebo->CreateBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indices.size() * sizeof(uint32_t));
-			ebo->CopyTo(indices.data(), pool, queue, indices.size() * sizeof(uint32_t), 0);
+			v0.Position = p0;
+			v1.Position = p1;
+			v2.Position = p2;
+			v3.Position = p3;
 
-			ubo = std::make_unique<Buffer>(device);
-			ubo->CreateBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, sizeof(vs_ubo_data));
-			uboData.projection = projection;
-			uboData.view = glm::mat4(1.0f);
-			ubo->CopyToMapped(&uboData, 2 * sizeof(glm::mat4), 0);
+			i0 = AddVertex(std::move(v0));
+			i1 = AddVertex(std::move(v1));
+			i2 = AddVertex(std::move(v2));
+			i3 = AddVertex(std::move(v3));
 
-			VkCommandBuffer copy_cmd = pool->StartSingleCmdBuffer();
-			VkQueue transfer_queue = device->TransferQueue();
-			texture->TransferToDevice(copy_cmd);
-			
-			pool->EndSingleCmdBuffer(copy_cmd, transfer_queue);
-			texture->FreeStagingBuffer();
+			AddTriangle(i0, i1, i2);
+			AddTriangle(i0, i2, i3);
 
-			vert = std::make_unique<ShaderModule>(device, "rsrc/shaders/skybox/skybox.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-			frag = std::make_unique<ShaderModule>(device, "rsrc/shaders/skybox/skybox.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+		};
 
-			static const VkDescriptorPoolSize descr_pool[2]{ VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}, VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1} };
+		build_face(positions[0], positions[1], positions[2], positions[3]);
+		build_face(positions[1], positions[4], positions[7], positions[2]);
+		build_face(positions[3], positions[2], positions[7], positions[6]);
+		build_face(positions[5], positions[0], positions[3], positions[6]);
+		build_face(positions[5], positions[4], positions[1], positions[0]);
+		build_face(positions[4], positions[5], positions[6], positions[7]);
 
-			VkDescriptorPoolCreateInfo pool_info = vk_descriptor_pool_create_info_base;
-			pool_info.maxSets = 1;
-			pool_info.poolSizeCount = 2;
-			pool_info.pPoolSizes = descr_pool;
+	}
+	
+	Skybox::~Skybox() {
+		descriptorSet.reset();
+		texture.reset();
+		vbo.reset();
+		ebo.reset();
+		vert.reset();
+		frag.reset();
+		pipelineLayout.reset();
+	}
 
-			VkResult result = vkCreateDescriptorPool(device->vkHandle(), &pool_info, nullptr, &descriptorPool);
-			VkAssert(result);
+	void Skybox::CreateData(TransferPool* transfer_pool, DescriptorPool* descriptor_pool, const glm::mat4& projection) {
 
-			static const VkDescriptorSetLayoutBinding layout_bindings[2]{
-				VkDescriptorSetLayoutBinding{0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},
-				VkDescriptorSetLayoutBinding{1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}
-			};
+		createResources(transfer_pool);
+		setupDescriptorSet(descriptor_pool);
+		setupPipelineLayout();
+		uboData.projection = projection;
 
-			VkDescriptorSetLayoutCreateInfo layout_info = vk_descriptor_set_layout_create_info_base;
-			layout_info.bindingCount = 2;
-			layout_info.pBindings = layout_bindings;
+	}
 
-			result = vkCreateDescriptorSetLayout(device->vkHandle(), &layout_info, nullptr, &descriptorSetLayout);
-			VkAssert(result);
+	void Skybox::createResources(TransferPool* transfer_pool) {
 
-			VkPipelineLayoutCreateInfo pipeline_info = vk_pipeline_layout_create_info_base;
-			pipeline_info.setLayoutCount = 1;
-			pipeline_info.pSetLayouts = &descriptorSetLayout;
+		createBuffers();
+		createTexture();
+		uploadData(transfer_pool);
 
-			result = vkCreatePipelineLayout(device->vkHandle(), &pipeline_info, nullptr, &pipelineLayout);
-			VkAssert(result);
+		createShaders();
 
-			VkDescriptorSetAllocateInfo alloc_info = vk_descriptor_set_alloc_info_base;
-			alloc_info.descriptorPool = descriptorPool;
-			alloc_info.descriptorSetCount = 1;
-			alloc_info.pSetLayouts = &descriptorSetLayout;
+	}
 
-			result = vkAllocateDescriptorSets(device->vkHandle(), &alloc_info, &descriptorSet);
-			VkAssert(result);
+	void Skybox::createBuffers() {
+		
+		vbo = std::make_unique<Buffer>(device);
+		ebo = std::make_unique<Buffer>(device);
 
-			VkDescriptorBufferInfo buffer_info = ubo->GetDescriptor();
-			VkDescriptorImageInfo image_info = texture->GetDescriptor();
+		vbo->CreateBuffer(VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sizeof(vertex_t) * vertices.size());
+		ebo->CreateBuffer(VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, sizeof(uint32_t) * indices.size());
 
-			const VkWriteDescriptorSet write_descr[2]{
-				VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, 0, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffer_info, nullptr},
-				VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, 1, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &image_info, nullptr, nullptr }
+	}
 
-			};
+	void Skybox::createTexture() {
 
-			vkUpdateDescriptorSets(device->vkHandle(), 2, write_descr, 0, nullptr);
+		texture = std::make_unique<Texture<gli::texture_cube>>(device);
+		texture->CreateFromFile("rsrc/img/skybox/deep_thought_bc7.dds", VK_FORMAT_BC7_UNORM_BLOCK);
 
-		}
+	}
 
-		void Skybox::CreatePipeline(const VkRenderPass& renderpass) {
+	void Skybox::createShaders() {
 
-			const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
-			pipelineCache = std::make_unique<PipelineCache>(device, static_cast<uint16_t>(typeid(Skybox).hash_code()));
-			GraphicsPipelineInfo pipeline_info;
+		vert = std::make_unique<ShaderModule>(device, "rsrc/shaders/skybox/skybox.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+		frag = std::make_unique<ShaderModule>(device, "rsrc/shaders/skybox/skybox.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
-			pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_NONE;
-			pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+	}
 
-			// Set this through dynamic state so we can do it when rendering.
-			pipeline_info.DynamicStateInfo.dynamicStateCount = 2;
-			static const VkDynamicState states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-			pipeline_info.DynamicStateInfo.pDynamicStates = states;
+	void Skybox::uploadData(TransferPool* transfer_pool) {
 
-			pipeline_info.VertexInfo.vertexBindingDescriptionCount = 1;
-			pipeline_info.VertexInfo.pVertexBindingDescriptions = &bind_descr;
-			pipeline_info.VertexInfo.vertexAttributeDescriptionCount = 1;
-			pipeline_info.VertexInfo.pVertexAttributeDescriptions = &attr_descr;
+		auto& cmd = transfer_pool->Begin();
+		vbo->CopyTo(vertices.data(), cmd, sizeof(vertex_t) * vertices.size(), 0);
+		ebo->CopyTo(indices.data(), cmd, sizeof(uint32_t) * indices.size(), 0);
+		texture->TransferToDevice(cmd);
+		transfer_pool->End();
+		transfer_pool->Submit();
 
-			pipeline_info.MultisampleInfo.rasterizationSamples = Multisampling::SampleCount;
+	}
 
-			VkGraphicsPipelineCreateInfo pipeline_create_info = vk_graphics_pipeline_create_info_base;
-			pipeline_create_info.flags = 0;
-			pipeline_create_info.stageCount = 2;
-			pipeline_create_info.pStages = shader_infos.data();
-			pipeline_create_info.pInputAssemblyState = &pipeline_info.AssemblyInfo;
-			pipeline_create_info.pTessellationState = nullptr;
-			pipeline_create_info.pViewportState = &pipeline_info.ViewportInfo;
-			pipeline_create_info.pRasterizationState = &pipeline_info.RasterizationInfo;
-			pipeline_create_info.pMultisampleState = &pipeline_info.MultisampleInfo;
-			pipeline_create_info.pVertexInputState = &pipeline_info.VertexInfo;
-			pipeline_create_info.pDepthStencilState = &pipeline_info.DepthStencilInfo;
-			pipeline_create_info.pColorBlendState = &pipeline_info.ColorBlendInfo;
-			pipeline_create_info.pDynamicState = &pipeline_info.DynamicStateInfo;
-			pipeline_create_info.layout = pipelineLayout;
-			pipeline_create_info.renderPass = renderpass;
-			pipeline_create_info.subpass = 0;
-			pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
-			pipeline_create_info.basePipelineIndex = -1;
+	void Skybox::setupDescriptorSet(DescriptorPool* descriptor_pool) {
 
-			pipeline = std::make_unique<GraphicsPipeline>(device);
-			pipeline->Init(pipeline_create_info, pipelineCache->vkHandle());
+		descriptorSet = std::make_unique<DescriptorSet>(device);
+		descriptorSet->AddDescriptorBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+		descriptorSet->AddDescriptorInfo(texture->GetDescriptor(), 0);
+		descriptorSet->Init(descriptor_pool);
 
-		}
+	}
 
-		void Skybox::UpdateUBO(const glm::mat4 & view) {
-			uboData.view = glm::mat4(glm::mat3(view));
-			ubo->CopyToMapped(glm::value_ptr(uboData.view), sizeof(glm::mat4), 0);
-		}
+	void Skybox::setupPipelineLayout() {
 
-		void Skybox::RecordCommands(VkCommandBuffer & cmd) {
-			vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
-			vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-			static const VkDeviceSize offsets[]{ 0 };
-			vkCmdBindVertexBuffers(cmd, 0, 1, &vbo->vkHandle(), offsets);
-			vkCmdBindIndexBuffer(cmd, ebo->vkHandle(), 0, VK_INDEX_TYPE_UINT32);
-			vkCmdDrawIndexed(cmd, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
-		}
+		pipelineLayout = std::make_unique<PipelineLayout>(device);
+		pipelineLayout->Create({ descriptorSet->vkLayout() }, { VkPushConstantRange{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vs_ubo_data) } });
 
-		uint32_t Skybox::add_vertex(const vertex_t & v) {
-			vertices.push_back(v);
-			return static_cast<uint32_t>(vertices.size() - 1);
-		}
+	}
 
-		void Skybox::add_triangle(const uint32_t & i0, const uint32_t & i1, const uint32_t & i2) {
-			indices.push_back(i0);
-			indices.push_back(i1);
-			indices.push_back(i2);
-		}
+	void Skybox::CreatePipeline(const VkRenderPass& renderpass) {
+
+		const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
+		pipelineCache = std::make_unique<PipelineCache>(device, static_cast<uint16_t>(typeid(Skybox).hash_code()));
+		GraphicsPipelineInfo pipeline_info;
+
+		pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+		pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+		pipeline_info.MultisampleInfo.rasterizationSamples = vulpes::Instance::VulpesInstanceConfig.MSAA_SampleCount;
+
+		// Set this through dynamic state so we can do it when rendering.
+		pipeline_info.DynamicStateInfo.dynamicStateCount = 2;
+		static const VkDynamicState states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+		pipeline_info.DynamicStateInfo.pDynamicStates = states;
+
+		pipeline_info.VertexInfo.vertexBindingDescriptionCount = 1;
+		pipeline_info.VertexInfo.pVertexBindingDescriptions = &bind_descr;
+		pipeline_info.VertexInfo.vertexAttributeDescriptionCount = 1;
+		pipeline_info.VertexInfo.pVertexAttributeDescriptions = &attr_descr;
+
+		pipeline_info.MultisampleInfo.rasterizationSamples = Multisampling::SampleCount;
+
+		VkGraphicsPipelineCreateInfo pipeline_create_info = vk_graphics_pipeline_create_info_base;
+		pipeline_create_info.flags = 0;
+		pipeline_create_info.stageCount = 2;
+		pipeline_create_info.pStages = shader_infos.data();
+		pipeline_create_info.pInputAssemblyState = &pipeline_info.AssemblyInfo;
+		pipeline_create_info.pTessellationState = nullptr;
+		pipeline_create_info.pViewportState = &pipeline_info.ViewportInfo;
+		pipeline_create_info.pRasterizationState = &pipeline_info.RasterizationInfo;
+		pipeline_create_info.pMultisampleState = &pipeline_info.MultisampleInfo;
+		pipeline_create_info.pVertexInputState = &pipeline_info.VertexInfo;
+		pipeline_create_info.pDepthStencilState = &pipeline_info.DepthStencilInfo;
+		pipeline_create_info.pColorBlendState = &pipeline_info.ColorBlendInfo;
+		pipeline_create_info.pDynamicState = &pipeline_info.DynamicStateInfo;
+		pipeline_create_info.layout = pipelineLayout->vkHandle();
+		pipeline_create_info.renderPass = renderpass;
+		pipeline_create_info.subpass = 0;
+		pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
+		pipeline_create_info.basePipelineIndex = -1;
+
+		pipeline = std::make_unique<GraphicsPipeline>(device);
+		pipeline->Init(pipeline_create_info, pipelineCache->vkHandle());
+
+	}
+
+	void Skybox::UpdateUBO(const glm::mat4 & view) {
+		uboData.view = glm::mat4(glm::mat3(view));
+
+	}
+
+	void Skybox::RecordCommands(VkCommandBuffer & cmd) {
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout->vkHandle(), 0, 1, &descriptorSet->vkHandle(), 0, nullptr);
+		static const VkDeviceSize offsets[]{ 0 };
+		vkCmdPushConstants(cmd, pipelineLayout->vkHandle(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(vs_ubo_data), &uboData);
+		vkCmdBindVertexBuffers(cmd, 0, 1, &vbo->vkHandle(), offsets);
+		vkCmdBindIndexBuffer(cmd, ebo->vkHandle(), 0, VK_INDEX_TYPE_UINT32);
+		vkCmdDrawIndexed(cmd, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+	}
+
+	uint32_t Skybox::AddVertex(const vertex_t & v) {
+		vertices.push_back(v);
+		return static_cast<uint32_t>(vertices.size() - 1);
+	}
+
+	void Skybox::AddTriangle(const uint32_t & i0, const uint32_t & i1, const uint32_t & i2) {
+		indices.insert(indices.cend(), std::initializer_list<uint32_t>{ i0, i1, i2 });
+	}
 
 
 } // !NAMESPACE_VULPES

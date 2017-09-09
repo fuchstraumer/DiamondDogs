@@ -10,10 +10,14 @@
 #include <pwd.h>
 #endif
 
-FileSubsystem::engine_paths_t EnginePaths = FileSubsystem::engine_paths_t();
+FileSubsystem::engine_paths_t FileSubsystem::EnginePaths = FileSubsystem::engine_paths_t();
 
 void FileSubsystem::SetupRequiredPaths() {
-
+	setShaderCachePath();
+	setResourcePath();
+	// Errors in std::string, it seems?
+	// setUserPath();
+	setLogPath();
 }
 
 void FileSubsystem::CleanShaderCache(const std::string & cache_path_str, const std::vector<uint16_t>& used_cache_ids) {
@@ -68,7 +72,7 @@ void FileSubsystem::setShaderCachePath() {
 	auto sc_path = fs::path(".tmp/shader_cache");
 
 	if (!fs::exists(sc_path)) {
-		bool created = fs::create_directory(sc_path);
+		bool created = fs::create_directories(sc_path);
 		if (!created) {
 			LOG(ERROR) << "Failed to create shader cache directory! Files won't save properly, but program will still run."; 
 		}
@@ -99,7 +103,7 @@ void FileSubsystem::setUserPath() {
 
 #ifdef _WIN32
 	WCHAR path[MAX_PATH];
-	if (SUCCEEDED(SHGetFolderPath(NULL, CSIDL_PROFILE, NULL, 0, path))) {
+	if (SUCCEEDED(SHGetFolderPath(NULL, CSIDL_MYDOCUMENTS, NULL, 0, path))) {
 		int size_needed = WideCharToMultiByte(CP_UTF8, 0, path, MAX_PATH, NULL, 0, NULL, NULL);
 		std::string buff(static_cast<size_t>(size_needed), 0);
 		WideCharToMultiByte(CP_UTF8, 0, path, MAX_PATH, buff.data(), size_needed, NULL, NULL);
@@ -109,7 +113,7 @@ void FileSubsystem::setUserPath() {
 		LOG(ERROR) << "Failed to find user's documents folder!";
 		throw std::runtime_error("Couldn't find user's documents folder.");
 	}
-	path_str += "\\DiamondDogs";
+	
 #elif defined(__linux__)
 	const char* home_dir;
 	if ((home_dir = getenv("XDG_CONFIG_HOME")) == nullptr) {
@@ -127,7 +131,8 @@ void FileSubsystem::setUserPath() {
 	path_str += "/DiamondDogs";
 #endif
 
-	fs::path user_path(path_str);
+	std::string full_path_str = std::string(path_str) + std::string("\\DiamondDogs");
+	fs::path user_path(full_path_str);
 
 	if (!fs::exists(user_path)) {
 		bool created = fs::create_directory(user_path);
@@ -149,7 +154,7 @@ void FileSubsystem::setLogPath() {
 	fs::path log_path(".tmp/logs");
 
 	if (!fs::exists(log_path)) {
-		bool created = fs::create_directory(log_path);
+		bool created = fs::create_directories(log_path);
 		if (!created) {
 			LOG(ERROR) << "Failed to create log path.";
 			throw std::runtime_error("Failed to create log path.");

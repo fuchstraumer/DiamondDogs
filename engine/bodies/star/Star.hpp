@@ -1,10 +1,10 @@
 #pragma once
 #ifndef STAR_H
 #define STAR_H
-#include "engine\objects\mesh\Icosphere.h"
-#include "VulpesRender/include/ForwardDecl.h"
-#include "VulpesRender/include/resource/Texture.h"
-#include "VulpesRender/include/render/GraphicsPipeline.h"
+#include "engine\objects\mesh\Icosphere.hpp"
+#include "VulpesRender/include/ForwardDecl.hpp"
+#include "VulpesRender/include/resource/Texture.hpp"
+#include "VulpesRender/include/render/GraphicsPipeline.hpp"
 
 
 	class Star {

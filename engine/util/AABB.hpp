@@ -3,11 +3,11 @@
 #define VULPES_UTIL_AABB_H
 
 #include "stdafx.h"
-#include "engine\objects\mesh\Mesh.h"
-#include "view_frustum.h"
-#include "VulpesRender/include/render\GraphicsPipeline.h"
-#include "VulpesRender/include/resource\ShaderModule.h"
-#include "VulpesRender/include/resource\Buffer.h"
+#include "engine\objects\mesh\Mesh.hpp"
+#include "view_frustum.hpp"
+#include "VulpesRender/include/render\GraphicsPipeline.hpp"
+#include "VulpesRender/include/resource\ShaderModule.hpp"
+#include "VulpesRender/include/resource\Buffer.hpp"
 
 namespace vulpes {
 

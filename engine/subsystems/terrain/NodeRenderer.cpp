@@ -1,17 +1,17 @@
 #include "stdafx.h"
-#include "NodeRenderer.h"
-#include "TerrainNode.h"
+#include "NodeRenderer.hpp"
+#include "TerrainNode.hpp"
 #include "common\CommonDef.h"
-#include "core/LogicalDevice.h"
-#include "gui/imguiWrapper.h"
-#include "resource/ShaderModule.h"
-#include "render/GraphicsPipeline.h"
-#include "resource/Buffer.h"
-#include "command/CommandPool.h"
-#include "command/TransferPool.h"
-#include "resource/Texture.h"
-#include "render/Multisampling.h"
-#include "resource/PipelineCache.h"
+#include "core/Instance.hpp"
+#include "core/LogicalDevice.hpp"
+#include "gui/imguiWrapper.hpp"
+#include "resource/ShaderModule.hpp"
+#include "render/GraphicsPipeline.hpp"
+#include "resource/Buffer.hpp"
+#include "command/CommandPool.hpp"
+#include "command/TransferPool.hpp"
+#include "resource/Texture.hpp"
+#include "resource/PipelineCache.hpp"
 
 bool vulpes::terrain::NodeRenderer::DrawAABBs = false;
 float vulpes::terrain::NodeRenderer::MaxRenderDistance = 100000.0f;
@@ -39,7 +39,7 @@ static const std::array<glm::vec4, 20> LOD_COLOR_ARRAY = {
 	glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
 };
 
-vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(parent_dvc), pipeline(nullptr) {
+vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc, TransferPool* transfer_pool) : device(parent_dvc), pipeline(nullptr), transferPool(transfer_pool) {
 
 	auto init_hm = GetNoiseHeightmap(HeightNode::RootSampleGridSize + 5, glm::vec3(0.0f), 1.0f);
 	glm::ivec3 grid_pos = glm::ivec3(0, 0, 0);
@@ -53,9 +53,6 @@ vulpes::terrain::NodeRenderer::NodeRenderer(const Device * parent_dvc) : device(
 
 	createShaders();
 
-	transferPool = std::make_unique<TransferPool>(device);
-
-	dataProducer = std::make_unique<DataProducer>(device);
 }
 
 void vulpes::terrain::NodeRenderer::setupDescriptors() {
@@ -108,8 +105,8 @@ void vulpes::terrain::NodeRenderer::allocateDescriptors() {
 }
 
 void vulpes::terrain::NodeRenderer::createShaders() {
-	vert = std::make_unique<ShaderModule>(device, "shaders/terrain/terrain.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
-	frag = std::make_unique<ShaderModule>(device, "shaders/terrain/terrain.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+	vert = std::make_unique<ShaderModule>(device, "rsrc/shaders/terrain/terrain.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
+	frag = std::make_unique<ShaderModule>(device, "rsrc/shaders/terrain/terrain.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 }
 
 vulpes::terrain::NodeRenderer::~NodeRenderer() {
@@ -120,9 +117,11 @@ vulpes::terrain::NodeRenderer::~NodeRenderer() {
 	vkDestroyPipelineLayout(device->vkHandle(), pipelineLayout, nullptr);
 }
 
-void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpass, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection) {
+void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpass, const glm::mat4& projection) {
 
 	updateUBO(projection);
+
+	pipelineCache = std::make_unique<PipelineCache>(device, typeid(*this).hash_code());
 
 	const std::array<VkPipelineShaderStageCreateInfo, 2> shader_infos{ vert->PipelineInfo(), frag->PipelineInfo() };
 	VkPipelineVertexInputStateCreateInfo vert_info = mesh::Vertices::PipelineInfo();
@@ -136,7 +135,7 @@ void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpa
 	static const VkDynamicState states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 	pipeline_info.DynamicStateInfo.pDynamicStates = states;
 
-	pipeline_info.MultisampleInfo.rasterizationSamples = Multisampling::SampleCount;
+	pipeline_info.MultisampleInfo.rasterizationSamples = vulpes::Instance::VulpesInstanceConfig.MSAA_SampleCount;
 
 	VkGraphicsPipelineCreateInfo pipeline_create_info = vk_graphics_pipeline_create_info_base;
 
@@ -167,7 +166,7 @@ void vulpes::terrain::NodeRenderer::CreatePipeline(const VkRenderPass & renderpa
 	pipeline_create_info.basePipelineIndex = -1;
 
 	pipeline = std::make_unique<GraphicsPipeline>(device);
-	pipeline->Init(pipeline_create_info, cache->vkHandle());
+	pipeline->Init(pipeline_create_info, pipelineCache->vkHandle());
 }
 
 void vulpes::terrain::NodeRenderer::updateUBO(const glm::mat4 & projection) {
@@ -183,12 +182,6 @@ void vulpes::terrain::NodeRenderer::AddNode(TerrainNode * node){
 		readyNodes.insert(std::shared_ptr<TerrainNode>(node));
 	}
 	
-}
-
-void vulpes::terrain::NodeRenderer::AddRequest(TerrainNode * node) {
-	auto new_request = DataRequest::UpsampleRequest(node->HeightData.get(), node->HeightData->Parent, device);
-	node->upsampleRequest = new_request;
-	dataProducer->Request(new_request.get());
 }
 
 void vulpes::terrain::NodeRenderer::Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const glm::vec3& view_pos, const VkViewport& viewport, const VkRect2D& scissor) {
@@ -245,7 +238,7 @@ void vulpes::terrain::NodeRenderer::renderNodes(VkCommandBuffer& cmd_buffer, VkC
 			case NodeStatus::NeedsTransfer:
 				++iter;
 				break;
-			case NodeStatus::RequestData:
+			case NodeStatus::DataRequested:
 				++iter;
 				break;
 			}
@@ -278,24 +271,6 @@ void vulpes::terrain::NodeRenderer::transferNodesToDvc() {
 }
 
 void vulpes::terrain::NodeRenderer::transferNodeToDvc(std::shared_ptr<TerrainNode> node_to_transfer) {
-	// Verify/Get compute shader results.
-	auto& result = node_to_transfer->upsampleRequest->Result;
-	assert(node_to_transfer->upsampleRequest->Complete());
-	size_t num_samples = node_to_transfer->upsampleRequest->node->NumSamples();
-
-	// Map the compute shader result buffer
-	result->Map();
-	glm::vec2* result_vecs = reinterpret_cast<glm::vec2*>(result->MappedMemory);
-
-	// Copy result buffer into HeightSample Vector.
-	std::vector<HeightSample> result_heights(num_samples);
-	for (size_t i = 0; i < num_samples; ++i) {
-		result_heights[i].Sample.xy = result_vecs[i];
-	}
-
-	result->Unmap();
-	// Set height data for curr.
-	node_to_transfer->HeightData->SetSamples(std::move(result_heights));
 
 	// Create mesh data for curr
 	node_to_transfer->CreateMesh(device);
@@ -314,8 +289,7 @@ void vulpes::terrain::NodeRenderer::updateGUI() {
 	ImGui::End();
 }
 
-void vulpes::terrain::NodeRenderer::SendRequests() {
-	dataProducer->PrepareSubmissions();
-	dataProducer->Submit();
+void vulpes::terrain::NodeRenderer::RunTasks() {
+	HeightDataTasks.Run();
 }
 

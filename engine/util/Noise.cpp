@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "Noise.h"
+#include "Noise.hpp"
 
 
 namespace vulpes {

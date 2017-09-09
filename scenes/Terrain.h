@@ -3,10 +3,11 @@
 #define VULPES_TERRAIN_SCENE_H
 
 #include "stdafx.h"
-#include "VulpesRender/include/BaseScene.h"
-#include "engine\objects\Skybox.h"
-#include "engine\terrain\TerrainQuadtree.h"
-#include "VulpesRender/include/render\GraphicsPipeline.h"
+#include "BaseScene.hpp"
+#include "engine/objects/Skybox.hpp"
+#include "engine/subsystems/terrain/TerrainQuadtree.hpp"
+#include "render/GraphicsPipeline.hpp"
+#include "resource/DescriptorPool.hpp"
 
 namespace terrain_scene {
 
@@ -16,45 +17,48 @@ namespace terrain_scene {
 	public:
 
 		TerrainScene() : BaseScene(3) {
+
 			terrain::NodeRenderer::DrawAABBs = false;
 			renderSkybox = true;
-			const std::type_info& id = typeid(TerrainScene);
-			uint16_t hash = static_cast<uint16_t>(id.hash_code());
-			pipelineCache = std::make_shared<PipelineCache>(device.get(), hash);
 
-			VkQueue transfer;
-			transfer = device->GraphicsQueue(0);
 			instance->SetCamPos(glm::vec3(0.0f, 400.0f, 0.0f));
-			object = new terrain::TerrainQuadtree(device.get(), 1.30f, 1, 10000.0, glm::vec3(0.0f));
-			object->SetupNodePipeline(renderPass->vkHandle(), swapchain.get(), pipelineCache, instance->GetProjectionMatrix());
 
-			skybox = new obj::Skybox(device.get());
-			skybox->CreateData(transferPool.get(), transfer, instance->GetProjectionMatrix());
-			skybox->CreatePipeline(renderPass->vkHandle(), pipelineCache);
+			SetupRenderpass(vulpes::Instance::VulpesInstanceConfig.MSAA_SampleCount);
+
+			createDescriptorPool();
+			createTerrain();
+			createSkybox();
+			createGUI();
 
 			SetupFramebuffers();
-
-			auto gui_cache = std::make_shared<PipelineCache>(device.get(), static_cast<uint16_t>(typeid(imguiWrapper).hash_code()));
-			gui = std::make_unique<imguiWrapper>();
-			gui->Init(device.get(), gui_cache, renderPass->vkHandle());
-			gui->UploadTextureData(transferPool.get());
+			secondaryBuffers.resize(3);
 		}
 
 		~TerrainScene() {	
-			delete skybox;
-			delete object;
+			skybox.reset();
+			terrain.reset();
+			gui.reset();
+			descriptorPool.reset();
 		}
 
 		virtual void WindowResized() override {
-
+			skybox.reset();
+			terrain.reset();
+			gui.reset();
+			descriptorPool.reset();
 		}
 
 		virtual void RecreateObjects() override {
-
+			createDescriptorPool();
+			createTerrain();
+			createSkybox();
+			createGUI();
 		}
 
 		virtual void RecordCommands() override {
-			
+
+			terrain->UpdateQuadtree(instance->GetCamPos(), instance->GetViewMatrix());
+			skybox->UpdateUBO(instance->GetViewMatrix());
 			// Clear color value, clear depth value
 			static const std::array<VkClearValue, 3> clear_values{ VkClearValue{ 0.025f, 0.025f, 0.085f, 1.0f }, VkClearValue{ 0.025f, 0.025f, 0.085f, 1.0f }, VkClearValue{ 1.0f, 0 } };
 
@@ -62,23 +66,23 @@ namespace terrain_scene {
 			static VkRenderPassBeginInfo renderpass_begin{
 				VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 				nullptr,
-				renderPass->vkHandle(),
+				VK_NULL_HANDLE, // Frequently updated as well, static doesn't re-init on swapchain recreate
 				VK_NULL_HANDLE, // update this every frame
 				VkRect2D{ VkOffset2D{0, 0}, swapchain->Extent },
 				static_cast<uint32_t>(clear_values.size()),
 				clear_values.data(),
 			};
 
+			renderpass_begin.renderPass = renderPass->vkHandle();
+			ImGui::SetNextWindowSize(ImVec2(550, 680), ImGuiSetCond_FirstUseEver);
+			ImGui::Begin("Test Window");
+			ImGui::Checkbox("Render Skybox", &renderSkybox);
+			ImGui::End();
 			static VkCommandBufferInheritanceInfo inherit_info = vk_command_buffer_inheritance_info_base;
 			inherit_info.renderPass = renderPass->vkHandle();
 			inherit_info.subpass = 0;
 
-			for (uint32_t i = 0; i < graphicsPool->size(); ++i) {
-
-				// holds secondary buffers
-				std::vector<VkCommandBuffer> buffers;
-
-				gui->NewFrame(instance.get(), true);
+			for (uint32_t i = 0; i < graphicsPool->size(); ++i) { 
 
 				VkCommandBufferBeginInfo begin_info = vk_command_buffer_begin_info_base;
 				begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
@@ -112,13 +116,9 @@ namespace terrain_scene {
 				inherit_info.framebuffer = framebuffers[i];
 				begin_info.pInheritanceInfo = &inherit_info;
 
-				VkCommandBuffer& terrain_buffer = secondaryPool->GetCmdBuffer(i * swapchain->ImageCount);
-				VkCommandBuffer& skybox_buffer = secondaryPool->GetCmdBuffer(1 + (i * swapchain->ImageCount));
-				VkCommandBuffer& gui_buffer = secondaryPool->GetCmdBuffer(2 + (i * swapchain->ImageCount));
-
-				ImGui::Begin("Debug");
-				ImGui::Checkbox("Render Skybox", &renderSkybox);
-				ImGui::End();
+				VkCommandBuffer& terrain_buffer = secondaryPool->GetCmdBuffer(i * 3);
+				VkCommandBuffer& skybox_buffer = secondaryPool->GetCmdBuffer(1 + (i * 3));
+				VkCommandBuffer& gui_buffer = secondaryPool->GetCmdBuffer(2 + (i * 3));
 
 				if (renderSkybox) {
 					vkBeginCommandBuffer(skybox_buffer, &begin_info);
@@ -132,33 +132,24 @@ namespace terrain_scene {
 						device->vkCmdEndDebugMarkerRegion(skybox_buffer);
 					}
 					vkEndCommandBuffer(skybox_buffer);
-					buffers.push_back(skybox_buffer);
+					secondaryBuffers[i].push_back(skybox_buffer);
 				}
 				else {
 					vkBeginCommandBuffer(skybox_buffer, &begin_info);
 					vkEndCommandBuffer(skybox_buffer);
 				}
 
-				object->RenderNodes(terrain_buffer, begin_info, instance->GetViewMatrix(), instance->GetCamPos(), viewport, scissor);
-				buffers.push_back(terrain_buffer);
+				terrain->RenderNodes(terrain_buffer, begin_info, instance->GetViewMatrix(), instance->GetCamPos(), viewport, scissor);
+				secondaryBuffers[i].push_back(terrain_buffer);
 
-				ImGui::Render();
 				if (device->MarkersEnabled) {
 					device->vkCmdInsertDebugMarker(graphicsPool->GetCmdBuffer(i), "Update GUI", glm::vec4(0.6f, 0.6f, 0.0f, 1.0f));
 				}
-				gui->UpdateBuffers();
-				vkBeginCommandBuffer(gui_buffer, &begin_info);
-				if (device->MarkersEnabled) {
-					device->vkCmdBeginDebugMarkerRegion(gui_buffer, "Draw GUI", glm::vec4(0.6f, 0.7f, 0.0f, 1.0f));
-				}
-				gui->DrawFrame(gui_buffer);
-				if (device->MarkersEnabled) {
-					device->vkCmdEndDebugMarkerRegion(gui_buffer);
-				}
-				vkEndCommandBuffer(gui_buffer);
-				buffers.push_back(gui_buffer);
+				
+				renderGUI(gui_buffer, begin_info, i);
+				secondaryBuffers[i].push_back(gui_buffer);
 
-				vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), static_cast<uint32_t>(buffers.size()), buffers.data());
+				vkCmdExecuteCommands(graphicsPool->GetCmdBuffer(i), static_cast<uint32_t>(secondaryBuffers[i].size()), secondaryBuffers[i].data());
 
 				vkCmdEndRenderPass(graphicsPool->GetCmdBuffer(i));
 
@@ -168,76 +159,62 @@ namespace terrain_scene {
 
 				err = vkEndCommandBuffer(graphicsPool->GetCmdBuffer(i));
 				VkAssert(err);
-				buffers.clear();
-				buffers.shrink_to_fit();
 
 			}
 
-		}
-
-		void RenderLoop() {
-
-			float DeltaTime, LastFrame = 0.0f;
-
-			while (!glfwWindowShouldClose(instance->Window)) {
-				// Update frame time values
-				float CurrentFrame = static_cast<float>(glfwGetTime());
-				DeltaTime = CurrentFrame - LastFrame;
-				instance->frameTime = DeltaTime;
-				LastFrame = CurrentFrame;
-				glfwPollEvents();
-
-				// Update things, THEN call draw_frame().
-				instance->UpdateMovement(DeltaTime);
-				auto pos = instance->GetCamPos();
-				object->UpdateQuadtree(glm::dvec3(pos.x, pos.y, pos.z), instance->GetViewMatrix());
-				skybox->UpdateUBO(instance->GetViewMatrix());
-
-				RecordCommands();
-
-				submit_frame();
-
-				vkResetCommandPool(device->vkHandle(), secondaryPool->vkHandle(), VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
-				vkResetCommandPool(device->vkHandle(), graphicsPool->vkHandle(), VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
-			}
-			vkDeviceWaitIdle(device->vkHandle());
-			glfwTerminate();
 		}
 
 	private:
 
-		void submit_frame() {
-			
-			uint32_t image_idx;
-			vkAcquireNextImageKHR(device->vkHandle(), swapchain->vkHandle(), std::numeric_limits<uint64_t>::max(), semaphores[0], VK_NULL_HANDLE, &image_idx);
-			VkSubmitInfo submit_info = vk_submit_info_base;
-			VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-			submit_info.waitSemaphoreCount = 1;
-			submit_info.pWaitSemaphores = &semaphores[0];
-			submit_info.pWaitDstStageMask = wait_stages;
-			submit_info.commandBufferCount = 1;
-			submit_info.pCommandBuffers = &graphicsPool->GetCmdBuffer(image_idx);
-			submit_info.signalSemaphoreCount = 1;
-			submit_info.pSignalSemaphores = &semaphores[1];
-			VkResult result = vkQueueSubmit(device->GraphicsQueue(), 1, &submit_info, VK_NULL_HANDLE);
+		void createTerrain() {
+			terrain = std::make_unique<terrain::TerrainQuadtree>(device.get(), transferPool.get(), 1.30f, 1, 10000.0, glm::vec3(0.0f));
+			terrain->SetupNodePipeline(renderPass->vkHandle(), instance->GetProjectionMatrix());
+		}
+
+		void createSkybox() {
+			skybox = std::make_unique<Skybox>(device.get());
+			skybox->CreateData(transferPool.get(), descriptorPool.get(), instance->GetProjectionMatrix());
+			skybox->CreatePipeline(renderPass->vkHandle());
+		}
+
+		void createGUI() {
+
+			gui = std::make_unique<imguiWrapper>();
+			gui->Init(device.get(), renderPass->vkHandle());
+			gui->UploadTextureData(transferPool.get());
+
+		}
+
+		void createDescriptorPool() {
+
+			descriptorPool = std::make_unique<DescriptorPool>(device.get(), 1);
+			descriptorPool->AddResourceType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1);
+			descriptorPool->Create();
+
+		}
+
+		virtual void imguiDrawcalls() override {
+
+		
+
+		}
+
+		virtual void endFrame(const size_t& idx) override {
+			VkResult result = vkWaitForFences(device->vkHandle(), 1, &presentFences[idx], VK_TRUE, vk_default_fence_timeout);
 			VkAssert(result);
-
-			VkPresentInfoKHR present_info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-			present_info.waitSemaphoreCount = 1;
-			present_info.pWaitSemaphores = &semaphores[1];
-			present_info.swapchainCount = 1;
-			present_info.pSwapchains = &swapchain->vkHandle();
-			present_info.pImageIndices = &image_idx;
-			present_info.pResults = nullptr;
-
-			vkQueuePresentKHR(device->GraphicsQueue(), &present_info);
-			vkQueueWaitIdle(device->GraphicsQueue());
+			secondaryBuffers[idx].clear();
+			secondaryBuffers[idx].shrink_to_fit();
+			result = vkResetFences(device->vkHandle(), 1, &presentFences[idx]);
+			VkAssert(result);
 		}
 
 		std::shared_ptr<PipelineCache> pipelineCache;
-		terrain::TerrainQuadtree* object;
-		obj::Skybox* skybox;
+		std::vector<std::vector<VkCommandBuffer>> secondaryBuffers;
+		std::unique_ptr<terrain::TerrainQuadtree> terrain;
+		std::unique_ptr<Skybox> skybox;
+		std::unique_ptr<DescriptorPool> descriptorPool;
 		bool renderSkybox;
+
 	};
 
 }

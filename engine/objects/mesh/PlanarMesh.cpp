@@ -1,5 +1,6 @@
 #include "stdafx.h"
-#include "PlanarMesh.h"
+#include "PlanarMesh.hpp"
+#include "engine/subsystems/terrain/HeightNode.hpp"
 
 namespace vulpes {
 	namespace mesh {

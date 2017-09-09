@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "Icosphere.h"
+#include "Icosphere.hpp"
 #include <unordered_map>
 
 // Isochadron generation method "liberated" from Seeds of Andromeda: see blogpost 

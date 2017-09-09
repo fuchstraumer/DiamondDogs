@@ -1,6 +1,7 @@
 #include "stdafx.h"
-#include "Billboard.h"
-#include "core/LogicalDevice.h"
+#include "Billboard.hpp"
+#include "core/Instance.hpp"
+#include "core/LogicalDevice.hpp"
 
 using namespace vulpes;
 
@@ -86,6 +87,8 @@ void Billboard::setupPipelineInfo() {
 	pipelineInfo.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
 	pipelineInfo.AssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+
+	pipelineInfo.MultisampleInfo.rasterizationSamples = vulpes::Instance::VulpesInstanceConfig.MSAA_SampleCount;
 
 }
 

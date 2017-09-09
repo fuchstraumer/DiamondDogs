@@ -327,3 +327,5 @@ DiamondDogs/compute_test_node_3.png
 DiamondDogs/compute_test_node_5.png
 *.dds
 test_img/
+logs/shader_failure_3902284848.txt
+logs/shader_failure_2193303360.txt

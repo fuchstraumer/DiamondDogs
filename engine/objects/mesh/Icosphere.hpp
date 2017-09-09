@@ -1,7 +1,7 @@
 #pragma once
 #ifndef ICOSPHERE_H
 #define ICOSPHERE_H
-#include "Mesh.h"
+#include "Mesh.hpp"
 /*
 	ICOSPHERE_H
 

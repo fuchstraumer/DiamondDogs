@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "Corona.h"
+#include "Corona.hpp"
 
 using namespace vulpes;
 

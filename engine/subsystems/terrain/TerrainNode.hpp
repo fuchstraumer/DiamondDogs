@@ -3,15 +3,22 @@
 #define VULPES_TERRAIN_NODE_H
 #include "stdafx.h"
 
-#include "engine\util\AABB.h"
-#include "VulpesRender/include/ForwardDecl.h"
-#include "engine\objects\mesh\PlanarMesh.h"
-#include "HeightNode.h"
-#include "DataProducer.h"
+#include "engine\util\AABB.hpp"
+#include "VulpesRender/include/ForwardDecl.hpp"
+#include "engine\objects\mesh\PlanarMesh.hpp"
+#include "HeightNode.hpp"
 
 namespace vulpes {
 
 	namespace terrain {
+
+		enum class NodeStatus {
+			Active,
+			NeedsTransfer,
+			NeedsUnload,
+			Subdivided,
+			DataRequested,
+		};
 
 		class NodeRenderer;
 
@@ -21,7 +28,7 @@ namespace vulpes {
 		public:
 
 			static size_t MaxLOD;
-			static double SwitchRatio;
+			static float SwitchRatio;
 
 			TerrainNode(const glm::ivec3& parent_coords, const glm::ivec3& logical_coords, const glm::vec3& position, const double& length);
 
@@ -41,18 +48,14 @@ namespace vulpes {
 			int LOD_Level() const;
 
 			std::array<std::shared_ptr<TerrainNode>, 4> Children;
-			std::shared_ptr<HeightNode> HeightData;
-
-			// Load data from this when flag == ready, adding it to HeightData
-			std::shared_ptr<DataRequest> upsampleRequest;
+			std::unique_ptr<HeightNode> HeightData;
 
 			// used w/ node renderer to decide if this is being rendered and/or if it needs data transferred
 			// to the device (so we can batch transfer commands)
 			NodeStatus Status;
 
 			void CreateMesh(const Device* dvc);
-			void CreateHeightData(const HeightNode& parent_node);
-			void SetHeightData(const std::shared_ptr<HeightNode>& height_node);
+			void CreateHeightData(const HeightNode* parent_node);
 
 			mesh::PlanarMesh mesh;
 
@@ -67,8 +70,10 @@ namespace vulpes {
 
 			// Length of one side of the node: should be equivalent to (1 / depth) * L, where L is the
 			// length of the root nodes side.
-			double SideLength;
+			float SideLength;
+		private:
 
+			std::future<std::unique_ptr<HeightNode>> heightDataFuture;
 			util::AABB aabb;
 		};
 

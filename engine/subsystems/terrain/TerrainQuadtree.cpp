@@ -1,23 +1,17 @@
 #include "stdafx.h"
-#include "TerrainQuadtree.h"
-#include "engine\util\sphere.h"
+#include "TerrainQuadtree.hpp"
 
 
-vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, const float & split_factor, const size_t & max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position) : nodeRenderer(device), MaxLOD(max_detail_level) {
-	root = new TerrainNode(glm::ivec3(0, 0, 0), glm::ivec3(0, 0, 0), root_tile_position, root_side_length);
+vulpes::terrain::TerrainQuadtree::TerrainQuadtree(const Device* device, TransferPool* transfer_pool, const float & split_factor, const size_t & max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position) : nodeRenderer(device, transfer_pool), MaxLOD(max_detail_level) {
+	root = std::make_unique<TerrainNode>(glm::ivec3(0, 0, 0), glm::ivec3(0, 0, 0), root_tile_position, root_side_length);
 	TerrainNode::MaxLOD = MaxLOD;
 	TerrainNode::SwitchRatio = split_factor;
 	auto root_noise = GetNoiseHeightmap(HeightNode::RootSampleGridSize, glm::vec3(0.0f), static_cast<float>(HeightNode::RootSampleGridSize / (HeightNode::RootNodeLength * 2.0)));
-	auto root_height = std::make_shared<HeightNode>(glm::ivec3(0, 0, 0), root_noise);
-	root->SetHeightData(root_height);
+	root->HeightData = std::make_unique<HeightNode>(glm::ivec3(0, 0, 0), root_noise);
 }
 
-vulpes::terrain::TerrainQuadtree::~TerrainQuadtree() { 
-	delete root;
-}
-
-void vulpes::terrain::TerrainQuadtree::SetupNodePipeline(const VkRenderPass & renderpass, const Swapchain * swapchain, std::shared_ptr<PipelineCache>& cache, const glm::mat4 & projection) {
-	nodeRenderer.CreatePipeline(renderpass, cache, projection);
+void vulpes::terrain::TerrainQuadtree::SetupNodePipeline(const VkRenderPass & renderpass, const glm::mat4 & projection) {
+	nodeRenderer.CreatePipeline(renderpass, projection);
 }
 
 void vulpes::terrain::TerrainQuadtree::UpdateQuadtree(const glm::vec3 & camera_position, const glm::mat4& view) {

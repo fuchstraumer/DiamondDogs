@@ -2,9 +2,9 @@
 #ifndef VULPES_MESH_H
 #define VULPES_MESH_H
 #include "stdafx.h"
-#include "MeshComponents.h"
-#include "core/LogicalDevice.h"
-#include "resource/Buffer.h"
+#include "MeshComponents.hpp"
+#include "core/LogicalDevice.hpp"
+#include "resource/Buffer.hpp"
 
 namespace vulpes {
 

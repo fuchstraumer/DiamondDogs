@@ -48,7 +48,6 @@
 // Both of these have silly errors we can ignore.
 
 #include "gli\gli.hpp"
-#include "engine\util\lodepng.h"
 
 // Forces assert even in release mode: convienient for catching
 // errors that occur due to release optimizations.

@@ -3,12 +3,12 @@
 #define VULPES_STAR_SCENE_H
 
 #include "stdafx.h"
-#include "BaseScene.h"
-#include "resource/PipelineCache.h"
-#include "engine/bodies/star/Star.h"
-#include "engine/objects/Skybox.h"
-#include "engine/bodies/star/Corona.h"
-#include "util/imguiTabs.h"
+#include "BaseScene.hpp"
+#include "resource/PipelineCache.hpp"
+#include "engine/bodies/star/Star.hpp"
+#include "engine/objects/Skybox.hpp"
+#include "engine/bodies/star/Corona.hpp"
+#include "util/imguiTabs.hpp"
 
 namespace star_scene {
 	
@@ -40,25 +40,15 @@ namespace star_scene {
 
 		StarScene() : BaseScene(4) {
 
+			SetupRenderpass(Instance::VulpesInstanceConfig.MSAA_SampleCount);
+
 			instance->SetCamPos(glm::vec3(3300.0f, 0.0f, 0.0f));
 
-			star = std::make_unique<Star>(device.get(), 5, 3000.0f, 4000, instance->GetProjectionMatrix());
-			corona = std::make_unique<Corona>(device.get(), 8500.0f);
-			skybox = std::make_unique<Skybox>(device.get());
-
-			gui = std::make_unique<imguiWrapper>();
-			gui->Init(device.get(), renderPass->vkHandle());
-			gui->UploadTextureData(transferPool.get());
-
-			VkQueue transfer = device->TransferQueue(0);
-
-			star->BuildMesh(transferPool.get());
-			star->BuildPipeline(renderPass->vkHandle());
-
-			skybox->CreateData(transferPool.get(), transfer, instance->GetProjectionMatrix());
-			skybox->CreatePipeline(renderPass->vkHandle());
-
-			corona->Init(renderPass->vkHandle(), instance->GetProjectionMatrix());
+			createDescriptorPool();
+			createGUI();
+			createSkybox();
+			createStar();
+			createCorona();
 
 			SetupFramebuffers();
 			secondaryBuffers.resize(swapchain->ImageCount);
@@ -66,18 +56,11 @@ namespace star_scene {
 		}
 
 		virtual void RecreateObjects() override {
-			star = std::make_unique<Star>(device.get(), 5, 3000.0f, 4000, instance->GetProjectionMatrix());
-			skybox = std::make_unique<Skybox>(device.get());
-			corona = std::make_unique<Corona>(device.get(), 8500.0f);
-			gui = std::make_unique<imguiWrapper>();
-			VkQueue transfer = device->TransferQueue(0);
-			star->BuildMesh(transferPool.get());
-			star->BuildPipeline(renderPass->vkHandle());
-			skybox->CreateData(transferPool.get(), transfer, instance->GetProjectionMatrix());
-			skybox->CreatePipeline(renderPass->vkHandle());
-			corona->Init(renderPass->vkHandle(), instance->GetProjectionMatrix());
-			gui->Init(device.get(), renderPass->vkHandle());
-			gui->UploadTextureData(transferPool.get());
+			createDescriptorPool();
+			createGUI();
+			createSkybox();
+			createStar();
+			createCorona();
 		}
 
 		virtual void WindowResized() override {
@@ -85,6 +68,7 @@ namespace star_scene {
 			skybox.reset();
 			star.reset();
 			corona.reset();
+			descriptorPool.reset();
 		}
 
 		~StarScene() {
@@ -92,6 +76,7 @@ namespace star_scene {
 			star.reset();
 			corona.reset();
 			gui.reset();
+			descriptorPool.reset();
 		}
 
 		virtual void RecordCommands() override {
@@ -248,11 +233,52 @@ namespace star_scene {
 
 		}
 
+		void createGUI() {
+
+			gui = std::make_unique<imguiWrapper>();
+			gui->Init(device.get(), renderPass->vkHandle());
+			gui->UploadTextureData(transferPool.get());
+
+		}
+
+		void createStar() {
+
+			star = std::make_unique<Star>(device.get(), 5, 3000.0f, 4000, instance->GetProjectionMatrix());
+			star->BuildMesh(transferPool.get());
+			star->BuildPipeline(renderPass->vkHandle());
+
+		}
+
+		void createSkybox() {
+
+			skybox = std::make_unique<Skybox>(device.get());
+			skybox->CreateData(transferPool.get(), descriptorPool.get(), instance->GetProjectionMatrix());
+			skybox->CreatePipeline(renderPass->vkHandle());
+
+		}
+
+		void createCorona() {
+
+			corona = std::make_unique<Corona>(device.get(), 8500.0f);
+			corona->Init(renderPass->vkHandle(), instance->GetProjectionMatrix());
+
+		}
+
+		void createDescriptorPool() {
+
+			descriptorPool = std::make_unique<DescriptorPool>(device.get(), 1);
+			descriptorPool->AddResourceType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1);
+			descriptorPool->Create();
+
+		}
+
 		bool renderSkybox, renderStar, renderCorona;
-		std::shared_ptr<PipelineCache> pipelineCache;
+
 		std::unique_ptr<Star> star;
 		std::unique_ptr<Skybox> skybox;
 		std::unique_ptr<Corona> corona;
+		std::unique_ptr<DescriptorPool> descriptorPool;
+
 		int noiseOctBuffer = 2;
 		std::vector<std::vector<VkCommandBuffer>> secondaryBuffers;
 

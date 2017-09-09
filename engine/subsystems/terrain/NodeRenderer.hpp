@@ -3,12 +3,11 @@
 #define VULPES_TERRAIN_NODE_RENDERER_H
 
 #include "stdafx.h"
-#include "ForwardDecl.h"
-#include "engine\util\AABB.h"
-#include "HeightNode.h"
-#include "DataProducer.h"
-#include "resource/ShaderModule.h"
-
+#include "ForwardDecl.hpp"
+#include "engine\util\AABB.hpp"
+#include "HeightNode.hpp"
+#include "resource/ShaderModule.hpp"
+#include "engine/util/WorkerThread.hpp"
 namespace vulpes {
 
 	namespace terrain {
@@ -36,22 +35,21 @@ namespace vulpes {
 			bool UpdateLOD = true;
 			static bool DrawAABBs;
 			static float MaxRenderDistance;
+			static util::WorkerThread HeightDataTasks;
 
 			terrain_push_ubo uboData;
 
-			NodeRenderer(const Device* parent_dvc);
+			NodeRenderer(const Device* parent_dvc, TransferPool* transfer_pool);
 
 			~NodeRenderer();
 
-			void CreatePipeline(const VkRenderPass& renderpass, std::shared_ptr<PipelineCache>& cache, const glm::mat4& projection);
+			void CreatePipeline(const VkRenderPass& renderpass, const glm::mat4& projection);
 
 			void AddNode(TerrainNode * node);
 
-			void AddRequest(TerrainNode* node);
-
 			void Render(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4 & view, const glm::vec3& view_pos, const VkViewport& viewport, const VkRect2D& scissor);
 
-			void SendRequests();
+			void RunTasks();
 
 		private:
 
@@ -84,14 +82,12 @@ namespace vulpes {
 			const Device* device;
 
 			std::unique_ptr<GraphicsPipeline> pipeline;
-			std::shared_ptr<PipelineCache> pipelineCache;
-			std::unique_ptr<DataProducer> dataProducer;
-
+			std::unique_ptr<PipelineCache> pipelineCache;
+			TransferPool* transferPool;
 			const VkViewport* frameViewport;
 			const VkRect2D* frameScissorRect;
 			const glm::vec3* frameCameraPos;
 
-			std::unique_ptr<TransferPool> transferPool;
 
 		};
 

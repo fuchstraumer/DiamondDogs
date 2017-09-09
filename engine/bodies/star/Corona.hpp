@@ -2,7 +2,7 @@
 #ifndef CORONA_H
 #define CORONA_H
 #include "stdafx.h"
-#include "engine/objects/mesh/Billboard.h"
+#include "engine/objects/mesh/Billboard.hpp"
 
 
 
