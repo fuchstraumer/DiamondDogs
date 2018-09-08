@@ -33,6 +33,7 @@ public:
     vpr::PhysicalDevice* PhysicalDevice(const size_t idx = 0) noexcept;
     vpr::Device* Device() noexcept;
     vpr::Swapchain* Swapchain() noexcept;
+    vpr::SurfaceKHR* Surface() noexcept;
     PlatformWindow* Window() noexcept;
     
     const std::vector<std::string>& InstanceExtensions() const noexcept;
@@ -45,6 +46,7 @@ private:
     std::vector<std::unique_ptr<vpr::PhysicalDevice>> physicalDevices;
     std::unique_ptr<vpr::Device> logicalDevice;
     std::unique_ptr<vpr::Swapchain> swapchain;
+    std::unique_ptr<vpr::SurfaceKHR> windowSurface;
 
     std::vector<std::string> instanceExtensions;
     std::vector<std::string> deviceExtensions;

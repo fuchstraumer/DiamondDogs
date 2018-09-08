@@ -157,7 +157,7 @@ WindowCallbackLists& PlatformWindow::GetCallbacks() {
 void PlatformWindow::createWindow(const char* name) {
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    if (windowMode == windowing_modes::Fullscreen) {
+    if (windowMode == windowing_mode::Fullscreen) {
         GLFWmonitor* monitor = glfwGetPrimaryMonitor();
         const GLFWvidmode* vidmode = glfwGetVideoMode(monitor);
         glfwWindowHint(GLFW_RED_BITS, vidmode->redBits);
@@ -168,7 +168,7 @@ void PlatformWindow::createWindow(const char* name) {
         height = vidmode->height;
         window = glfwCreateWindow(width, height, name, monitor, nullptr);
     }
-    else if (windowMode == windowing_modes::BorderlessWindowed) {
+    else if (windowMode == windowing_mode::BorderlessWindowed) {
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
         glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
         window = glfwCreateWindow(width, height, name, nullptr, nullptr);
