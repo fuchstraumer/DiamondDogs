@@ -84,5 +84,107 @@ static void ResizeCallback(GLFWwindow* window, int width, int height) {
 PlatformWindow::PlatformWindow(int width, int height, const char* application_name, windowing_mode mode) : width(width), height(height), windowMode(mode) {
     createWindow(application_name);
     glfwSetWindowSizeCallback(window, ResizeCallback);
+    callbacks = std::make_unique<WindowCallbackLists>();
+    setCallbacks();
 }
 
+PlatformWindow::~PlatformWindow() {
+    glfwDestroyWindow(window);
+    glfwTerminate();
+}
+
+void PlatformWindow::SetWindowUserPointer(void* user_ptr) {
+    glfwSetWindowUserPointer(window, user_ptr);
+}
+
+GLFWwindow* PlatformWindow::glfwWindow() noexcept {
+    return window;
+}
+void PlatformWindow::GetWindowSize(int& w, int& h) noexcept {
+    glfwGetWindowSize(window, &width, &height);
+    w = width;
+    h = height;
+}
+
+void PlatformWindow::Update() {
+    glfwPollEvents();
+}
+
+void PlatformWindow::WaitForEvents() {
+    glfwWaitEvents();
+}
+
+bool PlatformWindow::WindowShouldClose() {
+    return glfwWindowShouldClose(window);
+}
+
+void PlatformWindow::AddCursorPosCallbackFn(cursor_pos_callback_t fn) {
+    callbacks->cursorPosCallbacks.push_front(fn);
+}
+
+void PlatformWindow::AddCursorEnterCallbackFn(cursor_enter_callback_t fn) {
+    callbacks->cursorEnterCallbacks.push_front(fn);
+}
+
+void PlatformWindow::AddScrollCallbackFn(scroll_callback_t fn) {
+    callbacks->scrollCallbacks.push_front(fn);
+}
+
+void PlatformWindow::AddCharCallbackFn(char_callback_t fn) {
+    callbacks->charCallbacks.push_front(fn);
+}
+
+void PlatformWindow::AddPathDropCallbackFn(path_drop_callback_t fn) {
+    callbacks->pathDropCallbacks.push_front(fn);
+}
+
+void PlatformWindow::AddMouseButtonCallbackFn(mouse_button_callback_t fn) {
+    callbacks->mouseButtonCallbacks.push_front(fn);
+}
+
+void PlatformWindow::AddKeyboardKeyCallbackFn(keyboard_key_callback_t fn) {
+    callbacks->keyboardKeyCallbacks.push_front(fn);
+}
+
+void PlatformWindow::SetInputMode(int mode, int value) {
+    glfwSetInputMode(window, mode, value);
+}
+
+WindowCallbackLists& PlatformWindow::GetCallbacks() {
+    return *callbacks;
+}
+
+void PlatformWindow::createWindow(const char* name) {
+    glfwInit();
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    if (windowMode == windowing_modes::Fullscreen) {
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* vidmode = glfwGetVideoMode(monitor);
+        glfwWindowHint(GLFW_RED_BITS, vidmode->redBits);
+        glfwWindowHint(GLFW_GREEN_BITS, vidmode->greenBits);
+        glfwWindowHint(GLFW_BLUE_BITS, vidmode->blueBits);
+        glfwWindowHint(GLFW_REFRESH_RATE, vidmode->refreshRate);
+        width = vidmode->width;
+        height = vidmode->height;
+        window = glfwCreateWindow(width, height, name, monitor, nullptr);
+    }
+    else if (windowMode == windowing_modes::BorderlessWindowed) {
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+        glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+        window = glfwCreateWindow(width, height, name, nullptr, nullptr);
+    }
+    else {
+        window = glfwCreateWindow(width, height, name, nullptr, nullptr);
+    }
+    glfwSetWindowUserPointer(window, this);
+}
+
+void PlatformWindow::setCallbacks() {
+    glfwSetCursorPosCallback(window, CursorPosCallback);
+    glfwSetCursorEnterCallback(window, CursorEnterCallback);
+    glfwSetScrollCallback(window, ScrollCallback);
+    glfwSetCharCallback(window, CharCallback);
+    glfwSetDropCallback(window, PathDropCallback);
+    glfwSetMouseButtonCallback(window, MouseButtonCallback);
+    glfwSetKeyCallback(window, KeyboardKeyCallback);
+}
