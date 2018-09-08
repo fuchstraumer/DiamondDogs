@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_PLATFORM_WINDOW_HPP
 #define DIAMOND_DOGS_PLATFORM_WINDOW_HPP
-#include "core/signal/delegate.hpp"
+#include "signal/delegate.hpp"
 #include <memory>
 
 enum class windowing_mode : unsigned int {

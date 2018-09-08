@@ -1,0 +1,11 @@
+
+ADD_MODULE(rendering_context
+    "include/PlatformWindow.hpp"
+    "include/RenderingContext.hpp"
+    "src/PlatformWindow.cpp"
+    "src/RenderingContext.cpp"
+)
+
+TARGET_LINK_LIBRARIES(rendering_context PUBLIC vpr_core glfw)
+TARGET_INCLUDE_DIRECTORIES(rendering_context PUBLIC ${VPR_INCLUDE_DIRS_MODULE_RELATIVE}
+    "../../third_party/json/include")

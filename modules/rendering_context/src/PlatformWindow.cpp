@@ -150,7 +150,7 @@ void PlatformWindow::SetInputMode(int mode, int value) {
     glfwSetInputMode(window, mode, value);
 }
 
-WindowCallbackLists& PlatformWindow::GetCallbacks() {
+WindowCallbackLists& PlatformWindow::GetCallbacks() noexcept {
     return *callbacks;
 }
 

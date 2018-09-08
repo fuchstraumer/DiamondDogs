@@ -1,6 +1,8 @@
 {
     "files.associations": {
         "regex": "cpp",
-        "sstream": "cpp"
+        "sstream": "cpp",
+        "filesystem": "cpp",
+        "vector": "cpp"
     }
 }
