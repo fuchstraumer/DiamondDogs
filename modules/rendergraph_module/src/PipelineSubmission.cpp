@@ -493,7 +493,7 @@ void PipelineSubmission::RecordCommands(VkCommandBuffer cmd) {
     recordSubmissionCb(cmd);
 }
 
-#ifdef VPSK_TESTING_ENABLED
+#ifdef DIAMOND_DOGS_TESTING_ENABLED
 TEST_SUITE("PipelineSubmission") {
     TEST_CASE("DepthStencilAttachments") {
         using namespace vpsk;
@@ -588,4 +588,4 @@ TEST_SUITE("PipelineSubmission") {
         CHECK(std::any_of(retrieved.cbegin(), retrieved.cend(), [output](const PipelineResource* rsrc) { return *rsrc == output; }));
     }
 }
-#endif // VPSK_TESTING_ENABLED
+#endif // DIAMOND_DOGS_TESTING_ENABLED

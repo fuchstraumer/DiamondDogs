@@ -1,6 +1,6 @@
 #pragma once
-#ifndef VPSK_FEATURE_RENDERER_HPP
-#define VPSK_FEATURE_RENDERER_HPP
+#ifndef DIAMOND_DOGS_FEATURE_RENDERER_HPP
+#define DIAMOND_DOGS_FEATURE_RENDERER_HPP
 #include "ForwardDecl.hpp"
 #include <vulkan/vulkan.h>
 #include <memory>
@@ -68,4 +68,4 @@ namespace vpsk {
 
 }
 
-#endif //!VPSK_FEATURE_RENDERER_HPP
+#endif //!DIAMOND_DOGS_FEATURE_RENDERER_HPP

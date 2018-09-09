@@ -1,6 +1,6 @@
 #pragma once
-#ifndef VPSK_PIPELINE_RESOURCE_HPP
-#define VPSK_PIPELINE_RESOURCE_HPP
+#ifndef DIAMOND_DOGS_PIPELINE_RESOURCE_HPP
+#define DIAMOND_DOGS_PIPELINE_RESOURCE_HPP
 #include <vulkan/vulkan.h>
 #include <string>
 #include <variant>
@@ -114,4 +114,4 @@ private:
     std::unordered_set<size_t> writtenInPasses;
 };
 
-#endif //!VPSK_PIPELINE_RESOURCE_HPP
+#endif //!DIAMOND_DOGS_PIPELINE_RESOURCE_HPP

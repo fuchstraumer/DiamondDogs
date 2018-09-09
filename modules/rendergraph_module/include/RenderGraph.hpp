@@ -1,6 +1,6 @@
 #pragma once
-#ifndef VPSK_RENDERGRAPH_HPP
-#define VPSK_RENDEGRAPH_HPP
+#ifndef DIAMOND_DOGS_RENDERGRAPH_HPP
+#define DIAMOND_DOGS_RENDEGRAPH_HPP
 #include <vulkan/vulkan.h>
 #include <string>
 #include <unordered_map>
@@ -115,4 +115,4 @@ private:
     std::vector<size_t> submissionStack;
 };
 
-#endif // !VPSK_RENDERGRAPH_HPP
+#endif // !DIAMOND_DOGS_RENDERGRAPH_HPP

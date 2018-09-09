@@ -1,6 +1,6 @@
 #pragma once
-#ifndef VPSK_SHADER_RESOURCE_PACK_HPP
-#define VPSK_SHADER_RESOURCE_PACK_HPP
+#ifndef DIAMOND_DOGS_SHADER_RESOURCE_PACK_HPP
+#define DIAMOND_DOGS_SHADER_RESOURCE_PACK_HPP
 #include "ForwardDecl.hpp"
 #include <unordered_map>
 #include <vector>
@@ -55,4 +55,4 @@ namespace vpsk {
 
 }
 
-#endif //!VPSK_SHADER_RESOURCE_PACK_HPP
+#endif //!DIAMOND_DOGS_SHADER_RESOURCE_PACK_HPP

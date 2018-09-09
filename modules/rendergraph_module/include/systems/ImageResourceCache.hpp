@@ -1,6 +1,6 @@
 #pragma once
-#ifndef VPSK_IMAGE_RESOURCE_CACHE_HPP
-#define VPSK_IMAGE_RESOURCE_CACHE_HPP
+#ifndef DIAMOND_DOGS_IMAGE_RESOURCE_CACHE_HPP
+#define DIAMOND_DOGS_IMAGE_RESOURCE_CACHE_HPP
 #include "ForwardDecl.hpp"
 #include <vulkan/vulkan.h>
 #include <unordered_map>
@@ -54,4 +54,4 @@ namespace vpsk {
 
 }
 
-#endif //!VPSK_IMAGE_RESOURCE_CACHE_HPP
+#endif //!DIAMOND_DOGS_IMAGE_RESOURCE_CACHE_HPP

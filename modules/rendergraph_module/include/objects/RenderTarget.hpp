@@ -1,6 +1,6 @@
 #pragma once
-#ifndef VPSK_RENDER_TARGET_HPP
-#define VPSK_RENDER_TARGET_HPP
+#ifndef DIAMOND_DOGS_RENDER_TARGET_HPP
+#define DIAMOND_DOGS_RENDER_TARGET_HPP
 #include "ForwardDecl.hpp"
 #include <vulkan/vulkan.h>
 #include <memory>
@@ -40,4 +40,4 @@ private:
     std::vector<uint32_t> msaaUpToDate;
 };
 
-#endif // !VPSK_RENDER_TARGET_HPP
+#endif // !DIAMOND_DOGS_RENDER_TARGET_HPP

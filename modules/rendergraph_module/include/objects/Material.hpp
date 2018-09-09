@@ -1,7 +1,7 @@
 #pragma once
-#ifndef VPSK_MATERIAL_RESOURCE_HPP
-#define VPSK_MATERIAL_RESOURCE_HPP
-#include "MaterialParmaeters.hpp"
+#ifndef DIAMOND_DOGS_MATERIAL_RESOURCE_HPP
+#define DIAMOND_DOGS_MATERIAL_RESOURCE_HPP
+#include "MaterialParameters.hpp"
 #include <vulkan/vulkan.h>
 #include <unordered_map>
 #include <string>
@@ -41,20 +41,4 @@ struct material_texture_flags_t {
     }
 };
 
-class Material {
-public:
-
-    material_textures_t& Textures() noexcept;
-    const material_textures_t& Textures() const noexcept;
-    material_texture_flags_t& Flags() noexcept;
-    const material_texture_flags_t& Flags() const noexcept;
-    MaterialParameters& Parameters() noexcept;
-    const MaterialParameters& Parameters() const noexcept;
-
-private:
-    material_textures_t texturePtrs;
-    material_texture_flags_t textureFlags;
-    MaterialParameters parameters;
-};
-
-#endif //!VPSK_MATERIAL_RESOURCE_HPP
+#endif //!DIAMOND_DOGS_MATERIAL_RESOURCE_HPP

@@ -1,6 +1,6 @@
 #pragma once
-#ifndef VPSK_PIPELINE_SUBMISSION_HPP
-#define VPSK_PIPELINE_SUBMISSION_HPP
+#ifndef DIAMOND_DOGS_PIPELINE_SUBMISSION_HPP
+#define DIAMOND_DOGS_PIPELINE_SUBMISSION_HPP
 #include "PipelineResource.hpp"
 #include <memory>
 #include <vector>
@@ -123,4 +123,4 @@ private:
 
 };
 
-#endif //!VPSK_PIPELINE_SUBMISSION_HPP
+#endif //!DIAMOND_DOGS_PIPELINE_SUBMISSION_HPP

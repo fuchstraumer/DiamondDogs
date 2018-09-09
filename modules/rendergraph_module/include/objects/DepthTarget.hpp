@@ -1,6 +1,6 @@
 #pragma once
-#ifndef VPSK_DEPTH_TARGET_HPP
-#define VPSK_DEPTH_TARGET_HPP
+#ifndef DIAMOND_DOGS_DEPTH_TARGET_HPP
+#define DIAMOND_DOGS_DEPTH_TARGET_HPP
 #include "ForwardDecl.hpp"
 #include <cstdint>
 
@@ -23,4 +23,4 @@ private:
     mutable bool msaaUpToDate{ false };
 };
 
-#endif //!VPSK_DEPTH_TARGET_HPP
+#endif //!DIAMOND_DOGS_DEPTH_TARGET_HPP

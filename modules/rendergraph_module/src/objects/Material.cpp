@@ -1,7 +1,1 @@
-#include "resources/Material.hpp"
-
-namespace vpsk {
-
-
-
-}
+#include "objects/Material.hpp"
