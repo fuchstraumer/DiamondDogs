@@ -7,15 +7,9 @@
 [submodule "third_party/shadertools"]
 	path = third_party/shadertools
 	url = https://github.com/fuchstraumer/ShaderTools
-[submodule "third_party/tinyobjloader"]
-	path = third_party/tinyobjloader
-	url = https://github.com/syoyo/tinyobjloader
 [submodule "third_party/stb"]
 	path = third_party/stb
 	url = https://github.com/nothings/stb
-[submodule "third_party/chrysocyon"]
-	path = third_party/chrysocyon
-	url = https://github.com/fuchstraumer/chrysocyon
 [submodule "third_party/json"]
 	path = third_party/json
 	url = http://github.com/nlohmann/json
