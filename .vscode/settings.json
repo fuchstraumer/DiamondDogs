@@ -3,6 +3,7 @@
         "regex": "cpp",
         "sstream": "cpp",
         "filesystem": "cpp",
-        "vector": "cpp"
+        "vector": "cpp",
+        "memory": "cpp"
     }
 }

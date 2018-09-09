@@ -3,7 +3,8 @@
         {
             "name": "Win32",
             "includePath": [
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**",
+                "${env:VULKAN_SDK}/include"
             ],
             "defines": [
                 "_DEBUG",
