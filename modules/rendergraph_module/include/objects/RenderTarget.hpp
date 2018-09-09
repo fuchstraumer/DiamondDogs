@@ -5,6 +5,7 @@
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <vector>
+#include "PipelineResource.hpp"
 
 struct VulkanResource;
 class DepthTarget;
@@ -24,10 +25,10 @@ public:
 
     void Clear();
 
-    const vpr::Image* GetImage(const size_t view_idx = 0) const;
-    vpr::Image* GetImage(const size_t view_idx = 0);
-    const vpr::Image* GetImageMSAA(const size_t view_idx = 0) const;
-    vpr::Image* GetImageMSAA(const size_t view_idx = 0);
+    const VulkanResource* GetImage(const size_t view_idx = 0) const;
+    VulkanResource* GetImage(const size_t view_idx = 0);
+    const VulkanResource* GetImageMSAA(const size_t view_idx = 0) const;
+    VulkanResource* GetImageMSAA(const size_t view_idx = 0);
     image_info_t GetImageInfo() const;
 
     VkViewport Viewport;
