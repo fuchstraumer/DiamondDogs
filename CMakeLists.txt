@@ -4,5 +4,8 @@ PROJECT(DiamondDogs)
 
 FIND_PACKAGE(Vulkan REQUIRED)
 ADD_SUBDIRECTORY(third_party/vulpesrender)
+ADD_SUBDIRECTORY(third_party/shadertools)
+
+ADD_SUBDIRECTORY(third_party/easyloggingpp)
 ADD_SUBDIRECTORY(modules)
 ADD_SUBDIRECTORY(core)
