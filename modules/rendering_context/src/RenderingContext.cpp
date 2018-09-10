@@ -9,9 +9,19 @@
 #include <vulkan/vulkan.h>
 #include <fstream>
 #include <atomic>
+#include <forward_list>
+#include "GLFW/glfw3.h"
 
 static std::vector<std::string> extensionsBuffer;
 static std::string windowingModeBuffer;
+struct swapchain_callbacks_storage_t {
+    std::forward_list<decltype(SwapchainCallbacks::SwapchainCreated)> CreationFns;
+    std::forward_list<decltype(SwapchainCallbacks::BeginResize)> BeginFns;
+    std::forward_list<decltype(SwapchainCallbacks::CompleteResize)> CompleteFns;
+    std::forward_list<decltype(SwapchainCallbacks::SwapchainDestroyed)> DestroyedFns;
+};
+static swapchain_callbacks_storage_t SwapchainCallbacksStorage;
+inline void RecreateSwapchain();
 
 static void SplitVersionString(std::string version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version) {
     const size_t minor_dot_pos = version_string.find('.');
@@ -226,6 +236,7 @@ void RenderingContext::Construct(const char* file_path) {
     input_file >> json_file;
 
     createInstanceAndWindow(json_file, &vulkanInstance, &window, windowMode);
+    window->SetWindowUserPointer(this);
     // Physical devices to be redone for multi-GPU support if device group extension is supported.
     physicalDevices.emplace_back(std::make_unique<vpr::PhysicalDevice>(vulkanInstance->vkHandle()));
 
@@ -277,4 +288,148 @@ void RenderingContext::Construct(const char* file_path) {
     }
 
     swapchain = std::make_unique<vpr::Swapchain>(logicalDevice.get(), window->glfwWindow(), windowSurface->vkHandle(), desired_mode);
+}
+
+void RenderingContext::Update() {
+    window->Update();
+    if (ShouldResizeExchange(false)) {
+
+    }
+}
+
+#pragma warning(push)
+#pragma warning(disable: 4302)
+#pragma warning(disable: 4311)
+inline void RecreateSwapchain() {
+
+    auto& Context = RenderingContext::Get();
+
+    int width = 0;
+    int height = 0;
+    while (width == 0 || height == 0) {
+        glfwGetFramebufferSize(getWindow(), &width, &height);
+        glfwWaitEvents();
+    }
+
+    vkDeviceWaitIdle(Context.Device()->vkHandle());
+
+    Context.Window()->GetWindowSize(width, height);
+
+    for (auto& fn : SwapchainCallbacksStorage.BeginFns) {
+        fn(Context.Swapchain()->vkHandle(), width, height);
+    }
+
+    vpr::RecreateSwapchainAndSurface(Context.Swapchain(), Context.Surface());
+    Context.Device()->UpdateSurface(Context.Surface()->vkHandle());
+
+    Context.Window()->GetWindowSize(width, height);
+    for (auto& fn : SwapchainCallbacksStorage.CompleteFns) {
+        fn(Context.Swapchain()->vkHandle(), width, height);
+    }
+
+    vkDeviceWaitIdle(Context.Device()->vkHandle());
+}
+#pragma warning(pop)
+
+inline GLFWwindow* getWindow() {
+    auto& ctxt = RenderingContext::Get();
+    return ctxt.glfwWindow();
+}
+
+void AddSwapchainCallbacks(SwapchainCallbacks callbacks) {
+    if (callbacks.SwapchainCreated) {
+        SwapchainCallbacksStorage.CreationFns.emplace_front(callbacks.SwapchainCreated);
+    }
+    if (callbacks.BeginResize) {
+        SwapchainCallbacksStorage.BeginFns.emplace_front(callbacks.BeginResize);
+    }
+    if (callbacks.CompleteResize) {
+        SwapchainCallbacksStorage.CompleteFns.emplace_front(callbacks.CompleteResize);
+    }
+    if (callbacks.SwapchainDestroyed) {
+        SwapchainCallbacksStorage.DestroyedFns.emplace_front(callbacks.SwapchainDestroyed);
+    }
+}
+
+void RenderingContext::GetWindowSize(int& w, int& h) {
+    glfwGetWindowSize(getWindow(), &w, &h);
+}
+
+void RenderingContext::GetFramebufferSize(int& w, int& h) {
+    glfwGetFramebufferSize(getWindow(), &w, &h);
+}
+
+void RenderingContext::RegisterCursorPosCallback(cursor_pos_callback_t callback_fn) {
+    auto& ctxt = Get();
+    ctxt.Window()->AddCursorPosCallbackFn(callback_fn);
+}
+
+void RenderingContext::RegisterCursorEnterCallback(cursor_enter_callback_t callback_fn) {
+    auto& ctxt = Get();
+    ctxt.Window()->AddCursorEnterCallbackFn(callback_fn);
+}
+
+void RenderingContext::RegisterScrollCallback(scroll_callback_t callback_fn) {
+    auto& ctxt = Get();
+    ctxt.Window()->AddScrollCallbackFn(callback_fn);
+}
+
+void RenderingContext::RegisterCharCallback(char_callback_t callback_fn) {
+    auto& ctxt = Get();
+    ctxt.Window()->AddCharCallbackFn(callback_fn);
+}
+
+void RenderingContext::RegisterPathDropCallback(path_drop_callback_t callback_fn) {
+    auto& ctxt = Get();
+    ctxt.Window()->AddPathDropCallbackFn(callback_fn);
+}
+
+void RenderingContext::RegisterMouseButtonCallback(mouse_button_callback_t callback_fn) {
+    auto& ctxt = Get();
+    ctxt.Window()->AddMouseButtonCallbackFn(callback_fn);
+}
+
+void RenderingContext::RegisterKeyboardKeyCallback(keyboard_key_callback_t callback_fn) {
+    auto& ctxt = Get();
+    ctxt.Window()->AddKeyboardKeyCallbackFn(callback_fn);
+}
+
+int RenderingContext::GetMouseButton(int button) {
+    return glfwGetMouseButton(getWindow(), button);
+}
+
+void RenderingContext::SetCursorPosition(double x, double y) {
+    glfwSetCursorPos(getWindow(), x, y);
+}
+
+void RenderingContext::SetCursor(GLFWcursor* cursor) {
+    glfwSetCursor(getWindow(), cursor);
+}
+
+GLFWcursor* RenderingContext::CreateCursor(GLFWimage* image, int w, int h) {
+    return glfwCreateCursor(image, w, h);
+}
+
+GLFWcursor* RenderingContext::CreateStandardCursor(int type) {
+    return glfwCreateStandardCursor(type);
+}
+
+void RenderingContext::DestroyCursor(GLFWcursor* cursor) {
+    glfwDestroyCursor(cursor);
+}
+
+bool RenderingContext::ShouldWindowClose() {
+    return glfwWindowShouldClose(getWindow());
+}
+
+int RenderingContext::GetWindowAttribute(int attrib) {
+    return glfwGetWindowAttrib(getWindow(), attrib);
+}
+
+void RenderingContext::SetInputMode(int mode, int val) {
+    glfwSetInputMode(getWindow(), mode, val);
+}
+
+int RenderingContext::GetInputMode(int mode) {
+    return glfwGetInputMode(getWindow(), mode);
 }

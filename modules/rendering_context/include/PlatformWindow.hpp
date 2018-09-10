@@ -13,13 +13,6 @@ enum class windowing_mode : unsigned int {
 
 struct WindowCallbackLists;
 
-using cursor_pos_callback_t = delegate_t<void(double pos_x, double pos_y)>;
-using cursor_enter_callback_t = delegate_t<void(int enter)>;
-using scroll_callback_t = delegate_t<void(double scroll_x, double scroll_y)>;
-using char_callback_t = delegate_t<void(unsigned int code_point)>;
-using path_drop_callback_t = delegate_t<void(int count, const char** paths)>;
-using mouse_button_callback_t = delegate_t<void(int button, int action, int mods)>;
-using keyboard_key_callback_t = delegate_t<void(int key, int scan_code, int action, int mods)>;
 
 class PlatformWindow {
     PlatformWindow(const PlatformWindow&) = delete;
@@ -34,6 +27,14 @@ public:
     void Update();
     void WaitForEvents();
     bool WindowShouldClose();
+
+    using cursor_pos_callback_t = delegate_t<void(double pos_x, double pos_y)>;
+    using cursor_enter_callback_t = delegate_t<void(int enter)>;
+    using scroll_callback_t = delegate_t<void(double scroll_x, double scroll_y)>;
+    using char_callback_t = delegate_t<void(unsigned int code_point)>;
+    using path_drop_callback_t = delegate_t<void(int count, const char** paths)>;
+    using mouse_button_callback_t = delegate_t<void(int button, int action, int mods)>;
+    using keyboard_key_callback_t = delegate_t<void(int key, int scan_code, int action, int mods)>;
 
     void AddCursorPosCallbackFn(cursor_pos_callback_t fn);
     void AddCursorEnterCallbackFn(cursor_enter_callback_t fn);
