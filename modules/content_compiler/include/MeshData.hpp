@@ -97,8 +97,6 @@ private:
 };
 
 struct ccVertex {
-    // data using this type is encoded as 
-    // half-precision floats
     fvec4 position;
     int16_t tangents[4];
     fvec2 uv0;
