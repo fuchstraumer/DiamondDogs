@@ -3,7 +3,6 @@
 #include <array>
 #include <vector>
 #include "glm/glm.hpp"
-#include "doctest/doctest.h"
 namespace vpsk {
 
     static const std::array<glm::vec3, 8> BOX_POSITIONS {
@@ -272,20 +271,3 @@ namespace vpsk {
     }
 
 }
-
-#ifdef VPSK_TESTING_ENABLED
-TEST_SUITE("MeshPrimitives") {
-    TEST_CASE("GenerateBox") {
-        std::unique_ptr<vpsk::MeshData> box_mesh = vpsk::CreateBox();
-    }
-    TEST_CASE("GenerateTangents") {
-        std::unique_ptr<vpsk::MeshData> box_mesh = vpsk::CreateBox(vpsk::ExtraFeatures::GenerateTangents);
-    }
-    TEST_CASE("GenerateIcosphere") {
-        std::unique_ptr<vpsk::MeshData> icosphere_mesh = vpsk::CreateIcosphere(3);
-    }
-    TEST_CASE("GenerateIcosphereWithTangents") {
-        std::unique_ptr<vpsk::MeshData> icosphere_mesh_tangents = vpsk::CreateIcosphere(3, vpsk::ExtraFeatures::GenerateTangents);
-    }
-}
-#endif //!VPSK_TESTING_ENABLED

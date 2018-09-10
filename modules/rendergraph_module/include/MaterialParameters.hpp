@@ -23,9 +23,9 @@ struct MaterialParameters {
     float anisotropyDirection[3]{ 1.0f, 0.0f, 0.0f };
     float thickness{ 0.50f };
     float subsurfacePower{ 12.234f };
-    float subsurfaceColor[3]{ 1.0f, 1.0f, 1.0f };
-    float sheenColor[3]{ 1.0f, 1.0f, 1.0f };
-    float normal[3]{ 0.0f, 0.0f, 1.0f };
+    float subsurfaceColor[4]{ 1.0f, 1.0f, 1.0f, 0.0f };
+    float sheenColor[4]{ 1.0f, 1.0f, 1.0f, 0.0f };
+    float normal[4]{ 0.0f, 0.0f, 1.0f, 0.0f };
     shading_model model{ shading_model::Lit };
 };
 

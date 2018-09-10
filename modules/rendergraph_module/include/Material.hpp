@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_MATERIAL_RESOURCE_HPP
 #define DIAMOND_DOGS_MATERIAL_RESOURCE_HPP
+#include "ForwardDecl.hpp"
 #include "MaterialParameters.hpp"
 #include <vulkan/vulkan.h>
 #include <unordered_map>
@@ -39,6 +40,25 @@ struct material_texture_flags_t {
             (AmbientOcclusion == other.AmbientOcclusion) && (Roughness == other.Roughness) &&
             (Metallic == other.Metallic) && (Emissive == other.Emissive);
     }
+};
+
+class Material {
+    Material(const Material&) = delete;
+    Material& operator=(const Material&) = delete;
+public:
+
+    Material(std::string _name);
+    ~Material();
+
+    // current_idx used as "offset"
+    void Bind(VkCommandBuffer cmd, size_t current_idx);
+
+private:
+
+    std::string name;
+    std::shared_ptr<vpr::DescriptorSet> descriptorSet;
+    material_textures_t textures;
+    MaterialParameters params;
 };
 
 #endif //!DIAMOND_DOGS_MATERIAL_RESOURCE_HPP
