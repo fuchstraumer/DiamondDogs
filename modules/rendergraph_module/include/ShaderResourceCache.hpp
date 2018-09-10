@@ -27,10 +27,9 @@ class ShaderResourceCache {
     ShaderResourceCache& operator=(const ShaderResourceCache&) = delete;
 public:
 
-    ShaderResourceCache(std::string shader_name);
+    ShaderResourceCache();
     ~ShaderResourceCache();
     
-    const std::string& Name() const noexcept;
     void AddResources(const std::vector<const st::ShaderResource*>& resources);
     void AddResource(const st::ShaderResource* resource);
     const VulkanResource* At(const std::string& group_name, const std::string& name) const;
@@ -48,7 +47,6 @@ private:
     void createCombinedImageSampler(const st::ShaderResource* rsrc);
     void createSampler(const st::ShaderResource* rsrc);
 
-    std::string shaderName;
     std::unordered_map<std::string, std::unordered_map<std::string, VulkanResource*>> resources;
 
 };

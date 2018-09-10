@@ -4,13 +4,9 @@
 #include "core/ShaderResource.hpp"
 #include "CreateInfoBase.hpp"
 
-ShaderResourceCache::ShaderResourceCache(std::string shader_name) : shaderName(shader_name) {}
+ShaderResourceCache::ShaderResourceCache() {}
 
 ShaderResourceCache::~ShaderResourceCache() {}
-
-const std::string & ShaderResourceCache::Name() const noexcept {
-    return shaderName;
-}
 
 void ShaderResourceCache::AddResources(const std::vector<const st::ShaderResource*>& resources) {
     for (const auto& rsrc : resources) {
@@ -97,8 +93,7 @@ void ShaderResourceCache::createResource(const st::ShaderResource* rsrc) {
         createCombinedImageSampler(rsrc);
         break;
     default:
-        // Probably just a resource type we don't care about.
-        break;
+        throw std::domain_error("ShaderResource had invalid type!");
     }
 }
 

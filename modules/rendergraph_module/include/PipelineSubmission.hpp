@@ -4,12 +4,16 @@
 #include "PipelineResource.hpp"
 #include <memory>
 #include <vector>
-#include "chrysocyon/signal/Delegate.hpp"
+#include "signal/delegate.hpp"
 
 namespace st {
     class ShaderGroup;
 }
 
+namespace vpr {
+    class PipelineCache;
+    class PipelineLayout;
+}
 
 class RenderGraph;
 

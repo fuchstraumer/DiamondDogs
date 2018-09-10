@@ -21,14 +21,8 @@ namespace vpr {
 }
 
 class PipelineSubmission;
-class HostSubmission;
-class BufferResourceCache;
-class ImageResourceCache;
+class ShaderResourceCache;
 class RenderTarget;
-
-using SubmissionPtr = std::variant<
-    std::unique_ptr<PipelineSubmission>, 
-    std::unique_ptr<HostSubmission>>;
 
 class RenderGraph {
     friend class PipelineSubmission;
@@ -41,10 +35,10 @@ public:
 
     PipelineSubmission& AddPipelineSubmission(const std::string& name, VkPipelineStageFlags stages);
     PipelineResource& GetResource(const std::string& name);
-    BufferResourceCache& GetBufferResourceCache();
-    ImageResourceCache& GetImageResourceCache();
+    ShaderResourceCache& GetResourceCache();
     void Bake();
     void Reset();
+
 
     void SetBackbufferSource(const std::string& name);
     void SetBackbufferDimensions(const resource_dimensions_t& dimensions);
@@ -54,6 +48,7 @@ public:
     const vpr::Device* GetDevice() const noexcept;
 
     static RenderGraph& GetGlobalGraph();
+    
 private:
 
     void addShaderPackResources(const st::ShaderPack* pack);
@@ -101,13 +96,12 @@ private:
     std::string backbufferSource{ "backbuffer" };
     std::unordered_map<std::string, pass_barriers_t> passBarriers;
     std::unordered_map<std::string, size_t> submissionNameMap;
-    std::vector<SubmissionPtr> submissions;
+    std::vector<PipelineSubmission> submissions;
     std::unordered_map<std::string, size_t> resourceNameMap;
     std::unordered_map<std::string, std::unique_ptr<RenderTarget>> renderTargets;
     std::vector<std::unique_ptr<PipelineResource>> pipelineResources;
     // string "name" is for the pack the resources belong to.
-    std::unique_ptr<vpsk::BufferResourceCache> bufferResources;
-    std::unique_ptr<vpsk::ImageResourceCache> imageResources;
+    std::unique_ptr<ShaderResourceCache> resourceCache;
     const vpr::Device* device;
 
     std::vector<std::unordered_set<size_t>> submissionDependencies;
