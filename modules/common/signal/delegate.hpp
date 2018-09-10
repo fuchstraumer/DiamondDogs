@@ -64,6 +64,10 @@ public:
         return invocation.stub == nullptr;
     }
 
+    operator bool() const noexcept {
+        return invocation.stub != nullptr;
+    }
+
     bool operator==(const void* ptr) const noexcept {
         return (ptr == nullptr) && (IsEmpty());
     }
