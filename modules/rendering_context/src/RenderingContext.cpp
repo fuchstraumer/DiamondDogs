@@ -297,6 +297,11 @@ void RenderingContext::Update() {
     }
 }
 
+inline GLFWwindow* getWindow() {
+    auto& ctxt = RenderingContext::Get();
+    return ctxt.glfwWindow();
+}
+
 #pragma warning(push)
 #pragma warning(disable: 4302)
 #pragma warning(disable: 4311)
@@ -307,7 +312,7 @@ inline void RecreateSwapchain() {
     int width = 0;
     int height = 0;
     while (width == 0 || height == 0) {
-        glfwGetFramebufferSize(getWindow(), &width, &height);
+        glfwGetFramebufferSize(Context.glfwWindow(), &width, &height);
         glfwWaitEvents();
     }
 
@@ -331,10 +336,6 @@ inline void RecreateSwapchain() {
 }
 #pragma warning(pop)
 
-inline GLFWwindow* getWindow() {
-    auto& ctxt = RenderingContext::Get();
-    return ctxt.glfwWindow();
-}
 
 void AddSwapchainCallbacks(SwapchainCallbacks callbacks) {
     if (callbacks.SwapchainCreated) {

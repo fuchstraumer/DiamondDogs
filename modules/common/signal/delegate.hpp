@@ -14,19 +14,6 @@ protected:
         invocation_element_t() = default;
         invocation_element_t(void* this_ptr, func_stub_t _stub) : object(this_ptr), stub(_stub) {}
 
-        invocation_element_t(invocation_element_t&& other) noexcept : object(std::move(other.object)), stub(std::move(other.stub)) {
-            other.stub = nullptr;
-            other.object = nullptr;
-        }
-
-        invocation_element_t& operator=(invocation_element_t&& other) noexcept {
-            object = std::move(other.object);
-            other.object = nullptr;
-            stub = std::move(other.stub);
-            other.stub = nullptr;
-            return *this;
-        }
-
         void copy_to(invocation_element_t& destination) const noexcept {
             destination.stub = stub;
             destination.object = object;
@@ -53,9 +40,6 @@ class multicast_delegate_t;
 
 template<typename Result, typename...Args>
 class delegate_t<Result(Args...)> final : private base_delegate_t<Result(Args...)> {
-private:
-    friend class multicast_delegate_t<Result(Args...)>;
-    typename base_delegate_t<Result(Args...)>::invocation_element_t invocation;
 public:
     
     delegate_t() = default;
@@ -116,16 +100,8 @@ public:
         return invocation != other.invocation;
     }
 
-    bool operator==(const multicast_delegate_t<Result(Args...)>& other) const noexcept {
-        return other == (*this);
-    }
-
-    bool operator!=(const multicast_delegate_t<Result(Args...)>& other) const noexcept {
-        return other != (*this);
-    }
-
     Result operator()(Args...args) const {
-        return (*invocation.stub)(invocation.object,std::forward<Args>(args)...);
+        return (*invocation.stub)(invocation.object,args...);
     }
 
     template<class T, Result(T::*Method)(Args...)>
@@ -163,25 +139,28 @@ private:
     template<class T, Result(T::*Method)(Args...)>
     static Result method_stub(void* this_ptr, Args&&...args) {
         T* object_ptr = static_cast<T*>(this_ptr);
-        return (object_ptr->*Method)(std::forward<Args>(args)...);
+        return (object_ptr->*Method)(args...);
     }
 
     template<class T, Result(T::*Method)(Args...) const>
     static Result const_method_stub(void* this_ptr, Args&&...args) {
         T* const object_ptr = static_cast<T*>(this_ptr);
-        return (object_ptr->*Method)(std::forward<Args>(args)...);
+        return (object_ptr->*Method)(args...);
     }
 
     template<Result(*Function)(Args...)>
     static Result function_stub(void* this_ptr, Args&&...args) {
-        return (Function)(std::forward<Args>(args)...);
+        return (Function)(args...);
     }
 
     template<typename LambdaFunc>
     static Result lambda_stub(void* this_ptr, Args...args) {
         LambdaFunc* p = static_cast<LambdaFunc*>(this_ptr);
-        return (p->operator())(std::forward<Args>(args)...);
+        return (p->operator())(args...);
     }
+
+    friend class multicast_delegate_t<Result(Args...)>;
+    typename base_delegate_t<Result(Args...)>::invocation_element_t invocation;
 
 };
 

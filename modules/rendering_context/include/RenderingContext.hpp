@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include "vulkan/vulkan.h"
 
 namespace vpr {
     class Instance;

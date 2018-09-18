@@ -235,9 +235,10 @@ VulkanResource* ResourceContext::CreateNamedImage(const char* name, const VkImag
 }
 
 VulkanResource * ResourceContext::CreateImageView(const VulkanResource * base_rsrc, const VkImageViewCreateInfo * view_info, void * user_data) {
-    auto iter = std::find_if(std::cbegin(resources), std::cend(resources), [base_rsrc](const std::unique_ptr<VulkanResource> rsrc) {
+    auto iter = std::find_if(std::cbegin(resources), std::cend(resources), [base_rsrc](const std::unique_ptr<VulkanResource>& rsrc) {
         return base_rsrc == rsrc.get();
     });
+
     if (iter != std::cend(resources)) {
         VulkanResource* found_resource = iter->get();
         VulkanResource* result = nullptr;

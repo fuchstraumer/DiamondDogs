@@ -27,5 +27,5 @@ ENDFUNCTION()
 
 ADD_SUBDIRECTORY(rendering_context)
 ADD_SUBDIRECTORY(resource_context)
-ADD_SUBDIRECTORY(content_compiler)
-ADD_SUBDIRECTORY(rendergraph_module)
+#ADD_SUBDIRECTORY(content_compiler)
+#ADD_SUBDIRECTORY(rendergraph_module)

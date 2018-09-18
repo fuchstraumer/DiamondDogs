@@ -1,0 +1,23 @@
+{
+    "ApplicationName" : "RendererContextTriangleTest",
+    "ApplicationVersion" : "1.0.0",
+    "EngineName" : "VulpesSceneKit",
+    "EngineVersion" : "0.1.0",
+    "EnableValidation" : true,
+    "VulkanVersion" : "1.1",
+    "UseRecommendedExtensions" : true,
+    "RequiredInstanceExtensions" : [
+    ],
+    "RequestedInstanceExtensions" : [
+    ],
+    "RequiredDeviceExtensions" : [
+        "VK_KHR_swapchain"
+    ],
+    "RequestedDeviceExtensions" : [
+    ],
+    "InitialWindowWidth" : 1440,
+    "InitialWindowHeight" : 720,
+    "InitialMouseState" : "Free",
+    "InitialWindowMode" : "Windowed",
+    "ApplicationIconPath" : "None"
+}
