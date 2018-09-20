@@ -219,21 +219,6 @@ void RenderingContext::Construct(const char* file_path) {
     std::ifstream input_file(file_path);
 
     if (!input_file.is_open()) {
-        /*
-        // Try to use app_context_api to find the file.
-        char* found_path = nullptr;
-        if (!app_context_api->FindFile(file_path, nullptr, 5, &found_path)) {
-            if (found_path) {
-                free(found_path);
-            }
-            throw std::runtime_error("Couldn't open given path initially for Renderer context config, and search did not find it either!");
-        }
-        input_file = std::ifstream(found_path);
-        free(found_path);
-        if (!input_file.is_open()) {
-            throw std::runtime_error("File search found Renderer context config JSON file, but opening of file still failed!");
-        }
-        */
         throw std::runtime_error("Couldn't open input file.");
     }
 
