@@ -9,5 +9,5 @@ ADD_INTEGRATION_TEST(TriangleTest
     "../fixtures/CommonCreationFunctions.cpp"
 )
 
-TARGET_LINK_LIBRARIES(TriangleTest PRIVATE renderer_context vpr_core vpr_sync ${Vulkan_LIBRARY} glfw)
+TARGET_LINK_LIBRARIES(TriangleTest PRIVATE rendering_context vpr_core vpr_sync ${Vulkan_LIBRARY} glfw)
 TARGET_INCLUDE_DIRECTORIES(TriangleTest PRIVATE "../../../modules/rendering_context/include" ${Vulkan_INCLUDE_DIR})
