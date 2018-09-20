@@ -200,6 +200,11 @@ static std::atomic<bool>& GetShouldResizeFlag() {
     return should_resize;
 }
 
+RenderingContext& RenderingContext::Get() noexcept {
+    static RenderingContext ctxt;
+    return ctxt;
+}
+
 void RenderingContext::SetShouldResize(bool resize) {
     auto& flag = GetShouldResizeFlag();
     flag = resize;
@@ -293,8 +298,45 @@ void RenderingContext::Construct(const char* file_path) {
 void RenderingContext::Update() {
     window->Update();
     if (ShouldResizeExchange(false)) {
-
+        RecreateSwapchain();
     }
+}
+
+void RenderingContext::Destroy() {
+    swapchain.reset();
+    logicalDevice.reset();
+    windowSurface.reset();
+    physicalDevices.clear(); physicalDevices.shrink_to_fit();
+    vulkanInstance.reset();
+    window.reset();
+}
+
+vpr::Instance * RenderingContext::Instance() noexcept {
+    return vulkanInstance.get();
+}
+
+vpr::PhysicalDevice * RenderingContext::PhysicalDevice(const size_t idx) noexcept {
+    return physicalDevices[idx].get();
+}
+
+vpr::Device* RenderingContext::Device() noexcept {
+    return logicalDevice.get();
+}
+
+vpr::Swapchain* RenderingContext::Swapchain() noexcept {
+    return swapchain.get();
+}
+
+vpr::SurfaceKHR* RenderingContext::Surface() noexcept {
+    return windowSurface.get();
+}
+
+PlatformWindow* RenderingContext::Window() noexcept {
+    return window.get();
+}
+
+GLFWwindow* RenderingContext::glfwWindow() noexcept {
+    return window->glfwWindow();
 }
 
 inline GLFWwindow* getWindow() {
@@ -350,6 +392,11 @@ void AddSwapchainCallbacks(SwapchainCallbacks callbacks) {
     if (callbacks.SwapchainDestroyed) {
         SwapchainCallbacksStorage.DestroyedFns.emplace_front(callbacks.SwapchainDestroyed);
     }
+}
+
+void RenderingContext::AddSwapchainCallbacks(SwapchainCallbacks callbacks) {
+    SwapchainCallbacksStorage.BeginFns.emplace_front(callbacks.BeginResize);
+    SwapchainCallbacksStorage.CompleteFns.emplace_front(callbacks.CompleteResize);
 }
 
 void RenderingContext::GetWindowSize(int& w, int& h) {
