@@ -1,4 +1,3 @@
-
 #include "TriangleTest.hpp"
 #include "PhysicalDevice.hpp"
 #include "LogicalDevice.hpp"
