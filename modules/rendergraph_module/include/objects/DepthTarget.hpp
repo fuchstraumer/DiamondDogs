@@ -4,6 +4,8 @@
 #include "ForwardDecl.hpp"
 #include <cstdint>
 
+struct VulkanResource;
+
 class DepthTarget {
     DepthTarget(const DepthTarget& other) = delete;
     DepthTarget& operator=(const DepthTarget& other) = delete;
