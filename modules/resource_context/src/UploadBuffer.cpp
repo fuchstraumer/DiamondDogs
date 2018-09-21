@@ -1,7 +1,7 @@
 #include "UploadBuffer.hpp"
 #include "Allocator.hpp"
 #include "LogicalDevice.hpp"
-
+#include "easylogging++.h"
 constexpr static VkBufferCreateInfo staging_buffer_create_info{
     VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
     nullptr,
@@ -12,6 +12,8 @@ constexpr static VkBufferCreateInfo staging_buffer_create_info{
     0,
     nullptr
 };
+
+VkDeviceSize UploadBuffer::NonCoherentAtomSize = 0;
 
 UploadBuffer::UploadBuffer(const vpr::Device * _device, vpr::Allocator * allocator, VkDeviceSize sz) : device(_device) {
     VkBufferCreateInfo create_info = staging_buffer_create_info;
@@ -36,10 +38,19 @@ UploadBuffer& UploadBuffer::operator=(UploadBuffer && other) noexcept {
 }
 
 void UploadBuffer::SetData(const void* data, size_t data_size, size_t offset) {
-    VkMappedMemoryRange mapped_memory{ VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, nullptr, alloc.Memory(), alloc.Offset() + offset, VK_WHOLE_SIZE };
     void* mapped_address = nullptr;
+    size_t map_size = data_size;
+    if ((map_size % NonCoherentAtomSize) != 0) {
+        map_size += map_size % NonCoherentAtomSize;
+    }
+    if ((offset % NonCoherentAtomSize) != 0) {
+        LOG(ERROR) << "Offset was less than non-coherent atom size: can't safely make this valid without changing memory being copied into!";
+        throw std::runtime_error("Invalid copy offset quantity!");
+    }
     alloc.Map(data_size, offset, &mapped_address);
     memcpy(mapped_address, data, data_size);
     alloc.Unmap();
+    // Use VK_WHOLE_SIZE here, as it specifies from mapping to end of region.
+    VkMappedMemoryRange mapped_memory{ VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, nullptr, alloc.Memory(), alloc.Offset() + offset, VK_WHOLE_SIZE };
     vkFlushMappedMemoryRanges(device->vkHandle(), 1, &mapped_memory);
 }

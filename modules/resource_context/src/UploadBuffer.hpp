@@ -17,6 +17,7 @@ struct UploadBuffer {
     VkBuffer Buffer;
     vpr::Allocation alloc;
     const vpr::Device* device;
+    static VkDeviceSize NonCoherentAtomSize;
 };
 
 #endif //!RESOURCE_CONTEXT_UPLOAD_BUFFER_HPP
