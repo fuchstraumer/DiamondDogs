@@ -10,8 +10,6 @@
 #include <algorithm>
 #include "easylogging++.h"
 
-static std::vector<std::unique_ptr<UploadBuffer>> uploadBuffers;
-
 static VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags) {
     if (usage_flags & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) {
         return VK_ACCESS_UNIFORM_READ_BIT;
@@ -336,6 +334,8 @@ void ResourceContext::Update() {
 }
 
 void ResourceContext::FlushStagingBuffers() {
+
+    std::lock_guard guard(containerMutex);
     
     if (uploadBuffers.empty()) {
         return;
@@ -368,72 +368,65 @@ void ResourceContext::setBufferInitialDataHostOnly(VulkanResource* resource, con
 }
 
 void ResourceContext::setBufferInitialDataUploadBuffer(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, vpr::Allocation& alloc) {
-    // first copy user data into another buffer: we don't know how long the users data will persist, and we
-    // need it to last until this submission completes. so lets take care of that ourself.
-    UploadBuffer* upload_buffer = nullptr;
-    {
-        std::lock_guard<std::mutex> emplaceGuard(containerMutex);
-        uploadBuffers.emplace_back(std::make_unique<UploadBuffer>(device, allocator.get(), reinterpret_cast<VkBufferCreateInfo*>(resource->Info)->size));
-        upload_buffer = uploadBuffers.back().get();
+
+    /*
+        Set everything up we need for recording the command ahead of time, before acquiring the transfer system lock.
+        Then create a buffer, acquire the spinlock and populate buffer + record transfer commands, release spinlock.
+    */
+
+    const VkBufferCreateInfo* p_info = reinterpret_cast<VkBufferCreateInfo*>(resource->Info);
+    const VkBufferMemoryBarrier memory_barrier0{
+        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        nullptr,
+        0,
+        VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED,
+        reinterpret_cast<VkBuffer>(resource->Handle),
+        0,
+        p_info->size
+    };
+    const VkBufferMemoryBarrier memory_barrier1{
+        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        nullptr,
+        VK_ACCESS_TRANSFER_WRITE_BIT,
+        accessFlagsFromBufferUsage(p_info->usage),
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED,
+        (VkBuffer)resource->Handle,
+        0,
+        p_info->size
+    };
+
+    std::vector<VkBufferCopy> buffer_copies(num_data);
+    VkDeviceSize offset = 0;
+    for (size_t i = 0; i < num_data; ++i) {
+        buffer_copies[i].size = initial_data[i].DataSize;
+        buffer_copies[i].dstOffset = offset;
+        buffer_copies[i].srcOffset = offset;
+        offset += initial_data[i].DataSize;
     }
-    
+
     {
+        auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
+        auto cmd = transfer_system.TransferCmdBuffer();
+        // lock is taken internally to create buffer (spinlocks lock/release fast)
+        UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(allocator.get(), p_info->size);
+        // now we need to lock externally too
+        auto guard = transfer_system.AcquireSpinLock();
         size_t offset = 0;
         for (size_t i = 0; i < num_data; ++i) {
             upload_buffer->SetData(initial_data[i].Data, initial_data[i].DataSize, offset);
             offset += initial_data[i].DataSize;
         }
-    }
 
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    {
-        auto guard = transfer_system.AcquireSpinLock();
-        auto cmd = transfer_system.TransferCmdBuffer();        
-        const VkBufferCreateInfo* p_info = reinterpret_cast<VkBufferCreateInfo*>(resource->Info);
-        const VkBufferMemoryBarrier memory_barrier0 {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            0,
-            VK_ACCESS_TRANSFER_WRITE_BIT,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            reinterpret_cast<VkBuffer>(resource->Handle),
-            0,
-            p_info->size
-        };
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 1, &memory_barrier0, 0, nullptr);
-        std::vector<VkBufferCopy> buffer_copies(num_data);
-        VkDeviceSize offset = 0;
-        for (size_t i = 0; i < num_data; ++i) {
-            buffer_copies[i].size = initial_data[i].DataSize;
-            buffer_copies[i].dstOffset = offset;
-            buffer_copies[i].srcOffset = offset;
-            offset += initial_data[i].DataSize;
-        }
         vkCmdCopyBuffer(cmd, upload_buffer->Buffer, reinterpret_cast<VkBuffer>(resource->Handle), static_cast<uint32_t>(buffer_copies.size()), buffer_copies.data());
-        const VkBufferMemoryBarrier memory_barrier1 {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_TRANSFER_WRITE_BIT,
-            accessFlagsFromBufferUsage(p_info->usage),
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)resource->Handle,
-            0,
-            p_info->size
-        };
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 1, &memory_barrier1, 0, nullptr);
     }
 }
 
 void ResourceContext::setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data, vpr::Allocation& alloc) {
-
-    UploadBuffer* upload_buffer = nullptr;
-    {
-        std::lock_guard<std::mutex> emplaceGuard(containerMutex);
-        uploadBuffers.emplace_back(std::make_unique<UploadBuffer>(device, allocator.get(), alloc.Size));
-        upload_buffer = uploadBuffers.back().get();
-    }
 
     const VkImageCreateInfo* info = reinterpret_cast<VkImageCreateInfo*>(resource->Info);
     std::vector<VkBufferImageCopy> buffer_image_copies;
@@ -456,37 +449,41 @@ void ResourceContext::setImageInitialData(VulkanResource* resource, const size_t
         copy_offset += initial_data[i].DataSize;
     }
 
+    const VkImageMemoryBarrier barrier0{
+        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        nullptr,
+        0,
+        VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        device->QueueFamilyIndices().Transfer,
+        device->QueueFamilyIndices().Transfer,
+        reinterpret_cast<VkImage>(resource->Handle),
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, info->mipLevels, 0, info->arrayLayers }
+    };
 
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    {
-        auto guard = transfer_system.AcquireSpinLock();
-        VkCommandBuffer cmd = transfer_system.TransferCmdBuffer();
-        const VkImageMemoryBarrier barrier0{
-            VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            nullptr,
-            0,
-            VK_ACCESS_TRANSFER_WRITE_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            device->QueueFamilyIndices.Transfer,
-            device->QueueFamilyIndices.Transfer,
-            reinterpret_cast<VkImage>(resource->Handle),
-            VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, info->mipLevels, 0, info->arrayLayers }
-        };
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier0);
-        vkCmdCopyBufferToImage(cmd, upload_buffer->Buffer, reinterpret_cast<VkImage>(resource->Handle), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(buffer_image_copies.size()), buffer_image_copies.data());
-        const VkImageMemoryBarrier barrier1{
+    const VkImageMemoryBarrier barrier1{
             VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
             nullptr,
             VK_ACCESS_TRANSFER_WRITE_BIT,
             accessFlagsFromImageUsage(info->usage),
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             imageLayoutFromUsage(info->usage),
-            device->QueueFamilyIndices.Transfer,
-            device->QueueFamilyIndices.Graphics,
+            device->QueueFamilyIndices().Transfer,
+            device->QueueFamilyIndices().Graphics,
             reinterpret_cast<VkImage>(resource->Handle),
             VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, info->mipLevels, 0, info->arrayLayers }
-        };
+    };
+
+
+    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
+    {
+        auto guard = transfer_system.AcquireSpinLock();
+        VkCommandBuffer cmd = transfer_system.TransferCmdBuffer();
+
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier0);
+        vkCmdCopyBufferToImage(cmd, upload_buffer->Buffer, reinterpret_cast<VkImage>(resource->Handle), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(buffer_image_copies.size()), buffer_image_copies.data());
+        
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier1);
     }
 

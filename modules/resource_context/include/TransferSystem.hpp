@@ -5,6 +5,9 @@
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <atomic>
+#include <vector>
+
+struct UploadBuffer;
 
 class ResourceTransferSystem {
 
@@ -32,6 +35,7 @@ public:
     static ResourceTransferSystem& GetTransferSystem();
 
     void Initialize(const vpr::Device* device);
+    UploadBuffer* CreateUploadBuffer(vpr::Allocator* alloc, size_t buffer_sz);
     void CompleteTransfers();
     transferSpinLockGuard AcquireSpinLock();
     VkCommandBuffer TransferCmdBuffer();
@@ -41,6 +45,7 @@ private:
     std::atomic<bool> cmdBufferDirty = false;
     bool initialized = false;
     std::unique_ptr<vpr::CommandPool> transferPool;
+    std::vector<std::unique_ptr<UploadBuffer>> uploadBuffers;
     std::unique_ptr<vpr::Fence> fence;
     const vpr::Device* device;
 

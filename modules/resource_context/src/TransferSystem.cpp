@@ -13,8 +13,14 @@ VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device) {
         0
     };
     VkCommandPoolCreateInfo result = pool_info;
-    result.queueFamilyIndex = device->QueueFamilyIndices.Transfer;
+    result.queueFamilyIndex = device->QueueFamilyIndices().Transfer;
     return result;
+}
+
+UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(vpr::Allocator * alloc, size_t buffer_sz) {
+    auto guard = AcquireSpinLock();
+    uploadBuffers.emplace_back(std::make_unique<UploadBuffer>(device, alloc, buffer_sz));
+    return uploadBuffers.back().get();
 }
 
 ResourceTransferSystem::ResourceTransferSystem() : transferPool(nullptr), device(nullptr), fence(nullptr) {}
@@ -47,7 +53,6 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc) {
 ResourceTransferSystem & ResourceTransferSystem::GetTransferSystem() {
     static ResourceTransferSystem transfer_system;
     return transfer_system;
-    // TODO: insert return statement here
 }
 
 void ResourceTransferSystem::CompleteTransfers() {
