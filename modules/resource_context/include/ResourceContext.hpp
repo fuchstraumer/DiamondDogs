@@ -43,8 +43,6 @@ public:
 
     // Call at start of frame
     void Update();
-    // Call at end of frame
-    void FlushStagingBuffers();
 
     void Destroy();
 private:

@@ -333,23 +333,6 @@ void ResourceContext::Update() {
     transfer_system.CompleteTransfers();
 }
 
-void ResourceContext::FlushStagingBuffers() {
-
-    std::lock_guard guard(containerMutex);
-    
-    if (uploadBuffers.empty()) {
-        return;
-    }
-
-    for (auto& buff : uploadBuffers) {
-        allocator->FreeMemory(&buff->alloc);
-        vkDestroyBuffer(device->vkHandle(), buff->Buffer, nullptr);
-        buff.reset();
-    }
-
-    uploadBuffers.clear(); uploadBuffers.shrink_to_fit();
-}
-
 void ResourceContext::setBufferInitialDataHostOnly(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, vpr::Allocation& alloc, memory_type _memory_type) {
     void* mapped_address = nullptr;
     alloc.Map(alloc.Size, 0, &mapped_address);
