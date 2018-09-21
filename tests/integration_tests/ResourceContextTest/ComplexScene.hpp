@@ -13,7 +13,7 @@ namespace vpr {
     class PipelineCache;
 }
 
-struct ResourceContext_API;
+class ResourceContext;
 struct VulkanResource;
 
 class VulkanComplexScene : public VulkanScene {
@@ -28,8 +28,8 @@ public:
 
     static void* LoadObjFile(const char* fname, void* user_data = nullptr);
     static void DestroyObjFileData(void* obj_file);
-    static void* LoadJpegImage(const char* fname, void* user_data = nullptr);
-    static void DestroyJpegFileData(void* jpeg_file);
+    static void* LoadPngImage(const char* fname, void* user_data = nullptr);
+    static void DestroyPngFileData(void* jpeg_file);
     static void* LoadCompressedTexture(const char* fname, void* user_data = nullptr);
     static void DestroyCompressedTextureData(void* compressed_texture);
 
@@ -80,7 +80,7 @@ protected:
     void updateHouseDescriptorSet();
     void updateSkyboxDescriptorSet();
 
-    const ResourceContext_API* resourceContext;
+    ResourceContext* resourceContext;
     VulkanResource* sampler;
     VulkanResource* houseVBO;
     VulkanResource* houseEBO;

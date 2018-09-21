@@ -1,6 +1,7 @@
 #include "ComplexScene.hpp"
 #include "RenderingContext.hpp"
 #include "ResourceContext.hpp"
+#include "ResourceLoader.hpp"
 #include "PipelineCache.hpp"
 #include "easylogging++.h"
 INITIALIZE_EASYLOGGINGPP
@@ -29,41 +30,52 @@ static void skyboxLoadedCallback(void* scene_ptr, void* data) {
     reinterpret_cast<VulkanComplexScene*>(scene_ptr)->CreateSkyboxTexture(data);
 }
 
-static void BeginResizeCallback(uint64_t handle, uint32_t width, uint32_t height) {
+static void BeginResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height) {
     auto& scene = VulkanComplexScene::GetScene();
     scene.Destroy();
 }
 
-static void CompleteResizeCallback(uint64_t handle, uint32_t width, uint32_t height) {
+static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height) {
     auto& scene = VulkanComplexScene::GetScene();
     auto& context = RenderingContext::Get();
-    scene.Construct(RequiredVprObjects{ context.Device(), context.PhysicalDevice(), context.Instance(), context.Swapchain() }, resource_api);
-    resource_api->LoadFile("OBJ", HouseObjFile.c_str(), &scene, objFileLoadedCallback, nullptr);
-    resource_api->LoadFile("JPEG", HousePngFile.c_str(), &scene, jpegLoadedCallback, nullptr);
-    resource_api->LoadFile("DDS", SkyboxDdsFile.c_str(), &scene, skyboxLoadedCallback, nullptr);
+    auto& rsrc = ResourceContext::Get();
+    scene.Construct(RequiredVprObjects{ context.Device(), context.PhysicalDevice(), context.Instance(), context.Swapchain() }, &rsrc);
+
+    auto& rsrc_loader = ResourceLoader::GetResourceLoader();
+    rsrc_loader.Load("OBJ", HouseObjFile.c_str(), &scene, objFileLoadedCallback, nullptr);
+    rsrc_loader.Load("PNG", HousePngFile.c_str(), &scene, jpegLoadedCallback, nullptr);
+    rsrc_loader.Load("DDS", SkyboxDdsFile.c_str(), &scene, skyboxLoadedCallback, nullptr);
 }
 
 int main(int argc, char* argv[]) {
 
+    auto& context = RenderingContext::Get();
+    context.Construct("RendererContextCfg.json");
+
+    auto& rsrc = ResourceContext::Get();
+    rsrc.Construct(context.Device(), context.PhysicalDevice());
+    auto& rsrc_loader = ResourceLoader::GetResourceLoader();
+    rsrc_loader.Subscribe("OBJ", &VulkanComplexScene::LoadObjFile, &VulkanComplexScene::DestroyObjFileData);
+    rsrc_loader.Subscribe("PNG", &VulkanComplexScene::LoadPngImage, &VulkanComplexScene::DestroyPngFileData);
+    rsrc_loader.Subscribe("DDS", &VulkanComplexScene::LoadCompressedTexture, &VulkanComplexScene::DestroyCompressedTextureData);
+
     auto& scene = VulkanComplexScene::GetScene();
-    scene.Construct(RequiredVprObjects{ context->LogicalDevice, context->PhysicalDevices[0], context->VulkanInstance, context->Swapchain }, resource_api);
-    resource_api->LoadFile("OBJ", HouseObjFile.c_str(), &scene, objFileLoadedCallback, nullptr);
-    resource_api->LoadFile("JPEG", HousePngFile.c_str(), &scene, jpegLoadedCallback, nullptr);
-    resource_api->LoadFile("DDS", SkyboxDdsFile.c_str(), &scene, skyboxLoadedCallback, nullptr);
+    scene.Construct(RequiredVprObjects{ context.Device(), context.PhysicalDevice(), context.Instance(), context.Swapchain() }, &rsrc);
 
-    SwapchainCallbacks_API callbacks{ nullptr };
-    callbacks.BeginSwapchainResize = BeginResizeCallback;
-    callbacks.CompleteSwapchainResize = CompleteResizeCallback;
-    renderer_api->RegisterSwapchainCallbacks(&callbacks);
+    rsrc_loader.Load("OBJ", HouseObjFile.c_str(), &scene, objFileLoadedCallback, nullptr);
+    rsrc_loader.Load("PNG", HousePngFile.c_str(), &scene, jpegLoadedCallback, nullptr);
+    rsrc_loader.Load("DDS", SkyboxDdsFile.c_str(), &scene, skyboxLoadedCallback, nullptr);
 
-    Plugin_API* renderer_context_core_api = reinterpret_cast<Plugin_API*>(manager.RetrieveBaseAPI(RENDERER_CONTEXT_API_ID));
-    //scene.WaitForAllLoaded();
-    static bool assets_loaded = false;
+    SwapchainCallbacks callbacks{ nullptr };
+    callbacks.BeginResize = BeginResizeCallback;
+    callbacks.CompleteResize = CompleteResizeCallback;
+    context.AddSwapchainCallbacks(callbacks);
 
-    while (!renderer_api->WindowShouldClose()) {
-        renderer_context_core_api->LogicalUpdate();
-        resource_api->CompletePendingTransfers();
+    while (!context.ShouldWindowClose()) {
+        context.Update();
+        rsrc.Update();
         scene.Render(nullptr);
+        rsrc.FlushStagingBuffers();
     }
 
 

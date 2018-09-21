@@ -246,7 +246,7 @@ void VulkanTriangle::setupCommandPool() {
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         nullptr,
         VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-        vprObjects.device->QueueFamilyIndices.Graphics
+        vprObjects.device->QueueFamilyIndices().Graphics
     };
 
     VkResult result = vkCreateCommandPool(vprObjects.device->vkHandle(), &pool_info, nullptr, &commandPool);

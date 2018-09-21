@@ -5,6 +5,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
 #define NOMINMAX
+#include <algorithm>
 #define TINYOBJ_LOADER_OPT_IMPLEMENTATION 
 #include <tinyobjloader/experimental/tinyobj_loader_opt.h>
 #pragma warning(pop)

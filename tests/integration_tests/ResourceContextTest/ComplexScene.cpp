@@ -21,20 +21,21 @@
 #include <array>
 #include "vkAssert.hpp"
 #include "GraphicsPipeline.hpp"
-#include "shaders/HouseShaders.hpp"
-#include "shaders/SkyboxShaders.hpp"
+#include "HouseShaders.hpp"
+#include "SkyboxShaders.hpp"
 #include "../../../third_party/easyloggingpp/src/easylogging++.h"
+#include "glm/vec3.hpp"
 
 
-constexpr static std::array<glm::vec3, 8> skybox_positions {
-    glm::vec3{-1.0f,-1.0f, 1.0f },
-    glm::vec3{ 1.0f,-1.0f, 1.0f },
-    glm::vec3{ 1.0f, 1.0f, 1.0f },
-    glm::vec3{-1.0f, 1.0f, 1.0f },
-    glm::vec3{ 1.0f,-1.0f,-1.0f },
-    glm::vec3{-1.0f,-1.0f,-1.0f },
-    glm::vec3{-1.0f, 1.0f,-1.0f },
-    glm::vec3{ 1.0f, 1.0f,-1.0f }
+const static std::array<glm::vec3, 8> skybox_positions {
+    glm::vec3(-1.0f,-1.0f, 1.0f ),
+    glm::vec3( 1.0f,-1.0f, 1.0f ),
+    glm::vec3( 1.0f, 1.0f, 1.0f ),
+    glm::vec3(-1.0f, 1.0f, 1.0f ),
+    glm::vec3( 1.0f,-1.0f,-1.0f ),
+    glm::vec3(-1.0f,-1.0f,-1.0f ),
+    glm::vec3(-1.0f, 1.0f,-1.0f ),
+    glm::vec3( 1.0f, 1.0f,-1.0f )
 };
 
 struct skybox_mesh_data_t {
@@ -100,7 +101,7 @@ glm::vec3 scale(1.0f);
 
 void VulkanComplexScene::Construct(RequiredVprObjects objects, void * user_data) {
     vprObjects = objects;
-    resourceContext = reinterpret_cast<const ResourceContext_API*>(user_data);
+    resourceContext = reinterpret_cast<ResourceContext*>(user_data);
     houseUboData.view = glm::lookAt(glm::vec3(-2.0f, -2.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     skyboxUboData.view = glm::mat3(houseUboData.view);
     houseUboData.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(objects.swapchain->Extent().width), static_cast<float>(objects.swapchain->Extent().height), 0.1f, 1000.0f);
@@ -170,11 +171,11 @@ void VulkanComplexScene::DestroyObjFileData(void * obj_file) {
     delete model;
 }
 
-void* VulkanComplexScene::LoadJpegImage(const char* fname, void* user_data) {
+void* VulkanComplexScene::LoadPngImage(const char* fname, void* user_data) {
     return new stb_image_data_t(fname);
 }
 
-void VulkanComplexScene::DestroyJpegFileData(void * jpeg_file) {
+void VulkanComplexScene::DestroyPngFileData(void * jpeg_file) {
     stb_image_data_t* image = reinterpret_cast<stb_image_data_t*>(jpeg_file);
     delete image;
 }
@@ -231,12 +232,9 @@ void VulkanComplexScene::CreateHouseMesh(void * obj_data) {
         0
     };
 
-    houseVBO = resourceContext->CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, uint32_t(memory_type::DEVICE_LOCAL), nullptr);
-    houseEBO = resourceContext->CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, uint32_t(memory_type::DEVICE_LOCAL), nullptr);
+    houseVBO = resourceContext->CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, memory_type::DEVICE_LOCAL, nullptr);
+    houseEBO = resourceContext->CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, memory_type::DEVICE_LOCAL, nullptr);
     houseIndexCount = static_cast<uint32_t>(obj_model->indices.size());
-
-    obj_model->vertices.clear(); obj_model->vertices.shrink_to_fit();
-    obj_model->indices.clear(); obj_model->indices.shrink_to_fit();
     houseMeshReady = true;
 }
 
@@ -281,7 +279,7 @@ void VulkanComplexScene::CreateHouseTexture(void * texture_data) {
         }
     };
 
-    houseTexture = resourceContext->CreateImage(&image_info, &view_info, 1, initial_texture_data, uint32_t(memory_type::DEVICE_LOCAL), nullptr);
+    houseTexture = resourceContext->CreateImage(&image_info, &view_info, 1, initial_texture_data, memory_type::DEVICE_LOCAL, nullptr);
     updateHouseDescriptorSet();
 }
 
@@ -339,7 +337,7 @@ void VulkanComplexScene::CreateSkyboxTexture(void * texture_data) {
         }
     }
 
-    skyboxTexture = resourceContext->CreateImage(&image_info, &view_info, image_copies.size(), image_copies.data(), uint32_t(memory_type::DEVICE_LOCAL), nullptr);
+    skyboxTexture = resourceContext->CreateImage(&image_info, &view_info, image_copies.size(), image_copies.data(), memory_type::DEVICE_LOCAL, nullptr);
     updateSkyboxDescriptorSet();
 
 }
@@ -352,7 +350,7 @@ void VulkanComplexScene::WaitForAllLoaded() {
     while (!skyboxTextureReady || !houseMeshReady || !houseTextureReady) {
         
     }
-    resourceContext->CompletePendingTransfers();
+    resourceContext->Update();
     resourceContext->FlushStagingBuffers();
     std::cerr << "All data loaded.";
 }
@@ -540,8 +538,8 @@ void VulkanComplexScene::createUBOs() {
         0,
         nullptr
     };
-    houseUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, uint32_t(memory_type::HOST_VISIBLE_AND_COHERENT), nullptr);
-    skyboxUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, uint32_t(memory_type::HOST_VISIBLE_AND_COHERENT), nullptr);
+    houseUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
+    skyboxUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
 }
 
 void VulkanComplexScene::createSkyboxMesh() {
@@ -585,8 +583,8 @@ void VulkanComplexScene::createSkyboxMesh() {
         0
     };
 
-    skyboxVBO = resourceContext->CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, uint32_t(memory_type::DEVICE_LOCAL), nullptr);
-    skyboxEBO = resourceContext->CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, uint32_t(memory_type::DEVICE_LOCAL), nullptr);
+    skyboxVBO = resourceContext->CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, memory_type::DEVICE_LOCAL, nullptr);
+    skyboxEBO = resourceContext->CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, memory_type::DEVICE_LOCAL, nullptr);
     skyboxIndexCount = static_cast<uint32_t>(mesh_data.indices.size());
 }
 
@@ -608,7 +606,7 @@ void VulkanComplexScene::createCommandPool() {
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         nullptr,
         VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-        vprObjects.device->QueueFamilyIndices.Graphics
+        vprObjects.device->QueueFamilyIndices().Graphics
     };
     cmdPool = std::make_unique<vpr::CommandPool>(vprObjects.device->vkHandle(), create_info);
     cmdPool->AllocateCmdBuffers(vprObjects.swapchain->ImageCount(), VK_COMMAND_BUFFER_LEVEL_PRIMARY);
