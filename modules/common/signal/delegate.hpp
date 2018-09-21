@@ -137,19 +137,19 @@ private:
     }
 
     template<class T, Result(T::*Method)(Args...)>
-    static Result method_stub(void* this_ptr, Args&&...args) {
+    static Result method_stub(void* this_ptr, Args...args) {
         T* object_ptr = static_cast<T*>(this_ptr);
         return (object_ptr->*Method)(args...);
     }
 
     template<class T, Result(T::*Method)(Args...) const>
-    static Result const_method_stub(void* this_ptr, Args&&...args) {
+    static Result const_method_stub(void* this_ptr, Args...args) {
         T* const object_ptr = static_cast<T*>(this_ptr);
         return (object_ptr->*Method)(args...);
     }
 
     template<Result(*Function)(Args...)>
-    static Result function_stub(void* this_ptr, Args&&...args) {
+    static Result function_stub(void* this_ptr, Args...args) {
         return (Function)(args...);
     }
 
