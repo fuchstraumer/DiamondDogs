@@ -69,9 +69,9 @@ int main(int argc, char* argv[]) {
     rsrc_loader.Load("PNG", HousePngFile.c_str(), &scene, jpegLoadedCallback, nullptr);
     rsrc_loader.Load("DDS", SkyboxDdsFile.c_str(), &scene, skyboxLoadedCallback, nullptr);
 
-    SwapchainCallbacks callbacks{ nullptr };
-    callbacks.BeginResize = BeginResizeCallback;
-    callbacks.CompleteResize = CompleteResizeCallback;
+    SwapchainCallbacks callbacks;
+    callbacks.BeginResize = decltype(SwapchainCallbacks::BeginResize)::create<&BeginResizeCallback>();
+    callbacks.CompleteResize = decltype(SwapchainCallbacks::CompleteResize)::create<&CompleteResizeCallback>();
     context.AddSwapchainCallbacks(callbacks);
 
     while (!context.ShouldWindowClose()) {

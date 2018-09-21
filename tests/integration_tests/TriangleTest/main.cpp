@@ -20,17 +20,10 @@ int main(int argc, char* argv[]) {
     RenderingContext& renderer_context = RenderingContext::Get();
     renderer_context.Construct("RendererContextCfg.json");
 
-    auto begin_resize_lambda = [&](VkSwapchainKHR handle, uint32_t w, uint32_t h) {
-        BeginRecreateCallback(handle, w, h);
-    };
-
-    auto complete_resize_lambda = [&](VkSwapchainKHR handle, uint32_t w, uint32_t h) {
-        CompleteResizeCallback(handle, w, h);
-    };
-
-    SwapchainCallbacks callbacks{ nullptr };
-    callbacks.BeginResize = begin_resize_lambda;
-    callbacks.CompleteResize = complete_resize_lambda;
+    SwapchainCallbacks callbacks; 
+    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> d;
+    callbacks.BeginResize = decltype(d)::create<&BeginRecreateCallback>();
+    callbacks.CompleteResize = decltype(d)::create<&CompleteResizeCallback>();
     renderer_context.AddSwapchainCallbacks(callbacks);
 
     auto& triangle = VulkanTriangle::GetScene();

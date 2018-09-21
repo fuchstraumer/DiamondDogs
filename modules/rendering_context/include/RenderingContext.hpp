@@ -20,19 +20,19 @@ class PlatformWindow;
 struct GLFWwindow;
 struct GLFWcursor;
 struct GLFWimage;
-using cursor_pos_callback_t = void(*)(double pos_x, double pos_y);
-using cursor_enter_callback_t = void(*)(int enter);
-using scroll_callback_t = void(*)(double scroll_x, double scroll_y);
-using char_callback_t = void(*)(unsigned int code_point);
-using path_drop_callback_t = void(*)(int count, const char** paths);
-using mouse_button_callback_t = void(*)(int button, int action, int mods);
-using keyboard_key_callback_t = void(*)(int key, int scancode, int action, int mods);
+using cursor_pos_callback_t = delegate_t<void(double pos_x, double pos_y)>;
+using cursor_enter_callback_t = delegate_t<void(int enter)>;
+using scroll_callback_t = delegate_t<void(double scroll_x, double scroll_y)>;
+using char_callback_t = delegate_t<void(unsigned int code_point)>;
+using path_drop_callback_t = delegate_t<void(int count, const char** paths)>;
+using mouse_button_callback_t = delegate_t<void(int button, int action, int mods)>;
+using keyboard_key_callback_t = delegate_t<void(int key, int scancode, int action, int mods)>;
 
 struct SwapchainCallbacks {
-    std::function<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> SwapchainCreated;
-    std::function<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> BeginResize;
-    std::function<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> CompleteResize;
-    std::function<void(VkSwapchainKHR handle)> SwapchainDestroyed;
+    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> SwapchainCreated;
+    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> BeginResize;
+    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> CompleteResize;
+    delegate_t<void(VkSwapchainKHR handle)> SwapchainDestroyed;
 };
 
 class RenderingContext {

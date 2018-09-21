@@ -73,6 +73,7 @@ public:
 
     delegate_t& operator=(delegate_t&& other) noexcept {
         invocation = std::move(other.invocation);
+        return *this;
     }
 
     template<typename LambdaFunc>
