@@ -87,15 +87,20 @@ ResourceContext & ResourceContext::Get() {
 
 void ResourceContext::Construct(vpr::Device * _device, vpr::PhysicalDevice * physical_device) {
     device = _device;
-    allocator = std::make_unique<vpr::Allocator>(_device->vkHandle(), physical_device->vkHandle(), getExtensionFlags(_device));    
+    allocator = std::make_unique<vpr::Allocator>(_device->vkHandle(), physical_device->vkHandle(), getExtensionFlags(_device));
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(physical_device->vkHandle(), &properties);
+    UploadBuffer::NonCoherentAtomSize = properties.limits.nonCoherentAtomSize;
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    transfer_system.Initialize(_device);
+    transfer_system.Initialize(_device, allocator.get());
+
 }
 
 void ResourceContext::Destroy() {
     for (auto& rsrc : resources) {
         DestroyResource(rsrc.get());
     }
+    allocator.reset();
 }
 
 VulkanResource* ResourceContext::CreateBuffer(const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const memory_type _memory_type, void* user_data) {
