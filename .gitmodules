@@ -25,3 +25,6 @@
 [submodule "third_party/assimp"]
 	path = third_party/assimp
 	url = https://github.com/assimp/assimp
+[submodule "third_party/tinyobjloader"]
+	path = third_party/tinyobjloader
+	url = https://github.com/syoyo/tinyobjloader

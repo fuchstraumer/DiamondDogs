@@ -8,6 +8,7 @@ ADD_MODULE(resource_context
     "src/ResourceLoader.cpp"
     "src/TransferSystem.cpp"
     "src/UploadBuffer.hpp"
+    "src/UploadBuffer.cpp"
 )
 
 TARGET_INCLUDE_DIRECTORIES(resource_context PRIVATE ${VPR_INCLUDE_DIRS_MODULE_RELATIVE} ${Vulkan_INCLUDE_DIR})
