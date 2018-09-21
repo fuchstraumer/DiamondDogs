@@ -33,12 +33,15 @@ static void skyboxLoadedCallback(void* scene_ptr, void* data) {
 static void BeginResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height) {
     auto& scene = VulkanComplexScene::GetScene();
     scene.Destroy();
+    auto& rsrc = ResourceContext::Get();
+    rsrc.Destroy();
 }
 
 static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height) {
     auto& scene = VulkanComplexScene::GetScene();
     auto& context = RenderingContext::Get();
     auto& rsrc = ResourceContext::Get();
+    rsrc.Construct(context.Device(), context.PhysicalDevice());
     scene.Construct(RequiredVprObjects{ context.Device(), context.PhysicalDevice(), context.Instance(), context.Swapchain() }, &rsrc);
 
     auto& rsrc_loader = ResourceLoader::GetResourceLoader();
@@ -75,7 +78,6 @@ int main(int argc, char* argv[]) {
         context.Update();
         rsrc.Update();
         scene.Render(nullptr);
-        rsrc.FlushStagingBuffers();
     }
 
 
