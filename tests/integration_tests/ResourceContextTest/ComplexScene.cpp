@@ -351,7 +351,6 @@ void VulkanComplexScene::WaitForAllLoaded() {
         
     }
     resourceContext->Update();
-    resourceContext->FlushStagingBuffers();
     std::cerr << "All data loaded.";
 }
 
@@ -538,8 +537,8 @@ void VulkanComplexScene::createUBOs() {
         0,
         nullptr
     };
-    houseUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
-    skyboxUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
+    houseUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    skyboxUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE, nullptr);
 }
 
 void VulkanComplexScene::createSkyboxMesh() {
