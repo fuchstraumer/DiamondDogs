@@ -6,7 +6,6 @@ SET(rendergraph_core_srcs
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PipelineSubmission.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PipelineResource.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/RenderGraph.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/ShaderResourceCache.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ShaderResourcePack.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FeatureRenderer.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Material.cpp"
@@ -14,7 +13,6 @@ SET(rendergraph_core_srcs
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PipelineResource.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/RenderGraph.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ShaderResourcePack.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/ShaderResourceCache.cpp"
 )
 
 SET(rendergraph_object_srcs

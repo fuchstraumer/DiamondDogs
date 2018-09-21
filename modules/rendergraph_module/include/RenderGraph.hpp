@@ -21,7 +21,7 @@ namespace vpr {
 }
 
 class PipelineSubmission;
-class ShaderResourceCache;
+class ShaderResourcePack;
 class RenderTarget;
 
 class RenderGraph {
@@ -35,7 +35,7 @@ public:
 
     PipelineSubmission& AddPipelineSubmission(const std::string& name, VkPipelineStageFlags stages);
     PipelineResource& GetResource(const std::string& name);
-    ShaderResourceCache& GetResourceCache();
+    const ShaderResourcePack* GetPackResources(const std::string& name) const;
     void Bake();
     void Reset();
 
@@ -54,10 +54,13 @@ private:
     void addShaderPackResources(const st::ShaderPack* pack);
     buffer_info_t createPipelineResourceBufferInfo(const st::ShaderResource* resource) const;
     image_info_t createPipelineResourceImageInfo(const st::ShaderResource* resource) const;
-    void createPipelineResourcesFromPack(const std::unordered_map<std::string, std::vector<const st::ShaderResource*>>& resources);
+    void createPipelineResourcesFromPack(const st::ShaderPack* pack);
     void addResourceUsagesToSubmission(PipelineSubmission& submissions, const std::vector<st::ResourceUsage>& usages);
     void addSingleGroup(const std::string& name, const st::Shader* group);
     void addSubmissionsFromPack(const st::ShaderPack* pack);
+
+    std::vector<const st::ShaderPack*> shaderPacks;
+    std::unordered_map<std::string, std::unique_ptr<ShaderResourcePack>> packResources;
 
     struct pipeline_barrier_t {
         size_t Resource;
@@ -96,12 +99,10 @@ private:
     std::string backbufferSource{ "backbuffer" };
     std::unordered_map<std::string, pass_barriers_t> passBarriers;
     std::unordered_map<std::string, size_t> submissionNameMap;
-    std::vector<PipelineSubmission> submissions;
+    std::vector<std::unique_ptr<PipelineSubmission>> submissions;
     std::unordered_map<std::string, size_t> resourceNameMap;
     std::unordered_map<std::string, std::unique_ptr<RenderTarget>> renderTargets;
     std::vector<std::unique_ptr<PipelineResource>> pipelineResources;
-    // string "name" is for the pack the resources belong to.
-    std::unique_ptr<ShaderResourceCache> resourceCache;
     const vpr::Device* device;
 
     std::vector<std::unordered_set<size_t>> submissionDependencies;

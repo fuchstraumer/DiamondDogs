@@ -2,7 +2,6 @@
 #include "PipelineResource.hpp"
 #include "PipelineSubmission.hpp"
 #include "DescriptorSet.hpp"
-#include "ShaderResourceCache.hpp"
 #include "core/ShaderPack.hpp"
 #include "core/ShaderResource.hpp"
 #include "core/Shader.hpp"
@@ -10,27 +9,29 @@
 #include "objects/RenderTarget.hpp"
 #include "Swapchain.hpp"
 #include "RenderingContext.hpp"
+#include "ResourceContext.hpp"
+#include "ShaderResourcePack.hpp"
 #include <set>
 #include <functional>
 
 static constexpr VkPipelineStageFlags ShaderStagesToPipelineStages(const VkShaderStageFlags& flags) {
     VkPipelineStageFlags result = 0;
-    if constexpr (flags & VK_SHADER_STAGE_VERTEX_BIT) {
+    if (flags & VK_SHADER_STAGE_VERTEX_BIT) {
         result |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
     }
-    if constexpr (flags & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) {
+    if (flags & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) {
         result |= VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT;
     }
-    if constexpr (flags & VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT) {
+    if (flags & VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT) {
         result |= VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT;
     }
-    if constexpr (flags & VK_SHADER_STAGE_GEOMETRY_BIT) {
+    if (flags & VK_SHADER_STAGE_GEOMETRY_BIT) {
         result |= VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT;
     }
-    if constexpr (flags & VK_SHADER_STAGE_FRAGMENT_BIT) {
+    if (flags & VK_SHADER_STAGE_FRAGMENT_BIT) {
         result |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     }
-    if constexpr (flags & VK_SHADER_STAGE_COMPUTE_BIT) {
+    if (flags & VK_SHADER_STAGE_COMPUTE_BIT) {
         result |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
     }
     return result;
@@ -98,13 +99,13 @@ void RenderGraph::AddShaderPack(const st::ShaderPack * pack) {
 PipelineSubmission& RenderGraph::AddPipelineSubmission(const std::string& name, VkPipelineStageFlags stages) {
     auto iter = submissionNameMap.find(name);
     if (iter != std::end(submissionNameMap)) {
-        return submissions[iter->second];
+        return *submissions[iter->second];
     }
     else {
         size_t idx = submissions.size();
         submissions.emplace_back(std::make_unique<PipelineSubmission>(*this, name, idx, stages));
         submissionNameMap[name] = idx;
-        return submissions.back();
+        return *submissions.back();
     }
 }
 
@@ -122,37 +123,24 @@ PipelineResource& RenderGraph::GetResource(const std::string& name) {
     }
 }
 
+const ShaderResourcePack* RenderGraph::GetPackResources(const std::string & name) const {
+    if (auto iter = packResources.find(name); iter != std::end(packResources)) {
+        return iter->second.get();
+    }
+    else {
+        return nullptr;
+    }
+}
+
 void RenderGraph::addShaderPackResources(const st::ShaderPack* pack) {
-
-    std::vector<std::string> resource_group_names;
-    {
-        st::dll_retrieved_strings_t names = pack->GetResourceGroupNames();
-        for (size_t i = 0; i < names.NumStrings; ++i) {
-            resource_group_names.emplace_back(names[i]);
-        }
-    }
-
-    std::unordered_map<std::string, std::vector<const st::ShaderResource*>> resources;
-        
-    for (auto& name : resource_group_names) {
-        size_t num_rsrc = 0;
-        const st::ResourceGroup* resource_group = pack->GetResourceGroup(name.c_str());
-        resource_group->GetResourcePtrs(&num_rsrc, nullptr);
-        std::vector<const st::ShaderResource*> group(num_rsrc);
-        resource_group->GetResourcePtrs(&num_rsrc, group.data());
-        resources.emplace(name.c_str(), group);
-    }
-
-    for (auto& group : resources) {
-        resourceCache->AddResources(group.second);
-    }
-        
-    createPipelineResourcesFromPack(resources);
+    shaderPacks.emplace_back(pack);
+    packResources.emplace("", std::make_unique<ShaderResourcePack>(*this, pack));
+    createPipelineResourcesFromPack(pack);
 }
 
 void RenderGraph::Bake() {
     for (auto& submission : submissions) {
-        submission.ValidateSubmission();
+        submission->ValidateSubmission();
     }
 
     auto backbuffer_iter = resourceNameMap.find(backbufferSource);
@@ -178,7 +166,7 @@ void RenderGraph::Bake() {
     std::vector<size_t> temp_submission_stack = submissionStack;
     for (auto& pushed_submission : submissionStack) {
         size_t stack_count = 0;
-        submissions[pushed_submission].traverseDependencies(stack_count);
+        submissions[pushed_submission]->traverseDependencies(stack_count);
     }
 
     std::reverse(std::begin(submissionStack), std::end(submissionStack));
@@ -204,7 +192,7 @@ const vpr::Device* RenderGraph::GetDevice() const noexcept {
 }
 
 RenderGraph& RenderGraph::GetGlobalGraph() {
-    static RenderGraph graph(RenderingContext::GetRenderer().Device());
+    static RenderGraph graph(RenderingContext::Get().Device());
     return graph;
 }
 
@@ -229,7 +217,26 @@ image_info_t RenderGraph::createPipelineResourceImageInfo(const st::ShaderResour
     return result;
 }
 
-void RenderGraph::createPipelineResourcesFromPack(const std::unordered_map<std::string, std::vector<const st::ShaderResource*>>& resources) {
+void RenderGraph::createPipelineResourcesFromPack(const st::ShaderPack* pack) {
+    std::unordered_map<std::string, std::vector<const st::ShaderResource*>> resources;
+
+    std::vector<std::string> resource_group_names;
+    {
+        st::dll_retrieved_strings_t names = pack->GetResourceGroupNames();
+        for (size_t i = 0; i < names.NumStrings; ++i) {
+            resource_group_names.emplace_back(names[i]);
+        }
+    }
+
+    for (auto& name : resource_group_names) {
+        size_t num_rsrc = 0;
+        const st::ResourceGroup* resource_group = pack->GetResourceGroup(name.c_str());
+        resource_group->GetResourcePtrs(&num_rsrc, nullptr);
+        std::vector<const st::ShaderResource*> group(num_rsrc);
+        resource_group->GetResourcePtrs(&num_rsrc, group.data());
+        resources.emplace(name.c_str(), group);
+    }
+
     for (const auto& rsrc_group : resources) {
         for (const auto& st_rsrc : rsrc_group.second) {
             auto& resource = GetResource(st_rsrc->Name());

@@ -484,7 +484,7 @@ void PipelineSubmission::dependencyTraversalRecursion(const std::unordered_set<s
         }
 
         graph.submissionStack.push_back(pushed_submission);
-        graph.pipelineSubmissions[pushed_submission]->traverseDependencies(stack_count);
+        graph.submissions[pushed_submission]->traverseDependencies(stack_count);
     }
 
 }
