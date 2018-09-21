@@ -381,25 +381,20 @@ void ResourceContext::setBufferInitialDataUploadBuffer(VulkanResource* resource,
         p_info->size
     };
 
-    std::vector<VkBufferCopy> buffer_copies(num_data);
-    VkDeviceSize offset = 0;
-    for (size_t i = 0; i < num_data; ++i) {
-        buffer_copies[i].size = initial_data[i].DataSize;
-        buffer_copies[i].dstOffset = offset;
-        buffer_copies[i].srcOffset = offset;
-        offset += initial_data[i].DataSize;
-    }
-
     {
         auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
         auto cmd = transfer_system.TransferCmdBuffer();
         // lock is taken internally to create buffer (spinlocks lock/release fast)
-        UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(allocator.get(), p_info->size);
+        UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(p_info->size);
         // now we need to lock externally too
         auto guard = transfer_system.AcquireSpinLock();
-        size_t offset = 0;
+        std::vector<VkBufferCopy> buffer_copies(num_data);
+        VkDeviceSize offset = 0;
         for (size_t i = 0; i < num_data; ++i) {
             upload_buffer->SetData(initial_data[i].Data, initial_data[i].DataSize, offset);
+            buffer_copies[i].size = initial_data[i].DataSize;
+            buffer_copies[i].dstOffset = offset;
+            buffer_copies[i].srcOffset = offset;
             offset += initial_data[i].DataSize;
         }
 
@@ -412,25 +407,6 @@ void ResourceContext::setBufferInitialDataUploadBuffer(VulkanResource* resource,
 void ResourceContext::setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data, vpr::Allocation& alloc) {
 
     const VkImageCreateInfo* info = reinterpret_cast<VkImageCreateInfo*>(resource->Info);
-    std::vector<VkBufferImageCopy> buffer_image_copies;
-    size_t copy_offset = 0;
-
-    for (uint32_t i = 0; i < num_data; ++i) {
-        buffer_image_copies.emplace_back(VkBufferImageCopy{
-            copy_offset,
-            0,
-            0,
-            VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, initial_data[i].MipLevel, initial_data[i].ArrayLayer, initial_data[i].NumLayers },
-            VkOffset3D{ 0, 0, 0 },
-            VkExtent3D{ initial_data[i].Width, initial_data[i].Height, 1 }
-        });
-#ifndef NDEBUG
-        assert(initial_data[i].MipLevel < info->mipLevels);
-        assert(initial_data[i].ArrayLayer < info->arrayLayers);
-#endif // DEBUG
-        upload_buffer->SetData(initial_data[i].Data, initial_data[i].DataSize, copy_offset);
-        copy_offset += initial_data[i].DataSize;
-    }
 
     const VkImageMemoryBarrier barrier0{
         VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -461,12 +437,29 @@ void ResourceContext::setImageInitialData(VulkanResource* resource, const size_t
 
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
     {
+        UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc.Size);
         auto guard = transfer_system.AcquireSpinLock();
         VkCommandBuffer cmd = transfer_system.TransferCmdBuffer();
-
+        std::vector<VkBufferImageCopy> buffer_image_copies;
+        size_t copy_offset = 0;
+        for (uint32_t i = 0; i < num_data; ++i) {
+            buffer_image_copies.emplace_back(VkBufferImageCopy{
+                copy_offset,
+                0,
+                0,
+                VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, initial_data[i].MipLevel, initial_data[i].ArrayLayer, initial_data[i].NumLayers },
+                VkOffset3D{ 0, 0, 0 },
+                VkExtent3D{ initial_data[i].Width, initial_data[i].Height, 1 }
+                });
+#ifndef NDEBUG
+            assert(initial_data[i].MipLevel < info->mipLevels);
+            assert(initial_data[i].ArrayLayer < info->arrayLayers);
+#endif // DEBUG
+            upload_buffer->SetData(initial_data[i].Data, initial_data[i].DataSize, copy_offset);
+            copy_offset += initial_data[i].DataSize;
+        }
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier0);
         vkCmdCopyBufferToImage(cmd, upload_buffer->Buffer, reinterpret_cast<VkImage>(resource->Handle), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(buffer_image_copies.size()), buffer_image_copies.data());
-        
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier1);
     }
 
