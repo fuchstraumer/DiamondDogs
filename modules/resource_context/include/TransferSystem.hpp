@@ -34,8 +34,8 @@ public:
 
     static ResourceTransferSystem& GetTransferSystem();
 
-    void Initialize(const vpr::Device* device);
-    UploadBuffer* CreateUploadBuffer(vpr::Allocator* alloc, size_t buffer_sz);
+    void Initialize(const vpr::Device* device, vpr::Allocator* _allocator);
+    UploadBuffer* CreateUploadBuffer(size_t buffer_sz);
     void CompleteTransfers();
     transferSpinLockGuard AcquireSpinLock();
     VkCommandBuffer TransferCmdBuffer();
@@ -48,6 +48,7 @@ private:
     std::vector<std::unique_ptr<UploadBuffer>> uploadBuffers;
     std::unique_ptr<vpr::Fence> fence;
     const vpr::Device* device;
+    vpr::Allocator* allocator;
 
 };
 

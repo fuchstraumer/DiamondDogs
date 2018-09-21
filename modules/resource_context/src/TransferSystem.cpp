@@ -4,6 +4,8 @@
 #include "Fence.hpp"
 #include "Semaphore.hpp"
 #include "vkAssert.hpp"
+#include "Allocator.hpp"
+#include "UploadBuffer.hpp"
 
 VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device) {
     constexpr static VkCommandPoolCreateInfo pool_info{
@@ -17,9 +19,9 @@ VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device) {
     return result;
 }
 
-UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(vpr::Allocator * alloc, size_t buffer_sz) {
+UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(size_t buffer_sz) {
     auto guard = AcquireSpinLock();
-    uploadBuffers.emplace_back(std::make_unique<UploadBuffer>(device, alloc, buffer_sz));
+    uploadBuffers.emplace_back(std::make_unique<UploadBuffer>(device, allocator, buffer_sz));
     return uploadBuffers.back().get();
 }
 
@@ -27,13 +29,15 @@ ResourceTransferSystem::ResourceTransferSystem() : transferPool(nullptr), device
 
 ResourceTransferSystem::~ResourceTransferSystem() {}
 
-void ResourceTransferSystem::Initialize(const vpr::Device * dvc) {
+void ResourceTransferSystem::Initialize(const vpr::Device * dvc, vpr::Allocator* _allocator) {
 
     if (initialized) {
         return;
     }
 
     device = dvc;
+    allocator = _allocator;
+    
     transferPool = std::make_unique<vpr::CommandPool>(dvc->vkHandle(), getCreateInfo(dvc));
     transferPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     fence = std::make_unique<vpr::Fence>(dvc->vkHandle(), 0); 
@@ -102,6 +106,19 @@ void ResourceTransferSystem::CompleteTransfers() {
     result = vkBeginCommandBuffer(pool[0], &begin_info);
     VkAssert(result);
     cmdBufferDirty = false;
+
+    if (uploadBuffers.empty()) {
+        return;
+    }
+
+    for (auto& buff : uploadBuffers) {
+        allocator->FreeMemory(&buff->alloc);
+        vkDestroyBuffer(device->vkHandle(), buff->Buffer, nullptr);
+        buff.reset();
+    }
+
+    uploadBuffers.clear(); 
+    uploadBuffers.shrink_to_fit();
 
 }
 
