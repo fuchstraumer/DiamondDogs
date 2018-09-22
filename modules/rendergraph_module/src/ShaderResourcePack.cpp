@@ -109,6 +109,18 @@ void ShaderResourcePack::createSets() {
 void ShaderResourcePack::createSingleSet(const std::string& name) {
     size_t num_resources = 0;
     const st::ResourceGroup* resource_group = shaderPack->GetResourceGroup(name.c_str());
+    {
+        auto tags = resource_group->GetTags();
+        std::vector<std::string> tag_strings;
+        for (size_t i = 0; i < tags.NumStrings; ++i) {
+            tag_strings.emplace_back(tags[i]);
+        }
+        
+        if (auto iter = std::find(std::begin(tag_strings), std::end(tag_strings), "MaterialGroup"); iter != std::end(tag_strings)) {
+            // If we find a material group, don't create meta-information for it.
+            return;
+        }
+    }
     resource_group->GetResourcePtrs(&num_resources, nullptr);
     std::vector<const st::ShaderResource*> resources(num_resources);
     resource_group->GetResourcePtrs(&num_resources, resources.data());
