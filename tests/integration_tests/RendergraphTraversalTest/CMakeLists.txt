@@ -11,4 +11,4 @@ TARGET_INCLUDE_DIRECTORIES(RendergraphTraversalTest PRIVATE
     "../../../third_party/easyloggingpp/src"
 )
 
-TARGET_LINK_LIBRARIES(RendergraphTraversalTest PRIVATE ShaderTools)
+TARGET_LINK_LIBRARIES(RendergraphTraversalTest PRIVATE ShaderTools rendering_context resource_context rendergraph_module glfw ${Vulkan_LIBRARY})
