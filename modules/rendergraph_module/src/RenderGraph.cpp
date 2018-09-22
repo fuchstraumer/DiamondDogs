@@ -260,6 +260,10 @@ void RenderGraph::createPipelineResourcesFromPack(const st::ShaderPack* pack) {
             if (is_buffer_type(st_rsrc->DescriptorType())) {
                 resource.SetInfo(createPipelineResourceBufferInfo(st_rsrc));
             }
+            else if (st_rsrc->DescriptorType() == VK_DESCRIPTOR_TYPE_SAMPLER) {
+                // We don't need to create more info for this.
+                continue;
+            }
             else {
                 resource.SetInfo(createPipelineResourceImageInfo(st_rsrc));
             }
