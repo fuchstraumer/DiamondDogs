@@ -1,6 +1,8 @@
 #include "PipelineSubmission.hpp"
 #include "RenderGraph.hpp"
 #include "easylogging++.h"
+#include "PipelineLayout.hpp"
+#include "PipelineCache.hpp"
 
 PipelineSubmission::PipelineSubmission(RenderGraph& rgraph, std::string _name, size_t _idx, VkPipelineStageFlags _stages) 
     : graph(rgraph), name(std::move(_name)), idx(std::move(_idx)), stages(std::move(_stages)) {}
