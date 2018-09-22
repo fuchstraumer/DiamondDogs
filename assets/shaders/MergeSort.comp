@@ -1,0 +1,162 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout (binding = 0, set = 0) uniform buffer _sort_params_ {
+    uint NumElements;
+    uint ChunkSize;
+} SortParams;
+
+layout (binding = 1, set = 0, r32i) uniform restrict iimageBuffer MergePathPartitions;
+layout (binding = 2, set = 0, r32ui) uniform restrict readonly uimageBuffer InputKeys;
+layout (binding = 3, set = 0, r32ui) uniform restrict readonly uimageBuffer InputValues;
+layout (binding = 4, set = 0, r32ui) uniform restrict writeonly uimageBuffer OutputKeys;
+layout (binding = 5, set = 0, r32ui) uniform restrict writeonly uimageBuffer OutputValues;
+
+SPC const uint SortAlgorithm = 0;
+
+const uint NUM_THREADS = 256;
+const uint NUM_VALUES_PER_THREAD = 8;
+const uint NUM_VALUES_PER_THREAD_GROUP = NUM_THREADS * NUM_VALUES_PER_THREAD;
+
+shared uint gs_Keys[NUM_VALUES_PER_THREAD_GROUP];
+shared uint gs_Values[NUM_VALUES_PER_THREAD_GROUP];
+
+int MergePath(int a0, int aCount, int b0, int bCount, int diag, bool use_shared_memory) {
+    int begin = max(0, diag - bCount);
+    int end = min(diag, aCount);
+
+    while (begin < end) {
+        int mid = (begin + end) >> 1;
+
+        uint a = use_shared_memory ? gs_Keys[a0 + mid] : imageLoad(InputKeys, int(a0 + mid)).r;
+        uint b = use_shared_memory ? gs_Keys[b0 + diag - 1 - mid] : imageLoad(InputKeys, int(b0 + diag - 1 -mid)).r;
+        if (a < b) {
+            begin = mid + 1;
+        }
+        else {
+            end = mid;
+        }
+    }
+
+    return begin;
+}
+
+void SerialMerge(int a0, int a1, int b0, int b1, int diag, int num_values, int out0) {
+    uint aKey = gs_Keys[a0];
+    uint bKey = gs_Keys[b0];
+    uint aValue = gs_Values[a0];
+    uint bValue = gs_Values[b0];
+
+    for (int i = 0; i < NUM_VALUES_PER_THREAD && diag + i < num_values; ++i) {
+        int idx = int(out0 + diag + i);
+        if (b0 >= b1 || (a0 < a1 && aKey < bKey)) {
+            imageStore(OutputKeys, idx, uvec4(aKey, 0, 0, 0));
+            imageStore(OutputValues, idx, uvec4(aValue, 0, 0, 0));
+            ++a0;
+            aKey = gs_Keys[a0];
+            aValue = gs_Values[a0];
+        } 
+        else {
+            imageStore(OutputKeys, idx, uvec4(bKey, 0, 0, 0));
+            imageStore(OutputValues, idx, uvec4(bValue, 0, 0, 0));
+            ++b0;
+            bKey = gs_Keys[b0];
+            bValue = gs_Values[b0];
+        }
+    }
+}
+
+void MergePathPartitionsFunc() {
+    uint chunkSize = SortParams.ChunkSize;
+    uint numValuesPerSortGroup = min(chunkSize * 2, SortParams.NumElements);
+    uint numChunks = uint(ceil(float(SortParams.NumElements) / float(chunkSize)));
+    uint numSortGroups = numChunks / 2;
+
+    uint numPartitionsPerSortGroup = uint(ceil(numValuesPerSortGroup / float(NUM_VALUES_PER_THREAD_GROUP)) + 1);
+    uint sortGroup = gl_GlobalInvocationID.x / numPartitionsPerSortGroup;
+    uint partitionInSortGroup = gl_GlobalInvocationID.x % numPartitionsPerSortGroup;
+
+    uint globalPartition = (sortGroup * numPartitionsPerSortGroup) + partitionInSortGroup;
+    uint maxPartitions = numSortGroups * numPartitionsPerSortGroup;
+
+    if (globalPartition < maxPartitions) {
+        int a0 = int(sortGroup * numValuesPerSortGroup);
+        int a1 = int(min(a0 + chunkSize, SortParams.NumElements));
+        int aCount = a1 - a0;
+        int b0 = a1;
+        int b1 = int(min(b0 + chunkSize, SortParams.NumElements));
+        int bCount = b1 - b0;
+        int numValues = aCount + bCount;
+        int diag = int(min(partitionInSortGroup * NUM_VALUES_PER_THREAD_GROUP, numValues));
+        int mergePath = MergePath(a0, aCount, b0, bCount, diag, false);
+        imageStore(MergePathPartitions, int(globalPartition), ivec4(mergePath, 0, 0, 0));
+    }
+}
+
+void MergeSort() {
+    restrict uint numChunks = uint(ceil(float(SortParams.NumElements) / float(SortParams.ChunkSize)));
+    restrict uint numSortGroups = max(numChunks / 2, 1);
+
+    uint numValuesPerSortGroup = min(SortParams.ChunkSize * 2, SortParams.NumElements);
+    uint numThreadGroupsPerSortGroup = uint(ceil(numValuesPerSortGroup / float(NUM_VALUES_PER_THREAD_GROUP)));
+    uint numPartitionsPerSortGroup = numThreadGroupsPerSortGroup + 1;
+    
+    uint sortGroup = gl_GlobalInvocationID.x / numThreadGroupsPerSortGroup;
+    uint partitionVal = gl_GlobalInvocationID.x % numThreadGroupsPerSortGroup;
+    
+    uint globalPartition = (sortGroup * numPartitionsPerSortGroup) + partitionVal;
+
+    int mergePath0 = imageLoad(MergePathPartitions, int(globalPartition)).r;
+    int mergePath1 = imageLoad(MergePathPartitions, int(globalPartition + 1)).r;
+    int diag0 = int(min(partitionVal * NUM_VALUES_PER_THREAD_GROUP, numValuesPerSortGroup));
+    int diag1 = int(min((partitionVal + 1) * NUM_VALUES_PER_THREAD_GROUP, numValuesPerSortGroup));
+
+    int chunkOffsetA0 = int(min(sortGroup * numValuesPerSortGroup, SortParams.NumElements));
+    int chunkOffsetA1 = int(min(chunkOffsetA0 + SortParams.ChunkSize, SortParams.NumElements));
+    int chunkSizeA = chunkOffsetA1 - chunkOffsetA0;
+    
+    int chunkOffsetB1 = int(min(chunkOffsetA1 + SortParams.ChunkSize, SortParams.NumElements));
+    int chunkSizeB = chunkOffsetB1 - chunkOffsetA1;
+
+    uint numValues = uint(chunkSizeA + chunkSizeB);
+    int numA = min(mergePath1 - mergePath0, chunkSizeA);
+
+    int b0 = diag0 - mergePath0;
+    int b1 = diag1 - mergePath1;
+    int numB = min(b1 - b0, chunkSizeB);
+    int diag = int(gl_LocalInvocationIndex) * int(NUM_VALUES_PER_THREAD);
+
+    uint key, value;
+    for (int i = 0; i < NUM_VALUES_PER_THREAD; ++i) {
+        int a = int(mergePath0 + diag + i);
+        int b = b0 + (a - mergePath1);
+        if (a < mergePath1) {
+            key = imageLoad(InputKeys, int(chunkOffsetA0 + a)).r;
+            value = imageLoad(InputValues, int(chunkOffsetA0 + a)).r;
+        }
+        else {
+            key = imageLoad(InputKeys, int(chunkOffsetA1 + b)).r;
+            key = imageLoad(InputKeys, int(chunkOffsetA1 + b)).r;
+        }
+
+        gs_Keys[diag + i] = key;
+        gs_Values[diag + i] = value;
+    }
+
+    groupMemoryBarrier();
+
+    int mergePath = MergePath(0, numA, numA, numB, diag, true);
+
+    SerialMerge(mergePath, numA, int(numA + diag - mergePath), numA + numB, diag0 + diag, int(numValues), chunkOffsetA0);
+}
+
+void main() {
+    switch (SortAlgorithm) {
+    case 0:
+        MergePathPartitionsFunc();
+        break;
+    case 1:
+        MergeSort();
+        break;
+    }
+}
