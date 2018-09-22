@@ -189,7 +189,7 @@ void ShaderResourcePack::createSampledImage(const st::ShaderResource* rsrc) {
 void ShaderResourcePack::createTexelBuffer(const st::ShaderResource* texel_buffer, bool storage) {
     auto& group = resources[texel_buffer->ParentGroupName()];
     VkBufferCreateInfo buffer_info = vpr::vk_buffer_create_info_base;
-    buffer_info.flags = storage ? VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT : VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
+    buffer_info.usage = storage ? VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT : VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
     buffer_info.size = texel_buffer->MemoryRequired();
     const VkBufferViewCreateInfo* view_info = &texel_buffer->BufferViewInfo();
     auto& rsrc_context = ResourceContext::Get();
