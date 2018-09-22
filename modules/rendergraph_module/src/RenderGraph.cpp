@@ -85,11 +85,23 @@ static constexpr bool is_buffer_type(const VkDescriptorType& type) {
     }
 }
 
-RenderGraph::RenderGraph(const vpr::Device* dvc) : device(dvc) {
-    //renderTargets.emplace(backbufferSource, CreateDefaultBackbuffer());
+std::unique_ptr<RenderTarget> CreateDefaultBackbuffer() {
+    auto& context = RenderingContext::Get();
+    const vpr::Swapchain* swapchain = context.Swapchain();
+    std::unique_ptr<RenderTarget> result = std::make_unique<RenderTarget>();
+    result->Create(swapchain->Extent().width, swapchain->Extent().height, swapchain->ColorFormat(), true, 1);
+    return std::move(result);
 }
 
-RenderGraph::~RenderGraph() {}
+RenderGraph::RenderGraph(const vpr::Device* dvc) : device(dvc) {
+    renderTargets.emplace(backbufferSource, CreateDefaultBackbuffer());
+}
+
+RenderGraph::~RenderGraph() {
+    renderTargets.clear();
+    pipelineResources.clear();
+    packResources.clear();
+}
 
 void RenderGraph::AddShaderPack(const st::ShaderPack * pack) {
     addShaderPackResources(pack);
