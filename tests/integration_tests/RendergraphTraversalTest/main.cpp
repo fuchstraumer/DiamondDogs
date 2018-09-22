@@ -3,6 +3,7 @@
 #include "RenderGraph.hpp"
 #include "core/Shader.hpp"
 #include "core/ShaderPack.hpp"
+#include "generation/ShaderGenerator.hpp"
 #include <array>
 #include <vector>
 #include <unordered_map>
@@ -40,14 +41,19 @@ using namespace st;
     callbacks.GetZNear = &z_near;
     callbacks.GetZFar = &z_far;
     callbacks.GetFOVY = &fov_y;
+
+    ShaderGenerator::SetBasePath("../../../../third_party/shadertools/fragments/");
     
-    ShaderPack pack("../fragments/volumetric_forward/ShaderPack.lua");
+    ShaderPack pack("volumetric_forward/ShaderPack.lua");
 
     RenderingContext& context = RenderingContext::Get();
     context.Construct("RendererContextCfg.json");
+
+    ResourceContext& rsrc = ResourceContext::Get();
+    rsrc.Construct(context.Device(), context.PhysicalDevice());
     
     RenderGraph& graph = RenderGraph::GetGlobalGraph();
     graph.AddShaderPack(&pack);
-
+    graph.Bake();
     std::cerr << "Tests complete.";
 }
