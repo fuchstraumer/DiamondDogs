@@ -99,9 +99,7 @@ RenderGraph::RenderGraph(const vpr::Device* dvc) : device(dvc) {
 }
 
 RenderGraph::~RenderGraph() {
-    renderTargets.clear();
-    pipelineResources.clear();
-    packResources.clear();
+    Reset();
 }
 
 void RenderGraph::AddShaderPack(const st::ShaderPack * pack) {
@@ -282,6 +280,12 @@ void RenderGraph::Bake() {
 
     std::reverse(std::begin(submissionStack), std::end(submissionStack));
 
+}
+
+void RenderGraph::Reset() {
+    renderTargets.clear();
+    pipelineResources.clear();
+    packResources.clear();
 }
 
 void RenderGraph::SetBackbufferSource(const std::string & name) {

@@ -334,12 +334,15 @@ bool PipelineSubmission::ValidateSubmission() {
     if (colorInputs.size() != colorOutputs.size()) {
         attachment_count_err("color attachment");
     }
+
     if (storageInputs.size() != storageOutputs.size()) {
         attachment_count_err("storage buffer");
     }
+
     if (storageTextureInputs.size() != storageTextureOutputs.size()) {
         attachment_count_err("storage texture");
     }
+
     if (!resolveOutputs.empty()) {
         if (resolveOutputs.size() != colorOutputs.size()) {
             attachment_count_err("resolve attachment");

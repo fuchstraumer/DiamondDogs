@@ -7,6 +7,7 @@
 #include <array>
 #include <vector>
 #include <unordered_map>
+#include <chrono>
 #include "easylogging++.h"
 INITIALIZE_EASYLOGGINGPP
 
@@ -42,9 +43,14 @@ using namespace st;
     callbacks.GetZFar = &z_far;
     callbacks.GetFOVY = &fov_y;
 
+    std::chrono::high_resolution_clock::time_point timePointA, timePointB;
+
     ShaderGenerator::SetBasePath("../../../../third_party/shadertools/fragments/");
-    
-    ShaderPack pack("volumetric_forward/ShaderPack.lua");
+    timePointB = std::chrono::high_resolution_clock::now();
+    ShaderPack pack("../../../../third_party/shadertools/fragments/volumetric_forward/ShaderPack.lua");
+    timePointA = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> work_time = timePointA - timePointB;
+    LOG(INFO) << "ShaderPack construction took " << work_time.count() << "ms.";
 
     RenderingContext& context = RenderingContext::Get();
     context.Construct("RendererContextCfg.json");
@@ -55,5 +61,8 @@ using namespace st;
     RenderGraph& graph = RenderGraph::GetGlobalGraph();
     graph.AddShaderPack(&pack);
     graph.Bake();
+    graph.Reset();
+
+    rsrc.Destroy();
     std::cerr << "Tests complete.";
 }
