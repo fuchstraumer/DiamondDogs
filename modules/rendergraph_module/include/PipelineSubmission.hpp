@@ -83,13 +83,6 @@ public:
 
 private:
 
-    void traverseDependencies(size_t& stack_count);
-    enum traversal_flags : uint32_t {
-        NoCheck = 0x00000001,
-        IgnoreSelf = 0x00000002,
-        MergeDependency = 0x00000004
-    };
-    void dependencyTraversalRecursion(const std::unordered_set<size_t>& passes, size_t& stack_count, const uint32_t& flags);
 
     std::string name{};
     RenderGraph& graph;

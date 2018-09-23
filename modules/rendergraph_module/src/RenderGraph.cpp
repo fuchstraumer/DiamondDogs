@@ -13,6 +13,7 @@
 #include "ShaderResourcePack.hpp"
 #include <set>
 #include <functional>
+#include "easylogging++.h"
 
 static constexpr VkPipelineStageFlags ShaderStagesToPipelineStages(const VkShaderStageFlags& flags) {
     VkPipelineStageFlags result = 0;
@@ -144,6 +145,103 @@ const ShaderResourcePack* RenderGraph::GetPackResources(const std::string & name
     }
 }
 
+void RenderGraph::traverseDependencies(const PipelineSubmission & submission, size_t stack_count) {
+    if (submission.depthStencilInput != nullptr) {
+        dependencyTraversalRecursion(submission, submission.depthStencilInput->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ true });
+    }
+
+    for (auto* input : submission.attachmentInputs) {
+        bool depends_on_self = (submission.depthStencilOutput != nullptr ? submission.depthStencilInput == input : false);
+        if (std::find(std::begin(submission.colorOutputs), std::end(submission.colorOutputs), input) != std::end(submission.colorOutputs)) {
+            depends_on_self = true;
+        }
+        if (!depends_on_self) {
+            dependencyTraversalRecursion(submission, input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ true });
+        }
+    }
+
+    for (auto* color_input : submission.colorInputs) {
+        if (color_input != nullptr) {
+            dependencyTraversalRecursion(submission, color_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ true });
+        }
+    }
+
+    for (auto* texture_input : submission.textureInputs) {
+        dependencyTraversalRecursion(submission, texture_input->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
+    }
+
+    for (auto* storage_input : submission.storageInputs) {
+        if (storage_input != nullptr) {
+            // might be no writers of this, if it's used in a feedback fashion (meaning what?)
+            dependencyTraversalRecursion(submission, storage_input->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
+            // check for write-after-read hazards, finding if this object is read in other submissions before this one writes to it
+            dependencyTraversalRecursion(submission, storage_input->SubmissionsReadIn(), stack_count, NoCheck{ true }, IgnoreSelf{ true }, MergeDependency{ false });
+        }
+    }
+
+    for (auto* storage_texture_input : submission.storageTextureInputs) {
+        if (storage_texture_input) {
+            dependencyTraversalRecursion(submission, storage_texture_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ false });
+        }
+    }
+
+    for (auto* uniform_input : submission.uniformInputs) {
+        if (uniform_input != nullptr) {
+            dependencyTraversalRecursion(submission, uniform_input->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
+        }
+    }
+
+    for (auto* storage_input : submission.storageReadOnlyInputs) {
+        if (storage_input != nullptr) {
+            dependencyTraversalRecursion(submission, storage_input->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
+        }
+    }
+}
+
+void RenderGraph::dependencyTraversalRecursion(const PipelineSubmission & curr, const std::unordered_set<size_t>& passes, size_t stack_count, const NoCheck no_check, const IgnoreSelf ignore_self, const MergeDependency merge_dependency) {
+    
+    if (!no_check && passes.empty()) {
+        LOG(ERROR) << "Requested checking of a resource during dependency traversal, but current resource is not written to in any passes!";
+        throw std::logic_error("Resource is not written to by any passes.");
+    }
+
+    if (stack_count > NumSubmissions()) {
+        LOG(ERROR) << "Stuck in dependency traversal recursion loop.";
+        throw std::runtime_error("Stuck in a recursive loop.");
+    }
+
+    for (auto& submission : passes) {
+        if (submission != curr.idx) {
+            submissionDependencies[curr.idx].insert(submission);
+        }
+    }
+
+    if (merge_dependency) {
+        for (auto& submission : passes) {
+            if (submission != curr.idx) {
+                submissionMergeDependencies[curr.idx].insert(submission);
+            }
+        }
+    }
+
+    ++stack_count;
+
+    for (auto& pushed_submission : passes) {
+        if (ignore_self && (pushed_submission == curr.idx)) {
+            continue;
+        }
+        else if (pushed_submission == curr.idx) {
+            LOG(ERROR) << "Found a submission resource with a cyclic dependency on itself during dependency traversal recursion step.";
+            throw std::logic_error("Submission resource has a self-dependency loop.");
+        }
+
+        submissionStack.push_back(pushed_submission);
+        const auto& next_submission = *submissions[pushed_submission];
+        traverseDependencies(next_submission, stack_count);
+    }
+
+}
+
 void RenderGraph::addShaderPackResources(const st::ShaderPack* pack) {
     shaderPacks.emplace_back(pack);
     packResources.emplace("", std::make_unique<ShaderResourcePack>(*this, pack));
@@ -178,7 +276,8 @@ void RenderGraph::Bake() {
     std::vector<size_t> temp_submission_stack = submissionStack;
     for (auto& pushed_submission : submissionStack) {
         size_t stack_count = 0;
-        submissions[pushed_submission]->traverseDependencies(stack_count);
+        const auto& cur_submission = *submissions[pushed_submission];
+        traverseDependencies(cur_submission, 0);
     }
 
     std::reverse(std::begin(submissionStack), std::end(submissionStack));

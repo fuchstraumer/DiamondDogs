@@ -9,6 +9,7 @@
 #include <variant>
 #include "core/ResourceUsage.hpp"
 #include "PipelineResource.hpp"
+#include "tagged_bool.hpp"
 
 namespace st {
     class ShaderPack;
@@ -50,6 +51,13 @@ public:
     static RenderGraph& GetGlobalGraph();
     
 private:
+    using NoCheck = tagged_bool<struct NoCheck_tag>;
+    using IgnoreSelf = tagged_bool<struct IgnoreSelf_tag>;
+    using MergeDependency = tagged_bool<struct MergeDependency_tag>;
+
+    void traverseDependencies(const PipelineSubmission& submission, size_t stack_count);
+    void dependencyTraversalRecursion(const PipelineSubmission& submission, const std::unordered_set<size_t>& passes, size_t stack_count, const NoCheck no_check,
+        const IgnoreSelf ignore_self, const MergeDependency merge_dependency);
 
     void addShaderPackResources(const st::ShaderPack* pack);
     buffer_info_t createPipelineResourceBufferInfo(const st::ShaderResource* resource) const;
