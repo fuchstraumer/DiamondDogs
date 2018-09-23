@@ -31,6 +31,9 @@ public:
     VulkanResource* GetImageMSAA(const size_t view_idx = 0);
     image_info_t GetImageInfo() const;
 
+    DepthTarget* Depth() noexcept;
+    const DepthTarget* Depth() const noexcept;
+
     VkViewport Viewport;
 private:
     std::unique_ptr<DepthTarget> depth;

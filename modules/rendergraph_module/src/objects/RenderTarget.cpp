@@ -122,7 +122,9 @@ void RenderTarget::Add(const VkFormat new_format) {
 }
 
 void RenderTarget::Clear() {
-    depth.reset();
+    if (depth.get() != nullptr) {
+        depth.reset();
+    }
 
     auto& rsrc_context = ResourceContext::Get();
     for (auto& msaa_target : renderTargetsMSAA) {
@@ -166,4 +168,10 @@ image_info_t RenderTarget::GetImageInfo() const {
     return result;
 }
 
+DepthTarget* RenderTarget::Depth() noexcept {
+    return depth.get();
+}
 
+const DepthTarget* RenderTarget::Depth() const noexcept {
+    return depth.get();
+}
