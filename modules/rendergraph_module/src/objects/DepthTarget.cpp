@@ -11,8 +11,12 @@ DepthTarget::DepthTarget() : image(nullptr), imageMSAA(nullptr) {}
 
 DepthTarget::~DepthTarget() {
     auto& rsrc_context = ResourceContext::Get();
-    rsrc_context.DestroyResource(image);
-    rsrc_context.DestroyResource(imageMSAA);
+    if (image != nullptr) {
+        rsrc_context.DestroyResource(image);
+    }
+    if (imageMSAA != nullptr) {
+        rsrc_context.DestroyResource(imageMSAA);
+    }
 }
 
 void DepthTarget::Create(uint32_t width, uint32_t height, uint32_t sample_count_flags) {
