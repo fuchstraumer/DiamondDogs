@@ -97,8 +97,13 @@ void ResourceContext::Construct(vpr::Device * _device, vpr::PhysicalDevice * phy
 }
 
 void ResourceContext::Destroy() {
-    for (auto& rsrc : resources) {
-        DestroyResource(rsrc.get());
+    std::lock_guard eraseGuard(containerMutex);
+    for (auto iter = resources.cbegin(); iter != resources.cend();) {
+        // Erased iterator gets invalidated, so use post-increment to return
+        // current entry we want to erase, and increment iterator to be next 
+        // entry to erase. Otherwise, we get serious errors and issues.
+        auto iter_copy = iter++;
+        destroyResource(iter_copy);
     }
     allocator.reset();
 }
