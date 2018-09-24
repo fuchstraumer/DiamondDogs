@@ -25,8 +25,7 @@ public:
         const VkSampleCountFlags sample_count = VK_SAMPLE_COUNT_1_BIT, const AllowReadback allow_readback = AllowReadback{ false });
     void CreateAsCube(uint32_t size, const VkFormat image_format, const AttachDepthTarget is_depth_target, const uint32_t mip_maps = 1,
         const AllowReadback allow_readback = AllowReadback{ false });
-    void AddDepthTarget(const VkFormat image_format, const uint32_t mip_maps = 1, const uint32_t sample_count = VK_SAMPLE_COUNT_1_BIT, 
-        const AllowReadback allow_readback = AllowReadback{ false });
+    void AddDepthTarget(const VkFormat image_format, const AllowReadback allow_readback = AllowReadback{ false });
 
     void AddView(const VkFormat new_format);
 
@@ -36,6 +35,8 @@ public:
     VulkanResource* GetImage(const size_t view_idx = 0);
     const VulkanResource* GetImageMSAA(const size_t view_idx = 0) const;
     VulkanResource* GetImageMSAA(const size_t view_idx = 0);
+    VulkanResource* GetDepth();
+    const VulkanResource* GetDepth() const noexcept;
     image_info_t GetImageInfo() const;
 
     bool IsDepthRT() const noexcept;
