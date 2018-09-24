@@ -38,7 +38,7 @@ public:
     VulkanResource* GetDepth();
     const VulkanResource* GetDepth() const noexcept;
     image_info_t GetImageInfo() const;
-
+    image_info_t GetDepthInfo() const;
     bool IsDepthRT() const noexcept;
 
     VkViewport Viewport;

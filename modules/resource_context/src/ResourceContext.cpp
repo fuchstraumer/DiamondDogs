@@ -198,7 +198,9 @@ VulkanResource* ResourceContext::CreateImage(const VkImageCreateInfo* info, cons
 
     // This probably isn't ideal but it's a reasonable assumption to make.
     VkImageCreateInfo* create_info = reinterpret_cast<VkImageCreateInfo*>(resource->Info);
-    create_info->usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    if (!(create_info->usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)) {
+        create_info->usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
     VkResult result = vkCreateImage(device->vkHandle(), create_info, nullptr, reinterpret_cast<VkImage*>(&resource->Handle));
     VkAssert(result);
 

@@ -26,7 +26,7 @@ void RenderTarget::Create(uint32_t width, uint32_t height, const VkFormat image_
     image_info.mipLevels = mip_maps;
     image_info.samples = VkSampleCountFlagBits(sample_count);
 
-    image_info.usage = is_depth_target ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    image_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     if (allow_readback) {
         image_info.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     }
@@ -230,6 +230,21 @@ VulkanResource* RenderTarget::GetImageMSAA(const size_t view_idx) {
 image_info_t RenderTarget::GetImageInfo() const {
     image_info_t result;
     VkImageCreateInfo* info = reinterpret_cast<VkImageCreateInfo*>(renderTargets.front()->Info);
+    result.Format = info->format;
+    result.ArrayLayers = info->arrayLayers;
+    result.MipLevels = info->mipLevels;
+    result.Samples = info->samples;
+    result.SizeClass = image_info_t::size_class::SwapchainRelative;
+    result.Usage = info->usage;
+    return result;
+}
+
+image_info_t RenderTarget::GetDepthInfo() const {
+    if (!hasDepthTarget) {
+        throw std::logic_error("Tried to retrieve depth info, when this RT has no depth attachment!");
+    }
+    image_info_t result;
+    VkImageCreateInfo* info = reinterpret_cast<VkImageCreateInfo*>(depthTarget->Info);
     result.Format = info->format;
     result.ArrayLayers = info->arrayLayers;
     result.MipLevels = info->mipLevels;

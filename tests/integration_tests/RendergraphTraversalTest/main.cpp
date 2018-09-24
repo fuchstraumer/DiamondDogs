@@ -3,8 +3,7 @@
 #include "RenderGraph.hpp"
 #include "PipelineSubmission.hpp"
 #include "PipelineResource.hpp"
-#include "objects/RenderTarget.hpp"
-#include "objects/DepthTarget.hpp"
+#include "RenderTarget.hpp"
 #include "core/Shader.hpp"
 #include "core/ShaderPack.hpp"
 #include "generation/ShaderGenerator.hpp"
@@ -66,7 +65,7 @@ using namespace st;
 
     auto depth_pre_pass_fn = [](PipelineSubmission& pass) {
         RenderGraph& rg = RenderGraph::GetGlobalGraph();
-        pass.SetDepthStencilOutput("backbuffer_depth", rg.GetBackbuffer()->Depth()->GetImageInfo());
+        pass.SetDepthStencilOutput("backbuffer_depth", rg.GetBackbuffer()->GetDepthInfo());
     };
     
     auto depth_pass_read_depth = [](PipelineSubmission& pass) {
