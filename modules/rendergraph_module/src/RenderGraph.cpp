@@ -6,7 +6,7 @@
 #include "core/ShaderResource.hpp"
 #include "core/Shader.hpp"
 #include "core/ResourceGroup.hpp"
-#include "objects/RenderTarget.hpp"
+#include "RenderTarget.hpp"
 #include "Swapchain.hpp"
 #include "RenderingContext.hpp"
 #include "ResourceContext.hpp"
@@ -90,7 +90,7 @@ std::unique_ptr<RenderTarget> CreateDefaultBackbuffer() {
     auto& context = RenderingContext::Get();
     const vpr::Swapchain* swapchain = context.Swapchain();
     std::unique_ptr<RenderTarget> result = std::make_unique<RenderTarget>();
-    result->Create(swapchain->Extent().width, swapchain->Extent().height, swapchain->ColorFormat(), true, 1);
+    result->Create(swapchain->Extent().width, swapchain->Extent().height, swapchain->ColorFormat(), AttachDepthTarget{ false });
     return std::move(result);
 }
 
@@ -161,6 +161,12 @@ void RenderGraph::traverseDependencies(const PipelineSubmission & submission, si
     for (auto* color_input : submission.colorInputs) {
         if (color_input != nullptr) {
             dependencyTraversalRecursion(submission, color_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ true });
+        }
+    }
+
+    for (auto* color_scale_input : submission.colorScaleInputs) {
+        if (color_scale_input != nullptr) {
+            dependencyTraversalRecursion(submission, color_scale_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ false });
         }
     }
 
@@ -288,6 +294,10 @@ void RenderGraph::Reset() {
     packResources.clear();
 }
 
+void RenderGraph::AddTagFunction(const std::string & tag, delegate_t<void(PipelineSubmission&)> fn) {
+    tagFunctionsMap.emplace(tag, fn);
+}
+
 void RenderGraph::SetBackbufferSource(const std::string & name) {
     backbufferSource = name;
 }
@@ -300,6 +310,11 @@ resource_dimensions_t RenderGraph::GetResourceDimensions(const PipelineResource 
 
 size_t RenderGraph::NumSubmissions() const noexcept {
     return submissions.size();
+}
+
+const RenderTarget * RenderGraph::GetBackbuffer() const noexcept {
+    const auto& backbuffer = renderTargets.at(backbufferSource);
+    return backbuffer.get();
 }
 
 const vpr::Device* RenderGraph::GetDevice() const noexcept {
@@ -467,19 +482,6 @@ bool is_depth_format(const VkFormat& fmt) noexcept {
     return depth_formats.count(fmt) != 0;
 }
 
-static void PrePassSubmission(PipelineSubmission& submission) {
-
-}
-
-static void DepthOnlySubmission(PipelineSubmission& submission) {
-    submission.SetStages(VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
-}
-
-std::unordered_map<std::string, std::function<void(PipelineSubmission&)>> tag_functions_map{
-    { "PrePass", PrePassSubmission },
-    { "DepthOnly", DepthOnlySubmission }
-};
-
 void RenderGraph::addSingleGroup(const std::string & name, const st::Shader* group) {
     PipelineSubmission& submission = AddPipelineSubmission(name, ShaderStagesToPipelineStages(group->Stages()));
 
@@ -504,8 +506,8 @@ void RenderGraph::addSingleGroup(const std::string & name, const st::Shader* gro
         // We now have some behavior defined by tags. What could it be?
         submission.SetTags(tags);
         for (auto& tag : tags) {
-            if (tag_functions_map.count(tag) != 0) {
-                tag_functions_map.at(tag)(submission);
+            if (tagFunctionsMap.count(tag) != 0) {
+                tagFunctionsMap.at(tag)(submission);
             }
         }
     }
@@ -523,6 +525,7 @@ void RenderGraph::addSingleGroup(const std::string & name, const st::Shader* gro
                 if (attrib_name == backbufferSource) {
                     auto& backbuffer = renderTargets.at(backbufferSource);
                     submission.AddColorOutput("backbuffer", backbuffer->GetImageInfo());
+                    //submission.SetDepthStencilOutput("backbuffer_depth", backbuffer->Depth()->GetImageInfo());
                 }
                 else if (attrib.GetAsFormat() != VK_FORMAT_UNDEFINED) {
                     auto& resource = GetResource(attrib.Name());

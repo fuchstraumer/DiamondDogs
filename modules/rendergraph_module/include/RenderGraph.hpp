@@ -9,6 +9,7 @@
 #include <variant>
 #include "core/ResourceUsage.hpp"
 #include "PipelineResource.hpp"
+#include "signal/delegate.hpp"
 #include "tagged_bool.hpp"
 
 namespace st {
@@ -40,12 +41,13 @@ public:
     void Bake();
     void Reset();
 
+    void AddTagFunction(const std::string& tag, delegate_t<void(PipelineSubmission&)> fn);
 
     void SetBackbufferSource(const std::string& name);
     void SetBackbufferDimensions(const resource_dimensions_t& dimensions);
     resource_dimensions_t GetResourceDimensions(const PipelineResource& rsrc);
     size_t NumSubmissions() const noexcept;
-
+    const RenderTarget* GetBackbuffer() const noexcept;
     const vpr::Device* GetDevice() const noexcept;
 
     static RenderGraph& GetGlobalGraph();
@@ -110,7 +112,8 @@ private:
     std::vector<std::unique_ptr<PipelineSubmission>> submissions;
     std::unordered_map<std::string, size_t> resourceNameMap;
     std::unordered_map<std::string, std::unique_ptr<RenderTarget>> renderTargets;
-    std::vector<std::unique_ptr<PipelineResource>> pipelineResources;
+    std::vector<std::unique_ptr<PipelineResource>> pipelineResources; 
+    std::unordered_map<std::string, delegate_t<void(PipelineSubmission&)>> tagFunctionsMap;
     const vpr::Device* device;
 
     std::vector<std::unordered_set<size_t>> submissionDependencies;
