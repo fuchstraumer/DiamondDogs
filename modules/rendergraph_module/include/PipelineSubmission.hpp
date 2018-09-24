@@ -28,10 +28,10 @@ public:
         VkPipelineStageFlags Stages{ 0 };
         VkAccessFlags Access{ 0 };
         VkImageLayout Layout{ VK_IMAGE_LAYOUT_UNDEFINED };
-        resource_info_variant_t* Info{ nullptr };
+        PipelineResource* Info{ nullptr };
     };
 
-    PipelineSubmission(RenderGraph& graph, std::string name, size_t idx, VkPipelineStageFlags stages);
+    PipelineSubmission(RenderGraph& graph, std::string name, size_t idx, SubmissionQueueFlags _queue);
     ~PipelineSubmission();
 
     void RecordCommands(VkCommandBuffer cmd);
@@ -46,9 +46,13 @@ public:
     PipelineResource& AddStorageTextureInput(const std::string& name, image_info_t info, const std::string& output = "");
     PipelineResource& AddStorageTextureOutput(const std::string& name, image_info_t info, const std::string& input = "");
     PipelineResource& AddStorageTextureRW(const std::string & name, image_info_t info);
-    PipelineResource& AddUniformInput(const std::string& name);
+    PipelineResource& AddUniformInput(const std::string& name, VkPipelineStageFlags stages = 0);
+    PipelineResource& AddUniformTexelBufferInput(const std::string& name, VkPipelineStageFlags stages = 0);
+    PipelineResource& AddInputTexelBufferReadOnly(const std::string& name, VkPipelineStageFlags stages = 0);
+    PipelineResource& AddTexelBufferOutput(const std::string& name, buffer_info_t info, const std::string& input = "");
+    PipelineResource& AddTexelBufferRW(const std::string& name, buffer_info_t info);
     PipelineResource& AddStorageOutput(const std::string& name, buffer_info_t info, const std::string& input = "");
-    PipelineResource& AddStorageReadOnlyInput(const std::string& name);
+    PipelineResource& AddStorageReadOnlyInput(const std::string& name, VkPipelineStageFlags stages = 0);
     PipelineResource& AddTextureInput(const std::string& name, VkPipelineStageFlags stages = 0);
 
     PipelineResource& AddVertexBufferInput(const std::string& name);
@@ -66,6 +70,8 @@ public:
     const std::vector<PipelineResource*>& GetUniformInputs() const noexcept;
     const std::vector<PipelineResource*>& GetStorageOutputs() const noexcept;
     const std::vector<PipelineResource*>& GetStorageInputs() const noexcept;
+    const std::vector<PipelineResource*>& GetTexelBufferInputs() const noexcept;
+    const std::vector<PipelineResource*>& GetTexelBufferOutputs() const noexcept;
     const std::vector<AccessedResource>& GetGenericTextureInputs() const noexcept;
     const std::vector<AccessedResource>& GetGenericBufferInputs() const noexcept;
     const PipelineResource* GetDepthStencilInput() const noexcept;
@@ -97,7 +103,7 @@ private:
 
     std::string name{};
     RenderGraph& graph;
-    SubmissionQueue queue;
+    SubmissionQueueFlags queue;
     size_t idx{ std::numeric_limits<size_t>::max() };
     size_t physicalPassIdx{ std::numeric_limits<size_t>::max() };
 
@@ -117,6 +123,8 @@ private:
     std::vector<PipelineResource*> uniformInputs;
     std::vector<PipelineResource*> storageOutputs;
     std::vector<PipelineResource*> storageInputs;
+    std::vector<PipelineResource*> texelBufferInputs;
+    std::vector<PipelineResource*> texelBufferOutputs;
     std::vector<AccessedResource> genericBuffers;
     std::vector<AccessedResource> genericTextures;
     PipelineResource* depthStencilInput{ nullptr };
