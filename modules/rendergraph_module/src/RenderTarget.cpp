@@ -5,7 +5,7 @@
 #include "LogicalDevice.hpp"
 #include "CreateInfoBase.hpp"
 
-RenderTarget::RenderTarget() : numViews{0}, depthTarget{ false } {}
+RenderTarget::RenderTarget() : numViews{ 0 }, depthTarget{ nullptr }, hasDepthTarget{ false } {}
 
 RenderTarget::~RenderTarget() {
     Clear();
@@ -69,7 +69,7 @@ void RenderTarget::Create(uint32_t width, uint32_t height, const VkFormat image_
     numViews += 1;
 
     if (hasDepthTarget) {
-        AddDepthTarget(renderer.Device()->FindDepthFormat(), mip_maps, sample_count, allow_readback);
+        AddDepthTarget(renderer.Device()->FindDepthFormat(), allow_readback);
     }
 
 }
@@ -125,13 +125,43 @@ void RenderTarget::CreateAsCube(uint32_t size, const VkFormat image_format, cons
     numViews += 1;
 
     if (hasDepthTarget) {
-        AddDepthTarget(renderer.Device()->FindDepthFormat(), mip_maps, VK_SAMPLE_COUNT_1_BIT, allow_readback);
+        AddDepthTarget(renderer.Device()->FindDepthFormat(), allow_readback);
     }
 
 }
 
-void RenderTarget::AddDepthTarget(const VkFormat image_format, const uint32_t mip_maps, const uint32_t sample_count, const AllowReadback allow_readback)
-{
+void RenderTarget::AddDepthTarget(const VkFormat image_format, const AllowReadback allow_readback) {
+
+    auto& rsrc = ResourceContext::Get();
+    auto& context = RenderingContext::Get();
+
+    if (depthTarget != nullptr) {
+        rsrc.DestroyResource(depthTarget);
+    }
+
+    const VkImageCreateInfo* image_info_original = reinterpret_cast<VkImageCreateInfo*>(renderTargets.front()->Info);
+    const VkImageViewCreateInfo* view_info_original = reinterpret_cast<VkImageViewCreateInfo*>(renderTargets.front()->ViewInfo);
+
+    VkImageCreateInfo image_info = *image_info_original;
+    image_info.format = image_format;
+    image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    if (allow_readback) {
+        image_info.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
+
+    VkFormatFeatureFlags req_flags = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    if (allow_readback) {
+        req_flags |= VK_FORMAT_FEATURE_TRANSFER_SRC_BIT;
+    }
+    image_info.tiling = context.Device()->GetFormatTiling(image_format, req_flags);
+
+    VkImageViewCreateInfo view_info = *view_info_original;
+    view_info.format = image_format;
+    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+    depthTarget = rsrc.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+
+    // DOn't need msaa for depth, we can't conventionally resolve to depth anyways
 }
 
 void RenderTarget::AddView(const VkFormat new_format) {
@@ -163,6 +193,11 @@ void RenderTarget::AddView(const VkFormat new_format) {
 void RenderTarget::Clear() {
 
     auto& rsrc_context = ResourceContext::Get();
+
+    if (depthTarget != nullptr) {
+        rsrc_context.DestroyResource(depthTarget);
+    }
+
     for (auto& msaa_target : renderTargetsMSAA) {
         rsrc_context.DestroyResource(msaa_target);
     }
