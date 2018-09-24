@@ -90,7 +90,7 @@ std::unique_ptr<RenderTarget> CreateDefaultBackbuffer() {
     auto& context = RenderingContext::Get();
     const vpr::Swapchain* swapchain = context.Swapchain();
     std::unique_ptr<RenderTarget> result = std::make_unique<RenderTarget>();
-    result->Create(swapchain->Extent().width, swapchain->Extent().height, swapchain->ColorFormat(), AttachDepthTarget{ false });
+    result->Create(swapchain->Extent().width, swapchain->Extent().height, swapchain->ColorFormat(), AttachDepthTarget{ true });
     return std::move(result);
 }
 
@@ -144,6 +144,7 @@ const ShaderResourcePack* RenderGraph::GetPackResources(const std::string & name
 }
 
 void RenderGraph::traverseDependencies(const PipelineSubmission & submission, size_t stack_count) {
+
     if (submission.depthStencilInput != nullptr) {
         dependencyTraversalRecursion(submission, submission.depthStencilInput->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ true });
     }
@@ -170,8 +171,8 @@ void RenderGraph::traverseDependencies(const PipelineSubmission & submission, si
         }
     }
 
-    for (auto* texture_input : submission.textureInputs) {
-        dependencyTraversalRecursion(submission, texture_input->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
+   for (const auto& texture_input : submission.genericTextures) {
+        dependencyTraversalRecursion(submission, texture_input.Info->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
     }
 
     for (auto* storage_input : submission.storageInputs) {
@@ -184,22 +185,21 @@ void RenderGraph::traverseDependencies(const PipelineSubmission & submission, si
     }
 
     for (auto* storage_texture_input : submission.storageTextureInputs) {
-        if (storage_texture_input) {
+        if (storage_texture_input != nullptr) {
             dependencyTraversalRecursion(submission, storage_texture_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ false });
         }
     }
 
-    for (auto* uniform_input : submission.uniformInputs) {
-        if (uniform_input != nullptr) {
-            dependencyTraversalRecursion(submission, uniform_input->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
+    for (auto* texel_input : submission.texelBufferInputs) {
+        if (texel_input != nullptr) {
+            dependencyTraversalRecursion(submission, texel_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ false });
         }
     }
 
-    for (auto* storage_input : submission.storageReadOnlyInputs) {
-        if (storage_input != nullptr) {
-            dependencyTraversalRecursion(submission, storage_input->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
-        }
+    for (const auto& generic_buffer : submission.genericBuffers) {
+        dependencyTraversalRecursion(submission, generic_buffer.Info->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
     }
+
 }
 
 void RenderGraph::dependencyTraversalRecursion(const PipelineSubmission & curr, const std::unordered_set<size_t>& passes, size_t stack_count, const NoCheck no_check, const IgnoreSelf ignore_self, const MergeDependency merge_dependency) {
@@ -371,9 +371,6 @@ void RenderGraph::createPipelineResourcesFromPack(const st::ShaderPack* pack) {
         for (const auto& st_rsrc : rsrc_group.second) {
             auto& resource = GetResource(st_rsrc->Name());
             resource.SetDescriptorType(st_rsrc->DescriptorType());
-            if (st_rsrc->DescriptorType() == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
-                resource.SetStorage(true);
-            }
             resource.SetParentSetName(st_rsrc->ParentGroupName());
             if (is_buffer_type(st_rsrc->DescriptorType())) {
                 resource.SetInfo(createPipelineResourceBufferInfo(st_rsrc));
@@ -408,7 +405,7 @@ void RenderGraph::addResourceUsagesToSubmission(PipelineSubmission & submission,
         }
     };
 
-    auto add_storage_type = [&](const PipelineResource* rsrc, const st::ResourceUsage& usage) {
+    auto add_storage_buffer_type = [&](const PipelineResource* rsrc, const st::ResourceUsage& usage) {
         switch (usage.AccessModifier()) {
         case st::access_modifier::Read:
             submission.AddStorageReadOnlyInput(rsrc->Name());
@@ -417,10 +414,26 @@ void RenderGraph::addResourceUsagesToSubmission(PipelineSubmission & submission,
             submission.AddStorageOutput(rsrc->Name(), rsrc->GetBufferInfo());
             break;
         case st::access_modifier::ReadWrite:
-            submission.AddStorageRW(rsrc->Name(), rsrc->GetBufferInfo());
+            submission.AddStorageOutput(rsrc->Name(), rsrc->GetBufferInfo(), rsrc->Name());
             break;
         default:
             throw std::domain_error("Invalid access modifier for resource usage.");
+        }
+    };
+
+    auto add_storage_texel_buffer_type = [&](const PipelineResource* rsrc, const st::ResourceUsage& usage) {
+        switch (usage.AccessModifier()) {
+        case st::access_modifier::Read:
+            submission.AddInputTexelBufferReadOnly(rsrc->Name(), rsrc->UsedQueues());
+            break;
+        case st::access_modifier::Write:
+            submission.AddTexelBufferOutput(rsrc->Name(), rsrc->GetBufferInfo());
+            break;
+        case st::access_modifier::ReadWrite:
+            submission.AddTexelBufferRW(rsrc->Name(), rsrc->GetBufferInfo());
+            break;
+        default:
+            throw std::domain_error("Invalid access modifier for st::ResourceUsage.");
         }
     };
 
@@ -436,31 +449,31 @@ void RenderGraph::addResourceUsagesToSubmission(PipelineSubmission & submission,
             // Don't need to do anything, these are immutable and don't need guarding
             break;
         case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
-            submission.AddTextureInput(resource->Name(), resource->GetImageInfo());
+            submission.AddTextureInput(resource->Name(), resource->UsedQueues());
             break;
         case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-            submission.AddTextureInput(resource->Name(), resource->GetImageInfo());
+            submission.AddTextureInput(resource->Name(), resource->UsedQueues());
             break;
         case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
             add_storage_image(resource.get(), usage);
             break;
         case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
-            submission.AddStorageReadOnlyInput(resource->Name());
+            submission.AddUniformTexelBufferInput(resource->Name(), resource->UsedQueues());
             break;
         case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
-            add_storage_type(resource.get(), usage);
+            add_storage_texel_buffer_type(resource.get(), usage);
             break;
         case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
             submission.AddUniformInput(resource->Name());
             break;
         case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-            add_storage_type(resource.get(), usage);
+            add_storage_buffer_type(resource.get(), usage);
             break;
         case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
             submission.AddUniformInput(resource->Name());
             break;
         case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
-            add_storage_type(resource.get(), usage);
+            add_storage_buffer_type(resource.get(), usage);
             break;
         case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
             submission.AddInputAttachment(resource->Name());
@@ -469,6 +482,9 @@ void RenderGraph::addResourceUsagesToSubmission(PipelineSubmission & submission,
             throw std::domain_error("Invalid VkDescriptorType for ResourceUsage object");
         }
     }
+
+    // Need to parse output vertex attributes to add output color attachments.
+
 }
 
 bool is_depth_format(const VkFormat& fmt) noexcept {
