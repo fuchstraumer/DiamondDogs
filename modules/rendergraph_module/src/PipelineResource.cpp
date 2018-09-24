@@ -49,8 +49,24 @@ void PipelineResource::SetTransient(const bool& _transient) {
     transient = _transient;
 }
 
-void PipelineResource::AddQueue(SubmissionQueueFlagBits flags) {
+void PipelineResource::AddQueue(SubmissionQueueFlags flags) {
     usedQueues |= flags;
+}
+
+void PipelineResource::AddBufferUsage(VkBufferUsageFlags flags) {
+    if (!IsBuffer()) {
+        throw std::domain_error("Tried to set buffer usage flags for non-buffer resource type.");
+    }
+    auto& buffer_info = std::get<buffer_info_t>(info);
+    buffer_info.Usage |= flags;
+}
+
+void PipelineResource::AddImageUsage(VkImageUsageFlags flags) {
+    if (!IsImage()) {
+        throw std::domain_error("Attempted to add image usage to non-image type!");
+    }
+    auto& image_info = std::get<image_info_t>(info);
+    image_info.Usage |= flags;
 }
 
 const size_t& PipelineResource::GetIdx() const noexcept {

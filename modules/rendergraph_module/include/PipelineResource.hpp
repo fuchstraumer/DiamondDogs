@@ -76,8 +76,8 @@ public:
     PipelineResource(std::string name, size_t physical_idx);
     ~PipelineResource();
 
-    constexpr bool IsBuffer() const noexcept;
-    constexpr bool IsImage() const noexcept;
+    bool IsBuffer() const noexcept;
+    bool IsImage() const noexcept;
     bool IsTransient() const noexcept;
 
     void WrittenBySubmission(size_t idx);
@@ -89,7 +89,9 @@ public:
     void SetDescriptorType(VkDescriptorType type);
     void SetInfo(resource_info_variant_t _info);
     void SetTransient(const bool& _transient);
-    void AddQueue(SubmissionQueueFlagBits flags);
+    void AddQueue(SubmissionQueueFlags flags);
+    void AddBufferUsage(VkBufferUsageFlags flags);
+    void AddImageUsage(VkImageUsageFlags flags);
 
     const size_t& GetIdx() const noexcept;
     const std::string& ParentSetName() const noexcept;
