@@ -13,10 +13,6 @@ bool PipelineResource::IsImage() const noexcept {
     return std::holds_alternative<image_info_t>(info);
 }
 
-bool PipelineResource::IsStorage() const noexcept {
-    return storage;
-}
-
 bool PipelineResource::IsTransient() const noexcept {
     return transient;
 }
@@ -45,24 +41,16 @@ void PipelineResource::SetDescriptorType(VkDescriptorType type) {
     intendedType = std::move(type);
 }
 
-void PipelineResource::SetUsedPipelineStages(const size_t& submission_idx, VkPipelineStageFlags stages) {
-    pipelineStagesPerSubmission[submission_idx] = stages;
-}
-
-void PipelineResource::AddUsedPipelineStages(const size_t& submission_idx, VkPipelineStageFlags stages) {
-    pipelineStagesPerSubmission[submission_idx] |= stages;
-}
-
 void PipelineResource::SetInfo(resource_info_variant_t _info) {
     info = std::move(_info);
 }
 
-void PipelineResource::SetStorage(const bool& _storage) {
-    storage = _storage;
-}
-
 void PipelineResource::SetTransient(const bool& _transient) {
     transient = _transient;
+}
+
+void PipelineResource::AddQueue(SubmissionQueueFlagBits flags) {
+    usedQueues |= flags;
 }
 
 const size_t& PipelineResource::GetIdx() const noexcept {
@@ -79,16 +67,6 @@ const VkDescriptorType& PipelineResource::DescriptorType() const noexcept {
 
 const std::string& PipelineResource::Name() const noexcept {
     return name;
-}
-
-VkPipelineStageFlags PipelineResource::PipelineStages(const size_t& submission_idx) const noexcept {
-    auto iter = pipelineStagesPerSubmission.find(submission_idx);
-    if (iter != std::end(pipelineStagesPerSubmission)) {
-        return iter->second;
-    }
-    else {
-        return VK_PIPELINE_STAGE_FLAG_BITS_MAX_ENUM;
-    }
 }
 
 const std::unordered_set<size_t>& PipelineResource::SubmissionsWrittenIn() const noexcept {
@@ -123,17 +101,12 @@ const buffer_info_t& PipelineResource::GetBufferInfo() const {
 
 bool PipelineResource::operator==(const PipelineResource & other) const noexcept {
     return (info == other.info) && (readInPasses == other.readInPasses) && (writtenInPasses == other.writtenInPasses) &&
-        (pipelineStagesPerSubmission == other.pipelineStagesPerSubmission) && (name == other.name) && (intendedType == other.intendedType) &&
-        (parentSetName == other.parentSetName) && (idx == other.idx) && (transient == other.transient) &&
-        (storage == other.storage);
+        (name == other.name) && (intendedType == other.intendedType) &&
+        (parentSetName == other.parentSetName) && (idx == other.idx) && (transient == other.transient);
 }
 
-VkPipelineStageFlags PipelineResource::AllStagesUsedIn() const noexcept {
-    VkPipelineStageFlags result = 0;
-    for (auto& flags : pipelineStagesPerSubmission) {
-        result |= flags.second;
-    }
-    return result;
+SubmissionQueueFlags PipelineResource::UsedQueues() const noexcept {
+    return usedQueues;
 }
 
 bool buffer_info_t::operator==(const buffer_info_t& other) const noexcept {
@@ -158,14 +131,34 @@ bool image_info_t::operator!=(const image_info_t & other) const noexcept{
         (Format != other.Format);
 }
 
+bool resource_dimensions_t::is_storage_image() const noexcept {
+    return (ImageUsage & VK_IMAGE_USAGE_STORAGE_BIT);
+}
+
+bool resource_dimensions_t::requires_semaphore() const noexcept {
+    SubmissionQueueFlags physical_queues = Queues;
+
+    if (physical_queues & SubmissionQueueCompute) {
+        physical_queues |= SubmissionQueueGraphics;
+    }
+
+    physical_queues &= ~SubmissionQueueCompute;
+    // any remaining flags in the bitfield are flags for async queues
+    return (physical_queues & (physical_queues - 1)) != 0;
+}
+
+bool resource_dimensions_t::is_buffer_like() const noexcept {
+    return is_storage_image() && (BufferInfo.Size != 0);
+}
+
 bool resource_dimensions_t::operator==(const resource_dimensions_t & other) const noexcept {
     return (Format == other.Format) && (BufferInfo == other.BufferInfo) && (Width == other.Width) &&
         (Height == other.Height) && (Depth == other.Depth) && (Layers == other.Layers) && (Levels == other.Levels) &&
-        (Samples == other.Samples) && (Transient == other.Transient) && (Persistent == other.Persistent) && (Storage == other.Storage);
+        (Samples == other.Samples) && (Transient == other.Transient) && (Persistent == other.Persistent);
 }
 
 bool resource_dimensions_t::operator!=(const resource_dimensions_t & other) const noexcept {
     return (Format != other.Format) || (BufferInfo != other.BufferInfo) || (Width != other.Width) ||
         (Height != other.Height) || (Depth != other.Depth) || (Layers != other.Layers) || (Levels != other.Levels) ||
-        (Samples != other.Samples) || (Transient != other.Transient) || (Persistent != other.Persistent) || (Storage != other.Storage);
+        (Samples != other.Samples) || (Transient != other.Transient) || (Persistent != other.Persistent);
 }

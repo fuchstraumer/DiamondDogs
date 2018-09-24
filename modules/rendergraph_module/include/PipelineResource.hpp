@@ -7,9 +7,18 @@
 #include <unordered_set>
 #include <unordered_map>
 
+enum SubmissionQueueFlagBits : uint32_t {
+    SubmissionQueueGraphics = 1 << 0,
+    SubmissionQueueCompute = 1 << 1,
+    SubmissionQueueAsyncGraphics = 1 << 2,
+    SubmissionQueueAsyncCompute = 1 << 3
+};
+
+using SubmissionQueueFlags = uint32_t;
+
 struct buffer_info_t {
     VkDeviceSize Size{ 0 };
-    VkBufferUsageFlags Usage{ VK_BUFFER_USAGE_FLAG_BITS_MAX_ENUM };
+    VkBufferUsageFlags Usage{ 0 };
     // Used for texel buffers
     VkFormat Format{ VK_FORMAT_UNDEFINED };
     bool operator==(const buffer_info_t& other) const noexcept;
@@ -51,8 +60,12 @@ struct resource_dimensions_t {
     uint32_t Samples{ 1 };
     bool Transient{ false };
     bool Persistent{ true };
-    bool Storage{ false };
-    VkPipelineStageFlags UsedStages{ VK_PIPELINE_STAGE_FLAG_BITS_MAX_ENUM };
+    bool sRGB{ false };
+    SubmissionQueueFlags Queues{ 0 };
+    VkImageUsageFlags ImageUsage{ 0 };
+    bool is_storage_image() const noexcept;
+    bool requires_semaphore() const noexcept;
+    bool is_buffer_like() const noexcept;
     bool operator==(const resource_dimensions_t& other) const noexcept;
     bool operator!=(const resource_dimensions_t& other) const noexcept;
 };
@@ -63,9 +76,8 @@ public:
     PipelineResource(std::string name, size_t physical_idx);
     ~PipelineResource();
 
-    bool IsBuffer() const noexcept;
-    bool IsImage() const noexcept;
-    bool IsStorage() const noexcept;
+    constexpr bool IsBuffer() const noexcept;
+    constexpr bool IsImage() const noexcept;
     bool IsTransient() const noexcept;
 
     void WrittenBySubmission(size_t idx);
@@ -75,23 +87,21 @@ public:
     void SetParentSetName(std::string _name);
     void SetName(std::string _name);
     void SetDescriptorType(VkDescriptorType type);
-    void SetUsedPipelineStages(const size_t& submission_idx, VkPipelineStageFlags stages);
-    void AddUsedPipelineStages(const size_t& submission_idx, VkPipelineStageFlags stages);
     void SetInfo(resource_info_variant_t _info);
-    void SetStorage(const bool& _storage);
     void SetTransient(const bool& _transient);
+    void AddQueue(SubmissionQueueFlagBits flags);
 
     const size_t& GetIdx() const noexcept;
     const std::string& ParentSetName() const noexcept;
     const VkDescriptorType& DescriptorType() const noexcept;
     const std::string& Name() const noexcept;
-    VkPipelineStageFlags PipelineStages(const size_t& submission_idx) const noexcept;
     const std::unordered_set<size_t>& SubmissionsReadIn() const noexcept;
     const std::unordered_set<size_t>& SubmissionsWrittenIn() const noexcept;
     const resource_info_variant_t& GetInfo() const noexcept;
     const image_info_t& GetImageInfo() const;
     const buffer_info_t& GetBufferInfo() const;
-    VkPipelineStageFlags AllStagesUsedIn() const noexcept;
+    SubmissionQueueFlags UsedQueues() const noexcept;
+
     bool operator==(const PipelineResource& other) const noexcept;
 
 private:
@@ -104,14 +114,12 @@ private:
     std::string name{};
     // Extracted from the shader
     VkDescriptorType intendedType{ VK_DESCRIPTOR_TYPE_MAX_ENUM };
-    // Used to specify storage resources (unsurprisingly)
-    bool storage{ false };
     // Resources that don't need to persist throughout the frame
     bool transient{ false };
     resource_info_variant_t info;
-    std::unordered_map<size_t, VkPipelineStageFlags> pipelineStagesPerSubmission;
     std::unordered_set<size_t> readInPasses;
     std::unordered_set<size_t> writtenInPasses;
+    SubmissionQueueFlags usedQueues;
 };
 
 #endif //!DIAMOND_DOGS_PIPELINE_RESOURCE_HPP

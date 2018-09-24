@@ -28,7 +28,7 @@ public:
         VkPipelineStageFlags Stages{ 0 };
         VkAccessFlags Access{ 0 };
         VkImageLayout Layout{ VK_IMAGE_LAYOUT_UNDEFINED };
-        resource_info_variant_t Info;
+        resource_info_variant_t* Info{ nullptr };
     };
 
     PipelineSubmission(RenderGraph& graph, std::string name, size_t idx, VkPipelineStageFlags stages);
@@ -50,6 +50,10 @@ public:
     PipelineResource& AddStorageOutput(const std::string& name, buffer_info_t info, const std::string& input = "");
     PipelineResource& AddStorageReadOnlyInput(const std::string& name);
     PipelineResource& AddTextureInput(const std::string& name, VkPipelineStageFlags stages = 0);
+
+    PipelineResource& AddVertexBufferInput(const std::string& name);
+    PipelineResource& AddIndexBufferInput(const std::string& name);
+    PipelineResource& AddIndirectBufferInput(const std::string& name);
     
     const std::vector<PipelineResource*>& GetColorOutputs() const noexcept;
     const std::vector<PipelineResource*>& GetResolveOutputs() const noexcept;
@@ -62,20 +66,20 @@ public:
     const std::vector<PipelineResource*>& GetUniformInputs() const noexcept;
     const std::vector<PipelineResource*>& GetStorageOutputs() const noexcept;
     const std::vector<PipelineResource*>& GetStorageInputs() const noexcept;
-    const std::vector<std::string>& GetTags() const noexcept;
+    const std::vector<AccessedResource>& GetGenericTextureInputs() const noexcept;
+    const std::vector<AccessedResource>& GetGenericBufferInputs() const noexcept;
     const PipelineResource* GetDepthStencilInput() const noexcept;
     const PipelineResource* GetDepthStencilOutput() const noexcept;
+    const std::vector<std::string>& GetTags() const noexcept;
 
     void SetIdx(size_t idx);
     void SetPhysicalPassIdx(size_t idx);
-    void SetStages(VkPipelineStageFlags _stages);
     void SetName(std::string name);
     void AddTag(std::string _tag);
     void SetTags(std::vector<std::string> _tags);
 
     const size_t& GetIdx() const noexcept;
     const size_t& GetPhysicalPassIdx() const noexcept;
-    const VkPipelineStageFlags& GetStages() const noexcept;
     const std::string& Name() const noexcept;
 
     bool NeedRenderPass() const noexcept;
@@ -87,12 +91,15 @@ public:
 
 private:
 
+    PipelineResource& addGenericBufferInput(const std::string& name, VkPipelineStageFlags stages, VkAccessFlags access,
+        VkBufferUsageFlags usage);
+
 
     std::string name{};
     RenderGraph& graph;
+    SubmissionQueue queue;
     size_t idx{ std::numeric_limits<size_t>::max() };
     size_t physicalPassIdx{ std::numeric_limits<size_t>::max() };
-    VkPipelineStageFlags stages{ VK_PIPELINE_STAGE_FLAG_BITS_MAX_ENUM };
 
     delegate_t<void(VkCommandBuffer)> recordSubmissionCb;
     delegate_t<bool()> needPassCb;
@@ -110,7 +117,8 @@ private:
     std::vector<PipelineResource*> uniformInputs;
     std::vector<PipelineResource*> storageOutputs;
     std::vector<PipelineResource*> storageInputs;
-    std::vector<AccessedResource> genericResources;
+    std::vector<AccessedResource> genericBuffers;
+    std::vector<AccessedResource> genericTextures;
     PipelineResource* depthStencilInput{ nullptr };
     PipelineResource* depthStencilOutput{ nullptr };
 

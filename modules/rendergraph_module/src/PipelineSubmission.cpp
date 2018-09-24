@@ -189,10 +189,6 @@ const std::vector<PipelineResource*>& PipelineSubmission::GetColorScaleInputs() 
     return colorScaleInputs;
 }
 
-const std::vector<PipelineResource*>& PipelineSubmission::GetTextureInputs() const noexcept {
-    return textureInputs;
-}
-
 const std::vector<PipelineResource*>& PipelineSubmission::GetStorageTextureInputs() const noexcept {
     return storageTextureInputs;
 }
@@ -215,10 +211,6 @@ const std::vector<PipelineResource*>& PipelineSubmission::GetUniformInputs() con
 
 const std::vector<PipelineResource*>& PipelineSubmission::GetStorageOutputs() const noexcept {
     return storageOutputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetStorageReadOnlyInputs() const noexcept {
-    return storageReadOnlyInputs;
 }
 
 const std::vector<PipelineResource*>& PipelineSubmission::GetStorageInputs() const noexcept {
@@ -245,10 +237,6 @@ void PipelineSubmission::SetPhysicalPassIdx(size_t idx) {
     physicalPassIdx = std::move(idx);
 }
 
-void PipelineSubmission::SetStages(VkPipelineStageFlags _stages) {
-    stages = std::move(_stages);
-}
-
 void PipelineSubmission::SetName(std::string _name) {
     name = std::move(_name);
 }
@@ -267,10 +255,6 @@ const size_t& PipelineSubmission::GetIdx() const noexcept {
 
 const size_t& PipelineSubmission::GetPhysicalPassIdx() const noexcept {
     return physicalPassIdx;
-}
-
-const VkPipelineStageFlags& PipelineSubmission::GetStages() const noexcept {
-    return stages;
 }
 
 const std::string& PipelineSubmission::Name() const noexcept {
@@ -379,6 +363,12 @@ bool PipelineSubmission::ValidateSubmission() {
 
 void PipelineSubmission::MakeColorInputScaled(const size_t & idx) {
     std::swap(colorInputs[idx], colorScaleInputs[idx]);
+}
+
+PipelineResource & PipelineSubmission::addGenericBufferInput(const std::string & name, VkPipelineStageFlags stages, VkAccessFlags access, VkBufferUsageFlags usage) {
+    auto& resource = graph.GetResource(name);
+
+    // TODO: insert return statement here
 }
 
 void PipelineSubmission::RecordCommands(VkCommandBuffer cmd) {
