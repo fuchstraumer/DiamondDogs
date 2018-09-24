@@ -81,19 +81,6 @@ PipelineResource& PipelineSubmission::AddResolveOutput(const std::string& name, 
     return resource;
 }
 
-PipelineResource& PipelineSubmission::AddTextureInput(const std::string& name, image_info_t info) {
-    auto& resource = graph.GetResource(name);
-    resource.AddUsedPipelineStages(idx, stages);
-    if (!(info.Usage & VK_IMAGE_USAGE_SAMPLED_BIT)) {
-        LOG(ERROR) << "Attempted to add a texture input, but image info structure lacks requisite image usage flags!";
-        throw std::runtime_error("Tried to add texture input when image has invalid usage flags.");
-    }
-    resource.SetInfo(info);
-    resource.ReadBySubmission(idx);
-    textureInputs.emplace_back(&resource);
-    return resource;
-}
-
 PipelineResource & PipelineSubmission::AddStorageTextureInput(const std::string & name, image_info_t info, const std::string& output) {
     auto& resource = graph.GetResource(name);
     resource.AddUsedPipelineStages(idx, stages);

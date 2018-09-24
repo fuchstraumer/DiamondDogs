@@ -24,6 +24,13 @@ class PipelineSubmission {
     friend class FeatureRenderer;
 public:
 
+    struct AccessedResource {
+        VkPipelineStageFlags Stages{ 0 };
+        VkAccessFlags Access{ 0 };
+        VkImageLayout Layout{ VK_IMAGE_LAYOUT_UNDEFINED };
+        resource_info_variant_t Info;
+    };
+
     PipelineSubmission(RenderGraph& graph, std::string name, size_t idx, VkPipelineStageFlags stages);
     ~PipelineSubmission();
 
@@ -36,27 +43,25 @@ public:
     PipelineResource& AddHistoryInput(const std::string& name);
     PipelineResource& AddColorOutput(const std::string& name, image_info_t info, const std::string& input = "");
     PipelineResource& AddResolveOutput(const std::string& name, image_info_t info);
-    PipelineResource& AddTextureInput(const std::string& name, image_info_t info);
     PipelineResource& AddStorageTextureInput(const std::string& name, image_info_t info, const std::string& output = "");
     PipelineResource& AddStorageTextureOutput(const std::string& name, image_info_t info, const std::string& input = "");
     PipelineResource& AddStorageTextureRW(const std::string & name, image_info_t info);
     PipelineResource& AddUniformInput(const std::string& name);
     PipelineResource& AddStorageOutput(const std::string& name, buffer_info_t info, const std::string& input = "");
-    PipelineResource& AddStorageRW(const std::string& name, buffer_info_t info);
     PipelineResource& AddStorageReadOnlyInput(const std::string& name);
+    PipelineResource& AddTextureInput(const std::string& name, VkPipelineStageFlags stages = 0);
+    
 
     const std::vector<PipelineResource*>& GetColorOutputs() const noexcept;
     const std::vector<PipelineResource*>& GetResolveOutputs() const noexcept;
     const std::vector<PipelineResource*>& GetColorInputs() const noexcept;
     const std::vector<PipelineResource*>& GetColorScaleInputs() const noexcept;
-    const std::vector<PipelineResource*>& GetTextureInputs() const noexcept;
     const std::vector<PipelineResource*>& GetStorageTextureInputs() const noexcept;
     const std::vector<PipelineResource*>& GetStorageTextureOutputs() const noexcept;
     const std::vector<PipelineResource*>& GetAttachmentInputs() const noexcept;
     const std::vector<PipelineResource*>& GetHistoryInputs() const noexcept;
     const std::vector<PipelineResource*>& GetUniformInputs() const noexcept;
     const std::vector<PipelineResource*>& GetStorageOutputs() const noexcept;
-    const std::vector<PipelineResource*>& GetStorageReadOnlyInputs() const noexcept;
     const std::vector<PipelineResource*>& GetStorageInputs() const noexcept;
     const std::vector<std::string>& GetTags() const noexcept;
     const PipelineResource* GetDepthStencilInput() const noexcept;
@@ -99,16 +104,14 @@ private:
     std::vector<PipelineResource*> resolveOutputs;
     std::vector<PipelineResource*> colorInputs;
     std::vector<PipelineResource*> colorScaleInputs;
-    std::vector<PipelineResource*> textureInputs;
     std::vector<PipelineResource*> storageTextureInputs;
     std::vector<PipelineResource*> storageTextureOutputs;
     std::vector<PipelineResource*> attachmentInputs;
     std::vector<PipelineResource*> historyInputs;
     std::vector<PipelineResource*> uniformInputs;
     std::vector<PipelineResource*> storageOutputs;
-    std::vector<PipelineResource*> storageReadOnlyInputs;
     std::vector<PipelineResource*> storageInputs;
-
+    std::vector<AccessedResource> genericResources;
     PipelineResource* depthStencilInput{ nullptr };
     PipelineResource* depthStencilOutput{ nullptr };
 
