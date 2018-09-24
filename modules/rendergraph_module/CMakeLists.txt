@@ -4,11 +4,13 @@ SET(rendergraph_core_srcs
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PipelineState.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PipelineSubmission.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/RenderGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/RenderTarget.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ShaderResourcePack.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PipelineResource.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PipelineState.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PipelineSubmission.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/RenderGraph.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/RenderTarget.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ShaderResourcePack.cpp"
 )
 
@@ -18,21 +20,12 @@ SET(rendergraph_material_srcs
     "${CMAKE_CURRENT_SOURCE_DIR}/src/material/Material.cpp"
 )
 
-SET(rendergraph_object_srcs
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/objects/DepthTarget.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/objects/RenderTarget.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/objects/DepthTarget.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/objects/RenderTarget.cpp"
-)
-
 ADD_MODULE(rendergraph_module
     ${rendergraph_core_srcs}
-    ${rendergraph_object_srcs}
     ${rendergraph_material_srcs}
 )
 
 SOURCE_GROUP("graph" FILES ${rendergraph_core_srcs})
-SOURCE_GROUP("object" FILES ${rendergraph_object_srcs})
 SOURCE_GROUP("material" FILES ${rendergraph_material_srcs})
 
 TARGET_LINK_LIBRARIES(rendergraph_module PUBLIC ShaderTools vpr_resource)

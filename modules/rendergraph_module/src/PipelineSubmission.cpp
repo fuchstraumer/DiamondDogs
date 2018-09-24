@@ -160,24 +160,17 @@ PipelineResource& PipelineSubmission::AddStorageOutput(const std::string& name, 
     return resource;
 }
 
-PipelineResource& PipelineSubmission::AddStorageRW(const std::string& name, buffer_info_t info) {
-    auto& resource = graph.GetResource(name);
-    resource.AddUsedPipelineStages(idx, stages);
-    resource.WrittenBySubmission(idx);
-    resource.ReadBySubmission(idx);
-    resource.SetInfo(info);
-    resource.SetStorage(true);
-    storageInputs.emplace_back(&resource);
-    storageOutputs.emplace_back(&resource);
-    return resource;
-}
-
 PipelineResource& PipelineSubmission::AddStorageReadOnlyInput(const std::string& name) {
     auto& resource = graph.GetResource(name);
     resource.AddUsedPipelineStages(idx, stages);
     resource.ReadBySubmission(idx);
     storageReadOnlyInputs.emplace_back(&resource);
     return resource;
+}
+
+PipelineResource & PipelineSubmission::AddTextureInput(const std::string & name, VkPipelineStageFlags stages)
+{
+    // TODO: insert return statement here
 }
 
 const std::vector<PipelineResource*>& PipelineSubmission::GetColorOutputs() const noexcept {

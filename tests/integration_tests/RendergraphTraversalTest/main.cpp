@@ -1,6 +1,10 @@
 #include "RenderingContext.hpp"
 #include "ResourceContext.hpp"
 #include "RenderGraph.hpp"
+#include "PipelineSubmission.hpp"
+#include "PipelineResource.hpp"
+#include "objects/RenderTarget.hpp"
+#include "objects/DepthTarget.hpp"
 #include "core/Shader.hpp"
 #include "core/ShaderPack.hpp"
 #include "generation/ShaderGenerator.hpp"
@@ -59,6 +63,19 @@ using namespace st;
     rsrc.Construct(context.Device(), context.PhysicalDevice());
     
     RenderGraph& graph = RenderGraph::GetGlobalGraph();
+
+    auto depth_pre_pass_fn = [](PipelineSubmission& pass) {
+        RenderGraph& rg = RenderGraph::GetGlobalGraph();
+        pass.SetDepthStencilOutput("backbuffer_depth", rg.GetBackbuffer()->Depth()->GetImageInfo());
+    };
+    
+    auto depth_pass_read_depth = [](PipelineSubmission& pass) {
+        RenderGraph& rg = RenderGraph::GetGlobalGraph();
+        pass.SetDepthStencilInput("backbuffer_depth");
+    };
+
+    graph.AddTagFunction("DepthOnly", delegate_t<void(PipelineSubmission&)>::create(depth_pre_pass_fn));
+    graph.AddTagFunction("DepthOnlyAsInput", delegate_t<void(PipelineSubmission&)>::create(depth_pass_read_depth));
     graph.AddShaderPack(&pack);
     graph.Bake();
     graph.Reset();

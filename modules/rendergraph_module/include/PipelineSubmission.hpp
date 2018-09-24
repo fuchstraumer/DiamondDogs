@@ -51,7 +51,6 @@ public:
     PipelineResource& AddStorageReadOnlyInput(const std::string& name);
     PipelineResource& AddTextureInput(const std::string& name, VkPipelineStageFlags stages = 0);
     
-
     const std::vector<PipelineResource*>& GetColorOutputs() const noexcept;
     const std::vector<PipelineResource*>& GetResolveOutputs() const noexcept;
     const std::vector<PipelineResource*>& GetColorInputs() const noexcept;
