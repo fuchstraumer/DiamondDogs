@@ -35,7 +35,8 @@ public:
     void SetImageData(VulkanResource* image, const size_t num_data, const gpu_image_resource_data_t* data);
     VulkanResource* CreateSampler(const VkSamplerCreateInfo* info, void* user_data = nullptr);
     VulkanResource* CreateResourceCopy(VulkanResource* src);
-    void CopyResource(VulkanResource* src, VulkanResource* dest);
+    void CopyResource(VulkanResource* src, VulkanResource** dest);
+    VulkanResource* CreateEmptyResource();
     void DestroyResource(VulkanResource* resource);
 
     void* MapResourceMemory(VulkanResource* resource, size_t size = 0, size_t offset = 0);
@@ -53,9 +54,12 @@ private:
     vpr::AllocationRequirements getAllocReqs(memory_type _memory_type) const noexcept;
     VkFormatFeatureFlags featureFlagsFromUsage(const VkImageUsageFlags flags) const noexcept;
 
-
     std::unordered_set<std::unique_ptr<VulkanResource>> resources;
     using resource_iter_t = decltype(resources)::iterator;
+
+    void createBufferResourceCopy(VulkanResource* src, VulkanResource** dst);
+    void createImageResourceCopy(VulkanResource* src, VulkanResource** dst);
+    void createSamplerResourceCopy(VulkanResource* src, VulkanResource** dst);
 
     void destroyResource(resource_iter_t iter);
     void destroyBuffer(resource_iter_t iter);

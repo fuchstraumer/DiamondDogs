@@ -13,7 +13,7 @@
 #include "core/ResourceGroup.hpp"
 #include "core/Shader.hpp"
 
-ShaderResourcePack::ShaderResourcePack(RenderGraph& _graph, const st::ShaderPack * pack) : shaderPack(pack), graph(_graph) {
+ShaderResourcePack::ShaderResourcePack(RenderGraph* _graph, const st::ShaderPack * pack) : shaderPack(pack), graph(_graph) {
     getGroupNames();
     createDescriptorPool();
     createSets();

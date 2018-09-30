@@ -302,8 +302,20 @@ VulkanResource * ResourceContext::CreateResourceCopy(VulkanResource * src) {
     return nullptr;
 }
 
-void ResourceContext::CopyResource(VulkanResource * src, VulkanResource * dest) {
-    throw std::runtime_error("Currently not supported, sorry!");
+void ResourceContext::CopyResource(VulkanResource * src, VulkanResource** dest) {
+    switch (src->Type) {
+    case resource_type::BUFFER:
+        createBufferResourceCopy(src, dest);
+        break;
+    case resource_type::SAMPLER:
+        createSamplerResourceCopy(src, dest);
+        break;
+    case resource_type::IMAGE:
+        createImageResourceCopy(src, dest);
+        break;
+    default:
+        throw std::domain_error("Passed source resource to CopyResource had invalid resource_type value.");
+    };
 }
 
 void ResourceContext::DestroyResource(VulkanResource * rsrc) {
@@ -512,6 +524,18 @@ VkFormatFeatureFlags ResourceContext::featureFlagsFromUsage(const VkImageUsageFl
         result |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
     }
     return result;
+}
+
+void ResourceContext::createBufferResourceCopy(VulkanResource * src, VulkanResource** dst) {
+    throw std::runtime_error("");
+}
+
+void ResourceContext::createImageResourceCopy(VulkanResource * src, VulkanResource** dst) {
+    throw std::runtime_error("");
+}
+
+void ResourceContext::createSamplerResourceCopy(VulkanResource * src, VulkanResource** dst) {
+    throw std::runtime_error("");
 }
 
 void ResourceContext::destroyResource(resource_iter_t iter) {

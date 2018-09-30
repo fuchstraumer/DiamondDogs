@@ -25,10 +25,11 @@ struct VulkanResource;
 class ShaderResourcePack {
     ShaderResourcePack(const ShaderResourcePack&) = delete;
     ShaderResourcePack& operator=(const ShaderResourcePack&) = delete;
+    friend class RenderGraph;
 public:
 
     // ShaderPacks aren't owned/loaded by this object: they are cached/stored elsewhere
-    ShaderResourcePack(RenderGraph& _graph, const st::ShaderPack* pack);
+    ShaderResourcePack(RenderGraph* _graph, const st::ShaderPack* pack);
     ShaderResourcePack(ShaderResourcePack&& other) noexcept = default;
     ShaderResourcePack& operator=(ShaderResourcePack&& other) noexcept = default;
     ~ShaderResourcePack();
@@ -59,7 +60,7 @@ private:
     void createCombinedImageSampler(const st::ShaderResource* rsrc);
     void createSampler(const st::ShaderResource* rsrc);
 
-    RenderGraph& graph;
+    RenderGraph* graph;
     std::unique_ptr<vpr::DescriptorPool> descriptorPool;
     std::unordered_map<std::string, size_t> rsrcGroupToIdxMap;
     std::unordered_map<std::string, std::set<size_t>> shaderGroupSetIndices;
