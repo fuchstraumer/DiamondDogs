@@ -1,0 +1,263 @@
+#include "VTF_Scene.hpp"
+#include "GraphicsPipeline.hpp"
+#include "ShaderModule.hpp"
+#include "AllocationRequirements.hpp"
+#include "CommandPool.hpp"
+#include "Renderpass.hpp"
+#include "ResourceContext.hpp"
+#include "RenderingContext.hpp"
+#include "ResourceTypes.hpp"
+#include "DescriptorPool.hpp"
+#include "DescriptorSet.hpp"
+#include "DescriptorSetLayout.hpp"
+#include "PipelineLayout.hpp"
+#include "PipelineCache.hpp"
+#include "LogicalDevice.hpp"
+#include "PhysicalDevice.hpp"
+#include "Swapchain.hpp"
+#include "Instance.hpp"
+#include "VkDebugUtils.hpp"
+#include "CreateInfoBase.hpp"
+#include "vulkan/vulkan.h"
+#include "glm/gtc/random.hpp"
+#include "core/ShaderPack.hpp"
+#include "core/ShaderResource.hpp"
+#include "core/Shader.hpp"
+#include "core/ResourceGroup.hpp"
+#include "core/ResourceUsage.hpp"
+#include "ShaderResourcePack.hpp"
+
+constexpr static uint32_t DEFAULT_MAX_LIGHTS = 2048u;
+const st::ShaderPack* vtfShaders{ nullptr };
+std::unique_ptr<ShaderResourcePack> resourcePack{ nullptr };
+
+struct alignas(16) Matrices_t {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 inverseView;
+    glm::mat4 projection;
+    glm::mat4 modelView;
+    glm::mat4 modelViewProjection;
+    glm::mat4 inverseTransposeModel;
+    glm::mat4 inverseTransposeModelView;
+} MatricesDefault;
+
+struct alignas(16) GlobalsData {
+    glm::vec4 viewPosition;
+    glm::vec2 mousePosition;
+    glm::vec2 windowSize;
+    glm::vec2 depthRange;
+    uint32_t frame;
+    float exposure;
+    float gamma;
+    float brightness;
+} Globals;
+
+struct alignas(16) ClusterData {
+    glm::uvec3 GridDim;
+    float ViewNear;
+    glm::uvec2 ScreenSize;
+    float NearK;
+    float LogGridDimY;
+} ClusterData;
+
+struct alignas(4) DispatchParams_t {
+    glm::uvec3 NumThreadGroups{};
+    uint32_t Padding0{ 0u };
+    glm::uvec3 NumThreads{};
+    uint32_t Padding1{ 0u };
+} DispatchParams;
+
+struct alignas(16) Frustum {
+    glm::vec4 Planes[4];
+};
+
+struct alignas(16) AABB {
+    glm::vec4 Min;
+    glm::vec4 Max;
+};
+
+struct alignas(4) LightCountsData {
+    uint32_t NumPointLights{ DEFAULT_MAX_LIGHTS };
+    uint32_t NumSpotLights{ DEFAULT_MAX_LIGHTS };
+    uint32_t NumDirectionalLights{ 4u };
+} LightCounts; 
+
+glm::vec3 HSV_to_RGB(float H, float S, float V) {
+    float C = V * S;
+    float m = V - C;
+    float H2 = H / 60.0f;
+    float X = C * (1.0f - std::fabsf(std::fmodf(H2, 2.0f) - 1.0f));
+    glm::vec3 RGB;
+    switch (int(H2)) {
+    case 0:
+        RGB = { C, X, 0.0f };
+        break;
+    case 1:
+        RGB = { X, C, 0.0f };
+        break;
+    case 2:
+        RGB = { 0.0f, C, X };
+        break;
+    case 3:
+        RGB = { 0.0f, X, C };
+        break;
+    case 4:
+        RGB = { X, 0.0f, C };
+        break;
+    case 5:
+        RGB = { C, 0.0f, X };
+        break;
+    default:
+        throw std::domain_error("Found invalid value for H2 when converting HSV to RGB");
+    }
+
+    return RGB + m;
+}
+
+static std::vector<glm::vec4> GenerateColors(uint32_t num_lights) {
+    std::vector<glm::vec4> colors(num_lights);
+    for (auto& color : colors) {
+        color = glm::vec4(HSV_to_RGB(glm::linearRand(0.0f, 360.0f), glm::linearRand(0.0f, 1.0f), 1.0f), 1.0f);
+    }
+    return colors;
+}
+
+template<typename LightType>
+static LightType GenerateLight(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color);
+
+template<>
+static PointLight GenerateLight<PointLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color) {
+    PointLight result{};
+    result.positionWS = position_ws;
+    result.color = color;
+    result.range = range;
+    return result;
+}
+
+template<>
+static SpotLight GenerateLight<SpotLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color) {
+    SpotLight result{};
+    result.positionWS = position_ws;
+    result.directionWS = direction_ws;
+    result.spotlightAngle = spot_angle;
+    result.range = range;
+    result.color = color;
+    return result;
+}
+
+template<>
+static DirectionalLight GenerateLight<DirectionalLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color) {
+    DirectionalLight result{};
+    result.directionWS = direction_ws;
+    result.color = color;
+    return result;
+}
+
+template<typename LightType>
+static std::vector<LightType> GenerateLights(uint32_t num_lights) {
+    std::vector<LightType> lights(num_lights);
+
+    for (auto& light : lights) {
+        glm::vec4 position_ws = glm::vec4{ glm::linearRand(SceneConfig.LightsMinBounds, SceneConfig.LightsMaxBounds), 1.0f };
+        glm::vec4 direction_ws = glm::vec4{ glm::sphericalRand(1.0f), 0.0f };
+        float spot_angle = glm::linearRand(SceneConfig.MinSpotAngle, SceneConfig.MaxSpotAngle);
+        float range = glm::linearRand(SceneConfig.MinRange, SceneConfig.MaxRange);
+        glm::vec3 color = HSV_to_RGB(glm::linearRand(0.0f, 360.0f), glm::linearRand(0.0f, 1.0f), 1.0f);
+        light = GenerateLight<LightType>(position_ws, direction_ws, spot_angle, range, color);
+    }
+
+    return lights;
+}
+
+
+struct alignas(16) Cone {
+    glm::vec3 T;
+    float h;
+    glm::vec3 d;
+    float r;
+};
+
+struct alignas(4) BVH_Params_t {
+    uint32_t PointLightLevels{ 0u };
+    uint32_t SpotLightLevels{ 0u };
+    uint32_t ChildLevel{ 0u };
+    uint32_t Padding{ 0u };
+} BVH_Params;
+
+// The number of nodes at each level of the BVH.
+constexpr static uint32_t NumLevelNodes[6] {
+    1,          // 1st level (32^0)
+    32,         // 2nd level (32^1)
+    1024,       // 3rd level (32^2)
+    32768,      // 4th level (32^3)
+    1048576,    // 5th level (32^4)
+    33554432,   // 6th level (32^5)
+};
+
+// The number of nodes required to represent a BVH given the number of levels
+// of the BVH.
+constexpr static uint32_t NumBVHNodes[6] {
+    1,          // 1 level  =32^0
+    33,         // 2 levels +32^1
+    1057,       // 3 levels +32^2
+    33825,      // 4 levels +32^3
+    1082401,    // 5 levels +32^4
+    34636833,   // 6 levels +32^5
+};
+
+struct ComputePipelineState {
+    const vpr::Device* Device{ nullptr };
+    VkPipeline Handle{ VK_NULL_HANDLE };
+    VkComputePipelineCreateInfo CreateInfo{ vpr::vk_compute_pipeline_create_info_base };
+    std::shared_ptr<vpr::PipelineLayout> PipelineLayout{ nullptr };
+
+    void Destroy() {
+        if (Handle != VK_NULL_HANDLE) {
+            vkDestroyPipeline(Device->vkHandle(), Handle, nullptr);
+            Handle = VK_NULL_HANDLE;
+        }
+        PipelineLayout.reset();
+    }
+
+};
+
+void VTF_Scene::Init(const st::ShaderPack* vtf_shaders) {
+    vtfShaders = vtf_shaders;
+    resourcePack = std::make_unique<ShaderResourcePack>(nullptr, vtfShaders);
+}
+
+uint32_t VTF_Scene::GetNumLevelsBVH(uint32_t num_leaves) {
+    static const float log32f = glm::log(32.0f);
+
+    uint32_t num_levels = 0;
+    if (num_leaves > 0) {
+        num_levels = static_cast<uint32_t>(glm::ceil(glm::log(num_leaves) / log32f));
+    }
+
+    return num_levels;
+}
+
+uint32_t VTF_Scene::GetNumNodesBVH(uint32_t num_leaves) {
+    uint32_t num_levels = GetNumLevelsBVH(num_leaves);
+    uint32_t num_nodes = 0;
+    if (num_levels > 0 && num_levels < _countof(NumBVHNodes)) {
+        num_nodes = NumBVHNodes[num_levels - 1];
+    }
+    
+    return num_nodes;
+}
+
+void VTF_Scene::GenerateSceneLights() {
+    State.PointLights = GenerateLights<PointLight>(SceneConfig.MaxLights);
+    LightCounts.NumPointLights = static_cast<uint32_t>(State.PointLights.size());
+    State.SpotLights = GenerateLights<SpotLight>(SceneConfig.MaxLights);
+    LightCounts.NumSpotLights = static_cast<uint32_t>(State.SpotLights.size());
+    State.DirectionalLights = GenerateLights<DirectionalLight>(8);
+    LightCounts.NumDirectionalLights = static_cast<uint32_t>(State.DirectionalLights.size());
+}
+
+void VTF_Scene::createReadbackBuffers() {
+
+}
+
