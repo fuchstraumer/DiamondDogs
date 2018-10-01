@@ -28,7 +28,9 @@ struct SceneConfig_t {
     float MaxSpotAngle;
     float MinRange;
     float MaxRange;
-} SceneConfig;
+};
+
+inline static SceneConfig_t SceneConfig;
 
 struct alignas(16) PointLight {
     glm::vec4 positionWS{ 0.0f, 0.0f, 0.0f, 1.0f };
@@ -73,7 +75,10 @@ struct SceneState {
 class VTF_Scene : public VulkanScene {
 public:
 
-    void Init(const st::ShaderPack* vtf_shaders);
+    static VTF_Scene& Get();
+
+    void Construct(RequiredVprObjects objects, void* user_data) final;
+    void Destroy() final;
 
     static uint32_t GetNumLevelsBVH(uint32_t num_leaves);
     static uint32_t GetNumNodesBVH(uint32_t num_leaves);
@@ -112,6 +117,12 @@ public:
 
 private:
 
+    void update() final;
+    void recordCommands() final;
+    void draw() final;
+    void endFrame() final;
+
+    void createComputePools();
     void createReadbackBuffers();
     // uses already made sort buffers to create copies
     void createSortingOutputBuffers();
@@ -151,6 +162,8 @@ private:
         Compute pipelines
     */
     std::unique_ptr<ComputePipelineState> updateLightsPipeline;
+    std::unique_ptr<ComputePipelineState> reduceLightsAABB0;
+    std::unique_ptr<ComputePipelineState> reduceLightsAABB1;
     std::unique_ptr<ComputePipelineState> computeLightMortonCodesPipeline;
     std::unique_ptr<ComputePipelineState> radixSortPipeline;
     std::unique_ptr<ComputePipelineState> mergePathPartitionsPipeline;
@@ -182,6 +195,8 @@ private:
     std::unique_ptr<vpr::Renderpass> renderDebugTexturePass;
     std::unique_ptr<vpr::Renderpass> debugClustersPass;
     std::unique_ptr<vpr::Renderpass> debugLightCountsPass;
+
+    std::unique_ptr<vpr::CommandPool> computePools[2];
 
 };
 

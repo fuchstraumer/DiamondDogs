@@ -222,9 +222,19 @@ struct ComputePipelineState {
 
 };
 
-void VTF_Scene::Init(const st::ShaderPack* vtf_shaders) {
-    vtfShaders = vtf_shaders;
+VTF_Scene& VTF_Scene::Get() {
+    static VTF_Scene scene;
+    return scene;
+}
+
+void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
+    vprObjects = objects;
+    vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
     resourcePack = std::make_unique<ShaderResourcePack>(nullptr, vtfShaders);
+}
+
+void VTF_Scene::Destroy()
+{
 }
 
 uint32_t VTF_Scene::GetNumLevelsBVH(uint32_t num_leaves) {
@@ -255,6 +265,69 @@ void VTF_Scene::GenerateSceneLights() {
     LightCounts.NumSpotLights = static_cast<uint32_t>(State.SpotLights.size());
     State.DirectionalLights = GenerateLights<DirectionalLight>(8);
     LightCounts.NumDirectionalLights = static_cast<uint32_t>(State.DirectionalLights.size());
+}
+
+void VTF_Scene::update() {
+
+    auto& rsrc = ResourceContext::Get();
+
+    LightCounts.NumPointLights = static_cast<uint32_t>(State.PointLights.size());
+    LightCounts.NumSpotLights = static_cast<uint32_t>(State.SpotLights.size());
+    LightCounts.NumDirectionalLights = static_cast<uint32_t>(State.DirectionalLights.size());
+    VulkanResource* light_counts_buffer = resourcePack->Find("VolumetricForwardLights", "LightCounts");
+    const gpu_resource_data_t lcb_update{
+        &LightCounts,
+        sizeof(LightCounts)
+    };
+    rsrc.SetBufferData(light_counts_buffer, 1, &lcb_update);
+
+    const vpr::DescriptorSet* lights_descriptor = resourcePack->DescriptorSet("VolumetricForwardLights");
+
+    {
+        auto cmd = computePools[0]->GetCmdBuffer(0);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, updateLightsPipeline->Handle);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, updateLightsPipeline->PipelineLayout->vkHandle(), 2, 1, &lights_descriptor->vkHandle(), 0, nullptr);
+        uint32_t num_groups_x = glm::max(LightCounts.NumPointLights, glm::max(LightCounts.NumDirectionalLights, LightCounts.NumSpotLights));
+        num_groups_x = static_cast<uint32_t>(glm::ceil(num_groups_x / 1024.0f));
+        vkCmdDispatch(cmd, num_groups_x, 1, 1);
+
+    }
+
+    {
+        // Reduce lights
+        auto cmd = computePools[0]->GetCmdBuffer(0);
+        uint32_t num_thread_groups = glm::min<uint32_t>(static_cast<uint32_t>(glm::ceil(glm::max(LightCounts.NumPointLights, LightCounts.NumSpotLights) / 512.0f)), uint32_t(512));
+        DispatchParams.NumThreadGroups = glm::uvec3(num_thread_groups, 1u, 1u);
+        DispatchParams.NumThreads = glm::uvec3(num_thread_groups * 512, 1u, 1u);
+        uint32_t num_elements = DispatchParams.NumThreadGroups.x;
+        vkCmdBindDescriptorSets()
+    }
+
+}
+
+void VTF_Scene::recordCommands()
+{
+}
+
+void VTF_Scene::draw()
+{
+}
+
+void VTF_Scene::endFrame()
+{
+}
+
+void VTF_Scene::createComputePools() {
+    const static VkCommandPoolCreateInfo pool_info{
+        VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        nullptr,
+        VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+        vprObjects.device->QueueFamilyIndices().Compute
+    };
+    computePools[0] = std::make_unique<vpr::CommandPool>(vprObjects.device->vkHandle(), pool_info);
+    computePools[0]->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    computePools[1] = std::make_unique<vpr::CommandPool>(vprObjects.device->vkHandle(), pool_info);
+    computePools[1]->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 }
 
 void VTF_Scene::createReadbackBuffers() {

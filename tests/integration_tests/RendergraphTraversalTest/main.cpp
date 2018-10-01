@@ -55,30 +55,30 @@ using namespace st;
     std::chrono::duration<double, std::milli> work_time = timePointA - timePointB;
     LOG(INFO) << "ShaderPack construction took " << work_time.count() << "ms.";
 
-    RenderingContext& context = RenderingContext::Get();
-    context.Construct("RendererContextCfg.json");
+    //RenderingContext& context = RenderingContext::Get();
+    //context.Construct("RendererContextCfg.json");
 
-    ResourceContext& rsrc = ResourceContext::Get();
-    rsrc.Construct(context.Device(), context.PhysicalDevice());
-    
-    RenderGraph& graph = RenderGraph::GetGlobalGraph();
+    //ResourceContext& rsrc = ResourceContext::Get();
+    //rsrc.Construct(context.Device(), context.PhysicalDevice());
+    //
+    //RenderGraph& graph = RenderGraph::GetGlobalGraph();
 
-    auto depth_pre_pass_fn = [](PipelineSubmission& pass) {
-        RenderGraph& rg = RenderGraph::GetGlobalGraph();
-        pass.SetDepthStencilOutput("backbuffer_depth", rg.GetBackbuffer()->GetDepthInfo());
-    };
-    
-    auto depth_pass_read_depth = [](PipelineSubmission& pass) {
-        RenderGraph& rg = RenderGraph::GetGlobalGraph();
-        pass.SetDepthStencilInput("backbuffer_depth");
-    };
+    //auto depth_pre_pass_fn = [](PipelineSubmission& pass) {
+    //    RenderGraph& rg = RenderGraph::GetGlobalGraph();
+    //    pass.SetDepthStencilOutput("backbuffer_depth", rg.GetBackbuffer()->GetDepthInfo());
+    //};
+    //
+    //auto depth_pass_read_depth = [](PipelineSubmission& pass) {
+    //    RenderGraph& rg = RenderGraph::GetGlobalGraph();
+    //    pass.SetDepthStencilInput("backbuffer_depth");
+    //};
 
-    graph.AddTagFunction("DepthOnly", delegate_t<void(PipelineSubmission&)>::create(depth_pre_pass_fn));
-    graph.AddTagFunction("DepthOnlyAsInput", delegate_t<void(PipelineSubmission&)>::create(depth_pass_read_depth));
-    graph.AddShaderPack(&pack);
-    graph.Bake();
-    graph.Reset();
+    //graph.AddTagFunction("DepthOnly", delegate_t<void(PipelineSubmission&)>::create(depth_pre_pass_fn));
+    //graph.AddTagFunction("DepthOnlyAsInput", delegate_t<void(PipelineSubmission&)>::create(depth_pass_read_depth));
+    //graph.AddShaderPack(&pack);
+    //graph.Bake();
+    //graph.Reset();
 
-    rsrc.Destroy();
-    std::cerr << "Tests complete.";
+    //rsrc.Destroy();
+    //std::cerr << "Tests complete.";
 }
