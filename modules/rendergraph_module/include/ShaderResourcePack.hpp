@@ -40,8 +40,8 @@ public:
     const vpr::DescriptorPool* DescriptorPool() const noexcept;
     std::vector<VkDescriptorSet> ShaderGroupSets(const char* shader_group_name) const noexcept;
 
-    const VulkanResource* At(const std::string& group_name, const std::string& name) const;
-    const VulkanResource* Find(const std::string& group_name, const std::string& name) const noexcept;
+    VulkanResource* At(const std::string& group_name, const std::string& name);
+    VulkanResource* Find(const std::string& group_name, const std::string& name) noexcept;
     bool Has(const std::string& group_name, const std::string& name) const noexcept;
 
 private:

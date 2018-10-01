@@ -178,7 +178,7 @@ void RenderGraph::traverseDependencies(const PipelineSubmission & submission, si
     for (auto* storage_input : submission.storageInputs) {
         if (storage_input != nullptr) {
             // might be no writers of this, if it's used in a feedback fashion (meaning what?)
-            dependencyTraversalRecursion(submission, storage_input->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
+            dependencyTraversalRecursion(submission, storage_input->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ true }, MergeDependency{ false });
             // check for write-after-read hazards, finding if this object is read in other submissions before this one writes to it
             dependencyTraversalRecursion(submission, storage_input->SubmissionsReadIn(), stack_count, NoCheck{ true }, IgnoreSelf{ true }, MergeDependency{ false });
         }
@@ -192,7 +192,7 @@ void RenderGraph::traverseDependencies(const PipelineSubmission & submission, si
 
     for (auto* texel_input : submission.texelBufferInputs) {
         if (texel_input != nullptr) {
-            dependencyTraversalRecursion(submission, texel_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ false });
+            dependencyTraversalRecursion(submission, texel_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ true }, MergeDependency{ false });
         }
     }
 
@@ -248,7 +248,7 @@ void RenderGraph::dependencyTraversalRecursion(const PipelineSubmission & curr, 
 
 void RenderGraph::addShaderPackResources(const st::ShaderPack* pack) {
     shaderPacks.emplace_back(pack);
-    packResources.emplace("", std::make_unique<ShaderResourcePack>(*this, pack));
+    packResources.emplace("", std::make_unique<ShaderResourcePack>(this, pack));
     createPipelineResourcesFromPack(pack);
 }
 

@@ -49,7 +49,7 @@ const vpr::DescriptorPool* ShaderResourcePack::DescriptorPool() const noexcept {
     return descriptorPool.get();
 }
 
-const VulkanResource* ShaderResourcePack::At(const std::string& group_name, const std::string& name) const {
+VulkanResource* ShaderResourcePack::At(const std::string& group_name, const std::string& name) {
     return resources.at(group_name).at(name);
 }
 
@@ -67,7 +67,7 @@ bool ShaderResourcePack::Has(const std::string& group_name, const std::string& n
     }
 }
 
-const VulkanResource* ShaderResourcePack::Find(const std::string& group_name, const std::string& name) const noexcept {
+VulkanResource* ShaderResourcePack::Find(const std::string& group_name, const std::string& name) noexcept {
     auto group_iter = resources.find(group_name);
     if (group_iter != std::cend(resources)) {
         auto rsrc_iter = group_iter->second.find(name);
