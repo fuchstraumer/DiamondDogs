@@ -134,6 +134,10 @@ void ShaderResourcePack::getGroupNames() {
     }
 }
 
+void ShaderResourcePack::parseGroupBindingInfo() {
+    
+}
+
 void ShaderResourcePack::createResources(const std::vector<const st::ShaderResource*>& resources) {
     for (const auto& rsrc : resources) {
         if (!Has(rsrc->ParentGroupName(), rsrc->Name())) {

@@ -39,6 +39,7 @@ public:
     vpr::DescriptorPool* DescriptorPool() noexcept;
     const vpr::DescriptorPool* DescriptorPool() const noexcept;
     std::vector<VkDescriptorSet> ShaderGroupSets(const char* shader_group_name) const noexcept;
+    void BindGroupSets(VkCommandBuffer cmd, const char* shader_group_name) const;
 
     VulkanResource* At(const std::string& group_name, const std::string& name);
     VulkanResource* Find(const std::string& group_name, const std::string& name) noexcept;
@@ -50,6 +51,7 @@ private:
     void createSets();
     void createSingleSet(const std::string& name);
     void getGroupNames();
+    void parseGroupBindingInfo();
 
     void createResources(const std::vector<const st::ShaderResource*>& resources);
     void createResource(const st::ShaderResource * rsrc);
