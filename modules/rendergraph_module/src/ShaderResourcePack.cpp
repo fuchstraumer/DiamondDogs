@@ -16,6 +16,7 @@
 ShaderResourcePack::ShaderResourcePack(RenderGraph* _graph, const st::ShaderPack * pack) : shaderPack(pack), graph(_graph) {
     getGroupNames();
     createDescriptorPool();
+    parseGroupBindingInfo();
     createSets();
 }
 
@@ -47,6 +48,20 @@ vpr::DescriptorPool* ShaderResourcePack::DescriptorPool() noexcept {
 
 const vpr::DescriptorPool* ShaderResourcePack::DescriptorPool() const noexcept {
     return descriptorPool.get();
+}
+
+std::vector<VkDescriptorSet> ShaderResourcePack::ShaderGroupSets(const std::string& shader_group_name) const noexcept {
+    const auto& descriptor_indices = groupResourceUsages.at(shader_group_name);
+    std::vector<VkDescriptorSet> results;
+    for (const size_t& idx : descriptor_indices) {
+        results.emplace_back(descriptorSets[idx]);
+    }
+    return results;
+}
+
+void ShaderResourcePack::BindGroupSets(VkCommandBuffer cmd, const std::string& shader_group_name, const VkPipelineBindPoint bind_point) const {
+    std::vector<VkDescriptorSet> sets_to_bind = ShaderGroupSets(shader_group_name);
+    vkCmdBindDescriptorSets()
 }
 
 VulkanResource* ShaderResourcePack::At(const std::string& group_name, const std::string& name) {
@@ -136,6 +151,30 @@ void ShaderResourcePack::getGroupNames() {
 
 void ShaderResourcePack::parseGroupBindingInfo() {
     
+    std::vector<std::string> shader_group_strs;
+
+    {
+        auto shader_group_names = shaderPack->GetShaderGroupNames();
+        for (size_t i = 0; i < shader_group_names.NumStrings; ++i) {
+            shader_group_strs.emplace_back(shader_group_names[i]);
+        }
+    }
+
+    for (const auto& str : shader_group_strs) {
+        const st::Shader* group = shaderPack->GetShaderGroup(str.c_str());
+        std::vector<std::string> used_block_strs;
+        {
+            auto used_blocks = group->GetUsedResourceBlocks();
+            for (size_t i = 0; i < used_blocks.NumStrings; ++i) {
+                if (auto iter = rsrcGroupToIdxMap.find(std::string(used_blocks[i])); iter != std::end(rsrcGroupToIdxMap)) {
+                    groupResourceUsages[str].emplace(iter->second);
+                }
+            }
+        }
+    }
+
+    // now have list of sets used by each resource group
+
 }
 
 void ShaderResourcePack::createResources(const std::vector<const st::ShaderResource*>& resources) {

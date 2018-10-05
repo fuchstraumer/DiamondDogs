@@ -38,8 +38,8 @@ public:
     const vpr::DescriptorSet* DescriptorSet(const char* rsrc_group_name) const noexcept;
     vpr::DescriptorPool* DescriptorPool() noexcept;
     const vpr::DescriptorPool* DescriptorPool() const noexcept;
-    std::vector<VkDescriptorSet> ShaderGroupSets(const char* shader_group_name) const noexcept;
-    void BindGroupSets(VkCommandBuffer cmd, const char* shader_group_name) const;
+    std::vector<VkDescriptorSet> ShaderGroupSets(const std::string& name) const noexcept;
+    void BindGroupSets(VkCommandBuffer cmd, const std::string& shader_group_name, const VkPipelineBindPoint bind_point) const;
 
     VulkanResource* At(const std::string& group_name, const std::string& name);
     VulkanResource* Find(const std::string& group_name, const std::string& name) noexcept;
@@ -65,10 +65,12 @@ private:
     RenderGraph* graph;
     std::unique_ptr<vpr::DescriptorPool> descriptorPool;
     std::unordered_map<std::string, size_t> rsrcGroupToIdxMap;
-    std::unordered_map<std::string, std::set<size_t>> shaderGroupSetIndices;
     std::vector<std::unique_ptr<vpr::DescriptorSet>> descriptorSets;
     std::vector<std::unique_ptr<vpr::DescriptorSetLayout>> setLayouts;
+    std::vector<std::unique_ptr<vpr::PipelineLayout>> pipelineLayouts;
     std::unordered_map<std::string, std::unordered_map<std::string, VulkanResource*>> resources;
+    // array stores indices into descriptorSets used by each group
+    std::unordered_map<std::string, std::set<size_t>> groupResourceUsages;
     const st::ShaderPack* shaderPack;
 };
 
