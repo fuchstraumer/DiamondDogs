@@ -115,6 +115,9 @@ public:
     std::future<bool> LoadingTask;
     std::atomic<bool> isLoading{ true };
 
+    void MergeSort(VkCommandBuffer cmd, VulkanResource* src_keys, VulkanResource* src_values, VulkanResource* dst_keys, VulkanResource* dst_values,
+        uint32_t total_values, uint32_t chunk_size);
+
 private:
 
     void update() final;
@@ -143,11 +146,6 @@ private:
     VulkanResource* pointLightIndices_OUT;
     VulkanResource* spotLightMortonCodes_OUT;
     VulkanResource* spotLightIndices_OUT;
-
-    constexpr static uint32_t SORT_NUM_THREADS_PER_THREAD_GROUP = 256u;
-    constexpr static uint32_t SORT_ELEMENTS_PER_THREAD = 8u;
-    constexpr static uint32_t BVH_NUM_THREADS = 32u * 16u;
-    constexpr static uint32_t AVERAGE_OVERLAPPING_LIGHTS_PER_CLUSTER = 20u;
 
     // Used to debug sample clusters
     VulkanResource* clusterColors;

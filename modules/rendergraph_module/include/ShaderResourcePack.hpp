@@ -12,10 +12,12 @@ namespace st {
     class ShaderPack;
     class ShaderResource;
     class ResourceUsage;
+    class Shader;
 }
 
 class RenderGraph;
 struct VulkanResource;
+class GeneratedPipeline;
 
 /*
     Creates descriptor sets, layouts, and a singular descriptor pool
@@ -26,6 +28,8 @@ class ShaderResourcePack {
     ShaderResourcePack(const ShaderResourcePack&) = delete;
     ShaderResourcePack& operator=(const ShaderResourcePack&) = delete;
     friend class RenderGraph;
+    friend class GeneratedPipeline;
+
 public:
 
     // ShaderPacks aren't owned/loaded by this object: they are cached/stored elsewhere
@@ -38,7 +42,8 @@ public:
     const vpr::DescriptorSet* DescriptorSet(const char* rsrc_group_name) const noexcept;
     vpr::DescriptorPool* DescriptorPool() noexcept;
     const vpr::DescriptorPool* DescriptorPool() const noexcept;
-    std::vector<VkDescriptorSet> ShaderGroupSets(const char* shader_group_name) const noexcept;
+    std::vector<VkDescriptorSet> ShaderGroupSets(const std::string& name) const noexcept;
+    void BindGroupSets(VkCommandBuffer cmd, const std::string& shader_group_name, const VkPipelineBindPoint bind_point) const;
 
     VulkanResource* At(const std::string& group_name, const std::string& name);
     VulkanResource* Find(const std::string& group_name, const std::string& name) noexcept;
@@ -48,8 +53,12 @@ private:
 
     void createDescriptorPool();
     void createSets();
-    void createSingleSet(const std::string& name);
+    void createSetResourcesAndLayout(const std::string& name);
+    void createSetLayout(const std::vector<const st::ShaderResource*>& resources, const std::string& name);
+    void createDescriptorSet(const std::string & name);
     void getGroupNames();
+    void parseGroupBindingInfo();
+    void createPipelineLayout(const std::string& name);
 
     void createResources(const std::vector<const st::ShaderResource*>& resources);
     void createResource(const st::ShaderResource * rsrc);
@@ -63,10 +72,16 @@ private:
     RenderGraph* graph;
     std::unique_ptr<vpr::DescriptorPool> descriptorPool;
     std::unordered_map<std::string, size_t> rsrcGroupToIdxMap;
-    std::unordered_map<std::string, std::set<size_t>> shaderGroupSetIndices;
     std::vector<std::unique_ptr<vpr::DescriptorSet>> descriptorSets;
-    std::vector<std::unique_ptr<vpr::DescriptorSetLayout>> setLayouts;
+    std::vector<std::unique_ptr<vpr::PipelineLayout>> pipelineLayouts;
     std::unordered_map<std::string, std::unordered_map<std::string, VulkanResource*>> resources;
+    std::unordered_map<const VulkanResource*, VkDescriptorType> resourceTypesMap;
+    std::unordered_map<const VulkanResource*, size_t> resourceBindingLocations;
+    // array stores indices into descriptorSets used by each group
+    std::unordered_map<std::string, size_t> shaderGroupNameIdxMap;
+    std::vector<std::unique_ptr<vpr::DescriptorSetLayout>> setLayouts;
+    std::vector<std::set<size_t>> groupResourceUsages;
+    std::vector<const st::Shader*> shaderGroups;
     const st::ShaderPack* shaderPack;
 };
 

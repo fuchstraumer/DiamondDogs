@@ -31,6 +31,11 @@ constexpr static uint32_t DEFAULT_MAX_LIGHTS = 2048u;
 const st::ShaderPack* vtfShaders{ nullptr };
 std::unique_ptr<ShaderResourcePack> resourcePack{ nullptr };
 
+constexpr static uint32_t SORT_NUM_THREADS_PER_THREAD_GROUP = 256u;
+constexpr static uint32_t SORT_ELEMENTS_PER_THREAD = 8u;
+constexpr static uint32_t BVH_NUM_THREADS = 32u * 16u;
+constexpr static uint32_t AVERAGE_OVERLAPPING_LIGHTS_PER_CLUSTER = 20u;
+
 struct alignas(16) Matrices_t {
     glm::mat4 model;
     glm::mat4 view;
@@ -68,6 +73,11 @@ struct alignas(4) DispatchParams_t {
     uint32_t Padding1{ 0u };
 } DispatchParams;
 
+struct alignas(4) SortParams {
+    uint32_t NumElements;
+    uint32_t ChunkSize;
+};
+
 struct alignas(16) Frustum {
     glm::vec4 Planes[4];
 };
@@ -81,7 +91,32 @@ struct alignas(4) LightCountsData {
     uint32_t NumPointLights{ DEFAULT_MAX_LIGHTS };
     uint32_t NumSpotLights{ DEFAULT_MAX_LIGHTS };
     uint32_t NumDirectionalLights{ 4u };
-} LightCounts; 
+} LightCounts;
+
+void VTF_Scene::MergeSort(VkCommandBuffer cmd, VulkanResource* src_keys, VulkanResource* src_values, VulkanResource* dst_keys, VulkanResource* dst_values,
+    uint32_t total_values, uint32_t chunk_size) {
+    SortParams params;
+
+    constexpr static uint32_t num_values_per_thread_group = SORT_NUM_THREADS_PER_THREAD_GROUP * SORT_ELEMENTS_PER_THREAD;
+    uint32_t num_chunks = static_cast<uint32_t>(glm::ceil(total_values / static_cast<float>(chunk_size)));
+    uint32_t pass = 0;
+
+    while (num_chunks > 1) {
+        params.NumElements = total_values;
+        params.ChunkSize = chunk_size;
+
+        uint32_t num_sort_groups = num_chunks / 2u;
+        uint32_t num_threads_per_sort_group = static_cast<uint32_t>(glm::ceil((chunk_size * 2) / static_cast<float>(num_values_per_thread_group)));
+
+        {
+            auto* rsrc = resourcePack->Find("MergeSort", "MergePathPartitions");
+            // Clear buffer
+            vkCmdFillBuffer(cmd, (VkBuffer)rsrc->Handle, 0, VK_WHOLE_SIZE, 0);
+            
+        }
+    }
+
+}
 
 glm::vec3 HSV_to_RGB(float H, float S, float V) {
     float C = V * S;
@@ -333,4 +368,3 @@ void VTF_Scene::createComputePools() {
 void VTF_Scene::createReadbackBuffers() {
 
 }
-
