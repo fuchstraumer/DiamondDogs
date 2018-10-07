@@ -195,10 +195,12 @@ void ShaderResourcePack::createDescriptorSet(const std::string& name) {
 
         const VkDescriptorType type = resourceTypesMap.at(rsrc);
         if (type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-            throw std::runtime_error("I have no way of handling this right now askjlhfsalkjhfd");
+            VulkanResource* sampler = reinterpret_cast<VulkanResource*>(rsrc->UserData);
+            image_info.sampler = (VkSampler)sampler->Handle;
         }
-
+        
         descriptorSets[idx]->AddDescriptorInfo(image_info, type, resourceBindingLocations.at(rsrc));
+        
     };
 
     auto add_buffer_type = [&](const VulkanResource* rsrc) {
@@ -343,14 +345,9 @@ void ShaderResourcePack::createSampledImage(const st::ShaderResource* rsrc) {
         throw std::runtime_error("Failed to create sampler resource");
     }
     const VulkanResource* created = emplaced.first->second;
-    if (resourceTypesMap.count(created) != 0) {
-        resourceTypesMap[created] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        
-    }
-    else {
-        resourceTypesMap.emplace(created, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
-        resourceBindingLocations.emplace(emplaced.first->second, rsrc->BindingIndex());
-    }
+    resourceTypesMap.emplace(created, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+    resourceBindingLocations.emplace(emplaced.first->second, rsrc->BindingIndex());
+    
 }
 
 void ShaderResourcePack::createTexelBuffer(const st::ShaderResource* texel_buffer, bool storage) {
@@ -389,8 +386,23 @@ void ShaderResourcePack::createStorageBuffer(const st::ShaderResource* storage_b
 }
 
 void ShaderResourcePack::createCombinedImageSampler(const st::ShaderResource* rsrc) {
-    createSampler(rsrc);
-    createSampledImage(rsrc);
+
+    auto& rsrc_context = ResourceContext::Get();
+    const char* group_name = rsrc->ParentGroupName();
+    const char* rsrc_name = rsrc->Name();
+    const VkSamplerCreateInfo& sampler_info = rsrc->SamplerInfo();
+    const VkImageCreateInfo& image_info = rsrc->ImageInfo();
+    const VkImageViewCreateInfo& view_info = rsrc->ImageViewInfo();
+
+    // create sampler first: "discard" it's pointer though, just trusting it's been created
+    VulkanResource* sampler_rsrc = rsrc_context.CreateSampler(&sampler_info, nullptr);
+    auto emplaced = resources[group_name].emplace(rsrc_name, rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, sampler_rsrc));
+    if (!emplaced.second) {
+        throw std::runtime_error("Failed to create combined image sampler resource.");
+    }
+    resourceTypesMap.emplace(emplaced.first->second, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    resourceTypesMap.emplace(emplaced.first->second, rsrc->BindingIndex());
+
 }
 
 void ShaderResourcePack::createSampler(const st::ShaderResource* rsrc) {
