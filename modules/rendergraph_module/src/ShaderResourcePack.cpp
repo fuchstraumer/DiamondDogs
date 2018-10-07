@@ -6,6 +6,7 @@
 #include "RenderGraph.hpp"
 #include "RenderingContext.hpp"
 #include "ResourceContext.hpp"
+#include "PipelineLayout.hpp"
 #include "LogicalDevice.hpp"
 #include "CreateInfoBase.hpp"
 #include "core/ShaderResource.hpp"
@@ -51,17 +52,17 @@ const vpr::DescriptorPool* ShaderResourcePack::DescriptorPool() const noexcept {
 }
 
 std::vector<VkDescriptorSet> ShaderResourcePack::ShaderGroupSets(const std::string& shader_group_name) const noexcept {
-    const auto& descriptor_indices = groupResourceUsages.at(shader_group_name);
+    const auto& descriptor_indices = groupResourceUsages[shaderGroupNameIdxMap.at(shader_group_name)];
     std::vector<VkDescriptorSet> results;
     for (const size_t& idx : descriptor_indices) {
-        results.emplace_back(descriptorSets[idx]);
+        results.emplace_back(descriptorSets[idx]->vkHandle());
     }
     return results;
 }
 
 void ShaderResourcePack::BindGroupSets(VkCommandBuffer cmd, const std::string& shader_group_name, const VkPipelineBindPoint bind_point) const {
     std::vector<VkDescriptorSet> sets_to_bind = ShaderGroupSets(shader_group_name);
-    vkCmdBindDescriptorSets()
+    //vkCmdBindDescriptorSets(cmd, bind_point, )
 }
 
 VulkanResource* ShaderResourcePack::At(const std::string& group_name, const std::string& name) {
@@ -115,6 +116,31 @@ void ShaderResourcePack::createDescriptorPool() {
     descriptorPool->Create();
 }
 
+void ShaderResourcePack::createSetLayouts() {
+    auto& renderer = RenderingContext::Get();
+    const VkDevice device = renderer.Device()->vkHandle();
+
+    // Can use rsrcGroupToIdxMap as well.
+    for (const auto& entry : rsrcGroupToIdxMap) {
+
+        const st::Shader* shader = shaderGroups[entry.second];
+        const size_t num_sets = shader->GetNumSetsRequired();
+        auto& layouts_vector = shaderSetLayouts[entry.second];
+        layouts_vector.resize(num_sets);
+        for (size_t i = 0; i < num_sets; ++i) {
+            
+            size_t num_bindings = 0;
+            shader->GetSetLayoutBindings(i, &num_bindings, nullptr);
+            std::vector<VkDescriptorSetLayoutBinding> bindings(num_bindings);
+            shader->GetSetLayoutBindings(i, &num_bindings, bindings.data());
+            
+            layouts_vector[i] = std::make_unique<vpr::DescriptorSetLayout>(device);
+            layouts_vector[i]->AddDescriptorBindings(num_bindings, bindings.data());
+
+        }
+    }
+}
+
 void ShaderResourcePack::createSets() {
     for (const auto& entry : rsrcGroupToIdxMap) {
         createSingleSet(entry.first);
@@ -160,14 +186,21 @@ void ShaderResourcePack::parseGroupBindingInfo() {
         }
     }
 
+    groupResourceUsages.resize(shader_group_strs.size());
+    shaderGroups.resize(shader_group_strs.size());
+
     for (const auto& str : shader_group_strs) {
-        const st::Shader* group = shaderPack->GetShaderGroup(str.c_str());
+
+        auto emplaced = shaderGroupNameIdxMap.emplace(str, shaderGroupNameIdxMap.size());
+        const size_t idx = emplaced.first->second;
+        shaderGroups[idx] = shaderPack->GetShaderGroup(str.c_str());
+
         std::vector<std::string> used_block_strs;
         {
-            auto used_blocks = group->GetUsedResourceBlocks();
+            auto used_blocks = shaderGroups[idx]->GetUsedResourceBlocks();
             for (size_t i = 0; i < used_blocks.NumStrings; ++i) {
                 if (auto iter = rsrcGroupToIdxMap.find(std::string(used_blocks[i])); iter != std::end(rsrcGroupToIdxMap)) {
-                    groupResourceUsages[str].emplace(iter->second);
+                    groupResourceUsages[idx].emplace(iter->second);
                 }
             }
         }

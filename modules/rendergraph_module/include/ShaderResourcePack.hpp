@@ -12,10 +12,12 @@ namespace st {
     class ShaderPack;
     class ShaderResource;
     class ResourceUsage;
+    class Shader;
 }
 
 class RenderGraph;
 struct VulkanResource;
+class GeneratedPipeline;
 
 /*
     Creates descriptor sets, layouts, and a singular descriptor pool
@@ -26,6 +28,8 @@ class ShaderResourcePack {
     ShaderResourcePack(const ShaderResourcePack&) = delete;
     ShaderResourcePack& operator=(const ShaderResourcePack&) = delete;
     friend class RenderGraph;
+    friend class GeneratedPipeline;
+
 public:
 
     // ShaderPacks aren't owned/loaded by this object: they are cached/stored elsewhere
@@ -48,6 +52,7 @@ public:
 private:
 
     void createDescriptorPool();
+    void createSetLayouts();
     void createSets();
     void createSingleSet(const std::string& name);
     void getGroupNames();
@@ -66,11 +71,13 @@ private:
     std::unique_ptr<vpr::DescriptorPool> descriptorPool;
     std::unordered_map<std::string, size_t> rsrcGroupToIdxMap;
     std::vector<std::unique_ptr<vpr::DescriptorSet>> descriptorSets;
-    std::vector<std::unique_ptr<vpr::DescriptorSetLayout>> setLayouts;
     std::vector<std::unique_ptr<vpr::PipelineLayout>> pipelineLayouts;
     std::unordered_map<std::string, std::unordered_map<std::string, VulkanResource*>> resources;
     // array stores indices into descriptorSets used by each group
-    std::unordered_map<std::string, std::set<size_t>> groupResourceUsages;
+    std::unordered_map<std::string, size_t> shaderGroupNameIdxMap;
+    std::unordered_map<size_t, std::vector<std::unique_ptr<vpr::DescriptorSetLayout>>> shaderSetLayouts;
+    std::vector<std::set<size_t>> groupResourceUsages;
+    std::vector<const st::Shader*> shaderGroups;
     const st::ShaderPack* shaderPack;
 };
 
