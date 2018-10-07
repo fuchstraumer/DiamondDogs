@@ -119,6 +119,7 @@ void ShaderResourcePack::createDescriptorPool() {
 void ShaderResourcePack::createSets() {
 
     setLayouts.resize(rsrcGroupToIdxMap.size());
+    descriptorSets.resize(rsrcGroupToIdxMap.size());
 
     for (const auto& entry : rsrcGroupToIdxMap) {
         createSetResourcesAndLayout(entry.first);
@@ -184,13 +185,58 @@ void ShaderResourcePack::createDescriptorSet(const std::string& name) {
     const size_t idx = rsrcGroupToIdxMap.at(name);
 
     descriptorSets[idx] = std::make_unique<vpr::DescriptorSet>(RenderingContext::Get().Device()->vkHandle());
+
+    auto add_image_type = [&](const VulkanResource* rsrc) {
+        VkDescriptorImageInfo image_info{
+            VK_NULL_HANDLE,
+            (VkImageView)rsrc->ViewHandle,
+            VK_IMAGE_LAYOUT_UNDEFINED
+        };
+
+        const VkDescriptorType type = resourceTypesMap.at(rsrc);
+        if (type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+            throw std::runtime_error("I have no way of handling this right now askjlhfsalkjhfd");
+        }
+
+        descriptorSets[idx]->AddDescriptorInfo(image_info, type, resourceBindingLocations.at(rsrc));
+    };
+
+    auto add_buffer_type = [&](const VulkanResource* rsrc) {
+        const VkDescriptorBufferInfo buffer_info{
+            (VkBuffer)rsrc->Handle,
+            0,
+            VK_WHOLE_SIZE
+        };
+
+        const VkDescriptorType type = resourceTypesMap.at(rsrc);
+        const size_t binding_loc = resourceBindingLocations.at(rsrc);
+
+        if (type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER || type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER) {
+            descriptorSets[idx]->AddDescriptorInfo(buffer_info, (VkBufferView)rsrc->ViewHandle, type, binding_loc);
+        }
+        else {
+            descriptorSets[idx]->AddDescriptorInfo(buffer_info, type, binding_loc);
+        }
+
+    };
+
     for (const auto& rsrc : set_resources) {
         switch (rsrc.second->Type) {
-
+        case resource_type::IMAGE:
+            add_image_type(rsrc.second);
+            break;
+        case resource_type::BUFFER:
+            add_buffer_type(rsrc.second);
+            break;
+        case resource_type::SAMPLER:
+            descriptorSets[idx]->AddSamplerBinding(resourceBindingLocations.at(rsrc.second));
+            break;
         default:
             throw std::domain_error("Invalid resource.");
         }
     }
+
+    descriptorSets[idx]->Init(descriptorPool->vkHandle(), setLayouts[idx]->vkHandle());
 }
 
 void ShaderResourcePack::getGroupNames() {
@@ -299,9 +345,11 @@ void ShaderResourcePack::createSampledImage(const st::ShaderResource* rsrc) {
     const VulkanResource* created = emplaced.first->second;
     if (resourceTypesMap.count(created) != 0) {
         resourceTypesMap[created] = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        
     }
     else {
         resourceTypesMap.emplace(created, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+        resourceBindingLocations.emplace(emplaced.first->second, rsrc->BindingIndex());
     }
 }
 
@@ -315,6 +363,7 @@ void ShaderResourcePack::createTexelBuffer(const st::ShaderResource* texel_buffe
     auto emplaced = group.emplace(texel_buffer->Name(), rsrc_context.CreateBuffer(&buffer_info, view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
     VkDescriptorType texel_subtype = storage ? VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
     resourceTypesMap.emplace(emplaced.first->second, texel_subtype);
+    resourceBindingLocations.emplace(emplaced.first->second, texel_buffer->BindingIndex());
 }
 
 void ShaderResourcePack::createUniformBuffer(const st::ShaderResource* uniform_buffer) {
@@ -325,6 +374,7 @@ void ShaderResourcePack::createUniformBuffer(const st::ShaderResource* uniform_b
     auto& rsrc_context = ResourceContext::Get();
     auto emplaced = group.emplace(uniform_buffer->Name(), rsrc_context.CreateBuffer(&buffer_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE_AND_COHERENT, nullptr));
     resourceTypesMap.emplace(emplaced.first->second, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    resourceBindingLocations.emplace(emplaced.first->second, uniform_buffer->BindingIndex());
 }
 
 void ShaderResourcePack::createStorageBuffer(const st::ShaderResource* storage_buffer) {
@@ -335,6 +385,7 @@ void ShaderResourcePack::createStorageBuffer(const st::ShaderResource* storage_b
     auto& rsrc_context = ResourceContext::Get();
     auto emplaced = group.emplace(storage_buffer->Name(), rsrc_context.CreateBuffer(&buffer_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
     resourceTypesMap.emplace(emplaced.first->second, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    resourceBindingLocations.emplace(emplaced.first->second, storage_buffer->BindingIndex());
 }
 
 void ShaderResourcePack::createCombinedImageSampler(const st::ShaderResource* rsrc) {
@@ -351,4 +402,5 @@ void ShaderResourcePack::createSampler(const st::ShaderResource* rsrc) {
         throw std::runtime_error("Failed to create sampler resource.");
     }
     resourceTypesMap.emplace(emplaced.first->second, VK_DESCRIPTOR_TYPE_SAMPLER);
+    resourceBindingLocations.emplace(emplaced.first->second, rsrc->BindingIndex());
 }

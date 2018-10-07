@@ -75,6 +75,7 @@ private:
     std::vector<std::unique_ptr<vpr::PipelineLayout>> pipelineLayouts;
     std::unordered_map<std::string, std::unordered_map<std::string, VulkanResource*>> resources;
     std::unordered_map<const VulkanResource*, VkDescriptorType> resourceTypesMap;
+    std::unordered_map<const VulkanResource*, size_t> resourceBindingLocations;
     // array stores indices into descriptorSets used by each group
     std::unordered_map<std::string, size_t> shaderGroupNameIdxMap;
     std::vector<std::unique_ptr<vpr::DescriptorSetLayout>> setLayouts;
