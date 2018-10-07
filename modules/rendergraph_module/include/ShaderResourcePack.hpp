@@ -58,6 +58,7 @@ private:
     void createDescriptorSet(const std::string & name);
     void getGroupNames();
     void parseGroupBindingInfo();
+    void createPipelineLayout(const std::string& name);
 
     void createResources(const std::vector<const st::ShaderResource*>& resources);
     void createResource(const st::ShaderResource * rsrc);

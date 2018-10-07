@@ -17,8 +17,8 @@
 ShaderResourcePack::ShaderResourcePack(RenderGraph* _graph, const st::ShaderPack * pack) : shaderPack(pack), graph(_graph) {
     getGroupNames();
     createDescriptorPool();
-    parseGroupBindingInfo();
     createSets();
+    parseGroupBindingInfo();
 }
 
 ShaderResourcePack::~ShaderResourcePack() {}
@@ -261,6 +261,7 @@ void ShaderResourcePack::parseGroupBindingInfo() {
 
     groupResourceUsages.resize(shader_group_strs.size());
     shaderGroups.resize(shader_group_strs.size());
+    pipelineLayouts.resize(shader_group_strs.size());
 
     for (const auto& str : shader_group_strs) {
 
@@ -277,9 +278,40 @@ void ShaderResourcePack::parseGroupBindingInfo() {
                 }
             }
         }
+
+        createPipelineLayout(str);
     }
 
     // now have list of sets used by each resource group
+
+}
+
+void ShaderResourcePack::createPipelineLayout(const std::string & name) {
+    const size_t idx = shaderGroupNameIdxMap.at(name);
+    const st::Shader* shader = shaderGroups[idx];
+
+    size_t num_stages = 0;
+    shader->GetShaderStages(&num_stages, nullptr);
+    std::vector<st::ShaderStage> stages(num_stages, st::ShaderStage("null_name", VK_SHADER_STAGE_ALL));
+    shader->GetShaderStages(&num_stages, stages.data());
+    
+    std::vector<VkPushConstantRange> push_constant_ranges;
+
+    for (const auto& stage : stages) {
+        auto pc_info = shader->GetPushConstantInfo(stage.GetStage());
+        if (pc_info.Stages() != VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM) {
+            push_constant_ranges.emplace_back((VkPushConstantRange)pc_info);
+        }
+    }
+
+    std::vector<VkDescriptorSetLayout> set_layouts;
+    auto& sets_used = groupResourceUsages.at(idx);
+    for (const auto& set : sets_used) {
+        set_layouts.emplace_back(setLayouts[set]->vkHandle());
+    }
+
+    pipelineLayouts[idx] = std::make_unique<vpr::PipelineLayout>(RenderingContext::Get().Device()->vkHandle());
+    pipelineLayouts[idx]->Create(push_constant_ranges.size(), push_constant_ranges.data(), set_layouts.size(), set_layouts.data());
 
 }
 
@@ -401,7 +433,7 @@ void ShaderResourcePack::createCombinedImageSampler(const st::ShaderResource* rs
         throw std::runtime_error("Failed to create combined image sampler resource.");
     }
     resourceTypesMap.emplace(emplaced.first->second, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    resourceTypesMap.emplace(emplaced.first->second, rsrc->BindingIndex());
+    resourceBindingLocations.emplace(emplaced.first->second, rsrc->BindingIndex());
 
 }
 
