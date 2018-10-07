@@ -126,8 +126,16 @@ void ShaderResourcePack::createSets() {
 }
 
 void ShaderResourcePack::createSetResourcesAndLayout(const std::string& name) {
+
     size_t num_resources = 0;
     const st::ResourceGroup* resource_group = shaderPack->GetResourceGroup(name.c_str());
+    resource_group->GetResourcePtrs(&num_resources, nullptr);
+    std::vector<const st::ShaderResource*> resources(num_resources);
+    resource_group->GetResourcePtrs(&num_resources, resources.data());
+
+    // Make set layout for all resources, even material
+    createSetLayout(resources, name);
+
     {
         auto tags = resource_group->GetTags();
         std::vector<std::string> tag_strings;
@@ -140,11 +148,8 @@ void ShaderResourcePack::createSetResourcesAndLayout(const std::string& name) {
             return;
         }
     }
-    resource_group->GetResourcePtrs(&num_resources, nullptr);
-    std::vector<const st::ShaderResource*> resources(num_resources);
-    resource_group->GetResourcePtrs(&num_resources, resources.data());
+
     createResources(resources);
-    createSetLayout(resources, name);
 }
 
 void ShaderResourcePack::createSetLayout(const std::vector<const st::ShaderResource*>& resources, const std::string& name) {
@@ -162,6 +167,7 @@ void ShaderResourcePack::createSetLayout(const std::vector<const st::ShaderResou
     for (size_t i = 0; i < resources.size(); ++i) {
         bindings[i].descriptorCount = 1;
         bindings[i].descriptorType = resources[i]->DescriptorType();
+        bindings[i].binding = static_cast<uint32_t>(resources[i]->BindingIndex());
     }
 
     const size_t idx = rsrcGroupToIdxMap.at(name);
