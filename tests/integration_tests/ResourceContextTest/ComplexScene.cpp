@@ -667,7 +667,7 @@ void VulkanComplexScene::createUpdateTemplates() {
 void VulkanComplexScene::createPipelineLayouts() {  
     const VkDescriptorSetLayout set_layouts[1]{ setLayout->vkHandle() };
     pipelineLayout = std::make_unique<vpr::PipelineLayout>(vprObjects.device->vkHandle());
-    pipelineLayout->Create(set_layouts, 1);
+    pipelineLayout->Create(1, set_layouts);
 }
 
 void VulkanComplexScene::createShaders() {
