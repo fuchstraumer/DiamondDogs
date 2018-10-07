@@ -116,38 +116,16 @@ void ShaderResourcePack::createDescriptorPool() {
     descriptorPool->Create();
 }
 
-void ShaderResourcePack::createSetLayouts() {
-    auto& renderer = RenderingContext::Get();
-    const VkDevice device = renderer.Device()->vkHandle();
-
-    // Can use rsrcGroupToIdxMap as well.
-    for (const auto& entry : rsrcGroupToIdxMap) {
-
-        const st::Shader* shader = shaderGroups[entry.second];
-        const size_t num_sets = shader->GetNumSetsRequired();
-        auto& layouts_vector = shaderSetLayouts[entry.second];
-        layouts_vector.resize(num_sets);
-        for (size_t i = 0; i < num_sets; ++i) {
-            
-            size_t num_bindings = 0;
-            shader->GetSetLayoutBindings(i, &num_bindings, nullptr);
-            std::vector<VkDescriptorSetLayoutBinding> bindings(num_bindings);
-            shader->GetSetLayoutBindings(i, &num_bindings, bindings.data());
-            
-            layouts_vector[i] = std::make_unique<vpr::DescriptorSetLayout>(device);
-            layouts_vector[i]->AddDescriptorBindings(num_bindings, bindings.data());
-
-        }
-    }
-}
-
 void ShaderResourcePack::createSets() {
+
+    setLayouts.resize(rsrcGroupToIdxMap.size());
+
     for (const auto& entry : rsrcGroupToIdxMap) {
-        createSingleSet(entry.first);
+        createSetResourcesAndLayout(entry.first);
     }
 }
 
-void ShaderResourcePack::createSingleSet(const std::string& name) {
+void ShaderResourcePack::createSetResourcesAndLayout(const std::string& name) {
     size_t num_resources = 0;
     const st::ResourceGroup* resource_group = shaderPack->GetResourceGroup(name.c_str());
     {
@@ -166,6 +144,31 @@ void ShaderResourcePack::createSingleSet(const std::string& name) {
     std::vector<const st::ShaderResource*> resources(num_resources);
     resource_group->GetResourcePtrs(&num_resources, resources.data());
     createResources(resources);
+    createSetLayout(resources, name);
+}
+
+void ShaderResourcePack::createSetLayout(const std::vector<const st::ShaderResource*>& resources, const std::string& name) {
+
+    constexpr static VkDescriptorSetLayoutBinding base_layout_binding{
+        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        VK_DESCRIPTOR_TYPE_MAX_ENUM,
+        0,
+        VK_SHADER_STAGE_ALL,
+        nullptr
+    };
+
+    std::vector<VkDescriptorSetLayoutBinding> bindings(resources.size(), base_layout_binding);
+
+    for (size_t i = 0; i < resources.size(); ++i) {
+        bindings[i].descriptorCount = 1;
+        bindings[i].descriptorType = resources[i]->DescriptorType();
+    }
+
+    const size_t idx = rsrcGroupToIdxMap.at(name);
+    setLayouts[idx] = std::make_unique<vpr::DescriptorSetLayout>(RenderingContext::Get().Device()->vkHandle());
+    setLayouts[idx]->AddDescriptorBindings(static_cast<uint32_t>(bindings.size()), bindings.data());
+    setLayouts[idx]->vkHandle();
+
 }
 
 void ShaderResourcePack::getGroupNames() {

@@ -52,9 +52,9 @@ public:
 private:
 
     void createDescriptorPool();
-    void createSetLayouts();
     void createSets();
-    void createSingleSet(const std::string& name);
+    void createSetResourcesAndLayout(const std::string& name);
+    void createSetLayout(const std::vector<const st::ShaderResource*>& resources, const std::string& name);
     void getGroupNames();
     void parseGroupBindingInfo();
 
@@ -75,7 +75,7 @@ private:
     std::unordered_map<std::string, std::unordered_map<std::string, VulkanResource*>> resources;
     // array stores indices into descriptorSets used by each group
     std::unordered_map<std::string, size_t> shaderGroupNameIdxMap;
-    std::unordered_map<size_t, std::vector<std::unique_ptr<vpr::DescriptorSetLayout>>> shaderSetLayouts;
+    std::vector<std::unique_ptr<vpr::DescriptorSetLayout>> setLayouts;
     std::vector<std::set<size_t>> groupResourceUsages;
     std::vector<const st::Shader*> shaderGroups;
     const st::ShaderPack* shaderPack;
