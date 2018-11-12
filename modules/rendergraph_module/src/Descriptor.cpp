@@ -37,13 +37,10 @@ void Descriptor::BindResourceToIdx(size_t idx, VulkanResource* rsrc) {
     if (!dirty) {
         dirty = true;
     }
-
-    if (resourceBindings.count(rsrc) == 0) {
-        addDescriptorBinding(idx, rsrc);
-    }
-    else {
-        updateDescriptorBinding(idx, rsrc);
-    }
+    
+    assert(idx < resourceBindings.size());
+    updateDescriptorBinding(idx, rsrc);
+   
 }
 
 VkDescriptorSet Descriptor::Handle() const noexcept {
@@ -70,10 +67,6 @@ void Descriptor::update() const {
 }
 
 void Descriptor::updateDescriptorBinding(const size_t idx, VulkanResource * rsrc) {
-
-    if (!dirty) {
-        dirty = true;
-    }
 
     switch (rsrc->Type) {
     case resource_type::BUFFER:
