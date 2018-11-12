@@ -23,7 +23,8 @@ public:
     void AddLayoutBinding(const VkDescriptorSetLayoutBinding& binding);
     void BindResourceToIdx(size_t idx, VulkanResource * rsrc);
 
-    VkDescriptorSet Handle();
+    VkDescriptorSet Handle() const noexcept;
+    VkDescriptorSetLayout SetLayout() const;
 
 private:
 
@@ -33,21 +34,30 @@ private:
         VkBufferView BufferView;
     };
 
+    void update() const;
+
     void updateDescriptorBinding(const size_t idx, VulkanResource* rsrc);
+    void updateBufferDescriptor(const size_t idx, VulkanResource * rsrc);
+    void updateImageDescriptor(const size_t idx, VulkanResource * rsrc);
     void addDescriptorBinding(const size_t idx, VulkanResource* rsrc);
     void addBufferDescriptor(const size_t idx, VulkanResource* rsrc);
     void addSamplerDescriptor(const size_t idx, VulkanResource* rsrc);
     void addImageDescriptor(const size_t idx, VulkanResource* rsrc);
-    void createUpdateTemplate();
+    void addRawEntry(const size_t idx, rawDataEntry&& entry);
+    void addUpdateEntry(const size_t idx, VkDescriptorUpdateTemplateEntry&& entry);
+    void createUpdateTemplate() const;
+    void createDescriptorSet() const;
 
     friend class ShaderResourcePack;
     mutable bool dirty{ true };
+    mutable bool created{ false };
     const std::string name;
-    mutable VkDescriptorSet descriptorSet;
+    const vpr::Device* device;
+    mutable VkDescriptorSet descriptorSet{ VK_NULL_HANDLE };
     std::unique_ptr<vpr::DescriptorSetLayout> descriptorSetLayout{ nullptr };
     vpr::DescriptorPool* pool{ nullptr };
-    VkDescriptorUpdateTemplate updateTemplate{ VK_NULL_HANDLE };
-    VkDescriptorUpdateTemplateCreateInfo templateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO, nullptr };
+    mutable VkDescriptorUpdateTemplate updateTemplate{ VK_NULL_HANDLE };
+    mutable VkDescriptorUpdateTemplateCreateInfo templateInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO, nullptr };
     std::vector<rawDataEntry> rawEntries;
     std::vector<VkDescriptorUpdateTemplateEntry> updateEntries;
     std::unordered_map<VulkanResource*, size_t> resourceBindings;
