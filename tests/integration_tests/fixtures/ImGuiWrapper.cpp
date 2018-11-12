@@ -10,10 +10,9 @@
 #include "vpr/PhysicalDevice.hpp"
 #include "vpr/CreateInfoBase.hpp"
 #include "vpr/Swapchain.hpp"
-#include "renderer_context/include/RendererContextAPI.hpp"
-#include "renderer_context/include/core/RendererContext.hpp"
-#include "resource_context/include/ResourceContextAPI.hpp"
-#include "resource_context/include/ResourceTypes.hpp"
+#include "RenderingContext.hpp"
+#include "ResourceContext.hpp"
+#include "ResourceTypes.hpp"
 #include <vector>
 #include "GLFW/glfw3.h"
 #include <ratio>
@@ -155,10 +154,13 @@ ImGuiWrapper& ImGuiWrapper::GetImGuiWrapper() {
     return gui;
 }
 
-void ImGuiWrapper::Construct(RendererContext_API* renderer_api, ResourceContext_API* resource_api, VkRenderPass renderpass) {
+void ImGuiWrapper::Construct(VkRenderPass renderpass) {
     static bool callbacks_registered = false;
-    resourceContext = resource_api;
-    rendererContext = renderer_api;
+    auto& rendering_context = RenderingContext::Get();
+    auto& resource_context = ResourceContext::Get();
+
+    rendererContext = &rendering_context;
+    resourceContext = &resource_context;
     if (!callbacks_registered) {
         rendererContext->RegisterScrollCallback(ScrollCallback);
         rendererContext->RegisterCharCallback(CharCallback);
@@ -166,10 +168,10 @@ void ImGuiWrapper::Construct(RendererContext_API* renderer_api, ResourceContext_
         rendererContext->RegisterKeyboardKeyCallback(KeyCallback);
         callbacks_registered = true;
     }
-    frameData.resize(rendererContext->GetContext()->Swapchain->ImageCount());
+    frameData.resize(rendererContext->Swapchain()->ImageCount());
 
     ImGui::CreateContext();
-    device = rendererContext->GetContext()->LogicalDevice;    
+    device = rendererContext->Device();    
     createResources();
     createGraphicsPipeline(renderpass);
     timePointA = std::chrono::high_resolution_clock::now();
@@ -199,7 +201,7 @@ void ImGuiWrapper::Construct(RendererContext_API* renderer_api, ResourceContext_
     io.KeyMap[ImGuiKey_X] = GLFW_KEY_X;
     io.KeyMap[ImGuiKey_Y] = GLFW_KEY_Y;
     io.KeyMap[ImGuiKey_Z] = GLFW_KEY_Z;
-    io.ImeWindowHandle = rendererContext->GetWin32_WindowHandle();
+    //io.ImeWindowHandle = rendererContext->GetWin32_WindowHandle();
 
     standardCursors[ImGuiMouseCursor_Arrow] = (GLFWcursor*)rendererContext->CreateStandardCursor(GLFW_ARROW_CURSOR);
     standardCursors[ImGuiMouseCursor_TextInput] = (GLFWcursor*)rendererContext->CreateStandardCursor(GLFW_IBEAM_CURSOR);
@@ -253,7 +255,7 @@ void ImGuiWrapper::newFrame() {
     std::chrono::duration<double> work_time = timePointA - timePointB;
     double work_time_seconds = static_cast<double>(work_time.count());
     io.DeltaTime = static_cast<float>(work_time_seconds);
-    vpr::Swapchain* swapchain = rendererContext->GetContext()->Swapchain;
+    vpr::Swapchain* swapchain = rendererContext->Swapchain();
     io.DisplaySize = ImVec2(static_cast<float>(swapchain->Extent().width), static_cast<float>(swapchain->Extent().height));
 
     for (size_t i = 0; i < mouse_pressed.size(); ++i) {
@@ -414,7 +416,7 @@ void ImGuiWrapper::createFontImage() {
         0
     };
 
-    fontImage = resourceContext->CreateImage(&image_info, &view_info, 1, &image_data, uint32_t(memory_type::DEVICE_LOCAL), nullptr);
+    fontImage = resourceContext->CreateImage(&image_info, &view_info, 1, &image_data, memory_type::DEVICE_LOCAL, nullptr);
 
 }
 
@@ -445,7 +447,7 @@ void ImGuiWrapper::createDescriptorSet() {
 void ImGuiWrapper::createPipelineLayout() {
     layout = std::make_unique<vpr::PipelineLayout>(device->vkHandle());
     const VkPushConstantRange push_constant{ VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(float) * 4 };
-    layout->Create(&push_constant, 1, &setLayout->vkHandle(), 1);
+    layout->Create(1, &push_constant, 1, &setLayout->vkHandle());
 }
 
 void ImGuiWrapper::createShaders() {
@@ -454,7 +456,7 @@ void ImGuiWrapper::createShaders() {
 }
 
 void ImGuiWrapper::createCache() {
-    cache = std::make_unique<vpr::PipelineCache>(device->vkHandle(), rendererContext->GetContext()->PhysicalDevices[0]->vkHandle(), typeid(ImGuiWrapper).hash_code());
+    cache = std::make_unique<vpr::PipelineCache>(device->vkHandle(), rendererContext->PhysicalDevice()->vkHandle(), typeid(ImGuiWrapper).hash_code());
 }
 
 static constexpr VkVertexInputBindingDescription bind_descr{ 0, sizeof(ImDrawVert), VK_VERTEX_INPUT_RATE_VERTEX };
@@ -557,7 +559,7 @@ void ImGuiWrapper::updateBuffers(ImGuiFrameData* data) {
             nullptr
         };
 
-        data->vbo = resourceContext->CreateBuffer(&buffer_info, nullptr, copies.size(), copies.data(), uint32_t(memory_type::HOST_VISIBLE_AND_COHERENT), nullptr);
+        data->vbo = resourceContext->CreateBuffer(&buffer_info, nullptr, copies.size(), copies.data(), memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
 
     }
     else {
@@ -599,7 +601,7 @@ void ImGuiWrapper::updateBuffers(ImGuiFrameData* data) {
             nullptr
         };
 
-        data->ebo = resourceContext->CreateBuffer(&buffer_info, nullptr, copies.size(), copies.data(), uint32_t(memory_type::HOST_VISIBLE_AND_COHERENT), nullptr);
+        data->ebo = resourceContext->CreateBuffer(&buffer_info, nullptr, copies.size(), copies.data(), memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
 
     }
     else {

@@ -9,11 +9,9 @@
 #include <vector>
 #include "vpr/GraphicsPipeline.hpp"
 
-struct RendererContext_API;
-struct ResourceContext_API;
-struct RendererContext;
-class RendererCore;
 struct VulkanResource;
+class RenderingContext;
+class ResourceContext;
 
 
 class ImGuiWrapper {
@@ -24,7 +22,7 @@ class ImGuiWrapper {
 public:
 
     static ImGuiWrapper& GetImGuiWrapper();
-    void Construct(RendererContext_API* renderer_api, ResourceContext_API* resource_api, VkRenderPass renderpass);
+    void Construct(VkRenderPass renderpass);
     void Destroy();
     void NewFrame();
     void EndImGuiFrame();
@@ -63,8 +61,8 @@ private:
     static float mouseWheel;
     std::array<bool, 3> mouseClick;
     const vpr::Device* device;
-    RendererContext_API* rendererContext;
-    ResourceContext_API* resourceContext;
+    RenderingContext* rendererContext;
+    ResourceContext* resourceContext;
 
     VulkanResource* fontSampler;
     VulkanResource* fontImage;
