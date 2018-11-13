@@ -1,15 +1,16 @@
 #include "ImGuiWrapper.hpp"
-#include "vpr/ShaderModule.hpp"
-#include "vpr/PipelineCache.hpp"
-#include "vpr/PipelineLayout.hpp"
-#include "vpr/DescriptorSet.hpp"
-#include "vpr/DescriptorSetLayout.hpp"
-#include "vpr/DescriptorPool.hpp"
-#include "vpr/Renderpass.hpp"
-#include "vpr/LogicalDevice.hpp"
-#include "vpr/PhysicalDevice.hpp"
-#include "vpr/CreateInfoBase.hpp"
-#include "vpr/Swapchain.hpp"
+#include "ShaderModule.hpp"
+#include "PipelineCache.hpp"
+#include "PipelineLayout.hpp"
+#include "DescriptorSet.hpp"
+#include "DescriptorSetLayout.hpp"
+#include "DescriptorPool.hpp"
+#include "Renderpass.hpp"
+#include "LogicalDevice.hpp"
+#include "PhysicalDevice.hpp"
+#include "CreateInfoBase.hpp"
+#include "Swapchain.hpp"
+#include "GraphicsPipeline.hpp"
 #include "RenderingContext.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceTypes.hpp"
@@ -372,7 +373,7 @@ void ImGuiWrapper::createResources() {
 void ImGuiWrapper::loadFontData() {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->AddFontDefault();
-    io.Fonts->GetTexDataAsRGBA32(&fontTextureData, &imgWidth, &imgHeight);
+    io.Fonts->GetTexDataAsAlpha8(&fontTextureData, &imgWidth, &imgHeight);
 }
 
 void ImGuiWrapper::createFontImage() {
@@ -382,7 +383,7 @@ void ImGuiWrapper::createFontImage() {
         nullptr,
         0,
         VK_IMAGE_TYPE_2D,
-        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_FORMAT_R8_UNORM,
         VkExtent3D{ static_cast<uint32_t>(imgWidth), static_cast<uint32_t>(imgHeight), 1 },
         1,
         1,
@@ -401,14 +402,14 @@ void ImGuiWrapper::createFontImage() {
         0,
         VK_NULL_HANDLE,
         VK_IMAGE_VIEW_TYPE_2D,
-        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_FORMAT_R8_UNORM,
         VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
         VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
     };
 
     const gpu_image_resource_data_t image_data{
         fontTextureData,
-        sizeof(uint8_t) * imgWidth * imgHeight * 4,
+        sizeof(uint8_t) * imgWidth * imgHeight,
         uint32_t(imgWidth),
         uint32_t(imgHeight),
         0,

@@ -4,15 +4,14 @@
 #include "ForwardDecl.hpp"
 #include "imgui/imgui.h"
 #include "GLFW/glfw3.h"
+#include "vulkan/vulkan.h"
 #include <array>
 #include <chrono>
 #include <vector>
-#include "vpr/GraphicsPipeline.hpp"
 
 struct VulkanResource;
 class RenderingContext;
 class ResourceContext;
-
 
 class ImGuiWrapper {
     ImGuiWrapper(const ImGuiWrapper&) = delete;
@@ -54,7 +53,6 @@ private:
     void createShaders();
     void createCache();
     void createGraphicsPipeline(const VkRenderPass renderpass);
-    void updateImguiSpecialKeys() noexcept;
     void freeMouse(GLFWwindow* instance);
     void captureMouse(GLFWwindow* instance);
 
