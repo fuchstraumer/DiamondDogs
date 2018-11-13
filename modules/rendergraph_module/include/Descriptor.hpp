@@ -22,6 +22,7 @@ public:
     void AddLayoutBinding(size_t idx, VkDescriptorType type);
     void AddLayoutBinding(const VkDescriptorSetLayoutBinding& binding);
     void BindResourceToIdx(size_t idx, VulkanResource * rsrc);
+    void BindCombinedImageSampler(size_t idx, VulkanResource* img, VulkanResource* sampler);
 
     VkDescriptorSet Handle() const noexcept;
     VkDescriptorSetLayout SetLayout() const;
@@ -43,6 +44,7 @@ private:
     void addBufferDescriptor(const size_t idx, VulkanResource* rsrc);
     void addSamplerDescriptor(const size_t idx, VulkanResource* rsrc);
     void addImageDescriptor(const size_t idx, VulkanResource* rsrc);
+    void addCombinedImageSamplerDescriptor(const size_t idx, VulkanResource * img, VulkanResource * sampler);
     void addRawEntry(const size_t idx, rawDataEntry&& entry);
     void addUpdateEntry(const size_t idx, VkDescriptorUpdateTemplateEntry&& entry);
     void createUpdateTemplate() const;

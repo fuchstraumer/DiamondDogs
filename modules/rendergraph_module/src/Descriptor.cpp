@@ -8,6 +8,21 @@
 #include "vkAssert.hpp"
 #include <cassert>
 
+static VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags) {
+    if (usage_flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) {
+        return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+    else if (usage_flags & VK_IMAGE_USAGE_SAMPLED_BIT) {
+        return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    }
+    else if (usage_flags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    }
+    else {
+        return VK_IMAGE_LAYOUT_GENERAL;
+    }
+}
+
 Descriptor::Descriptor(std::string _name, vpr::DescriptorPool* _pool) : name(std::move(_name)), pool(_pool) {
     auto& ctxt = RenderingContext::Get();
     descriptorSetLayout = std::make_unique<vpr::DescriptorSetLayout>(ctxt.Device()->vkHandle());
@@ -37,10 +52,34 @@ void Descriptor::BindResourceToIdx(size_t idx, VulkanResource* rsrc) {
     if (!dirty) {
         dirty = true;
     }
-    
-    assert(idx < resourceBindings.size());
-    updateDescriptorBinding(idx, rsrc);
+
+    // no resource bound at that index yet
+    if (descriptorTypeMap.count(idx) == 0) {
+        // make sure we do have the ability to bind here, though (entry is zero if not added to layout binding)
+        addDescriptorBinding(idx, rsrc);
+    }
+    else {
+        assert(idx < resourceBindings.size());
+        updateDescriptorBinding(idx, rsrc);
+    }
    
+}
+
+void Descriptor::BindCombinedImageSampler(size_t idx, VulkanResource * img, VulkanResource * sampler) {
+    if (!dirty) {
+        dirty = true;
+    }
+
+    assert(descriptorTypeMap.at(idx) == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+
+    if (descriptorTypeMap.count(idx) == 0) {
+        addCombinedImageSamplerDescriptor(idx, img, sampler);
+    }
+    else {
+        auto& raw_entry = rawEntries[idx];
+        raw_entry.ImageInfo.imageView = (VkImageView)img->ViewHandle;
+        raw_entry.ImageInfo.sampler = (VkSampler)sampler->Handle;
+    }
 }
 
 VkDescriptorSet Descriptor::Handle() const noexcept {
@@ -85,7 +124,7 @@ void Descriptor::updateDescriptorBinding(const size_t idx, VulkanResource * rsrc
 
 void Descriptor::updateBufferDescriptor(const size_t idx, VulkanResource* rsrc) {
 
-    auto& raw_entry = rawEntries.at(idx);
+    auto& raw_entry = rawEntries[idx];
     if (rsrc->ViewHandle != VK_NULL_HANDLE) {
         raw_entry.BufferView = (VkBufferView)rsrc->ViewHandle;
     }
@@ -97,7 +136,7 @@ void Descriptor::updateBufferDescriptor(const size_t idx, VulkanResource* rsrc) 
 
 void Descriptor::updateImageDescriptor(const size_t idx, VulkanResource* rsrc) {
 
-    auto& raw_entry = rawEntries.at(idx);
+    auto& raw_entry = rawEntries[idx];
     raw_entry.ImageInfo.imageView = (VkImageView)rsrc->ViewHandle;
 
 }
@@ -162,31 +201,49 @@ void Descriptor::addSamplerDescriptor(const size_t idx, VulkanResource* rsrc) {
 }
 
 void Descriptor::addImageDescriptor(const size_t idx, VulkanResource* rsrc) {
-    VkDescriptorImageInfo image_info{
-            VK_NULL_HANDLE,
-            (VkImageView)rsrc->ViewHandle,
-            VK_IMAGE_LAYOUT_UNDEFINED
-    };
-
-    const VkDescriptorType& type = descriptorTypeMap.at(idx);
-
-    if (type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-        VulkanResource* sampler = reinterpret_cast<VulkanResource*>(rsrc->UserData);
-        image_info.sampler = (VkSampler)sampler->Handle;
-    }
+    const VkImageCreateInfo* img_create_info = reinterpret_cast<VkImageCreateInfo*>(rsrc->Info);
 
     rawDataEntry entry;
-    entry.ImageInfo = image_info;
+    entry.ImageInfo =
+    VkDescriptorImageInfo{
+        VK_NULL_HANDLE,
+        (VkImageView)rsrc->ViewHandle,
+        imageLayoutFromUsage(img_create_info->usage)
+    };
     addRawEntry(idx, std::move(entry));
 
     addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{
         idx,
         0,
         1, 
-        type,
+        descriptorTypeMap.at(idx),
         sizeof(rawDataEntry) * rawEntries.size(),
         0
     });
+
+}
+
+void Descriptor::addCombinedImageSamplerDescriptor(const size_t idx, VulkanResource* img, VulkanResource* sampler) {
+    const VkImageCreateInfo* img_create_info = reinterpret_cast<VkImageCreateInfo*>(img->Info);
+
+    rawDataEntry entry;
+    entry.ImageInfo = 
+    VkDescriptorImageInfo{
+        (VkSampler)sampler->Handle,
+        (VkImageView)img->ViewHandle,
+        imageLayoutFromUsage(img_create_info->usage)
+    };
+    addRawEntry(idx, std::move(entry));
+
+    addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{
+        idx,
+        0,
+        1,
+        descriptorTypeMap.at(idx),
+        sizeof(rawDataEntry) * rawEntries.size(),
+        0
+    });
+
 }
 
 void Descriptor::addRawEntry(const size_t idx, rawDataEntry&& entry) {
