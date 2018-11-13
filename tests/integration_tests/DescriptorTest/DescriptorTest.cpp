@@ -56,6 +56,66 @@ struct skybox_mesh_data_t {
     std::vector<uint32_t> indices;
 };
 
+DescriptorTest::DescriptorTest() {}
+
+DescriptorTest::~DescriptorTest() {
+    Destroy();
+}
+
+DescriptorTest& DescriptorTest::Get() {
+    static DescriptorTest dsc;
+    return dsc;
+}
+
+void DescriptorTest::Construct(RequiredVprObjects objects, void * user_data) {
+    vprObjects = objects;
+    resourceContext = reinterpret_cast<ResourceContext*>(user_data);
+    houseUboData.view = glm::lookAt(glm::vec3(-2.0f, -2.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    skyboxUboData.view = glm::mat3(houseUboData.view);
+    skyboxUboData.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(objects.swapchain->Extent().width), static_cast<float>(objects.swapchain->Extent().height), 0.1f, 1000.0f);
+    skyboxUboData.projection[1][1] *= -1.0f;
+    skyboxUboData.model = glm::mat4(1.0f);
+    createSemaphores();
+    createSampler();
+    createUBO();
+    update();
+    createFences();
+    createCommandPool();
+    createSkyboxMesh();
+    createDescriptorPool();
+    createShaders();
+    createDescriptor();
+    createPipelineLayout();
+    createDepthStencil();
+    createRenderpass();
+    createFramebuffers();
+    createPipeline();
+}
+
+void DescriptorTest::Destroy() {
+    resourceContext->DestroyResource(sampler);
+    resourceContext->DestroyResource(skyboxEBO);
+    resourceContext->DestroyResource(skyboxVBO);
+    resourceContext->DestroyResource(skyboxUBO);
+    resourceContext->DestroyResource(skyboxTexture0);
+    resourceContext->DestroyResource(skyboxTexture1);
+    descriptor.reset();
+    pipelineLayout.reset();
+    vert.reset();
+    frag.reset();
+    imageAcquireSemaphore.reset();
+    renderCompleteSemaphore.reset();
+    destroyFences();
+    destroyFramebuffers();
+    vkDestroyRenderPass(vprObjects.device->vkHandle(), renderPass, nullptr);
+    vkFreeMemory(vprObjects.device->vkHandle(), depthStencil.Memory, nullptr);
+    vkDestroyImageView(vprObjects.device->vkHandle(), depthStencil.View, nullptr);
+    vkDestroyImage(vprObjects.device->vkHandle(), depthStencil.Image, nullptr);
+    texture0Ready = false;
+    texture1Ready = false;
+    texture0Bound = false;
+}
+
 void* DescriptorTest::LoadCompressedTexture(const char * fname, void * user_data) {
     return new gli::texture_cube(gli::load(fname));
 }
@@ -143,7 +203,7 @@ VulkanResource* DescriptorTest::createSkyboxTexture(void* texture_data){
                 static_cast<uint32_t>(i),
                 uint32_t(1),
                 static_cast<uint32_t>(j)
-                });
+            });
         }
     }
 
