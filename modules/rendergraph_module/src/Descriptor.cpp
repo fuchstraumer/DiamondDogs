@@ -15,9 +15,6 @@ static VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags) {
     else if (usage_flags & VK_IMAGE_USAGE_SAMPLED_BIT) {
         return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     }
-    else if (usage_flags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
-        return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    }
     else {
         return VK_IMAGE_LAYOUT_GENERAL;
     }
