@@ -27,7 +27,8 @@ public:
     static void* LoadCompressedTexture(const char* fname, void* user_data = nullptr);
     static void DestroyCompressedTexture(void* texture);
 
-    void CreateSkyboxTexture(void* texture_data);
+    void CreateSkyboxTexture0(void* texture_data);
+    void CreateSkyboxTexture1(void* texture_data);
 
     void ChangeTexture();
 
@@ -41,9 +42,10 @@ public:
 
 private:
 
+    VulkanResource* createSkyboxTexture(void* texture_data);
+
     void update() final;
     void recordCommands() final;
-    void renderHouse(VkCommandBuffer cmd);
     void renderSkybox(VkCommandBuffer cmd);
     void draw() final;
     void endFrame() final;
@@ -88,8 +90,9 @@ private:
     std::vector<VkFramebuffer> framebuffers;
     uint32_t skyboxIndexCount{ 0 };
 
-    std::atomic<bool> skyboxTextureReady{ false };
-
+    std::atomic<bool> texture0Ready{ false };
+    std::atomic<bool> texture1Ready{ false };
+    std::atomic<bool> texture0Bound{ false };
 };
 
 #endif // !DESCRIPTOR_TEST_HPP
