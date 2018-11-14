@@ -41,7 +41,7 @@ static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32
 
 static void KeyCallback(int key, int scancode, int action, int mods) {
     auto& scene = DescriptorTest::Get();
-    if (key == GLFW_KEY_V) {
+    if (key == GLFW_KEY_V && action == GLFW_PRESS) {
         scene.ChangeTexture();
     }
 }
