@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vulkan/vulkan.h>
 #include <string_view>
 
@@ -64,6 +65,7 @@ private:
     std::vector<VkDescriptorUpdateTemplateEntry> updateEntries;
     std::unordered_map<VulkanResource*, size_t> resourceBindings;
     std::unordered_map<size_t, VkDescriptorType> descriptorTypeMap;
+    std::unordered_set<size_t> createdBindings;
 
 
 };

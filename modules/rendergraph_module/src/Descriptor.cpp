@@ -51,12 +51,11 @@ void Descriptor::BindResourceToIdx(size_t idx, VulkanResource* rsrc) {
     }
 
     // no resource bound at that index yet
-    if (descriptorTypeMap.count(idx) == 0) {
+    if (createdBindings.count(idx) == 0) {
         // make sure we do have the ability to bind here, though (entry is zero if not added to layout binding)
         addDescriptorBinding(idx, rsrc);
     }
     else {
-        assert(idx < resourceBindings.size());
         updateDescriptorBinding(idx, rsrc);
     }
    
@@ -69,7 +68,7 @@ void Descriptor::BindCombinedImageSampler(size_t idx, VulkanResource * img, Vulk
 
     assert(descriptorTypeMap.at(idx) == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 
-    if (descriptorTypeMap.count(idx) == 0) {
+    if (createdBindings.count(idx) == 0) {
         addCombinedImageSamplerDescriptor(idx, img, sampler);
     }
     else {
@@ -140,7 +139,6 @@ void Descriptor::updateImageDescriptor(const size_t idx, VulkanResource* rsrc) {
 
 void Descriptor::addDescriptorBinding(const size_t idx, VulkanResource* rsrc) {
 
-
     switch (rsrc->Type) {
     case resource_type::BUFFER:
         addBufferDescriptor(idx, rsrc);
@@ -155,6 +153,7 @@ void Descriptor::addDescriptorBinding(const size_t idx, VulkanResource* rsrc) {
         throw std::domain_error("Invalid resource type when trying to add descriptor binding to Descriptor.");
     };
 
+    createdBindings.emplace(idx);
 }
 
 void Descriptor::addBufferDescriptor(const size_t idx, VulkanResource* rsrc) {
@@ -241,6 +240,7 @@ void Descriptor::addCombinedImageSamplerDescriptor(const size_t idx, VulkanResou
         0
     });
 
+    createdBindings.emplace(idx);
 }
 
 void Descriptor::addRawEntry(const size_t idx, rawDataEntry&& entry) {
