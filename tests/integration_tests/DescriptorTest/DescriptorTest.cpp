@@ -452,7 +452,7 @@ static VkImageCreateInfo dummy_img_info{
     1,
     VK_SAMPLE_COUNT_1_BIT,
     VK_IMAGE_TILING_LINEAR,
-    0,
+    VK_IMAGE_USAGE_SAMPLED_BIT,
     VK_SHARING_MODE_EXCLUSIVE,
     0,
     nullptr,
