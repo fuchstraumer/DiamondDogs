@@ -23,6 +23,7 @@ static VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags) {
 Descriptor::Descriptor(std::string _name, vpr::DescriptorPool* _pool) : name(std::move(_name)), pool(_pool) {
     auto& ctxt = RenderingContext::Get();
     descriptorSetLayout = std::make_unique<vpr::DescriptorSetLayout>(ctxt.Device()->vkHandle());
+    device = ctxt.Device();
 }
 
 Descriptor::~Descriptor() {
@@ -174,11 +175,11 @@ void Descriptor::addBufferDescriptor(const size_t idx, VulkanResource* rsrc) {
     }
 
     addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{ 
-        idx,
+        uint32_t(idx),
         0,
         1,
         type,
-        sizeof(rawDataEntry) * rawEntries.size(),
+        sizeof(rawDataEntry) * idx,
         0 // size not required for single-descriptor entries
     });
 
@@ -187,11 +188,11 @@ void Descriptor::addBufferDescriptor(const size_t idx, VulkanResource* rsrc) {
 void Descriptor::addSamplerDescriptor(const size_t idx, VulkanResource* rsrc) {
     addRawEntry(idx, rawDataEntry{});
     addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{
-        idx,
+        uint32_t(idx),
         0,
         1,
         VK_DESCRIPTOR_TYPE_SAMPLER,
-        sizeof(rawDataEntry) * rawEntries.size(),
+        sizeof(rawDataEntry) * idx,
         0
     });
 }
@@ -209,11 +210,11 @@ void Descriptor::addImageDescriptor(const size_t idx, VulkanResource* rsrc) {
     addRawEntry(idx, std::move(entry));
 
     addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{
-        idx,
+        uint32_t(idx),
         0,
         1, 
         descriptorTypeMap.at(idx),
-        sizeof(rawDataEntry) * rawEntries.size(),
+        sizeof(rawDataEntry) * idx,
         0
     });
 
@@ -232,11 +233,11 @@ void Descriptor::addCombinedImageSamplerDescriptor(const size_t idx, VulkanResou
     addRawEntry(idx, std::move(entry));
 
     addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{
-        idx,
+        uint32_t(idx),
         0,
         1,
         descriptorTypeMap.at(idx),
-        sizeof(rawDataEntry) * rawEntries.size(),
+        sizeof(rawDataEntry) * idx,
         0
     });
 
@@ -244,14 +245,14 @@ void Descriptor::addCombinedImageSamplerDescriptor(const size_t idx, VulkanResou
 }
 
 void Descriptor::addRawEntry(const size_t idx, rawDataEntry&& entry) {
-    if (idx > rawEntries.size() - 1) {
+    if (rawEntries.empty() || idx > rawEntries.size() - 1) {
         rawEntries.resize(idx + 1);
     }
     rawEntries[idx] = std::forward<rawDataEntry>(entry);
 }
 
 void Descriptor::addUpdateEntry(const size_t idx, VkDescriptorUpdateTemplateEntry&& entry) {
-    if (idx > updateEntries.size() - 1) {
+    if (updateEntries.empty() || idx > updateEntries.size() - 1) {
         updateEntries.resize(idx + 1);
     }
     updateEntries[idx] = std::forward<VkDescriptorUpdateTemplateEntry>(entry);
