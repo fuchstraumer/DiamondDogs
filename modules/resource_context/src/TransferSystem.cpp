@@ -20,7 +20,6 @@ VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device) {
 }
 
 UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(size_t buffer_sz) {
-    auto guard = AcquireSpinLock();
     uploadBuffers.emplace_back(std::make_unique<UploadBuffer>(device, allocator, buffer_sz));
     return uploadBuffers.back().get();
 }
