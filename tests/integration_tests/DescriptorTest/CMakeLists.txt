@@ -7,8 +7,6 @@ ADD_INTEGRATION_TEST(DescriptorTest
     "../fixtures/VulkanScene.cpp"
     "../fixtures/CommonCreationFunctions.hpp"
     "../fixtures/CommonCreationFunctions.cpp"
-    "../fixtures/ImGuiWrapper.hpp"
-    "../fixtures/ImGuiWrapper.cpp"
 )
 
 TARGET_LINK_LIBRARIES(DescriptorTest PRIVATE rendering_context rendergraph_module resource_context vpr_resource vpr_alloc vpr_core vpr_sync ${Vulkan_LIBRARY} glfw)

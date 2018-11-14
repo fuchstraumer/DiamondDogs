@@ -70,8 +70,7 @@ DescriptorTest& DescriptorTest::Get() {
 void DescriptorTest::Construct(RequiredVprObjects objects, void * user_data) {
     vprObjects = objects;
     resourceContext = reinterpret_cast<ResourceContext*>(user_data);
-    houseUboData.view = glm::lookAt(glm::vec3(-2.0f, -2.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    skyboxUboData.view = glm::mat3(houseUboData.view);
+    skyboxUboData.view = glm::mat3(glm::lookAt(glm::vec3(-2.0f, -2.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f)));
     skyboxUboData.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(objects.swapchain->Extent().width), static_cast<float>(objects.swapchain->Extent().height), 0.1f, 1000.0f);
     skyboxUboData.projection[1][1] *= -1.0f;
     skyboxUboData.model = glm::mat4(1.0f);

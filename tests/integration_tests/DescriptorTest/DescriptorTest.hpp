@@ -37,7 +37,6 @@ public:
         glm::mat4 view;
         glm::mat4 projection;
     };
-    ubo_data_t houseUboData;
     ubo_data_t skyboxUboData;
 
 private:
