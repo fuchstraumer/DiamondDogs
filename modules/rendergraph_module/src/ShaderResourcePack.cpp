@@ -63,7 +63,7 @@ std::vector<VkDescriptorSet> ShaderResourcePack::ShaderGroupSets(const std::stri
 void ShaderResourcePack::BindGroupSets(VkCommandBuffer cmd, const std::string& shader_group_name, const VkPipelineBindPoint bind_point) const {
     std::vector<VkDescriptorSet> sets_to_bind = ShaderGroupSets(shader_group_name);
     const size_t idx = shaderGroupNameIdxMap.at(shader_group_name);
-    vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayouts[idx]->vkHandle(), 0, sets_to_bind.size(), sets_to_bind.data(), 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayouts[idx]->vkHandle(), 0u, static_cast<uint32_t>(sets_to_bind.size()), sets_to_bind.data(), 0u, nullptr);
 }
 
 VulkanResource* ShaderResourcePack::At(const std::string& group_name, const std::string& name) {
