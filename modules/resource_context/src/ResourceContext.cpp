@@ -158,13 +158,6 @@ VulkanResource* ResourceContext::CreateBuffer(const VkBufferCreateInfo* info, co
     return resource;
 }
 
-VulkanResource* ResourceContext::CreateNamedBuffer(const char* name, const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const memory_type _memory_type, void* user_data) {
-    VulkanResource* result = CreateBuffer(info, view_info, num_data, initial_data, _memory_type, user_data);
-    auto iter = resourceNames.emplace(result, std::string(name));
-    result->Name = iter.first->second.c_str();
-    return result;
-}
-
 void ResourceContext::SetBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data) {
     memory_type mem_type = resourceInfos.resourceMemoryType.at(dest_buffer);
     if ((mem_type == memory_type::HOST_VISIBLE) || (mem_type == memory_type::HOST_VISIBLE_AND_COHERENT)) {
@@ -237,13 +230,6 @@ VulkanResource* ResourceContext::CreateImage(const VkImageCreateInfo* info, cons
     return resource;
 }
 
-VulkanResource* ResourceContext::CreateNamedImage(const char* name, const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const memory_type _memory_type, void* user_data) {
-    VulkanResource* resource = CreateImage(info, view_info, num_data, initial_data, _memory_type, user_data);
-    auto iter = resourceNames.emplace(resource, std::string(name));
-    resource->Name = iter.first->second.c_str();
-    return resource;
-}
-
 VulkanResource * ResourceContext::CreateImageView(const VulkanResource * base_rsrc, const VkImageViewCreateInfo * view_info, void * user_data) {
     auto iter = std::find_if(std::cbegin(resources), std::cend(resources), [base_rsrc](const std::unique_ptr<VulkanResource>& rsrc) {
         return base_rsrc == rsrc.get();
@@ -282,7 +268,7 @@ void ResourceContext::SetImageData(VulkanResource* image, const size_t num_data,
 VulkanResource* ResourceContext::CreateSampler(const VkSamplerCreateInfo* info, void* user_data) {
     VulkanResource* resource = nullptr; 
     {
-        std::lock_guard<std::mutex> empalceGuard(containerMutex);
+        std::lock_guard<std::mutex> emplaceGuard(containerMutex);
         auto iter = resources.emplace(std::make_unique<VulkanResource>());
         resource = iter.first->get();
     }
@@ -295,6 +281,14 @@ VulkanResource* ResourceContext::CreateSampler(const VkSamplerCreateInfo* info, 
     VkResult result = vkCreateSampler(device->vkHandle(), info, nullptr, reinterpret_cast<VkSampler*>(&resource->Handle));
     VkAssert(result);
 
+    return resource;
+}
+
+VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateInfo * info, const VkImageViewCreateInfo * view_info, const VkSamplerCreateInfo * sampler_info, 
+    const size_t num_data, const gpu_image_resource_data_t * initial_data, const memory_type _memory_type, void * user_data) {
+    VulkanResource* resource = CreateImage(info, view_info, num_data, initial_data, _memory_type, user_data);
+    resource->Type = resource_type::COMBINED_IMAGE_SAMPLER;
+    resource->Sampler = CreateSampler(sampler_info);
     return resource;
 }
 
@@ -546,6 +540,10 @@ void ResourceContext::destroyResource(resource_iter_t iter) {
         break;
     case resource_type::SAMPLER:
         destroySampler(iter);
+        break;
+    case resource_type::COMBINED_IMAGE_SAMPLER:
+        DestroyResource(iter->get()->Sampler);
+        destroyImage(iter);
         break;
     case resource_type::INVALID:
         [[fallthrough]];

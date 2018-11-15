@@ -26,17 +26,16 @@ public:
     void Construct(vpr::Device* device, vpr::PhysicalDevice* physical_device);
 
     VulkanResource* CreateBuffer(const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const memory_type _memory_type, void* user_data = nullptr);
-    VulkanResource* CreateNamedBuffer(const char* name, const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const memory_type _memory_type, void* user_data = nullptr);
     void SetBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data);
     void FillBuffer(VulkanResource* dest_buffer, const uint32_t value, const size_t offset, const size_t fill_size);
     VulkanResource* CreateImage(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const memory_type _memory_type, void* user_data = nullptr);
-    VulkanResource* CreateNamedImage(const char* name, const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const memory_type _memory_type, void* user_data = nullptr);
     VulkanResource* CreateImageView(const VulkanResource* base_rsrc, const VkImageViewCreateInfo* view_info, void* user_data = nullptr);
     void SetImageData(VulkanResource* image, const size_t num_data, const gpu_image_resource_data_t* data);
     VulkanResource* CreateSampler(const VkSamplerCreateInfo* info, void* user_data = nullptr);
+    VulkanResource* CreateCombinedImageSampler(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const VkSamplerCreateInfo* sampler_info, 
+        const size_t num_data, const gpu_image_resource_data_t* initial_data, const memory_type _memory_type, void* user_data = nullptr);
     VulkanResource* CreateResourceCopy(VulkanResource* src);
     void CopyResource(VulkanResource* src, VulkanResource** dest);
-    VulkanResource* CreateEmptyResource();
     void DestroyResource(VulkanResource* resource);
 
     void* MapResourceMemory(VulkanResource* resource, size_t size = 0, size_t offset = 0);

@@ -2,13 +2,13 @@
 #ifndef DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #include <cstdint>
-#include <vulkan/vulkan.h>
 
-enum class resource_type : uint32_t {
+enum class resource_type : uint64_t {
     INVALID = 0,
     BUFFER = 1,
     IMAGE = 2,
-    SAMPLER = 3
+    SAMPLER = 3,
+    COMBINED_IMAGE_SAMPLER = 4
 };
 
 enum class memory_type : uint32_t {
@@ -39,12 +39,12 @@ struct gpu_image_resource_data_t {
 
 struct VulkanResource {
     resource_type Type{ resource_type::INVALID };
-    uint64_t Handle{ VK_NULL_HANDLE };
+    uint64_t Handle{ 0u };
     void* Info{ nullptr };
-    uint64_t ViewHandle{ VK_NULL_HANDLE };
+    uint64_t ViewHandle{ 0u };
     void* ViewInfo{ nullptr };
-    const char* Name{ nullptr };
-    void* UserData;
+    void* UserData{ nullptr };
+    VulkanResource* Sampler{ nullptr };
 };
 
 #endif //!DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
