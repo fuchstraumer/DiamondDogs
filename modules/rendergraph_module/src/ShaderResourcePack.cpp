@@ -81,6 +81,10 @@ VulkanResource* ShaderResourcePack::Find(const std::string& group_name, const st
     }
 }
 
+size_t ShaderResourcePack::BindingLocation(const std::string & name) const noexcept {
+    return resourceBindingLocations.at(name);
+}
+
 void ShaderResourcePack::createDescriptorPool() {
     auto& renderer = RenderingContext::Get();
     descriptorPool = std::make_unique<vpr::DescriptorPool>(renderer.Device()->vkHandle(), rsrcGroupToIdxMap.size());
@@ -283,7 +287,7 @@ void ShaderResourcePack::createSampledImage(const st::ShaderResource* rsrc) {
     }
     const VulkanResource* created = emplaced.first->second;
     resourceTypesMap.emplace(created, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
-    resourceBindingLocations.emplace(emplaced.first->second, rsrc->BindingIndex());
+    resourceBindingLocations.emplace(rsrc->Name(), rsrc->BindingIndex());
     
 }
 
@@ -297,7 +301,7 @@ void ShaderResourcePack::createTexelBuffer(const st::ShaderResource* texel_buffe
     auto emplaced = group.emplace(texel_buffer->Name(), rsrc_context.CreateBuffer(&buffer_info, view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
     VkDescriptorType texel_subtype = storage ? VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
     resourceTypesMap.emplace(emplaced.first->second, texel_subtype);
-    resourceBindingLocations.emplace(emplaced.first->second, texel_buffer->BindingIndex());
+    resourceBindingLocations.emplace(texel_buffer->Name(), texel_buffer->BindingIndex());
 }
 
 void ShaderResourcePack::createUniformBuffer(const st::ShaderResource* uniform_buffer) {
@@ -308,7 +312,7 @@ void ShaderResourcePack::createUniformBuffer(const st::ShaderResource* uniform_b
     auto& rsrc_context = ResourceContext::Get();
     auto emplaced = group.emplace(uniform_buffer->Name(), rsrc_context.CreateBuffer(&buffer_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE_AND_COHERENT, nullptr));
     resourceTypesMap.emplace(emplaced.first->second, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    resourceBindingLocations.emplace(emplaced.first->second, uniform_buffer->BindingIndex());
+    resourceBindingLocations.emplace(uniform_buffer->Name(), uniform_buffer->BindingIndex());
 }
 
 void ShaderResourcePack::createStorageBuffer(const st::ShaderResource* storage_buffer) {
@@ -319,7 +323,7 @@ void ShaderResourcePack::createStorageBuffer(const st::ShaderResource* storage_b
     auto& rsrc_context = ResourceContext::Get();
     auto emplaced = group.emplace(storage_buffer->Name(), rsrc_context.CreateBuffer(&buffer_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
     resourceTypesMap.emplace(emplaced.first->second, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    resourceBindingLocations.emplace(emplaced.first->second, storage_buffer->BindingIndex());
+    resourceBindingLocations.emplace(storage_buffer->Name(), storage_buffer->BindingIndex());
 }
 
 void ShaderResourcePack::createCombinedImageSampler(const st::ShaderResource* rsrc) {
@@ -338,8 +342,7 @@ void ShaderResourcePack::createCombinedImageSampler(const st::ShaderResource* rs
         throw std::runtime_error("Failed to create combined image sampler resource.");
     }
     resourceTypesMap.emplace(emplaced.first->second, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    resourceBindingLocations.emplace(emplaced.first->second, rsrc->BindingIndex());
-
+    resourceBindingLocations.emplace(rsrc->Name(), rsrc->BindingIndex());
 }
 
 void ShaderResourcePack::createSampler(const st::ShaderResource* rsrc) {
@@ -351,5 +354,5 @@ void ShaderResourcePack::createSampler(const st::ShaderResource* rsrc) {
         throw std::runtime_error("Failed to create sampler resource.");
     }
     resourceTypesMap.emplace(emplaced.first->second, VK_DESCRIPTOR_TYPE_SAMPLER);
-    resourceBindingLocations.emplace(emplaced.first->second, rsrc->BindingIndex());
+    resourceBindingLocations.emplace(rsrc->Name(), rsrc->BindingIndex());
 }

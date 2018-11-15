@@ -47,6 +47,7 @@ public:
 
     VulkanResource* At(const std::string& group_name, const std::string& name);
     VulkanResource* Find(const std::string& group_name, const std::string& name) noexcept;
+    size_t BindingLocation(const std::string& name) const noexcept;
     bool Has(const std::string& group_name, const std::string& name) const noexcept;
 
 private:
@@ -75,7 +76,7 @@ private:
     std::vector<std::unique_ptr<vpr::PipelineLayout>> pipelineLayouts;
     std::unordered_map<std::string, std::unordered_map<std::string, VulkanResource*>> resources;
     std::unordered_map<const VulkanResource*, VkDescriptorType> resourceTypesMap;
-    std::unordered_map<const VulkanResource*, size_t> resourceBindingLocations;
+    std::unordered_map<std::string, size_t> resourceBindingLocations;
     // array stores indices into descriptorSets used by each group
     std::unordered_map<std::string, size_t> shaderGroupNameIdxMap;
     std::vector<std::set<size_t>> groupResourceUsages;
