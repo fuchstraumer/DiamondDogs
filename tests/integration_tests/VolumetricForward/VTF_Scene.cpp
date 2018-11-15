@@ -14,6 +14,7 @@
 #include "PipelineCache.hpp"
 #include "LogicalDevice.hpp"
 #include "PhysicalDevice.hpp"
+#include "Descriptor.hpp"
 #include "Swapchain.hpp"
 #include "Instance.hpp"
 #include "VkDebugUtils.hpp"
@@ -97,23 +98,84 @@ void VTF_Scene::MergeSort(VkCommandBuffer cmd, VulkanResource* src_keys, VulkanR
     uint32_t total_values, uint32_t chunk_size) {
     SortParams params;
 
+    const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
     constexpr static uint32_t num_values_per_thread_group = SORT_NUM_THREADS_PER_THREAD_GROUP * SORT_ELEMENTS_PER_THREAD;
     uint32_t num_chunks = static_cast<uint32_t>(glm::ceil(total_values / static_cast<float>(chunk_size)));
     uint32_t pass = 0;
 
+    const size_t input_keys_loc = resourcePack->BindingLocation("InputKeys");
+    const size_t output_keys_loc = resourcePack->BindingLocation("OutputKeys");
+    const size_t input_values_loc = resourcePack->BindingLocation("InputValues");
+    const size_t output_values_loc = resourcePack->BindingLocation("OutputValues");
+
     while (num_chunks > 1) {
+
+        ++pass;
+
         params.NumElements = total_values;
         params.ChunkSize = chunk_size;
 
         uint32_t num_sort_groups = num_chunks / 2u;
-        uint32_t num_threads_per_sort_group = static_cast<uint32_t>(glm::ceil((chunk_size * 2) / static_cast<float>(num_values_per_thread_group)));
+        uint32_t num_thread_groups_per_sort_group = static_cast<uint32_t>(glm::ceil((chunk_size * 2) / static_cast<float>(num_values_per_thread_group)));
 
         {
             auto* rsrc = resourcePack->Find("MergeSort", "MergePathPartitions");
             // Clear buffer
             vkCmdFillBuffer(cmd, (VkBuffer)rsrc->Handle, 0, VK_WHOLE_SIZE, 0);
-            
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mergePathPartitionsPipeline->Handle);
+            resourcePack->BindGroupSets(cmd, "MergeSort", VK_PIPELINE_BIND_POINT_COMPUTE);
+            uint32_t num_merge_path_partitions_per_sort_group = num_thread_groups_per_sort_group + 1u;
+            uint32_t total_merge_path_partitions = num_merge_path_partitions_per_sort_group * num_sort_groups;
+            uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(float(total_merge_path_partitions) / float(SORT_NUM_THREADS_PER_THREAD_GROUP)));
+            vkCmdDispatch(cmd, num_thread_groups, 1, 1);
+            const VkBufferMemoryBarrier path_partitions_barrier{
+                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                nullptr,
+                VK_ACCESS_SHADER_WRITE_BIT,
+                VK_ACCESS_SHADER_READ_BIT,
+                compute_idx,
+                compute_idx,
+                (VkBuffer)rsrc->Handle,
+                0,
+                VK_WHOLE_SIZE
+            };
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &path_partitions_barrier, 0, nullptr);
         }
+
+        {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mergeSortPipeline->Handle);
+            uint32_t num_values_per_sort_group = glm::min(chunk_size * 2u, total_values);
+            num_thread_groups_per_sort_group = static_cast<uint32_t>(glm::ceil(float(num_values_per_sort_group) / float(num_values_per_thread_group)));
+            vkCmdDispatch(cmd, num_thread_groups_per_sort_group * num_sort_groups, 1, 1);
+        }
+
+        // ping-pong the buffers
+        VulkanResource* input_keys = resourcePack->Find("MergeSort", "InputKeys");
+        VulkanResource* output_keys = resourcePack->Find("MergeSort", "OutputKeys");
+        VulkanResource* input_vals = resourcePack->Find("MergeSort", "InputValues");
+        VulkanResource* output_vals = resourcePack->Find("MergeSort", "OutputValues");
+
+        Descriptor* descriptor = resourcePack->GetDescriptor("MergeSort");
+        descriptor->BindResourceToIdx(input_keys_loc, output_keys);
+        descriptor->BindResourceToIdx(output_keys_loc, input_keys);
+        descriptor->BindResourceToIdx(input_values_loc, output_vals);
+        descriptor->BindResourceToIdx(output_values_loc, input_vals);
+
+        chunk_size *= 2u;
+        num_chunks = static_cast<uint32_t>(glm::ceil(float(total_values) / float(chunk_size)));
+    }
+
+    if (pass % 2u == 0u) {
+        // if the pass count is odd then we have to copy the results into 
+        // where they should actually be
+        VulkanResource* input_keys = resourcePack->Find("MergeSort", "InputKeys");
+        VulkanResource* output_keys = resourcePack->Find("MergeSort", "OutputKeys");
+        VulkanResource* input_vals = resourcePack->Find("MergeSort", "InputValues");
+        VulkanResource* output_vals = resourcePack->Find("MergeSort", "OutputValues");
+
+        const VkBufferCopy copy{ 0, 0, VK_WHOLE_SIZE };
+        vkCmdCopyBuffer(cmd, (VkBuffer)output_keys->Handle, (VkBuffer)input_keys->Handle, 1, &copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)output_vals->Handle, (VkBuffer)input_vals->Handle, 1, &copy);
     }
 
 }
