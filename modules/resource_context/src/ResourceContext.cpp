@@ -408,10 +408,8 @@ void ResourceContext::setBufferInitialDataUploadBuffer(VulkanResource* resource,
     {
         auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
         auto cmd = transfer_system.TransferCmdBuffer();
-        // lock is taken internally to create buffer (spinlocks lock/release fast)
-        UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(p_info->size);
-        // now we need to lock externally too
         auto guard = transfer_system.AcquireSpinLock();
+        UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(p_info->size);
         std::vector<VkBufferCopy> buffer_copies(num_data);
         VkDeviceSize offset = 0;
         for (size_t i = 0; i < num_data; ++i) {
@@ -461,8 +459,8 @@ void ResourceContext::setImageInitialData(VulkanResource* resource, const size_t
 
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
     {
-        UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc.Size);
         auto guard = transfer_system.AcquireSpinLock();
+        UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc.Size);
         VkCommandBuffer cmd = transfer_system.TransferCmdBuffer();
         std::vector<VkBufferImageCopy> buffer_image_copies;
         size_t copy_offset = 0;

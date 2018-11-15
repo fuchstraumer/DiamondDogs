@@ -2,6 +2,7 @@
 #include "DescriptorPool.hpp"
 #include "DescriptorSet.hpp"
 #include "DescriptorSetLayout.hpp"
+#include "Descriptor.hpp"
 #include "core/ShaderPack.hpp"
 #include "RenderGraph.hpp"
 #include "RenderingContext.hpp"
@@ -23,26 +24,6 @@ ShaderResourcePack::ShaderResourcePack(RenderGraph* _graph, const st::ShaderPack
 
 ShaderResourcePack::~ShaderResourcePack() {}
 
-vpr::DescriptorSet* ShaderResourcePack::DescriptorSet(const char* group_name) noexcept {
-    auto iter = rsrcGroupToIdxMap.find(group_name);
-    if (iter != rsrcGroupToIdxMap.end()) {
-        return descriptorSets[rsrcGroupToIdxMap.at(group_name)].get();
-    }
-    else {
-        return nullptr;
-    }
-}
-
-const vpr::DescriptorSet* ShaderResourcePack::DescriptorSet(const char* group_name) const noexcept {
-    auto iter = rsrcGroupToIdxMap.find(group_name);
-    if (iter != rsrcGroupToIdxMap.cend()) {
-        return descriptorSets[rsrcGroupToIdxMap.at(group_name)].get();
-    }
-    else {
-        return nullptr;
-    }
-}
-
 vpr::DescriptorPool* ShaderResourcePack::DescriptorPool() noexcept {
     return descriptorPool.get();
 }
@@ -55,7 +36,7 @@ std::vector<VkDescriptorSet> ShaderResourcePack::ShaderGroupSets(const std::stri
     const auto& descriptor_indices = groupResourceUsages[shaderGroupNameIdxMap.at(shader_group_name)];
     std::vector<VkDescriptorSet> results;
     for (const size_t& idx : descriptor_indices) {
-        results.emplace_back(descriptorSets[idx]->vkHandle());
+        results.emplace_back(descriptorSets[idx]->descriptorSet);
     }
     return results;
 }
@@ -63,7 +44,7 @@ std::vector<VkDescriptorSet> ShaderResourcePack::ShaderGroupSets(const std::stri
 void ShaderResourcePack::BindGroupSets(VkCommandBuffer cmd, const std::string& shader_group_name, const VkPipelineBindPoint bind_point) const {
     std::vector<VkDescriptorSet> sets_to_bind = ShaderGroupSets(shader_group_name);
     const size_t idx = shaderGroupNameIdxMap.at(shader_group_name);
-    vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayouts[idx]->vkHandle(), 0, sets_to_bind.size(), sets_to_bind.data(), 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayouts[idx]->vkHandle(), 0u, static_cast<uint32_t>(sets_to_bind.size()), sets_to_bind.data(), 0u, nullptr);
 }
 
 VulkanResource* ShaderResourcePack::At(const std::string& group_name, const std::string& name) {
@@ -185,7 +166,7 @@ void ShaderResourcePack::createDescriptorSet(const std::string& name) {
     auto& set_resources = resources.at(name);
     const size_t idx = rsrcGroupToIdxMap.at(name);
 
-    descriptorSets[idx] = std::make_unique<vpr::DescriptorSet>(RenderingContext::Get().Device()->vkHandle());
+    descriptorSets[idx] = std::make_unique<Descriptor>(name, descriptorPool.get());
 
     auto add_image_type = [&](const VulkanResource* rsrc) {
         VkDescriptorImageInfo image_info{

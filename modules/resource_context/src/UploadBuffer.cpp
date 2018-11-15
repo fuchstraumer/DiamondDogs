@@ -15,7 +15,7 @@ constexpr static VkBufferCreateInfo staging_buffer_create_info{
 
 VkDeviceSize UploadBuffer::NonCoherentAtomSize = 0;
 
-UploadBuffer::UploadBuffer(const vpr::Device * _device, vpr::Allocator * allocator, VkDeviceSize sz) : device(_device) {
+UploadBuffer::UploadBuffer(const vpr::Device * _device, vpr::Allocator * allocator, VkDeviceSize sz) : device(_device), alloc{} {
     VkBufferCreateInfo create_info = staging_buffer_create_info;
     create_info.size = sz;
     VkResult result = vkCreateBuffer(device->vkHandle(), &create_info, nullptr, &Buffer);
@@ -25,13 +25,13 @@ UploadBuffer::UploadBuffer(const vpr::Device * _device, vpr::Allocator * allocat
     allocator->AllocateForBuffer(Buffer, alloc_reqs, vpr::AllocationType::Buffer, alloc);
 }
 
-UploadBuffer::UploadBuffer(UploadBuffer && other) noexcept : Buffer(std::move(other.Buffer)), alloc(other.alloc), device(other.device) {
+UploadBuffer::UploadBuffer(UploadBuffer && other) noexcept : Buffer(std::move(other.Buffer)), alloc(std::move(other.alloc)), device(other.device) {
     other.Buffer = VK_NULL_HANDLE;
 }
 
 UploadBuffer& UploadBuffer::operator=(UploadBuffer && other) noexcept {
     Buffer = std::move(other.Buffer);
-    alloc = other.alloc;
+    alloc = std::move(other.alloc);
     device = other.device;
     other.Buffer = VK_NULL_HANDLE;
     return *this;
