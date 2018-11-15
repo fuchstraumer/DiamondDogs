@@ -15,6 +15,7 @@ namespace st {
     class Shader;
 }
 
+class Descriptor;
 class RenderGraph;
 struct VulkanResource;
 class GeneratedPipeline;
@@ -38,8 +39,7 @@ public:
     ShaderResourcePack& operator=(ShaderResourcePack&& other) noexcept = default;
     ~ShaderResourcePack();
 
-    vpr::DescriptorSet* DescriptorSet(const char* rsrc_group_name) noexcept;
-    const vpr::DescriptorSet* DescriptorSet(const char* rsrc_group_name) const noexcept;
+    Descriptor* GetDescriptor(const std::string& name);
     vpr::DescriptorPool* DescriptorPool() noexcept;
     const vpr::DescriptorPool* DescriptorPool() const noexcept;
     std::vector<VkDescriptorSet> ShaderGroupSets(const std::string& name) const noexcept;
@@ -72,7 +72,7 @@ private:
     RenderGraph* graph;
     std::unique_ptr<vpr::DescriptorPool> descriptorPool;
     std::unordered_map<std::string, size_t> rsrcGroupToIdxMap;
-    std::vector<std::unique_ptr<vpr::DescriptorSet>> descriptorSets;
+    std::vector<std::unique_ptr<Descriptor>> descriptorSets;
     std::vector<std::unique_ptr<vpr::PipelineLayout>> pipelineLayouts;
     std::unordered_map<std::string, std::unordered_map<std::string, VulkanResource*>> resources;
     std::unordered_map<const VulkanResource*, VkDescriptorType> resourceTypesMap;
