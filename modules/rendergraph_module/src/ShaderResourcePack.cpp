@@ -100,12 +100,11 @@ void ShaderResourcePack::createDescriptorPool() {
 
 void ShaderResourcePack::createSets() {
 
-    setLayouts.resize(rsrcGroupToIdxMap.size());
     descriptorSets.resize(rsrcGroupToIdxMap.size());
-
     for (const auto& entry : rsrcGroupToIdxMap) {
         createSetResourcesAndLayout(entry.first);
     }
+
 }
 
 void ShaderResourcePack::createSetResourcesAndLayout(const std::string& name) {
@@ -115,9 +114,6 @@ void ShaderResourcePack::createSetResourcesAndLayout(const std::string& name) {
     resource_group->GetResourcePtrs(&num_resources, nullptr);
     std::vector<const st::ShaderResource*> resources(num_resources);
     resource_group->GetResourcePtrs(&num_resources, resources.data());
-
-    // Make set layout for all resources, even material
-    createSetLayout(resources, name);
 
     {
         auto tags = resource_group->GetTags();
@@ -133,94 +129,21 @@ void ShaderResourcePack::createSetResourcesAndLayout(const std::string& name) {
     }
 
     createResources(resources);
-    createDescriptorSet(name);
+    createDescriptor(name, resources);
 
 }
 
-void ShaderResourcePack::createSetLayout(const std::vector<const st::ShaderResource*>& resources, const std::string& name) {
-
-    constexpr static VkDescriptorSetLayoutBinding base_layout_binding{
-        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        VK_DESCRIPTOR_TYPE_MAX_ENUM,
-        0,
-        VK_SHADER_STAGE_ALL,
-        nullptr
-    };
-
-    std::vector<VkDescriptorSetLayoutBinding> bindings(resources.size(), base_layout_binding);
-
-    for (size_t i = 0; i < resources.size(); ++i) {
-        bindings[i].descriptorCount = 1u;
-        bindings[i].descriptorType = resources[i]->DescriptorType();
-        bindings[i].binding = static_cast<uint32_t>(resources[i]->BindingIndex());
-    }
-
-    const size_t idx = rsrcGroupToIdxMap.at(name);
-    setLayouts[idx] = std::make_unique<vpr::DescriptorSetLayout>(RenderingContext::Get().Device()->vkHandle());
-    setLayouts[idx]->AddDescriptorBindings(static_cast<uint32_t>(bindings.size()), bindings.data());
-    setLayouts[idx]->vkHandle();
-
-}
-
-void ShaderResourcePack::createDescriptorSet(const std::string& name) {
-    auto& set_resources = resources.at(name);
-    const size_t idx = rsrcGroupToIdxMap.at(name);
-
+void ShaderResourcePack::createDescriptor(const std::string & name, const std::vector<const st::ShaderResource*> logical_resources) {
+    const size_t idx = shaderGroupNameIdxMap.at(name);
     descriptorSets[idx] = std::make_unique<Descriptor>(name, descriptorPool.get());
+    const auto& physical_resources = resources.at(name);
 
-    auto add_image_type = [&](const VulkanResource* rsrc) {
-        VkDescriptorImageInfo image_info{
-            VK_NULL_HANDLE,
-            (VkImageView)rsrc->ViewHandle,
-            VK_IMAGE_LAYOUT_UNDEFINED
-        };
-
-        const VkDescriptorType type = resourceTypesMap.at(rsrc);
-        if (type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-            VulkanResource* sampler = reinterpret_cast<VulkanResource*>(rsrc->UserData);
-            image_info.sampler = (VkSampler)sampler->Handle;
-        }
-        
-        descriptorSets[idx]->AddDescriptorInfo(image_info, type, resourceBindingLocations.at(rsrc));
-        
-    };
-
-    auto add_buffer_type = [&](const VulkanResource* rsrc) {
-        const VkDescriptorBufferInfo buffer_info{
-            (VkBuffer)rsrc->Handle,
-            0,
-            VK_WHOLE_SIZE
-        };
-
-        const VkDescriptorType type = resourceTypesMap.at(rsrc);
-        const size_t binding_loc = resourceBindingLocations.at(rsrc);
-
-        if (type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER || type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER) {
-            descriptorSets[idx]->AddDescriptorInfo(buffer_info, (VkBufferView)rsrc->ViewHandle, type, binding_loc);
-        }
-        else {
-            descriptorSets[idx]->AddDescriptorInfo(buffer_info, type, binding_loc);
-        }
-
-    };
-
-    for (const auto& rsrc : set_resources) {
-        switch (rsrc.second->Type) {
-        case resource_type::IMAGE:
-            add_image_type(rsrc.second);
-            break;
-        case resource_type::BUFFER:
-            add_buffer_type(rsrc.second);
-            break;
-        case resource_type::SAMPLER:
-            descriptorSets[idx]->AddSamplerBinding(resourceBindingLocations.at(rsrc.second));
-            break;
-        default:
-            throw std::domain_error("Invalid resource.");
-        }
+    for (const auto* rsrc : logical_resources) {
+        descriptorSets[idx]->AddLayoutBinding(rsrc->BindingIndex(), rsrc->DescriptorType());
+        VulkanResource* physical_resource = physical_resources.at(rsrc->Name());
+        descriptorSets[idx]->BindResourceToIdx(rsrc->BindingIndex(), physical_resource);
     }
 
-    descriptorSets[idx]->Init(descriptorPool->vkHandle(), setLayouts[idx]->vkHandle());
 }
 
 void ShaderResourcePack::getGroupNames() {
@@ -289,7 +212,7 @@ void ShaderResourcePack::createPipelineLayout(const std::string & name) {
     std::vector<VkDescriptorSetLayout> set_layouts;
     auto& sets_used = groupResourceUsages.at(idx);
     for (const auto& set : sets_used) {
-        set_layouts.emplace_back(setLayouts[set]->vkHandle());
+        set_layouts.emplace_back(descriptorSets[set]->SetLayout());
     }
 
     pipelineLayouts[idx] = std::make_unique<vpr::PipelineLayout>(RenderingContext::Get().Device()->vkHandle());

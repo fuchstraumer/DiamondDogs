@@ -113,6 +113,9 @@ void Descriptor::updateDescriptorBinding(const size_t idx, VulkanResource * rsrc
         break;
     case resource_type::SAMPLER:
         break;
+    case resource_type::COMBINED_IMAGE_SAMPLER:
+        updateImageDescriptor(idx, rsrc);
+        break;
     default:
         throw std::domain_error("VulkanResource pointer had invalid type value!");
     }
@@ -150,6 +153,8 @@ void Descriptor::addDescriptorBinding(const size_t idx, VulkanResource* rsrc) {
     case resource_type::IMAGE:
         addImageDescriptor(idx, rsrc);
         break;
+    case resource_type::COMBINED_IMAGE_SAMPLER:
+        addCombinedImageSamplerDescriptor(idx, rsrc, rsrc->Sampler);
     default:
         throw std::domain_error("Invalid resource type when trying to add descriptor binding to Descriptor.");
     };
