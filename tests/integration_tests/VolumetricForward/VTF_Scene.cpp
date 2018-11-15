@@ -107,6 +107,11 @@ void VTF_Scene::MergeSort(VkCommandBuffer cmd, VulkanResource* src_keys, VulkanR
     const size_t output_keys_loc = resourcePack->BindingLocation("OutputKeys");
     const size_t input_values_loc = resourcePack->BindingLocation("InputValues");
     const size_t output_values_loc = resourcePack->BindingLocation("OutputValues");
+    Descriptor* descriptor = resourcePack->GetDescriptor("MergeSort");
+    descriptor->BindResourceToIdx(input_keys_loc, src_keys);
+    descriptor->BindResourceToIdx(output_keys_loc, dst_keys);
+    descriptor->BindResourceToIdx(input_values_loc, src_values);
+    descriptor->BindResourceToIdx(output_values_loc, dst_values);
 
     while (num_chunks > 1) {
 
@@ -150,16 +155,11 @@ void VTF_Scene::MergeSort(VkCommandBuffer cmd, VulkanResource* src_keys, VulkanR
         }
 
         // ping-pong the buffers
-        VulkanResource* input_keys = resourcePack->Find("MergeSort", "InputKeys");
-        VulkanResource* output_keys = resourcePack->Find("MergeSort", "OutputKeys");
-        VulkanResource* input_vals = resourcePack->Find("MergeSort", "InputValues");
-        VulkanResource* output_vals = resourcePack->Find("MergeSort", "OutputValues");
 
-        Descriptor* descriptor = resourcePack->GetDescriptor("MergeSort");
-        descriptor->BindResourceToIdx(input_keys_loc, output_keys);
-        descriptor->BindResourceToIdx(output_keys_loc, input_keys);
-        descriptor->BindResourceToIdx(input_values_loc, output_vals);
-        descriptor->BindResourceToIdx(output_values_loc, input_vals);
+        descriptor->BindResourceToIdx(input_keys_loc, dst_keys);
+        descriptor->BindResourceToIdx(output_keys_loc, src_keys);
+        descriptor->BindResourceToIdx(input_values_loc, dst_values);
+        descriptor->BindResourceToIdx(output_values_loc, src_values);
 
         chunk_size *= 2u;
         num_chunks = static_cast<uint32_t>(glm::ceil(float(total_values) / float(chunk_size)));
@@ -168,14 +168,10 @@ void VTF_Scene::MergeSort(VkCommandBuffer cmd, VulkanResource* src_keys, VulkanR
     if (pass % 2u == 0u) {
         // if the pass count is odd then we have to copy the results into 
         // where they should actually be
-        VulkanResource* input_keys = resourcePack->Find("MergeSort", "InputKeys");
-        VulkanResource* output_keys = resourcePack->Find("MergeSort", "OutputKeys");
-        VulkanResource* input_vals = resourcePack->Find("MergeSort", "InputValues");
-        VulkanResource* output_vals = resourcePack->Find("MergeSort", "OutputValues");
 
         const VkBufferCopy copy{ 0, 0, VK_WHOLE_SIZE };
-        vkCmdCopyBuffer(cmd, (VkBuffer)output_keys->Handle, (VkBuffer)input_keys->Handle, 1, &copy);
-        vkCmdCopyBuffer(cmd, (VkBuffer)output_vals->Handle, (VkBuffer)input_vals->Handle, 1, &copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)dst_keys->Handle, (VkBuffer)src_keys->Handle, 1, &copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)dst_values->Handle, (VkBuffer)src_values->Handle, 1, &copy);
     }
 
 }
@@ -378,26 +374,58 @@ void VTF_Scene::update() {
     };
     rsrc.SetBufferData(light_counts_buffer, 1, &lcb_update);
 
-    const vpr::DescriptorSet* lights_descriptor = resourcePack->DescriptorSet("VolumetricForwardLights");
+    // manually flush the updates we scheduled above
+    rsrc.Update();
+    const Descriptor* lights_descriptor = resourcePack->GetDescriptor("VolumetricForwardLights");
 
     {
         auto cmd = computePools[0]->GetCmdBuffer(0);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, updateLightsPipeline->Handle);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, updateLightsPipeline->PipelineLayout->vkHandle(), 2, 1, &lights_descriptor->vkHandle(), 0, nullptr);
+        resourcePack->BindGroupSets(cmd, "UpdateLights", VK_PIPELINE_BIND_POINT_COMPUTE);
         uint32_t num_groups_x = glm::max(LightCounts.NumPointLights, glm::max(LightCounts.NumDirectionalLights, LightCounts.NumSpotLights));
         num_groups_x = static_cast<uint32_t>(glm::ceil(num_groups_x / 1024.0f));
         vkCmdDispatch(cmd, num_groups_x, 1, 1);
-
     }
 
     {
-        // Reduce lights
-        auto cmd = computePools[0]->GetCmdBuffer(0);
         uint32_t num_thread_groups = glm::min<uint32_t>(static_cast<uint32_t>(glm::ceil(glm::max(LightCounts.NumPointLights, LightCounts.NumSpotLights) / 512.0f)), uint32_t(512));
         DispatchParams.NumThreadGroups = glm::uvec3(num_thread_groups, 1u, 1u);
         DispatchParams.NumThreads = glm::uvec3(num_thread_groups * 512, 1u, 1u);
+        const gpu_resource_data_t dp_update{
+            &DispatchParams,
+            sizeof(DispatchParams)
+        };
+        VulkanResource* dispatch_params = resourcePack->Find("SortResources", "DispatchParams");
+        rsrc.SetBufferData(dispatch_params, 1, &dp_update);
+
+        // Reduce lights
+        auto cmd = computePools[0]->GetCmdBuffer(0);
         uint32_t num_elements = DispatchParams.NumThreadGroups.x;
-        vkCmdBindDescriptorSets()
+        resourcePack->BindGroupSets(cmd, "ReduceLights", VK_PIPELINE_BIND_POINT_COMPUTE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, reduceLightsAABB0->Handle);
+        vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
+
+        // second step
+        DispatchParams.NumThreadGroups = glm::uvec3{ 1u, 1u, 1u };
+        DispatchParams.NumThreads = glm::uvec3{ 512u, 1u, 1u };
+        rsrc.SetBufferData(dispatch_params, 1, &dp_update);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, reduceLightsAABB1->Handle);
+        vkCmdDispatch(cmd, 1u, 1u, 1u);
+    }
+
+    {
+        // Compute morton codes
+        auto cmd = computePools[0]->GetCmdBuffer(0);
+        resourcePack->BindGroupSets(cmd, "ComputeMortonCodes", VK_PIPELINE_BIND_POINT_COMPUTE);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computeLightMortonCodesPipeline->Handle);
+        uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(glm::max(LightCounts.NumPointLights, LightCounts.NumSpotLights) / 1024.0f));
+        vkCmdDispatch(cmd, num_thread_groups, 1, 1);
+    }
+
+    {
+        // Sort by morton codes
+        auto cmd = computePools[0]->GetCmdBuffer(0);
+        resourcePack->BindGroupSets(cmd, "RadixSort", VK_PIPELINE_BIND_POINT_COMPUTE);
     }
 
 }
