@@ -36,7 +36,7 @@ std::vector<VkDescriptorSet> ShaderResourcePack::ShaderGroupSets(const std::stri
     const auto& descriptor_indices = groupResourceUsages[shaderGroupNameIdxMap.at(shader_group_name)];
     std::vector<VkDescriptorSet> results;
     for (const size_t& idx : descriptor_indices) {
-        results.emplace_back(descriptorSets[idx]->descriptorSet);
+        results.emplace_back(descriptorSets[idx]->Handle());
     }
     return results;
 }
