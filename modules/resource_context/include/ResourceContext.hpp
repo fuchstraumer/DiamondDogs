@@ -62,6 +62,11 @@ private:
     void createSamplerResourceCopy(VulkanResource* src, VulkanResource** dst);
     void createCombinedImageSamplerResourceCopy(VulkanResource * src, VulkanResource ** dest);
 
+    void copyBufferContentsToBuffer(VulkanResource * src, VulkanResource * dst);
+    void copyImageContentsToImage(VulkanResource * src, VulkanResource * dst);
+    void copyBufferContentsToImage(VulkanResource * src, VulkanResource * dst);
+    void copyImageContentsToBuffer(VulkanResource * src, VulkanResource * dst);
+
     void destroyResource(resource_iter_t iter);
     void destroyBuffer(resource_iter_t iter);
     void destroyImage(resource_iter_t iter);

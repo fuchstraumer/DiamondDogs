@@ -294,11 +294,6 @@ VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateI
 
 VulkanResource* ResourceContext::CreateResourceCopy(VulkanResource * src) {
     VulkanResource* result = nullptr;
-    {
-        std::lock_guard<std::mutex> emplaceGuard(containerMutex);
-        auto iter = resources.emplace(std::make_unique<VulkanResource>());
-        result = iter.first->get();
-    }
     CopyResource(src, &result);
     return result;
 }
@@ -320,6 +315,26 @@ void ResourceContext::CopyResource(VulkanResource * src, VulkanResource** dest) 
     default:
         throw std::domain_error("Passed source resource to CopyResource had invalid resource_type value.");
     };
+}
+
+void ResourceContext::CopyResourceContents(VulkanResource* src, VulkanResource* dst) {
+    if (src->Type == dst->Type) {
+        switch (src->Type) {
+        case resource_type::BUFFER:
+            break;
+        case resource_type::IMAGE:
+            break;
+        case resource_type::COMBINED_IMAGE_SAMPLER:
+            break;
+        case resource_type::SAMPLER:
+            [[fallthrough]];
+        default:
+            break;
+        }
+    }
+    else {
+
+    }
 }
 
 void ResourceContext::DestroyResource(VulkanResource * rsrc) {
@@ -530,20 +545,118 @@ VkFormatFeatureFlags ResourceContext::featureFlagsFromUsage(const VkImageUsageFl
 
 void ResourceContext::createBufferResourceCopy(VulkanResource * src, VulkanResource** dst) {
     const VkBufferCreateInfo* create_info = reinterpret_cast<const VkBufferCreateInfo*>(src->Info);
-    
-    throw std::runtime_error("");
+    const VkBufferViewCreateInfo* view_info = nullptr;
+    if (src->ViewHandle != VK_NULL_HANDLE) { 
+        view_info = reinterpret_cast<const VkBufferViewCreateInfo*>(src->ViewInfo);
+    }
+    *dst = CreateBuffer(create_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), nullptr);
+    CopyResourceContents(src, *dst);
 }
 
 void ResourceContext::createImageResourceCopy(VulkanResource * src, VulkanResource** dst) {
-    throw std::runtime_error("");
+    const VkImageCreateInfo* image_info = reinterpret_cast<const VkImageCreateInfo*>(src->Info);
+    const VkImageViewCreateInfo* view_info = nullptr;
+    if (src->ViewHandle != VK_NULL_HANDLE) {
+        view_info = reinterpret_cast<const VkImageViewCreateInfo*>(src->ViewInfo);
+    }
+    *dst = CreateImage(image_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), nullptr);
+    CopyResourceContents(src, *dst);
 }
 
 void ResourceContext::createSamplerResourceCopy(VulkanResource * src, VulkanResource** dst) {
-    throw std::runtime_error("");
+    const VkSamplerCreateInfo* sampler_info = reinterpret_cast<const VkSamplerCreateInfo*>(src->Info);
+    *dst = CreateSampler(sampler_info, nullptr);
 }
 
 void ResourceContext::createCombinedImageSamplerResourceCopy(VulkanResource* src, VulkanResource** dest) {
+    createImageResourceCopy(src, dest);
+    VulkanResource** sampler_to_create = &(*dest)->Sampler;
+    createSamplerResourceCopy(src->Sampler, sampler_to_create);
+    (*dest)->Type = resource_type::COMBINED_IMAGE_SAMPLER;
+}
 
+void ResourceContext::copyBufferContentsToBuffer(VulkanResource* src, VulkanResource* dst) {
+
+    const VkBufferCreateInfo* src_info = reinterpret_cast<const VkBufferCreateInfo*>(src->Info);
+    const VkBufferCreateInfo* dst_info = reinterpret_cast<const VkBufferCreateInfo*>(dst->Info);
+    assert(src_info->size <= dst_info->size);
+    const VkBufferCopy copy{
+        0,
+        0,
+        src_info->size
+    };
+
+    const VkBufferMemoryBarrier pre_transfer_barriers[2] {
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            accessFlagsFromBufferUsage(src_info->usage),
+            VK_ACCESS_TRANSFER_READ_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)src->Handle,
+            0,
+            src_info->size
+        },
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            accessFlagsFromBufferUsage(dst_info->usage),
+            VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)dst->Handle,
+            0,
+            dst_info->size
+        }
+    };
+
+    const VkBufferMemoryBarrier post_transfer_barriers[2] {
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_TRANSFER_READ_BIT,
+            accessFlagsFromBufferUsage(src_info->usage),
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)src->Handle,
+            0,
+            src_info->size
+        },
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_TRANSFER_WRITE_BIT,
+            accessFlagsFromBufferUsage(dst_info->usage),
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)dst->Handle,
+            0,
+            dst_info->size
+        }
+    };
+
+    {
+        auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
+        auto guard = transfer_system.AcquireSpinLock();
+        auto cmd = transfer_system.TransferCmdBuffer();
+
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 2, pre_transfer_barriers, 0, nullptr);
+        vkCmdCopyBuffer(cmd, (VkBuffer)src->Handle, (VkBuffer)dst->Handle, 1, &copy);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 2, post_transfer_barriers, 0, nullptr);
+    }
+}
+
+void ResourceContext::copyImageContentsToImage(VulkanResource* src, VulkanResource* dst) {
+    throw std::runtime_error("Not yet implemented!");
+}
+
+void ResourceContext::copyBufferContentsToImage(VulkanResource* src, VulkanResource* dst) {
+    throw std::runtime_error("Not yet implemented!");
+}
+
+void ResourceContext::copyImageContentsToBuffer(VulkanResource* src, VulkanResource* dst) {
+    throw std::runtime_error("Not yet implemented!");
 }
 
 void ResourceContext::destroyResource(resource_iter_t iter) {
