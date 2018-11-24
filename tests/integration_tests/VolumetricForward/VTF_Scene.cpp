@@ -12,6 +12,8 @@
 #include "DescriptorSetLayout.hpp"
 #include "PipelineLayout.hpp"
 #include "PipelineCache.hpp"
+#include "Semaphore.hpp"
+#include "vkAssert.hpp"
 #include "LogicalDevice.hpp"
 #include "PhysicalDevice.hpp"
 #include "Descriptor.hpp"
@@ -27,6 +29,7 @@
 #include "core/ResourceGroup.hpp"
 #include "core/ResourceUsage.hpp"
 #include "ShaderResourcePack.hpp"
+#include "PerspectiveCamera.hpp"
 
 constexpr static uint32_t DEFAULT_MAX_LIGHTS = 2048u;
 const st::ShaderPack* vtfShaders{ nullptr };
@@ -36,6 +39,8 @@ constexpr static uint32_t SORT_NUM_THREADS_PER_THREAD_GROUP = 256u;
 constexpr static uint32_t SORT_ELEMENTS_PER_THREAD = 8u;
 constexpr static uint32_t BVH_NUM_THREADS = 32u * 16u;
 constexpr static uint32_t AVERAGE_OVERLAPPING_LIGHTS_PER_CLUSTER = 20u;
+constexpr static uint32_t LIGHT_GRID_BLOCK_SIZE = 32u;
+constexpr static uint32_t CLUSTER_GRID_BLOCK_SIZE = 64u;
 
 struct alignas(16) Matrices_t {
     glm::mat4 model;
@@ -93,88 +98,6 @@ struct alignas(4) LightCountsData {
     uint32_t NumSpotLights{ DEFAULT_MAX_LIGHTS };
     uint32_t NumDirectionalLights{ 4u };
 } LightCounts;
-
-void VTF_Scene::MergeSort(VkCommandBuffer cmd, VulkanResource* src_keys, VulkanResource* src_values, VulkanResource* dst_keys, VulkanResource* dst_values,
-    uint32_t total_values, uint32_t chunk_size) {
-    SortParams params;
-
-    const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
-    constexpr static uint32_t num_values_per_thread_group = SORT_NUM_THREADS_PER_THREAD_GROUP * SORT_ELEMENTS_PER_THREAD;
-    uint32_t num_chunks = static_cast<uint32_t>(glm::ceil(total_values / static_cast<float>(chunk_size)));
-    uint32_t pass = 0;
-
-    const size_t input_keys_loc = resourcePack->BindingLocation("InputKeys");
-    const size_t output_keys_loc = resourcePack->BindingLocation("OutputKeys");
-    const size_t input_values_loc = resourcePack->BindingLocation("InputValues");
-    const size_t output_values_loc = resourcePack->BindingLocation("OutputValues");
-    Descriptor* descriptor = resourcePack->GetDescriptor("MergeSort");
-    descriptor->BindResourceToIdx(input_keys_loc, src_keys);
-    descriptor->BindResourceToIdx(output_keys_loc, dst_keys);
-    descriptor->BindResourceToIdx(input_values_loc, src_values);
-    descriptor->BindResourceToIdx(output_values_loc, dst_values);
-
-    while (num_chunks > 1) {
-
-        ++pass;
-
-        params.NumElements = total_values;
-        params.ChunkSize = chunk_size;
-
-        uint32_t num_sort_groups = num_chunks / 2u;
-        uint32_t num_thread_groups_per_sort_group = static_cast<uint32_t>(glm::ceil((chunk_size * 2) / static_cast<float>(num_values_per_thread_group)));
-
-        {
-            auto* rsrc = resourcePack->Find("MergeSort", "MergePathPartitions");
-            // Clear buffer
-            vkCmdFillBuffer(cmd, (VkBuffer)rsrc->Handle, 0, VK_WHOLE_SIZE, 0);
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mergePathPartitionsPipeline->Handle);
-            resourcePack->BindGroupSets(cmd, "MergeSort", VK_PIPELINE_BIND_POINT_COMPUTE);
-            uint32_t num_merge_path_partitions_per_sort_group = num_thread_groups_per_sort_group + 1u;
-            uint32_t total_merge_path_partitions = num_merge_path_partitions_per_sort_group * num_sort_groups;
-            uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(float(total_merge_path_partitions) / float(SORT_NUM_THREADS_PER_THREAD_GROUP)));
-            vkCmdDispatch(cmd, num_thread_groups, 1, 1);
-            const VkBufferMemoryBarrier path_partitions_barrier{
-                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                nullptr,
-                VK_ACCESS_SHADER_WRITE_BIT,
-                VK_ACCESS_SHADER_READ_BIT,
-                compute_idx,
-                compute_idx,
-                (VkBuffer)rsrc->Handle,
-                0,
-                VK_WHOLE_SIZE
-            };
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &path_partitions_barrier, 0, nullptr);
-        }
-
-        {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mergeSortPipeline->Handle);
-            uint32_t num_values_per_sort_group = glm::min(chunk_size * 2u, total_values);
-            num_thread_groups_per_sort_group = static_cast<uint32_t>(glm::ceil(float(num_values_per_sort_group) / float(num_values_per_thread_group)));
-            vkCmdDispatch(cmd, num_thread_groups_per_sort_group * num_sort_groups, 1, 1);
-        }
-
-        // ping-pong the buffers
-
-        descriptor->BindResourceToIdx(input_keys_loc, dst_keys);
-        descriptor->BindResourceToIdx(output_keys_loc, src_keys);
-        descriptor->BindResourceToIdx(input_values_loc, dst_values);
-        descriptor->BindResourceToIdx(output_values_loc, src_values);
-
-        chunk_size *= 2u;
-        num_chunks = static_cast<uint32_t>(glm::ceil(float(total_values) / float(chunk_size)));
-    }
-
-    if (pass % 2u == 0u) {
-        // if the pass count is odd then we have to copy the results into 
-        // where they should actually be
-
-        const VkBufferCopy copy{ 0, 0, VK_WHOLE_SIZE };
-        vkCmdCopyBuffer(cmd, (VkBuffer)dst_keys->Handle, (VkBuffer)src_keys->Handle, 1, &copy);
-        vkCmdCopyBuffer(cmd, (VkBuffer)dst_values->Handle, (VkBuffer)src_values->Handle, 1, &copy);
-    }
-
-}
 
 glm::vec3 HSV_to_RGB(float H, float S, float V) {
     float C = V * S;
@@ -279,7 +202,7 @@ struct alignas(4) BVH_Params_t {
 } BVH_Params;
 
 // The number of nodes at each level of the BVH.
-constexpr static uint32_t NumLevelNodes[6] {
+constexpr static uint32_t NumLevelNodes[6]{
     1,          // 1st level (32^0)
     32,         // 2nd level (32^1)
     1024,       // 3rd level (32^2)
@@ -290,7 +213,7 @@ constexpr static uint32_t NumLevelNodes[6] {
 
 // The number of nodes required to represent a BVH given the number of levels
 // of the BVH.
-constexpr static uint32_t NumBVHNodes[6] {
+constexpr static uint32_t NumBVHNodes[6]{
     1,          // 1 level  =32^0
     33,         // 2 levels +32^1
     1057,       // 3 levels +32^2
@@ -314,6 +237,88 @@ struct ComputePipelineState {
     }
 
 };
+
+void VTF_Scene::MergeSort(VkCommandBuffer cmd, VulkanResource* src_keys, VulkanResource* src_values, VulkanResource* dst_keys, VulkanResource* dst_values,
+    uint32_t total_values, uint32_t chunk_size) {
+    SortParams params;
+
+    const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
+    constexpr static uint32_t num_values_per_thread_group = SORT_NUM_THREADS_PER_THREAD_GROUP * SORT_ELEMENTS_PER_THREAD;
+    uint32_t num_chunks = static_cast<uint32_t>(glm::ceil(total_values / static_cast<float>(chunk_size)));
+    uint32_t pass = 0;
+
+    const size_t input_keys_loc = resourcePack->BindingLocation("InputKeys");
+    const size_t output_keys_loc = resourcePack->BindingLocation("OutputKeys");
+    const size_t input_values_loc = resourcePack->BindingLocation("InputValues");
+    const size_t output_values_loc = resourcePack->BindingLocation("OutputValues");
+    Descriptor* descriptor = resourcePack->GetDescriptor("MergeSort");
+    descriptor->BindResourceToIdx(input_keys_loc, src_keys);
+    descriptor->BindResourceToIdx(output_keys_loc, dst_keys);
+    descriptor->BindResourceToIdx(input_values_loc, src_values);
+    descriptor->BindResourceToIdx(output_values_loc, dst_values);
+
+    while (num_chunks > 1) {
+
+        ++pass;
+
+        params.NumElements = total_values;
+        params.ChunkSize = chunk_size;
+
+        uint32_t num_sort_groups = num_chunks / 2u;
+        uint32_t num_thread_groups_per_sort_group = static_cast<uint32_t>(glm::ceil((chunk_size * 2) / static_cast<float>(num_values_per_thread_group)));
+
+        {
+            auto* rsrc = resourcePack->Find("MergeSort", "MergePathPartitions");
+            // Clear buffer
+            vkCmdFillBuffer(cmd, (VkBuffer)rsrc->Handle, 0, VK_WHOLE_SIZE, 0);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mergePathPartitionsPipeline->Handle);
+            resourcePack->BindGroupSets(cmd, "MergeSort", VK_PIPELINE_BIND_POINT_COMPUTE);
+            uint32_t num_merge_path_partitions_per_sort_group = num_thread_groups_per_sort_group + 1u;
+            uint32_t total_merge_path_partitions = num_merge_path_partitions_per_sort_group * num_sort_groups;
+            uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(float(total_merge_path_partitions) / float(SORT_NUM_THREADS_PER_THREAD_GROUP)));
+            vkCmdDispatch(cmd, num_thread_groups, 1, 1);
+            const VkBufferMemoryBarrier path_partitions_barrier{
+                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+                nullptr,
+                VK_ACCESS_SHADER_WRITE_BIT,
+                VK_ACCESS_SHADER_READ_BIT,
+                compute_idx,
+                compute_idx,
+                (VkBuffer)rsrc->Handle,
+                0,
+                VK_WHOLE_SIZE
+            };
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &path_partitions_barrier, 0, nullptr);
+        }
+
+        {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mergeSortPipeline->Handle);
+            uint32_t num_values_per_sort_group = glm::min(chunk_size * 2u, total_values);
+            num_thread_groups_per_sort_group = static_cast<uint32_t>(glm::ceil(float(num_values_per_sort_group) / float(num_values_per_thread_group)));
+            vkCmdDispatch(cmd, num_thread_groups_per_sort_group * num_sort_groups, 1, 1);
+        }
+
+        // ping-pong the buffers
+
+        descriptor->BindResourceToIdx(input_keys_loc, dst_keys);
+        descriptor->BindResourceToIdx(output_keys_loc, src_keys);
+        descriptor->BindResourceToIdx(input_values_loc, dst_values);
+        descriptor->BindResourceToIdx(output_values_loc, src_values);
+
+        chunk_size *= 2u;
+        num_chunks = static_cast<uint32_t>(glm::ceil(float(total_values) / float(chunk_size)));
+    }
+
+    if (pass % 2u == 0u) {
+        // if the pass count is odd then we have to copy the results into 
+        // where they should actually be
+
+        const VkBufferCopy copy{ 0, 0, VK_WHOLE_SIZE };
+        vkCmdCopyBuffer(cmd, (VkBuffer)dst_keys->Handle, (VkBuffer)src_keys->Handle, 1, &copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)dst_values->Handle, (VkBuffer)src_values->Handle, 1, &copy);
+    }
+
+}
 
 VTF_Scene& VTF_Scene::Get() {
     static VTF_Scene scene;
@@ -362,71 +367,11 @@ void VTF_Scene::GenerateSceneLights() {
 
 void VTF_Scene::update() {
 
-    auto& rsrc = ResourceContext::Get();
-
-    LightCounts.NumPointLights = static_cast<uint32_t>(State.PointLights.size());
-    LightCounts.NumSpotLights = static_cast<uint32_t>(State.SpotLights.size());
-    LightCounts.NumDirectionalLights = static_cast<uint32_t>(State.DirectionalLights.size());
-    VulkanResource* light_counts_buffer = resourcePack->Find("VolumetricForwardLights", "LightCounts");
-    const gpu_resource_data_t lcb_update{
-        &LightCounts,
-        sizeof(LightCounts)
-    };
-    rsrc.SetBufferData(light_counts_buffer, 1, &lcb_update);
-
-    // manually flush the updates we scheduled above
-    rsrc.Update();
-    const Descriptor* lights_descriptor = resourcePack->GetDescriptor("VolumetricForwardLights");
-
-    {
-        auto cmd = computePools[0]->GetCmdBuffer(0);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, updateLightsPipeline->Handle);
-        resourcePack->BindGroupSets(cmd, "UpdateLights", VK_PIPELINE_BIND_POINT_COMPUTE);
-        uint32_t num_groups_x = glm::max(LightCounts.NumPointLights, glm::max(LightCounts.NumDirectionalLights, LightCounts.NumSpotLights));
-        num_groups_x = static_cast<uint32_t>(glm::ceil(num_groups_x / 1024.0f));
-        vkCmdDispatch(cmd, num_groups_x, 1, 1);
-    }
-
-    {
-        uint32_t num_thread_groups = glm::min<uint32_t>(static_cast<uint32_t>(glm::ceil(glm::max(LightCounts.NumPointLights, LightCounts.NumSpotLights) / 512.0f)), uint32_t(512));
-        DispatchParams.NumThreadGroups = glm::uvec3(num_thread_groups, 1u, 1u);
-        DispatchParams.NumThreads = glm::uvec3(num_thread_groups * 512, 1u, 1u);
-        const gpu_resource_data_t dp_update{
-            &DispatchParams,
-            sizeof(DispatchParams)
-        };
-        VulkanResource* dispatch_params = resourcePack->Find("SortResources", "DispatchParams");
-        rsrc.SetBufferData(dispatch_params, 1, &dp_update);
-
-        // Reduce lights
-        auto cmd = computePools[0]->GetCmdBuffer(0);
-        uint32_t num_elements = DispatchParams.NumThreadGroups.x;
-        resourcePack->BindGroupSets(cmd, "ReduceLights", VK_PIPELINE_BIND_POINT_COMPUTE);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, reduceLightsAABB0->Handle);
-        vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
-
-        // second step
-        DispatchParams.NumThreadGroups = glm::uvec3{ 1u, 1u, 1u };
-        DispatchParams.NumThreads = glm::uvec3{ 512u, 1u, 1u };
-        rsrc.SetBufferData(dispatch_params, 1, &dp_update);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, reduceLightsAABB1->Handle);
-        vkCmdDispatch(cmd, 1u, 1u, 1u);
-    }
-
-    {
-        // Compute morton codes
-        auto cmd = computePools[0]->GetCmdBuffer(0);
-        resourcePack->BindGroupSets(cmd, "ComputeMortonCodes", VK_PIPELINE_BIND_POINT_COMPUTE);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computeLightMortonCodesPipeline->Handle);
-        uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(glm::max(LightCounts.NumPointLights, LightCounts.NumSpotLights) / 1024.0f));
-        vkCmdDispatch(cmd, num_thread_groups, 1, 1);
-    }
-
-    {
-        // Sort by morton codes
-        auto cmd = computePools[0]->GetCmdBuffer(0);
-        resourcePack->BindGroupSets(cmd, "RadixSort", VK_PIPELINE_BIND_POINT_COMPUTE);
-    }
+    computeUpdateLights();
+    computeReduceLights();
+    computeAndSortMortonCodes();
+    buildLightBVH();
+    submitComputeUpdates();
 
 }
 
@@ -457,4 +402,282 @@ void VTF_Scene::createComputePools() {
 
 void VTF_Scene::createReadbackBuffers() {
 
+}
+
+void VTF_Scene::computeUpdateLights() {
+    auto& rsrc = ResourceContext::Get();
+    // update light counts
+    LightCounts.NumPointLights = static_cast<uint32_t>(State.PointLights.size());
+    LightCounts.NumSpotLights = static_cast<uint32_t>(State.SpotLights.size());
+    LightCounts.NumDirectionalLights = static_cast<uint32_t>(State.DirectionalLights.size());
+    VulkanResource* light_counts_buffer = resourcePack->Find("VolumetricForwardLights", "LightCounts");
+    const gpu_resource_data_t lcb_update{
+        &LightCounts,
+        sizeof(LightCounts)
+    };
+    rsrc.SetBufferData(light_counts_buffer, 1, &lcb_update);
+    // update light positions etc
+    auto cmd = computePools[0]->GetCmdBuffer(0);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, updateLightsPipeline->Handle);
+    resourcePack->BindGroupSets(cmd, "UpdateLights", VK_PIPELINE_BIND_POINT_COMPUTE);
+    uint32_t num_groups_x = glm::max(LightCounts.NumPointLights, glm::max(LightCounts.NumDirectionalLights, LightCounts.NumSpotLights));
+    num_groups_x = static_cast<uint32_t>(glm::ceil(num_groups_x / 1024.0f));
+    vkCmdDispatch(cmd, num_groups_x, 1, 1);
+}
+
+void VTF_Scene::computeReduceLights() {
+    auto& rsrc = ResourceContext::Get();
+
+    // update dispatch params
+    uint32_t num_thread_groups = glm::min<uint32_t>(static_cast<uint32_t>(glm::ceil(glm::max(LightCounts.NumPointLights, LightCounts.NumSpotLights) / 512.0f)), uint32_t(512));
+    DispatchParams.NumThreadGroups = glm::uvec3(num_thread_groups, 1u, 1u);
+    DispatchParams.NumThreads = glm::uvec3(num_thread_groups * 512, 1u, 1u);
+    const gpu_resource_data_t dp_update{
+        &DispatchParams,
+        sizeof(DispatchParams)
+    };
+    VulkanResource* dispatch_params = resourcePack->Find("SortResources", "DispatchParams");
+    rsrc.SetBufferData(dispatch_params, 1, &dp_update);
+
+    // Reduce lights
+    auto cmd = computePools[0]->GetCmdBuffer(0);
+    uint32_t num_elements = DispatchParams.NumThreadGroups.x;
+    resourcePack->BindGroupSets(cmd, "ReduceLights", VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, reduceLightsAABB0->Handle);
+    vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
+
+    // second step of reduction
+    DispatchParams.NumThreadGroups = glm::uvec3{ 1u, 1u, 1u };
+    DispatchParams.NumThreads = glm::uvec3{ 512u, 1u, 1u };
+    rsrc.SetBufferData(dispatch_params, 1, &dp_update);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, reduceLightsAABB1->Handle);
+    vkCmdDispatch(cmd, 1u, 1u, 1u);
+}
+
+void VTF_Scene::computeAndSortMortonCodes() {
+
+    auto& rsrc = ResourceContext::Get();
+
+    // Compute morton codes
+    auto cmd = computePools[0]->GetCmdBuffer(0);
+    resourcePack->BindGroupSets(cmd, "ComputeMortonCodes", VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, computeLightMortonCodesPipeline->Handle);
+    uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(glm::max(LightCounts.NumPointLights, LightCounts.NumSpotLights) / 1024.0f));
+    vkCmdDispatch(cmd, num_thread_groups, 1, 1);
+
+    auto cmd = computePools[0]->GetCmdBuffer(0);
+    SortParams sort_params;
+    sort_params.ChunkSize = SORT_NUM_THREADS_PER_THREAD_GROUP;
+    const VkBufferCopy copy{ 0, 0, VK_WHOLE_SIZE };
+
+    VulkanResource* sort_params_rsrc = resourcePack->At("SortResources", "SortParams");
+    const gpu_resource_data_t sort_params_copy{ &sort_params, sizeof(SortParams), 0u, 0u, 0u };
+
+    // prefetch binding locations
+    Descriptor* sort_descriptor = resourcePack->GetDescriptor("MergeSort");
+    const size_t src_keys_loc = resourcePack->BindingLocation("InputKeys");
+    const size_t dst_keys_loc = resourcePack->BindingLocation("OutputKeys");
+    const size_t src_values_loc = resourcePack->BindingLocation("InputValues");
+    const size_t dst_values_loc = resourcePack->BindingLocation("OutputValues");
+
+    // bind radix sort pipeline now
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, radixSortPipeline->Handle);
+
+    if (LightCounts.NumPointLights > 0u) {
+
+        sort_params.NumElements = LightCounts.NumPointLights;
+        rsrc.SetBufferData(sort_params_rsrc, 1, &sort_params_copy);
+        // bind proper resources to the descriptor
+        sort_descriptor->BindResourceToIdx(src_keys_loc, pointLightMortonCodes);
+        sort_descriptor->BindResourceToIdx(dst_keys_loc, pointLightMortonCodes_OUT);
+        sort_descriptor->BindResourceToIdx(src_values_loc, pointLightIndices);
+        sort_descriptor->BindResourceToIdx(dst_values_loc, pointLightIndices_OUT);
+
+        // bind and dispatch
+        resourcePack->BindGroupSets(cmd, "RadixSort", VK_PIPELINE_BIND_POINT_COMPUTE);
+        uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(float(LightCounts.NumPointLights) / float(SORT_NUM_THREADS_PER_THREAD_GROUP)));
+        vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
+
+        // copy resources back into results
+        vkCmdCopyBuffer(cmd, (VkBuffer)pointLightMortonCodes->Handle, (VkBuffer)pointLightMortonCodes_OUT->Handle, 1, &copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)pointLightIndices->Handle, (VkBuffer)pointLightIndices_OUT->Handle, 1, &copy);
+    }
+
+    if (LightCounts.NumSpotLights > 0u) {
+
+        sort_params.NumElements = LightCounts.NumSpotLights;
+        rsrc.SetBufferData(sort_params_rsrc, 1, &sort_params_copy);
+        // update bindings again
+        sort_descriptor->BindResourceToIdx(src_keys_loc, spotLightMortonCodes);
+        sort_descriptor->BindResourceToIdx(dst_keys_loc, spotLightMortonCodes_OUT);
+        sort_descriptor->BindResourceToIdx(src_values_loc, spotLightIndices);
+        sort_descriptor->BindResourceToIdx(dst_values_loc, spotLightIndices_OUT);
+        // have to repeat binding call so that updates are propagated to descriptor set
+        // might test to see if we can just call update() on sort_descriptor??
+        resourcePack->BindGroupSets(cmd, "RadixSort", VK_PIPELINE_BIND_POINT_COMPUTE);
+        uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(float(LightCounts.NumSpotLights) / float(SORT_NUM_THREADS_PER_THREAD_GROUP)));
+        vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
+
+        vkCmdCopyBuffer(cmd, (VkBuffer)spotLightMortonCodes->Handle, (VkBuffer)spotLightMortonCodes_OUT->Handle, 1, &copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)spotLightIndices->Handle, (VkBuffer)spotLightIndices_OUT->Handle, 1, &copy);
+    }
+
+    if (LightCounts.NumPointLights > 0u) {
+        MergeSort(cmd, pointLightMortonCodes, pointLightIndices, pointLightMortonCodes_OUT, pointLightIndices_OUT, LightCounts.NumPointLights, SORT_NUM_THREADS_PER_THREAD_GROUP);
+    }
+
+    if (LightCounts.NumSpotLights > 0u) {
+        MergeSort(cmd, spotLightMortonCodes, spotLightIndices, spotLightMortonCodes_OUT, spotLightIndices_OUT, LightCounts.NumSpotLights, SORT_NUM_THREADS_PER_THREAD_GROUP);
+    }
+}
+
+void VTF_Scene::buildLightBVH() {
+    const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
+
+    auto& rsrc = ResourceContext::Get();
+    auto cmd = computePools[0]->GetCmdBuffer(0);
+    VulkanResource* bvh_params_rsrc = resourcePack->At("BVHResources", "BVHParams");
+    VulkanResource* point_light_bvh = resourcePack->At("BVHResources", "PointLightBVH");
+    VulkanResource* spot_light_bvh = resourcePack->At("BVHResources", "SpotLightBVH");
+
+    const VkBufferMemoryBarrier point_light_bvh_barrier {
+        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        nullptr,
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+        compute_idx,
+        compute_idx,
+        (VkBuffer)point_light_bvh->Handle,
+        0,
+        VK_WHOLE_SIZE
+    };
+    
+    const VkBufferMemoryBarrier spot_light_bvh_barrier {
+        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        nullptr,
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+        compute_idx,
+        compute_idx,
+        (VkBuffer)spot_light_bvh->Handle,
+        0,
+        VK_WHOLE_SIZE
+    };
+
+    const VkBufferMemoryBarrier bvh_params_barrier{
+        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+        nullptr,
+        VK_ACCESS_HOST_WRITE_BIT,
+        VK_ACCESS_SHADER_READ_BIT,
+        compute_idx,
+        compute_idx,
+        (VkBuffer)bvh_params_rsrc->Handle,
+        0u,
+        VK_WHOLE_SIZE
+    };
+
+    vkCmdFillBuffer(cmd, (VkBuffer)point_light_bvh->Handle, 0u, VK_WHOLE_SIZE, 0u);
+    vkCmdFillBuffer(cmd, (VkBuffer)spot_light_bvh->Handle, 0u, VK_WHOLE_SIZE, 0u);
+
+    uint32_t point_light_levels = GetNumLevelsBVH(LightCounts.NumPointLights);
+    uint32_t spot_light_levels = GetNumLevelsBVH(LightCounts.NumSpotLights);
+    const gpu_resource_data_t bvh_update{ &BVH_Params, sizeof(BVH_Params), 0u, 0u, 0u };
+
+    if ((point_light_levels != BVH_Params.PointLightLevels) || (spot_light_levels != BVH_Params.SpotLightLevels)) {
+        rsrc.SetBufferData(bvh_params_rsrc, 1, &bvh_update);
+    }
+    
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, buildBVHBottomPipeline->Handle);
+    resourcePack->BindGroupSets(cmd, "BuildBVH", VK_PIPELINE_BIND_POINT_COMPUTE);
+    uint32_t max_leaves = glm::max(LightCounts.NumPointLights, LightCounts.NumSpotLights);
+    uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(float(max_leaves) / float(BVH_NUM_THREADS)));
+    vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
+
+    uint32_t max_levels = glm::max(BVH_Params.PointLightLevels, BVH_Params.SpotLightLevels);
+    if (max_levels > 0u) {
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, buildBVHTopPipeline->Handle);
+        for (uint32_t level = max_levels - 1u; level > 0u; --level) {
+            BVH_Params.ChildLevel = level;
+            rsrc.SetBufferData(bvh_params_rsrc, 1, &bvh_update);
+            // need to ensure writes to bvh_params are visible
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &bvh_params_barrier, 0, nullptr);
+            // make sure previous shader finishes and writes are completed before beginning next
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &point_light_bvh_barrier, 0, nullptr);
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &spot_light_bvh_barrier, 0, nullptr);
+            uint32_t num_child_nodes = NumLevelNodes[level];
+            num_thread_groups = static_cast<uint32_t>(glm::ceil(float(NumLevelNodes[level]) / float(BVH_NUM_THREADS)));
+            vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
+        }
+    }
+
+}
+
+void VTF_Scene::submitComputeUpdates() {
+
+    constexpr static VkPipelineStageFlags wait_mask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    const VkSubmitInfo submit_info{
+        VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        nullptr,
+        0u,
+        nullptr,
+        0,
+        1,
+        &computePools[0]->GetCmdBuffer(0u),
+        1,
+        &computeUpdateCompleteSemaphore->vkHandle()
+    };
+    VkResult result = vkQueueSubmit(vprObjects.device->ComputeQueue(), 1, &submit_info, VK_NULL_HANDLE);
+    VkAssert(result);
+
+}
+
+void VTF_Scene::updateClusterGrid() {
+    auto& camera = PerspectiveCamera::Get();
+    float fov_y = camera.FOV();
+    float z_near = camera.NearPlane();
+    float z_far = camera.FarPlane();
+
+    auto& ctxt = RenderingContext::Get();
+    const uint32_t window_width = ctxt.Swapchain()->Extent().width;
+    const uint32_t window_height = ctxt.Swapchain()->Extent().height;
+
+    uint32_t cluster_dim_x = static_cast<uint32_t>(glm::ceil(window_width / float(CLUSTER_GRID_BLOCK_SIZE)));
+    uint32_t cluster_dim_y = static_cast<uint32_t>(glm::ceil(window_height / float(CLUSTER_GRID_BLOCK_SIZE)));
+
+    float sD = 2.0f * glm::tan(fov_y) / float(cluster_dim_y);
+    float log_dim_y = 1.0f / glm::log(1.0f + sD);
+    float log_depth = glm::log(z_far / z_near);
+
+    uint32_t cluster_dim_z = static_cast<uint32_t>(glm::floor(log_depth * log_dim_y));
+    ClusterData.GridDim = glm::uvec3{ cluster_dim_x, cluster_dim_y, cluster_dim_z };
+    ClusterData.ViewNear = z_near;
+    ClusterData.ScreenSize = glm::uvec2{ CLUSTER_GRID_BLOCK_SIZE, CLUSTER_GRID_BLOCK_SIZE };
+    ClusterData.NearK = 1.0f + sD;
+    ClusterData.LogGridDimY = log_dim_y;
+
+    auto& rsrc = ResourceContext::Get();
+    const gpu_resource_data_t cluster_data_update{
+        &ClusterData,
+        sizeof(ClusterData),
+        0u,
+        0u,
+        0u
+    };
+    VulkanResource* cluster_data_rsrc = resourcePack->At("VolumetricForward", "ClusterData");
+    rsrc.SetBufferData(cluster_data_rsrc, 1, &cluster_data_update);
+
+    VulkanResource* cluster_flags = resourcePack->At("VolumetricForward", "ClusterFlags");
+    VkBufferCreateInfo cluster_flags_create_info = *reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info);
+    cluster_flags_create_info.size = cluster_dim_x * cluster_dim_y * cluster_dim_z * sizeof(uint32_t);
+    VkBufferViewCreateInfo cluster_flags_view_info = *reinterpret_cast<const VkBufferViewCreateInfo*>(cluster_flags->ViewInfo);
+    cluster_flags_view_info.range = cluster_flags_create_info.size;
+    rsrc.DestroyResource(cluster_flags);
+    cluster_flags = rsrc.CreateBuffer(&cluster_flags_create_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+
+    VulkanResource* unique_clusters = resourcePack->At("VolumetricForward", "UniqueClusters");
+    rsrc.DestroyResource(unique_clusters);
+    unique_clusters = rsrc.CreateBuffer(&cluster_flags_create_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    
+    previousUniqueClusters = rsrc.CreateBuffer(&cluster_flags_create_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
 }

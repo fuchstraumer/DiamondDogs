@@ -130,6 +130,13 @@ private:
     // uses already made sort buffers to create copies
     void createSortingOutputBuffers();
 
+    void computeUpdateLights();
+    void computeReduceLights();
+    void computeAndSortMortonCodes();
+    void buildLightBVH();
+    void submitComputeUpdates();
+
+    void updateClusterGrid();
 
     // Used for debugging
     VulkanResource* pointLightsReadbackBuffer;
@@ -142,6 +149,10 @@ private:
     VulkanResource* previousUniqueClusters;
 
     // Sorting stuff
+    VulkanResource* pointLightMortonCodes;
+    VulkanResource* pointLightIndices;
+    VulkanResource* spotLightMortonCodes;
+    VulkanResource* spotLightIndices;
     VulkanResource* pointLightMortonCodes_OUT;
     VulkanResource* pointLightIndices_OUT;
     VulkanResource* spotLightMortonCodes_OUT;
@@ -150,11 +161,13 @@ private:
     // Used to debug sample clusters
     VulkanResource* clusterColors;
     
-    VulkanResource* pointLightGrid[2];
-    VulkanResource* spotLightGrid[2];
+    VulkanResource* pointLightGrid;
+    VulkanResource* spotLightGrid;
     VulkanResource* lightCullingDebugTexture;
     VulkanResource* clusterSamplesDebugTexture;
     VulkanResource* clusterSamplesRenderTarget;
+
+    std::unique_ptr<vpr::Semaphore> computeUpdateCompleteSemaphore;
 
     /*
         Compute pipelines

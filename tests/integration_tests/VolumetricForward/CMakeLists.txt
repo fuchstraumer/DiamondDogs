@@ -7,6 +7,8 @@ ADD_INTEGRATION_TEST(VTF_Scene
     "../fixtures/VulkanScene.cpp"
     "../fixtures/CommonCreationFunctions.hpp"
     "../fixtures/CommonCreationFunctions.cpp"
+    "../fixtures/PerspectiveCamera.hpp"
+    "../fixtures/PerspectiveCamera.cpp"
 )
 
 TARGET_INCLUDE_DIRECTORIES(VTF_Scene PRIVATE

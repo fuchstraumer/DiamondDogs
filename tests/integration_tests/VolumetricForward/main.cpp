@@ -7,6 +7,7 @@
 #include "generation/ShaderGenerator.hpp"
 #include "easylogging++.h"
 INITIALIZE_EASYLOGGINGPP
+#include "glm/gtc/matrix_transform.hpp"
 
 static int screen_x() {
     auto& ctxt = RenderingContext::Get();
@@ -27,7 +28,7 @@ static double z_far() {
 }
 
 static double fov_y() {
-    return 75.0;
+    return glm::radians(75.0 * 0.50);
 }
 
 int main(int argc, char* argv[]) {
