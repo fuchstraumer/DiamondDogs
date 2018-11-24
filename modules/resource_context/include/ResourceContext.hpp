@@ -36,6 +36,7 @@ public:
         const size_t num_data, const gpu_image_resource_data_t* initial_data, const memory_type _memory_type, void* user_data = nullptr);
     VulkanResource* CreateResourceCopy(VulkanResource* src);
     void CopyResource(VulkanResource* src, VulkanResource** dest);
+    void CopyResourceContents(VulkanResource* src, VulkanResource* dest);
     void DestroyResource(VulkanResource* resource);
 
     void* MapResourceMemory(VulkanResource* resource, size_t size = 0, size_t offset = 0);
@@ -59,6 +60,7 @@ private:
     void createBufferResourceCopy(VulkanResource* src, VulkanResource** dst);
     void createImageResourceCopy(VulkanResource* src, VulkanResource** dst);
     void createSamplerResourceCopy(VulkanResource* src, VulkanResource** dst);
+    void createCombinedImageSamplerResourceCopy(VulkanResource * src, VulkanResource ** dest);
 
     void destroyResource(resource_iter_t iter);
     void destroyBuffer(resource_iter_t iter);

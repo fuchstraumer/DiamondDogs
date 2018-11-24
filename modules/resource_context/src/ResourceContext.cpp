@@ -292,8 +292,15 @@ VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateI
     return resource;
 }
 
-VulkanResource * ResourceContext::CreateResourceCopy(VulkanResource * src) {
-    return nullptr;
+VulkanResource* ResourceContext::CreateResourceCopy(VulkanResource * src) {
+    VulkanResource* result = nullptr;
+    {
+        std::lock_guard<std::mutex> emplaceGuard(containerMutex);
+        auto iter = resources.emplace(std::make_unique<VulkanResource>());
+        result = iter.first->get();
+    }
+    CopyResource(src, &result);
+    return result;
 }
 
 void ResourceContext::CopyResource(VulkanResource * src, VulkanResource** dest) {
@@ -306,6 +313,9 @@ void ResourceContext::CopyResource(VulkanResource * src, VulkanResource** dest) 
         break;
     case resource_type::IMAGE:
         createImageResourceCopy(src, dest);
+        break;
+    case resource_type::COMBINED_IMAGE_SAMPLER:
+        createCombinedImageSamplerResourceCopy(src, dest);
         break;
     default:
         throw std::domain_error("Passed source resource to CopyResource had invalid resource_type value.");
@@ -519,6 +529,8 @@ VkFormatFeatureFlags ResourceContext::featureFlagsFromUsage(const VkImageUsageFl
 }
 
 void ResourceContext::createBufferResourceCopy(VulkanResource * src, VulkanResource** dst) {
+    const VkBufferCreateInfo* create_info = reinterpret_cast<const VkBufferCreateInfo*>(src->Info);
+    
     throw std::runtime_error("");
 }
 
@@ -528,6 +540,10 @@ void ResourceContext::createImageResourceCopy(VulkanResource * src, VulkanResour
 
 void ResourceContext::createSamplerResourceCopy(VulkanResource * src, VulkanResource** dst) {
     throw std::runtime_error("");
+}
+
+void ResourceContext::createCombinedImageSamplerResourceCopy(VulkanResource* src, VulkanResource** dest) {
+
 }
 
 void ResourceContext::destroyResource(resource_iter_t iter) {
