@@ -34,8 +34,8 @@ Descriptor::~Descriptor() {
 
 void Descriptor::AddLayoutBinding(size_t idx, VkDescriptorType type) {
     assert(!created);
-    descriptorSetLayout->AddDescriptorBinding(type, VK_SHADER_STAGE_ALL, idx);
-    descriptorTypeMap.emplace(idx, type);
+    descriptorSetLayout->AddDescriptorBinding(type, VK_SHADER_STAGE_ALL, uint32_t(idx));
+    descriptorTypeMap.emplace(std::move(idx), std::move(type));
 }
 
 void Descriptor::AddLayoutBinding(const VkDescriptorSetLayoutBinding& binding) {
