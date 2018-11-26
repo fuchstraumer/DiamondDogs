@@ -243,7 +243,7 @@ void RenderingContext::Construct(const char* file_path) {
         }
     }
 
-    windowSurface = std::make_unique<vpr::SurfaceKHR>(vulkanInstance.get(), physicalDevices[0]->vkHandle(), window->glfwWindow());
+    windowSurface = std::make_unique<vpr::SurfaceKHR>(vulkanInstance.get(), physicalDevices[0]->vkHandle(), (void*)window->glfwWindow());
 
     createLogicalDevice(json_file, windowSurface->vkHandle(), &logicalDevice, vulkanInstance.get(), physicalDevices[0].get());
 
