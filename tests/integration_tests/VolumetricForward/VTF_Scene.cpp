@@ -223,17 +223,14 @@ constexpr static uint32_t NumBVHNodes[6]{
 };
 
 struct ComputePipelineState {
-    const vpr::Device* Device{ nullptr };
+    VkDevice Device{ VK_NULL_HANDLE };
     VkPipeline Handle{ VK_NULL_HANDLE };
-    VkComputePipelineCreateInfo CreateInfo{ vpr::vk_compute_pipeline_create_info_base };
-    std::shared_ptr<vpr::PipelineLayout> PipelineLayout{ nullptr };
 
     void Destroy() {
         if (Handle != VK_NULL_HANDLE) {
-            vkDestroyPipeline(Device->vkHandle(), Handle, nullptr);
+            vkDestroyPipeline(Device, Handle, nullptr);
             Handle = VK_NULL_HANDLE;
         }
-        PipelineLayout.reset();
     }
 
 };
@@ -331,8 +328,7 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     resourcePack = std::make_unique<ShaderResourcePack>(nullptr, vtfShaders);
 }
 
-void VTF_Scene::Destroy()
-{
+void VTF_Scene::Destroy() {
 }
 
 uint32_t VTF_Scene::GetNumLevelsBVH(uint32_t num_leaves) {
@@ -398,6 +394,114 @@ void VTF_Scene::createComputePools() {
     computePools[0]->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     computePools[1] = std::make_unique<vpr::CommandPool>(vprObjects.device->vkHandle(), pool_info);
     computePools[1]->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+}
+
+void VTF_Scene::createShaderModules() {
+    
+    std::vector<std::string> group_names;
+    {
+        auto group_names_dll = vtfShaders->GetShaderGroupNames();
+        for (size_t i = 0; i < group_names_dll.NumStrings; ++i) {
+            group_names.emplace_back(group_names_dll[i]);
+        }
+    }
+
+    for (const auto& name : group_names) {
+        const st::Shader* curr_shader = vtfShaders->GetShaderGroup(name.c_str());
+        // houseVert = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_VERTEX_BIT, house_shader_vert_spv, sizeof(house_shader_vert_spv));
+        size_t num_stages{ 0 };
+        curr_shader->GetShaderStages(&num_stages, nullptr);
+        std::vector<st::ShaderStage> stages(num_stages);
+        curr_shader->GetShaderStages(&num_stages, stages.data());
+        
+        for (const auto& stage : stages) {
+            size_t binary_sz{ 0 };
+            curr_shader->GetShaderBinary(stage, &binary_sz, nullptr);
+            std::vector<uint32_t> binary_data(binary_sz);
+            curr_shader->GetShaderBinary(stage, &binary_sz, binary_data.data());
+
+            shaderModules.emplace(stage, std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), stage.GetStage(), binary_data.data(), binary_data.size()));
+            groupStages[name].emplace_back(stage);
+        }
+
+
+        groupCaches.emplace(name, std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), std::hash<std::string>()(name)));
+
+    }
+
+}
+
+void VTF_Scene::createComputePipelines() {
+    createBVH_Pipelines();
+}
+
+void VTF_Scene::createBVH_Pipelines() {
+    const static std::string groupName{ "BuildBVH" };
+    const st::Shader* bvh_construction_shader = vtfShaders->GetShaderGroup("BuildBVH");
+    const st::ShaderStage& bvh_stage = groupStages.at("BuildBVH").front();
+
+    // retrieve and prepare to set constants
+    size_t num_specialization_constants{ 0 };
+    bvh_construction_shader->GetSpecializationConstants(&num_specialization_constants, nullptr);
+    std::vector<st::SpecializationConstant> constants(num_specialization_constants);
+    bvh_construction_shader->GetSpecializationConstants(&num_specialization_constants, constants.data());
+
+    VkPipelineShaderStageCreateInfo pipeline_shader_info = shaderModules.at(bvh_stage)->PipelineInfo();
+
+    VkComputePipelineCreateInfo pipeline_info_0{
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        nullptr,
+        VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT,
+        pipeline_shader_info,
+        resourcePack->PipelineLayout("BuildBVH"),
+        VK_NULL_HANDLE,
+        -1
+    };
+
+    buildBVHBottomPipeline = std::make_unique<ComputePipelineState>();
+    buildBVHBottomPipeline->Device = vprObjects.device->vkHandle();
+    VkResult result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at("BuildBVH")->vkHandle(), 1, &pipeline_info_0, nullptr, &buildBVHBottomPipeline->Handle);
+    VkAssert(result);
+
+    VkSpecializationMapEntry stage_entry{
+        0,
+        0,
+        sizeof(uint32_t)
+    };
+
+    const uint32_t specialization_value{ 1 };
+
+    VkSpecializationInfo specialization_info{
+        1,
+        &stage_entry,
+        sizeof(uint32_t),
+        &specialization_value
+    };
+
+    pipeline_shader_info.pSpecializationInfo = &specialization_info; 
+    
+    VkComputePipelineCreateInfo pipeline_info_1 {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        nullptr,
+        VK_PIPELINE_CREATE_DERIVATIVE_BIT,
+        pipeline_shader_info,
+        resourcePack->PipelineLayout("BuildBVH"),
+        buildBVHBottomPipeline->Handle,
+        -1
+    };
+
+    buildBVHTopPipeline = std::make_unique<ComputePipelineState>();
+    buildBVHTopPipeline->Device = vprObjects.device->vkHandle();
+    result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at("BuildBVH")->vkHandle(), 1, &pipeline_info_1, nullptr, &buildBVHTopPipeline->Handle);
+    
+}
+
+void VTF_Scene::createMergeSortPipelines() {
+
+}
+
+void VTF_Scene::createRadixSortPipelines() {
+
 }
 
 void VTF_Scene::createReadbackBuffers() {
