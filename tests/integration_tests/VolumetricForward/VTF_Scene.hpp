@@ -139,14 +139,14 @@ private:
     void updateClusterGrid();
 
     // Used for debugging
-    VulkanResource* pointLightsReadbackBuffer;
-    VulkanResource* spotLightsReadbackBuffer;
-    VulkanResource* directionalLightsReadbackBuffer;
+    VulkanResource* pointLightsReadbackBuffer{ nullptr };
+    VulkanResource* spotLightsReadbackBuffer{ nullptr };
+    VulkanResource* directionalLightsReadbackBuffer{ nullptr };
 
     // Cluster stuff
-    VulkanResource* assignLightsToClustersArgumentBuffer;
-    VulkanResource* debugClustersDrawIndirectArgumentBuffer;
-    VulkanResource* previousUniqueClusters;
+    VulkanResource* assignLightsToClustersArgumentBuffer{ nullptr };
+    VulkanResource* debugClustersDrawIndirectArgumentBuffer{ nullptr };
+    VulkanResource* previousUniqueClusters{ nullptr };
 
     // Sorting stuff
     VulkanResource* pointLightMortonCodes;
@@ -159,13 +159,13 @@ private:
     VulkanResource* spotLightIndices_OUT;
 
     // Used to debug sample clusters
-    VulkanResource* clusterColors;
+    VulkanResource* clusterColors{ nullptr };
     
-    VulkanResource* pointLightGrid;
-    VulkanResource* spotLightGrid;
-    VulkanResource* lightCullingDebugTexture;
-    VulkanResource* clusterSamplesDebugTexture;
-    VulkanResource* clusterSamplesRenderTarget;
+    VulkanResource* pointLightGrid{ nullptr };
+    VulkanResource* spotLightGrid{ nullptr };
+    VulkanResource* lightCullingDebugTexture{ nullptr };
+    VulkanResource* clusterSamplesDebugTexture{ nullptr };
+    VulkanResource* clusterSamplesRenderTarget{ nullptr };
 
     std::unique_ptr<vpr::Semaphore> computeUpdateCompleteSemaphore;
 
