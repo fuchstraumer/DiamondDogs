@@ -7,6 +7,8 @@
 #include <vector>
 #include <future>
 #include <atomic>
+#include <unordered_map>
+#include "common/ShaderStage.hpp"
 #include "glm/vec4.hpp"
 #include "glm/vec3.hpp"
 #include "glm/mat4x4.hpp"
@@ -130,6 +132,15 @@ private:
     // uses already made sort buffers to create copies
     void createSortingOutputBuffers();
 
+    void createShaderModules();
+    void createComputePipelines();
+    void createBVH_Pipelines();
+    void createMergeSortPipelines();
+    void createRadixSortPipelines();
+    void createGraphicsPipelines();
+    void createDebugPipelines();
+    void createRenderpasses();
+
     void computeUpdateLights();
     void computeReduceLights();
     void computeAndSortMortonCodes();
@@ -208,6 +219,11 @@ private:
     std::unique_ptr<vpr::Renderpass> debugLightCountsPass;
 
     std::unique_ptr<vpr::CommandPool> computePools[2];
+
+    std::unordered_map<st::ShaderStage, std::unique_ptr<vpr::ShaderModule>> shaderModules;
+    std::unordered_map<std::string, std::vector<st::ShaderStage>> groupStages;
+    std::unordered_map<std::string, std::unique_ptr<vpr::PipelineCache>> groupCaches;
+    std::unique_ptr<vpr::PipelineCache> cumulativeCache;
 
 };
 
