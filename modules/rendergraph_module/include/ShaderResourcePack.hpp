@@ -40,6 +40,7 @@ public:
     ~ShaderResourcePack();
 
     Descriptor* GetDescriptor(const std::string& name);
+    VkPipelineLayout PipelineLayout(const std::string& name) const;
     vpr::DescriptorPool* DescriptorPool() noexcept;
     const vpr::DescriptorPool* DescriptorPool() const noexcept;
     std::vector<VkDescriptorSet> ShaderGroupSets(const std::string& name) const noexcept;
