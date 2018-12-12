@@ -147,8 +147,11 @@ private:
     void createRadixSortPipeline();
     void createMergeSortPipelines();
     void createBVH_Pipelines();
+    void createIndirectArgsPipeline();
     void createGraphicsPipelines();
     void createDepthPrePassPipeline();
+    void createClusterSamplesPipeline();
+    void createDrawPipelines();
 
     // Used for debugging
     VulkanResource* pointLightsReadbackBuffer{ nullptr };
@@ -204,19 +207,21 @@ private:
     /*
         graphics and debug pipelines follow
     */
+    std::unique_ptr<vpr::GraphicsPipeline> loadingScreenPipeline;
     std::unique_ptr<vpr::GraphicsPipeline> depthPrePassPipeline;
+    std::unique_ptr<vpr::GraphicsPipeline> clusterSamplesPipeline;
     std::unique_ptr<vpr::GraphicsPipeline> opaquePassPipeline;
     std::unique_ptr<vpr::GraphicsPipeline> transparentPassPipeline;
+
     std::unique_ptr<vpr::GraphicsPipeline> debugPointLightsPipeline;
     std::unique_ptr<vpr::GraphicsPipeline> debugSpotLightsPipeline;
     std::unique_ptr<vpr::GraphicsPipeline> debugDepthTexturePipeline;
-    std::unique_ptr<vpr::GraphicsPipeline> loadingScreenPipeline;
-    std::unique_ptr<vpr::GraphicsPipeline> clusterSamplesPipeline;
     std::unique_ptr<vpr::GraphicsPipeline> debugClustersPipeline;
 
     std::unique_ptr<vpr::Renderpass> loadingScreenPass;
-    std::unique_ptr<vpr::Renderpass> clusteredFinalPass;
     std::unique_ptr<vpr::Renderpass> depthPrePass;
+    std::unique_ptr<vpr::Renderpass> clusterSamplesPass;
+    std::unique_ptr<vpr::Renderpass> clusteredFinalPass;
     std::unique_ptr<vpr::Renderpass> debugLightsPass;
     std::unique_ptr<vpr::Renderpass> renderDebugTexturePass;
     std::unique_ptr<vpr::Renderpass> debugClustersPass;

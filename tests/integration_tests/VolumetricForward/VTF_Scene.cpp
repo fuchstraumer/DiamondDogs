@@ -50,8 +50,30 @@ constexpr static std::array<VkVertexInputAttributeDescription, 4> VertexAttribut
     VkVertexInputAttributeDescription{ 3, 0, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 9 }
 };
 
-constexpr static VkVertexInputBindingDescription VertexBindingDescr{
-    0, sizeof(float) * 11, VK_VERTEX_INPUT_RATE_VERTEX
+constexpr static std::array<VkVertexInputBindingDescription, 1> VertexBindingDescriptions {
+    VkVertexInputBindingDescription{ 0, sizeof(float) * 11, VK_VERTEX_INPUT_RATE_VERTEX }
+};
+
+constexpr static VkPipelineColorBlendAttachmentState AdditiveBlendingAttachmentState {
+    VK_TRUE,
+    VK_BLEND_FACTOR_SRC_ALPHA,
+    VK_BLEND_FACTOR_ONE,
+    VK_BLEND_OP_ADD,
+    VK_BLEND_FACTOR_ONE,
+    VK_BLEND_FACTOR_ZERO,
+    VK_BLEND_OP_ADD,
+    VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
+};
+
+constexpr static VkPipelineColorBlendAttachmentState AlphaBlendingAttachmentState{
+    VK_TRUE,
+    VK_BLEND_FACTOR_SRC_ALPHA,
+    VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+    VK_BLEND_OP_ADD,
+    VK_BLEND_FACTOR_ONE,
+    VK_BLEND_FACTOR_ZERO,
+    VK_BLEND_OP_ADD,
+    VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
 };
 
 struct alignas(16) Matrices_t {
@@ -913,43 +935,6 @@ void VTF_Scene::createBVH_Pipelines() {
     
 }
 
-void VTF_Scene::createDepthPrePassPipeline() {
-    using namespace vpr;
-
-    static const std::string groupName{ "DepthPrePass" };
-    const st::Shader* depth_group = vtfShaders->GetShaderGroup(groupName.c_str());
-
-    const st::ShaderStage& depth_vert = groupStages.at(groupName).front();
-    const st::ShaderStage& depth_frag = groupStages.at(groupName).back();
-
-    GraphicsPipelineInfo pipeline_info;
-
-    pipeline_info.DepthStencilInfo.depthTestEnable = VK_TRUE;
-    pipeline_info.DepthStencilInfo.depthWriteEnable = VK_TRUE;
-    pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    pipeline_info.VertexInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(VertexAttributes.size());
-    pipeline_info.VertexInfo.pVertexAttributeDescriptions = VertexAttributes.data();
-    pipeline_info.VertexInfo.vertexBindingDescriptionCount = 1;
-    pipeline_info.VertexInfo.pVertexBindingDescriptions = &VertexBindingDescr;
-
-    pipeline_info.DynamicStateInfo.dynamicStateCount = 2;
-    static constexpr VkDynamicState States[2]{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-    pipeline_info.DynamicStateInfo.pDynamicStates = States;
-
-    VkGraphicsPipelineCreateInfo create_info = pipeline_info.GetPipelineCreateInfo();
-    const VkPipelineShaderStageCreateInfo shader_stages[2]{ shaderModules.at(depth_vert)->PipelineInfo(), shaderModules.at(depth_frag)->PipelineInfo() };
-    create_info.stageCount = 2;
-    create_info.pStages = shader_stages;
-    create_info.subpass = 0;
-    create_info.renderPass = depthPrePass->vkHandle();
-    create_info.layout = resourcePack->PipelineLayout(groupName);
-
-    depthPrePassPipeline = std::make_unique<vpr::GraphicsPipeline>(vprObjects.device->vkHandle());
-    depthPrePassPipeline->Init(create_info, groupCaches.at(groupName)->vkHandle());
-
-}
-
 void VTF_Scene::createMergeSortPipelines() {
     const static std::string groupName{ "MergeSort" };
     const st::Shader* merge_shader = vtfShaders->GetShaderGroup(groupName.c_str());
@@ -979,7 +964,7 @@ void VTF_Scene::createMergeSortPipelines() {
     mergeSortPipeline = std::make_unique<ComputePipelineState>(vprObjects.device->vkHandle());
 
     VkPipeline pipeline_handles_buf[2]{ VK_NULL_HANDLE, VK_NULL_HANDLE };
-    const VkComputePipelineCreateInfo pipeline_infos[2] {
+    const VkComputePipelineCreateInfo pipeline_infos[2]{
         VkComputePipelineCreateInfo{
             VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
             nullptr,
@@ -1006,6 +991,91 @@ void VTF_Scene::createMergeSortPipelines() {
     mergePathPartitionsPipeline->Handle = pipeline_handles_buf[0];
     mergeSortPipeline->Handle = pipeline_handles_buf[1];
 
+}
+
+void VTF_Scene::createGraphicsPipelines() {
+    createDepthPrePassPipeline();
+    createClusterSamplesPipeline();
+    createDrawPipelines();
+}
+
+void VTF_Scene::createDepthPrePassPipeline() {
+    using namespace vpr;
+
+    static const std::string groupName{ "DepthPrePass" };
+    const st::Shader* depth_group = vtfShaders->GetShaderGroup(groupName.c_str());
+
+    const st::ShaderStage& depth_vert = groupStages.at(groupName).front();
+    const st::ShaderStage& depth_frag = groupStages.at(groupName).back();
+
+    GraphicsPipelineInfo pipeline_info;
+
+    pipeline_info.DepthStencilInfo.depthTestEnable = VK_TRUE;
+    pipeline_info.DepthStencilInfo.depthWriteEnable = VK_TRUE;
+    pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    pipeline_info.VertexInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(VertexAttributes.size());
+    pipeline_info.VertexInfo.pVertexAttributeDescriptions = VertexAttributes.data();
+    pipeline_info.VertexInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(VertexBindingDescriptions.size());
+    pipeline_info.VertexInfo.pVertexBindingDescriptions = VertexBindingDescriptions.data();
+
+    pipeline_info.DynamicStateInfo.dynamicStateCount = 2;
+    static constexpr VkDynamicState States[2]{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    pipeline_info.DynamicStateInfo.pDynamicStates = States;
+
+    VkGraphicsPipelineCreateInfo create_info = pipeline_info.GetPipelineCreateInfo();
+    const VkPipelineShaderStageCreateInfo shader_stages[2]{ shaderModules.at(depth_vert)->PipelineInfo(), shaderModules.at(depth_frag)->PipelineInfo() };
+    create_info.stageCount = 2;
+    create_info.pStages = shader_stages;
+    create_info.subpass = 0;
+    create_info.renderPass = depthPrePass->vkHandle();
+    create_info.layout = resourcePack->PipelineLayout(groupName);
+
+    depthPrePassPipeline = std::make_unique<vpr::GraphicsPipeline>(vprObjects.device->vkHandle());
+    depthPrePassPipeline->Init(create_info, groupCaches.at(groupName)->vkHandle());
+
+}
+
+void VTF_Scene::createClusterSamplesPipeline() {
+    static const std::string groupName{ "ClusterSamples" };
+
+    const st::ShaderStage& samples_vert = groupStages.at(groupName).front();
+    const st::ShaderStage& samples_frag = groupStages.at(groupName).back();
+
+    vpr::GraphicsPipelineInfo pipeline_info;
+    pipeline_info.VertexInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(VertexBindingDescriptions.size());
+    pipeline_info.VertexInfo.pVertexBindingDescriptions = VertexBindingDescriptions.data();
+    pipeline_info.VertexInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(VertexAttributes.size());
+    pipeline_info.VertexInfo.pVertexAttributeDescriptions = VertexAttributes.data();
+
+    pipeline_info.DepthStencilInfo.depthWriteEnable = VK_FALSE;
+    pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    
+    pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_NONE; 
+    
+    pipeline_info.DynamicStateInfo.dynamicStateCount = 2;
+    static constexpr VkDynamicState States[2]{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    pipeline_info.DynamicStateInfo.pDynamicStates = States;
+
+    pipeline_info.ColorBlendInfo.attachmentCount = 1;
+    pipeline_info.ColorBlendInfo.pAttachments = &AdditiveBlendingAttachmentState;
+    pipeline_info.ColorBlendInfo.logicOpEnable = VK_FALSE;
+
+    VkGraphicsPipelineCreateInfo create_info = pipeline_info.GetPipelineCreateInfo();
+    const VkPipelineShaderStageCreateInfo stages[2]{ shaderModules.at(samples_vert)->PipelineInfo(), shaderModules.at(samples_frag)->PipelineInfo() };
+    create_info.stageCount = 2;
+    create_info.pStages = stages;
+    create_info.subpass = 0;
+    create_info.layout = resourcePack->PipelineLayout(groupName);
+    create_info.renderPass = clusterSamplesPass->vkHandle();
+
+    clusterSamplesPipeline = std::make_unique<vpr::GraphicsPipeline>(vprObjects.device->vkHandle());
+    clusterSamplesPipeline->Init(create_info, groupCaches.at(groupName)->vkHandle());
+
+}
+
+void VTF_Scene::createDrawPipelines() {
+    static const std::string groupName{ "DrawPass" };
 }
 
 void VTF_Scene::createReadbackBuffers() {
