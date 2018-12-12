@@ -42,6 +42,17 @@ constexpr static uint32_t AVERAGE_OVERLAPPING_LIGHTS_PER_CLUSTER = 20u;
 constexpr static uint32_t LIGHT_GRID_BLOCK_SIZE = 32u;
 constexpr static uint32_t CLUSTER_GRID_BLOCK_SIZE = 64u;
 
+constexpr static VkVertexInputAttributeDescription VertexAttributes[4]{
+    VkVertexInputAttributeDescription{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 },
+    VkVertexInputAttributeDescription{ 1, 0, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3 },
+    VkVertexInputAttributeDescription{ 2, 0, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 6 },
+    VkVertexInputAttributeDescription{ 3, 0, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 9 }
+};
+
+constexpr static VkVertexInputBindingDescription VertexBindingDescr{
+    0, sizeof(float) * 11, VK_VERTEX_INPUT_RATE_VERTEX
+};
+
 struct alignas(16) Matrices_t {
     glm::mat4 model;
     glm::mat4 view;
@@ -902,7 +913,19 @@ void VTF_Scene::createBVH_Pipelines() {
 }
 
 void VTF_Scene::createDepthPrePassPipeline() {
+    using namespace vpr;
 
+    static const std::string groupName{ "DepthPrePass" };
+    const st::Shader* depth_group = vtfShaders->GetShaderGroup(groupName.c_str());
+
+    const st::ShaderStage& depth_vert = groupStages.at(groupName).front();
+    const st::ShaderStage& depth_frag = groupStages.at(groupName).back();
+
+    GraphicsPipelineInfo pipeline_info;
+
+    pipeline_info.DepthStencilInfo.depthTestEnable = VK_TRUE;
+    pipeline_info.DepthStencilInfo.depthWriteEnable = VK_TRUE;
+    pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 }
 
 void VTF_Scene::createMergeSortPipelines() {
