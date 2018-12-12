@@ -30,6 +30,7 @@
 #include "core/ResourceUsage.hpp"
 #include "ShaderResourcePack.hpp"
 #include "PerspectiveCamera.hpp"
+#include <array>
 
 constexpr static uint32_t DEFAULT_MAX_LIGHTS = 2048u;
 const st::ShaderPack* vtfShaders{ nullptr };
@@ -42,7 +43,7 @@ constexpr static uint32_t AVERAGE_OVERLAPPING_LIGHTS_PER_CLUSTER = 20u;
 constexpr static uint32_t LIGHT_GRID_BLOCK_SIZE = 32u;
 constexpr static uint32_t CLUSTER_GRID_BLOCK_SIZE = 64u;
 
-constexpr static VkVertexInputAttributeDescription VertexAttributes[4]{
+constexpr static std::array<VkVertexInputAttributeDescription, 4> VertexAttributes {
     VkVertexInputAttributeDescription{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 },
     VkVertexInputAttributeDescription{ 1, 0, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3 },
     VkVertexInputAttributeDescription{ 2, 0, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 6 },
@@ -926,6 +927,27 @@ void VTF_Scene::createDepthPrePassPipeline() {
     pipeline_info.DepthStencilInfo.depthTestEnable = VK_TRUE;
     pipeline_info.DepthStencilInfo.depthWriteEnable = VK_TRUE;
     pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    pipeline_info.VertexInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(VertexAttributes.size());
+    pipeline_info.VertexInfo.pVertexAttributeDescriptions = VertexAttributes.data();
+    pipeline_info.VertexInfo.vertexBindingDescriptionCount = 1;
+    pipeline_info.VertexInfo.pVertexBindingDescriptions = &VertexBindingDescr;
+
+    pipeline_info.DynamicStateInfo.dynamicStateCount = 2;
+    static constexpr VkDynamicState States[2]{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    pipeline_info.DynamicStateInfo.pDynamicStates = States;
+
+    VkGraphicsPipelineCreateInfo create_info = pipeline_info.GetPipelineCreateInfo();
+    const VkPipelineShaderStageCreateInfo shader_stages[2]{ shaderModules.at(depth_vert)->PipelineInfo(), shaderModules.at(depth_frag)->PipelineInfo() };
+    create_info.stageCount = 2;
+    create_info.pStages = shader_stages;
+    create_info.subpass = 0;
+    create_info.renderPass = depthPrePass->vkHandle();
+    create_info.layout = resourcePack->PipelineLayout(groupName);
+
+    depthPrePassPipeline = std::make_unique<vpr::GraphicsPipeline>(vprObjects.device->vkHandle());
+    depthPrePassPipeline->Init(create_info, groupCaches.at(groupName)->vkHandle());
+
 }
 
 void VTF_Scene::createMergeSortPipelines() {
