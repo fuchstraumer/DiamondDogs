@@ -129,14 +129,12 @@ private:
 
     void createComputePools();
     void createReadbackBuffers();
-    // uses already made sort buffers to create copies
-    void createSortingOutputBuffers();
 
     void createShaderModules();
     void createComputePipelines();
     void createUpdateLightsPipeline();
     void createMortonCodePipeline();
-    void createRadixSortPipelines();
+    void createRadixSortPipeline();
     void createMergeSortPipelines();
     void createBVH_Pipelines();
     void createGraphicsPipelines();

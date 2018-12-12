@@ -436,8 +436,10 @@ void VTF_Scene::createShaderModules() {
 
 void VTF_Scene::createComputePipelines() {
     createUpdateLightsPipeline();
-    createBVH_Pipelines();
     createMortonCodePipeline();
+    createRadixSortPipeline();
+    createBVH_Pipelines();
+    createMergeSortPipelines();
 }
 
 void VTF_Scene::createUpdateLightsPipeline() {
