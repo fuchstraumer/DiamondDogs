@@ -19,6 +19,24 @@
             "cStandard": "c11",
             "cppStandard": "c++17",
             "intelliSenseMode": "msvc-x64"
+        },
+        {
+            "name" : "Android",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${env:VULKAN_SDK}/include",
+                "${workspaceFolder}/modules/**"
+            ],
+            "defines": [
+                "UNICODE",
+                "_UNICODE",
+                "NOMINMAX",
+                "__ANDROID__"
+            ],
+            "windowsSdkVersion": "10.0.17134.0",
+            "cStandard": "${default}",
+            "cppStandard": "c++14",
+            "intelliSenseMode": "msvc-x64"
         }
     ],
     "version": 4

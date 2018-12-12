@@ -223,6 +223,10 @@ constexpr static uint32_t NumBVHNodes[6]{
 };
 
 struct ComputePipelineState {
+
+    ComputePipelineState() = default;
+    ComputePipelineState(VkDevice dev) : Device(dev) {}
+
     VkDevice Device{ VK_NULL_HANDLE };
     VkPipeline Handle{ VK_NULL_HANDLE };
 
@@ -408,7 +412,6 @@ void VTF_Scene::createShaderModules() {
 
     for (const auto& name : group_names) {
         const st::Shader* curr_shader = vtfShaders->GetShaderGroup(name.c_str());
-        // houseVert = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_VERTEX_BIT, house_shader_vert_spv, sizeof(house_shader_vert_spv));
         size_t num_stages{ 0 };
         curr_shader->GetShaderStages(&num_stages, nullptr);
         std::vector<st::ShaderStage> stages(num_stages);
@@ -432,7 +435,72 @@ void VTF_Scene::createShaderModules() {
 }
 
 void VTF_Scene::createComputePipelines() {
+    createUpdateLightsPipeline();
     createBVH_Pipelines();
+    createMortonCodePipeline();
+}
+
+void VTF_Scene::createUpdateLightsPipeline() {
+    const static std::string groupName{ "UpdateLights" };
+    const st::Shader* update_lights_shader = vtfShaders->GetShaderGroup(groupName.c_str());
+    const st::ShaderStage& update_lights_stage = groupStages.at(groupName).front();
+
+    const VkComputePipelineCreateInfo pipeline_info{
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        nullptr,
+        0,
+        shaderModules.at(update_lights_stage)->PipelineInfo(),
+        resourcePack->PipelineLayout(groupName),
+        VK_NULL_HANDLE,
+        -1
+    };
+
+    updateLightsPipeline = std::make_unique<ComputePipelineState>(vprObjects.device->vkHandle());
+    VkResult result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &updateLightsPipeline->Handle);
+    VkAssert(result);
+
+}
+
+void VTF_Scene::createMortonCodePipeline() {
+    const static std::string groupName{ "ComputeMortonCodes" };
+    const st::Shader* compute_morton_shader = vtfShaders->GetShaderGroup(groupName.c_str());
+    const st::ShaderStage& morton_stage = groupStages.at(groupName).front();
+
+    const VkComputePipelineCreateInfo pipeline_info{
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        nullptr,
+        0,
+        shaderModules.at(morton_stage)->PipelineInfo(),
+        resourcePack->PipelineLayout("ComputeMortonCodes"),
+        VK_NULL_HANDLE,
+        -1
+    };
+
+    computeLightMortonCodesPipeline = std::make_unique<ComputePipelineState>(vprObjects.device->vkHandle());
+    VkResult result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &computeLightMortonCodesPipeline->Handle);
+    VkAssert(result);
+
+}
+
+void VTF_Scene::createRadixSortPipeline() {
+    const static std::string groupName{ "RadixSort" };
+    const st::Shader* radix_shader = vtfShaders->GetShaderGroup(groupName.c_str());
+    const st::ShaderStage& radix_stage = groupStages.at(groupName).front();
+
+    const VkComputePipelineCreateInfo pipeline_info{
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        nullptr,
+        0,
+        shaderModules.at(radix_stage)->PipelineInfo(),
+        resourcePack->PipelineLayout("RadixSort"),
+        VK_NULL_HANDLE,
+        -1
+    };
+
+    radixSortPipeline = std::make_unique<ComputePipelineState>(vprObjects.device->vkHandle());
+    VkResult result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &radixSortPipeline->Handle);
+    VkAssert(result);
+
 }
 
 void VTF_Scene::createBVH_Pipelines() {
@@ -494,14 +562,6 @@ void VTF_Scene::createBVH_Pipelines() {
     buildBVHTopPipeline->Device = vprObjects.device->vkHandle();
     result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at("BuildBVH")->vkHandle(), 1, &pipeline_info_1, nullptr, &buildBVHTopPipeline->Handle);
     
-}
-
-void VTF_Scene::createMergeSortPipelines() {
-
-}
-
-void VTF_Scene::createRadixSortPipelines() {
-
 }
 
 void VTF_Scene::createReadbackBuffers() {

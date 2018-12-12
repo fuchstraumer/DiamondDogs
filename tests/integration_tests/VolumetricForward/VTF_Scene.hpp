@@ -134,9 +134,11 @@ private:
 
     void createShaderModules();
     void createComputePipelines();
-    void createBVH_Pipelines();
-    void createMergeSortPipelines();
+    void createUpdateLightsPipeline();
+    void createMortonCodePipeline();
     void createRadixSortPipelines();
+    void createMergeSortPipelines();
+    void createBVH_Pipelines();
     void createGraphicsPipelines();
     void createDebugPipelines();
     void createRenderpasses();
