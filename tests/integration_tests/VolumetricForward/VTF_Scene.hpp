@@ -127,9 +127,19 @@ private:
     void draw() final;
     void endFrame() final;
 
-    void createComputePools();
-    void createReadbackBuffers();
+    void computeUpdateLights();
+    void computeReduceLights();
+    void computeAndSortMortonCodes();
+    void buildLightBVH();
+    void submitComputeUpdates();
 
+    void updateClusterGrid();
+
+    void createComputePools();
+    void createDepthPrePass();
+    // must be done after renderpass creation
+    void createDepthPrePassResources();
+    void createReadbackBuffers();
     void createShaderModules();
     void createComputePipelines();
     void createUpdateLightsPipeline();
@@ -138,16 +148,7 @@ private:
     void createMergeSortPipelines();
     void createBVH_Pipelines();
     void createGraphicsPipelines();
-    void createDebugPipelines();
-    void createRenderpasses();
-
-    void computeUpdateLights();
-    void computeReduceLights();
-    void computeAndSortMortonCodes();
-    void buildLightBVH();
-    void submitComputeUpdates();
-
-    void updateClusterGrid();
+    void createDepthPrePassPipeline();
 
     // Used for debugging
     VulkanResource* pointLightsReadbackBuffer{ nullptr };
@@ -180,6 +181,9 @@ private:
 
     std::unique_ptr<vpr::Semaphore> computeUpdateCompleteSemaphore;
 
+    VulkanResource* depthPrePassImage{ nullptr };
+    std::unique_ptr<vpr::Framebuffer> depthPrePassFramebuffer;
+
     /*
         Compute pipelines
     */
@@ -200,9 +204,9 @@ private:
     /*
         graphics and debug pipelines follow
     */
+    std::unique_ptr<vpr::GraphicsPipeline> depthPrePassPipeline;
     std::unique_ptr<vpr::GraphicsPipeline> opaquePassPipeline;
     std::unique_ptr<vpr::GraphicsPipeline> transparentPassPipeline;
-    std::unique_ptr<vpr::GraphicsPipeline> depthPrePassPipeline;
     std::unique_ptr<vpr::GraphicsPipeline> debugPointLightsPipeline;
     std::unique_ptr<vpr::GraphicsPipeline> debugSpotLightsPipeline;
     std::unique_ptr<vpr::GraphicsPipeline> debugDepthTexturePipeline;
