@@ -531,15 +531,15 @@ void VTF_Scene::createBVH_Pipelines() {
     VkResult result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at("BuildBVH")->vkHandle(), 1, &pipeline_info_0, nullptr, &buildBVHBottomPipeline->Handle);
     VkAssert(result);
 
-    VkSpecializationMapEntry stage_entry{
+    constexpr static VkSpecializationMapEntry stage_entry{
         0,
         0,
         sizeof(uint32_t)
     };
 
-    const uint32_t specialization_value{ 1 };
+    constexpr static uint32_t specialization_value{ 1 };
 
-    VkSpecializationInfo specialization_info{
+    const VkSpecializationInfo specialization_info{
         1,
         &stage_entry,
         sizeof(uint32_t),
