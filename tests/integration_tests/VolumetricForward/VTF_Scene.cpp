@@ -564,6 +564,64 @@ void VTF_Scene::createBVH_Pipelines() {
     
 }
 
+void VTF_Scene::createMergeSortPipelines() {
+    const static std::string groupName{ "MergeSort" };
+    const st::Shader* merge_shader = vtfShaders->GetShaderGroup(groupName.c_str());
+    const st::ShaderStage& radix_stage = groupStages.at(groupName).front();
+
+    mergePathPartitionsPipeline = std::make_unique<ComputePipelineState>(vprObjects.device->vkHandle());
+
+    VkPipelineShaderStageCreateInfo shader_info = shaderModules.at(radix_stage)->PipelineInfo();
+
+    constexpr static VkSpecializationMapEntry stage_entry{
+        0,
+        0,
+        sizeof(uint32_t)
+    };
+
+    constexpr static uint32_t specialization_value{ 1 };
+
+    const VkSpecializationInfo specialization_info{
+        1,
+        &stage_entry,
+        sizeof(uint32_t),
+        &specialization_value
+    };
+
+    shader_info.pSpecializationInfo = &specialization_info;
+
+    mergeSortPipeline = std::make_unique<ComputePipelineState>(vprObjects.device->vkHandle());
+
+    VkPipeline pipeline_handles_buf[2]{ VK_NULL_HANDLE, VK_NULL_HANDLE };
+    const VkComputePipelineCreateInfo pipeline_infos[2] {
+        VkComputePipelineCreateInfo{
+            VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            nullptr,
+            VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT,
+            shaderModules.at(radix_stage)->PipelineInfo(),
+            resourcePack->PipelineLayout("MergeSort"),
+            VK_NULL_HANDLE,
+            -1
+        },
+        VkComputePipelineCreateInfo{
+            VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            nullptr,
+            VK_PIPELINE_CREATE_DERIVATIVE_BIT,
+            shader_info,
+            VK_NULL_HANDLE,
+            0 // index is previous pipeline to derive from
+        }
+    };
+
+    VkResult result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at(groupName)->vkHandle(), 2, pipeline_infos, nullptr, pipeline_handles_buf);
+    VkAssert(result);
+
+    // copy handles over
+    mergePathPartitionsPipeline->Handle = pipeline_handles_buf[0];
+    mergeSortPipeline->Handle = pipeline_handles_buf[1];
+
+}
+
 void VTF_Scene::createReadbackBuffers() {
 
 }
