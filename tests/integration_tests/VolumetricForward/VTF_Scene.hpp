@@ -12,6 +12,7 @@
 #include "glm/vec4.hpp"
 #include "glm/vec3.hpp"
 #include "glm/mat4x4.hpp"
+#include <array>
 
 struct VulkanResource;
 struct ComputePipelineState;
@@ -136,7 +137,8 @@ private:
     void updateClusterGrid();
 
     void createComputePools();
-    void createDepthPrePass();
+    void createDepthAndClusterSamplesSubpasses();
+    void createDepthAndClusterSamplesPass();
     // must be done after renderpass creation
     void createDepthPrePassResources();
     void createReadbackBuffers();
@@ -174,8 +176,7 @@ private:
     VulkanResource* spotLightIndices_OUT;
 
     // Used to debug sample clusters
-    VulkanResource* clusterColors{ nullptr };
-    
+    VulkanResource* clusterColors{ nullptr };  
     VulkanResource* pointLightGrid{ nullptr };
     VulkanResource* spotLightGrid{ nullptr };
     VulkanResource* lightCullingDebugTexture{ nullptr };
@@ -219,13 +220,16 @@ private:
     std::unique_ptr<vpr::GraphicsPipeline> debugClustersPipeline;
 
     std::unique_ptr<vpr::Renderpass> loadingScreenPass;
-    std::unique_ptr<vpr::Renderpass> depthPrePass;
-    std::unique_ptr<vpr::Renderpass> clusterSamplesPass;
+    std::unique_ptr<vpr::Renderpass> depthAndClusterSamplesPass;
     std::unique_ptr<vpr::Renderpass> clusteredFinalPass;
     std::unique_ptr<vpr::Renderpass> debugLightsPass;
     std::unique_ptr<vpr::Renderpass> renderDebugTexturePass;
     std::unique_ptr<vpr::Renderpass> debugClustersPass;
     std::unique_ptr<vpr::Renderpass> debugLightCountsPass;
+
+    std::array<VkSubpassDependency, 3> depthAndClusterDependencies;
+    VkSubpassDescription depthPrePassDescription;
+    VkSubpassDescription clusterSamplesDescription;
 
     std::unique_ptr<vpr::CommandPool> computePools[2];
 

@@ -30,7 +30,6 @@
 #include "core/ResourceUsage.hpp"
 #include "ShaderResourcePack.hpp"
 #include "PerspectiveCamera.hpp"
-#include <array>
 
 constexpr static uint32_t DEFAULT_MAX_LIGHTS = 2048u;
 const st::ShaderPack* vtfShaders{ nullptr };
@@ -69,6 +68,17 @@ constexpr static VkPipelineColorBlendAttachmentState AlphaBlendingAttachmentStat
     VK_TRUE,
     VK_BLEND_FACTOR_SRC_ALPHA,
     VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+    VK_BLEND_OP_ADD,
+    VK_BLEND_FACTOR_ONE,
+    VK_BLEND_FACTOR_ZERO,
+    VK_BLEND_OP_ADD,
+    VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
+};
+
+constexpr static VkPipelineColorBlendAttachmentState DefaultBlendingAttachmentState{
+    VK_FALSE,
+    VK_BLEND_FACTOR_ONE,
+    VK_BLEND_FACTOR_ZERO,
     VK_BLEND_OP_ADD,
     VK_BLEND_FACTOR_ONE,
     VK_BLEND_FACTOR_ZERO,
@@ -709,8 +719,30 @@ void VTF_Scene::createComputePools() {
     computePools[1]->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 }
 
-void VTF_Scene::createDepthPrePass() {
+void VTF_Scene::createDepthAndClusterSamplesSubpasses() {
 
+    depthPrePassDescription = VkSubpassDescription{
+        0,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        0u,
+        nullptr,
+        0u,
+        nullptr,
+        nullptr,
+        nullptr, // depth reference
+        0u,
+        nullptr
+    };
+
+    depthAndClusterDependencies[0] = VkSubpassDependency{
+        0,
+        1,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_ACCESS_SHADER_READ_BIT,
+        VK_DEPENDENCY_BY_REGION_BIT
+    };
 }
 
 void VTF_Scene::createDepthPrePassResources() {
@@ -1075,7 +1107,31 @@ void VTF_Scene::createClusterSamplesPipeline() {
 }
 
 void VTF_Scene::createDrawPipelines() {
-    static const std::string groupName{ "DrawPass" };
+    static const std::string groupName{ "Clustered" };
+
+    const st::ShaderStage& draw_vert = groupStages.at(groupName).front();
+    const st::ShaderStage& draw_frag = groupStages.at(groupName).back();
+    const VkPipelineShaderStageCreateInfo stages[2]{ 
+        shaderModules.at(draw_vert)->PipelineInfo(), 
+        shaderModules.at(draw_frag)->PipelineInfo() 
+    };
+
+    vpr::GraphicsPipelineInfo pipeline_info;
+
+    pipeline_info.VertexInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(VertexBindingDescriptions.size());
+    pipeline_info.VertexInfo.pVertexBindingDescriptions = VertexBindingDescriptions.data();
+    pipeline_info.VertexInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(VertexAttributes.size());
+    pipeline_info.VertexInfo.pVertexAttributeDescriptions = VertexAttributes.data();
+
+    pipeline_info.DynamicStateInfo.dynamicStateCount = 2;
+    static constexpr VkDynamicState States[2]{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    pipeline_info.DynamicStateInfo.pDynamicStates = States;
+
+    pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    VkGraphicsPipelineCreateInfo opaque_info = pipeline_info.GetPipelineCreateInfo();
+
+
 }
 
 void VTF_Scene::createReadbackBuffers() {
