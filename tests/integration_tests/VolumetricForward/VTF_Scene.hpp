@@ -137,6 +137,7 @@ private:
     void updateClusterGrid();
 
     void createComputePools();
+    void createClusterSamplesResources();
     void createDepthAndClusterSamplesSubpasses();
     void createDepthAndClusterSamplesPass();
     // must be done after renderpass creation
@@ -187,6 +188,8 @@ private:
 
     VulkanResource* depthPrePassImage{ nullptr };
     std::unique_ptr<vpr::Framebuffer> depthPrePassFramebuffer;
+    VulkanResource* clusterSamplesImage{ nullptr };
+    std::unique_ptr<vpr::Framebuffer> clusterSamplesFramebuffer;
 
     /*
         Compute pipelines

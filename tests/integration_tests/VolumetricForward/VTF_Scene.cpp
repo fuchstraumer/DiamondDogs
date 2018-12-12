@@ -719,6 +719,62 @@ void VTF_Scene::createComputePools() {
     computePools[1]->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 }
 
+void VTF_Scene::createClusterSamplesResources() {
+    const VkFormat cluster_samples_color_format = VK_FORMAT_R8G8B8A8_UNORM;
+    const VkImageTiling tiling_type = vprObjects.device->GetFormatTiling(cluster_samples_color_format, VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT);
+    const uint32_t img_width = vprObjects.swapchain->Extent().width;
+    const uint32_t img_height = vprObjects.swapchain->Extent().height;
+
+    const VkImageCreateInfo img_info{
+        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        nullptr,
+        0,
+        VK_IMAGE_TYPE_2D,
+        cluster_samples_color_format,
+        VkExtent3D{ img_width, img_height, 1 },
+        1,
+        1,
+        VK_SAMPLE_COUNT_1_BIT,
+        tiling_type,
+        // need transfer src bit so we can dump it to cpu-visible textures
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        VK_SHARING_MODE_CONCURRENT,
+        0,
+        nullptr,
+        VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    const VkImageViewCreateInfo view_info{
+        VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_IMAGE_VIEW_TYPE_2D,
+        cluster_samples_color_format,
+        VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
+    };
+
+    auto& rsrc = ResourceContext::Get();
+    clusterSamplesImage = rsrc.CreateImage(&img_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    const VkImageView view_handle = (VkImageView)clusterSamplesImage->ViewHandle;
+
+    const VkFramebufferCreateInfo framebuffer_info{
+        VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        depthAndClusterSamplesPass->vkHandle(),
+        1,
+        &view_handle,
+        img_width,
+        img_height,
+        1
+    };
+
+    clusterSamplesFramebuffer = std::make_unique<vpr::Framebuffer>(vprObjects.device->vkHandle(), framebuffer_info);
+
+}
+
 void VTF_Scene::createDepthAndClusterSamplesSubpasses() {
 
     depthPrePassDescription = VkSubpassDescription{
@@ -789,7 +845,7 @@ void VTF_Scene::createDepthPrePassResources() {
         VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
         nullptr,
         0,
-        depthPrePass->vkHandle(),
+        depthAndClusterSamplesPass->vkHandle(),
         1,
         &view_handle,
         img_width,
