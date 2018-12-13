@@ -10,6 +10,7 @@
 #include "DescriptorPool.hpp"
 #include "DescriptorSet.hpp"
 #include "DescriptorSetLayout.hpp"
+#include "Framebuffer.hpp"
 #include "PipelineLayout.hpp"
 #include "PipelineCache.hpp"
 #include "Semaphore.hpp"
@@ -53,9 +54,18 @@ constexpr static std::array<VkVertexInputBindingDescription, 1> VertexBindingDes
     VkVertexInputBindingDescription{ 0, sizeof(float) * 11, VK_VERTEX_INPUT_RATE_VERTEX }
 };
 
+constexpr static VkClearValue DefaultColorClearValue{ 0.1f, 0.1f, 0.15f, 1.0f };
+constexpr static VkClearValue DefaultDepthStencilClearValue{ 1.0f, 0 };
+
 constexpr static std::array<const VkClearValue, 2> DepthPrePassAndClusterSamplesClearValues {
-    VkClearValue{ 0.1, 0.1f, 0.15f, 1.0f },
-    VkClearValue{ 1.0f, 0 }
+    DefaultColorClearValue,
+    DefaultDepthStencilClearValue
+};
+
+constexpr static std::array<const VkClearValue, 3> DrawPassClearValues{
+    DefaultColorClearValue,
+    DefaultDepthStencilClearValue,
+    DefaultColorClearValue
 };
 
 
@@ -380,39 +390,14 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     vprObjects = objects;
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
     resourcePack = std::make_unique<ShaderResourcePack>(nullptr, vtfShaders);
+    createComputePools();
+    createRenderpasses();
+    createShaderModules();
+    createComputePipelines();
+    createGraphicsPipelines();
 }
 
 void VTF_Scene::Destroy() {
-}
-
-uint32_t VTF_Scene::GetNumLevelsBVH(uint32_t num_leaves) {
-    static const float log32f = glm::log(32.0f);
-
-    uint32_t num_levels = 0;
-    if (num_leaves > 0) {
-        num_levels = static_cast<uint32_t>(glm::ceil(glm::log(num_leaves) / log32f));
-    }
-
-    return num_levels;
-}
-
-uint32_t VTF_Scene::GetNumNodesBVH(uint32_t num_leaves) {
-    uint32_t num_levels = GetNumLevelsBVH(num_leaves);
-    uint32_t num_nodes = 0;
-    if (num_levels > 0 && num_levels < _countof(NumBVHNodes)) {
-        num_nodes = NumBVHNodes[num_levels - 1];
-    }
-    
-    return num_nodes;
-}
-
-void VTF_Scene::GenerateSceneLights() {
-    State.PointLights = GenerateLights<PointLight>(SceneConfig.MaxLights);
-    LightCounts.NumPointLights = static_cast<uint32_t>(State.PointLights.size());
-    State.SpotLights = GenerateLights<SpotLight>(SceneConfig.MaxLights);
-    LightCounts.NumSpotLights = static_cast<uint32_t>(State.SpotLights.size());
-    State.DirectionalLights = GenerateLights<DirectionalLight>(8);
-    LightCounts.NumDirectionalLights = static_cast<uint32_t>(State.DirectionalLights.size());
 }
 
 void VTF_Scene::update() {
@@ -495,7 +480,6 @@ void VTF_Scene::computeAndSortMortonCodes() {
     uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(glm::max(LightCounts.NumPointLights, LightCounts.NumSpotLights) / 1024.0f));
     vkCmdDispatch(cmd, num_thread_groups, 1, 1);
 
-    auto cmd = computePools[0]->GetCmdBuffer(0);
     SortParams sort_params;
     sort_params.ChunkSize = SORT_NUM_THREADS_PER_THREAD_GROUP;
     const VkBufferCopy copy{ 0, 0, VK_WHOLE_SIZE };
@@ -729,8 +713,8 @@ void VTF_Scene::createRenderpasses() {
     createDepthAndClusterSamplesPass();
     createDepthPrePassResources();
     createClusterSamplesResources();
-    createDrawFramebuffers();
     createDrawRenderpass();
+    createDrawFramebuffers();
 }
 
 void VTF_Scene::createDepthAndClusterSamplesPass() {
@@ -830,7 +814,7 @@ VulkanResource* VTF_Scene::createDepthStencilResource() const {
         VK_SAMPLE_COUNT_1_BIT,
         vprObjects.device->GetFormatTiling(depth_format, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-        VK_SHARING_MODE_CONCURRENT,
+        VK_SHARING_MODE_EXCLUSIVE,
         0,
         nullptr,
         VK_IMAGE_LAYOUT_UNDEFINED
@@ -876,7 +860,7 @@ void VTF_Scene::createClusterSamplesResources() {
         tiling_type,
         // need transfer src bit so we can dump it to cpu-visible textures
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-        VK_SHARING_MODE_CONCURRENT,
+        VK_SHARING_MODE_EXCLUSIVE,
         0,
         nullptr,
         VK_IMAGE_LAYOUT_UNDEFINED
@@ -913,6 +897,95 @@ void VTF_Scene::createClusterSamplesResources() {
     };
 
     clusterSamplesFramebuffer = std::make_unique<vpr::Framebuffer>(vprObjects.device->vkHandle(), framebuffer_info);
+
+}
+
+void VTF_Scene::createDrawRenderpass() {
+
+    drawPassDependencies = decltype(drawPassDependencies){
+        VkSubpassDependency{
+            VK_SUBPASS_EXTERNAL,
+            0,
+            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_MEMORY_READ_BIT,
+            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_DEPENDENCY_BY_REGION_BIT
+        },
+        VkSubpassDependency{
+            0,
+            VK_SUBPASS_EXTERNAL,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_ACCESS_MEMORY_READ_BIT,
+            VK_DEPENDENCY_BY_REGION_BIT
+        }
+    };
+
+    drawPassDescriptions[0] = VkSubpassDescription{
+        0u,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        0u,
+        nullptr,
+        1u,
+        &drawPassColorRef,
+        &drawPassPresentRef,
+        &drawPassDepthRef,
+        0u,
+        nullptr
+    };
+
+    const std::array<VkAttachmentDescription, 3> attachments{
+        VkAttachmentDescription{ // color, msaa
+            0,
+            vprObjects.swapchain->ColorFormat(),
+            MSAA_SampleCount,
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+        },
+        VkAttachmentDescription{ // depth
+            0,
+            vprObjects.device->FindDepthFormat(),
+            MSAA_SampleCount,
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        },
+        VkAttachmentDescription{ // present src
+            0,
+            vprObjects.swapchain->ColorFormat(),
+            VK_SAMPLE_COUNT_1_BIT,
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+        }
+    };
+
+    const VkRenderPassCreateInfo create_info{
+        VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        nullptr,
+        0,
+        static_cast<uint32_t>(attachments.size()),
+        attachments.data(),
+        static_cast<uint32_t>(drawPassDescriptions.size()),
+        drawPassDescriptions.data(),
+        static_cast<uint32_t>(drawPassDependencies.size()),
+        drawPassDependencies.data()
+    };
+
+    primaryDrawPass = std::make_unique<vpr::Renderpass>(vprObjects.device->vkHandle(), create_info);
+    primaryDrawPass->SetupBeginInfo(DrawPassClearValues.data(), DrawPassClearValues.size(), vprObjects.swapchain->Extent());
 
 }
 
@@ -989,7 +1062,7 @@ void VTF_Scene::createShaderModules() {
         const st::Shader* curr_shader = vtfShaders->GetShaderGroup(name.c_str());
         size_t num_stages{ 0 };
         curr_shader->GetShaderStages(&num_stages, nullptr);
-        std::vector<st::ShaderStage> stages(num_stages);
+        std::vector<st::ShaderStage> stages(num_stages, st::ShaderStage("aaaa", VK_SHADER_STAGE_ALL));
         curr_shader->GetShaderStages(&num_stages, stages.data());
         
         for (const auto& stage : stages) {
@@ -998,7 +1071,7 @@ void VTF_Scene::createShaderModules() {
             std::vector<uint32_t> binary_data(binary_sz);
             curr_shader->GetShaderBinary(stage, &binary_sz, binary_data.data());
 
-            shaderModules.emplace(stage, std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), stage.GetStage(), binary_data.data(), binary_data.size()));
+            shaderModules.emplace(stage, std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), stage.GetStage(), binary_data.data(), static_cast<uint32_t>(binary_data.size())));
             groupStages[name].emplace_back(stage);
         }
 
@@ -1306,4 +1379,34 @@ void VTF_Scene::createDrawPipelines() {
     VkGraphicsPipelineCreateInfo opaque_info = pipeline_info.GetPipelineCreateInfo();
 
 
+}
+
+uint32_t VTF_Scene::GetNumLevelsBVH(uint32_t num_leaves) {
+    static const float log32f = glm::log(32.0f);
+
+    uint32_t num_levels = 0;
+    if (num_leaves > 0) {
+        num_levels = static_cast<uint32_t>(glm::ceil(glm::log(num_leaves) / log32f));
+    }
+
+    return num_levels;
+}
+
+uint32_t VTF_Scene::GetNumNodesBVH(uint32_t num_leaves) {
+    uint32_t num_levels = GetNumLevelsBVH(num_leaves);
+    uint32_t num_nodes = 0;
+    if (num_levels > 0 && num_levels < _countof(NumBVHNodes)) {
+        num_nodes = NumBVHNodes[num_levels - 1];
+    }
+
+    return num_nodes;
+}
+
+void VTF_Scene::GenerateSceneLights() {
+    State.PointLights = GenerateLights<PointLight>(SceneConfig.MaxLights);
+    LightCounts.NumPointLights = static_cast<uint32_t>(State.PointLights.size());
+    State.SpotLights = GenerateLights<SpotLight>(SceneConfig.MaxLights);
+    LightCounts.NumSpotLights = static_cast<uint32_t>(State.SpotLights.size());
+    State.DirectionalLights = GenerateLights<DirectionalLight>(8);
+    LightCounts.NumDirectionalLights = static_cast<uint32_t>(State.DirectionalLights.size());
 }
