@@ -159,7 +159,7 @@ private:
     void createDrawPipelines();
 
     // generic since we use it twice, once for prepass once for rendertarget
-    VulkanResource* createDepthStencilResource() const;
+    VulkanResource* createDepthStencilResource(const VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT) const;
 
     // Used for debugging
     VulkanResource* pointLightsReadbackBuffer{ nullptr };

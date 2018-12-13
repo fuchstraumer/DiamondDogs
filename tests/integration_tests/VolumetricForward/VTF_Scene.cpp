@@ -797,7 +797,7 @@ void VTF_Scene::createDepthAndClusterSamplesPass() {
 
 }
 
-VulkanResource* VTF_Scene::createDepthStencilResource() const {
+VulkanResource* VTF_Scene::createDepthStencilResource(const VkSampleCountFlagBits samples) const {
     const VkFormat depth_format = vprObjects.device->FindDepthFormat();
     const uint32_t img_width = vprObjects.swapchain->Extent().width;
     const uint32_t img_height = vprObjects.swapchain->Extent().height;
@@ -1025,7 +1025,7 @@ void VTF_Scene::createDrawFramebuffers() {
 
     auto& rsrc = ResourceContext::Get();
     for (uint32_t i = 0u; i < img_count; ++i) {
-        depthRendertargetImages.emplace_back(createDepthStencilResource());
+        depthRendertargetImages.emplace_back(createDepthStencilResource(MSAA_SampleCount));
         drawMultisampleImages.emplace_back(rsrc.CreateImage(&img_info, &view_info, 0u, nullptr, memory_type::DEVICE_LOCAL, nullptr));
         const VkImageView view_handles[3]{ 
             (VkImageView)drawMultisampleImages.back()->ViewHandle, (VkImageView)depthRendertargetImages.back()->ViewHandle, 
