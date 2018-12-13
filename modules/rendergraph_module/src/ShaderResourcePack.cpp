@@ -24,6 +24,11 @@ ShaderResourcePack::ShaderResourcePack(RenderGraph* _graph, const st::ShaderPack
 
 ShaderResourcePack::~ShaderResourcePack() {}
 
+Descriptor* ShaderResourcePack::GetDescriptor(const std::string & name) {
+    const size_t idx = shaderGroupNameIdxMap.at(name);
+    return descriptorSets[idx].get();
+}
+
 VkPipelineLayout ShaderResourcePack::PipelineLayout(const std::string& name) const {
     const size_t idx = shaderGroupNameIdxMap.at(name);
     return pipelineLayouts[idx]->vkHandle();
