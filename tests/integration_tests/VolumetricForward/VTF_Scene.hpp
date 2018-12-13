@@ -112,8 +112,9 @@ public:
     inline static bool ShowLightsHeirarchy = false;
     inline static bool ShowOptionsWindow = false;
     inline static bool ShowNotification = false;
+    inline static VkSampleCountFlagBits MSAA_SampleCount{ VK_SAMPLE_COUNT_2_BIT };
 
-    inline static SceneState State{};
+    inline static SceneState State;
 
     std::future<bool> LoadingTask;
     std::atomic<bool> isLoading{ true };
@@ -141,8 +142,8 @@ private:
     void createDepthAndClusterSamplesPass();
     void createDepthPrePassResources();
     void createClusterSamplesResources();
-    void createDrawFramebuffers();
     void createDrawRenderpass();
+    void createDrawFramebuffers();
     void createReadbackBuffers();
     void createShaderModules();
     void createComputePipelines();
@@ -195,7 +196,7 @@ private:
     VulkanResource* clusterSamplesHostImageCopy{ nullptr };
     std::unique_ptr<vpr::Framebuffer> clusterSamplesFramebuffer;
 
-    VulkanResource* depthRendertargetImage;
+    std::vector<VulkanResource*> depthRendertargetImages;
     std::vector<VulkanResource*> drawMultisampleImages;
     std::vector<std::unique_ptr<vpr::Framebuffer>> drawFramebuffers;
 
@@ -232,7 +233,7 @@ private:
 
     std::unique_ptr<vpr::Renderpass> loadingScreenPass;
     std::unique_ptr<vpr::Renderpass> depthAndClusterSamplesPass;
-    std::unique_ptr<vpr::Renderpass> clusteredFinalPass;
+    std::unique_ptr<vpr::Renderpass> primaryDrawPass;
     std::unique_ptr<vpr::Renderpass> debugLightsPass;
     std::unique_ptr<vpr::Renderpass> renderDebugTexturePass;
     std::unique_ptr<vpr::Renderpass> debugClustersPass;

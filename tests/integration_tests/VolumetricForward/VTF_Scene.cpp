@@ -890,7 +890,7 @@ void VTF_Scene::createClusterSamplesResources() {
         VK_IMAGE_VIEW_TYPE_2D,
         cluster_samples_color_format,
         VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
-        VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
     };
 
     auto& rsrc = ResourceContext::Get();
@@ -918,22 +918,61 @@ void VTF_Scene::createClusterSamplesResources() {
 
 void VTF_Scene::createDrawFramebuffers() {
 
-    depthRendertargetImage = createDepthStencilResource();
-
     const uint32_t img_count = vprObjects.swapchain->ImageCount();
     const VkExtent2D& img_extent = vprObjects.swapchain->Extent();
 
     const VkImageCreateInfo img_info{
-
+        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        nullptr,
+        0,
+        VK_IMAGE_TYPE_2D,
+        vprObjects.swapchain->ColorFormat(),
+        VkExtent3D{ img_extent.width, img_extent.height, 1 },
+        1,
+        1,
+        MSAA_SampleCount,
+        vprObjects.device->GetFormatTiling(vprObjects.swapchain->ColorFormat(), VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT),
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr,
+        VK_IMAGE_LAYOUT_UNDEFINED
     };
 
     const VkImageViewCreateInfo view_info{
-
+        VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_IMAGE_VIEW_TYPE_2D,
+        img_info.format,
+        VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
     };
 
+    auto& rsrc = ResourceContext::Get();
     for (uint32_t i = 0u; i < img_count; ++i) {
+        depthRendertargetImages.emplace_back(createDepthStencilResource());
+        drawMultisampleImages.emplace_back(rsrc.CreateImage(&img_info, &view_info, 0u, nullptr, memory_type::DEVICE_LOCAL, nullptr));
+        const VkImageView view_handles[3]{ 
+            (VkImageView)drawMultisampleImages.back()->ViewHandle, (VkImageView)depthRendertargetImages.back()->ViewHandle, 
+            vprObjects.swapchain->ImageView(size_t(i)) 
+        };
+        const VkFramebufferCreateInfo framebuffer_info{
+            VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            nullptr,
+            0,
+            primaryDrawPass->vkHandle(),
+            3,
+            view_handles,
+            img_extent.width,
+            img_extent.height,
+            1
+        };
 
+        drawFramebuffers.emplace_back(std::make_unique<vpr::Framebuffer>(vprObjects.device->vkHandle(), framebuffer_info));
     }
+
 }
 
 void VTF_Scene::createShaderModules() {
