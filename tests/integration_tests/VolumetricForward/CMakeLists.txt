@@ -1,4 +1,16 @@
 
+SET(SCENE_GUI_SOURCES 
+    "../fixtures/ImGuiWrapper.hpp"
+    "../fixtures/ImGuiWrapper.cpp"
+    "../../../third_party/imgui/imgui.h"
+    "../../../third_party/imgui/imgui.cpp"
+    "../../../third_party/imgui/imgui_draw.cpp"
+    "../../../third_party/imgui/imconfig.h"
+    "../../../third_party/imgui/imgui_demo.cpp"
+    "../../../third_party/imgui/imgui_internal.h"
+    "../../../third_party/imgui/imgui_widgets.cpp"
+)
+
 ADD_INTEGRATION_TEST(VTF_Scene
     "main.cpp"
     "VTF_Scene.hpp"
@@ -9,7 +21,10 @@ ADD_INTEGRATION_TEST(VTF_Scene
     "../fixtures/CommonCreationFunctions.cpp"
     "../fixtures/PerspectiveCamera.hpp"
     "../fixtures/PerspectiveCamera.cpp"
+    ${SCENE_GUI_SOURCES}
 )
+
+SOURCE_GROUP("imgui" FILES ${SCENE_GUI_SOURCES})
 
 TARGET_INCLUDE_DIRECTORIES(VTF_Scene PRIVATE
     "../../../third_party/shadertools/include"

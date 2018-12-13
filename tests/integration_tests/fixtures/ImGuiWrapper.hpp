@@ -75,7 +75,7 @@ private:
     std::unique_ptr<vpr::DescriptorSetLayout> setLayout;
     std::unique_ptr<vpr::DescriptorPool> descriptorPool;
     VkGraphicsPipelineCreateInfo pipelineCreateInfo;
-    vpr::GraphicsPipelineInfo pipelineStateInfo;
+    std::unique_ptr<vpr::GraphicsPipelineInfo> pipelineStateInfo;
     unsigned char* fontTextureData;
     std::chrono::high_resolution_clock::time_point timePointA;
     std::chrono::high_resolution_clock::time_point timePointB;

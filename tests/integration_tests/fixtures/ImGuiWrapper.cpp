@@ -163,10 +163,10 @@ void ImGuiWrapper::Construct(VkRenderPass renderpass) {
     rendererContext = &rendering_context;
     resourceContext = &resource_context;
     if (!callbacks_registered) {
-        rendererContext->RegisterScrollCallback(ScrollCallback);
-        rendererContext->RegisterCharCallback(CharCallback);
-        rendererContext->RegisterMouseButtonCallback(MouseButtonCallback);
-        rendererContext->RegisterKeyboardKeyCallback(KeyCallback);
+        rendererContext->RegisterScrollCallback(scroll_callback_t::create<&ScrollCallback>());
+        rendererContext->RegisterCharCallback(char_callback_t::create<&CharCallback>());
+        rendererContext->RegisterMouseButtonCallback(mouse_button_callback_t::create<&MouseButtonCallback>());
+        rendererContext->RegisterKeyboardKeyCallback(keyboard_key_callback_t::create<&KeyCallback>());
         callbacks_registered = true;
     }
     frameData.resize(rendererContext->Swapchain()->ImageCount());
@@ -469,10 +469,12 @@ static constexpr std::array<VkVertexInputAttributeDescription, 3> attr_descr{
 
 void ImGuiWrapper::createGraphicsPipeline(const VkRenderPass renderpass) {
 
-    pipelineStateInfo.VertexInfo.vertexBindingDescriptionCount = 1;
-    pipelineStateInfo.VertexInfo.pVertexBindingDescriptions = &bind_descr;
-    pipelineStateInfo.VertexInfo.vertexAttributeDescriptionCount = 3;
-    pipelineStateInfo.VertexInfo.pVertexAttributeDescriptions = attr_descr.data();
+    pipelineStateInfo = std::make_unique<vpr::GraphicsPipelineInfo>();
+
+    pipelineStateInfo->VertexInfo.vertexBindingDescriptionCount = 1;
+    pipelineStateInfo->VertexInfo.pVertexBindingDescriptions = &bind_descr;
+    pipelineStateInfo->VertexInfo.vertexAttributeDescriptionCount = 3;
+    pipelineStateInfo->VertexInfo.pVertexAttributeDescriptions = attr_descr.data();
 
     static const VkPipelineColorBlendAttachmentState color_blend{
         VK_TRUE,
@@ -486,21 +488,21 @@ void ImGuiWrapper::createGraphicsPipeline(const VkRenderPass renderpass) {
     };
 
     if (device->HasExtension(VK_NV_FILL_RECTANGLE_EXTENSION_NAME)) {
-        pipelineStateInfo.RasterizationInfo.polygonMode = VK_POLYGON_MODE_FILL_RECTANGLE_NV;
+        pipelineStateInfo->RasterizationInfo.polygonMode = VK_POLYGON_MODE_FILL_RECTANGLE_NV;
     }
 
-    pipelineStateInfo.MultisampleInfo.rasterizationSamples = VK_SAMPLE_COUNT_4_BIT;
-    pipelineStateInfo.MultisampleInfo.sampleShadingEnable = VK_TRUE;
-    pipelineStateInfo.ColorBlendInfo.attachmentCount = 1;
-    pipelineStateInfo.ColorBlendInfo.pAttachments = &color_blend;
+    pipelineStateInfo->MultisampleInfo.rasterizationSamples = VK_SAMPLE_COUNT_4_BIT;
+    pipelineStateInfo->MultisampleInfo.sampleShadingEnable = VK_TRUE;
+    pipelineStateInfo->ColorBlendInfo.attachmentCount = 1;
+    pipelineStateInfo->ColorBlendInfo.pAttachments = &color_blend;
     // Set this through dynamic state so we can do it when rendering.
-    pipelineStateInfo.DynamicStateInfo.dynamicStateCount = 2;
+    pipelineStateInfo->DynamicStateInfo.dynamicStateCount = 2;
     static const VkDynamicState states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-    pipelineStateInfo.DynamicStateInfo.pDynamicStates = states;
-    pipelineStateInfo.DepthStencilInfo.depthTestEnable = VK_TRUE;
-    pipelineStateInfo.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-    pipelineStateInfo.RasterizationInfo.cullMode = VK_CULL_MODE_NONE;
-    pipelineCreateInfo = pipelineStateInfo.GetPipelineCreateInfo();
+    pipelineStateInfo->DynamicStateInfo.pDynamicStates = states;
+    pipelineStateInfo->DepthStencilInfo.depthTestEnable = VK_TRUE;
+    pipelineStateInfo->DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    pipelineStateInfo->RasterizationInfo.cullMode = VK_CULL_MODE_NONE;
+    pipelineCreateInfo = pipelineStateInfo->GetPipelineCreateInfo();
     pipelineCreateInfo.flags = 0;
     pipelineCreateInfo.layout = layout->vkHandle();
     pipelineCreateInfo.renderPass = renderpass;
