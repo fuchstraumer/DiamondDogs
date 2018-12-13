@@ -53,6 +53,12 @@ constexpr static std::array<VkVertexInputBindingDescription, 1> VertexBindingDes
     VkVertexInputBindingDescription{ 0, sizeof(float) * 11, VK_VERTEX_INPUT_RATE_VERTEX }
 };
 
+constexpr static std::array<const VkClearValue, 2> DepthPrePassAndClusterSamplesClearValues {
+    VkClearValue{ 0.1, 0.1f, 0.15f, 1.0f },
+    VkClearValue{ 1.0f, 0 }
+};
+
+
 constexpr static VkPipelineColorBlendAttachmentState AdditiveBlendingAttachmentState {
     VK_TRUE,
     VK_BLEND_FACTOR_SRC_ALPHA,
@@ -719,6 +725,138 @@ void VTF_Scene::createComputePools() {
     computePools[1]->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 }
 
+void VTF_Scene::createRenderpasses() {
+    createDepthAndClusterSamplesPass();
+    createDepthPrePassResources();
+    createClusterSamplesResources();
+    createDrawFramebuffers();
+    createDrawRenderpass();
+}
+
+void VTF_Scene::createDepthAndClusterSamplesPass() {
+
+    const VkAttachmentDescription clusterSampleAttachmentDescriptions[2]{
+        VkAttachmentDescription{
+            0,
+            VK_FORMAT_R8G8B8A8_UNORM,
+            VK_SAMPLE_COUNT_1_BIT,
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+        },
+        VkAttachmentDescription{
+            0,
+            vprObjects.device->FindDepthFormat(),
+            VK_SAMPLE_COUNT_1_BIT,
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL // might as well
+        },
+    };
+
+    depthAndClusterDependencies[0] = VkSubpassDependency{
+        0,
+        1,
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, // no fragment shader, only have to wait for here
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, // won't read until here in next subpass
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+        VK_DEPENDENCY_BY_REGION_BIT
+    };
+    
+    depthAndSamplesPassDescriptions[0] = VkSubpassDescription{
+        0,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        0u,
+        nullptr,
+        0u,
+        nullptr,
+        nullptr,
+        &prePassDepthRef,
+        0u,
+        nullptr
+    };
+
+    depthAndSamplesPassDescriptions[1] = VkSubpassDescription{
+        0,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        0u,
+        nullptr,
+        1u,
+        &samplesPassColorRef,
+        nullptr,
+        &samplesPassDepthRref,
+        0u,
+        nullptr
+    };
+
+    const VkRenderPassCreateInfo create_info{
+        VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        nullptr,
+        0,
+        2u,
+        clusterSampleAttachmentDescriptions,
+        static_cast<uint32_t>(depthAndSamplesPassDescriptions.size()),
+        depthAndSamplesPassDescriptions.data(),
+        static_cast<uint32_t>(depthAndClusterDependencies.size()),
+        depthAndClusterDependencies.data()
+    };
+
+    depthAndClusterSamplesPass = std::make_unique<vpr::Renderpass>(vprObjects.device->vkHandle(), create_info);
+    depthAndClusterSamplesPass->SetupBeginInfo(DepthPrePassAndClusterSamplesClearValues.data(), DepthPrePassAndClusterSamplesClearValues.size(), vprObjects.swapchain->Extent());
+
+}
+
+VulkanResource* VTF_Scene::createDepthStencilResource() const {
+    const VkFormat depth_format = vprObjects.device->FindDepthFormat();
+    const uint32_t img_width = vprObjects.swapchain->Extent().width;
+    const uint32_t img_height = vprObjects.swapchain->Extent().height;
+
+    const VkImageCreateInfo image_info{
+        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        nullptr,
+        0,
+        VK_IMAGE_TYPE_2D,
+        depth_format,
+        VkExtent3D{ img_width, img_height, 1 },
+        1,
+        1,
+        VK_SAMPLE_COUNT_1_BIT,
+        vprObjects.device->GetFormatTiling(depth_format, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        VK_SHARING_MODE_CONCURRENT,
+        0,
+        nullptr,
+        VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    const VkImageViewCreateInfo view_info{
+        VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_IMAGE_VIEW_TYPE_2D,
+        depth_format,
+        VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
+    };
+
+    auto& rsrc = ResourceContext::Get();
+    VulkanResource* result{ nullptr };
+    result = rsrc.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    return result;
+}
+
+void VTF_Scene::createDepthPrePassResources() {
+    depthPrePassImage = createDepthStencilResource();
+}
+
 void VTF_Scene::createClusterSamplesResources() {
     const VkFormat cluster_samples_color_format = VK_FORMAT_R8G8B8A8_UNORM;
     const VkImageTiling tiling_type = vprObjects.device->GetFormatTiling(cluster_samples_color_format, VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT);
@@ -757,15 +895,18 @@ void VTF_Scene::createClusterSamplesResources() {
 
     auto& rsrc = ResourceContext::Get();
     clusterSamplesImage = rsrc.CreateImage(&img_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    const VkImageView view_handle = (VkImageView)clusterSamplesImage->ViewHandle;
+    const VkImageView view_handles[2]{
+        (VkImageView)clusterSamplesImage->ViewHandle,
+        (VkImageView)depthPrePassImage->ViewHandle
+    };
 
     const VkFramebufferCreateInfo framebuffer_info{
         VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
         nullptr,
         0,
         depthAndClusterSamplesPass->vkHandle(),
-        1,
-        &view_handle,
+        2u,
+        view_handles,
         img_width,
         img_height,
         1
@@ -775,86 +916,24 @@ void VTF_Scene::createClusterSamplesResources() {
 
 }
 
-void VTF_Scene::createDepthAndClusterSamplesSubpasses() {
+void VTF_Scene::createDrawFramebuffers() {
 
-    depthPrePassDescription = VkSubpassDescription{
-        0,
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        0u,
-        nullptr,
-        0u,
-        nullptr,
-        nullptr,
-        nullptr, // depth reference
-        0u,
-        nullptr
-    };
+    depthRendertargetImage = createDepthStencilResource();
 
-    depthAndClusterDependencies[0] = VkSubpassDependency{
-        0,
-        1,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_ACCESS_SHADER_READ_BIT,
-        VK_DEPENDENCY_BY_REGION_BIT
-    };
-}
+    const uint32_t img_count = vprObjects.swapchain->ImageCount();
+    const VkExtent2D& img_extent = vprObjects.swapchain->Extent();
 
-void VTF_Scene::createDepthPrePassResources() {
+    const VkImageCreateInfo img_info{
 
-    const VkFormat depth_format = vprObjects.device->FindDepthFormat();
-    const uint32_t img_width = vprObjects.swapchain->Extent().width;
-    const uint32_t img_height = vprObjects.swapchain->Extent().height;
-
-    const VkImageCreateInfo image_info{
-        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        nullptr,
-        0,
-        VK_IMAGE_TYPE_2D,
-        depth_format,
-        VkExtent3D{ img_width, img_height, 1 },
-        1,
-        1,
-        VK_SAMPLE_COUNT_1_BIT,
-        vprObjects.device->GetFormatTiling(depth_format, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
-        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-        VK_SHARING_MODE_CONCURRENT,
-        0,
-        nullptr,
-        VK_IMAGE_LAYOUT_UNDEFINED
     };
 
     const VkImageViewCreateInfo view_info{
-        VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-        nullptr,
-        0,
-        VK_NULL_HANDLE,
-        VK_IMAGE_VIEW_TYPE_2D,
-        depth_format,
-        VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
-        VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
+
     };
 
-    auto& rsrc = ResourceContext::Get();
-    depthPrePassImage = rsrc.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    for (uint32_t i = 0u; i < img_count; ++i) {
 
-    const VkImageView view_handle = (VkImageView)depthPrePassImage->ViewHandle;
-
-    const VkFramebufferCreateInfo framebuffer_info{
-        VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-        nullptr,
-        0,
-        depthAndClusterSamplesPass->vkHandle(),
-        1,
-        &view_handle,
-        img_width,
-        img_height,
-        1
-    };
-
-    depthPrePassFramebuffer = std::make_unique<vpr::Framebuffer>(vprObjects.device->vkHandle(), framebuffer_info);
-
+    }
 }
 
 void VTF_Scene::createShaderModules() {
@@ -1116,7 +1195,7 @@ void VTF_Scene::createDepthPrePassPipeline() {
     create_info.stageCount = 2;
     create_info.pStages = shader_stages;
     create_info.subpass = 0;
-    create_info.renderPass = depthPrePass->vkHandle();
+    create_info.renderPass = depthAndClusterSamplesPass->vkHandle();
     create_info.layout = resourcePack->PipelineLayout(groupName);
 
     depthPrePassPipeline = std::make_unique<vpr::GraphicsPipeline>(vprObjects.device->vkHandle());
@@ -1155,7 +1234,7 @@ void VTF_Scene::createClusterSamplesPipeline() {
     create_info.pStages = stages;
     create_info.subpass = 0;
     create_info.layout = resourcePack->PipelineLayout(groupName);
-    create_info.renderPass = clusterSamplesPass->vkHandle();
+    create_info.renderPass = depthAndClusterSamplesPass->vkHandle();
 
     clusterSamplesPipeline = std::make_unique<vpr::GraphicsPipeline>(vprObjects.device->vkHandle());
     clusterSamplesPipeline->Init(create_info, groupCaches.at(groupName)->vkHandle());
@@ -1187,9 +1266,5 @@ void VTF_Scene::createDrawPipelines() {
 
     VkGraphicsPipelineCreateInfo opaque_info = pipeline_info.GetPipelineCreateInfo();
 
-
-}
-
-void VTF_Scene::createReadbackBuffers() {
 
 }

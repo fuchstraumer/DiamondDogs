@@ -137,11 +137,12 @@ private:
     void updateClusterGrid();
 
     void createComputePools();
-    void createClusterSamplesResources();
-    void createDepthAndClusterSamplesSubpasses();
+    void createRenderpasses();
     void createDepthAndClusterSamplesPass();
-    // must be done after renderpass creation
     void createDepthPrePassResources();
+    void createClusterSamplesResources();
+    void createDrawFramebuffers();
+    void createDrawRenderpass();
     void createReadbackBuffers();
     void createShaderModules();
     void createComputePipelines();
@@ -155,6 +156,9 @@ private:
     void createDepthPrePassPipeline();
     void createClusterSamplesPipeline();
     void createDrawPipelines();
+
+    // generic since we use it twice, once for prepass once for rendertarget
+    VulkanResource * createDepthStencilResource() const;
 
     // Used for debugging
     VulkanResource* pointLightsReadbackBuffer{ nullptr };
@@ -187,9 +191,13 @@ private:
     std::unique_ptr<vpr::Semaphore> computeUpdateCompleteSemaphore;
 
     VulkanResource* depthPrePassImage{ nullptr };
-    std::unique_ptr<vpr::Framebuffer> depthPrePassFramebuffer;
     VulkanResource* clusterSamplesImage{ nullptr };
+    VulkanResource* clusterSamplesHostImageCopy{ nullptr };
     std::unique_ptr<vpr::Framebuffer> clusterSamplesFramebuffer;
+
+    VulkanResource* depthRendertargetImage;
+    std::vector<VulkanResource*> drawMultisampleImages;
+    std::vector<std::unique_ptr<vpr::Framebuffer>> drawFramebuffers;
 
     /*
         Compute pipelines
@@ -230,9 +238,11 @@ private:
     std::unique_ptr<vpr::Renderpass> debugClustersPass;
     std::unique_ptr<vpr::Renderpass> debugLightCountsPass;
 
-    std::array<VkSubpassDependency, 3> depthAndClusterDependencies;
-    VkSubpassDescription depthPrePassDescription;
-    VkSubpassDescription clusterSamplesDescription;
+    std::array<VkSubpassDependency, 1> depthAndClusterDependencies;
+    std::array<VkSubpassDescription, 2> depthAndSamplesPassDescriptions;
+    constexpr static VkAttachmentReference prePassDepthRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+    constexpr static VkAttachmentReference samplesPassColorRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    constexpr static VkAttachmentReference samplesPassDepthRref{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL };
 
     std::unique_ptr<vpr::CommandPool> computePools[2];
 
