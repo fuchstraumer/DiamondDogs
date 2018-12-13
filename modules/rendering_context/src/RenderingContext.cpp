@@ -260,7 +260,7 @@ void RenderingContext::Construct(const char* file_path) {
         }
     }
 
-    static const std::unordered_map<std::string, uint32_t> present_mode_from_str_map{
+    static const std::unordered_map<std::string, vpr::vertical_sync_mode> present_mode_from_str_map{
         { "None", vpr::vertical_sync_mode::None },
         { "VerticalSync", vpr::vertical_sync_mode::VerticalSync },
         { "VerticalSyncRelaxed", vpr::vertical_sync_mode::VerticalSyncRelaxed },
@@ -269,7 +269,7 @@ void RenderingContext::Construct(const char* file_path) {
 
     auto iter = json_file.find("VerticalSyncMode");
     // We want to go for this, as it's the ideal mode usually.
-    uint32_t desired_mode = vpr::vertical_sync_mode::VerticalSyncMailbox;
+    vpr::vertical_sync_mode desired_mode = vpr::vertical_sync_mode::VerticalSyncMailbox;
     if (iter != json_file.end()) {
         auto present_mode_iter = present_mode_from_str_map.find(json_file.at("VerticalSyncMode"));
         if (present_mode_iter != std::cend(present_mode_from_str_map)) {
@@ -429,6 +429,10 @@ void RenderingContext::RegisterKeyboardKeyCallback(keyboard_key_callback_t callb
 
 int RenderingContext::GetMouseButton(int button) {
     return glfwGetMouseButton(getWindow(), button);
+}
+
+void RenderingContext::GetCursorPosition(double& x, double& y) {
+    glfwGetCursorPos(getWindow(), &x, &y);
 }
 
 void RenderingContext::SetCursorPosition(double x, double y) {
