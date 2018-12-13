@@ -159,7 +159,7 @@ private:
     void createDrawPipelines();
 
     // generic since we use it twice, once for prepass once for rendertarget
-    VulkanResource * createDepthStencilResource() const;
+    VulkanResource* createDepthStencilResource() const;
 
     // Used for debugging
     VulkanResource* pointLightsReadbackBuffer{ nullptr };
@@ -244,6 +244,12 @@ private:
     constexpr static VkAttachmentReference prePassDepthRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
     constexpr static VkAttachmentReference samplesPassColorRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
     constexpr static VkAttachmentReference samplesPassDepthRref{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL };
+
+    std::array<VkSubpassDependency, 2> drawPassDependencies;
+    std::array<VkSubpassDescription, 1> drawPassDescriptions;
+    constexpr static VkAttachmentReference drawPassColorRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+    constexpr static VkAttachmentReference drawPassDepthRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+    constexpr static VkAttachmentReference drawPassPresentRef{ 2, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
 
     std::unique_ptr<vpr::CommandPool> computePools[2];
 
