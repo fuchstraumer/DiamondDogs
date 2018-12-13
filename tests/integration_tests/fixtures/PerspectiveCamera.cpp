@@ -1,6 +1,7 @@
 #include "PerspectiveCamera.hpp"
 #include "RenderingContext.hpp"
 #include "Swapchain.hpp"
+#define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/rotate_vector.hpp"
 #include "glm/gtx/rotate_normalized_axis.hpp"
 #include "glm/gtx/quaternion.hpp"
