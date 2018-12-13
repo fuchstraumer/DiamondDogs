@@ -124,6 +124,8 @@ void ShaderResourcePack::createSetResourcesAndLayout(const std::string& name) {
     std::vector<const st::ShaderResource*> resources(num_resources);
     resource_group->GetResourcePtrs(&num_resources, resources.data());
 
+    bool skip_resources = false;
+
     {
         auto tags = resource_group->GetTags();
         std::vector<std::string> tag_strings;
@@ -133,22 +135,32 @@ void ShaderResourcePack::createSetResourcesAndLayout(const std::string& name) {
         
         if (auto iter = std::find(std::begin(tag_strings), std::end(tag_strings), "MaterialGroup"); iter != std::end(tag_strings)) {
             // If we find a material group, don't create meta-information for it.
-            return;
+            skip_resources = true;
         }
     }
 
-    createResources(resources);
-    createDescriptor(name, resources);
+    if (!skip_resources) {
+        createResources(resources);
+    }
+
+    createDescriptor(name, resources, skip_resources);
 
 }
 
-void ShaderResourcePack::createDescriptor(const std::string & name, const std::vector<const st::ShaderResource*> logical_resources) {
-    const size_t idx = shaderGroupNameIdxMap.at(name);
+void ShaderResourcePack::createDescriptor(const std::string & name, const std::vector<const st::ShaderResource*> logical_resources, const bool skip_physical_resources) {
+    const size_t idx = rsrcGroupToIdxMap.at(name);
     descriptorSets[idx] = std::make_unique<Descriptor>(name, descriptorPool.get());
-    const auto& physical_resources = resources.at(name);
 
     for (const auto* rsrc : logical_resources) {
         descriptorSets[idx]->AddLayoutBinding(rsrc->BindingIndex(), rsrc->DescriptorType());
+    }
+
+    if (skip_physical_resources) {
+        return;
+    }
+
+    const auto& physical_resources = resources.at(name);
+    for (const auto* rsrc : logical_resources) {
         VulkanResource* physical_resource = physical_resources.at(rsrc->Name());
         descriptorSets[idx]->BindResourceToIdx(rsrc->BindingIndex(), physical_resource);
     }

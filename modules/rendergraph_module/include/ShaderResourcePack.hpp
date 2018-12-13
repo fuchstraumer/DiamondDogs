@@ -56,7 +56,7 @@ private:
     void createDescriptorPool();
     void createSets();
     void createSetResourcesAndLayout(const std::string& name);
-    void createDescriptor(const std::string& name, const std::vector<const st::ShaderResource*> resources);
+    void createDescriptor(const std::string& name, const std::vector<const st::ShaderResource*> resources, const bool skip_physical_resources);
     void getGroupNames();
     void parseGroupBindingInfo();
     void createPipelineLayout(const std::string& name);
