@@ -390,6 +390,7 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     vprObjects = objects;
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
     resourcePack = std::make_unique<ShaderResourcePack>(nullptr, vtfShaders);
+    createSemaphores();
     createComputePools();
     createRenderpasses();
     createShaderModules();
@@ -401,11 +402,18 @@ void VTF_Scene::Destroy() {
 }
 
 void VTF_Scene::update() {
-
+    constexpr static VkCommandBufferBeginInfo compute_begin_info{
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        nullptr,
+        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        nullptr
+    };
+    vkBeginCommandBuffer(computePools[0]->GetCmdBuffer(0), &compute_begin_info);
     computeUpdateLights();
     computeReduceLights();
     computeAndSortMortonCodes();
     buildLightBVH();
+    vkEndCommandBuffer(computePools[0]->GetCmdBuffer(0));
     submitComputeUpdates();
 
 }
@@ -811,7 +819,7 @@ VulkanResource* VTF_Scene::createDepthStencilResource(const VkSampleCountFlagBit
         VkExtent3D{ img_width, img_height, 1 },
         1,
         1,
-        VK_SAMPLE_COUNT_1_BIT,
+        samples,
         vprObjects.device->GetFormatTiling(depth_format, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
         VK_SHARING_MODE_EXCLUSIVE,
@@ -1070,8 +1078,7 @@ void VTF_Scene::createShaderModules() {
             curr_shader->GetShaderBinary(stage, &binary_sz, nullptr);
             std::vector<uint32_t> binary_data(binary_sz);
             curr_shader->GetShaderBinary(stage, &binary_sz, binary_data.data());
-
-            shaderModules.emplace(stage, std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), stage.GetStage(), binary_data.data(), static_cast<uint32_t>(binary_data.size())));
+            shaderModules.emplace(stage, std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), stage.GetStage(), binary_data.data(), static_cast<uint32_t>(binary_data.size() * sizeof(uint32_t))));
             groupStages[name].emplace_back(stage);
         }
 
@@ -1084,6 +1091,7 @@ void VTF_Scene::createShaderModules() {
 
 void VTF_Scene::createComputePipelines() {
     createUpdateLightsPipeline();
+    createReduceLightAABBsPipelines();
     createMortonCodePipeline();
     createRadixSortPipeline();
     createBVH_Pipelines();
@@ -1107,6 +1115,60 @@ void VTF_Scene::createUpdateLightsPipeline() {
 
     updateLightsPipeline = std::make_unique<ComputePipelineState>(vprObjects.device->vkHandle());
     VkResult result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &updateLightsPipeline->Handle);
+    VkAssert(result);
+
+}
+
+void VTF_Scene::createReduceLightAABBsPipelines() {
+    const static std::string groupName{ "ReduceLights" };
+    const st::Shader* reduce_lights_shader = vtfShaders->GetShaderGroup(groupName.c_str());
+    const st::ShaderStage& reduce_lights_stage = groupStages.at(groupName).front();
+
+    VkPipelineShaderStageCreateInfo pipeline_shader_info = shaderModules.at(reduce_lights_stage)->PipelineInfo();
+
+    const VkComputePipelineCreateInfo reduce_lights_0_info{
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        nullptr,
+        VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT,
+        pipeline_shader_info,
+        resourcePack->PipelineLayout(groupName),
+        VK_NULL_HANDLE,
+        -1
+    };
+
+    reduceLightsAABB0 = std::make_unique<ComputePipelineState>(vprObjects.device->vkHandle());
+    VkResult result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at(groupName)->vkHandle(), 1, &reduce_lights_0_info, nullptr, &reduceLightsAABB0->Handle);
+    VkAssert(result);
+
+    constexpr static VkSpecializationMapEntry reduce_lights_1_entry{
+        0,
+        0,
+        sizeof(uint32_t)
+    };
+
+    constexpr static uint32_t reduce_lights_1_spc_value{ 1 };
+
+    const VkSpecializationInfo reduce_lights_1_specialization_info{
+        1,
+        &reduce_lights_1_entry,
+        sizeof(uint32_t),
+        &reduce_lights_1_spc_value
+    };
+
+    pipeline_shader_info.pSpecializationInfo = &reduce_lights_1_specialization_info;
+
+    const VkComputePipelineCreateInfo reduce_lights_1_info{
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        nullptr,
+        VK_PIPELINE_CREATE_DERIVATIVE_BIT,
+        pipeline_shader_info,
+        resourcePack->PipelineLayout(groupName),
+        reduceLightsAABB0->Handle,
+        -1
+    };
+
+    reduceLightsAABB1 = std::make_unique<ComputePipelineState>(vprObjects.device->vkHandle());
+    result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at(groupName)->vkHandle(), 1, &reduce_lights_1_info, nullptr, &reduceLightsAABB1->Handle);
     VkAssert(result);
 
 }
@@ -1258,6 +1320,7 @@ void VTF_Scene::createMergeSortPipelines() {
             nullptr,
             VK_PIPELINE_CREATE_DERIVATIVE_BIT,
             shader_info,
+            resourcePack->PipelineLayout("MergeSort"),
             VK_NULL_HANDLE,
             0 // index is previous pipeline to derive from
         }
@@ -1354,7 +1417,7 @@ void VTF_Scene::createClusterSamplesPipeline() {
 }
 
 void VTF_Scene::createDrawPipelines() {
-    static const std::string groupName{ "Clustered" };
+    static const std::string groupName{ "DrawPass" };
 
     const st::ShaderStage& draw_vert = groupStages.at(groupName).front();
     const st::ShaderStage& draw_frag = groupStages.at(groupName).back();

@@ -148,6 +148,7 @@ private:
     void createShaderModules();
     void createComputePipelines();
     void createUpdateLightsPipeline();
+    void createReduceLightAABBsPipelines();
     void createMortonCodePipeline();
     void createRadixSortPipeline();
     void createMergeSortPipelines();
