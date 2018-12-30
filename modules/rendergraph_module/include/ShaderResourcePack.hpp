@@ -82,7 +82,7 @@ private:
     std::unordered_map<const VulkanResource*, VkDescriptorType> resourceTypesMap;
     std::unordered_map<std::string, size_t> resourceBindingLocations;
     std::unordered_map<std::string, uint32_t> shaderGroupNameIdxMap;
-    std::vector<std::set<uint32_t>> shaderGroupResourceGroupUsages;
+    std::vector<std::vector<size_t>> shaderGroupResourceGroupUsages;
     std::vector<const st::Shader*> shaderGroups;
     const st::ShaderPack* shaderPack;
 };

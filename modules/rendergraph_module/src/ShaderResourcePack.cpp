@@ -201,21 +201,12 @@ void ShaderResourcePack::parseGroupBindingInfo() {
     pipelineLayouts.resize(shader_group_strs.size());
 
     for (const auto& str : shader_group_strs) {
-
         auto emplaced = shaderGroupNameIdxMap.emplace(str, shaderGroupNameIdxMap.size());
         const size_t idx = emplaced.first->second;
         shaderGroups[idx] = shaderPack->GetShaderGroup(str.c_str());
+    }
 
-        std::vector<std::string> used_block_strs;
-        {
-            auto used_blocks = shaderGroups[idx]->GetUsedResourceBlocks();
-            for (size_t i = 0; i < used_blocks.NumStrings; ++i) {
-                if (auto iter = rsrcGroupToIdxMap.find(std::string(used_blocks[i])); iter != std::end(rsrcGroupToIdxMap)) {
-                    shaderGroupResourceGroupUsages[idx].emplace(iter->second);
-                }
-            }
-        }
-
+    for (const auto& str : shader_group_strs) {
         createPipelineLayout(str);
     }
 
@@ -241,10 +232,21 @@ void ShaderResourcePack::createPipelineLayout(const std::string & name) {
         }
     }
 
-    auto& sets_used = shaderGroupResourceGroupUsages.at(idx);
+
+    std::vector<std::string> used_block_strs;
     std::vector<VkDescriptorSetLayout> set_layouts;
-    for (const auto& set : sets_used) {
-        set_layouts.emplace_back(descriptorSets[set]->SetLayout());
+    {
+        auto used_blocks = shader->GetUsedResourceBlocks();
+        set_layouts.resize(used_blocks.NumStrings);
+        shaderGroupResourceGroupUsages[idx].resize(used_blocks.NumStrings);
+
+        for (size_t i = 0; i < used_blocks.NumStrings; ++i) {
+            size_t container_idx = rsrcGroupToIdxMap.at(used_blocks[i]);
+            size_t set_idx_in_shader = static_cast<size_t>(shader->ResourceGroupSetIdx(used_blocks[i]));
+            // this group stores descriptor indices in the right binding order for us to use later
+            shaderGroupResourceGroupUsages[idx][set_idx_in_shader] = container_idx;
+            set_layouts[set_idx_in_shader] = descriptorSets[container_idx]->SetLayout();
+        }
     }
 
     pipelineLayouts[idx] = std::make_unique<vpr::PipelineLayout>(RenderingContext::Get().Device()->vkHandle());
