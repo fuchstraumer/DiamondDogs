@@ -25,7 +25,7 @@ ShaderResourcePack::ShaderResourcePack(RenderGraph* _graph, const st::ShaderPack
 ShaderResourcePack::~ShaderResourcePack() {}
 
 Descriptor* ShaderResourcePack::GetDescriptor(const std::string & name) {
-    const size_t idx = shaderGroupNameIdxMap.at(name);
+    const size_t idx = rsrcGroupToIdxMap.at(name);
     return descriptorSets[idx].get();
 }
 
