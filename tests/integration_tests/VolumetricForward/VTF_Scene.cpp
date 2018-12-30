@@ -1095,6 +1095,7 @@ void VTF_Scene::createComputePipelines() {
     createMortonCodePipeline();
     createRadixSortPipeline();
     createBVH_Pipelines();
+    createComputeClusterAABBsPipeline();
     createIndirectArgsPipeline();
     createMergeSortPipelines();
 }
@@ -1275,6 +1276,27 @@ void VTF_Scene::createBVH_Pipelines() {
     buildBVHTopPipeline->Device = vprObjects.device->vkHandle();
     result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at("BuildBVH")->vkHandle(), 1, &pipeline_info_1, nullptr, &buildBVHTopPipeline->Handle);
     
+}
+
+void VTF_Scene::createComputeClusterAABBsPipeline() {
+    const static std::string groupName{ "ComputeClusterAABBs" };
+    const st::Shader* compute_shader = vtfShaders->GetShaderGroup(groupName.c_str());
+    const st::ShaderStage& compute_stage = groupStages.at(groupName).front();
+
+    const VkComputePipelineCreateInfo pipeline_info{
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        nullptr,
+        0,
+        shaderModules.at(compute_stage)->PipelineInfo(),
+        resourcePack->PipelineLayout(groupName),
+        VK_NULL_HANDLE,
+        -1
+    };
+
+    computeClusterAABBsPipeline = std::make_unique<ComputePipelineState>(vprObjects.device->vkHandle());
+    VkResult result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &computeClusterAABBsPipeline->Handle);
+    VkAssert(result);
+
 }
 
 void VTF_Scene::createIndirectArgsPipeline() {
