@@ -25,12 +25,15 @@ struct SceneConfig_t {
     bool EnableMSAA{ true };
     uint32_t MSAA_SampleCount{ 8u };
     uint32_t MaxLights{ 2048u };
-    glm::vec3 LightsMinBounds;
-    glm::vec3 LightsMaxBounds;
-    float MinSpotAngle;
-    float MaxSpotAngle;
-    float MinRange;
-    float MaxRange;
+    uint32_t NumDirectionalLights{ 64u };
+    uint32_t NumPointLights{ 2048u };
+    uint32_t NumSpotLights{ 1024u };
+    glm::vec3 LightsMinBounds{-100.0f,-100.0f,-100.0f };
+    glm::vec3 LightsMaxBounds{ 100.0f, 100.0f, 100.0f };
+    float MinSpotAngle{-60.0f };
+    float MaxSpotAngle{ 60.0f };
+    float MinRange{ 1.0f };
+    float MaxRange{ 32.0f };
 };
 
 inline static SceneConfig_t SceneConfig;

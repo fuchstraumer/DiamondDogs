@@ -103,25 +103,25 @@ constexpr static VkPipelineColorBlendAttachmentState DefaultBlendingAttachmentSt
 };
 
 struct alignas(16) Matrices_t {
-    glm::mat4 model;
-    glm::mat4 view;
-    glm::mat4 inverseView;
-    glm::mat4 projection;
-    glm::mat4 modelView;
-    glm::mat4 modelViewProjection;
-    glm::mat4 inverseTransposeModel;
-    glm::mat4 inverseTransposeModelView;
+    glm::mat4 model{ glm::identity<glm::mat4>() };
+    glm::mat4 view{ glm::identity<glm::mat4>() };
+    glm::mat4 inverseView{ glm::identity<glm::mat4>() };
+    glm::mat4 projection{ glm::identity<glm::mat4>() };
+    glm::mat4 modelView{ glm::identity<glm::mat4>() };
+    glm::mat4 modelViewProjection{ glm::identity<glm::mat4>() };
+    glm::mat4 inverseTransposeModel{ glm::identity<glm::mat4>() };
+    glm::mat4 inverseTransposeModelView{ glm::identity<glm::mat4>() };
 } MatricesDefault;
 
 struct alignas(16) GlobalsData {
-    glm::vec4 viewPosition;
-    glm::vec2 mousePosition;
-    glm::vec2 windowSize;
-    glm::vec2 depthRange;
-    uint32_t frame;
-    float exposure;
-    float gamma;
-    float brightness;
+    glm::vec4 viewPosition{ 0.0f, 0.0f, 0.0f, 0.0f };
+    glm::vec2 mousePosition{ 0.0f, 0.0f };
+    glm::vec2 windowSize{ 0.0f, 0.0f };
+    glm::vec2 depthRange{ 0.0f, 0.0f };
+    uint32_t frame{ 0 };
+    float exposure{ 0.0f };
+    float gamma{ 0.0f };
+    float brightness{ 0.0f };
 } Globals;
 
 struct alignas(16) ClusterData {
@@ -246,6 +246,14 @@ static std::vector<LightType> GenerateLights(uint32_t num_lights) {
     return lights;
 }
 
+void GenerateLights() {
+    LightCounts.NumPointLights = SceneConfig.NumPointLights;
+    VTF_Scene::State.PointLights = GenerateLights<PointLight>(SceneConfig.NumPointLights);
+    LightCounts.NumSpotLights = SceneConfig.NumSpotLights;
+    VTF_Scene::State.SpotLights = GenerateLights<SpotLight>(SceneConfig.NumSpotLights);
+    LightCounts.NumDirectionalLights = SceneConfig.NumDirectionalLights;
+    VTF_Scene::State.DirectionalLights = GenerateLights<DirectionalLight>(SceneConfig.NumDirectionalLights);
+}
 
 struct alignas(16) Cone {
     glm::vec3 T;
