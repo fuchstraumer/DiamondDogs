@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_SHADER_RESOURCE_PACK_HPP
 #include "ForwardDecl.hpp"
 #include <unordered_map>
+#include <list>
 #include <vector>
 #include <memory>
 #include <set>
@@ -13,6 +14,7 @@ namespace st {
     class ShaderResource;
     class ResourceUsage;
     class Shader;
+    class ResourceGroup;
 }
 
 class Descriptor;
@@ -72,15 +74,15 @@ private:
 
     RenderGraph* graph;
     std::unique_ptr<vpr::DescriptorPool> descriptorPool;
+    std::vector<const st::ResourceGroup*> resourceGroups;
     std::unordered_map<std::string, size_t> rsrcGroupToIdxMap;
     std::vector<std::unique_ptr<Descriptor>> descriptorSets;
     std::vector<std::unique_ptr<vpr::PipelineLayout>> pipelineLayouts;
     std::unordered_map<std::string, std::unordered_map<std::string, VulkanResource*>> resources;
     std::unordered_map<const VulkanResource*, VkDescriptorType> resourceTypesMap;
     std::unordered_map<std::string, size_t> resourceBindingLocations;
-    // array stores indices into descriptorSets used by each group
-    std::unordered_map<std::string, size_t> shaderGroupNameIdxMap;
-    std::vector<std::set<size_t>> groupResourceUsages;
+    std::unordered_map<std::string, uint32_t> shaderGroupNameIdxMap;
+    std::vector<std::set<uint32_t>> shaderGroupResourceGroupUsages;
     std::vector<const st::Shader*> shaderGroups;
     const st::ShaderPack* shaderPack;
 };

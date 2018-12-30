@@ -43,7 +43,7 @@ const vpr::DescriptorPool* ShaderResourcePack::DescriptorPool() const noexcept {
 }
 
 std::vector<VkDescriptorSet> ShaderResourcePack::ShaderGroupSets(const std::string& shader_group_name) const noexcept {
-    const auto& descriptor_indices = groupResourceUsages[shaderGroupNameIdxMap.at(shader_group_name)];
+    const auto& descriptor_indices = shaderGroupResourceGroupUsages[shaderGroupNameIdxMap.at(shader_group_name)];
     std::vector<VkDescriptorSet> results;
     for (const size_t& idx : descriptor_indices) {
         results.emplace_back(descriptorSets[idx]->Handle());
@@ -177,6 +177,12 @@ void ShaderResourcePack::getGroupNames() {
     for (size_t i = 0; i < names.NumStrings; ++i) {
         rsrcGroupToIdxMap.emplace(names.Strings[i], i);
     }
+
+    resourceGroups.resize(rsrcGroupToIdxMap.size(), nullptr);
+    for (auto& group : rsrcGroupToIdxMap) {
+        resourceGroups[group.second] = shaderPack->GetResourceGroup(group.first.c_str());
+    }
+
 }
 
 void ShaderResourcePack::parseGroupBindingInfo() {
@@ -190,7 +196,7 @@ void ShaderResourcePack::parseGroupBindingInfo() {
         }
     }
 
-    groupResourceUsages.resize(shader_group_strs.size());
+    shaderGroupResourceGroupUsages.resize(shader_group_strs.size());
     shaderGroups.resize(shader_group_strs.size());
     pipelineLayouts.resize(shader_group_strs.size());
 
@@ -205,7 +211,7 @@ void ShaderResourcePack::parseGroupBindingInfo() {
             auto used_blocks = shaderGroups[idx]->GetUsedResourceBlocks();
             for (size_t i = 0; i < used_blocks.NumStrings; ++i) {
                 if (auto iter = rsrcGroupToIdxMap.find(std::string(used_blocks[i])); iter != std::end(rsrcGroupToIdxMap)) {
-                    groupResourceUsages[idx].emplace(iter->second);
+                    shaderGroupResourceGroupUsages[idx].emplace(iter->second);
                 }
             }
         }
@@ -235,8 +241,8 @@ void ShaderResourcePack::createPipelineLayout(const std::string & name) {
         }
     }
 
+    auto& sets_used = shaderGroupResourceGroupUsages.at(idx);
     std::vector<VkDescriptorSetLayout> set_layouts;
-    auto& sets_used = groupResourceUsages.at(idx);
     for (const auto& set : sets_used) {
         set_layouts.emplace_back(descriptorSets[set]->SetLayout());
     }
