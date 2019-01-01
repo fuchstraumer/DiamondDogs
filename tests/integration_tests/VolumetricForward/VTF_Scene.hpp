@@ -167,6 +167,10 @@ private:
     void createSortingResources();
     void createBVH_Resources();
 
+    VulkanResource * loadTexture(const char * file_path_str);
+
+    void createIcosphereTester();
+
     VkDispatchIndirectCommand indirectArgsCmd;
 
     // generic since we use it twice, once for prepass once for rendertarget
@@ -276,6 +280,8 @@ private:
     std::unordered_map<std::string, std::vector<st::ShaderStage>> groupStages;
     std::unordered_map<std::string, std::unique_ptr<vpr::PipelineCache>> groupCaches;
     std::unique_ptr<vpr::PipelineCache> cumulativeCache;
+
+    std::unique_ptr<struct TestIcosphereMesh> icosphereTester;
 
 };
 

@@ -32,6 +32,9 @@
 #include "core/ResourceUsage.hpp"
 #include "ShaderResourcePack.hpp"
 #include "PerspectiveCamera.hpp"
+#include "material/MaterialParameters.hpp"
+#include "stb/stb_image.h"
+#include <experimental/filesystem>
 
 constexpr static uint32_t DEFAULT_MAX_LIGHTS = 2048u;
 const st::ShaderPack* vtfShaders{ nullptr };
@@ -58,7 +61,6 @@ struct vertex_t {
     glm::vec3 Tangent;
     glm::vec2 UV;
 };
-
 
 constexpr static float GOLDEN_RATIO = 1.6180339887498948482045f;
 constexpr static float FLOAT_PI = 3.14159265359f;
@@ -326,7 +328,6 @@ struct TestIcosphereMesh {
 
     }
 
-
     VulkanResource* VBO{ nullptr };
     VulkanResource* EBO{ nullptr };
     VulkanResource* AlbedoTexture{ nullptr };
@@ -337,6 +338,8 @@ struct TestIcosphereMesh {
     VulkanResource* RoughnessMap{ nullptr };
     std::vector<uint32_t> Indices;
     std::vector<vertex_t> Vertices;
+    MaterialParameters MaterialParams;
+
 };
 
 glm::vec3 HSV_to_RGB(float H, float S, float V) {
@@ -587,6 +590,7 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     createGraphicsPipelines();
     createLightResources();
     createSortingResources();
+    createIcosphereTester();
     createBVH_Resources();
     updateGlobalUBOs();
     updateClusterGrid();
@@ -1963,6 +1967,108 @@ void VTF_Scene::createBVH_Resources() {
         resourcePack->UpdateResource("BVHResources", "SpotLightBVH", spotLightBVH);
     }
 
+}
+
+VulkanResource* VTF_Scene::loadTexture(const char* file_path_str) {
+    auto& rsrc_context = ResourceContext::Get();
+    stbi_uc* pixels = nullptr;
+    int x{ 0 };
+    int y{ 0 };
+    int channels{ 0 };
+
+    pixels = stbi_load(file_path_str, &x, &y, &channels, 4);
+    size_t albedo_footprint = channels * x * y * sizeof(stbi_uc);
+    const gpu_image_resource_data_t img_rsrc_data{
+        pixels,
+        albedo_footprint,
+        size_t(x),
+        size_t(y),
+        0u,
+        1u,
+        0u
+    };
+
+    VkFormat img_format = VK_FORMAT_UNDEFINED;
+    if (channels == 4) {
+        img_format = VK_FORMAT_R8G8B8A8_UNORM;
+    }
+    else if (channels == 3) {
+        img_format = VK_FORMAT_R8G8B8_UNORM;
+    }
+    else if (channels == 2) {
+        img_format = VK_FORMAT_R8G8_UNORM;
+    }
+    else if (channels == 1) {
+        img_format = VK_FORMAT_R8_UNORM;
+    }
+    else {
+        throw std::runtime_error("Bad format");
+    }
+
+    const VkImageCreateInfo img_create_info{
+        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        nullptr,
+        0,
+        VK_IMAGE_TYPE_2D,
+        img_format,
+        VkExtent3D{ uint32_t(x), uint32_t(y), 1u },
+        1u,
+        1u,
+        VK_SAMPLE_COUNT_1_BIT,
+        vprObjects.device->GetFormatTiling(img_format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT),
+        VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr,
+        VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    const VkImageViewCreateInfo view_create_info {
+        VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_IMAGE_VIEW_TYPE_2D,
+        img_format,
+        VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+    };
+
+    VulkanResource* result = rsrc_context.CreateImage(&img_create_info, &view_create_info, 1, &img_rsrc_data, memory_type::DEVICE_LOCAL, nullptr);
+    // we do it like this so we can safely free "pixels" before returning
+    rsrc_context.Update();
+    stbi_image_free(pixels);
+    return result;
+}
+
+void VTF_Scene::createIcosphereTester() {
+    namespace fs = std::experimental::filesystem;
+
+    icosphereTester = std::make_unique<TestIcosphereMesh>();
+    icosphereTester->CreateMesh(5u);
+
+    const static fs::path prefix_path_to_textures{ "../../../../assets/textures/harsh_bricks" };
+    if (!fs::exists(prefix_path_to_textures)) {
+        throw std::runtime_error("Error in prefix path to harsh brick textures!");
+    }
+
+    const fs::path albedo_path = prefix_path_to_textures / fs::path("harshbricks-albedo.png");
+    const std::string albedo_str = albedo_path.string();
+    const fs::path ao_path = prefix_path_to_textures / fs::path("harshbricks-ao2.png");
+    const std::string ao_str = ao_path.string();
+    const fs::path metallic_path = prefix_path_to_textures / fs::path("harshbricks-metalness.png");
+    const std::string metallic_str = metallic_path.string();
+    const fs::path normal_path = prefix_path_to_textures / fs::path("harshbricks-normal.png");
+    const std::string normal_str = normal_path.string();
+    const fs::path roughness_path = prefix_path_to_textures / fs::path("harshbricks-roughness.png");
+    const std::string roughness_str = roughness_path.string();
+
+    icosphereTester->AlbedoTexture = loadTexture(albedo_str.c_str());
+    icosphereTester->AmbientOcclusionTexture = loadTexture(ao_str.c_str());
+    icosphereTester->NormalMap = loadTexture(normal_str.c_str());
+    icosphereTester->MetallicMap = loadTexture(metallic_str.c_str());
+    icosphereTester->RoughnessMap = loadTexture(roughness_str.c_str());
+    
 }
 
 uint32_t VTF_Scene::GetNumLevelsBVH(uint32_t num_leaves) {
