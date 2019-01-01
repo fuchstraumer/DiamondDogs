@@ -331,6 +331,7 @@ void ShaderResourcePack::createTexelBuffer(const st::ShaderResource* texel_buffe
     auto& group = resources[texel_buffer->ParentGroupName()];
     VkBufferCreateInfo buffer_info = vpr::vk_buffer_create_info_base;
     buffer_info.usage = storage ? VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT : VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
+    buffer_info.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     buffer_info.size = texel_buffer->MemoryRequired();
     const VkBufferViewCreateInfo* view_info = &texel_buffer->BufferViewInfo();
     auto& rsrc_context = ResourceContext::Get();
@@ -354,7 +355,7 @@ void ShaderResourcePack::createUniformBuffer(const st::ShaderResource* uniform_b
 void ShaderResourcePack::createStorageBuffer(const st::ShaderResource* storage_buffer) {
     auto& group = resources[storage_buffer->ParentGroupName()];
     VkBufferCreateInfo buffer_info = vpr::vk_buffer_create_info_base;
-    buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     buffer_info.size = storage_buffer->MemoryRequired();
     auto& rsrc_context = ResourceContext::Get();
     auto emplaced = group.emplace(storage_buffer->Name(), rsrc_context.CreateBuffer(&buffer_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
