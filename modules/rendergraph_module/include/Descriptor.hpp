@@ -31,6 +31,10 @@ public:
 private:
 
     union rawDataEntry {
+        rawDataEntry() = default;
+        rawDataEntry(VkDescriptorBufferInfo&& info) : BufferInfo(std::forward<VkDescriptorBufferInfo>(info)) {}
+        rawDataEntry(VkDescriptorImageInfo&& info) : ImageInfo(std::forward<VkDescriptorImageInfo>(info)) {}
+        rawDataEntry(VkBufferView view) : BufferView{ view } {}
         VkDescriptorBufferInfo BufferInfo;
         VkDescriptorImageInfo ImageInfo;
         VkBufferView BufferView;

@@ -126,7 +126,7 @@ void Descriptor::updateBufferDescriptor(const size_t idx, VulkanResource* rsrc) 
 
     auto& raw_entry = rawEntries[idx];
     if (rsrc->ViewHandle != VK_NULL_HANDLE) {
-        raw_entry.BufferView = (VkBufferView)rsrc->ViewHandle;
+        raw_entry = rawDataEntry((VkBufferView)rsrc->ViewHandle);
     }
     else {
         raw_entry.BufferInfo.buffer = (VkBuffer)rsrc->Handle;
@@ -166,16 +166,16 @@ void Descriptor::addBufferDescriptor(const size_t idx, VulkanResource* rsrc) {
     const VkDescriptorType& type = descriptorTypeMap.at(idx);
 
     if (type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER || type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER) {
-        rawDataEntry entry;
-        entry.BufferView = (VkBufferView)rsrc->ViewHandle;
-        addRawEntry(idx, std::move(entry));
-        rawEntries.emplace_back(entry);
+        addRawEntry(idx, rawDataEntry((VkBufferView)rsrc->ViewHandle));
     }
     else {
+        constexpr uint32_t MAX_UNIFORM_BUFFER_RANGE_MIN = 16384u;
+        constexpr uint32_t MAX_STORAGE_BUFFER_RANGE_MIN = 134217728u;
+        uint32_t range = (type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) ? MAX_UNIFORM_BUFFER_RANGE_MIN : MAX_STORAGE_BUFFER_RANGE_MIN;
         addRawEntry(idx, rawDataEntry{ VkDescriptorBufferInfo {
              (VkBuffer)rsrc->Handle,
              0,
-             VK_WHOLE_SIZE
+             range
         } });
     }
 
@@ -205,14 +205,13 @@ void Descriptor::addSamplerDescriptor(const size_t idx, VulkanResource* rsrc) {
 void Descriptor::addImageDescriptor(const size_t idx, VulkanResource* rsrc) {
     const VkImageCreateInfo* img_create_info = reinterpret_cast<VkImageCreateInfo*>(rsrc->Info);
 
-    rawDataEntry entry;
-    entry.ImageInfo =
-    VkDescriptorImageInfo{
-        VK_NULL_HANDLE,
-        (VkImageView)rsrc->ViewHandle,
-        imageLayoutFromUsage(img_create_info->usage)
-    };
-    addRawEntry(idx, std::move(entry));
+    addRawEntry(idx, rawDataEntry{
+        VkDescriptorImageInfo{
+            VK_NULL_HANDLE,
+            (VkImageView)rsrc->ViewHandle,
+            imageLayoutFromUsage(img_create_info->usage)
+        }
+    });
 
     addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{
         uint32_t(idx),
@@ -228,14 +227,11 @@ void Descriptor::addImageDescriptor(const size_t idx, VulkanResource* rsrc) {
 void Descriptor::addCombinedImageSamplerDescriptor(const size_t idx, VulkanResource* img, VulkanResource* sampler) {
     const VkImageCreateInfo* img_create_info = reinterpret_cast<VkImageCreateInfo*>(img->Info);
 
-    rawDataEntry entry;
-    entry.ImageInfo = 
-    VkDescriptorImageInfo{
+    addRawEntry(idx, rawDataEntry{ VkDescriptorImageInfo{
         (VkSampler)sampler->Handle,
         (VkImageView)img->ViewHandle,
         imageLayoutFromUsage(img_create_info->usage)
-    };
-    addRawEntry(idx, std::move(entry));
+    } });
 
     addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{
         uint32_t(idx),
@@ -250,17 +246,17 @@ void Descriptor::addCombinedImageSamplerDescriptor(const size_t idx, VulkanResou
 }
 
 void Descriptor::addRawEntry(const size_t idx, rawDataEntry&& entry) {
-    if (rawEntries.empty() || idx > rawEntries.size() - 1) {
+    if (rawEntries.empty() || idx >= rawEntries.size()) {
         rawEntries.resize(idx + 1);
     }
-    rawEntries[idx] = std::forward<rawDataEntry>(entry);
+    rawEntries[idx] = std::move(entry);
 }
 
 void Descriptor::addUpdateEntry(const size_t idx, VkDescriptorUpdateTemplateEntry&& entry) {
-    if (updateEntries.empty() || idx > updateEntries.size() - 1) {
+    if (updateEntries.empty() || idx >= updateEntries.size()) {
         updateEntries.resize(idx + 1);
     }
-    updateEntries[idx] = std::forward<VkDescriptorUpdateTemplateEntry>(entry);
+    updateEntries[idx] = std::move(entry);
 }
 
 void Descriptor::createUpdateTemplate() const {
