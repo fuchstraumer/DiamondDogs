@@ -33,6 +33,7 @@
 #include "ShaderResourcePack.hpp"
 #include "PerspectiveCamera.hpp"
 #include "material/MaterialParameters.hpp"
+#define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 #include <experimental/filesystem>
 
@@ -56,6 +57,8 @@ constexpr static std::array<VkVertexInputAttributeDescription, 4> VertexAttribut
 };
 
 struct vertex_t {
+    vertex_t(glm::vec3 p, glm::vec3 n, glm::vec3 t, glm::vec2 uv) : Position(std::move(p)), Normal(std::move(n)), Tangent(std::move(t)),
+        UV(std::move(uv)) {}
     glm::vec3 Position;
     glm::vec3 Normal;
     glm::vec3 Tangent;
