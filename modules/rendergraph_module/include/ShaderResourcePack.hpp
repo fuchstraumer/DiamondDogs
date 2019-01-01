@@ -50,6 +50,7 @@ public:
 
     VulkanResource* At(const std::string& group_name, const std::string& name);
     VulkanResource* Find(const std::string& group_name, const std::string& name) noexcept;
+    void UpdateResource(const std::string& group_name, const std::string& name, VulkanResource* rsrc) noexcept;
     size_t BindingLocation(const std::string& name) const noexcept;
     bool Has(const std::string& group_name, const std::string& name) const noexcept;
 
