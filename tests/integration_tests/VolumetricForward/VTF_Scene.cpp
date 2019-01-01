@@ -52,6 +52,55 @@ constexpr static std::array<VkVertexInputAttributeDescription, 4> VertexAttribut
     VkVertexInputAttributeDescription{ 3, 0, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 9 }
 };
 
+struct vertex_t {
+    glm::vec3 Position;
+    glm::vec3 Normal;
+    glm::vec3 Tangent;
+    glm::vec2 UV;
+};
+
+
+constexpr static float GOLDEN_RATIO = 1.6180339887498948482045f;
+constexpr static float FLOAT_PI = 3.14159265359f;
+
+static const std::array<glm::vec3, 12> ICOSPHERE_INITIAL_VERTICES{
+    glm::vec3{-GOLDEN_RATIO, 1.0f, 0.0f },
+    glm::vec3{ GOLDEN_RATIO, 1.0f, 0.0f },
+    glm::vec3{-GOLDEN_RATIO,-1.0f, 0.0f },
+    glm::vec3{ GOLDEN_RATIO,-1.0f, 0.0f },
+    glm::vec3{ 0.0f,-GOLDEN_RATIO, 1.0f },
+    glm::vec3{ 0.0f, GOLDEN_RATIO, 1.0f },
+    glm::vec3{ 0.0f,-GOLDEN_RATIO,-1.0f },
+    glm::vec3{ 0.0f, GOLDEN_RATIO,-1.0f },
+    glm::vec3{ 1.0f, 0.0f,-GOLDEN_RATIO },
+    glm::vec3{ 1.0f, 0.0f, GOLDEN_RATIO },
+    glm::vec3{-1.0f, 0.0f,-GOLDEN_RATIO },
+    glm::vec3{-1.0f, 0.0f, GOLDEN_RATIO }
+};
+
+constexpr static std::array<uint32_t, 60> INITIAL_INDICES{
+    0,11, 5,
+    0, 5, 1,
+    0, 1, 7,
+    0, 7,10,
+    0,10,11,
+    5,11, 4,
+    1, 5, 9,
+    7, 1, 8,
+    10,7, 6,
+    11,10,2,
+    3, 9, 4,
+    3, 4, 2,
+    3, 2, 6,
+    3, 6, 8,
+    3, 8, 9,
+    4, 9, 5,
+    2, 4,11,
+    6, 2,10,
+    8, 6, 7,
+    9, 8, 1
+};
+
 constexpr static std::array<VkVertexInputBindingDescription, 1> VertexBindingDescriptions {
     VkVertexInputBindingDescription{ 0, sizeof(float) * 11, VK_VERTEX_INPUT_RATE_VERTEX }
 };
@@ -159,6 +208,136 @@ struct alignas(4) LightCountsData {
     uint32_t NumSpotLights{ DEFAULT_MAX_LIGHTS };
     uint32_t NumDirectionalLights{ 4u };
 } LightCounts;
+
+struct TestIcosphereMesh {
+
+    void CreateMesh(const size_t detail_level) {
+
+        Indices.assign(std::begin(INITIAL_INDICES), std::end(INITIAL_INDICES));
+        Vertices.reserve(ICOSPHERE_INITIAL_VERTICES.size());
+        for (const auto& vert : ICOSPHERE_INITIAL_VERTICES) {
+            Vertices.emplace_back(vert, vert, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
+        }
+
+        for (size_t j = 0; j < detail_level; ++j) {
+            size_t num_triangles = Indices.size() / 3;
+            Indices.reserve(Indices.capacity() + (num_triangles * 9));
+            Vertices.reserve(Vertices.capacity() + (num_triangles * 3));
+            for (uint32_t i = 0; i < num_triangles; ++i) {
+                uint32_t i0 = Indices[i * 3 + 0];
+                uint32_t i1 = Indices[i * 3 + 1];
+                uint32_t i2 = Indices[i * 3 + 2];
+
+                uint32_t i3 = static_cast<uint32_t>(Vertices.size());
+                uint32_t i4 = i3 + 1;
+                uint32_t i5 = i4 + 1;
+
+                Indices[i * 3 + 1] = i3;
+                Indices[i * 3 + 2] = i5;
+
+                Indices.insert(Indices.cend(), { i3, i1, i4, i5, i3, i4, i5, i4, i2 });
+
+                glm::vec3 midpoint0 = 0.5f * (Vertices[i0].Position + Vertices[i1].Position);
+                glm::vec3 midpoint1 = 0.5f * (Vertices[i1].Position + Vertices[i2].Position);
+                glm::vec3 midpoint2 = 0.5f * (Vertices[i2].Position + Vertices[i0].Position);
+
+                Vertices.emplace_back(midpoint0, midpoint0, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
+                Vertices.emplace_back(midpoint1, midpoint1, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
+                Vertices.emplace_back(midpoint2, midpoint2, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
+            }
+        }
+
+        for (auto& vert : Vertices) {
+            vert.Position = glm::normalize(vert.Position);
+            vert.Normal = vert.Position;
+        }
+
+        Indices.shrink_to_fit();
+        Vertices.shrink_to_fit();
+
+        for (size_t i = 0; i < Vertices.size(); ++i) {
+            const glm::vec3& norm = Vertices[i].Normal;
+            Vertices[i].UV.x = (glm::atan(norm.x, -norm.z) / FLOAT_PI) * 0.5f + 0.5f;
+            Vertices[i].UV.y = -norm.y * 0.5f + 0.5f;
+        }
+
+        auto add_vertex_w_uv = [this](const size_t& i, const glm::vec2& uv) {
+            const uint32_t& idx = Indices[i];
+            Indices[i] = static_cast<uint32_t>(Vertices.size());
+            Vertices.emplace_back(Vertices[idx].Position, Vertices[idx].Normal, glm::vec3(0.0f, 0.0f, 0.0f), uv);
+        };
+
+        const size_t num_triangles = Indices.size() / 3;
+        for (size_t i = 0; i < num_triangles; ++i) {
+            const glm::vec2& uv0 = Vertices[Indices[i * 3]].UV;
+            const glm::vec2& uv1 = Vertices[Indices[i * 3 + 1]].UV;
+            const glm::vec2& uv2 = Vertices[Indices[i * 3 + 2]].UV;
+            const float d1 = uv1.x - uv0.x;
+            const float d2 = uv2.x - uv0.x;
+            if (std::abs(d1) > 0.5f && std::abs(d2) > 0.5f) {
+                add_vertex_w_uv(i * 3, uv0 + glm::vec2((d1 > 0.0f) ? 1.0f : -1.0f, 0.0f));
+            }
+            else if (std::abs(d1) > 0.5f) {
+                add_vertex_w_uv(i * 3 + 1, uv1 + glm::vec2((d1 < 0.0f) ? 1.0f : -1.0f, 0.0f));
+            }
+            else if (std::abs(d2) > 0.5f) {
+                add_vertex_w_uv(i * 3 + 2, uv2 + glm::vec2((d2 < 0.0f) ? 1.0f : -1.0f, 0.0f));
+            }
+        }
+
+        const VkBufferCreateInfo vbo_info{
+            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            nullptr,
+            0,
+            sizeof(vertex_t) * Vertices.size(),
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_SHARING_MODE_EXCLUSIVE,
+            0u,
+            nullptr
+        };
+
+        const gpu_resource_data_t vbo_data{
+            Vertices.data(),
+            vbo_info.size,
+            0u, 0u, 0u
+        };
+
+        auto& rsrc_context = ResourceContext::Get();
+        VBO = rsrc_context.CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, memory_type::DEVICE_LOCAL, nullptr);
+
+        const VkBufferCreateInfo ebo_info{
+            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            nullptr,
+            0,
+            sizeof(uint32_t) * Indices.size(),
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_SHARING_MODE_EXCLUSIVE,
+            0u,
+            nullptr
+        };
+
+        const gpu_resource_data_t ebo_data{
+            Indices.data(),
+            ebo_info.size,
+            0u, 0u, 0u
+        };
+
+        EBO = rsrc_context.CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, memory_type::DEVICE_LOCAL, nullptr);
+
+    }
+
+
+    VulkanResource* VBO{ nullptr };
+    VulkanResource* EBO{ nullptr };
+    VulkanResource* AlbedoTexture{ nullptr };
+    VulkanResource* AmbientOcclusionTexture{ nullptr };
+    VulkanResource* HeightMap{ nullptr };
+    VulkanResource* NormalMap{ nullptr };
+    VulkanResource* MetallicMap{ nullptr };
+    VulkanResource* RoughnessMap{ nullptr };
+    std::vector<uint32_t> Indices;
+    std::vector<vertex_t> Vertices;
+};
 
 glm::vec3 HSV_to_RGB(float H, float S, float V) {
     float C = V * S;
