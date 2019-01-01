@@ -6,8 +6,10 @@
 #include "core/ShaderPack.hpp"
 #include "generation/ShaderGenerator.hpp"
 #include "easylogging++.h"
+#include <experimental/filesystem>
 INITIALIZE_EASYLOGGINGPP
 #include "glm/gtc/matrix_transform.hpp"
+#include "../third_party/shadertools/src/util/ShaderPackBinary.hpp"
 
 static int screen_x() {
     auto& ctxt = RenderingContext::Get();
@@ -33,6 +35,15 @@ static double fov_y() {
 
 int main(int argc, char* argv[]) {
 
+    namespace fs = std::experimental::filesystem;
+    
+    static const fs::path shader_tools_base_path{ fs::canonical("../../../../third_party/shadertools/fragments") };
+    static const std::string base_path_str{ shader_tools_base_path.string() };
+    static const fs::path shader_pack_path{ fs::canonical("../../../../third_party/shadertools/fragments/volumetric_forward/Shaderpack.lua") };
+    static const std::string pack_path_str{ shader_pack_path.string() };
+    static const fs::path saved_pack_bin_path{ fs::current_path() / "VolumetricForwardPack.stbin" };
+    static const std::string saved_pack_bin_str{ saved_pack_bin_path.string() };
+
     auto& ctxt = RenderingContext::Get();
     ctxt.Construct("RendererContextCfg.json");
 
@@ -47,11 +58,27 @@ int main(int argc, char* argv[]) {
     callbacks.GetZNear = z_near;
     callbacks.GetZFar = z_far;
 
-    ShaderGenerator::SetBasePath("../../../../third_party/shadertools/fragments");
-    ShaderPack vtfPack("../../../../third_party/shadertools/fragments/volumetric_forward/Shaderpack.lua");
+    std::unique_ptr<ShaderPack> vtfPack{ nullptr };
+    ShaderGenerator::SetBasePath(base_path_str.c_str());
+
+    if (!fs::exists(saved_pack_bin_path)) {
+        vtfPack = std::make_unique<ShaderPack>(pack_path_str.c_str());
+        ShaderPackBinary* bin_to_save = CreateShaderPackBinary(vtfPack.get());
+        SaveBinaryToFile(bin_to_save, saved_pack_bin_str.c_str());
+        DestroyShaderPackBinary(bin_to_save);
+    }
+    else {
+        ShaderPackBinary* bin = LoadShaderPackBinary(saved_pack_bin_str.c_str());
+        vtfPack = std::make_unique<ShaderPack>(bin);
+        DestroyShaderPackBinary(bin);
+        // should re-create after creating pack to ensure updates are propagated
+        ShaderPackBinary* bin_to_save = CreateShaderPackBinary(vtfPack.get());
+        SaveBinaryToFile(bin_to_save, saved_pack_bin_str.c_str());
+        DestroyShaderPackBinary(bin_to_save);
+    }
 
     auto& scene = VTF_Scene::Get();
-    scene.Construct(RequiredVprObjects{ ctxt.Device(), ctxt.PhysicalDevice(), ctxt.Instance(), ctxt.Swapchain() }, &vtfPack);
+    scene.Construct(RequiredVprObjects{ ctxt.Device(), ctxt.PhysicalDevice(), ctxt.Instance(), ctxt.Swapchain() }, vtfPack.get());
 
     while (!ctxt.ShouldWindowClose()) {
         ctxt.Update();
