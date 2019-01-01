@@ -130,8 +130,8 @@ void ShaderResourcePack::createSetResourcesAndLayout(const std::string& name) {
     size_t num_resources = 0;
     const st::ResourceGroup* resource_group = shaderPack->GetResourceGroup(name.c_str());
     resource_group->GetResourcePtrs(&num_resources, nullptr);
-    std::vector<const st::ShaderResource*> resources(num_resources);
-    resource_group->GetResourcePtrs(&num_resources, resources.data());
+    std::vector<const st::ShaderResource*> st_resources(num_resources);
+    resource_group->GetResourcePtrs(&num_resources, st_resources.data());
 
     bool skip_resources = false;
 
@@ -149,10 +149,10 @@ void ShaderResourcePack::createSetResourcesAndLayout(const std::string& name) {
     }
 
     if (!skip_resources) {
-        createResources(resources);
+        createResources(st_resources);
     }
 
-    createDescriptor(name, resources, skip_resources);
+    createDescriptor(name, st_resources, skip_resources);
 
 }
 
