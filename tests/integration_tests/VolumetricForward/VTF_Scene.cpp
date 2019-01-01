@@ -20,6 +20,7 @@
 #include "Descriptor.hpp"
 #include "Swapchain.hpp"
 #include "Instance.hpp"
+#include "Fence.hpp"
 #include "VkDebugUtils.hpp"
 #include "CreateInfoBase.hpp"
 #include "vulkan/vulkan.h"
@@ -42,6 +43,7 @@ constexpr static uint32_t BVH_NUM_THREADS = 32u * 16u;
 constexpr static uint32_t AVERAGE_OVERLAPPING_LIGHTS_PER_CLUSTER = 20u;
 constexpr static uint32_t LIGHT_GRID_BLOCK_SIZE = 32u;
 constexpr static uint32_t CLUSTER_GRID_BLOCK_SIZE = 64u;
+constexpr static uint32_t AVERAGE_LIGHTS_PER_TILE = 100u;
 
 constexpr static std::array<VkVertexInputAttributeDescription, 4> VertexAttributes {
     VkVertexInputAttributeDescription{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 },
@@ -67,7 +69,6 @@ constexpr static std::array<const VkClearValue, 3> DrawPassClearValues{
     DefaultDepthStencilClearValue,
     DefaultColorClearValue
 };
-
 
 constexpr static VkPipelineColorBlendAttachmentState AdditiveBlendingAttachmentState {
     VK_TRUE,
@@ -398,18 +399,55 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     vprObjects = objects;
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
     resourcePack = std::make_unique<ShaderResourcePack>(nullptr, vtfShaders);
+    GenerateLights();
     createSemaphores();
     createComputePools();
     createRenderpasses();
     createShaderModules();
     createComputePipelines();
     createGraphicsPipelines();
+    createLightResources();
+    createSortingResources();
+    createBVH_Resources();
+    updateGlobalUBOs();
+    updateClusterGrid();
+    computeClusterAABBs();
 }
 
 void VTF_Scene::Destroy() {
 }
 
+void VTF_Scene::updateGlobalUBOs() {
+    auto& camera = PerspectiveCamera::Get();
+    auto& ctxt = RenderingContext::Get();
+    auto& rsrc = ResourceContext::Get();
+
+    MatricesDefault.projection = camera.ProjectionMatrix();
+    MatricesDefault.view = camera.ViewMatrix();
+    MatricesDefault.inverseView = glm::inverse(MatricesDefault.view);
+
+    const gpu_resource_data_t matrices_update_data{
+        &MatricesDefault,
+        sizeof(MatricesDefault),
+        0u, 0u, 0u
+    };
+    rsrc.SetBufferData(resourcePack->At("GlobalResources", "matrices"), 1, &matrices_update_data);
+
+    Globals.depthRange = glm::vec2(camera.NearPlane(), camera.FarPlane());
+    Globals.windowSize = glm::vec2(ctxt.Swapchain()->Extent().width, ctxt.Swapchain()->Extent().height);
+    Globals.frame += 1;
+    
+    const gpu_resource_data_t globals_update_data{
+        &Globals,
+        sizeof(Globals),
+        0u, 0u, 0u
+    };
+    rsrc.SetBufferData(resourcePack->At("GlobalResources", "globals"), 1, &globals_update_data);
+
+}
+
 void VTF_Scene::update() {
+    updateGlobalUBOs();
     constexpr static VkCommandBufferBeginInfo compute_begin_info{
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         nullptr,
@@ -423,7 +461,6 @@ void VTF_Scene::update() {
     buildLightBVH();
     vkEndCommandBuffer(computePools[0]->GetCmdBuffer(0));
     submitComputeUpdates();
-
 }
 
 void VTF_Scene::recordCommands() {
@@ -504,7 +541,7 @@ void VTF_Scene::computeAndSortMortonCodes() {
     const gpu_resource_data_t sort_params_copy{ &sort_params, sizeof(SortParams), 0u, 0u, 0u };
 
     // prefetch binding locations
-    Descriptor* sort_descriptor = resourcePack->GetDescriptor("MergeSort");
+    Descriptor* sort_descriptor = resourcePack->GetDescriptor("MergeSortResources");
     const size_t src_keys_loc = resourcePack->BindingLocation("InputKeys");
     const size_t dst_keys_loc = resourcePack->BindingLocation("OutputKeys");
     const size_t src_values_loc = resourcePack->BindingLocation("InputValues");
@@ -664,13 +701,16 @@ void VTF_Scene::submitComputeUpdates() {
 
 void VTF_Scene::updateClusterGrid() {
     auto& camera = PerspectiveCamera::Get();
+
     float fov_y = camera.FOV();
     float z_near = camera.NearPlane();
     float z_far = camera.FarPlane();
+    Globals.depthRange = glm::vec2(z_near, z_far);
 
     auto& ctxt = RenderingContext::Get();
     const uint32_t window_width = ctxt.Swapchain()->Extent().width;
     const uint32_t window_height = ctxt.Swapchain()->Extent().height;
+    Globals.windowSize = glm::vec2(window_width, window_height);
 
     uint32_t cluster_dim_x = static_cast<uint32_t>(glm::ceil(window_width / float(CLUSTER_GRID_BLOCK_SIZE)));
     uint32_t cluster_dim_y = static_cast<uint32_t>(glm::ceil(window_height / float(CLUSTER_GRID_BLOCK_SIZE)));
@@ -679,7 +719,10 @@ void VTF_Scene::updateClusterGrid() {
     float log_dim_y = 1.0f / glm::log(1.0f + sD);
     float log_depth = glm::log(z_far / z_near);
 
-    uint32_t cluster_dim_z = static_cast<uint32_t>(glm::floor(log_depth * log_dim_y));
+    uint32_t cluster_dim_z = static_cast<uint32_t>(glm::floor(log_depth * log_dim_y));    
+    const uint32_t CLUSTER_SIZE = cluster_dim_x * cluster_dim_y * cluster_dim_z;
+    const uint32_t LIGHT_INDEX_LIST_SIZE = cluster_dim_x * cluster_dim_y * AVERAGE_LIGHTS_PER_TILE;
+
     ClusterData.GridDim = glm::uvec3{ cluster_dim_x, cluster_dim_y, cluster_dim_z };
     ClusterData.ViewNear = z_near;
     ClusterData.ScreenSize = glm::uvec2{ CLUSTER_GRID_BLOCK_SIZE, CLUSTER_GRID_BLOCK_SIZE };
@@ -697,19 +740,115 @@ void VTF_Scene::updateClusterGrid() {
     VulkanResource* cluster_data_rsrc = resourcePack->At("VolumetricForward", "ClusterData");
     rsrc.SetBufferData(cluster_data_rsrc, 1, &cluster_data_update);
 
-    VulkanResource* cluster_flags = resourcePack->At("VolumetricForward", "ClusterFlags");
-    VkBufferCreateInfo cluster_flags_create_info = *reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info);
-    cluster_flags_create_info.size = cluster_dim_x * cluster_dim_y * cluster_dim_z * sizeof(uint32_t);
-    VkBufferViewCreateInfo cluster_flags_view_info = *reinterpret_cast<const VkBufferViewCreateInfo*>(cluster_flags->ViewInfo);
+    clusterFlags = resourcePack->At("VolumetricForward", "ClusterFlags");
+    VkBufferCreateInfo cluster_flags_create_info = *reinterpret_cast<const VkBufferCreateInfo*>(clusterFlags->Info);
+    cluster_flags_create_info.size = cluster_dim_x * cluster_dim_y * cluster_dim_z * sizeof(uint8_t);
+    VkBufferViewCreateInfo cluster_flags_view_info = *reinterpret_cast<const VkBufferViewCreateInfo*>(clusterFlags->ViewInfo);
     cluster_flags_view_info.range = cluster_flags_create_info.size;
-    rsrc.DestroyResource(cluster_flags);
-    cluster_flags = rsrc.CreateBuffer(&cluster_flags_create_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    rsrc.DestroyResource(clusterFlags);
+    clusterFlags = rsrc.CreateBuffer(&cluster_flags_create_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    resourcePack->UpdateResource("VolumetricForward", "ClusterFlags", clusterFlags);
 
-    VulkanResource* unique_clusters = resourcePack->At("VolumetricForward", "UniqueClusters");
-    rsrc.DestroyResource(unique_clusters);
-    unique_clusters = rsrc.CreateBuffer(&cluster_flags_create_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-
+    uniqueClusters = resourcePack->At("VolumetricForward", "UniqueClusters");
+    rsrc.DestroyResource(uniqueClusters);
+    uniqueClusters = rsrc.CreateBuffer(&cluster_flags_create_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    resourcePack->UpdateResource("VolumetricForward", "UniqueClusters", uniqueClusters);
     previousUniqueClusters = rsrc.CreateBuffer(&cluster_flags_create_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    UpdateUniqueClusters = true;
+
+    assignLightsToClustersArgumentBuffer = resourcePack->At("IndirectArgsSet", "IndirectArgs");
+
+    // we'll leave this one empty for now
+    constexpr static VkBufferCreateInfo debug_indirect_draw_buffer_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(VkDrawIndexedIndirectCommand),
+        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr
+    };
+    if (debugClustersDrawIndirectArgumentBuffer) {
+        rsrc.DestroyResource(debugClustersDrawIndirectArgumentBuffer);
+    }
+    debugClustersDrawIndirectArgumentBuffer = rsrc.CreateBuffer(&debug_indirect_draw_buffer_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE, nullptr);
+
+    clusterAABBs = resourcePack->At("VolumetricForward", "ClusterAABBs");
+    VkBufferCreateInfo cluster_aabbs_info = *reinterpret_cast<const VkBufferCreateInfo*>(clusterAABBs->Info);
+    cluster_aabbs_info.size = CLUSTER_SIZE * sizeof(AABB);
+    rsrc.DestroyResource(clusterAABBs);
+    clusterAABBs = rsrc.CreateBuffer(&cluster_aabbs_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    resourcePack->UpdateResource("VolumetricForward", "ClusterAABBs", clusterAABBs);
+
+    pointLightGrid = resourcePack->At("VolumetricForward", "PointLightGrid");
+    VkBufferCreateInfo point_light_grid_info = *reinterpret_cast<const VkBufferCreateInfo*>(pointLightGrid->Info);
+    point_light_grid_info.size = CLUSTER_SIZE * sizeof(uint32_t) * 2;
+    VkBufferViewCreateInfo point_light_grid_view_info = *reinterpret_cast<const VkBufferViewCreateInfo*>(pointLightGrid->ViewInfo);
+    point_light_grid_view_info.range = point_light_grid_info.size;
+    rsrc.DestroyResource(pointLightGrid);
+    pointLightGrid = rsrc.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    resourcePack->UpdateResource("VolumetricForward", "PointLightGrid", pointLightGrid);
+
+    spotLightGrid = resourcePack->At("VolumetricForward", "SpotLightGrid");
+    rsrc.DestroyResource(spotLightGrid);
+    spotLightGrid = rsrc.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    resourcePack->UpdateResource("VolumetricForward", "SpotLightGrid", spotLightGrid);
+
+    pointLightIndexList = resourcePack->At("VolumetricForward", "PointLightIndexList");
+    VkBufferCreateInfo indices_info = *reinterpret_cast<const VkBufferCreateInfo*>(pointLightIndexList->Info);
+    indices_info.size = LIGHT_INDEX_LIST_SIZE * sizeof(uint32_t);
+    VkBufferViewCreateInfo indices_view_info = *reinterpret_cast<const VkBufferViewCreateInfo*>(pointLightIndexList->ViewInfo);
+    indices_view_info.range = indices_info.size;
+    rsrc.DestroyResource(pointLightIndexList);
+    pointLightIndexList = rsrc.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    resourcePack->UpdateResource("VolumetricForward", "PointLightIndexList", pointLightIndexList);
+
+    spotLightIndexList = resourcePack->At("VolumetricForward", "SpotLightIndexList");
+    rsrc.DestroyResource(spotLightIndexList);
+    spotLightIndexList = rsrc.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    resourcePack->UpdateResource("VolumetricForward", "SpotLightIndexList", spotLightIndexList);
+
+    computeClusterAABBs();
+}
+
+void VTF_Scene::computeClusterAABBs() {
+    constexpr static VkCommandBufferBeginInfo compute_begin_info{
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        nullptr,
+        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        nullptr
+    };
+    VkCommandBuffer cmd_buffer = computePools[1]->GetCmdBuffer(0u);
+
+    vkBeginCommandBuffer(cmd_buffer, &compute_begin_info);
+        resourcePack->BindGroupSets(cmd_buffer, "ComputeClusterAABBs", VK_PIPELINE_BIND_POINT_COMPUTE);
+        vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, computeClusterAABBsPipeline->Handle);
+        const uint32_t dispatch_size = static_cast<uint32_t>(glm::ceil((ClusterData.GridDim.x * ClusterData.GridDim.y * ClusterData.GridDim.z) / 1024.0f));
+        vkCmdDispatch(cmd_buffer, dispatch_size, 1u, 1u);
+    vkEndCommandBuffer(cmd_buffer);
+
+    const VkSubmitInfo submit_info{
+        VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        nullptr,
+        0u,
+        nullptr,
+        0u,
+        1u,
+        &cmd_buffer,
+        0u,
+        nullptr
+    };
+
+    VkResult result = vkQueueSubmit(vprObjects.device->ComputeQueue(), 1, &submit_info, computeAABBsFence->vkHandle());
+    VkAssert(result);
+
+    result = vkWaitForFences(vprObjects.device->vkHandle(), 1, &computeAABBsFence->vkHandle(), VK_TRUE, UINT_MAX);
+    VkAssert(result);
+
+    result = vkResetFences(vprObjects.device->vkHandle(), 1, &computeAABBsFence->vkHandle());
+    VkAssert(result);
+
 }
 
 void VTF_Scene::createComputePools() {
@@ -1305,6 +1444,8 @@ void VTF_Scene::createComputeClusterAABBsPipeline() {
     VkResult result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &computeClusterAABBsPipeline->Handle);
     VkAssert(result);
 
+    computeAABBsFence = std::make_unique<vpr::Fence>(vprObjects.device->vkHandle(), 0u);
+
 }
 
 void VTF_Scene::createIndirectArgsPipeline() {
@@ -1493,6 +1634,145 @@ void VTF_Scene::createDrawPipelines() {
 
     VkGraphicsPipelineCreateInfo opaque_info = pipeline_info.GetPipelineCreateInfo();
 
+
+}
+
+void VTF_Scene::createLightResources() {
+    auto& rsrc_context = ResourceContext::Get();
+
+    if (State.PointLights.empty()) {
+        GenerateSceneLights();
+    }
+
+    VulkanResource* point_lights_buffer = resourcePack->At("VolumetricForwardLights", "PointLights");
+    const gpu_resource_data_t point_lights_data{
+        State.PointLights.data(),
+        State.PointLights.size() * sizeof(PointLight),
+        0u, 0u, 0u
+    };
+    const uint32_t curr_point_lights_buffer_size = static_cast<uint32_t>(reinterpret_cast<const VkBufferCreateInfo*>(point_lights_buffer->Info)->size);
+    const uint32_t required_point_lights_buffer_size = static_cast<uint32_t>(point_lights_data.DataSize);
+    if (required_point_lights_buffer_size > curr_point_lights_buffer_size) {
+        VkBufferCreateInfo recreate_buffer_info = *reinterpret_cast<const VkBufferCreateInfo*>(point_lights_buffer->Info);
+        recreate_buffer_info.size = required_point_lights_buffer_size;
+        rsrc_context.DestroyResource(point_lights_buffer);
+        point_lights_buffer = rsrc_context.CreateBuffer(&recreate_buffer_info, nullptr, 1, &point_lights_data, memory_type::DEVICE_LOCAL, nullptr);
+        resourcePack->UpdateResource("VolumetricForwardLights", "PointLights", point_lights_buffer);
+    }
+    else {
+        rsrc_context.SetBufferData(point_lights_buffer, 1, &point_lights_data);
+    }
+
+    VulkanResource* spot_lights_buffer = resourcePack->At("VolumetricForwardLights", "SpotLights");
+    const gpu_resource_data_t spot_lights_data{
+        State.SpotLights.data(),
+        State.SpotLights.size() * sizeof(SpotLight),
+        0u, 0u, 0u
+    };
+    const uint32_t curr_spot_lights_buffer_size = static_cast<uint32_t>(reinterpret_cast<const VkBufferCreateInfo*>(spot_lights_buffer->Info)->size);
+    const uint32_t required_spot_lights_buffer_size = static_cast<uint32_t>(spot_lights_data.DataSize);
+    if (required_spot_lights_buffer_size > curr_spot_lights_buffer_size) {
+        VkBufferCreateInfo recreate_buffer_info = *reinterpret_cast<const VkBufferCreateInfo*>(spot_lights_buffer->Info);
+        recreate_buffer_info.size = required_spot_lights_buffer_size;
+        rsrc_context.DestroyResource(spot_lights_buffer);
+        spot_lights_buffer = rsrc_context.CreateBuffer(&recreate_buffer_info, nullptr, 1, &spot_lights_data, memory_type::DEVICE_LOCAL, nullptr);
+        resourcePack->UpdateResource("VolumetricForwardLights", "SpotLights", spot_lights_buffer);
+    }
+    else {
+        rsrc_context.SetBufferData(spot_lights_buffer, 1, &spot_lights_data);
+    }
+
+    VulkanResource* dir_lights_buffer = resourcePack->At("VolumetricForwardLights", "DirectionalLights");
+    const gpu_resource_data_t dir_lights_data{
+        State.DirectionalLights.data(),
+        State.DirectionalLights.size() * sizeof(DirectionalLight),
+        0u, 0u, 0u
+    };
+    const uint32_t current_dir_lights_buffer_size = static_cast<uint32_t>(reinterpret_cast<const VkBufferCreateInfo*>(dir_lights_buffer->Info)->size);
+    const uint32_t req_dir_lights_buffer_size = static_cast<uint32_t>(dir_lights_data.DataSize);
+    if (req_dir_lights_buffer_size > current_dir_lights_buffer_size) {
+        VkBufferCreateInfo recreate_buffer_info = *reinterpret_cast<const VkBufferCreateInfo*>(dir_lights_buffer->Info);
+        recreate_buffer_info.size = req_dir_lights_buffer_size;
+        rsrc_context.DestroyResource(dir_lights_buffer);
+        dir_lights_buffer = rsrc_context.CreateBuffer(&recreate_buffer_info, nullptr, 1, &dir_lights_data, memory_type::DEVICE_LOCAL, nullptr);
+    }
+    else {
+        rsrc_context.SetBufferData(dir_lights_buffer, 1, &dir_lights_data);
+    }
+
+}
+
+void VTF_Scene::createSortingResources() {
+    auto& rsrc_context = ResourceContext::Get();
+
+    VkBufferCreateInfo sort_buffers_create_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(uint32_t) * LightCounts.NumPointLights,
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    VkBufferViewCreateInfo sort_buffer_views_create_info{
+        VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_FORMAT_R32_UINT,
+        0u,
+        sort_buffers_create_info.size
+    };
+
+    pointLightIndices = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    pointLightMortonCodes = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    pointLightIndices_OUT = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    pointLightMortonCodes_OUT = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+
+    sort_buffers_create_info.size = sizeof(uint32_t) * LightCounts.NumSpotLights;
+    sort_buffer_views_create_info.range = sort_buffers_create_info.size;
+
+    spotLightIndices = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    spotLightMortonCodes = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    spotLightIndices_OUT = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    spotLightMortonCodes_OUT = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+
+    resourcePack->UpdateResource("SortResources", "PointLightIndices", pointLightIndices);
+    resourcePack->UpdateResource("SortResources", "SpotLightIndices", spotLightIndices);
+    resourcePack->UpdateResource("SortResources", "PointLightMortonCodes", pointLightMortonCodes);
+    resourcePack->UpdateResource("SortResources", "SpotLightMortonCodes", spotLightMortonCodes);
+
+}
+
+void VTF_Scene::createBVH_Resources() {
+    auto& rsrc_context = ResourceContext::Get();
+
+    const uint32_t point_light_nodes = GetNumNodesBVH(LightCounts.NumPointLights);
+    const uint32_t spot_light_nodes = GetNumNodesBVH(LightCounts.NumSpotLights);
+
+    pointLightBVH = resourcePack->At("BVHResources", "PointLightBVH");
+    const uint32_t curr_point_light_bvh_size = static_cast<uint32_t>(reinterpret_cast<const VkBufferCreateInfo*>(pointLightBVH->Info)->size);
+    const uint32_t req_point_light_bvh_size = static_cast<uint32_t>(point_light_nodes * sizeof(AABB));
+    if (req_point_light_bvh_size > curr_point_light_bvh_size) {
+        VkBufferCreateInfo recreate_buffer_info = *reinterpret_cast<const VkBufferCreateInfo*>(pointLightBVH->Info);
+        recreate_buffer_info.size = req_point_light_bvh_size;
+        rsrc_context.DestroyResource(pointLightBVH);
+        pointLightBVH = rsrc_context.CreateBuffer(&recreate_buffer_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+        resourcePack->UpdateResource("BVHResources", "PointLightBVH", pointLightBVH);
+    }
+
+    spotLightBVH = resourcePack->At("BVHResources", "SpotLightBVH");
+    const uint32_t curr_spot_light_bvh_size = static_cast<uint32_t>(reinterpret_cast<const VkBufferCreateInfo*>(spotLightBVH->Info)->size);
+    const uint32_t req_spot_light_bvh_size = static_cast<uint32_t>(spot_light_nodes * sizeof(AABB));
+    if (req_spot_light_bvh_size > curr_spot_light_bvh_size) {
+        VkBufferCreateInfo recreate_buffer_info = *reinterpret_cast<const VkBufferCreateInfo*>(spotLightBVH->Info);
+        recreate_buffer_info.size = req_spot_light_bvh_size;
+        rsrc_context.DestroyResource(spotLightBVH);
+        spotLightBVH = rsrc_context.CreateBuffer(&recreate_buffer_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+        resourcePack->UpdateResource("BVHResources", "SpotLightBVH", spotLightBVH);
+    }
 
 }
 

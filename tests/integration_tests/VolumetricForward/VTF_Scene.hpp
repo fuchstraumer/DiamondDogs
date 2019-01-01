@@ -127,6 +127,7 @@ public:
 
 private:
 
+    void updateGlobalUBOs();
     void update() final;
     void recordCommands() final;
     void draw() final;
@@ -137,8 +138,8 @@ private:
     void computeAndSortMortonCodes();
     void buildLightBVH();
     void submitComputeUpdates();
-
     void updateClusterGrid();
+    void computeClusterAABBs();
 
     void createComputePools();
     void createRenderpasses();
@@ -156,14 +157,23 @@ private:
     void createRadixSortPipeline();
     void createMergeSortPipelines();
     void createBVH_Pipelines();
+    void createComputeClusterAABBsPipeline();
     void createIndirectArgsPipeline();
     void createGraphicsPipelines();
     void createDepthPrePassPipeline();
     void createClusterSamplesPipeline();
     void createDrawPipelines();
+    void createLightResources();
+    void createSortingResources();
+    void createBVH_Resources();
+
+    VkDispatchIndirectCommand indirectArgsCmd;
 
     // generic since we use it twice, once for prepass once for rendertarget
     VulkanResource* createDepthStencilResource(const VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT) const;
+
+    VulkanResource* pointLightIndexList{ nullptr };
+    VulkanResource* spotLightIndexList{ nullptr };
 
     // Used for debugging
     VulkanResource* pointLightsReadbackBuffer{ nullptr };
@@ -176,16 +186,20 @@ private:
     VulkanResource* previousUniqueClusters{ nullptr };
 
     // Sorting stuff
-    VulkanResource* pointLightMortonCodes;
-    VulkanResource* pointLightIndices;
-    VulkanResource* spotLightMortonCodes;
-    VulkanResource* spotLightIndices;
-    VulkanResource* pointLightMortonCodes_OUT;
-    VulkanResource* pointLightIndices_OUT;
-    VulkanResource* spotLightMortonCodes_OUT;
-    VulkanResource* spotLightIndices_OUT;
+    VulkanResource* pointLightMortonCodes{ nullptr };
+    VulkanResource* pointLightIndices{ nullptr };
+    VulkanResource* spotLightMortonCodes{ nullptr };
+    VulkanResource* spotLightIndices{ nullptr };
+    VulkanResource* pointLightMortonCodes_OUT{ nullptr };
+    VulkanResource* pointLightIndices_OUT{ nullptr };
+    VulkanResource* spotLightMortonCodes_OUT{ nullptr };
+    VulkanResource* spotLightIndices_OUT{ nullptr };
+    VulkanResource* pointLightBVH{ nullptr };
+    VulkanResource* spotLightBVH{ nullptr };
 
-    // Used to debug sample clusters
+    VulkanResource* uniqueClusters{ nullptr };
+    VulkanResource* clusterFlags{ nullptr };
+    VulkanResource* clusterAABBs{ nullptr };
     VulkanResource* clusterColors{ nullptr };  
     VulkanResource* pointLightGrid{ nullptr };
     VulkanResource* spotLightGrid{ nullptr };
@@ -256,6 +270,7 @@ private:
     constexpr static VkAttachmentReference drawPassPresentRef{ 2, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
 
     std::unique_ptr<vpr::CommandPool> computePools[2];
+    std::unique_ptr<vpr::Fence> computeAABBsFence;
 
     std::unordered_map<st::ShaderStage, std::unique_ptr<vpr::ShaderModule>> shaderModules;
     std::unordered_map<std::string, std::vector<st::ShaderStage>> groupStages;
