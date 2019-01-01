@@ -1906,22 +1906,32 @@ void VTF_Scene::createSortingResources() {
     };
 
     pointLightIndices = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    rsrc_context.FillBuffer(pointLightIndices, 0u, 0u, size_t(sort_buffers_create_info.size));
     pointLightMortonCodes = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    rsrc_context.FillBuffer(pointLightMortonCodes, 0u, 0u, size_t(sort_buffers_create_info.size));
     pointLightIndices_OUT = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    rsrc_context.FillBuffer(pointLightIndices_OUT, 0u, 0u, size_t(sort_buffers_create_info.size));
     pointLightMortonCodes_OUT = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    rsrc_context.FillBuffer(pointLightMortonCodes_OUT, 0u, 0u, size_t(sort_buffers_create_info.size));
 
     sort_buffers_create_info.size = sizeof(uint32_t) * LightCounts.NumSpotLights;
     sort_buffer_views_create_info.range = sort_buffers_create_info.size;
 
     spotLightIndices = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    rsrc_context.FillBuffer(pointLightIndices, 0u, 0u, size_t(sort_buffers_create_info.size));
     spotLightMortonCodes = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    rsrc_context.FillBuffer(spotLightMortonCodes, 0u, 0u, size_t(sort_buffers_create_info.size));
     spotLightIndices_OUT = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    rsrc_context.FillBuffer(spotLightIndices_OUT, 0u, 0u, size_t(sort_buffers_create_info.size));
     spotLightMortonCodes_OUT = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    rsrc_context.FillBuffer(spotLightMortonCodes_OUT, 0u, 0u, size_t(sort_buffers_create_info.size));
 
     resourcePack->UpdateResource("SortResources", "PointLightIndices", pointLightIndices);
     resourcePack->UpdateResource("SortResources", "SpotLightIndices", spotLightIndices);
     resourcePack->UpdateResource("SortResources", "PointLightMortonCodes", pointLightMortonCodes);
     resourcePack->UpdateResource("SortResources", "SpotLightMortonCodes", spotLightMortonCodes);
+
+    rsrc_context.Update();
 
 }
 
