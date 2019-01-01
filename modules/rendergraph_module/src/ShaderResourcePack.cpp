@@ -93,6 +93,8 @@ VulkanResource* ShaderResourcePack::Find(const std::string& group_name, const st
 
 void ShaderResourcePack::UpdateResource(const std::string & group_name, const std::string & name, VulkanResource * rsrc) noexcept {
     resources[group_name][name] = rsrc;
+    const size_t idx = rsrcGroupToIdxMap.at(group_name);
+    descriptorSets[idx]->BindResourceToIdx(resourceBindingLocations.at(name), rsrc);
 }
 
 size_t ShaderResourcePack::BindingLocation(const std::string & name) const noexcept {
