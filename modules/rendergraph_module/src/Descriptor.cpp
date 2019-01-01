@@ -130,6 +130,7 @@ void Descriptor::updateBufferDescriptor(const size_t idx, VulkanResource* rsrc) 
     }
     else {
         raw_entry.BufferInfo.buffer = (VkBuffer)rsrc->Handle;
+        raw_entry.BufferInfo.range = reinterpret_cast<const VkBufferCreateInfo*>(rsrc->Info)->size;
     }
 
 }
@@ -169,9 +170,12 @@ void Descriptor::addBufferDescriptor(const size_t idx, VulkanResource* rsrc) {
         addRawEntry(idx, rawDataEntry((VkBufferView)rsrc->ViewHandle));
     }
     else {
+        const uint32_t range = reinterpret_cast<const VkBufferCreateInfo*>(rsrc->Info)->size;
+        /*
         constexpr uint32_t MAX_UNIFORM_BUFFER_RANGE_MIN = 16384u;
         constexpr uint32_t MAX_STORAGE_BUFFER_RANGE_MIN = 134217728u;
         uint32_t range = (type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) ? MAX_UNIFORM_BUFFER_RANGE_MIN : MAX_STORAGE_BUFFER_RANGE_MIN;
+        */
         addRawEntry(idx, rawDataEntry{ VkDescriptorBufferInfo {
              (VkBuffer)rsrc->Handle,
              0,
