@@ -1,7 +1,6 @@
 
 SET(rendergraph_core_srcs
     "${CMAKE_CURRENT_SOURCE_DIR}/include/Descriptor.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/DescriptorPool.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/DescriptorTemplate.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PipelineResource.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PipelineState.hpp"
@@ -11,7 +10,6 @@ SET(rendergraph_core_srcs
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ShaderResourcePack.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/UpdateTemplateData.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Descriptor.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/DescriptorPool.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DescriptorTemplate.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PipelineResource.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PipelineState.cpp"
