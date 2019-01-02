@@ -21,6 +21,7 @@ public:
     VkDescriptorSetLayout SetLayout() const noexcept;
     void UpdateSet(VkDescriptorSet set);
 
+    const UpdateTemplateData& UpdateData() const noexcept;
     void AddLayoutBinding(size_t idx, VkDescriptorType type);
     void AddLayoutBinding(VkDescriptorSetLayoutBinding binding);
     void BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc);

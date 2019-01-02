@@ -19,6 +19,10 @@ DescriptorTemplate::~DescriptorTemplate() {
     throw std::runtime_error("re-integrate destruction of everything else you dolt");
 }
 
+const UpdateTemplateData & DescriptorTemplate::UpdateData() const noexcept {
+    return updateData;
+}
+
 void DescriptorTemplate::AddLayoutBinding(size_t idx, VkDescriptorType type) {
     assert(!created);
     descriptorSetLayout->AddDescriptorBinding(type, VK_SHADER_STAGE_ALL, uint32_t(idx)); 
