@@ -1,4 +1,4 @@
-#include "Descriptor.hpp"
+#include "DescriptorTemplate.hpp"
 #include "RenderingContext.hpp"
 #include "ResourceContext.hpp"
 #include "LogicalDevice.hpp"
@@ -20,32 +20,31 @@ static VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags) {
     }
 }
 
-Descriptor::Descriptor(std::string _name, vpr::DescriptorPool* _pool) : name(std::move(_name)), pool(_pool) {
+DescriptorTemplate::DescriptorTemplate(std::string _name) : name(std::move(_name)) {
     auto& ctxt = RenderingContext::Get();
     descriptorSetLayout = std::make_unique<vpr::DescriptorSetLayout>(ctxt.Device()->vkHandle());
     device = ctxt.Device();
 }
 
-Descriptor::~Descriptor() {
+DescriptorTemplate::~DescriptorTemplate() {
     vkDestroyDescriptorUpdateTemplate(device->vkHandle(), updateTemplate, nullptr);
-    VkResult result = vkFreeDescriptorSets(device->vkHandle(), pool->vkHandle(), 1, &descriptorSet);
-    VkAssert(result);
+    throw std::runtime_error("re-integrate destruction of everything else you dolt");
 }
 
-void Descriptor::AddLayoutBinding(size_t idx, VkDescriptorType type) {
+void DescriptorTemplate::AddLayoutBinding(size_t idx, VkDescriptorType type) {
     assert(!created);
     descriptorSetLayout->AddDescriptorBinding(type, VK_SHADER_STAGE_ALL, uint32_t(idx));
     descriptorTypeMap.emplace(std::move(idx), std::move(type));
 }
 
-void Descriptor::AddLayoutBinding(const VkDescriptorSetLayoutBinding& binding) {
+void DescriptorTemplate::AddLayoutBinding(VkDescriptorSetLayoutBinding binding) {
     // can't add more bindings after init
     assert(!created);
     descriptorSetLayout->AddDescriptorBinding(binding);
     descriptorTypeMap.emplace(binding.binding, binding.descriptorType);
 }
 
-void Descriptor::BindResourceToIdx(size_t idx, VulkanResource* rsrc) {
+void DescriptorTemplate::BindResourceToIdx(size_t idx, VulkanResource* rsrc) {
 
     if (!dirty) {
         dirty = true;
@@ -59,50 +58,25 @@ void Descriptor::BindResourceToIdx(size_t idx, VulkanResource* rsrc) {
     else {
         updateDescriptorBinding(idx, rsrc);
     }
-   
+
 }
 
-void Descriptor::BindCombinedImageSampler(size_t idx, VulkanResource * img, VulkanResource * sampler) {
-    if (!dirty) {
-        dirty = true;
+VkDescriptorUpdateTemplate DescriptorTemplate::UpdateTemplate() const noexcept {
+    if (!created) {
+        createUpdateTemplate();
     }
-
-    assert(descriptorTypeMap.at(idx) == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-
-    if (createdBindings.count(idx) == 0) {
-        addCombinedImageSamplerDescriptor(idx, img, sampler);
-    }
-    else {
-        auto& raw_entry = rawEntries[idx];
-        raw_entry.ImageInfo.imageView = (VkImageView)img->ViewHandle;
-        raw_entry.ImageInfo.sampler = (VkSampler)sampler->Handle;
-    }
+    return updateTemplate;
 }
 
-VkDescriptorSet Descriptor::Handle() const noexcept {
-    update();
-    return descriptorSet;
-}
-
-VkDescriptorSetLayout Descriptor::SetLayout() const {
+VkDescriptorSetLayout DescriptorTemplate::SetLayout() const {
     return descriptorSetLayout->vkHandle();
 }
 
-void Descriptor::update() const {
-
-    if (!created) {
-        createDescriptorSet();
-        createUpdateTemplate();
-        created = true;
-    }
-
-    if (dirty) {
-        vkUpdateDescriptorSetWithTemplate(device->vkHandle(), descriptorSet, updateTemplate, rawEntries.data());
-        dirty = false;
-    }
+void DescriptorTemplate::UpdateSet(VkDescriptorSet set) {
+    vkUpdateDescriptorSetWithTemplate(device->vkHandle(), set, updateTemplate, rawEntries.data());
 }
 
-void Descriptor::updateDescriptorBinding(const size_t idx, VulkanResource * rsrc) {
+void DescriptorTemplate::updateDescriptorBinding(const size_t idx, VulkanResource * rsrc) {
 
     switch (rsrc->Type) {
     case resource_type::BUFFER:
@@ -122,7 +96,7 @@ void Descriptor::updateDescriptorBinding(const size_t idx, VulkanResource * rsrc
 
 }
 
-void Descriptor::updateBufferDescriptor(const size_t idx, VulkanResource* rsrc) {
+void DescriptorTemplate::updateBufferDescriptor(const size_t idx, VulkanResource* rsrc) {
 
     auto& raw_entry = rawEntries[idx];
     if (rsrc->ViewHandle != VK_NULL_HANDLE) {
@@ -135,14 +109,14 @@ void Descriptor::updateBufferDescriptor(const size_t idx, VulkanResource* rsrc) 
 
 }
 
-void Descriptor::updateImageDescriptor(const size_t idx, VulkanResource* rsrc) {
+void DescriptorTemplate::updateImageDescriptor(const size_t idx, VulkanResource* rsrc) {
 
     auto& raw_entry = rawEntries[idx];
     raw_entry.ImageInfo.imageView = (VkImageView)rsrc->ViewHandle;
 
 }
 
-void Descriptor::addDescriptorBinding(const size_t idx, VulkanResource* rsrc) {
+void DescriptorTemplate::addDescriptorBinding(const size_t idx, VulkanResource* rsrc) {
 
     switch (rsrc->Type) {
     case resource_type::BUFFER:
@@ -157,13 +131,13 @@ void Descriptor::addDescriptorBinding(const size_t idx, VulkanResource* rsrc) {
     case resource_type::COMBINED_IMAGE_SAMPLER:
         addCombinedImageSamplerDescriptor(idx, rsrc, rsrc->Sampler);
     default:
-        throw std::domain_error("Invalid resource type when trying to add descriptor binding to Descriptor.");
+        throw std::domain_error("Invalid resource type when trying to add descriptor binding to DescriptorTemplate.");
     };
 
     createdBindings.emplace(idx);
 }
 
-void Descriptor::addBufferDescriptor(const size_t idx, VulkanResource* rsrc) {
+void DescriptorTemplate::addBufferDescriptor(const size_t idx, VulkanResource* rsrc) {
     const VkDescriptorType& type = descriptorTypeMap.at(idx);
 
     if (type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER || type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER) {
@@ -183,18 +157,18 @@ void Descriptor::addBufferDescriptor(const size_t idx, VulkanResource* rsrc) {
         } });
     }
 
-    addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{ 
+    addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{
         uint32_t(idx),
         0,
         1,
         type,
         sizeof(rawDataEntry) * idx,
         0 // size not required for single-descriptor entries
-    });
+        });
 
 }
 
-void Descriptor::addSamplerDescriptor(const size_t idx, VulkanResource* rsrc) {
+void DescriptorTemplate::addSamplerDescriptor(const size_t idx, VulkanResource* rsrc) {
     addRawEntry(idx, rawDataEntry{});
     addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{
         uint32_t(idx),
@@ -203,10 +177,10 @@ void Descriptor::addSamplerDescriptor(const size_t idx, VulkanResource* rsrc) {
         VK_DESCRIPTOR_TYPE_SAMPLER,
         sizeof(rawDataEntry) * idx,
         0
-    });
+        });
 }
 
-void Descriptor::addImageDescriptor(const size_t idx, VulkanResource* rsrc) {
+void DescriptorTemplate::addImageDescriptor(const size_t idx, VulkanResource* rsrc) {
     const VkImageCreateInfo* img_create_info = reinterpret_cast<VkImageCreateInfo*>(rsrc->Info);
 
     addRawEntry(idx, rawDataEntry{
@@ -215,20 +189,20 @@ void Descriptor::addImageDescriptor(const size_t idx, VulkanResource* rsrc) {
             (VkImageView)rsrc->ViewHandle,
             imageLayoutFromUsage(img_create_info->usage)
         }
-    });
+        });
 
     addUpdateEntry(idx, VkDescriptorUpdateTemplateEntry{
         uint32_t(idx),
         0,
-        1, 
+        1,
         descriptorTypeMap.at(idx),
         sizeof(rawDataEntry) * idx,
         0
-    });
+        });
 
 }
 
-void Descriptor::addCombinedImageSamplerDescriptor(const size_t idx, VulkanResource* img, VulkanResource* sampler) {
+void DescriptorTemplate::addCombinedImageSamplerDescriptor(const size_t idx, VulkanResource* img, VulkanResource* sampler) {
     const VkImageCreateInfo* img_create_info = reinterpret_cast<VkImageCreateInfo*>(img->Info);
 
     addRawEntry(idx, rawDataEntry{ VkDescriptorImageInfo{
@@ -244,26 +218,26 @@ void Descriptor::addCombinedImageSamplerDescriptor(const size_t idx, VulkanResou
         descriptorTypeMap.at(idx),
         sizeof(rawDataEntry) * idx,
         0
-    });
+        });
 
     createdBindings.emplace(idx);
 }
 
-void Descriptor::addRawEntry(const size_t idx, rawDataEntry&& entry) {
+void DescriptorTemplate::addRawEntry(const size_t idx, rawDataEntry&& entry) {
     if (rawEntries.empty() || idx >= rawEntries.size()) {
         rawEntries.resize(idx + 1);
     }
     rawEntries[idx] = std::move(entry);
 }
 
-void Descriptor::addUpdateEntry(const size_t idx, VkDescriptorUpdateTemplateEntry&& entry) {
+void DescriptorTemplate::addUpdateEntry(const size_t idx, VkDescriptorUpdateTemplateEntry&& entry) {
     if (updateEntries.empty() || idx >= updateEntries.size()) {
         updateEntries.resize(idx + 1);
     }
     updateEntries[idx] = std::move(entry);
 }
 
-void Descriptor::createUpdateTemplate() const {
+void DescriptorTemplate::createUpdateTemplate() const {
     templateInfo.descriptorUpdateEntryCount = static_cast<uint32_t>(updateEntries.size());
     assert(updateEntries.size() == rawEntries.size());
     templateInfo.pDescriptorUpdateEntries = updateEntries.data();
@@ -274,17 +248,3 @@ void Descriptor::createUpdateTemplate() const {
     templateInfo.set = 0u;
     vkCreateDescriptorUpdateTemplate(RenderingContext::Get().Device()->vkHandle(), &templateInfo, nullptr, &updateTemplate);
 }
-
-void Descriptor::createDescriptorSet() const {
-    VkDescriptorSetLayout layout = descriptorSetLayout->vkHandle();
-    VkDescriptorSetAllocateInfo alloc_info{
-        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        nullptr,
-        pool->vkHandle(),
-        1,
-        &layout
-    };
-    VkResult result = vkAllocateDescriptorSets(device->vkHandle(), &alloc_info, &descriptorSet);
-    VkAssert(result);
-}
-
