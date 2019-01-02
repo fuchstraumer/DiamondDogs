@@ -15,8 +15,8 @@ public:
 
     DescriptorPool(const st::descriptor_type_counts_t& counts);
 
-private:
-
+private: 
+    std::unique_ptr<vpr::DescriptorPool> pool;
 };
 
 #endif // !DIAMOND_DOGS_DESCRIPTOR_POOL_POOL_HPP

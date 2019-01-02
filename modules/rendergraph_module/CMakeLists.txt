@@ -1,23 +1,25 @@
 
 SET(rendergraph_core_srcs
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/Descriptor.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/DescriptorPool.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/DescriptorTemplate.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/GeneratedPipeline.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PipelineResource.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PipelineState.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PipelineSubmission.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/RenderGraph.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/RenderTarget.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ShaderResourcePack.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/UpdateTemplateData.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Descriptor.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DescriptorPool.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DescriptorTemplate.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/GeneratedPipeline.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PipelineResource.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PipelineState.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PipelineSubmission.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/RenderGraph.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/RenderTarget.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ShaderResourcePack.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UpdateTemplateData.cpp"
 )
 
 SET(rendergraph_material_srcs
