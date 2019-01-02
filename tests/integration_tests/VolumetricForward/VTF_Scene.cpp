@@ -266,10 +266,10 @@ struct TestIcosphereMesh {
             Vertices[i].UV.y = -norm.y * 0.5f + 0.5f;
         }
 
-        auto add_vertex_w_uv = [this](const size_t& i, const glm::vec2& uv) {
+        auto add_vertex_w_uv = [this](const size_t i, const glm::vec2& uv) {
             const uint32_t& idx = Indices[i];
-            Indices[i] = static_cast<uint32_t>(Vertices.size());
             Vertices.emplace_back(Vertices[idx].Position, Vertices[idx].Normal, glm::vec3(0.0f, 0.0f, 0.0f), uv);
+            Indices[i] = static_cast<uint32_t>(Vertices.size());
         };
 
         const size_t num_triangles = Indices.size() / 3;
