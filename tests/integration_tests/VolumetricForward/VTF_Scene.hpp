@@ -150,6 +150,7 @@ private:
     void createDrawFramebuffers();
     void createReadbackBuffers();
     void createShaderModules();
+    void createComputeSemaphores();
     void createComputePipelines();
     void createUpdateLightsPipeline();
     void createReduceLightAABBsPipelines();
@@ -212,6 +213,8 @@ private:
     VulkanResource* clusterSamplesRenderTarget{ nullptr };
 
     std::unique_ptr<vpr::Semaphore> computeUpdateCompleteSemaphore;
+    std::unique_ptr<vpr::Semaphore> radixSortPointLightsSemaphore;
+    std::unique_ptr<vpr::Semaphore> radixSortSpotLightsSemaphore;
 
     VulkanResource* depthPrePassImage{ nullptr };
     VulkanResource* clusterSamplesImage{ nullptr };
@@ -275,6 +278,7 @@ private:
 
     std::unique_ptr<vpr::CommandPool> computePools[2];
     std::unique_ptr<vpr::Fence> computeAABBsFence;
+    std::unique_ptr<vpr::Fence> mortonSortingFence;
 
     std::unordered_map<st::ShaderStage, std::unique_ptr<vpr::ShaderModule>> shaderModules;
     std::unordered_map<std::string, std::vector<st::ShaderStage>> groupStages;

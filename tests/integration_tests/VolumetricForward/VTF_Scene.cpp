@@ -590,6 +590,7 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     createRenderpasses();
     createShaderModules();
     createComputePipelines();
+    createComputeSemaphores();
     createGraphicsPipelines();
     createLightResources();
     createSortingResources();
@@ -632,15 +633,17 @@ void VTF_Scene::updateGlobalUBOs() {
 
 }
 
-void VTF_Scene::update() {
-    updateGlobalUBOs();
-    constexpr static VkCommandBufferBeginInfo compute_begin_info{
+constexpr static VkCommandBufferBeginInfo COMPUTE_CMD_BUF_BEGIN_INFO {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         nullptr,
         VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
         nullptr
-    };
-    vkBeginCommandBuffer(computePools[0]->GetCmdBuffer(0), &compute_begin_info);
+};
+
+void VTF_Scene::update() {
+    updateGlobalUBOs();
+    
+    vkBeginCommandBuffer(computePools[0]->GetCmdBuffer(0), &COMPUTE_CMD_BUF_BEGIN_INFO);
     computeUpdateLights();
     computeReduceLights();
     computeAndSortMortonCodes();
@@ -712,6 +715,30 @@ void VTF_Scene::computeAndSortMortonCodes() {
 
     auto& rsrc = ResourceContext::Get();
 
+    const VkSubmitInfo pointLightsSubmit {
+        VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        nullptr,
+        0u,
+        nullptr,
+        0,
+        1,
+        &computePools[0]->GetCmdBuffer(0u),
+        1,
+        &radixSortPointLightsSemaphore->vkHandle()
+    };
+
+    const VkSubmitInfo spotLightsSubmit {
+        VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        nullptr,
+        1,
+        &radixSortPointLightsSemaphore->vkHandle(),
+        0,
+        1,
+        &computePools[0]->GetCmdBuffer(0u),
+        1u,
+        &radixSortSpotLightsSemaphore->vkHandle()
+    };
+
     // Compute morton codes
     auto cmd = computePools[0]->GetCmdBuffer(0);
     resourcePack->BindGroupSets(cmd, "ComputeMortonCodes", VK_PIPELINE_BIND_POINT_COMPUTE);
@@ -721,7 +748,8 @@ void VTF_Scene::computeAndSortMortonCodes() {
 
     SortParams sort_params;
     sort_params.ChunkSize = SORT_NUM_THREADS_PER_THREAD_GROUP;
-    const VkBufferCopy copy{ 0, 0, VK_WHOLE_SIZE };
+    const VkBufferCopy point_light_copy{ 0, 0, uint32_t(reinterpret_cast<const VkBufferCreateInfo*>(pointLightIndices->Info)->size) };
+    const VkBufferCopy spot_light_copy{ 0, 0, uint32_t(reinterpret_cast<const VkBufferCreateInfo*>(spotLightIndices->Info)->size) };
 
     VulkanResource* sort_params_rsrc = resourcePack->At("SortResources", "SortParams");
     const gpu_resource_data_t sort_params_copy{ &sort_params, sizeof(SortParams), 0u, 0u, 0u };
@@ -752,12 +780,17 @@ void VTF_Scene::computeAndSortMortonCodes() {
         vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
 
         // copy resources back into results
-        vkCmdCopyBuffer(cmd, (VkBuffer)pointLightMortonCodes_OUT->Handle, (VkBuffer)pointLightMortonCodes->Handle, 1, &copy);
-        vkCmdCopyBuffer(cmd, (VkBuffer)pointLightIndices_OUT->Handle, (VkBuffer)pointLightIndices->Handle, 1, &copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)pointLightMortonCodes_OUT->Handle, (VkBuffer)pointLightMortonCodes->Handle, 1, &point_light_copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)pointLightIndices_OUT->Handle, (VkBuffer)pointLightIndices->Handle, 1, &point_light_copy);
+        vkEndCommandBuffer(computePools[0]->GetCmdBuffer(0));
     }
+
+    VkResult result = vkQueueSubmit(vprObjects.device->ComputeQueue(), 1, &pointLightsSubmit, VK_NULL_HANDLE);
+    VkAssert(result);
 
     if (LightCounts.NumSpotLights > 0u) {
 
+        vkBeginCommandBuffer(computePools[0]->GetCmdBuffer(1), &COMPUTE_CMD_BUF_BEGIN_INFO);
         sort_params.NumElements = LightCounts.NumSpotLights;
         rsrc.SetBufferData(sort_params_rsrc, 1, &sort_params_copy);
         // update bindings again
@@ -771,9 +804,15 @@ void VTF_Scene::computeAndSortMortonCodes() {
         uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(float(LightCounts.NumSpotLights) / float(SORT_NUM_THREADS_PER_THREAD_GROUP)));
         vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
 
-        vkCmdCopyBuffer(cmd, (VkBuffer)spotLightMortonCodes_OUT->Handle, (VkBuffer)spotLightMortonCodes->Handle, 1, &copy);
-        vkCmdCopyBuffer(cmd, (VkBuffer)spotLightIndices_OUT->Handle, (VkBuffer)spotLightIndices->Handle, 1, &copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)spotLightMortonCodes_OUT->Handle, (VkBuffer)spotLightMortonCodes->Handle, 1, &spot_light_copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)spotLightIndices_OUT->Handle, (VkBuffer)spotLightIndices->Handle, 1, &spot_light_copy);
+        vkEndCommandBuffer(computePools[0]->GetCmdBuffer(1));
     }
+
+    result = vkQueueSubmit(vprObjects.device->ComputeQueue(), 1, &spotLightsSubmit, VK_NULL_HANDLE);
+    VkAssert(result);
+
+    vkBeginCommandBuffer(computePools[0]->GetCmdBuffer(2), &COMPUTE_CMD_BUF_BEGIN_INFO);
 
     if (LightCounts.NumPointLights > 0u) {
         MergeSort(cmd, pointLightMortonCodes, pointLightIndices, pointLightMortonCodes_OUT, pointLightIndices_OUT, LightCounts.NumPointLights, SORT_NUM_THREADS_PER_THREAD_GROUP);
@@ -1035,19 +1074,20 @@ void VTF_Scene::computeClusterAABBs() {
     result = vkResetFences(vprObjects.device->vkHandle(), 1, &computeAABBsFence->vkHandle());
     VkAssert(result);
 
+    computePools[1]->ResetCmdPool();
 }
 
 void VTF_Scene::createComputePools() {
     const static VkCommandPoolCreateInfo pool_info{
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         nullptr,
-        VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+        VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
         vprObjects.device->QueueFamilyIndices().Compute
     };
     computePools[0] = std::make_unique<vpr::CommandPool>(vprObjects.device->vkHandle(), pool_info);
-    computePools[0]->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    computePools[0]->AllocateCmdBuffers(8, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     computePools[1] = std::make_unique<vpr::CommandPool>(vprObjects.device->vkHandle(), pool_info);
-    computePools[1]->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    computePools[1]->AllocateCmdBuffers(8, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 }
 
 void VTF_Scene::createRenderpasses() {
@@ -1422,6 +1462,11 @@ void VTF_Scene::createShaderModules() {
 
 }
 
+void VTF_Scene::createComputeSemaphores() {
+    computeUpdateCompleteSemaphore = std::make_unique<vpr::Semaphore>(vprObjects.device->vkHandle());
+    radixSortPointLightsSemaphore = std::make_unique<vpr::Semaphore>(vprObjects.device->vkHandle());
+}
+
 void VTF_Scene::createComputePipelines() {
     createUpdateLightsPipeline();
     createReduceLightAABBsPipelines();
@@ -1527,6 +1572,7 @@ void VTF_Scene::createMortonCodePipeline() {
     VkResult result = vkCreateComputePipelines(vprObjects.device->vkHandle(), groupCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &computeLightMortonCodesPipeline->Handle);
     VkAssert(result);
 
+    mortonSortingFence = std::make_unique<vpr::Fence>(vprObjects.device->vkHandle(), 0);
 }
 
 void VTF_Scene::createRadixSortPipeline() {
