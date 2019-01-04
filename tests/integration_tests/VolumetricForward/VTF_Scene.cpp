@@ -506,6 +506,7 @@ void VTF_Scene::MergeSort(VkCommandBuffer cmd, VulkanResource* src_keys, VulkanR
     const size_t output_keys_loc = resourcePack->BindingLocation("OutputKeys");
     const size_t input_values_loc = resourcePack->BindingLocation("InputValues");
     const size_t output_values_loc = resourcePack->BindingLocation("OutputValues");
+
     Descriptor* descriptor = resourcePack->GetDescriptor("MergeSort");
     descriptor->BindResourceToIdx(input_keys_loc, src_keys);
     descriptor->BindResourceToIdx(output_keys_loc, dst_keys);
@@ -730,8 +731,8 @@ void VTF_Scene::computeAndSortMortonCodes() {
     const VkSubmitInfo spotLightsSubmit {
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         nullptr,
-        1,
-        &radixSortPointLightsSemaphore->vkHandle(),
+        0u,
+        nullptr,
         0,
         1,
         &computePools[0]->GetCmdBuffer(0u),
@@ -972,12 +973,12 @@ void VTF_Scene::updateClusterGrid() {
     cluster_flags_view_info.range = cluster_flags_create_info.size;
     rsrc.DestroyResource(clusterFlags);
     clusterFlags = rsrc.CreateBuffer(&cluster_flags_create_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    resourcePack->UpdateResource("VolumetricForward", "ClusterFlags", clusterFlags);
+    resourcePack->UpdateResource("VolumetricForward", "ClusterFlags", , clusterFlags);
 
     uniqueClusters = resourcePack->At("VolumetricForward", "UniqueClusters");
     rsrc.DestroyResource(uniqueClusters);
     uniqueClusters = rsrc.CreateBuffer(&cluster_flags_create_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    resourcePack->UpdateResource("VolumetricForward", "UniqueClusters", uniqueClusters);
+    resourcePack->UpdateResource("VolumetricForward", "UniqueClusters", , uniqueClusters);
     previousUniqueClusters = rsrc.CreateBuffer(&cluster_flags_create_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
     UpdateUniqueClusters = true;
 
@@ -1004,7 +1005,7 @@ void VTF_Scene::updateClusterGrid() {
     cluster_aabbs_info.size = CLUSTER_SIZE * sizeof(AABB);
     rsrc.DestroyResource(clusterAABBs);
     clusterAABBs = rsrc.CreateBuffer(&cluster_aabbs_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    resourcePack->UpdateResource("VolumetricForward", "ClusterAABBs", clusterAABBs);
+    resourcePack->UpdateResource("VolumetricForward", "ClusterAABBs", , clusterAABBs);
 
     pointLightGrid = resourcePack->At("VolumetricForward", "PointLightGrid");
     VkBufferCreateInfo point_light_grid_info = *reinterpret_cast<const VkBufferCreateInfo*>(pointLightGrid->Info);
@@ -1013,12 +1014,12 @@ void VTF_Scene::updateClusterGrid() {
     point_light_grid_view_info.range = point_light_grid_info.size;
     rsrc.DestroyResource(pointLightGrid);
     pointLightGrid = rsrc.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    resourcePack->UpdateResource("VolumetricForward", "PointLightGrid", pointLightGrid);
+    resourcePack->UpdateResource("VolumetricForward", "PointLightGrid", , pointLightGrid);
 
     spotLightGrid = resourcePack->At("VolumetricForward", "SpotLightGrid");
     rsrc.DestroyResource(spotLightGrid);
     spotLightGrid = rsrc.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    resourcePack->UpdateResource("VolumetricForward", "SpotLightGrid", spotLightGrid);
+    resourcePack->UpdateResource("VolumetricForward", "SpotLightGrid", , spotLightGrid);
 
     pointLightIndexList = resourcePack->At("VolumetricForward", "PointLightIndexList");
     VkBufferCreateInfo indices_info = *reinterpret_cast<const VkBufferCreateInfo*>(pointLightIndexList->Info);
@@ -1027,12 +1028,12 @@ void VTF_Scene::updateClusterGrid() {
     indices_view_info.range = indices_info.size;
     rsrc.DestroyResource(pointLightIndexList);
     pointLightIndexList = rsrc.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    resourcePack->UpdateResource("VolumetricForward", "PointLightIndexList", pointLightIndexList);
+    resourcePack->UpdateResource("VolumetricForward", "PointLightIndexList", , pointLightIndexList);
 
     spotLightIndexList = resourcePack->At("VolumetricForward", "SpotLightIndexList");
     rsrc.DestroyResource(spotLightIndexList);
     spotLightIndexList = rsrc.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    resourcePack->UpdateResource("VolumetricForward", "SpotLightIndexList", spotLightIndexList);
+    resourcePack->UpdateResource("VolumetricForward", "SpotLightIndexList", , spotLightIndexList);
 
     computeClusterAABBs();
 }
@@ -1889,7 +1890,7 @@ void VTF_Scene::createLightResources() {
         recreate_buffer_info.size = required_point_lights_buffer_size;
         rsrc_context.DestroyResource(point_lights_buffer);
         point_lights_buffer = rsrc_context.CreateBuffer(&recreate_buffer_info, nullptr, 1, &point_lights_data, memory_type::DEVICE_LOCAL, nullptr);
-        resourcePack->UpdateResource("VolumetricForwardLights", "PointLights", point_lights_buffer);
+        resourcePack->UpdateResource("VolumetricForwardLights", "PointLights", , point_lights_buffer);
     }
     else {
         rsrc_context.SetBufferData(point_lights_buffer, 1, &point_lights_data);
@@ -1908,7 +1909,7 @@ void VTF_Scene::createLightResources() {
         recreate_buffer_info.size = required_spot_lights_buffer_size;
         rsrc_context.DestroyResource(spot_lights_buffer);
         spot_lights_buffer = rsrc_context.CreateBuffer(&recreate_buffer_info, nullptr, 1, &spot_lights_data, memory_type::DEVICE_LOCAL, nullptr);
-        resourcePack->UpdateResource("VolumetricForwardLights", "SpotLights", spot_lights_buffer);
+        resourcePack->UpdateResource("VolumetricForwardLights", "SpotLights", , spot_lights_buffer);
     }
     else {
         rsrc_context.SetBufferData(spot_lights_buffer, 1, &spot_lights_data);
@@ -1979,10 +1980,10 @@ void VTF_Scene::createSortingResources() {
     spotLightMortonCodes_OUT = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
     rsrc_context.FillBuffer(spotLightMortonCodes_OUT, 0u, 0u, size_t(sort_buffers_create_info.size));
 
-    resourcePack->UpdateResource("SortResources", "PointLightIndices", pointLightIndices);
-    resourcePack->UpdateResource("SortResources", "SpotLightIndices", spotLightIndices);
-    resourcePack->UpdateResource("SortResources", "PointLightMortonCodes", pointLightMortonCodes);
-    resourcePack->UpdateResource("SortResources", "SpotLightMortonCodes", spotLightMortonCodes);
+    resourcePack->UpdateResource("SortResources", "PointLightIndices", , pointLightIndices);
+    resourcePack->UpdateResource("SortResources", "SpotLightIndices", , spotLightIndices);
+    resourcePack->UpdateResource("SortResources", "PointLightMortonCodes", , pointLightMortonCodes);
+    resourcePack->UpdateResource("SortResources", "SpotLightMortonCodes", , spotLightMortonCodes);
 
     rsrc_context.Update();
 
@@ -2002,7 +2003,7 @@ void VTF_Scene::createBVH_Resources() {
         recreate_buffer_info.size = req_point_light_bvh_size;
         rsrc_context.DestroyResource(pointLightBVH);
         pointLightBVH = rsrc_context.CreateBuffer(&recreate_buffer_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-        resourcePack->UpdateResource("BVHResources", "PointLightBVH", pointLightBVH);
+        resourcePack->UpdateResource("BVHResources", "PointLightBVH", , pointLightBVH);
     }
 
     spotLightBVH = resourcePack->At("BVHResources", "SpotLightBVH");
@@ -2013,7 +2014,7 @@ void VTF_Scene::createBVH_Resources() {
         recreate_buffer_info.size = req_spot_light_bvh_size;
         rsrc_context.DestroyResource(spotLightBVH);
         spotLightBVH = rsrc_context.CreateBuffer(&recreate_buffer_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-        resourcePack->UpdateResource("BVHResources", "SpotLightBVH", spotLightBVH);
+        resourcePack->UpdateResource("BVHResources", "SpotLightBVH", , spotLightBVH);
     }
 
 }

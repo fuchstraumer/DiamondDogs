@@ -4,30 +4,17 @@
 #include "ForwardDecl.hpp"
 #include <memory>
 #include <vulkan/vulkan.h>
+#include <atomic>
+#include <stack>
+#include <mutex>
 #include "DescriptorTemplate.hpp"
+#include "common/UtilityStructs.hpp"
 
 struct VulkanResource;
 
 namespace st {
     struct descriptor_type_counts_t;
 }
-
-struct DescriptorHandle {
-    DescriptorHandle(const DescriptorHandle&) = delete;
-    DescriptorHandle& operator=(const DescriptorHandle&) = delete;
-    ~DescriptorHandle();
-    void BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource * rsrc);
-    void Update();
-    VkDescriptorSet Handle() const noexcept;
-
-private:
-    DescriptorHandle(class Descriptor& parent, VkDescriptorSet&& _handle);
-    friend class Descriptor;
-    Descriptor& parent;
-    VkDescriptorUpdateTemplate templHandle;
-    VkDescriptorSet handle;
-    UpdateTemplateData data;
-};
 
 class Descriptor {
 public:
@@ -37,23 +24,27 @@ public:
 
     // frees all sets
     void Reset();
-    // frees sets moved to "usedSets"
-    void Trim();
 
     DescriptorHandle GetHandle();
     
 private:
     friend class DescriptorHandle;
 
+    VkDescriptorSet availSet() noexcept;
     void allocateSets();
-    void createPool(const st::descriptor_type_counts_t& rsrc_counts);
+    void createPool();
 
     size_t maxSets{ 0u };
-    const vpr::Device* device;
-    const DescriptorTemplate* templ;
-    std::unique_ptr<vpr::DescriptorPool> descriptorPool;
+    const vpr::Device* device{ nullptr };
+    const DescriptorTemplate* templ{ nullptr };
+    std::stack<std::unique_ptr<vpr::DescriptorPool>> descriptorPools;
+    vpr::DescriptorPool* activePool{ nullptr };
+    std::atomic<size_t> setContainerIdx;
     std::vector<VkDescriptorSet> availSets;
-    std::vector<VkDescriptorSet> usedSets;
+    std::stack<std::vector<VkDescriptorSet>> usedSets;
+    st::descriptor_type_counts_t typeCounts;
+    std::mutex poolMutex;
+    std::vector<VkDescriptorSetLayout> setLayouts;
 
 };
 

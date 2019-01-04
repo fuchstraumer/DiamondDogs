@@ -24,38 +24,16 @@ ShaderResourcePack::ShaderResourcePack(RenderGraph* _graph, const st::ShaderPack
 
 ShaderResourcePack::~ShaderResourcePack() {}
 
-Descriptor* ShaderResourcePack::GetDescriptor(const std::string & name) {
-    const size_t idx = rsrcGroupToIdxMap.at(name);
-    return descriptorSets[idx].get();
-}
-
 VkPipelineLayout ShaderResourcePack::PipelineLayout(const std::string& name) const {
     const size_t idx = shaderGroupNameIdxMap.at(name);
     return pipelineLayouts[idx]->vkHandle();
 }
 
-vpr::DescriptorPool* ShaderResourcePack::DescriptorPool() noexcept {
-    return descriptorPool.get();
-}
-
-const vpr::DescriptorPool* ShaderResourcePack::DescriptorPool() const noexcept {
-    return descriptorPool.get();
-}
-
-std::vector<VkDescriptorSet> ShaderResourcePack::ShaderGroupSets(const std::string& shader_group_name) const noexcept {
-    const auto& descriptor_indices = shaderGroupResourceGroupUsages[shaderGroupNameIdxMap.at(shader_group_name)];
-    std::vector<VkDescriptorSet> results;
-    for (const size_t& idx : descriptor_indices) {
-        results.emplace_back(descriptorSets[idx]->Handle());
-    }
-    return results;
-}
-
-void ShaderResourcePack::BindGroupSets(VkCommandBuffer cmd, const std::string& shader_group_name, const VkPipelineBindPoint bind_point) const {
-    std::vector<VkDescriptorSet> sets_to_bind = ShaderGroupSets(shader_group_name);
-    const size_t idx = shaderGroupNameIdxMap.at(shader_group_name);
-    vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayouts[idx]->vkHandle(), 0u, static_cast<uint32_t>(sets_to_bind.size()), sets_to_bind.data(), 0u, nullptr);
-}
+//void ShaderResourcePack::BindGroupSets(VkCommandBuffer cmd, const std::string& shader_group_name, const VkPipelineBindPoint bind_point) const {
+//    std::vector<VkDescriptorSet> sets_to_bind = ShaderGroupSets(shader_group_name);
+//    const size_t idx = shaderGroupNameIdxMap.at(shader_group_name);
+//    vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayouts[idx]->vkHandle(), 0u, static_cast<uint32_t>(sets_to_bind.size()), sets_to_bind.data(), 0u, nullptr);
+//}
 
 VulkanResource* ShaderResourcePack::At(const std::string& group_name, const std::string& name) {
     return resources.at(group_name).at(name);
@@ -91,10 +69,10 @@ VulkanResource* ShaderResourcePack::Find(const std::string& group_name, const st
     }
 }
 
-void ShaderResourcePack::UpdateResource(const std::string & group_name, const std::string & name, VulkanResource * rsrc) noexcept {
+void ShaderResourcePack::UpdateResource(const std::string & group_name, const std::string & name, VkDescriptorType type, VulkanResource * rsrc) noexcept {
     resources[group_name][name] = rsrc;
     const size_t idx = rsrcGroupToIdxMap.at(group_name);
-    descriptorSets[idx]->BindResourceToIdx(resourceBindingLocations.at(name), rsrc);
+    descriptorTemplates[idx]->BindResourceToIdx(resourceBindingLocations.at(name), type, rsrc);
 }
 
 size_t ShaderResourcePack::BindingLocation(const std::string & name) const noexcept {
@@ -251,7 +229,7 @@ void ShaderResourcePack::createPipelineLayout(const std::string & name) {
             size_t set_idx_in_shader = static_cast<size_t>(shader->ResourceGroupSetIdx(used_blocks[i]));
             // this group stores descriptor indices in the right binding order for us to use later
             shaderGroupResourceGroupUsages[idx][set_idx_in_shader] = container_idx;
-            set_layouts[set_idx_in_shader] = descriptorSets[container_idx]->SetLayout();
+            set_layouts[set_idx_in_shader] = descriptorTemplates[container_idx]->SetLayout();
         }
     }
 

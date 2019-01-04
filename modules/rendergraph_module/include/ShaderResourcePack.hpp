@@ -17,6 +17,7 @@ namespace st {
     class ResourceGroup;
 }
 
+class DescriptorTemplate;
 class Descriptor;
 class RenderGraph;
 struct VulkanResource;
@@ -41,16 +42,13 @@ public:
     ShaderResourcePack& operator=(ShaderResourcePack&& other) noexcept = default;
     ~ShaderResourcePack();
 
-    Descriptor* GetDescriptor(const std::string& name);
     VkPipelineLayout PipelineLayout(const std::string& name) const;
-    vpr::DescriptorPool* DescriptorPool() noexcept;
-    const vpr::DescriptorPool* DescriptorPool() const noexcept;
     std::vector<VkDescriptorSet> ShaderGroupSets(const std::string& name) const noexcept;
     void BindGroupSets(VkCommandBuffer cmd, const std::string& shader_group_name, const VkPipelineBindPoint bind_point) const;
 
     VulkanResource* At(const std::string& group_name, const std::string& name);
     VulkanResource* Find(const std::string& group_name, const std::string& name) noexcept;
-    void UpdateResource(const std::string& group_name, const std::string& name, VulkanResource* rsrc) noexcept;
+    void UpdateResource(const std::string& group_name, const std::string& name, VkDescriptorType type, VulkanResource* rsrc) noexcept;
     size_t BindingLocation(const std::string& name) const noexcept;
     bool Has(const std::string& group_name, const std::string& name) const noexcept;
 
@@ -77,7 +75,8 @@ private:
     std::unique_ptr<vpr::DescriptorPool> descriptorPool;
     std::vector<const st::ResourceGroup*> resourceGroups;
     std::unordered_map<std::string, size_t> rsrcGroupToIdxMap;
-    std::vector<std::unique_ptr<Descriptor>> descriptorSets;
+    std::vector<std::unique_ptr<DescriptorTemplate>> descriptorTemplates;
+    std::vector<std::unique_ptr<Descriptor>> descriptors;
     std::vector<std::unique_ptr<vpr::PipelineLayout>> pipelineLayouts;
     std::unordered_map<std::string, std::unordered_map<std::string, VulkanResource*>> resources;
     std::unordered_map<const VulkanResource*, VkDescriptorType> resourceTypesMap;
