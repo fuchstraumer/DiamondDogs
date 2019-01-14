@@ -12,6 +12,13 @@
 
 struct VulkanResource;
 
+/*
+    The DescriptorTemplate is a wrapper over a VkDescriptorUpdateTemplate and a VkDescriptorSetLayout. It
+    is used to update (initialize, effectively) fresh VkDescriptorSets by the Descriptor class. This object
+    is, unlike the others, thread and frame-static: meaning that copies and lifetimes don't have to be scoped
+    or managed based on threads or frames. Resources bound to this will then be used by child binders used
+    in actual drawcalls, potentially with only a few (or no) resources changed.
+*/
 class DescriptorTemplate {
 public:
 
