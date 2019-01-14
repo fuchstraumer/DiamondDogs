@@ -3,7 +3,7 @@
 #include "vpr/DescriptorPool.hpp"
 #include "vkAssert.hpp"
 
-Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, const DescriptorTemplate* _templ) : device(_device), maxSets{ max_sets }, templ{ _templ },
+Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, const DescriptorTemplate* _templ) : device{ _device }, maxSets{ max_sets }, templ{ _templ },
     typeCounts{ rsrc_counts }, setLayouts(max_sets, _templ->SetLayout()) {
     createPool();
 }
@@ -15,28 +15,52 @@ Descriptor::~Descriptor() {
 void Descriptor::Reset() {
     std::lock_guard reset_lock(poolMutex);
 
-    VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), setContainerIdx, availSets.data());
-    VkAssert(result);
-    descriptorPools.pop();
+    if (descriptorPools.size() == 1u) {
+        // when we're allocating one large descriptor pool, we're gonna check to see if we should shrink it a bit
 
-    while (!descriptorPools.empty()) {
-        auto& curr_pool = descriptorPools.top();
-        auto& curr_sets = usedSets.top();
+        size_t low_load_factor_mark = availSets.size() / 2u;
+        if (setContainerIdx <= low_load_factor_mark) {
+            // if we only use half our allocated sets, we're probably over-allocating so let's reduce our maxSets quantity
+            maxSets /= 2u;
+        }
 
-        result = vkFreeDescriptorSets(device->vkHandle(), curr_pool->vkHandle(), maxSets, curr_sets.data());
+        // don't forget to destroy our single used set
+        VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), setContainerIdx, availSets.data());
         VkAssert(result);
-
-        usedSets.pop();
         descriptorPools.pop();
+
+        setContainerIdx = 0u;
+        createPool();
+
+    }
+    else {
+        size_t used_sets = setContainerIdx;
+        VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), setContainerIdx, availSets.data());
+        VkAssert(result);
+        descriptorPools.pop();
+
+        while (!descriptorPools.empty()) {
+            auto& curr_pool = descriptorPools.top();
+            auto& curr_sets = usedSets.top();
+            used_sets += curr_sets.size();
+
+            result = vkFreeDescriptorSets(device->vkHandle(), curr_pool->vkHandle(), maxSets, curr_sets.data());
+            VkAssert(result);
+
+            usedSets.pop();
+            descriptorPools.pop();
+
+        }
+
+        setContainerIdx = 0u;
+        // Update max sets, so that we only allocate one descriptor pool next time.
+        maxSets = used_sets;
+        createPool();
     }
 
-    setContainerIdx = 0u;
 }
 
-DescriptorHandle Descriptor::GetHandle() {
-}
-
-VkDescriptorSet Descriptor::availSet() noexcept {
+VkDescriptorSet Descriptor::fetchNewSet() noexcept {
     if (setContainerIdx == (availSets.size() - 1u)) {
         // expand capacity of spare sets
         std::lock_guard add_pool_guard(poolMutex);
