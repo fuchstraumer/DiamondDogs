@@ -23,7 +23,7 @@ namespace vpr {
 }
 
 class PipelineSubmission;
-class ShaderResourcePack;
+class DescriptorPack;
 class RenderTarget;
 
 class RenderGraph {
@@ -37,7 +37,7 @@ public:
 
     PipelineSubmission& AddPipelineSubmission(const std::string& name, VkPipelineStageFlags stages);
     PipelineResource& GetResource(const std::string& name);
-    const ShaderResourcePack* GetPackResources(const std::string& name) const;
+    const DescriptorPack* GetPackResources(const std::string& name) const;
     void Bake();
     void Reset();
 
@@ -70,7 +70,7 @@ private:
     void addSubmissionsFromPack(const st::ShaderPack* pack);
 
     std::vector<const st::ShaderPack*> shaderPacks;
-    std::unordered_map<std::string, std::unique_ptr<ShaderResourcePack>> packResources;
+    std::unordered_map<std::string, std::unique_ptr<DescriptorPack>> packResources;
 
     struct pipeline_barrier_t {
         size_t Resource;

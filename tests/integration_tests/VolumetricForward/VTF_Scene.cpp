@@ -39,7 +39,7 @@
 
 constexpr static uint32_t DEFAULT_MAX_LIGHTS = 2048u;
 const st::ShaderPack* vtfShaders{ nullptr };
-std::unique_ptr<ShaderResourcePack> resourcePack{ nullptr };
+std::unique_ptr<DescriptorPack> resourcePack{ nullptr };
 
 constexpr static uint32_t SORT_NUM_THREADS_PER_THREAD_GROUP = 256u;
 constexpr static uint32_t SORT_ELEMENTS_PER_THREAD = 8u;
@@ -584,7 +584,7 @@ VTF_Scene& VTF_Scene::Get() {
 void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     vprObjects = objects;
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
-    resourcePack = std::make_unique<ShaderResourcePack>(nullptr, vtfShaders);
+    resourcePack = std::make_unique<DescriptorPack>(nullptr, vtfShaders);
     GenerateLights();
     createSemaphores();
     createComputePools();

@@ -134,7 +134,7 @@ PipelineResource& RenderGraph::GetResource(const std::string& name) {
     }
 }
 
-const ShaderResourcePack* RenderGraph::GetPackResources(const std::string & name) const {
+const DescriptorPack* RenderGraph::GetPackResources(const std::string & name) const {
     if (auto iter = packResources.find(name); iter != std::end(packResources)) {
         return iter->second.get();
     }
@@ -248,7 +248,7 @@ void RenderGraph::dependencyTraversalRecursion(const PipelineSubmission & curr, 
 
 void RenderGraph::addShaderPackResources(const st::ShaderPack* pack) {
     shaderPacks.emplace_back(pack);
-    packResources.emplace("", std::make_unique<ShaderResourcePack>(this, pack));
+    packResources.emplace("", std::make_unique<DescriptorPack>(this, pack));
     createPipelineResourcesFromPack(pack);
 }
 

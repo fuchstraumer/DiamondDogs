@@ -8,7 +8,7 @@ SET(rendergraph_core_srcs
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PipelineSubmission.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/RenderGraph.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/RenderTarget.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/ShaderResourcePack.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/DescriptorPack.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/UpdateTemplateData.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Descriptor.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DescriptorBinder.cpp"
@@ -18,7 +18,7 @@ SET(rendergraph_core_srcs
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PipelineSubmission.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/RenderGraph.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/RenderTarget.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/ShaderResourcePack.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/DescriptorPack.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UpdateTemplateData.cpp"
 )
 
