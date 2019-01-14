@@ -3,31 +3,31 @@
 #define DIAMOND_DOGS_DESCRIPTOR_BINDER_HPP
 #include "UpdateTemplateData.hpp"
 #include <vector>
-#include <unordered_set>
+#include <unordered_map>
 
 struct VulkanResource;
 class Descriptor;
 
-
 class DescriptorBinder {
 public:
 
+    DescriptorBinder(size_t num_descriptors, VkPipelineLayout layout);
     ~DescriptorBinder();
 
-    void BindResourceToIdx(Descriptor* descr, size_t idx, VkDescriptorType type, VulkanResource* rsrc);
+    void AddDescriptor(size_t descr_idx, Descriptor* descr);
+    void BindResourceToIdx(Descriptor* descr, size_t rsrc_idx, VkDescriptorType type, VulkanResource* rsrc);
     void Update();
-    VkDescriptorSet Handle() const noexcept;
+    void Bind(VkCommandBuffer cmd, VkPipelineBindPoint bind_point);
 
 private:
-    DescriptorBinder(size_t num_descriptors);
-    DescriptorBinder& addDescriptor(class Descriptor& parent, VkDescriptorSet _handle);
-
     friend class Descriptor;
+    VkPipelineLayout pipelineLayout{ VK_NULL_HANDLE };
+    std::unordered_map<Descriptor*, size_t> descriptorIdxMap;
     std::vector<Descriptor*> parentDescriptors;
-    std::unordered_map<Descriptor*, VkDescriptorUpdateTemplate> templHandles;
-    std::unordered_map<Descriptor*, VkDescriptorSet> setHandles;
-    std::unordered_map<Descriptor*, UpdateTemplateData> updateTemplData;
-    bool updated{ false };
+    std::vector<VkDescriptorUpdateTemplate> templHandles;
+    std::vector<VkDescriptorSet> setHandles;
+    std::vector<UpdateTemplateData> updateTemplData;
+    std::vector<bool> dirtySets;
 };
 
 #endif // !DIAMOND_DOGS_DESCRIPTOR_BINDER_HPP
