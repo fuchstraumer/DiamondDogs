@@ -13,8 +13,13 @@ SET(SCENE_GUI_SOURCES
 
 ADD_INTEGRATION_TEST(VTF_Scene
     "main.cpp"
-    "VTF_Scene.hpp"
     "VTF_Scene.cpp"
+    "VTF_Scene.hpp"
+    "vtfFrameData.cpp"
+    "vtfFrameData.hpp"
+    "vtfStructs.hpp"
+    "vtfTasksAndSteps.cpp"
+    "vtfTasksAndSteps.hpp"
     "../fixtures/VulkanScene.hpp"
     "../fixtures/VulkanScene.cpp"
     "../fixtures/CommonCreationFunctions.hpp"
