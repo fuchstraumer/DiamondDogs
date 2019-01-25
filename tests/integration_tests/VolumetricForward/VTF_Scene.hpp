@@ -8,6 +8,7 @@
 #include <future>
 #include <atomic>
 #include <unordered_map>
+#include "vtfStructs.hpp"
 #include "common/ShaderStage.hpp"
 #include "glm/vec4.hpp"
 #include "glm/vec3.hpp"
@@ -16,67 +17,14 @@
 
 struct VulkanResource;
 struct ComputePipelineState;
+class Descriptor;
+class DescriptorPack;
+class vtf_frame_data_t;
 
 namespace st {
     class ShaderPack;
 }
 
-struct SceneConfig_t {
-    bool EnableMSAA{ true };
-    uint32_t MSAA_SampleCount{ 8u };
-    uint32_t MaxLights{ 2048u };
-    uint32_t NumDirectionalLights{ 64u };
-    uint32_t NumPointLights{ 2048u };
-    uint32_t NumSpotLights{ 1024u };
-    glm::vec3 LightsMinBounds{-100.0f,-100.0f,-100.0f };
-    glm::vec3 LightsMaxBounds{ 100.0f, 100.0f, 100.0f };
-    float MinSpotAngle{-60.0f };
-    float MaxSpotAngle{ 60.0f };
-    float MinRange{ 1.0f };
-    float MaxRange{ 32.0f };
-};
-
-inline static SceneConfig_t SceneConfig;
-
-struct alignas(16) PointLight {
-    glm::vec4 positionWS{ 0.0f, 0.0f, 0.0f, 1.0f };
-    glm::vec4 positionVS{ 0.0f, 0.0f, 0.0f, 1.0f };
-    glm::vec3 color{ 1.0f, 1.0f, 1.0f };
-    float range{ 100.0f };
-    float intensity{ 1.0f };
-    uint32_t enabled{ 1u };
-    uint32_t selected{ 0u };
-    float padding{ 0.0f };
-};
-
-struct alignas(16) SpotLight {
-    glm::vec4 positionWS{ 0.0f, 0.0f, 0.0f, 1.0f };
-    glm::vec4 positionVS{ 0.0f, 0.0f, 0.0f, 1.0f };
-    glm::vec4 directionWS{ 0.0f, 0.0f, 1.0f, 0.0f };
-    glm::vec4 directionVS{ 0.0f, 0.0f,-1.0f, 0.0f };
-    glm::vec3 color{ 1.0f, 1.0f, 1.0f };
-    float spotlightAngle{ 45.0f };
-    float range{ 100.0f };
-    float intensity{ 1.0f };
-    uint32_t enabled{ 1u };
-    uint32_t selected{ 0u };
-};
-
-struct alignas(16) DirectionalLight {
-    glm::vec4 directionWS{};
-    glm::vec4 directionVS{};
-    glm::vec3 color{ 1.0f, 1.0f, 1.0f };
-    float intensity{ 1.0f };
-    uint32_t enabled{ 1u };
-    uint32_t selected{ 0u };
-    float padding[2]{ 0.0f, 0.0f };
-};
-
-struct SceneState {
-    std::vector<PointLight> PointLights;
-    std::vector<SpotLight> SpotLights;
-    std::vector<DirectionalLight> DirectionalLights;
-};
 
 class VTF_Scene : public VulkanScene {
 public:
@@ -138,19 +86,17 @@ private:
     void computeAndSortMortonCodes();
     void buildLightBVH();
     void submitComputeUpdates();
-    void updateClusterGrid();
+    void updateClusterGrid(vtf_frame_data_t& rsrcs);
     void computeClusterAABBs();
 
     void createComputePools();
     void createRenderpasses();
     void createDepthAndClusterSamplesPass();
-    void createDepthPrePassResources();
-    void createClusterSamplesResources();
+    void createDepthPrePassResources(vtf_frame_data_t* rsrcs);
+    void createClusterSamplesResources(vtf_frame_data_t* rsrcs);
     void createDrawRenderpass();
     void createDrawFramebuffers();
-    void createReadbackBuffers();
     void createShaderModules();
-    void createComputeSemaphores();
     void createComputePipelines();
     void createUpdateLightsPipeline();
     void createReduceLightAABBsPipelines();
@@ -164,59 +110,28 @@ private:
     void createDepthPrePassPipeline();
     void createClusterSamplesPipeline();
     void createDrawPipelines();
-    void createLightResources();
-    void createSortingResources();
-    void createBVH_Resources();
 
-    VulkanResource * loadTexture(const char * file_path_str);
+    void createFrameResources(vtf_frame_data_t* rsrcs);
+    void createvForwardResources(vtf_frame_data_t* rsrcs);
+    void createComputeSemaphores(vtf_frame_data_t* rsrcs);
+    void createLightResources(vtf_frame_data_t& rsrcs);
+    void createSortingResources(vtf_frame_data_t& rsrcs);
+    void createMortonResources(vtf_frame_data_t& frame_data);
+    void createBVH_Resources(vtf_frame_data_t* rsrcs);
+
+    VulkanResource* loadTexture(const char * file_path_str);
 
     void createIcosphereTester();
 
-    VkDispatchIndirectCommand indirectArgsCmd;
 
     // generic since we use it twice, once for prepass once for rendertarget
     VulkanResource* createDepthStencilResource(const VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT) const;
 
-    VulkanResource* pointLightIndexList{ nullptr };
-    VulkanResource* spotLightIndexList{ nullptr };
+    std::deque<vtf_frame_data_t> frameResources;
+    vtf_frame_data_t* currFrameResources;
+    // need to keep these, once done we push back onto frameResources
+    vtf_frame_data_t* lastFrameResources;
 
-    // Used for debugging
-    VulkanResource* pointLightsReadbackBuffer{ nullptr };
-    VulkanResource* spotLightsReadbackBuffer{ nullptr };
-    VulkanResource* directionalLightsReadbackBuffer{ nullptr };
-
-    // Cluster stuff
-    VulkanResource* assignLightsToClustersArgumentBuffer{ nullptr };
-    VulkanResource* debugClustersDrawIndirectArgumentBuffer{ nullptr };
-    VulkanResource* previousUniqueClusters{ nullptr };
-
-    // Sorting stuff
-    VulkanResource* pointLightMortonCodes{ nullptr };
-    VulkanResource* pointLightIndices{ nullptr };
-    VulkanResource* spotLightMortonCodes{ nullptr };
-    VulkanResource* spotLightIndices{ nullptr };
-    VulkanResource* pointLightMortonCodes_OUT{ nullptr };
-    VulkanResource* pointLightIndices_OUT{ nullptr };
-    VulkanResource* spotLightMortonCodes_OUT{ nullptr };
-    VulkanResource* spotLightIndices_OUT{ nullptr };
-    VulkanResource* pointLightBVH{ nullptr };
-    VulkanResource* spotLightBVH{ nullptr };
-
-    VulkanResource* uniqueClusters{ nullptr };
-    VulkanResource* clusterFlags{ nullptr };
-    VulkanResource* clusterAABBs{ nullptr };
-    VulkanResource* clusterColors{ nullptr };  
-    VulkanResource* pointLightGrid{ nullptr };
-    VulkanResource* spotLightGrid{ nullptr };
-    VulkanResource* lightCullingDebugTexture{ nullptr };
-    VulkanResource* clusterSamplesDebugTexture{ nullptr };
-    VulkanResource* clusterSamplesRenderTarget{ nullptr };
-
-    std::unique_ptr<vpr::Semaphore> computeUpdateCompleteSemaphore;
-    std::unique_ptr<vpr::Semaphore> radixSortPointLightsSemaphore;
-    std::unique_ptr<vpr::Semaphore> radixSortSpotLightsSemaphore;
-
-    VulkanResource* depthPrePassImage{ nullptr };
     VulkanResource* clusterSamplesImage{ nullptr };
     VulkanResource* clusterSamplesHostImageCopy{ nullptr };
     std::unique_ptr<vpr::Framebuffer> clusterSamplesFramebuffer;
