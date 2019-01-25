@@ -3,7 +3,7 @@
 #include "vpr/DescriptorPool.hpp"
 #include "vkAssert.hpp"
 
-Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, const DescriptorTemplate* _templ) : device{ _device }, maxSets{ max_sets }, templ{ _templ },
+Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate* _templ) : device{ _device }, maxSets{ max_sets }, templ{ _templ },
     typeCounts{ rsrc_counts }, setLayouts(max_sets, _templ->SetLayout()) {
     createPool();
 }
@@ -58,6 +58,10 @@ void Descriptor::Reset() {
         createPool();
     }
 
+}
+
+void Descriptor::BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc) {
+    templ->BindResourceToIdx(idx, type, rsrc);
 }
 
 VkDescriptorSet Descriptor::fetchNewSet() noexcept {
