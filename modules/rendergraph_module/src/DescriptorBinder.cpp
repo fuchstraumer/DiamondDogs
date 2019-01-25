@@ -19,7 +19,7 @@ void DescriptorBinder::AddDescriptor(size_t descr_idx, Descriptor* descr) {
     setHandles[descr_idx] = descr->fetchNewSet();
 }
 
-void DescriptorBinder::BindResourceToIdx(Descriptor * descr, size_t rsrc_idx, VkDescriptorType type, VulkanResource * rsrc) {
+void DescriptorBinder::BindResourceToIdx(const std::string& descr, size_t rsrc_idx, VkDescriptorType type, VulkanResource * rsrc) {
     size_t idx = descriptorIdxMap.at(descr);
     updateTemplData[idx].BindResourceToIdx(rsrc_idx, type, rsrc);
     dirtySets[idx] = true;
@@ -39,4 +39,10 @@ void DescriptorBinder::Update() {
 
 void DescriptorBinder::Bind(VkCommandBuffer cmd, VkPipelineBindPoint bind_point) {
     vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayout, 0, setHandles.size(), setHandles.data(), 0, nullptr);
+}
+
+void DescriptorBinder::BindSingle(VkCommandBuffer cmd, VkPipelineBindPoint bind_point, const std::string & descr) {
+    size_t dscr_idx = descriptorIdxMap.at(descr);
+    // dscr_idx is offset to "first_set", which is first one we intend to bind: only one to be re-bound here
+    vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayout, dscr_idx, 1, setHandles.data(), 0, nullptr);
 }
