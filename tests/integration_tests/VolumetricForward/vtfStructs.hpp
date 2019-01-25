@@ -8,6 +8,7 @@
 #include "glm/mat4x4.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 #include <vector>
+#include <vulkan/vulkan.h>
 
 struct SceneConfig_t {
     bool EnableMSAA{ true };
@@ -60,11 +61,13 @@ struct alignas(16) DirectionalLight {
     float padding[2]{ 0.0f, 0.0f };
 };
 
-struct SceneState {
+struct SceneState_t {
     std::vector<PointLight> PointLights;
     std::vector<SpotLight> SpotLights;
     std::vector<DirectionalLight> DirectionalLights;
 };
+
+inline static SceneState_t SceneLightsState;
 
 struct alignas(16) Matrices_t {
     glm::mat4 model{ glm::identity<glm::mat4>() };
@@ -137,7 +140,7 @@ struct alignas(4) BVH_Params_t {
     uint32_t SpotLightLevels{ 0u };
     uint32_t ChildLevel{ 0u };
     uint32_t Padding{ 0u };
-} BVH_Params;
+};
 
 struct ComputePipelineState {
 

@@ -12,7 +12,23 @@ struct VulkanResource;
 class DescriptorPack;
 
 class vtf_frame_data_t {
+public:
 
+    /*
+        Unique resource types and distinct structures
+        At some point we need a more anonymous feature for this, so that this "frame data" concept
+        can become more universalized and expandable.
+    */
+    LightCountsData LightCounts;
+    DispatchParams_t DispatchParams;
+    BVH_Params_t BVH_Params;
+    ClusterData_t ClusterData;
+    Matrices_t Matrices;
+    GlobalsData Globals;
+
+    /*
+        Vulkan API resources, either the API version of above resources or the shader resources
+    */
     std::unordered_map<std::string, VulkanResource*> rsrcMap{
         { "matrices", nullptr },
         { "globals", nullptr },
@@ -56,10 +72,20 @@ class vtf_frame_data_t {
 
     std::unordered_map<std::string, ComputePipelineState> computePipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::GraphicsPipeline>> graphicsPipelines;
-
+    static std::unordered_map<std::string, std::unique_ptr<vpr::PipelineCache>> pipelineCaches;
 
     VulkanResource*& operator[](const char* name) {
         return rsrcMap.at(name);
+    }
+
+    DescriptorBinder& GetBinder(const char* name) {
+        if (binders.count(name) == 0) {
+            auto iter = binders.emplace(name, descriptorPack->RetrieveBinder(name));
+            return iter.first->second;
+        }
+        else {
+            return binders.at(name);
+        }
     }
 
     std::unique_ptr<vpr::CommandPool> computePool;
@@ -85,6 +111,8 @@ class vtf_frame_data_t {
     std::unique_ptr<vpr::Semaphore> computeUpdateCompleteSemaphore{ nullptr };
     std::unique_ptr<vpr::Semaphore> radixSortPointLightsSemaphore{ nullptr };
     std::unique_ptr<vpr::Semaphore> radixSortSpotLightsSemaphore{ nullptr };
+
+    std::unique_ptr<vpr::Fence> computeAABBsFence{ nullptr };
 
     VulkanResource* depthPrePassImage{ nullptr };
     VkDispatchIndirectCommand indirectArgsCmd;
