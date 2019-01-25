@@ -11,6 +11,7 @@
 // VPR
 #include "PipelineLayout.hpp"
 #include "CreateInfoBase.hpp"
+#include "LogicalDevice.hpp"
 
 DescriptorPack::DescriptorPack(RenderGraph* _graph, const st::ShaderPack * pack) : shaderPack(pack), graph(_graph) {
     retrieveResourceGroups();
@@ -26,8 +27,31 @@ VkPipelineLayout DescriptorPack::PipelineLayout(const std::string& name) const {
     return pipelineLayouts[idx]->vkHandle();
 }
 
-size_t DescriptorPack::BindingLocation(const std::string & name) const noexcept {
-    return resourceBindingLocations.at(name);
+Descriptor* DescriptorPack::RetrieveDescriptor(const std::string & rsrc_group_name) {
+    auto iter = rsrcGroupToIdxMap.find(rsrc_group_name);
+    if (iter == rsrcGroupToIdxMap.end()) {
+        return nullptr;
+    }
+    else {
+        return descriptors[iter->second].get();
+    }
+}
+
+DescriptorBinder DescriptorPack::RetrieveBinder(const std::string& shader_group) {
+    auto iter = shaderGroupNameIdxMap.find(shader_group);
+    if (iter == shaderGroupNameIdxMap.end()) {
+        throw std::out_of_range("Shader group requested is not in map.");
+    }
+
+    size_t sg_idx = iter->second;
+    auto& indices = shaderGroupResourceGroupUsages[sg_idx];
+
+    DescriptorBinder result(indices.size(), pipelineLayouts[sg_idx]->vkHandle());
+    for (size_t i = 0; i < indices.size(); ++i) {
+        result.AddDescriptor(i, descriptors[indices[i]].get());
+    }
+
+    return std::move(result);
 }
 
 void DescriptorPack::retrieveResourceGroups() {
@@ -41,7 +65,11 @@ void DescriptorPack::retrieveResourceGroups() {
 
 void DescriptorPack::createDescriptorTemplates() {
 
+    descriptors.resize(resourceGroups.size());
+
     for (const auto* group : resourceGroups) {
+        const std::string group_name{ group->Name() };
+        size_t idx = rsrcGroupToIdxMap.at(group_name);
 
         descriptorTemplates.emplace_back(std::make_unique<DescriptorTemplate>(group->Name()));
         auto* templ = descriptorTemplates.back().get();
@@ -50,11 +78,15 @@ void DescriptorPack::createDescriptorTemplates() {
         group->GetResourcePtrs(&num_rsrcs, nullptr);
         std::vector<const st::ShaderResource*> resource_ptrs(num_rsrcs);
         group->GetResourcePtrs(&num_rsrcs, resource_ptrs.data());
+
+        std::unordered_map<std::string, size_t> binding_locs;
         
         for (const auto* rsrc : resource_ptrs) {
             templ->AddLayoutBinding(rsrc->BindingIndex(), rsrc->DescriptorType());
+            binding_locs.emplace(rsrc->Name(), rsrc->BindingIndex());
         }
 
+        descriptors[idx] = createDescriptor(group_name, std::move(binding_locs));
     }
 
 }
@@ -129,11 +161,14 @@ void DescriptorPack::createPipelineLayout(const std::string & name) {
 
 }
 
-void DescriptorPack::createDescriptors() {
-    const vpr::Device* device_ptr = RenderingContext::Get().Device();
-
-    for (size_t i = 0; i < resourceGroups.size(); ++i) {
-        descriptors.emplace_back(std::make_unique<Descriptor>(device_ptr, resourceGroups[i]->DescriptorCounts(), rsrcGroupUseFrequency[i], descriptorTemplates[i].get()));
+std::unique_ptr<Descriptor> DescriptorPack::createDescriptor(const std::string & rsrc_group_name, std::unordered_map<std::string, size_t>&& binding_locs) {
+    auto iter = rsrcGroupToIdxMap.find(rsrc_group_name);
+    if (iter == std::end(rsrcGroupToIdxMap)) {
+        throw std::domain_error("Invalid resource group name: not in container!");
     }
 
+    const vpr::Device* device_ptr = RenderingContext::Get().Device();
+    const size_t idx = iter->second;
+
+    return std::make_unique<Descriptor>(device_ptr, resourceGroups[idx]->DescriptorCounts(), rsrcGroupUseFrequency[idx], descriptorTemplates[idx].get(), std::move(binding_locs));
 }

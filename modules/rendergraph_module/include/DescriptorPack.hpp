@@ -6,6 +6,7 @@
 #include <vector>
 #include <memory>
 #include <vulkan/vulkan.h>
+#include "DescriptorBinder.hpp"
 
 namespace st {
     class ShaderPack;
@@ -39,8 +40,15 @@ public:
     ~DescriptorPack();
 
     VkPipelineLayout PipelineLayout(const std::string& name) const;
-    size_t BindingLocation(const std::string& name) const noexcept;
+    // retrieve this to update bindings for this descriptor
+    Descriptor* RetrieveDescriptor(const std::string& rsrc_group_name);
+    // the binder will always have the most-recently updated bindings from the descriptors it uses, 
+    // but may be more expensive to create the first time. prefer copying between binders of the same
+    // group over initializing like this
+    DescriptorBinder RetrieveBinder(const std::string& shader_group);
 
+    // resets stored descriptors at the end of a frame
+    void EndFrame();
 
 private:
 
@@ -49,6 +57,7 @@ private:
     void parseGroupBindingInfo();
     void createPipelineLayout(const std::string& name);
     void createDescriptors();
+    std::unique_ptr<Descriptor> createDescriptor(const std::string& rsrc_group_name, std::unordered_map<std::string, size_t>&& binding_locs);
 
     RenderGraph* graph;
     std::vector<const st::ResourceGroup*> resourceGroups;
@@ -56,7 +65,6 @@ private:
     std::vector<std::unique_ptr<DescriptorTemplate>> descriptorTemplates;
     std::vector<std::unique_ptr<Descriptor>> descriptors;
     std::vector<std::unique_ptr<vpr::PipelineLayout>> pipelineLayouts;
-    std::unordered_map<std::string, size_t> resourceBindingLocations;
     std::unordered_map<std::string, uint32_t> shaderGroupNameIdxMap;
     std::vector<size_t> rsrcGroupUseFrequency;
     std::vector<std::vector<size_t>> shaderGroupResourceGroupUsages;
