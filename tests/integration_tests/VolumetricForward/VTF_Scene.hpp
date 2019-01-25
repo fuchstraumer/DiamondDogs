@@ -63,9 +63,6 @@ public:
     inline static bool ShowLightsHeirarchy = false;
     inline static bool ShowOptionsWindow = false;
     inline static bool ShowNotification = false;
-    inline static VkSampleCountFlagBits MSAA_SampleCount{ VK_SAMPLE_COUNT_2_BIT };
-
-    inline static SceneState State;
 
     std::future<bool> LoadingTask;
     std::atomic<bool> isLoading{ true };
