@@ -4,7 +4,10 @@
 #include <cassert>
 #include <algorithm>
 
-DescriptorBinder::DescriptorBinder(size_t num_descriptors, VkPipelineLayout layout) : parentDescriptors(num_descriptors), templHandles(num_descriptors), setHandles(num_descriptors, VK_NULL_HANDLE), 
+DescriptorBinder::DescriptorBinder(const DescriptorBinder & other) noexcept : pipelineLayout(other.pipelineLayout), descriptorIdxMap(other.descriptorIdxMap), parentDescriptors(other.parentDescriptors),
+    templHandles(other.templHandles), setHandles(other.setHandles), updateTemplData(other.updateTemplData), dirtySets(other.dirtySets) {}
+
+DescriptorBinder::DescriptorBinder(size_t num_descriptors, VkPipelineLayout layout) : parentDescriptors(num_descriptors), templHandles(num_descriptors), setHandles(num_descriptors, VK_NULL_HANDLE),
     updateTemplData(num_descriptors), pipelineLayout(std::move(layout)), dirtySets(num_descriptors, true) {
     descriptorIdxMap.reserve(num_descriptors);
 }

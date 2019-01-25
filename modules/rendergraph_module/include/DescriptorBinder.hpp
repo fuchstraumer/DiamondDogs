@@ -12,8 +12,8 @@ class DescriptorBinder {
 public:
 
     DescriptorBinder() = default;
-    DescriptorBinder(const DescriptorBinder& other) noexcept = default;
-    DescriptorBinder& operator=(const DescriptorBinder& other) noexcept = default;
+    DescriptorBinder(const DescriptorBinder& other) noexcept;
+    DescriptorBinder& operator=(const DescriptorBinder& other) noexcept;
     DescriptorBinder(DescriptorBinder&& other) noexcept = default;
     DescriptorBinder& operator=(DescriptorBinder&& other) noexcept = default;
 
