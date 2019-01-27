@@ -1871,10 +1871,6 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
     const size_t input_values_loc = descriptor->BindingLocation("InputValues");
     const size_t output_values_loc = descriptor->BindingLocation("OutputValues");
 
-    dscr_binder.BindResourceToIdx("MergeSort", input_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, src_keys);
-    dscr_binder.BindResourceToIdx("MergeSort", output_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, dst_keys);
-    dscr_binder.BindResourceToIdx("MergeSort", input_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, src_values);
-    dscr_binder.BindResourceToIdx("MergeSort", output_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, dst_values);
     dscr_binder.BindResourceToIdx("MergeSort", merge_pp_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, merge_path_partitions);
     dscr_binder.BindResourceToIdx("MergeSort", sort_params_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, sort_params_rsrc);
     dscr_binder.Update();
@@ -1888,6 +1884,12 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 
         uint32_t num_sort_groups = num_chunks / 2u;
         uint32_t num_thread_groups_per_sort_group = static_cast<uint32_t>(glm::ceil((chunk_size * 2) / static_cast<float>(num_values_per_thread_group)));
+
+        dscr_binder.BindResourceToIdx("MergeSort", input_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, src_keys);
+        dscr_binder.BindResourceToIdx("MergeSort", output_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, dst_keys);
+        dscr_binder.BindResourceToIdx("MergeSort", input_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, src_values);
+        dscr_binder.BindResourceToIdx("MergeSort", output_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, dst_values);
+        dscr_binder.Update(); // makes sure bindings are actually proper before binding
 
         {
 
@@ -1920,25 +1922,21 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
             vkCmdDispatch(cmd, num_thread_groups_per_sort_group * num_sort_groups, 1, 1);
         }
 
-        // ping-pong the buffers
-
-        dscr_binder.BindResourceToIdx("MergeSort", input_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, dst_keys);
-        dscr_binder.BindResourceToIdx("MergeSort", output_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, src_keys);
-        dscr_binder.BindResourceToIdx("MergeSort", input_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, dst_values);
-        dscr_binder.BindResourceToIdx("MergeSort", output_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, src_values);
-        dscr_binder.Update();
+        // ping-pong the buffers: this means next iteration, bindings are swapped (and so on, including final copy)
+        std::swap(src_keys, dst_keys);
+        std::swap(src_values, dst_values);
 
         chunk_size *= 2u;
         num_chunks = static_cast<uint32_t>(glm::ceil(float(total_values) / float(chunk_size)));
     }
 
-    if (pass % 2u == 0u) {
+    if (pass % 2u == 1u) {
         // if the pass count is odd then we have to copy the results into 
         // where they should actually be
 
         const VkBufferCopy copy{ 0, 0, VK_WHOLE_SIZE };
-        vkCmdCopyBuffer(cmd, (VkBuffer)dst_keys->Handle, (VkBuffer)src_keys->Handle, 1, &copy);
-        vkCmdCopyBuffer(cmd, (VkBuffer)dst_values->Handle, (VkBuffer)src_values->Handle, 1, &copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)src_keys->Handle, (VkBuffer)dst_keys->Handle, 1, &copy);
+        vkCmdCopyBuffer(cmd, (VkBuffer)src_values->Handle, (VkBuffer)dst_values->Handle, 1, &copy);
     }
 
 }
