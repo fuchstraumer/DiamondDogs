@@ -71,27 +71,26 @@ public:
         { "PointLightBVH", nullptr },
         { "SpotLightBVH", nullptr },
         { "AssignLightsToClustersArgumentBuffer", nullptr },
-        { "DebugClustersDrawIndirectArgumentBuffer", nullptr }
+        { "DebugClustersDrawIndirectArgumentBuffer", nullptr },
+        { "DepthPrePassImage", nullptr },
+        { "ClusterSamplesImage", nullptr },
+        { "DepthRenderTargetImage", nullptr },
+        { "DrawMultisampleImage", nullptr }
     };
 
     std::unordered_map<std::string, ComputePipelineState> computePipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::GraphicsPipeline>> graphicsPipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::Renderpass>> renderPasses;
-    std::array<VkSubpassDependency, 2> drawPassDependencies;
-    std::array<VkSubpassDescription, 1> drawPassDescriptions;
-
     std::unique_ptr<vpr::CommandPool> computePool;
     std::unique_ptr<vpr::CommandPool> graphicsPool;
     std::unique_ptr<DescriptorPack> descriptorPack;
     std::unordered_map<std::string, DescriptorBinder> binders;
-
+    std::unique_ptr<vpr::Framebuffer> clusterSamplesFramebuffer;
+    std::unique_ptr<vpr::Framebuffer> drawFramebuffer;
     std::unique_ptr<vpr::Semaphore> computeUpdateCompleteSemaphore{ nullptr };
     std::unique_ptr<vpr::Semaphore> radixSortPointLightsSemaphore{ nullptr };
     std::unique_ptr<vpr::Semaphore> radixSortSpotLightsSemaphore{ nullptr };
-
     std::unique_ptr<vpr::Fence> computeAABBsFence{ nullptr };
-
-    VulkanResource* depthPrePassImage{ nullptr };
     VkDispatchIndirectCommand indirectArgsCmd;
     bool updateUniqueClusters{ true };
     bool frameRecreate{ false };

@@ -16,6 +16,7 @@ void SetupDescriptors(vtf_frame_data_t& frame);
 void CreateResources(vtf_frame_data_t& frame); // populates rsrcMap nearly in full
 void CreateComputePipelines(vtf_frame_data_t& frame);
 void CreateRenderpasses(vtf_frame_data_t& frame); // must be done before graphics pipelines, they need renderpass handles
+void CreateDrawFrameBuffers(vtf_frame_data_t& frame, const size_t frame_idx);
 void CreateGraphicsPipelines(vtf_frame_data_t& frame);
 
 /*

@@ -12,7 +12,7 @@
 
 struct SceneConfig_t {
     bool EnableMSAA{ true };
-    uint32_t MSAA_SampleCount{ 8u };
+    VkSampleCountFlagBits MSAA_SampleCount{ VK_SAMPLE_COUNT_4_BIT };
     uint32_t MaxLights{ 2048u };
     uint32_t NumDirectionalLights{ 64u };
     uint32_t NumPointLights{ 2048u };

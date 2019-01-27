@@ -24,6 +24,7 @@
 #include "vkAssert.hpp"
 #include "Renderpass.hpp"
 #include <array>
+#include <unordered_set>
 
 constexpr static uint32_t SORT_NUM_THREADS_PER_THREAD_GROUP = 256u;
 constexpr static uint32_t SORT_ELEMENTS_PER_THREAD = 8u;
@@ -32,6 +33,7 @@ constexpr static uint32_t AVERAGE_OVERLAPPING_LIGHTS_PER_CLUSTER = 20u;
 constexpr static uint32_t LIGHT_GRID_BLOCK_SIZE = 32u;
 constexpr static uint32_t CLUSTER_GRID_BLOCK_SIZE = 64u;
 constexpr static uint32_t AVERAGE_LIGHTS_PER_TILE = 100u;
+constexpr static uint32_t MAX_POINT_LIGHTS = 8192u;
 
 // The number of nodes at each level of the BVH.
 constexpr static uint32_t NumLevelNodes[6]{
@@ -145,6 +147,8 @@ uint32_t GetNumNodesBVH(uint32_t num_leaves) noexcept {
 void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src_keys, VulkanResource* src_values, VulkanResource* dst_keys, VulkanResource* dst_values,
     uint32_t total_values, uint32_t chunk_size, DescriptorBinder dscr_binder);
 
+VulkanResource* createDepthStencilResource(const VkSampleCountFlagBits samples);
+
 void CreateShaders(vtf_frame_data_t & frame) {
 
     auto* device = RenderingContext::Get().Device();
@@ -186,6 +190,603 @@ void CreateShaders(vtf_frame_data_t & frame) {
 
 void SetupDescriptors(vtf_frame_data_t& frame) {
     frame.descriptorPack = std::make_unique<DescriptorPack>(nullptr, vtf_frame_data_t::vtfShaders);
+}
+
+void createGlobalResources(vtf_frame_data_t& frame) {
+
+    const VkBufferCreateInfo matrices_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(Matrices_t),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    const VkBufferCreateInfo globals_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(GlobalsData),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    auto& rsrc_context = ResourceContext::Get();
+
+    frame.rsrcMap["Matrices"] = rsrc_context.CreateBuffer(&matrices_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    frame.rsrcMap["Globals"] = rsrc_context.CreateBuffer(&globals_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+
+    auto* descr = frame.descriptorPack->RetrieveDescriptor("GlobalResources");
+    descr->BindResourceToIdx(descr->BindingLocation("Matrices"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("Matrices"));
+    descr->BindResourceToIdx(descr->BindingLocation("Globals"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("Globals"));
+
+}
+
+void createVolumetricForwardResources(vtf_frame_data_t& frame) {
+
+    auto& camera = PerspectiveCamera::Get();
+    auto* vf_descr = frame.descriptorPack->RetrieveDescriptor("VolumetricForward");
+
+    float fov_y = camera.FOV();
+    float z_near = camera.NearPlane();
+    float z_far = camera.FarPlane();
+    frame.Globals.depthRange = glm::vec2(z_near, z_far);
+
+    auto& ctxt = RenderingContext::Get();
+    const uint32_t window_width = ctxt.Swapchain()->Extent().width;
+    const uint32_t window_height = ctxt.Swapchain()->Extent().height;
+    frame.Globals.windowSize = glm::vec2(window_width, window_height);
+
+    uint32_t cluster_dim_x = static_cast<uint32_t>(glm::ceil(window_width / float(CLUSTER_GRID_BLOCK_SIZE)));
+    uint32_t cluster_dim_y = static_cast<uint32_t>(glm::ceil(window_height / float(CLUSTER_GRID_BLOCK_SIZE)));
+
+    float sD = 2.0f * glm::tan(fov_y) / float(cluster_dim_y);
+    float log_dim_y = 1.0f / glm::log(1.0f + sD);
+    float log_depth = glm::log(z_far / z_near);
+
+    uint32_t cluster_dim_z = static_cast<uint32_t>(glm::floor(log_depth * log_dim_y));
+    const uint32_t CLUSTER_SIZE = cluster_dim_x * cluster_dim_y * cluster_dim_z;
+    const uint32_t LIGHT_INDEX_LIST_SIZE = cluster_dim_x * cluster_dim_y * AVERAGE_LIGHTS_PER_TILE;
+
+    frame.ClusterData.GridDim = glm::uvec3{ cluster_dim_x, cluster_dim_y, cluster_dim_z };
+    frame.ClusterData.ViewNear = z_near;
+    frame.ClusterData.ScreenSize = glm::uvec2{ CLUSTER_GRID_BLOCK_SIZE, CLUSTER_GRID_BLOCK_SIZE };
+    frame.ClusterData.NearK = 1.0f + sD;
+    frame.ClusterData.LogGridDimY = log_dim_y;
+
+    auto& rsrc_context = ResourceContext::Get();
+    constexpr static VkBufferCreateInfo cluster_data_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(ClusterData_t),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr
+    };
+
+    const gpu_resource_data_t cluster_data_update{
+        &frame.ClusterData,
+        sizeof(frame.ClusterData),
+        0u,
+        0u,
+        0u
+    };
+
+    auto& cluster_data = frame["ClusterData"];
+    if (!cluster_data) {
+        cluster_data = rsrc_context.CreateBuffer(&cluster_data_info, nullptr, 1, &cluster_data_update, memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
+    }
+    else {
+        rsrc_context.SetBufferData(cluster_data, 1, &cluster_data_update);
+    }
+
+    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("ClusterData"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("ClusterData"));
+
+    const VkBufferCreateInfo cluster_flags_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(uint32_t) * cluster_dim_x * cluster_dim_y * cluster_dim_z,
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr
+    };
+
+    const VkBufferViewCreateInfo cluster_flags_view_info{
+        VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_FORMAT_R32_UINT,
+        0,
+        cluster_flags_info.size
+    };
+
+    auto& cluster_flags = frame["ClusterFlags"];
+    auto& unique_clusters = frame["UniqueClusters"];
+    auto& prev_unique_clusters = frame["PreviousUniqueClusters"];
+
+    if (cluster_flags) {
+        rsrc_context.DestroyResource(cluster_flags);
+    }
+    cluster_flags = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("ClusterFlags"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, cluster_flags);
+
+    if (unique_clusters) {
+        rsrc_context.DestroyResource(unique_clusters);
+    }
+    unique_clusters = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("UniqueClusters"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, unique_clusters);
+
+    if (prev_unique_clusters) {
+        rsrc_context.DestroyResource(prev_unique_clusters);
+    }
+    prev_unique_clusters = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+
+    frame.updateUniqueClusters = true;
+
+    const VkBufferCreateInfo indir_args_buffer{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(VkDispatchIndirectCommand),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr
+    };
+
+    auto& assign_lights_args_buffer = frame["AssignLightsToClustersArgumentBuffer"];
+    if (assign_lights_args_buffer) {
+        rsrc_context.DestroyResource(assign_lights_args_buffer);
+    }
+    assign_lights_args_buffer = rsrc_context.CreateBuffer(&indir_args_buffer, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+
+    constexpr static VkBufferCreateInfo debug_indirect_draw_buffer_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(VkDrawIndexedIndirectCommand),
+        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr
+    };
+
+    auto& debug_clusters_indir_draw_buffer = frame["DebugClustersDrawIndirectArgumentBuffer"];
+    if (debug_clusters_indir_draw_buffer) {
+        rsrc_context.DestroyResource(debug_clusters_indir_draw_buffer);
+    }
+    debug_clusters_indir_draw_buffer = rsrc_context.CreateBuffer(&debug_indirect_draw_buffer_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE, nullptr);
+
+    const VkBufferCreateInfo cluster_aabbs_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        CLUSTER_SIZE * sizeof(AABB),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr
+    };
+
+    auto& cluster_aabbs = frame["ClusterAABBs"];
+    if (cluster_aabbs) {
+        rsrc_context.DestroyResource(cluster_aabbs);
+    }
+    cluster_aabbs = rsrc_context.CreateBuffer(&cluster_aabbs_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("ClusterAABBs"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, cluster_aabbs);
+
+    const VkBufferCreateInfo point_light_grid_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        CLUSTER_SIZE * sizeof(uint32_t) * 2,
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr
+    };
+
+    const VkBufferViewCreateInfo point_light_grid_view_info{
+        VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_FORMAT_R32G32_UINT,
+        0,
+        point_light_grid_info.size
+    };
+
+    auto& point_light_grid = frame["PointLightGrid"];
+    if (point_light_grid) {
+        rsrc_context.DestroyResource(point_light_grid);
+    }
+    point_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightGrid"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
+
+    auto& spot_light_grid = frame["SpotLightGrid"];
+    if (spot_light_grid) {
+        rsrc_context.DestroyResource(spot_light_grid);
+    }
+    spot_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightGrid"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
+
+    const VkBufferCreateInfo indices_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        LIGHT_INDEX_LIST_SIZE * sizeof(uint32_t),
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr
+    };
+
+    const VkBufferViewCreateInfo indices_view_info{
+        VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_FORMAT_R32_UINT,
+        0,
+        indices_info.size
+    };
+
+    auto& point_light_idx_list = frame["PointLightIndexList"];
+    if (point_light_idx_list) {
+        rsrc_context.DestroyResource(point_light_idx_list);
+    }
+    point_light_idx_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightIndexList"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_idx_list);
+
+    auto& spot_light_index_list = frame["SpotLightIndexList"];
+    if (spot_light_index_list) {
+        rsrc_context.DestroyResource(spot_light_index_list);
+    }
+    spot_light_index_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightIndexList"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
+
+    const VkBufferCreateInfo counter_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(uint32_t),
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    const VkBufferViewCreateInfo counter_view_info{
+        VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_FORMAT_R32_UINT,
+        0,
+        sizeof(uint32_t)
+    };
+
+    frame.rsrcMap["PointLightIndexCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightIndexCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightIndexCounter"));
+    frame.rsrcMap["SpotLightIndexCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightIndexCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightIndexCounter"));
+    frame.rsrcMap["UniqueClustersCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("UniqueClustersCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("UniqueClustersCounter"));
+
+}
+
+void createLightResources(vtf_frame_data_t& frame) {
+    auto& rsrc_context = ResourceContext::Get();
+    auto* descr = frame.descriptorPack->RetrieveDescriptor("VolumetricForwardLights");
+
+    if (SceneLightsState.PointLights.empty()) {
+        throw std::runtime_error("Didn't generate lights before setting up light GPU buffers!");
+    }
+
+    VkBufferCreateInfo lights_buffer_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(PointLight) * SceneLightsState.PointLights.size(),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr
+    };
+
+    const gpu_resource_data_t point_lights_data{
+        SceneLightsState.PointLights.data(),
+        SceneLightsState.PointLights.size() * sizeof(PointLight),
+        0u, 0u, 0u
+    };
+
+    frame.rsrcMap["PointLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &point_lights_data, memory_type::DEVICE_LOCAL, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("PointLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLights"));
+
+    const gpu_resource_data_t spot_lights_data{
+        SceneLightsState.SpotLights.data(),
+        SceneLightsState.SpotLights.size() * sizeof(SpotLight),
+        0u, 0u, 0u
+    };
+
+    lights_buffer_info.size = spot_lights_data.DataSize;
+    frame.rsrcMap["SpotLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &spot_lights_data, memory_type::DEVICE_LOCAL, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("SpotLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLights"));
+
+
+    const gpu_resource_data_t dir_lights_data{
+        SceneLightsState.DirectionalLights.data(),
+        SceneLightsState.DirectionalLights.size() * sizeof(DirectionalLight),
+        0u, 0u, 0u
+    };
+    lights_buffer_info.size = dir_lights_data.DataSize;
+
+    frame.rsrcMap["DirectionalLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &dir_lights_data, memory_type::DEVICE_LOCAL, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("DirectionalLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("DirectionalLights"));
+
+    constexpr static VkBufferCreateInfo light_counts_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(LightCountsData),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    frame.LightCounts.NumPointLights = static_cast<uint32_t>(SceneLightsState.PointLights.size());
+    frame.LightCounts.NumSpotLights = static_cast<uint32_t>(SceneLightsState.SpotLights.size());
+    frame.LightCounts.NumDirectionalLights = static_cast<uint32_t>(SceneLightsState.DirectionalLights.size());
+
+    const gpu_resource_data_t light_counts_data{
+        &frame.LightCounts,
+        sizeof(LightCountsData),
+        0u, 0u, 0u
+    };
+
+    frame.rsrcMap["LightCounts"] = rsrc_context.CreateBuffer(&light_counts_info, nullptr, 1, &light_counts_data, memory_type::HOST_VISIBLE, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("LightCounts"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("LightCounts"));
+
+}
+
+void createIndirectArgsResource(vtf_frame_data_t& frame) {
+
+    constexpr static VkBufferCreateInfo indir_args_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(VkDispatchIndirectCommand),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    auto& rsrc_context = ResourceContext::Get();
+    auto* descr = frame.descriptorPack->RetrieveDescriptor("IndirectArgsSet");
+
+    frame.rsrcMap["IndirectArgs"] = rsrc_context.CreateBuffer(&indir_args_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("IndirectArgs"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("IndirectArgs"));
+
+}
+
+void createSortResources(vtf_frame_data_t& frame) {
+
+    auto& rsrc_context = ResourceContext::Get();
+    auto* descr = frame.descriptorPack->RetrieveDescriptor("SortResources");
+
+    constexpr static VkBufferCreateInfo dispatch_params_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(DispatchParams_t),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    frame.rsrcMap["DispatchParams"] = rsrc_context.CreateBuffer(&dispatch_params_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("DispatchParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("DispatchParams"));
+
+    constexpr static VkBufferCreateInfo reduction_params_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0, 
+        sizeof(uint32_t),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    frame.rsrcMap["ReductionParams"] = rsrc_context.CreateBuffer(&reduction_params_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("ReductionParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("ReductionParams"));
+
+    constexpr static VkBufferCreateInfo sort_params_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(uint32_t) * 2u,
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    frame.rsrcMap["SortParams"] = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("SortParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("SortParams"));
+
+    constexpr static VkBufferCreateInfo light_aabbs_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(AABB) * 512u,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    frame.rsrcMap["LightAABBs"] = rsrc_context.CreateBuffer(&light_aabbs_info, nullptr, 0u, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("LightAABBs"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("LightAABBs"));
+
+    VkBufferCreateInfo sort_buffers_create_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(uint32_t) * frame.LightCounts.NumPointLights,
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    VkBufferViewCreateInfo sort_buffer_views_create_info{
+        VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_FORMAT_R32_UINT,
+        0u,
+        sort_buffers_create_info.size
+    };
+
+    frame.rsrcMap["PointLightIndices"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["PointLightMortonCodes"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["PointLightIndices_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["PointLightMortonCodes_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+
+    descr->BindResourceToIdx(descr->BindingLocation("PointLightIndices"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightIndices"));
+    descr->BindResourceToIdx(descr->BindingLocation("PointLightMortonCodes"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightMortonCodes"));
+
+    rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightIndices"), 0u, 0u, size_t(sort_buffers_create_info.size));
+    rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightMortonCodes"), 0u, 0u, size_t(sort_buffers_create_info.size));
+    rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightIndices_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
+    rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightMortonCodes_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
+
+    sort_buffers_create_info.size = sizeof(uint32_t) * frame.LightCounts.NumSpotLights;
+    sort_buffer_views_create_info.range = sort_buffers_create_info.size;
+
+    frame.rsrcMap["SpotLightIndices"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["SpotLightMortonCodes"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["SpotLightIndices_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["SpotLightMortonCodes_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+
+    descr->BindResourceToIdx(descr->BindingLocation("SpotLightIndices"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightIndices"));
+    descr->BindResourceToIdx(descr->BindingLocation("SpotLightMortonCodes"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightMortonCodes"));
+
+    rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightIndices"), 0u, 0u, size_t(sort_buffers_create_info.size));
+    rsrc_context.FillBuffer(frame.rsrcMap.at("SpotLightMortonCodes"), 0u, 0u, size_t(sort_buffers_create_info.size));
+    rsrc_context.FillBuffer(frame.rsrcMap.at("SpotLightIndices_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
+    rsrc_context.FillBuffer(frame.rsrcMap.at("SpotLightMortonCodes_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
+
+}
+
+void createMergeSortResource(vtf_frame_data_t& frame) {
+    // merge sort resources are mostly bound before execution, except "MergePathPartitions"
+
+    uint32_t num_chunks = static_cast<uint32_t>(glm::ceil(MAX_POINT_LIGHTS / SORT_NUM_THREADS_PER_THREAD_GROUP));
+    uint32_t max_sort_groups = num_chunks / 2u;
+    uint32_t path_partitions = static_cast<uint32_t>(glm::ceil((SORT_NUM_THREADS_PER_THREAD_GROUP * 2u) / (SORT_ELEMENTS_PER_THREAD * SORT_NUM_THREADS_PER_THREAD_GROUP) + 1u));
+    uint32_t merge_path_partitions_buffer_sz = path_partitions * max_sort_groups;
+
+    const VkBufferCreateInfo merge_path_partitions_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        merge_path_partitions_buffer_sz,
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    const VkBufferViewCreateInfo merge_path_partitions_view_info{
+        VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_FORMAT_R32_SINT,
+        0u,
+        merge_path_partitions_info.size
+    };
+
+    auto& rsrc_context = ResourceContext::Get();
+    frame.rsrcMap["MergePathPartitions"] = rsrc_context.CreateBuffer(&merge_path_partitions_info, &merge_path_partitions_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    rsrc_context.FillBuffer(frame.rsrcMap.at("MergePathPartitions"), 0u, 0u, merge_path_partitions_buffer_sz);
+    auto* descr = frame.descriptorPack->RetrieveDescriptor("MergeSortResources");
+    descr->BindResourceToIdx(descr->BindingLocation("MergePathPartitions"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("MergePathPartitions"));
+
+}
+
+void createBVH_Resources(vtf_frame_data_t& frame) {
+    auto& rsrc_context = ResourceContext::Get();
+    auto* descr = frame.descriptorPack->RetrieveDescriptor("BVHResources");
+
+    constexpr static VkBufferCreateInfo bvh_params_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(BVH_Params_t),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    frame.rsrcMap["BVHParams"] = rsrc_context.CreateBuffer(&bvh_params_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("BVHParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("BVHParams"));
+
+    const uint32_t point_light_nodes = GetNumNodesBVH(frame.LightCounts.NumPointLights);
+    const uint32_t spot_light_nodes = GetNumNodesBVH(frame.LightCounts.NumSpotLights);
+
+    VkBufferCreateInfo bvh_buffer_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(AABB) * point_light_nodes,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+    
+    frame.rsrcMap["PointLightBVH"] = rsrc_context.CreateBuffer(&bvh_buffer_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("PointLightBVH"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLightBVH"));
+
+    bvh_buffer_info.size = sizeof(AABB) * spot_light_nodes;
+    frame.rsrcMap["SpotLightBVH"] = rsrc_context.CreateBuffer(&bvh_buffer_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    descr->BindResourceToIdx(descr->BindingLocation("SpotLightBVH"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("SpotLightBVH"));
+
+}
+
+void createMaterialSamplers(vtf_frame_data_t& frame) {
+    // only resource from the material pack that we can create ahead of time
+
+}
+
+void CreateResources(vtf_frame_data_t & frame) {
+    // creates and does initial descriptor binding, so that recursive/further calls 
+    // to use these bindings actually work lol
+    createGlobalResources(frame);
+    createVolumetricForwardResources(frame);
+    createLightResources(frame); // make sure lights have been generated first! we upload initial data here too
+    createIndirectArgsResource(frame);
+    createSortResources(frame);
+    createMergeSortResource(frame);
+    createBVH_Resources(frame);
 }
 
 void createUpdateLightsPipeline(vtf_frame_data_t& frame) {
@@ -572,10 +1173,240 @@ void createDepthAndClusterSamplesPass(vtf_frame_data_t& frame) {
     frame.renderPasses["DepthAndClusterSamplesPass"] = std::make_unique<vpr::Renderpass>(device->vkHandle(), create_info);
     frame.renderPasses.at("DepthAndClusterSamplesPass")->SetupBeginInfo(DepthPrePassAndClusterSamplesClearValues.data(), DepthPrePassAndClusterSamplesClearValues.size(), swapchain->Extent());
 
+    // create image for this pass
+    frame.rsrcMap["DepthPrePassImage"] = createDepthStencilResource(VK_SAMPLE_COUNT_1_BIT);
+
+}
+
+void createClusterSamplesResources(vtf_frame_data_t& frame) {
+
+    const auto* device = RenderingContext::Get().Device();
+    const auto* swapchain = RenderingContext::Get().Swapchain();
+    const VkFormat cluster_samples_color_format = VK_FORMAT_R8G8B8A8_UNORM;
+    const VkImageTiling tiling_type = device->GetFormatTiling(cluster_samples_color_format, VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT);
+    const uint32_t img_width = swapchain->Extent().width;
+    const uint32_t img_height = swapchain->Extent().height;
+
+    const VkImageCreateInfo img_info{
+        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        nullptr,
+        0,
+        VK_IMAGE_TYPE_2D,
+        cluster_samples_color_format,
+        VkExtent3D{ img_width, img_height, 1 },
+        1,
+        1,
+        VK_SAMPLE_COUNT_1_BIT,
+        tiling_type,
+        // need transfer src bit so we can dump it to cpu-visible textures
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr,
+        VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    const VkImageViewCreateInfo view_info{
+        VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_IMAGE_VIEW_TYPE_2D,
+        cluster_samples_color_format,
+        VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+    };
+
+    auto& rsrc = ResourceContext::Get();
+    frame.rsrcMap["ClusterSamplesImage"] = rsrc.CreateImage(&img_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    const VkImageView view_handles[2]{
+        (VkImageView)frame.rsrcMap.at("ClusterSamplesImage")->ViewHandle,
+        (VkImageView)frame.rsrcMap.at("DepthPrePassImage")->ViewHandle
+    };
+
+    const VkFramebufferCreateInfo framebuffer_info{
+        VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        frame.renderPasses.at("DepthAndClusterSamplesPass")->vkHandle(),
+        2u,
+        view_handles,
+        img_width,
+        img_height,
+        1
+    };
+
+    frame.clusterSamplesFramebuffer = std::make_unique<vpr::Framebuffer>(device->vkHandle(), framebuffer_info);
+
+}
+
+void createDrawPass(vtf_frame_data_t& frame) {
+
+    const auto* device = RenderingContext::Get().Device();
+    const auto* swapchain = RenderingContext::Get().Swapchain();
+    std::array<VkSubpassDependency, 2> drawPassDependencies;
+    std::array<VkSubpassDescription, 1> drawPassDescriptions;
+
+    drawPassDependencies = decltype(drawPassDependencies){
+        VkSubpassDependency{
+            VK_SUBPASS_EXTERNAL,
+            0,
+            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_MEMORY_READ_BIT,
+            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_DEPENDENCY_BY_REGION_BIT
+        },
+            VkSubpassDependency{
+                0,
+                VK_SUBPASS_EXTERNAL,
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                VK_ACCESS_MEMORY_READ_BIT,
+                VK_DEPENDENCY_BY_REGION_BIT
+        }
+    };
+
+    drawPassDescriptions[0] = VkSubpassDescription{
+        0u,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        0u,
+        nullptr,
+        1u,
+        &drawPassColorRef,
+        &drawPassPresentRef,
+        &drawPassDepthRef,
+        0u,
+        nullptr
+    };
+
+    const std::array<VkAttachmentDescription, 3> attachments{
+        VkAttachmentDescription{ // color, msaa
+            0,
+            swapchain->ColorFormat(),
+            SceneConfig.MSAA_SampleCount,
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+        },
+        VkAttachmentDescription{ // depth
+            0,
+            device->FindDepthFormat(),
+            SceneConfig.MSAA_SampleCount,
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        },
+        VkAttachmentDescription{ // present src
+            0,
+            swapchain->ColorFormat(),
+            VK_SAMPLE_COUNT_1_BIT,
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+        }
+    };
+
+    const VkRenderPassCreateInfo create_info{
+        VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        nullptr,
+        0,
+        static_cast<uint32_t>(attachments.size()),
+        attachments.data(),
+        static_cast<uint32_t>(drawPassDescriptions.size()),
+        drawPassDescriptions.data(),
+        static_cast<uint32_t>(drawPassDependencies.size()),
+        drawPassDependencies.data()
+    };
+
+    frame.renderPasses["PrimaryDrawPass"] = std::make_unique<vpr::Renderpass>(device->vkHandle(), create_info);
+    frame.renderPasses["PrimaryDrawPass"]->SetupBeginInfo(DrawPassClearValues.data(), DrawPassClearValues.size(), swapchain->Extent());
+
 }
 
 void CreateRenderpasses(vtf_frame_data_t& frame) {
     createDepthAndClusterSamplesPass(frame);
+    createClusterSamplesResources(frame); // required, as we have backing images and framebuffers to setup
+    createDrawPass(frame);
+}
+
+void CreateDrawFrameBuffers(vtf_frame_data_t & frame, const size_t frame_idx) {
+    // this is a little debug utility: i wanna make sure we don't use the same 
+    static std::unordered_set<size_t> used_frame_indices;
+    if ((used_frame_indices.count(frame_idx) != 0) && !frame.frameRecreate) {
+        throw std::runtime_error("Tried to use the same frame index more than once!");
+    }
+    else {
+        used_frame_indices.emplace(frame_idx);
+    }
+    
+    const auto* device = RenderingContext::Get().Device();
+    const auto* swapchain = RenderingContext::Get().Swapchain();
+    const uint32_t img_count = swapchain->ImageCount();
+    const VkExtent2D& img_extent = swapchain->Extent();
+
+    const VkImageCreateInfo img_info{
+        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        nullptr,
+        0,
+        VK_IMAGE_TYPE_2D,
+        swapchain->ColorFormat(),
+        VkExtent3D{ img_extent.width, img_extent.height, 1 },
+        1,
+        1,
+        SceneConfig.MSAA_SampleCount,
+        device->GetFormatTiling(swapchain->ColorFormat(), VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT),
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr,
+        VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    const VkImageViewCreateInfo view_info{
+        VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_IMAGE_VIEW_TYPE_2D,
+        img_info.format,
+        VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+    };
+
+    auto& rsrc = ResourceContext::Get();
+    frame.rsrcMap["DepthRendertargetImage"] = createDepthStencilResource(SceneConfig.MSAA_SampleCount);
+    frame.rsrcMap["DrawMultisampleImage"] = rsrc.CreateImage(&img_info, &view_info, 0u, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+
+    const VkImageView view_handles[3]{
+        (VkImageView)frame.rsrcMap["DrawMultisampleImage"]->ViewHandle, (VkImageView)frame.rsrcMap["DepthRendertargetImage"]->ViewHandle,
+        swapchain->ImageView(size_t(frame_idx))
+    };
+
+    const VkFramebufferCreateInfo framebuffer_info{
+        VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        frame.renderPasses.at("PrimaryDrawPass")->vkHandle(),
+        3,
+        view_handles,
+        img_extent.width,
+        img_extent.height,
+        1
+    };
+
+    frame.drawFramebuffer = std::make_unique<vpr::Framebuffer>(device->vkHandle(), framebuffer_info);
+    
 }
 
 void createDepthPrePassPipeline(vtf_frame_data_t& frame) {
@@ -970,222 +1801,7 @@ void BuildLightBVH(vtf_frame_data_t& frame) {
 }
 
 void UpdateClusterGrid(vtf_frame_data_t& frame) {
-    auto& camera = PerspectiveCamera::Get();
-
-    float fov_y = camera.FOV();
-    float z_near = camera.NearPlane();
-    float z_far = camera.FarPlane();
-    frame.Globals.depthRange = glm::vec2(z_near, z_far);
-
-    auto& ctxt = RenderingContext::Get();
-    const uint32_t window_width = ctxt.Swapchain()->Extent().width;
-    const uint32_t window_height = ctxt.Swapchain()->Extent().height;
-    frame.Globals.windowSize = glm::vec2(window_width, window_height);
-
-    uint32_t cluster_dim_x = static_cast<uint32_t>(glm::ceil(window_width / float(CLUSTER_GRID_BLOCK_SIZE)));
-    uint32_t cluster_dim_y = static_cast<uint32_t>(glm::ceil(window_height / float(CLUSTER_GRID_BLOCK_SIZE)));
-
-    float sD = 2.0f * glm::tan(fov_y) / float(cluster_dim_y);
-    float log_dim_y = 1.0f / glm::log(1.0f + sD);
-    float log_depth = glm::log(z_far / z_near);
-
-    uint32_t cluster_dim_z = static_cast<uint32_t>(glm::floor(log_depth * log_dim_y));
-    const uint32_t CLUSTER_SIZE = cluster_dim_x * cluster_dim_y * cluster_dim_z;
-    const uint32_t LIGHT_INDEX_LIST_SIZE = cluster_dim_x * cluster_dim_y * AVERAGE_LIGHTS_PER_TILE;
-
-    frame.ClusterData.GridDim = glm::uvec3{ cluster_dim_x, cluster_dim_y, cluster_dim_z };
-    frame.ClusterData.ViewNear = z_near;
-    frame.ClusterData.ScreenSize = glm::uvec2{ CLUSTER_GRID_BLOCK_SIZE, CLUSTER_GRID_BLOCK_SIZE };
-    frame.ClusterData.NearK = 1.0f + sD;
-    frame.ClusterData.LogGridDimY = log_dim_y;
-
-    auto& rsrc_context = ResourceContext::Get();
-    constexpr static VkBufferCreateInfo cluster_data_info{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        nullptr,
-        0,
-        sizeof(ClusterData_t),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr
-    };
-
-    const gpu_resource_data_t cluster_data_update{
-        &frame.ClusterData,
-        sizeof(frame.ClusterData),
-        0u,
-        0u,
-        0u
-    };
-
-    auto& cluster_data = frame["ClusterData"];
-    if (!cluster_data) {
-        cluster_data = rsrc_context.CreateBuffer(&cluster_data_info, nullptr, 1, &cluster_data_update, memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
-    }
-    else {
-        rsrc_context.SetBufferData(cluster_data, 1, &cluster_data_update);
-    }
-
-    const VkBufferCreateInfo cluster_flags_info{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        nullptr,
-        0,
-        sizeof(uint32_t) * cluster_dim_x * cluster_dim_y * cluster_dim_z,
-        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr
-    };
-
-    const VkBufferViewCreateInfo cluster_flags_view_info{
-        VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
-        nullptr,
-        0,
-        VK_NULL_HANDLE,
-        VK_FORMAT_R32_UINT,
-        0,
-        cluster_flags_info.size
-    };
-
-    auto& cluster_flags = frame["ClusterFlags"];
-    auto& unique_clusters = frame["UniqueClusters"];
-    auto& prev_unique_clusters = frame["PreviousUniqueClusters"];
-
-    if (cluster_flags) {
-        rsrc_context.DestroyResource(cluster_flags);
-    }
-    cluster_flags = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-
-    if (unique_clusters) {
-        rsrc_context.DestroyResource(unique_clusters);
-    }
-    unique_clusters = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-
-    if (prev_unique_clusters) {
-        rsrc_context.DestroyResource(prev_unique_clusters);
-    }
-    prev_unique_clusters = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-
     frame.updateUniqueClusters = true;
-
-    const VkBufferCreateInfo indir_args_buffer{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        nullptr,
-        0,
-        sizeof(VkDispatchIndirectCommand),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr
-    };
-
-    auto& assign_lights_args_buffer = frame["AssignLightsToClustersArgumentBuffer"];
-    if (assign_lights_args_buffer) {
-        rsrc_context.DestroyResource(assign_lights_args_buffer);
-    }
-    assign_lights_args_buffer = rsrc_context.CreateBuffer(&indir_args_buffer, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-
-    constexpr static VkBufferCreateInfo debug_indirect_draw_buffer_info{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        nullptr,
-        0,
-        sizeof(VkDrawIndexedIndirectCommand),
-        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr
-    };
-
-    auto& debug_clusters_indir_draw_buffer = frame["DebugClustersDrawIndirectArgumentBuffer"];
-    if (debug_clusters_indir_draw_buffer) {
-        rsrc_context.DestroyResource(debug_clusters_indir_draw_buffer);
-    }
-    debug_clusters_indir_draw_buffer  = rsrc_context.CreateBuffer(&debug_indirect_draw_buffer_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE, nullptr);
-
-    const VkBufferCreateInfo cluster_aabbs_info{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        nullptr,
-        0,
-        CLUSTER_SIZE * sizeof(AABB),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr
-    };
-
-    auto& cluster_aabbs = frame["ClusterAABBs"];
-    if (cluster_aabbs) {
-        rsrc_context.DestroyResource(cluster_aabbs);
-    }
-    cluster_aabbs = rsrc_context.CreateBuffer(&cluster_aabbs_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-
-    const VkBufferCreateInfo point_light_grid_info{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        nullptr,
-        0,
-        CLUSTER_SIZE * sizeof(uint32_t) * 2,
-        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr
-    };
-
-    const VkBufferViewCreateInfo point_light_grid_view_info{
-        VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
-        nullptr,
-        0,
-        VK_NULL_HANDLE,
-        VK_FORMAT_R32G32_UINT,
-        0,
-        point_light_grid_info.size
-    };
-
-    auto& point_light_grid = frame["PointLightGrid"];
-    if (point_light_grid) {
-        rsrc_context.DestroyResource(point_light_grid);
-    }
-    point_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-
-    auto& spot_light_grid = frame["SpotLightGrid"];
-    if (spot_light_grid) {
-        rsrc_context.DestroyResource(spot_light_grid);
-    }
-    spot_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-
-    const VkBufferCreateInfo indices_info{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        nullptr,
-        0,
-        LIGHT_INDEX_LIST_SIZE * sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr
-    };
-
-    const VkBufferViewCreateInfo indices_view_info{
-        VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
-        nullptr,
-        0,
-        VK_NULL_HANDLE,
-        VK_FORMAT_R32_UINT,
-        0,
-        indices_info.size
-    };
-
-    auto& point_light_idx_list = frame["PointLightIndexList"];
-    if (point_light_idx_list) {
-        rsrc_context.DestroyResource(point_light_idx_list);
-    }
-    point_light_idx_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-
-    auto& spot_light_index_list = frame["SpotLightIndexList"];
-    if (spot_light_index_list) {
-        rsrc_context.DestroyResource(spot_light_index_list);
-    }
-    spot_light_index_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-
     ComputeClusterAABBs(frame);
 }
 
@@ -1325,4 +1941,47 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
         vkCmdCopyBuffer(cmd, (VkBuffer)dst_values->Handle, (VkBuffer)src_values->Handle, 1, &copy);
     }
 
+}
+
+VulkanResource* createDepthStencilResource(const VkSampleCountFlagBits samples) {
+    const auto* device = RenderingContext::Get().Device();
+    const auto* swapchain = RenderingContext::Get().Swapchain();
+
+    const VkFormat depth_format = device->FindDepthFormat();
+    const uint32_t img_width = swapchain->Extent().width;
+    const uint32_t img_height = swapchain->Extent().height;
+
+    const VkImageCreateInfo image_info{
+        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        nullptr,
+        0,
+        VK_IMAGE_TYPE_2D,
+        depth_format,
+        VkExtent3D{ img_width, img_height, 1 },
+        1,
+        1,
+        samples,
+        device->GetFormatTiling(depth_format, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr,
+        VK_IMAGE_LAYOUT_UNDEFINED
+    };
+
+    const VkImageViewCreateInfo view_info{
+        VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        nullptr,
+        0,
+        VK_NULL_HANDLE,
+        VK_IMAGE_VIEW_TYPE_2D,
+        depth_format,
+        VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A },
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
+    };
+
+    auto& rsrc = ResourceContext::Get();
+    VulkanResource* result{ nullptr };
+    result = rsrc.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    return result;
 }
