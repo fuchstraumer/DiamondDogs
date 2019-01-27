@@ -31,6 +31,9 @@ void ComputeAndSortMortonCodes(vtf_frame_data_t& frame_data);
 void BuildLightBVH(vtf_frame_data_t& frame_data);
 void UpdateClusterGrid(vtf_frame_data_t& frame_data);
 void ComputeClusterAABBs(vtf_frame_data_t& frame_data);
+void SubmitComputeWork(vtf_frame_data_t& frame_data);
+
+void SubmitGraphicsWork(vtf_frame_data_t& frame_data);
 
 /*
     Destruction functions. Just as important for shutdown, or for 

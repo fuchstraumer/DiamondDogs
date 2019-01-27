@@ -279,7 +279,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         0u
     };
 
-    auto& cluster_data = frame["ClusterData"];
+    auto& cluster_data = frame.rsrcMap["ClusterData"];
     if (!cluster_data) {
         cluster_data = rsrc_context.CreateBuffer(&cluster_data_info, nullptr, 1, &cluster_data_update, memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
     }
@@ -310,9 +310,9 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         cluster_flags_info.size
     };
 
-    auto& cluster_flags = frame["ClusterFlags"];
-    auto& unique_clusters = frame["UniqueClusters"];
-    auto& prev_unique_clusters = frame["PreviousUniqueClusters"];
+    auto& cluster_flags = frame.rsrcMap["ClusterFlags"];
+    auto& unique_clusters = frame.rsrcMap["UniqueClusters"];
+    auto& prev_unique_clusters = frame.rsrcMap["PreviousUniqueClusters"];
 
     if (cluster_flags) {
         rsrc_context.DestroyResource(cluster_flags);
@@ -344,7 +344,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    auto& assign_lights_args_buffer = frame["AssignLightsToClustersArgumentBuffer"];
+    auto& assign_lights_args_buffer = frame.rsrcMap["AssignLightsToClustersArgumentBuffer"];
     if (assign_lights_args_buffer) {
         rsrc_context.DestroyResource(assign_lights_args_buffer);
     }
@@ -361,7 +361,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    auto& debug_clusters_indir_draw_buffer = frame["DebugClustersDrawIndirectArgumentBuffer"];
+    auto& debug_clusters_indir_draw_buffer = frame.rsrcMap["DebugClustersDrawIndirectArgumentBuffer"];
     if (debug_clusters_indir_draw_buffer) {
         rsrc_context.DestroyResource(debug_clusters_indir_draw_buffer);
     }
@@ -378,7 +378,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    auto& cluster_aabbs = frame["ClusterAABBs"];
+    auto& cluster_aabbs = frame.rsrcMap["ClusterAABBs"];
     if (cluster_aabbs) {
         rsrc_context.DestroyResource(cluster_aabbs);
     }
@@ -406,14 +406,14 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         point_light_grid_info.size
     };
 
-    auto& point_light_grid = frame["PointLightGrid"];
+    auto& point_light_grid = frame.rsrcMap["PointLightGrid"];
     if (point_light_grid) {
         rsrc_context.DestroyResource(point_light_grid);
     }
     point_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightGrid"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
 
-    auto& spot_light_grid = frame["SpotLightGrid"];
+    auto& spot_light_grid = frame.rsrcMap["SpotLightGrid"];
     if (spot_light_grid) {
         rsrc_context.DestroyResource(spot_light_grid);
     }
@@ -441,14 +441,14 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         indices_info.size
     };
 
-    auto& point_light_idx_list = frame["PointLightIndexList"];
+    auto& point_light_idx_list = frame.rsrcMap["PointLightIndexList"];
     if (point_light_idx_list) {
         rsrc_context.DestroyResource(point_light_idx_list);
     }
     point_light_idx_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightIndexList"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_idx_list);
 
-    auto& spot_light_index_list = frame["SpotLightIndexList"];
+    auto& spot_light_index_list = frame.rsrcMap["SpotLightIndexList"];
     if (spot_light_index_list) {
         rsrc_context.DestroyResource(spot_light_index_list);
     }
@@ -777,6 +777,10 @@ void createMaterialSamplers(vtf_frame_data_t& frame) {
 
 }
 
+void createSemaphores(vtf_frame_data_t& frame) {
+
+}
+
 void CreateResources(vtf_frame_data_t & frame) {
     // creates and does initial descriptor binding, so that recursive/further calls 
     // to use these bindings actually work lol
@@ -787,6 +791,8 @@ void CreateResources(vtf_frame_data_t & frame) {
     createSortResources(frame);
     createMergeSortResource(frame);
     createBVH_Resources(frame);
+    createMaterialSamplers(frame);
+    createSemaphores(frame);
 }
 
 void createUpdateLightsPipeline(vtf_frame_data_t& frame) {
@@ -1627,14 +1633,14 @@ void ComputeAndSortMortonCodes(vtf_frame_data_t& frame) {
     auto cmd = frame.computePool->GetCmdBuffer(0);
     auto binder = frame.descriptorPack->RetrieveBinder("ComputeMortonCodes");
 
-    auto& pointLightIndices = frame["PointLightIndices"];
-    auto& spotLightIndices = frame["SpotLightIndices"];
-    auto& pointLightMortonCodes = frame["PointLightMortonCodes"];
-    auto& spotLightMortonCodes = frame["SpotLightMortonCodes"];
-    auto& pointLightMortonCodes_OUT = frame["PointLightMortonCodes_OUT"];
-    auto& pointLightIndices_OUT = frame["PointLightIndices_OUT"];
-    auto& spotLightMortonCodes_OUT = frame["SpotLightMortonCodes_OUT"];
-    auto& spotLightIndices_OUT = frame["SpotLightIndices_OUT"];
+    auto& pointLightIndices = frame.rsrcMap["PointLightIndices"];
+    auto& spotLightIndices = frame.rsrcMap["SpotLightIndices"];
+    auto& pointLightMortonCodes = frame.rsrcMap["PointLightMortonCodes"];
+    auto& spotLightMortonCodes = frame.rsrcMap["SpotLightMortonCodes"];
+    auto& pointLightMortonCodes_OUT = frame.rsrcMap["PointLightMortonCodes_OUT"];
+    auto& pointLightIndices_OUT = frame.rsrcMap["PointLightIndices_OUT"];
+    auto& spotLightMortonCodes_OUT = frame.rsrcMap["SpotLightMortonCodes_OUT"];
+    auto& spotLightIndices_OUT = frame.rsrcMap["SpotLightIndices_OUT"];
 
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["ComputeLightMortonCodesPipeline"].Handle);
@@ -1646,7 +1652,7 @@ void ComputeAndSortMortonCodes(vtf_frame_data_t& frame) {
     const VkBufferCopy point_light_copy{ 0, 0, uint32_t(reinterpret_cast<const VkBufferCreateInfo*>(pointLightIndices->Info)->size) };
     const VkBufferCopy spot_light_copy{ 0, 0, uint32_t(reinterpret_cast<const VkBufferCreateInfo*>(spotLightIndices->Info)->size) };
 
-    auto& sort_params_rsrc = frame["SortParams"];
+    auto& sort_params_rsrc = frame.rsrcMap["SortParams"];
     const gpu_resource_data_t sort_params_copy{ &sort_params, sizeof(SortParams), 0u, 0u, 0u };
 
     // prefetch binding locations
@@ -1719,9 +1725,9 @@ void BuildLightBVH(vtf_frame_data_t& frame) {
     
     auto& rsrc = ResourceContext::Get();
     auto cmd = frame.computePool->GetCmdBuffer(0);
-    auto& bvh_params_rsrc = frame["BVHParams"];
-    auto& point_light_bvh = frame["PointLightBVH"];
-    auto& spot_light_bvh = frame["SpotLightBVH"];
+    auto& bvh_params_rsrc = frame.rsrcMap["BVHParams"];
+    auto& point_light_bvh = frame.rsrcMap["PointLightBVH"];
+    auto& spot_light_bvh = frame.rsrcMap["SpotLightBVH"];
 
     const VkBufferMemoryBarrier point_light_bvh_barrier{
         VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -1848,6 +1854,52 @@ void ComputeClusterAABBs(vtf_frame_data_t& frame) {
     VkAssert(result);
 
     frame.computePool->ResetCmdPool();
+}
+
+void SubmitComputeWork(vtf_frame_data_t& frame) {
+
+    constexpr static VkPipelineStageFlags wait_mask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    auto* device = RenderingContext::Get().Device();
+
+    const VkSubmitInfo submit_info{
+        VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        nullptr,
+        0u,
+        nullptr,
+        0,
+        1,
+        &frame.computePool->GetCmdBuffer(0u),
+        1,
+        &frame.semaphores.at("ComputeUpdateComplete")->vkHandle()
+    };
+    VkResult result = vkQueueSubmit(device->ComputeQueue(), 1, &submit_info, VK_NULL_HANDLE);
+    VkAssert(result);
+
+}
+
+void SubmitGraphicsWork(vtf_frame_data_t& frame) {
+
+    const VkSemaphore wait_semaphores[2]{
+        frame.semaphores.at("ComputeUpdateComplete")->vkHandle(),
+        frame.semaphores.at("ImageAcquired")->vkHandle()
+    };
+
+    auto* device = RenderingContext::Get().Device();
+
+    constexpr static VkPipelineStageFlags wait_mask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+
+    const VkSubmitInfo submit_info{
+        VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        nullptr,
+        2u,
+        wait_semaphores,
+        &wait_mask,
+        1u,
+        &frame.graphicsPool->GetCmdBuffer(0u),
+        1u,
+        &frame.semaphores.at("RenderComplete")->vkHandle()
+    };
+
 }
 
 void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src_keys, VulkanResource* src_values, VulkanResource* dst_keys, VulkanResource* dst_values,

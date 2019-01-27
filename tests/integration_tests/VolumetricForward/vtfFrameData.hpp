@@ -81,15 +81,13 @@ public:
     std::unordered_map<std::string, ComputePipelineState> computePipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::GraphicsPipeline>> graphicsPipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::Renderpass>> renderPasses;
+    std::unordered_map<std::string, std::unique_ptr<vpr::Semaphore>> semaphores;
     std::unique_ptr<vpr::CommandPool> computePool;
     std::unique_ptr<vpr::CommandPool> graphicsPool;
     std::unique_ptr<DescriptorPack> descriptorPack;
     std::unordered_map<std::string, DescriptorBinder> binders;
     std::unique_ptr<vpr::Framebuffer> clusterSamplesFramebuffer;
     std::unique_ptr<vpr::Framebuffer> drawFramebuffer;
-    std::unique_ptr<vpr::Semaphore> computeUpdateCompleteSemaphore{ nullptr };
-    std::unique_ptr<vpr::Semaphore> radixSortPointLightsSemaphore{ nullptr };
-    std::unique_ptr<vpr::Semaphore> radixSortSpotLightsSemaphore{ nullptr };
     std::unique_ptr<vpr::Fence> computeAABBsFence{ nullptr };
     VkDispatchIndirectCommand indirectArgsCmd;
     bool updateUniqueClusters{ true };
@@ -103,10 +101,6 @@ public:
     static std::unordered_map<std::string, std::vector<st::ShaderStage>> groupStages;
     static std::unordered_map<std::string, std::unique_ptr<vpr::PipelineCache>> pipelineCaches;
     static std::unordered_map<st::ShaderStage, std::unique_ptr<vpr::ShaderModule>> shaderModules;
-
-    VulkanResource*& operator[](const char* name) {
-        return rsrcMap.at(name);
-    }
 
     DescriptorBinder& GetBinder(const char* name) {
         if (binders.count(name) == 0) {
