@@ -2,14 +2,18 @@
 #ifndef VTF_FRAME_DATA_HPP
 #define VTF_FRAME_DATA_HPP
 #include "ForwardDecl.hpp"
+#include "common/ShaderStage.hpp"
+#include "vtfStructs.hpp"
+#include "DescriptorBinder.hpp"
 #include <unordered_map>
 #include <string>
 #include <memory>
-#include "vtfStructs.hpp"
-#include "DescriptorBinder.hpp"
 
 struct VulkanResource;
 class DescriptorPack;
+namespace st {
+    class ShaderPack;
+}
 
 class vtf_frame_data_t {
 public:
@@ -72,7 +76,34 @@ public:
 
     std::unordered_map<std::string, ComputePipelineState> computePipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::GraphicsPipeline>> graphicsPipelines;
+    std::unordered_map<std::string, std::unique_ptr<vpr::Renderpass>> renderPasses;
+    std::array<VkSubpassDependency, 2> drawPassDependencies;
+    std::array<VkSubpassDescription, 1> drawPassDescriptions;
+
+    std::unique_ptr<vpr::CommandPool> computePool;
+    std::unique_ptr<vpr::CommandPool> graphicsPool;
+    std::unique_ptr<DescriptorPack> descriptorPack;
+    std::unordered_map<std::string, DescriptorBinder> binders;
+
+    std::unique_ptr<vpr::Semaphore> computeUpdateCompleteSemaphore{ nullptr };
+    std::unique_ptr<vpr::Semaphore> radixSortPointLightsSemaphore{ nullptr };
+    std::unique_ptr<vpr::Semaphore> radixSortSpotLightsSemaphore{ nullptr };
+
+    std::unique_ptr<vpr::Fence> computeAABBsFence{ nullptr };
+
+    VulkanResource* depthPrePassImage{ nullptr };
+    VkDispatchIndirectCommand indirectArgsCmd;
+    bool updateUniqueClusters{ true };
+    bool frameRecreate{ false };
+
+    /*
+        Static resources: all of these should really not be duplicated across frames/threads
+        pipelineCaches are fully thread-safe, as they are internally synchronized (thank god)
+    */
+    inline static st::ShaderPack* vtfShaders{ nullptr };
+    static std::unordered_map<std::string, std::vector<st::ShaderStage>> groupStages;
     static std::unordered_map<std::string, std::unique_ptr<vpr::PipelineCache>> pipelineCaches;
+    static std::unordered_map<st::ShaderStage, std::unique_ptr<vpr::ShaderModule>> shaderModules;
 
     VulkanResource*& operator[](const char* name) {
         return rsrcMap.at(name);
@@ -87,36 +118,6 @@ public:
             return binders.at(name);
         }
     }
-
-    std::unique_ptr<vpr::CommandPool> computePool;
-    std::unique_ptr<vpr::CommandPool> graphicsPool;
-    std::unique_ptr<DescriptorPack> descriptorPack;
-    std::unordered_map<std::string, DescriptorBinder> binders;
-
-    // Following not required, left for once we get further
-    // Used for debugging
-    VulkanResource* pointLightsReadbackBuffer{ nullptr };
-    VulkanResource* spotLightsReadbackBuffer{ nullptr };
-    VulkanResource* directionalLightsReadbackBuffer{ nullptr };
-    // Cluster stuff
-    VulkanResource* assignLightsToClustersArgumentBuffer{ nullptr };
-    VulkanResource* debugClustersDrawIndirectArgumentBuffer{ nullptr };
-    VulkanResource* previousUniqueClusters{ nullptr };
-    // Sorting stuff
-    VulkanResource* clusterColors{ nullptr };
-    VulkanResource* lightCullingDebugTexture{ nullptr };
-    VulkanResource* clusterSamplesDebugTexture{ nullptr };
-    VulkanResource* clusterSamplesRenderTarget{ nullptr };
-
-    std::unique_ptr<vpr::Semaphore> computeUpdateCompleteSemaphore{ nullptr };
-    std::unique_ptr<vpr::Semaphore> radixSortPointLightsSemaphore{ nullptr };
-    std::unique_ptr<vpr::Semaphore> radixSortSpotLightsSemaphore{ nullptr };
-
-    std::unique_ptr<vpr::Fence> computeAABBsFence{ nullptr };
-
-    VulkanResource* depthPrePassImage{ nullptr };
-    VkDispatchIndirectCommand indirectArgsCmd;
-    bool updateUniqueClusters{ true };
 };
 
 #endif // !VTF_FRAME_DATA_HPP

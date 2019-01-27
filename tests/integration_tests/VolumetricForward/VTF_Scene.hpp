@@ -63,6 +63,7 @@ public:
     inline static bool ShowLightsHeirarchy = false;
     inline static bool ShowOptionsWindow = false;
     inline static bool ShowNotification = false;
+    inline static VkSampleCountFlagBits MSAA_SampleCount{ VK_SAMPLE_COUNT_2_BIT };
 
     std::future<bool> LoadingTask;
     std::atomic<bool> isLoading{ true };
@@ -168,25 +169,11 @@ private:
     std::unique_ptr<vpr::GraphicsPipeline> debugDepthTexturePipeline;
     std::unique_ptr<vpr::GraphicsPipeline> debugClustersPipeline;
 
-    std::unique_ptr<vpr::Renderpass> loadingScreenPass;
-    std::unique_ptr<vpr::Renderpass> depthAndClusterSamplesPass;
-    std::unique_ptr<vpr::Renderpass> primaryDrawPass;
-    std::unique_ptr<vpr::Renderpass> debugLightsPass;
-    std::unique_ptr<vpr::Renderpass> renderDebugTexturePass;
-    std::unique_ptr<vpr::Renderpass> debugClustersPass;
-    std::unique_ptr<vpr::Renderpass> debugLightCountsPass;
-
     std::array<VkSubpassDependency, 1> depthAndClusterDependencies;
     std::array<VkSubpassDescription, 2> depthAndSamplesPassDescriptions;
-    constexpr static VkAttachmentReference prePassDepthRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
-    constexpr static VkAttachmentReference samplesPassColorRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-    constexpr static VkAttachmentReference samplesPassDepthRref{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL };
 
     std::array<VkSubpassDependency, 2> drawPassDependencies;
     std::array<VkSubpassDescription, 1> drawPassDescriptions;
-    constexpr static VkAttachmentReference drawPassColorRef{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-    constexpr static VkAttachmentReference drawPassDepthRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
-    constexpr static VkAttachmentReference drawPassPresentRef{ 2, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
 
     std::unique_ptr<vpr::CommandPool> computePools[2];
     std::unique_ptr<vpr::Fence> computeAABBsFence;
