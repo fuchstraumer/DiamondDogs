@@ -1617,7 +1617,84 @@ void ComputeReduceLights(vtf_frame_data_t & frame_data) {
 
 }
 
-void ComputeAndSortMortonCodes(vtf_frame_data_t& frame) {
+void ComputeMortonCodes(vtf_frame_data_t& frame) {
+
+    auto& rsrc = ResourceContext::Get();
+    auto cmd = frame.computePool->GetCmdBuffer(0);
+    auto binder = frame.descriptorPack->RetrieveBinder("ComputeMortonCodes");
+    auto& pointLightIndices = frame.rsrcMap["PointLightIndices"];
+    auto& spotLightIndices = frame.rsrcMap["SpotLightIndices"];
+    auto& pointLightMortonCodes = frame.rsrcMap["PointLightMortonCodes"];
+    auto& spotLightMortonCodes = frame.rsrcMap["SpotLightMortonCodes"];
+    auto& pointLightMortonCodes_OUT = frame.rsrcMap["PointLightMortonCodes_OUT"];
+    auto& pointLightIndices_OUT = frame.rsrcMap["PointLightIndices_OUT"];
+    auto& spotLightMortonCodes_OUT = frame.rsrcMap["SpotLightMortonCodes_OUT"];
+    auto& spotLightIndices_OUT = frame.rsrcMap["SpotLightIndices_OUT"];
+
+    const VkDeviceSize point_light_indices_size = reinterpret_cast<const VkBufferCreateInfo*>(pointLightIndices->Info)->size;
+    const VkDeviceSize spot_light_indices_size = reinterpret_cast<const VkBufferCreateInfo*>(spotLightIndices->Info)->size;
+    const VkDeviceSize point_light_codes_size = reinterpret_cast<const VkBufferCreateInfo*>(pointLightMortonCodes->Info)->size;
+    const VkDeviceSize spot_light_codes_size = reinterpret_cast<const VkBufferCreateInfo*>(spotLightMortonCodes->Info)->size;
+
+    const std::array<VkBufferMemoryBarrier, 4> compute_morton_codes_barriers {
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)pointLightIndices->Handle,
+            0u,
+            point_light_indices_size
+        },
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)spotLightIndices->Handle,
+            0u,
+            spot_light_indices_size
+        },
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)pointLightMortonCodes->Handle,
+            0u,
+            point_light_codes_size
+        },
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)spotLightMortonCodes->Handle,
+            0u,
+            spot_light_codes_size
+        }
+    };
+
+    binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["ComputeLightMortonCodesPipeline"].Handle);
+    uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(glm::max(frame.LightCounts.NumPointLights, frame.LightCounts.NumSpotLights) / 1024.0f));
+    vkCmdDispatch(cmd, num_thread_groups, 1, 1);
+    // barrier to make sure writes from this dispatch finish before we try to sort
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr, static_cast<uint32_t>(compute_morton_codes_barriers.size()), 
+        compute_morton_codes_barriers.data(), 0u, nullptr);
+
+}
+
+void SortMortonCodes(vtf_frame_data_t& frame) {
+
     /*
         Future optimizations for this particular step:
         1. Use two separate submits for this one, one per light type (potentially one per queue!)
@@ -1642,11 +1719,6 @@ void ComputeAndSortMortonCodes(vtf_frame_data_t& frame) {
     auto& spotLightMortonCodes_OUT = frame.rsrcMap["SpotLightMortonCodes_OUT"];
     auto& spotLightIndices_OUT = frame.rsrcMap["SpotLightIndices_OUT"];
 
-    binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["ComputeLightMortonCodesPipeline"].Handle);
-    uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(glm::max(frame.LightCounts.NumPointLights, frame.LightCounts.NumSpotLights) / 1024.0f));
-    vkCmdDispatch(cmd, num_thread_groups, 1, 1);
-
     SortParams sort_params;
     sort_params.ChunkSize = SORT_NUM_THREADS_PER_THREAD_GROUP;
     const VkBufferCopy point_light_copy{ 0, 0, uint32_t(reinterpret_cast<const VkBufferCreateInfo*>(pointLightIndices->Info)->size) };
@@ -1661,6 +1733,62 @@ void ComputeAndSortMortonCodes(vtf_frame_data_t& frame) {
     const size_t dst_keys_loc = sort_descriptor->BindingLocation("OutputKeys");
     const size_t src_values_loc = sort_descriptor->BindingLocation("InputValues");
     const size_t dst_values_loc = sort_descriptor->BindingLocation("OutputValues");
+
+    const VkDeviceSize point_light_indices_size = reinterpret_cast<const VkBufferCreateInfo*>(pointLightIndices->Info)->size;
+    const VkDeviceSize spot_light_indices_size = reinterpret_cast<const VkBufferCreateInfo*>(spotLightIndices->Info)->size;
+    const VkDeviceSize point_light_codes_size = reinterpret_cast<const VkBufferCreateInfo*>(pointLightMortonCodes->Info)->size;
+    const VkDeviceSize spot_light_codes_size = reinterpret_cast<const VkBufferCreateInfo*>(spotLightMortonCodes->Info)->size;
+
+    std::array<VkBufferMemoryBarrier, 4> radix_sort_barriers{
+        // Input keys
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)pointLightMortonCodes->Handle,
+            0u,
+            point_light_codes_size
+        },
+        // Input values
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)pointLightIndices->Handle,
+            0u,
+            point_light_indices_size
+        },
+        // Output keys
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)pointLightMortonCodes_OUT->Handle,
+            0u,
+            point_light_codes_size
+        },
+        // Output values
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)pointLightIndices_OUT->Handle,
+            0u,
+            point_light_indices_size
+        }
+    };
 
     // bind radix sort pipeline now
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["RadixSortPipeline"].Handle);
@@ -1684,7 +1812,10 @@ void ComputeAndSortMortonCodes(vtf_frame_data_t& frame) {
         // copy resources back into results
         vkCmdCopyBuffer(cmd, (VkBuffer)pointLightMortonCodes_OUT->Handle, (VkBuffer)pointLightMortonCodes->Handle, 1, &point_light_copy);
         vkCmdCopyBuffer(cmd, (VkBuffer)pointLightIndices_OUT->Handle, (VkBuffer)pointLightIndices->Handle, 1, &point_light_copy);
-        vkEndCommandBuffer(cmd);
+
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr,
+            static_cast<uint32_t>(radix_sort_barriers.size()), radix_sort_barriers.data(), 0u, nullptr);
+
     }
 
     if (frame.LightCounts.NumSpotLights > 0u) {
@@ -1698,7 +1829,7 @@ void ComputeAndSortMortonCodes(vtf_frame_data_t& frame) {
         binder.BindResourceToIdx("MergeSortResources", src_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightIndices);
         binder.BindResourceToIdx("MergeSortResources", dst_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightIndices_OUT);
         binder.Update();
-        
+
         // re-bind, but only the single mutated set
         binder.BindSingle(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, "MergeSortResources");
 
@@ -1707,7 +1838,19 @@ void ComputeAndSortMortonCodes(vtf_frame_data_t& frame) {
 
         vkCmdCopyBuffer(cmd, (VkBuffer)spotLightMortonCodes_OUT->Handle, (VkBuffer)spotLightMortonCodes->Handle, 1, &spot_light_copy);
         vkCmdCopyBuffer(cmd, (VkBuffer)spotLightIndices_OUT->Handle, (VkBuffer)spotLightIndices->Handle, 1, &spot_light_copy);
-        vkEndCommandBuffer(cmd);
+
+        radix_sort_barriers[0].buffer = (VkBuffer)spotLightMortonCodes->Handle;
+        radix_sort_barriers[0].size = spot_light_codes_size;
+        radix_sort_barriers[1].buffer = (VkBuffer)spotLightMortonCodes_OUT->Handle;
+        radix_sort_barriers[1].size = spot_light_codes_size;
+        radix_sort_barriers[2].buffer = (VkBuffer)spotLightIndices->Handle;
+        radix_sort_barriers[2].size = spot_light_indices_size;
+        radix_sort_barriers[3].buffer = (VkBuffer)spotLightIndices_OUT->Handle;
+        radix_sort_barriers[3].size = spot_light_indices_size;
+
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr,
+            static_cast<uint32_t>(radix_sort_barriers.size()), radix_sort_barriers.data(), 0u, nullptr);
+
     }
 
     if (frame.LightCounts.NumPointLights > 0u) {
@@ -1718,6 +1861,9 @@ void ComputeAndSortMortonCodes(vtf_frame_data_t& frame) {
         MergeSort(frame, cmd, spotLightMortonCodes, spotLightIndices, spotLightMortonCodes_OUT, spotLightIndices_OUT, frame.LightCounts.NumSpotLights, SORT_NUM_THREADS_PER_THREAD_GROUP, binder);
     }
 
+}
+
+void ComputeAndSortMortonCodes(vtf_frame_data_t& frame) {
 }
 
 void BuildLightBVH(vtf_frame_data_t& frame) {
@@ -1927,6 +2073,69 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
     dscr_binder.BindResourceToIdx("MergeSort", sort_params_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, sort_params_rsrc);
     dscr_binder.Update();
 
+    std::array<VkBufferMemoryBarrier, 5> merge_sort_barriers {
+        // Input keys
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_NULL_HANDLE,
+            0u,
+            VK_WHOLE_SIZE
+        },
+        // Input values
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_NULL_HANDLE,
+            0u,
+            VK_WHOLE_SIZE
+        },
+        // Output keys
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_NULL_HANDLE,
+            0u,
+            VK_WHOLE_SIZE
+        },
+        // Output values
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_NULL_HANDLE,
+            0u,
+            VK_WHOLE_SIZE
+        },
+        // Merge path partitions
+        VkBufferMemoryBarrier{
+            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+            nullptr,
+            VK_ACCESS_SHADER_WRITE_BIT,
+            VK_ACCESS_SHADER_READ_BIT,
+            compute_idx,
+            compute_idx,
+            (VkBuffer)merge_path_partitions->Handle,
+            0u,
+            reinterpret_cast<const VkBufferCreateInfo*>(merge_path_partitions->Info)->size
+        }
+    };
+
     while (num_chunks > 1) {
 
         ++pass;
@@ -1953,18 +2162,9 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
             uint32_t total_merge_path_partitions = num_merge_path_partitions_per_sort_group * num_sort_groups;
             uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(float(total_merge_path_partitions) / float(SORT_NUM_THREADS_PER_THREAD_GROUP)));
             vkCmdDispatch(cmd, num_thread_groups, 1, 1);
-            const VkBufferMemoryBarrier path_partitions_barrier{
-                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                nullptr,
-                VK_ACCESS_SHADER_WRITE_BIT,
-                VK_ACCESS_SHADER_READ_BIT,
-                compute_idx,
-                compute_idx,
-                (VkBuffer)merge_path_partitions->Handle,
-                0,
-                VK_WHOLE_SIZE
-            };
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &path_partitions_barrier, 0, nullptr);
+            merge_sort_barriers[4].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            merge_sort_barriers[4].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &merge_sort_barriers[4], 0, nullptr);
         }
 
         {
@@ -1972,6 +2172,16 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
             uint32_t num_values_per_sort_group = glm::min(chunk_size * 2u, total_values);
             num_thread_groups_per_sort_group = static_cast<uint32_t>(glm::ceil(float(num_values_per_sort_group) / float(num_values_per_thread_group)));
             vkCmdDispatch(cmd, num_thread_groups_per_sort_group * num_sort_groups, 1, 1);
+            merge_sort_barriers[0].buffer = (VkBuffer)src_keys->Handle;
+            merge_sort_barriers[1].buffer = (VkBuffer)dst_keys->Handle;
+            merge_sort_barriers[2].buffer = (VkBuffer)src_values->Handle;
+            merge_sort_barriers[3].buffer = (VkBuffer)dst_values->Handle;
+            // swap path partitions barrier src/dst access mask: it'll be written next time
+            merge_sort_barriers[4].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            merge_sort_barriers[4].dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr,
+                static_cast<uint32_t>(merge_sort_barriers.size()), merge_sort_barriers.data(), 0u, nullptr);
+
         }
 
         // ping-pong the buffers: this means next iteration, bindings are swapped (and so on, including final copy)

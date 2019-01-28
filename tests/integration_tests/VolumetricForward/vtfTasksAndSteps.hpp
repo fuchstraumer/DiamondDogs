@@ -25,13 +25,14 @@ void CreateGraphicsPipelines(vtf_frame_data_t& frame);
     usage. These should still be invoked in the proper order,
     but can now be executed across multiple threads far easier
 */
-void ComputeUpdateLights(vtf_frame_data_t& frame_data);
-void ComputeReduceLights(vtf_frame_data_t& frame_data);
-void ComputeAndSortMortonCodes(vtf_frame_data_t& frame_data);
-void BuildLightBVH(vtf_frame_data_t& frame_data);
-void UpdateClusterGrid(vtf_frame_data_t& frame_data);
-void ComputeClusterAABBs(vtf_frame_data_t& frame_data);
-void SubmitComputeWork(vtf_frame_data_t& frame_data);
+void ComputeUpdateLights(vtf_frame_data_t& frame);
+void ComputeReduceLights(vtf_frame_data_t& frame);
+void ComputeMortonCodes(vtf_frame_data_t& frame);
+void SortMortonCodes(vtf_frame_data_t& frame);
+void BuildLightBVH(vtf_frame_data_t& frame);
+void UpdateClusterGrid(vtf_frame_data_t& frame);
+void ComputeClusterAABBs(vtf_frame_data_t& frame);
+void SubmitComputeWork(vtf_frame_data_t& frame);
 
 void SubmitGraphicsWork(vtf_frame_data_t& frame_data);
 
