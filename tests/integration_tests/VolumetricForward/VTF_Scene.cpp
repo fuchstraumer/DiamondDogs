@@ -40,7 +40,6 @@
 #include <experimental/filesystem>
 
 const st::ShaderPack* vtfShaders{ nullptr };
-std::unique_ptr<DescriptorPack> resourcePack{ nullptr };
 
 struct vertex_t {
     vertex_t(glm::vec3 p, glm::vec3 n, glm::vec3 t, glm::vec2 uv) : Position(std::move(p)), Normal(std::move(n)), Tangent(std::move(t)),
@@ -315,12 +314,9 @@ static std::vector<LightType> GenerateLights(uint32_t num_lights) {
 }
 
 void GenerateLights() {
-    LightCounts.NumPointLights = SceneConfig.NumPointLights;
-    VTF_Scene::State.PointLights = GenerateLights<PointLight>(SceneConfig.NumPointLights);
-    LightCounts.NumSpotLights = SceneConfig.NumSpotLights;
-    VTF_Scene::State.SpotLights = GenerateLights<SpotLight>(SceneConfig.NumSpotLights);
-    LightCounts.NumDirectionalLights = SceneConfig.NumDirectionalLights;
-    VTF_Scene::State.DirectionalLights = GenerateLights<DirectionalLight>(SceneConfig.NumDirectionalLights);
+    SceneLightsState.PointLights = GenerateLights<PointLight>(SceneConfig.NumPointLights);
+    SceneLightsState.SpotLights = GenerateLights<SpotLight>(SceneConfig.NumSpotLights);
+    SceneLightsState.DirectionalLights = GenerateLights<DirectionalLight>(SceneConfig.NumDirectionalLights);
 }
 
 VTF_Scene& VTF_Scene::Get() {
@@ -331,48 +327,12 @@ VTF_Scene& VTF_Scene::Get() {
 void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     vprObjects = objects;
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
-    resourcePack = std::make_unique<DescriptorPack>(nullptr, vtfShaders);
     GenerateLights();
+    // now create frames
 }
 
 void VTF_Scene::Destroy() {
 }
-
-void VTF_Scene::updateGlobalUBOs() {
-    auto& camera = PerspectiveCamera::Get();
-    auto& ctxt = RenderingContext::Get();
-    auto& rsrc = ResourceContext::Get();
-
-    MatricesDefault.projection = camera.ProjectionMatrix();
-    MatricesDefault.view = camera.ViewMatrix();
-    MatricesDefault.inverseView = glm::inverse(MatricesDefault.view);
-
-    const gpu_resource_data_t matrices_update_data{
-        &MatricesDefault,
-        sizeof(MatricesDefault),
-        0u, 0u, 0u
-    };
-    rsrc.SetBufferData(currFrameResources->rsrcMap["globalMatrices"], 1, &matrices_update_data);
-
-    Globals.depthRange = glm::vec2(camera.NearPlane(), camera.FarPlane());
-    Globals.windowSize = glm::vec2(ctxt.Swapchain()->Extent().width, ctxt.Swapchain()->Extent().height);
-    Globals.frame += 1;
-    
-    const gpu_resource_data_t globals_update_data{
-        &Globals,
-        sizeof(Globals),
-        0u, 0u, 0u
-    };
-    rsrc.SetBufferData(currFrameResources->rsrcMap["globalVars"], 1, &globals_update_data);
-
-}
-
-constexpr static VkCommandBufferBeginInfo COMPUTE_CMD_BUF_BEGIN_INFO {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        nullptr,
-        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-        nullptr
-};
 
 void VTF_Scene::update() {
     updateGlobalUBOs();
@@ -386,30 +346,6 @@ void VTF_Scene::draw() {
 }
 
 void VTF_Scene::endFrame() {
-}
-
-void VTF_Scene::submitComputeUpdates() {
-
-    constexpr static VkPipelineStageFlags wait_mask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-    const VkSubmitInfo submit_info{
-        VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        nullptr,
-        0u,
-        nullptr,
-        0,
-        1,
-        &computePools[0]->GetCmdBuffer(0u),
-        1,
-        &currFrameResources->computeUpdateCompleteSemaphore->vkHandle()
-    };
-    VkResult result = vkQueueSubmit(vprObjects.device->ComputeQueue(), 1, &submit_info, VK_NULL_HANDLE);
-    VkAssert(result);
-
-}
-
-void VTF_Scene::createComputeSemaphores(vtf_frame_data_t* rsrcs) {
-    rsrcs->computeUpdateCompleteSemaphore = std::make_unique<vpr::Semaphore>(vprObjects.device->vkHandle());
-    rsrcs->radixSortPointLightsSemaphore = std::make_unique<vpr::Semaphore>(vprObjects.device->vkHandle());
 }
 
 VulkanResource* VTF_Scene::loadTexture(const char* file_path_str) {
@@ -512,13 +448,4 @@ void VTF_Scene::createIcosphereTester() {
     icosphereTester->MetallicMap = loadTexture(metallic_str.c_str());
     icosphereTester->RoughnessMap = loadTexture(roughness_str.c_str());
     
-}
-
-void VTF_Scene::GenerateSceneLights() {
-    State.PointLights = GenerateLights<PointLight>(SceneConfig.MaxLights);
-    LightCounts.NumPointLights = static_cast<uint32_t>(State.PointLights.size());
-    State.SpotLights = GenerateLights<SpotLight>(SceneConfig.MaxLights);
-    LightCounts.NumSpotLights = static_cast<uint32_t>(State.SpotLights.size());
-    State.DirectionalLights = GenerateLights<DirectionalLight>(8);
-    LightCounts.NumDirectionalLights = static_cast<uint32_t>(State.DirectionalLights.size());
 }
