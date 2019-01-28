@@ -775,10 +775,87 @@ void createBVH_Resources(vtf_frame_data_t& frame) {
 void createMaterialSamplers(vtf_frame_data_t& frame) {
     // only resource from the material pack that we can create ahead of time
 
+    constexpr static VkSamplerCreateInfo linear_repeat_sampler{
+        VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        nullptr,
+        0,
+        VK_FILTER_LINEAR,
+        VK_FILTER_LINEAR,
+        VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        0.0f,
+        VK_FALSE,
+        0.0f,
+        VK_FALSE,
+        VK_COMPARE_OP_ALWAYS,
+        0.0f,
+        0.0f,
+        VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+        VK_FALSE
+    };
+
+    constexpr static VkSamplerCreateInfo linear_clamp_sampler{
+        VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        nullptr,
+        0,
+        VK_FILTER_LINEAR,
+        VK_FILTER_LINEAR,
+        VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+        0.0f,
+        VK_FALSE,
+        0.0f,
+        VK_FALSE,
+        VK_COMPARE_OP_ALWAYS,
+        0.0f,
+        0.0f,
+        VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+        VK_FALSE
+    };
+
+    const VkSamplerCreateInfo anisotropic_sampler{
+        VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        nullptr,
+        0,
+        VK_FILTER_NEAREST,
+        VK_FILTER_NEAREST,
+        VK_SAMPLER_MIPMAP_MODE_NEAREST,
+        VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        0.0f,
+        VK_TRUE,
+        SceneConfig.AnisotropyAmount,
+        VK_FALSE,
+        VK_COMPARE_OP_NEVER,
+        0.0f,
+        0.0f,
+        VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK,
+        VK_FALSE
+    };
+
+    auto& rsrc_context = ResourceContext::Get();
+
+    frame.rsrcMap["LinearRepeatSampler"] = rsrc_context.CreateSampler(&linear_repeat_sampler, nullptr);
+    frame.rsrcMap["LinearClampSampler"] = rsrc_context.CreateSampler(&linear_clamp_sampler, nullptr);
+    frame.rsrcMap["AnisotropicSampler"] = rsrc_context.CreateSampler(&anisotropic_sampler, nullptr);
+
+    auto* descr = frame.descriptorPack->RetrieveDescriptor("Material"); // bind samplers now
+    descr->BindResourceToIdx(descr->BindingLocation("LinearRepeatSampler"), VK_DESCRIPTOR_TYPE_SAMPLER, frame.rsrcMap.at("LinearRepeatSampler"));
+    descr->BindResourceToIdx(descr->BindingLocation("LinearClampSampler"), VK_DESCRIPTOR_TYPE_SAMPLER, frame.rsrcMap.at("LinearClampSampler"));
+    descr->BindResourceToIdx(descr->BindingLocation("AnisotropicSampler"), VK_DESCRIPTOR_TYPE_SAMPLER, frame.rsrcMap.at("AnisotropicSampler"));
+
 }
 
 void createSemaphores(vtf_frame_data_t& frame) {
-
+    auto* device = RenderingContext::Get().Device();
+    frame.semaphores["ImageAcquire"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
+    frame.semaphores["ComputeUpdateComplete"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
+    frame.semaphores["RenderComplete"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
 }
 
 void CreateResources(vtf_frame_data_t & frame) {
