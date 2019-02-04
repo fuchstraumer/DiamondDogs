@@ -5,6 +5,8 @@
 #include "common/ShaderStage.hpp"
 #include "vtfStructs.hpp"
 #include "DescriptorBinder.hpp"
+#include "multicast_delegate.hpp"
+#include "VkDebugUtils.hpp"
 #include <unordered_map>
 #include <string>
 #include <memory>
@@ -78,6 +80,19 @@ public:
         { "DrawMultisampleImage", nullptr }
     };
 
+    enum class render_type {
+        Opaque = 0,
+        Transparent = 1,
+        OpaqueAndTransparent = 2,
+        GUI = 2,
+        Postprocess = 3,
+        Shadow = 4
+    };
+
+    using obj_render_fn_t = delegate_t<void(VkCommandBuffer cmd, DescriptorBinder* binder, render_type type)>;
+    multicast_delegate_t<void(VkCommandBuffer cmd, DescriptorBinder* binder, render_type type)> renderFns;
+    multicast_delegate_t<void(VkCommandBuffer cmd)> guiLayerRenderFns;
+
     std::unordered_map<std::string, ComputePipelineState> computePipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::GraphicsPipeline>> graphicsPipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::Renderpass>> renderPasses;
@@ -89,9 +104,12 @@ public:
     std::unique_ptr<vpr::Framebuffer> clusterSamplesFramebuffer;
     std::unique_ptr<vpr::Framebuffer> drawFramebuffer;
     std::unique_ptr<vpr::Fence> computeAABBsFence{ nullptr };
+    uint32_t imageIdx{ std::numeric_limits<uint32_t>::max() };
+    uint32_t lastImageIdx{ std::numeric_limits<uint32_t>::max() };
     VkDispatchIndirectCommand indirectArgsCmd;
     bool updateUniqueClusters{ true };
-    bool frameRecreate{ false };
+    bool frameRecreate{ false };    
+    vpr::VkDebugUtilsFunctions vkDebugFns;
 
     /*
         Static resources: all of these should really not be duplicated across frames/threads
