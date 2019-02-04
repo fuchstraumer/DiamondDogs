@@ -33,7 +33,7 @@ void BuildLightBVH(vtf_frame_data_t& frame);
 void UpdateClusterGrid(vtf_frame_data_t& frame);
 void ComputeClusterAABBs(vtf_frame_data_t& frame);
 void SubmitComputeWork(vtf_frame_data_t& frame);
-
+void RenderVtf(vtf_frame_data_t& frame);
 void SubmitGraphicsWork(vtf_frame_data_t& frame_data);
 
 /*
