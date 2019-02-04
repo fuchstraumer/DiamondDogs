@@ -14,6 +14,7 @@
 #include "glm/vec3.hpp"
 #include "glm/mat4x4.hpp"
 #include <array>
+#include <list>
 
 struct VulkanResource;
 struct ComputePipelineState;
@@ -44,13 +45,14 @@ private:
     void recordCommands() final;
     void draw() final;
     void endFrame() final;
+    void present() final;
 
 
     VulkanResource* loadTexture(const char * file_path_str);
 
     void createIcosphereTester();
 
-    std::deque<vtf_frame_data_t> frameResources;
+    std::vector<vtf_frame_data_t> frames;
     std::unique_ptr<struct TestIcosphereMesh> icosphereTester;
 
 };

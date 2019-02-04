@@ -1,43 +1,26 @@
 #include "VTF_Scene.hpp"
-#include "GraphicsPipeline.hpp"
-#include "ShaderModule.hpp"
-#include "AllocationRequirements.hpp"
-#include "CommandPool.hpp"
-#include "Renderpass.hpp"
 #include "ResourceContext.hpp"
 #include "RenderingContext.hpp"
 #include "ResourceTypes.hpp"
-#include "DescriptorPool.hpp"
-#include "DescriptorSet.hpp"
-#include "DescriptorSetLayout.hpp"
-#include "Framebuffer.hpp"
-#include "PipelineLayout.hpp"
-#include "PipelineCache.hpp"
 #include "Semaphore.hpp"
 #include "vkAssert.hpp"
 #include "LogicalDevice.hpp"
-#include "PhysicalDevice.hpp"
 #include "Descriptor.hpp"
 #include "Swapchain.hpp"
-#include "Instance.hpp"
-#include "Fence.hpp"
-#include "VkDebugUtils.hpp"
-#include "CreateInfoBase.hpp"
 #include "vulkan/vulkan.h"
 #include "glm/gtc/random.hpp"
 #include "core/ShaderPack.hpp"
-#include "core/ShaderResource.hpp"
-#include "core/Shader.hpp"
-#include "core/ResourceGroup.hpp"
-#include "core/ResourceUsage.hpp"
 #include "DescriptorPack.hpp"
 #include "Descriptor.hpp"
 #include "DescriptorBinder.hpp"
 #include "PerspectiveCamera.hpp"
+#include "vtfFrameData.hpp"
 #include "material/MaterialParameters.hpp"
+#include "vtfTasksAndSteps.hpp"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 #include <experimental/filesystem>
+#include <future>
 
 const st::ShaderPack* vtfShaders{ nullptr };
 
@@ -212,6 +195,69 @@ struct TestIcosphereMesh {
 
     }
 
+    void BindTextures(Descriptor& descr) {
+
+        auto& rsrc_context = ResourceContext::Get();
+        const size_t albedo_loc = descr.BindingLocation("AlbedoMap");
+        const size_t normal_loc = descr.BindingLocation("NormalMap");
+        const size_t ao_loc = descr.BindingLocation("AmbientOcclusionMap");
+        const size_t metallic_loc = descr.BindingLocation("MetallicMap");
+        const size_t roughness_loc = descr.BindingLocation("RoughnessMap");
+        const size_t height_loc = descr.BindingLocation("HeightMap");
+        const size_t params_loc = descr.BindingLocation("MaterialParameters");
+        
+        descr.BindResourceToIdx(albedo_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, AlbedoTexture);
+        descr.BindResourceToIdx(normal_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, NormalMap);
+        descr.BindResourceToIdx(ao_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, AmbientOcclusionTexture);
+        descr.BindResourceToIdx(metallic_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, MetallicMap);
+        descr.BindResourceToIdx(roughness_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, RoughnessMap);
+        descr.BindResourceToIdx(height_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, HeightMap);
+
+        // any values left that are also read from texture use this UBOs quantity
+        // as a base "multiplier", in effect. setting it to 1.0 should leave it
+        // at the intended power I believe
+        MaterialParams.ambientOcclusion = 1.0f;
+
+        constexpr static VkBufferCreateInfo material_params_info{
+            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            nullptr,
+            0,
+            sizeof(MaterialParameters),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_SHARING_MODE_EXCLUSIVE,
+            0u,
+            nullptr
+        };
+
+        const gpu_resource_data_t material_params_data {
+            &MaterialParams,
+            sizeof(MaterialParameters),
+            0u, 0u, 0u
+        };
+
+        vkMaterialParams = rsrc_context.CreateBuffer(&material_params_info, nullptr, 1u, &material_params_data, memory_type::HOST_VISIBLE, nullptr);
+        descr.BindResourceToIdx(params_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, vkMaterialParams);
+
+    }
+
+    void Render(VkCommandBuffer cmd, DescriptorBinder& binder, vtf_frame_data_t::render_type render_type) {
+
+        switch (render_type) {
+        case vtf_frame_data_t::render_type::Opaque:
+            [[fallthrough]];
+        case vtf_frame_data_t::render_type::OpaqueAndTransparent: // no transparent geometry for this test
+            binder.BindSingle(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, "Material");
+            vkCmdBindIndexBuffer(cmd, (VkBuffer)EBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
+            constexpr static VkDeviceSize offsets_dummy[1]{ 0u };
+            const VkBuffer buffers[1]{ (VkBuffer)VBO->Handle };
+            vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets_dummy);
+            vkCmdDrawIndexed(cmd, static_cast<uint32_t>(Indices.size()), 1u, 0u, 0, 0u);
+            break;
+        default:
+            break; // break for rest
+        };
+    }
+
     VulkanResource* VBO{ nullptr };
     VulkanResource* EBO{ nullptr };
     VulkanResource* AlbedoTexture{ nullptr };
@@ -220,6 +266,7 @@ struct TestIcosphereMesh {
     VulkanResource* NormalMap{ nullptr };
     VulkanResource* MetallicMap{ nullptr };
     VulkanResource* RoughnessMap{ nullptr };
+    VulkanResource* vkMaterialParams{ nullptr };
     std::vector<uint32_t> Indices;
     std::vector<vertex_t> Vertices;
     MaterialParameters MaterialParams;
@@ -329,23 +376,44 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
     GenerateLights();
     // now create frames
+    std::vector<std::future<void>> setupFutures;
+    auto* swapchain = RenderingContext::Get().Swapchain();
+    const uint32_t img_count = swapchain->ImageCount();
+    frames.reserve(img_count); // this should avoid invalidating pointers (god i hope)
+
+    for (uint32_t i = 0; i < img_count; ++i) {
+        frames.emplace_back(vtf_frame_data_t());
+        setupFutures.emplace_back(std::async(std::launch::async, &FullFrameSetup, frames.back()));
+    }
+
+    for (auto& fut : setupFutures) {
+        fut.get(); // even if we block for one the rest should still be running
+    }
+
 }
 
 void VTF_Scene::Destroy() {
+    for (auto& frame : frames) {
+
+    }
 }
 
 void VTF_Scene::update() {
-    updateGlobalUBOs();
-    submitComputeUpdates();
+    // compute updates
 }
 
-void VTF_Scene::recordCommands() {
-}
+void VTF_Scene::recordCommands() {}
 
 void VTF_Scene::draw() {
+    // primary draws
 }
 
 void VTF_Scene::endFrame() {
+
+}
+
+void VTF_Scene::present() {
+
 }
 
 VulkanResource* VTF_Scene::loadTexture(const char* file_path_str) {
@@ -356,10 +424,10 @@ VulkanResource* VTF_Scene::loadTexture(const char* file_path_str) {
     int channels{ 0 };
 
     pixels = stbi_load(file_path_str, &x, &y, &channels, 4);
-    size_t albedo_footprint = channels * x * y * sizeof(stbi_uc);
+    size_t img_footprint = channels * x * y * sizeof(stbi_uc);
     const gpu_image_resource_data_t img_rsrc_data{
         pixels,
-        albedo_footprint,
+        img_footprint,
         size_t(x),
         size_t(y),
         0u,
