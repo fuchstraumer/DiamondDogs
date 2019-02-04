@@ -18,6 +18,8 @@ void CreateComputePipelines(vtf_frame_data_t& frame);
 void CreateRenderpasses(vtf_frame_data_t& frame); // must be done before graphics pipelines, they need renderpass handles
 void CreateDrawFrameBuffers(vtf_frame_data_t& frame, const size_t frame_idx);
 void CreateGraphicsPipelines(vtf_frame_data_t& frame);
+// Executes everything but creating the framebuffers for drawing
+void FullFrameSetup(vtf_frame_data_t& frame);
 
 /*
     Compute work for a frame has been reduced into discrete
@@ -40,11 +42,7 @@ void SubmitGraphicsWork(vtf_frame_data_t& frame_data);
     Destruction functions. Just as important for shutdown, or for 
     re-creating things after a swapchain event.
 */
-void DestroyFrameResources(vtf_frame_data_t& frame);
-void DestroyRenderpasses(vtf_frame_data_t& frame);
-void DestroyPipelines(vtf_frame_data_t& frame);
-void DestroyDescriptors(vtf_frame_data_t& frame);
+void DestroyFrame(vtf_frame_data_t& frame);
 void DestroyShaders(vtf_frame_data_t& frame);
-
 
 #endif // !VTF_TASKS_AND_STEPS_HPP

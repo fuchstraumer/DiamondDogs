@@ -1419,21 +1419,14 @@ void createDrawPass(vtf_frame_data_t& frame) {
 }
 
 void CreateRenderpasses(vtf_frame_data_t& frame) {
+    createDrawingResources(frame); // gonna need these regardless
     createDepthAndClusterSamplesPass(frame);
     createClusterSamplesResources(frame); // required, as we have backing images and framebuffers to setup
     createDrawPass(frame);
 }
 
-void CreateDrawFrameBuffers(vtf_frame_data_t & frame, const size_t frame_idx) {
-    // this is a little debug utility: i wanna make sure we don't use the same 
-    static std::unordered_set<size_t> used_frame_indices;
-    if ((used_frame_indices.count(frame_idx) != 0) && !frame.frameRecreate) {
-        throw std::runtime_error("Tried to use the same frame index more than once!");
-    }
-    else {
-        used_frame_indices.emplace(frame_idx);
-    }
-    
+void createDrawingResources(vtf_frame_data_t& frame) {
+
     const auto* device = RenderingContext::Get().Device();
     const auto* swapchain = RenderingContext::Get().Swapchain();
     const uint32_t img_count = swapchain->ImageCount();
@@ -1472,11 +1465,24 @@ void CreateDrawFrameBuffers(vtf_frame_data_t & frame, const size_t frame_idx) {
     frame.rsrcMap["DepthRendertargetImage"] = createDepthStencilResource(SceneConfig.MSAA_SampleCount);
     frame.rsrcMap["DrawMultisampleImage"] = rsrc.CreateImage(&img_info, &view_info, 0u, nullptr, memory_type::DEVICE_LOCAL, nullptr);
 
+
+}
+
+void createDrawFrameBuffer(vtf_frame_data_t & frame) {
+
+    if (frame.imageIdx == frame.lastImageIdx) {
+        return; // don't need to create it again, image idx didn't change
+    }
+
+    const auto* device = RenderingContext::Get().Device();
+    const auto* swapchain = RenderingContext::Get().Swapchain();
+    const VkExtent2D& img_extent = swapchain->Extent();
+
     const VkImageView view_handles[3]{
         (VkImageView)frame.rsrcMap["DrawMultisampleImage"]->ViewHandle, (VkImageView)frame.rsrcMap["DepthRendertargetImage"]->ViewHandle,
-        swapchain->ImageView(size_t(frame_idx))
+        swapchain->ImageView(size_t(frame.imageIdx))
     };
-
+    
     const VkFramebufferCreateInfo framebuffer_info{
         VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
         nullptr,
@@ -1651,6 +1657,15 @@ void CreateGraphicsPipelines(vtf_frame_data_t & frame) {
     createDepthPrePassPipeline(frame);
     createClusterSamplesPipeline(frame);
     createDrawPipelines(frame);
+}
+
+void FullFrameSetup(vtf_frame_data_t& frame) {
+    CreateShaders(frame);
+    SetupDescriptors(frame);
+    CreateResources(frame);
+    CreateComputePipelines(frame);
+    CreateRenderpasses(frame);
+    CreateGraphicsPipelines(frame);
 }
 
 void ComputeUpdateLights(vtf_frame_data_t& frame) {
@@ -2228,6 +2243,21 @@ void SubmitComputeWork(vtf_frame_data_t& frame) {
 
 }
 
+bool tryImageAcquire(vtf_frame_data_t& frame, uint64_t timeout = 0u) {
+    auto* device = RenderingContext::Get().Device();
+    auto* swapchain = RenderingContext::Get().Swapchain();
+    VkResult result = vkAcquireNextImageKHR(device->vkHandle(), swapchain->vkHandle(), timeout, frame.semaphores.at("ImageAcquire")->vkHandle(), VK_NULL_HANDLE, &frame.imageIdx);
+    if (result == VK_SUCCESS) {
+        return true;
+    }
+    else {
+        if (result != VK_NOT_READY && timeout == 0u) {
+            VkAssert(result); // something besides what we plan to handle occured
+        }
+        return false;
+    }
+}
+
 void getClusterSamples(vtf_frame_data_t& frame) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
@@ -2551,11 +2581,25 @@ void vtfMainRenderPass(vtf_frame_data_t& frame) {
 }
 
 void RenderVtf(vtf_frame_data_t& frame) {
+    bool acquired{ false };
+    acquired = tryImageAcquire(frame);
     getClusterSamples(frame);
     findUniqueClusters(frame);
+    if (!acquired) {
+        acquired = tryImageAcquire(frame);
+    }
     updateClusterIndirectArgs(frame);
     assignLightsToClusters(frame);
+    if (!acquired) {
+        acquired = tryImageAcquire(frame);
+    }
     submitPreSwapchainWritingWork(frame);
+    
+    if (!acquired) {
+        acquired = tryImageAcquire(frame, 1000u);
+    }
+
+    createDrawFrameBuffer(frame);
     vtfMainRenderPass(frame);
 }
 
@@ -2563,7 +2607,7 @@ void SubmitGraphicsWork(vtf_frame_data_t& frame) {
 
     const VkSemaphore wait_semaphores[2]{
         frame.semaphores.at("PreBackbufferWorkComplete")->vkHandle(),
-        frame.semaphores.at("ImageAcquired")->vkHandle()
+        frame.semaphores.at("ImageAcquire")->vkHandle()
     };
 
     auto* device = RenderingContext::Get().Device();
@@ -2585,6 +2629,62 @@ void SubmitGraphicsWork(vtf_frame_data_t& frame) {
 
     VkResult result = vkQueueSubmit(device->GraphicsQueue(), 1u, &submit_info, VK_NULL_HANDLE);
     VkAssert(result);
+
+    frame.lastImageIdx = frame.imageIdx;
+}
+
+void destroyFrameResources(vtf_frame_data_t & frame) {
+    auto& rsrc_context = ResourceContext::Get();
+
+    for (auto& rsrc : frame.rsrcMap) {
+        rsrc_context.DestroyResource(rsrc.second);
+    }
+
+    for (auto& semaphore : frame.semaphores) {
+        semaphore.second.reset();
+    }
+
+    frame.computePool.reset();
+    frame.graphicsPool.reset();
+    frame.clusterSamplesFramebuffer.reset();
+    frame.drawFramebuffer.reset();
+
+}
+
+void destroyRenderpasses(vtf_frame_data_t & frame) {
+
+    for (auto& pass : frame.renderPasses) {
+        pass.second.reset();
+    }
+}
+
+void destroyPipelines(vtf_frame_data_t & frame) {
+
+    for (auto& compute : frame.computePipelines) {
+        compute.second.Destroy();
+    }
+
+    for (auto& graphics : frame.graphicsPipelines) {
+        graphics.second.reset();
+    }
+
+}
+
+void DestroyFrame(vtf_frame_data_t& frame) {
+    destroyFrameResources(frame); // gets semaphores and framebuffers too
+    destroyRenderpasses(frame);
+    destroyPipelines(frame);
+}
+
+void DestroyShaders(vtf_frame_data_t & frame) {
+
+    for (auto& cache : frame.pipelineCaches) {
+        cache.second.reset();
+    }
+
+    for (auto& shader : frame.shaderModules) {
+        shader.second.reset();
+    }
 
 }
 
