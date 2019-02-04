@@ -873,6 +873,14 @@ void CreateResources(vtf_frame_data_t & frame) {
     createSemaphores(frame);
 }
 
+void CreateSemaphores(vtf_frame_data_t & frame) {
+    auto* device = RenderingContext::Get().Device();
+    frame.semaphores["ImageAcquire"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
+    frame.semaphores["ComputeUpdateComplete"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
+    frame.semaphores["PreBackbufferWorkComplete"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
+    frame.semaphores["RenderComplete"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
+}
+
 void createUpdateLightsPipeline(vtf_frame_data_t& frame) {
 
     auto* device = RenderingContext::Get().Device();
@@ -1659,13 +1667,23 @@ void CreateGraphicsPipelines(vtf_frame_data_t & frame) {
     createDrawPipelines(frame);
 }
 
+void miscSetup(vtf_frame_data_t& frame) {
+
+    if (RenderingContext::ValidationEnabled()) {
+        frame.vkDebugFns = RenderingContext::Get().Device()->DebugUtilsHandler();
+    }
+
+}
+
 void FullFrameSetup(vtf_frame_data_t& frame) {
     CreateShaders(frame);
     SetupDescriptors(frame);
+    CreateSemaphores(frame);
     CreateResources(frame);
     CreateComputePipelines(frame);
     CreateRenderpasses(frame);
     CreateGraphicsPipelines(frame);
+    miscSetup(frame);
 }
 
 void ComputeUpdateLights(vtf_frame_data_t& frame) {
@@ -2580,23 +2598,66 @@ void vtfMainRenderPass(vtf_frame_data_t& frame) {
 
 }
 
+static std::array<size_t, 4> acquisitionFrequencies{ 0u, 0u, 0u, 0u };
+
+#ifdef NDEBUG
+constexpr static bool DEBUG_MODE{ false };
+#else
+constexpr static bool DEBUG_MODE{ true };
+#endif
+
 void RenderVtf(vtf_frame_data_t& frame) {
+    /*
+        Trying primitive acquisition setup till I find something better:
+        1. try with zero timeout (non blocking)
+        2. non blocking try 2
+        3. block for 0.25ms
+        4. block until acquired, last resort
+
+        Want to find out how frequently we hit these: should take a histogram
+    */
     bool acquired{ false };
     acquired = tryImageAcquire(frame);
+    if constexpr (DEBUG_MODE) {
+        if (acquired) {
+            acquisitionFrequencies[0]++;
+        }
+    }
+
     getClusterSamples(frame);
     findUniqueClusters(frame);
+
     if (!acquired) {
         acquired = tryImageAcquire(frame);
+        if constexpr (DEBUG_MODE) {
+            if (acquired) {
+                acquisitionFrequencies[1]++;
+            }
+        }
     }
+
     updateClusterIndirectArgs(frame);
     assignLightsToClusters(frame);
+
     if (!acquired) {
-        acquired = tryImageAcquire(frame);
+        // up to using slight timeout (wait 0.25ms)
+        acquired = tryImageAcquire(frame, uint64_t(2.5e5));
+        if constexpr (DEBUG_MODE) {
+            if (acquired) {
+                acquisitionFrequencies[2]++;
+            }
+        }
     }
+
+    // submit all work that doesn't rely on the swapchain image
     submitPreSwapchainWritingWork(frame);
     
     if (!acquired) {
-        acquired = tryImageAcquire(frame, 1000u);
+        acquired = tryImageAcquire(frame, UINT64_MAX);
+        if constexpr (DEBUG_MODE) {
+            std::cerr << "Had to acquire swapchain iamge by blocking!!";
+            acquisitionFrequencies[3]++;
+        }
     }
 
     createDrawFrameBuffer(frame);
