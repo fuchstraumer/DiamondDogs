@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RENDERING_CONTEXT_HPP
 #define DIAMOND_DOGS_RENDERING_CONTEXT_HPP
-#include "signal/delegate.hpp"
+#include "delegate.hpp"
 #include <memory>
 #include <vector>
 #include <string>
@@ -45,6 +45,7 @@ public:
     static RenderingContext& Get() noexcept;
     static void SetShouldResize(const bool val);
     static bool ShouldResizeExchange(const bool val);
+    static bool ValidationEnabled() noexcept;
 
     void Construct(const char* cfg_file_path);
     void Update();

@@ -14,6 +14,7 @@
 
 static std::vector<std::string> extensionsBuffer;
 static std::string windowingModeBuffer;
+static bool validationEnabled{ false };
 struct swapchain_callbacks_storage_t {
     std::forward_list<decltype(SwapchainCallbacks::SwapchainCreated)> CreationFns;
     std::forward_list<decltype(SwapchainCallbacks::BeginResize)> BeginFns;
@@ -105,6 +106,7 @@ void createInstanceAndWindow(const nlohmann::json& json_file, std::unique_ptr<vp
 
     const std::string engine_name = json_file.at("EngineName");
     const bool using_validation = json_file.at("EnableValidation");
+    validationEnabled = using_validation;
 
     uint32_t app_version = 0;
     uint32_t engine_version = 0;
@@ -212,6 +214,10 @@ void RenderingContext::SetShouldResize(bool resize) {
 
 bool RenderingContext::ShouldResizeExchange(bool value) {
     return GetShouldResizeFlag().exchange(value);
+}
+
+bool RenderingContext::ValidationEnabled() noexcept {
+    return validationEnabled;
 }
 
 void RenderingContext::Construct(const char* file_path) {
