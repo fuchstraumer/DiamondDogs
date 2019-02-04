@@ -40,11 +40,12 @@ class multicast_delegate_t;
 
 template<typename Result, typename...Args>
 class delegate_t<Result(Args...)> final : private base_delegate_t<Result(Args...)> {
+    friend class multicast_delegate_t<Result(Args...)>;
 public:
     
     delegate_t() = default;
 
-    bool IsEmpty() const noexcept {
+    bool empty() const noexcept {
         return invocation.stub == nullptr;
     }
 
@@ -160,7 +161,6 @@ private:
         return (p->operator())(args...);
     }
 
-    friend class multicast_delegate_t<Result(Args...)>;
     typename base_delegate_t<Result(Args...)>::invocation_element_t invocation;
 
 };
