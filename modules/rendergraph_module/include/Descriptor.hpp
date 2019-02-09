@@ -60,12 +60,12 @@ private:
     void allocateSets();
     void createPool();
 
-    size_t maxSets{ 0u };
+    uint32_t maxSets{ 0u };
     const vpr::Device* device{ nullptr };
     DescriptorTemplate* templ{ nullptr };
     std::stack<std::unique_ptr<vpr::DescriptorPool>> descriptorPools;
     vpr::DescriptorPool* activePool{ nullptr };
-    std::atomic<size_t> setContainerIdx;
+    std::atomic<uint32_t> setContainerIdx;
     std::vector<VkDescriptorSet> availSets;
     std::stack<std::vector<VkDescriptorSet>> usedSets;
     st::descriptor_type_counts_t typeCounts;

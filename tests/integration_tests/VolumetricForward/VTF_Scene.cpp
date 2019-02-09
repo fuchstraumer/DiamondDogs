@@ -7,6 +7,10 @@
 #include "LogicalDevice.hpp"
 #include "Descriptor.hpp"
 #include "Swapchain.hpp"
+#include "Fence.hpp"
+#include "DescriptorPack.hpp"
+#include "Framebuffer.hpp"
+#include "CommandPool.hpp"
 #include "vulkan/vulkan.h"
 #include "glm/gtc/random.hpp"
 #include "core/ShaderPack.hpp"
@@ -242,14 +246,15 @@ struct TestIcosphereMesh {
 
     void Render(VkCommandBuffer cmd, DescriptorBinder& binder, vtf_frame_data_t::render_type render_type) {
 
+        constexpr static VkDeviceSize offsets_dummy[1]{ 0u };
+        const VkBuffer buffers[1]{ (VkBuffer)VBO->Handle };
+
         switch (render_type) {
         case vtf_frame_data_t::render_type::Opaque:
             [[fallthrough]];
         case vtf_frame_data_t::render_type::OpaqueAndTransparent: // no transparent geometry for this test
             binder.BindSingle(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, "Material");
             vkCmdBindIndexBuffer(cmd, (VkBuffer)EBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
-            constexpr static VkDeviceSize offsets_dummy[1]{ 0u };
-            const VkBuffer buffers[1]{ (VkBuffer)VBO->Handle };
             vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets_dummy);
             vkCmdDrawIndexed(cmd, static_cast<uint32_t>(Indices.size()), 1u, 0u, 0, 0u);
             break;

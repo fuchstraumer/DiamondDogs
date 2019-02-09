@@ -4,7 +4,7 @@
 #include "PipelineResource.hpp"
 #include <memory>
 #include <vector>
-#include "signal/delegate.hpp"
+#include "delegate.hpp"
 
 namespace st {
     class ShaderGroup;

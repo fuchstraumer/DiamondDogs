@@ -38,7 +38,6 @@ private:
     void bindSamplerDescriptor(const size_t idx, VulkanResource* rsrc);
     void bindBufferDescriptor(const size_t idx, VkDescriptorType type, VulkanResource* rsrc);
     void bindImageDescriptor(const size_t idx, VkDescriptorType type, VulkanResource * rsrc);
-    void bindSamplerDescriptor(const size_t idx, VulkanResource * rsrc);
     std::vector<UpdateTemplateDataEntry> rawEntries;
 
 };

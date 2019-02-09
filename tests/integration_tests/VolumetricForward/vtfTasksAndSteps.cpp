@@ -1426,13 +1426,6 @@ void createDrawPass(vtf_frame_data_t& frame) {
 
 }
 
-void CreateRenderpasses(vtf_frame_data_t& frame) {
-    createDrawingResources(frame); // gonna need these regardless
-    createDepthAndClusterSamplesPass(frame);
-    createClusterSamplesResources(frame); // required, as we have backing images and framebuffers to setup
-    createDrawPass(frame);
-}
-
 void createDrawingResources(vtf_frame_data_t& frame) {
 
     const auto* device = RenderingContext::Get().Device();
@@ -1474,6 +1467,13 @@ void createDrawingResources(vtf_frame_data_t& frame) {
     frame.rsrcMap["DrawMultisampleImage"] = rsrc.CreateImage(&img_info, &view_info, 0u, nullptr, memory_type::DEVICE_LOCAL, nullptr);
 
 
+}
+
+void CreateRenderpasses(vtf_frame_data_t& frame) {
+    createDrawingResources(frame); // gonna need these regardless
+    createDepthAndClusterSamplesPass(frame);
+    createClusterSamplesResources(frame); // required, as we have backing images and framebuffers to setup
+    createDrawPass(frame);
 }
 
 void createDrawFrameBuffer(vtf_frame_data_t & frame) {

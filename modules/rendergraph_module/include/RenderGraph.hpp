@@ -9,7 +9,7 @@
 #include <variant>
 #include "core/ResourceUsage.hpp"
 #include "PipelineResource.hpp"
-#include "signal/delegate.hpp"
+#include "delegate.hpp"
 #include "tagged_bool.hpp"
 
 namespace st {

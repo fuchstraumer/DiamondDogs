@@ -16,7 +16,7 @@ DescriptorTemplate::DescriptorTemplate(std::string _name) : name(std::move(_name
 
 DescriptorTemplate::~DescriptorTemplate() {
     vkDestroyDescriptorUpdateTemplate(device->vkHandle(), updateTemplate, nullptr);
-    throw std::runtime_error("re-integrate destruction of everything else you dolt");
+    descriptorSetLayout.reset();
 }
 
 const UpdateTemplateData & DescriptorTemplate::UpdateData() const noexcept {
@@ -61,7 +61,7 @@ VkDescriptorUpdateTemplate DescriptorTemplate::UpdateTemplate() const noexcept {
     return updateTemplate;
 }
 
-VkDescriptorSetLayout DescriptorTemplate::SetLayout() const {
+VkDescriptorSetLayout DescriptorTemplate::SetLayout() const noexcept {
     return descriptorSetLayout->vkHandle();
 }
 

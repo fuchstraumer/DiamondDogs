@@ -41,11 +41,11 @@ void DescriptorBinder::Update() {
 }
 
 void DescriptorBinder::Bind(VkCommandBuffer cmd, VkPipelineBindPoint bind_point) {
-    vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayout, 0, setHandles.size(), setHandles.data(), 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayout, 0, static_cast<uint32_t>(setHandles.size()), setHandles.data(), 0, nullptr);
 }
 
 void DescriptorBinder::BindSingle(VkCommandBuffer cmd, VkPipelineBindPoint bind_point, const std::string & descr) {
     size_t dscr_idx = descriptorIdxMap.at(descr);
     // dscr_idx is offset to "first_set", which is first one we intend to bind: only one to be re-bound here
-    vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayout, dscr_idx, 1, setHandles.data(), 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, bind_point, pipelineLayout, static_cast<uint32_t>(dscr_idx), 1u, setHandles.data(), 0, nullptr);
 }

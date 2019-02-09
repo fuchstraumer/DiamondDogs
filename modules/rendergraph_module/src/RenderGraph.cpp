@@ -10,7 +10,6 @@
 #include "Swapchain.hpp"
 #include "RenderingContext.hpp"
 #include "ResourceContext.hpp"
-#include "ShaderResourcePack.hpp"
 #include <set>
 #include <functional>
 #include "easylogging++.h"
@@ -324,27 +323,6 @@ const vpr::Device* RenderGraph::GetDevice() const noexcept {
 RenderGraph& RenderGraph::GetGlobalGraph() {
     static RenderGraph graph(RenderingContext::Get().Device());
     return graph;
-}
-
-buffer_info_t RenderGraph::createPipelineResourceBufferInfo(const st::ShaderResource* resource) const {
-    return buffer_info_t{ resource->MemoryRequired(), buffer_usage_from_descriptor_type(resource->DescriptorType()) };
-}
-
-image_info_t RenderGraph::createPipelineResourceImageInfo(const st::ShaderResource* resource) const {
-    image_info_t result;
-    if (resource->DescriptorType() == VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT) {
-        result.SizeClass = image_info_t::size_class::SwapchainRelative;
-    }
-    result.Usage = image_usage_from_descriptor_type(resource->DescriptorType());
-    result.Format = resource->Format();
-    const VkImageCreateInfo& image_info = resource->ImageInfo();
-    result.ArrayLayers = image_info.arrayLayers;
-    result.MipLevels = image_info.mipLevels;
-    result.Samples = image_info.samples;
-    if (resource->DescriptorType() == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-        result.Anisotropy = resource->SamplerInfo().maxAnisotropy;
-    }
-    return result;
 }
 
 void RenderGraph::createPipelineResourcesFromPack(const st::ShaderPack* pack) {

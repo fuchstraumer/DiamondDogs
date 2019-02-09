@@ -5,6 +5,8 @@
 #include "common/ShaderStage.hpp"
 #include "vtfStructs.hpp"
 #include "DescriptorBinder.hpp"
+#include "Descriptor.hpp"
+#include "DescriptorPack.hpp"
 #include "multicast_delegate.hpp"
 #include "VkDebugUtils.hpp"
 #include <unordered_map>

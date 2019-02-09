@@ -3,7 +3,7 @@
 #include "vpr/DescriptorPool.hpp"
 #include "vkAssert.hpp"
 
-Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate* _templ) : device{ _device }, maxSets{ max_sets }, templ{ _templ },
+Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate* _templ) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ },
     typeCounts{ rsrc_counts }, setLayouts(max_sets, _templ->SetLayout()) {
     createPool();
 }
@@ -34,7 +34,7 @@ void Descriptor::Reset() {
 
     }
     else {
-        size_t used_sets = setContainerIdx;
+        uint32_t used_sets = setContainerIdx;
         VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), setContainerIdx, availSets.data());
         VkAssert(result);
         descriptorPools.pop();
@@ -42,7 +42,7 @@ void Descriptor::Reset() {
         while (!descriptorPools.empty()) {
             auto& curr_pool = descriptorPools.top();
             auto& curr_sets = usedSets.top();
-            used_sets += curr_sets.size();
+            used_sets += static_cast<uint32_t>(curr_sets.size());
 
             result = vkFreeDescriptorSets(device->vkHandle(), curr_pool->vkHandle(), maxSets, curr_sets.data());
             VkAssert(result);

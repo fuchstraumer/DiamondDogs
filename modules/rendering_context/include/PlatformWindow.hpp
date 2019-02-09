@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_PLATFORM_WINDOW_HPP
 #define DIAMOND_DOGS_PLATFORM_WINDOW_HPP
-#include "signal/delegate.hpp"
+#include "delegate.hpp"
 #include <memory>
 #include <functional>
 

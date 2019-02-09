@@ -23,6 +23,7 @@ class DescriptorTemplate {
 public:
 
     DescriptorTemplate(std::string name);
+    ~DescriptorTemplate();
 
     VkDescriptorUpdateTemplate UpdateTemplate() const noexcept;
     VkDescriptorSetLayout SetLayout() const noexcept;
