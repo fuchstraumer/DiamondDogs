@@ -387,8 +387,8 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     frames.reserve(img_count); // this should avoid invalidating pointers (god i hope)
 
     for (uint32_t i = 0; i < img_count; ++i) {
-        frames.emplace_back(vtf_frame_data_t());
-        setupFutures.emplace_back(std::async(std::launch::async, &FullFrameSetup, frames.back()));
+        frames[i] = std::make_unique<vtf_frame_data_t>();
+        setupFutures.emplace_back(std::async(std::launch::async, FullFrameSetup, frames[i].get()));
     }
 
     for (auto& fut : setupFutures) {

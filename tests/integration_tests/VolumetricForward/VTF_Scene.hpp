@@ -52,7 +52,7 @@ private:
 
     void createIcosphereTester();
 
-    std::vector<vtf_frame_data_t> frames;
+    std::vector<std::unique_ptr<vtf_frame_data_t>> frames;
     std::unique_ptr<struct TestIcosphereMesh> icosphereTester;
 
 };

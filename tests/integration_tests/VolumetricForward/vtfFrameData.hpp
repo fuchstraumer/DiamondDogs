@@ -22,6 +22,9 @@ namespace st {
 class vtf_frame_data_t {
 public:
 
+    vtf_frame_data_t();
+    ~vtf_frame_data_t();
+
     /*
         Unique resource types and distinct structures
         At some point we need a more anonymous feature for this, so that this "frame data" concept

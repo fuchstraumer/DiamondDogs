@@ -3,6 +3,11 @@
 #include "DescriptorPool.hpp"
 #include "vkAssert.hpp"
 
+Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate * _templ, std::unordered_map<std::string, size_t>&& binding_locations) : device{ _device }, maxSets{ uint32_t(max_sets) },
+    templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), bindingLocations{ std::move(binding_locations) } {
+    createPool();
+}
+
 Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate* _templ) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ },
     typeCounts{ rsrc_counts }, setLayouts(max_sets, _templ->SetLayout()) {
     createPool();
@@ -60,8 +65,16 @@ void Descriptor::Reset() {
 
 }
 
+size_t Descriptor::TotalUsedSets() const {
+    return usedSets.size() + 1;
+}
+
 void Descriptor::BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc) {
     templ->BindResourceToIdx(idx, type, rsrc);
+}
+
+size_t Descriptor::BindingLocation(const char * rsrc_name) const {
+    return bindingLocations.at(rsrc_name);
 }
 
 VkDescriptorSet Descriptor::fetchNewSet() noexcept {

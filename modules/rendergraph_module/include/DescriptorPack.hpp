@@ -53,10 +53,9 @@ public:
 private:
 
     void retrieveResourceGroups();
-    void createDescriptorTemplates();
+    void createDescriptorTemplatesAndDescriptors();
     void parseGroupBindingInfo();
     void createPipelineLayout(const std::string& name);
-    void createDescriptors();
     std::unique_ptr<Descriptor> createDescriptor(const std::string& rsrc_group_name, std::unordered_map<std::string, size_t>&& binding_locs);
 
     RenderGraph* graph;

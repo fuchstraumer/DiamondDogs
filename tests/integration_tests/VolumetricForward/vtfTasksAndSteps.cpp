@@ -26,6 +26,8 @@
 #include "Framebuffer.hpp"
 #include <array>
 #include <unordered_set>
+#include <unordered_map>
+#include <string>
 
 constexpr static uint32_t SORT_NUM_THREADS_PER_THREAD_GROUP = 256u;
 constexpr static uint32_t SORT_ELEMENTS_PER_THREAD = 8u;
@@ -1675,15 +1677,15 @@ void miscSetup(vtf_frame_data_t& frame) {
 
 }
 
-void FullFrameSetup(vtf_frame_data_t& frame) {
-    CreateShaders(frame);
-    SetupDescriptors(frame);
-    CreateSemaphores(frame);
-    CreateResources(frame);
-    CreateComputePipelines(frame);
-    CreateRenderpasses(frame);
-    CreateGraphicsPipelines(frame);
-    miscSetup(frame);
+void FullFrameSetup(vtf_frame_data_t* frame) {
+    CreateShaders(*frame);
+    SetupDescriptors(*frame);
+    CreateSemaphores(*frame);
+    CreateResources(*frame);
+    CreateComputePipelines(*frame);
+    CreateRenderpasses(*frame);
+    CreateGraphicsPipelines(*frame);
+    miscSetup(*frame);
 }
 
 void ComputeUpdateLights(vtf_frame_data_t& frame) {

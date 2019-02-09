@@ -15,9 +15,8 @@
 
 DescriptorPack::DescriptorPack(RenderGraph* _graph, const st::ShaderPack * pack) : shaderPack(pack), graph(_graph) {
     retrieveResourceGroups();
-    createDescriptorTemplates();
+    createDescriptorTemplatesAndDescriptors(); // also creates descriptors
     parseGroupBindingInfo();
-    createDescriptors();
 }
 
 DescriptorPack::~DescriptorPack() {}
@@ -63,7 +62,7 @@ void DescriptorPack::retrieveResourceGroups() {
     }
 }
 
-void DescriptorPack::createDescriptorTemplates() {
+void DescriptorPack::createDescriptorTemplatesAndDescriptors() {
 
     descriptors.resize(resourceGroups.size());
 

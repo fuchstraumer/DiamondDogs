@@ -10,8 +10,8 @@ template<typename Result, typename...Args>
 class multicast_delegate_t<Result(Args...)> final : private base_delegate_t<Result(Args...)> {
 public:
 
-    multicast_delegate_t() = default;
-    ~multicast_delegate_t();
+    multicast_delegate_t() {}
+    ~multicast_delegate_t() {}
 
     bool empty() const noexcept {
         return invocationVector.empty();
