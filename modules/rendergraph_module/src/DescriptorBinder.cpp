@@ -14,8 +14,8 @@ DescriptorBinder::DescriptorBinder(size_t num_descriptors, VkPipelineLayout layo
 
 DescriptorBinder::~DescriptorBinder() {}
 
-void DescriptorBinder::AddDescriptor(size_t descr_idx, Descriptor* descr) {
-    descriptorIdxMap.emplace(descr, descr_idx);
+void DescriptorBinder::AddDescriptor(size_t descr_idx, std::string name, Descriptor* descr) {
+    descriptorIdxMap.emplace(std::move(name), descr_idx);
     parentDescriptors[descr_idx] = descr;
     templHandles[descr_idx] = descr->templ->UpdateTemplate();
     updateTemplData[descr_idx] = descr->templ->UpdateData();

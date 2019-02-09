@@ -9,9 +9,6 @@ struct VulkanResource;
 
 union UpdateTemplateDataEntry {
     UpdateTemplateDataEntry() = default;
-    UpdateTemplateDataEntry(const UpdateTemplateDataEntry&) noexcept = default;
-    UpdateTemplateDataEntry(UpdateTemplateDataEntry&&) noexcept = default;
-    UpdateTemplateDataEntry& operator=(UpdateTemplateDataEntry&&) noexcept = default;
     explicit UpdateTemplateDataEntry(VkDescriptorBufferInfo&& info) noexcept : BufferInfo(std::move(info)) {}
     explicit UpdateTemplateDataEntry(VkDescriptorImageInfo&& info) noexcept: ImageInfo(std::move(info)) {}
     explicit UpdateTemplateDataEntry(VkBufferView view) noexcept : BufferView{ view } {}

@@ -29,7 +29,7 @@ public:
 private:
     friend class Descriptor;
     friend class DescriptorPack;
-    void AddDescriptor(size_t descr_idx, Descriptor* descr);
+    void AddDescriptor(size_t descr_idx, std::string name, Descriptor* descr);
     VkPipelineLayout pipelineLayout{ VK_NULL_HANDLE };
     std::unordered_map<std::string, size_t> descriptorIdxMap;
     std::vector<Descriptor*> parentDescriptors;

@@ -10,6 +10,7 @@
 #include "Swapchain.hpp"
 #include "RenderingContext.hpp"
 #include "ResourceContext.hpp"
+#include "DescriptorPack.hpp"
 #include <set>
 #include <functional>
 #include "easylogging++.h"

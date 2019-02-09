@@ -1,6 +1,6 @@
 #include "Descriptor.hpp"
 #include "LogicalDevice.hpp"
-#include "vpr/DescriptorPool.hpp"
+#include "DescriptorPool.hpp"
 #include "vkAssert.hpp"
 
 Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate* _templ) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ },

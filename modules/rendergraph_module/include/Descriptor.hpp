@@ -40,6 +40,8 @@ public:
     /*
         max_sets is used to set how many sets are initially allocated, but if this number is exceeded a new pool will be created
     */
+    Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* templ,
+        std::unordered_map<std::string, size_t>&& binding_locations);
     Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* templ);
     ~Descriptor();
 
@@ -53,8 +55,6 @@ private:
     friend class DescriptorBinder;
     friend class DescriptorPack;
 
-    Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* templ,
-        std::unordered_map<std::string, size_t>&& binding_locations);
 
     VkDescriptorSet fetchNewSet() noexcept;
     void allocateSets();

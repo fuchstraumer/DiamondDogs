@@ -48,7 +48,7 @@ DescriptorBinder DescriptorPack::RetrieveBinder(const std::string& shader_group)
 
     DescriptorBinder result(indices.size(), pipelineLayouts[sg_idx]->vkHandle());
     for (size_t i = 0; i < indices.size(); ++i) {
-        result.AddDescriptor(i, descriptors[indices[i]].get());
+        result.AddDescriptor(i, resourceGroups[indices[i]]->Name(), descriptors[indices[i]].get());
     }
 
     return std::move(result);
