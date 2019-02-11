@@ -39,7 +39,7 @@ private:
     void addUpdateEntry(const size_t idx, VkDescriptorUpdateTemplateEntry&& entry);
     void createUpdateTemplate() const;
 
-    mutable bool created;
+    mutable bool created{ false };
     const std::string name;
     const vpr::Device* device;
     std::unique_ptr<vpr::DescriptorSetLayout> descriptorSetLayout{ nullptr };
