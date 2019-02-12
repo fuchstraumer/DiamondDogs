@@ -15,8 +15,9 @@
 
 DescriptorPack::DescriptorPack(RenderGraph* _graph, const st::ShaderPack * pack) : shaderPack(pack), graph(_graph) {
     retrieveResourceGroups();
-    createDescriptorTemplatesAndDescriptors(); // also creates descriptors
+    createDescriptorTemplates();
     parseGroupBindingInfo();
+    createDescriptors();
 }
 
 DescriptorPack::~DescriptorPack() {}
@@ -62,13 +63,10 @@ void DescriptorPack::retrieveResourceGroups() {
     }
 }
 
-void DescriptorPack::createDescriptorTemplatesAndDescriptors() {
-
-    descriptors.resize(resourceGroups.size());
+void DescriptorPack::createDescriptorTemplates() {
 
     for (const auto* group : resourceGroups) {
         const std::string group_name{ group->Name() };
-        size_t idx = rsrcGroupToIdxMap.at(group_name);
 
         descriptorTemplates.emplace_back(std::make_unique<DescriptorTemplate>(group->Name()));
         auto* templ = descriptorTemplates.back().get();
@@ -85,7 +83,8 @@ void DescriptorPack::createDescriptorTemplatesAndDescriptors() {
             binding_locs.emplace(rsrc->Name(), rsrc->BindingIndex());
         }
 
-        descriptors[idx] = createDescriptor(group_name, std::move(binding_locs));
+        bindingLocations.emplace(group_name, std::move(binding_locs));
+
     }
 
 }
@@ -146,7 +145,7 @@ void DescriptorPack::createPipelineLayout(const std::string & name) {
         for (size_t i = 0; i < used_blocks.NumStrings; ++i) {
             size_t container_idx = rsrcGroupToIdxMap.at(used_blocks[i]);
             size_t set_idx_in_shader = static_cast<size_t>(shader->ResourceGroupSetIdx(used_blocks[i]));
-            // this group stores descriptor indices in the right binding order for us to use later
+            // this map stores descriptor indices in the right binding order for us to use later
             shaderGroupResourceGroupUsages[idx][set_idx_in_shader] = container_idx;
             set_layouts[set_idx_in_shader] = descriptorTemplates[container_idx]->SetLayout();
 
@@ -157,6 +156,19 @@ void DescriptorPack::createPipelineLayout(const std::string & name) {
 
     pipelineLayouts[idx] = std::make_unique<vpr::PipelineLayout>(RenderingContext::Get().Device()->vkHandle());
     pipelineLayouts[idx]->Create(push_constant_ranges.size(), push_constant_ranges.data(), set_layouts.size(), set_layouts.data());
+
+}
+
+void DescriptorPack::createDescriptors() {
+
+    descriptors.resize(resourceGroups.size());
+
+    for (const auto* group : resourceGroups) {
+        const std::string group_name{ group->Name() };
+        size_t idx = rsrcGroupToIdxMap.at(group_name);
+
+        descriptors[idx] = createDescriptor(group_name, std::move(bindingLocations.at(group_name)));
+    }
 
 }
 

@@ -53,8 +53,9 @@ public:
 private:
 
     void retrieveResourceGroups();
-    void createDescriptorTemplatesAndDescriptors();
+    void createDescriptorTemplates();
     void parseGroupBindingInfo();
+    void createDescriptors();
     void createPipelineLayout(const std::string& name);
     std::unique_ptr<Descriptor> createDescriptor(const std::string& rsrc_group_name, std::unordered_map<std::string, size_t>&& binding_locs);
 
@@ -65,6 +66,7 @@ private:
     std::vector<std::unique_ptr<Descriptor>> descriptors;
     std::vector<std::unique_ptr<vpr::PipelineLayout>> pipelineLayouts;
     std::unordered_map<std::string, uint32_t> shaderGroupNameIdxMap;
+    std::unordered_map<std::string, std::unordered_map<std::string, size_t>> bindingLocations;
     std::vector<size_t> rsrcGroupUseFrequency;
     std::vector<std::vector<size_t>> shaderGroupResourceGroupUsages;
     std::vector<const st::Shader*> shaderGroups;
