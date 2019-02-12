@@ -4,6 +4,10 @@
 
 class vtf_frame_data_t;
 
+namespace st {
+    class ShaderPack;
+}
+
 /*
     Setup functions for frame data: should be called in this order. 
     CreateShaders() actually only progresses once. Multithreaded
@@ -11,7 +15,7 @@ class vtf_frame_data_t;
     entries should be safe if internal state is mutated, as those 
     are one of few internally synchronized objects
 */
-void CreateShaders(vtf_frame_data_t& frame);
+void CreateShaders(const st::ShaderPack* pack);
 void SetupDescriptors(vtf_frame_data_t& frame);
 void CreateResources(vtf_frame_data_t& frame); // populates rsrcMap nearly in full
 void CreateSemaphores(vtf_frame_data_t& frame);

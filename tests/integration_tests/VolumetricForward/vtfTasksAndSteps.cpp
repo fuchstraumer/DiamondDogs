@@ -152,7 +152,9 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 
 VulkanResource* createDepthStencilResource(const VkSampleCountFlagBits samples);
 
-void CreateShaders(vtf_frame_data_t & frame) {
+void CreateShaders(const st::ShaderPack* pack) {
+
+    vtf_frame_data_t::vtfShaders = pack;
 
     auto* device = RenderingContext::Get().Device();
     auto* physicalDevice = RenderingContext::Get().PhysicalDevice();
@@ -1678,7 +1680,6 @@ void miscSetup(vtf_frame_data_t& frame) {
 }
 
 void FullFrameSetup(vtf_frame_data_t* frame) {
-    CreateShaders(*frame);
     SetupDescriptors(*frame);
     CreateSemaphores(*frame);
     CreateResources(*frame);
