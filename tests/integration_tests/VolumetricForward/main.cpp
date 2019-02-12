@@ -10,6 +10,10 @@
 INITIALIZE_EASYLOGGINGPP
 #include "glm/gtc/matrix_transform.hpp"
 #include "../third_party/shadertools/src/util/ShaderPackBinary.hpp"
+#include "PipelineCache.hpp"
+#include "Allocator.hpp"
+#include "Instance.hpp"
+#include "CommandPool.hpp"
 
 static int screen_x() {
     auto& ctxt = RenderingContext::Get();
@@ -39,11 +43,17 @@ int main(int argc, char* argv[]) {
     
     static const fs::path shader_tools_base_path{ fs::canonical("../../../../third_party/shadertools/fragments") };
     static const std::string base_path_str{ shader_tools_base_path.string() };
-    static const fs::path shader_pack_path{ fs::canonical("../../../../third_party/shadertools/fragments/volumetric_forward/Shaderpack.lua") };
+    static const fs::path shader_pack_path{ fs::canonical("../../../../third_party/shadertools/fragments/volumetric_forward/volumetric_forward.yaml") };
     static const std::string pack_path_str{ shader_pack_path.string() };
     static const fs::path saved_pack_bin_path{ fs::current_path() / "VolumetricForwardPack.stbin" };
     static const std::string saved_pack_bin_str{ saved_pack_bin_path.string() };
 
+    void* storage_ptr = reinterpret_cast<void*>(&el::Helpers::storage());
+    vpr::SetLoggingRepository_VprCore(storage_ptr);
+    vpr::SetLoggingRepository_VprCommand(storage_ptr);
+    vpr::SetLoggingRepository_VprResource(storage_ptr);
+    vpr::SetLoggingRepository_VprAlloc(storage_ptr);
+    
     auto& ctxt = RenderingContext::Get();
     ctxt.Construct("RendererContextCfg.json");
 
