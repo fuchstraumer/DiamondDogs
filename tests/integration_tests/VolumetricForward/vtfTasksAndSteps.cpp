@@ -490,11 +490,11 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
 
 }
 
-void createLightResources(vtf_frame_data_t& frame) {
+void createLightResources(vtf_frame_data_t& frame, const SceneState_t& scene_lights) {
     auto& rsrc_context = ResourceContext::Get();
     auto* descr = frame.descriptorPack->RetrieveDescriptor("VolumetricForwardLights");
 
-    if (SceneLightsState.PointLights.empty()) {
+    if (SceneLightsState().PointLights.empty()) {
         throw std::runtime_error("Didn't generate lights before setting up light GPU buffers!");
     }
 
@@ -502,7 +502,7 @@ void createLightResources(vtf_frame_data_t& frame) {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
-        sizeof(PointLight) * SceneLightsState.PointLights.size(),
+        sizeof(PointLight) * SceneLightsState().PointLights.size(),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_SHARING_MODE_EXCLUSIVE,
         0,
@@ -510,8 +510,8 @@ void createLightResources(vtf_frame_data_t& frame) {
     };
 
     const gpu_resource_data_t point_lights_data{
-        SceneLightsState.PointLights.data(),
-        SceneLightsState.PointLights.size() * sizeof(PointLight),
+        SceneLightsState().PointLights.data(),
+        SceneLightsState().PointLights.size() * sizeof(PointLight),
         0u, 0u, 0u
     };
 
@@ -519,8 +519,8 @@ void createLightResources(vtf_frame_data_t& frame) {
     descr->BindResourceToIdx(descr->BindingLocation("PointLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLights"));
 
     const gpu_resource_data_t spot_lights_data{
-        SceneLightsState.SpotLights.data(),
-        SceneLightsState.SpotLights.size() * sizeof(SpotLight),
+        SceneLightsState().SpotLights.data(),
+        SceneLightsState().SpotLights.size() * sizeof(SpotLight),
         0u, 0u, 0u
     };
 
@@ -530,8 +530,8 @@ void createLightResources(vtf_frame_data_t& frame) {
 
 
     const gpu_resource_data_t dir_lights_data{
-        SceneLightsState.DirectionalLights.data(),
-        SceneLightsState.DirectionalLights.size() * sizeof(DirectionalLight),
+        SceneLightsState().DirectionalLights.data(),
+        SceneLightsState().DirectionalLights.size() * sizeof(DirectionalLight),
         0u, 0u, 0u
     };
     lights_buffer_info.size = dir_lights_data.DataSize;
@@ -550,9 +550,9 @@ void createLightResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    frame.LightCounts.NumPointLights = static_cast<uint32_t>(SceneLightsState.PointLights.size());
-    frame.LightCounts.NumSpotLights = static_cast<uint32_t>(SceneLightsState.SpotLights.size());
-    frame.LightCounts.NumDirectionalLights = static_cast<uint32_t>(SceneLightsState.DirectionalLights.size());
+    frame.LightCounts.NumPointLights = static_cast<uint32_t>(SceneLightsState().PointLights.size());
+    frame.LightCounts.NumSpotLights = static_cast<uint32_t>(SceneLightsState().SpotLights.size());
+    frame.LightCounts.NumDirectionalLights = static_cast<uint32_t>(SceneLightsState().DirectionalLights.size());
 
     const gpu_resource_data_t light_counts_data{
         &frame.LightCounts,
@@ -868,7 +868,8 @@ void CreateResources(vtf_frame_data_t & frame) {
     // to use these bindings actually work lol
     createGlobalResources(frame);
     createVolumetricForwardResources(frame);
-    createLightResources(frame); // make sure lights have been generated first! we upload initial data here too
+    const auto& lights = SceneLightsState();
+    createLightResources(frame, lights); // make sure lights have been generated first! we upload initial data here too
     createIndirectArgsResource(frame);
     createSortResources(frame);
     createMergeSortResource(frame);
@@ -1701,9 +1702,9 @@ void ComputeUpdateLights(vtf_frame_data_t& frame) {
     auto& rsrc = ResourceContext::Get();
 
     // update light counts
-    frame.LightCounts.NumPointLights = static_cast<uint32_t>(SceneLightsState.PointLights.size());
-    frame.LightCounts.NumSpotLights = static_cast<uint32_t>(SceneLightsState.SpotLights.size());
-    frame.LightCounts.NumDirectionalLights = static_cast<uint32_t>(SceneLightsState.DirectionalLights.size());
+    frame.LightCounts.NumPointLights = static_cast<uint32_t>(SceneLightsState().PointLights.size());
+    frame.LightCounts.NumSpotLights = static_cast<uint32_t>(SceneLightsState().SpotLights.size());
+    frame.LightCounts.NumDirectionalLights = static_cast<uint32_t>(SceneLightsState().DirectionalLights.size());
     VulkanResource* light_counts_buffer = frame.rsrcMap["lightCounts"];
     const gpu_resource_data_t lcb_update{
         &frame.LightCounts,

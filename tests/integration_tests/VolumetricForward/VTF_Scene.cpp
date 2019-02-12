@@ -26,7 +26,8 @@
 #include <experimental/filesystem>
 #include <future>
 
-const st::ShaderPack* vtfShaders{ nullptr };
+const st::ShaderPack* vtfShaders{ nullptr }; 
+//SceneState_t SceneLightsState{};
 
 struct vertex_t {
     vertex_t(glm::vec3 p, glm::vec3 n, glm::vec3 t, glm::vec2 uv) : Position(std::move(p)), Normal(std::move(n)), Tangent(std::move(t)),
@@ -366,9 +367,9 @@ static std::vector<LightType> GenerateLights(uint32_t num_lights) {
 }
 
 void GenerateLights() {
-    SceneLightsState.PointLights = GenerateLights<PointLight>(SceneConfig.NumPointLights);
-    SceneLightsState.SpotLights = GenerateLights<SpotLight>(SceneConfig.NumSpotLights);
-    SceneLightsState.DirectionalLights = GenerateLights<DirectionalLight>(SceneConfig.NumDirectionalLights);
+    SceneLightsState().PointLights = std::move(GenerateLights<PointLight>(SceneConfig.NumPointLights));
+    SceneLightsState().SpotLights = std::move(GenerateLights<SpotLight>(SceneConfig.NumSpotLights));
+    SceneLightsState().DirectionalLights = std::move(GenerateLights<DirectionalLight>(SceneConfig.NumDirectionalLights));
 }
 
 VTF_Scene& VTF_Scene::Get() {
@@ -379,6 +380,7 @@ VTF_Scene& VTF_Scene::Get() {
 void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     vprObjects = objects;
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
+    CreateShaders(vtfShaders);
     GenerateLights();
     // now create frames
     std::vector<std::future<void>> setupFutures;
@@ -387,8 +389,9 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     frames.reserve(img_count); // this should avoid invalidating pointers (god i hope)
 
     for (uint32_t i = 0; i < img_count; ++i) {
-        frames[i] = std::make_unique<vtf_frame_data_t>();
-        setupFutures.emplace_back(std::async(std::launch::async, FullFrameSetup, frames[i].get()));
+        frames.emplace_back(std::make_unique<vtf_frame_data_t>());
+        //setupFutures.emplace_back(std::async(std::launch::async, FullFrameSetup, frames[i].get()));
+        FullFrameSetup(frames[i].get());
     }
 
     for (auto& fut : setupFutures) {

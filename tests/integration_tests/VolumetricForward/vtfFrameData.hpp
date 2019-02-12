@@ -120,7 +120,7 @@ public:
         Static resources: all of these should really not be duplicated across frames/threads
         pipelineCaches are fully thread-safe, as they are internally synchronized (thank god)
     */
-    inline static st::ShaderPack* vtfShaders{ nullptr };
+    inline static const st::ShaderPack* vtfShaders{ nullptr };
     static std::unordered_map<std::string, std::vector<st::ShaderStage>> groupStages;
     static std::unordered_map<std::string, std::unique_ptr<vpr::PipelineCache>> pipelineCaches;
     static std::unordered_map<st::ShaderStage, std::unique_ptr<vpr::ShaderModule>> shaderModules;

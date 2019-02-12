@@ -63,12 +63,21 @@ struct alignas(16) DirectionalLight {
 };
 
 struct SceneState_t {
+    SceneState_t() = default;
+    SceneState_t(const SceneState_t&) = delete;
+    SceneState_t& operator=(const SceneState_t&) = delete;
+    static SceneState_t& Get() noexcept {
+        static SceneState_t state;
+        return state;
+    }
     std::vector<PointLight> PointLights;
     std::vector<SpotLight> SpotLights;
     std::vector<DirectionalLight> DirectionalLights;
 };
 
-inline static SceneState_t SceneLightsState;
+static SceneState_t& SceneLightsState() {
+    return SceneState_t::Get();
+}
 
 struct alignas(16) Matrices_t {
     glm::mat4 model{ glm::identity<glm::mat4>() };
