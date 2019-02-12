@@ -221,12 +221,12 @@ void createGlobalResources(vtf_frame_data_t& frame) {
 
     auto& rsrc_context = ResourceContext::Get();
 
-    frame.rsrcMap["Matrices"] = rsrc_context.CreateBuffer(&matrices_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
-    frame.rsrcMap["Globals"] = rsrc_context.CreateBuffer(&globals_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    frame.rsrcMap["matrices"] = rsrc_context.CreateBuffer(&matrices_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    frame.rsrcMap["globals"] = rsrc_context.CreateBuffer(&globals_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
 
     auto* descr = frame.descriptorPack->RetrieveDescriptor("GlobalResources");
-    descr->BindResourceToIdx(descr->BindingLocation("Matrices"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("Matrices"));
-    descr->BindResourceToIdx(descr->BindingLocation("Globals"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("Globals"));
+    descr->BindResourceToIdx(descr->BindingLocation("matrices"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
+    descr->BindResourceToIdx(descr->BindingLocation("globals"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("globals"));
 
 }
 
