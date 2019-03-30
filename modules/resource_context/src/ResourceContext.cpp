@@ -9,6 +9,47 @@
 #include <vector>
 #include <algorithm>
 #include "easylogging++.h"
+#include <vk_mem_alloc.h>
+
+enum class lock_mode : uint8_t {
+    Invalid = 0,
+    Read = 1,
+    Write = 2
+};
+
+/*
+    \brief A variant of lock_guard for shared_mutex, that allows for different locking semantics based on the current needs.
+    This is used in place of the mutex itself where possible, at it can greatly reduce the chance of mis-using mutexes in our code.
+*/
+struct rw_lock_guard {
+
+    rw_lock_guard(lock_mode _mode, std::shared_mutex& _mut) noexcept : mut(_mut), mode(_mode) {
+        if (mode == lock_mode::Read) {
+            mut.lock_shared();
+        }
+        else {
+            mut.lock();
+        }
+    }
+
+    ~rw_lock_guard() noexcept {
+        if (mode == lock_mode::Read) {
+            mut.unlock_shared();
+        }
+        else if (mode == lock_mode::Write) {
+            mut.unlock();
+        }
+    }
+
+    rw_lock_guard(rw_lock_guard&& other) noexcept : mut(std::move(other.mut)), mode(std::move(other.mode)) {}
+    rw_lock_guard& operator=(rw_lock_guard&& other) = delete;
+    rw_lock_guard(const rw_lock_guard&) = delete;
+    rw_lock_guard& operator=(const rw_lock_guard&) = delete;
+
+private:
+    lock_mode mode{ lock_mode::Invalid };
+    std::shared_mutex& mut;
+};
 
 static VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags) {
     if (usage_flags & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) {
@@ -70,11 +111,32 @@ static VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags) {
     }
 }
 
+VkMemoryPropertyFlags GetMemoryPropertyFlags(resource_usage _resource_usage) noexcept
+{
+    switch (_resource_usage)
+    {
+    case resource_usage::GPU_ONLY:
+        return VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    case resource_usage::CPU_ONLY:
+        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    case resource_usage::CPU_TO_GPU:
+        [[fallthrough]];
+    case resource_usage::GPU_TO_CPU:
+        return VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    default:
+        __assume(0);
+    }
+}
+
+static void AllocatorDeleter(void* ptr) noexcept {
+
+}
+
 static vpr::Allocator::allocation_extensions getExtensionFlags(const vpr::Device* device) {
     return device->DedicatedAllocationExtensionsEnabled() ? vpr::Allocator::allocation_extensions::DedicatedAllocations : vpr::Allocator::allocation_extensions::None;
 }
 
-ResourceContext::ResourceContext() : device(nullptr), allocator(nullptr) {}
+ResourceContext::ResourceContext() : device(nullptr) {}
 
 ResourceContext::~ResourceContext() {
     Destroy();
@@ -85,14 +147,32 @@ ResourceContext & ResourceContext::Get() {
     return context;
 }
 
-void ResourceContext::Construct(vpr::Device * _device, vpr::PhysicalDevice * physical_device) {
+void ResourceContext::Construct(vpr::Device* _device, vpr::PhysicalDevice* physical_device) {
     device = _device;
-    allocator = std::make_unique<vpr::Allocator>(_device->vkHandle(), physical_device->vkHandle(), getExtensionFlags(_device));
+
+    auto flags = getExtensionFlags(device);
+
+    VmaAllocatorCreateInfo create_info{
+        flags == vpr::Allocator::allocation_extensions::DedicatedAllocations ? VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT : 0u,
+        physical_device->vkHandle(),
+        device->vkHandle(),
+        0u,
+        nullptr,
+        nullptr,
+        1u,
+        nullptr,
+        nullptr,
+        nullptr
+    };
+
+    VkResult result = vmaCreateAllocator(&create_info, reinterpret_cast<VmaAllocator*>(&allocatorHandle));
+    VkAssert(result);
+    
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(physical_device->vkHandle(), &properties);
     UploadBuffer::NonCoherentAtomSize = properties.limits.nonCoherentAtomSize;
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    transfer_system.Initialize(_device, allocator.get());
+    //transfer_system.Initialize(_device, allocator.get());
 
 }
 
@@ -105,22 +185,26 @@ void ResourceContext::Destroy() {
         auto iter_copy = iter++;
         destroyResource(iter_copy);
     }
-    allocator.reset();
+    
+    vmaDestroyAllocator((VmaAllocator)allocatorHandle);
 }
 
-VulkanResource* ResourceContext::CreateBuffer(const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const memory_type _memory_type, void* user_data) {
+VulkanResource* ResourceContext::CreateBuffer(const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data) {
     VulkanResource* resource = nullptr;
+    VmaAllocationInfo* alloc_info = nullptr;
     {
-        std::lock_guard<std::mutex> emplaceGuard(containerMutex);
+        std::lock_guard emplaceGuard(containerMutex);
         auto iter = resources.emplace(std::make_unique<VulkanResource>());
         resource = iter.first->get();
         auto info_iter = resourceInfos.bufferInfos.emplace(resource, *info);
         resource->Type = resource_type::BUFFER;
         resource->Info = &info_iter.first->second;
         resource->UserData = user_data;
+        auto alloc_info_iter = allocInfos.emplace(resource, std::make_unique<VmaAllocationInfo>());
+        alloc_info = alloc_info_iter.first->second.get();
     }
 
-    if ((_memory_type == memory_type::DEVICE_LOCAL) && (num_data != 0)) {
+    if ((_resource_usage == resource_usage::CPU_TO_GPU || _resource_usage == resource_usage::GPU_TO_CPU || _resource_usage == resource_usage::GPU_ONLY) && (num_data != 0)) {
         // Device local buffer that will be transferred into, make sure it has the requisite flag.
         VkBufferCreateInfo* buffer_info = reinterpret_cast<VkBufferCreateInfo*>(resource->Info);
         if (!(buffer_info->usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT)) {
@@ -128,14 +212,24 @@ VulkanResource* ResourceContext::CreateBuffer(const VkBufferCreateInfo* info, co
         }
         buffer_info->usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     }
-    
-    VkResult result = vkCreateBuffer(device->vkHandle(), reinterpret_cast<VkBufferCreateInfo*>(resource->Info), nullptr, reinterpret_cast<VkBuffer*>(&resource->Handle));
-    VkAssert(result);
 
-    resourceInfos.resourceMemoryType.emplace(resource, _memory_type);
-    auto alloc_iter = resourceAllocations.emplace(resource, vpr::Allocation());
-    vpr::Allocation& alloc = alloc_iter.first->second;
-    allocator->AllocateForBuffer(reinterpret_cast<VkBuffer&>(resource->Handle), getAllocReqs(_memory_type), vpr::AllocationType::Buffer, alloc);
+    resourceInfos.resourceMemoryType.emplace(resource, _resource_usage);
+    auto alloc_iter = resourceAllocations.emplace(resource, VK_NULL_HANDLE);
+    auto& alloc = alloc_iter.first->second;
+
+    VmaAllocationCreateInfo alloc_create_info{
+        (VmaAllocationCreateFlags)_flags,
+        (VmaMemoryUsage)_resource_usage,
+        GetMemoryPropertyFlags(_resource_usage),
+        0u,
+        UINT32_MAX,
+        VK_NULL_HANDLE,
+        user_data
+    };
+
+    VkResult result = vmaCreateBuffer((VmaAllocator)allocatorHandle, reinterpret_cast<VkBufferCreateInfo*>(resource->Info), &alloc_create_info,
+        reinterpret_cast<VkBuffer*>(&resource->Handle), reinterpret_cast<VmaAllocation*>(&alloc), alloc_info);
+    VkAssert(result);
 
     if (view_info) {
         auto view_iter = resourceInfos.bufferViewInfos.emplace(resource, *view_info);
@@ -147,8 +241,8 @@ VulkanResource* ResourceContext::CreateBuffer(const VkBufferCreateInfo* info, co
     }
 
     if (initial_data) {
-        if ((_memory_type == memory_type::HOST_VISIBLE) || (_memory_type == memory_type::HOST_VISIBLE_AND_COHERENT)) {
-            setBufferInitialDataHostOnly(resource, num_data, initial_data, alloc, _memory_type);
+        if ((_resource_usage == resource_usage::CPU_ONLY) || (_resource_usage == resource_usage::CPU_TO_GPU) || (_resource_usage == resource_usage::GPU_TO_CPU)) {
+            setBufferInitialDataHostOnly(resource, num_data, initial_data, alloc, _resource_usage);
         }
         else {
             setBufferInitialDataUploadBuffer(resource, num_data, initial_data, alloc);
@@ -159,8 +253,8 @@ VulkanResource* ResourceContext::CreateBuffer(const VkBufferCreateInfo* info, co
 }
 
 void ResourceContext::SetBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data) {
-    memory_type mem_type = resourceInfos.resourceMemoryType.at(dest_buffer);
-    if ((mem_type == memory_type::HOST_VISIBLE) || (mem_type == memory_type::HOST_VISIBLE_AND_COHERENT)) {
+    resource_usage mem_type = resourceInfos.resourceMemoryType.at(dest_buffer);
+    if (mem_type == resource_usage::CPU_ONLY) {
         setBufferInitialDataHostOnly(dest_buffer, num_data, data, resourceAllocations.at(dest_buffer), mem_type);
     }
     else {
@@ -175,44 +269,44 @@ void ResourceContext::FillBuffer(VulkanResource * dest_buffer, const uint32_t va
     vkCmdFillBuffer(cmd, (VkBuffer)dest_buffer->Handle, offset, fill_size, value);
 }
 
-VulkanResource* ResourceContext::CreateImage(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const memory_type _memory_type, void* user_data) {
+VulkanResource* ResourceContext::CreateImage(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data) {
     VulkanResource* resource = nullptr;
+    VmaAllocationInfo* alloc_info = nullptr;
 
     {
-        std::lock_guard<std::mutex> emplaceGuard(containerMutex);
+        std::lock_guard emplaceGuard(containerMutex);
         auto iter = resources.emplace(std::make_unique<VulkanResource>());
         resource = iter.first->get();
         auto info_iter = resourceInfos.imageInfos.emplace(resource, *info);
         resource->Type = resource_type::IMAGE;
         resource->Info = &info_iter.first->second;
         resource->UserData = user_data;
-        resourceInfos.resourceMemoryType.emplace(resource, _memory_type);
+        resourceInfos.resourceMemoryType.emplace(resource, _resource_usage);
+        auto alloc_info_iter = allocInfos.emplace(resource, std::make_unique<VmaAllocationInfo>());
+        alloc_info = alloc_info_iter.first->second.get();
     }
 
-    // This probably isn't ideal but it's a reasonable assumption to make.
+    // This probably isn't ideal but it's a reasonable assumption to make. (updated to check for GPU only allocs)
     VkImageCreateInfo* create_info = reinterpret_cast<VkImageCreateInfo*>(resource->Info);
-    if (!(create_info->usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)) {
+    if (!(create_info->usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) || (_resource_usage != resource_usage::GPU_ONLY)) {
         create_info->usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     }
-    VkResult result = vkCreateImage(device->vkHandle(), create_info, nullptr, reinterpret_cast<VkImage*>(&resource->Handle));
+
+    auto alloc_iter = resourceAllocations.emplace(resource, VK_NULL_HANDLE);
+    auto& alloc = alloc_iter.first->second;
+
+    VmaAllocationCreateInfo alloc_create_info {
+        (VmaAllocationCreateFlags)_flags,
+        (VmaMemoryUsage)_resource_usage,
+        GetMemoryPropertyFlags(_resource_usage),
+        0u,
+        UINT32_MAX,
+        VK_NULL_HANDLE,
+        user_data
+    };
+
+    VkResult result = vmaCreateImage((VmaAllocator)allocatorHandle, create_info, &alloc_create_info, reinterpret_cast<VkImage*>(&resource->Handle), reinterpret_cast<VmaAllocation*>(&alloc), alloc_info);
     VkAssert(result);
-
-    vpr::AllocationType alloc_type;
-    VkImageTiling format_tiling = device->GetFormatTiling(info->format, featureFlagsFromUsage(info->usage));
-    if (format_tiling == VK_IMAGE_TILING_LINEAR) {
-        alloc_type = vpr::AllocationType::ImageLinear;
-    }
-    else if (format_tiling == VK_IMAGE_TILING_OPTIMAL) {
-        alloc_type = vpr::AllocationType::ImageTiled;
-    }
-    else {
-        alloc_type = vpr::AllocationType::Unknown;
-    }
-
-    auto alloc_iter = resourceAllocations.emplace(resource, vpr::Allocation());
-    vpr::Allocation& alloc = alloc_iter.first->second;
-    allocator->AllocateForImage(reinterpret_cast<VkImage&>(resource->Handle), getAllocReqs(_memory_type), alloc_type, alloc);
-
 
     if (view_info) {
         auto view_iter = resourceInfos.imageViewInfos.emplace(resource, *view_info);
@@ -240,7 +334,7 @@ VulkanResource * ResourceContext::CreateImageView(const VulkanResource * base_rs
         VulkanResource* result = nullptr;
 
         {
-            std::lock_guard<std::mutex> guard(containerMutex);
+            std::lock_guard guard(containerMutex);
             auto iter = resources.emplace(std::make_unique<VulkanResource>());
             result = iter.first->get();
             imageViews.emplace(found_resource, result);
@@ -268,7 +362,7 @@ void ResourceContext::SetImageData(VulkanResource* image, const size_t num_data,
 VulkanResource* ResourceContext::CreateSampler(const VkSamplerCreateInfo* info, void* user_data) {
     VulkanResource* resource = nullptr; 
     {
-        std::lock_guard<std::mutex> emplaceGuard(containerMutex);
+        std::lock_guard emplaceGuard(containerMutex);
         auto iter = resources.emplace(std::make_unique<VulkanResource>());
         resource = iter.first->get();
     }
@@ -285,21 +379,24 @@ VulkanResource* ResourceContext::CreateSampler(const VkSamplerCreateInfo* info, 
 }
 
 VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateInfo * info, const VkImageViewCreateInfo * view_info, const VkSamplerCreateInfo * sampler_info, 
-    const size_t num_data, const gpu_image_resource_data_t * initial_data, const memory_type _memory_type, void * user_data) {
-    VulkanResource* resource = CreateImage(info, view_info, num_data, initial_data, _memory_type, user_data);
+    const size_t num_data, const gpu_image_resource_data_t * initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void * user_data) {
+    VulkanResource* resource = CreateImage(info, view_info, num_data, initial_data, _resource_usage, user_data);
     resource->Type = resource_type::COMBINED_IMAGE_SAMPLER;
     resource->Sampler = CreateSampler(sampler_info);
     return resource;
 }
 
-VulkanResource* ResourceContext::CreateResourceCopy(VulkanResource * src) {
+VulkanResource* ResourceContext::CreateResourceCopy(VulkanResource * src) 
+{
     VulkanResource* result = nullptr;
     CopyResource(src, &result);
     return result;
 }
 
-void ResourceContext::CopyResource(VulkanResource * src, VulkanResource** dest) {
-    switch (src->Type) {
+void ResourceContext::CopyResource(VulkanResource * src, VulkanResource** dest) 
+{
+    switch (src->Type) 
+    {
     case resource_type::BUFFER:
         createBufferResourceCopy(src, dest);
         break;
@@ -317,9 +414,12 @@ void ResourceContext::CopyResource(VulkanResource * src, VulkanResource** dest) 
     };
 }
 
-void ResourceContext::CopyResourceContents(VulkanResource* src, VulkanResource* dst) {
-    if (src->Type == dst->Type) {
-        switch (src->Type) {
+void ResourceContext::CopyResourceContents(VulkanResource* src, VulkanResource* dst) 
+{
+    if (src->Type == dst->Type) 
+    {
+        switch (src->Type)
+        {
         case resource_type::BUFFER:
             break;
         case resource_type::IMAGE:
@@ -332,42 +432,63 @@ void ResourceContext::CopyResourceContents(VulkanResource* src, VulkanResource* 
             break;
         }
     }
-    else {
+    else 
+    {
 
     }
 }
 
-void ResourceContext::DestroyResource(VulkanResource * rsrc) {
-    std::lock_guard<std::mutex> eraseGuard(containerMutex);
-    auto iter = std::find_if(std::begin(resources), std::end(resources), [rsrc](const decltype(resources)::value_type& entry) {
-        return entry.get() == rsrc;
-    });
-    if (iter == std::end(resources)) {
+void ResourceContext::DestroyResource(VulkanResource * rsrc) 
+{
+    decltype(resources)::const_iterator iter;
+    {
+        rw_lock_guard erase_guard(lock_mode::Read, containerMutex); // only need read to find it
+        iter = std::find_if(std::begin(resources), std::end(resources), [rsrc](const decltype(resources)::value_type& entry) {
+            return entry.get() == rsrc;
+        });
+    }
+
+    if (iter == std::end(resources)) 
+    {
         LOG(ERROR) << "Tried to erase resource that isn't in internal containers!";
         throw std::runtime_error("Tried to erase resource that isn't in internal containers!");
     }
-    else {
+    else 
+    {
+        // issue: how to deal with recursive calls? Will try to doubly-lock when destroying combined image samplers
         destroyResource(iter);
     }
 }
 
-void* ResourceContext::MapResourceMemory(VulkanResource* resource, size_t size, size_t offset) {
-    void* mapped_ptr = nullptr;
-    auto& alloc = resourceAllocations.at(resource);
-    if (resourceInfos.resourceMemoryType.at(resource) == memory_type::HOST_VISIBLE) {
-        mappedRanges[resource] = VkMappedMemoryRange{ VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, nullptr, alloc.Memory(), alloc.Offset() + offset, size == 0 ? alloc.Size : size }; 
-        VkResult result = vkInvalidateMappedMemoryRanges(device->vkHandle(), 1, &mappedRanges[resource]);
-        VkAssert(result);
+void* ResourceContext::MapResourceMemory(VulkanResource* resource, size_t size, size_t offset) 
+{
+    const VmaAllocator allocator = (VmaAllocator)allocatorHandle;
+
+    rw_lock_guard lock_guard(lock_mode::Read, containerMutex);
+    const VmaAllocation alloc = reinterpret_cast<VmaAllocation>(resourceAllocations.at(resource));
+    resource_usage& alloc_usage = resourceInfos.resourceMemoryType.at(resource);
+    if (alloc_usage == resource_usage::GPU_TO_CPU)
+    {
+        vmaInvalidateAllocation(allocator, alloc, offset, size == 0u ? VK_WHOLE_SIZE : size);
     }
-    alloc.Map(size == 0 ? alloc.Size : size, alloc.Offset() + offset, &mapped_ptr);
+
+    void* mapped_ptr = nullptr;
+    VkResult result = vmaMapMemory(allocator, alloc, &mapped_ptr);
+    VkAssert(result);
     return mapped_ptr;
 }
 
-void ResourceContext::UnmapResourceMemory(VulkanResource* resource) {
-    resourceAllocations.at(resource).Unmap();
-    if (resourceInfos.resourceMemoryType.at(resource) == memory_type::HOST_VISIBLE) {
-        VkResult result = vkFlushMappedMemoryRanges(device->vkHandle(), 1, &mappedRanges[resource]);
-        VkAssert(result);
+void ResourceContext::UnmapResourceMemory(VulkanResource* resource, size_t size, size_t offset) 
+{
+    const VmaAllocator allocator = (VmaAllocator)allocatorHandle;
+    
+    rw_lock_guard lock_guard(lock_mode::Read, containerMutex);
+    const VmaAllocation alloc = reinterpret_cast<VmaAllocation>(resourceAllocations.at(resource));
+    resource_usage& alloc_usage = resourceInfos.resourceMemoryType.at(resource);
+    vmaUnmapMemory(allocator, alloc);
+    if (alloc_usage == resource_usage::CPU_TO_GPU)
+    {
+        vmaFlushAllocation(allocator, alloc, offset, size == 0u ? VK_WHOLE_SIZE : size);
     }
 }
 
@@ -376,21 +497,23 @@ void ResourceContext::Update() {
     transfer_system.CompleteTransfers();
 }
 
-void ResourceContext::setBufferInitialDataHostOnly(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, vpr::Allocation& alloc, memory_type _memory_type) {
-    void* mapped_address = nullptr;
-    alloc.Map(alloc.Size, 0, &mapped_address);
+void ResourceContext::setBufferInitialDataHostOnly(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, uint64_t& alloc, resource_usage _resource_usage) {
+    void* mapped_address{ nullptr };
+    const VmaAllocationInfo* alloc_info = allocInfos.at(alloc).get();
+    VmaAllocator allocator = (VmaAllocator)allocatorHandle;
+    VmaAllocation allocation = (VmaAllocation)alloc;
+
+    VkResult result = vmaMapMemory(allocator, allocation, &mapped_address);
+    VkAssert(result);
     size_t offset = 0;
     for (size_t i = 0; i < num_data; ++i) {
         void* curr_address = (void*)((size_t)mapped_address + offset);
         memcpy(curr_address, initial_data[i].Data, initial_data[i].DataSize);
         offset += initial_data[i].DataSize;
     }
-    alloc.Unmap();
-    if (_memory_type == memory_type::HOST_VISIBLE) {
-        VkMappedMemoryRange mapped_memory{ VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, nullptr, alloc.Memory(), alloc.Offset(), VK_WHOLE_SIZE };
-        VkResult result = vkFlushMappedMemoryRanges(device->vkHandle(), 1, &mapped_memory);
-        VkAssert(result);
-    }
+    vmaUnmapMemory(allocator, allocation);
+    // will be ignored if not needed
+    vmaFlushAllocation(allocator, allocation, alloc_info->offset, alloc_info->size);
 }
 
 void ResourceContext::setBufferInitialDataUploadBuffer(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, vpr::Allocation& alloc) {
@@ -504,26 +627,6 @@ void ResourceContext::setImageInitialData(VulkanResource* resource, const size_t
         vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier1);
     }
 
-}
-
-vpr::AllocationRequirements ResourceContext::getAllocReqs(memory_type _memory_type) const noexcept {
-    vpr::AllocationRequirements alloc_reqs;
-    switch (_memory_type) {
-    case memory_type::HOST_VISIBLE:
-        alloc_reqs.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
-        break;
-    case memory_type::HOST_VISIBLE_AND_COHERENT:
-        alloc_reqs.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
-        break;
-    case memory_type::DEVICE_LOCAL:
-        alloc_reqs.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-        break;
-    case memory_type::SPARSE:
-        break;
-    default:
-        break;
-    }
-    return alloc_reqs;
 }
 
 VkFormatFeatureFlags ResourceContext::featureFlagsFromUsage(const VkImageUsageFlags flags) const noexcept {

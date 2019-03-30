@@ -11,12 +11,22 @@ enum class resource_type : uint64_t {
     COMBINED_IMAGE_SAMPLER = 4
 };
 
-enum class memory_type : uint32_t {
-    INVALID_MEMORY_TYPE = 0,
-    HOST_VISIBLE = 1,
-    HOST_VISIBLE_AND_COHERENT = 2,
-    DEVICE_LOCAL = 3,
-    SPARSE = 4
+enum class resource_usage : uint32_t {
+    INVALID_RESOURCE_USAGE = 0,
+    GPU_ONLY = 1,
+    CPU_ONLY = 2,
+    CPU_TO_GPU = 3,
+    GPU_TO_CPU = 4
+};
+
+enum resource_creation_flags : uint32_t {
+    ResourceCreateDedicatedMemory = 0x00000001,
+    ResourceCreateNeverAllocate = 0x00000002,
+    ResourceCreatePersistentlyMapped = 0x00000004,
+    ResourceCreateUserDataAsString = 0x00000020,
+    ResourceCreateMemoryStrategyMinMemory = 0x00010000,
+    ResourceCreateMemoryStrategyMinTime = 0x00020000,
+    ResourceCreateMemoryStrategyMinFragmentation = 0x00040000
 };
 
 struct gpu_resource_data_t {
