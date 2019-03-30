@@ -286,7 +286,7 @@ VulkanResource* ResourceContext::CreateBuffer(const VkBufferCreateInfo* info, co
 
     if (initial_data)
     {
-        if ((_resource_usage == resource_usage::CPU_ONLY) || (_resource_usage == resource_usage::CPU_TO_GPU) || (_resource_usage == resource_usage::GPU_TO_CPU))
+        if (_resource_usage == resource_usage::CPU_ONLY)
         {
             setBufferInitialDataHostOnly(resource, num_data, initial_data, alloc, _resource_usage);
         }
@@ -446,7 +446,7 @@ VulkanResource* ResourceContext::CreateSampler(const VkSamplerCreateInfo* info, 
 VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateInfo * info, const VkImageViewCreateInfo * view_info, const VkSamplerCreateInfo * sampler_info, 
     const size_t num_data, const gpu_image_resource_data_t * initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void * user_data) 
 {
-    VulkanResource* resource = CreateImage(info, view_info, num_data, initial_data, _resource_usage, user_data);
+    VulkanResource* resource = CreateImage(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
     resource->Type = resource_type::COMBINED_IMAGE_SAMPLER;
     resource->Sampler = CreateSampler(sampler_info);
     return resource;
@@ -529,13 +529,17 @@ void ResourceContext::DestroyResource(VulkanResource * rsrc)
 void* ResourceContext::MapResourceMemory(VulkanResource* resource, size_t size, size_t offset) 
 {
     const VmaAllocator allocator = (VmaAllocator)allocatorHandle;
+    VmaAllocation alloc;
+    resource_usage alloc_usage;
 
-    rw_lock_guard lock_guard(lock_mode::Read, containerMutex);
-    const VmaAllocation alloc = reinterpret_cast<VmaAllocation>(resourceAllocations.at(resource));
-    resource_usage& alloc_usage = resourceInfos.resourceMemoryType.at(resource);
-    if (alloc_usage == resource_usage::GPU_TO_CPU)
     {
-        vmaInvalidateAllocation(allocator, alloc, offset, size == 0u ? VK_WHOLE_SIZE : size);
+        rw_lock_guard lock_guard(lock_mode::Read, containerMutex);
+        alloc = reinterpret_cast<VmaAllocation>(resourceAllocations.at(resource));
+        alloc_usage = resourceInfos.resourceMemoryType.at(resource);
+        if (alloc_usage == resource_usage::GPU_TO_CPU)
+        {
+            vmaInvalidateAllocation(allocator, alloc, offset, size == 0u ? VK_WHOLE_SIZE : size);
+        }
     }
 
     void* mapped_ptr = nullptr;
@@ -547,10 +551,14 @@ void* ResourceContext::MapResourceMemory(VulkanResource* resource, size_t size, 
 void ResourceContext::UnmapResourceMemory(VulkanResource* resource, size_t size, size_t offset) 
 {
     const VmaAllocator allocator = (VmaAllocator)allocatorHandle;
-    
-    rw_lock_guard lock_guard(lock_mode::Read, containerMutex);
-    const VmaAllocation alloc = reinterpret_cast<VmaAllocation>(resourceAllocations.at(resource));
-    resource_usage& alloc_usage = resourceInfos.resourceMemoryType.at(resource);
+    VmaAllocation alloc;
+    resource_usage alloc_usage;
+    {
+        rw_lock_guard lock_guard(lock_mode::Read, containerMutex);
+        alloc = reinterpret_cast<VmaAllocation>(resourceAllocations.at(resource));
+        alloc_usage = resourceInfos.resourceMemoryType.at(resource);
+    }
+
     vmaUnmapMemory(allocator, alloc);
     if (alloc_usage == resource_usage::CPU_TO_GPU)
     {
@@ -566,25 +574,27 @@ void ResourceContext::Update() {
 void ResourceContext::setBufferInitialDataHostOnly(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, uint64_t& alloc, resource_usage _resource_usage)
 {
     void* mapped_address{ nullptr };
-    const VmaAllocationInfo* alloc_info = allocInfos.at(alloc).get();
+    const VmaAllocationInfo* alloc_info;
+    {
+        rw_lock_guard lock_guard(lock_mode::Read, containerMutex);
+        alloc_info = allocInfos.at(alloc).get();
+    }
     VmaAllocator allocator = (VmaAllocator)allocatorHandle;
     VmaAllocation allocation = (VmaAllocation)alloc;
 
     VkResult result = vmaMapMemory(allocator, allocation, &mapped_address);
     VkAssert(result);
-    size_t offset = 0;
-    for (size_t i = 0; i < num_data; ++i)
+    size_t offset = 0u;
+    for (size_t i = 0u; i < num_data; ++i)
     {
         void* curr_address = (void*)((size_t)mapped_address + offset);
         memcpy(curr_address, initial_data[i].Data, initial_data[i].DataSize);
         offset += initial_data[i].DataSize;
     }
     vmaUnmapMemory(allocator, allocation);
-    // will be ignored if not needed
-    vmaFlushAllocation(allocator, allocation, alloc_info->offset, alloc_info->size);
 }
 
-void ResourceContext::setBufferInitialDataUploadBuffer(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, vpr::Allocation& alloc)
+void ResourceContext::setBufferInitialDataUploadBuffer(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, uint64_t& alloc)
 {
 
     /*
@@ -597,12 +607,12 @@ void ResourceContext::setBufferInitialDataUploadBuffer(VulkanResource* resource,
     {
         VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
         nullptr,
-        0,
+        0u,
         VK_ACCESS_TRANSFER_WRITE_BIT,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
         reinterpret_cast<VkBuffer>(resource->Handle),
-        0,
+        0u,
         p_info->size
     };
     const VkBufferMemoryBarrier memory_barrier1
@@ -614,7 +624,7 @@ void ResourceContext::setBufferInitialDataUploadBuffer(VulkanResource* resource,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
         (VkBuffer)resource->Handle,
-        0,
+        0u,
         p_info->size
     };
 
@@ -633,29 +643,28 @@ void ResourceContext::setBufferInitialDataUploadBuffer(VulkanResource* resource,
             offset += initial_data[i].DataSize;
         }
 
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 1, &memory_barrier0, 0, nullptr);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, 0u, 0u, 1u, &memory_barrier0, 0u, nullptr);
         vkCmdCopyBuffer(cmd, upload_buffer->Buffer, reinterpret_cast<VkBuffer>(resource->Handle), static_cast<uint32_t>(buffer_copies.size()), buffer_copies.data());
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 1, &memory_barrier1, 0, nullptr);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0u, 0u, nullptr, 1u, &memory_barrier1, 0u, nullptr);
     }
 }
 
-void ResourceContext::setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data, vpr::Allocation& alloc)
+void ResourceContext::setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data, uint64_t& alloc)
 {
-
     const VkImageCreateInfo* info = reinterpret_cast<VkImageCreateInfo*>(resource->Info);
 
     const VkImageMemoryBarrier barrier0
     {
         VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         nullptr,
-        0,
+        0u,
         VK_ACCESS_TRANSFER_WRITE_BIT,
         VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         device->QueueFamilyIndices().Transfer,
         device->QueueFamilyIndices().Transfer,
         reinterpret_cast<VkImage>(resource->Handle),
-        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, info->mipLevels, 0, info->arrayLayers }
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, info->mipLevels, 0u, info->arrayLayers }
     };
 
     const VkImageMemoryBarrier barrier1
@@ -669,7 +678,7 @@ void ResourceContext::setImageInitialData(VulkanResource* resource, const size_t
             device->QueueFamilyIndices().Transfer,
             device->QueueFamilyIndices().Graphics,
             reinterpret_cast<VkImage>(resource->Handle),
-            VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, info->mipLevels, 0, info->arrayLayers }
+            VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, info->mipLevels, 0u, info->arrayLayers }
     };
 
 
@@ -679,27 +688,25 @@ void ResourceContext::setImageInitialData(VulkanResource* resource, const size_t
         UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc.Size);
         VkCommandBuffer cmd = transfer_system.TransferCmdBuffer();
         std::vector<VkBufferImageCopy> buffer_image_copies;
-        size_t copy_offset = 0;
-        for (uint32_t i = 0; i < num_data; ++i)
+        size_t copy_offset = 0u;
+        for (uint32_t i = 0u; i < num_data; ++i)
         {
             buffer_image_copies.emplace_back(VkBufferImageCopy{
                 copy_offset,
-                0,
-                0,
+                0u,
+                0u,
                 VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, initial_data[i].MipLevel, initial_data[i].ArrayLayer, initial_data[i].NumLayers },
                 VkOffset3D{ 0, 0, 0 },
-                VkExtent3D{ initial_data[i].Width, initial_data[i].Height, 1 }
+                VkExtent3D{ initial_data[i].Width, initial_data[i].Height, 1u }
                 });
-#ifndef NDEBUG
             assert(initial_data[i].MipLevel < info->mipLevels);
             assert(initial_data[i].ArrayLayer < info->arrayLayers);
-#endif // DEBUG
             upload_buffer->SetData(initial_data[i].Data, initial_data[i].DataSize, copy_offset);
             copy_offset += initial_data[i].DataSize;
         }
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier0);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, 0u, nullptr, 0u, nullptr, 1u, &barrier0);
         vkCmdCopyBufferToImage(cmd, upload_buffer->Buffer, reinterpret_cast<VkImage>(resource->Handle), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(buffer_image_copies.size()), buffer_image_copies.data());
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier1);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0u, 0u, nullptr, 0u, nullptr, 1u, &barrier1);
     }
 
 }
@@ -769,9 +776,10 @@ void ResourceContext::copyBufferContentsToBuffer(VulkanResource* src, VulkanReso
     const VkBufferCreateInfo* src_info = reinterpret_cast<const VkBufferCreateInfo*>(src->Info);
     const VkBufferCreateInfo* dst_info = reinterpret_cast<const VkBufferCreateInfo*>(dst->Info);
     assert(src_info->size <= dst_info->size);
-    const VkBufferCopy copy{
-        0,
-        0,
+    const VkBufferCopy copy
+    {
+        0u,
+        0u,
         src_info->size
     };
 
@@ -836,9 +844,9 @@ void ResourceContext::copyBufferContentsToBuffer(VulkanResource* src, VulkanReso
         auto guard = transfer_system.AcquireSpinLock();
         auto cmd = transfer_system.TransferCmdBuffer();
 
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 2, pre_transfer_barriers, 0, nullptr);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, 0u, nullptr, 2u, pre_transfer_barriers, 0u, nullptr);
         vkCmdCopyBuffer(cmd, (VkBuffer)src->Handle, (VkBuffer)dst->Handle, 1, &copy);
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 2, post_transfer_barriers, 0, nullptr);
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0u, 0u, nullptr, 2u, post_transfer_barriers, 0u, nullptr);
     }
 }
 
