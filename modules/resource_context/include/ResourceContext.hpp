@@ -2,18 +2,10 @@
 #ifndef DIAMOND_DOGS_RESOURCE_CONTEXT_HPP
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_HPP
 #include "ForwardDecl.hpp"
-#include "Allocation.hpp"
-#include "AllocationRequirements.hpp"
 #include "ResourceTypes.hpp"
-#include <unordered_set>
-#include <unordered_map>
-#include <memory>
-#include <string>
-#include <variant>
-#include <vulkan/vulkan.h>
-#include <mutex>
 
 struct VmaAllocationInfo;
+struct ResourceContextImpl;
 
 class ResourceContext {
     ResourceContext(const ResourceContext&) = delete;
@@ -46,54 +38,10 @@ public:
 
     // Call at start of frame
     void Update();
-
     void Destroy();
+
 private:
-
-    void setBufferInitialDataHostOnly(VulkanResource * resource, const size_t num_data, const gpu_resource_data_t * initial_data, uint64_t& alloc, resource_usage _resource_usage);
-    void setBufferInitialDataUploadBuffer(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, uint64_t& alloc);
-    void setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data, uint64_t& alloc);
-    vpr::AllocationRequirements getAllocReqs(resource_usage _resource_usage) const noexcept;
-    VkFormatFeatureFlags featureFlagsFromUsage(const VkImageUsageFlags flags) const noexcept;
-
-    std::unordered_set<std::unique_ptr<VulkanResource>> resources;
-    using resource_iter_t = decltype(resources)::iterator;
-
-    void createBufferResourceCopy(VulkanResource* src, VulkanResource** dst);
-    void createImageResourceCopy(VulkanResource* src, VulkanResource** dst);
-    void createSamplerResourceCopy(VulkanResource* src, VulkanResource** dst);
-    void createCombinedImageSamplerResourceCopy(VulkanResource * src, VulkanResource ** dest);
-
-    void copyBufferContentsToBuffer(VulkanResource * src, VulkanResource * dst);
-    void copyImageContentsToImage(VulkanResource * src, VulkanResource * dst);
-    void copyBufferContentsToImage(VulkanResource * src, VulkanResource * dst);
-    void copyImageContentsToBuffer(VulkanResource * src, VulkanResource * dst);
-
-    void destroyResource(resource_iter_t iter);
-    void destroyBuffer(resource_iter_t iter);
-    void destroyImage(resource_iter_t iter);
-    void destroySampler(resource_iter_t iter);
-
-
-    struct infoStorage {
-        std::unordered_map<VulkanResource*, resource_usage> resourceMemoryType;
-        std::unordered_map<VulkanResource*, VkBufferCreateInfo> bufferInfos;
-        std::unordered_map<VulkanResource*, VkBufferViewCreateInfo> bufferViewInfos;
-        std::unordered_map<VulkanResource*, VkImageCreateInfo> imageInfos;
-        std::unordered_map<VulkanResource*, VkImageViewCreateInfo> imageViewInfos;
-        std::unordered_map<VulkanResource*, VkSamplerCreateInfo> samplerInfos;
-    } resourceInfos;
-
-    std::unordered_map<VulkanResource*, std::string> resourceNames;
-    std::unordered_map<VulkanResource*, uint64_t> resourceAllocations;
-    // Resources that depend on the key for their Image handle, but which are still independent views
-    // of the key, go here. When key is destroyed, we have to destroy all the views too.
-    std::unordered_multimap<VulkanResource*, VulkanResource*> imageViews;
-    std::unordered_map<uint64_t, std::unique_ptr<VmaAllocationInfo>> allocInfos;
-    uint64_t allocatorHandle{ VK_NULL_HANDLE };
-    std::shared_mutex containerMutex;
-    const vpr::Device* device;
-
+    std::unique_ptr<ResourceContextImpl> impl;
 };
 
 #endif //!DIAMOND_DOGS_RESOURCE_CONTEXT_HPP
