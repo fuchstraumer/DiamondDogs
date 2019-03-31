@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_HPP
 #include "ForwardDecl.hpp"
 #include "ResourceTypes.hpp"
+#include <memory>
 
 struct VmaAllocationInfo;
 struct ResourceContextImpl;
@@ -17,7 +18,10 @@ public:
 
     static ResourceContext& Get();
 
-    void Construct(vpr::Device* device, vpr::PhysicalDevice* physical_device);
+    void Initialize(vpr::Device* device, vpr::PhysicalDevice* physical_device);
+    // Call at start of frame
+    void Update();
+    void Destroy();
 
     VulkanResource* CreateBuffer(const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data = nullptr);
     void SetBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data);
@@ -36,9 +40,6 @@ public:
     void* MapResourceMemory(VulkanResource* resource, size_t size, size_t offset);
     void UnmapResourceMemory(VulkanResource* resource, size_t size, size_t offset);
 
-    // Call at start of frame
-    void Update();
-    void Destroy();
 
 private:
     std::unique_ptr<ResourceContextImpl> impl;
