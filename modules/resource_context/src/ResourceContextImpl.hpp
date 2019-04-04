@@ -72,6 +72,7 @@ struct ResourceContextImpl
     struct infoStorage {
         bool mayNeedRehash(const size_t headroom) const noexcept;
         void reserve(size_t count);
+		void clear();
         std::unordered_map<VulkanResource*, resource_usage> resourceMemoryType;
 		std::unordered_map<VulkanResource*, resource_creation_flags> resourceFlags;
         std::unordered_map<VulkanResource*, VkBufferCreateInfo> bufferInfos;

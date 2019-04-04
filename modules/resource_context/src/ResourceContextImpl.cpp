@@ -178,6 +178,21 @@ void ResourceContextImpl::construct(vpr::Device* _device, vpr::PhysicalDevice* p
 	reserveSpaceInContainers(4096u); // pretty heavily over-reserving but it's safer than the alternative
 }
 
+void ResourceContextImpl::destroy()
+{
+	for (auto& resource : resources)
+	{
+		destroyResource(resource.get());
+	}
+
+	resources.clear();
+	resourceAllocations.clear();
+	resourceNames.clear();
+	imageViews.clear();
+	allocInfos.clear();
+	resourceInfos.clear();
+}
+
 void ResourceContextImpl::update()
 {
     auto prevMinusOneSize = prevContainerMaxSize;
@@ -887,4 +902,15 @@ void ResourceContextImpl::infoStorage::reserve(size_t count)
     imageInfos.reserve(count);
     imageViewInfos.reserve(count);
     samplerInfos.reserve(count);
+}
+
+void ResourceContextImpl::infoStorage::clear()
+{
+	resourceMemoryType.clear();
+	resourceFlags.clear();
+	bufferInfos.clear();
+	bufferViewInfos.clear();
+	imageInfos.clear();
+	imageViewInfos.clear();
+	samplerInfos.clear();
 }
