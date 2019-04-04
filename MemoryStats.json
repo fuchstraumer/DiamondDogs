@@ -1,0 +1,307 @@
+{
+  "Total": {
+    "Blocks": 6, 
+    "Allocations": 138, 
+    "UnusedRanges": 11, 
+    "UsedBytes": 138395904, 
+    "UnusedBytes": 69931776, 
+    "AllocationSize": {"Min": 256, "Avg": 1002869, "Max": 17947776}, 
+    "UnusedRangeSize": {"Min": 896, "Avg": 6357434, "Max": 55152640}
+  }, 
+  "Heap 0": {
+    "Size": 8480882688, 
+    "Flags": ["DEVICE_LOCAL"], 
+    "Stats": {
+      "Blocks": 4, 
+      "Allocations": 120, 
+      "UnusedRanges": 9, 
+      "UsedBytes": 138325248, 
+      "UnusedBytes": 61674752, 
+      "AllocationSize": {"Min": 256, "Avg": 1152710, "Max": 17947776}, 
+      "UnusedRangeSize": {"Min": 896, "Avg": 6852750, "Max": 55152640}
+    }, 
+    "Type 7": {
+      "Flags": ["DEVICE_LOCAL"], 
+      "Stats": {
+        "Blocks": 4, 
+        "Allocations": 120, 
+        "UnusedRanges": 9, 
+        "UsedBytes": 138325248, 
+        "UnusedBytes": 61674752, 
+        "AllocationSize": {"Min": 256, "Avg": 1152710, "Max": 17947776}, 
+        "UnusedRangeSize": {"Min": 896, "Avg": 6852750, "Max": 55152640}
+      }
+    }, 
+    "Type 8": {
+      "Flags": ["DEVICE_LOCAL"]
+    }
+  }, 
+  "Heap 1": {
+    "Size": 8568721408, 
+    "Flags": [], 
+    "Stats": {
+      "Blocks": 2, 
+      "Allocations": 18, 
+      "UnusedRanges": 2, 
+      "UsedBytes": 70656, 
+      "UnusedBytes": 8257024, 
+      "AllocationSize": {"Min": 256, "Avg": 3925, "Max": 256}, 
+      "UnusedRangeSize": {"Min": 257792, "Avg": 4128512, "Max": 7999232}
+    }, 
+    "Type 0": {
+      "Flags": []
+    }, 
+    "Type 1": {
+      "Flags": []
+    }, 
+    "Type 2": {
+      "Flags": []
+    }, 
+    "Type 3": {
+      "Flags": []
+    }, 
+    "Type 4": {
+      "Flags": []
+    }, 
+    "Type 5": {
+      "Flags": []
+    }, 
+    "Type 6": {
+      "Flags": []
+    }, 
+    "Type 9": {
+      "Flags": ["HOST_VISIBLE", "HOST_COHERENT"], 
+      "Stats": {
+        "Blocks": 2, 
+        "Allocations": 18, 
+        "UnusedRanges": 2, 
+        "UsedBytes": 70656, 
+        "UnusedBytes": 8257024, 
+        "AllocationSize": {"Min": 256, "Avg": 3925, "Max": 256}, 
+        "UnusedRangeSize": {"Min": 257792, "Avg": 4128512, "Max": 7999232}
+      }
+    }, 
+    "Type 10": {
+      "Flags": ["HOST_VISIBLE", "HOST_COHERENT", "HOST_CACHED"]
+    }
+  }, 
+  "DefaultPools": {
+    "Type 7": {
+      "PreferredBlockSize": 64000000, 
+      "Blocks": {
+        "0": {
+          "TotalBytes": 8000000, 
+          "UnusedBytes": 3903488, 
+          "Allocations": 108, 
+          "UnusedRanges": 1, 
+          "Suballocations": [
+            {"Offset": 0, "Type": "BUFFER", "Size": 512, "UserData": "matrices", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 512, "Type": "BUFFER", "Size": 512, "UserData": "matrices", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 1024, "Type": "BUFFER", "Size": 512, "UserData": "matrices", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 1536, "Type": "BUFFER", "Size": 256, "UserData": "globals", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 1792, "Type": "BUFFER", "Size": 256, "UserData": "globals", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 2048, "Type": "BUFFER", "Size": 256, "UserData": "globals", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 2304, "Type": "BUFFER", "Size": 72960, "UserData": "ClusterFlags", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 75264, "Type": "BUFFER", "Size": 72960, "UserData": "UniqueClusters", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 148224, "Type": "BUFFER", "Size": 72960, "UserData": "ClusterFlags", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 221184, "Type": "BUFFER", "Size": 72960, "UserData": "ClusterFlags", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 294144, "Type": "BUFFER", "Size": 72960, "UserData": "PrevUniqueClusters", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 367104, "Type": "BUFFER", "Size": 72960, "UserData": "UniqueClusters", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 440064, "Type": "BUFFER", "Size": 72960, "UserData": "UniqueClusters", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 513024, "Type": "BUFFER", "Size": 256, "UserData": "AssignLightsToClustersArgumentBuffer", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 288}, 
+            {"Offset": 513280, "Type": "BUFFER", "Size": 72960, "UserData": "PrevUniqueClusters", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 586240, "Type": "BUFFER", "Size": 72960, "UserData": "PrevUniqueClusters", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 659200, "Type": "BUFFER", "Size": 256, "UserData": "DebugClustersDrawIndirectArgumentBuffer", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 256}, 
+            {"Offset": 659456, "Type": "BUFFER", "Size": 256, "UserData": "AssignLightsToClustersArgumentBuffer", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 288}, 
+            {"Offset": 659712, "Type": "BUFFER", "Size": 256, "UserData": "AssignLightsToClustersArgumentBuffer", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 288}, 
+            {"Offset": 659968, "Type": "BUFFER", "Size": 582912, "UserData": "ClusterAABBs", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 1242880, "Type": "BUFFER", "Size": 256, "UserData": "DebugClustersDrawIndirectArgumentBuffer", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 256}, 
+            {"Offset": 1243136, "Type": "BUFFER", "Size": 256, "UserData": "DebugClustersDrawIndirectArgumentBuffer", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 256}, 
+            {"Offset": 1243392, "Type": "BUFFER", "Size": 145920, "UserData": "PointLightGrid", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 1389312, "Type": "BUFFER", "Size": 582912, "UserData": "ClusterAABBs", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 1972224, "Type": "BUFFER", "Size": 582912, "UserData": "ClusterAABBs", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 2555136, "Type": "BUFFER", "Size": 145920, "UserData": "PointLightGrid", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 2701056, "Type": "BUFFER", "Size": 145920, "UserData": "PointLightGrid", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 2846976, "Type": "BUFFER", "Size": 145920, "UserData": "PointLightGrid", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 2992896, "Type": "BUFFER", "Size": 145920, "UserData": "PointLightGrid", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3138816, "Type": "BUFFER", "Size": 110592, "UserData": "PointLightIndexList", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3249408, "Type": "BUFFER", "Size": 145920, "UserData": "PointLightGrid", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3395328, "Type": "BUFFER", "Size": 110592, "UserData": "PointLightIndexList", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3505920, "Type": "BUFFER", "Size": 110592, "UserData": "PointLightIndexList", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3616512, "Type": "BUFFER", "Size": 110592, "UserData": "PointLightIndexList", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3727104, "Type": "BUFFER", "Size": 110592, "UserData": "PointLightIndexList", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3837696, "Type": "BUFFER", "Size": 256, "UserData": "PointLightIndexCounter", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3837952, "Type": "BUFFER", "Size": 110592, "UserData": "PointLightIndexList", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3948544, "Type": "BUFFER", "Size": 256, "UserData": "PointLightIndexCounter", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3948800, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightIndexCounter", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3949056, "Type": "BUFFER", "Size": 256, "UserData": "PointLightIndexCounter", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3949312, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightIndexCounter", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3949568, "Type": "BUFFER", "Size": 256, "UserData": "UniqueClustersCounter", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3949824, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightIndexCounter", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3950080, "Type": "BUFFER", "Size": 256, "UserData": "UniqueClustersCounter", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3950336, "Type": "BUFFER", "Size": 16384, "UserData": "PointLights", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 3966720, "Type": "BUFFER", "Size": 256, "UserData": "UniqueClustersCounter", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 8}, 
+            {"Offset": 3966976, "Type": "BUFFER", "Size": 16384, "UserData": "PointLights", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 3983360, "Type": "BUFFER", "Size": 16384, "UserData": "PointLights", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 3999744, "Type": "BUFFER", "Size": 6144, "UserData": "SpotLights", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 4005888, "Type": "BUFFER", "Size": 6144, "UserData": "SpotLights", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 4012032, "Type": "BUFFER", "Size": 6144, "UserData": "SpotLights", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 4018176, "Type": "BUFFER", "Size": 256, "UserData": "DirectionalLights", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 4018432, "Type": "BUFFER", "Size": 256, "UserData": "DirectionalLights", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 4018688, "Type": "BUFFER", "Size": 256, "UserData": "LightCounts", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 18}, 
+            {"Offset": 4018944, "Type": "BUFFER", "Size": 256, "UserData": "DirectionalLights", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 4019200, "Type": "BUFFER", "Size": 256, "UserData": "LightCounts", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 18}, 
+            {"Offset": 4019456, "Type": "BUFFER", "Size": 256, "UserData": "IndirectArgs", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 288}, 
+            {"Offset": 4019712, "Type": "BUFFER", "Size": 256, "UserData": "DispatchParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4019968, "Type": "BUFFER", "Size": 256, "UserData": "LightCounts", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 18}, 
+            {"Offset": 4020224, "Type": "BUFFER", "Size": 256, "UserData": "ReductionParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4020480, "Type": "BUFFER", "Size": 256, "UserData": "IndirectArgs", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 288}, 
+            {"Offset": 4020736, "Type": "BUFFER", "Size": 256, "UserData": "SortParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4020992, "Type": "BUFFER", "Size": 256, "UserData": "DispatchParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4021248, "Type": "BUFFER", "Size": 256, "UserData": "IndirectArgs", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 288}, 
+            {"Offset": 4021504, "Type": "BUFFER", "Size": 16384, "UserData": "LightAABBs", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 4037888, "Type": "BUFFER", "Size": 256, "UserData": "ReductionParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4038144, "Type": "BUFFER", "Size": 256, "UserData": "DispatchParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4038400, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightIndices", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4039424, "Type": "BUFFER", "Size": 256, "UserData": "SortParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4039680, "Type": "BUFFER", "Size": 256, "UserData": "ReductionParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4039936, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightMortonCodes", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4040960, "Type": "BUFFER", "Size": 16384, "UserData": "LightAABBs", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 4057344, "Type": "BUFFER", "Size": 256, "UserData": "SortParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4057600, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightIndices_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4058624, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightIndices", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4059648, "Type": "BUFFER", "Size": 16384, "UserData": "LightAABBs", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 35}, 
+            {"Offset": 4076032, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightMortonCodes_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4077056, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightMortonCodes", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4078080, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightIndices", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4079104, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightIndices_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4080128, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightMortonCodes", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4081152, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightIndices", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4081408, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightMortonCodes_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4082432, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightIndices_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4083456, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightMortonCodes", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4083712, "Type": "BUFFER", "Size": 1024, "UserData": "PointLightMortonCodes_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4084736, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightIndices", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4084992, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightIndices_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4085248, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightMortonCodes", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4085504, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightMortonCodes_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4085760, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightIndices_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4086016, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightIndices", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4086272, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightMortonCodes_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4086528, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightMortonCodes", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4086784, "Type": "BUFFER", "Size": 256, "UserData": "MergePathPartitions", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 10}, 
+            {"Offset": 4087040, "Type": "BUFFER", "Size": 256, "UserData": "MergePathPartitions", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 10}, 
+            {"Offset": 4087296, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightIndices_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4087552, "Type": "BUFFER", "Size": 256, "UserData": "BVHParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4087808, "Type": "BUFFER", "Size": 256, "UserData": "BVHParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4088064, "Type": "BUFFER", "Size": 256, "UserData": "SpotLightMortonCodes_OUT", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 11}, 
+            {"Offset": 4088320, "Type": "BUFFER", "Size": 1280, "UserData": "PointLightBVH", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 4089600, "Type": "BUFFER", "Size": 1280, "UserData": "PointLightBVH", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 4090880, "Type": "BUFFER", "Size": 1280, "UserData": "SpotLightBVH", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 4092160, "Type": "BUFFER", "Size": 256, "UserData": "MergePathPartitions", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 10}, 
+            {"Offset": 4092416, "Type": "BUFFER", "Size": 1280, "UserData": "SpotLightBVH", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 4093696, "Type": "BUFFER", "Size": 256, "UserData": "BVHParams", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 16}, 
+            {"Offset": 4093952, "Type": "BUFFER", "Size": 1280, "UserData": "PointLightBVH", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 4095232, "Type": "BUFFER", "Size": 1280, "UserData": "SpotLightBVH", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 4096512, "Type": "FREE", "Size": 3903488}
+          ]
+        }, 
+        "1": {
+          "TotalBytes": 64000000, 
+          "UnusedBytes": 1056256, 
+          "Allocations": 5, 
+          "UnusedRanges": 5, 
+          "Suballocations": [
+            {"Offset": 0, "Type": "IMAGE_OPTIMAL", "Size": 17947776, "UserData": "DepthStencilImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 17947776, "Type": "FREE", "Size": 896}, 
+            {"Offset": 17948672, "Type": "IMAGE_OPTIMAL", "Size": 17947776, "UserData": "DepthStencilImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 35896448, "Type": "FREE", "Size": 896}, 
+            {"Offset": 35897344, "Type": "IMAGE_OPTIMAL", "Size": 17947776, "UserData": "DepthStencilImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 53845120, "Type": "FREE", "Size": 896}, 
+            {"Offset": 53846016, "Type": "IMAGE_OPTIMAL", "Size": 4676736, "UserData": "DepthStencilImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 58522752, "Type": "FREE", "Size": 896}, 
+            {"Offset": 58523648, "Type": "IMAGE_OPTIMAL", "Size": 4423680, "UserData": "ClusterSamplesImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 19}, 
+            {"Offset": 62947328, "Type": "FREE", "Size": 1052672}
+          ]
+        }, 
+        "2": {
+          "TotalBytes": 64000000, 
+          "UnusedBytes": 1562368, 
+          "Allocations": 5, 
+          "UnusedRanges": 2, 
+          "Suballocations": [
+            {"Offset": 0, "Type": "IMAGE_OPTIMAL", "Size": 17694720, "UserData": "DrawMultisampleImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 18}, 
+            {"Offset": 17694720, "Type": "IMAGE_OPTIMAL", "Size": 17694720, "UserData": "DrawMultisampleImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 18}, 
+            {"Offset": 35389440, "Type": "IMAGE_OPTIMAL", "Size": 17694720, "UserData": "DrawMultisampleImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 18}, 
+            {"Offset": 53084160, "Type": "IMAGE_OPTIMAL", "Size": 4676736, "UserData": "DepthStencilImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 57760896, "Type": "FREE", "Size": 896}, 
+            {"Offset": 57761792, "Type": "IMAGE_OPTIMAL", "Size": 4676736, "UserData": "DepthStencilImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 32}, 
+            {"Offset": 62438528, "Type": "FREE", "Size": 1561472}
+          ]
+        }, 
+        "3": {
+          "TotalBytes": 64000000, 
+          "UnusedBytes": 55152640, 
+          "Allocations": 2, 
+          "UnusedRanges": 1, 
+          "Suballocations": [
+            {"Offset": 0, "Type": "IMAGE_OPTIMAL", "Size": 4423680, "UserData": "ClusterSamplesImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 19}, 
+            {"Offset": 4423680, "Type": "IMAGE_OPTIMAL", "Size": 4423680, "UserData": "ClusterSamplesImage", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 19}, 
+            {"Offset": 8847360, "Type": "FREE", "Size": 55152640}
+          ]
+        }
+      }
+    }, 
+    "Type 9": {
+      "PreferredBlockSize": 64000000, 
+      "Blocks": {
+        "0": {
+          "TotalBytes": 8000000, 
+          "UnusedBytes": 7999232, 
+          "Allocations": 3, 
+          "UnusedRanges": 1, 
+          "Suballocations": [
+            {"Offset": 0, "Type": "BUFFER", "Size": 256, "UserData": "ClusterData", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 18}, 
+            {"Offset": 256, "Type": "BUFFER", "Size": 256, "UserData": "ClusterData", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 18}, 
+            {"Offset": 512, "Type": "BUFFER", "Size": 256, "UserData": "ClusterData", "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 18}, 
+            {"Offset": 768, "Type": "FREE", "Size": 7999232}
+          ]
+        }
+      }
+    }
+  }, 
+  "Pools": {
+    "0": {
+      "MemoryTypeIndex": 9, 
+      "BlockSize": 327680, 
+      "BlockCount": {"Cur": 1}, 
+      "Algorithm": "Linear", 
+      "Blocks": {
+        "0": {
+          "TotalBytes": 327680, 
+          "UnusedBytes": 257792, 
+          "Allocations": 15, 
+          "UnusedRanges": 1, 
+          "Suballocations": [
+            {"Offset": 0, "Type": "BUFFER", "Size": 256, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 256, "Type": "BUFFER", "Size": 256, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 512, "Type": "BUFFER", "Size": 256, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 768, "Type": "BUFFER", "Size": 16384, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 17152, "Type": "BUFFER", "Size": 16384, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 33536, "Type": "BUFFER", "Size": 16384, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 49920, "Type": "BUFFER", "Size": 6144, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 56064, "Type": "BUFFER", "Size": 6144, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 62208, "Type": "BUFFER", "Size": 256, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 62464, "Type": "BUFFER", "Size": 6144, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 68608, "Type": "BUFFER", "Size": 256, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 68864, "Type": "BUFFER", "Size": 256, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 69120, "Type": "BUFFER", "Size": 256, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 69376, "Type": "BUFFER", "Size": 256, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 69632, "Type": "BUFFER", "Size": 256, "CreationFrameIndex": 0, "LastUseFrameIndex": 0, "Usage": 1}, 
+            {"Offset": 69888, "Type": "FREE", "Size": 257792}
+          ]
+        }
+      }
+    }
+  }
+}
