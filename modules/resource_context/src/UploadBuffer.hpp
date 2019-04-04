@@ -6,18 +6,19 @@
 #include "AllocationRequirements.hpp"
 #include "Allocation.hpp"
 #include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
 
 struct UploadBuffer {
     UploadBuffer(const UploadBuffer&) = delete;
     UploadBuffer& operator=(const UploadBuffer&) = delete;
-    UploadBuffer(const vpr::Device* _device, vpr::Allocator* alloc, VkDeviceSize sz);
+    UploadBuffer(const vpr::Device* _device, VmaAllocator alloc, VmaPool pool, VkDeviceSize sz);
     UploadBuffer(UploadBuffer&& other) noexcept;
     UploadBuffer& operator=(UploadBuffer&& other) noexcept;
     void SetData(const void* data, size_t data_size, size_t offset);
     VkBuffer Buffer;
-    vpr::Allocation alloc;
+    VmaAllocation Allocation;
+	VmaAllocator Allocator;
     const vpr::Device* device;
-    static VkDeviceSize NonCoherentAtomSize;
 };
 
 #endif //!RESOURCE_CONTEXT_UPLOAD_BUFFER_HPP

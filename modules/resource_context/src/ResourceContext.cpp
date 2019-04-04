@@ -41,8 +41,9 @@ void ResourceContext::SetImageData(VulkanResource* image, const size_t num_data,
     impl->setImageInitialData(image, num_data, data, impl->resourceAllocations.at(image));
 }
 
-VulkanResource* ResourceContext::CreateSampler(const VkSamplerCreateInfo* info, void* user_data) {
-    impl->createSampler(info, user_data);
+VulkanResource* ResourceContext::CreateSampler(const VkSamplerCreateInfo* info, void* user_data) 
+{
+    return impl->createSampler(info, user_data);
 }
 
 VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateInfo * info, const VkImageViewCreateInfo * view_info, const VkSamplerCreateInfo * sampler_info, 

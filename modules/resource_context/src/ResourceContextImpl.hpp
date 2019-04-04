@@ -19,6 +19,8 @@
 #include <variant>
 #include <vulkan/vulkan.h>
 #include <mutex>
+#include <atomic>
+#include <shared_mutex>
 #include <vk_mem_alloc.h>
 
 struct ResourceContextImpl
@@ -68,9 +70,10 @@ struct ResourceContextImpl
     void reserveSpaceInContainers(size_t count);
 
     struct infoStorage {
-        bool mayNeedRehash() const noexcept;
+        bool mayNeedRehash(const size_t headroom) const noexcept;
         void reserve(size_t count);
         std::unordered_map<VulkanResource*, resource_usage> resourceMemoryType;
+		std::unordered_map<VulkanResource*, resource_creation_flags> resourceFlags;
         std::unordered_map<VulkanResource*, VkBufferCreateInfo> bufferInfos;
         std::unordered_map<VulkanResource*, VkBufferViewCreateInfo> bufferViewInfos;
         std::unordered_map<VulkanResource*, VkImageCreateInfo> imageInfos;
@@ -85,7 +88,7 @@ struct ResourceContextImpl
     // Resources that depend on the key for their Image handle, but which are still independent views
     // of the key, go here. When key is destroyed, we have to destroy all the views too.
     std::unordered_multimap<VulkanResource*, VulkanResource*> imageViews;
-    std::unordered_map<VmaAllocation, VmaAllocationInfo> allocInfos;
+    std::unordered_map<VulkanResource*, VmaAllocationInfo> allocInfos;
     VmaAllocator allocatorHandle{ VK_NULL_HANDLE };
     std::shared_mutex containerMutex;
     const vpr::Device* device;

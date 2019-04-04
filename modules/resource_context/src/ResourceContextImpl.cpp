@@ -172,12 +172,10 @@ void ResourceContextImpl::construct(vpr::Device* _device, vpr::PhysicalDevice* p
     VkResult result = vmaCreateAllocator(&create_info, &allocatorHandle);
     VkAssert(result);
 
-    VkPhysicalDeviceProperties properties;
-    vkGetPhysicalDeviceProperties(physical_device->vkHandle(), &properties);
-    UploadBuffer::NonCoherentAtomSize = properties.limits.nonCoherentAtomSize;
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    //transfer_system.Initialize(_device, allocator.get());
+    transfer_system.Initialize(_device, allocatorHandle);
 
+	reserveSpaceInContainers(4096u); // pretty heavily over-reserving but it's safer than the alternative
 }
 
 void ResourceContextImpl::update()
@@ -189,7 +187,7 @@ void ResourceContextImpl::update()
     maxContainerDelta = delta > 0 ? delta > maxContainerDelta ? delta : maxContainerDelta : 128u;
     if (rehashContainers())
     {
-
+		reserveSpaceInContainers(resourceAllocations.size() * 2u);
     }
 }
 
@@ -293,10 +291,10 @@ VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info
         resource->Type = resource_type::BUFFER;
         resource->Info = &info_iter.first->second;
         resource->UserData = user_data;
-        auto alloc_info_iter = allocInfos.emplace(resource, std::make_unique<VmaAllocationInfo>());
+        auto alloc_info_iter = allocInfos.emplace(resource, VmaAllocationInfo());
         alloc_info = &alloc_info_iter.first->second;
         resourceInfos.resourceMemoryType.emplace(resource, _resource_usage);
-        auto alloc_iter = resourceAllocations.emplace(resource, VK_NULL_HANDLE);
+        auto alloc_iter = resourceAllocations.emplace(resource, VmaAllocation());
         alloc = reinterpret_cast<VmaAllocation>(alloc_iter.first->second);
         if (view_info)
         {
@@ -304,6 +302,7 @@ VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info
             resource->ViewInfo = &view_iter.first->second;
             local_view_info = reinterpret_cast<VkBufferViewCreateInfo*>(resource->ViewInfo);
         }
+		resourceInfos.resourceFlags.emplace(resource, _flags);
     }
 
     if ((_resource_usage == resource_usage::CPU_TO_GPU || _resource_usage == resource_usage::GPU_TO_CPU || _resource_usage == resource_usage::GPU_ONLY) && (num_data != 0))
@@ -387,9 +386,9 @@ VulkanResource* ResourceContextImpl::createImage(const VkImageCreateInfo* info, 
         resource->Info = &info_iter.first->second;
         resource->UserData = user_data;
         resourceInfos.resourceMemoryType.emplace(resource, _resource_usage);
-        auto alloc_info_iter = allocInfos.emplace(resource, std::make_unique<VmaAllocationInfo>());
+        auto alloc_info_iter = allocInfos.emplace(resource, VmaAllocationInfo());
         alloc_info = &alloc_info_iter.first->second;
-        auto alloc_iter = resourceAllocations.emplace(resource, VK_NULL_HANDLE);
+        auto alloc_iter = resourceAllocations.emplace(resource, VmaAllocation());
         alloc = reinterpret_cast<VmaAllocation>(alloc_iter.first->second);
         if (view_info)
         {
@@ -397,6 +396,7 @@ VulkanResource* ResourceContextImpl::createImage(const VkImageCreateInfo* info, 
             resource->ViewInfo = &view_iter.first->second;
             local_view_info = reinterpret_cast<VkImageViewCreateInfo*>(resource->ViewInfo);
         }
+		resourceInfos.resourceFlags.emplace(resource, _flags);
     }
 
     // This probably isn't ideal but it's a reasonable assumption to make. (updated to check for GPU only allocs)
@@ -505,12 +505,10 @@ void ResourceContextImpl::setBufferInitialDataHostOnly(VulkanResource* resource,
     const VmaAllocationInfo* alloc_info;
     {
         rw_lock_guard lock_guard(lock_mode::Read, containerMutex);
-        alloc_info = &allocInfos.at(alloc);
+        alloc_info = &allocInfos.at(resource);
     }
-    VmaAllocator allocator = (VmaAllocator)allocatorHandle;
-    VmaAllocation allocation = (VmaAllocation)alloc;
 
-    VkResult result = vmaMapMemory(allocator, allocation, &mapped_address);
+	VkResult result = vmaMapMemory(allocatorHandle, alloc , &mapped_address);
     VkAssert(result);
     size_t offset = 0u;
     for (size_t i = 0u; i < num_data; ++i)
@@ -519,7 +517,7 @@ void ResourceContextImpl::setBufferInitialDataHostOnly(VulkanResource* resource,
         memcpy(curr_address, initial_data[i].Data, initial_data[i].DataSize);
         offset += initial_data[i].DataSize;
     }
-    vmaUnmapMemory(allocator, allocation);
+    vmaUnmapMemory(allocatorHandle, alloc);
 }
 
 void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, VmaAllocation& alloc)
@@ -668,7 +666,7 @@ void ResourceContextImpl::createBufferResourceCopy(VulkanResource * src, VulkanR
     {
         view_info = reinterpret_cast<const VkBufferViewCreateInfo*>(src->ViewInfo);
     }
-    *dst = createBuffer(create_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), nullptr);
+    *dst = createBuffer(create_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), resourceInfos.resourceFlags.at(src), nullptr);
     copyResourceContents(src, *dst);
 }
 
@@ -680,7 +678,7 @@ void ResourceContextImpl::createImageResourceCopy(VulkanResource * src, VulkanRe
     {
         view_info = reinterpret_cast<const VkImageViewCreateInfo*>(src->ViewInfo);
     }
-    *dst = createImage(image_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), nullptr);
+    *dst = createImage(image_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), resourceInfos.resourceFlags.at(src), nullptr);
     copyResourceContents(src, *dst);
 }
 
@@ -801,7 +799,7 @@ void ResourceContextImpl::destroyBuffer(resource_iter_t iter)
         vkDestroyBufferView(device->vkHandle(), (VkBufferView)rsrc->ViewHandle, nullptr);
     }
     vkDestroyBuffer(device->vkHandle(), (VkBuffer)rsrc->Handle, nullptr);
-    allocator->FreeMemory(&resourceAllocations.at(rsrc));
+	vmaDestroyBuffer(allocatorHandle, (VkBuffer)rsrc->Handle, resourceAllocations.at(rsrc));
     resources.erase(iter);
     resourceInfos.bufferInfos.erase(rsrc);
     resourceInfos.bufferViewInfos.erase(rsrc);
@@ -815,8 +813,7 @@ void ResourceContextImpl::destroyImage(resource_iter_t iter)
     {
         vkDestroyImageView(device->vkHandle(), (VkImageView)rsrc->ViewHandle, nullptr);
     }
-    vkDestroyImage(device->vkHandle(), (VkImage)rsrc->Handle, nullptr);
-    allocator->FreeMemory(&resourceAllocations.at(rsrc));
+	vmaDestroyImage(allocatorHandle, (VkImage)rsrc->Handle, resourceAllocations.at(rsrc));
     resources.erase(iter);
     resourceInfos.imageInfos.erase(rsrc);
     resourceInfos.imageViewInfos.erase(rsrc);
@@ -834,18 +831,18 @@ void ResourceContextImpl::destroySampler(resource_iter_t iter)
 bool ResourceContextImpl::rehashContainers() noexcept
 {
     rw_lock_guard read_guard(lock_mode::Read, containerMutex);
-    bool rehash = resourceInfos.mayNeedRehash();
     const size_t headroom = maxContainerDelta; // based on per-frame checks of allocations size, as this will always be the most frequently modified
-    size_t currLoad{ 0u };
-    currLoad = resourceNames.max_load_factor() * resourceNames.bucket_count();
+	size_t currLoad{ 0u };
+	bool rehash = resourceInfos.mayNeedRehash(headroom);
+    currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * resourceNames.bucket_count();
     rehash |= (currLoad + headroom) > resourceNames.size();
-    currLoad = resourceAllocations.max_load_factor() * resourceAllocations.bucket_count();
+    currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * resourceAllocations.bucket_count();
     rehash |= (currLoad + headroom) > resourceAllocations.size();
-    currLoad = imageViews.max_load_factor() * imageViews.bucket_count();
+    currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * imageViews.bucket_count();
     rehash |= (currLoad + headroom) > imageViews.size();
-    currLoad = allocInfos.max_load_factor() * allocInfos.bucket_count();
+    currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * allocInfos.bucket_count();
     rehash |= (currLoad + headroom) > allocInfos.size();
-    currLoad = resources.max_load_factor() * resources.bucket_count();
+    currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * resources.bucket_count();
     rehash |= (currLoad + headroom) > resources.size();
     return rehash;
 }
@@ -860,9 +857,31 @@ void ResourceContextImpl::reserveSpaceInContainers(size_t count)
     resources.reserve(count);
 }
 
+bool ResourceContextImpl::infoStorage::mayNeedRehash(const size_t headroom) const noexcept
+{
+	bool result = false;
+	size_t currLoad{ 0u };
+	currLoad = static_cast<size_t>(std::floorf(resourceMemoryType.max_load_factor())) * resourceMemoryType.bucket_count();
+	result |= (currLoad + headroom) > resourceMemoryType.size();
+	currLoad = static_cast<size_t>(std::floorf(resourceFlags.max_load_factor())) * resourceFlags.bucket_count();
+	result |= (currLoad + headroom) > resourceFlags.size();
+	currLoad = static_cast<size_t>(std::floorf(bufferInfos.max_load_factor())) * bufferInfos.bucket_count();
+	result |= (currLoad + headroom) > bufferInfos.size();
+	currLoad = static_cast<size_t>(std::floorf(bufferViewInfos.max_load_factor())) * bufferViewInfos.bucket_count();
+	result |= (currLoad + headroom) > bufferViewInfos.size();
+	currLoad = static_cast<size_t>(std::floorf(imageInfos.max_load_factor())) * imageInfos.bucket_count();
+	result |= (currLoad + headroom) > imageInfos.size();
+	currLoad = static_cast<size_t>(std::floorf(imageViewInfos.max_load_factor())) * imageViewInfos.bucket_count();
+	result |= (currLoad + headroom) > imageViewInfos.size();
+	currLoad = static_cast<size_t>(std::floorf(samplerInfos.max_load_factor())) * samplerInfos.bucket_count();
+	result |= (currLoad + headroom) > samplerInfos.size();
+	return result;
+}
+
 void ResourceContextImpl::infoStorage::reserve(size_t count)
 {
     resourceMemoryType.reserve(count);
+	resourceFlags.reserve(count);
     bufferInfos.reserve(count);
     bufferViewInfos.reserve(count);
     imageInfos.reserve(count);

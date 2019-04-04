@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_HPP
 #include "ForwardDecl.hpp"
 #include "ResourceTypes.hpp"
+#include <vulkan/vulkan.h>
 #include <memory>
 
 struct VmaAllocationInfo;

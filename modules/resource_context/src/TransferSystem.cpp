@@ -7,6 +7,27 @@
 #include "Allocator.hpp"
 #include "UploadBuffer.hpp"
 
+constexpr static VkBufferCreateInfo staging_buffer_create_info{
+	VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+	nullptr,
+	0,
+	4096u,
+	VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	VK_SHARING_MODE_EXCLUSIVE,
+	0,
+	nullptr
+};
+
+constexpr static VmaAllocationCreateInfo alloc_create_info {
+	0,
+	VMA_MEMORY_USAGE_CPU_ONLY,
+	VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+	0u,
+	UINT32_MAX,
+	VK_NULL_HANDLE,
+	nullptr
+};
+
 VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device) {
     constexpr static VkCommandPoolCreateInfo pool_info{
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -20,15 +41,15 @@ VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device) {
 }
 
 UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(size_t buffer_sz) {
-    uploadBuffers.emplace_back(std::make_unique<UploadBuffer>(device, allocator, buffer_sz));
+    uploadBuffers.emplace_back(std::make_unique<UploadBuffer>(device, allocator, uploadPool, buffer_sz));
     return uploadBuffers.back().get();
 }
 
-ResourceTransferSystem::ResourceTransferSystem() : transferPool(nullptr), device(nullptr), fence(nullptr) {}
+ResourceTransferSystem::ResourceTransferSystem() : transferCmdPool(nullptr), device(nullptr), fence(nullptr) {}
 
 ResourceTransferSystem::~ResourceTransferSystem() {}
 
-void ResourceTransferSystem::Initialize(const vpr::Device * dvc, vpr::Allocator* _allocator) {
+void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _allocator) {
 
     if (initialized) {
         return;
@@ -36,9 +57,25 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc, vpr::Allocator*
 
     device = dvc;
     allocator = _allocator;
+
+	uint32_t memory_type_index{ 0u };
+	VkResult result = vmaFindMemoryTypeIndexForBufferInfo(allocator, &staging_buffer_create_info, &alloc_create_info, &memory_type_index);
+	VkAssert(result);
+
+	const VmaPoolCreateInfo pool_info {
+		memory_type_index,
+		VMA_POOL_CREATE_IGNORE_BUFFER_IMAGE_GRANULARITY_BIT | VMA_POOL_CREATE_LINEAR_ALGORITHM_BIT,
+		0u, // block size
+		0u, // min block count
+		0u, // max block count
+		0u
+	};
+
+	result = vmaCreatePool(allocator, &pool_info, &uploadPool);
+	VkAssert(result);
     
-    transferPool = std::make_unique<vpr::CommandPool>(dvc->vkHandle(), getCreateInfo(dvc));
-    transferPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    transferCmdPool = std::make_unique<vpr::CommandPool>(dvc->vkHandle(), getCreateInfo(dvc));
+	transferCmdPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     fence = std::make_unique<vpr::Fence>(dvc->vkHandle(), 0); 
     
     constexpr static VkCommandBufferBeginInfo begin_info{
@@ -48,7 +85,7 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc, vpr::Allocator*
         nullptr
     };
 
-    VkResult result = vkBeginCommandBuffer(transferPool->GetCmdBuffer(0), &begin_info);
+    result = vkBeginCommandBuffer(transferCmdPool->GetCmdBuffer(0), &begin_info);
     VkAssert(result);
     initialized = true;
 }
@@ -69,7 +106,7 @@ void ResourceTransferSystem::CompleteTransfers() {
 
     auto guard = AcquireSpinLock();
 
-    auto& pool = *transferPool;
+    auto& pool = *transferCmdPool;
     if (vkEndCommandBuffer(pool[0]) != VK_SUCCESS) {
         throw std::runtime_error("Failed to end Transfer command buffer!");
     }
@@ -93,7 +130,7 @@ void ResourceTransferSystem::CompleteTransfers() {
     result = vkResetFences(device->vkHandle(), 1, &fence->vkHandle());
     VkAssert(result);
 
-    transferPool->ResetCmdBuffer(0);
+	transferCmdPool->ResetCmdBuffer(0);
 
     constexpr static VkCommandBufferBeginInfo begin_info{
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -111,14 +148,14 @@ void ResourceTransferSystem::CompleteTransfers() {
     }
 
     for (auto& buff : uploadBuffers) {
-        allocator->FreeMemory(&buff->alloc);
-        vkDestroyBuffer(device->vkHandle(), buff->Buffer, nullptr);
+		vmaDestroyBuffer(allocator, buff->Buffer, buff->Allocation);
         buff.reset();
     }
 
     uploadBuffers.clear(); 
     uploadBuffers.shrink_to_fit();
 
+	
 }
 
 ResourceTransferSystem::transferSpinLockGuard ResourceTransferSystem::AcquireSpinLock() {
@@ -127,7 +164,7 @@ ResourceTransferSystem::transferSpinLockGuard ResourceTransferSystem::AcquireSpi
 
 VkCommandBuffer ResourceTransferSystem::TransferCmdBuffer() {
     cmdBufferDirty = true;
-    auto& pool = *transferPool;
+    auto& pool = *transferCmdPool;
     return pool[0];
 }
 
