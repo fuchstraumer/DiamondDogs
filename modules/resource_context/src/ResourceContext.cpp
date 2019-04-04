@@ -28,12 +28,32 @@ void ResourceContext::Destroy()
     impl->destroy();
 }
 
+VulkanResource* ResourceContext::CreateBuffer(const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data)
+{
+	return impl->createBuffer(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
+}
+
+void ResourceContext::SetBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data)
+{
+	impl->setBufferData(dest_buffer, num_data, data);
+}
+
 void ResourceContext::FillBuffer(VulkanResource * dest_buffer, const uint32_t value, const size_t offset, const size_t fill_size)
 {
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
     auto guard = transfer_system.AcquireSpinLock();
     auto cmd = transfer_system.TransferCmdBuffer();
     vkCmdFillBuffer(cmd, (VkBuffer)dest_buffer->Handle, offset, fill_size, value);
+}
+
+VulkanResource* ResourceContext::CreateImage(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data)
+{
+	return impl->createImage(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
+}
+
+VulkanResource* ResourceContext::CreateImageView(const VulkanResource* base_rsrc, const VkImageViewCreateInfo* view_info, void* user_data)
+{
+	return impl->createImageView(base_rsrc, view_info, user_data);
 }
 
 void ResourceContext::SetImageData(VulkanResource* image, const size_t num_data, const gpu_image_resource_data_t* data) 
@@ -105,4 +125,19 @@ void ResourceContext::CopyResourceContents(VulkanResource* src, VulkanResource* 
     {
 
     }
+}
+
+void ResourceContext::DestroyResource(VulkanResource* resource)
+{
+	impl->destroyResource(resource);
+}
+
+void* ResourceContext::MapResourceMemory(VulkanResource* resource, size_t size, size_t offset)
+{
+	return impl->map(resource, size, offset);
+}
+
+void ResourceContext::UnmapResourceMemory(VulkanResource* resource, size_t size, size_t offset)
+{
+	impl->unmap(resource, size, offset);
 }
