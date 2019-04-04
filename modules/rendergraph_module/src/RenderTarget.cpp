@@ -48,11 +48,11 @@ void RenderTarget::Create(uint32_t width, uint32_t height, const VkFormat image_
         0, mip_maps, 0, 1 
     };
 
-    renderTargets.emplace_back(rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
+    //renderTargets.emplace_back(rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
 
     if (sample_count > 1) {
         image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-        renderTargetsMSAA.emplace_back(rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
+        //renderTargetsMSAA.emplace_back(rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
         msaaUpToDate.emplace_back(VK_FALSE);
     }
     else {
@@ -111,7 +111,7 @@ void RenderTarget::CreateAsCube(uint32_t size, const VkFormat image_format, cons
         is_depth_target ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT) : VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
         0, mip_maps, 0, 6
     };
-    renderTargets.emplace_back(rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
+    //renderTargets.emplace_back(rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
 
     // no msaa for RTs
     msaaUpToDate.emplace_back(VK_TRUE);
@@ -159,7 +159,7 @@ void RenderTarget::AddDepthTarget(const VkFormat image_format, const AllowReadba
     view_info.format = image_format;
     view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 
-    depthTarget = rsrc.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    //depthTarget = rsrc.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
 
     // DOn't need msaa for depth, we can't conventionally resolve to depth anyways
 }
@@ -179,10 +179,10 @@ void RenderTarget::AddView(const VkFormat new_format) {
     view_info.format = new_format;
 
     auto& rsrc_context = ResourceContext::Get();
-    renderTargets.emplace_back(rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
+    //renderTargets.emplace_back(rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
     if (image_info.samples > 1) {
         image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-        renderTargetsMSAA.emplace_back(rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
+        //renderTargetsMSAA.emplace_back(rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr));
         msaaUpToDate.emplace_back(VK_FALSE);
     }
     else {

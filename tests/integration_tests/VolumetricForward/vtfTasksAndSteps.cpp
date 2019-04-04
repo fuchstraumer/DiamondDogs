@@ -223,8 +223,8 @@ void createGlobalResources(vtf_frame_data_t& frame) {
 
     auto& rsrc_context = ResourceContext::Get();
 
-    frame.rsrcMap["matrices"] = rsrc_context.CreateBuffer(&matrices_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
-    frame.rsrcMap["globals"] = rsrc_context.CreateBuffer(&globals_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    frame.rsrcMap["matrices"] = rsrc_context.CreateBuffer(&matrices_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
+    frame.rsrcMap["globals"] = rsrc_context.CreateBuffer(&globals_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
     auto* descr = frame.descriptorPack->RetrieveDescriptor("GlobalResources");
     descr->BindResourceToIdx(descr->BindingLocation("matrices"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
@@ -286,7 +286,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
 
     auto& cluster_data = frame.rsrcMap["ClusterData"];
     if (!cluster_data) {
-        cluster_data = rsrc_context.CreateBuffer(&cluster_data_info, nullptr, 1, &cluster_data_update, memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
+        cluster_data = rsrc_context.CreateBuffer(&cluster_data_info, nullptr, 1, &cluster_data_update, resource_usage::CPU_TO_GPU, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     }
     else {
         rsrc_context.SetBufferData(cluster_data, 1, &cluster_data_update);
@@ -322,19 +322,19 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     if (cluster_flags) {
         rsrc_context.DestroyResource(cluster_flags);
     }
-    cluster_flags = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    cluster_flags = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("ClusterFlags"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, cluster_flags);
 
     if (unique_clusters) {
         rsrc_context.DestroyResource(unique_clusters);
     }
-    unique_clusters = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    unique_clusters = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("UniqueClusters"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, unique_clusters);
 
     if (prev_unique_clusters) {
         rsrc_context.DestroyResource(prev_unique_clusters);
     }
-    prev_unique_clusters = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    prev_unique_clusters = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
     frame.updateUniqueClusters = true;
 
@@ -353,7 +353,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     if (assign_lights_args_buffer) {
         rsrc_context.DestroyResource(assign_lights_args_buffer);
     }
-    assign_lights_args_buffer = rsrc_context.CreateBuffer(&indir_args_buffer, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    assign_lights_args_buffer = rsrc_context.CreateBuffer(&indir_args_buffer, nullptr, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
     constexpr static VkBufferCreateInfo debug_indirect_draw_buffer_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -370,7 +370,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     if (debug_clusters_indir_draw_buffer) {
         rsrc_context.DestroyResource(debug_clusters_indir_draw_buffer);
     }
-    debug_clusters_indir_draw_buffer = rsrc_context.CreateBuffer(&debug_indirect_draw_buffer_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    debug_clusters_indir_draw_buffer = rsrc_context.CreateBuffer(&debug_indirect_draw_buffer_info, nullptr, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
     const VkBufferCreateInfo cluster_aabbs_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -387,7 +387,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     if (cluster_aabbs) {
         rsrc_context.DestroyResource(cluster_aabbs);
     }
-    cluster_aabbs = rsrc_context.CreateBuffer(&cluster_aabbs_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    cluster_aabbs = rsrc_context.CreateBuffer(&cluster_aabbs_info, nullptr, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("ClusterAABBs"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, cluster_aabbs);
 
     const VkBufferCreateInfo point_light_grid_info{
@@ -415,14 +415,14 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     if (point_light_grid) {
         rsrc_context.DestroyResource(point_light_grid);
     }
-    point_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    point_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightGrid"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
 
     auto& spot_light_grid = frame.rsrcMap["SpotLightGrid"];
     if (spot_light_grid) {
         rsrc_context.DestroyResource(spot_light_grid);
     }
-    spot_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    spot_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightGrid"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
 
     const VkBufferCreateInfo indices_info{
@@ -450,14 +450,14 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     if (point_light_idx_list) {
         rsrc_context.DestroyResource(point_light_idx_list);
     }
-    point_light_idx_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    point_light_idx_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightIndexList"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_idx_list);
 
     auto& spot_light_index_list = frame.rsrcMap["SpotLightIndexList"];
     if (spot_light_index_list) {
         rsrc_context.DestroyResource(spot_light_index_list);
     }
-    spot_light_index_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    spot_light_index_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightIndexList"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
 
     const VkBufferCreateInfo counter_info{
@@ -481,16 +481,16 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         sizeof(uint32_t)
     };
 
-    frame.rsrcMap["PointLightIndexCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["PointLightIndexCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightIndexCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightIndexCounter"));
-    frame.rsrcMap["SpotLightIndexCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["SpotLightIndexCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightIndexCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightIndexCounter"));
-    frame.rsrcMap["UniqueClustersCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["UniqueClustersCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("UniqueClustersCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("UniqueClustersCounter"));
 
 }
 
-void createLightResources(vtf_frame_data_t& frame, const SceneState_t& scene_lights) {
+void createLightResources(vtf_frame_data_t& frame) {
     auto& rsrc_context = ResourceContext::Get();
     auto* descr = frame.descriptorPack->RetrieveDescriptor("VolumetricForwardLights");
 
@@ -515,7 +515,7 @@ void createLightResources(vtf_frame_data_t& frame, const SceneState_t& scene_lig
         0u, 0u, 0u
     };
 
-    frame.rsrcMap["PointLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &point_lights_data, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["PointLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &point_lights_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("PointLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLights"));
 
     const gpu_resource_data_t spot_lights_data{
@@ -525,7 +525,7 @@ void createLightResources(vtf_frame_data_t& frame, const SceneState_t& scene_lig
     };
 
     lights_buffer_info.size = spot_lights_data.DataSize;
-    frame.rsrcMap["SpotLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &spot_lights_data, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["SpotLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &spot_lights_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("SpotLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLights"));
 
 
@@ -536,7 +536,7 @@ void createLightResources(vtf_frame_data_t& frame, const SceneState_t& scene_lig
     };
     lights_buffer_info.size = dir_lights_data.DataSize;
 
-    frame.rsrcMap["DirectionalLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &dir_lights_data, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["DirectionalLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &dir_lights_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("DirectionalLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("DirectionalLights"));
 
     constexpr static VkBufferCreateInfo light_counts_info{
@@ -560,7 +560,7 @@ void createLightResources(vtf_frame_data_t& frame, const SceneState_t& scene_lig
         0u, 0u, 0u
     };
 
-    frame.rsrcMap["LightCounts"] = rsrc_context.CreateBuffer(&light_counts_info, nullptr, 1, &light_counts_data, memory_type::HOST_VISIBLE, nullptr);
+    frame.rsrcMap["LightCounts"] = rsrc_context.CreateBuffer(&light_counts_info, nullptr, 1, &light_counts_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("LightCounts"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("LightCounts"));
 
 }
@@ -581,7 +581,7 @@ void createIndirectArgsResource(vtf_frame_data_t& frame) {
     auto& rsrc_context = ResourceContext::Get();
     auto* descr = frame.descriptorPack->RetrieveDescriptor("IndirectArgsSet");
 
-    frame.rsrcMap["IndirectArgs"] = rsrc_context.CreateBuffer(&indir_args_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["IndirectArgs"] = rsrc_context.CreateBuffer(&indir_args_info, nullptr, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("IndirectArgs"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("IndirectArgs"));
 
 }
@@ -602,7 +602,7 @@ void createSortResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    frame.rsrcMap["DispatchParams"] = rsrc_context.CreateBuffer(&dispatch_params_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    frame.rsrcMap["DispatchParams"] = rsrc_context.CreateBuffer(&dispatch_params_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("DispatchParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("DispatchParams"));
 
     constexpr static VkBufferCreateInfo reduction_params_info{
@@ -616,7 +616,7 @@ void createSortResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    frame.rsrcMap["ReductionParams"] = rsrc_context.CreateBuffer(&reduction_params_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    frame.rsrcMap["ReductionParams"] = rsrc_context.CreateBuffer(&reduction_params_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("ReductionParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("ReductionParams"));
 
     constexpr static VkBufferCreateInfo sort_params_info{
@@ -630,7 +630,7 @@ void createSortResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    frame.rsrcMap["SortParams"] = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    frame.rsrcMap["SortParams"] = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("SortParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("SortParams"));
 
     constexpr static VkBufferCreateInfo light_aabbs_info{
@@ -644,7 +644,7 @@ void createSortResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    frame.rsrcMap["LightAABBs"] = rsrc_context.CreateBuffer(&light_aabbs_info, nullptr, 0u, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["LightAABBs"] = rsrc_context.CreateBuffer(&light_aabbs_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("LightAABBs"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("LightAABBs"));
 
     VkBufferCreateInfo sort_buffers_create_info{
@@ -668,10 +668,10 @@ void createSortResources(vtf_frame_data_t& frame) {
         sort_buffers_create_info.size
     };
 
-    frame.rsrcMap["PointLightIndices"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    frame.rsrcMap["PointLightMortonCodes"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    frame.rsrcMap["PointLightIndices_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    frame.rsrcMap["PointLightMortonCodes_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["PointLightIndices"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
+    frame.rsrcMap["PointLightMortonCodes"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
+    frame.rsrcMap["PointLightIndices_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
+    frame.rsrcMap["PointLightMortonCodes_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
     descr->BindResourceToIdx(descr->BindingLocation("PointLightIndices"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightIndices"));
     descr->BindResourceToIdx(descr->BindingLocation("PointLightMortonCodes"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightMortonCodes"));
@@ -684,10 +684,10 @@ void createSortResources(vtf_frame_data_t& frame) {
     sort_buffers_create_info.size = sizeof(uint32_t) * frame.LightCounts.NumSpotLights;
     sort_buffer_views_create_info.range = sort_buffers_create_info.size;
 
-    frame.rsrcMap["SpotLightIndices"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    frame.rsrcMap["SpotLightMortonCodes"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    frame.rsrcMap["SpotLightIndices_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
-    frame.rsrcMap["SpotLightMortonCodes_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["SpotLightIndices"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
+    frame.rsrcMap["SpotLightMortonCodes"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
+    frame.rsrcMap["SpotLightIndices_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
+    frame.rsrcMap["SpotLightMortonCodes_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
     descr->BindResourceToIdx(descr->BindingLocation("SpotLightIndices"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightIndices"));
     descr->BindResourceToIdx(descr->BindingLocation("SpotLightMortonCodes"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightMortonCodes"));
@@ -712,7 +712,7 @@ void createMergeSortResource(vtf_frame_data_t& frame) {
         nullptr,
         0,
         merge_path_partitions_buffer_sz,
-        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_SHARING_MODE_EXCLUSIVE,
         0u,
         nullptr
@@ -729,11 +729,12 @@ void createMergeSortResource(vtf_frame_data_t& frame) {
     };
 
     auto& rsrc_context = ResourceContext::Get();
-    frame.rsrcMap["MergePathPartitions"] = rsrc_context.CreateBuffer(&merge_path_partitions_info, &merge_path_partitions_view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["MergePathPartitions"] = rsrc_context.CreateBuffer(&merge_path_partitions_info, &merge_path_partitions_view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     rsrc_context.FillBuffer(frame.rsrcMap.at("MergePathPartitions"), 0u, 0u, merge_path_partitions_buffer_sz);
     auto* descr = frame.descriptorPack->RetrieveDescriptor("MergeSortResources");
     descr->BindResourceToIdx(descr->BindingLocation("MergePathPartitions"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("MergePathPartitions"));
 
+    rsrc_context.Update();
 }
 
 void createBVH_Resources(vtf_frame_data_t& frame) {
@@ -751,7 +752,7 @@ void createBVH_Resources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    frame.rsrcMap["BVHParams"] = rsrc_context.CreateBuffer(&bvh_params_info, nullptr, 0u, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    frame.rsrcMap["BVHParams"] = rsrc_context.CreateBuffer(&bvh_params_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("BVHParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("BVHParams"));
 
     const uint32_t point_light_nodes = GetNumNodesBVH(frame.LightCounts.NumPointLights);
@@ -768,11 +769,11 @@ void createBVH_Resources(vtf_frame_data_t& frame) {
         nullptr
     };
     
-    frame.rsrcMap["PointLightBVH"] = rsrc_context.CreateBuffer(&bvh_buffer_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["PointLightBVH"] = rsrc_context.CreateBuffer(&bvh_buffer_info, nullptr, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("PointLightBVH"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLightBVH"));
 
     bvh_buffer_info.size = sizeof(AABB) * spot_light_nodes;
-    frame.rsrcMap["SpotLightBVH"] = rsrc_context.CreateBuffer(&bvh_buffer_info, nullptr, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["SpotLightBVH"] = rsrc_context.CreateBuffer(&bvh_buffer_info, nullptr, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     descr->BindResourceToIdx(descr->BindingLocation("SpotLightBVH"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("SpotLightBVH"));
 
 }
@@ -868,8 +869,7 @@ void CreateResources(vtf_frame_data_t & frame) {
     // to use these bindings actually work lol
     createGlobalResources(frame);
     createVolumetricForwardResources(frame);
-    const auto& lights = SceneLightsState();
-    createLightResources(frame, lights); // make sure lights have been generated first! we upload initial data here too
+    createLightResources(frame); // make sure lights have been generated first! we upload initial data here too
     createIndirectArgsResource(frame);
     createSortResources(frame);
     createMergeSortResource(frame);
@@ -1315,7 +1315,7 @@ void createClusterSamplesResources(vtf_frame_data_t& frame) {
     };
 
     auto& rsrc = ResourceContext::Get();
-    frame.rsrcMap["ClusterSamplesImage"] = rsrc.CreateImage(&img_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["ClusterSamplesImage"] = rsrc.CreateImage(&img_info, &view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     const VkImageView view_handles[2]{
         (VkImageView)frame.rsrcMap.at("ClusterSamplesImage")->ViewHandle,
         (VkImageView)frame.rsrcMap.at("DepthPrePassImage")->ViewHandle
@@ -1469,7 +1469,7 @@ void createDrawingResources(vtf_frame_data_t& frame) {
 
     auto& rsrc = ResourceContext::Get();
     frame.rsrcMap["DepthRendertargetImage"] = createDepthStencilResource(SceneConfig.MSAA_SampleCount);
-    frame.rsrcMap["DrawMultisampleImage"] = rsrc.CreateImage(&img_info, &view_info, 0u, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    frame.rsrcMap["DrawMultisampleImage"] = rsrc.CreateImage(&img_info, &view_info, 0u, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
 
 }
@@ -1642,7 +1642,7 @@ void createDrawPipelines(vtf_frame_data_t& frame) {
     opaque_create_info.basePipelineIndex = -1;
 
     frame.graphicsPipelines["OpaqueDrawPipeline"] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-    frame.graphicsPipelines.at("OpaqueDrawPipeline")->Init(opaque_create_info, frame.pipelineCaches.at("DrawPipeline")->vkHandle());
+    frame.graphicsPipelines.at("OpaqueDrawPipeline")->Init(opaque_create_info, frame.pipelineCaches.at("DrawPass")->vkHandle());
 
     vpr::GraphicsPipelineInfo transparent_pipeline_info = opaque_pipeline_info;
 
@@ -1662,7 +1662,7 @@ void createDrawPipelines(vtf_frame_data_t& frame) {
     transparent_create_info.basePipelineIndex = -1;
 
     frame.graphicsPipelines["TransparentDrawPipeline"] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-    frame.graphicsPipelines.at("TransparentDrawPipeline")->Init(transparent_create_info, frame.pipelineCaches.at("DrawPipeline")->vkHandle());
+    frame.graphicsPipelines.at("TransparentDrawPipeline")->Init(transparent_create_info, frame.pipelineCaches.at("DrawPass")->vkHandle());
 
 }
 
@@ -1768,7 +1768,7 @@ void ComputeReduceLights(vtf_frame_data_t& frame) {
         rsrc.SetBufferData(dispatch_params0, 1, &dp_update);
     }
     else {
-        dispatch_params0 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, memory_type::HOST_VISIBLE, nullptr);
+        dispatch_params0 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     }
 
     auto& binder0 = frame.GetBinder("ReduceLights0");
@@ -1792,7 +1792,7 @@ void ComputeReduceLights(vtf_frame_data_t& frame) {
         rsrc.SetBufferData(dispatch_params1, 1, &dp_update);
     }
     else {
-        dispatch_params1 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, memory_type::HOST_VISIBLE, nullptr);
+        dispatch_params1 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     }
     auto& binder1 = frame.GetBinder("ReduceLights1");
     binder1.BindResourceToIdx("SortResources", dispatch_params_idx, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, dispatch_params1);
@@ -2963,6 +2963,6 @@ VulkanResource* createDepthStencilResource(const VkSampleCountFlagBits samples) 
 
     auto& rsrc = ResourceContext::Get();
     VulkanResource* result{ nullptr };
-    result = rsrc.CreateImage(&image_info, &view_info, 0, nullptr, memory_type::DEVICE_LOCAL, nullptr);
+    result = rsrc.CreateImage(&image_info, &view_info, 0, nullptr, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     return result;
 }

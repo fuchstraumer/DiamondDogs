@@ -177,7 +177,7 @@ struct TestIcosphereMesh {
         };
 
         auto& rsrc_context = ResourceContext::Get();
-        VBO = rsrc_context.CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, memory_type::DEVICE_LOCAL, nullptr);
+        VBO = rsrc_context.CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
         const VkBufferCreateInfo ebo_info{
             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -196,7 +196,7 @@ struct TestIcosphereMesh {
             0u, 0u, 0u
         };
 
-        EBO = rsrc_context.CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, memory_type::DEVICE_LOCAL, nullptr);
+        EBO = rsrc_context.CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
     }
 
@@ -240,7 +240,7 @@ struct TestIcosphereMesh {
             0u, 0u, 0u
         };
 
-        vkMaterialParams = rsrc_context.CreateBuffer(&material_params_info, nullptr, 1u, &material_params_data, memory_type::HOST_VISIBLE, nullptr);
+        vkMaterialParams = rsrc_context.CreateBuffer(&material_params_info, nullptr, 1u, &material_params_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
         descr.BindResourceToIdx(params_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, vkMaterialParams);
 
     }
@@ -390,14 +390,14 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
 
     for (uint32_t i = 0; i < img_count; ++i) {
         frames.emplace_back(std::make_unique<vtf_frame_data_t>());
-        //setupFutures.emplace_back(std::async(std::launch::async, FullFrameSetup, frames[i].get()));
-        FullFrameSetup(frames[i].get());
+        setupFutures.emplace_back(std::async(std::launch::async, FullFrameSetup, frames[i].get()));
     }
 
     for (auto& fut : setupFutures) {
         fut.get(); // even if we block for one the rest should still be running
     }
 
+    std::cerr << "Setup Complete\n";
 }
 
 void VTF_Scene::Destroy() {
@@ -489,7 +489,7 @@ VulkanResource* VTF_Scene::loadTexture(const char* file_path_str) {
         VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
     };
 
-    VulkanResource* result = rsrc_context.CreateImage(&img_create_info, &view_create_info, 1, &img_rsrc_data, memory_type::DEVICE_LOCAL, nullptr);
+    VulkanResource* result = rsrc_context.CreateImage(&img_create_info, &view_create_info, 1, &img_rsrc_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
     // we do it like this so we can safely free "pixels" before returning
     rsrc_context.Update();
     stbi_image_free(pixels);

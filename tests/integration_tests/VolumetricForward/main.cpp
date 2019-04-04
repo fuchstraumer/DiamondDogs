@@ -58,7 +58,7 @@ int main(int argc, char* argv[]) {
     ctxt.Construct("RendererContextCfg.json");
 
     ResourceContext& rsrc = ResourceContext::Get();
-    rsrc.Construct(ctxt.Device(), ctxt.PhysicalDevice());
+    rsrc.Initialize(ctxt.Device(), ctxt.PhysicalDevice());
 
     using namespace st;
     auto& callbacks = ShaderPack::RetrievalCallbacks();

@@ -417,7 +417,7 @@ void ImGuiWrapper::createFontImage() {
         0
     };
 
-    fontImage = resourceContext->CreateImage(&image_info, &view_info, 1, &image_data, memory_type::DEVICE_LOCAL, nullptr);
+    fontImage = resourceContext->CreateImage(&image_info, &view_info, 1, &image_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
 }
 
@@ -562,7 +562,7 @@ void ImGuiWrapper::updateBuffers(ImGuiFrameData* data) {
             nullptr
         };
 
-        data->vbo = resourceContext->CreateBuffer(&buffer_info, nullptr, copies.size(), copies.data(), memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
+        data->vbo = resourceContext->CreateBuffer(&buffer_info, nullptr, copies.size(), copies.data(), resource_usage::CPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
     }
     else {
@@ -604,7 +604,7 @@ void ImGuiWrapper::updateBuffers(ImGuiFrameData* data) {
             nullptr
         };
 
-        data->ebo = resourceContext->CreateBuffer(&buffer_info, nullptr, copies.size(), copies.data(), memory_type::HOST_VISIBLE_AND_COHERENT, nullptr);
+        data->ebo = resourceContext->CreateBuffer(&buffer_info, nullptr, copies.size(), copies.data(), resource_usage::CPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
 
     }
     else {
