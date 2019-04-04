@@ -1,6 +1,7 @@
 #include "ResourceContextImpl.hpp"
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
+#include <fstream>
 
 static VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags)
 {
@@ -160,7 +161,7 @@ void ResourceContextImpl::construct(vpr::Device* _device, vpr::PhysicalDevice* p
         flags == vpr::Allocator::allocation_extensions::DedicatedAllocations ? VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT : 0u,
         physical_device->vkHandle(),
         device->vkHandle(),
-        0u,
+		VkDeviceSize(6.4e+7),
         nullptr,
         nullptr,
         1u,
@@ -324,12 +325,6 @@ VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info
     {
         // Device local buffer that will be transferred into, make sure it has the requisite flag.
         VkBufferCreateInfo* buffer_info = reinterpret_cast<VkBufferCreateInfo*>(resource->Info);
-#ifndef NDEBUG
-        if (!(buffer_info->usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT))
-        {
-            LOG(WARNING) << "Buffer requiring transfer_dst usage flags did not have usage flags set! Updating now...";
-        }
-#endif
         buffer_info->usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     }
 
@@ -514,6 +509,11 @@ VulkanResource* ResourceContextImpl::createSampler(const VkSamplerCreateInfo* in
     return resource;
 }
 
+void ResourceContextImpl::copyResourceContents(VulkanResource* src, VulkanResource* dst)
+{
+	throw std::runtime_error("Not implemented!");
+}
+
 void ResourceContextImpl::setBufferInitialDataHostOnly(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, VmaAllocation& alloc, resource_usage _resource_usage)
 {
     void* mapped_address{ nullptr };
@@ -671,6 +671,20 @@ VkFormatFeatureFlags ResourceContextImpl::featureFlagsFromUsage(const VkImageUsa
         result |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
     }
     return result;
+}
+
+void ResourceContextImpl::writeStatsJsonFile(const char* output_file)
+{
+	char* output;
+	vmaBuildStatsString(allocatorHandle, &output, VK_TRUE);
+	std::ofstream outputFile(output_file);
+	if (!outputFile.is_open())
+	{
+		throw std::runtime_error("Failed to open output file for JSON dump!");
+	}
+
+	outputFile.write(output, strlen(output));
+	vmaFreeStatsString(allocatorHandle, output);
 }
 
 void ResourceContextImpl::createBufferResourceCopy(VulkanResource * src, VulkanResource** dst)
@@ -850,15 +864,15 @@ bool ResourceContextImpl::rehashContainers() noexcept
 	size_t currLoad{ 0u };
 	bool rehash = resourceInfos.mayNeedRehash(headroom);
     currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * resourceNames.bucket_count();
-    rehash |= (currLoad + headroom) > resourceNames.size();
+    rehash |= (currLoad + headroom) > resourceNames.max_size();
     currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * resourceAllocations.bucket_count();
-    rehash |= (currLoad + headroom) > resourceAllocations.size();
+    rehash |= (currLoad + headroom) > resourceAllocations.max_size();
     currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * imageViews.bucket_count();
-    rehash |= (currLoad + headroom) > imageViews.size();
+    rehash |= (currLoad + headroom) > imageViews.max_size();
     currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * allocInfos.bucket_count();
-    rehash |= (currLoad + headroom) > allocInfos.size();
+    rehash |= (currLoad + headroom) > allocInfos.max_size();
     currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * resources.bucket_count();
-    rehash |= (currLoad + headroom) > resources.size();
+    rehash |= (currLoad + headroom) > resources.max_size();
     return rehash;
 }
 
@@ -877,19 +891,19 @@ bool ResourceContextImpl::infoStorage::mayNeedRehash(const size_t headroom) cons
 	bool result = false;
 	size_t currLoad{ 0u };
 	currLoad = static_cast<size_t>(std::floorf(resourceMemoryType.max_load_factor())) * resourceMemoryType.bucket_count();
-	result |= (currLoad + headroom) > resourceMemoryType.size();
+	result |= (currLoad + headroom) > resourceMemoryType.max_size();
 	currLoad = static_cast<size_t>(std::floorf(resourceFlags.max_load_factor())) * resourceFlags.bucket_count();
-	result |= (currLoad + headroom) > resourceFlags.size();
+	result |= (currLoad + headroom) > resourceFlags.max_size();
 	currLoad = static_cast<size_t>(std::floorf(bufferInfos.max_load_factor())) * bufferInfos.bucket_count();
-	result |= (currLoad + headroom) > bufferInfos.size();
+	result |= (currLoad + headroom) > bufferInfos.max_size();
 	currLoad = static_cast<size_t>(std::floorf(bufferViewInfos.max_load_factor())) * bufferViewInfos.bucket_count();
-	result |= (currLoad + headroom) > bufferViewInfos.size();
+	result |= (currLoad + headroom) > bufferViewInfos.max_size();
 	currLoad = static_cast<size_t>(std::floorf(imageInfos.max_load_factor())) * imageInfos.bucket_count();
-	result |= (currLoad + headroom) > imageInfos.size();
+	result |= (currLoad + headroom) > imageInfos.max_size();
 	currLoad = static_cast<size_t>(std::floorf(imageViewInfos.max_load_factor())) * imageViewInfos.bucket_count();
-	result |= (currLoad + headroom) > imageViewInfos.size();
+	result |= (currLoad + headroom) > imageViewInfos.max_size();
 	currLoad = static_cast<size_t>(std::floorf(samplerInfos.max_load_factor())) * samplerInfos.bucket_count();
-	result |= (currLoad + headroom) > samplerInfos.size();
+	result |= (currLoad + headroom) > samplerInfos.max_size();
 	return result;
 }
 

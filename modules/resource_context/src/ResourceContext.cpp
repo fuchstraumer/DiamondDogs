@@ -16,6 +16,7 @@ ResourceContext & ResourceContext::Get()
 
 void ResourceContext::Initialize(vpr::Device* device, vpr::PhysicalDevice* physical_device)
 {
+	impl = std::make_unique<ResourceContextImpl>();
     impl->construct(device, physical_device);
 }
 
@@ -130,6 +131,11 @@ void ResourceContext::CopyResourceContents(VulkanResource* src, VulkanResource* 
 void ResourceContext::DestroyResource(VulkanResource* resource)
 {
 	impl->destroyResource(resource);
+}
+
+void ResourceContext::WriteMemoryStatsFile(const char* output_file)
+{
+	impl->writeStatsJsonFile(output_file);
 }
 
 void* ResourceContext::MapResourceMemory(VulkanResource* resource, size_t size, size_t offset)

@@ -43,6 +43,7 @@ struct ResourceContextImpl
     void setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data, VmaAllocation& alloc);
     vpr::AllocationRequirements getAllocReqs(resource_usage _resource_usage) const noexcept;
     VkFormatFeatureFlags featureFlagsFromUsage(const VkImageUsageFlags flags) const noexcept;
+	void writeStatsJsonFile(const char* output_file);
 
     std::unordered_set<std::unique_ptr<VulkanResource>> resources;
     using resource_iter_t = decltype(resources)::iterator;

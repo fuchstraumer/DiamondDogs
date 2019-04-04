@@ -397,6 +397,9 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
         fut.get(); // even if we block for one the rest should still be running
     }
 
+
+	auto& resource_context = ResourceContext::Get();
+	resource_context.WriteMemoryStatsFile("MemoryStats.json");
     std::cerr << "Setup Complete\n";
 }
 

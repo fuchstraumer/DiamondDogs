@@ -37,6 +37,7 @@ public:
     void CopyResource(VulkanResource* src, VulkanResource** dest);
     void CopyResourceContents(VulkanResource* src, VulkanResource* dest);
     void DestroyResource(VulkanResource* resource);
+	void WriteMemoryStatsFile(const char* output_file);
 
     void* MapResourceMemory(VulkanResource* resource, size_t size, size_t offset);
     void UnmapResourceMemory(VulkanResource* resource, size_t size, size_t offset);

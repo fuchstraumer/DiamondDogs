@@ -65,7 +65,7 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _a
 	const VmaPoolCreateInfo pool_info {
 		memory_type_index,
 		VMA_POOL_CREATE_IGNORE_BUFFER_IMAGE_GRANULARITY_BIT | VMA_POOL_CREATE_LINEAR_ALGORITHM_BIT,
-		0u, // block size
+		(3276800u / 10u), // block size
 		0u, // min block count
 		0u, // max block count
 		0u
@@ -155,7 +155,6 @@ void ResourceTransferSystem::CompleteTransfers() {
     uploadBuffers.clear(); 
     uploadBuffers.shrink_to_fit();
 
-	
 }
 
 ResourceTransferSystem::transferSpinLockGuard ResourceTransferSystem::AcquireSpinLock() {
