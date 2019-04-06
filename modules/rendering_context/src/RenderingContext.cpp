@@ -289,6 +289,20 @@ void RenderingContext::Construct(const char* file_path) {
     }
 
     swapchain = std::make_unique<vpr::Swapchain>(logicalDevice.get(), window->glfwWindow(), windowSurface->vkHandle(), desired_mode);
+
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		SetObjectName(VK_OBJECT_TYPE_SWAPCHAIN_KHR, (uint64_t)swapchain->vkHandle(), "RenderingContextSwapchain");
+
+		for (size_t i = 0u; i < swapchain->ImageCount(); ++i)
+		{
+			const std::string view_name = std::string("RenderingContextSwapchain_ImageView") + std::to_string(i);
+			SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t)swapchain->ImageView(i), view_name.c_str());
+			const std::string img_name = std::string("RenderingContextSwapchain_Image") + std::to_string(i);
+			SetObjectName(VK_OBJECT_TYPE_IMAGE, (uint64_t)swapchain->Image(i), img_name.c_str());
+		}
+	}
+
 }
 
 void RenderingContext::Update() {
