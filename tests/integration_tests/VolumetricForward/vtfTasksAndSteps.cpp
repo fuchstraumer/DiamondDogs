@@ -1643,6 +1643,7 @@ void createDepthPrePassPipeline(vtf_frame_data_t& frame) {
 
     auto* device = RenderingContext::Get().Device();
     static const std::string groupName{ "DepthPrePass" };
+	static const std::string pipelineName{ "DepthPrePassPipeline" };
     const st::Shader* depth_group = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
 
     const st::ShaderStage& depth_vert = vtf_frame_data_t::groupStages.at(groupName).front();
@@ -1674,8 +1675,12 @@ void createDepthPrePassPipeline(vtf_frame_data_t& frame) {
     create_info.renderPass = frame.renderPasses.at("DepthAndClusterSamplesPass")->vkHandle();
     create_info.layout = frame.descriptorPack->PipelineLayout(groupName);
 
-    frame.graphicsPipelines["DepthPrePassPipeline"] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-    frame.graphicsPipelines.at("DepthPrePassPipeline")->Init(create_info, vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle());
+    frame.graphicsPipelines[pipelineName] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
+    frame.graphicsPipelines.at(pipelineName)->Init(create_info, vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle());
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(pipelineName)->vkHandle(), pipelineName.c_str());
+	}
 
 }
 
@@ -1683,6 +1688,7 @@ void createClusterSamplesPipeline(vtf_frame_data_t& frame) {
 
     auto* device = RenderingContext::Get().Device();
     static const std::string groupName{ "ClusterSamples" };
+	static const std::string pipelineName{ "ClusterSamplesPipeline" };
 
     const st::ShaderStage& samples_vert = vtf_frame_data_t::groupStages.at(groupName).front();
     const st::ShaderStage& samples_frag = vtf_frame_data_t::groupStages.at(groupName).back();
@@ -1717,13 +1723,19 @@ void createClusterSamplesPipeline(vtf_frame_data_t& frame) {
     create_info.layout = frame.descriptorPack->PipelineLayout(groupName);
     create_info.renderPass = frame.renderPasses.at("DepthAndClusterSamplesPass")->vkHandle();
 
-    frame.graphicsPipelines["ClusterSamplesPipeline"] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-    frame.graphicsPipelines.at("ClusterSamplesPipeline")->Init(create_info, vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle());
+    frame.graphicsPipelines[pipelineName] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
+    frame.graphicsPipelines.at(pipelineName)->Init(create_info, vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle());
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(pipelineName)->vkHandle(), pipelineName.c_str());
+	}
 
 }
 
 void createDrawPipelines(vtf_frame_data_t& frame) {
     static const std::string groupName{ "DrawPass" };
+	static const std::string opaquePipelineName{ "OpaqueDrawPipeline" };
+	static const std::string transPipelineName{ "TransparentDrawPipeline" };
     auto* device = RenderingContext::Get().Device();
 
     const st::ShaderStage& draw_vert = vtf_frame_data_t::groupStages.at(groupName).front();
@@ -1764,12 +1776,12 @@ void createDrawPipelines(vtf_frame_data_t& frame) {
     opaque_create_info.stageCount = 2u;
     opaque_create_info.layout = frame.descriptorPack->PipelineLayout(groupName);
     opaque_create_info.subpass = 0;
-    opaque_create_info.renderPass = frame.renderPasses.at("DrawPass")->vkHandle();
+    opaque_create_info.renderPass = frame.renderPasses.at(groupName)->vkHandle();
     opaque_create_info.basePipelineHandle = VK_NULL_HANDLE;
     opaque_create_info.basePipelineIndex = -1;
 
-    frame.graphicsPipelines["OpaqueDrawPipeline"] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-    frame.graphicsPipelines.at("OpaqueDrawPipeline")->Init(opaque_create_info, frame.pipelineCaches.at("DrawPass")->vkHandle());
+    frame.graphicsPipelines[opaquePipelineName] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
+    frame.graphicsPipelines.at(opaquePipelineName)->Init(opaque_create_info, frame.pipelineCaches.at(groupName)->vkHandle());
 
     vpr::GraphicsPipelineInfo transparent_pipeline_info = opaque_pipeline_info;
 
@@ -1784,12 +1796,18 @@ void createDrawPipelines(vtf_frame_data_t& frame) {
     transparent_create_info.flags = VK_PIPELINE_CREATE_DERIVATIVE_BIT;
     transparent_create_info.layout = frame.descriptorPack->PipelineLayout(groupName);
     transparent_create_info.subpass = 0u;
-    transparent_create_info.renderPass = frame.renderPasses.at("DrawPass")->vkHandle();
+    transparent_create_info.renderPass = frame.renderPasses.at(groupName)->vkHandle();
     transparent_create_info.basePipelineHandle = frame.graphicsPipelines.at("OpaqueDrawPipeline")->vkHandle();
     transparent_create_info.basePipelineIndex = -1;
 
-    frame.graphicsPipelines["TransparentDrawPipeline"] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-    frame.graphicsPipelines.at("TransparentDrawPipeline")->Init(transparent_create_info, frame.pipelineCaches.at("DrawPass")->vkHandle());
+    frame.graphicsPipelines[transPipelineName] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
+    frame.graphicsPipelines.at(transPipelineName)->Init(transparent_create_info, frame.pipelineCaches.at(groupName)->vkHandle());
+
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(opaquePipelineName)->vkHandle(), opaquePipelineName.c_str());
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(transPipelineName)->vkHandle(), transPipelineName.c_str());
+	}
 
 }
 
