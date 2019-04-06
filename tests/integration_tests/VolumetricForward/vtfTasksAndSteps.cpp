@@ -273,8 +273,8 @@ void createGlobalResources(vtf_frame_data_t& frame) {
 
     auto& rsrc_context = ResourceContext::Get();
 
-    frame.rsrcMap["matrices"] = rsrc_context.CreateBuffer(&matrices_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "matrices");
-    frame.rsrcMap["globals"] = rsrc_context.CreateBuffer(&globals_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "globals");
+    frame.rsrcMap["matrices"] = rsrc_context.CreateBuffer(&matrices_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "matrices");
+    frame.rsrcMap["globals"] = rsrc_context.CreateBuffer(&globals_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "globals");
 
     auto* descr = frame.descriptorPack->RetrieveDescriptor("GlobalResources");
     descr->BindResourceToIdx(descr->BindingLocation("matrices"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
@@ -336,7 +336,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
 
     auto& cluster_data = frame.rsrcMap["ClusterData"];
     if (!cluster_data) {
-        cluster_data = rsrc_context.CreateBuffer(&cluster_data_info, nullptr, 1, &cluster_data_update, resource_usage::CPU_TO_GPU, DEF_RESOURCE_FLAGS, "ClusterData");
+        cluster_data = rsrc_context.CreateBuffer(&cluster_data_info, nullptr, 1, &cluster_data_update, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "ClusterData");
     }
     else {
         rsrc_context.SetBufferData(cluster_data, 1, &cluster_data_update);
@@ -1647,7 +1647,6 @@ void createDrawingResources(vtf_frame_data_t& frame) {
     frame.rsrcMap["DepthRendertargetImage"] = createDepthStencilResource(SceneConfig.MSAA_SampleCount);
     frame.rsrcMap["DrawMultisampleImage"] = rsrc.CreateImage(&img_info, &view_info, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DrawMultisampleImage");
 
-
 }
 
 void CreateRenderpasses(vtf_frame_data_t& frame) {
@@ -1668,7 +1667,8 @@ void createDrawFrameBuffer(vtf_frame_data_t & frame) {
     const VkExtent2D& img_extent = swapchain->Extent();
 
     const VkImageView view_handles[3]{
-        (VkImageView)frame.rsrcMap["DrawMultisampleImage"]->ViewHandle, (VkImageView)frame.rsrcMap["DepthRendertargetImage"]->ViewHandle,
+        (VkImageView)frame.rsrcMap["DrawMultisampleImage"]->ViewHandle, 
+		(VkImageView)frame.rsrcMap["DepthRendertargetImage"]->ViewHandle,
         swapchain->ImageView(size_t(frame.imageIdx))
     };
     
@@ -1676,7 +1676,7 @@ void createDrawFrameBuffer(vtf_frame_data_t & frame) {
         VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
         nullptr,
         0,
-        frame.renderPasses.at("PrimaryDrawPass")->vkHandle(),
+        frame.renderPasses.at("DrawPass")->vkHandle(),
         3,
         view_handles,
         img_extent.width,
@@ -1911,7 +1911,7 @@ void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z)
 	grid_z = static_cast<uint32_t>(glm::floor(log_depth * log_dim_y));
 }
 
-void ComputeUpdateLights(vtf_frame_data_t& frame) {
+void ComputeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label {
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -1934,7 +1934,6 @@ void ComputeUpdateLights(vtf_frame_data_t& frame) {
     rsrc.SetBufferData(light_counts_buffer, 1, &lcb_update);
 
     // update light positions etc
-    auto cmd = frame.computePool->GetCmdBuffer(0u);
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
@@ -1951,7 +1950,7 @@ void ComputeUpdateLights(vtf_frame_data_t& frame) {
 
 }
 
-void ComputeReduceLights(vtf_frame_data_t& frame) {
+void ComputeReduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -1998,7 +1997,6 @@ void ComputeReduceLights(vtf_frame_data_t& frame) {
     binder0.Update();
 
     // Reduce lights
-    auto cmd = frame.computePool->GetCmdBuffer(0);
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
@@ -2028,7 +2026,7 @@ void ComputeReduceLights(vtf_frame_data_t& frame) {
 
 }
 
-void ComputeMortonCodes(vtf_frame_data_t& frame) {
+void ComputeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2038,7 +2036,6 @@ void ComputeMortonCodes(vtf_frame_data_t& frame) {
     };
 
     auto& rsrc = ResourceContext::Get();
-    auto cmd = frame.computePool->GetCmdBuffer(0);
     auto binder = frame.descriptorPack->RetrieveBinder("ComputeMortonCodes");
     auto& pointLightIndices = frame.rsrcMap["PointLightIndices"];
     auto& spotLightIndices = frame.rsrcMap["SpotLightIndices"];
@@ -2118,7 +2115,7 @@ void ComputeMortonCodes(vtf_frame_data_t& frame) {
 
 }
 
-void SortMortonCodes(vtf_frame_data_t& frame) {
+void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2139,7 +2136,6 @@ void SortMortonCodes(vtf_frame_data_t& frame) {
     */
 
     auto& rsrc = ResourceContext::Get();
-    auto cmd = frame.computePool->GetCmdBuffer(0);
     auto binder = frame.descriptorPack->RetrieveBinder("RadixSort");
 
     auto& pointLightIndices = frame.rsrcMap["PointLightIndices"];
@@ -2309,7 +2305,7 @@ void SortMortonCodes(vtf_frame_data_t& frame) {
 
 }
 
-void BuildLightBVH(vtf_frame_data_t& frame) {
+void BuildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2321,7 +2317,6 @@ void BuildLightBVH(vtf_frame_data_t& frame) {
     const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
     
     auto& rsrc = ResourceContext::Get();
-    auto cmd = frame.computePool->GetCmdBuffer(0);
     auto& bvh_params_rsrc = frame.rsrcMap["BVHParams"];
     auto& point_light_bvh = frame.rsrcMap["PointLightBVH"];
     auto& spot_light_bvh = frame.rsrcMap["SpotLightBVH"];
@@ -2407,7 +2402,7 @@ void BuildLightBVH(vtf_frame_data_t& frame) {
     }
 
     if constexpr (VTF_VALIDATION_ENABLED) {
-        frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
+        frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
 }
@@ -2452,6 +2447,8 @@ void ComputeClusterAABBs(vtf_frame_data_t& frame) {
     }
     vkEndCommandBuffer(cmd_buffer);
 
+	const VkPipelineStageFlags wait_mask{};
+
     const VkSubmitInfo submit_info{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         nullptr,
@@ -2476,7 +2473,7 @@ void ComputeClusterAABBs(vtf_frame_data_t& frame) {
     frame.computePool->ResetCmdPool();
 }
 
-void SubmitComputeWork(vtf_frame_data_t& frame) {
+void SubmitComputeWork(vtf_frame_data_t& frame, uint32_t num_cmds, VkCommandBuffer* cmds) {
 
     constexpr static VkPipelineStageFlags wait_mask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
     auto* device = RenderingContext::Get().Device();
@@ -2487,8 +2484,8 @@ void SubmitComputeWork(vtf_frame_data_t& frame) {
         0u,
         nullptr,
         0,
-        1,
-        &frame.computePool->GetCmdBuffer(0u),
+        num_cmds,
+        cmds,
         1,
         &frame.semaphores.at("ComputeUpdateComplete")->vkHandle()
     };
@@ -2512,7 +2509,7 @@ bool tryImageAcquire(vtf_frame_data_t& frame, uint64_t timeout = 0u) {
     }
 }
 
-void getClusterSamples(vtf_frame_data_t& frame) {
+void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2524,13 +2521,6 @@ void getClusterSamples(vtf_frame_data_t& frame) {
     auto* renderpass = frame.renderPasses.at("DepthAndClusterSamplesPass").get();
     renderpass->UpdateBeginInfo(frame.clusterSamplesFramebuffer->vkHandle());
 
-    VkCommandBuffer cmd = frame.graphicsPool->GetCmdBuffer(0u);
-    constexpr static VkCommandBufferBeginInfo begin_info{
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        nullptr,
-        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-        nullptr
-    };
 
     auto& cluster_flags = frame.rsrcMap.at("ClusterFlags");
 
@@ -2546,7 +2536,6 @@ void getClusterSamples(vtf_frame_data_t& frame) {
         reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info)->size
     };
 
-    vkBeginCommandBuffer(cmd, &begin_info);
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
@@ -2559,7 +2548,7 @@ void getClusterSamples(vtf_frame_data_t& frame) {
     vkCmdBeginRenderPass(cmd, &renderpass->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
         // first run depth pre-pass, then run cluster sampling
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("DepthPrePassPipeline")->vkHandle());
-        binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+        //binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
 		for (size_t i = 0; i < frame.renderFns.size(); ++i)
 		{
 			frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Opaque); // opaque for depth
@@ -2567,10 +2556,10 @@ void getClusterSamples(vtf_frame_data_t& frame) {
     vkCmdNextSubpass(cmd, VK_SUBPASS_CONTENTS_INLINE);
         // now run cluster sampling
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("ClusterSamplesPipeline")->vkHandle());
-        binder1.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+        //binder1.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
 		for (size_t i = 0; i < frame.renderFns.size(); ++i)
 		{
-			frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Opaque); // opaque for depth
+			frame.renderFns[i](cmd, &binder1, vtf_frame_data_t::render_type::Opaque); // opaque for depth
 		}
     vkCmdEndRenderPass(cmd);
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr,
@@ -2581,7 +2570,7 @@ void getClusterSamples(vtf_frame_data_t& frame) {
 
 }
 
-void findUniqueClusters(vtf_frame_data_t& frame) {
+void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2593,7 +2582,6 @@ void findUniqueClusters(vtf_frame_data_t& frame) {
     auto& unique_clusters = frame.rsrcMap.at("UniqueClusters");
     const VkDeviceSize unique_clusters_size = reinterpret_cast<const VkBufferCreateInfo*>(unique_clusters->Info)->size;
     auto& unique_clusters_counter = frame.rsrcMap.at("UniqueClustersCounter");
-    VkCommandBuffer cmd = frame.graphicsPool->GetCmdBuffer(0u);
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
@@ -2627,7 +2615,7 @@ void findUniqueClusters(vtf_frame_data_t& frame) {
 
 }
 
-void updateClusterIndirectArgs(vtf_frame_data_t& frame) {
+void updateClusterIndirectArgs(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2649,7 +2637,6 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame) {
         sizeof(VkDispatchIndirectCommand)
     };
 
-    VkCommandBuffer cmd = frame.graphicsPool->GetCmdBuffer(0u);
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
@@ -2665,7 +2652,7 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame) {
 
 }
 
-void assignLightsToClusters(vtf_frame_data_t& frame) {
+void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     auto& rsrc_ctxt = ResourceContext::Get();
 
     constexpr static const char* label_name{ "AssignLightsToClusters" };
@@ -2745,7 +2732,6 @@ void assignLightsToClusters(vtf_frame_data_t& frame) {
     VulkanResource* bvh_params_rsrc = frame.rsrcMap.at("BVHParams");
     rsrc_ctxt.SetBufferData(bvh_params_rsrc, 1u, &bvh_params_update);
     
-    VkCommandBuffer cmd = frame.graphicsPool->GetCmdBuffer(0u);
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
@@ -2753,8 +2739,9 @@ void assignLightsToClusters(vtf_frame_data_t& frame) {
     vkCmdFillBuffer(cmd, (VkBuffer)spot_light_index_counter->Handle, 0u, sizeof(uint32_t), 0u);
     vkCmdFillBuffer(cmd, (VkBuffer)point_light_grid->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(point_light_grid->Info)->size, 0u);
     vkCmdFillBuffer(cmd, (VkBuffer)spot_light_grid->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(spot_light_grid->Info)->size, 0u);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("AssignLightsToClustersBVH").Handle);
-    auto& descriptor = frame.GetBinder("AssignLightsToClustersBVH");
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("AssignLightsToClustersPipeline").Handle);
+    auto& descriptor = frame.GetBinder("AssignLightsToClusters");
+	descriptor.Update();
     descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     VulkanResource* indirect_buffer = frame.rsrcMap.at("IndirectArgs");
     vkCmdDispatchIndirect(cmd, (VkBuffer)indirect_buffer->Handle, 0u);
@@ -2762,12 +2749,10 @@ void assignLightsToClusters(vtf_frame_data_t& frame) {
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
-    VkResult result = vkEndCommandBuffer(cmd);
-    VkAssert(result);
 
 }
 
-void submitPreSwapchainWritingWork(vtf_frame_data_t& frame) {
+void submitPreSwapchainWritingWork(vtf_frame_data_t& frame, uint32_t num_cmds, VkCommandBuffer* cmd_buffers) {
     // We're going to submit all work so far, as it doesn't write to the swapchain 
     // and the next chunk of work relies on acquire completing
 
@@ -2779,16 +2764,16 @@ void submitPreSwapchainWritingWork(vtf_frame_data_t& frame) {
         frame.semaphores.at("PreBackbufferWorkComplete")->vkHandle()
     };
 
-    constexpr static VkPipelineStageFlags wait_mask = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT; // we're waiting a bit early tbh
+	constexpr static VkPipelineStageFlags wait_mask[2]{ VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT }; // we're waiting a bit early tbh
 
     const VkSubmitInfo submit_info{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         nullptr,
         static_cast<uint32_t>(wait_semaphores.size()),
         wait_semaphores.data(),
-        &wait_mask,
-        1u,
-        &frame.graphicsPool->GetCmdBuffer(0u),
+        wait_mask,
+        num_cmds,
+		cmd_buffers,
         static_cast<uint32_t>(signal_semaphores.size()),
         signal_semaphores.data()
     };
@@ -2800,7 +2785,7 @@ void submitPreSwapchainWritingWork(vtf_frame_data_t& frame) {
 
 }
 
-void vtfMainRenderPass(vtf_frame_data_t& frame) {
+void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2812,26 +2797,16 @@ void vtfMainRenderPass(vtf_frame_data_t& frame) {
     auto& rsrc_ctxt = ResourceContext::Get();
     auto& binder = frame.GetBinder("DrawPass");
 
-    // get diff command buffer
-    VkCommandBuffer cmd = frame.graphicsPool->GetCmdBuffer(1u);
-
-    const VkCommandBufferBeginInfo begin_info{
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        nullptr,
-        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-        nullptr
-    };
-
-    VkResult result = vkBeginCommandBuffer(cmd, &begin_info);
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
-    VkAssert(result);
+
     frame.renderPasses.at("DrawPass")->UpdateBeginInfo(frame.drawFramebuffer->vkHandle());
     vkCmdBeginRenderPass(cmd, &frame.renderPasses.at("DrawPass")->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("OpaqueDrawPipeline")->vkHandle());
             auto& binder0 = frame.GetBinder("DrawPass");
-            binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+			binder0.Update();
+            //binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
 			for (size_t i = 0u; i < frame.renderFns.size(); ++i)
 			{
 				frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Opaque);
@@ -2845,7 +2820,6 @@ void vtfMainRenderPass(vtf_frame_data_t& frame) {
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
-    result = vkEndCommandBuffer(cmd);
 
     // debug passes would also go here
 
@@ -2888,6 +2862,7 @@ void RenderVtf(vtf_frame_data_t& frame) {
 
         Want to find out how frequently we hit these: should take a histogram
     */
+
     bool acquired{ false };
     acquired = tryImageAcquire(frame);
     if constexpr (DEBUG_MODE) {
@@ -2896,8 +2871,12 @@ void RenderVtf(vtf_frame_data_t& frame) {
         }
     }
 
-    getClusterSamples(frame);
-    findUniqueClusters(frame);
+	VkCommandBuffer cmd0 = frame.graphicsPool->GetCmdBuffer(0u);
+	VkResult result = vkBeginCommandBuffer(cmd0, &begin_info);
+	VkAssert(result);
+
+    getClusterSamples(frame, cmd0);
+    findUniqueClusters(frame, cmd0);
 
     if (!acquired) {
         acquired = tryImageAcquire(frame);
@@ -2908,8 +2887,10 @@ void RenderVtf(vtf_frame_data_t& frame) {
         }
     }
 
-    updateClusterIndirectArgs(frame);
-    assignLightsToClusters(frame);
+    updateClusterIndirectArgs(frame, cmd0);
+    assignLightsToClusters(frame, cmd0);
+	result = vkEndCommandBuffer(cmd0);
+	VkAssert(result);
 
     if (!acquired) {
         // up to using slight timeout (wait 0.25ms)
@@ -2922,7 +2903,7 @@ void RenderVtf(vtf_frame_data_t& frame) {
     }
 
     // submit all work that doesn't rely on the swapchain image
-    submitPreSwapchainWritingWork(frame);
+    submitPreSwapchainWritingWork(frame, 1u, &cmd0);
     
     if (!acquired) {
         acquired = tryImageAcquire(frame, UINT64_MAX);
@@ -2932,8 +2913,13 @@ void RenderVtf(vtf_frame_data_t& frame) {
         }
     }
 
+	VkCommandBuffer cmd1 = frame.graphicsPool->GetCmdBuffer(1u);
+	result = vkBeginCommandBuffer(cmd1, &begin_info);
+	VkAssert(result);
     createDrawFrameBuffer(frame);
-    vtfMainRenderPass(frame);
+    vtfMainRenderPass(frame, cmd1);
+	result = vkEndCommandBuffer(cmd1);
+	VkAssert(result);
 }
 
 void SubmitGraphicsWork(vtf_frame_data_t& frame) {
@@ -2946,21 +2932,21 @@ void SubmitGraphicsWork(vtf_frame_data_t& frame) {
     auto* device = RenderingContext::Get().Device();
 
     // Need to wait for these as we use the depth pre-pass' output iirc?
-    constexpr static VkPipelineStageFlags wait_mask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	constexpr static VkPipelineStageFlags wait_mask[2]{ VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
     const VkSubmitInfo submit_info{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         nullptr,
         2u,
         wait_semaphores,
-        &wait_mask,
+        wait_mask,
         1u,
-        &frame.graphicsPool->GetCmdBuffer(0u),
+        &frame.graphicsPool->GetCmdBuffer(1u),
         1u,
         &frame.semaphores.at("RenderComplete")->vkHandle()
     };
 
-    VkResult result = vkQueueSubmit(device->GraphicsQueue(), 1u, &submit_info, VK_NULL_HANDLE);
+    VkResult result = vkQueueSubmit(device->GraphicsQueue(), 1u, &submit_info, frame.graphicsPoolUsageFence->vkHandle());
     VkAssert(result);
 
     frame.lastImageIdx = frame.imageIdx;
@@ -3058,7 +3044,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 	SortParams sort_params_local;
 	const gpu_resource_data_t sort_params_copy{ &sort_params_local, sizeof(SortParams), 0u, 0u, 0u };
 	auto& rsrc_context = ResourceContext::Get();
-	VulkanResource* sort_params_rsrc = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 1u, &sort_params_copy, resource_usage::CPU_ONLY, ResourceCreateUserDataAsString, "MergeSortSortParams");
+	VulkanResource* sort_params_rsrc = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 1u, &sort_params_copy, resource_usage::CPU_ONLY, ResourceCreateUserDataAsString, "MergeSort_SortParams");
 	frame.transientResources.emplace_back(sort_params_rsrc); // will be cleared at end of frame
 
     const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
@@ -3238,8 +3224,12 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
         // if the pass count is odd then we have to copy the results into 
         // where they should actually be
 
-        const VkBufferCopy copy{ 0, 0, VK_WHOLE_SIZE };
+        VkBufferCopy copy{ 0, 0, VK_WHOLE_SIZE };
+		const VkDeviceSize keys_size = reinterpret_cast<const VkBufferCreateInfo*>(src_keys->Info)->size;
+		copy.size = keys_size;
         vkCmdCopyBuffer(cmd, (VkBuffer)src_keys->Handle, (VkBuffer)dst_keys->Handle, 1, &copy);
+		const VkDeviceSize values_size = reinterpret_cast<const VkBufferCreateInfo*>(src_values->Info)->size;
+		copy.size = values_size;
         vkCmdCopyBuffer(cmd, (VkBuffer)src_values->Handle, (VkBuffer)dst_values->Handle, 1, &copy);
     }
 
