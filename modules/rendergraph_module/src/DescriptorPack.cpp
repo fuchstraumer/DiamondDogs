@@ -12,6 +12,7 @@
 #include "PipelineLayout.hpp"
 #include "CreateInfoBase.hpp"
 #include "LogicalDevice.hpp"
+#include "VkDebugUtils.hpp"
 
 DescriptorPack::DescriptorPack(RenderGraph* _graph, const st::ShaderPack * pack) : shaderPack(pack), graph(_graph) {
     retrieveResourceGroups();
@@ -69,6 +70,29 @@ void DescriptorPack::createDescriptorTemplates() {
         const std::string group_name{ group->Name() };
 
         descriptorTemplates.emplace_back(std::make_unique<DescriptorTemplate>(group->Name()));
+		if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+		{
+			auto SetObjectNameFn = RenderingContext::Get().Device()->DebugUtilsHandler().vkSetDebugUtilsObjectName;
+			const VkDevice device_handle = RenderingContext::Get().Device()->vkHandle();
+			const std::string template_object_name = group_name + std::string("_DescriptorTemplate");
+			const VkDebugUtilsObjectNameInfoEXT template_name_info{
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+				nullptr,
+				VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE,
+				(uint64_t)descriptorTemplates.back()->UpdateTemplate(),
+				template_object_name.c_str()
+			};
+			SetObjectNameFn(device_handle, &template_name_info);
+			const std::string set_layout_name = group_name + std::string("_DescriptorSetLayout");
+			const VkDebugUtilsObjectNameInfoEXT set_layout_name_info{
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+				nullptr,
+				VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+				(uint64_t)descriptorTemplates.back()->UpdateTemplate(),
+				set_layout_name.c_str()
+			};
+			SetObjectNameFn(device_handle, &set_layout_name_info);
+		}
         auto* templ = descriptorTemplates.back().get();
 
         size_t num_rsrcs{ 0u };

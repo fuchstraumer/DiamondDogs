@@ -1,4 +1,5 @@
 #include "ResourceContextImpl.hpp"
+#include "../../rendering_context/include/RenderingContext.hpp"
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 #include <fstream>
@@ -348,34 +349,40 @@ VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info
         reinterpret_cast<VkBuffer*>(&resource->Handle), alloc, alloc_info);
     VkAssert(result);
 
-	if ((_flags & ResourceCreateUserDataAsString) && validationEnabled)
+	if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 	{
-		VkDebugUtilsObjectNameInfoEXT name_info{
-			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-			nullptr,
-			VK_OBJECT_TYPE_BUFFER,
-			resource->Handle,
-			reinterpret_cast<const char*>(user_data)
-		};
-		vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+		if (_flags & ResourceCreateUserDataAsString)
+		{
+			VkDebugUtilsObjectNameInfoEXT name_info{
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+				nullptr,
+				VK_OBJECT_TYPE_BUFFER,
+				resource->Handle,
+				reinterpret_cast<const char*>(user_data)
+			};
+			vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+		}
 	}
 
     if (view_info)
     {
         local_view_info->buffer = (VkBuffer)resource->Handle;
         result = vkCreateBufferView(device->vkHandle(), local_view_info, nullptr, reinterpret_cast<VkBufferView*>(&resource->ViewHandle));
-        VkAssert(result); 
-		if ((_flags & ResourceCreateUserDataAsString) && validationEnabled)
+        VkAssert(result);
+		if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 		{
-			const std::string object_view_name = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
-			VkDebugUtilsObjectNameInfoEXT name_info{
-				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-				nullptr,
-				VK_OBJECT_TYPE_BUFFER_VIEW,
-				resource->ViewHandle,
-				object_view_name.c_str()
-			};
-			vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+			if (_flags & ResourceCreateUserDataAsString)
+			{
+				const std::string object_view_name = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
+				VkDebugUtilsObjectNameInfoEXT name_info{
+					VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+					nullptr,
+					VK_OBJECT_TYPE_BUFFER_VIEW,
+					resource->ViewHandle,
+					object_view_name.c_str()
+				};
+				vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+			}
 		}
     }
 
@@ -462,17 +469,19 @@ VulkanResource* ResourceContextImpl::createImage(const VkImageCreateInfo* info, 
 
     VkResult result = vmaCreateImage((VmaAllocator)allocatorHandle, create_info, &alloc_create_info, reinterpret_cast<VkImage*>(&resource->Handle), alloc, alloc_info);
     VkAssert(result);
-
-	if ((_flags & ResourceCreateUserDataAsString) && validationEnabled)
+	if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 	{
-		VkDebugUtilsObjectNameInfoEXT name_info{
-			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-			nullptr,
-			VK_OBJECT_TYPE_IMAGE,
-			resource->Handle,
-			reinterpret_cast<const char*>(user_data)
-		};
-		vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+		if (_flags & ResourceCreateUserDataAsString)
+		{
+			VkDebugUtilsObjectNameInfoEXT name_info{
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+				nullptr,
+				VK_OBJECT_TYPE_IMAGE,
+				resource->Handle,
+				reinterpret_cast<const char*>(user_data)
+			};
+			vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+		}
 	}
 
     if (view_info)
@@ -480,17 +489,20 @@ VulkanResource* ResourceContextImpl::createImage(const VkImageCreateInfo* info, 
         local_view_info->image = (VkImage)resource->Handle;
         result = vkCreateImageView(device->vkHandle(), local_view_info, nullptr, reinterpret_cast<VkImageView*>(&resource->ViewHandle));
         VkAssert(result);
-		if ((_flags & ResourceCreateUserDataAsString) && validationEnabled)
+		if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 		{
-			const std::string view_name_string = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
-			VkDebugUtilsObjectNameInfoEXT name_info{
-				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-				nullptr,
-				VK_OBJECT_TYPE_IMAGE_VIEW,
-				resource->Handle,
-				view_name_string.c_str()
-			};
-			vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+			if (_flags & ResourceCreateUserDataAsString)
+			{
+				const std::string view_name_string = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
+				VkDebugUtilsObjectNameInfoEXT name_info{
+					VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+					nullptr,
+					VK_OBJECT_TYPE_IMAGE_VIEW,
+					resource->Handle,
+					view_name_string.c_str()
+				};
+				vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+			}
 		}
     }
 

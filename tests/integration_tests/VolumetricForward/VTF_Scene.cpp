@@ -403,7 +403,6 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
 	resource_context.WriteMemoryStatsFile("MemoryStats.json");
     std::cerr << "Setup Complete\n";
 	// need to ensure this is enabled currently, so we can see debug stats
-	assert(RenderingContext::ValidationEnabled());
 }
 
 void VTF_Scene::Destroy() {

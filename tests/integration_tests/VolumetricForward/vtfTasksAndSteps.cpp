@@ -151,21 +151,18 @@ void ComputePipelineCreationShim(vtf_frame_data_t& frame, const std::string& nam
 {
 	auto* device = RenderingContext::Get().Device();
 	frame.computePipelines[name] = ComputePipelineState(device->vkHandle());
-	VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(group_name)->vkHandle(), 1, &pipeline_info, nullptr, &frame.computePipelines.at(name).Handle);
+	VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(group_name)->vkHandle(), 1, pipeline_info, nullptr, &frame.computePipelines.at(name).Handle);
 	VkAssert(result);
-	if constexpr (VTF_USE_DEBUG_INFO)
+	if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 	{
-		if (RenderingContext::ValidationEnabled())
-		{
-			const VkDebugUtilsObjectNameInfoEXT name_info{
-				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-				nullptr,
-				VK_OBJECT_TYPE_PIPELINE,
-				(uint64_t)frame.computePipelines.at(name).Handle,
-				name.c_str()
-			};
-			frame.vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
-		}
+		const VkDebugUtilsObjectNameInfoEXT name_info{
+			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+			nullptr,
+			VK_OBJECT_TYPE_PIPELINE,
+			(uint64_t)frame.computePipelines.at(name).Handle,
+			name.c_str()
+		};
+		frame.vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
 	}
 }
 
@@ -203,6 +200,7 @@ void CreateShaders(const st::ShaderPack* pack) {
 
     auto* device = RenderingContext::Get().Device();
     auto* physicalDevice = RenderingContext::Get().PhysicalDevice();
+	auto debug_fns = device->DebugUtilsHandler();
 
     if (!vtf_frame_data_t::shaderModules.empty() && !vtf_frame_data_t::pipelineCaches.empty()) {
         return; // don't recreate this data, it's setup-once (unless we have a recreation event)
@@ -228,12 +226,37 @@ void CreateShaders(const st::ShaderPack* pack) {
             curr_shader->GetShaderBinary(stage, &binary_sz, nullptr);
             std::vector<uint32_t> binary_data(binary_sz);
             curr_shader->GetShaderBinary(stage, &binary_sz, binary_data.data());
-            vtf_frame_data_t::shaderModules.emplace(stage, std::make_unique<vpr::ShaderModule>(device->vkHandle(), stage.GetStage(), binary_data.data(), static_cast<uint32_t>(binary_data.size() * sizeof(uint32_t))));
+            auto iter = vtf_frame_data_t::shaderModules.emplace(stage, std::make_unique<vpr::ShaderModule>(device->vkHandle(), stage.GetStage(), binary_data.data(), static_cast<uint32_t>(binary_data.size() * sizeof(uint32_t))));
+			assert(iter.second);
             vtf_frame_data_t::groupStages[name].emplace_back(stage);
+			if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+			{
+				const std::string shader_stage_name{ ShaderStringWithStage(name, stage.GetStage()) };
+				const VkDebugUtilsObjectNameInfoEXT name_info{
+					VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+					nullptr,
+					VK_OBJECT_TYPE_SHADER_MODULE,
+					(uint64_t)iter.first->second->vkHandle(),
+					shader_stage_name.c_str()
+				};
+				debug_fns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+			}
         }
 
 
-        vtf_frame_data_t::pipelineCaches.emplace(name, std::make_unique<vpr::PipelineCache>(device->vkHandle(), physicalDevice->vkHandle(), std::hash<std::string>()(name)));
+        auto iter = vtf_frame_data_t::pipelineCaches.emplace(name, std::make_unique<vpr::PipelineCache>(device->vkHandle(), physicalDevice->vkHandle(), std::hash<std::string>()(name)));
+		assert(iter.second);
+		if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+		{
+			const VkDebugUtilsObjectNameInfoEXT name_info{
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+				nullptr,
+				VK_OBJECT_TYPE_PIPELINE_CACHE,
+				(uint64_t)iter.first->second->vkHandle(),
+				name.c_str()
+			};
+			debug_fns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+		}
 
     }
 }
@@ -1551,7 +1574,7 @@ void createDrawFrameBuffer(vtf_frame_data_t & frame) {
 
     frame.drawFramebuffer = std::make_unique<vpr::Framebuffer>(device->vkHandle(), framebuffer_info);
 
-	if (RenderingContext::ValidationEnabled())
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
 	{
 		const VkDebugUtilsObjectNameInfoEXT object_name{
 			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
@@ -1560,7 +1583,7 @@ void createDrawFrameBuffer(vtf_frame_data_t & frame) {
 			reinterpret_cast<uint64_t>(frame.drawFramebuffer->vkHandle()),
 			"DrawFramebuffer"
 		};
-		frame.vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle, &object_name);
+		frame.vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &object_name);
 	}
     
 }
@@ -1727,7 +1750,7 @@ void CreateGraphicsPipelines(vtf_frame_data_t & frame) {
 
 void miscSetup(vtf_frame_data_t& frame) {
 
-    if (RenderingContext::ValidationEnabled()) {
+    if (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns = RenderingContext::Get().Device()->DebugUtilsHandler();
     }
 
@@ -1767,7 +1790,7 @@ void ComputeUpdateLights(vtf_frame_data_t& frame) {
 
     // update light positions etc
     auto cmd = frame.computePool->GetCmdBuffer(0u);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["UpdateLightsPipeline"].Handle);
@@ -1777,7 +1800,7 @@ void ComputeUpdateLights(vtf_frame_data_t& frame) {
     uint32_t num_groups_x = glm::max(frame.LightCounts.NumPointLights, glm::max(frame.LightCounts.NumDirectionalLights, frame.LightCounts.NumSpotLights));
     num_groups_x = static_cast<uint32_t>(glm::ceil(num_groups_x / 1024.0f));
     vkCmdDispatch(cmd, num_groups_x, 1, 1);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
@@ -1831,7 +1854,7 @@ void ComputeReduceLights(vtf_frame_data_t& frame) {
 
     // Reduce lights
     auto cmd = frame.computePool->GetCmdBuffer(0);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
@@ -1854,7 +1877,7 @@ void ComputeReduceLights(vtf_frame_data_t& frame) {
     binder1.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("ReduceLightsAABB1").Handle);
     vkCmdDispatch(cmd, 1u, 1u, 1u);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
@@ -1933,7 +1956,7 @@ void ComputeMortonCodes(vtf_frame_data_t& frame) {
         }
     };
 
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 	binder.Update();
@@ -1944,7 +1967,7 @@ void ComputeMortonCodes(vtf_frame_data_t& frame) {
     // barrier to make sure writes from this dispatch finish before we try to sort
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr, static_cast<uint32_t>(compute_morton_codes_barriers.size()), 
         compute_morton_codes_barriers.data(), 0u, nullptr);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
@@ -2054,7 +2077,7 @@ void SortMortonCodes(vtf_frame_data_t& frame) {
         }
     };
 
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     // bind radix sort pipeline now
@@ -2128,7 +2151,7 @@ void SortMortonCodes(vtf_frame_data_t& frame) {
         MergeSort(frame, cmd, spotLightMortonCodes, spotLightIndices, spotLightMortonCodes_OUT, spotLightIndices_OUT, frame.LightCounts.NumSpotLights, SORT_NUM_THREADS_PER_THREAD_GROUP, binder);
     }
 
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
@@ -2187,7 +2210,7 @@ void BuildLightBVH(vtf_frame_data_t& frame) {
         VK_WHOLE_SIZE
     };
 
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
@@ -2230,7 +2253,7 @@ void BuildLightBVH(vtf_frame_data_t& frame) {
         }
     }
 
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
@@ -2262,7 +2285,7 @@ void ComputeClusterAABBs(vtf_frame_data_t& frame) {
     VkCommandBuffer cmd_buffer = frame.computePool->GetCmdBuffer(0u);
 
     vkBeginCommandBuffer(cmd_buffer, &compute_begin_info);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd_buffer, &debug_label);
     }
     auto& binder = frame.GetBinder("ComputeClusterAABBs");
@@ -2270,7 +2293,7 @@ void ComputeClusterAABBs(vtf_frame_data_t& frame) {
     vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["ComputeClusterAABBsPipeline"].Handle);
     const uint32_t dispatch_size = static_cast<uint32_t>(glm::ceil((frame.ClusterData.GridDim.x * frame.ClusterData.GridDim.y * frame.ClusterData.GridDim.z) / 1024.0f));
     vkCmdDispatch(cmd_buffer, dispatch_size, 1u, 1u);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd_buffer);
     }
     vkEndCommandBuffer(cmd_buffer);
@@ -2370,7 +2393,7 @@ void getClusterSamples(vtf_frame_data_t& frame) {
     };
 
     vkBeginCommandBuffer(cmd, &begin_info);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     vkCmdFillBuffer(cmd, (VkBuffer)cluster_flags->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info)->size, 0u);
@@ -2389,7 +2412,7 @@ void getClusterSamples(vtf_frame_data_t& frame) {
     vkCmdEndRenderPass(cmd);
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr,
         1u, &cluster_flags_barrier, 0u, nullptr); // make sure writes to cluster flags complete before it's used by FindUniqueClusters
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
@@ -2408,7 +2431,7 @@ void findUniqueClusters(vtf_frame_data_t& frame) {
     const VkDeviceSize unique_clusters_size = reinterpret_cast<const VkBufferCreateInfo*>(unique_clusters->Info)->size;
     auto& unique_clusters_counter = frame.rsrcMap.at("UniqueClustersCounter");
     VkCommandBuffer cmd = frame.graphicsPool->GetCmdBuffer(0u);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     vkCmdFillBuffer(cmd, (VkBuffer)unique_clusters->Handle, 0u, unique_clusters_size, 0u);
@@ -2434,7 +2457,7 @@ void findUniqueClusters(vtf_frame_data_t& frame) {
     };
     // gotta flush writes before executing update indirect args shader
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0u, nullptr, 1u, &unique_clusters_counter_barrier, 0u, nullptr);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
@@ -2463,7 +2486,7 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame) {
     };
 
     VkCommandBuffer cmd = frame.graphicsPool->GetCmdBuffer(0u);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("UpdateClusterIndirectArgs").Handle);
@@ -2471,7 +2494,7 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame) {
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdDispatch(cmd, 1u, 1u, 1u);
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0u, nullptr, 1u, &indir_args_buffer_barrier, 0u, nullptr);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
@@ -2558,7 +2581,7 @@ void assignLightsToClusters(vtf_frame_data_t& frame) {
     rsrc_ctxt.SetBufferData(bvh_params_rsrc, 1u, &bvh_params_update);
     
     VkCommandBuffer cmd = frame.graphicsPool->GetCmdBuffer(0u);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     vkCmdFillBuffer(cmd, (VkBuffer)point_light_index_counter->Handle, 0u, sizeof(uint32_t), 0u);
@@ -2571,7 +2594,7 @@ void assignLightsToClusters(vtf_frame_data_t& frame) {
     VulkanResource* indirect_buffer = frame.rsrcMap.at("IndirectArgs");
     vkCmdDispatchIndirect(cmd, (VkBuffer)indirect_buffer->Handle, 0u);
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0u, nullptr, 4u, assign_lights_barriers, 0u, nullptr);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
     VkResult result = vkEndCommandBuffer(cmd);
@@ -2635,7 +2658,7 @@ void vtfMainRenderPass(vtf_frame_data_t& frame) {
     };
 
     VkResult result = vkBeginCommandBuffer(cmd, &begin_info);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     VkAssert(result);
@@ -2648,7 +2671,7 @@ void vtfMainRenderPass(vtf_frame_data_t& frame) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("TransparentDrawPipeline")->vkHandle());
             frame.renderFns(cmd, &binder0, vtf_frame_data_t::render_type::Transparent);
     vkCmdEndRenderPass(cmd);
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
     result = vkEndCommandBuffer(cmd);
@@ -2905,7 +2928,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
         }
     };
 
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
@@ -2919,7 +2942,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 			{ 66.0f / 255.0f, 244.0f / 255.0f, 72.0f / 255.0f, 1.0f } // green, distinct from rest
 		}; 
 
-		if (RenderingContext::ValidationEnabled()) {
+		if constexpr (VTF_VALIDATION_ENABLED) {
 			frame.vkDebugFns.vkCmdInsertDebugUtilsLabel(cmd, &debug_label_recursion);
 		}
 
@@ -2945,7 +2968,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 				{ 66.0f / 255.0f, 244.0f / 255.0f, 72.0f / 255.0f, 1.0f } // green, distinct from rest
 			};
 
-			if (RenderingContext::ValidationEnabled()) {
+			if constexpr (VTF_VALIDATION_ENABLED) {
 				frame.vkDebugFns.vkCmdInsertDebugUtilsLabel(cmd, &debug_label_mpp);
 			}
 
@@ -2996,7 +3019,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
         vkCmdCopyBuffer(cmd, (VkBuffer)src_values->Handle, (VkBuffer)dst_values->Handle, 1, &copy);
     }
 
-    if (RenderingContext::ValidationEnabled()) {
+    if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
