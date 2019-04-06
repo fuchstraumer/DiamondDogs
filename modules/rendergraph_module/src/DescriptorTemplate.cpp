@@ -6,6 +6,7 @@
 #include "DescriptorPool.hpp"
 #include "DescriptorSetLayout.hpp"
 #include "vkAssert.hpp"
+#include "VkDebugUtils.hpp"
 #include <cassert>
 
 DescriptorTemplate::DescriptorTemplate(std::string _name) : name(std::move(_name)) {
@@ -62,7 +63,26 @@ VkDescriptorUpdateTemplate DescriptorTemplate::UpdateTemplate() const noexcept {
 }
 
 VkDescriptorSetLayout DescriptorTemplate::SetLayout() const noexcept {
-    return descriptorSetLayout->vkHandle();
+	if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+	{
+		auto SetObjectNameFn = device->DebugUtilsHandler().vkSetDebugUtilsObjectName;
+		const VkDevice device_handle = device->vkHandle();
+		const std::string set_layout_name = name + std::string("_DescriptorSetLayout");
+		VkDescriptorSetLayout set_layout_handle = descriptorSetLayout->vkHandle();
+		const VkDebugUtilsObjectNameInfoEXT set_layout_name_info{
+			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+			nullptr,
+			VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+			(uint64_t)set_layout_handle,
+			set_layout_name.c_str()
+		};
+		SetObjectNameFn(device_handle, &set_layout_name_info);
+		return set_layout_handle;
+	}
+	else
+	{
+		return descriptorSetLayout->vkHandle();
+	}
 }
 
 void DescriptorTemplate::UpdateSet(VkDescriptorSet set) {
@@ -86,4 +106,18 @@ void DescriptorTemplate::createUpdateTemplate() const {
     templateInfo.pipelineLayout = VK_NULL_HANDLE;
     templateInfo.set = 0u;
     vkCreateDescriptorUpdateTemplate(RenderingContext::Get().Device()->vkHandle(), &templateInfo, nullptr, &updateTemplate);
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		auto SetObjectNameFn = device->DebugUtilsHandler().vkSetDebugUtilsObjectName;
+		const VkDevice device_handle = device->vkHandle();
+		const std::string template_object_name = name + std::string("_DescriptorTemplate");
+		const VkDebugUtilsObjectNameInfoEXT template_name_info{
+			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+			nullptr,
+			VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE,
+			(uint64_t)updateTemplate,
+			template_object_name.c_str()
+		};
+		SetObjectNameFn(device_handle, &template_name_info);
+	}
 }
