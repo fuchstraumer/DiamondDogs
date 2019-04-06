@@ -1,6 +1,7 @@
 #pragma once
 #ifndef VTF_TASKS_AND_STEPS_HPP
 #define VTF_TASKS_AND_STEPS_HPP
+#include <cstdint>
 
 class vtf_frame_data_t;
 
@@ -25,6 +26,7 @@ void CreateDrawFrameBuffers(vtf_frame_data_t& frame, const size_t frame_idx);
 void CreateGraphicsPipelines(vtf_frame_data_t& frame);
 // Executes everything but creating the framebuffers for drawing
 void FullFrameSetup(vtf_frame_data_t* frame);
+void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z);
 
 /*
     Compute work for a frame has been reduced into discrete

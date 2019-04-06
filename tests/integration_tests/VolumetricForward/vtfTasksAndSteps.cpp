@@ -172,17 +172,17 @@ std::string ShaderStringWithStage(const std::string& base_name, const VkShaderSt
 	switch (flags)
 	{
 	case VK_SHADER_STAGE_VERTEX_BIT:
-		return base_name + std::string("_VS");
+		return base_name + std::string("_Vertex");
 	case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
-		return base_name + std::string("_TC");
+		return base_name + std::string("_TessCntl");
 	case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
-		return base_name + std::string("_TE");
+		return base_name + std::string("_TessEval");
 	case VK_SHADER_STAGE_GEOMETRY_BIT:
-		return base_name + std::string("_G");
+		return base_name + std::string("_Geometry");
 	case VK_SHADER_STAGE_FRAGMENT_BIT:
-		return base_name + std::string("_FS");
+		return base_name + std::string("_Fragment");
 	case VK_SHADER_STAGE_COMPUTE_BIT:
-		return base_name + std::string("_C");
+		return base_name + std::string("_Compute");
 	default:
 		throw std::domain_error("Invalid shader stage!");
 	}
@@ -349,7 +349,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         nullptr,
         0,
         sizeof(uint32_t) * cluster_dim_x * cluster_dim_y * cluster_dim_z,
-        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_SHARING_MODE_EXCLUSIVE,
         0,
         nullptr
@@ -445,7 +445,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         nullptr,
         0,
         CLUSTER_SIZE * sizeof(uint32_t) * 2,
-        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_SHARING_MODE_EXCLUSIVE,
         0,
         nullptr
@@ -480,7 +480,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         nullptr,
         0,
         LIGHT_INDEX_LIST_SIZE * sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_SHARING_MODE_EXCLUSIVE,
         0,
         nullptr
@@ -515,7 +515,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         nullptr,
         0,
         sizeof(uint32_t),
-        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT,
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_SHARING_MODE_EXCLUSIVE,
         0u,
         nullptr
@@ -749,13 +749,14 @@ void createSortResources(vtf_frame_data_t& frame) {
 
 }
 
-VulkanResource* CreateMergePathPartitions(vtf_frame_data_t& frame) {
+VulkanResource* CreateMergePathPartitions(vtf_frame_data_t& frame, bool dummy_buffer = false) {
     // merge sort resources are mostly bound before execution, except "MergePathPartitions"
 
     uint32_t num_chunks = static_cast<uint32_t>(glm::ceil(MAX_POINT_LIGHTS / SORT_NUM_THREADS_PER_THREAD_GROUP));
     uint32_t max_sort_groups = num_chunks / 2u;
     uint32_t path_partitions = static_cast<uint32_t>(glm::ceil((SORT_NUM_THREADS_PER_THREAD_GROUP * 2u) / (SORT_ELEMENTS_PER_THREAD * SORT_NUM_THREADS_PER_THREAD_GROUP) + 1u));
-    uint32_t merge_path_partitions_buffer_sz = path_partitions * max_sort_groups;
+	// create it with some small but nonzero size, or with the proper size. dummy buffer is for a single case where we just need something bound in that spot
+    uint32_t merge_path_partitions_buffer_sz = dummy_buffer ? sizeof(uint32_t) * 64u : path_partitions * max_sort_groups;
 
     const VkBufferCreateInfo merge_path_partitions_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -798,7 +799,7 @@ void createBVH_Resources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    frame.rsrcMap["BVHParams"] = rsrc_context.CreateBuffer(&bvh_params_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "BVHParams");
+    frame.rsrcMap["BVHParams"] = rsrc_context.CreateBuffer(&bvh_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "BVHParams");
     descr->BindResourceToIdx(descr->BindingLocation("BVHParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("BVHParams"));
 
     const uint32_t point_light_nodes = GetNumNodesBVH(frame.LightCounts.NumPointLights);
@@ -809,7 +810,7 @@ void createBVH_Resources(vtf_frame_data_t& frame) {
         nullptr,
         0,
         sizeof(AABB) * point_light_nodes,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_SHARING_MODE_EXCLUSIVE,
         0u,
         nullptr
@@ -910,12 +911,64 @@ void createSemaphores(vtf_frame_data_t& frame) {
     frame.semaphores["RenderComplete"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
 }
 
-constexpr static VkCommandPoolCreateInfo command_pool_info{
-	VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-	nullptr,
-	VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-	0u
-};
+void setupCommandPools(vtf_frame_data_t& frame)
+{
+
+	constexpr static VkCommandPoolCreateInfo command_pool_info{
+		VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+		nullptr,
+		VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+		0u
+	};
+	auto* device = RenderingContext::Get().Device();
+	auto pool_info = command_pool_info;
+	pool_info.queueFamilyIndex = device->QueueFamilyIndices().Compute;
+	frame.computePool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
+	frame.computePool->AllocateCmdBuffers(4u, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	pool_info.queueFamilyIndex = device->QueueFamilyIndices().Graphics;
+	frame.graphicsPool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
+	frame.graphicsPool->AllocateCmdBuffers(4u, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	frame.vkDebugFns = device->DebugUtilsHandler();
+}
+
+void createDebugResources(vtf_frame_data_t& frame)
+{
+	auto& cluster_colors_vec = SceneLightsState().ClusterColors;
+	VkDeviceSize required_mem = cluster_colors_vec.size() * sizeof(glm::u8vec4);
+
+	const VkBufferCreateInfo buffer_info{
+		VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		required_mem,
+		VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		VK_SHARING_MODE_EXCLUSIVE,
+		0u,
+		nullptr
+	};
+
+	const VkBufferViewCreateInfo buffer_view_info{
+		VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO,
+		nullptr,
+		0,
+		VK_NULL_HANDLE,
+		VK_FORMAT_R8G8B8A8_UNORM,
+		0u,
+		required_mem
+	};
+
+	const gpu_resource_data_t buffer_data{
+		cluster_colors_vec.data(), required_mem, 0u, 0u, 0u
+	};
+	
+	auto& ctxt = ResourceContext::Get();
+	frame.rsrcMap["DebugClusterColors"] = ctxt.CreateBuffer(&buffer_info, &buffer_view_info, 1u, &buffer_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DebugClusterColors");
+
+	auto* descr = frame.descriptorPack->RetrieveDescriptor("Debug");
+	const size_t loc = descr->BindingLocation("ClusterColors");
+	descr->BindResourceToIdx(loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("DebugClusterColors"));
+
+}
 
 void CreateResources(vtf_frame_data_t & frame) {
     // creates and does initial descriptor binding, so that recursive/further calls 
@@ -929,15 +982,8 @@ void CreateResources(vtf_frame_data_t & frame) {
     createBVH_Resources(frame);
     createMaterialSamplers(frame);
     createSemaphores(frame);
-	auto* device = RenderingContext::Get().Device();
-	auto pool_info = command_pool_info;
-	pool_info.queueFamilyIndex = device->QueueFamilyIndices().Compute;
-	frame.computePool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
-	frame.computePool->AllocateCmdBuffers(4u, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-	pool_info.queueFamilyIndex = device->QueueFamilyIndices().Graphics;
-	frame.graphicsPool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
-	frame.graphicsPool->AllocateCmdBuffers(4u, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-	frame.vkDebugFns = device->DebugUtilsHandler();
+	setupCommandPools(frame);
+	createDebugResources(frame);
 }
 
 void CreateSemaphores(vtf_frame_data_t & frame) {
@@ -1140,6 +1186,12 @@ void createComputeClusterAABBsPipeline(vtf_frame_data_t& frame) {
 
 	ComputePipelineCreationShim(frame, "ComputeClusterAABBsPipeline", &pipeline_info, groupName);
 
+	frame.computeAABBsFence = std::make_unique<vpr::Fence>(device->vkHandle(), 0);
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		const std::string fence_name = groupName + std::string("_Fence");
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_FENCE, (uint64_t)frame.computeAABBsFence->vkHandle(), VTF_DEBUG_OBJECT_NAME(fence_name.c_str()));
+	}
 }
 
 void createIndirectArgsPipeline(vtf_frame_data_t& frame) {
@@ -1222,6 +1274,28 @@ void createMergeSortPipelines(vtf_frame_data_t& frame) {
 
 }
 
+void createFindUniqueClustersPipeline(vtf_frame_data_t& frame)
+{
+
+	auto* device = RenderingContext::Get().Device();
+	static const std::string groupName{ "FindUniqueClusters" };
+
+	const st::ShaderStage& shader_stage = vtf_frame_data_t::groupStages.at(groupName).front();
+
+	const VkComputePipelineCreateInfo create_info{
+		VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+		nullptr,
+		0,
+		vtf_frame_data_t::shaderModules.at(shader_stage)->PipelineInfo(),
+		frame.descriptorPack->PipelineLayout(groupName),
+		VK_NULL_HANDLE,
+		-1
+	};
+
+	ComputePipelineCreationShim(frame, "FindUniqueClustersPipeline", &create_info, groupName);
+
+}
+
 void CreateComputePipelines(vtf_frame_data_t& frame) {
     createUpdateLightsPipeline(frame);
     createReduceLightAABBsPipelines(frame);
@@ -1231,6 +1305,7 @@ void CreateComputePipelines(vtf_frame_data_t& frame) {
     createComputeClusterAABBsPipeline(frame);
     createIndirectArgsPipeline(frame);
     createMergeSortPipelines(frame);
+	createFindUniqueClustersPipeline(frame);
 }
 
 void createDepthAndClusterSamplesPass(vtf_frame_data_t& frame) {
@@ -1742,6 +1817,27 @@ void FullFrameSetup(vtf_frame_data_t* frame) {
     miscSetup(*frame);
 }
 
+void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z)
+{
+	auto& camera = PerspectiveCamera::Get();
+	float fov_y = camera.FOV();
+	float z_near = camera.NearPlane();
+	float z_far = camera.FarPlane();
+
+	auto& ctxt = RenderingContext::Get();
+	const uint32_t window_width = ctxt.Swapchain()->Extent().width;
+	const uint32_t window_height = ctxt.Swapchain()->Extent().height;
+
+	grid_x = static_cast<uint32_t>(glm::ceil(window_width / float(CLUSTER_GRID_BLOCK_SIZE)));
+	grid_y = static_cast<uint32_t>(glm::ceil(window_height / float(CLUSTER_GRID_BLOCK_SIZE)));
+
+	float sD = 2.0f * glm::tan(fov_y) / float(grid_y);
+	float log_dim_y = 1.0f / glm::log(1.0f + sD);
+	float log_depth = glm::log(z_far / z_near);
+
+	grid_z = static_cast<uint32_t>(glm::floor(log_depth * log_dim_y));
+}
+
 void ComputeUpdateLights(vtf_frame_data_t& frame) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label {
@@ -1990,12 +2086,18 @@ void SortMortonCodes(vtf_frame_data_t& frame) {
     auto& sort_params_rsrc = frame.rsrcMap["SortParams"];
     const gpu_resource_data_t sort_params_copy{ &sort_params, sizeof(SortParams), 0u, 0u, 0u };
 
+	// TODO: Create a way to not have to do this
+	// Create a dummy resource so that things don't break for us.
+	VulkanResource* merge_path_partitions_empty = CreateMergePathPartitions(frame);
+
     // prefetch binding locations
     Descriptor* sort_descriptor = frame.descriptorPack->RetrieveDescriptor("MergeSortResources");
     const size_t src_keys_loc = sort_descriptor->BindingLocation("InputKeys");
     const size_t dst_keys_loc = sort_descriptor->BindingLocation("OutputKeys");
     const size_t src_values_loc = sort_descriptor->BindingLocation("InputValues");
     const size_t dst_values_loc = sort_descriptor->BindingLocation("OutputValues");
+	const size_t mpp_loc = sort_descriptor->BindingLocation("MergePathPartitions");
+	binder.BindResourceToIdx("MergeSortResources", mpp_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, merge_path_partitions_empty);
 
     const VkDeviceSize point_light_indices_size = reinterpret_cast<const VkBufferCreateInfo*>(pointLightIndices->Info)->size;
     const VkDeviceSize spot_light_indices_size = reinterpret_cast<const VkBufferCreateInfo*>(spotLightIndices->Info)->size;
@@ -2056,6 +2158,7 @@ void SortMortonCodes(vtf_frame_data_t& frame) {
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
+
     // bind radix sort pipeline now
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["SortMortonCodes"].Handle);
 
@@ -2204,6 +2307,7 @@ void BuildLightBVH(vtf_frame_data_t& frame) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["BuildBVHBottomPipeline"].Handle);
 
     auto binder = frame.descriptorPack->RetrieveBinder("BuildBVH");
+	binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
 
     uint32_t max_leaves = glm::max(frame.LightCounts.NumPointLights, frame.LightCounts.NumSpotLights);
@@ -2265,6 +2369,7 @@ void ComputeClusterAABBs(vtf_frame_data_t& frame) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd_buffer, &debug_label);
     }
     auto& binder = frame.GetBinder("ComputeClusterAABBs");
+	binder.Update();
     binder.Bind(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["ComputeClusterAABBsPipeline"].Handle);
     const uint32_t dispatch_size = static_cast<uint32_t>(glm::ceil((frame.ClusterData.GridDim.x * frame.ClusterData.GridDim.y * frame.ClusterData.GridDim.z) / 1024.0f));
@@ -2374,17 +2479,26 @@ void getClusterSamples(vtf_frame_data_t& frame) {
     }
     vkCmdFillBuffer(cmd, (VkBuffer)cluster_flags->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info)->size, 0u);
     auto& binder0 = frame.GetBinder("DepthPrePass");
+	binder0.Update();
     auto& binder1 = frame.GetBinder("ClusterSamples");
+	binder1.Update();
+	assert(frame.renderFns.size() == frame.bindFns.size());
     vkCmdBeginRenderPass(cmd, &renderpass->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
         // first run depth pre-pass, then run cluster sampling
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("DepthPrePass")->vkHandle());
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("DepthPrePassPipeline")->vkHandle());
         binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
-        frame.renderFns(cmd, &binder0, vtf_frame_data_t::render_type::Opaque); // opaque for depth
+		for (size_t i = 0; i < frame.renderFns.size(); ++i)
+		{
+			frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Opaque); // opaque for depth
+		}
     vkCmdNextSubpass(cmd, VK_SUBPASS_CONTENTS_INLINE);
         // now run cluster sampling
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("ClusterSamples")->vkHandle());
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("ClusterSamplesPipeline")->vkHandle());
         binder1.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
-        frame.renderFns(cmd, &binder1, vtf_frame_data_t::render_type::OpaqueAndTransparent); // run both
+		for (size_t i = 0; i < frame.renderFns.size(); ++i)
+		{
+			frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Opaque); // opaque for depth
+		}
     vkCmdEndRenderPass(cmd);
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr,
         1u, &cluster_flags_barrier, 0u, nullptr); // make sure writes to cluster flags complete before it's used by FindUniqueClusters
@@ -2412,8 +2526,9 @@ void findUniqueClusters(vtf_frame_data_t& frame) {
     }
     vkCmdFillBuffer(cmd, (VkBuffer)unique_clusters->Handle, 0u, unique_clusters_size, 0u);
     vkCmdFillBuffer(cmd, (VkBuffer)unique_clusters->Handle, 0u, sizeof(uint32_t), 0u);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("FindUniqueClusters").Handle);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("FindUniqueClustersPipeline").Handle);
     auto& binder = frame.GetBinder("FindUniqueClusters");
+	binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
 
     uint32_t max_clusters = frame.ClusterData.GridDim.x * frame.ClusterData.GridDim.y * frame.ClusterData.GridDim.z;
@@ -2465,8 +2580,9 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame) {
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("UpdateClusterIndirectArgs").Handle);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("UpdateIndirectArgsPipeline").Handle);
     auto& binder = frame.GetBinder("UpdateClusterIndirectArgs");
+	binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdDispatch(cmd, 1u, 1u, 1u);
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0u, nullptr, 1u, &indir_args_buffer_barrier, 0u, nullptr);
@@ -2643,9 +2759,15 @@ void vtfMainRenderPass(vtf_frame_data_t& frame) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("OpaqueDrawPipeline")->vkHandle());
             auto& binder0 = frame.GetBinder("DrawPass");
             binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
-            frame.renderFns(cmd, &binder0, vtf_frame_data_t::render_type::Opaque);
+			for (size_t i = 0u; i < frame.renderFns.size(); ++i)
+			{
+				frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Opaque);
+			}
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("TransparentDrawPipeline")->vkHandle());
-            frame.renderFns(cmd, &binder0, vtf_frame_data_t::render_type::Transparent);
+			for (size_t i = 0u; i < frame.renderFns.size(); ++i)
+			{
+				frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Transparent);
+			}
     vkCmdEndRenderPass(cmd);
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
@@ -2656,7 +2778,7 @@ void vtfMainRenderPass(vtf_frame_data_t& frame) {
 
 }
 
-static std::array<size_t, 4> acquisitionFrequencies{ 0u, 0u, 0u, 0u };
+static std::array<size_t, 8> acquisitionFrequencies{ 0u, 0u, 0u, 0u };
 
 #ifdef NDEBUG
 constexpr static bool DEBUG_MODE{ false };
@@ -2810,6 +2932,15 @@ void DestroyShaders(vtf_frame_data_t & frame) {
 void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src_keys, VulkanResource* src_values, VulkanResource* dst_keys, VulkanResource* dst_values,
     uint32_t total_values, uint32_t chunk_size, DescriptorBinder dscr_binder) {
 
+	constexpr static uint32_t num_values_per_thread_group = SORT_NUM_THREADS_PER_THREAD_GROUP * SORT_ELEMENTS_PER_THREAD;
+	uint32_t num_chunks = static_cast<uint32_t>(glm::ceil(total_values / static_cast<float>(chunk_size)));
+	if (num_chunks <= 1u)
+	{
+		// Not gonna sort, so don't create any resources or do any of the below as it'll be a waste
+		return;
+	}
+	uint32_t pass = 0u;
+
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr,
@@ -2817,16 +2948,28 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
         { 66.0f / 255.0f, 244.0f / 255.0f, 72.0f / 255.0f, 1.0f } // green, distinct from rest
     };
 
-    SortParams params;
-
     // Create a new mergePathPartitions for this invocation.
     VulkanResource* merge_path_partitions = CreateMergePathPartitions(frame);
-    VulkanResource* sort_params_rsrc{ nullptr };
+
+	constexpr static VkBufferCreateInfo sort_params_info{
+		VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+		nullptr,
+		0,
+		sizeof(uint32_t) * 2u,
+		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		VK_SHARING_MODE_EXCLUSIVE,
+		0u,
+		nullptr
+	};
+
+
+	SortParams sort_params_local;
+	const gpu_resource_data_t sort_params_copy{ &sort_params_local, sizeof(SortParams), 0u, 0u, 0u };
+	auto& rsrc_context = ResourceContext::Get();
+	VulkanResource* sort_params_rsrc = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 1u, &sort_params_copy, resource_usage::CPU_ONLY, ResourceCreateUserDataAsString, "MergeSortSortParams");
+	frame.transientResources.emplace_back(sort_params_rsrc); // will be cleared at end of frame
 
     const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
-    constexpr static uint32_t num_values_per_thread_group = SORT_NUM_THREADS_PER_THREAD_GROUP * SORT_ELEMENTS_PER_THREAD;
-    uint32_t num_chunks = static_cast<uint32_t>(glm::ceil(total_values / static_cast<float>(chunk_size)));
-    uint32_t pass = 0;
 
     Descriptor* descriptor = frame.descriptorPack->RetrieveDescriptor("MergeSortResources");
     const size_t merge_pp_loc = descriptor->BindingLocation("MergePathPartitions");
@@ -2837,7 +2980,6 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
     const size_t output_values_loc = descriptor->BindingLocation("OutputValues");
 
     dscr_binder.BindResourceToIdx("MergeSortResources", merge_pp_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, merge_path_partitions);
-
     dscr_binder.BindResourceToIdx("SortResources", sort_params_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, sort_params_rsrc);
     dscr_binder.Update();
 
@@ -2904,6 +3046,18 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
         }
     };
 
+	const VkBufferMemoryBarrier sort_params_host_barrier{
+		VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+		nullptr,
+		VK_ACCESS_HOST_WRITE_BIT,
+		VK_ACCESS_SHADER_READ_BIT,
+		VK_QUEUE_FAMILY_IGNORED,
+		VK_QUEUE_FAMILY_IGNORED,
+		(VkBuffer)sort_params_rsrc->Handle,
+		0u,
+		reinterpret_cast<const VkBufferCreateInfo*>(sort_params_rsrc->Info)->size
+	};
+
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
@@ -2924,8 +3078,10 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 
         ++pass;
 
-        params.NumElements = total_values;
-        params.ChunkSize = chunk_size;
+        sort_params_local.NumElements = total_values;
+        sort_params_local.ChunkSize = chunk_size;
+		rsrc_context.SetBufferData(sort_params_rsrc, 1u, &sort_params_copy);
+		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0u, 0u, nullptr, 1u, &sort_params_host_barrier, 0u, nullptr);
 
         uint32_t num_sort_groups = num_chunks / 2u;
         uint32_t num_thread_groups_per_sort_group = static_cast<uint32_t>(glm::ceil((chunk_size * 2) / static_cast<float>(num_values_per_thread_group)));
