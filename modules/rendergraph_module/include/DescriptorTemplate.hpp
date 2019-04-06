@@ -48,6 +48,7 @@ private:
 
     UpdateTemplateData updateData;
     std::vector<VkDescriptorUpdateTemplateEntry> updateEntries;
+	mutable bool namedDescriptorSet{ false };
 
 };
 
