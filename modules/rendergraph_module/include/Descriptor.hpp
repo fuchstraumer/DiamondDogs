@@ -7,7 +7,7 @@
 #include "common/UtilityStructs.hpp"
 #include <memory>
 #include <atomic>
-#include <stack>
+#include <vector>
 #include <mutex>
 #include <unordered_map>
 
@@ -37,7 +37,9 @@ namespace st {
 class Descriptor {
 public:
 
-    /*
+	Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ, std::unordered_map<std::string, size_t>&& binding_locs, const char* name);
+
+	/*
         max_sets is used to set how many sets are initially allocated, but if this number is exceeded a new pool will be created
     */
     Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* templ,
@@ -63,15 +65,16 @@ private:
     uint32_t maxSets{ 0u };
     const vpr::Device* device{ nullptr };
     DescriptorTemplate* templ{ nullptr };
-    std::stack<std::unique_ptr<vpr::DescriptorPool>> descriptorPools;
+    std::vector<std::unique_ptr<vpr::DescriptorPool>> descriptorPools;
     vpr::DescriptorPool* activePool{ nullptr };
 	std::atomic<uint32_t> setContainerIdx{ 0u };
     std::vector<VkDescriptorSet> availSets;
-    std::stack<std::vector<VkDescriptorSet>> usedSets;
+    std::vector<std::vector<VkDescriptorSet>> usedSets;
     st::descriptor_type_counts_t typeCounts;
     std::mutex poolMutex;
     std::vector<VkDescriptorSetLayout> setLayouts;
     std::unordered_map<std::string, size_t> bindingLocations;
+	std::string name; // unused / left empty in optimized release builds
 
 };
 

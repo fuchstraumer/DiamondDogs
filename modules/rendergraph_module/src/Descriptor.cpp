@@ -2,6 +2,12 @@
 #include "LogicalDevice.hpp"
 #include "DescriptorPool.hpp"
 #include "vkAssert.hpp"
+#include "RenderingContext.hpp"
+#include "VkDebugUtils.hpp"
+
+Descriptor::Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ, std::unordered_map<std::string, size_t>&& binding_locs,
+	const char* _name) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), bindingLocations{ std::move(binding_locs) }, typeCounts{ rsrc_counts },
+	name{ _name } {}
 
 Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate * _templ, std::unordered_map<std::string, size_t>&& binding_locations) : device{ _device }, maxSets{ uint32_t(max_sets) },
     templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), bindingLocations{ std::move(binding_locations) }, typeCounts{ rsrc_counts } {
@@ -32,7 +38,7 @@ void Descriptor::Reset() {
         // don't forget to destroy our single used set
         VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), setContainerIdx, availSets.data());
         VkAssert(result);
-        descriptorPools.pop();
+        descriptorPools.pop_back();
 
         setContainerIdx = 0u;
         createPool();
@@ -42,18 +48,36 @@ void Descriptor::Reset() {
         uint32_t used_sets = setContainerIdx;
         VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), setContainerIdx, availSets.data());
         VkAssert(result);
-        descriptorPools.pop();
+        descriptorPools.pop_back();
 
         while (!descriptorPools.empty()) {
-            auto& curr_pool = descriptorPools.top();
-            auto& curr_sets = usedSets.top();
+            auto& curr_pool = descriptorPools.back();
+            auto& curr_sets = usedSets.back();
             used_sets += static_cast<uint32_t>(curr_sets.size());
 
             result = vkFreeDescriptorSets(device->vkHandle(), curr_pool->vkHandle(), maxSets, curr_sets.data());
             VkAssert(result);
 
-            usedSets.pop();
-            descriptorPools.pop();
+			if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+			{
+				static auto SetObjNameFn = device->DebugUtilsHandler().vkSetDebugUtilsObjectName;
+				const std::string base_name = name + std::string("_Pool") + std::to_string(descriptorPools.size()) + std::string("_Set");
+				for (size_t i = 0; i < curr_sets.size(); ++i)
+				{
+					std::string curr_name = base_name + std::to_string(i);
+					const VkDebugUtilsObjectNameInfoEXT name_info{
+						VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+						nullptr,
+						VK_OBJECT_TYPE_DESCRIPTOR_SET,
+						(uint64_t)curr_sets[i],
+						curr_name.c_str()
+					};
+					SetObjNameFn(device->vkHandle(), &name_info);
+				}
+			}
+
+            usedSets.pop_back();
+            descriptorPools.pop_back();
 
         }
 
@@ -102,10 +126,23 @@ void Descriptor::allocateSets() {
 
 void Descriptor::createPool() {
     if (!availSets.empty()) {
-        usedSets.emplace(std::move(availSets));
+        usedSets.emplace_back(std::move(availSets));
     }
-    descriptorPools.emplace(std::make_unique<vpr::DescriptorPool>(device->vkHandle(), maxSets));
-    activePool = descriptorPools.top().get();
+    descriptorPools.emplace_back(std::make_unique<vpr::DescriptorPool>(device->vkHandle(), maxSets));
+	if (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+	{
+		const auto SetObjNameFnPtr = RenderingContext::Get().Device()->DebugUtilsHandler().vkSetDebugUtilsObjectName;
+		const std::string curr_name = name + std::string("_Num") + std::to_string(descriptorPools.size());
+		const VkDebugUtilsObjectNameInfoEXT name_info{
+			VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT,
+			nullptr,
+			VK_OBJECT_TYPE_DESCRIPTOR_POOL,
+			(uint64_t)descriptorPools.back()->vkHandle(),
+			curr_name.c_str()
+		};
+		SetObjNameFnPtr(device->vkHandle(), &name_info);
+	}
+    activePool = descriptorPools.back().get();
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, typeCounts.UniformBuffers * maxSets);
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, typeCounts.UniformBuffersDynamic * maxSets);
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, typeCounts.StorageBuffers * maxSets);
