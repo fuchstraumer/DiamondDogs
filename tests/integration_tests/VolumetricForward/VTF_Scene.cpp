@@ -93,21 +93,21 @@ struct TestIcosphereMesh {
             Vertices.emplace_back(vert, vert, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
         }
 
-        for (size_t j = 0; j < detail_level; ++j) {
-            size_t num_triangles = Indices.size() / 3;
-            Indices.reserve(Indices.capacity() + (num_triangles * 9));
-            Vertices.reserve(Vertices.capacity() + (num_triangles * 3));
-            for (uint32_t i = 0; i < num_triangles; ++i) {
-                uint32_t i0 = Indices[i * 3 + 0];
-                uint32_t i1 = Indices[i * 3 + 1];
-                uint32_t i2 = Indices[i * 3 + 2];
+        for (size_t j = 0u; j < detail_level; ++j) {
+            size_t num_triangles = Indices.size() / 3u;
+            Indices.reserve(Indices.capacity() + (num_triangles * 9u));
+            Vertices.reserve(Vertices.capacity() + (num_triangles * 3u));
+            for (uint32_t i = 0u; i < num_triangles; ++i) {
+                uint32_t i0 = Indices[i * 3u + 0u];
+                uint32_t i1 = Indices[i * 3u + 1u];
+                uint32_t i2 = Indices[i * 3u + 2u];
 
                 uint32_t i3 = static_cast<uint32_t>(Vertices.size());
                 uint32_t i4 = i3 + 1;
                 uint32_t i5 = i4 + 1;
 
-                Indices[i * 3 + 1] = i3;
-                Indices[i * 3 + 2] = i5;
+                Indices[i * 3u + 1u] = i3;
+                Indices[i * 3u + 2u] = i5;
 
                 Indices.insert(Indices.cend(), { i3, i1, i4, i5, i3, i4, i5, i4, i2 });
 
@@ -129,7 +129,7 @@ struct TestIcosphereMesh {
         Indices.shrink_to_fit();
         Vertices.shrink_to_fit();
 
-        for (size_t i = 0; i < Vertices.size(); ++i) {
+        for (size_t i = 0u; i < Vertices.size(); ++i) {
             const glm::vec3& norm = Vertices[i].Normal;
             Vertices[i].UV.x = (glm::atan(norm.x, -norm.z) / FLOAT_PI) * 0.5f + 0.5f;
             Vertices[i].UV.y = -norm.y * 0.5f + 0.5f;
@@ -142,10 +142,10 @@ struct TestIcosphereMesh {
         };
 
         const size_t num_triangles = Indices.size() / 3;
-        for (size_t i = 0; i < num_triangles; ++i) {
-            const glm::vec2& uv0 = Vertices[Indices[i * 3]].UV;
-            const glm::vec2& uv1 = Vertices[Indices[i * 3 + 1]].UV;
-            const glm::vec2& uv2 = Vertices[Indices[i * 3 + 2]].UV;
+        for (size_t i = 0u; i < num_triangles; ++i) {
+            const glm::vec2& uv0 = Vertices[Indices[i * 3u]].UV;
+            const glm::vec2& uv1 = Vertices[Indices[i * 3u + 1u]].UV;
+            const glm::vec2& uv2 = Vertices[Indices[i * 3u + 2u]].UV;
             const float d1 = uv1.x - uv0.x;
             const float d2 = uv2.x - uv0.x;
             if (std::abs(d1) > 0.5f && std::abs(d2) > 0.5f) {
@@ -158,6 +158,9 @@ struct TestIcosphereMesh {
                 add_vertex_w_uv(i * 3 + 2, uv2 + glm::vec2((d2 < 0.0f) ? 1.0f : -1.0f, 0.0f));
             }
         }
+
+		Vertices.shrink_to_fit();
+		Indices.shrink_to_fit();
 
         const VkBufferCreateInfo vbo_info{
             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -177,7 +180,7 @@ struct TestIcosphereMesh {
         };
 
         auto& rsrc_context = ResourceContext::Get();
-        VBO = rsrc_context.CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
+        VBO = rsrc_context.CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, "IcosphereTesterVBO");
 
         const VkBufferCreateInfo ebo_info{
             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -196,7 +199,7 @@ struct TestIcosphereMesh {
             0u, 0u, 0u
         };
 
-        EBO = rsrc_context.CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
+        EBO = rsrc_context.CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, "IcosphereTesterEBO");
 
     }
 
@@ -254,13 +257,13 @@ struct TestIcosphereMesh {
         case vtf_frame_data_t::render_type::Opaque:
             [[fallthrough]];
         case vtf_frame_data_t::render_type::OpaqueAndTransparent: // no transparent geometry for this test
-            binder.BindSingle(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, "Material");
+            binder->Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
             vkCmdBindIndexBuffer(cmd, (VkBuffer)EBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
             vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets_dummy);
             vkCmdDrawIndexed(cmd, static_cast<uint32_t>(Indices.size()), 1u, 0u, 0, 0u);
             break;
         default:
-            break; // break for rest
+            break; // break for rest, e.g transparents
         };
     }
 
@@ -276,6 +279,8 @@ struct TestIcosphereMesh {
     std::vector<uint32_t> Indices;
     std::vector<vertex_t> Vertices;
     MaterialParameters MaterialParams;
+	VkViewport viewport;
+	VkRect2D scissor;
 
 };
 
@@ -311,12 +316,22 @@ glm::vec3 HSV_to_RGB(float H, float S, float V) {
     return RGB + m;
 }
 
-static std::vector<glm::vec4> GenerateColors(uint32_t num_lights) {
+static std::vector<glm::u8vec4> GenerateColors(uint32_t num_lights) {
     std::vector<glm::vec4> colors(num_lights);
     for (auto& color : colors) {
         color = glm::vec4(HSV_to_RGB(glm::linearRand(0.0f, 360.0f), glm::linearRand(0.0f, 1.0f), 1.0f), 1.0f);
     }
-    return colors;
+	std::vector<glm::u8vec4> results(num_lights);
+	for (size_t i = 0; i < num_lights; ++i)
+	{
+		results[i] = glm::u8vec4{
+			static_cast<glm::u8>(colors[i].x * 255.0f),
+			static_cast<glm::u8>(colors[i].y * 255.0f),
+			static_cast<glm::u8>(colors[i].z * 255.0f),
+			static_cast<glm::u8>(255)
+		};
+	}
+    return results;
 }
 
 template<typename LightType>
@@ -381,6 +396,7 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     vprObjects = objects;
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
     CreateShaders(vtfShaders);
+	createIcosphereTester();
     GenerateLights();
     // now create frames
     std::vector<std::future<void>> setupFutures;
@@ -420,17 +436,16 @@ constexpr VkCommandBufferBeginInfo base_info{
 void VTF_Scene::update() {
     // compute updates
 	vtf_frame_data_t& curr_frame = *frames[activeFrame];
+	if (!frameSingleExecComputeWorkDone[activeFrame])
+	{
+		UpdateClusterGrid(curr_frame);
+	}
 	vkBeginCommandBuffer(curr_frame.computePool->GetCmdBuffer(0u), &base_info);
 	ComputeUpdateLights(curr_frame);
 	ComputeReduceLights(curr_frame);
 	ComputeMortonCodes(curr_frame);
 	SortMortonCodes(curr_frame);
 	BuildLightBVH(curr_frame);
-	if (!frameSingleExecComputeWorkDone[activeFrame])
-	{
-		UpdateClusterGrid(curr_frame);
-		ComputeClusterAABBs(curr_frame);
-	}
 	vkEndCommandBuffer(curr_frame.computePool->GetCmdBuffer(0u));
 	SubmitComputeWork(curr_frame);
 }
@@ -481,7 +496,7 @@ void VTF_Scene::present() {
 
 }
 
-VulkanResource* VTF_Scene::loadTexture(const char* file_path_str) {
+VulkanResource* VTF_Scene::loadTexture(const char* file_path_str, const char* image_name) {
     auto& rsrc_context = ResourceContext::Get();
     stbi_uc* pixels = nullptr;
     int x{ 0 };
@@ -546,7 +561,7 @@ VulkanResource* VTF_Scene::loadTexture(const char* file_path_str) {
         VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
     };
 
-    VulkanResource* result = rsrc_context.CreateImage(&img_create_info, &view_create_info, 1, &img_rsrc_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
+    VulkanResource* result = rsrc_context.CreateImage(&img_create_info, &view_create_info, 1, &img_rsrc_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, (void*)image_name);
     // we do it like this so we can safely free "pixels" before returning
     rsrc_context.Update();
     stbi_image_free(pixels);
@@ -557,7 +572,18 @@ void VTF_Scene::createIcosphereTester() {
     namespace fs = std::experimental::filesystem;
 
     icosphereTester = std::make_unique<TestIcosphereMesh>();
-    icosphereTester->CreateMesh(5u);
+    icosphereTester->CreateMesh(3u);
+
+	auto current_dims = vprObjects.swapchain->Extent();
+	icosphereTester->viewport.width = current_dims.width;
+	icosphereTester->viewport.height = current_dims.height;
+	icosphereTester->viewport.x = 0;
+	icosphereTester->viewport.y = 0;
+	icosphereTester->viewport.minDepth = 0.0f;
+	icosphereTester->viewport.maxDepth = 1.0f;
+	icosphereTester->scissor.extent = current_dims;
+	icosphereTester->scissor.offset.x = 0;
+	icosphereTester->scissor.offset.y = 0;
 
     const static fs::path prefix_path_to_textures{ "../../../../assets/textures/harsh_bricks" };
     if (!fs::exists(prefix_path_to_textures)) {
@@ -575,10 +601,10 @@ void VTF_Scene::createIcosphereTester() {
     const fs::path roughness_path = prefix_path_to_textures / fs::path("harshbricks-roughness.png");
     const std::string roughness_str = roughness_path.string();
 
-    icosphereTester->AlbedoTexture = loadTexture(albedo_str.c_str());
-    icosphereTester->AmbientOcclusionTexture = loadTexture(ao_str.c_str());
-    icosphereTester->NormalMap = loadTexture(normal_str.c_str());
-    icosphereTester->MetallicMap = loadTexture(metallic_str.c_str());
-    icosphereTester->RoughnessMap = loadTexture(roughness_str.c_str());
+    icosphereTester->AlbedoTexture = loadTexture(albedo_str.c_str(), "IcosphereTesterAlbedoTexture");
+    icosphereTester->AmbientOcclusionTexture = loadTexture(ao_str.c_str(), "IcosphereTesterAmbientOcclusionTexture");
+    icosphereTester->NormalMap = loadTexture(normal_str.c_str(), "IcosphereTesterNormalMap");
+    icosphereTester->MetallicMap = loadTexture(metallic_str.c_str(), "IcosphereTesterMetallicMap");
+    icosphereTester->RoughnessMap = loadTexture(roughness_str.c_str(), "IcosphereTesterRoughnessMap");
     
 }
