@@ -86,7 +86,8 @@ size_t Descriptor::BindingLocation(const char * rsrc_name) const {
 }
 
 VkDescriptorSet Descriptor::fetchNewSet() noexcept {
-    if (setContainerIdx == (availSets.size() - 1u)) {
+	// for single-set containers we need to just create a new pack now
+    if ((setContainerIdx == (availSets.size() - 1u)) || (maxSets == 1u)) {
         // expand capacity of spare sets
         std::lock_guard add_pool_guard(poolMutex);
         createPool();
