@@ -546,7 +546,7 @@ VulkanResource* ResourceContextImpl::createSampler(const VkSamplerCreateInfo* in
 	if (_flags & ResourceCreateUserDataAsString)
 	{
 		result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_SAMPLER, resource->Handle, VTF_DEBUG_OBJECT_NAME(reinterpret_cast<const char*>(user_data)));
-		VkAssert(result);
+		VkAssert
 	}
 
     return resource;

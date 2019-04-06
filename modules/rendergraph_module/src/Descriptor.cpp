@@ -58,24 +58,6 @@ void Descriptor::Reset() {
             result = vkFreeDescriptorSets(device->vkHandle(), curr_pool->vkHandle(), maxSets, curr_sets.data());
             VkAssert(result);
 
-			if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
-			{
-				static auto SetObjNameFn = device->DebugUtilsHandler().vkSetDebugUtilsObjectName;
-				const std::string base_name = name + std::string("_Pool") + std::to_string(descriptorPools.size()) + std::string("_Set");
-				for (size_t i = 0; i < curr_sets.size(); ++i)
-				{
-					std::string curr_name = base_name + std::to_string(i);
-					const VkDebugUtilsObjectNameInfoEXT name_info{
-						VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-						nullptr,
-						VK_OBJECT_TYPE_DESCRIPTOR_SET,
-						(uint64_t)curr_sets[i],
-						curr_name.c_str()
-					};
-					SetObjNameFn(device->vkHandle(), &name_info);
-				}
-			}
-
             usedSets.pop_back();
             descriptorPools.pop_back();
 
@@ -112,6 +94,7 @@ VkDescriptorSet Descriptor::fetchNewSet() noexcept {
 }
 
 void Descriptor::allocateSets() {
+
     const VkDescriptorSetAllocateInfo alloc_info{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
         nullptr,
@@ -119,9 +102,22 @@ void Descriptor::allocateSets() {
         maxSets,
         setLayouts.data()
     };
+
     availSets.resize(maxSets, VK_NULL_HANDLE);
     VkResult result = vkAllocateDescriptorSets(device->vkHandle(), &alloc_info, availSets.data());
     VkAssert(result);
+
+	if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+	{
+		const std::string base_name = name + std::string("_Pool") + std::to_string(descriptorPools.size()) + std::string("_Set");
+		for (size_t i = 0; i < availSets.size(); ++i)
+		{
+			std::string curr_name = base_name + std::to_string(i);
+			result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, (uint64_t)availSets[i], VTF_DEBUG_OBJECT_NAME(curr_name.c_str()));
+			VkAssert(result);
+		}
+	}
+
 }
 
 void Descriptor::createPool() {
@@ -129,19 +125,6 @@ void Descriptor::createPool() {
         usedSets.emplace_back(std::move(availSets));
     }
     descriptorPools.emplace_back(std::make_unique<vpr::DescriptorPool>(device->vkHandle(), maxSets));
-	if (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
-	{
-		const auto SetObjNameFnPtr = RenderingContext::Get().Device()->DebugUtilsHandler().vkSetDebugUtilsObjectName;
-		const std::string curr_name = name + std::string("_Num") + std::to_string(descriptorPools.size());
-		const VkDebugUtilsObjectNameInfoEXT name_info{
-			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-			nullptr,
-			VK_OBJECT_TYPE_DESCRIPTOR_POOL,
-			(uint64_t)descriptorPools.back()->vkHandle(),
-			curr_name.c_str()
-		};
-		SetObjNameFnPtr(device->vkHandle(), &name_info);
-	}
     activePool = descriptorPools.back().get();
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, typeCounts.UniformBuffers * maxSets);
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, typeCounts.UniformBuffersDynamic * maxSets);
@@ -154,5 +137,11 @@ void Descriptor::createPool() {
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, typeCounts.SampledImages * maxSets);
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, typeCounts.CombinedImageSamplers * maxSets);
     activePool->Create();
+	if (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+	{
+		const std::string curr_name = name + std::string("_Num") + std::to_string(descriptorPools.size());
+		VkResult result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, (uint64_t)descriptorPools.back()->vkHandle(), VTF_DEBUG_OBJECT_NAME(curr_name.c_str()));
+		VkAssert(result);
+	}
     allocateSets();
 }

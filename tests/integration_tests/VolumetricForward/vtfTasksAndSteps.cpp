@@ -155,14 +155,8 @@ void ComputePipelineCreationShim(vtf_frame_data_t& frame, const std::string& nam
 	VkAssert(result);
 	if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 	{
-		const VkDebugUtilsObjectNameInfoEXT name_info{
-			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-			nullptr,
-			VK_OBJECT_TYPE_PIPELINE,
-			(uint64_t)frame.computePipelines.at(name).Handle,
-			name.c_str()
-		};
-		frame.vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+		result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.computePipelines.at(name).Handle, VTF_DEBUG_OBJECT_NAME(name.c_str()));
+		VkAssert(result);
 	}
 }
 
@@ -227,19 +221,12 @@ void CreateShaders(const st::ShaderPack* pack) {
             std::vector<uint32_t> binary_data(binary_sz);
             curr_shader->GetShaderBinary(stage, &binary_sz, binary_data.data());
             auto iter = vtf_frame_data_t::shaderModules.emplace(stage, std::make_unique<vpr::ShaderModule>(device->vkHandle(), stage.GetStage(), binary_data.data(), static_cast<uint32_t>(binary_data.size() * sizeof(uint32_t))));
-			assert(iter.second);
             vtf_frame_data_t::groupStages[name].emplace_back(stage);
 			if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 			{
 				const std::string shader_stage_name{ ShaderStringWithStage(name, stage.GetStage()) };
-				const VkDebugUtilsObjectNameInfoEXT name_info{
-					VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-					nullptr,
-					VK_OBJECT_TYPE_SHADER_MODULE,
-					(uint64_t)iter.first->second->vkHandle(),
-					shader_stage_name.c_str()
-				};
-				debug_fns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+				VkResult result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_SHADER_MODULE, (uint64_t)iter.first->second->vkHandle(), VTF_DEBUG_OBJECT_NAME(shader_stage_name.c_str()));
+				VkAssert(result);
 			}
         }
 
@@ -248,14 +235,9 @@ void CreateShaders(const st::ShaderPack* pack) {
 		assert(iter.second);
 		if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 		{
-			const VkDebugUtilsObjectNameInfoEXT name_info{
-				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-				nullptr,
-				VK_OBJECT_TYPE_PIPELINE_CACHE,
-				(uint64_t)iter.first->second->vkHandle(),
-				name.c_str()
-			};
-			debug_fns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+			const std::string pipeline_cache_name = name + std::string("_PipelineCache");
+			VkResult result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE_CACHE, (uint64_t)iter.first->second->vkHandle(), VTF_DEBUG_OBJECT_NAME(pipeline_cache_name.c_str()));
+			VkAssert(result);
 		}
 
     }
@@ -1056,7 +1038,7 @@ void createMortonCodePipeline(vtf_frame_data_t& frame) {
         -1
     };
 
-	ComputePipelineCreationShim(frame, "ComputeMortonCodes", &pipeline_info, groupName);
+	ComputePipelineCreationShim(frame, "ComputeLightMortonCodesPipeline", &pipeline_info, groupName);
 
 }
 
@@ -1077,7 +1059,7 @@ void createRadixSortPipeline(vtf_frame_data_t& frame) {
         -1
     };
 
-	ComputePipelineCreationShim(frame, "RadixSortOrMortonSort", &pipeline_info, groupName);
+	ComputePipelineCreationShim(frame, "SortMortonCodes", &pipeline_info, groupName);
 
 }
 
@@ -1576,14 +1558,8 @@ void createDrawFrameBuffer(vtf_frame_data_t & frame) {
 
 	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
 	{
-		const VkDebugUtilsObjectNameInfoEXT object_name{
-			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-			nullptr,
-			VK_OBJECT_TYPE_FRAMEBUFFER,
-			reinterpret_cast<uint64_t>(frame.drawFramebuffer->vkHandle()),
-			"DrawFramebuffer"
-		};
-		frame.vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &object_name);
+		VkResult result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_FRAMEBUFFER, (uint64_t)frame.drawFramebuffer->vkHandle(), VTF_DEBUG_OBJECT_NAME("DrawFramebuffer"));
+		VkAssert(result);
 	}
     
 }
@@ -2081,7 +2057,7 @@ void SortMortonCodes(vtf_frame_data_t& frame) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     // bind radix sort pipeline now
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["RadixSortPipeline"].Handle);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["SortMortonCodes"].Handle);
 
     if (frame.LightCounts.NumPointLights > 0u) {
 
