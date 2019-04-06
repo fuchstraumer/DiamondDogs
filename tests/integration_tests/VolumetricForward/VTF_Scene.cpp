@@ -201,54 +201,56 @@ struct TestIcosphereMesh {
 
         EBO = rsrc_context.CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, "IcosphereTesterEBO");
 
+		// any values left that are also read from texture use this UBOs quantity
+		// as a base "multiplier", in effect. setting it to 1.0 should leave it
+		// at the intended power I believe
+		MaterialParams.ambientOcclusion = 1.0f;
+
+		constexpr static VkBufferCreateInfo material_params_info{
+			VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+			nullptr,
+			0,
+			sizeof(MaterialParameters),
+			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			VK_SHARING_MODE_EXCLUSIVE,
+			0u,
+			nullptr
+		};
+
+		const gpu_resource_data_t material_params_data{
+			&MaterialParams,
+			sizeof(MaterialParameters),
+			0u, 0u, 0u
+		};
+
+		vkMaterialParams = rsrc_context.CreateBuffer(&material_params_info, nullptr, 1u, &material_params_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, 
+			"IcosphereTesterMaterialParams");
     }
 
-    void BindTextures(Descriptor& descr) {
+    void BindTextures(Descriptor* descr) {
 
         auto& rsrc_context = ResourceContext::Get();
-        const size_t albedo_loc = descr.BindingLocation("AlbedoMap");
-        const size_t normal_loc = descr.BindingLocation("NormalMap");
-        const size_t ao_loc = descr.BindingLocation("AmbientOcclusionMap");
-        const size_t metallic_loc = descr.BindingLocation("MetallicMap");
-        const size_t roughness_loc = descr.BindingLocation("RoughnessMap");
-        const size_t height_loc = descr.BindingLocation("HeightMap");
-        const size_t params_loc = descr.BindingLocation("MaterialParameters");
+        const size_t albedo_loc = descr->BindingLocation("AlbedoMap");
+        const size_t normal_loc = descr->BindingLocation("NormalMap");
+        const size_t ao_loc = descr->BindingLocation("AmbientOcclusionMap");
+        const size_t metallic_loc = descr->BindingLocation("MetallicMap");
+        const size_t roughness_loc = descr->BindingLocation("RoughnessMap");
+        const size_t params_loc = descr->BindingLocation("MaterialParameters");
         
-        descr.BindResourceToIdx(albedo_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, AlbedoTexture);
-        descr.BindResourceToIdx(normal_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, NormalMap);
-        descr.BindResourceToIdx(ao_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, AmbientOcclusionTexture);
-        descr.BindResourceToIdx(metallic_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, MetallicMap);
-        descr.BindResourceToIdx(roughness_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, RoughnessMap);
-        descr.BindResourceToIdx(height_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, HeightMap);
-
-        // any values left that are also read from texture use this UBOs quantity
-        // as a base "multiplier", in effect. setting it to 1.0 should leave it
-        // at the intended power I believe
-        MaterialParams.ambientOcclusion = 1.0f;
-
-        constexpr static VkBufferCreateInfo material_params_info{
-            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            nullptr,
-            0,
-            sizeof(MaterialParameters),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_SHARING_MODE_EXCLUSIVE,
-            0u,
-            nullptr
-        };
-
-        const gpu_resource_data_t material_params_data {
-            &MaterialParams,
-            sizeof(MaterialParameters),
-            0u, 0u, 0u
-        };
-
-        vkMaterialParams = rsrc_context.CreateBuffer(&material_params_info, nullptr, 1u, &material_params_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation, nullptr);
-        descr.BindResourceToIdx(params_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, vkMaterialParams);
+        descr->BindResourceToIdx(albedo_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, AlbedoTexture);
+        descr->BindResourceToIdx(normal_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, NormalMap);
+        descr->BindResourceToIdx(ao_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, AmbientOcclusionTexture);
+        descr->BindResourceToIdx(metallic_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, MetallicMap);
+        descr->BindResourceToIdx(roughness_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, RoughnessMap);
+        descr->BindResourceToIdx(params_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, vkMaterialParams);
 
     }
 
-    void Render(VkCommandBuffer cmd, DescriptorBinder& binder, vtf_frame_data_t::render_type render_type) {
+    void Render(VkCommandBuffer cmd, DescriptorBinder* binder, vtf_frame_data_t::render_type render_type)
+	{
+
+		vkCmdSetViewport(cmd, 0u, 1u, &viewport);
+		vkCmdSetScissor(cmd, 0u, 1u, &scissor);
 
         constexpr static VkDeviceSize offsets_dummy[1]{ 0u };
         const VkBuffer buffers[1]{ (VkBuffer)VBO->Handle };
@@ -385,6 +387,9 @@ void GenerateLights() {
     SceneLightsState().PointLights = std::move(GenerateLights<PointLight>(SceneConfig.NumPointLights));
     SceneLightsState().SpotLights = std::move(GenerateLights<SpotLight>(SceneConfig.NumSpotLights));
     SceneLightsState().DirectionalLights = std::move(GenerateLights<DirectionalLight>(SceneConfig.NumDirectionalLights));
+	uint32_t x, y, z;
+	CalculateGridDims(x, y, z);
+	SceneLightsState().ClusterColors = std::move(GenerateColors(x * y * z));
 }
 
 VTF_Scene& VTF_Scene::Get() {
@@ -405,8 +410,13 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     frames.reserve(img_count); // this should avoid invalidating pointers (god i hope)
 	frameSingleExecComputeWorkDone.resize(img_count, false);
 
+	vtf_frame_data_t::obj_render_fn_t render_fn = std::bind(&TestIcosphereMesh::Render, icosphereTester.get(), std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+	vtf_frame_data_t::binder_fn_t binder_fn = std::bind(&TestIcosphereMesh::BindTextures, icosphereTester.get(), std::placeholders::_1);
+
     for (uint32_t i = 0; i < img_count; ++i) {
         frames.emplace_back(std::make_unique<vtf_frame_data_t>());
+		frames[i]->renderFns.emplace_back(render_fn);
+		frames[i]->bindFns.emplace_back(binder_fn);
         setupFutures.emplace_back(std::async(std::launch::async, FullFrameSetup, frames[i].get()));
     }
 
@@ -414,11 +424,19 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
         fut.get(); // even if we block for one the rest should still be running
     }
 
-
 	auto& resource_context = ResourceContext::Get();
 	resource_context.WriteMemoryStatsFile("MemoryStats.json");
+
+	for (uint32_t i = 0; i < img_count; ++i)
+	{
+		auto* descr = frames[i]->descriptorPack->RetrieveDescriptor("Material");
+		for (uint32_t j = 0; j < frames[i]->bindFns.size(); ++j)
+		{
+			frames[i]->bindFns[j](descr);
+		}
+	}
+
     std::cerr << "Setup Complete\n";
-	// need to ensure this is enabled currently, so we can see debug stats
 }
 
 void VTF_Scene::Destroy() {

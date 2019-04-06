@@ -41,7 +41,6 @@ private:
 
     void updateGlobalUBOs();
     void update() final;
-    void submitComputeUpdates();
     void recordCommands() final;
     void draw() final;
     void endFrame() final;
@@ -49,7 +48,7 @@ private:
     void present() final;
 
 
-    VulkanResource* loadTexture(const char * file_path_str);
+    VulkanResource* loadTexture(const char * file_path_str, const char* img_name);
 
     void createIcosphereTester();
 
