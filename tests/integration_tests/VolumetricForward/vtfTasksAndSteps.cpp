@@ -929,6 +929,24 @@ void setupCommandPools(vtf_frame_data_t& frame)
 	frame.graphicsPool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
 	frame.graphicsPool->AllocateCmdBuffers(4u, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 	frame.vkDebugFns = device->DebugUtilsHandler();
+
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		static const std::string compute_pool_name{ "ComputePool" };
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)frame.computePool->vkHandle(), compute_pool_name.c_str());
+		for (size_t i = 0u; i < frame.computePool->size(); ++i)
+		{
+			std::string compute_buffer_name = compute_pool_name + std::string("_CmdBuffer") + std::to_string(i);
+			RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)frame.computePool->GetCmdBuffer(i), compute_buffer_name.c_str());
+		}
+		static const std::string graphics_pool_name{ "GraphicsPool" };
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)frame.graphicsPool->vkHandle(), graphics_pool_name.c_str());
+		for (size_t i = 0u; i < frame.graphicsPool->size(); ++i)
+		{
+			std::string graphics_buffer_name = graphics_pool_name + std::string("_CmdBuffer") + std::to_string(i);
+			RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)frame.graphicsPool->GetCmdBuffer(i), graphics_buffer_name.c_str());
+		}
+	}
 }
 
 void createDebugResources(vtf_frame_data_t& frame)
