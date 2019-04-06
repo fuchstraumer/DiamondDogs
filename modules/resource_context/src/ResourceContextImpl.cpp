@@ -349,11 +349,14 @@ VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info
         reinterpret_cast<VkBuffer*>(&resource->Handle), alloc, alloc_info);
     VkAssert(result);
 
-	if (_flags & ResourceCreateUserDataAsString)
+	if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 	{
-		const std::string object_name{ reinterpret_cast<const char*>(user_data) };
-		result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, resource->Handle, VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
-		VkAssert(result);
+		if (_flags & ResourceCreateUserDataAsString)
+		{
+			const std::string object_name{ reinterpret_cast<const char*>(user_data) };
+			result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, resource->Handle, VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
+			VkAssert(result);
+		}
 	}
 
     if (view_info)
@@ -361,13 +364,15 @@ VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info
         local_view_info->buffer = (VkBuffer)resource->Handle;
         result = vkCreateBufferView(device->vkHandle(), local_view_info, nullptr, reinterpret_cast<VkBufferView*>(&resource->ViewHandle));
         VkAssert(result);
-		if (_flags & ResourceCreateUserDataAsString)
+		if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 		{
-			const std::string object_view_name = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
-			result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER_VIEW, resource->ViewHandle, VTF_DEBUG_OBJECT_NAME(object_view_name.c_str()));
-			VkAssert(result);
+			if (_flags & ResourceCreateUserDataAsString)
+			{
+				const std::string object_view_name = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
+				result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER_VIEW, resource->ViewHandle, VTF_DEBUG_OBJECT_NAME(object_view_name.c_str()));
+				VkAssert(result);
+			}
 		}
-		
     }
 
     if (initial_data)
