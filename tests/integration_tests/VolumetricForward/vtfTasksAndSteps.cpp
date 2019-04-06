@@ -1233,6 +1233,27 @@ void createIndirectArgsPipeline(vtf_frame_data_t& frame) {
 
 }
 
+void createAssignLightsPipeline(vtf_frame_data_t& frame)
+{
+	auto* device = RenderingContext::Get().Device();
+	const static std::string groupName{ "AssignLightsToClusters" };
+	const st::Shader* shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
+	const st::ShaderStage& shader_stage = vtf_frame_data_t::groupStages.at(groupName).front();
+
+	const VkComputePipelineCreateInfo pipeline_info{
+		VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+		nullptr,
+		0,
+		vtf_frame_data_t::shaderModules.at(shader_stage)->PipelineInfo(),
+		frame.descriptorPack->PipelineLayout(groupName),
+		VK_NULL_HANDLE,
+		-1
+	};
+
+	ComputePipelineCreationShim(frame, "AssignLightsToClustersPipeline", &pipeline_info, groupName);
+
+}
+
 void createMergeSortPipelines(vtf_frame_data_t& frame) {
 
     auto* device = RenderingContext::Get().Device();
@@ -1330,6 +1351,7 @@ void CreateComputePipelines(vtf_frame_data_t& frame) {
     createBVH_Pipelines(frame);
     createComputeClusterAABBsPipeline(frame);
     createIndirectArgsPipeline(frame);
+	createAssignLightsPipeline(frame);
     createMergeSortPipelines(frame);
 	createFindUniqueClustersPipeline(frame);
 }
