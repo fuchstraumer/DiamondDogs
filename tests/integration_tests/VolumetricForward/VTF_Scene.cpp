@@ -400,6 +400,12 @@ VTF_Scene& VTF_Scene::Get() {
 void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     vprObjects = objects;
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
+
+	auto& camera = PerspectiveCamera::Get();
+	glm::vec3 position{ 0.0f, 10.0f, -10.0f };
+	glm::vec3 look_dir = glm::vec3(0.0f) - position;
+	camera.LookAt(look_dir, glm::vec3(0.0f, 1.0f, 0.0f), position);
+
     CreateShaders(vtfShaders);
 	createIcosphereTester();
     GenerateLights();
@@ -451,12 +457,54 @@ constexpr VkCommandBufferBeginInfo base_info{
 	VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT
 };
 
+void VTF_Scene::updateGlobalUBOs() {
+	//auto& imgui_io = ImGui::GetIO();
+	auto& extent = vprObjects.swapchain->Extent();
+	auto& curr_frame = *frames[activeFrame];
+	auto& camera = PerspectiveCamera::Get();
+	auto& resource_context = ResourceContext::Get();
+
+	curr_frame.Matrices.projection = camera.ProjectionMatrix();
+	curr_frame.Matrices.view = camera.ViewMatrix();
+	curr_frame.Matrices.inverseView = glm::inverse(curr_frame.Matrices.view);
+	curr_frame.Matrices.model = glm::mat4(1.0f);
+	VulkanResource* matrices_rsrc = curr_frame.rsrcMap.at("matrices");
+	const gpu_resource_data_t matrices_update{
+		&curr_frame.Matrices, sizeof(curr_frame.Matrices), 0u, 0u, 0u
+	};
+	resource_context.SetBufferData(matrices_rsrc, 1u, &matrices_update);
+
+	curr_frame.Globals.depthRange.x = 0.001f;
+	curr_frame.Globals.depthRange.y = 3000.0f;
+	curr_frame.Globals.frame++;
+	curr_frame.Globals.viewPosition = glm::vec4(camera.Position(), 1.0f);
+	curr_frame.Globals.windowSize.x = static_cast<float>(extent.width);
+	curr_frame.Globals.windowSize.y = static_cast<float>(extent.height);
+	//curr_frame.Globals.mousePosition.x = imgui_io.MousePos.x;
+	//curr_frame.Globals.mousePosition.y = imgui_io.MousePos.y;
+	VulkanResource* globals_rsrc = curr_frame.rsrcMap.at("globals");
+	const gpu_resource_data_t globals_update{
+		&curr_frame.Globals, sizeof(curr_frame.Globals), 0u, 0u, 0u
+	};
+	resource_context.SetBufferData(globals_rsrc, 1u, &globals_update);
+	
+	VulkanResource* cluster_data_rsrc = curr_frame.rsrcMap.at("ClusterData");
+	const gpu_resource_data_t cluster_update{
+		&curr_frame.ClusterData, sizeof(curr_frame.ClusterData), 0u, 0u, 0u
+	};
+	resource_context.SetBufferData(cluster_data_rsrc, 1u, &cluster_update);
+
+	resource_context.Update();
+}
+
 void VTF_Scene::update() {
+	updateGlobalUBOs();
     // compute updates
 	vtf_frame_data_t& curr_frame = *frames[activeFrame];
 	if (!frameSingleExecComputeWorkDone[activeFrame])
 	{
 		UpdateClusterGrid(curr_frame);
+		frameSingleExecComputeWorkDone[activeFrame] = true;
 	}
 	vkBeginCommandBuffer(curr_frame.computePool->GetCmdBuffer(0u), &base_info);
 	ComputeUpdateLights(curr_frame);
