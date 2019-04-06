@@ -7,7 +7,9 @@
 
 Descriptor::Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ, std::unordered_map<std::string, size_t>&& binding_locs,
 	const char* _name) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), bindingLocations{ std::move(binding_locs) }, typeCounts{ rsrc_counts },
-	name{ _name } {}
+	name{ _name } {
+	createPool();
+}
 
 Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate * _templ, std::unordered_map<std::string, size_t>&& binding_locations) : device{ _device }, maxSets{ uint32_t(max_sets) },
     templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), bindingLocations{ std::move(binding_locations) }, typeCounts{ rsrc_counts } {
@@ -109,7 +111,7 @@ void Descriptor::allocateSets() {
 
 	if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 	{
-		const std::string base_name = name + std::string("_Pool") + std::to_string(descriptorPools.size()) + std::string("_Set");
+		const std::string base_name = name + std::string("_Pool") + std::to_string(descriptorPools.size()) + std::string("_DescriptorSet");
 		for (size_t i = 0; i < availSets.size(); ++i)
 		{
 			std::string curr_name = base_name + std::to_string(i);
@@ -139,7 +141,7 @@ void Descriptor::createPool() {
     activePool->Create();
 	if (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 	{
-		const std::string curr_name = name + std::string("_Num") + std::to_string(descriptorPools.size());
+		const std::string curr_name = name + std::string("_DescriptorPool_Num") + std::to_string(descriptorPools.size());
 		VkResult result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, (uint64_t)descriptorPools.back()->vkHandle(), VTF_DEBUG_OBJECT_NAME(curr_name.c_str()));
 		VkAssert(result);
 	}

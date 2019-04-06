@@ -183,5 +183,12 @@ std::unique_ptr<Descriptor> DescriptorPack::createDescriptor(const std::string &
     const vpr::Device* device_ptr = RenderingContext::Get().Device();
     const size_t idx = iter->second;
 
-    return std::make_unique<Descriptor>(device_ptr, resourceGroups[idx]->DescriptorCounts(), rsrcGroupUseFrequency[idx], descriptorTemplates[idx].get(), std::move(binding_locs));
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		return std::make_unique<Descriptor>(device_ptr, resourceGroups[idx]->DescriptorCounts(), rsrcGroupUseFrequency[idx], descriptorTemplates[idx].get(), std::move(binding_locs), rsrc_group_name.c_str());
+	}
+	else
+	{
+		return std::make_unique<Descriptor>(device_ptr, resourceGroups[idx]->DescriptorCounts(), rsrcGroupUseFrequency[idx], descriptorTemplates[idx].get(), std::move(binding_locs));
+	}
 }
