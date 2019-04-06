@@ -12,6 +12,8 @@
 #include <unordered_map>
 #include <string>
 #include <memory>
+#include <forward_list>
+#include <functional>
 
 struct VulkanResource;
 class DescriptorPack;
@@ -84,7 +86,8 @@ public:
         { "DepthPrePassImage", nullptr },
         { "ClusterSamplesImage", nullptr },
         { "DepthRenderTargetImage", nullptr },
-        { "DrawMultisampleImage", nullptr }
+        { "DrawMultisampleImage", nullptr },
+		{ "DebugClusterColors", nullptr }
     };
 
     enum class render_type {
@@ -96,9 +99,10 @@ public:
         Shadow = 4
     };
 
-    using obj_render_fn_t = delegate_t<void(VkCommandBuffer cmd, DescriptorBinder* binder, render_type type)>;
-    multicast_delegate_t<void(VkCommandBuffer cmd, DescriptorBinder* binder, render_type type)> renderFns;
-    multicast_delegate_t<void(VkCommandBuffer cmd)> guiLayerRenderFns;
+    using obj_render_fn_t = std::function<void(VkCommandBuffer cmd, DescriptorBinder* binder, render_type type)>;
+	std::vector<obj_render_fn_t> renderFns;
+	using binder_fn_t = std::function<void(Descriptor* descr)>;
+	std::vector<binder_fn_t> bindFns;
 
 	std::vector<VulkanResource*> transientResources;
     std::unordered_map<std::string, ComputePipelineState> computePipelines;

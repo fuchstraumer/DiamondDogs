@@ -9,14 +9,15 @@
 #include "glm/gtc/matrix_transform.hpp"
 #include <vector>
 #include <vulkan/vulkan.h>
+#include "glm/gtc/type_precision.hpp"
 
 struct SceneConfig_t {
     bool EnableMSAA{ true };
     VkSampleCountFlagBits MSAA_SampleCount{ VK_SAMPLE_COUNT_4_BIT };
     float AnisotropyAmount{ 16.0f };
     uint32_t MaxLights{ 2048u };
-    uint32_t NumPointLights{ 256u };
-    uint32_t NumSpotLights{ 64u };
+    uint32_t NumPointLights{ 1024u };
+    uint32_t NumSpotLights{ 256u };
     uint32_t NumDirectionalLights{ 1u };
     glm::vec3 LightsMinBounds{ -100.0f,-100.0f,-100.0f };
     glm::vec3 LightsMaxBounds{ 100.0f, 100.0f, 100.0f };
@@ -73,6 +74,7 @@ struct SceneState_t {
     std::vector<PointLight> PointLights;
     std::vector<SpotLight> SpotLights;
     std::vector<DirectionalLight> DirectionalLights;
+	std::vector<glm::u8vec4> ClusterColors;
 };
 
 static SceneState_t& SceneLightsState() {
