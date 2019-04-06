@@ -88,6 +88,7 @@ void UpdateTemplateData::bindBufferDescriptor(const size_t idx, VkDescriptorType
 void UpdateTemplateData::bindImageDescriptor(const size_t idx, VkDescriptorType type, VulkanResource* rsrc) {
     if (idx < rawEntries.size()) {
         auto& raw_entry = rawEntries[idx];
+		raw_entry.ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         if (type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
             raw_entry.ImageInfo.imageView = (VkImageView)rsrc->ViewHandle;
             raw_entry.ImageInfo.sampler = (VkSampler)rsrc->Sampler;
