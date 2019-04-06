@@ -216,10 +216,6 @@ bool RenderingContext::ShouldResizeExchange(bool value) {
     return GetShouldResizeFlag().exchange(value);
 }
 
-bool RenderingContext::ValidationEnabled() noexcept {
-    return validationEnabled;
-}
-
 void RenderingContext::Construct(const char* file_path) {
     
     std::ifstream input_file(file_path);

@@ -8,6 +8,19 @@
 #include <functional>
 #include "vulkan/vulkan.h"
 
+#ifdef VTF_DEBUG_INFO_DISABLE
+constexpr static bool VTF_USE_DEBUG_INFO = false;
+#else
+constexpr static bool VTF_USE_DEBUG_INFO = true;
+#endif
+
+#define VTF_VALIDATION_ENABLED_CONF
+#ifdef VTF_VALIDATION_ENABLED_CONF
+constexpr static bool VTF_VALIDATION_ENABLED = true;
+#else
+constexpr static bool VTF_VALIDATION_ENABLED = false;
+#endif
+
 namespace vpr {
     class Instance;
     class PhysicalDevice;
@@ -45,7 +58,6 @@ public:
     static RenderingContext& Get() noexcept;
     static void SetShouldResize(const bool val);
     static bool ShouldResizeExchange(const bool val);
-    static bool ValidationEnabled() noexcept;
 
     void Construct(const char* cfg_file_path);
     void Update();

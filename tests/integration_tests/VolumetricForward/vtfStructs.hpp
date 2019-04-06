@@ -10,12 +10,6 @@
 #include <vector>
 #include <vulkan/vulkan.h>
 
-#ifdef VTF_DEBUG_INFO_DISABLE
-constexpr static bool VTF_USE_DEBUG_INFO = false;
-#else
-constexpr static bool VTF_USE_DEBUG_INFO = true;
-#endif
-
 struct SceneConfig_t {
     bool EnableMSAA{ true };
     VkSampleCountFlagBits MSAA_SampleCount{ VK_SAMPLE_COUNT_4_BIT };
