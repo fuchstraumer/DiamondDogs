@@ -9,6 +9,8 @@ struct PerspectiveCamera {
 
     static PerspectiveCamera& Get();
 
+	void LookAt(const glm::vec3& dir, const glm::vec3& up, const glm::vec3& position);
+
     float FarPlane() const noexcept;
     float NearPlane() const noexcept;
     float FOV() const noexcept;

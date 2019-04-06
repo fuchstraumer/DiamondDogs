@@ -69,6 +69,13 @@ PerspectiveCamera& PerspectiveCamera::Get() {
     return camera;
 }
 
+void PerspectiveCamera::LookAt(const glm::vec3& dir, const glm::vec3& up, const glm::vec3& _position)
+{
+	orientation = look_at(dir, up);
+	position = _position;
+	viewUpdated = false;
+}
+
 float PerspectiveCamera::FarPlane() const noexcept {
     return zFar;
 }
