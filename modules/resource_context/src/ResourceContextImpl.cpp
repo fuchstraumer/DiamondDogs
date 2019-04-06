@@ -787,7 +787,7 @@ void ResourceContextImpl::createImageResourceCopy(VulkanResource * src, VulkanRe
 void ResourceContextImpl::createSamplerResourceCopy(VulkanResource * src, VulkanResource** dst)
 {
     const VkSamplerCreateInfo* sampler_info = reinterpret_cast<const VkSamplerCreateInfo*>(src->Info);
-    *dst = createSampler(sampler_info, nullptr);
+    *dst = createSampler(sampler_info, resource_creation_flags(), nullptr);
 }
 
 void ResourceContextImpl::createCombinedImageSamplerResourceCopy(VulkanResource* src, VulkanResource** dest)

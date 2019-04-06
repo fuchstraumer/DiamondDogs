@@ -72,7 +72,7 @@ VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateI
 {
     VulkanResource* resource = CreateImage(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
     resource->Type = resource_type::COMBINED_IMAGE_SAMPLER;
-    resource->Sampler = CreateSampler(sampler_info);
+    resource->Sampler = CreateSampler(sampler_info, _flags, user_data);
     return resource;
 }
 
