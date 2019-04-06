@@ -1707,7 +1707,7 @@ void ComputeUpdateLights(vtf_frame_data_t& frame) {
     frame.LightCounts.NumPointLights = static_cast<uint32_t>(SceneLightsState().PointLights.size());
     frame.LightCounts.NumSpotLights = static_cast<uint32_t>(SceneLightsState().SpotLights.size());
     frame.LightCounts.NumDirectionalLights = static_cast<uint32_t>(SceneLightsState().DirectionalLights.size());
-    VulkanResource* light_counts_buffer = frame.rsrcMap["lightCounts"];
+    VulkanResource* light_counts_buffer = frame.rsrcMap["LightCounts"];
     const gpu_resource_data_t lcb_update{
         &frame.LightCounts,
         sizeof(LightCountsData)
@@ -1721,6 +1721,7 @@ void ComputeUpdateLights(vtf_frame_data_t& frame) {
     }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["UpdateLightsPipeline"].Handle);
     auto& binder = frame.GetBinder("UpdateLights");
+	binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     uint32_t num_groups_x = glm::max(frame.LightCounts.NumPointLights, glm::max(frame.LightCounts.NumDirectionalLights, frame.LightCounts.NumSpotLights));
     num_groups_x = static_cast<uint32_t>(glm::ceil(num_groups_x / 1024.0f));
@@ -1750,7 +1751,7 @@ void ComputeReduceLights(vtf_frame_data_t& frame) {
         nullptr,
         0,
         sizeof(DispatchParams_t),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VK_SHARING_MODE_EXCLUSIVE,
         0,
         nullptr
@@ -1773,7 +1774,7 @@ void ComputeReduceLights(vtf_frame_data_t& frame) {
         dispatch_params0 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams0");
     }
 
-    auto& binder0 = frame.GetBinder("ReduceLights0");
+    auto& binder0 = frame.GetBinder("ReduceLights");
     binder0.BindResourceToIdx("SortResources", dispatch_params_idx, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, dispatch_params0);
     binder0.Update();
 
@@ -1796,10 +1797,10 @@ void ComputeReduceLights(vtf_frame_data_t& frame) {
     else {
         dispatch_params1 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams1");
     }
-    auto& binder1 = frame.GetBinder("ReduceLights1");
+    auto& binder1 = frame.GetBinder("ReduceLights");
     binder1.BindResourceToIdx("SortResources", dispatch_params_idx, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, dispatch_params1);
     binder1.Update();
-    binder1.BindSingle(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, "SortResources");
+    binder1.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("ReduceLightsAABB1").Handle);
     vkCmdDispatch(cmd, 1u, 1u, 1u);
     if (RenderingContext::ValidationEnabled()) {
@@ -1884,6 +1885,7 @@ void ComputeMortonCodes(vtf_frame_data_t& frame) {
     if (RenderingContext::ValidationEnabled()) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
+	binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["ComputeLightMortonCodesPipeline"].Handle);
     uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(glm::max(frame.LightCounts.NumPointLights, frame.LightCounts.NumSpotLights) / 1024.0f));
@@ -1919,7 +1921,7 @@ void SortMortonCodes(vtf_frame_data_t& frame) {
 
     auto& rsrc = ResourceContext::Get();
     auto cmd = frame.computePool->GetCmdBuffer(0);
-    auto binder = frame.descriptorPack->RetrieveBinder("ComputeMortonCodes");
+    auto binder = frame.descriptorPack->RetrieveBinder("RadixSort");
 
     auto& pointLightIndices = frame.rsrcMap["PointLightIndices"];
     auto& spotLightIndices = frame.rsrcMap["SpotLightIndices"];
@@ -2045,7 +2047,7 @@ void SortMortonCodes(vtf_frame_data_t& frame) {
         binder.Update();
 
         // re-bind, but only the single mutated set
-        binder.BindSingle(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, "MergeSortResources");
+        binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
 
         uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(float(frame.LightCounts.NumSpotLights) / float(SORT_NUM_THREADS_PER_THREAD_GROUP)));
         vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
@@ -2768,7 +2770,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
     SortParams params;
 
     // Create a new mergePathPartitions for this invocation.
-    VulkanResource* merge_path_partitions{ nullptr };
+    VulkanResource* merge_path_partitions = CreateMergePathPartitions(frame);
     VulkanResource* sort_params_rsrc{ nullptr };
 
     const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
@@ -2776,16 +2778,17 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
     uint32_t num_chunks = static_cast<uint32_t>(glm::ceil(total_values / static_cast<float>(chunk_size)));
     uint32_t pass = 0;
 
-    Descriptor* descriptor = frame.descriptorPack->RetrieveDescriptor("MergeSort");
+    Descriptor* descriptor = frame.descriptorPack->RetrieveDescriptor("MergeSortResources");
     const size_t merge_pp_loc = descriptor->BindingLocation("MergePathPartitions");
-    const size_t sort_params_loc = descriptor->BindingLocation("SortParams");
+    const size_t sort_params_loc = frame.descriptorPack->RetrieveDescriptor("SortResources")->BindingLocation("SortParams");
     const size_t input_keys_loc = descriptor->BindingLocation("InputKeys");
     const size_t output_keys_loc = descriptor->BindingLocation("OutputKeys");
     const size_t input_values_loc = descriptor->BindingLocation("InputValues");
     const size_t output_values_loc = descriptor->BindingLocation("OutputValues");
 
-    dscr_binder.BindResourceToIdx("MergeSort", merge_pp_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, merge_path_partitions);
-    dscr_binder.BindResourceToIdx("MergeSort", sort_params_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, sort_params_rsrc);
+    dscr_binder.BindResourceToIdx("MergeSortResources", merge_pp_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, merge_path_partitions);
+
+    dscr_binder.BindResourceToIdx("SortResources", sort_params_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, sort_params_rsrc);
     dscr_binder.Update();
 
     std::array<VkBufferMemoryBarrier, 5> merge_sort_barriers {
@@ -2865,13 +2868,23 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
         uint32_t num_sort_groups = num_chunks / 2u;
         uint32_t num_thread_groups_per_sort_group = static_cast<uint32_t>(glm::ceil((chunk_size * 2) / static_cast<float>(num_values_per_thread_group)));
 
-        dscr_binder.BindResourceToIdx("MergeSort", input_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, src_keys);
-        dscr_binder.BindResourceToIdx("MergeSort", output_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, dst_keys);
-        dscr_binder.BindResourceToIdx("MergeSort", input_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, src_values);
-        dscr_binder.BindResourceToIdx("MergeSort", output_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, dst_values);
+        dscr_binder.BindResourceToIdx("MergeSortResources", input_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, src_keys);
+        dscr_binder.BindResourceToIdx("MergeSortResources", output_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, dst_keys);
+        dscr_binder.BindResourceToIdx("MergeSortResources", input_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, src_values);
+        dscr_binder.BindResourceToIdx("MergeSortResources", output_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, dst_values);
         dscr_binder.Update(); // makes sure bindings are actually proper before binding
 
         {
+			constexpr static VkDebugUtilsLabelEXT debug_label_mpp {
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+				nullptr,
+				"MergePathPartitions",
+				{ 66.0f / 255.0f, 244.0f / 255.0f, 72.0f / 255.0f, 1.0f } // green, distinct from rest
+			};
+
+			if (RenderingContext::ValidationEnabled()) {
+				frame.vkDebugFns.vkCmdInsertDebugUtilsLabel(cmd, &debug_label_mpp);
+			}
 
             // Clear buffer
             vkCmdFillBuffer(cmd, (VkBuffer)merge_path_partitions->Handle, 0, reinterpret_cast<const VkBufferCreateInfo*>(merge_path_partitions->Info)->size, 0u);
@@ -2923,6 +2936,8 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
     if (RenderingContext::ValidationEnabled()) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
+
+	frame.transientResources.emplace_back(merge_path_partitions);
 
 }
 

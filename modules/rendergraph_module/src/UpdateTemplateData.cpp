@@ -1,5 +1,6 @@
 #include "UpdateTemplateData.hpp"
 #include "ResourceContext.hpp"
+#include <stdexcept>
 
 static VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags) {
     if (usage_flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) {

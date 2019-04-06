@@ -1,4 +1,5 @@
 #include "PipelineResource.hpp"
+#include <stdexcept>
 
 PipelineResource::PipelineResource(std::string _name, size_t physical_idx) : name(std::move(_name)), 
     idx(std::move(physical_idx))  {}

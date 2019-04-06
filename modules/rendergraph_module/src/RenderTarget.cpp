@@ -4,6 +4,7 @@
 #include "RenderingContext.hpp"
 #include "LogicalDevice.hpp"
 #include "CreateInfoBase.hpp"
+#include <stdexcept>
 
 RenderTarget::RenderTarget() : numViews{ 0 }, depthTarget{ nullptr }, hasDepthTarget{ false } {}
 

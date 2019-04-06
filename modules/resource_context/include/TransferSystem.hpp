@@ -16,7 +16,7 @@ class ResourceTransferSystem {
     ResourceTransferSystem& operator=(const ResourceTransferSystem&) = delete;
 
     struct transferSpinLock {
-        std::atomic_flag lockFlag{ 0 };
+        std::atomic_flag lockFlag{};
         void lock();
         bool try_lock();
         void unlock();

@@ -65,7 +65,7 @@ private:
     DescriptorTemplate* templ{ nullptr };
     std::stack<std::unique_ptr<vpr::DescriptorPool>> descriptorPools;
     vpr::DescriptorPool* activePool{ nullptr };
-    std::atomic<uint32_t> setContainerIdx;
+	std::atomic<uint32_t> setContainerIdx{ 0u };
     std::vector<VkDescriptorSet> availSets;
     std::stack<std::vector<VkDescriptorSet>> usedSets;
     st::descriptor_type_counts_t typeCounts;
