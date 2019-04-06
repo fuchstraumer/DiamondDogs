@@ -19,7 +19,7 @@ enum class resource_usage : uint32_t {
     GPU_TO_CPU = 4
 };
 
-enum resource_creation_flags : uint32_t {
+enum resource_creation_flags_bits : uint32_t {
     ResourceCreateDedicatedMemory = 0x00000001,
     ResourceCreateNeverAllocate = 0x00000002,
     ResourceCreatePersistentlyMapped = 0x00000004,
@@ -28,6 +28,7 @@ enum resource_creation_flags : uint32_t {
     ResourceCreateMemoryStrategyMinTime = 0x00020000,
     ResourceCreateMemoryStrategyMinFragmentation = 0x00040000
 };
+using resource_creation_flags = uint32_t;
 
 struct gpu_resource_data_t {
     const void* Data;
