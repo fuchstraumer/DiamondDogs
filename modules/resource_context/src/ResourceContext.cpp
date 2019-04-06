@@ -20,7 +20,8 @@ void ResourceContext::Initialize(vpr::Device* device, vpr::PhysicalDevice* physi
     impl->construct(device, physical_device, val_enabled);
 }
 
-void ResourceContext::Update() {
+void ResourceContext::Update() 
+{
     impl->update();
 }
 

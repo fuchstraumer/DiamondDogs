@@ -25,6 +25,7 @@
 #include "stb/stb_image.h"
 #include <experimental/filesystem>
 #include <future>
+#include "ImGuiWrapper.hpp"
 
 const st::ShaderPack* vtfShaders{ nullptr }; 
 //SceneState_t SceneLightsState{};
@@ -506,14 +507,17 @@ void VTF_Scene::update() {
 		UpdateClusterGrid(curr_frame);
 		frameSingleExecComputeWorkDone[activeFrame] = true;
 	}
-	vkBeginCommandBuffer(curr_frame.computePool->GetCmdBuffer(0u), &base_info);
-	ComputeUpdateLights(curr_frame);
-	ComputeReduceLights(curr_frame);
-	ComputeMortonCodes(curr_frame);
-	SortMortonCodes(curr_frame);
-	BuildLightBVH(curr_frame);
-	vkEndCommandBuffer(curr_frame.computePool->GetCmdBuffer(0u));
-	SubmitComputeWork(curr_frame);
+	VkCommandBuffer cmd_buffer = curr_frame.computePool->GetCmdBuffer(1u);
+	VkResult result = vkBeginCommandBuffer(cmd_buffer, &base_info);
+	VkAssert(result);
+	ComputeUpdateLights(curr_frame, cmd_buffer);
+	ComputeReduceLights(curr_frame, cmd_buffer);
+	ComputeMortonCodes(curr_frame, cmd_buffer);
+	SortMortonCodes(curr_frame, cmd_buffer);
+	BuildLightBVH(curr_frame, cmd_buffer);
+	result = vkEndCommandBuffer(cmd_buffer);
+	VkAssert(result);
+	SubmitComputeWork(curr_frame, 1u, &cmd_buffer);
 }
 
 void VTF_Scene::recordCommands() 
@@ -527,12 +531,12 @@ void VTF_Scene::draw() {
 }
 
 void VTF_Scene::endFrame() {
-	activeFrame = (activeFrame + 1u) % frames.size();
 	auto& ctxt = ResourceContext::Get();
-	for (auto* resource : frames[activeFrame]->transientResources)
-	{
-		ctxt.DestroyResource(resource);
-	}
+	//for (auto* resource : frames[activeFrame]->transientResources)
+	//{
+	//	ctxt.DestroyResource(resource);
+	//}
+	activeFrame = (activeFrame + 1u) % frames.size();
 }
 
 void VTF_Scene::acquireImage() 
@@ -551,9 +555,9 @@ void VTF_Scene::present() {
 		nullptr,
 		1u,
 		&curr_frame.semaphores.at("RenderComplete")->vkHandle(),
-		0u,
-		VK_NULL_HANDLE,
-		&currentBuffer,
+		1u,
+		&vprObjects.swapchain->vkHandle(),
+		&curr_frame.imageIdx,
 		present_results
 	};
 
@@ -629,7 +633,6 @@ VulkanResource* VTF_Scene::loadTexture(const char* file_path_str, const char* im
 
     VulkanResource* result = rsrc_context.CreateImage(&img_create_info, &view_create_info, 1, &img_rsrc_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, (void*)image_name);
     // we do it like this so we can safely free "pixels" before returning
-    rsrc_context.Update();
     stbi_image_free(pixels);
     return result;
 }
@@ -641,8 +644,8 @@ void VTF_Scene::createIcosphereTester() {
     icosphereTester->CreateMesh(3u);
 
 	auto current_dims = vprObjects.swapchain->Extent();
-	icosphereTester->viewport.width = current_dims.width;
-	icosphereTester->viewport.height = current_dims.height;
+	icosphereTester->viewport.width = static_cast<float>(current_dims.width);
+	icosphereTester->viewport.height = static_cast<float>(current_dims.height);
 	icosphereTester->viewport.x = 0;
 	icosphereTester->viewport.y = 0;
 	icosphereTester->viewport.minDepth = 0.0f;
