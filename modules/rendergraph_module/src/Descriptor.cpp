@@ -134,7 +134,7 @@ void Descriptor::createPool() {
 		const auto SetObjNameFnPtr = RenderingContext::Get().Device()->DebugUtilsHandler().vkSetDebugUtilsObjectName;
 		const std::string curr_name = name + std::string("_Num") + std::to_string(descriptorPools.size());
 		const VkDebugUtilsObjectNameInfoEXT name_info{
-			VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT,
+			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
 			nullptr,
 			VK_OBJECT_TYPE_DESCRIPTOR_POOL,
 			(uint64_t)descriptorPools.back()->vkHandle(),
