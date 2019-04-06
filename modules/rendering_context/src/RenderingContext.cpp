@@ -11,6 +11,10 @@
 #include <atomic>
 #include <forward_list>
 #include "GLFW/glfw3.h"
+#include "VkDebugUtils.hpp"
+#include <thread>
+#include <sstream>
+#include <chrono>
 
 static std::vector<std::string> extensionsBuffer;
 static std::string windowingModeBuffer;
@@ -249,6 +253,11 @@ void RenderingContext::Construct(const char* file_path) {
 
     createLogicalDevice(json_file, windowSurface->vkHandle(), &logicalDevice, vulkanInstance.get(), physicalDevices[0].get());
 
+	if constexpr (VTF_VALIDATION_ENABLED)
+	{
+		SetObjectNameFn = logicalDevice->DebugUtilsHandler().vkSetDebugUtilsObjectName;
+	}
+
     {
         size_t num_device_extensions = 0;
         logicalDevice->GetEnabledExtensions(&num_device_extensions, nullptr);
@@ -471,4 +480,61 @@ void RenderingContext::SetInputMode(int mode, int val) {
 
 int RenderingContext::GetInputMode(int mode) {
     return glfwGetInputMode(getWindow(), mode);
+}
+
+const char* RenderingContext::GetShaderCacheDir()
+{
+	auto& ctxt = Get();
+	return ctxt.shaderCacheDir.c_str();
+}
+
+void RenderingContext::SetShaderCacheDir(const char* dir)
+{
+	auto& ctxt = Get();
+	ctxt.shaderCacheDir = dir;
+}
+
+VkResult RenderingContext::SetObjectName(VkObjectType object_type, uint64_t handle, const char* name)
+{
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		auto& ctxt = Get();
+
+		if constexpr (VTF_DEBUG_INFO_THREADING || VTF_DEBUG_INFO_TIMESTAMPS)
+		{
+			std::string object_name_str{ name };
+			std::stringstream extra_info_stream;
+			if constexpr (VTF_DEBUG_INFO_THREADING)
+			{
+				extra_info_stream << std::string("_ThreadID:") << std::this_thread::get_id();
+			}
+
+			object_name_str += extra_info_stream.str();
+
+			const VkDebugUtilsObjectNameInfoEXT name_info{
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+				nullptr,
+				object_type,
+				handle,
+				object_name_str.c_str()
+			};
+
+			return ctxt.SetObjectNameFn(ctxt.logicalDevice->vkHandle(), &name_info);
+		}
+		else
+		{
+			const VkDebugUtilsObjectNameInfoEXT name_info{
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+				nullptr,
+				object_type,
+				handle,
+				name
+			};
+			return ctxt.SetObjectNameFn(ctxt.logicalDevice->vkHandle(), &name_info);
+		}
+	}
+	else
+	{
+		return VK_SUCCESS;
+	}
 }

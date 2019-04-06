@@ -21,6 +21,29 @@ constexpr static bool VTF_VALIDATION_ENABLED = true;
 constexpr static bool VTF_VALIDATION_ENABLED = false;
 #endif
 
+#define VTF_DEBUG_INFO_THREADING_CONF
+#ifdef VTF_DEBUG_INFO_THREADING_CONF
+constexpr static bool VTF_DEBUG_INFO_THREADING = true;
+#else
+constexpr static bool VTF_DEBUG_INFO_THREADING = false;
+#endif
+
+// Really need C++20 for this to work ideally, I feel
+#define VTF_DEBUG_INFO_THREADING_CONF
+#ifdef VTF_DEBUG_INFO_TIMESTAMPS_CONF
+constexpr static bool VTF_DEBUG_INFO_TIMESTAMPS = true;
+#else
+constexpr static bool VTF_DEBUG_INFO_TIMESTAMPS = false;
+#endif
+
+#ifdef VTF_DEBUG_INFO_CALLING_FN_CONF
+// In current configuration, this macro adds the calling function name and line to the objects name
+
+#else
+// In current configuration, this macro just returns the name without modification
+#define VTF_DEBUG_OBJECT_NAME(name) name
+#endif
+
 namespace vpr {
     class Instance;
     class PhysicalDevice;
@@ -95,6 +118,9 @@ public:
     static int GetWindowAttribute(int attribute);
     static void SetInputMode(int mode, int value);
     static int GetInputMode(int mode);
+	static const char* GetShaderCacheDir();
+	static void SetShaderCacheDir(const char* dir);
+	static VkResult SetObjectName(VkObjectType object_type, uint64_t handle, const char* name);
 
 private:
 
@@ -110,6 +136,8 @@ private:
     std::string windowMode;
     uint32_t syncMode;
     std::string syncModeStr;
+	std::string shaderCacheDir;
+	PFN_vkSetDebugUtilsObjectNameEXT SetObjectNameFn{ nullptr };
     
 };
 
