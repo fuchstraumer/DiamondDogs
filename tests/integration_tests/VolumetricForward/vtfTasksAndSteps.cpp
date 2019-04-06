@@ -988,6 +988,12 @@ void createDebugResources(vtf_frame_data_t& frame)
 
 }
 
+void createFences(vtf_frame_data_t& frame)
+{
+	auto* device = RenderingContext::Get().Device();
+	frame.graphicsPoolUsageFence = std::make_unique<vpr::Fence>(device->vkHandle(), 0);
+}
+
 void CreateResources(vtf_frame_data_t & frame) {
     // creates and does initial descriptor binding, so that recursive/further calls 
     // to use these bindings actually work lol
@@ -1002,6 +1008,7 @@ void CreateResources(vtf_frame_data_t & frame) {
     createSemaphores(frame);
 	setupCommandPools(frame);
 	createDebugResources(frame);
+	createFences(frame);
 }
 
 void CreateSemaphores(vtf_frame_data_t & frame) {
@@ -2853,6 +2860,25 @@ constexpr static bool DEBUG_MODE{ true };
 #endif
 
 void RenderVtf(vtf_frame_data_t& frame) {
+
+	constexpr static VkCommandBufferBeginInfo begin_info{
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		nullptr,
+		VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
+		nullptr
+	};
+
+	if (!frame.firstGraphicsSubmit)
+	{
+		auto* device = RenderingContext::Get().Device();
+		VkResult result = vkWaitForFences(device->vkHandle(), 1u, &frame.graphicsPoolUsageFence->vkHandle(), VK_TRUE, UINT64_MAX);
+		VkAssert(result);
+		result = vkResetFences(device->vkHandle(), 1u, &frame.graphicsPoolUsageFence->vkHandle());
+		VkAssert(result);
+		frame.graphicsPool->ResetCmdPool();
+		frame.firstGraphicsSubmit = false;
+	}
+
     /*
         Trying primitive acquisition setup till I find something better:
         1. try with zero timeout (non blocking)

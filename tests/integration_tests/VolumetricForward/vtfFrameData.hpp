@@ -116,6 +116,8 @@ public:
     std::unique_ptr<vpr::Framebuffer> clusterSamplesFramebuffer;
     std::unique_ptr<vpr::Framebuffer> drawFramebuffer;
     std::unique_ptr<vpr::Fence> computeAABBsFence{ nullptr };
+	std::unique_ptr<vpr::Fence> graphicsPoolUsageFence{ nullptr };
+	bool firstGraphicsSubmit{ true };
     uint32_t imageIdx{ std::numeric_limits<uint32_t>::max() };
     uint32_t lastImageIdx{ std::numeric_limits<uint32_t>::max() };
     VkDispatchIndirectCommand indirectArgsCmd;
