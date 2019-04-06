@@ -105,7 +105,7 @@ void DescriptorTemplate::createUpdateTemplate() const {
     templateInfo.pipelineBindPoint = VkPipelineBindPoint(0);
     templateInfo.pipelineLayout = VK_NULL_HANDLE;
     templateInfo.set = 0u;
-    vkCreateDescriptorUpdateTemplate(RenderingContext::Get().Device()->vkHandle(), &templateInfo, nullptr, &updateTemplate);
+    vkCreateDescriptorUpdateTemplate(device->vkHandle(), &templateInfo, nullptr, &updateTemplate);
 	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
 	{
 		auto SetObjectNameFn = device->DebugUtilsHandler().vkSetDebugUtilsObjectName;
