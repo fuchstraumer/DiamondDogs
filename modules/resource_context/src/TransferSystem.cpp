@@ -6,6 +6,7 @@
 #include "vkAssert.hpp"
 #include "Allocator.hpp"
 #include "UploadBuffer.hpp"
+#include "../../rendering_context/include/RenderingContext.hpp"
 
 constexpr static VkBufferCreateInfo staging_buffer_create_info{
 	VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -42,6 +43,11 @@ VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device) {
 
 UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(size_t buffer_sz) {
     uploadBuffers.emplace_back(std::make_unique<UploadBuffer>(device, allocator, uploadPool, buffer_sz));
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		const std::string upload_buffer_name = std::string("UploadBuffer") + std::to_string(uploadBuffers.size());
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, (uint64_t)uploadBuffers.back()->Buffer, upload_buffer_name.c_str());
+	}
     return uploadBuffers.back().get();
 }
 
@@ -88,6 +94,18 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _a
     result = vkBeginCommandBuffer(transferCmdPool->GetCmdBuffer(0), &begin_info);
     VkAssert(result);
     initialized = true;
+
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		static const std::string base_name{ "ResourceCtxt_TransferSystem_" };
+		static const std::string pool_name = base_name + std::string("_CommandPool");
+		static const std::string fence_name = base_name + std::string("_Fence");
+		static const std::string cmd_buffer_name = base_name + std::string("_CmdBuffer");
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)transferCmdPool->vkHandle(), pool_name.c_str());
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_FENCE, (uint64_t)fence->vkHandle(), fence_name.c_str());
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)transferCmdPool->GetCmdBuffer(0u), cmd_buffer_name.c_str());
+	}
+
 }
 
 ResourceTransferSystem & ResourceTransferSystem::GetTransferSystem() {

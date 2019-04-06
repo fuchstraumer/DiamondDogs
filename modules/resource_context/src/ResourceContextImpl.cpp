@@ -211,6 +211,9 @@ void ResourceContextImpl::update()
     {
 		reserveSpaceInContainers(resourceAllocations.size() * 2u);
     }
+
+	auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
+	transfer_system.CompleteTransfers();
 }
 
 void ResourceContextImpl::destroyResource(VulkanResource* rsrc)
