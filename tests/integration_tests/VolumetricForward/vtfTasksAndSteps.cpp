@@ -1259,18 +1259,26 @@ void createMergeSortPipelines(vtf_frame_data_t& frame) {
             shader_info,
             frame.descriptorPack->PipelineLayout(groupName),
             VK_NULL_HANDLE,
-            0 // index is previous pipeline to derive from
+            -1
         }
     };
 
-    VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 2, pipeline_infos, nullptr, pipeline_handles_buf);
+	const static std::string mppPipelineName{ "MergePathPartitionsPipeline" };
+	const static std::string mergePipelineName{ "MergeSortPipeline" };
+
+	frame.computePipelines[mppPipelineName] = ComputePipelineState(device->vkHandle());
+    VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 1, &pipeline_infos[0], nullptr, &frame.computePipelines.at(mppPipelineName).Handle);
     VkAssert(result);
 
-    frame.computePipelines["MergePathPartitionsPipeline"] = ComputePipelineState(device->vkHandle());
-    frame.computePipelines.at("MergePathPartitionsPipeline").Handle = pipeline_handles_buf[0];
+    frame.computePipelines[mergePipelineName] = ComputePipelineState(device->vkHandle());
+	result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 1, &pipeline_infos[1], nullptr, &frame.computePipelines.at(mergePipelineName).Handle);
+	VkAssert(result);
 
-    frame.computePipelines["MergeSortPipeline"] = ComputePipelineState(device->vkHandle());
-    frame.computePipelines.at("MergeSortPipeline").Handle = pipeline_handles_buf[1];
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.computePipelines.at(mppPipelineName).Handle, mppPipelineName.c_str());
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.computePipelines.at(mergePipelineName).Handle, mergePipelineName.c_str());
+	}
 
 }
 
