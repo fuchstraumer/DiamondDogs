@@ -80,7 +80,7 @@ constexpr static VkAttachmentReference drawPassPresentRef{ 2, VK_IMAGE_LAYOUT_PR
 constexpr static VkClearValue DefaultColorClearValue{ 0.1f, 0.1f, 0.15f, 1.0f };
 constexpr static VkClearValue DefaultDepthStencilClearValue{ 1.0f, 0 };
 
-constexpr static resource_creation_flags DEF_RESOURCE_FLAGS = resource_creation_flags(ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString);
+constexpr static resource_creation_flags DEF_RESOURCE_FLAGS = VTF_USE_DEBUG_INFO ? resource_creation_flags(ResourceCreateMemoryStrategyMinTime | ResourceCreateUserDataAsString) : resource_creation_flags(ResourceCreateMemoryStrategyMinTime);
 
 constexpr static std::array<const VkClearValue, 2> DepthPrePassAndClusterSamplesClearValues{
     DefaultColorClearValue,
@@ -147,12 +147,55 @@ uint32_t GetNumNodesBVH(uint32_t num_leaves) noexcept {
     return num_nodes;
 }
 
+void ComputePipelineCreationShim(vtf_frame_data_t& frame, const std::string& name, const VkComputePipelineCreateInfo* pipeline_info, const std::string& group_name)
+{
+	auto* device = RenderingContext::Get().Device();
+	frame.computePipelines[name] = ComputePipelineState(device->vkHandle());
+	VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(group_name)->vkHandle(), 1, &pipeline_info, nullptr, &frame.computePipelines.at(name).Handle);
+	VkAssert(result);
+	if constexpr (VTF_USE_DEBUG_INFO)
+	{
+		if (RenderingContext::ValidationEnabled())
+		{
+			const VkDebugUtilsObjectNameInfoEXT name_info{
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+				nullptr,
+				VK_OBJECT_TYPE_PIPELINE,
+				(uint64_t)frame.computePipelines.at(name).Handle,
+				name.c_str()
+			};
+			frame.vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+		}
+	}
+}
+
 // binder is passed as a copy / by-value as this is intended behavior: this new binder instance can now fork into separate threads from the original, but also inherits
 // the original sets (so only sets we actually update, the MergeSort one, need to be re-allocated or re-assigned (as updating a set invalidates it for that frame)
 void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src_keys, VulkanResource* src_values, VulkanResource* dst_keys, VulkanResource* dst_values,
     uint32_t total_values, uint32_t chunk_size, DescriptorBinder dscr_binder);
 
 VulkanResource* createDepthStencilResource(const VkSampleCountFlagBits samples);
+
+std::string ShaderStringWithStage(const std::string& base_name, const VkShaderStageFlags flags)
+{
+	switch (flags)
+	{
+	case VK_SHADER_STAGE_VERTEX_BIT:
+		return base_name + std::string("_VS");
+	case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
+		return base_name + std::string("_TC");
+	case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
+		return base_name + std::string("_TE");
+	case VK_SHADER_STAGE_GEOMETRY_BIT:
+		return base_name + std::string("_G");
+	case VK_SHADER_STAGE_FRAGMENT_BIT:
+		return base_name + std::string("_FS");
+	case VK_SHADER_STAGE_COMPUTE_BIT:
+		return base_name + std::string("_C");
+	default:
+		throw std::domain_error("Invalid shader stage!");
+	}
+}
 
 void CreateShaders(const st::ShaderPack* pack) {
 
@@ -632,7 +675,7 @@ void createSortResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    frame.rsrcMap["SortParams"] = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SortParams");
+    frame.rsrcMap["SortParams"] = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "SortParams");
     descr->BindResourceToIdx(descr->BindingLocation("SortParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("SortParams"));
 
     constexpr static VkBufferCreateInfo light_aabbs_info{
@@ -701,7 +744,7 @@ void createSortResources(vtf_frame_data_t& frame) {
 
 }
 
-void createMergeSortResource(vtf_frame_data_t& frame) {
+VulkanResource* CreateMergePathPartitions(vtf_frame_data_t& frame) {
     // merge sort resources are mostly bound before execution, except "MergePathPartitions"
 
     uint32_t num_chunks = static_cast<uint32_t>(glm::ceil(MAX_POINT_LIGHTS / SORT_NUM_THREADS_PER_THREAD_GROUP));
@@ -731,12 +774,8 @@ void createMergeSortResource(vtf_frame_data_t& frame) {
     };
 
     auto& rsrc_context = ResourceContext::Get();
-    frame.rsrcMap["MergePathPartitions"] = rsrc_context.CreateBuffer(&merge_path_partitions_info, &merge_path_partitions_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "MergePathPartitions");
-    rsrc_context.FillBuffer(frame.rsrcMap.at("MergePathPartitions"), 0u, 0u, merge_path_partitions_buffer_sz);
-    auto* descr = frame.descriptorPack->RetrieveDescriptor("MergeSortResources");
-    descr->BindResourceToIdx(descr->BindingLocation("MergePathPartitions"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("MergePathPartitions"));
-
-    rsrc_context.Update();
+    VulkanResource* result = rsrc_context.CreateBuffer(&merge_path_partitions_info, &merge_path_partitions_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "MergePathPartitions");
+	return result;
 }
 
 void createBVH_Resources(vtf_frame_data_t& frame) {
@@ -848,9 +887,9 @@ void createMaterialSamplers(vtf_frame_data_t& frame) {
 
     auto& rsrc_context = ResourceContext::Get();
 
-    frame.rsrcMap["LinearRepeatSampler"] = rsrc_context.CreateSampler(&linear_repeat_sampler, nullptr);
-    frame.rsrcMap["LinearClampSampler"] = rsrc_context.CreateSampler(&linear_clamp_sampler, nullptr);
-    frame.rsrcMap["AnisotropicSampler"] = rsrc_context.CreateSampler(&anisotropic_sampler, nullptr);
+    frame.rsrcMap["LinearRepeatSampler"] = rsrc_context.CreateSampler(&linear_repeat_sampler, ResourceCreateUserDataAsString, "LinearRepeatSampler");
+    frame.rsrcMap["LinearClampSampler"] = rsrc_context.CreateSampler(&linear_clamp_sampler, ResourceCreateUserDataAsString, "LinearClampSampler");
+    frame.rsrcMap["AnisotropicSampler"] = rsrc_context.CreateSampler(&anisotropic_sampler, ResourceCreateUserDataAsString, "AnisotropicSampler");
 
     auto* descr = frame.descriptorPack->RetrieveDescriptor("Material"); // bind samplers now
     descr->BindResourceToIdx(descr->BindingLocation("LinearRepeatSampler"), VK_DESCRIPTOR_TYPE_SAMPLER, frame.rsrcMap.at("LinearRepeatSampler"));
@@ -866,6 +905,13 @@ void createSemaphores(vtf_frame_data_t& frame) {
     frame.semaphores["RenderComplete"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
 }
 
+constexpr static VkCommandPoolCreateInfo command_pool_info{
+	VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+	nullptr,
+	VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+	0u
+};
+
 void CreateResources(vtf_frame_data_t & frame) {
     // creates and does initial descriptor binding, so that recursive/further calls 
     // to use these bindings actually work lol
@@ -874,10 +920,19 @@ void CreateResources(vtf_frame_data_t & frame) {
     createLightResources(frame); // make sure lights have been generated first! we upload initial data here too
     createIndirectArgsResource(frame);
     createSortResources(frame);
-    createMergeSortResource(frame);
+    //createMergeSortResource(frame);
     createBVH_Resources(frame);
     createMaterialSamplers(frame);
     createSemaphores(frame);
+	auto* device = RenderingContext::Get().Device();
+	auto pool_info = command_pool_info;
+	pool_info.queueFamilyIndex = device->QueueFamilyIndices().Compute;
+	frame.computePool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
+	frame.computePool->AllocateCmdBuffers(4u, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	pool_info.queueFamilyIndex = device->QueueFamilyIndices().Graphics;
+	frame.graphicsPool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
+	frame.graphicsPool->AllocateCmdBuffers(4u, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	frame.vkDebugFns = device->DebugUtilsHandler();
 }
 
 void CreateSemaphores(vtf_frame_data_t & frame) {
@@ -905,9 +960,7 @@ void createUpdateLightsPipeline(vtf_frame_data_t& frame) {
         -1
     };
 
-    frame.computePipelines["UpdateLightsPipeline"] = ComputePipelineState(device->vkHandle());
-    VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &frame.computePipelines.at("UpdateLightsPipeline").Handle);
-    VkAssert(result);
+	ComputePipelineCreationShim(frame, "UpdateLightsPipeline", &pipeline_info, groupName);
 
 }
 
@@ -930,9 +983,7 @@ void createReduceLightAABBsPipelines(vtf_frame_data_t& frame) {
         -1
     };
 
-    frame.computePipelines["ReduceLightsAABB0"] = ComputePipelineState(device->vkHandle());
-    VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 1, &reduce_lights_0_info, nullptr, &frame.computePipelines.at("ReduceLightsAABB0").Handle);
-    VkAssert(result);
+	ComputePipelineCreationShim(frame, "ReduceLightsAABB0", &reduce_lights_0_info, groupName);
 
     constexpr static VkSpecializationMapEntry reduce_lights_1_entry{
         0,
@@ -961,9 +1012,7 @@ void createReduceLightAABBsPipelines(vtf_frame_data_t& frame) {
         -1
     };
 
-    frame.computePipelines["ReduceLightsAABB1"] = ComputePipelineState(device->vkHandle());
-    result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 1, &reduce_lights_1_info, nullptr, &frame.computePipelines.at("ReduceLightsAABB1").Handle);
-    VkAssert(result);
+	ComputePipelineCreationShim(frame, "ReduceLightsAABB1", &reduce_lights_1_info, groupName);
 
 }
 
@@ -984,9 +1033,7 @@ void createMortonCodePipeline(vtf_frame_data_t& frame) {
         -1
     };
 
-    frame.computePipelines["ComputeLightMortonCodesPipeline"] = ComputePipelineState(device->vkHandle());
-    VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &frame.computePipelines.at("ComputeLightMortonCodesPipeline").Handle);
-    VkAssert(result);
+	ComputePipelineCreationShim(frame, "ComputeMortonCodes", &pipeline_info, groupName);
 
 }
 
@@ -1007,9 +1054,8 @@ void createRadixSortPipeline(vtf_frame_data_t& frame) {
         -1
     };
 
-    frame.computePipelines["RadixSortPipeline"] = ComputePipelineState(device->vkHandle());
-    VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &frame.computePipelines.at("RadixSortPipeline").Handle);
-    VkAssert(result);
+	ComputePipelineCreationShim(frame, "RadixSortOrMortonSort", &pipeline_info, groupName);
+
 }
 
 void createBVH_Pipelines(vtf_frame_data_t& frame) {
@@ -1037,9 +1083,7 @@ void createBVH_Pipelines(vtf_frame_data_t& frame) {
         -1
     };
 
-    frame.computePipelines["BuildBVHBottomPipeline"] = ComputePipelineState(device->vkHandle());
-    VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at("BuildBVH")->vkHandle(), 1, &pipeline_info_0, nullptr, &frame.computePipelines.at("BuildBVHBottomPipeline").Handle);
-    VkAssert(result);
+	ComputePipelineCreationShim(frame, "BuildBVHBottomPipeline", &pipeline_info_0, groupName);
 
     constexpr static VkSpecializationMapEntry stage_entry{
         0,
@@ -1068,9 +1112,7 @@ void createBVH_Pipelines(vtf_frame_data_t& frame) {
         -1
     };
 
-    frame.computePipelines["BuildBVHTopPipeline"] = ComputePipelineState(device->vkHandle());
-    result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at("BuildBVH")->vkHandle(), 1, &pipeline_info_1, nullptr, &frame.computePipelines.at("BuildBVHTopPipeline").Handle);
-    VkAssert(result);
+	ComputePipelineCreationShim(frame, "BuildBVHTopPipeline", &pipeline_info_1, groupName);
 
 }
 
@@ -1091,9 +1133,7 @@ void createComputeClusterAABBsPipeline(vtf_frame_data_t& frame) {
         -1
     };
 
-    frame.computePipelines["ComputeClusterAABBsPipeline"] = ComputePipelineState(device->vkHandle());
-    VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &frame.computePipelines.at("ComputeClusterAABBsPipeline").Handle);
-    VkAssert(result);
+	ComputePipelineCreationShim(frame, "ComputeClusterAABBsPipeline", &pipeline_info, groupName);
 
 }
 
@@ -1114,9 +1154,8 @@ void createIndirectArgsPipeline(vtf_frame_data_t& frame) {
         -1
     };
 
-    frame.computePipelines["UpdateIndirectArgsPipeline"] = ComputePipelineState(device->vkHandle());
-    VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 1, &pipeline_info, nullptr, &frame.computePipelines.at("UpdateIndirectArgsPipeline").Handle);
-    VkAssert(result);
+	ComputePipelineCreationShim(frame, "UpdateIndirectArgsPipeline", &pipeline_info, groupName);
+
 }
 
 void createMergeSortPipelines(vtf_frame_data_t& frame) {
@@ -1511,6 +1550,18 @@ void createDrawFrameBuffer(vtf_frame_data_t & frame) {
     };
 
     frame.drawFramebuffer = std::make_unique<vpr::Framebuffer>(device->vkHandle(), framebuffer_info);
+
+	if (RenderingContext::ValidationEnabled())
+	{
+		const VkDebugUtilsObjectNameInfoEXT object_name{
+			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+			nullptr,
+			VK_OBJECT_TYPE_FRAMEBUFFER,
+			reinterpret_cast<uint64_t>(frame.drawFramebuffer->vkHandle()),
+			"DrawFramebuffer"
+		};
+		frame.vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle, &object_name);
+	}
     
 }
 
@@ -2859,6 +2910,18 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
     }
 
     while (num_chunks > 1) {
+
+		const std::string inserted_label_string = std::string{ "MergeSortPass" } + std::to_string(pass);
+		const VkDebugUtilsLabelEXT debug_label_recursion {
+			VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+			nullptr,
+			inserted_label_string.c_str(),
+			{ 66.0f / 255.0f, 244.0f / 255.0f, 72.0f / 255.0f, 1.0f } // green, distinct from rest
+		}; 
+
+		if (RenderingContext::ValidationEnabled()) {
+			frame.vkDebugFns.vkCmdInsertDebugUtilsLabel(cmd, &debug_label_recursion);
+		}
 
         ++pass;
 
