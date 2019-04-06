@@ -100,6 +100,7 @@ void UpdateTemplateData::bindImageDescriptor(const size_t idx, VkDescriptorType 
     else {
         rawEntries.resize(idx + 1); 
         const VkImageCreateInfo* img_create_info = reinterpret_cast<VkImageCreateInfo*>(rsrc->Info);
+		rawEntries[idx].ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         if (type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
             rawEntries[idx] = std::move(UpdateTemplateDataEntry{ VkDescriptorImageInfo{ (VkSampler)rsrc->Sampler, (VkImageView)rsrc->ViewHandle, imageLayoutFromUsage(img_create_info->usage) } });
         }
