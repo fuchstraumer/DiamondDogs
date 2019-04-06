@@ -20,6 +20,8 @@ namespace st {
 }
 
 class vtf_frame_data_t {
+	vtf_frame_data_t(const vtf_frame_data_t&) = delete;
+	vtf_frame_data_t& operator=(const vtf_frame_data_t&) = delete;
 public:
 
     vtf_frame_data_t();
@@ -98,6 +100,7 @@ public:
     multicast_delegate_t<void(VkCommandBuffer cmd, DescriptorBinder* binder, render_type type)> renderFns;
     multicast_delegate_t<void(VkCommandBuffer cmd)> guiLayerRenderFns;
 
+	std::vector<VulkanResource*> transientResources;
     std::unordered_map<std::string, ComputePipelineState> computePipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::GraphicsPipeline>> graphicsPipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::Renderpass>> renderPasses;

@@ -387,6 +387,7 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     auto* swapchain = RenderingContext::Get().Swapchain();
     const uint32_t img_count = swapchain->ImageCount();
     frames.reserve(img_count); // this should avoid invalidating pointers (god i hope)
+	frameSingleExecComputeWorkDone.resize(img_count, false);
 
     for (uint32_t i = 0; i < img_count; ++i) {
         frames.emplace_back(std::make_unique<vtf_frame_data_t>());
@@ -401,6 +402,8 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
 	auto& resource_context = ResourceContext::Get();
 	resource_context.WriteMemoryStatsFile("MemoryStats.json");
     std::cerr << "Setup Complete\n";
+	// need to ensure this is enabled currently, so we can see debug stats
+	assert(RenderingContext::ValidationEnabled());
 }
 
 void VTF_Scene::Destroy() {
@@ -409,21 +412,73 @@ void VTF_Scene::Destroy() {
     }
 }
 
+constexpr VkCommandBufferBeginInfo base_info{
+	VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+	nullptr,
+	VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT
+};
+
 void VTF_Scene::update() {
     // compute updates
+	vtf_frame_data_t& curr_frame = *frames[activeFrame];
+	vkBeginCommandBuffer(curr_frame.computePool->GetCmdBuffer(0u), &base_info);
+	ComputeUpdateLights(curr_frame);
+	ComputeReduceLights(curr_frame);
+	ComputeMortonCodes(curr_frame);
+	SortMortonCodes(curr_frame);
+	BuildLightBVH(curr_frame);
+	if (!frameSingleExecComputeWorkDone[activeFrame])
+	{
+		UpdateClusterGrid(curr_frame);
+		ComputeClusterAABBs(curr_frame);
+	}
+	vkEndCommandBuffer(curr_frame.computePool->GetCmdBuffer(0u));
+	SubmitComputeWork(curr_frame);
 }
 
-void VTF_Scene::recordCommands() {}
+void VTF_Scene::recordCommands() 
+{
+	RenderVtf(*frames[activeFrame]);
+	SubmitGraphicsWork(*frames[activeFrame]);
+}
 
 void VTF_Scene::draw() {
     // primary draws
 }
 
 void VTF_Scene::endFrame() {
+	activeFrame = (activeFrame + 1u) % frames.size();
+	auto& ctxt = ResourceContext::Get();
+	for (auto* resource : frames[activeFrame]->transientResources)
+	{
+		ctxt.DestroyResource(resource);
+	}
+}
 
+void VTF_Scene::acquireImage() 
+{
+	// handled internally with the frames
 }
 
 void VTF_Scene::present() {
+
+	vtf_frame_data_t& curr_frame = *frames[activeFrame];
+
+	VkResult present_results[1]{ VK_SUCCESS };
+
+	const VkPresentInfoKHR present_info{
+		VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+		nullptr,
+		1u,
+		&curr_frame.semaphores.at("RenderComplete")->vkHandle(),
+		0u,
+		VK_NULL_HANDLE,
+		&currentBuffer,
+		present_results
+	};
+
+	VkResult result = vkQueuePresentKHR(vprObjects.device->GraphicsQueue(), &present_info);
+	VkAssert(result);
 
 }
 

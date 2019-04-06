@@ -26,7 +26,7 @@ namespace st {
     class ShaderPack;
 }
 
-class VTF_Scene : public VulkanScene {
+class VTF_Scene final : public VulkanScene {
 public:
 
     static VTF_Scene& Get();
@@ -45,6 +45,7 @@ private:
     void recordCommands() final;
     void draw() final;
     void endFrame() final;
+	void acquireImage() final;
     void present() final;
 
 
@@ -53,7 +54,9 @@ private:
     void createIcosphereTester();
 
     std::vector<std::unique_ptr<vtf_frame_data_t>> frames;
+	std::vector<bool> frameSingleExecComputeWorkDone;
     std::unique_ptr<struct TestIcosphereMesh> icosphereTester;
+	uint32_t activeFrame{ 0u };
 
 };
 

@@ -11,7 +11,6 @@ INITIALIZE_EASYLOGGINGPP
 #include "glm/gtc/matrix_transform.hpp"
 #include "../third_party/shadertools/src/util/ShaderPackBinary.hpp"
 #include "PipelineCache.hpp"
-#include "Allocator.hpp"
 #include "Instance.hpp"
 #include "CommandPool.hpp"
 
@@ -52,13 +51,12 @@ int main(int argc, char* argv[]) {
     vpr::SetLoggingRepository_VprCore(storage_ptr);
     vpr::SetLoggingRepository_VprCommand(storage_ptr);
     vpr::SetLoggingRepository_VprResource(storage_ptr);
-    vpr::SetLoggingRepository_VprAlloc(storage_ptr);
     
     auto& ctxt = RenderingContext::Get();
     ctxt.Construct("RendererContextCfg.json");
 
     ResourceContext& rsrc = ResourceContext::Get();
-    rsrc.Initialize(ctxt.Device(), ctxt.PhysicalDevice());
+    rsrc.Initialize(ctxt.Device(), ctxt.PhysicalDevice(), RenderingContext::ValidationEnabled());
 
     using namespace st;
     auto& callbacks = ShaderPack::RetrievalCallbacks();
