@@ -48,4 +48,4 @@ TARGET_INCLUDE_DIRECTORIES(VTF_Scene PRIVATE
 )
 
 TARGET_LINK_LIBRARIES(VTF_Scene PRIVATE ShaderTools rendering_context resource_context rendergraph_module glfw ${Vulkan_LIBRARY}
-    vpr_core vpr_resource vpr_sync vpr_alloc vpr_command vpr_render easyloggingpp)
+    vpr_core vpr_resource vpr_sync vpr_command vpr_render easyloggingpp)
