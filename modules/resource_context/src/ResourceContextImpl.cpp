@@ -150,9 +150,14 @@ private:
 };
 
 
-void ResourceContextImpl::construct(vpr::Device* _device, vpr::PhysicalDevice* physical_device)
+void ResourceContextImpl::construct(vpr::Device* _device, vpr::PhysicalDevice* physical_device, bool validation_enabled)
 {
     device = _device;
+	validationEnabled = validation_enabled;
+	if (validationEnabled)
+	{
+		vkDebugFns = device->DebugUtilsHandler();
+	}
 
     auto flags = getExtensionFlags(device);
 
@@ -295,7 +300,7 @@ VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info
 {
     VulkanResource* resource{ nullptr };
     VmaAllocationInfo* alloc_info{ nullptr };
-    VmaAllocation alloc{ VK_NULL_HANDLE };
+    VmaAllocation* alloc{ nullptr };
     VkBufferViewCreateInfo* local_view_info{ nullptr };
 
     {
@@ -311,7 +316,7 @@ VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info
         alloc_info = &alloc_info_iter.first->second;
         resourceInfos.resourceMemoryType.emplace(resource, _resource_usage);
         auto alloc_iter = resourceAllocations.emplace(resource, VmaAllocation());
-        alloc = reinterpret_cast<VmaAllocation>(alloc_iter.first->second);
+        alloc = &alloc_iter.first->second;
         if (view_info)
         {
             auto view_iter = resourceInfos.bufferViewInfos.emplace(resource, *view_info);
@@ -340,25 +345,49 @@ VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info
     };
 
     VkResult result = vmaCreateBuffer(allocatorHandle, reinterpret_cast<VkBufferCreateInfo*>(resource->Info), &alloc_create_info,
-        reinterpret_cast<VkBuffer*>(&resource->Handle), &alloc, alloc_info);
+        reinterpret_cast<VkBuffer*>(&resource->Handle), alloc, alloc_info);
     VkAssert(result);
+
+	if ((_flags & ResourceCreateUserDataAsString) && validationEnabled)
+	{
+		VkDebugUtilsObjectNameInfoEXT name_info{
+			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+			nullptr,
+			VK_OBJECT_TYPE_BUFFER,
+			resource->Handle,
+			reinterpret_cast<const char*>(user_data)
+		};
+		vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+	}
 
     if (view_info)
     {
         local_view_info->buffer = (VkBuffer)resource->Handle;
         result = vkCreateBufferView(device->vkHandle(), local_view_info, nullptr, reinterpret_cast<VkBufferView*>(&resource->ViewHandle));
-        VkAssert(result);
+        VkAssert(result); 
+		if ((_flags & ResourceCreateUserDataAsString) && validationEnabled)
+		{
+			const std::string object_view_name = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
+			VkDebugUtilsObjectNameInfoEXT name_info{
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+				nullptr,
+				VK_OBJECT_TYPE_BUFFER_VIEW,
+				resource->ViewHandle,
+				object_view_name.c_str()
+			};
+			vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+		}
     }
 
     if (initial_data)
     {
         if (_resource_usage == resource_usage::CPU_ONLY)
         {
-            setBufferInitialDataHostOnly(resource, num_data, initial_data, alloc, _resource_usage);
+            setBufferInitialDataHostOnly(resource, num_data, initial_data, _resource_usage);
         }
         else
         {
-            setBufferInitialDataUploadBuffer(resource, num_data, initial_data, alloc);
+            setBufferInitialDataUploadBuffer(resource, num_data, initial_data);
         }
     }
 
@@ -370,11 +399,11 @@ void ResourceContextImpl::setBufferData(VulkanResource* dest_buffer, const size_
     resource_usage mem_type = resourceInfos.resourceMemoryType.at(dest_buffer);
     if (mem_type == resource_usage::CPU_ONLY)
     {
-        setBufferInitialDataHostOnly(dest_buffer, num_data, data, resourceAllocations.at(dest_buffer), mem_type);
+        setBufferInitialDataHostOnly(dest_buffer, num_data, data, mem_type);
     }
     else
     {
-        setBufferInitialDataUploadBuffer(dest_buffer, num_data, data, resourceAllocations.at(dest_buffer));
+        setBufferInitialDataUploadBuffer(dest_buffer, num_data, data);
     }
 }
 
@@ -382,7 +411,7 @@ VulkanResource* ResourceContextImpl::createImage(const VkImageCreateInfo* info, 
 {
     VulkanResource* resource{ nullptr };
     VmaAllocationInfo* alloc_info{ nullptr };
-    VmaAllocation alloc{ VK_NULL_HANDLE };
+    VmaAllocation* alloc{};
     VkImageViewCreateInfo* local_view_info{ nullptr };
 
     {
@@ -399,7 +428,11 @@ VulkanResource* ResourceContextImpl::createImage(const VkImageCreateInfo* info, 
         auto alloc_info_iter = allocInfos.emplace(resource, VmaAllocationInfo());
         alloc_info = &alloc_info_iter.first->second;
         auto alloc_iter = resourceAllocations.emplace(resource, VmaAllocation());
-        alloc = reinterpret_cast<VmaAllocation>(alloc_iter.first->second);
+		if (!alloc_iter.second)
+		{
+			throw std::runtime_error("Failed to emplace allocation!");
+		}
+        alloc = &alloc_iter.first->second;
         if (view_info)
         {
             auto view_iter = resourceInfos.imageViewInfos.emplace(resource, *view_info);
@@ -427,19 +460,43 @@ VulkanResource* ResourceContextImpl::createImage(const VkImageCreateInfo* info, 
         user_data
     };
 
-    VkResult result = vmaCreateImage((VmaAllocator)allocatorHandle, create_info, &alloc_create_info, reinterpret_cast<VkImage*>(&resource->Handle), &alloc, alloc_info);
+    VkResult result = vmaCreateImage((VmaAllocator)allocatorHandle, create_info, &alloc_create_info, reinterpret_cast<VkImage*>(&resource->Handle), alloc, alloc_info);
     VkAssert(result);
+
+	if ((_flags & ResourceCreateUserDataAsString) && validationEnabled)
+	{
+		VkDebugUtilsObjectNameInfoEXT name_info{
+			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+			nullptr,
+			VK_OBJECT_TYPE_IMAGE,
+			resource->Handle,
+			reinterpret_cast<const char*>(user_data)
+		};
+		vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+	}
 
     if (view_info)
     {
         local_view_info->image = (VkImage)resource->Handle;
         result = vkCreateImageView(device->vkHandle(), local_view_info, nullptr, reinterpret_cast<VkImageView*>(&resource->ViewHandle));
         VkAssert(result);
+		if ((_flags & ResourceCreateUserDataAsString) && validationEnabled)
+		{
+			const std::string view_name_string = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
+			VkDebugUtilsObjectNameInfoEXT name_info{
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+				nullptr,
+				VK_OBJECT_TYPE_IMAGE_VIEW,
+				resource->Handle,
+				view_name_string.c_str()
+			};
+			vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+		}
     }
 
     if (initial_data)
     {
-        setImageInitialData(resource, num_data, initial_data, alloc);
+        setImageInitialData(resource, num_data, initial_data);
     }
 
     return resource;
@@ -484,7 +541,7 @@ VulkanResource* ResourceContextImpl::createImageView(const VulkanResource* base_
     }
 }
 
-VulkanResource* ResourceContextImpl::createSampler(const VkSamplerCreateInfo* info, void* user_data)
+VulkanResource* ResourceContextImpl::createSampler(const VkSamplerCreateInfo* info, const resource_creation_flags _flags, void* user_data)
 {
     VulkanResource* resource = nullptr;
     VkSamplerCreateInfo* local_info{ nullptr };
@@ -497,6 +554,7 @@ VulkanResource* ResourceContextImpl::createSampler(const VkSamplerCreateInfo* in
         auto info_iter = resourceInfos.samplerInfos.emplace(resource, *info);
         assert(info_iter.second);
         local_info = &info_iter.first->second;
+		resourceInfos.resourceFlags.emplace(resource, _flags);
     }
 
     resource->Type = resource_type::SAMPLER;
@@ -506,6 +564,18 @@ VulkanResource* ResourceContextImpl::createSampler(const VkSamplerCreateInfo* in
     VkResult result = vkCreateSampler(device->vkHandle(), info, nullptr, reinterpret_cast<VkSampler*>(&resource->Handle));
     VkAssert(result);
 
+	if ((_flags & ResourceCreateUserDataAsString) && validationEnabled)
+	{
+		VkDebugUtilsObjectNameInfoEXT name_info{
+			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+			nullptr,
+			VK_OBJECT_TYPE_SAMPLER,
+			resource->Handle,
+			reinterpret_cast<const char*>(user_data)
+		};
+		vkDebugFns.vkSetDebugUtilsObjectName(device->vkHandle(), &name_info);
+	}
+
     return resource;
 }
 
@@ -514,16 +584,18 @@ void ResourceContextImpl::copyResourceContents(VulkanResource* src, VulkanResour
 	throw std::runtime_error("Not implemented!");
 }
 
-void ResourceContextImpl::setBufferInitialDataHostOnly(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, VmaAllocation& alloc, resource_usage _resource_usage)
+void ResourceContextImpl::setBufferInitialDataHostOnly(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, resource_usage _resource_usage)
 {
     void* mapped_address{ nullptr };
     const VmaAllocationInfo* alloc_info;
+	VmaAllocation* alloc;
     {
         rw_lock_guard lock_guard(lock_mode::Read, containerMutex);
         alloc_info = &allocInfos.at(resource);
+		alloc = &resourceAllocations.at(resource);
     }
 
-	VkResult result = vmaMapMemory(allocatorHandle, alloc , &mapped_address);
+	VkResult result = vmaMapMemory(allocatorHandle, *alloc, &mapped_address);
     VkAssert(result);
     size_t offset = 0u;
     for (size_t i = 0u; i < num_data; ++i)
@@ -532,10 +604,10 @@ void ResourceContextImpl::setBufferInitialDataHostOnly(VulkanResource* resource,
         memcpy(curr_address, initial_data[i].Data, initial_data[i].DataSize);
         offset += initial_data[i].DataSize;
     }
-    vmaUnmapMemory(allocatorHandle, alloc);
+    vmaUnmapMemory(allocatorHandle, *alloc);
 }
 
-void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, VmaAllocation& alloc)
+void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data)
 {
 
     /*
@@ -590,7 +662,7 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resou
     
 }
 
-void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data, VmaAllocation& alloc)
+void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data)
 {
     const VkImageCreateInfo* info = reinterpret_cast<VkImageCreateInfo*>(resource->Info);
 
@@ -626,6 +698,7 @@ void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const si
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
     {
         auto guard = transfer_system.AcquireSpinLock();
+		VmaAllocation& alloc = resourceAllocations.at(resource);
         UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc->GetSize());
         VkCommandBuffer cmd = transfer_system.TransferCmdBuffer();
         std::vector<VkBufferImageCopy> buffer_image_copies;

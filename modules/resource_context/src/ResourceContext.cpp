@@ -14,10 +14,10 @@ ResourceContext & ResourceContext::Get()
     return context;
 }
 
-void ResourceContext::Initialize(vpr::Device* device, vpr::PhysicalDevice* physical_device)
+void ResourceContext::Initialize(vpr::Device* device, vpr::PhysicalDevice* physical_device, bool val_enabled)
 {
 	impl = std::make_unique<ResourceContextImpl>();
-    impl->construct(device, physical_device);
+    impl->construct(device, physical_device, val_enabled);
 }
 
 void ResourceContext::Update() {
@@ -59,12 +59,12 @@ VulkanResource* ResourceContext::CreateImageView(const VulkanResource* base_rsrc
 
 void ResourceContext::SetImageData(VulkanResource* image, const size_t num_data, const gpu_image_resource_data_t* data) 
 {
-    impl->setImageInitialData(image, num_data, data, impl->resourceAllocations.at(image));
+    impl->setImageInitialData(image, num_data, data);
 }
 
-VulkanResource* ResourceContext::CreateSampler(const VkSamplerCreateInfo* info, void* user_data) 
+VulkanResource* ResourceContext::CreateSampler(const VkSamplerCreateInfo* info, const resource_creation_flags _flags, void* user_data)
 {
-    return impl->createSampler(info, user_data);
+    return impl->createSampler(info, _flags, user_data);
 }
 
 VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateInfo * info, const VkImageViewCreateInfo * view_info, const VkSamplerCreateInfo * sampler_info, 
