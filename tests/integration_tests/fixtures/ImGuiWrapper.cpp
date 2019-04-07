@@ -414,7 +414,8 @@ void ImGuiWrapper::createFontImage() {
         uint32_t(imgHeight),
         0,
         1,
-        0
+        0,
+		device->QueueFamilyIndices().Graphics
     };
 
     fontImage = resourceContext->CreateImage(&image_info, &view_info, 1, &image_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, "ImGuiFontImage");
@@ -523,6 +524,8 @@ void ImGuiWrapper::createGraphicsPipeline(const VkRenderPass renderpass) {
 
 void ImGuiWrapper::updateBuffers(ImGuiFrameData* data) {
 
+	const uint32_t graphics_queue_idx = device->QueueFamilyIndices().Graphics;
+
     const ImDrawData* draw_data = ImGui::GetDrawData();
 
     if (!draw_data) {
@@ -548,7 +551,7 @@ void ImGuiWrapper::updateBuffers(ImGuiFrameData* data) {
         VkDeviceSize vtx_offset = 0, idx_offset = 0;
         for (int i = 0; i < draw_data->CmdListsCount; ++i) {
             const ImDrawList* list = draw_data->CmdLists[i];
-            copies.emplace_back(gpu_resource_data_t{ list->VtxBuffer.Data, list->VtxBuffer.Size * sizeof(ImDrawVert), 0, 0, 0 });
+            copies.emplace_back(gpu_resource_data_t{ list->VtxBuffer.Data, list->VtxBuffer.Size * sizeof(ImDrawVert), 0, graphics_queue_idx });
         }
 
         const VkBufferCreateInfo buffer_info{
@@ -572,7 +575,7 @@ void ImGuiWrapper::updateBuffers(ImGuiFrameData* data) {
         VkDeviceSize vtx_offset = 0, idx_offset = 0;
         for (int i = 0; i < draw_data->CmdListsCount; ++i) {
             const ImDrawList* list = draw_data->CmdLists[i];
-            copies.emplace_back(gpu_resource_data_t{ list->VtxBuffer.Data, list->VtxBuffer.Size * sizeof(ImDrawVert), 0, 0, 0 });
+            copies.emplace_back(gpu_resource_data_t{ list->VtxBuffer.Data, list->VtxBuffer.Size * sizeof(ImDrawVert), 0, graphics_queue_idx });
         }
 
         resourceContext->SetBufferData(data->vbo, copies.size(), copies.data());
@@ -590,7 +593,7 @@ void ImGuiWrapper::updateBuffers(ImGuiFrameData* data) {
 
         for (int i = 0; i < draw_data->CmdListsCount; ++i) {
             const ImDrawList* list = draw_data->CmdLists[i];
-            copies.emplace_back(gpu_resource_data_t{ list->IdxBuffer.Data, list->IdxBuffer.Size * sizeof(ImDrawIdx), 0, 0, 0 });
+            copies.emplace_back(gpu_resource_data_t{ list->IdxBuffer.Data, list->IdxBuffer.Size * sizeof(ImDrawIdx), 0, graphics_queue_idx });
         }
 
         const VkBufferCreateInfo buffer_info{
@@ -612,7 +615,7 @@ void ImGuiWrapper::updateBuffers(ImGuiFrameData* data) {
 
         for (int i = 0; i < draw_data->CmdListsCount; ++i) {
             const ImDrawList* list = draw_data->CmdLists[i];
-            copies.emplace_back(gpu_resource_data_t{ list->IdxBuffer.Data, list->IdxBuffer.Size * sizeof(ImDrawIdx), 0, 0, 0 });
+            copies.emplace_back(gpu_resource_data_t{ list->IdxBuffer.Data, list->IdxBuffer.Size * sizeof(ImDrawIdx), 0, graphics_queue_idx });
         }
 
         resourceContext->SetBufferData(data->ebo, copies.size(), copies.data());

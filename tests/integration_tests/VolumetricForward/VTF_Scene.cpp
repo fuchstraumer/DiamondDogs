@@ -180,6 +180,8 @@ struct TestIcosphereMesh
 		Vertices.shrink_to_fit();
 		Indices.shrink_to_fit();
 
+		const uint32_t graphics_queue_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Graphics;
+
         const VkBufferCreateInfo vbo_info{
             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             nullptr,
@@ -194,7 +196,7 @@ struct TestIcosphereMesh
         const gpu_resource_data_t vbo_data{
             Vertices.data(),
             vbo_info.size,
-            0u, 0u, 0u
+            0u, graphics_queue_idx
         };
 
         auto& rsrc_context = ResourceContext::Get();
@@ -214,7 +216,7 @@ struct TestIcosphereMesh
         const gpu_resource_data_t ebo_data{
             Indices.data(),
             ebo_info.size,
-            0u, 0u, 0u
+            0u, graphics_queue_idx
         };
 
         EBO = rsrc_context.CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, "IcosphereTesterEBO");
@@ -238,7 +240,7 @@ struct TestIcosphereMesh
 		const gpu_resource_data_t material_params_data{
 			&MaterialParams,
 			sizeof(MaterialParameters),
-			0u, 0u, 0u
+			0u, graphics_queue_idx
 		};
 
 		vkMaterialParams = rsrc_context.CreateBuffer(&material_params_info, nullptr, 1u, &material_params_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, 
@@ -488,7 +490,7 @@ void VTF_Scene::updateGlobalUBOs() {
 	curr_frame.Matrices.model = glm::mat4(1.0f);
 	VulkanResource* matrices_rsrc = curr_frame.rsrcMap.at("matrices");
 	const gpu_resource_data_t matrices_update{
-		&curr_frame.Matrices, sizeof(curr_frame.Matrices), 0u, 0u, 0u
+		&curr_frame.Matrices, sizeof(curr_frame.Matrices), 0u, VK_QUEUE_FAMILY_IGNORED
 	};
 	resource_context.SetBufferData(matrices_rsrc, 1u, &matrices_update);
 
@@ -500,13 +502,13 @@ void VTF_Scene::updateGlobalUBOs() {
 	curr_frame.Globals.windowSize.y = static_cast<float>(extent.height);
 	VulkanResource* globals_rsrc = curr_frame.rsrcMap.at("globals");
 	const gpu_resource_data_t globals_update{
-		&curr_frame.Globals, sizeof(curr_frame.Globals), 0u, 0u, 0u
+		&curr_frame.Globals, sizeof(curr_frame.Globals), 0u, VK_QUEUE_FAMILY_IGNORED
 	};
 	resource_context.SetBufferData(globals_rsrc, 1u, &globals_update);
 	
 	VulkanResource* cluster_data_rsrc = curr_frame.rsrcMap.at("ClusterData");
 	const gpu_resource_data_t cluster_update{
-		&curr_frame.ClusterData, sizeof(curr_frame.ClusterData), 0u, 0u, 0u
+		&curr_frame.ClusterData, sizeof(curr_frame.ClusterData), 0u, VK_QUEUE_FAMILY_IGNORED
 	};
 	resource_context.SetBufferData(cluster_data_rsrc, 1u, &cluster_update);
 
@@ -569,6 +571,7 @@ void VTF_Scene::present() {
 
 VulkanResource* VTF_Scene::loadTexture(const char* file_path_str, const char* image_name) {
     auto& rsrc_context = ResourceContext::Get();
+	const uint32_t graphics_queue_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Graphics;
     stbi_uc* pixels = nullptr;
     int x{ 0 };
     int y{ 0 };
@@ -583,7 +586,8 @@ VulkanResource* VTF_Scene::loadTexture(const char* file_path_str, const char* im
         size_t(y),
         0u,
         1u,
-        0u
+        0u,
+		graphics_queue_idx
     };
 
     VkFormat img_format = VK_FORMAT_UNDEFINED;

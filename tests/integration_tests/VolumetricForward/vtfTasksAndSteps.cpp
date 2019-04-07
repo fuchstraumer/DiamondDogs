@@ -330,9 +330,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     const gpu_resource_data_t cluster_data_update{
         &frame.ClusterData,
         sizeof(frame.ClusterData),
-        0u,
-        0u,
-        0u
+        0u, VK_QUEUE_FAMILY_IGNORED
     };
 
     auto& cluster_data = frame.rsrcMap["ClusterData"];
@@ -560,10 +558,12 @@ void createLightResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
+	const uint32_t compute_queue_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
+
     const gpu_resource_data_t point_lights_data{
         SceneLightsState().PointLights.data(),
         SceneLightsState().PointLights.size() * sizeof(PointLight),
-        0u, 0u, 0u
+        0u, compute_queue_idx
     };
 
     frame.rsrcMap["PointLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &point_lights_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLights");
@@ -572,7 +572,7 @@ void createLightResources(vtf_frame_data_t& frame) {
     const gpu_resource_data_t spot_lights_data{
         SceneLightsState().SpotLights.data(),
         SceneLightsState().SpotLights.size() * sizeof(SpotLight),
-        0u, 0u, 0u
+        0u, compute_queue_idx
     };
 
     lights_buffer_info.size = spot_lights_data.DataSize;
@@ -583,7 +583,7 @@ void createLightResources(vtf_frame_data_t& frame) {
     const gpu_resource_data_t dir_lights_data{
         SceneLightsState().DirectionalLights.data(),
         SceneLightsState().DirectionalLights.size() * sizeof(DirectionalLight),
-        0u, 0u, 0u
+        0u, compute_queue_idx
     };
     lights_buffer_info.size = dir_lights_data.DataSize;
 
@@ -608,7 +608,7 @@ void createLightResources(vtf_frame_data_t& frame) {
     const gpu_resource_data_t light_counts_data{
         &frame.LightCounts,
         sizeof(LightCountsData),
-        0u, 0u, 0u
+        0u, VK_QUEUE_FAMILY_IGNORED
     };
 
     frame.rsrcMap["LightCounts"] = rsrc_context.CreateBuffer(&light_counts_info, nullptr, 1, &light_counts_data, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "LightCounts");
@@ -977,8 +977,9 @@ void createDebugResources(vtf_frame_data_t& frame)
 		required_mem
 	};
 
+	const uint32_t graphics_queue_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Graphics;
 	const gpu_resource_data_t buffer_data{
-		cluster_colors_vec.data(), required_mem, 0u, 0u, 0u
+		cluster_colors_vec.data(), required_mem, 0u, graphics_queue_idx
 	};
 	
 	auto& ctxt = ResourceContext::Get();
@@ -2101,7 +2102,7 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 	reduction_param_t reduction_params_data;
 	reduction_params_data.NumElements = frame.DispatchParams.NumThreadGroups.x;
 	const gpu_resource_data_t rp_update{
-		&reduction_params_data, sizeof(reduction_param_t), 0u, 0u, 0u
+		&reduction_params_data, sizeof(reduction_param_t), 0u, VK_QUEUE_FAMILY_IGNORED
 	};
 
 	rsrc.SetBufferData(reduction_params, 1u, &rp_update);
@@ -2318,7 +2319,7 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     const VkBufferCopy spot_light_copy{ 0, 0, uint32_t(reinterpret_cast<const VkBufferCreateInfo*>(spotLightIndices->Info)->size) };
 
     auto& sort_params_rsrc = frame.rsrcMap["SortParams"];
-    const gpu_resource_data_t sort_params_copy{ &sort_params, sizeof(SortParams), 0u, 0u, 0u };
+    const gpu_resource_data_t sort_params_copy{ &sort_params, sizeof(SortParams), 0u, VK_QUEUE_FAMILY_IGNORED };
 
 	// TODO: Create a way to not have to do this
 	// Create a dummy resource so that things don't break for us.
@@ -2550,7 +2551,7 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     uint32_t point_light_levels = GetNumLevelsBVH(frame.LightCounts.NumPointLights);
     uint32_t spot_light_levels = GetNumLevelsBVH(frame.LightCounts.NumSpotLights);
-    const gpu_resource_data_t bvh_update{ &frame.BVH_Params, sizeof(frame.BVH_Params), 0u, 0u, 0u };
+    const gpu_resource_data_t bvh_update{ &frame.BVH_Params, sizeof(frame.BVH_Params), 0u, VK_QUEUE_FAMILY_IGNORED };
 
     if ((point_light_levels != frame.BVH_Params.PointLightLevels) || (spot_light_levels != frame.BVH_Params.SpotLightLevels)) {
         rsrc.SetBufferData(bvh_params_rsrc, 1, &bvh_update);
@@ -3038,9 +3039,9 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     frame.BVH_Params.SpotLightLevels = GetNumLevelsBVH(frame.LightCounts.NumSpotLights);
 
     const gpu_resource_data_t bvh_params_update {
-        &frame.LightCounts,
-        sizeof(LightCountsData),
-        0u, 0u, 0u
+        &frame.BVH_Params,
+        sizeof(BVH_Params_t),
+        0u, VK_QUEUE_FAMILY_IGNORED
     };
 
     VulkanResource* bvh_params_rsrc = frame.rsrcMap.at("BVHParams");
@@ -3411,7 +3412,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 
 
 	SortParams sort_params_local;
-	const gpu_resource_data_t sort_params_copy{ &sort_params_local, sizeof(SortParams), 0u, 0u, 0u };
+	const gpu_resource_data_t sort_params_copy{ &sort_params_local, sizeof(SortParams), 0u, VK_QUEUE_FAMILY_IGNORED };
 	auto& rsrc_context = ResourceContext::Get();
 	VulkanResource* sort_params_rsrc = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 1u, &sort_params_copy, resource_usage::CPU_ONLY, ResourceCreateUserDataAsString, "MergeSort_SortParams");
 	frame.transientResources.emplace_back(sort_params_rsrc); // will be cleared at end of frame
