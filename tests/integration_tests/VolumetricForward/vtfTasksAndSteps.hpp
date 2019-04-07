@@ -35,13 +35,10 @@ void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z);
     usage. These should still be invoked in the proper order,
     but can now be executed across multiple threads far easier
 */
-void ComputeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd);
-void ComputeReduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd);
-void ComputeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd);
-void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd);
-void BuildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd);
+
 void UpdateClusterGrid(vtf_frame_data_t& frame);
 void ComputeClusterAABBs(vtf_frame_data_t& frame);
+void ComputeUpdate(vtf_frame_data_t& frame);
 void SubmitComputeWork(vtf_frame_data_t& frame, uint32_t num_cmds, VkCommandBuffer* cmds);
 void RenderVtf(vtf_frame_data_t& frame);
 void SubmitGraphicsWork(vtf_frame_data_t& frame_data);

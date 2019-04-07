@@ -28,6 +28,7 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <string>
+#include <thsvs_simpler_vulkan_synchronization.h>
 
 constexpr static uint32_t SORT_NUM_THREADS_PER_THREAD_GROUP = 256u;
 constexpr static uint32_t SORT_ELEMENTS_PER_THREAD = 8u;
@@ -920,6 +921,7 @@ void setupCommandPools(vtf_frame_data_t& frame)
 		VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
 		0u
 	};
+
 	auto* device = RenderingContext::Get().Device();
 	auto pool_info = command_pool_info;
 	pool_info.queueFamilyIndex = device->QueueFamilyIndices().Compute;
@@ -992,6 +994,7 @@ void createFences(vtf_frame_data_t& frame)
 {
 	auto* device = RenderingContext::Get().Device();
 	frame.graphicsPoolUsageFence = std::make_unique<vpr::Fence>(device->vkHandle(), 0);
+	frame.computePoolUsageFence = std::make_unique<vpr::Fence>(device->vkHandle(), 0);
 }
 
 void CreateResources(vtf_frame_data_t & frame) {
@@ -1871,10 +1874,63 @@ void createDrawPipelines(vtf_frame_data_t& frame) {
 
 }
 
+void createDebugClustersPipeline(vtf_frame_data_t& frame)
+{
+	static const std::string groupName{ "DebugClusters" };
+	static const std::string pipelineName = groupName + std::string("Pipeline");
+	auto* device = RenderingContext::Get().Device();
+
+	std::vector<st::ShaderStage> stages;
+
+	for (auto& stage : vtf_frame_data_t::groupStages.at(groupName))
+	{
+		stages.emplace_back(stage);
+	}
+
+	const VkPipelineShaderStageCreateInfo shader_stages[3]{
+		vtf_frame_data_t::shaderModules.at(stages[0])->PipelineInfo(),
+		vtf_frame_data_t::shaderModules.at(stages[1])->PipelineInfo(),
+		vtf_frame_data_t::shaderModules.at(stages[2])->PipelineInfo()
+	};
+
+	vpr::GraphicsPipelineInfo pipeline_info;
+	pipeline_info.AssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+	pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+	pipeline_info.ColorBlendInfo.attachmentCount = 1;
+	pipeline_info.ColorBlendInfo.pAttachments = &AdditiveBlendingAttachmentState;
+	pipeline_info.ColorBlendInfo.logicOpEnable = VK_FALSE;
+	pipeline_info.DynamicStateInfo.dynamicStateCount = 2;
+	static constexpr VkDynamicState States[2]{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+	pipeline_info.DynamicStateInfo.pDynamicStates = States;
+	pipeline_info.DepthStencilInfo.depthWriteEnable = VK_FALSE;
+	pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+	pipeline_info.MultisampleInfo.rasterizationSamples = SceneConfig.MSAA_SampleCount;
+
+	VkGraphicsPipelineCreateInfo create_info = pipeline_info.GetPipelineCreateInfo();
+	create_info.stageCount = 3u;
+	create_info.pStages = shader_stages;
+	create_info.subpass = 0u;
+	create_info.layout = frame.descriptorPack->PipelineLayout(groupName);
+	// is rendered normally as part of drawpass, so uses that renderpass
+	create_info.renderPass = frame.renderPasses.at("DrawPass")->vkHandle();
+	create_info.basePipelineHandle = VK_NULL_HANDLE;
+	create_info.basePipelineIndex = -1;
+
+	frame.graphicsPipelines[pipelineName] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
+	frame.graphicsPipelines[pipelineName]->Init(create_info, frame.pipelineCaches.at(groupName)->vkHandle());
+
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(pipelineName)->vkHandle(), pipelineName.c_str());
+	}
+
+}
+
 void CreateGraphicsPipelines(vtf_frame_data_t & frame) {
     createDepthPrePassPipeline(frame);
     createClusterSamplesPipeline(frame);
     createDrawPipelines(frame);
+	createDebugClustersPipeline(frame);
 }
 
 void miscSetup(vtf_frame_data_t& frame) {
@@ -1916,9 +1972,12 @@ void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z)
 	grid_z = static_cast<uint32_t>(glm::floor(log_depth * log_dim_y));
 }
 
-void ComputeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, "UpdateLights");
+
+	const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
+
     constexpr static VkDebugUtilsLabelEXT debug_label {
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr,
@@ -1950,20 +2009,63 @@ void ComputeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     uint32_t num_groups_x = glm::max(frame.LightCounts.NumPointLights, glm::max(frame.LightCounts.NumDirectionalLights, frame.LightCounts.NumSpotLights));
     num_groups_x = static_cast<uint32_t>(glm::ceil(num_groups_x / 1024.0f));
     vkCmdDispatch(cmd, num_groups_x, 1, 1);
-    if constexpr (VTF_VALIDATION_ENABLED) {
-        frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
-    }
+
+	constexpr static ThsvsAccessType write_access_type [3]{
+		THSVS_ACCESS_COMPUTE_SHADER_WRITE,
+		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER,
+		THSVS_ACCESS_COMPUTE_SHADER_READ_UNIFORM_BUFFER
+	};
+
+	constexpr static ThsvsAccessType read_access_type[1]{
+		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
+	};
+
+	constexpr static ThsvsBufferBarrier buffer_barrier_base {
+		3u,
+		write_access_type,
+		1u,
+		read_access_type,
+		VK_QUEUE_FAMILY_IGNORED,
+		VK_QUEUE_FAMILY_IGNORED,
+		VK_NULL_HANDLE,
+		0u,
+		0u
+	};
+
+	ThsvsBufferBarrier buffer_barriers[2]{
+		buffer_barrier_base,
+		buffer_barrier_base
+	};
+
+	VulkanResource* point_lights = frame.rsrcMap.at("PointLights");
+	buffer_barriers[0].buffer = (VkBuffer)point_lights->Handle;
+	buffer_barriers[0].size = reinterpret_cast<const VkBufferCreateInfo*>(point_lights->Info)->size;
+	VulkanResource* spot_lights = frame.rsrcMap.at("SpotLights");
+	buffer_barriers[1].buffer = (VkBuffer)spot_lights->Handle;
+	buffer_barriers[1].size = reinterpret_cast<const VkBufferCreateInfo*>(spot_lights->Info)->size;
+	thsvsCmdPipelineBarrier(cmd, nullptr, 2u, buffer_barriers, 0u, nullptr);
+
+	if constexpr (VTF_VALIDATION_ENABLED) {
+		frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
+	}
 
 }
 
-void ComputeReduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
-    constexpr static VkDebugUtilsLabelEXT debug_label{
+    constexpr static VkDebugUtilsLabelEXT debug_label0 {
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr,
-        "ReduceLights",
+        "ReduceLightsStep0",
         { 182.0f / 255.0f, 66.0f / 255.0f, 244.0f / 255.0f, 1.0f }
     };
+
+	constexpr static VkDebugUtilsLabelEXT debug_label1{
+		VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+		nullptr,
+		"ReduceLightsStep1",
+		{ 192.0f / 255.0f, 66.0f / 255.0f, 1.0f, 1.0f }
+	};
 
     auto& rsrc = ResourceContext::Get();
 
@@ -1989,6 +2091,20 @@ void ComputeReduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         &frame.DispatchParams,
         sizeof(DispatchParams_t)
     };
+
+	auto& reduction_params = frame.rsrcMap.at("ReductionParams");
+	struct reduction_param_t
+	{
+		uint32_t NumElements;
+		uint32_t Padding[3]{ 0u, 0u, 0u };
+	};
+	reduction_param_t reduction_params_data;
+	reduction_params_data.NumElements = frame.DispatchParams.NumThreadGroups.x;
+	const gpu_resource_data_t rp_update{
+		&reduction_params_data, sizeof(reduction_param_t), 0u, 0u, 0u
+	};
+
+	rsrc.SetBufferData(reduction_params, 1u, &rp_update);
 
     auto& dispatch_params0 = frame.rsrcMap["DispatchParams0"];
     if (dispatch_params0) {
@@ -2089,72 +2205,82 @@ void computeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     const VkDeviceSize point_light_codes_size = reinterpret_cast<const VkBufferCreateInfo*>(pointLightMortonCodes->Info)->size;
     const VkDeviceSize spot_light_codes_size = reinterpret_cast<const VkBufferCreateInfo*>(spotLightMortonCodes->Info)->size;
 
-    const std::array<VkBufferMemoryBarrier, 4> compute_morton_codes_barriers {
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)pointLightIndices->Handle,
-            0u,
-            point_light_indices_size
-        },
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)spotLightIndices->Handle,
-            0u,
-            spot_light_indices_size
-        },
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)pointLightMortonCodes->Handle,
-            0u,
-            point_light_codes_size
-        },
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)spotLightMortonCodes->Handle,
-            0u,
-            spot_light_codes_size
-        }
-    };
+	const ThsvsAccessType prev_access_type[1] {
+		THSVS_ACCESS_COMPUTE_SHADER_WRITE
+	};
+
+	const ThsvsAccessType next_access_type[1]{
+		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
+	};
+
+	const std::array<ThsvsBufferBarrier, 4> compute_morton_codes_barriers{
+		ThsvsBufferBarrier{
+			1u,
+			prev_access_type,
+			1u,
+			next_access_type,
+			VK_QUEUE_FAMILY_IGNORED,
+			VK_QUEUE_FAMILY_IGNORED,
+			(VkBuffer)pointLightIndices->Handle,
+			0u,
+			point_light_indices_size
+		},
+		ThsvsBufferBarrier{
+			1u,
+			prev_access_type,
+			1u,
+			next_access_type,
+			VK_QUEUE_FAMILY_IGNORED,
+			VK_QUEUE_FAMILY_IGNORED,
+			(VkBuffer)spotLightIndices->Handle,
+			0u,
+			spot_light_indices_size
+		},
+		ThsvsBufferBarrier{
+			1u,
+			prev_access_type,
+			1u,
+			next_access_type,
+			VK_QUEUE_FAMILY_IGNORED,
+			VK_QUEUE_FAMILY_IGNORED,
+			(VkBuffer)pointLightMortonCodes->Handle,
+			0u,
+			point_light_codes_size
+		},
+		ThsvsBufferBarrier{
+			1u,
+			prev_access_type,
+			1u,
+			next_access_type,
+			VK_QUEUE_FAMILY_IGNORED,
+			VK_QUEUE_FAMILY_IGNORED,
+			(VkBuffer)spotLightMortonCodes->Handle,
+			0u,
+			spot_light_codes_size
+		}
+	};
 
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
+
 	binder.Update();
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "ComputeMortonCodes");
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["ComputeLightMortonCodesPipeline"].Handle);
     uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(glm::max(frame.LightCounts.NumPointLights, frame.LightCounts.NumSpotLights) / 1024.0f));
     vkCmdDispatch(cmd, num_thread_groups, 1, 1);
-    // barrier to make sure writes from this dispatch finish before we try to sort
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr, static_cast<uint32_t>(compute_morton_codes_barriers.size()), 
-        compute_morton_codes_barriers.data(), 0u, nullptr);
+	//thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(compute_morton_codes_barriers.size()), compute_morton_codes_barriers.data(), 0u, nullptr);
+
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
 }
 
-void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+
+	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "SortMortonCodes");
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2196,7 +2322,9 @@ void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 	// TODO: Create a way to not have to do this
 	// Create a dummy resource so that things don't break for us.
-	VulkanResource* merge_path_partitions_empty = CreateMergePathPartitions(frame);
+	VulkanResource* merge_path_partitions_empty = CreateMergePathPartitions(frame, true);
+	vkCmdFillBuffer(cmd, (VkBuffer)merge_path_partitions_empty->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(merge_path_partitions_empty->Info)->size, 0u);
+	frame.transientResources.emplace_back(merge_path_partitions_empty);
 
     // prefetch binding locations
     Descriptor* sort_descriptor = frame.descriptorPack->RetrieveDescriptor("MergeSortResources");
@@ -2212,13 +2340,21 @@ void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     const VkDeviceSize point_light_codes_size = reinterpret_cast<const VkBufferCreateInfo*>(pointLightMortonCodes->Info)->size;
     const VkDeviceSize spot_light_codes_size = reinterpret_cast<const VkBufferCreateInfo*>(spotLightMortonCodes->Info)->size;
 
-    std::array<VkBufferMemoryBarrier, 4> radix_sort_barriers{
+	const ThsvsAccessType readonly_access_type[1]{
+		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
+	};
+
+	const ThsvsAccessType writeonly_access_type[1]{
+		THSVS_ACCESS_COMPUTE_SHADER_WRITE
+	};
+
+    std::array<ThsvsBufferBarrier, 4> radix_sort_barriers{
         // Input keys
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_READ_BIT,
-            VK_ACCESS_SHADER_WRITE_BIT,
+		ThsvsBufferBarrier{
+			1u,
+			readonly_access_type,
+			1u,
+			writeonly_access_type,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
             (VkBuffer)pointLightMortonCodes->Handle,
@@ -2226,11 +2362,11 @@ void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
             point_light_codes_size
         },
         // Input values
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_READ_BIT,
-            VK_ACCESS_SHADER_WRITE_BIT,
+		ThsvsBufferBarrier{
+			1u,
+			readonly_access_type,
+			1u,
+			writeonly_access_type,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
             (VkBuffer)pointLightIndices->Handle,
@@ -2238,11 +2374,11 @@ void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
             point_light_indices_size
         },
         // Output keys
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT,
+		ThsvsBufferBarrier{
+			1u,
+			writeonly_access_type,
+			1u,
+			readonly_access_type,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
             (VkBuffer)pointLightMortonCodes_OUT->Handle,
@@ -2250,11 +2386,11 @@ void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
             point_light_codes_size
         },
         // Output values
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT,
+		ThsvsBufferBarrier{
+			1u,
+			writeonly_access_type,
+			1u,
+			readonly_access_type,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
             (VkBuffer)pointLightIndices_OUT->Handle,
@@ -2290,8 +2426,7 @@ void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         vkCmdCopyBuffer(cmd, (VkBuffer)pointLightMortonCodes_OUT->Handle, (VkBuffer)pointLightMortonCodes->Handle, 1, &point_light_copy);
         vkCmdCopyBuffer(cmd, (VkBuffer)pointLightIndices_OUT->Handle, (VkBuffer)pointLightIndices->Handle, 1, &point_light_copy);
 
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr,
-            static_cast<uint32_t>(radix_sort_barriers.size()), radix_sort_barriers.data(), 0u, nullptr);
+		//thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(radix_sort_barriers.size()), radix_sort_barriers.data(), 0u, nullptr);
 
     }
 
@@ -2318,15 +2453,14 @@ void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
         radix_sort_barriers[0].buffer = (VkBuffer)spotLightMortonCodes->Handle;
         radix_sort_barriers[0].size = spot_light_codes_size;
-        radix_sort_barriers[1].buffer = (VkBuffer)spotLightMortonCodes_OUT->Handle;
+        radix_sort_barriers[1].buffer = (VkBuffer)spotLightIndices->Handle;
         radix_sort_barriers[1].size = spot_light_codes_size;
-        radix_sort_barriers[2].buffer = (VkBuffer)spotLightIndices->Handle;
+        radix_sort_barriers[2].buffer = (VkBuffer)spotLightMortonCodes_OUT->Handle;
         radix_sort_barriers[2].size = spot_light_indices_size;
         radix_sort_barriers[3].buffer = (VkBuffer)spotLightIndices_OUT->Handle;
         radix_sort_barriers[3].size = spot_light_indices_size;
 
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr,
-            static_cast<uint32_t>(radix_sort_barriers.size()), radix_sort_barriers.data(), 0u, nullptr);
+		//thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(radix_sort_barriers.size()), radix_sort_barriers.data(), 0u, nullptr);
 
     }
 
@@ -2338,15 +2472,25 @@ void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         MergeSort(frame, cmd, spotLightMortonCodes, spotLightIndices, spotLightMortonCodes_OUT, spotLightIndices_OUT, frame.LightCounts.NumSpotLights, SORT_NUM_THREADS_PER_THREAD_GROUP, binder);
     }
 
+	const ThsvsGlobalBarrier global_barrier{
+		1u,
+		writeonly_access_type,
+		1u,
+		readonly_access_type
+	};
+
+	//thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
+
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
 }
 
-void BuildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "BuildLightBVH");
+
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr,
@@ -2457,7 +2601,7 @@ void ComputeClusterAABBs(vtf_frame_data_t& frame) {
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr,
-        "ComputerClusterAABBs",
+        "ComputeClusterAABBs",
         { 113.0f / 255.0f, 244.0f / 255.0f, 66.0f / 255.0f, 1.0f }
     };
 
@@ -2529,9 +2673,62 @@ void SubmitComputeWork(vtf_frame_data_t& frame, uint32_t num_cmds, VkCommandBuff
         1,
         &frame.semaphores.at("ComputeUpdateComplete")->vkHandle()
     };
-    VkResult result = vkQueueSubmit(device->ComputeQueue(), 1, &submit_info, VK_NULL_HANDLE);
+    VkResult result = vkQueueSubmit(device->ComputeQueue(), 1, &submit_info, frame.computePoolUsageFence->vkHandle());
     VkAssert(result);
 
+}
+
+void ComputeUpdate(vtf_frame_data_t& frame)
+{
+	constexpr VkCommandBufferBeginInfo base_info{
+		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		nullptr,
+		VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT
+	};
+
+	constexpr static VkDebugUtilsLabelEXT queue_debug_label{
+		VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+		nullptr,
+		"ComputeUpdate",
+		{ 63.0f / 255.0f, 197.0f / 255.0f, 255.0f / 255.0f, 1.0f }
+	};
+
+	auto* device = RenderingContext::Get().Device();
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		frame.vkDebugFns.vkQueueBeginDebugUtilsLabel(device->ComputeQueue(), &queue_debug_label);
+	}
+
+	if (!frame.firstComputeSubmit)
+	{
+		VkResult result = vkWaitForFences(device->vkHandle(), 1u, &frame.computePoolUsageFence->vkHandle(), VK_TRUE, UINT64_MAX);
+		VkAssert(result);
+		result = vkResetFences(device->vkHandle(), 1u, &frame.computePoolUsageFence->vkHandle());
+		VkAssert(result);
+		frame.computePool->ResetCmdPool();
+	}
+
+	VkCommandBuffer cmd_buffer = frame.computePool->GetCmdBuffer(1u);
+	VkResult result = vkBeginCommandBuffer(cmd_buffer, &base_info);
+	VkAssert(result);
+
+		computeUpdateLights(frame, cmd_buffer);
+		reduceLights(frame, cmd_buffer);
+		computeMortonCodes(frame, cmd_buffer);
+		sortMortonCodes(frame, cmd_buffer);
+		buildLightBVH(frame, cmd_buffer);
+
+	result = vkEndCommandBuffer(cmd_buffer);
+	VkAssert(result);
+
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		frame.vkDebugFns.vkQueueEndDebugUtilsLabel(device->ComputeQueue());
+	}
+
+	SubmitComputeWork(frame, 1u, &cmd_buffer);
+
+	frame.firstComputeSubmit = false;
 }
 
 bool tryImageAcquire(vtf_frame_data_t& frame, uint64_t timeout = 0u) {
@@ -2562,25 +2759,33 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     auto* renderpass = frame.renderPasses.at("DepthAndClusterSamplesPass").get();
     renderpass->UpdateBeginInfo(frame.clusterSamplesFramebuffer->vkHandle());
-
-
     auto& cluster_flags = frame.rsrcMap.at("ClusterFlags");
-
-    const VkBufferMemoryBarrier cluster_flags_barrier{
-        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-        nullptr,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        VK_ACCESS_SHADER_READ_BIT,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        (VkBuffer)cluster_flags->Handle,
-        0u,
-        reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info)->size
-    };
 
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
+
+	const ThsvsAccessType wait_access_types[2]{
+		THSVS_ACCESS_TRANSFER_WRITE,
+		THSVS_ACCESS_HOST_WRITE
+	};
+
+	const ThsvsAccessType next_access_types[4]{
+		THSVS_ACCESS_VERTEX_BUFFER,
+		THSVS_ACCESS_VERTEX_SHADER_READ_UNIFORM_BUFFER,
+		THSVS_ACCESS_FRAGMENT_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER,
+		THSVS_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE
+	};
+
+	const ThsvsGlobalBarrier global_barrier{
+		2u,
+		wait_access_types,
+		4u,
+		next_access_types
+	};
+
+	//thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
+
     vkCmdFillBuffer(cmd, (VkBuffer)cluster_flags->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info)->size, 0u);
     auto& binder0 = frame.GetBinder("DepthPrePass");
 	binder0.Update();
@@ -2604,8 +2809,30 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 			frame.renderFns[i](cmd, &binder1, vtf_frame_data_t::render_type::Opaque); // opaque for depth
 		}
     vkCmdEndRenderPass(cmd);
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT, 0u, nullptr,
-        1u, &cluster_flags_barrier, 0u, nullptr); // make sure writes to cluster flags complete before it's used by FindUniqueClusters
+
+	const ThsvsAccessType writeonly_access[2]{
+		THSVS_ACCESS_FRAGMENT_SHADER_WRITE,
+		THSVS_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE
+	};
+
+	const ThsvsAccessType readonly_access[1]{
+		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
+	};
+
+	const ThsvsBufferBarrier cluster_flags_barrier{
+		2u,
+		writeonly_access,
+		1u,
+		readonly_access,
+		VK_QUEUE_FAMILY_IGNORED,
+		VK_QUEUE_FAMILY_IGNORED,
+		(VkBuffer)cluster_flags->Handle,
+		0u,
+		reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info)->size
+	};
+
+	//thsvsCmdPipelineBarrier(cmd, nullptr, 1u, &cluster_flags_barrier, 0u, nullptr);
+
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
@@ -2630,7 +2857,7 @@ void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     vkCmdFillBuffer(cmd, (VkBuffer)unique_clusters->Handle, 0u, unique_clusters_size, 0u);
-    vkCmdFillBuffer(cmd, (VkBuffer)unique_clusters->Handle, 0u, sizeof(uint32_t), 0u);
+    vkCmdFillBuffer(cmd, (VkBuffer)unique_clusters_counter->Handle, 0u, sizeof(uint32_t), 0u);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("FindUniqueClustersPipeline").Handle);
     auto& binder = frame.GetBinder("FindUniqueClusters");
 	binder.Update();
@@ -2640,19 +2867,28 @@ void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil((float)max_clusters / 1024.0f));
     vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
 
-    const VkBufferMemoryBarrier unique_clusters_counter_barrier {
-        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-        nullptr,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        VK_ACCESS_SHADER_READ_BIT,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        (VkBuffer)unique_clusters_counter->Handle,
-        0u,
-        sizeof(uint32_t)
-    };
-    // gotta flush writes before executing update indirect args shader
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0u, nullptr, 1u, &unique_clusters_counter_barrier, 0u, nullptr);
+	const ThsvsAccessType writeonly_access[1]{
+		THSVS_ACCESS_COMPUTE_SHADER_WRITE
+	};
+
+	const ThsvsAccessType readonly_access[1]{
+		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
+	};
+
+	const ThsvsBufferBarrier unique_clusters_barrier{
+		1u,
+		writeonly_access,
+		1u,
+		readonly_access,
+		VK_QUEUE_FAMILY_IGNORED,
+		VK_QUEUE_FAMILY_IGNORED,
+		(VkBuffer)unique_clusters->Handle,
+		0u,
+		reinterpret_cast<const VkBufferCreateInfo*>(unique_clusters->Info)->size
+	};
+
+	//thsvsCmdPipelineBarrier(cmd, nullptr, 1u, &unique_clusters_barrier, 0u, nullptr);
+
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
@@ -2671,17 +2907,6 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     };
 
     auto& indir_args_buffer = frame.rsrcMap.at("IndirectArgs");
-    const VkBufferMemoryBarrier indir_args_buffer_barrier{
-        VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-        nullptr,
-        VK_ACCESS_SHADER_WRITE_BIT,
-        VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        (VkBuffer)indir_args_buffer->Handle,
-        0u,
-        sizeof(VkDispatchIndirectCommand)
-    };
 
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
@@ -2691,7 +2916,29 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 	binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdDispatch(cmd, 1u, 1u, 1u);
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 0u, nullptr, 1u, &indir_args_buffer_barrier, 0u, nullptr);
+
+	const ThsvsAccessType writeonly_storage_access[1] {
+		THSVS_ACCESS_COMPUTE_SHADER_WRITE
+	};
+
+	const ThsvsAccessType indirect_dispatch_access[1]{
+		THSVS_ACCESS_INDIRECT_BUFFER
+	};
+
+	const ThsvsBufferBarrier buffer_barrier{
+		1u,
+		writeonly_storage_access,
+		1u,
+		indirect_dispatch_access,
+		VK_QUEUE_FAMILY_IGNORED,
+		VK_QUEUE_FAMILY_IGNORED,
+		(VkBuffer)indir_args_buffer->Handle,
+		0u,
+		sizeof(VkDispatchIndirectCommand)
+	};
+
+	thsvsCmdPipelineBarrier(cmd, nullptr, 1u, &buffer_barrier, 0u, nullptr);
+
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
@@ -2717,49 +2964,68 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     const VulkanResource* spot_light_grid = frame.rsrcMap.at("SpotLightGrid");
     const VulkanResource* point_light_index_list = frame.rsrcMap.at("PointLightIndexList");
     const VulkanResource* spot_light_index_list = frame.rsrcMap.at("SpotLightIndexList");
+	const VulkanResource* indirect_buffer = frame.rsrcMap.at("IndirectArgs");
 
-    /*
-        These resources are all written in this stage, then read by the rendering pass
-    */
-    const VkBufferMemoryBarrier assign_lights_barriers[4]{
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT,
+	auto& descriptor = frame.GetBinder("AssignLightsToClusters");
+	descriptor.Update();
+
+	/*
+		Readonly in this pass:
+		UniqueClusters, PointLightIndices, SpotLightIndices
+		(Read but not qualified: PointLights, SpotLights, LightAABBs)
+		Writeonly:
+		PointLightGrid, SpotLightGrid, PointLightIndexList, SpotLightIndexList
+		Read/Write:
+		PointLightIndexCounter, SpotLightIndexCounter
+	*/
+
+	const ThsvsAccessType writeonly_access[1]{
+		THSVS_ACCESS_COMPUTE_SHADER_WRITE
+	};
+
+	const ThsvsAccessType readonly_access[1]{
+		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
+	};
+
+    const ThsvsBufferBarrier assign_lights_barriers[4]{
+		ThsvsBufferBarrier{
+            1u,
+			writeonly_access,
+			1u,
+			readonly_access,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
             (VkBuffer)point_light_index_list->Handle,
             0u,
             reinterpret_cast<const VkBufferCreateInfo*>(point_light_index_list->Info)->size
         },
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT,
+		ThsvsBufferBarrier{
+			1u,
+			writeonly_access,
+			1u,
+			readonly_access,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
             (VkBuffer)spot_light_index_list->Handle,
             0u,
             reinterpret_cast<const VkBufferCreateInfo*>(spot_light_index_list->Info)->size
         },
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT,
+		ThsvsBufferBarrier{
+			1u,
+			writeonly_access,
+			1u,
+			readonly_access,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
             (VkBuffer)point_light_grid->Handle,
             0u,
             reinterpret_cast<const VkBufferCreateInfo*>(point_light_grid->Info)->size
         },
-        VkBufferMemoryBarrier{
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_SHADER_WRITE_BIT,
-            VK_ACCESS_SHADER_READ_BIT,
+		ThsvsBufferBarrier{
+			1u,
+			writeonly_access,
+			1u,
+			readonly_access,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
             (VkBuffer)spot_light_grid->Handle,
@@ -2779,21 +3045,38 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     VulkanResource* bvh_params_rsrc = frame.rsrcMap.at("BVHParams");
     rsrc_ctxt.SetBufferData(bvh_params_rsrc, 1u, &bvh_params_update);
-    
+
+	const ThsvsAccessType wait_access_types[3]{
+		THSVS_ACCESS_HOST_WRITE,
+		THSVS_ACCESS_COMPUTE_SHADER_WRITE
+	};
+
+	const ThsvsAccessType next_access_types[2]{
+		THSVS_ACCESS_COMPUTE_SHADER_READ_UNIFORM_BUFFER,
+		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
+	};
+
+	const ThsvsGlobalBarrier global_barrier{
+		2u,
+		wait_access_types,
+		2u,
+		next_access_types
+	};
+
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
+
     vkCmdFillBuffer(cmd, (VkBuffer)point_light_index_counter->Handle, 0u, sizeof(uint32_t), 0u);
     vkCmdFillBuffer(cmd, (VkBuffer)spot_light_index_counter->Handle, 0u, sizeof(uint32_t), 0u);
     vkCmdFillBuffer(cmd, (VkBuffer)point_light_grid->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(point_light_grid->Info)->size, 0u);
     vkCmdFillBuffer(cmd, (VkBuffer)spot_light_grid->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(spot_light_grid->Info)->size, 0u);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("AssignLightsToClustersPipeline").Handle);
-    auto& descriptor = frame.GetBinder("AssignLightsToClusters");
-	descriptor.Update();
-    descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
-    VulkanResource* indirect_buffer = frame.rsrcMap.at("IndirectArgs");
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("AssignLightsToClustersPipeline").Handle);
+	descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
+	thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
     vkCmdDispatchIndirect(cmd, (VkBuffer)indirect_buffer->Handle, 0u);
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0u, nullptr, 4u, assign_lights_barriers, 0u, nullptr);
+	thsvsCmdPipelineBarrier(cmd, nullptr, 4u, assign_lights_barriers, 0u, nullptr);
+
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
@@ -2812,7 +3095,7 @@ void submitPreSwapchainWritingWork(vtf_frame_data_t& frame, uint32_t num_cmds, V
         frame.semaphores.at("PreBackbufferWorkComplete")->vkHandle()
     };
 
-	constexpr static VkPipelineStageFlags wait_mask[2]{ VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT }; // we're waiting a bit early tbh
+	constexpr static VkPipelineStageFlags wait_mask[2]{ VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT }; // we're waiting a bit early tbh
 
     const VkSubmitInfo submit_info{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -2833,9 +3116,17 @@ void submitPreSwapchainWritingWork(vtf_frame_data_t& frame, uint32_t num_cmds, V
 
 }
 
+void vtfDrawDebugClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
+{
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("DebugClustersPipeline")->vkHandle());
+	auto& descriptor = frame.GetBinder("DebugClusters");
+
+}
+
 void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "Draw");
+
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr, 
@@ -2891,15 +3182,33 @@ void RenderVtf(vtf_frame_data_t& frame) {
 		nullptr
 	};
 
+	constexpr static VkDebugUtilsLabelEXT queue_debug_label{
+		VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+		nullptr,
+		"RenderVtf",
+		{ 133.0f / 255.0f, 63.0f / 255.0f, 255.0f / 255.0f, 1.0f }
+	};
+
+	auto* device = RenderingContext::Get().Device();
+
+	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		frame.vkDebugFns.vkQueueBeginDebugUtilsLabel(device->GraphicsQueue(), &queue_debug_label);
+	}
+
 	if (!frame.firstGraphicsSubmit)
 	{
-		auto* device = RenderingContext::Get().Device();
 		VkResult result = vkWaitForFences(device->vkHandle(), 1u, &frame.graphicsPoolUsageFence->vkHandle(), VK_TRUE, UINT64_MAX);
 		VkAssert(result);
 		result = vkResetFences(device->vkHandle(), 1u, &frame.graphicsPoolUsageFence->vkHandle());
 		VkAssert(result);
 		frame.graphicsPool->ResetCmdPool();
-		frame.firstGraphicsSubmit = false;
+		// also free transient resources
+		auto& ctxt = ResourceContext::Get();
+		for (auto* resource : frame.transientResources)
+		{
+			ctxt.DestroyResource(resource);
+		}
 	}
 
     /*
@@ -2969,6 +3278,13 @@ void RenderVtf(vtf_frame_data_t& frame) {
     vtfMainRenderPass(frame, cmd1);
 	result = vkEndCommandBuffer(cmd1);
 	VkAssert(result);
+	frame.firstGraphicsSubmit = false;
+
+	if (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	{
+		frame.vkDebugFns.vkQueueEndDebugUtilsLabel(device->GraphicsQueue());
+	}
+
 }
 
 void SubmitGraphicsWork(vtf_frame_data_t& frame) {
