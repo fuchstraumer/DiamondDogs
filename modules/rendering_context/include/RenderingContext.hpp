@@ -138,7 +138,8 @@ private:
     std::string syncModeStr;
 	std::string shaderCacheDir;
 	PFN_vkSetDebugUtilsObjectNameEXT SetObjectNameFn{ nullptr };
-    
+    VkDebugUtilsMessengerEXT DebugUtilsMessenger{ VK_NULL_HANDLE };
+
 };
 
 #endif //!DIAMOND_DOGS_RENDERING_CONTEXT_HPP

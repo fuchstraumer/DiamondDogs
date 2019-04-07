@@ -15,6 +15,9 @@
 #include <thread>
 #include <sstream>
 #include <chrono>
+#include <iostream>
+#include <sstream>
+#include "easylogging++.h"
 
 static std::vector<std::string> extensionsBuffer;
 static std::string windowingModeBuffer;
@@ -27,6 +30,144 @@ struct swapchain_callbacks_storage_t {
 };
 static swapchain_callbacks_storage_t SwapchainCallbacksStorage;
 inline void RecreateSwapchain();
+
+std::string objectTypeToString(const VkObjectType type)
+{
+    switch (type)
+    {
+    case VK_OBJECT_TYPE_INSTANCE:
+        return "VkInstance";
+    case VK_OBJECT_TYPE_PHYSICAL_DEVICE:
+        return "VkPhysicalDevice";
+    case VK_OBJECT_TYPE_DEVICE:
+        return "VkDevice";
+    case VK_OBJECT_TYPE_QUEUE:
+        return "VkQueue";
+    case VK_OBJECT_TYPE_SEMAPHORE:
+        return "VkSemaphore";
+    case VK_OBJECT_TYPE_COMMAND_BUFFER:
+        return "VkCommandBuffer";
+    case VK_OBJECT_TYPE_FENCE:
+        return "VkFence";
+    case VK_OBJECT_TYPE_DEVICE_MEMORY:
+        return "VkDeviceMemory";
+    case VK_OBJECT_TYPE_BUFFER:
+        return "VkBuffer";
+    case VK_OBJECT_TYPE_IMAGE:
+        return "VkImage";
+    case VK_OBJECT_TYPE_EVENT:
+        return "VkEvent";
+    case VK_OBJECT_TYPE_QUERY_POOL:
+        return "VkQueryPool";
+    case VK_OBJECT_TYPE_BUFFER_VIEW:
+        return "VkBufferView";
+    case VK_OBJECT_TYPE_IMAGE_VIEW:
+        return "VkImageView";
+    case VK_OBJECT_TYPE_SHADER_MODULE:
+        return "VkShaderModule";
+    case VK_OBJECT_TYPE_PIPELINE_CACHE:
+        return "VkPipelineCache";
+    case VK_OBJECT_TYPE_PIPELINE_LAYOUT:
+        return "VkPipelineLayout";
+    case VK_OBJECT_TYPE_RENDER_PASS:
+        return "VkRenderPass";
+    case VK_OBJECT_TYPE_PIPELINE:
+        return "VkPipeline";
+    case VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT:
+        return "VkDescriptorSetLayout";
+    case VK_OBJECT_TYPE_SAMPLER:
+        return "VkSampler";
+    case VK_OBJECT_TYPE_DESCRIPTOR_POOL:
+        return "VkDescriptorPool";
+    case VK_OBJECT_TYPE_DESCRIPTOR_SET:
+        return "VkDescriptorSet";
+    case VK_OBJECT_TYPE_FRAMEBUFFER:
+        return "VkFramebuffer";
+    case VK_OBJECT_TYPE_COMMAND_POOL:
+        return "VkCommandPool";
+    case VK_OBJECT_TYPE_SAMPLER_YCBCR_CONVERSION:
+        return "VkSamplerYcbcrConversion";
+    case VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE:
+        return "VkDescriptorUpdateTemplate";
+    case VK_OBJECT_TYPE_SURFACE_KHR:
+        return "VkSurfaceKHR";
+    case VK_OBJECT_TYPE_SWAPCHAIN_KHR:
+        return "VkSwapchainKHR";
+    case VK_OBJECT_TYPE_DISPLAY_KHR:
+        return "VkDisplayKHR";
+    case VK_OBJECT_TYPE_DISPLAY_MODE_KHR:
+        return "VkDisplayModeKHR";
+    case VK_OBJECT_TYPE_DEBUG_REPORT_CALLBACK_EXT:
+        return "VkDebugReportCallbackEXT";
+    case VK_OBJECT_TYPE_OBJECT_TABLE_NVX:
+        return "VkObjectTableNVX";
+    case VK_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_NVX:
+        return "VkIndirectCommandsLayoutNVX";
+    case VK_OBJECT_TYPE_DEBUG_UTILS_MESSENGER_EXT:
+        return "VkDebugUtilsMessengerEXT";
+    case VK_OBJECT_TYPE_VALIDATION_CACHE_EXT:
+        return "VkValidationCacheEXT";
+    case VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_NV:
+        return "VkAccelerationStructureNV";
+    default:
+        return std::string("TYPE_UNKNOWN:" + std::to_string(size_t(type)));
+    };
+}
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity, VkDebugUtilsMessageTypeFlagBitsEXT message_type, const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
+    void* user_data)
+{   
+
+    std::stringstream output_string_stream;
+    if (callback_data->messageIdNumber != 0u)
+    {
+        output_string_stream << "VUID:" << callback_data->messageIdNumber << ":VUID_NAME:" << callback_data->pMessageIdName << "\n";
+    }
+
+    output_string_stream << "    Message: " << callback_data->pMessage << "\n";
+    if (callback_data->queueLabelCount != 0u)
+    {
+        output_string_stream << "    Error occured in queue: " << callback_data->pQueueLabels[0].pLabelName << "\n";
+    }
+
+    if (callback_data->cmdBufLabelCount != 0u)
+    {
+        output_string_stream << "    Error occured executing command buffer(s): \n";
+        for (uint32_t i = 0; i < callback_data->cmdBufLabelCount; ++i)
+        {
+            output_string_stream << "    " << callback_data->pCmdBufLabels[i].pLabelName << "\n";
+        }
+    }
+    if (callback_data->objectCount != 0u)
+    {
+        auto& p_objects = callback_data->pObjects;
+        output_string_stream << "    Object(s) involved: \n";
+        for (uint32_t i = 0; i < callback_data->objectCount; ++i)
+        {
+            if (p_objects[i].pObjectName)
+            {
+                output_string_stream << "        ObjectName: " << p_objects[i].pObjectName << "\n";
+            }
+            else
+            {
+                output_string_stream << "        UNNAMED_OBJECT\n";
+            }
+            output_string_stream << "            ObjectType: " << objectTypeToString(p_objects[i].objectType) << "\n";
+            output_string_stream << "            ObjectHandle: " << std::hex << std::to_string(p_objects[i].objectHandle) << "\n";
+        }
+    }
+
+    if (message_severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+    {
+        LOG(ERROR) << output_string_stream.str();
+    }
+    else if (message_severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+    {
+        LOG(WARNING) << output_string_stream.str();
+    }
+
+    return VK_FALSE;
+}
 
 static void SplitVersionString(std::string version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version) {
     const size_t minor_dot_pos = version_string.find('.');
@@ -256,6 +397,21 @@ void RenderingContext::Construct(const char* file_path) {
 	if constexpr (VTF_VALIDATION_ENABLED)
 	{
 		SetObjectNameFn = logicalDevice->DebugUtilsHandler().vkSetDebugUtilsObjectName;
+
+        const VkDebugUtilsMessengerCreateInfoEXT messenger_info{
+            VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+            nullptr,
+            0,
+            // capture warnings and info that the current one does not
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+            VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+            (PFN_vkDebugUtilsMessengerCallbackEXT)DebugUtilsMessengerCallback,
+            nullptr
+        };
+
+        //VkResult result = logicalDevice->DebugUtilsHandler().vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
+        // color terminal output so it's less of a cluster
+        el::Loggers::addFlag(el::LoggingFlag::ColoredTerminalOutput);
 	}
 
     {
@@ -314,6 +470,10 @@ void RenderingContext::Update() {
 
 void RenderingContext::Destroy() {
     swapchain.reset();
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
+        //logicalDevice->DebugUtilsHandler().vkDestroyDebugUtilsMessenger(vulkanInstance->vkHandle(), DebugUtilsMessenger, nullptr);
+    }
     logicalDevice.reset();
     windowSurface.reset();
     physicalDevices.clear(); physicalDevices.shrink_to_fit();
