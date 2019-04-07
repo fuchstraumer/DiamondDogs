@@ -403,7 +403,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     if (assign_lights_args_buffer) {
         rsrc_context.DestroyResource(assign_lights_args_buffer);
     }
-    assign_lights_args_buffer = rsrc_context.CreateBuffer(&indir_args_buffer, nullptr, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "AssignLightsToClustersArgumentBuffer");
+    assign_lights_args_buffer = rsrc_context.CreateBuffer(&indir_args_buffer, nullptr, 0, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "AssignLightsToClustersArgumentBuffer");
 
     constexpr static VkBufferCreateInfo debug_indirect_draw_buffer_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -420,7 +420,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     if (debug_clusters_indir_draw_buffer) {
         rsrc_context.DestroyResource(debug_clusters_indir_draw_buffer);
     }
-    debug_clusters_indir_draw_buffer = rsrc_context.CreateBuffer(&debug_indirect_draw_buffer_info, nullptr, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DebugClustersDrawIndirectArgumentBuffer");
+    debug_clusters_indir_draw_buffer = rsrc_context.CreateBuffer(&debug_indirect_draw_buffer_info, nullptr, 0, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DebugClustersDrawIndirectArgumentBuffer");
 
     const VkBufferCreateInfo cluster_aabbs_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -610,7 +610,7 @@ void createLightResources(vtf_frame_data_t& frame) {
         0u, 0u, 0u
     };
 
-    frame.rsrcMap["LightCounts"] = rsrc_context.CreateBuffer(&light_counts_info, nullptr, 1, &light_counts_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "LightCounts");
+    frame.rsrcMap["LightCounts"] = rsrc_context.CreateBuffer(&light_counts_info, nullptr, 1, &light_counts_data, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "LightCounts");
     descr->BindResourceToIdx(descr->BindingLocation("LightCounts"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("LightCounts"));
 
 }
@@ -631,7 +631,7 @@ void createIndirectArgsResource(vtf_frame_data_t& frame) {
     auto& rsrc_context = ResourceContext::Get();
     auto* descr = frame.descriptorPack->RetrieveDescriptor("IndirectArgsSet");
 
-    frame.rsrcMap["IndirectArgs"] = rsrc_context.CreateBuffer(&indir_args_info, nullptr, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "IndirectArgs");
+    frame.rsrcMap["IndirectArgs"] = rsrc_context.CreateBuffer(&indir_args_info, nullptr, 0, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "IndirectArgs");
     descr->BindResourceToIdx(descr->BindingLocation("IndirectArgs"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("IndirectArgs"));
 
 }
@@ -652,7 +652,7 @@ void createSortResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    frame.rsrcMap["DispatchParams"] = rsrc_context.CreateBuffer(&dispatch_params_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams");
+    frame.rsrcMap["DispatchParams"] = rsrc_context.CreateBuffer(&dispatch_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams");
     descr->BindResourceToIdx(descr->BindingLocation("DispatchParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("DispatchParams"));
 
     constexpr static VkBufferCreateInfo reduction_params_info{
@@ -666,7 +666,7 @@ void createSortResources(vtf_frame_data_t& frame) {
         nullptr
     };
 
-    frame.rsrcMap["ReductionParams"] = rsrc_context.CreateBuffer(&reduction_params_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "ReductionParams");
+    frame.rsrcMap["ReductionParams"] = rsrc_context.CreateBuffer(&reduction_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "ReductionParams");
     descr->BindResourceToIdx(descr->BindingLocation("ReductionParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("ReductionParams"));
 
     constexpr static VkBufferCreateInfo sort_params_info{
