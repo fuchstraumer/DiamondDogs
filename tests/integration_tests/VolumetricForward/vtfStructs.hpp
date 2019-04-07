@@ -8,8 +8,11 @@
 #include "glm/mat4x4.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 #include <vector>
+#include <array>
 #include <vulkan/vulkan.h>
 #include "glm/gtc/type_precision.hpp"
+#include <string>
+#include <unordered_map>
 
 struct SceneConfig_t {
     bool EnableMSAA{ true };
@@ -152,6 +155,111 @@ struct alignas(4) BVH_Params_t {
     uint32_t SpotLightLevels{ 0u };
     uint32_t ChildLevel{ 0u };
     uint32_t Padding{ 0u };
+};
+
+struct QueryPool
+{
+	QueryPool(VkDevice _device, uint32_t nanoseconds_period) : device(_device), devicePeriod(nanoseconds_period)
+	{
+		data.fill(0u);
+
+		constexpr static VkQueryPoolCreateInfo create_info{
+			VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+			nullptr,
+			0,
+			VK_QUERY_TYPE_TIMESTAMP,
+			NUM_QUERIES,
+			0
+		};
+
+		vkCreateQueryPool(device, &create_info, nullptr, &pool);
+	}
+
+	~QueryPool()
+	{
+		vkDestroyQueryPool(device, pool, nullptr);
+	}
+
+	QueryPool(const QueryPool&) = delete;
+	QueryPool& operator=(const QueryPool&) = delete;
+
+	void WriteTimestamp(VkCommandBuffer cmd, VkPipelineStageFlagBits pipeline_stage, std::string name)
+	{
+		if (!unexecuted && (lastQueryIdx == 0u))
+		{
+			vkCmdResetQueryPool(cmd, pool, 0u, NUM_QUERIES);
+		}
+
+		vkCmdWriteTimestamp(cmd, pipeline_stage, pool, lastQueryIdx);
+		timeStampNames[lastQueryIdx] = std::move(name);
+		++lastQueryIdx;
+	}
+
+	std::unordered_map<std::string, float> GetTimestamps()
+	{
+		// This should ONLY be called at the end of a frame!
+		vkGetQueryPoolResults(device, pool, 0, lastQueryIdx, data.size() * sizeof(uint32_t), data.data(), sizeof(uint32_t), VK_QUERY_RESULT_WAIT_BIT);
+
+		std::unordered_map<std::string, float> results;
+		results.reserve(lastQueryIdx - 1);
+
+		// Have to skip first to get results
+		for (uint32_t i = 1; i < lastQueryIdx + 1; i += 2)
+		{
+			uint32_t timestamp_diff = data[i] - data[i - 1];
+			if (timestamp_diff < devicePeriod)
+			{
+				// just emplace one ns
+				results.emplace(timeStampNames[(i - 1) / 2], 1.0f);
+			}
+			else
+			{
+				// whatever we lose doing this division is just too bad
+				float timestamp_ns = static_cast<float>(timestamp_diff) / static_cast<float>(devicePeriod);
+				// divide by 1e-6f to get ms
+				results.emplace(timeStampNames[(i - 1) / 2], timestamp_ns * 1e-6f);
+			}
+		}
+
+		lastQueryIdx = 0u;
+		unexecuted = false;
+		return results;
+	}
+
+private:
+
+	friend struct ScopedRenderSection;
+	bool unexecuted{ true }; // used to avoid resetting the first time
+	uint32_t lastQueryIdx{ 0u };
+	VkDevice device{ VK_NULL_HANDLE };
+	VkQueryPool pool{ VK_NULL_HANDLE };
+	constexpr static size_t NUM_QUERIES{ 512u };
+	std::array<uint32_t, NUM_QUERIES> data;
+	std::array<std::string, NUM_QUERIES / 2> timeStampNames;
+	uint32_t devicePeriod{ 0u };
+};
+
+struct ScopedRenderSection
+{
+
+	ScopedRenderSection(QueryPool& _pool, VkCommandBuffer _cmd, VkPipelineStageFlagBits start, VkPipelineStageFlagBits _end, std::string name) : pool(_pool), cmd(_cmd), end(_end)
+	{
+		pool.timeStampNames[pool.lastQueryIdx / 2u] = std::move(name);
+		vkCmdWriteTimestamp(cmd, start, pool.pool, pool.lastQueryIdx);
+		++pool.lastQueryIdx;
+	}
+
+	~ScopedRenderSection()
+	{
+		vkCmdWriteTimestamp(cmd, end, pool.pool, pool.lastQueryIdx);
+		++pool.lastQueryIdx;
+		assert(pool.lastQueryIdx % 2u == 0u);
+	}
+
+private:
+	QueryPool& pool;
+	VkCommandBuffer cmd;
+	VkPipelineStageFlagBits end;
 };
 
 struct ComputePipelineState {
