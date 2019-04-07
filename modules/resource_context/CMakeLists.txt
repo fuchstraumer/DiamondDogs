@@ -17,6 +17,7 @@ TARGET_INCLUDE_DIRECTORIES(resource_context PRIVATE
     ${VPR_INCLUDE_DIRS_MODULE_RELATIVE} 
     ${Vulkan_INCLUDE_DIR}
     "../../third_party/vma/src"
+    "../../third_party/svs"
 )
 
 TARGET_LINK_LIBRARIES(resource_context PUBLIC vpr_core vpr_command vpr_sync ${Vulkan_LIBRARY} easyloggingpp)

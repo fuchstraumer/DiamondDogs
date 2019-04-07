@@ -26,7 +26,6 @@
 #include <experimental/filesystem>
 #include <future>
 #include "ImGuiWrapper.hpp"
-#define THSVS_SIMPLER_VULKAN_SYNCHRONIZATION_IMPLEMENTATION
 #include <thsvs_simpler_vulkan_synchronization.h>
 
 const st::ShaderPack* vtfShaders{ nullptr }; 
@@ -268,9 +267,54 @@ struct TestIcosphereMesh
 
     void Render(VkCommandBuffer cmd, DescriptorBinder* binder, vtf_frame_data_t::render_type render_type)
 	{
+		static bool first_render{ true };
 
 		vkCmdSetViewport(cmd, 0u, 1u, &viewport);
 		vkCmdSetScissor(cmd, 0u, 1u, &scissor);
+
+		/*
+			Transition images
+			Only need to do this once across threads
+		*/
+		if (first_render)
+		{
+			const uint32_t transfer_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Transfer;
+			const uint32_t graphics_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Graphics;
+
+			const ThsvsAccessType starting_access_type[1]{
+				THSVS_ACCESS_TRANSFER_WRITE
+			};
+
+			const ThsvsAccessType final_access_types[2] {
+				THSVS_ACCESS_VERTEX_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER,
+				THSVS_ACCESS_FRAGMENT_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER
+			};
+
+			const ThsvsImageBarrier barrier_base{
+				1u,
+				starting_access_type,
+				2u,
+				final_access_types,
+                THSVS_IMAGE_LAYOUT_OPTIMAL,
+				THSVS_IMAGE_LAYOUT_OPTIMAL,
+				VK_FALSE,
+				transfer_idx,
+				graphics_idx,
+				VK_NULL_HANDLE,
+				VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+			};
+
+			std::array<ThsvsImageBarrier, 5> image_barriers;
+			image_barriers.fill(barrier_base);
+			image_barriers[0].image = (VkImage)AlbedoTexture->Handle;
+			image_barriers[1].image = (VkImage)NormalMap->Handle;
+			image_barriers[2].image = (VkImage)AmbientOcclusionTexture->Handle;
+			image_barriers[3].image = (VkImage)MetallicMap->Handle;
+			image_barriers[4].image = (VkImage)RoughnessMap->Handle;
+
+			thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, static_cast<uint32_t>(image_barriers.size()), image_barriers.data());
+
+		}
 
         constexpr static VkDeviceSize offsets_dummy[1]{ 0u };
         const VkBuffer buffers[1]{ (VkBuffer)VBO->Handle };
@@ -287,6 +331,8 @@ struct TestIcosphereMesh
         default:
             break; // break for rest, e.g transparents
         };
+
+		first_render = false;
     }
 
     VulkanResource* VBO{ nullptr };
@@ -422,7 +468,7 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
 
 	auto& camera = PerspectiveCamera::Get();
-	glm::vec3 position{ 0.0f, 10.0f, -10.0f };
+	glm::vec3 position{ 0.0f, 6.0f, -6.0f };
 	glm::vec3 look_dir = glm::vec3(0.0f) - position;
 	camera.LookAt(look_dir, glm::vec3(0.0f, 1.0f, 0.0f), position);
 
@@ -487,7 +533,11 @@ void VTF_Scene::updateGlobalUBOs() {
 	curr_frame.Matrices.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(extent.width), static_cast<float>(extent.height), 0.001f, 3000.0f);
 	curr_frame.Matrices.view = glm::lookAt(glm::vec3(-8.0f, -8.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 	curr_frame.Matrices.inverseView = glm::inverse(curr_frame.Matrices.view);
-	curr_frame.Matrices.model = glm::mat4(1.0f);
+	curr_frame.Matrices.model = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f));
+    curr_frame.Matrices.modelViewProjection = curr_frame.Matrices.projection * curr_frame.Matrices.view * curr_frame.Matrices.model;
+    curr_frame.Matrices.modelView = curr_frame.Matrices.view * curr_frame.Matrices.model;
+    curr_frame.Matrices.inverseTransposeModelView = glm::inverse(glm::transpose(curr_frame.Matrices.modelView));
+    curr_frame.Matrices.inverseTransposeModel = glm::inverse(glm::transpose(curr_frame.Matrices.model));
 	VulkanResource* matrices_rsrc = curr_frame.rsrcMap.at("matrices");
 	const gpu_resource_data_t matrices_update{
 		&curr_frame.Matrices, sizeof(curr_frame.Matrices), 0u, VK_QUEUE_FAMILY_IGNORED

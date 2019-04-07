@@ -19,11 +19,11 @@ struct SceneConfig_t {
     VkSampleCountFlagBits MSAA_SampleCount{ VK_SAMPLE_COUNT_4_BIT };
     float AnisotropyAmount{ 16.0f };
     uint32_t MaxLights{ 2048u };
-    uint32_t NumPointLights{ 1024u };
-    uint32_t NumSpotLights{ 256u };
+    uint32_t NumPointLights{ 2048u };
+    uint32_t NumSpotLights{ 512u };
     uint32_t NumDirectionalLights{ 1u };
-    glm::vec3 LightsMinBounds{ -100.0f,-100.0f,-100.0f };
-    glm::vec3 LightsMaxBounds{ 100.0f, 100.0f, 100.0f };
+    glm::vec3 LightsMinBounds{ -30.0f,-30.0f,-30.0f };
+    glm::vec3 LightsMaxBounds{ 30.0f, 30.0f, 30.0f };
     float MinSpotAngle{ -60.0f };
     float MaxSpotAngle{ 60.0f };
     float MinRange{ 1.0f };
