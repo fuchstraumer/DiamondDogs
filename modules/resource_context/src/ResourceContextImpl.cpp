@@ -597,6 +597,8 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resou
     */
 
     const VkBufferCreateInfo* p_info = reinterpret_cast<VkBufferCreateInfo*>(resource->Info);
+	const uint32_t transfer_queue_idx = device->QueueFamilyIndices().Transfer;
+
     const VkBufferMemoryBarrier memory_barrier0
     {
         VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -615,8 +617,8 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resou
         nullptr,
         VK_ACCESS_TRANSFER_WRITE_BIT,
         accessFlagsFromBufferUsage(p_info->usage),
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
+        initial_data->DestinationQueueFamily != transfer_queue_idx ? transfer_queue_idx : VK_QUEUE_FAMILY_IGNORED,
+		initial_data->DestinationQueueFamily != transfer_queue_idx ? initial_data->DestinationQueueFamily : VK_QUEUE_FAMILY_IGNORED,
         (VkBuffer)resource->Handle,
         0u,
         p_info->size
@@ -655,11 +657,13 @@ void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const si
         VK_ACCESS_TRANSFER_WRITE_BIT,
         VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        device->QueueFamilyIndices().Transfer,
-        device->QueueFamilyIndices().Transfer,
+        VK_QUEUE_FAMILY_IGNORED, // acquisition by a queue the first time is free and doesn't need a transfer
+        VK_QUEUE_FAMILY_IGNORED,
         reinterpret_cast<VkImage>(resource->Handle),
         VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, info->mipLevels, 0u, info->arrayLayers }
     };
+
+	const uint32_t transfer_queue_idx = device->QueueFamilyIndices().Transfer;
 
     const VkImageMemoryBarrier barrier1
     {
@@ -669,8 +673,8 @@ void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const si
             accessFlagsFromImageUsage(info->usage),
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             imageLayoutFromUsage(info->usage),
-            device->QueueFamilyIndices().Transfer,
-            device->QueueFamilyIndices().Graphics,
+			transfer_queue_idx != initial_data->DestinationQueueFamily ? transfer_queue_idx : VK_QUEUE_FAMILY_IGNORED,
+			transfer_queue_idx != initial_data->DestinationQueueFamily ? initial_data->DestinationQueueFamily : VK_QUEUE_FAMILY_IGNORED,
             reinterpret_cast<VkImage>(resource->Handle),
             VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, info->mipLevels, 0u, info->arrayLayers }
     };
@@ -881,7 +885,6 @@ void ResourceContextImpl::destroyBuffer(resource_iter_t iter)
     {
         vkDestroyBufferView(device->vkHandle(), (VkBufferView)rsrc->ViewHandle, nullptr);
     }
-    vkDestroyBuffer(device->vkHandle(), (VkBuffer)rsrc->Handle, nullptr);
 	vmaDestroyBuffer(allocatorHandle, (VkBuffer)rsrc->Handle, resourceAllocations.at(rsrc));
     resources.erase(iter);
     resourceInfos.bufferInfos.erase(rsrc);

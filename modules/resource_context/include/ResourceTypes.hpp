@@ -31,21 +31,21 @@ enum resource_creation_flags_bits : uint32_t {
 using resource_creation_flags = uint32_t;
 
 struct gpu_resource_data_t {
-    const void* Data;
-    size_t DataSize;
-    size_t DataAlignment;
-    uint32_t Pitch;
-    uint32_t SlicePitch;
+	const void* Data{ 0u };
+	size_t DataSize{ 0u };
+	size_t DataAlignment{ 0u };
+	uint32_t DestinationQueueFamily{ 0u };
 };
 
 struct gpu_image_resource_data_t {
-    const void* Data = nullptr;
-    size_t DataSize{ 0 };
-    uint32_t Width{ 0 };
-    uint32_t Height{ 0 };
-    uint32_t ArrayLayer{ 0 };
-    uint32_t NumLayers{ 1 };
-    uint32_t MipLevel{ 0 };
+	const void* Data{ nullptr };
+    size_t DataSize{ 0u };
+    uint32_t Width{ 0u };
+    uint32_t Height{ 0u };
+    uint32_t ArrayLayer{ 0u };
+    uint32_t NumLayers{ 1u };
+    uint32_t MipLevel{ 0u };
+	uint32_t DestinationQueueFamily{ 0u };
 };
 
 struct VulkanResource {
