@@ -1009,6 +1009,11 @@ void CreateResources(vtf_frame_data_t & frame) {
 	setupCommandPools(frame);
 	createDebugResources(frame);
 	createFences(frame);
+	auto* device = RenderingContext::Get().Device();
+	auto& limits = RenderingContext::Get().PhysicalDevice(0)->GetProperties().limits;
+	assert(limits.timestampComputeAndGraphics);
+	uint32_t nanoseconds_period = limits.timestampPeriod;
+	frame.queryPool = std::make_unique<QueryPool>(device->vkHandle(), nanoseconds_period);
 }
 
 void CreateSemaphores(vtf_frame_data_t & frame) {
@@ -1913,6 +1918,7 @@ void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z)
 
 void ComputeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
+	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, "UpdateLights");
     constexpr static VkDebugUtilsLabelEXT debug_label {
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr,
@@ -1989,20 +1995,43 @@ void ComputeReduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         rsrc.SetBufferData(dispatch_params0, 1, &dp_update);
     }
     else {
-        dispatch_params0 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams0");
+        dispatch_params0 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams0");
     }
 
     auto& binder0 = frame.GetBinder("ReduceLights");
     binder0.BindResourceToIdx("SortResources", dispatch_params_idx, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, dispatch_params0);
     binder0.Update();
 
-    // Reduce lights
-    if constexpr (VTF_VALIDATION_ENABLED) {
-        frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
-    }
-    binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("ReduceLightsAABB0").Handle);
-    vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
+	{
+		ScopedRenderSection profiler_0(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "ReduceLightsStep0");
+
+		if constexpr (VTF_VALIDATION_ENABLED) {
+			frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label0);
+		}
+
+		binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("ReduceLightsAABB0").Handle);
+		vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
+
+		if constexpr (VTF_VALIDATION_ENABLED) {
+			frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
+		}
+	}
+
+	// Barrier between first and second stages
+	constexpr static ThsvsAccessType barrier_access_types[2]{
+		THSVS_ACCESS_COMPUTE_SHADER_WRITE,
+		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
+	};
+
+	constexpr ThsvsGlobalBarrier global_barrier{
+		2u,
+		barrier_access_types,
+		2u,
+		barrier_access_types
+	};
+
+	//thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
 
     // second step of reduction
     frame.DispatchParams.NumThreadGroups = glm::uvec3{ 1u, 1u, 1u };
@@ -2012,21 +2041,30 @@ void ComputeReduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         rsrc.SetBufferData(dispatch_params1, 1, &dp_update);
     }
     else {
-        dispatch_params1 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams1");
+        dispatch_params1 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams1");
     }
     auto& binder1 = frame.GetBinder("ReduceLights");
     binder1.BindResourceToIdx("SortResources", dispatch_params_idx, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, dispatch_params1);
     binder1.Update();
-    binder1.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("ReduceLightsAABB1").Handle);
-    vkCmdDispatch(cmd, 1u, 1u, 1u);
-    if constexpr (VTF_VALIDATION_ENABLED) {
-        frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
-    }
+	{
+		ScopedRenderSection profiler_1(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "ReduceLightsStep1");
 
+		if constexpr (VTF_VALIDATION_ENABLED) {
+			frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label1);
+		}
+
+		binder1.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("ReduceLightsAABB1").Handle);
+		vkCmdDispatch(cmd, 1u, 1u, 1u);
+		//thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
+
+		if constexpr (VTF_VALIDATION_ENABLED) {
+			frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
+		}
+	}
 }
 
-void ComputeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void computeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2102,6 +2140,7 @@ void ComputeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 	binder.Update();
+	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "ComputeMortonCodes");
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["ComputeLightMortonCodesPipeline"].Handle);
     uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(glm::max(frame.LightCounts.NumPointLights, frame.LightCounts.NumSpotLights) / 1024.0f));
@@ -2307,6 +2346,7 @@ void SortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 void BuildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
+	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "BuildLightBVH");
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr,
@@ -2511,6 +2551,8 @@ bool tryImageAcquire(vtf_frame_data_t& frame, uint64_t timeout = 0u) {
 
 void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
+	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "DepthPrePassAndClusterSamples");
+
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr,
@@ -2572,6 +2614,8 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
+	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "FindUniqueClusters");
+
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr,
@@ -2617,6 +2661,8 @@ void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 void updateClusterIndirectArgs(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
+	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "UpdateClusterIndirectArgs");
+
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr,
@@ -2654,6 +2700,8 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     auto& rsrc_ctxt = ResourceContext::Get();
+
+	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "AssignLightsToClusters");
 
     constexpr static const char* label_name{ "AssignLightsToClusters" };
     constexpr static VkDebugUtilsLabelEXT debug_label{
@@ -2787,6 +2835,7 @@ void submitPreSwapchainWritingWork(vtf_frame_data_t& frame, uint32_t num_cmds, V
 
 void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
+	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "Draw");
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr, 
@@ -2950,6 +2999,10 @@ void SubmitGraphicsWork(vtf_frame_data_t& frame) {
     VkAssert(result);
 
     frame.lastImageIdx = frame.imageIdx;
+
+	// get timestamps for last frames work
+	auto results = frame.queryPool->GetTimestamps();
+
 }
 
 void destroyFrameResources(vtf_frame_data_t & frame) {
