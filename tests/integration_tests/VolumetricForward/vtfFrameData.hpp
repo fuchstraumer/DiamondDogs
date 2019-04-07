@@ -117,6 +117,9 @@ public:
     std::unique_ptr<vpr::Framebuffer> drawFramebuffer;
     std::unique_ptr<vpr::Fence> computeAABBsFence{ nullptr };
 	std::unique_ptr<vpr::Fence> graphicsPoolUsageFence{ nullptr };
+	std::unique_ptr<vpr::Fence> computePoolUsageFence{ nullptr };
+	std::unique_ptr<QueryPool> queryPool{ nullptr };
+	bool firstComputeSubmit{ true };
 	bool firstGraphicsSubmit{ true };
     uint32_t imageIdx{ std::numeric_limits<uint32_t>::max() };
     uint32_t lastImageIdx{ std::numeric_limits<uint32_t>::max() };
