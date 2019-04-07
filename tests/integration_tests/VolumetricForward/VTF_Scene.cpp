@@ -26,6 +26,8 @@
 #include <experimental/filesystem>
 #include <future>
 #include "ImGuiWrapper.hpp"
+#define THSVS_SIMPLER_VULKAN_SYNCHRONIZATION_IMPLEMENTATION
+#include <thsvs_simpler_vulkan_synchronization.h>
 
 const st::ShaderPack* vtfShaders{ nullptr }; 
 //SceneState_t SceneLightsState{};
@@ -80,25 +82,31 @@ constexpr static std::array<uint32_t, 60> INITIAL_INDICES{
     9, 8, 1
 };
 
-constexpr static std::array<VkVertexInputBindingDescription, 1> VertexBindingDescriptions {
+constexpr static std::array<VkVertexInputBindingDescription, 1> VertexBindingDescriptions{
     VkVertexInputBindingDescription{ 0, sizeof(float) * 11, VK_VERTEX_INPUT_RATE_VERTEX }
 };
 
-struct TestIcosphereMesh {
+struct TestIcosphereMesh
+{
 
-    void CreateMesh(const size_t detail_level) {
+    void CreateMesh(const size_t detail_level)
+	{
 
         Indices.assign(std::begin(INITIAL_INDICES), std::end(INITIAL_INDICES));
+
         Vertices.reserve(ICOSPHERE_INITIAL_VERTICES.size());
         for (const auto& vert : ICOSPHERE_INITIAL_VERTICES) {
             Vertices.emplace_back(vert, vert, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
         }
 
-        for (size_t j = 0u; j < detail_level; ++j) {
+        for (size_t j = 0u; j < detail_level; ++j)
+		{
             size_t num_triangles = Indices.size() / 3u;
             Indices.reserve(Indices.capacity() + (num_triangles * 9u));
             Vertices.reserve(Vertices.capacity() + (num_triangles * 3u));
-            for (uint32_t i = 0u; i < num_triangles; ++i) {
+
+            for (uint32_t i = 0u; i < num_triangles; ++i)
+			{
                 uint32_t i0 = Indices[i * 3u + 0u];
                 uint32_t i1 = Indices[i * 3u + 1u];
                 uint32_t i2 = Indices[i * 3u + 2u];
@@ -119,10 +127,12 @@ struct TestIcosphereMesh {
                 Vertices.emplace_back(midpoint0, midpoint0, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
                 Vertices.emplace_back(midpoint1, midpoint1, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
                 Vertices.emplace_back(midpoint2, midpoint2, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
+
             }
         }
 
-        for (auto& vert : Vertices) {
+        for (auto& vert : Vertices)
+		{
             vert.Position = glm::normalize(vert.Position);
             vert.Normal = vert.Position;
         }
@@ -130,32 +140,39 @@ struct TestIcosphereMesh {
         Indices.shrink_to_fit();
         Vertices.shrink_to_fit();
 
-        for (size_t i = 0u; i < Vertices.size(); ++i) {
+        for (size_t i = 0u; i < Vertices.size(); ++i)
+		{
             const glm::vec3& norm = Vertices[i].Normal;
             Vertices[i].UV.x = (glm::atan(norm.x, -norm.z) / FLOAT_PI) * 0.5f + 0.5f;
             Vertices[i].UV.y = -norm.y * 0.5f + 0.5f;
         }
 
-        auto add_vertex_w_uv = [this](const size_t i, const glm::vec2& uv) {
+        auto add_vertex_w_uv = [this](const size_t i, const glm::vec2& uv)
+		{
             const uint32_t& idx = Indices[i];
             Vertices.emplace_back(Vertices[idx].Position, Vertices[idx].Normal, glm::vec3(0.0f, 0.0f, 0.0f), uv);
-            Indices[i] = static_cast<uint32_t>(Vertices.size());
+            Indices[i] = static_cast<uint32_t>(Vertices.size() - 1u);
         };
 
         const size_t num_triangles = Indices.size() / 3;
-        for (size_t i = 0u; i < num_triangles; ++i) {
+
+        for (size_t i = 0u; i < num_triangles; ++i)
+		{
             const glm::vec2& uv0 = Vertices[Indices[i * 3u]].UV;
             const glm::vec2& uv1 = Vertices[Indices[i * 3u + 1u]].UV;
             const glm::vec2& uv2 = Vertices[Indices[i * 3u + 2u]].UV;
             const float d1 = uv1.x - uv0.x;
             const float d2 = uv2.x - uv0.x;
-            if (std::abs(d1) > 0.5f && std::abs(d2) > 0.5f) {
+            if (std::abs(d1) > 0.5f && std::abs(d2) > 0.5f)
+			{
                 add_vertex_w_uv(i * 3, uv0 + glm::vec2((d1 > 0.0f) ? 1.0f : -1.0f, 0.0f));
             }
-            else if (std::abs(d1) > 0.5f) {
+            else if (std::abs(d1) > 0.5f)
+			{
                 add_vertex_w_uv(i * 3 + 1, uv1 + glm::vec2((d1 < 0.0f) ? 1.0f : -1.0f, 0.0f));
             }
-            else if (std::abs(d2) > 0.5f) {
+            else if (std::abs(d2) > 0.5f)
+			{
                 add_vertex_w_uv(i * 3 + 2, uv2 + glm::vec2((d2 < 0.0f) ? 1.0f : -1.0f, 0.0f));
             }
         }
@@ -465,8 +482,8 @@ void VTF_Scene::updateGlobalUBOs() {
 	auto& camera = PerspectiveCamera::Get();
 	auto& resource_context = ResourceContext::Get();
 
-	curr_frame.Matrices.projection = camera.ProjectionMatrix();
-	curr_frame.Matrices.view = camera.ViewMatrix();
+	curr_frame.Matrices.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(extent.width), static_cast<float>(extent.height), 0.001f, 3000.0f);
+	curr_frame.Matrices.view = glm::lookAt(glm::vec3(-8.0f, -8.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 	curr_frame.Matrices.inverseView = glm::inverse(curr_frame.Matrices.view);
 	curr_frame.Matrices.model = glm::mat4(1.0f);
 	VulkanResource* matrices_rsrc = curr_frame.rsrcMap.at("matrices");
@@ -481,8 +498,6 @@ void VTF_Scene::updateGlobalUBOs() {
 	curr_frame.Globals.viewPosition = glm::vec4(camera.Position(), 1.0f);
 	curr_frame.Globals.windowSize.x = static_cast<float>(extent.width);
 	curr_frame.Globals.windowSize.y = static_cast<float>(extent.height);
-	//curr_frame.Globals.mousePosition.x = imgui_io.MousePos.x;
-	//curr_frame.Globals.mousePosition.y = imgui_io.MousePos.y;
 	VulkanResource* globals_rsrc = curr_frame.rsrcMap.at("globals");
 	const gpu_resource_data_t globals_update{
 		&curr_frame.Globals, sizeof(curr_frame.Globals), 0u, 0u, 0u
@@ -507,17 +522,7 @@ void VTF_Scene::update() {
 		UpdateClusterGrid(curr_frame);
 		frameSingleExecComputeWorkDone[activeFrame] = true;
 	}
-	VkCommandBuffer cmd_buffer = curr_frame.computePool->GetCmdBuffer(1u);
-	VkResult result = vkBeginCommandBuffer(cmd_buffer, &base_info);
-	VkAssert(result);
-	ComputeUpdateLights(curr_frame, cmd_buffer);
-	ComputeReduceLights(curr_frame, cmd_buffer);
-	ComputeMortonCodes(curr_frame, cmd_buffer);
-	SortMortonCodes(curr_frame, cmd_buffer);
-	BuildLightBVH(curr_frame, cmd_buffer);
-	result = vkEndCommandBuffer(cmd_buffer);
-	VkAssert(result);
-	SubmitComputeWork(curr_frame, 1u, &cmd_buffer);
+	ComputeUpdate(curr_frame);
 }
 
 void VTF_Scene::recordCommands() 
@@ -530,12 +535,8 @@ void VTF_Scene::draw() {
     // primary draws
 }
 
-void VTF_Scene::endFrame() {
-	auto& ctxt = ResourceContext::Get();
-	//for (auto* resource : frames[activeFrame]->transientResources)
-	//{
-	//	ctxt.DestroyResource(resource);
-	//}
+void VTF_Scene::endFrame() 
+{
 	activeFrame = (activeFrame + 1u) % frames.size();
 }
 

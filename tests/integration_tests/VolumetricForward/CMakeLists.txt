@@ -45,6 +45,7 @@ TARGET_INCLUDE_DIRECTORIES(VTF_Scene PRIVATE
     "../../../third_party/vulpesrender/command/include"
     "../../../third_party/vulpesrender/sync/include"
     "../../../third_party/vulpesrender/render/include"
+    "../../../third_party/svs"
 )
 
 TARGET_LINK_LIBRARIES(VTF_Scene PRIVATE ShaderTools rendering_context resource_context rendergraph_module glfw ${Vulkan_LIBRARY}
