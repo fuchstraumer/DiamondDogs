@@ -300,9 +300,9 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
 	const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
 	const uint32_t queue_family_indices[2]{ graphics_idx, compute_idx };
 
-    float fov_y = camera.FOV();
-    float z_near = camera.NearPlane();
-    float z_far = camera.FarPlane();
+    float fov_y = glm::radians(70.0f);
+    float z_near = 0.001f;
+    float z_far = 3000.0f;
     frame.Globals.depthRange = glm::vec2(z_near, z_far);
 
     auto& ctxt = RenderingContext::Get();
@@ -360,7 +360,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         nullptr,
         0,
         sizeof(uint32_t) * cluster_dim_x * cluster_dim_y * cluster_dim_z,
-        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		sharing_mode,
 		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
 		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
@@ -557,10 +557,11 @@ void createLightResources(vtf_frame_data_t& frame) {
 
 	// set sharing parameters: concurrent costs more but makes our lives a lot easier. might need to go exclusive if perf bombs
 	const auto* device = RenderingContext::Get().Device();
-	const uint32_t graphics_idx = device->QueueFamilyIndices().Graphics;
-	const uint32_t compute_idx = device->QueueFamilyIndices().Compute;
-	const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
-	const uint32_t queue_family_indices[2]{ graphics_idx, compute_idx };
+    const uint32_t graphics_idx = device->QueueFamilyIndices().Graphics;
+    const uint32_t transfer_idx = device->QueueFamilyIndices().Transfer;
+    const uint32_t compute_idx = device->QueueFamilyIndices().Compute;
+    const std::array<uint32_t, 3> queue_family_indices{ graphics_idx, transfer_idx, compute_idx };
+    const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
 
     if (SceneLightsState().PointLights.empty()) {
         throw std::runtime_error("Didn't generate lights before setting up light GPU buffers!");
@@ -573,8 +574,8 @@ void createLightResources(vtf_frame_data_t& frame) {
         sizeof(PointLight) * SceneLightsState().PointLights.size(),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
 	const uint32_t compute_queue_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
@@ -609,15 +610,15 @@ void createLightResources(vtf_frame_data_t& frame) {
     frame.rsrcMap["DirectionalLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &dir_lights_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DirectionalLights");
     descr->BindResourceToIdx(descr->BindingLocation("DirectionalLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("DirectionalLights"));
 
-    constexpr static VkBufferCreateInfo light_counts_info{
+    const VkBufferCreateInfo light_counts_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
         sizeof(LightCountsData),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0u,
-        nullptr
+        sharing_mode,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     frame.LightCounts.NumPointLights = static_cast<uint32_t>(SceneLightsState().PointLights.size());
@@ -662,9 +663,10 @@ void createSortResources(vtf_frame_data_t& frame) {
     auto* descr = frame.descriptorPack->RetrieveDescriptor("SortResources");
 	const auto* device = RenderingContext::Get().Device();
 	const uint32_t graphics_idx = device->QueueFamilyIndices().Graphics;
+    const uint32_t transfer_idx = device->QueueFamilyIndices().Transfer;
 	const uint32_t compute_idx = device->QueueFamilyIndices().Compute;
-	const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
-	const uint32_t queue_family_indices[2]{ graphics_idx, compute_idx };
+	const std::array<uint32_t, 3> queue_family_indices{ graphics_idx, transfer_idx, compute_idx };
+    const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
 
     const VkBufferCreateInfo dispatch_params_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -673,8 +675,8 @@ void createSortResources(vtf_frame_data_t& frame) {
         sizeof(DispatchParams_t),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+		sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     frame.rsrcMap["DispatchParams"] = rsrc_context.CreateBuffer(&dispatch_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams");
@@ -687,8 +689,8 @@ void createSortResources(vtf_frame_data_t& frame) {
         sizeof(uint32_t),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     frame.rsrcMap["ReductionParams"] = rsrc_context.CreateBuffer(&reduction_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "ReductionParams");
@@ -701,8 +703,8 @@ void createSortResources(vtf_frame_data_t& frame) {
         sizeof(uint32_t) * 2u,
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     frame.rsrcMap["SortParams"] = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "SortParams");
@@ -715,8 +717,8 @@ void createSortResources(vtf_frame_data_t& frame) {
         sizeof(AABB) * 512u,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     frame.rsrcMap["LightAABBs"] = rsrc_context.CreateBuffer(&light_aabbs_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "LightAABBs");
@@ -729,8 +731,8 @@ void createSortResources(vtf_frame_data_t& frame) {
         sizeof(uint32_t) * frame.LightCounts.NumPointLights,
         VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     VkBufferViewCreateInfo sort_buffer_views_create_info{
@@ -935,13 +937,6 @@ void createMaterialSamplers(vtf_frame_data_t& frame) {
 
 }
 
-void createSemaphores(vtf_frame_data_t& frame) {
-    auto* device = RenderingContext::Get().Device();
-    frame.semaphores["ImageAcquire"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
-    frame.semaphores["ComputeUpdateComplete"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
-    frame.semaphores["RenderComplete"] = std::make_unique<vpr::Semaphore>(device->vkHandle());
-}
-
 void setupCommandPools(vtf_frame_data_t& frame)
 {
 
@@ -983,6 +978,12 @@ void setupCommandPools(vtf_frame_data_t& frame)
 
 void createDebugResources(vtf_frame_data_t& frame)
 {
+    const auto* device = RenderingContext::Get().Device();
+    const uint32_t graphics_idx = device->QueueFamilyIndices().Graphics;
+    const uint32_t transfer_idx = device->QueueFamilyIndices().Transfer;
+    const uint32_t compute_idx = device->QueueFamilyIndices().Compute;
+    const std::array<uint32_t, 3> queue_family_indices{ graphics_idx, compute_idx, transfer_idx };
+    const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
 	auto& cluster_colors_vec = SceneLightsState().ClusterColors;
 	VkDeviceSize required_mem = cluster_colors_vec.size() * sizeof(glm::u8vec4);
 
@@ -992,9 +993,9 @@ void createDebugResources(vtf_frame_data_t& frame)
 		0,
 		required_mem,
 		VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-		VK_SHARING_MODE_EXCLUSIVE,
-		0u,
-		nullptr
+        sharing_mode,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
 	};
 
 	const VkBufferViewCreateInfo buffer_view_info{
@@ -1015,9 +1016,40 @@ void createDebugResources(vtf_frame_data_t& frame)
 	auto& ctxt = ResourceContext::Get();
 	frame.rsrcMap["DebugClusterColors"] = ctxt.CreateBuffer(&buffer_info, &buffer_view_info, 1u, &buffer_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DebugClusterColors");
 
+    const VkBufferCreateInfo indirect_args_info{
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(VkDrawIndirectCommand),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        sharing_mode,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
+    };
+
+    frame.rsrcMap["DebugClustersIndirectArgs"] = ctxt.CreateBuffer(&indirect_args_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DebugClustersIndirectArgs");
+
+    const VkBufferCreateInfo debug_matrices_info {
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(glm::mat4) * 2u,
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        sharing_mode,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
+    };
+
+    frame.rsrcMap["DebugClustersMatrices"] = ctxt.CreateBuffer(&debug_matrices_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DebugClustersMatrices");
+
 	auto* descr = frame.descriptorPack->RetrieveDescriptor("Debug");
-	const size_t loc = descr->BindingLocation("ClusterColors");
-	descr->BindResourceToIdx(loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("DebugClusterColors"));
+	const size_t colors_loc = descr->BindingLocation("ClusterColors");
+    const size_t args_loc = descr->BindingLocation("DebugClustersIndirectArgs");
+    const size_t matrices_loc = descr->BindingLocation("DebugClustersMatrices");
+
+	descr->BindResourceToIdx(colors_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("DebugClusterColors"));
+    descr->BindResourceToIdx(args_loc, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("DebugClustersIndirectArgs"));
+    descr->BindResourceToIdx(matrices_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("DebugClustersMatrices"));
 
 }
 
@@ -1026,6 +1058,7 @@ void createFences(vtf_frame_data_t& frame)
 	auto* device = RenderingContext::Get().Device();
 	frame.graphicsPoolUsageFence = std::make_unique<vpr::Fence>(device->vkHandle(), 0);
 	frame.computePoolUsageFence = std::make_unique<vpr::Fence>(device->vkHandle(), 0);
+    frame.preRenderGraphicsFence = std::make_unique<vpr::Fence>(device->vkHandle(), 0);
 }
 
 void CreateResources(vtf_frame_data_t & frame) {
@@ -1039,14 +1072,14 @@ void CreateResources(vtf_frame_data_t & frame) {
     //createMergeSortResource(frame);
     createBVH_Resources(frame);
     createMaterialSamplers(frame);
-    createSemaphores(frame);
+    CreateSemaphores(frame);
 	setupCommandPools(frame);
 	createDebugResources(frame);
 	createFences(frame);
 	auto* device = RenderingContext::Get().Device();
 	auto& limits = RenderingContext::Get().PhysicalDevice(0)->GetProperties().limits;
 	assert(limits.timestampComputeAndGraphics);
-	uint32_t nanoseconds_period = limits.timestampPeriod;
+	uint32_t nanoseconds_period = static_cast<uint32_t>(limits.timestampPeriod);
 	frame.queryPool = std::make_unique<QueryPool>(device->vkHandle(), nanoseconds_period);
 }
 
@@ -1404,6 +1437,7 @@ void CreateComputePipelines(vtf_frame_data_t& frame) {
 
 void createDepthAndClusterSamplesPass(vtf_frame_data_t& frame) {
 
+    static const std::string passName{ "DepthAndClusterSamplesPass" };
     std::array<VkSubpassDependency, 1> depthAndClusterDependencies;
     std::array<VkSubpassDescription, 2> depthAndSamplesPassDescriptions;
     const auto* device = RenderingContext::Get().Device();
@@ -1482,8 +1516,13 @@ void createDepthAndClusterSamplesPass(vtf_frame_data_t& frame) {
         depthAndClusterDependencies.data()
     };
 
-    frame.renderPasses["DepthAndClusterSamplesPass"] = std::make_unique<vpr::Renderpass>(device->vkHandle(), create_info);
-    frame.renderPasses.at("DepthAndClusterSamplesPass")->SetupBeginInfo(DepthPrePassAndClusterSamplesClearValues.data(), DepthPrePassAndClusterSamplesClearValues.size(), swapchain->Extent());
+    frame.renderPasses[passName] = std::make_unique<vpr::Renderpass>(device->vkHandle(), create_info);
+    frame.renderPasses.at(passName)->SetupBeginInfo(DepthPrePassAndClusterSamplesClearValues.data(), DepthPrePassAndClusterSamplesClearValues.size(), swapchain->Extent());
+
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_RENDER_PASS, (uint64_t)frame.renderPasses.at(passName)->vkHandle(), passName.c_str());
+    }
 
     // create image for this pass
     frame.rsrcMap["DepthPrePassImage"] = createDepthStencilResource(VK_SAMPLE_COUNT_1_BIT);
@@ -1549,6 +1588,11 @@ void createClusterSamplesResources(vtf_frame_data_t& frame) {
     };
 
     frame.clusterSamplesFramebuffer = std::make_unique<vpr::Framebuffer>(device->vkHandle(), framebuffer_info);
+
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_FRAMEBUFFER, (uint64_t)frame.clusterSamplesFramebuffer->vkHandle(), "ClusterSamplesFramebuffer");
+    }
 
 }
 
@@ -1643,6 +1687,11 @@ void createDrawPass(vtf_frame_data_t& frame) {
 
     frame.renderPasses["DrawPass"] = std::make_unique<vpr::Renderpass>(device->vkHandle(), create_info);
     frame.renderPasses["DrawPass"]->SetupBeginInfo(DrawPassClearValues.data(), DrawPassClearValues.size(), swapchain->Extent());
+
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_RENDER_PASS, (uint64_t)frame.renderPasses.at("DrawPass")->vkHandle(), "DrawPass");
+    }
 
 }
 
@@ -2034,7 +2083,7 @@ void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["UpdateLightsPipeline"].Handle);
-    auto& binder = frame.GetBinder("UpdateLights");
+    auto& binder = frame.descriptorPack->RetrieveBinder("UpdateLights");
 	binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     uint32_t num_groups_x = glm::max(frame.LightCounts.NumPointLights, glm::max(frame.LightCounts.NumDirectionalLights, frame.LightCounts.NumSpotLights));
@@ -2116,6 +2165,7 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     // update dispatch params
     uint32_t num_thread_groups = glm::min<uint32_t>(static_cast<uint32_t>(glm::ceil(glm::max(frame.LightCounts.NumPointLights, frame.LightCounts.NumSpotLights) / 512.0f)), uint32_t(512));
+
     frame.DispatchParams.NumThreadGroups = glm::uvec3(num_thread_groups, 1u, 1u);
     frame.DispatchParams.NumThreads = glm::uvec3(num_thread_groups * 512, 1u, 1u);
     const gpu_resource_data_t dp_update{
@@ -2145,7 +2195,7 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         dispatch_params0 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams0");
     }
 
-    auto& binder0 = frame.GetBinder("ReduceLights");
+    auto& binder0 = frame.descriptorPack->RetrieveBinder("ReduceLights");
     binder0.BindResourceToIdx("SortResources", dispatch_params_idx, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, dispatch_params0);
     binder0.Update();
 
@@ -2190,7 +2240,7 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     else {
         dispatch_params1 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams1");
     }
-    auto& binder1 = frame.GetBinder("ReduceLights");
+    auto& binder1 = frame.descriptorPack->RetrieveBinder("ReduceLights");
     binder1.BindResourceToIdx("SortResources", dispatch_params_idx, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, dispatch_params1);
     binder1.Update();
 	{
@@ -2541,8 +2591,8 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         nullptr,
         VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
         VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-        compute_idx,
-        compute_idx,
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED,
         (VkBuffer)point_light_bvh->Handle,
         0,
         VK_WHOLE_SIZE
@@ -2553,8 +2603,8 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         nullptr,
         VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
         VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-        compute_idx,
-        compute_idx,
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED,
         (VkBuffer)spot_light_bvh->Handle,
         0,
         VK_WHOLE_SIZE
@@ -2565,8 +2615,8 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         nullptr,
         VK_ACCESS_HOST_WRITE_BIT,
         VK_ACCESS_SHADER_READ_BIT,
-        compute_idx,
-        compute_idx,
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED,
         (VkBuffer)bvh_params_rsrc->Handle,
         0u,
         VK_WHOLE_SIZE
@@ -2579,13 +2629,14 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     vkCmdFillBuffer(cmd, (VkBuffer)point_light_bvh->Handle, 0u, VK_WHOLE_SIZE, 0u);
     vkCmdFillBuffer(cmd, (VkBuffer)spot_light_bvh->Handle, 0u, VK_WHOLE_SIZE, 0u);
 
-    uint32_t point_light_levels = GetNumLevelsBVH(frame.LightCounts.NumPointLights);
-    uint32_t spot_light_levels = GetNumLevelsBVH(frame.LightCounts.NumSpotLights);
-    const gpu_resource_data_t bvh_update{ &frame.BVH_Params, sizeof(frame.BVH_Params), 0u, VK_QUEUE_FAMILY_IGNORED };
+    frame.BVH_Params.PointLightLevels = GetNumLevelsBVH(frame.LightCounts.NumPointLights);
+    
+    frame.BVH_Params.SpotLightLevels = GetNumLevelsBVH(frame.LightCounts.NumSpotLights);
+    gpu_resource_data_t bvh_update{ &frame.BVH_Params, sizeof(frame.BVH_Params), 0u, VK_QUEUE_FAMILY_IGNORED };
 
-    if ((point_light_levels != frame.BVH_Params.PointLightLevels) || (spot_light_levels != frame.BVH_Params.SpotLightLevels)) {
+    //if ((point_light_levels != frame.BVH_Params.PointLightLevels) || (spot_light_levels != frame.BVH_Params.SpotLightLevels)) {
         rsrc.SetBufferData(bvh_params_rsrc, 1, &bvh_update);
-    }
+    //}
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["BuildBVHBottomPipeline"].Handle);
 
@@ -2651,7 +2702,7 @@ void ComputeClusterAABBs(vtf_frame_data_t& frame) {
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd_buffer, &debug_label);
     }
-    auto& binder = frame.GetBinder("ComputeClusterAABBs");
+    auto& binder = frame.descriptorPack->RetrieveBinder("ComputeClusterAABBs");
 	binder.Update();
     binder.Bind(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["ComputeClusterAABBsPipeline"].Handle);
@@ -2752,12 +2803,12 @@ void ComputeUpdate(vtf_frame_data_t& frame)
 	result = vkEndCommandBuffer(cmd_buffer);
 	VkAssert(result);
 
-	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-	{
-		frame.vkDebugFns.vkQueueEndDebugUtilsLabel(device->ComputeQueue());
-	}
-
 	SubmitComputeWork(frame, 1u, &cmd_buffer);
+
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        frame.vkDebugFns.vkQueueEndDebugUtilsLabel(device->ComputeQueue());
+    }
 
 	frame.firstComputeSubmit = false;
 }
@@ -2775,6 +2826,66 @@ bool tryImageAcquire(vtf_frame_data_t& frame, uint64_t timeout = 0u) {
         }
         return false;
     }
+}
+
+void vtfDrawDebugClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
+{
+    VkViewport viewport;
+    VkRect2D scissor;
+    auto current_dims = RenderingContext::Get().Swapchain()->Extent();
+    viewport.width = static_cast<float>(current_dims.width);
+    viewport.height = static_cast<float>(current_dims.height);
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    scissor.extent = current_dims;
+    scissor.offset.x = 0;
+    scissor.offset.y = 0;
+
+    constexpr static VkDebugUtilsLabelEXT debug_label{
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+        nullptr,
+        "DrawDebugClusters",
+        { 244.0f / 255.0f, 176.0f / 255.0f, 66.0f / 255.0f, 1.0f }
+    };
+
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
+    }
+
+    const std::array<glm::mat4, 2> debug_clusters_matrices {
+        frame.Matrices.view * glm::inverse(frame.previousViewMatrix),
+        frame.Matrices.projection
+    };
+
+    const gpu_resource_data_t resource_data{
+        debug_clusters_matrices.data(),
+        sizeof(glm::mat4) * debug_clusters_matrices.size(),
+        0u,
+        VK_QUEUE_FAMILY_IGNORED
+    };
+
+    auto& ctxt = ResourceContext::Get();
+    auto& debug_matrices = frame.rsrcMap.at("DebugClustersMatrices");
+    ctxt.SetBufferData(debug_matrices, 1u, &resource_data);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("DebugClustersPipeline")->vkHandle());
+    vkCmdSetViewport(cmd, 0u, 1u, &viewport);
+    vkCmdSetScissor(cmd, 0u, 1u, &scissor);
+    auto& descriptor = frame.descriptorPack->RetrieveBinder("DebugClusters");
+    auto& prev_unique_clusters = frame.rsrcMap.at("PreviousUniqueClusters");
+    auto& cluster_colors = frame.rsrcMap.at("DebugClusterColors");
+    descriptor.BindResourceToIdx("Debug", 0u, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, cluster_colors);
+    descriptor.Update();
+    descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+    vkCmdDrawIndirect(cmd, (VkBuffer)frame.rsrcMap.at("DebugClustersIndirectArgs")->Handle, 0u, 1u, sizeof(VkDrawIndirectCommand));
+
+    if constexpr (VTF_VALIDATION_ENABLED) {
+        frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
+    }
+
 }
 
 void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
@@ -2818,9 +2929,9 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 	//thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
 
     vkCmdFillBuffer(cmd, (VkBuffer)cluster_flags->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info)->size, 0u);
-    auto& binder0 = frame.GetBinder("DepthPrePass");
+    auto& binder0 = frame.descriptorPack->RetrieveBinder("DepthPrePass");
 	binder0.Update();
-    auto& binder1 = frame.GetBinder("ClusterSamples");
+    auto& binder1 = frame.descriptorPack->RetrieveBinder("ClusterSamples");
 	binder1.Update();
 	assert(frame.renderFns.size() == frame.bindFns.size());
     vkCmdBeginRenderPass(cmd, &renderpass->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
@@ -2890,7 +3001,7 @@ void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     vkCmdFillBuffer(cmd, (VkBuffer)unique_clusters->Handle, 0u, unique_clusters_size, 0u);
     vkCmdFillBuffer(cmd, (VkBuffer)unique_clusters_counter->Handle, 0u, sizeof(uint32_t), 0u);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("FindUniqueClustersPipeline").Handle);
-    auto& binder = frame.GetBinder("FindUniqueClusters");
+    auto& binder = frame.descriptorPack->RetrieveBinder("FindUniqueClusters");
 	binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
 
@@ -2943,7 +3054,7 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("UpdateIndirectArgsPipeline").Handle);
-    auto& binder = frame.GetBinder("UpdateClusterIndirectArgs");
+    auto& binder = frame.descriptorPack->RetrieveBinder("UpdateClusterIndirectArgs");
 	binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdDispatch(cmd, 1u, 1u, 1u);
@@ -2997,7 +3108,7 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     const VulkanResource* spot_light_index_list = frame.rsrcMap.at("SpotLightIndexList");
 	const VulkanResource* indirect_buffer = frame.rsrcMap.at("IndirectArgs");
 
-	auto& descriptor = frame.GetBinder("AssignLightsToClusters");
+	auto& descriptor = frame.descriptorPack->RetrieveBinder("AssignLightsToClusters");
 	descriptor.Update();
 
 	/*
@@ -3142,15 +3253,8 @@ void submitPreSwapchainWritingWork(vtf_frame_data_t& frame, uint32_t num_cmds, V
 
     vpr::Device* dvc = RenderingContext::Get().Device();
 
-    VkResult result = vkQueueSubmit(dvc->GraphicsQueue(), 1u, &submit_info, VK_NULL_HANDLE);
+    VkResult result = vkQueueSubmit(dvc->GraphicsQueue(), 1u, &submit_info, frame.preRenderGraphicsFence->vkHandle());
     VkAssert(result);
-
-}
-
-void vtfDrawDebugClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
-{
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("DebugClustersPipeline")->vkHandle());
-	auto& descriptor = frame.GetBinder("DebugClusters");
 
 }
 
@@ -3166,16 +3270,27 @@ void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     };
 
     auto& rsrc_ctxt = ResourceContext::Get();
-    auto& binder = frame.GetBinder("DrawPass");
+    auto& binder = frame.descriptorPack->RetrieveBinder("DrawPass");
 
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
+    const auto& unique_clusters = frame.rsrcMap.at("UniqueClusters");
+    const auto& prev_unique_clusters = frame.rsrcMap.at("PreviousUniqueClusters");
+    if (frame.updateUniqueClusters)
+    {
+        frame.previousViewMatrix = frame.Matrices.view;
+        const VkDeviceSize copy_sz = reinterpret_cast<const VkBufferCreateInfo*>(unique_clusters->Info)->size;
+        const VkBufferCopy buffer_copy{ 0u, 0u, copy_sz };
+        vkCmdCopyBuffer(cmd, (VkBuffer)unique_clusters->Handle, (VkBuffer)prev_unique_clusters->Handle, 1u, &buffer_copy);
+    }
+
     frame.renderPasses.at("DrawPass")->UpdateBeginInfo(frame.drawFramebuffer->vkHandle());
     vkCmdBeginRenderPass(cmd, &frame.renderPasses.at("DrawPass")->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
+        vtfDrawDebugClusters(frame, cmd);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("OpaqueDrawPipeline")->vkHandle());
-            auto& binder0 = frame.GetBinder("DrawPass");
+            auto& binder0 = frame.descriptorPack->RetrieveBinder("DrawPass");
 			binder0.Update();
             //binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
 			for (size_t i = 0u; i < frame.renderFns.size(); ++i)
@@ -3229,17 +3344,27 @@ void RenderVtf(vtf_frame_data_t& frame) {
 
 	if (!frame.firstGraphicsSubmit)
 	{
-		VkResult result = vkWaitForFences(device->vkHandle(), 1u, &frame.graphicsPoolUsageFence->vkHandle(), VK_TRUE, UINT64_MAX);
+        const VkFence wait_fences[2]{ frame.preRenderGraphicsFence->vkHandle(), frame.graphicsPoolUsageFence->vkHandle() };
+		VkResult result = vkWaitForFences(device->vkHandle(), 2u, wait_fences, VK_TRUE, UINT64_MAX);
 		VkAssert(result);
-		result = vkResetFences(device->vkHandle(), 1u, &frame.graphicsPoolUsageFence->vkHandle());
+		result = vkResetFences(device->vkHandle(), 2u, wait_fences);
 		VkAssert(result);
 		frame.graphicsPool->ResetCmdPool();
 		// also free transient resources
 		auto& ctxt = ResourceContext::Get();
-		for (auto* resource : frame.transientResources)
+		for (auto* resource : frame.lastFrameTransientResources)
 		{
 			ctxt.DestroyResource(resource);
 		}
+
+        frame.lastFrameTransientResources.clear();
+        frame.lastFrameTransientResources.shrink_to_fit();
+
+        /*
+            Reset descriptors
+        */
+        frame.descriptorPack->Reset();
+
 	}
 
     /*
@@ -3319,6 +3444,7 @@ void RenderVtf(vtf_frame_data_t& frame) {
 }
 
 void SubmitGraphicsWork(vtf_frame_data_t& frame) {
+    static uint32_t frameIdx{ 0u };
 
     const VkSemaphore wait_semaphores[2]{
         frame.semaphores.at("PreBackbufferWorkComplete")->vkHandle(),
@@ -3348,8 +3474,32 @@ void SubmitGraphicsWork(vtf_frame_data_t& frame) {
     frame.lastImageIdx = frame.imageIdx;
 
 	// get timestamps for last frames work
-	auto results = frame.queryPool->GetTimestamps();
 
+    auto results = frame.queryPool->GetTimestamps();
+    if ((frameIdx % 360u == 0u) || frameIdx == 0u)
+    {
+        // log results to console briefly
+        std::cerr << "Time elapsed per stage in last frame: \n";
+        size_t counter{ 0u };
+        for (auto& result : results)
+        {
+            std::cerr << "| ";
+            std::cerr << result.first;
+            std::cerr << " | ";
+            std::cerr << std::to_string(result.second) << "ms |";
+
+            if ((counter % 2u == 0u) && (counter != 0u))
+            {
+                std::cerr << "\n";
+            }
+
+            ++counter;
+        }
+    }
+
+    ++frameIdx;
+    frame.lastFrameTransientResources = std::move(frame.transientResources);
+    frame.transientResources.reserve(frame.lastFrameTransientResources.size());
 }
 
 void destroyFrameResources(vtf_frame_data_t & frame) {
@@ -3434,7 +3584,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 		nullptr,
 		0,
 		sizeof(uint32_t) * 2u,
-		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		VK_SHARING_MODE_EXCLUSIVE,
 		0u,
 		nullptr
