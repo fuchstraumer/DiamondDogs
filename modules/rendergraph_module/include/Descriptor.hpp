@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 struct VulkanResource;
+class DescriptorPack;
 
 namespace st {
     struct descriptor_type_counts_t;
@@ -37,14 +38,14 @@ namespace st {
 class Descriptor {
 public:
 
-	Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ, std::unordered_map<std::string, size_t>&& binding_locs, const char* name);
+	Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ, 
+        std::unordered_map<std::string, size_t> binding_locs, const char* name);
 
 	/*
         max_sets is used to set how many sets are initially allocated, but if this number is exceeded a new pool will be created
     */
     Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* templ,
         std::unordered_map<std::string, size_t>&& binding_locations);
-    Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* templ);
     ~Descriptor();
 
     // frees all sets. call at the end of a frame, once all command buffers using this Descriptor have been consumed fully.
@@ -57,10 +58,12 @@ private:
     friend class DescriptorBinder;
     friend class DescriptorPack;
 
-
     VkDescriptorSet fetchNewSet() noexcept;
     void allocateSets();
     void createPool();
+
+    // Used when constructing frame-buffered sibling
+    size_t highWaterMark() const noexcept;
 
     uint32_t maxSets{ 0u };
     const vpr::Device* device{ nullptr };
@@ -75,7 +78,6 @@ private:
     std::vector<VkDescriptorSetLayout> setLayouts;
     std::unordered_map<std::string, size_t> bindingLocations;
 	std::string name; // unused / left empty in optimized release builds
-
 };
 
 #endif // !DIAMOND_DOGS_DESCRIPTOR_SET_HPP

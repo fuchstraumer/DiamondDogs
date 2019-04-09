@@ -13,6 +13,7 @@
 #include "CreateInfoBase.hpp"
 #include "LogicalDevice.hpp"
 #include "VkDebugUtils.hpp"
+#include <cassert>
 
 DescriptorPack::DescriptorPack(RenderGraph* _graph, const st::ShaderPack * pack) : shaderPack(pack), graph(_graph) {
     retrieveResourceGroups();
@@ -22,6 +23,14 @@ DescriptorPack::DescriptorPack(RenderGraph* _graph, const st::ShaderPack * pack)
 }
 
 DescriptorPack::~DescriptorPack() {}
+
+void DescriptorPack::Reset()
+{
+    for (auto& descr : lastFrameDescriptors)
+    {
+        descr->Reset();
+    }
+}
 
 VkPipelineLayout DescriptorPack::PipelineLayout(const std::string& name) const {
     const size_t idx = shaderGroupNameIdxMap.at(name);
@@ -53,6 +62,26 @@ DescriptorBinder DescriptorPack::RetrieveBinder(const std::string& shader_group)
     }
 
     return std::move(result);
+}
+
+void DescriptorPack::EndFrame()
+{
+    // note: nothing here is destroyed, as we may have pending work.
+    // instead, the one requirement is that the user calls reset. the 
+    // upside of that is that they can then safely latch it behind a fence
+    // for a set of drawcalls (as in VTF_Scene)
+    std::swap(lastFrameDescriptors, descriptors);
+    if (descriptors.empty())
+    {
+        // this is our first time swapping the containers
+        for (size_t i = 0; i < lastFrameDescriptors.size(); ++i)
+        {
+            descriptors.emplace_back(std::make_unique<Descriptor>(lastFrameDescriptors[i]->device, lastFrameDescriptors[i]->typeCounts,
+                lastFrameDescriptors[i]->highWaterMark(), lastFrameDescriptors[i]->templ, lastFrameDescriptors[i]->bindingLocations, lastFrameDescriptors[i]->name.c_str()));
+            descriptors[i]->setLayouts.resize(descriptors[i]->maxSets, descriptors[i]->templ->SetLayout());
+        }
+    }
+
 }
 
 void DescriptorPack::retrieveResourceGroups() {
@@ -145,8 +174,10 @@ void DescriptorPack::createPipelineLayout(const std::string & name) {
         shaderGroupResourceGroupUsages[idx].resize(used_blocks.NumStrings);
 
         for (size_t i = 0; i < used_blocks.NumStrings; ++i) {
-            size_t container_idx = rsrcGroupToIdxMap.at(used_blocks[i]);
-            size_t set_idx_in_shader = static_cast<size_t>(shader->ResourceGroupSetIdx(used_blocks[i]));
+            const char* curr_block = used_blocks[i];
+            size_t container_idx = rsrcGroupToIdxMap.at(curr_block);
+            uint32_t set_idx_in_shader = shader->ResourceGroupSetIdx(curr_block);
+            assert(set_idx_in_shader != std::numeric_limits<uint32_t>::max());
             // this map stores descriptor indices in the right binding order for us to use later
             shaderGroupResourceGroupUsages[idx][set_idx_in_shader] = container_idx;
             set_layouts[set_idx_in_shader] = descriptorTemplates[container_idx]->SetLayout();

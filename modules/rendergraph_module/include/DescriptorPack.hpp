@@ -39,6 +39,8 @@ public:
     DescriptorPack& operator=(DescriptorPack&& other) noexcept = default;
     ~DescriptorPack();
 
+    void Reset();
+
     VkPipelineLayout PipelineLayout(const std::string& name) const;
     // retrieve this to update bindings for this descriptor
     Descriptor* RetrieveDescriptor(const std::string& rsrc_group_name);
@@ -47,7 +49,8 @@ public:
     // group over initializing like this
     DescriptorBinder RetrieveBinder(const std::string& shader_group);
 
-    // resets stored descriptors at the end of a frame
+    // internally swaps descriptors between the two double-buffered sets.
+    // they cross-comunicate and do a clone the first time, so the heuristics combine
     void EndFrame();
 
 private:
@@ -58,12 +61,13 @@ private:
     void createDescriptors();
     void createPipelineLayout(const std::string& name);
     std::unique_ptr<Descriptor> createDescriptor(const std::string& rsrc_group_name, std::unordered_map<std::string, size_t>&& binding_locs);
-
+    friend class Descriptor;
     RenderGraph* graph;
     std::vector<const st::ResourceGroup*> resourceGroups;
     std::unordered_map<std::string, size_t> rsrcGroupToIdxMap;
     std::vector<std::unique_ptr<DescriptorTemplate>> descriptorTemplates;
     std::vector<std::unique_ptr<Descriptor>> descriptors;
+    std::vector<std::unique_ptr<Descriptor>> lastFrameDescriptors;
     std::vector<std::unique_ptr<vpr::PipelineLayout>> pipelineLayouts;
     std::unordered_map<std::string, uint32_t> shaderGroupNameIdxMap;
     std::unordered_map<std::string, std::unordered_map<std::string, size_t>> bindingLocations;
@@ -71,7 +75,7 @@ private:
     std::vector<std::vector<size_t>> shaderGroupResourceGroupUsages;
     std::vector<const st::Shader*> shaderGroups;
     const st::ShaderPack* shaderPack;
-
+    size_t frameIdx{ 0u };
 };
 
 #endif //!DIAMOND_DOGS_DESCRIPTOR_PACK_HPP

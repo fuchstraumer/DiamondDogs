@@ -5,19 +5,14 @@
 #include "RenderingContext.hpp"
 #include "VkDebugUtils.hpp"
 
-Descriptor::Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ, std::unordered_map<std::string, size_t>&& binding_locs,
-	const char* _name) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), bindingLocations{ std::move(binding_locs) }, typeCounts{ rsrc_counts },
-	name{ _name } {
+Descriptor::Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ, 
+    std::unordered_map<std::string, size_t> binding_locs, const char* _name) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), 
+    bindingLocations{ binding_locs }, typeCounts{ rsrc_counts }, name{ _name } {
 	createPool();
 }
 
 Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate * _templ, std::unordered_map<std::string, size_t>&& binding_locations) : device{ _device }, maxSets{ uint32_t(max_sets) },
     templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), bindingLocations{ std::move(binding_locations) }, typeCounts{ rsrc_counts } {
-    createPool();
-}
-
-Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate* _templ) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ },
-    typeCounts{ rsrc_counts }, setLayouts(max_sets, _templ->SetLayout()) {
     createPool();
 }
 
@@ -35,6 +30,8 @@ void Descriptor::Reset() {
         if (setContainerIdx <= low_load_factor_mark) {
             // if we only use half our allocated sets, we're probably over-allocating so let's reduce our maxSets quantity
             maxSets /= 2u;
+            VkDescriptorSetLayout set_layout_handle = setLayouts.front();
+            setLayouts.resize(maxSets, set_layout_handle);
         }
 
         // don't forget to destroy our single used set
@@ -51,6 +48,7 @@ void Descriptor::Reset() {
         VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), setContainerIdx, availSets.data());
         VkAssert(result);
         descriptorPools.pop_back();
+        availSets.clear();
 
         while (!descriptorPools.empty()) {
             auto& curr_pool = descriptorPools.back();
@@ -68,6 +66,8 @@ void Descriptor::Reset() {
         setContainerIdx = 0u;
         // Update max sets, so that we only allocate one descriptor pool next time.
         maxSets = used_sets;
+        VkDescriptorSetLayout set_layout_handle = setLayouts.front();
+        setLayouts.resize(maxSets, set_layout_handle);
         createPool();
     }
 
@@ -142,9 +142,20 @@ void Descriptor::createPool() {
     activePool->Create();
 	if (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 	{
-		const std::string curr_name = name + std::string("_DescriptorPool_Num") + std::to_string(descriptorPools.size());
+		const std::string curr_name = name + std::string("_DescriptorPool_Num") + std::to_string(descriptorPools.size() - 1u);
 		VkResult result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, (uint64_t)descriptorPools.back()->vkHandle(), VTF_DEBUG_OBJECT_NAME(curr_name.c_str()));
 		VkAssert(result);
 	}
     allocateSets();
+}
+
+size_t Descriptor::highWaterMark() const noexcept
+{
+    // no memory order here because we are not doing this across threads
+    size_t used_sets = static_cast<size_t>(setContainerIdx.load(std::memory_order_relaxed));
+    for (const auto& set_vec : usedSets)
+    {
+        used_sets += set_vec.size();
+    }
+    return used_sets;
 }
