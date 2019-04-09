@@ -9,8 +9,8 @@
 #include <vector>
 #include "GraphicsPipeline.hpp"
 
-struct RenderingContext;
-struct ResourceContext;
+class RenderingContext;
+class ResourceContext;
 struct RendererContext;
 struct VulkanResource;
 

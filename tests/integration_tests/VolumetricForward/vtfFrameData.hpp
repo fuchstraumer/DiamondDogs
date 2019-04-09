@@ -105,6 +105,7 @@ public:
 	std::vector<binder_fn_t> bindFns;
 
 	std::vector<VulkanResource*> transientResources;
+    std::vector<VulkanResource*> lastFrameTransientResources;
     std::unordered_map<std::string, ComputePipelineState> computePipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::GraphicsPipeline>> graphicsPipelines;
     std::unordered_map<std::string, std::unique_ptr<vpr::Renderpass>> renderPasses;
@@ -118,6 +119,7 @@ public:
     std::unique_ptr<vpr::Fence> computeAABBsFence{ nullptr };
 	std::unique_ptr<vpr::Fence> graphicsPoolUsageFence{ nullptr };
 	std::unique_ptr<vpr::Fence> computePoolUsageFence{ nullptr };
+    std::unique_ptr<vpr::Fence> preRenderGraphicsFence{ nullptr };
 	std::unique_ptr<QueryPool> queryPool{ nullptr };
 	bool firstComputeSubmit{ true };
 	bool firstGraphicsSubmit{ true };
@@ -127,6 +129,7 @@ public:
     bool updateUniqueClusters{ true };
     bool frameRecreate{ false };    
     vpr::VkDebugUtilsFunctions vkDebugFns;
+    glm::mat4 previousViewMatrix;
 
     /*
         Static resources: all of these should really not be duplicated across frames/threads
@@ -137,15 +140,6 @@ public:
     static std::unordered_map<std::string, std::unique_ptr<vpr::PipelineCache>> pipelineCaches;
     static std::unordered_map<st::ShaderStage, std::unique_ptr<vpr::ShaderModule>> shaderModules;
 
-    DescriptorBinder& GetBinder(const char* name) {
-        if (binders.count(name) == 0) {
-            auto iter = binders.emplace(name, descriptorPack->RetrieveBinder(name));
-            return iter.first->second;
-        }
-        else {
-            return binders.at(name);
-        }
-    }
 };
 
 #endif // !VTF_FRAME_DATA_HPP

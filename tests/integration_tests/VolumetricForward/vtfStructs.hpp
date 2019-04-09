@@ -2,6 +2,8 @@
 #ifndef VTF_MODEL_STRUCTURES_HPP
 #define VTF_MODEL_STRUCTURES_HPP
 #include <cstdint>
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "glm/vec2.hpp"
 #include "glm/vec3.hpp"
 #include "glm/vec4.hpp"
