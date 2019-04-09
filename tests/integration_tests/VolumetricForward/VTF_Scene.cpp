@@ -531,6 +531,7 @@ void VTF_Scene::updateGlobalUBOs() {
 	auto& resource_context = ResourceContext::Get();
 
 	curr_frame.Matrices.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(extent.width), static_cast<float>(extent.height), 0.001f, 3000.0f);
+    //curr_frame.Matrices.projection[1][1] *= -1.0f;
 	curr_frame.Matrices.view = glm::lookAt(glm::vec3(-8.0f, -8.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 	curr_frame.Matrices.inverseView = glm::inverse(curr_frame.Matrices.view);
 	curr_frame.Matrices.model = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f));
@@ -589,6 +590,7 @@ void VTF_Scene::draw() {
 
 void VTF_Scene::endFrame() 
 {
+    frames[activeFrame]->descriptorPack->EndFrame();
 	activeFrame = (activeFrame + 1u) % frames.size();
 }
 
