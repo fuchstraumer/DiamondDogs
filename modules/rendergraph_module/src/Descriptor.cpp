@@ -4,6 +4,11 @@
 #include "vkAssert.hpp"
 #include "RenderingContext.hpp"
 #include "VkDebugUtils.hpp"
+#include <cassert>
+
+static std::atomic<size_t> gSetsAllocated{ 0u };
+static std::atomic<size_t> gSetsDestroyed{ 0u };
+static std::atomic<int64_t> gSetsAlive{ 0u };
 
 Descriptor::Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ, 
     std::unordered_map<std::string, size_t> binding_locs, const char* _name) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), 
@@ -35,17 +40,26 @@ void Descriptor::Reset() {
         }
 
         // don't forget to destroy our single used set
-        VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), setContainerIdx, availSets.data());
+        VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), static_cast<uint32_t>(availSets.size()), availSets.data());
         VkAssert(result);
+        gSetsDestroyed.fetch_add(availSets.size());
+        gSetsAlive = gSetsAlive - availSets.size();
+
+        availSets.clear();
         descriptorPools.pop_back();
+
+        assert(descriptorPools.empty());
 
         setContainerIdx = 0u;
         createPool();
 
+        assert(usedSets.empty());
+
     }
     else {
         uint32_t used_sets = setContainerIdx;
-        VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), setContainerIdx, availSets.data());
+        VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), static_cast<uint32_t>(availSets.size()), availSets.data());
+        size_t sets_destroyed = availSets.size();
         VkAssert(result);
         descriptorPools.pop_back();
         availSets.clear();
@@ -55,19 +69,24 @@ void Descriptor::Reset() {
             auto& curr_sets = usedSets.back();
             used_sets += static_cast<uint32_t>(curr_sets.size());
 
-            result = vkFreeDescriptorSets(device->vkHandle(), curr_pool->vkHandle(), maxSets, curr_sets.data());
+            result = vkFreeDescriptorSets(device->vkHandle(), curr_pool->vkHandle(), static_cast<uint32_t>(curr_sets.size()), curr_sets.data());
             VkAssert(result);
+            sets_destroyed += curr_sets.size();
 
             usedSets.pop_back();
             descriptorPools.pop_back();
 
         }
 
+        assert(usedSets.empty());
+
         setContainerIdx = 0u;
         // Update max sets, so that we only allocate one descriptor pool next time.
         maxSets = used_sets;
         VkDescriptorSetLayout set_layout_handle = setLayouts.front();
         setLayouts.resize(maxSets, set_layout_handle);
+        gSetsDestroyed.fetch_add(sets_destroyed);
+        gSetsAlive = gSetsAlive - sets_destroyed;
         createPool();
     }
 
@@ -109,6 +128,8 @@ void Descriptor::allocateSets() {
     availSets.resize(maxSets, VK_NULL_HANDLE);
     VkResult result = vkAllocateDescriptorSets(device->vkHandle(), &alloc_info, availSets.data());
     VkAssert(result);
+    gSetsAllocated.fetch_add(availSets.size());
+    gSetsAlive.fetch_add(availSets.size());
 
 	if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 	{
