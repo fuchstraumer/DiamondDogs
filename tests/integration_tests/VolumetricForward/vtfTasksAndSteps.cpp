@@ -281,6 +281,7 @@ void createGlobalResources(vtf_frame_data_t& frame) {
     auto& rsrc_context = ResourceContext::Get();
 
     frame.rsrcMap["matrices"] = rsrc_context.CreateBuffer(&matrices_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "matrices");
+    frame.rsrcMap["debugLightsMatrices"] = rsrc_context.CreateBuffer(&matrices_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "debugLightsMatrices");
     frame.rsrcMap["globals"] = rsrc_context.CreateBuffer(&globals_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "globals");
 
     auto* descr = frame.descriptorPack->RetrieveDescriptor("GlobalResources");
@@ -1446,7 +1447,7 @@ void createDepthAndClusterSamplesPass(vtf_frame_data_t& frame) {
     const VkAttachmentDescription clusterSampleAttachmentDescriptions[2]{
         VkAttachmentDescription{
             0,
-            VK_FORMAT_R8G8B8A8_UNORM,
+            swapchain->ColorFormat(),
             VK_SAMPLE_COUNT_1_BIT,
             VK_ATTACHMENT_LOAD_OP_CLEAR,
             VK_ATTACHMENT_STORE_OP_STORE,
@@ -1533,7 +1534,7 @@ void createClusterSamplesResources(vtf_frame_data_t& frame) {
 
     const auto* device = RenderingContext::Get().Device();
     const auto* swapchain = RenderingContext::Get().Swapchain();
-    const VkFormat cluster_samples_color_format = VK_FORMAT_R8G8B8A8_UNORM;
+    const VkFormat cluster_samples_color_format = swapchain->ColorFormat();
     const VkImageTiling tiling_type = device->GetFormatTiling(cluster_samples_color_format, VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT);
     const uint32_t img_width = swapchain->Extent().width;
     const uint32_t img_height = swapchain->Extent().height;
@@ -2006,11 +2007,79 @@ void createDebugClustersPipeline(vtf_frame_data_t& frame)
 
 }
 
+void createDebugLightsPipelines(vtf_frame_data_t& frame)
+{
+    static const std::string groupName{ "DebugLights" };
+    static const std::string pipelineName0{ "DebugPointLights" };
+    static const std::string pipelineName1{ "DebugSpotLights" };
+    auto* device = RenderingContext::Get().Device();
+
+    std::vector<st::ShaderStage> stages;
+
+    for (auto& stage : vtf_frame_data_t::groupStages.at(groupName))
+    {
+        stages.emplace_back(stage);
+    }
+
+    VkPipelineShaderStageCreateInfo shader_stages[2]{
+        vtf_frame_data_t::shaderModules.at(stages[0])->PipelineInfo(),
+        vtf_frame_data_t::shaderModules.at(stages[1])->PipelineInfo()
+    };
+
+    constexpr static VkSpecializationMapEntry stage_entry{
+        0,
+        0,
+        sizeof(uint32_t)
+    };
+
+    constexpr static uint32_t specialization_value{ VK_FALSE };
+
+    const VkSpecializationInfo specialization_info{
+        1,
+        &stage_entry,
+        sizeof(uint32_t),
+        &specialization_value
+    };
+
+    vpr::GraphicsPipelineInfo pipeline_info;
+    pipeline_info.AssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+    pipeline_info.ColorBlendInfo.attachmentCount = 1;
+    pipeline_info.ColorBlendInfo.pAttachments = &AlphaBlendingAttachmentState;
+    pipeline_info.ColorBlendInfo.logicOpEnable = VK_FALSE;
+    pipeline_info.DynamicStateInfo.dynamicStateCount = 2;
+    static constexpr VkDynamicState States[2]{ VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    pipeline_info.DynamicStateInfo.pDynamicStates = States;
+    pipeline_info.DepthStencilInfo.depthWriteEnable = VK_FALSE;
+    pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    pipeline_info.MultisampleInfo.rasterizationSamples = SceneConfig.MSAA_SampleCount;
+
+    VkGraphicsPipelineCreateInfo create_info = pipeline_info.GetPipelineCreateInfo();
+    create_info.stageCount = 2u;
+    create_info.pStages = shader_stages;
+    create_info.subpass = 0u;
+    create_info.layout = frame.descriptorPack->PipelineLayout(groupName);
+    // is rendered normally as part of drawpass, so uses that renderpass
+    create_info.renderPass = frame.renderPasses.at("DrawPass")->vkHandle();
+    create_info.basePipelineHandle = VK_NULL_HANDLE;
+    create_info.basePipelineIndex = -1;
+
+    frame.graphicsPipelines[pipelineName0] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
+    frame.graphicsPipelines[pipelineName0]->Init(create_info, frame.pipelineCaches.at(groupName)->vkHandle());
+
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(pipelineName0)->vkHandle(), pipelineName0.c_str());
+    }
+
+}
+
 void CreateGraphicsPipelines(vtf_frame_data_t & frame) {
     createDepthPrePassPipeline(frame);
     createClusterSamplesPipeline(frame);
     createDrawPipelines(frame);
 	createDebugClustersPipeline(frame);
+    createDebugLightsPipelines(frame);
 }
 
 void miscSetup(vtf_frame_data_t& frame) {
@@ -2054,6 +2123,11 @@ void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z)
 
 void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
+    static bool lights_transitioned{ false };
+
+    auto* descr = frame.descriptorPack->RetrieveDescriptor("GlobalResources");
+    descr->BindResourceToIdx(descr->BindingLocation("matrices"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
+
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, "UpdateLights");
 
 	const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
@@ -2090,6 +2164,10 @@ void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     num_groups_x = static_cast<uint32_t>(glm::ceil(num_groups_x / 1024.0f));
     vkCmdDispatch(cmd, num_groups_x, 1, 1);
 
+    constexpr static ThsvsAccessType host_write_type[1]{
+        THSVS_ACCESS_TRANSFER_WRITE
+    };
+
 	constexpr static ThsvsAccessType write_access_type [3]{
 		THSVS_ACCESS_COMPUTE_SHADER_WRITE,
 		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER,
@@ -2101,10 +2179,10 @@ void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 	};
 
 	constexpr static ThsvsBufferBarrier buffer_barrier_base {
-		3u,
-		write_access_type,
 		1u,
-		read_access_type,
+        host_write_type,
+		3u,
+        write_access_type,
 		VK_QUEUE_FAMILY_IGNORED,
 		VK_QUEUE_FAMILY_IGNORED,
 		VK_NULL_HANDLE,
@@ -2626,8 +2704,10 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
-    vkCmdFillBuffer(cmd, (VkBuffer)point_light_bvh->Handle, 0u, VK_WHOLE_SIZE, 0u);
-    vkCmdFillBuffer(cmd, (VkBuffer)spot_light_bvh->Handle, 0u, VK_WHOLE_SIZE, 0u);
+    const VkDeviceSize point_light_bvh_size = reinterpret_cast<const VkBufferCreateInfo*>(point_light_bvh->Info)->size;
+    vkCmdFillBuffer(cmd, (VkBuffer)point_light_bvh->Handle, 0u, point_light_bvh_size, 0u);
+    const VkDeviceSize spot_light_bvh_size = reinterpret_cast<const VkBufferCreateInfo*>(spot_light_bvh->Info)->size;
+    vkCmdFillBuffer(cmd, (VkBuffer)spot_light_bvh->Handle, 0u, spot_light_bvh_size, 0u);
 
     frame.BVH_Params.PointLightLevels = GetNumLevelsBVH(frame.LightCounts.NumPointLights);
     
@@ -2702,7 +2782,7 @@ void ComputeClusterAABBs(vtf_frame_data_t& frame) {
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd_buffer, &debug_label);
     }
-    auto& binder = frame.descriptorPack->RetrieveBinder("ComputeClusterAABBs");
+    auto binder = frame.descriptorPack->RetrieveBinder("ComputeClusterAABBs");
 	binder.Update();
     binder.Bind(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["ComputeClusterAABBsPipeline"].Handle);
@@ -3364,6 +3444,12 @@ void RenderVtf(vtf_frame_data_t& frame) {
             Reset descriptors
         */
         frame.descriptorPack->Reset();
+
+        /*
+            Trim command pools
+        */
+        vkTrimCommandPool(device->vkHandle(), frame.graphicsPool->vkHandle(), 0);
+        vkTrimCommandPool(device->vkHandle(), frame.computePool->vkHandle(), 0);
 
 	}
 
