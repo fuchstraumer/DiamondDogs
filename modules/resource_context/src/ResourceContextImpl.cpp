@@ -721,6 +721,8 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resou
 	if (p_info->sharingMode == VK_SHARING_MODE_EXCLUSIVE)
 	{
 		// update for proper ownership transfer
+        assert(initial_data->DestinationQueueFamily != VK_QUEUE_FAMILY_IGNORED);
+        assert(transfer_queue_idx != VK_QUEUE_FAMILY_IGNORED);
 		post_transfer_barrier.srcQueueFamilyIndex = initial_data->DestinationQueueFamily != transfer_queue_idx ? transfer_queue_idx : VK_QUEUE_FAMILY_IGNORED;
 		post_transfer_barrier.dstQueueFamilyIndex = initial_data->DestinationQueueFamily != transfer_queue_idx ? initial_data->DestinationQueueFamily : VK_QUEUE_FAMILY_IGNORED;
 	}
@@ -790,6 +792,8 @@ void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const si
 
     if (info->sharingMode == VK_SHARING_MODE_EXCLUSIVE)
     {
+        assert(initial_data->DestinationQueueFamily != VK_QUEUE_FAMILY_IGNORED);
+        assert(transfer_queue_idx != VK_QUEUE_FAMILY_IGNORED);
         post_transfer_barrier.srcQueueFamilyIndex = transfer_queue_idx != initial_data->DestinationQueueFamily ? transfer_queue_idx : VK_QUEUE_FAMILY_IGNORED;
         post_transfer_barrier.dstQueueFamilyIndex = transfer_queue_idx != initial_data->DestinationQueueFamily ? initial_data->DestinationQueueFamily : VK_QUEUE_FAMILY_IGNORED;
     }
@@ -1002,10 +1006,12 @@ void ResourceContextImpl::destroyBuffer(resource_iter_t iter)
         vkDestroyBufferView(device->vkHandle(), (VkBufferView)rsrc->ViewHandle, nullptr);
     }
 	vmaDestroyBuffer(allocatorHandle, (VkBuffer)rsrc->Handle, resourceAllocations.at(rsrc));
-    resources.erase(iter);
     resourceInfos.bufferInfos.erase(rsrc);
     resourceInfos.bufferViewInfos.erase(rsrc);
     resourceAllocations.erase(rsrc);
+    resourceInfos.resourceMemoryType.erase(rsrc);
+    resourceInfos.resourceFlags.erase(rsrc);
+    resources.erase(iter);
 }
 
 void ResourceContextImpl::destroyImage(resource_iter_t iter)
@@ -1020,6 +1026,8 @@ void ResourceContextImpl::destroyImage(resource_iter_t iter)
     resourceInfos.imageInfos.erase(rsrc);
     resourceInfos.imageViewInfos.erase(rsrc);
     resourceAllocations.erase(rsrc);
+    resourceInfos.resourceMemoryType.erase(rsrc);
+    resourceInfos.resourceFlags.erase(rsrc);
 }
 
 void ResourceContextImpl::destroySampler(resource_iter_t iter)
