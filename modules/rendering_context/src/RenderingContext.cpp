@@ -124,7 +124,16 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMe
         output_string_stream << "VUID:" << callback_data->messageIdNumber << ":VUID_NAME:" << callback_data->pMessageIdName << "\n";
     }
 
-    output_string_stream << "    Message: " << callback_data->pMessage << "\n";
+    const static std::string SKIP_STR{ "CREATE" };
+    const std::string message_str{ callback_data->pMessage };
+    size_t found_skippable = message_str.find(SKIP_STR);
+
+    if (found_skippable != std::string::npos)
+    {
+        return VK_FALSE;
+    }
+
+    output_string_stream << "    Message: " << message_str.c_str() << "\n";
     if (callback_data->queueLabelCount != 0u)
     {
         output_string_stream << "    Error occured in queue: " << callback_data->pQueueLabels[0].pLabelName << "\n";
@@ -164,6 +173,10 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMe
     else if (message_severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
     {
         LOG(WARNING) << output_string_stream.str();
+    }
+    else if (message_severity <= VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+    {
+        LOG(INFO) << output_string_stream.str();
     }
 
     return VK_FALSE;
@@ -403,13 +416,13 @@ void RenderingContext::Construct(const char* file_path) {
             nullptr,
             0,
             // capture warnings and info that the current one does not
-            VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
             VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
             (PFN_vkDebugUtilsMessengerCallbackEXT)DebugUtilsMessengerCallback,
             nullptr
         };
 
-        VkResult result = logicalDevice->DebugUtilsHandler().vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
+        //VkResult result = logicalDevice->DebugUtilsHandler().vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
         // color terminal output so it's less of a cluster
         el::Loggers::addFlag(el::LoggingFlag::ColoredTerminalOutput);
 	}
@@ -682,6 +695,10 @@ VkResult RenderingContext::SetObjectName(VkObjectType object_type, uint64_t hand
 			{
 				extra_info_stream << std::string("_ThreadID:") << std::this_thread::get_id();
 			}
+            if constexpr (VTF_DEBUG_INFO_TIMESTAMPS)
+            {
+
+            }
 
 			object_name_str += extra_info_stream.str();
 
