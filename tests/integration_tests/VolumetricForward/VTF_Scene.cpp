@@ -333,6 +333,33 @@ struct TestIcosphereMesh
         };
 
 		first_render = false;
+
+        Vertices.clear();
+        Vertices.shrink_to_fit();
+        Indices.clear();
+        Indices.shrink_to_fit();
+    }
+
+    // just renders the same mesh with a greatly shrunken model matrix
+    void RenderDebugLights(VkCommandBuffer cmd, DescriptorBinder* binder, vtf_frame_data_t::render_type render_type)
+    {
+        auto& lights = SceneLightsState();
+
+        constexpr static VkDeviceSize offsets_dummy[1]{ 0u };
+        const VkBuffer buffers[1]{ (VkBuffer)VBO->Handle };
+
+        switch (render_type) {
+        case vtf_frame_data_t::render_type::Opaque:
+            [[fallthrough]] ;
+        case vtf_frame_data_t::render_type::OpaqueAndTransparent: // no transparent geometry for this test
+            binder->Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+            vkCmdBindIndexBuffer(cmd, (VkBuffer)EBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
+            vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets_dummy);
+            vkCmdDrawIndexed(cmd, static_cast<uint32_t>(Indices.size()), static_cast<uint32_t>(lights.PointLights.size()), 0u, 0, 0u);
+            break;
+        default:
+            break; // break for rest, e.g transparents
+        };
     }
 
     VulkanResource* VBO{ nullptr };
@@ -349,6 +376,7 @@ struct TestIcosphereMesh
     MaterialParameters MaterialParams;
 	VkViewport viewport;
 	VkRect2D scissor;
+    size_t bindingLoc;
 
 };
 
@@ -496,9 +524,6 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
         fut.get(); // even if we block for one the rest should still be running
     }
 
-	auto& resource_context = ResourceContext::Get();
-	resource_context.WriteMemoryStatsFile("MemoryStats.json");
-
 	for (uint32_t i = 0; i < img_count; ++i)
 	{
 		auto* descr = frames[i]->descriptorPack->RetrieveDescriptor("Material");
@@ -532,9 +557,9 @@ void VTF_Scene::updateGlobalUBOs() {
 
 	curr_frame.Matrices.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(extent.width), static_cast<float>(extent.height), 0.001f, 3000.0f);
     //curr_frame.Matrices.projection[1][1] *= -1.0f;
-	curr_frame.Matrices.view = glm::lookAt(glm::vec3(-8.0f, -8.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+	curr_frame.Matrices.view = glm::lookAt(glm::vec3(-8.0f, -8.0f, 4.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 	curr_frame.Matrices.inverseView = glm::inverse(curr_frame.Matrices.view);
-	curr_frame.Matrices.model = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f));
+	curr_frame.Matrices.model = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
     curr_frame.Matrices.modelViewProjection = curr_frame.Matrices.projection * curr_frame.Matrices.view * curr_frame.Matrices.model;
     curr_frame.Matrices.modelView = curr_frame.Matrices.view * curr_frame.Matrices.model;
     curr_frame.Matrices.inverseTransposeModelView = glm::inverse(glm::transpose(curr_frame.Matrices.modelView));
@@ -544,6 +569,10 @@ void VTF_Scene::updateGlobalUBOs() {
 		&curr_frame.Matrices, sizeof(curr_frame.Matrices), 0u, VK_QUEUE_FAMILY_IGNORED
 	};
 	resource_context.SetBufferData(matrices_rsrc, 1u, &matrices_update);
+
+    curr_frame.Matrices.model = glm::scale(glm::mat4(1.0f), glm::vec3(0.02f));
+    VulkanResource* lights_matrices = curr_frame.rsrcMap.at("debugLightsMatrices");
+    resource_context.SetBufferData(lights_matrices, 1u, &matrices_update);
 
 	curr_frame.Globals.depthRange.x = 0.001f;
 	curr_frame.Globals.depthRange.y = 3000.0f;
@@ -590,8 +619,11 @@ void VTF_Scene::draw() {
 
 void VTF_Scene::endFrame() 
 {
+    auto& resource_context = ResourceContext::Get();
+    const std::string output_file_name = std::string{ "MemoryStatsEndFrame" } +std::to_string(activeFrame) + std::string(".json");
+    resource_context.WriteMemoryStatsFile(output_file_name.c_str());
     frames[activeFrame]->descriptorPack->EndFrame();
-	activeFrame = (activeFrame + 1u) % frames.size();
+	activeFrame = (activeFrame + 1u) % frames.size();;
 }
 
 void VTF_Scene::acquireImage() 
