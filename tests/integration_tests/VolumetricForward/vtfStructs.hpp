@@ -18,7 +18,7 @@
 
 struct SceneConfig_t {
     bool EnableMSAA{ true };
-    VkSampleCountFlagBits MSAA_SampleCount{ VK_SAMPLE_COUNT_4_BIT };
+    VkSampleCountFlagBits MSAA_SampleCount{ VK_SAMPLE_COUNT_8_BIT };
     float AnisotropyAmount{ 16.0f };
     uint32_t MaxLights{ 2048u };
     uint32_t NumPointLights{ 2048u };

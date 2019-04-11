@@ -37,6 +37,7 @@ void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z);
 */
 
 void UpdateClusterGrid(vtf_frame_data_t& frame);
+void UpdateFrameResources(vtf_frame_data_t& frame);
 void ComputeClusterAABBs(vtf_frame_data_t& frame);
 void ComputeUpdate(vtf_frame_data_t& frame);
 void SubmitComputeWork(vtf_frame_data_t& frame, uint32_t num_cmds, VkCommandBuffer* cmds);

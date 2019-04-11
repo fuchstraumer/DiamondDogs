@@ -21,6 +21,7 @@ struct ComputePipelineState;
 class Descriptor;
 class DescriptorPack;
 class vtf_frame_data_t;
+class DescriptorBinder;
 
 namespace st {
     class ShaderPack;

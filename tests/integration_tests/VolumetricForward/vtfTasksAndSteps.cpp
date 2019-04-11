@@ -552,6 +552,36 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
 
 }
 
+void uploadLightsToGPU(vtf_frame_data_t& frame)
+{
+
+    const uint32_t compute_queue_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
+
+    const gpu_resource_data_t point_lights_data{
+        SceneLightsState().PointLights.data(),
+        SceneLightsState().PointLights.size() * sizeof(PointLight),
+        0u, compute_queue_idx
+    };
+
+    const gpu_resource_data_t spot_lights_data{
+        SceneLightsState().SpotLights.data(),
+        SceneLightsState().SpotLights.size() * sizeof(SpotLight),
+        0u, compute_queue_idx
+    };
+
+    const gpu_resource_data_t dir_lights_data{
+        SceneLightsState().DirectionalLights.data(),
+        SceneLightsState().DirectionalLights.size() * sizeof(DirectionalLight),
+        0u, compute_queue_idx
+    };
+
+    auto& resource_context = ResourceContext::Get();
+    resource_context.SetBufferData(frame.rsrcMap.at("PointLights"), 1u, &point_lights_data);
+    resource_context.SetBufferData(frame.rsrcMap.at("SpotLights"), 1u, &spot_lights_data);
+    resource_context.SetBufferData(frame.rsrcMap.at("DirectionalLights"), 1u, &dir_lights_data);
+
+}
+
 void createLightResources(vtf_frame_data_t& frame) {
     auto& rsrc_context = ResourceContext::Get();
     auto* descr = frame.descriptorPack->RetrieveDescriptor("VolumetricForwardLights");
@@ -1134,19 +1164,26 @@ void createReduceLightAABBsPipelines(vtf_frame_data_t& frame) {
 
 	ComputePipelineCreationShim(frame, "ReduceLightsAABB0", &reduce_lights_0_info, groupName);
 
-    constexpr static VkSpecializationMapEntry reduce_lights_1_entry{
-        0,
-        0,
-        sizeof(uint32_t)
+    constexpr static VkSpecializationMapEntry reduce_lights_entries[2] {
+        VkSpecializationMapEntry{
+            0,
+            0,
+            sizeof(uint32_t)
+        },
+        VkSpecializationMapEntry{
+            1,
+            sizeof(uint32_t),
+            sizeof(uint32_t)
+        }
     };
 
-    constexpr static uint32_t reduce_lights_1_spc_value{ 1 };
+    constexpr static uint32_t reduce_lights_1_spc_values[2]{ 512u, 1u };
 
     const VkSpecializationInfo reduce_lights_1_specialization_info{
-        1,
-        &reduce_lights_1_entry,
-        sizeof(uint32_t),
-        &reduce_lights_1_spc_value
+        2u,
+        reduce_lights_entries,
+        sizeof(uint32_t) * 2u,
+        reduce_lights_1_spc_values
     };
 
     pipeline_shader_info.pSpecializationInfo = &reduce_lights_1_specialization_info;
@@ -2054,6 +2091,11 @@ void createDebugLightsPipelines(vtf_frame_data_t& frame)
     pipeline_info.DepthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
     pipeline_info.MultisampleInfo.rasterizationSamples = SceneConfig.MSAA_SampleCount;
 
+    pipeline_info.VertexInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(VertexBindingDescriptions.size());
+    pipeline_info.VertexInfo.pVertexBindingDescriptions = VertexBindingDescriptions.data();
+    pipeline_info.VertexInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(VertexAttributes.size());
+    pipeline_info.VertexInfo.pVertexAttributeDescriptions = VertexAttributes.data();
+
     VkGraphicsPipelineCreateInfo create_info = pipeline_info.GetPipelineCreateInfo();
     create_info.stageCount = 2u;
     create_info.pStages = shader_stages;
@@ -2123,8 +2165,6 @@ void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z)
 
 void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
-    static bool lights_transitioned{ false };
-
     auto* descr = frame.descriptorPack->RetrieveDescriptor("GlobalResources");
     descr->BindResourceToIdx(descr->BindingLocation("matrices"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
 
@@ -2157,7 +2197,7 @@ void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["UpdateLightsPipeline"].Handle);
-    auto& binder = frame.descriptorPack->RetrieveBinder("UpdateLights");
+    auto binder = frame.descriptorPack->RetrieveBinder("UpdateLights");
 	binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     uint32_t num_groups_x = glm::max(frame.LightCounts.NumPointLights, glm::max(frame.LightCounts.NumDirectionalLights, frame.LightCounts.NumSpotLights));
@@ -2273,7 +2313,7 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         dispatch_params0 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams0");
     }
 
-    auto& binder0 = frame.descriptorPack->RetrieveBinder("ReduceLights");
+    auto binder0 = frame.descriptorPack->RetrieveBinder("ReduceLights");
     binder0.BindResourceToIdx("SortResources", dispatch_params_idx, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, dispatch_params0);
     binder0.Update();
 
@@ -2318,7 +2358,7 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     else {
         dispatch_params1 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams1");
     }
-    auto& binder1 = frame.descriptorPack->RetrieveBinder("ReduceLights");
+    auto binder1 = frame.descriptorPack->RetrieveBinder("ReduceLights");
     binder1.BindResourceToIdx("SortResources", dispatch_params_idx, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, dispatch_params1);
     binder1.Update();
 	{
@@ -2758,6 +2798,11 @@ void UpdateClusterGrid(vtf_frame_data_t& frame) {
     ComputeClusterAABBs(frame);
 }
 
+void UpdateFrameResources(vtf_frame_data_t& frame)
+{
+    uploadLightsToGPU(frame);
+}
+
 void ComputeClusterAABBs(vtf_frame_data_t& frame) {
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
@@ -3009,11 +3054,10 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 	//thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
 
     vkCmdFillBuffer(cmd, (VkBuffer)cluster_flags->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info)->size, 0u);
-    auto& binder0 = frame.descriptorPack->RetrieveBinder("DepthPrePass");
+    auto binder0 = frame.descriptorPack->RetrieveBinder("DepthPrePass");
 	binder0.Update();
-    auto& binder1 = frame.descriptorPack->RetrieveBinder("ClusterSamples");
+    auto binder1 = frame.descriptorPack->RetrieveBinder("ClusterSamples");
 	binder1.Update();
-	assert(frame.renderFns.size() == frame.bindFns.size());
     vkCmdBeginRenderPass(cmd, &renderpass->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
         // first run depth pre-pass, then run cluster sampling
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("DepthPrePassPipeline")->vkHandle());
@@ -3081,7 +3125,7 @@ void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     vkCmdFillBuffer(cmd, (VkBuffer)unique_clusters->Handle, 0u, unique_clusters_size, 0u);
     vkCmdFillBuffer(cmd, (VkBuffer)unique_clusters_counter->Handle, 0u, sizeof(uint32_t), 0u);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("FindUniqueClustersPipeline").Handle);
-    auto& binder = frame.descriptorPack->RetrieveBinder("FindUniqueClusters");
+    auto binder = frame.descriptorPack->RetrieveBinder("FindUniqueClusters");
 	binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
 
@@ -3350,7 +3394,6 @@ void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     };
 
     auto& rsrc_ctxt = ResourceContext::Get();
-    auto& binder = frame.descriptorPack->RetrieveBinder("DrawPass");
 
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
@@ -3367,21 +3410,28 @@ void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     }
 
     frame.renderPasses.at("DrawPass")->UpdateBeginInfo(frame.drawFramebuffer->vkHandle());
+    auto lights_binder = frame.descriptorPack->RetrieveBinder("DebugLights");
     vkCmdBeginRenderPass(cmd, &frame.renderPasses.at("DrawPass")->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
-        vtfDrawDebugClusters(frame, cmd);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("OpaqueDrawPipeline")->vkHandle());
-            auto& binder0 = frame.descriptorPack->RetrieveBinder("DrawPass");
+            auto binder0 = frame.descriptorPack->RetrieveBinder("DrawPass");
 			binder0.Update();
             //binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
 			for (size_t i = 0u; i < frame.renderFns.size(); ++i)
 			{
 				frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Opaque);
 			}
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("TransparentDrawPipeline")->vkHandle());
 			for (size_t i = 0u; i < frame.renderFns.size(); ++i)
 			{
-				frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Transparent);
+				frame.renderFns[i](cmd, &lights_binder, vtf_frame_data_t::render_type::Transparent);
 			}
+            for (size_t i = 0u; i < frame.renderFns.size(); ++i)
+            {
+                frame.renderFns[i](cmd, nullptr, vtf_frame_data_t::render_type::GUI);
+            }
+            if (frame.renderDebugClusters)
+            {
+                vtfDrawDebugClusters(frame, cmd);
+            }
     vkCmdEndRenderPass(cmd);
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);

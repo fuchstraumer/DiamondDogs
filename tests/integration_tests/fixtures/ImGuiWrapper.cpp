@@ -17,6 +17,8 @@
 #include <vector>
 #include "GLFW/glfw3.h"
 #include <ratio>
+#include <thsvs_simpler_vulkan_synchronization.h>
+#include "VkDebugUtils.hpp"
 
 static std::array<bool, 5> mouse_pressed{ false, false, false, false, false };
 static double MouseScrollX = 0.0;
@@ -305,6 +307,15 @@ void ImGuiWrapper::newFrame() {
 }
 
 void ImGuiWrapper::DrawFrame(size_t frame_idx, VkCommandBuffer & cmd) {
+    static bool first_frame{ true };
+
+    constexpr static VkDebugUtilsLabelEXT debug_label{
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+        nullptr,
+        "ImGuiDrawFrame",
+        { 240.0f / 255.0f, 240.0f / 255.0f, 180.0f / 255.0f, 1.0f }
+    };
+
     ImGuiFrameData* data = &frameData[frame_idx];
 
     updateBuffers(data);
@@ -313,7 +324,44 @@ void ImGuiWrapper::DrawFrame(size_t frame_idx, VkCommandBuffer & cmd) {
         return;
     }
 
+    if constexpr (VTF_VALIDATION_ENABLED) {
+        device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
+    }
 
+    if (first_frame)
+    {
+        // barrier to transition ownership
+
+        auto* device = RenderingContext::Get().Device();
+        const uint32_t graphics_idx = device->QueueFamilyIndices().Graphics;
+        const uint32_t transfer_idx = device->QueueFamilyIndices().Transfer;
+
+        const ThsvsAccessType starting_access_type[1]{
+            THSVS_ACCESS_TRANSFER_WRITE
+        };
+
+        const ThsvsAccessType final_access_types[2]{
+            THSVS_ACCESS_VERTEX_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER,
+            THSVS_ACCESS_FRAGMENT_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER
+        };
+
+        const ThsvsImageBarrier barrier_base{
+            1u,
+            starting_access_type,
+            2u,
+            final_access_types,
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            VK_FALSE,
+            transfer_idx,
+            graphics_idx,
+            (VkImage)fontImage->Handle,
+            VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+        };
+
+        thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 1u, &barrier_base);
+        
+    }
     const auto& io = ImGui::GetIO();
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
@@ -356,6 +404,12 @@ void ImGuiWrapper::DrawFrame(size_t frame_idx, VkCommandBuffer & cmd) {
         }
         vtx_offset += cmd_list->VtxBuffer.Size;
     }
+
+    if constexpr (VTF_VALIDATION_ENABLED) {
+        device->DebugUtilsHandler().vkCmdEndDebugUtilsLabel(cmd);
+    }
+
+    first_frame = false;
 }
 
 void ImGuiWrapper::createResources() {
@@ -488,11 +542,7 @@ void ImGuiWrapper::createGraphicsPipeline(const VkRenderPass renderpass) {
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
     };
 
-    if (device->HasExtension(VK_NV_FILL_RECTANGLE_EXTENSION_NAME)) {
-        pipelineStateInfo->RasterizationInfo.polygonMode = VK_POLYGON_MODE_FILL_RECTANGLE_NV;
-    }
-
-    pipelineStateInfo->MultisampleInfo.rasterizationSamples = VK_SAMPLE_COUNT_4_BIT;
+    pipelineStateInfo->MultisampleInfo.rasterizationSamples = VK_SAMPLE_COUNT_8_BIT;
     pipelineStateInfo->MultisampleInfo.sampleShadingEnable = VK_TRUE;
     pipelineStateInfo->ColorBlendInfo.attachmentCount = 1;
     pipelineStateInfo->ColorBlendInfo.pAttachments = &color_blend;

@@ -91,12 +91,13 @@ public:
     };
 
     enum class render_type {
-        Opaque = 0,
-        Transparent = 1,
-        OpaqueAndTransparent = 2,
-        GUI = 2,
-        Postprocess = 3,
-        Shadow = 4
+        PrePass = 0,
+        Opaque = 1,
+        Transparent = 2,
+        OpaqueAndTransparent = 3,
+        GUI = 4,
+        Postprocess = 4,
+        Shadow = 5
     };
 
     using obj_render_fn_t = std::function<void(VkCommandBuffer cmd, DescriptorBinder* binder, render_type type)>;
@@ -128,6 +129,7 @@ public:
     VkDispatchIndirectCommand indirectArgsCmd;
     bool updateUniqueClusters{ true };
     bool frameRecreate{ false };    
+    bool renderDebugClusters{ false };
     vpr::VkDebugUtilsFunctions vkDebugFns;
     glm::mat4 previousViewMatrix;
 

@@ -16,6 +16,7 @@
 #include "core/ShaderPack.hpp"
 #include "DescriptorPack.hpp"
 #include "Descriptor.hpp"
+#include "Renderpass.hpp"
 #include "DescriptorBinder.hpp"
 #include "PerspectiveCamera.hpp"
 #include "vtfFrameData.hpp"
@@ -269,52 +270,56 @@ struct TestIcosphereMesh
 	{
 		static bool first_render{ true };
 
-		vkCmdSetViewport(cmd, 0u, 1u, &viewport);
-		vkCmdSetScissor(cmd, 0u, 1u, &scissor);
+        constexpr static VkDebugUtilsLabelEXT debug_label{
+            VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+            nullptr,
+            "RenderTestIcosphere",
+            { 30.0f / 255.0f, 180.0f / 255.0f, 95.0f / 255.0f, 1.0f }
+        };
 
 		/*
 			Transition images
 			Only need to do this once across threads
 		*/
-		if (first_render)
-		{
-			const uint32_t transfer_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Transfer;
-			const uint32_t graphics_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Graphics;
+        auto first_render_mem_fn = [&](const VkCommandBuffer cmd)
+        {
+            const uint32_t transfer_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Transfer;
+            const uint32_t graphics_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Graphics;
 
-			const ThsvsAccessType starting_access_type[1]{
-				THSVS_ACCESS_TRANSFER_WRITE
-			};
+            const ThsvsAccessType starting_access_type[1]{
+                THSVS_ACCESS_TRANSFER_WRITE
+            };
 
-			const ThsvsAccessType final_access_types[2] {
-				THSVS_ACCESS_VERTEX_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER,
-				THSVS_ACCESS_FRAGMENT_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER
-			};
+            const ThsvsAccessType final_access_types[2]{
+                THSVS_ACCESS_VERTEX_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER,
+                THSVS_ACCESS_FRAGMENT_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER
+            };
 
-			const ThsvsImageBarrier barrier_base{
-				1u,
-				starting_access_type,
-				2u,
-				final_access_types,
+            const ThsvsImageBarrier barrier_base{
+                1u,
+                starting_access_type,
+                2u,
+                final_access_types,
                 THSVS_IMAGE_LAYOUT_OPTIMAL,
-				THSVS_IMAGE_LAYOUT_OPTIMAL,
-				VK_FALSE,
-				transfer_idx,
-				graphics_idx,
-				VK_NULL_HANDLE,
-				VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-			};
+                THSVS_IMAGE_LAYOUT_OPTIMAL,
+                VK_FALSE,
+                transfer_idx,
+                graphics_idx,
+                VK_NULL_HANDLE,
+                VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+            };
 
-			std::array<ThsvsImageBarrier, 5> image_barriers;
-			image_barriers.fill(barrier_base);
-			image_barriers[0].image = (VkImage)AlbedoTexture->Handle;
-			image_barriers[1].image = (VkImage)NormalMap->Handle;
-			image_barriers[2].image = (VkImage)AmbientOcclusionTexture->Handle;
-			image_barriers[3].image = (VkImage)MetallicMap->Handle;
-			image_barriers[4].image = (VkImage)RoughnessMap->Handle;
+            std::array<ThsvsImageBarrier, 5> image_barriers;
+            image_barriers.fill(barrier_base);
+            image_barriers[0].image = (VkImage)AlbedoTexture->Handle;
+            image_barriers[1].image = (VkImage)NormalMap->Handle;
+            image_barriers[2].image = (VkImage)AmbientOcclusionTexture->Handle;
+            image_barriers[3].image = (VkImage)MetallicMap->Handle;
+            image_barriers[4].image = (VkImage)RoughnessMap->Handle;
 
-			thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, static_cast<uint32_t>(image_barriers.size()), image_barriers.data());
+            thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, static_cast<uint32_t>(image_barriers.size()), image_barriers.data());
 
-		}
+        };
 
         constexpr static VkDeviceSize offsets_dummy[1]{ 0u };
         const VkBuffer buffers[1]{ (VkBuffer)VBO->Handle };
@@ -323,10 +328,19 @@ struct TestIcosphereMesh
         case vtf_frame_data_t::render_type::Opaque:
             [[fallthrough]];
         case vtf_frame_data_t::render_type::OpaqueAndTransparent: // no transparent geometry for this test
+            if constexpr (VTF_VALIDATION_ENABLED) {
+                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
+            }
+            first_render_mem_fn(cmd);
+            vkCmdSetViewport(cmd, 0u, 1u, &viewport);
+            vkCmdSetScissor(cmd, 0u, 1u, &scissor);
             binder->Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
             vkCmdBindIndexBuffer(cmd, (VkBuffer)EBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
             vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets_dummy);
             vkCmdDrawIndexed(cmd, static_cast<uint32_t>(Indices.size()), 1u, 0u, 0, 0u);
+            if constexpr (VTF_VALIDATION_ENABLED) {
+                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdEndDebugUtilsLabel(cmd);
+            }
             break;
         default:
             break; // break for rest, e.g transparents
@@ -334,10 +348,6 @@ struct TestIcosphereMesh
 
 		first_render = false;
 
-        Vertices.clear();
-        Vertices.shrink_to_fit();
-        Indices.clear();
-        Indices.shrink_to_fit();
     }
 
     // just renders the same mesh with a greatly shrunken model matrix
@@ -345,17 +355,31 @@ struct TestIcosphereMesh
     {
         auto& lights = SceneLightsState();
 
+        constexpr static VkDebugUtilsLabelEXT debug_label{
+            VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+            nullptr,
+            "RenderDebugLights",
+            { 66.0f / 255.0f, 210.0f / 255.0f, 95.0f / 255.0f, 1.0f }
+        };
         constexpr static VkDeviceSize offsets_dummy[1]{ 0u };
         const VkBuffer buffers[1]{ (VkBuffer)VBO->Handle };
 
-        switch (render_type) {
-        case vtf_frame_data_t::render_type::Opaque:
-            [[fallthrough]] ;
-        case vtf_frame_data_t::render_type::OpaqueAndTransparent: // no transparent geometry for this test
+        switch (render_type) 
+        {
+        case vtf_frame_data_t::render_type::Transparent:
+            if constexpr (VTF_VALIDATION_ENABLED) {
+                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
+            }
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debugLightsPipeline);
+            binder->BindResourceToIdx("GlobalResources", "matrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, lightsMatrices);
+            binder->Update();
             binder->Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
             vkCmdBindIndexBuffer(cmd, (VkBuffer)EBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
             vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets_dummy);
             vkCmdDrawIndexed(cmd, static_cast<uint32_t>(Indices.size()), static_cast<uint32_t>(lights.PointLights.size()), 0u, 0, 0u);
+            if constexpr (VTF_VALIDATION_ENABLED) {
+                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdEndDebugUtilsLabel(cmd);
+            }
             break;
         default:
             break; // break for rest, e.g transparents
@@ -376,7 +400,8 @@ struct TestIcosphereMesh
     MaterialParameters MaterialParams;
 	VkViewport viewport;
 	VkRect2D scissor;
-    size_t bindingLoc;
+    VulkanResource* lightsMatrices;
+    VkPipeline debugLightsPipeline;
 
 };
 
@@ -491,6 +516,7 @@ VTF_Scene& VTF_Scene::Get() {
     return scene;
 }
 
+
 void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     vprObjects = objects;
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
@@ -510,12 +536,27 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     frames.reserve(img_count); // this should avoid invalidating pointers (god i hope)
 	frameSingleExecComputeWorkDone.resize(img_count, false);
 
+    ImGui::CreateContext();
+
+    auto imguiRender = [&](VkCommandBuffer cmd, DescriptorBinder * descriptor, vtf_frame_data_t::render_type type)
+    {
+        if (type == vtf_frame_data_t::render_type::GUI)
+        {
+            auto& imgui_wrapper = ImGuiWrapper::GetImGuiWrapper();
+            imgui_wrapper.DrawFrame(activeFrame, cmd);
+        }
+    };
+
 	vtf_frame_data_t::obj_render_fn_t render_fn = std::bind(&TestIcosphereMesh::Render, icosphereTester.get(), std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+    vtf_frame_data_t::obj_render_fn_t lights_render_fn = std::bind(&TestIcosphereMesh::RenderDebugLights, icosphereTester.get(), std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+    vtf_frame_data_t::obj_render_fn_t imgui_render_fn = std::bind(imguiRender, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
 	vtf_frame_data_t::binder_fn_t binder_fn = std::bind(&TestIcosphereMesh::BindTextures, icosphereTester.get(), std::placeholders::_1);
 
     for (uint32_t i = 0; i < img_count; ++i) {
         frames.emplace_back(std::make_unique<vtf_frame_data_t>());
 		frames[i]->renderFns.emplace_back(render_fn);
+        frames[i]->renderFns.emplace_back(lights_render_fn);
+        frames[i]->renderFns.emplace_back(imgui_render_fn);
 		frames[i]->bindFns.emplace_back(binder_fn);
         setupFutures.emplace_back(std::async(std::launch::async, FullFrameSetup, frames[i].get()));
     }
@@ -533,6 +574,8 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
 		}
 	}
 
+    ImGuiWrapper::GetImGuiWrapper().Construct(frames[0]->renderPasses.at("DrawPass")->vkHandle());
+
     std::cerr << "Setup Complete\n";
 }
 
@@ -549,11 +592,13 @@ constexpr VkCommandBufferBeginInfo base_info{
 };
 
 void VTF_Scene::updateGlobalUBOs() {
+
 	//auto& imgui_io = ImGui::GetIO();
 	auto& extent = vprObjects.swapchain->Extent();
 	auto& curr_frame = *frames[activeFrame];
 	auto& camera = PerspectiveCamera::Get();
 	auto& resource_context = ResourceContext::Get();
+    ImGuiWrapper::GetImGuiWrapper().NewFrame();
 
 	curr_frame.Matrices.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(extent.width), static_cast<float>(extent.height), 0.001f, 3000.0f);
     //curr_frame.Matrices.projection[1][1] *= -1.0f;
@@ -577,7 +622,7 @@ void VTF_Scene::updateGlobalUBOs() {
 	curr_frame.Globals.depthRange.x = 0.001f;
 	curr_frame.Globals.depthRange.y = 3000.0f;
 	curr_frame.Globals.frame++;
-	curr_frame.Globals.viewPosition = glm::vec4(camera.Position(), 1.0f);
+	curr_frame.Globals.viewPosition = glm::vec4(-8.0f, -8.0f, 4.0f, 1.0f);
 	curr_frame.Globals.windowSize.x = static_cast<float>(extent.width);
 	curr_frame.Globals.windowSize.y = static_cast<float>(extent.height);
 	VulkanResource* globals_rsrc = curr_frame.rsrcMap.at("globals");
@@ -592,7 +637,11 @@ void VTF_Scene::updateGlobalUBOs() {
 	};
 	resource_context.SetBufferData(cluster_data_rsrc, 1u, &cluster_update);
 
+    UpdateFrameResources(curr_frame);
+
 	resource_context.Update();
+    icosphereTester->debugLightsPipeline = curr_frame.graphicsPipelines.at("DebugPointLights")->vkHandle();
+    icosphereTester->lightsMatrices = curr_frame.rsrcMap.at("debugLightsMatrices");
 }
 
 void VTF_Scene::update() {
@@ -609,6 +658,13 @@ void VTF_Scene::update() {
 
 void VTF_Scene::recordCommands() 
 {
+    static bool render_debug_clusters{ false };
+
+    ImGui::Begin("VTF Debug");
+        ImGui::Checkbox("Render Debug Clusters", &render_debug_clusters);
+        frames[activeFrame]->renderDebugClusters = render_debug_clusters;
+    ImGui::End();
+    ImGuiWrapper::GetImGuiWrapper().EndImGuiFrame();
 	RenderVtf(*frames[activeFrame]);
 	SubmitGraphicsWork(*frames[activeFrame]);
 }
