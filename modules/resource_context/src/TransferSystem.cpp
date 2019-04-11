@@ -7,6 +7,7 @@
 #include "Allocator.hpp"
 #include "UploadBuffer.hpp"
 #include "../../rendering_context/include/RenderingContext.hpp"
+#include "VkDebugUtils.hpp"
 
 constexpr static VkBufferCreateInfo staging_buffer_create_info{
 	VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -27,6 +28,13 @@ constexpr static VmaAllocationCreateInfo alloc_create_info {
 	UINT32_MAX,
 	VK_NULL_HANDLE,
 	nullptr
+};
+
+constexpr static VkDebugUtilsLabelEXT queue_debug_label{
+    VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
+    nullptr,
+    "TransferQueue",
+    { 244.0f / 255.0f, 158.0f / 255.0f, 66.0f / 255.0f, 1.0f }
 };
 
 VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device) {
@@ -95,6 +103,11 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _a
     VkAssert(result);
     initialized = true;
 
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(transferCmdPool->GetCmdBuffer(0), &queue_debug_label);
+    }
+
 	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
 	{
 		static const std::string base_name{ "ResourceCtxt_TransferSystem_" };
@@ -123,6 +136,11 @@ void ResourceTransferSystem::CompleteTransfers() {
     }
 
     auto guard = AcquireSpinLock();
+
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        device->DebugUtilsHandler().vkCmdEndDebugUtilsLabel(transferCmdPool->GetCmdBuffer(0));
+    }
 
     auto& pool = *transferCmdPool;
     if (vkEndCommandBuffer(pool[0]) != VK_SUCCESS) {
@@ -160,6 +178,11 @@ void ResourceTransferSystem::CompleteTransfers() {
     result = vkBeginCommandBuffer(pool[0], &begin_info);
     VkAssert(result);
     cmdBufferDirty = false;
+
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(transferCmdPool->GetCmdBuffer(0), &queue_debug_label);
+    }
 
     if (uploadBuffers.empty()) {
         return;
