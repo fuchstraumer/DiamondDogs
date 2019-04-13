@@ -3032,27 +3032,6 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
-	const ThsvsAccessType wait_access_types[2]{
-		THSVS_ACCESS_TRANSFER_WRITE,
-		THSVS_ACCESS_HOST_WRITE
-	};
-
-	const ThsvsAccessType next_access_types[4]{
-		THSVS_ACCESS_VERTEX_BUFFER,
-		THSVS_ACCESS_VERTEX_SHADER_READ_UNIFORM_BUFFER,
-		THSVS_ACCESS_FRAGMENT_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER,
-		THSVS_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE
-	};
-
-	const ThsvsGlobalBarrier global_barrier{
-		2u,
-		wait_access_types,
-		4u,
-		next_access_types
-	};
-
-	//thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
-
     vkCmdFillBuffer(cmd, (VkBuffer)cluster_flags->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info)->size, 0u);
     auto binder0 = frame.descriptorPack->RetrieveBinder("DepthPrePass");
 	binder0.Update();
@@ -3097,8 +3076,6 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 		reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info)->size
 	};
 
-	//thsvsCmdPipelineBarrier(cmd, nullptr, 1u, &cluster_flags_barrier, 0u, nullptr);
-
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
@@ -3132,28 +3109,6 @@ void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     uint32_t max_clusters = frame.ClusterData.GridDim.x * frame.ClusterData.GridDim.y * frame.ClusterData.GridDim.z;
     uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil((float)max_clusters / 1024.0f));
     vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
-
-	const ThsvsAccessType writeonly_access[1]{
-		THSVS_ACCESS_COMPUTE_SHADER_WRITE
-	};
-
-	const ThsvsAccessType readonly_access[1]{
-		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
-	};
-
-	const ThsvsBufferBarrier unique_clusters_barrier{
-		1u,
-		writeonly_access,
-		1u,
-		readonly_access,
-		VK_QUEUE_FAMILY_IGNORED,
-		VK_QUEUE_FAMILY_IGNORED,
-		(VkBuffer)unique_clusters->Handle,
-		0u,
-		reinterpret_cast<const VkBufferCreateInfo*>(unique_clusters->Info)->size
-	};
-
-	//thsvsCmdPipelineBarrier(cmd, nullptr, 1u, &unique_clusters_barrier, 0u, nullptr);
 
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
