@@ -328,10 +328,14 @@ struct TestIcosphereMesh
         case vtf_frame_data_t::render_type::Opaque:
             [[fallthrough]];
         case vtf_frame_data_t::render_type::OpaqueAndTransparent: // no transparent geometry for this test
-            if constexpr (VTF_VALIDATION_ENABLED) {
+            if constexpr (VTF_VALIDATION_ENABLED) 
+            {
                 RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
             }
-            first_render_mem_fn(cmd);
+            if (first_render)
+            {
+                first_render_mem_fn(cmd);
+            }
             vkCmdSetViewport(cmd, 0u, 1u, &viewport);
             vkCmdSetScissor(cmd, 0u, 1u, &scissor);
             binder->Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
