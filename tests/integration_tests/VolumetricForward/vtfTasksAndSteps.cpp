@@ -2124,7 +2124,8 @@ void CreateGraphicsPipelines(vtf_frame_data_t & frame) {
     createDebugLightsPipelines(frame);
 }
 
-void miscSetup(vtf_frame_data_t& frame) {
+void miscSetup(vtf_frame_data_t& frame)
+{
 
     if (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns = RenderingContext::Get().Device()->DebugUtilsHandler();
@@ -2132,7 +2133,8 @@ void miscSetup(vtf_frame_data_t& frame) {
 
 }
 
-void FullFrameSetup(vtf_frame_data_t* frame) {
+void FullFrameSetup(vtf_frame_data_t* frame)
+{
     SetupDescriptors(*frame);
     CreateSemaphores(*frame);
     CreateResources(*frame);
@@ -2163,7 +2165,8 @@ void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z)
 	grid_z = static_cast<uint32_t>(glm::floor(log_depth * log_dim_y));
 }
 
-void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd)
+{
 
     auto* descr = frame.descriptorPack->RetrieveDescriptor("GlobalResources");
     descr->BindResourceToIdx(descr->BindingLocation("matrices"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
@@ -2243,13 +2246,15 @@ void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 	buffer_barriers[1].size = reinterpret_cast<const VkBufferCreateInfo*>(spot_lights->Info)->size;
 	thsvsCmdPipelineBarrier(cmd, nullptr, 2u, buffer_barriers, 0u, nullptr);
 
-	if constexpr (VTF_VALIDATION_ENABLED) {
+	if constexpr (VTF_VALIDATION_ENABLED)
+    {
 		frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
 	}
 
 }
 
-void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd)
+{
 
     constexpr static VkDebugUtilsLabelEXT debug_label0 {
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2306,10 +2311,12 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 	rsrc.SetBufferData(reduction_params, 1u, &rp_update);
 
     auto& dispatch_params0 = frame.rsrcMap["DispatchParams0"];
-    if (dispatch_params0) {
+    if (dispatch_params0)
+    {
         rsrc.SetBufferData(dispatch_params0, 1, &dp_update);
     }
-    else {
+    else
+    {
         dispatch_params0 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams0");
     }
 
@@ -2320,7 +2327,8 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 	{
 		ScopedRenderSection profiler_0(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "ReduceLightsStep0");
 
-		if constexpr (VTF_VALIDATION_ENABLED) {
+		if constexpr (VTF_VALIDATION_ENABLED)
+        {
 			frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label0);
 		}
 
@@ -2328,7 +2336,8 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("ReduceLightsAABB0").Handle);
 		vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
 
-		if constexpr (VTF_VALIDATION_ENABLED) {
+		if constexpr (VTF_VALIDATION_ENABLED)
+        {
 			frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
 		}
 	}
@@ -2352,19 +2361,24 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     frame.DispatchParams.NumThreadGroups = glm::uvec3{ 1u, 1u, 1u };
     frame.DispatchParams.NumThreads = glm::uvec3{ 512u, 1u, 1u };
     auto& dispatch_params1 = frame.rsrcMap["DispatchParams1"];
-    if (dispatch_params1) {
+
+    if (dispatch_params1)
+    {
         rsrc.SetBufferData(dispatch_params1, 1, &dp_update);
     }
-    else {
+    else
+    {
         dispatch_params1 = rsrc.CreateBuffer(&dispatch_params_info, nullptr, 1, &dp_update, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams1");
     }
+
     auto binder1 = frame.descriptorPack->RetrieveBinder("ReduceLights");
     binder1.BindResourceToIdx("SortResources", dispatch_params_idx, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, dispatch_params1);
     binder1.Update();
 	{
 		ScopedRenderSection profiler_1(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "ReduceLightsStep1");
 
-		if constexpr (VTF_VALIDATION_ENABLED) {
+		if constexpr (VTF_VALIDATION_ENABLED)
+        {
 			frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label1);
 		}
 
@@ -2373,13 +2387,15 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 		vkCmdDispatch(cmd, 1u, 1u, 1u);
 		//thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
 
-		if constexpr (VTF_VALIDATION_ENABLED) {
+		if constexpr (VTF_VALIDATION_ENABLED)
+        {
 			frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
 		}
 	}
 }
 
-void computeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void computeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
+{
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2459,7 +2475,8 @@ void computeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 		}
 	};
 
-    if constexpr (VTF_VALIDATION_ENABLED) {
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
@@ -2471,13 +2488,15 @@ void computeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     vkCmdDispatch(cmd, num_thread_groups, 1, 1);
 	//thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(compute_morton_codes_barriers.size()), compute_morton_codes_barriers.data(), 0u, nullptr);
 
-    if constexpr (VTF_VALIDATION_ENABLED) {
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
 }
 
-void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
+{
 
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "SortMortonCodes");
 
@@ -2598,14 +2617,16 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         }
     };
 
-    if constexpr (VTF_VALIDATION_ENABLED) {
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
     // bind radix sort pipeline now
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["SortMortonCodes"].Handle);
 
-    if (frame.LightCounts.NumPointLights > 0u) {
+    if (frame.LightCounts.NumPointLights > 0u)
+    {
 
         sort_params.NumElements = frame.LightCounts.NumPointLights;
         rsrc.SetBufferData(sort_params_rsrc, 1, &sort_params_copy);
@@ -2629,7 +2650,8 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     }
 
-    if (frame.LightCounts.NumSpotLights > 0u) {
+    if (frame.LightCounts.NumSpotLights > 0u)
+    {
 
         sort_params.NumElements = frame.LightCounts.NumSpotLights;
         rsrc.SetBufferData(sort_params_rsrc, 1, &sort_params_copy);
@@ -2663,11 +2685,13 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     }
 
-    if (frame.LightCounts.NumPointLights > 0u) {
+    if (frame.LightCounts.NumPointLights > 0u)
+    {
         MergeSort(frame, cmd, pointLightMortonCodes, pointLightIndices, pointLightMortonCodes_OUT, pointLightIndices_OUT, frame.LightCounts.NumPointLights, SORT_NUM_THREADS_PER_THREAD_GROUP, binder);
     }
 
-    if (frame.LightCounts.NumSpotLights > 0u) {
+    if (frame.LightCounts.NumSpotLights > 0u)
+    {
         MergeSort(frame, cmd, spotLightMortonCodes, spotLightIndices, spotLightMortonCodes_OUT, spotLightIndices_OUT, frame.LightCounts.NumSpotLights, SORT_NUM_THREADS_PER_THREAD_GROUP, binder);
     }
 
@@ -2680,13 +2704,15 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 	//thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
 
-    if constexpr (VTF_VALIDATION_ENABLED) {
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
 }
 
-void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd)
+{
 
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "BuildLightBVH");
 
@@ -2740,7 +2766,8 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         VK_WHOLE_SIZE
     };
 
-    if constexpr (VTF_VALIDATION_ENABLED) {
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
@@ -2769,7 +2796,8 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
 
     uint32_t max_levels = glm::max(frame.BVH_Params.PointLightLevels, frame.BVH_Params.SpotLightLevels);
-    if (max_levels > 0u) {
+    if (max_levels > 0u)
+    {
 
         // Won't we need to barrier things more thoroughly? Track this frame in renderdoc!
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["BuildBVHTopPipeline"].Handle);
@@ -2787,13 +2815,15 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
         }
     }
 
-    if constexpr (VTF_VALIDATION_ENABLED) {
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
 }
 
-void UpdateClusterGrid(vtf_frame_data_t& frame) {
+void UpdateClusterGrid(vtf_frame_data_t& frame)
+{
     frame.updateUniqueClusters = true;
     ComputeClusterAABBs(frame);
 }
@@ -2803,7 +2833,8 @@ void UpdateFrameResources(vtf_frame_data_t& frame)
     uploadLightsToGPU(frame);
 }
 
-void ComputeClusterAABBs(vtf_frame_data_t& frame) {
+void ComputeClusterAABBs(vtf_frame_data_t& frame)
+{
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -2864,7 +2895,8 @@ void ComputeClusterAABBs(vtf_frame_data_t& frame) {
     frame.computePool->ResetCmdPool();
 }
 
-void SubmitComputeWork(vtf_frame_data_t& frame, uint32_t num_cmds, VkCommandBuffer* cmds) {
+void SubmitComputeWork(vtf_frame_data_t& frame, uint32_t num_cmds, VkCommandBuffer* cmds)
+{
 
     constexpr static VkPipelineStageFlags wait_mask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
     auto* device = RenderingContext::Get().Device();
@@ -2938,7 +2970,8 @@ void ComputeUpdate(vtf_frame_data_t& frame)
 	frame.firstComputeSubmit = false;
 }
 
-bool tryImageAcquire(vtf_frame_data_t& frame, uint64_t timeout = 0u) {
+bool tryImageAcquire(vtf_frame_data_t& frame, uint64_t timeout = 0u)
+{
     auto* device = RenderingContext::Get().Device();
     auto* swapchain = RenderingContext::Get().Swapchain();
     VkResult result = vkAcquireNextImageKHR(device->vkHandle(), swapchain->vkHandle(), timeout, frame.semaphores.at("ImageAcquire")->vkHandle(), VK_NULL_HANDLE, &frame.imageIdx);
@@ -3028,7 +3061,8 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     renderpass->UpdateBeginInfo(frame.clusterSamplesFramebuffer->vkHandle());
     auto& cluster_flags = frame.rsrcMap.at("ClusterFlags");
 
-    if constexpr (VTF_VALIDATION_ENABLED) {
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
@@ -3082,7 +3116,8 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 }
 
-void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
+{
 
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "FindUniqueClusters");
 
@@ -3116,7 +3151,8 @@ void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 }
 
-void updateClusterIndirectArgs(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void updateClusterIndirectArgs(vtf_frame_data_t& frame, VkCommandBuffer cmd)
+{
 
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "UpdateClusterIndirectArgs");
 
@@ -3166,7 +3202,8 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 }
 
-void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
+{
     auto& rsrc_ctxt = ResourceContext::Get();
 
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "AssignLightsToClusters");
@@ -3304,7 +3341,8 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
 }
 
-void submitPreSwapchainWritingWork(vtf_frame_data_t& frame, uint32_t num_cmds, VkCommandBuffer* cmd_buffers) {
+void submitPreSwapchainWritingWork(vtf_frame_data_t& frame, uint32_t num_cmds, VkCommandBuffer* cmd_buffers)
+{
     // We're going to submit all work so far, as it doesn't write to the swapchain 
     // and the next chunk of work relies on acquire completing
 
@@ -3337,7 +3375,8 @@ void submitPreSwapchainWritingWork(vtf_frame_data_t& frame, uint32_t num_cmds, V
 
 }
 
-void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd)
+{
 
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "Draw");
 
@@ -3404,7 +3443,8 @@ constexpr static bool DEBUG_MODE{ false };
 constexpr static bool DEBUG_MODE{ true };
 #endif
 
-void RenderVtf(vtf_frame_data_t& frame) {
+void RenderVtf(vtf_frame_data_t& frame)
+{
 
 	constexpr static VkCommandBufferBeginInfo begin_info{
 		VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -3534,7 +3574,8 @@ void RenderVtf(vtf_frame_data_t& frame) {
 
 }
 
-void SubmitGraphicsWork(vtf_frame_data_t& frame) {
+void SubmitGraphicsWork(vtf_frame_data_t& frame)
+{
     static uint32_t frameIdx{ 0u };
 
     const VkSemaphore wait_semaphores[2]{
@@ -3598,7 +3639,8 @@ void FlushShaderCaches(vtf_frame_data_t& frame_data)
     vtf_frame_data_t::pipelineCaches.clear();
 }
 
-void destroyFrameResources(vtf_frame_data_t & frame) {
+void destroyFrameResources(vtf_frame_data_t & frame)
+{
     auto& rsrc_context = ResourceContext::Get();
 
     for (auto& rsrc : frame.rsrcMap) {
@@ -3635,26 +3677,31 @@ void destroyPipelines(vtf_frame_data_t & frame) {
 
 }
 
-void DestroyFrame(vtf_frame_data_t& frame) {
+void DestroyFrame(vtf_frame_data_t& frame)
+{
     destroyFrameResources(frame); // gets semaphores and framebuffers too
     destroyRenderpasses(frame);
     destroyPipelines(frame);
 }
 
-void DestroyShaders(vtf_frame_data_t & frame) {
+void DestroyShaders(vtf_frame_data_t & frame)
+{
 
-    for (auto& cache : frame.pipelineCaches) {
+    for (auto& cache : frame.pipelineCaches)
+    {
         cache.second.reset();
     }
 
-    for (auto& shader : frame.shaderModules) {
+    for (auto& shader : frame.shaderModules)
+    {
         shader.second.reset();
     }
 
 }
 
 void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src_keys, VulkanResource* src_values, VulkanResource* dst_keys, VulkanResource* dst_values,
-    uint32_t total_values, uint32_t chunk_size, DescriptorBinder dscr_binder) {
+    uint32_t total_values, uint32_t chunk_size, DescriptorBinder dscr_binder)
+{
 
 	constexpr static uint32_t num_values_per_thread_group = SORT_NUM_THREADS_PER_THREAD_GROUP * SORT_ELEMENTS_PER_THREAD;
 	uint32_t num_chunks = static_cast<uint32_t>(glm::ceil(total_values / static_cast<float>(chunk_size)));
@@ -3782,11 +3829,13 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 		reinterpret_cast<const VkBufferCreateInfo*>(sort_params_rsrc->Info)->size
 	};
 
-    if constexpr (VTF_VALIDATION_ENABLED) {
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
-    while (num_chunks > 1) {
+    while (num_chunks > 1)
+    {
 
 		const std::string inserted_label_string = std::string{ "MergeSortPass" } + std::to_string(pass);
 		const VkDebugUtilsLabelEXT debug_label_recursion {
@@ -3796,7 +3845,8 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 			{ 66.0f / 255.0f, 244.0f / 255.0f, 72.0f / 255.0f, 1.0f } // green, distinct from rest
 		}; 
 
-		if constexpr (VTF_VALIDATION_ENABLED) {
+		if constexpr (VTF_VALIDATION_ENABLED)
+        {
 			frame.vkDebugFns.vkCmdInsertDebugUtilsLabel(cmd, &debug_label_recursion);
 		}
 
@@ -3866,7 +3916,8 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
         num_chunks = static_cast<uint32_t>(glm::ceil(float(total_values) / float(chunk_size)));
     }
 
-    if (pass % 2u == 1u) {
+    if (pass % 2u == 1u)
+    {
         // if the pass count is odd then we have to copy the results into 
         // where they should actually be
 
@@ -3879,7 +3930,8 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
         vkCmdCopyBuffer(cmd, (VkBuffer)src_values->Handle, (VkBuffer)dst_values->Handle, 1, &copy);
     }
 
-    if constexpr (VTF_VALIDATION_ENABLED) {
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
@@ -3887,7 +3939,8 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 
 }
 
-VulkanResource* createDepthStencilResource(const VkSampleCountFlagBits samples) {
+VulkanResource* createDepthStencilResource(const VkSampleCountFlagBits samples)
+{
     const auto* device = RenderingContext::Get().Device();
     const auto* swapchain = RenderingContext::Get().Swapchain();
 
