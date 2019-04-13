@@ -675,10 +675,16 @@ void VTF_Scene::draw() {
 
 void VTF_Scene::endFrame() 
 {
+    static bool first_end_frame{ true };
     auto& resource_context = ResourceContext::Get();
     const std::string output_file_name = std::string{ "MemoryStatsEndFrame" } +std::to_string(activeFrame) + std::string(".json");
     resource_context.WriteMemoryStatsFile(output_file_name.c_str());
     frames[activeFrame]->descriptorPack->EndFrame();
+    if (first_end_frame)
+    {
+        FlushShaderCaches(*frames[activeFrame]);
+        first_end_frame = false;
+    }
 	activeFrame = (activeFrame + 1u) % frames.size();;
 }
 

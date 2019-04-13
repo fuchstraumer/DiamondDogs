@@ -3638,6 +3638,11 @@ void SubmitGraphicsWork(vtf_frame_data_t& frame) {
     frame.transientResources.reserve(frame.lastFrameTransientResources.size());
 }
 
+void FlushShaderCaches(vtf_frame_data_t& frame_data)
+{
+    vtf_frame_data_t::pipelineCaches.clear();
+}
+
 void destroyFrameResources(vtf_frame_data_t & frame) {
     auto& rsrc_context = ResourceContext::Get();
 

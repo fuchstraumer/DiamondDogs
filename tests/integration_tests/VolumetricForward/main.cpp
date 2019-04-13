@@ -45,12 +45,20 @@ int main(int argc, char* argv[]) {
     static const fs::path shader_pack_path{ fs::canonical("../../../../third_party/shadertools/fragments/volumetric_forward/volumetric_forward.yaml") };
     static const std::string pack_path_str{ shader_pack_path.string() };
     static const fs::path saved_pack_bin_path{ fs::current_path() / "VolumetricForwardPack.stbin" };
+    static const fs::path curr_dir_path{ fs::current_path() / "shader_cache/" };
     static const std::string saved_pack_bin_str{ saved_pack_bin_path.string() };
+
+    if (!fs::exists(curr_dir_path))
+    {
+        assert(fs::create_directories(curr_dir_path));
+    }
 
     void* storage_ptr = reinterpret_cast<void*>(&el::Helpers::storage());
     vpr::SetLoggingRepository_VprCore(storage_ptr);
     vpr::SetLoggingRepository_VprCommand(storage_ptr);
     vpr::SetLoggingRepository_VprResource(storage_ptr);
+    const std::string shaderCacheDirString = curr_dir_path.string();
+    vpr::PipelineCache::SetCacheDirectory(shaderCacheDirString.c_str());
     
     auto& ctxt = RenderingContext::Get();
     ctxt.Construct("RendererContextCfg.json");
