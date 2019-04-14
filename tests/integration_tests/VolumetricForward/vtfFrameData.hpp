@@ -129,7 +129,7 @@ public:
     VkDispatchIndirectCommand indirectArgsCmd;
     bool updateUniqueClusters{ true };
     bool frameRecreate{ false };    
-    bool renderDebugClusters{ false };
+    bool renderDebugClusters{ true };
     vpr::VkDebugUtilsFunctions vkDebugFns;
     glm::mat4 previousViewMatrix;
 

@@ -125,7 +125,9 @@ struct alignas(4) DispatchParams_t {
 
 struct alignas(4) SortParams {
     uint32_t NumElements;
+    uint32_t Padding0{ std::numeric_limits<uint32_t>::max() };
     uint32_t ChunkSize;
+    uint32_t Padding1{ std::numeric_limits<uint32_t>::max() };
 };
 
 struct alignas(16) Frustum {
