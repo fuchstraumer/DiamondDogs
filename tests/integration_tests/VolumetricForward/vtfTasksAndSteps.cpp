@@ -2149,83 +2149,103 @@ void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z)
 void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 {
 
-    auto* descr = frame.descriptorPack->RetrieveDescriptor("GlobalResources");
-    descr->BindResourceToIdx(descr->BindingLocation("matrices"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
-
-	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, "UpdateLights");
-
-	const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
-
-    constexpr static VkDebugUtilsLabelEXT debug_label {
+    constexpr static VkDebugUtilsLabelEXT debug_label{
         VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
         nullptr,
         "UpdateLights",
         { 241.0f / 255.0f, 66.0f / 255.0f, 244.0f / 255.0f, 1.0f }
     };
 
-    auto& rsrc = ResourceContext::Get();
+    ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, "UpdateLights");
+
+    auto& rsrc_context = ResourceContext::Get();
+    VulkanResource* light_counts_buffer = frame.rsrcMap.at("LightCounts");
+    VulkanResource* point_lights = frame.rsrcMap.at("PointLights");
+    VulkanResource* spot_lights = frame.rsrcMap.at("SpotLights");
+    VulkanResource* dir_lights = frame.rsrcMap.at("DirectionalLights");
+    auto binder = frame.descriptorPack->RetrieveBinder("UpdateLights");
+    binder.BindResourceToIdx("GlobalResources", "matrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
+    binder.Update();
 
     // update light counts
     frame.LightCounts.NumPointLights = static_cast<uint32_t>(SceneLightsState().PointLights.size());
     frame.LightCounts.NumSpotLights = static_cast<uint32_t>(SceneLightsState().SpotLights.size());
     frame.LightCounts.NumDirectionalLights = static_cast<uint32_t>(SceneLightsState().DirectionalLights.size());
-    VulkanResource* light_counts_buffer = frame.rsrcMap["LightCounts"];
+
     const gpu_resource_data_t lcb_update{
         &frame.LightCounts,
         sizeof(LightCountsData)
     };
-    rsrc.SetBufferData(light_counts_buffer, 1, &lcb_update);
+
+    rsrc_context.SetBufferData(light_counts_buffer, 1, &lcb_update);
+
+    constexpr static std::array<ThsvsAccessType, 1> host_write_type {
+        THSVS_ACCESS_TRANSFER_WRITE
+    };
+
+    constexpr static std::array<ThsvsAccessType, 3> write_access_type {
+        THSVS_ACCESS_COMPUTE_SHADER_WRITE,
+        THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER,
+        THSVS_ACCESS_COMPUTE_SHADER_READ_UNIFORM_BUFFER
+    };
+
+    // Make sure transfers flush fully and are visible, plus once we move back
+    // to a rendergraph and explicit queue ownership this will be a template
+    constexpr static ThsvsBufferBarrier pre_dispatch_barrier {
+        static_cast<uint32_t>(host_write_type.size()),
+        host_write_type.data(),
+        static_cast<uint32_t>(write_access_type.size()),
+        write_access_type.data(),
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_NULL_HANDLE,
+        0u,
+        0u
+    };
+
+    // Prev-Next access types are gonna be the same: compute shaders use these next
+    constexpr static ThsvsBufferBarrier post_dispatch_barrier {
+        static_cast<uint32_t>(write_access_type.size()),
+        write_access_type.data(),
+        static_cast<uint32_t>(write_access_type.size()),
+        write_access_type.data(),
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_NULL_HANDLE,
+        0u,
+        0u
+    };
+
+    std::array<ThsvsBufferBarrier, 3> pre_dispatch_buffer_barriers;
+    pre_dispatch_buffer_barriers.fill(pre_dispatch_barrier);
+    std::array<ThsvsBufferBarrier, 3> post_dispatch_buffer_barriers;
+    post_dispatch_buffer_barriers.fill(post_dispatch_barrier);
+
+    pre_dispatch_buffer_barriers[0].buffer = (VkBuffer)point_lights->Handle;
+    pre_dispatch_buffer_barriers[1].buffer = (VkBuffer)spot_lights->Handle;
+    pre_dispatch_buffer_barriers[2].buffer = (VkBuffer)dir_lights->Handle;
+    pre_dispatch_buffer_barriers[0].size = reinterpret_cast<const VkBufferCreateInfo*>(point_lights->Info)->size;
+    pre_dispatch_buffer_barriers[1].size = reinterpret_cast<const VkBufferCreateInfo*>(spot_lights->Info)->size;
+    pre_dispatch_buffer_barriers[2].size = reinterpret_cast<const VkBufferCreateInfo*>(dir_lights->Info)->size;
+    post_dispatch_buffer_barriers[0].buffer = pre_dispatch_buffer_barriers[0].buffer;
+    post_dispatch_buffer_barriers[1].buffer = pre_dispatch_buffer_barriers[1].buffer;
+    post_dispatch_buffer_barriers[2].buffer = pre_dispatch_buffer_barriers[2].buffer;
+    post_dispatch_buffer_barriers[0].size = pre_dispatch_buffer_barriers[0].size;
+    post_dispatch_buffer_barriers[1].size = pre_dispatch_buffer_barriers[1].size;
+    post_dispatch_buffer_barriers[2].size = pre_dispatch_buffer_barriers[2].size;
 
     // update light positions etc
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["UpdateLightsPipeline"].Handle);
-    auto binder = frame.descriptorPack->RetrieveBinder("UpdateLights");
-	binder.Update();
+    thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(pre_dispatch_buffer_barriers.size()), pre_dispatch_buffer_barriers.data(), 0u, nullptr);
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     uint32_t num_groups_x = glm::max(frame.LightCounts.NumPointLights, glm::max(frame.LightCounts.NumDirectionalLights, frame.LightCounts.NumSpotLights));
     num_groups_x = static_cast<uint32_t>(glm::ceil(num_groups_x / 1024.0f));
     vkCmdDispatch(cmd, num_groups_x, 1, 1);
-
-    constexpr static ThsvsAccessType host_write_type[1]{
-        THSVS_ACCESS_TRANSFER_WRITE
-    };
-
-	constexpr static ThsvsAccessType write_access_type [3]{
-		THSVS_ACCESS_COMPUTE_SHADER_WRITE,
-		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER,
-		THSVS_ACCESS_COMPUTE_SHADER_READ_UNIFORM_BUFFER
-	};
-
-	constexpr static ThsvsAccessType read_access_type[1]{
-		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
-	};
-
-	constexpr static ThsvsBufferBarrier buffer_barrier_base {
-		1u,
-        host_write_type,
-		3u,
-        write_access_type,
-		VK_QUEUE_FAMILY_IGNORED,
-		VK_QUEUE_FAMILY_IGNORED,
-		VK_NULL_HANDLE,
-		0u,
-		0u
-	};
-
-	ThsvsBufferBarrier buffer_barriers[2]{
-		buffer_barrier_base,
-		buffer_barrier_base
-	};
-
-	VulkanResource* point_lights = frame.rsrcMap.at("PointLights");
-	buffer_barriers[0].buffer = (VkBuffer)point_lights->Handle;
-	buffer_barriers[0].size = reinterpret_cast<const VkBufferCreateInfo*>(point_lights->Info)->size;
-	VulkanResource* spot_lights = frame.rsrcMap.at("SpotLights");
-	buffer_barriers[1].buffer = (VkBuffer)spot_lights->Handle;
-	buffer_barriers[1].size = reinterpret_cast<const VkBufferCreateInfo*>(spot_lights->Info)->size;
-	thsvsCmdPipelineBarrier(cmd, nullptr, 2u, buffer_barriers, 0u, nullptr);
+	thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(post_dispatch_buffer_barriers.size()), post_dispatch_buffer_barriers.data(), 0u, nullptr);
 
 	if constexpr (VTF_VALIDATION_ENABLED)
     {
