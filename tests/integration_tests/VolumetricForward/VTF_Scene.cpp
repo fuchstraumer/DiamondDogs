@@ -32,7 +32,8 @@
 const st::ShaderPack* vtfShaders{ nullptr }; 
 //SceneState_t SceneLightsState{};
 
-struct vertex_t {
+struct vertex_t
+{
     vertex_t(glm::vec3 p, glm::vec3 n, glm::vec3 t, glm::vec2 uv) : Position(std::move(p)), Normal(std::move(n)), Tangent(std::move(t)),
         UV(std::move(uv)) {}
     glm::vec3 Position;
@@ -247,7 +248,8 @@ struct TestIcosphereMesh
 			"IcosphereTesterMaterialParams");
     }
 
-    void BindTextures(Descriptor* descr) {
+    void BindTextures(Descriptor* descr)
+    {
 
         auto& rsrc_context = ResourceContext::Get();
         const size_t albedo_loc = descr->BindingLocation("AlbedoMap");
@@ -409,7 +411,8 @@ struct TestIcosphereMesh
 
 };
 
-glm::vec3 HSV_to_RGB(float H, float S, float V) {
+glm::vec3 HSV_to_RGB(float H, float S, float V)
+{
     float C = V * S;
     float m = V - C;
     float H2 = H / 60.0f;
@@ -441,7 +444,8 @@ glm::vec3 HSV_to_RGB(float H, float S, float V) {
     return RGB + m;
 }
 
-static std::vector<glm::u8vec4> GenerateColors(uint32_t num_lights) {
+static std::vector<glm::u8vec4> GenerateColors(uint32_t num_lights)
+{
     std::vector<glm::vec4> colors(num_lights);
     for (auto& color : colors) {
         color = glm::vec4(HSV_to_RGB(glm::linearRand(0.0f, 360.0f), glm::linearRand(0.0f, 1.0f), 1.0f), 1.0f);
@@ -463,7 +467,8 @@ template<typename LightType>
 static LightType GenerateLight(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color);
 
 template<>
-static PointLight GenerateLight<PointLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color) {
+static PointLight GenerateLight<PointLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color)
+{
     PointLight result{};
     result.positionWS = position_ws;
     result.color = color;
@@ -472,7 +477,8 @@ static PointLight GenerateLight<PointLight>(const glm::vec4& position_ws, const 
 }
 
 template<>
-static SpotLight GenerateLight<SpotLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color) {
+static SpotLight GenerateLight<SpotLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color)
+{
     SpotLight result{};
     result.positionWS = position_ws;
     result.directionWS = direction_ws;
@@ -483,7 +489,8 @@ static SpotLight GenerateLight<SpotLight>(const glm::vec4& position_ws, const gl
 }
 
 template<>
-static DirectionalLight GenerateLight<DirectionalLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color) {
+static DirectionalLight GenerateLight<DirectionalLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color)
+{
     DirectionalLight result{};
     result.directionWS = direction_ws;
     result.color = color;
@@ -491,7 +498,8 @@ static DirectionalLight GenerateLight<DirectionalLight>(const glm::vec4& positio
 }
 
 template<typename LightType>
-static std::vector<LightType> GenerateLights(uint32_t num_lights) {
+static std::vector<LightType> GenerateLights(uint32_t num_lights)
+{
     std::vector<LightType> lights(num_lights);
 
     for (auto& light : lights) {
@@ -506,7 +514,8 @@ static std::vector<LightType> GenerateLights(uint32_t num_lights) {
     return lights;
 }
 
-void GenerateLights() {
+void GenerateLights()
+{
     SceneLightsState().PointLights = std::move(GenerateLights<PointLight>(SceneConfig.NumPointLights));
     SceneLightsState().SpotLights = std::move(GenerateLights<SpotLight>(SceneConfig.NumSpotLights));
     SceneLightsState().DirectionalLights = std::move(GenerateLights<DirectionalLight>(SceneConfig.NumDirectionalLights));
@@ -515,13 +524,15 @@ void GenerateLights() {
 	SceneLightsState().ClusterColors = std::move(GenerateColors(x * y * z));
 }
 
-VTF_Scene& VTF_Scene::Get() {
+VTF_Scene& VTF_Scene::Get()
+{
     static VTF_Scene scene;
     return scene;
 }
 
 
-void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
+void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data)
+{
     vprObjects = objects;
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
 
@@ -583,7 +594,8 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data) {
     std::cerr << "Setup Complete\n";
 }
 
-void VTF_Scene::Destroy() {
+void VTF_Scene::Destroy()
+{
     for (auto& frame : frames) {
 
     }
@@ -595,7 +607,8 @@ constexpr VkCommandBufferBeginInfo base_info{
 	VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT
 };
 
-void VTF_Scene::updateGlobalUBOs() {
+void VTF_Scene::updateGlobalUBOs()
+{
 
 	//auto& imgui_io = ImGui::GetIO();
 	auto& extent = vprObjects.swapchain->Extent();
@@ -609,8 +622,8 @@ void VTF_Scene::updateGlobalUBOs() {
 	curr_frame.Matrices.view = glm::lookAt(glm::vec3(-8.0f, -8.0f, 4.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
 	curr_frame.Matrices.inverseView = glm::inverse(curr_frame.Matrices.view);
 	curr_frame.Matrices.model = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
-    curr_frame.Matrices.modelViewProjection = curr_frame.Matrices.projection * curr_frame.Matrices.view * curr_frame.Matrices.model;
     curr_frame.Matrices.modelView = curr_frame.Matrices.view * curr_frame.Matrices.model;
+    curr_frame.Matrices.modelViewProjection = curr_frame.Matrices.projection * curr_frame.Matrices.modelView;
     curr_frame.Matrices.inverseTransposeModelView = glm::inverse(glm::transpose(curr_frame.Matrices.modelView));
     curr_frame.Matrices.inverseTransposeModel = glm::inverse(glm::transpose(curr_frame.Matrices.model));
 	VulkanResource* matrices_rsrc = curr_frame.rsrcMap.at("matrices");
@@ -648,7 +661,8 @@ void VTF_Scene::updateGlobalUBOs() {
     icosphereTester->lightsMatrices = curr_frame.rsrcMap.at("debugLightsMatrices");
 }
 
-void VTF_Scene::update() {
+void VTF_Scene::update()
+{
 	updateGlobalUBOs();
     // compute updates
 	vtf_frame_data_t& curr_frame = *frames[activeFrame];
@@ -660,7 +674,7 @@ void VTF_Scene::update() {
 	ComputeUpdate(curr_frame);
 }
 
-void VTF_Scene::recordCommands() 
+void VTF_Scene::recordCommands()
 {
     static bool render_debug_clusters{ false };
 
