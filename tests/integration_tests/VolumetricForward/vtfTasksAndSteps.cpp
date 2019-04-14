@@ -720,49 +720,6 @@ void createSortResources(vtf_frame_data_t& frame) {
 	const std::array<uint32_t, 3> queue_family_indices{ graphics_idx, transfer_idx, compute_idx };
     const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
 
-    const VkBufferCreateInfo dispatch_params_info{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        nullptr,
-        0,
-        sizeof(DispatchParams_t),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
-    };
-
-    frame.rsrcMap["DispatchParams"] = rsrc_context.CreateBuffer(&dispatch_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "DispatchParams");
-    descr->BindResourceToIdx(descr->BindingLocation("DispatchParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("DispatchParams"));
-
-    const VkBufferCreateInfo reduction_params_info{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        nullptr,
-        0, 
-        sizeof(uint32_t) * 4,
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-		sharing_mode,
-        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
-        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
-    };
-
-    frame.rsrcMap["ReductionParams"] = rsrc_context.CreateBuffer(&reduction_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "ReductionParams");
-    descr->BindResourceToIdx(descr->BindingLocation("ReductionParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("ReductionParams"));
-
-    const VkBufferCreateInfo sort_params_info{
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        nullptr,
-        0,
-        sizeof(SortParams),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-		sharing_mode,
-        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
-        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
-    };
-
-    frame.rsrcMap["SpotLightSortParams"] = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightSortParams");
-    frame.rsrcMap["PointLightSortParams"] = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightSortParams");
-    descr->BindResourceToIdx(descr->BindingLocation("SortParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("PointLightSortParams"));
-
     const VkBufferCreateInfo light_aabbs_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
