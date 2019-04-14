@@ -296,10 +296,12 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     auto* vf_descr = frame.descriptorPack->RetrieveDescriptor("VolumetricForward");
 
 	const auto* device = RenderingContext::Get().Device();
+    std::vector<VulkanResource*> resourcesToZeroInit;
 	const uint32_t graphics_idx = device->QueueFamilyIndices().Graphics;
 	const uint32_t compute_idx = device->QueueFamilyIndices().Compute;
+    const uint32_t transfer_idx = device->QueueFamilyIndices().Transfer;
 	const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
-	const uint32_t queue_family_indices[2]{ graphics_idx, compute_idx };
+    const std::array<uint32_t, 3> queue_family_indices{ graphics_idx, compute_idx, transfer_idx };
 
     float fov_y = glm::radians(70.0f);
     float z_near = 0.001f;
@@ -336,8 +338,8 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         sizeof(ClusterData_t),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+		sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     const gpu_resource_data_t cluster_data_update{
@@ -363,8 +365,8 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         sizeof(uint32_t) * cluster_dim_x * cluster_dim_y * cluster_dim_z,
         VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     const VkBufferViewCreateInfo cluster_flags_view_info{
@@ -400,6 +402,10 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
 
     frame.updateUniqueClusters = true;
 
+    resourcesToZeroInit.emplace_back(cluster_flags);
+    resourcesToZeroInit.emplace_back(unique_clusters);
+    resourcesToZeroInit.emplace_back(prev_unique_clusters);
+
     const VkBufferCreateInfo indir_args_buffer{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
@@ -407,8 +413,8 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         sizeof(VkDispatchIndirectCommand),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     auto& assign_lights_args_buffer = frame.rsrcMap["AssignLightsToClustersArgumentBuffer"];
@@ -424,8 +430,8 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         sizeof(VkDrawIndexedIndirectCommand),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     auto& debug_clusters_indir_draw_buffer = frame.rsrcMap["DebugClustersDrawIndirectArgumentBuffer"];
@@ -441,8 +447,8 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         CLUSTER_SIZE * sizeof(AABB),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     auto& cluster_aabbs = frame.rsrcMap["ClusterAABBs"];
@@ -459,8 +465,8 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         CLUSTER_SIZE * sizeof(uint32_t) * 2,
         VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     const VkBufferViewCreateInfo point_light_grid_view_info{
@@ -484,8 +490,11 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     if (spot_light_grid) {
         rsrc_context.DestroyResource(spot_light_grid);
     }
-    spot_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightGrid");
+    spot_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightGrid");
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightGrid"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
+
+    resourcesToZeroInit.emplace_back(point_light_grid);
+    resourcesToZeroInit.emplace_back(spot_light_grid);
 
     const VkBufferCreateInfo indices_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -494,8 +503,8 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         LIGHT_INDEX_LIST_SIZE * sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     const VkBufferViewCreateInfo indices_view_info{
@@ -519,8 +528,11 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     if (spot_light_index_list) {
         rsrc_context.DestroyResource(spot_light_index_list);
     }
-    spot_light_index_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightIndexList");
+    spot_light_index_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightIndexList");
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightIndexList"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
+
+    resourcesToZeroInit.emplace_back(point_light_idx_list);
+    resourcesToZeroInit.emplace_back(spot_light_index_list);
 
     const VkBufferCreateInfo counter_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -529,8 +541,8 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		sharing_mode,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
-		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
     const VkBufferViewCreateInfo counter_view_info{
@@ -549,6 +561,15 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightIndexCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightIndexCounter"));
     frame.rsrcMap["UniqueClustersCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "UniqueClustersCounter");
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("UniqueClustersCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("UniqueClustersCounter"));
+
+    resourcesToZeroInit.emplace_back(frame.rsrcMap.at("PointLightIndexCounter"));
+    resourcesToZeroInit.emplace_back(frame.rsrcMap.at("SpotLightIndexCounter"));
+    resourcesToZeroInit.emplace_back(frame.rsrcMap.at("UniqueClustersCounter"));
+
+    //for (auto& resource : resourcesToZeroInit)
+    //{
+    //    rsrc_context.FillBuffer(resource, 0u, 0u, VK_WHOLE_SIZE);
+    //}
 
 }
 
