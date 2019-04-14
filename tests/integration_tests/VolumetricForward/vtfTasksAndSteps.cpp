@@ -1829,7 +1829,7 @@ void createDepthPrePassPipeline(vtf_frame_data_t& frame) {
     const st::Shader* depth_group = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
 
     const st::ShaderStage& depth_vert = vtf_frame_data_t::groupStages.at(groupName).front();
-    const st::ShaderStage& depth_frag = vtf_frame_data_t::groupStages.at(groupName).back();
+    //const st::ShaderStage& depth_frag = vtf_frame_data_t::groupStages.at(groupName).back();
 
     vpr::GraphicsPipelineInfo pipeline_info;
 
@@ -1847,11 +1847,11 @@ void createDepthPrePassPipeline(vtf_frame_data_t& frame) {
     pipeline_info.DynamicStateInfo.pDynamicStates = States;
 
     VkGraphicsPipelineCreateInfo create_info = pipeline_info.GetPipelineCreateInfo();
-    const VkPipelineShaderStageCreateInfo shader_stages[2]{ 
-        vtf_frame_data_t::shaderModules.at(depth_vert)->PipelineInfo(), 
-        vtf_frame_data_t::shaderModules.at(depth_frag)->PipelineInfo() 
+    const VkPipelineShaderStageCreateInfo shader_stages[1]{ 
+        vtf_frame_data_t::shaderModules.at(depth_vert)->PipelineInfo()
+        //vtf_frame_data_t::shaderModules.at(depth_frag)->PipelineInfo() 
     };
-    create_info.stageCount = 2;
+    create_info.stageCount = 1u;
     create_info.pStages = shader_stages;
     create_info.subpass = 0;
     create_info.renderPass = frame.renderPasses.at("DepthAndClusterSamplesPass")->vkHandle();
@@ -2117,7 +2117,8 @@ void createDebugLightsPipelines(vtf_frame_data_t& frame)
 
 }
 
-void CreateGraphicsPipelines(vtf_frame_data_t & frame) {
+void CreateGraphicsPipelines(vtf_frame_data_t & frame)
+{
     createDepthPrePassPipeline(frame);
     createClusterSamplesPipeline(frame);
     createDrawPipelines(frame);
@@ -2128,7 +2129,8 @@ void CreateGraphicsPipelines(vtf_frame_data_t & frame) {
 void miscSetup(vtf_frame_data_t& frame)
 {
 
-    if (VTF_VALIDATION_ENABLED) {
+    if (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns = RenderingContext::Get().Device()->DebugUtilsHandler();
     }
 
