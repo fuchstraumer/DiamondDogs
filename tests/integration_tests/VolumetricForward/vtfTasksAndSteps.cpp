@@ -2486,7 +2486,7 @@ void computeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["ComputeLightMortonCodesPipeline"].Handle);
     uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(glm::max(frame.LightCounts.NumPointLights, frame.LightCounts.NumSpotLights) / 1024.0f));
     vkCmdDispatch(cmd, num_thread_groups, 1, 1);
-	//thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(compute_morton_codes_barriers.size()), compute_morton_codes_barriers.data(), 0u, nullptr);
+	thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(compute_morton_codes_barriers.size()), compute_morton_codes_barriers.data(), 0u, nullptr);
 
     if constexpr (VTF_VALIDATION_ENABLED)
     {
@@ -2646,7 +2646,7 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         vkCmdCopyBuffer(cmd, (VkBuffer)pointLightMortonCodes_OUT->Handle, (VkBuffer)pointLightMortonCodes->Handle, 1, &point_light_copy);
         vkCmdCopyBuffer(cmd, (VkBuffer)pointLightIndices_OUT->Handle, (VkBuffer)pointLightIndices->Handle, 1, &point_light_copy);
 
-		//thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(radix_sort_barriers.size()), radix_sort_barriers.data(), 0u, nullptr);
+		thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(radix_sort_barriers.size()), radix_sort_barriers.data(), 0u, nullptr);
 
     }
 
@@ -2681,7 +2681,7 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         radix_sort_barriers[3].buffer = (VkBuffer)spotLightIndices_OUT->Handle;
         radix_sort_barriers[3].size = spot_light_indices_size;
 
-		//thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(radix_sort_barriers.size()), radix_sort_barriers.data(), 0u, nullptr);
+		thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(radix_sort_barriers.size()), radix_sort_barriers.data(), 0u, nullptr);
 
     }
 
@@ -2702,7 +2702,7 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 		readonly_access_type
 	};
 
-	//thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
+	thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
 
     if constexpr (VTF_VALIDATION_ENABLED)
     {
