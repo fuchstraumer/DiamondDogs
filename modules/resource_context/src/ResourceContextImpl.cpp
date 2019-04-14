@@ -687,6 +687,7 @@ void ResourceContextImpl::setBufferInitialDataHostOnly(VulkanResource* resource,
         offset += initial_data[i].DataSize;
     }
     vmaUnmapMemory(allocatorHandle, *alloc);
+    vmaFlushAllocation(allocatorHandle, *alloc, 0u, offset);
 }
 
 void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data)
