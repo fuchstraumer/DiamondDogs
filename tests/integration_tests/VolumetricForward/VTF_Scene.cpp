@@ -676,8 +676,7 @@ void VTF_Scene::update()
 
 void VTF_Scene::recordCommands()
 {
-    static bool render_debug_clusters{ false };
-
+    static bool render_debug_clusters{ true };
     ImGui::Begin("VTF Debug");
         ImGui::Checkbox("Render Debug Clusters", &render_debug_clusters);
         frames[activeFrame]->renderDebugClusters = render_debug_clusters;
