@@ -874,8 +874,7 @@ void ResourceContextImpl::createBufferResourceCopy(VulkanResource * src, VulkanR
     {
         view_info = reinterpret_cast<const VkBufferViewCreateInfo*>(src->ViewInfo);
     }
-    *dst = createBuffer(create_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), resourceInfos.resourceFlags.at(src), nullptr);
-    copyResourceContents(src, *dst);
+    *dst = createBuffer(create_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), 0, nullptr);
 }
 
 void ResourceContextImpl::createImageResourceCopy(VulkanResource * src, VulkanResource** dst)
