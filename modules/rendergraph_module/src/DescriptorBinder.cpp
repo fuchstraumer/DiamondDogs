@@ -30,7 +30,7 @@ void DescriptorBinder::BindResourceToIdx(const std::string& descr, size_t rsrc_i
     dirtySets[idx] = true;
 }
 
-void DescriptorBinder::BindResourceToIdx(const std::string& descr, const std::string& rsrc_name, VkDescriptorType type, VulkanResource* rsrc)
+void DescriptorBinder::BindResourceToIdx(const char* descr, const char* rsrc_name, VkDescriptorType type, VulkanResource* rsrc)
 {
     const size_t descr_idx = descriptorIdxMap.at(descr);
     const size_t resource_idx = parentDescriptors[descr_idx]->bindingLocations.at(rsrc_name);
