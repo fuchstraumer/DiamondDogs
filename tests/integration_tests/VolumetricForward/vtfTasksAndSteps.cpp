@@ -731,15 +731,16 @@ void createSortResources(vtf_frame_data_t& frame) {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
-        sizeof(uint32_t) * 2u,
+        sizeof(SortParams),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		sharing_mode,
         sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
         sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
 
-    frame.rsrcMap["SortParams"] = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "SortParams");
-    descr->BindResourceToIdx(descr->BindingLocation("SortParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("SortParams"));
+    frame.rsrcMap["SpotLightSortParams"] = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightSortParams");
+    frame.rsrcMap["PointLightSortParams"] = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightSortParams");
+    descr->BindResourceToIdx(descr->BindingLocation("SortParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("PointLightSortParams"));
 
     const VkBufferCreateInfo light_aabbs_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -2536,7 +2537,10 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     const VkBufferCopy spot_light_copy{ 0, 0, uint32_t(reinterpret_cast<const VkBufferCreateInfo*>(spotLightIndices->Info)->size) };
 
     auto& sort_params_rsrc = frame.rsrcMap["SortParams"];
-    const gpu_resource_data_t sort_params_copy{ &sort_params, sizeof(SortParams), 0u, VK_QUEUE_FAMILY_IGNORED };
+
+    VulkanResource* point_lights_sort_params = frame.rsrcMap.at("PointLightSortParams");
+    VulkanResource* spot_lights_sort_params = frame.rsrcMap.at("SpotLightSortParams");
+    gpu_resource_data_t sort_params_copy{ &sort_params, sizeof(SortParams), 0u, VK_QUEUE_FAMILY_IGNORED };
 
 	// TODO: Create a way to not have to do this
 	// Create a dummy resource so that things don't break for us.
@@ -2627,14 +2631,18 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 
     if (frame.LightCounts.NumPointLights > 0u)
     {
+        SortParams sort_params_data;
+        sort_params_data.NumElements = frame.LightCounts.NumPointLights;
+        sort_params_data.ChunkSize = SORT_NUM_THREADS_PER_THREAD_GROUP;
+        sort_params_copy.Data = &sort_params_data;
+        rsrc_context.SetBufferData(point_lights_sort_params, 1, &sort_params_copy);
 
-        sort_params.NumElements = frame.LightCounts.NumPointLights;
-        rsrc.SetBufferData(sort_params_rsrc, 1, &sort_params_copy);
         // bind proper resources to the descriptor
         binder.BindResourceToIdx("MergeSortResources", src_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightMortonCodes);
-        binder.BindResourceToIdx("MergeSortResources", dst_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightMortonCodes_OUT);
         binder.BindResourceToIdx("MergeSortResources", src_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightIndices);
+        binder.BindResourceToIdx("MergeSortResources", dst_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightMortonCodes_OUT);
         binder.BindResourceToIdx("MergeSortResources", dst_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightIndices_OUT);
+        binder.BindResourceToIdx("SortResources", "SortParams", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, point_lights_sort_params);
         binder.Update();
 
         // bind and dispatch
@@ -2653,14 +2661,18 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     if (frame.LightCounts.NumSpotLights > 0u)
     {
 
-        sort_params.NumElements = frame.LightCounts.NumSpotLights;
-        rsrc.SetBufferData(sort_params_rsrc, 1, &sort_params_copy);
+        SortParams sort_params_data;
+        sort_params_data.NumElements = frame.LightCounts.NumSpotLights;
+        sort_params_data.ChunkSize = SORT_NUM_THREADS_PER_THREAD_GROUP;
+        sort_params_copy.Data = &sort_params_data;
+        rsrc_context.SetBufferData(spot_lights_sort_params, 1, &sort_params_copy);
 
         // update bindings again
         binder.BindResourceToIdx("MergeSortResources", src_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightMortonCodes);
-        binder.BindResourceToIdx("MergeSortResources", dst_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightMortonCodes_OUT);
         binder.BindResourceToIdx("MergeSortResources", src_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightIndices);
+        binder.BindResourceToIdx("MergeSortResources", dst_keys_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightMortonCodes_OUT);
         binder.BindResourceToIdx("MergeSortResources", dst_values_loc, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightIndices_OUT);
+        binder.BindResourceToIdx("SortResources", "SortParams", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, spot_lights_sort_params);
         binder.Update();
 
         // re-bind, but only the single mutated set
