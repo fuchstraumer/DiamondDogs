@@ -3735,13 +3735,14 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 
     // Create a new mergePathPartitions for this invocation.
     VulkanResource* merge_path_partitions = CreateMergePathPartitions(frame);
+    frame.transientResources.emplace_back(merge_path_partitions);
 
 	constexpr static VkBufferCreateInfo sort_params_info{
 		VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 		nullptr,
 		0,
-		sizeof(uint32_t) * 2u,
-		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		sizeof(SortParams),
+		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		VK_SHARING_MODE_EXCLUSIVE,
 		0u,
 		nullptr
@@ -3779,7 +3780,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
             VK_QUEUE_FAMILY_IGNORED,
             VK_NULL_HANDLE,
             0u,
-            VK_WHOLE_SIZE
+            reinterpret_cast<const VkBufferCreateInfo*>(src_keys->Info)->size
         },
         // Input values
         VkBufferMemoryBarrier{
@@ -3791,7 +3792,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
             VK_QUEUE_FAMILY_IGNORED,
             VK_NULL_HANDLE,
             0u,
-            VK_WHOLE_SIZE
+            reinterpret_cast<const VkBufferCreateInfo*>(src_values->Info)->size
         },
         // Output keys
         VkBufferMemoryBarrier{
@@ -3803,7 +3804,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
             VK_QUEUE_FAMILY_IGNORED,
             VK_NULL_HANDLE,
             0u,
-            VK_WHOLE_SIZE
+            reinterpret_cast<const VkBufferCreateInfo*>(dst_keys->Info)->size
         },
         // Output values
         VkBufferMemoryBarrier{
@@ -3815,7 +3816,7 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
             VK_QUEUE_FAMILY_IGNORED,
             VK_NULL_HANDLE,
             0u,
-            VK_WHOLE_SIZE
+            reinterpret_cast<const VkBufferCreateInfo*>(dst_values->Info)->size
         },
         // Merge path partitions
         VkBufferMemoryBarrier{
@@ -3830,18 +3831,6 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
             reinterpret_cast<const VkBufferCreateInfo*>(merge_path_partitions->Info)->size
         }
     };
-
-	const VkBufferMemoryBarrier sort_params_host_barrier{
-		VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-		nullptr,
-		VK_ACCESS_HOST_WRITE_BIT,
-		VK_ACCESS_SHADER_READ_BIT,
-		VK_QUEUE_FAMILY_IGNORED,
-		VK_QUEUE_FAMILY_IGNORED,
-		(VkBuffer)sort_params_rsrc->Handle,
-		0u,
-		reinterpret_cast<const VkBufferCreateInfo*>(sort_params_rsrc->Info)->size
-	};
 
     if constexpr (VTF_VALIDATION_ENABLED)
     {
@@ -3869,7 +3858,6 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
         sort_params_local.NumElements = total_values;
         sort_params_local.ChunkSize = chunk_size;
 		rsrc_context.SetBufferData(sort_params_rsrc, 1u, &sort_params_copy);
-		vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0u, 0u, nullptr, 1u, &sort_params_host_barrier, 0u, nullptr);
 
         uint32_t num_sort_groups = num_chunks / 2u;
         uint32_t num_thread_groups_per_sort_group = static_cast<uint32_t>(glm::ceil((chunk_size * 2) / static_cast<float>(num_values_per_thread_group)));
@@ -3928,6 +3916,15 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
 
         chunk_size *= 2u;
         num_chunks = static_cast<uint32_t>(glm::ceil(float(total_values) / float(chunk_size)));
+
+        if ((chunk_size != sort_params_local.NumElements) || (total_values != sort_params_local.NumElements))
+        {
+            // Create new resource
+            const std::string copied_resource_label = std::string{ "MergeSort_SortParams_Recursion" } + std::to_string(pass);
+            sort_params_rsrc = rsrc_context.CreateBuffer(&sort_params_info, nullptr, 1u, &sort_params_copy, resource_usage::CPU_ONLY, ResourceCreateUserDataAsString, (void*)copied_resource_label.c_str());
+            dscr_binder.BindResourceToIdx("SortResources", sort_params_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, sort_params_rsrc);
+            frame.transientResources.emplace_back(sort_params_rsrc); // will be cleared at end of frame
+        }
     }
 
     if (pass % 2u == 1u)
@@ -3948,8 +3945,6 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
     {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
-
-	frame.transientResources.emplace_back(merge_path_partitions);
 
 }
 
