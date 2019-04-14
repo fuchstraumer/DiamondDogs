@@ -717,7 +717,7 @@ void createSortResources(vtf_frame_data_t& frame) {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0, 
-        sizeof(uint32_t),
+        sizeof(uint32_t) * 4,
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		sharing_mode,
         sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
