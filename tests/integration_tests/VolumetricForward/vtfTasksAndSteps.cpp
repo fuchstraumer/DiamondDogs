@@ -2521,7 +2521,7 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 
     */
 
-    auto& rsrc = ResourceContext::Get();
+    auto& rsrc_context = ResourceContext::Get();
     auto binder = frame.descriptorPack->RetrieveBinder("RadixSort");
 
     auto& pointLightIndices = frame.rsrcMap["PointLightIndices"];
@@ -2743,6 +2743,10 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     auto& bvh_params_rsrc = frame.rsrcMap["BVHParams"];
     auto& point_light_bvh = frame.rsrcMap["PointLightBVH"];
     auto& spot_light_bvh = frame.rsrcMap["SpotLightBVH"];
+    auto req_layout = frame.descriptorPack->PipelineLayout("BuildBVH");
+
+    const VkDeviceSize point_light_bvh_size = reinterpret_cast<const VkBufferCreateInfo*>(point_light_bvh->Info)->size;
+    const VkDeviceSize spot_light_bvh_size = reinterpret_cast<const VkBufferCreateInfo*>(spot_light_bvh->Info)->size;
 
     const VkBufferMemoryBarrier point_light_bvh_barrier{
         VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -2753,7 +2757,7 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         VK_QUEUE_FAMILY_IGNORED,
         (VkBuffer)point_light_bvh->Handle,
         0,
-        VK_WHOLE_SIZE
+        point_light_bvh_size
     };
 
     const VkBufferMemoryBarrier spot_light_bvh_barrier{
@@ -2765,7 +2769,7 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         VK_QUEUE_FAMILY_IGNORED,
         (VkBuffer)spot_light_bvh->Handle,
         0,
-        VK_WHOLE_SIZE
+        spot_light_bvh_size
     };
 
     const VkBufferMemoryBarrier bvh_params_barrier{
@@ -2777,7 +2781,7 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         VK_QUEUE_FAMILY_IGNORED,
         (VkBuffer)bvh_params_rsrc->Handle,
         0u,
-        VK_WHOLE_SIZE
+        reinterpret_cast<const VkBufferCreateInfo*>(bvh_params_rsrc->Info)->size
     };
 
     if constexpr (VTF_VALIDATION_ENABLED)
@@ -2785,46 +2789,67 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
-    const VkDeviceSize point_light_bvh_size = reinterpret_cast<const VkBufferCreateInfo*>(point_light_bvh->Info)->size;
     vkCmdFillBuffer(cmd, (VkBuffer)point_light_bvh->Handle, 0u, point_light_bvh_size, 0u);
-    const VkDeviceSize spot_light_bvh_size = reinterpret_cast<const VkBufferCreateInfo*>(spot_light_bvh->Info)->size;
     vkCmdFillBuffer(cmd, (VkBuffer)spot_light_bvh->Handle, 0u, spot_light_bvh_size, 0u);
 
     frame.BVH_Params.PointLightLevels = GetNumLevelsBVH(frame.LightCounts.NumPointLights);
-    
     frame.BVH_Params.SpotLightLevels = GetNumLevelsBVH(frame.LightCounts.NumSpotLights);
-    gpu_resource_data_t bvh_update{ &frame.BVH_Params, sizeof(frame.BVH_Params), 0u, VK_QUEUE_FAMILY_IGNORED };
-
-    //if ((point_light_levels != frame.BVH_Params.PointLightLevels) || (spot_light_levels != frame.BVH_Params.SpotLightLevels)) {
-        rsrc.SetBufferData(bvh_params_rsrc, 1, &bvh_update);
-    //}
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["BuildBVHBottomPipeline"].Handle);
-
-    auto binder = frame.descriptorPack->RetrieveBinder("BuildBVH");
-	binder.Update();
-    binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
-
     uint32_t max_leaves = glm::max(frame.LightCounts.NumPointLights, frame.LightCounts.NumSpotLights);
     uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil(float(max_leaves) / float(BVH_NUM_THREADS)));
-    vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
+
+    gpu_resource_data_t bvh_update{ &frame.BVH_Params, sizeof(frame.BVH_Params), 0u, VK_QUEUE_FAMILY_IGNORED };
+    rsrc.SetBufferData(bvh_params_rsrc, 1, &bvh_update);
+
+    auto binder = frame.descriptorPack->RetrieveBinder("BuildBVH");
+    binder.Update();
+    
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["BuildBVHBottomPipeline"].Handle);
+        binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
+        vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
+    }
+
+    const ThsvsAccessType access_types[2]{
+        THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER,
+        THSVS_ACCESS_COMPUTE_SHADER_WRITE
+    };
+
+    const ThsvsBufferBarrier buffer_barriers[2]{
+        ThsvsBufferBarrier{
+            2u,
+            access_types,
+            2u,
+            access_types,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)point_light_bvh->Handle,
+            0u,
+            reinterpret_cast<const VkBufferCreateInfo*>(point_light_bvh->Info)->size
+        },
+        ThsvsBufferBarrier{
+            2u,
+            access_types,
+            2u,
+            access_types,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)spot_light_bvh->Handle,
+            0u,
+            reinterpret_cast<const VkBufferCreateInfo*>(spot_light_bvh->Info)->size
+        },
+    };
 
     uint32_t max_levels = glm::max(frame.BVH_Params.PointLightLevels, frame.BVH_Params.SpotLightLevels);
     if (max_levels > 0u)
     {
-
         // Won't we need to barrier things more thoroughly? Track this frame in renderdoc!
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["BuildBVHTopPipeline"].Handle);
         for (uint32_t level = max_levels - 1u; level > 0u; --level) {
-            frame.BVH_Params.ChildLevel = level;
-            rsrc.SetBufferData(bvh_params_rsrc, 1, &bvh_update);
-            // need to ensure writes to bvh_params are visible
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &bvh_params_barrier, 0, nullptr);
-            // make sure previous shader finishes and writes are completed before beginning next
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &point_light_bvh_barrier, 0, nullptr);
-            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 1, &spot_light_bvh_barrier, 0, nullptr);
+            thsvsCmdPipelineBarrier(cmd, nullptr, 2u, buffer_barriers, 0u, nullptr);
             uint32_t num_child_nodes = NumLevelNodes[level];
             num_thread_groups = static_cast<uint32_t>(glm::ceil(float(NumLevelNodes[level]) / float(BVH_NUM_THREADS)));
+            const uint32_t pushed_level = level;
+            vkCmdPushConstants(cmd, req_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(uint32_t), &pushed_level);
             vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
         }
     }
@@ -3049,7 +3074,7 @@ void vtfDrawDebugClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     auto& descriptor = frame.descriptorPack->RetrieveBinder("DebugClusters");
     auto& prev_unique_clusters = frame.rsrcMap.at("PreviousUniqueClusters");
     auto& cluster_colors = frame.rsrcMap.at("DebugClusterColors");
-    descriptor.BindResourceToIdx("Debug", 0u, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, cluster_colors);
+    descriptor.BindResourceToIdx("Debug", "ClusterColors", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, cluster_colors);
     descriptor.Update();
     descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
     vkCmdDrawIndirect(cmd, (VkBuffer)frame.rsrcMap.at("DebugClustersIndirectArgs")->Handle, 0u, 1u, sizeof(VkDrawIndirectCommand));
@@ -3230,15 +3255,20 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         { 244.0f / 255.0f, 229.0f / 255.0f, 66.0f / 255.0f, 1.0f }
     };
 
-    const VulkanResource* point_light_index_counter = frame.rsrcMap.at("PointLightIndexCounter");
-    const VulkanResource* spot_light_index_counter = frame.rsrcMap.at("SpotLightIndexCounter");
-    const VulkanResource* point_light_grid = frame.rsrcMap.at("PointLightGrid");
-    const VulkanResource* spot_light_grid = frame.rsrcMap.at("SpotLightGrid");
-    const VulkanResource* point_light_index_list = frame.rsrcMap.at("PointLightIndexList");
-    const VulkanResource* spot_light_index_list = frame.rsrcMap.at("SpotLightIndexList");
-	const VulkanResource* indirect_buffer = frame.rsrcMap.at("IndirectArgs");
+    VulkanResource* point_light_index_counter = frame.rsrcMap.at("PointLightIndexCounter");
+    VulkanResource* spot_light_index_counter = frame.rsrcMap.at("SpotLightIndexCounter");
+    VulkanResource* point_light_grid = frame.rsrcMap.at("PointLightGrid");
+    VulkanResource* spot_light_grid = frame.rsrcMap.at("SpotLightGrid");
+    VulkanResource* point_light_index_list = frame.rsrcMap.at("PointLightIndexList");
+    VulkanResource* spot_light_index_list = frame.rsrcMap.at("SpotLightIndexList");
+	VulkanResource* indirect_buffer = frame.rsrcMap.at("IndirectArgs");
 
-	auto& descriptor = frame.descriptorPack->RetrieveBinder("AssignLightsToClusters");
+	auto descriptor = frame.descriptorPack->RetrieveBinder("AssignLightsToClusters");
+
+    descriptor.BindResourceToIdx("VolumetricForward", "SpotLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
+    descriptor.BindResourceToIdx("VolumetricForward", "PointLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_index_list);
+    descriptor.BindResourceToIdx("VolumetricForward", "SpotLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
+    descriptor.BindResourceToIdx("VolumetricForward", "PointLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
 	descriptor.Update();
 
 	/*
