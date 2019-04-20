@@ -127,6 +127,23 @@ constexpr static VkPipelineColorBlendAttachmentState DefaultBlendingAttachmentSt
     VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
 };
 
+constexpr static VkAccessFlags ALL_ACCESS_FLAGS_MASK =
+    VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_INPUT_ATTACHMENT_READ_BIT |
+    VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT;
+
+constexpr static VkMemoryBarrier GLOBAL_DEBUG_BARRIER{
+    VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+    nullptr,
+    ALL_ACCESS_FLAGS_MASK,
+    ALL_ACCESS_FLAGS_MASK
+};
+
+void InsertGlobalBarrier(VkCommandBuffer cmd) noexcept
+{
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &GLOBAL_DEBUG_BARRIER, 0u, nullptr, 0u, nullptr);
+}
+
 uint32_t GetNumLevelsBVH(uint32_t num_leaves) noexcept {
     static const float log32f = glm::log(32.0f);
 
@@ -141,7 +158,7 @@ uint32_t GetNumLevelsBVH(uint32_t num_leaves) noexcept {
 uint32_t GetNumNodesBVH(uint32_t num_leaves) noexcept {
     uint32_t num_levels = GetNumLevelsBVH(num_leaves);
     uint32_t num_nodes = 0;
-    if (num_levels > 0 && num_levels < _countof(NumBVHNodes)) {
+    if (num_levels > 0 && num_levels < 6u) {
         num_nodes = NumBVHNodes[num_levels - 1];
     }
 
@@ -303,8 +320,8 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
 	const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
     const std::array<uint32_t, 3> queue_family_indices{ graphics_idx, compute_idx, transfer_idx };
 
-    float fov_y = glm::radians(70.0f);
-    float z_near = 0.001f;
+    float fov_y = glm::radians(70.0f * 0.5f);
+    float z_near = 0.01f;
     float z_far = 3000.0f;
     frame.Globals.depthRange = glm::vec2(z_near, z_far);
 
@@ -316,7 +333,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
     uint32_t cluster_dim_x = static_cast<uint32_t>(glm::ceil(window_width / float(CLUSTER_GRID_BLOCK_SIZE)));
     uint32_t cluster_dim_y = static_cast<uint32_t>(glm::ceil(window_height / float(CLUSTER_GRID_BLOCK_SIZE)));
 
-    float sD = 2.0f * glm::tan(fov_y) / float(cluster_dim_y);
+    float sD = (2.0f * glm::tan(fov_y)) / float(cluster_dim_y);
     float log_dim_y = 1.0f / glm::log(1.0f + sD);
     float log_depth = glm::log(z_far / z_near);
 
@@ -3146,6 +3163,7 @@ void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     uint32_t max_clusters = frame.ClusterData.GridDim.x * frame.ClusterData.GridDim.y * frame.ClusterData.GridDim.z;
     uint32_t num_thread_groups = static_cast<uint32_t>(glm::ceil((float)max_clusters / 1024.0f));
     vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
+    // probably don't need this since the other stuff is in a separate submit?
     thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(buffer_barriers.size()), buffer_barriers.data(), 0u, nullptr);
 
     if constexpr (VTF_VALIDATION_ENABLED) {
@@ -3226,6 +3244,7 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     VulkanResource* point_light_index_list = frame.rsrcMap.at("PointLightIndexList");
     VulkanResource* spot_light_index_list = frame.rsrcMap.at("SpotLightIndexList");
 	VulkanResource* indirect_buffer = frame.rsrcMap.at("IndirectArgs");
+    VulkanResource* unique_clusters = frame.rsrcMap.at("UniqueClusters");
 
 	auto descriptor = frame.descriptorPack->RetrieveBinder("AssignLightsToClusters");
 
@@ -3245,15 +3264,28 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 		PointLightIndexCounter, SpotLightIndexCounter
 	*/
 
+    constexpr static std::array<ThsvsAccessType, 2> rw_access_types{
+        THSVS_ACCESS_COMPUTE_SHADER_WRITE,
+        THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
+    };
+
+    constexpr static ThsvsGlobalBarrier global_barrier{
+        static_cast<uint32_t>(rw_access_types.size()),
+        rw_access_types.data(),
+        static_cast<uint32_t>(rw_access_types.size()),
+        rw_access_types.data()
+    };
+
 	constexpr static std::array<ThsvsAccessType, 1> writeonly_access_types {
 		THSVS_ACCESS_COMPUTE_SHADER_WRITE
 	};
 
-	constexpr static std::array<ThsvsAccessType, 1> readonly_access_types {
-        THSVS_ACCESS_FRAGMENT_SHADER_READ_OTHER
+	constexpr static std::array<ThsvsAccessType, 2> readonly_access_types {
+        THSVS_ACCESS_FRAGMENT_SHADER_READ_OTHER,
+        THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
 	};
 
-    const std::array<ThsvsBufferBarrier, 4> assign_lights_barriers {
+    const std::array<ThsvsBufferBarrier, 5> assign_lights_barriers {
 		ThsvsBufferBarrier{
             static_cast<uint32_t>(writeonly_access_types.size()),
 			writeonly_access_types.data(),
@@ -3297,6 +3329,17 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
             (VkBuffer)spot_light_grid->Handle,
             0u,
             reinterpret_cast<const VkBufferCreateInfo*>(spot_light_grid->Info)->size
+        },
+        ThsvsBufferBarrier{
+            static_cast<uint32_t>(readonly_access_types.size()),
+            readonly_access_types.data(),
+            static_cast<uint32_t>(readonly_access_types.size()),
+            readonly_access_types.data(),
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)unique_clusters->Handle,
+            0u,
+            reinterpret_cast<const VkBufferCreateInfo*>(unique_clusters->Info)->size
         }
     };
 
@@ -3344,7 +3387,7 @@ void submitPreSwapchainWritingWork(vtf_frame_data_t& frame, uint32_t num_cmds, V
         frame.semaphores.at("PreBackbufferWorkComplete")->vkHandle()
     };
 
-	constexpr static VkPipelineStageFlags wait_mask[2]{ VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT }; // we're waiting a bit early tbh
+	constexpr static VkPipelineStageFlags wait_mask[2]{ VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT }; // we're waiting a bit early tbh
 
     const VkSubmitInfo submit_info{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -3576,7 +3619,7 @@ void SubmitGraphicsWork(vtf_frame_data_t& frame)
     auto* device = RenderingContext::Get().Device();
 
     // Need to wait for these as we use the depth pre-pass' output iirc?
-	constexpr static VkPipelineStageFlags wait_mask[2]{ VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+	constexpr static VkPipelineStageFlags wait_mask[2]{ VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
 
     const VkSubmitInfo submit_info{
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
