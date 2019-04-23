@@ -12,23 +12,28 @@ static std::atomic<int64_t> gSetsAlive{ 0u };
 
 Descriptor::Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ, 
     std::unordered_map<std::string, size_t> binding_locs, const char* _name) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), 
-    bindingLocations{ binding_locs }, typeCounts{ rsrc_counts }, name{ _name } {
+    bindingLocations{ binding_locs }, typeCounts{ rsrc_counts }, name{ _name }
+{
 	createPool();
 }
 
 Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate * _templ, std::unordered_map<std::string, size_t>&& binding_locations) : device{ _device }, maxSets{ uint32_t(max_sets) },
-    templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), bindingLocations{ std::move(binding_locations) }, typeCounts{ rsrc_counts } {
+    templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), bindingLocations{ std::move(binding_locations) }, typeCounts{ rsrc_counts }
+{
     createPool();
 }
 
-Descriptor::~Descriptor() {
+Descriptor::~Descriptor()
+{
     Reset();
 }
 
-void Descriptor::Reset() {
+void Descriptor::Reset()
+{
     std::lock_guard reset_lock(poolMutex);
 
-    if (descriptorPools.size() == 1u) {
+    if (descriptorPools.size() == 1u && maxSets != 0u)
+    {
         // when we're allocating one large descriptor pool, we're gonna check to see if we should shrink it a bit
 
         size_t low_load_factor_mark = availSets.size() / 2u;
@@ -56,7 +61,12 @@ void Descriptor::Reset() {
         assert(usedSets.empty());
 
     }
-    else {
+    else if (maxSets == 0u && setContainerIdx == 0u)
+    {
+        return;
+    }
+    else
+    {
         uint32_t used_sets = setContainerIdx;
         VkResult result = vkFreeDescriptorSets(device->vkHandle(), activePool->vkHandle(), static_cast<uint32_t>(availSets.size()), availSets.data());
         size_t sets_destroyed = availSets.size();
@@ -92,21 +102,26 @@ void Descriptor::Reset() {
 
 }
 
-size_t Descriptor::TotalUsedSets() const {
+size_t Descriptor::TotalUsedSets() const
+{
     return usedSets.size() + 1;
 }
 
-void Descriptor::BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc) {
+void Descriptor::BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc)
+{
     templ->BindResourceToIdx(idx, type, rsrc);
 }
 
-size_t Descriptor::BindingLocation(const char * rsrc_name) const {
+size_t Descriptor::BindingLocation(const char * rsrc_name) const
+{
     return bindingLocations.at(rsrc_name);
 }
 
-VkDescriptorSet Descriptor::fetchNewSet() noexcept {
+VkDescriptorSet Descriptor::fetchNewSet() noexcept
+{
 	// for single-set containers we need to just create a new pack now
-    if ((setContainerIdx == (availSets.size() - 1u)) || (maxSets == 1u)) {
+    if ((setContainerIdx == (availSets.size() - 1u)) || (maxSets == 1u))
+    {
         // expand capacity of spare sets
         std::lock_guard add_pool_guard(poolMutex);
         createPool();
@@ -115,7 +130,8 @@ VkDescriptorSet Descriptor::fetchNewSet() noexcept {
     return availSets[setContainerIdx.fetch_add(1u)];
 }
 
-void Descriptor::allocateSets() {
+void Descriptor::allocateSets()
+{
 
     const VkDescriptorSetAllocateInfo alloc_info{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -124,6 +140,11 @@ void Descriptor::allocateSets() {
         maxSets,
         setLayouts.data()
     };
+
+    if (maxSets == 0u)
+    {
+        return;
+    }
 
     availSets.resize(maxSets, VK_NULL_HANDLE);
     VkResult result = vkAllocateDescriptorSets(device->vkHandle(), &alloc_info, availSets.data());
@@ -144,10 +165,17 @@ void Descriptor::allocateSets() {
 
 }
 
-void Descriptor::createPool() {
-    if (!availSets.empty()) {
+void Descriptor::createPool()
+{
+    if (!availSets.empty())
+    {
         usedSets.emplace_back(std::move(availSets));
     }
+    else if (maxSets == 0u)
+    {
+        return;
+    }
+
     descriptorPools.emplace_back(std::make_unique<vpr::DescriptorPool>(device->vkHandle(), maxSets));
     activePool = descriptorPools.back().get();
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, typeCounts.UniformBuffers * maxSets);
