@@ -130,8 +130,9 @@ public:
     bool updateUniqueClusters{ true };
     bool frameRecreate{ false };    
     bool renderDebugClusters{ true };
+    bool optimizedLighting{ false };
     vpr::VkDebugUtilsFunctions vkDebugFns;
-    glm::mat4 previousViewMatrix;
+    glm::mat4 previousViewMatrix = glm::mat4(1.0f);
 
     /*
         Static resources: all of these should really not be duplicated across frames/threads
