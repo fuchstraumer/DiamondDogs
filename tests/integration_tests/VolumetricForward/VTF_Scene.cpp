@@ -46,6 +46,8 @@ struct vertex_t
 constexpr static float GOLDEN_RATIO = 1.6180339887498948482045f;
 constexpr static float FLOAT_PI = 3.14159265359f;
 
+const static glm::vec3 CameraPosition = glm::vec3(-8.0f, -8.0f, 4.0f);
+
 static const std::array<glm::vec3, 12> ICOSPHERE_INITIAL_VERTICES{
     glm::vec3{-GOLDEN_RATIO, 1.0f, 0.0f },
     glm::vec3{ GOLDEN_RATIO, 1.0f, 0.0f },
@@ -165,6 +167,7 @@ struct TestIcosphereMesh
             const glm::vec2& uv2 = Vertices[Indices[i * 3u + 2u]].UV;
             const float d1 = uv1.x - uv0.x;
             const float d2 = uv2.x - uv0.x;
+
             if (std::abs(d1) > 0.5f && std::abs(d2) > 0.5f)
 			{
                 add_vertex_w_uv(i * 3, uv0 + glm::vec2((d1 > 0.0f) ? 1.0f : -1.0f, 0.0f));
@@ -271,57 +274,11 @@ struct TestIcosphereMesh
 
     void Render(VkCommandBuffer cmd, DescriptorBinder* binder, vtf_frame_data_t::render_type render_type)
 	{
-		static bool first_render{ true };
-
         constexpr static VkDebugUtilsLabelEXT debug_label{
             VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
             nullptr,
             "RenderTestIcosphere",
             { 30.0f / 255.0f, 180.0f / 255.0f, 95.0f / 255.0f, 1.0f }
-        };
-
-		/*
-			Transition images
-			Only need to do this once across threads
-		*/
-        auto first_render_mem_fn = [&](const VkCommandBuffer cmd)
-        {
-            const uint32_t transfer_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Transfer;
-            const uint32_t graphics_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Graphics;
-
-            const ThsvsAccessType starting_access_type[1]{
-                THSVS_ACCESS_TRANSFER_WRITE
-            };
-
-            const ThsvsAccessType final_access_types[2]{
-                THSVS_ACCESS_VERTEX_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER,
-                THSVS_ACCESS_FRAGMENT_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER
-            };
-
-            const ThsvsImageBarrier barrier_base{
-                1u,
-                starting_access_type,
-                2u,
-                final_access_types,
-                THSVS_IMAGE_LAYOUT_OPTIMAL,
-                THSVS_IMAGE_LAYOUT_OPTIMAL,
-                VK_FALSE,
-                transfer_idx,
-                graphics_idx,
-                VK_NULL_HANDLE,
-                VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-            };
-
-            std::array<ThsvsImageBarrier, 5> image_barriers;
-            image_barriers.fill(barrier_base);
-            image_barriers[0].image = (VkImage)AlbedoTexture->Handle;
-            image_barriers[1].image = (VkImage)NormalMap->Handle;
-            image_barriers[2].image = (VkImage)AmbientOcclusionTexture->Handle;
-            image_barriers[3].image = (VkImage)MetallicMap->Handle;
-            image_barriers[4].image = (VkImage)RoughnessMap->Handle;
-
-            thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, static_cast<uint32_t>(image_barriers.size()), image_barriers.data());
-
         };
 
         constexpr static VkDeviceSize offsets_dummy[1]{ 0u };
@@ -334,10 +291,6 @@ struct TestIcosphereMesh
             if constexpr (VTF_VALIDATION_ENABLED) 
             {
                 RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
-            }
-            if (first_render)
-            {
-                first_render_mem_fn(cmd);
             }
             vkCmdSetViewport(cmd, 0u, 1u, &viewport);
             vkCmdSetScissor(cmd, 0u, 1u, &scissor);
@@ -352,8 +305,6 @@ struct TestIcosphereMesh
         default:
             break; // break for rest, e.g transparents
         };
-
-		first_render = false;
 
     }
 
@@ -474,6 +425,7 @@ static PointLight GenerateLight<PointLight>(const glm::vec4& position_ws, const 
     result.positionWS = position_ws;
     result.color = color;
     result.range = range;
+    result.intensity = glm::linearRand(0.6f, 1.0f);
     return result;
 }
 
@@ -486,6 +438,7 @@ static SpotLight GenerateLight<SpotLight>(const glm::vec4& position_ws, const gl
     result.spotlightAngle = spot_angle;
     result.range = range;
     result.color = color;
+    result.intensity = glm::linearRand(0.5f, 1.0f);
     return result;
 }
 
@@ -495,13 +448,15 @@ static DirectionalLight GenerateLight<DirectionalLight>(const glm::vec4& positio
     DirectionalLight result{};
     result.directionWS = direction_ws;
     result.color = color;
+    result.intensity = glm::linearRand(0.5f, 1.0f);
     return result;
 }
 
 template<typename LightType>
 static std::vector<LightType> GenerateLights(uint32_t num_lights)
 {
-    std::vector<LightType> lights(num_lights);
+    std::vector<LightType> lights;
+    lights.resize(num_lights, LightType{});
 
     for (auto& light : lights) {
         glm::vec4 position_ws = glm::vec4{ glm::linearRand(SceneConfig.LightsMinBounds, SceneConfig.LightsMaxBounds), 1.0f };
@@ -517,9 +472,9 @@ static std::vector<LightType> GenerateLights(uint32_t num_lights)
 
 void GenerateLights()
 {
-    SceneLightsState().PointLights = std::move(GenerateLights<PointLight>(SceneConfig.NumPointLights));
-    SceneLightsState().SpotLights = std::move(GenerateLights<SpotLight>(SceneConfig.NumSpotLights));
-    SceneLightsState().DirectionalLights = std::move(GenerateLights<DirectionalLight>(SceneConfig.NumDirectionalLights));
+    SceneLightsState().PointLights = GenerateLights<PointLight>(SceneConfig.NumPointLights);
+    SceneLightsState().SpotLights = GenerateLights<SpotLight>(SceneConfig.NumSpotLights);
+    SceneLightsState().DirectionalLights = GenerateLights<DirectionalLight>(SceneConfig.NumDirectionalLights);
 	uint32_t x, y, z;
 	CalculateGridDims(x, y, z);
 	SceneLightsState().ClusterColors = std::move(GenerateColors(x * y * z));
@@ -770,6 +725,12 @@ VulkanResource* VTF_Scene::loadTexture(const char* file_path_str, const char* im
         throw std::runtime_error("Bad format");
     }
 
+    const auto* device = RenderingContext::Get().Device();
+    const uint32_t transfer_idx = device->QueueFamilyIndices().Transfer;
+    const uint32_t graphics_idx = device->QueueFamilyIndices().Graphics;
+    const VkSharingMode sharing_mode = (transfer_idx != graphics_idx) ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
+    const std::array<uint32_t, 2> queue_family_indices{ graphics_idx, transfer_idx };
+
     const VkImageCreateInfo img_create_info{
         VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         nullptr,
@@ -782,9 +743,9 @@ VulkanResource* VTF_Scene::loadTexture(const char* file_path_str, const char* im
         VK_SAMPLE_COUNT_1_BIT,
         vprObjects.device->GetFormatTiling(img_format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT),
         VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr,
+        sharing_mode,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr,
         VK_IMAGE_LAYOUT_UNDEFINED
     };
 
