@@ -5,10 +5,18 @@
 #include "glm/vec3.hpp"
 #include "glm/gtc/quaternion.hpp"
 
-struct PerspectiveCamera {
+struct CameraController
+{
+    static void UpdateMovement() noexcept;
+    static inline float MovementSpeed{ 10.0f };
+};
+
+struct PerspectiveCamera
+{
 
     static PerspectiveCamera& Get();
 
+    void Initialize(float fov, float near_plane, float far_plane, glm::vec3 pos, glm::vec3 dir);
 	void LookAt(const glm::vec3& dir, const glm::vec3& up, const glm::vec3& position);
 
     float FarPlane() const noexcept;
@@ -18,8 +26,14 @@ struct PerspectiveCamera {
     const glm::vec3& Position() const noexcept;
     const glm::mat4& ProjectionMatrix() const noexcept;
     const glm::mat4& ViewMatrix() const noexcept;
+    glm::vec3 FrontVector() const noexcept;
+    glm::vec3 RightVector() const noexcept;
 
     void SetOrientation(glm::quat _orientation);
+    void SetPosition(glm::vec3 _pos) noexcept;
+    void SetNearPlane(float near_plane) noexcept;
+    void SetFarPlane(float far_plane) noexcept;
+    void SetFOV(float fov) noexcept;
 
     static void UpdateMouseMovement();
 

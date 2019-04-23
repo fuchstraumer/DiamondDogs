@@ -28,6 +28,7 @@
 #include <future>
 #include "ImGuiWrapper.hpp"
 #include <thsvs_simpler_vulkan_synchronization.h>
+#include "glm/gtc/type_ptr.hpp"
 
 const st::ShaderPack* vtfShaders{ nullptr }; 
 //SceneState_t SceneLightsState{};
@@ -537,9 +538,7 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data)
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
 
 	auto& camera = PerspectiveCamera::Get();
-	glm::vec3 position{ 0.0f, 6.0f, -6.0f };
-	glm::vec3 look_dir = glm::vec3(0.0f) - position;
-	camera.LookAt(look_dir, glm::vec3(0.0f, 1.0f, 0.0f), position);
+    camera.Initialize(glm::radians(70.0f), 0.01f, 3000.0f, CameraPosition, glm::vec3(0.0f) - CameraPosition);
 
     CreateShaders(vtfShaders);
 	createIcosphereTester();
@@ -609,17 +608,17 @@ constexpr VkCommandBufferBeginInfo base_info{
 
 void VTF_Scene::updateGlobalUBOs()
 {
-
-	//auto& imgui_io = ImGui::GetIO();
 	auto& extent = vprObjects.swapchain->Extent();
 	auto& curr_frame = *frames[activeFrame];
 	auto& camera = PerspectiveCamera::Get();
 	auto& resource_context = ResourceContext::Get();
     ImGuiWrapper::GetImGuiWrapper().NewFrame();
+    PerspectiveCamera::Get().UpdateMouseMovement();
+    CameraController::UpdateMovement();
 
-	curr_frame.Matrices.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(extent.width), static_cast<float>(extent.height), 0.001f, 3000.0f);
-    //curr_frame.Matrices.projection[1][1] *= -1.0f;
-	curr_frame.Matrices.view = glm::lookAt(glm::vec3(-8.0f, -8.0f, 4.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+	curr_frame.Matrices.projection = camera.ProjectionMatrix();
+    curr_frame.Matrices.projection[1][1] *= -1.0f;
+	curr_frame.Matrices.view = camera.ViewMatrix();
 	curr_frame.Matrices.inverseView = glm::inverse(curr_frame.Matrices.view);
 	curr_frame.Matrices.model = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
     curr_frame.Matrices.modelView = curr_frame.Matrices.view * curr_frame.Matrices.model;
@@ -636,10 +635,10 @@ void VTF_Scene::updateGlobalUBOs()
     VulkanResource* lights_matrices = curr_frame.rsrcMap.at("debugLightsMatrices");
     resource_context.SetBufferData(lights_matrices, 1u, &matrices_update);
 
-	curr_frame.Globals.depthRange.x = 0.001f;
-	curr_frame.Globals.depthRange.y = 3000.0f;
+	curr_frame.Globals.depthRange.x = camera.NearPlane();
+	curr_frame.Globals.depthRange.y = camera.FarPlane();
 	curr_frame.Globals.frame++;
-	curr_frame.Globals.viewPosition = glm::vec4(-8.0f, -8.0f, 4.0f, 1.0f);
+    curr_frame.Globals.viewPosition = glm::vec4(camera.Position(), 1.0f);
 	curr_frame.Globals.windowSize.x = static_cast<float>(extent.width);
 	curr_frame.Globals.windowSize.y = static_cast<float>(extent.height);
 	VulkanResource* globals_rsrc = curr_frame.rsrcMap.at("globals");
@@ -666,10 +665,9 @@ void VTF_Scene::update()
 	updateGlobalUBOs();
     // compute updates
 	vtf_frame_data_t& curr_frame = *frames[activeFrame];
-	if (!frameSingleExecComputeWorkDone[activeFrame])
+	if (curr_frame.updateUniqueClusters)
 	{
 		UpdateClusterGrid(curr_frame);
-		frameSingleExecComputeWorkDone[activeFrame] = true;
 	}
 	ComputeUpdate(curr_frame);
 }
@@ -677,9 +675,20 @@ void VTF_Scene::update()
 void VTF_Scene::recordCommands()
 {
     static bool render_debug_clusters{ true };
+    static bool update_unique_clusters{ true };
+    static bool use_optimized_lighting{ false };
+
     ImGui::Begin("VTF Debug");
         ImGui::Checkbox("Render Debug Clusters", &render_debug_clusters);
         frames[activeFrame]->renderDebugClusters = render_debug_clusters;
+        if (ImGui::Button("Regenerate Lights"))
+        {
+            GenerateLights();
+        }
+        ImGui::Checkbox("Update Unique Clusters", &update_unique_clusters);
+        frames[activeFrame]->updateUniqueClusters = update_unique_clusters;
+        ImGui::Checkbox("Optimized Lighting", &use_optimized_lighting);
+        frames[activeFrame]->optimizedLighting = use_optimized_lighting;
     ImGui::End();
     ImGuiWrapper::GetImGuiWrapper().EndImGuiFrame();
 	RenderVtf(*frames[activeFrame]);
@@ -692,16 +701,7 @@ void VTF_Scene::draw() {
 
 void VTF_Scene::endFrame() 
 {
-    static bool first_end_frame{ true };
-    auto& resource_context = ResourceContext::Get();
-    const std::string output_file_name = std::string{ "MemoryStatsEndFrame" } +std::to_string(activeFrame) + std::string(".json");
-    resource_context.WriteMemoryStatsFile(output_file_name.c_str());
     frames[activeFrame]->descriptorPack->EndFrame();
-    if (first_end_frame)
-    {
-        FlushShaderCaches(*frames[activeFrame]);
-        first_end_frame = false;
-    }
 	activeFrame = (activeFrame + 1u) % frames.size();;
 }
 

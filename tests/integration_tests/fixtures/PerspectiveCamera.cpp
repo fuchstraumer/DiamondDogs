@@ -8,6 +8,7 @@
 #include "glm/gtc/matrix_transform.hpp"
 #include "glm/gtc/matrix_access.hpp"
 #include "imgui/imgui.h"
+#include "GLFW/glfw3.h"
 
 inline glm::quat rotate_vec(glm::vec3 from, glm::vec3 to) {
     from = glm::normalize(from);
@@ -54,7 +55,7 @@ inline glm::quat rotate_vec_axis(glm::vec3 from, glm::vec3 to, glm::vec3 axis) {
 }
 
 inline glm::quat look_at(const glm::vec3& dir, const glm::vec3& up) {
-    static const glm::vec3 z{ 0.0f, 0.0f, 1.0f };
+    static const glm::vec3 z{ 0.0f, 0.0f,-1.0f };
     static const glm::vec3 y{ 0.0f, 1.0f, 0.0f };
     glm::vec3 norm_dir = glm::normalize(dir);
     glm::vec3 right = glm::cross(norm_dir, up);
@@ -67,6 +68,18 @@ inline glm::quat look_at(const glm::vec3& dir, const glm::vec3& up) {
 PerspectiveCamera& PerspectiveCamera::Get() {
     static PerspectiveCamera camera;
     return camera;
+}
+
+void PerspectiveCamera::Initialize(float fov, float near_plane, float far_plane, glm::vec3 pos, glm::vec3 dir)
+{
+    fovY = fov;
+    zNear = near_plane;
+    zFar = far_plane;
+    position = std::move(pos);
+    const static glm::vec3 upVector = glm::vec3(0.0f, 1.0f, 0.0f);
+    orientation = look_at(dir, upVector);
+    viewUpdated = false;
+    projectionUpdated = false;
 }
 
 void PerspectiveCamera::LookAt(const glm::vec3& dir, const glm::vec3& up, const glm::vec3& _position)
@@ -110,18 +123,58 @@ const glm::mat4& PerspectiveCamera::ViewMatrix() const noexcept {
     return view;
 }
 
+glm::vec3 PerspectiveCamera::FrontVector() const noexcept
+{
+    static const glm::vec3 zDir{ 0.0f, 0.0f, -1.0f };
+    return glm::conjugate(orientation) * zDir;
+}
+
+glm::vec3 PerspectiveCamera::RightVector() const noexcept
+{
+    static const glm::vec3 rightDir{ 1.0f, 0.0f, 0.0f };
+    return glm::conjugate(orientation) * rightDir;
+}
+
 void PerspectiveCamera::SetOrientation(glm::quat _orientation) {
     orientation = std::move(_orientation);
     viewUpdated = false;
 }
 
+void PerspectiveCamera::SetPosition(glm::vec3 _pos) noexcept
+{
+    position = std::move(_pos);
+    viewUpdated = false;
+}
+
+void PerspectiveCamera::SetNearPlane(float near_plane) noexcept
+{
+    zNear = std::move(near_plane);
+    projectionUpdated = false;
+}
+
+void PerspectiveCamera::SetFarPlane(float far_plane) noexcept
+{
+    zFar = std::move(far_plane);
+    projectionUpdated = false;
+}
+
+void PerspectiveCamera::SetFOV(float fov) noexcept
+{
+    fovY = std::move(fov);
+    projectionUpdated = false;
+}
+
 void PerspectiveCamera::UpdateMouseMovement() {
     PerspectiveCamera& instance = Get();
     const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse || io.KeysDown[GLFW_KEY_LEFT_ALT])
+    {
+        return;
+    }
     const float& dx = io.MouseDelta.x;
     const float& dy = io.MouseDelta.y; 
-    glm::quat pitch = glm::angleAxis(dy * 0.02f, glm::vec3{ 1.0f, 0.0f, 0.0f });
-    glm::quat yaw = glm::angleAxis(dx * 0.02f, glm::vec3{ 0.0f, 1.0f, 0.0f });
+    glm::quat pitch = glm::angleAxis(dy * 0.01f, glm::vec3{ 1.0f, 0.0f, 0.0f });
+    glm::quat yaw = glm::angleAxis(dx * 0.01f, glm::vec3{ 0.0f, 1.0f, 0.0f });
     instance.SetOrientation(glm::quat{ glm::normalize(pitch * instance.Orientation() * yaw) });
 }
 
@@ -136,4 +189,40 @@ void PerspectiveCamera::updateProjection() const {
 void PerspectiveCamera::updateView() const {
     view = glm::mat4_cast(orientation) * glm::translate(-position);
     viewUpdated = true;
+}
+
+void CameraController::UpdateMovement() noexcept
+{
+    auto& camera = PerspectiveCamera::Get();
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureKeyboard)
+    {
+        return;
+    }
+
+    float currSpeed = io.KeysDown[GLFW_KEY_LEFT_SHIFT] ? MovementSpeed * 2.0f : MovementSpeed;
+    const glm::vec3 frontVector = camera.FrontVector();
+    const glm::vec3 rightVector = camera.RightVector();
+
+    if (io.KeysDown[GLFW_KEY_W])
+    {
+        camera.SetPosition(camera.Position() + MovementSpeed * frontVector * io.DeltaTime);
+    }
+
+    if (io.KeysDown[GLFW_KEY_S])
+    {
+        camera.SetPosition(camera.Position() + MovementSpeed * -frontVector * io.DeltaTime);
+    }
+
+    if (io.KeysDown[GLFW_KEY_A])
+    {
+        camera.SetPosition(camera.Position() + MovementSpeed * rightVector * io.DeltaTime);
+    }
+
+    if (io.KeysDown[GLFW_KEY_D])
+    {
+        camera.SetPosition(camera.Position() + MovementSpeed * -rightVector * io.DeltaTime);
+    }
+
 }

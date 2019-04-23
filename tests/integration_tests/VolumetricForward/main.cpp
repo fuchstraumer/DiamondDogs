@@ -97,6 +97,7 @@ int main(int argc, char* argv[]) {
     scene.Construct(RequiredVprObjects{ ctxt.Device(), ctxt.PhysicalDevice(), ctxt.Instance(), ctxt.Swapchain() }, vtfPack.get());
 
     while (!ctxt.ShouldWindowClose()) {
+        RenderingContext::Get().Update();
         ctxt.Update();
         scene.Render(nullptr);
     }
