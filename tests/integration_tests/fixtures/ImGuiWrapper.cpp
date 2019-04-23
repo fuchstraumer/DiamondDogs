@@ -135,8 +135,6 @@ void ScrollCallback(double x_offset, double y_offset) {
     auto& io = ImGui::GetIO();
     io.MouseWheelH += static_cast<float>(x_offset);
     io.MouseWheel += static_cast<float>(y_offset);
-    //auto& arc = ArcballCamera::GetCamera();
-    //arc.ScrollAmount += static_cast<float>(y_offset);
 }
 
 void CharCallback(unsigned int code_point) {
@@ -330,38 +328,43 @@ void ImGuiWrapper::DrawFrame(size_t frame_idx, VkCommandBuffer & cmd) {
 
     if (first_frame)
     {
-        // barrier to transition ownership
-
-        auto* device = RenderingContext::Get().Device();
+        // check to see if we need to transition things
         const uint32_t graphics_idx = device->QueueFamilyIndices().Graphics;
         const uint32_t transfer_idx = device->QueueFamilyIndices().Transfer;
 
-        const ThsvsAccessType starting_access_type[1]{
-            THSVS_ACCESS_TRANSFER_WRITE
-        };
+        const VkImageCreateInfo* image_info = reinterpret_cast<const VkImageCreateInfo*>(fontImage->Info);
+        if ((graphics_idx != transfer_idx) && (image_info->sharingMode == VK_SHARING_MODE_EXCLUSIVE))
+        {
+            // gotta transition it
+            // barrier to transition ownership
 
-        const ThsvsAccessType final_access_types[2]{
-            THSVS_ACCESS_VERTEX_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER,
-            THSVS_ACCESS_FRAGMENT_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER
-        };
+            const ThsvsAccessType starting_access_type[1]{
+                THSVS_ACCESS_TRANSFER_WRITE
+            };
 
-        const ThsvsImageBarrier barrier_base{
-            1u,
-            starting_access_type,
-            2u,
-            final_access_types,
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            VK_FALSE,
-            transfer_idx,
-            graphics_idx,
-            (VkImage)fontImage->Handle,
-            VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-        };
+            const ThsvsAccessType final_access_types[2]{
+                THSVS_ACCESS_VERTEX_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER,
+                THSVS_ACCESS_FRAGMENT_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER
+            };
 
-        thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 1u, &barrier_base);
-        
+            const ThsvsImageBarrier barrier_base{
+                1u,
+                starting_access_type,
+                2u,
+                final_access_types,
+                THSVS_IMAGE_LAYOUT_OPTIMAL,
+                THSVS_IMAGE_LAYOUT_OPTIMAL,
+                VK_FALSE,
+                transfer_idx,
+                graphics_idx,
+                (VkImage)fontImage->Handle,
+                VkImageSubresourceRange { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+            };
+
+            thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 1u, &barrier_base);
+        }
     }
+
     const auto& io = ImGui::GetIO();
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->vkHandle());
@@ -432,6 +435,11 @@ void ImGuiWrapper::loadFontData() {
 
 void ImGuiWrapper::createFontImage() {
 
+    const uint32_t graphics_idx = device->QueueFamilyIndices().Graphics;
+    const uint32_t transfer_idx = device->QueueFamilyIndices().Transfer;
+    const VkSharingMode sharing_mode = graphics_idx != transfer_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
+    const std::array<uint32_t, 2> queue_family_indices{ graphics_idx, transfer_idx };
+
     const VkImageCreateInfo image_info{
         VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         nullptr,
@@ -444,9 +452,9 @@ void ImGuiWrapper::createFontImage() {
         VK_SAMPLE_COUNT_1_BIT,
         device->GetFormatTiling(VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT),
         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr,
+        sharing_mode,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+        sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr,
         VK_IMAGE_LAYOUT_UNDEFINED
     };
 
@@ -469,7 +477,7 @@ void ImGuiWrapper::createFontImage() {
         0,
         1,
         0,
-		device->QueueFamilyIndices().Graphics
+		VK_QUEUE_FAMILY_IGNORED
     };
 
     fontImage = resourceContext->CreateImage(&image_info, &view_info, 1, &image_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, "ImGuiFontImage");
