@@ -494,30 +494,13 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         point_light_grid_info.size
     };
 
-    auto& point_light_grid = frame.rsrcMap["PointLightGrid"];
-    if (point_light_grid) {
-        rsrc_context.DestroyResource(point_light_grid);
-    }
-    point_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightGrid");
-    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightGrid"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
-
-    auto& spot_light_grid = frame.rsrcMap["SpotLightGrid"];
-    if (spot_light_grid) {
-        rsrc_context.DestroyResource(spot_light_grid);
-    }
-    spot_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightGrid");
-    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightGrid"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
-
-    resourcesToZeroInit.emplace_back(point_light_grid);
-    resourcesToZeroInit.emplace_back(spot_light_grid);
-
     const VkBufferCreateInfo indices_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
         LIGHT_INDEX_LIST_SIZE * sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-		sharing_mode,
+        sharing_mode,
         sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
         sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
@@ -532,30 +515,13 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         indices_info.size
     };
 
-    auto& point_light_idx_list = frame.rsrcMap["PointLightIndexList"];
-    if (point_light_idx_list) {
-        rsrc_context.DestroyResource(point_light_idx_list);
-    }
-    point_light_idx_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightIndexList");
-    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightIndexList"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_idx_list);
-
-    auto& spot_light_index_list = frame.rsrcMap["SpotLightIndexList"];
-    if (spot_light_index_list) {
-        rsrc_context.DestroyResource(spot_light_index_list);
-    }
-    spot_light_index_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightIndexList");
-    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightIndexList"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
-
-    resourcesToZeroInit.emplace_back(point_light_idx_list);
-    resourcesToZeroInit.emplace_back(spot_light_index_list);
-
     const VkBufferCreateInfo counter_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
-        sizeof(uint32_t),
+        256u,
         VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-		sharing_mode,
+        sharing_mode,
         sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
         sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr
     };
@@ -570,21 +536,67 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         sizeof(uint32_t)
     };
 
-    frame.rsrcMap["PointLightIndexCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightIndexCounter");
-    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightIndexCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightIndexCounter"));
-    frame.rsrcMap["SpotLightIndexCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightIndexCounter");
-    vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightIndexCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightIndexCounter"));
+    const bool havePointLights = !SceneLightsState().PointLights.empty();
+    const bool haveSpotLights = !SceneLightsState().SpotLights.empty();
+
+    if (havePointLights) 
+    {
+
+        auto& point_light_grid = frame.rsrcMap["PointLightGrid"];
+        if (point_light_grid) {
+            rsrc_context.DestroyResource(point_light_grid);
+        }
+        point_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightGrid");
+        vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightGrid"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
+        resourcesToZeroInit.emplace_back(point_light_grid);
+
+        auto& point_light_idx_list = frame.rsrcMap["PointLightIndexList"];
+        if (point_light_idx_list) {
+            rsrc_context.DestroyResource(point_light_idx_list);
+        }
+        point_light_idx_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightIndexList");
+        vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightIndexList"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_idx_list);
+        resourcesToZeroInit.emplace_back(point_light_idx_list);
+
+        frame.rsrcMap["PointLightIndexCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightIndexCounter");
+        vf_descr->BindResourceToIdx(vf_descr->BindingLocation("PointLightIndexCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightIndexCounter"));
+        resourcesToZeroInit.emplace_back(frame.rsrcMap.at("PointLightIndexCounter"));
+
+    }
+
+    if (haveSpotLights)
+    {
+
+        auto& spot_light_grid = frame.rsrcMap["SpotLightGrid"];
+        if (spot_light_grid) {
+            rsrc_context.DestroyResource(spot_light_grid);
+        }
+        spot_light_grid = rsrc_context.CreateBuffer(&point_light_grid_info, &point_light_grid_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightGrid");
+        vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightGrid"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
+        resourcesToZeroInit.emplace_back(spot_light_grid);
+
+        auto& spot_light_index_list = frame.rsrcMap["SpotLightIndexList"];
+        if (spot_light_index_list) {
+            rsrc_context.DestroyResource(spot_light_index_list);
+        }
+        spot_light_index_list = rsrc_context.CreateBuffer(&indices_info, &indices_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightIndexList");
+        vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightIndexList"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
+        resourcesToZeroInit.emplace_back(spot_light_index_list);
+
+        frame.rsrcMap["SpotLightIndexCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightIndexCounter");
+        vf_descr->BindResourceToIdx(vf_descr->BindingLocation("SpotLightIndexCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightIndexCounter"));
+        resourcesToZeroInit.emplace_back(frame.rsrcMap.at("SpotLightIndexCounter"));
+
+    }
+
     frame.rsrcMap["UniqueClustersCounter"] = rsrc_context.CreateBuffer(&counter_info, &counter_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "UniqueClustersCounter");
     vf_descr->BindResourceToIdx(vf_descr->BindingLocation("UniqueClustersCounter"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("UniqueClustersCounter"));
-
-    resourcesToZeroInit.emplace_back(frame.rsrcMap.at("PointLightIndexCounter"));
-    resourcesToZeroInit.emplace_back(frame.rsrcMap.at("SpotLightIndexCounter"));
     resourcesToZeroInit.emplace_back(frame.rsrcMap.at("UniqueClustersCounter"));
 
-    //for (auto& resource : resourcesToZeroInit)
-    //{
-    //    rsrc_context.FillBuffer(resource, 0u, 0u, VK_WHOLE_SIZE);
-    //}
+    for (auto& resource : resourcesToZeroInit)
+    {
+        rsrc_context.FillBuffer(resource, 0u, 0u, VK_WHOLE_SIZE);
+    }
 
 }
 
@@ -612,10 +624,18 @@ void uploadLightsToGPU(vtf_frame_data_t& frame)
     };
 
     auto& resource_context = ResourceContext::Get();
-    resource_context.SetBufferData(frame.rsrcMap.at("PointLights"), 1u, &point_lights_data);
-    resource_context.SetBufferData(frame.rsrcMap.at("SpotLights"), 1u, &spot_lights_data);
-    resource_context.SetBufferData(frame.rsrcMap.at("DirectionalLights"), 1u, &dir_lights_data);
-
+    if (!SceneLightsState().PointLights.empty())
+    {
+        resource_context.SetBufferData(frame.rsrcMap.at("PointLights"), 1u, &point_lights_data);
+    }
+    if (!SceneLightsState().SpotLights.empty())
+    {
+        resource_context.SetBufferData(frame.rsrcMap.at("SpotLights"), 1u, &spot_lights_data);
+    }
+    if (!SceneLightsState().DirectionalLights.empty())
+    {
+        resource_context.SetBufferData(frame.rsrcMap.at("DirectionalLights"), 1u, &dir_lights_data);
+    }
 }
 
 void createLightResources(vtf_frame_data_t& frame) {
@@ -630,9 +650,9 @@ void createLightResources(vtf_frame_data_t& frame) {
     const std::array<uint32_t, 3> queue_family_indices{ graphics_idx, transfer_idx, compute_idx };
     const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
 
-    if (SceneLightsState().PointLights.empty()) {
-        throw std::runtime_error("Didn't generate lights before setting up light GPU buffers!");
-    }
+    const bool havePointLights = !SceneLightsState().PointLights.empty();
+    const bool haveSpotLights = !SceneLightsState().SpotLights.empty();
+    const bool haveDirLights = !SceneLightsState().DirectionalLights.empty();
 
     VkBufferCreateInfo lights_buffer_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -647,35 +667,43 @@ void createLightResources(vtf_frame_data_t& frame) {
 
 	const uint32_t compute_queue_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
 
-    const gpu_resource_data_t point_lights_data{
-        SceneLightsState().PointLights.data(),
-        SceneLightsState().PointLights.size() * sizeof(PointLight),
-        0u, compute_queue_idx
-    };
+    if (havePointLights)
+    {
+        const gpu_resource_data_t point_lights_data{
+            SceneLightsState().PointLights.data(),
+            SceneLightsState().PointLights.size() * sizeof(PointLight),
+            0u, compute_queue_idx
+        };
 
-    frame.rsrcMap["PointLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &point_lights_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLights");
-    descr->BindResourceToIdx(descr->BindingLocation("PointLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLights"));
+        frame.rsrcMap["PointLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &point_lights_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLights");
+        descr->BindResourceToIdx(descr->BindingLocation("PointLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLights"));
+    }
 
-    const gpu_resource_data_t spot_lights_data{
-        SceneLightsState().SpotLights.data(),
-        SceneLightsState().SpotLights.size() * sizeof(SpotLight),
-        0u, compute_queue_idx
-    };
+    if (haveSpotLights)
+    {
+        const gpu_resource_data_t spot_lights_data{
+            SceneLightsState().SpotLights.data(),
+            SceneLightsState().SpotLights.size() * sizeof(SpotLight),
+            0u, compute_queue_idx
+        };
 
-    lights_buffer_info.size = spot_lights_data.DataSize;
-    frame.rsrcMap["SpotLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &spot_lights_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLights");
-    descr->BindResourceToIdx(descr->BindingLocation("SpotLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("SpotLights"));
+        lights_buffer_info.size = spot_lights_data.DataSize;
+        frame.rsrcMap["SpotLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &spot_lights_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLights");
+        descr->BindResourceToIdx(descr->BindingLocation("SpotLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("SpotLights"));
+    }
 
+    if (haveDirLights)
+    {
+        const gpu_resource_data_t dir_lights_data{
+            SceneLightsState().DirectionalLights.data(),
+            SceneLightsState().DirectionalLights.size() * sizeof(DirectionalLight),
+            0u, compute_queue_idx
+        };
+        lights_buffer_info.size = dir_lights_data.DataSize;
 
-    const gpu_resource_data_t dir_lights_data{
-        SceneLightsState().DirectionalLights.data(),
-        SceneLightsState().DirectionalLights.size() * sizeof(DirectionalLight),
-        0u, compute_queue_idx
-    };
-    lights_buffer_info.size = dir_lights_data.DataSize;
-
-    frame.rsrcMap["DirectionalLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &dir_lights_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DirectionalLights");
-    descr->BindResourceToIdx(descr->BindingLocation("DirectionalLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("DirectionalLights"));
+        frame.rsrcMap["DirectionalLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &dir_lights_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DirectionalLights");
+        descr->BindResourceToIdx(descr->BindingLocation("DirectionalLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("DirectionalLights"));
+    }
 
     const VkBufferCreateInfo light_counts_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -749,6 +777,9 @@ void createSortResources(vtf_frame_data_t& frame) {
     frame.rsrcMap["LightAABBs"] = rsrc_context.CreateBuffer(&light_aabbs_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "LightAABBs");
     descr->BindResourceToIdx(descr->BindingLocation("LightAABBs"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("LightAABBs"));
 
+    const bool havePointLights = !SceneLightsState().PointLights.empty();
+    const bool haveSpotLights = !SceneLightsState().SpotLights.empty();
+
     VkBufferCreateInfo sort_buffers_create_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
@@ -770,34 +801,40 @@ void createSortResources(vtf_frame_data_t& frame) {
         sort_buffers_create_info.size
     };
 
-    frame.rsrcMap["PointLightIndices"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightIndices");
-    frame.rsrcMap["PointLightMortonCodes"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightMortonCodes");
-    frame.rsrcMap["PointLightIndices_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightIndices_OUT");
-    frame.rsrcMap["PointLightMortonCodes_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightMortonCodes_OUT");
+    if (havePointLights)
+    {
+        frame.rsrcMap["PointLightIndices"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightIndices");
+        frame.rsrcMap["PointLightMortonCodes"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightMortonCodes");
+        frame.rsrcMap["PointLightIndices_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightIndices_OUT");
+        frame.rsrcMap["PointLightMortonCodes_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightMortonCodes_OUT");
 
-    descr->BindResourceToIdx(descr->BindingLocation("PointLightIndices"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightIndices"));
-    descr->BindResourceToIdx(descr->BindingLocation("PointLightMortonCodes"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightMortonCodes"));
+        descr->BindResourceToIdx(descr->BindingLocation("PointLightIndices"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightIndices"));
+        descr->BindResourceToIdx(descr->BindingLocation("PointLightMortonCodes"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("PointLightMortonCodes"));
 
-    rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightIndices"), 0u, 0u, size_t(sort_buffers_create_info.size));
-    rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightMortonCodes"), 0u, 0u, size_t(sort_buffers_create_info.size));
-    rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightIndices_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
-    rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightMortonCodes_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
+        rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightIndices"), 0u, 0u, size_t(sort_buffers_create_info.size));
+        rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightMortonCodes"), 0u, 0u, size_t(sort_buffers_create_info.size));
+        rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightIndices_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
+        rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightMortonCodes_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
+    }
 
-    sort_buffers_create_info.size = sizeof(uint32_t) * frame.LightCounts.NumSpotLights;
-    sort_buffer_views_create_info.range = sort_buffers_create_info.size;
+    if (haveSpotLights)
+    {
+        sort_buffers_create_info.size = sizeof(uint32_t) * frame.LightCounts.NumSpotLights;
+        sort_buffer_views_create_info.range = sort_buffers_create_info.size;
 
-    frame.rsrcMap["SpotLightIndices"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightIndices");
-    frame.rsrcMap["SpotLightMortonCodes"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightMortonCodes");
-    frame.rsrcMap["SpotLightIndices_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightIndices_OUT");
-    frame.rsrcMap["SpotLightMortonCodes_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightMortonCodes_OUT");
+        frame.rsrcMap["SpotLightIndices"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightIndices");
+        frame.rsrcMap["SpotLightMortonCodes"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightMortonCodes");
+        frame.rsrcMap["SpotLightIndices_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightIndices_OUT");
+        frame.rsrcMap["SpotLightMortonCodes_OUT"] = rsrc_context.CreateBuffer(&sort_buffers_create_info, &sort_buffer_views_create_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightMortonCodes_OUT");
 
-    descr->BindResourceToIdx(descr->BindingLocation("SpotLightIndices"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightIndices"));
-    descr->BindResourceToIdx(descr->BindingLocation("SpotLightMortonCodes"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightMortonCodes"));
+        descr->BindResourceToIdx(descr->BindingLocation("SpotLightIndices"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightIndices"));
+        descr->BindResourceToIdx(descr->BindingLocation("SpotLightMortonCodes"), VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, frame.rsrcMap.at("SpotLightMortonCodes"));
 
-    rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightIndices"), 0u, 0u, size_t(sort_buffers_create_info.size));
-    rsrc_context.FillBuffer(frame.rsrcMap.at("SpotLightMortonCodes"), 0u, 0u, size_t(sort_buffers_create_info.size));
-    rsrc_context.FillBuffer(frame.rsrcMap.at("SpotLightIndices_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
-    rsrc_context.FillBuffer(frame.rsrcMap.at("SpotLightMortonCodes_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
+        rsrc_context.FillBuffer(frame.rsrcMap.at("PointLightIndices"), 0u, 0u, size_t(sort_buffers_create_info.size));
+        rsrc_context.FillBuffer(frame.rsrcMap.at("SpotLightMortonCodes"), 0u, 0u, size_t(sort_buffers_create_info.size));
+        rsrc_context.FillBuffer(frame.rsrcMap.at("SpotLightIndices_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
+        rsrc_context.FillBuffer(frame.rsrcMap.at("SpotLightMortonCodes_OUT"), 0u, 0u, size_t(sort_buffers_create_info.size));
+    }
 
 }
 
@@ -860,26 +897,35 @@ void createBVH_Resources(vtf_frame_data_t& frame) {
     frame.rsrcMap["BVHParams"] = rsrc_context.CreateBuffer(&bvh_params_info, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, DEF_RESOURCE_FLAGS, "BVHParams");
     descr->BindResourceToIdx(descr->BindingLocation("BVHParams"), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("BVHParams"));
 
-    const uint32_t point_light_nodes = GetNumNodesBVH(frame.LightCounts.NumPointLights);
-    const uint32_t spot_light_nodes = GetNumNodesBVH(frame.LightCounts.NumSpotLights);
+    const bool havePointLights = !SceneLightsState().PointLights.empty();
+    const bool haveSpotLights = !SceneLightsState().SpotLights.empty();
 
     VkBufferCreateInfo bvh_buffer_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
-        sizeof(AABB) * point_light_nodes,
+        0u,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 		sharing_mode,
 		sharing_mode == VK_SHARING_MODE_CONCURRENT ? 2u : 0u,
 		sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices : nullptr
     };
-    
-    frame.rsrcMap["PointLightBVH"] = rsrc_context.CreateBuffer(&bvh_buffer_info, nullptr, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightBVH");
-    descr->BindResourceToIdx(descr->BindingLocation("PointLightBVH"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLightBVH"));
 
-    bvh_buffer_info.size = sizeof(AABB) * spot_light_nodes;
-    frame.rsrcMap["SpotLightBVH"] = rsrc_context.CreateBuffer(&bvh_buffer_info, nullptr, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightBVH");
-    descr->BindResourceToIdx(descr->BindingLocation("SpotLightBVH"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("SpotLightBVH"));
+    if (havePointLights)
+    {
+        const uint32_t point_light_nodes = GetNumNodesBVH(frame.LightCounts.NumPointLights);
+        bvh_buffer_info.size = sizeof(AABB) * point_light_nodes;
+        frame.rsrcMap["PointLightBVH"] = rsrc_context.CreateBuffer(&bvh_buffer_info, nullptr, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLightBVH");
+        descr->BindResourceToIdx(descr->BindingLocation("PointLightBVH"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLightBVH"));
+    }
+
+    if (haveSpotLights)
+    {
+        const uint32_t spot_light_nodes = GetNumNodesBVH(frame.LightCounts.NumSpotLights);
+        bvh_buffer_info.size = sizeof(AABB) * spot_light_nodes;
+        frame.rsrcMap["SpotLightBVH"] = rsrc_context.CreateBuffer(&bvh_buffer_info, nullptr, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLightBVH");
+        descr->BindResourceToIdx(descr->BindingLocation("SpotLightBVH"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("SpotLightBVH"));
+    }
 
 }
 
@@ -1339,10 +1385,10 @@ void createIndirectArgsPipeline(vtf_frame_data_t& frame) {
 
 }
 
-void createAssignLightsPipeline(vtf_frame_data_t& frame)
+void createAssignLightsToClustersBVHPipeline(vtf_frame_data_t& frame)
 {
 	auto* device = RenderingContext::Get().Device();
-	const static std::string groupName{ "AssignLightsToClusters" };
+	const static std::string groupName{ "AssignLightsToClustersBVH" };
 	const st::Shader* shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
 	const st::ShaderStage& shader_stage = vtf_frame_data_t::groupStages.at(groupName).front();
 
@@ -1356,8 +1402,28 @@ void createAssignLightsPipeline(vtf_frame_data_t& frame)
 		-1
 	};
 
-	ComputePipelineCreationShim(frame, "AssignLightsToClustersPipeline", &pipeline_info, groupName);
+	ComputePipelineCreationShim(frame, "AssignLightsToClustersBVHPipeline", &pipeline_info, groupName);
 
+}
+
+void createAssignLightsToClustersPipeline(vtf_frame_data_t& frame)
+{
+    auto* device = RenderingContext::Get().Device();
+    const static std::string groupName{ "AssignLightsToClusters" };
+    const st::Shader* shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
+    const st::ShaderStage& shader_stage = vtf_frame_data_t::groupStages.at(groupName).front();
+
+    const VkComputePipelineCreateInfo pipeline_info{
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        nullptr,
+        0,
+        vtf_frame_data_t::shaderModules.at(shader_stage)->PipelineInfo(),
+        frame.descriptorPack->PipelineLayout(groupName),
+        VK_NULL_HANDLE,
+        -1
+    };
+
+    ComputePipelineCreationShim(frame, "AssignLightsToClustersPipeline", &pipeline_info, groupName);
 }
 
 void createMergeSortPipelines(vtf_frame_data_t& frame) {
@@ -1457,7 +1523,8 @@ void CreateComputePipelines(vtf_frame_data_t& frame) {
     createBVH_Pipelines(frame);
     createComputeClusterAABBsPipeline(frame);
     createIndirectArgsPipeline(frame);
-	createAssignLightsPipeline(frame);
+	createAssignLightsToClustersPipeline(frame);
+    createAssignLightsToClustersBVHPipeline(frame);
     createMergeSortPipelines(frame);
 	createFindUniqueClustersPipeline(frame);
 }
@@ -1465,7 +1532,7 @@ void CreateComputePipelines(vtf_frame_data_t& frame) {
 void createDepthAndClusterSamplesPass(vtf_frame_data_t& frame) {
 
     static const std::string passName{ "DepthAndClusterSamplesPass" };
-    std::array<VkSubpassDependency, 1> depthAndClusterDependencies;
+    std::array<VkSubpassDependency, 2> depthAndClusterDependencies;
     std::array<VkSubpassDescription, 2> depthAndSamplesPassDescriptions;
     const auto* device = RenderingContext::Get().Device();
     const auto* swapchain = RenderingContext::Get().Swapchain();
@@ -1496,6 +1563,16 @@ void createDepthAndClusterSamplesPass(vtf_frame_data_t& frame) {
     };
 
     depthAndClusterDependencies[0] = VkSubpassDependency{
+        VK_SUBPASS_EXTERNAL,
+        0,
+        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+        VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT,
+        VK_ACCESS_MEMORY_READ_BIT,
+        VK_DEPENDENCY_BY_REGION_BIT
+    };
+
+    depthAndClusterDependencies[1] = VkSubpassDependency{
         0,
         1,
         VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, // no fragment shader, only have to wait for here
@@ -1635,19 +1712,19 @@ void createDrawPass(vtf_frame_data_t& frame) {
             VK_SUBPASS_EXTERNAL,
             0,
             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
             VK_ACCESS_MEMORY_READ_BIT,
-            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_SHADER_READ_BIT,
             VK_DEPENDENCY_BY_REGION_BIT
         },
-            VkSubpassDependency{
-                0,
-                VK_SUBPASS_EXTERNAL,
-                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                VK_ACCESS_MEMORY_READ_BIT,
-                VK_DEPENDENCY_BY_REGION_BIT
+        VkSubpassDependency{
+            0,
+            VK_SUBPASS_EXTERNAL,
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_ACCESS_MEMORY_READ_BIT,
+            VK_DEPENDENCY_BY_REGION_BIT
         }
     };
 
@@ -2003,6 +2080,7 @@ void createDebugClustersPipeline(vtf_frame_data_t& frame)
 	vpr::GraphicsPipelineInfo pipeline_info;
 	pipeline_info.AssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 	pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+    pipeline_info.RasterizationInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
 	pipeline_info.ColorBlendInfo.attachmentCount = 1;
 	pipeline_info.ColorBlendInfo.pAttachments = &AdditiveBlendingAttachmentState;
 	pipeline_info.ColorBlendInfo.logicOpEnable = VK_FALSE;
@@ -2179,7 +2257,7 @@ void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 
     // update light counts
     frame.LightCounts.NumPointLights = static_cast<uint32_t>(SceneLightsState().PointLights.size());
-    frame.LightCounts.NumSpotLights = static_cast<uint32_t>(SceneLightsState().SpotLights.size());
+    frame.LightCounts.NumSpotLights = static_cast<uint32_t>(SceneLightsState().SpotLights.size() <= 1u ? 0u : SceneLightsState().SpotLights.size());
     frame.LightCounts.NumDirectionalLights = static_cast<uint32_t>(SceneLightsState().DirectionalLights.size());
 
     const gpu_resource_data_t lcb_update{
@@ -2792,7 +2870,6 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 
 void UpdateClusterGrid(vtf_frame_data_t& frame)
 {
-    frame.updateUniqueClusters = true;
     ComputeClusterAABBs(frame);
 }
 
@@ -2861,6 +2938,7 @@ void ComputeClusterAABBs(vtf_frame_data_t& frame)
     VkAssert(result);
 
     frame.computePool->ResetCmdPool();
+
 }
 
 void SubmitComputeWork(vtf_frame_data_t& frame, uint32_t num_cmds, VkCommandBuffer* cmds)
@@ -2920,10 +2998,14 @@ void ComputeUpdate(vtf_frame_data_t& frame)
 	VkAssert(result);
 
 		computeUpdateLights(frame, cmd_buffer);
-		reduceLights(frame, cmd_buffer);
-		computeMortonCodes(frame, cmd_buffer);
-		sortMortonCodes(frame, cmd_buffer);
-		buildLightBVH(frame, cmd_buffer);
+        if (frame.optimizedLighting)
+        {
+            // don't need to do this for regular mode
+            reduceLights(frame, cmd_buffer);
+            computeMortonCodes(frame, cmd_buffer);
+            sortMortonCodes(frame, cmd_buffer);
+            buildLightBVH(frame, cmd_buffer);
+        }
 
 	result = vkEndCommandBuffer(cmd_buffer);
 	VkAssert(result);
@@ -3109,9 +3191,8 @@ void findUniqueClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         THSVS_ACCESS_COMPUTE_SHADER_WRITE
     };
 
-    constexpr static std::array<ThsvsAccessType, 2> next_access_types {
-        THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER,
-        THSVS_ACCESS_FRAGMENT_SHADER_WRITE
+    constexpr static std::array<ThsvsAccessType, 1> next_access_types {
+        THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
     };
 
     const std::array<ThsvsBufferBarrier, 3> buffer_barriers {
@@ -3210,7 +3291,11 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
     }
 
+    const VkPipelineLayout pipeline_layout = frame.descriptorPack->PipelineLayout("UpdateClusterIndirectArgs");
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("UpdateIndirectArgsPipeline").Handle);
+    const VkBool32 bool_val = (VkBool32)frame.updateUniqueClusters;
+    vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(VkBool32), &bool_val);
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     vkCmdDispatch(cmd, 1u, 1u, 1u);
 	thsvsCmdPipelineBarrier(cmd, nullptr, 1u, &buffer_barrier, 0u, nullptr);
@@ -3224,8 +3309,6 @@ void updateClusterIndirectArgs(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 {
     auto& rsrc_ctxt = ResourceContext::Get();
-
-	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "AssignLightsToClusters");
 
     constexpr static const char* label_name{ "AssignLightsToClusters" };
     constexpr static VkDebugUtilsLabelEXT debug_label{
@@ -3243,14 +3326,6 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     VulkanResource* spot_light_index_list = frame.rsrcMap.at("SpotLightIndexList");
 	VulkanResource* indirect_buffer = frame.rsrcMap.at("IndirectArgs");
     VulkanResource* unique_clusters = frame.rsrcMap.at("UniqueClusters");
-
-	auto descriptor = frame.descriptorPack->RetrieveBinder("AssignLightsToClusters");
-
-    descriptor.BindResourceToIdx("VolumetricForward", "SpotLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
-    descriptor.BindResourceToIdx("VolumetricForward", "PointLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_index_list);
-    descriptor.BindResourceToIdx("VolumetricForward", "SpotLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
-    descriptor.BindResourceToIdx("VolumetricForward", "PointLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
-	descriptor.Update();
 
 	/*
 		Readonly in this pass:
@@ -3341,17 +3416,6 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         }
     };
 
-    frame.BVH_Params.PointLightLevels = GetNumLevelsBVH(frame.LightCounts.NumPointLights);
-    frame.BVH_Params.SpotLightLevels = GetNumLevelsBVH(frame.LightCounts.NumSpotLights);
-
-    const gpu_resource_data_t bvh_params_update {
-        &frame.BVH_Params,
-        sizeof(BVH_Params_t),
-        0u, VK_QUEUE_FAMILY_IGNORED
-    };
-
-    VulkanResource* bvh_params_rsrc = frame.rsrcMap.at("BVHParams");
-    rsrc_ctxt.SetBufferData(bvh_params_rsrc, 1u, &bvh_params_update);
 
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
@@ -3361,9 +3425,45 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     vkCmdFillBuffer(cmd, (VkBuffer)spot_light_index_counter->Handle, 0u, sizeof(uint32_t), 0u);
     vkCmdFillBuffer(cmd, (VkBuffer)point_light_grid->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(point_light_grid->Info)->size, 0u);
     vkCmdFillBuffer(cmd, (VkBuffer)spot_light_grid->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(spot_light_grid->Info)->size, 0u);
-	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("AssignLightsToClustersPipeline").Handle);
-	descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
-    vkCmdDispatchIndirect(cmd, (VkBuffer)indirect_buffer->Handle, 0u);
+
+    if (frame.optimizedLighting)
+    {
+        auto descriptor = frame.descriptorPack->RetrieveBinder("AssignLightsToClustersBVH");
+        descriptor.BindResourceToIdx("VolumetricForward", "SpotLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
+        descriptor.BindResourceToIdx("VolumetricForward", "PointLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_index_list);
+        descriptor.BindResourceToIdx("VolumetricForward", "SpotLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
+        descriptor.BindResourceToIdx("VolumetricForward", "PointLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
+        descriptor.Update();
+
+        frame.BVH_Params.PointLightLevels = GetNumLevelsBVH(frame.LightCounts.NumPointLights);
+        frame.BVH_Params.SpotLightLevels = GetNumLevelsBVH(frame.LightCounts.NumSpotLights);
+
+        const gpu_resource_data_t bvh_params_update{
+            &frame.BVH_Params,
+            sizeof(BVH_Params_t),
+            0u, VK_QUEUE_FAMILY_IGNORED
+        };
+
+        VulkanResource* bvh_params_rsrc = frame.rsrcMap.at("BVHParams");
+        rsrc_ctxt.SetBufferData(bvh_params_rsrc, 1u, &bvh_params_update);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("AssignLightsToClustersBVHPipeline").Handle);
+        descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
+        vkCmdDispatchIndirect(cmd, (VkBuffer)indirect_buffer->Handle, 0u);
+
+    }
+    else
+    {
+        auto descriptor = frame.descriptorPack->RetrieveBinder("AssignLightsToClusters");
+        descriptor.BindResourceToIdx("VolumetricForward", "SpotLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
+        descriptor.BindResourceToIdx("VolumetricForward", "PointLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_index_list);
+        descriptor.BindResourceToIdx("VolumetricForward", "SpotLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
+        descriptor.BindResourceToIdx("VolumetricForward", "PointLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
+        descriptor.Update();
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("AssignLightsToClustersPipeline").Handle);
+        descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
+        vkCmdDispatchIndirect(cmd, (VkBuffer)indirect_buffer->Handle, 0u);
+    }
+
 	thsvsCmdPipelineBarrier(cmd, nullptr, static_cast<uint32_t>(assign_lights_barriers.size()), assign_lights_barriers.data(), 0u, nullptr);
 
     if constexpr (VTF_VALIDATION_ENABLED) {
@@ -3439,8 +3539,8 @@ void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     vkCmdBeginRenderPass(cmd, &frame.renderPasses.at("DrawPass")->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("OpaqueDrawPipeline")->vkHandle());
             auto binder0 = frame.descriptorPack->RetrieveBinder("DrawPass");
-			binder0.Update();
-            //binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+            binder0.BindResourceToIdx("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, unique_clusters);
+            binder0.Update();
 			for (size_t i = 0u; i < frame.renderFns.size(); ++i)
 			{
 				frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Opaque);
@@ -3455,6 +3555,9 @@ void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd)
             }
             if (frame.renderDebugClusters)
             {
+                binder0.BindResourceToIdx("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, prev_unique_clusters);
+                binder0.Update();
+                binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
                 vtfDrawDebugClusters(frame, cmd);
             }
     vkCmdEndRenderPass(cmd);
@@ -3500,6 +3603,7 @@ void RenderVtf(vtf_frame_data_t& frame)
 
 	if (!frame.firstGraphicsSubmit)
 	{
+        // i combined both of the graphics queues here, wait-wise
         const VkFence wait_fences[2]{ frame.preRenderGraphicsFence->vkHandle(), frame.graphicsPoolUsageFence->vkHandle() };
 		VkResult result = vkWaitForFences(device->vkHandle(), 2u, wait_fences, VK_TRUE, UINT64_MAX);
 		VkAssert(result);
