@@ -36,11 +36,11 @@ constexpr static uint32_t BVH_NUM_THREADS = 32u * 16u;
 constexpr static uint32_t AVERAGE_OVERLAPPING_LIGHTS_PER_CLUSTER = 20u;
 constexpr static uint32_t LIGHT_GRID_BLOCK_SIZE = 32u;
 constexpr static uint32_t CLUSTER_GRID_BLOCK_SIZE = 64u;
-constexpr static uint32_t AVERAGE_LIGHTS_PER_TILE = 100u;
+constexpr static uint32_t AVERAGE_LIGHTS_PER_TILE = 16u;
 constexpr static uint32_t MAX_POINT_LIGHTS = 8192u;
 
 // The number of nodes at each level of the BVH.
-constexpr static uint32_t NumLevelNodes[6]{
+constexpr static std::array<uint32_t, 6> NumLevelNodes {
     1,          // 1st level (32^0)
     32,         // 2nd level (32^1)
     1024,       // 3rd level (32^2)
@@ -51,7 +51,7 @@ constexpr static uint32_t NumLevelNodes[6]{
 
 // The number of nodes required to represent a BVH given the number of levels
 // of the BVH.
-constexpr static uint32_t NumBVHNodes[6]{
+constexpr static std::array<uint32_t, 6> NumBVHNodes {
     1,          // 1 level  =32^0
     33,         // 2 levels +32^1
     1057,       // 3 levels +32^2
@@ -158,7 +158,7 @@ uint32_t GetNumLevelsBVH(uint32_t num_leaves) noexcept {
 uint32_t GetNumNodesBVH(uint32_t num_leaves) noexcept {
     uint32_t num_levels = GetNumLevelsBVH(num_leaves);
     uint32_t num_nodes = 0;
-    if (num_levels > 0 && num_levels < 6u) {
+    if (num_levels > 0 && num_levels < NumBVHNodes.size()) {
         num_nodes = NumBVHNodes[num_levels - 1];
     }
 
@@ -320,9 +320,9 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
 	const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
     const std::array<uint32_t, 3> queue_family_indices{ graphics_idx, compute_idx, transfer_idx };
 
-    float fov_y = glm::radians(70.0f * 0.5f);
-    float z_near = 0.01f;
-    float z_far = 3000.0f;
+    float fov_y = camera.FOV() * 0.5f;
+    float z_near = camera.NearPlane();
+    float z_far = camera.FarPlane();
     frame.Globals.depthRange = glm::vec2(z_near, z_far);
 
     auto& ctxt = RenderingContext::Get();
@@ -339,7 +339,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
 
     uint32_t cluster_dim_z = static_cast<uint32_t>(glm::floor(log_depth * log_dim_y));
     const uint32_t CLUSTER_SIZE = cluster_dim_x * cluster_dim_y * cluster_dim_z;
-    const uint32_t LIGHT_INDEX_LIST_SIZE = cluster_dim_x * cluster_dim_y * AVERAGE_LIGHTS_PER_TILE;
+    const uint32_t LIGHT_INDEX_LIST_SIZE = CLUSTER_SIZE * AVERAGE_LIGHTS_PER_TILE;
 
     frame.ClusterData.GridDim = glm::uvec3{ cluster_dim_x, cluster_dim_y, cluster_dim_z };
     frame.ClusterData.ViewNear = z_near;
@@ -379,7 +379,7 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
-        sizeof(uint32_t) * cluster_dim_x * cluster_dim_y * cluster_dim_z,
+        sizeof(uint32_t) * CLUSTER_SIZE,
         VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		sharing_mode,
         sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
@@ -416,8 +416,6 @@ void createVolumetricForwardResources(vtf_frame_data_t& frame) {
         rsrc_context.DestroyResource(prev_unique_clusters);
     }
     prev_unique_clusters = rsrc_context.CreateBuffer(&cluster_flags_info, &cluster_flags_view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PrevUniqueClusters");
-
-    frame.updateUniqueClusters = true;
 
     resourcesToZeroInit.emplace_back(cluster_flags);
     resourcesToZeroInit.emplace_back(unique_clusters);
