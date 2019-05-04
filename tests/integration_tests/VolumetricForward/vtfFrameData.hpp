@@ -128,6 +128,7 @@ public:
     uint32_t lastImageIdx{ std::numeric_limits<uint32_t>::max() };
     VkDispatchIndirectCommand indirectArgsCmd;
     bool updateUniqueClusters{ true };
+    bool computeClusterAABBs{ true };
     bool frameRecreate{ false };    
     bool renderDebugClusters{ true };
     bool optimizedLighting{ false };

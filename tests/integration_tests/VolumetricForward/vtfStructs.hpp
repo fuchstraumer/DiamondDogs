@@ -21,13 +21,13 @@ struct SceneConfig_t {
     VkSampleCountFlagBits MSAA_SampleCount{ VK_SAMPLE_COUNT_8_BIT };
     float AnisotropyAmount{ 16.0f };
     uint32_t MaxLights{ 2048u };
-    uint32_t NumPointLights{ 2048u };
-    uint32_t NumSpotLights{ 512u };
+    uint32_t NumPointLights{ 512u };
+    uint32_t NumSpotLights{ 64u };
     uint32_t NumDirectionalLights{ 1u };
     glm::vec3 LightsMinBounds{ -30.0f,-30.0f,-30.0f };
     glm::vec3 LightsMaxBounds{ 30.0f, 30.0f, 30.0f };
-    float MinSpotAngle{ -60.0f };
-    float MaxSpotAngle{ 60.0f };
+    float MinSpotAngle{ 3.0f };
+    float MaxSpotAngle{ 7.0f };
     float MinRange{ 1.0f };
     float MaxRange{ 32.0f };
 };
@@ -157,6 +157,17 @@ struct alignas(4) BVH_Params_t {
     uint32_t SpotLightLevels{ 0u };
     uint32_t ChildLevel{ 0u };
     uint32_t Padding{ 0u };
+};
+
+struct vertex_t
+{
+    vertex_t() = default;
+    vertex_t(glm::vec3 p, glm::vec3 n, glm::vec3 t, glm::vec2 uv) : Position(std::move(p)), Normal(std::move(n)), Tangent(std::move(t)),
+        UV(std::move(uv)) {}
+    glm::vec3 Position;
+    glm::vec3 Normal;
+    glm::vec3 Tangent;
+    glm::vec2 UV;
 };
 
 struct QueryPool

@@ -33,20 +33,10 @@
 const st::ShaderPack* vtfShaders{ nullptr }; 
 //SceneState_t SceneLightsState{};
 
-struct vertex_t
-{
-    vertex_t(glm::vec3 p, glm::vec3 n, glm::vec3 t, glm::vec2 uv) : Position(std::move(p)), Normal(std::move(n)), Tangent(std::move(t)),
-        UV(std::move(uv)) {}
-    glm::vec3 Position;
-    glm::vec3 Normal;
-    glm::vec3 Tangent;
-    glm::vec2 UV;
-};
-
 constexpr static float GOLDEN_RATIO = 1.6180339887498948482045f;
 constexpr static float FLOAT_PI = 3.14159265359f;
 
-const static glm::vec3 CameraPosition = glm::vec3(-8.0f, -8.0f, 4.0f);
+const static glm::vec3 CameraPosition = glm::vec3(0.0f, 0.0f, 8.0f);
 
 static const std::array<glm::vec3, 12> ICOSPHERE_INITIAL_VERTICES{
     glm::vec3{-GOLDEN_RATIO, 1.0f, 0.0f },
@@ -363,6 +353,17 @@ struct TestIcosphereMesh
 
 };
 
+struct ObjModel
+{
+    ObjModel(const char* fname);
+
+    VulkanResource* VBO{ nullptr };
+    VulkanResource* EBO{ nullptr };
+    VulkanResource* AlbedoTexture{ nullptr };
+    VulkanResource* AmbientOcclusionTexture{ nullptr };
+
+};
+
 glm::vec3 HSV_to_RGB(float H, float S, float V)
 {
     float C = V * S;
@@ -477,7 +478,7 @@ void GenerateLights()
     SceneLightsState().DirectionalLights = GenerateLights<DirectionalLight>(SceneConfig.NumDirectionalLights);
 	uint32_t x, y, z;
 	CalculateGridDims(x, y, z);
-	SceneLightsState().ClusterColors = std::move(GenerateColors(x * y * z));
+	SceneLightsState().ClusterColors = GenerateColors(x * y * z);
 }
 
 VTF_Scene& VTF_Scene::Get()
@@ -493,7 +494,7 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data)
     vtfShaders = reinterpret_cast<const st::ShaderPack*>(user_data);
 
 	auto& camera = PerspectiveCamera::Get();
-    camera.Initialize(glm::radians(70.0f), 0.01f, 3000.0f, CameraPosition, glm::vec3(0.0f) - CameraPosition);
+    camera.Initialize(glm::radians(70.0f), 0.1f, 5000.0f, CameraPosition, glm::vec3(0.0f) - CameraPosition);
 
     CreateShaders(vtfShaders);
 	createIcosphereTester();
@@ -586,7 +587,7 @@ void VTF_Scene::updateGlobalUBOs()
 	};
 	resource_context.SetBufferData(matrices_rsrc, 1u, &matrices_update);
 
-    curr_frame.Matrices.model = glm::scale(glm::mat4(1.0f), glm::vec3(0.02f));
+    curr_frame.Matrices.model = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f));
     VulkanResource* lights_matrices = curr_frame.rsrcMap.at("debugLightsMatrices");
     resource_context.SetBufferData(lights_matrices, 1u, &matrices_update);
 
@@ -620,9 +621,10 @@ void VTF_Scene::update()
 	updateGlobalUBOs();
     // compute updates
 	vtf_frame_data_t& curr_frame = *frames[activeFrame];
-	if (curr_frame.updateUniqueClusters)
+	if (curr_frame.computeClusterAABBs)
 	{
 		UpdateClusterGrid(curr_frame);
+        curr_frame.computeClusterAABBs = false;
 	}
 	ComputeUpdate(curr_frame);
 }
@@ -631,19 +633,22 @@ void VTF_Scene::recordCommands()
 {
     static bool render_debug_clusters{ true };
     static bool update_unique_clusters{ true };
-    static bool use_optimized_lighting{ false };
+    static bool use_optimized_lighting{ true };
 
     ImGui::Begin("VTF Debug");
         ImGui::Checkbox("Render Debug Clusters", &render_debug_clusters);
-        frames[activeFrame]->renderDebugClusters = render_debug_clusters;
         if (ImGui::Button("Regenerate Lights"))
         {
             GenerateLights();
         }
         ImGui::Checkbox("Update Unique Clusters", &update_unique_clusters);
-        frames[activeFrame]->updateUniqueClusters = update_unique_clusters;
         ImGui::Checkbox("Optimized Lighting", &use_optimized_lighting);
-        frames[activeFrame]->optimizedLighting = use_optimized_lighting;
+        for (auto& frame : frames)
+        {
+            frame->renderDebugClusters = render_debug_clusters;
+            frame->updateUniqueClusters = update_unique_clusters;
+            frame->optimizedLighting = use_optimized_lighting;
+        }
     ImGui::End();
     ImGuiWrapper::GetImGuiWrapper().EndImGuiFrame();
 	RenderVtf(*frames[activeFrame]);
@@ -770,7 +775,7 @@ void VTF_Scene::createIcosphereTester() {
     namespace fs = std::experimental::filesystem;
 
     icosphereTester = std::make_unique<TestIcosphereMesh>();
-    icosphereTester->CreateMesh(3u);
+    icosphereTester->CreateMesh(4u);
 
 	auto current_dims = vprObjects.swapchain->Extent();
 	icosphereTester->viewport.width = static_cast<float>(current_dims.width);

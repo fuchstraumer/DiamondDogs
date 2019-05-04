@@ -13,6 +13,7 @@ INITIALIZE_EASYLOGGINGPP
 #include "PipelineCache.hpp"
 #include "Instance.hpp"
 #include "CommandPool.hpp"
+#include "ObjModel.hpp"
 
 static int screen_x() {
     auto& ctxt = RenderingContext::Get();
@@ -92,6 +93,16 @@ int main(int argc, char* argv[]) {
         SaveBinaryToFile(bin_to_save, saved_pack_bin_str.c_str());
         DestroyShaderPackBinary(bin_to_save);
     }
+
+    static const fs::path model_dir{ fs::canonical("../../../../assets/objs/bistro/") };
+    assert(fs::exists(model_dir));
+    static const fs::path model_file{ model_dir / "exterior.obj" };
+    assert(fs::exists(model_file));
+
+    ObjectModel model;
+    const auto dir_string = model_dir.string();
+    const auto file_string = model_file.string();
+    model.LoadModelFromFile(file_string.c_str(), dir_string.c_str());
 
     auto& scene = VTF_Scene::Get();
     scene.Construct(RequiredVprObjects{ ctxt.Device(), ctxt.PhysicalDevice(), ctxt.Instance(), ctxt.Swapchain() }, vtfPack.get());
