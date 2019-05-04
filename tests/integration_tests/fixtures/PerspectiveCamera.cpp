@@ -78,15 +78,12 @@ void PerspectiveCamera::Initialize(float fov, float near_plane, float far_plane,
     position = std::move(pos);
     const static glm::vec3 upVector = glm::vec3(0.0f, 1.0f, 0.0f);
     orientation = look_at(dir, upVector);
-    viewUpdated = false;
-    projectionUpdated = false;
 }
 
 void PerspectiveCamera::LookAt(const glm::vec3& dir, const glm::vec3& up, const glm::vec3& _position)
 {
 	orientation = look_at(dir, up);
 	position = _position;
-	viewUpdated = false;
 }
 
 float PerspectiveCamera::FarPlane() const noexcept {
@@ -110,16 +107,16 @@ const glm::vec3 & PerspectiveCamera::Position() const noexcept {
 }
 
 const glm::mat4& PerspectiveCamera::ProjectionMatrix() const noexcept {
-    if (!projectionUpdated) {
-        updateProjection();
-    }
+
+    auto& ctxt = RenderingContext::Get();
+    const float width = static_cast<float>(ctxt.Swapchain()->Extent().width);
+    const float height = static_cast<float>(ctxt.Swapchain()->Extent().height);
+    projection = glm::perspectiveFov(fovY, width, height, zNear, zFar);
     return projection;
 }
 
 const glm::mat4& PerspectiveCamera::ViewMatrix() const noexcept {
-    if (!viewUpdated) {
-        updateView();
-    }
+    view = glm::mat4_cast(orientation) * glm::translate(-position);
     return view;
 }
 
@@ -135,33 +132,34 @@ glm::vec3 PerspectiveCamera::RightVector() const noexcept
     return glm::conjugate(orientation) * rightDir;
 }
 
+glm::vec3 PerspectiveCamera::UpVector() const noexcept
+{
+    static const glm::vec3 upDir{ 0.0f, 1.0f, 0.0f };
+    return glm::conjugate(orientation) * upDir;
+}
+
 void PerspectiveCamera::SetOrientation(glm::quat _orientation) {
     orientation = std::move(_orientation);
-    viewUpdated = false;
 }
 
 void PerspectiveCamera::SetPosition(glm::vec3 _pos) noexcept
 {
     position = std::move(_pos);
-    viewUpdated = false;
 }
 
 void PerspectiveCamera::SetNearPlane(float near_plane) noexcept
 {
     zNear = std::move(near_plane);
-    projectionUpdated = false;
 }
 
 void PerspectiveCamera::SetFarPlane(float far_plane) noexcept
 {
     zFar = std::move(far_plane);
-    projectionUpdated = false;
 }
 
 void PerspectiveCamera::SetFOV(float fov) noexcept
 {
     fovY = std::move(fov);
-    projectionUpdated = false;
 }
 
 void PerspectiveCamera::UpdateMouseMovement() {
@@ -178,19 +176,6 @@ void PerspectiveCamera::UpdateMouseMovement() {
     instance.SetOrientation(glm::quat{ glm::normalize(pitch * instance.Orientation() * yaw) });
 }
 
-void PerspectiveCamera::updateProjection() const {
-    auto& ctxt = RenderingContext::Get();
-    const float width = static_cast<float>(ctxt.Swapchain()->Extent().width);
-    const float height = static_cast<float>(ctxt.Swapchain()->Extent().height);
-    projection = glm::perspectiveFov(fovY, width, height, zNear, zFar);
-    projectionUpdated = true;
-}
-
-void PerspectiveCamera::updateView() const {
-    view = glm::mat4_cast(orientation) * glm::translate(-position);
-    viewUpdated = true;
-}
-
 void CameraController::UpdateMovement() noexcept
 {
     auto& camera = PerspectiveCamera::Get();
@@ -204,6 +189,7 @@ void CameraController::UpdateMovement() noexcept
     float currSpeed = io.KeysDown[GLFW_KEY_LEFT_SHIFT] ? MovementSpeed * 2.0f : MovementSpeed;
     const glm::vec3 frontVector = camera.FrontVector();
     const glm::vec3 rightVector = camera.RightVector();
+    const glm::vec3 upVector = camera.UpVector();
 
     if (io.KeysDown[GLFW_KEY_W])
     {
@@ -217,12 +203,22 @@ void CameraController::UpdateMovement() noexcept
 
     if (io.KeysDown[GLFW_KEY_A])
     {
-        camera.SetPosition(camera.Position() + MovementSpeed * rightVector * io.DeltaTime);
+        camera.SetPosition(camera.Position() + MovementSpeed * -rightVector * io.DeltaTime);
     }
 
     if (io.KeysDown[GLFW_KEY_D])
     {
-        camera.SetPosition(camera.Position() + MovementSpeed * -rightVector * io.DeltaTime);
+        camera.SetPosition(camera.Position() + MovementSpeed * rightVector * io.DeltaTime);
+    }
+
+    if (io.KeysDown[GLFW_KEY_Q])
+    {
+        camera.SetPosition(camera.Position() + MovementSpeed * upVector * io.DeltaTime);
+    }
+
+    if (io.KeysDown[GLFW_KEY_Z])
+    {
+        camera.SetPosition(camera.Position() + MovementSpeed * -upVector * io.DeltaTime);
     }
 
 }

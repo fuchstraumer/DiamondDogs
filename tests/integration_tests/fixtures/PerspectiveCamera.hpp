@@ -28,6 +28,7 @@ struct PerspectiveCamera
     const glm::mat4& ViewMatrix() const noexcept;
     glm::vec3 FrontVector() const noexcept;
     glm::vec3 RightVector() const noexcept;
+    glm::vec3 UpVector() const noexcept;
 
     void SetOrientation(glm::quat _orientation);
     void SetPosition(glm::vec3 _pos) noexcept;
@@ -39,9 +40,6 @@ struct PerspectiveCamera
 
 private:
 
-    void updateProjection() const;
-    void updateView() const;
-
     float fovY{ 0.50f * glm::half_pi<float>() };
     float zNear{ 0.1f };
     float zFar{ 3000.0f };
@@ -49,8 +47,6 @@ private:
     glm::quat orientation{ 1.0f, 0.0f, 0.0f, 0.0f };
     mutable glm::mat4 projection{};
     mutable glm::mat4 view{};
-    mutable bool projectionUpdated{ false };
-    mutable bool viewUpdated{ false };
 
 };
 
