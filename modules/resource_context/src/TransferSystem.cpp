@@ -8,6 +8,15 @@
 #include "UploadBuffer.hpp"
 #include "../../rendering_context/include/RenderingContext.hpp"
 #include "VkDebugUtils.hpp"
+#include <array>
+#include "easylogging++.h"
+
+constexpr static std::array<VkDeviceSize, 4u> stagingPoolSizeRanges{
+    (VkDeviceSize)128e6,
+    (VkDeviceSize)256e6,
+    (VkDeviceSize)512e6,
+    (VkDeviceSize)1024e6 // This should not be in anything but builds I use for fun. Could end in disaster, heh
+};
 
 constexpr static VkBufferCreateInfo staging_buffer_create_info{
 	VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -49,8 +58,25 @@ VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device) {
     return result;
 }
 
-UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(size_t buffer_sz) {
-    uploadBuffers.emplace_back(std::make_unique<UploadBuffer>(device, allocator, uploadPool, buffer_sz));
+void ResourceTransferSystem::flushTransfersIfNeeded()
+{
+    /*
+        A bit of reasoning: 
+        - upload pools greater than one means we created a pool specifically to hold one massive allocation. once we
+          reach this point, it should be safe to free that as it was created to return an upload buffer, we set it's data, we're done
+        - uploadBuffers being greater than 50 just means we have a ton of pending transfers, and we're going to be accumulating a ton
+          of RAM usage. flush the pending transfers to free up what memory we can
+    */
+    if (uploadPools.size() > 1u || uploadBuffers.size() > 256u)
+    {
+        CompleteTransfers();
+        LOG(WARNING) << "Had to flush transfers, incurs high cost and indicates overload of transfer system";
+    }
+}
+
+UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(const size_t buffer_sz) {
+    flushTransfersIfNeeded();
+    uploadBuffers.emplace_back(createUploadBufferImpl(buffer_sz));
 	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
 	{
 		const std::string upload_buffer_name = std::string("UploadBuffer") + std::to_string(uploadBuffers.size());
@@ -59,9 +85,61 @@ UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(size_t buffer_sz) {
     return uploadBuffers.back().get();
 }
 
+std::unique_ptr<UploadBuffer> ResourceTransferSystem::createUploadBufferImpl(const size_t buffer_sz)
+{
+
+    std::unique_ptr<UploadBuffer> created_buffer = std::make_unique<UploadBuffer>(device, allocator);
+
+    VmaAllocationCreateInfo alloc_create_info
+    {
+        0,
+        VMA_MEMORY_USAGE_CPU_ONLY,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+        0u,
+        UINT32_MAX,
+        VK_NULL_HANDLE,
+        nullptr
+    };
+
+    VkResult created_alloc = VK_SUCCESS;
+
+    do {
+
+        VkBufferCreateInfo create_info = staging_buffer_create_info;
+        create_info.size = buffer_sz;
+        alloc_create_info.pool = uploadPools.back();
+
+        created_alloc = vmaCreateBuffer(allocator, &create_info, &alloc_create_info, &created_buffer->Buffer, &created_buffer->Allocation, nullptr);
+        
+        if (created_alloc == VK_ERROR_OUT_OF_DEVICE_MEMORY)
+        {
+            // create a new pool
+            if (buffer_sz > lastPoolSize)
+            {
+                auto next_sz_iter = std::lower_bound(std::begin(stagingPoolSizeRanges), std::end(stagingPoolSizeRanges), buffer_sz);
+                if (next_sz_iter == std::end(stagingPoolSizeRanges))
+                {
+                    throw std::out_of_range("Requested staging buffer size was bigger than maximum staging allocation size!");
+                }
+                lastPoolSize = *next_sz_iter;
+                uploadPools.emplace_back(createPool());
+            }
+        }
+
+    } while (created_alloc != VK_SUCCESS);
+
+    return std::move(created_buffer);
+}
+
 ResourceTransferSystem::ResourceTransferSystem() : transferCmdPool(nullptr), device(nullptr), fence(nullptr) {}
 
-ResourceTransferSystem::~ResourceTransferSystem() {}
+ResourceTransferSystem::~ResourceTransferSystem() {
+    CompleteTransfers();
+    for (auto pool : uploadPools)
+    {
+        vmaDestroyPool(allocator, pool);
+    }
+}
 
 void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _allocator) {
 
@@ -72,21 +150,7 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _a
     device = dvc;
     allocator = _allocator;
 
-	uint32_t memory_type_index{ 0u };
-	VkResult result = vmaFindMemoryTypeIndexForBufferInfo(allocator, &staging_buffer_create_info, &alloc_create_info, &memory_type_index);
-	VkAssert(result);
-
-	const VmaPoolCreateInfo pool_info {
-		memory_type_index,
-		VMA_POOL_CREATE_IGNORE_BUFFER_IMAGE_GRANULARITY_BIT | VMA_POOL_CREATE_LINEAR_ALGORITHM_BIT,
-		0u, // block size
-		0u, // min block count
-		0u, // max block count
-		0u
-	};
-
-	result = vmaCreatePool(allocator, &pool_info, &uploadPool);
-	VkAssert(result);
+    uploadPools.emplace_back(createPool());
     
     transferCmdPool = std::make_unique<vpr::CommandPool>(dvc->vkHandle(), getCreateInfo(dvc));
 	transferCmdPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
@@ -99,7 +163,7 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _a
         nullptr
     };
 
-    result = vkBeginCommandBuffer(transferCmdPool->GetCmdBuffer(0), &begin_info);
+    VkResult result = vkBeginCommandBuffer(transferCmdPool->GetCmdBuffer(0), &begin_info);
     VkAssert(result);
     initialized = true;
 
@@ -196,6 +260,19 @@ void ResourceTransferSystem::CompleteTransfers() {
     uploadBuffers.clear(); 
     uploadBuffers.shrink_to_fit();
 
+    while (uploadPools.size() > 1u)
+    {
+        vmaDestroyPool(allocator, uploadPools.back());
+        uploadPools.pop_back();
+
+        // Shrink back down one size
+        auto new_pool_size_iter = std::upper_bound(std::begin(stagingPoolSizeRanges), std::end(stagingPoolSizeRanges), lastPoolSize);
+        if (new_pool_size_iter != std::end(stagingPoolSizeRanges))
+        {
+            lastPoolSize = *new_pool_size_iter;
+        }
+    }
+
 }
 
 ResourceTransferSystem::transferSpinLockGuard ResourceTransferSystem::AcquireSpinLock() {
@@ -208,18 +285,37 @@ VkCommandBuffer ResourceTransferSystem::TransferCmdBuffer() {
     return pool[0];
 }
 
+VmaPool ResourceTransferSystem::createPool()
+{
+
+    uint32_t memory_type_index{ 0u };
+    VkResult create_result = vmaFindMemoryTypeIndexForBufferInfo(allocator, &staging_buffer_create_info, &alloc_create_info, &memory_type_index);
+    VkAssert(create_result);
+
+    const VmaPoolCreateInfo pool_info{
+        memory_type_index,
+        VMA_POOL_CREATE_IGNORE_BUFFER_IMAGE_GRANULARITY_BIT | VMA_POOL_CREATE_LINEAR_ALGORITHM_BIT,
+        lastPoolSize, // block size: 256mb of staging memory. if we use more than this, we have a problem
+        0u, // min block count
+        0u, // max block count
+        0u
+    };
+
+    VmaPool result;
+    create_result = vmaCreatePool(allocator, &pool_info, &result);
+    VkAssert(create_result);
+
+    return result;
+}
+
 void ResourceTransferSystem::transferSpinLock::lock() {
-    while (!try_lock()) {
+    while (!lockFlag.try_lock()) {
 
     }
 }
 
-bool ResourceTransferSystem::transferSpinLock::try_lock() {
-    return !lockFlag.test_and_set(std::memory_order_acquire);
-}
-
 void ResourceTransferSystem::transferSpinLock::unlock() {
-    lockFlag.clear(std::memory_order_release);
+    lockFlag.unlock();
 }
 
 ResourceTransferSystem::transferSpinLockGuard::transferSpinLockGuard(transferSpinLock & _lock) : lck(_lock) {

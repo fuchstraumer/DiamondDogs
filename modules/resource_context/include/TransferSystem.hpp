@@ -5,6 +5,7 @@
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <atomic>
+#include <mutex>
 #include <vector>
 #include <vk_mem_alloc.h>
 
@@ -16,7 +17,7 @@ class ResourceTransferSystem {
     ResourceTransferSystem& operator=(const ResourceTransferSystem&) = delete;
 
     struct transferSpinLock {
-        std::atomic_flag lockFlag{};
+        std::recursive_mutex lockFlag{};
         void lock();
         bool try_lock();
         void unlock();
@@ -36,12 +37,16 @@ public:
     static ResourceTransferSystem& GetTransferSystem();
 
     void Initialize(const vpr::Device* device, VmaAllocator _allocator);
-    UploadBuffer* CreateUploadBuffer(size_t buffer_sz);
+    UploadBuffer* CreateUploadBuffer(const size_t buffer_sz);
     void CompleteTransfers();
     transferSpinLockGuard AcquireSpinLock();
     VkCommandBuffer TransferCmdBuffer();
 
 private:
+
+    VmaPool createPool();
+    std::unique_ptr<UploadBuffer> createUploadBufferImpl(const size_t buffer_sz);
+    void flushTransfersIfNeeded();
 
     std::atomic<bool> cmdBufferDirty = false;
     bool initialized = false;
@@ -50,8 +55,8 @@ private:
     std::unique_ptr<vpr::Fence> fence;
     const vpr::Device* device;
 	VmaAllocator allocator;
-	VmaPool uploadPool;
-
+    std::vector<VmaPool> uploadPools;
+    VkDeviceSize lastPoolSize{ VkDeviceSize(128e6) };
 };
 
 #endif //!DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
