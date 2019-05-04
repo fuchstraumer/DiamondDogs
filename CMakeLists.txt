@@ -2,9 +2,13 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.4)
 PROJECT(DiamondDogs)
 # and turquoise days...
 
+SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /Ob2 /Oi")
+
 FIND_PACKAGE(Vulkan REQUIRED)
 ADD_SUBDIRECTORY(third_party/vulpesrender)
 ADD_SUBDIRECTORY(third_party/shadertools)
+SET(ENABLE_AVX2 ON CACHE BOOL "Enable AVX2 instructions")
+ADD_SUBDIRECTORY(third_party/mango/build)
 SET(build_static_lib ON CACHE BOOL "Build easyloggingpp as a static library")
 ADD_SUBDIRECTORY(third_party/easyloggingpp)
 ADD_SUBDIRECTORY(modules)

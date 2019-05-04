@@ -18,8 +18,8 @@
         "VK_KHR_dedicated_allocation",
         "VK_KHR_get_memory_requirements2"
     ],
-    "InitialWindowWidth" : 1440,
-    "InitialWindowHeight" : 720,
+    "InitialWindowWidth" : 1920,
+    "InitialWindowHeight" : 1080,
     "InitialMouseState" : "Free",
     "InitialWindowMode" : "Windowed",
     "ApplicationIconPath" : "None"
