@@ -360,6 +360,7 @@ void ResourceContextImpl::destroyResource(VulkanResource* rsrc)
         throw std::runtime_error("Invalid resource type!");
     }
 
+    rsrc = nullptr;
 }
 
 void* ResourceContextImpl::map(VulkanResource* resource, size_t size, size_t offset)
