@@ -12,10 +12,11 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
+#include <vector>
 
 using FactoryFunctor = void*(*)(const char* fname, void* user_data);
-using DeleteFunctor = void(*)(void* obj_instance);
-using SignalFunctor = void(*)(void* state, void* data);
+using DeleteFunctor = void(*)(void* obj_instance, void* user_data);
+using SignalFunctor = void(*)(void* state, void* data, void* user_data);
 
 class ResourceLoader {
     ResourceLoader(const ResourceLoader&) = delete;
@@ -25,6 +26,7 @@ class ResourceLoader {
 public:
 
     void Subscribe(const char* file_type, FactoryFunctor func, DeleteFunctor del_fn);
+    void Unsubscribe(const char* file_type);
     void Load(const char* file_type, const char* file_path, void* requester, SignalFunctor signal, void* user_data = nullptr);
     void Unload(const char* file_type, const char* path);
 
@@ -57,9 +59,11 @@ private:
     std::unordered_map<std::string, DeleteFunctor> deleters;
     std::unordered_map<std::string, ResourceData> resources;
     std::unordered_set<std::string> pendingResources;
+    std::unordered_map<std::string, std::vector<std::pair<void*, void*>>> pendingResourceListeners;
     std::list<loadRequest> requests;
     std::recursive_mutex queueMutex;
     std::recursive_mutex pendingDataMutex;
+    std::mutex subscribeMutex;
     std::condition_variable_any cVar;
     std::atomic<bool> shutdown{ false };
     std::array<std::thread, 2> workers;

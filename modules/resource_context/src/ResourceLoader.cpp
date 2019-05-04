@@ -6,20 +6,33 @@
 #endif
 #include "easylogging++.h"
 
-ResourceLoader::ResourceLoader() {
+ResourceLoader::ResourceLoader()
+{
     Start();
 }
 
-ResourceLoader::~ResourceLoader() {
+ResourceLoader::~ResourceLoader()
+{
     Stop();
 }
 
 void ResourceLoader::Subscribe(const char* file_type, FactoryFunctor func, DeleteFunctor del_fn) {
+    std::lock_guard subscribeGuard(subscribeMutex);
+    if (factories.count(file_type) != 0 && deleters.count(file_type) != 0)
+    {
+        return;
+    }
     factories[file_type] = func;
     deleters[file_type] = del_fn;
 }
 
-void ResourceLoader::Load(const char* file_type, const char* file_path, void* _requester, SignalFunctor signal, void* user_data) {
+void ResourceLoader::Unsubscribe(const char* file_type)
+{
+
+}
+
+void ResourceLoader::Load(const char* file_type, const char* file_path, void* _requester, SignalFunctor signal, void* user_data)
+{
 #ifndef __APPLE_CC__
     namespace fs = std::experimental::filesystem;
 #else
@@ -29,30 +42,35 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
     const std::string absolute_path = fs_file_path.string();
 
     {
-        // Check to see if resource is already loaded. Don't bother with edge case of a request
-        // already in pending_resources
-        if (resources.count(absolute_path) != 0) {
-            ++resources.at(absolute_path).RefCount;
-            signal(_requester, resources.at(absolute_path).Data);
+        // Check to see if resource is already loaded
+        std::lock_guard pendingDataGuard(pendingDataMutex);
+        if (pendingResources.count(absolute_path) != 0) {
+            auto& listeners_vec = pendingResourceListeners[absolute_path];
+            listeners_vec.emplace_back(_requester, user_data);
             return;
         }       
     }
         
-    if (!fs::exists(fs_file_path)) {
+    if (!fs::exists(fs_file_path))
+    {
         throw std::runtime_error("Given path to a resource does not exist.");
     }
 
-    if (factories.count(file_type) == 0) {
+    if (factories.count(file_type) == 0)
+    {
         throw std::domain_error("Tried to load resource type for which there is no factory!");
     }
 
-    if (deleters.count(file_type) == 0) {
+    if (deleters.count(file_type) == 0)
+    {
         throw std::domain_error("No deleter function for current file type!");
     }
 
     ResourceData data;      
     data.FileType = file_type;
+    pendingDataMutex.lock();
     pendingResources.emplace(absolute_path);
+    pendingDataMutex.unlock();
     data.AbsoluteFilePath = absolute_path;
     data.RefCount = 1;
 
@@ -69,7 +87,8 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
 
 }   
 
-void ResourceLoader::Unload(const char* file_type, const char* _path) {
+void ResourceLoader::Unload(const char* file_type, const char* _path)
+{
 #ifndef __APPLE_CC__
     namespace fs = std::experimental::filesystem;
 #else
@@ -87,49 +106,60 @@ void ResourceLoader::Unload(const char* file_type, const char* _path) {
         auto iter = resources.find(path);
         --iter->second.RefCount;
         if (iter->second.RefCount == 0) {
-            deleters.at(iter->second.FileType)(iter->second.Data);
+            deleters.at(iter->second.FileType)(iter->second.Data, nullptr);
         }
         resources.erase(iter);
     }
 }
 
-ResourceLoader & ResourceLoader::GetResourceLoader() {
+ResourceLoader & ResourceLoader::GetResourceLoader()
+{
     static ResourceLoader loader;
     return loader;
 }
 
-void ResourceLoader::Start() {
+void ResourceLoader::Start()
+{
     shutdown = false;
-    workers[0] = std::thread(&ResourceLoader::workerFunction, this);
-    workers[1] = std::thread(&ResourceLoader::workerFunction, this);
+
+    for (auto& thr : workers)
+    {
+        thr = std::thread(&ResourceLoader::workerFunction, this);
+    }
+
 }
 
-void ResourceLoader::Stop() {
+void ResourceLoader::Stop()
+{
     shutdown = true;      
         
     cVar.notify_all();
 
-    if (workers[0].joinable()) {
-        workers[0].join();
-    }
-        
-    if (workers[1].joinable()) {
-        workers[1].join();
+    for (auto& thr : workers)
+    {
+        if (thr.joinable())
+        {
+            thr.join();
+        }
     }
 
-    while (!resources.empty()) {
+    while (!resources.empty())
+    {
         auto iter = resources.begin();
         Unload(iter->second.FileType.c_str(), iter->first.c_str());
     }
 
 }
 
-void ResourceLoader::workerFunction() {
-    while (!shutdown) {
+void ResourceLoader::workerFunction()
+{
+    while (!shutdown)
+    {
         std::unique_lock<std::recursive_mutex> lock{queueMutex};
         cVar.wait(lock, [this]()->bool { return shutdown || !requests.empty(); });
 
-        if (shutdown) {
+        if (shutdown)
+        {
             lock.unlock();
             return;
         }
@@ -141,14 +171,28 @@ void ResourceLoader::workerFunction() {
 
         {
             request.destinationData.Data = factory_fn(request.destinationData.AbsoluteFilePath.c_str(), request.userData);
-            std::unique_lock<std::recursive_mutex> pendingDataLock(pendingDataMutex);
-            // how to handle failure to emplace? what could it mean?
             auto iter = resources.emplace(request.destinationData.AbsoluteFilePath, std::move(request.destinationData));
-            pendingResources.erase(request.destinationData.AbsoluteFilePath);
             void* data = iter.first->second.Data;
-            // safe to unlock, signal function won't mutate object variables unsafely
-            pendingDataLock.unlock();
-            request.signal(request.requester, data);
+            // signal first requester first
+            request.signal(request.requester, data, request.userData);
+            if (pendingResourceListeners.count(iter.first->first) != 0)
+            {
+                // we can use the same signal function on resources with same type string
+                std::unique_lock<std::recursive_mutex> pendingDataLock(pendingDataMutex);
+                auto& listeners_vec = pendingResourceListeners.at(iter.first->first);
+                while (!listeners_vec.empty())
+                {
+                    request.signal(listeners_vec.back().first, data, listeners_vec.back().second);
+                    // we couldn't increment this earlier because it didn't exist, so let's do so now
+                    ++iter.first->second.RefCount;
+                    listeners_vec.pop_back();
+                }
+                pendingResourceListeners.erase(iter.first->first);
+                // safe to unlock, signal function won't mutate object variables unsafely
+                pendingDataLock.unlock();
+            }
+            // call other dependent items
+            pendingResources.erase(iter.first->first);
         }
     }
 }
