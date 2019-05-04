@@ -11,7 +11,7 @@
 struct UploadBuffer {
     UploadBuffer(const UploadBuffer&) = delete;
     UploadBuffer& operator=(const UploadBuffer&) = delete;
-    UploadBuffer(const vpr::Device* _device, VmaAllocator alloc, VmaPool pool, VkDeviceSize sz);
+    UploadBuffer(const vpr::Device* _device, VmaAllocator alloc);
     UploadBuffer(UploadBuffer&& other) noexcept;
     UploadBuffer& operator=(UploadBuffer&& other) noexcept;
     void SetData(const void* data, size_t data_size, size_t offset);
