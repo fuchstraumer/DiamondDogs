@@ -34,3 +34,6 @@
 [submodule "third_party/svs"]
 	path = third_party/svs
 	url = https://github.com/Tobski/simple_vulkan_synchronization
+[submodule "third_party/mango"]
+	path = third_party/mango
+	url = https://github.com/t0rakka/mango
