@@ -604,6 +604,7 @@ void uploadLightsToGPU(vtf_frame_data_t& frame)
 {
 
     const uint32_t compute_queue_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
+    const uint32_t graphics_queue_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Graphics;
 
     const gpu_resource_data_t point_lights_data{
         SceneLightsState().PointLights.data(),
@@ -636,6 +637,14 @@ void uploadLightsToGPU(vtf_frame_data_t& frame)
     {
         resource_context.SetBufferData(frame.rsrcMap.at("DirectionalLights"), 1u, &dir_lights_data);
     }
+
+    auto& cluster_colors_vec = SceneLightsState().ClusterColors;
+    VkDeviceSize required_mem = cluster_colors_vec.size() * sizeof(glm::u8vec4);
+    const gpu_resource_data_t buffer_data{
+        cluster_colors_vec.data(), required_mem, 0u, graphics_queue_idx
+    };
+    resource_context.SetBufferData(frame.rsrcMap.at("DebugClusterColors"), 1u, &buffer_data);
+
 }
 
 void createLightResources(vtf_frame_data_t& frame) {
@@ -1056,7 +1065,7 @@ void createDebugResources(vtf_frame_data_t& frame)
     const std::array<uint32_t, 3> queue_family_indices{ graphics_idx, compute_idx, transfer_idx };
     const VkSharingMode sharing_mode = graphics_idx != compute_idx ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
 	auto& cluster_colors_vec = SceneLightsState().ClusterColors;
-	VkDeviceSize required_mem = cluster_colors_vec.size() * sizeof(glm::u8vec4);
+    VkDeviceSize required_mem = cluster_colors_vec.size() * sizeof(glm::u8vec4);
 
 	const VkBufferCreateInfo buffer_info{
 		VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -2080,7 +2089,6 @@ void createDebugClustersPipeline(vtf_frame_data_t& frame)
 	vpr::GraphicsPipelineInfo pipeline_info;
 	pipeline_info.AssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 	pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-    pipeline_info.RasterizationInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
 	pipeline_info.ColorBlendInfo.attachmentCount = 1;
 	pipeline_info.ColorBlendInfo.pAttachments = &AdditiveBlendingAttachmentState;
 	pipeline_info.ColorBlendInfo.logicOpEnable = VK_FALSE;
@@ -2216,7 +2224,7 @@ void FullFrameSetup(vtf_frame_data_t* frame)
 void CalculateGridDims(uint32_t& grid_x, uint32_t& grid_y, uint32_t& grid_z)
 {
 	auto& camera = PerspectiveCamera::Get();
-	float fov_y = camera.FOV();
+	float fov_y = camera.FOV() * 0.50f;
 	float z_near = camera.NearPlane();
 	float z_far = camera.FarPlane();
 
@@ -3085,6 +3093,8 @@ void vtfDrawDebugClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     auto& descriptor = frame.descriptorPack->RetrieveBinder("DebugClusters");
     auto& prev_unique_clusters = frame.rsrcMap.at("PreviousUniqueClusters");
     auto& cluster_colors = frame.rsrcMap.at("DebugClusterColors");
+    descriptor.BindResourceToIdx("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, prev_unique_clusters);
+    descriptor.BindResourceToIdx("Debug", "DebugClustersMatrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, debug_matrices);
     descriptor.BindResourceToIdx("Debug", "ClusterColors", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, cluster_colors);
     descriptor.Update();
     descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
