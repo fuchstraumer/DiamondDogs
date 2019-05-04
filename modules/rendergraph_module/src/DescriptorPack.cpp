@@ -76,8 +76,9 @@ void DescriptorPack::EndFrame()
         // this is our first time swapping the containers
         for (size_t i = 0; i < lastFrameDescriptors.size(); ++i)
         {
+            const size_t high_water_mark = lastFrameDescriptors[i]->highWaterMark();
             descriptors.emplace_back(std::make_unique<Descriptor>(lastFrameDescriptors[i]->device, lastFrameDescriptors[i]->typeCounts,
-                lastFrameDescriptors[i]->highWaterMark(), lastFrameDescriptors[i]->templ, lastFrameDescriptors[i]->bindingLocations, lastFrameDescriptors[i]->name.c_str()));
+                high_water_mark == 0u ? 1u : high_water_mark, lastFrameDescriptors[i]->templ, lastFrameDescriptors[i]->bindingLocations, lastFrameDescriptors[i]->name.c_str()));
             descriptors[i]->setLayouts.resize(descriptors[i]->maxSets, descriptors[i]->templ->SetLayout());
         }
     }

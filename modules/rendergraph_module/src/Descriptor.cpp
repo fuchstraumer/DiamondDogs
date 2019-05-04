@@ -61,8 +61,9 @@ void Descriptor::Reset()
         assert(usedSets.empty());
 
     }
-    else if (maxSets == 0u && setContainerIdx == 0u)
+    else if (availSets.size() == 0u && descriptorPools.size() == 0u)
     {
+        // sets potentially not created this frame, but pool is being left "hot"
         return;
     }
     else
@@ -141,11 +142,6 @@ void Descriptor::allocateSets()
         setLayouts.data()
     };
 
-    if (maxSets == 0u)
-    {
-        return;
-    }
-
     availSets.resize(maxSets, VK_NULL_HANDLE);
     VkResult result = vkAllocateDescriptorSets(device->vkHandle(), &alloc_info, availSets.data());
     VkAssert(result);
@@ -173,6 +169,8 @@ void Descriptor::createPool()
     }
     else if (maxSets == 0u)
     {
+        maxSets = 1u;
+        setLayouts.resize(1u, templ->SetLayout());
         return;
     }
 
