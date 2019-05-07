@@ -25,7 +25,7 @@ public:
     void Destroy();
     void NewFrame();
     void EndImGuiFrame();
-    void DrawFrame(size_t frame_idx, VkCommandBuffer& cmd);
+    void DrawFrame(size_t frame_idx, VkCommandBuffer cmd);
 
     inline static bool EnableMouseLocking = false;
 

@@ -304,7 +304,7 @@ void ImGuiWrapper::newFrame() {
     timePointB = std::chrono::high_resolution_clock::now();
 }
 
-void ImGuiWrapper::DrawFrame(size_t frame_idx, VkCommandBuffer & cmd) {
+void ImGuiWrapper::DrawFrame(size_t frame_idx, VkCommandBuffer cmd) {
     static bool first_frame{ true };
 
     constexpr static VkDebugUtilsLabelEXT debug_label{
