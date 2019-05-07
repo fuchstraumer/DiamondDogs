@@ -13,6 +13,8 @@
 #include <array>
 #include <vulkan/vulkan.h>
 #include "glm/gtc/type_precision.hpp"
+
+#include "glm/gtc/quaternion.hpp"
 #include <string>
 #include <unordered_map>
 
@@ -162,12 +164,36 @@ struct alignas(4) BVH_Params_t {
 struct vertex_t
 {
     vertex_t() = default;
-    vertex_t(glm::vec3 p, glm::vec3 n, glm::vec3 t, glm::vec2 uv) : Position(std::move(p)), Normal(std::move(n)), Tangent(std::move(t)),
+    vertex_t(glm::vec3 p, glm::vec3 n, glm::vec3 t, glm::vec2 uv) : Position(std::move(p)), Normal(std::move(n)),
         UV(std::move(uv)) {}
     glm::vec3 Position;
     glm::vec3 Normal;
-    glm::vec3 Tangent;
     glm::vec2 UV;
+    bool operator==(const vertex_t& other) const noexcept
+    {
+        return (Position == other.Position) && (Normal == other.Normal) && (UV == other.UV);
+    }
+};
+
+enum class render_type {
+    Invalid = 0,
+    PrePass,
+    Opaque,
+    Transparent,
+    OpaqueAndTransparent,
+    GUI,
+    Postprocess,
+    Shadow
+};
+
+class DescriptorBinder;
+
+struct objRenderStateData
+{
+    VkCommandBuffer cmd{ VK_NULL_HANDLE };
+    DescriptorBinder* binder{ nullptr };
+    render_type type{ render_type::Invalid };
+    inline static VkPipelineLayout materialLayout{ VK_NULL_HANDLE };
 };
 
 struct QueryPool

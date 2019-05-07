@@ -1,21 +1,20 @@
 #include "ObjModel.hpp"
+#include "LogicalDevice.hpp"
+#include "PhysicalDevice.hpp"
 #include "RenderingContext.hpp"
 #include "ResourceContext.hpp"
-#include "PhysicalDevice.hpp"
-#include "LogicalDevice.hpp"
-#include "easylogging++.h"
+#include "ResourceLoader.hpp"
 #include <atomic>
 #include <fstream>
+#include <future>
 #pragma warning(push, 1)
+#include "easylogging++.h"
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/hash.hpp"
+#include "mango/filesystem/file.hpp"
 #define TINYOBJ_LOADER_OPT_IMPLEMENTATION
 #include "tinyobjloader/experimental/tinyobj_loader_opt.h"
 #pragma warning(pop)
-#include "ResourceLoader.hpp"
-#include <future>
-#include "mango/filesystem/file.hpp"
-#include "mango/core/thread.hpp"
 
 namespace std {
     /** Hash method ovverride so that we can use vulpes::vertex_t in standard library containers. Used with tinyobj to remove/avoid duplicated vertices. \ingroup Objects */
@@ -181,50 +180,50 @@ void ObjectModel::LoadModelFromFile(const char* model_filename, const char* mate
 
 }
 
-void ObjectModel::Render(VkCommandBuffer cmd, DescriptorBinder* binder, vtf_frame_data_t::render_type render_type, const VkPipelineLayout pipeline_layout)
+void ObjectModel::Render(const objRenderStateData& state)
 {
 
     // reset offset to begin
     cmdOffset = 0u;
 
-    switch (render_type)
+    switch (state.type)
     {
-    case vtf_frame_data_t::render_type::PrePass:
+    case render_type::PrePass:
         [[fallthrough]] ;
-    case vtf_frame_data_t::render_type::Shadow:
-        Bind(cmd, BindMode::VBO0AndEBO); // positions and indices only
+    case render_type::Shadow:
+        Bind(state.cmd, BindMode::VBO0AndEBO); // positions and indices only
         break;
-    case vtf_frame_data_t::render_type::Opaque:
+    case render_type::Opaque:
         [[fallthrough]] ;
-    case vtf_frame_data_t::render_type::Transparent:
+    case render_type::Transparent:
         [[fallthrough]] ;
-    case vtf_frame_data_t::render_type::OpaqueAndTransparent:
-        Bind(cmd, BindMode::All);
+    case render_type::OpaqueAndTransparent:
+        Bind(state.cmd, BindMode::All);
     default:
         break;
     }
 
-
+    renderGeometry(state);
 }
 
-void ObjectModel::renderGeometry(VkCommandBuffer cmd, DescriptorBinder* binder, vtf_frame_data_t::render_type render_type, const VkPipelineLayout pipeline_layout)
+void ObjectModel::renderGeometry(const objRenderStateData& state)
 {
     for (size_t i = 0; i < numMaterials; ++i)
     {
-        if ((render_type != vtf_frame_data_t::render_type::PrePass) && (render_type != vtf_frame_data_t::render_type::Shadow))
+        if ((state.type != render_type::PrePass) && (state.type != render_type::Shadow))
         {
-            materials[i].Bind(cmd, pipeline_layout, *binder);
+            materials[i].Bind(state.cmd, state.materialLayout, *state.binder);
         }
 
         // not rendering transparents, material is partially transparent at least so skip it
-        if (render_type == vtf_frame_data_t::render_type::Opaque && !materials[i].Opaque())
+        if (state.type == render_type::Opaque && !materials[i].Opaque())
         {
             auto draw_ranges = indirectCommands.equal_range(i);
             cmdOffset += static_cast<uint32_t>(sizeof(VkDrawIndexedIndirectCommand) * std::distance(draw_ranges.first, draw_ranges.second));
             continue;
         }
 
-        renderIdx(cmd, i, binder);
+        renderIdx(state.cmd, i, state.binder);
     }
 }
 
@@ -261,67 +260,126 @@ void ObjectModel::loadMeshes(const std::vector<tinyobj_opt::shape_t>& shapes, co
 {
     struct material_group_t
     {
-        std::vector<glm::vec3> positions;
-        std::vector<vtxAttrib> attributes;
         std::vector<uint32_t> indices;
     };
 
-    std::map<int, material_group_t> groups;
-    std::map<int, std::unordered_map<vertex_t, uint32_t>> uniqueVertices;
+    std::map<uint32_t, material_group_t> groups;
+    std::unordered_map<vertex_t, uint32_t> uniqueVertices;
+    std::unordered_map<uint32_t, glm::vec3> vertexTangents;
 
-    auto appendVert = [&groups, &uniqueVertices](const vertex_t & vert, const int material_id, AABB& bounds)
+    auto appendVert = [&groups, &uniqueVertices, this](const vertex_t & vert, const int material_id, AABB& bounds)->uint32_t
     {
-
-        auto& unique_verts = uniqueVertices[material_id];
         auto& group = groups[material_id];
 
-        group.positions.emplace_back(vert.Position);
-        group.attributes.emplace_back(vtxAttrib{ vert.Normal, vert.Tangent, vert.UV });
-        group.indices.emplace_back(group.positions.size() - 1u);
+        auto iter = uniqueVertices.find(vert);
+        if (iter != uniqueVertices.cend())
+        {
+            // re-use a vertex
+            group.indices.emplace_back(iter->second);
+            return iter->second;
+        }
+        else
+        {
+            uint32_t result = static_cast<uint32_t>(positions.size());
+            uniqueVertices[vert] = result;
+            positions.emplace_back(vert.Position);
+            attributes.emplace_back(vtxAttrib{ vert.Normal, glm::vec3(), vert.UV });
+            return result;
+        }
     };
 
     size_t idx_offset{ 0u };
 
     for (size_t i = 0u; i < attrib.face_num_verts.size(); ++i)
     {
+        AABB partAABB;
         const size_t ngon = attrib.face_num_verts[i];
         const size_t material_id = attrib.material_ids[i];
         assert(ngon == 3u);
+        
+        uint32_t tri_indices[3];
+
         for (size_t j = 0u; j < ngon / 3u; ++j)
         {
             tinyobj_opt::index_t idx = attrib.indices[idx_offset + j];
-
             vertex_t vtx;
             vtx.Position = glm::vec3{
-                attrib.vertices[3u * idx.vertex_index + 0u],
-                attrib.vertices[3u * idx.vertex_index + 1u],
-                attrib.vertices[3u * idx.vertex_index + 2u]
+                attrib.vertices[3 * idx.vertex_index + 0],
+                attrib.vertices[3 * idx.vertex_index + 1],
+                attrib.vertices[3 * idx.vertex_index + 2]
             };
             vtx.Normal = glm::vec3{
-                attrib.normals[3u * idx.normal_index + 0u],
-                attrib.normals[3u * idx.normal_index + 1u],
-                attrib.normals[3u * idx.normal_index + 2u]
+                attrib.normals[3 * idx.normal_index + 0],
+                attrib.normals[3 * idx.normal_index + 1],
+                attrib.normals[3 * idx.normal_index + 2]
             };
-            vtx.Tangent = glm::vec3(0.0f);
             vtx.UV = glm::vec2{
-                attrib.texcoords[2u * idx.texcoord_index + 0u],
-                1.0f - attrib.texcoords[2u * idx.texcoord_index + 1u]
+                attrib.texcoords[2 * idx.texcoord_index + 0],
+                1.0f - attrib.texcoords[2 * idx.texcoord_index + 1]
             };
 
-            appendVert(vtx, material_id, modelAABB);
-            
+            tri_indices[j] = appendVert(vtx, attrib.material_ids[i], partAABB);
+
+        }
+
+        // calculate tangents
+        const glm::vec3& v0 = positions[tri_indices[0]];
+        const glm::vec2& uv0 = attributes[tri_indices[0]].uv;
+        const glm::vec3& v1 = positions[tri_indices[1]];
+        const glm::vec2& uv1 = attributes[tri_indices[1]].uv;
+        const glm::vec3& v2 = positions[tri_indices[2]];
+        const glm::vec2& uv2 = attributes[tri_indices[2]].uv;
+
+        float x0 = v1.x - v0.x;
+        float x1 = v2.x - v0.x;
+        float y0 = v1.y - v0.y;
+        float y1 = v2.y - v0.y;
+        float z0 = v1.z - v0.z;
+        float z1 = v2.z - v0.z;
+
+        float s0 = uv1.x - uv0.x;
+        float s1 = uv2.x - uv0.x;
+        float t0 = uv1.y - uv0.y;
+        float t1 = uv2.y - uv0.y;
+
+        float r = 1.0f / (s0 * t1 - s1 * t0);
+
+        const glm::vec3 sDir{
+            (t1 * x0 - t0 * x1) * r,
+            (t1 * y0 - t0 * y1) * r,
+            (t1 * z0 - t0 * z1) * r
+        };
+
+        for (const auto& idx : tri_indices)
+        {
+            if (vertexTangents.count(idx) == 0)
+            {
+                vertexTangents.emplace(idx, sDir);
+            }
+            else
+            {
+                auto& tangent = vertexTangents.at(idx);
+                tangent += sDir;
+            }
         }
 
         idx_offset += ngon;
+    }
+
+    assert(uniqueVertices.size() == positions.size());
+
+    for (size_t i = 0u; i < attributes.size(); ++i)
+    {
+        const glm::vec3& normal = attributes[i].normal;
+        const glm::vec3& tan0 = vertexTangents.at(i);
+        attributes[i].tangent = glm::normalize(tan0 - normal * glm::dot(normal, tan0));
     }
 
     uint32_t material_idx = 0u;
     for (auto&& group : groups)
     {
         Part new_part;
-        new_part.vertexOffset = static_cast<int32_t>(positions.size());
-        std::copy(group.second.positions.begin(), group.second.positions.end(), std::back_inserter(positions));
-        std::copy(group.second.attributes.begin(), group.second.attributes.end(), std::back_inserter(attributes));
+        new_part.vertexOffset = 0;
         new_part.startIdx = static_cast<uint32_t>(indicesUi32.size());
         new_part.idxCount = static_cast<uint32_t>(group.second.indices.size());
         std::copy(group.second.indices.begin(), group.second.indices.end(), std::back_inserter(indicesUi32));

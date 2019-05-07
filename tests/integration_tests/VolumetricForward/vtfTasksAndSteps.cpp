@@ -3033,11 +3033,14 @@ bool tryImageAcquire(vtf_frame_data_t& frame, uint64_t timeout = 0u)
     auto* device = RenderingContext::Get().Device();
     auto* swapchain = RenderingContext::Get().Swapchain();
     VkResult result = vkAcquireNextImageKHR(device->vkHandle(), swapchain->vkHandle(), timeout, frame.semaphores.at("ImageAcquire")->vkHandle(), VK_NULL_HANDLE, &frame.imageIdx);
-    if (result == VK_SUCCESS) {
+    if (result == VK_SUCCESS)
+    {
         return true;
     }
-    else {
-        if (result != VK_NOT_READY && timeout == 0u) {
+    else
+    {
+        if (result != VK_NOT_READY && timeout == 0u)
+        {
             VkAssert(result); // something besides what we plan to handle occured
         }
         return false;
@@ -3100,13 +3103,16 @@ void vtfDrawDebugClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
     vkCmdDrawIndirect(cmd, (VkBuffer)frame.rsrcMap.at("DebugClustersIndirectArgs")->Handle, 0u, 1u, sizeof(VkDrawIndirectCommand));
 
-    if constexpr (VTF_VALIDATION_ENABLED) {
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
 }
 
 void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
+
+    objRenderStateData::materialLayout = frame.descriptorPack->PipelineLayout("ClusterSamples");
 
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "DepthPrePassAndClusterSamples");
 
@@ -3122,6 +3128,12 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     auto binder0 = frame.descriptorPack->RetrieveBinder("DepthPrePass");
     auto binder1 = frame.descriptorPack->RetrieveBinder("ClusterSamples");
 
+    objRenderStateData state_data{
+        cmd,
+        &binder0,
+        render_type::PrePass
+    };
+
     renderpass->UpdateBeginInfo(frame.clusterSamplesFramebuffer->vkHandle());
     binder0.Update();
     binder1.Update();
@@ -3132,17 +3144,23 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     }
 
     vkCmdFillBuffer(cmd, (VkBuffer)cluster_flags->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(cluster_flags->Info)->size, 0u);
+
     vkCmdBeginRenderPass(cmd, &renderpass->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("DepthPrePassPipeline")->vkHandle());
+
 		for (size_t i = 0; i < frame.renderFns.size(); ++i)
 		{
-			frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Opaque); // opaque for depth
+			frame.renderFns[i](state_data); // opaque for depth
 		}
     vkCmdNextSubpass(cmd, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("ClusterSamplesPipeline")->vkHandle());
+
+        state_data.type = render_type::Opaque;
+        state_data.binder = &binder1;
+
 		for (size_t i = 0; i < frame.renderFns.size(); ++i)
 		{
-			frame.renderFns[i](cmd, &binder1, vtf_frame_data_t::render_type::Opaque); // opaque for depth
+			frame.renderFns[i](state_data); // opaque for depth
 		}
     vkCmdEndRenderPass(cmd);
 
@@ -3168,7 +3186,8 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     thsvsCmdPipelineBarrier(cmd, 0u, 1u, &cluster_flags_barrier, 0u, nullptr);
 
-    if constexpr (VTF_VALIDATION_ENABLED) {
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);
     }
 
@@ -3544,32 +3563,45 @@ void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         vkCmdCopyBuffer(cmd, (VkBuffer)unique_clusters->Handle, (VkBuffer)prev_unique_clusters->Handle, 1u, &buffer_copy);
     }
 
+    objRenderStateData::materialLayout = frame.descriptorPack->PipelineLayout("DrawPass");
     frame.renderPasses.at("DrawPass")->UpdateBeginInfo(frame.drawFramebuffer->vkHandle());
     auto lights_binder = frame.descriptorPack->RetrieveBinder("DebugLights");
     vkCmdBeginRenderPass(cmd, &frame.renderPasses.at("DrawPass")->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
+
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("OpaqueDrawPipeline")->vkHandle());
-            auto binder0 = frame.descriptorPack->RetrieveBinder("DrawPass");
-            binder0.BindResourceToIdx("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, unique_clusters);
+        auto binder0 = frame.descriptorPack->RetrieveBinder("DrawPass");
+        binder0.BindResourceToIdx("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, unique_clusters);
+        binder0.Update();
+
+        objRenderStateData draw_state{
+            cmd,
+            &binder0,
+            render_type::Opaque
+        };
+
+		for (size_t i = 0u; i < frame.renderFns.size(); ++i)
+		{
+			frame.renderFns[i](draw_state);
+		}
+		for (size_t i = 0u; i < frame.renderFns.size(); ++i)
+		{
+            draw_state.type = render_type::Transparent;
+			frame.renderFns[i](draw_state);
+		}
+        for (size_t i = 0u; i < frame.renderFns.size(); ++i)
+        {
+            draw_state.type = render_type::GUI;
+            frame.renderFns[i](draw_state);
+        }
+
+        if (frame.renderDebugClusters)
+        {
+            binder0.BindResourceToIdx("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, prev_unique_clusters);
             binder0.Update();
-			for (size_t i = 0u; i < frame.renderFns.size(); ++i)
-			{
-				frame.renderFns[i](cmd, &binder0, vtf_frame_data_t::render_type::Opaque);
-			}
-			for (size_t i = 0u; i < frame.renderFns.size(); ++i)
-			{
-				frame.renderFns[i](cmd, &lights_binder, vtf_frame_data_t::render_type::Transparent);
-			}
-            for (size_t i = 0u; i < frame.renderFns.size(); ++i)
-            {
-                frame.renderFns[i](cmd, nullptr, vtf_frame_data_t::render_type::GUI);
-            }
-            if (frame.renderDebugClusters)
-            {
-                binder0.BindResourceToIdx("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, prev_unique_clusters);
-                binder0.Update();
-                binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
-                vtfDrawDebugClusters(frame, cmd);
-            }
+            binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+            vtfDrawDebugClusters(frame, cmd);
+        }
+
     vkCmdEndRenderPass(cmd);
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdEndDebugUtilsLabel(cmd);

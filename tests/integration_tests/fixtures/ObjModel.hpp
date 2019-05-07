@@ -20,7 +20,7 @@ public:
 
     ObjectModel();
     void LoadModelFromFile(const char* model_filename, const char* material_directory);
-    void Render(VkCommandBuffer cmd, DescriptorBinder* binder, vtf_frame_data_t::render_type render_type, const VkPipelineLayout pipeline_layout);
+    void Render(const objRenderStateData& state);
 
 private:
 
@@ -40,7 +40,7 @@ private:
 
     void loadMeshes(const std::vector<tinyobj_opt::shape_t>& shapes, const tinyobj_opt::attrib_t& attrib);
 
-    void renderGeometry(VkCommandBuffer cmd, DescriptorBinder* binder, vtf_frame_data_t::render_type render_type, const VkPipelineLayout pipeline_layout);
+    void renderGeometry(const objRenderStateData& state);
     void renderIdx(VkCommandBuffer cmd, const size_t index, DescriptorBinder* binder);
 
     struct Part

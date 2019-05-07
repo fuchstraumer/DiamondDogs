@@ -20,7 +20,7 @@
 #include "DescriptorBinder.hpp"
 #include "PerspectiveCamera.hpp"
 #include "vtfFrameData.hpp"
-#include "material/MaterialParameters.hpp"
+#include "Material.hpp"
 #include "vtfTasksAndSteps.hpp"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
@@ -216,53 +216,9 @@ struct TestIcosphereMesh
 
         EBO = rsrc_context.CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, "IcosphereTesterEBO");
 
-		// any values left that are also read from texture use this UBOs quantity
-		// as a base "multiplier", in effect. setting it to 1.0 should leave it
-		// at the intended power I believe
-		MaterialParams.ambientOcclusion = 1.0f;
-
-		constexpr static VkBufferCreateInfo material_params_info{
-			VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			nullptr,
-			0,
-			sizeof(MaterialParameters),
-			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-			VK_SHARING_MODE_EXCLUSIVE,
-			0u,
-			nullptr
-		};
-
-		const gpu_resource_data_t material_params_data{
-			&MaterialParams,
-			sizeof(MaterialParameters),
-			0u, graphics_queue_idx
-		};
-
-		vkMaterialParams = rsrc_context.CreateBuffer(&material_params_info, nullptr, 1u, &material_params_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, 
-			"IcosphereTesterMaterialParams");
     }
 
-    void BindTextures(Descriptor* descr)
-    {
-
-        auto& rsrc_context = ResourceContext::Get();
-        const size_t albedo_loc = descr->BindingLocation("AlbedoMap");
-        const size_t normal_loc = descr->BindingLocation("NormalMap");
-        const size_t ao_loc = descr->BindingLocation("AmbientOcclusionMap");
-        const size_t metallic_loc = descr->BindingLocation("MetallicMap");
-        const size_t roughness_loc = descr->BindingLocation("RoughnessMap");
-        const size_t params_loc = descr->BindingLocation("MaterialParameters");
-        
-        descr->BindResourceToIdx(albedo_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, AlbedoTexture);
-        descr->BindResourceToIdx(normal_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, NormalMap);
-        descr->BindResourceToIdx(ao_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, AmbientOcclusionTexture);
-        descr->BindResourceToIdx(metallic_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, MetallicMap);
-        descr->BindResourceToIdx(roughness_loc, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, RoughnessMap);
-        descr->BindResourceToIdx(params_loc, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, vkMaterialParams);
-
-    }
-
-    void Render(VkCommandBuffer cmd, DescriptorBinder* binder, vtf_frame_data_t::render_type render_type)
+    void Render(const objRenderStateData& state)
 	{
         constexpr static VkDebugUtilsLabelEXT debug_label{
             VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -274,22 +230,22 @@ struct TestIcosphereMesh
         constexpr static VkDeviceSize offsets_dummy[1]{ 0u };
         const VkBuffer buffers[1]{ (VkBuffer)VBO->Handle };
 
-        switch (render_type) {
-        case vtf_frame_data_t::render_type::Opaque:
+        switch (state.type) {
+        case render_type::Opaque:
             [[fallthrough]];
-        case vtf_frame_data_t::render_type::OpaqueAndTransparent: // no transparent geometry for this test
+        case render_type::OpaqueAndTransparent: // no transparent geometry for this test
             if constexpr (VTF_VALIDATION_ENABLED) 
             {
-                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
+                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(state.cmd, &debug_label);
             }
-            vkCmdSetViewport(cmd, 0u, 1u, &viewport);
-            vkCmdSetScissor(cmd, 0u, 1u, &scissor);
-            binder->Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
-            vkCmdBindIndexBuffer(cmd, (VkBuffer)EBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
-            vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets_dummy);
-            vkCmdDrawIndexed(cmd, static_cast<uint32_t>(Indices.size()), 1u, 0u, 0, 0u);
+            vkCmdSetViewport(state.cmd, 0u, 1u, &viewport);
+            vkCmdSetScissor(state.cmd, 0u, 1u, &scissor);
+            state.binder->Bind(state.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+            vkCmdBindIndexBuffer(state.cmd, (VkBuffer)EBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
+            vkCmdBindVertexBuffers(state.cmd, 0, 1, buffers, offsets_dummy);
+            vkCmdDrawIndexed(state.cmd, static_cast<uint32_t>(Indices.size()), 1u, 0u, 0, 0u);
             if constexpr (VTF_VALIDATION_ENABLED) {
-                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdEndDebugUtilsLabel(cmd);
+                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdEndDebugUtilsLabel(state.cmd);
             }
             break;
         default:
@@ -299,7 +255,7 @@ struct TestIcosphereMesh
     }
 
     // just renders the same mesh with a greatly shrunken model matrix
-    void RenderDebugLights(VkCommandBuffer cmd, DescriptorBinder* binder, vtf_frame_data_t::render_type render_type)
+    void RenderDebugLights(const objRenderStateData& state)
     {
         auto& lights = SceneLightsState();
 
@@ -312,21 +268,21 @@ struct TestIcosphereMesh
         constexpr static VkDeviceSize offsets_dummy[1]{ 0u };
         const VkBuffer buffers[1]{ (VkBuffer)VBO->Handle };
 
-        switch (render_type) 
+        switch (state.type) 
         {
-        case vtf_frame_data_t::render_type::Transparent:
+        case render_type::Transparent:
             if constexpr (VTF_VALIDATION_ENABLED) {
-                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
+                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(state.cmd, &debug_label);
             }
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debugLightsPipeline);
-            binder->BindResourceToIdx("GlobalResources", "matrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, lightsMatrices);
-            binder->Update();
-            binder->Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
-            vkCmdBindIndexBuffer(cmd, (VkBuffer)EBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
-            vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets_dummy);
-            vkCmdDrawIndexed(cmd, static_cast<uint32_t>(Indices.size()), static_cast<uint32_t>(lights.PointLights.size()), 0u, 0, 0u);
+            vkCmdBindPipeline(state.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debugLightsPipeline);
+            state.binder->BindResourceToIdx("GlobalResources", "matrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, lightsMatrices);
+            state.binder->Update();
+            state.binder->Bind(state.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+            vkCmdBindIndexBuffer(state.cmd, (VkBuffer)EBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
+            vkCmdBindVertexBuffers(state.cmd, 0, 1, buffers, offsets_dummy);
+            vkCmdDrawIndexed(state.cmd, static_cast<uint32_t>(Indices.size()), static_cast<uint32_t>(lights.PointLights.size()), 0u, 0, 0u);
             if constexpr (VTF_VALIDATION_ENABLED) {
-                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdEndDebugUtilsLabel(cmd);
+                RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdEndDebugUtilsLabel(state.cmd);
             }
             break;
         default:
@@ -336,20 +292,13 @@ struct TestIcosphereMesh
 
     VulkanResource* VBO{ nullptr };
     VulkanResource* EBO{ nullptr };
-    VulkanResource* AlbedoTexture{ nullptr };
-    VulkanResource* AmbientOcclusionTexture{ nullptr };
-    VulkanResource* HeightMap{ nullptr };
-    VulkanResource* NormalMap{ nullptr };
-    VulkanResource* MetallicMap{ nullptr };
-    VulkanResource* RoughnessMap{ nullptr };
-    VulkanResource* vkMaterialParams{ nullptr };
     std::vector<uint32_t> Indices;
     std::vector<vertex_t> Vertices;
-    MaterialParameters MaterialParams;
 	VkViewport viewport;
 	VkRect2D scissor;
     VulkanResource* lightsMatrices;
     VkPipeline debugLightsPipeline;
+    Material icosphereMtl;
 
 };
 
@@ -507,27 +456,26 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data)
 	frameSingleExecComputeWorkDone.resize(img_count, false);
 
     ImGui::CreateContext();
-
-    auto imguiRender = [&](VkCommandBuffer cmd, DescriptorBinder * descriptor, vtf_frame_data_t::render_type type)
+       
+    size_t frameVar = activeFrame;
+    auto imguiRender = [frameVar](const objRenderStateData& state)
     {
-        if (type == vtf_frame_data_t::render_type::GUI)
+        if (state.type == render_type::GUI)
         {
             auto& imgui_wrapper = ImGuiWrapper::GetImGuiWrapper();
-            imgui_wrapper.DrawFrame(activeFrame, cmd);
+            imgui_wrapper.DrawFrame(frameVar, state.cmd);
         }
     };
 
-	vtf_frame_data_t::obj_render_fn_t render_fn = std::bind(&TestIcosphereMesh::Render, icosphereTester.get(), std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-    vtf_frame_data_t::obj_render_fn_t lights_render_fn = std::bind(&TestIcosphereMesh::RenderDebugLights, icosphereTester.get(), std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-    vtf_frame_data_t::obj_render_fn_t imgui_render_fn = std::bind(imguiRender, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-	vtf_frame_data_t::binder_fn_t binder_fn = std::bind(&TestIcosphereMesh::BindTextures, icosphereTester.get(), std::placeholders::_1);
+	vtf_frame_data_t::obj_render_fn_t render_fn = std::bind(&TestIcosphereMesh::Render, icosphereTester.get(), std::placeholders::_1);
+    vtf_frame_data_t::obj_render_fn_t lights_render_fn = std::bind(&TestIcosphereMesh::RenderDebugLights, icosphereTester.get(), std::placeholders::_1);
+    vtf_frame_data_t::obj_render_fn_t imgui_render_fn = std::bind(imguiRender, std::placeholders::_1);
 
     for (uint32_t i = 0; i < img_count; ++i) {
         frames.emplace_back(std::make_unique<vtf_frame_data_t>());
 		frames[i]->renderFns.emplace_back(render_fn);
         frames[i]->renderFns.emplace_back(lights_render_fn);
         frames[i]->renderFns.emplace_back(imgui_render_fn);
-		frames[i]->bindFns.emplace_back(binder_fn);
         setupFutures.emplace_back(std::async(std::launch::async, FullFrameSetup, frames[i].get()));
     }
 
@@ -804,10 +752,15 @@ void VTF_Scene::createIcosphereTester() {
     const fs::path roughness_path = prefix_path_to_textures / fs::path("harshbricks-roughness.png");
     const std::string roughness_str = roughness_path.string();
 
-    icosphereTester->AlbedoTexture = loadTexture(albedo_str.c_str(), "IcosphereTesterAlbedoTexture");
-    icosphereTester->AmbientOcclusionTexture = loadTexture(ao_str.c_str(), "IcosphereTesterAmbientOcclusionTexture");
-    icosphereTester->NormalMap = loadTexture(normal_str.c_str(), "IcosphereTesterNormalMap");
-    icosphereTester->MetallicMap = loadTexture(metallic_str.c_str(), "IcosphereTesterMetallicMap");
-    icosphereTester->RoughnessMap = loadTexture(roughness_str.c_str(), "IcosphereTesterRoughnessMap");
+    tinyobj_opt::material_t material;
+    material.ambient_texname = ao_str;
+    material.diffuse_texname = albedo_str;
+    material.roughness_texname = roughness_str;
+    material.metallic_texname = metallic_str;
+    material.normal_texname = normal_str;
+    material.roughness = 5.0f;
+    material.metallic = 0.1f;
+
+    icosphereTester->icosphereMtl = std::move(Material(material, prefix_path_to_textures.string().c_str()));
     
 }

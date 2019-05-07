@@ -90,17 +90,7 @@ public:
 		{ "DebugClusterColors", nullptr }
     };
 
-    enum class render_type {
-        PrePass = 0,
-        Opaque = 1,
-        Transparent = 2,
-        OpaqueAndTransparent = 3,
-        GUI = 4,
-        Postprocess = 4,
-        Shadow = 5
-    };
-
-    using obj_render_fn_t = std::function<void(VkCommandBuffer cmd, DescriptorBinder* binder, render_type type)>;
+    using obj_render_fn_t = std::function<void(const objRenderStateData& state)>;
 	std::vector<obj_render_fn_t> renderFns;
 	using binder_fn_t = std::function<void(Descriptor* descr)>;
 	std::vector<binder_fn_t> bindFns;
