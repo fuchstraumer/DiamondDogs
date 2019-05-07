@@ -18,11 +18,11 @@ bool PipelineResource::IsTransient() const noexcept {
     return transient;
 }
 
-void PipelineResource::WrittenBySubmission(size_t idx) {
+void PipelineResource::SetWrittenBySubmission(size_t idx) {
     writtenInPasses.emplace(std::move(idx));
 }
 
-void PipelineResource::ReadBySubmission(size_t idx) {
+void PipelineResource::SetReadBySubmission(size_t idx) {
     readInPasses.emplace(std::move(idx));
 }
 
@@ -50,8 +50,9 @@ void PipelineResource::SetTransient(const bool& _transient) {
     transient = _transient;
 }
 
-void PipelineResource::AddQueue(SubmissionQueueFlags flags) {
-    usedQueues |= flags;
+void PipelineResource::AddQueue(size_t submission_idx, uint32_t queue_idx)
+{
+    usedQueues.emplace(submission_idx, queue_idx);
 }
 
 void PipelineResource::AddBufferUsage(VkBufferUsageFlags flags) {
@@ -122,7 +123,7 @@ bool PipelineResource::operator==(const PipelineResource & other) const noexcept
         (parentSetName == other.parentSetName) && (idx == other.idx) && (transient == other.transient);
 }
 
-SubmissionQueueFlags PipelineResource::UsedQueues() const noexcept {
+const std::unordered_map<size_t, uint32_t>& PipelineResource::UsedQueues() const noexcept {
     return usedQueues;
 }
 
@@ -152,16 +153,8 @@ bool resource_dimensions_t::is_storage_image() const noexcept {
     return (ImageUsage & VK_IMAGE_USAGE_STORAGE_BIT);
 }
 
-bool resource_dimensions_t::requires_semaphore() const noexcept {
-    SubmissionQueueFlags physical_queues = Queues;
-
-    if (physical_queues & SubmissionQueueCompute) {
-        physical_queues |= SubmissionQueueGraphics;
-    }
-
-    physical_queues &= ~SubmissionQueueCompute;
-    // any remaining flags in the bitfield are flags for async queues
-    return (physical_queues & (physical_queues - 1)) != 0;
+bool resource_dimensions_t::requires_semaphore() const {
+    throw std::runtime_error("Better implement this.");
 }
 
 bool resource_dimensions_t::is_buffer_like() const noexcept {

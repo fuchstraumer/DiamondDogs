@@ -7,15 +7,6 @@
 #include <unordered_set>
 #include <unordered_map>
 
-enum SubmissionQueueFlagBits : uint32_t {
-    SubmissionQueueGraphics = 1 << 0,
-    SubmissionQueueCompute = 1 << 1,
-    SubmissionQueueAsyncGraphics = 1 << 2,
-    SubmissionQueueAsyncCompute = 1 << 3
-};
-
-using SubmissionQueueFlags = uint32_t;
-
 struct buffer_info_t {
     VkDeviceSize Size{ 0 };
     VkBufferUsageFlags Usage{ 0 };
@@ -64,7 +55,7 @@ struct resource_dimensions_t {
     SubmissionQueueFlags Queues{ 0 };
     VkImageUsageFlags ImageUsage{ 0 };
     bool is_storage_image() const noexcept;
-    bool requires_semaphore() const noexcept;
+    bool requires_semaphore() const;
     bool is_buffer_like() const noexcept;
     bool operator==(const resource_dimensions_t& other) const noexcept;
     bool operator!=(const resource_dimensions_t& other) const noexcept;
@@ -80,8 +71,8 @@ public:
     bool IsImage() const noexcept;
     bool IsTransient() const noexcept;
 
-    void WrittenBySubmission(size_t idx);
-    void ReadBySubmission(size_t idx);
+    void SetWrittenBySubmission(size_t idx);
+    void SetReadBySubmission(size_t idx);
 
     void SetIdx(size_t idx);
     void SetParentSetName(std::string _name);
@@ -89,7 +80,7 @@ public:
     void SetDescriptorType(VkDescriptorType type);
     void SetInfo(resource_info_variant_t _info);
     void SetTransient(const bool& _transient);
-    void AddQueue(SubmissionQueueFlags flags);
+    void AddQueue(size_t submission_idx, uint32_t queue_idx);
     void AddBufferUsage(VkBufferUsageFlags flags);
     void AddImageUsage(VkImageUsageFlags flags);
 
@@ -102,7 +93,7 @@ public:
     const resource_info_variant_t& GetInfo() const noexcept;
     const image_info_t& GetImageInfo() const;
     const buffer_info_t& GetBufferInfo() const;
-    SubmissionQueueFlags UsedQueues() const noexcept;
+    const std::unordered_map<size_t, uint32_t>& UsedQueues() const noexcept;
 
     bool operator==(const PipelineResource& other) const noexcept;
 
@@ -121,7 +112,7 @@ private:
     resource_info_variant_t info;
     std::unordered_set<size_t> readInPasses;
     std::unordered_set<size_t> writtenInPasses;
-    SubmissionQueueFlags usedQueues;
+    std::unordered_map<size_t, uint32_t> usedQueues;
 };
 
 #endif //!DIAMOND_DOGS_PIPELINE_RESOURCE_HPP
