@@ -31,7 +31,7 @@ public:
         PipelineResource* Info{ nullptr };
     };
 
-    PipelineSubmission(RenderGraph& graph, std::string name, size_t idx, SubmissionQueueFlags _queue);
+    PipelineSubmission(RenderGraph& graph, std::string name, size_t idx, uint32_t queue_idx);
     ~PipelineSubmission();
 
     void RecordCommands(VkCommandBuffer cmd);
@@ -49,6 +49,7 @@ public:
     PipelineResource& AddUniformInput(const std::string& name, VkPipelineStageFlags stages = 0);
     PipelineResource& AddUniformTexelBufferInput(const std::string& name, VkPipelineStageFlags stages = 0);
     PipelineResource& AddInputTexelBufferReadOnly(const std::string& name, VkPipelineStageFlags stages = 0);
+    PipelineResource& AddTexelBufferInput(const std::string& name, buffer_info_t info);
     PipelineResource& AddTexelBufferOutput(const std::string& name, buffer_info_t info, const std::string& input = "");
     PipelineResource& AddTexelBufferRW(const std::string& name, buffer_info_t info);
     PipelineResource& AddStorageOutput(const std::string& name, buffer_info_t info, const std::string& input = "");
@@ -103,7 +104,7 @@ private:
 
     std::string name{};
     RenderGraph& graph;
-    SubmissionQueueFlags queue;
+    uint32_t queueIdx;
     size_t idx{ std::numeric_limits<size_t>::max() };
     size_t physicalPassIdx{ std::numeric_limits<size_t>::max() };
 
@@ -118,6 +119,8 @@ private:
     std::vector<PipelineResource*> colorScaleInputs;
     std::vector<PipelineResource*> storageTextureInputs;
     std::vector<PipelineResource*> storageTextureOutputs;
+    std::vector<PipelineResource*> blitInputs;
+    std::vector<PipelineResource*> blitOutputs;
     std::vector<PipelineResource*> attachmentInputs;
     std::vector<PipelineResource*> historyInputs;
     std::vector<PipelineResource*> uniformInputs;
