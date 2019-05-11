@@ -26,6 +26,11 @@ void PipelineResource::SetReadBySubmission(size_t idx) {
     readInPasses.emplace(std::move(idx));
 }
 
+void PipelineResource::SetPipelineStageFlagsForSubmission(size_t idx, VkPipelineStageFlagBits stage_flags)
+{
+    submissionStages.emplace(idx, stage_flags);
+}
+
 void PipelineResource::SetIdx(size_t _idx) {
     idx = std::move(_idx);
 }
@@ -71,7 +76,7 @@ void PipelineResource::AddImageUsage(VkImageUsageFlags flags) {
     image_info.Usage |= flags;
 }
 
-const size_t& PipelineResource::GetIdx() const noexcept {
+size_t PipelineResource::GetIdx() const noexcept {
     return idx;
 }
 
@@ -79,7 +84,7 @@ const std::string& PipelineResource::ParentSetName() const noexcept {
     return parentSetName;
 }
 
-const VkDescriptorType& PipelineResource::DescriptorType() const noexcept {
+VkDescriptorType PipelineResource::DescriptorType() const noexcept {
     return intendedType;
 }
 
@@ -125,6 +130,11 @@ bool PipelineResource::operator==(const PipelineResource & other) const noexcept
 
 const std::unordered_map<size_t, uint32_t>& PipelineResource::UsedQueues() const noexcept {
     return usedQueues;
+}
+
+VkPipelineStageFlagBits PipelineResource::SubmissionStageFlags(const size_t idx) const noexcept
+{
+    return submissionStages.at(idx);
 }
 
 bool buffer_info_t::operator==(const buffer_info_t& other) const noexcept {

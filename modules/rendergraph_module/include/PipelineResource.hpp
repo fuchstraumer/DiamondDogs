@@ -52,7 +52,7 @@ struct resource_dimensions_t {
     bool Transient{ false };
     bool Persistent{ true };
     bool sRGB{ false };
-    SubmissionQueueFlags Queues{ 0 };
+    uint32_t Queues[4]{ 0, 0, 0, 0 };
     VkImageUsageFlags ImageUsage{ 0 };
     bool is_storage_image() const noexcept;
     bool requires_semaphore() const;
@@ -73,6 +73,7 @@ public:
 
     void SetWrittenBySubmission(size_t idx);
     void SetReadBySubmission(size_t idx);
+    void SetPipelineStageFlagsForSubmission(size_t idx, VkPipelineStageFlagBits stage_flags);
 
     void SetIdx(size_t idx);
     void SetParentSetName(std::string _name);
@@ -84,9 +85,9 @@ public:
     void AddBufferUsage(VkBufferUsageFlags flags);
     void AddImageUsage(VkImageUsageFlags flags);
 
-    const size_t& GetIdx() const noexcept;
+    size_t GetIdx() const noexcept;
     const std::string& ParentSetName() const noexcept;
-    const VkDescriptorType& DescriptorType() const noexcept;
+    VkDescriptorType DescriptorType() const noexcept;
     const std::string& Name() const noexcept;
     const std::unordered_set<size_t>& SubmissionsReadIn() const noexcept;
     const std::unordered_set<size_t>& SubmissionsWrittenIn() const noexcept;
@@ -94,6 +95,7 @@ public:
     const image_info_t& GetImageInfo() const;
     const buffer_info_t& GetBufferInfo() const;
     const std::unordered_map<size_t, uint32_t>& UsedQueues() const noexcept;
+    VkPipelineStageFlagBits SubmissionStageFlags(const size_t idx) const noexcept;
 
     bool operator==(const PipelineResource& other) const noexcept;
 
@@ -113,6 +115,7 @@ private:
     std::unordered_set<size_t> readInPasses;
     std::unordered_set<size_t> writtenInPasses;
     std::unordered_map<size_t, uint32_t> usedQueues;
+    std::unordered_map<size_t, VkPipelineStageFlagBits> submissionStages;
 };
 
 #endif //!DIAMOND_DOGS_PIPELINE_RESOURCE_HPP
