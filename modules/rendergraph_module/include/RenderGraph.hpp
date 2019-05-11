@@ -30,7 +30,7 @@ class RenderGraph {
     friend class PipelineSubmission;
 public:
 
-    RenderGraph(const vpr::Device* dvc);
+    RenderGraph();
     ~RenderGraph();
 
     void AddShaderPack(const st::ShaderPack* pack);

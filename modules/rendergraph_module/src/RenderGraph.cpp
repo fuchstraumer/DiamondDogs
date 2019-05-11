@@ -94,8 +94,8 @@ std::unique_ptr<RenderTarget> CreateDefaultBackbuffer() {
     return std::move(result);
 }
 
-RenderGraph::RenderGraph(const vpr::Device* dvc) : device(dvc) {
-    renderTargets.emplace(backbufferSource, CreateDefaultBackbuffer());
+RenderGraph::RenderGraph() : device(RenderingContext::Get().Device()) {
+    renderTargets.emplace(backbufferSource, nullptr);
 }
 
 RenderGraph::~RenderGraph() {
@@ -252,6 +252,23 @@ void RenderGraph::addShaderPackResources(const st::ShaderPack* pack) {
     createPipelineResourcesFromPack(pack);
 }
 
+buffer_info_t RenderGraph::createPipelineResourceBufferInfo(const st::ShaderResource* resource) const
+{
+    return buffer_info_t{
+        0u,
+        buffer_usage_from_descriptor_type(resource->DescriptorType()),
+        resource->Format()
+    };
+}
+
+image_info_t RenderGraph::createPipelineResourceImageInfo(const st::ShaderResource* resource) const
+{
+    image_info_t result;
+    result.Format = resource->Format();
+    result.Usage = image_usage_from_descriptor_type(resource->DescriptorType());
+    return result;
+}
+
 void RenderGraph::Bake() {
     for (auto& submission : submissions) {
         submission->ValidateSubmission();
@@ -322,7 +339,7 @@ const vpr::Device* RenderGraph::GetDevice() const noexcept {
 }
 
 RenderGraph& RenderGraph::GetGlobalGraph() {
-    static RenderGraph graph(RenderingContext::Get().Device());
+    static RenderGraph graph;
     return graph;
 }
 
@@ -403,7 +420,7 @@ void RenderGraph::addResourceUsagesToSubmission(PipelineSubmission & submission,
     auto add_storage_texel_buffer_type = [&](const PipelineResource* rsrc, const st::ResourceUsage& usage) {
         switch (usage.AccessModifier()) {
         case st::access_modifier::Read:
-            submission.AddInputTexelBufferReadOnly(rsrc->Name(), rsrc->UsedQueues());
+            submission.AddTexelBufferInput(rsrc->Name(), rsrc->GetBufferInfo());
             break;
         case st::access_modifier::Write:
             submission.AddTexelBufferOutput(rsrc->Name(), rsrc->GetBufferInfo());
@@ -428,16 +445,16 @@ void RenderGraph::addResourceUsagesToSubmission(PipelineSubmission & submission,
             // Don't need to do anything, these are immutable and don't need guarding
             break;
         case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
-            submission.AddTextureInput(resource->Name(), resource->UsedQueues());
+            submission.AddTextureInput(resource->Name(), resource->SubmissionStageFlags(submission.idx));
             break;
         case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-            submission.AddTextureInput(resource->Name(), resource->UsedQueues());
+            submission.AddTextureInput(resource->Name(), resource->SubmissionStageFlags(submission.idx));
             break;
         case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
             add_storage_image(resource.get(), usage);
             break;
         case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
-            submission.AddUniformTexelBufferInput(resource->Name(), resource->UsedQueues());
+            submission.AddUniformTexelBufferInput(resource->Name(), resource->SubmissionStageFlags(submission.idx));
             break;
         case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
             add_storage_texel_buffer_type(resource.get(), usage);
@@ -520,7 +537,6 @@ void RenderGraph::addSingleGroup(const std::string & name, const st::Shader* gro
                 if (attrib_name == backbufferSource) {
                     auto& backbuffer = renderTargets.at(backbufferSource);
                     submission.AddColorOutput("backbuffer", backbuffer->GetImageInfo());
-                    //submission.SetDepthStencilOutput("backbuffer_depth", backbuffer->Depth()->GetImageInfo());
                 }
                 else if (attrib.GetAsFormat() != VK_FORMAT_UNDEFINED) {
                     auto& resource = GetResource(attrib.Name());
