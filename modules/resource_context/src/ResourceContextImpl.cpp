@@ -729,6 +729,13 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resou
 		post_transfer_barrier.dstQueueFamilyIndex = initial_data->DestinationQueueFamily != transfer_queue_idx ? initial_data->DestinationQueueFamily : VK_QUEUE_FAMILY_IGNORED;
 	}
 
+    const ThsvsGlobalBarrier global_barrier{
+        1u,
+        transfer_access_types,
+        static_cast<uint32_t>(possible_access_types.size()),
+        possible_access_types.data()
+    };
+
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
     auto cmd = transfer_system.TransferCmdBuffer();
     auto guard = transfer_system.AcquireSpinLock();
@@ -744,7 +751,7 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resou
     }
 
     vkCmdCopyBuffer(cmd, upload_buffer->Buffer, reinterpret_cast<VkBuffer>(resource->Handle), static_cast<uint32_t>(buffer_copies.size()), buffer_copies.data());
-    thsvsCmdPipelineBarrier(cmd, nullptr, 1u, &post_transfer_barrier, 0u, nullptr);
+    thsvsCmdPipelineBarrier(cmd, &global_barrier, 1u, &post_transfer_barrier, 0u, nullptr);
     
 }
 
