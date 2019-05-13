@@ -5,51 +5,89 @@
 #include "PipelineCache.hpp"
 #include "LogicalDevice.hpp"
 #include "RenderingContext.hpp"
+#include "easylogging++.h"
 #include <vector>
+#include <cassert>
 
 PipelineSubmission::PipelineSubmission(RenderGraph& rgraph, std::string _name, size_t _idx, uint32_t _queue)
     : graph(rgraph), name(std::move(_name)), idx(std::move(_idx)), queueIdx(std::move(_queue)) {}
 
 PipelineSubmission::~PipelineSubmission() {}
 
-PipelineResource& PipelineSubmission::SetDepthStencilInput(const std::string& name) {
-    auto& resource = graph.GetResource(name);
+PipelineResource& PipelineSubmission::AddResource(const ResourceUsageInfo& info, const ResourceAccessType access_type)
+{
+
+    auto& resource = graph.GetResource(info.Name);
+    resources.emplace(resource_key{ info.Type, access_type }, &resource);
+
     resource.AddQueue(idx, queueIdx);
-    resource.SetReadBySubmission(idx);
-    depthStencilInput = &resource;
-    return resource;
+
+    switch (access_type)
+    {
+    case ResourceAccessType::Read:
+        resource.SetReadBySubmission(idx);
+        break;
+    case ResourceAccessType::Write:
+        resource.SetWrittenBySubmission(idx);
+        break;
+    case ResourceAccessType::ReadWrite:
+        resource.SetReadBySubmission(idx);
+        resource.SetWrittenBySubmission(idx);
+        break;
+    default:
+        LOG(ERROR) << "Invalid access_type enum value!";
+        throw std::domain_error("Invalid access_type enum value!");
+    };
+
+    switch (info.Type)
+    {
+    case ResourceUsageType::DepthStencil:
+        resource.AddImageUsage(idx, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+        setDepthStencil(resource, access_type);
+        break;
+    case ResourceUsageType::InputAttachment:
+        resource.AddImageUsage(idx, VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT);
+        break;
+    case ResourceUsageType::HistoryInput:
+        break;
+    case ResourceUsageType::Color:
+        resource.AddImageUsage(idx, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+        resource.SetInfo(info.Info);
+        checkColorInput(info, resource, access_type);
+        break;
+    case ResourceUsageType::Resolve:
+        resource.AddImageUsage(idx, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+        resource.SetInfo(info.Info);
+        break;
+    case ResourceUsageType::StorageTexture:
+        break;
+    case ResourceUsageType::Uniform:
+        break;
+    case ResourceUsageType::UniformTexelBuffer:
+        break;
+    case ResourceUsageType::StorageTexelBuffer:
+        break;
+    case ResourceUsageType::Storage:
+        break;
+    case ResourceUsageType::Texture:
+        break;
+    case ResourceUsageType::Blit:
+        break;
+    case ResourceUsageType::VertexBuffer:
+        break;
+    case ResourceUsageType::IndexBuffer:
+        break;
+    case ResourceUsageType::IndirectBuffer:
+        break;
+    default:
+        LOG(ERROR) << "Invalid resource usage enum value in ResourceUsageInfo struct!";
+        throw std::domain_error("Invalid resource usage enum value!");
+    };
 }
 
-PipelineResource& PipelineSubmission::SetDepthStencilOutput(const std::string& name, image_info_t info) {
-    auto& resource = graph.GetResource(name);
-    resource.AddQueue(idx, queueIdx);
-    resource.SetWrittenBySubmission(idx);
-    if (!(info.Usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)) {
-        LOG(ERROR) << "Tried to add a depth stencil output, but image info structure has invalid usage flags!";
-        throw std::runtime_error("Invalid image usage flags.");
-    }
-    resource.SetInfo(info);
-    depthStencilOutput = &resource;
-    return resource;
-}
 
-PipelineResource& PipelineSubmission::AddInputAttachment(const std::string& name) {
-    auto& resource = graph.GetResource(name);
-    resource.AddQueue(idx, queueIdx);
-    resource.SetReadBySubmission(idx);
-    resource.AddImageUsage(VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT);
-    attachmentInputs.emplace_back(&resource);
-    return resource;
-}
-
-PipelineResource& PipelineSubmission::AddHistoryInput(const std::string& name) {
-    auto& resource = graph.GetResource(name);
-    resource.AddQueue(idx, queueIdx);
-    historyInputs.emplace_back(&resource);
-    return resource;
-}
-
-PipelineResource& PipelineSubmission::AddColorOutput(const std::string& name, image_info_t info, const std::string& input) {
+PipelineResource& PipelineSubmission::AddColorOutput(const std::string& name, image_info_t info, const std::string& input)
+{
     auto& resource = graph.GetResource(name);
     resource.AddQueue(idx, queueIdx);
     resource.SetWrittenBySubmission(idx);
@@ -57,14 +95,16 @@ PipelineResource& PipelineSubmission::AddColorOutput(const std::string& name, im
     resource.AddImageUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
     colorOutputs.emplace_back(&resource);
 
-    if (!input.empty()) {
+    if (!input.empty())
+    {
         auto& input_resource = graph.GetResource(input);
         input_resource.SetReadBySubmission(idx);
         input_resource.AddImageUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
         colorInputs.emplace_back(&input_resource);
         colorScaleInputs.emplace_back(&input_resource);
     }
-    else {
+    else
+    {
         colorInputs.emplace_back(nullptr);
         colorScaleInputs.emplace_back(nullptr);
     }
@@ -72,11 +112,13 @@ PipelineResource& PipelineSubmission::AddColorOutput(const std::string& name, im
     return resource;
 }
 
-PipelineResource& PipelineSubmission::AddResolveOutput(const std::string& name, image_info_t info) {
+PipelineResource& PipelineSubmission::AddResolveOutput(const std::string& name, image_info_t info)
+{
     auto& resource = graph.GetResource(name);
     resource.AddQueue(idx, queueIdx);
     resource.SetWrittenBySubmission(idx);        
-    if (info.Samples != VK_SAMPLE_COUNT_1_BIT) {
+    if (info.Samples != VK_SAMPLE_COUNT_1_BIT)
+    {
         LOG(ERROR) << "Image info for resolve output attachment has invalid sample count flags value!";
         throw std::runtime_error("Invalid sample count flags.");
     }
@@ -86,26 +128,30 @@ PipelineResource& PipelineSubmission::AddResolveOutput(const std::string& name, 
     return resource;
 }
 
-PipelineResource& PipelineSubmission::AddStorageTextureInput(const std::string & name, image_info_t info, const std::string& output) {
+PipelineResource& PipelineSubmission::AddStorageTextureInput(const std::string & name, image_info_t info, const std::string& output)
+{
     auto& resource = graph.GetResource(name);
     resource.AddQueue(idx, queueIdx);
     resource.SetWrittenBySubmission(idx);
     resource.SetInfo(info);
     resource.AddImageUsage(VK_IMAGE_USAGE_STORAGE_BIT);
     storageTextureInputs.emplace_back(&resource);
-    if (!output.empty()) {
+    if (!output.empty())
+    {
         auto& output_resource = graph.GetResource(output);
         output_resource.SetWrittenBySubmission(idx);
         output_resource.AddImageUsage(VK_IMAGE_USAGE_STORAGE_BIT);
         storageTextureOutputs.emplace_back(&output_resource);
     }
-    else {
+    else
+    {
         storageTextureOutputs.emplace_back(nullptr);
     }
     return resource;
 }
 
-PipelineResource& PipelineSubmission::AddStorageTextureOutput(const std::string& name, image_info_t info, const std::string& input) {
+PipelineResource& PipelineSubmission::AddStorageTextureOutput(const std::string& name, image_info_t info, const std::string& input)
+{
     auto& resource = graph.GetResource(name);
     resource.AddQueue(idx, queueIdx);
     resource.SetWrittenBySubmission(idx);
@@ -113,20 +159,23 @@ PipelineResource& PipelineSubmission::AddStorageTextureOutput(const std::string&
     resource.AddImageUsage(VK_IMAGE_USAGE_STORAGE_BIT);
     storageTextureOutputs.emplace_back(&resource);
 
-    if (!input.empty()) {
+    if (!input.empty())
+    {
         auto& input_resource = graph.GetResource(input);
         input_resource.SetReadBySubmission(idx);
         input_resource.AddImageUsage(VK_IMAGE_USAGE_STORAGE_BIT);
         storageTextureInputs.emplace_back(&input_resource);
     }
-    else {
+    else
+    {
         storageTextureInputs.emplace_back(nullptr);
     }
 
     return resource;
 }
 
-PipelineResource& PipelineSubmission::AddStorageTextureRW(const std::string& name, image_info_t info) {
+PipelineResource& PipelineSubmission::AddStorageTextureRW(const std::string& name, image_info_t info)
+{
     auto& resource = graph.GetResource(name);
     resource.AddQueue(idx, queueIdx);
     resource.AddImageUsage(VK_IMAGE_USAGE_STORAGE_BIT);
@@ -137,15 +186,19 @@ PipelineResource& PipelineSubmission::AddStorageTextureRW(const std::string& nam
     return resource;
 }
 
-PipelineResource& PipelineSubmission::AddUniformInput(const std::string& name, VkPipelineStageFlags stages) {
+PipelineResource& PipelineSubmission::AddUniformInput(const std::string& name, VkPipelineStageFlags stages)
+{
     auto& resource = graph.GetResource(name);
     auto& queue_family_indices = RenderingContext::Get().Device()->QueueFamilyIndices();
     
-    if (stages == 0) {
-        if (queueIdx == queue_family_indices.Compute) {
+    if (stages == 0)
+    {
+        if (queueIdx == queue_family_indices.Compute)
+        {
             stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
         }
-        else {
+        else
+        {
             stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
         }
     }
@@ -153,15 +206,19 @@ PipelineResource& PipelineSubmission::AddUniformInput(const std::string& name, V
     return addGenericBufferInput(name, stages, VK_ACCESS_SHADER_READ_BIT, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 }
 
-PipelineResource& PipelineSubmission::AddUniformTexelBufferInput(const std::string& name, VkPipelineStageFlags stages) {
+PipelineResource& PipelineSubmission::AddUniformTexelBufferInput(const std::string& name, VkPipelineStageFlags stages)
+{
     auto& resource = graph.GetResource(name);
     auto& queue_family_indices = RenderingContext::Get().Device()->QueueFamilyIndices();
 
-    if (stages == 0) {
-        if (queueIdx == queue_family_indices.Compute) {
+    if (stages == 0)
+    {
+        if (queueIdx == queue_family_indices.Compute)
+        {
             stages |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
         }
-        else {
+        else
+        {
             stages |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
         }
     }
@@ -169,15 +226,19 @@ PipelineResource& PipelineSubmission::AddUniformTexelBufferInput(const std::stri
     return addGenericBufferInput(name, stages, VK_ACCESS_SHADER_READ_BIT, VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT);
 }
 
-PipelineResource& PipelineSubmission::AddInputTexelBufferReadOnly(const std::string& name, VkPipelineStageFlags stages) {
+PipelineResource& PipelineSubmission::AddInputTexelBufferReadOnly(const std::string& name, VkPipelineStageFlags stages)
+{
     auto& resource = graph.GetResource(name);
     auto& queue_family_indices = RenderingContext::Get().Device()->QueueFamilyIndices();
 
-    if (stages == 0) {
-        if (queueIdx == queue_family_indices.Compute) {
+    if (stages == 0)
+    {
+        if (queueIdx == queue_family_indices.Compute)
+        {
             stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
         }
-        else {
+        else
+        {
             stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
         }
     }
@@ -185,7 +246,8 @@ PipelineResource& PipelineSubmission::AddInputTexelBufferReadOnly(const std::str
     return addGenericBufferInput(name, stages, VK_ACCESS_SHADER_READ_BIT, VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT);
 }
 
-PipelineResource& PipelineSubmission::AddTexelBufferInput(const std::string& name, buffer_info_t info) {
+PipelineResource& PipelineSubmission::AddTexelBufferInput(const std::string& name, buffer_info_t info)
+{
     auto& resource = graph.GetResource(name);
 
     resource.SetInfo(info);
@@ -196,7 +258,8 @@ PipelineResource& PipelineSubmission::AddTexelBufferInput(const std::string& nam
     return resource;
 }
 
-PipelineResource& PipelineSubmission::AddTexelBufferOutput(const std::string& name, buffer_info_t info, const std::string& input) {
+PipelineResource& PipelineSubmission::AddTexelBufferOutput(const std::string& name, buffer_info_t info, const std::string& input)
+{
     auto& resource = graph.GetResource(name);
     resource.SetInfo(info);
     resource.AddBufferUsage(VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT);
@@ -204,20 +267,23 @@ PipelineResource& PipelineSubmission::AddTexelBufferOutput(const std::string& na
     resource.AddQueue(idx, queueIdx);
     texelBufferOutputs.emplace_back(&resource);
 
-    if (!input.empty()) {
+    if (!input.empty())
+    {
         auto& input_rsrc = graph.GetResource(input);
         input_rsrc.SetReadBySubmission(idx);
         input_rsrc.AddBufferUsage(VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT);
         texelBufferInputs.emplace_back(&input_rsrc);
     }
-    else {
+    else
+    {
         texelBufferInputs.emplace_back(nullptr);
     }
 
     return resource;
 }
 
-PipelineResource& PipelineSubmission::AddTexelBufferRW(const std::string & name, buffer_info_t info) {
+PipelineResource& PipelineSubmission::AddTexelBufferRW(const std::string & name, buffer_info_t info)
+{
     auto& resource = graph.GetResource(name);
     resource.SetInfo(info);
     resource.AddBufferUsage(VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT);
@@ -229,18 +295,21 @@ PipelineResource& PipelineSubmission::AddTexelBufferRW(const std::string & name,
     return resource;
 }
 
-PipelineResource& PipelineSubmission::AddStorageOutput(const std::string& name, buffer_info_t info, const std::string& input) {
+PipelineResource& PipelineSubmission::AddStorageOutput(const std::string& name, buffer_info_t info, const std::string& input)
+{
     auto& resource = graph.GetResource(name);
     resource.AddQueue(idx, queueIdx);
     resource.SetWrittenBySubmission(idx);
     resource.SetInfo(info);
     storageOutputs.emplace_back(&resource);
-    if (!input.empty()) {
+    if (!input.empty())
+    {
         auto& input_resource = graph.GetResource(input);
         input_resource.SetReadBySubmission(idx);
         storageInputs.emplace_back(&input_resource);
     }
-    else {
+    else
+    {
         storageInputs.emplace_back(nullptr);
     }
     return resource;
@@ -273,13 +342,16 @@ PipelineResource& PipelineSubmission::AddTextureInput(const std::string& name, V
     acc.Layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     acc.Access = VK_ACCESS_SHADER_READ_BIT;
 
-    if (stages != 0) {
+    if (stages != 0)
+    {
         acc.Stages = stages;
     }
-    else if (queueIdx == queue_family_indices.Compute) {
+    else if (queueIdx == queue_family_indices.Compute)
+    {
         acc.Stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
     }
-    else {
+    else
+    {
         acc.Stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     }
 
@@ -287,180 +359,133 @@ PipelineResource& PipelineSubmission::AddTextureInput(const std::string& name, V
     return resource;
 }
 
-const std::vector<PipelineResource*>& PipelineSubmission::GetColorOutputs() const noexcept {
-    return colorOutputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetResolveOutputs() const noexcept {
-    return resolveOutputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetColorInputs() const noexcept {
-    return colorInputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetColorScaleInputs() const noexcept {
-    return colorScaleInputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetStorageTextureInputs() const noexcept {
-    return storageTextureInputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetStorageTextureOutputs() const noexcept {
-    return storageTextureOutputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetAttachmentInputs() const noexcept {
-    return attachmentInputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetHistoryInputs() const noexcept {
-    return historyInputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetUniformInputs() const noexcept {
-    return uniformInputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetStorageOutputs() const noexcept {
-    return storageOutputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetStorageInputs() const noexcept {
-    return storageInputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetTexelBufferInputs() const noexcept {
-    return texelBufferInputs;
-}
-
-const std::vector<PipelineResource*>& PipelineSubmission::GetTexelBufferOutputs() const noexcept {
-    return texelBufferOutputs;
-}
-
-const std::vector<PipelineSubmission::AccessedResource>& PipelineSubmission::GetGenericTextureInputs() const noexcept {
-    return genericTextures;
-}
-
-const std::vector<PipelineSubmission::AccessedResource>& PipelineSubmission::GetGenericBufferInputs() const noexcept {
-    return genericBuffers;
-}
-
-const std::vector<std::string>& PipelineSubmission::GetTags() const noexcept {
+const std::vector<std::string>& PipelineSubmission::GetTags() const noexcept
+{
     return submissionTags;
 }
 
-const PipelineResource * PipelineSubmission::GetDepthStencilInput() const noexcept {
+const PipelineResource* PipelineSubmission::GetDepthStencilInput() const noexcept
+{
     return depthStencilInput;
 }
 
-const PipelineResource * PipelineSubmission::GetDepthStencilOutput() const noexcept {
+const PipelineResource* PipelineSubmission::GetDepthStencilOutput() const noexcept
+{
     return depthStencilOutput;
 }
 
-void PipelineSubmission::SetIdx(size_t _idx) {
+void PipelineSubmission::SetIdx(size_t _idx)
+{
     idx = std::move(_idx);
 }
 
-void PipelineSubmission::SetPhysicalPassIdx(size_t idx) {
+void PipelineSubmission::SetPhysicalPassIdx(size_t idx)
+{
     physicalPassIdx = std::move(idx);
 }
 
-void PipelineSubmission::SetName(std::string _name) {
+void PipelineSubmission::SetName(std::string _name)
+{
     name = std::move(_name);
 }
 
-void PipelineSubmission::AddTag(std::string _tag) {
+void PipelineSubmission::AddTag(std::string _tag)
+{
     submissionTags.emplace_back(std::move(_tag));
 }
 
-void PipelineSubmission::SetTags(std::vector<std::string> _tags) {
+void PipelineSubmission::SetTags(std::vector<std::string> _tags)
+{
     submissionTags = std::move(_tags);
 }
 
-const size_t& PipelineSubmission::GetIdx() const noexcept {
+const size_t& PipelineSubmission::GetIdx() const noexcept
+{
     return idx;
 }
 
-const size_t& PipelineSubmission::GetPhysicalPassIdx() const noexcept {
+const size_t& PipelineSubmission::GetPhysicalPassIdx() const noexcept
+{
     return physicalPassIdx;
 }
 
-const std::string& PipelineSubmission::Name() const noexcept {
+const std::string& PipelineSubmission::Name() const noexcept
+{
     return name;
 }
 
-bool PipelineSubmission::NeedRenderPass() const noexcept {
-    if (!needPassCb) {
+bool PipelineSubmission::NeedRenderPass() const noexcept
+{
+    if (!needPassCb)
+    {
         return true;
     }
-    else {
+    else
+    {
         return needPassCb();
     }
 }
 
-bool PipelineSubmission::GetClearColor(size_t idx, VkClearColorValue* value) noexcept {
-    if (!getClearColorValueCb) {
+bool PipelineSubmission::GetClearColor(size_t idx, VkClearColorValue* value) noexcept
+{
+    if (!getClearColorValueCb)
+    {
         return false;
     }
-    else {
+    else
+    {
         return getClearColorValueCb(idx, value);
     }
 }
 
-bool PipelineSubmission::GetClearDepth(VkClearDepthStencilValue* value) const noexcept {
-    if (!getClearDepthValueCb) {
+bool PipelineSubmission::GetClearDepth(VkClearDepthStencilValue* value) const noexcept
+{
+    if (!getClearDepthValueCb)
+    {
         return false;
     }
-    else {
+    else
+    {
         return getClearDepthValueCb(value);
     }
 }
 
-bool PipelineSubmission::ValidateSubmission() {
+void attachmentErr(const std::string& attachment_type, const std::string& submission_name)
+{
+    LOG(ERROR) << "Pipeline submission " << submission_name << " has a mismatched quantity of " << attachment_type << " inputs and outputs!";
+    throw std::logic_error(std::string("Invalid " + attachment_type + " counts"));
+}
 
-    auto attachment_count_err = [&](const std::string& attachment_type) {
-        LOG(ERROR) << "Pipeline submission " << name << " has a mismatched quantity of " << attachment_type << " inputs and outputs!";
-        throw std::logic_error(std::string("Invalid " + attachment_type + " counts"));
-    };
+bool PipelineSubmission::ValidateSubmission()
+{
 
-    if (colorInputs.size() != colorOutputs.size()) {
-        attachment_count_err("color attachment");
-    }
-
-    if (storageInputs.size() != storageOutputs.size()) {
+    if (storageInputs.size() != storageOutputs.size())
+    {
         attachment_count_err("storage buffer");
     }
 
-    if (storageTextureInputs.size() != storageTextureOutputs.size()) {
+    if (storageTextureInputs.size() != storageTextureOutputs.size())
+    {
         attachment_count_err("storage texture");
     }
 
-    if (texelBufferInputs.size() != texelBufferOutputs.size()) {
+    if (texelBufferInputs.size() != texelBufferOutputs.size())
+    {
         attachment_count_err("storage texel buffer");
     }
 
-    if (!resolveOutputs.empty()) {
-        if (resolveOutputs.size() != colorOutputs.size()) {
+    if (!resolveOutputs.empty())
+    {
+        if (resolveOutputs.size() != colorOutputs.size())
+        {
             attachment_count_err("resolve attachment");
         }
     }
 
-    for (size_t i = 0; i < colorInputs.size(); ++i) {
-        if (colorInputs[i] == nullptr) {
-            continue;
-        }
-
-        if (graph.GetResourceDimensions(*colorInputs[i]) != graph.GetResourceDimensions(*colorOutputs[i])) {
-            // Need to scale/modify color input before it becomes the output
-            MakeColorInputScaled(i);
-        }
-
-    }
-
-    if (!storageOutputs.empty()) {
-        for (size_t i = 0; i < storageOutputs.size(); ++i) {
+    if (!storageOutputs.empty())
+    {
+        for (size_t i = 0; i < storageOutputs.size(); ++i)
+        {
             if (storageInputs[i] == nullptr) {
                 continue;
             }
@@ -508,8 +533,37 @@ bool PipelineSubmission::ValidateSubmission() {
     return true;
 }
 
-void PipelineSubmission::MakeColorInputScaled(const size_t & idx) {
-    std::swap(colorInputs[idx], colorScaleInputs[idx]);
+void PipelineSubmission::validateColorInputs()
+{
+    if (usageTypeFlags.count(ResourceUsageType::Color) == 0)
+    {
+        return;
+    }
+
+    auto& colorInputs = getSubtypeIters(ResourceUsageType::Color, ResourceAccessType::Read);
+    auto& colorOutputs = getSubtypeIters(ResourceUsageType::Color, ResourceAccessType::Write);
+    auto& colorScaleInputs = getSubtypeIters(ResourceUsageType::ColorScale, ResourceAccessType::Read);
+
+    if (colorInputs.size() != colorOutputs.size())
+    {
+        attachmentErr("color attachment", name);
+    }
+
+    for (size_t i = 0; i < colorInputs.size(); ++i)
+    {
+        if (colorInputs[i] == nullptr)
+        {
+            continue;
+        }
+
+        if (graph.GetResourceDimensions(*colorInputs[i]) != graph.GetResourceDimensions(*colorOutputs[i])) {
+            // Need to scale/modify color input before it becomes the output
+            assert(!colorScaleInputs.empty());
+            std::swap(colorInputs[i], colorScaleInputs[i]);
+        }
+
+    }
+
 }
 
 PipelineResource& PipelineSubmission::addGenericBufferInput(const std::string& name, VkPipelineStageFlags stages, VkAccessFlags access, VkBufferUsageFlags usage) {
@@ -526,6 +580,72 @@ PipelineResource& PipelineSubmission::addGenericBufferInput(const std::string& n
     genericBuffers.emplace_back(acc);
 
     return resource;
+}
+
+void PipelineSubmission::setDepthStencil(PipelineResource& rsrc, const ResourceAccessType access_type)
+{
+    switch (access_type)
+    {
+    case ResourceAccessType::Read:
+        depthStencilInput = &rsrc;
+        break;
+    case ResourceAccessType::Write:
+        depthStencilOutput = &rsrc;
+        break;
+    default:
+        LOG(ERROR) << "Invalid access type for a depth stencil resource!";
+        throw std::domain_error("Invalid Depth-Stencil access type!");
+    };
+}
+
+void PipelineSubmission::checkColorInput(const ResourceUsageInfo& info, PipelineResource& output_resource, const ResourceAccessType access_type)
+{
+    if (!info.Input.empty())
+    {
+
+        if ((info.Input == info.Name) && (access_type != ResourceAccessType::ReadWrite))
+        {
+            // Our resource is read-write and the system isn't aware of this. This is an error and will cause issues.
+            LOG(ERROR) << "Resource not specified as read-write is being used as a color input AND output!";
+            throw std::runtime_error("Resource unspecified as read-write being used as such!");
+        }
+
+        auto& input_resource = graph.GetResource(info.Input);
+        input_resource.AddImageUsage(idx, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+        input_resource.SetReadBySubmission(idx);
+        
+        auto iter = resources.emplace(resource_key{ info.Type, access_type }, &input_resource);
+        if (!iter.second)
+        {
+            LOG(ERROR) << "Failed to add resource to internal containers!";
+        }
+
+    }
+}
+
+std::vector<PipelineResource*>& PipelineSubmission::getSubtypeIters(const ResourceUsageType type, const ResourceAccessType access_type)
+{
+    const resource_key desiredKey{ type, access_type };
+
+    if (subtypeIterators.count(desiredKey) == 0)
+    {
+        // generate the vector.
+        auto& newVector = subtypeIterators[desiredKey];
+
+        for (auto iter = resources.begin(); iter != resources.end(); ++iter)
+        {
+            if (iter->first.UsageType == type)
+            {
+                newVector.emplace_back(iter->second);
+            }
+        }
+
+        return newVector;
+    }
+    else
+    {
+        return subtypeIterators.at(desiredKey);
+    }
 }
 
 void PipelineSubmission::RecordCommands(VkCommandBuffer cmd) {

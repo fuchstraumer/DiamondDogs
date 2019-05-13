@@ -2,9 +2,12 @@
 #ifndef DIAMOND_DOGS_PIPELINE_SUBMISSION_HPP
 #define DIAMOND_DOGS_PIPELINE_SUBMISSION_HPP
 #include "PipelineResource.hpp"
+#include "delegate.hpp"
 #include <memory>
 #include <vector>
-#include "delegate.hpp"
+#include <string_view>
+#include <variant>
+#include <unordered_set>
 
 namespace st {
     class ShaderGroup;
@@ -17,6 +20,52 @@ namespace vpr {
 
 class RenderGraph;
 
+enum class ResourceUsageType : uint8_t
+{
+    None = 0u,
+    DepthStencil,
+    InputAttachment,
+    HistoryInput,
+    Color,
+    ColorScale,
+    Resolve,
+    StorageTexture,
+    Uniform,
+    UniformTexelBuffer,
+    StorageTexelBuffer,
+    Storage,
+    Texture,
+    Blit,
+    VertexBuffer,
+    IndexBuffer,
+    IndirectBuffer
+};
+
+enum class ResourceAccessType : uint8_t
+{
+    None = 0u,
+    Read,
+    Write,
+    ReadWrite
+};
+
+struct ResourceUsageInfo
+{
+    std::string_view Name{ };
+    std::string_view Input{ };
+    ResourceUsageType Type{ ResourceUsageType::None };
+    VkPipelineStageFlags PipelineStages{ VK_PIPELINE_STAGE_FLAG_BITS_MAX_ENUM };
+    struct base_resource_t{};
+    resource_info_variant_t Info{ generic_resource_info_t{} };
+};
+
+struct AccessedResource {
+    VkPipelineStageFlags Stages{ 0 };
+    VkAccessFlags Access{ 0 };
+    VkImageLayout Layout{ VK_IMAGE_LAYOUT_UNDEFINED };
+    PipelineResource* Info{ nullptr };
+};
+
 class PipelineSubmission {
     PipelineSubmission(const PipelineSubmission&) = delete;
     PipelineSubmission& operator=(const PipelineSubmission&) = delete;
@@ -24,18 +73,13 @@ class PipelineSubmission {
     friend class FeatureRenderer;
 public:
 
-    struct AccessedResource {
-        VkPipelineStageFlags Stages{ 0 };
-        VkAccessFlags Access{ 0 };
-        VkImageLayout Layout{ VK_IMAGE_LAYOUT_UNDEFINED };
-        PipelineResource* Info{ nullptr };
-    };
-
     PipelineSubmission(RenderGraph& graph, std::string name, size_t idx, uint32_t queue_idx);
     ~PipelineSubmission();
 
     void RecordCommands(VkCommandBuffer cmd);
     void AddShaders(const st::ShaderGroup* group);
+
+    PipelineResource& AddResource(const ResourceUsageInfo& info, const ResourceAccessType access_type);
 
     PipelineResource& SetDepthStencilInput(const std::string& name);
     PipelineResource& SetDepthStencilOutput(const std::string& name, image_info_t info);
@@ -55,6 +99,7 @@ public:
     PipelineResource& AddStorageOutput(const std::string& name, buffer_info_t info, const std::string& input = "");
     PipelineResource& AddStorageReadOnlyInput(const std::string& name, VkPipelineStageFlags stages = 0);
     PipelineResource& AddTextureInput(const std::string& name, VkPipelineStageFlags stages = 0);
+
 
     PipelineResource& AddVertexBufferInput(const std::string& name);
     PipelineResource& AddIndexBufferInput(const std::string& name);
@@ -95,12 +140,40 @@ public:
 
     bool ValidateSubmission();
     void MakeColorInputScaled(const size_t& idx);
-
+    
 private:
+
+    void validateColorInputs();
 
     PipelineResource& addGenericBufferInput(const std::string& name, VkPipelineStageFlags stages, VkAccessFlags access,
         VkBufferUsageFlags usage);
 
+    void setDepthStencil(PipelineResource& rsrc, const ResourceAccessType access_type);
+    void checkColorInput(const ResourceUsageInfo& info, PipelineResource& output_resource, const ResourceAccessType access_type);
+    std::vector<PipelineResource*>& getSubtypeIters(const ResourceUsageType type, const ResourceAccessType access_type);
+
+    struct resource_key
+    {
+        ResourceUsageType UsageType;
+        ResourceAccessType AccessType;
+    };
+
+    struct resource_key_hash
+    {
+        constexpr size_t operator()(const resource_key& key) noexcept
+        {
+            // shift output 32 for first, or with shifted 32 of second
+            return (std::hash<uint8_t>()(static_cast<uint8_t>(key.UsageType)) << 32) | (std::hash<uint8_t>()(static_cast<uint8_t>(key.AccessType)) >> 32);
+        }
+    };
+
+    struct resource_key_equal
+    {
+        constexpr bool operator()(const resource_key& r0, const resource_key& r1) const noexcept
+        {
+            return (r0.UsageType == r1.UsageType) && (r0.AccessType == r1.AccessType);
+        }
+    };
 
     std::string name{};
     RenderGraph& graph;
@@ -113,31 +186,17 @@ private:
     delegate_t<bool(size_t, VkClearColorValue*)> getClearColorValueCb;
     delegate_t<bool(VkClearDepthStencilValue*)> getClearDepthValueCb;
 
-    std::vector<PipelineResource*> colorOutputs;
-    std::vector<PipelineResource*> resolveOutputs;
-    std::vector<PipelineResource*> colorInputs;
-    std::vector<PipelineResource*> colorScaleInputs;
-    std::vector<PipelineResource*> storageTextureInputs;
-    std::vector<PipelineResource*> storageTextureOutputs;
-    std::vector<PipelineResource*> blitInputs;
-    std::vector<PipelineResource*> blitOutputs;
-    std::vector<PipelineResource*> attachmentInputs;
-    std::vector<PipelineResource*> historyInputs;
-    std::vector<PipelineResource*> uniformInputs;
-    std::vector<PipelineResource*> storageOutputs;
-    std::vector<PipelineResource*> storageInputs;
-    std::vector<PipelineResource*> texelBufferInputs;
-    std::vector<PipelineResource*> texelBufferOutputs;
+    std::unordered_map<resource_key, std::vector<PipelineResource*>, resource_key_hash, resource_key_equal> resources;
+    // so we can access just the resources of a type
+    std::unordered_map<resource_key, std::vector<PipelineResource*>> subtypeIterators;
+    std::unordered_set<ResourceUsageType> usageTypeFlags;
+    // normally hate hiding functions like this, sorry
     std::vector<AccessedResource> genericBuffers;
     std::vector<AccessedResource> genericTextures;
     PipelineResource* depthStencilInput{ nullptr };
     PipelineResource* depthStencilOutput{ nullptr };
-
     std::vector<std::string> usedSetNames;
     std::vector<std::string> submissionTags;
-    std::unique_ptr<vpr::PipelineCache> cache;
-    std::unique_ptr<vpr::PipelineLayout> layout;
-    VkPipeline pipelineHandle = VK_NULL_HANDLE;
 
 };
 
