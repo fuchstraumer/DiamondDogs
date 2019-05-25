@@ -28,21 +28,25 @@ public:
     void Subscribe(const char* file_type, FactoryFunctor func, DeleteFunctor del_fn);
     void Unsubscribe(const char* file_type);
     void Load(const char* file_type, const char* file_path, void* requester, SignalFunctor signal, void* user_data = nullptr);
+    void Load(const char* file_type, const char* file_name, const char* search_dir, void* requester, SignalFunctor signal, void* user_data = nullptr);
     void Unload(const char* file_type, const char* path);
 
     void Start();
     void Stop();
 
     static ResourceLoader& GetResourceLoader();
+    static std::string FindFile(const std::string& fname, const std::string& init_dir, const size_t depth);
+
+private:
 
     struct ResourceData {
         void* Data;
         std::string FileType;
         std::string AbsoluteFilePath;
+        std::string FileName;
+        std::string SearchDir;
         size_t RefCount{ 0 };
     };
-
-private:
 
     struct loadRequest {
         loadRequest(ResourceData dest) : destinationData(dest), requester(nullptr) {}
