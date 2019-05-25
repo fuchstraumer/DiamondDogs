@@ -42,58 +42,6 @@ struct loaded_texture_data_t
     VulkanResource* resource{ nullptr };
 };
 
-std::experimental::filesystem::path FindFile(const std::string& fname, const char* starting_dir, size_t depth_limit) {
-    static std::unordered_map<std::string, stdfs::path> foundPathsCache;
-    static std::mutex cacheMutex;
-
-    stdfs::path starting_path(stdfs::canonical(starting_dir));
-
-    stdfs::path file_name_path(fname);
-    file_name_path = file_name_path.filename();
-
-    if (stdfs::exists(file_name_path))
-    {
-        return file_name_path;
-    }
-
-    {
-        std::lock_guard cacheGuard(cacheMutex);
-        auto iter = foundPathsCache.find(fname);
-        if (iter != foundPathsCache.end())
-        {
-            return iter->second;
-        }
-    }
-
-    stdfs::path file_path = starting_path;
-
-    for (size_t i = 0; i < depth_limit; ++i)
-    {
-        file_path = file_path.parent_path();
-    }
-
-    for (auto& dir_entry : stdfs::recursive_directory_iterator(file_path))
-    {
-        if (dir_entry == starting_path)
-        {
-            continue;
-        }
-
-        stdfs::path entry_path(dir_entry);
-
-        if (!stdfs::is_regular_file(entry_path) && entry_path.has_filename() && (entry_path.filename() == file_name_path))
-        {
-            std::lock_guard cacheGuard(cacheMutex);
-            auto iter = foundPathsCache.emplace(fname, entry_path);
-            return iter.first->second;
-        }
-    }
-
-
-
-    return stdfs::path();
-}
-
 void* loadImageDataFn(const char* fname, void* user_data)
 {
     namespace fs = std::experimental::filesystem;
@@ -107,11 +55,6 @@ void* loadImageDataFn(const char* fname, void* user_data)
 
     if (!stdfs::exists(file_path))
     {
-        file_path = FindFile(file_path.string(), "../../", 2u);
-    }
-
-    if (!stdfs::exists(file_path))
-    {
         LOG(ERROR) << "Requested file path did not exist!";
         LOG(ERROR) << "File Path: " << fname;
 
@@ -120,7 +63,8 @@ void* loadImageDataFn(const char* fname, void* user_data)
         if (!fs::exists(DEBUG_TEXTURE_PATH))
         {
             const std::string curr_dir = fs::current_path().string();
-            DEBUG_TEXTURE_PATH = FindFile(DEBUG_TEXTURE_PATH.filename().string(), curr_dir.c_str(), 5u);
+            const std::string DEBUG_TEX_STRING = ResourceLoader::FindFile(DEBUG_TEXTURE_PATH.filename().string(), curr_dir.c_str(), 3u);
+            DEBUG_TEXTURE_PATH = fs::path(DEBUG_TEX_STRING);
         }
 
         fileStr = DEBUG_TEXTURE_PATH.string();
@@ -294,7 +238,6 @@ glm::vec3 extract_valid_material_param(const glm::vec3& in) noexcept
     };
 }
 
-
 Material::Material(const tinyobj_opt::material_t& mtl, const char* mtl_dir)
 {
     auto& resource_loader = ResourceLoader::GetResourceLoader();
@@ -463,62 +406,63 @@ void Material::Bind(VkCommandBuffer cmd, const VkPipelineLayout layout, Descript
 
     if (!textureToggles.materialLoading)
     {
-        binder.BindResourceToIdx("Material", "Parameters", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, paramsUbo);
+        binder.BindResource("Material", "Parameters", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, paramsUbo);
     }
 
     if (textureToggles.hasAlbedoMap)
     {
-        binder.BindResourceToIdx("Material", "AlbedoMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, albedoMap);
+        binder.BindResource("Material", "AlbedoMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, albedoMap);
     }
     
     if (textureToggles.hasAlphaMap)
     {
-        binder.BindResourceToIdx("Material", "AlphaMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, alphaMap);
+        binder.BindResource("Material", "AlphaMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, alphaMap);
     }
 
     if (textureToggles.hasSpecularMap)
     {
-        binder.BindResourceToIdx("Material", "SpecularMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, specularMap);
+        binder.BindResource("Material", "SpecularMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, specularMap);
     }
 
     if (textureToggles.hasBumpMap)
     {
-        binder.BindResourceToIdx("Material", "NormalMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, bumpMap);
+        binder.BindResource("Material", "NormalMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, bumpMap);
     }
 
     if (textureToggles.hasDisplacementMap)
     {
-
+        binder.BindResource("Material", "DisplacementMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, displacementMap);
     }
 
     if (textureToggles.hasNormalMap)
     {
-        binder.BindResourceToIdx("Material", "NormalMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, normalMap);
+        binder.BindResource("Material", "NormalMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, normalMap);
     }
 
     if (textureToggles.hasAmbientOcclusionMap)
     {
-        binder.BindResourceToIdx("Material", "AmbientOcclusionMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, ambientOcclusionMap);
+        binder.BindResource("Material", "AmbientOcclusionMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, ambientOcclusionMap);
     }
 
     if (textureToggles.hasMetallicMap)
     {
-        binder.BindResourceToIdx("Material", "MetallicMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, metallicMap);
+        binder.BindResource("Material", "MetallicMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, metallicMap);
     }
 
     if (textureToggles.hasRoughnessMap)
     {
-        binder.BindResourceToIdx("Material", "RoughnessMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, roughnessMap);
+        binder.BindResource("Material", "RoughnessMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, roughnessMap);
     }
 
     if (textureToggles.hasEmissiveMap)
     {
-
+        binder.BindResource("Material", "EmissiveMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, emissiveMap);
     }
 
     assert(!(textureToggles.hasNormalMap && textureToggles.hasBumpMap));
     binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
+
 }
 
 bool Material::Opaque() const noexcept
@@ -635,7 +579,7 @@ void Material::loadTexture(std::string file_path_str, const std::string& materia
     }
 
     auto& loader = ResourceLoader::GetResourceLoader();
-    loader.Load("MANGO", file_path_str.c_str(), (void*)this, materialTextureLoadedCallback, (void*)type_ptr);
+    loader.Load("MANGO", file_path_str.c_str(), init_dir, (void*)this, materialTextureLoadedCallback, (void*)type_ptr);
 
 }
 
