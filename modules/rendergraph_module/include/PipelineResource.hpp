@@ -7,6 +7,8 @@
 #include <unordered_set>
 #include <unordered_map>
 
+struct generic_resource_info_t{};
+
 struct buffer_info_t {
     VkDeviceSize Size{ 0 };
     VkBufferUsageFlags Usage{ 0 };
@@ -37,7 +39,8 @@ struct image_info_t {
 
 using resource_info_variant_t = std::variant<
     buffer_info_t,
-    image_info_t
+    image_info_t,
+    generic_resource_info_t
 >;
 
 struct resource_dimensions_t {
@@ -82,8 +85,8 @@ public:
     void SetInfo(resource_info_variant_t _info);
     void SetTransient(const bool& _transient);
     void AddQueue(size_t submission_idx, uint32_t queue_idx);
-    void AddBufferUsage(VkBufferUsageFlags flags);
-    void AddImageUsage(VkImageUsageFlags flags);
+    void AddBufferUsage(size_t idx, VkBufferUsageFlags flags);
+    void AddImageUsage(size_t idx, VkImageUsageFlags flags);
 
     size_t GetIdx() const noexcept;
     const std::string& ParentSetName() const noexcept;

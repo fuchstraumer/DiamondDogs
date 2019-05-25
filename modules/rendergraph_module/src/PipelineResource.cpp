@@ -60,22 +60,6 @@ void PipelineResource::AddQueue(size_t submission_idx, uint32_t queue_idx)
     usedQueues.emplace(submission_idx, queue_idx);
 }
 
-void PipelineResource::AddBufferUsage(VkBufferUsageFlags flags) {
-    if (!IsBuffer()) {
-        throw std::domain_error("Tried to set buffer usage flags for non-buffer resource type.");
-    }
-    auto& buffer_info = std::get<buffer_info_t>(info);
-    buffer_info.Usage |= flags;
-}
-
-void PipelineResource::AddImageUsage(VkImageUsageFlags flags) {
-    if (!IsImage()) {
-        throw std::domain_error("Attempted to add image usage to non-image type!");
-    }
-    auto& image_info = std::get<image_info_t>(info);
-    image_info.Usage |= flags;
-}
-
 size_t PipelineResource::GetIdx() const noexcept {
     return idx;
 }
@@ -123,7 +107,7 @@ const buffer_info_t& PipelineResource::GetBufferInfo() const {
 }
 
 bool PipelineResource::operator==(const PipelineResource & other) const noexcept {
-    return (info == other.info) && (readInPasses == other.readInPasses) && (writtenInPasses == other.writtenInPasses) &&
+    return (readInPasses == other.readInPasses) && (writtenInPasses == other.writtenInPasses) &&
         (name == other.name) && (intendedType == other.intendedType) &&
         (parentSetName == other.parentSetName) && (idx == other.idx) && (transient == other.transient);
 }
