@@ -20,7 +20,7 @@ public:
     DescriptorBinder(size_t num_descriptors, VkPipelineLayout layout);
     ~DescriptorBinder();
     void BindResourceToIdx(const std::string& descr, size_t rsrc_idx, VkDescriptorType type, VulkanResource* rsrc);
-    void BindResourceToIdx(const char* descr, const char* rsrc_name, VkDescriptorType type, VulkanResource* rsrc);
+    void BindResource(const char* descr, const char* rsrc_name, VkDescriptorType type, VulkanResource* rsrc);
     void Update();
     void Bind(VkCommandBuffer cmd, VkPipelineBindPoint bind_point);
     // Especially useful with copied binders: if copied binder has only a single different set, use this
