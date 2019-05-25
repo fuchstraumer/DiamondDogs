@@ -299,7 +299,7 @@ void ObjectModel::loadMeshes(const std::vector<tinyobj_opt::shape_t>& shapes, co
         
         uint32_t tri_indices[3];
 
-        for (size_t j = 0u; j < ngon / 3u; ++j)
+        for (size_t j = 0u; j < ngon; ++j)
         {
             tinyobj_opt::index_t idx = attrib.indices[idx_offset + j];
             vertex_t vtx;
