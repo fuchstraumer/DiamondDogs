@@ -120,8 +120,8 @@ PipelineSubmission& RenderGraph::AddPipelineSubmission(const std::string& name, 
     }
 }
 
-PipelineResource& RenderGraph::GetResource(const std::string& name) {
-    auto iter = resourceNameMap.find(name);
+PipelineResource& RenderGraph::GetResource(const std::string_view& name) {
+    auto iter = resourceNameMap.find(name.data());
     if (iter != resourceNameMap.cend()) {
         const size_t& idx = iter->second;
         return *pipelineResources[idx];

@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <stack>
 #include <variant>
+#include <string_view>
 #include "core/ResourceUsage.hpp"
 #include "PipelineResource.hpp"
 #include "delegate.hpp"
@@ -36,7 +37,7 @@ public:
     void AddShaderPack(const st::ShaderPack* pack);
 
     PipelineSubmission& AddPipelineSubmission(const std::string& name, VkPipelineStageFlags stages);
-    PipelineResource& GetResource(const std::string& name);
+    PipelineResource& GetResource(const std::string_view& name);
     const DescriptorPack* GetPackResources(const std::string& name) const;
     void Bake();
     void Reset();
