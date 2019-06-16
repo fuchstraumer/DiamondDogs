@@ -53,6 +53,22 @@ void UpdateTemplateData::BindResourceToIdx(size_t idx, VkDescriptorType type, Vu
     }
 }
 
+void UpdateTemplateData::BindArrayResourceToIdx(const size_t idx, const size_t numDescriptors, VkDescriptorType type, VulkanResource** resources)
+{
+    // really the only optimization we can pull with this method without too much restructuring
+    const size_t requiredSize = idx + numDescriptors;
+    if (requiredSize > rawEntries.size())
+    {
+        rawEntries.resize(requiredSize);
+    }
+
+    for (size_t i = 0; i < numDescriptors; ++i)
+    {
+        const size_t actualIdx = idx + i;
+        BindResourceToIdx(actualIdx, type, resources[i]);
+    }
+}
+
 const void* UpdateTemplateData::Data() const noexcept
 {
     return rawEntries.data();

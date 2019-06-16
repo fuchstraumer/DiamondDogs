@@ -27,6 +27,7 @@ public:
     UpdateTemplateData& operator=(UpdateTemplateData&& other) noexcept;
 
     void BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc);
+    void BindArrayResourceToIdx(const size_t idx, const size_t numDescriptors, VkDescriptorType type, VulkanResource** resources);
     const void* Data() const noexcept;
     size_t Size() const noexcept;
 
