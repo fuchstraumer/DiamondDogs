@@ -6,7 +6,7 @@
 #define THSVS_SIMPLER_VULKAN_SYNCHRONIZATION_IMPLEMENTATION
 #include <thsvs_simpler_vulkan_synchronization.h>
 
-static std::vector<ThsvsAccessType> thsvsAccessTypesFromBufferUsage(VkBufferUsageFlagBits _flags)
+static std::vector<ThsvsAccessType> thsvsAccessTypesFromBufferUsage(VkBufferUsageFlags _flags)
 {
     std::vector<ThsvsAccessType> results;
     if (_flags & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)
@@ -997,18 +997,200 @@ void ResourceContextImpl::copyBufferContentsToBuffer(VulkanResource* src, Vulkan
     }
 }
 
-void ResourceContextImpl::copyImageContentsToImage(VulkanResource* src, VulkanResource* dst)
+void ResourceContextImpl::copyImageContentsToImage(VulkanResource* src, VulkanResource* dst, const VkImageSubresourceRange& src_range, const VkImageSubresourceRange& dst_range, 
+    const std::vector<VkImageCopy>& image_copies)
 {
-    throw std::runtime_error("Not yet implemented!");
+
+    const VkImageCreateInfo& src_info = resourceInfos.imageInfos.at(src);
+    assert(src_info.sharingMode == VK_SHARING_MODE_CONCURRENT);
+    const VkImageCreateInfo& dst_info = resourceInfos.imageInfos.at(dst);
+
+    // these will be used to transition back to the right layout after the transfer
+    // (and to specify right layout we're transitioning from)
+    const auto src_accesses = thsvsAccessTypesFromImageUsage(src_info.usage);
+    const auto dst_accesses = thsvsAccessTypesFromImageUsage(dst_info.usage);
+
+    constexpr static ThsvsAccessType transfer_access_type_write[1]{
+        THSVS_ACCESS_TRANSFER_WRITE
+    };
+
+    constexpr static ThsvsAccessType transfer_access_type_read[1]{
+        THSVS_ACCESS_TRANSFER_READ
+    };
+
+    const ThsvsImageBarrier pre_transfer_barriers[2]{
+        ThsvsImageBarrier{
+            static_cast<uint32_t>(src_accesses.size()),
+            src_accesses.data(),
+            1u,
+            transfer_access_type_read,
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            VK_FALSE,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkImage)src->Handle,
+            src_range
+        },
+        ThsvsImageBarrier{
+            static_cast<uint32_t>(dst_accesses.size()),
+            dst_accesses.data(),
+            1u,
+            transfer_access_type_write,
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            VK_FALSE,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkImage)dst->Handle,
+            dst_range
+        }
+    };
+
+    const ThsvsImageBarrier post_transfer_barriers[2]{
+        ThsvsImageBarrier{
+            1u,
+            transfer_access_type_read,
+            static_cast<uint32_t>(src_accesses.size()),
+            src_accesses.data(),
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            VK_FALSE,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkImage)src->Handle,
+            src_range
+        },
+        ThsvsImageBarrier{
+            1u,
+            transfer_access_type_write,
+            static_cast<uint32_t>(dst_accesses.size()),
+            dst_accesses.data(),
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            VK_FALSE,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkImage)dst->Handle,
+            dst_range
+        }
+    };
+
+    const VkImageLayout src_layout = imageLayoutFromUsage(src_info.usage);
+    const VkImageLayout dst_layout = imageLayoutFromUsage(dst_info.usage);
+
+    {
+        auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
+        auto transfer_lock = transfer_system.AcquireSpinLock();
+        auto cmd = transfer_system.TransferCmdBuffer();
+
+        thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 2u, pre_transfer_barriers);
+        vkCmdCopyImage(cmd, (VkImage)src->Handle, src_layout, (VkImage)dst->Handle, dst_layout, static_cast<uint32_t>(image_copies.size()), image_copies.data());
+        thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 2u, post_transfer_barriers);
+
+    }
+
 }
 
-void ResourceContextImpl::copyBufferContentsToImage(VulkanResource* src, VulkanResource* dst)
+void ResourceContextImpl::copyBufferContentsToImage(VulkanResource* src, VulkanResource* dst, const VkDeviceSize src_offset, const VkImageSubresourceRange& dst_range, 
+    const std::vector<VkBufferImageCopy>& copy_params)
 {
-    throw std::runtime_error("Not yet implemented!");
+    assert((dst->Type == resource_type::IMAGE || dst->Type == resource_type::COMBINED_IMAGE_SAMPLER) && (src->Type == resource_type::BUFFER));
+
+    const VkBufferCreateInfo& src_info = resourceInfos.bufferInfos.at(src);
+    const VkImageCreateInfo& dst_info = resourceInfos.imageInfos.at(dst);
+    
+    // these will be used to transition back to the right layout after the transfer
+    // (and to specify right layout we're transitioning from)
+    const auto src_accesses = thsvsAccessTypesFromBufferUsage(src_info.usage);
+    const auto dst_accesses = thsvsAccessTypesFromImageUsage(dst_info.usage);
+
+    constexpr static ThsvsAccessType transfer_access_type_write[1]{
+        THSVS_ACCESS_TRANSFER_WRITE
+    };
+
+    constexpr static ThsvsAccessType transfer_access_type_read[1]{
+        THSVS_ACCESS_TRANSFER_READ
+    };
+
+    const ThsvsBufferBarrier pre_transfer_buffer_barrier[1]{
+        ThsvsBufferBarrier{
+            static_cast<uint32_t>(src_accesses.size()),
+            src_accesses.data(),
+            1u,
+            transfer_access_type_read,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)src->Handle,
+            src_offset,
+            src_info.size
+        }
+    };
+
+    const ThsvsImageBarrier pre_transfer_image_barrier[1]{
+        ThsvsImageBarrier{
+            static_cast<uint32_t>(dst_accesses.size()),
+            dst_accesses.data(),
+            1u,
+            transfer_access_type_write,
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            VK_FALSE,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkImage)dst->Handle,
+            dst_range
+        }
+    };
+
+    const ThsvsBufferBarrier post_transfer_buffer_barrier[1]{
+        ThsvsBufferBarrier{
+            1u,
+            transfer_access_type_read,
+            static_cast<uint32_t>(src_accesses.size()),
+            src_accesses.data(),
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkBuffer)src->Handle,
+            src_offset,
+            src_info.size
+        }
+    };
+
+    const ThsvsImageBarrier post_transfer_image_barrier[1]{
+        ThsvsImageBarrier{
+            1u,
+            transfer_access_type_write,
+            static_cast<uint32_t>(dst_accesses.size()),
+            dst_accesses.data(),
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            THSVS_IMAGE_LAYOUT_OPTIMAL,
+            VK_FALSE,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            (VkImage)dst->Handle,
+            dst_range
+        }
+    };
+
+    const VkImageLayout dst_layout = imageLayoutFromUsage(dst_info.usage);
+
+    {
+        auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
+        auto transfer_lock = transfer_system.AcquireSpinLock();
+        auto cmd = transfer_system.TransferCmdBuffer();
+
+        thsvsCmdPipelineBarrier(cmd, nullptr, 1u, pre_transfer_buffer_barrier, 1u, pre_transfer_image_barrier);
+        vkCmdCopyBufferToImage(cmd, (VkBuffer)src->Handle, (VkImage)dst->Handle, dst_layout, static_cast<uint32_t>(copy_params.size()), copy_params.data());
+        thsvsCmdPipelineBarrier(cmd, nullptr, 1u, post_transfer_buffer_barrier, 1u, post_transfer_image_barrier);
+    }
+
 }
 
 void ResourceContextImpl::copyImageContentsToBuffer(VulkanResource* src, VulkanResource* dst)
 {
+    assert((src->Type == resource_type::IMAGE || src->Type == resource_type::COMBINED_IMAGE_SAMPLER) && (dst->Type == resource_type::BUFFER));
+
     throw std::runtime_error("Not yet implemented!");
 }
 
