@@ -11,7 +11,7 @@
 
 DescriptorTemplate::DescriptorTemplate(std::string _name) : name(std::move(_name)) {
     auto& ctxt = RenderingContext::Get();
-    descriptorSetLayout = std::make_unique<vpr::DescriptorSetLayout>(ctxt.Device()->vkHandle());
+    descriptorSetLayout = std::make_unique<vpr::DescriptorSetLayout>(ctxt.Device()->vkHandle(), VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT_EXT);
     device = ctxt.Device();
 }
 
@@ -24,31 +24,33 @@ const UpdateTemplateData & DescriptorTemplate::UpdateData() const noexcept {
     return updateData;
 }
 
-void DescriptorTemplate::AddLayoutBinding(size_t idx, VkDescriptorType type) {
-    assert(!created);
-    descriptorSetLayout->AddDescriptorBinding(type, VK_SHADER_STAGE_ALL, uint32_t(idx)); 
-    addUpdateEntry(uint32_t(idx), VkDescriptorUpdateTemplateEntry{
-        uint32_t(idx),
-        0,
-        1,
-        type,
-        sizeof(UpdateTemplateDataEntry) * idx,
-        0
-    });
-}
-
 void DescriptorTemplate::AddLayoutBinding(VkDescriptorSetLayoutBinding binding) {
     // can't add more bindings after init
     assert(!created);
     descriptorSetLayout->AddDescriptorBinding(binding);
-    addUpdateEntry(binding.binding, VkDescriptorUpdateTemplateEntry{
-        binding.binding,
-        0,
-        1,
-        binding.descriptorType,
-        sizeof(UpdateTemplateDataEntry) * binding.binding,
-        0
-    });
+    if (binding.descriptorCount <= 1u)
+    {
+        addUpdateEntry(binding.binding, VkDescriptorUpdateTemplateEntry{
+            binding.binding,
+            0,
+            1,
+            binding.descriptorType,
+            sizeof(UpdateTemplateDataEntry) * binding.binding,
+            0
+            });
+    }
+    else
+    {
+        // we need to do some unique things to optimally setup update data for descriptor arrays
+        addUpdateEntry(binding.binding, VkDescriptorUpdateTemplateEntry{
+            binding.binding,
+            0,
+            binding.descriptorCount,
+            binding.descriptorType,
+            sizeof(UpdateTemplateDataEntry) * binding.binding,
+            0
+        });
+    }
 }
 
 void DescriptorTemplate::BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc) {
