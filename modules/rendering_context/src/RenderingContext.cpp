@@ -422,7 +422,7 @@ void RenderingContext::Construct(const char* file_path) {
             nullptr
         };
 
-        //VkResult result = logicalDevice->DebugUtilsHandler().vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
+        VkResult result = logicalDevice->DebugUtilsHandler().vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
         // color terminal output so it's less of a cluster
         el::Loggers::addFlag(el::LoggingFlag::ColoredTerminalOutput);
 	}
