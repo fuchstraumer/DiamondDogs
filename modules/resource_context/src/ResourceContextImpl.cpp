@@ -706,13 +706,11 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resou
         THSVS_ACCESS_TRANSFER_WRITE
     };
 
-    std::vector<ThsvsAccessType> possible_access_types = thsvsAccessTypesFromBufferUsage((VkBufferUsageFlagBits)p_info->usage);
-
     ThsvsBufferBarrier post_transfer_barrier{
         1u,
         transfer_access_types,
-        static_cast<uint32_t>(possible_access_types.size()),
-        possible_access_types.data(),
+        0u,
+        nullptr,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
         (VkBuffer)resource->Handle,
@@ -729,17 +727,23 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resou
 		post_transfer_barrier.dstQueueFamilyIndex = initial_data->DestinationQueueFamily != transfer_queue_idx ? initial_data->DestinationQueueFamily : VK_QUEUE_FAMILY_IGNORED;
 	}
 
+    constexpr static ThsvsAccessType possible_accesses[2]
+    {
+        THSVS_ACCESS_ANY_SHADER_READ_OTHER,
+        THSVS_ACCESS_ANY_SHADER_WRITE
+    };
+
     const ThsvsGlobalBarrier global_barrier{
         1u,
         transfer_access_types,
-        static_cast<uint32_t>(possible_access_types.size()),
-        possible_access_types.data()
+        2u,
+        possible_accesses
     };
 
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
     auto cmd = transfer_system.TransferCmdBuffer();
     auto guard = transfer_system.AcquireSpinLock();
-    UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(p_info->size);
+    UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(p_info->size, resource);
     std::vector<VkBufferCopy> buffer_copies(num_data);
     VkDeviceSize offset = 0;
     for (size_t i = 0; i < num_data; ++i) {
@@ -811,7 +815,7 @@ void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const si
     {
         auto guard = transfer_system.AcquireSpinLock();
 		VmaAllocation& alloc = resourceAllocations.at(resource);
-        UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc->GetSize());
+        UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc->GetSize(), resource);
         VkCommandBuffer cmd = transfer_system.TransferCmdBuffer();
         std::vector<VkBufferImageCopy> buffer_image_copies;
         size_t copy_offset = 0u;
