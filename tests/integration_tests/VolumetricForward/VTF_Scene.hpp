@@ -3,6 +3,7 @@
 #define VTF_SCENE_HPP
 #include "VulkanScene.hpp"
 #include "ForwardDecl.hpp"
+#include "vtfFrameData.hpp"
 #include <memory>
 #include <vector>
 #include <future>
@@ -32,6 +33,7 @@ public:
 
     static VTF_Scene& Get();
 
+    void AddObjectRenderFn(const vtf_frame_data_t::obj_render_fn_t& function);
     void Construct(RequiredVprObjects objects, void* user_data) final;
     void Destroy() final;
 

@@ -275,7 +275,7 @@ struct TestIcosphereMesh
                 RenderingContext::Get().Device()->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(state.cmd, &debug_label);
             }
             vkCmdBindPipeline(state.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debugLightsPipeline);
-            state.binder->BindResourceToIdx("GlobalResources", "matrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, lightsMatrices);
+            state.binder->BindResource("GlobalResources", "matrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, lightsMatrices);
             state.binder->Update();
             state.binder->Bind(state.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
             vkCmdBindIndexBuffer(state.cmd, (VkBuffer)EBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
@@ -437,6 +437,14 @@ VTF_Scene& VTF_Scene::Get()
 }
 
 
+void VTF_Scene::AddObjectRenderFn(const vtf_frame_data_t::obj_render_fn_t& function)
+{
+    for (size_t i = 0; i < frames.size(); ++i)
+    {
+        frames[i]->renderFns.emplace_back(function);
+    }
+}
+
 void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data)
 {
     vprObjects = objects;
@@ -446,10 +454,8 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data)
     camera.Initialize(glm::radians(70.0f), 0.1f, 5000.0f, CameraPosition, glm::vec3(0.0f) - CameraPosition);
 
     CreateShaders(vtfShaders);
-	createIcosphereTester();
     GenerateLights();
     // now create frames
-    std::vector<std::future<void>> setupFutures;
     auto* swapchain = RenderingContext::Get().Swapchain();
     const uint32_t img_count = swapchain->ImageCount();
     frames.reserve(img_count); // this should avoid invalidating pointers (god i hope)
@@ -467,40 +473,21 @@ void VTF_Scene::Construct(RequiredVprObjects objects, void * user_data)
         }
     };
 
-	vtf_frame_data_t::obj_render_fn_t render_fn = std::bind(&TestIcosphereMesh::Render, icosphereTester.get(), std::placeholders::_1);
-    vtf_frame_data_t::obj_render_fn_t lights_render_fn = std::bind(&TestIcosphereMesh::RenderDebugLights, icosphereTester.get(), std::placeholders::_1);
     vtf_frame_data_t::obj_render_fn_t imgui_render_fn = std::bind(imguiRender, std::placeholders::_1);
 
     for (uint32_t i = 0; i < img_count; ++i) {
         frames.emplace_back(std::make_unique<vtf_frame_data_t>());
-		frames[i]->renderFns.emplace_back(render_fn);
-        frames[i]->renderFns.emplace_back(lights_render_fn);
         frames[i]->renderFns.emplace_back(imgui_render_fn);
-        setupFutures.emplace_back(std::async(std::launch::async, FullFrameSetup, frames[i].get()));
+        FullFrameSetup(frames[i].get()); // we used to thread this, but since it's our baseline data for all rendering i've elected not to anymore
     }
-
-    for (auto& fut : setupFutures) {
-        fut.get(); // even if we block for one the rest should still be running
-    }
-
-	for (uint32_t i = 0; i < img_count; ++i)
-	{
-		auto* descr = frames[i]->descriptorPack->RetrieveDescriptor("Material");
-		for (uint32_t j = 0; j < frames[i]->bindFns.size(); ++j)
-		{
-			frames[i]->bindFns[j](descr);
-		}
-	}
 
     ImGuiWrapper::GetImGuiWrapper().Construct(frames[0]->renderPasses.at("DrawPass")->vkHandle());
-
-    std::cerr << "Setup Complete\n";
 }
 
 void VTF_Scene::Destroy()
 {
     for (auto& frame : frames) {
-
+        DestroyFrame(*frame);
     }
 }
 
@@ -559,13 +546,14 @@ void VTF_Scene::updateGlobalUBOs()
 
     UpdateFrameResources(curr_frame);
 
-	resource_context.Update();
-    icosphereTester->debugLightsPipeline = curr_frame.graphicsPipelines.at("DebugPointLights")->vkHandle();
-    icosphereTester->lightsMatrices = curr_frame.rsrcMap.at("debugLightsMatrices");
+    // make sure we flush stuff before rendering
+    resource_context.Update();
+
 }
 
 void VTF_Scene::update()
 {
+
 	updateGlobalUBOs();
     // compute updates
 	vtf_frame_data_t& curr_frame = *frames[activeFrame];
@@ -579,7 +567,7 @@ void VTF_Scene::update()
 
 void VTF_Scene::recordCommands()
 {
-    static bool render_debug_clusters{ true };
+    static bool render_debug_clusters{ false };
     static bool update_unique_clusters{ true };
     static bool use_optimized_lighting{ true };
 
@@ -610,7 +598,9 @@ void VTF_Scene::draw() {
 void VTF_Scene::endFrame() 
 {
     frames[activeFrame]->descriptorPack->EndFrame();
-	activeFrame = (activeFrame + 1u) % frames.size();;
+	activeFrame = (activeFrame + 1u) % frames.size();
+    //const std::string memoryStatsOutputName = std::string("MemoryStatusFrame_") + std::to_string(activeFrame) + std::string(".json");
+    //ResourceContext::Get().WriteMemoryStatsFile(memoryStatsOutputName.c_str());
 }
 
 void VTF_Scene::acquireImage() 
