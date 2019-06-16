@@ -1,5 +1,7 @@
 #include "TriangleTest.hpp"
 #include "RenderingContext.hpp"
+#include "easylogging++.h"
+INITIALIZE_EASYLOGGINGPP
 
 static void BeginRecreateCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height) {
     auto& tri = VulkanTriangle::GetScene();

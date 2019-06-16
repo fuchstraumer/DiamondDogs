@@ -874,6 +874,12 @@ void ResourceContextImpl::writeStatsJsonFile(const char* output_file)
 	vmaFreeStatsString(allocatorHandle, output);
 }
 
+bool ResourceContextImpl::resourceInTransferQueue(VulkanResource* rsrc)
+{
+    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
+    return transfer_system.ResourceQueuedForTransfer(rsrc);
+}
+
 void ResourceContextImpl::createBufferResourceCopy(VulkanResource * src, VulkanResource** dst)
 {
     const VkBufferCreateInfo* create_info = reinterpret_cast<const VkBufferCreateInfo*>(src->Info);

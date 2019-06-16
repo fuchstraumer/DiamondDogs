@@ -11,6 +11,8 @@
 #include <array>
 #include "easylogging++.h"
 
+constexpr static size_t MAX_QUEUED_UPLOAD_BUFFERS = 128u;
+
 constexpr static std::array<VkDeviceSize, 4u> stagingPoolSizeRanges{
     (VkDeviceSize)128e6,
     (VkDeviceSize)256e6,
@@ -67,20 +69,26 @@ void ResourceTransferSystem::flushTransfersIfNeeded()
         - uploadBuffers being greater than 50 just means we have a ton of pending transfers, and we're going to be accumulating a ton
           of RAM usage. flush the pending transfers to free up what memory we can
     */
-    if (uploadPools.size() > 1u || uploadBuffers.size() > 256u)
+    if (uploadPools.size() > 2u || uploadBuffers.size() > MAX_QUEUED_UPLOAD_BUFFERS)
     {
         CompleteTransfers();
         LOG(WARNING) << "Had to flush transfers, incurs high cost and indicates overload of transfer system";
     }
 }
 
-UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(const size_t buffer_sz) {
+UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(const size_t buffer_sz, VulkanResource* rsrc) {
     flushTransfersIfNeeded();
     uploadBuffers.emplace_back(createUploadBufferImpl(buffer_sz));
+    auto iter = pendingResources.emplace(rsrc);
 	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
 	{
 		const std::string upload_buffer_name = std::string("UploadBuffer") + std::to_string(uploadBuffers.size());
 		RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, (uint64_t)uploadBuffers.back()->Buffer, upload_buffer_name.c_str());
+        // if we're in validation mode, might as well check "iter" too. Won't crash, but will log an error
+        if (!iter.second)
+        {
+            LOG(ERROR) << "Resource upload buffer is being created for is already in internal containers! This implies duplication of memory.";
+        }
 	}
     return uploadBuffers.back().get();
 }
@@ -191,6 +199,7 @@ ResourceTransferSystem & ResourceTransferSystem::GetTransferSystem() {
 }
 
 void ResourceTransferSystem::CompleteTransfers() {
+
     if (!initialized) {
         throw std::runtime_error("Transfer system was not properly initialized!");
     }
@@ -257,8 +266,10 @@ void ResourceTransferSystem::CompleteTransfers() {
         buff.reset();
     }
 
-    uploadBuffers.clear(); 
-    uploadBuffers.shrink_to_fit();
+    uploadBuffers.clear();
+    uploadBuffers.reserve(MAX_QUEUED_UPLOAD_BUFFERS);
+    pendingResources.clear();
+    pendingResources.reserve(MAX_QUEUED_UPLOAD_BUFFERS);
 
     while (uploadPools.size() > 1u)
     {
@@ -283,6 +294,11 @@ VkCommandBuffer ResourceTransferSystem::TransferCmdBuffer() {
     cmdBufferDirty = true;
     auto& pool = *transferCmdPool;
     return pool[0];
+}
+
+bool ResourceTransferSystem::ResourceQueuedForTransfer(VulkanResource* rsrc)
+{
+    return pendingResources.find(rsrc) != pendingResources.end();
 }
 
 VmaPool ResourceTransferSystem::createPool()

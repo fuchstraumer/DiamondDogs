@@ -1,23 +1,23 @@
 #include "RenderingContext.hpp"
 #include "PlatformWindow.hpp"
-#include "nlohmann/json.hpp"
 #include "Instance.hpp"
 #include "PhysicalDevice.hpp"
 #include "LogicalDevice.hpp"
 #include "Swapchain.hpp"
 #include "SurfaceKHR.hpp"
-#include <vulkan/vulkan.h>
-#include <fstream>
-#include <atomic>
-#include <forward_list>
-#include "GLFW/glfw3.h"
 #include "VkDebugUtils.hpp"
+#include "vkAssert.hpp"
 #include <thread>
 #include <sstream>
 #include <chrono>
 #include <iostream>
 #include <sstream>
+#include <fstream>
+#include <atomic>
+#include <forward_list>
+#include "GLFW/glfw3.h"
 #include "easylogging++.h"
+#include "nlohmann/json.hpp"
 
 static std::vector<std::string> extensionsBuffer;
 static std::string windowingModeBuffer;

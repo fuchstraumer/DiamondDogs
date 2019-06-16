@@ -7,6 +7,7 @@
     "VulkanVersion" : "1.1",
     "UseRecommendedExtensions" : true,
     "RequiredInstanceExtensions" : [
+        "VK_EXT_debug_utils"
     ],
     "RequestedInstanceExtensions" : [
     ],
@@ -14,9 +15,11 @@
         "VK_KHR_swapchain"
     ],
     "RequestedDeviceExtensions" : [
+        "VK_KHR_dedicated_allocation",
+        "VK_KHR_get_memory_requirements2"
     ],
-    "InitialWindowWidth" : 1440,
-    "InitialWindowHeight" : 720,
+    "InitialWindowWidth" : 1920,
+    "InitialWindowHeight" : 1080,
     "InitialMouseState" : "Free",
     "InitialWindowMode" : "Windowed",
     "ApplicationIconPath" : "None"

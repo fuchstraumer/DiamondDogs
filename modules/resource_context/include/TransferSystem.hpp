@@ -7,8 +7,10 @@
 #include <atomic>
 #include <mutex>
 #include <vector>
+#include <unordered_set>
 #include <vk_mem_alloc.h>
 
+struct VulkanResource;
 struct UploadBuffer;
 
 class ResourceTransferSystem {
@@ -37,10 +39,11 @@ public:
     static ResourceTransferSystem& GetTransferSystem();
 
     void Initialize(const vpr::Device* device, VmaAllocator _allocator);
-    UploadBuffer* CreateUploadBuffer(const size_t buffer_sz);
+    UploadBuffer* CreateUploadBuffer(const size_t buffer_sz, VulkanResource* rsrc_buffer_is_for);
     void CompleteTransfers();
     transferSpinLockGuard AcquireSpinLock();
     VkCommandBuffer TransferCmdBuffer();
+    bool ResourceQueuedForTransfer(VulkanResource* rsrc);
 
 private:
 
@@ -51,6 +54,7 @@ private:
     std::atomic<bool> cmdBufferDirty = false;
     bool initialized = false;
     std::unique_ptr<vpr::CommandPool> transferCmdPool;
+    std::unordered_set<VulkanResource*> pendingResources;
     std::vector<std::unique_ptr<UploadBuffer>> uploadBuffers;
     std::unique_ptr<vpr::Fence> fence;
     const vpr::Device* device;

@@ -2,6 +2,8 @@
 #ifndef VTF_MODEL_STRUCTURES_HPP
 #define VTF_MODEL_STRUCTURES_HPP
 #include <cstdint>
+#pragma warning(push, 1)
+#define GLM_SWIZZLE
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "glm/vec2.hpp"
@@ -9,6 +11,7 @@
 #include "glm/vec4.hpp"
 #include "glm/mat4x4.hpp"
 #include "glm/gtc/matrix_transform.hpp"
+#pragma warning(pop)
 #include <vector>
 #include <array>
 #include <vulkan/vulkan.h>
@@ -74,14 +77,15 @@ struct SceneState_t {
     SceneState_t() = default;
     SceneState_t(const SceneState_t&) = delete;
     SceneState_t& operator=(const SceneState_t&) = delete;
-    static SceneState_t& Get() noexcept {
-        static SceneState_t state;
-        return state;
-    }
     std::vector<PointLight> PointLights;
     std::vector<SpotLight> SpotLights;
     std::vector<DirectionalLight> DirectionalLights;
 	std::vector<glm::u8vec4> ClusterColors;
+    static SceneState_t& Get() noexcept
+    {
+        static SceneState_t state;
+        return state;
+    }
 };
 
 static SceneState_t& SceneLightsState() {
@@ -135,16 +139,36 @@ struct alignas(16) Frustum {
 };
 
 struct alignas(16) AABB {
-    glm::vec4 Min;
-    glm::vec4 Max;
+    glm::vec4 Min{ 
+        std::numeric_limits<float>::max(), 
+        std::numeric_limits<float>::max(), 
+        std::numeric_limits<float>::max(),
+        0.0f
+    };
+    glm::vec4 Max{
+        -std::numeric_limits<float>::max(),
+        -std::numeric_limits<float>::max(),
+        -std::numeric_limits<float>::max(),
+        0.0f
+    };
+    void Include(const glm::vec3& pos)
+    {
+        Min.x = std::min(pos.x, Min.x);
+        Min.y = std::min(pos.y, Min.y);
+        Min.z = std::min(pos.z, Min.z);
+        Max.x = std::max(pos.x, Max.x);
+        Max.y = std::max(pos.y, Max.y);
+        Max.z = std::max(pos.z, Max.z);
+    }
 };
 
 constexpr static uint32_t DEFAULT_MAX_LIGHTS = 2048u;
 
-struct alignas(4) LightCountsData {
+struct alignas(16) LightCountsData {
     uint32_t NumPointLights{ DEFAULT_MAX_LIGHTS };
     uint32_t NumSpotLights{ DEFAULT_MAX_LIGHTS };
     uint32_t NumDirectionalLights{ 4u };
+    uint32_t Pad{ 0u };
 };
 
 struct alignas(16) Cone {
@@ -164,7 +188,7 @@ struct alignas(4) BVH_Params_t {
 struct vertex_t
 {
     vertex_t() = default;
-    vertex_t(glm::vec3 p, glm::vec3 n, glm::vec3 t, glm::vec2 uv) : Position(std::move(p)), Normal(std::move(n)),
+    vertex_t(glm::vec3 p, glm::vec3 n, glm::vec2 uv) : Position(std::move(p)), Normal(std::move(n)),
         UV(std::move(uv)) {}
     glm::vec3 Position;
     glm::vec3 Normal;

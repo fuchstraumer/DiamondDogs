@@ -90,7 +90,7 @@ struct TestIcosphereMesh
 
         Vertices.reserve(ICOSPHERE_INITIAL_VERTICES.size());
         for (const auto& vert : ICOSPHERE_INITIAL_VERTICES) {
-            Vertices.emplace_back(vert, vert, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
+            Vertices.emplace_back(vert, vert, glm::vec2(0.0f,0.0f));
         }
 
         for (size_t j = 0u; j < detail_level; ++j)
@@ -118,9 +118,9 @@ struct TestIcosphereMesh
                 glm::vec3 midpoint1 = 0.5f * (Vertices[i1].Position + Vertices[i2].Position);
                 glm::vec3 midpoint2 = 0.5f * (Vertices[i2].Position + Vertices[i0].Position);
 
-                Vertices.emplace_back(midpoint0, midpoint0, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
-                Vertices.emplace_back(midpoint1, midpoint1, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
-                Vertices.emplace_back(midpoint2, midpoint2, glm::vec3(0.0f,0.0f,0.0f), glm::vec2(0.0f,0.0f));
+                Vertices.emplace_back(midpoint0, midpoint0, glm::vec2(0.0f,0.0f));
+                Vertices.emplace_back(midpoint1, midpoint1, glm::vec2(0.0f,0.0f));
+                Vertices.emplace_back(midpoint2, midpoint2, glm::vec2(0.0f,0.0f));
 
             }
         }
@@ -144,7 +144,7 @@ struct TestIcosphereMesh
         auto add_vertex_w_uv = [this](const size_t i, const glm::vec2& uv)
 		{
             const uint32_t& idx = Indices[i];
-            Vertices.emplace_back(Vertices[idx].Position, Vertices[idx].Normal, glm::vec3(0.0f, 0.0f, 0.0f), uv);
+            Vertices.emplace_back(Vertices[idx].Position, Vertices[idx].Normal, uv);
             Indices[i] = static_cast<uint32_t>(Vertices.size() - 1u);
         };
 
@@ -369,7 +369,7 @@ template<typename LightType>
 static LightType GenerateLight(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color);
 
 template<>
-static PointLight GenerateLight<PointLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color)
+PointLight GenerateLight<PointLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color)
 {
     PointLight result{};
     result.positionWS = position_ws;
@@ -380,7 +380,7 @@ static PointLight GenerateLight<PointLight>(const glm::vec4& position_ws, const 
 }
 
 template<>
-static SpotLight GenerateLight<SpotLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color)
+SpotLight GenerateLight<SpotLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color)
 {
     SpotLight result{};
     result.positionWS = position_ws;
@@ -393,7 +393,7 @@ static SpotLight GenerateLight<SpotLight>(const glm::vec4& position_ws, const gl
 }
 
 template<>
-static DirectionalLight GenerateLight<DirectionalLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color)
+DirectionalLight GenerateLight<DirectionalLight>(const glm::vec4& position_ws, const glm::vec4& direction_ws, float spot_angle, float range, const glm::vec3& color)
 {
     DirectionalLight result{};
     result.directionWS = direction_ws;

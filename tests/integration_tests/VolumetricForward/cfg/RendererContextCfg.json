@@ -16,7 +16,9 @@
     ],
     "RequestedDeviceExtensions" : [
         "VK_KHR_dedicated_allocation",
-        "VK_KHR_get_memory_requirements2"
+        "VK_KHR_get_memory_requirements2",
+        "VK_EXT_pipeline_creation_feedback",
+        "VK_EXT_descriptor_indexing"
     ],
     "InitialWindowWidth" : 1920,
     "InitialWindowHeight" : 1080,

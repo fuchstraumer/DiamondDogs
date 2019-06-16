@@ -187,7 +187,7 @@ void Descriptor::createPool()
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, typeCounts.SampledImages * maxSets);
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, typeCounts.CombinedImageSamplers * maxSets);
     activePool->Create();
-	if (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+	if constexpr(VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 	{
 		const std::string curr_name = name + std::string("_DescriptorPool_Num") + std::to_string(descriptorPools.size() - 1u);
 		VkResult result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, (uint64_t)descriptorPools.back()->vkHandle(), VTF_DEBUG_OBJECT_NAME(curr_name.c_str()));

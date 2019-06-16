@@ -139,6 +139,11 @@ void ResourceContext::WriteMemoryStatsFile(const char* output_file)
 	impl->writeStatsJsonFile(output_file);
 }
 
+bool ResourceContext::ResourceInTransferQueue(VulkanResource* rsrc)
+{
+    return impl->resourceInTransferQueue(rsrc);
+}
+
 void* ResourceContext::MapResourceMemory(VulkanResource* resource, size_t size, size_t offset)
 {
 	return impl->map(resource, size, offset);

@@ -137,7 +137,7 @@ void DescriptorPack::parseGroupBindingInfo() {
     pipelineLayouts.resize(shader_group_strs.size());
 
     for (const auto& str : shader_group_strs) {
-        auto emplaced = shaderGroupNameIdxMap.emplace(str, shaderGroupNameIdxMap.size());
+        auto emplaced = shaderGroupNameIdxMap.emplace(str, static_cast<uint32_t>(shaderGroupNameIdxMap.size()));
         const size_t idx = emplaced.first->second;
         shaderGroups[idx] = shaderPack->GetShaderGroup(str.c_str());
     }
@@ -149,7 +149,7 @@ void DescriptorPack::parseGroupBindingInfo() {
 }
 
 void DescriptorPack::createPipelineLayout(const std::string & name) {
-    const size_t idx = shaderGroupNameIdxMap.at(name);
+    const size_t idx = static_cast<size_t>(shaderGroupNameIdxMap.at(name));
     const st::Shader* shader = shaderGroups[idx];
 
     size_t num_stages = 0;
@@ -190,6 +190,12 @@ void DescriptorPack::createPipelineLayout(const std::string & name) {
 
     pipelineLayouts[idx] = std::make_unique<vpr::PipelineLayout>(RenderingContext::Get().Device()->vkHandle());
     pipelineLayouts[idx]->Create(push_constant_ranges.size(), push_constant_ranges.data(), set_layouts.size(), set_layouts.data());
+
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        const std::string layoutName = name + std::string("_PipelineLayout");
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT, (uint64_t)pipelineLayouts[idx]->vkHandle(), layoutName.c_str());
+    }
 
 }
 

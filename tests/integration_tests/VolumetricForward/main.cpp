@@ -14,28 +14,7 @@ INITIALIZE_EASYLOGGINGPP
 #include "Instance.hpp"
 #include "CommandPool.hpp"
 #include "ObjModel.hpp"
-
-static int screen_x() {
-    auto& ctxt = RenderingContext::Get();
-    return static_cast<int>(ctxt.Swapchain()->Extent().width);
-}
-
-static int screen_y() {
-    auto& ctxt = RenderingContext::Get();
-    return static_cast<int>(ctxt.Swapchain()->Extent().height);
-}
-
-static double z_near() {
-    return 0.1;
-}
-
-static double z_far() {
-    return 3000.0;
-}
-
-static double fov_y() {
-    return glm::radians(75.0 * 0.50);
-}
+#include "RenderGraph.hpp"
 
 int main(int argc, char* argv[]) {
 
@@ -68,12 +47,6 @@ int main(int argc, char* argv[]) {
     rsrc.Initialize(ctxt.Device(), ctxt.PhysicalDevice(), VTF_VALIDATION_ENABLED);
 
     using namespace st;
-    auto& callbacks = ShaderPack::RetrievalCallbacks();
-    callbacks.GetScreenSizeX = screen_x;
-    callbacks.GetScreenSizeY = screen_y;
-    callbacks.GetFOVY = fov_y;
-    callbacks.GetZNear = z_near;
-    callbacks.GetZFar = z_far;
 
     std::unique_ptr<ShaderPack> vtfPack{ nullptr };
     ShaderGenerator::SetBasePath(base_path_str.c_str());
@@ -102,10 +75,13 @@ int main(int argc, char* argv[]) {
     ObjectModel model;
     const auto dir_string = model_dir.string();
     const auto file_string = model_file.string();
-    model.LoadModelFromFile(file_string.c_str(), dir_string.c_str());
+    std::future<void> modelLoadingFuture = std::async(std::launch::async, &ObjectModel::LoadModelFromFile, &model, file_string.c_str(), dir_string.c_str());
+
+    vtf_frame_data_t::obj_render_fn_t render_fn = std::bind(&ObjectModel::Render, &model, std::placeholders::_1);
 
     auto& scene = VTF_Scene::Get();
     scene.Construct(RequiredVprObjects{ ctxt.Device(), ctxt.PhysicalDevice(), ctxt.Instance(), ctxt.Swapchain() }, vtfPack.get());
+    scene.AddObjectRenderFn(render_fn);
 
     while (!ctxt.ShouldWindowClose()) {
         RenderingContext::Get().Update();

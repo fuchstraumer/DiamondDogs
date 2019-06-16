@@ -45,6 +45,7 @@ struct ResourceContextImpl
     vpr::AllocationRequirements getAllocReqs(resource_usage _resource_usage) const noexcept;
     VkFormatFeatureFlags featureFlagsFromUsage(const VkImageUsageFlags flags) const noexcept;
 	void writeStatsJsonFile(const char* output_file);
+    bool resourceInTransferQueue(VulkanResource* rsrc);
 
     std::unordered_set<std::unique_ptr<VulkanResource>> resources;
     using resource_iter_t = decltype(resources)::iterator;
