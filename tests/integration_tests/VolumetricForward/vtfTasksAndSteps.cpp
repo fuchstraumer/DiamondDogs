@@ -397,6 +397,9 @@ void CreateShaders(const st::ShaderPack* pack) {
         }
     }
 
+    vtf_frame_data_t::pipelineCaches.emplace("MergedCache", std::make_unique<vpr::PipelineCache>(device->vkHandle(), physicalDevice->vkHandle(), typeid(vtf_frame_data_t).hash_code()));
+    const VkPipelineCache mergedCacheHandle = vtf_frame_data_t::pipelineCaches.at("MergedCache")->vkHandle();
+
     for (const auto& name : group_names) {
         const st::Shader* curr_shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(name.c_str());
         size_t num_stages{ 0 };
@@ -420,7 +423,7 @@ void CreateShaders(const st::ShaderPack* pack) {
         }
 
 
-        auto iter = vtf_frame_data_t::pipelineCaches.emplace(name, std::make_unique<vpr::PipelineCache>(device->vkHandle(), physicalDevice->vkHandle(), std::hash<std::string>()(name)));
+        auto iter = vtf_frame_data_t::pipelineCaches.emplace(name, std::make_unique<vpr::PipelineCache>(device->vkHandle(), physicalDevice->vkHandle(), mergedCacheHandle, std::hash<std::string>()(name)));
 		assert(iter.second);
 		if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
 		{
@@ -3919,8 +3922,20 @@ void SubmitGraphicsWork(vtf_frame_data_t& frame)
     frame.transientResources.reserve(frame.lastFrameTransientResources.size());
 }
 
-void FlushShaderCaches(vtf_frame_data_t& frame_data)
+void FlushShaderCaches()
 {
+    auto* device = RenderingContext::Get().Device();
+    auto* physical_device = RenderingContext::Get().PhysicalDevice();
+    vpr::PipelineCache mergedCache(device->vkHandle(), physical_device->vkHandle(), typeid(vtf_frame_data_t).hash_code());
+
+    std::vector<VkPipelineCache> usedCacheHandles;
+    for (const auto& cache : vtf_frame_data_t::pipelineCaches)
+    {
+        usedCacheHandles.emplace_back(cache.second->vkHandle());
+    }
+
+    mergedCache.MergeCaches(static_cast<uint32_t>(usedCacheHandles.size()), usedCacheHandles.data());
+
     vtf_frame_data_t::pipelineCaches.clear();
 }
 
