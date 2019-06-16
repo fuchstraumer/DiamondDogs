@@ -108,6 +108,12 @@ size_t Descriptor::TotalUsedSets() const
     return usedSets.size() + 1;
 }
 
+void Descriptor::BindResource(const char* _name, VkDescriptorType type, VulkanResource* rsrc)
+{
+    const size_t idx = bindingLocations.at(_name);
+    templ->BindResourceToIdx(idx, type, rsrc);
+}
+
 void Descriptor::BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc)
 {
     templ->BindResourceToIdx(idx, type, rsrc);
