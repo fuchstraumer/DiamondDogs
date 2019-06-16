@@ -3226,10 +3226,23 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     auto binder0 = frame.descriptorPack->RetrieveBinder("DepthPrePass");
     auto binder1 = frame.descriptorPack->RetrieveBinder("ClusterSamples");
 
+    const auto current_dims = RenderingContext::Get().Swapchain()->Extent();
+    const VkViewport viewport{ 
+        0.0f, 0.0f,
+        static_cast<float>(current_dims.width),
+        static_cast<float>(current_dims.height),
+        0.0f, 1.0f
+    };
+    const VkRect2D scissor{
+        VkOffset2D{ 0, 0 },
+        current_dims
+    };
+
     objRenderStateData state_data{
         cmd,
         &binder0,
-        render_type::PrePass
+        render_type::PrePass,
+        frame.descriptorPack->PipelineLayout("DepthPrePass")
     };
 
     renderpass->UpdateBeginInfo(frame.clusterSamplesFramebuffer->vkHandle());
@@ -3251,20 +3264,19 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
 
     vkCmdBeginRenderPass(cmd, &renderpass->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("DepthPrePassPipeline")->vkHandle());
-
+        vkCmdSetViewport(cmd, 0u, 1u, &viewport);
+        vkCmdSetScissor(cmd, 0u, 1u, &scissor);
 		for (size_t i = 0; i < frame.renderFns.size(); ++i)
 		{
-			frame.renderFns[i](state_data); // opaque for depth
+			frame.renderFns[i](state_data);
 		}
     vkCmdNextSubpass(cmd, VK_SUBPASS_CONTENTS_INLINE);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("ClusterSamplesPipeline")->vkHandle());
-
-        state_data.type = render_type::Opaque;
         state_data.binder = &binder1;
-
+        state_data.materialLayout = frame.descriptorPack->PipelineLayout("ClusterSamples");
 		for (size_t i = 0; i < frame.renderFns.size(); ++i)
 		{
-			frame.renderFns[i](state_data); // opaque for depth
+			frame.renderFns[i](state_data);
 		}
     vkCmdEndRenderPass(cmd);
 
@@ -3649,9 +3661,19 @@ void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         nullptr, 
         "DrawPass",
         { 66.0f / 255.0f, 244.0f / 255.0f, 95.0f / 255.0f, 1.0f }
+    }; 
+    
+    const auto current_dims = RenderingContext::Get().Swapchain()->Extent();
+    const VkViewport viewport{
+        0.0f, 0.0f,
+        static_cast<float>(current_dims.width),
+        static_cast<float>(current_dims.height),
+        0.0f, 1.0f
     };
-
-    auto& rsrc_ctxt = ResourceContext::Get();
+    const VkRect2D scissor{
+        VkOffset2D{ 0, 0 },
+        current_dims
+    };
 
     if constexpr (VTF_VALIDATION_ENABLED) {
         frame.vkDebugFns.vkCmdBeginDebugUtilsLabel(cmd, &debug_label);
@@ -3667,12 +3689,13 @@ void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         vkCmdCopyBuffer(cmd, (VkBuffer)unique_clusters->Handle, (VkBuffer)prev_unique_clusters->Handle, 1u, &buffer_copy);
     }
 
-    objRenderStateData::materialLayout = frame.descriptorPack->PipelineLayout("DrawPass");
     frame.renderPasses.at("DrawPass")->UpdateBeginInfo(frame.drawFramebuffer->vkHandle());
     auto lights_binder = frame.descriptorPack->RetrieveBinder("DebugLights");
     vkCmdBeginRenderPass(cmd, &frame.renderPasses.at("DrawPass")->BeginInfo(), VK_SUBPASS_CONTENTS_INLINE);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("OpaqueDrawPipeline")->vkHandle());
+        vkCmdSetViewport(cmd, 0u, 1u, &viewport);
+        vkCmdSetScissor(cmd, 0u, 1u, &scissor);
         auto binder0 = frame.descriptorPack->RetrieveBinder("DrawPass");
         binder0.BindResource("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, unique_clusters);
         binder0.Update();
@@ -3680,18 +3703,23 @@ void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         objRenderStateData draw_state{
             cmd,
             &binder0,
-            render_type::Opaque
+            render_type::Opaque,
+            frame.descriptorPack->PipelineLayout("DrawPass")
         };
 
 		for (size_t i = 0u; i < frame.renderFns.size(); ++i)
 		{
 			frame.renderFns[i](draw_state);
 		}
+
+        /*vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("TransparentDrawPipeline")->vkHandle());
+        vkCmdSetViewport(cmd, 0u, 1u, &viewport);
+        vkCmdSetScissor(cmd, 0u, 1u, &scissor);
 		for (size_t i = 0u; i < frame.renderFns.size(); ++i)
 		{
             draw_state.type = render_type::Transparent;
 			frame.renderFns[i](draw_state);
-		}
+		}*/
         for (size_t i = 0u; i < frame.renderFns.size(); ++i)
         {
             draw_state.type = render_type::GUI;
@@ -3881,8 +3909,8 @@ void SubmitGraphicsWork(vtf_frame_data_t& frame)
         &frame.semaphores.at("RenderComplete")->vkHandle()
     };
 
-    VkResult result = vkQueueSubmit(device->GraphicsQueue(), 1u, &submit_info, frame.graphicsPoolUsageFence->vkHandle());
-    VkAssert(result);
+    VkResult submitResult = vkQueueSubmit(device->GraphicsQueue(), 1u, &submit_info, frame.graphicsPoolUsageFence->vkHandle());
+    VkAssert(submitResult);
 
     frame.lastImageIdx = frame.imageIdx;
 

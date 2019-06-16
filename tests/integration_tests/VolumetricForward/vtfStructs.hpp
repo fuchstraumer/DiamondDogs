@@ -217,7 +217,7 @@ struct objRenderStateData
     VkCommandBuffer cmd{ VK_NULL_HANDLE };
     DescriptorBinder* binder{ nullptr };
     render_type type{ render_type::Invalid };
-    inline static VkPipelineLayout materialLayout{ VK_NULL_HANDLE };
+    VkPipelineLayout materialLayout{ VK_NULL_HANDLE };
 };
 
 struct QueryPool

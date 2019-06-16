@@ -9,6 +9,7 @@
 #include "DescriptorPack.hpp"
 #include "multicast_delegate.hpp"
 #include "VkDebugUtils.hpp"
+#include "Material.hpp"
 #include <unordered_map>
 #include <string>
 #include <memory>
@@ -121,9 +122,11 @@ public:
     bool computeClusterAABBs{ true };
     bool frameRecreate{ false };    
     bool renderDebugClusters{ true };
-    bool optimizedLighting{ false };
+    bool optimizedLighting{ true };
     vpr::VkDebugUtilsFunctions vkDebugFns;
     glm::mat4 previousViewMatrix = glm::mat4(1.0f);
+
+    Material debugMaterial;
 
     /*
         Static resources: all of these should really not be duplicated across frames/threads

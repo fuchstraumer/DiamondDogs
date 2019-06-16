@@ -76,6 +76,7 @@ private:
     VulkanResource* VBO1{ nullptr };
     VulkanResource* EBO{ nullptr };
     std::string modelName;
+    std::atomic<bool> readyToRender{ false };
 
     std::vector<Material> materials;
 

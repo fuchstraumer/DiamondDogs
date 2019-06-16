@@ -4,11 +4,14 @@
 #include "ResourceTypes.hpp"
 #include "glm/vec3.hpp"
 #include "glm/vec4.hpp"
+#pragma warning(push, 1)
 #include "tinyobj_loader_opt.h"
+#pragma warning(pop)
 #include <vulkan/vulkan.h>
 #include <atomic>
 
 class DescriptorBinder;
+class Descriptor;
 
 enum class texture_type : uint8_t
 {
@@ -55,6 +58,7 @@ public:
     Material& operator=(Material&& other) noexcept;
     ~Material();
 
+    void PopulateDescriptor(Descriptor& descr) const;
     void Bind(VkCommandBuffer cmd, const VkPipelineLayout layout, DescriptorBinder& binder);
     bool Opaque() const noexcept;
 
@@ -107,7 +111,10 @@ private:
     };
     
     bool opaque{ true };
-    texture_toggles_t textureToggles;
+    // used to indicate resource queued for loading
+    texture_toggles_t textureTogglesCPU;
+    // used to indiate resources loaded and resident on GPU: can be used for rendering
+    texture_toggles_t textureTogglesGPU;
     parameters_t parameters;
     VulkanResource* paramsUbo{ nullptr };
     VulkanResource* albedoMap{ nullptr };

@@ -7,7 +7,7 @@
 #include <atomic>
 #include <fstream>
 #include <future>
-#pragma warning(push, 1)
+#pragma warning(push, 0)
 #include "easylogging++.h"
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/hash.hpp"
@@ -146,6 +146,8 @@ void ObjectModel::CreateBuffers()
     indicesUi32.shrink_to_fit();
     indicesUi16.shrink_to_fit();
 
+    //rsrc_context.Update();
+
 }
 
 ObjectModel::ObjectModel() : multiDrawIndirect(GetMultidrawIndirect())
@@ -165,7 +167,8 @@ void ObjectModel::LoadModelFromFile(const char* model_filename, const char* mate
         mango::Memory model_memory = model_file;
 
         tinyobj_opt::LoadOption options;
-        options.req_num_threads = std::thread::hardware_concurrency() - 1;
+        // some profiling/debugging tools might present only one thread for use iirc, this should make that safe
+        options.req_num_threads = std::max(static_cast<int>(std::thread::hardware_concurrency() / 2u), (int)1);
         if (!tinyobj_opt::parseObj(&attrib, &shapes, &materials, (char*)model_memory, model_memory.size, options))
         {
             throw std::runtime_error("Failed to load .obj file!");
@@ -182,7 +185,12 @@ void ObjectModel::LoadModelFromFile(const char* model_filename, const char* mate
 
 void ObjectModel::Render(const objRenderStateData& state)
 {
-
+    auto& rsrc_context = ResourceContext::Get();
+    if ((EBO == nullptr) || rsrc_context.ResourceInTransferQueue(EBO) || !readyToRender)
+    {
+        // only checked for EBO: if queued for transfer still, return
+        return;
+    }
     // reset offset to begin
     cmdOffset = 0u;
 
@@ -191,8 +199,9 @@ void ObjectModel::Render(const objRenderStateData& state)
     case render_type::PrePass:
         [[fallthrough]] ;
     case render_type::Shadow:
-        Bind(state.cmd, BindMode::VBO0AndEBO); // positions and indices only
-        break;
+        // won't work until we figure out how to make shader system cooperate more
+        // Bind(state.cmd, BindMode::VBO0AndEBO); // positions and indices only
+        [[fallthrough]] ;
     case render_type::Opaque:
         [[fallthrough]] ;
     case render_type::Transparent:
@@ -213,6 +222,10 @@ void ObjectModel::renderGeometry(const objRenderStateData& state)
         if ((state.type != render_type::PrePass) && (state.type != render_type::Shadow))
         {
             materials[i].Bind(state.cmd, state.materialLayout, *state.binder);
+        }
+        else if (state.type == render_type::PrePass)
+        {
+            state.binder->Bind(state.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
         }
 
         // not rendering transparents, material is partially transparent at least so skip it
@@ -258,38 +271,33 @@ constexpr bool ObjectModel::Part::operator<(const Part& other) const noexcept
 
 void ObjectModel::loadMeshes(const std::vector<tinyobj_opt::shape_t>& shapes, const tinyobj_opt::attrib_t& attrib)
 {
+
+    AABB modelAABB;
+
     struct material_group_t
     {
         std::vector<uint32_t> indices;
+        std::vector<glm::vec3> positions;
+        std::vector<vtxAttrib> attributes;
     };
 
     std::map<uint32_t, material_group_t> groups;
     std::unordered_map<vertex_t, uint32_t> uniqueVertices;
     std::unordered_map<uint32_t, glm::vec3> vertexTangents;
 
-    auto appendVert = [&groups, &uniqueVertices, this](const vertex_t & vert, const int material_id, AABB& bounds)->uint32_t
+    auto appendVert = [&groups, &uniqueVertices, &modelAABB, this](const vertex_t & vert, const int material_id, AABB& bounds)->uint32_t
     {
         auto& group = groups[material_id];
-
-        auto iter = uniqueVertices.find(vert);
-        if (iter != uniqueVertices.cend())
-        {
-            // re-use a vertex
-            group.indices.emplace_back(iter->second);
-            return iter->second;
-        }
-        else
-        {
-            uint32_t result = static_cast<uint32_t>(positions.size());
-            uniqueVertices[vert] = result;
-            positions.emplace_back(vert.Position);
-            attributes.emplace_back(vtxAttrib{ vert.Normal, glm::vec3(), vert.UV });
-            return result;
-        }
+        uint32_t result = static_cast<uint32_t>(positions.size());
+        group.positions.emplace_back(vert.Position);
+        modelAABB.Include(vert.Position);
+        group.attributes.emplace_back(vtxAttrib{ vert.Normal, glm::vec3(), vert.UV });
+        return result;
+        
     };
 
     size_t idx_offset{ 0u };
-
+    
     for (size_t i = 0u; i < attrib.face_num_verts.size(); ++i)
     {
         AABB partAABB;
@@ -371,7 +379,7 @@ void ObjectModel::loadMeshes(const std::vector<tinyobj_opt::shape_t>& shapes, co
     for (size_t i = 0u; i < attributes.size(); ++i)
     {
         const glm::vec3& normal = attributes[i].normal;
-        const glm::vec3& tan0 = vertexTangents.at(i);
+        const glm::vec3& tan0 = vertexTangents.at(static_cast<uint32_t>(i));
         attributes[i].tangent = glm::normalize(tan0 - normal * glm::dot(normal, tan0));
     }
 
@@ -455,6 +463,8 @@ void ObjectModel::generateIndirectDraws()
 
     const gpu_resource_data_t indirect_data{ indirect_cmds_data_buffer.data(), indirect_buffer_info.size, 0u, VK_QUEUE_FAMILY_IGNORED };
 
-    IndirectDrawBuffers = ResourceContext::Get().CreateBuffer(&indirect_buffer_info, nullptr, 1u, &indirect_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinMemory, nullptr);
-
+    const std::string indirectDrawBufferName = modelName + std::string("_IndirectDrawBuffer");
+    IndirectDrawBuffers = ResourceContext::Get().CreateBuffer(&indirect_buffer_info, nullptr, 1u, &indirect_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinMemory | ResourceCreateUserDataAsString, (void*)indirectDrawBufferName.c_str());
+    // This is all the work this object has to perform to be ready to render: once this is done, we just need our data transferred to be good to go
+    readyToRender = true;
 }

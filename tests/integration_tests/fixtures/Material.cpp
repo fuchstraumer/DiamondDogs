@@ -4,11 +4,14 @@
 #include "ResourceContext.hpp"
 #include "ResourceLoader.hpp"
 #include "RenderingContext.hpp"
+#include "Descriptor.hpp"
 #include <array>
 #include <condition_variable>
 #include <experimental/filesystem>
 #include <mutex>
 #include <unordered_set>
+#include <algorithm>
+#include <execution>
 #pragma warning(push, 1)
 #include "easylogging++.h"
 #include "mango/include/mango/mango.hpp"
@@ -33,7 +36,63 @@ static std::mutex debugCreationMutex;
 static std::condition_variable cVar;
 static VulkanResource* failedLoadDebugTexture{ nullptr };
 static VulkanResource* loadingMaterialTexture{ nullptr };
-static Material debugMaterial;
+Material::material_texture_counter_t Material::textureCounter{};
+
+std::string FindDebugTexture()
+{
+    namespace stdfs = std::experimental::filesystem;
+    static const std::string TextureFname("FailedTexLoad.png");
+
+    auto case_insensitive_comparison = [](const std::string & fname, const std::string & curr_entry)->bool
+    {
+
+        return std::equal(std::execution::par_unseq, fname.cbegin(), fname.cend(), curr_entry.cbegin(), curr_entry.cend(), [](const char a, const char b)
+            {
+                return std::tolower(a) == std::tolower(b);
+            });
+    };
+
+    stdfs::path starting_path(stdfs::current_path());
+
+    stdfs::path file_name_path(TextureFname);
+    file_name_path = file_name_path.filename();
+
+    if (stdfs::exists(file_name_path))
+    {
+        return file_name_path.string();
+    }
+
+
+    stdfs::path file_path = starting_path;
+
+    for (size_t i = 0; i < 4; ++i)
+    {
+        file_path = file_path.parent_path();
+    }
+
+    for (auto& dir_entry : stdfs::recursive_directory_iterator(file_path))
+    {
+        if (dir_entry == starting_path)
+        {
+            continue;
+        }
+
+        if (!stdfs::is_regular_file(dir_entry) || stdfs::is_directory(dir_entry))
+        {
+            continue;
+        }
+
+        const stdfs::path entry_path(dir_entry);
+        const std::string curr_entry_str = entry_path.filename().string();
+
+        if (case_insensitive_comparison(TextureFname, curr_entry_str))
+        {
+            return entry_path.string();
+        }
+    }
+
+    return std::string();
+}
 
 struct loaded_texture_data_t
 {
@@ -244,6 +303,7 @@ Material::Material(const tinyobj_opt::material_t& mtl, const char* mtl_dir)
     resource_loader.Subscribe("MANGO", loadImageDataFn, destroyLoadedImageDataFn);
 
     setParameters(mtl);
+    createUBO(mtl);
 
     if (!mtl.ambient_texname.empty())
     {
@@ -293,38 +353,55 @@ Material::Material(const tinyobj_opt::material_t& mtl, const char* mtl_dir)
 
 }
 
-Material::Material(Material&& other) noexcept : opaque(other.opaque), textureToggles(std::move(other.textureToggles)), parameters(std::move(other.parameters)), paramsUbo(std::move(other.paramsUbo)),
-    albedoMap(std::move(other.albedoMap)), normalMap(std::move(other.normalMap)), ambientOcclusionMap(std::move(other.ambientOcclusionMap)), metallicMap(std::move(other.metallicMap)),
-    roughnessMap(std::move(other.roughnessMap))
+Material::Material(Material&& other) noexcept : opaque(other.opaque), textureTogglesCPU(std::move(other.textureTogglesCPU)), parameters(std::move(other.parameters)), paramsUbo(std::move(other.paramsUbo)),
+    albedoMap(std::move(other.albedoMap)), alphaMap(std::move(other.alphaMap)), specularMap(std::move(other.specularMap)), bumpMap(std::move(other.bumpMap)), displacementMap(std::move(other.displacementMap)),
+    normalMap(std::move(other.normalMap)), ambientOcclusionMap(std::move(other.ambientOcclusionMap)), metallicMap(std::move(other.metallicMap)), textureTogglesGPU(std::move(other.textureTogglesGPU)),
+    roughnessMap(std::move(other.roughnessMap)), emissiveMap(std::move(other.emissiveMap))
 {
     other.paramsUbo = nullptr;
     other.albedoMap = nullptr;
+    other.alphaMap = nullptr;
+    other.specularMap = nullptr;
+    other.bumpMap = nullptr;
+    other.displacementMap = nullptr;
     other.normalMap = nullptr;
     other.ambientOcclusionMap = nullptr;
     other.metallicMap = nullptr;
     other.roughnessMap = nullptr;
+    other.emissiveMap = nullptr;
 }
 
 Material& Material::operator=(Material&& other) noexcept
 {
     opaque = other.opaque;
     // move any data that's worth moving
-    textureToggles = std::move(other.textureToggles);
+    textureTogglesCPU = std::move(other.textureTogglesCPU);
+    textureTogglesGPU = std::move(other.textureTogglesGPU);
     parameters = std::move(other.parameters);
     // copy the pointers because they're probably not worth doing more over
     paramsUbo = other.paramsUbo;
     albedoMap = other.albedoMap;
+    alphaMap = std::move(other.alphaMap);
+    specularMap = std::move(other.specularMap);
+    bumpMap = other.bumpMap;
+    displacementMap = other.displacementMap;
     normalMap = other.normalMap;
     ambientOcclusionMap = other.ambientOcclusionMap;
     metallicMap = other.metallicMap;
     roughnessMap = other.roughnessMap;
+    emissiveMap = other.emissiveMap;
     // zero other handles so we don't try to destroy them
     other.paramsUbo = nullptr;
     other.albedoMap = nullptr;
+    other.alphaMap = nullptr;
+    other.specularMap = nullptr;
+    other.bumpMap = nullptr;
+    other.displacementMap = nullptr;
     other.normalMap = nullptr;
     other.ambientOcclusionMap = nullptr;
     other.metallicMap = nullptr;
     other.roughnessMap = nullptr;
+    other.emissiveMap = nullptr;
     return *this;
 }
 
@@ -399,67 +476,123 @@ Material::~Material()
 
 }
 
+void Material::PopulateDescriptor(Descriptor& descr) const
+{
+    descr.BindResource("MaterialParameters", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, paramsUbo);
+    descr.BindResource("AlbedoMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, albedoMap);
+    descr.BindResource("AlphaMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, alphaMap);
+    descr.BindResource("SpecularMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, specularMap);
+    descr.BindResource("BumpMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, bumpMap);
+    descr.BindResource("DisplacementMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, displacementMap);
+    descr.BindResource("NormalMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, normalMap);
+    descr.BindResource("AmbientOcclusionMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, ambientOcclusionMap);
+    descr.BindResource("MetallicMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, metallicMap);
+    descr.BindResource("RoughnessMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, roughnessMap);
+    descr.BindResource("EmissiveMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, emissiveMap);
+}
+
 void Material::Bind(VkCommandBuffer cmd, const VkPipelineLayout layout, DescriptorBinder& binder)
 {
 
-    vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(texture_toggles_t), &textureToggles);
+    auto& rsrc_context = ResourceContext::Get();
 
-    if (!textureToggles.materialLoading)
     {
-        binder.BindResource("Material", "Parameters", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, paramsUbo);
+        // this item is CPU side: don't need to check for loaded status
+        binder.BindResource("Material", "MaterialParameters", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, paramsUbo);
     }
 
-    if (textureToggles.hasAlbedoMap)
+    if (textureTogglesCPU.materialLoading)
+    {
+        constexpr static texture_toggles_t debugToggles{
+            VK_TRUE,
+            VK_FALSE,
+            VK_FALSE,
+            VK_FALSE,
+            VK_FALSE,
+            VK_FALSE,
+            VK_FALSE,
+            VK_FALSE,
+            VK_FALSE,
+            VK_FALSE,
+            VK_FALSE
+        };
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(texture_toggles_t), &debugToggles);
+        return; // leave default items bound
+    }
+
+    if (textureTogglesCPU.hasAlbedoMap && !rsrc_context.ResourceInTransferQueue(albedoMap))
     {
         binder.BindResource("Material", "AlbedoMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, albedoMap);
+        textureTogglesGPU.hasAlbedoMap = VK_TRUE;
+        textureTogglesGPU.materialLoading = VK_FALSE;
     }
     
-    if (textureToggles.hasAlphaMap)
+    if (textureTogglesCPU.hasAlphaMap && !rsrc_context.ResourceInTransferQueue(alphaMap))
     {
         binder.BindResource("Material", "AlphaMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, alphaMap);
+        textureTogglesGPU.hasAlphaMap = VK_TRUE;
+        textureTogglesGPU.materialLoading = VK_FALSE;
     }
 
-    if (textureToggles.hasSpecularMap)
+    if (textureTogglesCPU.hasSpecularMap && !rsrc_context.ResourceInTransferQueue(specularMap))
     {
         binder.BindResource("Material", "SpecularMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, specularMap);
+        textureTogglesGPU.hasSpecularMap = VK_TRUE;
+        textureTogglesGPU.materialLoading = VK_FALSE;
     }
 
-    if (textureToggles.hasBumpMap)
+    if (textureTogglesCPU.hasBumpMap && !rsrc_context.ResourceInTransferQueue(bumpMap))
     {
         binder.BindResource("Material", "NormalMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, bumpMap);
+        textureTogglesGPU.hasBumpMap = VK_TRUE;
+        textureTogglesGPU.materialLoading = VK_FALSE;
     }
 
-    if (textureToggles.hasDisplacementMap)
+    if (textureTogglesCPU.hasDisplacementMap && !rsrc_context.ResourceInTransferQueue(displacementMap))
     {
         binder.BindResource("Material", "DisplacementMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, displacementMap);
+        textureTogglesGPU.hasDisplacementMap = VK_TRUE;
+        textureTogglesGPU.materialLoading = VK_FALSE;
     }
 
-    if (textureToggles.hasNormalMap)
+    if (textureTogglesCPU.hasNormalMap && !rsrc_context.ResourceInTransferQueue(normalMap))
     {
         binder.BindResource("Material", "NormalMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, normalMap);
+        textureTogglesGPU.hasNormalMap = VK_TRUE;
+        textureTogglesGPU.materialLoading = VK_FALSE;
     }
 
-    if (textureToggles.hasAmbientOcclusionMap)
+    if (textureTogglesCPU.hasAmbientOcclusionMap && !rsrc_context.ResourceInTransferQueue(ambientOcclusionMap))
     {
         binder.BindResource("Material", "AmbientOcclusionMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, ambientOcclusionMap);
+        textureTogglesGPU.hasAmbientOcclusionMap = VK_TRUE;
+        textureTogglesGPU.materialLoading = VK_FALSE;
     }
 
-    if (textureToggles.hasMetallicMap)
+    if (textureTogglesCPU.hasMetallicMap && !rsrc_context.ResourceInTransferQueue(metallicMap))
     {
         binder.BindResource("Material", "MetallicMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, metallicMap);
+        textureTogglesGPU.hasMetallicMap = VK_TRUE;
+        textureTogglesGPU.materialLoading = VK_FALSE;
     }
 
-    if (textureToggles.hasRoughnessMap)
+    if (textureTogglesCPU.hasRoughnessMap && !rsrc_context.ResourceInTransferQueue(roughnessMap))
     {
         binder.BindResource("Material", "RoughnessMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, roughnessMap);
+        textureTogglesGPU.hasRoughnessMap = VK_TRUE;
+        textureTogglesGPU.materialLoading = VK_FALSE;
     }
 
-    if (textureToggles.hasEmissiveMap)
+    if (textureTogglesCPU.hasEmissiveMap && !rsrc_context.ResourceInTransferQueue(emissiveMap))
     {
         binder.BindResource("Material", "EmissiveMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, emissiveMap);
+        textureTogglesGPU.hasEmissiveMap = VK_TRUE;
+        textureTogglesGPU.materialLoading = VK_FALSE;
     }
 
-    assert(!(textureToggles.hasNormalMap && textureToggles.hasBumpMap));
+    // push GPU-side toggles into pipe
+    vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0u, sizeof(texture_toggles_t), &textureTogglesGPU);
+    assert(!(textureTogglesGPU.hasNormalMap && textureTogglesGPU.hasBumpMap));
     binder.Update();
     binder.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
@@ -470,8 +603,6 @@ bool Material::Opaque() const noexcept
     return opaque;
 }
 
-Material::material_texture_counter_t Material::textureCounter{};
-
 Material Material::CreateDebugMaterial()
 {
     Material result;
@@ -480,17 +611,28 @@ Material Material::CreateDebugMaterial()
     tinyobj_opt::material_t debug_material;
     debug_material.name = "DEBUG_MATERIAL";
     result.createUBO(debug_material);
-    result.loadTexture("", debug_material.name, "", AMBIENT_TEXTURE_TYPE);
-    result.loadTexture("", debug_material.name, "", DIFFUSE_TEXTURE_TYPE);
-    result.loadTexture("", debug_material.name, "", SPECULAR_TEXTURE_TYPE);
-    result.loadTexture("", debug_material.name, "", BUMP_TEXTURE_TYPE);
-    result.loadTexture("", debug_material.name, "", DISPLACEMENT_TEXTURE_TYPE);
-    result.loadTexture("", debug_material.name, "", ALPHA_TEXTURE_TYPE);
-    result.loadTexture("", debug_material.name, "", ROUGHNESS_TEXTURE_TYPE);
-    result.loadTexture("", debug_material.name, "", METALLIC_TEXTURE_TYPE);
-    result.loadTexture("", debug_material.name, "", EMISSIVE_TEXTURE_TYPE);
-    result.loadTexture("", debug_material.name, "", NORMAL_TEXTURE_TYPE);
-    return result;
+    static const std::string debugTexturePath = FindDebugTexture();
+    void* failedTextureData = loadImageDataFn(debugTexturePath.c_str(), nullptr);
+    failedLoadDebugTexture = reinterpret_cast<loaded_texture_data_t*>(failedTextureData)->resource;
+    // for descriptor reasons, set all of these
+    result.textureLoadedCallback(failedTextureData, (void*)&AMBIENT_TEXTURE_TYPE);
+    result.textureLoadedCallback(failedTextureData, (void*)&DIFFUSE_TEXTURE_TYPE);
+    result.textureLoadedCallback(failedTextureData, (void*)&SPECULAR_TEXTURE_TYPE);
+    result.textureLoadedCallback(failedTextureData, (void*)&BUMP_TEXTURE_TYPE);
+    result.textureLoadedCallback(failedTextureData, (void*)&DISPLACEMENT_TEXTURE_TYPE);
+    result.textureLoadedCallback(failedTextureData, (void*)&ALPHA_TEXTURE_TYPE);
+    result.textureLoadedCallback(failedTextureData, (void*)&ROUGHNESS_TEXTURE_TYPE);
+    result.textureLoadedCallback(failedTextureData, (void*)&METALLIC_TEXTURE_TYPE);
+    result.textureLoadedCallback(failedTextureData, (void*)&EMISSIVE_TEXTURE_TYPE);
+    result.textureLoadedCallback(failedTextureData, (void*)&NORMAL_TEXTURE_TYPE);
+    // ... but then clear the toggles so they don't actually get used in the shader: just have data where descriptor wants
+    result.textureTogglesCPU = texture_toggles_t{};
+    result.textureTogglesGPU = texture_toggles_t{};
+    result.textureTogglesCPU.hasAlbedoMap = VK_TRUE;
+
+    loaded_texture_data_t* loaded_data = reinterpret_cast<loaded_texture_data_t*>(failedTextureData);
+    delete loaded_data;
+    return std::move(result);
 }
 
 const Material::material_texture_counter_t& Material::TextureCounter() noexcept
@@ -542,6 +684,7 @@ void Material::createUBO(const tinyobj_opt::material_t& mtl)
 
 void Material::loadTexture(std::string file_path_str, const std::string& material_base_name, const char* init_dir, const texture_type type)
 {
+
     const texture_type* type_ptr = nullptr;
 
     switch (type)
@@ -585,56 +728,57 @@ void Material::loadTexture(std::string file_path_str, const std::string& materia
 
 void Material::textureLoadedCallback(void* data_ptr, void* user_data)
 {
+    // called when data is loaded from disk and has been queued for transfer
     const loaded_texture_data_t* texture_data = reinterpret_cast<loaded_texture_data_t*>(data_ptr);
     const texture_type tex_type = *reinterpret_cast<texture_type*>(user_data);
     switch (tex_type)
     {
     case texture_type::Ambient:
-        textureToggles.hasAmbientOcclusionMap = VK_TRUE;
+        textureTogglesCPU.hasAmbientOcclusionMap = VK_TRUE;
         ambientOcclusionMap = texture_data->resource;
         textureCounter.AoMaps.fetch_add(1u);
         break;
     case texture_type::Diffuse:
-        textureToggles.hasAlbedoMap = VK_TRUE;
+        textureTogglesCPU.hasAlbedoMap = VK_TRUE;
         albedoMap = texture_data->resource;
         textureCounter.AlbedoMaps.fetch_add(1u);
         break;
     case texture_type::Specular:
-        textureToggles.hasSpecularMap = VK_TRUE;
+        textureTogglesCPU.hasSpecularMap = VK_TRUE;
         specularMap = texture_data->resource;
         textureCounter.SpecularMaps.fetch_add(1u);
         break;
     case texture_type::Bump:
-        textureToggles.hasBumpMap = VK_TRUE;
+        textureTogglesCPU.hasBumpMap = VK_TRUE;
         bumpMap = texture_data->resource;
         textureCounter.BumpMaps.fetch_add(1u);
         break;
     case texture_type::Displacement:
-        textureToggles.hasDisplacementMap = VK_TRUE;
+        textureTogglesCPU.hasDisplacementMap = VK_TRUE;
         displacementMap = texture_data->resource;
         textureCounter.DisplacementMaps.fetch_add(1u);
         break;
     case texture_type::Alpha:
-        textureToggles.hasAlphaMap = VK_TRUE;
+        textureTogglesCPU.hasAlphaMap = VK_TRUE;
         alphaMap = texture_data->resource;
         textureCounter.AlphaMaps.fetch_add(1u);
         break;
     case texture_type::Roughness:
-        textureToggles.hasRoughnessMap = VK_TRUE;
+        textureTogglesCPU.hasRoughnessMap = VK_TRUE;
         roughnessMap = texture_data->resource;
         textureCounter.RoughnessMaps.fetch_add(1u);
         break;
     case texture_type::Metallic:
-        textureToggles.hasMetallicMap = VK_TRUE;
+        textureTogglesCPU.hasMetallicMap = VK_TRUE;
         metallicMap = texture_data->resource;
         textureCounter.MetallicMaps.fetch_add(1u);
         break;
     case texture_type::Emissive:
-        textureToggles.hasEmissiveMap = VK_TRUE;
+        textureTogglesCPU.hasEmissiveMap = VK_TRUE;
         emissiveMap = texture_data->resource;
         break;
     case texture_type::Normal:
-        textureToggles.hasNormalMap = VK_TRUE;
+        textureTogglesCPU.hasNormalMap = VK_TRUE;
         normalMap = texture_data->resource;
         textureCounter.NormalMaps.fetch_add(1u);
         break;
@@ -642,8 +786,8 @@ void Material::textureLoadedCallback(void* data_ptr, void* user_data)
         throw std::domain_error("Texture data's type was out of range!");
     }
 
-    // at least one texture loaded. disable material loading status.
-    textureToggles.materialLoading = VK_FALSE;
+    // at least one texture queued for loading. disable material loading status.
+    textureTogglesCPU.materialLoading = VK_FALSE;
 
 }
 

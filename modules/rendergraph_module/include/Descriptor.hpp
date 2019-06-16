@@ -51,6 +51,7 @@ public:
     // frees all sets. call at the end of a frame, once all command buffers using this Descriptor have been consumed fully.
     void Reset();
     size_t TotalUsedSets() const;
+    void BindResource(const char* name, VkDescriptorType type, VulkanResource* rsrc);
     void BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc);
     size_t BindingLocation(const char* rsrc_name) const;
     

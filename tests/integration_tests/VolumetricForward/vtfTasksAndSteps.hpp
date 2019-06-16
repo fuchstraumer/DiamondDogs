@@ -43,7 +43,7 @@ void ComputeUpdate(vtf_frame_data_t& frame);
 void SubmitComputeWork(vtf_frame_data_t& frame, uint32_t num_cmds, VkCommandBuffer* cmds);
 void RenderVtf(vtf_frame_data_t& frame);
 void SubmitGraphicsWork(vtf_frame_data_t& frame_data);
-void FlushShaderCaches(vtf_frame_data_t& frame_data);
+void FlushShaderCaches();
 
 /*
     Destruction functions. Just as important for shutdown, or for 
