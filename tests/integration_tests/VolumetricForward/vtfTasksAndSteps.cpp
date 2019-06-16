@@ -437,6 +437,11 @@ void CreateShaders(const st::ShaderPack* pack) {
 
 void SetupDescriptors(vtf_frame_data_t& frame) {
     frame.descriptorPack = std::make_unique<DescriptorPack>(nullptr, vtf_frame_data_t::vtfShaders);
+
+    // Set material debug descriptor
+    auto* materials = frame.descriptorPack->RetrieveDescriptor("Material");
+    frame.debugMaterial = Material::CreateDebugMaterial();
+    frame.debugMaterial.PopulateDescriptor(*materials);
 }
 
 void createGlobalResources(vtf_frame_data_t& frame) {
@@ -799,14 +804,17 @@ void uploadLightsToGPU(vtf_frame_data_t& frame)
     };
 
     auto& resource_context = ResourceContext::Get();
+
     if (!SceneLightsState().PointLights.empty())
     {
         resource_context.SetBufferData(frame.rsrcMap.at("PointLights"), 1u, &point_lights_data);
     }
+
     if (!SceneLightsState().SpotLights.empty())
     {
         resource_context.SetBufferData(frame.rsrcMap.at("SpotLights"), 1u, &spot_lights_data);
     }
+
     if (!SceneLightsState().DirectionalLights.empty())
     {
         resource_context.SetBufferData(frame.rsrcMap.at("DirectionalLights"), 1u, &dir_lights_data);
@@ -852,13 +860,7 @@ void createLightResources(vtf_frame_data_t& frame) {
 
     if (havePointLights)
     {
-        const gpu_resource_data_t point_lights_data{
-            SceneLightsState().PointLights.data(),
-            SceneLightsState().PointLights.size() * sizeof(PointLight),
-            0u, compute_queue_idx
-        };
-
-        frame.rsrcMap["PointLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &point_lights_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLights");
+        frame.rsrcMap["PointLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "PointLights");
         descr->BindResourceToIdx(descr->BindingLocation("PointLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("PointLights"));
     }
 
@@ -866,25 +868,18 @@ void createLightResources(vtf_frame_data_t& frame) {
     {
         const gpu_resource_data_t spot_lights_data{
             SceneLightsState().SpotLights.data(),
-            SceneLightsState().SpotLights.size() * sizeof(SpotLight),
             0u, compute_queue_idx
         };
 
-        lights_buffer_info.size = spot_lights_data.DataSize;
-        frame.rsrcMap["SpotLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &spot_lights_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLights");
+        lights_buffer_info.size = SceneLightsState().SpotLights.size() * sizeof(SpotLight);
+        frame.rsrcMap["SpotLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "SpotLights");
         descr->BindResourceToIdx(descr->BindingLocation("SpotLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("SpotLights"));
     }
 
     if (haveDirLights)
     {
-        const gpu_resource_data_t dir_lights_data{
-            SceneLightsState().DirectionalLights.data(),
-            SceneLightsState().DirectionalLights.size() * sizeof(DirectionalLight),
-            0u, compute_queue_idx
-        };
-        lights_buffer_info.size = dir_lights_data.DataSize;
-
-        frame.rsrcMap["DirectionalLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 1, &dir_lights_data, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DirectionalLights");
+        lights_buffer_info.size = SceneLightsState().DirectionalLights.size() * sizeof(DirectionalLight);
+        frame.rsrcMap["DirectionalLights"] = rsrc_context.CreateBuffer(&lights_buffer_info, nullptr, 0u, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "DirectionalLights");
         descr->BindResourceToIdx(descr->BindingLocation("DirectionalLights"), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frame.rsrcMap.at("DirectionalLights"));
     }
 
@@ -1316,8 +1311,8 @@ void createFences(vtf_frame_data_t& frame)
 }
 
 void CreateResources(vtf_frame_data_t & frame) {
-    // creates and does initial descriptor binding, so that recursive/further calls 
-    // to use these bindings actually work lol
+    auto& ctxt = ResourceContext::Get();
+    //ctxt.Update();
     createGlobalResources(frame);
     createVolumetricForwardResources(frame);
     createLightResources(frame); // make sure lights have been generated first! we upload initial data here too
@@ -2066,7 +2061,6 @@ void createDepthPrePassPipeline(vtf_frame_data_t& frame) {
     VkGraphicsPipelineCreateInfo create_info = pipeline_info.GetPipelineCreateInfo();
     const VkPipelineShaderStageCreateInfo shader_stages[1]{ 
         vtf_frame_data_t::shaderModules.at(depth_vert)->PipelineInfo()
-        //vtf_frame_data_t::shaderModules.at(depth_frag)->PipelineInfo() 
     };
     create_info.stageCount = 1u;
     create_info.pStages = shader_stages;
@@ -2241,7 +2235,6 @@ void createDebugLightsPipelines(vtf_frame_data_t& frame)
     static const std::string groupName{ "DebugLights" };
     static const std::string pipelineName0{ "DebugPointLights" };
     static const std::string pipelineName1{ "DebugSpotLights" };
-    auto* device = RenderingContext::Get().Device();
 
     std::vector<st::ShaderStage> stages;
 
@@ -2371,8 +2364,7 @@ void computeUpdateLights(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     VulkanResource* spot_lights = frame.rsrcMap.at("SpotLights");
     VulkanResource* dir_lights = frame.rsrcMap.at("DirectionalLights");
     auto binder = frame.descriptorPack->RetrieveBinder("UpdateLights");
-    binder.BindResourceToIdx("GlobalResources", "matrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
-    binder.Update();
+    binder.BindResource("GlobalResources", "matrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
 
     // update light counts
     frame.LightCounts.NumPointLights = static_cast<uint32_t>(SceneLightsState().PointLights.size());
@@ -2478,7 +2470,6 @@ void reduceLights(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 		{ 192.0f / 255.0f, 66.0f / 255.0f, 1.0f, 1.0f }
 	};
 
-    auto& rsrc = ResourceContext::Get();
     // required to use push constants
     const VkPipelineLayout required_layout = frame.descriptorPack->PipelineLayout("ReduceLights");
 
@@ -2574,7 +2565,6 @@ void computeMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         THSVS_ACCESS_COMPUTE_SHADER_WRITE
     };
 
-    auto& rsrc = ResourceContext::Get();
     auto binder = frame.descriptorPack->RetrieveBinder("ComputeMortonCodes");
     auto& pointLightIndices = frame.rsrcMap["PointLightIndices"];
     auto& spotLightIndices = frame.rsrcMap["SpotLightIndices"];
@@ -2674,7 +2664,6 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 
     */
 
-    auto& rsrc_context = ResourceContext::Get();
     auto binder = frame.descriptorPack->RetrieveBinder("RadixSort");
     const VkPipelineLayout required_layout = frame.descriptorPack->PipelineLayout("RadixSort");
     auto& pointLightIndices = frame.rsrcMap["PointLightIndices"];
@@ -2696,7 +2685,7 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 	vkCmdFillBuffer(cmd, (VkBuffer)merge_path_partitions_empty->Handle, 0u, reinterpret_cast<const VkBufferCreateInfo*>(merge_path_partitions_empty->Info)->size, 0u);
 	frame.transientResources.emplace_back(merge_path_partitions_empty);
 
-	binder.BindResourceToIdx("MergeSortResources", "MergePathPartitions", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, merge_path_partitions_empty);
+	binder.BindResource("MergeSortResources", "MergePathPartitions", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, merge_path_partitions_empty);
 
 	constexpr static std::array<ThsvsAccessType, 1> readonly_access_types{
 		THSVS_ACCESS_COMPUTE_SHADER_READ_OTHER
@@ -2770,10 +2759,10 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "SortPointLightMortonCodes");
 
         // bind proper resources to the descriptor
-        binder.BindResourceToIdx("MergeSortResources", "InputKeys", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightMortonCodes);
-        binder.BindResourceToIdx("MergeSortResources", "InputValues", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightIndices);
-        binder.BindResourceToIdx("MergeSortResources", "OutputKeys", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightMortonCodes_OUT);
-        binder.BindResourceToIdx("MergeSortResources", "OutputValues", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightIndices_OUT);
+        binder.BindResource("MergeSortResources", "InputKeys", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightMortonCodes);
+        binder.BindResource("MergeSortResources", "InputValues", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightIndices);
+        binder.BindResource("MergeSortResources", "OutputKeys", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightMortonCodes_OUT);
+        binder.BindResource("MergeSortResources", "OutputValues", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, pointLightIndices_OUT);
         binder.Update();
 
         // Set sort params: then we'll push updated struct in as raw data
@@ -2801,10 +2790,10 @@ void sortMortonCodes(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "SortSpotLightMortonCodes");
 
         // update bindings again
-        binder.BindResourceToIdx("MergeSortResources", "InputKeys", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightMortonCodes);
-        binder.BindResourceToIdx("MergeSortResources", "InputValues", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightIndices);
-        binder.BindResourceToIdx("MergeSortResources", "OutputKeys", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightMortonCodes_OUT);
-        binder.BindResourceToIdx("MergeSortResources", "OutputValues", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightIndices_OUT);
+        binder.BindResource("MergeSortResources", "InputKeys", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightMortonCodes);
+        binder.BindResource("MergeSortResources", "InputValues", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightIndices);
+        binder.BindResource("MergeSortResources", "OutputKeys", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightMortonCodes_OUT);
+        binder.BindResource("MergeSortResources", "OutputValues", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spotLightIndices_OUT);
         binder.Update();
 
         SortParams sort_params_data;
@@ -2966,8 +2955,8 @@ void buildLightBVH(vtf_frame_data_t& frame, VkCommandBuffer cmd)
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines["BuildBVHTopPipeline"].Handle);
         for (uint32_t level = max_levels - 1u; level > 0u; --level) {
             thsvsCmdPipelineBarrier(cmd, nullptr, 2u, buffer_barriers, 0u, nullptr);
-            uint32_t num_child_nodes = NumLevelNodes[level];
-            num_thread_groups = static_cast<uint32_t>(glm::ceil(float(NumLevelNodes[level]) / float(BVH_NUM_THREADS)));
+            const float num_child_nodes = static_cast<float>(NumLevelNodes[level]);
+            num_thread_groups = static_cast<uint32_t>(glm::ceil(num_child_nodes / float(BVH_NUM_THREADS)));
             const uint32_t pushed_level = level;
             vkCmdPushConstants(cmd, req_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0u, sizeof(uint32_t), &pushed_level);
             vkCmdDispatch(cmd, num_thread_groups, 1u, 1u);
@@ -3207,9 +3196,9 @@ void vtfDrawDebugClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     auto& descriptor = frame.descriptorPack->RetrieveBinder("DebugClusters");
     auto& prev_unique_clusters = frame.rsrcMap.at("PreviousUniqueClusters");
     auto& cluster_colors = frame.rsrcMap.at("DebugClusterColors");
-    descriptor.BindResourceToIdx("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, prev_unique_clusters);
-    descriptor.BindResourceToIdx("Debug", "DebugClustersMatrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, debug_matrices);
-    descriptor.BindResourceToIdx("Debug", "ClusterColors", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, cluster_colors);
+    descriptor.BindResource("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, prev_unique_clusters);
+    descriptor.BindResource("Debug", "DebugClustersMatrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, debug_matrices);
+    descriptor.BindResource("Debug", "ClusterColors", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, cluster_colors);
     descriptor.Update();
     descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
     vkCmdDrawIndirect(cmd, (VkBuffer)frame.rsrcMap.at("DebugClustersIndirectArgs")->Handle, 0u, 1u, sizeof(VkDrawIndirectCommand));
@@ -3222,8 +3211,6 @@ void vtfDrawDebugClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 }
 
 void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
-
-    objRenderStateData::materialLayout = frame.descriptorPack->PipelineLayout("ClusterSamples");
 
 	ScopedRenderSection profiler(*frame.queryPool, cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, "DepthPrePassAndClusterSamples");
 
@@ -3246,6 +3233,12 @@ void getClusterSamples(vtf_frame_data_t& frame, VkCommandBuffer cmd) {
     };
 
     renderpass->UpdateBeginInfo(frame.clusterSamplesFramebuffer->vkHandle());
+
+    binder0.BindResource("GlobalResources", "matrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
+    binder1.BindResource("GlobalResources", "matrices", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("matrices"));
+    binder0.BindResource("GlobalResources", "globals", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("globals"));
+    binder1.BindResource("GlobalResources", "globals", VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frame.rsrcMap.at("globals"));
+
     binder0.Update();
     binder1.Update();
 
@@ -3569,10 +3562,10 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     if (frame.optimizedLighting)
     {
         auto descriptor = frame.descriptorPack->RetrieveBinder("AssignLightsToClustersBVH");
-        descriptor.BindResourceToIdx("VolumetricForward", "SpotLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
-        descriptor.BindResourceToIdx("VolumetricForward", "PointLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_index_list);
-        descriptor.BindResourceToIdx("VolumetricForward", "SpotLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
-        descriptor.BindResourceToIdx("VolumetricForward", "PointLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
+        descriptor.BindResource("VolumetricForward", "SpotLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
+        descriptor.BindResource("VolumetricForward", "PointLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_index_list);
+        descriptor.BindResource("VolumetricForward", "SpotLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
+        descriptor.BindResource("VolumetricForward", "PointLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
         descriptor.Update();
 
         frame.BVH_Params.PointLightLevels = GetNumLevelsBVH(frame.LightCounts.NumPointLights);
@@ -3594,10 +3587,10 @@ void assignLightsToClusters(vtf_frame_data_t& frame, VkCommandBuffer cmd)
     else
     {
         auto descriptor = frame.descriptorPack->RetrieveBinder("AssignLightsToClusters");
-        descriptor.BindResourceToIdx("VolumetricForward", "SpotLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
-        descriptor.BindResourceToIdx("VolumetricForward", "PointLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_index_list);
-        descriptor.BindResourceToIdx("VolumetricForward", "SpotLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
-        descriptor.BindResourceToIdx("VolumetricForward", "PointLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
+        descriptor.BindResource("VolumetricForward", "SpotLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_index_list);
+        descriptor.BindResource("VolumetricForward", "PointLightIndexList", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_index_list);
+        descriptor.BindResource("VolumetricForward", "SpotLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, spot_light_grid);
+        descriptor.BindResource("VolumetricForward", "PointLightGrid", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, point_light_grid);
         descriptor.Update();
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, frame.computePipelines.at("AssignLightsToClustersPipeline").Handle);
         descriptor.Bind(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
@@ -3681,7 +3674,7 @@ void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, frame.graphicsPipelines.at("OpaqueDrawPipeline")->vkHandle());
         auto binder0 = frame.descriptorPack->RetrieveBinder("DrawPass");
-        binder0.BindResourceToIdx("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, unique_clusters);
+        binder0.BindResource("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, unique_clusters);
         binder0.Update();
 
         objRenderStateData draw_state{
@@ -3707,7 +3700,7 @@ void vtfMainRenderPass(vtf_frame_data_t& frame, VkCommandBuffer cmd)
 
         if (frame.renderDebugClusters)
         {
-            binder0.BindResourceToIdx("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, prev_unique_clusters);
+            binder0.BindResource("VolumetricForward", "UniqueClusters", VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, prev_unique_clusters);
             binder0.Update();
             binder0.Bind(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS);
             vtfDrawDebugClusters(frame, cmd);
@@ -3855,7 +3848,7 @@ void RenderVtf(vtf_frame_data_t& frame)
 	VkAssert(result);
 	frame.firstGraphicsSubmit = false;
 
-	if (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+	if constexpr(VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
 	{
 		frame.vkDebugFns.vkQueueEndDebugUtilsLabel(device->GraphicsQueue());
 	}
@@ -4024,7 +4017,6 @@ void MergeSort(vtf_frame_data_t& frame, VkCommandBuffer cmd, VulkanResource* src
     frame.transientResources.emplace_back(merge_path_partitions);
 	
 	SortParams sort_params_local;
-	auto& rsrc_context = ResourceContext::Get();
 
     const uint32_t compute_idx = RenderingContext::Get().Device()->QueueFamilyIndices().Compute;
 
