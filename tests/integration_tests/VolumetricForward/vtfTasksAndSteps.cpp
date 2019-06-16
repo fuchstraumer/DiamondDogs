@@ -29,6 +29,7 @@
 #include <unordered_map>
 #include <string>
 #include <thsvs_simpler_vulkan_synchronization.h>
+#include "easylogging++.h"
 
 constexpr static uint32_t SORT_NUM_THREADS_PER_THREAD_GROUP = 256u;
 constexpr static uint32_t SORT_ELEMENTS_PER_THREAD = 8u;
@@ -165,9 +166,143 @@ uint32_t GetNumNodesBVH(uint32_t num_leaves) noexcept {
     return num_nodes;
 }
 
-void ComputePipelineCreationShim(vtf_frame_data_t& frame, const std::string& name, const VkComputePipelineCreateInfo* pipeline_info, const std::string& group_name)
+static std::unordered_map<std::string, VkPipelineCreationFeedbackEXT> pipelineFeedbacks;
+// using an array since max is always just six, but we can downsize by just setting the index properly
+static std::unordered_map<std::string, std::array<VkPipelineCreationFeedbackEXT, 6>> pipelineStageFeedbacks;
+
+std::string ShaderStageFlagBitsToStr(const VkShaderStageFlagBits bits)
+{
+    if (bits & VK_SHADER_STAGE_VERTEX_BIT)
+    {
+        return "Vertex";
+    }
+    else if (bits & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT)
+    {
+        return "Tesselation Control";
+    }
+    else if (bits & VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
+    {
+        return "Tesselation Evaluation";
+    }
+    else if (bits & VK_SHADER_STAGE_GEOMETRY_BIT)
+    {
+        return "Geometry";
+    }
+    else if (bits & VK_SHADER_STAGE_FRAGMENT_BIT)
+    {
+        return "Fragment";
+    }
+    else
+    {
+        return "INVALID_STAGE";
+    }
+}
+
+void GraphicsPipelineCreationShim(vtf_frame_data_t& frame, const std::string& name, VkGraphicsPipelineCreateInfo& pipeline_info, const std::string& group_name)
+{
+    auto* device = RenderingContext::Get().Device();
+
+    VkPipelineCreationFeedbackCreateInfoEXT feedback_create_info;
+
+    if (device->HasExtension(VK_EXT_PIPELINE_CREATION_FEEDBACK_EXTENSION_NAME))
+    {
+        auto& pipeline_feedback = pipelineFeedbacks[name];
+        pipeline_feedback.flags = 0;
+        pipeline_feedback.duration = 0;
+        auto& stage_feedbacks = pipelineStageFeedbacks[name];
+
+        feedback_create_info = VkPipelineCreationFeedbackCreateInfoEXT{
+            VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO_EXT,
+            nullptr,
+            &pipeline_feedback,
+            pipeline_info.stageCount,
+            stage_feedbacks.data()
+        };
+
+        pipeline_info.pNext = reinterpret_cast<const void*>(&feedback_create_info);
+
+    }
+
+    frame.graphicsPipelines[name] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
+    frame.graphicsPipelines.at(name)->Init(pipeline_info, vtf_frame_data_t::pipelineCaches.at(group_name)->vkHandle());
+
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(name)->vkHandle(), name.c_str());
+    }
+
+    // now check pipeline creation feedback
+    if (device->HasExtension(VK_EXT_PIPELINE_CREATION_FEEDBACK_EXTENSION_NAME))
+    {
+        auto pipeline_feedback = pipelineFeedbacks.at(name);
+        bool hitApplicationCache{ false };
+
+        if (!(pipeline_feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT_EXT))
+        {
+            LOG(ERROR) << "Pipeline creation feedback information is not valid!";
+        }
+
+        if (pipeline_feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT_EXT)
+        {
+            LOG(INFO) << "Graphics pipeline " << name << " was able to use a pipeline cache to actively increase it's construction speed.";
+            hitApplicationCache = true;
+        }
+
+        if (pipeline_feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_BASE_PIPELINE_ACCELERATION_BIT_EXT)
+        {
+            LOG(INFO) << "Graphics pipeline " << name << " was able to use a base pipeline handle or index to increase it's construction speed.";
+        }
+
+        // Checking these is mostly redundant when application cache has been hit.
+        if (!hitApplicationCache)
+        {
+            auto& stage_feedbacks = pipelineStageFeedbacks.at(name);
+            for (uint32_t i = 0; i < pipeline_info.stageCount; ++i)
+            {
+                if (stage_feedbacks[i].flags & VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT_EXT)
+                {
+                    const std::string currStageStr = ShaderStageFlagBitsToStr(pipeline_info.pStages[i].stage);
+                    if (stage_feedbacks[i].flags & VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT_EXT)
+                    {
+                        LOG(INFO) << "Graphics pipeline " << name << " shader stage " << currStageStr << " was able to use the pipeline cache to construct itself faster.";
+                    }
+
+                    if (stage_feedbacks[i].flags & VK_PIPELINE_CREATION_FEEDBACK_BASE_PIPELINE_ACCELERATION_BIT_EXT)
+                    {
+                        LOG(INFO) << "Graphics pipeline " << name << " shader stage " << currStageStr << " was able to use a derived pipeline to construct itself faster.";
+                    }
+                }
+            }
+        }
+    }
+
+}
+
+void ComputePipelineCreationShim(vtf_frame_data_t& frame, const std::string& name, VkComputePipelineCreateInfo* pipeline_info, const std::string& group_name)
 {
 	auto* device = RenderingContext::Get().Device();
+
+    VkPipelineCreationFeedbackCreateInfoEXT feedback_create_info;
+
+    if (device->HasExtension(VK_EXT_PIPELINE_CREATION_FEEDBACK_EXTENSION_NAME))
+    {
+        auto& pipeline_feedback = pipelineFeedbacks[name];
+        pipeline_feedback.flags = 0;
+        pipeline_feedback.duration = 0;
+        auto& stage_feedbacks = pipelineStageFeedbacks[name];
+
+        feedback_create_info = VkPipelineCreationFeedbackCreateInfoEXT{
+            VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO_EXT,
+            nullptr,
+            &pipeline_feedback,
+            1u,
+            stage_feedbacks.data()
+        };
+
+        pipeline_info->pNext = reinterpret_cast<const void*>(&feedback_create_info);
+
+    }
+
 	frame.computePipelines[name] = ComputePipelineState(device->vkHandle());
 	VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(group_name)->vkHandle(), 1, pipeline_info, nullptr, &frame.computePipelines.at(name).Handle);
 	VkAssert(result);
@@ -176,6 +311,42 @@ void ComputePipelineCreationShim(vtf_frame_data_t& frame, const std::string& nam
 		result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.computePipelines.at(name).Handle, VTF_DEBUG_OBJECT_NAME(name.c_str()));
 		VkAssert(result);
 	}
+
+    // now check pipeline creation feedback
+    if (device->HasExtension(VK_EXT_PIPELINE_CREATION_FEEDBACK_EXTENSION_NAME))
+    {
+        auto pipeline_feedback = pipelineFeedbacks.at(name);
+        auto& stage_feedback = pipelineStageFeedbacks.at(name);
+
+        const bool pipelineFeedbackValid =
+            (pipeline_feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT_EXT) &&
+            (pipeline_feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT_EXT);
+
+        if (!pipelineFeedbackValid)
+        {
+            LOG(ERROR) << "Pipeline creation feedback information is not valid!";
+        }
+
+        // Combine our checks since we only have the one stage
+        const bool hitApplicationCache =
+            (pipeline_feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT_EXT) ||
+            (stage_feedback[0].flags & VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT_EXT);
+
+        if (hitApplicationCache)
+        {
+            LOG(INFO) << "Compute pipeline " << name << " was able to use a pipeline cache to actively increase it's construction speed.";
+        }
+
+        const bool hitDerivedCache =
+            (pipeline_feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_BASE_PIPELINE_ACCELERATION_BIT_EXT) ||
+            (stage_feedback[0].flags & VK_PIPELINE_CREATION_FEEDBACK_BASE_PIPELINE_ACCELERATION_BIT_EXT);
+
+        if (hitDerivedCache)
+        {
+            LOG(INFO) << "Compute pipeline " << name << " was able to use a base pipeline handle or index to increase it's construction speed.";
+        }
+
+    }
 }
 
 // binder is passed as a copy / by-value as this is intended behavior: this new binder instance can now fork into separate threads from the original, but also inherits
@@ -1173,12 +1344,10 @@ void CreateSemaphores(vtf_frame_data_t & frame) {
 
 void createUpdateLightsPipeline(vtf_frame_data_t& frame) {
 
-    auto* device = RenderingContext::Get().Device();
     const static std::string groupName{ "UpdateLights" };
-    const st::Shader* update_lights_shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
     const st::ShaderStage& update_lights_stage = vtf_frame_data_t::groupStages.at(groupName).front();
 
-    const VkComputePipelineCreateInfo pipeline_info{
+    VkComputePipelineCreateInfo pipeline_info{
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         nullptr,
         0,
@@ -1194,14 +1363,12 @@ void createUpdateLightsPipeline(vtf_frame_data_t& frame) {
 
 void createReduceLightAABBsPipelines(vtf_frame_data_t& frame) {
 
-    auto* device = RenderingContext::Get().Device();
     const static std::string groupName{ "ReduceLights" };
-    const st::Shader* reduce_lights_shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
     const st::ShaderStage& reduce_lights_stage = vtf_frame_data_t::groupStages.at(groupName).front();
 
     VkPipelineShaderStageCreateInfo pipeline_shader_info = vtf_frame_data_t::shaderModules.at(reduce_lights_stage)->PipelineInfo();
 
-    const VkComputePipelineCreateInfo reduce_lights_0_info{
+    VkComputePipelineCreateInfo reduce_lights_0_info{
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         nullptr,
         VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT,
@@ -1232,7 +1399,7 @@ void createReduceLightAABBsPipelines(vtf_frame_data_t& frame) {
 
     pipeline_shader_info.pSpecializationInfo = &reduce_lights_1_specialization_info;
 
-    const VkComputePipelineCreateInfo reduce_lights_1_info{
+    VkComputePipelineCreateInfo reduce_lights_1_info{
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         nullptr,
         VK_PIPELINE_CREATE_DERIVATIVE_BIT,
@@ -1248,12 +1415,10 @@ void createReduceLightAABBsPipelines(vtf_frame_data_t& frame) {
 
 void createMortonCodePipeline(vtf_frame_data_t& frame) {
 
-    auto* device = RenderingContext::Get().Device();
     const static std::string groupName{ "ComputeMortonCodes" };
-    const st::Shader* compute_morton_shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
     const st::ShaderStage& morton_stage = vtf_frame_data_t::groupStages.at(groupName).front();
 
-    const VkComputePipelineCreateInfo pipeline_info{
+    VkComputePipelineCreateInfo pipeline_info{
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         nullptr,
         0,
@@ -1269,12 +1434,10 @@ void createMortonCodePipeline(vtf_frame_data_t& frame) {
 
 void createRadixSortPipeline(vtf_frame_data_t& frame) {
 
-    auto* device = RenderingContext::Get().Device();
     const static std::string groupName{ "RadixSort" };
-    const st::Shader* radix_shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
     const st::ShaderStage& radix_stage = vtf_frame_data_t::groupStages.at(groupName).front();
 
-    const VkComputePipelineCreateInfo pipeline_info{
+    VkComputePipelineCreateInfo pipeline_info{
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         nullptr,
         0,
@@ -1290,7 +1453,6 @@ void createRadixSortPipeline(vtf_frame_data_t& frame) {
 
 void createBVH_Pipelines(vtf_frame_data_t& frame) {
 
-    auto* device = RenderingContext::Get().Device();
     const static std::string groupName{ "BuildBVH" };
     const st::Shader* bvh_construction_shader = vtf_frame_data_t::vtfShaders->GetShaderGroup("BuildBVH");
     const st::ShaderStage& bvh_stage = vtf_frame_data_t::groupStages.at("BuildBVH").front();
@@ -1350,10 +1512,9 @@ void createComputeClusterAABBsPipeline(vtf_frame_data_t& frame) {
 
     auto* device = RenderingContext::Get().Device();
     const static std::string groupName{ "ComputeClusterAABBs" };
-    const st::Shader* compute_shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
     const st::ShaderStage& compute_stage = vtf_frame_data_t::groupStages.at(groupName).front();
 
-    const VkComputePipelineCreateInfo pipeline_info{
+    VkComputePipelineCreateInfo pipeline_info{
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         nullptr,
         0,
@@ -1375,12 +1536,10 @@ void createComputeClusterAABBsPipeline(vtf_frame_data_t& frame) {
 
 void createIndirectArgsPipeline(vtf_frame_data_t& frame) {
 
-    auto* device = RenderingContext::Get().Device();
     const static std::string groupName{ "UpdateClusterIndirectArgs" };
-    const st::Shader* indir_shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
     const st::ShaderStage& indir_stage = vtf_frame_data_t::groupStages.at(groupName).front();
 
-    const VkComputePipelineCreateInfo pipeline_info{
+    VkComputePipelineCreateInfo pipeline_info{
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         nullptr,
         0,
@@ -1396,12 +1555,10 @@ void createIndirectArgsPipeline(vtf_frame_data_t& frame) {
 
 void createAssignLightsToClustersBVHPipeline(vtf_frame_data_t& frame)
 {
-	auto* device = RenderingContext::Get().Device();
 	const static std::string groupName{ "AssignLightsToClustersBVH" };
-	const st::Shader* shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
 	const st::ShaderStage& shader_stage = vtf_frame_data_t::groupStages.at(groupName).front();
 
-	const VkComputePipelineCreateInfo pipeline_info{
+	VkComputePipelineCreateInfo pipeline_info{
 		VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
 		nullptr,
 		0,
@@ -1417,12 +1574,10 @@ void createAssignLightsToClustersBVHPipeline(vtf_frame_data_t& frame)
 
 void createAssignLightsToClustersPipeline(vtf_frame_data_t& frame)
 {
-    auto* device = RenderingContext::Get().Device();
     const static std::string groupName{ "AssignLightsToClusters" };
-    const st::Shader* shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
     const st::ShaderStage& shader_stage = vtf_frame_data_t::groupStages.at(groupName).front();
 
-    const VkComputePipelineCreateInfo pipeline_info{
+    VkComputePipelineCreateInfo pipeline_info{
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         nullptr,
         0,
@@ -1437,9 +1592,7 @@ void createAssignLightsToClustersPipeline(vtf_frame_data_t& frame)
 
 void createMergeSortPipelines(vtf_frame_data_t& frame) {
 
-    auto* device = RenderingContext::Get().Device();
     const static std::string groupName{ "MergeSort" };
-    const st::Shader* merge_shader = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
     const st::ShaderStage& radix_stage = vtf_frame_data_t::groupStages.at(groupName).front();
 
     VkPipelineShaderStageCreateInfo shader_info = vtf_frame_data_t::shaderModules.at(radix_stage)->PipelineInfo();
@@ -1462,7 +1615,7 @@ void createMergeSortPipelines(vtf_frame_data_t& frame) {
     shader_info.pSpecializationInfo = &specialization_info;
 
     VkPipeline pipeline_handles_buf[2]{ VK_NULL_HANDLE, VK_NULL_HANDLE };
-    const VkComputePipelineCreateInfo pipeline_infos[2]{
+    VkComputePipelineCreateInfo pipeline_infos[2]{
         VkComputePipelineCreateInfo{
             VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
             nullptr,
@@ -1486,31 +1639,21 @@ void createMergeSortPipelines(vtf_frame_data_t& frame) {
 	const static std::string mppPipelineName{ "MergePathPartitionsPipeline" };
 	const static std::string mergePipelineName{ "MergeSortPipeline" };
 
-	frame.computePipelines[mppPipelineName] = ComputePipelineState(device->vkHandle());
-    VkResult result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 1, &pipeline_infos[0], nullptr, &frame.computePipelines.at(mppPipelineName).Handle);
-    VkAssert(result);
+    ComputePipelineCreationShim(frame, mppPipelineName, &pipeline_infos[0], groupName);
 
-    frame.computePipelines[mergePipelineName] = ComputePipelineState(device->vkHandle());
-	result = vkCreateComputePipelines(device->vkHandle(), vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle(), 1, &pipeline_infos[1], nullptr, &frame.computePipelines.at(mergePipelineName).Handle);
-	VkAssert(result);
-
-	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-	{
-		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.computePipelines.at(mppPipelineName).Handle, mppPipelineName.c_str());
-		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.computePipelines.at(mergePipelineName).Handle, mergePipelineName.c_str());
-	}
+    pipeline_infos[1].basePipelineHandle = frame.computePipelines.at(mppPipelineName).Handle;
+    ComputePipelineCreationShim(frame, mergePipelineName, &pipeline_infos[1], groupName);
 
 }
 
 void createFindUniqueClustersPipeline(vtf_frame_data_t& frame)
 {
 
-	auto* device = RenderingContext::Get().Device();
 	static const std::string groupName{ "FindUniqueClusters" };
 
 	const st::ShaderStage& shader_stage = vtf_frame_data_t::groupStages.at(groupName).front();
 
-	const VkComputePipelineCreateInfo create_info{
+	VkComputePipelineCreateInfo create_info{
 		VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
 		nullptr,
 		0,
@@ -1897,13 +2040,10 @@ void createDrawFrameBuffer(vtf_frame_data_t & frame) {
 
 void createDepthPrePassPipeline(vtf_frame_data_t& frame) {
 
-    auto* device = RenderingContext::Get().Device();
     static const std::string groupName{ "DepthPrePass" };
 	static const std::string pipelineName{ "DepthPrePassPipeline" };
-    const st::Shader* depth_group = vtf_frame_data_t::vtfShaders->GetShaderGroup(groupName.c_str());
 
     const st::ShaderStage& depth_vert = vtf_frame_data_t::groupStages.at(groupName).front();
-    //const st::ShaderStage& depth_frag = vtf_frame_data_t::groupStages.at(groupName).back();
 
     vpr::GraphicsPipelineInfo pipeline_info;
 
@@ -1931,18 +2071,12 @@ void createDepthPrePassPipeline(vtf_frame_data_t& frame) {
     create_info.renderPass = frame.renderPasses.at("DepthAndClusterSamplesPass")->vkHandle();
     create_info.layout = frame.descriptorPack->PipelineLayout(groupName);
 
-    frame.graphicsPipelines[pipelineName] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-    frame.graphicsPipelines.at(pipelineName)->Init(create_info, vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle());
-	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-	{
-		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(pipelineName)->vkHandle(), pipelineName.c_str());
-	}
+    GraphicsPipelineCreationShim(frame, pipelineName, create_info, groupName);
 
 }
 
 void createClusterSamplesPipeline(vtf_frame_data_t& frame) {
 
-    auto* device = RenderingContext::Get().Device();
     static const std::string groupName{ "ClusterSamples" };
 	static const std::string pipelineName{ "ClusterSamplesPipeline" };
 
@@ -1979,20 +2113,15 @@ void createClusterSamplesPipeline(vtf_frame_data_t& frame) {
     create_info.layout = frame.descriptorPack->PipelineLayout(groupName);
     create_info.renderPass = frame.renderPasses.at("DepthAndClusterSamplesPass")->vkHandle();
 
-    frame.graphicsPipelines[pipelineName] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-    frame.graphicsPipelines.at(pipelineName)->Init(create_info, vtf_frame_data_t::pipelineCaches.at(groupName)->vkHandle());
-	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-	{
-		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(pipelineName)->vkHandle(), pipelineName.c_str());
-	}
+    GraphicsPipelineCreationShim(frame, pipelineName, create_info, groupName);
 
 }
 
 void createDrawPipelines(vtf_frame_data_t& frame) {
+
     static const std::string groupName{ "DrawPass" };
 	static const std::string opaquePipelineName{ "OpaqueDrawPipeline" };
 	static const std::string transPipelineName{ "TransparentDrawPipeline" };
-    auto* device = RenderingContext::Get().Device();
 
     const st::ShaderStage& draw_vert = vtf_frame_data_t::groupStages.at(groupName).front();
     const st::ShaderStage& draw_frag = vtf_frame_data_t::groupStages.at(groupName).back();
@@ -2036,9 +2165,8 @@ void createDrawPipelines(vtf_frame_data_t& frame) {
     opaque_create_info.basePipelineHandle = VK_NULL_HANDLE;
     opaque_create_info.basePipelineIndex = -1;
 
-    frame.graphicsPipelines[opaquePipelineName] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-    frame.graphicsPipelines.at(opaquePipelineName)->Init(opaque_create_info, frame.pipelineCaches.at(groupName)->vkHandle());
-
+    GraphicsPipelineCreationShim(frame, opaquePipelineName, opaque_create_info, groupName);
+    
     vpr::GraphicsPipelineInfo transparent_pipeline_info = opaque_pipeline_info;
 
     transparent_pipeline_info.RasterizationInfo.cullMode = VK_CULL_MODE_NONE;
@@ -2056,14 +2184,7 @@ void createDrawPipelines(vtf_frame_data_t& frame) {
     transparent_create_info.basePipelineHandle = frame.graphicsPipelines.at("OpaqueDrawPipeline")->vkHandle();
     transparent_create_info.basePipelineIndex = -1;
 
-    frame.graphicsPipelines[transPipelineName] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-    frame.graphicsPipelines.at(transPipelineName)->Init(transparent_create_info, frame.pipelineCaches.at(groupName)->vkHandle());
-
-	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-	{
-		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(opaquePipelineName)->vkHandle(), opaquePipelineName.c_str());
-		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(transPipelineName)->vkHandle(), transPipelineName.c_str());
-	}
+    GraphicsPipelineCreationShim(frame, transPipelineName, transparent_create_info, groupName);
 
 }
 
@@ -2071,7 +2192,6 @@ void createDebugClustersPipeline(vtf_frame_data_t& frame)
 {
 	static const std::string groupName{ "DebugClusters" };
 	static const std::string pipelineName = groupName + std::string("Pipeline");
-	auto* device = RenderingContext::Get().Device();
 
 	std::vector<st::ShaderStage> stages;
 
@@ -2109,13 +2229,7 @@ void createDebugClustersPipeline(vtf_frame_data_t& frame)
 	create_info.basePipelineHandle = VK_NULL_HANDLE;
 	create_info.basePipelineIndex = -1;
 
-	frame.graphicsPipelines[pipelineName] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-	frame.graphicsPipelines[pipelineName]->Init(create_info, frame.pipelineCaches.at(groupName)->vkHandle());
-
-	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-	{
-		RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(pipelineName)->vkHandle(), pipelineName.c_str());
-	}
+    GraphicsPipelineCreationShim(frame, pipelineName, create_info, groupName);
 
 }
 
@@ -2181,13 +2295,7 @@ void createDebugLightsPipelines(vtf_frame_data_t& frame)
     create_info.basePipelineHandle = VK_NULL_HANDLE;
     create_info.basePipelineIndex = -1;
 
-    frame.graphicsPipelines[pipelineName0] = std::make_unique<vpr::GraphicsPipeline>(device->vkHandle());
-    frame.graphicsPipelines[pipelineName0]->Init(create_info, frame.pipelineCaches.at(groupName)->vkHandle());
-
-    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-    {
-        RenderingContext::SetObjectName(VK_OBJECT_TYPE_PIPELINE, (uint64_t)frame.graphicsPipelines.at(pipelineName0)->vkHandle(), pipelineName0.c_str());
-    }
+    GraphicsPipelineCreationShim(frame, pipelineName0, create_info, groupName);
 
 }
 
