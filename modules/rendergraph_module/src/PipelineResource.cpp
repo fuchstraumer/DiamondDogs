@@ -18,12 +18,12 @@ bool PipelineResource::IsTransient() const noexcept {
     return transient;
 }
 
-void PipelineResource::SetWrittenBySubmission(size_t idx) {
-    writtenInPasses.emplace(std::move(idx));
+void PipelineResource::SetWrittenBySubmission(size_t _idx) {
+    writtenInPasses.emplace(std::move(_idx));
 }
 
-void PipelineResource::SetReadBySubmission(size_t idx) {
-    readInPasses.emplace(std::move(idx));
+void PipelineResource::SetReadBySubmission(size_t _idx) {
+    readInPasses.emplace(std::move(_idx));
 }
 
 void PipelineResource::SetPipelineStageFlagsForSubmission(size_t idx, VkPipelineStageFlagBits stage_flags)

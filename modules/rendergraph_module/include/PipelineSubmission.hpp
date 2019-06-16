@@ -160,16 +160,16 @@ private:
 
     struct resource_key_hash
     {
-        constexpr size_t operator()(const resource_key& key) noexcept
+        std::size_t operator()(const resource_key& key) const noexcept
         {
             // shift output 32 for first, or with shifted 32 of second
-            return (std::hash<uint8_t>()(static_cast<uint8_t>(key.UsageType)) << 32) | (std::hash<uint8_t>()(static_cast<uint8_t>(key.AccessType)) >> 32);
+            return (std::hash<uint8_t>()(static_cast<uint8_t>(key.UsageType)) << 16) ^ (std::hash<uint8_t>()(static_cast<uint8_t>(key.AccessType)) >> 16);
         }
     };
 
     struct resource_key_equal
     {
-        constexpr bool operator()(const resource_key& r0, const resource_key& r1) const noexcept
+        bool operator()(const resource_key& r0, const resource_key& r1) const noexcept
         {
             return (r0.UsageType == r1.UsageType) && (r0.AccessType == r1.AccessType);
         }
@@ -188,7 +188,7 @@ private:
 
     std::unordered_map<resource_key, std::vector<PipelineResource*>, resource_key_hash, resource_key_equal> resources;
     // so we can access just the resources of a type
-    std::unordered_map<resource_key, std::vector<PipelineResource*>> subtypeIterators;
+    std::unordered_map<resource_key, std::vector<PipelineResource*>, resource_key_hash, resource_key_equal> subtypeIterators;
     std::unordered_set<ResourceUsageType> usageTypeFlags;
     // normally hate hiding functions like this, sorry
     std::vector<AccessedResource> genericBuffers;

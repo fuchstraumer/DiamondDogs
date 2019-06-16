@@ -126,12 +126,12 @@ PipelineResource& RenderGraph::GetResource(const std::string_view& name) {
         const size_t& idx = iter->second;
         return *pipelineResources[idx];
     }
-    else {
+   /* else {
         const size_t idx = pipelineResources.size();
         pipelineResources.emplace_back(std::make_unique<PipelineResource>(name, idx));
         resourceNameMap[name] = idx;
         return *pipelineResources.back();
-    }
+    }*/
 }
 
 const DescriptorPack* RenderGraph::GetPackResources(const std::string & name) const {
@@ -145,56 +145,56 @@ const DescriptorPack* RenderGraph::GetPackResources(const std::string & name) co
 
 void RenderGraph::traverseDependencies(const PipelineSubmission & submission, size_t stack_count) {
 
-    if (submission.depthStencilInput != nullptr) {
+    /*if (submission.depthStencilInput != nullptr) {
         dependencyTraversalRecursion(submission, submission.depthStencilInput->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ true });
-    }
+    }*/
 
-    for (auto* input : submission.attachmentInputs) {
-        bool depends_on_self = (submission.depthStencilOutput != nullptr ? submission.depthStencilInput == input : false);
-        if (std::find(std::begin(submission.colorOutputs), std::end(submission.colorOutputs), input) != std::end(submission.colorOutputs)) {
-            depends_on_self = true;
-        }
-        if (!depends_on_self) {
-            dependencyTraversalRecursion(submission, input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ true });
-        }
-    }
+   // for (auto* input : submission.attachmentInputs) {
+   //     bool depends_on_self = (submission.depthStencilOutput != nullptr ? submission.depthStencilInput == input : false);
+   //     if (std::find(std::begin(submission.colorOutputs), std::end(submission.colorOutputs), input) != std::end(submission.colorOutputs)) {
+   //         depends_on_self = true;
+   //     }
+   //     if (!depends_on_self) {
+   //         dependencyTraversalRecursion(submission, input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ true });
+   //     }
+   // }
 
-    for (auto* color_input : submission.colorInputs) {
-        if (color_input != nullptr) {
-            dependencyTraversalRecursion(submission, color_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ true });
-        }
-    }
+   // for (auto* color_input : submission.colorInputs) {
+   //     if (color_input != nullptr) {
+   //         dependencyTraversalRecursion(submission, color_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ true });
+   //     }
+   // }
 
-    for (auto* color_scale_input : submission.colorScaleInputs) {
-        if (color_scale_input != nullptr) {
-            dependencyTraversalRecursion(submission, color_scale_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ false });
-        }
-    }
+   // for (auto* color_scale_input : submission.colorScaleInputs) {
+   //     if (color_scale_input != nullptr) {
+   //         dependencyTraversalRecursion(submission, color_scale_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ false });
+   //     }
+   // }
 
-   for (const auto& texture_input : submission.genericTextures) {
-        dependencyTraversalRecursion(submission, texture_input.Info->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
-    }
+   //for (const auto& texture_input : submission.genericTextures) {
+   //     dependencyTraversalRecursion(submission, texture_input.Info->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
+   // }
 
-    for (auto* storage_input : submission.storageInputs) {
-        if (storage_input != nullptr) {
-            // might be no writers of this, if it's used in a feedback fashion (meaning what?)
-            dependencyTraversalRecursion(submission, storage_input->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ true }, MergeDependency{ false });
-            // check for write-after-read hazards, finding if this object is read in other submissions before this one writes to it
-            dependencyTraversalRecursion(submission, storage_input->SubmissionsReadIn(), stack_count, NoCheck{ true }, IgnoreSelf{ true }, MergeDependency{ false });
-        }
-    }
+   // for (auto* storage_input : submission.storageInputs) {
+   //     if (storage_input != nullptr) {
+   //         // might be no writers of this, if it's used in a feedback fashion (meaning what?)
+   //         dependencyTraversalRecursion(submission, storage_input->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ true }, MergeDependency{ false });
+   //         // check for write-after-read hazards, finding if this object is read in other submissions before this one writes to it
+   //         dependencyTraversalRecursion(submission, storage_input->SubmissionsReadIn(), stack_count, NoCheck{ true }, IgnoreSelf{ true }, MergeDependency{ false });
+   //     }
+   // }
 
-    for (auto* storage_texture_input : submission.storageTextureInputs) {
-        if (storage_texture_input != nullptr) {
-            dependencyTraversalRecursion(submission, storage_texture_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ false });
-        }
-    }
+   // for (auto* storage_texture_input : submission.storageTextureInputs) {
+   //     if (storage_texture_input != nullptr) {
+   //         dependencyTraversalRecursion(submission, storage_texture_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ false }, MergeDependency{ false });
+   //     }
+   // }
 
-    for (auto* texel_input : submission.texelBufferInputs) {
-        if (texel_input != nullptr) {
-            dependencyTraversalRecursion(submission, texel_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ true }, MergeDependency{ false });
-        }
-    }
+   // for (auto* texel_input : submission.texelBufferInputs) {
+   //     if (texel_input != nullptr) {
+   //         dependencyTraversalRecursion(submission, texel_input->SubmissionsWrittenIn(), stack_count, NoCheck{ false }, IgnoreSelf{ true }, MergeDependency{ false });
+   //     }
+   // }
 
     for (const auto& generic_buffer : submission.genericBuffers) {
         dependencyTraversalRecursion(submission, generic_buffer.Info->SubmissionsWrittenIn(), stack_count, NoCheck{ true }, IgnoreSelf{ false }, MergeDependency{ false });
@@ -296,7 +296,6 @@ void RenderGraph::Bake() {
 
     std::vector<size_t> temp_submission_stack = submissionStack;
     for (auto& pushed_submission : submissionStack) {
-        size_t stack_count = 0;
         const auto& cur_submission = *submissions[pushed_submission];
         traverseDependencies(cur_submission, 0);
     }
