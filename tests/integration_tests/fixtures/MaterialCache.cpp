@@ -1,6 +1,9 @@
 #include "MaterialCache.hpp"
+#include "RenderingContext.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceLoader.hpp"
+#include "LogicalDevice.hpp"
+#include "MurmurHash.hpp"
 #pragma warning(push, 1) // silence warnings from other libs
 #include "tinyobj_loader_opt.h"
 #include "easylogging++.h"
@@ -12,9 +15,27 @@
 #ifdef _MSC_VER
 #include <execution>
 #endif
+#include <shared_mutex>
 
 namespace
 {
+    /*
+        Store these for later so we can unload things from RAM
+        once they've been used to make a texture and that texture
+        data has been uploaded to the GPU
+    */
+    struct resource_loader_data_t
+    {
+        // we check to see if this is in the upload queue: if it is, do nothing. if not, unload.
+        VulkanResource* CreatedResource{ nullptr };
+        std::string FileType;
+        std::string FilePath;
+    };
+    static std::vector<resource_loader_data_t> loadedImages;
+    // used for various static functionalities
+    static std::mutex staticMaterialMutex;
+    static std::shared_mutex materialSharedMutex;
+
     template<texture_type tex_type_e>
     constexpr static texture_type TEXTURE_TYPE_VAL = tex_type_e;
     // force initialization now because we use these by address, not value, so we need a fixed address
@@ -34,6 +55,34 @@ namespace
         loaded_texture_data_t(const char* fname) : bitmap(fname) {}
         mango::Bitmap bitmap;
         VulkanResource* resource{ nullptr };
+    }; 
+    
+    enum class lock_mode : uint8_t
+    {
+        Invalid = 0,
+        Read = 1,
+        Write = 2,
+        Released = 3
+    };
+
+    struct rw_lock_guard
+    {
+
+        rw_lock_guard(lock_mode _mode, std::shared_mutex& _mut) noexcept;
+        ~rw_lock_guard() noexcept;
+
+        void release_lock();
+        void upgrade_to_write_mode();
+        void downgrade_to_read_mode();
+
+        rw_lock_guard(rw_lock_guard&& other) noexcept : mut(std::move(other.mut)), mode(std::move(other.mode)) {}
+        rw_lock_guard& operator=(rw_lock_guard&& other) = delete;
+        rw_lock_guard(const rw_lock_guard&) = delete;
+        rw_lock_guard& operator=(const rw_lock_guard&) = delete;
+
+    private:
+        lock_mode mode{ lock_mode::Invalid };
+        std::shared_mutex& mut;
     };
 
     float extract_valid_material_param(const float input);
@@ -41,10 +90,16 @@ namespace
     material_parameters_t from_tinyobj_material(const tinyobj_opt::material_t& mtl) noexcept;
     VulkanResource* createUBO(const char* name, const material_parameters_t& params); 
     std::string FindDebugTexture();
+    void* loadImageDataFn(const char* fname, void* user_data);
+    void destroyImageDataFn(void* object, void* user_data);
+    void textureLoadedCallback(void* instance, void* loaded_data, void* user_data);
 
 }
 
-MaterialPool::material_cache_page_t::material_cache_page_t() noexcept
+// used when a material explicitly fails to load. classic pink/black squares.
+static VulkanResource* failedLoadDebugTexture{ nullptr };
+
+MaterialCache::material_cache_page_t::material_cache_page_t() noexcept
 {
     // filling with this value so that we reserve some memory for each entry ahead of time
     namesArray.fill(std::string{ "unused_material_name" });
@@ -61,19 +116,165 @@ MaterialPool::material_cache_page_t::material_cache_page_t() noexcept
     emissiveMaps.fill(nullptr);
 }
 
-MaterialPool& MaterialPool::Get() noexcept
+MaterialCache& MaterialCache::Get() noexcept
 {
-    static MaterialPool pool;
+    static MaterialCache pool;
     return pool;
 }
 
-MaterialInstance* MaterialPool::LoadTinyobjMaterial(const tinyobj_opt::material_t& mtl, const char* material_dir)
+void MaterialCache::ReleaseCpuData()
 {
+    auto& rsrc_context = ResourceContext::Get();
+    auto& rsrc_loader = ResourceLoader::GetResourceLoader();
+    std::lock_guard imagesGuard{ staticMaterialMutex };
+
+    while (!loadedImages.empty())
+    {
+        auto& loaded_img_data = loadedImages.back();
+
+        if (!rsrc_context.ResourceInTransferQueue(loaded_img_data.CreatedResource))
+        {
+            rsrc_loader.Unload(loaded_img_data.FileType.c_str(), loaded_img_data.FilePath.c_str());
+        }
+
+        loadedImages.pop_back();
+    }
+
+}
+
+MaterialInstance* MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const char* material_dir)
+{
+    auto& resource_loader = ResourceLoader::GetResourceLoader();
+    resource_loader.Subscribe("MANGO", loadImageDataFn, destroyImageDataFn);
+
+    assert(mtlPtr != nullptr);
+    const auto& mtl = *reinterpret_cast<const tinyobj_opt::material_t*>(mtlPtr);
+
+    material_parameters_t params = from_tinyobj_material(mtl);
+    const uint64_t paramsHash = MurmurHash2(&params, sizeof(params), 0xFD);
+
+    std::string concatenatedNames{ mtl.name };
+    concatenatedNames.reserve(1024);
+    concatenatedNames += mtl.ambient_texname;
+    concatenatedNames += mtl.diffuse_texname;
+    concatenatedNames += mtl.specular_texname;
+    concatenatedNames += mtl.specular_highlight_texname;
+    concatenatedNames += mtl.bump_texname;
+    concatenatedNames += mtl.displacement_texname;
+    concatenatedNames += mtl.alpha_texname;
+    concatenatedNames += mtl.roughness_texname;
+    concatenatedNames += mtl.metallic_texname;
+    concatenatedNames += mtl.sheen_texname;
+    concatenatedNames += mtl.emissive_texname;
+    concatenatedNames += mtl.normal_texname;
+
+    const uint64_t namesHash = MurmurHash2((void*)concatenatedNames.c_str(), sizeof(char) * concatenatedNames.length(), 0xFC);
+    const uint64_t materialHash = paramsHash ^ namesHash;
+
+    auto& currMtlPage = materialPages[currentPage];
+
+    rw_lock_guard dataGuard(lock_mode::Read, materialSharedMutex);
+
+    if (auto iter = currMtlPage.hashToIndicesMap.find(materialHash); iter != std::end(currMtlPage.hashToIndicesMap))
+    {
+        // material already exists
+        const uint32_t materialIdx = iter->second;
+        // data we use from here is all in arrays that won't suffer from iterator invalidation: release lock
+        dataGuard.release_lock();
+
+    }
+    else
+    {
+        
+        const uint32_t materialIdx = currMtlPage.currTextureCount;
+        currMtlPage.currTextureCount += 1;
+
+
+        // material doesn't exist, we have to load it. upgrade to write so we can emplace new hash
+        dataGuard.upgrade_to_write_mode();
+        auto emplace_iter = currMtlPage.hashToIndicesMap.emplace(materialHash, materialIdx);
+        
+        dataGuard.release_lock();
+
+        currMtlPage.parametersArray[materialIdx] = std::move(params);
+        // this is quick enough that it's not worth running through the loader
+        const uint32_t uboIdx = currMtlPage.containerIndices.parametersCpuIdx.fetch_add(1u);
+        currMtlPage.parameterUBOs[materialIdx] = createUBO(mtl.name.c_str(), currMtlPage.parametersArray[materialIdx]);
+        // index for UBO is gonna be unique each time, since every material has a UBO
+        currMtlPage.indicesArray[materialIdx].ParamsIdx = materialIdx;
+
+        // now the tricky part
+
+    }
+    
     return nullptr;
+}
+
+void MaterialCache::textureLoadedCallback(void* loaded_image, void* user_data)
+{
+    loaded_texture_data_t* textureData = reinterpret_cast<loaded_texture_data_t*>(loaded_image);
+    image_loaded_callback_data_t* callbackData = reinterpret_cast<image_loaded_callback_data_t*>(user_data);
+
 }
 
 namespace
 {
+
+    rw_lock_guard::rw_lock_guard(lock_mode _mode, std::shared_mutex& _mutex) noexcept : mut(_mutex), mode(_mode)
+    {
+        if (mode == lock_mode::Read)
+        {
+            mut.lock_shared();
+        }
+        else
+        {
+            mut.lock();
+        }
+    }
+
+    rw_lock_guard::~rw_lock_guard() noexcept
+    {
+        if (mode == lock_mode::Read)
+        {
+            mut.unlock_shared();
+        }
+        else if (mode == lock_mode::Write)
+        {
+            mut.unlock();
+        }
+    }
+
+    void rw_lock_guard::upgrade_to_write_mode()
+    {
+        assert(mode == lock_mode::Read);
+        mode = lock_mode::Write;
+        mut.unlock_shared();
+        mut.lock();
+    }
+
+    void rw_lock_guard::downgrade_to_read_mode()
+    {
+        assert(mode == lock_mode::Write);
+        mode = lock_mode::Read;
+        mut.unlock();
+        mut.lock_shared();
+    }
+
+    void rw_lock_guard::release_lock()
+    {
+        assert(mode != lock_mode::Released);
+
+        if (mode == lock_mode::Read)
+        {
+            mut.unlock_shared();
+        }
+        else
+        {
+            mut.unlock();
+        }
+
+        mode = lock_mode::Released;
+    }
 
     float extract_valid_material_param(const float input)
     {
@@ -221,6 +422,166 @@ namespace
         }
 
         return std::string();
+    }
+
+    void* loadImageDataFn(const char* fname, void* user_data)
+    {
+        namespace fs = std::experimental::filesystem;
+        using namespace mango;
+        auto& rsrc_context = ResourceContext::Get();
+        const auto* device = RenderingContext::Get().Device();
+        const uint32_t graphics_queue_idx = device->QueueFamilyIndices().Graphics;
+
+        fs::path file_path(fname);
+        std::string fileStr(fname);
+
+        if (!fs::exists(file_path))
+        {
+            LOG(ERROR) << "Requested file path did not exist!";
+            LOG(ERROR) << "File Path: " << fname;
+
+            namespace fs = std::experimental::filesystem;
+            static fs::path DEBUG_TEXTURE_PATH{ "../../../../assets/debug/FailedTexLoad.png" };
+            if (!fs::exists(DEBUG_TEXTURE_PATH))
+            {
+                const std::string curr_dir = fs::current_path().string();
+                const std::string DEBUG_TEX_STRING = ResourceLoader::FindFile(DEBUG_TEXTURE_PATH.filename().string(), curr_dir.c_str(), 3u);
+                DEBUG_TEXTURE_PATH = fs::path(DEBUG_TEX_STRING);
+            }
+
+            fileStr = DEBUG_TEXTURE_PATH.string();
+
+        }
+
+        const static Format FORMAT_R16G16B16(16, mango::Format::UNORM, mango::Format::RGB, 16, 16, 16, 0);
+        static const std::map<mango::Format, VkComponentMapping> formatComponentMappings{
+            { FORMAT_A8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R } },
+            { FORMAT_L8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R } },
+            { FORMAT_R16, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R } },
+            { FORMAT_L16, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R } },
+            { FORMAT_L8A8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_ZERO, VK_COMPONENT_SWIZZLE_ZERO } },
+            { FORMAT_R8G8B8A8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A } },
+            { FORMAT_R8G8B8X8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_ZERO }},
+            { FORMAT_B8G8R8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_ZERO }},
+            { FORMAT_B8G8R8X8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_ZERO }},
+            { FORMAT_B8G8R8A8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A }},
+            { FORMAT_R16G16B16, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_ZERO }}
+        };
+
+
+        loaded_texture_data_t* result = new loaded_texture_data_t(fileStr.c_str());
+
+        auto iter = formatComponentMappings.find(result->bitmap.format);
+        if (iter == std::cend(formatComponentMappings))
+        {
+            LOG(ERROR) << "Couldn't find valid component mapping for imported file format!";
+            throw std::runtime_error("Bad image format loaded.");
+        }
+
+        const VkComponentMapping view_mapping = iter->second;
+
+        if (result->bitmap.format == FORMAT_R8G8B8 || result->bitmap.format == FORMAT_B8G8R8A8 || result->bitmap.format == FORMAT_B8G8R8 ||
+            result->bitmap.format == FORMAT_R8G8B8X8 || result->bitmap.format == FORMAT_B8G8R8X8)
+        {
+            Bitmap dest_blit(result->bitmap.width, result->bitmap.height, FORMAT_R8G8B8A8);
+            dest_blit.blit(0, 0, result->bitmap);
+            result->bitmap = std::move(dest_blit);
+        }
+
+        if (result->bitmap.format == FORMAT_R16G16B16)
+        {
+            Bitmap dest_blit(result->bitmap.width, result->bitmap.height, FORMAT_R16G16B16A16);
+            dest_blit.blit(0, 0, result->bitmap);
+            result->bitmap = std::move(dest_blit);
+        }
+
+        static const std::map<mango::Format, VkFormat> formatConversionMap{
+            { FORMAT_A8, VK_FORMAT_R8_UNORM },
+            { FORMAT_L8, VK_FORMAT_R8_UNORM },
+            { FORMAT_R16, VK_FORMAT_R16_UNORM },
+            { FORMAT_L16, VK_FORMAT_R16_UNORM },
+            { FORMAT_L8A8, VK_FORMAT_R8G8_UNORM },
+            { FORMAT_R8G8B8A8, VK_FORMAT_R8G8B8A8_UNORM }
+        };
+
+        VkFormat found_format = VK_FORMAT_UNDEFINED;
+
+        for (const auto& fmt : formatConversionMap)
+        {
+            if (result->bitmap.format == fmt.first)
+            {
+                found_format = fmt.second;
+                break;
+            }
+        }
+
+        if (found_format == VK_FORMAT_UNDEFINED)
+        {
+            LOG(ERROR) << "Invalid format from Mango";
+            LOG(ERROR) << "File Path: " << fname;
+            throw std::domain_error("Invalid format for image!");
+        }
+
+        const VkFormat image_format = found_format;
+
+        const size_t img_footprint = result->bitmap.format.bytes() * result->bitmap.width * result->bitmap.height;
+        const gpu_image_resource_data_t img_rsrc_data{
+            result->bitmap.address(),
+            img_footprint,
+            size_t(result->bitmap.width),
+            size_t(result->bitmap.height),
+            0u,
+            1u,
+            0u,
+            graphics_queue_idx
+        };
+
+        const uint32_t transfer_idx = device->QueueFamilyIndices().Transfer;
+        const uint32_t graphics_idx = device->QueueFamilyIndices().Graphics;
+        const VkSharingMode sharing_mode = (transfer_idx != graphics_idx) ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
+        const std::array<uint32_t, 2> queue_family_indices{ graphics_idx, transfer_idx };
+
+        const VkImageCreateInfo img_create_info{
+            VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            nullptr,
+            0,
+            VK_IMAGE_TYPE_2D,
+            image_format,
+            VkExtent3D{ uint32_t(result->bitmap.width), uint32_t(result->bitmap.height), 1u },
+            1u,
+            1u,
+            VK_SAMPLE_COUNT_1_BIT,
+            device->GetFormatTiling(image_format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT),
+            VK_IMAGE_USAGE_SAMPLED_BIT,
+            sharing_mode,
+            sharing_mode == VK_SHARING_MODE_CONCURRENT ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
+            sharing_mode == VK_SHARING_MODE_CONCURRENT ? queue_family_indices.data() : nullptr,
+            VK_IMAGE_LAYOUT_UNDEFINED
+        };
+
+        const VkImageViewCreateInfo view_create_info{
+            VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            nullptr,
+            0,
+            VK_NULL_HANDLE,
+            VK_IMAGE_VIEW_TYPE_2D,
+            image_format,
+            view_mapping,
+            VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+        };
+
+        const std::string texture_name_str = fs::path(fname).filename().string();
+        result->resource = rsrc_context.CreateImage(&img_create_info, &view_create_info, 1, &img_rsrc_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinMemory | ResourceCreateUserDataAsString, (void*)texture_name_str.c_str());
+
+        return result;
+    }
+
+    void destroyImageDataFn(void* object, void* user_data)
+    {
+        // destroys loaded image data (releasing some RAM), but doesn't destroy Vulkan resource since it likely still is in use.
+        // we manage that lifetime separately.
+        loaded_texture_data_t* pointer = reinterpret_cast<loaded_texture_data_t*>(object);
+        delete pointer;
     }
 
 }

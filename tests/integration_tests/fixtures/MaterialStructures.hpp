@@ -26,16 +26,21 @@ enum class texture_type : uint8_t
 
 struct material_shader_indices_t
 {
-    uint32_t ParamsIdx{ 0u };
-    uint32_t AlbedoIdx{ 0u };
-    uint32_t AlphaIdx{ 0u };
-    uint32_t SpecularIdx{ 0u };
-    uint32_t BumpMapIdx{ 0u };
-    uint32_t DisplacementMapIdx{ 0u };
-    uint32_t NormalMapIdx{ 0u };
-    uint32_t AoMapIdx{ 0u };
-    uint32_t MetallicMapIdx{ 0u };
-    uint32_t EmissiveMapIdx{ 0u };
+    /*
+        We use signed ints so we can use -1 as a sentinel
+        value: either means stuff is loading, or the curr
+        material just doesn't use that texture type
+    */
+    int32_t ParamsIdx{ -1 };
+    int32_t AlbedoIdx{ -1 };
+    int32_t AlphaIdx{ -1 };
+    int32_t SpecularIdx{ -1 };
+    int32_t BumpMapIdx{ -1 };
+    int32_t DisplacementMapIdx{ -1 };
+    int32_t NormalMapIdx{ -1 };
+    int32_t AoMapIdx{ -1 };
+    int32_t MetallicMapIdx{ -1 };
+    int32_t EmissiveMapIdx{ -1 };
 };
 
 struct material_parameters_t
