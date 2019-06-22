@@ -32,6 +32,7 @@ public:
     const UpdateTemplateData& UpdateData() const noexcept;
     void AddLayoutBinding(VkDescriptorSetLayoutBinding binding);
     void BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc);
+    void BindArrayResourcesToIdx(const size_t idx, const size_t num_descriptors, VkDescriptorType type, VulkanResource** resources);
     
 private:
 

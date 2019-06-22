@@ -57,6 +57,11 @@ void DescriptorTemplate::BindResourceToIdx(size_t idx, VkDescriptorType type, Vu
     updateData.BindResourceToIdx(idx, type, rsrc);
 }
 
+void DescriptorTemplate::BindArrayResourcesToIdx(const size_t idx, const size_t num_descriptors, VkDescriptorType type, VulkanResource** resources)
+{
+    updateData.BindArrayResourceToIdx(idx, num_descriptors, type, resources);
+}
+
 VkDescriptorUpdateTemplate DescriptorTemplate::UpdateTemplate() const noexcept {
     if (!created) {
         createUpdateTemplate();
