@@ -42,7 +42,6 @@ struct ResourceContextImpl
     void setBufferInitialDataHostOnly(VulkanResource * resource, const size_t num_data, const gpu_resource_data_t * initial_data, resource_usage _resource_usage);
     void setBufferInitialDataUploadBuffer(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data);
     void setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data);
-    vpr::AllocationRequirements getAllocReqs(resource_usage _resource_usage) const noexcept;
     VkFormatFeatureFlags featureFlagsFromUsage(const VkImageUsageFlags flags) const noexcept;
 	void writeStatsJsonFile(const char* output_file);
     bool resourceInTransferQueue(VulkanResource* rsrc);
@@ -56,8 +55,8 @@ struct ResourceContextImpl
     void createCombinedImageSamplerResourceCopy(VulkanResource * src, VulkanResource ** dest);
 
     void copyBufferContentsToBuffer(VulkanResource * src, VulkanResource * dst);
-    void copyImageContentsToImage(VulkanResource * src, VulkanResource * dst);
-    void copyBufferContentsToImage(VulkanResource * src, VulkanResource * dst);
+    void copyImageContentsToImage(VulkanResource * src, VulkanResource * dst, const VkImageSubresourceRange& src_range, const VkImageSubresourceRange& dst_range, const std::vector<VkImageCopy>& image_copies);
+    void copyBufferContentsToImage(VulkanResource * src, VulkanResource * dst, const VkDeviceSize src_offset, const VkImageSubresourceRange& dst_range, const std::vector<VkBufferImageCopy>& copy_params);
     void copyImageContentsToBuffer(VulkanResource * src, VulkanResource * dst);
 
     void destroyResource(VulkanResource* rsrc);
