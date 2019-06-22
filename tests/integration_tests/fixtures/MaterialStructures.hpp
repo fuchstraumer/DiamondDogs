@@ -39,6 +39,7 @@ struct material_shader_indices_t
     int32_t DisplacementMapIdx{ -1 };
     int32_t NormalMapIdx{ -1 };
     int32_t AoMapIdx{ -1 };
+    int32_t RoughnessMapIdx{ -1 };
     int32_t MetallicMapIdx{ -1 };
     int32_t EmissiveMapIdx{ -1 };
 };

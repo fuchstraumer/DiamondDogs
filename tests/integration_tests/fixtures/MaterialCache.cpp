@@ -15,7 +15,6 @@
 #ifdef _MSC_VER
 #include <execution>
 #endif
-#include <shared_mutex>
 
 namespace
 {
@@ -30,6 +29,7 @@ namespace
         VulkanResource* CreatedResource{ nullptr };
         std::string FileType;
         std::string FilePath;
+        std::atomic<size_t> NumUsages{ 0u };
     };
     static std::vector<resource_loader_data_t> loadedImages;
     // used for various static functionalities
@@ -92,17 +92,15 @@ namespace
     std::string FindDebugTexture();
     void* loadImageDataFn(const char* fname, void* user_data);
     void destroyImageDataFn(void* object, void* user_data);
-    void textureLoadedCallback(void* instance, void* loaded_data, void* user_data);
 
 }
 
 // used when a material explicitly fails to load. classic pink/black squares.
 static VulkanResource* failedLoadDebugTexture{ nullptr };
+static std::unordered_map<uint64_t, std::map<texture_type, resource_loader_data_t>> loaderDataMap;
 
 MaterialCache::material_cache_page_t::material_cache_page_t() noexcept
 {
-    // filling with this value so that we reserve some memory for each entry ahead of time
-    namesArray.fill(std::string{ "unused_material_name" });
     parameterUBOs.fill(nullptr);
     albedoMaps.fill(nullptr);
     alphaMaps.fill(nullptr);
@@ -114,6 +112,37 @@ MaterialCache::material_cache_page_t::material_cache_page_t() noexcept
     metallicMaps.fill(nullptr);
     roughnessMaps.fill(nullptr);
     emissiveMaps.fill(nullptr);
+}
+
+void MaterialCache::material_cache_page_t::createVkResources()
+{
+    static size_t numPages{ 0u };
+
+    if (initialized)
+    {
+        return;
+    }
+    else
+    {
+        initialized = false;
+    }
+
+    constexpr static VkBufferCreateInfo indicesBufferInfo
+    {
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        sizeof(material_shader_indices_t) * MaxMaterialPageTextureCount,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    auto& rsrc_context = ResourceContext::Get();
+    const std::string resourceName = "MaterialCachePageIndicesBufferSBO_" + std::to_string(numPages);
+    vkIndicesBufferSBO = rsrc_context.CreateBuffer(&indicesBufferInfo, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, (void*)resourceName.c_str());
+
 }
 
 MaterialCache& MaterialCache::Get() noexcept
@@ -128,21 +157,26 @@ void MaterialCache::ReleaseCpuData()
     auto& rsrc_loader = ResourceLoader::GetResourceLoader();
     std::lock_guard imagesGuard{ staticMaterialMutex };
 
-    while (!loadedImages.empty())
+    for (auto materialIter = loaderDataMap.begin(); materialIter != loaderDataMap.end(); ++materialIter)
     {
-        auto& loaded_img_data = loadedImages.back();
-
-        if (!rsrc_context.ResourceInTransferQueue(loaded_img_data.CreatedResource))
+        for (auto imagesIter = materialIter->second.begin(); imagesIter != materialIter->second.end(); ++imagesIter)
         {
-            rsrc_loader.Unload(loaded_img_data.FileType.c_str(), loaded_img_data.FilePath.c_str());
+            if (!rsrc_context.ResourceInTransferQueue(imagesIter->second.CreatedResource))
+            {
+                const char* fileType = imagesIter->second.FileType.c_str();
+                const char* fileName = imagesIter->second.FilePath.c_str();
+                for (size_t i = 0; i < imagesIter->second.NumUsages; ++i)
+                {
+                    // need to get ref count to zero
+                    rsrc_loader.Unload(fileType, fileName);
+                }
+            }
         }
-
-        loadedImages.pop_back();
     }
-
+    
 }
 
-MaterialInstance* MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const char* material_dir)
+MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const char* material_dir)
 {
     auto& resource_loader = ResourceLoader::GetResourceLoader();
     resource_loader.Subscribe("MANGO", loadImageDataFn, destroyImageDataFn);
@@ -151,8 +185,232 @@ MaterialInstance* MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const c
     const auto& mtl = *reinterpret_cast<const tinyobj_opt::material_t*>(mtlPtr);
 
     material_parameters_t params = from_tinyobj_material(mtl);
-    const uint64_t paramsHash = MurmurHash2(&params, sizeof(params), 0xFD);
+    
+    const uint64_t materialHash = hashTinyobjMaterial(mtlPtr, params);
 
+    auto& currMtlPage = materialPages[currentPage];
+
+    rw_lock_guard dataGuard(lock_mode::Read, materialSharedMutex);
+
+    if (currMtlPage.masterIndicesTable.count(materialHash) != 0u)
+    {
+        /*
+            The material may still be loading, but that doesn't really matter.
+            We'll update the data before we draw.
+        */
+        MaterialInstance result;
+        result.MaterialHash = materialHash;
+        result.PageIdx = currentPage;
+        auto& entry = loaderDataMap.at(materialHash).at(texture_type::Ambient);
+        entry.NumUsages++;
+        return result;
+    }
+    else
+    {
+        const uint32_t materialCount = static_cast<uint32_t>(currMtlPage.masterIndicesTable.size());
+        if (materialCount > MaxMaterialPageTextureCount)
+        {
+            // oh no....
+            // (I'm not implementing this yet as my head hurts okay)
+            // (I have plans but seriously this is gonna suck I think)
+            throw std::runtime_error("Ran out of space in material page!");
+        }
+
+        // new material that hasn't been seen yet: create a new indices structure
+        dataGuard.upgrade_to_write_mode();
+        currMtlPage.masterIndicesTable[materialHash] = material_shader_indices_t{};
+
+        // keep the mutex in write mode: we might emplace in some other 
+        // containers yet that have to deal with iterator invalidation
+        const bool hasAmbientTexture = !mtl.ambient_texname.empty();
+        const bool hasDiffuseTexture = !mtl.diffuse_texname.empty();
+        const bool hasSpecularTexture = !mtl.specular_texname.empty();
+        const bool hasSpecularHighlightTexture = !mtl.specular_highlight_texname.empty();
+        const bool hasBumpMap = !mtl.bump_texname.empty();
+        const bool hasDisplacementMap = !mtl.displacement_texname.empty();
+        const bool hasAlphaTexture = !mtl.alpha_texname.empty();
+        const bool hasRoughnessTexture = !mtl.roughness_texname.empty();
+        const bool hasMetallicTexture = !mtl.metallic_texname.empty();
+        const bool hasSheenTexture = !mtl.sheen_texname.empty();
+        const bool hasEmissiveTexture = !mtl.emissive_texname.empty();
+        const bool hasNormalTexture = !mtl.normal_texname.empty();
+
+        auto load_texture = [this, materialHash, &currMtlPage, &mtl](const texture_type type)
+        {
+            auto& resource_loader = ResourceLoader::GetResourceLoader();
+            auto iter = currMtlPage.callbackDataStorage.emplace(image_loaded_callback_data_t{ materialHash, currentPage, texture_type::Ambient });
+            assert(iter.second);
+            auto& callbackData = iter.first;
+            auto& entry = loaderDataMap[materialHash][texture_type::Ambient];
+            entry.NumUsages++;
+            entry.FilePath = mtl.name;
+            entry.FileType = "MANGO";
+            resource_loader.Load("MANGO", mtl.name.c_str(), this, textureLoadedCallback, &callbackData);
+        };
+
+        // now the tricky part: loading textures
+        if (hasAmbientTexture)
+        {
+            load_texture(texture_type::Ambient);
+        }
+
+        if (hasDiffuseTexture)
+        {
+            load_texture(texture_type::Diffuse);
+        }
+
+        if (hasSpecularTexture)
+        {
+            load_texture(texture_type::Specular);
+        }
+
+        if (hasSpecularHighlightTexture)
+        {
+            load_texture(texture_type::Specular);
+        }
+
+        if (hasBumpMap)
+        {
+            LOG_IF(hasDisplacementMap, WARNING) << "Material has both a bump map and displacement map, which will be treated as redundant by the shader.";
+            load_texture(texture_type::Bump);
+        }
+
+        if (hasDisplacementMap)
+        {
+            LOG_IF(hasBumpMap, WARNING) << "Material has both a bump map and displacement map, which will be treated as redundant by the shader.";
+        }
+
+        if (hasAlphaTexture)
+        {
+            load_texture(texture_type::Alpha);
+        }
+
+        if (hasRoughnessTexture)
+        {
+            load_texture(texture_type::Roughness);
+        }
+
+        if (hasMetallicTexture)
+        {
+            load_texture(texture_type::Metallic);
+        }
+
+        if (hasSheenTexture)
+        {
+            LOG(ERROR) << "Sheen texture is unsupported!";
+        }
+
+        if (hasEmissiveTexture)
+        {
+            load_texture(texture_type::Emissive);
+        }
+
+        if (hasNormalTexture)
+        {
+            load_texture(texture_type::Normal);
+        }
+
+        dataGuard.release_lock(); // don't need lock anymore: no iterators to invalidate like we can w unordered_map
+
+        // index for UBO is gonna be unique for each unique material, since every material has a UBO
+        const uint32_t uboIdx = currMtlPage.containerIndices.parametersIdx.fetch_add(1u);
+        currMtlPage.parametersArray[uboIdx] = std::move(params);
+        // this is quick enough that it's not worth running through the loader
+        currMtlPage.parameterUBOs[uboIdx] = createUBO(mtl.name.c_str(), currMtlPage.parametersArray[uboIdx]);
+
+        // makes sure we update descriptors before use
+        currMtlPage.dirty = true;
+
+    }
+    
+}
+
+void MaterialCache::textureLoadedCallbackImpl(void* loaded_image, void* user_data)
+{
+    loaded_texture_data_t* textureData = reinterpret_cast<loaded_texture_data_t*>(loaded_image);
+    image_loaded_callback_data_t* callbackData = reinterpret_cast<image_loaded_callback_data_t*>(user_data);
+    
+    const texture_type loadedTexType = callbackData->type;
+    material_cache_page_t& currPage = materialPages[callbackData->pageIdx];
+    
+    rw_lock_guard tableGuard(lock_mode::Write, currPage.indicesTableMutex);
+    auto& indices = currPage.masterIndicesTable.at(callbackData->mtlHash);
+    auto& resourceLoaderData = loaderDataMap.at(callbackData->mtlHash);
+
+    auto set_texture_at_idx = [&textureData](std::atomic<uint32_t>& idxCounter, material_cache_page_t::vulkan_resource_array_t& resourceArray, int32_t& idxToSet)
+    {
+        const uint32_t idxToUse = idxCounter.fetch_add(1u);
+        resourceArray[idxToUse] = textureData->resource;
+        idxToSet = static_cast<int32_t>(idxToUse);
+    };
+
+    switch (loadedTexType)
+    {
+    case texture_type::Ambient:
+        set_texture_at_idx(currPage.containerIndices.aoMapsIdx, currPage.aoMaps, indices.AoMapIdx);
+        resourceLoaderData[texture_type::Ambient].CreatedResource = textureData->resource;
+        break;
+    case texture_type::Diffuse:
+        set_texture_at_idx(currPage.containerIndices.albedoMapsIdx, currPage.albedoMaps, indices.AlbedoIdx);
+        resourceLoaderData[texture_type::Diffuse].CreatedResource = textureData->resource;
+        break;
+    case texture_type::Specular:
+        set_texture_at_idx(currPage.containerIndices.specularMapsIdx, currPage.specularMaps, indices.SpecularIdx);
+        resourceLoaderData[texture_type::Specular].CreatedResource = textureData->resource;
+        break;
+    case texture_type::SpecularHighlight:
+        LOG(WARNING) << "Tried to use unsupported sheen texture type.";
+        break;
+    case texture_type::Bump:
+        set_texture_at_idx(currPage.containerIndices.bumpMapsIdx, currPage.bumpMaps, indices.BumpMapIdx);
+        resourceLoaderData[texture_type::Bump].CreatedResource = textureData->resource;
+        break;
+    case texture_type::Displacement:
+        set_texture_at_idx(currPage.containerIndices.displacementMapsIdx, currPage.displacementMaps, indices.DisplacementMapIdx);
+        resourceLoaderData[texture_type::Displacement].CreatedResource = textureData->resource;
+        break;
+    case texture_type::Alpha:
+        set_texture_at_idx(currPage.containerIndices.alphaMapsIdx, currPage.alphaMaps, indices.AlphaIdx);
+        resourceLoaderData[texture_type::Alpha].CreatedResource = textureData->resource;
+        break;
+    case texture_type::Roughness:
+        set_texture_at_idx(currPage.containerIndices.roughnessMapsIdx, currPage.roughnessMaps, indices.RoughnessMapIdx);
+        resourceLoaderData[texture_type::Roughness].CreatedResource = textureData->resource;
+        break;
+    case texture_type::Metallic:
+        set_texture_at_idx(currPage.containerIndices.metallicMapsIdx, currPage.metallicMaps, indices.MetallicMapIdx);
+        resourceLoaderData[texture_type::Metallic].CreatedResource = textureData->resource;
+        break;
+    case texture_type::Sheen:
+        LOG(WARNING) << "Tried to use unsupported sheen texture type.";
+        break;
+    case texture_type::Emissive:
+        set_texture_at_idx(currPage.containerIndices.emissiveMapsIdx, currPage.emissiveMaps, indices.EmissiveMapIdx);
+        resourceLoaderData[texture_type::Emissive].CreatedResource = textureData->resource;
+        break;
+    case texture_type::Normal:
+        set_texture_at_idx(currPage.containerIndices.normalMapsIdx, currPage.normalMaps, indices.NormalMapIdx);
+        resourceLoaderData[texture_type::Normal].CreatedResource = textureData->resource;
+        break;
+    default:
+        throw std::domain_error("Texture type loaded was of invalid type!");
+    };
+
+    auto iter = currPage.callbackDataStorage.find(*callbackData);
+    if (iter != std::end(currPage.callbackDataStorage))
+    {
+        currPage.callbackDataStorage.erase(iter);
+    }
+    else
+    {
+        throw std::runtime_error("Couldn't find callback data, page must be incorrect!");
+    }
+}
+
+uint64_t MaterialCache::hashTinyobjMaterial(const void* mtlPtr, const material_parameters_t& params)
+{
+    const uint64_t paramsHash = MurmurHash2(&params, sizeof(params), 0xFD);
+    const tinyobj_opt::material_t& mtl = *reinterpret_cast<const tinyobj_opt::material_t*>(mtlPtr);
     std::string concatenatedNames{ mtl.name };
     concatenatedNames.reserve(1024);
     concatenatedNames += mtl.ambient_texname;
@@ -169,52 +427,24 @@ MaterialInstance* MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const c
     concatenatedNames += mtl.normal_texname;
 
     const uint64_t namesHash = MurmurHash2((void*)concatenatedNames.c_str(), sizeof(char) * concatenatedNames.length(), 0xFC);
-    const uint64_t materialHash = paramsHash ^ namesHash;
+    return namesHash ^ paramsHash;
+}
 
-    auto& currMtlPage = materialPages[currentPage];
+constexpr bool MaterialCache::image_loaded_callback_data_t::operator==(const image_loaded_callback_data_t& other) const noexcept
+{
+    return (mtlHash == other.mtlHash) && (pageIdx == other.pageIdx) && (type == other.type);
+}
 
-    rw_lock_guard dataGuard(lock_mode::Read, materialSharedMutex);
-
-    if (auto iter = currMtlPage.hashToIndicesMap.find(materialHash); iter != std::end(currMtlPage.hashToIndicesMap))
+constexpr bool MaterialCache::image_loaded_callback_data_t::operator<(const image_loaded_callback_data_t& other) const noexcept
+{
+    if (pageIdx == other.pageIdx)
     {
-        // material already exists
-        const uint32_t materialIdx = iter->second;
-        // data we use from here is all in arrays that won't suffer from iterator invalidation: release lock
-        dataGuard.release_lock();
-
+        return mtlHash < other.mtlHash;
     }
     else
     {
-        
-        const uint32_t materialIdx = currMtlPage.currTextureCount;
-        currMtlPage.currTextureCount += 1;
-
-
-        // material doesn't exist, we have to load it. upgrade to write so we can emplace new hash
-        dataGuard.upgrade_to_write_mode();
-        auto emplace_iter = currMtlPage.hashToIndicesMap.emplace(materialHash, materialIdx);
-        
-        dataGuard.release_lock();
-
-        currMtlPage.parametersArray[materialIdx] = std::move(params);
-        // this is quick enough that it's not worth running through the loader
-        const uint32_t uboIdx = currMtlPage.containerIndices.parametersCpuIdx.fetch_add(1u);
-        currMtlPage.parameterUBOs[materialIdx] = createUBO(mtl.name.c_str(), currMtlPage.parametersArray[materialIdx]);
-        // index for UBO is gonna be unique each time, since every material has a UBO
-        currMtlPage.indicesArray[materialIdx].ParamsIdx = materialIdx;
-
-        // now the tricky part
-
+        return pageIdx < other.pageIdx;
     }
-    
-    return nullptr;
-}
-
-void MaterialCache::textureLoadedCallback(void* loaded_image, void* user_data)
-{
-    loaded_texture_data_t* textureData = reinterpret_cast<loaded_texture_data_t*>(loaded_image);
-    image_loaded_callback_data_t* callbackData = reinterpret_cast<image_loaded_callback_data_t*>(user_data);
-
 }
 
 namespace
@@ -584,4 +814,10 @@ namespace
         delete pointer;
     }
 
+}
+
+void textureLoadedCallback(void* instance, void* loaded_data, void* user_data)
+{
+    MaterialCache* cacheInstance = reinterpret_cast<MaterialCache*>(instance);
+    cacheInstance->textureLoadedCallbackImpl(loaded_data, user_data);
 }
