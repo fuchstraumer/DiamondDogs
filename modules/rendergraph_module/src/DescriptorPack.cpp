@@ -111,7 +111,7 @@ void DescriptorPack::createDescriptorTemplates() {
         std::unordered_map<std::string, size_t> binding_locs;
         
         for (const auto* rsrc : resource_ptrs) {
-            templ->AddLayoutBinding(rsrc->BindingIndex(), rsrc->DescriptorType());
+            templ->AddLayoutBinding(rsrc->AsLayoutBinding());
             binding_locs.emplace(rsrc->Name(), rsrc->BindingIndex());
         }
 
