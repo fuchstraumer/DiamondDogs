@@ -30,6 +30,11 @@ ADD_INTEGRATION_TEST(VTF_Scene
     "../fixtures/ObjModel.cpp"
     "../fixtures/Material.hpp"
     "../fixtures/Material.cpp"
+    "../fixtures/MaterialCache.hpp"
+    "../fixtures/MaterialCache.cpp"
+    "../fixtures/MaterialStructures.hpp"
+    "../fixtures/MurmurHash.hpp"
+    "../fixtures/MurmurHash.cpp"
     ${SCENE_GUI_SOURCES}
 )
 
