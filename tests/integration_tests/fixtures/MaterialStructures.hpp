@@ -47,8 +47,8 @@ struct material_parameters_t
     glm::vec3 emission{ 0.0f,0.0f,0.0f };
     float shininess{ 0.01f };
     float ior{ 0.0f };
-    float dissolve{ 0.0f };
-    int32_t illum{ 0 };
+    float alpha{ 0.0f };
+    int32_t illum{ 0 }; // illumination model. not currently used, but could be in the future
     float roughness{ 0.1f };
     float metallic{ 0.0f };
     float sheen{ 0.0f };
