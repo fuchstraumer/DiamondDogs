@@ -36,7 +36,6 @@ static std::mutex debugCreationMutex;
 static std::condition_variable cVar;
 static VulkanResource* failedLoadDebugTexture{ nullptr };
 static VulkanResource* loadingMaterialTexture{ nullptr };
-Material::material_texture_counter_t Material::textureCounter{};
 
 std::string FindDebugTexture()
 {
@@ -635,11 +634,6 @@ Material Material::CreateDebugMaterial()
     return std::move(result);
 }
 
-const Material::material_texture_counter_t& Material::TextureCounter() noexcept
-{
-    return textureCounter;
-}
-
 void Material::setParameters(const tinyobj_opt::material_t& mtl)
 {
     parameters.ambient = extract_valid_material_param(glm::vec3(mtl.ambient[0], mtl.ambient[1], mtl.ambient[2]));
@@ -789,10 +783,4 @@ void Material::textureLoadedCallback(void* data_ptr, void* user_data)
     // at least one texture queued for loading. disable material loading status.
     textureTogglesCPU.materialLoading = VK_FALSE;
 
-}
-
-bool Material::material_texture_counter_t::Empty() const noexcept
-{
-    return (AlbedoMaps == 0u) && (AlphaMaps == 0u) && (SpecularMaps == 0u) && (BumpMaps == 0u) && (DisplacementMaps == 0u) &&
-        (NormalMaps == 0u) && (AoMaps == 0u) && (MetallicMaps == 0u) && (RoughnessMaps == 0u) && (EmissiveMaps == 0u);
 }
