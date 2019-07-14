@@ -818,18 +818,22 @@ void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const si
         UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc->GetSize(), resource);
         VkCommandBuffer cmd = transfer_system.TransferCmdBuffer();
         std::vector<VkBufferImageCopy> buffer_image_copies;
+        buffer_image_copies.reserve(num_data);
         size_t copy_offset = 0u;
 
         for (uint32_t i = 0u; i < num_data; ++i)
         {
-            buffer_image_copies.emplace_back(VkBufferImageCopy{
-                copy_offset,
-                0u,
-                0u,
-                VkImageSubresourceLayers{ VK_IMAGE_ASPECT_COLOR_BIT, initial_data[i].MipLevel, initial_data[i].ArrayLayer, initial_data[i].NumLayers },
-                VkOffset3D{ 0, 0, 0 },
-                VkExtent3D{ initial_data[i].Width, initial_data[i].Height, 1u }
-                });
+            VkBufferImageCopy copy;
+            copy.bufferOffset = copy_offset;
+            copy.bufferRowLength = 0u;
+            copy.bufferImageHeight = 0u;
+            copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copy.imageSubresource.baseArrayLayer = initial_data[i].ArrayLayer;
+            copy.imageSubresource.layerCount = initial_data[i].NumLayers;
+            copy.imageSubresource.mipLevel = initial_data[i].MipLevel;
+            copy.imageOffset = VkOffset3D{ 0, 0, 0 };
+            copy.imageExtent = VkExtent3D{ initial_data[i].Width, initial_data[i].Height, 1u };
+            buffer_image_copies.emplace_back(std::move(copy));
             assert(initial_data[i].MipLevel < info->mipLevels);
             assert(initial_data[i].ArrayLayer < info->arrayLayers);
             upload_buffer->SetData(initial_data[i].Data, initial_data[i].DataSize, copy_offset);
