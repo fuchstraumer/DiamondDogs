@@ -10,22 +10,27 @@
 #include "PhysicalDevice.hpp"
 #include "CommandPool.hpp"
 #include "Semaphore.hpp"
-#include "ObjModel.hpp"
 #include "ResourceTypes.hpp"
 #include "ResourceContext.hpp"
 #include "TransferSystem.hpp"
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb/stb_image.h"
-#include "gli/gli.hpp"
-#include <iostream>
-#include <array>
 #include "vkAssert.hpp"
 #include "GraphicsPipeline.hpp"
 #include "HouseShaders.hpp"
 #include "SkyboxShaders.hpp"
+#pragma warning(push, 1)
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h"
+#include "gli/gli.hpp"
 #include "../../../third_party/easyloggingpp/src/easylogging++.h"
-#include "glm/vec3.hpp"
-
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/hash.hpp>
+#define TINYOBJ_LOADER_OPT_IMPLEMENTATION 
+#include <tinyobjloader/experimental/tinyobj_loader_opt.h>
+#include <mango/core/memory.hpp>
+#include <mango/filesystem/filesystem.hpp>
+#pragma warning(pop)
+#include <iostream>
+#include <array>
 
 const static std::array<glm::vec3, 8> skybox_positions {
     glm::vec3(-1.0f,-1.0f, 1.0f ),
@@ -86,6 +91,71 @@ struct stb_image_data_t {
     int channels = -1;
 };
 
+struct vertex_hash {
+    size_t operator()(const LoadedObjModel::vertex_t& v) const noexcept {
+        return (std::hash<glm::vec3>()(v.pos) ^ std::hash<glm::vec2>()(v.uv));
+    }
+};
+
+LoadedObjModel::LoadedObjModel(const char* fname) {
+    tinyobj_opt::attrib_t attrib;
+    std::vector<tinyobj_opt::shape_t> shapes;
+    std::vector<tinyobj_opt::material_t> materials;
+    std::string err;
+
+    
+    {
+        mango::filesystem::File model_file(fname);
+        if (!model_file.data())
+        {
+            LOG(ERROR) << "Failed to find model file for ResourceContextScene test!";
+            throw std::runtime_error("Failed to find model file for ResourceContextScene test!");
+        }
+
+        const mango::Memory model_memory{ model_file };
+
+        tinyobj_opt::LoadOption loadOpts;
+        loadOpts.req_num_threads = static_cast<int>(std::thread::hardware_concurrency() / 2);
+        loadOpts.triangulate = true;
+
+        if (!tinyobj_opt::parseObj(&attrib, &shapes, &materials, static_cast<char*>(model_memory), model_memory.size, loadOpts)) {
+            LOG(ERROR) << "Internal error in tinyobj_opt, couldn't load model data! Error: " << err;
+            throw std::runtime_error(err);
+        }
+    }
+
+    std::unordered_map<vertex_t, uint32_t, vertex_hash> unique_vertices{};
+
+    indices.reserve(attrib.indices.size());
+    vertices.reserve(attrib.vertices.size());
+
+    for (const auto& index : attrib.indices) {
+        glm::vec3 pos{
+            attrib.vertices[3 * index.vertex_index + 0],
+            attrib.vertices[3 * index.vertex_index + 1],
+            attrib.vertices[3 * index.vertex_index + 2]
+        };
+
+        glm::vec2 uv{
+            attrib.texcoords[2 * index.texcoord_index + 0],
+            1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
+        };
+
+        vertex_t vert{ pos, uv };
+
+        if (unique_vertices.count(vert) == 0) {
+            unique_vertices[vert] = static_cast<uint32_t>(vertices.size());
+            vertices.emplace_back(vert);
+        }
+
+        indices.emplace_back(unique_vertices[vert]);
+
+    }
+
+    vertices.shrink_to_fit();
+    indices.shrink_to_fit();
+}
+
 VulkanComplexScene::VulkanComplexScene() : VulkanScene(), skyboxTextureReady(false), houseTextureReady(false), houseMeshReady(false) {}
 
 VulkanComplexScene::~VulkanComplexScene() {
@@ -99,9 +169,9 @@ VulkanComplexScene& VulkanComplexScene::GetScene() {
 
 glm::vec3 scale(1.0f);
 
-void VulkanComplexScene::Construct(RequiredVprObjects objects, void * user_data) {
+void VulkanComplexScene::Construct(RequiredVprObjects objects, void* user_data) {
     vprObjects = objects;
-    resourceContext = reinterpret_cast<ResourceContext*>(user_data);
+    resourceContext = &ResourceContext::Get();
     houseUboData.view = glm::lookAt(glm::vec3(-2.0f, -2.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     skyboxUboData.view = glm::mat3(houseUboData.view);
     houseUboData.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(objects.swapchain->Extent().width), static_cast<float>(objects.swapchain->Extent().height), 0.1f, 1000.0f);
@@ -110,6 +180,7 @@ void VulkanComplexScene::Construct(RequiredVprObjects objects, void * user_data)
     houseUboData.model = glm::mat4(1.0f);
     houseUboData.model = glm::scale(houseUboData.model, scale);
     skyboxUboData.model = glm::mat4(1.0f);
+    sharedCache = std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), typeid(VulkanComplexScene).hash_code());
     createSemaphores();
     createSampler();
     createUBOs();
@@ -130,15 +201,33 @@ void VulkanComplexScene::Construct(RequiredVprObjects objects, void * user_data)
 }
 
 void VulkanComplexScene::Destroy() {
-    resourceContext->DestroyResource(sampler);
-    resourceContext->DestroyResource(houseEBO);
-    resourceContext->DestroyResource(houseVBO);
-    resourceContext->DestroyResource(houseUBO);
-    resourceContext->DestroyResource(houseTexture);
-    resourceContext->DestroyResource(skyboxEBO);
-    resourceContext->DestroyResource(skyboxVBO);
-    resourceContext->DestroyResource(skyboxUBO);
-    resourceContext->DestroyResource(skyboxTexture);
+
+    const VkPipelineCache otherCaches[2]
+    {
+        houseCache->vkHandle(),
+        skyboxCache->vkHandle()
+    };
+
+    sharedCache->MergeCaches(2u, otherCaches);
+
+    auto destroy_rsrc_safe = [this](VulkanResource*& rsrc)
+    {
+        if (rsrc != nullptr)
+        {
+            resourceContext->DestroyResource(rsrc);
+            rsrc = nullptr;
+        }
+    };
+
+    destroy_rsrc_safe(sampler);
+    destroy_rsrc_safe(houseEBO);
+    destroy_rsrc_safe(houseVBO);
+    destroy_rsrc_safe(houseUBO);
+    destroy_rsrc_safe(houseTexture);
+    destroy_rsrc_safe(skyboxEBO);
+    destroy_rsrc_safe(skyboxVBO);
+    destroy_rsrc_safe(skyboxUBO);
+    destroy_rsrc_safe(skyboxTexture);
     houseSet.reset();
     skyboxSet.reset();
     pipelineLayout.reset();
@@ -166,7 +255,7 @@ void* VulkanComplexScene::LoadObjFile(const char* fname, void* user_data) {
     return new LoadedObjModel(fname);
 }
 
-void VulkanComplexScene::DestroyObjFileData(void * obj_file) {
+void VulkanComplexScene::DestroyObjFileData(void* obj_file, void* user_data) {
     LoadedObjModel* model = reinterpret_cast<LoadedObjModel*>(obj_file);
     delete model;
 }
@@ -175,7 +264,7 @@ void* VulkanComplexScene::LoadPngImage(const char* fname, void* user_data) {
     return new stb_image_data_t(fname);
 }
 
-void VulkanComplexScene::DestroyPngFileData(void * jpeg_file) {
+void VulkanComplexScene::DestroyPngFileData(void * jpeg_file, void* user_data) {
     stb_image_data_t* image = reinterpret_cast<stb_image_data_t*>(jpeg_file);
     delete image;
 }
@@ -184,13 +273,19 @@ void* VulkanComplexScene::LoadCompressedTexture(const char* fname, void* user_da
     return new gli::texture_cube(gli::load(fname));
 }
 
-void VulkanComplexScene::DestroyCompressedTextureData(void * compressed_texture) {
+void VulkanComplexScene::DestroyCompressedTextureData(void* compressed_texture, void* user_data) {
     gli::texture_cube* texture = reinterpret_cast<gli::texture_cube*>(compressed_texture);
     delete texture;
 }
 
 void VulkanComplexScene::CreateHouseMesh(void * obj_data) {
     LoadedObjModel* obj_model = reinterpret_cast<LoadedObjModel*>(obj_data);
+    const auto device = vprObjects.device;
+
+    const uint32_t queueFamilyIndices[2]{
+        device->QueueFamilyIndices().Graphics,
+        device->QueueFamilyIndices().Transfer
+    };
 
     VkBufferCreateInfo vbo_info {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -198,9 +293,9 @@ void VulkanComplexScene::CreateHouseMesh(void * obj_data) {
         0,
         static_cast<VkDeviceSize>(sizeof(LoadedObjModel::vertex_t) * obj_model->vertices.size()),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr
+        VK_SHARING_MODE_CONCURRENT,
+        2u,
+        queueFamilyIndices
     };
 
     // Test multi-copy functionality of resource context, by merging these two 
@@ -209,8 +304,7 @@ void VulkanComplexScene::CreateHouseMesh(void * obj_data) {
         obj_model->vertices.data(),
         sizeof(LoadedObjModel::vertex_t) * obj_model->vertices.size(),
         0,
-        0,
-        0
+        VK_QUEUE_FAMILY_IGNORED
     };
 
     const VkBufferCreateInfo ebo_info{
@@ -219,27 +313,35 @@ void VulkanComplexScene::CreateHouseMesh(void * obj_data) {
         0,
         static_cast<VkDeviceSize>(sizeof(uint32_t) * obj_model->indices.size()),
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr
+        VK_SHARING_MODE_CONCURRENT,
+        2u,
+        queueFamilyIndices
     };
 
     const gpu_resource_data_t ebo_data{
         obj_model->indices.data(),
         static_cast<size_t>(ebo_info.size),
         0,
-        0,
-        0
+        VK_QUEUE_FAMILY_IGNORED
     };
 
-    houseVBO = resourceContext->CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, memory_type::DEVICE_LOCAL, nullptr);
-    houseEBO = resourceContext->CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, memory_type::DEVICE_LOCAL, nullptr);
+    constexpr resource_creation_flags creationFlags{ ResourceCreateMemoryStrategyMinTime | ResourceCreateUserDataAsString };
+    constexpr const char* houseVBO_Str{ "HouseVBO" };
+    constexpr const char* houseEBO_Str{ "HouseEBO" };
+    houseVBO = resourceContext->CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, resource_usage::GPU_ONLY, creationFlags, (void*)houseVBO_Str);
+    houseEBO = resourceContext->CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, resource_usage::GPU_ONLY, creationFlags, (void*)houseEBO_Str);
+
     houseIndexCount = static_cast<uint32_t>(obj_model->indices.size());
     houseMeshReady = true;
 }
 
 void VulkanComplexScene::CreateHouseTexture(void * texture_data) {
     stb_image_data_t* image_data = reinterpret_cast<stb_image_data_t*>(texture_data);
+
+    const uint32_t queueFamilyIndices[2]{
+        vprObjects.device->QueueFamilyIndices().Graphics,
+        vprObjects.device->QueueFamilyIndices().Transfer
+    };
 
     const VkImageCreateInfo image_info{
         VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -253,9 +355,9 @@ void VulkanComplexScene::CreateHouseTexture(void * texture_data) {
         VK_SAMPLE_COUNT_1_BIT,
         vprObjects.device->GetFormatTiling(VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT),
         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr,
+        VK_SHARING_MODE_CONCURRENT,
+        2u,
+        queueFamilyIndices,
         VK_IMAGE_LAYOUT_UNDEFINED
     };
 
@@ -279,16 +381,26 @@ void VulkanComplexScene::CreateHouseTexture(void * texture_data) {
         }
     };
 
-    houseTexture = resourceContext->CreateImage(&image_info, &view_info, 1, initial_texture_data, memory_type::DEVICE_LOCAL, nullptr);
+    constexpr resource_creation_flags creationFlags{ ResourceCreateMemoryStrategyMinTime | ResourceCreateUserDataAsString };
+    constexpr const char* houseTextureStr{ "HouseTexture" };
+    houseTexture = resourceContext->CreateImage(&image_info, &view_info, 1, initial_texture_data, resource_usage::GPU_ONLY, creationFlags, (void*)houseTextureStr);
+
     updateHouseDescriptorSet();
 }
 
 void VulkanComplexScene::CreateSkyboxTexture(void * texture_data) {
 
+    LOG(INFO) << "Creating backing resources for loaded compressed skybox texture...";
+
     gli::texture_cube* texture = reinterpret_cast<gli::texture_cube*>(texture_data);
     const uint32_t width = static_cast<uint32_t>(texture->extent().x);
     const uint32_t height = static_cast<uint32_t>(texture->extent().y);
     const uint32_t mipLevels = static_cast<uint32_t>(texture->levels());
+
+    const uint32_t queueFamilyIndices[2]{
+        vprObjects.device->QueueFamilyIndices().Graphics,
+        vprObjects.device->QueueFamilyIndices().Transfer
+    };
 
     const VkImageCreateInfo image_info {
         VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -302,9 +414,9 @@ void VulkanComplexScene::CreateSkyboxTexture(void * texture_data) {
         VK_SAMPLE_COUNT_1_BIT,
         vprObjects.device->GetFormatTiling((VkFormat)texture->format(), VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT),
         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr,
+        VK_SHARING_MODE_CONCURRENT,
+        2u,
+        queueFamilyIndices,
         VK_IMAGE_LAYOUT_UNDEFINED
     };
 
@@ -321,6 +433,7 @@ void VulkanComplexScene::CreateSkyboxTexture(void * texture_data) {
 
     const size_t total_size = texture->size();
 
+    LOG(INFO) << "Creating image copy data, making sure layers and mips are correctly transferred...";
     std::vector<gpu_image_resource_data_t> image_copies;
     for (size_t i = 0; i < 6; ++i) {
         for (size_t j = 0; j < texture->levels(); ++j) {
@@ -331,13 +444,17 @@ void VulkanComplexScene::CreateSkyboxTexture(void * texture_data) {
                 static_cast<uint32_t>(ref[i][j].extent().x),
                 static_cast<uint32_t>(ref[i][j].extent().y),
                 static_cast<uint32_t>(i),
-                uint32_t(1),
-                static_cast<uint32_t>(j)
+                1u,
+                static_cast<uint32_t>(j),
+                queueFamilyIndices[0]
             });
         }
     }
 
-    skyboxTexture = resourceContext->CreateImage(&image_info, &view_info, image_copies.size(), image_copies.data(), memory_type::DEVICE_LOCAL, nullptr);
+    constexpr resource_creation_flags creationFlags{ ResourceCreateMemoryStrategyMinTime | ResourceCreateUserDataAsString };
+    constexpr const char* skyboxTextureStr{ "SkyboxTexture" };
+    skyboxTexture = resourceContext->CreateImage(&image_info, &view_info, image_copies.size(), image_copies.data(), resource_usage::GPU_ONLY, creationFlags, (void*)skyboxTextureStr);
+    ResourceContext::Get().Update();
     updateSkyboxDescriptorSet();
 
 }
@@ -367,8 +484,7 @@ void VulkanComplexScene::update() {
         &houseUboData,
         sizeof(ubo_data_t),
         0,
-        0,
-        0
+        VK_QUEUE_FAMILY_IGNORED
     };
     resourceContext->SetBufferData(houseUBO, 1, &house_ubo_data); 
     //skyboxUboData.model = glm::rotate(glm::mat4(1.0f), diff * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
@@ -376,8 +492,7 @@ void VulkanComplexScene::update() {
         &skyboxUboData,
         sizeof(ubo_data_t),
         0,
-        0,
-        0
+        VK_QUEUE_FAMILY_IGNORED
     };
     resourceContext->SetBufferData(skyboxUBO, 1, &skybox_ubo_data);
 }
@@ -523,7 +638,8 @@ void VulkanComplexScene::createSampler() {
         VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
         VK_FALSE
     };
-    sampler = resourceContext->CreateSampler(&sampler_info, nullptr);
+    constexpr const char* samplerStr{ "SharedSampler" };
+    sampler = resourceContext->CreateSampler(&sampler_info, ResourceCreateUserDataAsString, (void*)samplerStr);
 }
 
 void VulkanComplexScene::createUBOs() {
@@ -537,12 +653,20 @@ void VulkanComplexScene::createUBOs() {
         0,
         nullptr
     };
-    houseUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE, nullptr);
-    skyboxUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, memory_type::HOST_VISIBLE, nullptr);
+    constexpr resource_creation_flags uboFlags{ ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString | ResourceCreatePersistentlyMapped };
+    constexpr const char* houseUboStr{ "HouseUBO" };
+    constexpr const char* skyboxUboStr{ "SkyboxUBO" };
+    houseUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, resource_usage::CPU_ONLY, uboFlags, (void*)houseUboStr);
+    skyboxUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, resource_usage::CPU_ONLY, uboFlags, (void*)skyboxUboStr);
 }
 
 void VulkanComplexScene::createSkyboxMesh() {
     skybox_mesh_data_t mesh_data;
+
+    const uint32_t queueFamilyIndices[2]{
+        vprObjects.device->QueueFamilyIndices().Graphics,
+        vprObjects.device->QueueFamilyIndices().Transfer
+    };
 
     const VkBufferCreateInfo vbo_info{
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -550,9 +674,9 @@ void VulkanComplexScene::createSkyboxMesh() {
         0,
         static_cast<VkDeviceSize>(sizeof(glm::vec3) * mesh_data.vertices.size()),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr
+        VK_SHARING_MODE_CONCURRENT,
+        2u,
+        queueFamilyIndices
     };
 
     const VkBufferCreateInfo ebo_info{
@@ -561,29 +685,30 @@ void VulkanComplexScene::createSkyboxMesh() {
         0,
         static_cast<VkDeviceSize>(sizeof(uint32_t) * mesh_data.indices.size()),
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_SHARING_MODE_EXCLUSIVE,
-        0,
-        nullptr
+        VK_SHARING_MODE_CONCURRENT,
+        2u,
+        queueFamilyIndices
     };
 
     const gpu_resource_data_t vbo_data{
         mesh_data.vertices.data(),
         vbo_info.size,
         0,
-        0,
-        0
+        VK_QUEUE_FAMILY_IGNORED
     };
 
     const gpu_resource_data_t ebo_data{
         mesh_data.indices.data(),
         ebo_info.size,
         0,
-        0,
-        0
+        VK_QUEUE_FAMILY_IGNORED
     };
 
-    skyboxVBO = resourceContext->CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, memory_type::DEVICE_LOCAL, nullptr);
-    skyboxEBO = resourceContext->CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, memory_type::DEVICE_LOCAL, nullptr);
+    constexpr resource_creation_flags creationFlags{ ResourceCreateMemoryStrategyMinTime | ResourceCreateUserDataAsString };
+    constexpr const char* skyboxVboStr{ "SkyboxVBO" };
+    constexpr const char* skyboxEboStr{ "SkyboxEBO" };
+    skyboxVBO = resourceContext->CreateBuffer(&vbo_info, nullptr, 1, &vbo_data, resource_usage::GPU_ONLY, creationFlags, (void*)skyboxVboStr);
+    skyboxEBO = resourceContext->CreateBuffer(&ebo_info, nullptr, 1, &ebo_data, resource_usage::GPU_ONLY, creationFlags, (void*)skyboxEboStr);
     skyboxIndexCount = static_cast<uint32_t>(mesh_data.indices.size());
 }
 
@@ -732,7 +857,7 @@ void VulkanComplexScene::createHousePipeline() {
         vertex_attrs
     };
 
-    houseCache = std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), typeid(VulkanComplexScene).hash_code() + std::hash<std::string>()("HouseCache"));
+    houseCache = std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), sharedCache->vkHandle(), typeid(VulkanComplexScene).hash_code() + std::hash<std::string>()("HouseCache"));
     housePipeline = CreateBasicPipeline(vprObjects.device, 2, shader_stages, &vertex_info, pipelineLayout->vkHandle(), renderPass, VK_COMPARE_OP_LESS, houseCache->vkHandle(), VK_NULL_HANDLE, VK_CULL_MODE_BACK_BIT);
 
 }
@@ -762,7 +887,7 @@ void VulkanComplexScene::createSkyboxPipeline() {
         vertex_attr
     };
 
-    skyboxCache = std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), typeid(VulkanComplexScene).hash_code() + std::hash<std::string>()("SkyboxCache"));
+    skyboxCache = std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), sharedCache->vkHandle(), typeid(VulkanComplexScene).hash_code() + std::hash<std::string>()("SkyboxCache"));
     skyboxPipeline = CreateBasicPipeline(vprObjects.device, 2, shader_stages, &vertex_info, pipelineLayout->vkHandle(), renderPass, VK_COMPARE_OP_LESS_OR_EQUAL, skyboxCache->vkHandle(), housePipeline);
 
 }

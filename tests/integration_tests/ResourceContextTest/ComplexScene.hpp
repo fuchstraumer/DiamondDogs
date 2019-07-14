@@ -9,9 +9,18 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <atomic>
 
-namespace vpr {
-    class PipelineCache;
-}
+struct LoadedObjModel {
+    LoadedObjModel(const char* fname);
+    struct vertex_t {
+        bool operator==(const vertex_t& other) const noexcept {
+            return (pos == other.pos) && (uv == other.uv);
+        }
+        glm::vec3 pos;
+        glm::vec2 uv;
+    };
+    std::vector<vertex_t> vertices;
+    std::vector<uint32_t> indices;
+};
 
 class ResourceContext;
 struct VulkanResource;
@@ -27,11 +36,11 @@ public:
     void Destroy() final;
 
     static void* LoadObjFile(const char* fname, void* user_data = nullptr);
-    static void DestroyObjFileData(void* obj_file);
+    static void DestroyObjFileData(void* obj_file, void* user_data);
     static void* LoadPngImage(const char* fname, void* user_data = nullptr);
-    static void DestroyPngFileData(void* jpeg_file);
+    static void DestroyPngFileData(void* jpeg_file, void* user_data);
     static void* LoadCompressedTexture(const char* fname, void* user_data = nullptr);
-    static void DestroyCompressedTextureData(void* compressed_texture);
+    static void DestroyCompressedTextureData(void* compressed_texture, void* user_data);
 
     void CreateHouseMesh(void* obj_data);
     void CreateHouseTexture(void* texture_data);
@@ -41,9 +50,9 @@ public:
     void WaitForAllLoaded();
 
     struct ubo_data_t {
-        glm::mat4 model;
-        glm::mat4 view;
-        glm::mat4 projection;
+        glm::mat4 model{ glm::mat4(1.0f) };
+        glm::mat4 view{ glm::mat4(1.0f) };
+        glm::mat4 projection{ glm::mat4(1.0f) };
     };
     ubo_data_t houseUboData;
     ubo_data_t skyboxUboData;
@@ -80,37 +89,45 @@ protected:
     void updateHouseDescriptorSet();
     void updateSkyboxDescriptorSet();
 
-    ResourceContext* resourceContext;
-    VulkanResource* sampler;
-    VulkanResource* houseVBO;
-    VulkanResource* houseEBO;
-    VulkanResource* houseTexture;
-    VulkanResource* skyboxEBO;
-    VulkanResource* skyboxVBO;
-    VulkanResource* skyboxTexture;
-    VulkanResource* houseUBO;
-    VulkanResource* skyboxUBO;
+    ResourceContext* resourceContext{ nullptr };
+    VulkanResource* sampler{ nullptr };
+    VulkanResource* houseVBO{ nullptr };
+    VulkanResource* houseEBO{ nullptr };
+    VulkanResource* houseTexture{ nullptr };
+    VulkanResource* skyboxEBO{ nullptr };
+    VulkanResource* skyboxVBO{ nullptr };
+    VulkanResource* skyboxTexture{ nullptr };
+    VulkanResource* houseUBO{ nullptr };
+    VulkanResource* skyboxUBO{ nullptr };
 
     DepthStencil depthStencil;
-    std::unique_ptr<vpr::CommandPool> cmdPool;
-    std::unique_ptr<vpr::ShaderModule> houseVert, houseFrag;
-    std::unique_ptr<vpr::ShaderModule> skyboxVert, skyboxFrag;
-    std::unique_ptr<vpr::PipelineLayout> pipelineLayout;
-    std::unique_ptr<vpr::DescriptorPool> descriptorPool;
-    std::unique_ptr<vpr::DescriptorSetLayout> setLayout;
-    std::unique_ptr<vpr::DescriptorSet> houseSet, skyboxSet, baseSet;
-    VkDescriptorUpdateTemplate houseTemplate, skyboxTemplate;
-    std::unique_ptr<vpr::PipelineCache> houseCache, skyboxCache;
-    VkPipeline housePipeline, skyboxPipeline;
-    VkRenderPass renderPass;
+    std::unique_ptr<vpr::CommandPool> cmdPool{ nullptr };
+    std::unique_ptr<vpr::ShaderModule> houseVert{ nullptr };
+    std::unique_ptr<vpr::ShaderModule> houseFrag{ nullptr };
+    std::unique_ptr<vpr::ShaderModule> skyboxVert{ nullptr };
+    std::unique_ptr<vpr::ShaderModule> skyboxFrag{ nullptr };
+    std::unique_ptr<vpr::PipelineLayout> pipelineLayout{ nullptr };
+    std::unique_ptr<vpr::DescriptorPool> descriptorPool{ nullptr };
+    std::unique_ptr<vpr::DescriptorSetLayout> setLayout{ nullptr };
+    std::unique_ptr<vpr::DescriptorSet> houseSet{ nullptr };
+    std::unique_ptr<vpr::DescriptorSet> skyboxSet{ nullptr };
+    std::unique_ptr<vpr::DescriptorSet> baseSet{ nullptr };
+    VkDescriptorUpdateTemplate houseTemplate{ VK_NULL_HANDLE };
+    VkDescriptorUpdateTemplate skyboxTemplate{ VK_NULL_HANDLE };
+    std::unique_ptr<vpr::PipelineCache> houseCache{ nullptr };
+    std::unique_ptr<vpr::PipelineCache> skyboxCache{ nullptr };
+    std::unique_ptr<vpr::PipelineCache> sharedCache{ nullptr };
+    VkPipeline housePipeline{ VK_NULL_HANDLE };
+    VkPipeline skyboxPipeline{ VK_NULL_HANDLE };
+    VkRenderPass renderPass{ VK_NULL_HANDLE };
     std::vector<VkFence> fences;
     std::vector<VkFramebuffer> framebuffers;
 
-    uint32_t houseIndexCount;
-    uint32_t skyboxIndexCount;
-    std::atomic<bool> houseTextureReady;
-    std::atomic<bool> houseMeshReady;
-    std::atomic<bool> skyboxTextureReady;
+    uint32_t houseIndexCount{ 0u };
+    uint32_t skyboxIndexCount{ 0u };
+    std::atomic<bool> houseTextureReady{ false };
+    std::atomic<bool> houseMeshReady{ false };
+    std::atomic<bool> skyboxTextureReady{ false };
 
 };
 
