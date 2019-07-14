@@ -97,6 +97,7 @@ std::unique_ptr<UploadBuffer> ResourceTransferSystem::createUploadBufferImpl(con
 {
 
     std::unique_ptr<UploadBuffer> created_buffer = std::make_unique<UploadBuffer>(device, allocator);
+    created_buffer->Size = buffer_sz;
 
     VmaAllocationCreateInfo alloc_create_info
     {

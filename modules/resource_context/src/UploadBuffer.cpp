@@ -20,8 +20,13 @@ UploadBuffer& UploadBuffer::operator=(UploadBuffer && other) noexcept {
 
 void UploadBuffer::SetData(const void* data, size_t data_size, size_t offset) {
     void* mapped_address = nullptr;
-	vmaMapMemory(Allocator, Allocation, &mapped_address);
-    memcpy(mapped_address, data, data_size);
+    assert((data_size + offset) <= Size);
+	VkResult result = vmaMapMemory(Allocator, Allocation, &mapped_address);
+    VkAssert(result);
+    auto destAddress = reinterpret_cast<unsigned char*>(mapped_address) + offset;
+    auto dataAddr = reinterpret_cast<const unsigned char*>(data);
+    auto endAddr = dataAddr + offset;
+    std::copy(dataAddr, endAddr, destAddress);
 	vmaUnmapMemory(Allocator, Allocation);
 	vmaFlushAllocation(Allocator, Allocation, offset, data_size);
 }

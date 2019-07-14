@@ -19,6 +19,7 @@ struct UploadBuffer {
     VmaAllocation Allocation;
 	VmaAllocator Allocator;
     const vpr::Device* device;
+    VkDeviceSize Size{ 0u };
 };
 
 #endif //!RESOURCE_CONTEXT_UPLOAD_BUFFER_HPP
