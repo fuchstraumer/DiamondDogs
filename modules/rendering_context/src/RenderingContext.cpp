@@ -423,6 +423,10 @@ void RenderingContext::Construct(const char* file_path) {
         };
 
         VkResult result = logicalDevice->DebugUtilsHandler().vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
+        if (result != VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to create debug utils messenger.");
+        }
         // color terminal output so it's less of a cluster
         el::Loggers::addFlag(el::LoggingFlag::ColoredTerminalOutput);
 	}
