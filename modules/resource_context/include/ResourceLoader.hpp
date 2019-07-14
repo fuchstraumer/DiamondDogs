@@ -39,17 +39,26 @@ public:
 
 private:
 
+    enum class load_req_type
+    {
+        Invalid = 0,
+        FreshLoad = 1,
+        AlreadyLoaded = 2
+    };
+
     struct ResourceData {
+        uint64_t FileNameHash;
         void* Data;
         std::string FileType;
-        std::string AbsoluteFilePath;
         std::string FileName;
         std::string SearchDir;
+        std::string AbsoluteFilePath;
         size_t RefCount{ 0 };
     };
 
     struct loadRequest {
         loadRequest(ResourceData dest) : destinationData(dest), requester(nullptr) {}
+        load_req_type type{ load_req_type::Invalid };
         ResourceData destinationData;
         void* requester; // state pointer of requesting object, if given
         void* userData; // may contain additional parameters passed to factory function
@@ -61,9 +70,9 @@ private:
 
     std::unordered_map<std::string, FactoryFunctor> factories;
     std::unordered_map<std::string, DeleteFunctor> deleters;
-    std::unordered_map<std::string, ResourceData> resources;
-    std::unordered_set<std::string> pendingResources;
-    std::unordered_map<std::string, std::vector<std::pair<void*, void*>>> pendingResourceListeners;
+    std::unordered_map<uint64_t, ResourceData> resources;
+    std::unordered_set<uint64_t> pendingResources;
+    std::unordered_map<uint64_t, std::vector<std::pair<void*, void*>>> pendingResourceListeners;
     std::list<loadRequest> requests;
     std::recursive_mutex queueMutex;
     std::recursive_mutex pendingDataMutex;

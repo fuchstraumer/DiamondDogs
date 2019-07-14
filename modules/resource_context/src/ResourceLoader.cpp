@@ -44,12 +44,13 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
     namespace fs = boost::filesystem;
 #endif
     const std::string file_name{ file_path };
+    const uint64_t fileNameHash{ std::hash<std::string>()(file_name) };
 
     {
         // Check to see if resource is already loaded
         std::lock_guard pendingDataGuard(pendingDataMutex);
-        if (pendingResources.count(file_name) != 0) {
-            auto& listeners_vec = pendingResourceListeners[file_name];
+        if (pendingResources.count(fileNameHash) != 0) {
+            auto& listeners_vec = pendingResourceListeners[fileNameHash];
             listeners_vec.emplace_back(_requester, user_data);
             return;
         }       
@@ -67,11 +68,10 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
 
     ResourceData data;      
     data.FileType = file_type;
-    pendingDataMutex.lock();
-    pendingResources.emplace(file_name);
-    pendingDataMutex.unlock();
     data.RefCount = 1;
     data.FileName = file_name;
+    data.FileNameHash = fileNameHash;
+
     if (fs::exists(file_name))
     {
         data.AbsoluteFilePath = fs::canonical(file_name).string();
@@ -81,6 +81,18 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
     req.requester = _requester;
     req.signal = signal;
     req.userData = user_data;
+
+    if (resources.count(fileNameHash) != 0)
+    {
+        req.type = load_req_type::AlreadyLoaded;
+    }
+    else
+    {
+        std::lock_guard pendingResourcesGuard(pendingDataMutex);
+        req.type = load_req_type::FreshLoad;
+        pendingResources.emplace(fileNameHash);
+    }
+
     {
         std::unique_lock<std::recursive_mutex> guard(queueMutex);
         requests.push_back(req);
@@ -97,12 +109,13 @@ void ResourceLoader::Load(const char* file_type, const char* _file_name, const c
     namespace fs = boost::filesystem;
 #endif
     const std::string file_name{ _file_name };
+    const uint64_t fileNameHash{ std::hash<std::string>()(file_name) };
 
     {
-        // Check to see if resource is already loaded
+        // Check to see if resource is already queued for load
         std::lock_guard pendingDataGuard(pendingDataMutex);
-        if (pendingResources.count(file_name) != 0) {
-            auto& listeners_vec = pendingResourceListeners[file_name];
+        if (pendingResources.count(fileNameHash) != 0) {
+            auto& listeners_vec = pendingResourceListeners[fileNameHash];
             listeners_vec.emplace_back(_requester, user_data);
             return;
         }
@@ -120,24 +133,27 @@ void ResourceLoader::Load(const char* file_type, const char* _file_name, const c
 
     ResourceData data;
     data.FileType = file_type;
-    pendingDataMutex.lock();
-    pendingResources.emplace(file_name);
-    pendingDataMutex.unlock();
     data.RefCount = 1;
     data.FileName = file_name;
-    if (fs::exists(file_name))
-    {
-        data.AbsoluteFilePath = fs::canonical(file_name).string();
-    }
-    else
-    {
-        data.SearchDir = std::string(search_dir);
-    }
+    data.FileNameHash = std::hash<std::string>()(data.FileName);
+    data.SearchDir = std::string(search_dir);
 
     loadRequest req(data);
     req.requester = _requester;
     req.signal = signal;
     req.userData = user_data;
+
+    if (resources.count(fileNameHash) != 0)
+    {
+        req.type = load_req_type::AlreadyLoaded;
+    }
+    else
+    {
+        std::lock_guard pendingResourcesGuard(pendingDataMutex);
+        req.type = load_req_type::FreshLoad;
+        pendingResources.emplace(fileNameHash);
+    }
+
     {
         std::unique_lock<std::recursive_mutex> guard(queueMutex);
         requests.push_back(req);
@@ -153,16 +169,11 @@ void ResourceLoader::Unload(const char* file_type, const char* _path)
 #else
     namespace fs = boost::filesystem;
 #endif
-    fs::path file_path(_path);
-    if (!fs::exists(file_path)) {
-        LOG(ERROR) << "Tried to unload non-existent file path!";
-    }
         
-    const std::string path = fs::absolute(file_path).string();
+    uint64_t pathHash = std::hash<std::string>()(_path);
 
-    if (resources.count(path) != 0) {
-        std::lock_guard<std::recursive_mutex> guard(queueMutex);
-        auto iter = resources.find(path);
+    std::lock_guard<std::recursive_mutex> guard(queueMutex);
+    if (auto iter = resources.find(pathHash); iter != std::end(resources)) {
         --iter->second.RefCount;
         if (iter->second.RefCount == 0) {
             deleters.at(iter->second.FileType)(iter->second.Data, nullptr);
@@ -171,7 +182,7 @@ void ResourceLoader::Unload(const char* file_type, const char* _path)
     }
 }
 
-ResourceLoader & ResourceLoader::GetResourceLoader()
+ResourceLoader& ResourceLoader::GetResourceLoader()
 {
     static ResourceLoader loader;
     return loader;
@@ -253,26 +264,18 @@ void ResourceLoader::Start()
         thr = std::thread(&ResourceLoader::workerFunction, this);
     }
 
+    cVar.notify_all();
+
 }
 
 void ResourceLoader::Stop()
 {
-    shutdown = true;      
-        
+    shutdown = true;
     cVar.notify_all();
 
     for (auto& thr : workers)
     {
-        if (thr.joinable())
-        {
-            thr.join();
-        }
-    }
-
-    while (!resources.empty())
-    {
-        auto iter = resources.begin();
-        Unload(iter->second.FileType.c_str(), iter->first.c_str());
+        thr.join();
     }
 
 }
@@ -285,35 +288,39 @@ void ResourceLoader::workerFunction()
     {
         std::unique_lock<std::recursive_mutex> lock{queueMutex};
         cVar.wait(lock, [this]()->bool { return shutdown || !requests.empty(); });
-
-        if (shutdown)
+        
+        if (requests.empty())
         {
-            lock.unlock();
+            // get here when shutdown set true: we still want to finish out queued loads though
             return;
         }
 
         loadRequest request = requests.front();
         requests.pop_front();
         FactoryFunctor factory_fn = factories.at(request.destinationData.FileType);
-        lock.unlock(); 
+        lock.unlock();
 
+        if (!fs::exists(request.destinationData.FileName))
+        {
+            // Gotta find file path.
+            std::string found_path = FindFile(request.destinationData.FileName, request.destinationData.SearchDir, 2);
+            if (found_path.empty())
+            {
+                std::lock_guard failMutex{ logMutex };
+                LOG(ERROR) << "Failed to load resource! File name was " << request.destinationData.FileName;
+                throw std::runtime_error("Failed to load resource!"); // how could we handle this without throwing?
+            }
+            request.destinationData.AbsoluteFilePath = std::move(found_path);
+            request.destinationData.SearchDir.clear();
+            request.destinationData.SearchDir.shrink_to_fit();
+
+        }
+
+        if (request.type == load_req_type::FreshLoad)
         {
 
-            if (request.destinationData.AbsoluteFilePath.empty())
-            {
-                // Gotta find file path.
-                std::string found_path = FindFile(request.destinationData.FileName, request.destinationData.SearchDir, 2);
-                if (found_path.empty())
-                {
-                    std::lock_guard failMutex{ logMutex };
-                    LOG(ERROR) << "Failed to load resource! File name was " << request.destinationData.FileName;
-                    throw std::runtime_error("Failed to load resource!"); // how could we handle this without throwing?
-                }
-                request.destinationData.AbsoluteFilePath = std::move(found_path);
-            }
-
             request.destinationData.Data = factory_fn(request.destinationData.AbsoluteFilePath.c_str(), request.userData);
-            auto iter = resources.emplace(request.destinationData.AbsoluteFilePath, std::move(request.destinationData));
+            auto iter = resources.emplace(request.destinationData.FileNameHash, std::move(request.destinationData));
             void* data = iter.first->second.Data;
             // signal first requester first
             request.signal(request.requester, data, request.userData);
@@ -335,6 +342,13 @@ void ResourceLoader::workerFunction()
             }
             // call other dependent items
             pendingResources.erase(iter.first->first);
+        }
+        else if (request.type == load_req_type::AlreadyLoaded)
+        {
+            // just dispatch a signal
+            auto& data = resources.at(request.destinationData.FileNameHash);
+            request.signal(request.requester, data.Data, request.userData);
+            data.RefCount += 1;
         }
     }
 }
