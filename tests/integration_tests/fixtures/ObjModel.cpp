@@ -279,6 +279,7 @@ void ObjectModel::loadMeshes(const std::vector<tinyobj_opt::shape_t>& shapes, co
         std::vector<uint32_t> indices;
         std::vector<glm::vec3> positions;
         std::vector<vtxAttrib> attributes;
+        AABB materialGroupBounds;
     };
 
     std::map<uint32_t, material_group_t> groups;
@@ -290,6 +291,7 @@ void ObjectModel::loadMeshes(const std::vector<tinyobj_opt::shape_t>& shapes, co
         auto& group = groups[material_id];
         uint32_t result = static_cast<uint32_t>(positions.size());
         group.positions.emplace_back(vert.Position);
+        group.materialGroupBounds.Include(vert.Position);
         modelAABB.Include(vert.Position);
         group.attributes.emplace_back(vtxAttrib{ vert.Normal, glm::vec3(), vert.UV });
         return result;

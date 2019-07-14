@@ -3,6 +3,7 @@
 #include "ResourceContext.hpp"
 #include "ResourceLoader.hpp"
 #include "LogicalDevice.hpp"
+#include "DescriptorTemplate.hpp"
 #include "MurmurHash.hpp"
 #pragma warning(push, 1) // silence warnings from other libs
 #include "tinyobj_loader_opt.h"
@@ -99,7 +100,7 @@ namespace
 static VulkanResource* failedLoadDebugTexture{ nullptr };
 static std::unordered_map<uint64_t, std::map<texture_type, resource_loader_data_t>> loaderDataMap;
 
-MaterialCache::material_cache_page_t::material_cache_page_t() noexcept
+MaterialCache::material_cache_page_t::material_cache_page_t() noexcept : descriptorTemplate(std::make_unique<DescriptorTemplate>("MaterialCachePageDescriptorTemplate"))
 {
     parameterUBOs.fill(nullptr);
     albedoMaps.fill(nullptr);
@@ -114,6 +115,8 @@ MaterialCache::material_cache_page_t::material_cache_page_t() noexcept
     emissiveMaps.fill(nullptr);
 }
 
+MaterialCache::material_cache_page_t::~material_cache_page_t() {}
+
 void MaterialCache::material_cache_page_t::createVkResources()
 {
     static size_t numPages{ 0u };
@@ -124,7 +127,7 @@ void MaterialCache::material_cache_page_t::createVkResources()
     }
     else
     {
-        initialized = false;
+        initialized = true;
     }
 
     constexpr static VkBufferCreateInfo indicesBufferInfo
@@ -189,6 +192,7 @@ MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const ch
     const uint64_t materialHash = hashTinyobjMaterial(mtlPtr, params);
 
     auto& currMtlPage = materialPages[currentPage];
+    currMtlPage.createVkResources();
 
     rw_lock_guard dataGuard(lock_mode::Read, materialSharedMutex);
 
@@ -325,6 +329,12 @@ MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const ch
     
 }
 
+void MaterialCache::UseMaterialAtIdx(const MaterialInstance& instance, const uint32_t idx)
+{
+    rw_lock_guard tableGuard(lock_mode::Write, materialPages[instance.PageIdx].tableMutex);
+    materialPages[instance.PageIdx].indicesUsingMaterial.emplace(instance.MaterialHash, idx);
+}
+
 void MaterialCache::textureLoadedCallbackImpl(void* loaded_image, void* user_data)
 {
     loaded_texture_data_t* textureData = reinterpret_cast<loaded_texture_data_t*>(loaded_image);
@@ -333,7 +343,7 @@ void MaterialCache::textureLoadedCallbackImpl(void* loaded_image, void* user_dat
     const texture_type loadedTexType = callbackData->type;
     material_cache_page_t& currPage = materialPages[callbackData->pageIdx];
     
-    rw_lock_guard tableGuard(lock_mode::Write, currPage.indicesTableMutex);
+    rw_lock_guard tableGuard(lock_mode::Write, currPage.tableMutex);
     auto& indices = currPage.masterIndicesTable.at(callbackData->mtlHash);
     auto& resourceLoaderData = loaderDataMap.at(callbackData->mtlHash);
 
@@ -343,6 +353,8 @@ void MaterialCache::textureLoadedCallbackImpl(void* loaded_image, void* user_dat
         resourceArray[idxToUse] = textureData->resource;
         idxToSet = static_cast<int32_t>(idxToUse);
     };
+
+    currPage.materialDirty[callbackData->mtlHash] = true;
 
     switch (loadedTexType)
     {
@@ -428,6 +440,40 @@ uint64_t MaterialCache::hashTinyobjMaterial(const void* mtlPtr, const material_p
 
     const uint64_t namesHash = MurmurHash2((void*)concatenatedNames.c_str(), sizeof(char) * concatenatedNames.length(), 0xFC);
     return namesHash ^ paramsHash;
+}
+
+void MaterialCache::updatePage(uint64_t pageIdx)
+{
+    auto& pageToUpdate = materialPages[pageIdx];
+    if (pageToUpdate.dirty)
+    {
+        rw_lock_guard pageTableGuard(lock_mode::Write, pageToUpdate.tableMutex);
+
+        for (auto& mtl : pageToUpdate.materialDirty)
+        {
+            auto indices_range = pageToUpdate.indicesUsingMaterial.equal_range(mtl.first);
+            for (auto iter = indices_range.first; iter != indices_range.second; ++iter)
+            {
+                pageToUpdate.indicesArray[iter->second] = pageToUpdate.masterIndicesTable.at(iter->first);
+            }
+        }
+
+        const gpu_resource_data_t indicesArrayData
+        {
+            &pageToUpdate.indicesArray, MaxMaterialPageTextureCount * sizeof(material_shader_indices_t),
+            0u, VK_QUEUE_FAMILY_IGNORED
+        };
+
+        auto& rsrc_context = ResourceContext::Get();
+        rsrc_context.SetBufferData(pageToUpdate.vkIndicesBufferSBO, 1u, &indicesArrayData);
+
+        // now update image handles
+
+
+        pageToUpdate.materialDirty.clear();
+    }
+
+    pageToUpdate.dirty = false;
 }
 
 constexpr bool MaterialCache::image_loaded_callback_data_t::operator==(const image_loaded_callback_data_t& other) const noexcept

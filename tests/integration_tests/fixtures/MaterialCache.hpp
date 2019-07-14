@@ -10,11 +10,14 @@
 #include <atomic>
 #include <shared_mutex>
 #include <set>
+#include <memory>
 
 // Also sets max size of a drawcall
 constexpr static size_t MaxMaterialPageTextureCount = 512u;
 // Max of 8192 textures loaded at once
 constexpr static size_t MaxMaterialPages = 16u;
+
+struct DescriptorTemplate;
 
 struct MaterialInstance
 {
@@ -44,12 +47,14 @@ public:
 
     // Sets material to use at (idx) on material page from instance
     void UseMaterialAtIdx(const MaterialInstance& instance, const uint32_t idx);
+    void BindPage();
 
 private:
 
     friend void textureLoadedCallback(void* instance, void* loaded_data, void* user_data);
     void textureLoadedCallbackImpl(void* loaded_image, void* user_data);
     uint64_t hashTinyobjMaterial(const void* mtlPtr, const material_parameters_t& params);
+    void updatePage(uint64_t pageIdx);
 
     struct atomic_container_indices_t
     {
@@ -84,10 +89,11 @@ private:
     struct material_cache_page_t
     {
         material_cache_page_t() noexcept;
+        ~material_cache_page_t();
 
         void createVkResources();
         
-        bool dirty{ true };
+        std::atomic<bool> dirty{ true };
         // sets up vulkan resources for the material shader indices
         // atomic in the edge case two threads hit the code that flips initialized
         std::atomic<bool> initialized{ false };
@@ -109,9 +115,13 @@ private:
             rebinds). plus, users can do sorting on their end and just deal with
             MaterialInstance handles
         */
+        std::unique_ptr<DescriptorTemplate> descriptorTemplate;
         std::set<image_loaded_callback_data_t> callbackDataStorage;
+        std::shared_mutex tableMutex;
         std::unordered_map<uint64_t, material_shader_indices_t> masterIndicesTable;
-        std::shared_mutex indicesTableMutex;
+        std::unordered_map<uint64_t, bool> materialDirty;
+        std::unordered_multimap<uint64_t, uint32_t> indicesUsingMaterial;
+        std::unordered_map<texture_type, uint32_t> textureTypeBindingIndices;
         std::array<material_shader_indices_t, MaxMaterialPageTextureCount> indicesArray;
         // GPU-side data for the above
         VulkanResource* vkIndicesBufferSBO{ nullptr };

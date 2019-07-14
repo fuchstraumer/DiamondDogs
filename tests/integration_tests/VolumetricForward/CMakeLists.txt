@@ -28,8 +28,6 @@ ADD_INTEGRATION_TEST(VTF_Scene
     "../fixtures/PerspectiveCamera.cpp"
     "../fixtures/ObjModel.hpp"
     "../fixtures/ObjModel.cpp"
-    "../fixtures/Material.hpp"
-    "../fixtures/Material.cpp"
     "../fixtures/MaterialCache.hpp"
     "../fixtures/MaterialCache.cpp"
     "../fixtures/MaterialStructures.hpp"

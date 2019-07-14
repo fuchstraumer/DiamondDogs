@@ -21,7 +21,10 @@ enum class texture_type : uint8_t
     Metallic,
     Sheen,
     Emissive,
-    Normal
+    Normal,
+    // not intended for use anywhere but internally
+    // used to store bindings, kinda needed
+    ParametersUBO
 };
 
 struct material_shader_indices_t
