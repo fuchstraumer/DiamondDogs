@@ -1,31 +1,46 @@
 #pragma once
 #ifndef TERRAIN_PLUGIN_QUADTREE_HPP
 #define TERRAIN_PLUGIN_QUADTREE_HPP
-#include "ForwardDecl.hpp"
-#include "glm/vec3.hpp"
-#include "glm/mat4x4.hpp"
-#include <unordered_map>
-#include <memory>
-#include <vulkan/vulkan.h>
+#include "Entity.hpp"
 
 class HeightNode;
 class TerrainNode;
+
+struct QuadtreeInstance;
+struct QuadtreeNodeComponent;
+
+struct QuadtreeConfiguration
+{
+    size_t MaxLOD;
+};
+
+class QuadtreeSystem
+{
+public:
+
+    static QuadtreeInstance* CreateQuadtreeInstance(const QuadtreeConfiguration& config);
+    
+    static QuadtreeNodeComponent* TryAndGetQuadtreeNodeMutable(QuadtreeInstance* instance, const ecs::Entity entity);
+    static QuadtreeNodeComponent& GetQuadtreeNodeRefMutable(QuadtreeInstance* instance, const ecs::Entity entity);
+    static const QuadtreeNodeComponent* TryAndGetQuadtreeNode(QuadtreeInstance* instance, const ecs::Entity entity);
+    static const QuadtreeNodeComponent& GetQuadtreeNodeRef(QuadtreeInstance* instance, const ecs::Entity entity);
+
+private:
+
+};
 
 class TerrainQuadtree {
     TerrainQuadtree(const TerrainQuadtree&) = delete;
     TerrainQuadtree& operator=(const TerrainQuadtree&) = delete;
 public:
 
-    TerrainQuadtree(const vpr::Device* device, const float& split_factor, const size_t& max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position);
-
-    void SetupNodePipeline(const VkRenderPass& renderpass, const glm::mat4& projection);
-    void UpdateQuadtree(const glm::vec3 & camera_position, const glm::mat4& view);
-    void RenderNodes(VkCommandBuffer& graphics_cmd, VkCommandBufferBeginInfo& begin_info, const glm::mat4& view, const glm::vec3& camera_pos, const VkViewport& viewport, const VkRect2D& rect);
+    TerrainQuadtree(const float& split_factor, const size_t& max_detail_level, const double& root_side_length, const glm::vec3& root_tile_position);
+    void UpdateQuadtree(const glm::vec3& camera_position, const glm::mat4& view, const glm::mat4& projection);
 
 private:
 
     std::unique_ptr<TerrainNode> root;
-    std::unordered_map<glm::ivec3, std::shared_ptr<HeightNode>> cachedHeightData;
+    std::unordered_map<glm::ivec3, std::unique_ptr<HeightNode>> cachedHeightData;
     size_t MaxLOD;
 
 };

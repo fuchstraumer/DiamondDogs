@@ -15,10 +15,16 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
  */
-#include <stdafx.h>
-#include <random>
-#include "sdnoise1234.h" /* We strictly don't need this, but play nice. */
-#define FASTFLOOR(x) ( ((x)>0) ? ((int)x) : (((int)x)-1) )
+#include "NoiseGen.hpp" /* We strictly don't need this, but play nice. */
+#include <numeric>
+#include <algorithm>
+#include <immintrin.h>
+#include <smmintrin.h>
+
+inline float FastFloor(float x)
+{
+    return (x > 0.0f) ? static_cast<int>(x) : static_cast<int>(x) - 1;
+}
 /*
  * Gradient tables. These could be programmed the Ken Perlin way with
  * some clever bit-twiddling, but this is more clear, and not really slower.
@@ -74,226 +80,190 @@ constexpr static unsigned char simplex[64][4] = {
 
 /* --------------------------------------------------------------------- */
 
-/*
- * Helper functions to compute gradients in 1D to 4D
- * and gradients-dot-residualvectors in 2D to 4D.
- */
-
-static void grad1( int hash, float *gx ) {
-    int h = hash & 15;
-    *gx = 1.0f + (h & 7);   // Gradient value is one of 1.0, 2.0, ..., 8.0
-    if (h&8) *gx = - *gx;   // Make half of the gradients negative
+static void grad3(int32_t hash, float& gx, float& gy, float& gz) {
+    const int32_t h = hash & 15;
+    gx = grad3lut[h][0];
+    gy = grad3lut[h][1];
+    gz = grad3lut[h][2];
 }
 
-static void grad2( int hash, float *gx, float *gy ) {
-    int h = hash & 7;
-    *gx = grad2lut[h][0];
-    *gy = grad2lut[h][1];
-    return;
+NoiseGen::NoiseGen() : randomDvc(), rng(randomDvc()) {
+	std::iota(permutationArray.begin(), permutationArray.begin() + 256, 0);
+	std::iota(permutationArray.begin() + 256, permutationArray.end(), 0);
+	std::shuffle(permutationArray.begin(), permutationArray.end(), rng);
 }
 
-static void grad3( int hash, float *gx, float *gy, float *gz ) {
-    int h = hash & 15;
-    *gx = grad3lut[h][0];
-    *gy = grad3lut[h][1];
-    *gz = grad3lut[h][2];
-    return;
-}
-
-static void grad4( int hash, float *gx, float *gy, float *gz, float *gw) {
-    int h = hash & 31;
-    *gx = grad4lut[h][0];
-    *gy = grad4lut[h][1];
-    *gz = grad4lut[h][2];
-    *gw = grad4lut[h][3];
-    return;
-}
-
-NoiseGen::NoiseGen() {
-	std::random_device rd;
-	std::mt19937 rng(rd());
-	std::iota(perm.begin(), perm.begin() + 256, 0);
-	std::iota(perm.begin() + 256, perm.end(), 0);
-	std::shuffle(perm.begin(), perm.end(), rng);
-}
-
-/** 1D simplex noise with derivative.
- * If the last argument is not null, the analytic derivative
- * is also calculated.
- */
-float NoiseGen::sdnoise1( float x, float *dnoise_dx)
+void NoiseGen::Seed(const size_t seed) noexcept
 {
-  int i0 = FASTFLOOR(x);
-  int i1 = i0 + 1;
-  float x0 = x - i0;
-  float x1 = x0 - 1.0f;
-
-  float gx0, gx1;
-  float n0, n1;
-  float t1, t20, t40, t21, t41, x21;
-
-  float x20 = x0*x0;
-  float t0 = 1.0f - x20;
-//  if(t0 < 0.0f) t0 = 0.0f; // Never happens for 1D: x0<=1 always
-  t20 = t0 * t0;
-  t40 = t20 * t20;
-  grad1(perm[i0 & 0xff], &gx0);
-  n0 = t40 * gx0 * x0;
-
-  x21 = x1*x1;
-  t1 = 1.0f - x21;
-//  if(t1 < 0.0f) t1 = 0.0f; // Never happens for 1D: |x1|<=1 always
-  t21 = t1 * t1;
-  t41 = t21 * t21;
-  grad1(perm[i1 & 0xff], &gx1);
-  n1 = t41 * gx1 * x1;
-
-/* Compute derivative, if requested by supplying non-null pointer
- * for the last argument
- * Compute derivative according to:
- *  *dnoise_dx = -8.0f * t20 * t0 * x0 * (gx0 * x0) + t40 * gx0;
- *  *dnoise_dx += -8.0f * t21 * t1 * x1 * (gx1 * x1) + t41 * gx1;
- */
-
-  if( (NULL != dnoise_dx ))
-  {
-    *dnoise_dx = t20 * t0 * gx0 * x20;
-    *dnoise_dx += t21 * t1 * gx1 * x21;
-    *dnoise_dx *= -8.0f;
-    *dnoise_dx += t40 * gx0 + t41 * gx1;
-    *dnoise_dx *= 0.25f; /* Scale derivative to match the noise scaling */
-  }
-  // The maximum value of this noise is 8*(3/4)^4 = 2.53125
-  // A factor of 0.395 would scale to fit exactly within [-1,1], but
-  // to better match classic Perlin noise, we scale it down some more.
-  return 0.25f * (n0 + n1);
+    rng.seed(seed);
 }
 
-/* Skewing factors for 2D simplex grid:
- * F2 = 0.5*(sqrt(3.0)-1.0)
- * G2 = (3.0-Math.sqrt(3.0))/6.0
- */
-#define F2 .366025403f
-#define G2 .211324865f
+NoiseGen& NoiseGen::Get()
+{
+    static NoiseGen generator;
+    return generator;
+}
 
-/** 2D simplex noise with derivatives.
- * If the last two arguments are not null, the analytic derivative
- * (the 2D gradient of the scalar noise field) is also calculated.
- */
-float NoiseGen::sdnoise2( float x, float y, float *dnoise_dx, float *dnoise_dy )
-  {
-    float n0, n1, n2; /* Noise contributions from the three simplex corners */
-    float gx0, gy0, gx1, gy1, gx2, gy2; /* Gradients at simplex corners */
-    float t0, t1, t2, x1, x2, y1, y2;
-    float t20, t40, t21, t41, t22, t42;
-    float temp0, temp1, temp2, noise;
+inline __m128 horizontalSum(__m128 v)
+{
+    __m128 shuffled = _mm_movehdup_ps(v);
+    __m128 sums = _mm_add_ps(v, shuffled);
+    shuffled = _mm_movehl_ps(shuffled, sums);
+    return _mm_add_ss(sums, shuffled);
+}
 
-    /* Skew the input space to determine which simplex cell we're in */
-    float s = ( x + y ) * F2; /* Hairy factor for 2D */
-    float xs = x + s;
-    float ys = y + s;
-    int ii, i = FASTFLOOR( xs );
-    int jj, j = FASTFLOOR( ys );
+/*
+float NoiseGen::SimplexNoiseWithDerivative3D(float x, float y, float z, float* deriv) const
+{
+    constexpr float F3 = 0.3333333333f;
+    // we make sure to set 0.0 for the fourth because it will let us zero out key quantities before use.
+    const __m128 registerF3 = _mm_set_ps(F3, F3, F3, 0.0f);
+    constexpr float G3 = 0.1666666667f;
+    const __m128 registerG3 = _mm_set_ps(G3, G3, G3, 0.0f);
+    const __m128 zeroOutMask = _mm_set_ps(1.0f, 1.0f, 1.0f, 0.0f);
+    // stuff it into our vectors
+    const float zeroPad = 0.0f;
 
-    float t = ( float ) ( i + j ) * G2;
-    float X0 = i - t; /* Unskew the cell origin back to (x,y) space */
-    float Y0 = j - t;
-    float x0 = x - X0; /* The x,y distances from the cell origin */
-    float y0 = y - Y0;
+    __m128 xyzw = _mm_set_ps(x, y, z, zeroPad);
+    __m128 xyzSum = horizontalSum(xyzw);
+    __m128 s = _mm_mul_ps(xyzSum, registerF3);
+    __m128 xyzwS = _mm_add_ps(xyzw, s);
 
-    /* For the 2D case, the simplex shape is an equilateral triangle.
-     * Determine which simplex we are in. */
-    int i1, j1; /* Offsets for second (middle) corner of simplex in (i,j) coords */
-    if( x0 > y0 ) { i1 = 1; j1 = 0; } /* lower triangle, XY order: (0,0)->(1,0)->(1,1) */
-    else { i1 = 0; j1 = 1; }      /* upper triangle, YX order: (0,0)->(0,1)->(1,1) */
+    __m128 ijk = _mm_round_ps(xyzwS, _MM_FROUND_FLOOR);
+    ijk = _mm_mul_ps(ijk, zeroOutMask);
+    __m128 tVec = horizontalSum(ijk);
+    tVec = _mm_mul_ps(tVec, registerG3);
+    __m128 _XYZW = _mm_sub_ps(ijk, tVec);
+    __m128 x0y0z0 = _mm_sub_ps(xyzw, _XYZW);
 
-    /* A step of (1,0) in (i,j) means a step of (1-c,-c) in (x,y), and
-     * a step of (0,1) in (i,j) means a step of (-c,1-c) in (x,y), where
-     * c = (3-sqrt(3))/6   */
-    x1 = x0 - i1 + G2; /* Offsets for middle corner in (x,y) unskewed coords */
-    y1 = y0 - j1 + G2;
-    x2 = x0 - 1.0f + 2.0f * G2; /* Offsets for last corner in (x,y) unskewed coords */
-    y2 = y0 - 1.0f + 2.0f * G2;
+    float x0, y0, z0;
+    // aligned for a faster store
+    alignas(16) float comparisonBuffers[4]{ 0.0f, 0.0f, 0.0f, 0.0f };
+    _mm_store_ps(comparisonBuffers, x0y0z0);
 
-    /* Wrap the integer indices at 256, to avoid indexing perm[] out of bounds */
-    ii = i % 256;
-    jj = j % 256;
+    __m128 i1j1k1;
+    __m128 i2j2k2;
 
-    /* Calculate the contribution from the three corners */
-    t0 = 0.5f - x0 * x0 - y0 * y0;
-    if( t0 < 0.0f ) t40 = t20 = t0 = n0 = gx0 = gy0 = 0.0f; /* No influence */
-    else {
-      grad2( perm[ii + perm[jj]], &gx0, &gy0 );
-      t20 = t0 * t0;
-      t40 = t20 * t20;
-      n0 = t40 * ( gx0 * x0 + gy0 * y0 );
+    if (comparisonBuffers[0] >= comparisonBuffers[1])
+    {
+        if (comparisonBuffers[1] >= comparisonBuffers[2])
+        {
+            i1j1k1 = _mm_set_ps(1.0f, 0.0f, 0.0f, 0.0f);
+            i2j2k2 = _mm_set_ps(1.0f, 1.0f, 0.0f, 0.0f);
+        }
+        else if (comparisonBuffers[0] >= comparisonBuffers[2])
+        {
+            i1j1k1 = _mm_set_ps(1.0f, 0.0f, 0.0f, 0.0f);
+            i2j2k2 = _mm_set_ps(1.0f, 0.0f, 1.0f, 0.0f);
+        }
+        else
+        {
+            i1j1k1 = _mm_set_ps(0.0f, 0.0f, 1.0f, 0.0f);
+            i2j2k2 = _mm_set_ps(1.0f, 0.0f, 1.0f, 0.0f);
+        }
+    }
+    else
+    {
+        if (comparisonBuffers[1] < comparisonBuffers[2])
+        {
+            i1j1k1 = _mm_set_ps(0.0f, 0.0f, 1.0f, 0.0f);
+            i2j2k2 = _mm_set_ps(0.0f, 1.0f, 1.0f, 0.0f);
+        }
+        else if (comparisonBuffers[0] < comparisonBuffers[2])
+        {
+            i1j1k1 = _mm_set_ps(0.0f, 1.0f, 0.0f, 0.0f);
+            i2j2k2 = _mm_set_ps(0.0f, 1.0f, 1.0f, 0.0f);
+        }
+        else
+        {
+            i1j1k1 = _mm_set_ps(0.0f, 1.0f, 0.0f, 0.0f);
+            i2j2k2 = _mm_set_ps(1.0f, 1.0f, 0.0f, 0.0f);
+        }
     }
 
-    t1 = 0.5f - x1 * x1 - y1 * y1;
-    if( t1 < 0.0f ) t21 = t41 = t1 = n1 = gx1 = gy1 = 0.0f; /* No influence */
-    else {
-      grad2( perm[ii + i1 + perm[jj + j1]], &gx1, &gy1 );
-      t21 = t1 * t1;
-      t41 = t21 * t21;
-      n1 = t41 * ( gx1 * x1 + gy1 * y1 );
+    __m128 x1y1z1 = _mm_sub_ps(x0y0z0, _mm_add_ps(i1j1k1, registerG3));
+    __m128 x2y2z2 = _mm_sub_ps(x0y0z0, _mm_add_ps(i1j1k1, _mm_mul_ps(_mm_set1_ps(2.0f), registerG3)));
+    __m128 x3y3z3 = _mm_sub_ps(x0y0z0, _mm_add_ps(_mm_set1_ps(-1.0f), _mm_mul_ps(_mm_set1_ps(3.0f), registerG3)));
+
+    alignas(16) float indicesManual[4]{ 0.0f, 0.0f, 0.0f, 0.0f };
+    _mm_store_ps(indicesManual, ijk);
+
+    const int32_t ii = std::abs(static_cast<int32_t>(indicesManual[0]) % 256);
+    const int32_t jj = std::abs(static_cast<int32_t>(indicesManual[1]) % 256);
+    const int32_t kk = std::abs(static_cast<int32_t>(indicesManual[2]) % 256);
+
+    alignas(16) float coordsBuffer[4]{ 0.0f, 0.0f, 0.0f, 0.0f };
+    _mm_store_ps(coordsBuffer, x0y0z0);
+    const float x0 = coordsBuffer[0];
+    const float y1 = coordsBuffer[1];
+    const float z1 = coordsBuffer[2];
+    _mm_store_ps(coordsBuffer, x1y1z1);
+    const float x1 = coordsBuffer[0];
+    const float y1 = coordsBuffer[1];
+    const float z1 = coordsBuffer[2];
+    _mm_store_ps(coordsBuffer, x2y2z2);
+    const float x2 = coordsBuffer[0];
+    const float y2 = coordsBuffer[1];
+    const float z2 = coordsBuffer[2];
+    _mm_store_ps(coordsBuffer, x3y3z3);
+    const float x3 = coordsBuffer[0];
+    const float y3 = coordsBuffer[1];
+    const float z3 = coordsBuffer[2];
+
+    float n0, t0, tSq0, tExp0, gx0, gy0, gz0;
+    _mm_mul_ps(x0y0z0, x0y0z0);
+    _mm_store_ps(coordsBuffer, x0y0z0);
+    t0 = 0.6f - coordsBuffer[0] - coordsBuffer[1] - coordsBuffer[2];
+    if (t0 < 0.0f)
+    {
+        n0 = t0 = tSq0 = tExp0 = gx0 = gy0 = gz0 = 0.0f;
+    }
+    else
+    {
+        const int32_t idx = permutationArray[ii + permutationArray[jj + permutationArray[kk]]];
+        tSq0 = t0 * t0;
+        tExp0 = tSq0 * tSq0;
+        grad3(idx, gx0, gy0, gz0);
+        n0 = tExp0 * (gx0 * x0 + gy0 * y0 + gz0 + z0);
     }
 
-    t2 = 0.5f - x2 * x2 - y2 * y2;
-    if( t2 < 0.0f ) t42 = t22 = t2 = n2 = gx2 = gy2 = 0.0f; /* No influence */
-    else {
-      grad2( perm[ii + 1 + perm[jj + 1]], &gx2, &gy2 );
-      t22 = t2 * t2;
-      t42 = t22 * t22;
-      n2 = t42 * ( gx2 * x2 + gy2 * y2 );
+    float n1, t1, tSq1, tExp1, gx1, gy1, gz1;
+    _mm_mul_ps(x1y1z1, x1y1z1);
+    _mm_store_ps(coordsBuffer, x1y1z1);
+    float t1 = 0.6f - coordsBuffer[0] - coordsBuffer[1] - coordsBuffer[2];
+    if (t1 < 0.0f)
+    {
+        n1 = t1 = tSq1 = tExp1 = gx1 = gy1 = gz1 = 0.0f;
+    }
+    else
+    {
+        //const int32_t idx = 
     }
 
-    /* Add contributions from each corner to get the final noise value.
-     * The result is scaled to return values in the interval [-1,1]. */
-    noise = 40.0f * ( n0 + n1 + n2 );
+    // we square everything before storing it to the buffer for the linear op
+    _mm_mul_ps(x2y2z2, x2y2z2);
+    _mm_store_ps(coordsBuffer, x2y2z2);
+    float t2 = 0.6f - coordsBuffer[0] - coordsBuffer[1] - coordsBuffer[2];
+    _mm_mul_ps(x3y3z3, x3y3z3);
+    _mm_store_ps(coordsBuffer, x3y3z3);
+    float t3 = 0.6f - coordsBuffer[0] - coordsBuffer[1] - coordsBuffer[2];
 
-    /* Compute derivative, if requested by supplying non-null pointers
-     * for the last two arguments */
-    if( ( NULL != dnoise_dx ) && ( NULL != dnoise_dy ) )
-      {
-	/*  A straight, unoptimised calculation would be like:
-     *    *dnoise_dx = -8.0f * t20 * t0 * x0 * ( gx0 * x0 + gy0 * y0 ) + t40 * gx0;
-     *    *dnoise_dy = -8.0f * t20 * t0 * y0 * ( gx0 * x0 + gy0 * y0 ) + t40 * gy0;
-     *    *dnoise_dx += -8.0f * t21 * t1 * x1 * ( gx1 * x1 + gy1 * y1 ) + t41 * gx1;
-     *    *dnoise_dy += -8.0f * t21 * t1 * y1 * ( gx1 * x1 + gy1 * y1 ) + t41 * gy1;
-     *    *dnoise_dx += -8.0f * t22 * t2 * x2 * ( gx2 * x2 + gy2 * y2 ) + t42 * gx2;
-     *    *dnoise_dy += -8.0f * t22 * t2 * y2 * ( gx2 * x2 + gy2 * y2 ) + t42 * gy2;
-	 */
-        temp0 = t20 * t0 * ( gx0* x0 + gy0 * y0 );
-        *dnoise_dx = temp0 * x0;
-        *dnoise_dy = temp0 * y0;
-        temp1 = t21 * t1 * ( gx1 * x1 + gy1 * y1 );
-        *dnoise_dx += temp1 * x1;
-        *dnoise_dy += temp1 * y1;
-        temp2 = t22 * t2 * ( gx2* x2 + gy2 * y2 );
-        *dnoise_dx += temp2 * x2;
-        *dnoise_dy += temp2 * y2;
-        *dnoise_dx *= -8.0f;
-        *dnoise_dy *= -8.0f;
-        *dnoise_dx += t40 * gx0 + t41 * gx1 + t42 * gx2;
-        *dnoise_dy += t40 * gy0 + t41 * gy1 + t42 * gy2;
-        *dnoise_dx *= 40.0f; /* Scale derivative to match the noise scaling */
-        *dnoise_dy *= 40.0f;
-      }
-    return noise;
-  }
+
+    return 0.0f;
+}
+*/
 
 /* Skewing factors for 3D simplex grid:
  * F3 = 1/3
  * G3 = 1/6 */
-#define F3 .333333333f
-#define G3 .166666667f
-
+constexpr float F3 = 0.333333333f;
+constexpr float G3 = 0.166666667f;
 
 /** 3D simplex noise with derivatives.
  * If the last tthree arguments are not null, the analytic derivative
  * (the 3D gradient of the scalar noise field) is also calculated.
  */
-float NoiseGen::sdnoise3( float x, float y, float z, glm::vec3* deriv)
+float NoiseGen::SimplexNoiseWithDerivative3D(float x, float y, float z, float* deriv = nullptr) const
 {
     float n0, n1, n2, n3; /* Noise contributions from the four simplex corners */
     float noise;          /* Return value */
@@ -308,9 +278,9 @@ float NoiseGen::sdnoise3( float x, float y, float z, glm::vec3* deriv)
     float xs = x+s;
     float ys = y+s;
     float zs = z+s;
-    int ii, i = FASTFLOOR(xs);
-    int jj, j = FASTFLOOR(ys);
-    int kk, k = FASTFLOOR(zs);
+    int ii, i = FastFloor(xs);
+    int jj, j = FastFloor(ys);
+    int kk, k = FastFloor(zs);
 
     float t = (float)(i+j+k)*G3; 
     float X0 = i-t; /* Unskew the cell origin back to (x,y,z) space */
@@ -362,7 +332,7 @@ float NoiseGen::sdnoise3( float x, float y, float z, glm::vec3* deriv)
     t0 = 0.6f - x0*x0 - y0*y0 - z0*z0;
     if(t0 < 0.0f) n0 = t0 = t20 = t40 = gx0 = gy0 = gz0 = 0.0f;
     else {
-      grad3( perm[ii + perm[jj + perm[kk]]], &gx0, &gy0, &gz0 );
+      grad3( permutationArray[ii + permutationArray[jj + permutationArray[kk]]], gx0, gy0, gz0 );
       t20 = t0 * t0;
       t40 = t20 * t20;
       n0 = t40 * ( gx0 * x0 + gy0 * y0 + gz0 * z0 );
@@ -371,7 +341,7 @@ float NoiseGen::sdnoise3( float x, float y, float z, glm::vec3* deriv)
     t1 = 0.6f - x1*x1 - y1*y1 - z1*z1;
     if(t1 < 0.0f) n1 = t1 = t21 = t41 = gx1 = gy1 = gz1 = 0.0f;
     else {
-      grad3( perm[ii + i1 + perm[jj + j1 + perm[kk + k1]]], &gx1, &gy1, &gz1 );
+      grad3( permutationArray[ii + i1 + permutationArray[jj + j1 + permutationArray[kk + k1]]], gx1, gy1, gz1 );
       t21 = t1 * t1;
       t41 = t21 * t21;
       n1 = t41 * ( gx1 * x1 + gy1 * y1 + gz1 * z1 );
@@ -380,7 +350,7 @@ float NoiseGen::sdnoise3( float x, float y, float z, glm::vec3* deriv)
     t2 = 0.6f - x2*x2 - y2*y2 - z2*z2;
     if(t2 < 0.0f) n2 = t2 = t22 = t42 = gx2 = gy2 = gz2 = 0.0f;
     else {
-      grad3( perm[ii + i2 + perm[jj + j2 + perm[kk + k2]]], &gx2, &gy2, &gz2 );
+      grad3( permutationArray[ii + i2 + permutationArray[jj + j2 + permutationArray[kk + k2]]], gx2, gy2, gz2 );
       t22 = t2 * t2;
       t42 = t22 * t22;
       n2 = t42 * ( gx2 * x2 + gy2 * y2 + gz2 * z2 );
@@ -389,7 +359,7 @@ float NoiseGen::sdnoise3( float x, float y, float z, glm::vec3* deriv)
     t3 = 0.6f - x3*x3 - y3*y3 - z3*z3;
     if(t3 < 0.0f) n3 = t3 = t23 = t43 = gx3 = gy3 = gz3 = 0.0f;
     else {
-      grad3( perm[ii + 1 + perm[jj + 1 + perm[kk + 1]]], &gx3, &gy3, &gz3 );
+      grad3( permutationArray[ii + 1 + permutationArray[jj + 1 + permutationArray[kk + 1]]], gx3, gy3, gz3 );
       t23 = t3 * t3;
       t43 = t23 * t23;
       n3 = t43 * ( gx3 * x3 + gy3 * y3 + gz3 * z3 );
@@ -417,256 +387,32 @@ float NoiseGen::sdnoise3( float x, float y, float z, glm::vec3* deriv)
      *    *deriv->z += -8.0f * t23 * t3 * z3 * dot(gx3, gy3, gz3, x3, y3, z3) + t43 * gz3;
      */
         temp0 = t20 * t0 * ( gx0 * x0 + gy0 * y0 + gz0 * z0 );
-        deriv->x = temp0 * x0;
-        deriv->y = temp0 * y0;
-        deriv->z = temp0 * z0;
+        deriv[0] = temp0 * x0;
+        deriv[1] = temp0 * y0;
+        deriv[2] = temp0 * z0;
         temp1 = t21 * t1 * ( gx1 * x1 + gy1 * y1 + gz1 * z1 );
-        deriv->x += temp1 * x1;
-        deriv->y += temp1 * y1;
-        deriv->z += temp1 * z1;
+        deriv[0] += temp1 * x1;
+        deriv[1] += temp1 * y1;
+        deriv[2] += temp1 * z1;
         temp2 = t22 * t2 * ( gx2 * x2 + gy2 * y2 + gz2 * z2 );
-        deriv->x += temp2 * x2;
-        deriv->y += temp2 * y2;
-        deriv->z += temp2 * z2;
+        deriv[0] += temp2 * x2;
+        deriv[1] += temp2 * y2;
+        deriv[2] += temp2 * z2;
         temp3 = t23 * t3 * ( gx3 * x3 + gy3 * y3 + gz3 * z3 );
-        deriv->x += temp3 * x3;
-        deriv->y += temp3 * y3;
-        deriv->z += temp3 * z3;
-        deriv->x *= -8.0f;
-        deriv->y *= -8.0f;
-        deriv->z *= -8.0f;
-        deriv->x += t40 * gx0 + t41 * gx1 + t42 * gx2 + t43 * gx3;
-        deriv->y += t40 * gy0 + t41 * gy1 + t42 * gy2 + t43 * gy3;
-        deriv->z += t40 * gz0 + t41 * gz1 + t42 * gz2 + t43 * gz3;
-        deriv->x *= 28.0f; /* Scale derivative to match the noise scaling */
-        deriv->y *= 28.0f;
-        deriv->z *= 28.0f;
-      }
-    return noise;
-}
-
-// The skewing and unskewing factors are hairy again for the 4D case
-#define F4 .309016994f // F4 = (Math.sqrt(5.0)-1.0)/4.0
-#define G4 .138196601f // G4 = (5.0-Math.sqrt(5.0))/20.0
-
-/** 4D simplex noise with derivatives.
- * If the last four arguments are not null, the analytic derivative
- * (the 4D gradient of the scalar noise field) is also calculated.
- */
-float NoiseGen::sdnoise4( float x, float y, float z, float w,
-                float *dnoise_dx, float *dnoise_dy,
-                float *dnoise_dz, float *dnoise_dw)
-{
-    float n0, n1, n2, n3, n4; // Noise contributions from the five corners
-    float noise; // Return value
-    float gx0, gy0, gz0, gw0, gx1, gy1, gz1, gw1; /* Gradients at simplex corners */
-    float gx2, gy2, gz2, gw2, gx3, gy3, gz3, gw3, gx4, gy4, gz4, gw4;
-    float t20, t21, t22, t23, t24;
-    float t40, t41, t42, t43, t44;
-    float x1, y1, z1, w1, x2, y2, z2, w2, x3, y3, z3, w3, x4, y4, z4, w4;
-    float t0, t1, t2, t3, t4;
-    float temp0, temp1, temp2, temp3, temp4;
-
-    // Skew the (x,y,z,w) space to determine which cell of 24 simplices we're in
-    float s = (x + y + z + w) * F4; // Factor for 4D skewing
-    float xs = x + s;
-    float ys = y + s;
-    float zs = z + s;
-    float ws = w + s;
-    int ii, i = FASTFLOOR(xs);
-    int jj, j = FASTFLOOR(ys);
-    int kk, k = FASTFLOOR(zs);
-    int ll, l = FASTFLOOR(ws);
-
-    float t = (i + j + k + l) * G4; // Factor for 4D unskewing
-    float X0 = i - t; // Unskew the cell origin back to (x,y,z,w) space
-    float Y0 = j - t;
-    float Z0 = k - t;
-    float W0 = l - t;
-
-    float x0 = x - X0;  // The x,y,z,w distances from the cell origin
-    float y0 = y - Y0;
-    float z0 = z - Z0;
-    float w0 = w - W0;
-
-    // For the 4D case, the simplex is a 4D shape I won't even try to describe.
-    // To find out which of the 24 possible simplices we're in, we need to
-    // determine the magnitude ordering of x0, y0, z0 and w0.
-    // The method below is a reasonable way of finding the ordering of x,y,z,w
-    // and then find the correct traversal order for the simplex we’re in.
-    // First, six pair-wise comparisons are performed between each possible pair
-    // of the four coordinates, and then the results are used to add up binary
-    // bits for an integer index into a precomputed lookup table, simplex[].
-    int c1 = (x0 > y0) ? 32 : 0;
-    int c2 = (x0 > z0) ? 16 : 0;
-    int c3 = (y0 > z0) ? 8 : 0;
-    int c4 = (x0 > w0) ? 4 : 0;
-    int c5 = (y0 > w0) ? 2 : 0;
-    int c6 = (z0 > w0) ? 1 : 0;
-    int c = c1 | c2 | c3 | c4 | c5 | c6; // '|' is mostly faster than '+'
-
-    int i1, j1, k1, l1; // The integer offsets for the second simplex corner
-    int i2, j2, k2, l2; // The integer offsets for the third simplex corner
-    int i3, j3, k3, l3; // The integer offsets for the fourth simplex corner
-
-    // simplex[c] is a 4-vector with the numbers 0, 1, 2 and 3 in some order.
-    // Many values of c will never occur, since e.g. x>y>z>w makes x<z, y<w and x<w
-    // impossible. Only the 24 indices which have non-zero entries make any sense.
-    // We use a thresholding to set the coordinates in turn from the largest magnitude.
-    // The number 3 in the "simplex" array is at the position of the largest coordinate.
-    i1 = simplex[c][0]>=3 ? 1 : 0;
-    j1 = simplex[c][1]>=3 ? 1 : 0;
-    k1 = simplex[c][2]>=3 ? 1 : 0;
-    l1 = simplex[c][3]>=3 ? 1 : 0;
-    // The number 2 in the "simplex" array is at the second largest coordinate.
-    i2 = simplex[c][0]>=2 ? 1 : 0;
-    j2 = simplex[c][1]>=2 ? 1 : 0;
-    k2 = simplex[c][2]>=2 ? 1 : 0;
-    l2 = simplex[c][3]>=2 ? 1 : 0;
-    // The number 1 in the "simplex" array is at the second smallest coordinate.
-    i3 = simplex[c][0]>=1 ? 1 : 0;
-    j3 = simplex[c][1]>=1 ? 1 : 0;
-    k3 = simplex[c][2]>=1 ? 1 : 0;
-    l3 = simplex[c][3]>=1 ? 1 : 0;
-    // The fifth corner has all coordinate offsets = 1, so no need to look that up.
-
-    x1 = x0 - i1 + G4; // Offsets for second corner in (x,y,z,w) coords
-    y1 = y0 - j1 + G4;
-    z1 = z0 - k1 + G4;
-    w1 = w0 - l1 + G4;
-    x2 = x0 - i2 + 2.0f * G4; // Offsets for third corner in (x,y,z,w) coords
-    y2 = y0 - j2 + 2.0f * G4;
-    z2 = z0 - k2 + 2.0f * G4;
-    w2 = w0 - l2 + 2.0f * G4;
-    x3 = x0 - i3 + 3.0f * G4; // Offsets for fourth corner in (x,y,z,w) coords
-    y3 = y0 - j3 + 3.0f * G4;
-    z3 = z0 - k3 + 3.0f * G4;
-    w3 = w0 - l3 + 3.0f * G4;
-    x4 = x0 - 1.0f + 4.0f * G4; // Offsets for last corner in (x,y,z,w) coords
-    y4 = y0 - 1.0f + 4.0f * G4;
-    z4 = z0 - 1.0f + 4.0f * G4;
-    w4 = w0 - 1.0f + 4.0f * G4;
-
-    // Wrap the integer indices at 256, to avoid indexing perm[] out of bounds
-    ii = i & 0xff;
-    jj = j & 0xff;
-    kk = k & 0xff;
-    ll = l & 0xff;
-
-    // Calculate the contribution from the five corners
-    t0 = 0.6f - x0*x0 - y0*y0 - z0*z0 - w0*w0;
-    if(t0 < 0.0f) n0 = t0 = t20 = t40 = gx0 = gy0 = gz0 = gw0 = 0.0f;
-    else {
-      t20 = t0 * t0;
-      t40 = t20 * t20;
-      grad4(perm[ii+perm[jj+perm[kk+perm[ll]]]], &gx0, &gy0, &gz0, &gw0);
-      n0 = t40 * ( gx0 * x0 + gy0 * y0 + gz0 * z0 + gw0 * w0 );
-    }
-
-   t1 = 0.6f - x1*x1 - y1*y1 - z1*z1 - w1*w1;
-    if(t1 < 0.0f) n1 = t1 = t21 = t41 = gx1 = gy1 = gz1 = gw1 = 0.0f;
-    else {
-      t21 = t1 * t1;
-      t41 = t21 * t21;
-      grad4(perm[ii+i1+perm[jj+j1+perm[kk+k1+perm[ll+l1]]]], &gx1, &gy1, &gz1, &gw1);
-      n1 = t41 * ( gx1 * x1 + gy1 * y1 + gz1 * z1 + gw1 * w1 );
-    }
-
-   t2 = 0.6f - x2*x2 - y2*y2 - z2*z2 - w2*w2;
-    if(t2 < 0.0f) n2 = t2 = t22 = t42 = gx2 = gy2 = gz2 = gw2 = 0.0f;
-    else {
-      t22 = t2 * t2;
-      t42 = t22 * t22;
-      grad4(perm[ii+i2+perm[jj+j2+perm[kk+k2+perm[ll+l2]]]], &gx2, &gy2, &gz2, &gw2);
-      n2 = t42 * ( gx2 * x2 + gy2 * y2 + gz2 * z2 + gw2 * w2 );
-   }
-
-   t3 = 0.6f - x3*x3 - y3*y3 - z3*z3 - w3*w3;
-    if(t3 < 0.0f) n3 = t3 = t23 = t43 = gx3 = gy3 = gz3 = gw3 = 0.0f;
-    else {
-      t23 = t3 * t3;
-      t43 = t23 * t23;
-      grad4(perm[ii+i3+perm[jj+j3+perm[kk+k3+perm[ll+l3]]]], &gx3, &gy3, &gz3, &gw3);
-      n3 = t43 * ( gx3 * x3 + gy3 * y3 + gz3 * z3 + gw3 * w3 );
-    }
-
-   t4 = 0.6f - x4*x4 - y4*y4 - z4*z4 - w4*w4;
-    if(t4 < 0.0f) n4 = t4 = t24 = t44 = gx4 = gy4 = gz4 = gw4 = 0.0f;
-    else {
-      t24 = t4 * t4;
-      t44 = t24 * t24;
-      grad4(perm[ii+1+perm[jj+1+perm[kk+1+perm[ll+1]]]], &gx4, &gy4, &gz4, &gw4);
-      n4 = t44 * ( gx4 * x4 + gy4 * y4 + gz4 * z4 + gw4 * w4 );
-    }
-
-    // Sum up and scale the result to cover the range [-1,1]
-    noise = 27.0f * (n0 + n1 + n2 + n3 + n4); // TODO: The scale factor is preliminary!
-
-    /* Compute derivative, if requested by supplying non-null pointers
-     * for the last four arguments */
-    if( ( NULL != dnoise_dx ) && ( NULL != dnoise_dy ) && ( NULL != dnoise_dz ) && ( NULL != dnoise_dw ) )
-      {
-	/*  A straight, unoptimised calculation would be like:
-     *     *dnoise_dx = -8.0f * t20 * t0 * x0 * dot(gx0, gy0, gz0, gw0, x0, y0, z0, w0) + t40 * gx0;
-     *    *dnoise_dy = -8.0f * t20 * t0 * y0 * dot(gx0, gy0, gz0, gw0, x0, y0, z0, w0) + t40 * gy0;
-     *    *dnoise_dz = -8.0f * t20 * t0 * z0 * dot(gx0, gy0, gz0, gw0, x0, y0, z0, w0) + t40 * gz0;
-     *    *dnoise_dw = -8.0f * t20 * t0 * w0 * dot(gx0, gy0, gz0, gw0, x0, y0, z0, w0) + t40 * gw0;
-     *    *dnoise_dx += -8.0f * t21 * t1 * x1 * dot(gx1, gy1, gz1, gw1, x1, y1, z1, w1) + t41 * gx1;
-     *    *dnoise_dy += -8.0f * t21 * t1 * y1 * dot(gx1, gy1, gz1, gw1, x1, y1, z1, w1) + t41 * gy1;
-     *    *dnoise_dz += -8.0f * t21 * t1 * z1 * dot(gx1, gy1, gz1, gw1, x1, y1, z1, w1) + t41 * gz1;
-     *    *dnoise_dw = -8.0f * t21 * t1 * w1 * dot(gx1, gy1, gz1, gw1, x1, y1, z1, w1) + t41 * gw1;
-     *    *dnoise_dx += -8.0f * t22 * t2 * x2 * dot(gx2, gy2, gz2, gw2, x2, y2, z2, w2) + t42 * gx2;
-     *    *dnoise_dy += -8.0f * t22 * t2 * y2 * dot(gx2, gy2, gz2, gw2, x2, y2, z2, w2) + t42 * gy2;
-     *    *dnoise_dz += -8.0f * t22 * t2 * z2 * dot(gx2, gy2, gz2, gw2, x2, y2, z2, w2) + t42 * gz2;
-     *    *dnoise_dw += -8.0f * t22 * t2 * w2 * dot(gx2, gy2, gz2, gw2, x2, y2, z2, w2) + t42 * gw2;
-     *    *dnoise_dx += -8.0f * t23 * t3 * x3 * dot(gx3, gy3, gz3, gw3, x3, y3, z3, w3) + t43 * gx3;
-     *    *dnoise_dy += -8.0f * t23 * t3 * y3 * dot(gx3, gy3, gz3, gw3, x3, y3, z3, w3) + t43 * gy3;
-     *    *dnoise_dz += -8.0f * t23 * t3 * z3 * dot(gx3, gy3, gz3, gw3, x3, y3, z3, w3) + t43 * gz3;
-     *    *dnoise_dw += -8.0f * t23 * t3 * w3 * dot(gx3, gy3, gz3, gw3, x3, y3, z3, w3) + t43 * gw3;
-     *    *dnoise_dx += -8.0f * t24 * t4 * x4 * dot(gx4, gy4, gz4, gw4, x4, y4, z4, w4) + t44 * gx4;
-     *    *dnoise_dy += -8.0f * t24 * t4 * y4 * dot(gx4, gy4, gz4, gw4, x4, y4, z4, w4) + t44 * gy4;
-     *    *dnoise_dz += -8.0f * t24 * t4 * z4 * dot(gx4, gy4, gz4, gw4, x4, y4, z4, w4) + t44 * gz4;
-     *    *dnoise_dw += -8.0f * t24 * t4 * w4 * dot(gx4, gy4, gz4, gw4, x4, y4, z4, w4) + t44 * gw4;
-     */
-        temp0 = t20 * t0 * ( gx0 * x0 + gy0 * y0 + gz0 * z0 + gw0 * w0 );
-        *dnoise_dx = temp0 * x0;
-        *dnoise_dy = temp0 * y0;
-        *dnoise_dz = temp0 * z0;
-        *dnoise_dw = temp0 * w0;
-        temp1 = t21 * t1 * ( gx1 * x1 + gy1 * y1 + gz1 * z1 + gw1 * w1 );
-        *dnoise_dx += temp1 * x1;
-        *dnoise_dy += temp1 * y1;
-        *dnoise_dz += temp1 * z1;
-        *dnoise_dw += temp1 * w1;
-        temp2 = t22 * t2 * ( gx2 * x2 + gy2 * y2 + gz2 * z2 + gw2 * w2 );
-        *dnoise_dx += temp2 * x2;
-        *dnoise_dy += temp2 * y2;
-        *dnoise_dz += temp2 * z2;
-        *dnoise_dw += temp2 * w2;
-        temp3 = t23 * t3 * ( gx3 * x3 + gy3 * y3 + gz3 * z3 + gw3 * w3 );
-        *dnoise_dx += temp3 * x3;
-        *dnoise_dy += temp3 * y3;
-        *dnoise_dz += temp3 * z3;
-        *dnoise_dw += temp3 * w3;
-        temp4 = t24 * t4 * ( gx4 * x4 + gy4 * y4 + gz4 * z4 + gw4 * w4 );
-        *dnoise_dx += temp4 * x4;
-        *dnoise_dy += temp4 * y4;
-        *dnoise_dz += temp4 * z4;
-        *dnoise_dw += temp4 * w4;
-        *dnoise_dx *= -8.0f;
-        *dnoise_dy *= -8.0f;
-        *dnoise_dz *= -8.0f;
-        *dnoise_dw *= -8.0f;
-        *dnoise_dx += t40 * gx0 + t41 * gx1 + t42 * gx2 + t43 * gx3 + t44 * gx4;
-        *dnoise_dy += t40 * gy0 + t41 * gy1 + t42 * gy2 + t43 * gy3 + t44 * gy4;
-        *dnoise_dz += t40 * gz0 + t41 * gz1 + t42 * gz2 + t43 * gz3 + t44 * gz4;
-        *dnoise_dw += t40 * gw0 + t41 * gw1 + t42 * gw2 + t43 * gw3 + t44 * gw4;
-
-        *dnoise_dx *= 28.0f; /* Scale derivative to match the noise scaling */
-        *dnoise_dy *= 28.0f;
-        *dnoise_dz *= 28.0f;
-        *dnoise_dw *= 28.0f;
+        deriv[0] += temp3 * x3;
+        deriv[1] += temp3 * y3;
+        deriv[2] += temp3 * z3;
+        deriv[0] *= -8.0f;
+        deriv[1] *= -8.0f;
+        deriv[2] *= -8.0f;
+        deriv[0] += t40 * gx0 + t41 * gx1 + t42 * gx2 + t43 * gx3;
+        deriv[1] += t40 * gy0 + t41 * gy1 + t42 * gy2 + t43 * gy3;
+        deriv[2] += t40 * gz0 + t41 * gz1 + t42 * gz2 + t43 * gz3;
+        deriv[0] *= 28.0f; /* Scale derivative to match the noise scaling */
+        deriv[1] *= 28.0f;
+        deriv[2] *= 28.0f;
       }
 
     return noise;
 }
+

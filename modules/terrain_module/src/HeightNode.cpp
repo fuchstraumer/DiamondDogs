@@ -7,8 +7,10 @@ double HeightNode::RootNodeLength = 10000;
 
 HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, std::vector<HeightSample> init_samples) : gridCoords(node_grid_coordinates), sampleGridSize(RootSampleGridSize), meshGridSize(RootSampleGridSize - 5), samples(std::move(init_samples)) {
     auto min_max = std::minmax_element(std::execution::par_unseq, samples.cbegin(), samples.cend());
-    MinZ = samples.at(min_max.first - samples.cbegin()).Sample.x;
-    MaxZ = samples.at(min_max.second - samples.cbegin()).Sample.x;
+    const size_t minIdx = std::distance(samples.cbegin(), min_max.first);
+    const size_t maxIdx = std::distance(samples.cend(), min_max.second);
+    MinZ = samples[minIdx].x;
+    MaxZ = samples[minIdx].x;
 }
 
 HeightNode::HeightNode(const glm::ivec3 & node_grid_coordinates, const HeightNode* parent) : gridCoords(node_grid_coordinates),  meshGridSize(sampleGridSize - 5), Parent(parent) {
@@ -69,19 +71,21 @@ void HeightNode::SampleFromParent() {
                 }
             }
 
-            samples[i + (j * sampleGridSize)].Sample.x = std::move(sample);
+            samples[i + (j * sampleGridSize)].x = std::move(sample);
             // Parent height is used to morph between LOD levels, so that we don't notice much pop-in as new mesh tiles are loaded.
-            samples[i + (j * sampleGridSize)].Sample.y = Parent->Sample(i / 2 + parent_x + (j / 2 + parent_y)*sampleGridSize);
+            samples[i + (j * sampleGridSize)].y = Parent->Sample(i / 2 + parent_x + (j / 2 + parent_y) * sampleGridSize);
         }
     }
+
     auto min_max = std::minmax_element(samples.cbegin(), samples.cend());
-    float min_z, max_z;
-    MinZ = min_z = samples.at(min_max.first - samples.cbegin()).Sample.x;
-    MaxZ = max_z = samples.at(min_max.second - samples.cbegin()).Sample.x;
+    const size_t minIdx = std::distance(samples.cbegin(), min_max.first);
+    const size_t maxIdx = std::distance(samples.cbegin(), min_max.second);
+    MinZ = samples[minIdx].x;
+    MaxZ = samples[maxIdx].x;
 
 }
 
-void HeightNode::SetSamples(std::vector<HeightSample>&& _samples) {
+void HeightNode::SetSamples(std::vector<HeightSample> _samples) {
     samples = std::move(_samples);
 }
 
@@ -112,18 +116,18 @@ float HeightNode::GetHeight(const glm::vec2 world_pos) const {
 }
 
 float HeightNode::Sample(const size_t & x, const size_t & y) const{
-    return samples[x + (y * sampleGridSize)].Sample.x;
+    return samples[x + (y * sampleGridSize)].x;
 }
 
 float HeightNode::Sample(const size_t & idx) const {
-    return samples[idx].Sample.x;
+    return samples[idx].x;
 }
 
 static inline std::vector<HeightSample> MakeCheckerboard(const size_t width, const size_t height) {
     std::vector<HeightSample> results(width * height);
     for (size_t j = 0; j < height; ++j) {
         for (size_t i = 0; i < width; ++i) {
-            results[i + (j * width)].Sample.x = (i & 1 ^ j & 1) ? -30.0f : 30.0f;
+            results[i + (j * width)].x = (i & 1 ^ j & 1) ? -30.0f : 30.0f;
         }
     }
     return results;
@@ -153,17 +157,7 @@ size_t HeightNode::NumSamples() const noexcept {
     return sampleGridSize * sampleGridSize;
 }
 
-std::vector<glm::vec2> HeightNode::GetHeights() const {
-    std::vector<glm::vec2> results(sampleGridSize * sampleGridSize);
-    for (size_t j = 0; j < sampleGridSize; ++j) {
-        for (size_t i = 0; i < sampleGridSize; ++i) {
-            results[i + (j * sampleGridSize)] = samples[i + (j * sampleGridSize)].Sample.xy;
-        }
-    }
-    return results;
-}
-
-std::vector<HeightSample> HeightNode::GetSamples() const {
+const std::vector<HeightSample>& HeightNode::GetSamples() const {
     return samples;
 }
 

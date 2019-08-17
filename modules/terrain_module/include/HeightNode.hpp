@@ -26,7 +26,7 @@ public:
     ~HeightNode() = default;
     
     void SampleFromParent();
-    void SetSamples(std::vector<HeightSample>&& samples);
+    void SetSamples(std::vector<HeightSample> samples);
     float GetHeight(const glm::vec2 world_pos) const;
 
     float Sample(const size_t& x, const size_t& y) const;
@@ -38,8 +38,7 @@ public:
     size_t MeshGridSize() const noexcept;
     size_t SampleGridSize() const noexcept;
     size_t NumSamples() const noexcept;
-    std::vector<glm::vec2> GetHeights() const;
-    std::vector<HeightSample> GetSamples() const;
+    const std::vector<HeightSample>& GetSamples() const;
 
     static void SetRootNodeSize(const size_t& new_size);
     static void SetRootNodeLength(const double& new_length);

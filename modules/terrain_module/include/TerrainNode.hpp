@@ -4,19 +4,44 @@
 #include "ForwardDecl.hpp"
 #include "PlanarMesh.hpp"
 #include "HeightNode.hpp"
+#include "AABB.hpp"
+#include "Entity.hpp"
 #include <array>
 #include <future>
-enum class NodeStatus {
-    Active,
-    NeedsTransfer,
-    NeedsUnload,
-    Subdivided,
-    DataRequested,
+
+class TerrainQuadtree;
+class NodeRenderer;
+struct ViewFrustum;
+
+struct TerrainConfiguration
+{
+    float MaxRenderDistance{ 3000.0f };
+    float SwitchRatio{ 1.80f };
+    size_t MaxLOD{ 16u };
+    static const TerrainConfiguration& Get() noexcept;
+    static TerrainConfiguration& GetMutable() noexcept;
 };
 
-class NodeRenderer;
-struct view_frustum;
+struct QuadtreeNodeComponent
+{
+    std::array<ecs::Entity, 4> Children;
+    // xyz are for conventional 3D gridding, as needed. w is used 
+    // for things like the cubemap faces of a bigger world, or regional layers
+    unsigned int GridX : 16;
+    unsigned int GridY : 16;
+    uint32_t lodLevel;
+    ecs::Entity ParentHandle{ ecs::NULL_ENTITY };
+    // Data payload: set to a user defined type, most likely stored elsewhere
+};
 
+struct TerrainNodeSystem
+{
+    TerrainNodeSystem(TerrainQuadtree* ptr, size_t maxLOD, float switchRatio);
+
+private:
+    TerrainQuadtree* quadtree;
+    std::vector<TerrainNodeComponent> components;
+};
 
 class TerrainNode {
     TerrainNode(const TerrainNode& other) = delete;
@@ -28,7 +53,7 @@ public:
 
     void Subdivide();
     // updates this nodes status, and then the node adds itself to the renderer's pool of nodes if its going to be rendered.
-    void Update(const glm::vec3 & camera_position, const view_frustum& view, NodeRenderer* node_pool);
+    void Update(const glm::vec3& camera_position, const ViewFrustum& view);
     // true if all of the Child pointers are nullptr
     bool IsLeaf() const;
     // Recursive method to clean up node tree
@@ -50,12 +75,12 @@ public:
     // xy are the grid positions, z is the LOD level.
     glm::ivec3 GridCoordinates;
     glm::ivec3 ParentGridCoordinates;
-    // world-relative spatial coordinates. 
-    // TODO: Investigate root-node relative, for the sake of large-scale rendering.
+    // world-relative spatial coordinates.
     glm::vec3 SpatialCoordinates;
     // Length of one side of the node: should be equivalent to (1 / depth) * L, where L is the
     // length of the root nodes side.
     float SideLength;
+    AABB aabb;
 
 private:
     std::future<std::unique_ptr<HeightNode>> heightDataFuture;
