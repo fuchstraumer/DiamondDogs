@@ -360,6 +360,19 @@ static std::atomic<bool>& GetShouldResizeFlag() {
     return should_resize;
 }
 
+DescriptorLimits::DescriptorLimits(const vpr::PhysicalDevice* hostDevice)
+{
+    const VkPhysicalDeviceLimits limits = hostDevice->GetProperties().limits;
+    MaxSamplers = limits.maxDescriptorSetSamplers;
+    MaxUniformBuffers = limits.maxDescriptorSetUniformBuffers;
+    MaxDynamicUniformBuffers = limits.maxDescriptorSetUniformBuffersDynamic;
+    MaxStorageBuffers = limits.maxDescriptorSetStorageBuffers;
+    MaxDynamicStorageBuffers = limits.maxDescriptorSetStorageBuffersDynamic;
+    MaxSampledImages = limits.maxDescriptorSetSampledImages;
+    MaxStorageImages = limits.maxDescriptorSetStorageImages;
+    MaxInputAttachments = limits.maxDescriptorSetInputAttachments;
+}
+
 RenderingContext& RenderingContext::Get() noexcept {
     static RenderingContext ctxt;
     return ctxt;

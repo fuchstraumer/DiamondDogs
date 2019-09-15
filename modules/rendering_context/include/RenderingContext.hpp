@@ -71,6 +71,19 @@ struct SwapchainCallbacks {
     delegate_t<void(VkSwapchainKHR handle)> SwapchainDestroyed;
 };
 
+struct DescriptorLimits
+{
+    DescriptorLimits(const vpr::PhysicalDevice* physicalDevice);
+    uint32_t MaxSamplers;
+    uint32_t MaxUniformBuffers;
+    uint32_t MaxDynamicUniformBuffers;
+    uint32_t MaxStorageBuffers;
+    uint32_t MaxDynamicStorageBuffers;
+    uint32_t MaxSampledImages;
+    uint32_t MaxStorageImages;
+    uint32_t MaxInputAttachments;
+};
+
 class RenderingContext {
     RenderingContext() noexcept = default;
     ~RenderingContext() noexcept = default;
