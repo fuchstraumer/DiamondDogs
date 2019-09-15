@@ -25,7 +25,7 @@ void UploadBuffer::SetData(const void* data, size_t data_size, size_t offset) {
     VkAssert(result);
     auto destAddress = reinterpret_cast<unsigned char*>(mapped_address) + offset;
     auto dataAddr = reinterpret_cast<const unsigned char*>(data);
-    auto endAddr = dataAddr + offset;
+    auto endAddr = dataAddr + data_size;
     std::copy(dataAddr, endAddr, destAddress);
 	vmaUnmapMemory(Allocator, Allocation);
 	vmaFlushAllocation(Allocator, Allocation, offset, data_size);
