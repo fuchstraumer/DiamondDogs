@@ -48,7 +48,7 @@ FORCE_INLINE constexpr uint64_t fmix64(uint64_t k) noexcept
 // MurmurHash2 was written by Austin Appleby, and is placed in the public
 // domain. The author hereby disclaims copyright to this source code.
 // constexpr and noexcept hash is a fun thing
-constexpr uint64_t MurmurHash2(const void* key, const size_t len, const uint64_t seed) noexcept
+uint64_t MurmurHash2(const void* key, const size_t len, const uint64_t seed) noexcept
 {
     static_assert(std::is_same_v<size_t, uint64_t>, "uint64_t and size_t need to be the same for this code to work!");
     static_assert(sizeof(void*) == 8u, "This hash only works on 64-bit platforms!");
@@ -89,8 +89,8 @@ constexpr uint64_t MurmurHash2(const void* key, const size_t len, const uint64_t
     case 2:
         hashResult ^= static_cast<uint64_t>(data2[1]) <<  8LLU; [[fallthrough]] ;
     case 1:
-        hashResult ^= static_cast<uint64_t>(data2[0]) <<  0LLU; [[fallthrough]] ;
-        hashResult *= hashConstantM;
+        hashResult ^= static_cast<uint64_t>(data2[0]) <<  0LLU;
+        hashResult *= hashConstantM; [[fallthrough]] ;
     case 0:
         break;
     default:
