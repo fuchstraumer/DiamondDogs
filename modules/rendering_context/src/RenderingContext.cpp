@@ -435,7 +435,15 @@ void RenderingContext::Construct(const char* file_path) {
             nullptr
         };
 
-        VkResult result = logicalDevice->DebugUtilsHandler().vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
+        const auto& debugUtilsFnPtrs = logicalDevice->DebugUtilsHandler();
+
+        if (!debugUtilsFnPtrs.vkCreateDebugUtilsMessenger)
+        {
+            LOG(ERROR) << "Debug utils function pointers struct doesn't have function pointer for debug utils messenger creation!";
+            throw std::runtime_error("Failed to create debug utils messenger: function pointer not loaded!");
+        }
+
+        VkResult result = debugUtilsFnPtrs.vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
         if (result != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to create debug utils messenger.");
