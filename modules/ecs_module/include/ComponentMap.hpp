@@ -198,7 +198,7 @@ namespace ecs
         {
             return Iterator{ instances.data(), {} };
         }
-        
+
         const ComponentType& GetInstance(const Entity ent) const noexcept
         {
             return instances[EntitySparseSet::Get(ent)];
@@ -250,14 +250,14 @@ namespace ecs
 
             if (sortFn != nullptr)
             {
-                
+
                 auto sortLambda = [&sortFn](const ComponentType& lhs, const ComponentType& rhs)
                 {
 
                 };
             }
         }
-        
+
     private:
 
         std::vector<ComponentType> instances;

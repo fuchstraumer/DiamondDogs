@@ -59,7 +59,7 @@ static const std::unordered_map<std::string, VkLogicOp> logic_op_from_str_map = 
 
 static const std::unordered_map<std::string, VkBlendFactor> blend_factor_from_str_map = {
     { "Zero", VK_BLEND_FACTOR_ZERO },
-    { "One", VK_BLEND_FACTOR_ONE }, 
+    { "One", VK_BLEND_FACTOR_ONE },
     { "SrcColor", VK_BLEND_FACTOR_SRC_COLOR },
     { "OneMinusSrcColor", VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR },
     { "DstColor", VK_BLEND_FACTOR_DST_COLOR },

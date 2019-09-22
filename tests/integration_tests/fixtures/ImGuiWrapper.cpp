@@ -128,7 +128,7 @@ void KeyCallback(int key, int scancode, int action, int mods) {
     if (action == GLFW_RELEASE) {
         keys[key] = false;
     }
-    
+
 }
 
 void ScrollCallback(double x_offset, double y_offset) {
@@ -172,7 +172,7 @@ void ImGuiWrapper::Construct(VkRenderPass renderpass) {
     frameData.resize(rendererContext->Swapchain()->ImageCount());
 
     ImGui::CreateContext();
-    device = rendererContext->Device();    
+    device = rendererContext->Device();
     createResources();
     createGraphicsPipeline(renderpass);
     timePointA = std::chrono::high_resolution_clock::now();
@@ -382,7 +382,7 @@ void ImGuiWrapper::DrawFrame(size_t frame_idx, VkCommandBuffer cmd) {
         2.0f / io.DisplaySize.y
     };
     float translate[2] {
-        -1.0f - draw_data->DisplayPos.x * scale[0], 
+        -1.0f - draw_data->DisplayPos.x * scale[0],
         -1.0f - draw_data->DisplayPos.y * scale[1]
     };
 
@@ -477,7 +477,7 @@ void ImGuiWrapper::createFontImage() {
         0,
         1,
         0,
-		VK_QUEUE_FAMILY_IGNORED
+        VK_QUEUE_FAMILY_IGNORED
     };
 
     fontImage = resourceContext->CreateImage(&image_info, &view_info, 1, &image_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, "ImGuiFontImage");
@@ -582,7 +582,7 @@ void ImGuiWrapper::createGraphicsPipeline(const VkRenderPass renderpass) {
 
 void ImGuiWrapper::updateBuffers(ImGuiFrameData* data) {
 
-	const uint32_t graphics_queue_idx = device->QueueFamilyIndices().Graphics;
+    const uint32_t graphics_queue_idx = device->QueueFamilyIndices().Graphics;
 
     const ImDrawData* draw_data = ImGui::GetDrawData();
 

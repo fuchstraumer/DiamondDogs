@@ -31,8 +31,8 @@ public:
     const void* Data() const noexcept;
     size_t Size() const noexcept;
 
-private:    
-    
+private:
+
     void bindSamplerDescriptor(const size_t idx, VulkanResource* rsrc) noexcept;
     void bindBufferDescriptor(const size_t idx, VkDescriptorType type, VulkanResource* rsrc) noexcept;
     void bindImageDescriptor(const size_t idx, VkDescriptorType type, VulkanResource * rsrc) noexcept;

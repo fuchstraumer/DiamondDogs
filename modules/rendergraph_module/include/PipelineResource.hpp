@@ -66,7 +66,7 @@ struct resource_dimensions_t {
 
 class PipelineResource {
 public:
-        
+
     PipelineResource(std::string name, size_t physical_idx);
     ~PipelineResource();
 

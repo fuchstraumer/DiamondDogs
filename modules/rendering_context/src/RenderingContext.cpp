@@ -116,7 +116,7 @@ std::string objectTypeToString(const VkObjectType type)
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity, VkDebugUtilsMessageTypeFlagBitsEXT message_type, const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
     void* user_data)
-{   
+{
 
     std::stringstream output_string_stream;
     if (callback_data->messageIdNumber != 0u)
@@ -388,7 +388,7 @@ bool RenderingContext::ShouldResizeExchange(bool value) {
 }
 
 void RenderingContext::Construct(const char* file_path) {
-    
+
     std::ifstream input_file(file_path);
 
     if (!input_file.is_open()) {
@@ -420,9 +420,9 @@ void RenderingContext::Construct(const char* file_path) {
 
     createLogicalDevice(json_file, windowSurface->vkHandle(), &logicalDevice, vulkanInstance.get(), physicalDevices[0].get());
 
-	if constexpr (VTF_VALIDATION_ENABLED)
-	{
-		SetObjectNameFn = logicalDevice->DebugUtilsHandler().vkSetDebugUtilsObjectName;
+    if constexpr (VTF_VALIDATION_ENABLED)
+    {
+        SetObjectNameFn = logicalDevice->DebugUtilsHandler().vkSetDebugUtilsObjectName;
 
         const VkDebugUtilsMessengerCreateInfoEXT messenger_info{
             VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
@@ -450,7 +450,7 @@ void RenderingContext::Construct(const char* file_path) {
         }
         // color terminal output so it's less of a cluster
         el::Loggers::addFlag(el::LoggingFlag::ColoredTerminalOutput);
-	}
+    }
 
     {
         size_t num_device_extensions = 0;
@@ -484,18 +484,18 @@ void RenderingContext::Construct(const char* file_path) {
 
     swapchain = std::make_unique<vpr::Swapchain>(logicalDevice.get(), window->glfwWindow(), windowSurface->vkHandle(), desired_mode);
 
-	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-	{
-		SetObjectName(VK_OBJECT_TYPE_SWAPCHAIN_KHR, (uint64_t)swapchain->vkHandle(), "RenderingContextSwapchain");
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        SetObjectName(VK_OBJECT_TYPE_SWAPCHAIN_KHR, (uint64_t)swapchain->vkHandle(), "RenderingContextSwapchain");
 
-		for (size_t i = 0u; i < swapchain->ImageCount(); ++i)
-		{
-			const std::string view_name = std::string("RenderingContextSwapchain_ImageView") + std::to_string(i);
-			SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t)swapchain->ImageView(i), view_name.c_str());
-			const std::string img_name = std::string("RenderingContextSwapchain_Image") + std::to_string(i);
-			SetObjectName(VK_OBJECT_TYPE_IMAGE, (uint64_t)swapchain->Image(i), img_name.c_str());
-		}
-	}
+        for (size_t i = 0u; i < swapchain->ImageCount(); ++i)
+        {
+            const std::string view_name = std::string("RenderingContextSwapchain_ImageView") + std::to_string(i);
+            SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t)swapchain->ImageView(i), view_name.c_str());
+            const std::string img_name = std::string("RenderingContextSwapchain_Image") + std::to_string(i);
+            SetObjectName(VK_OBJECT_TYPE_IMAGE, (uint64_t)swapchain->Image(i), img_name.c_str());
+        }
+    }
 
 }
 
@@ -696,61 +696,61 @@ int RenderingContext::GetInputMode(int mode) {
 
 const char* RenderingContext::GetShaderCacheDir()
 {
-	auto& ctxt = Get();
-	return ctxt.shaderCacheDir.c_str();
+    auto& ctxt = Get();
+    return ctxt.shaderCacheDir.c_str();
 }
 
 void RenderingContext::SetShaderCacheDir(const char* dir)
 {
-	auto& ctxt = Get();
-	ctxt.shaderCacheDir = dir;
+    auto& ctxt = Get();
+    ctxt.shaderCacheDir = dir;
 }
 
 VkResult RenderingContext::SetObjectName(VkObjectType object_type, uint64_t handle, const char* name)
 {
-	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-	{
-		auto& ctxt = Get();
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        auto& ctxt = Get();
 
-		if constexpr (VTF_DEBUG_INFO_THREADING || VTF_DEBUG_INFO_TIMESTAMPS)
-		{
-			std::string object_name_str{ name };
-			std::stringstream extra_info_stream;
-			if constexpr (VTF_DEBUG_INFO_THREADING)
-			{
-				extra_info_stream << std::string("_ThreadID:") << std::this_thread::get_id();
-			}
+        if constexpr (VTF_DEBUG_INFO_THREADING || VTF_DEBUG_INFO_TIMESTAMPS)
+        {
+            std::string object_name_str{ name };
+            std::stringstream extra_info_stream;
+            if constexpr (VTF_DEBUG_INFO_THREADING)
+            {
+                extra_info_stream << std::string("_ThreadID:") << std::this_thread::get_id();
+            }
             if constexpr (VTF_DEBUG_INFO_TIMESTAMPS)
             {
 
             }
 
-			object_name_str += extra_info_stream.str();
+            object_name_str += extra_info_stream.str();
 
-			const VkDebugUtilsObjectNameInfoEXT name_info{
-				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-				nullptr,
-				object_type,
-				handle,
-				object_name_str.c_str()
-			};
+            const VkDebugUtilsObjectNameInfoEXT name_info{
+                VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+                nullptr,
+                object_type,
+                handle,
+                object_name_str.c_str()
+            };
 
-			return ctxt.SetObjectNameFn(ctxt.logicalDevice->vkHandle(), &name_info);
-		}
-		else
-		{
-			const VkDebugUtilsObjectNameInfoEXT name_info{
-				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-				nullptr,
-				object_type,
-				handle,
-				name
-			};
-			return ctxt.SetObjectNameFn(ctxt.logicalDevice->vkHandle(), &name_info);
-		}
-	}
-	else
-	{
-		return VK_SUCCESS;
-	}
+            return ctxt.SetObjectNameFn(ctxt.logicalDevice->vkHandle(), &name_info);
+        }
+        else
+        {
+            const VkDebugUtilsObjectNameInfoEXT name_info{
+                VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+                nullptr,
+                object_type,
+                handle,
+                name
+            };
+            return ctxt.SetObjectNameFn(ctxt.logicalDevice->vkHandle(), &name_info);
+        }
+    }
+    else
+    {
+        return VK_SUCCESS;
+    }
 }

@@ -20,24 +20,24 @@ constexpr static std::array<VkDeviceSize, 4u> stagingPoolSizeRanges{
 };
 
 constexpr static VkBufferCreateInfo staging_buffer_create_info{
-	VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-	nullptr,
-	0,
-	4096u,
-	VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-	VK_SHARING_MODE_EXCLUSIVE,
-	0,
-	nullptr
+    VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+    nullptr,
+    0,
+    4096u,
+    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+    VK_SHARING_MODE_EXCLUSIVE,
+    0,
+    nullptr
 };
 
 constexpr static VmaAllocationCreateInfo alloc_create_info {
-	0,
-	VMA_MEMORY_USAGE_CPU_ONLY,
-	VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-	0u,
-	UINT32_MAX,
-	VK_NULL_HANDLE,
-	nullptr
+    0,
+    VMA_MEMORY_USAGE_CPU_ONLY,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+    0u,
+    UINT32_MAX,
+    VK_NULL_HANDLE,
+    nullptr
 };
 
 constexpr static VkDebugUtilsLabelEXT queue_debug_label{
@@ -62,7 +62,7 @@ VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device) {
 void ResourceTransferSystem::flushTransfersIfNeeded()
 {
     /*
-        A bit of reasoning: 
+        A bit of reasoning:
         - upload pools greater than one means we created a pool specifically to hold one massive allocation. once we
           reach this point, it should be safe to free that as it was created to return an upload buffer, we set it's data, we're done
         - uploadBuffers being greater than 50 just means we have a ton of pending transfers, and we're going to be accumulating a ton
@@ -79,16 +79,16 @@ UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(const size_t buffer_sz,
     flushTransfersIfNeeded();
     uploadBuffers.emplace_back(createUploadBufferImpl(buffer_sz));
     auto iter = pendingResources.emplace(rsrc);
-	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-	{
-		const std::string upload_buffer_name = std::string("UploadBuffer") + std::to_string(uploadBuffers.size());
-		RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, (uint64_t)uploadBuffers.back()->Buffer, upload_buffer_name.c_str());
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        const std::string upload_buffer_name = std::string("UploadBuffer") + std::to_string(uploadBuffers.size());
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, (uint64_t)uploadBuffers.back()->Buffer, upload_buffer_name.c_str());
         // if we're in validation mode, might as well check "iter" too. Won't crash, but will log an error
         if (!iter.second)
         {
             LOG(ERROR) << "Resource upload buffer is being created for is already in internal containers! This implies duplication of memory.";
         }
-	}
+    }
     return uploadBuffers.back().get();
 }
 
@@ -118,7 +118,7 @@ std::unique_ptr<UploadBuffer> ResourceTransferSystem::createUploadBufferImpl(con
         alloc_create_info.pool = uploadPools.back();
 
         created_alloc = vmaCreateBuffer(allocator, &create_info, &alloc_create_info, &created_buffer->Buffer, &created_buffer->Allocation, nullptr);
-        
+
         if (created_alloc == VK_ERROR_OUT_OF_DEVICE_MEMORY)
         {
             // create a new pool
@@ -159,11 +159,11 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _a
     allocator = _allocator;
 
     uploadPools.emplace_back(createPool());
-    
+
     transferCmdPool = std::make_unique<vpr::CommandPool>(dvc->vkHandle(), getCreateInfo(dvc));
-	transferCmdPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    fence = std::make_unique<vpr::Fence>(dvc->vkHandle(), 0); 
-    
+    transferCmdPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    fence = std::make_unique<vpr::Fence>(dvc->vkHandle(), 0);
+
     constexpr static VkCommandBufferBeginInfo begin_info{
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         nullptr,
@@ -180,16 +180,16 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _a
         device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(transferCmdPool->GetCmdBuffer(0), &queue_debug_label);
     }
 
-	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-	{
-		static const std::string base_name{ "ResourceCtxt_TransferSystem_" };
-		static const std::string pool_name = base_name + std::string("_CommandPool");
-		static const std::string fence_name = base_name + std::string("_Fence");
-		static const std::string cmd_buffer_name = base_name + std::string("_CmdBuffer");
-		RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)transferCmdPool->vkHandle(), pool_name.c_str());
-		RenderingContext::SetObjectName(VK_OBJECT_TYPE_FENCE, (uint64_t)fence->vkHandle(), fence_name.c_str());
-		RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)transferCmdPool->GetCmdBuffer(0u), cmd_buffer_name.c_str());
-	}
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        static const std::string base_name{ "ResourceCtxt_TransferSystem_" };
+        static const std::string pool_name = base_name + std::string("_CommandPool");
+        static const std::string fence_name = base_name + std::string("_Fence");
+        static const std::string cmd_buffer_name = base_name + std::string("_CmdBuffer");
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)transferCmdPool->vkHandle(), pool_name.c_str());
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_FENCE, (uint64_t)fence->vkHandle(), fence_name.c_str());
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)transferCmdPool->GetCmdBuffer(0u), cmd_buffer_name.c_str());
+    }
 
 }
 
@@ -239,7 +239,7 @@ void ResourceTransferSystem::CompleteTransfers() {
     result = vkResetFences(device->vkHandle(), 1, &fence->vkHandle());
     VkAssert(result);
 
-	transferCmdPool->ResetCmdBuffer(0);
+    transferCmdPool->ResetCmdBuffer(0);
 
     constexpr static VkCommandBufferBeginInfo begin_info{
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -262,7 +262,7 @@ void ResourceTransferSystem::CompleteTransfers() {
     }
 
     for (auto& buff : uploadBuffers) {
-		vmaDestroyBuffer(allocator, buff->Buffer, buff->Allocation);
+        vmaDestroyBuffer(allocator, buff->Buffer, buff->Allocation);
         buff.reset();
     }
 

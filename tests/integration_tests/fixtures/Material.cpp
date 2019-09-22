@@ -266,7 +266,7 @@ void Material::Bind(VkCommandBuffer cmd, const VkPipelineLayout layout, Descript
         textureTogglesGPU.hasAlbedoMap = VK_TRUE;
         textureTogglesGPU.materialLoading = VK_FALSE;
     }
-    
+
     if (textureTogglesCPU.hasAlphaMap && !rsrc_context.ResourceInTransferQueue(alphaMap))
     {
         binder.BindResource("Material", "AlphaMap", VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, alphaMap);

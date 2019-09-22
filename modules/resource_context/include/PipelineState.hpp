@@ -1,0 +1,7 @@
+#pragma once
+#ifndef RESOURCE_CONTEXT_PIPELINE_STATE_HPP
+#define RESOURCE_CONTEXT_PIPELINE_STATE_HPP
+
+
+
+#endif

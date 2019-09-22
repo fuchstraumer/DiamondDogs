@@ -1,7 +1,7 @@
 #include "PipelineResource.hpp"
 #include <stdexcept>
 
-PipelineResource::PipelineResource(std::string _name, size_t physical_idx) : name(std::move(_name)), 
+PipelineResource::PipelineResource(std::string _name, size_t physical_idx) : name(std::move(_name)),
     idx(std::move(physical_idx))  {}
 
 PipelineResource::~PipelineResource() {}
@@ -132,7 +132,7 @@ bool buffer_info_t::operator!=(const buffer_info_t & other) const noexcept {
 bool image_info_t::operator==(const image_info_t& other) const noexcept {
     return (SizeClass == other.SizeClass) && (SizeX == other.SizeX) && (SizeY == other.SizeY) &&
         (Samples == other.Samples) && (MipLevels == other.MipLevels) && (ArrayLayers == other.ArrayLayers) &&
-        (Anisotropy == other.Anisotropy) && (SizeRelativeName == other.SizeRelativeName) && (Usage == other.Usage) && 
+        (Anisotropy == other.Anisotropy) && (SizeRelativeName == other.SizeRelativeName) && (Usage == other.Usage) &&
         (Format == other.Format);
 }
 

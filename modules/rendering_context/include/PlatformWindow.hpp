@@ -59,7 +59,7 @@ private:
     struct GLFWwindow* window;
     std::unique_ptr<WindowCallbackLists> callbacks;
     windowing_mode windowMode;
-    int width; 
+    int width;
     int height;
 
 };

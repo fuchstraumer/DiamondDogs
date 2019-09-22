@@ -153,7 +153,7 @@ void DescriptorTest::ChangeTexture() {
     }
 }
 
-VulkanResource* DescriptorTest::createSkyboxTexture(void* texture_data){ 
+VulkanResource* DescriptorTest::createSkyboxTexture(void* texture_data){
     gli::texture_cube* texture = reinterpret_cast<gli::texture_cube*>(texture_data);
     const uint32_t width = static_cast<uint32_t>(texture->extent().x);
     const uint32_t height = static_cast<uint32_t>(texture->extent().y);

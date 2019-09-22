@@ -82,8 +82,8 @@ void PerspectiveCamera::Initialize(float fov, float near_plane, float far_plane,
 
 void PerspectiveCamera::LookAt(const glm::vec3& dir, const glm::vec3& up, const glm::vec3& _position)
 {
-	orientation = look_at(dir, up);
-	position = _position;
+    orientation = look_at(dir, up);
+    position = _position;
 }
 
 float PerspectiveCamera::FarPlane() const noexcept {
@@ -170,7 +170,7 @@ void PerspectiveCamera::UpdateMouseMovement() {
         return;
     }
     const float& dx = io.MouseDelta.x;
-    const float& dy = io.MouseDelta.y; 
+    const float& dy = io.MouseDelta.y;
     glm::quat pitch = glm::angleAxis(dy * 0.01f, glm::vec3{ 1.0f, 0.0f, 0.0f });
     glm::quat yaw = glm::angleAxis(dx * 0.01f, glm::vec3{ 0.0f, 1.0f, 0.0f });
     instance.SetOrientation(glm::quat{ glm::normalize(pitch * instance.Orientation() * yaw) });

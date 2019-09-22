@@ -133,7 +133,7 @@ murmur_hash_result_t MurmurHash3(const void* key, size_t len, const uint32_t see
         k0 = rotl64(k0, 31);
         k0 *= hashConstant1;
         hash0 ^= k0;
-        
+
         hash0 = rotl64(hash0, 27);
         hash0 += hash1;
         hash0 = hash0 * 5LLU + static_cast<uint64_t>(0x52dce729);
@@ -175,7 +175,7 @@ murmur_hash_result_t MurmurHash3(const void* key, size_t len, const uint32_t see
         k1 *= hashConstant1;
         k1 = rotl64(k1, 33);
         k1 *= hashConstant0;
-        hash1 ^= k1; 
+        hash1 ^= k1;
         [[fallthrough]] ;
     case 8:
         k0 ^= static_cast<uint64_t>(tail[7]) << 56LLU; [[fallthrough]] ;

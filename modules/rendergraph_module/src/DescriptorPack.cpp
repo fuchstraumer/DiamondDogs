@@ -67,7 +67,7 @@ DescriptorBinder DescriptorPack::RetrieveBinder(const std::string& shader_group)
 void DescriptorPack::EndFrame()
 {
     // note: nothing here is destroyed, as we may have pending work.
-    // instead, the one requirement is that the user calls reset. the 
+    // instead, the one requirement is that the user calls reset. the
     // upside of that is that they can then safely latch it behind a fence
     // for a set of drawcalls (as in VTF_Scene)
     std::swap(lastFrameDescriptors, descriptors);
@@ -109,7 +109,7 @@ void DescriptorPack::createDescriptorTemplates() {
         group->GetResourcePtrs(&num_rsrcs, resource_ptrs.data());
 
         std::unordered_map<std::string, size_t> binding_locs;
-        
+
         for (const auto* rsrc : resource_ptrs) {
             templ->AddLayoutBinding(rsrc->AsLayoutBinding());
             binding_locs.emplace(rsrc->Name(), rsrc->BindingIndex());
@@ -122,7 +122,7 @@ void DescriptorPack::createDescriptorTemplates() {
 }
 
 void DescriptorPack::parseGroupBindingInfo() {
-    
+
     std::vector<std::string> shader_group_strs;
 
     {
@@ -156,7 +156,7 @@ void DescriptorPack::createPipelineLayout(const std::string & name) {
     shader->GetShaderStages(&num_stages, nullptr);
     std::vector<st::ShaderStage> stages(num_stages, st::ShaderStage("null_name", VK_SHADER_STAGE_ALL));
     shader->GetShaderStages(&num_stages, stages.data());
-    
+
     std::vector<VkPushConstantRange> push_constant_ranges;
 
     for (const auto& stage : stages) {
@@ -221,12 +221,12 @@ std::unique_ptr<Descriptor> DescriptorPack::createDescriptor(const std::string &
     const vpr::Device* device_ptr = RenderingContext::Get().Device();
     const size_t idx = iter->second;
 
-	if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-	{
-		return std::make_unique<Descriptor>(device_ptr, resourceGroups[idx]->DescriptorCounts(), rsrcGroupUseFrequency[idx], descriptorTemplates[idx].get(), std::move(binding_locs), rsrc_group_name.c_str());
-	}
-	else
-	{
-		return std::make_unique<Descriptor>(device_ptr, resourceGroups[idx]->DescriptorCounts(), rsrcGroupUseFrequency[idx], descriptorTemplates[idx].get(), std::move(binding_locs));
-	}
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        return std::make_unique<Descriptor>(device_ptr, resourceGroups[idx]->DescriptorCounts(), rsrcGroupUseFrequency[idx], descriptorTemplates[idx].get(), std::move(binding_locs), rsrc_group_name.c_str());
+    }
+    else
+    {
+        return std::make_unique<Descriptor>(device_ptr, resourceGroups[idx]->DescriptorCounts(), rsrcGroupUseFrequency[idx], descriptorTemplates[idx].get(), std::move(binding_locs));
+    }
 }

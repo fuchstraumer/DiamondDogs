@@ -52,7 +52,7 @@ public:
     const vpr::Device* GetDevice() const noexcept;
 
     static RenderGraph& GetGlobalGraph();
-    
+
 private:
     using NoCheck = tagged_bool<struct NoCheck_tag>;
     using IgnoreSelf = tagged_bool<struct IgnoreSelf_tag>;
@@ -113,7 +113,7 @@ private:
     std::vector<std::unique_ptr<PipelineSubmission>> submissions;
     std::unordered_map<std::string, size_t> resourceNameMap;
     std::unordered_map<std::string, std::unique_ptr<RenderTarget>> renderTargets;
-    std::vector<std::unique_ptr<PipelineResource>> pipelineResources; 
+    std::vector<std::unique_ptr<PipelineResource>> pipelineResources;
     std::unordered_map<std::string, delegate_t<void(PipelineSubmission&)>> tagFunctionsMap;
     const vpr::Device* device;
 

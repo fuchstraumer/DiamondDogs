@@ -76,7 +76,7 @@ void ObjectModel::CreateBuffers()
 
     if (indicesAreUi16)
     {
-        // did this so we know that we're clearing everything out of indicesUi32, 
+        // did this so we know that we're clearing everything out of indicesUi32,
         // and it's less unintuitive than reverse iterators
         std::reverse(indicesUi32.begin(), indicesUi32.end());
         while (!indicesUi32.empty())
@@ -106,7 +106,7 @@ void ObjectModel::CreateBuffers()
         concurrent_sharing ? static_cast<uint32_t>(queue_family_indices.size()) : 0u,
         concurrent_sharing ? queue_family_indices.data() : nullptr
     };
-    
+
     const std::string ebo_name{ BaseName + "_EBO" };
     EBO = rsrc_context.CreateBuffer(&ebo_create_info, nullptr, 1u, &indices_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinMemory | ResourceCreateUserDataAsString, (void*)ebo_name.c_str());
 
@@ -152,7 +152,7 @@ void ObjectModel::CreateBuffers()
 
 ObjectModel::ObjectModel() : multiDrawIndirect(GetMultidrawIndirect())
 {
-    
+
 }
 
 void ObjectModel::LoadModelFromFile(const char* model_filename, const char* material_directory)
@@ -295,18 +295,18 @@ void ObjectModel::loadMeshes(const std::vector<tinyobj_opt::shape_t>& shapes, co
         modelAABB.Include(vert.Position);
         group.attributes.emplace_back(vtxAttrib{ vert.Normal, glm::vec3(), vert.UV });
         return result;
-        
+
     };
 
     size_t idx_offset{ 0u };
-    
+
     for (size_t i = 0u; i < attrib.face_num_verts.size(); ++i)
     {
         AABB partAABB;
         const size_t ngon = attrib.face_num_verts[i];
         const size_t material_id = attrib.material_ids[i];
         assert(ngon == 3u);
-        
+
         uint32_t tri_indices[3];
 
         for (size_t j = 0u; j < ngon; ++j)
@@ -404,13 +404,13 @@ void ObjectModel::loadMeshes(const std::vector<tinyobj_opt::shape_t>& shapes, co
 
 void ObjectModel::createMaterials(const std::vector<tinyobj_opt::material_t>& mtls, const char* search_dir)
 {
-    
+
     materials.reserve(numMaterials);
     for (const auto& mtl : mtls)
     {
         materials.emplace_back(mtl, search_dir);
     }
-   
+
 }
 
 void ObjectModel::generateIndirectDraws()

@@ -33,7 +33,7 @@ public:
     void AddLayoutBinding(VkDescriptorSetLayoutBinding binding);
     void BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc);
     void BindArrayResourcesToIdx(const size_t idx, const size_t num_descriptors, VkDescriptorType type, VulkanResource** resources);
-    
+
 private:
 
     void addUpdateEntry(const size_t idx, VkDescriptorUpdateTemplateEntry&& entry);
@@ -48,7 +48,7 @@ private:
 
     UpdateTemplateData updateData;
     std::vector<VkDescriptorUpdateTemplateEntry> updateEntries;
-	mutable bool namedDescriptorSet{ false };
+    mutable bool namedDescriptorSet{ false };
 
 };
 

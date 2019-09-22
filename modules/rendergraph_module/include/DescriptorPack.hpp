@@ -23,7 +23,7 @@ struct VulkanResource;
 class GeneratedPipeline;
 
 /*
-    Creates the majority of the descriptor-related objects we will need. 
+    Creates the majority of the descriptor-related objects we will need.
 */
 class DescriptorPack {
     DescriptorPack(const DescriptorPack&) = delete;
@@ -44,7 +44,7 @@ public:
     VkPipelineLayout PipelineLayout(const std::string& name) const;
     // retrieve this to update bindings for this descriptor
     Descriptor* RetrieveDescriptor(const std::string& rsrc_group_name);
-    // the binder will always have the most-recently updated bindings from the descriptors it uses, 
+    // the binder will always have the most-recently updated bindings from the descriptors it uses,
     // but may be more expensive to create the first time. prefer copying between binders of the same
     // group over initializing like this
     DescriptorBinder RetrieveBinder(const std::string& shader_group);

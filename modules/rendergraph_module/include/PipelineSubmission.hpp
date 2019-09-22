@@ -104,7 +104,7 @@ public:
     PipelineResource& AddVertexBufferInput(const std::string& name);
     PipelineResource& AddIndexBufferInput(const std::string& name);
     PipelineResource& AddIndirectBufferInput(const std::string& name);
-    
+
     const std::vector<PipelineResource*>& GetColorOutputs() const noexcept;
     const std::vector<PipelineResource*>& GetResolveOutputs() const noexcept;
     const std::vector<PipelineResource*>& GetColorInputs() const noexcept;
@@ -140,7 +140,7 @@ public:
 
     bool ValidateSubmission();
     void MakeColorInputScaled(const size_t& idx);
-    
+
 private:
 
     void validateColorInputs();

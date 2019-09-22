@@ -16,7 +16,7 @@ RenderTarget::~RenderTarget()
     Clear();
 }
 
-void RenderTarget::Create(uint32_t width, uint32_t height, const VkFormat image_format, const AttachDepthTarget is_depth_target, const uint32_t mip_maps, const VkSampleCountFlags sample_count, 
+void RenderTarget::Create(uint32_t width, uint32_t height, const VkFormat image_format, const AttachDepthTarget is_depth_target, const uint32_t mip_maps, const VkSampleCountFlags sample_count,
     const AllowReadback allow_readback)
 {
     hasDepthTarget = is_depth_target;
@@ -53,7 +53,7 @@ void RenderTarget::Create(uint32_t width, uint32_t height, const VkFormat image_
     view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
     view_info.subresourceRange = VkImageSubresourceRange{
         VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
-        0, mip_maps, 0, 1 
+        0, mip_maps, 0, 1
     };
 
     renderTargets.emplace_back(rsrc_context.CreateImage(&image_info, &view_info, 0, nullptr, resource_usage::GPU_ONLY, DEF_RESOURCE_FLAGS, "RenderTarget"));
@@ -128,7 +128,7 @@ void RenderTarget::CreateAsCube(uint32_t size, const VkFormat image_format, cons
 
     // no msaa for RTs
     msaaUpToDate.emplace_back(VK_TRUE);
-    
+
     Viewport.width = static_cast<float>(size);
     Viewport.height = static_cast<float>(size);
     Viewport.minDepth = 0.0f;

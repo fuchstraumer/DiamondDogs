@@ -40,7 +40,7 @@ void UpdateTemplateData::BindResourceToIdx(size_t idx, VkDescriptorType type, Vu
     case resource_type::BUFFER:
         bindBufferDescriptor(idx, type, rsrc);
         break;
-    case resource_type::COMBINED_IMAGE_SAMPLER: 
+    case resource_type::COMBINED_IMAGE_SAMPLER:
         [[fallthrough]];
     case resource_type::IMAGE:
         bindImageDescriptor(idx, type, rsrc);
@@ -122,7 +122,7 @@ void UpdateTemplateData::bindImageDescriptor(const size_t idx, VkDescriptorType 
     {
 
         auto& raw_entry = rawEntries[idx];
-		raw_entry.ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        raw_entry.ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         if (type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
         {
@@ -137,9 +137,9 @@ void UpdateTemplateData::bindImageDescriptor(const size_t idx, VkDescriptorType 
     }
     else {
 
-        rawEntries.resize(idx + 1); 
+        rawEntries.resize(idx + 1);
         const VkImageCreateInfo* img_create_info = reinterpret_cast<VkImageCreateInfo*>(rsrc->Info);
-		rawEntries[idx].ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        rawEntries[idx].ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         if (type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
         {

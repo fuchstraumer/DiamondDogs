@@ -203,7 +203,7 @@ void RenderGraph::traverseDependencies(const PipelineSubmission & submission, si
 }
 
 void RenderGraph::dependencyTraversalRecursion(const PipelineSubmission & curr, const std::unordered_set<size_t>& passes, size_t stack_count, const NoCheck no_check, const IgnoreSelf ignore_self, const MergeDependency merge_dependency) {
-    
+
     if (!no_check && passes.empty()) {
         LOG(ERROR) << "Requested checking of a resource during dependency traversal, but current resource is not written to in any passes!";
         throw std::logic_error("Resource is not written to by any passes.");
@@ -552,7 +552,7 @@ void RenderGraph::addSingleGroup(const std::string & name, const st::Shader* gro
             }
         }
     }
-        
+
 }
 
 void RenderGraph::addSubmissionsFromPack(const st::ShaderPack* pack) {

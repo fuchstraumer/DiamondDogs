@@ -90,7 +90,7 @@ class RenderingContext {
     RenderingContext(const RenderingContext&) = delete;
     RenderingContext& operator=(const RenderingContext&) = delete;
 public:
-    
+
     static RenderingContext& Get() noexcept;
     static void SetShouldResize(const bool val);
     static bool ShouldResizeExchange(const bool val);
@@ -106,7 +106,7 @@ public:
     vpr::SurfaceKHR* Surface() noexcept;
     PlatformWindow* Window() noexcept;
     GLFWwindow* glfwWindow() noexcept;
-    
+
     const std::vector<std::string>& InstanceExtensions() const noexcept;
     const std::vector<std::string>& DeviceExtensions() const noexcept;
 
@@ -131,9 +131,9 @@ public:
     static int GetWindowAttribute(int attribute);
     static void SetInputMode(int mode, int value);
     static int GetInputMode(int mode);
-	static const char* GetShaderCacheDir();
-	static void SetShaderCacheDir(const char* dir);
-	static VkResult SetObjectName(VkObjectType object_type, uint64_t handle, const char* name);
+    static const char* GetShaderCacheDir();
+    static void SetShaderCacheDir(const char* dir);
+    static VkResult SetObjectName(VkObjectType object_type, uint64_t handle, const char* name);
 
 private:
 
@@ -149,8 +149,8 @@ private:
     std::string windowMode;
     uint32_t syncMode;
     std::string syncModeStr;
-	std::string shaderCacheDir;
-	PFN_vkSetDebugUtilsObjectNameEXT SetObjectNameFn{ nullptr };
+    std::string shaderCacheDir;
+    PFN_vkSetDebugUtilsObjectNameEXT SetObjectNameFn{ nullptr };
     VkDebugUtilsMessengerEXT DebugUtilsMessenger{ VK_NULL_HANDLE };
 
 };

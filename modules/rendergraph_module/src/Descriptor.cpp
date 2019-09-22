@@ -10,11 +10,11 @@ static std::atomic<size_t> gSetsAllocated{ 0u };
 static std::atomic<size_t> gSetsDestroyed{ 0u };
 static std::atomic<int64_t> gSetsAlive{ 0u };
 
-Descriptor::Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ, 
-    std::unordered_map<std::string, size_t> binding_locs, const char* _name) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), 
+Descriptor::Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ,
+    std::unordered_map<std::string, size_t> binding_locs, const char* _name) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()),
     bindingLocations{ binding_locs }, typeCounts{ rsrc_counts }, name{ _name }
 {
-	createPool();
+    createPool();
 }
 
 Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t & rsrc_counts, size_t max_sets, DescriptorTemplate * _templ, std::unordered_map<std::string, size_t>&& binding_locations) : device{ _device }, maxSets{ uint32_t(max_sets) },
@@ -126,7 +126,7 @@ size_t Descriptor::BindingLocation(const char * rsrc_name) const
 
 VkDescriptorSet Descriptor::fetchNewSet() noexcept
 {
-	// for single-set containers we need to just create a new pack now
+    // for single-set containers we need to just create a new pack now
     if ((setContainerIdx == (availSets.size() - 1u)) || (maxSets == 1u))
     {
         // expand capacity of spare sets
@@ -154,16 +154,16 @@ void Descriptor::allocateSets()
     gSetsAllocated.fetch_add(availSets.size());
     gSetsAlive.fetch_add(availSets.size());
 
-	if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
-	{
-		const std::string base_name = name + std::string("_Pool") + std::to_string(descriptorPools.size()) + std::string("_DescriptorSet");
-		for (size_t i = 0; i < availSets.size(); ++i)
-		{
-			std::string curr_name = base_name + std::to_string(i);
-			result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, (uint64_t)availSets[i], VTF_DEBUG_OBJECT_NAME(curr_name.c_str()));
-			VkAssert(result);
-		}
-	}
+    if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+    {
+        const std::string base_name = name + std::string("_Pool") + std::to_string(descriptorPools.size()) + std::string("_DescriptorSet");
+        for (size_t i = 0; i < availSets.size(); ++i)
+        {
+            std::string curr_name = base_name + std::to_string(i);
+            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, (uint64_t)availSets[i], VTF_DEBUG_OBJECT_NAME(curr_name.c_str()));
+            VkAssert(result);
+        }
+    }
 
 }
 
@@ -193,12 +193,12 @@ void Descriptor::createPool()
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, typeCounts.SampledImages * maxSets);
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, typeCounts.CombinedImageSamplers * maxSets);
     activePool->Create();
-	if constexpr(VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
-	{
-		const std::string curr_name = name + std::string("_DescriptorPool_Num") + std::to_string(descriptorPools.size() - 1u);
-		VkResult result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, (uint64_t)descriptorPools.back()->vkHandle(), VTF_DEBUG_OBJECT_NAME(curr_name.c_str()));
-		VkAssert(result);
-	}
+    if constexpr(VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+    {
+        const std::string curr_name = name + std::string("_DescriptorPool_Num") + std::to_string(descriptorPools.size() - 1u);
+        VkResult result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, (uint64_t)descriptorPools.back()->vkHandle(), VTF_DEBUG_OBJECT_NAME(curr_name.c_str()));
+        VkAssert(result);
+    }
     allocateSets();
 }
 

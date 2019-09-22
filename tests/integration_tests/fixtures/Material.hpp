@@ -54,7 +54,7 @@ private:
         VkBool32 hasEmissiveMap{ VK_FALSE };
         VkBool32 materialLoading{ VK_TRUE };
     };
-    
+
     bool opaque{ true };
     // used to indicate resource queued for loading
     texture_toggles_t textureTogglesCPU;

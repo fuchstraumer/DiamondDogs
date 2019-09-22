@@ -12,7 +12,7 @@ UploadBuffer& UploadBuffer::operator=(UploadBuffer && other) noexcept {
     Buffer = std::move(other.Buffer);
     Allocation = std::move(other.Allocation);
     device = other.device;
-	Allocator = std::move(other.Allocator);
+    Allocator = std::move(other.Allocator);
     other.Buffer = VK_NULL_HANDLE;
     return *this;
 }
@@ -20,12 +20,12 @@ UploadBuffer& UploadBuffer::operator=(UploadBuffer && other) noexcept {
 void UploadBuffer::SetData(const void* data, size_t data_size, size_t offset) {
     void* mapped_address = nullptr;
     assert((data_size + offset) <= Size);
-	VkResult result = vmaMapMemory(Allocator, Allocation, &mapped_address);
+    VkResult result = vmaMapMemory(Allocator, Allocation, &mapped_address);
     VkAssert(result);
     auto destAddress = reinterpret_cast<unsigned char*>(mapped_address) + offset;
     auto dataAddr = reinterpret_cast<const unsigned char*>(data);
     auto endAddr = dataAddr + data_size;
     std::copy(dataAddr, endAddr, destAddress);
-	vmaUnmapMemory(Allocator, Allocation);
-	vmaFlushAllocation(Allocator, Allocation, offset, data_size);
+    vmaUnmapMemory(Allocator, Allocation);
+    vmaFlushAllocation(Allocator, Allocation, offset, data_size);
 }
