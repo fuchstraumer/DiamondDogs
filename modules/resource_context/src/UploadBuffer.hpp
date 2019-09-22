@@ -15,7 +15,7 @@ struct UploadBuffer {
     void SetData(const void* data, size_t data_size, size_t offset);
     VkBuffer Buffer;
     VmaAllocation Allocation;
-	VmaAllocator Allocator;
+    VmaAllocator Allocator;
     const vpr::Device* device;
     VkDeviceSize Size{ 0u };
 };

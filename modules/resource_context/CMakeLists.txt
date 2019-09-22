@@ -13,8 +13,8 @@ ADD_MODULE(resource_context
     "src/UploadBuffer.hpp"
 )
 
-TARGET_INCLUDE_DIRECTORIES(resource_context PRIVATE 
-    ${VPR_INCLUDE_DIRS_MODULE_RELATIVE} 
+TARGET_INCLUDE_DIRECTORIES(resource_context PRIVATE
+    ${VPR_INCLUDE_DIRS_MODULE_RELATIVE}
     ${Vulkan_INCLUDE_DIR}
     "../../third_party/vma/src"
     "../../third_party/svs"

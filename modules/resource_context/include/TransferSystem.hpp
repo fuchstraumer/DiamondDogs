@@ -58,7 +58,7 @@ private:
     std::vector<std::unique_ptr<UploadBuffer>> uploadBuffers;
     std::unique_ptr<vpr::Fence> fence;
     const vpr::Device* device;
-	VmaAllocator allocator;
+    VmaAllocator allocator;
     std::vector<VmaPool> uploadPools;
     VkDeviceSize lastPoolSize{ VkDeviceSize(128e6) };
 };

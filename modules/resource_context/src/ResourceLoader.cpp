@@ -53,9 +53,9 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
             auto& listeners_vec = pendingResourceListeners[fileNameHash];
             listeners_vec.emplace_back(_requester, user_data);
             return;
-        }       
+        }
     }
-    
+
     if (factories.count(file_type) == 0)
     {
         throw std::domain_error("Tried to load resource type for which there is no factory!");
@@ -66,7 +66,7 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
         throw std::domain_error("No deleter function for current file type!");
     }
 
-    ResourceData data;      
+    ResourceData data;
     data.FileType = file_type;
     data.RefCount = 1;
     data.FileName = file_name;
@@ -169,7 +169,7 @@ void ResourceLoader::Unload(const char* file_type, const char* _path)
 #else
     namespace fs = boost::filesystem;
 #endif
-        
+
     uint64_t pathHash = std::hash<std::string>()(_path);
 
     std::lock_guard<std::recursive_mutex> guard(queueMutex);
@@ -196,7 +196,7 @@ std::string ResourceLoader::FindFile(const std::string& fname, const std::string
 
     auto case_insensitive_comparison = [](const std::string & fname, const std::string & curr_entry)->bool
     {
-        
+
         return std::equal(std::execution::par_unseq, fname.cbegin(), fname.cend(), curr_entry.cbegin(), curr_entry.cend(), [](const char a, const char b)
             {
                 return std::tolower(a) == std::tolower(b);
@@ -288,7 +288,7 @@ void ResourceLoader::workerFunction()
     {
         std::unique_lock<std::recursive_mutex> lock{queueMutex};
         cVar.wait(lock, [this]()->bool { return shutdown || !requests.empty(); });
-        
+
         if (requests.empty())
         {
             // get here when shutdown set true: we still want to finish out queued loads though

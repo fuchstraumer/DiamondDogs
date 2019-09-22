@@ -16,11 +16,11 @@ ResourceContext & ResourceContext::Get()
 
 void ResourceContext::Initialize(vpr::Device* device, vpr::PhysicalDevice* physical_device, bool val_enabled)
 {
-	impl = std::make_unique<ResourceContextImpl>();
+    impl = std::make_unique<ResourceContextImpl>();
     impl->construct(device, physical_device, val_enabled);
 }
 
-void ResourceContext::Update() 
+void ResourceContext::Update()
 {
     impl->update();
 }
@@ -32,12 +32,12 @@ void ResourceContext::Destroy()
 
 VulkanResource* ResourceContext::CreateBuffer(const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data)
 {
-	return impl->createBuffer(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
+    return impl->createBuffer(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
 }
 
 void ResourceContext::SetBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data)
 {
-	impl->setBufferData(dest_buffer, num_data, data);
+    impl->setBufferData(dest_buffer, num_data, data);
 }
 
 void ResourceContext::FillBuffer(VulkanResource * dest_buffer, const uint32_t value, const size_t offset, const size_t fill_size)
@@ -50,15 +50,15 @@ void ResourceContext::FillBuffer(VulkanResource * dest_buffer, const uint32_t va
 
 VulkanResource* ResourceContext::CreateImage(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data)
 {
-	return impl->createImage(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
+    return impl->createImage(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
 }
 
 VulkanResource* ResourceContext::CreateImageView(const VulkanResource* base_rsrc, const VkImageViewCreateInfo* view_info, void* user_data)
 {
-	return impl->createImageView(base_rsrc, view_info, user_data);
+    return impl->createImageView(base_rsrc, view_info, user_data);
 }
 
-void ResourceContext::SetImageData(VulkanResource* image, const size_t num_data, const gpu_image_resource_data_t* data) 
+void ResourceContext::SetImageData(VulkanResource* image, const size_t num_data, const gpu_image_resource_data_t* data)
 {
     impl->setImageInitialData(image, num_data, data);
 }
@@ -68,8 +68,8 @@ VulkanResource* ResourceContext::CreateSampler(const VkSamplerCreateInfo* info, 
     return impl->createSampler(info, _flags, user_data);
 }
 
-VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateInfo * info, const VkImageViewCreateInfo * view_info, const VkSamplerCreateInfo * sampler_info, 
-    const size_t num_data, const gpu_image_resource_data_t * initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void * user_data) 
+VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateInfo * info, const VkImageViewCreateInfo * view_info, const VkSamplerCreateInfo * sampler_info,
+    const size_t num_data, const gpu_image_resource_data_t * initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void * user_data)
 {
     VulkanResource* resource = CreateImage(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
     resource->Type = resource_type::COMBINED_IMAGE_SAMPLER;
@@ -77,16 +77,16 @@ VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateI
     return resource;
 }
 
-VulkanResource* ResourceContext::CreateResourceCopy(VulkanResource * src) 
+VulkanResource* ResourceContext::CreateResourceCopy(VulkanResource * src)
 {
     VulkanResource* result = nullptr;
     CopyResource(src, &result);
     return result;
 }
 
-void ResourceContext::CopyResource(VulkanResource * src, VulkanResource** dest) 
+void ResourceContext::CopyResource(VulkanResource * src, VulkanResource** dest)
 {
-    switch (src->Type) 
+    switch (src->Type)
     {
     case resource_type::BUFFER:
         impl->createBufferResourceCopy(src, dest);
@@ -105,9 +105,9 @@ void ResourceContext::CopyResource(VulkanResource * src, VulkanResource** dest)
     };
 }
 
-void ResourceContext::CopyResourceContents(VulkanResource* src, VulkanResource* dst) 
+void ResourceContext::CopyResourceContents(VulkanResource* src, VulkanResource* dst)
 {
-    if (src->Type == dst->Type) 
+    if (src->Type == dst->Type)
     {
         switch (src->Type)
         {
@@ -123,7 +123,7 @@ void ResourceContext::CopyResourceContents(VulkanResource* src, VulkanResource* 
             break;
         }
     }
-    else 
+    else
     {
 
     }
@@ -131,12 +131,12 @@ void ResourceContext::CopyResourceContents(VulkanResource* src, VulkanResource* 
 
 void ResourceContext::DestroyResource(VulkanResource* resource)
 {
-	impl->destroyResource(resource);
+    impl->destroyResource(resource);
 }
 
 void ResourceContext::WriteMemoryStatsFile(const char* output_file)
 {
-	impl->writeStatsJsonFile(output_file);
+    impl->writeStatsJsonFile(output_file);
 }
 
 bool ResourceContext::ResourceInTransferQueue(VulkanResource* rsrc)
@@ -146,10 +146,10 @@ bool ResourceContext::ResourceInTransferQueue(VulkanResource* rsrc)
 
 void* ResourceContext::MapResourceMemory(VulkanResource* resource, size_t size, size_t offset)
 {
-	return impl->map(resource, size, offset);
+    return impl->map(resource, size, offset);
 }
 
 void ResourceContext::UnmapResourceMemory(VulkanResource* resource, size_t size, size_t offset)
 {
-	impl->unmap(resource, size, offset);
+    impl->unmap(resource, size, offset);
 }

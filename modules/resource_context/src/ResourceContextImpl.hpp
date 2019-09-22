@@ -42,7 +42,7 @@ struct ResourceContextImpl
     void setBufferInitialDataUploadBuffer(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data);
     void setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data);
     VkFormatFeatureFlags featureFlagsFromUsage(const VkImageUsageFlags flags) const noexcept;
-	void writeStatsJsonFile(const char* output_file);
+    void writeStatsJsonFile(const char* output_file);
     bool resourceInTransferQueue(VulkanResource* rsrc);
 
     std::unordered_set<std::unique_ptr<VulkanResource>> resources;
@@ -73,9 +73,9 @@ struct ResourceContextImpl
     struct infoStorage {
         bool mayNeedRehash(const size_t headroom) const noexcept;
         void reserve(size_t count);
-		void clear();
+        void clear();
         std::unordered_map<VulkanResource*, resource_usage> resourceMemoryType;
-		std::unordered_map<VulkanResource*, resource_creation_flags> resourceFlags;
+        std::unordered_map<VulkanResource*, resource_creation_flags> resourceFlags;
         std::unordered_map<VulkanResource*, VkBufferCreateInfo> bufferInfos;
         std::unordered_map<VulkanResource*, VkBufferViewCreateInfo> bufferViewInfos;
         std::unordered_map<VulkanResource*, VkImageCreateInfo> imageInfos;
@@ -91,11 +91,11 @@ struct ResourceContextImpl
     // of the key, go here. When key is destroyed, we have to destroy all the views too.
     std::unordered_multimap<VulkanResource*, VulkanResource*> imageViews;
     std::unordered_map<VulkanResource*, VmaAllocationInfo> allocInfos;
-	vpr::VkDebugUtilsFunctions vkDebugFns;
+    vpr::VkDebugUtilsFunctions vkDebugFns;
     VmaAllocator allocatorHandle{ VK_NULL_HANDLE };
     std::shared_mutex containerMutex;
     const vpr::Device* device;
-	bool validationEnabled{ false };
+    bool validationEnabled{ false };
 
 };
 

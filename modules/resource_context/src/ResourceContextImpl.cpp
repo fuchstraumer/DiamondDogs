@@ -251,11 +251,11 @@ private:
 void ResourceContextImpl::construct(vpr::Device* _device, vpr::PhysicalDevice* physical_device, bool validation_enabled)
 {
     device = _device;
-	validationEnabled = validation_enabled;
-	if (validationEnabled)
-	{
-		vkDebugFns = device->DebugUtilsHandler();
-	}
+    validationEnabled = validation_enabled;
+    if (validationEnabled)
+    {
+        vkDebugFns = device->DebugUtilsHandler();
+    }
 
     const auto& applicationInfo = device->ParentInstance()->ApplicationInfo();
 
@@ -264,7 +264,7 @@ void ResourceContextImpl::construct(vpr::Device* _device, vpr::PhysicalDevice* p
         applicationInfo.apiVersion >= VK_API_VERSION_1_1 ? VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT : 0u,
         physical_device->vkHandle(),
         device->vkHandle(),
-		VkDeviceSize(6.4e+7),
+        VkDeviceSize(6.4e+7),
         nullptr,
         nullptr,
         1u,
@@ -279,22 +279,22 @@ void ResourceContextImpl::construct(vpr::Device* _device, vpr::PhysicalDevice* p
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
     transfer_system.Initialize(_device, allocatorHandle);
 
-	reserveSpaceInContainers(4096u); // pretty heavily over-reserving but it's safer than the alternative
+    reserveSpaceInContainers(4096u); // pretty heavily over-reserving but it's safer than the alternative
 }
 
 void ResourceContextImpl::destroy()
 {
-	for (auto& resource : resources)
-	{
-		destroyResource(resource.get());
-	}
+    for (auto& resource : resources)
+    {
+        destroyResource(resource.get());
+    }
 
-	resources.clear();
-	resourceAllocations.clear();
-	resourceNames.clear();
-	imageViews.clear();
-	allocInfos.clear();
-	resourceInfos.clear();
+    resources.clear();
+    resourceAllocations.clear();
+    resourceNames.clear();
+    imageViews.clear();
+    allocInfos.clear();
+    resourceInfos.clear();
 }
 
 void ResourceContextImpl::update()
@@ -306,11 +306,11 @@ void ResourceContextImpl::update()
     maxContainerDelta = delta > 0 ? delta > maxContainerDelta ? delta : maxContainerDelta : 128u;
     if (rehashContainers())
     {
-		reserveSpaceInContainers(resourceAllocations.size() * 2u);
+        reserveSpaceInContainers(resourceAllocations.size() * 2u);
     }
 
-	auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-	transfer_system.CompleteTransfers();
+    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
+    transfer_system.CompleteTransfers();
 }
 
 void ResourceContextImpl::destroyResource(VulkanResource* rsrc)
@@ -425,7 +425,7 @@ VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info
             resource->ViewInfo = &view_iter.first->second;
             local_view_info = reinterpret_cast<VkBufferViewCreateInfo*>(resource->ViewInfo);
         }
-		resourceInfos.resourceFlags.emplace(resource, _flags);
+        resourceInfos.resourceFlags.emplace(resource, _flags);
     }
 
     if ((_resource_usage == resource_usage::CPU_TO_GPU || _resource_usage == resource_usage::GPU_TO_CPU || _resource_usage == resource_usage::GPU_ONLY) && (num_data != 0))
@@ -450,30 +450,30 @@ VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info
         reinterpret_cast<VkBuffer*>(&resource->Handle), alloc, alloc_info);
     VkAssert(result);
 
-	if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
-	{
-		if (_flags & ResourceCreateUserDataAsString)
-		{
-			const std::string object_name{ reinterpret_cast<const char*>(user_data) };
-			result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, resource->Handle, VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
-			VkAssert(result);
-		}
-	}
+    if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+    {
+        if (_flags & ResourceCreateUserDataAsString)
+        {
+            const std::string object_name{ reinterpret_cast<const char*>(user_data) };
+            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, resource->Handle, VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
+            VkAssert(result);
+        }
+    }
 
     if (view_info)
     {
         local_view_info->buffer = (VkBuffer)resource->Handle;
         result = vkCreateBufferView(device->vkHandle(), local_view_info, nullptr, reinterpret_cast<VkBufferView*>(&resource->ViewHandle));
         VkAssert(result);
-		if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
-		{
-			if (_flags & ResourceCreateUserDataAsString)
-			{
-				const std::string object_view_name = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
-				result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER_VIEW, resource->ViewHandle, VTF_DEBUG_OBJECT_NAME(object_view_name.c_str()));
-				VkAssert(result);
-			}
-		}
+        if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+        {
+            if (_flags & ResourceCreateUserDataAsString)
+            {
+                const std::string object_view_name = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
+                result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER_VIEW, resource->ViewHandle, VTF_DEBUG_OBJECT_NAME(object_view_name.c_str()));
+                VkAssert(result);
+            }
+        }
     }
 
     if (initial_data)
@@ -525,10 +525,10 @@ VulkanResource* ResourceContextImpl::createImage(const VkImageCreateInfo* info, 
         auto alloc_info_iter = allocInfos.emplace(resource, VmaAllocationInfo());
         alloc_info = &alloc_info_iter.first->second;
         auto alloc_iter = resourceAllocations.emplace(resource, VmaAllocation());
-		if (!alloc_iter.second)
-		{
-			throw std::runtime_error("Failed to emplace allocation!");
-		}
+        if (!alloc_iter.second)
+        {
+            throw std::runtime_error("Failed to emplace allocation!");
+        }
         alloc = &alloc_iter.first->second;
         if (view_info)
         {
@@ -536,7 +536,7 @@ VulkanResource* ResourceContextImpl::createImage(const VkImageCreateInfo* info, 
             resource->ViewInfo = &view_iter.first->second;
             local_view_info = reinterpret_cast<VkImageViewCreateInfo*>(resource->ViewInfo);
         }
-		resourceInfos.resourceFlags.emplace(resource, _flags);
+        resourceInfos.resourceFlags.emplace(resource, _flags);
     }
 
     // This probably isn't ideal but it's a reasonable assumption to make. (updated to check for GPU only allocs)
@@ -559,24 +559,24 @@ VulkanResource* ResourceContextImpl::createImage(const VkImageCreateInfo* info, 
 
     VkResult result = vmaCreateImage((VmaAllocator)allocatorHandle, create_info, &alloc_create_info, reinterpret_cast<VkImage*>(&resource->Handle), alloc, alloc_info);
     VkAssert(result);
-	if (_flags & ResourceCreateUserDataAsString)
-	{
-		result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, resource->Handle, VTF_DEBUG_OBJECT_NAME(reinterpret_cast<const char*>(user_data)));
-		VkAssert(result);
-	}
-	
+    if (_flags & ResourceCreateUserDataAsString)
+    {
+        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, resource->Handle, VTF_DEBUG_OBJECT_NAME(reinterpret_cast<const char*>(user_data)));
+        VkAssert(result);
+    }
+
 
     if (view_info)
     {
         local_view_info->image = (VkImage)resource->Handle;
         result = vkCreateImageView(device->vkHandle(), local_view_info, nullptr, reinterpret_cast<VkImageView*>(&resource->ViewHandle));
         VkAssert(result);
-		if (_flags & ResourceCreateUserDataAsString)
-		{
-			const std::string view_name_string = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
-			result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, resource->ViewHandle, VTF_DEBUG_OBJECT_NAME(view_name_string.c_str()));
-			VkAssert(result);
-		}
+        if (_flags & ResourceCreateUserDataAsString)
+        {
+            const std::string view_name_string = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
+            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, resource->ViewHandle, VTF_DEBUG_OBJECT_NAME(view_name_string.c_str()));
+            VkAssert(result);
+        }
     }
 
     if (initial_data)
@@ -639,7 +639,7 @@ VulkanResource* ResourceContextImpl::createSampler(const VkSamplerCreateInfo* in
         auto info_iter = resourceInfos.samplerInfos.emplace(resource, *info);
         assert(info_iter.second);
         local_info = &info_iter.first->second;
-		resourceInfos.resourceFlags.emplace(resource, _flags);
+        resourceInfos.resourceFlags.emplace(resource, _flags);
     }
 
     resource->Type = resource_type::SAMPLER;
@@ -649,32 +649,32 @@ VulkanResource* ResourceContextImpl::createSampler(const VkSamplerCreateInfo* in
     VkResult result = vkCreateSampler(device->vkHandle(), info, nullptr, reinterpret_cast<VkSampler*>(&resource->Handle));
     VkAssert(result);
 
-	if (_flags & ResourceCreateUserDataAsString)
-	{
-		result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_SAMPLER, resource->Handle, VTF_DEBUG_OBJECT_NAME(reinterpret_cast<const char*>(user_data)));
-		VkAssert(result);
-	}
+    if (_flags & ResourceCreateUserDataAsString)
+    {
+        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_SAMPLER, resource->Handle, VTF_DEBUG_OBJECT_NAME(reinterpret_cast<const char*>(user_data)));
+        VkAssert(result);
+    }
 
     return resource;
 }
 
 void ResourceContextImpl::copyResourceContents(VulkanResource* src, VulkanResource* dst)
 {
-	throw std::runtime_error("Not implemented!");
+    throw std::runtime_error("Not implemented!");
 }
 
 void ResourceContextImpl::setBufferInitialDataHostOnly(VulkanResource* resource, const size_t num_data, const gpu_resource_data_t* initial_data, resource_usage _resource_usage)
 {
     void* mapped_address{ nullptr };
     const VmaAllocationInfo* alloc_info;
-	VmaAllocation* alloc;
+    VmaAllocation* alloc;
     {
         rw_lock_guard lock_guard(lock_mode::Read, containerMutex);
         alloc_info = &allocInfos.at(resource);
-		alloc = &resourceAllocations.at(resource);
+        alloc = &resourceAllocations.at(resource);
     }
 
-	VkResult result = vmaMapMemory(allocatorHandle, *alloc, &mapped_address);
+    VkResult result = vmaMapMemory(allocatorHandle, *alloc, &mapped_address);
     VkAssert(result);
     size_t offset = 0u;
     for (size_t i = 0u; i < num_data; ++i)
@@ -696,7 +696,7 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resou
     */
 
     const VkBufferCreateInfo* p_info = reinterpret_cast<VkBufferCreateInfo*>(resource->Info);
-	const uint32_t transfer_queue_idx = device->QueueFamilyIndices().Transfer;
+    const uint32_t transfer_queue_idx = device->QueueFamilyIndices().Transfer;
 
     const ThsvsAccessType transfer_access_types[1]{
         THSVS_ACCESS_TRANSFER_WRITE
@@ -714,14 +714,14 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resou
         p_info->size
     };
 
-	if (p_info->sharingMode == VK_SHARING_MODE_EXCLUSIVE)
-	{
-		// update for proper ownership transfer
+    if (p_info->sharingMode == VK_SHARING_MODE_EXCLUSIVE)
+    {
+        // update for proper ownership transfer
         assert(initial_data->DestinationQueueFamily != VK_QUEUE_FAMILY_IGNORED);
         assert(transfer_queue_idx != VK_QUEUE_FAMILY_IGNORED);
-		post_transfer_barrier.srcQueueFamilyIndex = initial_data->DestinationQueueFamily != transfer_queue_idx ? transfer_queue_idx : VK_QUEUE_FAMILY_IGNORED;
-		post_transfer_barrier.dstQueueFamilyIndex = initial_data->DestinationQueueFamily != transfer_queue_idx ? initial_data->DestinationQueueFamily : VK_QUEUE_FAMILY_IGNORED;
-	}
+        post_transfer_barrier.srcQueueFamilyIndex = initial_data->DestinationQueueFamily != transfer_queue_idx ? transfer_queue_idx : VK_QUEUE_FAMILY_IGNORED;
+        post_transfer_barrier.dstQueueFamilyIndex = initial_data->DestinationQueueFamily != transfer_queue_idx ? initial_data->DestinationQueueFamily : VK_QUEUE_FAMILY_IGNORED;
+    }
 
     constexpr static ThsvsAccessType possible_accesses[2]
     {
@@ -752,7 +752,7 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resou
 
     vkCmdCopyBuffer(cmd, upload_buffer->Buffer, reinterpret_cast<VkBuffer>(resource->Handle), static_cast<uint32_t>(buffer_copies.size()), buffer_copies.data());
     thsvsCmdPipelineBarrier(cmd, &global_barrier, 1u, &post_transfer_barrier, 0u, nullptr);
-    
+
 }
 
 void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data)
@@ -797,7 +797,7 @@ void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const si
         VkImageSubresourceRange { VK_IMAGE_ASPECT_COLOR_BIT, 0u, info->mipLevels, 0u, info->arrayLayers }
     };
 
-	const uint32_t transfer_queue_idx = device->QueueFamilyIndices().Transfer;
+    const uint32_t transfer_queue_idx = device->QueueFamilyIndices().Transfer;
 
     if (info->sharingMode == VK_SHARING_MODE_EXCLUSIVE)
     {
@@ -810,7 +810,7 @@ void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const si
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
     {
         auto guard = transfer_system.AcquireSpinLock();
-		VmaAllocation& alloc = resourceAllocations.at(resource);
+        VmaAllocation& alloc = resourceAllocations.at(resource);
         UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc->GetSize(), resource);
         VkCommandBuffer cmd = transfer_system.TransferCmdBuffer();
         std::vector<VkBufferImageCopy> buffer_image_copies;
@@ -866,16 +866,16 @@ VkFormatFeatureFlags ResourceContextImpl::featureFlagsFromUsage(const VkImageUsa
 
 void ResourceContextImpl::writeStatsJsonFile(const char* output_file)
 {
-	char* output;
-	vmaBuildStatsString(allocatorHandle, &output, VK_TRUE);
-	std::ofstream outputFile(output_file);
-	if (!outputFile.is_open())
-	{
-		throw std::runtime_error("Failed to open output file for JSON dump!");
-	}
+    char* output;
+    vmaBuildStatsString(allocatorHandle, &output, VK_TRUE);
+    std::ofstream outputFile(output_file);
+    if (!outputFile.is_open())
+    {
+        throw std::runtime_error("Failed to open output file for JSON dump!");
+    }
 
-	outputFile.write(output, strlen(output));
-	vmaFreeStatsString(allocatorHandle, output);
+    outputFile.write(output, strlen(output));
+    vmaFreeStatsString(allocatorHandle, output);
 }
 
 bool ResourceContextImpl::resourceInTransferQueue(VulkanResource* rsrc)
@@ -1001,7 +1001,7 @@ void ResourceContextImpl::copyBufferContentsToBuffer(VulkanResource* src, Vulkan
     }
 }
 
-void ResourceContextImpl::copyImageContentsToImage(VulkanResource* src, VulkanResource* dst, const VkImageSubresourceRange& src_range, const VkImageSubresourceRange& dst_range, 
+void ResourceContextImpl::copyImageContentsToImage(VulkanResource* src, VulkanResource* dst, const VkImageSubresourceRange& src_range, const VkImageSubresourceRange& dst_range,
     const std::vector<VkImageCopy>& image_copies)
 {
 
@@ -1096,14 +1096,14 @@ void ResourceContextImpl::copyImageContentsToImage(VulkanResource* src, VulkanRe
 
 }
 
-void ResourceContextImpl::copyBufferContentsToImage(VulkanResource* src, VulkanResource* dst, const VkDeviceSize src_offset, const VkImageSubresourceRange& dst_range, 
+void ResourceContextImpl::copyBufferContentsToImage(VulkanResource* src, VulkanResource* dst, const VkDeviceSize src_offset, const VkImageSubresourceRange& dst_range,
     const std::vector<VkBufferImageCopy>& copy_params)
 {
     assert((dst->Type == resource_type::IMAGE || dst->Type == resource_type::COMBINED_IMAGE_SAMPLER) && (src->Type == resource_type::BUFFER));
 
     const VkBufferCreateInfo& src_info = resourceInfos.bufferInfos.at(src);
     const VkImageCreateInfo& dst_info = resourceInfos.imageInfos.at(dst);
-    
+
     // these will be used to transition back to the right layout after the transfer
     // (and to specify right layout we're transitioning from)
     const auto src_accesses = thsvsAccessTypesFromBufferUsage(src_info.usage);
@@ -1205,7 +1205,7 @@ void ResourceContextImpl::destroyBuffer(resource_iter_t iter)
     {
         vkDestroyBufferView(device->vkHandle(), (VkBufferView)rsrc->ViewHandle, nullptr);
     }
-	vmaDestroyBuffer(allocatorHandle, (VkBuffer)rsrc->Handle, resourceAllocations.at(rsrc));
+    vmaDestroyBuffer(allocatorHandle, (VkBuffer)rsrc->Handle, resourceAllocations.at(rsrc));
     resourceInfos.bufferInfos.erase(rsrc);
     resourceInfos.bufferViewInfos.erase(rsrc);
     resourceAllocations.erase(rsrc);
@@ -1221,7 +1221,7 @@ void ResourceContextImpl::destroyImage(resource_iter_t iter)
     {
         vkDestroyImageView(device->vkHandle(), (VkImageView)rsrc->ViewHandle, nullptr);
     }
-	vmaDestroyImage(allocatorHandle, (VkImage)rsrc->Handle, resourceAllocations.at(rsrc));
+    vmaDestroyImage(allocatorHandle, (VkImage)rsrc->Handle, resourceAllocations.at(rsrc));
     resources.erase(iter);
     resourceInfos.imageInfos.erase(rsrc);
     resourceInfos.imageViewInfos.erase(rsrc);
@@ -1242,8 +1242,8 @@ bool ResourceContextImpl::rehashContainers() noexcept
 {
     rw_lock_guard read_guard(lock_mode::Read, containerMutex);
     const size_t headroom = maxContainerDelta; // based on per-frame checks of allocations size, as this will always be the most frequently modified
-	size_t currLoad{ 0u };
-	bool rehash = resourceInfos.mayNeedRehash(headroom);
+    size_t currLoad{ 0u };
+    bool rehash = resourceInfos.mayNeedRehash(headroom);
     currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * resourceNames.bucket_count();
     rehash |= (currLoad + headroom) > resourceNames.max_size();
     currLoad = static_cast<size_t>(std::floorf(resourceNames.max_load_factor())) * resourceAllocations.bucket_count();
@@ -1269,29 +1269,29 @@ void ResourceContextImpl::reserveSpaceInContainers(size_t count)
 
 bool ResourceContextImpl::infoStorage::mayNeedRehash(const size_t headroom) const noexcept
 {
-	bool result = false;
-	size_t currLoad{ 0u };
-	currLoad = static_cast<size_t>(std::floorf(resourceMemoryType.max_load_factor())) * resourceMemoryType.bucket_count();
-	result |= (currLoad + headroom) > resourceMemoryType.max_size();
-	currLoad = static_cast<size_t>(std::floorf(resourceFlags.max_load_factor())) * resourceFlags.bucket_count();
-	result |= (currLoad + headroom) > resourceFlags.max_size();
-	currLoad = static_cast<size_t>(std::floorf(bufferInfos.max_load_factor())) * bufferInfos.bucket_count();
-	result |= (currLoad + headroom) > bufferInfos.max_size();
-	currLoad = static_cast<size_t>(std::floorf(bufferViewInfos.max_load_factor())) * bufferViewInfos.bucket_count();
-	result |= (currLoad + headroom) > bufferViewInfos.max_size();
-	currLoad = static_cast<size_t>(std::floorf(imageInfos.max_load_factor())) * imageInfos.bucket_count();
-	result |= (currLoad + headroom) > imageInfos.max_size();
-	currLoad = static_cast<size_t>(std::floorf(imageViewInfos.max_load_factor())) * imageViewInfos.bucket_count();
-	result |= (currLoad + headroom) > imageViewInfos.max_size();
-	currLoad = static_cast<size_t>(std::floorf(samplerInfos.max_load_factor())) * samplerInfos.bucket_count();
-	result |= (currLoad + headroom) > samplerInfos.max_size();
-	return result;
+    bool result = false;
+    size_t currLoad{ 0u };
+    currLoad = static_cast<size_t>(std::floorf(resourceMemoryType.max_load_factor())) * resourceMemoryType.bucket_count();
+    result |= (currLoad + headroom) > resourceMemoryType.max_size();
+    currLoad = static_cast<size_t>(std::floorf(resourceFlags.max_load_factor())) * resourceFlags.bucket_count();
+    result |= (currLoad + headroom) > resourceFlags.max_size();
+    currLoad = static_cast<size_t>(std::floorf(bufferInfos.max_load_factor())) * bufferInfos.bucket_count();
+    result |= (currLoad + headroom) > bufferInfos.max_size();
+    currLoad = static_cast<size_t>(std::floorf(bufferViewInfos.max_load_factor())) * bufferViewInfos.bucket_count();
+    result |= (currLoad + headroom) > bufferViewInfos.max_size();
+    currLoad = static_cast<size_t>(std::floorf(imageInfos.max_load_factor())) * imageInfos.bucket_count();
+    result |= (currLoad + headroom) > imageInfos.max_size();
+    currLoad = static_cast<size_t>(std::floorf(imageViewInfos.max_load_factor())) * imageViewInfos.bucket_count();
+    result |= (currLoad + headroom) > imageViewInfos.max_size();
+    currLoad = static_cast<size_t>(std::floorf(samplerInfos.max_load_factor())) * samplerInfos.bucket_count();
+    result |= (currLoad + headroom) > samplerInfos.max_size();
+    return result;
 }
 
 void ResourceContextImpl::infoStorage::reserve(size_t count)
 {
     resourceMemoryType.reserve(count);
-	resourceFlags.reserve(count);
+    resourceFlags.reserve(count);
     bufferInfos.reserve(count);
     bufferViewInfos.reserve(count);
     imageInfos.reserve(count);
@@ -1301,11 +1301,11 @@ void ResourceContextImpl::infoStorage::reserve(size_t count)
 
 void ResourceContextImpl::infoStorage::clear()
 {
-	resourceMemoryType.clear();
-	resourceFlags.clear();
-	bufferInfos.clear();
-	bufferViewInfos.clear();
-	imageInfos.clear();
-	imageViewInfos.clear();
-	samplerInfos.clear();
+    resourceMemoryType.clear();
+    resourceFlags.clear();
+    bufferInfos.clear();
+    bufferViewInfos.clear();
+    imageInfos.clear();
+    imageViewInfos.clear();
+    samplerInfos.clear();
 }
