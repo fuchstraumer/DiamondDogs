@@ -440,8 +440,7 @@ void SetupDescriptors(vtf_frame_data_t& frame) {
 
     // Set material debug descriptor
     auto* materials = frame.descriptorPack->RetrieveDescriptor("Material");
-    frame.debugMaterial = Material::CreateDebugMaterial();
-    frame.debugMaterial.PopulateDescriptor(*materials);
+    
 }
 
 void createGlobalResources(vtf_frame_data_t& frame) {

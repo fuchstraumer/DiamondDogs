@@ -10,7 +10,7 @@
 #include <vector>
 #include <set>
 #include <map>
-#include "Material.hpp"
+#include "MaterialCache.hpp"
 
 class DescriptorBinder;
 
@@ -78,7 +78,7 @@ private:
     std::string modelName;
     std::atomic<bool> readyToRender{ false };
 
-    std::vector<Material> materials;
+    std::vector<MaterialInstance> materials;
 
     void createMaterials(const std::vector<tinyobj_opt::material_t>& mtls, const char* search_dir);
     void generateIndirectDraws();

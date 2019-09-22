@@ -298,7 +298,7 @@ struct TestIcosphereMesh
 	VkRect2D scissor;
     VulkanResource* lightsMatrices;
     VkPipeline debugLightsPipeline;
-    Material icosphereMtl;
+    //Material icosphereMtl;
 
 };
 
@@ -751,6 +751,6 @@ void VTF_Scene::createIcosphereTester() {
     material.roughness = 5.0f;
     material.metallic = 0.1f;
 
-    icosphereTester->icosphereMtl = std::move(Material(material, prefix_path_to_textures.string().c_str()));
+    //icosphereTester->icosphereMtl = std::move(Material(material, prefix_path_to_textures.string().c_str()));
     
 }

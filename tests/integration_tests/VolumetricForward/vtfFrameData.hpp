@@ -126,8 +126,6 @@ public:
     vpr::VkDebugUtilsFunctions vkDebugFns;
     glm::mat4 previousViewMatrix = glm::mat4(1.0f);
 
-    Material debugMaterial;
-
     /*
         Static resources: all of these should really not be duplicated across frames/threads
         pipelineCaches are fully thread-safe, as they are internally synchronized (thank god)

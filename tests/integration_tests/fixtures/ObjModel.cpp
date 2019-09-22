@@ -221,7 +221,7 @@ void ObjectModel::renderGeometry(const objRenderStateData& state)
     {
         if ((state.type != render_type::PrePass) && (state.type != render_type::Shadow))
         {
-            materials[i].Bind(state.cmd, state.materialLayout, *state.binder);
+            //materials[i].Bind(state.cmd, state.materialLayout, *state.binder);
         }
         else if (state.type == render_type::PrePass)
         {
@@ -229,7 +229,7 @@ void ObjectModel::renderGeometry(const objRenderStateData& state)
         }
 
         // not rendering transparents, material is partially transparent at least so skip it
-        if (state.type == render_type::Opaque && !materials[i].Opaque())
+        if (state.type == render_type::Opaque)
         {
             auto draw_ranges = indirectCommands.equal_range(i);
             cmdOffset += static_cast<uint32_t>(sizeof(VkDrawIndexedIndirectCommand) * std::distance(draw_ranges.first, draw_ranges.second));
@@ -404,11 +404,11 @@ void ObjectModel::loadMeshes(const std::vector<tinyobj_opt::shape_t>& shapes, co
 
 void ObjectModel::createMaterials(const std::vector<tinyobj_opt::material_t>& mtls, const char* search_dir)
 {
-
+    auto& cache = MaterialCache::Get();
     materials.reserve(numMaterials);
     for (const auto& mtl : mtls)
     {
-        materials.emplace_back(mtl, search_dir);
+        materials.emplace_back(cache.LoadTinyobjMaterial(&mtl, search_dir));
     }
 
 }
