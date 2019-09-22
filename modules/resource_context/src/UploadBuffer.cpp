@@ -1,5 +1,4 @@
 #include "UploadBuffer.hpp"
-#include "Allocator.hpp"
 #include "LogicalDevice.hpp"
 #include "easylogging++.h"
 

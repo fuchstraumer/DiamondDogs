@@ -4,7 +4,6 @@
 #include "ResourceTypes.hpp"
 #include "TransferSystem.hpp"
 #include "ResourceLoader.hpp"
-#include "Allocator.hpp"
 #include "LogicalDevice.hpp"
 #include "PhysicalDevice.hpp"
 #include "vkAssert.hpp"

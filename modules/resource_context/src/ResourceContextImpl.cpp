@@ -1,5 +1,6 @@
 #include "ResourceContextImpl.hpp"
 #include "../../rendering_context/include/RenderingContext.hpp"
+#include "Instance.hpp"
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 #include <fstream>
@@ -202,11 +203,6 @@ VkMemoryPropertyFlags GetMemoryPropertyFlags(resource_usage _resource_usage) noe
     }
 }
 
-static vpr::Allocator::allocation_extensions getExtensionFlags(const vpr::Device* device)
-{
-    return device->DedicatedAllocationExtensionsEnabled() ? vpr::Allocator::allocation_extensions::DedicatedAllocations : vpr::Allocator::allocation_extensions::None;
-}
-
 enum class lock_mode : uint8_t
 {
     Invalid = 0,
@@ -261,11 +257,11 @@ void ResourceContextImpl::construct(vpr::Device* _device, vpr::PhysicalDevice* p
 		vkDebugFns = device->DebugUtilsHandler();
 	}
 
-    auto flags = getExtensionFlags(device);
+    const auto& applicationInfo = device->ParentInstance()->ApplicationInfo();
 
     VmaAllocatorCreateInfo create_info
     {
-        flags == vpr::Allocator::allocation_extensions::DedicatedAllocations ? VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT : 0u,
+        applicationInfo.apiVersion >= VK_API_VERSION_1_1 ? VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT : 0u,
         physical_device->vkHandle(),
         device->vkHandle(),
 		VkDeviceSize(6.4e+7),

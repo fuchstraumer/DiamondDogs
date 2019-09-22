@@ -4,7 +4,6 @@
 #include "Fence.hpp"
 #include "Semaphore.hpp"
 #include "vkAssert.hpp"
-#include "Allocator.hpp"
 #include "UploadBuffer.hpp"
 #include "../../rendering_context/include/RenderingContext.hpp"
 #include "VkDebugUtils.hpp"

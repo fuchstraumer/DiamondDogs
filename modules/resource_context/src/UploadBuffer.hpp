@@ -3,8 +3,6 @@
 #define RESOURCE_CONTEXT_UPLOAD_BUFFER_HPP
 #include "ForwardDecl.hpp"
 #include "vkAssert.hpp"
-#include "AllocationRequirements.hpp"
-#include "Allocation.hpp"
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
