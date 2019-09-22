@@ -17,7 +17,7 @@ constexpr static size_t MaxMaterialPageTextureCount = 32768u;
 // Max of 8192 textures loaded at once
 constexpr static size_t MaxMaterialPages = 16u;
 
-struct DescriptorTemplate;
+class DescriptorTemplate;
 
 struct MaterialInstance
 {
@@ -39,7 +39,7 @@ class MaterialCache
     MaterialCache();
 public:
 
-    MaterialCache& Get() noexcept;
+    static MaterialCache& Get() noexcept;
     // Releases CPU-side image data. Call at most once per frame (more won't break, just won't be worth it)
     static void ReleaseCpuData();
 

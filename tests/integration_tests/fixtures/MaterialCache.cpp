@@ -37,20 +37,6 @@ namespace
     static std::mutex staticMaterialMutex;
     static std::shared_mutex materialSharedMutex;
 
-    template<texture_type tex_type_e>
-    constexpr static texture_type TEXTURE_TYPE_VAL = tex_type_e;
-    // force initialization now because we use these by address, not value, so we need a fixed address
-    constexpr static auto AMBIENT_TEXTURE_TYPE = TEXTURE_TYPE_VAL<texture_type::Ambient>;
-    constexpr static auto DIFFUSE_TEXTURE_TYPE = TEXTURE_TYPE_VAL<texture_type::Diffuse>;
-    constexpr static auto SPECULAR_TEXTURE_TYPE = TEXTURE_TYPE_VAL<texture_type::Specular>;
-    constexpr static auto BUMP_TEXTURE_TYPE = TEXTURE_TYPE_VAL<texture_type::Bump>;
-    constexpr static auto DISPLACEMENT_TEXTURE_TYPE = TEXTURE_TYPE_VAL<texture_type::Displacement>;
-    constexpr static auto ALPHA_TEXTURE_TYPE = TEXTURE_TYPE_VAL<texture_type::Alpha>;
-    constexpr static auto ROUGHNESS_TEXTURE_TYPE = TEXTURE_TYPE_VAL<texture_type::Roughness>;
-    constexpr static auto METALLIC_TEXTURE_TYPE = TEXTURE_TYPE_VAL<texture_type::Metallic>;
-    constexpr static auto EMISSIVE_TEXTURE_TYPE = TEXTURE_TYPE_VAL<texture_type::Emissive>;
-    constexpr static auto NORMAL_TEXTURE_TYPE = TEXTURE_TYPE_VAL<texture_type::Normal>;
-
     struct loaded_texture_data_t
     {
         loaded_texture_data_t(const char* fname) : bitmap(fname) {}
@@ -138,6 +124,8 @@ void MaterialCache::material_cache_page_t::createVkResources()
     vkIndicesBufferSBO = rsrc_context.CreateBuffer(&indicesBufferInfo, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, (void*)resourceName.c_str());
 
 }
+
+MaterialCache::MaterialCache() {}
 
 MaterialCache& MaterialCache::Get() noexcept
 {
@@ -230,64 +218,65 @@ MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const ch
         const bool hasEmissiveTexture = !mtl.emissive_texname.empty();
         const bool hasNormalTexture = !mtl.normal_texname.empty();
 
-        auto load_texture = [this, materialHash, &currMtlPage, &mtl](const texture_type type)
+        auto load_texture = [this, materialHash, &currMtlPage, &mtl, &material_dir](const texture_type type, const char* fileName)
         {
             auto& resource_loader = ResourceLoader::GetResourceLoader();
-            auto iter = currMtlPage.callbackDataStorage.emplace(image_loaded_callback_data_t{ materialHash, currentPage, texture_type::Ambient });
+            auto iter = currMtlPage.callbackDataStorage.emplace(image_loaded_callback_data_t{ materialHash, type });
             assert(iter.second);
             auto& callbackData = iter.first;
-            auto& entry = loaderDataMap[materialHash][texture_type::Ambient];
+            auto& entry = loaderDataMap[materialHash][type];
             entry.NumUsages++;
-            entry.FilePath = mtl.name;
+            entry.FilePath = fileName;
             entry.FileType = "MANGO";
-            resource_loader.Load("MANGO", mtl.name.c_str(), this, textureLoadedCallback, &callbackData);
+            resource_loader.Load("MANGO", fileName, material_dir, this, textureLoadedCallback, &callbackData);
         };
 
         // now the tricky part: loading textures
         if (hasAmbientTexture)
         {
-            load_texture(texture_type::Ambient);
+            load_texture(texture_type::Ambient, mtl.ambient_texname.c_str());
         }
 
         if (hasDiffuseTexture)
         {
-            load_texture(texture_type::Diffuse);
+            load_texture(texture_type::Diffuse, mtl.diffuse_texname.c_str());
         }
 
         if (hasSpecularTexture)
         {
-            load_texture(texture_type::Specular);
+            load_texture(texture_type::Specular, mtl.specular_texname.c_str());
         }
 
         if (hasSpecularHighlightTexture)
         {
-            load_texture(texture_type::Specular);
+            load_texture(texture_type::SpecularHighlight, mtl.specular_highlight_texname.c_str());
         }
 
         if (hasBumpMap)
         {
             LOG_IF(hasDisplacementMap, WARNING) << "Material has both a bump map and displacement map, which will be treated as redundant by the shader.";
-            load_texture(texture_type::Bump);
+            load_texture(texture_type::Bump, mtl.bump_texname.c_str());
         }
 
         if (hasDisplacementMap)
         {
             LOG_IF(hasBumpMap, WARNING) << "Material has both a bump map and displacement map, which will be treated as redundant by the shader.";
+            load_texture(texture_type::Displacement, mtl.displacement_texname.c_str());
         }
 
         if (hasAlphaTexture)
         {
-            load_texture(texture_type::Alpha);
+            load_texture(texture_type::Alpha, mtl.alpha_texname.c_str());
         }
 
         if (hasRoughnessTexture)
         {
-            load_texture(texture_type::Roughness);
+            load_texture(texture_type::Roughness, mtl.roughness_texname.c_str());
         }
 
         if (hasMetallicTexture)
         {
-            load_texture(texture_type::Metallic);
+            load_texture(texture_type::Metallic, mtl.metallic_texname.c_str());
         }
 
         if (hasSheenTexture)
@@ -297,18 +286,18 @@ MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const ch
 
         if (hasEmissiveTexture)
         {
-            load_texture(texture_type::Emissive);
+            load_texture(texture_type::Emissive, mtl.emissive_texname.c_str());
         }
 
         if (hasNormalTexture)
         {
-            load_texture(texture_type::Normal);
+            load_texture(texture_type::Normal, mtl.normal_texname.c_str());
         }
 
         dataGuard.release_lock(); // don't need lock anymore: no iterators to invalidate like we can w unordered_map
 
         // index for UBO is gonna be unique for each unique material, since every material has a UBO
-        const uint32_t uboIdx = currMtlPage.containerIndices.parametersIdx.fetch_add(1u);
+        const uint32_t uboIdx = currMtlPage.parametersIdx.fetch_add(1u);
         currMtlPage.parametersArray[uboIdx] = std::move(params);
         // this is quick enough that it's not worth running through the loader
         currMtlPage.parameterUBOs[uboIdx] = createUBO(mtl.name.c_str(), currMtlPage.parametersArray[uboIdx]);
@@ -318,6 +307,7 @@ MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const ch
 
     }
 
+    return MaterialInstance{};
 }
 
 void MaterialCache::UseMaterialAtIdx(const MaterialInstance& instance, const uint32_t idx)
@@ -354,45 +344,45 @@ void MaterialCache::textureLoadedCallbackImpl(void* loaded_image, void* user_dat
         resourceLoaderData[texture_type::Ambient].CreatedResource = textureData->resource;
         break;
     case texture_type::Diffuse:
-        set_texture_at_idx(currPage.albedoMaps, indices.AlbedoIdx);
+        set_texture_at_idx(indices.AlbedoIdx);
         resourceLoaderData[texture_type::Diffuse].CreatedResource = textureData->resource;
         break;
     case texture_type::Specular:
-        set_texture_at_idx(currPage.specularMaps, indices.SpecularIdx);
+        set_texture_at_idx(indices.SpecularIdx);
         resourceLoaderData[texture_type::Specular].CreatedResource = textureData->resource;
         break;
     case texture_type::SpecularHighlight:
         LOG(WARNING) << "Tried to use unsupported sheen texture type.";
         break;
     case texture_type::Bump:
-        set_texture_at_idx(currPage.bumpMaps, indices.BumpMapIdx);
+        set_texture_at_idx(indices.BumpMapIdx);
         resourceLoaderData[texture_type::Bump].CreatedResource = textureData->resource;
         break;
     case texture_type::Displacement:
-        set_texture_at_idx(currPage.displacementMaps, indices.DisplacementMapIdx);
+        set_texture_at_idx(indices.DisplacementMapIdx);
         resourceLoaderData[texture_type::Displacement].CreatedResource = textureData->resource;
         break;
     case texture_type::Alpha:
-        set_texture_at_idx(currPage.alphaMaps, indices.AlphaIdx);
+        set_texture_at_idx(indices.AlphaIdx);
         resourceLoaderData[texture_type::Alpha].CreatedResource = textureData->resource;
         break;
     case texture_type::Roughness:
-        set_texture_at_idx(currPage.roughnessMaps, indices.RoughnessMapIdx);
+        set_texture_at_idx(indices.RoughnessMapIdx);
         resourceLoaderData[texture_type::Roughness].CreatedResource = textureData->resource;
         break;
     case texture_type::Metallic:
-        set_texture_at_idx(currPage.metallicMaps, indices.MetallicMapIdx);
+        set_texture_at_idx(indices.MetallicMapIdx);
         resourceLoaderData[texture_type::Metallic].CreatedResource = textureData->resource;
         break;
     case texture_type::Sheen:
         LOG(WARNING) << "Tried to use unsupported sheen texture type.";
         break;
     case texture_type::Emissive:
-        set_texture_at_idx(currPage.emissiveMaps, indices.EmissiveMapIdx);
+        set_texture_at_idx(indices.EmissiveMapIdx);
         resourceLoaderData[texture_type::Emissive].CreatedResource = textureData->resource;
         break;
     case texture_type::Normal:
-        set_texture_at_idx(currPage.normalMaps, indices.NormalMapIdx);
+        set_texture_at_idx(indices.NormalMapIdx);
         resourceLoaderData[texture_type::Normal].CreatedResource = textureData->resource;
         break;
     default:
@@ -412,6 +402,7 @@ void MaterialCache::textureLoadedCallbackImpl(void* loaded_image, void* user_dat
 
 uint64_t MaterialCache::hashTinyobjMaterial(const void* mtlPtr, const material_parameters_t& params)
 {
+    // Params hash hashes contents as well: difference in values will be invalid
     const uint64_t paramsHash = MurmurHash2(&params, sizeof(params), 0xFD);
     const tinyobj_opt::material_t& mtl = *reinterpret_cast<const tinyobj_opt::material_t*>(mtlPtr);
     std::string concatenatedNames{ mtl.name };
@@ -474,7 +465,14 @@ constexpr bool MaterialCache::image_loaded_callback_data_t::operator==(const ima
 
 constexpr bool MaterialCache::image_loaded_callback_data_t::operator<(const image_loaded_callback_data_t& other) const noexcept
 {
-    return mtlHash < other.mtlHash;
+    if (mtlHash == other.mtlHash)
+    {
+        return type < other.type;
+    }
+    else
+    {
+        return mtlHash < other.mtlHash;
+    }
 }
 
 namespace
