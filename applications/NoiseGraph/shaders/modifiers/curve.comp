@@ -1,0 +1,62 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
+
+layout (constant_id = 0) const uint MaxX = 256;
+layout (constant_id = 1) const uint MaxY = 256;
+layout (constant_id = 2) const uint MaxZ = 1;
+layout (constant_id = 3) const uint NumPts = 8;
+
+
+layout (set = 0, binding = 0, rgba32f) restrict readonly imageBuffer positions;
+layout (set = 0, binding = 1, r32f) restrict readonly imageBuffer input;
+layout (set = 0, binding = 3, r32f) restrict writeonly imageBuffer output;
+layout (set = 1, binding = 0, rg32f) restrict readonly imageBuffer ControlPoints;
+
+int GetIdx(uint i, uint j, uint k) {
+    return int(MaxX * MaxY * k + MaxX * j + i);
+}
+
+float CubicInterp(const float n0, const float n1, const float n2, const float n3, const float a) {
+    const float p = (n3 - n2) - (n0 - n1);
+    const float q = (n0 - n1) - p;
+    const float r = (n2 - n0);
+    return p * a * a * a + q * a * a + r * a + n1;
+}
+
+void main() {
+    
+    const uvec3 dims = uvec3(MaxX, MaxY, MaxZ);
+    if (any(greaterThan(gl_GlobalInvocationID, dims))) {
+        return;
+    }
+
+    int threadIdx = GetIdx(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
+    float prev = imageLoad(input, threadIdx).r;
+
+    int idx;
+    for (idx = 0; idx < NumPts; ++idx) {
+        if (prev < imageLoad(ControlPoints, idx).r) {
+            break;
+        }
+    }
+    
+    int i0 = clamp(idx - 2, 0, NumPts - 1);
+    int i1 = clamp(idx - 1, 0, NumPts - 1);
+    int i2 = clamp(idx - 0, 0, NumPts - 1);
+    int i3 = clamp(idx + 1, 0, NumPts - 1);
+
+    if (i1 == i2) {
+        imageStore(output, threadIdx, vec4(imageLoad(ControlPoints, i1).g, 0.0f, 0.0f, 0.0f));
+        return;
+    }
+
+    float in0 = imageLoad(ControlPoints, i1).r;
+    float in1 = imageLoad(ControlPoints, i2).r;
+    float alpha = (prev - in0) / (in1 - in0);
+
+    float result = CubicInterp(imageLoad(ControlPoints, i0).g, imageLoad(ControlPoints, i1).g, imageLoad(ControlPoints, i2).g, 
+        imageLoad(ControlPoints, i3).g, alpha);
+    imageStore(output, threadIdx, vec4(result, 0.0f, 0.0f, 0.0f));
+
+}

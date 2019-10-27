@@ -16,7 +16,8 @@
     ],
     "RequestedDeviceExtensions" : [
         "VK_KHR_dedicated_allocation",
-        "VK_KHR_get_memory_requirements2"
+        "VK_KHR_get_memory_requirements2",
+        "VK_KHR_pipeline_executable_properties"
     ],
     "InitialWindowWidth" : 1440,
     "InitialWindowHeight" : 720,

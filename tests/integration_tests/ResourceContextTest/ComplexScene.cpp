@@ -17,6 +17,7 @@
 #include "GraphicsPipeline.hpp"
 #include "HouseShaders.hpp"
 #include "SkyboxShaders.hpp"
+#include "PipelineExecutableInfo.hpp"
 #pragma warning(push, 1)
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
@@ -32,7 +33,8 @@
 #include <iostream>
 #include <array>
 
-const static std::array<glm::vec3, 8> skybox_positions {
+const static std::array<glm::vec3, 8> skybox_positions
+{
     glm::vec3(-1.0f,-1.0f, 1.0f ),
     glm::vec3( 1.0f,-1.0f, 1.0f ),
     glm::vec3( 1.0f, 1.0f, 1.0f ),
@@ -43,14 +45,30 @@ const static std::array<glm::vec3, 8> skybox_positions {
     glm::vec3( 1.0f, 1.0f,-1.0f )
 };
 
-struct skybox_mesh_data_t {
-    skybox_mesh_data_t() {
-        auto add_vertex = [&](const glm::vec3& v)->uint32_t {
+#ifndef _NDEBUG
+static PipelineExecutableInfo* houseExecutableInfo = nullptr;
+static PipelineExecutableInfo* skyboxExecutableInfo = nullptr;
+constexpr VkPipelineCreateFlags pipelineFlags{ VK_PIPELINE_CREATE_CAPTURE_STATISTICS_BIT_KHR };
+#else
+constexpr static PipelineExecutableInfo* houseExecutableInfo = nullptr;
+constexpr static PipelineExecutableInfo* skyboxExecutableInfo = nullptr;
+constexpr VkPipelineCreateFlags pipelineFlags{ 0 };
+#endif
+
+
+struct skybox_mesh_data_t
+{
+
+    skybox_mesh_data_t()
+    {
+        auto add_vertex = [&](const glm::vec3& v)->uint32_t
+        {
             vertices.emplace_back(v);
             return static_cast<uint32_t>(vertices.size() - 1);
         };
 
-        auto build_face = [&](const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2, const glm::vec3& v3) {
+        auto build_face = [&](const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2, const glm::vec3& v3)
+        {
             uint32_t i0 = add_vertex(v0);
             uint32_t i1 = add_vertex(v1);
             uint32_t i2 = add_vertex(v2);
@@ -72,15 +90,22 @@ struct skybox_mesh_data_t {
     std::vector<uint32_t> indices;
 };
 
-struct stb_image_data_t {
-    stb_image_data_t(const char* fname) {
+struct stb_image_data_t
+{
+
+    stb_image_data_t(const char* fname)
+    {
         pixels = stbi_load(fname, &width, &height, &channels, 4);
-        if (!pixels) {
+        if (!pixels)
+        {
             throw std::runtime_error("Invalid file path for stb_load");
         }
     }
-    ~stb_image_data_t() {
-        if (pixels) {
+
+    ~stb_image_data_t()
+    {
+        if (pixels)
+        {
             stbi_image_free(pixels);
         }
         pixels = nullptr;
@@ -91,18 +116,20 @@ struct stb_image_data_t {
     int channels = -1;
 };
 
-struct vertex_hash {
-    size_t operator()(const LoadedObjModel::vertex_t& v) const noexcept {
+struct vertex_hash
+{
+    size_t operator()(const LoadedObjModel::vertex_t& v) const noexcept
+    {
         return (std::hash<glm::vec3>()(v.pos) ^ std::hash<glm::vec2>()(v.uv));
     }
 };
 
-LoadedObjModel::LoadedObjModel(const char* fname) {
+LoadedObjModel::LoadedObjModel(const char* fname)
+{
     tinyobj_opt::attrib_t attrib;
     std::vector<tinyobj_opt::shape_t> shapes;
     std::vector<tinyobj_opt::material_t> materials;
     std::string err;
-
     
     {
         mango::filesystem::File model_file(fname);
@@ -112,13 +139,15 @@ LoadedObjModel::LoadedObjModel(const char* fname) {
             throw std::runtime_error("Failed to find model file for ResourceContextScene test!");
         }
 
-        const mango::Memory model_memory{ model_file };
+        const mango::ConstMemory model_memory{ model_file };
 
         tinyobj_opt::LoadOption loadOpts;
         loadOpts.req_num_threads = static_cast<int>(std::thread::hardware_concurrency() / 2);
         loadOpts.triangulate = true;
+        loadOpts.verbose = true;
 
-        if (!tinyobj_opt::parseObj(&attrib, &shapes, &materials, static_cast<char*>(model_memory), model_memory.size, loadOpts)) {
+        if (!tinyobj_opt::parseObj(&attrib, &shapes, &materials, reinterpret_cast<const char*>(model_memory.address), model_memory.size, loadOpts))
+        {
             LOG(ERROR) << "Internal error in tinyobj_opt, couldn't load model data! Error: " << err;
             throw std::runtime_error(err);
         }
@@ -129,21 +158,25 @@ LoadedObjModel::LoadedObjModel(const char* fname) {
     indices.reserve(attrib.indices.size());
     vertices.reserve(attrib.vertices.size());
 
-    for (const auto& index : attrib.indices) {
-        glm::vec3 pos{
+    for (const auto& index : attrib.indices)
+    {
+        glm::vec3 pos
+        {
             attrib.vertices[3 * index.vertex_index + 0],
             attrib.vertices[3 * index.vertex_index + 1],
             attrib.vertices[3 * index.vertex_index + 2]
         };
 
-        glm::vec2 uv{
+        glm::vec2 uv
+        {
             attrib.texcoords[2 * index.texcoord_index + 0],
             1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
         };
 
         vertex_t vert{ pos, uv };
 
-        if (unique_vertices.count(vert) == 0) {
+        if (unique_vertices.count(vert) == 0)
+        {
             unique_vertices[vert] = static_cast<uint32_t>(vertices.size());
             vertices.emplace_back(vert);
         }
@@ -158,18 +191,21 @@ LoadedObjModel::LoadedObjModel(const char* fname) {
 
 VulkanComplexScene::VulkanComplexScene() : VulkanScene(), skyboxTextureReady(false), houseTextureReady(false), houseMeshReady(false) {}
 
-VulkanComplexScene::~VulkanComplexScene() {
+VulkanComplexScene::~VulkanComplexScene()
+{
     Destroy();
 }
 
-VulkanComplexScene& VulkanComplexScene::GetScene() {
+VulkanComplexScene& VulkanComplexScene::GetScene()
+{
     static VulkanComplexScene scene;
     return scene;
 }    
 
 glm::vec3 scale(1.0f);
 
-void VulkanComplexScene::Construct(RequiredVprObjects objects, void* user_data) {
+void VulkanComplexScene::Construct(RequiredVprObjects objects, void* user_data)
+{
     vprObjects = objects;
     resourceContext = &ResourceContext::Get();
     houseUboData.view = glm::lookAt(glm::vec3(-2.0f, -2.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
@@ -200,7 +236,8 @@ void VulkanComplexScene::Construct(RequiredVprObjects objects, void* user_data) 
     createSkyboxPipeline();
 }
 
-void VulkanComplexScene::Destroy() {
+void VulkanComplexScene::Destroy()
+{
 
     const VkPipelineCache otherCaches[2]
     {
@@ -251,43 +288,52 @@ void VulkanComplexScene::Destroy() {
     houseMeshReady = false;
 }
 
-void* VulkanComplexScene::LoadObjFile(const char* fname, void* user_data) {
+void* VulkanComplexScene::LoadObjFile(const char* fname, void* user_data)
+{
     return new LoadedObjModel(fname);
 }
 
-void VulkanComplexScene::DestroyObjFileData(void* obj_file, void* user_data) {
+void VulkanComplexScene::DestroyObjFileData(void* obj_file, void* user_data)
+{
     LoadedObjModel* model = reinterpret_cast<LoadedObjModel*>(obj_file);
     delete model;
 }
 
-void* VulkanComplexScene::LoadPngImage(const char* fname, void* user_data) {
+void* VulkanComplexScene::LoadPngImage(const char* fname, void* user_data)
+{
     return new stb_image_data_t(fname);
 }
 
-void VulkanComplexScene::DestroyPngFileData(void * jpeg_file, void* user_data) {
+void VulkanComplexScene::DestroyPngFileData(void * jpeg_file, void* user_data)
+{
     stb_image_data_t* image = reinterpret_cast<stb_image_data_t*>(jpeg_file);
     delete image;
 }
 
-void* VulkanComplexScene::LoadCompressedTexture(const char* fname, void* user_data) {
+void* VulkanComplexScene::LoadCompressedTexture(const char* fname, void* user_data)
+{
     return new gli::texture_cube(gli::load(fname));
 }
 
-void VulkanComplexScene::DestroyCompressedTextureData(void* compressed_texture, void* user_data) {
+void VulkanComplexScene::DestroyCompressedTextureData(void* compressed_texture, void* user_data)
+{
     gli::texture_cube* texture = reinterpret_cast<gli::texture_cube*>(compressed_texture);
     delete texture;
 }
 
-void VulkanComplexScene::CreateHouseMesh(void * obj_data) {
+void VulkanComplexScene::CreateHouseMesh(void * obj_data)
+{
     LoadedObjModel* obj_model = reinterpret_cast<LoadedObjModel*>(obj_data);
     const auto device = vprObjects.device;
 
-    const uint32_t queueFamilyIndices[2]{
+    const uint32_t queueFamilyIndices[2]
+    {
         device->QueueFamilyIndices().Graphics,
         device->QueueFamilyIndices().Transfer
     };
 
-    VkBufferCreateInfo vbo_info {
+    VkBufferCreateInfo vbo_info
+    {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
@@ -300,14 +346,16 @@ void VulkanComplexScene::CreateHouseMesh(void * obj_data) {
 
     // Test multi-copy functionality of resource context, by merging these two 
     // separate data buffers into a single VkBuffer
-    const gpu_resource_data_t vbo_data {
+    const gpu_resource_data_t vbo_data
+    {
         obj_model->vertices.data(),
         sizeof(LoadedObjModel::vertex_t) * obj_model->vertices.size(),
         0,
         VK_QUEUE_FAMILY_IGNORED
     };
 
-    const VkBufferCreateInfo ebo_info{
+    const VkBufferCreateInfo ebo_info
+    {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
@@ -318,7 +366,8 @@ void VulkanComplexScene::CreateHouseMesh(void * obj_data) {
         queueFamilyIndices
     };
 
-    const gpu_resource_data_t ebo_data{
+    const gpu_resource_data_t ebo_data
+    {
         obj_model->indices.data(),
         static_cast<size_t>(ebo_info.size),
         0,
@@ -335,15 +384,18 @@ void VulkanComplexScene::CreateHouseMesh(void * obj_data) {
     houseMeshReady = true;
 }
 
-void VulkanComplexScene::CreateHouseTexture(void * texture_data) {
+void VulkanComplexScene::CreateHouseTexture(void * texture_data)
+{
     stb_image_data_t* image_data = reinterpret_cast<stb_image_data_t*>(texture_data);
 
-    const uint32_t queueFamilyIndices[2]{
+    const uint32_t queueFamilyIndices[2]
+    {
         vprObjects.device->QueueFamilyIndices().Graphics,
         vprObjects.device->QueueFamilyIndices().Transfer
     };
 
-    const VkImageCreateInfo image_info{
+    const VkImageCreateInfo image_info
+    {
         VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         nullptr,
         0,
@@ -361,7 +413,8 @@ void VulkanComplexScene::CreateHouseTexture(void * texture_data) {
         VK_IMAGE_LAYOUT_UNDEFINED
     };
 
-    const VkImageViewCreateInfo view_info{
+    const VkImageViewCreateInfo view_info
+    {
         VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         nullptr,
         0,
@@ -372,8 +425,10 @@ void VulkanComplexScene::CreateHouseTexture(void * texture_data) {
         VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
     };
 
-    const gpu_image_resource_data_t initial_texture_data[1] {
-        gpu_image_resource_data_t {
+    const gpu_image_resource_data_t initial_texture_data[1]
+    {
+        gpu_image_resource_data_t
+        {
             image_data->pixels,
             sizeof(stbi_uc) * image_data->width * image_data->height * image_data->channels,
             static_cast<uint32_t>(image_data->width), 
@@ -388,7 +443,8 @@ void VulkanComplexScene::CreateHouseTexture(void * texture_data) {
     updateHouseDescriptorSet();
 }
 
-void VulkanComplexScene::CreateSkyboxTexture(void * texture_data) {
+void VulkanComplexScene::CreateSkyboxTexture(void * texture_data)
+{
 
     LOG(INFO) << "Creating backing resources for loaded compressed skybox texture...";
 
@@ -397,12 +453,14 @@ void VulkanComplexScene::CreateSkyboxTexture(void * texture_data) {
     const uint32_t height = static_cast<uint32_t>(texture->extent().y);
     const uint32_t mipLevels = static_cast<uint32_t>(texture->levels());
 
-    const uint32_t queueFamilyIndices[2]{
+    const uint32_t queueFamilyIndices[2]
+    {
         vprObjects.device->QueueFamilyIndices().Graphics,
         vprObjects.device->QueueFamilyIndices().Transfer
     };
 
-    const VkImageCreateInfo image_info {
+    const VkImageCreateInfo image_info
+    {
         VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         nullptr,
         VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
@@ -420,7 +478,8 @@ void VulkanComplexScene::CreateSkyboxTexture(void * texture_data) {
         VK_IMAGE_LAYOUT_UNDEFINED
     };
 
-    const VkImageViewCreateInfo view_info{
+    const VkImageViewCreateInfo view_info
+    {
         VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         nullptr,
         0,
@@ -435,8 +494,10 @@ void VulkanComplexScene::CreateSkyboxTexture(void * texture_data) {
 
     LOG(INFO) << "Creating image copy data, making sure layers and mips are correctly transferred...";
     std::vector<gpu_image_resource_data_t> image_copies;
-    for (size_t i = 0; i < 6; ++i) {
-        for (size_t j = 0; j < texture->levels(); ++j) {
+    for (size_t i = 0; i < 6; ++i)
+    {
+        for (size_t j = 0; j < texture->levels(); ++j)
+        {
             auto& ref = *texture;
             image_copies.emplace_back(gpu_image_resource_data_t{
                 ref[i][j].data(),
@@ -459,12 +520,15 @@ void VulkanComplexScene::CreateSkyboxTexture(void * texture_data) {
 
 }
 
-bool VulkanComplexScene::AllAssetsLoaded() {
+bool VulkanComplexScene::AllAssetsLoaded()
+{
     return (skyboxTextureReady && houseMeshReady && houseTextureReady);
 }
 
-void VulkanComplexScene::WaitForAllLoaded() {
-    while (!skyboxTextureReady || !houseMeshReady || !houseTextureReady) {
+void VulkanComplexScene::WaitForAllLoaded()
+{
+    while (!skyboxTextureReady || !houseMeshReady || !houseTextureReady)
+    {
         
     }
     resourceContext->Update();
@@ -473,14 +537,16 @@ void VulkanComplexScene::WaitForAllLoaded() {
 
 const glm::vec3 translation(0.0f, 0.0f, 0.0f);
 
-void VulkanComplexScene::update() {
+void VulkanComplexScene::update()
+{
     static auto start_time = std::chrono::high_resolution_clock::now();
     auto curr_time = std::chrono::high_resolution_clock::now();
     float diff = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(curr_time - start_time).count()) / 10000.0f;
     houseUboData.model = glm::scale(glm::mat4(1.0f), scale);
     houseUboData.model = glm::rotate(houseUboData.model, diff * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)); // pivot house around center axis based on time.
     houseUboData.model = glm::translate(houseUboData.model, translation);
-    const gpu_resource_data_t house_ubo_data{
+    const gpu_resource_data_t house_ubo_data
+    {
         &houseUboData,
         sizeof(ubo_data_t),
         0,
@@ -488,7 +554,8 @@ void VulkanComplexScene::update() {
     };
     resourceContext->SetBufferData(houseUBO, 1, &house_ubo_data); 
     //skyboxUboData.model = glm::rotate(glm::mat4(1.0f), diff * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    const gpu_resource_data_t skybox_ubo_data{
+    const gpu_resource_data_t skybox_ubo_data
+    {
         &skyboxUboData,
         sizeof(ubo_data_t),
         0,
@@ -497,32 +564,38 @@ void VulkanComplexScene::update() {
     resourceContext->SetBufferData(skyboxUBO, 1, &skybox_ubo_data);
 }
 
-void VulkanComplexScene::recordCommands() {
+void VulkanComplexScene::recordCommands()
+{
 
     static std::array<bool, 5> first_frame{ true, true, true, true, true };
 
-    if (!first_frame[currentBuffer]) {
+    if (!first_frame[currentBuffer])
+    {
         cmdPool->ResetCmdBuffer(currentBuffer);
     }
 
-    constexpr static VkCommandBufferBeginInfo begin_info{
+    constexpr static VkCommandBufferBeginInfo begin_info
+    {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         nullptr,
         VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
         nullptr
     };
 
-    constexpr static std::array<VkClearValue, 2> clearValues{
+    constexpr static std::array<VkClearValue, 2> clearValues
+    {
         VkClearValue{ VkClearColorValue{ 0.0f, 0.0f, 0.5f, 1.0f } },
         VkClearValue{ 1.0f, 0 }
     };
 
-    const VkRect2D render_area{
+    const VkRect2D render_area
+    {
         VkOffset2D{ 0, 0 },
         VkExtent2D{ vprObjects.swapchain->Extent() }
     };
 
-    const VkViewport viewport{
+    const VkViewport viewport
+    {
         0.0f,
         0.0f,
         static_cast<float>(vprObjects.swapchain->Extent().width),
@@ -531,11 +604,13 @@ void VulkanComplexScene::recordCommands() {
         1.0f
     };
 
-    const VkRect2D scissor{
+    const VkRect2D scissor
+    {
         render_area
     };
 
-    VkRenderPassBeginInfo rpBegin{
+    VkRenderPassBeginInfo rpBegin
+    {
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         nullptr,
         renderPass,
@@ -551,12 +626,14 @@ void VulkanComplexScene::recordCommands() {
         auto& pool = *cmdPool;
         result = vkBeginCommandBuffer(pool[currentBuffer], &begin_info); VkAssert(result);
             vkCmdBeginRenderPass(pool[currentBuffer], &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
-            if (skyboxTextureReady) {
+            if (skyboxTextureReady)
+            {
                 vkCmdSetViewport(pool[currentBuffer], 0, 1, &viewport);
                 vkCmdSetScissor(pool[currentBuffer], 0, 1, &scissor);
                 renderSkybox(pool[currentBuffer]);
             }
-            if (houseTextureReady && houseMeshReady) {
+            if (houseTextureReady && houseMeshReady)
+            {
                 vkCmdSetViewport(pool[currentBuffer], 0, 1, &viewport);
                 vkCmdSetScissor(pool[currentBuffer], 0, 1, &scissor);
                 renderHouse(pool[currentBuffer]);
@@ -569,7 +646,8 @@ void VulkanComplexScene::recordCommands() {
     first_frame[currentBuffer] = false;
 }
 
-void VulkanComplexScene::renderHouse(VkCommandBuffer cmd) {
+void VulkanComplexScene::renderHouse(VkCommandBuffer cmd)
+{
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, housePipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout->vkHandle(), 0, 1, &houseSet->vkHandle(), 0, nullptr);
     const VkBuffer buffers[1]{ (VkBuffer)houseVBO->Handle };
@@ -579,7 +657,8 @@ void VulkanComplexScene::renderHouse(VkCommandBuffer cmd) {
     vkCmdDrawIndexed(cmd, houseIndexCount, 1, 0, 0, 0);
 }
 
-void VulkanComplexScene::renderSkybox(VkCommandBuffer cmd) {
+void VulkanComplexScene::renderSkybox(VkCommandBuffer cmd)
+{
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout->vkHandle(), 0, 1, &skyboxSet->vkHandle(), 0, nullptr);
     const VkBuffer buffer[1]{ (VkBuffer)skyboxVBO->Handle };
@@ -589,7 +668,8 @@ void VulkanComplexScene::renderSkybox(VkCommandBuffer cmd) {
     vkCmdDrawIndexed(cmd, skyboxIndexCount, 1, 0, 0, 0);
 }
 
-void VulkanComplexScene::draw() {
+void VulkanComplexScene::draw() 
+{
 
     constexpr static VkPipelineStageFlags wait_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     const VkSubmitInfo submit_info{
@@ -608,7 +688,8 @@ void VulkanComplexScene::draw() {
     VkAssert(result);
 }
 
-void VulkanComplexScene::endFrame() {
+void VulkanComplexScene::endFrame()
+{
 
     VkResult result = vkWaitForFences(vprObjects.device->vkHandle(), 1, &fences[currentBuffer], VK_TRUE, UINT64_MAX);
     VkAssert(result);
@@ -617,8 +698,10 @@ void VulkanComplexScene::endFrame() {
 
 }
 
-void VulkanComplexScene::createSampler() {
-    constexpr static VkSamplerCreateInfo sampler_info{
+void VulkanComplexScene::createSampler()
+{
+    constexpr static VkSamplerCreateInfo sampler_info
+    {
         VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
         nullptr,
         0,
@@ -642,8 +725,10 @@ void VulkanComplexScene::createSampler() {
     sampler = resourceContext->CreateSampler(&sampler_info, ResourceCreateUserDataAsString, (void*)samplerStr);
 }
 
-void VulkanComplexScene::createUBOs() {
-    constexpr static VkBufferCreateInfo ubo_info{
+void VulkanComplexScene::createUBOs()
+{
+    constexpr static VkBufferCreateInfo ubo_info
+    {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
@@ -660,15 +745,18 @@ void VulkanComplexScene::createUBOs() {
     skyboxUBO = resourceContext->CreateBuffer(&ubo_info, nullptr, 0, nullptr, resource_usage::CPU_ONLY, uboFlags, (void*)skyboxUboStr);
 }
 
-void VulkanComplexScene::createSkyboxMesh() {
+void VulkanComplexScene::createSkyboxMesh()
+{
     skybox_mesh_data_t mesh_data;
 
-    const uint32_t queueFamilyIndices[2]{
+    const uint32_t queueFamilyIndices[2]
+    {
         vprObjects.device->QueueFamilyIndices().Graphics,
         vprObjects.device->QueueFamilyIndices().Transfer
     };
 
-    const VkBufferCreateInfo vbo_info{
+    const VkBufferCreateInfo vbo_info
+    {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
@@ -679,7 +767,8 @@ void VulkanComplexScene::createSkyboxMesh() {
         queueFamilyIndices
     };
 
-    const VkBufferCreateInfo ebo_info{
+    const VkBufferCreateInfo ebo_info
+    {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
@@ -690,14 +779,16 @@ void VulkanComplexScene::createSkyboxMesh() {
         queueFamilyIndices
     };
 
-    const gpu_resource_data_t vbo_data{
+    const gpu_resource_data_t vbo_data
+    {
         mesh_data.vertices.data(),
         vbo_info.size,
         0,
         VK_QUEUE_FAMILY_IGNORED
     };
 
-    const gpu_resource_data_t ebo_data{
+    const gpu_resource_data_t ebo_data
+    {
         mesh_data.indices.data(),
         ebo_info.size,
         0,
@@ -712,38 +803,47 @@ void VulkanComplexScene::createSkyboxMesh() {
     skyboxIndexCount = static_cast<uint32_t>(mesh_data.indices.size());
 }
 
-void VulkanComplexScene::createFences() {
-    constexpr static VkFenceCreateInfo fence_info {
+void VulkanComplexScene::createFences()
+{
+    constexpr static VkFenceCreateInfo fence_info
+    {
         VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
         nullptr,
         0
     };
+
     fences.resize(vprObjects.swapchain->ImageCount());
-    for (auto& fence : fences) {
+    for (auto& fence : fences)
+    {
         VkResult result = vkCreateFence(vprObjects.device->vkHandle(), &fence_info, nullptr, &fence);
         VkAssert(result);
     }
 }
 
-void VulkanComplexScene::createCommandPool() {
-    const VkCommandPoolCreateInfo create_info{
+void VulkanComplexScene::createCommandPool()
+{
+    const VkCommandPoolCreateInfo create_info
+    {
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         nullptr,
         VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
         vprObjects.device->QueueFamilyIndices().Graphics
     };
+
     cmdPool = std::make_unique<vpr::CommandPool>(vprObjects.device->vkHandle(), create_info);
     cmdPool->AllocateCmdBuffers(vprObjects.swapchain->ImageCount(), VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 }
 
-void VulkanComplexScene::createDescriptorPool() {
+void VulkanComplexScene::createDescriptorPool()
+{
     descriptorPool = std::make_unique<vpr::DescriptorPool>(vprObjects.device->vkHandle(), 3);
     descriptorPool->AddResourceType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2);
     descriptorPool->AddResourceType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2);
     descriptorPool->Create();
 }
 
-void VulkanComplexScene::createDescriptorSetLayouts() {
+void VulkanComplexScene::createDescriptorSetLayouts()
+{
 
     constexpr static VkDescriptorSetLayoutBinding unique_bindings[2] { 
         VkDescriptorSetLayoutBinding{
@@ -767,14 +867,16 @@ void VulkanComplexScene::createDescriptorSetLayouts() {
 
 }
 
-void VulkanComplexScene::createDescriptorSets() {
+void VulkanComplexScene::createDescriptorSets()
+{
     houseSet = std::make_unique<vpr::DescriptorSet>(vprObjects.device->vkHandle());
     skyboxSet = std::make_unique<vpr::DescriptorSet>(vprObjects.device->vkHandle());
     houseSet->AddDescriptorInfo(VkDescriptorBufferInfo{ (VkBuffer)houseUBO->Handle, 0, sizeof(ubo_data_t) }, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0);
     skyboxSet->AddDescriptorInfo(VkDescriptorBufferInfo{ (VkBuffer)skyboxUBO->Handle, 0, sizeof(ubo_data_t) }, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0);
 }
 
-void VulkanComplexScene::createUpdateTemplates() {
+void VulkanComplexScene::createUpdateTemplates()
+{
     const VkDescriptorUpdateTemplateCreateInfo house_info{
         VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO,
         nullptr,
@@ -789,13 +891,15 @@ void VulkanComplexScene::createUpdateTemplates() {
     };
 }
 
-void VulkanComplexScene::createPipelineLayouts() {  
+void VulkanComplexScene::createPipelineLayouts()
+{  
     const VkDescriptorSetLayout set_layouts[1]{ setLayout->vkHandle() };
     pipelineLayout = std::make_unique<vpr::PipelineLayout>(vprObjects.device->vkHandle());
     pipelineLayout->Create(1, set_layouts);
 }
 
-void VulkanComplexScene::createShaders() {
+void VulkanComplexScene::createShaders()
+{
     houseVert = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_VERTEX_BIT, house_shader_vert_spv, static_cast<uint32_t>(sizeof(house_shader_vert_spv)));
     houseFrag = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, house_shader_frag_spv, static_cast<uint32_t>(sizeof(house_shader_frag_spv)));
     skyboxVert = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_VERTEX_BIT, skybox_shader_vert_spv, static_cast<uint32_t>(sizeof(skybox_shader_vert_spv)));
@@ -804,13 +908,16 @@ void VulkanComplexScene::createShaders() {
 
 void VulkanComplexScene::createFramebuffers() {
     framebuffers.resize(vprObjects.swapchain->ImageCount());
-    for (size_t i = 0; i < framebuffers.size(); ++i) {
-        std::array<VkImageView, 2> views{
+    for (size_t i = 0; i < framebuffers.size(); ++i)
+    {
+        std::array<VkImageView, 2> views
+        {
             vprObjects.swapchain->ImageView(i),
             depthStencil.View
         };
 
-        const VkFramebufferCreateInfo create_info{
+        const VkFramebufferCreateInfo create_info
+        {
             VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             nullptr,
             0,
@@ -827,27 +934,33 @@ void VulkanComplexScene::createFramebuffers() {
     }
 }
 
-void VulkanComplexScene::createRenderpass() {
+void VulkanComplexScene::createRenderpass()
+{
     renderPass = CreateBasicRenderpass(vprObjects.device, vprObjects.swapchain, depthStencil.Format);
 }
 
-void VulkanComplexScene::createHousePipeline() {
+void VulkanComplexScene::createHousePipeline()
+{
 
-    const VkPipelineShaderStageCreateInfo shader_stages[2]{
+    const VkPipelineShaderStageCreateInfo shader_stages[2]
+    {
         houseVert->PipelineInfo(),
         houseFrag->PipelineInfo()
     };
 
-    constexpr static VkVertexInputBindingDescription vertex_bindings[1] {
+    constexpr static VkVertexInputBindingDescription vertex_bindings[1]
+    {
         VkVertexInputBindingDescription{ 0, sizeof(LoadedObjModel::vertex_t), VK_VERTEX_INPUT_RATE_VERTEX },
     };
 
-    constexpr static VkVertexInputAttributeDescription vertex_attrs[2] {
+    constexpr static VkVertexInputAttributeDescription vertex_attrs[2]
+    {
         VkVertexInputAttributeDescription{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 },
         VkVertexInputAttributeDescription{ 1, 0, VK_FORMAT_R32G32_SFLOAT, sizeof(glm::vec3) }
     };
 
-    constexpr static VkPipelineVertexInputStateCreateInfo vertex_info{
+    constexpr static VkPipelineVertexInputStateCreateInfo vertex_info
+    {
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         nullptr,
         0,
@@ -858,26 +971,57 @@ void VulkanComplexScene::createHousePipeline() {
     };
 
     houseCache = std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), sharedCache->vkHandle(), typeid(VulkanComplexScene).hash_code() + std::hash<std::string>()("HouseCache"));
-    housePipeline = CreateBasicPipeline(vprObjects.device, 2, shader_stages, &vertex_info, pipelineLayout->vkHandle(), renderPass, VK_COMPARE_OP_LESS, houseCache->vkHandle(), VK_NULL_HANDLE, VK_CULL_MODE_BACK_BIT);
+
+    BasicPipelineCreateInfo housePipelineInfo
+    {
+        vprObjects.device,
+        pipelineFlags,
+        2,
+        shader_stages,
+        &vertex_info,
+        pipelineLayout->vkHandle(),
+        renderPass,
+        VK_COMPARE_OP_LESS,
+        houseCache->vkHandle(),
+        VK_NULL_HANDLE,
+        VK_CULL_MODE_BACK_BIT
+    };
+
+    housePipeline = CreateBasicPipeline(housePipelineInfo);
+
+#ifndef _NDEBUG
+    if (houseExecutableInfo != nullptr)
+    {
+        delete houseExecutableInfo;
+        houseExecutableInfo = nullptr;
+    }
+    houseExecutableInfo = new PipelineExecutableInfo(2, housePipeline);
+    RetrievePipelineExecutableInfo(vprObjects.device->vkHandle(), *houseExecutableInfo);
+#endif
 
 }
 
-void VulkanComplexScene::createSkyboxPipeline() {
+void VulkanComplexScene::createSkyboxPipeline()
+{
 
-    const VkPipelineShaderStageCreateInfo shader_stages[2]{
+    const VkPipelineShaderStageCreateInfo shader_stages[2]
+    {
         skyboxVert->PipelineInfo(),
         skyboxFrag->PipelineInfo()
     };
 
-    constexpr static VkVertexInputBindingDescription vertex_bindings[1] {
+    constexpr static VkVertexInputBindingDescription vertex_bindings[1]
+    {
         VkVertexInputBindingDescription{ 0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX }
     };
 
-    constexpr static VkVertexInputAttributeDescription vertex_attr[1] {
+    constexpr static VkVertexInputAttributeDescription vertex_attr[1]
+    {
         VkVertexInputAttributeDescription{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 }
     };
 
-    constexpr static VkPipelineVertexInputStateCreateInfo vertex_info {
+    constexpr static VkPipelineVertexInputStateCreateInfo vertex_info
+    {
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         nullptr,
         0,
@@ -888,29 +1032,60 @@ void VulkanComplexScene::createSkyboxPipeline() {
     };
 
     skyboxCache = std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), sharedCache->vkHandle(), typeid(VulkanComplexScene).hash_code() + std::hash<std::string>()("SkyboxCache"));
-    skyboxPipeline = CreateBasicPipeline(vprObjects.device, 2, shader_stages, &vertex_info, pipelineLayout->vkHandle(), renderPass, VK_COMPARE_OP_LESS_OR_EQUAL, skyboxCache->vkHandle(), housePipeline);
+
+    BasicPipelineCreateInfo createInfo
+    {
+        vprObjects.device,
+        pipelineFlags,
+        2,
+        shader_stages,
+        &vertex_info,
+        pipelineLayout->vkHandle(),
+        renderPass,
+        VK_COMPARE_OP_LESS_OR_EQUAL,
+        skyboxCache->vkHandle(),
+        housePipeline
+    };
+
+    skyboxPipeline = CreateBasicPipeline(createInfo);
+
+#ifndef _NDEBUG
+    if (skyboxExecutableInfo != nullptr)
+    {
+        delete skyboxExecutableInfo;
+        skyboxExecutableInfo = nullptr;
+    }
+    skyboxExecutableInfo = new PipelineExecutableInfo(2, skyboxPipeline);
+    RetrievePipelineExecutableInfo(vprObjects.device->vkHandle(), *skyboxExecutableInfo);
+#endif // !_NDEBUG
 
 }
 
-void VulkanComplexScene::destroyFences() {
-    for (auto& fence : fences) {
+void VulkanComplexScene::destroyFences()
+{
+    for (auto& fence : fences)
+    {
         vkDestroyFence(vprObjects.device->vkHandle(), fence, nullptr);
     }
 }
 
-void VulkanComplexScene::destroyFramebuffers() {
-    for (auto& fbuff : framebuffers) {
+void VulkanComplexScene::destroyFramebuffers()
+{
+    for (auto& fbuff : framebuffers)
+    {
         vkDestroyFramebuffer(vprObjects.device->vkHandle(), fbuff, nullptr);
     }
 }
 
-void VulkanComplexScene::updateHouseDescriptorSet() {
+void VulkanComplexScene::updateHouseDescriptorSet()
+{
     houseSet->AddDescriptorInfo(VkDescriptorImageInfo{ (VkSampler)sampler->Handle, (VkImageView)houseTexture->ViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1);
     houseSet->Init(descriptorPool->vkHandle(), setLayout->vkHandle());
     houseTextureReady = true;
 }
 
-void VulkanComplexScene::updateSkyboxDescriptorSet() {
+void VulkanComplexScene::updateSkyboxDescriptorSet()
+{
     skyboxSet->AddDescriptorInfo(VkDescriptorImageInfo{ (VkSampler)sampler->Handle, (VkImageView)skyboxTexture->ViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1);
     skyboxSet->Init(descriptorPool->vkHandle(), setLayout->vkHandle());
     skyboxTextureReady = true;

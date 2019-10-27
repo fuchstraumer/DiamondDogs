@@ -7,8 +7,8 @@
 INITIALIZE_EASYLOGGINGPP
 
 #ifndef __APPLE_CC__
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
+#include <filesystem>
+namespace fs = std::filesystem;
 #else
 #include <boost/filesystem.hpp>
 namespace fs = boost::filesystem;

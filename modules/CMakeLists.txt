@@ -1,5 +1,5 @@
 
-SET(VPR_INCLUDE_DIRS_MODULE_RELATIVE
+set(VPR_INCLUDE_DIRS_MODULE_RELATIVE
     "../../third_party/vulpesrender/alloc/include"
     "../../third_party/vulpesrender/command/include"
     "../../third_party/vulpesrender/common"
@@ -10,24 +10,29 @@ SET(VPR_INCLUDE_DIRS_MODULE_RELATIVE
 )
 
 FUNCTION(ADD_MODULE NAME)
-    ADD_LIBRARY(${NAME} STATIC ${ARGN})
-    TARGET_INCLUDE_DIRECTORIES(${NAME} PRIVATE "../common/" "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "../../ext/include" "../../third_party/easyloggingpp/src")
-    TARGET_LINK_LIBRARIES(${NAME} PUBLIC easyloggingpp)
+    add_library(${NAME} STATIC ${ARGN})
+    target_include_directories(${NAME} PRIVATE "../common/" "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "../../third_party/easyloggingpp/src" "../../core/include")
+    target_link_libraries(${NAME} PUBLIC easyloggingpp diamond_dogs_core)
     IF(MSVC)
         TARGET_COMPILE_OPTIONS(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/MP> $<$<CONFIG:RELWITHDEBINFO>:/MP>)
-        TARGET_COMPILE_OPTIONS(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/Oi>)
-        TARGET_COMPILE_OPTIONS(${NAME} PRIVATE "/arch:AVX2")
+        TARGET_COMPILE_OPTIONS(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/Oi> $<$<CONFIG:RELWITHDEBINFO>:/Oi>)
+        TARGET_COMPILE_OPTIONS(${NAME} PRIVATE "/arch:AVX2" "/std:c++latest" "/await")
+    else()
+        SET_TARGET_PROPERTIES(${NAME} PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
     ENDIF()
     TARGET_COMPILE_DEFINITIONS(${NAME} PRIVATE "NOMINMAX" "_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS"
     "_SCL_SECURE_NO_WARNINGS")
     SET_TARGET_PROPERTIES(${NAME} PROPERTIES FOLDER "Modules")
-    SET_TARGET_PROPERTIES(${NAME} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES)
 ENDFUNCTION()
 
-#ADD_SUBDIRECTORY(content_compiler)
-ADD_SUBDIRECTORY(ecs_module)
-ADD_SUBDIRECTORY(rendergraph_module)
-ADD_SUBDIRECTORY(rendering_context)
-ADD_SUBDIRECTORY(resource_context)
-ADD_SUBDIRECTORY(terrain_module)
+#add_subdirectory(content_compiler)
+#add_subdirectory(ecs_module)
+#add_subdirectory(rendergraph_module)
+add_subdirectory(rendering_context)
+add_subdirectory(resource_context)
+# This module provides imgui as a basic debugging UI
+# that sits just BARELY over the resource and rendering contexts
+add_subdirectory(imgui_module)
+#add_subdirectory(terrain_module)
+#add_subdirectory(vtf_module)

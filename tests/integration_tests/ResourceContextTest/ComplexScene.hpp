@@ -9,10 +9,13 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <atomic>
 
-struct LoadedObjModel {
+struct LoadedObjModel
+{
     LoadedObjModel(const char* fname);
-    struct vertex_t {
-        bool operator==(const vertex_t& other) const noexcept {
+    struct vertex_t
+    {
+        bool operator==(const vertex_t& other) const noexcept
+        {
             return (pos == other.pos) && (uv == other.uv);
         }
         glm::vec3 pos;
@@ -25,7 +28,8 @@ struct LoadedObjModel {
 class ResourceContext;
 struct VulkanResource;
 
-class VulkanComplexScene : public VulkanScene {
+class VulkanComplexScene : public VulkanScene
+{
     VulkanComplexScene();
     ~VulkanComplexScene();
 public:
@@ -49,7 +53,8 @@ public:
     bool AllAssetsLoaded();
     void WaitForAllLoaded();
 
-    struct ubo_data_t {
+    struct ubo_data_t
+    {
         glm::mat4 model{ glm::mat4(1.0f) };
         glm::mat4 view{ glm::mat4(1.0f) };
         glm::mat4 projection{ glm::mat4(1.0f) };
@@ -130,6 +135,5 @@ protected:
     std::atomic<bool> skyboxTextureReady{ false };
 
 };
-
 
 #endif //!VULKAN_COMPLEX_SCENE_HPP

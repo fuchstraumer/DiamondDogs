@@ -3,6 +3,35 @@
 #include "PhysicalDevice.hpp"
 #include "Swapchain.hpp"
 #include "vkAssert.hpp"
+#include <vector>
+
+#if defined(_MSC_VER) && !defined(strdup)
+#define strdup _strdup
+#endif
+
+struct PipelineExecutableFunctions
+{
+    PFN_vkGetPipelineExecutablePropertiesKHR vkGetPipelineExecutablePropertiesKHR{ nullptr };
+    PFN_vkGetPipelineExecutableStatisticsKHR vkGetPipelineExecutableStatisticsKHR{ nullptr };
+    PFN_vkGetPipelineExecutableInternalRepresentationsKHR vkGetPipelineExecutableInternalRepresentationsKHR{ nullptr };
+    bool initialized{ false };
+};
+
+static PipelineExecutableFunctions& GetPipelineExecutableFunctions(const VkDevice device)
+{
+    static PipelineExecutableFunctions functions;
+    if (!functions.initialized)
+    {
+        functions.vkGetPipelineExecutablePropertiesKHR =
+            reinterpret_cast<PFN_vkGetPipelineExecutablePropertiesKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutablePropertiesKHR"));
+        functions.vkGetPipelineExecutableStatisticsKHR =
+            reinterpret_cast<PFN_vkGetPipelineExecutableStatisticsKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutableStatisticsKHR"));
+        functions.vkGetPipelineExecutableInternalRepresentationsKHR =
+            reinterpret_cast<PFN_vkGetPipelineExecutableInternalRepresentationsKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutableInternalRepresentationsKHR"));
+        functions.initialized = true;
+    }
+    return functions;
+}
 
 uint32_t GetMemoryTypeIndex(uint32_t type_bits, VkMemoryPropertyFlags properties, VkPhysicalDeviceMemoryProperties memory_properties) {
      for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
@@ -16,6 +45,8 @@ uint32_t GetMemoryTypeIndex(uint32_t type_bits, VkMemoryPropertyFlags properties
 
      throw std::domain_error("Could not find matching memory type for given bits and property flags");
 }
+
+
 
 DepthStencil CreateDepthStencil(const vpr::Device * device, const vpr::PhysicalDevice* physical_device, const vpr::Swapchain * swapchain) {
     DepthStencil depth_stencil;
@@ -146,15 +177,15 @@ VkRenderPass CreateBasicRenderpass(const vpr::Device* device, const vpr::Swapcha
     return renderpass;
 }
 
-VkPipeline CreateBasicPipeline(const vpr::Device * device, uint32_t num_stages, const VkPipelineShaderStageCreateInfo * pStages, const VkPipelineVertexInputStateCreateInfo * vertex_state, VkPipelineLayout pipeline_layout,
-    VkRenderPass renderpass, VkCompareOp depth_op, VkPipelineCache cache, VkPipeline derived_pipeline, VkCullModeFlags cull_mode, VkPrimitiveTopology topology) {
+VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
+{
     VkPipeline pipeline = VK_NULL_HANDLE;
 
     const VkPipelineInputAssemblyStateCreateInfo assembly_info{
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
         nullptr,
         0,
-        topology,
+        createInfo.topology,
         VK_FALSE
     };
 
@@ -175,7 +206,7 @@ VkPipeline CreateBasicPipeline(const vpr::Device * device, uint32_t num_stages, 
         VK_FALSE,
         VK_FALSE,
         VK_POLYGON_MODE_FILL,
-        cull_mode,
+        createInfo.cullMode,
         VK_FRONT_FACE_COUNTER_CLOCKWISE,
         VK_FALSE,
         0.0f,
@@ -202,7 +233,7 @@ VkPipeline CreateBasicPipeline(const vpr::Device * device, uint32_t num_stages, 
         0,
         VK_TRUE,
         VK_TRUE,
-        depth_op,
+        createInfo.depthCompareOp,
         VK_FALSE,
         VK_FALSE,
         VK_STENCIL_OP_ZERO,
@@ -243,13 +274,24 @@ VkPipeline CreateBasicPipeline(const vpr::Device * device, uint32_t num_stages, 
         dynamic_states
     };
 
+    VkPipelineCreateFlags createFlags = createInfo.pipelineFlags;
+
+    if (createInfo.derivedPipeline != VK_NULL_HANDLE)
+    {
+        createFlags |= VK_PIPELINE_CREATE_DERIVATIVE_BIT;
+    }
+    else
+    {
+        createFlags |= VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT;
+    }
+
     VkGraphicsPipelineCreateInfo pipeline_create_info = {
         VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         nullptr,
         VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT,
-        2,
-        pStages,
-        vertex_state,
+        createInfo.numStages,
+        createInfo.stages,
+        createInfo.vertexState,
         &assembly_info,
         nullptr,
         &viewport_info,
@@ -258,24 +300,20 @@ VkPipeline CreateBasicPipeline(const vpr::Device * device, uint32_t num_stages, 
         &depth_info,
         &color_blend_info,
         &dynamic_state_info,
-        pipeline_layout,
-        renderpass,
+        createInfo.pipelineLayout,
+        createInfo.renderPass,
         0,
-        derived_pipeline,
+        createInfo.derivedPipeline,
         -1
     };
 
-    if (derived_pipeline != VK_NULL_HANDLE) {
-        pipeline_create_info.flags |= VK_PIPELINE_CREATE_DERIVATIVE_BIT;
-    }
-
-    VkResult result = vkCreateGraphicsPipelines(device->vkHandle(), cache, 1, &pipeline_create_info, nullptr, &pipeline);
+    VkResult result = vkCreateGraphicsPipelines(createInfo.device->vkHandle(), createInfo.pipelineCache, 1, &pipeline_create_info, nullptr, &pipeline);
     VkAssert(result);
 
     return pipeline;
 }
 
-DepthStencil::DepthStencil(const vpr::Device * device, const vpr::PhysicalDevice * p_device, const vpr::Swapchain * swap) : Parent(device->vkHandle()) {
+DepthStencil::DepthStencil(const vpr::Device* device, const vpr::PhysicalDevice* p_device, const vpr::Swapchain* swap) : Parent(device->vkHandle()) {
     *this = CreateDepthStencil(device, p_device, swap);
     Parent = device->vkHandle();
 }
@@ -297,3 +335,4 @@ DepthStencil::~DepthStencil() {
         vkDestroyImage(Parent, Image, nullptr);
     }
 }
+

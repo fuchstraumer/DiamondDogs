@@ -16,6 +16,10 @@
 #include <atomic>
 #include <forward_list>
 #include "GLFW/glfw3.h"
+#ifdef APIENTRY
+// re-defined by glfw on windows, then seen again by easylogging
+#undef APIENTRY
+#endif
 #include "easylogging++.h"
 #include "nlohmann/json.hpp"
 

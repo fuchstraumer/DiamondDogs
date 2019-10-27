@@ -15,6 +15,7 @@ INITIALIZE_EASYLOGGINGPP
 #include "CommandPool.hpp"
 #include "ObjModel.hpp"
 #include "RenderGraph.hpp"
+#include "ResourceLoader.hpp"
 
 int main(int argc, char* argv[]) {
 
@@ -77,17 +78,21 @@ int main(int argc, char* argv[]) {
     const auto file_string = model_file.string();
     std::future<void> modelLoadingFuture = std::async(std::launch::async, &ObjectModel::LoadModelFromFile, &model, file_string.c_str(), dir_string.c_str());
 
-    vtf_frame_data_t::obj_render_fn_t render_fn = std::bind(&ObjectModel::Render, &model, std::placeholders::_1);
+    modelLoadingFuture.get();
 
-    auto& scene = VTF_Scene::Get();
-    scene.Construct(RequiredVprObjects{ ctxt.Device(), ctxt.PhysicalDevice(), ctxt.Instance(), ctxt.Swapchain() }, vtfPack.get());
-    scene.AddObjectRenderFn(render_fn);
+    //vtf_frame_data_t::obj_render_fn_t render_fn = std::bind(&ObjectModel::Render, &model, std::placeholders::_1);
 
-    while (!ctxt.ShouldWindowClose()) {
-        RenderingContext::Get().Update();
-        ctxt.Update();
-        scene.Render(nullptr);
-    }
+    //auto& scene = VTF_Scene::Get();
+    //scene.Construct(RequiredVprObjects{ ctxt.Device(), ctxt.PhysicalDevice(), ctxt.Instance(), ctxt.Swapchain() }, vtfPack.get());
+    //scene.AddObjectRenderFn(render_fn);
 
+    //while (!ctxt.ShouldWindowClose()) {
+    //    RenderingContext::Get().Update();
+    //    ctxt.Update();
+    //    scene.Render(nullptr);
+    //}
+
+    auto& loader = ResourceLoader::GetResourceLoader();
+    loader.WaitForAllLoads();
     return 0;
 }

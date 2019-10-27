@@ -1,0 +1,53 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
+
+layout (constant_id = 0) const uint MaxX = 256;
+layout (constant_id = 1) const uint MaxY = 256;
+layout (constant_id = 2) const uint MaxZ = 1;
+layout (constant_id = 3) const uint NumPts = 8;
+layout (constant_id = 4) const bool Invert = false;
+
+layout (set = 0, binding = 0, rgba32f) restrict readonly imageBuffer positions;
+layout (set = 0, binding = 1, r32f) restrict readonly imageBuffer input;
+layout (set = 0, binding = 3, r32f) restrict writeonly imageBuffer output;
+layout (set = 1, binding = 0, r32f) restrict readonly imageBuffer points;
+
+int GetIdx(uint i, uint j, uint k) {
+    return int(MaxX * MaxY * k + MaxX * j + i);
+}
+
+void main() {
+    const uvec3 dims = uvec3(MaxX, MaxY, MaxZ);
+    if (any(greaterThan(gl_GlobalInvocationID, dims))) {
+        return;
+    }
+
+    int threadIdx = GetIdx(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
+
+    float prev = imageLoad(input, threadIdx).r;
+    int idx = clamp(int(round(prev)), 0, NumPts);
+
+    int idx0 = clamp(idx - 1, 0, NumPts - 1);
+    int idx1 = clamp(idx, 0, NumPts - 1);
+
+    if (idx0 == idx1) {
+        imageStore(output, idx, vec4(imageLoad(points, idx).r, 0.0f, 0.0f, 0.0f));
+    }
+
+    float val0 = imageLoad(points, idx0).r;
+    float val1 = imageLoad(points, idx1).r;
+
+    float alpha = (prev - val0) / (val1 - val0);
+
+    if (Invert) {
+        alpha = 1.0f - alpha;
+        float tmp = val0;
+        val0 = val1;
+        val1 = tmp;
+    }
+
+    alpha *= alpha;
+
+    imageStore(output, idx, vec4(lerp(val0, val1, alpha), 0.0f, 0.0f, 0.0f));
+}

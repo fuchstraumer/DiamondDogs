@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RENDERING_CONTEXT_HPP
 #define DIAMOND_DOGS_RENDERING_CONTEXT_HPP
-#include "delegate.hpp"
+#include "utility/delegate.hpp"
 #include <memory>
 #include <vector>
 #include <string>

@@ -1,0 +1,87 @@
+
+layout (set = 2, location = 0) uniform sampler2D permTex;
+layout (set = 2, location = 1) uniform sampler2D gradTex;
+
+float perlin2d(vec2 p, float seed) {
+    vec2 i = floor(p);
+    vec2 f = p - i;
+
+    vec2 w = f * f * f * (f * (f * 6.0f - 15.0f) + 10.0f);
+    vec4 w4 = vec4(1.0f, w.x, w.y, w.x * w.y);
+
+    vec4 perm = texture(permTex, ivec2(i.x, i.y) / 256) + seed;
+
+    vec4 g1 = texture(gradTex, perm.xy) * 2.0f - 1.0f;
+    vec4 g2 = texture(gradTex, perm.zw) * 2.0f - 1.0f;
+
+    float a = dot(g1.xy, f);
+    float b = dot(g2.xy, f + vec2(-1.0f, 0.0f));
+    float c = dot(g1.zw, f + vec2( 0.0f,-1.0f));
+    float d = dot(g2.zw, f + vec2(-1.0f,-1.0f));
+
+    vec4 grads = vec4(a, b - a, c - a, a - b - c + d);
+    float n = dot(grads, w4);
+
+    return n * 1.50;
+}
+
+vec2 perlinPsuedoDeriv(vec2 p, float seed) {
+    vec2 i = floor(p);
+    vec2 f = p - i;
+
+    vec2 w = f * f * f * (f * (f * 6.0f - 15.0f) + 10.0f);
+    vec4 w4 = vec4(1.0f, w.x, w.y, w.x * w.y);
+
+    vec2 dw = f * f * (f * (30.0f * f - 60.0f) + 30.0f);
+    vec4 perm = texture(permTex, i / 256) + seed;
+
+    vec4 g1 = texture(gradTex, perm.xy) * 2.0f - 1.0f;
+    vec4 g2 = texture(gradTex, perm.zw) * 2.0f - 1.0f;
+
+    float a = dot(g1.xy, f);
+    float b = dot(g2.xy, f + vec2(-1.0f, 0.0f));
+    float c = dot(g1.zw, f + vec2( 0.0f,-1.0f));
+    float d = dot(g2.zw, f + vec2(-1.0f,-1.0f));
+
+    vec4 grads = vec4(a, b - a, c - a, a - b - c + d);
+    float n = dot(grads, w4);
+
+    float dx = dw.x * (grads.y + grads.w * w.y):
+    float dy = dw.y * (grads.z + grads.w * w.x);
+
+    return vec4(n, dx, dy) * 1.50f;
+}
+
+vec3 perlinDeriv(vec2 p, float seed) {
+    vec2 i = floor(p);
+    vec2 f = p - i;
+
+    vec2 w = f * f * f * (f * (f * 6.0f - 15.0f) + 10.0f);
+    vec4 w4 = vec4(1, w.x, w.y, w.x * w.y);
+
+    vec2 dw = f * f * (f * (f * 30.0f - 60.0f) + 30.0f);
+    vec2 dwp = f * f * f * (f * (f * 36.0f - 75.0f) + 40.0f);
+
+    vec4 perm = texture(permTex, i / 256) + seed;
+    vec4 g1 = texture(gradTex, perm.xy) * 2.0f - 1.0f;
+    vec4 g2 = texture(gradTex, perm.zw) * 2.0f - 1.0f;
+
+    float a = dot(g1.xy, f);
+    float b = dot(g2.xy, f + vec2(-1.0f, 0.0f));
+    float c = dot(g1.zw, f + vec2( 0.0f,-1.0f));
+    float d = dot(g2.zw, f + vec2(-1.0f,-1.0f));
+    
+    vec4 grads = vec4(a, b - a, c - a, a - b - c + d);
+    float n = dot(grads, w4);
+
+    float dx = 
+        (g1.x + (g1.z-g1.x)*w.y) + ((g2.y-g1.y)*f.y - g2.x +
+        ((g1.y-g2.y-g1.w+g2.w)*f.y + g2.x + g1.w - g2.z - g2.w)*w.y)*
+          dw.x + ((g2.x-g1.x) + (g1.x-g2.x-g1.z+g2.z)*w.y)*dwp.x;
+    float dy = 
+        (g1.y + (g2.y-g1.y)*w.x) + ((g1.z-g1.x)*f.x - g1.w + ((g1.x-
+         g2.x-g1.z+g2.z)*f.x + g2.x + g1.w - g2.z - g2.w)*w.x)*dw.y +
+        ((g1.w-g1.y) + (g1.y-g2.y-g1.w+g2.w)*w.x)*dwp.y;
+
+    return vec3(n, dx, dy) * 1.50f;
+}

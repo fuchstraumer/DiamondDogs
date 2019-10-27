@@ -1,7 +1,10 @@
 
+
 ADD_MODULE(rendering_context
+    "include/PipelineExecutableInfo.hpp"
     "include/PlatformWindow.hpp"
     "include/RenderingContext.hpp"
+    "src/PipelineExecutableInfo.cpp"
     "src/PlatformWindow.cpp"
     "src/RenderingContext.cpp"
 )

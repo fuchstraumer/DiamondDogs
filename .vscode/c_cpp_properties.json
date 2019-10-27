@@ -14,29 +14,18 @@
                 "_UNICODE",
                 "NOMINMAX"
             ],
-            "windowsSdkVersion": "10.0.17134.0",
-            "compilerPath": "C:/Program Files (x86)/Microsoft Visual Studio/2017/Community/VC/Tools/MSVC/14.15.26726/bin/Hostx64/x64/cl.exe",
+            "windowsSdkVersion": "10.0.17763.0",
+            "compilerPath": "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Tools/MSVC/14.22.27905/bin/Hostx64/x64/cl.exe",
             "cStandard": "c11",
             "cppStandard": "c++17",
-            "intelliSenseMode": "msvc-x64"
-        },
-        {
-            "name" : "Android",
-            "includePath": [
-                "${workspaceFolder}/**",
-                "${env:VULKAN_SDK}/include",
-                "${workspaceFolder}/modules/**"
-            ],
-            "defines": [
-                "UNICODE",
-                "_UNICODE",
-                "NOMINMAX",
-                "__ANDROID__"
-            ],
-            "windowsSdkVersion": "10.0.17134.0",
-            "cStandard": "${default}",
-            "cppStandard": "c++14",
-            "intelliSenseMode": "msvc-x64"
+            "intelliSenseMode": "msvc-x64",
+            "browse": {
+                "path": [
+                    "${env:VULKAN_SDK}/include",
+                    "${workspaceFolder}/"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
         }
     ],
     "version": 4

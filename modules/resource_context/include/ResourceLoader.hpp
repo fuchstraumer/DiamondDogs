@@ -33,6 +33,8 @@ public:
 
     void Start();
     void Stop();
+    // Runs a while loop waiting for all loads to succeed, by running a while loop until queue empties
+    void WaitForAllLoads();
 
     static ResourceLoader& GetResourceLoader();
     static std::string FindFile(const std::string& fname, const std::string& init_dir, const size_t depth);

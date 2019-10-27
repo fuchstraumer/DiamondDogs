@@ -1,0 +1,85 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
+
+layout (constant_id = 0) const uint MaxX = 256;
+layout (constant_id = 1) const uint MaxY = 256;
+layout (constant_id = 2) const uint MaxZ = 1;
+
+layout (set = 0, binding = 0, rgba32f) restrict readonly imageBuffer positions;
+layout (set = 0, binding = 1, r32f) restrict readonly imageBuffer input0;
+layout (set = 0, binding = 2, r32f) restrict readonly imageBuffer input1;
+layout (set = 0, binding = 3, r32f) restrict writeonly imageBuffer output;
+layout (set = 1, binding = 0, r32f) restrict readonly imageBuffer selectItem;
+
+layout (push_constant) params {
+    float (offset = 0) UpperBound;
+    float (offset = 4) LowerBound;
+    float (offset = 8) Falloff;
+} Params;
+
+int GetIdx(uint i, uint j, uint k) {
+    return int(MaxX * MaxY * k + MaxX * j + i);
+}
+
+float SCurve3(float a) {
+    return ( a * a * (3.0f - 2.0f * a));
+}
+
+float LerpSelect(float n0, float n1, float a) {
+    return ((1.0f - a) * n0) + (a * n1);
+}
+
+void main() {
+    const uvec3 dims = uvec3(MaxX, MaxY, MaxZ);
+    if (any(greaterThan(gl_GlobalInvocationID, dims))) {
+        return;
+    }
+
+    int idx = GetIdx(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
+
+    const float prev0 = imageLoad(input0, idx).r;
+    const float prev1 = imageLoad(input1, idx).r;
+    const float select = imageLoad(selectItem, idx).r;
+
+    float result, alpha;
+
+    if (Params.Falloff > 0.0f) {
+        if (select < (Params.LowerBound - Params.Falloff)) {
+            imageStore(output, idx, vec4(prev0, 0.0f, 0.0f, 0.0f));
+            return;
+        }
+        else if (select < (Params.LowerBound + Params.Falloff)) {
+            const float l_curve = Params.LowerBound - Params.Falloff;
+            const float u_curve = Params.LowerBound + Params.Falloff;
+            alpha = SCurve3((select - l_curve) / (u_curve - l_curve));
+            imageStore(output, idx, vec4(LerpSelect(prev0, prev1, alpha), 0.0f, 0.0f, 0.0f));
+            return;
+        }
+        else if (select < (Params.UpperBound - Params.Falloff)) {
+            imageStore(output, idx, vec4(prev1, 0.0f, 0.0f, 0.0f));
+            return;
+        }
+        else if (select < (Params.UpperBound + Params.Falloff)) {
+            const float l_curve = Params.UpperBound - Params.Falloff;
+            const float u_curve = Params.UpperBound + Params.Falloff;
+            alpha = SCurve3((select - l_curve) / (u_curve - l_curve));
+            imageStore(output, idx, vec4(LerpSelect(prev0, prev1, alpha), 0.0f, 0.0f, 0.0f));
+            return;
+        }
+        else {
+            imageStore(output, idx, vec4(prev0, 0.0f, 0.0f, 0.0f));
+            return;
+        }
+    }
+    else {
+        if (select < Params.LowerBound || select > Params.UpperBound) {
+            imageStore(output, idx, vec4(prev0, 0.0f, 0.0f, 0.0f));
+            return;
+        }
+        else {
+            imageStore(output, idx, vec4(prev1, 0.0f, 0.0f, 0.0f));
+            return;
+        }
+    }
+}

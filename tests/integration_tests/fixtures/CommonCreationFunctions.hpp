@@ -22,11 +22,25 @@ struct DepthStencil {
     VkDevice Parent{ VK_NULL_HANDLE };
 };
 
+struct BasicPipelineCreateInfo
+{
+    const vpr::Device* device{ nullptr };
+    VkPipelineCreateFlags pipelineFlags{ 0 };
+    uint32_t numStages{ 0u };
+    const VkPipelineShaderStageCreateInfo* stages{ nullptr };
+    const VkPipelineVertexInputStateCreateInfo* vertexState{ nullptr };
+    VkPipelineLayout pipelineLayout{ VK_NULL_HANDLE };
+    VkRenderPass renderPass{ VK_NULL_HANDLE };
+    VkCompareOp depthCompareOp;
+    VkPipelineCache pipelineCache{ VK_NULL_HANDLE };
+    VkPipeline derivedPipeline{ VK_NULL_HANDLE };
+    VkCullModeFlags cullMode{ VK_CULL_MODE_BACK_BIT };
+    VkPrimitiveTopology topology{ VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST };
+};
+
 uint32_t GetMemoryTypeIndex(uint32_t type_bits, VkMemoryPropertyFlags properties, VkPhysicalDeviceMemoryProperties memory_properties);
 DepthStencil CreateDepthStencil(const vpr::Device* device, const vpr::PhysicalDevice* physical_device, const vpr::Swapchain* swapchain);
 VkRenderPass CreateBasicRenderpass(const vpr::Device* device, const vpr::Swapchain* swapchain, VkFormat depth_format);
-VkPipeline CreateBasicPipeline(const vpr::Device* device, uint32_t num_stages, const VkPipelineShaderStageCreateInfo* pStages, const VkPipelineVertexInputStateCreateInfo* vertex_state, VkPipelineLayout pipeline_layout,
-        VkRenderPass renderpass, VkCompareOp depth_op, VkPipelineCache cache = VK_NULL_HANDLE, VkPipeline derived_pipeline = VK_NULL_HANDLE, VkCullModeFlags cull_mode = VK_CULL_MODE_NONE,
-        VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo);
 
 #endif //!DIAMOND_DOGS_TESTS_COMMON_CREATION_FUNCTIONS_HPP

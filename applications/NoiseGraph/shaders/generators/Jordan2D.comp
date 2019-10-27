@@ -1,0 +1,63 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
+
+layout (constant_id = 0) const uint MaxX = 256;
+layout (constant_id = 1) const uint MaxY = 256;
+layout (constant_id = 2) const uint MaxZ = 1;
+
+layout (set = 0, binding = 0, rgba32f) restrict readonly imageBuffer positions;
+layout (set = 0, binding = 3, r32f) restrict writeonly imageBuffer output;
+
+layout (set = 1, binding = 0) uniform ubo {
+    float freq;
+    float lacunarity;
+    float persistence;
+    float warp;
+    float damp;
+    float damp_scale;
+    int seed;
+    int octaves;
+} params;
+
+#include "perlin2d.comp"
+
+int GetIdx(uint i, uint j, uint k) {
+    return int(MaxX * MaxY * k + MaxX * j + i);
+}
+
+
+void main() {
+    const uvec3 dims = uvec3(MaxX, MaxY, MaxZ);
+    if (any(greaterThan(gl_GlobalInvocationID, dims))) {
+        return;
+    }
+
+    int idx = GetIdx(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
+    vec4 pos = imageLoad(positions, idx);
+    pos *= params.freq;
+
+    vec3 n = perlinDeriv(p, float(params.seed));
+    vec3 n2 = n * n;
+    float sum = n2.x;
+
+    vec2 dsum_warp = params.warp * n2.yz;
+    vec2 dsum_damp = params.damp * n2.yz;
+
+    float ampl = 0.80f;
+    float dampened_ampl = 0.40f;
+
+    for (int i = 1; i < params.octaves; ++i) {
+        n = perlinDeriv(p + dsum_warp.xy, float(seed + i / 256));
+        n2 = n * n.x;
+        sum += dampened_ampl * n2.x;
+        dsum_warp += params.warp * n2.yz;
+        dsum_damp += params.damp * n2.yz;
+        pos *= params.lacunarity;
+        ampl *= params.persistence;
+        dampened_ampl = ampl * (1.0f - params.damp_scale / (1.0f + dot(dsum_damp, dsum_damp)));
+    }
+
+    imageStore(output, idx, vec4(sum, 0.0f, 0.0f, 0.0f));
+
+}

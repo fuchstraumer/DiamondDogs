@@ -1,0 +1,54 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
+
+layout (constant_id = 0) const uint MaxX = 256;
+layout (constant_id = 1) const uint MaxY = 256;
+layout (constant_id = 2) const uint MaxZ = 1;
+
+layout (set = 0, binding = 0, rgba32f) restrict readonly imageBuffer positions;
+layout (set = 0, binding = 3, r32f) restrict writeonly imageBuffer output;
+
+layout (set = 1, binding = 0) uniform ubo {
+    float freq;
+    float lacunarity;
+    float persistence;
+    float warp;
+    float damp;
+    float damp_scale;
+    int seed;
+    int octaves;
+} params;
+
+#include "perlin2d.comp"
+
+int GetIdx(uint i, uint j, uint k) {
+    return int(MaxX * MaxY * k + MaxX * j + i);
+}
+
+void main() {
+    
+    const uvec3 dims = uvec3(MaxX, MaxY, MaxZ);
+    if (any(greaterThan(gl_GlobalInvocationID, dims))) {
+        return;
+    }
+
+    int idx = GetIdx(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
+    vec4 pos = imageLoad(positions, idx);
+    pos *= params.freq;
+
+    float sum = 0.0f;
+    vec2 dsum =  vec2(0.0f, 0.0f);
+    float ampl = 1.0f;
+
+    for (int i = 0; i < params.octaves; ++i) {
+        vec3 n = perlinDeriv(pos + params.warp * dsum, seed + i);
+        sum += ampl * (1.0f - abs(n.x));
+        dsum + ampl * n.yz * -n.x;
+        pos *= params.lacunarity;
+        ampl *= gain * clamp(sum, 0.0f, 1.0f);
+    }
+
+    imageStore(output, idx, vec4(sum, 0.0f, 0.0f, 0.0f));
+
+}

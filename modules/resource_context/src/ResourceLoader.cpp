@@ -1,6 +1,6 @@
 #include "ResourceLoader.hpp"
 #ifndef __APPLE_CC__
-#include <experimental/filesystem>
+#include <filesystem>
 #else
 #include <boost/filesystem.hpp>
 #endif
@@ -39,7 +39,7 @@ void ResourceLoader::Unsubscribe(const char* file_type)
 void ResourceLoader::Load(const char* file_type, const char* file_path, void* _requester, SignalFunctor signal, void* user_data)
 {
 #ifndef __APPLE_CC__
-    namespace fs = std::experimental::filesystem;
+    namespace fs = std::filesystem;
 #else
     namespace fs = boost::filesystem;
 #endif
@@ -104,7 +104,7 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
 void ResourceLoader::Load(const char* file_type, const char* _file_name, const char* search_dir, void* _requester, SignalFunctor signal, void* user_data)
 {
 #ifndef __APPLE_CC__
-    namespace fs = std::experimental::filesystem;
+    namespace fs = std::filesystem;
 #else
     namespace fs = boost::filesystem;
 #endif
@@ -165,7 +165,7 @@ void ResourceLoader::Load(const char* file_type, const char* _file_name, const c
 void ResourceLoader::Unload(const char* file_type, const char* _path)
 {
 #ifndef __APPLE_CC__
-    namespace fs = std::experimental::filesystem;
+    namespace fs = std::filesystem;
 #else
     namespace fs = boost::filesystem;
 #endif
@@ -190,7 +190,7 @@ ResourceLoader& ResourceLoader::GetResourceLoader()
 
 std::string ResourceLoader::FindFile(const std::string& fname, const std::string& init_dir, const size_t depth)
 {
-    namespace stdfs = std::experimental::filesystem;
+    namespace stdfs = std::filesystem;
     static std::unordered_map<std::string, stdfs::path> foundPathsCache;
     static std::mutex cacheMutex;
 
@@ -280,9 +280,26 @@ void ResourceLoader::Stop()
 
 }
 
+void ResourceLoader::WaitForAllLoads()
+{
+    size_t counter = 0;
+    while (!requests.empty())
+    {
+        // every 100 loops, sleep for a millisecond so we don't just burn this core
+        if (counter % 100 == 0)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        ++counter;
+    }
+
+    counter = 0;
+}
+
 void ResourceLoader::workerFunction()
 {
-    namespace fs = std::experimental::filesystem;
+    namespace fs = std::filesystem;
 
     while (!shutdown)
     {

@@ -1,0 +1,34 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
+#extension GL_KHR_shader_subgroup_quad: enable
+layout (constant_id = 0) const int MaxX = 256;
+layout (constant_id = 1) const int MaxY = 256;
+layout (constant_id = 2) const int MaxZ = 1;
+layout (constant_id = 3) const int MinX = MaxX / 2;
+layout (constant_id = 4) const int MinY = MaxY / 2;
+layout (set = 0, binding = 1, r32f) restrict readonly imageBuffer input;
+layout (set = 0, binding = 3, r32f) restrict writeonly imageBuffer output;
+
+int GetIdx(uint i, uint j, uint k) {
+    return int(MaxX * MaxY * k + MaxX * j + i);
+}
+
+void main() {
+    const uvec3 dims = uvec3(MaxX, MaxY, MaxZ);
+    if (any(greaterThan(gl_GlobalInvocationID, dims))) {
+        return;
+    }
+
+    int threadIdx = GetIdx(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
+    float inValue = imageLoad(input, threadIdx).r;
+
+    float downsampledValue = inValue + subgroupQuadSwapHorizontal(inValue);
+    downsampledValue += subgroupQuadSwapVertical(downsampledValue);
+
+    if (gl_SubgroupInvocationID == subgroupQuadBroadcast(gl_SubgroupInvocationID, 0)) {
+        int downsampleIdx = (MinX * MinY * gl_GlobalInvocationID.z) + (MinX * gl_GlobalInvocationID.y) + gl_GlobalInvocationID.x;
+        imageStore(output, downsampleIdx, vec4(downsampledValue, 0.0f, 0.0f, 0.0f));
+    }
+
+}

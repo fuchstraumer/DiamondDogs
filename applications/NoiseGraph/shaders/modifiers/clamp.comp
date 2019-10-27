@@ -1,0 +1,30 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
+
+layout (constant_id = 0) const uint MaxX = 256;
+layout (constant_id = 1) const uint MaxY = 256;
+layout (constant_id = 2) const uint MaxZ = 1;
+
+layout (set = 0, binding = 0, rgba32f) restrict readonly imageBuffer positions;
+layout (set = 0, binding = 1, r32f) restrict readonly imageBuffer input;
+layout (set = 0, binding = 3, r32f) restrict writeonly imageBuffer output;
+
+layout (push_constant) params {
+    float (offset = 0) LowerBound;
+    float (offset = 4) UpperBound;
+};
+
+int GetIdx(uint i, uint j, uint k) {
+    return int(MaxX * MaxY * k + MaxX * j + i);
+}
+
+void main() {
+    const uvec3 dims = uvec3(MaxX, MaxY, MaxZ);
+    if (any(greaterThan(gl_GlobalInvocationID, dims))) {
+        return;
+    }
+    
+    int idx = GetIdx(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
+    imageStore(output, idx, vec4(clamp(imageLoad(input, idx).r, LowerBound, UpperBound), 0.0f, 0.0f, 0.0f));
+}

@@ -37,6 +37,5 @@ ENDFUNCTION()
 
 ADD_SUBDIRECTORY(TriangleTest)
 ADD_SUBDIRECTORY(ResourceContextTest)
-ADD_SUBDIRECTORY(RendergraphTraversalTest)
-ADD_SUBDIRECTORY(VolumetricForward)
-ADD_SUBDIRECTORY(DescriptorTest)
+#ADD_SUBDIRECTORY(VolumetricForward)
+#ADD_SUBDIRECTORY(DescriptorTest)

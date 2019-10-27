@@ -1,11 +1,12 @@
 #pragma once
 #ifndef DIAMOND_DOGS_PLATFORM_WINDOW_HPP
 #define DIAMOND_DOGS_PLATFORM_WINDOW_HPP
-#include "delegate.hpp"
+#include "utility/delegate.hpp"
 #include <memory>
 #include <functional>
 
-enum class windowing_mode : unsigned int {
+enum class windowing_mode : unsigned int
+{
     None = 0,
     Fullscreen = 1,
     BorderlessWindowed = 2,
@@ -15,7 +16,8 @@ enum class windowing_mode : unsigned int {
 struct WindowCallbackLists;
 
 
-class PlatformWindow {
+class PlatformWindow
+{
     PlatformWindow(const PlatformWindow&) = delete;
     PlatformWindow& operator=(const PlatformWindow&) = delete;
 public:
