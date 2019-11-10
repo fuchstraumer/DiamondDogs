@@ -14,6 +14,10 @@ namespace tinyobj_opt
 class DescriptorBinder;
 class Descriptor;
 
+/*
+    This is the actual data tied to a single material, but isn't presented to clients. They'll access these through the usage of 
+    material instances instead.
+*/
 class Material
 {
     Material(const Material&) = delete;
@@ -42,8 +46,7 @@ private:
 
 
     bool opaque{ true };
-    // used to indicate resource queued for loading
-    texture_toggles_t textureTogglesCPU;
+
     material_parameters_t parameters;
     VulkanResource* paramsUbo{ nullptr };
     VulkanResource* albedoMap{ nullptr };

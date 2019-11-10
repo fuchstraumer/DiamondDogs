@@ -13,9 +13,13 @@ set(material_module_descriptor_srcs
 )
 
 set(material_module_mtl_srcs
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/Material.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/EmbeddedTextures.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/MaterialCache.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/MaterialStructures.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/EmbeddedTextures.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Material.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Material.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/MaterialCache.cpp"
 )
 
 

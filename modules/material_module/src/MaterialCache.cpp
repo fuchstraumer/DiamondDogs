@@ -4,18 +4,92 @@
 #include "ResourceLoader.hpp"
 #include "LogicalDevice.hpp"
 #include "DescriptorTemplate.hpp"
-#include "MurmurHash.hpp"
+#include "utility/MurmurHash.hpp"
+#include "EmbeddedTextures.hpp"
+#include "MaterialStructures.hpp"
 #pragma warning(push, 1) // silence warnings from other libs
-#include "tinyobj_loader_opt.h"
 #include "easylogging++.h"
 #include <mango/core/memory.hpp>
 #include <mango/image/image.hpp>
 #pragma warning(pop)
 #include <algorithm>
 #include <filesystem>
-#ifdef _MSC_VER
-#include <execution>
-#endif
+#include <array>
+#include <unordered_map>
+#include <atomic>
+#include <shared_mutex>
+#include <set>
+#include <string>
+
+// will return to these eventually to change error texture displayed based on type of error
+// each one will be a slightly different image, and there will additionally be another image
+// representing a texture that's still just loading
+enum class texture_failure_type : uint8_t
+{
+    InvalidPath = 0,
+    IncorrectBindlessIndex = 1,
+    InvalidFormat = 2,
+    InvalidConversion = 3,
+};
+
+struct image_loaded_callback_data_t
+{
+    uint64_t mtlHash;
+    texture_type type;
+    constexpr bool operator==(const image_loaded_callback_data_t& other) const noexcept;
+    constexpr bool operator<(const image_loaded_callback_data_t& other) const noexcept;
+};
+
+struct MaterialCacheImpl
+{
+    MaterialCacheImpl() noexcept;
+    ~MaterialCacheImpl();
+
+    bool hasMaterial(const uint64_t hash);
+    void createVkResources();
+
+    std::atomic<bool> dirty{ true };
+    // sets up vulkan resources for the material shader indices
+    // atomic in the edge case two threads hit the code that flips initialized
+    std::atomic<bool> initialized{ false };
+    // used to give us available slots in containers
+    // we can start at zero, as fetch_add returns the initial value (so we get 0u the first time instead of 1u)
+    std::atomic<uint32_t> shaderIndicesIdx{ 0u };
+    std::atomic<uint32_t> parametersIdx{ 0u };
+    std::atomic<uint32_t> bindlessTexturesIdx{ 0u };
+    /*
+        We use this table to fetch indices for a material, and copy them
+        into the indices array uploaded to the GPU. This way we can specify
+        which materials are at which indices (in indicesArray) right before drawing - after
+        whoever is using the material has done sorting of their drawcalls
+
+        we have to do this as our materials are "per-draw", of sorts. we
+        use the indirect drawing index to get our indices array (so, one instance
+        per multidraw indirect structure) which then reads from the other VulkanResource
+        arrays
+
+        this way we can batch-dispatch up to MaxMaterialPageTextureCount draws
+        and not have to rebind descriptor sets per drawcall (i.e, MaxMaterialPageTextureCount
+        rebinds). plus, users can do sorting on their end and just deal with
+        MaterialInstance handles
+    */
+    std::unique_ptr<DescriptorTemplate> descriptorTemplate;
+    // sorted by material hash, and then each material has up to (TEXTURE_TYPES) number entries in the vector
+    std::unordered_map<uint64_t, std::vector<image_loaded_callback_data_t>> callbackDataStorage;
+    std::shared_mutex tableMutex;
+    std::unordered_map<uint64_t, material_shader_indices_t> masterIndicesTable;
+    std::unordered_map<uint64_t, bool> materialDirty;
+    std::unordered_multimap<uint64_t, uint32_t> indicesUsingMaterial;
+    std::unordered_map<texture_type, uint32_t> textureTypeBindingIndices;
+    std::array<material_shader_indices_t, MaxMaterialPageTextureCount> indicesArray;
+    // GPU-side data for the above
+    VulkanResource* vkIndicesBufferSBO{ nullptr };
+    // cpu-side parameter data. used to update parameterUBOs contents
+    std::array<material_parameters_t, MaxMaterialPageTextureCount> parametersArray;
+    using vulkan_resource_array_t = std::array<VulkanResource*, MaxMaterialPageTextureCount>;
+    vulkan_resource_array_t parameterUBOs;
+    vulkan_resource_array_t textures;
+};
 
 namespace
 {
@@ -72,11 +146,10 @@ namespace
         std::shared_mutex& mut;
     };
 
+    std::string ResolveTexturePath(const char* path, const char* mtlDir);
+    uint64_t HashMaterialCreateInfo(const MaterialCreateInfo& createInfo);
     float extract_valid_material_param(const float input);
-    glm::vec3 extract_valid_material_param(const glm::vec3& in) noexcept;
-    material_parameters_t from_tinyobj_material(const tinyobj_opt::material_t& mtl) noexcept;
     VulkanResource* createUBO(const char* name, const material_parameters_t& params);
-    std::string FindDebugTexture();
     void* loadImageDataFn(const char* fname, void* user_data);
     void destroyImageDataFn(void* object, void* user_data);
 
@@ -86,15 +159,15 @@ namespace
 static VulkanResource* failedLoadDebugTexture{ nullptr };
 static std::unordered_map<uint64_t, std::map<texture_type, resource_loader_data_t>> loaderDataMap;
 
-MaterialCache::material_cache_page_t::material_cache_page_t() noexcept : descriptorTemplate(std::make_unique<DescriptorTemplate>("MaterialCachePageDescriptorTemplate"))
+MaterialCacheImpl::MaterialCacheImpl() noexcept : descriptorTemplate(std::make_unique<DescriptorTemplate>("MaterialCachePageDescriptorTemplate"))
 {
     parameterUBOs.fill(nullptr);
     textures.fill(nullptr);
 }
 
-MaterialCache::material_cache_page_t::~material_cache_page_t() {}
+MaterialCacheImpl::~MaterialCacheImpl() {}
 
-void MaterialCache::material_cache_page_t::createVkResources()
+void MaterialCacheImpl::createVkResources()
 {
     static size_t numPages{ 0u };
 
@@ -126,7 +199,7 @@ void MaterialCache::material_cache_page_t::createVkResources()
     };
 
     auto& rsrc_context = ResourceContext::Get();
-    const std::string resourceName = "MaterialCachePageIndicesBufferSBO_" + std::to_string(numPages);
+    const std::string resourceName = "MaterialCacheIndicesBufferSBO_" + std::to_string(numPages);
     vkIndicesBufferSBO = rsrc_context.CreateBuffer(&indicesBufferInfo, nullptr, 0u, nullptr, resource_usage::CPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, (void*)resourceName.c_str());
 
 }
@@ -167,24 +240,18 @@ void MaterialCache::ReleaseCpuData()
 
 }
 
-MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const char* material_dir)
+MaterialInstance MaterialCache::CreateMaterial(const MaterialCreateInfo& createInfo)
 {
     auto& resource_loader = ResourceLoader::GetResourceLoader();
     resource_loader.Subscribe("MANGO", loadImageDataFn, destroyImageDataFn);
 
-    assert(mtlPtr != nullptr);
-    const auto& mtl = *reinterpret_cast<const tinyobj_opt::material_t*>(mtlPtr);
-
-    material_parameters_t params = from_tinyobj_material(mtl);
-
-    const uint64_t materialHash = hashTinyobjMaterial(mtlPtr, params);
-
-    auto& currMtlPage = materialPage;
-    currMtlPage.createVkResources();
+    const uint64_t materialHash = HashMaterialCreateInfo(createInfo);
 
     rw_lock_guard dataGuard(lock_mode::Read, materialSharedMutex);
 
-    if (currMtlPage.masterIndicesTable.count(materialHash) != 0u)
+    impl->createVkResources();
+
+    if (impl->hasMaterial(materialHash))
     {
         /*
             The material may still be loading, but that doesn't really matter.
@@ -199,7 +266,7 @@ MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const ch
     }
     else
     {
-        const uint32_t materialCount = static_cast<uint32_t>(currMtlPage.masterIndicesTable.size());
+        const uint32_t materialCount = static_cast<uint32_t>(impl->masterIndicesTable.size());
         if (materialCount > MaxMaterialPageTextureCount)
         {
             // oh no....
@@ -210,28 +277,13 @@ MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const ch
 
         // new material that hasn't been seen yet: create a new indices structure
         dataGuard.upgrade_to_write_mode();
-        auto indicesIter = currMtlPage.masterIndicesTable.emplace(materialHash, material_shader_indices_t{});
+        auto indicesIter = impl->masterIndicesTable.emplace(materialHash, material_shader_indices_t{});
         assert(indicesIter.second);
 
-        // keep the mutex in write mode: we might emplace in some other
-        // containers yet that have to deal with iterator invalidation
-        const bool hasAmbientTexture = !mtl.ambient_texname.empty();
-        const bool hasDiffuseTexture = !mtl.diffuse_texname.empty();
-        const bool hasSpecularTexture = !mtl.specular_texname.empty();
-        const bool hasSpecularHighlightTexture = !mtl.specular_highlight_texname.empty();
-        const bool hasBumpMap = !mtl.bump_texname.empty();
-        const bool hasDisplacementMap = !mtl.displacement_texname.empty();
-        const bool hasAlphaTexture = !mtl.alpha_texname.empty();
-        const bool hasRoughnessTexture = !mtl.roughness_texname.empty();
-        const bool hasMetallicTexture = !mtl.metallic_texname.empty();
-        const bool hasSheenTexture = !mtl.sheen_texname.empty();
-        const bool hasEmissiveTexture = !mtl.emissive_texname.empty();
-        const bool hasNormalTexture = !mtl.normal_texname.empty();
-
-        auto load_texture = [this, materialHash, &currMtlPage, &mtl, &material_dir](const texture_type type, const char* fileName)
+        auto load_texture = [this, materialHash, &createInfo](const texture_type type, const char* fileName)
         {
             auto& resource_loader = ResourceLoader::GetResourceLoader();
-            auto& callbackStorage = currMtlPage.callbackDataStorage;
+            auto& callbackStorage = impl->callbackDataStorage;
 
             if (callbackStorage.count(materialHash) == 0u)
             {
@@ -240,7 +292,7 @@ MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const ch
             }
 
             // storage vector for this material
-            auto& materialStorageVec = currMtlPage.callbackDataStorage.at(materialHash);
+            auto& materialStorageVec = callbackStorage.at(materialHash);
 
             materialStorageVec[static_cast<size_t>(type)] = image_loaded_callback_data_t{ materialHash, type };
             auto* callbackData = &materialStorageVec[static_cast<size_t>(type)];
@@ -250,82 +302,35 @@ MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const ch
             entry.FilePath = fileName;
             entry.FileType = "MANGO";
 
-            resource_loader.Load("MANGO", fileName, material_dir, this, textureLoadedCallback, callbackData);
+            resource_loader.Load("MANGO", fileName, createInfo.MaterialDirectory, this, textureLoadedCallback, callbackData);
         };
 
-        // now the tricky part: loading textures
-        if (hasAmbientTexture)
+
+        bool hasBumpMap = false;
+        bool hasDisplacementMap = false;
+        
+        for (size_t i = 0; i < createInfo.NumTextures; ++i)
         {
-            load_texture(texture_type::Ambient, mtl.ambient_texname.c_str());
+            hasDisplacementMap = createInfo.Types[i] == texture_type::Displacement ? true : false;
+            hasBumpMap = createInfo.Types[i] == texture_type::Bump ? true : false;
+            if (hasDisplacementMap && hasBumpMap)
+            {
+                LOG(ERROR) << "Material being loaded has both a bump map and a displacement map, which is invalid!";
+            }
+            load_texture(createInfo.Types[i], createInfo.TexturePaths[i]);
         }
 
-        if (hasDiffuseTexture)
-        {
-            load_texture(texture_type::Diffuse, mtl.diffuse_texname.c_str());
-        }
-
-        if (hasSpecularTexture)
-        {
-            load_texture(texture_type::Specular, mtl.specular_texname.c_str());
-        }
-
-        if (hasSpecularHighlightTexture)
-        {
-            load_texture(texture_type::SpecularHighlight, mtl.specular_highlight_texname.c_str());
-        }
-
-        if (hasBumpMap)
-        {
-            LOG_IF(hasDisplacementMap, WARNING) << "Material has both a bump map and displacement map, which will be treated as redundant by the shader.";
-            load_texture(texture_type::Bump, mtl.bump_texname.c_str());
-        }
-
-        if (hasDisplacementMap)
-        {
-            LOG_IF(hasBumpMap, WARNING) << "Material has both a bump map and displacement map, which will be treated as redundant by the shader.";
-            load_texture(texture_type::Displacement, mtl.displacement_texname.c_str());
-        }
-
-        if (hasAlphaTexture)
-        {
-            load_texture(texture_type::Alpha, mtl.alpha_texname.c_str());
-        }
-
-        if (hasRoughnessTexture)
-        {
-            load_texture(texture_type::Roughness, mtl.roughness_texname.c_str());
-        }
-
-        if (hasMetallicTexture)
-        {
-            load_texture(texture_type::Metallic, mtl.metallic_texname.c_str());
-        }
-
-        if (hasSheenTexture)
-        {
-            LOG(ERROR) << "Sheen texture is unsupported!";
-        }
-
-        if (hasEmissiveTexture)
-        {
-            load_texture(texture_type::Emissive, mtl.emissive_texname.c_str());
-        }
-
-        if (hasNormalTexture)
-        {
-            load_texture(texture_type::Normal, mtl.normal_texname.c_str());
-        }
+        // index for UBO is gonna be unique for each unique material, since every material has a UBO
+        const uint32_t uboIdx = impl->parametersIdx.fetch_add(1u);
 
         dataGuard.release_lock(); // don't need lock anymore: no iterators to invalidate like we can w unordered_map
 
-        // index for UBO is gonna be unique for each unique material, since every material has a UBO
-        const uint32_t uboIdx = currMtlPage.parametersIdx.fetch_add(1u);
-        currMtlPage.parametersArray[uboIdx] = std::move(params);
+        impl->parametersArray[uboIdx] = createInfo.Parameters;
         // this is quick enough that it's not worth running through the loader
-        currMtlPage.parameterUBOs[uboIdx] = createUBO(mtl.name.c_str(), currMtlPage.parametersArray[uboIdx]);
+        impl->parameterUBOs[uboIdx] = createUBO(createInfo.MaterialName, impl->parametersArray[uboIdx]);
 
         // makes sure we update descriptors before use
-        currMtlPage.dirty = true;
+        impl->dirty = true;
 
     }
 
@@ -334,8 +339,8 @@ MaterialInstance MaterialCache::LoadTinyobjMaterial(const void* mtlPtr, const ch
 
 void MaterialCache::UseMaterialAtIdx(const MaterialInstance& instance, const uint32_t idx)
 {
-    rw_lock_guard tableGuard(lock_mode::Write, materialPage.tableMutex);
-    materialPage.indicesUsingMaterial.emplace(instance.MaterialHash, idx);
+    rw_lock_guard tableGuard(lock_mode::Write, impl->tableMutex);
+    impl->indicesUsingMaterial.emplace(instance.MaterialHash, idx);
 }
 
 void MaterialCache::textureLoadedCallbackImpl(void* loaded_image, void* user_data)
@@ -344,22 +349,21 @@ void MaterialCache::textureLoadedCallbackImpl(void* loaded_image, void* user_dat
     image_loaded_callback_data_t* callbackData = reinterpret_cast<image_loaded_callback_data_t*>(user_data);
 
     const texture_type loadedTexType = callbackData->type;
-    material_cache_page_t& currPage = materialPage;
 
-    rw_lock_guard tableGuard(lock_mode::Write, currPage.tableMutex);
-    auto indexIter = currPage.masterIndicesTable.find(callbackData->mtlHash);
-    assert(indexIter != std::end(currPage.masterIndicesTable));
+    rw_lock_guard tableGuard(lock_mode::Write, impl->tableMutex);
+    auto indexIter = impl->masterIndicesTable.find(callbackData->mtlHash);
+    assert(indexIter != std::end(impl->masterIndicesTable));
     auto& indices = indexIter->second;
     auto& resourceLoaderData = loaderDataMap.at(callbackData->mtlHash);
 
-    auto set_texture_at_idx = [&textureData, &currPage](int32_t& idxToSet)
+    auto set_texture_at_idx = [&textureData, this](int32_t& idxToSet)
     {
-        const uint32_t idxToUse = currPage.bindlessTexturesIdx.fetch_add(1u);
-        currPage.textures[idxToUse] = textureData->resource;
+        const uint32_t idxToUse = impl->bindlessTexturesIdx.fetch_add(1u);
+        impl->textures[idxToUse] = textureData->resource;
         idxToSet = static_cast<int32_t>(idxToUse);
     };
 
-    currPage.materialDirty[callbackData->mtlHash] = true;
+    impl->materialDirty[callbackData->mtlHash] = true;
 
     switch (loadedTexType)
     {
@@ -413,8 +417,8 @@ void MaterialCache::textureLoadedCallbackImpl(void* loaded_image, void* user_dat
         throw std::domain_error("Texture type loaded was of invalid type!");
     };
 
-    auto iter = currPage.callbackDataStorage.find(callbackData->mtlHash);
-    if (iter != std::end(currPage.callbackDataStorage))
+    auto iter = impl->callbackDataStorage.find(callbackData->mtlHash);
+    if (iter != std::end(impl->callbackDataStorage))
     {
         auto& storageVec = iter->second;
         storageVec[static_cast<size_t>(callbackData->type)] = image_loaded_callback_data_t{};
@@ -425,70 +429,45 @@ void MaterialCache::textureLoadedCallbackImpl(void* loaded_image, void* user_dat
     }
 }
 
-uint64_t MaterialCache::hashTinyobjMaterial(const void* mtlPtr, const material_parameters_t& params)
-{
-    // Params hash hashes contents as well: difference in values will be invalid
-    const uint64_t paramsHash = MurmurHash2(&params, sizeof(params), 0xFD);
-    const tinyobj_opt::material_t& mtl = *reinterpret_cast<const tinyobj_opt::material_t*>(mtlPtr);
-    std::string concatenatedNames{ mtl.name };
-    concatenatedNames.reserve(1024);
-    concatenatedNames += mtl.ambient_texname;
-    concatenatedNames += mtl.diffuse_texname;
-    concatenatedNames += mtl.specular_texname;
-    concatenatedNames += mtl.specular_highlight_texname;
-    concatenatedNames += mtl.bump_texname;
-    concatenatedNames += mtl.displacement_texname;
-    concatenatedNames += mtl.alpha_texname;
-    concatenatedNames += mtl.roughness_texname;
-    concatenatedNames += mtl.metallic_texname;
-    concatenatedNames += mtl.sheen_texname;
-    concatenatedNames += mtl.emissive_texname;
-    concatenatedNames += mtl.normal_texname;
-
-    const uint64_t namesHash = MurmurHash2((void*)concatenatedNames.c_str(), sizeof(char) * concatenatedNames.length(), 0xFC);
-    return namesHash ^ paramsHash;
-}
-
 void MaterialCache::updatePage()
 {
-    auto& pageToUpdate = materialPage;
-    if (pageToUpdate.dirty)
+    if (impl->dirty)
     {
-        rw_lock_guard pageTableGuard(lock_mode::Write, pageToUpdate.tableMutex);
+        rw_lock_guard pageTableGuard(lock_mode::Write, impl->tableMutex);
 
-        for (auto& mtl : pageToUpdate.materialDirty)
+        for (auto& mtl : impl->materialDirty)
         {
-            auto indices_range = pageToUpdate.indicesUsingMaterial.equal_range(mtl.first);
+            auto indices_range = impl->indicesUsingMaterial.equal_range(mtl.first);
             for (auto iter = indices_range.first; iter != indices_range.second; ++iter)
             {
-                pageToUpdate.indicesArray[iter->second] = pageToUpdate.masterIndicesTable.at(iter->first);
+                impl->indicesArray[iter->second] = impl->masterIndicesTable.at(iter->first);
             }
         }
 
         const gpu_resource_data_t indicesArrayData
         {
-            &pageToUpdate.indicesArray, MaxMaterialPageTextureCount * sizeof(material_shader_indices_t),
+            &impl->indicesArray, MaxMaterialPageTextureCount * sizeof(material_shader_indices_t),
             0u, VK_QUEUE_FAMILY_IGNORED
         };
 
         auto& rsrc_context = ResourceContext::Get();
-        rsrc_context.SetBufferData(pageToUpdate.vkIndicesBufferSBO, 1u, &indicesArrayData);
+        rsrc_context.SetBufferData(impl->vkIndicesBufferSBO, 1u, &indicesArrayData);
 
         // now update image handles
 
 
-        pageToUpdate.materialDirty.clear();
+        impl->materialDirty.clear();
     }
 
-    pageToUpdate.dirty = false;
+    impl->dirty = false;
 }
 
-constexpr bool MaterialCache::image_loaded_callback_data_t::operator==(const image_loaded_callback_data_t& other) const noexcept
+constexpr bool image_loaded_callback_data_t::operator==(const image_loaded_callback_data_t& other) const noexcept
 {
     return (mtlHash == other.mtlHash) && (type == other.type);
 }
 
-constexpr bool MaterialCache::image_loaded_callback_data_t::operator<(const image_loaded_callback_data_t& other) const noexcept
+constexpr bool image_loaded_callback_data_t::operator<(const image_loaded_callback_data_t& other) const noexcept
 {
     if (mtlHash == other.mtlHash)
     {
@@ -498,6 +477,17 @@ constexpr bool MaterialCache::image_loaded_callback_data_t::operator<(const imag
     {
         return mtlHash < other.mtlHash;
     }
+}
+
+void textureLoadedCallback(void* instance, void* loaded_data, void* user_data)
+{
+    MaterialCache* cacheInstance = reinterpret_cast<MaterialCache*>(instance);
+    cacheInstance->textureLoadedCallbackImpl(loaded_data, user_data);
+}
+
+constexpr bool MaterialInstance::operator==(const MaterialInstance& other) const noexcept
+{
+    return (MaterialHash == other.MaterialHash) && (PageIdx == other.PageIdx);
 }
 
 namespace
@@ -559,6 +549,37 @@ namespace
         mode = lock_mode::Released;
     }
 
+    std::string ResolveTexturePath(const char* input_path, const char* mtlDir)
+    {
+        namespace stdfs = std::filesystem;
+        stdfs::path texPath(input_path);
+        if (stdfs::exists(texPath))
+        {
+            // make canonical to cut out extra fluff, and get full user-local string
+            return stdfs::canonical(texPath).string();
+        }
+        else
+        {
+            // now we gotta find the file
+            return ResourceLoader::FindFile(texPath.filename().string(), mtlDir, 3u);
+        }
+    }
+
+    uint64_t HashMaterialCreateInfo(const MaterialCreateInfo& createInfo)
+    {
+        // Params hash hashes contents as well: difference in values will be invalid
+        const uint64_t paramsHash = MurmurHash2(&createInfo.Parameters, sizeof(material_parameters_t), 0xFD);
+        std::string concatenatedNames{ createInfo.MaterialName };
+        concatenatedNames.reserve(1024);
+        for (size_t i = 0; i < createInfo.NumTextures; ++i)
+        {
+            concatenatedNames += std::string(createInfo.TexturePaths[i]);
+        }
+        concatenatedNames.shrink_to_fit();
+        const uint64_t namesHash = MurmurHash2((void*)concatenatedNames.c_str(), sizeof(char) * concatenatedNames.length(), 0xFC);
+        return namesHash ^ paramsHash;
+    }
+
     float extract_valid_material_param(const float input)
     {
         // the various structures we read can end up with values that are weird:
@@ -582,38 +603,6 @@ namespace
         }
 
         return input;
-    }
-
-    glm::vec3 extract_valid_material_param(const glm::vec3& in) noexcept
-    {
-        return glm::vec3{
-            extract_valid_material_param(in.x),
-            extract_valid_material_param(in.y),
-            extract_valid_material_param(in.z)
-        };
-    }
-
-    material_parameters_t from_tinyobj_material(const tinyobj_opt::material_t& mtl) noexcept
-    {
-        material_parameters_t parameters;
-        parameters.ambient = extract_valid_material_param(glm::vec3(mtl.ambient[0], mtl.ambient[1], mtl.ambient[2]));
-        parameters.diffuse = extract_valid_material_param(glm::vec3(mtl.diffuse[0], mtl.diffuse[1], mtl.diffuse[2]));
-        parameters.specular = extract_valid_material_param(glm::vec3(mtl.specular[0], mtl.specular[1], mtl.specular[2]));
-        parameters.transmittance = extract_valid_material_param(glm::vec3(mtl.transmittance[0], mtl.transmittance[1], mtl.transmittance[2]));
-        parameters.emission = extract_valid_material_param(glm::vec3(mtl.emission[0], mtl.emission[1], mtl.emission[2]));
-        parameters.shininess = extract_valid_material_param(mtl.shininess);
-        parameters.ior = extract_valid_material_param(mtl.ior);
-        parameters.alpha = extract_valid_material_param(mtl.dissolve);
-        parameters.illum = static_cast<int32_t>(mtl.illum);
-        parameters.roughness = extract_valid_material_param(mtl.roughness);
-        parameters.metallic = extract_valid_material_param(mtl.metallic);
-        parameters.sheen = extract_valid_material_param(mtl.sheen);
-        parameters.clearcoat_thickness = extract_valid_material_param(mtl.clearcoat_thickness);
-        parameters.clearcoat_roughness = extract_valid_material_param(mtl.clearcoat_roughness);
-        parameters.anisotropy = extract_valid_material_param(mtl.anisotropy);
-        parameters.anisotropy_rotation = extract_valid_material_param(mtl.anisotropy_rotation);
-        LOG_IF(!mtl.unknown_parameter.empty(), WARNING) << "tinyobj material " << mtl.name << " has unknown parameters that will be discarded.";
-        return parameters;
     }
 
     VulkanResource* createUBO(const char* name, const material_parameters_t& params)
@@ -645,99 +634,15 @@ namespace
         return result;
     }
 
-    std::string FindDebugTexture()
-    {
-        namespace stdfs = std::experimental::filesystem;
-        static const std::string TextureFname("FailedTexLoad.png");
-
-        auto case_insensitive_comparison = [](const std::string& fname, const std::string& curr_entry)->bool
-        {
-#ifdef _MSC_VER
-            return std::equal(std::execution::par_unseq, fname.cbegin(), fname.cend(), curr_entry.cbegin(), curr_entry.cend(), [](const char a, const char b)
-                {
-                    return std::tolower(a) == std::tolower(b);
-                });
-#else // afaik only MSVC supports <execution>
-            return std::equal(fname.cbegin(), fname.cend(), curr_entry.cbegin(), curr_entry.cend(), [](const char a, const char b)
-                {
-                    return std::tolower(a) == std::tolower(b);
-                });
-#endif
-        };
-
-        stdfs::path starting_path(stdfs::current_path());
-
-        stdfs::path file_name_path(TextureFname);
-        file_name_path = file_name_path.filename();
-
-        if (stdfs::exists(file_name_path))
-        {
-            return file_name_path.string();
-        }
-
-
-        stdfs::path file_path = starting_path;
-
-        for (size_t i = 0; i < 4; ++i)
-        {
-            file_path = file_path.parent_path();
-        }
-
-        for (auto& dir_entry : stdfs::recursive_directory_iterator(file_path))
-        {
-            if (dir_entry == starting_path)
-            {
-                continue;
-            }
-
-            if (!stdfs::is_regular_file(dir_entry) || stdfs::is_directory(dir_entry))
-            {
-                continue;
-            }
-
-            const stdfs::path entry_path(dir_entry);
-            const std::string curr_entry_str = entry_path.filename().string();
-
-            if (case_insensitive_comparison(TextureFname, curr_entry_str))
-            {
-                return entry_path.string();
-            }
-        }
-
-        return std::string();
-    }
-
     void* loadImageDataFn(const char* fname, void* user_data)
     {
-        namespace fs = std::experimental::filesystem;
         using namespace mango;
         auto& rsrc_context = ResourceContext::Get();
         const auto* device = RenderingContext::Get().Device();
         const uint32_t graphics_queue_idx = device->QueueFamilyIndices().Graphics;
 
-        fs::path file_path(fname);
-        std::string fileStr(fname);
-
-        if (!fs::exists(file_path))
+        static const std::map<mango::Format, VkComponentMapping> formatComponentMappings
         {
-            LOG(ERROR) << "Requested file path did not exist!";
-            LOG(ERROR) << "File Path: " << fname;
-
-            namespace fs = std::experimental::filesystem;
-            static fs::path DEBUG_TEXTURE_PATH{ "../../../../assets/debug/FailedTexLoad.png" };
-            if (!fs::exists(DEBUG_TEXTURE_PATH))
-            {
-                const std::string curr_dir = fs::current_path().string();
-                const std::string DEBUG_TEX_STRING = ResourceLoader::FindFile(DEBUG_TEXTURE_PATH.filename().string(), curr_dir.c_str(), 3u);
-                DEBUG_TEXTURE_PATH = fs::path(DEBUG_TEX_STRING);
-            }
-
-            fileStr = DEBUG_TEXTURE_PATH.string();
-
-        }
-
-        const static Format FORMAT_R16G16B16(16, mango::Format::UNORM, mango::Format::RGB, 16, 16, 16, 0);
-        static const std::map<mango::Format, VkComponentMapping> formatComponentMappings{
             { FORMAT_A8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R } },
             { FORMAT_L8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R } },
             { FORMAT_R16, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R } },
@@ -747,12 +652,10 @@ namespace
             { FORMAT_R8G8B8X8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_ZERO }},
             { FORMAT_B8G8R8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_ZERO }},
             { FORMAT_B8G8R8X8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_ZERO }},
-            { FORMAT_B8G8R8A8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A }},
-            { FORMAT_R16G16B16, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_ZERO }}
+            { FORMAT_B8G8R8A8, VkComponentMapping{ VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A }}
         };
 
-
-        loaded_texture_data_t* result = new loaded_texture_data_t(fileStr.c_str());
+        loaded_texture_data_t* result = new loaded_texture_data_t(fname);
 
         auto iter = formatComponentMappings.find(result->bitmap.format);
         if (iter == std::cend(formatComponentMappings))
@@ -767,13 +670,6 @@ namespace
             result->bitmap.format == FORMAT_R8G8B8X8 || result->bitmap.format == FORMAT_B8G8R8X8)
         {
             Bitmap dest_blit(result->bitmap.width, result->bitmap.height, FORMAT_R8G8B8A8);
-            dest_blit.blit(0, 0, result->bitmap);
-            result->bitmap = std::move(dest_blit);
-        }
-
-        if (result->bitmap.format == FORMAT_R16G16B16)
-        {
-            Bitmap dest_blit(result->bitmap.width, result->bitmap.height, FORMAT_R16G16B16A16);
             dest_blit.blit(0, 0, result->bitmap);
             result->bitmap = std::move(dest_blit);
         }
@@ -824,7 +720,8 @@ namespace
         const VkSharingMode sharing_mode = (transfer_idx != graphics_idx) ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
         const std::array<uint32_t, 2> queue_family_indices{ graphics_idx, transfer_idx };
 
-        const VkImageCreateInfo img_create_info{
+        const VkImageCreateInfo img_create_info
+        {
             VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             nullptr,
             0,
@@ -842,7 +739,8 @@ namespace
             VK_IMAGE_LAYOUT_UNDEFINED
         };
 
-        const VkImageViewCreateInfo view_create_info{
+        const VkImageViewCreateInfo view_create_info
+        {
             VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             nullptr,
             0,
@@ -853,7 +751,7 @@ namespace
             VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
         };
 
-        const std::string texture_name_str = fs::path(fname).filename().string();
+        const std::string texture_name_str = std::filesystem::path(fname).filename().string();
         result->resource = rsrc_context.CreateImage(&img_create_info, &view_create_info, 1, &img_rsrc_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinMemory | ResourceCreateUserDataAsString, (void*)texture_name_str.c_str());
 
         return result;
@@ -867,15 +765,4 @@ namespace
         delete pointer;
     }
 
-}
-
-void textureLoadedCallback(void* instance, void* loaded_data, void* user_data)
-{
-    MaterialCache* cacheInstance = reinterpret_cast<MaterialCache*>(instance);
-    cacheInstance->textureLoadedCallbackImpl(loaded_data, user_data);
-}
-
-constexpr bool MaterialInstance::operator==(const MaterialInstance& other) const noexcept
-{
-    return (MaterialHash == other.MaterialHash) && (PageIdx == other.PageIdx);
 }

@@ -64,20 +64,18 @@ struct material_parameters_t
     float anisotropy_rotation{ 0.0f };
 };
 
-
 struct material_texture_toggles_t
 {
-    uint32_t hasAlbedoMap{ 0u };
-    uint32_t hasAlphaMap{ 0u };
-    uint32_t hasSpecularMap{ 0u };
-    uint32_t hasBumpMap{ 0u };
-    uint32_t hasDisplacementMap{ 0u };
-    uint32_t hasNormalMap{ 0u };
-    uint32_t hasAmbientOcclusionMap{ 0u };
-    uint32_t hasMetallicMap{ 0u };
-    uint32_t hasRoughnessMap{ 0u };
-    uint32_t hasEmissiveMap{ 0u };
-    uint32_t materialLoading{ 0u };
+    bool hasAlbedoMap{ false };
+    bool hasAlphaMap{ false };
+    bool hasSpecularMap{ false };
+    bool hasBumpMap{ false };
+    bool hasDisplacementMap{ false };
+    bool hasNormalMap{ false };
+    bool hasAmbientOcclusionMap{ false };
+    bool hasMetallicMap{ false };
+    bool hasRoughnessMap{ false };
+    bool hasEmissiveMap{ false };
 };
 
 struct VulkanResource;
@@ -95,6 +93,19 @@ struct material_vulkan_resources_t
     VulkanResource* metallicMap{ nullptr };
     VulkanResource* roughnessMap{ nullptr };
     VulkanResource* emissiveMap{ nullptr };
+};
+
+struct MaterialCreateInfo
+{
+    // Set based on maaxPerStageDescriptorSampledImages minimum, on vulkan.gpuinfo.org
+    // I'm using it mostly because I expect exceeding this, even in a bindless mode, to have perf implications
+    constexpr static size_t MaxNumTextures = 16u;
+    const char* MaterialName{ nullptr };
+    const char* MaterialDirectory{ nullptr };
+    size_t NumTextures{ 0u };
+    texture_type Types[MaxNumTextures];
+    const char* TexturePaths[MaxNumTextures];
+    material_parameters_t Parameters;
 };
 
 #endif //!DIAMOND_DOGS_MATERIAL_STRUCTURES_HPP

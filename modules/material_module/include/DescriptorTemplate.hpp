@@ -2,13 +2,11 @@
 #ifndef DIAMOND_DOGS_DESCRIPTOR_TEMPLATE_HPP
 #define DIAMOND_DOGS_DESCRIPTOR_TEMPLATE_HPP
 #include "ForwardDecl.hpp"
+#include "UpdateTemplateData.hpp"
+#include <vulkan/vulkan_core.h>
+#include <string>
 #include <memory>
 #include <vector>
-#include <unordered_map>
-#include <unordered_set>
-#include <string>
-#include <vulkan/vulkan.h>
-#include "UpdateTemplateData.hpp"
 
 struct VulkanResource;
 
