@@ -14,7 +14,7 @@
 #include <execution>
 #pragma warning(push, 1)
 #include "easylogging++.h"
-#include "mango/include/mango/mango.hpp"
+#include "mango/mango.hpp"
 #pragma warning(pop)
 
 namespace stdfs = std::filesystem;

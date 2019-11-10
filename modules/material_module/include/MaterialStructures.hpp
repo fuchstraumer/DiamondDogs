@@ -2,10 +2,6 @@
 #ifndef DIAMOND_DOGS_MATERIAL_STRUCTURES_HPP
 #define DIAMOND_DOGS_MATERIAL_STRUCTURES_HPP
 #include <cstdint>
-#pragma warning(push, 1)
-#include "glm/vec3.hpp"
-#include "glm/vec4.hpp"
-#pragma warning(pop)
 
 enum class texture_type : uint8_t
 {
@@ -50,11 +46,11 @@ struct material_shader_indices_t
 
 struct material_parameters_t
 {
-    glm::vec3 ambient{ 0.0f,0.0f,0.0f };
-    glm::vec3 diffuse{ 0.0f,0.0f,0.0f };
-    glm::vec3 specular{ 0.0f,0.0f,0.0f };
-    glm::vec3 transmittance{ 0.0f,0.0f,0.0f };
-    glm::vec3 emission{ 0.0f,0.0f,0.0f };
+    float ambient[3]{ 0.0f, 0.0f, 0.0f };
+    float diffuse[3]{ 0.0f, 0.0f, 0.0f };
+    float specular[3]{ 0.0f, 0.0f, 0.0f };
+    float transmittance[3]{ 0.0f, 0.0f, 0.0f };
+    float emission[3]{ 0.0f, 0.0f, 0.0f };
     float shininess{ 0.01f };
     float ior{ 0.0f };
     float alpha{ 0.0f };

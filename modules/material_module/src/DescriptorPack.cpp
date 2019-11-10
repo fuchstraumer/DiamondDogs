@@ -15,7 +15,8 @@
 #include "VkDebugUtils.hpp"
 #include <cassert>
 
-DescriptorPack::DescriptorPack(RenderGraph* _graph, const st::ShaderPack * pack) : shaderPack(pack), graph(_graph) {
+DescriptorPack::DescriptorPack(const st::ShaderPack * pack) : shaderPack(pack)
+{
     retrieveResourceGroups();
     createDescriptorTemplates();
     parseGroupBindingInfo();
@@ -32,24 +33,30 @@ void DescriptorPack::Reset()
     }
 }
 
-VkPipelineLayout DescriptorPack::PipelineLayout(const std::string& name) const {
+VkPipelineLayout DescriptorPack::PipelineLayout(const std::string& name) const
+{
     const size_t idx = shaderGroupNameIdxMap.at(name);
     return pipelineLayouts[idx]->vkHandle();
 }
 
-Descriptor* DescriptorPack::RetrieveDescriptor(const std::string & rsrc_group_name) {
+Descriptor* DescriptorPack::RetrieveDescriptor(const std::string & rsrc_group_name)
+{
     auto iter = rsrcGroupToIdxMap.find(rsrc_group_name);
-    if (iter == rsrcGroupToIdxMap.end()) {
+    if (iter == rsrcGroupToIdxMap.end())
+    {
         return nullptr;
     }
-    else {
+    else
+    {
         return descriptors[iter->second].get();
     }
 }
 
-DescriptorBinder DescriptorPack::RetrieveBinder(const std::string& shader_group) {
+DescriptorBinder DescriptorPack::RetrieveBinder(const std::string& shader_group)
+{
     auto iter = shaderGroupNameIdxMap.find(shader_group);
-    if (iter == shaderGroupNameIdxMap.end()) {
+    if (iter == shaderGroupNameIdxMap.end())
+    {
         throw std::out_of_range("Shader group requested is not in map.");
     }
 
@@ -57,7 +64,8 @@ DescriptorBinder DescriptorPack::RetrieveBinder(const std::string& shader_group)
     auto& indices = shaderGroupResourceGroupUsages[sg_idx];
 
     DescriptorBinder result(indices.size(), pipelineLayouts[sg_idx]->vkHandle());
-    for (size_t i = 0; i < indices.size(); ++i) {
+    for (size_t i = 0; i < indices.size(); ++i)
+    {
         result.AddDescriptor(i, resourceGroups[indices[i]]->Name(), descriptors[indices[i]].get());
     }
 
@@ -85,18 +93,22 @@ void DescriptorPack::EndFrame()
 
 }
 
-void DescriptorPack::retrieveResourceGroups() {
+void DescriptorPack::retrieveResourceGroups()
+{
     auto group_names_dll = shaderPack->GetResourceGroupNames();
     rsrcGroupUseFrequency.resize(group_names_dll.NumStrings, 0u);
-    for (size_t i = 0; i < group_names_dll.NumStrings; ++i) {
+    for (size_t i = 0; i < group_names_dll.NumStrings; ++i)
+    {
         resourceGroups.emplace_back(shaderPack->GetResourceGroup(group_names_dll[i]));
         rsrcGroupToIdxMap.emplace(std::string{ group_names_dll[i] }, resourceGroups.size() - 1u);
     }
 }
 
-void DescriptorPack::createDescriptorTemplates() {
+void DescriptorPack::createDescriptorTemplates()
+{
 
-    for (const auto* group : resourceGroups) {
+    for (const auto* group : resourceGroups)
+    {
         const std::string group_name{ group->Name() };
 
         descriptorTemplates.emplace_back(std::make_unique<DescriptorTemplate>(group->Name()));
@@ -110,7 +122,8 @@ void DescriptorPack::createDescriptorTemplates() {
 
         std::unordered_map<std::string, size_t> binding_locs;
 
-        for (const auto* rsrc : resource_ptrs) {
+        for (const auto* rsrc : resource_ptrs)
+        {
             templ->AddLayoutBinding(rsrc->AsLayoutBinding());
             binding_locs.emplace(rsrc->Name(), rsrc->BindingIndex());
         }
@@ -121,13 +134,15 @@ void DescriptorPack::createDescriptorTemplates() {
 
 }
 
-void DescriptorPack::parseGroupBindingInfo() {
+void DescriptorPack::parseGroupBindingInfo()
+{
 
     std::vector<std::string> shader_group_strs;
 
     {
         auto shader_group_names = shaderPack->GetShaderGroupNames();
-        for (size_t i = 0; i < shader_group_names.NumStrings; ++i) {
+        for (size_t i = 0; i < shader_group_names.NumStrings; ++i)
+        {
             shader_group_strs.emplace_back(shader_group_names[i]);
         }
     }
@@ -136,19 +151,22 @@ void DescriptorPack::parseGroupBindingInfo() {
     shaderGroups.resize(shader_group_strs.size());
     pipelineLayouts.resize(shader_group_strs.size());
 
-    for (const auto& str : shader_group_strs) {
+    for (const auto& str : shader_group_strs)
+    {
         auto emplaced = shaderGroupNameIdxMap.emplace(str, static_cast<uint32_t>(shaderGroupNameIdxMap.size()));
         const size_t idx = emplaced.first->second;
         shaderGroups[idx] = shaderPack->GetShaderGroup(str.c_str());
     }
 
-    for (const auto& str : shader_group_strs) {
+    for (const auto& str : shader_group_strs)
+    {
         createPipelineLayout(str);
     }
 
 }
 
-void DescriptorPack::createPipelineLayout(const std::string & name) {
+void DescriptorPack::createPipelineLayout(const std::string & name)
+{
     const size_t idx = static_cast<size_t>(shaderGroupNameIdxMap.at(name));
     const st::Shader* shader = shaderGroups[idx];
 
@@ -159,7 +177,8 @@ void DescriptorPack::createPipelineLayout(const std::string & name) {
 
     std::vector<VkPushConstantRange> push_constant_ranges;
 
-    for (const auto& stage : stages) {
+    for (const auto& stage : stages)
+    {
         auto pc_info = shader->GetPushConstantInfo(stage.GetStage());
         if (pc_info.Stages() != VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM) {
             push_constant_ranges.emplace_back((VkPushConstantRange)pc_info);
@@ -174,7 +193,8 @@ void DescriptorPack::createPipelineLayout(const std::string & name) {
         set_layouts.resize(used_blocks.NumStrings);
         shaderGroupResourceGroupUsages[idx].resize(used_blocks.NumStrings);
 
-        for (size_t i = 0; i < used_blocks.NumStrings; ++i) {
+        for (size_t i = 0; i < used_blocks.NumStrings; ++i)
+        {
             const char* curr_block = used_blocks[i];
             size_t container_idx = rsrcGroupToIdxMap.at(curr_block);
             uint32_t set_idx_in_shader = shader->ResourceGroupSetIdx(curr_block);
@@ -199,11 +219,13 @@ void DescriptorPack::createPipelineLayout(const std::string & name) {
 
 }
 
-void DescriptorPack::createDescriptors() {
+void DescriptorPack::createDescriptors()
+{
 
     descriptors.resize(resourceGroups.size());
 
-    for (const auto* group : resourceGroups) {
+    for (const auto* group : resourceGroups)
+    {
         const std::string group_name{ group->Name() };
         size_t idx = rsrcGroupToIdxMap.at(group_name);
 
@@ -212,9 +234,11 @@ void DescriptorPack::createDescriptors() {
 
 }
 
-std::unique_ptr<Descriptor> DescriptorPack::createDescriptor(const std::string & rsrc_group_name, std::unordered_map<std::string, size_t>&& binding_locs) {
+std::unique_ptr<Descriptor> DescriptorPack::createDescriptor(const std::string & rsrc_group_name, std::unordered_map<std::string, size_t>&& binding_locs)
+{
     auto iter = rsrcGroupToIdxMap.find(rsrc_group_name);
-    if (iter == std::end(rsrcGroupToIdxMap)) {
+    if (iter == std::end(rsrcGroupToIdxMap))
+    {
         throw std::domain_error("Invalid resource group name: not in container!");
     }
 

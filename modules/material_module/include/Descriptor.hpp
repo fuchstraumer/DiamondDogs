@@ -4,7 +4,6 @@
 #include "ForwardDecl.hpp"
 #include "DescriptorTemplate.hpp"
 #include "DescriptorBinder.hpp"
-#include "common/UtilityStructs.hpp"
 #include <memory>
 #include <atomic>
 #include <vector>
@@ -74,7 +73,6 @@ private:
     std::atomic<uint32_t> setContainerIdx{ 0u };
     std::vector<VkDescriptorSet> availSets;
     std::vector<std::vector<VkDescriptorSet>> usedSets;
-    st::descriptor_type_counts_t typeCounts;
     std::mutex poolMutex;
     std::vector<VkDescriptorSetLayout> setLayouts;
     std::unordered_map<std::string, size_t> bindingLocations;
