@@ -13,7 +13,6 @@ INITIALIZE_EASYLOGGINGPP
 #include "PipelineCache.hpp"
 #include "Instance.hpp"
 #include "CommandPool.hpp"
-#include "ObjModel.hpp"
 #include "RenderGraph.hpp"
 #include "ResourceLoader.hpp"
 
@@ -68,31 +67,31 @@ int main(int argc, char* argv[]) {
         DestroyShaderPackBinary(bin_to_save);
     }
 
-    static const fs::path model_dir{ fs::canonical("../../../../assets/objs/bistro/") };
-    assert(fs::exists(model_dir));
-    static const fs::path model_file{ model_dir / "exterior.obj" };
-    assert(fs::exists(model_file));
+    //static const fs::path model_dir{ fs::canonical("../../../../assets/objs/bistro/") };
+    //assert(fs::exists(model_dir));
+    //static const fs::path model_file{ model_dir / "exterior.obj" };
+    //assert(fs::exists(model_file));
 
-    ObjectModel model;
-    const auto dir_string = model_dir.string();
-    const auto file_string = model_file.string();
-    std::future<void> modelLoadingFuture = std::async(std::launch::async, &ObjectModel::LoadModelFromFile, &model, file_string.c_str(), dir_string.c_str());
+    //ObjectModel model;
+    //const auto dir_string = model_dir.string();
+    //const auto file_string = model_file.string();
+    //std::future<void> modelLoadingFuture = std::async(std::launch::async, &ObjectModel::LoadModelFromFile, &model, file_string.c_str(), dir_string.c_str());
 
-    modelLoadingFuture.get();
+    //modelLoadingFuture.get();
 
-    //vtf_frame_data_t::obj_render_fn_t render_fn = std::bind(&ObjectModel::Render, &model, std::placeholders::_1);
+    ////vtf_frame_data_t::obj_render_fn_t render_fn = std::bind(&ObjectModel::Render, &model, std::placeholders::_1);
 
-    //auto& scene = VTF_Scene::Get();
-    //scene.Construct(RequiredVprObjects{ ctxt.Device(), ctxt.PhysicalDevice(), ctxt.Instance(), ctxt.Swapchain() }, vtfPack.get());
-    //scene.AddObjectRenderFn(render_fn);
+    ////auto& scene = VTF_Scene::Get();
+    ////scene.Construct(RequiredVprObjects{ ctxt.Device(), ctxt.PhysicalDevice(), ctxt.Instance(), ctxt.Swapchain() }, vtfPack.get());
+    ////scene.AddObjectRenderFn(render_fn);
 
-    //while (!ctxt.ShouldWindowClose()) {
-    //    RenderingContext::Get().Update();
-    //    ctxt.Update();
-    //    scene.Render(nullptr);
-    //}
+    ////while (!ctxt.ShouldWindowClose()) {
+    ////    RenderingContext::Get().Update();
+    ////    ctxt.Update();
+    ////    scene.Render(nullptr);
+    ////}
 
-    auto& loader = ResourceLoader::GetResourceLoader();
-    loader.WaitForAllLoads();
+    //auto& loader = ResourceLoader::GetResourceLoader();
+    //loader.WaitForAllLoads();
     return 0;
 }

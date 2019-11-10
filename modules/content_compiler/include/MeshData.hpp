@@ -2,8 +2,6 @@
 #ifndef ASSET_PIPELINE_MESH_DATA_HPP
 #define ASSET_PIPELINE_MESH_DATA_HPP
 #include <cstdint>
-#include <variant>
-#include <vector>
 
 struct MeshProcessingOptions {
     bool Interleaved;
@@ -102,12 +100,12 @@ struct ccVertex {
     fvec2 uv0;
 };
 
-struct UninterleavedVertexData {
-    std::vector<fvec4> Positions;
-    std::vector<int16_t> Tangents;
-    std::vector<fvec2> UV0s;
-    std::vector<fvec2> UV1s;
-};
+//struct UninterleavedVertexData {
+//    std::vector<fvec4> Positions;
+//    std::vector<int16_t> Tangents;
+//    std::vector<fvec2> UV0s;
+//    std::vector<fvec2> UV1s;
+//};
 
 struct PartData {
     uint32_t IndexOffset{ 0xffffffff };
@@ -124,16 +122,16 @@ struct MaterialInfo {
     char* Name;
 };
 
-struct MeshData {
-    MeshDataHeader Header{ };
-    std::vector<PartData> Parts;
-    std::vector<MaterialInfo> Materials;
-    using vertex_data_t = std::variant<
-        std::vector<ccVertex>,
-        UninterleavedVertexData
-    >;
-    vertex_data_t Vertices;
-    std::vector<uint32_t> Indices;
-};
+//struct MeshData {
+//    MeshDataHeader Header{ };
+//    std::vector<PartData> Parts;
+//    std::vector<MaterialInfo> Materials;
+//    using vertex_data_t = std::variant<
+//        std::vector<ccVertex>,
+//        UninterleavedVertexData
+//    >;
+//    vertex_data_t Vertices;
+//    std::vector<uint32_t> Indices;
+//};
 
 #endif //!ASSET_PIPELINE_MESH_DATA_HPP

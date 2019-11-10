@@ -16,5 +16,9 @@ TARGET_INCLUDE_DIRECTORIES(content_compiler PUBLIC
     "../../third_party/glm"
     "../../third_party/easyloggingpp/src"
     "${Vulkan_INCLUDE_DIR}"
-    "../../../third_party/tinyobjloader/experimental"
+    "../../third_party/tinyobjloader/experimental"
+    "../material_module/include"
+    "../resource_context/include"
+    "../rendering_context/include"
+    "../../third_party/mango/include"
 )

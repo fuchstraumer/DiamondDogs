@@ -15,7 +15,8 @@ TARGET_INCLUDE_DIRECTORIES(vtf_module PRIVATE
     "../../third_party/glm/"
     "../rendering_context/include"
     "../resource_context/include"
-    "../rendergraph_module/include")
+    "../material_module/include")
 
 TARGET_LINK_LIBRARIES(vtf_module PRIVATE ShaderTools glfw ${Vulkan_LIBRARY}
-    vpr_core vpr_resource vpr_sync vpr_command vpr_render easyloggingpp mango)
+    vpr_core vpr_resource vpr_sync vpr_command vpr_render easyloggingpp mango
+    material_module)

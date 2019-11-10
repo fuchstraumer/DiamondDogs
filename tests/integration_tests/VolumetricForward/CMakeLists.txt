@@ -9,6 +9,8 @@ TARGET_INCLUDE_DIRECTORIES(VTF_Scene PRIVATE
     "../../../modules/rendering_context/include"
     "../../../modules/resource_context/include"
     "../../../modules/rendergraph_module/include"
+    "../../../modules/material_module/include"
+    "../../../modules/vtf_module/include"
     "../../../third_party/easyloggingpp/src"
     "../../../third_party/glm/"
     ${Vulkan_INCLUDE_DIR}
@@ -23,4 +25,5 @@ TARGET_INCLUDE_DIRECTORIES(VTF_Scene PRIVATE
 )
 
 TARGET_LINK_LIBRARIES(VTF_Scene PRIVATE ShaderTools rendering_context resource_context rendergraph_module glfw ${Vulkan_LIBRARY}
-    vpr_core vpr_resource vpr_sync vpr_command vpr_render easyloggingpp mango)
+    vpr_core vpr_resource vpr_sync vpr_command vpr_render easyloggingpp mango
+    material_module vtf_module)
