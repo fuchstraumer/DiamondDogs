@@ -1,10 +1,8 @@
 
 ADD_MODULE(vtf_module
-    "include/VTF_Scene.hpp"
     "include/vtfFrameData.hpp"
     "include/vtfStructs.hpp"
     "include/vtfTasksAndSteps.hpp"
-    "src/VTF_Scene.cpp"
     "src/vtfFrameData.cpp"
     "src/vtfTasksAndSteps.cpp"
 )

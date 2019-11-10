@@ -7,7 +7,7 @@
 #include "DescriptorBinder.hpp"
 #include "Descriptor.hpp"
 #include "DescriptorPack.hpp"
-#include "multicast_delegate.hpp"
+#include "utility/multicast_delegate.hpp"
 #include "VkDebugUtils.hpp"
 #include "Material.hpp"
 #include <unordered_map>

@@ -35,4 +35,4 @@ add_subdirectory(resource_context)
 # that sits just BARELY over the resource and rendering contexts
 add_subdirectory(imgui_module)
 #add_subdirectory(terrain_module)
-#add_subdirectory(vtf_module)
+add_subdirectory(vtf_module)
