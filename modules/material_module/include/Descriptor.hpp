@@ -4,6 +4,7 @@
 #include "ForwardDecl.hpp"
 #include "DescriptorTemplate.hpp"
 #include "DescriptorBinder.hpp"
+#include "common/UtilityStructs.hpp"
 #include <memory>
 #include <atomic>
 #include <vector>
@@ -12,10 +13,6 @@
 
 struct VulkanResource;
 class DescriptorPack;
-
-namespace st {
-    struct descriptor_type_counts_t;
-}
 
 /*
     The Descriptor is effectively a pool VkDescriptorSets, and a more effective way to manage multiple DescriptorPools. It serves DescriptorBinder
@@ -68,6 +65,7 @@ private:
     uint32_t maxSets{ 0u };
     const vpr::Device* device{ nullptr };
     DescriptorTemplate* templ{ nullptr };
+    st::descriptor_type_counts_t typeCounts;
     std::vector<std::unique_ptr<vpr::DescriptorPool>> descriptorPools;
     vpr::DescriptorPool* activePool{ nullptr };
     std::atomic<uint32_t> setContainerIdx{ 0u };

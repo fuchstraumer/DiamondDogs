@@ -35,4 +35,5 @@ target_link_libraries(material_module PRIVATE vpr_resource)
 target_include_directories(material_module PRIVATE 
     "${Vulkan_INCLUDE_DIR}" ${VPR_INCLUDE_DIRS_MODULE_RELATIVE}
     "../resource_context/include" "../rendering_context/include"
-    "../../third_party/mango/include")
+    "../../third_party/mango/include"
+    "../../third_party/shadertools/include")
