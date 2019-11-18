@@ -1,66 +1,52 @@
 #pragma once
 #ifndef RESOURCE_CONTEXT_OBJ_MODEL_HPP
 #define RESOURCE_CONTEXT_OBJ_MODEL_HPP
-#include "ResourceTypes.hpp"
-#include "MeshData.hpp"
-#include <vector>
-#include <set>
-#include <map>
-#include "MaterialCache.hpp"
+#include "utility/tagged_bool.hpp"
+#include <cstdint>
 
-class DescriptorBinder;
+struct ObjectModelLoader;
 
-class ObjectModel
+struct VertexMetadataEntry
 {
-public:
-
-    ObjectModel();
-    void LoadModelFromFile(const char* model_filename, const char* material_directory);
-
-    struct vtxPosition
-    {
-        float x;
-        float y;
-        float z;
-    };
-
-    struct AABB
-    {
-        vtxPosition Min;
-        vtxPosition Max;
-    };
-
-    struct vtxAttrib
-    {
-        vtxPosition normal;
-        vtxPosition tangent;
-        float uv[2];
-    };
-
-    struct Part
-    {
-        uint32_t startIdx;
-        uint32_t idxCount;
-        int32_t vertexOffset;
-        MaterialInstance material;
-        AABB aabb;
-        constexpr bool operator==(const Part& other) const noexcept;
-        constexpr bool operator<(const Part& other) const noexcept;
-    };
-
-private:
-
-    std::vector<vtxPosition> positions;
-    std::vector<vtxAttrib> attributes;
-    // we first buffer everything in here, then later
-    // we copy into indicesUi16 and clear this if we can
-    std::vector<uint32_t> indicesUi32;
-    std::vector<uint16_t> indicesUi16;
-    bool indicesAreUi16;
-    uint32_t vtxCount{ 0u };
-    uint32_t idxCount{ 0u };
-    AABB modelAABB;
-
+    // Where it will be read in the shader. Normally works with what vertex binding this is in, but we don't make that restriction
+    // This really just indicates where this vertex falls in the structure describing a whole vertex
+    uint32_t location{ 0u };
+    // Not using the format flags here just so we don't force that exposed thru the API, but this is converted directly from the VkFormat
+    // value used for a vertex when parsing
+    uint32_t vkFormat{ 0u };
+    // Just regular ol' offset to this data in the vertex as a whole
+    uint32_t offset{ 0u };
 };
+
+struct ModelStatistics
+{
+    uint32_t numFaces{ 0u };
+    uint32_t numMaterials{ 0u };
+    bool hasNormals;
+    bool hasTangents;
+};
+
+struct ObjectModelData
+{
+    uint32_t vertexDataSize{ 0u };
+    uint32_t vertexStride{ 0u };
+    void* vertexData{ nullptr };
+    uint32_t vertexAttributeCount{ 0u };
+    VertexMetadataEntry* vertexAttribMetadata{ nullptr };
+    uint32_t indexDataSize{ 0u };
+    void* indexData{ nullptr };
+    bool indicesAreUi16{ false };
+};
+
+using RequiresNormals = tagged_bool<struct RequiresNormalsTag>;
+using RequiresTangents = tagged_bool<struct RequiresTangentsTag>;
+using OptimizeMesh = tagged_bool<struct OptimizeMeshTag>;
+
+ObjectModelData* LoadModelFromFile(
+    const char* model_filename,
+    const char* material_directory,
+    RequiresNormals requires_normals,
+    RequiresTangents requires_tangents,
+    OptimizeMesh optimize_mesh);
 
 #endif //!RESOURCE_CONTEXT_OBJ_MODEL_HPP
