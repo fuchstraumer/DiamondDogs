@@ -14,6 +14,7 @@
 #include <variant>
 #include <xhash>
 #include <charconv>
+#include <cassert>
 
 namespace std
 {
@@ -29,16 +30,11 @@ namespace std
 
 namespace
 {
-
-    auto find_delimiters(const std::string_view& view, size_t offset = 0)->std::tuple<size_t, size_t, size_t>;
-    auto find_end_of_delimiters(const std::string_view& view)->size_t;
-    auto find_first_token(const std::string_view& view, size_t offset = 0)->size_t;
-    auto find_end_of_token(const std::string_view& view, size_t offset = 0)->size_t;
-    auto find_end_of_line(const std::string_view& view, size_t offset = 0)->size_t;
-    auto extract_token(std::string_view& view)->std::string_view;
     template<size_t numVecElements>
-    auto extract_vector(std::string_view& view)->mango::Vector<float, numVecElements>;
-
+    auto extract_vector(std::vector<std::string_view>& views)->mango::Vector<float, numVecElements>;
+    std::string to_lowercase(std::string_view& view);
+    auto get_line(std::string_view& view)->std::string_view;
+    std::vector<std::string_view> separate_tokens_in_view(std::string_view view, const char delimiter);
 }
 
 namespace ObjLoader
@@ -100,21 +96,20 @@ namespace ObjLoader
         std::vector<vec3> positions;
         std::vector<vec3> normals;
         std::vector<vec2> uvs;
-        std::string mtlLibName;
 
         struct OBJvertex
         {
-            uint32_t posIdx;
-            uint32_t normalIdx;
-            uint32_t uvIdx;
+            int32_t posIdx{ 0 };
+            int32_t normalIdx{ 0 };
+            int32_t uvIdx{ 0 };
         };
         std::vector<OBJvertex> OBJverts;
 
         struct OBJface
         {
-            uint32_t startVertexIdx;
-            uint32_t endVertexIdx;
-            uint32_t indexStart;
+            uint32_t startVertexIdx{ 0 };
+            uint32_t endVertexIdx{ 0 };
+            uint32_t indexStart{ 0 };
         };
         std::vector<OBJface> OBJfaces;
 
@@ -132,97 +127,129 @@ namespace ObjLoader
         const size_t modelMemorySize = context.modelFile.memory.size;
         std::string_view modelMemoryView(modelMemoryBegin, modelMemorySize);
 
-        // as a quick upfront search, let's try to find "mtllib"
-        constexpr const char* const mtllibStr = "mtllib";
-
-        std::string_view firstTok = extract_token(modelMemoryView);
-        if (firstTok == "mtllib")
-        {
-            mtlLibName = extract_token(modelMemoryView);
-
-        }
-
-        std::vector<std::string> materialNames;
-
         bool parsedGroupNameLastLine = false;
         bool parsedMaterialNameLastLine = false;
-        std::string lastParsedName;
+        std::string mtlLibName;
 
         while (!modelMemoryView.empty())
         {
-
-            std::string_view nextToken = extract_token(modelMemoryView);
-            // usually another new group too, but need to note the material being used
-            if (nextToken == "usemtl")
+            std::string_view line = get_line(modelMemoryView);
+            auto tokens = separate_tokens_in_view(line, ' ');
+            if (tokens.empty())
             {
-                OBJMtlRange* currMtlRange = &OBJMtlRanges.back();
-
-                //if (!parsedGroupNameLastLine &&)
-
-                parsedMaterialNameLastLine = true;
-
-            }
-            // new group
-            else if (nextToken == "o" || nextToken == "g")
-            {
-                std::string_view groupToken = extract_token(modelMemoryView);
-                if (parsedMaterialNameLastLine && OBJMtlRanges.back().objectName.empty())
-                {
-                    OBJMtlRanges.back().objectName = groupToken;
-                }
-                else
-                {
-                    
-
-                }
-                parsedGroupNameLastLine = true;
-            }
-            // indices
-            else if (nextToken == "f")
-            {
-
-            }
-            // vertex position
-            else if (nextToken == "v")
-            {
-               positions.emplace_back(extract_vector<3>(modelMemoryView));
-            }
-            // vertex UV
-            else if (nextToken == "vt")
-            {
-                uvs.emplace_back(extract_vector<2>(modelMemoryView));
-            }
-            // vertex normal
-            else if (nextToken == "vn")
-            {
-               normals.emplace_back(extract_vector<3>(modelMemoryView));
-            }
-            // either a comment we need to trim, or an empty token because we're in a series of newlines
-            else if (nextToken.empty())
-            {
-                size_t endOfDelim = find_end_of_delimiters(modelMemoryView);
-                modelMemoryView.remove_prefix(endOfDelim);
-            }
-            else if (nextToken == "#")
-            {
-                size_t endOfCurrLine = find_end_of_line(modelMemoryView, 0);
-                modelMemoryView.remove_prefix(endOfCurrLine);
-            }
-            else if (nextToken == "s")
-            {
-                // smooth shading off. not really something we need to deal with.
-                // also continue because this is near g/o/usemtl: we don't want to reset that state if it just comes in between one of those
                 continue;
             }
-            else
+
+            if (tokens[0] == "f")
             {
-                LOG(ERROR) << "Invalid token of " << nextToken << " was read!";
-                throw std::runtime_error("Read invalid token from .obj file!");
+                OBJface face{};
+                face.startVertexIdx = static_cast<uint32_t>(OBJverts.size());
+
+                for (size_t i = 0; i < 3; ++i)
+                {
+                    OBJvertex vertex;
+                    std::vector<std::string_view> indexTokens = separate_tokens_in_view(tokens[i + 1], '/');
+                    std::from_chars(indexTokens[0].data(), indexTokens[0].data() + indexTokens[0].size(), vertex.posIdx);
+                    if (indexTokens.size() > 1)
+                    {
+                        std::from_chars(indexTokens[1].data(), indexTokens[1].data() + indexTokens[1].size(), vertex.uvIdx);
+                    }
+                    if (indexTokens.size() > 2 && loadNormals)
+                    {
+                        std::from_chars(indexTokens[2].data(), indexTokens[2].data() + indexTokens[2].size(), vertex.normalIdx);
+                    }
+
+                    if (vertex.posIdx < 0)
+                    {
+                        vertex.posIdx += static_cast<int32_t>(positions.size()) + 1;
+                    }
+                    if (vertex.uvIdx < 0)
+                    {
+                        vertex.uvIdx += static_cast<int32_t>(uvs.size()) + 1;
+                    }
+                    if (vertex.normalIdx < 0)
+                    {
+                        vertex.normalIdx += static_cast<int32_t>(normals.size()) + 1;
+                    }
+
+                    OBJverts.emplace_back(vertex);
+                }
+
+                face.endVertexIdx = static_cast<uint32_t>(OBJverts.size());
+                if (face.endVertexIdx == face.startVertexIdx)
+                {
+                    LOG(ERROR) << "Face has only 1 vertex... missing vertices present!";
+                }
+
+                OBJfaces.emplace_back(face);
+            }
+            // vertex position
+            else if (tokens[0] == "v")
+            {
+               positions.emplace_back(extract_vector<3>(tokens));
+            }
+            // vertex UV
+            else if (tokens[0] == "vt")
+            {
+                uvs.emplace_back(extract_vector<2>(tokens));
+            }
+            // vertex normal
+            else if (tokens[0] == "vn")
+            {
+               normals.emplace_back(extract_vector<3>(tokens));
+            }
+            else if (tokens[0] == "usemtl")
+            {
+                //std::string_view materialToken = extract_token(modelMemoryView);
+
+                OBJMtlRange* currMtlRange = &OBJMtlRanges.back();
+                currMtlRange->endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
+
+                if (currMtlRange->endFaceIndex > currMtlRange->startFaceIndex && !parsedGroupNameLastLine)
+                {
+                    std::string lastObjName = currMtlRange->objectName;
+                    OBJMtlRanges.push_back(OBJMtlRange());
+                    currMtlRange = &OBJMtlRanges.back();
+                    currMtlRange->objectName = std::move(lastObjName);
+                }
+
+                currMtlRange->mtlName = to_lowercase(tokens[1]);
+
+                currMtlRange->startFaceIndex = static_cast<uint32_t>(OBJfaces.size());
+                parsedMaterialNameLastLine = true;
+                continue;
+            }
+            // new group
+            else if (tokens[0] == "g")
+            {
+                //std::string_view groupToken = extract_token(modelMemoryView);
+                OBJMtlRange* currMtlRange = &OBJMtlRanges.back();
+                currMtlRange->endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
+
+                if (currMtlRange->endFaceIndex > currMtlRange->startFaceIndex && !parsedMaterialNameLastLine)
+                {
+                    OBJMtlRanges.push_back(OBJMtlRange());
+                    currMtlRange = &OBJMtlRanges.back();
+                }
+
+                currMtlRange->objectName = to_lowercase(tokens[1]);
+                currMtlRange->startFaceIndex = static_cast<uint32_t>(OBJfaces.size());
+
+                parsedGroupNameLastLine = true;
+                continue;
+            }
+            else if (tokens[0] == "mtllib")
+            {
+                mtlLibName = tokens[1];
             }
 
             parsedGroupNameLastLine = false;
             parsedMaterialNameLastLine = false;
         }
+
+        OBJMtlRanges.back().endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
+
+        // Move data over now, and begin coalescing
 
     }
     
@@ -256,83 +283,83 @@ ObjectModelData* LoadModelFromFile(
 namespace
 {
 
-    auto find_delimiters(const std::string_view& view, size_t offset) -> std::tuple<size_t, size_t, size_t>
+    std::string to_lowercase(std::string_view& view)
     {
-        size_t firstNewline = view.find_first_of('\n', offset);
-        size_t firstReturn = view.find_first_of('\r', offset);
-        size_t firstSpace = view.find_first_of(' ', offset);
-        return std::tuple(firstNewline, firstReturn, firstSpace);
-    }
-
-    auto find_end_of_delimiters(const std::string_view& view)->size_t
-    {
-        size_t firstNewline = view.find_first_not_of('\n');
-        size_t firstReturn = view.find_first_not_of('\r');
-        return firstNewline > firstReturn ? firstNewline : firstReturn;
-    }
-
-    auto find_first_token(const std::string_view& view, size_t offset)->size_t
-    {
-        return view.find_first_not_of(' ', offset);
-    }
-
-    auto find_end_of_token(const std::string_view& view, size_t offset)->size_t
-    {
-        const auto [firstNewline, firstReturn, firstSpace] = find_delimiters(view, offset);
-        if (firstNewline < firstReturn && firstNewline < firstSpace)
+        std::string result;
+        result.reserve(view.size());
+        for (size_t i = 0; i < view.size(); ++i)
         {
-            return firstNewline;
+            result.push_back(std::tolower(view[i]));
         }
-        else if (firstReturn < firstNewline && firstReturn < firstSpace)
+        result.shrink_to_fit();
+        return result;
+    }
+
+    auto get_line(std::string_view& view)->std::string_view
+    {
+        if (view.empty())
         {
-            return firstReturn;
+            return std::string_view{};
         }
-        else if (firstSpace < firstNewline && firstSpace < firstReturn)
+        
+        const size_t firstNewline = view.find_first_of('\n');
+        const size_t firstReturn = view.find_first_of('\r');
+        if (firstReturn != std::string::npos)
         {
-            return firstSpace;
+            // We probably have both, but in this case we need to return the line
+            // w/o the return but cut out the return in the parent view
+            std::string_view result_view = view.substr(0, firstReturn);
+            view.remove_prefix(firstNewline + 1);
+            return result_view;
         }
         else
         {
-            return std::string_view::npos;
+            std::string_view result_view = view.substr(0, firstNewline);
+            view.remove_prefix(firstNewline + 1);
+            return result_view;
         }
     }
 
-    auto find_end_of_line(const std::string_view& view, size_t offset)->size_t
+    std::vector<std::string_view> separate_tokens_in_view(std::string_view view, const char delimiter)
     {
-        const auto [firstNewline, firstReturn, unused] = find_delimiters(view, offset);
-        return firstNewline > firstReturn ? firstNewline : firstReturn;
+        std::vector<std::string_view> results;
+        while (!view.empty())
+        {
+            size_t distanceToDelimiter = view.find_first_of(delimiter);
+            if (distanceToDelimiter != std::string::npos && distanceToDelimiter > 0)
+            {
+                results.emplace_back(view.substr(0, distanceToDelimiter));
+                view.remove_prefix(distanceToDelimiter + 1);
+            }
+            else if (distanceToDelimiter == 0)
+            {
+                view.remove_prefix(1);
+            }
+            else
+            {
+                results.emplace_back(view);
+                break;
+            }
+        }
+        // We assume tokens here are split by spaces
+        return results;
     }
 
-    auto extract_token(std::string_view& view)->std::string_view
-    {
-        size_t startOfToken = find_first_token(view);
-        view.remove_prefix(startOfToken);
-        size_t endOfToken = find_end_of_token(view);
-        std::string_view token = view.substr(0, endOfToken);
-        view.remove_prefix(endOfToken);
-        return token;
-    };
-
     template<size_t numVecElements>
-    auto extract_vector(std::string_view& view) -> mango::Vector<float, numVecElements>
+    auto extract_vector(std::vector<std::string_view>& tokens) -> mango::Vector<float, numVecElements>
     {
-        size_t startOfNumbers = view.find_first_not_of(' ');
-        view.remove_prefix(startOfNumbers);
-        size_t endOfNumbers = find_end_of_line(view, 0);
-        std::string_view numbersView = view.substr(startOfNumbers, endOfNumbers);
         mango::Vector<float, numVecElements> result;
         for (size_t i = 0; i < numVecElements; ++i)
         {
-            size_t endOfCurrent = find_end_of_token(numbersView);
-            std::from_chars_result conv_result = std::from_chars(numbersView.data(), numbersView.data() + endOfCurrent, result[i]);
-            numbersView.remove_prefix(endOfCurrent + 1); // + 1 removes the space we expect to always encounter
+            // We offset by 1, because the token at zero is the specifier for this line/row
+            std::string_view& currToken = tokens[i + 1];
+            std::from_chars_result conv_result = std::from_chars(currToken.data(), currToken.data() + currToken.size(), result[i]);
         }
         if constexpr (numVecElements == 2)
         {
             // extracting UVs: need to flip Y of uv
             result.y = 1.0f - result.y;
         }
-        view.remove_prefix(endOfNumbers + 1);
         return result;
     }
 }

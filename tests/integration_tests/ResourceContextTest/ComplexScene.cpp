@@ -989,15 +989,15 @@ void VulkanComplexScene::createHousePipeline()
 
     housePipeline = CreateBasicPipeline(housePipelineInfo);
 
-#ifndef _NDEBUG
-    if (houseExecutableInfo != nullptr)
-    {
-        delete houseExecutableInfo;
-        houseExecutableInfo = nullptr;
-    }
-    houseExecutableInfo = new PipelineExecutableInfo(2, housePipeline);
-    RetrievePipelineExecutableInfo(vprObjects.device->vkHandle(), *houseExecutableInfo);
-#endif
+//#ifndef _NDEBUG
+//    if (houseExecutableInfo != nullptr)
+//    {
+//        delete houseExecutableInfo;
+//        houseExecutableInfo = nullptr;
+//    }
+//    houseExecutableInfo = new PipelineExecutableInfo(2, housePipeline);
+//    RetrievePipelineExecutableInfo(vprObjects.device->vkHandle(), *houseExecutableInfo);
+//#endif
 
 }
 
@@ -1049,15 +1049,15 @@ void VulkanComplexScene::createSkyboxPipeline()
 
     skyboxPipeline = CreateBasicPipeline(createInfo);
 
-#ifndef _NDEBUG
-    if (skyboxExecutableInfo != nullptr)
-    {
-        delete skyboxExecutableInfo;
-        skyboxExecutableInfo = nullptr;
-    }
-    skyboxExecutableInfo = new PipelineExecutableInfo(2, skyboxPipeline);
-    RetrievePipelineExecutableInfo(vprObjects.device->vkHandle(), *skyboxExecutableInfo);
-#endif // !_NDEBUG
+//#ifndef _NDEBUG
+//    if (skyboxExecutableInfo != nullptr)
+//    {
+//        delete skyboxExecutableInfo;
+//        skyboxExecutableInfo = nullptr;
+//    }
+//    skyboxExecutableInfo = new PipelineExecutableInfo(2, skyboxPipeline);
+//    RetrievePipelineExecutableInfo(vprObjects.device->vkHandle(), *skyboxExecutableInfo);
+//#endif // !_NDEBUG
 
 }
 
