@@ -79,8 +79,7 @@ namespace ObjLoader
         std::vector<float> vertices;
     };
 
-    // We use uint16_t indices when we can, since the space savings can be pretty aggressive
-    using IndexData = std::variant<std::vector<uint32_t>, std::vector<uint16_t>>;
+    using IndexData = std::vector<uint32_t>;
 
     struct ParsingContext
     {
@@ -91,7 +90,7 @@ namespace ObjLoader
         AABB bounds;
     };
 
-    void ParseModel(ParsingContext& context, bool loadNormals)
+    void ParseModel(ParsingContext& context, bool loadNormals, bool loadTangents)
     {
         std::vector<vec3> positions;
         std::vector<vec3> normals;
@@ -134,7 +133,7 @@ namespace ObjLoader
         while (!modelMemoryView.empty())
         {
             std::string_view line = get_line(modelMemoryView);
-            auto tokens = separate_tokens_in_view(line, ' ');
+            std::vector<std::string_view> tokens = separate_tokens_in_view(line, ' ');
             if (tokens.empty())
             {
                 continue;
@@ -194,19 +193,19 @@ namespace ObjLoader
                 uvs.emplace_back(extract_vector<2>(tokens));
             }
             // vertex normal
-            else if (tokens[0] == "vn")
+            else if (tokens[0] == "vn" && loadNormals)
             {
                normals.emplace_back(extract_vector<3>(tokens));
             }
             else if (tokens[0] == "usemtl")
             {
-                //std::string_view materialToken = extract_token(modelMemoryView);
-
                 OBJMtlRange* currMtlRange = &OBJMtlRanges.back();
                 currMtlRange->endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
 
                 if (currMtlRange->endFaceIndex > currMtlRange->startFaceIndex && !parsedGroupNameLastLine)
                 {
+                    // object groups will often have different materials used in different sections of them, 
+                    // so we need to make sure to persist the object name when starting a new material group
                     std::string lastObjName = currMtlRange->objectName;
                     OBJMtlRanges.push_back(OBJMtlRange());
                     currMtlRange = &OBJMtlRanges.back();
@@ -222,7 +221,6 @@ namespace ObjLoader
             // new group
             else if (tokens[0] == "g")
             {
-                //std::string_view groupToken = extract_token(modelMemoryView);
                 OBJMtlRange* currMtlRange = &OBJMtlRanges.back();
                 currMtlRange->endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
 
@@ -250,6 +248,68 @@ namespace ObjLoader
         OBJMtlRanges.back().endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
 
         // Move data over now, and begin coalescing
+        // First, find out how much room we need to allocate for vertices
+        size_t numFloatsToReserve = OBJverts.size() * 3u;
+        numFloatsToReserve += loadNormals ? OBJverts.size() * 3u : 0u;
+        numFloatsToReserve += loadTangents ? OBJverts.size() * 3u : 0u;
+        numFloatsToReserve += OBJverts.size() * 2u;
+        context.vertexData.vertices.resize(numFloatsToReserve, 0.0f);
+
+        const size_t vertexStrideInFloats = 3u + (uvs.empty() ? 0u : 2u) + (loadNormals ? 3u : 0u) + (loadTangents ? 3u : 0u);
+        context.vertexData.vertexStride = sizeof(float) * vertexStrideInFloats;
+
+        const size_t normalsOffset = loadNormals ? 3u : 0u;
+        const size_t tangentsOffset = loadTangents ? 3u + normalsOffset : normalsOffset;
+        // even if we're not loading them from an obj, we need to account for them now by leaving 3 empty floats
+        // in between the normals and UVs
+        const size_t uvsOffset = tangentsOffset + 3u;
+
+        const size_t numVerts = OBJverts.size();
+        auto& vertexDataRef = context.vertexData.vertices;
+        for (size_t i = 0; i < numVerts; ++i)
+        {
+            const OBJvertex& currentVertex = OBJverts[i];
+            const size_t j = i * vertexStrideInFloats;
+
+            // I use std::copy in here mostly in the hope it might optimize to something nice
+            if (currentVertex.posIdx > 0)
+            {
+                auto& position = positions[currentVertex.posIdx - 1];
+                std::copy(position.data(), position.data() + 3u, vertexDataRef.begin() + j);
+            }
+            
+            if (currentVertex.normalIdx > 0)
+            {
+                auto& normal = normals[currentVertex.normalIdx - 1];
+                std::copy(normal.data(), normal.data() + 3u, vertexDataRef.begin() + j + normalsOffset);
+            }
+
+            if (currentVertex.uvIdx > 0)
+            {
+                auto& uv = uvs[currentVertex.uvIdx - 1];
+                std::copy(uv.data(), uv.data() + 2u, vertexDataRef.begin() + j + uvsOffset);
+            }
+
+        }
+
+        const size_t numFaces = OBJfaces.size();
+        auto& indexDataRef = context.indexData;
+        indexDataRef.reserve(numFaces * 3u);
+
+        for (size_t i = 0; i < numFaces; ++i)
+        {
+            OBJface& face = OBJfaces[i];
+
+            face.indexStart = static_cast<uint32_t>(indexDataRef.size());
+            uint32_t baseIndex = face.indexStart;
+
+            for (uint32_t vertexIndex = face.startVertexIdx + 2; vertexIndex < face.endVertexIdx; ++vertexIndex)
+            {
+                indexDataRef.emplace_back(baseIndex);
+                indexDataRef.emplace_back(vertexIndex - 1u);
+                indexDataRef.emplace_back(vertexIndex);
+            }
+        }
 
     }
     
@@ -275,7 +335,7 @@ ObjectModelData* LoadModelFromFile(
         return result;
     }
 
-    ParseModel(context, static_cast<bool>(requires_normals));
+    ParseModel(context, static_cast<bool>(requires_normals), static_cast<bool>(requires_tangents));
 
     return nullptr;
 }
