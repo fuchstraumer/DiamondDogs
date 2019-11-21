@@ -239,7 +239,7 @@ namespace ObjLoader
             // vertex position
             else if (tokens[0] == "v")
             {
-                vec3 extractedPos = extract_vector<3>(tokens);
+                positions.emplace_back(extract_vector<3>(tokens));
             }
             // vertex UV
             else if (tokens[0] == "vt")
