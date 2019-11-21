@@ -34,3 +34,6 @@
 [submodule "third_party/mango"]
 	path = third_party/mango
 	url = https://github.com/t0rakka/mango
+[submodule "third_party/basis_universal"]
+	path = third_party/basis_universal
+	url = https://github.com/BinomialLLC/basis_universal
