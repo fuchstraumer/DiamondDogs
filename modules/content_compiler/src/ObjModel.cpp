@@ -88,7 +88,7 @@ namespace ObjLoader
         uint32_t startIndex{ 0u };
         uint32_t indexCount{ 0u };
         uint32_t startMaterial{ 0u };
-        uint32_t endMaterial{ 0u };
+        uint32_t materialCount{ 0u };
     };
 
     struct MaterialRange
@@ -119,8 +119,9 @@ namespace ObjLoader
             memory = file;
             checksum = mango::xx3hash128(checksumHashSeed, memory);
             groups.reserve(2048);
-            groups.emplace_back(OBJgroup());
+            groups.emplace_back(OBJgroup{ std::string(""), 0u, 0u, 0u, 0u });
             OBJMtlRanges = std::vector<OBJMtlRange>(1, OBJMtlRange{ std::string(""), 0u, 0u });
+
         }
         ObjFile(const ObjFile&) = delete;
         ObjFile& operator=(const ObjFile&) = delete;
@@ -168,7 +169,7 @@ namespace ObjLoader
         transferDataToContext(context, loadNormals, loadTangents);
         // prepares material ranges and object groups for further use by adjusting indices
         // to not be based on faces
-
+        prepareMaterialsAndGroups(context);
     }
 
     mango::XX3HASH128 ObjFile::Checksum() const noexcept
