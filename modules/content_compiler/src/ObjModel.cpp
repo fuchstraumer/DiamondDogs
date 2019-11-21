@@ -15,6 +15,7 @@
 #include <xhash>
 #include <charconv>
 #include <cassert>
+#include <algorithm>
 
 namespace std
 {
@@ -49,24 +50,50 @@ namespace ObjLoader
     constexpr static const char* indicesStr = "/indices";
     constexpr static const char* materialStr = "/material";
 
-    struct ObjFile
+    struct OBJgroup
     {
-        ObjFile() = default;
-        ObjFile(const char* fname) : file(fname)
-        {
-            memory = file;
-            checksum = mango::xx3hash128(checksumHashSeed, memory);
-        }
-        ObjFile(const ObjFile&) = delete;
-        ObjFile& operator=(const ObjFile&) = delete;
-        mango::filesystem::File file;
-        mango::ConstMemory memory;
-        mango::XX3HASH128 checksum;
+        std::string groupName;
+        uint32_t startFaceIndex{ 0u };
+        uint32_t endFaceIndex{ 0u };
+        uint32_t startMtlIndex{ 0u };
+        uint32_t endMtlIndex{ 0u };
+    };
+
+    struct OBJvertex
+    {
+        int32_t posIdx{ 0 };
+        int32_t normalIdx{ 0 };
+        int32_t uvIdx{ 0 };
+    };
+
+    struct OBJface
+    {
+        uint32_t startVertexIdx{ 0 };
+        uint32_t endVertexIdx{ 0 };
+        uint32_t indexStart{ 0 };
+    };
+
+    struct OBJMtlRange
+    {
+        std::string mtlName;
+        // These indices are into the indices CONTAINER, not like the start literal index and the monotically increasing end index
+        uint32_t startFaceIndex;
+        uint32_t endFaceIndex;
+    };
+
+    struct PrimitiveGroup
+    {
+        std::string primitiveName;
+        AABB bounds;
+        uint32_t startIndex{ 0u };
+        uint32_t indexCount{ 0u };
+        uint32_t startMaterial{ 0u };
+        uint32_t endMaterial{ 0u };
     };
 
     struct MaterialRange
     {
-        std::string_view MaterialName;
+        std::string MaterialName;
         uint32_t startIndex{ 0u };
         uint32_t indexCount{ 0u };
     };
@@ -80,6 +107,46 @@ namespace ObjLoader
     };
 
     using IndexData = std::vector<uint32_t>;
+    struct ParsingContext;
+
+    class ObjFile
+    {
+    public:
+
+        ObjFile() = default;
+        ObjFile(const char* fname) : file(fname)
+        {
+            memory = file;
+            checksum = mango::xx3hash128(checksumHashSeed, memory);
+            groups.reserve(2048);
+            groups.emplace_back(OBJgroup());
+            OBJMtlRanges = std::vector<OBJMtlRange>(1, OBJMtlRange{ std::string(""), 0u, 0u });
+        }
+        ObjFile(const ObjFile&) = delete;
+        ObjFile& operator=(const ObjFile&) = delete;
+
+        void ProcessFile(ParsingContext& context, bool loadNormals, bool loadTangents);
+        mango::XX3HASH128 Checksum() const noexcept;
+
+    private:
+
+        void parseFile(const ParsingContext& context, bool loadNormals);
+        void transferDataToContext(ParsingContext& context, bool loadNormals, bool loadTangents);
+        void prepareMaterialsAndGroups(ParsingContext& context);
+
+        mango::filesystem::File file;
+        mango::ConstMemory memory;
+        mango::XX3HASH128 checksum;
+
+        // All of this data is for the file-based representation of the mesh, so I'm putting it in here
+        std::vector<vec3> positions;
+        std::vector<vec3> normals;
+        std::vector<vec2> uvs;
+        std::vector<OBJgroup> groups;
+        std::vector<OBJvertex> OBJverts;
+        std::vector<OBJface> OBJfaces;
+        std::vector<OBJMtlRange> OBJMtlRanges;
+    };
 
     struct ParsingContext
     {
@@ -88,46 +155,33 @@ namespace ObjLoader
         IndexData indexData;
         ObjFile modelFile;
         AABB bounds;
+        std::vector<PrimitiveGroup> groups;
+        std::vector<MaterialRange> mtlRanges;
     };
 
-    void ParseModel(ParsingContext& context, bool loadNormals, bool loadTangents)
+    void ObjFile::ProcessFile(ParsingContext& context, bool loadNormals, bool loadTangents)
     {
-        std::vector<vec3> positions;
-        std::vector<vec3> normals;
-        std::vector<vec2> uvs;
+        // reads data from file and stores it internally
+        parseFile(context, loadNormals);
+        // moves data from buffers used to read from the file, and stores them contiguously
+        // in memory so it can be uploaded to the GPU properly
+        transferDataToContext(context, loadNormals, loadTangents);
+        // prepares material ranges and object groups for further use by adjusting indices
+        // to not be based on faces
 
-        struct OBJvertex
-        {
-            int32_t posIdx{ 0 };
-            int32_t normalIdx{ 0 };
-            int32_t uvIdx{ 0 };
-        };
-        std::vector<OBJvertex> OBJverts;
+    }
 
-        struct OBJface
-        {
-            uint32_t startVertexIdx{ 0 };
-            uint32_t endVertexIdx{ 0 };
-            uint32_t indexStart{ 0 };
-        };
-        std::vector<OBJface> OBJfaces;
+    mango::XX3HASH128 ObjFile::Checksum() const noexcept
+    {
+        return checksum;
+    }
 
-        struct OBJMtlRange
-        {
-            std::string objectName;
-            std::string mtlName;
-            // These indices are into the indices CONTAINER, not like the start literal index and the monotically increasing end index
-            uint32_t startFaceIndex;
-            uint32_t endFaceIndex;
-        };
-        std::vector<OBJMtlRange> OBJMtlRanges(1, OBJMtlRange{ std::string(""), std::string(""), 0u, 0u });
-
+    void ObjFile::parseFile(const ParsingContext& context, bool loadNormals)
+    {
         const char* const modelMemoryBegin = reinterpret_cast<const char*>(context.modelFile.memory.address);
         const size_t modelMemorySize = context.modelFile.memory.size;
         std::string_view modelMemoryView(modelMemoryBegin, modelMemorySize);
 
-        bool parsedGroupNameLastLine = false;
-        bool parsedMaterialNameLastLine = false;
         std::string mtlLibName;
 
         while (!modelMemoryView.empty())
@@ -185,7 +239,7 @@ namespace ObjLoader
             // vertex position
             else if (tokens[0] == "v")
             {
-               positions.emplace_back(extract_vector<3>(tokens));
+                vec3 extractedPos = extract_vector<3>(tokens);
             }
             // vertex UV
             else if (tokens[0] == "vt")
@@ -195,59 +249,53 @@ namespace ObjLoader
             // vertex normal
             else if (tokens[0] == "vn" && loadNormals)
             {
-               normals.emplace_back(extract_vector<3>(tokens));
+                normals.emplace_back(extract_vector<3>(tokens));
             }
             else if (tokens[0] == "usemtl")
             {
                 OBJMtlRange* currMtlRange = &OBJMtlRanges.back();
                 currMtlRange->endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
 
-                if (currMtlRange->endFaceIndex > currMtlRange->startFaceIndex && !parsedGroupNameLastLine)
+                if (currMtlRange->endFaceIndex > currMtlRange->startFaceIndex)
                 {
-                    // object groups will often have different materials used in different sections of them, 
-                    // so we need to make sure to persist the object name when starting a new material group
-                    std::string lastObjName = currMtlRange->objectName;
                     OBJMtlRanges.push_back(OBJMtlRange());
                     currMtlRange = &OBJMtlRanges.back();
-                    currMtlRange->objectName = std::move(lastObjName);
                 }
 
                 currMtlRange->mtlName = to_lowercase(tokens[1]);
 
                 currMtlRange->startFaceIndex = static_cast<uint32_t>(OBJfaces.size());
-                parsedMaterialNameLastLine = true;
-                continue;
             }
             // new group
             else if (tokens[0] == "g")
             {
-                OBJMtlRange* currMtlRange = &OBJMtlRanges.back();
-                currMtlRange->endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
+                // Pretty much the exact same process, just a little more to account for materials too
+                OBJgroup* currGroup = &groups.back();
+                currGroup->endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
+                currGroup->endMtlIndex = static_cast<uint32_t>(OBJMtlRanges.size());
 
-                if (currMtlRange->endFaceIndex > currMtlRange->startFaceIndex && !parsedMaterialNameLastLine)
+                if (currGroup->endFaceIndex > currGroup->startFaceIndex&& currGroup->endMtlIndex > currGroup->startMtlIndex)
                 {
-                    OBJMtlRanges.push_back(OBJMtlRange());
-                    currMtlRange = &OBJMtlRanges.back();
+                    groups.push_back(OBJgroup());
+                    currGroup = &groups.back();
                 }
 
-                currMtlRange->objectName = to_lowercase(tokens[1]);
-                currMtlRange->startFaceIndex = static_cast<uint32_t>(OBJfaces.size());
-
-                parsedGroupNameLastLine = true;
-                continue;
+                currGroup->groupName = to_lowercase(tokens[1]);
+                currGroup->startFaceIndex = static_cast<uint32_t>(OBJfaces.size());
+                currGroup->startMtlIndex = static_cast<uint32_t>(OBJMtlRanges.size());
             }
             else if (tokens[0] == "mtllib")
             {
                 mtlLibName = tokens[1];
             }
 
-            parsedGroupNameLastLine = false;
-            parsedMaterialNameLastLine = false;
         }
 
         OBJMtlRanges.back().endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
+    }
 
-        // Move data over now, and begin coalescing
+    void ObjFile::transferDataToContext(ParsingContext& context, bool loadNormals, bool loadTangents)
+    { 
         // First, find out how much room we need to allocate for vertices
         size_t numFloatsToReserve = OBJverts.size() * 3u;
         numFloatsToReserve += loadNormals ? OBJverts.size() * 3u : 0u;
@@ -277,7 +325,7 @@ namespace ObjLoader
                 auto& position = positions[currentVertex.posIdx - 1];
                 std::copy(position.data(), position.data() + 3u, vertexDataRef.begin() + j);
             }
-            
+
             if (currentVertex.normalIdx > 0)
             {
                 auto& normal = normals[currentVertex.normalIdx - 1];
@@ -311,6 +359,38 @@ namespace ObjLoader
             }
         }
 
+        // suggested by original implementer of this method
+        OBJfaces.emplace_back(OBJface{ 0, 0, static_cast<uint32_t>(context.indexData.size()) });
+
+    }
+
+    void ObjFile::prepareMaterialsAndGroups(ParsingContext& context)
+    {
+        // This is literally two sets of transformations, which ends up being quite apt with usage of std::transform
+        // We're just changing that "space" the indices are referred to in so that it'll match the new storage layout
+       
+        auto transformMaterialRange = [&](const OBJMtlRange& range)->MaterialRange
+        {
+            uint32_t startIndex = OBJfaces[range.startFaceIndex].indexStart;
+            uint32_t endIndex = OBJfaces[range.endFaceIndex].indexStart;
+            return MaterialRange{ range.mtlName, startIndex, endIndex - startIndex };
+        };
+
+        // otherwise we use back_inserter, which is just as inefficient as repeated push_backs
+        context.mtlRanges.resize(OBJMtlRanges.size());
+        std::transform(OBJMtlRanges.begin(), OBJMtlRanges.end(), context.mtlRanges.begin(), transformMaterialRange);
+
+        auto transformPrimitiveGroup = [&](const OBJgroup& objGroup)->PrimitiveGroup
+        {
+            uint32_t startIndex = OBJfaces[objGroup.startFaceIndex].indexStart;
+            uint32_t endIndex = OBJfaces[objGroup.endFaceIndex].indexStart;
+            // material range transform is way easier, since it's not really even a transform at all lol
+            return PrimitiveGroup{ objGroup.groupName, AABB(), startIndex, endIndex - startIndex, objGroup.startMtlIndex, objGroup.endMtlIndex - objGroup.startMtlIndex };
+        };
+
+        context.groups.resize(groups.size());
+        std::transform(groups.begin(), groups.end(), context.groups.begin(), transformPrimitiveGroup);
+
     }
     
     std::unordered_map<mango::XX3HASH128, ObjectModelData> loadedFiles;
@@ -328,14 +408,14 @@ ObjectModelData* LoadModelFromFile(
     ParsingContext context(model_filename);
 
     // Check to see if we already loaded this file
-    auto existingLoadedDataIter = loadedFiles.find(context.modelFile.checksum);
+    auto existingLoadedDataIter = loadedFiles.find(context.modelFile.Checksum());
     if (existingLoadedDataIter != loadedFiles.end())
     {
         ObjectModelData* result = &existingLoadedDataIter->second;
         return result;
     }
 
-    ParseModel(context, static_cast<bool>(requires_normals), static_cast<bool>(requires_tangents));
+    context.modelFile.ProcessFile(context, static_cast<bool>(requires_normals), static_cast<bool>(requires_tangents));
 
     return nullptr;
 }
