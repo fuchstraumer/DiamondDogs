@@ -124,6 +124,7 @@ namespace ObjLoader
         // We keep these around so that we can have the API-facing structures just reference these
         std::vector<std::string> materialRangeNames;
         std::vector<std::string> primitiveGroupNames;
+        explicit operator ObjectModelData() const;
     };
 
     /*
@@ -133,18 +134,20 @@ namespace ObjLoader
     {
     public:
 
-        ObjFileData(const char* fname, const bool loadNormals, const bool loadTangents);
+        ObjFileData();
 
         ObjFileData(const ObjFileData&) = delete;
         ObjFileData& operator=(const ObjFileData&) = delete;
 
+        void ParseFile(const ObjFile& modelFile, const bool loadNormals, const bool loadTangents);
         ObjectModelDataImpl RetrieveData(const bool loadNormals, const bool loadTangents);
 
     private:
 
-        void parseFile(const char* fname, bool loadNormals);
+        void parseFile(const ObjFile& modelFile, bool loadNormals);
         void transferDataToContext(ObjectModelDataImpl& context, bool loadNormals, bool loadTangents);
         void prepareMaterialsAndGroups(ObjectModelDataImpl& context);
+        void releaseData();
 
 
         // All of this data is for the file-based representation of the mesh, so I'm putting it in here
@@ -156,17 +159,32 @@ namespace ObjLoader
         std::vector<OBJface> OBJfaces;
         std::vector<OBJMtlRange> OBJMtlRanges;
     };
-    ObjFileData::ObjFileData(const char* fname, const bool loadNormals, const bool loadTangents)
+
+
+    ObjFileData::ObjFileData()
     {
-        // Will load the file to RAM, store it's data in this object in formats appropriate for us to 
-        // work with, then release the file so we don't just have it hovering around while we're processing
-        parseFile(fname, loadNormals);
+        groups.reserve(2048);
+        OBJMtlRanges.reserve(2048);
+        groups.emplace_back(OBJgroup{ std::string(""), 0u, 0u, 0u, 0u });
+        OBJMtlRanges.emplace_back(OBJMtlRange{ std::string(""), 0u, 0u });
     }
 
-
-    void ObjFileData::parseFile(const char* fname, bool loadNormals)
+    void ObjFileData::ParseFile(const ObjFile& modelFile, const bool loadNormals, const bool loadTangents)
     {
-        ObjFile modelFile(fname);
+        parseFile(modelFile, loadNormals);
+    }
+
+    ObjectModelDataImpl ObjFileData::RetrieveData(const bool loadNormals, const bool loadTangents)
+    {
+        ObjectModelDataImpl results;
+        transferDataToContext(results, loadNormals, loadTangents);
+        prepareMaterialsAndGroups(results);
+        releaseData();
+        return results;
+    }
+
+    void ObjFileData::parseFile(const ObjFile& modelFile, bool loadNormals)
+    {
 
         const char* const modelMemoryBegin = reinterpret_cast<const char*>(modelFile.memory.address);
         const size_t modelMemorySize = modelFile.memory.size;
@@ -331,7 +349,7 @@ namespace ObjLoader
         }
 
         const size_t numFaces = OBJfaces.size();
-        auto& indexDataRef = results.indices
+        auto& indexDataRef = results.indices;
         indexDataRef.reserve(numFaces * 3u);
 
         for (size_t i = 0; i < numFaces; ++i)
@@ -359,7 +377,7 @@ namespace ObjLoader
         // This is literally two sets of transformations, which ends up being quite apt with usage of std::transform
         // We're just changing that "space" the indices are referred to in so that it'll match the new storage layout
        
-        auto transformMaterialRange = [&](OBJMtlRange&& range)->MaterialRange
+        auto transformMaterialRange = [&](OBJMtlRange& range)->MaterialRange
         {
             uint32_t startIndex = OBJfaces[range.startFaceIndex].indexStart;
             uint32_t endIndex = OBJfaces[range.endFaceIndex].indexStart;
@@ -372,7 +390,7 @@ namespace ObjLoader
         results.materialRangeNames.reserve(OBJMtlRanges.size() + 4u);
         std::transform(OBJMtlRanges.begin(), OBJMtlRanges.end(), results.materialRanges.begin(), transformMaterialRange);
 
-        auto transformPrimitiveGroup = [&](OBJgroup&& objGroup)->PrimitiveGroup
+        auto transformPrimitiveGroup = [&](OBJgroup& objGroup)->PrimitiveGroup
         {
             uint32_t startIndex = OBJfaces[objGroup.startFaceIndex].indexStart;
             uint32_t endIndex = OBJfaces[objGroup.endFaceIndex].indexStart;
@@ -385,11 +403,46 @@ namespace ObjLoader
         std::transform(groups.begin(), groups.end(), results.primitiveGroups.begin(), transformPrimitiveGroup);
 
     }
+
+    void ObjFileData::releaseData()
+    {
+        positions.clear();
+        positions.shrink_to_fit();
+        normals.clear();
+        normals.shrink_to_fit();
+        uvs.clear();
+        uvs.shrink_to_fit();
+        groups.clear();
+        groups.shrink_to_fit();
+        OBJverts.clear();
+        OBJverts.shrink_to_fit();
+        OBJfaces.clear();
+        OBJfaces.shrink_to_fit();
+        OBJMtlRanges.clear();
+        OBJMtlRanges.shrink_to_fit();
+    }
+
+    ObjectModelDataImpl::operator ObjectModelData() const
+    {
+        ObjectModelData result;
+        result.vertexDataSize = static_cast<uint32_t>(sizeof(float) * vertexData.size());
+        result.vertexStride = static_cast<uint32_t>(vertexStride);
+        result.vertexData = vertexData.data();
+        result.vertexAttributeCount = static_cast<uint32_t>(vertexMetadata.size());
+        result.vertexAttribMetadata = vertexMetadata.data();
+        result.indexDataSize = static_cast<uint32_t>(sizeof(uint32_t) * indices.size());
+        result.indexData = indices.data();
+        result.numMaterials = static_cast<uint32_t>(materialRanges.size());
+        result.materialRanges = materialRanges.data();
+        result.numPrimGroups = static_cast<uint32_t>(primitiveGroups.size());
+        result.primitiveGroups = primitiveGroups.data();
+        return result;
+    }
     
-    std::unordered_map<mango::XX3HASH128, ObjectModelData> loadedFiles;
+    std::unordered_map<mango::XX3HASH128, ObjectModelDataImpl> loadedFiles;
 }
 
-ObjectModelData* LoadModelFromFile(
+ObjectModelData LoadModelFromFile(
     const char* model_filename,
     const char* material_directory,
     RequiresNormals requires_normals,
@@ -399,17 +452,30 @@ ObjectModelData* LoadModelFromFile(
     // Start context by opening requested file: we will run a QUICK hashing algorithm on it as a checksum
     using namespace ObjLoader;
 
-    // Check to see if we already loaded this file
-    auto existingLoadedDataIter = loadedFiles.find(context.modelFile.Checksum());
-    if (existingLoadedDataIter != loadedFiles.end())
+    ObjFileData fileData;
+    mango::XX3HASH128 fileChecksum;
+    
     {
-        ObjectModelData* result = &existingLoadedDataIter->second;
-        return result;
+        ObjFile modelFile(model_filename);
+
+        // Check to see if we already loaded this file
+        auto existingLoadedDataIter = loadedFiles.find(modelFile.checksum);
+        if (existingLoadedDataIter != loadedFiles.end())
+        {
+            ObjectModelDataImpl& result = existingLoadedDataIter->second;
+            // Call user-defined conversion to model data instance
+            return static_cast<ObjectModelData>(result);
+        }
+        fileChecksum = modelFile.checksum;
+
+        fileData.ParseFile(modelFile, static_cast<bool>(requires_normals), static_cast<bool>(requires_tangents));
     }
 
-    context.modelFile.ProcessFile(context, static_cast<bool>(requires_normals), static_cast<bool>(requires_tangents));
+    ObjectModelDataImpl modelData = fileData.RetrieveData(static_cast<bool>(requires_normals), static_cast<bool>(requires_tangents));
+    
+    auto iter = loadedFiles.emplace(fileChecksum, modelData);
 
-    return nullptr;
+    return static_cast<ObjectModelData>(iter.first->second);
 }
 
 namespace

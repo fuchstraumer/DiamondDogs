@@ -48,15 +48,15 @@ struct ObjectModelData
 {
     uint32_t vertexDataSize{ 0u };
     uint32_t vertexStride{ 0u };
-    float* vertexData{ nullptr };
+    const float* vertexData{ nullptr };
     uint32_t vertexAttributeCount{ 0u };
-    VertexMetadataEntry* vertexAttribMetadata{ nullptr };
+    const VertexMetadataEntry* vertexAttribMetadata{ nullptr };
     uint32_t indexDataSize{ 0u };
-    uint32_t* indexData{ nullptr };
+    const uint32_t* indexData{ nullptr };
     uint32_t numMaterials{ 0u };
-    MaterialRange* materialRanges{ nullptr };
+    const MaterialRange* materialRanges{ nullptr };
     uint32_t numPrimGroups{ 0u };
-    PrimitiveGroup* primitiveGroups{ nullptr };
+    const PrimitiveGroup* primitiveGroups{ nullptr };
     float minPosition[3]{ 3e38f, 3e38f, 3e38f };
     float maxPosition[3]{-3e38f,-3e38f,-3e38f };
 };
@@ -65,7 +65,7 @@ using RequiresNormals = tagged_bool<struct RequiresNormalsTag>;
 using RequiresTangents = tagged_bool<struct RequiresTangentsTag>;
 using OptimizeMesh = tagged_bool<struct OptimizeMeshTag>;
 
-ObjectModelData* LoadModelFromFile(
+ObjectModelData LoadModelFromFile(
     const char* model_filename,
     const char* material_directory,
     RequiresNormals requires_normals,
