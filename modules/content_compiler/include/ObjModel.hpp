@@ -6,6 +6,24 @@
 
 struct ObjectModelLoader;
 
+struct PrimitiveGroup
+{
+    const char* primitiveName;
+    uint32_t startIndex{ 0u };
+    uint32_t indexCount{ 0u };
+    uint32_t startMaterial{ 0u };
+    uint32_t materialCount{ 0u };
+    float min[3]{ 3e38f, 3e38f, 3e38f };
+    float max[3]{-3e38f,-3e38f,-3e38f };
+};
+
+struct MaterialRange
+{
+    const char* MaterialName;
+    uint32_t startIndex{ 0u };
+    uint32_t indexCount{ 0u };
+};
+
 struct VertexMetadataEntry
 {
     // Where it will be read in the shader. Normally works with what vertex binding this is in, but we don't make that restriction
@@ -30,12 +48,17 @@ struct ObjectModelData
 {
     uint32_t vertexDataSize{ 0u };
     uint32_t vertexStride{ 0u };
-    void* vertexData{ nullptr };
+    float* vertexData{ nullptr };
     uint32_t vertexAttributeCount{ 0u };
     VertexMetadataEntry* vertexAttribMetadata{ nullptr };
     uint32_t indexDataSize{ 0u };
-    void* indexData{ nullptr };
-    bool indicesAreUi16{ false };
+    uint32_t* indexData{ nullptr };
+    uint32_t numMaterials{ 0u };
+    MaterialRange* materialRanges{ nullptr };
+    uint32_t numPrimGroups{ 0u };
+    PrimitiveGroup* primitiveGroups{ nullptr };
+    float minPosition[3]{ 3e38f, 3e38f, 3e38f };
+    float maxPosition[3]{-3e38f,-3e38f,-3e38f };
 };
 
 using RequiresNormals = tagged_bool<struct RequiresNormalsTag>;

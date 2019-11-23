@@ -1,0 +1,10 @@
+#pragma once
+#ifndef CONTENT_COMPILER_OBJ_MATERIAL_HPP
+#define CONTENT_COMPILER_OBJ_MATERIAL_HPP
+
+struct ObjMaterialData
+{
+
+};
+
+#endif //!CONTENT_COMPILER_OBJ_MATERIAL_HPP

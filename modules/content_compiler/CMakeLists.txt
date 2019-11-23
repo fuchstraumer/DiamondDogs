@@ -3,10 +3,12 @@ ADD_MODULE(content_compiler
     "include/ConeMesh.hpp"
     "include/MeshData.hpp"
     "include/MeshPrimitives.hpp"
+    "include/ObjMaterial.hpp"
     "include/ObjModel.hpp"
     "src/ConeMesh.cpp"
     "src/MeshData.cpp"
     "src/MeshPrimitives.cpp"
+    "src/ObjMaterial.cpp"
     "src/ObjModel.cpp"
 )
 

@@ -81,23 +81,6 @@ namespace ObjLoader
         uint32_t endFaceIndex;
     };
 
-    struct PrimitiveGroup
-    {
-        std::string primitiveName;
-        AABB bounds;
-        uint32_t startIndex{ 0u };
-        uint32_t indexCount{ 0u };
-        uint32_t startMaterial{ 0u };
-        uint32_t materialCount{ 0u };
-    };
-
-    struct MaterialRange
-    {
-        std::string MaterialName;
-        uint32_t startIndex{ 0u };
-        uint32_t indexCount{ 0u };
-    };
-
     struct VertexData
     {
         size_t vertexStride;
@@ -106,38 +89,63 @@ namespace ObjLoader
         std::vector<float> vertices;
     };
 
-    using IndexData = std::vector<uint32_t>;
     struct ParsingContext;
 
-    class ObjFile
+    /*
+        The filesystem object and the memory view + checksum we get just 
+        from loading the .obj file into memory. Used to load data into
+        ObjFileData, then is effectively released
+    */
+    struct ObjFile
     {
-    public:
-
-        ObjFile() = default;
         ObjFile(const char* fname) : file(fname)
         {
             memory = file;
             checksum = mango::xx3hash128(checksumHashSeed, memory);
-            groups.reserve(2048);
-            groups.emplace_back(OBJgroup{ std::string(""), 0u, 0u, 0u, 0u });
-            OBJMtlRanges = std::vector<OBJMtlRange>(1, OBJMtlRange{ std::string(""), 0u, 0u });
-
         }
-        ObjFile(const ObjFile&) = delete;
-        ObjFile& operator=(const ObjFile&) = delete;
-
-        void ProcessFile(ParsingContext& context, bool loadNormals, bool loadTangents);
-        mango::XX3HASH128 Checksum() const noexcept;
-
-    private:
-
-        void parseFile(const ParsingContext& context, bool loadNormals);
-        void transferDataToContext(ParsingContext& context, bool loadNormals, bool loadTangents);
-        void prepareMaterialsAndGroups(ParsingContext& context);
-
         mango::filesystem::File file;
         mango::ConstMemory memory;
         mango::XX3HASH128 checksum;
+    };
+
+    /*
+        The internal structure used to create the structure API users get - itself just
+        effectively a view of *these* objects
+    */
+    struct ObjectModelDataImpl
+    {
+        size_t vertexStride{ 0u };
+        std::vector<float> vertexData;
+        std::vector<VertexMetadataEntry> vertexMetadata;
+        std::vector<uint32_t> indices;
+        std::vector<MaterialRange> materialRanges;
+        std::vector<PrimitiveGroup> primitiveGroups;
+        AABB bounds;
+        // We keep these around so that we can have the API-facing structures just reference these
+        std::vector<std::string> materialRangeNames;
+        std::vector<std::string> primitiveGroupNames;
+    };
+
+    /*
+        Contains the data from the object file, but not the actual file itself. We effectively release that as soon as we can.
+    */
+    class ObjFileData
+    {
+    public:
+
+        ObjFileData(const char* fname, const bool loadNormals, const bool loadTangents);
+
+        ObjFileData(const ObjFileData&) = delete;
+        ObjFileData& operator=(const ObjFileData&) = delete;
+
+        ObjectModelDataImpl RetrieveData(const bool loadNormals, const bool loadTangents);
+
+    private:
+
+        void parseFile(const char* fname, bool loadNormals);
+        void transferDataToContext(ObjectModelDataImpl& context, bool loadNormals, bool loadTangents);
+        void prepareMaterialsAndGroups(ObjectModelDataImpl& context);
+
 
         // All of this data is for the file-based representation of the mesh, so I'm putting it in here
         std::vector<vec3> positions;
@@ -148,39 +156,20 @@ namespace ObjLoader
         std::vector<OBJface> OBJfaces;
         std::vector<OBJMtlRange> OBJMtlRanges;
     };
-
-    struct ParsingContext
+    ObjFileData::ObjFileData(const char* fname, const bool loadNormals, const bool loadTangents)
     {
-        ParsingContext(const char* fname) : modelFile(fname) {}
-        VertexData vertexData;
-        IndexData indexData;
-        ObjFile modelFile;
-        AABB bounds;
-        std::vector<PrimitiveGroup> groups;
-        std::vector<MaterialRange> mtlRanges;
-    };
-
-    void ObjFile::ProcessFile(ParsingContext& context, bool loadNormals, bool loadTangents)
-    {
-        // reads data from file and stores it internally
-        parseFile(context, loadNormals);
-        // moves data from buffers used to read from the file, and stores them contiguously
-        // in memory so it can be uploaded to the GPU properly
-        transferDataToContext(context, loadNormals, loadTangents);
-        // prepares material ranges and object groups for further use by adjusting indices
-        // to not be based on faces
-        prepareMaterialsAndGroups(context);
+        // Will load the file to RAM, store it's data in this object in formats appropriate for us to 
+        // work with, then release the file so we don't just have it hovering around while we're processing
+        parseFile(fname, loadNormals);
     }
 
-    mango::XX3HASH128 ObjFile::Checksum() const noexcept
-    {
-        return checksum;
-    }
 
-    void ObjFile::parseFile(const ParsingContext& context, bool loadNormals)
+    void ObjFileData::parseFile(const char* fname, bool loadNormals)
     {
-        const char* const modelMemoryBegin = reinterpret_cast<const char*>(context.modelFile.memory.address);
-        const size_t modelMemorySize = context.modelFile.memory.size;
+        ObjFile modelFile(fname);
+
+        const char* const modelMemoryBegin = reinterpret_cast<const char*>(modelFile.memory.address);
+        const size_t modelMemorySize = modelFile.memory.size;
         std::string_view modelMemoryView(modelMemoryBegin, modelMemorySize);
 
         std::string mtlLibName;
@@ -295,17 +284,17 @@ namespace ObjLoader
         OBJMtlRanges.back().endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
     }
 
-    void ObjFile::transferDataToContext(ParsingContext& context, bool loadNormals, bool loadTangents)
+    void ObjFileData::transferDataToContext(ObjectModelDataImpl& results, bool loadNormals, bool loadTangents)
     { 
         // First, find out how much room we need to allocate for vertices
         size_t numFloatsToReserve = OBJverts.size() * 3u;
         numFloatsToReserve += loadNormals ? OBJverts.size() * 3u : 0u;
         numFloatsToReserve += loadTangents ? OBJverts.size() * 3u : 0u;
         numFloatsToReserve += OBJverts.size() * 2u;
-        context.vertexData.vertices.resize(numFloatsToReserve, 0.0f);
+        results.vertexData.resize(numFloatsToReserve, 0.0f);
 
         const size_t vertexStrideInFloats = 3u + (uvs.empty() ? 0u : 2u) + (loadNormals ? 3u : 0u) + (loadTangents ? 3u : 0u);
-        context.vertexData.vertexStride = sizeof(float) * vertexStrideInFloats;
+        results.vertexStride = sizeof(float) * vertexStrideInFloats;
 
         const size_t normalsOffset = loadNormals ? 3u : 0u;
         const size_t tangentsOffset = loadTangents ? 3u + normalsOffset : normalsOffset;
@@ -314,7 +303,7 @@ namespace ObjLoader
         const size_t uvsOffset = tangentsOffset + 3u;
 
         const size_t numVerts = OBJverts.size();
-        auto& vertexDataRef = context.vertexData.vertices;
+        auto& vertexDataRef = results.vertexData;
         for (size_t i = 0; i < numVerts; ++i)
         {
             const OBJvertex& currentVertex = OBJverts[i];
@@ -342,7 +331,7 @@ namespace ObjLoader
         }
 
         const size_t numFaces = OBJfaces.size();
-        auto& indexDataRef = context.indexData;
+        auto& indexDataRef = results.indices
         indexDataRef.reserve(numFaces * 3u);
 
         for (size_t i = 0; i < numFaces; ++i)
@@ -361,36 +350,39 @@ namespace ObjLoader
         }
 
         // suggested by original implementer of this method
-        OBJfaces.emplace_back(OBJface{ 0, 0, static_cast<uint32_t>(context.indexData.size()) });
+        OBJfaces.emplace_back(OBJface{ 0, 0, static_cast<uint32_t>(results.indices.size()) });
 
     }
 
-    void ObjFile::prepareMaterialsAndGroups(ParsingContext& context)
+    void ObjFileData::prepareMaterialsAndGroups(ObjectModelDataImpl& results)
     {
         // This is literally two sets of transformations, which ends up being quite apt with usage of std::transform
         // We're just changing that "space" the indices are referred to in so that it'll match the new storage layout
        
-        auto transformMaterialRange = [&](const OBJMtlRange& range)->MaterialRange
+        auto transformMaterialRange = [&](OBJMtlRange&& range)->MaterialRange
         {
             uint32_t startIndex = OBJfaces[range.startFaceIndex].indexStart;
             uint32_t endIndex = OBJfaces[range.endFaceIndex].indexStart;
-            return MaterialRange{ range.mtlName, startIndex, endIndex - startIndex };
+            results.materialRangeNames.emplace_back(range.mtlName);
+            return MaterialRange{ results.materialRangeNames.back().c_str(), startIndex, endIndex - startIndex };
         };
 
         // otherwise we use back_inserter, which is just as inefficient as repeated push_backs
-        context.mtlRanges.resize(OBJMtlRanges.size());
-        std::transform(OBJMtlRanges.begin(), OBJMtlRanges.end(), context.mtlRanges.begin(), transformMaterialRange);
+        results.materialRanges.resize(OBJMtlRanges.size());
+        results.materialRangeNames.reserve(OBJMtlRanges.size() + 4u);
+        std::transform(OBJMtlRanges.begin(), OBJMtlRanges.end(), results.materialRanges.begin(), transformMaterialRange);
 
-        auto transformPrimitiveGroup = [&](const OBJgroup& objGroup)->PrimitiveGroup
+        auto transformPrimitiveGroup = [&](OBJgroup&& objGroup)->PrimitiveGroup
         {
             uint32_t startIndex = OBJfaces[objGroup.startFaceIndex].indexStart;
             uint32_t endIndex = OBJfaces[objGroup.endFaceIndex].indexStart;
-            // material range transform is way easier, since it's not really even a transform at all lol
-            return PrimitiveGroup{ objGroup.groupName, AABB(), startIndex, endIndex - startIndex, objGroup.startMtlIndex, objGroup.endMtlIndex - objGroup.startMtlIndex };
+            results.primitiveGroupNames.emplace_back(objGroup.groupName);
+            return PrimitiveGroup{ results.primitiveGroupNames.back().c_str(), startIndex, endIndex - startIndex, objGroup.startMtlIndex, objGroup.endMtlIndex - objGroup.startMtlIndex };
         };
 
-        context.groups.resize(groups.size());
-        std::transform(groups.begin(), groups.end(), context.groups.begin(), transformPrimitiveGroup);
+        results.primitiveGroups.resize(groups.size());
+        results.primitiveGroupNames.resize(groups.size() + 4u);
+        std::transform(groups.begin(), groups.end(), results.primitiveGroups.begin(), transformPrimitiveGroup);
 
     }
     
@@ -406,7 +398,6 @@ ObjectModelData* LoadModelFromFile(
 {
     // Start context by opening requested file: we will run a QUICK hashing algorithm on it as a checksum
     using namespace ObjLoader;
-    ParsingContext context(model_filename);
 
     // Check to see if we already loaded this file
     auto existingLoadedDataIter = loadedFiles.find(context.modelFile.Checksum());
