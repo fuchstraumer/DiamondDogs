@@ -16,6 +16,7 @@
 #include <charconv>
 #include <cassert>
 #include <algorithm>
+#include <vulkan/vulkan_core.h>
 
 namespace std
 {
@@ -319,6 +320,21 @@ namespace ObjLoader
         // even if we're not loading them from an obj, we need to account for them now by leaving 3 empty floats
         // in between the normals and UVs
         const size_t uvsOffset = tangentsOffset + 3u;
+
+        // Quickly build the metadata entries
+        results.vertexMetadata.emplace_back(VertexMetadataEntry{ 0, (uint32_t)VK_FORMAT_R32G32B32_SFLOAT, 0u });
+        uint32_t uvsLocation = 1;
+        if (loadNormals)
+        {
+            results.vertexMetadata.emplace_back(VertexMetadataEntry{ 1, (uint32_t)VK_FORMAT_R32G32B32_SFLOAT, (uint32_t)normalsOffset });
+            ++uvsLocation;
+        }
+        if (loadTangents)
+        {
+            results.vertexMetadata.emplace_back(VertexMetadataEntry{ 2, (uint32_t)VK_FORMAT_R32G32B32_SFLOAT, (uint32_t)tangentsOffset });
+            ++uvsLocation;
+        }
+        results.vertexMetadata.emplace_back(VertexMetadataEntry{ uvsLocation, (uint32_t)VK_FORMAT_R32G32_SFLOAT, (uint32_t)uvsOffset });
 
         const size_t numVerts = OBJverts.size();
         auto& vertexDataRef = results.vertexData;
