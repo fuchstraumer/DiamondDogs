@@ -1,4 +1,5 @@
 #include "ObjModel.hpp"
+#include "LoadedDataCache.hpp"
 #pragma warning(push, 0)
 #include "easylogging++.h"
 #include "mango/filesystem/file.hpp"
@@ -18,18 +19,6 @@
 #include <algorithm>
 #include <vulkan/vulkan_core.h>
 
-namespace std
-{
-    template<>
-    struct hash<mango::XX3HASH128>
-    {
-        size_t operator()(const mango::XX3HASH128& hash_val) const noexcept
-        {
-            return hash<uint64_t>()(hash_val.data[0]) ^ hash<uint64_t>()(hash_val.data[1]);
-        }
-    };
-}
-
 namespace
 {
     template<size_t numVecElements>
@@ -46,10 +35,6 @@ namespace ObjLoader
     using AABB = mango::Box;
 
     constexpr static uint64_t checksumHashSeed = 0x46a5bf5c1e7a52cc;
-    constexpr static const char* metaStr = "/meta";
-    constexpr static const char* vertsStr = "/verts";
-    constexpr static const char* indicesStr = "/indices";
-    constexpr static const char* materialStr = "/material";
 
     struct OBJgroup
     {
@@ -82,16 +67,6 @@ namespace ObjLoader
         uint32_t endFaceIndex;
     };
 
-    struct VertexData
-    {
-        size_t vertexStride;
-        std::vector<VertexMetadataEntry> attributes;
-        // vertices are stored as raw floats for maximum flexibility on packing
-        std::vector<float> vertices;
-    };
-
-    struct ParsingContext;
-
     /*
         The filesystem object and the memory view + checksum we get just 
         from loading the .obj file into memory. Used to load data into
@@ -107,25 +82,6 @@ namespace ObjLoader
         mango::filesystem::File file;
         mango::ConstMemory memory;
         mango::XX3HASH128 checksum;
-    };
-
-    /*
-        The internal structure used to create the structure API users get - itself just
-        effectively a view of *these* objects
-    */
-    struct ObjectModelDataImpl
-    {
-        size_t vertexStride{ 0u };
-        std::vector<float> vertexData;
-        std::vector<VertexMetadataEntry> vertexMetadata;
-        std::vector<uint32_t> indices;
-        std::vector<MaterialRange> materialRanges;
-        std::vector<PrimitiveGroup> primitiveGroups;
-        AABB bounds;
-        // We keep these around so that we can have the API-facing structures just reference these
-        std::vector<std::string> materialRangeNames;
-        std::vector<std::string> primitiveGroupNames;
-        explicit operator ObjectModelData() const;
     };
 
     /*
@@ -146,7 +102,7 @@ namespace ObjLoader
     private:
 
         void parseFile(const ObjFile& modelFile, bool loadNormals);
-        void transferDataToContext(ObjectModelDataImpl& context, bool loadNormals, bool loadTangents);
+        void transferData(ObjectModelDataImpl& context, bool loadNormals, bool loadTangents);
         void prepareMaterialsAndGroups(ObjectModelDataImpl& context);
         void releaseData();
 
@@ -178,7 +134,9 @@ namespace ObjLoader
     ObjectModelDataImpl ObjFileData::RetrieveData(const bool loadNormals, const bool loadTangents)
     {
         ObjectModelDataImpl results;
-        transferDataToContext(results, loadNormals, loadTangents);
+        // transfers data into results in the compatible format for rendering
+        transferData(results, loadNormals, loadTangents);
+        // converts material and primitive groups into what we care about when rendering#pra
         prepareMaterialsAndGroups(results);
         releaseData();
         return results;
@@ -303,7 +261,7 @@ namespace ObjLoader
         OBJMtlRanges.back().endFaceIndex = static_cast<uint32_t>(OBJfaces.size());
     }
 
-    void ObjFileData::transferDataToContext(ObjectModelDataImpl& results, bool loadNormals, bool loadTangents)
+    void ObjFileData::transferData(ObjectModelDataImpl& results, bool loadNormals, bool loadTangents)
     { 
         // First, find out how much room we need to allocate for vertices
         size_t numFloatsToReserve = OBJverts.size() * 3u;
@@ -455,10 +413,9 @@ namespace ObjLoader
         return result;
     }
     
-    std::unordered_map<mango::XX3HASH128, ObjectModelDataImpl> loadedFiles;
 }
 
-ObjectModelData LoadModelFromFile(
+ccDataHandle LoadObjModelFromFile(
     const char* model_filename,
     const char* material_directory,
     RequiresNormals requires_normals,
@@ -473,25 +430,21 @@ ObjectModelData LoadModelFromFile(
     
     {
         ObjFile modelFile(model_filename);
-
+        const ccDataHandle handle{ modelFile.checksum[0], modelFile.checksum[1] };
         // Check to see if we already loaded this file
-        auto existingLoadedDataIter = loadedFiles.find(modelFile.checksum);
-        if (existingLoadedDataIter != loadedFiles.end())
+        ObjectModelData* existingData = TryAndGetModelData(handle);
+        if (existingData != nullptr)
         {
-            ObjectModelDataImpl& result = existingLoadedDataIter->second;
-            // Call user-defined conversion to model data instance
-            return static_cast<ObjectModelData>(result);
+            return handle;
         }
         fileChecksum = modelFile.checksum;
 
         fileData.ParseFile(modelFile, static_cast<bool>(requires_normals), static_cast<bool>(requires_tangents));
     }
 
-    ObjectModelDataImpl modelData = fileData.RetrieveData(static_cast<bool>(requires_normals), static_cast<bool>(requires_tangents));
-    
-    auto iter = loadedFiles.emplace(fileChecksum, modelData);
-
-    return static_cast<ObjectModelData>(iter.first->second);
+    ccDataHandle modelHandle{ fileChecksum.data[0], fileChecksum.data[1] };
+    AddObjectModelData(modelHandle, fileData.RetrieveData(static_cast<bool>(requires_normals), static_cast<bool>(requires_tangents)));
+    return modelHandle;
 }
 
 namespace
