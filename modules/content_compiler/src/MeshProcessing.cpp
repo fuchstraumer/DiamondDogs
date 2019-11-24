@@ -21,7 +21,9 @@ void sortMaterialRangesInRange(ObjectModelDataImpl* data, const size_t begin, co
     std::vector<MaterialRange> sortedRanges;
     sortedRanges.reserve(end - begin);
 
+
     std::vector<uint32_t> indicesReordered;
+    
 }
 
 void SortMeshMaterialRanges(const ccDataHandle handle)

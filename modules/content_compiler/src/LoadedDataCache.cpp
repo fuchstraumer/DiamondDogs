@@ -6,16 +6,41 @@
 namespace std
 {
     template<>
-    struct hash<mango::XX3HASH128>
+    struct hash<ccDataHandle>
     {
-        size_t operator()(const mango::XX3HASH128& hash_val) const noexcept
+        size_t operator()(const ccDataHandle& hash_val) const noexcept
         {
-            return hash<uint64_t>()(hash_val.data[0]) ^ hash<uint64_t>()(hash_val.data[1]);
+            return hash<uint64_t>()(hash_val.low) ^ hash<uint64_t>()(hash_val.high);
         }
     };
 }
 
-static std::unordered_map<ccDataHandle, ObjectModelDataImpl> objectModelDatum;
+struct EqualityOperator
+{
+    bool operator()(const ccDataHandle& h0, const ccDataHandle& h1) const noexcept
+    {
+        return (h0.low == h1.low) && (h0.high == h1.high);
+    }
+};
+
+ObjectModelDataImpl::operator ObjectModelData() const
+{
+    ObjectModelData result;
+    result.vertexDataSize = static_cast<uint32_t>(sizeof(float) * vertexData.size());
+    result.vertexStride = static_cast<uint32_t>(vertexStride);
+    result.vertexData = vertexData.data();
+    result.vertexAttributeCount = static_cast<uint32_t>(vertexMetadata.size());
+    result.vertexAttribMetadata = vertexMetadata.data();
+    result.indexDataSize = static_cast<uint32_t>(sizeof(uint32_t) * indices.size());
+    result.indexData = indices.data();
+    result.numMaterials = static_cast<uint32_t>(materialRanges.size());
+    result.materialRanges = materialRanges.data();
+    result.numPrimGroups = static_cast<uint32_t>(primitiveGroups.size());
+    result.primitiveGroups = primitiveGroups.data();
+    return result;
+}
+
+static std::unordered_map<ccDataHandle, ObjectModelDataImpl, std::hash<ccDataHandle>, EqualityOperator> objectModelDatum;
 
 ObjectModelDataImpl* TryAndGetModelData(const ccDataHandle handle)
 {

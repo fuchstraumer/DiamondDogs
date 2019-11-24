@@ -369,11 +369,11 @@ namespace ObjLoader
             uint32_t startIndex = OBJfaces[objGroup.startFaceIndex].indexStart;
             uint32_t endIndex = OBJfaces[objGroup.endFaceIndex].indexStart;
             results.primitiveGroupNames.emplace_back(objGroup.groupName);
-            return PrimitiveGroup{ results.primitiveGroupNames.back().c_str(), startIndex, endIndex - startIndex, objGroup.startMtlIndex, objGroup.endMtlIndex - objGroup.startMtlIndex };
+            return PrimitiveGroup{ results.primitiveGroupNames.back().c_str(), objGroup.startMtlIndex, objGroup.endMtlIndex - objGroup.startMtlIndex };
         };
 
         results.primitiveGroups.resize(groups.size());
-        results.primitiveGroupNames.resize(groups.size() + 4u);
+        results.primitiveGroupNames.reserve(groups.size() + 4u);
         std::transform(groups.begin(), groups.end(), results.primitiveGroups.begin(), transformPrimitiveGroup);
 
     }
@@ -395,23 +395,6 @@ namespace ObjLoader
         OBJMtlRanges.clear();
         OBJMtlRanges.shrink_to_fit();
     }
-
-    ObjectModelDataImpl::operator ObjectModelData() const
-    {
-        ObjectModelData result;
-        result.vertexDataSize = static_cast<uint32_t>(sizeof(float) * vertexData.size());
-        result.vertexStride = static_cast<uint32_t>(vertexStride);
-        result.vertexData = vertexData.data();
-        result.vertexAttributeCount = static_cast<uint32_t>(vertexMetadata.size());
-        result.vertexAttribMetadata = vertexMetadata.data();
-        result.indexDataSize = static_cast<uint32_t>(sizeof(uint32_t) * indices.size());
-        result.indexData = indices.data();
-        result.numMaterials = static_cast<uint32_t>(materialRanges.size());
-        result.materialRanges = materialRanges.data();
-        result.numPrimGroups = static_cast<uint32_t>(primitiveGroups.size());
-        result.primitiveGroups = primitiveGroups.data();
-        return result;
-    }
     
 }
 
@@ -432,7 +415,7 @@ ccDataHandle LoadObjModelFromFile(
         ObjFile modelFile(model_filename);
         const ccDataHandle handle{ modelFile.checksum[0], modelFile.checksum[1] };
         // Check to see if we already loaded this file
-        ObjectModelData* existingData = TryAndGetModelData(handle);
+        ObjectModelDataImpl* existingData = TryAndGetModelData(handle);
         if (existingData != nullptr)
         {
             return handle;
