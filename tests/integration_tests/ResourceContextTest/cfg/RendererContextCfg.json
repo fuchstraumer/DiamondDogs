@@ -1,7 +1,7 @@
 {
-    "ApplicationName" : "RendererContextTriangleTest",
+    "ApplicationName" : "ResourceContextTest",
     "ApplicationVersion" : "1.0.0",
-    "EngineName" : "VulpesSceneKit",
+    "EngineName" : "DiamondDogs",
     "EngineVersion" : "0.1.0",
     "EnableValidation" : true,
     "VulkanVersion" : "1.1",
