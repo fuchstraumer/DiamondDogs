@@ -1,0 +1,27 @@
+{
+    "ApplicationName" : "ContentCompilerTest",
+    "ApplicationVersion" : "1.0.0",
+    "EngineName" : "DiamondDogs",
+    "EngineVersion" : "0.1.0",
+    "EnableValidation" : true,
+    "VulkanVersion" : "1.1",
+    "UseRecommendedExtensions" : true,
+    "RequiredInstanceExtensions" : [
+        "VK_EXT_debug_utils"
+    ],
+    "RequestedInstanceExtensions" : [
+    ],
+    "RequiredDeviceExtensions" : [
+        "VK_KHR_swapchain"
+    ],
+    "RequestedDeviceExtensions" : [
+        "VK_KHR_dedicated_allocation",
+        "VK_KHR_get_memory_requirements2",
+        "VK_KHR_pipeline_executable_properties"
+    ],
+    "InitialWindowWidth" : 1440,
+    "InitialWindowHeight" : 720,
+    "InitialMouseState" : "Free",
+    "InitialWindowMode" : "Windowed",
+    "ApplicationIconPath" : "None"
+}
