@@ -18,7 +18,7 @@ void CalculateTangents(const ccDataHandle handle)
     tangents.resize(data->vertexData.size() / floatsPerVert);
 
     const size_t numIndices = data->indices.size();
-    for (size_t i = 0; i < numIndices; ++i)
+    for (size_t i = 0; i < numIndices; i += 3)
     {
         const uint32_t tri[3]{ data->indices[i + 0], data->indices[i + 1], data->indices[i + 2] };
         glm::vec3 v0 = glm::make_vec3(&data->vertexData[tri[0] * floatsPerVert]);
