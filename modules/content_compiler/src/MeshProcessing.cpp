@@ -14,15 +14,16 @@ void CalculateTangents(const ccDataHandle handle)
     }
 
     std::vector<glm::vec3> tangents;
-    tangents.resize(data->vertexData.size() / data->vertexStride);
+    const size_t floatsPerVert = data->vertexStride / sizeof(float);
+    tangents.resize(data->vertexData.size() / floatsPerVert);
 
     const size_t numIndices = data->indices.size();
     for (size_t i = 0; i < numIndices; ++i)
     {
         const uint32_t tri[3]{ data->indices[i + 0], data->indices[i + 1], data->indices[i + 2] };
-        glm::vec3 v0 = glm::make_vec3(&data->vertexData[tri[0] * data->vertexStride]);
-        glm::vec3 v1 = glm::make_vec3(&data->vertexData[tri[1] * data->vertexStride]);
-        glm::vec3 v2 = glm::make_vec3(&data->vertexData[tri[2] * data->vertexStride]);
+        glm::vec3 v0 = glm::make_vec3(&data->vertexData[tri[0] * floatsPerVert]);
+        glm::vec3 v1 = glm::make_vec3(&data->vertexData[tri[1] * floatsPerVert]);
+        glm::vec3 v2 = glm::make_vec3(&data->vertexData[tri[2] * floatsPerVert]);
 
         glm::vec3 edge0 = v1 - v0;
         glm::vec3 edge1 = v2 - v0;
@@ -31,9 +32,9 @@ void CalculateTangents(const ccDataHandle handle)
         glm::mat3x3 toUnitPos(edge0, edge1, normal);
 
         // uvs at offset 9 (or, so they have to be if we're doing this at least
-        glm::vec2 uv0 = glm::make_vec2(&data->vertexData[tri[0] * data->vertexStride + 9u]);
-        glm::vec2 uv1 = glm::make_vec2(&data->vertexData[tri[1] * data->vertexStride + 9u]);
-        glm::vec2 uv2 = glm::make_vec2(&data->vertexData[tri[2] * data->vertexStride + 9u]);
+        glm::vec2 uv0 = glm::make_vec2(&data->vertexData[tri[0] * floatsPerVert + 9u]);
+        glm::vec2 uv1 = glm::make_vec2(&data->vertexData[tri[1] * floatsPerVert + 9u]);
+        glm::vec2 uv2 = glm::make_vec2(&data->vertexData[tri[2] * floatsPerVert + 9u]);
 
         glm::vec2 uvEdge0 = uv1 - uv0;
         glm::vec2 uvEdge1 = uv2 - uv0;
@@ -52,11 +53,11 @@ void CalculateTangents(const ccDataHandle handle)
 
     }
 
-    const size_t numVerts = data->vertexData.size() / data->vertexStride;
+    const size_t numVerts = data->vertexData.size() / floatsPerVert;
     for (size_t i = 0; i < numVerts; ++i)
     {
         tangents[i] = glm::normalize(tangents[i]);
-        const size_t currentTangent = i * data->vertexStride + 6u;
+        const size_t currentTangent = i * floatsPerVert + 6u;
         float* tangentPtr = &data->vertexData[currentTangent];
         tangentPtr[0] = tangents[i].x;
         tangentPtr[1] = tangents[i].y;
