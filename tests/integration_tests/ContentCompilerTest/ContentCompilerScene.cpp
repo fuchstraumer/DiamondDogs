@@ -26,7 +26,6 @@ constexpr const char* vertexShaderSrc = R"(
 #extension GL_ARB_separate_shader_objects : enable
 
 layout (location = 0) in vec3 pos;
-layout (location = 1) in vec2 uv;
 
 layout (set = 0, binding = 0) uniform uniform_buffer {
     mat4 model;
@@ -49,7 +48,7 @@ constexpr const char* fragmentShaderSrc = R"(
 
 layout (location = 0) out vec4 backbuffer;
 
-const float grey = 123.0f / 255.0f;
+static const float grey = 123.0f / 255.0f;
 
 void main() {
     backbuffer = float4(grey, grey, grey, 1.0f);
@@ -74,10 +73,16 @@ ContentCompilerScene::~ContentCompilerScene()
     Destroy();
 }
 
+ContentCompilerScene& ContentCompilerScene::Get()
+{
+    static ContentCompilerScene scene;
+    return scene;
+}
+
 void ContentCompilerScene::Construct(RequiredVprObjects objects, void* user_data)
 {
     vprObjects = objects;
-    modelData = reinterpret_cast<ObjectModelData*>(user_data);
+    modelData = *reinterpret_cast<ObjectModelData*>(user_data);
     uboData.view = glm::lookAt(glm::vec3(-2.0f, -2.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     uboData.projection = glm::perspectiveFov(
         glm::radians(90.0f),
@@ -225,7 +230,7 @@ void ContentCompilerScene::renderObject(VkCommandBuffer cmd)
     constexpr static VkDeviceSize offsets[1]{ 0u };
     vkCmdBindVertexBuffers(cmd, 0u, 1u, vbo, offsets);
     vkCmdBindIndexBuffer(cmd, (VkBuffer)meshEBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmd, modelData->indexDataSize / sizeof(uint32_t), 1u, 0u, 0u, 0u);
+    vkCmdDrawIndexed(cmd, modelData.indexDataSize / sizeof(uint32_t), 1u, 0u, 0u, 0u);
 }
 
 void ContentCompilerScene::draw()
@@ -290,7 +295,7 @@ void ContentCompilerScene::createMesh()
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
-        static_cast<VkDeviceSize>(modelData->vertexDataSize),
+        static_cast<VkDeviceSize>(modelData.vertexDataSize),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         queueFamilyIndices[0] != queueFamilyIndices[1] ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
         queueFamilyIndices[0] != queueFamilyIndices[1] ? 2u : 0u,
@@ -299,8 +304,8 @@ void ContentCompilerScene::createMesh()
 
     const gpu_resource_data_t vbo_data
     {
-        modelData->vertexData,
-        modelData->vertexDataSize,
+        modelData.vertexData,
+        modelData.vertexDataSize,
         0u,
         VK_QUEUE_FAMILY_IGNORED
     };
@@ -310,7 +315,7 @@ void ContentCompilerScene::createMesh()
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
-        static_cast<VkDeviceSize>(modelData->indexDataSize),
+        static_cast<VkDeviceSize>(modelData.indexDataSize),
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         queueFamilyIndices[0] != queueFamilyIndices[1] ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
         queueFamilyIndices[0] != queueFamilyIndices[1] ? 2u : 0u,
@@ -319,8 +324,8 @@ void ContentCompilerScene::createMesh()
     
     const gpu_resource_data_t ebo_data
     {
-        modelData->indexData,
-        modelData->indexDataSize,
+        modelData.indexData,
+        modelData.indexDataSize,
         0u,
         VK_QUEUE_FAMILY_IGNORED
     };
@@ -387,8 +392,8 @@ void ContentCompilerScene::createShaders()
     std::vector<uint32_t> fragmentBinary(fragmentBinarySz);
     st::RetrieveCompiledStandaloneShader(fragmentHandle, &fragmentBinarySz, fragmentBinary.data());
 
-    vertexShader = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_VERTEX_BIT, vertexBinary.data(), vertexBinarySz);
-    fragmentShader = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, fragmentBinary.data(), fragmentBinarySz);
+    vertexShader = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_VERTEX_BIT, vertexBinary.data(), static_cast<uint32_t>(vertexBinarySz));
+    fragmentShader = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, fragmentBinary.data(), static_cast<uint32_t>(fragmentBinarySz));
 }
 
 void ContentCompilerScene::createSetLayouts()
@@ -456,6 +461,55 @@ void ContentCompilerScene::createFramebuffers()
 
 void ContentCompilerScene::createPipeline()
 {
+    const VkPipelineShaderStageCreateInfo shader_stages[2]
+    {
+        vertexShader->PipelineInfo(),
+        fragmentShader->PipelineInfo()
+    };
+
+    const VkVertexInputBindingDescription vertex_bindings[1]
+    {
+        VkVertexInputBindingDescription{ 0, modelData.vertexStride, VK_VERTEX_INPUT_RATE_VERTEX }
+    };
+
+    std::vector<VkVertexInputAttributeDescription> attributes;
+    attributes.resize(modelData.vertexAttributeCount);
+
+    for (size_t i = 0; i < static_cast<size_t>(modelData.vertexAttributeCount); ++i)
+    {
+        const VertexMetadataEntry& entry = modelData.vertexAttribMetadata[i];
+        attributes[i].binding = 0;
+        attributes[i].location = entry.location;
+        attributes[i].format = VkFormat(entry.vkFormat);
+        attributes[i].offset = entry.offset;
+    }
+
+    const VkPipelineVertexInputStateCreateInfo vertex_info
+    {
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        nullptr,
+        0,
+        1u,
+        vertex_bindings,
+        static_cast<uint32_t>(attributes.size()),
+        attributes.data()
+    };
+
+    BasicPipelineCreateInfo create_info
+    {
+        vprObjects.device,
+        0,
+        2u,
+        shader_stages,
+        &vertex_info,
+        pipelineLayout->vkHandle(),
+        renderPass,
+        VK_COMPARE_OP_LESS_OR_EQUAL,
+        pipelineCache->vkHandle()
+    };
+
+    modelPipeline = CreateBasicPipeline(create_info);
+
 }
 
 void ContentCompilerScene::destroyFences()

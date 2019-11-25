@@ -4,6 +4,7 @@
 #include "VulkanScene.hpp"
 #include "ForwardDecl.hpp"
 #include "CommonCreationFunctions.hpp"
+#include "ObjModel.hpp"
 #include <vector>
 
 struct VulkanResource;
@@ -61,7 +62,7 @@ protected:
     VkRenderPass renderPass;
     std::vector<VkFence> fences;
     std::vector<VkFramebuffer> framebuffers;
-    ObjectModelData* modelData;
+    ObjectModelData modelData;
 
     uint32_t modelIndexCount;
 

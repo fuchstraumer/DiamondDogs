@@ -430,6 +430,19 @@ ccDataHandle LoadObjModelFromFile(
     return modelHandle;
 }
 
+ObjectModelData RetrieveLoadedObjModel(ccDataHandle handle)
+{
+    ObjectModelDataImpl* loadedData = TryAndGetModelData(handle);
+    if (loadedData != nullptr)
+    {
+        return (ObjectModelData)*loadedData;
+    }
+    else
+    {
+        return ObjectModelData();
+    }
+}
+
 namespace
 {
 

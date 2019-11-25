@@ -11,6 +11,7 @@
 INITIALIZE_EASYLOGGINGPP
 
 namespace fs = std::filesystem;
+ObjectModelData modelData;
 
 static void BeginResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height)
 {
@@ -18,7 +19,21 @@ static void BeginResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t 
     loader.Stop();
     auto& transferSystem = ResourceContext::Get();
     transferSystem.Update();
-    
+    auto& scene = ContentCompilerScene::Get();
+    scene.Destroy();
+    auto& resourceContext = ResourceContext::Get();
+    resourceContext.Destroy();
+}
+
+static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height)
+{
+    auto& renderingContext = RenderingContext::Get();
+    auto& resourceContext = ResourceContext::Get();
+    resourceContext.Initialize(renderingContext.Device(), renderingContext.PhysicalDevice(), VTF_VALIDATION_ENABLED);
+    auto& scene = ContentCompilerScene::Get();
+    scene.Construct(RequiredVprObjects{ renderingContext.Device(), renderingContext.PhysicalDevice(), renderingContext.Instance(), renderingContext.Swapchain() }, &modelData);
+    auto& loader = ResourceLoader::GetResourceLoader();
+    loader.Start(); // restart threads
 }
 
 int main(int argc, char* argv[])
@@ -30,6 +45,37 @@ int main(int argc, char* argv[])
     assert(fs::exists(model_file));
     static const std::string model_file_str(model_file.string());
 
-
     ccDataHandle dataHandle = LoadObjModelFromFile(model_file_str.c_str(), model_dir_str.c_str(), RequiresNormals{ true }, RequiresTangents{ true }, OptimizeMesh{ false });
+    modelData = RetrieveLoadedObjModel(dataHandle);
+
+    static const fs::path curr_dir_path{ fs::current_path() / "shader_cache/" };
+    if (!fs::exists(curr_dir_path))
+    {
+        fs::create_directories(curr_dir_path);
+    }
+
+    const std::string cacheDir = curr_dir_path.string();
+    vpr::PipelineCache::SetCacheDirectory(cacheDir.c_str());
+
+    auto& renderingContext = RenderingContext::Get();
+    renderingContext.Construct("RendererContextCfg.json");
+
+    auto& resourceContext = ResourceContext::Get();
+    resourceContext.Initialize(renderingContext.Device(), renderingContext.PhysicalDevice(), VTF_VALIDATION_ENABLED);
+
+    auto& scene = ContentCompilerScene::Get();
+    scene.Construct(RequiredVprObjects{ renderingContext.Device(), renderingContext.PhysicalDevice(), renderingContext.Instance(), renderingContext.Swapchain() }, &modelData);
+
+    SwapchainCallbacks callbacks;
+    callbacks.BeginResize = decltype(SwapchainCallbacks::BeginResize)::create<&BeginResizeCallback>();
+    callbacks.CompleteResize = decltype(SwapchainCallbacks::CompleteResize)::create<&CompleteResizeCallback>();
+    renderingContext.AddSwapchainCallbacks(callbacks);
+
+    while (!renderingContext.ShouldWindowClose())
+    {
+        renderingContext.Update();
+        resourceContext.Update();
+        scene.Render(nullptr);
+    }
+
 }

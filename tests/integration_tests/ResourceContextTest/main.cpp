@@ -72,10 +72,7 @@ int main(int argc, char* argv[]) {
     static const std::string model_dir_str(model_dir.string());
     static const fs::path model_file{ model_dir / "exterior.obj" };
     assert(fs::exists(model_file));
-    static const std::string model_file_str(model_file.string());
-
-
-    ObjectModelData* data = LoadModelFromFile(model_file_str.c_str(), model_dir_str.c_str(), RequiresNormals{ true }, RequiresTangents{ true }, OptimizeMesh{ false });
+    static const std::string model_file_str(model_file.string());;
 
     auto& context = RenderingContext::Get();
     context.Construct("RendererContextCfg.json");
