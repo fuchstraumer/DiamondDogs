@@ -31,6 +31,7 @@ protected:
 
     void createUBO();
     void createMesh();
+    void prepareIndirectDraws();
     void createFences();
     void createCommandPool();
     void createDescriptorPool();
@@ -49,6 +50,8 @@ protected:
     VulkanResource* meshEBO{ nullptr };
     VulkanResource* sampler{ nullptr };
     VulkanResource* meshUBO{ nullptr };
+    VulkanResource* indirectDrawBuffer{ nullptr };
+    std::vector<VkDrawIndexedIndirectCommand> indirectDraws;
 
     DepthStencil depthStencil;
     std::unique_ptr<vpr::CommandPool> cmdPool;

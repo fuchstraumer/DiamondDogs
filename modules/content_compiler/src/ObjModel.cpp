@@ -284,15 +284,15 @@ namespace ObjLoader
         uint32_t uvsLocation = 1;
         if (loadNormals)
         {
-            results.vertexMetadata.emplace_back(VertexMetadataEntry{ 1, (uint32_t)VK_FORMAT_R32G32B32_SFLOAT, (uint32_t)normalsOffset });
+            results.vertexMetadata.emplace_back(VertexMetadataEntry{ 1, (uint32_t)VK_FORMAT_R32G32B32_SFLOAT, static_cast<uint32_t>(normalsOffset * sizeof(float)) });
             ++uvsLocation;
         }
         if (loadTangents)
         {
-            results.vertexMetadata.emplace_back(VertexMetadataEntry{ 2, (uint32_t)VK_FORMAT_R32G32B32_SFLOAT, (uint32_t)tangentsOffset });
+            results.vertexMetadata.emplace_back(VertexMetadataEntry{ 2, (uint32_t)VK_FORMAT_R32G32B32_SFLOAT, static_cast<uint32_t>(tangentsOffset * sizeof(float)) });
             ++uvsLocation;
         }
-        results.vertexMetadata.emplace_back(VertexMetadataEntry{ uvsLocation, (uint32_t)VK_FORMAT_R32G32_SFLOAT, (uint32_t)uvsOffset });
+        results.vertexMetadata.emplace_back(VertexMetadataEntry{ uvsLocation, (uint32_t)VK_FORMAT_R32G32_SFLOAT, static_cast<uint32_t>(uvsOffset * sizeof(float)) });
 
         const size_t numVerts = OBJverts.size();
         auto& vertexDataRef = results.vertexData;
@@ -355,25 +355,21 @@ namespace ObjLoader
         {
             uint32_t startIndex = OBJfaces[range.startFaceIndex].indexStart;
             uint32_t endIndex = OBJfaces[range.endFaceIndex].indexStart;
-            results.materialRangeNames.emplace_back(range.mtlName);
-            return MaterialRange{ results.materialRangeNames.back().c_str(), startIndex, endIndex - startIndex };
+            return MaterialRange{ range.mtlName, startIndex, endIndex - startIndex };
         };
 
         // otherwise we use back_inserter, which is just as inefficient as repeated push_backs
         results.materialRanges.resize(OBJMtlRanges.size());
-        results.materialRangeNames.reserve(OBJMtlRanges.size() + 4u);
         std::transform(OBJMtlRanges.begin(), OBJMtlRanges.end(), results.materialRanges.begin(), transformMaterialRange);
 
         auto transformPrimitiveGroup = [&](OBJgroup& objGroup)->PrimitiveGroup
         {
             uint32_t startIndex = OBJfaces[objGroup.startFaceIndex].indexStart;
             uint32_t endIndex = OBJfaces[objGroup.endFaceIndex].indexStart;
-            results.primitiveGroupNames.emplace_back(objGroup.groupName);
-            return PrimitiveGroup{ results.primitiveGroupNames.back().c_str(), objGroup.startMtlIndex, objGroup.endMtlIndex - objGroup.startMtlIndex };
+            return PrimitiveGroup{ objGroup.groupName, objGroup.startMtlIndex, objGroup.endMtlIndex - objGroup.startMtlIndex };
         };
 
         results.primitiveGroups.resize(groups.size());
-        results.primitiveGroupNames.reserve(groups.size() + 4u);
         std::transform(groups.begin(), groups.end(), results.primitiveGroups.begin(), transformPrimitiveGroup);
 
     }
@@ -520,6 +516,14 @@ namespace
         }
         if constexpr (numVecElements == 2)
         {
+            if (result.y > 1.0f)
+            {
+                result.y -= 1.0f;
+            }
+            if (result.x > 1.0f)
+            {
+                result.x -= 1.0f;
+            }
             // extracting UVs: need to flip Y of uv
             result.y = 1.0f - result.y;
         }

@@ -3,6 +3,7 @@
 #define CONTENT_COMPILER_MESH_PROCESSING_HPP
 #include "MeshData.hpp"
 
+void CalculateTangents(const ccDataHandle handle);
 void SortMeshMaterialRanges(const ccDataHandle handle);
 void RemoveUnusedVertices(const ccDataHandle handle);
 void RemoveDuplicatedVertices(const ccDataHandle handle);

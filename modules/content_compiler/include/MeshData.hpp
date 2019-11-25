@@ -2,10 +2,11 @@
 #ifndef ASSET_PIPELINE_MESH_DATA_HPP
 #define ASSET_PIPELINE_MESH_DATA_HPP
 #include <cstdint>
+#include <string>
 
 struct PrimitiveGroup
 {
-    const char* primitiveName;
+    std::string primitiveName;
     uint32_t startMaterial{ 0u };
     uint32_t materialCount{ 0u };
     float min[3]{ 3e38f, 3e38f, 3e38f };
@@ -14,7 +15,7 @@ struct PrimitiveGroup
 
 struct MaterialRange
 {
-    const char* MaterialName;
+    std::string MaterialName;
     uint32_t startIndex{ 0u };
     uint32_t indexCount{ 0u };
 };

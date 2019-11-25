@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <cassert>
 #include "ObjModel.hpp"
+#include "MeshProcessing.hpp"
 #include "easylogging++.h"
 INITIALIZE_EASYLOGGINGPP
 
@@ -46,6 +47,8 @@ int main(int argc, char* argv[])
     static const std::string model_file_str(model_file.string());
 
     ccDataHandle dataHandle = LoadObjModelFromFile(model_file_str.c_str(), model_dir_str.c_str(), RequiresNormals{ true }, RequiresTangents{ true }, OptimizeMesh{ false });
+    CalculateTangents(dataHandle);
+    //SortMeshMaterialRanges(dataHandle);
     modelData = RetrieveLoadedObjModel(dataHandle);
 
     static const fs::path curr_dir_path{ fs::current_path() / "shader_cache/" };
@@ -78,4 +81,6 @@ int main(int argc, char* argv[])
         scene.Render(nullptr);
     }
 
+    scene.Destroy();
+    resourceContext.Destroy();
 }

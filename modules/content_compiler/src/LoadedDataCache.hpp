@@ -22,9 +22,6 @@ struct ObjectModelDataImpl
     std::vector<PrimitiveGroup> primitiveGroups;
     float min[3];
     float max[3];
-    // We keep these around so that we can have the API-facing structures just reference these
-    std::vector<std::string> materialRangeNames;
-    std::vector<std::string> primitiveGroupNames;
     explicit operator ObjectModelData() const;
 };
 

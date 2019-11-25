@@ -26,6 +26,9 @@ constexpr const char* vertexShaderSrc = R"(
 #extension GL_ARB_separate_shader_objects : enable
 
 layout (location = 0) in vec3 pos;
+layout (location = 1) in vec3 normal;
+layout (location = 2) in vec3 tangent;
+layout (location = 3) in vec2 uv;
 
 layout (set = 0, binding = 0) uniform uniform_buffer {
     mat4 model;
@@ -48,10 +51,9 @@ constexpr const char* fragmentShaderSrc = R"(
 
 layout (location = 0) out vec4 backbuffer;
 
-static const float grey = 123.0f / 255.0f;
-
 void main() {
-    backbuffer = float4(grey, grey, grey, 1.0f);
+    backbuffer.xyz = vec3(123.0f / 255.0f, 123.0f / 255.0f, 123.0f / 255.0f);
+    backbuffer.w = 1.0f;
 }
 )";
 
@@ -93,6 +95,8 @@ void ContentCompilerScene::Construct(RequiredVprObjects objects, void* user_data
     pipelineCache = std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), typeid(ContentCompilerScene).hash_code());
     createSemaphores();
     createUBO();
+    createMesh();
+    prepareIndirectDraws();
     update();
     createFences();
     createCommandPool();
@@ -113,6 +117,8 @@ void ContentCompilerScene::Destroy()
     resourceContext.DestroyResource(meshUBO);
     resourceContext.DestroyResource(meshEBO);
     resourceContext.DestroyResource(meshVBO);
+    resourceContext.DestroyResource(indirectDrawBuffer);
+    indirectDraws.clear();
     descriptorSet.reset();
     pipelineLayout.reset();
     descriptorSetLayout.reset();
@@ -230,7 +236,7 @@ void ContentCompilerScene::renderObject(VkCommandBuffer cmd)
     constexpr static VkDeviceSize offsets[1]{ 0u };
     vkCmdBindVertexBuffers(cmd, 0u, 1u, vbo, offsets);
     vkCmdBindIndexBuffer(cmd, (VkBuffer)meshEBO->Handle, 0u, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(cmd, modelData.indexDataSize / sizeof(uint32_t), 1u, 0u, 0u, 0u);
+    vkCmdDrawIndexedIndirect(cmd, (VkBuffer)indirectDrawBuffer->Handle, 0u, static_cast<uint32_t>(indirectDraws.size()), sizeof(VkDrawIndexedIndirectCommand));
 }
 
 void ContentCompilerScene::draw()
@@ -275,7 +281,7 @@ void ContentCompilerScene::createUBO()
         nullptr
     };
     constexpr resource_creation_flags uboFlags{ ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString | ResourceCreatePersistentlyMapped };
-    constexpr const char* uboStr{ "HouseUBO" };
+    constexpr const char* uboStr{ "ccUBO" };
     auto& resourceContext = ResourceContext::Get();
     meshUBO = resourceContext.CreateBuffer(&ubo_info, nullptr, 0, nullptr, resource_usage::CPU_ONLY, uboFlags, (void*)uboStr);
 }
@@ -340,6 +346,68 @@ void ContentCompilerScene::createMesh()
 
 }
 
+constexpr bool drawByGroups = true;
+
+void ContentCompilerScene::prepareIndirectDraws()
+{
+    if constexpr (drawByGroups)
+    {
+        for (uint32_t groupIndex = 0u; groupIndex < modelData.numPrimGroups; ++groupIndex)
+        {
+            auto& group = modelData.primitiveGroups[groupIndex];
+            auto& firstMaterial = modelData.materialRanges[group.startMaterial];
+            if (group.materialCount > 1)
+            {
+                const size_t endMaterialIndex = group.startMaterial + group.materialCount;
+                uint32_t indexCount = 0u;
+                for (size_t materialIndex = group.startMaterial; materialIndex < endMaterialIndex; ++materialIndex)
+                {
+                    indexCount += modelData.materialRanges[materialIndex].indexCount;
+                }
+                indirectDraws.emplace_back(VkDrawIndexedIndirectCommand{ indexCount, 1u, firstMaterial.startIndex, 0u, 0u });
+            }
+            else
+            {
+                indirectDraws.emplace_back(VkDrawIndexedIndirectCommand{ firstMaterial.indexCount, 1u, firstMaterial.startIndex, 0u, 0u });
+            }
+        }
+    }
+    else
+    {
+        for (uint32_t i = 0u; i < modelData.numMaterials; ++i)
+        {
+            const auto& mtl = modelData.materialRanges[i];
+            indirectDraws.emplace_back(VkDrawIndexedIndirectCommand{ mtl.indexCount, 1u, mtl.startIndex, 0u, 0u });
+        }
+    }
+
+    const VkBufferCreateInfo indirect_buffer_info
+    {
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        static_cast<VkDeviceSize>(indirectDraws.size() * sizeof(VkDrawIndexedIndirectCommand)),
+        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0u,
+        nullptr
+    };
+
+    const gpu_resource_data_t indirect_data
+    {
+        indirectDraws.data(),
+        indirect_buffer_info.size,
+        0u,
+        VK_QUEUE_FAMILY_IGNORED
+    };
+
+    auto& resourceContext = ResourceContext::Get();
+    constexpr resource_creation_flags indirectBufferFlags{ ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString | ResourceCreatePersistentlyMapped };
+    constexpr const char* indirectBufferStr{ "ccIndirectArgsBuffer" };
+    indirectDrawBuffer = resourceContext.CreateBuffer(&indirect_buffer_info, nullptr, 1u, &indirect_data, resource_usage::CPU_ONLY, indirectBufferFlags, (void*)indirectBufferStr);
+}
+
+
 void ContentCompilerScene::createFences()
 {
 
@@ -369,6 +437,7 @@ void ContentCompilerScene::createCommandPool()
     };
 
     cmdPool = std::make_unique<vpr::CommandPool>(vprObjects.device->vkHandle(), pool_info);
+    cmdPool->AllocateCmdBuffers(vprObjects.swapchain->ImageCount(), VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 }
 
 void ContentCompilerScene::createDescriptorPool()
@@ -392,8 +461,8 @@ void ContentCompilerScene::createShaders()
     std::vector<uint32_t> fragmentBinary(fragmentBinarySz);
     st::RetrieveCompiledStandaloneShader(fragmentHandle, &fragmentBinarySz, fragmentBinary.data());
 
-    vertexShader = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_VERTEX_BIT, vertexBinary.data(), static_cast<uint32_t>(vertexBinarySz));
-    fragmentShader = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, fragmentBinary.data(), static_cast<uint32_t>(fragmentBinarySz));
+    vertexShader = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_VERTEX_BIT, vertexBinary.data(), static_cast<uint32_t>(vertexBinarySz * sizeof(uint32_t)));
+    fragmentShader = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, fragmentBinary.data(), static_cast<uint32_t>(fragmentBinarySz * sizeof(uint32_t)));
 }
 
 void ContentCompilerScene::createSetLayouts()
