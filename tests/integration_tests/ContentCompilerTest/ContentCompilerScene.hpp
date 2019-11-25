@@ -4,6 +4,10 @@
 #include "VulkanScene.hpp"
 #include "ForwardDecl.hpp"
 #include "CommonCreationFunctions.hpp"
+#include <vector>
+
+struct VulkanResource;
+struct ObjectModelData;
 
 class ContentCompilerScene : public VulkanScene
 {
@@ -16,11 +20,6 @@ public:
     void Construct(RequiredVprObjects objects, void* user_data) final;
     void Destroy() final;
 
-    static void* LoadObjFile(const char* fname, void* user_data);
-    static void DestroyObjFile(void* obj_file, void* user_data);
-
-    void CreateMesh(void* obj_data);
-
 protected:
 
     void update() final;
@@ -28,6 +27,22 @@ protected:
     void renderObject(VkCommandBuffer cmd);
     void draw() final;
     void endFrame() final;
+
+    void createUBO();
+    void createMesh();
+    void createFences();
+    void createCommandPool();
+    void createDescriptorPool();
+    void createShaders();
+    void createSetLayouts();
+    void createDescriptorSet();
+    void createPipelineLayout();
+    void createRenderpass();
+    void createFramebuffers();
+    void createPipeline();
+
+    void destroyFences();
+    void destroyFramebuffers();
 
     VulkanResource* meshVBO{ nullptr };
     VulkanResource* meshEBO{ nullptr };
@@ -46,6 +61,7 @@ protected:
     VkRenderPass renderPass;
     std::vector<VkFence> fences;
     std::vector<VkFramebuffer> framebuffers;
+    ObjectModelData* modelData;
 
     uint32_t modelIndexCount;
 
