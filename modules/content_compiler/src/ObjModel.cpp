@@ -1,5 +1,6 @@
 #include "ObjModel.hpp"
 #include "LoadedDataCache.hpp"
+#include "svUtil.hpp"
 #pragma warning(push, 0)
 #include "easylogging++.h"
 #include "mango/filesystem/file.hpp"
@@ -23,9 +24,6 @@ namespace
 {
     template<size_t numVecElements>
     auto extract_vector(std::vector<std::string_view>& views)->mango::Vector<float, numVecElements>;
-    std::string to_lowercase(std::string_view& view);
-    auto get_line(std::string_view& view)->std::string_view;
-    std::vector<std::string_view> separate_tokens_in_view(std::string_view view, const char delimiter);
 }
 
 namespace ObjLoader
@@ -145,6 +143,7 @@ namespace ObjLoader
     void ObjFileData::parseFile(const ObjFile& modelFile, bool loadNormals)
     {
 
+        using namespace svutil;
         const char* const modelMemoryBegin = reinterpret_cast<const char*>(modelFile.memory.address);
         const size_t modelMemorySize = modelFile.memory.size;
         std::string_view modelMemoryView(modelMemoryBegin, modelMemorySize);
@@ -441,69 +440,6 @@ ObjectModelData RetrieveLoadedObjModel(ccDataHandle handle)
 
 namespace
 {
-
-    std::string to_lowercase(std::string_view& view)
-    {
-        std::string result;
-        result.reserve(view.size());
-        for (size_t i = 0; i < view.size(); ++i)
-        {
-            result.push_back(std::tolower(view[i]));
-        }
-        result.shrink_to_fit();
-        return result;
-    }
-
-    auto get_line(std::string_view& view)->std::string_view
-    {
-        if (view.empty())
-        {
-            return std::string_view{};
-        }
-        
-        const size_t firstNewline = view.find_first_of('\n');
-        const size_t firstReturn = view.find_first_of('\r');
-        if (firstReturn != std::string::npos)
-        {
-            // We probably have both, but in this case we need to return the line
-            // w/o the return but cut out the return in the parent view
-            std::string_view result_view = view.substr(0, firstReturn);
-            view.remove_prefix(firstNewline + 1);
-            return result_view;
-        }
-        else
-        {
-            std::string_view result_view = view.substr(0, firstNewline);
-            view.remove_prefix(firstNewline + 1);
-            return result_view;
-        }
-    }
-
-    std::vector<std::string_view> separate_tokens_in_view(std::string_view view, const char delimiter)
-    {
-        std::vector<std::string_view> results;
-        while (!view.empty())
-        {
-            size_t distanceToDelimiter = view.find_first_of(delimiter);
-            if (distanceToDelimiter != std::string::npos && distanceToDelimiter > 0)
-            {
-                results.emplace_back(view.substr(0, distanceToDelimiter));
-                view.remove_prefix(distanceToDelimiter + 1);
-            }
-            else if (distanceToDelimiter == 0)
-            {
-                view.remove_prefix(1);
-            }
-            else
-            {
-                results.emplace_back(view);
-                break;
-            }
-        }
-        // We assume tokens here are split by spaces
-        return results;
-    }
-
     template<size_t numVecElements>
     auto extract_vector(std::vector<std::string_view>& tokens) -> mango::Vector<float, numVecElements>
     {

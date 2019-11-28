@@ -18,6 +18,5 @@ ccDataHandle LoadObjModelFromFile(
     RequiresTangents requires_tangents,
     OptimizeMesh optimize_mesh);
 
-ObjectModelData RetrieveLoadedObjModel(ccDataHandle handle);
 
 #endif //!RESOURCE_CONTEXT_OBJ_MODEL_HPP
