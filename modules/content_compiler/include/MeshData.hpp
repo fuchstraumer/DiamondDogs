@@ -50,10 +50,6 @@ struct ObjectModelData
 };
 
 // Upper half of file content hash
-struct ccDataHandle
-{
-    uint64_t low;
-    uint64_t high;
-};
+using ccDataHandle = uint64_t;
 
 #endif //!ASSET_PIPELINE_MESH_DATA_HPP

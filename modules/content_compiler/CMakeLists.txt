@@ -29,6 +29,8 @@ ADD_MODULE(content_compiler
     "include/ObjMaterial.hpp"
     "include/ObjModel.hpp"
     "src/ContentCompilerAPI.cpp"
+    "src/ContentCompilerImpl.hpp"
+    "src/ContentCompilerImpl.cpp"
     "src/InternalTypes.hpp"
     "src/LoadedDataCache.hpp"
     "src/LoadedDataCache.cpp"

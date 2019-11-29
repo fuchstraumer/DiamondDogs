@@ -75,8 +75,8 @@ ccDataHandle LoadMaterialFile(const char* fname, const char* directory)
     mango::filesystem::File materialFile(filePath.string());
     mango::ConstMemory materialFileMemory = materialFile;
 
-    mango::XX3HASH128 mtlHash = mango::xx3hash128(0xfeed, materialFileMemory);
-    ccDataHandle resultMaterialHandle{ mtlHash[0], mtlHash[1] };
+    mango::XX3HASH64 mtlHash = mango::xx3hash64(0xfeed, materialFileMemory);
+    ccDataHandle resultMaterialHandle{ mtlHash };
 
     std::string_view materialStrView(reinterpret_cast<const char*>(materialFileMemory.address), materialFileMemory.size);
 
@@ -87,7 +87,7 @@ ccDataHandle LoadMaterialFile(const char* fname, const char* directory)
 
     bool hasD{ false };
     bool hasTr{ false };
-
+#
     while (!materialStrView.empty())
     {
         using namespace svutil;
@@ -271,6 +271,8 @@ ccDataHandle LoadMaterialFile(const char* fname, const char* directory)
     {
         uniqueTexturesVec.emplace_back(sv);
     }
+
+    
 
     LoadedMtlFileData finalData;
 

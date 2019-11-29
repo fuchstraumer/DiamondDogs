@@ -2,8 +2,10 @@
 #ifndef CONTENT_COMPILER_INTERNAL_TYPES_HPP
 #define CONTENT_COMPILER_INTERNAL_TYPES_HPP
 #include "MeshData.hpp"
+#include "mango/image/image.hpp"
 #include <cstdint>
 #include <vector>
+#include <string>
 
 struct ObjectModelDataImpl
 {
@@ -18,10 +20,21 @@ struct ObjectModelDataImpl
     explicit operator ObjectModelData() const;
 };
 
+// Representation of data as it's first loaded from disk
 struct StoredTextureDataImpl
 {
-    const char* name{ nullptr };
-    size_t nameLen{ 0u };
+    std::string SourcePath;
+    mango::Bitmap bitmap;
+    enum class TextureType
+    {
+        Invalid = 0,
+        Color,
+        Alpha,
+        // Normals, AO, refl, displacement, etc.
+        // Anything that doesn't benefit from color encodings
+        Data,
+    };
+    TextureType Type{ TextureType::Invalid };
 };
 
 struct LoadedTextureDataImpl

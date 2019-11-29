@@ -75,11 +75,11 @@ namespace ObjLoader
         ObjFile(const char* fname) : file(fname)
         {
             memory = file;
-            checksum = mango::xx3hash128(checksumHashSeed, memory);
+            checksum = mango::xxhash64(checksumHashSeed, memory);
         }
         mango::filesystem::File file;
         mango::ConstMemory memory;
-        mango::XX3HASH128 checksum;
+        mango::XX3HASH64 checksum;
     };
 
     /*
@@ -404,11 +404,11 @@ ccDataHandle LoadObjModelFromFile(
     using namespace ObjLoader;
 
     ObjFileData fileData;
-    mango::XX3HASH128 fileChecksum;
+    mango::XX3HASH64 fileChecksum;
     
     {
         ObjFile modelFile(model_filename);
-        const ccDataHandle handle{ modelFile.checksum[0], modelFile.checksum[1] };
+        const ccDataHandle handle{ modelFile.checksum };
         // Check to see if we already loaded this file
         ObjectModelDataImpl* existingData = TryAndGetModelData(handle);
         if (existingData != nullptr)
@@ -420,7 +420,7 @@ ccDataHandle LoadObjModelFromFile(
         fileData.ParseFile(modelFile, static_cast<bool>(requires_normals), static_cast<bool>(requires_tangents));
     }
 
-    ccDataHandle modelHandle{ fileChecksum.data[0], fileChecksum.data[1] };
+    ccDataHandle modelHandle = fileChecksum;
     AddObjectModelData(modelHandle, fileData.RetrieveData(static_cast<bool>(requires_normals), static_cast<bool>(requires_tangents)));
     return modelHandle;
 }
