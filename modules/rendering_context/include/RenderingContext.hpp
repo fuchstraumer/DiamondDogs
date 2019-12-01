@@ -6,15 +6,16 @@
 #include <vector>
 #include <string>
 #include <functional>
-#include "vulkan/vulkan.h"
+#include <vulkan/vulkan_core.h>
 
+#define VTF_DEBUG_INFO_DISABLE
 #ifdef VTF_DEBUG_INFO_DISABLE
 constexpr static bool VTF_USE_DEBUG_INFO = false;
 #else
 constexpr static bool VTF_USE_DEBUG_INFO = true;
 #endif
 
-#define VTF_VALIDATION_ENABLED_CONF
+//#define VTF_VALIDATION_ENABLED_CONF
 #ifdef VTF_VALIDATION_ENABLED_CONF
 constexpr static bool VTF_VALIDATION_ENABLED = true;
 #else
@@ -64,6 +65,9 @@ using path_drop_callback_t = delegate_t<void(int count, const char** paths)>;
 using mouse_button_callback_t = delegate_t<void(int button, int action, int mods)>;
 using keyboard_key_callback_t = delegate_t<void(int key, int scancode, int action, int mods)>;
 
+using post_physical_device_pre_logical_device_function_t = void(*)(VkPhysicalDevice dvc, VkPhysicalDeviceFeatures** features, void** pNext);
+using post_logical_device_function_t = void(*)(void* pNext);
+
 struct SwapchainCallbacks {
     delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> SwapchainCreated;
     delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> BeginResize;
@@ -107,9 +111,7 @@ public:
     PlatformWindow* Window() noexcept;
     GLFWwindow* glfwWindow() noexcept;
 
-    const std::vector<std::string>& InstanceExtensions() const noexcept;
-    const std::vector<std::string>& DeviceExtensions() const noexcept;
-
+    static void AddSetupFunctions(post_physical_device_pre_logical_device_function_t fn0, post_logical_device_function_t fn1);
     static void AddSwapchainCallbacks(SwapchainCallbacks callbacks);
     static void GetWindowSize(int& w, int& h);
     static void GetFramebufferSize(int& w, int& h);

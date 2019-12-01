@@ -23,6 +23,10 @@
 #include "easylogging++.h"
 #include "nlohmann/json.hpp"
 
+static post_physical_device_pre_logical_device_function_t postPhysicalPreLogicalSetupFunction = nullptr;
+static post_logical_device_function_t postLogicalDeviceFunction = nullptr;
+static void* usedNextPtr = nullptr;
+static VkPhysicalDeviceFeatures* enabledDeviceFeatures = nullptr;
 static std::vector<std::string> extensionsBuffer;
 static std::string windowingModeBuffer;
 static bool validationEnabled{ false };
@@ -355,8 +359,22 @@ void createLogicalDevice(const nlohmann::json& json_file, VkSurfaceKHR surface, 
     pack.OptionalExtensionCount = static_cast<uint32_t>(requested_extensions.size());
     pack.OptionalExtensionNames = requested_extensions.data();
 
+    if (usedNextPtr != nullptr)
+    {
+        pack.pNextChainStart = usedNextPtr;
+    }
+
+    if (enabledDeviceFeatures != nullptr)
+    {
+        pack.featuresToEnable = enabledDeviceFeatures;
+    }
+
     *device = std::make_unique<vpr::Device>(instance, physical_device, surface, &pack, nullptr, 0);
 
+    if (postLogicalDeviceFunction != nullptr)
+    {
+        postLogicalDeviceFunction(usedNextPtr);
+    }
 }
 
 static std::atomic<bool>& GetShouldResizeFlag() {
@@ -406,6 +424,11 @@ void RenderingContext::Construct(const char* file_path) {
     window->SetWindowUserPointer(this);
     // Physical devices to be redone for multi-GPU support if device group extension is supported.
     physicalDevices.emplace_back(std::make_unique<vpr::PhysicalDevice>(vulkanInstance->vkHandle()));
+
+    if (postPhysicalPreLogicalSetupFunction != nullptr)
+    {
+        postPhysicalPreLogicalSetupFunction(physicalDevices.back()->vkHandle(), &enabledDeviceFeatures, &usedNextPtr);
+    }
 
     {
         size_t num_instance_extensions = 0;
@@ -604,6 +627,12 @@ void AddSwapchainCallbacks(SwapchainCallbacks callbacks) {
     if (callbacks.SwapchainDestroyed) {
         SwapchainCallbacksStorage.DestroyedFns.emplace_front(callbacks.SwapchainDestroyed);
     }
+}
+
+void RenderingContext::AddSetupFunctions(post_physical_device_pre_logical_device_function_t fn0, post_logical_device_function_t fn1)
+{
+    postPhysicalPreLogicalSetupFunction = fn0;
+    postLogicalDeviceFunction = fn1;
 }
 
 void RenderingContext::AddSwapchainCallbacks(SwapchainCallbacks callbacks) {
