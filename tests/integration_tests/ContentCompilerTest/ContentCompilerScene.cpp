@@ -57,6 +57,11 @@ void main() {
 }
 )";
 
+struct MaterialLoadingCompile
+{
+
+};
+
 struct ubo_data_t
 {
     glm::mat4 model;

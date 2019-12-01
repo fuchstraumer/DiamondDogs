@@ -3,26 +3,6 @@
 #include <unordered_map>
 #include "mango/core/hash.hpp"
 
-namespace std
-{
-    template<>
-    struct hash<ccDataHandle>
-    {
-        size_t operator()(const ccDataHandle& hash_val) const noexcept
-        {
-            return hash<uint64_t>()(hash_val.low) ^ hash<uint64_t>()(hash_val.high);
-        }
-    };
-}
-
-struct EqualityOperator
-{
-    bool operator()(const ccDataHandle& h0, const ccDataHandle& h1) const noexcept
-    {
-        return (h0.low == h1.low) && (h0.high == h1.high);
-    }
-};
-
 ObjectModelDataImpl::operator ObjectModelData() const
 {
     ObjectModelData result;
@@ -40,7 +20,7 @@ ObjectModelDataImpl::operator ObjectModelData() const
     return result;
 }
 
-static std::unordered_map<ccDataHandle, ObjectModelDataImpl, std::hash<ccDataHandle>, EqualityOperator> objectModelDatum;
+static std::unordered_map<ccDataHandle, ObjectModelDataImpl> objectModelDatum;
 
 ObjectModelDataImpl* TryAndGetModelData(const ccDataHandle handle)
 {

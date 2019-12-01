@@ -9,6 +9,13 @@ struct ContentCompilerImpl;
 struct VkImageCreateInfo;
 struct VkImageViewCreateInfo;
 
+struct ContentCompileUpdateFns
+{
+    void (*StartingCompile)(void* instancePtr, const size_t numSteps, void* userData);
+    bool (*StepCompleted)(void* instancePtr, const uint32_t typeHash, const void* stepData, void* userData);
+    void (*EndingCompile)(void* instancePtr, const void* finalData, void* userData);
+};
+
 class ContentCompiler
 {
     std::unique_ptr<ContentCompilerImpl> impl{ nullptr };

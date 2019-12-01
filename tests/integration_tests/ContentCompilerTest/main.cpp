@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <cassert>
 #include "ObjModel.hpp"
+#include "ObjMaterial.hpp"
 #include "MeshProcessing.hpp"
 #include "easylogging++.h"
 INITIALIZE_EASYLOGGINGPP
@@ -46,6 +47,7 @@ int main(int argc, char* argv[])
     assert(fs::exists(model_file));
     static const std::string model_file_str(model_file.string());
 
+    ccDataHandle materialHandle = LoadMaterialFile("exterior.mtl", model_dir_str.c_str());
     ccDataHandle dataHandle = LoadObjModelFromFile(model_file_str.c_str(), model_dir_str.c_str(), RequiresNormals{ true }, RequiresTangents{ true }, OptimizeMesh{ false });
     CalculateTangents(dataHandle);
     //SortMeshMaterialRanges(dataHandle);
