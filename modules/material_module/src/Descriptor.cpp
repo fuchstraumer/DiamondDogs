@@ -108,15 +108,30 @@ size_t Descriptor::TotalUsedSets() const
     return usedSets.size() + 1;
 }
 
-void Descriptor::BindResource(const char* _name, VkDescriptorType type, VulkanResource* rsrc)
+void Descriptor::BindResource(const char* _name, const VkDescriptorType type, const VulkanResource* rsrc)
 {
     const size_t idx = bindingLocations.at(_name);
     templ->BindResourceToIdx(idx, type, rsrc);
 }
 
-void Descriptor::BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc)
+void Descriptor::BindResourceToIdx(const size_t idx, const VkDescriptorType type, const VulkanResource* rsrc)
 {
     templ->BindResourceToIdx(idx, type, rsrc);
+}
+
+void Descriptor::BindArrayResources(const size_t idx, const VkDescriptorType type, const size_t numResources, const VulkanResource** resources)
+{
+    templ->BindArrayResourcesToIdx(idx, type, numResources, resources);
+}
+
+void Descriptor::BindSingularArrayResourceToIdx(const size_t idx, const VkDescriptorType type, const size_t arrayIndex, const VulkanResource* resource)
+{
+    templ->BindSingularArrayResourceToIdx(idx, type, arrayIndex, resource);
+}
+
+void Descriptor::FillArrayRangeWithResource(const size_t idx, const VkDescriptorType type, const size_t arraySize, const VulkanResource* resource)
+{
+    templ->FillArrayRangeWithResource(idx, type, arraySize, resource);
 }
 
 size_t Descriptor::BindingLocation(const char * rsrc_name) const

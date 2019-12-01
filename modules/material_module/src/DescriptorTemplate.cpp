@@ -53,13 +53,23 @@ void DescriptorTemplate::AddLayoutBinding(VkDescriptorSetLayoutBinding binding) 
     }
 }
 
-void DescriptorTemplate::BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc) {
+void DescriptorTemplate::BindResourceToIdx(const size_t idx, const VkDescriptorType type, const VulkanResource* rsrc) {
     updateData.BindResourceToIdx(idx, type, rsrc);
 }
 
-void DescriptorTemplate::BindArrayResourcesToIdx(const size_t idx, const size_t num_descriptors, VkDescriptorType type, VulkanResource** resources)
+void DescriptorTemplate::BindArrayResourcesToIdx(const size_t idx, const VkDescriptorType type, const size_t num_descriptors, const VulkanResource** resources)
 {
-    updateData.BindArrayResourceToIdx(idx, num_descriptors, type, resources);
+    updateData.BindArrayResourcesToIdx(idx, type, num_descriptors, resources);
+}
+
+void DescriptorTemplate::BindSingularArrayResourceToIdx(const size_t idx, const VkDescriptorType type, const size_t arrayIndex, const VulkanResource* resource)
+{
+    updateData.BindSingularArrayResourceToIdx(idx, type, arrayIndex, resource);
+}
+
+void DescriptorTemplate::FillArrayRangeWithResource(const size_t idx, const VkDescriptorType type, const size_t arraySize, const VulkanResource* resource)
+{
+    updateData.FillArrayRangeWithResource(idx, type, arraySize, resource);
 }
 
 VkDescriptorUpdateTemplate DescriptorTemplate::UpdateTemplate() const noexcept {

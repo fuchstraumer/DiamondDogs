@@ -15,7 +15,7 @@ struct VulkanResource;
 class DescriptorPack;
 
 /*
-    The Descriptor is effectively a pool VkDescriptorSets, and a more effective way to manage multiple DescriptorPools. It serves DescriptorBinder
+    The Descriptor is effectively a pool of VkDescriptorSets, and a more effective way to manage multiple DescriptorPools. It serves DescriptorBinder
     instances to clients, which are what is used to actually use and access VkDescriptorSet handles.
 
     The Descriptor is also "adaptive": the max_sets quantity in the constructor is used to construct a single descriptor set with that capacity of
@@ -47,8 +47,14 @@ public:
     // frees all sets. call at the end of a frame, once all command buffers using this Descriptor have been consumed fully.
     void Reset();
     size_t TotalUsedSets() const;
-    void BindResource(const char* name, VkDescriptorType type, VulkanResource* rsrc);
-    void BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc);
+    void BindResource(const char* name, const VkDescriptorType type, const VulkanResource* rsrc);
+    void BindResourceToIdx(const size_t idx, const VkDescriptorType type, const VulkanResource* rsrc);
+    // Bind multiple varying array resources at given index from resources** array
+    void BindArrayResources(const size_t idx, const VkDescriptorType type, const size_t numResources, const VulkanResource** resources);
+    // Update a singular resource in a descriptor array
+    void BindSingularArrayResourceToIdx(const size_t idx, const VkDescriptorType type, const size_t arrayIndex, const VulkanResource* resource);
+    // 
+    void FillArrayRangeWithResource(const size_t idx, const VkDescriptorType type, const size_t arraySize, const VulkanResource* resource);
     size_t BindingLocation(const char* rsrc_name) const;
 
 private:
