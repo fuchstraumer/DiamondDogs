@@ -38,6 +38,32 @@ static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32
     loader.Start(); // restart threads
 }
 
+void PostPhysicalDevicePreLogicalDeviceFunction(VkPhysicalDevice device, VkPhysicalDeviceFeatures** deviceFeatures, void** pNext)
+{
+    VkPhysicalDeviceDescriptorIndexingFeaturesEXT indexingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT, nullptr };
+    VkPhysicalDeviceFeatures2 deviceFeatures2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &indexingFeatures };
+    vkGetPhysicalDeviceFeatures2(device, &deviceFeatures2);
+
+    if (indexingFeatures.descriptorBindingPartiallyBound && indexingFeatures.descriptorBindingVariableDescriptorCount)
+    {
+        VkPhysicalDeviceDescriptorIndexingFeaturesEXT* indexingFeaturesPtr = new VkPhysicalDeviceDescriptorIndexingFeaturesEXT(indexingFeatures);
+        *pNext = indexingFeaturesPtr;
+    }
+}
+
+void PostLogicalDeviceFunction(void* pNext)
+{
+    if (pNext)
+    {
+        VkPhysicalDeviceDescriptorIndexingFeaturesEXT* bindlessFeatures = reinterpret_cast<VkPhysicalDeviceDescriptorIndexingFeaturesEXT*>(pNext);
+        delete bindlessFeatures;
+    }
+}
+
+void EnableBindless(VkPhysicalDevice device)
+{
+}
+
 int main(int argc, char* argv[])
 {
     static const fs::path model_dir{ fs::canonical("../../../../assets/objs/bistro/") };
@@ -63,6 +89,7 @@ int main(int argc, char* argv[])
     vpr::PipelineCache::SetCacheDirectory(cacheDir.c_str());
 
     auto& renderingContext = RenderingContext::Get();
+    RenderingContext::AddSetupFunctions(&PostPhysicalDevicePreLogicalDeviceFunction, &PostLogicalDeviceFunction);
     renderingContext.Construct("RendererContextCfg.json");
 
     auto& resourceContext = ResourceContext::Get();
