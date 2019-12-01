@@ -272,10 +272,88 @@ ccDataHandle LoadMaterialFile(const char* fname, const char* directory)
         uniqueTexturesVec.emplace_back(sv);
     }
 
-    
-
     LoadedMtlFileData finalData;
+    for (const FileLoadedMaterial& material : loadedMaterials)
+    {
+        ObjMaterial objMaterial;
+        objMaterial.data = material.data;
 
+        const MaterialFileTextures& textures = material.textures;
+
+        auto assignTextureIdx = [&uniqueTexturesVec](const std::string_view& sv)
+        {
+            auto iter = std::find(uniqueTexturesVec.cbegin(), uniqueTexturesVec.cend(), sv);
+            assert(iter != std::cend(uniqueTexturesVec));
+            return std::distance(uniqueTexturesVec.cbegin(), iter);
+        };
+
+        if (!textures.ambient.empty())
+        {
+            objMaterial.textures.ambient = assignTextureIdx(textures.ambient);
+        }
+
+        if (!textures.diffuse.empty())
+        {
+            objMaterial.textures.diffuse = assignTextureIdx(textures.diffuse);
+        }
+
+        if (!textures.specular.empty())
+        {
+            objMaterial.textures.specular = assignTextureIdx(textures.specular);
+        }
+
+        if (!textures.specularHighlight.empty())
+        {
+            objMaterial.textures.specularHighlight = assignTextureIdx(textures.specularHighlight);
+        }
+
+        if (!textures.bump.empty())
+        {
+            objMaterial.textures.bump = assignTextureIdx(textures.bump);
+        }
+
+        if (!textures.displacement.empty())
+        {
+            objMaterial.textures.displacement = assignTextureIdx(textures.displacement);
+        }
+
+        if (!textures.alpha.empty())
+        {
+            objMaterial.textures.alpha = assignTextureIdx(textures.alpha);
+        }
+
+        if (!textures.reflection.empty())
+        {
+            objMaterial.textures.reflection = assignTextureIdx(textures.reflection);
+        }
+
+        if (!textures.roughness.empty())
+        {
+            objMaterial.textures.roughness = assignTextureIdx(textures.roughness);
+        }
+
+        if (!textures.metallic.empty())
+        {
+            objMaterial.textures.metallic = assignTextureIdx(textures.metallic);
+        }
+
+        if (!textures.sheen.empty())
+        {
+            objMaterial.textures.sheen = assignTextureIdx(textures.sheen);
+        }
+
+        if (!textures.emissive.empty())
+        {
+            objMaterial.textures.emissive = assignTextureIdx(textures.emissive);
+        }
+
+        if (!textures.normal.empty())
+        {
+            objMaterial.textures.normal = assignTextureIdx(textures.normal);
+        }
+
+        finalData.materials.emplace_back(objMaterial);
+    }
 
     return ccDataHandle();
 }
