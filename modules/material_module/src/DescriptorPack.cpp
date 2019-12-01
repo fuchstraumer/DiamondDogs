@@ -3,9 +3,9 @@
 #include "RenderingContext.hpp"
 // ShaderTools
 #include "core/ShaderPack.hpp"
-#include "core/ShaderResource.hpp"
-#include "core/ResourceUsage.hpp"
-#include "core/ResourceGroup.hpp"
+#include "resources/ShaderResource.hpp"
+#include "resources/ResourceUsage.hpp"
+#include "resources/ResourceGroup.hpp"
 #include "core/Shader.hpp"
 // VPR
 #include "PipelineLayout.hpp"
@@ -105,6 +105,19 @@ void DescriptorPack::retrieveResourceGroups()
 
 void DescriptorPack::createDescriptorTemplates()
 {
+    constexpr VkDescriptorBindingFlagsEXT bindlessFlags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT;
+
+    auto check_for_bindless_tag = [](const st::dll_retrieved_strings_t& strs)
+    {
+        for (size_t i = 0; i < strs.NumStrings; ++i)
+        {
+            if (strcmp(strs[i], "Bindless") == 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    };
 
     for (const auto* group : resourceGroups)
     {
@@ -123,7 +136,8 @@ void DescriptorPack::createDescriptorTemplates()
 
         for (const auto* rsrc : resource_ptrs)
         {
-            templ->AddLayoutBinding(rsrc->AsLayoutBinding());
+            auto tag_strs = rsrc->GetTags();
+            templ->AddLayoutBinding(rsrc->AsLayoutBinding(), check_for_bindless_tag(tag_strs) ? bindlessFlags : 0);
             binding_locs.emplace(rsrc->Name(), rsrc->BindingIndex());
         }
 
