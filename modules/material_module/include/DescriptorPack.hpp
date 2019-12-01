@@ -62,6 +62,7 @@ private:
     friend class Descriptor;
     std::vector<const st::ResourceGroup*> resourceGroups;
     std::unordered_map<std::string, size_t> rsrcGroupToIdxMap;
+    std::vector<bool> resourceGroupHasBindlessResources;
     std::vector<std::unique_ptr<DescriptorTemplate>> descriptorTemplates;
     std::vector<std::unique_ptr<Descriptor>> descriptors;
     std::vector<std::unique_ptr<Descriptor>> lastFrameDescriptors;

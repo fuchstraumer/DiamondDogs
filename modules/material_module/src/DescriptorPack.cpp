@@ -13,6 +13,7 @@
 #include "LogicalDevice.hpp"
 #include "VkDebugUtils.hpp"
 #include <cassert>
+#include <map>
 
 DescriptorPack::DescriptorPack(const st::ShaderPack * pack) : shaderPack(pack)
 {
@@ -84,8 +85,16 @@ void DescriptorPack::EndFrame()
         for (size_t i = 0; i < lastFrameDescriptors.size(); ++i)
         {
             const size_t high_water_mark = lastFrameDescriptors[i]->highWaterMark();
-            descriptors.emplace_back(std::make_unique<Descriptor>(lastFrameDescriptors[i]->device, lastFrameDescriptors[i]->typeCounts,
-                high_water_mark == 0u ? 1u : high_water_mark, lastFrameDescriptors[i]->templ, lastFrameDescriptors[i]->bindingLocations, lastFrameDescriptors[i]->name.c_str()));
+            const DescriptorCreateInfo descriptorInfo
+            {
+                lastFrameDescriptors[i]->device,
+                &lastFrameDescriptors[i]->typeCounts,
+                high_water_mark == 0u ? 1u : high_water_mark,
+                lastFrameDescriptors[i]->templ,
+                lastFrameDescriptors[i]->name.c_str(),
+                resourceGroupHasBindlessResources[i]
+            };
+            descriptors.emplace_back(std::make_unique<Descriptor>(descriptorInfo, std::move(lastFrameDescriptors[i]->bindingLocations)));
             descriptors[i]->setLayouts.resize(descriptors[i]->maxSets, descriptors[i]->templ->SetLayout());
         }
     }
@@ -101,6 +110,7 @@ void DescriptorPack::retrieveResourceGroups()
         resourceGroups.emplace_back(shaderPack->GetResourceGroup(group_names_dll[i]));
         rsrcGroupToIdxMap.emplace(std::string{ group_names_dll[i] }, resourceGroups.size() - 1u);
     }
+    resourceGroupHasBindlessResources.resize(group_names_dll.NumStrings, false);
 }
 
 void DescriptorPack::createDescriptorTemplates()
@@ -122,22 +132,44 @@ void DescriptorPack::createDescriptorTemplates()
     for (const auto* group : resourceGroups)
     {
         const std::string group_name{ group->Name() };
-
-        descriptorTemplates.emplace_back(std::make_unique<DescriptorTemplate>(group->Name()));
-
-        auto* templ = descriptorTemplates.back().get();
+        const size_t groupIdx = rsrcGroupToIdxMap.at(group_name);
 
         size_t num_rsrcs{ 0u };
         group->GetResourcePtrs(&num_rsrcs, nullptr);
         std::vector<const st::ShaderResource*> resource_ptrs(num_rsrcs);
         group->GetResourcePtrs(&num_rsrcs, resource_ptrs.data());
 
+        // before enabling flags with extra overhead, see if we even need to support them
+        std::map<uint32_t, bool> bindlessResources;
+        bool hasAnyBindlessResources = false;
+        for (const auto& rsrc : resource_ptrs)
+        {
+            auto tag_strs = rsrc->GetTags();
+            bool is_bindless = check_for_bindless_tag(tag_strs);
+            if (is_bindless)
+            {
+                hasAnyBindlessResources = true;
+            }
+            bindlessResources[rsrc->BindingIdx()] = is_bindless;
+        }
+
+        if (hasAnyBindlessResources)
+        {
+            resourceGroupHasBindlessResources[groupIdx] = true;
+        }
+
+        // if it has any bindless resources, we need to fully enable update after bind since the set (but not the bindings)
+        // might be updated after they're bound (or left partially bound)
+        descriptorTemplates.emplace_back(std::make_unique<DescriptorTemplate>(group_name, hasAnyBindlessResources));
+
+        auto* templ = descriptorTemplates.back().get();
+
         std::unordered_map<std::string, size_t> binding_locs;
 
         for (const auto* rsrc : resource_ptrs)
         {
             auto tag_strs = rsrc->GetTags();
-            templ->AddLayoutBinding(rsrc->AsLayoutBinding(), check_for_bindless_tag(tag_strs) ? bindlessFlags : 0);
+            templ->AddLayoutBinding(rsrc->AsLayoutBinding(), bindlessResources.at(rsrc->BindingIdx()) ? bindlessFlags : 0);
             binding_locs.emplace(rsrc->Name(), rsrc->BindingIndex());
         }
 
@@ -258,12 +290,23 @@ std::unique_ptr<Descriptor> DescriptorPack::createDescriptor(const std::string &
     const vpr::Device* device_ptr = RenderingContext::Get().Device();
     const size_t idx = iter->second;
 
+    DescriptorCreateInfo descriptorInfo
+    {
+        device_ptr,
+        &resourceGroups[idx]->DescriptorCounts(),
+        rsrcGroupUseFrequency[idx],
+        descriptorTemplates[idx].get(),
+        nullptr,
+        resourceGroupHasBindlessResources[idx]
+    };
+
     if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
     {
-        return std::make_unique<Descriptor>(device_ptr, resourceGroups[idx]->DescriptorCounts(), rsrcGroupUseFrequency[idx], descriptorTemplates[idx].get(), std::move(binding_locs), rsrc_group_name.c_str());
+        descriptorInfo.name = rsrc_group_name.c_str();
+        return std::make_unique<Descriptor>(descriptorInfo, std::move(binding_locs));
     }
     else
     {
-        return std::make_unique<Descriptor>(device_ptr, resourceGroups[idx]->DescriptorCounts(), rsrcGroupUseFrequency[idx], descriptorTemplates[idx].get(), std::move(binding_locs));
+        return std::make_unique<Descriptor>(descriptorInfo, std::move(binding_locs));
     }
 }
