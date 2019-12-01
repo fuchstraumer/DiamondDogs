@@ -7,6 +7,7 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <unordered_map>
 
 struct VulkanResource;
 
@@ -20,7 +21,7 @@ struct VulkanResource;
 class DescriptorTemplate {
 public:
 
-    DescriptorTemplate(std::string name);
+    DescriptorTemplate(std::string name, const bool updateAfterBind);
     ~DescriptorTemplate();
 
     VkDescriptorUpdateTemplate UpdateTemplate() const noexcept;
@@ -28,7 +29,7 @@ public:
     void UpdateSet(VkDescriptorSet set);
 
     const UpdateTemplateData& UpdateData() const noexcept;
-    void AddLayoutBinding(VkDescriptorSetLayoutBinding binding);
+    void AddLayoutBinding(VkDescriptorSetLayoutBinding binding, const VkDescriptorBindingFlagsEXT bindingFlags);
     void BindResourceToIdx(const size_t idx, const VkDescriptorType type, const VulkanResource* rsrc);
     void BindArrayResourcesToIdx(const size_t idx, const VkDescriptorType type, const size_t num_descriptors, const VulkanResource** resources);
     void BindSingularArrayResourceToIdx(const size_t idx, const VkDescriptorType type, const size_t arrayIndex, const VulkanResource* resource);
@@ -40,6 +41,7 @@ private:
     void createUpdateTemplate() const;
 
     mutable bool created{ false };
+    const bool updateAfterBindEnabled{ false };
     const std::string name;
     const vpr::Device* device;
     std::unique_ptr<vpr::DescriptorSetLayout> descriptorSetLayout{ nullptr };
@@ -49,7 +51,8 @@ private:
     UpdateTemplateData updateData;
     std::vector<VkDescriptorUpdateTemplateEntry> updateEntries;
     mutable bool namedDescriptorSet{ false };
-
+    std::unordered_map<uint32_t, VkDescriptorBindingFlagsEXT> extFlags;
+    std::unordered_map<uint32_t, VkDescriptorSetLayoutBindingFlagsCreateInfoEXT> extInfos;
 };
 
 #endif //!DIAMOND_DOGS_DESCRIPTOR_TEMPLATE_HPP
