@@ -195,7 +195,12 @@ void Descriptor::createPool()
         return;
     }
 
-    descriptorPools.emplace_back(std::make_unique<vpr::DescriptorPool>(device->vkHandle(), maxSets));
+    VkDescriptorPoolCreateFlags poolFlags{ VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT };
+    if (updateAfterBind)
+    {
+        poolFlags |= VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT;
+    }
+    descriptorPools.emplace_back(std::make_unique<vpr::DescriptorPool>(device->vkHandle(), maxSets, poolFlags));
     activePool = descriptorPools.back().get();
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, typeCounts.UniformBuffers * maxSets);
     activePool->AddResourceType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, typeCounts.UniformBuffersDynamic * maxSets);
