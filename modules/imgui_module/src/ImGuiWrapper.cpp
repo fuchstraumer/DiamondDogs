@@ -455,14 +455,14 @@ void ImGuiWrapper::createFontImage()
         0
     };
 
-    fontImage = resourceContext->CreateImage(&image_info, &view_info, 1, &image_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, "ImGuiWrapperFontImage");
+    fontImage = resourceContext->CreateImage(&image_info, &view_info, 1, &image_data, resource_usage::GPU_ONLY, ResourceCreateMemoryStrategyMinFragmentation | ResourceCreateUserDataAsString, (void*)"ImGuiWrapperFontImage");
 
 }
 
 void ImGuiWrapper::createFontSampler()
 {
     VkSamplerCreateInfo sampler_info = vpr::vk_sampler_create_info_base;
-    fontSampler = resourceContext->CreateSampler(&sampler_info, ResourceCreateUserDataAsString, "ImGuiFontSampler");
+    fontSampler = resourceContext->CreateSampler(&sampler_info, ResourceCreateUserDataAsString, (void*)"ImGuiFontSampler");
 }
 
 void ImGuiWrapper::createDescriptorSetLayout()
