@@ -33,8 +33,14 @@ UpdateTemplateData& UpdateTemplateData::operator=(UpdateTemplateData&& other) no
     return *this;
 }
 
-void UpdateTemplateData::BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource * rsrc)
+void UpdateTemplateData::BindResourceToIdx(const size_t idx, const VkDescriptorType type, const VulkanResource* rsrc)
 {
+
+    if (idx > rawEntries.size())
+    {
+        rawEntries.resize(idx + 1, UpdateTemplateDataEntry((VkBufferView)VK_NULL_HANDLE));
+    }
+
     switch (rsrc->Type)
     {
     case resource_type::BUFFER:
@@ -53,7 +59,7 @@ void UpdateTemplateData::BindResourceToIdx(size_t idx, VkDescriptorType type, Vu
     }
 }
 
-void UpdateTemplateData::BindArrayResourceToIdx(const size_t idx, const size_t numDescriptors, VkDescriptorType type, VulkanResource** resources)
+void UpdateTemplateData::BindArrayResourcesToIdx(const size_t idx, const VkDescriptorType type, const size_t numDescriptors, const VulkanResource** resources)
 {
     // really the only optimization we can pull with this method without too much restructuring
     const size_t requiredSize = idx + numDescriptors;
@@ -69,6 +75,67 @@ void UpdateTemplateData::BindArrayResourceToIdx(const size_t idx, const size_t n
     }
 }
 
+void UpdateTemplateData::BindSingularArrayResourceToIdx(const size_t idx, const VkDescriptorType type, const size_t arrayIndex, const VulkanResource* resource)
+{
+    // we just lay our array descriptors out linearly
+    const size_t finalIndex = idx + arrayIndex;
+    if (finalIndex > rawEntries.size())
+    {
+        rawEntries.resize(finalIndex);
+    }
+
+    BindResourceToIdx(finalIndex, type, resource);
+}
+
+void UpdateTemplateData::FillArrayRangeWithResource(const size_t idx, const VkDescriptorType type, const size_t arraySize, const VulkanResource* resource)
+{
+    const size_t requiredSize = idx + arraySize;
+    if (requiredSize > rawEntries.size())
+    {
+        rawEntries.resize(requiredSize);
+    }
+
+    UpdateTemplateDataEntry rsrcDescriptor;
+    switch (type)
+    {
+    case VK_DESCRIPTOR_TYPE_SAMPLER:
+        rsrcDescriptor = UpdateTemplateDataEntry{ VkDescriptorImageInfo{ (VkSampler)resource->Handle, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED } };
+        break;
+    case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+        rsrcDescriptor = UpdateTemplateDataEntry{
+            VkDescriptorImageInfo{ (VkSampler)resource->Sampler, (VkImageView)resource->ViewHandle,
+            imageLayoutFromUsage(reinterpret_cast<VkImageCreateInfo*>(resource->Info)->usage) } };
+        break;
+    case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+        [[fallthrough]];
+    case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+        rsrcDescriptor = UpdateTemplateDataEntry{
+            VkDescriptorImageInfo{ VK_NULL_HANDLE, (VkImageView)resource->ViewHandle,
+            imageLayoutFromUsage(reinterpret_cast<VkImageCreateInfo*>(resource->Info)->usage) } };
+        break;
+    case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+        [[fallthrough]];
+    case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
+        rsrcDescriptor = UpdateTemplateDataEntry((VkBufferView)resource->ViewHandle);
+        break;
+    case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+        [[fallthrough]];
+    case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+        [[falthrough]];
+    case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+        [[fallthrough]];
+    case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+        rsrcDescriptor = UpdateTemplateDataEntry{ VkDescriptorBufferInfo { (VkBuffer)resource->Handle, 0u,
+            reinterpret_cast<const VkBufferCreateInfo*>(resource->Info)->size } };
+        break;
+    default:
+        throw std::domain_error("Unsupported VkDescriptorType for binding to UpdateTemplateData!");
+    };
+
+    // Fill rawEntries with the given resource descriptor.
+    std::fill(rawEntries.begin() + idx, rawEntries.begin() + idx + arraySize, rsrcDescriptor);
+}
+
 const void* UpdateTemplateData::Data() const noexcept
 {
     return rawEntries.data();
@@ -79,89 +146,36 @@ size_t UpdateTemplateData::Size() const noexcept
     return rawEntries.size();
 }
 
-void UpdateTemplateData::bindBufferDescriptor(const size_t idx, VkDescriptorType type, VulkanResource* rsrc) noexcept
+void UpdateTemplateData::bindBufferDescriptor(const size_t idx, const VkDescriptorType type, const VulkanResource* rsrc) noexcept
 {
-
-    /// chose to get this ahead of time, as we need it twice: then, the branch is set to check for not-true as this will be more likely
-    /// than it being true (most resources aren't texel buffers). layout is weird but trying to help the compiler optimize here i hope
     const bool is_texel_buffer = (type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) || (type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER);
-
-    if (idx < rawEntries.size())
+    const VkBufferCreateInfo* bufferInfo = reinterpret_cast<const VkBufferCreateInfo*>(rsrc->Info);
+    if (!is_texel_buffer)
     {
-        if (!is_texel_buffer)
-        {
-            rawEntries[idx].BufferInfo.buffer = (VkBuffer)rsrc->Handle;
-            rawEntries[idx].BufferInfo.range = reinterpret_cast<const VkBufferCreateInfo*>(rsrc->Info)->size;
-        }
-        else
-        {
-            rawEntries[idx] = std::move(UpdateTemplateDataEntry((VkBufferView)rsrc->ViewHandle));
-        }
-    }
-    else {
-        rawEntries.resize(idx + 1);
-        if (!is_texel_buffer)
-        {
-            rawEntries[idx] = std::move(UpdateTemplateDataEntry{ VkDescriptorBufferInfo {
-                 (VkBuffer)rsrc->Handle,
-                 0u,
-                 reinterpret_cast<const VkBufferCreateInfo*>(rsrc->Info)->size
-            } });
-        }
-        else
-        {
-            rawEntries[idx] = std::move(UpdateTemplateDataEntry{ (VkBufferView)rsrc->ViewHandle });
-        }
-    }
-
-}
-
-void UpdateTemplateData::bindImageDescriptor(const size_t idx, VkDescriptorType type, VulkanResource* rsrc) noexcept
-{
-    if (idx < rawEntries.size())
-    {
-
-        auto& raw_entry = rawEntries[idx];
-        raw_entry.ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        if (type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-        {
-            raw_entry.ImageInfo.imageView = (VkImageView)rsrc->ViewHandle;
-            raw_entry.ImageInfo.sampler = (VkSampler)rsrc->Sampler;
-        }
-        else
-        {
-            raw_entry.ImageInfo.imageView = (VkImageView)rsrc->ViewHandle;
-        }
-
-    }
-    else {
-
-        rawEntries.resize(idx + 1);
-        const VkImageCreateInfo* img_create_info = reinterpret_cast<VkImageCreateInfo*>(rsrc->Info);
-        rawEntries[idx].ImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        if (type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-        {
-            rawEntries[idx] = std::move(UpdateTemplateDataEntry{ VkDescriptorImageInfo{ (VkSampler)rsrc->Sampler, (VkImageView)rsrc->ViewHandle, imageLayoutFromUsage(img_create_info->usage) } });
-        }
-        else
-        {
-            rawEntries[idx] = std::move(UpdateTemplateDataEntry{ VkDescriptorImageInfo{ VK_NULL_HANDLE, (VkImageView)rsrc->ViewHandle, imageLayoutFromUsage(img_create_info->usage) } });
-        }
-
-    }
-}
-
-void UpdateTemplateData::bindSamplerDescriptor(const size_t idx, VulkanResource* rsrc) noexcept {
-    if (idx < rawEntries.size())
-    {
-        auto& raw_entry = rawEntries[idx];
-        raw_entry.ImageInfo.sampler = (VkSampler)rsrc->Handle;
+        rawEntries[idx] = UpdateTemplateDataEntry{ VkDescriptorBufferInfo { (VkBuffer)rsrc->Handle, 0u, bufferInfo->size } };
     }
     else
     {
-        rawEntries.resize(idx + 1);
-        rawEntries[idx] = std::move(UpdateTemplateDataEntry{ VkDescriptorImageInfo{ (VkSampler)rsrc->Handle, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED } });
+        // texel buffers are just formatted views of regular buffers, so all we need to bind them is a buffer view handle
+        rawEntries[idx] = UpdateTemplateDataEntry{ (VkBufferView)rsrc->ViewHandle };
     }
+}
+
+void UpdateTemplateData::bindImageDescriptor(const size_t idx, const VkDescriptorType type, const VulkanResource* rsrc) noexcept
+{
+    auto& raw_entry = rawEntries[idx];
+    const VkImageCreateInfo* img_create_info = reinterpret_cast<VkImageCreateInfo*>(rsrc->Info);
+    if (type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+    {
+        raw_entry = UpdateTemplateDataEntry{ VkDescriptorImageInfo{ (VkSampler)rsrc->Sampler, (VkImageView)rsrc->ViewHandle, imageLayoutFromUsage(img_create_info->usage) } };
+    }
+    else
+    {
+        raw_entry = UpdateTemplateDataEntry{ VkDescriptorImageInfo{ VK_NULL_HANDLE, (VkImageView)rsrc->ViewHandle, imageLayoutFromUsage(img_create_info->usage) } };
+    }
+}
+
+void UpdateTemplateData::bindSamplerDescriptor(const size_t idx, const VulkanResource* rsrc) noexcept {
+    auto& raw_entry = rawEntries[idx];
+    raw_entry = UpdateTemplateDataEntry{ VkDescriptorImageInfo{ (VkSampler)rsrc->Handle, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED } };
 }

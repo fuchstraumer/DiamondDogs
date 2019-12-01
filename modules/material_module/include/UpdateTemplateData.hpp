@@ -26,16 +26,19 @@ public:
     UpdateTemplateData& operator=(const UpdateTemplateData& other) noexcept;
     UpdateTemplateData& operator=(UpdateTemplateData&& other) noexcept;
 
-    void BindResourceToIdx(size_t idx, VkDescriptorType type, VulkanResource* rsrc);
-    void BindArrayResourceToIdx(const size_t idx, const size_t numDescriptors, VkDescriptorType type, VulkanResource** resources);
+    void BindResourceToIdx(const size_t idx, const VkDescriptorType type, const VulkanResource* rsrc);
+    void BindArrayResourcesToIdx(const size_t idx, const VkDescriptorType type, const size_t numDescriptors, const VulkanResource** resources);
+    void BindSingularArrayResourceToIdx(const size_t idx, const VkDescriptorType type, const size_t arrayIndex, const VulkanResource* resource);
+    // Useful for filling bindless arrays with starting resources
+    void FillArrayRangeWithResource(const size_t idx, const VkDescriptorType type, const size_t arraySize, const VulkanResource* resource);
     const void* Data() const noexcept;
     size_t Size() const noexcept;
 
 private:
 
-    void bindSamplerDescriptor(const size_t idx, VulkanResource* rsrc) noexcept;
-    void bindBufferDescriptor(const size_t idx, VkDescriptorType type, VulkanResource* rsrc) noexcept;
-    void bindImageDescriptor(const size_t idx, VkDescriptorType type, VulkanResource * rsrc) noexcept;
+    void bindSamplerDescriptor(const size_t idx, const VulkanResource* rsrc) noexcept;
+    void bindBufferDescriptor(const size_t idx, const VkDescriptorType type, const VulkanResource* rsrc) noexcept;
+    void bindImageDescriptor(const size_t idx, const VkDescriptorType type, const VulkanResource* rsrc) noexcept;
     std::vector<UpdateTemplateDataEntry> rawEntries;
 
 };
