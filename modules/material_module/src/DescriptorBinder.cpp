@@ -33,7 +33,8 @@ void DescriptorBinder::BindResourceToIdx(const std::string& descr, size_t rsrc_i
 void DescriptorBinder::BindResource(const char* descr, const char* rsrc_name, VkDescriptorType type, VulkanResource* rsrc)
 {
     const size_t descr_idx = descriptorIdxMap.at(descr);
-    const size_t resource_idx = parentDescriptors[descr_idx]->bindingLocations.at(rsrc_name);
+    const Descriptor* parentDescriptor = parentDescriptors[descr_idx];
+    const size_t resource_idx = parentDescriptor->bindingLocations.at(rsrc_name);
     updateTemplData[descr_idx].BindResourceToIdx(resource_idx, type, rsrc);
     dirtySets[descr_idx] = true;
 }
@@ -48,9 +49,17 @@ void DescriptorBinder::Update()
             continue;
         }
         size_t idx = std::distance(dirtySets.begin(), iter);
-        VkDescriptorSet handle = parentDescriptors[idx]->fetchNewSet();
-        vkUpdateDescriptorSetWithTemplate(parentDescriptors[idx]->device->vkHandle(), handle, templHandles[idx], updateTemplData[idx].Data());
-        setHandles[idx] = handle;
+        VkDescriptorSet setHandle{ VK_NULL_HANDLE };
+        if (!parentDescriptors[idx]->AllowsUpdatingAfterBind())
+        {
+            setHandle = parentDescriptors[idx]->fetchNewSet();
+        }
+        else
+        {
+            setHandle = parentDescriptors[idx]->availSets.back();
+        }
+        vkUpdateDescriptorSetWithTemplate(parentDescriptors[idx]->device->vkHandle(), setHandle, templHandles[idx], updateTemplData[idx].Data());
+        setHandles[idx] = setHandle;
         *iter = false;
     }
 

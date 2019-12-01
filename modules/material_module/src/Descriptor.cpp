@@ -10,15 +10,9 @@ static std::atomic<size_t> gSetsAllocated{ 0u };
 static std::atomic<size_t> gSetsDestroyed{ 0u };
 static std::atomic<int64_t> gSetsAlive{ 0u };
 
-Descriptor::Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ,
-    std::unordered_map<std::string, size_t> binding_locs, const char* _name) : device{ _device }, maxSets{ uint32_t(max_sets) }, templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()),
-    bindingLocations{ binding_locs }, typeCounts{ rsrc_counts }, name{ _name }
-{
-    createPool();
-}
-
-Descriptor::Descriptor(const vpr::Device * _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ, std::unordered_map<std::string, size_t>&& binding_locations) : device{ _device }, maxSets{ uint32_t(max_sets) },
-    templ{ _templ }, setLayouts(max_sets, _templ->SetLayout()), bindingLocations{ std::move(binding_locations) }, typeCounts{ rsrc_counts }
+Descriptor::Descriptor(const DescriptorCreateInfo& createInfo, std::unordered_map<std::string, size_t> bindingLocations) : device{ createInfo.device }, maxSets{ uint32_t(createInfo.maxSets) },
+    templ{ createInfo.templ }, typeCounts{ *createInfo.rsrcCounts }, name{ createInfo.name }, updateAfterBind{ createInfo.updateAfterBind }, bindingLocations{ std::move(bindingLocations) },
+    setLayouts(createInfo.maxSets, createInfo.templ->SetLayout())
 {
     createPool();
 }
@@ -138,6 +132,11 @@ void Descriptor::FillArrayRangeWithResource(const size_t idx, const VkDescriptor
 size_t Descriptor::BindingLocation(const char * rsrc_name) const
 {
     return bindingLocations.at(rsrc_name);
+}
+
+bool Descriptor::AllowsUpdatingAfterBind() const noexcept
+{
+    return updateAfterBind;
 }
 
 VkDescriptorSet Descriptor::fetchNewSet() noexcept

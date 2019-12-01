@@ -5,6 +5,7 @@
 #include "DescriptorTemplate.hpp"
 #include "DescriptorBinder.hpp"
 #include "common/UtilityStructs.hpp"
+#include "utility/tagged_bool.hpp"
 #include <memory>
 #include <atomic>
 #include <vector>
@@ -13,6 +14,20 @@
 
 struct VulkanResource;
 class DescriptorPack;
+
+struct DescriptorCreateInfo
+{
+    const vpr::Device* device{ nullptr };
+    // Used to allocate slots for descriptors, so it must be accurate
+    const st::descriptor_type_counts_t* rsrcCounts{ nullptr };
+    // Sets initial count of descriptor sets, but will adjust dynamically as needed
+    size_t maxSets;
+    DescriptorTemplate* templ{ nullptr };
+    const char* name{ nullptr };
+    // If true, descriptor count will actually just be 1 and we won't dynamically spawn descriptor
+    // sets as new resources are bound (since updating->use doesn't invalidate existing ones)
+    bool updateAfterBind{ false };
+};
 
 /*
     The Descriptor is effectively a pool of VkDescriptorSets, and a more effective way to manage multiple DescriptorPools. It serves DescriptorBinder
@@ -32,16 +47,11 @@ class DescriptorPack;
     further VkDescriptorSets (i.e, we can update resources we expect to never change and leave frequently updated things to clients).
 */
 class Descriptor {
+    Descriptor(const Descriptor&) = delete;
+    Descriptor& operator=(const Descriptor&) = delete;
 public:
 
-    Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* _templ,
-        std::unordered_map<std::string, size_t> binding_locs, const char* name);
-
-    /*
-        max_sets is used to set how many sets are initially allocated, but if this number is exceeded a new pool will be created
-    */
-    Descriptor(const vpr::Device* _device, const st::descriptor_type_counts_t& rsrc_counts, size_t max_sets, DescriptorTemplate* templ,
-        std::unordered_map<std::string, size_t>&& binding_locations);
+    Descriptor(const DescriptorCreateInfo& createInfo, std::unordered_map<std::string, size_t> bindingLocations);
     ~Descriptor();
 
     // frees all sets. call at the end of a frame, once all command buffers using this Descriptor have been consumed fully.
@@ -56,6 +66,7 @@ public:
     // 
     void FillArrayRangeWithResource(const size_t idx, const VkDescriptorType type, const size_t arraySize, const VulkanResource* resource);
     size_t BindingLocation(const char* rsrc_name) const;
+    bool AllowsUpdatingAfterBind() const noexcept;
 
 private:
     friend class DescriptorBinder;
@@ -69,6 +80,7 @@ private:
     size_t highWaterMark() const noexcept;
 
     uint32_t maxSets{ 0u };
+    const bool updateAfterBind{ false };
     const vpr::Device* device{ nullptr };
     DescriptorTemplate* templ{ nullptr };
     st::descriptor_type_counts_t typeCounts;
