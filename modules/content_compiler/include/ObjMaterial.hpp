@@ -3,6 +3,11 @@
 #define CONTENT_COMPILER_OBJ_MATERIAL_HPP
 #include "MeshData.hpp"
 
+constexpr static uint32_t ObjMaterialDataHashCode = "ObjMaterialData"_ccHashName;
+constexpr static uint32_t ObjMaterialTexturesHashCode = "ObjMaterialTextures"_ccHashName;
+constexpr static uint32_t ObjMaterialHashCode = "ObjMaterial"_ccHashName;
+constexpr static uint32_t ObjMaterialFileHashCode = "ObjMaterialFile"_ccHashName;
+
 struct ObjMaterialData
 {
     float ambient[3]{ 3e38f, 3e38f, 3e38f };
@@ -29,20 +34,23 @@ struct ObjMaterialData
 // file
 struct ObjMaterialTextures
 {
-    uint32_t ambient{ 0u };
-    uint32_t diffuse{ 0u };
-    uint32_t specular{ 0u };
-    uint32_t specularHighlight{ 0u };
-    uint32_t bump{ 0u };
-    uint32_t displacement{ 0u };
-    uint32_t alpha{ 0u };
-    uint32_t reflection{ 0u };
+    // used so that we know to set the actual index to our safe null descriptors, where those may be 
+    // at the time we set these up in rendering code
+    constexpr static uint32_t INVALID_IDX = std::numeric_limits<uint32_t>::max();
+    uint32_t ambient{ INVALID_IDX };
+    uint32_t diffuse{ INVALID_IDX };
+    uint32_t specular{ INVALID_IDX };
+    uint32_t specularHighlight{ INVALID_IDX };
+    uint32_t bump{ INVALID_IDX };
+    uint32_t displacement{ INVALID_IDX };
+    uint32_t alpha{ INVALID_IDX };
+    uint32_t reflection{ INVALID_IDX };
     // PBR extensions
-    uint32_t roughness{ 0u };
-    uint32_t metallic{ 0u };
-    uint32_t sheen{ 0u };
-    uint32_t emissive{ 0u };
-    uint32_t normal{ 0u };
+    uint32_t roughness{ INVALID_IDX };
+    uint32_t metallic{ INVALID_IDX };
+    uint32_t sheen{ INVALID_IDX };
+    uint32_t emissive{ INVALID_IDX };
+    uint32_t normal{ INVALID_IDX };
 };
 
 struct ObjMaterial
@@ -51,14 +59,26 @@ struct ObjMaterial
     ObjMaterialTextures textures;
 };
 
-struct ObjMaterialFile
+struct ParsedMtlFileData
 {
     size_t numMaterials{ 0u };
     ObjMaterial* materials{ nullptr };
+    cStringArray materialNames;
+    cStringArray uniqueTexturePaths;
+};
+
+struct LoadedMaterialData
+{
+    size_t numMaterials{ 0u };
+    ObjMaterial* materials{ nullptr };
+    cStringArray materialNames;
     size_t numTextures{ 0u };
     ccDataHandle* textures{ nullptr };
 };
 
-ccDataHandle LoadMaterialFile(const char* fname, const char* directory = nullptr);
+// Expects directory to search to be in userData. Parses .mtl files to extract material parameters from each material,
+// unique texture paths we need to load, and converts references to unique textures into indices in the array of unique
+// texture paths that we created. This can be used to then load the final data we want in the next step
+ccDataHandle ParseMaterialFile(const void* initialData, void* output, void* userData);
 
 #endif //!CONTENT_COMPILER_OBJ_MATERIAL_HPP

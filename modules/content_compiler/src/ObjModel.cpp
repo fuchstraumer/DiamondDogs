@@ -144,6 +144,7 @@ namespace ObjLoader
     {
 
         using namespace svutil;
+        // from const u8* to const char* -> wish we didn't have to do reinterpret_cast for this though
         const char* const modelMemoryBegin = reinterpret_cast<const char*>(modelFile.memory.address);
         const size_t modelMemorySize = modelFile.memory.size;
         std::string_view modelMemoryView(modelMemoryBegin, modelMemorySize);

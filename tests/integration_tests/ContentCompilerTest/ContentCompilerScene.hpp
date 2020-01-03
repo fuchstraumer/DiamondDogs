@@ -65,7 +65,9 @@ protected:
     VkRenderPass renderPass;
     std::vector<VkFence> fences;
     std::vector<VkFramebuffer> framebuffers;
-    ObjectModelData modelData;
+    ccDataHandle objModel;
+    ccDataHandle materialData;
+    std::vector<ccDataHandle> textures;
 
     uint32_t modelIndexCount;
 

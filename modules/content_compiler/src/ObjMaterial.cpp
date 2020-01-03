@@ -1,4 +1,5 @@
 #include "ObjMaterial.hpp"
+#include "ContentCompilerAPI.hpp"
 #include "svUtil.hpp"
 #include "mango/filesystem/filesystem.hpp"
 #include "mango/core/memory.hpp"
@@ -32,18 +33,12 @@ struct FileLoadedMaterial
     MaterialFileTextures textures;
 };
 
-struct LoadedMtlFileData
-{
-    std::vector<ObjMaterial> materials;
-    std::vector<ccDataHandle> textures;
-};
-
 void extractVectorMtlParam(std::vector<std::string_view>& svs, float* dest, const size_t startIndex = 1)
 {
     const size_t numIterations = svs.size() - startIndex;
     for (size_t i = 0; i < numIterations; ++i)
     {
-        std::from_chars(svs[i].data(), svs[i].data() + svs[i].size(), dest[i]);
+        std::from_chars(svs[i + startIndex].data(), svs[i + startIndex].data() + svs[i + startIndex].size(), dest[i]);
     }
 }
 
@@ -53,10 +48,15 @@ void extractScalarMtlParam(const std::string_view& sv, T& val)
     std::from_chars(sv.data(), sv.data() + sv.size(), val);
 }
 
-ccDataHandle LoadMaterialFile(const char* fname, const char* directory)
+ccDataHandle ParseMaterialFile(const void* initialData, void* output, void* userData)
 {
     namespace fs = std::filesystem;
-    
+    const char* fname = reinterpret_cast<const char*>(initialData);
+    const char* directory = reinterpret_cast<const char*>(userData);
+    ParsedMtlFileData* loadedData = new ParsedMtlFileData();
+    // output data pointer is just LoadedMtlFileData
+    output = loadedData;
+
     fs::path filePath(fname);
     if (directory)
     {
@@ -265,14 +265,25 @@ ccDataHandle LoadMaterialFile(const char* fname, const char* directory)
         }
     }
 
-    std::vector<std::string_view> uniqueTexturesVec;
+    std::vector<std::string> uniqueTexturesVec;
     uniqueTexturesVec.reserve(uniqueTextures.size());
     for (auto sv : uniqueTextures)
     {
         uniqueTexturesVec.emplace_back(sv);
     }
 
-    LoadedMtlFileData finalData;
+
+    loadedData->uniqueTexturePaths = cStringArray(uniqueTexturesVec.size());
+    for (size_t i = 0; i < uniqueTexturesVec.size(); ++i)
+    {
+        loadedData->uniqueTexturePaths.set_string(i, uniqueTexturesVec[i].c_str());
+    }
+
+    loadedData->numMaterials = loadedMaterials.size();
+    loadedData->materialNames = cStringArray(loadedMaterials.size());
+    loadedData->materials = new ObjMaterial[loadedData->numMaterials];
+
+    size_t currentMaterial = 0u;
     for (const FileLoadedMaterial& material : loadedMaterials)
     {
         ObjMaterial objMaterial;
@@ -280,11 +291,16 @@ ccDataHandle LoadMaterialFile(const char* fname, const char* directory)
 
         const MaterialFileTextures& textures = material.textures;
 
-        auto assignTextureIdx = [&uniqueTexturesVec](const std::string_view& sv)
+        auto assignTextureIdx = [&loadedData](const std::string_view& sv)->uint32_t
         {
-            auto iter = std::find(uniqueTexturesVec.cbegin(), uniqueTexturesVec.cend(), sv);
-            assert(iter != std::cend(uniqueTexturesVec));
-            return std::distance(uniqueTexturesVec.cbegin(), iter);
+            for (size_t i = 0; i < loadedData->uniqueTexturePaths.num_strings(); ++i)
+            {
+                if (strcmp(loadedData->uniqueTexturePaths[i], sv.data()) == 0)
+                {
+                    return static_cast<uint32_t>(i);
+                }
+            }
+            return std::numeric_limits<uint32_t>::max();
         };
 
         if (!textures.ambient.empty())
@@ -352,8 +368,11 @@ ccDataHandle LoadMaterialFile(const char* fname, const char* directory)
             objMaterial.textures.normal = assignTextureIdx(textures.normal);
         }
 
-        finalData.materials.emplace_back(objMaterial);
+        loadedData->materials[currentMaterial] = objMaterial;
+        loadedData->materialNames.set_string(currentMaterial, material.name.data());
+        ++currentMaterial;
     }
 
-    return ccDataHandle();
+    return resultMaterialHandle;
 }
+

@@ -100,11 +100,10 @@ struct MaterialCreateInfo
     // Set based on maaxPerStageDescriptorSampledImages minimum, on vulkan.gpuinfo.org
     // I'm using it mostly because I expect exceeding this, even in a bindless mode, to have perf implications
     constexpr static size_t MaxNumTextures = 16u;
-    const char* MaterialName{ nullptr };
-    const char* MaterialDirectory{ nullptr };
+    uint64_t MaterialHash{ 0u };
     size_t NumTextures{ 0u };
     texture_type Types[MaxNumTextures];
-    const char* TexturePaths[MaxNumTextures];
+    uint64_t TextureHandles[MaxNumTextures];
     material_parameters_t Parameters;
 };
 

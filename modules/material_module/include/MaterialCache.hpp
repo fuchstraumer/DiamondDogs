@@ -38,8 +38,6 @@ class MaterialCache
 public:
 
     static MaterialCache& Get() noexcept;
-    // Releases CPU-side image data. Call at most once per frame (more won't break, just won't be worth it)
-    static void ReleaseCpuData();
 
     MaterialInstance CreateMaterial(const MaterialCreateInfo& createInfo);
 
@@ -51,8 +49,6 @@ private:
 
     std::unique_ptr<MaterialCacheImpl> impl{ nullptr };
 
-    friend void textureLoadedCallback(void* instance, void* loaded_data, void* user_data);
-    void textureLoadedCallbackImpl(void* loaded_image, void* user_data);
     void updatePage();
 
 

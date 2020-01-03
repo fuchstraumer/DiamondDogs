@@ -265,7 +265,6 @@ void ResourceLoader::Start()
     }
 
     cVar.notify_all();
-
 }
 
 void ResourceLoader::Stop()

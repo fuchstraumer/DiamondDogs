@@ -23,6 +23,7 @@ source_group("basis_universal" FILES ${basisu_encoder_sources})
 
 ADD_MODULE(content_compiler
     "include/ContentCompilerAPI.hpp"
+    "include/ContentCompilerTypes.hpp"
     "include/MeshData.hpp"
     "include/MeshPrimitives.hpp"
     "include/MeshProcessing.hpp"

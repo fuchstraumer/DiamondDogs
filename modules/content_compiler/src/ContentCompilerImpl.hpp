@@ -6,8 +6,8 @@
 
 struct ContentCompilerImpl
 {
-    ContentCompilerImpl() = default;
-    ~ContentCompilerImpl() = default;
+    ContentCompilerImpl() {};
+    ~ContentCompilerImpl() {};
 
     using NewFnForType = void*(*)(void* initial_data, void* user_data);
     using DeleteFnForType = void(*)(void* instance, void* user_data);

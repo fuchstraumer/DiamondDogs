@@ -1,4 +1,5 @@
 #include "ContentCompilerScene.hpp"
+#include "ContentCompilerAPI.hpp"
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
 #include "PipelineCache.hpp"
@@ -447,7 +448,7 @@ void ContentCompilerScene::createCommandPool()
 
 void ContentCompilerScene::createDescriptorPool()
 {
-    descriptorPool = std::make_unique<vpr::DescriptorPool>(vprObjects.device->vkHandle(), 1);
+    descriptorPool = std::make_unique<vpr::DescriptorPool>(vprObjects.device->vkHandle(), 1, 0);
     descriptorPool->AddResourceType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1);
     descriptorPool->Create();
 }

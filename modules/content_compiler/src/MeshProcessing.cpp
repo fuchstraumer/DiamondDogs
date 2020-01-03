@@ -73,7 +73,6 @@ void SortMeshMaterialRanges(const ccDataHandle handle)
         return;
     }
 
-
     auto materialRangeSorter = [](const MaterialRange& r0, const MaterialRange& r1)
     {
         if (r0.MaterialName != r1.MaterialName)

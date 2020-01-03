@@ -60,10 +60,6 @@ void PostLogicalDeviceFunction(void* pNext)
     }
 }
 
-void EnableBindless(VkPhysicalDevice device)
-{
-}
-
 int main(int argc, char* argv[])
 {
     static const fs::path model_dir{ fs::canonical("../../../../assets/objs/bistro/") };
@@ -73,11 +69,11 @@ int main(int argc, char* argv[])
     assert(fs::exists(model_file));
     static const std::string model_file_str(model_file.string());
 
-    ccDataHandle materialHandle = LoadMaterialFile("exterior.mtl", model_dir_str.c_str());
-    ccDataHandle dataHandle = LoadObjModelFromFile(model_file_str.c_str(), model_dir_str.c_str(), RequiresNormals{ true }, RequiresTangents{ true }, OptimizeMesh{ false });
-    CalculateTangents(dataHandle);
+    //ccDataHandle materialHandle = LoadMaterialFile("exterior.mtl", model_dir_str.c_str());
+   // ccDataHandle dataHandle = LoadObjModelFromFile(model_file_str.c_str(), model_dir_str.c_str(), RequiresNormals{ true }, RequiresTangents{ true }, OptimizeMesh{ false });
+    //CalculateTangents(dataHandle);
     //SortMeshMaterialRanges(dataHandle);
-    modelData = RetrieveLoadedObjModel(dataHandle);
+    //modelData = RetrieveLoadedObjModel(dataHandle);
 
     static const fs::path curr_dir_path{ fs::current_path() / "shader_cache/" };
     if (!fs::exists(curr_dir_path))
@@ -92,7 +88,7 @@ int main(int argc, char* argv[])
     RenderingContext::AddSetupFunctions(&PostPhysicalDevicePreLogicalDeviceFunction, &PostLogicalDeviceFunction);
     renderingContext.Construct("RendererContextCfg.json");
 
-    auto& resourceContext = ResourceContext::Get();
+ /*   auto& resourceContext = ResourceContext::Get();
     resourceContext.Initialize(renderingContext.Device(), renderingContext.PhysicalDevice(), VTF_VALIDATION_ENABLED);
 
     auto& scene = ContentCompilerScene::Get();
@@ -111,5 +107,5 @@ int main(int argc, char* argv[])
     }
 
     scene.Destroy();
-    resourceContext.Destroy();
+    resourceContext.Destroy();*/
 }

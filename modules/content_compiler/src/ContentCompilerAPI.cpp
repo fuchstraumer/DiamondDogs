@@ -1,4 +1,5 @@
 #include "ContentCompilerAPI.hpp"
+#include "ContentCompilerImpl.hpp"
 
 ContentCompiler::ContentCompiler() {}
 

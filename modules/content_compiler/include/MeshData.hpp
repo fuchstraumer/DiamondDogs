@@ -4,6 +4,29 @@
 #include <cstdint>
 #include <string>
 
+struct ccDataHandle
+{
+    uint32_t typeHash;
+    uint32_t containerIdx;
+    uint64_t dataHash;
+};
+
+using ccDataHandle = uint64_t;
+
+namespace detail
+{
+    // FNV-1a 32bit hashing algorithm.
+    constexpr std::uint32_t fnv1a_32(char const* s, std::size_t count)
+    {
+        return ((count ? fnv1a_32(s, count - 1) : 2166136261u) ^ s[count]) * 16777619u;
+    }
+}
+
+constexpr std::uint32_t operator"" _ccHashName(char const* s, std::size_t count)
+{
+    return detail::fnv1a_32(s, count);
+}
+
 struct PrimitiveGroup
 {
     std::string primitiveName;
@@ -47,9 +70,28 @@ struct ObjectModelData
     const PrimitiveGroup* primitiveGroups{ nullptr };
     float minPosition[3]{ 3e38f, 3e38f, 3e38f };
     float maxPosition[3]{-3e38f,-3e38f,-3e38f };
+    ccDataHandle materialFile{ std::numeric_limits<ccDataHandle>::max() };
 };
 
-// Upper half of file content hash
-using ccDataHandle = uint64_t;
+struct cStringArray
+{
+    cStringArray() = default;
+    cStringArray(const size_t num_strings);
+    ~cStringArray();
+    cStringArray(const cStringArray& other) noexcept;
+    cStringArray& operator=(const cStringArray& other) noexcept;
+    cStringArray(cStringArray&& other) noexcept;
+    cStringArray& operator=(cStringArray&& other) noexcept;
+
+    const char* operator[](const size_t idx) const;
+    void set_string(const size_t idx, const char* str);
+    size_t num_strings() const noexcept;
+
+private:
+    void destroy();
+    void clone(cStringArray& other);
+    char** strings{ nullptr };
+    size_t numStrings{ 0u };
+};
 
 #endif //!ASSET_PIPELINE_MESH_DATA_HPP
