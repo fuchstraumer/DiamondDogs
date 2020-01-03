@@ -4,9 +4,9 @@
 #include <intrin.h>
 #endif
 
-struct alignas(16) cas_data_t
+struct alignas(16) cas_data128_t
 {
-    constexpr cas_data_t() noexcept : low{ 0u }, high{ 0u } {}
+    constexpr cas_data128_t() noexcept : low{ 0u }, high{ 0u } {}
     uint64_t low;
     uint64_t high;
 };
@@ -19,51 +19,41 @@ struct alignas(16) atomic128
     atomic128(const atomic128&) = delete;
     atomic128& operator=(const atomic128&) = delete;
 
-    constexpr atomic128(const cas_data_t value) noexcept : data{ value } {}
+    constexpr atomic128(const cas_data128_t value) noexcept : data{ value } {}
 
-    void store(const cas_data_t value) noexcept
-    {
-        (void)exchange(value);
-    }
-
-    void store(const cas_data_t value, const std::memory_order order) noexcept
-    {
-        (void)exchange(value, order);
-    }
-
-    [[nodiscard]] cas_data_t load() const noexcept
+    [[nodiscard]] cas_data128_t load() const noexcept
     {
         long long* const storagePtr = const_cast<long long*>(atomic_address_as<const long long>(data));
-        cas_data_t result{};
+        cas_data128_t result{};
         _InterlockedCompareExchange128(storagePtr, 0, 0, &reinterpret_cast<long long&>(result.low));
-        return reinterpret_cast<cas_data_t&>(result);
+        return reinterpret_cast<cas_data128_t&>(result);
     }
 
-    [[nodiscard]] cas_data_t load(const std::memory_order order) noexcept
+    [[nodiscard]] cas_data128_t load(const std::memory_order order) noexcept
     {
         return load();
     }
 
-    cas_data_t exchange(const cas_data_t value, const std::memory_order order) noexcept
+    cas_data128_t exchange(const cas_data128_t value, const std::memory_order order) noexcept
     {
-        cas_data_t result{ value };
+        cas_data128_t result{ value };
         while (!compare_exchange_strong(result, value, order)) {}
         return result;
     }
 
-    cas_data_t exchange(const cas_data_t value) noexcept
+    cas_data128_t exchange(const cas_data128_t value) noexcept
     {
-        cas_data_t result{ value };
+        cas_data128_t result{ value };
         while (!compare_exchange_strong(result, value)) {}
         return result;
     }
 
     // note: memory order has no effect on x64 with these intrinsics
-    bool compare_exchange_strong(cas_data_t& expected, const cas_data_t desired,
+    bool compare_exchange_strong(cas_data128_t& expected, cas_data128_t desired,
         const std::memory_order order = std::memory_order_seq_cst) noexcept
     {
-        cas_data_t desiredCopy{ desired };
-        cas_data_t expectedTemp{ expected };
+        cas_data128_t desiredCopy{ desired };
+        cas_data128_t expectedTemp{ expected };
         unsigned char result = _InterlockedCompareExchange128(&reinterpret_cast<long long&>(data.low), desiredCopy.high, desiredCopy.low,
             &reinterpret_cast<long long&>(expectedTemp.low));
         // if result == 0, copy expectedTemp to expected THEN return (comma denotes sequencing)
@@ -71,14 +61,19 @@ struct alignas(16) atomic128
     }
 
     // No weak CAS intrinsics present on current OS/hardware, fall back to strong
-    bool compare_exchange_weak(cas_data_t& expected, const cas_data_t desired) noexcept
+    bool compare_exchange_weak(cas_data128_t& expected, cas_data128_t desired) noexcept
     {
         return compare_exchange_strong(expected, desired);
     }
 
-    cas_data_t exchange(const cas_data_t value) noexcept
+    void store(const cas_data128_t value) noexcept
     {
-        cas_data_t result{ value };
+        (void)exchange(value);
+    }
+
+    void store(const cas_data128_t value, const std::memory_order order) noexcept
+    {
+        (void)exchange(value, order);
     }
 
     // so we comply more to standard library interface
@@ -93,10 +88,10 @@ private:
         return &reinterpret_cast<volatile DestType&>(source);
     }
 
-    mutable cas_data_t data;
+    mutable cas_data128_t data;
 };
 
 #else
-using atomic128 = std::atomic<cas_data_t>;
+using atomic128 = std::atomic<cas_data128_t>;
 // need to identify non-MSVC versions
 #endif

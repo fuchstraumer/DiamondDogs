@@ -26,6 +26,7 @@ set(foundation_source_files
 
 set(threading_source_files
     "include/threading/atomic128.hpp"
+    "include/threading/casReactor.hpp"
     "include/threading/concurrent_vector.hpp"
     "include/threading/mcas.hpp")
 
@@ -80,7 +81,7 @@ if(MSVC)
     # (And can largely affect perf)
     target_compile_options(diamond_dogs_core PRIVATE $<$<CONFIG:RELEASE>:/Oi> $<$<CONFIG:RELWITHDEBINFO>:/Oi>)
     # Set standard to latest, enable coroutines, and ensure AVX2 is enabled
-    target_compile_options(diamond_dogs_core PUBLIC "/std:c++latest" "/await" "/arch:AVX2")
+    target_compile_options(diamond_dogs_core PUBLIC "/std:c++latest" "/arch:AVX2")
 else()
     # Set standard to C++20
     set_target_properties(diamond_dogs_core PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
