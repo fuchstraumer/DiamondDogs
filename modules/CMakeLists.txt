@@ -12,7 +12,7 @@ set(VPR_INCLUDE_DIRS_MODULE_RELATIVE
 FUNCTION(ADD_MODULE NAME)
     add_library(${NAME} STATIC ${ARGN})
     target_include_directories(${NAME} PRIVATE "../common/" "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "../../third_party/easyloggingpp/src" "../../core/include")
+        "../../third_party/easyloggingpp/src" "../../foundation/include")
     target_link_libraries(${NAME} PUBLIC easyloggingpp diamond_dogs_core)
     IF(MSVC)
         TARGET_COMPILE_OPTIONS(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/MP> $<$<CONFIG:RELWITHDEBINFO>:/MP>)

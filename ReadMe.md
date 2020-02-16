@@ -18,7 +18,11 @@ I cannot currently recommend attempting this: there's not a lot to see, but thin
 
 So the plugin system for Caelestis proved to be REALLY neat. And had some huge advantages! But for a large project that plans to use lots of modern C++ features, it didn't make sense. It also removed the option of link-time optimization, as that's simply not possible with dynamic libraries: and it can be a really powerful source of optimization for release versions. (or has proven so, in past applications projects I've worked on).
 
-Instead, I plan on implementing a plugin system that allows for extension of core functionality *after* completion of all the core functionality I want to get implemented. This includes most of the tasks I have logged so far on Trello, at least out to core rendering and gameplay systems. Beyond that, we'll see how it goes.
+Instead, I plan on implementing a plugin system that allows for extension of core functionality *after* completion of all the core functionality I want to get implemented. This includes most of the tasks I have logged so far on Trello, at least out to core rendering and gameplay systems. This is so that the core of the engine is a really solid base to build on, and contains a lot of where we spend our performance: Link-Time-Optimization is a powerful being and can get us as much as 30-40% boosts in some engine
+projects I've seen. Additionally, since our plugins are used largely for making development iteration speed faster - if they become particular stable, useful, or need the potential perf boosts from it - we'll make them part of the core engine as needed.
+
+This way, we can iterate fast on new features and then roll things back into the core with time. Additionally, I expect this to lead to the development of a more robust method of handling this and generalized improvements for the capabilities of how we use
+plugins. It feels like a fun path!
 
 ## Whats the name about?
 

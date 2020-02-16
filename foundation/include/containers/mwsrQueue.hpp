@@ -498,13 +498,13 @@ template<typename T>
 class mwsrQueue
 {
 private:
-    QueueItem items[detail::mwsrQueueSize];
+    T items[detail::mwsrQueueSize];
     atomic128 entranceData;
     atomic128 exitData;
     detail::LockedThreadsList<T> lockedWriters;
     detail::LockedSingleThread lockedReader;
 
-    QueueItem readCache[detail::mwsrQueueSize - 1u];
+    T readCache[detail::mwsrQueueSize - 1u];
     size_t readCacheBegin{ 0u };
     size_t readCacheEnd{ 0u };
 
@@ -514,8 +514,8 @@ private:
     }
 
 public:
-    static_assert(std::is_default_constructible_v<QueueItem>, "QueueItem used in mwsrQueue must be default-constructible!");
-    static_assert(std::is_move_assignable_v<QueueItem>, "QueueItem must be move-assignable!");
+    static_assert(std::is_default_constructible_v<T>, "QueueItem used in mwsrQueue must be default-constructible!");
+    static_assert(std::is_move_assignable_v<T>, "QueueItem must be move-assignable!");
 
     mwsrQueue() : entranceData({ detail::ExitReactorData::EntranceFirstToWrite, detail::ExitReactorData::EntranceLastToWrite }) {}
     mwsrQueue(const mwsrQueue&) = delete;
@@ -526,7 +526,7 @@ public:
         return readCacheBegin != readCacheEnd;
     }
 
-    void push(QueueItem&& item)
+    void push(T&& item)
     {
         detail::EntranceReactorHandle entrance(entranceData);
         auto[ newId, willLock ] = entrance.allocateNextID();
@@ -547,7 +547,7 @@ public:
         }
     }
 
-    QueueItem pop()
+    T pop()
     {
         if (readCacheBegin < readCacheEnd)
         {
@@ -570,7 +570,7 @@ public:
             }
 
             size_t queueIndex = getQueueIndex(firstId);
-            QueueItem resultItem = std::move(items[queueIndex]);
+            T resultItem = std::move(items[queueIndex]);
             assert(readCacheBegin == readCacheEnd);
             readCacheBegin = 0u;
             readCacheEnd = 0u;

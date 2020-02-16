@@ -1,5 +1,9 @@
+#pragma once
+#ifndef FOUNDATION_FABRIC_OBJECT_HANDLES_HPP
+#define FOUNDATION_FABRIC_OBJECT_HANDLES_HPP
 #include <type_traits>
 #include <cstdint>
+#include <exception>
 
 namespace foundation
 {
@@ -62,6 +66,37 @@ namespace foundation
 
     }
 
+    struct fabric_exception : public std::exception
+    {
+
+        enum class type : uint8_t
+        {
+            Invalid,
+            MinSafetyPtrIdMismatch,
+            FailureToRemapInvalidPointer,
+            PointerIdMismatchAndMissingRelocFn
+        };
+
+        fabric_exception(type exception_type) : std::exception(), exceptionType(exception_type) {}
+
+        const char* what() const
+        {
+            switch (exceptionType)
+            {
+            case type::MinSafetyPtrIdMismatch:
+                return "object_handle's stored ID and ID from pointer didn't match: object invalid!";
+            case type::FailureToRemapInvalidPointer:
+                return "unable to map pointer ID to new memory location!";
+            case type::PointerIdMismatchAndMissingRelocFn:
+                return "object_handle's stored ID and ID from pointer didn't match, and there was no relocation function for this type!";
+            default:
+                return "Unhandled new exception type in fabric object_handle code!";
+            };
+        }
+
+        type exceptionType{ type::Invalid };
+    };
+
     template<typename T, memory_mode MemoryMode>
     struct object_handle
     {
@@ -92,7 +127,7 @@ namespace foundation
                 }
                 else
                 {
-                    throw fabric_exception("object_handle's stored ID and ID from pointer didn't match: object invalid!");
+                    throw fabric_exception(fabric_exception::type::MinSafetyPtrIdMismatch);
                 }
             }
             else if constexpr (MemoryMode == memory_mode::full_safety)
@@ -113,12 +148,12 @@ namespace foundation
                     }
                     else
                     {
-                        throw fabric_exception("unable to map pointer ID to new memory location!");
+                        throw fabric_exception(fabric_exception::type::FailureToRemapInvalidPointer);
                     }
                 }
                 else
                 {
-                    throw fabric_exception("object_handle's stored ID and ID from pointer didn't match, and there was no relocation function for this type!");
+                    throw fabric_exception(fabric_exception::type::PointerIdMismatchAndMissingRelocFn);
                 }
             }
         }
@@ -251,3 +286,5 @@ namespace foundation
     };
 
 }
+
+#endif

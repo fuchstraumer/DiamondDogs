@@ -12,7 +12,7 @@ SET(VPR_INCLUDE_DIRS_TEST_RELATIVE
 FUNCTION(ADD_INTEGRATION_TEST NAME)
     ADD_EXECUTABLE(${NAME} ${ARGN})
     TARGET_INCLUDE_DIRECTORIES(${NAME} PRIVATE
-        "../../../core/include"
+        "../../../foundation/include"
         "../../../ext/include"
         "../../../modules/common"
         ${VPR_INCLUDE_DIRS_TEST_RELATIVE}
