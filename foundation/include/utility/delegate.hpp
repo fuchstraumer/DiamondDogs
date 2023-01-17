@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_CORE_DELEGATE_HPP
 #define DIAMOND_DOGS_CORE_DELEGATE_HPP
+#include <utility>
 
 template<typename T>
 class base_delegate_t;
@@ -54,11 +55,11 @@ public:
     }
 
     bool operator==(const void* ptr) const noexcept {
-        return (ptr == nullptr) && (IsEmpty());
+        return (ptr == nullptr) && (empty());
     }
 
     bool operator!=(const void* ptr) const noexcept {
-        return (ptr != nullptr) || (!IsEmpty());
+        return (ptr != nullptr) || (!empty());
     }
 
     delegate_t(const delegate_t& other) noexcept {
