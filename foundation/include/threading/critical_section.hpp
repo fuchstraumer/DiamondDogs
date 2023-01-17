@@ -4,7 +4,7 @@
 
 struct critical_section
 {
-    
+
     critical_section();
     ~critical_section();
     critical_section(const critical_section&) = delete;
@@ -35,6 +35,6 @@ struct critical_section
 
 private:
     void* criticalSectionObject{ nullptr };
-}
+};
 
 #endif //!FOUNDATION_THREADING_CRITICAL_SECTION_HPP
