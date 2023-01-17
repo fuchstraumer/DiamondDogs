@@ -31,15 +31,9 @@
 [submodule "third_party/svs"]
 	path = third_party/svs
 	url = https://github.com/Tobski/simple_vulkan_synchronization
-[submodule "third_party/mango"]
-	path = third_party/mango
-	url = https://github.com/t0rakka/mango
 [submodule "third_party/basis_universal"]
 	path = third_party/basis_universal
 	url = https://github.com/BinomialLLC/basis_universal
-[submodule "third_party/snmalloc"]
-	path = third_party/snmalloc
-	url = https://github.com/microsoft/snmalloc
 [submodule "third_party/mimalloc"]
 	path = third_party/mimalloc
 	url = https://github.com/microsoft/mimalloc
