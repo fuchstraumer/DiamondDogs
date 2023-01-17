@@ -274,6 +274,6 @@ bool ProcessPDB(const std::wstring& fname, const std::wstring& pdbname)
     wchar_t ORIG_PDB_FILE[MAX_PATH];
     memset(ORIG_PDB_FILE, 0, sizeof(ORIG_PDB_FILE));
     bool result = pdb_replace(fname, pdbname, ORIG_PDB_FILE, sizeof(ORIG_PDB_FILE));
-    result &= static_cast<bool>(CopyFile(ORIG_PDB_FILE, pdbname.c_str(), 0));
+    result &= static_cast<bool>(CopyFileW(ORIG_PDB_FILE, pdbname.c_str(), 0));
     return result;
 }

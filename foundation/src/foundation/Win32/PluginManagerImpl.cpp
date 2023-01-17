@@ -79,8 +79,10 @@ void PluginManagerImpl::LoadPlugin(const char* fname)
         std::cerr << "Couldn't process/find PDB for loaded library - debugging may be affected!\n";
     }
 
-    const auto absolute_path = fs::absolute(plugin_path).wstring();
-    HMODULE new_handle = LoadLibrary(absolute_path.c_str());
+    // This used to take a wstring... what changed?
+    const std::wstring absolute_path_wstr = fs::absolute(plugin_path).wstring();
+    const std::string absolute_path_str = fs::absolute(plugin_path).string();
+    HMODULE new_handle = LoadLibrary(absolute_path_str.c_str());
 
     if (!new_handle)
     {
@@ -89,7 +91,7 @@ void PluginManagerImpl::LoadPlugin(const char* fname)
     }
     else
     {
-        plugins.emplace(absolute_path, new_handle);
+        plugins.emplace(absolute_path_wstr, new_handle);
 
         void* get_api_fn = GetProcAddress(new_handle, "GetPluginAPI");
         if (!get_api_fn)
@@ -105,7 +107,7 @@ void PluginManagerImpl::LoadPlugin(const char* fname)
 
         Plugin_API* api = reinterpret_cast<Plugin_API*>(core_api_ptr);
         uint32_t id = api->PluginID();
-        pluginFilesToIDMap.emplace(absolute_path, id);
+        pluginFilesToIDMap.emplace(absolute_path_wstr, id);
         coreApiPointers.emplace(id, api);
 
         void* unique_api = reinterpret_cast<GetEngineAPI_Fn>(get_api_fn)(id);
