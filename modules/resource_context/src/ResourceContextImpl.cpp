@@ -237,7 +237,6 @@ struct rw_lock_guard
         }
     }
 
-    rw_lock_guard(rw_lock_guard&& other) noexcept : mut(std::move(other.mut)), mode(std::move(other.mode)) {}
     rw_lock_guard& operator=(rw_lock_guard&& other) = delete;
     rw_lock_guard(const rw_lock_guard&) = delete;
     rw_lock_guard& operator=(const rw_lock_guard&) = delete;
@@ -264,12 +263,13 @@ void ResourceContextImpl::construct(vpr::Device* _device, vpr::PhysicalDevice* p
         applicationInfo.apiVersion >= VK_API_VERSION_1_1 ? VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT : 0u,
         physical_device->vkHandle(),
         device->vkHandle(),
-        VkDeviceSize(6.4e+7),
-        nullptr,
-        nullptr,
-        1u,
-        nullptr,
-        nullptr,
+        0u,
+        nullptr, //pAllocationCallbacks
+        nullptr, //pDeviceMemoryCallbacks
+        nullptr, //pHeapSizeLimit
+        nullptr, //pVulkanFunctions
+        device->ParentInstance()->vkHandle(),
+        VK_API_VERSION_1_3,
         nullptr
     };
 
@@ -324,7 +324,7 @@ void ResourceContextImpl::destroyResource(VulkanResource* rsrc)
 
         if (iter == std::end(resources))
         {
-            LOG(ERROR) << "Tried to erase resource that isn't in internal containers!";
+            std::cerr << "Tried to erase resource that isn't in internal containers!\n";
             throw std::runtime_error("Tried to erase resource that isn't in internal containers!");
         }
 
@@ -884,22 +884,22 @@ bool ResourceContextImpl::resourceInTransferQueue(VulkanResource* rsrc)
     return transfer_system.ResourceQueuedForTransfer(rsrc);
 }
 
-void ResourceContextImpl::createBufferResourceCopy(VulkanResource * src, VulkanResource** dst)
+void ResourceContextImpl::createBufferResourceCopy(VulkanResource* src, VulkanResource** dst)
 {
     const VkBufferCreateInfo* create_info = reinterpret_cast<const VkBufferCreateInfo*>(src->Info);
     const VkBufferViewCreateInfo* view_info = nullptr;
-    if (src->ViewHandle != VK_NULL_HANDLE)
+    if (reinterpret_cast<VkBufferView>(src->ViewHandle) != VK_NULL_HANDLE)
     {
         view_info = reinterpret_cast<const VkBufferViewCreateInfo*>(src->ViewInfo);
     }
     *dst = createBuffer(create_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), 0, nullptr);
 }
 
-void ResourceContextImpl::createImageResourceCopy(VulkanResource * src, VulkanResource** dst)
+void ResourceContextImpl::createImageResourceCopy(VulkanResource* src, VulkanResource** dst)
 {
     const VkImageCreateInfo* image_info = reinterpret_cast<const VkImageCreateInfo*>(src->Info);
     const VkImageViewCreateInfo* view_info = nullptr;
-    if (src->ViewHandle != VK_NULL_HANDLE)
+    if (reinterpret_cast<VkImageView>(src->ViewHandle) != VK_NULL_HANDLE)
     {
         view_info = reinterpret_cast<const VkImageViewCreateInfo*>(src->ViewInfo);
     }

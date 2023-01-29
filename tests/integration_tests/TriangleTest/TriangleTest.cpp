@@ -7,7 +7,8 @@
 #include "Semaphore.hpp"
 #include <fstream>
 
-constexpr static const uint32_t triangle_vert_shader_spv[349] = {
+constexpr static const uint32_t triangle_vert_shader_spv[349] =
+{
 	0x07230203,0x00010000,0x00080007,0x0000002c,0x00000000,0x00020011,0x00000001,0x0006000b,
 	0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,0x00000000,0x00000001,
 	0x0009000f,0x00000000,0x00000004,0x6e69616d,0x00000000,0x0000000a,0x0000001e,0x00000029,
@@ -54,7 +55,8 @@ constexpr static const uint32_t triangle_vert_shader_spv[349] = {
 	0x0003003e,0x00000029,0x0000002b,0x000100fd,0x00010038
 };
 
-constexpr static const uint32_t triangle_frag_shader_spv[133] = {
+constexpr static const uint32_t triangle_frag_shader_spv[133] =
+{
 	0x07230203,0x00010000,0x00080007,0x00000013,0x00000000,0x00020011,0x00000001,0x0006000b,
 	0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,0x00000000,0x00000001,
 	0x0007000f,0x00000004,0x00000004,0x6e69616d,0x00000000,0x00000009,0x0000000c,0x00030010,
@@ -76,18 +78,21 @@ constexpr static const uint32_t triangle_frag_shader_spv[133] = {
 
 VulkanTriangle::VulkanTriangle() : VulkanScene() {}
 
-VulkanTriangle::~VulkanTriangle() {
+VulkanTriangle::~VulkanTriangle()
+{
     if (setup) {
         Destroy();
     }
 }
 
-VulkanTriangle& VulkanTriangle::GetScene() {
+VulkanTriangle& VulkanTriangle::GetScene()
+{
     static VulkanTriangle app;
     return app;
 }
 
-void VulkanTriangle::Construct(RequiredVprObjects objects, void* user_data) {
+void VulkanTriangle::Construct(RequiredVprObjects objects, void* user_data)
+{
     vprObjects = objects;
     prepareVertices();
     setupUniformBuffer();
@@ -108,16 +113,22 @@ void VulkanTriangle::Construct(RequiredVprObjects objects, void* user_data) {
     limiterB = std::chrono::system_clock::now();
 }
 
-void VulkanTriangle::Destroy() {
+void VulkanTriangle::Destroy()
+{
     vkDeviceWaitIdle(vprObjects.device->vkHandle());
     imageAcquireSemaphore.reset();
     renderCompleteSemaphore.reset();
-    for (auto& fence : fences) {
+
+    for (auto& fence : fences)
+    {
         vkDestroyFence(vprObjects.device->vkHandle(), fence, nullptr);
     }
-    for (auto& fbuff : framebuffers) {
+
+    for (auto& fbuff : framebuffers)
+    {
         vkDestroyFramebuffer(vprObjects.device->vkHandle(), fbuff, nullptr);
     }
+
     vkDestroyPipeline(vprObjects.device->vkHandle(), pipeline, nullptr);
     vkDestroyRenderPass(vprObjects.device->vkHandle(), renderpass, nullptr);
     vkFreeMemory(vprObjects.device->vkHandle(), depthStencil.Memory, nullptr);
@@ -130,6 +141,7 @@ void VulkanTriangle::Destroy() {
     vkDestroyDescriptorSetLayout(vprObjects.device->vkHandle(), setLayout, nullptr);
     vkDestroyDescriptorPool(vprObjects.device->vkHandle(), descriptorPool, nullptr);
     vkFreeCommandBuffers(vprObjects.device->vkHandle(), commandPool, static_cast<uint32_t>(drawCmdBuffers.size()), drawCmdBuffers.data());
+    vkDestroyCommandPool(vprObjects.device->vkHandle(), commandPool, nullptr);
     vkFreeMemory(vprObjects.device->vkHandle(), uniformBufferVS.memory, nullptr);
     vkDestroyBuffer(vprObjects.device->vkHandle(), uniformBufferVS.buffer, nullptr);
     vkFreeMemory(vprObjects.device->vkHandle(), Indices.memory, nullptr);
@@ -140,7 +152,8 @@ void VulkanTriangle::Destroy() {
 
 void VulkanTriangle::prepareVertices()  {
 
-    static const std::vector<Vertex> base_vertices {
+    static const std::vector<Vertex> base_vertices
+    {
         { { 0.5f, 0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f } },
         { {-0.5f, 0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f } },
         { { 0.0f,-0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f } }
@@ -149,14 +162,17 @@ void VulkanTriangle::prepareVertices()  {
     static const std::vector<uint16_t> base_indices{ 0, 1, 2 };
     Indices.count = static_cast<uint32_t>(base_indices.size());
 
-    VkMemoryAllocateInfo alloc_info{
+    VkMemoryAllocateInfo alloc_info
+    {
         VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         nullptr
     };
 
-    void* data;
+    void* data = nullptr;
+
     {
-        const VkBufferCreateInfo buffer_info {
+        const VkBufferCreateInfo buffer_info
+        {
             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             nullptr,
             0,
@@ -171,8 +187,7 @@ void VulkanTriangle::prepareVertices()  {
         VkMemoryRequirements memreqs{};
         vkGetBufferMemoryRequirements(vprObjects.device->vkHandle(), Vertices.buffer, &memreqs);
         alloc_info.allocationSize = memreqs.size;
-        alloc_info.memoryTypeIndex = GetMemoryTypeIndex(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-            vprObjects.physicalDevice->GetMemoryProperties());
+        alloc_info.memoryTypeIndex = vprObjects.device->GetMemoryTypeIdx(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
         vkAllocateMemory(vprObjects.device->vkHandle(), &alloc_info, nullptr, &Vertices.memory);
         vkMapMemory(vprObjects.device->vkHandle(), Vertices.memory, 0, alloc_info.allocationSize, 0, &data);
         memcpy(data, base_vertices.data(), sizeof(Vertex) * base_vertices.size());
@@ -182,7 +197,8 @@ void VulkanTriangle::prepareVertices()  {
     }
 
     {
-        const VkBufferCreateInfo buffer_info {
+        const VkBufferCreateInfo buffer_info
+        {
             VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
             nullptr,
             0,
@@ -197,8 +213,7 @@ void VulkanTriangle::prepareVertices()  {
         VkMemoryRequirements memreqs{};
         vkGetBufferMemoryRequirements(vprObjects.device->vkHandle(), Indices.buffer, &memreqs);
         alloc_info.allocationSize = memreqs.size;
-        alloc_info.memoryTypeIndex = GetMemoryTypeIndex(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-            vprObjects.physicalDevice->GetMemoryProperties());
+        alloc_info.memoryTypeIndex = vprObjects.device->GetMemoryTypeIdx(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
         vkAllocateMemory(vprObjects.device->vkHandle(), &alloc_info, nullptr, &Indices.memory);
         vkMapMemory(vprObjects.device->vkHandle(), Indices.memory, 0, alloc_info.allocationSize, 0, &data);
         memcpy(data, base_indices.data(), sizeof(uint16_t) * base_indices.size());
@@ -207,9 +222,11 @@ void VulkanTriangle::prepareVertices()  {
     }
 }
 
-void VulkanTriangle::setupUniformBuffer() {
+void VulkanTriangle::setupUniformBuffer()
+{
 
-    const VkBufferCreateInfo buffer_info {
+    const VkBufferCreateInfo buffer_info
+    {
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
@@ -227,8 +244,7 @@ void VulkanTriangle::setupUniformBuffer() {
     vkGetBufferMemoryRequirements(vprObjects.device->vkHandle(), uniformBufferVS.buffer, &memreqs);
     VkMemoryAllocateInfo alloc_info{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr };
     alloc_info.allocationSize = memreqs.size;
-    alloc_info.memoryTypeIndex = GetMemoryTypeIndex(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-        vprObjects.physicalDevice->GetMemoryProperties());
+    alloc_info.memoryTypeIndex = vprObjects.device->GetMemoryTypeIdx(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
     
     result = vkAllocateMemory(vprObjects.device->vkHandle(), &alloc_info, nullptr, &uniformBufferVS.memory);
     VkAssert(result);
@@ -240,12 +256,14 @@ void VulkanTriangle::setupUniformBuffer() {
     update();
 }
 
-void VulkanTriangle::setupCommandPool() {
+void VulkanTriangle::setupCommandPool()
+{
 
-    const VkCommandPoolCreateInfo pool_info {
+    const VkCommandPoolCreateInfo pool_info
+    {
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         nullptr,
-        VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+        VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
         vprObjects.device->QueueFamilyIndices().Graphics
     };
 
@@ -253,11 +271,13 @@ void VulkanTriangle::setupCommandPool() {
 
 }
 
-void VulkanTriangle::setupCommandBuffers() {
+void VulkanTriangle::setupCommandBuffers()
+{
 
     drawCmdBuffers.resize(vprObjects.swapchain->ImageCount());
 
-    const VkCommandBufferAllocateInfo cmd_info {
+    const VkCommandBufferAllocateInfo cmd_info
+    {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         nullptr,
         commandPool,
@@ -270,12 +290,15 @@ void VulkanTriangle::setupCommandBuffers() {
 
 }
 
-void VulkanTriangle::setupDescriptorPool()  {
-    constexpr static VkDescriptorPoolSize typeCounts[1]{ 
+void VulkanTriangle::setupDescriptorPool()
+{
+    constexpr static VkDescriptorPoolSize typeCounts[1]
+    { 
         VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 } 
     };
 
-    constexpr static VkDescriptorPoolCreateInfo pool_info {
+    constexpr static VkDescriptorPoolCreateInfo pool_info
+    {
         VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         nullptr,
         VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
@@ -288,9 +311,11 @@ void VulkanTriangle::setupDescriptorPool()  {
     VkAssert(result);
 }
 
-void VulkanTriangle::setupLayouts()  {
+void VulkanTriangle::setupLayouts()
+{
 
-    constexpr static VkDescriptorSetLayoutBinding layout_binding {
+    constexpr static VkDescriptorSetLayoutBinding layout_binding
+    {
         0,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         1,
@@ -298,7 +323,8 @@ void VulkanTriangle::setupLayouts()  {
         nullptr
     };
 
-    constexpr static VkDescriptorSetLayoutCreateInfo layout_info {
+    constexpr static VkDescriptorSetLayoutCreateInfo layout_info
+    {
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         nullptr,
         0,
@@ -309,7 +335,8 @@ void VulkanTriangle::setupLayouts()  {
     VkResult result = vkCreateDescriptorSetLayout(vprObjects.device->vkHandle(), &layout_info, nullptr, &setLayout);
     VkAssert(result);
 
-    const VkPipelineLayoutCreateInfo pipeline_layout_info {
+    const VkPipelineLayoutCreateInfo pipeline_layout_info
+    {
         VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         nullptr,
         0,
@@ -324,9 +351,11 @@ void VulkanTriangle::setupLayouts()  {
 
 }
 
-void VulkanTriangle::setupDescriptorSet()  {
+void VulkanTriangle::setupDescriptorSet()
+{
     
-    const VkDescriptorSetAllocateInfo alloc_info {
+    const VkDescriptorSetAllocateInfo alloc_info
+    {
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
         nullptr,
         descriptorPool,
@@ -337,7 +366,8 @@ void VulkanTriangle::setupDescriptorSet()  {
     VkResult result = vkAllocateDescriptorSets(vprObjects.device->vkHandle(), &alloc_info, &descriptorSet);
     VkAssert(result);
 
-    const VkWriteDescriptorSet write_descriptor {
+    const VkWriteDescriptorSet write_descriptor
+    {
         VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
         nullptr,
         descriptorSet,
@@ -353,10 +383,12 @@ void VulkanTriangle::setupDescriptorSet()  {
     vkUpdateDescriptorSets(vprObjects.device->vkHandle(), 1, &write_descriptor, 0, nullptr);
 }
 
-void VulkanTriangle::setupShaderModules()  {
+void VulkanTriangle::setupShaderModules() 
+{
 
     
-    constexpr static VkShaderModuleCreateInfo vertex_info {
+    constexpr static VkShaderModuleCreateInfo vertex_info
+    {
         VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         nullptr,
         0,
@@ -382,31 +414,38 @@ void VulkanTriangle::setupShaderModules()  {
 
 }
 
-void VulkanTriangle::setupDepthStencil()  {
+void VulkanTriangle::setupDepthStencil() 
+{
     depthStencil = CreateDepthStencil(vprObjects.device, vprObjects.physicalDevice, vprObjects.swapchain);
 }
 
-void VulkanTriangle::setupRenderpass()  {
+void VulkanTriangle::setupRenderpass() 
+{
     renderpass = CreateBasicRenderpass(vprObjects.device, vprObjects.swapchain, depthStencil.Format);
 }
 
-void VulkanTriangle::setupPipeline()  {
+void VulkanTriangle::setupPipeline() 
+{
 
-    const VkPipelineShaderStageCreateInfo shader_stages[2] {
+    const VkPipelineShaderStageCreateInfo shader_stages[2]
+    {
         VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertexShader, "main", nullptr },
         VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fragmentShader, "main", nullptr }
     };
 
-    constexpr static VkVertexInputBindingDescription vertex_binding {
+    constexpr static VkVertexInputBindingDescription vertex_binding
+    {
         0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
     };
 
-    constexpr static VkVertexInputAttributeDescription vertex_attributes[2] {
+    constexpr static VkVertexInputAttributeDescription vertex_attributes[2]
+    {
         VkVertexInputAttributeDescription{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 },
         VkVertexInputAttributeDescription{ 1, 0, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3 },
     };
 
-    constexpr static VkPipelineVertexInputStateCreateInfo vertex_info {
+    constexpr static VkPipelineVertexInputStateCreateInfo vertex_info
+    {
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         nullptr,
         0,
@@ -432,15 +471,19 @@ void VulkanTriangle::setupPipeline()  {
     
 }
 
-void VulkanTriangle::setupFramebuffers()  {
+void VulkanTriangle::setupFramebuffers() 
+{
     framebuffers.resize(vprObjects.swapchain->ImageCount());
-    for (size_t i = 0; i < framebuffers.size(); ++i) {
-        std::array<VkImageView, 2> attachments {
+    for (size_t i = 0; i < framebuffers.size(); ++i)
+    {
+        std::array<VkImageView, 2> attachments
+        {
             vprObjects.swapchain->ImageView(i),
             depthStencil.View
         };
 
-        const VkFramebufferCreateInfo create_info {
+        const VkFramebufferCreateInfo create_info
+        {
             VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             nullptr,
             0,
@@ -458,9 +501,11 @@ void VulkanTriangle::setupFramebuffers()  {
     }
 }
 
-void VulkanTriangle::setupSyncPrimitives()  {
+void VulkanTriangle::setupSyncPrimitives()
+{
 
-    constexpr static VkFenceCreateInfo fence_info {
+    constexpr static VkFenceCreateInfo fence_info
+    {
         VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
         nullptr,
         0
@@ -474,26 +519,31 @@ void VulkanTriangle::setupSyncPrimitives()  {
     }
 }
 
-void VulkanTriangle::recordCommands()  {
+void VulkanTriangle::recordCommands()
+{
 
-    constexpr static VkCommandBufferBeginInfo begin_info {
+    constexpr static VkCommandBufferBeginInfo begin_info
+    {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         nullptr,
-        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
+        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
         nullptr
     };
 
-    constexpr static std::array<VkClearValue, 2> clearValues {
+    constexpr static std::array<VkClearValue, 2> clearValues
+    {
         VkClearValue{ VkClearColorValue{ 0.0f, 0.0f, 0.5f, 1.0f } },
         VkClearValue{ 1.0f, 0 }
     };
 
-    const VkRect2D render_area{ 
+    const VkRect2D render_area
+    { 
         VkOffset2D{ 0, 0 },
         VkExtent2D{ vprObjects.swapchain->Extent() }
     };
 
-    const VkViewport viewport {
+    const VkViewport viewport
+    {
         0.0f,
         0.0f,
         static_cast<float>(vprObjects.swapchain->Extent().width),
@@ -506,7 +556,8 @@ void VulkanTriangle::recordCommands()  {
         render_area
     };
 
-    VkRenderPassBeginInfo rpBegin {
+    VkRenderPassBeginInfo rpBegin
+    {
         VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         nullptr,
         renderpass,
@@ -516,7 +567,8 @@ void VulkanTriangle::recordCommands()  {
         clearValues.data()
     };
 
-    const VkImageMemoryBarrier transition0 {
+    const VkImageMemoryBarrier transition0
+    {
         VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
         nullptr,
         VK_ACCESS_MEMORY_READ_BIT,
@@ -551,10 +603,12 @@ void VulkanTriangle::recordCommands()  {
 
 }
 
-void VulkanTriangle::draw() {
+void VulkanTriangle::draw()
+{
 
     constexpr static VkPipelineStageFlags waitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    const VkSubmitInfo submission {
+    const VkSubmitInfo submission
+    {
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         nullptr,
         1,
@@ -570,14 +624,16 @@ void VulkanTriangle::draw() {
 
 }
 
-void VulkanTriangle::endFrame() {
+void VulkanTriangle::endFrame()
+{
     VkResult result = vkWaitForFences(vprObjects.device->vkHandle(), 1, &fences[currentBuffer], VK_TRUE, UINT64_MAX); 
     VkAssert(result);
     result = vkResetFences(vprObjects.device->vkHandle(), 1, &fences[currentBuffer]); 
     VkAssert(result);
 }
 
-void VulkanTriangle::update() {
+void VulkanTriangle::update()
+{
     uboDataVS.projection = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 300.0f);
     uboDataVS.projection[1][1] *= -1.0f;
     uboDataVS.view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -2.5f));

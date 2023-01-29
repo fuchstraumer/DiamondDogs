@@ -3,19 +3,12 @@
 #include "ResourceContext.hpp"
 #include "ResourceLoader.hpp"
 #include "PipelineCache.hpp"
-#include "ObjModel.hpp"
-#include "easylogging++.h"
-INITIALIZE_EASYLOGGINGPP
+#include <iostream>
 
-#ifndef __APPLE_CC__
 #include <filesystem>
 namespace fs = std::filesystem;
-#else
-#include <boost/filesystem.hpp>
-namespace fs = boost::filesystem;
-#endif
 
-static const fs::path BasePath{ fs::canonical("../../../../assets/ResourceContextTestAssets/") };
+static const fs::path BasePath{ fs::current_path() };
 static const fs::path ObjFilePath = BasePath / fs::path("House.obj");
 static const std::string HouseObjFile = ObjFilePath.string();
 static const fs::path HouseTexturePath = BasePath / fs::path("House.png");
@@ -25,19 +18,23 @@ static const std::string SkyboxDdsFile = SkyboxTexturePath.string();
 
 static bool dataLoadedToRAM = false;
 
-static void objFileLoadedCallback(void* scene_ptr, void* data_ptr, void* user_data) {
+static void objFileLoadedCallback(void* scene_ptr, void* data_ptr, void* user_data)
+{
     reinterpret_cast<VulkanComplexScene*>(scene_ptr)->CreateHouseMesh(data_ptr);
 }
 
-static void jpegLoadedCallback(void* scene_ptr, void* data_ptr, void* user_data) {
+static void jpegLoadedCallback(void* scene_ptr, void* data_ptr, void* user_data)
+{
     reinterpret_cast<VulkanComplexScene*>(scene_ptr)->CreateHouseTexture(data_ptr);
 }
 
-static void skyboxLoadedCallback(void* scene_ptr, void* data, void* user_data) {
+static void skyboxLoadedCallback(void* scene_ptr, void* data, void* user_data)
+{
     reinterpret_cast<VulkanComplexScene*>(scene_ptr)->CreateSkyboxTexture(data);
 }
 
-static void BeginResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height) {
+static void BeginResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height)
+{
     auto& loader = ResourceLoader::GetResourceLoader();
     loader.Stop(); // get threads to finish pending work
     auto& transfer_sys = ResourceContext::Get();
@@ -48,7 +45,8 @@ static void BeginResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t 
     rsrc.Destroy();
 }
 
-static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height) {
+static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height)
+{
     auto& scene = VulkanComplexScene::GetScene();
     auto& context = RenderingContext::Get();
     auto& rsrc = ResourceContext::Get();
@@ -65,14 +63,8 @@ static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32
     dataLoadedToRAM = true;
 }
 
-int main(int argc, char* argv[]) {
-
-    static const fs::path model_dir{ fs::canonical("../../../../assets/objs/bistro/") };
-    assert(fs::exists(model_dir));
-    static const std::string model_dir_str(model_dir.string());
-    static const fs::path model_file{ model_dir / "exterior.obj" };
-    assert(fs::exists(model_file));
-    static const std::string model_file_str(model_file.string());;
+int main(int argc, char* argv[])
+{
 
     auto& context = RenderingContext::Get();
     context.Construct("RendererContextCfg.json");
@@ -92,7 +84,7 @@ int main(int argc, char* argv[]) {
     {
         if (!fs::exists(path))
         {
-            LOG(ERROR) << "Path " << path.string() << " does not exist!";
+            std::cerr << "Path " << path.string() << " does not exist!";
             throw std::runtime_error("Invalid paths.");
         }
     }
@@ -118,7 +110,8 @@ int main(int argc, char* argv[]) {
     context.AddSwapchainCallbacks(callbacks);
 
 
-    while (!context.ShouldWindowClose()) {
+    while (!context.ShouldWindowClose())
+    {
         context.Update();
         rsrc.Update();
         scene.Render(nullptr);

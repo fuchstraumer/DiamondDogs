@@ -21,5 +21,5 @@ TARGET_INCLUDE_DIRECTORIES(ContentCompilerTest PRIVATE
 
 TARGET_LINK_LIBRARIES(ContentCompilerTest PRIVATE 
         vpr_core vpr_resource mango vpr_sync vpr_command ${Vulkan_LIBRARY} 
-        easyloggingpp rendering_context resource_context content_compiler
+        rendering_context resource_context content_compiler
         ShaderTools)

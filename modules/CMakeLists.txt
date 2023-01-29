@@ -11,9 +11,11 @@ set(VPR_INCLUDE_DIRS_MODULE_RELATIVE
 
 FUNCTION(ADD_MODULE NAME)
     add_library(${NAME} STATIC ${ARGN})
-    target_include_directories(${NAME} PRIVATE "../common/" "${CMAKE_CURRENT_SOURCE_DIR}/include"
-        "../../third_party/easyloggingpp/src" "../../foundation/include")
-    target_link_libraries(${NAME} PUBLIC easyloggingpp diamond_dogs_core)
+    target_include_directories(${NAME} PRIVATE
+        "../common/"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "../../foundation/include")
+    target_link_libraries(${NAME} PUBLIC foundation)
     IF(MSVC)
         TARGET_COMPILE_OPTIONS(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/MP> $<$<CONFIG:RELWITHDEBINFO>:/MP>)
         TARGET_COMPILE_OPTIONS(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/Oi> $<$<CONFIG:RELWITHDEBINFO>:/Oi>)
@@ -26,6 +28,7 @@ FUNCTION(ADD_MODULE NAME)
     SET_TARGET_PROPERTIES(${NAME} PROPERTIES FOLDER "Modules")
 ENDFUNCTION()
 
+
 #add_subdirectory(ecs_module)
 #add_subdirectory(rendergraph_module)
 add_subdirectory(rendering_context)
@@ -36,4 +39,4 @@ add_subdirectory(imgui_module)
 #add_subdirectory(material_module)
 #add_subdirectory(content_compiler)
 #add_subdirectory(terrain_module)
-add_subdirectory(vtf_module)
+#add_subdirectory(vtf_module)

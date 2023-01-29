@@ -33,21 +33,6 @@ static PipelineExecutableFunctions& GetPipelineExecutableFunctions(const VkDevic
     return functions;
 }
 
-uint32_t GetMemoryTypeIndex(uint32_t type_bits, VkMemoryPropertyFlags properties, VkPhysicalDeviceMemoryProperties memory_properties) {
-     for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
-         if ((type_bits & 1) == 1) {
-             if ((memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
-                 return i;
-             }
-         }
-         type_bits >>= 1;
-     }
-
-     throw std::domain_error("Could not find matching memory type for given bits and property flags");
-}
-
-
-
 DepthStencil CreateDepthStencil(const vpr::Device * device, const vpr::PhysicalDevice* physical_device, const vpr::Swapchain * swapchain) {
     DepthStencil depth_stencil;
     depth_stencil.Format = device->FindDepthFormat();
@@ -78,7 +63,7 @@ DepthStencil CreateDepthStencil(const vpr::Device * device, const vpr::PhysicalD
     VkMemoryRequirements memreqs{};
     vkGetImageMemoryRequirements(device->vkHandle(), depth_stencil.Image, &memreqs);
     alloc_info.allocationSize = memreqs.size;
-    alloc_info.memoryTypeIndex = GetMemoryTypeIndex(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, physical_device->GetMemoryProperties());
+    alloc_info.memoryTypeIndex = device->GetMemoryTypeIdx(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     result = vkAllocateMemory(device->vkHandle(), &alloc_info, nullptr, &depth_stencil.Memory);
     VkAssert(result);
     result = vkBindImageMemory(device->vkHandle(), depth_stencil.Image, depth_stencil.Memory, 0);

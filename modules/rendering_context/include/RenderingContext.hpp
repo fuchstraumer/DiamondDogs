@@ -7,15 +7,15 @@
 #include <string>
 #include <functional>
 #include <vulkan/vulkan_core.h>
+#include <nlohmann/json_fwd.hpp>
 
-#define VTF_DEBUG_INFO_DISABLE
 #ifdef VTF_DEBUG_INFO_DISABLE
 constexpr static bool VTF_USE_DEBUG_INFO = false;
 #else
 constexpr static bool VTF_USE_DEBUG_INFO = true;
 #endif
 
-//#define VTF_VALIDATION_ENABLED_CONF
+#define VTF_VALIDATION_ENABLED_CONF
 #ifdef VTF_VALIDATION_ENABLED_CONF
 constexpr static bool VTF_VALIDATION_ENABLED = true;
 #else
@@ -45,7 +45,8 @@ constexpr static bool VTF_DEBUG_INFO_TIMESTAMPS = false;
 #define VTF_DEBUG_OBJECT_NAME(name) name
 #endif
 
-namespace vpr {
+namespace vpr
+{
     class Instance;
     class PhysicalDevice;
     class Device;
@@ -68,7 +69,8 @@ using keyboard_key_callback_t = delegate_t<void(int key, int scancode, int actio
 using post_physical_device_pre_logical_device_function_t = void(*)(VkPhysicalDevice dvc, VkPhysicalDeviceFeatures** features, void** pNext);
 using post_logical_device_function_t = void(*)(void* pNext);
 
-struct SwapchainCallbacks {
+struct SwapchainCallbacks
+{
     delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> SwapchainCreated;
     delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> BeginResize;
     delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> CompleteResize;
@@ -88,9 +90,10 @@ struct DescriptorLimits
     uint32_t MaxInputAttachments;
 };
 
-class RenderingContext {
+class RenderingContext
+{
     RenderingContext() noexcept = default;
-    ~RenderingContext() noexcept = default;
+    ~RenderingContext();
     RenderingContext(const RenderingContext&) = delete;
     RenderingContext& operator=(const RenderingContext&) = delete;
 public:
@@ -138,6 +141,8 @@ public:
     static VkResult SetObjectName(VkObjectType object_type, uint64_t handle, const char* name);
 
 private:
+
+    void createInstanceAndWindow(const nlohmann::json& json_file, std::string& _window_mode);
 
     std::unique_ptr<PlatformWindow> window;
     std::unique_ptr<vpr::Instance> vulkanInstance;

@@ -8,18 +8,19 @@
 #include "../../rendering_context/include/RenderingContext.hpp"
 #include "VkDebugUtils.hpp"
 #include <array>
-#include "easylogging++.h"
 
 constexpr static size_t MAX_QUEUED_UPLOAD_BUFFERS = 128u;
 
-constexpr static std::array<VkDeviceSize, 4u> stagingPoolSizeRanges{
+constexpr static std::array<VkDeviceSize, 4u> stagingPoolSizeRanges
+{
     (VkDeviceSize)128e6,
     (VkDeviceSize)256e6,
     (VkDeviceSize)512e6,
     (VkDeviceSize)1024e6 // This should not be in anything but builds I use for fun. Could end in disaster, heh
 };
 
-constexpr static VkBufferCreateInfo staging_buffer_create_info{
+constexpr static VkBufferCreateInfo staging_buffer_create_info
+{
     VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
     nullptr,
     0,
@@ -30,7 +31,8 @@ constexpr static VkBufferCreateInfo staging_buffer_create_info{
     nullptr
 };
 
-constexpr static VmaAllocationCreateInfo alloc_create_info {
+constexpr static VmaAllocationCreateInfo alloc_create_info
+{
     0,
     VMA_MEMORY_USAGE_CPU_ONLY,
     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
@@ -47,8 +49,10 @@ constexpr static VkDebugUtilsLabelEXT queue_debug_label{
     { 244.0f / 255.0f, 158.0f / 255.0f, 66.0f / 255.0f, 1.0f }
 };
 
-VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device) {
-    constexpr static VkCommandPoolCreateInfo pool_info{
+VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device)
+{
+    constexpr static VkCommandPoolCreateInfo pool_info
+    {
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         nullptr,
         VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
@@ -71,11 +75,12 @@ void ResourceTransferSystem::flushTransfersIfNeeded()
     if (uploadPools.size() > 2u || uploadBuffers.size() > MAX_QUEUED_UPLOAD_BUFFERS)
     {
         CompleteTransfers();
-        LOG(WARNING) << "Had to flush transfers, incurs high cost and indicates overload of transfer system";
+        std::cerr << "Had to flush transfers, incurs high cost and indicates overload of transfer system\n";
     }
 }
 
-UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(const size_t buffer_sz, VulkanResource* rsrc) {
+UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(const size_t buffer_sz, VulkanResource* rsrc)
+{
     flushTransfersIfNeeded();
     uploadBuffers.emplace_back(createUploadBufferImpl(buffer_sz));
     auto iter = pendingResources.emplace(rsrc);
@@ -86,7 +91,7 @@ UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(const size_t buffer_sz,
         // if we're in validation mode, might as well check "iter" too. Won't crash, but will log an error
         if (!iter.second)
         {
-            LOG(ERROR) << "Resource upload buffer is being created for is already in internal containers! This implies duplication of memory.";
+            std::cerr << "Resource upload buffer is being created for is already in internal containers! This implies duplication of memory.\n";
         }
     }
     return uploadBuffers.back().get();
@@ -111,8 +116,8 @@ std::unique_ptr<UploadBuffer> ResourceTransferSystem::createUploadBufferImpl(con
 
     VkResult created_alloc = VK_SUCCESS;
 
-    do {
-
+    do
+    {
         VkBufferCreateInfo create_info = staging_buffer_create_info;
         create_info.size = buffer_sz;
         alloc_create_info.pool = uploadPools.back();
@@ -141,7 +146,8 @@ std::unique_ptr<UploadBuffer> ResourceTransferSystem::createUploadBufferImpl(con
 
 ResourceTransferSystem::ResourceTransferSystem() : transferCmdPool(nullptr), device(nullptr), fence(nullptr) {}
 
-ResourceTransferSystem::~ResourceTransferSystem() {
+ResourceTransferSystem::~ResourceTransferSystem()
+{
     CompleteTransfers();
     for (auto pool : uploadPools)
     {
@@ -149,9 +155,11 @@ ResourceTransferSystem::~ResourceTransferSystem() {
     }
 }
 
-void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _allocator) {
+void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _allocator)
+{
 
-    if (initialized) {
+    if (initialized)
+    {
         return;
     }
 
@@ -164,10 +172,11 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _a
     transferCmdPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     fence = std::make_unique<vpr::Fence>(dvc->vkHandle(), 0);
 
-    constexpr static VkCommandBufferBeginInfo begin_info{
+    constexpr static VkCommandBufferBeginInfo begin_info
+    {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         nullptr,
-        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
+        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
         nullptr
     };
 
@@ -193,18 +202,22 @@ void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _a
 
 }
 
-ResourceTransferSystem & ResourceTransferSystem::GetTransferSystem() {
+ResourceTransferSystem & ResourceTransferSystem::GetTransferSystem()
+{
     static ResourceTransferSystem transfer_system;
     return transfer_system;
 }
 
-void ResourceTransferSystem::CompleteTransfers() {
+void ResourceTransferSystem::CompleteTransfers()
+{
 
-    if (!initialized) {
+    if (!initialized)
+    {
         throw std::runtime_error("Transfer system was not properly initialized!");
     }
 
-    if (!cmdBufferDirty) {
+    if (!cmdBufferDirty)
+    {
         return;
     }
 
@@ -216,11 +229,13 @@ void ResourceTransferSystem::CompleteTransfers() {
     }
 
     auto& pool = *transferCmdPool;
-    if (vkEndCommandBuffer(pool[0]) != VK_SUCCESS) {
+    if (vkEndCommandBuffer(pool[0]) != VK_SUCCESS)
+    {
         throw std::runtime_error("Failed to end Transfer command buffer!");
     }
 
-    VkSubmitInfo submission{
+    VkSubmitInfo submission
+    {
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
         nullptr,
         0,
@@ -241,7 +256,8 @@ void ResourceTransferSystem::CompleteTransfers() {
 
     transferCmdPool->ResetCmdBuffer(0);
 
-    constexpr static VkCommandBufferBeginInfo begin_info{
+    constexpr static VkCommandBufferBeginInfo begin_info
+    {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         nullptr,
         VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
@@ -257,11 +273,13 @@ void ResourceTransferSystem::CompleteTransfers() {
         device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(transferCmdPool->GetCmdBuffer(0), &queue_debug_label);
     }
 
-    if (uploadBuffers.empty()) {
+    if (uploadBuffers.empty())
+    {
         return;
     }
 
-    for (auto& buff : uploadBuffers) {
+    for (auto& buff : uploadBuffers)
+    {
         vmaDestroyBuffer(allocator, buff->Buffer, buff->Allocation);
         buff.reset();
     }
@@ -286,11 +304,13 @@ void ResourceTransferSystem::CompleteTransfers() {
 
 }
 
-ResourceTransferSystem::transferSpinLockGuard ResourceTransferSystem::AcquireSpinLock() {
+ResourceTransferSystem::transferSpinLockGuard ResourceTransferSystem::AcquireSpinLock()
+{
     return ResourceTransferSystem::transferSpinLockGuard(copyQueueLock);
 }
 
-VkCommandBuffer ResourceTransferSystem::TransferCmdBuffer() {
+VkCommandBuffer ResourceTransferSystem::TransferCmdBuffer()
+{
     cmdBufferDirty = true;
     auto& pool = *transferCmdPool;
     return pool[0];
@@ -308,9 +328,10 @@ VmaPool ResourceTransferSystem::createPool()
     VkResult create_result = vmaFindMemoryTypeIndexForBufferInfo(allocator, &staging_buffer_create_info, &alloc_create_info, &memory_type_index);
     VkAssert(create_result);
 
-    const VmaPoolCreateInfo pool_info{
+    const VmaPoolCreateInfo pool_info
+    {
         memory_type_index,
-        VMA_POOL_CREATE_IGNORE_BUFFER_IMAGE_GRANULARITY_BIT | VMA_POOL_CREATE_LINEAR_ALGORITHM_BIT,
+        VMA_POOL_CREATE_LINEAR_ALGORITHM_BIT,
         lastPoolSize, // block size: 256mb of staging memory. if we use more than this, we have a problem
         0u, // min block count
         0u, // max block count
@@ -324,20 +345,24 @@ VmaPool ResourceTransferSystem::createPool()
     return result;
 }
 
-void ResourceTransferSystem::transferSpinLock::lock() {
+void ResourceTransferSystem::transferSpinLock::lock()
+{
     while (!lockFlag.try_lock()) {
 
     }
 }
 
-void ResourceTransferSystem::transferSpinLock::unlock() {
+void ResourceTransferSystem::transferSpinLock::unlock()
+{
     lockFlag.unlock();
 }
 
-ResourceTransferSystem::transferSpinLockGuard::transferSpinLockGuard(transferSpinLock & _lock) : lck(_lock) {
+ResourceTransferSystem::transferSpinLockGuard::transferSpinLockGuard(transferSpinLock & _lock) : lck(_lock)
+{
     lck.lock();
 }
 
-ResourceTransferSystem::transferSpinLockGuard::~transferSpinLockGuard() {
+ResourceTransferSystem::transferSpinLockGuard::~transferSpinLockGuard()
+{
     lck.unlock();
 }

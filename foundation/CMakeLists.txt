@@ -62,10 +62,6 @@ add_library(foundation STATIC
     ${utility_source_files}
     ${reactors_source_files})
 
-# glfw and easyloggingpp both required for baseline functionality, same with Vulkan. Mango
-# isn't used a lot yet, but has useful utility stuff that will save me some time
-target_link_libraries(foundation PRIVATE easyloggingpp mango snmalloc_lib mimalloc-static)
-
 set(foundation_vpr_include_dirs
     "../third_party/vulpesrender/alloc/include"
     "../third_party/vulpesrender/command/include"
@@ -101,5 +97,5 @@ if(MSVC)
     target_compile_options(foundation PUBLIC "/std:c++latest" "/arch:AVX2")
 else()
     # Set standard to C++20
-    set_target_properties(diamond_dogs_core PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+    set_target_properties(foundation PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
 endif()

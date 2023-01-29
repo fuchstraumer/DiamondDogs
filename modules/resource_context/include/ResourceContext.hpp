@@ -24,15 +24,36 @@ public:
     void Update();
     void Destroy();
 
-    VulkanResource* CreateBuffer(const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data = nullptr);
+    VulkanResource* CreateBuffer(
+        const VkBufferCreateInfo* info,
+        const VkBufferViewCreateInfo* view_info,
+        const size_t num_data,
+        const gpu_resource_data_t* initial_data,
+        const resource_usage _resource_usage,
+        const resource_creation_flags _flags,
+        void* user_data = nullptr);
     void SetBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data);
     void FillBuffer(VulkanResource* dest_buffer, const uint32_t value, const size_t offset, const size_t fill_size);
-    VulkanResource* CreateImage(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data = nullptr);
+    VulkanResource* CreateImage(
+        const VkImageCreateInfo* info,
+        const VkImageViewCreateInfo* view_info,
+        const size_t num_data,
+        const gpu_image_resource_data_t* initial_data,
+        const resource_usage _resource_usage,
+        const resource_creation_flags _flags,
+        void* user_data = nullptr);
     VulkanResource* CreateImageView(const VulkanResource* base_rsrc, const VkImageViewCreateInfo* view_info, void* user_data = nullptr);
     void SetImageData(VulkanResource* image, const size_t num_data, const gpu_image_resource_data_t* data);
     VulkanResource* CreateSampler(const VkSamplerCreateInfo* info, const resource_creation_flags _flags, void* user_data = nullptr);
-    VulkanResource* CreateCombinedImageSampler(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const VkSamplerCreateInfo* sampler_info,
-        const size_t num_data, const gpu_image_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data = nullptr);
+    VulkanResource* CreateCombinedImageSampler(
+        const VkImageCreateInfo* info,
+        const VkImageViewCreateInfo* view_info,
+        const VkSamplerCreateInfo* sampler_info,
+        const size_t num_data,
+        const gpu_image_resource_data_t* initial_data,
+        const resource_usage _resource_usage,
+        const resource_creation_flags _flags,
+        void* user_data = nullptr);
     VulkanResource* CreateResourceCopy(VulkanResource* src);
     void CopyResource(VulkanResource* src, VulkanResource** dest);
     void CopyResourceContents(VulkanResource* src, VulkanResource* dest);

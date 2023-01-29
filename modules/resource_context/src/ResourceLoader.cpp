@@ -1,13 +1,9 @@
 #include "ResourceLoader.hpp"
-#ifndef __APPLE_CC__
 #include <filesystem>
-#else
-#include <boost/filesystem.hpp>
-#endif
-#include "easylogging++.h"
 #include <algorithm>
 #include <locale>
 #include <execution>
+#include <iostream>
 
 static std::mutex logMutex;
 
@@ -38,11 +34,7 @@ void ResourceLoader::Unsubscribe(const char* file_type)
 
 void ResourceLoader::Load(const char* file_type, const char* file_path, void* _requester, SignalFunctor signal, void* user_data)
 {
-#ifndef __APPLE_CC__
     namespace fs = std::filesystem;
-#else
-    namespace fs = boost::filesystem;
-#endif
     const std::string file_name{ file_path };
     const uint64_t fileNameHash{ std::hash<std::string>()(file_name) };
 
@@ -103,11 +95,7 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
 
 void ResourceLoader::Load(const char* file_type, const char* _file_name, const char* search_dir, void* _requester, SignalFunctor signal, void* user_data)
 {
-#ifndef __APPLE_CC__
     namespace fs = std::filesystem;
-#else
-    namespace fs = boost::filesystem;
-#endif
     const std::string file_name{ _file_name };
     const uint64_t fileNameHash{ std::hash<std::string>()(file_name) };
 
@@ -164,11 +152,7 @@ void ResourceLoader::Load(const char* file_type, const char* _file_name, const c
 
 void ResourceLoader::Unload(const char* file_type, const char* _path)
 {
-#ifndef __APPLE_CC__
     namespace fs = std::filesystem;
-#else
-    namespace fs = boost::filesystem;
-#endif
 
     uint64_t pathHash = std::hash<std::string>()(_path);
 
@@ -323,7 +307,7 @@ void ResourceLoader::workerFunction()
             if (found_path.empty())
             {
                 std::lock_guard failMutex{ logMutex };
-                LOG(ERROR) << "Failed to load resource! File name was " << request.destinationData.FileName;
+                std::cerr << "Failed to load resource! File name was " << request.destinationData.FileName;
                 throw std::runtime_error("Failed to load resource!"); // how could we handle this without throwing?
             }
             request.destinationData.AbsoluteFilePath = std::move(found_path);

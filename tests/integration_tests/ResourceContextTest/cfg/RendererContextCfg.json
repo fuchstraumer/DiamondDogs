@@ -4,7 +4,7 @@
     "EngineName" : "DiamondDogs",
     "EngineVersion" : "0.1.0",
     "EnableValidation" : true,
-    "VulkanVersion" : "1.1",
+    "VulkanVersion" : "1.3",
     "UseRecommendedExtensions" : true,
     "RequiredInstanceExtensions" : [
         "VK_EXT_debug_utils"

@@ -6,14 +6,16 @@
 #include <vulkan/vulkan.h>
 #include <thread>
 
-VulkanScene::VulkanScene() {
+VulkanScene::VulkanScene()
+{
     limiterA = std::chrono::system_clock::now();
     limiterB = std::chrono::system_clock::now();
 }
 
 VulkanScene::~VulkanScene() {}
 
-void VulkanScene::Render(void* user_data) {
+void VulkanScene::Render(void* user_data)
+{
     acquireImage();
     update();
     recordCommands();
@@ -23,16 +25,19 @@ void VulkanScene::Render(void* user_data) {
     endFrame();
 }
 
-size_t VulkanScene::CurrentFrameIdx() const {
+size_t VulkanScene::CurrentFrameIdx() const
+{
     return static_cast<size_t>(currentBuffer);
 }
 
-void VulkanScene::createSemaphores() {
+void VulkanScene::createSemaphores()
+{
     imageAcquireSemaphore = std::make_unique<vpr::Semaphore>(vprObjects.device->vkHandle());
     renderCompleteSemaphore = std::make_unique<vpr::Semaphore>(vprObjects.device->vkHandle());
 }
 
-void VulkanScene::limitFrame() {
+void VulkanScene::limitFrame()
+{
     limiterA = std::chrono::system_clock::now();
     std::chrono::duration<double, std::milli> work_time = limiterA - limiterB;
     if (work_time.count() < 16.0) {
@@ -43,12 +48,14 @@ void VulkanScene::limitFrame() {
     limiterB = std::chrono::system_clock::now();
 }
 
-void VulkanScene::acquireImage() {
+void VulkanScene::acquireImage()
+{
     VkResult result = vkAcquireNextImageKHR(vprObjects.device->vkHandle(), vprObjects.swapchain->vkHandle(), UINT64_MAX, imageAcquireSemaphore->vkHandle(), VK_NULL_HANDLE, &currentBuffer);
     VkAssert(result);
 }
 
-void VulkanScene::present() {
+void VulkanScene::present()
+{
 
     VkResult present_results[1]{ VK_SUCCESS };
 
@@ -68,6 +75,6 @@ void VulkanScene::present() {
 
 }
 
-void VulkanScene::endFrame() {
-
+void VulkanScene::endFrame()
+{
 }

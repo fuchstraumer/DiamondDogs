@@ -22,13 +22,10 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
 #include "gli/gli.hpp"
-#include "../../../third_party/easyloggingpp/src/easylogging++.h"
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
 #define TINYOBJ_LOADER_OPT_IMPLEMENTATION 
 #include <tinyobjloader/experimental/tinyobj_loader_opt.h>
-#include <mango/core/memory.hpp>
-#include <mango/filesystem/filesystem.hpp>
 #pragma warning(pop)
 #include <iostream>
 #include <array>
@@ -132,23 +129,22 @@ LoadedObjModel::LoadedObjModel(const char* fname)
     std::string err;
     
     {
-        mango::filesystem::File model_file(fname);
-        if (!model_file.data())
-        {
-            LOG(ERROR) << "Failed to find model file for ResourceContextScene test!";
-            throw std::runtime_error("Failed to find model file for ResourceContextScene test!");
+        std::string file_input;
+        std::ifstream input_obj(fname);
+        if (!input_obj.is_open()) {
+            throw std::runtime_error("Err");
         }
 
-        const mango::ConstMemory model_memory{ model_file };
+        std::string loaded_data{ std::istreambuf_iterator<char>(input_obj), std::istreambuf_iterator<char>() };
 
         tinyobj_opt::LoadOption loadOpts;
         loadOpts.req_num_threads = static_cast<int>(std::thread::hardware_concurrency() / 2);
         loadOpts.triangulate = true;
         loadOpts.verbose = true;
 
-        if (!tinyobj_opt::parseObj(&attrib, &shapes, &materials, reinterpret_cast<const char*>(model_memory.address), model_memory.size, loadOpts))
+        if (!tinyobj_opt::parseObj(&attrib, &shapes, &materials, reinterpret_cast<const char*>(loaded_data.data()), loaded_data.length(), loadOpts))
         {
-            LOG(ERROR) << "Internal error in tinyobj_opt, couldn't load model data! Error: " << err;
+            std::cerr << "Internal error in tinyobj_opt, couldn't load model data! Error: " << err;
             throw std::runtime_error(err);
         }
     }
@@ -446,7 +442,7 @@ void VulkanComplexScene::CreateHouseTexture(void * texture_data)
 void VulkanComplexScene::CreateSkyboxTexture(void * texture_data)
 {
 
-    LOG(INFO) << "Creating backing resources for loaded compressed skybox texture...";
+    std::cout << "Creating backing resources for loaded compressed skybox texture...\n";
 
     gli::texture_cube* texture = reinterpret_cast<gli::texture_cube*>(texture_data);
     const uint32_t width = static_cast<uint32_t>(texture->extent().x);
@@ -492,7 +488,7 @@ void VulkanComplexScene::CreateSkyboxTexture(void * texture_data)
 
     const size_t total_size = texture->size();
 
-    LOG(INFO) << "Creating image copy data, making sure layers and mips are correctly transferred...";
+    std::cout << "Creating image copy data, making sure layers and mips are correctly transferred...\n";
     std::vector<gpu_image_resource_data_t> image_copies;
     for (size_t i = 0; i < 6; ++i)
     {
@@ -715,7 +711,7 @@ void VulkanComplexScene::createSampler()
         VK_TRUE,
         4.0f,
         VK_FALSE,
-        VK_COMPARE_OP_BEGIN_RANGE,
+        VK_COMPARE_OP_NEVER,
         0.0f,
         3.0f,
         VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
@@ -836,7 +832,7 @@ void VulkanComplexScene::createCommandPool()
 
 void VulkanComplexScene::createDescriptorPool()
 {
-    descriptorPool = std::make_unique<vpr::DescriptorPool>(vprObjects.device->vkHandle(), 3);
+    descriptorPool = std::make_unique<vpr::DescriptorPool>(vprObjects.device->vkHandle(), 3, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT);
     descriptorPool->AddResourceType(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2);
     descriptorPool->AddResourceType(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2);
     descriptorPool->Create();

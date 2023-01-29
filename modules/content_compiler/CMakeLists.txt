@@ -22,11 +22,10 @@ ADD_MODULE(content_compiler
     "src/svUtil.cpp"
 )
 
-TARGET_LINK_LIBRARIES(content_compiler PUBLIC easyloggingpp)
+TARGET_LINK_LIBRARIES(content_compiler PUBLIC)
 TARGET_INCLUDE_DIRECTORIES(content_compiler PUBLIC 
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "../../third_party/glm"
-    "../../third_party/easyloggingpp/src"
     "${Vulkan_INCLUDE_DIR}"
     "../../third_party/tinyobjloader/experimental"
     "../material_module/include"
