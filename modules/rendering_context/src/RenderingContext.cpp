@@ -47,14 +47,35 @@ void GetVersions(const nlohmann::json& json_file, uint32_t& app_version, uint32_
 
 struct QueriedDeviceFeatures
 {
-    VkPhysicalDeviceShaderFloat16Int8Features shaderF16I8Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES };
-    VkPhysicalDevice16BitStorageFeatures shader16BitStorageFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES, &shaderF16I8Features };
+    VkPhysicalDeviceExtendedDynamicState3FeaturesEXT extendedDynamicState3Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT, nullptr };
+    VkPhysicalDeviceExtendedDynamicState2FeaturesEXT extendedDynamicState2Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT, &extendedDynamicState3Features };
+    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extendedDynamicStateFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT, &extendedDynamicState2Features };
+    VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR rayTracingMaintenanceFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MAINTENANCE_1_FEATURES_KHR, &extendedDynamicStateFeatures };
+    VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, &rayTracingMaintenanceFeatures };
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR raytracingPipelineFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR, &rayQueryFeatures };
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR, &raytracingPipelineFeatures };
+    VkPhysicalDeviceCoherentMemoryFeaturesAMD coherentMemoryFeaturesAMD{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COHERENT_MEMORY_FEATURES_AMD, &accelerationStructureFeatures };
+    VkPhysicalDeviceLineRasterizationFeaturesEXT lineRasterizationFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_EXT, &coherentMemoryFeaturesAMD };
+    VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures demoteToHelperFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES, &lineRasterizationFeatures };
+    VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES, &demoteToHelperFeatures };
+    VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeaturesEXT{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT, &descriptorIndexingFeatures };
+    VkPhysicalDeviceMeshShaderFeaturesNV meshShaderFeaturesNV{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_NV, &meshShaderFeaturesEXT };
+    VkPhysicalDeviceShaderDrawParametersFeatures shaderDrawParametersFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES, &meshShaderFeaturesNV };
+    VkPhysicalDeviceConditionalRenderingFeaturesEXT conditionalRenderingFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT, &shaderDrawParametersFeatures };
+    VkPhysicalDeviceBlendOperationAdvancedFeaturesEXT blendOperationAdvancedFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_FEATURES_EXT, &conditionalRenderingFeatures };
+    VkPhysicalDeviceShaderClockFeaturesKHR shaderClockFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR, &blendOperationAdvancedFeatures };
+    VkPhysicalDeviceShaderFloat16Int8Features shaderFloat16Int8Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES, &shaderClockFeatures };
+    VkPhysicalDevice16BitStorageFeatures shader16BitStorageFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES, &shaderFloat16Int8Features };
     VkPhysicalDevice8BitStorageFeatures shader8BitStorageFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES, &shader16BitStorageFeatures };
-    VkPhysicalDeviceMultiviewFeatures multiviewFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES, &shader8BitStorageFeatures };
+    VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT shaderImageAtomicInt64Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_IMAGE_ATOMIC_INT64_FEATURES_EXT, &shader8BitStorageFeatures };
+    VkPhysicalDeviceShaderAtomicInt64Features shaderAtomicInt64Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES, &shaderImageAtomicInt64Features };
+    VkPhysicalDeviceShaderAtomicFloat2FeaturesEXT shaderAtomicFloat2Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_2_FEATURES_EXT, &shaderAtomicInt64Features };
+    VkPhysicalDeviceShaderAtomicFloatFeaturesEXT shaderAtomicFloatFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT, &shaderAtomicFloat2Features };
+    VkPhysicalDeviceMultiviewFeatures multiviewFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES, &shaderAtomicFloatFeatures };
     VkPhysicalDeviceVulkan13Features vulkan13Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES, &multiviewFeatures };
     VkPhysicalDeviceVulkan12Features vulkan12Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, &vulkan13Features };
     VkPhysicalDeviceVulkan11Features vulkan11Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, &vulkan12Features };
-    VkPhysicalDeviceFeatures2 deviceFeaturesBase{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &vulkan11Features };
+    VkPhysicalDeviceFeatures2 deviceFeaturesBase{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &vulkan11Features, VkPhysicalDeviceFeatures{} };
 };
 void GetPhysicalDeviceFeatures(VkInstance instance, const uint32_t apiVersion, QueriedDeviceFeatures& features);
 
@@ -64,60 +85,6 @@ static const std::unordered_map<std::string, windowing_mode> windowing_mode_str_
     { "BorderlessWindowed", windowing_mode::BorderlessWindowed },
     { "Fullscreen", windowing_mode::Fullscreen }
 };
-
-void createLogicalDevice(const nlohmann::json& json_file, VkSurfaceKHR surface, std::unique_ptr<vpr::Device>* device, vpr::Instance* instance, vpr::PhysicalDevice* physical_device)
-{
-    std::vector<std::string> required_extensions_strs;
-    {
-        nlohmann::json req_ext_json = json_file.at("RequiredDeviceExtensions");
-        for (auto& entry : req_ext_json) {
-            required_extensions_strs.emplace_back(entry);
-        }
-    }
-
-    std::vector<std::string> requested_extensions_strs;
-    {
-        nlohmann::json ext_json = json_file.at("RequestedDeviceExtensions");
-        for (auto& entry : ext_json) {
-            requested_extensions_strs.emplace_back(entry);
-        }
-    }
-
-    std::vector<const char*> required_extensions;
-    for (auto& str : required_extensions_strs)
-    {
-        required_extensions.emplace_back(str.c_str());
-    }
-
-    std::vector<const char*> requested_extensions;
-    for (auto& str : requested_extensions_strs)
-    {
-        requested_extensions.emplace_back(str.c_str());
-    }
-
-    vpr::VprExtensionPack pack;
-    pack.RequiredExtensionCount = static_cast<uint32_t>(required_extensions.size());
-    pack.RequiredExtensionNames = required_extensions.data();
-    pack.OptionalExtensionCount = static_cast<uint32_t>(requested_extensions.size());
-    pack.OptionalExtensionNames = requested_extensions.data();
-
-    if (usedNextPtr != nullptr)
-    {
-        pack.pNextChainStart = usedNextPtr;
-    }
-
-    if (enabledDeviceFeatures != nullptr)
-    {
-        pack.featuresToEnable = enabledDeviceFeatures;
-    }
-
-    *device = std::make_unique<vpr::Device>(instance, physical_device, surface, &pack, nullptr, 0);
-
-    if (postLogicalDeviceFunction != nullptr)
-    {
-        postLogicalDeviceFunction(usedNextPtr);
-    }
-}
 
 static std::atomic<bool>& GetShouldResizeFlag()
 {
@@ -173,13 +140,15 @@ void RenderingContext::Construct(const char* file_path)
 
     nlohmann::json json_file;
     input_file >> json_file;
+    
+    vpr::VprExtensionPack extensionPack;
 
-    createInstanceAndWindow(json_file, windowMode);
+    createInstanceAndWindow(json_file, windowMode, extensionPack);
     window->SetWindowUserPointer(this);
 
     if (postPhysicalPreLogicalSetupFunction != nullptr)
     {
-        postPhysicalPreLogicalSetupFunction(physicalDevices.back()->vkHandle(), &enabledDeviceFeatures, &usedNextPtr);
+        postPhysicalPreLogicalSetupFunction(physicalDevices.back()->vkHandle(), nullptr, &usedNextPtr);
     }
 
     {
@@ -199,7 +168,7 @@ void RenderingContext::Construct(const char* file_path)
 
     windowSurface = std::make_unique<vpr::SurfaceKHR>(vulkanInstance.get(), physicalDevices[0]->vkHandle(), (void*)window->glfwWindow());
 
-    createLogicalDevice(json_file, windowSurface->vkHandle(), &logicalDevice, vulkanInstance.get(), physicalDevices[0].get());
+    createLogicalDevice(json_file, extensionPack);
 
     if constexpr (VTF_VALIDATION_ENABLED)
     {
@@ -590,7 +559,7 @@ VkResult RenderingContext::SetObjectName(VkObjectType object_type, uint64_t hand
     }
 }
 
-void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, std::string& _window_mode)
+void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, std::string& _window_mode, vpr::VprExtensionPack& extensionPack)
 {
     int window_width = json_file.at("InitialWindowWidth");
     int window_height = json_file.at("InitialWindowHeight");
@@ -646,17 +615,16 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
         requested_extensions.emplace_back(str.c_str());
     }
 
-    vpr::VprExtensionPack pack;
     VkPhysicalDeviceFeatures features;
     
 
-    pack.PreferredApiVersion = vpr::VprExtensionPack::ApiVersion::Vulkan13;
-    pack.RequiredExtensionCount = static_cast<uint32_t>(required_extensions.size());
-    pack.RequiredExtensionNames = required_extensions.data();
-    pack.OptionalExtensionCount = static_cast<uint32_t>(requested_extensions.size());
-    pack.OptionalExtensionNames = requested_extensions.data();
-    pack.featuresToEnable2 = nullptr;
-    pack.featuresToEnable = &features;
+    extensionPack.PreferredApiVersion = vpr::VprExtensionPack::ApiVersion::Vulkan13;
+    extensionPack.RequiredExtensionCount = static_cast<uint32_t>(required_extensions.size());
+    extensionPack.RequiredExtensionNames = required_extensions.data();
+    extensionPack.OptionalExtensionCount = static_cast<uint32_t>(requested_extensions.size());
+    extensionPack.OptionalExtensionNames = requested_extensions.data();
+    extensionPack.featuresToEnable2 = nullptr;
+    extensionPack.featuresToEnable = &features;
 
     const VkApplicationInfo application_info
     {
@@ -670,12 +638,58 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
     };
 
     auto layers = using_validation ? vpr::Instance::instance_layers::Full : vpr::Instance::instance_layers::Disabled;
-    vulkanInstance = std::make_unique<vpr::Instance>(layers, &application_info, &pack);
+    vulkanInstance = std::make_unique<vpr::Instance>(layers, &application_info, &extensionPack);
 
-    QueriedDeviceFeatures supportedFeatures;
-    GetPhysicalDeviceFeatures(vulkanInstance->vkHandle(), api_version, supportedFeatures);
+    queriedDeviceFeatures = std::make_unique<QueriedDeviceFeatures>();
+    GetPhysicalDeviceFeatures(vulkanInstance->vkHandle(), api_version, *queriedDeviceFeatures);
 
-    physicalDevices.emplace_back(std::make_unique<vpr::PhysicalDevice>(vulkanInstance->vkHandle(), &pack));
+    extensionPack.featuresToEnable = nullptr;
+    extensionPack.featuresToEnable2 = &queriedDeviceFeatures->deviceFeaturesBase;
+
+    physicalDevices.emplace_back(std::make_unique<vpr::PhysicalDevice>(vulkanInstance->vkHandle(), &extensionPack));
+}
+
+void RenderingContext::createLogicalDevice(const nlohmann::json& json_file, vpr::VprExtensionPack& extensionPack)
+{
+    std::vector<std::string> required_extensions_strs;
+    {
+        nlohmann::json req_ext_json = json_file.at("RequiredDeviceExtensions");
+        for (auto& entry : req_ext_json) {
+            required_extensions_strs.emplace_back(entry);
+        }
+    }
+
+    std::vector<std::string> requested_extensions_strs;
+    {
+        nlohmann::json ext_json = json_file.at("RequestedDeviceExtensions");
+        for (auto& entry : ext_json) {
+            requested_extensions_strs.emplace_back(entry);
+        }
+    }
+
+    std::vector<const char*> required_extensions;
+    for (auto& str : required_extensions_strs)
+    {
+        required_extensions.emplace_back(str.c_str());
+    }
+
+    std::vector<const char*> requested_extensions;
+    for (auto& str : requested_extensions_strs)
+    {
+        requested_extensions.emplace_back(str.c_str());
+    }
+
+    extensionPack.RequiredExtensionCount = static_cast<uint32_t>(required_extensions.size());
+    extensionPack.RequiredExtensionNames = required_extensions.data();
+    extensionPack.OptionalExtensionCount = static_cast<uint32_t>(requested_extensions.size());
+    extensionPack.OptionalExtensionNames = requested_extensions.data();
+
+    logicalDevice = std::make_unique<vpr::Device>(vulkanInstance.get(), physicalDevices.front().get(), windowSurface->vkHandle(), &extensionPack, nullptr, 0);
+
+    if (postLogicalDeviceFunction != nullptr)
+    {
+        postLogicalDeviceFunction(usedNextPtr);
+    }
 }
 
 std::string objectTypeToString(const VkObjectType type)
@@ -891,47 +905,14 @@ void GetVersions(const nlohmann::json& json_file, uint32_t& app_version, uint32_
     }
 }
 
-VkPhysicalDeviceFeatures2 GetPhysicalDeviceFeatures(VkInstance instance, const uint32_t apiVersion, QueriedDeviceFeatures& features)
+void GetPhysicalDeviceFeatures(VkInstance instance, const uint32_t apiVersion, QueriedDeviceFeatures& features)
 {
     uint32_t deviceCount = 0u;
     vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
     std::vector<VkPhysicalDevice> devices(deviceCount, VK_NULL_HANDLE);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
-    VkPhysicalDeviceFeatures2 deviceFeatures2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+    VkPhysicalDevice bestScoringDevice = vpr::ChooseBestScoringPhysicalDevice(devices.size(), devices.data());
 
-    // now start attaching further version options
-    void* pNext = nullptr;
-    VkPhysicalDeviceVulkan11Features vulkan11Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
-    VkPhysicalDeviceVulkan12Features vulkan12Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
-    VkPhysicalDeviceVulkan13Features vulkan13Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
-
-    if (apiVersion >= VK_VERSION_1_1)
-    {
-        pNext = &vulkan11Features;
-    }
-
-    if (apiVersion >= VK_VERSION_1_2)
-    {
-        vulkan11Features.pNext = &vulkan12Features;
-    }
-
-    if (apiVersion >= VK_VERSION_1_3)
-    {
-        vulkan12Features.pNext = &vulkan13Features;
-    }
-
-    deviceFeatures2.pNext = pNext;
-
-    std::vector<VkPhysicalDeviceFeatures2> deviceFeatures(deviceCount, deviceFeatures2);
-    for (size_t i = 0; i < devices.size(); ++i)
-    {
-        vkGetPhysicalDeviceFeatures2(devices[i], &deviceFeatures[i]);
-    }
-
-    vulkan11Features = *reinterpret_cast<VkPhysicalDeviceVulkan11Features*>(deviceFeatures.front().pNext);
-    vulkan12Features = *reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(vulkan11Features.pNext);
-    vulkan13Features = *reinterpret_cast<VkPhysicalDeviceVulkan13Features*>(vulkan12Features.pNext);
-
-    return VkPhysicalDeviceFeatures2();
+    vkGetPhysicalDeviceFeatures2(bestScoringDevice, &features.deviceFeaturesBase);
 }

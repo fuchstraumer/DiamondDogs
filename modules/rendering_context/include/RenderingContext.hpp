@@ -52,8 +52,10 @@ namespace vpr
     class Device;
     class Swapchain;
     class SurfaceKHR;
+    struct VprExtensionPack;
 }
 
+struct QueriedDeviceFeatures;
 class PlatformWindow;
 struct GLFWwindow;
 struct GLFWcursor;
@@ -142,7 +144,8 @@ public:
 
 private:
 
-    void createInstanceAndWindow(const nlohmann::json& json_file, std::string& _window_mode);
+    void createInstanceAndWindow(const nlohmann::json& json_file, std::string& _window_mode, vpr::VprExtensionPack& extensionPack);
+    void createLogicalDevice(const nlohmann::json& json_file, vpr::VprExtensionPack& extensionPack);
 
     std::unique_ptr<PlatformWindow> window;
     std::unique_ptr<vpr::Instance> vulkanInstance;
@@ -159,6 +162,8 @@ private:
     std::string shaderCacheDir;
     PFN_vkSetDebugUtilsObjectNameEXT SetObjectNameFn{ nullptr };
     VkDebugUtilsMessengerEXT DebugUtilsMessenger{ VK_NULL_HANDLE };
+    std::unique_ptr<QueriedDeviceFeatures> queriedDeviceFeatures{ nullptr };
+    std::unique_ptr<QueriedDeviceFeatures> enabledDeviceFeatures{ nullptr };
 
 };
 
