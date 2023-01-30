@@ -115,13 +115,13 @@ int main(int argc, char* argv[])
         context.Update();
         rsrc.Update();
         scene.Render(nullptr);
-        /*if (dataLoadedToRAM)
+        if (dataLoadedToRAM)
         {
             rsrc_loader.Unload("OBJ", HouseObjFile.c_str());
             rsrc_loader.Unload("PNG", HousePngFile.c_str());
             rsrc_loader.Unload("DDS", SkyboxDdsFile.c_str());
             dataLoadedToRAM = false;
-        }*/
+        }
     }
 
 

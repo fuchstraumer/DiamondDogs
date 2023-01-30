@@ -574,7 +574,7 @@ void VulkanComplexScene::recordCommands()
     {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         nullptr,
-        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
+        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
         nullptr
     };
 
@@ -1040,7 +1040,8 @@ void VulkanComplexScene::createSkyboxPipeline()
         renderPass,
         VK_COMPARE_OP_LESS_OR_EQUAL,
         skyboxCache->vkHandle(),
-        housePipeline
+        housePipeline,
+        VK_CULL_MODE_NONE
     };
 
     skyboxPipeline = CreateBasicPipeline(createInfo);
