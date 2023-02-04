@@ -19,9 +19,6 @@
 [submodule "third_party/gli"]
 	path = third_party/gli
 	url = http://github.com/g-truc/gli
-[submodule "third_party/easyloggingpp"]
-	path = third_party/easyloggingpp
-	url = http://github.com/muflihun/easyloggingpp
 [submodule "third_party/tinyobjloader"]
 	path = third_party/tinyobjloader
 	url = https://github.com/syoyo/tinyobjloader
