@@ -6,7 +6,7 @@
 from xml.etree import ElementTree
 import argparse
 import sys
-from collections import OrderedDict
+import pathlib
 
 # get list of current vulkan version names
 def GetVersionList(tree):
@@ -55,12 +55,13 @@ def RemoveAliasedExtensions(extensions, aliasedExtensions):
 
 # Collate extensions promoted to new version of Vulkan, and collate this
 def CollateExtensionsPromotedToNewVkVersion(extensions, versions):
-    versionPromotedExtensions = {}
+    versionPromotedExtensions = { version:[] for version in versions }
 
     for extension in extensions:
-        promotedTo = extension.get('promotedTo')
-        if promotedTo != None and versions.count(promotedTo) != 0:
-            versionPromotedExtensions[promotedTo].append(extension.get('name'))
+        promotedTo = extension.get('promotedto')
+        if promotedTo != None:
+            if versions.count(promotedTo) != 0:
+                versionPromotedExtensions[promotedTo].append(extension.get('name'))
 
     return versionPromotedExtensions
 
@@ -84,8 +85,8 @@ def CreateFileHeader(tree, fileStream):
     print(f'#ifndef VK_EXTENSION_WRANGLER_LOOKUPS_{includeUuid}', file=fileStream)
     print(f'#define VK_EXTENSION_WRANGLER_LOOKUPS_{includeUuid}', file=fileStream)
     print('#include <cstdint>\n#include <array>\n#include <string_view>', file=fileStream)
-    print('#include <unordered_map>\n#include <vector>', file=fileStream)
-    #print(f'constexpr size_t vkExtensionWranglerXmlHash = 0x' + str(int(includeUuid)) + ';\n', file=fileStream)
+    print('#include <unordered_map>\n#include <vector>\n#include <limits>', file=fileStream)
+    print('#include <vulkan/vulkan_core.h>\n', file=fileStream)
 
 # This is the "master" table, containing the actual strings we use. It contains all the currently
 # valid extensions, with aliased extensions stripped out and zero version extensions stripped out. 
@@ -128,7 +129,6 @@ def WriteAliasedExtensionTable(aliasedExtensions, fileStream):
 
     return aliasedNameDataIndices
 
-
 # With the master list output, we now generate the Python-side 
 def GetNameToIndexDict(extensions):
     result = {}
@@ -136,8 +136,9 @@ def GetNameToIndexDict(extensions):
         result[extension.get('name')] = idx
     return result;
 
-
-
+# Write out the final extension index lookup table. This uses the arrays of strings we already built to allow us to use
+# string view here, without having to worry about backing storage for said strings we're viewing. Those strings are all baked
+# in as constexpr arrays. 
 def WriteExtensionIndexLookupTable(extensions, masterNameToIndexDict, aliasedExtensions, aliasedNameToIndexDict, fileStream):
     print('static const std::unordered_map<std::string_view, size_t> extensionIndexLookupMap', file=fileStream)
     print('{', file=fileStream)
@@ -158,13 +159,17 @@ def WriteExtensionIndexLookupTable(extensions, masterNameToIndexDict, aliasedExt
             '    { aliasedExtensionNameTable[' + extensionIdx + '], ' +
                    masterExtensionIdx + ' }, //' + commentStr, file=fileStream)
 
-
-
     print('};\n', file=fileStream)
 
+# Write out a table mapping extension indices to an array of it's dependencies. Dependency array is a std::array with a capacity
+# set dynamically based on the max amount of dependencies we found for any one extension. For any extension that doesn't have that
+# many deps, we just write UINT_MAX/std::numeric_limits<size_t>::max() to the slot
 def WriteExtensionDependencyTable(extensions, extensionsAndDeps, extensionIdxDict, fileStream, maxDeps):
-    dependencyVectorStr = 'std::vector<size_t>'
-    print('static const std::array<' + dependencyVectorStr + ', ' + str(len(extensions)) + '> dependencyTable', file=fileStream)
+    # just in case I want to tweak this later
+    dependencyIndexType = 'size_t'
+    invalidDepIdx = 'std::numeric_limits<' + dependencyIndexType + '>::max()'
+    dependencyVectorStr = 'std::array<size_t, ' + str(maxDeps) + '>'
+    print('constexpr static std::array<' + dependencyVectorStr + ', ' + str(len(extensions)) + '> dependencyTable', file=fileStream)
     print('{', file=fileStream)
     
     dependencyIndexMap = {}
@@ -186,27 +191,59 @@ def WriteExtensionDependencyTable(extensions, extensionsAndDeps, extensionIdxDic
         if extensionName in extensionsAndDeps:
             dependencyNameString = ', '.join(extensionsAndDeps[extensionName])
             print('    // Dependencies: ' + dependencyNameString, file=fileStream)
+            numUnusedDepSlots = maxDeps - len(dependencyIndices)
+            unusedDepDummyIndices = []
+            if numUnusedDepSlots > 0:
+                unusedDepDummyIndices = [invalidDepIdx] * numUnusedDepSlots
+            dependencyIndices = dependencyIndices + unusedDepDummyIndices
             dependencyIdxString = ', '.join(map(str,dependencyIndices))
             print('    ' + dependencyVectorStr + '{ ' + dependencyIdxString + ' },', file=fileStream)
         else:
             print('    // Dependencies: None', file=fileStream)
-            print('    ' + dependencyVectorStr + '{ },', file=fileStream)
+            idxString = ', '.join(map(str,[invalidDepIdx] * maxDeps))
+            print('    ' + dependencyVectorStr + '{ ' + idxString + ' },', file=fileStream)
     
     print('};\n', file=fileStream)
 
-def PrintVersionedExtensions(extensions, versions, extensionIdxDict, promotedVersionedExtensions, fileStream):
-    print
+def PrintVersionedExtensions(promotedVersionedExtensions, extensionIdxDict, fileStream):
+    versionedExtensionVecStr = 'std::vector<size_t>'
+    print('static const std::unordered_map<size_t, ' + versionedExtensionVecStr + '> versionedExtensionsMap', file=fileStream)
+    print('{', file=fileStream)
 
+    for version, versionedExtensions in promotedVersionedExtensions.items():
+        print('    // Version: ' + str(version), file=fileStream)
+        
+        def MakeVersionStrVersionNumber(version):
+            insertionPointIdx = version.find('_VERSION')
+            outputStr = version[:insertionPointIdx] + '_API' + version[insertionPointIdx:]
+            return outputStr
+
+        def GetExtensionIdx(extension, extensionIdxDict):
+            return extensionIdxDict[extension]
+
+        indexList = [ GetExtensionIdx(ext, extensionIdxDict) for ext in versionedExtensions]
+        indexStr = ', '.join(map(str,indexList))
+        print ('    { ' + MakeVersionStrVersionNumber(version) + ', ' + '{ ' + indexStr + ' } }, ', file=fileStream)
+
+    print('};\n', file=fileStream)
 
 
 def FinalizeFile(fileStream):
     print('#endif // END_OF_HEADER\n', file=fileStream)
     fileStream.close()
 
-
-
 if __name__ == '__main__':
-    document = ElementTree.parse('vk.xml')
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-specDir', help='Vulkan API directory')
+    parser.add_argument('-outputDir', help='Output header directory')
+
+    args = parser.parse_args()
+
+    specDirPath = pathlib.Path(args.specDir)
+    vkXmlPath = specDirPath / 'share/vulkan/registry/vk.xml'
+    
+    document = ElementTree.parse(vkXmlPath)
     tree = document.getroot()
     versions = GetVersionList(tree)
     extensions = tree.findall(f'./extensions/extension')
@@ -219,8 +256,7 @@ if __name__ == '__main__':
 
     promotedVersionedExtensions = CollateExtensionsPromotedToNewVkVersion(extensions, versions)
     
-
-    fileStream = open('modules/rendering_context/src/GeneratedExtensionHeader.hpp', 'w', encoding='utf-8')
+    fileStream = open(args.outputDir + '/GeneratedExtensionHeader.hpp', 'w', encoding='utf-8')
     CreateFileHeader(tree, fileStream)
     WriteMasterExtensionNameTable(extensions, fileStream)
     masterExtensionIdxDict = GetNameToIndexDict(extensions)
@@ -231,6 +267,8 @@ if __name__ == '__main__':
     extensionsAndDeps, mostDeps = FindExtensionsAndDependencies(extensions)
 
     WriteExtensionDependencyTable(extensions, extensionsAndDeps, masterExtensionIdxDict, fileStream, mostDeps)
+
+    PrintVersionedExtensions(promotedVersionedExtensions, masterExtensionIdxDict, fileStream)
 
     FinalizeFile(fileStream)
 
