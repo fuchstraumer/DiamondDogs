@@ -22,6 +22,8 @@
 #endif
 #include "nlohmann/json.hpp"
 
+#include "GeneratedExtensionHeader.hpp"
+
 static post_physical_device_pre_logical_device_function_t postPhysicalPreLogicalSetupFunction = nullptr;
 static post_logical_device_function_t postLogicalDeviceFunction = nullptr;
 static void* usedNextPtr = nullptr;
@@ -44,6 +46,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMessageSe
     void* user_data);
 void SplitVersionString(std::string version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version);
 void GetVersions(const nlohmann::json& json_file, uint32_t& app_version, uint32_t& engine_version, uint32_t& api_version);
+void AddDependenciesForSetOfExtensions(std::vector<std::string>& extensions);
 
 struct QueriedDeviceFeatures
 {
@@ -590,6 +593,9 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
         }
     }
 
+    // Populate dependencies required for required instance extensions
+    AddDependenciesForSetOfExtensions(required_extensions_strs);
+
     std::vector<std::string> requested_extensions_strs;
     {
         nlohmann::json ext_json = json_file.at("RequestedInstanceExtensions");
@@ -598,6 +604,8 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
             requested_extensions_strs.emplace_back(entry);
         }
     }
+
+    AddDependenciesForSetOfExtensions(requested_extensions_strs);
 
     std::vector<const char*> required_extensions;
     for (auto& str : required_extensions_strs)
@@ -650,18 +658,24 @@ void RenderingContext::createLogicalDevice(const nlohmann::json& json_file, vpr:
     std::vector<std::string> required_extensions_strs;
     {
         nlohmann::json req_ext_json = json_file.at("RequiredDeviceExtensions");
-        for (auto& entry : req_ext_json) {
+        for (auto& entry : req_ext_json)
+        {
             required_extensions_strs.emplace_back(entry);
         }
     }
 
+    AddDependenciesForSetOfExtensions(required_extensions_strs);
+
     std::vector<std::string> requested_extensions_strs;
     {
         nlohmann::json ext_json = json_file.at("RequestedDeviceExtensions");
-        for (auto& entry : ext_json) {
+        for (auto& entry : ext_json)
+        {
             requested_extensions_strs.emplace_back(entry);
         }
     }
+
+    AddDependenciesForSetOfExtensions(requested_extensions_strs);
 
     std::vector<const char*> required_extensions;
     for (auto& str : required_extensions_strs)
@@ -918,4 +932,45 @@ void GetPhysicalDeviceFeatures(VkInstance instance, const uint32_t apiVersion, Q
     VkPhysicalDevice bestScoringDevice = vpr::ChooseBestScoringPhysicalDevice(devices.size(), devices.data());
 
     vkGetPhysicalDeviceFeatures2(bestScoringDevice, &features.deviceFeaturesBase);
+}
+
+void AddDependenciesForSetOfExtensions(std::vector<std::string>& extensions)
+{
+	std::vector<std::string> extensions_dependencies_strs;
+	for (const auto& str : extensions)
+	{
+		const auto iter = extensionIndexLookupMap.find(str);
+		if (iter != extensionIndexLookupMap.cend())
+		{
+			auto& dependencies = dependencyTable.at(iter->second);
+			for (auto iter = dependencies.cbegin(); iter != dependencies.cend() && *iter != std::numeric_limits<size_t>::max(); ++iter)
+			{
+				extensions_dependencies_strs.emplace_back(masterExtensionNameTable[*iter]);
+			}
+		}
+	}
+
+
+    if (!extensions_dependencies_strs.empty())
+    {
+        for (auto iter = extensions_dependencies_strs.begin(); iter != extensions_dependencies_strs.end();)
+        {
+            auto alreadyHaveExtensionInVector = std::find(extensions.cbegin(), extensions.cend(), *iter);
+            // VK_KHR_surface does show up as a dependency, but how we wrangle that is platform-specific - so it shouldn't actually
+            // be counted as required. Just a special edge case for something already handled as such by the API!
+            if (alreadyHaveExtensionInVector != extensions.end() || (*iter == "VK_KHR_surface"))
+            {
+                iter = extensions_dependencies_strs.erase(iter);
+            }
+            else
+            {
+                ++iter;
+            }
+        }
+
+        if (!extensions_dependencies_strs.empty())
+        {
+            extensions.insert(extensions.end(), extensions_dependencies_strs.cbegin(), extensions_dependencies_strs.cend());
+        }
+    }
 }
