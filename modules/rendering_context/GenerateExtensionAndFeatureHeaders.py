@@ -5,7 +5,6 @@
 
 from xml.etree import ElementTree
 import argparse
-import sys
 import pathlib
 
 # get list of current vulkan version names

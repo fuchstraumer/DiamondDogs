@@ -103,7 +103,10 @@ RenderingContext::~RenderingContext()
     Destroy();
 }
 
-RenderingContext& RenderingContext::Get() noexcept {
+RenderingContext::RenderingContext() noexcept {}
+
+RenderingContext& RenderingContext::Get() noexcept
+{
     static RenderingContext ctxt;
     return ctxt;
 }
@@ -262,6 +265,8 @@ void RenderingContext::Destroy()
     physicalDevices.clear();
     vulkanInstance.reset();
     window.reset();
+    queriedDeviceFeatures.reset();
+    enabledDeviceFeatures.reset();
 }
 
 vpr::Instance * RenderingContext::Instance() noexcept
@@ -891,8 +896,15 @@ void GetVersions(const nlohmann::json& json_file, uint32_t& app_version, uint32_
         uint32_t api_version_minor = 0;
         uint32_t api_version_patch = 0;
         const std::string api_version_str = json_file.at("VulkanVersion");
-        SplitVersionString(api_version_str, api_version_major, api_version_minor, api_version_patch);
-        api_version = VK_MAKE_VERSION(api_version_major, api_version_minor, api_version_patch);
+        if (api_version_str == "Latest")
+        {
+            vkEnumerateInstanceVersion(&api_version);
+        }
+        else
+        {
+			SplitVersionString(api_version_str, api_version_major, api_version_minor, api_version_patch);
+			api_version = VK_MAKE_VERSION(api_version_major, api_version_minor, api_version_patch);
+        }
     }
 }
 

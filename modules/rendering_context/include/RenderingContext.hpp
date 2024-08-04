@@ -94,7 +94,7 @@ struct DescriptorLimits
 
 class RenderingContext
 {
-    RenderingContext() noexcept = default;
+    RenderingContext() noexcept;
     ~RenderingContext();
     RenderingContext(const RenderingContext&) = delete;
     RenderingContext& operator=(const RenderingContext&) = delete;
@@ -157,13 +157,13 @@ private:
     std::vector<std::string> instanceExtensions;
     std::vector<std::string> deviceExtensions;
     std::string windowMode;
-    uint32_t syncMode;
+    uint32_t syncMode{ uint32_t(0u) };
     std::string syncModeStr;
     std::string shaderCacheDir;
     PFN_vkSetDebugUtilsObjectNameEXT SetObjectNameFn{ nullptr };
     VkDebugUtilsMessengerEXT DebugUtilsMessenger{ VK_NULL_HANDLE };
-    std::unique_ptr<QueriedDeviceFeatures> queriedDeviceFeatures{ nullptr };
-    std::unique_ptr<QueriedDeviceFeatures> enabledDeviceFeatures{ nullptr };
+    std::unique_ptr<::QueriedDeviceFeatures> queriedDeviceFeatures;
+    std::unique_ptr<::QueriedDeviceFeatures> enabledDeviceFeatures;
 
 };
 

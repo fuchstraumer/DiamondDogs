@@ -4,7 +4,7 @@
     "EngineName" : "VulpesSceneKit",
     "EngineVersion" : "0.1.0",
     "EnableValidation" : true,
-    "VulkanVersion" : "1.1",
+    "VulkanVersion" : "Latest",
     "UseRecommendedExtensions" : true,
     "RequiredInstanceExtensions" : [
         "VK_EXT_debug_utils"
