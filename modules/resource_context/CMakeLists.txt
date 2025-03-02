@@ -1,6 +1,7 @@
 
 ADD_MODULE(resource_context
     "include/ResourceContext.hpp"
+    "include/ResourceMessages.hpp"
     "include/ResourceLoader.hpp"
     "include/ResourceTypes.hpp"
     "include/TransferSystem.hpp"

@@ -4,3 +4,4 @@ build/
 ext/
 assets/objs/
 GeneratedExtensionHeader.hpp
+.cursorignore

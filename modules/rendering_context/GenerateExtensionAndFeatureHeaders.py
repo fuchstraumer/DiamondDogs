@@ -14,7 +14,14 @@ def GetVersionList(tree):
     for version in versions:
         result.append(version.get('name'))
 
-    result.remove('VK_VERSION_1_0')
+    # Vulkan safety critical version. Remove, as it's unused in our game-focused setup
+    # Only remove if it exists in the list
+    if 'VKSC_VERSION_1_0' in result:
+        result.remove('VKSC_VERSION_1_0')
+    # Remove 1.0, as it's not one we use and breaks stuff
+    if 'VK_VERSION_1_0' in result:
+        result.remove('VK_VERSION_1_0')
+
     return result
 
 # Finds extensions that have a zero version field, meaning that theyre either long-deprecated
@@ -25,8 +32,18 @@ def RemoveExtensionsWithZeroVersion(extensions):
     for extension in extensions:
         extensionName = extension.get('name').upper()
         nameWeWant = extensionName + '_SPEC_VERSION'
+        
+        # First try to find the version in the direct enum
         extensionVersion = extension.find('./require/enum[@name="{}"]'.format(nameWeWant))
-        if extensionVersion != None and extensionVersion.get('value') == '0':
+        
+        # If not found, try to find it in the registry
+        if extensionVersion is None:
+            # Some extensions might not have a direct version enum, check if it's supported
+            supported = extension.get('supported')
+            if supported == 'disabled' or supported == 'vulkansc':
+                extensionsToRemove.append(extension)
+                continue
+        elif extensionVersion.get('value') == '0':
             extensionsToRemove.append(extension)
 
     for zeroExtension in extensionsToRemove:
@@ -40,7 +57,11 @@ def FindExtensionsPromotedToNewAliases(extensions, versions):
 
     for extension in extensions:
         promotedTo = extension.get('promotedto')
-        if promotedTo != None and versions.count(promotedTo) == 0:
+        # In newer schemas, some extensions use 'obsoleted_by' instead of 'promotedto'
+        if promotedTo is None:
+            promotedTo = extension.get('obsoleted_by')
+            
+        if promotedTo is not None and promotedTo not in versions:
             promotedExtensions[extension] = promotedTo
 
     return promotedExtensions
@@ -50,7 +71,8 @@ def FindExtensionsPromotedToNewAliases(extensions, versions):
 # remapping table for API users, where aliased extensions.... map to their current alias :)
 def RemoveAliasedExtensions(extensions, aliasedExtensions):
     for aliasedExtension in aliasedExtensions.keys():
-        extensions.remove(aliasedExtension)
+        if aliasedExtension in extensions:
+            extensions.remove(aliasedExtension)
 
 # Collate extensions promoted to new version of Vulkan, and collate this
 def CollateExtensionsPromotedToNewVkVersion(extensions, versions):
@@ -58,25 +80,48 @@ def CollateExtensionsPromotedToNewVkVersion(extensions, versions):
 
     for extension in extensions:
         promotedTo = extension.get('promotedto')
-        if promotedTo != None:
-            if versions.count(promotedTo) != 0:
+        if promotedTo is not None:
+            if promotedTo in versions:
                 versionPromotedExtensions[promotedTo].append(extension.get('name'))
 
     return versionPromotedExtensions
 
-def FindExtensionsAndDependencies(extensions):
-    result = {}
-
+def FindAllExtensionsDependencies(extensions, versions):
+    # Extension dependencies required for a version of the API: as in, lists of per-version deps
+    extensionDependencies = {}
     mostDeps = 0
 
     for extension in extensions:
-        dependenciesAttrib = extension.get('requires')
-        if dependenciesAttrib != None:
-            dependencies = dependenciesAttrib.split(',')
-            result[extension.get('name')] = dependencies
-            mostDeps = max(mostDeps, len(dependencies))
+        extensionName = extension.get('name')
+        dependenciesAttrib = extension.get('depends')
+        
+        if dependenciesAttrib is not None:
+            dependencies = []
+            
+            # Split by commas (OR dependencies) and process each group
+            dependency_groups = dependenciesAttrib.split(',')
+            
+            for group in dependency_groups:
+                # Split by + (AND dependencies)
+                and_dependencies = group.strip().split('+')
+                
+                for dep in and_dependencies:
+                    # Remove any parentheses and whitespace
+                    clean_dep = dep.strip().strip('()').strip()
+                    
+                    # Skip if it's a version dependency (we only care about extension dependencies)
+                    if any(version == clean_dep for version in versions):
+                        continue
+                    
+                    # Add to dependencies if it's an extension
+                    if clean_dep.startswith('VK_'):
+                        dependencies.append(clean_dep)
+            
+            if dependencies:
+                extensionDependencies[extensionName] = dependencies
+                mostDeps = max(mostDeps, len(dependencies))
 
-    return result, mostDeps
+    return extensionDependencies, mostDeps
 
 def CreateFileHeader(tree, fileStream):
     import hashlib
@@ -98,7 +143,7 @@ def WriteMasterExtensionNameTable(extensions, fileStream):
         extensionName = extension.get('name')
         nameTable.append(extensionName)
 
-    print('constexpr std::array<const char*, ' + str(len(nameTable)) + '> masterExtensionNameTable', file=fileStream)
+    print('constexpr static std::array<const char*, ' + str(len(nameTable)) + '> masterExtensionNameTable', file=fileStream)
     print('{', file=fileStream)
 
     for name in nameTable:
@@ -113,18 +158,25 @@ def WriteAliasedExtensionTable(aliasedExtensions, fileStream):
     aliasedNameDataIndices = {}
     nameTable = []
 
-    for extension in aliasedExtensions:
+    for extension, promotedTo in aliasedExtensions.items():
         extensionName = extension.get('name')
         aliasedNameDataIndices[extensionName] = len(nameTable)
         nameTable.append(extensionName)
     
-    print('constexpr std::array<const char*, ' + str(len(nameTable)) + '> aliasedExtensionNameTable', file=fileStream)
+    if not nameTable:  # Handle empty table case
+        print('constexpr static std::array<const char*, 1> aliasedExtensionNameTable', file=fileStream)
+        print('{', file=fileStream)
+        print('    \"VK_EMPTY_PLACEHOLDER\"', file=fileStream)
+        print('};\n', file=fileStream)
+        return aliasedNameDataIndices
+        
+    print('constexpr static std::array<const char*, ' + str(len(nameTable)) + '> aliasedExtensionNameTable', file=fileStream)
     print('{', file=fileStream)
 
     for name in nameTable:
         print('    \"' + name + '\",', file=fileStream)
     
-    print('};\n',file=fileStream)
+    print('};\n', file=fileStream)
 
     return aliasedNameDataIndices
 
@@ -144,19 +196,25 @@ def WriteExtensionIndexLookupTable(extensions, masterNameToIndexDict, aliasedExt
     
     for extension in extensions:
         extensionName = extension.get('name')
-        indexToMasterTable = masterNameToIndexDict[extensionName]
-        print(
-            '    { masterExtensionNameTable[' + str(indexToMasterTable) + '], ' +
-                   str(indexToMasterTable) + ' }, //' + extensionName, file=fileStream)
+        if extensionName in masterNameToIndexDict:
+            indexToMasterTable = masterNameToIndexDict[extensionName]
+            print(
+                '    { masterExtensionNameTable[' + str(indexToMasterTable) + '], ' +
+                       str(indexToMasterTable) + ' }, //' + extensionName, file=fileStream)
+        else:
+            print(f"Warning: Extension {extensionName} not found in master name to index dictionary")
 
-    for aliasedExtension, masterExtensionName in aliasedExtensions.items():
+    for aliasedExtension, promotedTo in aliasedExtensions.items():
         extensionName = aliasedExtension.get('name')
-        extensionIdx = str(aliasedNameToIndexDict[extensionName])
-        masterExtensionIdx = str(masterNameToIndexDict[masterExtensionName])
-        commentStr = " Alias " + extensionName + " -> Current " + masterExtensionName
-        print(
-            '    { aliasedExtensionNameTable[' + extensionIdx + '], ' +
-                   masterExtensionIdx + ' }, //' + commentStr, file=fileStream)
+        if extensionName in aliasedNameToIndexDict and promotedTo in masterNameToIndexDict:
+            extensionIdx = str(aliasedNameToIndexDict[extensionName])
+            masterExtensionIdx = str(masterNameToIndexDict[promotedTo])
+            commentStr = " Alias " + extensionName + " -> Current " + promotedTo
+            print(
+                '    { aliasedExtensionNameTable[' + extensionIdx + '], ' +
+                       masterExtensionIdx + ' }, //' + commentStr, file=fileStream)
+        else:
+            print(f"Warning: Aliased extension {extensionName} or promoted extension {promotedTo} not found in dictionaries")
 
     print('};\n', file=fileStream)
 
@@ -179,7 +237,11 @@ def WriteExtensionDependencyTable(extensions, extensionsAndDeps, extensionIdxDic
             extensionDependencies = extensionsAndDeps[extensionName]
             dependencyIndices = []
             for dependency in extensionDependencies:
-                dependencyIndices.append(extensionIdxDict[dependency])
+                # Make sure the dependency exists in our extension index dictionary
+                if dependency in extensionIdxDict:
+                    dependencyIndices.append(extensionIdxDict[dependency])
+                else:
+                    print(f"Warning: Dependency {dependency} for {extensionName} not found in extension index dictionary")
 
             dependencyIndexMap[extensionName] = dependencyIndices
         else:
@@ -210,19 +272,28 @@ def PrintVersionedExtensions(promotedVersionedExtensions, extensionIdxDict, file
     print('{', file=fileStream)
 
     for version, versionedExtensions in promotedVersionedExtensions.items():
+        if not versionedExtensions:  # Skip empty lists
+            continue
+            
         print('    // Version: ' + str(version), file=fileStream)
         
         def MakeVersionStrVersionNumber(version):
             insertionPointIdx = version.find('_VERSION')
-            outputStr = version[:insertionPointIdx] + '_API' + version[insertionPointIdx:]
-            return outputStr
+            if insertionPointIdx != -1:
+                outputStr = version[:insertionPointIdx] + '_API' + version[insertionPointIdx:]
+                return outputStr
+            return version  # Return original if pattern not found
 
         def GetExtensionIdx(extension, extensionIdxDict):
-            return extensionIdxDict[extension]
+            if extension in extensionIdxDict:
+                return extensionIdxDict[extension]
+            print(f"Warning: Extension {extension} not found in extension index dictionary")
+            return 0  # Default to 0 if not found
 
-        indexList = [ GetExtensionIdx(ext, extensionIdxDict) for ext in versionedExtensions]
-        indexStr = ', '.join(map(str,indexList))
-        print ('    { ' + MakeVersionStrVersionNumber(version) + ', ' + '{ ' + indexStr + ' } }, ', file=fileStream)
+        indexList = [GetExtensionIdx(ext, extensionIdxDict) for ext in versionedExtensions]
+        if indexList:  # Only print if we have valid indices
+            indexStr = ', '.join(map(str, indexList))
+            print('    { ' + MakeVersionStrVersionNumber(version) + ', ' + '{ ' + indexStr + ' } }, ', file=fileStream)
 
     print('};\n', file=fileStream)
 
@@ -242,33 +313,54 @@ if __name__ == '__main__':
     specDirPath = pathlib.Path(args.specDir)
     vkXmlPath = specDirPath / 'share/vulkan/registry/vk.xml'
     
-    document = ElementTree.parse(vkXmlPath)
-    tree = document.getroot()
-    versions = GetVersionList(tree)
-    extensions = tree.findall(f'./extensions/extension')
-
-    RemoveExtensionsWithZeroVersion(extensions)
-
-    # Find all aliased extensions, ones that have extensions that rpelace them with new names
-    promotedAliasedExtensions = FindExtensionsPromotedToNewAliases(extensions, versions)
-    RemoveAliasedExtensions(extensions, promotedAliasedExtensions)
-
-    promotedVersionedExtensions = CollateExtensionsPromotedToNewVkVersion(extensions, versions)
+    if not vkXmlPath.exists():
+        print(f"Error: vk.xml not found at {vkXmlPath}")
+        print("Please check your Vulkan SDK installation and path")
+        exit(1)
     
-    fileStream = open(args.outputDir + '/GeneratedExtensionHeader.hpp', 'w', encoding='utf-8')
-    CreateFileHeader(tree, fileStream)
-    WriteMasterExtensionNameTable(extensions, fileStream)
-    masterExtensionIdxDict = GetNameToIndexDict(extensions)
-    aliasedExtensionIdxDict = WriteAliasedExtensionTable(promotedAliasedExtensions, fileStream)
+    try:
+        document = ElementTree.parse(vkXmlPath)
+        tree = document.getroot()
+        versions = GetVersionList(tree)
+        extensions = tree.findall(f'./extensions/extension')
 
-    WriteExtensionIndexLookupTable(extensions, masterExtensionIdxDict, promotedAliasedExtensions, aliasedExtensionIdxDict, fileStream)
+        print(f"Found {len(versions)} Vulkan versions and {len(extensions)} extensions")
+        
+        RemoveExtensionsWithZeroVersion(extensions)
+        print(f"After removing zero-version extensions: {len(extensions)} extensions remain")
 
-    extensionsAndDeps, mostDeps = FindExtensionsAndDependencies(extensions)
+        # Find all aliased extensions, ones that have extensions that replace them with new names
+        promotedAliasedExtensions = FindExtensionsPromotedToNewAliases(extensions, versions)
+        print(f"Found {len(promotedAliasedExtensions)} aliased extensions")
+        
+        RemoveAliasedExtensions(extensions, promotedAliasedExtensions)
+        print(f"After removing aliased extensions: {len(extensions)} extensions remain")
 
-    WriteExtensionDependencyTable(extensions, extensionsAndDeps, masterExtensionIdxDict, fileStream, mostDeps)
+        promotedVersionedExtensions = CollateExtensionsPromotedToNewVkVersion(extensions, versions)
+        
+        outputPath = pathlib.Path(args.outputDir) / 'GeneratedExtensionHeader.hpp'
+        print(f"Generating header file at {outputPath}")
+        
+        fileStream = open(outputPath, 'w', encoding='utf-8')
+        CreateFileHeader(tree, fileStream)
+        WriteMasterExtensionNameTable(extensions, fileStream)
+        masterExtensionIdxDict = GetNameToIndexDict(extensions)
+        aliasedExtensionIdxDict = WriteAliasedExtensionTable(promotedAliasedExtensions, fileStream)
 
-    PrintVersionedExtensions(promotedVersionedExtensions, masterExtensionIdxDict, fileStream)
+        WriteExtensionIndexLookupTable(extensions, masterExtensionIdxDict, promotedAliasedExtensions, aliasedExtensionIdxDict, fileStream)
 
-    FinalizeFile(fileStream)
+        extensionsAndDeps, mostDeps = FindAllExtensionsDependencies(extensions, versions)
+        print(f"Found dependencies for {len(extensionsAndDeps)} extensions, max dependencies: {mostDeps}")
 
-    result = {}
+        WriteExtensionDependencyTable(extensions, extensionsAndDeps, masterExtensionIdxDict, fileStream, mostDeps)
+
+        PrintVersionedExtensions(promotedVersionedExtensions, masterExtensionIdxDict, fileStream)
+
+        FinalizeFile(fileStream)
+        print("Successfully generated header file")
+        
+    except Exception as e:
+        print(f"Error generating header: {e}")
+        import traceback
+        traceback.print_exc()
+        exit(1)
