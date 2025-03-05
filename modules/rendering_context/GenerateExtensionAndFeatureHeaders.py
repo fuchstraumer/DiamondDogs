@@ -129,7 +129,7 @@ def CreateFileHeader(tree, fileStream):
     print(f'#ifndef VK_EXTENSION_WRANGLER_LOOKUPS_{includeUuid}', file=fileStream)
     print(f'#define VK_EXTENSION_WRANGLER_LOOKUPS_{includeUuid}', file=fileStream)
     print('#include <cstdint>\n#include <array>\n#include <string_view>', file=fileStream)
-    print('#include <unordered_map>\n#include <vector>\n#include <limits>', file=fileStream)
+    print('#include <unordered_map>\n#include <limits>', file=fileStream)
     print('#include <vulkan/vulkan_core.h>\n', file=fileStream)
 
 # This is the "master" table, containing the actual strings we use. It contains all the currently
