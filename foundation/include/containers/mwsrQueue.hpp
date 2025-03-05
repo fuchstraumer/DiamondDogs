@@ -174,7 +174,7 @@ namespace detail
         {
             bool result = false;
 
-            auto reactFunction = [](EntranceReactorData& data, uint64_t newLastID, bool& earlyExit)->bool
+            auto reactFunction = [](EntranceReactorData& data, uint64_t newLastID)->bool
             {
                 const uint64_t lastIDToWrite = data.getLastIDToWrite();
                 assert(lastIDToWrite <= newLastID);
@@ -260,7 +260,7 @@ namespace detail
 
         bool writeCompleted(uint64_t _id)
         {
-            auto reactFunction = [](ExitReactorData& data, uint64_t id, bool& earlyExit)->bool
+            auto reactFunction = [](ExitReactorData& data, uint64_t id)->bool
             {
                 const uint64_t firstToRead = data.getFirstIDToRead();
                 assert(id >= firstToRead);
@@ -517,7 +517,7 @@ public:
     static_assert(std::is_default_constructible_v<T>, "QueueItem used in mwsrQueue must be default-constructible!");
     static_assert(std::is_move_assignable_v<T>, "QueueItem must be move-assignable!");
 
-    mwsrQueue() : entranceData({ detail::ExitReactorData::EntranceFirstToWrite, detail::ExitReactorData::EntranceLastToWrite }) {}
+    mwsrQueue() : entranceData{ detail::ExitReactorData::EntranceFirstToWrite, detail::ExitReactorData::EntranceLastToWrite } {}
     mwsrQueue(const mwsrQueue&) = delete;
     mwsrQueue& operator=(const mwsrQueue&) = delete;
 
@@ -581,16 +581,16 @@ public:
             }
             assert(readCacheEnd < detail::mwsrQueueSize - 1u);
 
-            const uint64_t newLastWrite = exit.readCompleted(size, firstId);
+            const uint64_t newLastWrite = exit.readCompleted(numRead, firstId);
 
             detail::EntranceReactorHandle entrance(entranceData);
             const bool shouldUnlock = entrance.moveLastToWrite(newLastWrite);
             if (shouldUnlock)
             {
-                lockedWriters.unlockUpTo(firstId + numRead - 1u + detail::mwsrQueueSize);
+                lockedWriters.unlockAllUpTo(firstId + numRead - 1u + detail::mwsrQueueSize);
             }
 
-            return resultItem;
+            return std::move(resultItem);
         }
     }
 

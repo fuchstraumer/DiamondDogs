@@ -20,17 +20,17 @@ protected:
 
     CasReactorHandle(atomic128& cas_block) : casBlock(&cas_block)
     {
-        lastRead = casBlock->load();
+        lastRead.data = casBlock->load();
     }
 
     template<typename ReturnType, typename Function>
-    void React(ReturnType& out, Function&& fn)
+    void React(ReturnType& out, Function&& function)
     {
         while (true)
         {
             ReactorData new_data = lastRead;
             bool earlyExit = false;
-            out = f(new_data, earlyExit);
+            out = function(new_data, earlyExit);
             // early exit is used to indicate that we didn't end up mutating state, so no need
             // to do the compare-exchange
             if (earlyExit)
@@ -39,7 +39,7 @@ protected:
             }
 
             // if compare-exchange fails, we retry the reactor function using the update data from whoever succeeded
-            bool cmpxchgOk = casBlock->compare_exchange_weak(lastRead.data, new_data.data));
+            bool cmpxchgOk = casBlock->compare_exchange_weak(lastRead.data, new_data.data);
             
             if (cmpxchgOk)
             {
@@ -50,13 +50,13 @@ protected:
     }
 
     template<typename ReturnType, typename Function>
-    void React(ReturnType& out, Function&& fn, uint64_t param)
+    void React(ReturnType& out, Function&& function, uint64_t param)
     {
         while (true)
         {
             ReactorData new_data = lastRead;
             bool earlyExit = false;
-            out = f(new_data, param, earlyExit);
+            out = function(new_data, param, earlyExit);
             if (earlyExit)
             {
                 return;
@@ -73,13 +73,13 @@ protected:
     }
 
     template<typename ReturnType, typename Function>
-    void React(ReturnType& out, Function&& fn, uint64_t p0, uint64_t p1)
+    void React(ReturnType& out, Function&& function, uint64_t p0, uint64_t p1)
     {
         while (true)
         {
             ReactorData new_data = lastRead;
             bool earlyExit = false;
-            out = f(new_data, p0, p1, earlyExit);
+            out = function(new_data, p0, p1, earlyExit);
             if (earlyExit)
             {
                 return;

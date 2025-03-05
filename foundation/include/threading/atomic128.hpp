@@ -7,6 +7,12 @@
 struct alignas(16) cas_data128_t
 {
     constexpr cas_data128_t() noexcept : low{ 0u }, high{ 0u } {}
+    constexpr cas_data128_t(uint64_t _low, uint64_t _high) noexcept : low{ _low }, high{ _high } {}
+    constexpr cas_data128_t(const cas_data128_t&) noexcept = default;
+    constexpr cas_data128_t(cas_data128_t&&) noexcept = default;
+    constexpr cas_data128_t& operator=(const cas_data128_t&) noexcept = default;
+    constexpr cas_data128_t& operator=(cas_data128_t&&) noexcept = default;
+    constexpr ~cas_data128_t() noexcept = default;
     uint64_t low;
     uint64_t high;
 };
@@ -20,6 +26,7 @@ struct alignas(16) atomic128
     atomic128& operator=(const atomic128&) = delete;
 
     constexpr atomic128(const cas_data128_t value) noexcept : data{ value } {}
+    constexpr atomic128(uint64_t lower, uint64_t upper) noexcept : data{ lower, upper } {}
 
     [[nodiscard]] cas_data128_t load() const noexcept
     {
@@ -92,6 +99,8 @@ private:
 };
 
 #else
+
 using atomic128 = std::atomic<cas_data128_t>;
-// need to identify non-MSVC versions
+static_assert(std::atomic<cas_data128_t>::is_always_lock_free, "128bit cmpexchg not available on current platform.");
+
 #endif
