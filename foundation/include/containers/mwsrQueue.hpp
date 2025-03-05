@@ -1,7 +1,7 @@
 #pragma once
 #ifndef CORE_THREADING_MWSR_QUEUE_HPP
 #define CORE_THREADING_MWSR_QUEUE_HPP
-#include "casReactor.hpp"
+#include "reactors/casReactor.hpp"
 #include <cstdint>
 #include <cassert>
 #include <utility>

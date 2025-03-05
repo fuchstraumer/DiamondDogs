@@ -1,7 +1,7 @@
 #pragma once
 #ifndef CORE_THREADING_CAS_REACTOR_HPP
 #define CORE_THREADING_CAS_REACTOR_HPP
-#include "atomic128.hpp"
+#include "threading/atomic128.hpp"
 
 /*
     Based on https://github.com/ITHare/mtprimitives

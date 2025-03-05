@@ -45,9 +45,9 @@ set(utility_source_files
     "src/utility/MurmurHash.cpp")
 
 set(reactors_source_files
-    "reactors/include/casReactor.hpp"
-    "reactors/include/AllocationReactor.hpp"
-    "reactors/src/AllocationReactor.cpp")
+    "include/reactors/casReactor.hpp"
+    "include/reactors/AllocationReactor.hpp"
+    "src/reactors/AllocationReactor.cpp")
 
 source_group("foundation" FILES ${foundation_source_files})
 source_group("containers" FILES ${foundation_containers_source_files})
@@ -72,12 +72,10 @@ set(foundation_vpr_include_dirs
     "../third_party/vulpesrender/sync/include")
 
 target_include_directories(foundation PRIVATE
-    "./reactors/include"
     "../modules/common"
     ${foundation_vpr_include_dirs}
     "../third_party"
     "../third_party/glm"
-    "../third_party/mango/include"
     ${Vulkan_INCLUDE_DIR}
     "${CMAKE_CURRENT_SOURCE_DIR}/include/"
     ${plugin_manager_impl_include_dir})
@@ -93,9 +91,10 @@ if(MSVC)
     # Enable intrinsics in both release and relwithdebinfo, since those shouldn't have much debug info anyways
     # (And can largely affect perf)
     target_compile_options(foundation PRIVATE $<$<CONFIG:RELEASE>:/Oi> $<$<CONFIG:RELWITHDEBINFO>:/Oi>)
-    # Set standard to latest, enable coroutines, and ensure AVX2 is enabled
-    target_compile_options(foundation PUBLIC "/std:c++latest" "/arch:AVX2")
+    # Set standard to latest, enable coroutines, and ensure AVX2 is 
+    set_target_properties(foundation PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+    target_compile_options(foundation PUBLIC "/arch:AVX2")
 else()
     # Set standard to C++20
-    set_target_properties(foundation PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES)
+    set_target_properties(foundation PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 endif()
