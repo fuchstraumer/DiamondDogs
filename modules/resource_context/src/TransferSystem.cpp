@@ -42,7 +42,8 @@ constexpr static VmaAllocationCreateInfo alloc_create_info
     nullptr
 };
 
-constexpr static VkDebugUtilsLabelEXT queue_debug_label{
+constexpr static VkDebugUtilsLabelEXT queue_debug_label
+{
     VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
     nullptr,
     "TransferQueue",
@@ -155,7 +156,7 @@ ResourceTransferSystem::~ResourceTransferSystem()
     }
 }
 
-void ResourceTransferSystem::Initialize(const vpr::Device * dvc, VmaAllocator _allocator)
+void ResourceTransferSystem::Initialize(const vpr::Device* dvc, VmaAllocator _allocator)
 {
 
     if (initialized)
@@ -220,8 +221,6 @@ void ResourceTransferSystem::CompleteTransfers()
     {
         return;
     }
-
-    auto guard = AcquireSpinLock();
 
     if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
     {
@@ -304,11 +303,6 @@ void ResourceTransferSystem::CompleteTransfers()
 
 }
 
-ResourceTransferSystem::transferSpinLockGuard ResourceTransferSystem::AcquireSpinLock()
-{
-    return ResourceTransferSystem::transferSpinLockGuard(copyQueueLock);
-}
-
 VkCommandBuffer ResourceTransferSystem::TransferCmdBuffer()
 {
     cmdBufferDirty = true;
@@ -343,26 +337,4 @@ VmaPool ResourceTransferSystem::createPool()
     VkAssert(create_result);
 
     return result;
-}
-
-void ResourceTransferSystem::transferSpinLock::lock()
-{
-    while (!lockFlag.try_lock()) {
-
-    }
-}
-
-void ResourceTransferSystem::transferSpinLock::unlock()
-{
-    lockFlag.unlock();
-}
-
-ResourceTransferSystem::transferSpinLockGuard::transferSpinLockGuard(transferSpinLock & _lock) : lck(_lock)
-{
-    lck.lock();
-}
-
-ResourceTransferSystem::transferSpinLockGuard::~transferSpinLockGuard()
-{
-    lck.unlock();
 }

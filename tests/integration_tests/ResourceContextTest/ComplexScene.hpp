@@ -94,7 +94,7 @@ protected:
     void updateHouseDescriptorSet();
     void updateSkyboxDescriptorSet();
 
-    ResourceContext* resourceContext{ nullptr };
+    std::unique_ptr<ResourceContext> resourceContext{ nullptr };
     VulkanResource* sampler{ nullptr };
     VulkanResource* houseVBO{ nullptr };
     VulkanResource* houseEBO{ nullptr };
@@ -103,7 +103,9 @@ protected:
     VulkanResource* skyboxVBO{ nullptr };
     VulkanResource* skyboxTexture{ nullptr };
     VulkanResource* houseUBO{ nullptr };
+    void* houseUboMappedPtr{ nullptr };
     VulkanResource* skyboxUBO{ nullptr };
+    void* skyboxUboMappedPtr{ nullptr };
 
     DepthStencil depthStencil;
     std::unique_ptr<vpr::CommandPool> cmdPool{ nullptr };
@@ -130,9 +132,12 @@ protected:
 
     uint32_t houseIndexCount{ 0u };
     uint32_t skyboxIndexCount{ 0u };
-    std::atomic<bool> houseTextureReady{ false };
-    std::atomic<bool> houseMeshReady{ false };
-    std::atomic<bool> skyboxTextureReady{ false };
+    std::shared_ptr<ResourceMessageReply<VulkanResource*>> skyboxTextureReply{ nullptr };
+    std::shared_ptr<ResourceMessageReply<VulkanResource*>> houseTextureReply{ nullptr };
+    std::shared_ptr<ResourceMessageReply<VulkanResource*>> houseVboReply{ nullptr };
+    std::shared_ptr<ResourceMessageReply<VulkanResource*>> houseEboReply{ nullptr };
+    std::shared_ptr<ResourceMessageReply<VulkanResource*>> skyboxVboReply{ nullptr };
+    std::shared_ptr<ResourceMessageReply<VulkanResource*>> skyboxEboReply{ nullptr };
 
 };
 

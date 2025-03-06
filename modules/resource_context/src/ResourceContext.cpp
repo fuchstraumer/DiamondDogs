@@ -1,155 +1,199 @@
 #include "ResourceContext.hpp"
 #include "ResourceContextImpl.hpp"
+#include "ResourceMessageTypesInternal.hpp"
 
-ResourceContext::ResourceContext() : impl(nullptr) {}
+ResourceContext::ResourceContext()
+{
+    impl = std::make_unique<ResourceContextImpl>();
+}
 
 ResourceContext::~ResourceContext()
 {
-    Destroy();
 }
 
-ResourceContext & ResourceContext::Get()
+void ResourceContext::Initialize(const ResourceContextCreateInfo& createInfo)
 {
-    static ResourceContext context;
-    return context;
+    impl->construct(createInfo);
 }
 
-void ResourceContext::Initialize(vpr::Device* device, vpr::PhysicalDevice* physical_device, bool val_enabled)
+std::shared_ptr<ResourceMessageReply<VulkanResource*>> ResourceContext::CreateBuffer(
+    const VkBufferCreateInfo& createInfo,
+    const VkBufferViewCreateInfo* viewCreateInfo,
+    const gpu_resource_data_t* initialData,
+    size_t numData,
+    resource_usage resourceUsage,
+    resource_creation_flags flags,
+    void* userData)
 {
-    impl = std::make_unique<ResourceContextImpl>();
-    impl->construct(device, physical_device, val_enabled);
-}
-
-void ResourceContext::Update()
-{
-    impl->update();
-}
-
-void ResourceContext::Destroy()
-{
-    impl->destroy();
-}
-
-VulkanResource* ResourceContext::CreateBuffer(const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data)
-{
-    return impl->createBuffer(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
-}
-
-void ResourceContext::SetBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data)
-{
-    impl->setBufferData(dest_buffer, num_data, data);
-}
-
-void ResourceContext::FillBuffer(VulkanResource * dest_buffer, const uint32_t value, const size_t offset, const size_t fill_size)
-{
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    auto guard = transfer_system.AcquireSpinLock();
-    auto cmd = transfer_system.TransferCmdBuffer();
-    vkCmdFillBuffer(cmd, (VkBuffer)dest_buffer->Handle, offset, fill_size, value);
-}
-
-VulkanResource* ResourceContext::CreateImage(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data)
-{
-    return impl->createImage(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
-}
-
-VulkanResource* ResourceContext::CreateImageView(const VulkanResource* base_rsrc, const VkImageViewCreateInfo* view_info, void* user_data)
-{
-    return impl->createImageView(base_rsrc, view_info, user_data);
-}
-
-void ResourceContext::SetImageData(VulkanResource* image, const size_t num_data, const gpu_image_resource_data_t* data)
-{
-    impl->setImageInitialData(image, num_data, data);
-}
-
-VulkanResource* ResourceContext::CreateSampler(const VkSamplerCreateInfo* info, const resource_creation_flags _flags, void* user_data)
-{
-    return impl->createSampler(info, _flags, user_data);
-}
-
-VulkanResource* ResourceContext::CreateCombinedImageSampler(const VkImageCreateInfo * info, const VkImageViewCreateInfo * view_info, const VkSamplerCreateInfo * sampler_info,
-    const size_t num_data, const gpu_image_resource_data_t * initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void * user_data)
-{
-    VulkanResource* resource = CreateImage(info, view_info, num_data, initial_data, _resource_usage, _flags, user_data);
-    resource->Type = resource_type::COMBINED_IMAGE_SAMPLER;
-    resource->Sampler = CreateSampler(sampler_info, _flags, user_data);
-    return resource;
-}
-
-VulkanResource* ResourceContext::CreateResourceCopy(VulkanResource * src)
-{
-    VulkanResource* result = nullptr;
-    CopyResource(src, &result);
-    return result;
-}
-
-void ResourceContext::CopyResource(VulkanResource * src, VulkanResource** dest)
-{
-    switch (src->Type)
+    CreateBufferMessage message;
+    message.bufferInfo = createInfo;
+    message.viewInfo = viewCreateInfo ? std::optional<VkBufferViewCreateInfo>(*viewCreateInfo) : std::nullopt;
+    if (numData > 0)
     {
-    case resource_type::BUFFER:
-        impl->createBufferResourceCopy(src, dest);
-        break;
-    case resource_type::SAMPLER:
-        impl->createSamplerResourceCopy(src, dest);
-        break;
-    case resource_type::IMAGE:
-        impl->createImageResourceCopy(src, dest);
-        break;
-    case resource_type::COMBINED_IMAGE_SAMPLER:
-        impl->createCombinedImageSamplerResourceCopy(src, dest);
-        break;
-    default:
-        throw std::domain_error("Passed source resource to CopyResource had invalid resource_type value.");
-    };
-}
-
-void ResourceContext::CopyResourceContents(VulkanResource* src, VulkanResource* dst)
-{
-    if (src->Type == dst->Type)
-    {
-        switch (src->Type)
-        {
-        case resource_type::BUFFER:
-            break;
-        case resource_type::IMAGE:
-            break;
-        case resource_type::COMBINED_IMAGE_SAMPLER:
-            break;
-        case resource_type::SAMPLER:
-            [[fallthrough]];
-        default:
-            break;
-        }
+        message.initialData = InternalResourceDataContainer(numData, initialData, initialData[0].DestinationQueueFamily);
     }
-    else
+
+    message.resourceUsage = resourceUsage;
+    message.flags = flags;
+    message.userData = userData;
+    message.reply = std::make_shared<ResourceMessageReply<VulkanResource*>>();
+    std::shared_ptr<ResourceMessageReply<VulkanResource*>> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
+}
+
+std::shared_ptr<ResourceMessageReply<VulkanResource*>> ResourceContext::CreateImage(
+    const VkImageCreateInfo& createInfo,
+    const VkImageViewCreateInfo* viewCreateInfo,
+    const gpu_image_resource_data_t* initialData,
+    size_t numData,
+    resource_usage resourceUsage,
+    resource_creation_flags flags,
+    void* userData) 
+{
+    CreateImageMessage message;
+    message.imageInfo = createInfo;
+    message.viewInfo = viewCreateInfo ? std::optional<VkImageViewCreateInfo>(*viewCreateInfo) : std::nullopt;
+    if (numData > 0)
     {
-
+        message.initialData = InternalResourceDataContainer(numData, initialData, initialData[0].DestinationQueueFamily);
     }
+
+    message.resourceUsage = resourceUsage;
+    message.flags = flags;
+    message.userData = userData;
+    message.reply = std::make_shared<ResourceMessageReply<VulkanResource*>>();
+    std::shared_ptr<ResourceMessageReply<VulkanResource*>> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
 }
 
-void ResourceContext::DestroyResource(VulkanResource* resource)
+std::shared_ptr<ResourceMessageReply<bool>> ResourceContext::SetBufferData(
+    VulkanResource* buffer,
+    const gpu_resource_data_t* data,
+    size_t numData)
 {
-    impl->destroyResource(resource);
+    SetBufferDataMessage message(numData, data);
+    message.destBuffer = buffer;
+    message.reply = std::make_shared<ResourceMessageReply<bool>>();
+    std::shared_ptr<ResourceMessageReply<bool>> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
 }
 
-void ResourceContext::WriteMemoryStatsFile(const char* output_file)
-{
-    impl->writeStatsJsonFile(output_file);
+std::shared_ptr<ResourceMessageReply<bool>> ResourceContext::SetImageData(
+    VulkanResource* image,
+    const gpu_image_resource_data_t* data,
+    size_t numData)
+{   
+    SetImageDataMessage message(numData, data);
+    message.image = image;
+    message.reply = std::make_shared<ResourceMessageReply<bool>>();
+    std::shared_ptr<ResourceMessageReply<bool>> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
 }
 
-bool ResourceContext::ResourceInTransferQueue(VulkanResource* rsrc)
-{
-    return impl->resourceInTransferQueue(rsrc);
+std::shared_ptr<ResourceMessageReply<bool>> ResourceContext::FillBuffer(
+    VulkanResource* buffer,
+    uint32_t value,
+    size_t offset,
+    size_t size)
+{   
+    FillResourceMessage message;
+    message.resource = buffer;
+    message.value = value;
+    message.offset = offset;
+    message.size = size;
+    message.reply = std::make_shared<ResourceMessageReply<bool>>();
+    std::shared_ptr<ResourceMessageReply<bool>> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
 }
 
-void* ResourceContext::MapResourceMemory(VulkanResource* resource, size_t size, size_t offset)
+std::shared_ptr<ResourceMessageReply<void*>> ResourceContext::MapBuffer(
+    VulkanResource* buffer,
+    size_t size,
+    size_t offset)
 {
-    return impl->map(resource, size, offset);
+    MapResourceMessage message;
+    message.resource = buffer;
+    message.size = size;
+    message.offset = offset;
+    message.reply = std::make_shared<ResourceMessageReply<void*>>();
+    std::shared_ptr<ResourceMessageReply<void*>> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
 }
 
-void ResourceContext::UnmapResourceMemory(VulkanResource* resource, size_t size, size_t offset)
+std::shared_ptr<ResourceMessageReply<bool>> ResourceContext::UnmapBuffer(
+    VulkanResource* buffer,
+    size_t size,
+    size_t offset)
 {
-    impl->unmap(resource, size, offset);
+    UnmapResourceMessage message;
+    message.resource = buffer;
+    message.size = size;
+    message.offset = offset;
+    message.reply = std::make_shared<ResourceMessageReply<bool>>();
+    std::shared_ptr<ResourceMessageReply<bool>> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
+}
+
+std::shared_ptr<ResourceMessageReply<bool>> ResourceContext::CopyBuffer(
+    VulkanResource* src,
+    VulkanResource* dst)
+{
+    CopyResourceMessage message;
+    message.src = src;
+    message.dest = dst;
+    message.reply = std::make_shared<ResourceMessageReply<bool>>();
+    std::shared_ptr<ResourceMessageReply<bool>> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
+}
+
+std::shared_ptr<ResourceMessageReply<bool>> ResourceContext::CopyBufferContents(
+    VulkanResource* src,
+    VulkanResource* dst)
+{
+    CopyResourceContentsMessage message;
+    message.src = src;
+    message.dest = dst;
+    message.reply = std::make_shared<ResourceMessageReply<bool>>();
+    std::shared_ptr<ResourceMessageReply<bool>> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
+}
+
+std::shared_ptr<ResourceMessageReply<bool>> ResourceContext::DestroyResource(
+    VulkanResource* resource)
+{
+    DestroyResourceMessage message;
+    message.resource = resource;
+    message.reply = std::make_shared<ResourceMessageReply<bool>>();
+    std::shared_ptr<ResourceMessageReply<bool>> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
 }

@@ -18,19 +18,6 @@ class ResourceTransferSystem {
     ResourceTransferSystem(const ResourceTransferSystem&) = delete;
     ResourceTransferSystem& operator=(const ResourceTransferSystem&) = delete;
 
-    struct transferSpinLock {
-        std::recursive_mutex lockFlag{};
-        void lock();
-        bool try_lock();
-        void unlock();
-    } copyQueueLock;
-
-    struct transferSpinLockGuard {
-        transferSpinLock& lck;
-        transferSpinLockGuard(transferSpinLock& _lock);
-        ~transferSpinLockGuard();
-    };
-
     ResourceTransferSystem();
     ~ResourceTransferSystem();
 
@@ -41,7 +28,6 @@ public:
     void Initialize(const vpr::Device* device, VmaAllocator _allocator);
     UploadBuffer* CreateUploadBuffer(const size_t buffer_sz, VulkanResource* rsrc_buffer_is_for);
     void CompleteTransfers();
-    transferSpinLockGuard AcquireSpinLock();
     VkCommandBuffer TransferCmdBuffer();
     bool ResourceQueuedForTransfer(VulkanResource* rsrc);
 

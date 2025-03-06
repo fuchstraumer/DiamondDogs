@@ -3,23 +3,40 @@
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #include <cstdint>
 
-enum class resource_type : uint64_t {
-    INVALID = 0,
-    BUFFER = 1,
-    IMAGE = 2,
-    SAMPLER = 3,
-    COMBINED_IMAGE_SAMPLER = 4
+enum class resource_type : uint64_t
+{
+    Invalid = 0,
+    Buffer = 1,
+    Image = 2,
+    Sampler = 3,
+    CombinedImageSampler = 4
 };
 
-enum class resource_usage : uint32_t {
-    INVALID_RESOURCE_USAGE = 0,
-    GPU_ONLY = 1,
-    CPU_ONLY = 2,
-    CPU_TO_GPU = 3,
-    GPU_TO_CPU = 4
+enum class resource_usage : uint32_t
+{
+    InvalidResourceUsage = 0,
+    GPUOnly = 1,
+    CPUOnly = 2,
+    CPUToGPU = 3,
+    GPUToCPU = 4
 };
 
-enum resource_creation_flags_bits : uint32_t {
+struct queue_family_flag_bits
+{
+    enum : uint8_t
+    {
+        None = 0x0,
+        Graphics = 0x1,
+        Compute = 0x2,
+        Transfer = 0x4,
+        SparseBinding = 0x8,
+    };
+};
+
+using queue_family_flags = uint8_t;
+
+enum resource_creation_flags_bits : uint32_t
+{
     ResourceCreateDedicatedMemory = 0x00000001,
     ResourceCreateNeverAllocate = 0x00000002,
     ResourceCreatePersistentlyMapped = 0x00000004,
@@ -30,14 +47,28 @@ enum resource_creation_flags_bits : uint32_t {
 };
 using resource_creation_flags = uint32_t;
 
-struct gpu_resource_data_t {
+struct gpu_resource_data_t
+{
+    gpu_resource_data_t() noexcept = default;
+    ~gpu_resource_data_t() noexcept = default;
+    gpu_resource_data_t(const gpu_resource_data_t&) noexcept = delete;
+    gpu_resource_data_t& operator=(const gpu_resource_data_t&) noexcept = delete;
+    gpu_resource_data_t(gpu_resource_data_t&&) noexcept = default;
+    gpu_resource_data_t& operator=(gpu_resource_data_t&&) noexcept = default;
     const void* Data{ 0u };
     size_t DataSize{ 0u };
     size_t DataAlignment{ 0u };
-    uint32_t DestinationQueueFamily{ 0u };
+    queue_family_flags DestinationQueueFamily{ 0x0 };
 };
 
-struct gpu_image_resource_data_t {
+struct gpu_image_resource_data_t
+{
+    gpu_image_resource_data_t() noexcept = default;
+    ~gpu_image_resource_data_t() noexcept = default;
+    gpu_image_resource_data_t(const gpu_image_resource_data_t&) noexcept = delete;
+    gpu_image_resource_data_t& operator=(const gpu_image_resource_data_t&) noexcept = delete;
+    gpu_image_resource_data_t(gpu_image_resource_data_t&&) noexcept = default;
+    gpu_image_resource_data_t& operator=(gpu_image_resource_data_t&&) noexcept = default;
     const void* Data{ nullptr };
     size_t DataSize{ 0u };
     uint32_t Width{ 0u };
@@ -45,11 +76,12 @@ struct gpu_image_resource_data_t {
     uint32_t ArrayLayer{ 0u };
     uint32_t NumLayers{ 1u };
     uint32_t MipLevel{ 0u };
-    uint32_t DestinationQueueFamily{ 0u };
+    queue_family_flags DestinationQueueFamily{ 0x0 };
 };
 
-struct VulkanResource {
-    resource_type Type{ resource_type::INVALID };
+struct VulkanResource
+{
+    resource_type Type{ resource_type::Invalid };
     uint64_t Handle{ 0u };
     void* Info{ nullptr };
     uint64_t ViewHandle{ 0u };

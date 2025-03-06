@@ -6,7 +6,8 @@
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
-struct UploadBuffer {
+struct UploadBuffer
+{
     UploadBuffer(const UploadBuffer&) = delete;
     UploadBuffer& operator=(const UploadBuffer&) = delete;
     UploadBuffer(const vpr::Device* _device, VmaAllocator alloc);
