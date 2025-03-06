@@ -7,44 +7,55 @@
 #include <memory>
 
 template<typename Result, typename...Args>
-class multicast_delegate_t<Result(Args...)> final : private base_delegate_t<Result(Args...)> {
+class multicast_delegate_t<Result(Args...)> final : private base_delegate_t<Result(Args...)>
+{
 public:
 
     multicast_delegate_t() {}
     ~multicast_delegate_t() {}
 
-    bool empty() const noexcept {
+    bool empty() const noexcept
+    {
         return invocationVector.empty();
     }
 
-    bool operator==(void* ptr) const noexcept {
+    bool operator==(void* ptr) const noexcept
+    {
         return (ptr == nullptr) && invocationVector.empty();
     }
 
-    bool operator!=(void* ptr) const noexcept {
+    bool operator!=(void* ptr) const noexcept
+    {
         return (ptr != nullptr) || (!invocationVector.empty());
     }
 
-    size_t size() const noexcept {
+    size_t size() const noexcept
+    {
         return invocationVector.size();
     }
 
-    multicast_delegate_t& operator+=(const delegate_t<Result(Args...)>& fn) {
-        if (fn.empty()) {
+    multicast_delegate_t& operator+=(const delegate_t<Result(Args...)>& fn)
+    {
+        if (fn.empty())
+        {
             return *this;
         }
         invocationVector.emplace_back(std::make_unique<list_value_t>(fn.invocation.object, fn.invocation.stub));
     }
 
-    void operator()(Args...args) const noexcept {
-        for (const auto& item : invocationVector) {
+    void operator()(Args...args) const noexcept
+    {
+        for (const auto& item : invocationVector)
+        {
             (*(item->stub))(item->object, args...);
         }
     }
 
-    void operator()(Args...args, delegate_t<void(size_t,Result*)> handler) const {
+    void operator()(Args...args, delegate_t<void(size_t,Result*)> handler) const
+    {
         size_t idx{ 0u };
-        for (const auto& item : invocationVector) {
+        for (const auto& item : invocationVector)
+        {
             Result value = (*(item->stub))(item->object, args...);
             handler(idx, &value);
             ++idx;
