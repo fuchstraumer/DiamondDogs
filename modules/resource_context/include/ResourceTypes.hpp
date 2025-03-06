@@ -30,20 +30,25 @@ struct queue_family_flag_bits
         Compute = 0x2,
         Transfer = 0x4,
         SparseBinding = 0x8,
+        // Used to indicate that we're using VK_SHARING_MODE_CONCURRENT, and that the queue family index is ignored
+        Ignored = 0x10
     };
 };
 
 using queue_family_flags = uint8_t;
 
-enum resource_creation_flags_bits : uint32_t
+struct resource_creation_flag_bits
 {
-    ResourceCreateDedicatedMemory = 0x00000001,
-    ResourceCreateNeverAllocate = 0x00000002,
-    ResourceCreatePersistentlyMapped = 0x00000004,
-    ResourceCreateUserDataAsString = 0x00000020,
-    ResourceCreateMemoryStrategyMinMemory = 0x00010000,
-    ResourceCreateMemoryStrategyMinTime = 0x00020000,
-    ResourceCreateMemoryStrategyMinFragmentation = 0x00040000
+    enum : uint32_t
+    {
+        ResourceCreateDedicatedMemory = 0x00000001,
+        ResourceCreateNeverAllocate = 0x00000002,
+        ResourceCreatePersistentlyMapped = 0x00000004,
+        ResourceCreateUserDataAsString = 0x00000020,
+        ResourceCreateMemoryStrategyMinMemory = 0x00010000,
+        ResourceCreateMemoryStrategyMinTime = 0x00020000,
+        ResourceCreateMemoryStrategyMinFragmentation = 0x00040000
+    };
 };
 using resource_creation_flags = uint32_t;
 

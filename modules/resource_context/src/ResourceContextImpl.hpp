@@ -12,18 +12,18 @@
 #include "UploadBuffer.hpp"
 #include "VkDebugUtils.hpp"
 #include "containers/mwsrQueue.hpp"
+
+#include <atomic>
+#include <memory>
+#include <thread>
 #include <vector>
-#include <algorithm>
 #include <unordered_set>
 #include <unordered_map>
-#include <memory>
 #include <string>
-#include <variant>
-#include <vulkan/vulkan.h>
-#include <mutex>
-#include <atomic>
-#include <shared_mutex>
+
+#include <vulkan/vulkan_core.h>
 #include <vk_mem_alloc.h>
+#include <entt/entt.hpp>
 
 struct ResourceContextCreateInfo;
 
@@ -42,6 +42,20 @@ public:
 
 private:
 
+    struct ResourceFlags
+    {
+        resource_type type;
+        resource_creation_flags flags;
+        queue_family_flags queueFamilyFlags;
+        resource_usage resourceUsage;
+    };
+
+    // just a tagged component, effectively, so I don't have to store std::string itself in the registry
+    struct ResourceDebugName : public std::string
+    {
+    };
+
+    // Templated to work with std::visit, so that the callsite isn't std::variant branching hellsite
     template<typename T>
     void processMessage(T&& message);
     template<>
@@ -65,23 +79,36 @@ private:
     template<>
     void processMessage<DestroyResourceMessage>(DestroyResourceMessage&& message);
 
+    // I don't want to blow up the header implementing the above functions, so they're redeclared here explicitly to be implemented in the .cpp. Sorry :(
+    void processCreateBufferMessage(CreateBufferMessage&& message);
+    void processCreateImageMessage(CreateImageMessage&& message);
+    void processSetBufferDataMessage(SetBufferDataMessage&& message);
+    void processSetImageDataMessage(SetImageDataMessage&& message);
+    void processFillResourceMessage(FillResourceMessage&& message);
+    void processMapResourceMessage(MapResourceMessage&& message);
+    void processUnmapResourceMessage(UnmapResourceMessage&& message);
+    void processCopyResourceMessage(CopyResourceMessage&& message);
+    void processCopyResourceContentsMessage(CopyResourceContentsMessage&& message);
+    void processDestroyResourceMessage(DestroyResourceMessage&& message);
+
     void processMessages();
+
+    VkBufferView createBufferView(entt::entity new_entity, VkBufferViewCreateInfo&& view_info, const ResourceFlags& flags, void* user_data_ptr);
+    void setBufferInitialData(entt::entity new_entity, VkBuffer buffer_handle, InternalResourceDataContainer& dataContainer, resource_usage _resource_usage);
+    void setBufferInitialDataHostOnly(entt::entity new_entity, InternalResourceDataContainer& dataContainer);
+    void setBufferInitialDataUploadBuffer(entt::entity new_entity, InternalResourceDataContainer& dataContainer);
  
-    VulkanResource* createBuffer(const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data = nullptr);
     void setBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data);
     VulkanResource* createImage(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data = nullptr);
     VulkanResource* createImageView(const VulkanResource* base_rsrc, const VkImageViewCreateInfo* view_info, void* user_data = nullptr);
     VulkanResource* createSampler(const VkSamplerCreateInfo* info, const resource_creation_flags _flags, void* user_data = nullptr);
     void copyResourceContents(VulkanResource* src, VulkanResource* dst);
-    void setBufferInitialDataHostOnly(VulkanResource * resource, InternalResourceDataContainer& dataContainer, resource_usage _resource_usage);
-    void setBufferInitialDataUploadBuffer(VulkanResource* resource, InternalResourceDataContainer& dataContainer);
     void setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data);
     VkFormatFeatureFlags featureFlagsFromUsage(const VkImageUsageFlags flags) const noexcept;
     
     void writeStatsJsonFile(const char* output_file);
 
     std::unordered_set<std::unique_ptr<VulkanResource>> resources;
-    using resource_iter_t = decltype(resources)::iterator;
 
     void createBufferResourceCopy(VulkanResource* src, VulkanResource** dst);
     void createImageResourceCopy(VulkanResource* src, VulkanResource** dst);
@@ -112,73 +139,73 @@ private:
     std::unordered_map<VulkanResource*, VmaAllocationInfo> allocInfos;
     vpr::VkDebugUtilsFunctions vkDebugFns;
     VmaAllocator allocatorHandle{ VK_NULL_HANDLE };
-    std::shared_mutex containerMutex;
-    const vpr::Device* device;
-    bool validationEnabled{ false };
 
-    struct infoStorage
-    {
-        void clear();
-        std::unordered_map<VulkanResource*, resource_usage> resourceMemoryType;
-        std::unordered_map<VulkanResource*, resource_creation_flags> resourceFlags;
-        std::unordered_map<VulkanResource*, VkBufferCreateInfo> bufferInfos;
-        std::unordered_map<VulkanResource*, VkBufferViewCreateInfo> bufferViewInfos;
-        std::unordered_map<VulkanResource*, VkImageCreateInfo> imageInfos;
-        std::unordered_map<VulkanResource*, VkImageViewCreateInfo> imageViewInfos;
-        std::unordered_map<VulkanResource*, VkSamplerCreateInfo> samplerInfos;
-    } resourceInfos;
+    // Primarily used to contain our info structures and allocation structures
+    entt::registry resourceRegistry;
+
+    const vpr::Device* device = nullptr;
+    bool validationEnabled{ false };
 
 };
 
 template<>
 inline void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
 {
-
+    processCreateBufferMessage(std::move(message));
 }
 
 template<>
 inline void ResourceContextImpl::processMessage(CreateImageMessage&& message)
 {
+    processCreateImageMessage(std::move(message));
 }
 
 template<>
 inline void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
 {
+    processSetBufferDataMessage(std::move(message));
 }
 
 template<>
 inline void ResourceContextImpl::processMessage(SetImageDataMessage&& message)
 {
+    processSetImageDataMessage(std::move(message));
 }
 
 template<>
 inline void ResourceContextImpl::processMessage(FillResourceMessage&& message)
 {
+    processFillResourceMessage(std::move(message));
 }
 
 template<>
 inline void ResourceContextImpl::processMessage(MapResourceMessage&& message)
 {
+    processMapResourceMessage(std::move(message));
 }
 
 template<>
 inline void ResourceContextImpl::processMessage(UnmapResourceMessage&& message)
 {
+    processUnmapResourceMessage(std::move(message));
 }
 
 template<>
 inline void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
 {
+    processCopyResourceMessage(std::move(message));
 }
 
 template<>
 inline void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
 {
+    processCopyResourceContentsMessage(std::move(message));
 }
 
 template<>
 inline void ResourceContextImpl::processMessage(DestroyResourceMessage&& message)
 {
+    processDestroyResourceMessage(std::move(message));
 }
 
 #endif //!RESOURCE_CONTEXT_IMPL_HPP

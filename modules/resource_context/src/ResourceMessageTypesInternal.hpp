@@ -105,14 +105,11 @@ struct InternalResourceDataContainer
     };
     using ImageDataVector = std::vector<ImageData>;
     
-    uint32_t DestinationQueueFamily;
     std::variant<BufferDataVector, ImageDataVector> DataVector;
     std::optional<uint32_t> NumLayers;
 
-    InternalResourceDataContainer(
-        size_t numData, const gpu_resource_data_t* data,
-        uint32_t destinationQueueFamily) :
-        NumLayers{ std::nullopt }, DestinationQueueFamily{ destinationQueueFamily }
+    InternalResourceDataContainer(size_t numData, const gpu_resource_data_t* data) :
+        NumLayers{ std::nullopt }
     {
         BufferDataVector buffer_data(numData);
         for (size_t i = 0; i < numData; ++i)
@@ -122,9 +119,7 @@ struct InternalResourceDataContainer
         DataVector = std::move(buffer_data);
     }
 
-    InternalResourceDataContainer(
-        size_t numData, const gpu_image_resource_data_t* data,
-        uint32_t destinationQueueFamily) : DestinationQueueFamily{ destinationQueueFamily }
+    InternalResourceDataContainer(size_t numData, const gpu_image_resource_data_t* data)
     {
         NumLayers = data[0].NumLayers;
         ImageDataVector image_data(numData);
@@ -142,7 +137,7 @@ struct CreateBufferMessage
     std::optional<VkBufferViewCreateInfo> viewInfo = std::nullopt;
     std::optional<InternalResourceDataContainer> initialData = std::nullopt;
     resource_usage resourceUsage;
-    resource_creation_flags flags;
+    resource_creation_flag_bits flags;
     void* userData = nullptr;
     std::shared_ptr<ResourceMessageReply<VulkanResource*>> reply = nullptr;
 };
@@ -153,7 +148,7 @@ struct CreateImageMessage
     std::optional<VkImageViewCreateInfo> viewInfo = std::nullopt;
     std::optional<InternalResourceDataContainer> initialData = std::nullopt;
     resource_usage resourceUsage;
-    resource_creation_flags flags;
+    resource_creation_flag_bits flags;
     void* userData = nullptr;
     std::shared_ptr<ResourceMessageReply<VulkanResource*>> reply = nullptr;
 };

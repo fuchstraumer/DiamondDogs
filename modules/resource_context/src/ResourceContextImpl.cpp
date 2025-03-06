@@ -1,10 +1,14 @@
 #include "ResourceContextImpl.hpp"
+
 #include "ResourceContext.hpp"
 #include "../../rendering_context/include/RenderingContext.hpp"
 #include "Instance.hpp"
+
+#include <fstream>
+#include <format>
+
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
-#include <fstream>
 #define THSVS_SIMPLER_VULKAN_SYNCHRONIZATION_IMPLEMENTATION
 #include <thsvs_simpler_vulkan_synchronization.h>
 
@@ -133,126 +137,199 @@ void ResourceContextImpl::destroyResource(VulkanResource* rsrc)
     rsrc = nullptr;
 }
 
-void* ResourceContextImpl::map(VulkanResource* resource, size_t size, size_t offset)
+void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& message)
 {
-    resource_usage alloc_usage{ resource_usage::InvalidResourceUsage };
-    VmaAllocation alloc{ VK_NULL_HANDLE };
-
-    alloc = resourceAllocations.at(resource);
-    alloc_usage = resourceInfos.resourceMemoryType.at(resource);
-    if (alloc_usage == resource_usage::GPUToCPU)
+    const entt::entity new_entity = resourceRegistry.create();
+    VkBufferCreateInfo& buffer_create_info = resourceRegistry.emplace<VkBufferCreateInfo>(new_entity, std::move(message.bufferInfo)); 
+    const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Buffer, message.flags, 0x0, message.resourceUsage);
+    if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
     {
-        vmaInvalidateAllocation(allocatorHandle, alloc, offset, size == 0u ? VK_WHOLE_SIZE : size);
+        resourceRegistry.emplace<ResourceDebugName>(new_entity, reinterpret_cast<const char*>(message.userData));
     }
-    
-    void* mapped_ptr = nullptr;
-    VkResult result = vmaMapMemory(allocatorHandle, alloc, &mapped_ptr);
-    VkAssert(result);
-    return mapped_ptr;
-}
 
-void ResourceContextImpl::unmap(VulkanResource* resource, size_t size, size_t offset)
-{
-    VmaAllocation alloc{ VK_NULL_HANDLE };
-    resource_usage alloc_usage{ resource_usage::InvalidResourceUsage };
+    VmaAllocationInfo& alloc_info = resourceRegistry.emplace<VmaAllocationInfo>(new_entity);
+    VmaAllocation& alloc = resourceRegistry.emplace<VmaAllocation>(new_entity);
 
-    alloc = resourceAllocations.at(resource);
-    alloc_usage = resourceInfos.resourceMemoryType.at(resource);
-
-    vmaUnmapMemory(allocatorHandle, alloc);
-    if (alloc_usage == resource_usage::CPUToGPU)
+    if ((flags.resourceUsage == resource_usage::CPUToGPU || flags.resourceUsage == resource_usage::GPUToCPU || flags.resourceUsage == resource_usage::GPUOnly) && message.initialData)
     {
-        vmaFlushAllocation(allocatorHandle, alloc, offset, size == 0u ? VK_WHOLE_SIZE : size);
-    }
-}
-
-VulkanResource* ResourceContextImpl::createBuffer(const VkBufferCreateInfo* info, const VkBufferViewCreateInfo* view_info, const size_t num_data, const gpu_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data)
-{
-    VulkanResource* resource{ nullptr };
-    VmaAllocationInfo* alloc_info{ nullptr };
-    VmaAllocation* alloc{ nullptr };
-    VkBufferViewCreateInfo* local_view_info{ nullptr };
-    
-    auto iter = resources.emplace(std::make_unique<VulkanResource>());
-    resource = iter.first->get();
-    auto info_iter = resourceInfos.bufferInfos.emplace(resource, *info);
-    resource->Type = resource_type::Buffer;
-    resource->Info = &info_iter.first->second;
-    resource->UserData = user_data;
-    auto alloc_info_iter = allocInfos.emplace(resource, VmaAllocationInfo());
-    alloc_info = &alloc_info_iter.first->second;
-    resourceInfos.resourceMemoryType.emplace(resource, _resource_usage);
-    auto alloc_iter = resourceAllocations.emplace(resource, VmaAllocation());
-    alloc = &alloc_iter.first->second;
-    if (view_info)
-    {
-        auto view_iter = resourceInfos.bufferViewInfos.emplace(resource, *view_info);
-        resource->ViewInfo = &view_iter.first->second;
-        local_view_info = reinterpret_cast<VkBufferViewCreateInfo*>(resource->ViewInfo);
-    }
-    resourceInfos.resourceFlags.emplace(resource, _flags);
-
-    if ((_resource_usage == resource_usage::CPUToGPU || _resource_usage == resource_usage::GPUToCPU || _resource_usage == resource_usage::GPUOnly) && (num_data != 0))
-    {
-        // Device local buffer that will be transferred into, make sure it has the requisite flag.
-        VkBufferCreateInfo* buffer_info = reinterpret_cast<VkBufferCreateInfo*>(resource->Info);
-        buffer_info->usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        buffer_create_info.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     }
 
     VmaAllocationCreateInfo alloc_create_info
     {
-        (VmaAllocationCreateFlags)_flags,
-        (VmaMemoryUsage)_resource_usage,
-        GetMemoryPropertyFlags(_resource_usage),
+        (VmaAllocationCreateFlags)flags.flags,
+        (VmaMemoryUsage)flags.resourceUsage,
+        GetMemoryPropertyFlags(flags.resourceUsage),
         0u,
         UINT32_MAX,
         VK_NULL_HANDLE,
-        user_data
+        message.userData
     };
 
-    VkResult result = vmaCreateBuffer(allocatorHandle, reinterpret_cast<VkBufferCreateInfo*>(resource->Info), &alloc_create_info,
-        reinterpret_cast<VkBuffer*>(&resource->Handle), alloc, alloc_info);
+    VkBuffer buffer_handle = VK_NULL_HANDLE;
+    VkResult result = vmaCreateBuffer(allocatorHandle, &buffer_create_info, &alloc_create_info, &buffer_handle, &alloc, &alloc_info);
     VkAssert(result);
+    
+    resourceRegistry.emplace<VkBuffer>(new_entity, buffer_handle);
 
     if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
     {
-        if (_flags & ResourceCreateUserDataAsString)
+        if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
         {
-            const std::string object_name{ reinterpret_cast<const char*>(user_data) };
-            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, resource->Handle, VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
+            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(buffer_handle), VTF_DEBUG_OBJECT_NAME(reinterpret_cast<const char*>(message.userData)));
             VkAssert(result);
         }
     }
 
-    if (view_info)
+    if (message.viewInfo)
     {
-        local_view_info->buffer = (VkBuffer)resource->Handle;
-        result = vkCreateBufferView(device->vkHandle(), local_view_info, nullptr, reinterpret_cast<VkBufferView*>(&resource->ViewHandle));
-        VkAssert(result);
-        if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+        VkBufferView buffer_view = createBufferView(new_entity, std::move(message.viewInfo.value()), flags, message.userData);
+        resourceRegistry.emplace<VkBufferView>(new_entity, buffer_view);
+    }
+
+    if (message.initialData)
+    {
+        setBufferInitialData(new_entity, buffer_handle, message.initialData.value(), flags.resourceUsage);
+    }
+
+
+
+}
+
+VkBufferView ResourceContextImpl::createBufferView(entt::entity new_entity, VkBufferViewCreateInfo&& view_info, const ResourceFlags& resource_flags, void* user_data_ptr)
+{
+    const VkBufferViewCreateInfo& local_view_info = resourceRegistry.emplace<VkBufferViewCreateInfo>(new_entity, std::move(view_info));
+    VkBufferView buffer_view = VK_NULL_HANDLE;
+    VkResult result = vkCreateBufferView(device->vkHandle(), &local_view_info, nullptr, &buffer_view);
+    VkAssert(result);
+
+    resourceRegistry.emplace<VkBufferView>(new_entity, buffer_view);
+
+    if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+    {
+        if (resource_flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
         {
-            if (_flags & ResourceCreateUserDataAsString)
-            {
-                const std::string object_view_name = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
-                result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER_VIEW, resource->ViewHandle, VTF_DEBUG_OBJECT_NAME(object_view_name.c_str()));
-                VkAssert(result);
-            }
+            const std::string object_name = std::format("{}_buffer_view", reinterpret_cast<const char*>(user_data_ptr));
+            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER_VIEW, reinterpret_cast<uint64_t>(buffer_view), VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
+            VkAssert(result);
         }
     }
 
-    if (initial_data)
+    return buffer_view;
+}
+
+void ResourceContextImpl::setBufferInitialData(entt::entity new_entity, VkBuffer buffer_handle, InternalResourceDataContainer& dataContainer, resource_usage _resource_usage)
+{
+    if (_resource_usage == resource_usage::CPUOnly)
     {
-        if (_resource_usage == resource_usage::CPUOnly)
-        {
-            setBufferInitialDataHostOnly(resource, num_data, initial_data, _resource_usage);
-        }
-        else
-        {
-            setBufferInitialDataUploadBuffer(resource, num_data, initial_data);
-        }
+        setBufferInitialDataHostOnly(new_entity, dataContainer);
+    }
+    else
+    {
+        setBufferInitialDataUploadBuffer(new_entity, dataContainer);
+    }
+}
+
+void ResourceContextImpl::setBufferInitialDataHostOnly(entt::entity new_entity, InternalResourceDataContainer& dataContainer)
+{
+    const VmaAllocationInfo& alloc_info = resourceRegistry.get<VmaAllocationInfo>(new_entity);
+    const VmaAllocation& alloc = resourceRegistry.get<VmaAllocation>(new_entity);
+
+    void* mapped_address = nullptr;
+    VkResult result = vmaMapMemory(allocatorHandle, alloc, &mapped_address);
+    VkAssert(result);
+
+    InternalResourceDataContainer::BufferDataVector dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(dataContainer.DataVector);
+    size_t offset = 0u;
+    for (size_t i = 0u; i < dataVector.size(); ++i)
+    {
+        void* curr_address = (void*)((size_t)mapped_address + offset);
+        std::memcpy(curr_address, dataVector[i].data.get(), dataVector[i].size);
+        offset += dataVector[i].size;
+    }
+    vmaUnmapMemory(allocatorHandle, alloc);
+    vmaFlushAllocation(allocatorHandle, alloc, 0u, offset);
+    // free copied memory, finally
+    dataVector.clear();
+}
+
+void ResourceContextImpl::setBufferInitialDataUploadBuffer(entt::entity new_entity, InternalResourceDataContainer& dataContainer)
+{
+    const VkBufferCreateInfo& buffer_create_info = resourceRegistry.get<VkBufferCreateInfo>(new_entity);
+    const VkBuffer buffer_handle = resourceRegistry.get<VkBuffer>(new_entity);
+
+    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
+    UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(buffer_create_info.size);
+
+    // note that this is copying to an API managed staging buffer, not just another raw data buffer like our data container. will only be briefly duplicated
+    InternalResourceDataContainer::BufferDataVector dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(dataContainer.DataVector);
+    std::vector<VkBufferCopy> buffer_copies(dataVector.size());
+    VkDeviceSize offset = 0;
+    for (size_t i = 0; i < dataVector.size(); ++i)
+    {
+        upload_buffer->SetData(dataVector[i].data.get(), dataVector[i].size, offset);
+        buffer_copies[i].size = dataVector[i].size;
+        buffer_copies[i].dstOffset = offset;
+        buffer_copies[i].srcOffset = offset;
+        offset += dataVector[i].size;
     }
 
-    return resource;
+    auto cmd = transfer_system.TransferCmdBuffer();
+    vkCmdCopyBuffer(cmd, upload_buffer->Buffer, buffer_handle, static_cast<uint32_t>(buffer_copies.size()), buffer_copies.data());
+
+    constexpr static ThsvsAccessType transfer_access_types[1]
+    {
+        THSVS_ACCESS_TRANSFER_WRITE
+    };
+
+    const std::vector<ThsvsAccessType> possible_accesses = thsvsAccessTypesFromBufferUsage(buffer_create_info.usage);
+    
+    const ThsvsGlobalBarrier global_barrier
+    {
+        1u,
+        transfer_access_types,
+        static_cast<uint32_t>(possible_accesses.size()),
+        possible_accesses.data()
+    };
+
+    thsvsCmdPipelineBarrier(cmd, &global_barrier, 1u, nullptr, 0u, nullptr);
+
+    // we can clear and free the stored data now
+    dataVector.clear();
+}
+
+void ResourceContextImpl::processCreateImageMessage(CreateImageMessage&& message)
+{
+}
+
+void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& message)
+{
+}
+
+void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& message)
+{
+}
+
+void ResourceContextImpl::processMapResourceMessage(MapResourceMessage&& message)
+{
+}
+
+void ResourceContextImpl::processUnmapResourceMessage(UnmapResourceMessage&& message)
+{
+}
+
+void ResourceContextImpl::processCopyResourceMessage(CopyResourceMessage&& message)
+{
+}   
+
+void ResourceContextImpl::processCopyResourceContentsMessage(CopyResourceContentsMessage&& message)
+{
+
+}
+
+void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&& message)
+{
+
 }
 
 void ResourceContextImpl::setBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data)
@@ -412,98 +489,6 @@ VulkanResource* ResourceContextImpl::createSampler(const VkSamplerCreateInfo* in
 void ResourceContextImpl::copyResourceContents(VulkanResource* src, VulkanResource* dst)
 {
     throw std::runtime_error("Not implemented!");
-}
-
-void ResourceContextImpl::setBufferInitialDataHostOnly(VulkanResource* resource, InternalResourceDataContainer& dataContainer, resource_usage _resource_usage)
-{
-    void* mapped_address{ nullptr };
-    const VmaAllocationInfo* alloc_info;
-    VmaAllocation* alloc;
-    alloc_info = &allocInfos.at(resource);
-    alloc = &resourceAllocations.at(resource);
-
-    VkResult result = vmaMapMemory(allocatorHandle, *alloc, &mapped_address);
-    VkAssert(result);
-
-    InternalResourceDataContainer::BufferDataVector dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(dataContainer.DataVector);
-    size_t offset = 0u;
-    for (size_t i = 0u; i < dataVector.size(); ++i)
-    {
-        void* curr_address = (void*)((size_t)mapped_address + offset);
-        std::memcpy(curr_address, dataVector[i].data.get(), dataVector[i].size);
-        offset += dataVector[i].size;
-    }
-    vmaUnmapMemory(allocatorHandle, *alloc);
-    vmaFlushAllocation(allocatorHandle, *alloc, 0u, offset);
-}
-
-void ResourceContextImpl::setBufferInitialDataUploadBuffer(VulkanResource* resource, InternalResourceDataContainer& dataContainer)
-{
-
-    const VkBufferCreateInfo* p_info = reinterpret_cast<VkBufferCreateInfo*>(resource->Info);
-    const uint32_t transfer_queue_idx = device->QueueFamilyIndices().Transfer;
-
-    const ThsvsAccessType transfer_access_types[1]
-    {
-        THSVS_ACCESS_TRANSFER_WRITE
-    };
-
-    ThsvsBufferBarrier post_transfer_barrier
-    {
-        1u,
-        transfer_access_types,
-        0u,
-        nullptr,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        (VkBuffer)resource->Handle,
-        0u,
-        p_info->size
-    };
-
-    if (p_info->sharingMode == VK_SHARING_MODE_EXCLUSIVE)
-    {
-        // update for proper ownership transfer
-        assert(dataContainer.DestinationQueueFamily != VK_QUEUE_FAMILY_IGNORED);
-        assert(transfer_queue_idx != VK_QUEUE_FAMILY_IGNORED);
-        post_transfer_barrier.srcQueueFamilyIndex = dataContainer.DestinationQueueFamily != transfer_queue_idx ? transfer_queue_idx : VK_QUEUE_FAMILY_IGNORED;
-        post_transfer_barrier.dstQueueFamilyIndex = dataContainer.DestinationQueueFamily != transfer_queue_idx ? dataContainer.DestinationQueueFamily : VK_QUEUE_FAMILY_IGNORED;
-    }
-
-    constexpr static ThsvsAccessType possible_accesses[2]
-    {
-        THSVS_ACCESS_ANY_SHADER_READ_OTHER,
-        THSVS_ACCESS_ANY_SHADER_WRITE
-    };
-
-    const ThsvsGlobalBarrier global_barrier
-    {
-        1u,
-        transfer_access_types,
-        2u,
-        possible_accesses
-    };
-
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    auto cmd = transfer_system.TransferCmdBuffer();
-    UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(p_info->size, resource);
-    InternalResourceDataContainer::BufferDataVector dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(dataContainer.DataVector);
-    std::vector<VkBufferCopy> buffer_copies(dataVector.size());
-    VkDeviceSize offset = 0;
-    for (size_t i = 0; i < dataVector.size(); ++i)
-    {
-        upload_buffer->SetData(dataVector[i].data.get(), dataVector[i].size, offset);
-        buffer_copies[i].size = dataVector[i].size;
-        buffer_copies[i].dstOffset = offset;
-        buffer_copies[i].srcOffset = offset;
-        offset += dataVector[i].size;
-    }
-
-    vkCmdCopyBuffer(cmd, upload_buffer->Buffer, reinterpret_cast<VkBuffer>(resource->Handle), static_cast<uint32_t>(buffer_copies.size()), buffer_copies.data());
-    thsvsCmdPipelineBarrier(cmd, &global_barrier, 1u, &post_transfer_barrier, 0u, nullptr);
-
-    // we can clear and free the stored data now
-    dataVector.clear();
 }
 
 void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data)
@@ -991,15 +976,37 @@ void ResourceContextImpl::destroySampler(resource_iter_t iter)
     resources.erase(iter);
 }
 
-void ResourceContextImpl::infoStorage::clear()
+void* ResourceContextImpl::map(VulkanResource* resource, size_t size, size_t offset)
 {
-    resourceMemoryType.clear();
-    resourceFlags.clear();
-    bufferInfos.clear();
-    bufferViewInfos.clear();
-    imageInfos.clear();
-    imageViewInfos.clear();
-    samplerInfos.clear();
+    resource_usage alloc_usage{ resource_usage::InvalidResourceUsage };
+    VmaAllocation alloc{ VK_NULL_HANDLE };
+
+    alloc = resourceAllocations.at(resource);
+    alloc_usage = resourceInfos.resourceMemoryType.at(resource);
+    if (alloc_usage == resource_usage::GPUToCPU)
+    {
+        vmaInvalidateAllocation(allocatorHandle, alloc, offset, size == 0u ? VK_WHOLE_SIZE : size);
+    }
+    
+    void* mapped_ptr = nullptr;
+    VkResult result = vmaMapMemory(allocatorHandle, alloc, &mapped_ptr);
+    VkAssert(result);
+    return mapped_ptr;
+}
+
+void ResourceContextImpl::unmap(VulkanResource* resource, size_t size, size_t offset)
+{
+    VmaAllocation alloc{ VK_NULL_HANDLE };
+    resource_usage alloc_usage{ resource_usage::InvalidResourceUsage };
+
+    alloc = resourceAllocations.at(resource);
+    alloc_usage = resourceInfos.resourceMemoryType.at(resource);
+
+    vmaUnmapMemory(allocatorHandle, alloc);
+    if (alloc_usage == resource_usage::CPUToGPU)
+    {
+        vmaFlushAllocation(allocatorHandle, alloc, offset, size == 0u ? VK_WHOLE_SIZE : size);
+    }
 }
 
 void ResourceContextImpl::processMessages()

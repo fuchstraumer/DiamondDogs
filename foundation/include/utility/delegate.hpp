@@ -49,7 +49,7 @@ class delegate_t<Result(Args...)> final : private base_delegate_t<Result(Args...
 {
     friend class multicast_delegate_t<Result(Args...)>;
 public:
-    
+
     delegate_t() = default;
 
     bool empty() const noexcept

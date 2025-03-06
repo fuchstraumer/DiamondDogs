@@ -20,6 +20,7 @@ TARGET_INCLUDE_DIRECTORIES(resource_context PRIVATE
     ${Vulkan_INCLUDE_DIR}
     "../../third_party/svs"
     "../../third_party/json/include"
+    "../../third_party/entt/include"
 )
 
-TARGET_LINK_LIBRARIES(resource_context PUBLIC vpr_core vpr_command vpr_sync ${Vulkan_LIBRARY} VulkanMemoryAllocator)
+TARGET_LINK_LIBRARIES(resource_context PUBLIC EnTT vpr_core vpr_command vpr_sync ${Vulkan_LIBRARY} VulkanMemoryAllocator)

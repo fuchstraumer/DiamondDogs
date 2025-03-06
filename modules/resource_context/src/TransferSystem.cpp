@@ -80,20 +80,14 @@ void ResourceTransferSystem::flushTransfersIfNeeded()
     }
 }
 
-UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(const size_t buffer_sz, VulkanResource* rsrc)
+UploadBuffer* ResourceTransferSystem::CreateUploadBuffer(const size_t buffer_sz)
 {
     flushTransfersIfNeeded();
     uploadBuffers.emplace_back(createUploadBufferImpl(buffer_sz));
-    auto iter = pendingResources.emplace(rsrc);
     if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
     {
         const std::string upload_buffer_name = std::string("UploadBuffer") + std::to_string(uploadBuffers.size());
         RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, (uint64_t)uploadBuffers.back()->Buffer, upload_buffer_name.c_str());
-        // if we're in validation mode, might as well check "iter" too. Won't crash, but will log an error
-        if (!iter.second)
-        {
-            std::cerr << "Resource upload buffer is being created for is already in internal containers! This implies duplication of memory.\n";
-        }
     }
     return uploadBuffers.back().get();
 }
@@ -285,8 +279,6 @@ void ResourceTransferSystem::CompleteTransfers()
 
     uploadBuffers.clear();
     uploadBuffers.reserve(MAX_QUEUED_UPLOAD_BUFFERS);
-    pendingResources.clear();
-    pendingResources.reserve(MAX_QUEUED_UPLOAD_BUFFERS);
 
     while (uploadPools.size() > 1u)
     {
@@ -308,11 +300,6 @@ VkCommandBuffer ResourceTransferSystem::TransferCmdBuffer()
     cmdBufferDirty = true;
     auto& pool = *transferCmdPool;
     return pool[0];
-}
-
-bool ResourceTransferSystem::ResourceQueuedForTransfer(VulkanResource* rsrc)
-{
-    return pendingResources.find(rsrc) != pendingResources.end();
 }
 
 VmaPool ResourceTransferSystem::createPool()
