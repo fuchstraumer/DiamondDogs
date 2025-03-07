@@ -88,6 +88,27 @@ struct gpu_image_resource_data_t
 
 struct VulkanResource
 {
+    constexpr VulkanResource() noexcept : Type{ resource_type::Invalid }, ResourceHandle{ 0u }, VkHandle{ 0u }, VkViewHandle{ 0u }, VkSamplerHandle{ 0u } {}
+    constexpr ~VulkanResource() noexcept = default;
+    constexpr VulkanResource(const VulkanResource&) noexcept = default;
+    constexpr VulkanResource& operator=(const VulkanResource&) noexcept = default;
+    constexpr VulkanResource(VulkanResource&&) noexcept = default;
+    constexpr VulkanResource& operator=(VulkanResource&&) noexcept = default;
+    
+    constexpr bool operator==(const VulkanResource& other) const noexcept
+    {
+        return Type == other.Type &&
+               ResourceHandle == other.ResourceHandle &&
+               VkHandle == other.VkHandle &&
+               VkViewHandle == other.VkViewHandle &&
+               VkSamplerHandle == other.VkSamplerHandle;
+    }
+
+    constexpr bool operator!=(const VulkanResource& other) const noexcept
+    {
+        return !(*this == other);
+    }
+
     resource_type Type{ resource_type::Invalid };
     uint32_t ResourceHandle{ 0u };
     uint64_t VkHandle{ 0u };

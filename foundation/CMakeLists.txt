@@ -34,6 +34,7 @@ set(threading_source_files
     "include/threading/critical_section.hpp"
     "include/threading/mcas.hpp"
     "include/threading/srw_lock.hpp"
+    "src/threading/atomic128.cpp"
     "src/threading/critical_section_win32.cpp"
     "src/threading/srw_lock_win32.cpp")
 

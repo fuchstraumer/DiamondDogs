@@ -8,364 +8,100 @@
 #include <vulkan/vulkan_core.h>
 #include "threading/atomic128.hpp"
 
-// TODO: need to have some way to make this accept boolean ReplyDataTypes. 
-template<typename ReplyDataType>
-class ResourceMessageReply
-{
-public:
-    static_assert(std::is_pointer_v<ReplyDataType>, "ReplyDataType must be a pointer type");
+// Vulkan resource (as of latest updates) has become a 256 bit struct, so we can use an atomic128 for the handle and view handle,
+// and then smaller atomics for the other fields
 
-    ResourceMessageReply() : replyData(nullptr) {}
-    ~ResourceMessageReply() = default;
+class VulkanResourceReply
+{
+    
+    struct VkResourceTypeAndEntityHandle
+    {
+        // in .cpp because I'm not exposing entt here just to get null entity
+        VkResourceTypeAndEntityHandle() noexcept;
+        VkResourceTypeAndEntityHandle(const resource_type type, const uint32_t entity_handle) noexcept;
+        VkResourceTypeAndEntityHandle(const VkResourceTypeAndEntityHandle& other) noexcept = default;
+        VkResourceTypeAndEntityHandle& operator=(const VkResourceTypeAndEntityHandle& other) noexcept = default;
+        VkResourceTypeAndEntityHandle(VkResourceTypeAndEntityHandle&& other) noexcept = default;
+        VkResourceTypeAndEntityHandle& operator=(VkResourceTypeAndEntityHandle&& other) noexcept = default;
+        ~VkResourceTypeAndEntityHandle() noexcept = default;
+        bool operator==(const VkResourceTypeAndEntityHandle& other) const noexcept;
+        bool operator!=(const VkResourceTypeAndEntityHandle& other) const noexcept;
+        operator bool() const noexcept;
+        
+        uint32_t Type;
+        uint32_t EntityHandle;
+    };
+
+
+public:
+    VulkanResourceReply(resource_type _type);
+    ~VulkanResourceReply() = default;
     
     // Non-copyable
-    ResourceMessageReply(const ResourceMessageReply&) = delete;
-    ResourceMessageReply& operator=(const ResourceMessageReply&) = delete;
+    VulkanResourceReply(const VulkanResourceReply&) = delete;
+    VulkanResourceReply& operator=(const VulkanResourceReply&) = delete;
     
     // Movable
-    ResourceMessageReply(ResourceMessageReply&& other) noexcept
-        : replyData(other.replyData.load(std::memory_order_relaxed))
-    {
-        other.replyData.store(nullptr, std::memory_order_relaxed);
-    }
+    VulkanResourceReply(VulkanResourceReply&& other) noexcept;
+    VulkanResourceReply& operator=(VulkanResourceReply&& other) noexcept;
     
-    ResourceMessageReply& operator=(ResourceMessageReply&& other) noexcept
-    {
-        if (this != &other)
-        {
-            replyData.store(other.replyData.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            other.replyData.store(nullptr, std::memory_order_relaxed);
-        }
-        return *this;
-    }
+    // Check if operation is completed
+    bool IsCompleted() const;
     
-    // Check if resource is ready
-    bool IsReady() const
-    {
-        return replyData.load(std::memory_order_acquire) != nullptr;
-    }
+    // Wait for the operation to complete
+    bool WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) const;
     
-    ReplyDataType GetReplyData() const
-    {
-        return replyData.load(std::memory_order_acquire);
-    }
-    
-    // Wait for the resource to be ready (optional timeout in nanoseconds)
-    ReplyDataType WaitForResourceOperation(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) const
-    {
-        std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-        
-        while (true)
-        {
-            ReplyDataType result = replyData.load(std::memory_order_acquire);
-            if (result != nullptr)
-            {
-                return result;
-            }
-            
-            // Check timeout
-            if (timeoutNs != std::numeric_limits<uint64_t>::max())
-            {
-                std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
-                const uint64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(currentTime - startTime).count();
-                if (elapsedNs >= timeoutNs)
-                {
-                    return nullptr;
-                }
-            }
-            
-            // Yield to avoid busy waiting
-            std::this_thread::yield();
-        }
-    }
-    
-private:
-    // Allow ResourceContext to set the resource
-    friend class ResourceContextImpl;
-    
-    // Set the resource (called by worker thread when operation completes)
-    void SetResource(VulkanResource* rsrc)
-    {
-        replyData.store(rsrc, std::memory_order_release);
-    }
-    
-    std::atomic<ReplyDataType> replyData;
-    static_assert(std::atomic<ReplyDataType>::is_always_lock_free, "ReplyDataType must be lock-free");
-};
-
-struct BufferAndViewReply
-{
-    VkBuffer Buffer{ VK_NULL_HANDLE};
-    VkBufferView View{ VK_NULL_HANDLE };
-};
-
-struct ImageAndViewReply
-{
-    VkImage Image{ VK_NULL_HANDLE };
-    VkImageView View{ VK_NULL_HANDLE };
-};
-
-// Specialize on atomic128, as (for now at least) it just gives us two 64 bit variables we can use to hold the resource handle and view handle
-template<>
-class ResourceMessageReply<BufferAndViewReply>
-{
-    // implicitly equal to VK_NULL_HANDLE, VK_NULL_HANDLE
-    constexpr static cas_data128_t null_data{ 0, 0 };
-public:
-    ResourceMessageReply() noexcept : replyData{} {}
-    ~ResourceMessageReply() noexcept = default;
-
-    // Non-copyable
-    ResourceMessageReply(const ResourceMessageReply&) = delete;
-    ResourceMessageReply& operator=(const ResourceMessageReply&) = delete;
-    
-    // Movable
-    ResourceMessageReply(ResourceMessageReply&& other) noexcept
-        : replyData(other.replyData.load(std::memory_order_relaxed))
-    {
-        other.replyData.store(null_data, std::memory_order_relaxed);
-    }
-    
-    ResourceMessageReply& operator=(ResourceMessageReply&& other) noexcept
-    {
-        if (this != &other)
-        {
-            replyData.store(other.replyData.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            other.replyData.store(null_data, std::memory_order_relaxed);  
-        }
-        return *this;
-    }
-    
-    // Check if resource is ready
-    bool IsReady() const
-    {
-        return replyData.load(std::memory_order_acquire) != null_data;
-    }
-
-    BufferAndViewReply GetReplyData() const
-    {
-        const cas_data128_t data = replyData.load(std::memory_order_acquire);
-        return BufferAndViewReply
-        {
-            reinterpret_cast<VkBuffer>(data.low),
-            reinterpret_cast<VkBufferView>(data.high)
-        };
-    }
-
-    BufferAndViewReply WaitForResourceOperation(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) const
-    {
-        std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-        
-        while (true)
-        {
-            const cas_data128_t data = replyData.load(std::memory_order_acquire);
-            if (data != null_data)
-            {
-                return BufferAndViewReply
-                {
-                    reinterpret_cast<VkBuffer>(data.low),
-                    reinterpret_cast<VkBufferView>(data.high)
-                };
-            }
-            
-            // Check timeout
-            if (timeoutNs != std::numeric_limits<uint64_t>::max())
-            {
-                std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
-                const uint64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(currentTime - startTime).count();
-                if (elapsedNs >= timeoutNs)
-                {
-                    return BufferAndViewReply{ VK_NULL_HANDLE, VK_NULL_HANDLE };
-                }
-            }
-            
-            // Yield to avoid busy waiting
-            std::this_thread::yield();
-        }
-    }
+    // Get the resource
+    VulkanResource GetResource() const;
 
 private:
-
+    // Allow ResourceContext to set completion
     friend class ResourceContextImpl;
-
-    void SetResource(BufferAndViewReply rsrc)
-    {
-        const cas_data128_t data
-        { 
-            reinterpret_cast<uint64_t>(rsrc.Buffer),
-            reinterpret_cast<uint64_t>(rsrc.View)
-        };
-        replyData.store(data, std::memory_order_release);
-    }
-
-    atomic128 replyData;
-};
-
-template<>
-class ResourceMessageReply<ImageAndViewReply>
-{
-    constexpr static cas_data128_t null_data{ 0, 0 };
-public:
-    ResourceMessageReply() noexcept : replyData{} {}
-    ~ResourceMessageReply() noexcept = default;
-
-    // Non-copyable
-    ResourceMessageReply(const ResourceMessageReply&) = delete;
-    ResourceMessageReply& operator=(const ResourceMessageReply&) = delete;
-
-    // Movable
-    ResourceMessageReply(ResourceMessageReply&& other) noexcept
-        : replyData(other.replyData.load(std::memory_order_relaxed))
-    {
-        other.replyData.store(null_data, std::memory_order_relaxed);
-    }
-
-    ResourceMessageReply& operator=(ResourceMessageReply&& other) noexcept
-    {
-        if (this != &other)
-        {
-            replyData.store(other.replyData.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            other.replyData.store(null_data, std::memory_order_relaxed);
-        }
-        return *this;
-    }
-
-    bool IsReady() const
-    {
-        return replyData.load(std::memory_order_acquire) != null_data;
-    }
     
-    ImageAndViewReply GetReplyData() const
-    {
-        const cas_data128_t data = replyData.load(std::memory_order_acquire);
-        return ImageAndViewReply
-        {
-            reinterpret_cast<VkImage>(data.low),
-            reinterpret_cast<VkImageView>(data.high)
-        };
-    }
+    // Mark operation as completed
+    void SetVulkanResource(const resource_type _type,
+                           const uint32_t entity_handle,
+                           const uint64_t vk_handle,
+                           const uint64_t vk_view_handle,
+                           const uint64_t vk_sampler_handle);
+    
+    std::atomic<VkResourceTypeAndEntityHandle> resourceTypeAndEntityHandle;
+    static_assert(decltype(resourceTypeAndEntityHandle)::is_always_lock_free, "std::atomic<VkResourceTypeAndEntityHandle> is not lock-free on this platform/using this compiler");
+    atomic128 vkHandleAndView;
+    std::atomic<uint64_t> vkSamplerHandle;
 
-    ImageAndViewReply WaitForResourceOperation(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) const
-    {
-        std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-        
-        while (true)
-        {
-            const cas_data128_t data = replyData.load(std::memory_order_acquire);
-            if (data != null_data)
-            {
-                return ImageAndViewReply
-                {
-                    reinterpret_cast<VkImage>(data.low),
-                    reinterpret_cast<VkImageView>(data.high)
-                };
-            }
-            
-            // Check timeout
-            if (timeoutNs != std::numeric_limits<uint64_t>::max())
-            {
-                std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
-                const uint64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(currentTime - startTime).count();
-                if (elapsedNs >= timeoutNs)
-                {
-                    return ImageAndViewReply{ VK_NULL_HANDLE, VK_NULL_HANDLE };
-                }   
-            }
-            
-            // Yield to avoid busy waiting
-            std::this_thread::yield();
-        }
-    }
-
-private:
-
-    friend class ResourceContextImpl;
-
-    void SetResource(ImageAndViewReply rsrc)
-    {
-        const cas_data128_t data
-        {
-            reinterpret_cast<uint64_t>(rsrc.Image),
-            reinterpret_cast<uint64_t>(rsrc.View)
-        };
-        replyData.store(data, std::memory_order_release);
-    }
-
-    atomic128 replyData;
 };
 
 // Specialization for operations where we just need to know if it completed, e.g. DestroyResource or a copy/fill
-template<>
-class ResourceMessageReply<bool>
+class BooleanMessageReply
 {
 public:
-    ResourceMessageReply() : completed(false) {}
-    ~ResourceMessageReply() = default;
+    BooleanMessageReply() : completed(false) {}
+    ~BooleanMessageReply() = default;
     
-    // Non-copyable
-    ResourceMessageReply(const ResourceMessageReply&) = delete;
-    ResourceMessageReply& operator=(const ResourceMessageReply&) = delete;
+    BooleanMessageReply(const BooleanMessageReply&) = delete;
+    BooleanMessageReply& operator=(const BooleanMessageReply&) = delete;
+    BooleanMessageReply(BooleanMessageReply&& other) noexcept;
+    BooleanMessageReply& operator=(BooleanMessageReply&& other) noexcept;
     
-    // Movable
-    ResourceMessageReply(ResourceMessageReply&& other) noexcept
-        : completed(other.completed.load(std::memory_order_relaxed))
-    {
-        other.completed.store(false, std::memory_order_relaxed);
-    }
-    
-    ResourceMessageReply& operator=(ResourceMessageReply&& other) noexcept
-    {
-        if (this != &other)
-        {
-            completed.store(other.completed.load(std::memory_order_relaxed), std::memory_order_relaxed);
-            other.completed.store(false, std::memory_order_relaxed);
-        }
-        return *this;
-    }
-    
-    // Check if operation is completed
-    bool IsCompleted() const
-    {
-        return completed.load(std::memory_order_acquire);
-    }
-    
-    // Wait for the operation to complete
-    bool WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) const
-    {
-        std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-        
-        while (!completed.load(std::memory_order_acquire))
-        {
-            // Check timeout
-            if (timeoutNs != std::numeric_limits<uint64_t>::max())
-            {
-                std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
-                const uint64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(currentTime - startTime).count();
-                if (elapsedNs >= timeoutNs)
-                {
-                    return false;
-                }
-            }
-            
-            // Yield to avoid busy waiting
-            std::this_thread::yield();
-        }
-        
-        return true;
-    }
+    bool IsCompleted() const;
+    bool WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) const;
     
 private:
     // Allow ResourceContext to set completion
     friend class ResourceContextImpl;
     
     // Mark operation as completed
-    void SetCompleted()
-    {
-        completed.store(true, std::memory_order_release);
-    }
+    void SetCompleted();
     
     std::atomic<bool> completed;
     static_assert(std::atomic<bool>::is_always_lock_free, "std::atomic<bool> is not lockfree on this platform/using this compiler");
+};
+
+// Used for the function that maps a buffer/image for copying
+class PointerMessageReply
+{
+
 };
 
 
