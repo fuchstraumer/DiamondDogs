@@ -139,7 +139,7 @@ struct CreateBufferMessage
     resource_usage resourceUsage;
     resource_creation_flag_bits flags;
     void* userData = nullptr;
-    std::shared_ptr<ResourceMessageReply<VulkanResource*>> reply = nullptr;
+    std::shared_ptr<ResourceMessageReply<BufferAndViewReply>> reply = nullptr;
 };
 
 struct CreateImageMessage
@@ -150,13 +150,20 @@ struct CreateImageMessage
     resource_usage resourceUsage;
     resource_creation_flag_bits flags;
     void* userData = nullptr;
-    std::shared_ptr<ResourceMessageReply<VulkanResource*>> reply = nullptr;
+    std::shared_ptr<ResourceMessageReply<ImageAndViewReply>> reply = nullptr;
+};
+
+struct CreateSamplerMessage
+{
+    VkSamplerCreateInfo samplerInfo;
+    void* userData = nullptr;
+    std::shared_ptr<ResourceMessageReply<VkSampler>> reply = nullptr;
 };
 
 struct SetBufferDataMessage
 {
     SetBufferDataMessage(size_t numData, const gpu_resource_data_t* data) :
-        data{ InternalResourceDataContainer(numData, data, data[0].DestinationQueueFamily) }
+        data{ InternalResourceDataContainer(numData, data) }
     {}
     VulkanResource* destBuffer{ nullptr };
     InternalResourceDataContainer data;
@@ -166,7 +173,7 @@ struct SetBufferDataMessage
 struct SetImageDataMessage
 {
     SetImageDataMessage(size_t numData, const gpu_image_resource_data_t* data) :
-        data{ InternalResourceDataContainer(numData, data, data[0].DestinationQueueFamily) }
+        data{ InternalResourceDataContainer(numData, data) }
     {}
     VulkanResource* image{ nullptr };
     InternalResourceDataContainer data;
@@ -221,6 +228,7 @@ struct DestroyResourceMessage
 using ResourceMessagePayloadType = std::variant<
     CreateBufferMessage,
     CreateImageMessage,
+    CreateSamplerMessage,
     SetBufferDataMessage,
     SetImageDataMessage,
     FillResourceMessage,

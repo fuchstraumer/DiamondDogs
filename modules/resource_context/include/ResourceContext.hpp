@@ -27,7 +27,7 @@ public:
 
     void Initialize(const ResourceContextCreateInfo& createInfo);
 
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<VulkanResource*>> CreateBuffer(
+    [[nodiscard]] std::shared_ptr<ResourceMessageReply<BufferAndViewReply>> CreateBuffer(
         const VkBufferCreateInfo& createInfo,
         const VkBufferViewCreateInfo* viewCreateInfo = nullptr,
         const gpu_resource_data_t* initialData = nullptr,
@@ -36,13 +36,17 @@ public:
         resource_creation_flags flags = 0,
         void* userData = nullptr);
 
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<VulkanResource*>> CreateImage(
+    [[nodiscard]] std::shared_ptr<ResourceMessageReply<ImageAndViewReply>> CreateImage(
         const VkImageCreateInfo& createInfo,
         const VkImageViewCreateInfo* viewCreateInfo = nullptr,
         const gpu_image_resource_data_t* initialData = nullptr,
         size_t numData = 0,
         resource_usage resourceUsage = resource_usage::GPUOnly,
         resource_creation_flags flags = 0,
+        void* userData = nullptr);
+
+    [[nodiscard]] std::shared_ptr<ResourceMessageReply<VkSampler>> CreateSampler(
+        const VkSamplerCreateInfo& createInfo,
         void* userData = nullptr);
 
     [[nodiscard]] std::shared_ptr<ResourceMessageReply<bool>> SetBufferData(

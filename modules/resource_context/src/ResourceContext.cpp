@@ -16,7 +16,7 @@ void ResourceContext::Initialize(const ResourceContextCreateInfo& createInfo)
     impl->construct(createInfo);
 }
 
-std::shared_ptr<ResourceMessageReply<VulkanResource*>> ResourceContext::CreateBuffer(
+std::shared_ptr<ResourceMessageReply<BufferAndViewReply>> ResourceContext::CreateBuffer(
     const VkBufferCreateInfo& createInfo,
     const VkBufferViewCreateInfo* viewCreateInfo,
     const gpu_resource_data_t* initialData,
@@ -30,21 +30,21 @@ std::shared_ptr<ResourceMessageReply<VulkanResource*>> ResourceContext::CreateBu
     message.viewInfo = viewCreateInfo ? std::optional<VkBufferViewCreateInfo>(*viewCreateInfo) : std::nullopt;
     if (numData > 0)
     {
-        message.initialData = InternalResourceDataContainer(numData, initialData, initialData[0].DestinationQueueFamily);
+        message.initialData = InternalResourceDataContainer(numData, initialData);
     }
 
     message.resourceUsage = resourceUsage;
     message.flags = flags;
     message.userData = userData;
-    message.reply = std::make_shared<ResourceMessageReply<VulkanResource*>>();
-    std::shared_ptr<ResourceMessageReply<VulkanResource*>> reply = message.reply;
+    message.reply = std::make_shared<ResourceMessageReply<BufferAndViewReply>>();
+    std::shared_ptr<ResourceMessageReply<BufferAndViewReply>> reply = message.reply;
 
     impl->pushMessage(std::move(message));
 
     return reply;
 }
 
-std::shared_ptr<ResourceMessageReply<VulkanResource*>> ResourceContext::CreateImage(
+std::shared_ptr<ResourceMessageReply<ImageAndViewReply>> ResourceContext::CreateImage(
     const VkImageCreateInfo& createInfo,
     const VkImageViewCreateInfo* viewCreateInfo,
     const gpu_image_resource_data_t* initialData,
@@ -58,14 +58,29 @@ std::shared_ptr<ResourceMessageReply<VulkanResource*>> ResourceContext::CreateIm
     message.viewInfo = viewCreateInfo ? std::optional<VkImageViewCreateInfo>(*viewCreateInfo) : std::nullopt;
     if (numData > 0)
     {
-        message.initialData = InternalResourceDataContainer(numData, initialData, initialData[0].DestinationQueueFamily);
+        message.initialData = InternalResourceDataContainer(numData, initialData);
     }
 
     message.resourceUsage = resourceUsage;
     message.flags = flags;
     message.userData = userData;
-    message.reply = std::make_shared<ResourceMessageReply<VulkanResource*>>();
-    std::shared_ptr<ResourceMessageReply<VulkanResource*>> reply = message.reply;
+    message.reply = std::make_shared<ResourceMessageReply<ImageAndViewReply>>();
+    std::shared_ptr<ResourceMessageReply<ImageAndViewReply>> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
+}
+
+std::shared_ptr<ResourceMessageReply<VkSampler>> ResourceContext::CreateSampler(
+    const VkSamplerCreateInfo& createInfo,
+    void* userData)
+{
+    CreateSamplerMessage message;
+    message.samplerInfo = createInfo;
+    message.userData = userData;
+    message.reply = std::make_shared<ResourceMessageReply<VkSampler>>();
+    std::shared_ptr<ResourceMessageReply<VkSampler>> reply = message.reply;
 
     impl->pushMessage(std::move(message));
 

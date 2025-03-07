@@ -13,6 +13,7 @@ struct alignas(16) cas_data128_t
     constexpr cas_data128_t& operator=(const cas_data128_t&) noexcept = default;
     constexpr cas_data128_t& operator=(cas_data128_t&&) noexcept = default;
     constexpr ~cas_data128_t() noexcept = default;
+    auto operator<=>(const cas_data128_t&) const noexcept = default;
     uint64_t low;
     uint64_t high;
 };
@@ -36,7 +37,7 @@ struct alignas(16) atomic128
         return reinterpret_cast<cas_data128_t&>(result);
     }
 
-    [[nodiscard]] cas_data128_t load(const std::memory_order order) noexcept
+    [[nodiscard]] cas_data128_t load(const std::memory_order order) const noexcept
     {
         return load();
     }

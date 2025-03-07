@@ -181,9 +181,10 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
         }
     }
 
+    VkBufferView buffer_view = VK_NULL_HANDLE;
     if (message.viewInfo)
     {
-        VkBufferView buffer_view = createBufferView(new_entity, std::move(message.viewInfo.value()), flags, message.userData);
+        buffer_view = createBufferView(new_entity, std::move(message.viewInfo.value()), flags, message.userData);
         resourceRegistry.emplace<VkBufferView>(new_entity, buffer_view);
     }
 
@@ -192,8 +193,7 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
         setBufferInitialData(new_entity, buffer_handle, message.initialData.value(), flags.resourceUsage);
     }
 
-
-
+    message.reply->SetResource(BufferAndViewReply{ buffer_handle, buffer_view });
 }
 
 VkBufferView ResourceContextImpl::createBufferView(entt::entity new_entity, VkBufferViewCreateInfo&& view_info, const ResourceFlags& resource_flags, void* user_data_ptr)
@@ -300,6 +300,51 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(entt::entity new_enti
 
 void ResourceContextImpl::processCreateImageMessage(CreateImageMessage&& message)
 {
+    const entt::entity new_entity = resourceRegistry.create();
+    VkImageCreateInfo& image_create_info = resourceRegistry.emplace<VkImageCreateInfo>(new_entity, std::move(message.imageInfo));
+    const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Image, message.flags, 0x0, message.resourceUsage);
+    if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
+    {
+        resourceRegistry.emplace<ResourceDebugName>(new_entity, reinterpret_cast<const char*>(message.userData));
+    }
+
+    VmaAllocationInfo& alloc_info = resourceRegistry.emplace<VmaAllocationInfo>(new_entity);
+    VmaAllocation& alloc = resourceRegistry.emplace<VmaAllocation>(new_entity);
+
+    if (!(image_create_info.usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) || (flags.resourceUsage != resource_usage::GPUOnly))
+    {
+        image_create_info.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
+
+    VmaAllocationCreateInfo alloc_create_info
+    {
+        (VmaAllocationCreateFlags)flags.flags,
+        (VmaMemoryUsage)flags.resourceUsage,
+        GetMemoryPropertyFlags(flags.resourceUsage),
+        0u,
+        UINT32_MAX,
+        VK_NULL_HANDLE,
+        message.userData
+    };
+
+    VkImage image_handle = VK_NULL_HANDLE;
+    VkResult result = vmaCreateImage(allocatorHandle, &image_create_info, &alloc_create_info, &image_handle, &alloc, &alloc_info);
+    resourceRegistry.emplace<VkImage>(new_entity, image_handle);
+    VkAssert(result);
+
+    if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
+    {
+        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(image_handle), VTF_DEBUG_OBJECT_NAME(reinterpret_cast<const char*>(message.userData)));
+        VkAssert(result);
+    }
+
+    VkImageView image_view = VK_NULL_HANDLE;
+    if (message.viewInfo)
+    {
+        image_view = createImageView(new_entity, std::move(message.viewInfo.value()), flags, message.userData);
+        resourceRegistry.emplace<VkImageView>(new_entity, image_view);
+    }
+    
 }
 
 void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& message)

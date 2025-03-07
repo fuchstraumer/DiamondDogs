@@ -6,10 +6,12 @@
 enum class resource_type : uint64_t
 {
     Invalid = 0,
-    Buffer = 1,
-    Image = 2,
-    Sampler = 3,
-    CombinedImageSampler = 4
+    Buffer,
+    BufferView,
+    Image,
+    ImageView,
+    Sampler,
+    CombinedImageSampler
 };
 
 enum class resource_usage : uint32_t
@@ -87,12 +89,10 @@ struct gpu_image_resource_data_t
 struct VulkanResource
 {
     resource_type Type{ resource_type::Invalid };
-    uint64_t Handle{ 0u };
-    void* Info{ nullptr };
-    uint64_t ViewHandle{ 0u };
-    void* ViewInfo{ nullptr };
-    void* UserData{ nullptr };
-    VulkanResource* Sampler{ nullptr };
+    uint32_t ResourceHandle{ 0u };
+    uint64_t VkHandle{ 0u };
+    uint64_t VkViewHandle{ 0u };
+    uint64_t VkSamplerHandle{ 0u };
 };
 
 #endif //!DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP

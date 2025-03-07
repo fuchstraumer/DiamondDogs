@@ -63,6 +63,8 @@ private:
     template<>
     void processMessage<CreateImageMessage>(CreateImageMessage&& message);
     template<>
+    void processMessage<CreateSamplerMessage>(CreateSamplerMessage&& message);
+    template<>
     void processMessage<SetBufferDataMessage>(SetBufferDataMessage&& message);
     template<>
     void processMessage<SetImageDataMessage>(SetImageDataMessage&& message);
@@ -82,6 +84,7 @@ private:
     // I don't want to blow up the header implementing the above functions, so they're redeclared here explicitly to be implemented in the .cpp. Sorry :(
     void processCreateBufferMessage(CreateBufferMessage&& message);
     void processCreateImageMessage(CreateImageMessage&& message);
+    void processCreateSamplerMessage(CreateSamplerMessage&& message);
     void processSetBufferDataMessage(SetBufferDataMessage&& message);
     void processSetImageDataMessage(SetImageDataMessage&& message);
     void processFillResourceMessage(FillResourceMessage&& message);
@@ -158,6 +161,12 @@ template<>
 inline void ResourceContextImpl::processMessage(CreateImageMessage&& message)
 {
     processCreateImageMessage(std::move(message));
+}
+
+template<>
+inline void ResourceContextImpl::processMessage(CreateSamplerMessage&& message)
+{
+    processCreateSamplerMessage(std::move(message));
 }
 
 template<>

@@ -12,8 +12,9 @@ FIND_PACKAGE(Vulkan REQUIRED)
 ADD_SUBDIRECTORY(third_party/vulpesrender)
 ADD_SUBDIRECTORY(third_party/shadertools)
 add_subdirectory(third_party/vma)
+add_subdirectory(third_party/entt)
 # Foundation is core functionality that wouldn't make sense to put into modules:
-# Threading primitives, ECS building blocks, utilitys, exception helpers, containers, etc
+# Threading primitives, utilities, exception helpers, containers, etc
 # Also our building block reactor objects, used to build higher-level systems
 ADD_SUBDIRECTORY(foundation)
 ADD_SUBDIRECTORY(modules)
