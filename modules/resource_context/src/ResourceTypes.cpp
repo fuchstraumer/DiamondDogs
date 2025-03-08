@@ -1,8 +1,8 @@
 #include "ResourceTypes.hpp"
 #include "entt/entt.hpp"
 
-VulkanResource VulkanResource::Null() noexcept
+GraphicsResource GraphicsResource::Null() noexcept
 {
-    return VulkanResource{ resource_type::Invalid, entt::null, 0u, 0u, 0u };
+    return GraphicsResource{ resource_type::Invalid, entt::null, 0u, 0u, 0u };
 }
 

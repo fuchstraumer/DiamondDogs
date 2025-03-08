@@ -6,39 +6,39 @@ constexpr static uint64_t vk_null_handle_uint64 = reinterpret_cast<uint64_t>(VK_
 constexpr static uint32_t entt_null_entity_uint32 = static_cast<uint32_t>(entt::null);
 constexpr static VulkanResource null_vulkan_resource = VulkanResource{ resource_type::Invalid, entt_null_entity_uint32, vk_null_handle_uint64, vk_null_handle_uint64, vk_null_handle_uint64 };
 
-VulkanResourceReply::VkResourceTypeAndEntityHandle::VkResourceTypeAndEntityHandle() noexcept :
+GraphicsResourceReply::VkResourceTypeAndEntityHandle::VkResourceTypeAndEntityHandle() noexcept :
     Type{ (uint32_t)resource_type::Invalid }, EntityHandle{ entt::null } {}
 
-VulkanResourceReply::VkResourceTypeAndEntityHandle::VkResourceTypeAndEntityHandle(const resource_type type, const uint32_t entity_handle) noexcept :
+GraphicsResourceReply::VkResourceTypeAndEntityHandle::VkResourceTypeAndEntityHandle(const resource_type type, const uint32_t entity_handle) noexcept :
     Type{ (uint32_t)type }, EntityHandle{ entity_handle } {}
 
-bool VulkanResourceReply::VkResourceTypeAndEntityHandle::operator==(const VkResourceTypeAndEntityHandle& other) const noexcept
+bool GraphicsResourceReply::VkResourceTypeAndEntityHandle::operator==(const VkResourceTypeAndEntityHandle& other) const noexcept
 {
     return Type == other.Type && EntityHandle == other.EntityHandle;
 }
 
-bool VulkanResourceReply::VkResourceTypeAndEntityHandle::operator!=(const VkResourceTypeAndEntityHandle& other) const noexcept
+bool GraphicsResourceReply::VkResourceTypeAndEntityHandle::operator!=(const VkResourceTypeAndEntityHandle& other) const noexcept
 {
     return !(*this == other);
 }
 
-VulkanResourceReply::VkResourceTypeAndEntityHandle::operator bool() const noexcept
+GraphicsResourceReply::VkResourceTypeAndEntityHandle::operator bool() const noexcept
 {
     return (Type != (uint32_t)resource_type::Invalid) && (EntityHandle != entt::null);
 }
 
-VulkanResourceReply::VulkanResourceReply(resource_type _type) :
+GraphicsResourceReply::GraphicsResourceReply(resource_type _type) :
     resourceTypeAndEntityHandle{ VkResourceTypeAndEntityHandle(_type, entt::null) },
     vkHandleAndView{ null_atomic128 },
     vkSamplerHandle{ 0u }
 {}
 
-bool VulkanResourceReply::IsCompleted() const noexcept
+bool GraphicsResourceReply::IsCompleted() const noexcept
 {
     return static_cast<bool>(resourceTypeAndEntityHandle.load(std::memory_order_acquire));
 }
 
-VulkanResource VulkanResourceReply::WaitForCompletion(uint64_t timeoutNs) const noexcept
+VulkanResource GraphicsResourceReply::WaitForCompletion(WaitFor wait_for, uint64_t timeoutNs) const noexcept
 {
     std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
     // entity handle should be key flag of validity, we publish this last after we publish the handles
@@ -62,7 +62,7 @@ VulkanResource VulkanResourceReply::WaitForCompletion(uint64_t timeoutNs) const 
     return GetCompletedResource();
 }
 
-VulkanResource VulkanResourceReply::GetResource() const noexcept
+VulkanResource GraphicsResourceReply::GetResource() const noexcept
 {
     VkResourceTypeAndEntityHandle typeAndEntity = resourceTypeAndEntityHandle.load(std::memory_order_acquire);
     if (typeAndEntity)
@@ -75,7 +75,7 @@ VulkanResource VulkanResourceReply::GetResource() const noexcept
     return null_vulkan_resource;
 }
 
-VulkanResource VulkanResourceReply::GetCompletedResource() const noexcept
+VulkanResource GraphicsResourceReply::GetCompletedResource() const noexcept
 {
     // use relaxed load because this is the checked function
     VkResourceTypeAndEntityHandle typeAndEntity = resourceTypeAndEntityHandle.load(std::memory_order_relaxed);
@@ -84,7 +84,7 @@ VulkanResource VulkanResourceReply::GetCompletedResource() const noexcept
     return VulkanResource(static_cast<resource_type>(typeAndEntity.Type), typeAndEntity.EntityHandle, handleAndView.low, handleAndView.high, samplerHandle);
 }
 
-void VulkanResourceReply::SetVulkanResource(const resource_type _type, const uint32_t entity_handle, const uint64_t vk_handle, const uint64_t vk_view_handle, const uint64_t vk_sampler_handle)
+void GraphicsResourceReply::SetVulkanResource(const resource_type _type, const uint32_t entity_handle, const uint64_t vk_handle, const uint64_t vk_view_handle, const uint64_t vk_sampler_handle)
 {
     // Set the entity handle last, since we check that to see if the whole thing is valid/completed
     vkSamplerHandle.store(vk_sampler_handle, std::memory_order_release);

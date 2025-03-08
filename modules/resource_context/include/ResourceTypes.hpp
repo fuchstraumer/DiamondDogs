@@ -86,10 +86,10 @@ struct gpu_image_resource_data_t
     queue_family_flags DestinationQueueFamily{ 0x0 };
 };
 
-struct VulkanResource
+struct GraphicsResource
 {
-    constexpr VulkanResource() noexcept : Type{ resource_type::Invalid }, ResourceHandle{ 0u }, VkHandle{ 0u }, VkViewHandle{ 0u }, VkSamplerHandle{ 0u } {}
-    constexpr VulkanResource(
+    constexpr GraphicsResource() noexcept : Type{ resource_type::Invalid }, ResourceHandle{ 0u }, VkHandle{ 0u }, VkViewHandle{ 0u }, VkSamplerHandle{ 0u } {}
+    constexpr GraphicsResource(
         const resource_type type,
         const uint32_t resource_handle,
         const uint64_t vk_handle,
@@ -101,15 +101,15 @@ struct VulkanResource
         VkViewHandle{ vk_view_handle },
         VkSamplerHandle{ vk_sampler_handle }
     {}
-    constexpr ~VulkanResource() noexcept = default;
-    constexpr VulkanResource(const VulkanResource&) noexcept = default;
-    constexpr VulkanResource& operator=(const VulkanResource&) noexcept = default;
-    constexpr VulkanResource(VulkanResource&&) noexcept = default;
-    constexpr VulkanResource& operator=(VulkanResource&&) noexcept = default;
+    constexpr ~GraphicsResource() noexcept = default;
+    constexpr GraphicsResource(const GraphicsResource&) noexcept = default;
+    constexpr GraphicsResource& operator=(const GraphicsResource&) noexcept = default;
+    constexpr GraphicsResource(GraphicsResource&&) noexcept = default;
+    constexpr GraphicsResource& operator=(GraphicsResource&&) noexcept = default;
 
-    static VulkanResource Null() noexcept;
+    static GraphicsResource Null() noexcept;
     
-    constexpr bool operator==(const VulkanResource& other) const noexcept
+    constexpr bool operator==(const GraphicsResource& other) const noexcept
     {
         return Type == other.Type &&
                ResourceHandle == other.ResourceHandle &&
@@ -118,7 +118,7 @@ struct VulkanResource
                VkSamplerHandle == other.VkSamplerHandle;
     }
 
-    constexpr bool operator!=(const VulkanResource& other) const noexcept
+    constexpr bool operator!=(const GraphicsResource& other) const noexcept
     {
         return !(*this == other);
     }
