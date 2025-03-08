@@ -106,6 +106,8 @@ struct VulkanResource
     constexpr VulkanResource& operator=(const VulkanResource&) noexcept = default;
     constexpr VulkanResource(VulkanResource&&) noexcept = default;
     constexpr VulkanResource& operator=(VulkanResource&&) noexcept = default;
+
+    static VulkanResource Null() noexcept;
     
     constexpr bool operator==(const VulkanResource& other) const noexcept
     {

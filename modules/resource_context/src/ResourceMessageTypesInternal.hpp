@@ -137,9 +137,9 @@ struct CreateBufferMessage
     std::optional<VkBufferViewCreateInfo> viewInfo = std::nullopt;
     std::optional<InternalResourceDataContainer> initialData = std::nullopt;
     resource_usage resourceUsage;
-    resource_creation_flag_bits flags;
+    resource_creation_flags flags;
     void* userData = nullptr;
-    std::shared_ptr<ResourceMessageReply<BufferAndViewReply>> reply = nullptr;
+    std::shared_ptr<VulkanResourceReply> reply = nullptr;
 };
 
 struct CreateImageMessage
@@ -148,16 +148,29 @@ struct CreateImageMessage
     std::optional<VkImageViewCreateInfo> viewInfo = std::nullopt;
     std::optional<InternalResourceDataContainer> initialData = std::nullopt;
     resource_usage resourceUsage;
-    resource_creation_flag_bits flags;
+    resource_creation_flags flags;
     void* userData = nullptr;
-    std::shared_ptr<ResourceMessageReply<ImageAndViewReply>> reply = nullptr;
+    std::shared_ptr<VulkanResourceReply> reply = nullptr;
+};
+
+struct CreateCombinedImageSamplerMessage
+{
+    VkImageCreateInfo imageInfo;
+    VkImageViewCreateInfo viewInfo;
+    VkSamplerCreateInfo samplerInfo;
+    std::optional<InternalResourceDataContainer> initialData = std::nullopt;
+    resource_usage resourceUsage;
+    resource_creation_flags flags;
+    void* userData = nullptr;
+    std::shared_ptr<VulkanResourceReply> reply = nullptr;
 };
 
 struct CreateSamplerMessage
 {
     VkSamplerCreateInfo samplerInfo;
+    resource_creation_flags flags;
     void* userData = nullptr;
-    std::shared_ptr<ResourceMessageReply<VkSampler>> reply = nullptr;
+    std::shared_ptr<VulkanResourceReply> reply = nullptr;
 };
 
 struct SetBufferDataMessage
@@ -165,9 +178,9 @@ struct SetBufferDataMessage
     SetBufferDataMessage(size_t numData, const gpu_resource_data_t* data) :
         data{ InternalResourceDataContainer(numData, data) }
     {}
-    VulkanResource* destBuffer{ nullptr };
+    VulkanResource destBuffer{ VulkanResource::Null() };
     InternalResourceDataContainer data;
-    std::shared_ptr<ResourceMessageReply<bool>> reply = nullptr;
+    std::shared_ptr<StatusMessageReply> reply = nullptr;
 };
 
 struct SetImageDataMessage
@@ -175,59 +188,60 @@ struct SetImageDataMessage
     SetImageDataMessage(size_t numData, const gpu_image_resource_data_t* data) :
         data{ InternalResourceDataContainer(numData, data) }
     {}
-    VulkanResource* image{ nullptr };
+    VulkanResource image{ VulkanResource::Null() };
     InternalResourceDataContainer data;
-    std::shared_ptr<ResourceMessageReply<bool>> reply = nullptr;
+    std::shared_ptr<StatusMessageReply> reply = nullptr;
 };
 
 struct FillResourceMessage
 {
-    VulkanResource* resource{ nullptr };
+    VulkanResource resource{ VulkanResource::Null() };
     uint32_t value{ 0 };
     size_t offset{ 0 };
     size_t size{ 0 };
-    std::shared_ptr<ResourceMessageReply<bool>> reply = nullptr;
+    std::shared_ptr<StatusMessageReply> reply = nullptr;
 };
 
 struct MapResourceMessage
 {
-    VulkanResource* resource{ nullptr };
+    VulkanResource resource{ VulkanResource::Null() };
     size_t size{ 0 };
     size_t offset{ 0 };
-    std::shared_ptr<ResourceMessageReply<void*>> reply = nullptr;
+    std::shared_ptr<PointerMessageReply> reply = nullptr;
 };
 
 struct UnmapResourceMessage
 {
-    VulkanResource* resource{ nullptr };
+    VulkanResource resource{ VulkanResource::Null() };
     size_t size{ 0 };
     size_t offset{ 0 };
-    std::shared_ptr<ResourceMessageReply<bool>> reply = nullptr;
+    std::shared_ptr<StatusMessageReply> reply = nullptr;
 };
 
 struct CopyResourceMessage
 {
-    VulkanResource* src{ nullptr };
-    VulkanResource* dest{ nullptr };
-    std::shared_ptr<ResourceMessageReply<bool>> reply = nullptr;
+    VulkanResource src{ VulkanResource::Null() };
+    VulkanResource dest{ VulkanResource::Null() };
+    std::shared_ptr<StatusMessageReply> reply = nullptr;
 };
 
 struct CopyResourceContentsMessage
 {
-    VulkanResource* src{ nullptr };
-    VulkanResource* dest{ nullptr };
-    std::shared_ptr<ResourceMessageReply<bool>> reply = nullptr;
+    VulkanResource src{ VulkanResource::Null() };
+    VulkanResource dest{ VulkanResource::Null() };
+    std::shared_ptr<StatusMessageReply> reply = nullptr;
 };
 
 struct DestroyResourceMessage
 {
-    VulkanResource* resource{ nullptr };
-    std::shared_ptr<ResourceMessageReply<bool>> reply = nullptr;
+    VulkanResource resource{ VulkanResource::Null() };
+    std::shared_ptr<StatusMessageReply> reply = nullptr;
 };
 
 using ResourceMessagePayloadType = std::variant<
     CreateBufferMessage,
     CreateImageMessage,
+    CreateCombinedImageSamplerMessage,
     CreateSamplerMessage,
     SetBufferDataMessage,
     SetImageDataMessage,

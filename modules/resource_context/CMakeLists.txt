@@ -11,6 +11,7 @@ ADD_MODULE(resource_context
     "src/ResourceLoader.cpp"
     "src/ResourceMessageReply.cpp"
     "src/ResourceMessageTypesInternal.hpp"
+    "src/ResourceTypes.cpp"
     "src/TransferSystem.cpp"
     "src/UploadBuffer.cpp"
     "src/UploadBuffer.hpp"

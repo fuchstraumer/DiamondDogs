@@ -63,6 +63,8 @@ private:
     template<>
     void processMessage<CreateImageMessage>(CreateImageMessage&& message);
     template<>
+    void processMessage<CreateCombinedImageSamplerMessage>(CreateCombinedImageSamplerMessage&& message);
+    template<>
     void processMessage<CreateSamplerMessage>(CreateSamplerMessage&& message);
     template<>
     void processMessage<SetBufferDataMessage>(SetBufferDataMessage&& message);
@@ -84,6 +86,7 @@ private:
     // I don't want to blow up the header implementing the above functions, so they're redeclared here explicitly to be implemented in the .cpp. Sorry :(
     void processCreateBufferMessage(CreateBufferMessage&& message);
     void processCreateImageMessage(CreateImageMessage&& message);
+    void processCreateCombinedImageSamplerMessage(CreateCombinedImageSamplerMessage&& message);
     void processCreateSamplerMessage(CreateSamplerMessage&& message);
     void processSetBufferDataMessage(SetBufferDataMessage&& message);
     void processSetImageDataMessage(SetImageDataMessage&& message);
@@ -96,14 +99,59 @@ private:
 
     void processMessages();
 
-    VkBufferView createBufferView(entt::entity new_entity, VkBufferViewCreateInfo&& view_info, const ResourceFlags& flags, void* user_data_ptr);
-    void setBufferInitialData(entt::entity new_entity, VkBuffer buffer_handle, InternalResourceDataContainer& dataContainer, resource_usage _resource_usage);
-    void setBufferInitialDataHostOnly(entt::entity new_entity, InternalResourceDataContainer& dataContainer);
-    void setBufferInitialDataUploadBuffer(entt::entity new_entity, InternalResourceDataContainer& dataContainer);
+    VkBuffer createBuffer(
+        entt::entity new_entity,
+        VkBufferCreateInfo&& buffer_info,
+        const resource_creation_flags _flags,
+        const resource_usage _resource_usage,
+        void* user_data_ptr,
+        bool has_initial_data);
+
+    VkBufferView createBufferView(
+        entt::entity new_entity,
+        VkBufferViewCreateInfo&& view_info,
+        const resource_creation_flags _flags,
+        void* user_data_ptr);
+
+    void setBufferData(
+        entt::entity new_entity,
+        VkBuffer buffer_handle,
+        InternalResourceDataContainer& dataContainer,
+        resource_usage _resource_usage);
+
+    void setBufferDataHostOnly(entt::entity new_entity, InternalResourceDataContainer& dataContainer);
+
+    void setBufferDataUploadBuffer(entt::entity new_entity, InternalResourceDataContainer& dataContainer);
+
+    void fillBuffer(entt::entity new_entity, VkBuffer buffer_handle, uint32_t value, size_t offset, size_t size);
+
+    VkImage createImage(
+        entt::entity new_entity,
+        VkImageCreateInfo&& image_info,
+        const resource_creation_flags _flags,
+        const resource_usage _resource_usage,
+        void* user_data_ptr,
+        bool has_initial_data);
  
+    VkImageView createImageView(
+        entt::entity new_entity,
+        const VkImageViewCreateInfo& view_info,
+        const resource_creation_flags _flags);
+
+    void setImageData(
+        entt::entity new_entity,
+        VkImage image_handle,
+        const VkImageCreateInfo& image_info,
+        InternalResourceDataContainer& dataContainer,
+        const resource_creation_flags _flags);
+
+    VkSampler createSampler(
+        entt::entity new_entity,
+        const VkSamplerCreateInfo& sampler_info,
+        const resource_creation_flags _flags,
+        void* user_data_ptr);
+
     void setBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data);
-    VulkanResource* createImage(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data = nullptr);
-    VulkanResource* createImageView(const VulkanResource* base_rsrc, const VkImageViewCreateInfo* view_info, void* user_data = nullptr);
     VulkanResource* createSampler(const VkSamplerCreateInfo* info, const resource_creation_flags _flags, void* user_data = nullptr);
     void copyResourceContents(VulkanResource* src, VulkanResource* dst);
     void setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data);
@@ -161,6 +209,12 @@ template<>
 inline void ResourceContextImpl::processMessage(CreateImageMessage&& message)
 {
     processCreateImageMessage(std::move(message));
+}
+
+template<>
+inline void ResourceContextImpl::processMessage(CreateCombinedImageSamplerMessage&& message)
+{
+    processCreateCombinedImageSamplerMessage(std::move(message));
 }
 
 template<>

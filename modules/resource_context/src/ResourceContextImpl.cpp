@@ -14,12 +14,13 @@
 
 namespace
 {
-    static std::vector<ThsvsAccessType> thsvsAccessTypesFromBufferUsage(VkBufferUsageFlags _flags);
-    static VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags);
-    static std::vector<ThsvsAccessType> thsvsAccessTypesFromImageUsage(VkImageUsageFlags _flags);
-    static VkAccessFlags accessFlagsFromImageUsage(const VkImageUsageFlags usage_flags);
-    static VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags);
+    std::vector<ThsvsAccessType> thsvsAccessTypesFromBufferUsage(VkBufferUsageFlags _flags);
+    VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags);
+    std::vector<ThsvsAccessType> thsvsAccessTypesFromImageUsage(VkImageUsageFlags _flags);
+    VkAccessFlags accessFlagsFromImageUsage(const VkImageUsageFlags usage_flags);
+    VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags);
     VkMemoryPropertyFlags GetMemoryPropertyFlags(resource_usage _resource_usage) noexcept;
+    VkFormatFeatureFlags GetFormatFeatureFlagsFromUsage(const VkImageUsageFlags flags) noexcept;
 }
 
 void ResourceContextImpl::construct(const ResourceContextCreateInfo& createInfo)
@@ -140,17 +141,204 @@ void ResourceContextImpl::destroyResource(VulkanResource* rsrc)
 void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& message)
 {
     const entt::entity new_entity = resourceRegistry.create();
-    VkBufferCreateInfo& buffer_create_info = resourceRegistry.emplace<VkBufferCreateInfo>(new_entity, std::move(message.bufferInfo)); 
-    const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Buffer, message.flags, 0x0, message.resourceUsage);
+    
+    VkBuffer buffer_handle = createBuffer(
+        new_entity,
+        std::move(message.bufferInfo),
+        message.flags,
+        message.resourceUsage,
+        message.userData,
+        message.initialData.has_value());
+
+    resourceRegistry.emplace<VkBuffer>(new_entity, buffer_handle);
+
+    VkBufferView buffer_view = VK_NULL_HANDLE;
+    if (message.viewInfo)
+    {
+        buffer_view = createBufferView(new_entity, std::move(message.viewInfo.value()), message.flags, message.userData);
+        resourceRegistry.emplace<VkBufferView>(new_entity, buffer_view);
+    }
+
+    if (message.initialData)
+    {
+        setBufferData(new_entity, buffer_handle, message.initialData.value(), message.resourceUsage);
+    }
+
+    message.reply->SetVulkanResource(
+        resource_type::Buffer,
+        static_cast<uint32_t>(new_entity),
+        reinterpret_cast<uint64_t>(buffer_handle),
+        reinterpret_cast<uint64_t>(buffer_view),
+        0u);
+
+}
+
+void ResourceContextImpl::processCreateImageMessage(CreateImageMessage&& message)
+{
+    const entt::entity new_entity = resourceRegistry.create();
+    VkImage image_handle = createImage(
+        new_entity,
+        std::move(message.imageInfo),
+        message.flags,
+        message.resourceUsage,
+        message.userData,
+        message.initialData.has_value());
+    resourceRegistry.emplace<VkImage>(new_entity, image_handle);
+
+    VkImageView image_view = VK_NULL_HANDLE;
+    if (message.viewInfo.has_value())
+    {
+        image_view = createImageView(new_entity, message.viewInfo.value(), message.flags);
+        resourceRegistry.emplace<VkImageView>(new_entity, image_view);
+    }
+
+    if (message.initialData.has_value())
+    {
+        const VkImageCreateInfo& image_info = resourceRegistry.get<VkImageCreateInfo>(new_entity);
+        setImageInitialData(new_entity, image_handle, image_info, message.initialData.value(), message.flags);
+    }
+
+    message.reply->SetVulkanResource(
+        resource_type::Image,
+        static_cast<uint32_t>(new_entity),
+        reinterpret_cast<uint64_t>(image_handle),
+        reinterpret_cast<uint64_t>(image_view),
+        0u);
+}
+
+void ResourceContextImpl::processCreateCombinedImageSamplerMessage(CreateCombinedImageSamplerMessage&& message)
+{
+    const entt::entity new_entity = resourceRegistry.create();
+    VkImage image_handle = createImage(
+        new_entity,
+        std::move(message.imageInfo),
+        message.flags,
+        message.resourceUsage,
+        message.userData,
+        message.initialData.has_value());
+
+    VkImageView image_view = createImageView(new_entity, message.viewInfo, message.flags);
+    resourceRegistry.emplace<VkImageView>(new_entity, image_view);
+
+    if (message.initialData.has_value())
+    {
+        const VkImageCreateInfo& image_info = resourceRegistry.get<VkImageCreateInfo>(new_entity);
+        setImageInitialData(new_entity, image_handle, image_info, message.initialData.value(), message.flags);
+    }
+
+    VkSampler sampler = createSampler(new_entity, message.samplerInfo, message.flags, message.userData);
+    resourceRegistry.emplace<VkSampler>(new_entity, sampler);
+    
+    message.reply->SetVulkanResource(
+        resource_type::CombinedImageSampler,
+        static_cast<uint32_t>(new_entity),
+        reinterpret_cast<uint64_t>(image_handle),
+        reinterpret_cast<uint64_t>(image_view),
+        reinterpret_cast<uint64_t>(sampler));
+}
+
+void ResourceContextImpl::processCreateSamplerMessage(CreateSamplerMessage&& message)
+{
+    const entt::entity new_entity = resourceRegistry.create();
+    VkSampler sampler = createSampler(new_entity, message.samplerInfo, message.flags, message.userData);
+    resourceRegistry.emplace<VkSampler>(new_entity, sampler);
+
+    message.reply->SetVulkanResource(
+        resource_type::Sampler,
+        static_cast<uint32_t>(new_entity),
+        0u, 0u, reinterpret_cast<uint64_t>(sampler));
+}
+
+void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& message)
+{
+    const VulkanResource& buffer = message.destBuffer;
+    const entt::entity entity = entt::entity(buffer.ResourceHandle);
+    if (!resourceRegistry.valid(entity))
+    {
+        message.reply->SetStatus(StatusMessageReply::Status::Failed);
+        return;
+    }
+
+    const VkBuffer buffer_handle = resourceRegistry.get<VkBuffer>(entity);
+    if (!buffer_handle)
+    {
+        message.reply->SetStatus(StatusMessageReply::Status::Failed);
+        return;
+    }
+
+    const ResourceFlags& flags = resourceRegistry.get<ResourceFlags>(entity);
+
+    setBufferData(entity, buffer_handle, message.data, flags.resourceUsage);
+
+    message.reply->SetStatus(StatusMessageReply::Status::Success);
+}
+
+void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& message)
+{
+    const VulkanResource& buffer = message.resource;
+    const entt::entity entity = entt::entity(buffer.ResourceHandle);
+    if (!resourceRegistry.valid(entity))
+    {
+        message.reply->SetStatus(StatusMessageReply::Status::Failed);
+        return;
+    }
+
+    const VkBuffer buffer_handle = resourceRegistry.get<VkBuffer>(entity);
+    if (!buffer_handle)
+    {
+        message.reply->SetStatus(StatusMessageReply::Status::Failed);
+        return;
+    }
+
+    fillBuffer(entity, buffer_handle, message.value, message.offset, message.size);
+
+    message.reply->SetStatus(StatusMessageReply::Status::Success);
+}
+
+void ResourceContextImpl::processMapResourceMessage(MapResourceMessage&& message)
+{
+}
+
+void ResourceContextImpl::processUnmapResourceMessage(UnmapResourceMessage&& message)
+{
+}
+
+void ResourceContextImpl::processCopyResourceMessage(CopyResourceMessage&& message)
+{
+}   
+
+void ResourceContextImpl::processCopyResourceContentsMessage(CopyResourceContentsMessage&& message)
+{
+
+}
+
+void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&& message)
+{
+
+}
+
+VkBuffer ResourceContextImpl::createBuffer(
+    entt::entity new_entity,
+    VkBufferCreateInfo&& buffer_info,
+    const resource_creation_flags _flags,
+    const resource_usage _resource_usage,
+    void* user_data_ptr,
+    bool has_initial_data)
+{
+    VkBufferCreateInfo& buffer_create_info = resourceRegistry.emplace<VkBufferCreateInfo>(new_entity, std::move(buffer_info)); 
+    const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Buffer, _flags, 0x0, _resource_usage);
+    ResourceDebugName debug_name;
     if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
     {
-        resourceRegistry.emplace<ResourceDebugName>(new_entity, reinterpret_cast<const char*>(message.userData));
+        // working with value instead of ref fine because we're just gonna read it for the debug name setting in a sec
+        // don't use macro yet because that contains timestamp info!
+        debug_name = resourceRegistry.emplace<ResourceDebugName>(new_entity, reinterpret_cast<const char*>(user_data_ptr));
     }
 
     VmaAllocationInfo& alloc_info = resourceRegistry.emplace<VmaAllocationInfo>(new_entity);
     VmaAllocation& alloc = resourceRegistry.emplace<VmaAllocation>(new_entity);
 
-    if ((flags.resourceUsage == resource_usage::CPUToGPU || flags.resourceUsage == resource_usage::GPUToCPU || flags.resourceUsage == resource_usage::GPUOnly) && message.initialData)
+    if ((flags.resourceUsage == resource_usage::CPUToGPU || flags.resourceUsage == resource_usage::GPUToCPU || flags.resourceUsage == resource_usage::GPUOnly) && has_initial_data)
     {
         buffer_create_info.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     }
@@ -163,40 +351,30 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
         0u,
         UINT32_MAX,
         VK_NULL_HANDLE,
-        message.userData
+        user_data_ptr
     };
 
     VkBuffer buffer_handle = VK_NULL_HANDLE;
     VkResult result = vmaCreateBuffer(allocatorHandle, &buffer_create_info, &alloc_create_info, &buffer_handle, &alloc, &alloc_info);
     VkAssert(result);
     
-    resourceRegistry.emplace<VkBuffer>(new_entity, buffer_handle);
-
     if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
     {
         if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
         {
-            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(buffer_handle), VTF_DEBUG_OBJECT_NAME(reinterpret_cast<const char*>(message.userData)));
+            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(buffer_handle), VTF_DEBUG_OBJECT_NAME(debug_name.c_str()));
             VkAssert(result);
         }
     }
 
-    VkBufferView buffer_view = VK_NULL_HANDLE;
-    if (message.viewInfo)
-    {
-        buffer_view = createBufferView(new_entity, std::move(message.viewInfo.value()), flags, message.userData);
-        resourceRegistry.emplace<VkBufferView>(new_entity, buffer_view);
-    }
-
-    if (message.initialData)
-    {
-        setBufferInitialData(new_entity, buffer_handle, message.initialData.value(), flags.resourceUsage);
-    }
-
-    message.reply->SetResource(BufferAndViewReply{ buffer_handle, buffer_view });
+    return buffer_handle;
 }
 
-VkBufferView ResourceContextImpl::createBufferView(entt::entity new_entity, VkBufferViewCreateInfo&& view_info, const ResourceFlags& resource_flags, void* user_data_ptr)
+VkBufferView ResourceContextImpl::createBufferView(
+    entt::entity new_entity,
+    VkBufferViewCreateInfo&& view_info,
+    const resource_creation_flags _flags,
+    void* user_data_ptr)
 {
     const VkBufferViewCreateInfo& local_view_info = resourceRegistry.emplace<VkBufferViewCreateInfo>(new_entity, std::move(view_info));
     VkBufferView buffer_view = VK_NULL_HANDLE;
@@ -207,7 +385,7 @@ VkBufferView ResourceContextImpl::createBufferView(entt::entity new_entity, VkBu
 
     if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
     {
-        if (resource_flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
+        if (_flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
         {
             const std::string object_name = std::format("{}_buffer_view", reinterpret_cast<const char*>(user_data_ptr));
             result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER_VIEW, reinterpret_cast<uint64_t>(buffer_view), VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
@@ -218,19 +396,19 @@ VkBufferView ResourceContextImpl::createBufferView(entt::entity new_entity, VkBu
     return buffer_view;
 }
 
-void ResourceContextImpl::setBufferInitialData(entt::entity new_entity, VkBuffer buffer_handle, InternalResourceDataContainer& dataContainer, resource_usage _resource_usage)
+void ResourceContextImpl::setBufferData(entt::entity new_entity, VkBuffer buffer_handle, InternalResourceDataContainer& dataContainer, resource_usage _resource_usage)
 {
     if (_resource_usage == resource_usage::CPUOnly)
     {
-        setBufferInitialDataHostOnly(new_entity, dataContainer);
+        setBufferDataHostOnly(new_entity, dataContainer);
     }
     else
     {
-        setBufferInitialDataUploadBuffer(new_entity, dataContainer);
+        setBufferDataUploadBuffer(new_entity, dataContainer);
     }
 }
 
-void ResourceContextImpl::setBufferInitialDataHostOnly(entt::entity new_entity, InternalResourceDataContainer& dataContainer)
+void ResourceContextImpl::setBufferDataHostOnly(entt::entity new_entity, InternalResourceDataContainer& dataContainer)
 {
     const VmaAllocationInfo& alloc_info = resourceRegistry.get<VmaAllocationInfo>(new_entity);
     const VmaAllocation& alloc = resourceRegistry.get<VmaAllocation>(new_entity);
@@ -253,7 +431,7 @@ void ResourceContextImpl::setBufferInitialDataHostOnly(entt::entity new_entity, 
     dataVector.clear();
 }
 
-void ResourceContextImpl::setBufferInitialDataUploadBuffer(entt::entity new_entity, InternalResourceDataContainer& dataContainer)
+void ResourceContextImpl::setBufferDataUploadBuffer(entt::entity new_entity, InternalResourceDataContainer& dataContainer)
 {
     const VkBufferCreateInfo& buffer_create_info = resourceRegistry.get<VkBufferCreateInfo>(new_entity);
     const VkBuffer buffer_handle = resourceRegistry.get<VkBuffer>(new_entity);
@@ -298,14 +476,20 @@ void ResourceContextImpl::setBufferInitialDataUploadBuffer(entt::entity new_enti
     dataVector.clear();
 }
 
-void ResourceContextImpl::processCreateImageMessage(CreateImageMessage&& message)
+VkImage ResourceContextImpl::createImage(
+    entt::entity new_entity,
+    VkImageCreateInfo&& image_info,
+    const resource_creation_flags _flags,
+    const resource_usage _resource_usage,
+    void* user_data_ptr,
+    bool has_initial_data)
 {
-    const entt::entity new_entity = resourceRegistry.create();
     VkImageCreateInfo& image_create_info = resourceRegistry.emplace<VkImageCreateInfo>(new_entity, std::move(message.imageInfo));
     const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Image, message.flags, 0x0, message.resourceUsage);
+    ResourceDebugName debug_name;
     if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
     {
-        resourceRegistry.emplace<ResourceDebugName>(new_entity, reinterpret_cast<const char*>(message.userData));
+        debug_name = resourceRegistry.emplace<ResourceDebugName>(new_entity, reinterpret_cast<const char*>(message.userData));
     }
 
     VmaAllocationInfo& alloc_info = resourceRegistry.emplace<VmaAllocationInfo>(new_entity);
@@ -334,216 +518,58 @@ void ResourceContextImpl::processCreateImageMessage(CreateImageMessage&& message
 
     if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
     {
-        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(image_handle), VTF_DEBUG_OBJECT_NAME(reinterpret_cast<const char*>(message.userData)));
+        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(image_handle), VTF_DEBUG_OBJECT_NAME(debug_name.c_str()));
         VkAssert(result);
     }
+
+    return image_handle;
+}
+
+VkImageView ResourceContextImpl::createImageView(
+    entt::entity new_entity,
+    const VkImageViewCreateInfo& view_info,
+    const resource_creation_flags resource_flags)
+{
+    // need a valid parent image to attach to
+    VkImage image_handle = resourceRegistry.get<VkImage>(new_entity);
+    if (!image_handle)
+    {
+        return VK_NULL_HANDLE;
+    }
+
+    VkImageViewCreateInfo& image_view_create_info = resourceRegistry.emplace<VkImageViewCreateInfo>(new_entity, std::move(view_info));
+    image_view_create_info.image = image_handle;
 
     VkImageView image_view = VK_NULL_HANDLE;
-    if (message.viewInfo)
-    {
-        image_view = createImageView(new_entity, std::move(message.viewInfo.value()), flags, message.userData);
-        resourceRegistry.emplace<VkImageView>(new_entity, image_view);
-    }
-    
-}
-
-void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& message)
-{
-}
-
-void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& message)
-{
-}
-
-void ResourceContextImpl::processMapResourceMessage(MapResourceMessage&& message)
-{
-}
-
-void ResourceContextImpl::processUnmapResourceMessage(UnmapResourceMessage&& message)
-{
-}
-
-void ResourceContextImpl::processCopyResourceMessage(CopyResourceMessage&& message)
-{
-}   
-
-void ResourceContextImpl::processCopyResourceContentsMessage(CopyResourceContentsMessage&& message)
-{
-
-}
-
-void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&& message)
-{
-
-}
-
-void ResourceContextImpl::setBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data)
-{
-    resource_usage mem_type = resourceInfos.resourceMemoryType.at(dest_buffer);
-    if (mem_type == resource_usage::CPUOnly)
-    {
-        setBufferInitialDataHostOnly(dest_buffer, num_data, data, mem_type);
-    }
-    else
-    {
-        setBufferInitialDataUploadBuffer(dest_buffer, num_data, data);
-    }
-}
-
-VulkanResource* ResourceContextImpl::createImage(const VkImageCreateInfo* info, const VkImageViewCreateInfo* view_info, const size_t num_data, const gpu_image_resource_data_t* initial_data, const resource_usage _resource_usage, const resource_creation_flags _flags, void* user_data)
-{
-    VulkanResource* resource{ nullptr };
-    VmaAllocationInfo* alloc_info{ nullptr };
-    VmaAllocation* alloc{};
-    VkImageViewCreateInfo* local_view_info{ nullptr };
-
-    auto iter = resources.emplace(std::make_unique<VulkanResource>());
-    resource = iter.first->get();
-    auto info_iter = resourceInfos.imageInfos.emplace(resource, *info);
-    resource->Type = resource_type::Image;
-    resource->Info = &info_iter.first->second;
-    resource->UserData = user_data;
-    resourceInfos.resourceMemoryType.emplace(resource, _resource_usage);
-    auto alloc_info_iter = allocInfos.emplace(resource, VmaAllocationInfo());
-    alloc_info = &alloc_info_iter.first->second;
-    auto alloc_iter = resourceAllocations.emplace(resource, VmaAllocation());
-    if (!alloc_iter.second)
-    {
-        throw std::runtime_error("Failed to emplace allocation!");
-    }
-    alloc = &alloc_iter.first->second;
-    if (view_info)
-    {
-        auto view_iter = resourceInfos.imageViewInfos.emplace(resource, *view_info);
-        resource->ViewInfo = &view_iter.first->second;
-        local_view_info = reinterpret_cast<VkImageViewCreateInfo*>(resource->ViewInfo);
-    }
-    resourceInfos.resourceFlags.emplace(resource, _flags);
-
-    // This probably isn't ideal but it's a reasonable assumption to make. (updated to check for GPU only allocs)
-    VkImageCreateInfo* create_info = reinterpret_cast<VkImageCreateInfo*>(resource->Info);
-    if (!(create_info->usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) || (_resource_usage != resource_usage::GPUOnly))
-    {
-        create_info->usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    }
-
-    VmaAllocationCreateInfo alloc_create_info
-    {
-        (VmaAllocationCreateFlags)_flags,
-        (VmaMemoryUsage)_resource_usage,
-        GetMemoryPropertyFlags(_resource_usage),
-        0u,
-        UINT32_MAX,
-        VK_NULL_HANDLE,
-        user_data
-    };
-
-    VkResult result = vmaCreateImage((VmaAllocator)allocatorHandle, create_info, &alloc_create_info, reinterpret_cast<VkImage*>(&resource->Handle), alloc, alloc_info);
-    VkAssert(result);
-    if (_flags & ResourceCreateUserDataAsString)
-    {
-        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, resource->Handle, VTF_DEBUG_OBJECT_NAME(reinterpret_cast<const char*>(user_data)));
-        VkAssert(result);
-    }
-
-
-    if (view_info)
-    {
-        local_view_info->image = (VkImage)resource->Handle;
-        result = vkCreateImageView(device->vkHandle(), local_view_info, nullptr, reinterpret_cast<VkImageView*>(&resource->ViewHandle));
-        VkAssert(result);
-        if (_flags & ResourceCreateUserDataAsString)
-        {
-            const std::string view_name_string = std::string(reinterpret_cast<const char*>(user_data)) + std::string("_view");
-            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, resource->ViewHandle, VTF_DEBUG_OBJECT_NAME(view_name_string.c_str()));
-            VkAssert(result);
-        }
-    }
-
-    if (initial_data)
-    {
-        setImageInitialData(resource, num_data, initial_data);
-    }
-
-    return resource;
-}
-
-VulkanResource* ResourceContextImpl::createImageView(const VulkanResource* base_rsrc, const VkImageViewCreateInfo* view_info, void* user_data)
-{
-    decltype(resources)::const_iterator iter = std::find_if(
-        std::cbegin(resources), std::cend(resources),
-        [base_rsrc](const std::unique_ptr<VulkanResource>& rsrc)
-        {
-            return base_rsrc == rsrc.get();
-        });
-
-    if (iter != std::cend(resources))
-    {
-        VulkanResource* found_resource = iter->get();
-        VulkanResource* result = nullptr;
-
-        auto iter = resources.emplace(std::make_unique<VulkanResource>());
-        result = iter.first->get();
-        imageViews.emplace(found_resource, result);
-        resourceInfos.imageViewInfos.emplace(result, *view_info);
-        resourceInfos.imageInfos.emplace(result, *reinterpret_cast<VkImageCreateInfo*>(found_resource->Info));
-
-        VkImageViewCreateInfo* updated_view_info = &resourceInfos.imageViewInfos.at(result);
-        updated_view_info->image = (VkImage)found_resource->Handle;
-        VkResult res = vkCreateImageView(device->vkHandle(), updated_view_info, nullptr, (VkImageView*)result->ViewHandle);
-        VkAssert(res);
-        result->Handle = 0;
-
-        return result;
-    }
-    else
-    {
-        return nullptr;
-    }
-}
-
-VulkanResource* ResourceContextImpl::createSampler(const VkSamplerCreateInfo* info, const resource_creation_flags _flags, void* user_data)
-{
-    VulkanResource* resource = nullptr;
-    VkSamplerCreateInfo* local_info{ nullptr };
-
-    auto iter = resources.emplace(std::make_unique<VulkanResource>());
-    assert(iter.second);
-    resource = iter.first->get();
-    auto info_iter = resourceInfos.samplerInfos.emplace(resource, *info);
-    assert(info_iter.second);
-    local_info = &info_iter.first->second;
-    resourceInfos.resourceFlags.emplace(resource, _flags);
-
-    resource->Type = resource_type::Sampler;
-    resource->Info = local_info;
-    resource->UserData = user_data;
-
-    VkResult result = vkCreateSampler(device->vkHandle(), info, nullptr, reinterpret_cast<VkSampler*>(&resource->Handle));
+    VkResult result = vkCreateImageView(device->vkHandle(), &image_view_create_info, nullptr, &image_view);
     VkAssert(result);
 
-    if (_flags & ResourceCreateUserDataAsString)
+    if (resource_flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
     {
-        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_SAMPLER, resource->Handle, VTF_DEBUG_OBJECT_NAME(reinterpret_cast<const char*>(user_data)));
+        const std::string& parent_name = resourceRegistry.get<ResourceDebugName>(new_entity);
+        const std::string object_name = parent_name + "_image_view";
+        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(image_view), VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
         VkAssert(result);
     }
 
-    return resource;
+    return image_view;
 }
 
-void ResourceContextImpl::copyResourceContents(VulkanResource* src, VulkanResource* dst)
+void ResourceContextImpl::setImageData(
+    entt::entity new_entity,
+    VkImage image_handle,
+    const VkImageCreateInfo& image_info,
+    InternalResourceDataContainer& dataContainer,
+    const resource_creation_flags _flags)
 {
-    throw std::runtime_error("Not implemented!");
-}
-
-void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data)
-{
-    const VkImageCreateInfo* info = reinterpret_cast<VkImageCreateInfo*>(resource->Info);
-
     constexpr static ThsvsAccessType transfer_access_types[1]
     {
         THSVS_ACCESS_TRANSFER_WRITE
     };
+
+    // things will get really broken with images if this is true
+    // will handle concurrent sharing mode in the future if we need to
+    assert(image_info.sharingMode != VK_SHARING_MODE_EXCLUSIVE);
 
     // required, unlike with buffers. forces a layout transition.
     const ThsvsImageBarrier pre_transfer_barrier
@@ -557,12 +583,11 @@ void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const si
         VK_FALSE,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
-        (VkImage)resource->Handle,
-        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, info->mipLevels, 0u, info->arrayLayers }
+        image_handle,
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, image_info.mipLevels, 0u, image_info.arrayLayers }
     };
 
-
-    auto post_transfer_access_types = thsvsAccessTypesFromImageUsage(info->usage);
+    auto post_transfer_access_types = thsvsAccessTypesFromImageUsage(image_info.usage);
 
     ThsvsImageBarrier post_transfer_barrier
     {
@@ -575,74 +600,82 @@ void ResourceContextImpl::setImageInitialData(VulkanResource* resource, const si
         VK_FALSE,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
-        (VkImage)resource->Handle,
-        VkImageSubresourceRange { VK_IMAGE_ASPECT_COLOR_BIT, 0u, info->mipLevels, 0u, info->arrayLayers }
+        image_handle,
+        VkImageSubresourceRange { VK_IMAGE_ASPECT_COLOR_BIT, 0u, image_info.mipLevels, 0u, image_info.arrayLayers }
     };
 
-    const uint32_t transfer_queue_idx = device->QueueFamilyIndices().Transfer;
-
-    if (info->sharingMode == VK_SHARING_MODE_EXCLUSIVE)
-    {
-        assert(initial_data->DestinationQueueFamily != VK_QUEUE_FAMILY_IGNORED);
-        assert(transfer_queue_idx != VK_QUEUE_FAMILY_IGNORED);
-        post_transfer_barrier.srcQueueFamilyIndex = transfer_queue_idx != initial_data->DestinationQueueFamily ? transfer_queue_idx : VK_QUEUE_FAMILY_IGNORED;
-        post_transfer_barrier.dstQueueFamilyIndex = transfer_queue_idx != initial_data->DestinationQueueFamily ? initial_data->DestinationQueueFamily : VK_QUEUE_FAMILY_IGNORED;
-    }
-
     auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    
-    VmaAllocation& alloc = resourceAllocations.at(resource);
-    UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc->GetSize(), resource);
-    VkCommandBuffer cmd = transfer_system.TransferCmdBuffer();
+    VmaAllocation& alloc = resourceRegistry.get<VmaAllocation>(new_entity);
+    UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc->GetSize());
+
+    InternalResourceDataContainer::ImageDataVector imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(dataContainer.DataVector);
+
     std::vector<VkBufferImageCopy> buffer_image_copies;
-    buffer_image_copies.reserve(num_data);
+    buffer_image_copies.reserve(imageDataVector.size());
     size_t copy_offset = 0u;
 
-    for (uint32_t i = 0u; i < num_data; ++i)
+    const uint32_t num_layers = dataContainer.NumLayers.value();
+
+    for (uint32_t i = 0u; i < imageDataVector.size(); ++i)
     {
         VkBufferImageCopy copy;
         copy.bufferOffset = copy_offset;
         copy.bufferRowLength = 0u;
         copy.bufferImageHeight = 0u;
         copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        copy.imageSubresource.baseArrayLayer = initial_data[i].ArrayLayer;
-        copy.imageSubresource.layerCount = initial_data[i].NumLayers;
-        copy.imageSubresource.mipLevel = initial_data[i].MipLevel;
+        copy.imageSubresource.baseArrayLayer = imageDataVector[i].arrayLayer;
+        copy.imageSubresource.layerCount = num_layers;
+        copy.imageSubresource.mipLevel = imageDataVector[i].mipLevel;
         copy.imageOffset = VkOffset3D{ 0, 0, 0 };
-        copy.imageExtent = VkExtent3D{ initial_data[i].Width, initial_data[i].Height, 1u };
+        copy.imageExtent = VkExtent3D{ imageDataVector[i].width, imageDataVector[i].height, 1u };
         buffer_image_copies.emplace_back(std::move(copy));
-        assert(initial_data[i].MipLevel < info->mipLevels);
-        assert(initial_data[i].ArrayLayer < info->arrayLayers);
-        upload_buffer->SetData(initial_data[i].Data, initial_data[i].DataSize, copy_offset);
-        copy_offset += initial_data[i].DataSize;
+        assert(imageDataVector[i].mipLevel < image_info.mipLevels);
+        assert(imageDataVector[i].arrayLayer < image_info.arrayLayers);
     }
 
+    auto cmd = transfer_system.TransferCmdBuffer();
+    
     thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 1u, &pre_transfer_barrier);
-    vkCmdCopyBufferToImage(cmd, upload_buffer->Buffer, reinterpret_cast<VkImage>(resource->Handle), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(buffer_image_copies.size()), buffer_image_copies.data());
+    vkCmdCopyBufferToImage(
+        cmd,
+        upload_buffer->Buffer,
+        image_handle,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        static_cast<uint32_t>(buffer_image_copies.size()),
+        buffer_image_copies.data());
     thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 1u, &post_transfer_barrier);
-
 }
 
-VkFormatFeatureFlags ResourceContextImpl::featureFlagsFromUsage(const VkImageUsageFlags flags) const noexcept
+VkSampler ResourceContextImpl::createSampler(
+    entt::entity new_entity,
+    const VkSamplerCreateInfo& sampler_info,
+    const resource_creation_flags _flags,
+    void* user_data_ptr)
 {
-    VkFormatFeatureFlags result = 0;
-    if (flags & VK_IMAGE_USAGE_SAMPLED_BIT)
+    const VkSamplerCreateInfo& sampler_create_info = resourceRegistry.emplace<VkSamplerCreateInfo>(new_entity, std::move(sampler_info));
+    VkSampler sampler = VK_NULL_HANDLE;
+    VkResult result = vkCreateSampler(device->vkHandle(), &sampler_create_info, nullptr, &sampler);
+    VkAssert(result);
+
+    if (_flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
     {
-        result |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+        // can use entity system to find out if this is a combined image sampler or just a sampler, try and find parent name
+        // kinda slower than we want but this is only active in debug builds really so w/e
+        std::string debug_name;
+        if (resourceRegistry.try_get<ResourceDebugName>(new_entity))
+        {
+            debug_name = resourceRegistry.get<ResourceDebugName>(new_entity);
+            debug_name += "_sampler";
+        }
+        else
+        {
+            debug_name = std::string(reinterpret_cast<const char*>(user_data_ptr));
+        }
+        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(sampler), VTF_DEBUG_OBJECT_NAME(debug_name.c_str()));
+        VkAssert(result);
     }
-    if (flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-    {
-        result |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
-    }
-    if (flags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-    {
-        result |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    }
-    if (flags & VK_IMAGE_USAGE_STORAGE_BIT)
-    {
-        result |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
-    }
-    return result;
+
+    return sampler;
 }
 
 void ResourceContextImpl::writeStatsJsonFile(const char* output_file)
@@ -1070,7 +1103,7 @@ void ResourceContextImpl::processMessages()
 
 namespace
 {
-    static std::vector<ThsvsAccessType> thsvsAccessTypesFromBufferUsage(VkBufferUsageFlags _flags)
+    std::vector<ThsvsAccessType> thsvsAccessTypesFromBufferUsage(VkBufferUsageFlags _flags)
     {
         std::vector<ThsvsAccessType> results;
         if (_flags & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)
@@ -1120,7 +1153,7 @@ namespace
         return results;
     }
 
-    static VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags)
+    VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags)
     {
         if (usage_flags & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)
         {
@@ -1156,7 +1189,7 @@ namespace
         }
     }
 
-    static std::vector<ThsvsAccessType> thsvsAccessTypesFromImageUsage(VkImageUsageFlags _flags)
+    std::vector<ThsvsAccessType> thsvsAccessTypesFromImageUsage(VkImageUsageFlags _flags)
     {
         std::vector<ThsvsAccessType> results;
 
@@ -1205,7 +1238,7 @@ namespace
         return results;
     }
 
-    static VkAccessFlags accessFlagsFromImageUsage(const VkImageUsageFlags usage_flags)
+    VkAccessFlags accessFlagsFromImageUsage(const VkImageUsageFlags usage_flags)
     {
         if (usage_flags & VK_IMAGE_USAGE_SAMPLED_BIT)
         {
@@ -1229,7 +1262,7 @@ namespace
         }
     }
 
-    static VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags)
+    VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags)
     {
         if (usage_flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
         {
@@ -1265,4 +1298,27 @@ namespace
             __assume(0);
         }
     }
+
+    VkFormatFeatureFlags GetFormatFeatureFlagsFromUsage(const VkImageUsageFlags flags) noexcept
+    {
+        VkFormatFeatureFlags result = 0;
+        if (flags & VK_IMAGE_USAGE_SAMPLED_BIT)
+        {
+            result |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+        }
+        if (flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        {
+            result |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+        }
+        if (flags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        {
+            result |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        }
+        if (flags & VK_IMAGE_USAGE_STORAGE_BIT)
+        {
+            result |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
+        }
+        return result;
+    }
+
 }

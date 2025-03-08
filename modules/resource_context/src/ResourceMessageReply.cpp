@@ -92,32 +92,32 @@ void VulkanResourceReply::SetVulkanResource(const resource_type _type, const uin
     resourceTypeAndEntityHandle.store(VkResourceTypeAndEntityHandle(_type, entity_handle), std::memory_order_release);
 }
 
-BooleanMessageReply::BooleanMessageReply(BooleanMessageReply&& other) noexcept
-    : completed(other.completed.load(std::memory_order_relaxed))
+StatusMessageReply::StatusMessageReply(StatusMessageReply&& other) noexcept
+    : status(other.status.load(std::memory_order_relaxed))
 {
-    other.completed.store(false, std::memory_order_relaxed);
+    other.status.store(Status::Invalid, std::memory_order_relaxed);
 }
 
-BooleanMessageReply& BooleanMessageReply::operator=(BooleanMessageReply&& other) noexcept
+StatusMessageReply& StatusMessageReply::operator=(StatusMessageReply&& other) noexcept
 {
     if (this != &other)
     {
-        completed.store(other.completed.load(std::memory_order_relaxed), std::memory_order_relaxed);
-        other.completed.store(false, std::memory_order_relaxed);
+        status.store(other.status.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        other.status.store(Status::Invalid, std::memory_order_relaxed);
     }
     return *this;
 }
 
-bool BooleanMessageReply::IsCompleted() const noexcept
+bool StatusMessageReply::IsCompleted() const noexcept
 {
-    return completed.load(std::memory_order_acquire);
+    return status.load(std::memory_order_acquire) != Status::Invalid;
 }
 
-bool BooleanMessageReply::WaitForCompletion(uint64_t timeoutNs) const noexcept
+StatusMessageReply::Status StatusMessageReply::WaitForCompletion(uint64_t timeoutNs) const noexcept
 {
     std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
 
-    while (!completed.load(std::memory_order_acquire))
+    while (status.load(std::memory_order_acquire) == Status::Pending)
     {
         // Check timeout
         if (timeoutNs != std::numeric_limits<uint64_t>::max())
@@ -126,7 +126,7 @@ bool BooleanMessageReply::WaitForCompletion(uint64_t timeoutNs) const noexcept
             const uint64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(currentTime - startTime).count();
             if (elapsedNs >= timeoutNs)
             {
-                return false;
+                return Status::Timeout;
             }
         }
 
@@ -134,12 +134,12 @@ bool BooleanMessageReply::WaitForCompletion(uint64_t timeoutNs) const noexcept
         std::this_thread::yield();
     }
 
-    return true;
+    return status.load(std::memory_order_relaxed);
 }
 
-void BooleanMessageReply::SetCompleted() noexcept
+void StatusMessageReply::SetStatus(Status _status) noexcept
 {
-    completed.store(true, std::memory_order_release);
+    status.store(_status, std::memory_order_release);
 }
 
 void* PointerMessageReply::GetPointer() const noexcept

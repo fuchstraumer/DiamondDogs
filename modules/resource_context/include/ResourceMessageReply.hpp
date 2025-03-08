@@ -65,27 +65,37 @@ private:
 
 };
 
-// Specialization for operations where we just need to know if it completed, e.g. DestroyResource or a copy/fill
-class BooleanMessageReply
+// Specialization for operations where we just need to know if it completed or failed, e.g. DestroyResource or a copy/fill
+class StatusMessageReply
 {
 public:
-    BooleanMessageReply() : completed(false) {}
-    ~BooleanMessageReply() = default;
+    enum class Status : uint8_t
+    {
+        Invalid = 0,
+        Pending = 1,
+        Success = 2,
+        Failed = 3,
+        Timeout = 4
+    };
+
+    StatusMessageReply() : status(Status::Invalid) {}
+    ~StatusMessageReply() = default;
     
-    BooleanMessageReply(const BooleanMessageReply&) = delete;
-    BooleanMessageReply& operator=(const BooleanMessageReply&) = delete;
-    BooleanMessageReply(BooleanMessageReply&& other) noexcept;
-    BooleanMessageReply& operator=(BooleanMessageReply&& other) noexcept;
+    StatusMessageReply(const StatusMessageReply&) = delete;
+    StatusMessageReply& operator=(const StatusMessageReply&) = delete;
+    StatusMessageReply(StatusMessageReply&& other) noexcept;
+    StatusMessageReply& operator=(StatusMessageReply&& other) noexcept;
     
     bool IsCompleted() const noexcept;
-    bool WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) const noexcept;
+    Status GetStatus() const noexcept;
+    Status WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) const noexcept;
     
 private:
     friend class ResourceContextImpl;
-    void SetCompleted() noexcept;
+    void SetStatus(Status status) noexcept;
     
-    std::atomic<bool> completed;
-    static_assert(std::atomic<bool>::is_always_lock_free, "std::atomic<bool> is not lockfree on this platform/using this compiler");
+    std::atomic<Status> status;
+    static_assert(std::atomic<decltype(status)>::is_always_lock_free, "std::atomic<Status> is not lock-free on this platform/using this compiler");
 };
 
 // Used for the function that maps a buffer/image for copying
