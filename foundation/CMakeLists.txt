@@ -22,6 +22,7 @@ set(foundation_source_files
     "include/foundation/PluginAPI.hpp"
     "include/foundation/PluginManager.hpp"
     "src/foundation/PluginManager.cpp"
+    "src/miMallocOverride.cpp"
     ${foundation_plugin_manager_sources})
 
 set(foundation_containers_source_files
@@ -80,6 +81,8 @@ target_include_directories(foundation PRIVATE
     ${Vulkan_INCLUDE_DIR}
     "${CMAKE_CURRENT_SOURCE_DIR}/include/"
     ${plugin_manager_impl_include_dir})
+
+target_link_libraries(foundation PUBLIC mimalloc-static)
 
 if(UNIX)
     target_link_libraries(foundation PUBLIC "c++fs" "dl" "pthread")

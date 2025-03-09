@@ -13,6 +13,7 @@ ADD_SUBDIRECTORY(third_party/vulpesrender)
 ADD_SUBDIRECTORY(third_party/shadertools)
 add_subdirectory(third_party/vma)
 add_subdirectory(third_party/entt)
+add_subdirectory(third_party/mimalloc)
 # Foundation is core functionality that wouldn't make sense to put into modules:
 # Threading primitives, utilities, exception helpers, containers, etc
 # Also our building block reactor objects, used to build higher-level systems
