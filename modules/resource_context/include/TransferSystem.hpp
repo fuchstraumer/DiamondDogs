@@ -2,6 +2,8 @@
 #ifndef DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #define DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #include "ForwardDecl.hpp"
+#include "containers/mwsrQueue.hpp"
+#include "ResourceMessageTypesInternal.hpp"
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <vector>
@@ -10,17 +12,31 @@
 
 struct VulkanResource;
 struct UploadBuffer;
+class TransferCommandPool;
 
-struct TransferCommandBuffer
+class TransferCommand
 {
-    TransferCommandBuffer();
-    ~TransferCommandBuffer();
-    VkCommandBuffer cmdBuffer{ VK_NULL_HANDLE };
+public:
+    TransferCommand(const vpr::Device* _device, InternalResourceDataContainer&& _data);
+    ~TransferCommand();
+    void Execute();
+    bool IsComplete() const noexcept;
+private:
+    std::shared_ptr<ResourceTransferReply> reply;
+    VkCommandBuffer commandBuffer;
+    VkCommandPool commandPool;
+    VmaPool uploadPool;
+    std::unique_ptr<UploadBuffer> uploadBuffer;
 };
 
 class ResourceTransferSystem
 {
 public:
+
+    // Specialized classes for managing transfer command buffers and pools because I use RAII
+    // to manage lifetimes and submission of the commands
+    class CommandBuffer;
+    class CommandPool;
 
     ResourceTransferSystem(const ResourceTransferSystem&) = delete;
     ResourceTransferSystem& operator=(const ResourceTransferSystem&) = delete;
@@ -28,19 +44,35 @@ public:
     ResourceTransferSystem();
     ~ResourceTransferSystem();
 
-    void Initialize(const vpr::Device* device, VmaAllocator _allocator);
-    UploadBuffer* CreateUploadBuffer(const size_t buffer_sz);
-    void CompleteTransfers();
-    VkCommandBuffer TransferCmdBuffer(VkSemaphore timelineSemaphore, uint64_t timelineValueToSet);
+    void Initialize(const vpr::Device* device);
+    // bad, but there are some places we may need to do this - like swapchain resize or device loss events
+    void ForceCompleteTransfers();
+
+    void EnqueueTransfer(TransferPayloadType&& payload);
 
 private:
+
+    mwsrQueue<TransferPayloadType> transferQueue;
+
+    class CommandPool
+    {
+    public:
+        CommandPool();
+        ~CommandPool();
+        std::vector<CommandBuffer> commandBuffers;
+        std::unique_ptr<vpr::CommandPool> transferCmdPool;
+        VmaPool uploadPool;
+    };
 
     void destroy();
 
     VmaPool createPool();
     std::unique_ptr<UploadBuffer> createUploadBufferImpl(const size_t buffer_sz);
     void flushTransfersIfNeeded();
-
+    // use a circular buffer to always cap capacity, and this way we can check if if the pool is full - when 
+    // it is, we do a blocking wait on the fence to ensure that all the commands have been submitted and completed
+    // (then we can reset them and pop from the buffer)
+    circular_buffer<TransferCommandPool, 64> commandBuffers;
     bool cmdBufferDirty = false;
     bool initialized = false;
     std::unique_ptr<vpr::CommandPool> transferCmdPool;

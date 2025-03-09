@@ -175,9 +175,14 @@ struct CreateSamplerMessage
 
 struct SetBufferDataMessage
 {
-    SetBufferDataMessage(size_t numData, const gpu_resource_data_t* data) :
-        data{ InternalResourceDataContainer(numData, data) }
-    {}
+    SetBufferDataMessage(size_t numData, const gpu_resource_data_t* data) noexcept;
+    SetBufferDataMessage(GraphicsResource _destBuffer, InternalResourceDataContainer&& _data) noexcept;
+    SetBufferDataMessage(const SetBufferDataMessage&) = delete;
+    SetBufferDataMessage& operator=(const SetBufferDataMessage&) = delete;
+    SetBufferDataMessage(SetBufferDataMessage&& other) noexcept;
+    SetBufferDataMessage& operator=(SetBufferDataMessage&& other) noexcept;
+    
+    
     GraphicsResource destBuffer{ GraphicsResource::Null() };
     InternalResourceDataContainer data;
     std::shared_ptr<ResourceTransferReply> reply = nullptr;
@@ -185,10 +190,13 @@ struct SetBufferDataMessage
 
 struct SetImageDataMessage
 {
-    SetImageDataMessage(size_t numData, const gpu_image_resource_data_t* data) :
-        data{ InternalResourceDataContainer(numData, data) }
-    {}
-    GraphicsResource image{ GraphicsResource::Null() };
+    SetImageDataMessage(GraphicsResource _destImage, size_t numData, const gpu_image_resource_data_t* data);
+    SetImageDataMessage(const SetImageDataMessage&) = delete;
+    SetImageDataMessage& operator=(const SetImageDataMessage&) = delete;
+    SetImageDataMessage(SetImageDataMessage&& other) noexcept;
+    SetImageDataMessage& operator=(SetImageDataMessage&& other) noexcept;
+    
+    GraphicsResource destImage{ GraphicsResource::Null() };
     InternalResourceDataContainer data;
     std::shared_ptr<ResourceTransferReply> reply = nullptr;
 };
@@ -251,6 +259,12 @@ using ResourceMessagePayloadType = std::variant<
     CopyResourceMessage,
     CopyResourceContentsMessage,
     DestroyResourceMessage>;
+
+using TransferPayloadType = std::variant<
+    SetBufferDataMessage,
+    SetImageDataMessage,
+    FillResourceMessage,
+    CopyResourceContentsMessage>;
 
 
 #endif // RESOURCE_MESSAGE_TYPES_INTERNAL_HPP

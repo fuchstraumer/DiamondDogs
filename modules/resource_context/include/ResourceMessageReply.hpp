@@ -23,9 +23,8 @@ public:
     {
         Invalid = 0,
         Pending = 1, // message popped out of queue and actively being processed
-        Created, // resource created, no transfer data attached. potentially safe to use
         Transferring, // resource created and transfer data attached, not safe to use
-        TransferCompleted, // transfer completed, totally safe to use
+        Completed, // creation, transfer, or both completed depending on the message type. safe to use.
         Failed, // message processing failed, no resource created
         Timeout, // waiting for completion timed out, if status is "Transferring" then it's still just transferring
     };

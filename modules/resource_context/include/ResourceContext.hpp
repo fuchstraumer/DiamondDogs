@@ -15,6 +15,8 @@ struct ResourceContextCreateInfo
     bool validationEnabled;
 };
 
+constexpr static size_t k_TransferCompleteSemaphoreValue = 2u;
+
 class ResourceContextImpl;
 
 class ResourceContext
@@ -27,7 +29,7 @@ public:
 
     void Initialize(const ResourceContextCreateInfo& createInfo);
 
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<BufferAndViewReply>> CreateBuffer(
+    [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateBuffer(
         const VkBufferCreateInfo& createInfo,
         const VkBufferViewCreateInfo* viewCreateInfo = nullptr,
         const gpu_resource_data_t* initialData = nullptr,
@@ -36,7 +38,7 @@ public:
         resource_creation_flags flags = 0,
         void* userData = nullptr);
 
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<ImageAndViewReply>> CreateImage(
+    [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateImage(
         const VkImageCreateInfo& createInfo,
         const VkImageViewCreateInfo* viewCreateInfo = nullptr,
         const gpu_image_resource_data_t* initialData = nullptr,
@@ -45,45 +47,48 @@ public:
         resource_creation_flags flags = 0,
         void* userData = nullptr);
 
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<VkSampler>> CreateSampler(
+    [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateSampler(
         const VkSamplerCreateInfo& createInfo,
         void* userData = nullptr);
 
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<bool>> SetBufferData(
-        VulkanResource* buffer,
+    [[nodiscard]] std::shared_ptr<ResourceTransferReply> SetBufferData(
+        GraphicsResource buffer,
         const gpu_resource_data_t* data,
         size_t numData);
 
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<bool>> SetImageData(
-        VulkanResource* image,
+    [[nodiscard]] std::shared_ptr<ResourceTransferReply> SetImageData(
+        GraphicsResource image,
         const gpu_image_resource_data_t* data,
         size_t numData);
         
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<bool>> FillBuffer(
-        VulkanResource* buffer,
+    [[nodiscard]] std::shared_ptr<ResourceTransferReply> FillBuffer(
+        GraphicsResource buffer,
         uint32_t value,
         size_t offset,
         size_t size);
         
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<void*>> MapBuffer(
+    [[nodiscard]] std::shared_ptr<PointerMessageReply> MapBuffer(
         VulkanResource* buffer,
         size_t size,
         size_t offset);
         
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<bool>> UnmapBuffer(
-        VulkanResource* buffer, 
+    [[nodiscard]] std::shared_ptr<MessageReply> UnmapBuffer(
+        GraphicsResource buffer, 
         size_t size,
         size_t offset);
 
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<bool>> CopyBuffer(
-        VulkanResource* srcBuffer,
-        VulkanResource* destBuffer);
-        
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<bool>> CopyBufferContents(
-        VulkanResource* srcBuffer,
-        VulkanResource* destBuffer);
+    // Creates a copy of the source buffer and returns it in the reply
+    [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CopyBuffer(GraphicsResource srcBuffer);
 
-    [[nodiscard]] std::shared_ptr<ResourceMessageReply<bool>> DestroyResource(
+    // Creates a copy of the source image and returns it in the reply
+    [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CopyImage(GraphicsResource srcImage);
+    
+    // Copies the contents of the source buffer to the destination buffer, but does not create a new buffer
+    [[nodiscard]] std::shared_ptr<ResourceTransferReply> CopyBufferContents(
+        GraphicsResource srcBuffer,
+        GraphicsResource destBuffer);
+
+    [[nodiscard]] std::shared_ptr<MessageReply> DestroyResource(
         VulkanResource* resource);    
 
 private:

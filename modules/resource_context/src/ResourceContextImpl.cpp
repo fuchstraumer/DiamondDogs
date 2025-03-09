@@ -161,17 +161,24 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
         resourceRegistry.emplace<VkBufferView>(new_entity, buffer_view);
     }
 
-    if (message.initialData)
-    {
-        setBufferData(new_entity, buffer_handle, message.initialData.value(), message.resourceUsage);
-    }
-
     message.reply->SetGraphicsResource(
         resource_type::Buffer,
         static_cast<uint32_t>(new_entity),
         reinterpret_cast<uint64_t>(buffer_handle),
         reinterpret_cast<uint64_t>(buffer_view),
         0u);
+
+    if (message.initialData)
+    {
+        // pass responsiblity on to transfer system now, transferring ownership of data with a move
+        // and resetting our copy of the shared pointer by exiting this ASAP
+        message.reply->SetStatus(MessageReply::Status::Transferring);
+        setBufferData(new_entity, buffer_handle, message.initialData.value(), message.resourceUsage);
+    }
+    else
+    {
+        message.reply->SetStatus(MessageReply::Status::Completed);
+    }
 
 }
 

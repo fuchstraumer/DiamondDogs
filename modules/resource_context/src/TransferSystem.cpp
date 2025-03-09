@@ -64,6 +64,46 @@ VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device)
     return result;
 }
 
+ResourceTransferSystem::CommandBuffer::CommandBuffer(
+        const vpr::Device* device,
+        VkCommandBuffer cmdBuffer,
+        VkSemaphore timelineSemaphore,
+        uint64_t timelineValueToSet) :
+        device(device),
+        cmdBuffer(cmdBuffer),
+        timelineSemaphore(timelineSemaphore),
+        timelineValueToSet(timelineValueToSet)
+{
+    VkCommandBufferBeginInfo beginInfo
+    {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        nullptr,
+        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        nullptr
+    };
+    VkResult result = vkBeginCommandBuffer(cmdBuffer, &beginInfo);
+    VkAssert(result);
+}
+
+ResourceTransferSystem::CommandBuffer::~CommandBuffer()
+{
+    VkResult result = vkEndCommandBuffer(cmdBuffer);
+    VkAssert(result);
+}
+
+ResourceTransferSystem::CommandBuffer::operator VkCommandBuffer() const noexcept
+{
+    return cmdBuffer;
+}
+
+bool ResourceTransferSystem::CommandBuffer::IsComplete() const noexcept
+{
+    uint64_t timelineValue = 0u;
+    VkResult result = vkGetSemaphoreCounterValue(device->vkHandle(), timelineSemaphore, &timelineValue);
+    VkAssert(result);
+    return timelineValue >= timelineValueToSet;
+}
+
 ResourceTransferSystem::ResourceTransferSystem() : transferCmdPool(nullptr), device(nullptr), fence(nullptr) {}
 
 ResourceTransferSystem::~ResourceTransferSystem()
