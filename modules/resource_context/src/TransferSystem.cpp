@@ -64,6 +64,27 @@ VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device)
     return result;
 }
 
+ResourceTransferSystem::ResourceTransferSystem() : transferCmdPool(nullptr), device(nullptr), fence(nullptr) {}
+
+ResourceTransferSystem::~ResourceTransferSystem()
+{
+    destroy();
+}
+
+void ResourceTransferSystem::destroy()
+{
+    CompleteTransfers();
+    for (auto pool : uploadPools)
+    {
+        vmaDestroyPool(allocator, pool);
+    }
+    uploadPools.clear();
+    vmaDestroyAllocator(allocator);
+    transferCmdPool.reset();
+    fence.reset();
+    device = nullptr;
+}
+
 void ResourceTransferSystem::flushTransfersIfNeeded()
 {
     /*
@@ -139,17 +160,6 @@ std::unique_ptr<UploadBuffer> ResourceTransferSystem::createUploadBufferImpl(con
     return std::move(created_buffer);
 }
 
-ResourceTransferSystem::ResourceTransferSystem() : transferCmdPool(nullptr), device(nullptr), fence(nullptr) {}
-
-ResourceTransferSystem::~ResourceTransferSystem()
-{
-    CompleteTransfers();
-    for (auto pool : uploadPools)
-    {
-        vmaDestroyPool(allocator, pool);
-    }
-}
-
 void ResourceTransferSystem::Initialize(const vpr::Device* dvc, VmaAllocator _allocator)
 {
 
@@ -197,12 +207,6 @@ void ResourceTransferSystem::Initialize(const vpr::Device* dvc, VmaAllocator _al
 
 }
 
-ResourceTransferSystem & ResourceTransferSystem::GetTransferSystem()
-{
-    static ResourceTransferSystem transfer_system;
-    return transfer_system;
-}
-
 void ResourceTransferSystem::CompleteTransfers()
 {
 
@@ -227,17 +231,27 @@ void ResourceTransferSystem::CompleteTransfers()
         throw std::runtime_error("Failed to end Transfer command buffer!");
     }
 
+    VkTimelineSemaphoreSubmitInfo timeline_info
+    {
+        VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+        nullptr,
+        0u,
+        nullptr,
+        static_cast<uint32_t>(transferSignalValues.size()),
+        transferSignalValues.data(),
+    };
+
     VkSubmitInfo submission
     {
         VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        nullptr,
+        &timeline_info,
         0,
         nullptr,
         nullptr,
         1,
         &pool[0],
-        0,
-        nullptr
+        static_cast<uint32_t>(transferSignalSemaphores.size()),
+        transferSignalSemaphores.data()
     };
 
     VkResult result = vkQueueSubmit(device->TransferQueue(), 1, &submission, fence->vkHandle());
@@ -295,9 +309,11 @@ void ResourceTransferSystem::CompleteTransfers()
 
 }
 
-VkCommandBuffer ResourceTransferSystem::TransferCmdBuffer()
+VkCommandBuffer ResourceTransferSystem::TransferCmdBuffer(VkSemaphore timeline_semaphore, uint64_t timelineValueToSet)
 {
     cmdBufferDirty = true;
+    transferSignalSemaphores.emplace_back(timeline_semaphore);
+    transferSignalValues.emplace_back(timelineValueToSet);
     auto& pool = *transferCmdPool;
     return pool[0];
 }

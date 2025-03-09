@@ -95,7 +95,7 @@ void ResourceContextImpl::startWorker()
     workerThread = std::thread(&ResourceContextImpl::processMessages, this);
 }
 
-void ResourceContextImpl::destroyResource(VulkanResource* rsrc)
+void ResourceContextImpl::destroyResource(GraphicsResource* rsrc)
 {
 
     decltype(resources)::const_iterator iter = std::find_if(
@@ -112,7 +112,7 @@ void ResourceContextImpl::destroyResource(VulkanResource* rsrc)
     }
 
     // for samplers, iterator becomes invalid after erased (and ordering was req'd for threading)
-    VulkanResource* samplerResource = iter->get()->Sampler;
+    GraphicsResource* samplerResource = iter->get()->Sampler;
     switch (iter->get()->Type)
     {
     case resource_type::Buffer:
@@ -141,6 +141,8 @@ void ResourceContextImpl::destroyResource(VulkanResource* rsrc)
 void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& message)
 {
     const entt::entity new_entity = resourceRegistry.create();
+
+    message.reply->SetStatus(MessageReply::Status::Pending);
     
     VkBuffer buffer_handle = createBuffer(
         new_entity,
@@ -164,7 +166,7 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
         setBufferData(new_entity, buffer_handle, message.initialData.value(), message.resourceUsage);
     }
 
-    message.reply->SetVulkanResource(
+    message.reply->SetGraphicsResource(
         resource_type::Buffer,
         static_cast<uint32_t>(new_entity),
         reinterpret_cast<uint64_t>(buffer_handle),
@@ -195,10 +197,10 @@ void ResourceContextImpl::processCreateImageMessage(CreateImageMessage&& message
     if (message.initialData.has_value())
     {
         const VkImageCreateInfo& image_info = resourceRegistry.get<VkImageCreateInfo>(new_entity);
-        setImageInitialData(new_entity, image_handle, image_info, message.initialData.value(), message.flags);
+        setImageData(new_entity, image_handle, image_info, message.initialData.value(), message.flags);
     }
 
-    message.reply->SetVulkanResource(
+    message.reply->SetGraphicsResource(
         resource_type::Image,
         static_cast<uint32_t>(new_entity),
         reinterpret_cast<uint64_t>(image_handle),
@@ -223,13 +225,13 @@ void ResourceContextImpl::processCreateCombinedImageSamplerMessage(CreateCombine
     if (message.initialData.has_value())
     {
         const VkImageCreateInfo& image_info = resourceRegistry.get<VkImageCreateInfo>(new_entity);
-        setImageInitialData(new_entity, image_handle, image_info, message.initialData.value(), message.flags);
+        setImageData(new_entity, image_handle, image_info, message.initialData.value(), message.flags);
     }
 
     VkSampler sampler = createSampler(new_entity, message.samplerInfo, message.flags, message.userData);
     resourceRegistry.emplace<VkSampler>(new_entity, sampler);
     
-    message.reply->SetVulkanResource(
+    message.reply->SetGraphicsResource(
         resource_type::CombinedImageSampler,
         static_cast<uint32_t>(new_entity),
         reinterpret_cast<uint64_t>(image_handle),
@@ -243,7 +245,7 @@ void ResourceContextImpl::processCreateSamplerMessage(CreateSamplerMessage&& mes
     VkSampler sampler = createSampler(new_entity, message.samplerInfo, message.flags, message.userData);
     resourceRegistry.emplace<VkSampler>(new_entity, sampler);
 
-    message.reply->SetVulkanResource(
+    message.reply->SetGraphicsResource(
         resource_type::Sampler,
         static_cast<uint32_t>(new_entity),
         0u, 0u, reinterpret_cast<uint64_t>(sampler));
@@ -251,7 +253,7 @@ void ResourceContextImpl::processCreateSamplerMessage(CreateSamplerMessage&& mes
 
 void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& message)
 {
-    const VulkanResource& buffer = message.destBuffer;
+    const GraphicsResource& buffer = message.destBuffer;
     const entt::entity entity = entt::entity(buffer.ResourceHandle);
     if (!resourceRegistry.valid(entity))
     {
@@ -270,12 +272,12 @@ void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& mes
 
     setBufferData(entity, buffer_handle, message.data, flags.resourceUsage);
 
-    message.reply->SetStatus(StatusMessageReply::Status::Success);
+    message.reply->SetStatus(StatusMessageReply::Status::Completed);
 }
 
 void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& message)
 {
-    const VulkanResource& buffer = message.resource;
+    const GraphicsResource& buffer = message.resource;
     const entt::entity entity = entt::entity(buffer.ResourceHandle);
     if (!resourceRegistry.valid(entity))
     {
@@ -604,9 +606,8 @@ void ResourceContextImpl::setImageData(
         VkImageSubresourceRange { VK_IMAGE_ASPECT_COLOR_BIT, 0u, image_info.mipLevels, 0u, image_info.arrayLayers }
     };
 
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
     VmaAllocation& alloc = resourceRegistry.get<VmaAllocation>(new_entity);
-    UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(alloc->GetSize());
+    UploadBuffer* upload_buffer = transferSystem.CreateUploadBuffer(alloc->GetSize());
 
     InternalResourceDataContainer::ImageDataVector imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(dataContainer.DataVector);
 
@@ -633,7 +634,7 @@ void ResourceContextImpl::setImageData(
         assert(imageDataVector[i].arrayLayer < image_info.arrayLayers);
     }
 
-    auto cmd = transfer_system.TransferCmdBuffer();
+    auto cmd = transferSystem.TransferCmdBuffer();
     
     thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 1u, &pre_transfer_barrier);
     vkCmdCopyBufferToImage(
@@ -678,6 +679,11 @@ VkSampler ResourceContextImpl::createSampler(
     return sampler;
 }
 
+void ResourceContextImpl::fillBuffer(entt::entity new_entity, VkBuffer buffer_handle, uint32_t value, size_t offset, size_t size)
+{
+    
+}
+
 void ResourceContextImpl::writeStatsJsonFile(const char* output_file)
 {
     char* output;
@@ -692,7 +698,7 @@ void ResourceContextImpl::writeStatsJsonFile(const char* output_file)
     vmaFreeStatsString(allocatorHandle, output);
 }
 
-void ResourceContextImpl::createBufferResourceCopy(VulkanResource* src, VulkanResource** dst)
+void ResourceContextImpl::createBufferResourceCopy(GraphicsResource* src, GraphicsResource** dst)
 {
     const VkBufferCreateInfo* create_info = reinterpret_cast<const VkBufferCreateInfo*>(src->Info);
     const VkBufferViewCreateInfo* view_info = nullptr;
@@ -703,7 +709,7 @@ void ResourceContextImpl::createBufferResourceCopy(VulkanResource* src, VulkanRe
     *dst = createBuffer(create_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), 0, nullptr);
 }
 
-void ResourceContextImpl::createImageResourceCopy(VulkanResource* src, VulkanResource** dst)
+void ResourceContextImpl::createImageResourceCopy(GraphicsResource* src, GraphicsResource** dst)
 {
     const VkImageCreateInfo* image_info = reinterpret_cast<const VkImageCreateInfo*>(src->Info);
     const VkImageViewCreateInfo* view_info = nullptr;
@@ -715,21 +721,21 @@ void ResourceContextImpl::createImageResourceCopy(VulkanResource* src, VulkanRes
     copyResourceContents(src, *dst);
 }
 
-void ResourceContextImpl::createSamplerResourceCopy(VulkanResource * src, VulkanResource** dst)
+void ResourceContextImpl::createSamplerResourceCopy(GraphicsResource * src, GraphicsResource** dst)
 {
     const VkSamplerCreateInfo* sampler_info = reinterpret_cast<const VkSamplerCreateInfo*>(src->Info);
     *dst = createSampler(sampler_info, resource_creation_flags(), nullptr);
 }
 
-void ResourceContextImpl::createCombinedImageSamplerResourceCopy(VulkanResource* src, VulkanResource** dest)
+void ResourceContextImpl::createCombinedImageSamplerResourceCopy(GraphicsResource* src, GraphicsResource** dest)
 {
     createImageResourceCopy(src, dest);
-    VulkanResource** sampler_to_create = &(*dest)->Sampler;
+    GraphicsResource** sampler_to_create = &(*dest)->Sampler;
     createSamplerResourceCopy(src->Sampler, sampler_to_create);
     (*dest)->Type = resource_type::CombinedImageSampler;
 }
 
-void ResourceContextImpl::copyBufferContentsToBuffer(VulkanResource* src, VulkanResource* dst)
+void ResourceContextImpl::copyBufferContentsToBuffer(GraphicsResource* src, GraphicsResource* dst)
 {
 
     const VkBufferCreateInfo* src_info = reinterpret_cast<const VkBufferCreateInfo*>(src->Info);
@@ -808,7 +814,7 @@ void ResourceContextImpl::copyBufferContentsToBuffer(VulkanResource* src, Vulkan
     
 }
 
-void ResourceContextImpl::copyImageContentsToImage(VulkanResource* src, VulkanResource* dst, const VkImageSubresourceRange& src_range, const VkImageSubresourceRange& dst_range,
+void ResourceContextImpl::copyImageContentsToImage(GraphicsResource* src, GraphicsResource* dst, const VkImageSubresourceRange& src_range, const VkImageSubresourceRange& dst_range,
     const std::vector<VkImageCopy>& image_copies)
 {
 
@@ -907,7 +913,7 @@ void ResourceContextImpl::copyImageContentsToImage(VulkanResource* src, VulkanRe
 
 }
 
-void ResourceContextImpl::copyBufferContentsToImage(VulkanResource* src, VulkanResource* dst, const VkDeviceSize src_offset, const VkImageSubresourceRange& dst_range,
+void ResourceContextImpl::copyBufferContentsToImage(GraphicsResource* src, GraphicsResource* dst, const VkDeviceSize src_offset, const VkImageSubresourceRange& dst_range,
     const std::vector<VkBufferImageCopy>& copy_params)
 {
     assert((dst->Type == resource_type::Image || dst->Type == resource_type::CombinedImageSampler) && (src->Type == resource_type::Buffer));
@@ -1007,7 +1013,7 @@ void ResourceContextImpl::copyBufferContentsToImage(VulkanResource* src, VulkanR
 
 }
 
-void ResourceContextImpl::copyImageContentsToBuffer(VulkanResource* src, VulkanResource* dst)
+void ResourceContextImpl::copyImageContentsToBuffer(GraphicsResource* src, GraphicsResource* dst)
 {
     assert((src->Type == resource_type::Image || src->Type == resource_type::CombinedImageSampler) && (dst->Type == resource_type::Buffer));
 
@@ -1016,7 +1022,7 @@ void ResourceContextImpl::copyImageContentsToBuffer(VulkanResource* src, VulkanR
 
 void ResourceContextImpl::destroyBuffer(resource_iter_t iter)
 {
-    VulkanResource* rsrc = iter->get();
+    GraphicsResource* rsrc = iter->get();
     if (rsrc->ViewHandle != 0)
     {
         vkDestroyBufferView(device->vkHandle(), (VkBufferView)rsrc->ViewHandle, nullptr);
@@ -1032,7 +1038,7 @@ void ResourceContextImpl::destroyBuffer(resource_iter_t iter)
 
 void ResourceContextImpl::destroyImage(resource_iter_t iter)
 {
-    VulkanResource* rsrc = iter->get();
+    GraphicsResource* rsrc = iter->get();
     if (rsrc->ViewHandle != 0)
     {
         vkDestroyImageView(device->vkHandle(), (VkImageView)rsrc->ViewHandle, nullptr);
@@ -1048,13 +1054,13 @@ void ResourceContextImpl::destroyImage(resource_iter_t iter)
 
 void ResourceContextImpl::destroySampler(resource_iter_t iter)
 {
-    VulkanResource* rsrc = iter->get();
+    GraphicsResource* rsrc = iter->get();
     vkDestroySampler(device->vkHandle(), (VkSampler)rsrc->Handle, nullptr);
     resourceInfos.samplerInfos.erase(rsrc);
     resources.erase(iter);
 }
 
-void* ResourceContextImpl::map(VulkanResource* resource, size_t size, size_t offset)
+void* ResourceContextImpl::map(GraphicsResource* resource, size_t size, size_t offset)
 {
     resource_usage alloc_usage{ resource_usage::InvalidResourceUsage };
     VmaAllocation alloc{ VK_NULL_HANDLE };
@@ -1072,7 +1078,7 @@ void* ResourceContextImpl::map(VulkanResource* resource, size_t size, size_t off
     return mapped_ptr;
 }
 
-void ResourceContextImpl::unmap(VulkanResource* resource, size_t size, size_t offset)
+void ResourceContextImpl::unmap(GraphicsResource* resource, size_t size, size_t offset)
 {
     VmaAllocation alloc{ VK_NULL_HANDLE };
     resource_usage alloc_usage{ resource_usage::InvalidResourceUsage };

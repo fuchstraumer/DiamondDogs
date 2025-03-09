@@ -151,29 +151,29 @@ private:
         const resource_creation_flags _flags,
         void* user_data_ptr);
 
-    void setBufferData(VulkanResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data);
-    VulkanResource* createSampler(const VkSamplerCreateInfo* info, const resource_creation_flags _flags, void* user_data = nullptr);
-    void copyResourceContents(VulkanResource* src, VulkanResource* dst);
-    void setImageInitialData(VulkanResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data);
+    void setBufferData(GraphicsResource* dest_buffer, const size_t num_data, const gpu_resource_data_t* data);
+    GraphicsResource* createSampler(const VkSamplerCreateInfo* info, const resource_creation_flags _flags, void* user_data = nullptr);
+    void copyResourceContents(GraphicsResource* src, GraphicsResource* dst);
+    void setImageInitialData(GraphicsResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data);
     VkFormatFeatureFlags featureFlagsFromUsage(const VkImageUsageFlags flags) const noexcept;
     
     void writeStatsJsonFile(const char* output_file);
 
-    std::unordered_set<std::unique_ptr<VulkanResource>> resources;
+    std::unordered_set<std::unique_ptr<GraphicsResource>> resources;
 
-    void createBufferResourceCopy(VulkanResource* src, VulkanResource** dst);
-    void createImageResourceCopy(VulkanResource* src, VulkanResource** dst);
-    void createSamplerResourceCopy(VulkanResource* src, VulkanResource** dst);
-    void createCombinedImageSamplerResourceCopy(VulkanResource * src, VulkanResource ** dest);
+    void createBufferResourceCopy(GraphicsResource* src, GraphicsResource** dst);
+    void createImageResourceCopy(GraphicsResource* src, GraphicsResource** dst);
+    void createSamplerResourceCopy(GraphicsResource* src, GraphicsResource** dst);
+    void createCombinedImageSamplerResourceCopy(GraphicsResource * src, GraphicsResource ** dest);
 
-    void copyBufferContentsToBuffer(VulkanResource* src, VulkanResource* dst);
-    void copyImageContentsToImage(VulkanResource* src, VulkanResource* dst, const VkImageSubresourceRange& src_range, const VkImageSubresourceRange& dst_range, const std::vector<VkImageCopy>& image_copies);
-    void copyBufferContentsToImage(VulkanResource* src, VulkanResource* dst, const VkDeviceSize src_offset, const VkImageSubresourceRange& dst_range, const std::vector<VkBufferImageCopy>& copy_params);
-    void copyImageContentsToBuffer(VulkanResource* src, VulkanResource* dst);
+    void copyBufferContentsToBuffer(GraphicsResource* src, GraphicsResource* dst);
+    void copyImageContentsToImage(GraphicsResource* src, GraphicsResource* dst, const VkImageSubresourceRange& src_range, const VkImageSubresourceRange& dst_range, const std::vector<VkImageCopy>& image_copies);
+    void copyBufferContentsToImage(GraphicsResource* src, GraphicsResource* dst, const VkDeviceSize src_offset, const VkImageSubresourceRange& dst_range, const std::vector<VkBufferImageCopy>& copy_params);
+    void copyImageContentsToBuffer(GraphicsResource* src, GraphicsResource* dst);
 
-    void destroyResource(VulkanResource* rsrc);
-    void* map(VulkanResource* resource, size_t size, size_t offset);
-    void unmap(VulkanResource* resource, size_t size, size_t offset);
+    void destroyResource(GraphicsResource* rsrc);
+    void* map(GraphicsResource* resource, size_t size, size_t offset);
+    void unmap(GraphicsResource* resource, size_t size, size_t offset);
     void destroyBuffer(resource_iter_t iter);
     void destroyImage(resource_iter_t iter);
     void destroySampler(resource_iter_t iter);
@@ -182,17 +182,18 @@ private:
     std::thread workerThread;
     std::atomic<bool> shouldExitWorker{ false };
 
-    std::unordered_map<VulkanResource*, std::string> resourceNames;
-    std::unordered_map<VulkanResource*, VmaAllocation> resourceAllocations;
+    std::unordered_map<GraphicsResource*, std::string> resourceNames;
+    std::unordered_map<GraphicsResource*, VmaAllocation> resourceAllocations;
     // Resources that depend on the key for their Image handle, but which are still independent views
     // of the key, go here. When key is destroyed, we have to destroy all the views too.
-    std::unordered_multimap<VulkanResource*, VulkanResource*> imageViews;
-    std::unordered_map<VulkanResource*, VmaAllocationInfo> allocInfos;
+    std::unordered_multimap<GraphicsResource*, GraphicsResource*> imageViews;
+    std::unordered_map<GraphicsResource*, VmaAllocationInfo> allocInfos;
     vpr::VkDebugUtilsFunctions vkDebugFns;
     VmaAllocator allocatorHandle{ VK_NULL_HANDLE };
 
     // Primarily used to contain our info structures and allocation structures
     entt::registry resourceRegistry;
+    ResourceTransferSystem transferSystem;
 
     const vpr::Device* device = nullptr;
     bool validationEnabled{ false };

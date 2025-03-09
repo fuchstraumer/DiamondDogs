@@ -139,7 +139,7 @@ struct CreateBufferMessage
     resource_usage resourceUsage;
     resource_creation_flags flags;
     void* userData = nullptr;
-    std::shared_ptr<VulkanResourceReply> reply = nullptr;
+    std::shared_ptr<GraphicsResourceReply> reply = nullptr;
 };
 
 struct CreateImageMessage
@@ -150,7 +150,7 @@ struct CreateImageMessage
     resource_usage resourceUsage;
     resource_creation_flags flags;
     void* userData = nullptr;
-    std::shared_ptr<VulkanResourceReply> reply = nullptr;
+    std::shared_ptr<GraphicsResourceReply> reply = nullptr;
 };
 
 struct CreateCombinedImageSamplerMessage
@@ -162,7 +162,7 @@ struct CreateCombinedImageSamplerMessage
     resource_usage resourceUsage;
     resource_creation_flags flags;
     void* userData = nullptr;
-    std::shared_ptr<VulkanResourceReply> reply = nullptr;
+    std::shared_ptr<GraphicsResourceReply> reply = nullptr;
 };
 
 struct CreateSamplerMessage
@@ -170,7 +170,7 @@ struct CreateSamplerMessage
     VkSamplerCreateInfo samplerInfo;
     resource_creation_flags flags;
     void* userData = nullptr;
-    std::shared_ptr<VulkanResourceReply> reply = nullptr;
+    std::shared_ptr<GraphicsResourceReply> reply = nullptr;
 };
 
 struct SetBufferDataMessage
@@ -178,9 +178,9 @@ struct SetBufferDataMessage
     SetBufferDataMessage(size_t numData, const gpu_resource_data_t* data) :
         data{ InternalResourceDataContainer(numData, data) }
     {}
-    VulkanResource destBuffer{ VulkanResource::Null() };
+    GraphicsResource destBuffer{ GraphicsResource::Null() };
     InternalResourceDataContainer data;
-    std::shared_ptr<StatusMessageReply> reply = nullptr;
+    std::shared_ptr<ResourceTransferReply> reply = nullptr;
 };
 
 struct SetImageDataMessage
@@ -188,23 +188,23 @@ struct SetImageDataMessage
     SetImageDataMessage(size_t numData, const gpu_image_resource_data_t* data) :
         data{ InternalResourceDataContainer(numData, data) }
     {}
-    VulkanResource image{ VulkanResource::Null() };
+    GraphicsResource image{ GraphicsResource::Null() };
     InternalResourceDataContainer data;
-    std::shared_ptr<StatusMessageReply> reply = nullptr;
+    std::shared_ptr<ResourceTransferReply> reply = nullptr;
 };
 
 struct FillResourceMessage
 {
-    VulkanResource resource{ VulkanResource::Null() };
+    GraphicsResource resource{ GraphicsResource::Null() };
     uint32_t value{ 0 };
     size_t offset{ 0 };
     size_t size{ 0 };
-    std::shared_ptr<StatusMessageReply> reply = nullptr;
+    std::shared_ptr<MessageReply> reply = nullptr;
 };
 
 struct MapResourceMessage
 {
-    VulkanResource resource{ VulkanResource::Null() };
+    GraphicsResource resource{ GraphicsResource::Null() };
     size_t size{ 0 };
     size_t offset{ 0 };
     std::shared_ptr<PointerMessageReply> reply = nullptr;
@@ -212,30 +212,30 @@ struct MapResourceMessage
 
 struct UnmapResourceMessage
 {
-    VulkanResource resource{ VulkanResource::Null() };
+    GraphicsResource resource{ GraphicsResource::Null() };
     size_t size{ 0 };
     size_t offset{ 0 };
-    std::shared_ptr<StatusMessageReply> reply = nullptr;
+    std::shared_ptr<MessageReply> reply = nullptr;
 };
 
 struct CopyResourceMessage
 {
-    VulkanResource src{ VulkanResource::Null() };
-    VulkanResource dest{ VulkanResource::Null() };
-    std::shared_ptr<StatusMessageReply> reply = nullptr;
+    GraphicsResource src{ GraphicsResource::Null() };
+    GraphicsResource dest{ GraphicsResource::Null() };
+    std::shared_ptr<GraphicsResourceReply> reply = nullptr;
 };
 
 struct CopyResourceContentsMessage
 {
-    VulkanResource src{ VulkanResource::Null() };
-    VulkanResource dest{ VulkanResource::Null() };
-    std::shared_ptr<StatusMessageReply> reply = nullptr;
+    GraphicsResource src{ GraphicsResource::Null() };
+    GraphicsResource dest{ GraphicsResource::Null() };
+    std::shared_ptr<ResourceTransferReply> reply = nullptr;
 };
 
 struct DestroyResourceMessage
 {
-    VulkanResource resource{ VulkanResource::Null() };
-    std::shared_ptr<StatusMessageReply> reply = nullptr;
+    GraphicsResource resource{ GraphicsResource::Null() };
+    std::shared_ptr<MessageReply> reply = nullptr;
 };
 
 using ResourceMessagePayloadType = std::variant<
