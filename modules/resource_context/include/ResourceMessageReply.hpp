@@ -115,11 +115,15 @@ private:
 
     friend class ResourceContextImpl;
     friend class TransferSystemImpl;
-    void SetGraphicsResource(const resource_type _type,
-                             const uint32_t entity_handle,
-                             const uint64_t vk_handle,
-                             const uint64_t vk_view_handle,
-                             const uint64_t vk_sampler_handle) noexcept;
+    void SetGraphicsResource(
+        const resource_type _type,
+        const uint32_t entity_handle,
+        const uint64_t vk_handle,
+        const uint64_t vk_view_handle,
+        const uint64_t vk_sampler_handle) noexcept;
+    // used internally before a call that transfers to the transfer system, because the user shouldn't be using this resource
+    // anyways (and if they do, and if they get garbage data, that's on them)
+    void SetGraphicsResourceRelaxed(GraphicsResource resource) noexcept;
     
     std::atomic<VkResourceTypeAndEntityHandle> resourceTypeAndEntityHandle;
     std::atomic<uint64_t> vkSamplerHandle;

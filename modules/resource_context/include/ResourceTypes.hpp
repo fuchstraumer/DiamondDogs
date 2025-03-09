@@ -43,13 +43,13 @@ struct resource_creation_flag_bits
 {
     enum : uint32_t
     {
-        ResourceCreateDedicatedMemory = 0x00000001,
-        ResourceCreateNeverAllocate = 0x00000002,
-        ResourceCreatePersistentlyMapped = 0x00000004,
-        ResourceCreateUserDataAsString = 0x00000020,
-        ResourceCreateMemoryStrategyMinMemory = 0x00010000,
-        ResourceCreateMemoryStrategyMinTime = 0x00020000,
-        ResourceCreateMemoryStrategyMinFragmentation = 0x00040000
+        UserDataAsString = 0x00000001,
+        DedicatedMemory = 0x00000002,
+        CreateMapped = 0x00000004,
+        PersistentlyMapped = 0x00000008,
+        HostWritesLinear = 0x00000010,
+        HostWritesRandom = 0x00000020,
+        
     };
 };
 using resource_creation_flags = uint32_t;

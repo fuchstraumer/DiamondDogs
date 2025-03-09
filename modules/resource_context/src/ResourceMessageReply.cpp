@@ -135,8 +135,8 @@ MessageReply::Status ResourceTransferReply::WaitForCompletion(Status wait_for_st
         }
         else
         {
-            SetStatus(Status::TransferCompleted);
-            return Status::TransferCompleted;
+            SetStatus(Status::Completed);
+            return Status::Completed;
         }
     }
 
@@ -212,7 +212,7 @@ void GraphicsResourceReply::SetGraphicsResource(
     }
 
     resourceTypeAndEntityHandle.store(VkResourceTypeAndEntityHandle(_type, entity_handle), std::memory_order_release);
-    SetStatus(Status::Created);
+    SetStatus(Status::Completed);
 }
 
 
@@ -249,4 +249,5 @@ void* PointerMessageReply::WaitForCompletion(uint64_t timeoutNs /*= std::numeric
 void PointerMessageReply::SetPointer(void* ptr) noexcept
 {
     data.store(ptr, std::memory_order_release);
+    SetStatus(Status::Completed);
 }

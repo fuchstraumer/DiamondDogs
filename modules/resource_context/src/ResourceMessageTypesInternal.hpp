@@ -8,6 +8,7 @@
 #include <variant>
 #include <optional>
 #include <vector>
+#include <vk_mem_alloc.h>
 
 // Users still call functions with the old API on the surface, but we translate to these internal structures
 // so that we can place them in the message queue (type erased by being shoved in a variant, effectively)
@@ -175,13 +176,18 @@ struct CreateSamplerMessage
 
 struct SetBufferDataMessage
 {
-    SetBufferDataMessage(size_t numData, const gpu_resource_data_t* data) noexcept;
-    SetBufferDataMessage(GraphicsResource _destBuffer, InternalResourceDataContainer&& _data) noexcept;
+    SetBufferDataMessage(
+        GraphicsResource _destBuffer,
+        size_t numData,
+        const gpu_resource_data_t* data) noexcept;
+    SetBufferDataMessage(
+        GraphicsResource _destBuffer,
+        InternalResourceDataContainer&& _data,
+        std::shared_ptr<ResourceTransferReply>&& reply) noexcept;
     SetBufferDataMessage(const SetBufferDataMessage&) = delete;
     SetBufferDataMessage& operator=(const SetBufferDataMessage&) = delete;
     SetBufferDataMessage(SetBufferDataMessage&& other) noexcept;
     SetBufferDataMessage& operator=(SetBufferDataMessage&& other) noexcept;
-    
     
     GraphicsResource destBuffer{ GraphicsResource::Null() };
     InternalResourceDataContainer data;
@@ -190,7 +196,15 @@ struct SetBufferDataMessage
 
 struct SetImageDataMessage
 {
-    SetImageDataMessage(GraphicsResource _destImage, size_t numData, const gpu_image_resource_data_t* data);
+    SetImageDataMessage(
+        GraphicsResource _destImage,
+        size_t numData,
+        const gpu_image_resource_data_t* data) noexcept;
+    // for use when transferring rest of work to the transfer system
+    SetImageDataMessage(
+        GraphicsResource _destImage,
+        InternalResourceDataContainer&& _data,
+        std::shared_ptr<ResourceTransferReply>&& reply) noexcept;
     SetImageDataMessage(const SetImageDataMessage&) = delete;
     SetImageDataMessage& operator=(const SetImageDataMessage&) = delete;
     SetImageDataMessage(SetImageDataMessage&& other) noexcept;
@@ -260,11 +274,84 @@ using ResourceMessagePayloadType = std::variant<
     CopyResourceContentsMessage,
     DestroyResourceMessage>;
 
+// following message types are broadly the same, but feature extra info to reduce need for thread sync or safety concerns
+// with transfer system.
+
+struct TransferSystemReqBufferInfo
+{
+    VkBuffer bufferHandle;
+    VkBufferCreateInfo createInfo;
+    resource_usage resourceUsage;
+    resource_creation_flags flags;
+};
+
+struct TransferSystemReqImageInfo
+{
+    VkImage imageHandle;
+    VkImageCreateInfo createInfo;
+    resource_usage resourceUsage;
+    resource_creation_flags flags;
+};
+
+struct TransferSystemSetBufferDataMessage
+{
+    TransferSystemReqBufferInfo bufferInfo;
+    InternalResourceDataContainer data;
+    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+};
+
+struct TransferSystemSetImageDataMessage
+{
+    TransferSystemReqImageInfo imageInfo;
+    InternalResourceDataContainer data;
+    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+};
+
+struct TransferSystemFillBufferMessage
+{
+    TransferSystemReqBufferInfo bufferInfo;
+    uint32_t value{ 0 };
+    size_t offset{ 0 };
+    size_t size{ 0 };
+    std::shared_ptr<MessageReply> reply = nullptr;
+};
+
+struct TransferSystemCopyBufferToBufferMessage
+{
+    TransferSystemReqBufferInfo srcBufferInfo;
+    TransferSystemReqBufferInfo dstBufferInfo;
+    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+};
+
+struct TransferSystemCopyImageToImageMessage
+{
+    TransferSystemReqImageInfo srcImageInfo;
+    TransferSystemReqImageInfo dstImageInfo;
+    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+};
+
+struct TransferSystemCopyImageToBufferMessage
+{
+    TransferSystemReqImageInfo imageInfo;
+    TransferSystemReqBufferInfo bufferInfo;
+    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+};
+
+struct TransferSystemCopyBufferToImageMessage
+{
+    TransferSystemReqBufferInfo bufferInfo;
+    TransferSystemReqImageInfo imageInfo;
+    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+};
+
 using TransferPayloadType = std::variant<
-    SetBufferDataMessage,
-    SetImageDataMessage,
-    FillResourceMessage,
-    CopyResourceContentsMessage>;
+    TransferSystemSetBufferDataMessage,
+    TransferSystemSetImageDataMessage,
+    TransferSystemFillBufferMessage,
+    TransferSystemCopyBufferToBufferMessage,
+    TransferSystemCopyImageToImageMessage,
+    TransferSystemCopyImageToBufferMessage,
+    TransferSystemCopyBufferToImageMessage>;
 
 
 #endif // RESOURCE_MESSAGE_TYPES_INTERNAL_HPP

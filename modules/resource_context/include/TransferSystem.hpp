@@ -2,32 +2,17 @@
 #ifndef DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #define DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #include "ForwardDecl.hpp"
-#include "containers/mwsrQueue.hpp"
 #include "ResourceMessageTypesInternal.hpp"
-#include <vulkan/vulkan.h>
+#include "containers/mwsrQueue.hpp"
+#include <vulkan/vulkan_core.h>
 #include <memory>
 #include <vector>
-#include <unordered_set>
 #include <vk_mem_alloc.h>
+#include <thread>
 
 struct VulkanResource;
 struct UploadBuffer;
 class TransferCommandPool;
-
-class TransferCommand
-{
-public:
-    TransferCommand(const vpr::Device* _device, InternalResourceDataContainer&& _data);
-    ~TransferCommand();
-    void Execute();
-    bool IsComplete() const noexcept;
-private:
-    std::shared_ptr<ResourceTransferReply> reply;
-    VkCommandBuffer commandBuffer;
-    VkCommandPool commandPool;
-    VmaPool uploadPool;
-    std::unique_ptr<UploadBuffer> uploadBuffer;
-};
 
 class ResourceTransferSystem
 {
@@ -50,7 +35,62 @@ public:
 
     void EnqueueTransfer(TransferPayloadType&& payload);
 
+
 private:
+    
+    class TransferCommand
+    {
+    public:
+        TransferCommand(
+            const vpr::Device* _device,
+            InternalResourceDataContainer&& _data,
+            std::shared_ptr<ResourceTransferReply>&& _reply);
+        
+        ~TransferCommand();
+
+        TransferCommand(const TransferCommand&) = delete;
+        TransferCommand& operator=(const TransferCommand&) = delete;
+
+        TransferCommand(TransferCommand&& other) noexcept;
+        TransferCommand& operator=(TransferCommand&& other) noexcept;
+
+        const vpr::Device* device;
+        std::shared_ptr<ResourceTransferReply> reply;
+        VkCommandBuffer commandBuffer;
+        VkCommandPool commandPool;
+        VmaPool uploadPool;
+        std::unique_ptr<UploadBuffer> uploadBuffer;
+    };
+
+    // worker thread job, pops messages from the queue and processes them
+    void processMessages();
+
+    template<typename T>
+    void processMessage(T&& message);
+    template<>
+    void processMessage<TransferSystemSetBufferDataMessage>(TransferSystemSetBufferDataMessage&& message);
+    template<>
+    void processMessage<TransferSystemSetImageDataMessage>(TransferSystemSetImageDataMessage&& message);
+    template<>
+    void processMessage<TransferSystemFillBufferMessage>(TransferSystemFillBufferMessage&& message);
+    template<>
+    void processMessage<TransferSystemCopyBufferToBufferMessage>(TransferSystemCopyBufferToBufferMessage&& message);
+    template<>
+    void processMessage<TransferSystemCopyImageToImageMessage>(TransferSystemCopyImageToImageMessage&& message);
+    template<>
+    void processMessage<TransferSystemCopyImageToBufferMessage>(TransferSystemCopyImageToBufferMessage&& message);
+    template<>
+    void processMessage<TransferSystemCopyBufferToImageMessage>(TransferSystemCopyBufferToImageMessage&& message);
+
+    void processSetBufferDataMessage(TransferSystemSetBufferDataMessage&& message);
+    void setBufferDataHostOnly(TransferSystemSetBufferDataMessage&& message);
+    void setBufferDataUploadBuffer(TransferSystemSetBufferDataMessage&& message);
+    void processSetImageDataMessage(TransferSystemSetImageDataMessage&& message);
+    void processFillBufferMessage(TransferSystemFillBufferMessage&& message);
+    void processCopyBufferToBufferMessage(TransferSystemCopyBufferToBufferMessage&& message);
+    void processCopyImageToImageMessage(TransferSystemCopyImageToImageMessage&& message);
+    void processCopyImageToBufferMessage(TransferSystemCopyImageToBufferMessage&& message);
+    void processCopyBufferToImageMessage(TransferSystemCopyBufferToImageMessage&& message);
 
     mwsrQueue<TransferPayloadType> transferQueue;
 
@@ -69,21 +109,60 @@ private:
     VmaPool createPool();
     std::unique_ptr<UploadBuffer> createUploadBufferImpl(const size_t buffer_sz);
     void flushTransfersIfNeeded();
-    // use a circular buffer to always cap capacity, and this way we can check if if the pool is full - when 
-    // it is, we do a blocking wait on the fence to ensure that all the commands have been submitted and completed
-    // (then we can reset them and pop from the buffer)
-    circular_buffer<TransferCommandPool, 64> commandBuffers;
+    
     bool cmdBufferDirty = false;
     bool initialized = false;
+
+    std::vector<TransferCommand> commands;
     std::unique_ptr<vpr::CommandPool> transferCmdPool;
     std::vector<std::unique_ptr<UploadBuffer>> uploadBuffers;
-    std::vector<VkSemaphore> transferSignalSemaphores;
-    std::vector<uint64_t> transferSignalValues;
     std::unique_ptr<vpr::Fence> fence;
     const vpr::Device* device;
-    VmaAllocator allocator;
+    VmaAllocator allocatorHandle;
     std::vector<VmaPool> uploadPools;
     VkDeviceSize lastPoolSize{ VkDeviceSize(128e6) };
 };
+
+template<>
+inline void ResourceTransferSystem::processMessage<TransferSystemSetBufferDataMessage>(TransferSystemSetBufferDataMessage&& message)
+{
+    processSetBufferDataMessage(std::move(message));
+}
+
+template<>
+inline void ResourceTransferSystem::processMessage<TransferSystemSetImageDataMessage>(TransferSystemSetImageDataMessage&& message)
+{
+    processSetImageDataMessage(std::move(message));
+}
+
+template<>
+inline void ResourceTransferSystem::processMessage<TransferSystemFillBufferMessage>(TransferSystemFillBufferMessage&& message)
+{
+    processFillBufferMessage(std::move(message));
+}
+
+template<>
+inline void ResourceTransferSystem::processMessage<TransferSystemCopyBufferToBufferMessage>(TransferSystemCopyBufferToBufferMessage&& message)
+{
+    processCopyBufferToBufferMessage(std::move(message));
+}
+
+template<>
+inline void ResourceTransferSystem::processMessage<TransferSystemCopyImageToImageMessage>(TransferSystemCopyImageToImageMessage&& message)
+{
+    processCopyImageToImageMessage(std::move(message));
+}
+
+template<>
+inline void ResourceTransferSystem::processMessage<TransferSystemCopyImageToBufferMessage>(TransferSystemCopyImageToBufferMessage&& message)
+{
+    processCopyImageToBufferMessage(std::move(message));
+}
+
+template<>
+inline void ResourceTransferSystem::processMessage<TransferSystemCopyBufferToImageMessage>(TransferSystemCopyBufferToImageMessage&& message)
+{
+    processCopyBufferToImageMessage(std::move(message));
+}
 
 #endif //!DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP

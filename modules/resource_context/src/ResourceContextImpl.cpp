@@ -7,10 +7,11 @@
 #include <fstream>
 #include <format>
 
-#define VMA_IMPLEMENTATION
-#include <vk_mem_alloc.h>
 #define THSVS_SIMPLER_VULKAN_SYNCHRONIZATION_IMPLEMENTATION
 #include <thsvs_simpler_vulkan_synchronization.h>
+
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
 
 namespace
 {
@@ -21,6 +22,8 @@ namespace
     VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags);
     VkMemoryPropertyFlags GetMemoryPropertyFlags(resource_usage _resource_usage) noexcept;
     VkFormatFeatureFlags GetFormatFeatureFlagsFromUsage(const VkImageUsageFlags flags) noexcept;
+    VmaAllocationCreateFlags GetAllocationCreateFlags(const resource_creation_flags flags) noexcept;
+    VmaMemoryUsage GetVmaMemoryUsage(const resource_usage _resource_usage) noexcept;
 }
 
 void ResourceContextImpl::construct(const ResourceContextCreateInfo& createInfo)
@@ -33,10 +36,15 @@ void ResourceContextImpl::construct(const ResourceContextCreateInfo& createInfo)
     }
 
     const auto& applicationInfo = device->ParentInstance()->ApplicationInfo();
+    VmaAllocatorCreateFlags create_flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
+    if (applicationInfo.apiVersion < VK_API_VERSION_1_1)
+    {
+        create_flags |= VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT;
+    }
 
     VmaAllocatorCreateInfo create_info
     {
-        applicationInfo.apiVersion >= VK_API_VERSION_1_1 ? VMA_ALLOCATOR_CREATE_KHR_DEDICATED_ALLOCATION_BIT : 0u,
+        create_flags,
         createInfo.physicalDevice->vkHandle(),
         device->vkHandle(),
         0u,
@@ -52,8 +60,7 @@ void ResourceContextImpl::construct(const ResourceContextCreateInfo& createInfo)
     VkResult result = vmaCreateAllocator(&create_info, &allocatorHandle);
     VkAssert(result);
 
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    transfer_system.Initialize(device, allocatorHandle);
+    transferSystem.Initialize(device);
 
     startWorker();
 
@@ -152,6 +159,12 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
         message.userData,
         message.initialData.has_value());
 
+    if (buffer_handle == VK_NULL_HANDLE)
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+
     resourceRegistry.emplace<VkBuffer>(new_entity, buffer_handle);
 
     VkBufferView buffer_view = VK_NULL_HANDLE;
@@ -161,23 +174,43 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
         resourceRegistry.emplace<VkBufferView>(new_entity, buffer_view);
     }
 
-    message.reply->SetGraphicsResource(
-        resource_type::Buffer,
-        static_cast<uint32_t>(new_entity),
-        reinterpret_cast<uint64_t>(buffer_handle),
-        reinterpret_cast<uint64_t>(buffer_view),
-        0u);
-
     if (message.initialData)
     {
         // pass responsiblity on to transfer system now, transferring ownership of data with a move
-        // and resetting our copy of the shared pointer by exiting this ASAP
         message.reply->SetStatus(MessageReply::Status::Transferring);
-        setBufferData(new_entity, buffer_handle, message.initialData.value(), message.resourceUsage);
+        GraphicsResource createdResource
+        {
+            resource_type::Buffer,
+            static_cast<uint32_t>(new_entity),
+            reinterpret_cast<uint64_t>(buffer_handle),
+            reinterpret_cast<uint64_t>(buffer_view),
+            0u
+        };
+        message.reply->SetGraphicsResourceRelaxed(createdResource);
+
+        TransferSystemSetBufferDataMessage set_buffer_data_message
+        {
+            TransferSystemReqBufferInfo
+            {
+                buffer_handle,
+                message.bufferInfo,
+                message.resourceUsage,
+                message.flags
+            },
+            std::move(message.initialData.value()),
+            std::move(message.reply)
+        };
+
+        transferSystem.EnqueueTransfer(std::move(set_buffer_data_message));
     }
     else
     {
-        message.reply->SetStatus(MessageReply::Status::Completed);
+        message.reply->SetGraphicsResource(
+            resource_type::Buffer,
+            static_cast<uint32_t>(new_entity),
+            reinterpret_cast<uint64_t>(buffer_handle),
+            reinterpret_cast<uint64_t>(buffer_view),
+            0u);
     }
 
 }
@@ -192,27 +225,71 @@ void ResourceContextImpl::processCreateImageMessage(CreateImageMessage&& message
         message.resourceUsage,
         message.userData,
         message.initialData.has_value());
-    resourceRegistry.emplace<VkImage>(new_entity, image_handle);
+
+    if (image_handle != VK_NULL_HANDLE)
+    {
+        resourceRegistry.emplace<VkImage>(new_entity, image_handle);
+    }
+    else
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        resourceRegistry.destroy(new_entity);
+        return;
+    }
 
     VkImageView image_view = VK_NULL_HANDLE;
     if (message.viewInfo.has_value())
     {
         image_view = createImageView(new_entity, message.viewInfo.value(), message.flags);
-        resourceRegistry.emplace<VkImageView>(new_entity, image_view);
+        if (image_view != VK_NULL_HANDLE)
+        {
+            resourceRegistry.emplace<VkImageView>(new_entity, image_view);
+        }
+        else
+        {
+            message.reply->SetStatus(MessageReply::Status::Failed);
+            resourceRegistry.destroy(new_entity);
+            return;
+        }
     }
 
     if (message.initialData.has_value())
     {
-        const VkImageCreateInfo& image_info = resourceRegistry.get<VkImageCreateInfo>(new_entity);
-        setImageData(new_entity, image_handle, image_info, message.initialData.value(), message.flags);
+        message.reply->SetStatus(MessageReply::Status::Transferring);
+        GraphicsResource createdResource
+        {
+            resource_type::Image,
+            static_cast<uint32_t>(new_entity),
+            reinterpret_cast<uint64_t>(image_handle),
+            reinterpret_cast<uint64_t>(image_view),
+            0u
+        };
+        message.reply->SetGraphicsResourceRelaxed(createdResource);
+        
+        TransferSystemSetImageDataMessage set_image_data_message
+        {
+            TransferSystemReqImageInfo
+            {
+                image_handle,
+                resourceRegistry.get<VkImageCreateInfo>(new_entity),
+                message.resourceUsage,
+                message.flags
+            },
+            std::move(message.initialData.value()),
+            std::move(message.reply)
+        };
+        
+        transferSystem.EnqueueTransfer(std::move(set_image_data_message));
     }
-
-    message.reply->SetGraphicsResource(
-        resource_type::Image,
-        static_cast<uint32_t>(new_entity),
-        reinterpret_cast<uint64_t>(image_handle),
-        reinterpret_cast<uint64_t>(image_view),
-        0u);
+    else
+    {
+        message.reply->SetGraphicsResource(
+            resource_type::Image,
+            static_cast<uint32_t>(new_entity),
+            reinterpret_cast<uint64_t>(image_handle),
+            reinterpret_cast<uint64_t>(image_view),
+            0u);
+    }
 }
 
 void ResourceContextImpl::processCreateCombinedImageSamplerMessage(CreateCombinedImageSamplerMessage&& message)
@@ -226,36 +303,100 @@ void ResourceContextImpl::processCreateCombinedImageSamplerMessage(CreateCombine
         message.userData,
         message.initialData.has_value());
 
-    VkImageView image_view = createImageView(new_entity, message.viewInfo, message.flags);
-    resourceRegistry.emplace<VkImageView>(new_entity, image_view);
-
-    if (message.initialData.has_value())
+    if (image_handle != VK_NULL_HANDLE)
     {
-        const VkImageCreateInfo& image_info = resourceRegistry.get<VkImageCreateInfo>(new_entity);
-        setImageData(new_entity, image_handle, image_info, message.initialData.value(), message.flags);
+        resourceRegistry.emplace<VkImage>(new_entity, image_handle);
+    }
+    else
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        resourceRegistry.destroy(new_entity);
+        return;
+    }
+
+    VkImageView image_view = createImageView(new_entity, message.viewInfo, message.flags);
+    if (image_view != VK_NULL_HANDLE)
+    {
+        resourceRegistry.emplace<VkImageView>(new_entity, image_view);
+    }
+    else
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        resourceRegistry.destroy(new_entity);
+        return;
     }
 
     VkSampler sampler = createSampler(new_entity, message.samplerInfo, message.flags, message.userData);
-    resourceRegistry.emplace<VkSampler>(new_entity, sampler);
-    
-    message.reply->SetGraphicsResource(
-        resource_type::CombinedImageSampler,
-        static_cast<uint32_t>(new_entity),
-        reinterpret_cast<uint64_t>(image_handle),
-        reinterpret_cast<uint64_t>(image_view),
-        reinterpret_cast<uint64_t>(sampler));
+    if (sampler != VK_NULL_HANDLE)
+    {
+        resourceRegistry.emplace<VkSampler>(new_entity, sampler);
+    }
+    else
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        resourceRegistry.destroy(new_entity);
+        return;
+    }
+
+    if (message.initialData.has_value())
+    {
+        message.reply->SetStatus(MessageReply::Status::Transferring);
+        GraphicsResource createdResource
+        {
+            resource_type::CombinedImageSampler,
+            static_cast<uint32_t>(new_entity),
+            reinterpret_cast<uint64_t>(image_handle),
+            reinterpret_cast<uint64_t>(image_view),
+            reinterpret_cast<uint64_t>(sampler)
+        };
+        message.reply->SetGraphicsResourceRelaxed(createdResource);
+
+        TransferSystemSetImageDataMessage set_image_data_message
+        {
+            TransferSystemReqImageInfo
+            {
+                image_handle,
+                resourceRegistry.get<VkImageCreateInfo>(new_entity),
+                message.resourceUsage,
+                message.flags
+            },
+            std::move(message.initialData.value()),
+            std::move(message.reply)
+        };
+        
+        transferSystem.EnqueueTransfer(std::move(set_image_data_message));
+    }
+    else
+    {
+        message.reply->SetGraphicsResource(
+            resource_type::CombinedImageSampler,
+            static_cast<uint32_t>(new_entity),
+            reinterpret_cast<uint64_t>(image_handle),
+            reinterpret_cast<uint64_t>(image_view),
+            reinterpret_cast<uint64_t>(sampler));
+    }
 }
 
 void ResourceContextImpl::processCreateSamplerMessage(CreateSamplerMessage&& message)
 {
     const entt::entity new_entity = resourceRegistry.create();
     VkSampler sampler = createSampler(new_entity, message.samplerInfo, message.flags, message.userData);
-    resourceRegistry.emplace<VkSampler>(new_entity, sampler);
+    if (sampler != VK_NULL_HANDLE)
+    {
+        resourceRegistry.emplace<VkSampler>(new_entity, sampler);
+    }
+    else
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        resourceRegistry.destroy(new_entity);
+        return;
+    }
 
     message.reply->SetGraphicsResource(
         resource_type::Sampler,
         static_cast<uint32_t>(new_entity),
         0u, 0u, reinterpret_cast<uint64_t>(sampler));
+
 }
 
 void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& message)
@@ -264,22 +405,32 @@ void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& mes
     const entt::entity entity = entt::entity(buffer.ResourceHandle);
     if (!resourceRegistry.valid(entity))
     {
-        message.reply->SetStatus(StatusMessageReply::Status::Failed);
+        message.reply->SetStatus(MessageReply::Status::Failed);
         return;
     }
 
-    const VkBuffer buffer_handle = resourceRegistry.get<VkBuffer>(entity);
-    if (!buffer_handle)
+    auto[buffer_handle, buffer_info, buffer_flags] = resourceRegistry.try_get<VkBuffer, VkBufferCreateInfo, ResourceFlags>(entity);
+    if (!buffer_handle || !buffer_info || !buffer_flags)
     {
-        message.reply->SetStatus(StatusMessageReply::Status::Failed);
+        message.reply->SetStatus(MessageReply::Status::Failed);
         return;
     }
 
-    const ResourceFlags& flags = resourceRegistry.get<ResourceFlags>(entity);
+    TransferSystemSetBufferDataMessage set_buffer_data_message
+    {
+        TransferSystemReqBufferInfo
+        {
+            *buffer_handle,
+            *buffer_info,
+            buffer_flags->resourceUsage,
+            buffer_flags->flags
+        },
+        std::move(message.data),
+        std::move(message.reply)
+    };
 
-    setBufferData(entity, buffer_handle, message.data, flags.resourceUsage);
-
-    message.reply->SetStatus(StatusMessageReply::Status::Completed);
+    message.reply->SetStatus(MessageReply::Status::Transferring);
+    transferSystem.EnqueueTransfer(std::move(set_buffer_data_message));
 }
 
 void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& message)
@@ -288,28 +439,117 @@ void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& messa
     const entt::entity entity = entt::entity(buffer.ResourceHandle);
     if (!resourceRegistry.valid(entity))
     {
-        message.reply->SetStatus(StatusMessageReply::Status::Failed);
+        message.reply->SetStatus(MessageReply::Status::Failed);
         return;
     }
 
-    const VkBuffer buffer_handle = resourceRegistry.get<VkBuffer>(entity);
-    if (!buffer_handle)
+    auto[ buffer_handle, buffer_info, buffer_flags ] = resourceRegistry.try_get<VkBuffer, VkBufferCreateInfo, ResourceFlags>(entity);
+    if (!buffer_handle || !buffer_info || !buffer_flags)
     {
-        message.reply->SetStatus(StatusMessageReply::Status::Failed);
+        message.reply->SetStatus(MessageReply::Status::Failed);
         return;
     }
 
-    fillBuffer(entity, buffer_handle, message.value, message.offset, message.size);
+    TransferSystemFillBufferMessage fill_buffer_message
+    {
+        TransferSystemReqBufferInfo
+        {
+            *buffer_handle,
+            *buffer_info,
+            buffer_flags->resourceUsage,
+            buffer_flags->flags
+        },
+        message.value,
+        message.offset,
+        message.size,
+        std::move(message.reply)
+    };
 
-    message.reply->SetStatus(StatusMessageReply::Status::Success);
+    message.reply->SetStatus(MessageReply::Status::Transferring);
+    transferSystem.EnqueueTransfer(std::move(fill_buffer_message));
+
 }
 
 void ResourceContextImpl::processMapResourceMessage(MapResourceMessage&& message)
 {
+    const entt::entity entity = entt::entity(message.resource.ResourceHandle);
+    if (!resourceRegistry.valid(entity))
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+
+    auto[ buffer_handle, allocation_info, allocation_handle, buffer_flags ] =
+        resourceRegistry.try_get<VkBuffer, VmaAllocationInfo, VmaAllocation, ResourceFlags>(entity);
+    if (!buffer_handle || !allocation_info || !allocation_handle || !buffer_flags)
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+
+    // sanity check - is the VkBuffer in the resource the same as the one in the registry?
+    const GraphicsResource& buffer = message.resource;
+    if (buffer.VkHandle != reinterpret_cast<uint64_t>(*buffer_handle))
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+    
+    // now check for some easy stuff - is this persistently mapped or created mapped? if so, yay we can just use that pointer!
+    // (so lang as it's set, if not then oops things are broken, go home etc)
+    if (((buffer_flags->flags & resource_creation_flag_bits::PersistentlyMapped) ||
+         (buffer_flags->flags & resource_creation_flag_bits::CreateMapped)) &&
+         allocation_info->pMappedData)
+    {
+        message.reply->SetPointer(allocation_info->pMappedData);
+        return;
+    }
+    else if ((buffer_flags->flags & resource_creation_flag_bits::PersistentlyMapped) && !allocation_info->pMappedData)
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+
+    // otherwise, we need to get a pointer to the buffer
+    void* mapped_pointer = nullptr;
+    VkResult result = vmaMapMemory(allocatorHandle, *allocation_handle, &mapped_pointer);
+    VkAssert(result);
+    
+    message.reply->SetPointer(mapped_pointer);
 }
 
 void ResourceContextImpl::processUnmapResourceMessage(UnmapResourceMessage&& message)
 {
+    const entt::entity entity = entt::entity(message.resource.ResourceHandle);
+    if (!resourceRegistry.valid(entity))
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+
+    auto[ buffer_handle, allocation_info, allocation_handle, buffer_flags ] =
+        resourceRegistry.try_get<VkBuffer, VmaAllocationInfo, VmaAllocation, ResourceFlags>(entity);
+    if (!buffer_handle || !allocation_info || !allocation_handle || !buffer_flags)
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+
+    if (message.resource.VkHandle != reinterpret_cast<uint64_t>(*buffer_handle))
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+
+    // don't want to unmap something that's persistently mapped!
+    if (buffer_flags->flags & resource_creation_flag_bits::PersistentlyMapped)
+    {
+        message.reply->SetStatus(MessageReply::Status::Completed);
+        return;
+    }
+
+    vmaUnmapMemory(allocatorHandle, *allocation_handle);
+
 }
 
 void ResourceContextImpl::processCopyResourceMessage(CopyResourceMessage&& message)
@@ -337,7 +577,7 @@ VkBuffer ResourceContextImpl::createBuffer(
     VkBufferCreateInfo& buffer_create_info = resourceRegistry.emplace<VkBufferCreateInfo>(new_entity, std::move(buffer_info)); 
     const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Buffer, _flags, 0x0, _resource_usage);
     ResourceDebugName debug_name;
-    if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
+    if (flags.flags & resource_creation_flag_bits::UserDataAsString)
     {
         // working with value instead of ref fine because we're just gonna read it for the debug name setting in a sec
         // don't use macro yet because that contains timestamp info!
@@ -354,9 +594,9 @@ VkBuffer ResourceContextImpl::createBuffer(
 
     VmaAllocationCreateInfo alloc_create_info
     {
-        (VmaAllocationCreateFlags)flags.flags,
-        (VmaMemoryUsage)flags.resourceUsage,
-        GetMemoryPropertyFlags(flags.resourceUsage),
+        GetAllocationCreateFlags(flags.flags),
+        GetVmaMemoryUsage(flags.resourceUsage),
+        0u,
         0u,
         UINT32_MAX,
         VK_NULL_HANDLE,
@@ -369,10 +609,13 @@ VkBuffer ResourceContextImpl::createBuffer(
     
     if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
     {
-        if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
+        if (flags.flags & resource_creation_flag_bits::UserDataAsString)
         {
+            const char* debugName = VTF_DEBUG_OBJECT_NAME(debug_name.c_str());
+            std::string debugAllocName = std::format("{}_allocation", debugName);
             result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(buffer_handle), VTF_DEBUG_OBJECT_NAME(debug_name.c_str()));
             VkAssert(result);
+            vmaSetAllocationName(allocatorHandle, alloc, debugAllocName.c_str());
         }
     }
 
@@ -394,7 +637,7 @@ VkBufferView ResourceContextImpl::createBufferView(
 
     if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
     {
-        if (_flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
+        if (_flags & resource_creation_flag_bits::UserDataAsString)
         {
             const std::string object_name = std::format("{}_buffer_view", reinterpret_cast<const char*>(user_data_ptr));
             result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER_VIEW, reinterpret_cast<uint64_t>(buffer_view), VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
@@ -405,28 +648,24 @@ VkBufferView ResourceContextImpl::createBufferView(
     return buffer_view;
 }
 
-void ResourceContextImpl::setBufferData(entt::entity new_entity, VkBuffer buffer_handle, InternalResourceDataContainer& dataContainer, resource_usage _resource_usage)
-{
-    if (_resource_usage == resource_usage::CPUOnly)
-    {
-        setBufferDataHostOnly(new_entity, dataContainer);
-    }
-    else
-    {
-        setBufferDataUploadBuffer(new_entity, dataContainer);
-    }
-}
-
 void ResourceContextImpl::setBufferDataHostOnly(entt::entity new_entity, InternalResourceDataContainer& dataContainer)
 {
     const VmaAllocationInfo& alloc_info = resourceRegistry.get<VmaAllocationInfo>(new_entity);
     const VmaAllocation& alloc = resourceRegistry.get<VmaAllocation>(new_entity);
 
     void* mapped_address = nullptr;
-    VkResult result = vmaMapMemory(allocatorHandle, alloc, &mapped_address);
-    VkAssert(result);
+    if (alloc_info.pMappedData)
+    {
+        mapped_address = alloc_info.pMappedData;
+    }
+    else
+    {
+        VkResult result = vmaMapMemory(allocatorHandle, alloc, &mapped_address);
+        VkAssert(result);
+    }
 
     InternalResourceDataContainer::BufferDataVector dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(dataContainer.DataVector);
+    
     size_t offset = 0u;
     for (size_t i = 0u; i < dataVector.size(); ++i)
     {
@@ -434,54 +673,10 @@ void ResourceContextImpl::setBufferDataHostOnly(entt::entity new_entity, Interna
         std::memcpy(curr_address, dataVector[i].data.get(), dataVector[i].size);
         offset += dataVector[i].size;
     }
+
     vmaUnmapMemory(allocatorHandle, alloc);
-    vmaFlushAllocation(allocatorHandle, alloc, 0u, offset);
+    vmaFlushAllocation(allocatorHandle, alloc, VK_WHOLE_SIZE, 0);
     // free copied memory, finally
-    dataVector.clear();
-}
-
-void ResourceContextImpl::setBufferDataUploadBuffer(entt::entity new_entity, InternalResourceDataContainer& dataContainer)
-{
-    const VkBufferCreateInfo& buffer_create_info = resourceRegistry.get<VkBufferCreateInfo>(new_entity);
-    const VkBuffer buffer_handle = resourceRegistry.get<VkBuffer>(new_entity);
-
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(buffer_create_info.size);
-
-    // note that this is copying to an API managed staging buffer, not just another raw data buffer like our data container. will only be briefly duplicated
-    InternalResourceDataContainer::BufferDataVector dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(dataContainer.DataVector);
-    std::vector<VkBufferCopy> buffer_copies(dataVector.size());
-    VkDeviceSize offset = 0;
-    for (size_t i = 0; i < dataVector.size(); ++i)
-    {
-        upload_buffer->SetData(dataVector[i].data.get(), dataVector[i].size, offset);
-        buffer_copies[i].size = dataVector[i].size;
-        buffer_copies[i].dstOffset = offset;
-        buffer_copies[i].srcOffset = offset;
-        offset += dataVector[i].size;
-    }
-
-    auto cmd = transfer_system.TransferCmdBuffer();
-    vkCmdCopyBuffer(cmd, upload_buffer->Buffer, buffer_handle, static_cast<uint32_t>(buffer_copies.size()), buffer_copies.data());
-
-    constexpr static ThsvsAccessType transfer_access_types[1]
-    {
-        THSVS_ACCESS_TRANSFER_WRITE
-    };
-
-    const std::vector<ThsvsAccessType> possible_accesses = thsvsAccessTypesFromBufferUsage(buffer_create_info.usage);
-    
-    const ThsvsGlobalBarrier global_barrier
-    {
-        1u,
-        transfer_access_types,
-        static_cast<uint32_t>(possible_accesses.size()),
-        possible_accesses.data()
-    };
-
-    thsvsCmdPipelineBarrier(cmd, &global_barrier, 1u, nullptr, 0u, nullptr);
-
-    // we can clear and free the stored data now
     dataVector.clear();
 }
 
@@ -496,7 +691,7 @@ VkImage ResourceContextImpl::createImage(
     VkImageCreateInfo& image_create_info = resourceRegistry.emplace<VkImageCreateInfo>(new_entity, std::move(message.imageInfo));
     const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Image, message.flags, 0x0, message.resourceUsage);
     ResourceDebugName debug_name;
-    if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
+    if (flags.flags & resource_creation_flag_bits::UserDataAsString)
     {
         debug_name = resourceRegistry.emplace<ResourceDebugName>(new_entity, reinterpret_cast<const char*>(message.userData));
     }
@@ -511,9 +706,9 @@ VkImage ResourceContextImpl::createImage(
 
     VmaAllocationCreateInfo alloc_create_info
     {
-        (VmaAllocationCreateFlags)flags.flags,
-        (VmaMemoryUsage)flags.resourceUsage,
-        GetMemoryPropertyFlags(flags.resourceUsage),
+        GetAllocationCreateFlags(flags.flags),
+        GetVmaMemoryUsage(flags.resourceUsage),
+        0u,
         0u,
         UINT32_MAX,
         VK_NULL_HANDLE,
@@ -525,10 +720,17 @@ VkImage ResourceContextImpl::createImage(
     resourceRegistry.emplace<VkImage>(new_entity, image_handle);
     VkAssert(result);
 
-    if (flags.flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
+    if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
     {
-        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(image_handle), VTF_DEBUG_OBJECT_NAME(debug_name.c_str()));
-        VkAssert(result);
+        if (flags.flags & resource_creation_flag_bits::UserDataAsString)
+        {
+            const char* debugName = VTF_DEBUG_OBJECT_NAME(debug_name.c_str());
+            std::string debugAllocationName = std::format("{}_allocation", debugName);
+            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(image_handle), VTF_DEBUG_OBJECT_NAME(debug_name.c_str()));
+            VkAssert(result);
+            vmaSetAllocationName(allocatorHandle, alloc, debugAllocationName.c_str());
+
+        }
     }
 
     return image_handle;
@@ -553,7 +755,7 @@ VkImageView ResourceContextImpl::createImageView(
     VkResult result = vkCreateImageView(device->vkHandle(), &image_view_create_info, nullptr, &image_view);
     VkAssert(result);
 
-    if (resource_flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
+    if (resource_flags & resource_creation_flag_bits::UserDataAsString)
     {
         const std::string& parent_name = resourceRegistry.get<ResourceDebugName>(new_entity);
         const std::string object_name = parent_name + "_image_view";
@@ -562,96 +764,6 @@ VkImageView ResourceContextImpl::createImageView(
     }
 
     return image_view;
-}
-
-void ResourceContextImpl::setImageData(
-    entt::entity new_entity,
-    VkImage image_handle,
-    const VkImageCreateInfo& image_info,
-    InternalResourceDataContainer& dataContainer,
-    const resource_creation_flags _flags)
-{
-    constexpr static ThsvsAccessType transfer_access_types[1]
-    {
-        THSVS_ACCESS_TRANSFER_WRITE
-    };
-
-    // things will get really broken with images if this is true
-    // will handle concurrent sharing mode in the future if we need to
-    assert(image_info.sharingMode != VK_SHARING_MODE_EXCLUSIVE);
-
-    // required, unlike with buffers. forces a layout transition.
-    const ThsvsImageBarrier pre_transfer_barrier
-    {
-        0u,
-        nullptr,
-        1u,
-        transfer_access_types,
-        THSVS_IMAGE_LAYOUT_GENERAL,
-        THSVS_IMAGE_LAYOUT_OPTIMAL,
-        VK_FALSE,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        image_handle,
-        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, image_info.mipLevels, 0u, image_info.arrayLayers }
-    };
-
-    auto post_transfer_access_types = thsvsAccessTypesFromImageUsage(image_info.usage);
-
-    ThsvsImageBarrier post_transfer_barrier
-    {
-        1u,
-        transfer_access_types,
-        static_cast<uint32_t>(post_transfer_access_types.size()),
-        post_transfer_access_types.data(),
-        THSVS_IMAGE_LAYOUT_OPTIMAL,
-        THSVS_IMAGE_LAYOUT_OPTIMAL,
-        VK_FALSE,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
-        image_handle,
-        VkImageSubresourceRange { VK_IMAGE_ASPECT_COLOR_BIT, 0u, image_info.mipLevels, 0u, image_info.arrayLayers }
-    };
-
-    VmaAllocation& alloc = resourceRegistry.get<VmaAllocation>(new_entity);
-    UploadBuffer* upload_buffer = transferSystem.CreateUploadBuffer(alloc->GetSize());
-
-    InternalResourceDataContainer::ImageDataVector imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(dataContainer.DataVector);
-
-    std::vector<VkBufferImageCopy> buffer_image_copies;
-    buffer_image_copies.reserve(imageDataVector.size());
-    size_t copy_offset = 0u;
-
-    const uint32_t num_layers = dataContainer.NumLayers.value();
-
-    for (uint32_t i = 0u; i < imageDataVector.size(); ++i)
-    {
-        VkBufferImageCopy copy;
-        copy.bufferOffset = copy_offset;
-        copy.bufferRowLength = 0u;
-        copy.bufferImageHeight = 0u;
-        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        copy.imageSubresource.baseArrayLayer = imageDataVector[i].arrayLayer;
-        copy.imageSubresource.layerCount = num_layers;
-        copy.imageSubresource.mipLevel = imageDataVector[i].mipLevel;
-        copy.imageOffset = VkOffset3D{ 0, 0, 0 };
-        copy.imageExtent = VkExtent3D{ imageDataVector[i].width, imageDataVector[i].height, 1u };
-        buffer_image_copies.emplace_back(std::move(copy));
-        assert(imageDataVector[i].mipLevel < image_info.mipLevels);
-        assert(imageDataVector[i].arrayLayer < image_info.arrayLayers);
-    }
-
-    auto cmd = transferSystem.TransferCmdBuffer();
-    
-    thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 1u, &pre_transfer_barrier);
-    vkCmdCopyBufferToImage(
-        cmd,
-        upload_buffer->Buffer,
-        image_handle,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        static_cast<uint32_t>(buffer_image_copies.size()),
-        buffer_image_copies.data());
-    thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 1u, &post_transfer_barrier);
 }
 
 VkSampler ResourceContextImpl::createSampler(
@@ -703,401 +815,6 @@ void ResourceContextImpl::writeStatsJsonFile(const char* output_file)
 
     outputFile.write(output, strlen(output));
     vmaFreeStatsString(allocatorHandle, output);
-}
-
-void ResourceContextImpl::createBufferResourceCopy(GraphicsResource* src, GraphicsResource** dst)
-{
-    const VkBufferCreateInfo* create_info = reinterpret_cast<const VkBufferCreateInfo*>(src->Info);
-    const VkBufferViewCreateInfo* view_info = nullptr;
-    if (reinterpret_cast<VkBufferView>(src->ViewHandle) != VK_NULL_HANDLE)
-    {
-        view_info = reinterpret_cast<const VkBufferViewCreateInfo*>(src->ViewInfo);
-    }
-    *dst = createBuffer(create_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), 0, nullptr);
-}
-
-void ResourceContextImpl::createImageResourceCopy(GraphicsResource* src, GraphicsResource** dst)
-{
-    const VkImageCreateInfo* image_info = reinterpret_cast<const VkImageCreateInfo*>(src->Info);
-    const VkImageViewCreateInfo* view_info = nullptr;
-    if (reinterpret_cast<VkImageView>(src->ViewHandle) != VK_NULL_HANDLE)
-    {
-        view_info = reinterpret_cast<const VkImageViewCreateInfo*>(src->ViewInfo);
-    }
-    *dst = createImage(image_info, view_info, 0, nullptr, resourceInfos.resourceMemoryType.at(src), resourceInfos.resourceFlags.at(src), nullptr);
-    copyResourceContents(src, *dst);
-}
-
-void ResourceContextImpl::createSamplerResourceCopy(GraphicsResource * src, GraphicsResource** dst)
-{
-    const VkSamplerCreateInfo* sampler_info = reinterpret_cast<const VkSamplerCreateInfo*>(src->Info);
-    *dst = createSampler(sampler_info, resource_creation_flags(), nullptr);
-}
-
-void ResourceContextImpl::createCombinedImageSamplerResourceCopy(GraphicsResource* src, GraphicsResource** dest)
-{
-    createImageResourceCopy(src, dest);
-    GraphicsResource** sampler_to_create = &(*dest)->Sampler;
-    createSamplerResourceCopy(src->Sampler, sampler_to_create);
-    (*dest)->Type = resource_type::CombinedImageSampler;
-}
-
-void ResourceContextImpl::copyBufferContentsToBuffer(GraphicsResource* src, GraphicsResource* dst)
-{
-
-    const VkBufferCreateInfo* src_info = reinterpret_cast<const VkBufferCreateInfo*>(src->Info);
-    const VkBufferCreateInfo* dst_info = reinterpret_cast<const VkBufferCreateInfo*>(dst->Info);
-    assert(src_info->size <= dst_info->size);
-    const VkBufferCopy copy
-    {
-        0u,
-        0u,
-        src_info->size
-    };
-
-    const VkBufferMemoryBarrier pre_transfer_barriers[2]
-    {
-        VkBufferMemoryBarrier
-        {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            accessFlagsFromBufferUsage(src_info->usage),
-            VK_ACCESS_TRANSFER_READ_BIT,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)src->Handle,
-            0,
-            src_info->size
-        },
-        VkBufferMemoryBarrier
-        {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            accessFlagsFromBufferUsage(dst_info->usage),
-            VK_ACCESS_TRANSFER_WRITE_BIT,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)dst->Handle,
-            0,
-            dst_info->size
-        }
-    };
-
-    const VkBufferMemoryBarrier post_transfer_barriers[2]
-    {
-        VkBufferMemoryBarrier
-        {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_TRANSFER_READ_BIT,
-            accessFlagsFromBufferUsage(src_info->usage),
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)src->Handle,
-            0,
-            src_info->size
-        },
-        VkBufferMemoryBarrier
-        {
-            VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            nullptr,
-            VK_ACCESS_TRANSFER_WRITE_BIT,
-            accessFlagsFromBufferUsage(dst_info->usage),
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)dst->Handle,
-            0,
-            dst_info->size
-        }
-    };
-
-    
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    auto cmd = transfer_system.TransferCmdBuffer();
-
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, 0u, nullptr, 2u, pre_transfer_barriers, 0u, nullptr);
-    vkCmdCopyBuffer(cmd, (VkBuffer)src->Handle, (VkBuffer)dst->Handle, 1, &copy);
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0u, 0u, nullptr, 2u, post_transfer_barriers, 0u, nullptr);
-    
-}
-
-void ResourceContextImpl::copyImageContentsToImage(GraphicsResource* src, GraphicsResource* dst, const VkImageSubresourceRange& src_range, const VkImageSubresourceRange& dst_range,
-    const std::vector<VkImageCopy>& image_copies)
-{
-
-    const VkImageCreateInfo& src_info = resourceInfos.imageInfos.at(src);
-    assert(src_info.sharingMode == VK_SHARING_MODE_CONCURRENT);
-    const VkImageCreateInfo& dst_info = resourceInfos.imageInfos.at(dst);
-
-    // these will be used to transition back to the right layout after the transfer
-    // (and to specify right layout we're transitioning from)
-    const auto src_accesses = thsvsAccessTypesFromImageUsage(src_info.usage);
-    const auto dst_accesses = thsvsAccessTypesFromImageUsage(dst_info.usage);
-
-    constexpr static ThsvsAccessType transfer_access_type_write[1]
-    {
-        THSVS_ACCESS_TRANSFER_WRITE
-    };
-
-    constexpr static ThsvsAccessType transfer_access_type_read[1]
-    {
-        THSVS_ACCESS_TRANSFER_READ
-    };
-
-    const ThsvsImageBarrier pre_transfer_barriers[2]
-    {
-        ThsvsImageBarrier
-        {
-            static_cast<uint32_t>(src_accesses.size()),
-            src_accesses.data(),
-            1u,
-            transfer_access_type_read,
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            VK_FALSE,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)src->Handle,
-            src_range
-        },
-        ThsvsImageBarrier
-        {
-            static_cast<uint32_t>(dst_accesses.size()),
-            dst_accesses.data(),
-            1u,
-            transfer_access_type_write,
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            VK_FALSE,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)dst->Handle,
-            dst_range
-        }
-    };
-
-    const ThsvsImageBarrier post_transfer_barriers[2]
-    {
-        ThsvsImageBarrier
-        {
-            1u,
-            transfer_access_type_read,
-            static_cast<uint32_t>(src_accesses.size()),
-            src_accesses.data(),
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            VK_FALSE,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)src->Handle,
-            src_range
-        },
-        ThsvsImageBarrier
-        {
-            1u,
-            transfer_access_type_write,
-            static_cast<uint32_t>(dst_accesses.size()),
-            dst_accesses.data(),
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            VK_FALSE,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)dst->Handle,
-            dst_range
-        }
-    };
-
-    const VkImageLayout src_layout = imageLayoutFromUsage(src_info.usage);
-    const VkImageLayout dst_layout = imageLayoutFromUsage(dst_info.usage);
-
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    auto cmd = transfer_system.TransferCmdBuffer();
-
-    thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 2u, pre_transfer_barriers);
-    vkCmdCopyImage(cmd, (VkImage)src->Handle, src_layout, (VkImage)dst->Handle, dst_layout, static_cast<uint32_t>(image_copies.size()), image_copies.data());
-    thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 2u, post_transfer_barriers);
-
-}
-
-void ResourceContextImpl::copyBufferContentsToImage(GraphicsResource* src, GraphicsResource* dst, const VkDeviceSize src_offset, const VkImageSubresourceRange& dst_range,
-    const std::vector<VkBufferImageCopy>& copy_params)
-{
-    assert((dst->Type == resource_type::Image || dst->Type == resource_type::CombinedImageSampler) && (src->Type == resource_type::Buffer));
-
-    const VkBufferCreateInfo& src_info = resourceInfos.bufferInfos.at(src);
-    const VkImageCreateInfo& dst_info = resourceInfos.imageInfos.at(dst);
-
-    // these will be used to transition back to the right layout after the transfer
-    // (and to specify right layout we're transitioning from)
-    const auto src_accesses = thsvsAccessTypesFromBufferUsage(src_info.usage);
-    const auto dst_accesses = thsvsAccessTypesFromImageUsage(dst_info.usage);
-
-    constexpr static ThsvsAccessType transfer_access_type_write[1]
-    {
-        THSVS_ACCESS_TRANSFER_WRITE
-    };
-
-    constexpr static ThsvsAccessType transfer_access_type_read[1]
-    {
-        THSVS_ACCESS_TRANSFER_READ
-    };
-
-    const ThsvsBufferBarrier pre_transfer_buffer_barrier[1]
-    {
-        ThsvsBufferBarrier
-        {
-            static_cast<uint32_t>(src_accesses.size()),
-            src_accesses.data(),
-            1u,
-            transfer_access_type_read,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)src->Handle,
-            src_offset,
-            src_info.size
-        }
-    };
-
-    const ThsvsImageBarrier pre_transfer_image_barrier[1]
-    {
-        ThsvsImageBarrier
-        {
-            static_cast<uint32_t>(dst_accesses.size()),
-            dst_accesses.data(),
-            1u,
-            transfer_access_type_write,
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            VK_FALSE,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)dst->Handle,
-            dst_range
-        }
-    };
-
-    const ThsvsBufferBarrier post_transfer_buffer_barrier[1]
-    {
-        ThsvsBufferBarrier
-        {
-            1u,
-            transfer_access_type_read,
-            static_cast<uint32_t>(src_accesses.size()),
-            src_accesses.data(),
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)src->Handle,
-            src_offset,
-            src_info.size
-        }
-    };
-
-    const ThsvsImageBarrier post_transfer_image_barrier[1]{
-        ThsvsImageBarrier{
-            1u,
-            transfer_access_type_write,
-            static_cast<uint32_t>(dst_accesses.size()),
-            dst_accesses.data(),
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            THSVS_IMAGE_LAYOUT_OPTIMAL,
-            VK_FALSE,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)dst->Handle,
-            dst_range
-        }
-    };
-
-    const VkImageLayout dst_layout = imageLayoutFromUsage(dst_info.usage);
-
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    auto cmd = transfer_system.TransferCmdBuffer();
-
-    thsvsCmdPipelineBarrier(cmd, nullptr, 1u, pre_transfer_buffer_barrier, 1u, pre_transfer_image_barrier);
-    vkCmdCopyBufferToImage(cmd, (VkBuffer)src->Handle, (VkImage)dst->Handle, dst_layout, static_cast<uint32_t>(copy_params.size()), copy_params.data());
-    thsvsCmdPipelineBarrier(cmd, nullptr, 1u, post_transfer_buffer_barrier, 1u, post_transfer_image_barrier);
-
-}
-
-void ResourceContextImpl::copyImageContentsToBuffer(GraphicsResource* src, GraphicsResource* dst)
-{
-    assert((src->Type == resource_type::Image || src->Type == resource_type::CombinedImageSampler) && (dst->Type == resource_type::Buffer));
-
-    throw std::runtime_error("Not yet implemented!");
-}
-
-void ResourceContextImpl::destroyBuffer(resource_iter_t iter)
-{
-    GraphicsResource* rsrc = iter->get();
-    if (rsrc->ViewHandle != 0)
-    {
-        vkDestroyBufferView(device->vkHandle(), (VkBufferView)rsrc->ViewHandle, nullptr);
-    }
-    vmaDestroyBuffer(allocatorHandle, (VkBuffer)rsrc->Handle, resourceAllocations.at(rsrc));
-    resourceInfos.bufferInfos.erase(rsrc);
-    resourceInfos.bufferViewInfos.erase(rsrc);
-    resourceAllocations.erase(rsrc);
-    resourceInfos.resourceMemoryType.erase(rsrc);
-    resourceInfos.resourceFlags.erase(rsrc);
-    resources.erase(iter);
-}
-
-void ResourceContextImpl::destroyImage(resource_iter_t iter)
-{
-    GraphicsResource* rsrc = iter->get();
-    if (rsrc->ViewHandle != 0)
-    {
-        vkDestroyImageView(device->vkHandle(), (VkImageView)rsrc->ViewHandle, nullptr);
-    }
-    vmaDestroyImage(allocatorHandle, (VkImage)rsrc->Handle, resourceAllocations.at(rsrc));
-    resources.erase(iter);
-    resourceInfos.imageInfos.erase(rsrc);
-    resourceInfos.imageViewInfos.erase(rsrc);
-    resourceAllocations.erase(rsrc);
-    resourceInfos.resourceMemoryType.erase(rsrc);
-    resourceInfos.resourceFlags.erase(rsrc);
-}
-
-void ResourceContextImpl::destroySampler(resource_iter_t iter)
-{
-    GraphicsResource* rsrc = iter->get();
-    vkDestroySampler(device->vkHandle(), (VkSampler)rsrc->Handle, nullptr);
-    resourceInfos.samplerInfos.erase(rsrc);
-    resources.erase(iter);
-}
-
-void* ResourceContextImpl::map(GraphicsResource* resource, size_t size, size_t offset)
-{
-    resource_usage alloc_usage{ resource_usage::InvalidResourceUsage };
-    VmaAllocation alloc{ VK_NULL_HANDLE };
-
-    alloc = resourceAllocations.at(resource);
-    alloc_usage = resourceInfos.resourceMemoryType.at(resource);
-    if (alloc_usage == resource_usage::GPUToCPU)
-    {
-        vmaInvalidateAllocation(allocatorHandle, alloc, offset, size == 0u ? VK_WHOLE_SIZE : size);
-    }
-    
-    void* mapped_ptr = nullptr;
-    VkResult result = vmaMapMemory(allocatorHandle, alloc, &mapped_ptr);
-    VkAssert(result);
-    return mapped_ptr;
-}
-
-void ResourceContextImpl::unmap(GraphicsResource* resource, size_t size, size_t offset)
-{
-    VmaAllocation alloc{ VK_NULL_HANDLE };
-    resource_usage alloc_usage{ resource_usage::InvalidResourceUsage };
-
-    alloc = resourceAllocations.at(resource);
-    alloc_usage = resourceInfos.resourceMemoryType.at(resource);
-
-    vmaUnmapMemory(allocatorHandle, alloc);
-    if (alloc_usage == resource_usage::CPUToGPU)
-    {
-        vmaFlushAllocation(allocatorHandle, alloc, offset, size == 0u ? VK_WHOLE_SIZE : size);
-    }
 }
 
 void ResourceContextImpl::processMessages()
@@ -1334,4 +1051,48 @@ namespace
         return result;
     }
 
+    VmaAllocationCreateFlags GetAllocationCreateFlags(const resource_creation_flags flags) noexcept
+    {
+        VmaAllocationCreateFlags result = 0u;
+        
+        if (flags & resource_creation_flag_bits::DedicatedMemory)
+        {
+            result |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+        }
+
+        if (flags & resource_creation_flag_bits::CreateMapped)
+        {
+            result |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        }
+
+        if (flags & resource_creation_flag_bits::PersistentlyMapped)
+        {
+            result |= VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        }
+
+        if (flags & resource_creation_flag_bits::HostWritesLinear)
+        {
+            result |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        }
+
+        if (flags & resource_creation_flag_bits::HostWritesRandom)
+        {
+            result |= VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+        }
+
+        return result;
+    }
+
+    VmaMemoryUsage GetMemoryUsage(const resource_usage _resource_usage) noexcept
+    {
+        switch (_resource_usage)
+        {
+        case resource_usage::GPUOnly:
+            return VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        case resource_usage::CPUOnly:
+            return VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+        default:
+            return VMA_MEMORY_USAGE_AUTO;
+        }
+    }
 }

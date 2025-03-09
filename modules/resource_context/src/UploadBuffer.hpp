@@ -14,10 +14,11 @@ struct UploadBuffer
     UploadBuffer(UploadBuffer&& other) noexcept;
     UploadBuffer& operator=(UploadBuffer&& other) noexcept;
     void SetData(const void* data, size_t data_size, size_t offset);
-    VkBuffer Buffer;
-    VmaAllocation Allocation;
-    VmaAllocator Allocator;
-    const vpr::Device* device;
+    VkBuffer Buffer{ VK_NULL_HANDLE };
+    VmaAllocation Allocation{ VK_NULL_HANDLE };
+    VmaAllocator Allocator{ VK_NULL_HANDLE };
+    const vpr::Device* device{ nullptr };
+    const void* mappedPtr{ nullptr };
     VkDeviceSize Size{ 0u };
 };
 
