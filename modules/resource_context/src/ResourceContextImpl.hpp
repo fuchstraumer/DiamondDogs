@@ -155,6 +155,14 @@ private:
     GraphicsResource* createSampler(const VkSamplerCreateInfo* info, const resource_creation_flags _flags, void* user_data = nullptr);
     void copyResourceContents(GraphicsResource* src, GraphicsResource* dst);
     void setImageInitialData(GraphicsResource* resource, const size_t num_data, const gpu_image_resource_data_t* initial_data);
+
+    MessageReply::Status destroyBuffer(entt::entity entity, GraphicsResource resource);
+    MessageReply::Status destroyImage(entt::entity entity, GraphicsResource resource);
+    MessageReply::Status destroySampler(entt::entity entity, GraphicsResource resource);
+    MessageReply::Status destroyBufferView(entt::entity entity, GraphicsResource resource);
+    MessageReply::Status destroyImageView(entt::entity entity, GraphicsResource resource);
+    MessageReply::Status destroyCombinedImageSampler(entt::entity entity, GraphicsResource resource);
+
     VkFormatFeatureFlags featureFlagsFromUsage(const VkImageUsageFlags flags) const noexcept;
     
     void writeStatsJsonFile(const char* output_file);

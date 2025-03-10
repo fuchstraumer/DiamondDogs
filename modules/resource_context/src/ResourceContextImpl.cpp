@@ -558,11 +558,231 @@ void ResourceContextImpl::processCopyResourceMessage(CopyResourceMessage&& messa
 
 void ResourceContextImpl::processCopyResourceContentsMessage(CopyResourceContentsMessage&& message)
 {
+    // Verify both entities are valid
+    const entt::entity src_entity = entt::entity(message.sourceResource.ResourceHandle);
+    const entt::entity dst_entity = entt::entity(message.destinationResource.ResourceHandle);
+    if (!resourceRegistry.valid(src_entity) || !resourceRegistry.valid(dst_entity))
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
 
+    // Switch message type based on resource types involved
+    if (message.sourceResource.Type == resource_type::Buffer && message.destinationResource.Type == resource_type::Buffer)
+    {
+        auto[src_buffer_handle, src_buffer_info, src_buffer_flags] =
+            resourceRegistry.try_get<VkBuffer, VkBufferCreateInfo, ResourceFlags>(src_entity);
+
+        if (!src_buffer_handle || !src_buffer_info || !src_buffer_flags)
+        {
+            message.reply->SetStatus(MessageReply::Status::Failed);
+            return;
+        }
+
+        auto[dst_buffer_handle, dst_buffer_info, dst_buffer_flags] =
+            resourceRegistry.try_get<VkBuffer, VkBufferCreateInfo, ResourceFlags>(dst_entity);
+
+        if (!dst_buffer_handle || !dst_buffer_info || !dst_buffer_flags)
+        {
+            message.reply->SetStatus(MessageReply::Status::Failed);
+            return;
+        }
+
+        TransferSystemCopyBufferToBufferMessage copy_buffer_to_buffer_message
+        {
+            TransferSystemReqBufferInfo
+            {
+                *src_buffer_handle,
+                *src_buffer_info,
+                src_buffer_flags->resourceUsage,
+                src_buffer_flags->flags
+            },
+            TransferSystemReqBufferInfo
+            {
+                *dst_buffer_handle,
+                *dst_buffer_info,
+                dst_buffer_flags->resourceUsage,
+                dst_buffer_flags->flags
+            },
+            std::move(message.reply)
+        };
+
+        copy_buffer_to_buffer_message.reply->SetStatus(MessageReply::Status::Transferring);
+        transferSystem.EnqueueTransfer(std::move(copy_buffer_to_buffer_message));
+        return;
+    }
+    else if (message.sourceResource.Type == resource_type::Image && message.destinationResource.Type == resource_type::Image)
+    {
+        auto[src_image_handle, src_image_info, src_image_flags] =
+            resourceRegistry.try_get<VkImage, VkImageCreateInfo, ResourceFlags>(src_entity);
+
+        if (!src_image_handle || !src_image_info || !src_image_flags)
+        {
+            message.reply->SetStatus(MessageReply::Status::Failed);
+            return;
+        }
+
+        auto[dst_image_handle, dst_image_info, dst_image_flags] =
+            resourceRegistry.try_get<VkImage, VkImageCreateInfo, ResourceFlags>(dst_entity);
+            
+        if (!dst_image_handle || !dst_image_info || !dst_image_flags)
+        {
+            message.reply->SetStatus(MessageReply::Status::Failed);
+            return;
+        }
+        
+        TransferSystemCopyImageToImageMessage copy_image_to_image_message
+        {
+            TransferSystemReqImageInfo
+            {
+                *src_image_handle,
+                *src_image_info,
+                src_image_flags->resourceUsage,
+                src_image_flags->flags
+            },
+            TransferSystemReqImageInfo
+            {
+                *dst_image_handle,  
+                *dst_image_info,
+                dst_image_flags->resourceUsage,
+                dst_image_flags->flags
+            },
+            std::move(message.reply)
+        };
+
+        copy_image_to_image_message.reply->SetStatus(MessageReply::Status::Transferring);
+        transferSystem.EnqueueTransfer(std::move(copy_image_to_image_message));
+        return;
+    }
+    else if (message.sourceResource.Type == resource_type::Buffer && message.destinationResource.Type == resource_type::Image)
+    {
+        auto[src_buffer_handle, src_buffer_info, src_buffer_flags] =
+            resourceRegistry.try_get<VkBuffer, VkBufferCreateInfo, ResourceFlags>(src_entity);
+
+        if (!src_buffer_handle || !src_buffer_info || !src_buffer_flags)
+        {
+            message.reply->SetStatus(MessageReply::Status::Failed);
+            return;
+        }
+
+        auto[dst_image_handle, dst_image_info, dst_image_flags] =
+            resourceRegistry.try_get<VkImage, VkImageCreateInfo, ResourceFlags>(dst_entity);
+
+        if (!dst_image_handle || !dst_image_info || !dst_image_flags)
+        {
+            message.reply->SetStatus(MessageReply::Status::Failed);
+            return;
+        }
+        
+        TransferSystemCopyBufferToImageMessage copy_buffer_to_image_message
+        {
+            TransferSystemReqBufferInfo
+            {
+                *src_buffer_handle,
+                *src_buffer_info,
+                src_buffer_flags->resourceUsage,
+                src_buffer_flags->flags
+            },
+            TransferSystemReqImageInfo
+            {
+                *dst_image_handle,
+                *dst_image_info,
+                dst_image_flags->resourceUsage,
+                dst_image_flags->flags
+            },
+            std::move(message.reply)
+        };
+        
+        copy_buffer_to_image_message.reply->SetStatus(MessageReply::Status::Transferring);
+        transferSystem.EnqueueTransfer(std::move(copy_buffer_to_image_message));
+        return;
+    }
+    else if (message.sourceResource.Type == resource_type::Image && message.destinationResource.Type == resource_type::Buffer)
+    {
+        auto[src_image_handle, src_image_info, src_image_flags] =
+            resourceRegistry.try_get<VkImage, VkImageCreateInfo, ResourceFlags>(src_entity);
+
+        if (!src_image_handle || !src_image_info || !src_image_flags)
+        {
+            message.reply->SetStatus(MessageReply::Status::Failed);
+            return;
+        }
+
+        auto[dst_buffer_handle, dst_buffer_info, dst_buffer_flags] =
+            resourceRegistry.try_get<VkBuffer, VkBufferCreateInfo, ResourceFlags>(dst_entity);
+
+        if (!dst_buffer_handle || !dst_buffer_info || !dst_buffer_flags)
+        {
+            message.reply->SetStatus(MessageReply::Status::Failed);
+            return;
+        }
+        
+        TransferSystemCopyImageToBufferMessage copy_image_to_buffer_message
+        {
+            TransferSystemReqImageInfo
+            {
+                *src_image_handle,
+                *src_image_info,
+                src_image_flags->resourceUsage,
+                src_image_flags->flags
+            },
+            TransferSystemReqBufferInfo
+            {
+                *dst_buffer_handle,
+                *dst_buffer_info,
+                dst_buffer_flags->resourceUsage,
+                dst_buffer_flags->flags
+            },
+            std::move(message.reply)
+        };
+
+        copy_image_to_buffer_message.reply->SetStatus(MessageReply::Status::Transferring);
+        transferSystem.EnqueueTransfer(std::move(copy_image_to_buffer_message));
+        return;
+    }
+
+    // invalid types or handles
+    message.reply->SetStatus(MessageReply::Status::Failed);
 }
 
 void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&& message)
 {
+    const entt::entity entity = entt::entity(message.resource.ResourceHandle);
+    if (!resourceRegistry.valid(entity))
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+    
+    MessageReply::Status destroy_vk_handle_status = MessageReply::Status::Completed;
+    switch (message.resource.Type)
+    {
+    case resource_type::Buffer:
+        destroy_vk_handle_status = destroyBuffer(entity, message.resource);
+        break;
+    case resource_type::BufferView:
+        destroy_vk_handle_status = destroyBufferView(entity, message.resource);
+        break;
+    case resource_type::Image:
+        destroy_vk_handle_status = destroyImage(entity, message.resource);
+        break;
+    case resource_type::Sampler:
+        destroy_vk_handle_status = destroySampler(entity, message.resource);
+        break;
+    case resource_type::CombinedImageSampler:
+        destroy_vk_handle_status = destroyCombinedImageSampler(entity, message.resource);
+        break;
+    case resource_type::ImageView:
+        destroy_vk_handle_status = destroyImageView(entity, message.resource);
+        break;
+    default:
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        resourceRegistry.destroy(entity);
+        return;
+    }
+
+    resourceRegistry.destroy(entity);
+    message.reply->SetStatus(destroy_vk_handle_status);
 
 }
 
@@ -777,7 +997,7 @@ VkSampler ResourceContextImpl::createSampler(
     VkResult result = vkCreateSampler(device->vkHandle(), &sampler_create_info, nullptr, &sampler);
     VkAssert(result);
 
-    if (_flags & resource_creation_flag_bits::ResourceCreateUserDataAsString)
+    if (_flags & resource_creation_flag_bits::UserDataAsString)
     {
         // can use entity system to find out if this is a combined image sampler or just a sampler, try and find parent name
         // kinda slower than we want but this is only active in debug builds really so w/e
@@ -798,9 +1018,29 @@ VkSampler ResourceContextImpl::createSampler(
     return sampler;
 }
 
-void ResourceContextImpl::fillBuffer(entt::entity new_entity, VkBuffer buffer_handle, uint32_t value, size_t offset, size_t size)
+MessageReply::Status ResourceContextImpl::destroyBuffer(entt::entity entity, GraphicsResource resource)
 {
-    
+    VkBuffer local_buffer_handle = resourceRegistry.get<VkBuffer>(entity);
+    if (!local_buffer_handle)
+    {
+        return MessageReply::Status::Failed;
+    }
+
+    if (local_buffer_handle != (VkBuffer)resource.VkHandle)
+    {
+        return MessageReply::Status::Failed;
+    }
+
+    vkDestroyBuffer(device->vkHandle(), local_buffer_handle, nullptr);
+    resourceRegistry.patch<VkBuffer>(entity, VK_NULL_HANDLE);
+
+    if ((VkBufferView)resource.VkViewHandle != VK_NULL_HANDLE)
+    {
+        vkDestroyBufferView(device->vkHandle(), (VkBufferView)resource.VkViewHandle, nullptr);
+        resourceRegistry.patch<VkBufferView>(entity, VK_NULL_HANDLE);
+    }
+
+    return MessageReply::Status::Completed;
 }
 
 void ResourceContextImpl::writeStatsJsonFile(const char* output_file)

@@ -249,8 +249,8 @@ struct CopyResourceMessage
 
 struct CopyResourceContentsMessage
 {
-    GraphicsResource src{ GraphicsResource::Null() };
-    GraphicsResource dest{ GraphicsResource::Null() };
+    GraphicsResource sourceResource{ GraphicsResource::Null() };
+    GraphicsResource destinationResource{ GraphicsResource::Null() };
     std::shared_ptr<ResourceTransferReply> reply = nullptr;
 };
 
