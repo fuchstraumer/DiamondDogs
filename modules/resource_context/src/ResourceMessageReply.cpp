@@ -101,12 +101,12 @@ uint64_t ResourceTransferReply::SemaphoreValue() const noexcept
     return semaphoreValue;
 }
 
-MessageReply::Status ResourceTransferReply::WaitForCompletion(Status wait_for_status, uint64_t timeoutNs) noexcept
+MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeoutNs) noexcept
 {
     // this is not actually a transfer reply, so waiting for completion is just using base class implementation
     if (device == nullptr && semaphoreHandle == 0u)
     {
-        return MessageReply::WaitForCompletion(wait_for_status, timeoutNs);
+        return MessageReply::WaitForCompletion(timeoutNs);
     }
     else
     {

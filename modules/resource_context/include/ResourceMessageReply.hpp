@@ -40,7 +40,7 @@ public:
     virtual bool IsCompleted() const noexcept;
     Status GetStatus() const noexcept;
     // Waits for completion, including waiting for transfer to complete if applicable
-    virtual Status WaitForCompletion(Status wait_for_status, uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) noexcept;
+    virtual Status WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) noexcept;
     
 protected:
     friend class ResourceContextImpl;
@@ -62,7 +62,7 @@ public:
     uint64_t SemaphoreHandle() const noexcept;
 
     // Final override because GraphicsResourceReply may also need to wait for transfers, but doesn't change behavior
-    Status WaitForCompletion(Status wait_for_status, uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) noexcept final;
+    Status WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) noexcept final;
 
 protected:
     friend class ResourceContextImpl;

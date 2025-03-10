@@ -242,8 +242,9 @@ struct UnmapResourceMessage
 
 struct CopyResourceMessage
 {
-    GraphicsResource src{ GraphicsResource::Null() };
-    GraphicsResource dest{ GraphicsResource::Null() };
+    GraphicsResource sourceResource{ GraphicsResource::Null() };
+    // not copying contents just means using the source like a template I guess
+    bool copyContents = false;
     std::shared_ptr<GraphicsResourceReply> reply = nullptr;
 };
 

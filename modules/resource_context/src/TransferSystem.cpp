@@ -1,15 +1,18 @@
 #include "TransferSystem.hpp"
+#include "ResourceContext.hpp"
 #include "CommandPool.hpp"
 #include "LogicalDevice.hpp"
 #include "PhysicalDevice.hpp"
 #include "Instance.hpp"
 #include "Fence.hpp"
-#include "Semaphore.hpp"
 #include "vkAssert.hpp"
 #include "UploadBuffer.hpp"
 #include "../../rendering_context/include/RenderingContext.hpp"
 #include "VkDebugUtils.hpp"
+
 #include <array>
+#include <mutex>
+#include <unordered_map>
 
 #define THSVS_SIMPLER_VULKAN_SYNCHRONIZATION_IMPLEMENTATION
 #include <thsvs_simpler_vulkan_synchronization.h>
@@ -17,36 +20,9 @@
 constexpr static size_t MAX_QUEUED_UPLOAD_BUFFERS = 128u;
 constexpr static size_t k_defaultNumCommandBuffersPerPool = 8u;
 
-constexpr static std::array<VkDeviceSize, 4u> stagingPoolSizeRanges
-{
-    (VkDeviceSize)128e6,
-    (VkDeviceSize)256e6,
-    (VkDeviceSize)512e6,
-    (VkDeviceSize)1024e6 // This should not be in anything but builds I use for fun. Could end in disaster, heh
-};
-
-constexpr static VkBufferCreateInfo k_defaultStagingBufferCreateInfo
-{
-    VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-    nullptr,
-    0,
-    4096u,
-    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-    VK_SHARING_MODE_EXCLUSIVE,
-    0,
-    nullptr
-};
-
-constexpr static VmaAllocationCreateInfo k_defaultAllocationCreateInfo
-{
-    VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-    VMA_MEMORY_USAGE_AUTO,
-    0,
-    0u,
-    UINT32_MAX,
-    VK_NULL_HANDLE,
-    nullptr
-};
+// Literally the only time we will ever take a mutex is during init, and very briefly!
+std::mutex transferSystemInitMutex;
+std::unordered_map<ResourceTransferSystem*, uint32_t> transferSystemToQueueIndexMap;
 
 constexpr static VkDebugUtilsLabelEXT queue_debug_label
 {
@@ -62,7 +38,7 @@ VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device)
     {
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         nullptr,
-        VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
         0
     };
     VkCommandPoolCreateInfo result = pool_info;
@@ -70,85 +46,115 @@ VkCommandPoolCreateInfo getCreateInfo(const vpr::Device* device)
     return result;
 }
 
-ResourceTransferSystem::ResourceTransferSystem() : transferCmdPool(nullptr), device(nullptr), fence(nullptr) {}
+void vmaAllocateDeviceMemoryCallback(VmaAllocator allocator, uint32_t memoryType, VkDeviceMemory memory, VkDeviceSize size, void* user_data)
+{
+
+}
+
+void vmaFreeDeviceMemoryCallback(VmaAllocator allocator, uint32_t memoryType, VkDeviceMemory memory, VkDeviceSize size, void* user_data)
+{
+
+}
+
+struct DeviceMemoryCallbackUserData
+{
+    ResourceTransferSystem* transferSystem;
+    vpr::Device* device;
+};
+
+const static VmaDeviceMemoryCallbacks k_deviceMemoryCallbacks =
+{
+    vmaAllocateDeviceMemoryCallback,
+    vmaFreeDeviceMemoryCallback,
+    nullptr, // will set this when initializing the allocator
+};
+
+namespace
+{
+    std::vector<ThsvsAccessType> thsvsAccessTypesFromBufferUsage(VkBufferUsageFlags _flags);
+    std::vector<ThsvsAccessType> thsvsAccessTypesFromImageUsage(VkImageUsageFlags _flags);
+    VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags);
+    VkAccessFlags accessFlagsFromImageUsage(const VkImageUsageFlags usage_flags);
+    VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags);
+}
+
+ResourceTransferSystem::TransferCommand::TransferCommand(
+    const vpr::Device* _device,
+    VmaAllocator _allocator,
+    std::shared_ptr<ResourceTransferReply>&& _reply) :
+    device(_device),
+    reply(std::move(_reply)),
+    allocatorHandle(_allocator)
+{
+    VkCommandPoolCreateInfo pool_info = getCreateInfo(device);
+    commandPool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
+    commandPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(commandPool->GetCmdBuffer(0), &queue_debug_label);
+    }
+
+    VkCommandBufferBeginInfo begin_info = {};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkResult result = vkBeginCommandBuffer(commandPool->GetCmdBuffer(0), &begin_info);
+    VkAssert(result);
+
+    uploadBuffer = std::make_unique<UploadBuffer>(device);
+}
+
+ResourceTransferSystem::TransferCommand::~TransferCommand()
+{
+    // really shoudn't get to this point but .... just in case
+    // (ideally reply is reset after submission success)
+    if (reply && !reply->IsCompleted())
+    {
+        constexpr uint64_t k_timeoutNs = 1000000000u;
+        MessageReply::Status waitForSubmitStatus = reply->WaitForCompletion(k_timeoutNs);
+        if (waitForSubmitStatus != MessageReply::Status::Completed)
+        {
+            throw std::runtime_error("Transfer command failed to complete, and we were unable to wait for it to complete!");
+        }
+    }
+}
+
+void ResourceTransferSystem::TransferCommand::EndRecording()
+{
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        device->DebugUtilsHandler().vkCmdEndDebugUtilsLabel(commandPool->GetCmdBuffer(0));
+    }
+    VkResult result = vkEndCommandBuffer(commandPool->GetCmdBuffer(0));
+    VkAssert(result);
+}
+
+MessageReply::Status ResourceTransferSystem::TransferCommand::WaitForCompletion(uint64_t timeoutNs)
+{
+    MessageReply::Status status = reply->WaitForCompletion(timeoutNs);
+
+    if (status == MessageReply::Status::Timeout)
+    {
+        return status;
+    }
+    else if (status != MessageReply::Status::Completed)
+    {
+        throw std::runtime_error("Transfer command failed to complete, and we were unable to wait for it to complete!");
+    }
+
+    reply.reset();
+    uploadBuffer.reset();
+    vkResetCommandBuffer(commandPool->GetCmdBuffer(0), 0);
+    vkResetCommandPool(device->vkHandle(), commandPool->vkHandle(), 0);
+    commandPool.reset();
+    return status;
+}
+
+ResourceTransferSystem::ResourceTransferSystem() : device(nullptr) {}
 
 ResourceTransferSystem::~ResourceTransferSystem()
 {
     destroy();
-}
-
-void ResourceTransferSystem::destroy()
-{
-    ForceCompleteTransfers();
-    for (auto pool : uploadPools)
-    {
-        vmaDestroyPool(allocatorHandle, pool);
-    }
-    uploadPools.clear();
-    vmaDestroyAllocator(allocatorHandle);
-    transferCmdPool.reset();
-    fence.reset();
-    device = nullptr;
-}
-
-void ResourceTransferSystem::flushTransfersIfNeeded()
-{
-    /*
-        A bit of reasoning:
-        - upload pools greater than one means we created a pool specifically to hold one massive allocation. once we
-          reach this point, it should be safe to free that as it was created to return an upload buffer, we set it's data, we're done
-        - uploadBuffers being greater than 50 just means we have a ton of pending transfers, and we're going to be accumulating a ton
-          of RAM usage. flush the pending transfers to free up what memory we can
-    */
-    if (uploadPools.size() > 2u || uploadBuffers.size() > MAX_QUEUED_UPLOAD_BUFFERS)
-    {
-        ForceCompleteTransfers();
-        std::cerr << "Had to flush transfers, incurs high cost and indicates overload of transfer system\n";
-    }
-}
-
-
-std::unique_ptr<UploadBuffer> ResourceTransferSystem::createUploadBufferImpl(const size_t buffer_sz)
-{
-
-    std::unique_ptr<UploadBuffer> created_buffer = std::make_unique<UploadBuffer>(device, allocatorHandle);
-    created_buffer->Size = buffer_sz;
-
-    VkResult created_alloc = VK_SUCCESS;
-    VmaAllocationCreateInfo alloc_create_info = k_defaultAllocationCreateInfo;
-
-    do
-    {
-        VkBufferCreateInfo create_info = k_defaultStagingBufferCreateInfo;
-        create_info.size = buffer_sz;
-        alloc_create_info.pool = uploadPools.back();
-
-        created_alloc = vmaCreateBuffer(
-            allocatorHandle,
-            &create_info,
-            &alloc_create_info,
-            &created_buffer->Buffer,
-            &created_buffer->Allocation,
-            nullptr);
-
-        if (created_alloc == VK_ERROR_OUT_OF_DEVICE_MEMORY)
-        {
-            // create a new pool
-            if (buffer_sz > lastPoolSize)
-            {
-                auto next_sz_iter = std::lower_bound(std::begin(stagingPoolSizeRanges), std::end(stagingPoolSizeRanges), buffer_sz);
-                if (next_sz_iter == std::end(stagingPoolSizeRanges))
-                {
-                    throw std::out_of_range("Requested staging buffer size was bigger than maximum staging allocation size!");
-                }
-                lastPoolSize = *next_sz_iter;
-                uploadPools.emplace_back(createPool());
-            }
-        }
-
-    } while (created_alloc != VK_SUCCESS);
-
-    return std::move(created_buffer);
 }
 
 void ResourceTransferSystem::Initialize(const vpr::Device* dvc)
@@ -162,6 +168,7 @@ void ResourceTransferSystem::Initialize(const vpr::Device* dvc)
     device = dvc;
     
     const auto& applicationInfo = device->ParentInstance()->ApplicationInfo();
+    // we run this on a single thread, so we don't need to have the library sync for us!
     VmaAllocatorCreateFlags create_flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
     if (applicationInfo.apiVersion < VK_API_VERSION_1_1)
     {
@@ -178,163 +185,112 @@ void ResourceTransferSystem::Initialize(const vpr::Device* dvc)
     VkResult result = vmaCreateAllocator(&create_info, &allocatorHandle);
     VkAssert(result);
 
-    uploadPools.emplace_back(createPool());
-
-    transferCmdPool = std::make_unique<vpr::CommandPool>(dvc->vkHandle(), getCreateInfo(dvc));
-    transferCmdPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    fence = std::make_unique<vpr::Fence>(dvc->vkHandle(), 0);
-
-    constexpr static VkCommandBufferBeginInfo begin_info
-    {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        nullptr,
-        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-        nullptr
-    };
-
-    VkResult result = vkBeginCommandBuffer(transferCmdPool->GetCmdBuffer(0), &begin_info);
-    VkAssert(result);
     initialized = true;
+    shouldExitWorker.store(false);
+    workerThread = std::thread(&ResourceTransferSystem::workerThreadJob, this);
 
-    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-    {
-        device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(transferCmdPool->GetCmdBuffer(0), &queue_debug_label);
-    }
+}
 
-    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-    {
-        static const std::string base_name{ "ResourceCtxt_TransferSystem_" };
-        static const std::string pool_name = base_name + std::string("_CommandPool");
-        static const std::string fence_name = base_name + std::string("_Fence");
-        static const std::string cmd_buffer_name = base_name + std::string("_CmdBuffer");
-        RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, (uint64_t)transferCmdPool->vkHandle(), pool_name.c_str());
-        RenderingContext::SetObjectName(VK_OBJECT_TYPE_FENCE, (uint64_t)fence->vkHandle(), fence_name.c_str());
-        RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_BUFFER, (uint64_t)transferCmdPool->GetCmdBuffer(0u), cmd_buffer_name.c_str());
-    }
+void ResourceTransferSystem::SetExitWorker(bool value)
+{
+    shouldExitWorker.store(value, std::memory_order_seq_cst);
+}
 
+void ResourceTransferSystem::StartWorker()
+{
+    shouldExitWorker.store(false);
+    workerThread = std::thread(&ResourceTransferSystem::workerThreadJob, this);
+}
+
+void ResourceTransferSystem::StopWorker()
+{
+    shouldExitWorker.store(true);
+    workerThread.join();
+    ForceCompleteTransfers();
+}
+
+void ResourceTransferSystem::destroy()
+{
+    ForceCompleteTransfers();
+    vmaDestroyAllocator(allocatorHandle);
+    device = nullptr;
 }
 
 void ResourceTransferSystem::ForceCompleteTransfers()
 {
 
-    if (!initialized)
+    if (!shouldExitWorker.load())
     {
-        throw std::runtime_error("Transfer system was not properly initialized!");
+        StopWorker();
     }
 
-    if (!cmdBufferDirty)
+    // wait for all inflight command batches to complete using a fence
+    for (auto& batch : inflightCommandBatches)
     {
-        return;
+        VkFence batch_fence = batch.fence->vkHandle();
+        VkResult result = vkWaitForFences(device->vkHandle(), 1, &batch_fence, VK_TRUE, UINT64_MAX);
+        VkAssert(result);
     }
 
-    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    inflightCommandBatches.clear();
+
+    // existing inflight commands completed, if there are any commands in queue to be submitted submit them as well and wait
+    if (!commands.empty())
     {
-        device->DebugUtilsHandler().vkCmdEndDebugUtilsLabel(transferCmdPool->GetCmdBuffer(0));
-    }
-
-    auto& pool = *transferCmdPool;
-    if (vkEndCommandBuffer(pool[0]) != VK_SUCCESS)
-    {
-        throw std::runtime_error("Failed to end Transfer command buffer!");
-    }
-
-    VkTimelineSemaphoreSubmitInfo timeline_info
-    {
-        VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
-        nullptr,
-        0u,
-        nullptr,
-        static_cast<uint32_t>(transferSignalValues.size()),
-        transferSignalValues.data(),
-    };
-
-    VkSubmitInfo submission
-    {
-        VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        &timeline_info,
-        0,
-        nullptr,
-        nullptr,
-        1,
-        &pool[0],
-        static_cast<uint32_t>(transferSignalSemaphores.size()),
-        transferSignalSemaphores.data()
-    };
-
-    VkResult result = vkQueueSubmit(device->TransferQueue(), 1, &submission, fence->vkHandle());
-    VkAssert(result);
-    result = vkWaitForFences(device->vkHandle(), 1, &fence->vkHandle(), VK_TRUE, UINT64_MAX);
-    VkAssert(result);
-    result = vkResetFences(device->vkHandle(), 1, &fence->vkHandle());
-    VkAssert(result);
-
-    transferCmdPool->ResetCmdBuffer(0);
-
-    constexpr static VkCommandBufferBeginInfo begin_info
-    {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        nullptr,
-        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-        nullptr
-    };
-
-    result = vkBeginCommandBuffer(pool[0], &begin_info);
-    VkAssert(result);
-    cmdBufferDirty = false;
-
-    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
-    {
-        device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(transferCmdPool->GetCmdBuffer(0), &queue_debug_label);
-    }
-
-    if (uploadBuffers.empty())
-    {
-        return;
-    }
-
-    for (auto& buff : uploadBuffers)
-    {
-        vmaDestroyBuffer(allocatorHandle, buff->Buffer, buff->Allocation);
-        buff.reset();
-    }
-
-    uploadBuffers.clear();
-    uploadBuffers.reserve(MAX_QUEUED_UPLOAD_BUFFERS);
-
-    while (uploadPools.size() > 1u)
-    {
-        vmaDestroyPool(allocator, uploadPools.back());
-        uploadPools.pop_back();
-
-        // Shrink back down one size
-        auto new_pool_size_iter = std::upper_bound(std::begin(stagingPoolSizeRanges), std::end(stagingPoolSizeRanges), lastPoolSize);
-        if (new_pool_size_iter != std::end(stagingPoolSizeRanges))
+        submitTransferCommands();
+        for (auto& batch : inflightCommandBatches)
         {
-            lastPoolSize = *new_pool_size_iter;
+            VkFence batch_fence = batch.fence->vkHandle();
+            VkResult result = vkWaitForFences(device->vkHandle(), 1, &batch_fence, VK_TRUE, UINT64_MAX);
+            VkAssert(result);
         }
     }
+
+    inflightCommandBatches.clear();
 
 }
 
 void ResourceTransferSystem::EnqueueTransfer(TransferPayloadType&& payload)
 {
-    transferQueue.push(std::move(payload));
+    messageQueue.push(std::move(payload));
 }
 
-void ResourceTransferSystem::processMessages()
+void ResourceTransferSystem::workerThreadJob()
+{
+    // 2ms chosen as it's about half of one frame at 240hz, which is small but still enough to do work CPU-side on this thread
+    // Rest of the 2ms will be used to submit commands and wait for them to complete
+    static constexpr std::chrono::milliseconds message_processing_timeout = std::chrono::milliseconds(2);
+    // 1ms chosen to give us less time than the message processing, but still enough for GPU to do work
+    // PCI bus goes WHIRRRRRRRRRRRRRRRRR
+    static constexpr std::chrono::milliseconds command_submission_timeout = std::chrono::milliseconds(1);
+
+    while (!shouldExitWorker.load())
+    {
+        processMessages(message_processing_timeout);
+        // Message queue empty or time limit reached, now we're going to submit the commands. We don't have a time limit on this step,
+        // as if there are any commands to submit we want to get them at least in-flight on the GPU before we take another run at this
+        submitTransferCommands();
+        waitForCommandsToComplete(command_submission_timeout);
+        // if all work done, put this thread to sleep for a little bit
+        if (messageQueue.empty() && commands.empty() && inflightCommandBatches.empty())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+    }
+}
+
+void ResourceTransferSystem::processMessages(std::chrono::milliseconds timeout)
 {
     using clock = std::chrono::high_resolution_clock;
     const clock::time_point start = clock::now();
-    // 2ms chosen as it's about half of one frame at 240hz, which is small but still enough to do work CPU-side on this thread
-    // Rest of the 2ms will be used to submit commands and wait for them to complete
-    const std::chrono::milliseconds timeout = std::chrono::milliseconds(2);
-
+    
+    
     // We will process messages until we've exceeded our time limit, or the queue is empty
-    while (!transferQueue.empty())
+    while (!messageQueue.empty())
     {
         // Process next message
-        TransferPayloadType&& payload = transferQueue.pop();
-        std::visit([this](auto&& msg) { processMessage(std::forward<decltype(msg)>(msg)); }, std::move(payload));
+        std::visit([this](auto&& msg) { processMessage(std::forward<decltype(msg)>(msg)); }, std::move(messageQueue.pop()));
 
         // Check if we've exceeded time limit
         const auto now = clock::now();
@@ -344,13 +300,94 @@ void ResourceTransferSystem::processMessages()
         }
     }
 
-    // Message queue empty or time limit reached, now we're going to submit the commands. We don't have a time limit on this step,
-    // as if there are any commands to submit we want to get them at least in-flight on the GPU before we take another run at this
+}
 
+void ResourceTransferSystem::submitTransferCommands()
+{
+    std::vector<VkCommandBuffer> cmd_buffers;
+    std::vector<VkSemaphore> signal_semaphores;
+    const std::vector<uint64_t> signal_values(commands.size(), k_TransferCompleteSemaphoreValue);
 
-    // Commands submitted, now we wait for one at front of queue to complete for no more than 1ms
-    // Using semaphore value, which also means that the value should be visible to the client. Once it's complete,
-    // we set that reply's status to be complete!
+    for (auto& command : commands)
+    {
+        cmd_buffers.emplace_back(command.CmdBuffer());
+        signal_semaphores.emplace_back(command.Semaphore());
+    }
+
+    VkTimelineSemaphoreSubmitInfo timeline_info = {};
+    std::memset(&timeline_info, 0, sizeof(VkTimelineSemaphoreSubmitInfo));
+    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+    timeline_info.pSignalSemaphoreValues = signal_values.data();
+    timeline_info.signalSemaphoreValueCount = static_cast<uint32_t>(signal_values.size());
+
+    VkSubmitInfo submit_info = {};
+    std::memset(&submit_info, 0, sizeof(VkSubmitInfo));
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.pNext = &timeline_info;
+    submit_info.commandBufferCount = static_cast<uint32_t>(cmd_buffers.size());
+    submit_info.pCommandBuffers = cmd_buffers.data();
+    submit_info.signalSemaphoreCount = static_cast<uint32_t>(signal_semaphores.size());
+    submit_info.pSignalSemaphores = signal_semaphores.data();
+
+    VkResult result = vkQueueSubmit(device->TransferQueue(transferQueueIndex), 1, &submit_info, VK_NULL_HANDLE);
+    VkAssert(result);
+
+    inflightCommandBatches.emplace_back(std::move(commands), std::make_unique<vpr::Fence>(device->vkHandle(), 0));
+}
+
+void ResourceTransferSystem::waitForCommandsToComplete(std::chrono::milliseconds timeout)
+{
+    using clock = std::chrono::high_resolution_clock;
+    const clock::time_point wait_start = clock::now();
+    const clock::time_point wait_end = wait_start + timeout;
+    for (auto batch_iter = inflightCommandBatches.begin(); batch_iter != inflightCommandBatches.end();)
+    {
+        const clock::time_point now_outer = clock::now();
+        if (now_outer >= wait_end)  
+        {
+            break;
+        }
+
+        for (auto iter = batch_iter->commands.begin(); iter != batch_iter->commands.end();)
+        {
+            const clock::time_point now_inner = clock::now();
+            if (now_inner >= wait_end)
+            {
+                break;
+            }
+
+            // Calculate remaining time in nanoseconds
+            const uint64_t remaining = std::chrono::duration_cast<std::chrono::nanoseconds>(wait_end - now_inner).count();
+            
+            MessageReply::Status status = iter->WaitForCompletion(remaining);
+            if (status == MessageReply::Status::Completed)
+            {
+                // I wonder how much time we burn in erasing the command and running the destructor?
+                // Probably doesn't matter since commands are still in flight, but still
+                iter = batch_iter->commands.erase(iter);
+            }
+            else if (status == MessageReply::Status::Timeout)
+            {
+                // we'll get em next time
+                // (maybe worth checking to see if we've hit a TDR?)
+                break;
+            }
+            else
+            {
+                // I actually don't think we can hit this? 
+                ++iter;
+            }
+        }
+
+        if (batch_iter->commands.empty())
+        {
+            batch_iter = inflightCommandBatches.erase(batch_iter);
+        }
+        else
+        {
+            ++batch_iter;
+        }
+    }
 }
 
 void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBufferDataMessage&& message)
@@ -358,12 +395,20 @@ void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBuffer
     const VkBufferCreateInfo& buffer_create_info = message.bufferInfo.createInfo;
     const VkBuffer buffer_handle = message.bufferInfo.bufferHandle;
 
-    TransferCommand transfer_command(device, std::move(message.data.DataVector), message.reply);
-
-    UploadBuffer* upload_buffer = transfer_system.CreateUploadBuffer(buffer_create_info.size);
+    TransferCommand transfer_command(device, allocatorHandle, std::move(message.reply));
+    UploadBuffer* upload_buffer = transfer_command.UploadBuffer();
 
     // note that this is copying to an API managed staging buffer, not just another raw data buffer like our data container. will only be briefly duplicated
     InternalResourceDataContainer::BufferDataVector dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(message.data.DataVector);
+    
+    // Get total size of buffer to copy
+    VkDeviceSize total_size = 0;
+    for (const auto& data : dataVector)
+    {
+        total_size += static_cast<VkDeviceSize>(data.size);
+    }
+    upload_buffer->CreateAndAllocateBuffer(total_size);
+
     std::vector<VkBufferCopy> buffer_copies(dataVector.size());
     VkDeviceSize offset = 0;
     for (size_t i = 0; i < dataVector.size(); ++i)
@@ -375,7 +420,7 @@ void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBuffer
         offset += dataVector[i].size;
     }
 
-    auto cmd = transfer_system.TransferCmdBuffer();
+    VkCommandBuffer cmd = transfer_command.CmdBuffer();
     vkCmdCopyBuffer(cmd, upload_buffer->Buffer, buffer_handle, static_cast<uint32_t>(buffer_copies.size()), buffer_copies.data());
 
     constexpr static ThsvsAccessType transfer_access_types[1]
@@ -396,9 +441,9 @@ void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBuffer
     thsvsCmdPipelineBarrier(cmd, &global_barrier, 1u, nullptr, 0u, nullptr);
 
     // we can clear and free the stored data now
+    transfer_command.EndRecording();
     dataVector.clear();
 }
-
 
 void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDataMessage&& message)
 {
@@ -406,6 +451,9 @@ void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDa
     {
         THSVS_ACCESS_TRANSFER_WRITE
     };
+
+    const VkImageCreateInfo& image_info = message.imageInfo.createInfo;
+    const VkImage image_handle = message.imageInfo.imageHandle;
 
     // things will get really broken with images if this is true
     // will handle concurrent sharing mode in the future if we need to
@@ -444,36 +492,14 @@ void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDa
         VkImageSubresourceRange { VK_IMAGE_ASPECT_COLOR_BIT, 0u, image_info.mipLevels, 0u, image_info.arrayLayers }
     };
 
-    VmaAllocation& alloc = resourceRegistry.get<VmaAllocation>(new_entity);
-    UploadBuffer* upload_buffer = transferSystem.CreateUploadBuffer(alloc->GetSize());
-
-    InternalResourceDataContainer::ImageDataVector imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(dataContainer.DataVector);
-
-    std::vector<VkBufferImageCopy> buffer_image_copies;
-    buffer_image_copies.reserve(imageDataVector.size());
-    size_t copy_offset = 0u;
-
-    const uint32_t num_layers = dataContainer.NumLayers.value();
-
-    for (uint32_t i = 0u; i < imageDataVector.size(); ++i)
-    {
-        VkBufferImageCopy copy;
-        copy.bufferOffset = copy_offset;
-        copy.bufferRowLength = 0u;
-        copy.bufferImageHeight = 0u;
-        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        copy.imageSubresource.baseArrayLayer = imageDataVector[i].arrayLayer;
-        copy.imageSubresource.layerCount = num_layers;
-        copy.imageSubresource.mipLevel = imageDataVector[i].mipLevel;
-        copy.imageOffset = VkOffset3D{ 0, 0, 0 };
-        copy.imageExtent = VkExtent3D{ imageDataVector[i].width, imageDataVector[i].height, 1u };
-        buffer_image_copies.emplace_back(std::move(copy));
-        assert(imageDataVector[i].mipLevel < image_info.mipLevels);
-        assert(imageDataVector[i].arrayLayer < image_info.arrayLayers);
-    }
-
-    auto cmd = transferSystem.TransferCmdBuffer();
+    TransferCommand transfer_command(device, allocatorHandle, std::move(message.reply));
+    InternalResourceDataContainer::ImageDataVector imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.data.DataVector);
     
+    UploadBuffer* upload_buffer = transfer_command.UploadBuffer();
+    std::vector<VkBufferImageCopy> buffer_image_copies = upload_buffer->SetData(imageDataVector, image_info.arrayLayers);
+
+    VkCommandBuffer cmd = transfer_command.CmdBuffer();
+   
     thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 1u, &pre_transfer_barrier);
     vkCmdCopyBufferToImage(
         cmd,
@@ -483,6 +509,10 @@ void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDa
         static_cast<uint32_t>(buffer_image_copies.size()),
         buffer_image_copies.data());
     thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 1u, &post_transfer_barrier);
+
+    transfer_command.EndRecording();
+    
+    imageDataVector.clear();
 }
 
 void ResourceTransferSystem::processFillBufferMessage(TransferSystemFillBufferMessage&& message)
@@ -670,7 +700,6 @@ void ResourceTransferSystem::processCopyImageToBufferMessage(TransferSystemCopyI
 
 void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyBufferToImageMessage&& message)
 {
-    assert((dst->Type == resource_type::Image || dst->Type == resource_type::CombinedImageSampler) && (src->Type == resource_type::Buffer));
 
     const VkBufferCreateInfo& src_info = resourceInfos.bufferInfos.at(src);
     const VkImageCreateInfo& dst_info = resourceInfos.imageInfos.at(dst);
@@ -740,8 +769,10 @@ void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyB
         }
     };
 
-    const ThsvsImageBarrier post_transfer_image_barrier[1]{
-        ThsvsImageBarrier{
+    const ThsvsImageBarrier post_transfer_image_barrier[1]
+    {
+        ThsvsImageBarrier
+        {
             1u,
             transfer_access_type_write,
             static_cast<uint32_t>(dst_accesses.size()),
@@ -792,4 +823,186 @@ VmaPool ResourceTransferSystem::createPool()
     VkAssert(create_result);
 
     return result;
+}
+
+namespace
+{
+    std::vector<ThsvsAccessType> thsvsAccessTypesFromBufferUsage(VkBufferUsageFlags _flags)
+    {
+        std::vector<ThsvsAccessType> results;
+        if (_flags & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_ANY_SHADER_READ_UNIFORM_BUFFER);
+        }
+        if (_flags & VK_BUFFER_USAGE_INDEX_BUFFER_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_INDEX_BUFFER);
+        }
+        if (_flags & VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_VERTEX_BUFFER);
+        }
+        if (_flags & VK_BUFFER_USAGE_INDEX_BUFFER_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_INDIRECT_BUFFER);
+        }
+        if (_flags & VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT)
+        {
+            results.emplace_back(THSVS_ACCESS_CONDITIONAL_RENDERING_READ_EXT);
+        }
+        if (_flags & VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_ANY_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER);
+        }
+        if ((_flags & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) || (_flags & VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT))
+        {
+            results.emplace_back(THSVS_ACCESS_ANY_SHADER_WRITE);
+        }
+        if (_flags & VK_BUFFER_USAGE_TRANSFER_DST_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_TRANSFER_WRITE);
+        }
+        if (_flags & VK_BUFFER_USAGE_TRANSFER_SRC_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_TRANSFER_READ);
+        }
+
+        if (results.empty())
+        {
+            // Didn't match any flags. Go super general.
+            results.emplace_back(THSVS_ACCESS_ANY_SHADER_WRITE);
+            results.emplace_back(THSVS_ACCESS_ANY_SHADER_READ_OTHER);
+        }
+
+        return results;
+    }
+
+    std::vector<ThsvsAccessType> thsvsAccessTypesFromImageUsage(VkImageUsageFlags _flags)
+    {
+        std::vector<ThsvsAccessType> results;
+
+        if (_flags & VK_IMAGE_USAGE_SAMPLED_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_ANY_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER);
+        }
+        if (_flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_COLOR_ATTACHMENT_READ_WRITE);
+        }
+        if (_flags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ);
+            results.emplace_back(THSVS_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE);
+        }
+        if (_flags & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_COLOR_ATTACHMENT_READ);
+        }
+        if (_flags & VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV)
+        {
+            results.emplace_back(THSVS_ACCESS_SHADING_RATE_READ_NV);
+        }
+        if (_flags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_TRANSFER_READ);
+        }
+        /*
+        if (_flags & VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+        {
+            results.emplace_back(THSVS_ACCESS_TRANSFER_WRITE);
+        }
+        */
+        if (_flags & VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
+        {
+            results.emplace_back(THSVS_ACCESS_FRAGMENT_DENSITY_MAP_READ_EXT);
+        }
+
+        if (results.empty() || (_flags & VK_IMAGE_USAGE_STORAGE_BIT))
+        {
+            results.emplace_back(THSVS_ACCESS_ANY_SHADER_READ_OTHER);
+            results.emplace_back(THSVS_ACCESS_ANY_SHADER_WRITE);
+        }
+
+        return results;
+    }
+
+    VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags)
+    {
+        if (usage_flags & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)
+        {
+            return VK_ACCESS_UNIFORM_READ_BIT;
+        }
+        else if (usage_flags & VK_BUFFER_USAGE_INDEX_BUFFER_BIT)
+        {
+            return VK_ACCESS_INDEX_READ_BIT;
+        }
+        else if (usage_flags & VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)
+        {
+            return VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+        }
+        else if (usage_flags & VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT)
+        {
+            return VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        }
+        else if (usage_flags & VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT)
+        {
+            return VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
+        }
+        else if ((usage_flags & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) || (usage_flags & VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT))
+        {
+            return VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        }
+        else if (usage_flags & VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT)
+        {
+            return VK_ACCESS_SHADER_READ_BIT;
+        }
+        else
+        {
+            return VK_ACCESS_MEMORY_READ_BIT;
+        }
+    }
+
+    VkAccessFlags accessFlagsFromImageUsage(const VkImageUsageFlags usage_flags)
+    {
+        if (usage_flags & VK_IMAGE_USAGE_SAMPLED_BIT)
+        {
+            return VK_ACCESS_SHADER_READ_BIT;
+        }
+        else if (usage_flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        {
+            return VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        }
+        else if (usage_flags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        {
+            return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        }
+        else if (usage_flags & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
+        {
+            return VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+        }
+        else
+        {
+            return VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_MEMORY_READ_BIT;
+        }
+    }
+
+    VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags)
+    {
+        if (usage_flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        {
+            return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        }
+        else if (usage_flags & VK_IMAGE_USAGE_SAMPLED_BIT)
+        {
+            return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        }
+        else if (usage_flags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        {
+            return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        }
+        else
+        {
+            return VK_IMAGE_LAYOUT_GENERAL;
+        }
+    }
 }

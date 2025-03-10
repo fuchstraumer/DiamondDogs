@@ -15,7 +15,7 @@ struct ResourceContextCreateInfo
     bool validationEnabled;
 };
 
-constexpr static size_t k_TransferCompleteSemaphoreValue = 2u;
+constexpr static uint64_t k_TransferCompleteSemaphoreValue = 2u;
 
 class ResourceContextImpl;
 

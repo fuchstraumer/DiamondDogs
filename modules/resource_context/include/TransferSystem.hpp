@@ -3,12 +3,16 @@
 #define DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #include "ForwardDecl.hpp"
 #include "ResourceMessageTypesInternal.hpp"
+#include "ResourceMessageReply.hpp"
 #include "containers/mwsrQueue.hpp"
-#include <vulkan/vulkan_core.h>
+
+#include <chrono>
 #include <memory>
 #include <vector>
-#include <vk_mem_alloc.h>
 #include <thread>
+
+#include <vulkan/vulkan_core.h>
+#include <vk_mem_alloc.h>
 
 struct VulkanResource;
 struct UploadBuffer;
@@ -17,11 +21,6 @@ class TransferCommandPool;
 class ResourceTransferSystem
 {
 public:
-
-    // Specialized classes for managing transfer command buffers and pools because I use RAII
-    // to manage lifetimes and submission of the commands
-    class CommandBuffer;
-    class CommandPool;
 
     ResourceTransferSystem(const ResourceTransferSystem&) = delete;
     ResourceTransferSystem& operator=(const ResourceTransferSystem&) = delete;
@@ -35,6 +34,9 @@ public:
 
     void EnqueueTransfer(TransferPayloadType&& payload);
 
+    void SetExitWorker(bool value);
+    void StartWorker();
+    void StopWorker();
 
 private:
     
@@ -43,8 +45,12 @@ private:
     public:
         TransferCommand(
             const vpr::Device* _device,
-            InternalResourceDataContainer&& _data,
+            VmaAllocator _allocator,
             std::shared_ptr<ResourceTransferReply>&& _reply);
+
+        // not using an upload buffer, is for resources that are already allocated and just need
+        // data written to them
+        TransferCommand(std::shared_ptr<ResourceTransferReply>&& _reply);
         
         ~TransferCommand();
 
@@ -54,16 +60,26 @@ private:
         TransferCommand(TransferCommand&& other) noexcept;
         TransferCommand& operator=(TransferCommand&& other) noexcept;
 
+        VkCommandBuffer CmdBuffer() const;
+        void EndRecording();
+        MessageReply::Status WaitForCompletion(uint64_t timeoutNs);
+        VkSemaphore Semaphore() const;
+
+        UploadBuffer* UploadBuffer() const;
+
+    private:
         const vpr::Device* device;
+        VmaAllocator allocatorHandle;
         std::shared_ptr<ResourceTransferReply> reply;
-        VkCommandBuffer commandBuffer;
-        VkCommandPool commandPool;
-        VmaPool uploadPool;
+        std::unique_ptr<vpr::CommandPool> commandPool;
         std::unique_ptr<UploadBuffer> uploadBuffer;
     };
 
     // worker thread job, pops messages from the queue and processes them
-    void processMessages();
+    void workerThreadJob();
+    void processMessages(std::chrono::milliseconds timeout);
+    void submitTransferCommands();
+    void waitForCommandsToComplete(std::chrono::milliseconds timeout);
 
     template<typename T>
     void processMessage(T&& message);
@@ -92,35 +108,31 @@ private:
     void processCopyImageToBufferMessage(TransferSystemCopyImageToBufferMessage&& message);
     void processCopyBufferToImageMessage(TransferSystemCopyBufferToImageMessage&& message);
 
-    mwsrQueue<TransferPayloadType> transferQueue;
-
-    class CommandPool
-    {
-    public:
-        CommandPool();
-        ~CommandPool();
-        std::vector<CommandBuffer> commandBuffers;
-        std::unique_ptr<vpr::CommandPool> transferCmdPool;
-        VmaPool uploadPool;
-    };
+    mwsrQueue<TransferPayloadType> messageQueue;
 
     void destroy();
-
-    VmaPool createPool();
-    std::unique_ptr<UploadBuffer> createUploadBufferImpl(const size_t buffer_sz);
-    void flushTransfersIfNeeded();
     
-    bool cmdBufferDirty = false;
     bool initialized = false;
 
+    struct InflightCommandBatch
+    {
+        // need to move commands that have been submitted out of the class vector, so that we don't
+        // add to them during the next batch and accidentally dual-submit commands!
+        std::vector<TransferCommand> commands;
+        // optional and rarely used, but useful if we have to force wait for some reason or another
+        // (potentially swapchain resize or device loss? need to assess more)
+        std::unique_ptr<vpr::Fence> fence;
+    };
+    std::vector<InflightCommandBatch> inflightCommandBatches;
+
     std::vector<TransferCommand> commands;
-    std::unique_ptr<vpr::CommandPool> transferCmdPool;
-    std::vector<std::unique_ptr<UploadBuffer>> uploadBuffers;
-    std::unique_ptr<vpr::Fence> fence;
     const vpr::Device* device;
     VmaAllocator allocatorHandle;
-    std::vector<VmaPool> uploadPools;
-    VkDeviceSize lastPoolSize{ VkDeviceSize(128e6) };
+    std::thread workerThread;
+    std::atomic<bool> shouldExitWorker;
+    // since we may spawn multiple instances of this system, we need to know which queue to submit
+    // since splitting up work across queues is part of the benefit of multiple instances! :)
+    uint32_t transferQueueIndex;
 };
 
 template<>

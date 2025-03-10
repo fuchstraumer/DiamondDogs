@@ -15,9 +15,7 @@
 
 namespace
 {
-    std::vector<ThsvsAccessType> thsvsAccessTypesFromBufferUsage(VkBufferUsageFlags _flags);
     VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags);
-    std::vector<ThsvsAccessType> thsvsAccessTypesFromImageUsage(VkImageUsageFlags _flags);
     VkAccessFlags accessFlagsFromImageUsage(const VkImageUsageFlags usage_flags);
     VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags);
     VkMemoryPropertyFlags GetMemoryPropertyFlags(resource_usage _resource_usage) noexcept;
@@ -554,7 +552,32 @@ void ResourceContextImpl::processUnmapResourceMessage(UnmapResourceMessage&& mes
 
 void ResourceContextImpl::processCopyResourceMessage(CopyResourceMessage&& message)
 {
-}   
+    const entt::entity src_entity = entt::entity(message.sourceResource.ResourceHandle);
+    if (!resourceRegistry.valid(src_entity))
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+
+    switch (message.sourceResource.Type)
+    {
+    case resource_type::Buffer:
+        break;
+    case resource_type::BufferView:
+        break;
+    case resource_type::Image:
+        break;
+    case resource_type::ImageView:
+        break;
+    case resource_type::Sampler:
+        break;
+    case resource_type::CombinedImageSampler:
+        break;
+    default:
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+}
 
 void ResourceContextImpl::processCopyResourceContentsMessage(CopyResourceContentsMessage&& message)
 {
@@ -777,7 +800,7 @@ void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&&
         break;
     default:
         message.reply->SetStatus(MessageReply::Status::Failed);
-        resourceRegistry.destroy(entity);
+        resourceRegistry.destroy(entity); 
         return;
     }
 
@@ -1073,55 +1096,6 @@ void ResourceContextImpl::processMessages()
 
 namespace
 {
-    std::vector<ThsvsAccessType> thsvsAccessTypesFromBufferUsage(VkBufferUsageFlags _flags)
-    {
-        std::vector<ThsvsAccessType> results;
-        if (_flags & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_ANY_SHADER_READ_UNIFORM_BUFFER);
-        }
-        if (_flags & VK_BUFFER_USAGE_INDEX_BUFFER_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_INDEX_BUFFER);
-        }
-        if (_flags & VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_VERTEX_BUFFER);
-        }
-        if (_flags & VK_BUFFER_USAGE_INDEX_BUFFER_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_INDIRECT_BUFFER);
-        }
-        if (_flags & VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT)
-        {
-            results.emplace_back(THSVS_ACCESS_CONDITIONAL_RENDERING_READ_EXT);
-        }
-        if (_flags & VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_ANY_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER);
-        }
-        if ((_flags & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) || (_flags & VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT))
-        {
-            results.emplace_back(THSVS_ACCESS_ANY_SHADER_WRITE);
-        }
-        if (_flags & VK_BUFFER_USAGE_TRANSFER_DST_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_TRANSFER_WRITE);
-        }
-        if (_flags & VK_BUFFER_USAGE_TRANSFER_SRC_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_TRANSFER_READ);
-        }
-
-        if (results.empty())
-        {
-            // Didn't match any flags. Go super general.
-            results.emplace_back(THSVS_ACCESS_ANY_SHADER_WRITE);
-            results.emplace_back(THSVS_ACCESS_ANY_SHADER_READ_OTHER);
-        }
-
-        return results;
-    }
 
     VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags)
     {
@@ -1157,55 +1131,6 @@ namespace
         {
             return VK_ACCESS_MEMORY_READ_BIT;
         }
-    }
-
-    std::vector<ThsvsAccessType> thsvsAccessTypesFromImageUsage(VkImageUsageFlags _flags)
-    {
-        std::vector<ThsvsAccessType> results;
-
-        if (_flags & VK_IMAGE_USAGE_SAMPLED_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_ANY_SHADER_READ_SAMPLED_IMAGE_OR_UNIFORM_TEXEL_BUFFER);
-        }
-        if (_flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_COLOR_ATTACHMENT_READ_WRITE);
-        }
-        if (_flags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ);
-            results.emplace_back(THSVS_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE);
-        }
-        if (_flags & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_COLOR_ATTACHMENT_READ);
-        }
-        if (_flags & VK_IMAGE_USAGE_SHADING_RATE_IMAGE_BIT_NV)
-        {
-            results.emplace_back(THSVS_ACCESS_SHADING_RATE_READ_NV);
-        }
-        if (_flags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_TRANSFER_READ);
-        }
-        /*
-        if (_flags & VK_IMAGE_USAGE_TRANSFER_DST_BIT)
-        {
-            results.emplace_back(THSVS_ACCESS_TRANSFER_WRITE);
-        }
-        */
-        if (_flags & VK_IMAGE_USAGE_FRAGMENT_DENSITY_MAP_BIT_EXT)
-        {
-            results.emplace_back(THSVS_ACCESS_FRAGMENT_DENSITY_MAP_READ_EXT);
-        }
-
-        if (results.empty() || (_flags & VK_IMAGE_USAGE_STORAGE_BIT))
-        {
-            results.emplace_back(THSVS_ACCESS_ANY_SHADER_READ_OTHER);
-            results.emplace_back(THSVS_ACCESS_ANY_SHADER_WRITE);
-        }
-
-        return results;
     }
 
     VkAccessFlags accessFlagsFromImageUsage(const VkImageUsageFlags usage_flags)
