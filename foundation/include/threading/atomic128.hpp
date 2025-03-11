@@ -5,13 +5,13 @@
 
 struct alignas(16) cas_data128_t
 {
-    constexpr cas_data128_t() noexcept : low{ 0u }, high{ 0u } {}
-    constexpr cas_data128_t(uint64_t _low, uint64_t _high) noexcept : low{ _low }, high{ _high } {}
-    constexpr cas_data128_t(const cas_data128_t&) noexcept = default;
-    constexpr cas_data128_t(cas_data128_t&&) noexcept = default;
-    constexpr cas_data128_t& operator=(const cas_data128_t&) noexcept = default;
-    constexpr cas_data128_t& operator=(cas_data128_t&&) noexcept = default;
-    constexpr ~cas_data128_t() noexcept = default;
+    cas_data128_t() noexcept : low{ 0u }, high{ 0u } {}
+    cas_data128_t(uint64_t _low, uint64_t _high) noexcept : low{ _low }, high{ _high } {}
+    cas_data128_t(const cas_data128_t&) noexcept = default;
+    cas_data128_t(cas_data128_t&&) noexcept = default;
+    cas_data128_t& operator=(const cas_data128_t&) noexcept = default;
+    cas_data128_t& operator=(cas_data128_t&&) noexcept = default;
+    ~cas_data128_t() noexcept = default;
     constexpr bool operator==(const cas_data128_t& other) const noexcept { return low == other.low && high == other.high; }
     constexpr bool operator!=(const cas_data128_t& other) const noexcept { return !(*this == other); }
     uint64_t low;
@@ -22,16 +22,16 @@ struct alignas(16) cas_data128_t
 
 struct alignas(16) atomic128
 {
-    constexpr atomic128() noexcept = default;
-    constexpr ~atomic128() noexcept = default;
+    atomic128() noexcept = default;
+    ~atomic128() noexcept = default;
     atomic128(const atomic128&) = delete;
     atomic128& operator=(const atomic128&) = delete;
 
-    constexpr atomic128(const cas_data128_t value) noexcept : data{ value } {}
-    constexpr atomic128(uint64_t lower, uint64_t upper) noexcept : data{ lower, upper } {}
+    atomic128(const cas_data128_t value) noexcept : data{ value } {}
+    atomic128(uint64_t lower, uint64_t upper) noexcept : data{ lower, upper } {}
 
-    constexpr atomic128(atomic128&& other) noexcept;
-    constexpr atomic128& operator=(atomic128&& other) noexcept;
+    atomic128(atomic128&& other) noexcept;
+    atomic128& operator=(atomic128&& other) noexcept;
 
     [[nodiscard]] cas_data128_t load() const noexcept;
 

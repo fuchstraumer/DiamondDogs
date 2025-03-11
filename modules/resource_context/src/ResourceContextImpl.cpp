@@ -67,7 +67,7 @@ void ResourceContextImpl::destroy()
     // ... which we can only do by processing them :'(
     while (!messageQueue.empty())
     {
-        processMessage(messageQueue.pop());
+        
     }
 
     // destroy transfer system, which may have pending resources and transfers
@@ -104,6 +104,60 @@ void ResourceContextImpl::processMessages()
 {
     // Create a backoff sleeper with default parameters
     foundation::ExponentialBackoffSleeper sleeper;
+    // surely there has to be a better way than this. why is std::visit like this
+    auto MessageVisitor =
+        [this](auto&& arg)
+        {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, CreateBufferMessage>)
+            {
+                processCreateBufferMessage(std::move(arg));
+            }
+            else if constexpr (std::is_same_v<T, CreateImageMessage>)
+            {
+                processCreateImageMessage(std::move(arg));
+            }
+            else if constexpr (std::is_same_v<T, CreateCombinedImageSamplerMessage>)
+            {
+                processCreateCombinedImageSamplerMessage(std::move(arg));
+            }
+            else if constexpr (std::is_same_v<T, CreateSamplerMessage>)
+            {
+                processCreateSamplerMessage(std::move(arg));
+            }
+            else if constexpr (std::is_same_v<T, SetBufferDataMessage>)
+            {
+                processSetBufferDataMessage(std::move(arg));
+            }
+            else if constexpr (std::is_same_v<T, SetImageDataMessage>)
+            {
+                processSetImageDataMessage(std::move(arg));
+            }
+            else if constexpr (std::is_same_v<T, FillResourceMessage>)
+            {
+                processFillResourceMessage(std::move(arg));
+            }
+            else if constexpr (std::is_same_v<T, MapResourceMessage>)
+            {
+                processMapResourceMessage(std::move(arg));
+            }
+            else if constexpr (std::is_same_v<T, UnmapResourceMessage>)
+            {
+                processUnmapResourceMessage(std::move(arg));
+            }
+            else if constexpr (std::is_same_v<T, CopyResourceMessage>)
+            {
+                processCopyResourceMessage(std::move(arg));
+            }
+            else if constexpr (std::is_same_v<T, CopyResourceContentsMessage>)
+            {
+                processCopyResourceContentsMessage(std::move(arg));
+            }
+            else if constexpr (std::is_same_v<T, DestroyResourceMessage>)
+            {
+                processDestroyResourceMessage(std::move(arg));
+            }
+        };
 
     while (!shouldExitWorker.load())
     {
@@ -113,7 +167,7 @@ void ResourceContextImpl::processMessages()
         while (!messageQueue.empty())
         {
             ResourceMessagePayloadType message = messageQueue.pop();
-            std::visit([this](auto&& arg) { this->processMessage(std::forward<decltype(arg)>(arg)); }, message);
+            std::visit(MessageVisitor, message);
             didProcessMessage = true;
         }
         
@@ -391,7 +445,7 @@ void ResourceContextImpl::processCreateSamplerMessage(CreateSamplerMessage&& mes
 void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& message)
 {
     const GraphicsResource& buffer = message.destBuffer;
-    const entt::entity entity = entt::entity(buffer.ResourceHandle);
+    const entt::entity entity = entt::entity(buffer.EntityHandle);
     if (!resourceRegistry.valid(entity))
     {
         message.reply->SetStatus(MessageReply::Status::Failed);
@@ -426,7 +480,7 @@ void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& mes
 void ResourceContextImpl::processSetImageDataMessage(SetImageDataMessage&& message)
 {
     const GraphicsResource& image = message.destImage;
-    const entt::entity entity = entt::entity(image.ResourceHandle);
+    const entt::entity entity = entt::entity(image.EntityHandle);
     if (!resourceRegistry.valid(entity))
     {
         message.reply->SetStatus(MessageReply::Status::Failed);
@@ -461,7 +515,7 @@ void ResourceContextImpl::processSetImageDataMessage(SetImageDataMessage&& messa
 void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& message)
 {
     const GraphicsResource& buffer = message.resource;
-    const entt::entity entity = entt::entity(buffer.ResourceHandle);
+    const entt::entity entity = entt::entity(buffer.EntityHandle);
     if (!resourceRegistry.valid(entity))
     {
         message.reply->SetStatus(MessageReply::Status::Failed);
@@ -498,7 +552,7 @@ void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& messa
 
 void ResourceContextImpl::processMapResourceMessage(MapResourceMessage&& message)
 {
-    const entt::entity entity = entt::entity(message.resource.ResourceHandle);
+    const entt::entity entity = entt::entity(message.resource.EntityHandle);
     if (!resourceRegistry.valid(entity))
     {
         message.reply->SetStatus(MessageReply::Status::Failed);
@@ -546,7 +600,7 @@ void ResourceContextImpl::processMapResourceMessage(MapResourceMessage&& message
 
 void ResourceContextImpl::processUnmapResourceMessage(UnmapResourceMessage&& message)
 {
-    const entt::entity entity = entt::entity(message.resource.ResourceHandle);
+    const entt::entity entity = entt::entity(message.resource.EntityHandle);
     if (!resourceRegistry.valid(entity))
     {
         message.reply->SetStatus(MessageReply::Status::Failed);
@@ -580,7 +634,7 @@ void ResourceContextImpl::processUnmapResourceMessage(UnmapResourceMessage&& mes
 
 void ResourceContextImpl::processCopyResourceMessage(CopyResourceMessage&& message)
 {
-    const entt::entity src_entity = entt::entity(message.sourceResource.ResourceHandle);
+    const entt::entity src_entity = entt::entity(message.sourceResource.EntityHandle);
     if (!resourceRegistry.valid(src_entity))
     {
         message.reply->SetStatus(MessageReply::Status::Failed);
@@ -610,8 +664,8 @@ void ResourceContextImpl::processCopyResourceMessage(CopyResourceMessage&& messa
 void ResourceContextImpl::processCopyResourceContentsMessage(CopyResourceContentsMessage&& message)
 {
     // Verify both entities are valid
-    const entt::entity src_entity = entt::entity(message.sourceResource.ResourceHandle);
-    const entt::entity dst_entity = entt::entity(message.destinationResource.ResourceHandle);
+    const entt::entity src_entity = entt::entity(message.sourceResource.EntityHandle);
+    const entt::entity dst_entity = entt::entity(message.destinationResource.EntityHandle);
     if (!resourceRegistry.valid(src_entity) || !resourceRegistry.valid(dst_entity))
     {
         message.reply->SetStatus(MessageReply::Status::Failed);
@@ -798,7 +852,7 @@ void ResourceContextImpl::processCopyResourceContentsMessage(CopyResourceContent
 
 void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&& message)
 {
-    const entt::entity entity = entt::entity(message.resource.ResourceHandle);
+    const entt::entity entity = entt::entity(message.resource.EntityHandle);
     if (!resourceRegistry.valid(entity))
     {
         message.reply->SetStatus(MessageReply::Status::Failed);

@@ -6,10 +6,10 @@
 #include <chrono>
 #include <thread>
 
-constexpr static cas_data128_t null_atomic128 = cas_data128_t{ 0u, 0u };
+const static cas_data128_t null_atomic128 = cas_data128_t{ 0u, 0u };
 constexpr static uint64_t vk_null_handle_uint64 = reinterpret_cast<uint64_t>(VK_NULL_HANDLE);
 constexpr static uint32_t entt_null_entity_uint32 = static_cast<uint32_t>(entt::null);
-constexpr static GraphicsResource null_graphics_resource = GraphicsResource{ resource_type::Invalid, entt_null_entity_uint32, vk_null_handle_uint64, vk_null_handle_uint64, vk_null_handle_uint64 };
+const static GraphicsResource null_graphics_resource = GraphicsResource{ resource_type::Invalid, entt_null_entity_uint32, vk_null_handle_uint64, vk_null_handle_uint64, vk_null_handle_uint64 };
 
 MessageReply::MessageReply(MessageReply&& other) noexcept
     : status(other.status.load(std::memory_order_relaxed))
@@ -240,7 +240,7 @@ void GraphicsResourceReply::SetGraphicsResourceRelaxed(const GraphicsResource& r
     // on and why we can use relaxed stores
     vkHandleAndView.store(cas_data128_t{ resource.VkHandle, resource.VkViewHandle }, std::memory_order_relaxed);
     vkSamplerHandle.store(resource.VkSamplerHandle, std::memory_order_relaxed);
-    resourceTypeAndEntityHandle.store(VkResourceTypeAndEntityHandle(resource.Type, resource.ResourceHandle), std::memory_order_relaxed);
+    resourceTypeAndEntityHandle.store(VkResourceTypeAndEntityHandle(resource.Type, resource.EntityHandle), std::memory_order_relaxed);
 }
 
 

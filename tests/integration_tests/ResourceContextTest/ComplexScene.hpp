@@ -4,6 +4,8 @@
 #include "VulkanScene.hpp"
 #include "ForwardDecl.hpp"
 #include "CommonCreationFunctions.hpp"
+#include "ResourceTypes.hpp"
+#include "ResourceMessageReply.hpp"
 #include <vector>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -26,7 +28,6 @@ struct LoadedObjModel
 };
 
 class ResourceContext;
-struct VulkanResource;
 
 class VulkanComplexScene : public VulkanScene
 {
@@ -95,16 +96,16 @@ protected:
     void updateSkyboxDescriptorSet();
 
     std::unique_ptr<ResourceContext> resourceContext{ nullptr };
-    VulkanResource* sampler{ nullptr };
-    VulkanResource* houseVBO{ nullptr };
-    VulkanResource* houseEBO{ nullptr };
-    VulkanResource* houseTexture{ nullptr };
-    VulkanResource* skyboxEBO{ nullptr };
-    VulkanResource* skyboxVBO{ nullptr };
-    VulkanResource* skyboxTexture{ nullptr };
-    VulkanResource* houseUBO{ nullptr };
+    GraphicsResource sampler;
+    GraphicsResource houseVBO;
+    GraphicsResource houseEBO;
+    GraphicsResource houseTexture;
+    GraphicsResource skyboxEBO;
+    GraphicsResource skyboxVBO;
+    GraphicsResource skyboxTexture;
+    GraphicsResource houseUBO;
     void* houseUboMappedPtr{ nullptr };
-    VulkanResource* skyboxUBO{ nullptr };
+    GraphicsResource skyboxUBO;
     void* skyboxUboMappedPtr{ nullptr };
 
     DepthStencil depthStencil;
@@ -132,12 +133,13 @@ protected:
 
     uint32_t houseIndexCount{ 0u };
     uint32_t skyboxIndexCount{ 0u };
-    std::shared_ptr<ResourceMessageReply<VulkanResource*>> skyboxTextureReply{ nullptr };
-    std::shared_ptr<ResourceMessageReply<VulkanResource*>> houseTextureReply{ nullptr };
-    std::shared_ptr<ResourceMessageReply<VulkanResource*>> houseVboReply{ nullptr };
-    std::shared_ptr<ResourceMessageReply<VulkanResource*>> houseEboReply{ nullptr };
-    std::shared_ptr<ResourceMessageReply<VulkanResource*>> skyboxVboReply{ nullptr };
-    std::shared_ptr<ResourceMessageReply<VulkanResource*>> skyboxEboReply{ nullptr };
+    std::shared_ptr<GraphicsResourceReply> samplerReply{ nullptr };
+    std::shared_ptr<GraphicsResourceReply> skyboxTextureReply{ nullptr };
+    std::shared_ptr<GraphicsResourceReply> houseTextureReply{ nullptr };
+    std::shared_ptr<GraphicsResourceReply> houseVboReply{ nullptr };
+    std::shared_ptr<GraphicsResourceReply> houseEboReply{ nullptr };
+    std::shared_ptr<GraphicsResourceReply> skyboxVboReply{ nullptr };
+    std::shared_ptr<GraphicsResourceReply> skyboxEboReply{ nullptr };
 
 };
 

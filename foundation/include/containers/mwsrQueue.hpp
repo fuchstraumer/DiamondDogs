@@ -394,7 +394,7 @@ namespace detail
     };
 
     // Templatization required, so that it works with more than one type of queue item
-    // (as each template initilization will be a new type, causing new static members)
+    // (as each template initialization will be a new type, causing new static members)
     template<typename QueueItem>
     class LockedThreadsList
     {
@@ -402,7 +402,7 @@ namespace detail
         uint64_t unlockUpTo{ 0u };
         std::mutex mutex;
         LockedThreadsListLockItem* first{ nullptr };
-        static thread_local LockedThreadsListLockItem lockedThreadsListTLS_data;
+        inline static thread_local LockedThreadsListLockItem lockedThreadsListTLS_data = LockedThreadsListLockItem{};
     public:
 
         void lockAndWait(uint64_t itemId)

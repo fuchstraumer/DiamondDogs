@@ -25,9 +25,10 @@
 #include "gli/gli.hpp"
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
-#define TINYOBJ_LOADER_OPT_IMPLEMENTATION 
+#define TINYOBJLOADER_IMPLEMENTATION 
 #include <tinyobjloader/tiny_obj_loader.h>
 #pragma warning(pop)
+
 #include <iostream>
 #include <array>
 #include <fstream>
@@ -258,24 +259,23 @@ void VulkanComplexScene::Destroy()
 
     sharedCache->MergeCaches(2u, otherCaches);
 
-    auto destroy_rsrc_safe = [this](VulkanResource*& rsrc)
-    {
-        if (rsrc != nullptr)
+    auto destroyResource = 
+        [this](GraphicsResource rsrc)
         {
-            resourceContext->DestroyResource(rsrc);
-            rsrc = nullptr;
-        }
-    };
-
-    destroy_rsrc_safe(sampler);
-    destroy_rsrc_safe(houseEBO);
-    destroy_rsrc_safe(houseVBO);
-    destroy_rsrc_safe(houseUBO);
-    destroy_rsrc_safe(houseTexture);
-    destroy_rsrc_safe(skyboxEBO);
-    destroy_rsrc_safe(skyboxVBO);
-    destroy_rsrc_safe(skyboxUBO);
-    destroy_rsrc_safe(skyboxTexture);
+            auto deletionReply = resourceContext->DestroyResource(rsrc);
+            MessageReply::Status status = deletionReply->WaitForCompletion();
+            assert(status == MessageReply::Status::Completed);
+        };
+  
+    destroyResource(houseTexture);
+    destroyResource(skyboxTexture);
+    destroyResource(houseVBO);
+    destroyResource(houseEBO);
+    destroyResource(skyboxVBO);
+    destroyResource(skyboxEBO);
+    destroyResource(houseUBO);
+    destroyResource(skyboxUBO);
+    destroyResource(sampler);
     houseSet.reset();
     skyboxSet.reset();
     pipelineLayout.reset();
@@ -365,7 +365,7 @@ void VulkanComplexScene::CreateHouseMesh(void * obj_data)
         obj_model->vertices.data(),
         sizeof(LoadedObjModel::vertex_t) * obj_model->vertices.size(),
         0,
-        VK_QUEUE_FAMILY_IGNORED
+        0
     };
 
     const VkBufferCreateInfo ebo_info
@@ -385,10 +385,10 @@ void VulkanComplexScene::CreateHouseMesh(void * obj_data)
         obj_model->indices.data(),
         static_cast<size_t>(ebo_info.size),
         0,
-        VK_QUEUE_FAMILY_IGNORED
+        0
     };
 
-    constexpr resource_creation_flags creationFlags{ ResourceCreateMemoryStrategyMinTime | ResourceCreateUserDataAsString };
+    constexpr resource_creation_flags creationFlags{ resource_creation_flag_bits::UserDataAsString };
     constexpr const char* houseVBO_Str{ "HouseVBO" };
     constexpr const char* houseEBO_Str{ "HouseEBO" };
     
@@ -469,7 +469,7 @@ void VulkanComplexScene::CreateHouseTexture(void * texture_data)
         }
     };
 
-    constexpr resource_creation_flags creationFlags{ ResourceCreateMemoryStrategyMinTime | ResourceCreateUserDataAsString };
+    constexpr resource_creation_flags creationFlags{ resource_creation_flag_bits::UserDataAsString };
     constexpr const char* houseTextureStr{ "HouseTexture" };
     
     VkImageCreateInfo image_info_val = image_info;
@@ -556,7 +556,7 @@ void VulkanComplexScene::CreateSkyboxTexture(void * texture_data)
         }
     }
 
-    constexpr resource_creation_flags creationFlags{ ResourceCreateMemoryStrategyMinTime | ResourceCreateUserDataAsString };
+    constexpr resource_creation_flags creationFlags{ resource_creation_flag_bits::UserDataAsString };
     constexpr const char* skyboxTextureStr{ "SkyboxTexture" };
     
     VkImageCreateInfo image_info_val = image_info;
@@ -575,15 +575,15 @@ void VulkanComplexScene::CreateSkyboxTexture(void * texture_data)
 
 bool VulkanComplexScene::AllAssetsLoaded()
 {
-    return skyboxTextureReply->IsReady() && houseVboReply->IsReady() && houseEboReply->IsReady() && houseTextureReply->IsReady();
+    return skyboxTextureReply->IsCompleted() && houseVboReply->IsCompleted() && houseEboReply->IsCompleted() && houseTextureReply->IsCompleted();
 }
 
 void VulkanComplexScene::WaitForAllLoaded()
 {
-    skyboxTextureReply->WaitForResourceOperation();
-    houseVboReply->WaitForResourceOperation();
-    houseEboReply->WaitForResourceOperation();
-    houseTextureReply->WaitForResourceOperation();
+    skyboxTextureReply->WaitForCompletion();
+    houseVboReply->WaitForCompletion();
+    houseEboReply->WaitForCompletion();
+    houseTextureReply->WaitForCompletion();
     std::cerr << "All data loaded.";
 }
 
@@ -599,49 +599,49 @@ void VulkanComplexScene::update()
     houseUboData.model = glm::translate(houseUboData.model, translation);
     
     // persistently mapped, can just copy
-    std::copy(&houseUboData,  &houseUboData + sizeof(houseUboData), houseUboMappedPtr);
-    std::copy(&skyboxUboData, &skyboxUboData + sizeof(skyboxUboData), skyboxUboMappedPtr);
+    std::memcpy(houseUboMappedPtr, &houseUboData, sizeof(decltype(houseUboData)));
+    std::memcpy(skyboxUboMappedPtr, &skyboxUboData, sizeof(decltype(skyboxUboData)));
 }
 
 void VulkanComplexScene::recordCommands()
 {
 
-    if (!skyboxTexture && skyboxTextureReply->IsReady())
+    if (!skyboxTexture && skyboxTextureReply->IsCompleted())
     {
-        skyboxTexture = skyboxTextureReply->GetReplyData();
+        skyboxTexture = skyboxTextureReply->GetResource();
         updateSkyboxDescriptorSet();
         // free shared pointers after retrieving the result
         skyboxTextureReply.reset();
     }
 
-    if (!houseTexture && houseTextureReply->IsReady())
+    if (!houseTexture && houseTextureReply->IsCompleted())
     {
-        houseTexture = houseTextureReply->GetReplyData();
+        houseTexture = houseTextureReply->GetResource();
         updateHouseDescriptorSet();
         houseTextureReply.reset();
     }
 
-    if (!skyboxVBO && skyboxVboReply->IsReady())
+    if (!skyboxVBO && skyboxVboReply->IsCompleted())
     {
-        skyboxVBO = skyboxVboReply->GetReplyData();
+        skyboxVBO = skyboxVboReply->GetResource();
         skyboxVboReply.reset();
     }
 
-    if (!skyboxEBO && skyboxEboReply->IsReady())
+    if (!skyboxEBO && skyboxEboReply->IsCompleted())
     {
-        skyboxEBO = skyboxEboReply->GetReplyData();
+        skyboxEBO = skyboxEboReply->GetResource();
         skyboxEboReply.reset();
     }
 
-    if (!houseVBO && houseVboReply->IsReady())
+    if (!houseVBO && houseVboReply->IsCompleted())
     {
-        houseVBO = houseVboReply->GetReplyData();
+        houseVBO = houseVboReply->GetResource();
         houseVboReply.reset();
     }
 
-    if (!houseEBO && houseEboReply->IsReady())
+    if (!houseEBO && houseEboReply->IsCompleted())
     {
-        houseEBO = houseEboReply->GetReplyData();
+        houseEBO = houseEboReply->GetResource();
         houseEboReply.reset();
     }
 
@@ -728,10 +728,10 @@ void VulkanComplexScene::renderHouse(VkCommandBuffer cmd)
 {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, housePipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout->vkHandle(), 0, 1, &houseSet->vkHandle(), 0, nullptr);
-    const VkBuffer buffers[1]{ (VkBuffer)houseVBO->Handle };
+    const VkBuffer buffers[1]{ (VkBuffer)houseVBO.VkHandle };
     constexpr static VkDeviceSize offsets[1]{ 0 };
     vkCmdBindVertexBuffers(cmd, 0, 1, buffers, offsets);
-    vkCmdBindIndexBuffer(cmd, (VkBuffer)houseEBO->Handle, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(cmd, (VkBuffer)houseEBO.VkHandle, 0, VK_INDEX_TYPE_UINT32);
     vkCmdDrawIndexed(cmd, houseIndexCount, 1, 0, 0, 0);
 }
 
@@ -739,10 +739,10 @@ void VulkanComplexScene::renderSkybox(VkCommandBuffer cmd)
 {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skyboxPipeline);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout->vkHandle(), 0, 1, &skyboxSet->vkHandle(), 0, nullptr);
-    const VkBuffer buffer[1]{ (VkBuffer)skyboxVBO->Handle };
+    const VkBuffer buffer[1]{ (VkBuffer)skyboxVBO.VkHandle };
     constexpr static VkDeviceSize offsets[1]{ 0 };
     vkCmdBindVertexBuffers(cmd, 0, 1, buffer, offsets);
-    vkCmdBindIndexBuffer(cmd, (VkBuffer)skyboxEBO->Handle, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(cmd, (VkBuffer)skyboxEBO.VkHandle, 0, VK_INDEX_TYPE_UINT32);
     vkCmdDrawIndexed(cmd, skyboxIndexCount, 1, 0, 0, 0);
 }
 
@@ -800,8 +800,7 @@ void VulkanComplexScene::createSampler()
         VK_FALSE
     };
     constexpr const char* samplerStr{ "SharedSampler" };
-    // TODO: Update this when the CreateSampler method is available in the new API
-    // sampler = resourceContext->CreateSampler(&sampler_info, ResourceCreateUserDataAsString, (void*)samplerStr);
+    samplerReply = resourceContext->CreateSampler(sampler_info, (void*)samplerStr);
 }
 
 void VulkanComplexScene::createUBOs()
@@ -817,7 +816,12 @@ void VulkanComplexScene::createUBOs()
         0,
         nullptr
     };
-    constexpr resource_creation_flags uboFlags{ ResourceCreatePersistentlyMapped | ResourceCreateUserDataAsString };
+    constexpr resource_creation_flags uboFlags
+    { 
+        resource_creation_flag_bits::UserDataAsString |
+        resource_creation_flag_bits::CreateMapped |
+        resource_creation_flag_bits::PersistentlyMapped
+    };
     constexpr const char* houseUboStr{ "HouseUBO" };
     constexpr const char* skyboxUboStr{ "SkyboxUBO" };
     
@@ -848,10 +852,14 @@ void VulkanComplexScene::createUBOs()
 
     auto skyboxUboMapReply = resourceContext->MapBuffer(skyboxUBO, sizeof(ubo_data_t), 0);
 
-    houseUBO = houseUBOReply->WaitForResourceOperation();
-    skyboxUBO = skyboxUBOReply->WaitForResourceOperation();
-    houseUboMappedPtr = houseUboMapReply->WaitForResourceOperation();
-    skyboxUboMappedPtr = skyboxUboMapReply->WaitForResourceOperation();
+    assert(houseUBOReply->WaitForCompletion() == MessageReply::Status::Completed);
+    houseUBO = houseUBOReply->GetResource();
+    assert(houseUboMapReply->WaitForCompletion() == MessageReply::Status::Completed);
+    houseUboMappedPtr = houseUboMapReply->GetPointer();
+    assert(skyboxUBOReply->WaitForCompletion() == MessageReply::Status::Completed);
+    skyboxUBO = skyboxUBOReply->GetResource();
+    assert(skyboxUboMapReply->WaitForCompletion() == MessageReply::Status::Completed);
+    skyboxUboMappedPtr = skyboxUboMapReply->GetPointer();
 }
 
 void VulkanComplexScene::createSkyboxMesh()
@@ -893,7 +901,7 @@ void VulkanComplexScene::createSkyboxMesh()
         mesh_data.vertices.data(),
         vbo_info.size,
         0,
-        VK_QUEUE_FAMILY_IGNORED
+        0
     };
 
     const gpu_resource_data_t ebo_data
@@ -901,10 +909,10 @@ void VulkanComplexScene::createSkyboxMesh()
         mesh_data.indices.data(),
         ebo_info.size,
         0,
-        VK_QUEUE_FAMILY_IGNORED
+        0
     };
 
-    constexpr resource_creation_flags creationFlags{ ResourceCreateMemoryStrategyMinTime | ResourceCreateUserDataAsString };
+    constexpr resource_creation_flags creationFlags{ resource_creation_flag_bits::UserDataAsString };
     constexpr const char* skyboxVboStr{ "SkyboxVBO" };
     constexpr const char* skyboxEboStr{ "SkyboxEBO" };
     
@@ -1000,8 +1008,9 @@ void VulkanComplexScene::createDescriptorSets()
 {
     houseSet = std::make_unique<vpr::DescriptorSet>(vprObjects.device->vkHandle());
     skyboxSet = std::make_unique<vpr::DescriptorSet>(vprObjects.device->vkHandle());
-    houseSet->AddDescriptorInfo(VkDescriptorBufferInfo{ (VkBuffer)houseUBO->Handle, 0, sizeof(ubo_data_t) }, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0);
-    skyboxSet->AddDescriptorInfo(VkDescriptorBufferInfo{ (VkBuffer)skyboxUBO->Handle, 0, sizeof(ubo_data_t) }, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0);
+    // fine here because we wait for these UBOs to create in their function already
+    houseSet->AddDescriptorInfo(VkDescriptorBufferInfo{ (VkBuffer)houseUBO.VkHandle, 0, sizeof(ubo_data_t) }, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0);
+    skyboxSet->AddDescriptorInfo(VkDescriptorBufferInfo{ (VkBuffer)skyboxUBO.VkHandle, 0, sizeof(ubo_data_t) }, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0);
 }
 
 void VulkanComplexScene::createUpdateTemplates()
@@ -1209,12 +1218,12 @@ void VulkanComplexScene::destroyFramebuffers()
 
 void VulkanComplexScene::updateHouseDescriptorSet()
 {
-    houseSet->AddDescriptorInfo(VkDescriptorImageInfo{ (VkSampler)sampler->Handle, (VkImageView)houseTexture->ViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1);
+    houseSet->AddDescriptorInfo(VkDescriptorImageInfo{ (VkSampler)sampler.VkHandle, (VkImageView)houseTexture.VkViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1);
     houseSet->Init(descriptorPool->vkHandle(), setLayout->vkHandle());
 }
 
 void VulkanComplexScene::updateSkyboxDescriptorSet()
 {
-    skyboxSet->AddDescriptorInfo(VkDescriptorImageInfo{ (VkSampler)sampler->Handle, (VkImageView)skyboxTexture->ViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1);
+    skyboxSet->AddDescriptorInfo(VkDescriptorImageInfo{ (VkSampler)sampler.VkHandle, (VkImageView)skyboxTexture.VkViewHandle, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1);
     skyboxSet->Init(descriptorPool->vkHandle(), setLayout->vkHandle());
 }

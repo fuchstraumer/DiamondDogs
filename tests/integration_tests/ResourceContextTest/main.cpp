@@ -17,6 +17,7 @@ static const fs::path SkyboxTexturePath = BasePath / fs::path("Starbox.dds");
 static const std::string SkyboxDdsFile = SkyboxTexturePath.string();
 
 static bool dataLoadedToRAM = false;
+static std::unique_ptr<ResourceContext> resourceContext{ nullptr };
 
 static void objFileLoadedCallback(void* scene_ptr, void* data_ptr, void* user_data)
 {
@@ -33,25 +34,29 @@ static void skyboxLoadedCallback(void* scene_ptr, void* data, void* user_data)
     reinterpret_cast<VulkanComplexScene*>(scene_ptr)->CreateSkyboxTexture(data);
 }
 
-static void BeginResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height)
+static void BeginResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)
 {
     auto& loader = ResourceLoader::GetResourceLoader();
     loader.Stop(); // get threads to finish pending work
-    auto& transfer_sys = ResourceContext::Get();
-    transfer_sys.Update(); // flush transfers before scene is killed
+    
     auto& scene = VulkanComplexScene::GetScene();
     scene.Destroy();
-    auto& rsrc = ResourceContext::Get();
-    rsrc.Destroy();
+    resourceContext.reset();
 }
 
-static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height)
+static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)
 {
     auto& scene = VulkanComplexScene::GetScene();
     auto& context = RenderingContext::Get();
-    auto& rsrc = ResourceContext::Get();
-    rsrc.Initialize(context.Device(), context.PhysicalDevice(), VTF_VALIDATION_ENABLED);
-    scene.Construct(RequiredVprObjects{ context.Device(), context.PhysicalDevice(), context.Instance(), context.Swapchain() }, &rsrc);
+    resourceContext = std::make_unique<ResourceContext>();
+    ResourceContextCreateInfo create_info
+    {
+        context.Device(),
+        context.PhysicalDevice(),
+        VTF_VALIDATION_ENABLED
+    };
+    resourceContext->Initialize(create_info);
+    scene.Construct(RequiredVprObjects{ context.Device(), context.PhysicalDevice(), context.Instance(), context.Swapchain() }, resourceContext.get());
 
     auto& loader = ResourceLoader::GetResourceLoader();
     loader.Start(); // restart threads
@@ -89,15 +94,21 @@ int main(int argc, char* argv[])
         }
     }
 
-    auto& rsrc = ResourceContext::Get();
-    rsrc.Initialize(context.Device(), context.PhysicalDevice(), VTF_VALIDATION_ENABLED);
+    resourceContext = std::make_unique<ResourceContext>();
+    ResourceContextCreateInfo create_info
+    {
+        context.Device(),
+        context.PhysicalDevice(),
+        VTF_VALIDATION_ENABLED
+    };
+    resourceContext->Initialize(create_info);
     auto& rsrc_loader = ResourceLoader::GetResourceLoader();
     rsrc_loader.Subscribe("OBJ", &VulkanComplexScene::LoadObjFile, &VulkanComplexScene::DestroyObjFileData);
     rsrc_loader.Subscribe("PNG", &VulkanComplexScene::LoadPngImage, &VulkanComplexScene::DestroyPngFileData);
     rsrc_loader.Subscribe("DDS", &VulkanComplexScene::LoadCompressedTexture, &VulkanComplexScene::DestroyCompressedTextureData);
 
     auto& scene = VulkanComplexScene::GetScene();
-    scene.Construct(RequiredVprObjects{ context.Device(), context.PhysicalDevice(), context.Instance(), context.Swapchain() }, &rsrc);
+    scene.Construct(RequiredVprObjects{ context.Device(), context.PhysicalDevice(), context.Instance(), context.Swapchain() }, resourceContext.get());
 
     rsrc_loader.Load("OBJ", HouseObjFile.c_str(), &scene, objFileLoadedCallback, nullptr);
     rsrc_loader.Load("PNG", HousePngFile.c_str(), &scene, jpegLoadedCallback, nullptr);
@@ -113,7 +124,6 @@ int main(int argc, char* argv[])
     while (!context.ShouldWindowClose())
     {
         context.Update();
-        rsrc.Update();
         scene.Render(nullptr);
         if (dataLoadedToRAM)
         {

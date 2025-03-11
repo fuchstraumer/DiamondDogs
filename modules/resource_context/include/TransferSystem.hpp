@@ -2,7 +2,7 @@
 #ifndef DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #define DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #include "ForwardDecl.hpp"
-#include "ResourceMessageTypesInternal.hpp"
+#include "../src/ResourceMessageTypesInternal.hpp"
 #include "ResourceMessageReply.hpp"
 #include "containers/mwsrQueue.hpp"
 #include "threading/ExponentialBackoffSleeper.hpp"

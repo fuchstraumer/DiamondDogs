@@ -52,34 +52,6 @@ private:
 
     void processMessages();
 
-    // Templated to work with std::visit, so that the callsite isn't std::variant branching hellsite
-    template<typename T>
-    void processMessage(T&& message);
-    template<>
-    void processMessage<CreateBufferMessage>(CreateBufferMessage&& message);
-    template<>
-    void processMessage<CreateImageMessage>(CreateImageMessage&& message);
-    template<>
-    void processMessage<CreateCombinedImageSamplerMessage>(CreateCombinedImageSamplerMessage&& message);
-    template<>
-    void processMessage<CreateSamplerMessage>(CreateSamplerMessage&& message);
-    template<>
-    void processMessage<SetBufferDataMessage>(SetBufferDataMessage&& message);
-    template<>
-    void processMessage<SetImageDataMessage>(SetImageDataMessage&& message);
-    template<>
-    void processMessage<FillResourceMessage>(FillResourceMessage&& message);
-    template<>
-    void processMessage<MapResourceMessage>(MapResourceMessage&& message);
-    template<>
-    void processMessage<UnmapResourceMessage>(UnmapResourceMessage&& message);
-    template<>
-    void processMessage<CopyResourceMessage>(CopyResourceMessage&& message);
-    template<>
-    void processMessage<CopyResourceContentsMessage>(CopyResourceContentsMessage&& message);
-    template<>
-    void processMessage<DestroyResourceMessage>(DestroyResourceMessage&& message);
-
     // I don't want to blow up the header implementing the above functions, so they're redeclared here explicitly to be implemented in the .cpp. Sorry :(
     void processCreateBufferMessage(CreateBufferMessage&& message);
     void processCreateImageMessage(CreateImageMessage&& message);
@@ -154,76 +126,5 @@ private:
     bool validationEnabled{ false };
 };
 
-template<>
-inline void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
-{
-    processCreateBufferMessage(std::move(message));
-}
-
-template<>
-inline void ResourceContextImpl::processMessage(CreateImageMessage&& message)
-{
-    processCreateImageMessage(std::move(message));
-}
-
-template<>
-inline void ResourceContextImpl::processMessage(CreateCombinedImageSamplerMessage&& message)
-{
-    processCreateCombinedImageSamplerMessage(std::move(message));
-}
-
-template<>
-inline void ResourceContextImpl::processMessage(CreateSamplerMessage&& message)
-{
-    processCreateSamplerMessage(std::move(message));
-}
-
-template<>
-inline void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
-{
-    processSetBufferDataMessage(std::move(message));
-}
-
-template<>
-inline void ResourceContextImpl::processMessage(SetImageDataMessage&& message)
-{
-    processSetImageDataMessage(std::move(message));
-}
-
-template<>
-inline void ResourceContextImpl::processMessage(FillResourceMessage&& message)
-{
-    processFillResourceMessage(std::move(message));
-}
-
-template<>
-inline void ResourceContextImpl::processMessage(MapResourceMessage&& message)
-{
-    processMapResourceMessage(std::move(message));
-}
-
-template<>
-inline void ResourceContextImpl::processMessage(UnmapResourceMessage&& message)
-{
-    processUnmapResourceMessage(std::move(message));
-}
-
-template<>
-inline void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
-{
-    processCopyResourceMessage(std::move(message));
-}
-
-template<>
-inline void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
-{
-    processCopyResourceContentsMessage(std::move(message));
-}
-
-template<>
-inline void ResourceContextImpl::processMessage(DestroyResourceMessage&& message)
-{
-    processDestroyResourceMessage(std::move(message));
-}
 
 #endif //!RESOURCE_CONTEXT_IMPL_HPP

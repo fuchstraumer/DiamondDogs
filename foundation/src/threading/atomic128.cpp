@@ -11,9 +11,9 @@ template<typename DestType, typename SourceType>
 }
 
 
-constexpr atomic128::atomic128(atomic128&& other) noexcept : data{ std::move(other.data) } {}
+atomic128::atomic128(atomic128&& other) noexcept : data{ std::move(other.data) } {}
 
-constexpr atomic128& atomic128::operator=(atomic128&& other) noexcept
+atomic128& atomic128::operator=(atomic128&& other) noexcept
 {
     if (this != &other)
     {

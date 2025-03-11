@@ -142,7 +142,6 @@ public:
     PointerMessageReply(PointerMessageReply&& other) noexcept;
     PointerMessageReply& operator=(PointerMessageReply&& other) noexcept;
 
-    bool IsCompleted() const noexcept final;
     void* GetPointer() const noexcept;
     
 private:

@@ -13,6 +13,10 @@ ADD_SUBDIRECTORY(third_party/vulpesrender)
 ADD_SUBDIRECTORY(third_party/shadertools)
 add_subdirectory(third_party/vma)
 add_subdirectory(third_party/entt)
+SET(MI_BUILD_OBJECT OFF CACHE BOOL "Build object library")
+SET(MI_BUILD_SHARED OFF CACHE BOOL "Build shared library")
+SET(MI_BUILD_TESTS OFF CACHE BOOL "Build test executables")
+SET(MI_USE_CXX ON CACHE BOOL "Use the C++ compiler to compile the library (instead of the C compiler)")
 add_subdirectory(third_party/mimalloc)
 # Foundation is core functionality that wouldn't make sense to put into modules:
 # Threading primitives, utilities, exception helpers, containers, etc

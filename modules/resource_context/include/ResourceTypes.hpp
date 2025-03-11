@@ -88,31 +88,31 @@ struct gpu_image_resource_data_t
 
 struct GraphicsResource
 {
-    constexpr GraphicsResource() noexcept : Type{ resource_type::Invalid }, ResourceHandle{ 0u }, VkHandle{ 0u }, VkViewHandle{ 0u }, VkSamplerHandle{ 0u } {}
-    constexpr GraphicsResource(
+    GraphicsResource() noexcept;
+    GraphicsResource(
         const resource_type type,
         const uint32_t resource_handle,
         const uint64_t vk_handle,
         const uint64_t vk_view_handle,
         const uint64_t vk_sampler_handle) :
         Type{ type },
-        ResourceHandle{ resource_handle },
+        EntityHandle{ resource_handle },
         VkHandle{ vk_handle },
         VkViewHandle{ vk_view_handle },
         VkSamplerHandle{ vk_sampler_handle }
     {}
-    constexpr ~GraphicsResource() noexcept = default;
-    constexpr GraphicsResource(const GraphicsResource&) noexcept = default;
-    constexpr GraphicsResource& operator=(const GraphicsResource&) noexcept = default;
-    constexpr GraphicsResource(GraphicsResource&&) noexcept = default;
-    constexpr GraphicsResource& operator=(GraphicsResource&&) noexcept = default;
+    ~GraphicsResource() noexcept = default;
+    GraphicsResource(const GraphicsResource&) noexcept = default;
+    GraphicsResource& operator=(const GraphicsResource&) noexcept = default;
+    GraphicsResource(GraphicsResource&&) noexcept = default;
+    GraphicsResource& operator=(GraphicsResource&&) noexcept = default;
 
     static GraphicsResource Null() noexcept;
     
     constexpr bool operator==(const GraphicsResource& other) const noexcept
     {
         return Type == other.Type &&
-               ResourceHandle == other.ResourceHandle &&
+               EntityHandle == other.EntityHandle &&
                VkHandle == other.VkHandle &&
                VkViewHandle == other.VkViewHandle &&
                VkSamplerHandle == other.VkSamplerHandle;
@@ -123,8 +123,10 @@ struct GraphicsResource
         return !(*this == other);
     }
 
+    operator bool() const noexcept;
+
     resource_type Type{ resource_type::Invalid };
-    uint32_t ResourceHandle{ 0u };
+    uint32_t EntityHandle{ 0u };
     uint64_t VkHandle{ 0u };
     uint64_t VkViewHandle{ 0u };
     uint64_t VkSamplerHandle{ 0u };
