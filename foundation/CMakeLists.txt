@@ -1,4 +1,3 @@
-
 if(WIN32)
     # We also need PDB repair utilities on windows to make sure plugin PDBs work right
     set(foundation_plugin_manager_sources 
@@ -35,9 +34,11 @@ set(threading_source_files
     "include/threading/critical_section.hpp"
     "include/threading/mcas.hpp"
     "include/threading/srw_lock.hpp"
+    "include/threading/ExponentialBackoffSleeper.hpp"
     "src/threading/atomic128.cpp"
     "src/threading/critical_section_win32.cpp"
-    "src/threading/srw_lock_win32.cpp")
+    "src/threading/srw_lock_win32.cpp"
+    "src/threading/ExponentialBackoffSleeper.cpp")
 
 set(utility_source_files
     "include/utility/delegate.hpp"

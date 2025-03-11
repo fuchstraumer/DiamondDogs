@@ -319,20 +319,53 @@ void ResourceTransferSystem::workerThreadJob()
     // 1ms chosen to give us less time than the message processing, but still enough for GPU to do work
     // PCI bus goes WHIRRRRRRRRRRRRRRRRR
     static constexpr std::chrono::milliseconds command_submission_timeout = std::chrono::milliseconds(1);
+    
+    // Create a backoff sleeper with custom parameters for transfer system
+    // Use a smaller min sleep time (1ms) since transfers are often time-sensitive
+    foundation::ExponentialBackoffSleeper sleeper(
+        std::chrono::milliseconds(1),  // min sleep
+        std::chrono::milliseconds(30), // max sleep
+        0.2f,                          // less jitter (20%)
+        1.5f                           // gentler backoff multiplier
+    );
 
     while (!shouldExitWorker.load())
     {
-        processMessages(message_processing_timeout);
-        // Message queue empty or time limit reached, now we're going to submit the commands. We don't have a time limit on this step,
-        // as if there are any commands to submit we want to get them at least in-flight on the GPU before we take another run at this
-        submitTransferCommands();
-        waitForCommandsToComplete(command_submission_timeout);
-        // if all work done, put this thread to sleep for a little bit
-        if (messageQueue.empty() && commands.empty() && inflightCommandBatches.empty())
+        bool didWork = false;
+        
+        // Process messages with timeout
+        if (!messageQueue.empty())
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            processMessages(message_processing_timeout);
+            didWork = true;
         }
-
+        
+        // Submit any pending commands
+        if (!commands.empty())
+        {
+            submitTransferCommands();
+            didWork = true;
+        }
+        
+        // Wait for in-flight commands to complete
+        if (!inflightCommandBatches.empty())
+        {
+            waitForCommandsToComplete(command_submission_timeout);
+            didWork = true;
+        }
+        
+        // Adjust sleep behavior based on whether we did any work
+        if (didWork)
+        {
+            sleeper.reset();
+        }
+        else
+        {
+            sleeper.backoff();
+        }
+        
+        // Sleep for the calculated duration
+        sleeper.sleep();
     }
 }
 
@@ -454,7 +487,7 @@ void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBuffer
     TransferCommand transfer_command(device, allocatorHandle, std::move(message.reply));
 
     // note that this is copying to an API managed staging buffer, not just another raw data buffer like our data container. will only be briefly duplicated
-    InternalResourceDataContainer::BufferDataVector dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(message.data.DataVector);
+    InternalResourceDataContainer::BufferDataVector& dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(message.data.DataVector);
     
     UploadBuffer* upload_buffer = transfer_command.GetUploadBuffer();
     std::vector<VkBufferCopy> buffer_copies = upload_buffer->SetData(dataVector);
@@ -532,7 +565,7 @@ void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDa
     };
 
     TransferCommand transfer_command(device, allocatorHandle, std::move(message.reply));
-    InternalResourceDataContainer::ImageDataVector imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.data.DataVector);
+    InternalResourceDataContainer::ImageDataVector& imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.data.DataVector);
     
     UploadBuffer* upload_buffer = transfer_command.GetUploadBuffer();
     std::vector<VkBufferImageCopy> buffer_image_copies = upload_buffer->SetData(imageDataVector, image_info.arrayLayers);
@@ -567,7 +600,7 @@ void ResourceTransferSystem::processFillBufferMessage(TransferSystemFillBufferMe
         return;
     }
 
-    TransferCommand transfer_command(std::move(message.reply));
+    TransferCommand transfer_command(device, std::move(message.reply));
     VkCommandBuffer cmd = transfer_command.CmdBuffer();
 
     constexpr static ThsvsAccessType transfer_access_types[1]
@@ -675,7 +708,7 @@ void ResourceTransferSystem::processCopyBufferToBufferMessage(TransferSystemCopy
     };
 
     
-    TransferCommand transfer_command(std::move(message.reply));
+    TransferCommand transfer_command(device, std::move(message.reply));
     VkCommandBuffer cmd = transfer_command.CmdBuffer();
 
     // use src stage for pre transfer barrier since it might be used by a shader or other work
@@ -805,7 +838,7 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
     const VkImageLayout src_layout = imageLayoutFromUsage(src_info.usage);
     const VkImageLayout dst_layout = imageLayoutFromUsage(dst_info.usage);
 
-    TransferCommand transfer_command(std::move(message.reply));
+    TransferCommand transfer_command(device, std::move(message.reply));
 
     std::vector<VkImageCopy> image_copies(src_info.arrayLayers);
     // Resize to hold copies for all mips and array layers
@@ -968,7 +1001,7 @@ void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyB
     };
 
     const VkImageLayout dst_layout = imageLayoutFromUsage(dst_info.usage);
-    TransferCommand transfer_command(std::move(message.reply));
+    TransferCommand transfer_command(device, std::move(message.reply));
 
     VkCommandBuffer cmd = transfer_command.CmdBuffer();
 

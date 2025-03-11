@@ -7,7 +7,6 @@
 #include <fstream>
 #include <format>
 
-#define THSVS_SIMPLER_VULKAN_SYNCHRONIZATION_IMPLEMENTATION
 #include <thsvs_simpler_vulkan_synchronization.h>
 
 #define VMA_IMPLEMENTATION
@@ -63,16 +62,20 @@ void ResourceContextImpl::construct(const ResourceContextCreateInfo& createInfo)
 
 void ResourceContextImpl::destroy()
 {
-    for (auto& resource : resources)
+    // have to exit worker and then clear all the pending messages
+    setExitWorker();
+    // ... which we can only do by processing them :'(
+    while (!messageQueue.empty())
     {
-        destroyResource(resource.get());
+        processMessage(messageQueue.pop());
     }
 
-    resources.clear();
-    resourceAllocations.clear();
-    resourceNames.clear();
-    imageViews.clear();
-    allocInfos.clear();
+    // destroy transfer system, which may have pending resources and transfers
+    transferSystem.destroy();
+
+    // last step, destroy the allocator and the registry. allocator last
+    resourceRegistry.clear();
+    vmaDestroyAllocator(allocatorHandle);
 }
 
 void ResourceContextImpl::update()
@@ -97,47 +100,38 @@ void ResourceContextImpl::startWorker()
     workerThread = std::thread(&ResourceContextImpl::processMessages, this);
 }
 
-void ResourceContextImpl::destroyResource(GraphicsResource* rsrc)
+void ResourceContextImpl::processMessages()
 {
+    // Create a backoff sleeper with default parameters
+    foundation::ExponentialBackoffSleeper sleeper;
 
-    decltype(resources)::const_iterator iter = std::find_if(
-        std::begin(resources), std::end(resources), 
-        [rsrc](const decltype(resources)::value_type& entry)
+    while (!shouldExitWorker.load())
+    {
+        bool didProcessMessage = false;
+        
+        // Process all available messages
+        while (!messageQueue.empty())
         {
-            return entry.get() == rsrc;
-        });
-
-    if (iter == std::end(resources))
-    {
-        std::cerr << "Tried to erase resource that isn't in internal containers!\n";
-        throw std::runtime_error("Tried to erase resource that isn't in internal containers!");
+            ResourceMessagePayloadType message = messageQueue.pop();
+            std::visit([this](auto&& arg) { this->processMessage(std::forward<decltype(arg)>(arg)); }, message);
+            didProcessMessage = true;
+        }
+        
+        // Adjust sleep behavior based on whether we processed any messages
+        if (didProcessMessage)
+        {
+            // Reset sleep duration to minimum if we processed messages
+            sleeper.reset();
+        }
+        else
+        {
+            // Back off if no messages were processed
+            sleeper.backoff();
+        }
+        
+        // Sleep for the calculated duration
+        sleeper.sleep();
     }
-
-    // for samplers, iterator becomes invalid after erased (and ordering was req'd for threading)
-    GraphicsResource* samplerResource = iter->get()->Sampler;
-    switch (iter->get()->Type)
-    {
-    case resource_type::Buffer:
-        destroyBuffer(iter);
-        break;
-    case resource_type::Image:
-        destroyImage(iter);
-        break;
-    case resource_type::Sampler:
-        destroySampler(iter);
-        break;
-    case resource_type::CombinedImageSampler:
-        destroyImage(iter);
-        assert(samplerResource);
-        destroyResource(samplerResource);
-        break;
-    case resource_type::Invalid:
-        [[fallthrough]];
-    default:
-        throw std::runtime_error("Invalid resource type!");
-    }
-
-    rsrc = nullptr;
 }
 
 void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& message)
@@ -411,6 +405,8 @@ void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& mes
         return;
     }
 
+    message.reply->SetStatus(MessageReply::Status::Transferring);
+
     TransferSystemSetBufferDataMessage set_buffer_data_message
     {
         TransferSystemReqBufferInfo
@@ -424,8 +420,42 @@ void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& mes
         std::move(message.reply)
     };
 
-    message.reply->SetStatus(MessageReply::Status::Transferring);
     transferSystem.EnqueueTransfer(std::move(set_buffer_data_message));
+}
+
+void ResourceContextImpl::processSetImageDataMessage(SetImageDataMessage&& message)
+{
+    const GraphicsResource& image = message.destImage;
+    const entt::entity entity = entt::entity(image.ResourceHandle);
+    if (!resourceRegistry.valid(entity))
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+
+    auto [image_handle, image_info, image_flags] = resourceRegistry.try_get<VkImage, VkImageCreateInfo, ResourceFlags>(entity);
+    if (!image_handle || !image_info || !image_flags)
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+
+    message.reply->SetStatus(MessageReply::Status::Transferring);
+
+    TransferSystemSetImageDataMessage set_image_data_message
+    {
+        TransferSystemReqImageInfo
+        {
+            *image_handle,
+            *image_info,
+            image_flags->resourceUsage,
+            image_flags->flags
+        },
+        std::move(message.data),
+        std::move(message.reply)
+    };
+
+    transferSystem.EnqueueTransfer(std::move(set_image_data_message));
 }
 
 void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& message)
@@ -445,6 +475,8 @@ void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& messa
         return;
     }
 
+    message.reply->SetStatus(MessageReply::Status::Transferring);
+
     TransferSystemFillBufferMessage fill_buffer_message
     {
         TransferSystemReqBufferInfo
@@ -460,7 +492,6 @@ void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& messa
         std::move(message.reply)
     };
 
-    message.reply->SetStatus(MessageReply::Status::Transferring);
     transferSystem.EnqueueTransfer(std::move(fill_buffer_message));
 
 }
@@ -779,12 +810,23 @@ void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&&
     {
     case resource_type::Buffer:
         destroy_vk_handle_status = destroyBuffer(entity, message.resource);
+        if ((VkBufferView)message.resource.VkViewHandle != VK_NULL_HANDLE)
+        {
+            destroy_vk_handle_status = destroyBufferView(entity, message.resource);
+        }
         break;
     case resource_type::BufferView:
         destroy_vk_handle_status = destroyBufferView(entity, message.resource);
         break;
     case resource_type::Image:
         destroy_vk_handle_status = destroyImage(entity, message.resource);
+        if ((VkImageView)message.resource.VkViewHandle != VK_NULL_HANDLE)
+        {
+            destroy_vk_handle_status = destroyImageView(entity, message.resource);
+        }
+        break;
+    case resource_type::ImageView:
+        destroy_vk_handle_status = destroyImageView(entity, message.resource);
         break;
     case resource_type::Sampler:
         destroy_vk_handle_status = destroySampler(entity, message.resource);
@@ -792,18 +834,15 @@ void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&&
     case resource_type::CombinedImageSampler:
         destroy_vk_handle_status = destroyCombinedImageSampler(entity, message.resource);
         break;
-    case resource_type::ImageView:
-        destroy_vk_handle_status = destroyImageView(entity, message.resource);
-        break;
     default:
         message.reply->SetStatus(MessageReply::Status::Failed);
         resourceRegistry.destroy(entity); 
         return;
     }
 
-    resourceRegistry.destroy(entity);
     message.reply->SetStatus(destroy_vk_handle_status);
-
+    // even if things failed, we still want to destroy the entity
+    resourceRegistry.destroy(entity);
 }
 
 VkBuffer ResourceContextImpl::createBuffer(
@@ -815,13 +854,13 @@ VkBuffer ResourceContextImpl::createBuffer(
     bool has_initial_data)
 {
     VkBufferCreateInfo& buffer_create_info = resourceRegistry.emplace<VkBufferCreateInfo>(new_entity, std::move(buffer_info)); 
-    const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Buffer, _flags, 0x0, _resource_usage);
-    ResourceDebugName debug_name;
+    const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Buffer, _flags, _resource_usage);
+    std::string debug_name;
     if (flags.flags & resource_creation_flag_bits::UserDataAsString)
     {
         // working with value instead of ref fine because we're just gonna read it for the debug name setting in a sec
         // don't use macro yet because that contains timestamp info!
-        debug_name = resourceRegistry.emplace<ResourceDebugName>(new_entity, reinterpret_cast<const char*>(user_data_ptr));
+        debug_name = resourceRegistry.emplace<std::string>(new_entity, std::string(reinterpret_cast<const char*>(user_data_ptr)));
     }
 
     VmaAllocationInfo& alloc_info = resourceRegistry.emplace<VmaAllocationInfo>(new_entity);
@@ -904,7 +943,7 @@ void ResourceContextImpl::setBufferDataHostOnly(entt::entity new_entity, Interna
         VkAssert(result);
     }
 
-    InternalResourceDataContainer::BufferDataVector dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(dataContainer.DataVector);
+    InternalResourceDataContainer::BufferDataVector& dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(dataContainer.DataVector);
     
     size_t offset = 0u;
     for (size_t i = 0u; i < dataVector.size(); ++i)
@@ -928,12 +967,12 @@ VkImage ResourceContextImpl::createImage(
     void* user_data_ptr,
     bool has_initial_data)
 {
-    VkImageCreateInfo& image_create_info = resourceRegistry.emplace<VkImageCreateInfo>(new_entity, std::move(message.imageInfo));
-    const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Image, message.flags, 0x0, message.resourceUsage);
-    ResourceDebugName debug_name;
+    VkImageCreateInfo& image_create_info = resourceRegistry.emplace<VkImageCreateInfo>(new_entity, std::move(image_info));
+    const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Image, _flags, _resource_usage);
+    std::string debug_name;
     if (flags.flags & resource_creation_flag_bits::UserDataAsString)
     {
-        debug_name = resourceRegistry.emplace<ResourceDebugName>(new_entity, reinterpret_cast<const char*>(message.userData));
+        debug_name = resourceRegistry.emplace<std::string>(new_entity, reinterpret_cast<const char*>(user_data_ptr));
     }
 
     VmaAllocationInfo& alloc_info = resourceRegistry.emplace<VmaAllocationInfo>(new_entity);
@@ -952,7 +991,7 @@ VkImage ResourceContextImpl::createImage(
         0u,
         UINT32_MAX,
         VK_NULL_HANDLE,
-        message.userData
+        user_data_ptr
     };
 
     VkImage image_handle = VK_NULL_HANDLE;
@@ -969,7 +1008,6 @@ VkImage ResourceContextImpl::createImage(
             result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(image_handle), VTF_DEBUG_OBJECT_NAME(debug_name.c_str()));
             VkAssert(result);
             vmaSetAllocationName(allocatorHandle, alloc, debugAllocationName.c_str());
-
         }
     }
 
@@ -997,7 +1035,7 @@ VkImageView ResourceContextImpl::createImageView(
 
     if (resource_flags & resource_creation_flag_bits::UserDataAsString)
     {
-        const std::string& parent_name = resourceRegistry.get<ResourceDebugName>(new_entity);
+        const std::string& parent_name = resourceRegistry.get<std::string>(new_entity);
         const std::string object_name = parent_name + "_image_view";
         result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(image_view), VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
         VkAssert(result);
@@ -1022,9 +1060,9 @@ VkSampler ResourceContextImpl::createSampler(
         // can use entity system to find out if this is a combined image sampler or just a sampler, try and find parent name
         // kinda slower than we want but this is only active in debug builds really so w/e
         std::string debug_name;
-        if (resourceRegistry.try_get<ResourceDebugName>(new_entity))
+        if (resourceRegistry.try_get<std::string>(new_entity))
         {
-            debug_name = resourceRegistry.get<ResourceDebugName>(new_entity);
+            debug_name = resourceRegistry.get<std::string>(new_entity);
             debug_name += "_sampler";
         }
         else
@@ -1052,14 +1090,92 @@ MessageReply::Status ResourceContextImpl::destroyBuffer(entt::entity entity, Gra
     }
 
     vkDestroyBuffer(device->vkHandle(), local_buffer_handle, nullptr);
-    resourceRegistry.patch<VkBuffer>(entity, VK_NULL_HANDLE);
+    resourceRegistry.replace<VkBuffer>(entity, VK_NULL_HANDLE);
 
-    if ((VkBufferView)resource.VkViewHandle != VK_NULL_HANDLE)
+    return MessageReply::Status::Completed;
+}
+
+MessageReply::Status ResourceContextImpl::destroyImage(entt::entity entity, GraphicsResource resource)
+{
+    VkImage local_image_handle = resourceRegistry.get<VkImage>(entity);
+    if (!local_image_handle)
     {
-        vkDestroyBufferView(device->vkHandle(), (VkBufferView)resource.VkViewHandle, nullptr);
-        resourceRegistry.patch<VkBufferView>(entity, VK_NULL_HANDLE);
+        return MessageReply::Status::Failed;
     }
 
+    if (local_image_handle != (VkImage)resource.VkHandle)
+    {
+        return MessageReply::Status::Failed;
+    }
+
+    vkDestroyImage(device->vkHandle(), local_image_handle, nullptr);
+    resourceRegistry.replace<VkImage>(entity, VK_NULL_HANDLE);
+
+    return MessageReply::Status::Completed;
+}
+
+MessageReply::Status ResourceContextImpl::destroySampler(entt::entity entity, GraphicsResource resource)
+{
+    VkSampler local_sampler_handle = resourceRegistry.get<VkSampler>(entity);
+    if (!local_sampler_handle)
+    {
+        return MessageReply::Status::Failed;
+    }
+
+    if (local_sampler_handle != (VkSampler)resource.VkHandle)
+    {
+        return MessageReply::Status::Failed;
+    }
+
+    vkDestroySampler(device->vkHandle(), local_sampler_handle, nullptr);
+    resourceRegistry.replace<VkSampler>(entity, VK_NULL_HANDLE);
+
+    return MessageReply::Status::Completed;
+}
+
+MessageReply::Status ResourceContextImpl::destroyBufferView(entt::entity entity, GraphicsResource resource)
+{
+    VkBufferView local_buffer_view_handle = resourceRegistry.get<VkBufferView>(entity);
+    if (!local_buffer_view_handle)
+    {
+        return MessageReply::Status::Failed;
+    }
+
+    if ((VkBufferView)resource.VkViewHandle != local_buffer_view_handle)
+    {
+        return MessageReply::Status::Failed;
+    }
+
+    vkDestroyBufferView(device->vkHandle(), local_buffer_view_handle, nullptr);
+    resourceRegistry.replace<VkBufferView>(entity, VK_NULL_HANDLE);
+
+    return MessageReply::Status::Completed;
+}
+
+MessageReply::Status ResourceContextImpl::destroyImageView(entt::entity entity, GraphicsResource resource)
+{
+    VkImageView local_image_view_handle = resourceRegistry.get<VkImageView>(entity);
+    if (!local_image_view_handle)
+    {
+        return MessageReply::Status::Failed;
+    }
+
+    if ((VkImageView)resource.VkViewHandle != local_image_view_handle)
+    {
+        return MessageReply::Status::Failed;
+    }
+
+    vkDestroyImageView(device->vkHandle(), local_image_view_handle, nullptr);
+    resourceRegistry.replace<VkImageView>(entity, VK_NULL_HANDLE);
+
+    return MessageReply::Status::Completed;
+}
+
+MessageReply::Status ResourceContextImpl::destroyCombinedImageSampler(entt::entity entity, GraphicsResource resource)
+{
+    destroyImage(entity, resource);
+    destroyImageView(entity, resource);
+    destroySampler(entity, resource);
     return MessageReply::Status::Completed;
 }
 
@@ -1075,20 +1191,6 @@ void ResourceContextImpl::writeStatsJsonFile(const char* output_file)
 
     outputFile.write(output, strlen(output));
     vmaFreeStatsString(allocatorHandle, output);
-}
-
-void ResourceContextImpl::processMessages()
-{
-    constexpr size_t k_numMessagesBeforeTransferUpdate = 16u;
-    while (!shouldExitWorker.load())
-    {
-        while (!messageQueue.empty())
-        {
-            ResourceMessagePayloadType message = messageQueue.pop();
-            std::visit([this](auto&& arg) { this->processMessage(std::forward<decltype(arg)>(arg)); }, message);
-        }
-
-    }
 }
 
 namespace
@@ -1165,7 +1267,7 @@ namespace
         return result;
     }
 
-    VmaMemoryUsage GetMemoryUsage(const resource_usage _resource_usage) noexcept
+    VmaMemoryUsage GetVmaMemoryUsage(const resource_usage _resource_usage) noexcept
     {
         switch (_resource_usage)
         {
@@ -1177,4 +1279,5 @@ namespace
             return VMA_MEMORY_USAGE_AUTO;
         }
     }
+
 }

@@ -3,6 +3,9 @@
 #include "LogicalDevice.hpp"
 #include "vkAssert.hpp"
 
+#include <chrono>
+#include <thread>
+
 constexpr static cas_data128_t null_atomic128 = cas_data128_t{ 0u, 0u };
 constexpr static uint64_t vk_null_handle_uint64 = reinterpret_cast<uint64_t>(VK_NULL_HANDLE);
 constexpr static uint32_t entt_null_entity_uint32 = static_cast<uint32_t>(entt::null);
@@ -29,11 +32,16 @@ bool MessageReply::IsCompleted() const noexcept
     return status.load(std::memory_order_acquire) != Status::Invalid;
 }
 
-MessageReply::Status MessageReply::WaitForCompletion(Status wait_for_status, uint64_t timeoutNs) noexcept
+MessageReply::Status MessageReply::GetStatus() const noexcept
+{
+    return status.load(std::memory_order_acquire);
+}
+
+MessageReply::Status MessageReply::WaitForCompletion(uint64_t timeoutNs) noexcept
 {
     std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
     // less than wait_for_status because statuses are arranged in order of completion
-    while (status.load(std::memory_order_acquire) < wait_for_status)
+    while (status.load(std::memory_order_acquire) != Status::Completed)
     {
         // Check timeout
         if (timeoutNs != std::numeric_limits<uint64_t>::max())
@@ -57,6 +65,9 @@ void MessageReply::SetStatus(Status _status) noexcept
 {
     status.store(_status, std::memory_order_release);
 }
+
+ResourceTransferReply::ResourceTransferReply() : semaphoreHandle{ 0u }, device{ nullptr }
+{}
 
 ResourceTransferReply::ResourceTransferReply(vpr::Device* _device) : device{ _device }, semaphoreHandle{ 0u }
 {
@@ -167,6 +178,13 @@ GraphicsResourceReply::VkResourceTypeAndEntityHandle::operator bool() const noex
     return (Type != (uint32_t)resource_type::Invalid) && (EntityHandle != entt::null);
 }
 
+
+GraphicsResourceReply::GraphicsResourceReply(resource_type _type) :
+    resourceTypeAndEntityHandle{ VkResourceTypeAndEntityHandle(_type, entt::null) },
+    vkHandleAndView{ null_atomic128 },
+    vkSamplerHandle{ 0u }
+{}
+
 GraphicsResourceReply::GraphicsResourceReply(resource_type _type, vpr::Device* _device) :
     resourceTypeAndEntityHandle{ VkResourceTypeAndEntityHandle(_type, entt::null) },
     vkHandleAndView{ null_atomic128 },
@@ -174,6 +192,7 @@ GraphicsResourceReply::GraphicsResourceReply(resource_type _type, vpr::Device* _
     ResourceTransferReply(_device)
 {
 }
+
 
 GraphicsResourceReply::~GraphicsResourceReply()
 {
@@ -197,7 +216,7 @@ void GraphicsResourceReply::SetGraphicsResource(
     const uint32_t entity_handle,
     const uint64_t vk_handle,
     const uint64_t vk_view_handle,
-    const uint64_t vk_sampler_handle)
+    const uint64_t vk_sampler_handle) noexcept
 {
     // Set the entity handle last, since we check that to see if the whole thing is valid/completed
     // if checks just to save atomic stores if not needed
@@ -215,35 +234,34 @@ void GraphicsResourceReply::SetGraphicsResource(
     SetStatus(Status::Completed);
 }
 
+void GraphicsResourceReply::SetGraphicsResourceRelaxed(const GraphicsResource& resource) noexcept
+{
+    // doesn't set status as this usually means there are dependent operations following this, which is what the user is actually waiting
+    // on and why we can use relaxed stores
+    vkHandleAndView.store(cas_data128_t{ resource.VkHandle, resource.VkViewHandle }, std::memory_order_relaxed);
+    vkSamplerHandle.store(resource.VkSamplerHandle, std::memory_order_relaxed);
+    resourceTypeAndEntityHandle.store(VkResourceTypeAndEntityHandle(resource.Type, resource.ResourceHandle), std::memory_order_relaxed);
+}
+
+
+PointerMessageReply::PointerMessageReply(PointerMessageReply&& other) noexcept : data{ other.data.load(std::memory_order_relaxed) }
+{
+    other.data.store(nullptr, std::memory_order_relaxed);
+}
+
+PointerMessageReply& PointerMessageReply::operator=(PointerMessageReply&& other) noexcept
+{
+    if (this != &other)
+    {
+        data.store(other.data.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        other.data.store(nullptr, std::memory_order_relaxed);
+    }
+    return *this;
+}
 
 void* PointerMessageReply::GetPointer() const noexcept
 {
     return data.load(std::memory_order_acquire);
-}
-
-void* PointerMessageReply::WaitForCompletion(uint64_t timeoutNs /*= std::numeric_limits<uint64_t>::max()*/) const noexcept
-{
-    std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-
-    while (!data.load(std::memory_order_acquire))
-    {
-        // Check timeout
-        if (timeoutNs != std::numeric_limits<uint64_t>::max())
-        {
-            std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
-            const uint64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(currentTime - startTime).count();
-            if (elapsedNs >= timeoutNs)
-            {
-                return nullptr;
-            }
-        }
-
-        // Yield to avoid busy waiting
-        std::this_thread::yield();
-    }
-
-    // can use relaxed load at this point, since earlier checking load was acquire ordered
-    return data.load(std::memory_order_relaxed);
 }
 
 void PointerMessageReply::SetPointer(void* ptr) noexcept

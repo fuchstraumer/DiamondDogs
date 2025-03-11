@@ -26,6 +26,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
     void* userData)
 {
     CreateBufferMessage message;
+    resource_type resourceType = resource_type::Buffer;
     message.bufferInfo = createInfo;
     message.viewInfo = viewCreateInfo ? std::optional<VkBufferViewCreateInfo>(*viewCreateInfo) : std::nullopt;
     if (numData > 0)
@@ -36,7 +37,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
     message.resourceUsage = resourceUsage;
     message.flags = flags;
     message.userData = userData;
-    message.reply = std::make_shared<GraphicsResourceReply>();
+    message.reply = std::make_shared<GraphicsResourceReply>(resource_type::Buffer);
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -64,7 +65,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateImage(
     message.resourceUsage = resourceUsage;
     message.flags = flags;
     message.userData = userData;
-    message.reply = std::make_shared<GraphicsResourceReply>();
+    message.reply = std::make_shared<GraphicsResourceReply>(resource_type::Image);
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -79,7 +80,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateSampler(
     CreateSamplerMessage message;
     message.samplerInfo = createInfo;
     message.userData = userData;
-    message.reply = std::make_shared<GraphicsResourceReply>();
+    message.reply = std::make_shared<GraphicsResourceReply>(resource_type::Sampler);
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -175,7 +176,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CopyBuffer(
     CopyResourceMessage message;
     message.sourceResource = src;
     message.copyContents = copyContents;
-    message.reply = std::make_shared<GraphicsResourceReply>();
+    message.reply = std::make_shared<GraphicsResourceReply>(resource_type::Buffer);
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));

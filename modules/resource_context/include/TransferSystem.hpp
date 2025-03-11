@@ -5,6 +5,7 @@
 #include "ResourceMessageTypesInternal.hpp"
 #include "ResourceMessageReply.hpp"
 #include "containers/mwsrQueue.hpp"
+#include "threading/ExponentialBackoffSleeper.hpp"
 
 #include <chrono>
 #include <memory>
@@ -39,6 +40,8 @@ public:
     void StopWorker();
 
 private:
+
+    friend class ResourceContextImpl;
     
     class TransferCommand
     {

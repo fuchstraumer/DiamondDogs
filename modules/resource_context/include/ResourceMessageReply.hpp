@@ -2,11 +2,10 @@
 #ifndef RESOURCE_CONTEXT_RESOURCE_MESSAGE_REPLY_HPP
 #define RESOURCE_CONTEXT_RESOURCE_MESSAGE_REPLY_HPP
 #include "ResourceTypes.hpp"
-#include <atomic>
-#include <chrono>
-#include <thread>
-#include <vulkan/vulkan_core.h>
 #include "threading/atomic128.hpp"
+#include <atomic>
+#include <limits>
+#include <vulkan/vulkan_core.h>
 
 namespace vpr
 {
@@ -47,7 +46,7 @@ protected:
     friend class ResourceTransferSystem;
     void SetStatus(Status status) noexcept;
     std::atomic<Status> status;
-    static_assert(std::atomic<decltype(status)>::is_always_lock_free, "std::atomic<Status> is not lock-free on this platform/using this compiler");
+    static_assert(decltype(status)::is_always_lock_free, "std::atomic<Status> is not lock-free on this platform/using this compiler");
 };
 
 // This is a separate class as sometimes we'll be doing a transfer or mutate operation, but not creating a new resource.
@@ -55,6 +54,7 @@ protected:
 class ResourceTransferReply : public MessageReply
 {
 public:
+    ResourceTransferReply();
     ResourceTransferReply(vpr::Device* _device);
     virtual ~ResourceTransferReply();
 
@@ -121,9 +121,8 @@ private:
         const uint64_t vk_handle,
         const uint64_t vk_view_handle,
         const uint64_t vk_sampler_handle) noexcept;
-    // used internally before a call that transfers to the transfer system, because the user shouldn't be using this resource
-    // anyways (and if they do, and if they get garbage data, that's on them)
-    void SetGraphicsResourceRelaxed(GraphicsResource resource) noexcept;
+
+    void SetGraphicsResourceRelaxed(const GraphicsResource& resource) noexcept;
     
     std::atomic<VkResourceTypeAndEntityHandle> resourceTypeAndEntityHandle;
     std::atomic<uint64_t> vkSamplerHandle;
@@ -145,7 +144,6 @@ public:
 
     bool IsCompleted() const noexcept final;
     void* GetPointer() const noexcept;
-    void* WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) const noexcept;
     
 private:
     friend class ResourceContextImpl;

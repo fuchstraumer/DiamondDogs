@@ -8,6 +8,8 @@ ADD_MODULE(resource_context
     "src/ResourceContext.cpp"
     "src/ResourceContextImpl.cpp"
     "src/ResourceContextImpl.hpp"
+    "src/ResourceDataArena.hpp"
+    "src/ResourceDataArena.cpp"
     "src/ResourceLoader.cpp"
     "src/ResourceMessageReply.cpp"
     "src/ResourceMessageTypesInternal.hpp"

@@ -8,7 +8,7 @@
 #include <variant>
 #include <optional>
 #include <vector>
-#include <vk_mem_alloc.h>
+#include <limits>
 
 // Users still call functions with the old API on the surface, but we translate to these internal structures
 // so that we can place them in the message queue (type erased by being shoved in a variant, effectively)
@@ -21,35 +21,15 @@ struct InternalResourceDataContainer
 
     struct BufferData
     {
-        BufferData() noexcept : data{nullptr}, size{0}, alignment{0}
-        {}
+        BufferData() noexcept;
+        BufferData(const gpu_resource_data_t& _data);
+        ~BufferData() = default;
 
         BufferData(const BufferData&) = delete;
         BufferData& operator=(const BufferData&) = delete;
 
-        BufferData(BufferData&& other) noexcept :
-            data{std::move(other.data)},
-            size{other.size},
-            alignment{other.alignment} 
-        {}
-
-        BufferData& operator=(BufferData&& other) noexcept
-        {
-            data = std::move(other.data);
-            size = other.size;
-            alignment = other.alignment;
-            return *this;
-        }
-
-        ~BufferData() = default;
-
-        BufferData(const gpu_resource_data_t& _data) :
-            data{std::make_unique<std::byte[]>(_data.DataSize)},
-            size{_data.DataSize},
-            alignment{_data.DataAlignment}
-        {
-            std::memcpy(data.get(), _data.Data, _data.DataSize);
-        }
+        BufferData(BufferData&& other) noexcept;
+        BufferData& operator=(BufferData&& other) noexcept;
 
         std::unique_ptr<std::byte[]> data;
         size_t size;
@@ -59,42 +39,15 @@ struct InternalResourceDataContainer
     // Images have a bit more metadata, so we need this struct for them
     struct ImageData
     {
-        ImageData() noexcept : data{nullptr}, size{0}, width{0}, height{0}, arrayLayer{0}, mipLevel{0} {}
+        ImageData() noexcept;
+        ImageData(const gpu_image_resource_data_t& _data);
+        ~ImageData() = default;
+
         ImageData(const ImageData&) = delete;
         ImageData& operator=(const ImageData&) = delete;
 
-        ImageData(ImageData&& other) noexcept :
-            data{std::move(other.data)},
-            size{other.size},
-            width{other.width},
-            height{other.height},
-            arrayLayer{other.arrayLayer},
-            mipLevel{other.mipLevel}
-        {}
-
-        ImageData& operator=(ImageData&& other) noexcept
-        {
-            data = std::move(other.data);
-            size = other.size;
-            width = other.width;
-            height = other.height;
-            arrayLayer = other.arrayLayer;
-            mipLevel = other.mipLevel;
-            return *this;
-        }
-
-        ~ImageData() = default;
-
-        ImageData(const gpu_image_resource_data_t& _data) :
-            data{std::make_unique<std::byte[]>(_data.DataSize)},
-            size{_data.DataSize},
-            width{_data.Width},
-            height{_data.Height},
-            arrayLayer{_data.ArrayLayer},
-            mipLevel{_data.MipLevel}
-        {
-            std::memcpy(data.get(), _data.Data, _data.DataSize);
-        }
+        ImageData(ImageData&& other) noexcept;
+        ImageData& operator=(ImageData&& other) noexcept;
 
         std::unique_ptr<std::byte[]> data;
         // size of the actual image data, not width/height info
@@ -109,27 +62,11 @@ struct InternalResourceDataContainer
     std::variant<BufferDataVector, ImageDataVector> DataVector;
     std::optional<uint32_t> NumLayers;
 
-    InternalResourceDataContainer(size_t numData, const gpu_resource_data_t* data) :
-        NumLayers{ std::nullopt }
-    {
-        BufferDataVector buffer_data(numData);
-        for (size_t i = 0; i < numData; ++i)
-        {
-            buffer_data[i] = BufferData(data[i]);
-        }
-        DataVector = std::move(buffer_data);
-    }
+    InternalResourceDataContainer(size_t numData, const gpu_resource_data_t* data);
 
-    InternalResourceDataContainer(size_t numData, const gpu_image_resource_data_t* data)
-    {
-        NumLayers = data[0].NumLayers;
-        ImageDataVector image_data(numData);
-        for (size_t i = 0; i < numData; ++i)
-        {
-            image_data[i] = ImageData(data[i]);
-        }
-        DataVector = std::move(image_data);
-    }
+    InternalResourceDataContainer(size_t numData, const gpu_image_resource_data_t* data);
+
+    InternalResourceDataContainer() noexcept;
 };
 
 struct CreateBufferMessage
@@ -176,6 +113,7 @@ struct CreateSamplerMessage
 
 struct SetBufferDataMessage
 {
+    SetBufferDataMessage() noexcept = default;
     SetBufferDataMessage(
         GraphicsResource _destBuffer,
         size_t numData,
@@ -196,6 +134,7 @@ struct SetBufferDataMessage
 
 struct SetImageDataMessage
 {
+    SetImageDataMessage() noexcept = default;
     SetImageDataMessage(
         GraphicsResource _destImage,
         size_t numData,
@@ -280,18 +219,18 @@ using ResourceMessagePayloadType = std::variant<
 
 struct TransferSystemReqBufferInfo
 {
-    VkBuffer bufferHandle;
+    VkBuffer bufferHandle{ VK_NULL_HANDLE };
     VkBufferCreateInfo createInfo;
-    resource_usage resourceUsage;
-    resource_creation_flags flags;
+    resource_usage resourceUsage{ resource_usage::InvalidResourceUsage };
+    resource_creation_flags flags{ static_cast<resource_creation_flags>(std::numeric_limits<uint32_t>::max()) };
 };
 
 struct TransferSystemReqImageInfo
 {
-    VkImage imageHandle;
+    VkImage imageHandle{ VK_NULL_HANDLE };
     VkImageCreateInfo createInfo;
-    resource_usage resourceUsage;
-    resource_creation_flags flags;
+    resource_usage resourceUsage{ resource_usage::InvalidResourceUsage };
+    resource_creation_flags flags{ static_cast<resource_creation_flags>(std::numeric_limits<uint32_t>::max()) };
 };
 
 struct TransferSystemSetBufferDataMessage
