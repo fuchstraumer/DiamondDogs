@@ -1,0 +1,9 @@
+- Update transfer system, make it an instance member of the resource context impl
+- In turn, update the staging/upload buffer usage so we just move the stored data over to it. One less copy, possible now that we own user upload data, and simple. yay!
+- Further hook up to mimalloc, besides the basic new/delete integration. Arena allocator and other such things could be really beneficial in the transfer system, so we'll have to profile and see if that's worth the effort
+- Shortcut the ResourceContextImpl when submitting commands that are obvious transfer commands potentially, transfer system also uses mwsrQueue. Does require skipping validations on the resource handles and info structures though, so that may be tricky. Maybe part of the below task?
+- Put a bunch of the checks on resource validity and such that we do behind a preprocessor guard, so we can optimize them out in release builds
+- Have transfer system do some smarter pooling with the command pools, instead of single buffer single pool system that require deleting and rebuilding command pools every frame. In short term, just pooling and reusing the VkCommandPool objects themselves could help a bunch
+- Transfer system needs to be able to handle weird inter-image copy requests better, like from different layers or subregions to other layers or subregions or even between formats and usages. Thinking of cases like copying depth resources for debug viewing to color targets, or other such silly things
+- Update all barriers and synchronization in the transfer system for synchronization2 extensions
+- Update memory handling and allocation and usages of buffers based on extensions. blech

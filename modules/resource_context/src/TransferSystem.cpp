@@ -76,6 +76,8 @@ namespace
     VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags);
     VkAccessFlags accessFlagsFromImageUsage(const VkImageUsageFlags usage_flags);
     VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags);
+    VkImageAspectFlags imageAspectFlagsFromUsage(const VkImageUsageFlags usage_flags);
+    VkPipelineStageFlags pipelineStageFlagsFromBufferUsage(const VkBufferUsageFlags usage_flags);
 }
 
 ResourceTransferSystem::TransferCommand::TransferCommand(
@@ -86,22 +88,40 @@ ResourceTransferSystem::TransferCommand::TransferCommand(
     reply(std::move(_reply)),
     allocatorHandle(_allocator)
 {
-    VkCommandPoolCreateInfo pool_info = getCreateInfo(device);
-    commandPool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
-    commandPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    
-    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    createCommandPool();
+    uploadBuffer = std::make_unique<UploadBuffer>(device, allocatorHandle);
+}
+
+ResourceTransferSystem::TransferCommand::TransferCommand(
+    const vpr::Device* _device,
+    std::shared_ptr<ResourceTransferReply>&& _reply) :
+    reply(std::move(_reply)),
+    allocatorHandle(VK_NULL_HANDLE),
+    device(_device), // still need this to create command pool
+    uploadBuffer(nullptr)
+{
+    createCommandPool();
+}
+
+ResourceTransferSystem::TransferCommand::TransferCommand(TransferCommand&& other) noexcept :
+    device(other.device),
+    reply(std::move(other.reply)),
+    allocatorHandle(other.allocatorHandle),
+    commandPool(std::move(other.commandPool)),
+    uploadBuffer(std::move(other.uploadBuffer))
+{}
+
+ResourceTransferSystem::TransferCommand& ResourceTransferSystem::TransferCommand::operator=(TransferCommand&& other) noexcept
+{
+    if (this != &other)
     {
-        device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(commandPool->GetCmdBuffer(0), &queue_debug_label);
+        device = other.device;
+        reply = std::move(other.reply);
+        allocatorHandle = other.allocatorHandle;
+        commandPool = std::move(other.commandPool);
+        uploadBuffer = std::move(other.uploadBuffer);
     }
-
-    VkCommandBufferBeginInfo begin_info = {};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VkResult result = vkBeginCommandBuffer(commandPool->GetCmdBuffer(0), &begin_info);
-    VkAssert(result);
-
-    uploadBuffer = std::make_unique<UploadBuffer>(device);
+    return *this;
 }
 
 ResourceTransferSystem::TransferCommand::~TransferCommand()
@@ -117,6 +137,11 @@ ResourceTransferSystem::TransferCommand::~TransferCommand()
             throw std::runtime_error("Transfer command failed to complete, and we were unable to wait for it to complete!");
         }
     }
+}
+
+VkCommandBuffer ResourceTransferSystem::TransferCommand::CmdBuffer() const
+{
+    return commandPool->GetCmdBuffer(0);
 }
 
 void ResourceTransferSystem::TransferCommand::EndRecording()
@@ -148,6 +173,35 @@ MessageReply::Status ResourceTransferSystem::TransferCommand::WaitForCompletion(
     vkResetCommandPool(device->vkHandle(), commandPool->vkHandle(), 0);
     commandPool.reset();
     return status;
+}
+
+VkSemaphore ResourceTransferSystem::TransferCommand::Semaphore() const
+{
+    return (VkSemaphore)reply->SemaphoreHandle();
+}
+
+UploadBuffer* ResourceTransferSystem::TransferCommand::GetUploadBuffer() noexcept
+{
+    return uploadBuffer.get();
+}
+
+void ResourceTransferSystem::TransferCommand::createCommandPool()
+{
+    VkCommandPoolCreateInfo pool_info = getCreateInfo(device);
+    commandPool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
+    commandPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    
+    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    {
+        device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(commandPool->GetCmdBuffer(0), &queue_debug_label);
+    }
+
+    VkCommandBufferBeginInfo begin_info = {};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkResult result = vkBeginCommandBuffer(commandPool->GetCmdBuffer(0), &begin_info);
+    VkAssert(result);
+
 }
 
 ResourceTransferSystem::ResourceTransferSystem() : device(nullptr) {}
@@ -221,7 +275,8 @@ void ResourceTransferSystem::ForceCompleteTransfers()
 
     if (!shouldExitWorker.load())
     {
-        StopWorker();
+        workerThread.join();
+        shouldExitWorker.store(true);
     }
 
     // wait for all inflight command batches to complete using a fence
@@ -248,6 +303,7 @@ void ResourceTransferSystem::ForceCompleteTransfers()
 
     inflightCommandBatches.clear();
 
+    StartWorker();
 }
 
 void ResourceTransferSystem::EnqueueTransfer(TransferPayloadType&& payload)
@@ -396,29 +452,12 @@ void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBuffer
     const VkBuffer buffer_handle = message.bufferInfo.bufferHandle;
 
     TransferCommand transfer_command(device, allocatorHandle, std::move(message.reply));
-    UploadBuffer* upload_buffer = transfer_command.UploadBuffer();
 
     // note that this is copying to an API managed staging buffer, not just another raw data buffer like our data container. will only be briefly duplicated
     InternalResourceDataContainer::BufferDataVector dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(message.data.DataVector);
     
-    // Get total size of buffer to copy
-    VkDeviceSize total_size = 0;
-    for (const auto& data : dataVector)
-    {
-        total_size += static_cast<VkDeviceSize>(data.size);
-    }
-    upload_buffer->CreateAndAllocateBuffer(total_size);
-
-    std::vector<VkBufferCopy> buffer_copies(dataVector.size());
-    VkDeviceSize offset = 0;
-    for (size_t i = 0; i < dataVector.size(); ++i)
-    {
-        upload_buffer->SetData(dataVector[i].data.get(), dataVector[i].size, offset);
-        buffer_copies[i].size = dataVector[i].size;
-        buffer_copies[i].dstOffset = offset;
-        buffer_copies[i].srcOffset = offset;
-        offset += dataVector[i].size;
-    }
+    UploadBuffer* upload_buffer = transfer_command.GetUploadBuffer();
+    std::vector<VkBufferCopy> buffer_copies = upload_buffer->SetData(dataVector);
 
     VkCommandBuffer cmd = transfer_command.CmdBuffer();
     vkCmdCopyBuffer(cmd, upload_buffer->Buffer, buffer_handle, static_cast<uint32_t>(buffer_copies.size()), buffer_copies.data());
@@ -495,7 +534,7 @@ void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDa
     TransferCommand transfer_command(device, allocatorHandle, std::move(message.reply));
     InternalResourceDataContainer::ImageDataVector imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.data.DataVector);
     
-    UploadBuffer* upload_buffer = transfer_command.UploadBuffer();
+    UploadBuffer* upload_buffer = transfer_command.GetUploadBuffer();
     std::vector<VkBufferImageCopy> buffer_image_copies = upload_buffer->SetData(imageDataVector, image_info.arrayLayers);
 
     VkCommandBuffer cmd = transfer_command.CmdBuffer();
@@ -511,25 +550,72 @@ void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDa
     thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 1u, &post_transfer_barrier);
 
     transfer_command.EndRecording();
-    
+
     imageDataVector.clear();
 }
 
 void ResourceTransferSystem::processFillBufferMessage(TransferSystemFillBufferMessage&& message)
 {
+    TransferSystemReqBufferInfo buffer_info = message.bufferInfo;
+    VkBuffer buffer_handle = buffer_info.bufferHandle;
+    VkBufferCreateInfo buffer_create_info = buffer_info.createInfo;
 
+    // Fill command is considered a transfer command, if this bit isn't set buffer can't be used as a fill target
+    if (!(buffer_create_info.usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT))
+    {
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
+
+    TransferCommand transfer_command(std::move(message.reply));
+    VkCommandBuffer cmd = transfer_command.CmdBuffer();
+
+    constexpr static ThsvsAccessType transfer_access_types[1]
+    {
+        THSVS_ACCESS_TRANSFER_WRITE
+    };
+
+    const std::vector<ThsvsAccessType> possible_accesses = thsvsAccessTypesFromBufferUsage(buffer_create_info.usage);
+
+    const ThsvsGlobalBarrier pre_fill_barrier
+    {
+        static_cast<uint32_t>(possible_accesses.size()),
+        possible_accesses.data(),
+        1u,
+        transfer_access_types
+    };
+
+    const ThsvsGlobalBarrier post_fill_barrier
+    {
+        1u,
+        transfer_access_types,
+        static_cast<uint32_t>(possible_accesses.size()),
+        possible_accesses.data()
+    };
+    
+    thsvsCmdPipelineBarrier(cmd, &pre_fill_barrier, 0u, nullptr, 0u, nullptr);
+    vkCmdFillBuffer(cmd, buffer_handle, message.offset, message.size, message.value);
+    thsvsCmdPipelineBarrier(cmd, &post_fill_barrier, 0u, nullptr, 0u, nullptr);
+
+    transfer_command.EndRecording();
 }
 
 void ResourceTransferSystem::processCopyBufferToBufferMessage(TransferSystemCopyBufferToBufferMessage&& message)
 {
-    const VkBufferCreateInfo* src_info = reinterpret_cast<const VkBufferCreateInfo*>(src->Info);
-    const VkBufferCreateInfo* dst_info = reinterpret_cast<const VkBufferCreateInfo*>(dst->Info);
-    assert(src_info->size <= dst_info->size);
+    TransferSystemReqBufferInfo src_buffer_info = message.srcBufferInfo;
+    VkBuffer src_handle = src_buffer_info.bufferHandle;
+    VkBufferCreateInfo src_info = src_buffer_info.createInfo;
+
+    TransferSystemReqBufferInfo dst_buffer_info = message.dstBufferInfo;
+    VkBuffer dst_handle = dst_buffer_info.bufferHandle;
+    VkBufferCreateInfo dst_info = dst_buffer_info.createInfo;
+
+    assert(src_info.size <= dst_info.size);
     const VkBufferCopy copy
     {
         0u,
         0u,
-        src_info->size
+        src_info.size
     };
 
     const VkBufferMemoryBarrier pre_transfer_barriers[2]
@@ -538,25 +624,25 @@ void ResourceTransferSystem::processCopyBufferToBufferMessage(TransferSystemCopy
         {
             VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
             nullptr,
-            accessFlagsFromBufferUsage(src_info->usage),
+            accessFlagsFromBufferUsage(src_info.usage),
             VK_ACCESS_TRANSFER_READ_BIT,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)src->Handle,
-            0,
-            src_info->size
+            src_handle,
+            0u,
+            src_info.size
         },
         VkBufferMemoryBarrier
         {
             VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
             nullptr,
-            accessFlagsFromBufferUsage(dst_info->usage),
+            accessFlagsFromBufferUsage(dst_info.usage),
             VK_ACCESS_TRANSFER_WRITE_BIT,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)dst->Handle,
-            0,
-            dst_info->size
+            dst_handle,
+            0u,
+            dst_info.size
         }
     };
 
@@ -567,41 +653,75 @@ void ResourceTransferSystem::processCopyBufferToBufferMessage(TransferSystemCopy
             VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
             nullptr,
             VK_ACCESS_TRANSFER_READ_BIT,
-            accessFlagsFromBufferUsage(src_info->usage),
+            accessFlagsFromBufferUsage(src_info.usage),
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)src->Handle,
-            0,
-            src_info->size
+            src_handle,
+            0u,
+            src_info.size
         },
         VkBufferMemoryBarrier
         {
             VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
             nullptr,
             VK_ACCESS_TRANSFER_WRITE_BIT,
-            accessFlagsFromBufferUsage(dst_info->usage),
+            accessFlagsFromBufferUsage(dst_info.usage),
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)dst->Handle,
-            0,
-            dst_info->size
+            dst_handle,
+            0u,
+            dst_info.size
         }
     };
 
     
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    auto cmd = transfer_system.TransferCmdBuffer();
+    TransferCommand transfer_command(std::move(message.reply));
+    VkCommandBuffer cmd = transfer_command.CmdBuffer();
 
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, 0u, nullptr, 2u, pre_transfer_barriers, 0u, nullptr);
-    vkCmdCopyBuffer(cmd, (VkBuffer)src->Handle, (VkBuffer)dst->Handle, 1, &copy);
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0u, 0u, nullptr, 2u, post_transfer_barriers, 0u, nullptr);
+    // use src stage for pre transfer barrier since it might be used by a shader or other work
+    VkPipelineStageFlags src_stage = pipelineStageFlagsFromBufferUsage(src_info.usage);
+    vkCmdPipelineBarrier(cmd, src_stage, VK_PIPELINE_STAGE_TRANSFER_BIT, 0u, 0u, nullptr, 2u, pre_transfer_barriers, 0u, nullptr);
+    vkCmdCopyBuffer(cmd, src_handle, dst_handle, 1, &copy);
+    // and dst stage for post transfer barrier since that's what we care about after the transfer
+    VkPipelineStageFlags dst_stage = pipelineStageFlagsFromBufferUsage(dst_info.usage);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, dst_stage, 0u, 0u, nullptr, 2u, post_transfer_barriers, 0u, nullptr);
+
+    transfer_command.EndRecording();
 }
 
 void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyImageToImageMessage&& message)
 {
-    const VkImageCreateInfo& src_info = resourceInfos.imageInfos.at(src);
-    assert(src_info.sharingMode == VK_SHARING_MODE_CONCURRENT);
-    const VkImageCreateInfo& dst_info = resourceInfos.imageInfos.at(dst);
+    TransferSystemReqImageInfo src_image_info = message.srcImageInfo;
+    VkImage src_handle = src_image_info.imageHandle;
+    VkImageCreateInfo src_info = src_image_info.createInfo;
+    const VkImageAspectFlags src_aspect_flags = imageAspectFlagsFromUsage(src_info.usage);
+    const VkImageSubresourceRange src_range = VkImageSubresourceRange
+    {
+        src_aspect_flags, 0u, src_info.mipLevels, 0u, src_info.arrayLayers
+    };
+
+    TransferSystemReqImageInfo dst_image_info = message.dstImageInfo;
+    VkImage dst_handle = dst_image_info.imageHandle;
+    VkImageCreateInfo dst_info = dst_image_info.createInfo;
+    const VkImageAspectFlags dst_aspect_flags = imageAspectFlagsFromUsage(dst_info.usage);
+    const VkImageSubresourceRange dst_range = VkImageSubresourceRange
+    {
+        dst_aspect_flags, 0u, dst_info.mipLevels, 0u, dst_info.arrayLayers
+    };
+
+    if (src_aspect_flags != dst_aspect_flags ||
+        src_info.arrayLayers != dst_info.arrayLayers ||
+        src_info.extent.width != dst_info.extent.width ||
+        src_info.extent.height != dst_info.extent.height ||
+        src_info.extent.depth != dst_info.extent.depth ||
+        src_info.mipLevels != dst_info.mipLevels)
+    {
+        // if these traits don't match, we can't copy (for now)
+        // may need to investigate and return to this later, but most of these traits
+        // shouldn't be a problem. may need to specify copy region/layer somehow
+        message.reply->SetStatus(MessageReply::Status::Failed);
+        return;
+    }
 
     // these will be used to transition back to the right layout after the transfer
     // (and to specify right layout we're transitioning from)
@@ -631,7 +751,7 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
             VK_FALSE,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)src->Handle,
+            src_handle,
             src_range
         },
         ThsvsImageBarrier
@@ -645,7 +765,7 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
             VK_FALSE,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)dst->Handle,
+            dst_handle,
             dst_range
         }
     };
@@ -663,7 +783,7 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
             VK_FALSE,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)src->Handle,
+            src_handle,
             src_range
         },
         ThsvsImageBarrier
@@ -677,7 +797,7 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
             VK_FALSE,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)dst->Handle,
+            dst_handle,
             dst_range
         }
     };
@@ -685,24 +805,84 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
     const VkImageLayout src_layout = imageLayoutFromUsage(src_info.usage);
     const VkImageLayout dst_layout = imageLayoutFromUsage(dst_info.usage);
 
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    auto cmd = transfer_system.TransferCmdBuffer();
+    TransferCommand transfer_command(std::move(message.reply));
 
+    std::vector<VkImageCopy> image_copies(src_info.arrayLayers);
+    // Resize to hold copies for all mips and array layers
+    image_copies.resize(src_info.mipLevels * src_info.arrayLayers);
+    size_t copy_idx = 0;
+    
+    for (uint32_t mip = 0; mip < src_info.mipLevels; ++mip)
+    {
+        // Calculate extent for this mip level
+        VkExtent3D mip_extent
+        {
+            std::max(src_info.extent.width >> mip, 1u),
+            std::max(src_info.extent.height >> mip, 1u),
+            std::max(src_info.extent.depth >> mip, 1u)
+        };
+
+        for (uint32_t layer = 0; layer < src_info.arrayLayers; ++layer)
+        {
+            VkImageSubresourceLayers src_subresource
+            {
+                src_aspect_flags,
+                mip,
+                layer,
+                1u  // Copy one layer at a time
+            };
+
+            VkImageSubresourceLayers dst_subresource
+            {
+                dst_aspect_flags,
+                mip,
+                layer,
+                1u
+            };
+
+            image_copies[copy_idx++] = VkImageCopy
+            {
+                src_subresource,
+                VkOffset3D { 0u, 0u, 0u },
+                dst_subresource, 
+                VkOffset3D { 0u, 0u, 0u },
+                mip_extent
+            };
+        }
+    }
+
+    VkCommandBuffer cmd = transfer_command.CmdBuffer();
     thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 2u, pre_transfer_barriers);
-    vkCmdCopyImage(cmd, (VkImage)src->Handle, src_layout, (VkImage)dst->Handle, dst_layout, static_cast<uint32_t>(image_copies.size()), image_copies.data());
+    vkCmdCopyImage(
+        cmd,
+        src_handle, src_layout,
+        dst_handle, dst_layout,
+        static_cast<uint32_t>(image_copies.size()), image_copies.data());
     thsvsCmdPipelineBarrier(cmd, nullptr, 0u, nullptr, 2u, post_transfer_barriers);
+
+    transfer_command.EndRecording();
 }
 
 void ResourceTransferSystem::processCopyImageToBufferMessage(TransferSystemCopyImageToBufferMessage&& message)
 {
-
+    // Not implemented and I really don't want to do it right now lol
+    message.reply->SetStatus(MessageReply::Status::Failed);
 }
 
 void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyBufferToImageMessage&& message)
 {
+    TransferSystemReqBufferInfo src_buffer_info = message.bufferInfo;
+    VkBuffer src_handle = src_buffer_info.bufferHandle;
+    VkBufferCreateInfo src_info = src_buffer_info.createInfo;
 
-    const VkBufferCreateInfo& src_info = resourceInfos.bufferInfos.at(src);
-    const VkImageCreateInfo& dst_info = resourceInfos.imageInfos.at(dst);
+    TransferSystemReqImageInfo dst_image_info = message.imageInfo;
+    VkImage dst_handle = dst_image_info.imageHandle;
+    VkImageCreateInfo dst_info = dst_image_info.createInfo;
+    const VkImageAspectFlags dst_aspect_flags = imageAspectFlagsFromUsage(dst_info.usage);
+    const VkImageSubresourceRange dst_range = VkImageSubresourceRange
+    {
+        dst_aspect_flags, 0u, dst_info.mipLevels, 0u, dst_info.arrayLayers
+    };
 
     // these will be used to transition back to the right layout after the transfer
     // (and to specify right layout we're transitioning from)
@@ -729,8 +909,8 @@ void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyB
             transfer_access_type_read,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)src->Handle,
-            src_offset,
+            src_handle,
+            0u,
             src_info.size
         }
     };
@@ -748,7 +928,7 @@ void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyB
             VK_FALSE,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)dst->Handle,
+            dst_handle,
             dst_range
         }
     };
@@ -763,8 +943,8 @@ void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyB
             src_accesses.data(),
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkBuffer)src->Handle,
-            src_offset,
+            src_handle,
+            0u,
             src_info.size
         }
     };
@@ -782,51 +962,46 @@ void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyB
             VK_FALSE,
             VK_QUEUE_FAMILY_IGNORED,
             VK_QUEUE_FAMILY_IGNORED,
-            (VkImage)dst->Handle,
+            dst_handle,
             dst_range
         }
     };
 
     const VkImageLayout dst_layout = imageLayoutFromUsage(dst_info.usage);
+    TransferCommand transfer_command(std::move(message.reply));
 
-    auto& transfer_system = ResourceTransferSystem::GetTransferSystem();
-    auto cmd = transfer_system.TransferCmdBuffer();
+    VkCommandBuffer cmd = transfer_command.CmdBuffer();
 
-    thsvsCmdPipelineBarrier(cmd, nullptr, 1u, pre_transfer_buffer_barrier, 1u, pre_transfer_image_barrier);
-    vkCmdCopyBufferToImage(cmd, (VkBuffer)src->Handle, (VkImage)dst->Handle, dst_layout, static_cast<uint32_t>(copy_params.size()), copy_params.data());
-    thsvsCmdPipelineBarrier(cmd, nullptr, 1u, post_transfer_buffer_barrier, 1u, post_transfer_image_barrier);
-}
-
-VmaPool ResourceTransferSystem::createPool()
-{
-
-    uint32_t memory_type_index{ 0u };
-    VkResult create_result = vmaFindMemoryTypeIndexForBufferInfo(
-        allocatorHandle,
-        &k_defaultStagingBufferCreateInfo,
-        &k_defaultAllocationCreateInfo,
-        &memory_type_index);
-    VkAssert(create_result);
-
-    const VmaPoolCreateInfo pool_info
+    // I have no idea if this is going to work. We might need to pass in more metadata from the message?
+    VkBufferImageCopy copy_params[1]
     {
-        memory_type_index,
-        VMA_POOL_CREATE_LINEAR_ALGORITHM_BIT,
-        lastPoolSize, // block size: 256mb of staging memory. if we use more than this, we have a problem
-        0u, // min block count
-        0u, // max block count
-        0u
+        VkBufferImageCopy
+        {
+            0u,
+            0u,
+            0u,
+            VkImageSubresourceLayers
+            {
+                dst_aspect_flags,
+                0u,
+                0u,
+                1u
+            },
+            VkOffset3D { 0u, 0u, 0u },
+            dst_info.extent
+        }
     };
 
-    VmaPool result;
-    create_result = vmaCreatePool(allocatorHandle, &pool_info, &result);
-    VkAssert(create_result);
+    thsvsCmdPipelineBarrier(cmd, nullptr, 1u, pre_transfer_buffer_barrier, 1u, pre_transfer_image_barrier);
+    vkCmdCopyBufferToImage(cmd, src_handle, dst_handle, dst_layout, 1u, copy_params);
+    thsvsCmdPipelineBarrier(cmd, nullptr, 1u, post_transfer_buffer_barrier, 1u, post_transfer_image_barrier);
 
-    return result;
+    transfer_command.EndRecording();
 }
 
 namespace
 {
+
     std::vector<ThsvsAccessType> thsvsAccessTypesFromBufferUsage(VkBufferUsageFlags _flags)
     {
         std::vector<ThsvsAccessType> results;
@@ -1004,5 +1179,82 @@ namespace
         {
             return VK_IMAGE_LAYOUT_GENERAL;
         }
+    }
+
+    VkImageAspectFlags imageAspectFlagsFromUsage(const VkImageUsageFlags usage_flags)
+    {
+        if (usage_flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        {
+            return VK_IMAGE_ASPECT_COLOR_BIT;
+        }
+        else if (usage_flags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+        {
+            return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        }
+        else
+        {
+            return VK_IMAGE_ASPECT_COLOR_BIT;
+        }
+    }
+
+    VkPipelineStageFlags pipelineStageFlagsFromBufferUsage(const VkBufferUsageFlags usage_flags)
+    {
+        // any of these flags mean the buffer could be used by a shader, potentially anywhere in the pipeline
+        static const VkBufferUsageFlags shader_resource_flags = 
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+            VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT |
+            VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT |
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+            VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT |
+            VK_BUFFER_USAGE_SAMPLER_DESCRIPTOR_BUFFER_BIT_EXT |
+            VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
+            VK_BUFFER_USAGE_PUSH_DESCRIPTORS_DESCRIPTOR_BUFFER_BIT_EXT;
+        // any of these flags mean the buffer is a vertex or index buffer, so needed by start of vertex input
+        static const VkBufferUsageFlags vertex_buffer_flags =
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        // yay, just simple ol' transfer flags!
+        static const VkBufferUsageFlags transfer_flags =
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        // here be dragons
+        static const VkBufferUsageFlags raytracing_flags =
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
+            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
+            VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR;
+
+        // proceed down if statement from most specialized, then to more general flags proceeding from top of pipe down
+        if (usage_flags & VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT)
+        {
+            return VK_PIPELINE_STAGE_CONDITIONAL_RENDERING_BIT_EXT;
+        }
+        else if (usage_flags & raytracing_flags)
+        {
+            return VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+        }
+        else if (usage_flags & shader_resource_flags)
+        {
+            return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        }
+        else if (usage_flags & vertex_buffer_flags)
+        {
+            return VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+        }
+        else if (usage_flags & transfer_flags)
+        {
+            return VK_PIPELINE_STAGE_TRANSFER_BIT;
+        }
+        else
+        {
+            return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        }
+    }
+
+    VkPipelineStageFlags pipelineStageFlagsFromImageUsage(const VkImageUsageFlags usage_flags)
+    {
+        return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     }
 }

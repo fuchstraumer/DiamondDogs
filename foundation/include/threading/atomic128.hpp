@@ -12,7 +12,8 @@ struct alignas(16) cas_data128_t
     constexpr cas_data128_t& operator=(const cas_data128_t&) noexcept = default;
     constexpr cas_data128_t& operator=(cas_data128_t&&) noexcept = default;
     constexpr ~cas_data128_t() noexcept = default;
-    auto operator<=>(const cas_data128_t&) const noexcept;
+    constexpr bool operator==(const cas_data128_t& other) const noexcept { return low == other.low && high == other.high; }
+    constexpr bool operator!=(const cas_data128_t& other) const noexcept { return !(*this == other); }
     uint64_t low;
     uint64_t high;
 };

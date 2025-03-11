@@ -27,7 +27,7 @@ struct UploadBuffer
     void* mappedPtr{ nullptr };
     VkDeviceSize Size{ 0u };
 private:
-    void CreateAndAllocateBuffer(VkDeviceSize size);
+    void createAndAllocateBuffer(VkDeviceSize size);
     void setDataAtOffset(const void* data, size_t data_size, size_t offset);
 };
 

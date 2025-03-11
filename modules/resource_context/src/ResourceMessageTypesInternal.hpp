@@ -221,7 +221,7 @@ struct FillResourceMessage
     uint32_t value{ 0 };
     size_t offset{ 0 };
     size_t size{ 0 };
-    std::shared_ptr<MessageReply> reply = nullptr;
+    std::shared_ptr<ResourceTransferReply> reply = nullptr;
 };
 
 struct MapResourceMessage
@@ -314,7 +314,7 @@ struct TransferSystemFillBufferMessage
     uint32_t value{ 0 };
     size_t offset{ 0 };
     size_t size{ 0 };
-    std::shared_ptr<MessageReply> reply = nullptr;
+    std::shared_ptr<ResourceTransferReply> reply = nullptr;
 };
 
 struct TransferSystemCopyBufferToBufferMessage

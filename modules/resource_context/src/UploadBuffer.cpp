@@ -60,23 +60,6 @@ UploadBuffer& UploadBuffer::operator=(UploadBuffer&& other) noexcept
     return *this;
 }
 
-void UploadBuffer::CreateAndAllocateBuffer(VkDeviceSize size)
-{
-    VkBufferCreateInfo create_info = k_defaultStagingBufferCreateInfo;
-    create_info.size = size;
-    VmaAllocationCreateInfo alloc_create_info = k_defaultAllocationCreateInfo;
-    VkResult result = vmaCreateBuffer(
-        Allocator,
-        &create_info,
-        &alloc_create_info,
-        &Buffer,
-        &Allocation,
-        nullptr
-    );
-    VkAssert(result);
-    Size = size;
-}
-
 UploadBuffer::~UploadBuffer()
 {
     vmaDestroyBuffer(Allocator, Buffer, Allocation);
@@ -92,7 +75,7 @@ std::vector<VkBufferCopy> UploadBuffer::SetData(const InternalResourceDataContai
 
     Size = total_size;
 
-    CreateAndAllocateBuffer(total_size);
+    createAndAllocateBuffer(total_size);
     std::vector<VkBufferCopy> buffer_copies(dataVector.size());
     VkDeviceSize offset = 0;
     for (size_t i = 0; i < dataVector.size(); ++i)
@@ -119,7 +102,7 @@ std::vector<VkBufferImageCopy> UploadBuffer::SetData(
 
     Size = total_size;
 
-    CreateAndAllocateBuffer(total_size);
+    createAndAllocateBuffer(total_size);
     std::vector<VkBufferImageCopy> buffer_image_copies(imageDataVector.size());
     VkDeviceSize offset = 0;
     for (size_t i = 0; i < imageDataVector.size(); ++i)
@@ -140,6 +123,23 @@ std::vector<VkBufferImageCopy> UploadBuffer::SetData(
     }
 
     return buffer_image_copies;
+}
+
+void UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
+{
+    VkBufferCreateInfo create_info = k_defaultStagingBufferCreateInfo;
+    create_info.size = size;
+    VmaAllocationCreateInfo alloc_create_info = k_defaultAllocationCreateInfo;
+    VkResult result = vmaCreateBuffer(
+        Allocator,
+        &create_info,
+        &alloc_create_info,
+        &Buffer,
+        &Allocation,
+        nullptr
+    );
+    VkAssert(result);
+    Size = size;
 }
 
 void UploadBuffer::setDataAtOffset(const void* data, size_t data_size, size_t offset)

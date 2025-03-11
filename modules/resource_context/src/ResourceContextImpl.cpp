@@ -15,9 +15,6 @@
 
 namespace
 {
-    VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags);
-    VkAccessFlags accessFlagsFromImageUsage(const VkImageUsageFlags usage_flags);
-    VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags);
     VkMemoryPropertyFlags GetMemoryPropertyFlags(resource_usage _resource_usage) noexcept;
     VkFormatFeatureFlags GetFormatFeatureFlagsFromUsage(const VkImageUsageFlags flags) noexcept;
     VmaAllocationCreateFlags GetAllocationCreateFlags(const resource_creation_flags flags) noexcept;
@@ -1096,86 +1093,6 @@ void ResourceContextImpl::processMessages()
 
 namespace
 {
-
-    VkAccessFlags accessFlagsFromBufferUsage(VkBufferUsageFlags usage_flags)
-    {
-        if (usage_flags & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)
-        {
-            return VK_ACCESS_UNIFORM_READ_BIT;
-        }
-        else if (usage_flags & VK_BUFFER_USAGE_INDEX_BUFFER_BIT)
-        {
-            return VK_ACCESS_INDEX_READ_BIT;
-        }
-        else if (usage_flags & VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)
-        {
-            return VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
-        }
-        else if (usage_flags & VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT)
-        {
-            return VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-        }
-        else if (usage_flags & VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT)
-        {
-            return VK_ACCESS_CONDITIONAL_RENDERING_READ_BIT_EXT;
-        }
-        else if ((usage_flags & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) || (usage_flags & VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT))
-        {
-            return VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        }
-        else if (usage_flags & VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT)
-        {
-            return VK_ACCESS_SHADER_READ_BIT;
-        }
-        else
-        {
-            return VK_ACCESS_MEMORY_READ_BIT;
-        }
-    }
-
-    VkAccessFlags accessFlagsFromImageUsage(const VkImageUsageFlags usage_flags)
-    {
-        if (usage_flags & VK_IMAGE_USAGE_SAMPLED_BIT)
-        {
-            return VK_ACCESS_SHADER_READ_BIT;
-        }
-        else if (usage_flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-        {
-            return VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        }
-        else if (usage_flags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-        {
-            return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        }
-        else if (usage_flags & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
-        {
-            return VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
-        }
-        else
-        {
-            return VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_MEMORY_READ_BIT;
-        }
-    }
-
-    VkImageLayout imageLayoutFromUsage(const VkImageUsageFlags usage_flags)
-    {
-        if (usage_flags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-        {
-            return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        }
-        else if (usage_flags & VK_IMAGE_USAGE_SAMPLED_BIT)
-        {
-            return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        }
-        else if (usage_flags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-        {
-            return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        }
-        else
-        {
-            return VK_IMAGE_LAYOUT_GENERAL;
-        }
-    }
 
     VkMemoryPropertyFlags GetMemoryPropertyFlags(resource_usage _resource_usage) noexcept
     {

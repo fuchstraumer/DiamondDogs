@@ -49,8 +49,10 @@ private:
             std::shared_ptr<ResourceTransferReply>&& _reply);
 
         // not using an upload buffer, is for resources that are already allocated and just need
-        // data written to them
-        TransferCommand(std::shared_ptr<ResourceTransferReply>&& _reply);
+        // data written to them (so still needs device to create command pool)
+        TransferCommand(
+            const vpr::Device* _device,
+            std::shared_ptr<ResourceTransferReply>&& _reply);
         
         ~TransferCommand();
 
@@ -64,10 +66,10 @@ private:
         void EndRecording();
         MessageReply::Status WaitForCompletion(uint64_t timeoutNs);
         VkSemaphore Semaphore() const;
-
-        UploadBuffer* UploadBuffer() const;
+        UploadBuffer* GetUploadBuffer() noexcept;
 
     private:
+        void createCommandPool();
         const vpr::Device* device;
         VmaAllocator allocatorHandle;
         std::shared_ptr<ResourceTransferReply> reply;
@@ -99,8 +101,6 @@ private:
     void processMessage<TransferSystemCopyBufferToImageMessage>(TransferSystemCopyBufferToImageMessage&& message);
 
     void processSetBufferDataMessage(TransferSystemSetBufferDataMessage&& message);
-    void setBufferDataHostOnly(TransferSystemSetBufferDataMessage&& message);
-    void setBufferDataUploadBuffer(TransferSystemSetBufferDataMessage&& message);
     void processSetImageDataMessage(TransferSystemSetImageDataMessage&& message);
     void processFillBufferMessage(TransferSystemFillBufferMessage&& message);
     void processCopyBufferToBufferMessage(TransferSystemCopyBufferToBufferMessage&& message);

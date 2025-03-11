@@ -68,7 +68,7 @@ public:
         size_t size);
         
     [[nodiscard]] std::shared_ptr<PointerMessageReply> MapBuffer(
-        VulkanResource* buffer,
+        GraphicsResource buffer,
         size_t size,
         size_t offset);
         
@@ -78,7 +78,7 @@ public:
         size_t offset);
 
     // Creates a copy of the source buffer and returns it in the reply
-    [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CopyBuffer(GraphicsResource srcBuffer);
+    [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CopyBuffer(GraphicsResource srcBuffer, bool copyContents);
 
     // Creates a copy of the source image and returns it in the reply
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CopyImage(GraphicsResource srcImage);
@@ -89,7 +89,7 @@ public:
         GraphicsResource destBuffer);
 
     [[nodiscard]] std::shared_ptr<MessageReply> DestroyResource(
-        VulkanResource* resource);    
+        GraphicsResource resource);
 
 private:
     std::unique_ptr<ResourceContextImpl> impl;

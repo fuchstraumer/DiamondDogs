@@ -1,6 +1,7 @@
 #include "threading/atomic128.hpp"
 #ifdef _MSC_VER
 #include <intrin.h>
+#include <compare>
 
 // volatile needed to avoid any potential reordering
 template<typename DestType, typename SourceType>
@@ -9,10 +10,6 @@ template<typename DestType, typename SourceType>
     return &reinterpret_cast<volatile DestType&>(source);
 }
 
-auto cas_data128_t::operator<=>(const cas_data128_t& other) const noexcept
-{
-    return (low <=> other.low) && (high <=> other.high);
-}
 
 constexpr atomic128::atomic128(atomic128&& other) noexcept : data{ std::move(other.data) } {}
 

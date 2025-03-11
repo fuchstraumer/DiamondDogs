@@ -44,7 +44,7 @@ public:
     
 protected:
     friend class ResourceContextImpl;
-    friend class TransferSystem;
+    friend class ResourceTransferSystem;
     void SetStatus(Status status) noexcept;
     std::atomic<Status> status;
     static_assert(std::atomic<decltype(status)>::is_always_lock_free, "std::atomic<Status> is not lock-free on this platform/using this compiler");
@@ -66,7 +66,7 @@ public:
 
 protected:
     friend class ResourceContextImpl;
-    friend class TransferSystem;
+    friend class ResourceTransferSystem;
 
     uint64_t semaphoreHandle = 0u;
     const vpr::Device* device = nullptr;
@@ -114,7 +114,7 @@ public:
 private:
 
     friend class ResourceContextImpl;
-    friend class TransferSystemImpl;
+    friend class TransferSystem;
     void SetGraphicsResource(
         const resource_type _type,
         const uint32_t entity_handle,
