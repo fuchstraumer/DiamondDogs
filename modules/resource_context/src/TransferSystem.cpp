@@ -146,7 +146,7 @@ VkCommandBuffer ResourceTransferSystem::TransferCommand::CmdBuffer() const
 
 void ResourceTransferSystem::TransferCommand::EndRecording()
 {
-    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED && RENDERING_CONTEXT_USE_DEBUG_INFO)
     {
         device->DebugUtilsHandler().vkCmdEndDebugUtilsLabel(commandPool->GetCmdBuffer(0));
     }
@@ -191,7 +191,7 @@ void ResourceTransferSystem::TransferCommand::createCommandPool()
     commandPool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
     commandPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     
-    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED && RENDERING_CONTEXT_USE_DEBUG_INFO)
     {
         device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(commandPool->GetCmdBuffer(0), &queue_debug_label);
     }

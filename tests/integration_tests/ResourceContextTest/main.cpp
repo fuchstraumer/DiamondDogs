@@ -53,7 +53,7 @@ static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32
     {
         context.Device(),
         context.PhysicalDevice(),
-        VTF_VALIDATION_ENABLED
+        RENDERING_CONTEXT_VALIDATION_ENABLED
     };
     resourceContext->Initialize(create_info);
     scene.Construct(RequiredVprObjects{ context.Device(), context.PhysicalDevice(), context.Instance(), context.Swapchain() }, resourceContext.get());
@@ -99,7 +99,7 @@ int main(int argc, char* argv[])
     {
         context.Device(),
         context.PhysicalDevice(),
-        VTF_VALIDATION_ENABLED
+        RENDERING_CONTEXT_VALIDATION_ENABLED
     };
     resourceContext->Initialize(create_info);
     auto& rsrc_loader = ResourceLoader::GetResourceLoader();

@@ -17,7 +17,8 @@ ResourceLoader::~ResourceLoader()
     Stop();
 }
 
-void ResourceLoader::Subscribe(const char* file_type, FactoryFunctor func, DeleteFunctor del_fn) {
+void ResourceLoader::Subscribe(const char* file_type, FactoryFunctor func, DeleteFunctor del_fn)
+{
     std::lock_guard subscribeGuard(subscribeMutex);
     if (factories.count(file_type) != 0 && deleters.count(file_type) != 0)
     {
@@ -41,7 +42,8 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
     {
         // Check to see if resource is already loaded
         std::lock_guard pendingDataGuard(pendingDataMutex);
-        if (pendingResources.count(fileNameHash) != 0) {
+        if (pendingResources.count(fileNameHash) != 0)
+        {
             auto& listeners_vec = pendingResourceListeners[fileNameHash];
             listeners_vec.emplace_back(_requester, user_data);
             return;
@@ -157,9 +159,11 @@ void ResourceLoader::Unload(const char* file_type, const char* _path)
     uint64_t pathHash = std::hash<std::string>()(_path);
 
     std::lock_guard<std::recursive_mutex> guard(queueMutex);
-    if (auto iter = resources.find(pathHash); iter != std::end(resources)) {
+    if (auto iter = resources.find(pathHash); iter != std::end(resources))
+    {
         --iter->second.RefCount;
-        if (iter->second.RefCount == 0) {
+        if (iter->second.RefCount == 0)
+        {
             deleters.at(iter->second.FileType)(iter->second.Data, nullptr);
         }
         resources.erase(iter);

@@ -48,7 +48,8 @@ private:
         AlreadyLoaded = 2
     };
 
-    struct ResourceData {
+    struct ResourceData
+    {
         uint64_t FileNameHash;
         void* Data;
         std::string FileType;
@@ -58,7 +59,8 @@ private:
         size_t RefCount{ 0 };
     };
 
-    struct loadRequest {
+    struct loadRequest
+    {
         loadRequest(ResourceData dest) : destinationData(dest), requester(nullptr) {}
         load_req_type type{ load_req_type::Invalid };
         ResourceData destinationData;

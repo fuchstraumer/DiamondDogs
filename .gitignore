@@ -3,5 +3,6 @@ build/
 .vs/
 ext/
 assets/objs/
+assets/glTF/
 GeneratedExtensionHeader.hpp
 .cursorignore

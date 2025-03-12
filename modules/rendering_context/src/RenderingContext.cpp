@@ -71,6 +71,7 @@ struct QueriedDeviceFeatures
     VkPhysicalDeviceVulkan11Features vulkan11Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, &vulkan12Features };
     VkPhysicalDeviceFeatures2 deviceFeaturesBase{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &vulkan11Features, VkPhysicalDeviceFeatures{} };
 };
+
 void GetPhysicalDeviceFeatures(VkInstance instance, const uint32_t apiVersion, QueriedDeviceFeatures& features);
 
 static const std::unordered_map<std::string, windowing_mode> windowing_mode_str_to_flag
@@ -167,7 +168,7 @@ void RenderingContext::Construct(const char* file_path)
 
     createLogicalDevice(json_file, extensionPack);
 
-    if constexpr (VTF_VALIDATION_ENABLED)
+    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED)
     {
         SetObjectNameFn = logicalDevice->DebugUtilsHandler().vkSetDebugUtilsObjectName;
 
@@ -232,7 +233,7 @@ void RenderingContext::Construct(const char* file_path)
 
     swapchain = std::make_unique<vpr::Swapchain>(logicalDevice.get(), window->glfwWindow(), windowSurface->vkHandle(), desired_mode);
 
-    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED && RENDERING_CONTEXT_USE_DEBUG_INFO)
     {
         SetObjectName(VK_OBJECT_TYPE_SWAPCHAIN_KHR, (uint64_t)swapchain->vkHandle(), "RenderingContextSwapchain");
 
@@ -260,7 +261,7 @@ void RenderingContext::Destroy()
 {
     swapchain.reset();
     windowSurface.reset();
-    if constexpr (VTF_VALIDATION_ENABLED)
+    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED)
     {
         logicalDevice->DebugUtilsHandler().vkDestroyDebugUtilsMessenger(vulkanInstance->vkHandle(), DebugUtilsMessenger, nullptr);
     }
@@ -509,19 +510,19 @@ void RenderingContext::SetShaderCacheDir(const char* dir)
 
 VkResult RenderingContext::SetObjectName(VkObjectType object_type, uint64_t handle, const char* name)
 {
-    if constexpr (VTF_VALIDATION_ENABLED && VTF_USE_DEBUG_INFO)
+    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED && RENDERING_CONTEXT_USE_DEBUG_INFO)
     {
         auto& ctxt = Get();
 
-        if constexpr (VTF_DEBUG_INFO_THREADING || VTF_DEBUG_INFO_TIMESTAMPS)
+        if constexpr (RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID || RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS)
         {
             std::string object_name_str{ name };
             std::stringstream extra_info_stream;
-            if constexpr (VTF_DEBUG_INFO_THREADING)
+            if constexpr (RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID)
             {
                 extra_info_stream << std::string("_ThreadID:") << std::this_thread::get_id();
             }
-            if constexpr (VTF_DEBUG_INFO_TIMESTAMPS)
+            if constexpr (RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS)
             {
 
             }

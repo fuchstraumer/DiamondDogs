@@ -9,40 +9,38 @@
 #include <vulkan/vulkan_core.h>
 #include <nlohmann/json_fwd.hpp>
 
-#ifdef VTF_DEBUG_INFO_DISABLE
-constexpr static bool VTF_USE_DEBUG_INFO = false;
+#ifdef RENDERING_CONTEXT_USE_DEBUG_INFO_CONF
+constexpr static bool RENDERING_CONTEXT_USE_DEBUG_INFO = false;
 #else
-constexpr static bool VTF_USE_DEBUG_INFO = true;
+constexpr static bool RENDERING_CONTEXT_USE_DEBUG_INFO = true;
 #endif
 
-#define VTF_VALIDATION_ENABLED_CONF
-#ifdef VTF_VALIDATION_ENABLED_CONF
-constexpr static bool VTF_VALIDATION_ENABLED = true;
+#ifdef RENDERING_CONTEXT_VALIDATION_ENABLED_CONF
+constexpr static bool RENDERING_CONTEXT_VALIDATION_ENABLED = true;
 #else
-constexpr static bool VTF_VALIDATION_ENABLED = false;
+constexpr static bool RENDERING_CONTEXT_VALIDATION_ENABLED = false;
 #endif
 
-#define VTF_DEBUG_INFO_THREADING_CONF
-#ifdef VTF_DEBUG_INFO_THREADING_CONF
-constexpr static bool VTF_DEBUG_INFO_THREADING = true;
+#ifdef RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID_CONF
+constexpr static bool RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID = true;
 #else
-constexpr static bool VTF_DEBUG_INFO_THREADING = false;
+constexpr static bool RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID = false;
 #endif
 
-// Really need C++20 for this to work ideally, I feel
-#define VTF_DEBUG_INFO_THREADING_CONF
-#ifdef VTF_DEBUG_INFO_TIMESTAMPS_CONF
-constexpr static bool VTF_DEBUG_INFO_TIMESTAMPS = true;
+#ifdef RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS_CONF
+constexpr static bool RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS = true;
 #else
-constexpr static bool VTF_DEBUG_INFO_TIMESTAMPS = false;
+constexpr static bool RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS = false;
 #endif
 
 #ifdef VTF_DEBUG_INFO_CALLING_FN_CONF
+#include <source_location>
+#include <format>
 // In current configuration, this macro adds the calling function name and line to the objects name
-
+#define RENDERING_CONTEXT_DEBUG_OBJECT_NAME(name) std::format("{}_{}_{}", name, std::source_location::current().function_name(), std::source_location::current().line())
 #else
 // In current configuration, this macro just returns the name without modification
-#define VTF_DEBUG_OBJECT_NAME(name) name
+#define RENDERING_CONTEXT_DEBUG_OBJECT_NAME(name) name
 #endif
 
 namespace vpr
@@ -73,10 +71,10 @@ using post_logical_device_function_t = void(*)(void* pNext);
 
 struct SwapchainCallbacks
 {
-    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> SwapchainCreated;
-    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> BeginResize;
-    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> CompleteResize;
-    delegate_t<void(VkSwapchainKHR handle)> SwapchainDestroyed;
+    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)> SwapchainCreated;
+    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)> BeginResize;
+    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)> CompleteResize;
+    delegate_t<void(VkSwapchainKHR handle, void* userData)> SwapchainDestroyed;
 };
 
 struct DescriptorLimits
@@ -164,6 +162,7 @@ private:
     VkDebugUtilsMessengerEXT DebugUtilsMessenger{ VK_NULL_HANDLE };
     std::unique_ptr<::QueriedDeviceFeatures> queriedDeviceFeatures;
     std::unique_ptr<::QueriedDeviceFeatures> enabledDeviceFeatures;
+
 
 };
 

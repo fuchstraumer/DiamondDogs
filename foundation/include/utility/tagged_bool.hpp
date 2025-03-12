@@ -3,7 +3,8 @@
 #define DIAMOND_DOGS_TAGGED_BOOL_HPP
 
 template<typename Tag>
-class tagged_bool {
+class tagged_bool
+{
     bool value;
     template<typename>
     friend class tagged_bool;

@@ -940,13 +940,13 @@ VkBuffer ResourceContextImpl::createBuffer(
     VkResult result = vmaCreateBuffer(allocatorHandle, &buffer_create_info, &alloc_create_info, &buffer_handle, &alloc, &alloc_info);
     VkAssert(result);
     
-    if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+    if constexpr (RENDERING_CONTEXT_USE_DEBUG_INFO && RENDERING_CONTEXT_VALIDATION_ENABLED)
     {
         if (flags.flags & resource_creation_flag_bits::UserDataAsString)
         {
-            const char* debugName = VTF_DEBUG_OBJECT_NAME(debug_name.c_str());
+            const char* debugName = RENDERING_CONTEXT_DEBUG_OBJECT_NAME(debug_name.c_str());
             std::string debugAllocName = std::format("{}_allocation", debugName);
-            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(buffer_handle), VTF_DEBUG_OBJECT_NAME(debug_name.c_str()));
+            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(buffer_handle), RENDERING_CONTEXT_DEBUG_OBJECT_NAME(debug_name.c_str()));
             VkAssert(result);
             vmaSetAllocationName(allocatorHandle, alloc, debugAllocName.c_str());
         }
@@ -968,12 +968,12 @@ VkBufferView ResourceContextImpl::createBufferView(
 
     resourceRegistry.emplace<VkBufferView>(new_entity, buffer_view);
 
-    if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+    if constexpr (RENDERING_CONTEXT_USE_DEBUG_INFO && RENDERING_CONTEXT_VALIDATION_ENABLED)
     {
         if (_flags & resource_creation_flag_bits::UserDataAsString)
         {
             const std::string object_name = std::format("{}_buffer_view", reinterpret_cast<const char*>(user_data_ptr));
-            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER_VIEW, reinterpret_cast<uint64_t>(buffer_view), VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
+            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_BUFFER_VIEW, reinterpret_cast<uint64_t>(buffer_view), RENDERING_CONTEXT_DEBUG_OBJECT_NAME(object_name.c_str()));
             VkAssert(result);
         }
     }
@@ -1053,13 +1053,13 @@ VkImage ResourceContextImpl::createImage(
     resourceRegistry.emplace<VkImage>(new_entity, image_handle);
     VkAssert(result);
 
-    if constexpr (VTF_USE_DEBUG_INFO && VTF_VALIDATION_ENABLED)
+    if constexpr (RENDERING_CONTEXT_USE_DEBUG_INFO && RENDERING_CONTEXT_VALIDATION_ENABLED)
     {
         if (flags.flags & resource_creation_flag_bits::UserDataAsString)
         {
-            const char* debugName = VTF_DEBUG_OBJECT_NAME(debug_name.c_str());
+            const char* debugName = RENDERING_CONTEXT_DEBUG_OBJECT_NAME(debug_name.c_str());
             std::string debugAllocationName = std::format("{}_allocation", debugName);
-            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(image_handle), VTF_DEBUG_OBJECT_NAME(debug_name.c_str()));
+            result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(image_handle), RENDERING_CONTEXT_DEBUG_OBJECT_NAME(debug_name.c_str()));
             VkAssert(result);
             vmaSetAllocationName(allocatorHandle, alloc, debugAllocationName.c_str());
         }
@@ -1091,7 +1091,7 @@ VkImageView ResourceContextImpl::createImageView(
     {
         const std::string& parent_name = resourceRegistry.get<std::string>(new_entity);
         const std::string object_name = parent_name + "_image_view";
-        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(image_view), VTF_DEBUG_OBJECT_NAME(object_name.c_str()));
+        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t>(image_view), RENDERING_CONTEXT_DEBUG_OBJECT_NAME(object_name.c_str()));
         VkAssert(result);
     }
 
@@ -1123,7 +1123,7 @@ VkSampler ResourceContextImpl::createSampler(
         {
             debug_name = std::string(reinterpret_cast<const char*>(user_data_ptr));
         }
-        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(sampler), VTF_DEBUG_OBJECT_NAME(debug_name.c_str()));
+        result = RenderingContext::SetObjectName(VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(sampler), RENDERING_CONTEXT_DEBUG_OBJECT_NAME(debug_name.c_str()));
         VkAssert(result);
     }
 
