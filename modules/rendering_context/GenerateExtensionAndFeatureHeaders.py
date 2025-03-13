@@ -328,11 +328,41 @@ def WriteExtensionIndexLookupTable(extensions, masterNameToIndexDict, aliasedExt
 
     print('};\n', file=fileStream)
 
-# Write out a table mapping extension indices to an array of it's dependencies. Dependency array is a std::array with a capacity
-# set dynamically based on the max amount of dependencies we found for any one extension. For any extension that doesn't have that
-# many deps, we just write UINT_MAX/std::numeric_limits<size_t>::max() to the slot
+def WriteDeviceOrInstanceExtensionTable(extensions, extensionIdxDict, fileStream, extensionTypeToWrite):
+    '''
+    Writes out a table of extensions that are instance extensions.
+    '''
+    extensionIndices = []
+    for extension in extensions:
+        extensionName = extension.get('name')
+        extensionType = extension.get('type')
+        if extensionType == extensionTypeToWrite and extensionName in extensionIdxDict:
+            extensionIndices.append(extensionIdxDict[extensionName])
+
+    print('// Table of ' + extensionTypeToWrite + ' extension indices, indexed by the extension name', file=fileStream)
+    print('static const std::array<size_t, ' + str(len(extensionIndices)) + '> ' + extensionTypeToWrite + 'ExtensionTable', file=fileStream)
+    print('{', file=fileStream)
+    for idx, extensionIdx in enumerate(extensionIndices):
+        print('    ' + str(extensionIdx) + ',', file=fileStream)
+    print('};\n', file=fileStream)
+
 def WriteExtensionDependencyTable(extensions, versions, versionAndExtensionDependencies, extensionIdxDict, fileStream, maxDeps):
-    # just in case I want to tweak this later
+    '''
+    Writes out a table mapping extension indices to an array of it's dependencies. Dependency array is a std::array with a capacity
+    set dynamically based on the max amount of dependencies we found for any one extension. For any extension that doesn't have that
+    many deps, we just write UINT_MAX/std::numeric_limits<size_t>::max() to the slot.
+
+    This table is partitioned by version, with "NO_VERSION" extensions coming first followed by versioned extensions. We write a followup
+    array that maps version names to the index of where the versioned extensions begin in the dependency table.
+
+    Args:
+        extensions: list of extension elements from vk.xml
+        versions: list of version elements from vk.xml
+        versionAndExtensionDependencies: dict mapping version names to a dict of extension names to lists of dependencies
+        extensionIdxDict: mapping of extension names to their index in the masterExtensionNameTable
+        fileStream: file stream to write to
+        maxDeps: maximum number of dependencies found for any one extension
+    '''
     dependencyIndexType = 'size_t'
     invalidDepIdx = 'std::numeric_limits<' + dependencyIndexType + '>::max()'
     
@@ -685,6 +715,9 @@ if __name__ == '__main__':
         aliasedExtensionIdxDict = WriteAliasedExtensionNameTable(promotedAliasedExtensions, fileStream)
 
         WriteExtensionIndexLookupTable(extensions, masterExtensionIdxDict, promotedAliasedExtensions, aliasedExtensionIdxDict, fileStream)
+
+        WriteDeviceOrInstanceExtensionTable(extensions, masterExtensionIdxDict, fileStream, 'device')
+        WriteDeviceOrInstanceExtensionTable(extensions, masterExtensionIdxDict, fileStream, 'instance')
 
         versionDependencies, mostDeps = FindAllExtensionsDependencies(extensions, versions)
 

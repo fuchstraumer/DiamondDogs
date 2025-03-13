@@ -6,9 +6,11 @@ OPTION(RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS "Enable timestamps in debug info 
 OPTION(RENDERING_CONTEXT_DEBUG_INFO_CALLING_FN "Enable calling function name in debug info for rendering context" OFF)
 
 ADD_MODULE(rendering_context
+    "include/ExtensionWrangler.hpp"
     "include/PipelineExecutableInfo.hpp"
     "include/PlatformWindow.hpp"
     "include/RenderingContext.hpp"
+    "src/ExtensionWrangler.cpp"
     "src/PipelineExecutableInfo.cpp"
     "src/PlatformWindow.cpp"
     "src/RenderingContext.cpp"
