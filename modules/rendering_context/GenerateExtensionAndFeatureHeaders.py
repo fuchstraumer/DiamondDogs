@@ -7,6 +7,78 @@ from xml.etree import ElementTree
 import argparse
 import pathlib
 
+class ExtensionWithDependencies:
+    '''
+    Holds all the information we need to know about an extension when doing this processing, primarily for partitioning 
+    data when writing out data tables. Also holds the dependencies as dict of ExtensionDependencies objects, one per
+    version with dependency requirements. For most extensions, this will just have the NO_VERSION entry, but when
+    an extension has version-dependent requirements, this will have a mapping of version name to the dependencies
+    for that version.
+    '''
+    # Extension name string from the xml object
+    name = None
+
+    # Index into the masterExtensionNameTable
+    nameIndex = None
+
+    # The extension object from vk.xml
+    xmlObject = None
+    
+    # List of ExtensionDependencies objects, one per version with dependency reqs
+    # Usually just has the NO_VERSION entry for deps required no matter the version
+    dependencies = {}
+  
+    # The platform this extension is relevant to
+    platform = None
+    
+    # Whether this extension has no features, so we can skip querying them
+    # when generating feature structs
+    noFeatures = False
+
+    # If it's a beta extension, which means it's hidden behind a define for beta features
+    provisional = False
+
+    # If this extension was promoted to a new name or version, this will be the new name or version it was
+    # made core in
+    promotedTo = None
+
+    # Index to the aliased extensions entry in the name table
+    aliasedTo = None
+
+    # If this extension was obsoleted by a new extension, this will be the new extension it was obsoleted by
+    obsoletedOrDeprecatedBy = None
+
+def ConstructExtensionObjects(extensionXmlObjects):
+    '''
+    Constructs ExtensionWithDependencies objects from the list of extensions
+    '''
+    extensionObjects = []
+    for extension in extensionXmlObjects:
+        extensionObject = ExtensionWithDependencies()
+        extensionObject.name = extension.get('name')
+        extensionObject.nameIndex = None
+        extensionObject.xmlObject = extension
+        extensionObject.dependencies = {}
+        extensionPlatform = extension.get('platform')
+        if extensionPlatform is None:
+            extensionPlatform = 'VULKAN_PLATFORM_ALL'
+        extensionObject.platform = extensionPlatform
+        extensionObject.noFeatures = extension.get('nofeatures') == 'true'
+        extensionObject.provisional = extension.get('provisional') == 'true'
+
+        extensionObject.promotedTo = extension.get('promotedto')
+        extensionObject.obsoletedOrDeprecatedBy = extension.get('obsoletedby')
+        if extensionObject.obsoletedOrDeprecatedBy is None:
+            extensionObject.obsoletedOrDeprecatedBy = extension.get('deprecatedby')
+        # Not sure why some of the spec extensions have an empty string for the obsoletedby attribute?
+        if extensionObject.obsoletedOrDeprecatedBy == '':
+            extensionObject.obsoletedOrDeprecatedBy = None
+
+        extensionObjects.append(extensionObject)
+        
+    return extensionObjects
+
+
 # get list of current vulkan version names
 def GetVersionList(tree):
     '''
@@ -22,8 +94,6 @@ def GetVersionList(tree):
     for version in versions:
         version_name = version.get('name')
         if 'VKSC_VERSION_1_0' in version_name:
-            continue
-        elif 'VK_VERSION_1_0' in version_name:
             continue
 
         result.append(version)
@@ -43,6 +113,15 @@ def MakeVersionStrVersionNumber(version):
         outputStr = version[:insertionPointIdx] + '_API' + version[insertionPointIdx:]
         return outputStr
     return version  # Return original if pattern not found
+
+def VersionSortKey(item):
+    '''
+    Functor used to sort dicts that map version names, ensuring that "NO_VERSION" comes first
+    '''
+    version_name = item[0]
+    if version_name == "NO_VERSION":
+        return ""  # Empty string sorts before any other string
+    return version_name
 
 def RemoveExtensionsWithZeroVersion(extensions):
     '''
@@ -78,17 +157,18 @@ def RemoveExtensionsWithZeroVersion(extensions):
     extensions[:] = [ext for ext in extensions if ext not in extensionsToRemove]
 
 
-def FindAllPromotedExtensions(extensions, versions):
+def FindAllPromotedExtensions(extensionObjects, versions):
     '''
     In Vulkan, extensions are occasionally either promoted to a new alias (for various
     reasons), or promoted to a new version of the API as they are made core to that version.
     We grab both cases here.
     Args:
-        extensions: list of extension elements from vk.xml
+        extensionObjects: list of ExtensionWithDependencies objects
         versions: list of version elements from vk.xml
     Returns:
         dict: mapping old extension names to new extension names
         dict: mapping version names to lists of extensions promoted to core in that version
+        dict: mapping extension names to what they were obsoleted or deprecated by
     '''
     promotedExtensions = {}
     versionPromotedExtensions = {}
@@ -96,113 +176,102 @@ def FindAllPromotedExtensions(extensions, versions):
     for version in versionNames:
         versionPromotedExtensions[version] = []
 
-    for extension in extensions:
-        promotedTo = extension.get('promotedto')
-        # In newer schemas, some extensions use 'obsoleted_by' instead of 'promotedto'
-        if promotedTo is None:
-            promotedTo = extension.get('obsoleted_by')
-            
-        if promotedTo is not None and promotedTo not in versionNames:
-            promotedExtensions[extension] = promotedTo
-        elif promotedTo is not None and promotedTo in versionNames:
-            versionPromotedExtensions[promotedTo].append(extension.get('name'))
+    for extension in extensionObjects:
+        if extension.promotedTo is not None and extension.promotedTo in versionNames:
+            versionPromotedExtensions[extension.promotedTo].append(extension.name)
+        elif extension.promotedTo is not None and extension.promotedTo not in versionNames:
+            promotedExtensions[extension.name] = extension.promotedTo
 
     return promotedExtensions, versionPromotedExtensions
 
-def RemoveAliasedExtensions(extensions, aliasedExtensions):
+def FindAllDeprecatedExtensions(extensionObjects):
     '''
-    Removes aliased extensions from the master list. We've already copied their values
-    to the container returned from the above function though. We use this to construct the
-    remapping table for API users, where aliased extensions.... map to their current alias :)
+    Finds all extensions that are obsoleted or deprecated by either another extension, or
+    a version of the API.
     Args:
-        extensions: master list of extension elements from vk.xml. modified by this function
-        aliasedExtensions: dict mapping old extension names to new extension names
-    '''
-    for aliasedExtension in aliasedExtensions.keys():
-        if aliasedExtension in extensions:
-            extensions.remove(aliasedExtension)
-
-# 0x55555555
-def FindAllExtensionsDependencies(extensions, versions):
-    '''
-    Find all dependencies required by an extension for a given version of the API.
-    Args:
-        extensions: list of extension elements from vk.xml
-        versions: list of version elements from vk.xml
+        extensionObjects: list of ExtensionWithDependencies objects
     Returns:
-        dict: mapping version names to a dict of extension names to lists of dependencies, for that extension and version
-              effectively, it maps a version to a list of extensions that have dependencies *relating* to that version
-              there's a special "NO_VERSION" key that covers extensions that don't have any version dependencies, just extensions
+        dict: mapping extension names to what they were obsoleted or deprecated by
+    '''
+    deprecatedExtensions = {}
+    for extension in extensionObjects:
+        if extension.obsoletedOrDeprecatedBy is not None:
+            deprecatedExtensions[extension.name] = extension.obsoletedOrDeprecatedBy
+    return deprecatedExtensions
+
+def find_all_extension_dependencies(extensionObjects, versionNameList):
+    '''
+    Find all dependencies required by an extension for a given version of the API. Updates
+    extensionObjects in place with the dependencies found, listing them by version in the
+    ExtensionDependencies objects.
+    Args:
+        extensionObjects: list of ExtensionWithDependencies objects
+        versionNameList: list of version names from vk.xml, stripping out SC versions
+    Returns:
         int: maximum overall number of dependencies found for any one extension
              (used to set the size of the std::array in generated header)
     '''
-    versionDependencies = {}
-    # Map of version name to list of extensions that have dependencies *relating* to that version
-    # They could be just that version, or a list of extensions required alongside this version
-    versionNameList = [version.get('name') for version in versions]
-    versionNameList.append('NO_VERSION')
-    for versionName in versionNameList:
-        versionDependencies[versionName] = {}
+    versionNameList = GetVersionList(tree)
 
     mostDeps = 0
 
-    def CleanDependencyStr(dep):
+    def clean_dependency_str(dep):
         return dep.strip().strip('()').strip()
 
-    for extension in extensions:
-        extensionName = extension.get('name')
-        dependenciesAttrib = extension.get('depends')
+    def add_dependencies(extensionStr, currDependencyGroup):
+        for dep in extensionStr:
+            clean_dep = clean_dependency_str(dep)
+            currDependencyGroup.append(clean_dep)
+
+    def is_version_dependency(dep):
+        return any(version == clean_dependency_str(dep) for version in versionNameList)
+
+    for extensionObject in extensionObjects:
+        dependenciesAttrib = extensionObject.xmlObject.get('depends')
         
         if dependenciesAttrib is not None:
-            # Split by commas (OR dependencies) and process each group
-            dependency_groups = dependenciesAttrib.split(',')
+            # Check if we have multiple dependency groups or just one with commas
+            has_multiple_groups = '(' in dependenciesAttrib and ')' in dependenciesAttrib
+            
+            if has_multiple_groups:
+                # Handle multiple dependency groups with parentheticals
+                dependency_groups = dependenciesAttrib.split(',')
+            else:
+                # Treat the entire string as a single dependency group
+                dependency_groups = [dependenciesAttrib]
             
             for group in dependency_groups:
                 # Split by + (AND dependencies)
                 and_dependencies = group.strip().split('+')
+                
                 # Check if any of the AND dependencies is a version dependency
                 is_version_dependency = False
                 version_name = 'NO_VERSION'
                 for dep in and_dependencies:
                     clean_dep = CleanDependencyStr(dep)
-                    if any(version.get('name') == clean_dep for version in versions):
+                    if any(version == clean_dep for version in versionNameList):
                         is_version_dependency = True
                         version_name = clean_dep
                         break
-                
-                # If this is a version dependency, we need to notate the version alongside the list of extension dependencies
+
                 if is_version_dependency and len(and_dependencies) == 1:
-                    # Empty list, but it still tells us something. Use 0x55555555 as a sentinel value
-                    if versionDependencies[version_name].get(extensionName) is None:
-                        versionDependencies[version_name][extensionName] = []
-                    versionDependencies[version_name][extensionName].append("0x55555555")
-                    continue
+                    # This dependency group is a dependency just solely on this version
+                    extensionObject.dependencies[version_name] = []
                 elif is_version_dependency and len(and_dependencies) > 1:
-                    # Remove version from list of and_dependencies
-                    # Remove the version dependency from and_dependencies, accounting for possible formatting
+                    # Remove the version dependency from and_dependencies
                     and_dependencies = [dep for dep in and_dependencies if CleanDependencyStr(dep) != version_name]
-                    for dep in and_dependencies:
-                        # Remove any parentheses and whitespace
-                        clean_dep = CleanDependencyStr(dep)
-                        if versionDependencies[version_name].get(extensionName) is None:
-                            versionDependencies[version_name][extensionName] = []
-                        versionDependencies[version_name][extensionName].append(clean_dep)
+                    currDependencyGroup = []
+                    AddDependencies(and_dependencies, currDependencyGroup)
+                    extensionObject.dependencies[version_name] = currDependencyGroup
+                    mostDeps = max(mostDeps, len(currDependencyGroup))
                 elif not is_version_dependency:
                     # No version dependency, just extensions
-                    for dep in and_dependencies:
-                        # Remove any parentheses and whitespace
-                        clean_dep = CleanDependencyStr(dep)
-                        if versionDependencies['NO_VERSION'].get(extensionName) is None:
-                            versionDependencies['NO_VERSION'][extensionName] = []
-                        versionDependencies['NO_VERSION'][extensionName].append(clean_dep)
-                
-    # Find the maximum number of dependencies across all versions
-    for version_name, extensions_dict in versionDependencies.items():
-        for ext_name, deps_list in extensions_dict.items():
-            mostDeps = max(mostDeps, len(deps_list))
+                    currDependencyGroup = []
+                    AddDependencies(and_dependencies, currDependencyGroup)
+                    extensionObject.dependencies['NO_VERSION'] = currDependencyGroup
+                    mostDeps = max(mostDeps, len(currDependencyGroup))
 
-
-    return versionDependencies, mostDeps
+    return mostDeps
 
 def CreateFileHeader(tree, fileStream):
     '''
@@ -220,24 +289,41 @@ def CreateFileHeader(tree, fileStream):
     print('#include <unordered_map>\n#include <limits>', file=fileStream)
     print('#include <vulkan/vulkan_core.h>\n', file=fileStream)
 
-# This is the "master" table, containing the actual strings we use. It contains all the currently
-# valid extensions, with aliased extensions stripped out and zero version extensions stripped out. 
-# We use this as what things remap to
-def WriteMasterExtensionNameTable(extensions, fileStream):
+def WriteMasterExtensionNameTable(extensionObjects, versions, fileStream):
     '''
-    Writes the master extension name table, containing the actual strings we use.
+    Writes the master extension name table, containing the actual extension names we use elsewhere. 
+    They're stored in a constant array so we don't ever have to construct new string objects when doing
+    lookups
     Args:
-        extensions: list of extension elements from vk.xml
+        extensionObjects: list of ExtensionWithDependencies objects
+        versions: list of version elements from vk.xml to get version names
         fileStream: file stream to write to
-    Returns:
-        dict: mapping extension names to their index in the masterExtensionNameTable
     '''
     nameTable = []
+    versionNames = [version.get('name') for version in versions]
 
-    for extension in extensions:
-        extensionName = extension.get('name')
-        nameTable.append(extensionName)
+    extensionNamesList = [ext.name for ext in extensionObjects]
 
+    # Unfortunately expensive list comprehension, but we need to exclude extensions that are aliased to other extensions ONLY
+    # Not extensions that are aliased to versions, because that's totally fine
+    unaliasedExtensionObjects = [ ext for ext in extensionObjects if ext.promotedTo is None or ext.promotedTo not in extensionNamesList ]
+    for extension in unaliasedExtensionObjects:
+        extension.nameIndex = len(nameTable)
+        nameTable.append(extension.name)
+
+    aliasedExtensionObjects = [ ext for ext in extensionObjects if ext.promotedTo is not None and ext.promotedTo not in versionNames ]
+    for extension in aliasedExtensionObjects:
+        # Find the extension object that this extension is aliased to
+        aliasedExtension = next((e for e in extensionObjects if e.name == extension.promotedTo), None)
+        if aliasedExtension is None:
+            print(f"Warning: Aliased extension {extension.name} not found in extension objects")
+        else:
+            # Set name index because we still store aliased names in the master name table
+            extension.nameIndex = len(nameTable)
+            # Set index of the aliased extension to the index of the extension it's aliased to
+            extension.aliasedTo = aliasedExtension.nameIndex
+            nameTable.append(extension.name)
+        
     print('constexpr static std::array<const char*, ' + str(len(nameTable)) + '> masterExtensionNameTable', file=fileStream)
     print('{', file=fileStream)
 
@@ -246,51 +332,7 @@ def WriteMasterExtensionNameTable(extensions, fileStream):
 
     print('};\n', file=fileStream)
 
-def WriteAliasedExtensionNameTable(aliasedExtensions, fileStream):
-    '''
-    Writes out a table for the aliased extensions, containing their names as raw strings.
-    Can't be string_view since these extensions are no longer part of the master list.
-    Args:
-        aliasedExtensions: dict mapping old extension names to new extension names
-        fileStream: file stream to write to
-    Returns:
-        dict: mapping extension names to their index in the aliasedExtensionNameTable
-    '''
-    aliasedNameDataIndices = {}
-    nameTable = []
-
-    for extension in aliasedExtensions.keys():
-        extensionName = extension.get('name')
-        aliasedNameDataIndices[extensionName] = len(nameTable)
-        nameTable.append(extensionName)
-        
-    print('constexpr static std::array<const char*, ' + str(len(nameTable)) + '> aliasedExtensionNameTable', file=fileStream)
-    print('{', file=fileStream)
-
-    for name in nameTable:
-        print('    \"' + name + '\",', file=fileStream)
-    
-    print('};\n', file=fileStream)
-
-    return aliasedNameDataIndices
-
-def GetNameToIndexDict(extensions):
-    '''
-    Generates a mapping of extension names to their index in the masterExtensionNameTable.
-    Args:
-        extensions: list of extension elements from vk.xml
-    Returns:
-        dict: mapping extension names to their index in the masterExtensionNameTable
-    '''
-    result = {}
-    for idx, extension in enumerate(extensions):
-        result[extension.get('name')] = idx
-    return result;
-
-# Write out the final extension index lookup table. This uses the arrays of strings we already built to allow us to use
-# string view here, without having to worry about backing storage for said strings we're viewing. Those strings are all baked
-# in as constexpr arrays. 
-def WriteExtensionIndexLookupTable(extensions, masterNameToIndexDict, aliasedExtensions, aliasedNameToIndexDict, fileStream):
+def WriteExtensionIndexLookupTable(extensionObjects, fileStream):
     '''
     Writes out the final extension index lookup table. This uses the arrays of strings we already built to allow us to use
     string view here, without having to worry about backing storage for said strings we're viewing. Those strings are all baked
@@ -303,70 +345,138 @@ def WriteExtensionIndexLookupTable(extensions, masterNameToIndexDict, aliasedExt
     '''
     print('static const std::unordered_map<std::string_view, size_t> extensionIndexLookupMap', file=fileStream)
     print('{', file=fileStream)
-    
-    for extension in extensions:
-        extensionName = extension.get('name')
-        if extensionName in masterNameToIndexDict:
-            indexToMasterTable = masterNameToIndexDict[extensionName]
+
+    for extensionObject in extensionObjects:
+        extensionName = extensionObject.name
+        if extensionObject.nameIndex is not None and extensionObject.aliasedTo is None:
             print(
-                '    { masterExtensionNameTable[' + str(indexToMasterTable) + '], ' +
-                       str(indexToMasterTable) + ' }, //' + extensionName, file=fileStream)
+                '    { masterExtensionNameTable[' + str(extensionObject.nameIndex) + '], ' +
+                       str(extensionObject.nameIndex) + ' }, //' + extensionName, file=fileStream)
+        elif extensionObject.nameIndex is not None and extensionObject.aliasedTo is not None:
+            print('    // Aliased extension, remapped to: ' + extensionObject.promotedTo, file=fileStream)
+            print(
+                '    { masterExtensionNameTable[' + str(extensionObject.nameIndex) + '], ' +
+                       str(extensionObject.aliasedTo) + ' }, //' + extensionName, file=fileStream)
         else:
             print(f"Warning: Extension {extensionName} not found in master name to index dictionary")
 
-    for aliasedExtension, promotedTo in aliasedExtensions.items():
-        extensionName = aliasedExtension.get('name')
-        if extensionName in aliasedNameToIndexDict and promotedTo in masterNameToIndexDict:
-            extensionIdx = str(aliasedNameToIndexDict[extensionName])
-            masterExtensionIdx = str(masterNameToIndexDict[promotedTo])
-            commentStr = " Alias " + extensionName + " -> Current " + promotedTo
-            print(
-                '    { aliasedExtensionNameTable[' + extensionIdx + '], ' +
-                       masterExtensionIdx + ' }, //' + commentStr, file=fileStream)
-        else:
-            print(f"Warning: Aliased extension {extensionName} or promoted extension {promotedTo} not found in dictionaries")
-
     print('};\n', file=fileStream)
 
-def WriteDeviceOrInstanceExtensionTable(extensions, extensionIdxDict, fileStream, extensionTypeToWrite):
+def WriteExtensionHasVersionDependencyTable(versionedExtensionDependencies, extensionIdxDict, fileStream):
+    '''
+    Writes out a table of extensions that have a version dependency
+    Args:
+        versionedExtensionDependencies: dict mapping version names to a dict of extension names to lists of dependencies
+        extensionIdxDict: mapping of extension names to their index in the masterExtensionNameTable
+        fileStream: file stream to write to
+    '''
+    for version, extensionsAndDeps in versionedExtensionDependencies.items():
+        for extensionName, dependencies in extensionsAndDeps.items():
+            if "0x55555555" in dependencies:
+                print(f"Extension {extensionName} has a version dependency")
+
+def WriteDeviceOrInstanceExtensionTable(extensionObjects, fileStream, extensionTypeToWrite):
     '''
     Writes out a table of extensions that are instance extensions.
     '''
     extensionIndices = []
-    for extension in extensions:
-        extensionName = extension.get('name')
-        extensionType = extension.get('type')
-        if extensionType == extensionTypeToWrite and extensionName in extensionIdxDict:
-            extensionIndices.append(extensionIdxDict[extensionName])
+    for extensionObject in extensionObjects:
+        extensionType = extensionObject.xmlObject.get('type')
+        correctExtensionType = extensionType == extensionTypeToWrite
+        validNameIndex = extensionObject.nameIndex is not None
+        isAliased = extensionObject.aliasedTo is not None
+        if correctExtensionType and validNameIndex and not isAliased:
+            extensionIndices.append(extensionObject.nameIndex)
+        elif correctExtensionType and validNameIndex and isAliased:
+            extensionIndices.append(extensionObject.aliasedTo)
 
     print('// Table of ' + extensionTypeToWrite + ' extension indices, indexed by the extension name', file=fileStream)
-    print('static const std::array<size_t, ' + str(len(extensionIndices)) + '> ' + extensionTypeToWrite + 'ExtensionTable', file=fileStream)
+    print('constexpr static std::array<size_t, ' + str(len(extensionIndices)) + '> ' + extensionTypeToWrite + 'ExtensionTable', file=fileStream)
     print('{', file=fileStream)
     for idx, extensionIdx in enumerate(extensionIndices):
         print('    ' + str(extensionIdx) + ',', file=fileStream)
-    print('};\n', file=fileStream)
+    print('};\n', file=fileStream, flush=True)
 
-def WriteExtensionDependencyTable(extensions, versions, versionAndExtensionDependencies, extensionIdxDict, fileStream, maxDeps):
+def WriteExtensionDependencyTable(extensionObjects, versions, fileStream, maxDeps):
     '''
-    Writes out a table mapping extension indices to an array of it's dependencies. Dependency array is a std::array with a capacity
-    set dynamically based on the max amount of dependencies we found for any one extension. For any extension that doesn't have that
-    many deps, we just write UINT_MAX/std::numeric_limits<size_t>::max() to the slot.
+    Creates a two-level table that first maps versions to a dependency table for that version, and then within that maps each
+    extension index to a list of dependencies. This way we can do a minimal amount of lookups to retrieve dependencies,
+    but still keep the dependency table partitioned by version.
 
-    This table is partitioned by version, with "NO_VERSION" extensions coming first followed by versioned extensions. We write a followup
-    array that maps version names to the index of where the versioned extensions begin in the dependency table.
+    I output the versioned dependency tables first, then the version index table. This allows me to have the version index table
+    use references to reduce how messy the generated code looks, at least for now.
 
     Args:
-        extensions: list of extension elements from vk.xml
+        extensionObjects: list of ExtensionWithDependencies objects
         versions: list of version elements from vk.xml
-        versionAndExtensionDependencies: dict mapping version names to a dict of extension names to lists of dependencies
-        extensionIdxDict: mapping of extension names to their index in the masterExtensionNameTable
         fileStream: file stream to write to
         maxDeps: maximum number of dependencies found for any one extension
     '''
-    dependencyIndexType = 'size_t'
+
+    # Reduced to uint16_t for space savings and hopefully ease of hashing
+    dependencyIndexType = 'uint16_t'
     invalidDepIdx = 'std::numeric_limits<' + dependencyIndexType + '>::max()'
+
+    # Get list of macros for each version
+    versionedDependencyTables = {}
+    for version in versions:
+        if version.get('name') == 'NO_VERSION':
+            continue
+        versionName = version.get('name')
+        versionMacro = MakeVersionStrVersionNumber(versionName)
+        versionedDependencyTables[versionMacro] = {}
     
-    # Build a list of VK_MAKE_VERSION() macros for each version in versions
+
+    # Built a local dict of extension name to extension indices for quick lookup
+    extensionNameToIndexDict = {}
+    for extensionObject in extensionObjects:
+        if extensionObject.nameIndex is not None and extensionObject.aliasedTo is None:
+            extensionNameToIndexDict[extensionObject.name] = extensionObject.nameIndex
+        elif extensionObject.nameIndex is not None and extensionObject.aliasedTo is not None:
+            extensionNameToIndexDict[extensionObject.name] = extensionObject.aliasedTo
+
+    # We use a copy because we return to handle the NO_VERSION case later, but remove extensions
+    # as we go so that this case at least runs quicker
+    extensionObjectsCopy = extensionObjects.copy()
+    for extensionObject in extensionObjectsCopy:
+        extensionName = extensionObject.name
+        extensionDependencies = extensionObject.dependencies
+        for version, dependencies in extensionDependencies.items():
+            if version == "NO_VERSION":
+                continue
+
+            versionMacro = MakeVersionStrVersionNumber(version)
+            dependencyTable = versionedDependencyTables[versionMacro]
+            dependencyTable[extensionObject.nameIndex] = []
+
+            if len(dependencies) == 0:
+                # Quick check: lets make sure promotedTo is the name of this version
+                if extensionObject.promotedTo == version:
+                    dependencyTable[extensionObject.nameIndex].append(versionMacro)
+                else:
+                    print(f"Warning: Extension {extensionObject.name} has a version dependency on {version}, but promotedTo is {extensionObject.promotedTo}")
+            else:
+                for dependency in dependencies:
+                    dependencyIndex = extensionNameToIndexDict[dependency]
+                    dependencyTable[extensionObject.nameIndex].append(dependencyIndex)
+
+    for extensionObject in extensionObjectsCopy:
+        noVersionDependencies = extensionObject.dependencies["NO_VERSION"]
+        for version, dependencies in extensionObject.dependencies.items():
+            if version == "NO_VERSION":
+                continue
+            for dependency in dependencies:
+                dependencyIndex = extensionNameToIndexDict[dependency]
+                versionedDependencyTables[version][extensionObject.nameIndex].append(dependencyIndex)
+
+
+
+    # Now we can build the version index table
+    versionIndexTable = {}
+
+
+
+    # Build a list of VK_API_VERSION macros for each version in versions
     versionMacros = {}
     for version in versions:
         if version.get('name') == 'NO_VERSION':
@@ -405,15 +515,7 @@ def WriteExtensionDependencyTable(extensions, versions, versionAndExtensionDepen
     # Sort and partition the dependencyIndexMap by version, with "NO_VERSION" extensions coming first followed by versioned extensions
     # Generate a dict of version name to index of where the versioned extensions begin in the dependency table
 
-    # Sort the versionPartionedDependencyIndexMap by version name
-    # Custom sort function to ensure NO_VERSION comes first, then sort the rest by version
-    def version_sort_key(item):
-        version_name = item[0]
-        if version_name == "NO_VERSION":
-            return ""  # Empty string sorts before any other string
-        return version_name
-    
-    versionPartionedDependencyIndexMap = sorted(versionPartionedDependencyIndexMap.items(), key=version_sort_key)
+    versionPartionedDependencyIndexMap = sorted(versionPartionedDependencyIndexMap.items(), key=VersionSortKey)
 
     versionedExtensionStartIndices = {}
     offsetSoFar = 0
@@ -453,14 +555,16 @@ def WriteExtensionDependencyTable(extensions, versions, versionAndExtensionDepen
     
     # Table of indices to where the versioned extensions begin in the dependency table
     print('// Table of indices to where the versioned extensions begin in the dependency table above', file=fileStream)
-    print('static const std::array<size_t, ' + str(len(versionedExtensionStartIndices)) + '> versionedExtensionStartIndices', file=fileStream)
+    print('static const std::unordered_map<uint32_t, size_t> versionedExtensionStartIndices', file=fileStream)
     print('{', file=fileStream)
     for version, index in versionedExtensionStartIndices.items():
         versionString = "    // Start of extensions for version: " + version
         print(versionString, file=fileStream)
-        print('    ' + str(index) + ',', file=fileStream)
+        if version != "NO_VERSION":
+            print('    { ' + MakeVersionStrVersionNumber(version) + ', ' + str(index) + ' },', file=fileStream)
+        else:
+            print('    { 0, ' + str(index) + ' },', file=fileStream)
     print('};\n', file=fileStream)
-
 
 def PrintVersionedExtensions(promotedVersionedExtensions, extensionIdxDict, fileStream):
     print('// Table of versioned extensions, indexed by version name->version number macro. If an extension index is in this map for a\n// version, it means that extension is core of that version.\n', file=fileStream)
@@ -554,6 +658,13 @@ def GroupStructsByExtension(structs, extensions, versions, struct_type):
     Iterates through list of feature structs, and groups them by the extension they are associated with.
     Returns a dictionary where the keys are extension names and the values are lists of feature structs
     associated with that extension. Should only ever be one struct per extension, however
+    Args:
+        structs: list of feature structs
+        extensions: list of extension elements from vk.xml
+        versions: list of version elements from vk.xml
+        struct_type: "Features" or "Properties"
+    Returns:
+        dict: mapping extension names to their feature struct
     """
     grouped_structs = {}
     # unfortunate issue: we're just going to have to manually update this list of version extensions
@@ -590,13 +701,21 @@ def GroupStructsByExtension(structs, extensions, versions, struct_type):
                 # Remove from structs list so we don't process it again
                 structs.remove(matching_structs[0])
     
-
+    
     for extension in extensions:
-        extension_types = extension.findall('.//type')
+        extension_types = []
+        if struct_type == "Features":
+            extension_types = extension.findall('.//feature')
+        elif struct_type == "Properties":
+            extension_types = extension.findall('.//type')
         extension_feature_structs = []
         for extension_type in extension_types:
-            extension_type_name = extension_type.get('name')
-            # Check if this type is a feature struct by looking for "Features" in the name
+            extension_type_name = ''
+            if struct_type == "Features":
+                extension_type_name = extension_type.get('struct')
+            elif struct_type == "Properties":
+                extension_type_name = extension_type.get('name')
+            # Check if this type is a feature struct by looking for struct_type in the name
             if struct_type in extension_type_name:
                 extension_feature_structs.append(extension_type_name)
     
@@ -611,65 +730,44 @@ def GroupStructsByExtension(structs, extensions, versions, struct_type):
 
     return grouped_structs
 
-def WriteQueriedDeviceFeaturesStructs(tree, extensions, versions, fileStream):
+def WriteExtensionFeatureStructsAndPointerTable(groupedExtensionFeatureStructs, fileStream):
     """
-    Generate a QueriedDeviceFeatures struct that contains all feature structs
-    from the supported extensions, with proper pNext chaining.
+    Write out static instances of all the extension feature structs, with their sType
+    filled out and pNext set to nullptr. Then, write out a table that maps extension indices
+    to pointers to the structs.
     """
-    feature_structs = FindFeatureStructs(tree)
-    grouped_feature_structs = GroupStructsByExtension(feature_structs, extensions, versions, "Features")
-    property_structs = FindPropertyStructs(tree)
-    grouped_property_structs = GroupStructsByExtension(property_structs, extensions, versions, "Properties")
-    
-    # Add VkPhysicalDeviceFeatures2 as the base struct at the end
-    feature_structs.append({
-        'name': 'VkPhysicalDeviceFeatures2',
-        'type_enum': 'VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2',
-        'extension': None
-    })
-    
-    print('\n// Generated QueriedDeviceFeatures struct', file=fileStream)
-    print('struct QueriedDeviceFeatures', file=fileStream)
-    print('{', file=fileStream)
-    
-    # Generate the struct members in reverse order (from last to first in the chain)
-    for i in range(len(feature_structs) - 1, -1, -1):
-        struct = feature_structs[i]
-        var_name = struct['name'][2:] if struct['name'].startswith('Vk') else struct['name']
-        
-        # Convert to pascalCase for private member variables (following the style guidelines)
-        var_name = var_name[0].lower() + var_name[1:]
-        
-        # For the last struct in the chain, pNext is nullptr
-        if i == len(feature_structs) - 1:
-            if struct['name'] == 'VkPhysicalDeviceFeatures2':
-                print(f'    {struct["name"]} {var_name}', file=fileStream)
-                print(f'    {{', file=fileStream)
-                print(f'        {struct["type_enum"]},', file=fileStream)
-                print(f'        nullptr,', file=fileStream)
-                print(f'        VkPhysicalDeviceFeatures{{}}', file=fileStream)
-                print(f'    }};', file=fileStream)
-            else:
-                print(f'    {struct["name"]} {var_name}', file=fileStream)
-                print(f'    {{', file=fileStream)
-                print(f'        {struct["type_enum"]},', file=fileStream)
-                print(f'        nullptr', file=fileStream)
-                print(f'    }};', file=fileStream)
-        else:
-            # For other structs, pNext points to the next struct in the chain
-            next_struct = feature_structs[i + 1]
-            next_var_name = next_struct['name'][2:] if next_struct['name'].startswith('Vk') else next_struct['name']
-            next_var_name = next_var_name[0].lower() + next_var_name[1:]
-            
-            print(f'    {struct["name"]} {var_name}', file=fileStream)
-            print(f'    {{', file=fileStream)
-            print(f'        {struct["type_enum"]},', file=fileStream)
-            print(f'        &{next_var_name}', file=fileStream)
-            print(f'    }};', file=fileStream)
-    
-    print('};\n', file=fileStream)
+    extensionNameToStructName = {}
+    for extensionName, featureStruct in groupedExtensionFeatureStructs.items():
+        printedStructName = f'cowpoke_{extensionName}_FeatureStruct'
+        extensionNameToStructName[extensionName] = printedStructName
+        print(f'// Extension: {extensionName}', file=fileStream)
+        print(f'static {featureStruct["name"]} {printedStructName} =\n{{', file=fileStream)
+        print(f'    {featureStruct["type_enum"]},', file=fileStream)
+        print(f'    nullptr,', file=fileStream)
+        print(f'}};\n', file=fileStream)
+
+def WriteExtensionPropertyStructsAndPointerTable(groupedExtensionPropertyStructs, fileStream):
+    """
+    Write out static instances of all the extension property structs, with their sType
+    filled out and pNext set to nullptr. Then, write out a table that maps extension indices
+    to pointers to the structs.
+    """
+    extensionNameToStructName = {}
+    for extensionName, propertyStruct in groupedExtensionPropertyStructs.items():
+        printedStructName = f'cowpoke_{extensionName}_PropertyStruct'
+        extensionNameToStructName[extensionName] = printedStructName
+        print(f'// Extension: {extensionName}', file=fileStream)
+        print(f'static {propertyStruct["name"]} {printedStructName} =\n{{', file=fileStream)
+        print(f'    {propertyStruct["type_enum"]},', file=fileStream)
+        print(f'    nullptr,', file=fileStream)
+        print(f'}};\n', file=fileStream)
 
 def FinalizeFile(fileStream):
+    '''
+    Adds end of header guard and closes the file
+    Args:
+        fileStream: file stream to write to
+    '''
     print('#endif // END_OF_HEADER\n', file=fileStream)
     fileStream.close()
 
@@ -696,34 +794,47 @@ if __name__ == '__main__':
 
         print(f"Found {len(versions)} Vulkan versions and {len(extensions)} extensions")
         
+        # We peform this step even before we process the extensions to objects, as it's fairly involved and we 
+        # don't even want to construct objects for empty extensions
         RemoveExtensionsWithZeroVersion(extensions)
 
+        extensionObjects = ConstructExtensionObjects(extensions)
+
         # Find all aliased extensions, ones that have extensions that replace them with new names
-        promotedAliasedExtensions, promotedVersionedExtensions = FindAllPromotedExtensions(extensions, versions)
-        print(f"Found {len(promotedAliasedExtensions)} aliased extensions")
-        
-        RemoveAliasedExtensions(extensions, promotedAliasedExtensions)
-        print(f"After removing aliased and zero-version extensions: {len(extensions)} extensions remain")
+        promotedAliasedExtensions, promotedVersionedExtensions = FindAllPromotedExtensions(extensionObjects, versions)
+        print(f"Found {len(promotedAliasedExtensions)} extensions promoted to a new extension, and {len(promotedVersionedExtensions)} extensions promoted to a new version")
+        deprecatedExtensions = FindAllDeprecatedExtensions(extensionObjects)
+        print(f"Found {len(deprecatedExtensions)} deprecated extensions")
+        mostDeps = FindAllExtensionsDependencies(extensionObjects, versions)
+
         
         outputPath = pathlib.Path(args.outputDir) / 'GeneratedExtensionHeader.hpp'
         print(f"Generating header file at {outputPath}")
         
         fileStream = open(outputPath, 'w', encoding='utf-8')
         CreateFileHeader(tree, fileStream)
-        WriteMasterExtensionNameTable(extensions, fileStream)
-        masterExtensionIdxDict = GetNameToIndexDict(extensions)
-        aliasedExtensionIdxDict = WriteAliasedExtensionNameTable(promotedAliasedExtensions, fileStream)
+        WriteMasterExtensionNameTable(extensionObjects, versions, fileStream)
 
-        WriteExtensionIndexLookupTable(extensions, masterExtensionIdxDict, promotedAliasedExtensions, aliasedExtensionIdxDict, fileStream)
+        WriteExtensionIndexLookupTable(extensionObjects, fileStream)
 
-        WriteDeviceOrInstanceExtensionTable(extensions, masterExtensionIdxDict, fileStream, 'device')
-        WriteDeviceOrInstanceExtensionTable(extensions, masterExtensionIdxDict, fileStream, 'instance')
+        WriteDeviceOrInstanceExtensionTable(extensionObjects, fileStream, 'instance')
+        WriteDeviceOrInstanceExtensionTable(extensionObjects, fileStream, 'device')
 
-        versionDependencies, mostDeps = FindAllExtensionsDependencies(extensions, versions)
 
-        WriteExtensionDependencyTable(extensions, versions, versionDependencies, masterExtensionIdxDict, fileStream, mostDeps)
+        WriteExtensionDependencyTable(extensionObjects, versions, fileStream, mostDeps)
 
-        PrintVersionedExtensions(promotedVersionedExtensions, masterExtensionIdxDict, fileStream)
+        # Pare down the list of extensions, to only include ones without the attribute "nofeatures=true". should save us some time
+        extensions = [ext for ext in extensions if ext.get('nofeatures') != 'true']
+        # Start querying and finding the structs, so we can print that table up
+        featureStructs = FindFeatureStructs(tree)
+        groupedFeatureStructs = GroupStructsByExtension(featureStructs, extensions, versions, "Features")
+        WriteExtensionFeatureStructsAndPointerTable(groupedFeatureStructs, fileStream)
+
+
+        propertyStructs = FindPropertyStructs(tree)
+        groupedPropertyStructs = GroupStructsByExtension(propertyStructs, extensions, versions, "Properties")
+        WriteExtensionPropertyStructsAndPointerTable(groupedPropertyStructs, fileStream)
+        
 
         FinalizeFile(fileStream)
         print("Successfully generated header file")
