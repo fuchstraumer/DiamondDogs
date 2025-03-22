@@ -9,20 +9,22 @@ import pathlib
 from lark import Lark, Transformer
 
 ExtensionDependencyGrammar = r"""
-start: expr
-expr: term ("," term)*
-term: factor ("+" factor)*
-factor: VERSION | EXTENSION | "(" expr ")"
+start: disjunction
+disjunction: conjunction ("," conjunction)*
+conjunction: factor ("+" factor)*
+factor: VERSION | EXTENSION | "(" disjunction ")"
 VERSION: /VK_VERSION_[0-9]+_[0-9]+/
-EXTENSION: /VK_[A-Z0-9_]+/
+EXTENSION: /VK_[A-Z]+_[A-Za-z0-9_]+/
+%import common.WS
+%ignore WS
 """
 
 class ExtensionDependencyTransformer(Transformer):
-    def expr(self, items):
-        return {'type': 'OR', 'terms' : items} if len(items) > 1 else items[0]
+    def disjunction(self, items):
+        return {'type': 'OR', 'terms': items} if len(items) > 1 else items[0]
     
-    def term(self, items):
-        return {'type': 'AND', 'factors' : items} if len(items) > 1 else items[0]
+    def conjunction(self, items):
+        return {'type': 'AND', 'factors': items} if len(items) > 1 else items[0]
     
     def factor(self, items):
         return items[0]
@@ -103,7 +105,6 @@ def ConstructExtensionObjects(extensionXmlObjects):
         extensionObjects.append(extensionObject)
         
     return extensionObjects
-
 
 def GetIndexTypeString():
     '''
@@ -221,7 +222,6 @@ def RemoveExtensionsWithZeroVersion(extensions):
     print(f'Removing {numRemoved} extensions with zero version')
     extensions[:] = [ext for ext in extensions if ext not in extensionsToRemove]
 
-
 def FindAllPromotedExtensions(extensionObjects, versions):
     '''
     In Vulkan, extensions are occasionally either promoted to a new alias (for various
@@ -264,109 +264,14 @@ def FindAllDeprecatedExtensions(extensionObjects):
             deprecatedExtensions[extension.name] = extension.obsoletedOrDeprecatedBy
     return deprecatedExtensions
 
-
-def ExtractDependencyTokens(dependency_string):
+def ParseDependencyString(dependencyString):
     '''
-    Extracts tokens from a dependency string.
-    Args:
-        dependency_string: string containing the dependency tokens
-    Returns:
-        list: list of tokens from the dependency string
+    Parses a dependency string into an AST
     '''
-    tokens = []
-    current_token = ''
-    for char in dependency_string:
-        if char in ['(', ')', '+', ',']:
-            if current_token:
-                tokens.append(current_token)
-                current_token = ''
-            tokens.append(char)
-        else:
-            current_token += char
-    
-    if current_token:
-        tokens.append(current_token)
-
-    return tokens
-
-def ParseDependencyTokens(tokens):
-    '''
-    Parses a list of dependency tokens into a structured representation of the dependencies.
-    Args:
-        tokens: list of tokens from the dependency string
-    Returns:
-        struct: parsed dependency tokens as an AST
-    '''
-    token_idx = 0
-
-    def parse_expression():
-        '''
-        Parse a full expression, which includes one or more OR terms
-        '''
-        result = {'type': 'OR', 'terms': []}
-        result['terms'].append(parse_term())
-        
-        nonlocal token_idx
-        while token_idx < len(tokens) and tokens[token_idx] == ',':
-            token_idx += 1  # Skip the comma
-            result['terms'].append(parse_term())
-        
-        # Simplify if there's only one term
-        if len(result['terms']) == 1:
-            return result['terms'][0]
-        return result
-
-    def parse_term():
-        '''
-        Parse a term, which includes one or more factors joined by AND (+)
-        '''
-        result = {'type': 'AND', 'factors': []}
-        result['factors'].append(parse_factor())
-        
-        nonlocal token_idx
-        while token_idx < len(tokens) and tokens[token_idx] == '+':
-            token_idx += 1  # Skip the plus
-            result['factors'].append(parse_factor())
-        
-        # Simplify if there's only one factor
-        if len(result['factors']) == 1:
-            return result['factors'][0]
-        return result
-
-    def parse_factor():
-        '''
-        Parse a factor, which is either a dependency name, or a parenthesized expression
-        '''
-        nonlocal token_idx
-        if token_idx < len(tokens) and tokens[token_idx] == '(':
-            token_idx += 1  # Skip the opening parenthesis
-            result = parse_expression()
-            if token_idx < len(tokens) and tokens[token_idx] == ')':
-                token_idx += 1  # Skip the closing parenthesis
-            else:
-                print(f"Warning: Missing closing parenthesis at token {token_idx}")
-            return result
-        else:
-            if token_idx >= len(tokens):
-                print(f"Warning: Unexpected end of tokens at index {token_idx}")
-                return {'type': 'ERROR', 'name': 'UNEXPECTED_END'}
-                
-            dependency_name = tokens[token_idx]
-            token_idx += 1
-            if 'VERSION' in dependency_name:
-                return {'type': 'VERSION', 'name': dependency_name}
-            else:
-                return {'type': 'EXTENSION', 'name': dependency_name}
-
-    # If only one token, it's just a singular extension dependency
-    if len(tokens) == 1:
-        dependency_name = tokens[0]
-        if 'VERSION' in dependency_name:
-            return {'type': 'VERSION', 'name': dependency_name}
-        else:
-            return {'type': 'EXTENSION', 'name': dependency_name}
-    
-    return parse_expression()
+    parser = Lark(ExtensionDependencyGrammar)
+    transformer = ExtensionDependencyTransformer()
+    dependencyAST = parser.parse(dependencyString)
+    return transformer.transform(dependencyAST)
 
 def ProcessDependencyAST(extensionObject, dependencyAST, versionNameList):
     '''
@@ -454,14 +359,13 @@ def ProcessDependencyAST(extensionObject, dependencyAST, versionNameList):
     
     # Start processing from the root node. Start with VK_VERSION_1_0 as leaves without versions
     # should end up there anyways, or will be processed during finalization.
-    process_node(dependencyAST)
+    process_node(dependencyAST[0])
     if len(extension_stack) > 0:
         # Apply extensions in stack to versions from current version to end of available versions
         for version in versionNameList[versionNameList.index(version_stack[-1]):]:
             if version not in extensionObject.dependencies:
                 extensionObject.dependencies[version] = []
             extensionObject.dependencies[version].extend(extension_stack)
-            
 
 def FinalizeDependencies(extensionObject, versionNameList):
     '''
@@ -525,7 +429,6 @@ def FinalizeDependencies(extensionObject, versionNameList):
     # Sort the dependencies list based on version name
     extensionObject.dependencies = dict(sorted(extensionObject.dependencies.items()))
 
-
 def FindAllExtensionsDependencies(extensionObjects, versions):
     '''
     Find all dependencies required by an extension for a given version of the API. Updates
@@ -554,26 +457,16 @@ def FindAllExtensionsDependencies(extensionObjects, versions):
         dependenciesAttrib = extensionObject.xmlObject.get('depends')
         
         if dependenciesAttrib is not None:
-            tokens = ExtractDependencyTokens(dependenciesAttrib)
-            mostDeps = max(mostDeps, len(tokens))
-            if len(tokens) > len(mostTokens):
-                mostTokens = tokens
-                mostComplexExtension = extensionObject
-                
-            # Parse the dependency string into an AST
-            dependencyAST = ParseDependencyTokens(tokens)
-            
+            dependencyAST = ParseDependencyString(dependenciesAttrib)
             # For debugging
-            print('Tokens for ' + extensionObject.name + ': ')
-            print(tokens)
             print('Dependencies in AST form for ' + extensionObject.name + ':')
-            print(dependencyAST)
+            print(dependencyAST.children)
 
             if extensionObject.name == 'VK_KHR_video_decode_queue':
                 print(versionNameList)
             
             # Process the AST to update the extension's dependencies
-            ProcessDependencyAST(extensionObject, dependencyAST, versionNameList)
+            ProcessDependencyAST(extensionObject, dependencyAST.children, versionNameList)
             FinalizeDependencies(extensionObject, versionNameList)
             print('Dependencies for ' + extensionObject.name + ':')
             print(extensionObject.dependencies)
