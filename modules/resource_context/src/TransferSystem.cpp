@@ -17,13 +17,6 @@
 #define THSVS_SIMPLER_VULKAN_SYNCHRONIZATION_IMPLEMENTATION
 #include <thsvs_simpler_vulkan_synchronization.h>
 
-constexpr static size_t MAX_QUEUED_UPLOAD_BUFFERS = 128u;
-constexpr static size_t k_defaultNumCommandBuffersPerPool = 8u;
-
-// Literally the only time we will ever take a mutex is during init, and very briefly!
-std::mutex transferSystemInitMutex;
-std::unordered_map<ResourceTransferSystem*, uint32_t> transferSystemToQueueIndexMap;
-
 constexpr static VkDebugUtilsLabelEXT queue_debug_label
 {
     VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
@@ -177,7 +170,7 @@ MessageReply::Status ResourceTransferSystem::TransferCommand::WaitForCompletion(
 
 VkSemaphore ResourceTransferSystem::TransferCommand::Semaphore() const
 {
-    return (VkSemaphore)reply->SemaphoreHandle();
+    return reinterpret_cast<VkSemaphore>(reply->SemaphoreHandle());
 }
 
 UploadBuffer* ResourceTransferSystem::TransferCommand::GetUploadBuffer() noexcept
