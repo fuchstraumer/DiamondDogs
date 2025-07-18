@@ -4,9 +4,6 @@
 [submodule "third_party/imgui"]
 	path = third_party/imgui
 	url = https://github.com/ocornut/imgui
-[submodule "third_party/shadertools"]
-	path = third_party/shadertools
-	url = https://github.com/fuchstraumer/ShaderTools
 [submodule "third_party/stb"]
 	path = third_party/stb
 	url = https://github.com/nothings/stb
