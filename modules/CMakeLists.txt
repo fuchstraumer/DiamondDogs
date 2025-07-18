@@ -9,25 +9,23 @@ set(VPR_INCLUDE_DIRS_MODULE_RELATIVE
     "../../third_party/vulpesrender/sync/include"
 )
 
-FUNCTION(ADD_MODULE NAME)
+function(add_module NAME)
     add_library(${NAME} STATIC ${ARGN})
     target_include_directories(${NAME} PRIVATE
-        "../common/"
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "../../foundation/include")
     target_link_libraries(${NAME} PUBLIC foundation)
-    IF(MSVC)
-        TARGET_COMPILE_OPTIONS(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/MP> $<$<CONFIG:RELWITHDEBINFO>:/MP>)
-        TARGET_COMPILE_OPTIONS(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/Oi> $<$<CONFIG:RELWITHDEBINFO>:/Oi>)
-        TARGET_COMPILE_OPTIONS(${NAME} PRIVATE "/arch:AVX2")
-        SET_TARGET_PROPERTIES(${NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
-    else()
-        SET_TARGET_PROPERTIES(${NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
-    ENDIF()
-    TARGET_COMPILE_DEFINITIONS(${NAME} PRIVATE "NOMINMAX" "_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS"
-    "_SCL_SECURE_NO_WARNINGS")
-    SET_TARGET_PROPERTIES(${NAME} PROPERTIES FOLDER "Modules")
-ENDFUNCTION()
+    if(MSVC)
+        target_compile_options(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/MP> $<$<CONFIG:RELWITHDEBINFO>:/MP>)
+        target_compile_options(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/Oi> $<$<CONFIG:RELWITHDEBINFO>:/Oi>)
+        target_compile_definitions(${NAME} PRIVATE 
+            "NOMINMAX"
+            "_ITERATOR_DEBUG_LEVEL=0")
+        target_compile_options(${NAME} PRIVATE "/arch:AVX2")
+    endif()
+    set_target_properties(${NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+    set_target_properties(${NAME} PROPERTIES FOLDER "Modules")
+endfunction()
 
 
 #add_subdirectory(ecs_module)

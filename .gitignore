@@ -6,3 +6,4 @@ assets/objs/
 assets/glTF/
 GeneratedExtensionHeader.hpp
 .cursorignore
+.cursor/
