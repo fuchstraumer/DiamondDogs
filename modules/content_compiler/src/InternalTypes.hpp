@@ -2,7 +2,6 @@
 #ifndef CONTENT_COMPILER_INTERNAL_TYPES_HPP
 #define CONTENT_COMPILER_INTERNAL_TYPES_HPP
 #include "MeshData.hpp"
-#include "mango/image/image.hpp"
 #include <cstdint>
 #include <vector>
 #include <string>
