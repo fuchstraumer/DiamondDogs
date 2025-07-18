@@ -1,0 +1,210 @@
+#include "Structures.glsl"
+#pragma USE_RESOURCES BVHResources
+#pragma USE_RESOURCES SortResources
+#pragma USE_RESOURCES VolumetricForwardLights
+
+SPC const uint BuildStage = 0;
+
+const uint NUM_THREADS = 32 * 16;
+const float FLT_MAX = 3.402823466e+36f;
+
+layout(local_size_x = NUM_THREADS, local_size_y = 1, local_size_z = 1) in;
+
+const uint NumLevelNodes[7] = {
+    1,
+    32,
+    1024,
+    32768,
+    1048576,
+    33554432,
+    1073741824
+};
+
+const uint FirstNodeIndex[7] = {
+    0,
+    1,
+    33,
+    1057,
+    33825,
+    1082401,
+    34636833
+};
+
+layout(push_constant) uniform PushConsts
+{
+	uint ChildLevel;
+} levelsPushed;
+
+shared vec4 gs_AABBMin[NUM_THREADS];
+shared vec4 gs_AABBMax[NUM_THREADS];
+
+void LogStepReduction()
+{
+    uint reduceIndex = 32 >> 1;
+    const uint mod32GroupIndex = gl_LocalInvocationIndex % 32;
+    [[unroll]]
+    while (mod32GroupIndex < reduceIndex)
+    {
+        gs_AABBMin[gl_LocalInvocationIndex] = min(gs_AABBMin[gl_LocalInvocationIndex], gs_AABBMin[gl_LocalInvocationIndex + reduceIndex]);
+        gs_AABBMax[gl_LocalInvocationIndex] = max(gs_AABBMax[gl_LocalInvocationIndex], gs_AABBMax[gl_LocalInvocationIndex + reduceIndex]);
+        reduceIndex >>= 1;
+    }
+}
+
+void BuildBottom() {
+    uint leafIdx = gl_GlobalInvocationID.x;
+    uint lightIdx;
+    vec4 aabbMin, aabbMax;
+
+    if (leafIdx < LightCounts.NumPointLights)
+    {
+        lightIdx = imageLoad(PointLightIndices, int(leafIdx)).r;
+        aabbMin = PointLights.Data[lightIdx].PositionViewSpace - PointLights.Data[lightIdx].Range;
+        aabbMax = PointLights.Data[lightIdx].PositionViewSpace + PointLights.Data[lightIdx].Range;
+    }
+    else
+    {
+        aabbMin = vec4( FLT_MAX, FLT_MAX, FLT_MAX, 1.0f);
+        aabbMax= vec4(-FLT_MAX,-FLT_MAX,-FLT_MAX, 1.0f);
+    }
+
+    gs_AABBMin[gl_LocalInvocationIndex] = aabbMin;
+    gs_AABBMax[gl_LocalInvocationIndex] = aabbMax;
+
+    LogStepReduction();
+    
+    uint numLevels, nodeOffset, nodeIndex;
+
+    if (gl_GlobalInvocationID.x % 32 == 0)
+    {
+
+        numLevels = BVHParams.PointLightLevels;
+        nodeOffset = gl_GlobalInvocationID.x / 32;
+
+        if (numLevels > 0 && nodeOffset < NumLevelNodes[numLevels - 1])
+        {
+            nodeIndex = FirstNodeIndex[numLevels - 1] + nodeOffset;
+            PointLightBVH.Data[nodeIndex].Min = gs_AABBMin[gl_LocalInvocationIndex];
+            PointLightBVH.Data[nodeIndex].Max = gs_AABBMax[gl_LocalInvocationIndex];
+        }
+    }
+
+    if (leafIdx < LightCounts.NumSpotLights)
+    {
+        lightIdx = imageLoad(SpotLightIndices, int(leafIdx)).r;
+
+        aabbMin = SpotLights.Data[lightIdx].PositionViewSpace - SpotLights.Data[lightIdx].Range;
+        aabbMax = SpotLights.Data[lightIdx].PositionViewSpace + SpotLights.Data[lightIdx].Range;
+    }
+    else
+    {
+        aabbMin = vec4( FLT_MAX, FLT_MAX, FLT_MAX, 1.0f);
+        aabbMax = vec4(-FLT_MAX,-FLT_MAX,-FLT_MAX, 1.0f);
+    }
+
+    gs_AABBMin[gl_LocalInvocationIndex] = aabbMin;
+    gs_AABBMax[gl_LocalInvocationIndex] = aabbMax;
+
+    LogStepReduction();
+
+    if (gl_GlobalInvocationID.x % 32 == 0)
+    {
+
+        numLevels = BVHParams.SpotLightLevels;
+        nodeOffset = gl_GlobalInvocationID.x / 32;
+
+        if (numLevels > 0 && nodeOffset < NumLevelNodes[numLevels - 1])
+        {
+            nodeIndex = FirstNodeIndex[numLevels - 1] + nodeOffset;
+
+            SpotLightBVH.Data[nodeIndex].Min = gs_AABBMin[gl_LocalInvocationIndex];
+            SpotLightBVH.Data[nodeIndex].Max = gs_AABBMax[gl_LocalInvocationIndex];
+        }
+    }
+    
+}
+
+void BuildUpper()
+{
+
+    uint childLevel = levelsPushed.ChildLevel;
+    uint numLevels = BVHParams.PointLightLevels;
+    uint childOffset = gl_GlobalInvocationID.x;
+    uint nodeOffset, nodeIndex;
+
+    vec4 aabbMin, aabbMax;
+
+    if (levelsPushed.ChildLevel < numLevels && childOffset < NumLevelNodes[levelsPushed.ChildLevel])
+    {
+        uint childIndex = FirstNodeIndex[childLevel] + childOffset;
+        aabbMin = PointLightBVH.Data[childIndex].Min;
+        aabbMax = PointLightBVH.Data[childIndex].Max;
+    }
+    else
+    {
+        aabbMin = vec4( FLT_MAX, FLT_MAX, FLT_MAX, 1.0f);
+        aabbMax = vec4(-FLT_MAX,-FLT_MAX,-FLT_MAX, 1.0f); 
+    }
+
+    gs_AABBMin[gl_LocalInvocationIndex] = aabbMin;
+    gs_AABBMax[gl_LocalInvocationIndex] = aabbMax;
+
+    LogStepReduction();
+
+    if (gl_GlobalInvocationID.x % 32 == 0)
+    {
+        nodeOffset = gl_GlobalInvocationID.x / 32;
+
+        if (childLevel < numLevels && nodeOffset < NumLevelNodes[levelsPushed.ChildLevel - 1])
+        {
+            nodeIndex = FirstNodeIndex[childLevel - 1] + nodeOffset;
+            PointLightBVH.Data[nodeIndex].Min = gs_AABBMin[gl_LocalInvocationIndex];
+            PointLightBVH.Data[nodeIndex].Max = gs_AABBMax[gl_LocalInvocationIndex];
+        }
+    }
+
+    numLevels = BVHParams.SpotLightLevels;
+
+    if (childLevel < numLevels && childOffset < NumLevelNodes[levelsPushed.ChildLevel])
+    {
+        uint childIndex = FirstNodeIndex[levelsPushed.ChildLevel] + gl_GlobalInvocationID.x;
+        aabbMin = SpotLightBVH.Data[childIndex].Min;
+        aabbMax = SpotLightBVH.Data[childIndex].Max;
+    }
+    else
+    {
+        aabbMin = vec4( FLT_MAX, FLT_MAX, FLT_MAX, 1.0f);
+        aabbMax = vec4(-FLT_MAX,-FLT_MAX,-FLT_MAX, 1.0f); 
+    }
+
+    gs_AABBMin[gl_LocalInvocationIndex] = aabbMin;
+    gs_AABBMax[gl_LocalInvocationIndex] = aabbMax;
+
+    LogStepReduction();
+
+    if (gl_GlobalInvocationID.x % 32 == 0)
+    {
+        nodeOffset = gl_GlobalInvocationID.x / 32;
+
+        if (childLevel < numLevels && nodeOffset < NumLevelNodes[levelsPushed.ChildLevel - 1])
+        {
+            nodeIndex = FirstNodeIndex[childLevel - 1] + nodeOffset;
+            SpotLightBVH.Data[nodeIndex].Min = gs_AABBMin[gl_LocalInvocationIndex];
+            SpotLightBVH.Data[nodeIndex].Max = gs_AABBMax[gl_LocalInvocationIndex];
+        }
+    }
+
+}
+
+void main()
+{
+    switch (BuildStage) 
+    {
+    case 0:
+        BuildBottom();
+        break;
+    case 1:
+        BuildUpper();
+        break;
+    }
+}

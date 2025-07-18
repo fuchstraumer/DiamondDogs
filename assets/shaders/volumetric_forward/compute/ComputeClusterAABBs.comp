@@ -1,0 +1,51 @@
+#include "Structures.glsl"
+#include "Functions.glsl"
+
+#pragma USE_RESOURCES GlobalResources
+#pragma USE_RESOURCES VolumetricForward
+
+layout (local_size_x = 1024u, local_size_y = 1u, local_size_z = 1u) in;
+
+uvec3 IdxToCoord(uint idx) {
+    uvec3 result;
+    result.x = idx % ClusterData.GridDim.x;
+    result.y = idx % (ClusterData.GridDim.x * ClusterData.GridDim.y) / ClusterData.GridDim.x;
+    result.z = idx / (ClusterData.GridDim.x * ClusterData.GridDim.y);
+    return result;
+}
+
+void main() {
+
+    uint cluster_index_1d = gl_GlobalInvocationID.x;
+    uvec3 cluster_3d = IdxToCoord(cluster_index_1d);
+
+    Plane near_plane;
+    near_plane.N = vec3(0.0f, 0.0f, 1.0f);
+    near_plane.d = -ClusterData.ViewNear * pow(abs(ClusterData.NearK), cluster_3d.z);
+    Plane far_plane;
+    far_plane.N = vec3(0.0f, 0.0f, 1.0f);
+    far_plane.d = -ClusterData.ViewNear * pow(abs(ClusterData.NearK), cluster_3d.z + 1);
+
+    vec4 p_min = vec4(cluster_3d.xy * ClusterData.ScreenSize.xy, 1.0f, 1.0f);
+    vec4 p_max = vec4(vec2(cluster_3d.xy + 1) * ClusterData.ScreenSize.xy, 1.0f, 1.0f);
+
+    p_min = ScreenToView(p_min, globals.windowSize, matrices.projection);
+    p_max = ScreenToView(p_max, globals.windowSize, matrices.projection);
+
+    vec3 near_min, near_max, far_min, far_max;
+    vec3 eye = vec3(0.0f);
+
+    IntersectLinePlane(eye, p_min.xyz, near_plane, near_min);
+    IntersectLinePlane(eye, p_max.xyz, near_plane, near_max);
+    IntersectLinePlane(eye, p_min.xyz, far_plane, far_min);
+    IntersectLinePlane(eye, p_max.xyz, far_plane, far_max);
+
+    vec3 aabb_min = min(near_min, min(near_max, min(far_min, far_max)));
+    vec3 aabb_max = max(near_min, max(near_max, max(far_min, far_max)));
+
+    ClusterAABBs.Data[cluster_index_1d].Min.xyz = aabb_min;
+    ClusterAABBs.Data[cluster_index_1d].Min.w = 1.0f;
+    ClusterAABBs.Data[cluster_index_1d].Max.xyz = aabb_max;
+    ClusterAABBs.Data[cluster_index_1d].Max.w = 1.0f;
+
+}

@@ -1,0 +1,51 @@
+#include "Structures.glsl"
+layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
+#pragma USE_RESOURCES SortResources
+#pragma USE_RESOURCES VolumetricForwardLights
+shared AABB gs_AABB;
+shared vec4 gs_AABBRange;
+
+uint MortonCode(uvec3 quantized_coord, uint k) {
+    uint morton_code = 0;
+    uint bit_mask = 1;
+    uint bit_shift = 0;
+    uint k_bits = (1 << k);
+
+    while (bit_mask < k_bits) {
+        morton_code |= (quantized_coord.x & bit_mask) << (bit_shift + 0);
+        morton_code |= (quantized_coord.y & bit_mask) << (bit_shift + 1);
+        morton_code |= (quantized_coord.z & bit_mask) << (bit_shift + 2);
+
+        bit_mask <<= 1;
+        bit_shift += 2;
+    }
+
+    return morton_code;
+}
+
+void main() {
+    const uint kBitMortonCode = 10u;
+    const uint coordinateScale = (1u << kBitMortonCode) - 1u;
+
+    if (gl_LocalInvocationIndex == 0) {
+        gs_AABB = LightAABBs.Data[0];
+        gs_AABBRange = 1.0f / (gs_AABB.Max - gs_AABB.Min);
+    }
+
+    groupMemoryBarrier();
+    barrier();
+
+    uint thread_idx = gl_GlobalInvocationID.x;
+
+    if (thread_idx < LightCounts.NumPointLights) {
+        uvec4 quantized = uvec4((PointLights.Data[thread_idx].PositionViewSpace - gs_AABB.Min) * gs_AABBRange * float(coordinateScale));
+        imageStore(PointLightMortonCodes, int(thread_idx), uvec4(MortonCode(quantized.xyz, kBitMortonCode), 0, 0, 0));
+        imageStore(PointLightIndices, int(thread_idx), uvec4(thread_idx, 0, 0, 0));
+    }
+
+    if (thread_idx < LightCounts.NumSpotLights) {
+        uvec4 quantized = uvec4((SpotLights.Data[thread_idx].PositionViewSpace - gs_AABB.Min) * gs_AABBRange * float(coordinateScale));
+        imageStore(SpotLightMortonCodes, int(thread_idx), uvec4(MortonCode(quantized.xyz, kBitMortonCode), 0, 0, 0));
+        imageStore(SpotLightIndices, int(thread_idx), uvec4(thread_idx, 0, 0, 0));
+    }
+}

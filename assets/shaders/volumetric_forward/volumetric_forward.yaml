@@ -1,0 +1,382 @@
+---
+
+resource_groups : 
+    GlobalResources : 
+        matrices : 
+            Type : "UniformBuffer"
+            Members : |+1
+                mat4 model;
+                mat4 view;
+                mat4 inverseView;
+                mat4 projection;
+                mat4 modelView;
+                mat4 modelViewProjection;
+                mat4 inverseTransposeModel;
+                mat4 inverseTransposeModelView;     
+        globals : 
+            Type : "UniformBuffer"
+            Members : |+1
+                vec4 viewPosition;
+                vec2 mousePosition;
+                vec2 windowSize;
+                vec2 depthRange;
+                uint frame;
+                float exposure;
+                float gamma;
+                float brightness;
+    Material :
+        MaterialIndices :
+            Type : "StorageBufferArray"
+            Members : |+1
+                int parametersIdx;
+                int albedoMapIdx;
+                int alphaMapIdx;
+                int specularMapIdx;
+                int bumpMapIdx;
+                int displacementMapIdx;
+                int normalMapIdx;
+                int aoMapIdx;
+                int metallicMapIdx;
+                int roughnessMapIdx;
+                int emissiveMapIdx;
+            Qualifiers: "restrict readonly"
+            ArraySize : 16384
+        MaterialParameters : 
+            Type : "StorageBufferArray"   
+            Members : |+1
+                vec3 ambient;
+                vec3 diffuse;
+                vec3 specular;
+                vec3 transmittance;
+                vec3 emissive;
+                float shininess;
+                float ior;
+                float dissolve;
+                int illum;
+                float roughness;
+                float metallic;
+                float sheen;
+                float clearcoat_thickness;
+                float clearcoat_roughness;
+                float anisotropy;
+                float anisotropy_rotation;
+                float height_scale;
+            Qualifiers: "restrict readonly"
+            ArraySize : 16384
+        BindlessTextureArray :
+            ArraySize : 16384
+            Type : "SampledImageArray"
+        LinearRepeatSampler : 
+            Type : "Sampler"
+        LinearClampSampler : 
+            Type : "Sampler"
+        AnisotropicSampler : 
+            Type : "Sampler"
+    VolumetricForward : 
+        ClusterData : 
+            Type : "UniformBuffer"
+            Members : |+1
+                uvec3 GridDim;
+                float ViewNear;
+                uvec2 ScreenSize;
+                float NearK;
+                float LogGridDimY;
+        ClusterAABBs : 
+            Type : "StorageBuffer"
+            Qualifiers : "restrict"
+            Members : |+1
+                AABB Data[];
+            PerUsageQualifiers : 
+                AssignLightsToClustersBVH : "readonly"   
+        ClusterFlags : 
+            Type : "StorageTexelBuffer"
+            Format : "r8ui"
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                FindUniqueClusters : "readonly"
+                ClusterSamples : "writeonly" 
+        PointLightIndexList : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                AssignLightsToClustersBVH : "writeonly"
+                Clustered : "readonly"
+        SpotLightIndexList : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                AssignLightsToClustersBVH : "writeonly"
+                Clustered : "readonly"
+        PointLightGrid : 
+            Type : "StorageTexelBuffer"
+            Format : "rg32ui"
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                AssignLightsToClustersBVH : "writeonly"
+                Clustered : "readonly"
+        SpotLightGrid : 
+            Type : "StorageTexelBuffer"
+            Format : "rg32ui"
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                AssignLightsToClustersBVH : "writeonly"
+                Clustered : "readonly"
+        PointLightIndexCounter : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict"
+        SpotLightIndexCounter : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict"
+        UniqueClustersCounter : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                UpdateClusterIndirectArgs : "readonly"
+        UniqueClusters : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                AssignLightsToClustersBVH : "readonly"
+                FindUniqueClusters : "writeonly"
+    VolumetricForwardLights : 
+        LightCounts : 
+            Type : "UniformBuffer"
+            Members : |+1
+                uint NumPointLights;
+                uint NumSpotLights;
+                uint NumDirectionalLights;
+        PointLights : 
+            Type : "StorageBuffer"
+            Members : |+1
+                PointLight Data[];
+            # PerUsageQualifiers: qualifiers to apply only to single shaders in the pack
+            # Other qualifiers are applied pack-wide
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                Clustered : "readonly"
+                ReduceLightsAABB : "readonly"
+                ComputeMortonCodes : "readonly"
+                AssignLightsToClustersBVH : "readonly"
+        SpotLights : 
+            Type : "StorageBuffer"
+            Members : |+1
+                SpotLight Data[];
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                Clustered : "readonly"
+                ReduceLightsAABB : "readonly"
+                ComputeMortonCodes : "readonly"
+                AssignLightsToClustersBVH : "readonly"
+        DirectionalLights : 
+            Type : "StorageBuffer"
+            Members : |+1
+                DirectionalLight Data[];
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                Clustered : "readonly"
+                ReduceLightsAABB : "readonly"
+                ComputeMortonCodes : "readonly"
+    IndirectArgsSet : 
+        IndirectArgs : 
+            Type : "StorageBuffer"
+            Members : |+1
+                uint NumThreadGroupsX;
+                uint NumThreadGroupsY;
+                uint NumThreadGroupsZ;
+                uint Padding;
+            Qualifiers : "restrict"
+    SortResources :
+        LightAABBs : 
+            Type : "StorageBuffer"
+            Members : |+1
+                AABB Data[];
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                ComputeMortonCodes : "readonly"   
+        PointLightMortonCodes : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict"    
+        SpotLightMortonCodes : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict"    
+        PointLightIndices : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict"   
+        SpotLightIndices : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict"
+    MergeSortResources : 
+        InputKeys : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict readonly"
+        InputValues : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict readonly"
+        OutputKeys : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict writeonly"
+        OutputValues : 
+            Type : "StorageTexelBuffer"
+            Format : "r32ui"
+            Qualifiers : "restrict writeonly"
+        MergePathPartitions : 
+            Type : "StorageTexelBuffer"
+            Format : "r32i"
+            Qualifiers : "restrict"
+    BVHResources : 
+        BVHParams : 
+            Type : "UniformBuffer"
+            Members : |+1
+                uint PointLightLevels;
+                uint SpotLightLevels;
+                uint ChildLevel;
+        PointLightBVH : 
+            Type : "StorageBuffer"
+            Members : |+1
+                AABB Data[];
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                AssignLightsToClustersBVH : "readonly" 
+        SpotLightBVH : 
+            Type : "StorageBuffer"
+            Members : |+1
+                AABB Data[];
+            Qualifiers : "restrict"
+            PerUsageQualifiers : 
+                AssignLightsToClustersBVH : "readonly"
+    Debug : 
+        ClusterColors : 
+            Type : "StorageTexelBuffer"
+            Format : "rgba8"
+            Qualifiers : "restrict readonly"
+        DebugClustersIndirectArgs :
+            Type : "StorageBuffer"
+            Members : |+1
+                uint vertexCount;
+                uint instanceCount;
+                uint firstVertex;
+                uint firstInstance;
+        DebugClustersMatrices :
+            Type : "UniformBuffer"
+            Members : |+1
+                mat4 dbView;
+                mat4 dbProjection;
+
+shader_interfaces :
+    # Shaders can use multiple interfaces, layout specifications will be applied 
+    # during generation. Users can also declare their own interfaces
+    SharedVertexInputs :
+        Members : |+1
+            in vec3 position;
+            in vec3 normal;
+            in vec3 tangent;
+            in vec2 uv;
+    SharedVertexOutputs :
+        Members : |+1
+            out vec3 vPosition;
+            out vec3 vNormal;
+            out vec3 vTangent;
+            out vec2 vUV;
+
+compiler_options : 
+    GenerateDebugInfo : false
+    Optimization : "Performance"
+    TargetVersion : "VulkanLatest"
+    SourceLanguage : "GLSL"
+    # Working directory is always default added during parse.
+    # These are relative to that working directory, unless specified otherwise.
+    IncludePaths : [
+        "compute",
+        "debug"
+    ]
+
+shader_groups : 
+    UpdateLights : 
+        ComputeShader : "compute/UpdateLights.comp"
+    ReduceLights : 
+        ComputeShader : "compute/ReduceLightsAABB.comp"
+        Extensions : [
+            "GL_EXT_control_flow_attributes"
+        ]
+    ComputeMortonCodes : 
+        ComputeShader : "compute/ComputeMortonCodes.comp"
+    RadixSort : 
+        ComputeShader : "compute/RadixSort.comp"
+        Extensions : [
+            "GL_EXT_control_flow_attributes"
+        ]
+    MergeSort : 
+        ComputeShader : "compute/MergeSort.comp"
+        Extensions : [
+            "GL_EXT_control_flow_attributes"
+        ]
+    BuildBVH : 
+        ComputeShader : "compute/BuildBVH.comp"
+        Extensions : [
+            "GL_EXT_control_flow_attributes"
+        ]
+    DepthPrePass : 
+        RenderShaders : 
+            Vertex : "Default.vert"
+        # Use DepthOnly tag to force front-end to attach a depth stencil output
+        # These shaders probably don't write to the backbuffer for color but
+        # we want to keep depth info.
+        Tags : [ "DepthOnly" ]
+    ClusterSamples : 
+        RenderShaders : 
+            Vertex : "Default.vert"
+            Fragment : "ClusterSamples.frag"
+        Tags : [ "DepthOnlyAsInput" ]
+    FindUniqueClusters : 
+        ComputeShader : "compute/FindUniqueClusters.comp"
+    UpdateClusterIndirectArgs : 
+        ComputeShader : "compute/UpdateClusterIndirectArgs.comp"
+    AssignLightsToClustersBVH : 
+        ComputeShader : "compute/AssignLightsToClustersBVH.glsl"
+        Extensions : [
+            "GL_EXT_control_flow_attributes"
+        ]
+    AssignLightsToClusters :
+        ComputeShader : "compute/AssignLightsToClusters.comp"
+        Extensions : [
+            "GL_EXT_control_flow_attributes"
+        ]
+    DrawPass : 
+        RenderShaders : 
+            Vertex : "DrawID.vert"
+            Fragment : "Clustered.frag"
+        Extensions : [
+            "GL_ARB_shader_draw_parameters",
+            "GL_EXT_nonuniform_qualifier"
+        ]
+    ComputeClusterAABBs : 
+        ComputeShader : "compute/ComputeClusterAABBs.comp"
+    DebugClusters : 
+        RenderShaders : 
+            Vertex : "debug/DebugClusters.vert"
+            Geometry : "debug/DebugClusters.geom"
+            Fragment : "debug/DebugClusters.frag"
+        Extensions : [
+            "GL_EXT_control_flow_attributes"
+        ]
+    DebugLights : 
+        RenderShaders : 
+            Vertex : "debug/DebugLights.vert"
+            Fragment : "debug/DebugLights.frag"
+        Extensions : [
+            "GL_EXT_control_flow_attributes"
+        ]
+

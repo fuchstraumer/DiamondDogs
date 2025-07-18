@@ -1,0 +1,112 @@
+#include "Structures.glsl"
+
+#pragma USE_RESOURCES MergeSortResources
+
+const uint NUM_THREADS = 256;
+layout (local_size_x = NUM_THREADS, local_size_y = 1u, local_size_z = 1u) in;
+
+shared uint gs_Keys[NUM_THREADS];
+shared uint gs_Values[NUM_THREADS];
+shared uint gs_E[NUM_THREADS];
+shared uint gs_F[NUM_THREADS];
+shared uint gs_D[NUM_THREADS];
+shared uint gs_TotalFalses;
+const uint INT_MAX = 0xffffffff;
+const uint NumBits = 30u;
+
+layout(push_constant) uniform _push_constants {
+    layout(offset = 0) uint NumElements;
+} PushConstants;
+
+void main() 
+{
+
+    groupMemoryBarrier();
+    barrier();
+
+    /*
+        Load values into groupshared memory, if the current thread
+        is such that it has a unique value (otherwise, use a watchdog val)
+
+        Previously we were potentially actually indexing out of bounds, lol
+    */
+    uint input_key = INT_MAX;
+    uint input_value = INT_MAX;
+
+    if (gl_GlobalInvocationID.x < PushConstants.NumElements)
+    {
+        input_key = imageLoad(InputKeys, int(gl_GlobalInvocationID.x)).r;
+        input_value = imageLoad(InputValues, int(gl_GlobalInvocationID.x)).r;
+    }
+
+    gs_Keys[gl_LocalInvocationIndex] = input_key;
+    gs_Values[gl_LocalInvocationIndex] = input_value;
+
+    // Make sure memory writes finish, and that execution finishes up to here
+    groupMemoryBarrier();
+    barrier();
+
+    [[unroll]]
+    for (uint b = 0u; b < NumBits; ++b) 
+    {
+        gs_E[gl_LocalInvocationIndex] = ((gs_Keys[gl_LocalInvocationIndex] >> b) & 1u) == 0u ? 1u : 0u;
+        
+        groupMemoryBarrier();
+        barrier();
+
+        if (gl_LocalInvocationIndex == 0u) 
+        {
+            gs_F[gl_LocalInvocationIndex] = 0u;
+        }
+        else 
+        {
+            gs_F[gl_LocalInvocationIndex] = gs_E[gl_LocalInvocationIndex - 1u];
+        }
+
+        groupMemoryBarrier();
+        barrier();
+
+        [[unroll]]
+        for (uint i = 1u; i < NUM_THREADS; i <<= 1u) 
+        {
+            uint tmp = gs_F[gl_LocalInvocationIndex];
+            if (gl_LocalInvocationIndex > i) {
+                tmp += gs_F[gl_LocalInvocationIndex - i];
+            }
+
+            groupMemoryBarrier();
+            barrier();
+
+            gs_F[gl_LocalInvocationIndex] = tmp;
+
+            groupMemoryBarrier();
+            barrier();
+        }
+
+        if (gl_LocalInvocationIndex == 0u) 
+        {
+            gs_TotalFalses = gs_E[NUM_THREADS - 1u] + gs_F[NUM_THREADS - 1u];
+        }
+
+        groupMemoryBarrier();
+        barrier();
+
+        gs_D[gl_LocalInvocationIndex] = (gs_E[gl_LocalInvocationIndex] == 1u) ? gs_F[gl_LocalInvocationIndex] : (gl_LocalInvocationIndex - gs_F[gl_LocalInvocationIndex] + gs_TotalFalses);
+        uint key = gs_Keys[gl_LocalInvocationIndex];
+        uint value = gs_Values[gl_LocalInvocationIndex];
+
+        groupMemoryBarrier();
+        barrier();
+
+        gs_Keys[gs_D[gl_LocalInvocationIndex]] = key;
+        gs_Values[gs_D[gl_LocalInvocationIndex]] = value;
+
+        groupMemoryBarrier();
+        barrier();
+        
+    }
+    
+    imageStore(OutputKeys, int(gl_GlobalInvocationID.x), uvec4(gs_Keys[gl_LocalInvocationIndex], 0, 0, 0));
+    imageStore(OutputValues, int(gl_GlobalInvocationID.x), uvec4(gs_Values[gl_LocalInvocationIndex], 0, 0, 0));
+
+}

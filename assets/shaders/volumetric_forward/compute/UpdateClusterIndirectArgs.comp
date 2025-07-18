@@ -1,0 +1,27 @@
+
+#include "Structures.glsl"
+
+#pragma USE_RESOURCES VolumetricForward
+#pragma USE_RESOURCES IndirectArgsSet
+#pragma USE_RESOURCES Debug
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z  = 1) in;
+
+layout(push_constant) uniform _push_constants {
+    layout(offset = 0) bool UpdateUniqueClusters;
+};
+
+void main() {
+    uint count = imageLoad(UniqueClustersCounter, 0).r;
+    IndirectArgs.NumThreadGroupsX = count;
+    IndirectArgs.NumThreadGroupsY = 1;
+    IndirectArgs.NumThreadGroupsZ = 1;
+
+    if (UpdateUniqueClusters)
+    {
+        DebugClustersIndirectArgs.vertexCount = count;
+        DebugClustersIndirectArgs.instanceCount = 1u;
+        DebugClustersIndirectArgs.firstVertex = 0u;
+        DebugClustersIndirectArgs.firstInstance = 0u;
+    }
+}

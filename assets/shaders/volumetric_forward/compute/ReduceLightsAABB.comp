@@ -1,0 +1,106 @@
+#include "Structures.glsl"
+
+#pragma USE_RESOURCES VolumetricForwardLights
+#pragma USE_RESOURCES SortResources
+
+SPC const uint ReductionType = 0u;
+
+const uint NumThreads = 512u;
+
+layout(local_size_x = 512u, local_size_y = 1u, local_size_z = 1u) in;
+shared vec4 gs_AABBMin[NumThreads];
+shared vec4 gs_AABBMax[NumThreads];
+
+const float FLT_MAX = 3.402823466e+36f;
+
+layout(push_constant) uniform _push_constants {
+	layout(offset = 0) uint NumThreadGroupsX;
+    layout(offset = 4) uint ReductionNumElements;
+} PushConstants;
+
+void LogStepReduction() {
+    uint reduceIndex = NumThreads >> 1u;
+
+    [[unroll]]
+    while (reduceIndex > 32u) {
+        if (gl_LocalInvocationIndex < reduceIndex) {
+            gs_AABBMin[gl_LocalInvocationIndex] = min(gs_AABBMin[gl_LocalInvocationIndex], gs_AABBMin[gl_LocalInvocationIndex + reduceIndex]);
+            gs_AABBMax[gl_LocalInvocationIndex] = max(gs_AABBMax[gl_LocalInvocationIndex], gs_AABBMax[gl_LocalInvocationIndex + reduceIndex]);
+        }
+
+        groupMemoryBarrier();
+        barrier();
+
+        reduceIndex >>= 1;
+    }
+
+    if (gl_LocalInvocationIndex < 32u) {
+
+        [[unroll]]
+        while (reduceIndex > 0u) {
+            if (NumThreads >= reduceIndex << 1) {
+                gs_AABBMin[gl_LocalInvocationIndex] = min(gs_AABBMin[gl_LocalInvocationIndex], gs_AABBMin[gl_LocalInvocationIndex + reduceIndex]);
+                gs_AABBMax[gl_LocalInvocationIndex] = max(gs_AABBMax[gl_LocalInvocationIndex], gs_AABBMax[gl_LocalInvocationIndex + reduceIndex]);
+            }
+
+            reduceIndex >>= 1u;
+        }
+
+        if (gl_LocalInvocationIndex == 0u) {
+            LightAABBs.Data[gl_WorkGroupID.x].Min = gs_AABBMin[gl_LocalInvocationIndex];
+            LightAABBs.Data[gl_WorkGroupID.x].Max = gs_AABBMax[gl_LocalInvocationIndex];
+        }
+    }
+}
+
+void reduce0() {
+    vec4 aabb_min = vec4( FLT_MAX, FLT_MAX, FLT_MAX, 1.0f);
+    vec4 aabb_max = vec4(-FLT_MAX,-FLT_MAX,-FLT_MAX, 1.0f);
+
+    for (uint i = gl_GlobalInvocationID.x; i < LightCounts.NumPointLights; i += NumThreads * PushConstants.NumThreadGroupsX) {
+        aabb_min = min(aabb_min, PointLights.Data[i].PositionViewSpace - PointLights.Data[i].Range);
+        aabb_max = max(aabb_max, PointLights.Data[i].PositionViewSpace + PointLights.Data[i].Range);
+    }
+
+    for (uint i = gl_GlobalInvocationID.x; i < LightCounts.NumSpotLights; i += NumThreads * PushConstants.NumThreadGroupsX) {
+        aabb_min = min(aabb_min, SpotLights.Data[i].PositionViewSpace - SpotLights.Data[i].Range);
+        aabb_max = min(aabb_max, SpotLights.Data[i].PositionViewSpace + SpotLights.Data[i].Range);
+    }
+
+    gs_AABBMin[gl_LocalInvocationIndex] = aabb_min;
+    gs_AABBMax[gl_LocalInvocationIndex] = aabb_max;
+
+    groupMemoryBarrier();
+    barrier();
+
+    LogStepReduction();
+}
+
+void reduce1() {
+    vec4 aabb_min = vec4( FLT_MAX, FLT_MAX, FLT_MAX, 1.0f);
+    vec4 aabb_max = vec4(-FLT_MAX,-FLT_MAX,-FLT_MAX, 1.0f);
+
+    for (uint i = gl_LocalInvocationIndex; i < PushConstants.ReductionNumElements; i += NumThreads * PushConstants.NumThreadGroupsX) {
+        aabb_min = min(aabb_min, LightAABBs.Data[i].Min);
+        aabb_max = max(aabb_max, LightAABBs.Data[i].Max);
+    }
+
+    gs_AABBMin[gl_LocalInvocationIndex] = aabb_min;
+    gs_AABBMax[gl_LocalInvocationIndex] = aabb_max;
+
+    groupMemoryBarrier();
+    barrier();
+
+    LogStepReduction();
+}
+
+void main() {
+    switch (ReductionType) {
+    case 0:
+        reduce0();
+        break;
+    case 1:
+        reduce1();
+        break;
+    };
+}
