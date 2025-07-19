@@ -34,9 +34,13 @@ public:
 
     void construct(const ResourceContextCreateInfo& createInfo);
     void destroy();
-    // locks current thread and forces it to wait for all pending operations to complete, unlike how it used to be (required per-frame ticks)
+    /** 
+     * @brief Locks current thread and forces it to wait for all pending operations to complete, unlike how it used to be (required per-frame ticks).
+     * Useful for when you want to flush all operations, e.g, swapchain events or key engine boundary events.
+    */
     void update();
 
+    /** @brief Adds a message - using by-value since we will always be moving this data */
     void pushMessage(ResourceMessagePayloadType message);
     void setExitWorker();
     void startWorker();

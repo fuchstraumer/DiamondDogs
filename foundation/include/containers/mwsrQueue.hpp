@@ -494,6 +494,16 @@ namespace detail
     };
 }
 
+/**
+ * @brief Lock-free multiple-writer, single-reader queue with fixed capacity
+ * 
+ * High-performance concurrent queue supporting multiple producer threads and a single
+ * consumer thread. Uses lock-free atomic operations for the fast path and minimal
+ * locking when the queue is full or empty.
+ * 
+ * @tparam T Element type that must be default-constructible and move-assignable
+ * @note Queue capacity is fixed at 64 elements at compile time
+ */
 template<typename T>
 class mwsrQueue
 {
@@ -517,15 +527,34 @@ public:
     static_assert(std::is_default_constructible_v<T>, "QueueItem used in mwsrQueue must be default-constructible!");
     static_assert(std::is_move_assignable_v<T>, "QueueItem must be move-assignable!");
 
+    /**
+     * @brief Default constructor
+     * 
+     * Initializes the queue with empty state and sets up internal synchronization structures.
+     */
     mwsrQueue() : entranceData{ detail::ExitReactorData::EntranceFirstToWrite, detail::ExitReactorData::EntranceLastToWrite } {}
+    
     mwsrQueue(const mwsrQueue&) = delete;
     mwsrQueue& operator=(const mwsrQueue&) = delete;
 
+    /**
+     * @brief Check if the queue appears empty from the reader's perspective
+     * 
+     * @return True if no items are immediately available for reading
+     * @note This only checks the read cache and may not reflect the true queue state
+     */
     bool empty() const noexcept
     {
         return readCacheBegin != readCacheEnd;
     }
 
+    /**
+     * @brief Add an item to the queue
+     * 
+     * @param item Item to add (moved into the queue)
+     * @note Thread-safe for multiple concurrent writers
+     * @note May block if queue is full until space becomes available
+     */
     void push(T&& item)
     {
         detail::EntranceReactorHandle entrance(entranceData);
@@ -547,6 +576,12 @@ public:
         }
     }
 
+    /**
+     * @brief Remove and return an item from the queue
+     * 
+     * @return Item moved out of the queue
+     * @note Only safe to call from a single reader thread, and blocks if queue is empty until an item becomes available
+     */
     T pop()
     {
         if (readCacheBegin < readCacheEnd)

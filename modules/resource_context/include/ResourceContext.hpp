@@ -29,10 +29,8 @@ class ResourceContextImpl;
  * 
  * ResourceContext provides a high-level, thread-safe interface for creating and managing
  * Vulkan resources such as buffers, images, and samplers. All operations are asynchronous
- * and return reply objects that can be used to track completion status.
- * 
- * @note All operations are performed on background worker threads and are inherently thread-safe
- * @note Resources are internally managed using an ECS (Entity Component System) for efficient tracking
+ * and return reply objects that can be used to track completion status, and internal state
+ * and resources are managed using an ECS (ENTT, to be specific).
  */
 class ResourceContext
 {
@@ -61,13 +59,14 @@ public:
      * 
      * @param createInfo Configuration structure containing device pointers and options
      * 
-     * @note Must be called before any other operations
-     * @note This starts background worker threads for processing resource operations
+     * @note Must be called before any other operations, as this starts background worker threads for processing resource operations
      */
     void Initialize(const ResourceContextCreateInfo& createInfo);
 
     /**
-     * @brief Create a Vulkan buffer with optional buffer view and initial data
+     * @brief Create a Vulkan buffer with optional buffer view and initial data. If initialData
+     * is provided, the buffer will be created in a transferring state and will not be complete
+     * until this is finished. Additionally, buffer views are only created if viewCreateInfo is provided.
      * 
      * @param createInfo Vulkan buffer creation parameters
      * @param viewCreateInfo Optional buffer view creation parameters (can be nullptr)
@@ -77,10 +76,6 @@ public:
      * @param flags Additional creation flags controlling behavior
      * @param userData Optional user data pointer associated with this resource
      * @return Shared pointer to reply object for tracking creation progress
-     * 
-     * @note The operation is asynchronous - check reply status or wait for completion
-     * @note If initialData is provided, the buffer will transition through "Transferring" status
-     * @note Buffer views are automatically created if viewCreateInfo is provided
      */
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateBuffer(
         const VkBufferCreateInfo& createInfo,
@@ -92,7 +87,9 @@ public:
         void* userData = nullptr);
 
     /**
-     * @brief Create a Vulkan image with optional image view and initial data
+     * @brief Create a Vulkan image with optional image view and initial data.
+     * Image views are only created if viewCreateInfo is provided, and layout transitions
+     * will also be handled automatically if initialData is provided.
      * 
      * @param createInfo Vulkan image creation parameters
      * @param viewCreateInfo Optional image view creation parameters (can be nullptr)
@@ -102,10 +99,6 @@ public:
      * @param flags Additional creation flags controlling behavior
      * @param userData Optional user data pointer associated with this resource
      * @return Shared pointer to reply object for tracking creation progress
-     * 
-     * @note The operation is asynchronous - check reply status or wait for completion
-     * @note If initialData is provided, proper image layout transitions are handled automatically
-     * @note Image views are automatically created if viewCreateInfo is provided
      */
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateImage(
         const VkImageCreateInfo& createInfo,
@@ -130,16 +123,15 @@ public:
         void* userData = nullptr);
 
     /**
-     * @brief Upload data to an existing buffer
+     * @brief Upload data to an existing buffer.
+     * This operation may use staging buffers for GPU-only resources, briefly inflating memory usage. For
+     * CPU-accessible buffers, data is written directly to mapped memory. Multiple data regions can be 
+     * uploaded in a single operation.
      * 
      * @param buffer The target buffer resource to update
      * @param data Array of data structures containing the data to upload
      * @param numData Number of elements in the data array
      * @return Shared pointer to reply object for tracking transfer progress
-     * 
-     * @note This operation may use staging buffers for GPU-only resources
-     * @note For CPU-accessible buffers, data is written directly to mapped memory
-     * @note Multiple data regions can be uploaded in a single operation
      */
     [[nodiscard]] std::shared_ptr<ResourceTransferReply> SetBufferData(
         GraphicsResource buffer,
@@ -147,16 +139,13 @@ public:
         size_t numData);
 
     /**
-     * @brief Upload data to an existing image
+     * @brief Upload data to an existing image, including specific mip levels and array layers.
+     * Uses staging buffers and performs layout transitions as needed.
      * 
      * @param image The target image resource to update
      * @param data Array of image data structures containing the data to upload
      * @param numData Number of elements in the data array
      * @return Shared pointer to reply object for tracking transfer progress
-     * 
-     * @note Automatically handles image layout transitions for optimal performance
-     * @note Supports uploading to specific mip levels and array layers
-     * @note Uses staging buffers and performs layout transitions on the GPU
      */
     [[nodiscard]] std::shared_ptr<ResourceTransferReply> SetImageData(
         GraphicsResource image,
@@ -172,9 +161,7 @@ public:
      * @param size Number of bytes to fill (must be multiple of 4)
      * @return Shared pointer to reply object for tracking transfer progress
      * 
-     * @note This is implemented using vkCmdFillBuffer for optimal performance
-     * @note The size parameter must be a multiple of 4 bytes
-     * @note Useful for clearing buffers or initializing them with sentinel values
+     * @note This is implemented using vkCmdFillBuffer for optimal performance, so the size parameter must be a multiple of 4 bytes
      */
     [[nodiscard]] std::shared_ptr<ResourceTransferReply> FillBuffer(
         GraphicsResource buffer,
@@ -190,9 +177,7 @@ public:
      * @param offset Byte offset from the start of the buffer
      * @return Shared pointer to reply object containing the mapped pointer
      * 
-     * @note Only works with CPU-accessible buffers (CPUOnly, CPUToGPU, GPUToCPU usage)
-     * @note The returned pointer is valid until UnmapBuffer is called
-     * @note Multiple overlapping map operations are not supported
+     * @note Only works with CPU-accessible buffers (CPUOnly, CPUToGPU, GPUToCPU usage) and multiple overlapping map operations are not supported
      */
     [[nodiscard]] std::shared_ptr<PointerMessageReply> MapBuffer(
         GraphicsResource buffer,
@@ -206,9 +191,6 @@ public:
      * @param size Number of bytes that were mapped
      * @param offset Byte offset that was mapped
      * @return Shared pointer to reply object for tracking completion
-     * 
-     * @note Must match the parameters used in the corresponding MapBuffer call
-     * @note After this call completes, the previously returned pointer becomes invalid
      */
     [[nodiscard]] std::shared_ptr<MessageReply> UnmapBuffer(
         GraphicsResource buffer, 
@@ -221,10 +203,6 @@ public:
      * @param srcBuffer The source buffer to copy from
      * @param copyContents Whether to copy the buffer's contents or just create an empty buffer with the same properties
      * @return Shared pointer to reply object containing the new buffer resource
-     * 
-     * @note The new buffer will have identical creation parameters to the source
-     * @note If copyContents is true, a GPU-side copy operation is performed
-     * @note If copyContents is false, only the buffer object is duplicated (contents undefined)
      */
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CopyBuffer(GraphicsResource srcBuffer, bool copyContents);
 
@@ -234,8 +212,6 @@ public:
      * @param srcImage The source image to copy from
      * @return Shared pointer to reply object containing the new image resource
      * 
-     * @note The new image will have identical creation parameters to the source
-     * @note A GPU-side copy operation is performed to duplicate the contents
      * @note Proper image layout transitions are handled automatically
      */
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CopyImage(GraphicsResource srcImage);
@@ -247,7 +223,6 @@ public:
      * @param destBuffer The destination buffer to copy to
      * @return Shared pointer to reply object for tracking transfer progress
      * 
-     * @note Both buffers must already exist and be large enough for the operation
      * @note The entire source buffer is copied to the destination buffer
      * @note Uses GPU-side copy operations for optimal performance
      */
@@ -261,9 +236,7 @@ public:
      * @param resource The resource to destroy
      * @return Shared pointer to reply object for tracking completion
      * 
-     * @note All associated Vulkan objects (buffer/image, view, sampler) are destroyed
-     * @note Memory is returned to the allocator
-     * @note The resource handle becomes invalid after this operation completes
+     * @note All associated Vulkan objects (buffer/image, view, sampler) are destroyed, with memory returned to the allocator
      * @note It's safe to destroy resources that are still being used by in-flight GPU commands
      */
     [[nodiscard]] std::shared_ptr<MessageReply> DestroyResource(

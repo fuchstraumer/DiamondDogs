@@ -6,6 +6,15 @@
 template<typename T>
 class base_delegate_t;
 
+/**
+ * @brief Base class providing common functionality for delegate types
+ * 
+ * Internal implementation detail that provides the core function pointer
+ * and object pointer storage mechanism used by delegate_t and multicast_delegate_t.
+ * 
+ * @tparam Result Return type of the callable
+ * @tparam Args Parameter types of the callable
+ */
 template<typename Result, typename...Args>
 class base_delegate_t<Result(Args...)>
 {
@@ -44,75 +53,160 @@ class delegate_t;
 template<typename T>
 class multicast_delegate_t;
 
+/**
+ * @brief Type-erased function wrapper supporting member functions and free functions
+ * 
+ * A lightweight alternative to std::function that can store and invoke callable objects
+ * including free functions, member functions, and functors. Optimized for performance
+ * with minimal overhead.
+ * 
+ * @tparam Result Return type of the callable
+ * @tparam Args Parameter types of the callable
+ */
 template<typename Result, typename...Args>
 class delegate_t<Result(Args...)> final : private base_delegate_t<Result(Args...)>
 {
     friend class multicast_delegate_t<Result(Args...)>;
 public:
 
+    /// Default constructor - creates empty delegate
     delegate_t() = default;
 
+    /**
+     * @brief Check if the delegate is empty (not bound to any callable)
+     * 
+     * @return True if delegate is empty, false otherwise
+     */
     bool empty() const noexcept
     {
         return invocation.stub == nullptr;
     }
 
+    /**
+     * @brief Boolean conversion operator
+     * 
+     * @return True if delegate is bound to a callable, false otherwise
+     */
     operator bool() const noexcept
     {
         return invocation.stub != nullptr;
     }
 
+    /**
+     * @brief Equality comparison with nullptr
+     * 
+     * @param ptr Pointer to compare with (should be nullptr)
+     * @return True if delegate is empty and ptr is nullptr
+     */
     bool operator==(const void* ptr) const noexcept
     {
         return (ptr == nullptr) && (empty());
     }
 
+    /**
+     * @brief Inequality comparison with nullptr
+     * 
+     * @param ptr Pointer to compare with (should be nullptr)  
+     * @return True if delegate is not empty or ptr is not nullptr
+     */
     bool operator!=(const void* ptr) const noexcept
     {
         return (ptr != nullptr) || (!empty());
     }
 
+    /**
+     * @brief Copy constructor
+     * 
+     * @param other Delegate to copy from
+     */
     delegate_t(const delegate_t& other) noexcept
     {
         other.invocation.copy_to(invocation);
     }
 
+    /**
+     * @brief Copy assignment operator
+     * 
+     * @param other Delegate to copy from
+     * @return Reference to this delegate
+     */
     delegate_t& operator=(const delegate_t& other) noexcept
     {
         other.invocation.copy_to(invocation);
         return *this;
     }
 
+    /**
+     * @brief Move constructor
+     * 
+     * @param other Delegate to move from
+     */
     delegate_t(delegate_t&& other) noexcept : invocation(std::move(other.invocation)) {}
 
+    /**
+     * @brief Move assignment operator
+     * 
+     * @param other Delegate to move from
+     * @return Reference to this delegate
+     */
     delegate_t& operator=(delegate_t&& other) noexcept
     {
         invocation = std::move(other.invocation);
         return *this;
     }
 
-    // i.e like if (!ptr_object), returns true when object doesn't "exist" and false
-    // when it exists. thus if (!my_delegate_t) == if (my_delegate_t.invocation.stub == nullptr)
+    /**
+     * @brief Logical NOT operator
+     * 
+     * @return True if delegate is empty, false otherwise
+     */
     bool operator!() const noexcept
     {
         return invocation.stub == nullptr;
     }
 
+    /**
+     * @brief Equality comparison with another delegate
+     * 
+     * @param other Delegate to compare with
+     * @return True if both delegates refer to the same callable
+     */
     bool operator==(const delegate_t& other) const noexcept
     {
         return invocation == other.invocation;
     }
 
+    /**
+     * @brief Inequality comparison with another delegate
+     * 
+     * @param other Delegate to compare with
+     * @return True if delegates refer to different callables
+     */
     bool operator!=(const delegate_t& other) const noexcept
     {
         return invocation != other.invocation;
     }
 
+    /**
+     * @brief Function call operator - invokes the stored callable
+     * 
+     * @param args Arguments to pass to the callable
+     * @return Result of calling the stored function
+     * @note Behavior is undefined if delegate is empty
+     */
     Result operator()(Args...args) const
     {
         return (*invocation.stub)(invocation.object,args...);
     }
 
+    /**
+     * @brief Create a delegate bound to a member function
+     * 
+     * @tparam T Class type containing the member function
+     * @tparam Method Pointer to the member function
+     * @param object Pointer to object instance to call the method on
+     * @return Delegate bound to the specified member function
+     */
     template<class T, Result(T::*Method)(Args...)>
     static delegate_t create(T* object)
     {

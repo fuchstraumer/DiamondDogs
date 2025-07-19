@@ -17,9 +17,8 @@ namespace vpr
  * 
  * MessageReply provides status tracking for asynchronous operations in the ResourceContext.
  * All operations return reply objects that inherit from this class to allow monitoring
- * of completion status and waiting for results.
- * 
- * @note This class uses lock-free atomic operations for thread-safe status updates
+ * of completion status and waiting for results. Accessing the status is thread-safe
+ * and lock-free since it uses atomic operations.
  */
 class MessageReply
 {
@@ -31,12 +30,12 @@ public:
      */
     enum class Status : uint8_t
     {
-        Invalid = 0,     ///< Reply object is in an invalid state
-        Pending = 1,     ///< Message has been queued and is actively being processed
-        Transferring,    ///< Resource created and transfer data attached, not safe to use yet
-        Completed,       ///< Creation, transfer, or both completed - safe to use
-        Failed,          ///< Message processing failed, no resource created
-        Timeout,         ///< Waiting for completion timed out, operation may still be in progress
+        Invalid = 0,     /** Reply object is in an invalid state */
+        Pending = 1,     /** Message has been queued and is actively being processed */
+        Transferring,    /** Resource created and transfer data attached, not safe to use yet */
+        Completed,       /** Creation, transfer, or both completed - safe to use */
+        Failed,          /** Message processing failed, no resource created */
+        Timeout,         /** Waiting for completion timed out, operation may still be in progress */
     };
 
     /// Default constructor - initializes status to Invalid
@@ -44,41 +43,35 @@ public:
     /// Virtual destructor for proper cleanup of derived classes
     virtual ~MessageReply() = default;
     
-    /// Copy constructor deleted - reply objects are not copyable
+    /// Cannot copy or copy-assign MessageReply objects, as that's a fast path to UB
     MessageReply(const MessageReply&) = delete;
-    /// Copy assignment deleted - reply objects are not copyable
     MessageReply& operator=(const MessageReply&) = delete;
-    /// Move constructor
+
+    // noexcept move and move-assign as use this for push/popping 
     MessageReply(MessageReply&& other) noexcept;
-    /// Move assignment operator
     MessageReply& operator=(MessageReply&& other) noexcept;
     
     /**
-     * @brief Check if the operation has completed (successfully or with failure)
+     * @brief Check if the operation has completed (successfully or with failure). Non-blocking.
      * 
      * @return True if status is Completed or Failed, false otherwise
-     * 
-     * @note This is a non-blocking call that returns immediately
      */
     virtual bool IsCompleted() const noexcept;
     
     /**
-     * @brief Get the current status of the operation
+     * @brief Get the current status of the operation. Non-blocking.
      * 
      * @return Current status value
-     * 
-     * @note This is a non-blocking call using atomic memory operations
      */
     Status GetStatus() const noexcept;
     
     /**
-     * @brief Wait for the operation to complete with optional timeout
+     * @brief Wait for the operation to complete with optional timeout. This blocks the current thread
+     * while waiting for the operation to finish.
      * 
-     * @param timeoutNs Timeout in nanoseconds (default: no timeout)
+     * @param timeoutNs Timeout in nanoseconds (default: no timeout, waits indefinitely)
      * @return Final status after waiting (Completed, Failed, or Timeout)
-     * 
-     * @note This call blocks the current thread until completion or timeout
-     * @note A timeout value of max() means wait indefinitely
+     * @note Use `std::numeric_limits<uint64_t>::max()` for no timeout
      */
     virtual Status WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) noexcept;
     
@@ -95,9 +88,8 @@ protected:
  * 
  * ResourceTransferReply extends MessageReply with additional functionality for tracking
  * GPU transfer operations using Vulkan timeline semaphores. This allows for fine-grained
- * synchronization with GPU command execution.
- * 
- * @note This is a separate class as sometimes operations involve transfers without creating new resources
+ * synchronization with GPU command execution. This is a separate class as we can (and often
+ * will) do resource transfers without creating a new resource.
  */
 class ResourceTransferReply : public MessageReply
 {
@@ -112,10 +104,9 @@ public:
     /**
      * @brief Get the timeline semaphore value for this transfer operation
      * 
-     * @return Semaphore value that will be signaled when transfer completes
+     * @return Semaphore value that will be signaled when transfer completes. 0 if no transfer is associated with this reply
      * 
-     * @note Can be used for manual synchronization with other GPU operations
-     * @note Returns 0 if no transfer is associated with this reply
+     * @note This is the value stored in the semaphore object, NOT the Vulkan semaphore handle.
      */
     uint64_t SemaphoreValue() const noexcept;
     
@@ -123,9 +114,6 @@ public:
      * @brief Get the handle to the timeline semaphore used for this transfer
      * 
      * @return Vulkan semaphore handle (cast to uint64_t)
-     * 
-     * @note Can be used for manual synchronization with other GPU operations
-     * @note Returns 0 if no transfer is associated with this reply
      */
     uint64_t SemaphoreHandle() const noexcept;
 
@@ -135,7 +123,6 @@ public:
      * @param timeoutNs Timeout in nanoseconds (default: no timeout)
      * @return Final status after waiting
      * 
-     * @note Final override - derived classes don't change the waiting behavior
      * @note Waits for both CPU-side completion and GPU-side transfer completion
      */
     Status WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) noexcept final;
@@ -154,17 +141,13 @@ protected:
  * GraphicsResourceReply extends ResourceTransferReply to include the actual resource handle
  * that gets created. The resource data is stored using atomic operations to ensure thread-safe
  * access even while the resource is still being created or transferred.
- * 
- * @note Uses atomic operations and 128-bit atomics for lock-free resource handle storage
  */
 class GraphicsResourceReply final : public ResourceTransferReply
 {
     
     struct VkResourceTypeAndEntityHandle
     {
-        /// Default constructor (implementation in .cpp to avoid exposing entt)
         VkResourceTypeAndEntityHandle() noexcept;
-        /// Constructor with type and entity handle
         VkResourceTypeAndEntityHandle(const resource_type type, const uint32_t entity_handle) noexcept;
         VkResourceTypeAndEntityHandle(const VkResourceTypeAndEntityHandle& other) noexcept = default;
         VkResourceTypeAndEntityHandle& operator=(const VkResourceTypeAndEntityHandle& other) noexcept = default;
@@ -208,19 +191,16 @@ public:
     /// Destructor
     ~GraphicsResourceReply();
 
-    /// Copy constructor deleted
     GraphicsResourceReply(const GraphicsResourceReply&) = delete;
-    /// Copy assignment deleted
     GraphicsResourceReply& operator=(const GraphicsResourceReply&) = delete;
     
     /**
-     * @brief Get the graphics resource handle
+     * @brief Get the graphics resource handle. Uses acquire memory ordering
+     * to ensure visibility of resource data, but can return a potentially
+     * incomplete resource if called before completion. Check reply status
+     * before using the returned resource.
      * 
      * @return GraphicsResource containing all Vulkan handles and metadata
-     * 
-     * @note Uses acquire memory ordering to ensure visibility of resource data
-     * @note Returns a potentially incomplete resource if called before completion
-     * @note Check reply status before using the returned resource
      */
     GraphicsResource GetResource() const noexcept;
 
@@ -228,6 +208,9 @@ private:
 
     friend class ResourceContextImpl;
     friend class TransferSystem;
+    /**
+     * @brief Called by internal systems to update the internal data atomically.
+     */
     void SetGraphicsResource(
         const resource_type _type,
         const uint32_t entity_handle,
@@ -247,8 +230,7 @@ private:
  * @brief Reply class for operations that return a CPU pointer
  * 
  * PointerMessageReply is used specifically for buffer mapping operations that return
- * a CPU-accessible pointer to buffer memory. The pointer is stored atomically to
- * ensure thread-safe access.
+ * a CPU-accessible pointer to buffer memory. The pointer is stored atomically.
  */
 class PointerMessageReply final : public MessageReply
 {
@@ -268,12 +250,10 @@ public:
     PointerMessageReply& operator=(PointerMessageReply&& other) noexcept;
 
     /**
-     * @brief Get the CPU pointer returned by the operation
+     * @brief Get the CPU pointer returned by the operation. Check reply status
+     * before using the returned pointer to be sure of validity.
      * 
      * @return CPU-accessible pointer to buffer memory, or nullptr if not ready/failed
-     * 
-     * @note Check reply status before using the returned pointer
-     * @note The pointer remains valid until the corresponding unmap operation
      */
     void* GetPointer() const noexcept;
     
