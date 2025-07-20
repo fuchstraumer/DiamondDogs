@@ -11,9 +11,12 @@ SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /JMC")
 FIND_PACKAGE(Vulkan REQUIRED)
 SET(VPR_BUILD_TESTS OFF CACHE BOOL "Build Unit and Integration tests")
 ADD_SUBDIRECTORY(third_party/vulpesrender)
-set(SLANG_ENABLE_DXIL OFF CACHE BOOL "Enable generating DXIL using DXC")
-set(SLANG_ENABLE_CUDA OFF CACHE BOOL "Enable CUDA tests using CUDA found in CUDA_PATH")
+
+# Configure and organize Slang compiler for Vulkan/SPIR-V use
+include(cmake/ConfigureSlang.cmake)
 add_subdirectory(third_party/slang)
+organize_slang_targets()
+
 add_subdirectory(third_party/vma)
 add_subdirectory(third_party/entt)
 SET(MI_BUILD_OBJECT OFF CACHE BOOL "Build object library")
