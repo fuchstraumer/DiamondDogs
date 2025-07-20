@@ -52,18 +52,24 @@ set(reactors_source_files
     "include/reactors/AllocationReactor.hpp"
     "src/reactors/AllocationReactor.cpp")
 
+set(maths_source_files
+    "include/Math.hpp"
+    "include/math/Math.inl")
+
 source_group("foundation" FILES ${foundation_source_files})
 source_group("containers" FILES ${foundation_containers_source_files})
 source_group("threading" FILES ${threading_source_files})
 source_group("utility" FILES ${utility_source_files})
 source_group("reactors" FILES ${reactors_source_files})
+source_group("maths" FILES ${maths_source_files})
 
 add_library(foundation STATIC
     ${foundation_source_files}
     ${foundation_containers_source_files}
     ${threading_source_files}
     ${utility_source_files}
-    ${reactors_source_files})
+    ${reactors_source_files}
+    ${maths_source_files})
 
 set(foundation_vpr_include_dirs
     "../third_party/vulpesrender/alloc/include"
@@ -90,8 +96,8 @@ if(UNIX)
 endif()
 
 if(MSVC)
-    # Multithreaded compile, and intrinsic functions
-    target_compile_definitions(foundation PUBLIC "NOMINMAX")
+    # make sure DirectXMath has right arch defines enabled
+    target_compile_definitions(foundation PUBLIC "NOMINMAX" "_XM_SVML_INTRINSICS_" "XM_AVX2_INTRINSICS_")
     target_compile_options(foundation PRIVATE $<$<CONFIG:RELEASE>:/MP> $<$<CONFIG:RELWITHDEBINFO>:/MP>)
     # Enable intrinsics in both release and relwithdebinfo, since those shouldn't have much debug info anyways
     # (And can largely affect perf)
