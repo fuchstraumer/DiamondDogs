@@ -27,17 +27,16 @@ internal static const uint FirstNodeIndex[7] =
     34636833
 };
 
-internal static const uint NUM_THREADS_X = 32 * 16;
 internal static const float FLT_MAX = 3.402823466e+38f;
 
 // unfortunately need duplicated code here, as the light buffers are different structured types :'(
 internal void BuildBottomPointLights(
     in const uint dispatchThreadIndex,
-    in const uint numPointLights,
-    in const uint numPointLightLevels,
-    in const RWTexture2D<uint> pointLightIndices,
-    in const StructuredBuffer<PointLight> pointLights,
-    in const RWStructuredBuffer<AABB> pointLightBVH)
+    in uniform uint numPointLights,
+    in uniform uint numPointLightLevels,
+    in uniform uint* pointLightIndices,
+    in uniform PointLight* pointLights,
+    out AABB* pointLightBVH)
 {
         // First, have each thread in the wave load a light and compute its AABB
     uint leafIdx = dispatchThreadIndex;
@@ -47,7 +46,7 @@ internal void BuildBottomPointLights(
 
     if (leafIdx < numPointLights)
     {
-        lightIdx = pointLightIndices.Load(int2(leafIdx, 0));
+        lightIdx = pointLightIndices[leafIdx];
         PointLight currLight = pointLights[lightIdx];
         minAABB = currLight.PositionViewSpace.xyz - currLight.Range.xxx;
         maxAABB = currLight.PositionViewSpace.xyz + currLight.Range.xxx;
@@ -74,11 +73,11 @@ internal void BuildBottomPointLights(
 
 internal void BuildBottomSpotLights(
     in const uint dispatchThreadIndex,
-    in const uint numSpotLights,
-    in const uint numSpotLightLevels,
-    in const RWTexture2D<uint> spotLightIndices,
-    in const StructuredBuffer<SpotLight> spotLights,
-    in const RWStructuredBuffer<AABB> spotLightBVH)
+    in uniform uint numSpotLights,
+    in uniform uint numSpotLightLevels,
+    in uniform uint* spotLightIndices,
+    in uniform SpotLight* spotLights,
+    out AABB* spotLightBVH)
 {
     const uint waveSize = WaveGetLaneCount();
     uint leafIdx = dispatchThreadIndex;
@@ -89,7 +88,7 @@ internal void BuildBottomSpotLights(
 
     if (leafIdx < numSpotLights)
     {
-        lightIdx = spotLightIndices.Load(int2(leafIdx, 0));
+        lightIdx = spotLightIndices[leafIdx];
         SpotLight currLight = spotLights[lightIdx];
         // This is technically incorrect and quite conservative: we're treating the spot light as a sphere for AABB calculation.
         // Ideally we could use the cone angles to compute a tighter AABB, but until that proves to be an issue we'll just use a sphere.
@@ -117,14 +116,14 @@ internal void BuildBottomSpotLights(
 
 internal void BuildBottomBVH(
     in const uint dispatchThreadIndex,
-    in const LightCounts lightCounts,
-    in const BVHParams bvhParams,
-    in const RWTexture2D<uint> pointLightIndices,
-    in const RWTexture2D<uint> spotLightIndices,
-    in const StructuredBuffer<PointLight> pointLights,
-    in const StructuredBuffer<SpotLight> spotLights,
-    in const RWStructuredBuffer<AABB> pointLightBVH,
-    in const RWStructuredBuffer<AABB> spotLightBVH)
+    in uniform LightCounts* lightCounts,
+    in uniform BVHParams* bvhParams,
+    in uniform uint* pointLightIndices,
+    in uniform uint* spotLightIndices,
+    in uniform PointLight* pointLights,
+    in uniform SpotLight* spotLights,
+    in AABB* pointLightBVH,
+    in AABB* spotLightBVH)
 {
     // Build lower BVH for point lights
     if (lightCounts.NumPointLights > 0)
@@ -142,9 +141,9 @@ internal void BuildBottomBVH(
 // This stage can be generic, since we just deal with the BVH/AABBs and not the actual light data. phew!
 internal void BuildUpperImpl(
     in const uint dispatchThreadIndex,
-    in const uint childLevel,
-    in const uint numLevels,
-    inout RWStructuredBuffer<AABB> lightBVH)
+    in uniform uint childLevel,
+    in uniform uint numLevels,
+    inout AABB* lightBVH)
 {
 
     float3 minAABB = float3(FLT_MAX, FLT_MAX, FLT_MAX);
@@ -176,10 +175,10 @@ internal void BuildUpperImpl(
 internal void BuildUpper(
     in const uint dispatchThreadIndex,
     in const uint childLevel,
-    in const BVHParams bvhParams,
-    in const LightCounts lightCounts,
-    inout RWStructuredBuffer<AABB> pointLightBVH,
-    inout RWStructuredBuffer<AABB> spotLightBVH)
+    in uniform BVHParams* bvhParams,
+    in uniform LightCounts* lightCounts,
+    inout AABB* pointLightBVH,
+    inout AABB* spotLightBVH)
 {
     // Build upper BVH for point lights
     if (lightCounts.NumPointLights > 0)
@@ -196,39 +195,47 @@ internal void BuildUpper(
 
 [SpecializationConstant]
 const uint BuildStage = 0; // 0 for bottom, 1 for upper
+[SpecializationConstant]
+const uint NumThreads_X = 32 * 16; // wave size * 16
 
-struct ResourcePointers
+internal struct ResourcePointers
 {
-    RWStructuredBuffer<AABB>* PointLightBVH;
-    RWStructuredBuffer<AABB>* SpotLightBVH;
-    StructuredBuffer<PointLight>* PointLights;
-    StructuredBuffer<SpotLight>* SpotLights;
+    AABB* PointLightBVH;
+    AABB* SpotLightBVH;
+    PointLight* PointLights;
+    SpotLight* SpotLights;
     BVHParams* BvhParams;
     LightCounts* LightCounts;
-    RWTexture2D<uint>* PointLightIndices;
-    RWTexture2D<uint>* SpotLightIndices;
+    uint* PointLightIndices;
+    uint* SpotLightIndices;
 }
 
 // ChildLevel should automatically be made a push constant by the compiler
-[shader("compute")][NumThreads(32*16, 1, 1)]
+[shader("compute")][NumThreads(NumThreads_X, 1, 1)]
 void BuildBVH(uint3 dispatchThreadID : SV_DispatchThreadID, uniform ResourcePointers resources, uniform uint childLevel)
 {
-    RWStructuredBuffer<AABB> pointLightBVH = *resources.PointLightBVH;
-    RWStructuredBuffer<AABB> spotLightBVH = *resources.SpotLightBVH;
-    const RWTexture2D<uint> pointLightIndices = *resources.PointLightIndices;
-    const RWTexture2D<uint> spotLightIndices = *resources.SpotLightIndices;
-    const StructuredBuffer<PointLight> pointLights = *resources.PointLights;
-    const StructuredBuffer<SpotLight> spotLights = *resources.SpotLights;
-    const BVHParams bvhParams = *resources.BvhParams;
-    const LightCounts lightCounts = *resources.LightCounts;
-
     switch (BuildStage)
     {
         case 0:
-            BuildBottomBVH(dispatchThreadID.x, lightCounts, bvhParams, pointLightIndices, spotLightIndices, pointLights, spotLights, pointLightBVH, spotLightBVH);
+            BuildBottomBVH(
+                dispatchThreadID.x,
+                resources.LightCounts,
+                resources.BvhParams,
+                resources.PointLightIndices,
+                resources.SpotLightIndices,
+                resources.PointLights,
+                resources.SpotLights,
+                resources.PointLightBVH,
+                resources.SpotLightBVH);
             break;
         case 1:
-            BuildUpper(dispatchThreadID.x, childLevel, bvhParams, lightCounts, pointLightBVH, spotLightBVH);
+            BuildUpper(
+                dispatchThreadID.x,
+                childLevel,
+                resources.BvhParams,
+                resources.LightCounts,
+                resources.PointLightBVH,
+                resources.SpotLightBVH);
             break;
     }
 }
