@@ -35,7 +35,6 @@ constexpr size_t recipeSize = sizeof(ContentCompilerRecipe);
 
 struct ContentCompilerJob
 {
-
     void AddStartCompileFn(ccStartCompileFn fn);
     void AddCompileStepFn(ccCompileStepFn fn);
     void AddCompletionFn(ccCompletionFn fn);

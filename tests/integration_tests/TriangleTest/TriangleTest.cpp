@@ -634,6 +634,8 @@ void VulkanTriangle::endFrame()
 
 void VulkanTriangle::update()
 {
+    math::Matrix projection_matrix = math::Matrix::Perspective(60.0f, 16.0f / 9.0f, 0.1f, 300.0f);
+    uboDataVS.projection = math::FromMatrix(projection_matrix);
     uboDataVS.projection = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 300.0f);
     uboDataVS.projection[1][1] *= -1.0f;
     uboDataVS.view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -2.5f));

@@ -982,15 +982,18 @@ void VulkanComplexScene::createDescriptorPool()
 void VulkanComplexScene::createDescriptorSetLayouts()
 {
 
-    constexpr static VkDescriptorSetLayoutBinding unique_bindings[2] { 
-        VkDescriptorSetLayoutBinding{
+    constexpr static VkDescriptorSetLayoutBinding unique_bindings[2]
+    {
+        VkDescriptorSetLayoutBinding
+        {
             0,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             1,
             VK_SHADER_STAGE_VERTEX_BIT,
             nullptr
         },
-        VkDescriptorSetLayoutBinding{
+        VkDescriptorSetLayoutBinding
+        {
             1,
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             1,
@@ -1015,7 +1018,8 @@ void VulkanComplexScene::createDescriptorSets()
 
 void VulkanComplexScene::createUpdateTemplates()
 {
-    const VkDescriptorUpdateTemplateCreateInfo house_info{
+    const VkDescriptorUpdateTemplateCreateInfo house_info
+    {
         VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO,
         nullptr,
         0,

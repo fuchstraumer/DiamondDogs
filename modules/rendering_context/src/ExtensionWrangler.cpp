@@ -1,5 +1,4 @@
 #include "ExtensionWrangler.hpp"
-#include "GeneratedExtensionHeader.hpp"
 #include <algorithm>
 #include <vector>
 #include <cstring>

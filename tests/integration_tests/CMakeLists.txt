@@ -17,7 +17,6 @@ FUNCTION(ADD_INTEGRATION_TEST NAME)
         "../../../modules/common"
         ${VPR_INCLUDE_DIRS_TEST_RELATIVE}
         "../../../third_party"
-        "../../../third_party/glm"
         ${Vulkan_INCLUDE_DIR}
         "../fixtures"
     )

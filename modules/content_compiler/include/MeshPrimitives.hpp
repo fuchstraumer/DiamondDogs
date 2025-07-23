@@ -7,7 +7,8 @@ namespace vpsk {
 
     struct MeshData;
 
-    enum class ExtraFeatures {
+    enum class ExtraFeatures
+    {
         None,
         GenerateTangents
     };

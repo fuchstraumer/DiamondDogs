@@ -3,13 +3,11 @@
 #define VULKAN_TRIANGLE_RENDERER_CONTEXT_TEST_HPP
 #include "VulkanScene.hpp"
 #include "CommonCreationFunctions.hpp"
+#include "Math.hpp"
 #include <vector>
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
-class VulkanTriangle : public VulkanScene {
+class VulkanTriangle : public VulkanScene
+{
 protected:
     VulkanTriangle();
     ~VulkanTriangle();
@@ -41,32 +39,37 @@ protected:
     void setupFramebuffers();
     void setupSyncPrimitives();
 
-    struct Vertex {
-        float position[3];
-        float color[3];
+    struct Vertex
+    {
+        math::Float3 position;
+        math::Float3 color;
     };
 
-    struct {
+    struct
+    {
         VkDeviceMemory memory;
         VkBuffer buffer;
     } Vertices;
 
-    struct {
+    struct
+    {
         VkDeviceMemory memory;
         VkBuffer buffer;
         uint32_t count;
     } Indices;
 
-    struct {
+    struct
+    {
         VkDeviceMemory memory;
         VkBuffer buffer;
         VkDescriptorBufferInfo descriptor;
     } uniformBufferVS;
 
-    struct {
-        glm::mat4 model;
-        glm::mat4 view;
-        glm::mat4 projection;
+    struct
+    {
+        math::Float4x4 model;
+        math::Float4x4 view;
+        math::Float4x4 projection;
     } uboDataVS;
 
     DepthStencil depthStencil;

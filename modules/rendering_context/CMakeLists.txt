@@ -6,15 +6,12 @@ OPTION(RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS "Enable timestamps in debug info 
 OPTION(RENDERING_CONTEXT_DEBUG_INFO_CALLING_FN "Enable calling function name in debug info for rendering context" OFF)
 
 ADD_MODULE(rendering_context
-    "include/ExtensionWrangler.hpp"
     "include/PipelineExecutableInfo.hpp"
     "include/PlatformWindow.hpp"
     "include/RenderingContext.hpp"
-    "src/ExtensionWrangler.cpp"
     "src/PipelineExecutableInfo.cpp"
     "src/PlatformWindow.cpp"
     "src/RenderingContext.cpp"
-    "src/GeneratedExtensionHeader.hpp"
     "src/RenderingContextImpl.hpp"
     "src/RenderingContextImpl.cpp"
 )
@@ -45,10 +42,10 @@ ENDIF()
 
 find_package(Python COMPONENTS Interpreter)
 
-add_custom_target(generate_extension_headers ALL
-    COMMAND ${Python_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/GenerateExtensionAndFeatureHeaders.py"
-                                 "-specDir=$ENV{VULKAN_SDK}" "-outputDir=${CMAKE_CURRENT_SOURCE_DIR}/src"
-    BYPRODUCTS "${CMAKE_CURRENT_SOURCE_DIR}/src/GeneratedExtensionHeader.hpp"
-    COMMENT "Generating extension lookup header")
+#add_custom_target(generate_extension_headers ALL
+#    COMMAND ${Python_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/GenerateExtensionAndFeatureHeaders.py"
+#                                 "-specDir=$ENV{VULKAN_SDK}" "-outputDir=${CMAKE_CURRENT_SOURCE_DIR}/src"
+#    BYPRODUCTS "${CMAKE_CURRENT_SOURCE_DIR}/src/GeneratedExtensionHeader.hpp"
+#    COMMENT "Generating extension lookup header")
 
-add_dependencies(rendering_context generate_extension_headers)
+#add_dependencies(rendering_context generate_extension_headers)

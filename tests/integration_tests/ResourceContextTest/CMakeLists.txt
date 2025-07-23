@@ -11,11 +11,9 @@ ADD_INTEGRATION_TEST(ResourceContextTest
 
 TARGET_INCLUDE_DIRECTORIES(ResourceContextTest PRIVATE 
     "${Vulkan_INCLUDE_DIR}"
-    "../../../third_party/glm"
     "../fixtures/"
     "../../../third_party"
     "../../../ext/include"
-    "../../../third_party/gli"
     "../../../third_party/tinyobjloader/experimental"
     "../../../modules/rendering_context/include"
     "../../../modules/resource_context/include"

@@ -7,34 +7,34 @@
 
 namespace foundation
 {
+    /**
+     * @brief Memory safety modes for object handles
+     * 
+     * Different modes provide varying levels of safety and performance tradeoffs.
+     */
     enum class memory_mode : uint8_t
     {
-        // Just a sentinel value for prohibiting invalid usage/behavior
+        /// Sentinel value for invalid usage
         invalid = 0,
-        /*
-            In "Fast" mode, a strong_handle is akin to a unique_ptr, and weak_handles
-            + raw_handles are effectively just raw pointers. This will provide the 
-            fastest behavior, but removes the ability for replays, safety checks,
-            or the reallocation/defrag/compacting functionality.
-        */
+        /**
+         * @brief Fastest mode with minimal safety guarantees
+         * 
+         * Provides performance similar to raw pointers with no safety checks.
+         * @note Removes ability for replays, safety checks, and memory compacting
+         */
        fast = 1,
-       /*
-            In MinimalSafety mode we mostly benefit from some mild safety. This mode does
-            cause a performance decline, but can be worth it for allowing large
-            amounts of easier scaling to multiple cores. The main change is that
-            dangling pointers don't cause segfaults or memory corruption, but
-            instead throw exceptions that can be caught by user systems.
-       */
+       /**
+        * @brief Minimal safety mode with exception-based error handling
+        * 
+        * Provides basic safety by throwing exceptions instead of causing crashes.
+        */
       minimal_safety = 2,
-      /*
-            In FullSafety mode, we get the above safety with additional memory relocation
-            and compacting routines, which can be especially useful for games that have
-            long runtimes / uptimes (e.g, dedicated servers benefit from such things, potentially).
-            Defragmenting of memory can also be performed too, performed by memory
-            "category" set by the user. This way memory categories can be moved closer together, 
-            then using supplied comparator functions and type hashes to further sort items 
-            into new in-memory locations.
-      */
+      /**
+       * @brief Full safety mode with memory relocation and compacting
+       * 
+       * Includes all safety features plus memory defragmentation capabilities.
+       * @note Especially useful for long-running applications like dedicated servers
+       */
      full_safety = 3
     };
 
@@ -66,19 +66,37 @@ namespace foundation
 
     }
 
+    /**
+     * @brief Exception type for fabric handle operations
+     * 
+     * Thrown when handle operations fail in safety modes.
+     */
     struct fabric_exception : public std::exception
     {
 
+        /**
+         * @brief Types of fabric exceptions that can be thrown
+         */
         enum class type : uint8_t
         {
-            Invalid,
-            MinSafetyPtrIdMismatch,
-            FailureToRemapInvalidPointer,
-            PointerIdMismatchAndMissingRelocFn
+            Invalid,                              ///< Invalid exception type
+            MinSafetyPtrIdMismatch,              ///< ID mismatch in minimal safety mode
+            FailureToRemapInvalidPointer,        ///< Failed to remap pointer in full safety mode
+            PointerIdMismatchAndMissingRelocFn   ///< ID mismatch with no relocation function
         };
 
+        /**
+         * @brief Construct fabric exception with specific type
+         * 
+         * @param exception_type The type of exception being thrown
+         */
         fabric_exception(type exception_type) : std::exception(), exceptionType(exception_type) {}
 
+        /**
+         * @brief Get human-readable description of the exception
+         * 
+         * @return C-string describing the exception
+         */
         const char* what() const
         {
             switch (exceptionType)
@@ -94,20 +112,41 @@ namespace foundation
             };
         }
 
-        type exceptionType{ type::Invalid };
+        type exceptionType{ type::Invalid };  ///< The specific exception type
     };
 
+    /**
+     * @brief Type-safe handle for managing object lifetime and access
+     * 
+     * Provides different safety guarantees based on the memory_mode template parameter.
+     * Handles can safely access objects even when memory is relocated or compacted.
+     * 
+     * @tparam T The type of object being managed
+     * @tparam MemoryMode The safety mode for this handle type
+     */
     template<typename T, memory_mode MemoryMode>
     struct object_handle
     {
     public:
 
+        /// Function type for relocating objects when memory is moved
         using relocation_lookup_fn_t = void*(*)(uint64_t ID, void* allocator);
 
+        /**
+         * @brief Set the relocation function for this handle type
+         * 
+         * @param fn Function to call when object needs to be relocated
+         * @note Required for full_safety mode when memory compaction occurs
+         */
         static void SetRelocationFunction(relocation_lookup_fn_t fn);
 
-        // Returns mutable pointer to object, and will throw exceptions as appropriate based on
-        // safety mode.
+        /**
+         * @brief Get mutable pointer to the managed object
+         * 
+         * @return Mutable pointer to object
+         * @throws fabric_exception If object is invalid and safety mode enables exceptions
+         * @note Behavior varies based on memory_mode template parameter
+         */
         T* get_mutable()
         {
             using namespace fabric::detail;
@@ -158,8 +197,12 @@ namespace foundation
             }
         }
 
-        // In fast mode, the only difference in this function is that we'll check validity and return null if not valid. In safety modes, 
-        // we return nullptr instead of throwing an exception in our failure paths
+        /**
+         * @brief Safely attempt to get mutable pointer without throwing exceptions
+         * 
+         * @return Mutable pointer to object, or nullptr if invalid
+         * @note Returns nullptr instead of throwing exceptions on failure
+         */
         T* try_and_get_mutable()
         {
             using namespace::fabric::detail;
@@ -211,16 +254,33 @@ namespace foundation
             }
         }
 
+        /**
+         * @brief Get const pointer to the managed object
+         * 
+         * @return Const pointer to object
+         * @throws fabric_exception If object is invalid and safety mode enables exceptions
+         */
         const T* get() const
         {
             return get_mutable();
         }
 
+        /**
+         * @brief Safely attempt to get const pointer without throwing exceptions
+         * 
+         * @return Const pointer to object, or nullptr if invalid
+         */
         const T* try_and_get() const
         {
             return try_and_get_mutable();
         }
 
+        /**
+         * @brief Check if the handle points to a valid object
+         * 
+         * @return True if handle is valid, false otherwise
+         * @note Non-blocking operation that never throws exceptions
+         */
         bool valid() const noexcept
         {
             using namespace fabric::detail;

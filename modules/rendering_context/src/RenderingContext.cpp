@@ -22,8 +22,6 @@
 #endif
 #include "nlohmann/json.hpp"
 
-#include "GeneratedExtensionHeader.hpp"
-
 static post_physical_device_pre_logical_device_function_t postPhysicalPreLogicalSetupFunction = nullptr;
 static post_logical_device_function_t postLogicalDeviceFunction = nullptr;
 static void* usedNextPtr = nullptr;
@@ -34,9 +32,13 @@ static bool validationEnabled{ false };
 struct swapchain_callbacks_storage_t
 {
     std::forward_list<decltype(SwapchainCallbacks::SwapchainCreated)> CreationFns;
+    std::unordered_map<std::add_pointer<decltype(SwapchainCallbacks::SwapchainCreated)>::type, void*> CreationFnUserData;
     std::forward_list<decltype(SwapchainCallbacks::BeginResize)> BeginFns;
+    std::unordered_map<std::add_pointer<decltype(SwapchainCallbacks::BeginResize)>::type, void*> BeginFnUserData;
     std::forward_list<decltype(SwapchainCallbacks::CompleteResize)> CompleteFns;
+    std::unordered_map<std::add_pointer<decltype(SwapchainCallbacks::CompleteResize)>::type, void*> CompleteFnUserData;
     std::forward_list<decltype(SwapchainCallbacks::SwapchainDestroyed)> DestroyedFns;
+    std::unordered_map<std::add_pointer<decltype(SwapchainCallbacks::SwapchainDestroyed)>::type, void*> DestroyedFnUserData;
 };
 static swapchain_callbacks_storage_t SwapchainCallbacksStorage;
 inline void RecreateSwapchain();
@@ -313,16 +315,40 @@ inline void RecreateSwapchain()
 
     for (auto& fn : SwapchainCallbacksStorage.BeginFns)
     {
-        fn(Context.Swapchain()->vkHandle(), width, height);
+        auto userDataIter = SwapchainCallbacksStorage.BeginFnUserData.find(&fn);
+        if (userDataIter != SwapchainCallbacksStorage.BeginFnUserData.end())
+        {
+            void* userData = userDataIter->second;
+            if (userData)
+            {
+                fn(Context.Swapchain()->vkHandle(), width, height, userData);
+            }
+            else
+            {
+                fn(Context.Swapchain()->vkHandle(), width, height, nullptr);
+            }
+        }
     }
-
+    
     vpr::RecreateSwapchainAndSurface(Context.Swapchain(), Context.Surface());
     Context.Device()->UpdateSurface(Context.Surface()->vkHandle());
 
     Context.Window()->GetWindowSize(width, height);
     for (auto& fn : SwapchainCallbacksStorage.CompleteFns)
     {
-        fn(Context.Swapchain()->vkHandle(), width, height);
+        auto userDataIter = SwapchainCallbacksStorage.CompleteFnUserData.find(&fn);
+        if (userDataIter != SwapchainCallbacksStorage.CompleteFnUserData.end())
+        {
+            void* userData = userDataIter->second;
+            if (userData)
+            {
+                fn(Context.Swapchain()->vkHandle(), width, height, userData);
+            }
+            else
+            {
+                fn(Context.Swapchain()->vkHandle(), width, height, nullptr);
+            }
+        }
     }
 
     vkDeviceWaitIdle(Context.Device()->vkHandle());
@@ -622,10 +648,10 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
     vulkanInstance = std::make_unique<vpr::Instance>(layers, &application_info, &extensionPack);
 
     queriedDeviceFeatures = std::make_unique<QueriedDeviceFeatures>();
-    GetPhysicalDeviceFeatures(vulkanInstance->vkHandle(), api_version, *queriedDeviceFeatures);
+    //GetPhysicalDeviceFeatures(vulkanInstance->vkHandle(), api_version, *queriedDeviceFeatures);
 
     extensionPack.featuresToEnable = nullptr;
-    extensionPack.featuresToEnable2 = &queriedDeviceFeatures->deviceFeaturesBase;
+    extensionPack.featuresToEnable2 = nullptr;// &queriedDeviceFeatures->deviceFeaturesBase;
 
     physicalDevices.emplace_back(std::make_unique<vpr::PhysicalDevice>(vulkanInstance->vkHandle(), &extensionPack));
 }
