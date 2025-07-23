@@ -5,7 +5,8 @@ __include VtfFunctions;
 import ddCommon;
 
 // This constant is also the size of the "chunks" we run the radix sort on
-const uint RadixSortNumThreads = 256;
+[SpecializationConstant]
+internal const uint RadixSortNumThreads = 256;
 
 internal groupshared uint gs_RadixKeys[RadixSortNumThreads];
 internal groupshared uint gs_RadixValues[RadixSortNumThreads];
@@ -16,12 +17,11 @@ internal groupshared uint gs_FalseKeyDestinationIdx[RadixSortNumThreads];
 // "D" in the psuedocode this comes from
 internal groupshared uint gs_KeyDestinationIdx[RadixSortNumThreads];
 internal groupshared uint gs_NumFalseKeys; // num false keys per iteration
-static const uint UINT_MAX = 0xFFFFFFFFu;
-static const uint NumBits = 32u;
+internal static const uint UINT_MAX = 0xFFFFFFFFu;
+internal static const uint NumBits = 32u;
 
 [shader("compute")][NumThreads(RadixSortNumThreads, 1, 1)]
-void VtfRadixSort(
-    uint3 dispatchThreadID : SV_DispatchThreadID,
+void VtfRadixSort_NoWaveOps(
     uint localInvocationIndex : SV_GroupIndex,
     const uint* InputKeys,
     const uint* InputValues,
@@ -30,32 +30,33 @@ void VtfRadixSort(
     uniform uint NumElements)
 {
     // Initialize keys and values in shared memory
-    gs_RadixKeys[localInvocationIndex] = dispatchThreadID.x < NumElements ? InputKeys[dispatchThreadID.x] : UINT_MAX;
-    gs_RadixValues[localInvocationIndex] = dispatchThreadID.x < NumElements ? InputValues[dispatchThreadID.x] : UINT_MAX;
+    gs_RadixKeys[localInvocationIndex] = localInvocationIndex < NumElements ? InputKeys[localInvocationIndex] : UINT_MAX;
+    gs_RadixValues[localInvocationIndex] = localInvocationIndex < NumElements ? InputValues[localInvocationIndex] : UINT_MAX;
 
     // memory barrier to ensure all threads have written their keys and values
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
 
+    [unroll]
     for (uint b = 0; b < NumBits; ++b)
     {
         // Check to see if the key is false for this bit
-        const uint isSortKeyFalse = (gs_RadixKeys[localInvocationIndex] & (1u << b)) == 0u ? 1u : 0u;
+        const uint currKey = gs_RadixKeys[localInvocationIndex];
+        const uint isSortKeyFalse = (currKey & (1u << b)) == 0u ? 1u : 0u;
         gs_IsCurrentSortKeyBitFalse[localInvocationIndex] = isSortKeyFalse;
-        GroupMemoryBarrier();
         gs_FalseKeyDestinationIdx[localInvocationIndex] = localInvocationIndex == 0u ? gs_IsCurrentSortKeyBitFalse[localInvocationIndex - 1u] : 0u;
+        
         // memory barrier + group sync to ensure everyone is together for the next step
         GroupMemoryBarrierWithGroupSync();
 
-        [[unroll]]
+        [unroll]
         // iterate using logarithmic stride, performing parallel prefix sum (scan step)
-        for (uint i = 1u; i < RadixSortNumThreads; i <<= 1u)
+        for (uint stride = 1u; stride < RadixSortNumThreads; stride <<= 1u)
         {
-            uint currValue = gs_FalseKeyDestinationIdx[localInvocationIndex];
-            uint prevValue = (localInvocationIndex >= i) ? gs_FalseKeyDestinationIdx[localInvocationIndex - i] : 0u;
-            currValue += prevValue;
-            GroupMemoryBarrier();
-            gs_FalseKeyDestinationIdx[localInvocationIndex] = currValue;
-            GroupMemoryBarrier();
+            uint prevValue = (localInvocationIndex >= stride) ? gs_FalseKeyDestinationIdx[localInvocationIndex - stride] : 0u;
+            uint newValue = gs_FalseKeyDestinationIdx[localInvocationIndex] + prevValue;
+
+            GroupMemoryBarrierWithGroupSync();
+            gs_FalseKeyDestinationIdx[localInvocationIndex] = newValue;
         }
 
         if (localInvocationIndex == 0u)
@@ -64,43 +65,40 @@ void VtfRadixSort(
             gs_NumFalseKeys = gs_FalseKeyDestinationIdx[lastIdx] + gs_IsCurrentSortKeyBitFalse[lastIdx];
         }
 
-        GroupMemoryBarrierWithGroupSync();
-
         // Now we know how many false keys there are, we can calculate the destination index for each key
+        uint destIdx = 0u;
         if (gs_IsCurrentSortKeyBitFalse[localInvocationIndex] == 1u)
         {
             // If the key is false, it goes to the front of the array
-            gs_KeyDestinationIdx[localInvocationIndex] = gs_FalseKeyDestinationIdx[localInvocationIndex];
+            destIdx = gs_FalseKeyDestinationIdx[localInvocationIndex];
         }
         else
         {
             // If the key is true, it goes to the end of the array
-            gs_KeyDestinationIdx[localInvocationIndex] = localInvocationIndex - gs_FalseKeyDestinationIdx[localInvocationIndex] + gs_NumFalseKeys;
+            uint offsetForTrueKeys = localInvocationIndex - gs_FalseKeyDestinationIdx[localInvocationIndex];
+            destIdx = gs_NumFalseKeys + offsetForTrueKeys;
         }
 
-        const uint key = gs_RadixKeys[localInvocationIndex];
-        const uint value = gs_RadixValues[localInvocationIndex];
+        GroupMemoryBarrierWithGroupSync();
 
-        GroupMemoryBarrier();
-
-        const uint destIdx = gs_KeyDestinationIdx[localInvocationIndex];
-        gs_RadixKeys[destIdx] = key;
-        gs_RadixValues[destIdx] = value;
+        gs_RadixKeys[destIdx] = currKey;
+        gs_RadixValues[destIdx] = gs_RadixValues[localInvocationIndex];
 
         GroupMemoryBarrierWithGroupSync();
     }
 
     // Write the sorted keys and values back to the output arrays
-    if (dispatchThreadID.x < NumElements)
+    if (localInvocationIndex < NumElements)
     {
-        OutputKeys[dispatchThreadID.x] = gs_RadixKeys[localInvocationIndex];
-        OutputValues[dispatchThreadID.x] = gs_RadixValues[localInvocationIndex];
+        OutputKeys[localInvocationIndex] = gs_RadixKeys[localInvocationIndex];
+        OutputValues[localInvocationIndex] = gs_RadixValues[localInvocationIndex];
     }
 }
 
 // Same as above, but uses wave operations to increase performance and reduce shared memory reads/writes
-// 3 barriers, and several times fewer shared memory ops (plus we don't use the gs_IsCurrentSortKeyBitFalse array or gs_NumFalseKeys)
-[shader("compute")] [NumThreads(RadixSortNumThreads, 1, 1)]
+// Way fewer barriers - 3 barriers per bit tested for a total of 96 sync points, vs 192 sync points in the non-wave version
+// also probably about 1kb reduction in shared memory usage, so hopefully higher occupancy
+[shader("compute")][NumThreads(RadixSortNumThreads, 1, 1)]
 void VtfRadixSort_WaveOps(
     uint localInvocationIndex: SV_GroupIndex,
     const uint *InputKeys,
@@ -113,8 +111,8 @@ void VtfRadixSort_WaveOps(
     gs_RadixKeys[localInvocationIndex] = localInvocationIndex < NumElements ? InputKeys[localInvocationIndex] : UINT_MAX;
     gs_RadixValues[localInvocationIndex] = localInvocationIndex < NumElements ? InputValues[localInvocationIndex] : UINT_MAX;
 
-    // memory barrier to ensure all threads have written their keys and values
-    GroupMemoryBarrier();
+    // full sync before we start the loop
+    GroupMemoryBarrierWithGroupSync();
 
     for (uint b = 0; b < NumBits; ++b)
     {

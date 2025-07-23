@@ -7,13 +7,13 @@ import ddCommon;
 import glsl;
 
 [SpecializationConstant]
-const uint NumThreads = 32;
+const uint AssignLightsToClustersNumThreads = 32;
 [SpecializationConstant]
 const uint MaxLights = 2048;
 [SpecializationConstant]
 const uint NODE_STACK_LIMITS = 1024;
 
-const uint NumChildNodes[6] =
+internal static const uint NumChildNodes[6] =
 {
     1u,
     33u,
@@ -211,8 +211,8 @@ internal void ProcessPointLights(
     }
 }
 
-[shader("compute")][NumThreads(NumThreads, 1, 1)]
-void AssignLightsToClustersBVH(
+[shader("compute")][NumThreads(AssignLightsToClustersNumThreads, 1, 1)]
+void AssignLightsToClusters(
     uint3 dispatchThreadID: SV_DispatchThreadID,
     uint3 workGroupID: SV_GroupID,
     uint localInvocationIndex: SV_GroupIndex,
