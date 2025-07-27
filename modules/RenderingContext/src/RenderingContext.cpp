@@ -22,14 +22,15 @@
 #endif
 #include "nlohmann/json.hpp"
 
-static post_physical_device_pre_logical_device_function_t postPhysicalPreLogicalSetupFunction = nullptr;
-static post_logical_device_function_t postLogicalDeviceFunction = nullptr;
+static PostPhysicalDeviceInitPreLogicalDeviceInitFunction postPhysicalPreLogicalSetupFunction = nullptr;
+static PostLogicalDeviceInitFunction postLogicalDeviceFunction = nullptr;
 static void* usedNextPtr = nullptr;
 static VkPhysicalDeviceFeatures* enabledDeviceFeatures = nullptr;
 static std::vector<std::string> extensionsBuffer;
 static std::string windowingModeBuffer;
 static bool validationEnabled{ false };
-struct swapchain_callbacks_storage_t
+
+struct SwapchainCallbacksStorageType
 {
     std::forward_list<decltype(SwapchainCallbacks::SwapchainCreated)> CreationFns;
     std::unordered_map<std::add_pointer<decltype(SwapchainCallbacks::SwapchainCreated)>::type, void*> CreationFnUserData;
@@ -40,7 +41,8 @@ struct swapchain_callbacks_storage_t
     std::forward_list<decltype(SwapchainCallbacks::SwapchainDestroyed)> DestroyedFns;
     std::unordered_map<std::add_pointer<decltype(SwapchainCallbacks::SwapchainDestroyed)>::type, void*> DestroyedFnUserData;
 };
-static swapchain_callbacks_storage_t SwapchainCallbacksStorage;
+static SwapchainCallbacksStorageType SwapchainCallbacksStorage;
+
 inline void RecreateSwapchain();
 
 std::string objectTypeToString(const VkObjectType type);
@@ -150,7 +152,8 @@ void RenderingContext::Construct(const char* file_path)
     {
         SetObjectNameFn = logicalDevice->DebugUtilsHandler().vkSetDebugUtilsObjectName;
 
-        const VkDebugUtilsMessengerCreateInfoEXT messenger_info{
+        const VkDebugUtilsMessengerCreateInfoEXT messenger_info
+        {
             VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
             nullptr,
             0,
@@ -202,9 +205,11 @@ void RenderingContext::Construct(const char* file_path)
     auto iter = json_file.find("VerticalSyncMode");
     // We want to go for this, as it's the ideal mode usually.
     vpr::vertical_sync_mode desired_mode = vpr::vertical_sync_mode::VerticalSyncMailbox;
-    if (iter != json_file.end()) {
+    if (iter != json_file.end())
+    {
         auto present_mode_iter = present_mode_from_str_map.find(json_file.at("VerticalSyncMode"));
-        if (present_mode_iter != std::cend(present_mode_from_str_map)) {
+        if (present_mode_iter != std::cend(present_mode_from_str_map))
+        {
             desired_mode = present_mode_iter->second;
         }
     }
@@ -379,7 +384,7 @@ void AddSwapchainCallbacks(SwapchainCallbacks callbacks)
     }
 }
 
-void RenderingContext::AddSetupFunctions(post_physical_device_pre_logical_device_function_t fn0, post_logical_device_function_t fn1)
+void RenderingContext::AddSetupFunctions(PostPhysicalDeviceInitPreLogicalDeviceInitFunction fn0, PostLogicalDeviceInitFunction fn1)
 {
     postPhysicalPreLogicalSetupFunction = fn0;
     postLogicalDeviceFunction = fn1;
@@ -939,19 +944,9 @@ void GetPhysicalDeviceFeatures(VkInstance instance, const uint32_t apiVersion, Q
 
 void AddDependenciesForSetOfExtensions(std::vector<std::string>& extensions)
 {
-	std::vector<std::string> extensions_dependencies_strs;
-	for (const auto& str : extensions)
-	{
-		const auto iter = extensionIndexLookupMap.find(str);
-		if (iter != extensionIndexLookupMap.cend())
-		{
-			auto& dependencies = dependencyTable.at(iter->second);
-			for (auto iter = dependencies.cbegin(); iter != dependencies.cend() && *iter != std::numeric_limits<size_t>::max(); ++iter)
-			{
-				extensions_dependencies_strs.emplace_back(masterExtensionNameTable[*iter]);
-			}
-		}
-	}
+    std::vector<std::string> extensions_dependencies_strs;
+
+    
 
 
     if (!extensions_dependencies_strs.empty())

@@ -58,23 +58,29 @@ class PlatformWindow;
 struct GLFWwindow;
 struct GLFWcursor;
 struct GLFWimage;
-using cursor_pos_callback_t = delegate_t<void(double pos_x, double pos_y)>;
-using cursor_enter_callback_t = delegate_t<void(int enter)>;
-using scroll_callback_t = delegate_t<void(double scroll_x, double scroll_y)>;
-using char_callback_t = delegate_t<void(unsigned int code_point)>;
-using path_drop_callback_t = delegate_t<void(int count, const char** paths)>;
-using mouse_button_callback_t = delegate_t<void(int button, int action, int mods)>;
-using keyboard_key_callback_t = delegate_t<void(int key, int scancode, int action, int mods)>;
+using CursorPosCallbackType = delegate_t<void(double pos_x, double pos_y)>;
+using CursorEnterCallbackType = delegate_t<void(int enter)>;
+using ScrollCallbackType = delegate_t<void(double scroll_x, double scroll_y)>;
+using CharCallbackType = delegate_t<void(unsigned int code_point)>;
+using PathDropCallbackType = delegate_t<void(int count, const char** paths)>;
+using MouseButtonCallbackType = delegate_t<void(int button, int action, int mods)>;
+using KeyboardKeyCallbackType = delegate_t<void(int key, int scancode, int action, int mods)>;
 
-using post_physical_device_pre_logical_device_function_t = void(*)(VkPhysicalDevice dvc, VkPhysicalDeviceFeatures** features, void** pNext);
-using post_logical_device_function_t = void(*)(void* pNext);
+using PostPhysicalDeviceInitPreLogicalDeviceInitFunction = void(*)(VkPhysicalDevice dvc, VkPhysicalDeviceFeatures** features, void** pNext);
+using PostLogicalDeviceInitFunction = void(*)(void* pNext);
+
+
+using SwapchainCreatedCallbackType = delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)>;
+using SwapchainBeginResizeCallbackType = delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)>;
+using SwapchainCompleteResizeCallbackType = delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)>;
+using SwapchainDestroyedCallbackType = delegate_t<void(VkSwapchainKHR handle, void* userData)>;
 
 struct SwapchainCallbacks
 {
-    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)> SwapchainCreated;
-    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)> BeginResize;
-    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)> CompleteResize;
-    delegate_t<void(VkSwapchainKHR handle, void* userData)> SwapchainDestroyed;
+    SwapchainCreatedCallbackType SwapchainCreated;
+    SwapchainBeginResizeCallbackType BeginResize;
+    SwapchainCompleteResizeCallbackType CompleteResize;
+    SwapchainDestroyedCallbackType SwapchainDestroyed;
 };
 
 struct DescriptorLimits
@@ -114,17 +120,17 @@ public:
     PlatformWindow* Window() noexcept;
     GLFWwindow* glfwWindow() noexcept;
 
-    static void AddSetupFunctions(post_physical_device_pre_logical_device_function_t fn0, post_logical_device_function_t fn1);
+    static void AddSetupFunctions(PostPhysicalDeviceInitPreLogicalDeviceInitFunction fn0, PostLogicalDeviceInitFunction fn1);
     static void AddSwapchainCallbacks(SwapchainCallbacks callbacks);
     static void GetWindowSize(int& w, int& h);
     static void GetFramebufferSize(int& w, int& h);
-    static void RegisterCursorPosCallback(cursor_pos_callback_t callback_fn);
-    static void RegisterCursorEnterCallback(cursor_enter_callback_t callback_fn);
-    static void RegisterScrollCallback(scroll_callback_t callback_fn);
-    static void RegisterCharCallback(char_callback_t callback_fn);
-    static void RegisterPathDropCallback(path_drop_callback_t callback_fn);
-    static void RegisterMouseButtonCallback(mouse_button_callback_t callback_fn);
-    static void RegisterKeyboardKeyCallback(keyboard_key_callback_t callback_fn);
+    static void RegisterCursorPosCallback(CursorPosCallbackType callback_fn);
+    static void RegisterCursorEnterCallback(CursorEnterCallbackType callback_fn);
+    static void RegisterScrollCallback(ScrollCallbackType callback_fn);
+    static void RegisterCharCallback(CharCallbackType callback_fn);
+    static void RegisterPathDropCallback(PathDropCallbackType callback_fn);
+    static void RegisterMouseButtonCallback(MouseButtonCallbackType callback_fn);
+    static void RegisterKeyboardKeyCallback(KeyboardKeyCallbackType callback_fn);
     static int GetMouseButton(int button);
     static void GetCursorPosition(double& x, double& y);
     static void SetCursorPosition(double x, double y);

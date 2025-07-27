@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vulkan/vulkan_core.h>
 #include <memory>
+#include <optional>
 
 // Will have to allocate room for the extension deps, so need the whole rule of 5
 struct ExtensionDependencies
@@ -17,6 +18,11 @@ public:
     ExtensionDependencies& operator=(const ExtensionDependencies&) = delete;
     ExtensionDependencies(ExtensionDependencies&&) noexcept;
     ExtensionDependencies& operator=(ExtensionDependencies&&) noexcept;
+
+    bool IsOnlyVersionDependent() const
+    {
+        return numInstanceExtensionDeps == 0 && numDeviceExtensionDeps == 0 && versionDep != 0;
+    }
 
     uint32_t versionDep;
 
@@ -40,8 +46,8 @@ public:
     bool ExtensionIsInstanceExtension(const char* extensionName) const;
     bool ExtensionCoreInActiveVersion(const char* extensionName) const;
 
-    ExtensionDependencies GetExtensionDependencies(const char* extensionName) const;
-    ExtensionDependencies GetExtensionDependencies(const size_t numExtensions, const char** extensionNames) const;
+    std::optional<ExtensionDependencies> GetExtensionDependencies(const char* extensionName) const;
+    std::optional<ExtensionDependencies> GetExtensionDependencies(const size_t numExtensions, const char** extensionNames) const;
 
     enum class GetVersionFeatures
     {
@@ -66,6 +72,9 @@ public:
         GetVersionProperties getVersionProperties = GetVersionProperties::False) const;
 
 private:
+
+    std::optional<ExtensionDependencies> getExtensionDependenciesInternal(const char* extensionName, const size_t extensionIndex) const;
+
     std::unique_ptr<struct DependencyCache> dependencyCache;
     uint32_t apiVersion;
     VkPhysicalDevice physicalDevice;
