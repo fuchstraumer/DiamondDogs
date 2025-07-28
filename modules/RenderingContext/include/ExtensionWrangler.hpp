@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <expected>
 
 // Will have to allocate room for the extension deps, so need the whole rule of 5
 struct ExtensionDependencies
@@ -37,6 +38,17 @@ class ExtensionWrangler
 {
 public:
 
+    enum class DependencyError
+    {
+        Invalid,
+        NoExtensionsProvided,
+        ExtensionNotSupported,
+        NoDependenciesForExtension,
+        ApiVersionNotValid,
+        ExtensionNotInDependencyTableForVersion,
+        ExtensionNotInstanceOrDeviceExtension
+    };
+
     /**
      * @brief Constructs an ExtensionWrangler instance. Can be used before the Vulkan instance or a physical device is created by passing VK_NULL_HANDLE for the _physicalDevice parameter.
      * @param _apiVersion The Vulkan API version to use.
@@ -58,9 +70,9 @@ public:
     bool ExtensionCoreInActiveVersion(const std::string_view extensionName) const;
 
     /** @brief Returns an instance of the ExtensionDependencies struct containing all required dependencies for the specified extension. */
-    std::optional<ExtensionDependencies> GetExtensionDependencies(const std::string_view extensionName) const;
+    std::expected<ExtensionDependencies, DependencyError> GetExtensionDependencies(const std::string_view extensionName) const;
     /** @brief Returns a deduplicated instance of ExtensionDependencies with all required dependencies for the specified set of extensions (i.e, the common set of required dependencies) */
-    std::optional<ExtensionDependencies> GetExtensionDependencies(const size_t numExtensions, const std::string_view* extensionNames) const;
+    std::expected<ExtensionDependencies, DependencyError> GetExtensionDependencies(const size_t numExtensions, const std::string_view* extensionNames) const;
 
     enum class GetVersionFeatures
     {
@@ -81,7 +93,7 @@ public:
      * @param collectDependencies Whether to collect dependencies for the extensions (default: false)
      * @return A VkPhysicalDeviceFeatures2 struct with the pNext chain populated with the features for the given extensions
      */
-    VkPhysicalDeviceFeatures2 GetExtensionFeatures(
+    std::expected<VkPhysicalDeviceFeatures2, DependencyError> GetExtensionFeatures(
         const size_t numExtensions,
         const std::string_view* extensionNames,
         GetVersionFeatures getVersionFeatures = GetVersionFeatures::False,
@@ -89,7 +101,7 @@ public:
 
 private:
 
-    std::optional<ExtensionDependencies> getExtensionDependenciesInternal(const std::string_view extensionName, const size_t extensionIndex) const;
+    std::expected<ExtensionDependencies, DependencyError> getExtensionDependenciesInternal(const std::string_view extensionName, const size_t extensionIndex) const;
 
     uint32_t apiVersion;
     VkPhysicalDevice physicalDevice;
