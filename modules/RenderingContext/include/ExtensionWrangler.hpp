@@ -46,7 +46,8 @@ public:
         NoDependenciesForExtension,
         ApiVersionNotValid,
         ExtensionNotInDependencyTableForVersion,
-        ExtensionNotInstanceOrDeviceExtension
+        ExtensionNotInstanceOrDeviceExtension,
+        CurrentApiVersionDoesNotSupportExtension
     };
 
     /**
