@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <chrono>
 #include <memory>
+#include <vector>
 
-namespace vpr {
+namespace vpr
+{
     class Device;
     class PhysicalDevice;
     class Instance;
@@ -13,14 +15,16 @@ namespace vpr {
     class Semaphore;
 }
 
-struct RequiredVprObjects {
+struct RequiredVprObjects
+{
     vpr::Device* device;
     vpr::PhysicalDevice* physicalDevice;
     vpr::Instance* instance;
     vpr::Swapchain* swapchain;
 };
 
-class VulkanScene {
+class VulkanScene
+{
 protected:
     VulkanScene();
     virtual ~VulkanScene();
@@ -48,9 +52,10 @@ protected:
     std::chrono::system_clock::time_point limiterA;
     std::chrono::system_clock::time_point limiterB;
     uint32_t currentBuffer;
+    uint32_t numFramebuffers;
     RequiredVprObjects vprObjects;
-    std::unique_ptr<vpr::Semaphore> imageAcquireSemaphore;
-    std::unique_ptr<vpr::Semaphore> renderCompleteSemaphore;
+    std::vector<std::unique_ptr<vpr::Semaphore>> imageAcquireSemaphores;
+    std::vector<std::unique_ptr<vpr::Semaphore>> renderCompleteSemaphores;
 
 };
 
