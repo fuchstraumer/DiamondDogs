@@ -615,7 +615,7 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
         required_extensions.emplace_back(str);
     }
 
-    std::optional<ExtensionDependencies> requiredExtensionDeps = extensionWrangler->GetExtensionDependencies(required_extensions.size(), required_extensions.data());
+    std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> requiredExtensionDeps = extensionWrangler->GetExtensionDependencies(required_extensions.size(), required_extensions.data());
     if (requiredExtensionDeps.has_value())
     {
         for (size_t i = 0; i < requiredExtensionDeps->numInstanceExtensionDeps; ++i)
@@ -630,7 +630,7 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
         requested_extensions.emplace_back(str);
     }
 
-    std::optional<ExtensionDependencies> requestedExtensionDeps = extensionWrangler->GetExtensionDependencies(requested_extensions.size(), requested_extensions.data());
+    std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> requestedExtensionDeps = extensionWrangler->GetExtensionDependencies(requested_extensions.size(), requested_extensions.data());
     if (requestedExtensionDeps.has_value())
     {
         for (size_t i = 0; i < requestedExtensionDeps->numInstanceExtensionDeps; ++i)
@@ -711,7 +711,8 @@ void RenderingContext::createLogicalDevice(const nlohmann::json& json_file, vpr:
         required_extensions_strs_view.emplace_back(str);
     }
 
-    std::optional<ExtensionDependencies> required_extension_deps = extensionWrangler->GetExtensionDependencies(required_extensions_strs_view.size(), required_extensions_strs_view.data());
+    std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> required_extension_deps =
+        extensionWrangler->GetExtensionDependencies(required_extensions_strs_view.size(), required_extensions_strs_view.data());
     if (required_extension_deps.has_value())
     {
         for (size_t i = 0; i < required_extension_deps->numDeviceExtensionDeps; ++i)
@@ -726,7 +727,8 @@ void RenderingContext::createLogicalDevice(const nlohmann::json& json_file, vpr:
         requested_extensions_strs_view.emplace_back(str);
     }
 
-    std::optional<ExtensionDependencies> requested_extension_deps = extensionWrangler->GetExtensionDependencies(requested_extensions_strs_view.size(), requested_extensions_strs_view.data());
+    std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> requested_extension_deps =
+        extensionWrangler->GetExtensionDependencies(requested_extensions_strs_view.size(), requested_extensions_strs_view.data());
     if (requested_extension_deps.has_value())
     {
         for (size_t i = 0; i < requested_extension_deps->numDeviceExtensionDeps; ++i)
@@ -761,9 +763,10 @@ void RenderingContext::createLogicalDevice(const nlohmann::json& json_file, vpr:
     all_extensions.insert(all_extensions.end(), required_extensions_strs_view.begin(), required_extensions_strs_view.end());
     all_extensions.insert(all_extensions.end(), requested_extensions_strs_view.begin(), requested_extensions_strs_view.end());
 
-    VkPhysicalDeviceFeatures2 all_extensions_features =
+    std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> all_extensions_features_expected =
         extensionWrangler->GetExtensionFeatures(all_extensions.size(), all_extensions.data(), ExtensionWrangler::GetVersionFeatures::True, ExtensionWrangler::CollectDependencies::False);
 
+    VkPhysicalDeviceFeatures2 all_extensions_features = all_extensions_features_expected.value_or(VkPhysicalDeviceFeatures2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, nullptr });
     extensionPack.featuresToEnable = nullptr;
     extensionPack.featuresToEnable2 = &all_extensions_features;
 
