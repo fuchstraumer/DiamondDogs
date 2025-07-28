@@ -9,10 +9,8 @@
 #include "vkAssert.hpp"
 #include "ExtensionWrangler.hpp"
 #include <thread>
-#include <sstream>
 #include <chrono>
 #include <iostream>
-#include <sstream>
 #include <fstream>
 #include <atomic>
 #include <forward_list>
@@ -524,17 +522,12 @@ VkResult RenderingContext::SetObjectName(VkObjectType object_type, uint64_t hand
         if constexpr (RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID || RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS)
         {
             std::string object_name_str{ name };
-            std::stringstream extra_info_stream;
+            
             if constexpr (RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID)
             {
-                extra_info_stream << std::string("_ThreadID:") << std::this_thread::get_id();
+                std::string threadInfoStr = std::format("_ThreadID:{}", std::this_thread::get_id());
+                object_name_str += threadInfoStr;
             }
-            if constexpr (RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS)
-            {
-
-            }
-
-            object_name_str += extra_info_stream.str();
 
             const VkDebugUtilsObjectNameInfoEXT name_info
             {
@@ -925,15 +918,15 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMessageSe
         }
     }
 
-    if (message_severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+    if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
     {
         std::cerr << output_string_stream.str() << "\n";
     }
-    else if (message_severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+    else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
     {
         std::cerr << output_string_stream.str() << "\n";
     }
-    else if (message_severity <= VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+    else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
     {
         std::cout << output_string_stream.str() << "\n";
     }

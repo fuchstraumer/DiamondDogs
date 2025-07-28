@@ -10,9 +10,9 @@
 #include <nlohmann/json_fwd.hpp>
 
 #ifdef RENDERING_CONTEXT_USE_DEBUG_INFO_CONF
-constexpr static bool RENDERING_CONTEXT_USE_DEBUG_INFO = false;
-#else
 constexpr static bool RENDERING_CONTEXT_USE_DEBUG_INFO = true;
+#else
+constexpr static bool RENDERING_CONTEXT_USE_DEBUG_INFO = false;
 #endif
 
 #ifdef RENDERING_CONTEXT_VALIDATION_ENABLED_CONF
