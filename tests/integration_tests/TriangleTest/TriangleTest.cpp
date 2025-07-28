@@ -5,7 +5,10 @@
 #include "Swapchain.hpp"
 #include "vkAssert.hpp"
 #include "Semaphore.hpp"
+#include "Math.hpp"
 #include <fstream>
+
+using namespace math;
 
 constexpr static const uint32_t triangle_vert_shader_spv[349] =
 {
@@ -116,8 +119,16 @@ void VulkanTriangle::Construct(RequiredVprObjects objects, void* user_data)
 void VulkanTriangle::Destroy()
 {
     vkDeviceWaitIdle(vprObjects.device->vkHandle());
-    imageAcquireSemaphore.reset();
-    renderCompleteSemaphore.reset();
+
+    for (auto& imageAcquireSemaphore : imageAcquireSemaphores)
+    {
+        imageAcquireSemaphore.reset();
+    }
+
+    for (auto& renderCompleteSemaphore : renderCompleteSemaphores)
+    {
+        renderCompleteSemaphore.reset();
+    }
 
     for (auto& fence : fences)
     {
@@ -474,6 +485,8 @@ void VulkanTriangle::setupPipeline()
 void VulkanTriangle::setupFramebuffers() 
 {
     framebuffers.resize(vprObjects.swapchain->ImageCount());
+    numFramebuffers = static_cast<uint32_t>(framebuffers.size());
+
     for (size_t i = 0; i < framebuffers.size(); ++i)
     {
         std::array<VkImageView, 2> attachments
@@ -552,7 +565,8 @@ void VulkanTriangle::recordCommands()
         1.0f
     };
 
-    const VkRect2D scissor {
+    const VkRect2D scissor
+    {
         render_area
     };
 
@@ -607,21 +621,53 @@ void VulkanTriangle::draw()
 {
 
     constexpr static VkPipelineStageFlags waitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    const VkSubmitInfo submission
+    VkSemaphore imageAcquireSemaphore = imageAcquireSemaphores[currentBuffer]->vkHandle();
+    VkSemaphore renderCompleteSemaphore = renderCompleteSemaphores[currentBuffer]->vkHandle();
+
+    const VkSemaphoreSubmitInfo imageAcquireSemaphoreInfo
     {
-        VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
         nullptr,
-        1,
-        &imageAcquireSemaphore->vkHandle(),
-        &waitStageMask,
-        1,
-        &drawCmdBuffers[currentBuffer],
-        1,
-        &renderCompleteSemaphore->vkHandle()
+        imageAcquireSemaphore,
+        0,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        0
     };
 
-    VkResult result = vkQueueSubmit(vprObjects.device->GraphicsQueue(), 1, &submission, fences[currentBuffer]);
+    const VkSemaphoreSubmitInfo renderCompleteSemaphoreInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+        nullptr,
+        renderCompleteSemaphore,
+        0,
+        VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+        0
+    };
 
+    const VkCommandBufferSubmitInfo cmdBufferSubmitInfo
+    {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+        nullptr,
+        drawCmdBuffers[currentBuffer],
+        0
+    };
+
+    const VkSubmitInfo2 submission2
+    {
+        VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+        nullptr,
+        0,
+        1,
+        &imageAcquireSemaphoreInfo,
+        1,
+        &cmdBufferSubmitInfo,
+        1,
+        &renderCompleteSemaphoreInfo
+    };
+
+    VkQueue graphicsQueue = vprObjects.device->GraphicsQueue();
+    VkResult result = vkQueueSubmit2(graphicsQueue, 1, &submission2, fences[currentBuffer]);
+    VkAssert(result);
 }
 
 void VulkanTriangle::endFrame()
@@ -635,11 +681,11 @@ void VulkanTriangle::endFrame()
 void VulkanTriangle::update()
 {
     math::Matrix projection_matrix = math::Matrix::Perspective(60.0f, 16.0f / 9.0f, 0.1f, 300.0f);
-    uboDataVS.projection = math::FromMatrix(projection_matrix);
-    uboDataVS.projection = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 300.0f);
-    uboDataVS.projection[1][1] *= -1.0f;
-    uboDataVS.view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -2.5f));
-    uboDataVS.model = glm::mat4(1.0f);
+    uboDataVS.projection = math::FromMatrix<Float4x4>(projection_matrix);
+    math::Matrix view_matrix = math::Matrix::Identity();
+    view_matrix = view_matrix.Translation(0.0f, 0.0f, -2.5f);
+    uboDataVS.view = FromMatrix<Float4x4>(view_matrix);
+    uboDataVS.model = Float4x4::Identity();
 
     void* p_data;
     vkMapMemory(vprObjects.device->vkHandle(), uniformBufferVS.memory, 0, sizeof(uboDataVS), 0, &p_data);

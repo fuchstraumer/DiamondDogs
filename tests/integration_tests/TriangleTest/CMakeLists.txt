@@ -10,4 +10,5 @@ ADD_INTEGRATION_TEST(TriangleTest
 )
 
 TARGET_LINK_LIBRARIES(TriangleTest PRIVATE rendering_context vpr_core vpr_sync ${Vulkan_LIBRARY} glfw)
-TARGET_INCLUDE_DIRECTORIES(TriangleTest PRIVATE "../../../modules/rendering_context/include" ${Vulkan_INCLUDE_DIR})
+TARGET_INCLUDE_DIRECTORIES(TriangleTest PRIVATE "../../../modules/RenderingContext/include" ${Vulkan_INCLUDE_DIR})
+set_target_properties(TriangleTest PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
