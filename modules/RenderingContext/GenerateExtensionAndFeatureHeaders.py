@@ -39,10 +39,12 @@ class ExtensionFeatureStruct:
     '''
     Holds the key information we will need to generate the feature structs for each extension,
     namely the name of the struct followed by the string STYPE value we'll use when generating
-    the type in the final header output.
+    the type in the final header output. Also tracks the boolean feature toggle names for
+    documentation purposes.
     '''
     name = None
     stype = None
+    featureToggles = []  # List of boolean feature toggle names in this struct
         
 class ExtensionWithDependencies:
     '''
@@ -859,90 +861,6 @@ def PrintPromotedVersionedExtensions(promotedVersionedExtensions, extensionIdxDi
 
     print('};\n', file=fileStream)
 
-def FindPropertyStructs(tree):
-    """
-    Find all property structs used to indicate the properties an extension has that we will query support of.
-    Parses the tree and finds all the structs, setting their type enum to the correct value. Return this 
-    list of structs, which will later be associated to their extensions and grouped that way.
-    Excludes platform-specific structs and beta extension structs.
-    """
-    property_structs = []
-    all_structs = tree.findall('.//type[@category="struct"][@structextends="VkPhysicalDeviceProperties2"]')
-
-    # Define excluded platforms and vendors for Windows builds
-    excluded_platforms = {'android', 'ios', 'macos', 'metal', 'wayland', 'xcb', 'xlib', 'directfb', 'fuchsia', 'ggp', 'qnx', 'screen'}
-    excluded_vendors = {'QCOM', 'ANDROID', 'FUCHSIA', 'GGP', 'MVK', 'NN', 'QNX', 'OHOS'}
-    
-    # Additional platform-specific extensions to exclude
-    excluded_extension_patterns = {'android', 'fuchsia', 'ggp', 'ios', 'macos', 'mvk', 'nn', 'ohos', 'qnx'}
-    
-    for struct in all_structs:
-        struct_name = struct.get('name')
-        
-        # Check if this struct belongs to an excluded platform or vendor
-        should_exclude = False
-        
-        # Check for platform-specific naming patterns in struct name (must be exact word boundaries)
-        struct_lower = struct_name.lower()
-        for platform in excluded_platforms:
-            # Use word boundaries to avoid false matches like "vi" in "Device"
-            if f"_{platform}_" in struct_lower or struct_lower.endswith(f"_{platform}") or struct_lower.startswith(f"{platform}_"):
-                should_exclude = True
-                print(f"Excluding {struct_name}: platform-specific ({platform})")
-                break
-        
-        # Check for vendor-specific prefixes
-        if not should_exclude:
-            for vendor in excluded_vendors:
-                if vendor in struct_name:
-                    should_exclude = True
-                    print(f"Excluding {struct_name}: vendor-specific ({vendor})")
-                    break
-        
-        # Check if this struct is from a beta/provisional extension
-        if not should_exclude:
-            # Find the extension that defines this struct
-            parent_extension = struct.xpath('ancestor::extension')
-            if parent_extension:
-                extension = parent_extension[0]
-                if extension.get('provisional') == 'true':
-                    should_exclude = True
-                    print(f"Excluding {struct_name}: provisional extension")
-                # Also check platform attribute on the extension
-                ext_platform = extension.get('platform')
-                if ext_platform and ext_platform.lower() in excluded_platforms:
-                    should_exclude = True
-                    print(f"Excluding {struct_name}: extension platform ({ext_platform})")
-                # Check extension name for platform patterns
-                ext_name = extension.get('name', '').lower()
-                for pattern in excluded_extension_patterns:
-                    if pattern in ext_name:
-                        should_exclude = True
-                        print(f"Excluding {struct_name}: extension name pattern ({pattern})")
-                        break
-        
-        if should_exclude:
-            continue
-            
-        struct_type_enum = None
-        for member in struct.findall('.//member'):
-            type = member.find('type')
-            if type is not None and type.text == 'VkStructureType':
-                struct_type_enum = member.get('values')
-                break
-        
-        if struct_type_enum is None:
-            print(f"Warning: Could not find structure type enum for {struct_name}")
-            continue
-
-        property_structs.append({
-            'name': struct_name,
-            'type_enum': struct_type_enum
-        })
-    
-    print(f"Found {len(property_structs)} property structs after filtering")
-    return property_structs
-
 def ExtractFeatureStructsFromExtensions(extensionObjects, tree):
     '''
     Extension-driven approach to finding feature structs. Iterates through extensions
@@ -973,17 +891,24 @@ def ExtractFeatureStructsFromExtensions(extensionObjects, tree):
                 if struct_def is not None:
                     # Find the sType value from the struct definition
                     stype_value = None
+                    feature_toggles = []
+                    
                     for member in struct_def.findall('.//member'):
                         type_elem = member.find('type')
                         if type_elem is not None and type_elem.text == 'VkStructureType':
                             stype_value = member.get('values')
-                            break
+                        elif type_elem is not None and type_elem.text == 'VkBool32':
+                            # This is a boolean feature toggle
+                            name_elem = member.find('name')
+                            if name_elem is not None and name_elem.text:
+                                feature_toggles.append(name_elem.text)
                     
                     if stype_value:
                         # Create the feature struct object
                         feature_struct = ExtensionFeatureStruct()
                         feature_struct.name = struct_name
                         feature_struct.stype = stype_value
+                        feature_struct.featureToggles = feature_toggles
                         
                         extensionObject.featureStruct = feature_struct
                         found_count += 1
@@ -992,7 +917,7 @@ def ExtractFeatureStructsFromExtensions(extensionObjects, tree):
     print(f"Processed {processed_count} extensions, found {found_count} feature structs")
     return found_count
 
-def GroupStructsByExtension(structs, extensions, versions, struct_type):
+def GroupStructsByExtension(structs, extensions, struct_type):
     """
     Iterates through list of feature structs, and groups them by the extension they are associated with.
     Returns a dictionary where the keys are extension names and the values are lists of feature structs
@@ -1074,6 +999,7 @@ def WriteExtensionFeatureStructsFromExtensions(extensionObjects, fileStream):
     Write out static instances of all the extension feature structs, with their sType
     filled out and pNext set to nullptr. Uses the extension-driven approach where
     feature struct information is already extracted and stored in the extension objects.
+    All boolean feature toggles are initialized to VK_FALSE with comments showing feature names.
     """
     struct_count = 0
     
@@ -1086,42 +1012,29 @@ def WriteExtensionFeatureStructsFromExtensions(extensionObjects, fileStream):
             print(f'static {featureStruct.name} {printedStructName} =\n{{', file=fileStream)
             print(f'    {featureStruct.stype},', file=fileStream)
             print(f'    nullptr,', file=fileStream)
+            
+            # Initialize all boolean feature toggles to VK_FALSE with comments
+            for feature_toggle in featureStruct.featureToggles:
+                print(f'    VK_FALSE, // {feature_toggle}', file=fileStream)
+            
             print(f'}};\n', file=fileStream)
             struct_count += 1
     
     print(f"Generated {struct_count} feature struct declarations")
 
-def WriteExtensionFeatureStructsAndPointerTable(groupedExtensionFeatureStructs, fileStream):
-    """
-    Write out static instances of all the extension feature structs, with their sType
-    filled out and pNext set to nullptr. Then, write out a table that maps extension indices
-    to pointers to the structs.
-    """
-    extensionNameToStructName = {}
-    for extensionName, featureStruct in groupedExtensionFeatureStructs.items():
-        printedStructName = f'cowpoke_{extensionName}_FeatureStruct'
-        extensionNameToStructName[extensionName] = printedStructName
-        print(f'// Extension: {extensionName}', file=fileStream)
-        print(f'static {featureStruct["name"]} {printedStructName} =\n{{', file=fileStream)
-        print(f'    {featureStruct["type_enum"]},', file=fileStream)
-        print(f'    nullptr,', file=fileStream)
-        print(f'}};\n', file=fileStream)
+def WriteExtensionFeatureStructPointerTable(extensionObjects, fileStream):
+    print('// Extension feature struct pointer table', file=fileStream)
+    print('const static std::unordered_map<size_t, const void*> extensionFeatureStructMap', file=fileStream)
+    print('{', file=fileStream)
+    for extensionObject in extensionObjects:
+        # Don't need to handle case where we don't have one of these, since in those cases the C++ side can handle that
+        if extensionObject.featureStruct is not None:
+            featureStructName = f'cowpoke_{extensionObject.name}_FeatureStruct' 
+            # Now print nameIndex and pointer to the feature struct
+            if extensionObject.nameIndex is not None:
+                print(f'    {{ {extensionObject.nameIndex}, &{featureStructName} }}, // Extension: {extensionObject.name}', file=fileStream)
 
-def WriteExtensionPropertyStructsAndPointerTable(groupedExtensionPropertyStructs, fileStream):
-    """
-    Write out static instances of all the extension property structs, with their sType
-    filled out and pNext set to nullptr. Then, write out a table that maps extension indices
-    to pointers to the structs.
-    """
-    extensionNameToStructName = {}
-    for extensionName, propertyStruct in groupedExtensionPropertyStructs.items():
-        printedStructName = f'cowpoke_{extensionName}_PropertyStruct'
-        extensionNameToStructName[extensionName] = printedStructName
-        print(f'// Extension: {extensionName}', file=fileStream)
-        print(f'static {propertyStruct["name"]} {printedStructName} =\n{{', file=fileStream)
-        print(f'    {propertyStruct["type_enum"]},', file=fileStream)
-        print(f'    nullptr,', file=fileStream)
-        print(f'}};\n', file=fileStream)
+    print('};\n', file=fileStream)
 
 def FinalizeFile(fileStream):
     '''
@@ -1192,11 +1105,8 @@ if __name__ == '__main__':
         # Generate feature struct declarations
         WriteExtensionFeatureStructsFromExtensions(extensionObjects, fileStream)
 
-
-        #propertyStructs = FindPropertyStructs(tree)
-        #groupedPropertyStructs = GroupStructsByExtension(propertyStructs, extensions, versions, "Properties")
-        #WriteExtensionPropertyStructsAndPointerTable(groupedPropertyStructs, fileStream)
-        
+        # Use newly printed feature structs to write out the extension feature struct pointer table
+        WriteExtensionFeatureStructPointerTable(extensionObjects, fileStream)
 
         FinalizeFile(fileStream)
         print("Successfully generated header file")

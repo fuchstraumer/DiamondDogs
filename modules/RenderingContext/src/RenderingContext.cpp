@@ -7,6 +7,7 @@
 #include "SurfaceKHR.hpp"
 #include "VkDebugUtils.hpp"
 #include "vkAssert.hpp"
+#include "ExtensionWrangler.hpp"
 #include <thread>
 #include <sstream>
 #include <chrono>
@@ -252,8 +253,7 @@ void RenderingContext::Destroy()
     physicalDevices.clear();
     vulkanInstance.reset();
     window.reset();
-    queriedDeviceFeatures.reset();
-    enabledDeviceFeatures.reset();
+    extensionWrangler.reset();
 }
 
 vpr::Instance * RenderingContext::Instance() noexcept
@@ -592,6 +592,9 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
     uint32_t api_version = 0;
     GetVersions(json_file, app_version, engine_version, api_version);
 
+    // create extension wrangler, passing VK_NULL_HANDLE for physicalDevice to make it run in instance mode
+    extensionWrangler = std::make_unique<ExtensionWrangler>(api_version, VK_NULL_HANDLE);
+
     std::vector<std::string> required_extensions_strs;
     {
         nlohmann::json req_ext_json = json_file.at("RequiredInstanceExtensions");
@@ -602,7 +605,7 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
     }
 
     // Populate dependencies required for required instance extensions
-    AddDependenciesForSetOfExtensions(required_extensions_strs);
+    
 
     std::vector<std::string> requested_extensions_strs;
     {
@@ -651,9 +654,6 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
 
     auto layers = using_validation ? vpr::Instance::instance_layers::Full : vpr::Instance::instance_layers::Disabled;
     vulkanInstance = std::make_unique<vpr::Instance>(layers, &application_info, &extensionPack);
-
-    queriedDeviceFeatures = std::make_unique<QueriedDeviceFeatures>();
-    //GetPhysicalDeviceFeatures(vulkanInstance->vkHandle(), api_version, *queriedDeviceFeatures);
 
     extensionPack.featuresToEnable = nullptr;
     extensionPack.featuresToEnable2 = nullptr;// &queriedDeviceFeatures->deviceFeaturesBase;
@@ -942,29 +942,9 @@ void GetVersions(const nlohmann::json& json_file, uint32_t& app_version, uint32_
     }
 }
 
-void GetPhysicalDeviceFeatures(VkInstance instance, const uint32_t apiVersion, QueriedDeviceFeatures& features)
-{
-    uint32_t deviceCount = 0u;
-    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
-    std::vector<VkPhysicalDevice> devices(deviceCount, VK_NULL_HANDLE);
-    vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
-
-    VkPhysicalDevice bestScoringDevice = vpr::ChooseBestScoringPhysicalDevice(devices.size(), devices.data());
-
-    vkGetPhysicalDeviceFeatures2(bestScoringDevice, &features.deviceFeaturesBase);
-}
-
 void AddDependenciesForSetOfExtensions(std::vector<std::string>& extensions)
 {
     std::vector<std::string> extensions_dependencies_strs;
-
-    VkPhysicalDeviceFeatures2 rootFeatures2;
-    rootFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    rootFeatures2.pNext = nullptr;
-
-    VkPhysicalDevicePresentWait2FeaturesKHR presentWait2Features;
-    presentWait2Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_2_FEATURES_KHR;
-    
 
 
     if (!extensions_dependencies_strs.empty())

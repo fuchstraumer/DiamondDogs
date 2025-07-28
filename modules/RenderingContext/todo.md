@@ -1,3 +1,4 @@
 - Move most of the stuff included in the main header behind an impl wall
 - Convert this module to C++ modules
 - Abstract further away from Vulkan in case we ever want to try a different rendering API (i.e., DX12 probably)
+- Extension wrangler needs to break down features into their supported boolean feature toggles, so that users can only enable features if they're actually supported fully

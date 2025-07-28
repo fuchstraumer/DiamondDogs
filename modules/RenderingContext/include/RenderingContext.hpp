@@ -53,7 +53,7 @@ namespace vpr
     struct VprExtensionPack;
 }
 
-struct QueriedDeviceFeatures;
+class ExtensionWrangler;
 class PlatformWindow;
 struct GLFWwindow;
 struct GLFWcursor;
@@ -166,8 +166,8 @@ private:
     std::string shaderCacheDir;
     PFN_vkSetDebugUtilsObjectNameEXT SetObjectNameFn{ nullptr };
     VkDebugUtilsMessengerEXT DebugUtilsMessenger{ VK_NULL_HANDLE };
-    std::unique_ptr<::QueriedDeviceFeatures> queriedDeviceFeatures;
-    std::unique_ptr<::QueriedDeviceFeatures> enabledDeviceFeatures;
+    std::unique_ptr<::ExtensionWrangler> extensionWrangler;
+
 
 
 };
