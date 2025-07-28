@@ -19,8 +19,7 @@ function(add_module NAME)
         target_compile_options(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/MP> $<$<CONFIG:RELWITHDEBINFO>:/MP>)
         target_compile_options(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/Oi> $<$<CONFIG:RELWITHDEBINFO>:/Oi>)
         target_compile_definitions(${NAME} PRIVATE 
-            "NOMINMAX"
-            "_ITERATOR_DEBUG_LEVEL=0")
+            "NOMINMAX")
         target_compile_options(${NAME} PRIVATE "/arch:AVX2")
     endif()
     set_target_properties(${NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
