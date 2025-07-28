@@ -46,7 +46,7 @@ public:
     ExtensionWrangler(
         const uint32_t _apiVersion,
         VkPhysicalDevice _physicalDevice);
-    ~ExtensionWrangler() noexcept = default;
+    ~ExtensionWrangler() noexcept;
     
     /** @brief Simple query for is an extension is supported or not */
     bool IsExtensionSupported(const std::string_view extensionName) const;

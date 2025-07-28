@@ -96,9 +96,13 @@ ExtensionWrangler::ExtensionWrangler(
     dependencyCache(std::make_unique<DependencyCache>(_physicalDevice))
 {}
 
-bool AreStringsEqual(const char* a, const char* b)
+ExtensionWrangler::~ExtensionWrangler() noexcept
 {
-    return strcmp(a, b) == 0;
+}
+
+bool AreStringsEqual(const VkExtensionProperties& a, const char* b)
+{
+    return strcmp(a.extensionName, b) == 0;
 }
 
 bool ExtensionWrangler::IsExtensionSupported(const std::string_view extensionName) const
@@ -113,15 +117,20 @@ bool ExtensionWrangler::IsExtensionSupported(const std::string_view extensionNam
     {
         // if extension is device extension, we need to check if the physical device supports it
         auto& supportedDeviceExtensions = dependencyCache->deviceExtensionDependencies;
-        auto extensionIter = std::find_if(supportedDeviceExtensions.begin(), supportedDeviceExtensions.end(), &AreStringsEqual);
+        auto extensionIter = std::find_if(
+            supportedDeviceExtensions.begin(),
+            supportedDeviceExtensions.end(),
+            [&extensionName](const VkExtensionProperties& props) { return strcmp(props.extensionName, extensionName.data()) == 0; });
         return extensionIter != supportedDeviceExtensions.end();
     }
     else if (ExtensionIsInstanceExtension(extensionName))
     {
         auto& supportedInstanceExtensions = dependencyCache->instanceExtensionDependencies;
-        auto extensionIter = std::find_if(supportedInstanceExtensions.begin(), supportedInstanceExtensions.end(), &AreStringsEqual);
+        auto extensionIter = std::find_if(
+            supportedInstanceExtensions.begin(),
+            supportedInstanceExtensions.end(),
+            [&extensionName](const VkExtensionProperties& props) { return strcmp(props.extensionName, extensionName.data()) == 0; });
         return extensionIter != supportedInstanceExtensions.end();
-
     }
     else
     {
@@ -151,7 +160,7 @@ bool ExtensionWrangler::ExtensionIsDeviceExtension(const std::string_view extens
         return false;
     }
     
-    uint32_t extensionIndex = extensionNameIter->second;
+    size_t extensionIndex = extensionNameIter->second;
 
     return std::binary_search(deviceExtensionTable.begin(), deviceExtensionTable.end(), extensionIndex);
 }
@@ -164,7 +173,7 @@ bool ExtensionWrangler::ExtensionIsInstanceExtension(const std::string_view exte
         return false;
     }
     
-    uint32_t extensionIndex = extensionNameIter->second;
+    size_t extensionIndex = extensionNameIter->second;
 
     return std::binary_search(instanceExtensionTable.begin(), instanceExtensionTable.end(), extensionIndex);
 }
@@ -177,7 +186,7 @@ bool ExtensionWrangler::ExtensionCoreInActiveVersion(const std::string_view exte
         return false;
     }
     
-    uint32_t extensionIndex = extensionNameIter->second;
+    size_t extensionIndex = extensionNameIter->second;
     
     auto promotedExtensionsForVersionIter = promotedExtensionsMap.find(apiVersion);
     if (promotedExtensionsForVersionIter == promotedExtensionsMap.end())
@@ -200,8 +209,11 @@ std::optional<ExtensionDependencies> ExtensionWrangler::GetExtensionDependencies
     else if (ExtensionIsInstanceExtension(extensionName))
     {
         auto& supportedInstanceExtensions = dependencyCache->instanceExtensionDependencies;
-        auto extensionIter = std::find_if(supportedInstanceExtensions.begin(), supportedInstanceExtensions.end(), &AreStringsEqual);
-        if (extensionIter == supportedInstanceExtensions.end())
+        auto supportedInstanceExtensionIter = std::find_if(
+            supportedInstanceExtensions.begin(),
+            supportedInstanceExtensions.end(),
+            [&extensionName](const VkExtensionProperties& props) { return strcmp(props.extensionName, extensionName.data()) == 0; });
+        if (supportedInstanceExtensionIter == supportedInstanceExtensions.end())
         {
             return std::nullopt;
         }
@@ -214,7 +226,10 @@ std::optional<ExtensionDependencies> ExtensionWrangler::GetExtensionDependencies
     {
         // if extension is device extension, we need to check if the physical device supports it
         auto& supportedDeviceExtensions = dependencyCache->deviceExtensionDependencies;
-        auto supportedDeviceExtensionIter = std::find_if(supportedDeviceExtensions.begin(), supportedDeviceExtensions.end(), &AreStringsEqual);
+        auto supportedDeviceExtensionIter = std::find_if(
+            supportedDeviceExtensions.begin(),
+            supportedDeviceExtensions.end(),
+            [&extensionName](const VkExtensionProperties& props) { return strcmp(props.extensionName, extensionName.data()) == 0; });
         if (supportedDeviceExtensionIter == supportedDeviceExtensions.end())
         {
             return std::nullopt; // extension not supported
@@ -339,32 +354,40 @@ VkPhysicalDeviceFeatures2 ExtensionWrangler::GetExtensionFeatures(
 
         switch (apiVersion)
         {
-            case VK_API_VERSION_1_1:
-                FeaturesStructAlias* currentBack = featuresVec.back();
-                FeaturesStructAlias* features11Alias = castToFeaturesStructAlias(&features11);
-                currentBack->pNext = features11Alias;
-                featuresVec.push_back(features11Alias);
-                break;
-            case VK_API_VERSION_1_2:
-                FeaturesStructAlias* currentBack12 = featuresVec.back();
-                FeaturesStructAlias* features12Alias = castToFeaturesStructAlias(&features12);
-                currentBack12->pNext = features12Alias;
-                featuresVec.push_back(features12Alias);
-                break;
-            case VK_API_VERSION_1_3:
-                FeaturesStructAlias* currentBack13 = featuresVec.back();
-                FeaturesStructAlias* features13Alias = castToFeaturesStructAlias(&features13);
-                currentBack13->pNext = features13Alias;
-                featuresVec.push_back(features13Alias);
-                break;
-            case VK_API_VERSION_1_4:
-                FeaturesStructAlias* currentBack14 = featuresVec.back();
-                FeaturesStructAlias* features14Alias = castToFeaturesStructAlias(&features14);
-                currentBack14->pNext = features14Alias;
-                featuresVec.push_back(features14Alias);
-                break;
-            default:
-                break;
+        case VK_API_VERSION_1_1:
+        {
+            FeaturesStructAlias* currentBack = featuresVec.back();
+            FeaturesStructAlias* features11Alias = castToFeaturesStructAlias(&features11);
+            currentBack->pNext = features11Alias;
+            featuresVec.push_back(features11Alias);
+            break;
+        }
+        case VK_API_VERSION_1_2:
+        {
+            FeaturesStructAlias* currentBack12 = featuresVec.back();
+            FeaturesStructAlias* features12Alias = castToFeaturesStructAlias(&features12);
+            currentBack12->pNext = features12Alias;
+            featuresVec.push_back(features12Alias);
+            break;
+        }
+        case VK_API_VERSION_1_3:
+        {
+            FeaturesStructAlias* currentBack13 = featuresVec.back();
+            FeaturesStructAlias* features13Alias = castToFeaturesStructAlias(&features13);
+            currentBack13->pNext = features13Alias;
+            featuresVec.push_back(features13Alias);
+            break;
+        }
+        case VK_API_VERSION_1_4:
+        {
+            FeaturesStructAlias* currentBack14 = featuresVec.back();
+            FeaturesStructAlias* features14Alias = castToFeaturesStructAlias(&features14);
+            currentBack14->pNext = features14Alias;
+            featuresVec.push_back(features14Alias);
+            break;
+        }
+        default:
+            break;
         }
     }
 

@@ -8,18 +8,17 @@
 #define GLFW_EXPOSE_NATIVE_WGL
 #include "GLFW/glfw3native.h"
 #endif
-#include <list>
 
-struct WindowCallbackLists {
-    std::list<cursor_pos_callback_t> cursorPosCallbacks;
-    std::list<cursor_enter_callback_t> cursorEnterCallbacks;
-    std::list<scroll_callback_t> scrollCallbacks;
-    std::list<char_callback_t> charCallbacks;
-    std::list<path_drop_callback_t> pathDropCallbacks;
-    std::list<mouse_button_callback_t> mouseButtonCallbacks;
-    std::list<keyboard_key_callback_t> keyboardKeyCallbacks;
+struct WindowCallbackLists
+{
+    std::vector<CursorPosCallbackType> cursorPosCallbacks;
+    std::vector<CursorEnterCallbackType> cursorEnterCallbacks;
+    std::vector<ScrollCallbackType> scrollCallbacks;
+    std::vector<CharCallbackType> charCallbacks;
+    std::vector<PathDropCallbackType> pathDropCallbacks;
+    std::vector<MouseButtonCallbackType> mouseButtonCallbacks;
+    std::vector<KeyboardKeyCallbackType> keyboardKeyCallbacks;
 };
-
 
 static void CursorPosCallback(GLFWwindow* window, double pos_x, double pos_y)
 {
@@ -143,37 +142,37 @@ bool PlatformWindow::WindowShouldClose()
 
 void PlatformWindow::AddCursorPosCallbackFn(CursorPosCallbackType fn)
 {
-    callbacks->cursorPosCallbacks.push_front(fn);
+    callbacks->cursorPosCallbacks.emplace_back(fn);
 }
 
 void PlatformWindow::AddCursorEnterCallbackFn(CursorEnterCallbackType fn)
 {
-    callbacks->cursorEnterCallbacks.push_front(fn);
+    callbacks->cursorEnterCallbacks.emplace_back(fn);
 }
 
 void PlatformWindow::AddScrollCallbackFn(ScrollCallbackType fn)
 {
-    callbacks->scrollCallbacks.push_front(fn);
+    callbacks->scrollCallbacks.emplace_back(fn);
 }
 
 void PlatformWindow::AddCharCallbackFn(CharCallbackType fn)
 {
-    callbacks->charCallbacks.push_front(fn);
+    callbacks->charCallbacks.emplace_back(fn);
 }
 
 void PlatformWindow::AddPathDropCallbackFn(PathDropCallbackType fn)
 {
-    callbacks->pathDropCallbacks.push_front(fn);
+    callbacks->pathDropCallbacks.emplace_back(fn);
 }
 
 void PlatformWindow::AddMouseButtonCallbackFn(MouseButtonCallbackType fn)
 {
-    callbacks->mouseButtonCallbacks.push_front(fn);
+    callbacks->mouseButtonCallbacks.emplace_back(fn);
 }
 
 void PlatformWindow::AddKeyboardKeyCallbackFn(KeyboardKeyCallbackType fn)
 {
-    callbacks->keyboardKeyCallbacks.push_front(fn);
+    callbacks->keyboardKeyCallbacks.emplace_back(fn);
 }
 
 void PlatformWindow::SetInputMode(int mode, int value)

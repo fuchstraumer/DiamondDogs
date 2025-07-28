@@ -167,7 +167,7 @@ private:
     PFN_vkSetDebugUtilsObjectNameEXT SetObjectNameFn{ nullptr };
     VkDebugUtilsMessengerEXT DebugUtilsMessenger{ VK_NULL_HANDLE };
     std::unique_ptr<::ExtensionWrangler> extensionWrangler;
-
+    uint32_t vkApiVersion{ 0u };
 
 
 };

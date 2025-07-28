@@ -591,6 +591,7 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
     uint32_t engine_version = 0;
     uint32_t api_version = 0;
     GetVersions(json_file, app_version, engine_version, api_version);
+    vkApiVersion = api_version;
 
     // create extension wrangler, passing VK_NULL_HANDLE for physicalDevice to make it run in instance mode
     extensionWrangler = std::make_unique<ExtensionWrangler>(api_version, VK_NULL_HANDLE);
@@ -604,9 +605,6 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
         }
     }
 
-    // Populate dependencies required for required instance extensions
-    
-
     std::vector<std::string> requested_extensions_strs;
     {
         nlohmann::json ext_json = json_file.at("RequestedInstanceExtensions");
@@ -616,30 +614,58 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
         }
     }
 
-    AddDependenciesForSetOfExtensions(requested_extensions_strs);
+    // convert to arrays of std::string_view for the extension wrangler 
 
-    std::vector<const char*> required_extensions;
+    std::vector<std::string_view> required_extensions;
     for (auto& str : required_extensions_strs)
     {
-        required_extensions.emplace_back(str.c_str());
+        required_extensions.emplace_back(str);
     }
 
-    std::vector<const char*> requested_extensions;
+    std::optional<ExtensionDependencies> requiredExtensionDeps = extensionWrangler->GetExtensionDependencies(required_extensions.size(), required_extensions.data());
+    if (requiredExtensionDeps.has_value())
+    {
+        for (size_t i = 0; i < requiredExtensionDeps->numInstanceExtensionDeps; ++i)
+        {
+            required_extensions.emplace_back(requiredExtensionDeps->instanceExtensionDeps[i]);
+        }
+    }
+
+    std::vector<std::string_view> requested_extensions;
     for (auto& str : requested_extensions_strs)
     {
-        requested_extensions.emplace_back(str.c_str());
+        requested_extensions.emplace_back(str);
     }
 
-    VkPhysicalDeviceFeatures features;
+    std::optional<ExtensionDependencies> requestedExtensionDeps = extensionWrangler->GetExtensionDependencies(requested_extensions.size(), requested_extensions.data());
+    if (requestedExtensionDeps.has_value())
+    {
+        for (size_t i = 0; i < requestedExtensionDeps->numInstanceExtensionDeps; ++i)
+        {
+            requested_extensions.emplace_back(requestedExtensionDeps->instanceExtensionDeps[i]);
+        }
+    }
+
+
+    // convert again to arrays of const char* for the extension pack. this is starting to get a bit absurd.
+    std::vector<const char*> required_extensions_cstr;
+    for (auto& str : required_extensions)
+    {
+        required_extensions_cstr.emplace_back(str.data());
+    }
+
+    std::vector<const char*> requested_extensions_cstr;
+    for (auto& str : requested_extensions)
+    {
+        requested_extensions_cstr.emplace_back(str.data());
+    }
     
 
     extensionPack.PreferredApiVersion = vpr::VprExtensionPack::ApiVersion::Vulkan13;
-    extensionPack.RequiredExtensionCount = static_cast<uint32_t>(required_extensions.size());
-    extensionPack.RequiredExtensionNames = required_extensions.data();
-    extensionPack.OptionalExtensionCount = static_cast<uint32_t>(requested_extensions.size());
-    extensionPack.OptionalExtensionNames = requested_extensions.data();
-    extensionPack.featuresToEnable2 = nullptr;
-    extensionPack.featuresToEnable = &features;
+    extensionPack.RequiredExtensionCount = static_cast<uint32_t>(required_extensions_cstr.size());
+    extensionPack.RequiredExtensionNames = reinterpret_cast<const char**>(required_extensions_cstr.data());
+    extensionPack.OptionalExtensionCount = static_cast<uint32_t>(requested_extensions_cstr.size());
+    extensionPack.OptionalExtensionNames = reinterpret_cast<const char**>(requested_extensions_cstr.data());
 
     const VkApplicationInfo application_info
     {
@@ -659,10 +685,14 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
     extensionPack.featuresToEnable2 = nullptr;// &queriedDeviceFeatures->deviceFeaturesBase;
 
     physicalDevices.emplace_back(std::make_unique<vpr::PhysicalDevice>(vulkanInstance->vkHandle(), &extensionPack));
+    extensionWrangler.reset(); // reset because we'll need the VkPhysicalDevice handle for it's next incarnation
 }
 
 void RenderingContext::createLogicalDevice(const nlohmann::json& json_file, vpr::VprExtensionPack& extensionPack)
 {
+
+    extensionWrangler = std::make_unique<ExtensionWrangler>(vkApiVersion, physicalDevices.front()->vkHandle());
+
     std::vector<std::string> required_extensions_strs;
     {
         nlohmann::json req_ext_json = json_file.at("RequiredDeviceExtensions");
@@ -671,8 +701,6 @@ void RenderingContext::createLogicalDevice(const nlohmann::json& json_file, vpr:
             required_extensions_strs.emplace_back(entry);
         }
     }
-
-    AddDependenciesForSetOfExtensions(required_extensions_strs);
 
     std::vector<std::string> requested_extensions_strs;
     {
@@ -683,24 +711,68 @@ void RenderingContext::createLogicalDevice(const nlohmann::json& json_file, vpr:
         }
     }
 
-    AddDependenciesForSetOfExtensions(requested_extensions_strs);
-
-    std::vector<const char*> required_extensions;
+    // from string objects to std::string_view, then to query deps and add them to the list
+    std::vector<std::string_view> required_extensions_strs_view;
     for (auto& str : required_extensions_strs)
     {
-        required_extensions.emplace_back(str.c_str());
+        required_extensions_strs_view.emplace_back(str);
+    }
+
+    std::optional<ExtensionDependencies> required_extension_deps = extensionWrangler->GetExtensionDependencies(required_extensions_strs_view.size(), required_extensions_strs_view.data());
+    if (required_extension_deps.has_value())
+    {
+        for (size_t i = 0; i < required_extension_deps->numDeviceExtensionDeps; ++i)
+        {
+            required_extensions_strs_view.emplace_back(required_extension_deps->deviceExtensionDeps[i]);
+        }
+    }
+
+    std::vector<std::string_view> requested_extensions_strs_view;
+    for (auto& str : requested_extensions_strs)
+    {
+        requested_extensions_strs_view.emplace_back(str);
+    }
+
+    std::optional<ExtensionDependencies> requested_extension_deps = extensionWrangler->GetExtensionDependencies(requested_extensions_strs_view.size(), requested_extensions_strs_view.data());
+    if (requested_extension_deps.has_value())
+    {
+        for (size_t i = 0; i < requested_extension_deps->numDeviceExtensionDeps; ++i)
+        {
+            requested_extensions_strs_view.emplace_back(requested_extension_deps->deviceExtensionDeps[i]);
+        }
+    }
+
+    // from str_view to cstr
+    std::vector<const char*> required_extensions;
+    for (auto& str : required_extensions_strs_view)
+    {
+        required_extensions.emplace_back(str.data());
     }
 
     std::vector<const char*> requested_extensions;
-    for (auto& str : requested_extensions_strs)
+    for (auto& str : requested_extensions_strs_view)
     {
-        requested_extensions.emplace_back(str.c_str());
+        requested_extensions.emplace_back(str.data());
     }
 
     extensionPack.RequiredExtensionCount = static_cast<uint32_t>(required_extensions.size());
     extensionPack.RequiredExtensionNames = required_extensions.data();
     extensionPack.OptionalExtensionCount = static_cast<uint32_t>(requested_extensions.size());
     extensionPack.OptionalExtensionNames = requested_extensions.data();
+
+    // last step: combine both pools of extensions to get the device features
+    // note: we need to tear out the split between required and optional extensions, as the device features are going to be enabled for all, but if for example
+    // we elect to disable any optional extensions, we need to ensure the device features are still valid
+    std::vector<std::string_view> all_extensions;
+    all_extensions.reserve(required_extensions_strs_view.size() + requested_extensions_strs_view.size());
+    all_extensions.insert(all_extensions.end(), required_extensions_strs_view.begin(), required_extensions_strs_view.end());
+    all_extensions.insert(all_extensions.end(), requested_extensions_strs_view.begin(), requested_extensions_strs_view.end());
+
+    VkPhysicalDeviceFeatures2 all_extensions_features =
+        extensionWrangler->GetExtensionFeatures(all_extensions.size(), all_extensions.data(), ExtensionWrangler::GetVersionFeatures::True, ExtensionWrangler::CollectDependencies::False);
+
+    extensionPack.featuresToEnable = nullptr;
+    extensionPack.featuresToEnable2 = &all_extensions_features;
 
     logicalDevice = std::make_unique<vpr::Device>(vulkanInstance.get(), physicalDevices.front().get(), windowSurface->vkHandle(), &extensionPack, nullptr, 0);
 
