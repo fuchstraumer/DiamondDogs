@@ -44,10 +44,24 @@ ENDIF()
 
 find_package(Python COMPONENTS Interpreter)
 
-add_custom_target(generate_extension_headers ALL
-    COMMAND ${Python_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/GenerateExtensionAndFeatureHeaders.py"
+# Define paths for dependency tracking
+set(RENDERING_CONTEXT_VK_XML_PATH "$ENV{VULKAN_SDK}/share/vulkan/registry/vk.xml")
+set(RENDERING_CONTEXT_GENERATOR_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/GenerateExtensionAndFeatureHeaders.py")
+set(RENDERING_CONTEXT_OUTPUT_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/src/GeneratedExtensionHeader.hpp")
+
+# Custom command that only runs when dependencies change
+add_custom_command(
+    OUTPUT "${RENDERING_CONTEXT_OUTPUT_HEADER}"
+    COMMAND ${Python_EXECUTABLE} "${RENDERING_CONTEXT_GENERATOR_SCRIPT}"
                                  "-specDir=$ENV{VULKAN_SDK}" "-outputDir=${CMAKE_CURRENT_SOURCE_DIR}/src"
-    BYPRODUCTS "${CMAKE_CURRENT_SOURCE_DIR}/src/GeneratedExtensionHeader.hpp"
-    COMMENT "Generating extension lookup header")
+    DEPENDS "${RENDERING_CONTEXT_VK_XML_PATH}" "${RENDERING_CONTEXT_GENERATOR_SCRIPT}"
+    COMMENT "Generating extension lookup header (dependencies changed)"
+    VERBATIM
+)
+
+# Custom target that depends on the output file
+add_custom_target(generate_extension_headers
+    DEPENDS "${OUTPUT_HEADER}"
+)
 
 add_dependencies(rendering_context generate_extension_headers)
