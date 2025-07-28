@@ -406,43 +406,43 @@ void RenderingContext::GetFramebufferSize(int& w, int& h)
     glfwGetFramebufferSize(getWindow(), &w, &h);
 }
 
-void RenderingContext::RegisterCursorPosCallback(cursor_pos_callback_t callback_fn)
+void RenderingContext::RegisterCursorPosCallback(CursorPosCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddCursorPosCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterCursorEnterCallback(cursor_enter_callback_t callback_fn)
+void RenderingContext::RegisterCursorEnterCallback(CursorEnterCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddCursorEnterCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterScrollCallback(scroll_callback_t callback_fn)
+void RenderingContext::RegisterScrollCallback(ScrollCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddScrollCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterCharCallback(char_callback_t callback_fn)
+void RenderingContext::RegisterCharCallback(CharCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddCharCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterPathDropCallback(path_drop_callback_t callback_fn)
+void RenderingContext::RegisterPathDropCallback(PathDropCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddPathDropCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterMouseButtonCallback(mouse_button_callback_t callback_fn)
+void RenderingContext::RegisterMouseButtonCallback(MouseButtonCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddMouseButtonCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterKeyboardKeyCallback(keyboard_key_callback_t callback_fn)
+void RenderingContext::RegisterKeyboardKeyCallback(KeyboardKeyCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddKeyboardKeyCallbackFn(callback_fn);
@@ -768,6 +768,8 @@ std::string objectTypeToString(const VkObjectType type)
         return "VkSamplerYcbcrConversion";
     case VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE:
         return "VkDescriptorUpdateTemplate";
+    case VK_OBJECT_TYPE_PRIVATE_DATA_SLOT:
+        return "VkPrivateDataSlot";
     case VK_OBJECT_TYPE_SURFACE_KHR:
         return "VkSurfaceKHR";
     case VK_OBJECT_TYPE_SWAPCHAIN_KHR:
@@ -784,6 +786,16 @@ std::string objectTypeToString(const VkObjectType type)
         return "VkValidationCacheEXT";
     case VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_NV:
         return "VkAccelerationStructureNV";
+    case VK_OBJECT_TYPE_DEFERRED_OPERATION_KHR:
+        return "VkDeferredOperationKHR";
+    case VK_OBJECT_TYPE_SHADER_EXT:
+        return "VkShaderEXT";
+    case VK_OBJECT_TYPE_PIPELINE_BINARY_KHR:
+        return "VkPipelineBinaryKHR";
+    case VK_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_EXT:
+        return "VkIndirectCommandsLayoutEXT";
+    case VK_OBJECT_TYPE_INDIRECT_EXECUTION_SET_EXT:
+        return "VkIndirectExecutionSetEXT";
     default:
         return std::string("TYPE_UNKNOWN:" + std::to_string(size_t(type)));
     };
@@ -946,6 +958,12 @@ void AddDependenciesForSetOfExtensions(std::vector<std::string>& extensions)
 {
     std::vector<std::string> extensions_dependencies_strs;
 
+    VkPhysicalDeviceFeatures2 rootFeatures2;
+    rootFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    rootFeatures2.pNext = nullptr;
+
+    VkPhysicalDevicePresentWait2FeaturesKHR presentWait2Features;
+    presentWait2Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_2_FEATURES_KHR;
     
 
 

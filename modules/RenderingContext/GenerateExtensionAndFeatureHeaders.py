@@ -34,6 +34,15 @@ class ExtensionDependencyTransformer(Transformer):
     
     def EXTENSION(self, token):
         return {'type': 'EXTENSION', 'name': token.value}
+    
+class ExtensionFeatureStruct:
+    '''
+    Holds the key information we will need to generate the feature structs for each extension,
+    namely the name of the struct followed by the string STYPE value we'll use when generating
+    the type in the final header output.
+    '''
+    name = None
+    stype = None
         
 class ExtensionWithDependencies:
     '''
@@ -75,13 +84,43 @@ class ExtensionWithDependencies:
 
     # If this extension was obsoleted by a new extension, this will be the new extension it was obsoleted by
     obsoletedOrDeprecatedBy = None
+    
+    # Feature struct information for this extension (if any)
+    featureStruct = None
 
 def ConstructExtensionObjects(extensionXmlObjects):
     '''
-    Constructs ExtensionWithDependencies objects from the list of extensions
+    Constructs ExtensionWithDependencies objects from the list of extensions, filtering out
+    platform-specific extensions that don't apply to the current platform (win32) and
+    provisional extensions.
     '''
     extensionObjects = []
+    
+    # Define excluded platforms for Windows builds
+    excluded_platforms = {'android', 'ios', 'macos', 'metal', 'wayland', 'xcb', 'xlib', 'directfb', 'fuchsia', 'ggp', 'qnx', 'screen', "sci", "ohos", "vi" }
+    
+    filtered_count = 0
+    
     for extension in extensionXmlObjects:
+        # Check if extension should be filtered out
+        should_exclude = False
+        
+        # Filter out provisional extensions
+        if extension.get('provisional') == 'true':
+            should_exclude = True
+            filtered_count += 1
+            continue
+            
+        # Filter out platform-specific extensions not for our platform
+        extension_platform = extension.get('platform')
+        if extension_platform and extension_platform.lower() in excluded_platforms:
+            should_exclude = True
+            filtered_count += 1
+            continue
+            
+        if should_exclude:
+            continue
+        
         extensionObject = ExtensionWithDependencies()
         extensionObject.name = extension.get('name')
         extensionObject.nameIndex = None
@@ -89,7 +128,7 @@ def ConstructExtensionObjects(extensionXmlObjects):
         extensionObject.dependencies = {}
         extensionPlatform = extension.get('platform')
         if extensionPlatform is None:
-            extensionPlatform = 'VULKAN_PLATFORM_ALL'
+            extensionPlatform = 'win32'  # Default to win32 for our build platform
         extensionObject.platform = extensionPlatform
         extensionObject.noFeatures = extension.get('nofeatures') == 'true'
         extensionObject.provisional = extension.get('provisional') == 'true'
@@ -102,8 +141,12 @@ def ConstructExtensionObjects(extensionXmlObjects):
         if extensionObject.obsoletedOrDeprecatedBy == '':
             extensionObject.obsoletedOrDeprecatedBy = None
 
+        # Initialize feature struct to None - will be populated later
+        extensionObject.featureStruct = None
+
         extensionObjects.append(extensionObject)
-        
+    
+    print(f"Filtered out {filtered_count} platform-specific or provisional extensions")
     return extensionObjects
 
 def GetIndexTypeString():
@@ -821,12 +864,66 @@ def FindPropertyStructs(tree):
     Find all property structs used to indicate the properties an extension has that we will query support of.
     Parses the tree and finds all the structs, setting their type enum to the correct value. Return this 
     list of structs, which will later be associated to their extensions and grouped that way.
+    Excludes platform-specific structs and beta extension structs.
     """
     property_structs = []
     all_structs = tree.findall('.//type[@category="struct"][@structextends="VkPhysicalDeviceProperties2"]')
 
+    # Define excluded platforms and vendors for Windows builds
+    excluded_platforms = {'android', 'ios', 'macos', 'metal', 'wayland', 'xcb', 'xlib', 'directfb', 'fuchsia', 'ggp', 'qnx', 'screen'}
+    excluded_vendors = {'QCOM', 'ANDROID', 'FUCHSIA', 'GGP', 'MVK', 'NN', 'QNX', 'OHOS'}
+    
+    # Additional platform-specific extensions to exclude
+    excluded_extension_patterns = {'android', 'fuchsia', 'ggp', 'ios', 'macos', 'mvk', 'nn', 'ohos', 'qnx'}
+    
     for struct in all_structs:
         struct_name = struct.get('name')
+        
+        # Check if this struct belongs to an excluded platform or vendor
+        should_exclude = False
+        
+        # Check for platform-specific naming patterns in struct name (must be exact word boundaries)
+        struct_lower = struct_name.lower()
+        for platform in excluded_platforms:
+            # Use word boundaries to avoid false matches like "vi" in "Device"
+            if f"_{platform}_" in struct_lower or struct_lower.endswith(f"_{platform}") or struct_lower.startswith(f"{platform}_"):
+                should_exclude = True
+                print(f"Excluding {struct_name}: platform-specific ({platform})")
+                break
+        
+        # Check for vendor-specific prefixes
+        if not should_exclude:
+            for vendor in excluded_vendors:
+                if vendor in struct_name:
+                    should_exclude = True
+                    print(f"Excluding {struct_name}: vendor-specific ({vendor})")
+                    break
+        
+        # Check if this struct is from a beta/provisional extension
+        if not should_exclude:
+            # Find the extension that defines this struct
+            parent_extension = struct.xpath('ancestor::extension')
+            if parent_extension:
+                extension = parent_extension[0]
+                if extension.get('provisional') == 'true':
+                    should_exclude = True
+                    print(f"Excluding {struct_name}: provisional extension")
+                # Also check platform attribute on the extension
+                ext_platform = extension.get('platform')
+                if ext_platform and ext_platform.lower() in excluded_platforms:
+                    should_exclude = True
+                    print(f"Excluding {struct_name}: extension platform ({ext_platform})")
+                # Check extension name for platform patterns
+                ext_name = extension.get('name', '').lower()
+                for pattern in excluded_extension_patterns:
+                    if pattern in ext_name:
+                        should_exclude = True
+                        print(f"Excluding {struct_name}: extension name pattern ({pattern})")
+                        break
+        
+        if should_exclude:
+            continue
+            
         struct_type_enum = None
         for member in struct.findall('.//member'):
             type = member.find('type')
@@ -843,40 +940,57 @@ def FindPropertyStructs(tree):
             'type_enum': struct_type_enum
         })
     
+    print(f"Found {len(property_structs)} property structs after filtering")
     return property_structs
 
-def FindFeatureStructs(tree):
-    """
-    Find all feature structs used to indicate the features an extension has that we will query support of.
-    Parses the tree and finds all the structs, setting their type enum to the correct value. Return this 
-    list of structs, which will later be associated to their extensions and grouped that way.
-    """
-    feature_structs = []
+def ExtractFeatureStructsFromExtensions(extensionObjects, tree):
+    '''
+    Extension-driven approach to finding feature structs. Iterates through extensions
+    and looks for feature struct declarations within them, then finds the corresponding
+    struct definitions in the XML to extract the sType information.
+    '''
+    processed_count = 0
+    found_count = 0
     
-    # First, find all structures that have "features" in their name or are known feature structs
-    all_structs = tree.findall('.//type[@category="struct"][@structextends="VkPhysicalDeviceFeatures2,VkDeviceCreateInfo"]')
-    
-    for struct in all_structs:
-        struct_name = struct.get('name')
-        # Find the structure type enum by looking for the VkStructureType value in the struct definition
-        struct_type_enum = None
-        for member in struct.findall('.//member'):
-            type = member.find('type')
-            if type is not None and type.text == 'VkStructureType':
-                struct_type_enum = member.get('values')
-                break
+    for extensionObject in extensionObjects:
+        processed_count += 1
         
-        if struct_type_enum is None:
-            print(f"Warning: Could not find structure type enum for {struct_name}")
+        # Skip extensions that explicitly have no features
+        if extensionObject.noFeatures:
             continue
+            
+        extension = extensionObject.xmlObject
         
-        feature_structs.append({
-            'name': struct_name,
-            'type_enum': struct_type_enum
-        })
+        # Look for feature structs in the extension's require sections
+        feature_elements = extension.findall('.//require/feature')
+        
+        for feature_element in feature_elements:
+            struct_name = feature_element.get('struct')
+            if struct_name and 'Features' in struct_name:
+                # Found a feature struct, now find its definition in the XML
+                struct_def = tree.find(f'.//type[@name="{struct_name}"]')
+                
+                if struct_def is not None:
+                    # Find the sType value from the struct definition
+                    stype_value = None
+                    for member in struct_def.findall('.//member'):
+                        type_elem = member.find('type')
+                        if type_elem is not None and type_elem.text == 'VkStructureType':
+                            stype_value = member.get('values')
+                            break
+                    
+                    if stype_value:
+                        # Create the feature struct object
+                        feature_struct = ExtensionFeatureStruct()
+                        feature_struct.name = struct_name
+                        feature_struct.stype = stype_value
+                        
+                        extensionObject.featureStruct = feature_struct
+                        found_count += 1
+                        break  # Only expect one feature struct per extension
     
-        
-    return feature_structs
+    print(f"Processed {processed_count} extensions, found {found_count} feature structs")
+    return found_count
 
 def GroupStructsByExtension(structs, extensions, versions, struct_type):
     """
@@ -954,6 +1068,28 @@ def GroupStructsByExtension(structs, extensions, versions, struct_type):
                     break
 
     return grouped_structs
+
+def WriteExtensionFeatureStructsFromExtensions(extensionObjects, fileStream):
+    """
+    Write out static instances of all the extension feature structs, with their sType
+    filled out and pNext set to nullptr. Uses the extension-driven approach where
+    feature struct information is already extracted and stored in the extension objects.
+    """
+    struct_count = 0
+    
+    for extensionObject in extensionObjects:
+        if extensionObject.featureStruct is not None:
+            featureStruct = extensionObject.featureStruct
+            printedStructName = f'cowpoke_{extensionObject.name}_FeatureStruct'
+            
+            print(f'// Extension: {extensionObject.name}', file=fileStream)
+            print(f'static {featureStruct.name} {printedStructName} =\n{{', file=fileStream)
+            print(f'    {featureStruct.stype},', file=fileStream)
+            print(f'    nullptr,', file=fileStream)
+            print(f'}};\n', file=fileStream)
+            struct_count += 1
+    
+    print(f"Generated {struct_count} feature struct declarations")
 
 def WriteExtensionFeatureStructsAndPointerTable(groupedExtensionFeatureStructs, fileStream):
     """
@@ -1050,15 +1186,11 @@ if __name__ == '__main__':
 
         PrintPromotedVersionedExtensions(promotedVersionedExtensions, {ext.name: ext.nameIndex for ext in extensionObjects}, fileStream)
 
-
-        # Removed list of extension structs because its too easy to pull in ones that are not actually defined on the current platform, or in the current version of the API
-
-        # Pare down the list of extensions, to only include ones without the attribute "nofeatures=true". should save us some time
-        #extensions = [ext for ext in extensions if ext.get('nofeatures') != 'true']
-        # Start querying and finding the structs, so we can print that table up
-        #featureStructs = FindFeatureStructs(tree)
-        #groupedFeatureStructs = GroupStructsByExtension(featureStructs, extensions, versions, "Features")
-        #WriteExtensionFeatureStructsAndPointerTable(groupedFeatureStructs, fileStream)
+        # Extract feature structs from extensions using the new extension-driven approach
+        ExtractFeatureStructsFromExtensions(extensionObjects, tree)
+        
+        # Generate feature struct declarations
+        WriteExtensionFeatureStructsFromExtensions(extensionObjects, fileStream)
 
 
         #propertyStructs = FindPropertyStructs(tree)
