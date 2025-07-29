@@ -303,6 +303,7 @@ void VulkanTriangle::setupCommandBuffers()
 
 void VulkanTriangle::setupDescriptorPool()
 {
+    
     constexpr static VkDescriptorPoolSize typeCounts[1]
     { 
         VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 } 
@@ -526,7 +527,8 @@ void VulkanTriangle::setupSyncPrimitives()
 
     fences.resize(drawCmdBuffers.size());
     assert(fences.size() > 0);
-    for (auto& fence : fences) {
+    for (auto& fence : fences)
+    {
         VkResult result = vkCreateFence(vprObjects.device->vkHandle(), &fence_info, nullptr, &fence);
         VkAssert(result);
     }
@@ -591,28 +593,29 @@ void VulkanTriangle::recordCommands()
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
-        vprObjects.swapchain->Image(currentBuffer),
+        vprObjects.swapchain->Image(currentFrame),
         VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
     };
 
     {
-        rpBegin.framebuffer = framebuffers[currentBuffer];
-
+        rpBegin.framebuffer = framebuffers[currentFrame];
+        VkCommandBuffer currentBuffer = drawCmdBuffers[currentFrame];
         VkResult result = VK_SUCCESS;
-        result = vkBeginCommandBuffer(drawCmdBuffers[currentBuffer], &begin_info); VkAssert(result);
+        result = vkBeginCommandBuffer(drawCmdBuffers[currentFrame], &begin_info); VkAssert(result);
         //vkCmdPipelineBarrier(drawCmdBuffers[currentBuffer], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
         //    VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &transition0);
-        vkCmdBeginRenderPass(drawCmdBuffers[currentBuffer], &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(drawCmdBuffers[currentBuffer], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        vkCmdBindDescriptorSets(drawCmdBuffers[currentBuffer], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+
+        vkCmdBeginRenderPass(currentBuffer, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(currentBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdBindDescriptorSets(currentBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
         constexpr static VkDeviceSize offsets[1]{ 0 };
-        vkCmdBindVertexBuffers(drawCmdBuffers[currentBuffer], 0, 1, &Vertices.buffer, offsets);
-        vkCmdBindIndexBuffer(drawCmdBuffers[currentBuffer], Indices.buffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdSetViewport(drawCmdBuffers[currentBuffer], 0, 1, &viewport);
-        vkCmdSetScissor(drawCmdBuffers[currentBuffer], 0, 1, &scissor);
-        vkCmdDrawIndexed(drawCmdBuffers[currentBuffer], Indices.count, 1, 0, 0, 0);
-        vkCmdEndRenderPass(drawCmdBuffers[currentBuffer]);
-        result = vkEndCommandBuffer(drawCmdBuffers[currentBuffer]); VkAssert(result);
+        vkCmdBindVertexBuffers(currentBuffer, 0, 1, &Vertices.buffer, offsets);
+        vkCmdBindIndexBuffer(currentBuffer, Indices.buffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdSetViewport(currentBuffer, 0, 1, &viewport);
+        vkCmdSetScissor(currentBuffer, 0, 1, &scissor);
+        vkCmdDrawIndexed(currentBuffer, Indices.count, 1, 0, 0, 0);
+        vkCmdEndRenderPass(currentBuffer);
+        result = vkEndCommandBuffer(currentBuffer); VkAssert(result);
     }
 
 }
@@ -621,8 +624,8 @@ void VulkanTriangle::draw()
 {
 
     constexpr static VkPipelineStageFlags waitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSemaphore imageAcquireSemaphore = imageAcquireSemaphores[currentBuffer]->vkHandle();
-    VkSemaphore renderCompleteSemaphore = renderCompleteSemaphores[currentBuffer]->vkHandle();
+    VkSemaphore imageAcquireSemaphore = imageAcquireSemaphores[currentFrame]->vkHandle();
+    VkSemaphore renderCompleteSemaphore = renderCompleteSemaphores[currentFrame]->vkHandle();
 
     const VkSemaphoreSubmitInfo imageAcquireSemaphoreInfo
     {
@@ -648,7 +651,7 @@ void VulkanTriangle::draw()
     {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
         nullptr,
-        drawCmdBuffers[currentBuffer],
+        drawCmdBuffers[currentFrame],
         0
     };
 
@@ -666,24 +669,29 @@ void VulkanTriangle::draw()
     };
 
     VkQueue graphicsQueue = vprObjects.device->GraphicsQueue();
-    VkResult result = vkQueueSubmit2(graphicsQueue, 1, &submission2, fences[currentBuffer]);
+    VkResult result = vkQueueSubmit2(graphicsQueue, 1, &submission2, fences[currentFrame]);
     VkAssert(result);
 }
 
 void VulkanTriangle::endFrame()
 {
-    VkResult result = vkWaitForFences(vprObjects.device->vkHandle(), 1, &fences[currentBuffer], VK_TRUE, UINT64_MAX); 
+    VkResult result = vkWaitForFences(vprObjects.device->vkHandle(), 1, &fences[currentFrame], VK_TRUE, UINT64_MAX); 
     VkAssert(result);
-    result = vkResetFences(vprObjects.device->vkHandle(), 1, &fences[currentBuffer]); 
+    result = vkResetFences(vprObjects.device->vkHandle(), 1, &fences[currentFrame]); 
     VkAssert(result);
+    VulkanScene::endFrame();
 }
 
 void VulkanTriangle::update()
 {
-    math::Matrix projection_matrix = math::Matrix::Perspective(60.0f, 16.0f / 9.0f, 0.1f, 300.0f);
+    math::Matrix projection_matrix = math::Matrix::PerspectiveRH(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 300.0f);
+    //projection_matrix = projection_matrix.Transpose(); // Vulkan expects column-major matrices
+    // need to set [1][1] *= -1.0f to flip the Y axis
     uboDataVS.projection = math::FromMatrix<Float4x4>(projection_matrix);
+    uboDataVS.projection(1, 1) *= -1.0f;
     math::Matrix view_matrix = math::Matrix::Identity();
     view_matrix = view_matrix.Translation(0.0f, 0.0f, -2.5f);
+    //view_matrix = view_matrix.Transpose(); // Vulkan expects column-major matrices
     uboDataVS.view = FromMatrix<Float4x4>(view_matrix);
     uboDataVS.model = Float4x4::Identity();
 
