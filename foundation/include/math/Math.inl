@@ -2146,6 +2146,46 @@ namespace math
     // SIMD Matrix Implementation
     // ================================
 
+    DD_MATH_FORCEINLINE Matrix::Matrix() noexcept
+        : data(DirectX::XMMatrixIdentity())
+    {
+    }
+
+    DD_MATH_FORCEINLINE Matrix::Matrix(DirectX::XMMATRIX mat) noexcept : data{ std::move(mat) }
+    {
+    }
+
+    DD_MATH_FORCEINLINE Matrix::Matrix(Vector row0, Vector row1, Vector row2, Vector row3) noexcept
+        : data{ DirectX::XMMATRIX{row0.Data(), row1.Data(), row2.Data(), row3.Data()} }
+    {
+    }
+
+    DD_MATH_FORCEINLINE Matrix::Matrix(const Matrix& other) noexcept : data{ other.data }
+    {
+    }
+
+    DD_MATH_FORCEINLINE Matrix::Matrix(Matrix&& other) noexcept : data{ std::move(other.data) }
+    {
+    }
+
+    DD_MATH_FORCEINLINE Matrix& Matrix::operator=(const Matrix& other) noexcept
+    {
+        if (this != &other)
+        {
+            data = other.data;
+        }
+        return *this;
+    }
+
+    DD_MATH_FORCEINLINE Matrix& Matrix::operator=(Matrix&& other) noexcept
+    {
+        if (this != &other)
+        {
+            data = std::move(other.data);
+        }
+        return *this;
+    }
+
     DD_MATH_FORCEINLINE Vector Matrix::GetRow(size_t index) const noexcept
     {
         return Vector{data.r[index]};

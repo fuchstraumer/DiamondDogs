@@ -1536,8 +1536,8 @@ namespace math
     {
     public:
         // Constructors
-        Matrix() noexcept : data{DirectX::XMMatrixIdentity()} {}
-        Matrix(DirectX::XMMATRIX mat) noexcept : data{mat} {}
+        Matrix() noexcept;
+        Matrix(DirectX::XMMATRIX mat) noexcept;
         
         // Construct from individual elements (4x4)
         Matrix(
@@ -1553,16 +1553,15 @@ namespace math
         )} {}
         
         // Construct from row vectors
-        Matrix(Vector row0, Vector row1, Vector row2, Vector row3) noexcept 
-            : data{DirectX::XMMATRIX{row0.Data(), row1.Data(), row2.Data(), row3.Data()}} {}
+        Matrix(Vector row0, Vector row1, Vector row2, Vector row3) noexcept;
         
         // Copy and move constructors
-        Matrix(const Matrix& other) noexcept = default;
-        Matrix(Matrix&& other) noexcept = default;
+        Matrix(const Matrix& other) noexcept;
+        Matrix(Matrix&& other) noexcept;
         
         // Assignment operators
-        Matrix& operator=(const Matrix& other) noexcept = default;
-        Matrix& operator=(Matrix&& other) noexcept = default;
+        Matrix& operator=(const Matrix& other) noexcept;
+        Matrix& operator=(Matrix&& other) noexcept;
         
         // DirectXMath interop
         DirectX::XMMATRIX Data() const noexcept 
