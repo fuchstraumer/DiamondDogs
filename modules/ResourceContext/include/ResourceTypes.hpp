@@ -58,6 +58,11 @@ struct gpu_resource_data_t
 {
     gpu_resource_data_t() noexcept = default;
     ~gpu_resource_data_t() noexcept = default;
+    gpu_resource_data_t(
+        const void* data,
+        const size_t data_size,
+        const size_t data_alignment,
+        const queue_family_flags dest_queue_family) noexcept;
     gpu_resource_data_t(const gpu_resource_data_t&) noexcept = delete;
     gpu_resource_data_t& operator=(const gpu_resource_data_t&) noexcept = delete;
     gpu_resource_data_t(gpu_resource_data_t&&) noexcept = default;
@@ -71,6 +76,15 @@ struct gpu_resource_data_t
 struct gpu_image_resource_data_t
 {
     gpu_image_resource_data_t() noexcept = default;
+    gpu_image_resource_data_t(
+        const void* _data,
+        const size_t data_size,
+        const uint32_t width,
+        const uint32_t height,
+        const uint32_t array_layer,
+        const uint32_t num_layers,
+        const uint32_t mip_level,
+        const queue_family_flags queue_flags) noexcept;
     ~gpu_image_resource_data_t() noexcept = default;
     gpu_image_resource_data_t(const gpu_image_resource_data_t&) noexcept = delete;
     gpu_image_resource_data_t& operator=(const gpu_image_resource_data_t&) noexcept = delete;
