@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_CORE_DELEGATE_HPP
 #define DIAMOND_DOGS_CORE_DELEGATE_HPP
 #include <utility>
+#include <functional>
 
 template<typename T>
 class base_delegate_t;
@@ -200,6 +201,23 @@ public:
     }
 
     /**
+     * @brief Generate hash value for this delegate
+     * 
+     * @return Hash value based on both function stub and object pointer
+     */
+    std::size_t hash() const noexcept
+    {
+        std::hash<void*> ptr_hasher;
+        std::hash<typename base_delegate_t<Result(Args...)>::func_stub_t> func_hasher;
+        
+        // Combine hashes of both the function stub and object pointer
+        // Use a simple hash combining technique (similar to boost::hash_combine)
+        std::size_t seed = func_hasher(invocation.stub);
+        seed ^= ptr_hasher(invocation.object) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        return seed;
+    }
+
+    /**
      * @brief Create a delegate bound to a member function
      * 
      * @tparam T Class type containing the member function
@@ -261,6 +279,16 @@ private:
 
     typename base_delegate_t<Result(Args...)>::invocation_element_t invocation;
 
+};
+
+// std::hash specialization for delegate_t
+template<typename Result, typename...Args>
+struct std::hash<delegate_t<Result(Args...)>>
+{
+    std::size_t operator()(const delegate_t<Result(Args...)>& delegate) const noexcept
+    {
+        return delegate.hash();
+    }
 };
 
 #endif //!DIAMOND_DOGS_CORE_DELEGATE_HPP
