@@ -13,6 +13,7 @@ namespace vpr
     class Instance;
     class Swapchain;
     class Semaphore;
+    class Fence;
 }
 
 struct RequiredVprObjects
@@ -41,6 +42,7 @@ protected:
 
     void createSemaphores();
 
+    virtual void beginFrame();
     virtual void limitFrame();
     virtual void update() = 0;
     virtual void acquireImage();
@@ -52,11 +54,13 @@ protected:
     std::chrono::system_clock::time_point limiterA;
     std::chrono::system_clock::time_point limiterB;
     uint32_t currentFrame; // Index of the current frame, but *NOT* the current framebuffer
-    uint32_t currentFrameBuffer;
+    uint32_t currentAcquiredImage;
     uint32_t numFramebuffers;
     RequiredVprObjects vprObjects;
     std::vector<std::unique_ptr<vpr::Semaphore>> imageAcquireSemaphores;
     std::vector<std::unique_ptr<vpr::Semaphore>> renderCompleteSemaphores;
+    std::vector<bool> firstFrame;
+    std::vector<std::unique_ptr<vpr::Fence>> endFrameFences;
 
 };
 

@@ -1,5 +1,6 @@
 #include "VulkanScene.hpp"
 #include "LogicalDevice.hpp"
+#include "Fence.hpp"
 #include "Swapchain.hpp"
 #include "Semaphore.hpp"
 #include "vkAssert.hpp"
@@ -12,7 +13,7 @@
 VulkanScene::VulkanScene()
 {
     currentFrame = 0;
-    currentFrameBuffer = 0;
+    currentAcquiredImage = 0;
     numFramebuffers = 0;
     limiterA = std::chrono::system_clock::now();
     limiterB = std::chrono::system_clock::now();
@@ -22,6 +23,7 @@ VulkanScene::~VulkanScene() {}
 
 void VulkanScene::Render(void* user_data)
 {
+    beginFrame();
     acquireImage();
     update();
     recordCommands();
@@ -33,7 +35,7 @@ void VulkanScene::Render(void* user_data)
 
 size_t VulkanScene::CurrentFrameBufferIdx() const
 {
-    return static_cast<size_t>(currentFrameBuffer);
+    return static_cast<size_t>(currentAcquiredImage);
 }
 
 void VulkanScene::createSemaphores()
@@ -47,6 +49,19 @@ void VulkanScene::createSemaphores()
         semaphore_name = std::format("RenderCompleteSemaphore_{}", i);
         RenderingContext::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, (uint64_t)renderCompleteSemaphores.back()->vkHandle(), semaphore_name.c_str());
     }
+
+    firstFrame.resize(numFramebuffers, true);
+}
+
+void VulkanScene::beginFrame()
+{
+    // this fence was created in signaled state, so the first time through the wait is free. from then on,
+    // it makes sure that all previous work using this frames contextual data (command buffers, etc) is done
+    VkFence endFrameFence = endFrameFences[currentFrame]->vkHandle();
+    VkResult result = vkWaitForFences(vprObjects.device->vkHandle(), 1, &endFrameFence, VK_TRUE, 1000000000);
+    VkAssert(result);
+    result = vkResetFences(vprObjects.device->vkHandle(), 1, &endFrameFence);
+    VkAssert(result);
 }
 
 void VulkanScene::limitFrame()
@@ -71,7 +86,7 @@ void VulkanScene::acquireImage()
         1000000000,
         imageAcquireSemaphore->vkHandle(),
         VK_NULL_HANDLE,
-        &currentFrameBuffer);
+        &currentAcquiredImage);
     VkAssert(result);
 }
 
@@ -90,7 +105,7 @@ void VulkanScene::present()
         &renderCompleteSemaphore->vkHandle(),
         1,
         &vprObjects.swapchain->vkHandle(),
-        &currentFrameBuffer,
+        &currentAcquiredImage,
         present_results
     };
 
@@ -101,5 +116,10 @@ void VulkanScene::present()
 
 void VulkanScene::endFrame()
 {
+    if (firstFrame[currentFrame])
+    {
+        firstFrame[currentFrame] = false;
+    }
+
     currentFrame = (currentFrame + 1) % numFramebuffers;
 }
