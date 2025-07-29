@@ -7,7 +7,7 @@
 #include "Fence.hpp"
 #include "vkAssert.hpp"
 #include "UploadBuffer.hpp"
-#include "../../rendering_context/include/RenderingContext.hpp"
+#include "../../RenderingContext/include/RenderingContext.hpp"
 #include "VkDebugUtils.hpp"
 
 #include <array>
