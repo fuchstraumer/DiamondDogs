@@ -34,9 +34,8 @@ protected:
     void setupDescriptorSet();
     void setupShaderModules();
     void setupDepthStencil();
-    void setupRenderpass();
     void setupPipeline();
-    void setupFramebuffers();
+    void setupSwapchainDebugInfo();
     void setupSyncPrimitives();
 
     struct Vertex
@@ -72,15 +71,13 @@ protected:
         math::Float4x4 projection;
     } uboDataVS;
 
-    DepthStencil depthStencil;
+    std::vector<DepthStencil> depthStencils;
     VkPipelineLayout pipelineLayout;
     VkPipeline pipeline;
     VkDescriptorSetLayout setLayout;
     VkDescriptorSet descriptorSet;
     VkDescriptorPool descriptorPool;
-    VkRenderPass renderpass;
     std::vector<VkFence> fences;
-    std::vector<VkFramebuffer> framebuffers;
     VkSubmitInfo submitInfo;
     VkCommandPool commandPool;
     VkShaderModule vertexShader = VK_NULL_HANDLE;

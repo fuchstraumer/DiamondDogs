@@ -89,92 +89,6 @@ DepthStencil CreateDepthStencil(const vpr::Device* device, const vpr::PhysicalDe
     return depth_stencil;
 }
 
-VkRenderPass CreateBasicRenderpass(const vpr::Device* device, const vpr::Swapchain* swapchain, VkFormat depth_format)
-{
-
-    VkRenderPass renderpass = VK_NULL_HANDLE;
-
-    const std::array<const VkAttachmentDescription, 2> attachmentDescriptions
-    {
-        VkAttachmentDescription
-        {
-        0, swapchain->ColorFormat(), VK_SAMPLE_COUNT_1_BIT,
-        VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
-        VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-    },
-        VkAttachmentDescription
-        {
-        0, depth_format, VK_SAMPLE_COUNT_1_BIT,
-        VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
-        VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-    }
-    };
-
-    const std::array<VkAttachmentReference, 2> attachmentReferences
-    {
-        VkAttachmentReference{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL },
-        VkAttachmentReference{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL }
-    };
-
-    const VkSubpassDescription subpassDescription
-    {
-        0,
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        0,
-        nullptr,
-        1,
-        &attachmentReferences[0],
-        nullptr,
-        &attachmentReferences[1],
-        0,
-        nullptr
-    };
-
-    const std::array<VkSubpassDependency, 2> subpassDependencies
-    {
-        VkSubpassDependency
-        {
-            VK_SUBPASS_EXTERNAL,
-            0,
-            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_MEMORY_READ_BIT,
-            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-            VK_DEPENDENCY_BY_REGION_BIT
-        },
-        VkSubpassDependency
-        {
-            0,
-            VK_SUBPASS_EXTERNAL,
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-            VK_ACCESS_MEMORY_READ_BIT,
-            VK_DEPENDENCY_BY_REGION_BIT
-        }
-    };
-
-    const VkRenderPassCreateInfo create_info
-    {
-        VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        nullptr,
-        0,
-        static_cast<uint32_t>(attachmentDescriptions.size()),
-        attachmentDescriptions.data(),
-        1,
-        &subpassDescription,
-        static_cast<uint32_t>(subpassDependencies.size()),
-        subpassDependencies.data()
-    };
-
-    VkResult result = vkCreateRenderPass(device->vkHandle(), &create_info, nullptr, &renderpass);
-    VkAssert(result);
-
-    return renderpass;
-}
-
 VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
 {
     VkPipeline pipeline = VK_NULL_HANDLE;
@@ -295,7 +209,7 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
     VkGraphicsPipelineCreateInfo pipeline_create_info =
     {
         VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-        nullptr,
+        createInfo.renderingCreateInfo,
         VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT,
         createInfo.numStages,
         createInfo.stages,
@@ -309,7 +223,7 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
         &color_blend_info,
         &dynamic_state_info,
         createInfo.pipelineLayout,
-        createInfo.renderPass,
+        VK_NULL_HANDLE,
         0,
         createInfo.derivedPipeline,
         -1

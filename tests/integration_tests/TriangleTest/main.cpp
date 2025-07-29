@@ -1,6 +1,10 @@
 #include "TriangleTest.hpp"
 #include "RenderingContext.hpp"
 
+static void SwapchainCreatedCallback(VkSwapchainKHR swapchain, uint32_t width, uint32_t height, void* user_data)
+{
+}
+
 static void BeginRecreateCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* user_data)
 {
     auto& tri = VulkanTriangle::GetScene();
@@ -18,16 +22,21 @@ static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32
     tri.Construct(objects, nullptr);
 }
 
+static void SwapchainDestroyedCallback(VkSwapchainKHR swapchain, void* user_data)
+{
+}
+
 int main(int argc, char* argv[])
 {
 
     RenderingContext& renderer_context = RenderingContext::Get();
     renderer_context.Construct("RendererContextCfg.json");
 
-    SwapchainCallbacks callbacks; 
-    delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height)> d;
+    SwapchainCallbacks callbacks;
+    callbacks.SwapchainCreated = SwapchainCreatedCallbackType::create<&SwapchainCreatedCallback>();
     callbacks.BeginResize = SwapchainBeginResizeCallbackType::create<&BeginRecreateCallback>();
     callbacks.CompleteResize = SwapchainCompleteResizeCallbackType::create<&CompleteResizeCallback>();
+    callbacks.SwapchainDestroyed = SwapchainDestroyedCallbackType::create<&SwapchainDestroyedCallback>();
     renderer_context.AddSwapchainCallbacks(callbacks);
 
     auto& triangle = VulkanTriangle::GetScene();

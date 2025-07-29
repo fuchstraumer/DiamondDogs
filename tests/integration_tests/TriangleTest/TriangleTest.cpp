@@ -1,13 +1,16 @@
 #include "TriangleTest.hpp"
+#include "RenderingContext.hpp"
 #include "PhysicalDevice.hpp"
 #include "LogicalDevice.hpp"
 #include "ShaderModule.hpp"
 #include "Swapchain.hpp"
 #include "vkAssert.hpp"
 #include "Semaphore.hpp"
+#include "Fence.hpp"
 #include "Math.hpp"
 #include <fstream>
 #include <numbers>
+#include <format>
 
 using namespace math;
 
@@ -98,6 +101,7 @@ VulkanTriangle& VulkanTriangle::GetScene()
 void VulkanTriangle::Construct(RequiredVprObjects objects, void* user_data)
 {
     vprObjects = objects;
+    numFramebuffers = vprObjects.swapchain->ImageCount();
     prepareVertices();
     setupUniformBuffer();
     setupCommandPool();
@@ -107,9 +111,8 @@ void VulkanTriangle::Construct(RequiredVprObjects objects, void* user_data)
     setupDescriptorSet();
     setupShaderModules();
     setupDepthStencil();
-    setupRenderpass();
     setupPipeline();
-    setupFramebuffers();
+    setupSwapchainDebugInfo();
     setupSyncPrimitives();
     createSemaphores();
     setup = true;
@@ -125,27 +128,36 @@ void VulkanTriangle::Destroy()
     {
         imageAcquireSemaphore.reset();
     }
+    imageAcquireSemaphores.clear();
+    imageAcquireSemaphores.shrink_to_fit();
 
     for (auto& renderCompleteSemaphore : renderCompleteSemaphores)
     {
         renderCompleteSemaphore.reset();
     }
+    renderCompleteSemaphores.clear();
+    renderCompleteSemaphores.shrink_to_fit();
 
     for (auto& fence : fences)
     {
         vkDestroyFence(vprObjects.device->vkHandle(), fence, nullptr);
     }
+    fences.clear();
 
-    for (auto& fbuff : framebuffers)
-    {
-        vkDestroyFramebuffer(vprObjects.device->vkHandle(), fbuff, nullptr);
-    }
+    endFrameFences.clear();
+
+    firstFrame.clear();
 
     vkDestroyPipeline(vprObjects.device->vkHandle(), pipeline, nullptr);
-    vkDestroyRenderPass(vprObjects.device->vkHandle(), renderpass, nullptr);
-    vkFreeMemory(vprObjects.device->vkHandle(), depthStencil.Memory, nullptr);
-    vkDestroyImageView(vprObjects.device->vkHandle(), depthStencil.View, nullptr);
-    vkDestroyImage(vprObjects.device->vkHandle(), depthStencil.Image, nullptr);
+
+    for (auto& depthStencil : depthStencils)
+    {
+        vkFreeMemory(vprObjects.device->vkHandle(), depthStencil.Memory, nullptr);
+        vkDestroyImageView(vprObjects.device->vkHandle(), depthStencil.View, nullptr);
+        vkDestroyImage(vprObjects.device->vkHandle(), depthStencil.Image, nullptr);
+    }
+    depthStencils.clear();
+
     vkDestroyShaderModule(vprObjects.device->vkHandle(), fragmentShader, nullptr);
     vkDestroyShaderModule(vprObjects.device->vkHandle(), vertexShader, nullptr);
     vkFreeDescriptorSets(vprObjects.device->vkHandle(), descriptorPool, 1, &descriptorSet);
@@ -300,6 +312,15 @@ void VulkanTriangle::setupCommandBuffers()
     VkResult result = vkAllocateCommandBuffers(vprObjects.device->vkHandle(), &cmd_info, drawCmdBuffers.data());
     VkAssert(result);
 
+    uint32_t i = 0;
+    for (VkCommandBuffer cmdBuffer : drawCmdBuffers)
+    {
+        std::string cmdBufferName = std::format("DrawCmdBuffer_{}", i);
+        const uint64_t handleCast = reinterpret_cast<uint64_t>(cmdBuffer);
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_BUFFER, handleCast, cmdBufferName.c_str());
+        ++i;
+    }
+
 }
 
 void VulkanTriangle::setupDescriptorPool()
@@ -429,12 +450,10 @@ void VulkanTriangle::setupShaderModules()
 
 void VulkanTriangle::setupDepthStencil() 
 {
-    depthStencil = CreateDepthStencil(vprObjects.device, vprObjects.physicalDevice, vprObjects.swapchain);
-}
-
-void VulkanTriangle::setupRenderpass() 
-{
-    renderpass = CreateBasicRenderpass(vprObjects.device, vprObjects.swapchain, depthStencil.Format);
+    for (uint32_t i = 0; i < numFramebuffers; ++i)
+    {
+        depthStencils.emplace_back(CreateDepthStencil(vprObjects.device, vprObjects.physicalDevice, vprObjects.swapchain));
+    }
 }
 
 void VulkanTriangle::setupPipeline() 
@@ -468,6 +487,22 @@ void VulkanTriangle::setupPipeline()
         vertex_attributes
     };
 
+    const VkFormat color_formats[1]
+    {
+        vprObjects.swapchain->ColorFormat()
+    };
+
+    const VkPipelineRenderingCreateInfo rendering_info
+    {
+        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        nullptr,
+        0,
+        std::size(color_formats),
+        color_formats,
+        depthStencils[0].Format, // format is same among all depth/stencil attachments
+        VK_FORMAT_UNDEFINED
+    };
+
     BasicPipelineCreateInfo pipelineCreateInfo
     {
         vprObjects.device,
@@ -476,7 +511,7 @@ void VulkanTriangle::setupPipeline()
         shader_stages,
         &vertex_info,
         pipelineLayout,
-        renderpass,
+        &rendering_info,
         VK_COMPARE_OP_LESS
     };
 
@@ -484,35 +519,20 @@ void VulkanTriangle::setupPipeline()
     
 }
 
-void VulkanTriangle::setupFramebuffers() 
+void VulkanTriangle::setupSwapchainDebugInfo()
 {
-    framebuffers.resize(vprObjects.swapchain->ImageCount());
-    numFramebuffers = static_cast<uint32_t>(framebuffers.size());
+    const uint64_t swapchainHandle = reinterpret_cast<uint64_t>(vprObjects.swapchain->vkHandle());
+    RenderingContext::SetObjectName(VK_OBJECT_TYPE_SWAPCHAIN_KHR, swapchainHandle, "Swapchain");
 
-    for (size_t i = 0; i < framebuffers.size(); ++i)
+    const uint32_t swapchainImageCount = vprObjects.swapchain->ImageCount();
+    for (uint32_t i = 0; i < swapchainImageCount; ++i)
     {
-        std::array<VkImageView, 2> attachments
-        {
-            vprObjects.swapchain->ImageView(i),
-            depthStencil.View
-        };
-
-        const VkFramebufferCreateInfo create_info
-        {
-            VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            nullptr,
-            0,
-            renderpass,
-            static_cast<uint32_t>(attachments.size()),
-            attachments.data(),
-            vprObjects.swapchain->Extent().width,
-            vprObjects.swapchain->Extent().height,
-            1
-        };
-
-        VkResult result = vkCreateFramebuffer(vprObjects.device->vkHandle(), &create_info, nullptr, &framebuffers[i]);
-        VkAssert(result);
-
+        const uint64_t image = reinterpret_cast<uint64_t>(vprObjects.swapchain->Image(i));
+        std::string imageName = std::format("SwapchainImage_{}", i);
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, image, imageName.c_str());
+        const uint64_t imageView = reinterpret_cast<uint64_t>(vprObjects.swapchain->ImageView(i));
+        std::string imageViewName = std::format("SwapchainImageView_{}", i);
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, imageView, imageViewName.c_str());
     }
 }
 
@@ -532,6 +552,14 @@ void VulkanTriangle::setupSyncPrimitives()
     {
         VkResult result = vkCreateFence(vprObjects.device->vkHandle(), &fence_info, nullptr, &fence);
         VkAssert(result);
+    }
+
+    for (uint32_t i = 0; i < numFramebuffers; ++i)
+    {
+        endFrameFences.emplace_back(std::make_unique<vpr::Fence>(vprObjects.device->vkHandle(), VK_FENCE_CREATE_SIGNALED_BIT));
+        VkFence createdFence = endFrameFences.back()->vkHandle();
+        std::string fenceName = std::format("EndFrameFence_{}", i);
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_FENCE, (uint64_t)createdFence, fenceName.c_str());
     }
 }
 
@@ -573,50 +601,156 @@ void VulkanTriangle::recordCommands()
         render_area
     };
 
-    VkRenderPassBeginInfo rpBegin
-    {
-        VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        nullptr,
-        renderpass,
-        VK_NULL_HANDLE,
-        render_area,
-        static_cast<uint32_t>(clearValues.size()),
-        clearValues.data()
-    };
+    VkImage currentFrameBufferImage = vprObjects.swapchain->Image(currentAcquiredImage);
+    VkImageView currentFrameBufferImageView = vprObjects.swapchain->ImageView(currentAcquiredImage);
+    // color attachment image index is based on what we acquire from the API call, depth stencil we just round-robin
+    VkImage currentDepthStencilImage = depthStencils[currentFrame].Image;
+    VkImageView currentDepthStencilImageView = depthStencils[currentFrame].View;
 
-    const VkImageMemoryBarrier transition0
+    std::vector<VkImageMemoryBarrier2> image_barriers;
+    VkImageMemoryBarrier2 image_transition0
     {
-        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         nullptr,
-        VK_ACCESS_MEMORY_READ_BIT,
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        0,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        firstFrame[currentFrame] ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
-        vprObjects.swapchain->Image(currentFrame),
+        currentFrameBufferImage,
         VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
     };
 
+    image_barriers.emplace_back(std::move(image_transition0));
+
+    if (firstFrame[currentFrame])
     {
-        rpBegin.framebuffer = framebuffers[currentFrame];
+        VkImageMemoryBarrier2 depth_transition0
+        {
+            VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            nullptr,
+            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, // depth isn't involved in the presentation engine, so this is our src stage
+            0,
+            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            currentDepthStencilImage,
+            VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
+        };
+        image_barriers.emplace_back(std::move(depth_transition0));
+    }
+
+    const VkDependencyInfo dependency_info0
+    {
+        VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        nullptr,
+        0,
+        0, nullptr,
+        0, nullptr,
+        static_cast<uint32_t>(image_barriers.size()),
+        image_barriers.data()
+    };
+
+    const VkImageMemoryBarrier2 transition1[]
+    {
+        VkImageMemoryBarrier2
+        {
+            VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            nullptr,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+            0,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            currentFrameBufferImage,
+            VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+        }
+    };
+
+    const VkDependencyInfo dependency_info1
+    {
+        VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        nullptr,
+        0,
+        0,
+        nullptr,
+        0,
+        nullptr,
+        static_cast<uint32_t>(std::size(transition1)), 
+        transition1
+    };
+
+    const VkRenderingAttachmentInfo color_attachment_info
+    {
+        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        nullptr,
+        currentFrameBufferImageView,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_RESOLVE_MODE_NONE,
+        VK_NULL_HANDLE,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_ATTACHMENT_LOAD_OP_CLEAR,
+        VK_ATTACHMENT_STORE_OP_STORE,
+        clearValues[0]
+    };
+
+    const VkRenderingAttachmentInfo depth_attachment_info
+    {
+        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        nullptr,
+        currentDepthStencilImageView,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, // it should enter rendering in this layout
+        VK_RESOLVE_MODE_NONE,
+        VK_NULL_HANDLE,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_ATTACHMENT_LOAD_OP_CLEAR,
+        VK_ATTACHMENT_STORE_OP_DONT_CARE, // don't care about depth attachment after rendering
+        clearValues[1]
+    };
+
+    const VkRenderingInfo renderingInfo
+    {
+        VK_STRUCTURE_TYPE_RENDERING_INFO,
+        nullptr,
+        0,
+        render_area,
+        1,
+        0,
+        1,
+        &color_attachment_info,
+        &depth_attachment_info,
+        nullptr
+    };
+
+    {
+        
         VkCommandBuffer currentBuffer = drawCmdBuffers[currentFrame];
         VkResult result = VK_SUCCESS;
-        result = vkBeginCommandBuffer(drawCmdBuffers[currentFrame], &begin_info); VkAssert(result);
-        //vkCmdPipelineBarrier(drawCmdBuffers[currentBuffer], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        //    VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &transition0);
-
-        vkCmdBeginRenderPass(currentBuffer, &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(currentBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        vkCmdBindDescriptorSets(currentBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-        constexpr static VkDeviceSize offsets[1]{ 0 };
-        vkCmdBindVertexBuffers(currentBuffer, 0, 1, &Vertices.buffer, offsets);
-        vkCmdBindIndexBuffer(currentBuffer, Indices.buffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdSetViewport(currentBuffer, 0, 1, &viewport);
-        vkCmdSetScissor(currentBuffer, 0, 1, &scissor);
-        vkCmdDrawIndexed(currentBuffer, Indices.count, 1, 0, 0, 0);
-        vkCmdEndRenderPass(currentBuffer);
-        result = vkEndCommandBuffer(currentBuffer); VkAssert(result);
+        result = vkBeginCommandBuffer(drawCmdBuffers[currentFrame], &begin_info);
+        VkAssert(result);
+            vkCmdPipelineBarrier2(currentBuffer, &dependency_info0);
+            vkCmdBeginRendering(currentBuffer, &renderingInfo);
+            vkCmdBindPipeline(currentBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            vkCmdBindDescriptorSets(currentBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+            constexpr static VkDeviceSize offsets[1]{ 0 };
+            vkCmdBindVertexBuffers(currentBuffer, 0, 1, &Vertices.buffer, offsets);
+            vkCmdBindIndexBuffer(currentBuffer, Indices.buffer, 0, VK_INDEX_TYPE_UINT16);
+            vkCmdSetViewport(currentBuffer, 0, 1, &viewport);
+            vkCmdSetScissor(currentBuffer, 0, 1, &scissor);
+            vkCmdDrawIndexed(currentBuffer, Indices.count, 1, 0, 0, 0);
+            vkCmdEndRendering(currentBuffer);
+            vkCmdPipelineBarrier2(currentBuffer, &dependency_info1);
+        result = vkEndCommandBuffer(currentBuffer);
+        VkAssert(result);
     }
 
 }
@@ -670,23 +804,21 @@ void VulkanTriangle::draw()
     };
 
     VkQueue graphicsQueue = vprObjects.device->GraphicsQueue();
-    VkResult result = vkQueueSubmit2(graphicsQueue, 1, &submission2, fences[currentFrame]);
+    VkResult result = vkQueueSubmit2(graphicsQueue, 1, &submission2, endFrameFences[currentFrame]->vkHandle());
     VkAssert(result);
 }
 
 void VulkanTriangle::endFrame()
 {
-    VkResult result = vkWaitForFences(vprObjects.device->vkHandle(), 1, &fences[currentFrame], VK_TRUE, UINT64_MAX); 
-    VkAssert(result);
-    result = vkResetFences(vprObjects.device->vkHandle(), 1, &fences[currentFrame]); 
-    VkAssert(result);
     VulkanScene::endFrame();
 }
 
 void VulkanTriangle::update()
 {
     constexpr float radians_ratio = std::numbers::pi_v<float> / 180.0f;
-    math::Matrix projection_matrix = math::Matrix::PerspectiveRH(60.0f * radians_ratio, 16.0f / 9.0f, 0.1f, 300.0f);
+    const float window_width = static_cast<float>(vprObjects.swapchain->Extent().width);
+    const float window_height = static_cast<float>(vprObjects.swapchain->Extent().height);
+    math::Matrix projection_matrix = math::Matrix::PerspectiveRH(60.0f * radians_ratio, window_width / window_height, 0.1f, 300.0f);
     //projection_matrix = projection_matrix.Transpose(); // Vulkan expects column-major matrices
     // need to set [1][1] *= -1.0f to flip the Y axis
     uboDataVS.projection = math::FromMatrix<Float4x4>(projection_matrix);

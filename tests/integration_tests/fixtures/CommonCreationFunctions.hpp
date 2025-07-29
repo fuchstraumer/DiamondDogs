@@ -4,14 +4,16 @@
 #include <vulkan/vulkan.h>
 #include <array>
 
-namespace vpr {
+namespace vpr
+{
     class Instance;
     class PhysicalDevice;
     class Device;
     class Swapchain;
 }
 
-struct DepthStencil {
+struct DepthStencil
+{
     DepthStencil() = default;
     DepthStencil(const vpr::Device* device, const vpr::PhysicalDevice* p_device, const vpr::Swapchain* swap);
     ~DepthStencil();
@@ -30,7 +32,7 @@ struct BasicPipelineCreateInfo
     const VkPipelineShaderStageCreateInfo* stages{ nullptr };
     const VkPipelineVertexInputStateCreateInfo* vertexState{ nullptr };
     VkPipelineLayout pipelineLayout{ VK_NULL_HANDLE };
-    VkRenderPass renderPass{ VK_NULL_HANDLE };
+    const VkPipelineRenderingCreateInfo* renderingCreateInfo{ nullptr };
     VkCompareOp depthCompareOp;
     VkPipelineCache pipelineCache{ VK_NULL_HANDLE };
     VkPipeline derivedPipeline{ VK_NULL_HANDLE };
@@ -39,7 +41,6 @@ struct BasicPipelineCreateInfo
 };
 
 DepthStencil CreateDepthStencil(const vpr::Device* device, const vpr::PhysicalDevice* physical_device, const vpr::Swapchain* swapchain);
-VkRenderPass CreateBasicRenderpass(const vpr::Device* device, const vpr::Swapchain* swapchain, VkFormat depth_format);
 VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo);
 
 #endif //!DIAMOND_DOGS_TESTS_COMMON_CREATION_FUNCTIONS_HPP

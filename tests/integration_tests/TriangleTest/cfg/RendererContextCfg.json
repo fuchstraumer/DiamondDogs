@@ -12,7 +12,8 @@
     "RequestedInstanceExtensions" : [
     ],
     "RequiredDeviceExtensions" : [
-        "VK_KHR_swapchain"
+        "VK_KHR_swapchain",
+        "VK_KHR_dynamic_rendering"
     ],
     "RequestedDeviceExtensions" : [
         "VK_KHR_dedicated_allocation",
