@@ -540,13 +540,6 @@ void VulkanTriangle::setupSyncPrimitives()
         0
     };
 
-    assert(fences.size() > 0);
-    for (auto& fence : fences)
-    {
-        VkResult result = vkCreateFence(vprObjects.device->vkHandle(), &fence_info, nullptr, &fence);
-        VkAssert(result);
-    }
-
     for (uint32_t i = 0; i < numFramebuffers; ++i)
     {
         endFrameFences.emplace_back(std::make_unique<vpr::Fence>(vprObjects.device->vkHandle(), VK_FENCE_CREATE_SIGNALED_BIT));
