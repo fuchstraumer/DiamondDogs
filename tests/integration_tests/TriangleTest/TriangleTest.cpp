@@ -138,12 +138,6 @@ void VulkanTriangle::Destroy()
     renderCompleteSemaphores.clear();
     renderCompleteSemaphores.shrink_to_fit();
 
-    for (auto& fence : fences)
-    {
-        vkDestroyFence(vprObjects.device->vkHandle(), fence, nullptr);
-    }
-    fences.clear();
-
     endFrameFences.clear();
 
     firstFrame.clear();
@@ -546,7 +540,6 @@ void VulkanTriangle::setupSyncPrimitives()
         0
     };
 
-    fences.resize(drawCmdBuffers.size());
     assert(fences.size() > 0);
     for (auto& fence : fences)
     {

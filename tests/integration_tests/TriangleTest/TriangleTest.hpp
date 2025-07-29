@@ -77,7 +77,6 @@ protected:
     VkDescriptorSetLayout setLayout;
     VkDescriptorSet descriptorSet;
     VkDescriptorPool descriptorPool;
-    std::vector<VkFence> fences;
     VkSubmitInfo submitInfo;
     VkCommandPool commandPool;
     VkShaderModule vertexShader = VK_NULL_HANDLE;
