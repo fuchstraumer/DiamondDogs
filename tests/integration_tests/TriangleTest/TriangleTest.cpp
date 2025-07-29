@@ -7,6 +7,7 @@
 #include "Semaphore.hpp"
 #include "Math.hpp"
 #include <fstream>
+#include <numbers>
 
 using namespace math;
 
@@ -684,7 +685,8 @@ void VulkanTriangle::endFrame()
 
 void VulkanTriangle::update()
 {
-    math::Matrix projection_matrix = math::Matrix::PerspectiveRH(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 300.0f);
+    constexpr float radians_ratio = std::numbers::pi_v<float> / 180.0f;
+    math::Matrix projection_matrix = math::Matrix::PerspectiveRH(60.0f * radians_ratio, 16.0f / 9.0f, 0.1f, 300.0f);
     //projection_matrix = projection_matrix.Transpose(); // Vulkan expects column-major matrices
     // need to set [1][1] *= -1.0f to flip the Y axis
     uboDataVS.projection = math::FromMatrix<Float4x4>(projection_matrix);
