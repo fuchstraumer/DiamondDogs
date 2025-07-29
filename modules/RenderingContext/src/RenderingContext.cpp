@@ -13,7 +13,7 @@
 #include <iostream>
 #include <fstream>
 #include <atomic>
-#include <forward_list>
+#include <vector>
 #include "GLFW/glfw3.h"
 #ifdef APIENTRY
 // re-defined by glfw on windows, then seen again by easylogging
@@ -31,14 +31,14 @@ static bool validationEnabled{ false };
 
 struct SwapchainCallbacksStorageType
 {
-    std::forward_list<decltype(SwapchainCallbacks::SwapchainCreated)> CreationFns;
-    std::unordered_map<std::add_pointer<decltype(SwapchainCallbacks::SwapchainCreated)>::type, void*> CreationFnUserData;
-    std::forward_list<decltype(SwapchainCallbacks::BeginResize)> BeginFns;
-    std::unordered_map<std::add_pointer<decltype(SwapchainCallbacks::BeginResize)>::type, void*> BeginFnUserData;
-    std::forward_list<decltype(SwapchainCallbacks::CompleteResize)> CompleteFns;
-    std::unordered_map<std::add_pointer<decltype(SwapchainCallbacks::CompleteResize)>::type, void*> CompleteFnUserData;
-    std::forward_list<decltype(SwapchainCallbacks::SwapchainDestroyed)> DestroyedFns;
-    std::unordered_map<std::add_pointer<decltype(SwapchainCallbacks::SwapchainDestroyed)>::type, void*> DestroyedFnUserData;
+    std::vector<SwapchainCreatedCallbackType> CreationFns;
+    std::unordered_map<SwapchainCreatedCallbackType, void*> CreationFnUserData;
+    std::vector<SwapchainBeginResizeCallbackType> BeginFns;
+    std::unordered_map<SwapchainBeginResizeCallbackType, void*> BeginFnUserData;
+    std::vector<SwapchainCompleteResizeCallbackType> CompleteFns;
+    std::unordered_map<SwapchainCompleteResizeCallbackType, void*> CompleteFnUserData;
+    std::vector<SwapchainDestroyedCallbackType> DestroyedFns;
+    std::unordered_map<SwapchainDestroyedCallbackType, void*> DestroyedFnUserData;
 };
 static SwapchainCallbacksStorageType SwapchainCallbacksStorage;
 
@@ -318,7 +318,7 @@ inline void RecreateSwapchain()
 
     for (auto& fn : SwapchainCallbacksStorage.BeginFns)
     {
-        auto userDataIter = SwapchainCallbacksStorage.BeginFnUserData.find(&fn);
+        auto userDataIter = SwapchainCallbacksStorage.BeginFnUserData.find(fn);
         if (userDataIter != SwapchainCallbacksStorage.BeginFnUserData.end())
         {
             void* userData = userDataIter->second;
@@ -339,7 +339,7 @@ inline void RecreateSwapchain()
     Context.Window()->GetWindowSize(width, height);
     for (auto& fn : SwapchainCallbacksStorage.CompleteFns)
     {
-        auto userDataIter = SwapchainCallbacksStorage.CompleteFnUserData.find(&fn);
+        auto userDataIter = SwapchainCallbacksStorage.CompleteFnUserData.find(fn);
         if (userDataIter != SwapchainCallbacksStorage.CompleteFnUserData.end())
         {
             void* userData = userDataIter->second;
@@ -358,30 +358,6 @@ inline void RecreateSwapchain()
 }
 #pragma warning(pop)
 
-
-void AddSwapchainCallbacks(SwapchainCallbacks callbacks)
-{
-    if (callbacks.SwapchainCreated)
-    {
-        SwapchainCallbacksStorage.CreationFns.emplace_front(callbacks.SwapchainCreated);
-    }
-
-    if (callbacks.BeginResize)
-    {
-        SwapchainCallbacksStorage.BeginFns.emplace_front(callbacks.BeginResize);
-    }
-
-    if (callbacks.CompleteResize)
-    {
-        SwapchainCallbacksStorage.CompleteFns.emplace_front(callbacks.CompleteResize);
-    }
-
-    if (callbacks.SwapchainDestroyed)
-    {
-        SwapchainCallbacksStorage.DestroyedFns.emplace_front(callbacks.SwapchainDestroyed);
-    }
-}
-
 void RenderingContext::AddSetupFunctions(PostPhysicalDeviceInitPreLogicalDeviceInitFunction fn0, PostLogicalDeviceInitFunction fn1)
 {
     postPhysicalPreLogicalSetupFunction = fn0;
@@ -390,8 +366,17 @@ void RenderingContext::AddSetupFunctions(PostPhysicalDeviceInitPreLogicalDeviceI
 
 void RenderingContext::AddSwapchainCallbacks(SwapchainCallbacks callbacks)
 {
-    SwapchainCallbacksStorage.BeginFns.emplace_front(callbacks.BeginResize);
-    SwapchainCallbacksStorage.CompleteFns.emplace_front(callbacks.CompleteResize);
+    SwapchainCallbacksStorage.CreationFns.emplace_back(callbacks.SwapchainCreated);
+    SwapchainCallbacksStorage.CreationFnUserData.emplace(callbacks.SwapchainCreated, callbacks.SwapchainCreatedUserData);
+
+    SwapchainCallbacksStorage.BeginFns.emplace_back(callbacks.BeginResize);
+    SwapchainCallbacksStorage.BeginFnUserData.emplace(callbacks.BeginResize, callbacks.BeginResizeUserData);
+
+    SwapchainCallbacksStorage.CompleteFns.emplace_back(callbacks.CompleteResize);
+    SwapchainCallbacksStorage.CompleteFnUserData.emplace(callbacks.CompleteResize, callbacks.CompleteResizeUserData);
+
+    SwapchainCallbacksStorage.CreationFns.emplace_back(callbacks.SwapchainCreated);
+    SwapchainCallbacksStorage.CreationFnUserData.emplace(callbacks.SwapchainCreated, callbacks.SwapchainCreatedUserData);
 }
 
 void RenderingContext::GetWindowSize(int& w, int& h)

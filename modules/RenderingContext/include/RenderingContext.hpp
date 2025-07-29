@@ -78,9 +78,13 @@ using SwapchainDestroyedCallbackType = delegate_t<void(VkSwapchainKHR handle, vo
 struct SwapchainCallbacks
 {
     SwapchainCreatedCallbackType SwapchainCreated;
+    void* SwapchainCreatedUserData{ nullptr };
     SwapchainBeginResizeCallbackType BeginResize;
+    void* BeginResizeUserData{ nullptr };
     SwapchainCompleteResizeCallbackType CompleteResize;
+    void* CompleteResizeUserData{ nullptr };
     SwapchainDestroyedCallbackType SwapchainDestroyed;
+    void* SwapchainDestroyedUserData{ nullptr };
 };
 
 struct DescriptorLimits
