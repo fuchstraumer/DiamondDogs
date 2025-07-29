@@ -11,7 +11,8 @@
 
 VulkanScene::VulkanScene()
 {
-    currentBuffer = 0;
+    currentFrame = 0;
+    currentFrameBuffer = 0;
     numFramebuffers = 0;
     limiterA = std::chrono::system_clock::now();
     limiterB = std::chrono::system_clock::now();
@@ -30,9 +31,9 @@ void VulkanScene::Render(void* user_data)
     endFrame();
 }
 
-size_t VulkanScene::CurrentFrameIdx() const
+size_t VulkanScene::CurrentFrameBufferIdx() const
 {
-    return static_cast<size_t>(currentBuffer);
+    return static_cast<size_t>(currentFrameBuffer);
 }
 
 void VulkanScene::createSemaphores()
@@ -63,8 +64,14 @@ void VulkanScene::limitFrame()
 
 void VulkanScene::acquireImage()
 {
-    vpr::Semaphore* imageAcquireSemaphore = imageAcquireSemaphores[currentBuffer].get();
-    VkResult result = vkAcquireNextImageKHR(vprObjects.device->vkHandle(), vprObjects.swapchain->vkHandle(), UINT64_MAX, imageAcquireSemaphore->vkHandle(), VK_NULL_HANDLE, &currentBuffer);
+    vpr::Semaphore* imageAcquireSemaphore = imageAcquireSemaphores[currentFrame].get();
+    VkResult result = vkAcquireNextImageKHR(
+        vprObjects.device->vkHandle(),
+        vprObjects.swapchain->vkHandle(),
+        1000000000,
+        imageAcquireSemaphore->vkHandle(),
+        VK_NULL_HANDLE,
+        &currentFrameBuffer);
     VkAssert(result);
 }
 
@@ -73,7 +80,7 @@ void VulkanScene::present()
 
     VkResult present_results[1]{ VK_SUCCESS };
 
-    vpr::Semaphore* renderCompleteSemaphore = renderCompleteSemaphores[currentBuffer].get();
+    vpr::Semaphore* renderCompleteSemaphore = renderCompleteSemaphores[currentFrame].get();
 
     const VkPresentInfoKHR present_info
     {
@@ -83,7 +90,7 @@ void VulkanScene::present()
         &renderCompleteSemaphore->vkHandle(),
         1,
         &vprObjects.swapchain->vkHandle(),
-        &currentBuffer,
+        &currentFrameBuffer,
         present_results
     };
 
@@ -94,4 +101,5 @@ void VulkanScene::present()
 
 void VulkanScene::endFrame()
 {
+    currentFrame = (currentFrame + 1) % numFramebuffers;
 }

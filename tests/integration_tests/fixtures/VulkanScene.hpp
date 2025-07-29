@@ -35,7 +35,7 @@ public:
     virtual void Construct(RequiredVprObjects vpr_objects, void* user_data) = 0;
     virtual void Destroy() = 0;
     virtual void Render(void* user_data);
-    size_t CurrentFrameIdx() const;
+    size_t CurrentFrameBufferIdx() const;
 
 protected:
 
@@ -51,7 +51,8 @@ protected:
 
     std::chrono::system_clock::time_point limiterA;
     std::chrono::system_clock::time_point limiterB;
-    uint32_t currentBuffer;
+    uint32_t currentFrame; // Index of the current frame, but *NOT* the current framebuffer
+    uint32_t currentFrameBuffer;
     uint32_t numFramebuffers;
     RequiredVprObjects vprObjects;
     std::vector<std::unique_ptr<vpr::Semaphore>> imageAcquireSemaphores;
