@@ -19,6 +19,7 @@ organize_slang_targets()
 
 add_subdirectory(third_party/vma)
 add_subdirectory(third_party/entt)
+add_subdirectory(third_party/gli)
 SET(MI_BUILD_OBJECT OFF CACHE BOOL "Build object library")
 SET(MI_BUILD_SHARED OFF CACHE BOOL "Build shared library")
 SET(MI_BUILD_TESTS OFF CACHE BOOL "Build test executables")

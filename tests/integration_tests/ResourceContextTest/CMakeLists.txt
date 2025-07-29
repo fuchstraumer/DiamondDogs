@@ -15,10 +15,14 @@ TARGET_INCLUDE_DIRECTORIES(ResourceContextTest PRIVATE
     "../../../third_party"
     "../../../ext/include"
     "../../../third_party/tinyobjloader/experimental"
-    "../../../modules/rendering_context/include"
-    "../../../modules/resource_context/include"
+    "../../../modules/RenderingContext/include"
+    "../../../modules/ResourceContext/include"
     "../../../third_party/vma/src"
+    "../../../third_party/gli"
 )
+
+
+set_target_properties(ResourceContextTest PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 
 TARGET_LINK_LIBRARIES(ResourceContextTest PRIVATE
     vpr_core
@@ -27,18 +31,8 @@ TARGET_LINK_LIBRARIES(ResourceContextTest PRIVATE
     vpr_command
     ${Vulkan_LIBRARY}
     rendering_context
-    resource_context)
-
-IF(APPLE)# Needed to support Boost filesystem
-SET(boost_min_ver 1.67.0)
-SET(boost_libs system filesystem)
-FIND_PACKAGE(Boost ${boost_min_ver})
-IF(Boost_FOUND)
-FIND_PACKAGE(Boost ${boost_min_ver} COMPONENTS ${boost_libs})
-ENDIF()
-TARGET_LINK_LIBRARIES(ResourceContextTest PRIVATE ${Boost_LIBRARIES})
-TARGET_INCLUDE_DIRECTORIES(ResourceContextTest PRIVATE ${Boost_INCLUDE_DIRS} ${Boost_INCLUDE_DIR})
-ENDIF()
+    resource_context
+    gli)
 
 ADD_CUSTOM_COMMAND(TARGET ResourceContextTest POST_BUILD COMMAND ${CMAKE_COMMAND}
     -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/../../../assets/ResourceContextTestAssets/" "${CMAKE_CURRENT_BINARY_DIR}/")
