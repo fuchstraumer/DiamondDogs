@@ -61,28 +61,7 @@ namespace math
         // Assignment operators
         constexpr Float2& operator=(const Float2& other) noexcept = default;
         constexpr Float2& operator=(Float2&& other) noexcept = default;
-        
-        // Component accessors
-        constexpr float x() const noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr float y() const noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr float& x() noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr float& y() noexcept 
-        { 
-            return storage.y; 
-        }
-        
+         
         // Array-style accessors
         constexpr float operator[](size_t index) const noexcept 
         { 
@@ -92,17 +71,6 @@ namespace math
         constexpr float& operator[](size_t index) noexcept 
         { 
             return (&storage.x)[index]; 
-        }
-        
-        // DirectXMath interop
-        constexpr const DirectX::XMFLOAT2& data() const noexcept 
-        { 
-            return storage; 
-        }
-        
-        constexpr DirectX::XMFLOAT2& data() noexcept 
-        { 
-            return storage; 
         }
         
         // Arithmetic operators
@@ -129,15 +97,15 @@ namespace math
         // Comparison operators
         constexpr bool operator==(const Float2& rhs) const noexcept;
         constexpr bool operator!=(const Float2& rhs) const noexcept;
-        
-        // Swizzle accessors - all 2D combinations
-        constexpr Float2 xx() const noexcept;
-        constexpr Float2 xy() const noexcept;
-        constexpr Float2 yx() const noexcept;
-        constexpr Float2 yy() const noexcept;
 
-    private:
-        DirectX::XMFLOAT2 storage;
+        union
+        {
+            DirectX::XMFLOAT2 storage;
+            struct
+            {
+                float x, y;
+            };
+        };
     };
 
     struct Float3
@@ -147,8 +115,8 @@ namespace math
         constexpr Float3() noexcept : storage{0.0f, 0.0f, 0.0f} {}
         constexpr Float3(float x, float y, float z) noexcept : storage{x, y, z} {}
         constexpr explicit Float3(float scalar) noexcept : storage{scalar, scalar, scalar} {}
-        constexpr Float3(const Float2& xy, float z) noexcept : storage{xy.x(), xy.y(), z} {}
-        constexpr Float3(float x, const Float2& yz) noexcept : storage{x, yz.x(), yz.y()} {}
+        constexpr Float3(const Float2& xy, float z) noexcept : storage{xy.x, xy.y, z} {}
+        constexpr Float3(float x, const Float2& yz) noexcept : storage{x, yz.x, yz.y} {}
         constexpr Float3(const DirectX::XMFLOAT3& xm) noexcept : storage{xm} {}
         
         // Copy and move constructors
@@ -159,37 +127,6 @@ namespace math
         constexpr Float3& operator=(const Float3& other) noexcept = default;
         constexpr Float3& operator=(Float3&& other) noexcept = default;
         
-        // Component accessors
-        constexpr float x() const noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr float y() const noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr float z() const noexcept 
-        { 
-            return storage.z; 
-        }
-        
-        constexpr float& x() noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr float& y() noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr float& z() noexcept 
-        { 
-            return storage.z; 
-        }
-        
         // Array-style accessors
         constexpr float operator[](size_t index) const noexcept 
         { 
@@ -199,33 +136,6 @@ namespace math
         constexpr float& operator[](size_t index) noexcept 
         { 
             return (&storage.x)[index]; 
-        }
-        
-        // DirectXMath interop
-        constexpr const DirectX::XMFLOAT3& data() const noexcept 
-        { 
-            return storage; 
-        }
-        
-        constexpr DirectX::XMFLOAT3& data() noexcept 
-        { 
-            return storage; 
-        }
-        
-        // Float2 accessors
-        constexpr Float2 xy() const noexcept 
-        { 
-            return Float2(storage.x, storage.y); 
-        }
-        
-        constexpr Float2 xz() const noexcept 
-        { 
-            return Float2(storage.x, storage.z); 
-        }
-        
-        constexpr Float2 yz() const noexcept 
-        { 
-            return Float2(storage.y, storage.z); 
         }
         
         // Arithmetic operators
@@ -253,19 +163,16 @@ namespace math
         constexpr bool operator==(const Float3& rhs) const noexcept;
         constexpr bool operator!=(const Float3& rhs) const noexcept;
         
-        // Swizzle accessors - common 3D combinations
-        constexpr Float3 xyz() const noexcept;
-        constexpr Float3 xzy() const noexcept;
-        constexpr Float3 yxz() const noexcept;
-        constexpr Float3 yzx() const noexcept;
-        constexpr Float3 zxy() const noexcept;
-        constexpr Float3 zyx() const noexcept;
-        constexpr Float3 xxx() const noexcept;
-        constexpr Float3 yyy() const noexcept;
-        constexpr Float3 zzz() const noexcept;
+        // gross, but necessary for interop and simple accessors
+        union
+        {
+            DirectX::XMFLOAT3 storage;
+            struct
+            {
+                float x, y, z;
+            };
+        };
 
-    private:
-        DirectX::XMFLOAT3 storage;
     };
 
     struct Float4
@@ -275,12 +182,12 @@ namespace math
         constexpr Float4() noexcept : storage{0.0f, 0.0f, 0.0f, 0.0f} {}
         constexpr Float4(float x, float y, float z, float w) noexcept : storage{x, y, z, w} {}
         constexpr explicit Float4(float scalar) noexcept : storage{scalar, scalar, scalar, scalar} {}
-        constexpr Float4(const Float3& xyz, float w) noexcept : storage{xyz.x(), xyz.y(), xyz.z(), w} {}
-        constexpr Float4(float x, const Float3& yzw) noexcept : storage{x, yzw.x(), yzw.y(), yzw.z()} {}
-        constexpr Float4(const Float2& xy, const Float2& zw) noexcept : storage{xy.x(), xy.y(), zw.x(), zw.y()} {}
-        constexpr Float4(const Float2& xy, float z, float w) noexcept : storage{xy.x(), xy.y(), z, w} {}
-        constexpr Float4(float x, const Float2& yz, float w) noexcept : storage{x, yz.x(), yz.y(), w} {}
-        constexpr Float4(float x, float y, const Float2& zw) noexcept : storage{x, y, zw.x(), zw.y()} {}
+        constexpr Float4(const Float3& xyz, float w) noexcept : storage{xyz.x, xyz.y, xyz.z, w} {}
+        constexpr Float4(float x, const Float3& yzw) noexcept : storage{x, yzw.x, yzw.y, yzw.z} {}
+        constexpr Float4(const Float2& xy, const Float2& zw) noexcept : storage{xy.x, xy.y, zw.x, zw.y} {}
+        constexpr Float4(const Float2& xy, float z, float w) noexcept : storage{xy.x, xy.y, z, w} {}
+        constexpr Float4(float x, const Float2& yz, float w) noexcept : storage{x, yz.x, yz.y, w} {}
+        constexpr Float4(float x, float y, const Float2& zw) noexcept : storage{x, y, zw.x, zw.y} {}
         constexpr Float4(const DirectX::XMFLOAT4& xm) noexcept : storage{xm} {}
         
         // Copy and move constructors
@@ -290,48 +197,7 @@ namespace math
         // Assignment operators
         constexpr Float4& operator=(const Float4& other) noexcept = default;
         constexpr Float4& operator=(Float4&& other) noexcept = default;
-        
-        // Component accessors
-        constexpr float x() const noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr float y() const noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr float z() const noexcept 
-        { 
-            return storage.z; 
-        }
-        
-        constexpr float w() const noexcept 
-        { 
-            return storage.w; 
-        }
-        
-        constexpr float& x() noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr float& y() noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr float& z() noexcept 
-        { 
-            return storage.z; 
-        }
-        
-        constexpr float& w() noexcept 
-        { 
-            return storage.w; 
-        }
-        
+    
         // Array-style accessors
         constexpr float operator[](size_t index) const noexcept 
         { 
@@ -341,68 +207,6 @@ namespace math
         constexpr float& operator[](size_t index) noexcept 
         { 
             return (&storage.x)[index]; 
-        }
-        
-        // DirectXMath interop
-        constexpr const DirectX::XMFLOAT4& data() const noexcept 
-        { 
-            return storage; 
-        }
-        
-        constexpr DirectX::XMFLOAT4& data() noexcept 
-        { 
-            return storage; 
-        }
-        
-        // Sub-vector accessors
-        constexpr Float2 xy() const noexcept 
-        { 
-            return Float2(storage.x, storage.y); 
-        }
-        
-        constexpr Float2 xz() const noexcept 
-        { 
-            return Float2(storage.x, storage.z); 
-        }
-        
-        constexpr Float2 xw() const noexcept 
-        { 
-            return Float2(storage.x, storage.w); 
-        }
-        
-        constexpr Float2 yz() const noexcept 
-        { 
-            return Float2(storage.y, storage.z); 
-        }
-        
-        constexpr Float2 yw() const noexcept 
-        { 
-            return Float2(storage.y, storage.w); 
-        }
-        
-        constexpr Float2 zw() const noexcept 
-        { 
-            return Float2(storage.z, storage.w); 
-        }
-        
-        constexpr Float3 xyz() const noexcept 
-        { 
-            return Float3(storage.x, storage.y, storage.z); 
-        }
-        
-        constexpr Float3 xyw() const noexcept 
-        { 
-            return Float3(storage.x, storage.y, storage.w); 
-        }
-        
-        constexpr Float3 xzw() const noexcept 
-        { 
-            return Float3(storage.x, storage.z, storage.w); 
-        }
-        
-        constexpr Float3 yzw() const noexcept 
-        { 
-            return Float3(storage.y, storage.z, storage.w); 
         }
         
         // Arithmetic operators
@@ -442,8 +246,15 @@ namespace math
         constexpr Float4 zzzz() const noexcept;
         constexpr Float4 wwww() const noexcept;
 
-    private:
-        DirectX::XMFLOAT4 storage;
+        union
+        {
+            DirectX::XMFLOAT4 storage;
+            struct
+            {
+                float x, y, z, w;
+            };
+        };
+
     };
 
     /**
@@ -468,27 +279,6 @@ namespace math
         constexpr Int2& operator=(const Int2& other) noexcept = default;
         constexpr Int2& operator=(Int2&& other) noexcept = default;
         
-        // Component accessors
-        constexpr int32_t x() const noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr int32_t y() const noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr int32_t& x() noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr int32_t& y() noexcept 
-        { 
-            return storage.y; 
-        }
-        
         // Array-style accessors
         constexpr int32_t operator[](size_t index) const noexcept 
         { 
@@ -498,17 +288,6 @@ namespace math
         constexpr int32_t& operator[](size_t index) noexcept 
         { 
             return (&storage.x)[index]; 
-        }
-        
-        // DirectXMath interop
-        constexpr const DirectX::XMINT2& data() const noexcept 
-        { 
-            return storage; 
-        }
-        
-        constexpr DirectX::XMINT2& data() noexcept 
-        { 
-            return storage; 
         }
         
         // Arithmetic operators (integer)
@@ -552,8 +331,15 @@ namespace math
         constexpr Int2 yx() const noexcept;
         constexpr Int2 yy() const noexcept;
 
-    private:
-        DirectX::XMINT2 storage;
+        union
+        {
+            DirectX::XMINT2 storage;
+            struct
+            {
+                int32_t x, y;
+            };
+        };
+
     };
 
     struct UInt2
@@ -572,28 +358,7 @@ namespace math
         // Assignment operators
         constexpr UInt2& operator=(const UInt2& other) noexcept = default;
         constexpr UInt2& operator=(UInt2&& other) noexcept = default;
-        
-        // Component accessors
-        constexpr uint32_t x() const noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr uint32_t y() const noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr uint32_t& x() noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr uint32_t& y() noexcept 
-        { 
-            return storage.y; 
-        }
-        
+
         // Array-style accessors
         constexpr uint32_t operator[](size_t index) const noexcept 
         { 
@@ -603,17 +368,6 @@ namespace math
         constexpr uint32_t& operator[](size_t index) noexcept 
         { 
             return (&storage.x)[index]; 
-        }
-        
-        // DirectXMath interop
-        constexpr const DirectX::XMUINT2& data() const noexcept 
-        { 
-            return storage; 
-        }
-        
-        constexpr DirectX::XMUINT2& data() noexcept 
-        { 
-            return storage; 
         }
         
         // Arithmetic operators (unsigned integer)
@@ -654,8 +408,15 @@ namespace math
         constexpr UInt2 yx() const noexcept;
         constexpr UInt2 yy() const noexcept;
 
-    private:
-        DirectX::XMUINT2 storage;
+        union
+        {
+            DirectX::XMUINT2 storage;
+            struct
+            {
+                uint32_t x, y;
+            };
+        };
+
     };
 
     struct Int3
@@ -675,37 +436,6 @@ namespace math
         constexpr Int3& operator=(const Int3& other) noexcept = default;
         constexpr Int3& operator=(Int3&& other) noexcept = default;
         
-        // Component accessors
-        constexpr int32_t x() const noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr int32_t y() const noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr int32_t z() const noexcept 
-        { 
-            return storage.z; 
-        }
-        
-        constexpr int32_t& x() noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr int32_t& y() noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr int32_t& z() noexcept 
-        { 
-            return storage.z; 
-        }
-        
         // Array-style accessors
         constexpr int32_t operator[](size_t index) const noexcept 
         { 
@@ -715,17 +445,6 @@ namespace math
         constexpr int32_t& operator[](size_t index) noexcept 
         { 
             return (&storage.x)[index]; 
-        }
-        
-        // DirectXMath interop
-        constexpr const DirectX::XMINT3& data() const noexcept 
-        { 
-            return storage; 
-        }
-        
-        constexpr DirectX::XMINT3& data() noexcept 
-        { 
-            return storage; 
         }
         
         // Arithmetic operators (integer)
@@ -779,8 +498,15 @@ namespace math
         constexpr Int2 xz() const noexcept;
         constexpr Int2 yz() const noexcept;
 
-    private:
-        DirectX::XMINT3 storage;
+        union
+        {
+            DirectX::XMINT3 storage;
+            struct
+            {
+                int32_t x, y, z;
+            };
+        };
+        
     };
 
     struct UInt3
@@ -800,37 +526,6 @@ namespace math
         constexpr UInt3& operator=(const UInt3& other) noexcept = default;
         constexpr UInt3& operator=(UInt3&& other) noexcept = default;
         
-        // Component accessors
-        constexpr uint32_t x() const noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr uint32_t y() const noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr uint32_t z() const noexcept 
-        { 
-            return storage.z; 
-        }
-        
-        constexpr uint32_t& x() noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr uint32_t& y() noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr uint32_t& z() noexcept 
-        { 
-            return storage.z; 
-        }
-        
         // Array-style accessors
         constexpr uint32_t operator[](size_t index) const noexcept 
         { 
@@ -842,17 +537,7 @@ namespace math
             return (&storage.x)[index]; 
         }
         
-        // DirectXMath interop
-        constexpr const DirectX::XMUINT3& data() const noexcept 
-        { 
-            return storage; 
-        }
-        
-        constexpr DirectX::XMUINT3& data() noexcept 
-        { 
-            return storage; 
-        }
-        
+
         // Arithmetic operators (unsigned integer)
         constexpr UInt3 operator+(const UInt3& rhs) const noexcept;
         constexpr UInt3 operator-(const UInt3& rhs) const noexcept;
@@ -901,8 +586,14 @@ namespace math
         constexpr UInt2 xz() const noexcept;
         constexpr UInt2 yz() const noexcept;
 
-    private:
-        DirectX::XMUINT3 storage;
+        union
+        {
+            DirectX::XMUINT3 storage;
+            struct
+            {
+                uint32_t x, y, z;
+            };
+        };
     };
 
     struct Int4
@@ -922,47 +613,6 @@ namespace math
         constexpr Int4& operator=(const Int4& other) noexcept = default;
         constexpr Int4& operator=(Int4&& other) noexcept = default;
         
-        // Component accessors
-        constexpr int32_t x() const noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr int32_t y() const noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr int32_t z() const noexcept 
-        { 
-            return storage.z; 
-        }
-        
-        constexpr int32_t w() const noexcept 
-        { 
-            return storage.w; 
-        }
-        
-        constexpr int32_t& x() noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr int32_t& y() noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr int32_t& z() noexcept 
-        { 
-            return storage.z; 
-        }
-        
-        constexpr int32_t& w() noexcept 
-        { 
-            return storage.w; 
-        }
-        
         // Array-style accessors
         constexpr int32_t operator[](size_t index) const noexcept 
         { 
@@ -972,17 +622,6 @@ namespace math
         constexpr int32_t& operator[](size_t index) noexcept 
         { 
             return (&storage.x)[index]; 
-        }
-        
-        // DirectXMath interop
-        constexpr const DirectX::XMINT4& data() const noexcept 
-        { 
-            return storage; 
-        }
-        
-        constexpr DirectX::XMINT4& data() noexcept 
-        { 
-            return storage; 
         }
         
         // Arithmetic operators (integer)
@@ -1035,8 +674,15 @@ namespace math
         constexpr Int2 xy() const noexcept;
         constexpr Int2 zw() const noexcept;
 
-    private:
-        DirectX::XMINT4 storage;
+        union
+        {
+            DirectX::XMINT4 storage;
+            struct
+            {
+                int32_t x, y, z, w;
+            };
+        };
+        
     };
 
     struct UInt4
@@ -1056,47 +702,6 @@ namespace math
         constexpr UInt4& operator=(const UInt4& other) noexcept = default;
         constexpr UInt4& operator=(UInt4&& other) noexcept = default;
         
-        // Component accessors
-        constexpr uint32_t x() const noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr uint32_t y() const noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr uint32_t z() const noexcept 
-        { 
-            return storage.z; 
-        }
-        
-        constexpr uint32_t w() const noexcept 
-        { 
-            return storage.w; 
-        }
-        
-        constexpr uint32_t& x() noexcept 
-        { 
-            return storage.x; 
-        }
-        
-        constexpr uint32_t& y() noexcept 
-        { 
-            return storage.y; 
-        }
-        
-        constexpr uint32_t& z() noexcept 
-        { 
-            return storage.z; 
-        }
-        
-        constexpr uint32_t& w() noexcept 
-        { 
-            return storage.w; 
-        }
-        
         // Array-style accessors
         constexpr uint32_t operator[](size_t index) const noexcept 
         { 
@@ -1106,17 +711,6 @@ namespace math
         constexpr uint32_t& operator[](size_t index) noexcept 
         { 
             return (&storage.x)[index]; 
-        }
-        
-        // DirectXMath interop
-        constexpr const DirectX::XMUINT4& data() const noexcept 
-        { 
-            return storage; 
-        }
-        
-        constexpr DirectX::XMUINT4& data() noexcept 
-        { 
-            return storage; 
         }
         
         // Arithmetic operators (unsigned integer)
@@ -1166,8 +760,15 @@ namespace math
         constexpr UInt2 xy() const noexcept;
         constexpr UInt2 zw() const noexcept;
 
-    private:
-        DirectX::XMUINT4 storage;
+        union 
+        {
+            DirectX::XMUINT4 storage;
+            struct
+            {
+                uint32_t x, y, z, w;
+            };
+        };
+
     };
 
     /**
@@ -1202,10 +803,13 @@ namespace math
             return data; 
         }
         
-        // Component accessors
+        /** @note Accessing a single scalar value in this vector type is very slow */
         float x() const noexcept;
+        /** @note Accessing a single scalar value in this vector type is very slow */
         float y() const noexcept;
+        /** @note Accessing a single scalar value in this vector type is very slow */
         float z() const noexcept;
+        /** @note Accessing a single scalar value in this vector type is very slow */
         float w() const noexcept;
         
         // Arithmetic operators
@@ -1310,12 +914,16 @@ namespace math
         
         constexpr Float3x3(const Float3& row0, const Float3& row1, const Float3& row2) noexcept 
             : storage{
-                row0.x(), row0.y(), row0.z(),
-                row1.x(), row1.y(), row1.z(),
-                row2.x(), row2.y(), row2.z()
+                row0.x, row0.y, row0.z,
+                row1.x, row1.y, row1.z,
+                row2.x, row2.y, row2.z
             } {}
         
         constexpr Float3x3(const DirectX::XMFLOAT3X3& xm) noexcept : storage{xm} {}
+        
+        // Matrix conversion constructors
+        // Extracts upper-left 3x3 portion from 4x4 matrix (useful for removing translation from view matrices for skybox rendering)
+        explicit constexpr Float3x3(const Float4x4& mat4x4) noexcept;
         
         constexpr Float3x3(const Float3x3& other) noexcept = default;
         constexpr Float3x3(Float3x3&& other) noexcept = default;
@@ -1393,10 +1001,10 @@ namespace math
         
         constexpr Float4x3(const Float3& row0, const Float3& row1, const Float3& row2, const Float3& row3) noexcept 
             : storage{
-                row0.x(), row0.y(), row0.z(),
-                row1.x(), row1.y(), row1.z(),
-                row2.x(), row2.y(), row2.z(),
-                row3.x(), row3.y(), row3.z()
+                row0.x, row0.y, row0.z,
+                row1.x, row1.y, row1.z,
+                row2.x, row2.y, row2.z,
+                row3.x, row3.y, row3.z
             } {}
         
         constexpr Float4x3(const DirectX::XMFLOAT4X3& xm) noexcept : storage{xm} {}
@@ -1474,13 +1082,17 @@ namespace math
         
         constexpr Float4x4(const Float4& row0, const Float4& row1, const Float4& row2, const Float4& row3) noexcept 
             : storage{
-                row0.x(), row0.y(), row0.z(), row0.w(),
-                row1.x(), row1.y(), row1.z(), row1.w(),
-                row2.x(), row2.y(), row2.z(), row2.w(),
-                row3.x(), row3.y(), row3.z(), row3.w()
+                row0.x, row0.y, row0.z, row0.w,
+                row1.x, row1.y, row1.z, row1.w,
+                row2.x, row2.y, row2.z, row2.w,
+                row3.x, row3.y, row3.z, row3.w
             } {}
         
         constexpr Float4x4(const DirectX::XMFLOAT4X4& xm) noexcept : storage{xm} {}
+        
+        // Matrix conversion constructors
+        // Expands 3x3 matrix to 4x4 with identity translation and w component (useful for converting rotation/scale matrices to full transforms)
+        explicit constexpr Float4x4(const Float3x3& mat3x3) noexcept;
         
         constexpr Float4x4(const Float4x4& other) noexcept = default;
         constexpr Float4x4(Float4x4&& other) noexcept = default;

@@ -1,3 +1,4 @@
+#include "Math.hpp"
 #pragma once
 // Implementation file for Math.hpp - contains all function implementations to keep the header readable
 
@@ -100,27 +101,6 @@ namespace math
     {
         return !(*this == rhs);
     }
-    
-    // Float2 swizzle implementations
-    constexpr inline Float2 Float2::xx() const noexcept 
-    { 
-        return Float2(storage.x, storage.x); 
-    }
-    
-    constexpr inline Float2 Float2::xy() const noexcept 
-    { 
-        return Float2(storage.x, storage.y); 
-    }
-    
-    constexpr inline Float2 Float2::yx() const noexcept 
-    { 
-        return Float2(storage.y, storage.x); 
-    }
-    
-    constexpr inline Float2 Float2::yy() const noexcept 
-    { 
-        return Float2(storage.y, storage.y); 
-    }
 
     // Float3 implementations
     constexpr inline Float3 Float3::operator+(const Float3& rhs) const noexcept 
@@ -214,52 +194,6 @@ namespace math
     constexpr bool Float3::operator!=(const Float3& rhs) const noexcept 
     {
         return !(*this == rhs);
-    }
-
-    // Float3 swizzle implementations
-    constexpr inline Float3 Float3::xyz() const noexcept 
-    { 
-        return Float3(storage.x, storage.y, storage.z); 
-    }
-    
-    constexpr inline Float3 Float3::xzy() const noexcept 
-    { 
-        return Float3(storage.x, storage.z, storage.y); 
-    }
-    
-    constexpr inline Float3 Float3::yxz() const noexcept 
-    { 
-        return Float3(storage.y, storage.x, storage.z); 
-    }
-    
-    constexpr inline Float3 Float3::yzx() const noexcept 
-    { 
-        return Float3(storage.y, storage.z, storage.x); 
-    }
-    
-    constexpr inline Float3 Float3::zxy() const noexcept 
-    { 
-        return Float3(storage.z, storage.x, storage.y); 
-    }
-    
-    constexpr inline Float3 Float3::zyx() const noexcept 
-    { 
-        return Float3(storage.z, storage.y, storage.x); 
-    }
-    
-    constexpr inline Float3 Float3::xxx() const noexcept 
-    { 
-        return Float3(storage.x, storage.x, storage.x); 
-    }
-    
-    constexpr inline Float3 Float3::yyy() const noexcept 
-    { 
-        return Float3(storage.y, storage.y, storage.y); 
-    }
-    
-    constexpr inline Float3 Float3::zzz() const noexcept 
-    { 
-        return Float3(storage.z, storage.z, storage.z); 
     }
 
     // Float4 implementations
@@ -448,22 +382,22 @@ namespace math
     // Mixed operations with Float2 (promote to float)
     constexpr Float2 Int2::operator+(const Float2& rhs) const noexcept 
     {
-        return Float2(static_cast<float>(storage.x) + rhs.x(), static_cast<float>(storage.y) + rhs.y());
+        return Float2(static_cast<float>(storage.x) + rhs.x, static_cast<float>(storage.y) + rhs.y);
     }
     
     constexpr Float2 Int2::operator-(const Float2& rhs) const noexcept 
     {
-        return Float2(static_cast<float>(storage.x) - rhs.x(), static_cast<float>(storage.y) - rhs.y());
+        return Float2(static_cast<float>(storage.x) - rhs.x, static_cast<float>(storage.y) - rhs.y);
     }
     
     constexpr Float2 Int2::operator*(const Float2& rhs) const noexcept 
     {
-        return Float2(static_cast<float>(storage.x) * rhs.x(), static_cast<float>(storage.y) * rhs.y());
+        return Float2(static_cast<float>(storage.x) * rhs.x, static_cast<float>(storage.y) * rhs.y);
     }
     
     constexpr Float2 Int2::operator/(const Float2& rhs) const noexcept 
     {
-        return Float2(static_cast<float>(storage.x) / rhs.x(), static_cast<float>(storage.y) / rhs.y());
+        return Float2(static_cast<float>(storage.x) / rhs.x, static_cast<float>(storage.y) / rhs.y);
     }
     
     // Scalar operators
@@ -597,22 +531,22 @@ namespace math
     // Mixed operations with Float2 (promote to float)
     constexpr Float2 UInt2::operator+(const Float2& rhs) const noexcept 
     {
-        return Float2(static_cast<float>(storage.x) + rhs.x(), static_cast<float>(storage.y) + rhs.y());
+        return Float2(static_cast<float>(storage.x) + rhs.x, static_cast<float>(storage.y) + rhs.y);
     }
     
     constexpr Float2 UInt2::operator-(const Float2& rhs) const noexcept 
     {
-        return Float2(static_cast<float>(storage.x) - rhs.x(), static_cast<float>(storage.y) - rhs.y());
+        return Float2(static_cast<float>(storage.x) - rhs.x, static_cast<float>(storage.y) - rhs.y);
     }
     
     constexpr Float2 UInt2::operator*(const Float2& rhs) const noexcept 
     {
-        return Float2(static_cast<float>(storage.x) * rhs.x(), static_cast<float>(storage.y) * rhs.y());
+        return Float2(static_cast<float>(storage.x) * rhs.x, static_cast<float>(storage.y) * rhs.y);
     }
     
     constexpr Float2 UInt2::operator/(const Float2& rhs) const noexcept 
     {
-        return Float2(static_cast<float>(storage.x) / rhs.x(), static_cast<float>(storage.y) / rhs.y());
+        return Float2(static_cast<float>(storage.x) / rhs.x, static_cast<float>(storage.y) / rhs.y);
     }
     
     // Scalar operators
@@ -740,22 +674,22 @@ namespace math
     // Mixed operations with Float3 (promote to float)
     constexpr Float3 Int3::operator+(const Float3& rhs) const noexcept 
     {
-        return Float3(static_cast<float>(storage.x) + rhs.x(), static_cast<float>(storage.y) + rhs.y(), static_cast<float>(storage.z) + rhs.z());
+        return Float3(static_cast<float>(storage.x) + rhs.x, static_cast<float>(storage.y) + rhs.y, static_cast<float>(storage.z) + rhs.z);
     }
     
     constexpr Float3 Int3::operator-(const Float3& rhs) const noexcept 
     {
-        return Float3(static_cast<float>(storage.x) - rhs.x(), static_cast<float>(storage.y) - rhs.y(), static_cast<float>(storage.z) - rhs.z());
+        return Float3(static_cast<float>(storage.x) - rhs.x, static_cast<float>(storage.y) - rhs.y, static_cast<float>(storage.z) - rhs.z);
     }
     
     constexpr Float3 Int3::operator*(const Float3& rhs) const noexcept 
     {
-        return Float3(static_cast<float>(storage.x) * rhs.x(), static_cast<float>(storage.y) * rhs.y(), static_cast<float>(storage.z) * rhs.z());
+        return Float3(static_cast<float>(storage.x) * rhs.x, static_cast<float>(storage.y) * rhs.y, static_cast<float>(storage.z) * rhs.z);
     }
     
     constexpr Float3 Int3::operator/(const Float3& rhs) const noexcept 
     {
-        return Float3(static_cast<float>(storage.x) / rhs.x(), static_cast<float>(storage.y) / rhs.y(), static_cast<float>(storage.z) / rhs.z());
+        return Float3(static_cast<float>(storage.x) / rhs.x, static_cast<float>(storage.y) / rhs.y, static_cast<float>(storage.z) / rhs.z);
     }
     
     // Scalar operators
@@ -936,22 +870,22 @@ namespace math
     // Mixed operations with Float3 (promote to float)
     constexpr Float3 UInt3::operator+(const Float3& rhs) const noexcept 
     {
-        return Float3(static_cast<float>(storage.x) + rhs.x(), static_cast<float>(storage.y) + rhs.y(), static_cast<float>(storage.z) + rhs.z());
+        return Float3(static_cast<float>(storage.x) + rhs.x, static_cast<float>(storage.y) + rhs.y, static_cast<float>(storage.z) + rhs.z);
     }
     
     constexpr Float3 UInt3::operator-(const Float3& rhs) const noexcept 
     {
-        return Float3(static_cast<float>(storage.x) - rhs.x(), static_cast<float>(storage.y) - rhs.y(), static_cast<float>(storage.z) - rhs.z());
+        return Float3(static_cast<float>(storage.x) - rhs.x, static_cast<float>(storage.y) - rhs.y, static_cast<float>(storage.z) - rhs.z);
     }
     
     constexpr Float3 UInt3::operator*(const Float3& rhs) const noexcept 
     {
-        return Float3(static_cast<float>(storage.x) * rhs.x(), static_cast<float>(storage.y) * rhs.y(), static_cast<float>(storage.z) * rhs.z());
+        return Float3(static_cast<float>(storage.x) * rhs.x, static_cast<float>(storage.y) * rhs.y, static_cast<float>(storage.z) * rhs.z);
     }
     
     constexpr Float3 UInt3::operator/(const Float3& rhs) const noexcept 
     {
-        return Float3(static_cast<float>(storage.x) / rhs.x(), static_cast<float>(storage.y) / rhs.y(), static_cast<float>(storage.z) / rhs.z());
+        return Float3(static_cast<float>(storage.x) / rhs.x, static_cast<float>(storage.y) / rhs.y, static_cast<float>(storage.z) / rhs.z);
     }
     
     // Scalar operators
@@ -1126,22 +1060,22 @@ namespace math
     // Mixed operations with Float4 (promote to float)
     constexpr Float4 Int4::operator+(const Float4& rhs) const noexcept 
     {
-        return Float4(static_cast<float>(storage.x) + rhs.x(), static_cast<float>(storage.y) + rhs.y(), static_cast<float>(storage.z) + rhs.z(), static_cast<float>(storage.w) + rhs.w());
+        return Float4(static_cast<float>(storage.x) + rhs.x, static_cast<float>(storage.y) + rhs.y, static_cast<float>(storage.z) + rhs.z, static_cast<float>(storage.w) + rhs.w);
     }
     
     constexpr Float4 Int4::operator-(const Float4& rhs) const noexcept 
     {
-        return Float4(static_cast<float>(storage.x) - rhs.x(), static_cast<float>(storage.y) - rhs.y(), static_cast<float>(storage.z) - rhs.z(), static_cast<float>(storage.w) - rhs.w());
+        return Float4(static_cast<float>(storage.x) - rhs.x, static_cast<float>(storage.y) - rhs.y, static_cast<float>(storage.z) - rhs.z, static_cast<float>(storage.w) - rhs.w);
     }
     
     constexpr Float4 Int4::operator*(const Float4& rhs) const noexcept 
     {
-        return Float4(static_cast<float>(storage.x) * rhs.x(), static_cast<float>(storage.y) * rhs.y(), static_cast<float>(storage.z) * rhs.z(), static_cast<float>(storage.w) * rhs.w());
+        return Float4(static_cast<float>(storage.x) * rhs.x, static_cast<float>(storage.y) * rhs.y, static_cast<float>(storage.z) * rhs.z, static_cast<float>(storage.w) * rhs.w);
     }
     
     constexpr Float4 Int4::operator/(const Float4& rhs) const noexcept 
     {
-        return Float4(static_cast<float>(storage.x) / rhs.x(), static_cast<float>(storage.y) / rhs.y(), static_cast<float>(storage.z) / rhs.z(), static_cast<float>(storage.w) / rhs.w());
+        return Float4(static_cast<float>(storage.x) / rhs.x, static_cast<float>(storage.y) / rhs.y, static_cast<float>(storage.z) / rhs.z, static_cast<float>(storage.w) / rhs.w);
     }
     
     // Scalar operators
@@ -1314,22 +1248,22 @@ namespace math
     // Mixed operations with Float4 (promote to float)
     constexpr Float4 UInt4::operator+(const Float4& rhs) const noexcept 
     {
-        return Float4(static_cast<float>(storage.x) + rhs.x(), static_cast<float>(storage.y) + rhs.y(), static_cast<float>(storage.z) + rhs.z(), static_cast<float>(storage.w) + rhs.w());
+        return Float4(static_cast<float>(storage.x) + rhs.x, static_cast<float>(storage.y) + rhs.y, static_cast<float>(storage.z) + rhs.z, static_cast<float>(storage.w) + rhs.w);
     }
     
     constexpr Float4 UInt4::operator-(const Float4& rhs) const noexcept 
     {
-        return Float4(static_cast<float>(storage.x) - rhs.x(), static_cast<float>(storage.y) - rhs.y(), static_cast<float>(storage.z) - rhs.z(), static_cast<float>(storage.w) - rhs.w());
+        return Float4(static_cast<float>(storage.x) - rhs.x, static_cast<float>(storage.y) - rhs.y, static_cast<float>(storage.z) - rhs.z, static_cast<float>(storage.w) - rhs.w);
     }
     
     constexpr Float4 UInt4::operator*(const Float4& rhs) const noexcept 
     {
-        return Float4(static_cast<float>(storage.x) * rhs.x(), static_cast<float>(storage.y) * rhs.y(), static_cast<float>(storage.z) * rhs.z(), static_cast<float>(storage.w) * rhs.w());
+        return Float4(static_cast<float>(storage.x) * rhs.x, static_cast<float>(storage.y) * rhs.y, static_cast<float>(storage.z) * rhs.z, static_cast<float>(storage.w) * rhs.w);
     }
     
     constexpr Float4 UInt4::operator/(const Float4& rhs) const noexcept 
     {
-        return Float4(static_cast<float>(storage.x) / rhs.x(), static_cast<float>(storage.y) / rhs.y(), static_cast<float>(storage.z) / rhs.z(), static_cast<float>(storage.w) / rhs.w());
+        return Float4(static_cast<float>(storage.x) / rhs.x, static_cast<float>(storage.y) / rhs.y, static_cast<float>(storage.z) / rhs.z, static_cast<float>(storage.w) / rhs.w);
     }
     
     // Scalar operators
@@ -1805,122 +1739,122 @@ namespace math
     // Mixed-type operators (Float + Integer types, promotes to Float)
     constexpr Float2 operator+(const Float2& lhs, const Int2& rhs) noexcept 
     {
-        return Float2(lhs.x() + static_cast<float>(rhs.x()), lhs.y() + static_cast<float>(rhs.y()));
+        return Float2(lhs.x + static_cast<float>(rhs.storage.x), lhs.y + static_cast<float>(rhs.storage.y));
     }
 
     constexpr Float2 operator-(const Float2& lhs, const Int2& rhs) noexcept 
     {
-        return Float2(lhs.x() - static_cast<float>(rhs.x()), lhs.y() - static_cast<float>(rhs.y()));
+        return Float2(lhs.x - static_cast<float>(rhs.storage.x), lhs.y - static_cast<float>(rhs.storage.y));
     }
 
     constexpr Float2 operator*(const Float2& lhs, const Int2& rhs) noexcept 
     {
-        return Float2(lhs.x() * static_cast<float>(rhs.x()), lhs.y() * static_cast<float>(rhs.y()));
+        return Float2(lhs.x * static_cast<float>(rhs.storage.x), lhs.y * static_cast<float>(rhs.storage.y));
     }
 
     constexpr Float2 operator/(const Float2& lhs, const Int2& rhs) noexcept 
     {
-        return Float2(lhs.x() / static_cast<float>(rhs.x()), lhs.y() / static_cast<float>(rhs.y()));
+        return Float2(lhs.x / static_cast<float>(rhs.storage.x), lhs.y / static_cast<float>(rhs.storage.y));
     }
 
     constexpr Float2 operator+(const Float2& lhs, const UInt2& rhs) noexcept 
     {
-        return Float2(lhs.x() + static_cast<float>(rhs.x()), lhs.y() + static_cast<float>(rhs.y()));
+        return Float2(lhs.x + static_cast<float>(rhs.storage.x), lhs.y + static_cast<float>(rhs.storage.y));
     }
 
     constexpr Float2 operator-(const Float2& lhs, const UInt2& rhs) noexcept 
     {
-        return Float2(lhs.x() - static_cast<float>(rhs.x()), lhs.y() - static_cast<float>(rhs.y()));
+        return Float2(lhs.x - static_cast<float>(rhs.storage.x), lhs.y - static_cast<float>(rhs.storage.y));
     }
 
     constexpr Float2 operator*(const Float2& lhs, const UInt2& rhs) noexcept 
     {
-        return Float2(lhs.x() * static_cast<float>(rhs.x()), lhs.y() * static_cast<float>(rhs.y()));
+        return Float2(lhs.x * static_cast<float>(rhs.storage.x), lhs.y * static_cast<float>(rhs.storage.y));
     }
 
     constexpr Float2 operator/(const Float2& lhs, const UInt2& rhs) noexcept 
     {
-        return Float2(lhs.x() / static_cast<float>(rhs.x()), lhs.y() / static_cast<float>(rhs.y()));
+        return Float2(lhs.x / static_cast<float>(rhs.storage.x), lhs.y / static_cast<float>(rhs.storage.y));
     }
 
     constexpr Float3 operator+(const Float3& lhs, const Int3& rhs) noexcept 
     {
-        return Float3(lhs.x() + static_cast<float>(rhs.x()), lhs.y() + static_cast<float>(rhs.y()), lhs.z() + static_cast<float>(rhs.z()));
+        return Float3(lhs.x + static_cast<float>(rhs.storage.x), lhs.y + static_cast<float>(rhs.storage.y), lhs.z + static_cast<float>(rhs.storage.z));
     }
 
     constexpr Float3 operator-(const Float3& lhs, const Int3& rhs) noexcept 
     {
-        return Float3(lhs.x() - static_cast<float>(rhs.x()), lhs.y() - static_cast<float>(rhs.y()), lhs.z() - static_cast<float>(rhs.z()));
+        return Float3(lhs.x - static_cast<float>(rhs.storage.x), lhs.y - static_cast<float>(rhs.storage.y), lhs.z - static_cast<float>(rhs.storage.z));
     }
 
     constexpr Float3 operator*(const Float3& lhs, const Int3& rhs) noexcept 
     {
-        return Float3(lhs.x() * static_cast<float>(rhs.x()), lhs.y() * static_cast<float>(rhs.y()), lhs.z() * static_cast<float>(rhs.z()));
+        return Float3(lhs.x * static_cast<float>(rhs.storage.x), lhs.y * static_cast<float>(rhs.storage.y), lhs.z * static_cast<float>(rhs.storage.z));
     }
 
     constexpr Float3 operator/(const Float3& lhs, const Int3& rhs) noexcept 
     {
-        return Float3(lhs.x() / static_cast<float>(rhs.x()), lhs.y() / static_cast<float>(rhs.y()), lhs.z() / static_cast<float>(rhs.z()));
+        return Float3(lhs.x / static_cast<float>(rhs.storage.x), lhs.y / static_cast<float>(rhs.storage.y), lhs.z / static_cast<float>(rhs.storage.z));
     }
 
     constexpr Float3 operator+(const Float3& lhs, const UInt3& rhs) noexcept 
     {
-        return Float3(lhs.x() + static_cast<float>(rhs.x()), lhs.y() + static_cast<float>(rhs.y()), lhs.z() + static_cast<float>(rhs.z()));
+        return Float3(lhs.x + static_cast<float>(rhs.storage.x), lhs.y + static_cast<float>(rhs.storage.y), lhs.z + static_cast<float>(rhs.storage.z));
     }
 
     constexpr Float3 operator-(const Float3& lhs, const UInt3& rhs) noexcept 
     {
-        return Float3(lhs.x() - static_cast<float>(rhs.x()), lhs.y() - static_cast<float>(rhs.y()), lhs.z() - static_cast<float>(rhs.z()));
+        return Float3(lhs.x - static_cast<float>(rhs.storage.x), lhs.y - static_cast<float>(rhs.storage.y), lhs.z - static_cast<float>(rhs.storage.z));
     }
 
     constexpr Float3 operator*(const Float3& lhs, const UInt3& rhs) noexcept 
     {
-        return Float3(lhs.x() * static_cast<float>(rhs.x()), lhs.y() * static_cast<float>(rhs.y()), lhs.z() * static_cast<float>(rhs.z()));
+        return Float3(lhs.x * static_cast<float>(rhs.storage.x), lhs.y * static_cast<float>(rhs.storage.y), lhs.z * static_cast<float>(rhs.storage.z));
     }
 
     constexpr Float3 operator/(const Float3& lhs, const UInt3& rhs) noexcept 
     {
-        return Float3(lhs.x() / static_cast<float>(rhs.x()), lhs.y() / static_cast<float>(rhs.y()), lhs.z() / static_cast<float>(rhs.z()));
+        return Float3(lhs.x / static_cast<float>(rhs.storage.x), lhs.y / static_cast<float>(rhs.storage.y), lhs.z / static_cast<float>(rhs.storage.z));
     }
 
     constexpr Float4 operator+(const Float4& lhs, const Int4& rhs) noexcept 
     {
-        return Float4(lhs.x() + static_cast<float>(rhs.x()), lhs.y() + static_cast<float>(rhs.y()), lhs.z() + static_cast<float>(rhs.z()), lhs.w() + static_cast<float>(rhs.w()));
+        return Float4(lhs.x + static_cast<float>(rhs.storage.x), lhs.y + static_cast<float>(rhs.storage.y), lhs.z + static_cast<float>(rhs.storage.z), lhs.w + static_cast<float>(rhs.storage.w));
     }
 
     constexpr Float4 operator-(const Float4& lhs, const Int4& rhs) noexcept 
     {
-        return Float4(lhs.x() - static_cast<float>(rhs.x()), lhs.y() - static_cast<float>(rhs.y()), lhs.z() - static_cast<float>(rhs.z()), lhs.w() - static_cast<float>(rhs.w()));
+        return Float4(lhs.x - static_cast<float>(rhs.storage.x), lhs.y - static_cast<float>(rhs.storage.y), lhs.z - static_cast<float>(rhs.storage.z), lhs.w - static_cast<float>(rhs.storage.w));
     }
 
     constexpr Float4 operator*(const Float4& lhs, const Int4& rhs) noexcept 
     {
-        return Float4(lhs.x() * static_cast<float>(rhs.x()), lhs.y() * static_cast<float>(rhs.y()), lhs.z() * static_cast<float>(rhs.z()), lhs.w() * static_cast<float>(rhs.w()));
+        return Float4(lhs.x * static_cast<float>(rhs.storage.x), lhs.y * static_cast<float>(rhs.storage.y), lhs.z * static_cast<float>(rhs.storage.z), lhs.w * static_cast<float>(rhs.storage.w));
     }
 
     constexpr Float4 operator/(const Float4& lhs, const Int4& rhs) noexcept 
     {
-        return Float4(lhs.x() / static_cast<float>(rhs.x()), lhs.y() / static_cast<float>(rhs.y()), lhs.z() / static_cast<float>(rhs.z()), lhs.w() / static_cast<float>(rhs.w()));
+        return Float4(lhs.x / static_cast<float>(rhs.storage.x), lhs.y / static_cast<float>(rhs.storage.y), lhs.z / static_cast<float>(rhs.storage.z), lhs.w / static_cast<float>(rhs.storage.w));
     }
 
     constexpr Float4 operator+(const Float4& lhs, const UInt4& rhs) noexcept 
     {
-        return Float4(lhs.x() + static_cast<float>(rhs.x()), lhs.y() + static_cast<float>(rhs.y()), lhs.z() + static_cast<float>(rhs.z()), lhs.w() + static_cast<float>(rhs.w()));
+        return Float4(lhs.x + static_cast<float>(rhs.storage.x), lhs.y + static_cast<float>(rhs.storage.y), lhs.z + static_cast<float>(rhs.storage.z), lhs.w + static_cast<float>(rhs.storage.w));
     }
 
     constexpr Float4 operator-(const Float4& lhs, const UInt4& rhs) noexcept 
     {
-        return Float4(lhs.x() - static_cast<float>(rhs.x()), lhs.y() - static_cast<float>(rhs.y()), lhs.z() - static_cast<float>(rhs.z()), lhs.w() - static_cast<float>(rhs.w()));
+        return Float4(lhs.x - static_cast<float>(rhs.storage.x), lhs.y - static_cast<float>(rhs.storage.y), lhs.z - static_cast<float>(rhs.storage.z), lhs.w - static_cast<float>(rhs.storage.w));
     }
 
     constexpr Float4 operator*(const Float4& lhs, const UInt4& rhs) noexcept 
     {
-        return Float4(lhs.x() * static_cast<float>(rhs.x()), lhs.y() * static_cast<float>(rhs.y()), lhs.z() * static_cast<float>(rhs.z()), lhs.w() * static_cast<float>(rhs.w()));
+        return Float4(lhs.x * static_cast<float>(rhs.storage.x), lhs.y * static_cast<float>(rhs.storage.y), lhs.z * static_cast<float>(rhs.storage.z), lhs.w * static_cast<float>(rhs.storage.w));
     }
 
     constexpr Float4 operator/(const Float4& lhs, const UInt4& rhs) noexcept 
     {
-        return Float4(lhs.x() / static_cast<float>(rhs.x()), lhs.y() / static_cast<float>(rhs.y()), lhs.z() / static_cast<float>(rhs.z()), lhs.w() / static_cast<float>(rhs.w()));
+        return Float4(lhs.x / static_cast<float>(rhs.storage.x), lhs.y / static_cast<float>(rhs.storage.y), lhs.z / static_cast<float>(rhs.storage.z), lhs.w / static_cast<float>(rhs.storage.w));
     }
     
     // Free function scalar multiplication for SIMD Vector
@@ -1930,19 +1864,19 @@ namespace math
     }
 
     // Conversion functions
-    inline Vector ToVector(const Float2& storage) noexcept
+    inline Vector ToVector(const Float2& in_float2) noexcept
     {
-        return Vector{DirectX::XMLoadFloat2(&storage.data())};
+        return Vector{DirectX::XMLoadFloat2(&in_float2.storage)};
     }
 
-    inline Vector ToVector(const Float3& storage) noexcept
+    inline Vector ToVector(const Float3& in_float3) noexcept
     {
-        return Vector{DirectX::XMLoadFloat3(&storage.data())};
+        return Vector{DirectX::XMLoadFloat3(&in_float3.storage)};
     }
 
-    inline Vector ToVector(const Float4& storage) noexcept
+    inline Vector ToVector(const Float4& in_float4) noexcept
     {
-        return Vector{DirectX::XMLoadFloat4(&storage.data())};
+        return Vector{DirectX::XMLoadFloat4(&in_float4.storage)};
     }
 
     template<>
@@ -1973,6 +1907,16 @@ namespace math
     // Matrix3x3 Storage Implementation
     // ================================
 
+    // Matrix conversion constructor - extracts upper-left 3x3 from 4x4 matrix
+    constexpr Float3x3::Float3x3(const Float4x4& mat4x4) noexcept 
+        : storage{
+            mat4x4(0, 0), mat4x4(0, 1), mat4x4(0, 2),
+            mat4x4(1, 0), mat4x4(1, 1), mat4x4(1, 2),
+            mat4x4(2, 0), mat4x4(2, 1), mat4x4(2, 2)
+        }
+    {
+    }
+
     constexpr Float3 Float3x3::Row(size_t index) const noexcept
     {
         return Float3(storage.m[index][0], storage.m[index][1], storage.m[index][2]);
@@ -1980,9 +1924,9 @@ namespace math
 
     constexpr void Float3x3::SetRow(size_t index, const Float3& row) noexcept
     {
-        storage.m[index][0] = row.x();
-        storage.m[index][1] = row.y();
-        storage.m[index][2] = row.z();
+        storage.m[index][0] = row.x;
+        storage.m[index][1] = row.y;
+        storage.m[index][2] = row.z;
     }
 
     constexpr Float3 Float3x3::Column(size_t index) const noexcept
@@ -1992,9 +1936,9 @@ namespace math
 
     constexpr void Float3x3::SetColumn(size_t index, const Float3& column) noexcept
     {
-        storage.m[0][index] = column.x();
-        storage.m[1][index] = column.y();
-        storage.m[2][index] = column.z();
+        storage.m[0][index] = column.x;
+        storage.m[1][index] = column.y;
+        storage.m[2][index] = column.z;
     }
 
     constexpr bool Float3x3::operator==(const Float3x3& rhs) const noexcept
@@ -2034,9 +1978,9 @@ namespace math
 
     constexpr void Float4x3::SetRow(size_t index, const Float3& row) noexcept
     {
-        storage.m[index][0] = row.x();
-        storage.m[index][1] = row.y();
-        storage.m[index][2] = row.z();
+        storage.m[index][0] = row.x;
+        storage.m[index][1] = row.y;
+        storage.m[index][2] = row.z;
     }
 
     constexpr Float4 Float4x3::Column(size_t index) const noexcept
@@ -2046,10 +1990,10 @@ namespace math
 
     constexpr void Float4x3::SetColumn(size_t index, const Float4& column) noexcept
     {
-        storage.m[0][index] = column.x();
-        storage.m[1][index] = column.y();
-        storage.m[2][index] = column.z();
-        storage.m[3][index] = column.w();
+        storage.m[0][index] = column.x;
+        storage.m[1][index] = column.y;
+        storage.m[2][index] = column.z;
+        storage.m[3][index] = column.w;
     }
 
     constexpr bool Float4x3::operator==(const Float4x3& rhs) const noexcept
@@ -2084,6 +2028,17 @@ namespace math
     // Matrix4x4 Storage Implementation
     // ================================
 
+    // Matrix conversion constructor - expands 3x3 to 4x4 with identity in bottom-right
+    constexpr Float4x4::Float4x4(const Float3x3& mat3x3) noexcept 
+        : storage{
+            mat3x3(0, 0), mat3x3(0, 1), mat3x3(0, 2), 0.0f,
+            mat3x3(1, 0), mat3x3(1, 1), mat3x3(1, 2), 0.0f,
+            mat3x3(2, 0), mat3x3(2, 1), mat3x3(2, 2), 0.0f,
+            0.0f,        0.0f,        0.0f,        1.0f
+        }
+    {
+    }
+
     constexpr Float4 Float4x4::Row(size_t index) const noexcept
     {
         return Float4(storage.m[index][0], storage.m[index][1], storage.m[index][2], storage.m[index][3]);
@@ -2091,10 +2046,10 @@ namespace math
 
     constexpr void Float4x4::SetRow(size_t index, const Float4& row) noexcept
     {
-        storage.m[index][0] = row.x();
-        storage.m[index][1] = row.y();
-        storage.m[index][2] = row.z();
-        storage.m[index][3] = row.w();
+        storage.m[index][0] = row.x;
+        storage.m[index][1] = row.y;
+        storage.m[index][2] = row.z;
+        storage.m[index][3] = row.w;
     }
 
     constexpr Float4 Float4x4::Column(size_t index) const noexcept
@@ -2104,10 +2059,10 @@ namespace math
 
     constexpr void Float4x4::SetColumn(size_t index, const Float4& column) noexcept
     {
-        storage.m[0][index] = column.x();
-        storage.m[1][index] = column.y();
-        storage.m[2][index] = column.z();
-        storage.m[3][index] = column.w();
+        storage.m[0][index] = column.x;
+        storage.m[1][index] = column.y;
+        storage.m[2][index] = column.z;
+        storage.m[3][index] = column.w;
     }
 
     constexpr bool Float4x4::operator==(const Float4x4& rhs) const noexcept
