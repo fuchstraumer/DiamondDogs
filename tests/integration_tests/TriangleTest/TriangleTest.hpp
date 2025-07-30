@@ -35,8 +35,6 @@ protected:
     void setupShaderModules();
     void setupDepthStencil();
     void setupPipeline();
-    void setupSwapchainDebugInfo();
-    void setupSyncPrimitives();
 
     struct Vertex
     {

@@ -38,7 +38,7 @@ size_t VulkanScene::CurrentFrameBufferIdx() const
     return static_cast<size_t>(currentAcquiredImage);
 }
 
-void VulkanScene::createSemaphores()
+void VulkanScene::createFrameSyncObjects()
 {
     for (uint32_t i = 0; i < numFramebuffers; ++i)
     {
@@ -48,10 +48,51 @@ void VulkanScene::createSemaphores()
         renderCompleteSemaphores.emplace_back(std::make_unique<vpr::Semaphore>(vprObjects.device->vkHandle()));
         semaphore_name = std::format("RenderCompleteSemaphore_{}", i);
         RenderingContext::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, (uint64_t)renderCompleteSemaphores.back()->vkHandle(), semaphore_name.c_str());
+        endFrameFences.emplace_back(std::make_unique<vpr::Fence>(vprObjects.device->vkHandle(), VK_FENCE_CREATE_SIGNALED_BIT));
+        semaphore_name = std::format("EndFrameFence_{}", i);
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_FENCE, (uint64_t)endFrameFences.back()->vkHandle(), semaphore_name.c_str());
     }
 
     firstFrame.resize(numFramebuffers, true);
 }
+
+void VulkanScene::destroyFrameSyncObjects()
+{
+    imageAcquireSemaphores.clear();
+    renderCompleteSemaphores.clear();
+
+    for (size_t i = 0; i < endFrameFences.size(); ++i)
+    {
+        // Wait for each fence and reset it before destruction
+        VkFence fence = endFrameFences[i]->vkHandle();
+        VkResult result = vkWaitForFences(vprObjects.device->vkHandle(), 1, &fence, VK_TRUE, 1000000000);
+        VkAssert(result);
+        result = vkResetFences(vprObjects.device->vkHandle(), 1, &fence);
+        VkAssert(result);
+    }
+
+    endFrameFences.clear();
+    firstFrame.clear();
+    currentFrame = 0;
+}
+
+void VulkanScene::setupSwapchainDebugInfo()
+{
+    const uint64_t swapchainHandle = reinterpret_cast<uint64_t>(vprObjects.swapchain->vkHandle());
+    RenderingContext::SetObjectName(VK_OBJECT_TYPE_SWAPCHAIN_KHR, swapchainHandle, "Swapchain");
+
+    const uint32_t swapchainImageCount = vprObjects.swapchain->ImageCount();
+    for (uint32_t i = 0; i < swapchainImageCount; ++i)
+    {
+        const uint64_t image = reinterpret_cast<uint64_t>(vprObjects.swapchain->Image(i));
+        std::string imageName = std::format("SwapchainImage_{}", i);
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, image, imageName.c_str());
+        const uint64_t imageView = reinterpret_cast<uint64_t>(vprObjects.swapchain->ImageView(i));
+        std::string imageViewName = std::format("SwapchainImageView_{}", i);
+        RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, imageView, imageViewName.c_str());
+    }
+}
+
 
 void VulkanScene::beginFrame()
 {

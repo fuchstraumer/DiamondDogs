@@ -113,8 +113,7 @@ void VulkanTriangle::Construct(RequiredVprObjects objects, void* user_data)
     setupDepthStencil();
     setupPipeline();
     setupSwapchainDebugInfo();
-    setupSyncPrimitives();
-    createSemaphores();
+    createFrameSyncObjects();
     setup = true;
     limiterA = std::chrono::system_clock::now();
     limiterB = std::chrono::system_clock::now();
@@ -124,23 +123,7 @@ void VulkanTriangle::Destroy()
 {
     vkDeviceWaitIdle(vprObjects.device->vkHandle());
 
-    for (auto& imageAcquireSemaphore : imageAcquireSemaphores)
-    {
-        imageAcquireSemaphore.reset();
-    }
-    imageAcquireSemaphores.clear();
-    imageAcquireSemaphores.shrink_to_fit();
-
-    for (auto& renderCompleteSemaphore : renderCompleteSemaphores)
-    {
-        renderCompleteSemaphore.reset();
-    }
-    renderCompleteSemaphores.clear();
-    renderCompleteSemaphores.shrink_to_fit();
-
-    endFrameFences.clear();
-
-    firstFrame.clear();
+    destroyFrameSyncObjects();
 
     vkDestroyPipeline(vprObjects.device->vkHandle(), pipeline, nullptr);
 
@@ -511,42 +494,6 @@ void VulkanTriangle::setupPipeline()
 
     pipeline = CreateBasicPipeline(pipelineCreateInfo);
     
-}
-
-void VulkanTriangle::setupSwapchainDebugInfo()
-{
-    const uint64_t swapchainHandle = reinterpret_cast<uint64_t>(vprObjects.swapchain->vkHandle());
-    RenderingContext::SetObjectName(VK_OBJECT_TYPE_SWAPCHAIN_KHR, swapchainHandle, "Swapchain");
-
-    const uint32_t swapchainImageCount = vprObjects.swapchain->ImageCount();
-    for (uint32_t i = 0; i < swapchainImageCount; ++i)
-    {
-        const uint64_t image = reinterpret_cast<uint64_t>(vprObjects.swapchain->Image(i));
-        std::string imageName = std::format("SwapchainImage_{}", i);
-        RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE, image, imageName.c_str());
-        const uint64_t imageView = reinterpret_cast<uint64_t>(vprObjects.swapchain->ImageView(i));
-        std::string imageViewName = std::format("SwapchainImageView_{}", i);
-        RenderingContext::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, imageView, imageViewName.c_str());
-    }
-}
-
-void VulkanTriangle::setupSyncPrimitives()
-{
-
-    constexpr static VkFenceCreateInfo fence_info
-    {
-        VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        nullptr,
-        0
-    };
-
-    for (uint32_t i = 0; i < numFramebuffers; ++i)
-    {
-        endFrameFences.emplace_back(std::make_unique<vpr::Fence>(vprObjects.device->vkHandle(), VK_FENCE_CREATE_SIGNALED_BIT));
-        VkFence createdFence = endFrameFences.back()->vkHandle();
-        std::string fenceName = std::format("EndFrameFence_{}", i);
-        RenderingContext::SetObjectName(VK_OBJECT_TYPE_FENCE, (uint64_t)createdFence, fenceName.c_str());
-    }
 }
 
 void VulkanTriangle::recordCommands()

@@ -40,7 +40,9 @@ public:
 
 protected:
 
-    void createSemaphores();
+    void createFrameSyncObjects();
+    void destroyFrameSyncObjects();
+    void setupSwapchainDebugInfo();
 
     virtual void beginFrame();
     virtual void limitFrame();
