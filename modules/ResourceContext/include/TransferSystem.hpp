@@ -49,15 +49,17 @@ private:
         TransferCommand(
             const vpr::Device* _device,
             VmaAllocator _allocator,
-            std::shared_ptr<ResourceTransferReply>&& _reply);
+            std::shared_ptr<ResourceTransferReply>&& _reply) noexcept;
 
         // not using an upload buffer, is for resources that are already allocated and just need
         // data written to them (so still needs device to create command pool)
         TransferCommand(
             const vpr::Device* _device,
-            std::shared_ptr<ResourceTransferReply>&& _reply);
+            std::shared_ptr<ResourceTransferReply>&& _reply) noexcept;
         
-        ~TransferCommand();
+        // As of c++11, we need to explicitly declare the destructor noexcept(false) if it can throw exceptions
+        // (which it can, if we fail the transfer even after a long wait)
+        ~TransferCommand() noexcept(false);
 
         TransferCommand(const TransferCommand&) = delete;
         TransferCommand& operator=(const TransferCommand&) = delete;
@@ -65,14 +67,15 @@ private:
         TransferCommand(TransferCommand&& other) noexcept;
         TransferCommand& operator=(TransferCommand&& other) noexcept;
 
-        VkCommandBuffer CmdBuffer() const;
+        VkCommandBuffer CmdBuffer() const noexcept;
         void EndRecording();
         MessageReply::Status WaitForCompletion(uint64_t timeoutNs);
         VkSemaphore Semaphore() const;
         UploadBuffer* GetUploadBuffer() noexcept;
 
     private:
-        void createCommandPool();
+        // marked as noexcept because even though it contains an assert, that won't be thrown in release builds
+        void createCommandPool() noexcept;
         const vpr::Device* device;
         VmaAllocator allocatorHandle;
         std::shared_ptr<ResourceTransferReply> reply;

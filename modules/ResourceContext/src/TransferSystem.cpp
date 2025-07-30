@@ -76,7 +76,7 @@ namespace
 ResourceTransferSystem::TransferCommand::TransferCommand(
     const vpr::Device* _device,
     VmaAllocator _allocator,
-    std::shared_ptr<ResourceTransferReply>&& _reply) :
+    std::shared_ptr<ResourceTransferReply>&& _reply) noexcept :
     device(_device),
     reply(std::move(_reply)),
     allocatorHandle(_allocator)
@@ -87,7 +87,7 @@ ResourceTransferSystem::TransferCommand::TransferCommand(
 
 ResourceTransferSystem::TransferCommand::TransferCommand(
     const vpr::Device* _device,
-    std::shared_ptr<ResourceTransferReply>&& _reply) :
+    std::shared_ptr<ResourceTransferReply>&& _reply) noexcept :
     reply(std::move(_reply)),
     allocatorHandle(VK_NULL_HANDLE),
     device(_device), // still need this to create command pool
@@ -117,7 +117,7 @@ ResourceTransferSystem::TransferCommand& ResourceTransferSystem::TransferCommand
     return *this;
 }
 
-ResourceTransferSystem::TransferCommand::~TransferCommand()
+ResourceTransferSystem::TransferCommand::~TransferCommand() noexcept(false)
 {
     // really shoudn't get to this point but .... just in case
     // (ideally reply is reset after submission success)
@@ -132,7 +132,7 @@ ResourceTransferSystem::TransferCommand::~TransferCommand()
     }
 }
 
-VkCommandBuffer ResourceTransferSystem::TransferCommand::CmdBuffer() const
+VkCommandBuffer ResourceTransferSystem::TransferCommand::CmdBuffer() const noexcept
 {
     return commandPool->GetCmdBuffer(0);
 }
@@ -178,7 +178,7 @@ UploadBuffer* ResourceTransferSystem::TransferCommand::GetUploadBuffer() noexcep
     return uploadBuffer.get();
 }
 
-void ResourceTransferSystem::TransferCommand::createCommandPool()
+void ResourceTransferSystem::TransferCommand::createCommandPool() noexcept
 {
     VkCommandPoolCreateInfo pool_info = getCreateInfo(device);
     commandPool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
@@ -194,7 +194,6 @@ void ResourceTransferSystem::TransferCommand::createCommandPool()
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VkResult result = vkBeginCommandBuffer(commandPool->GetCmdBuffer(0), &begin_info);
     VkAssert(result);
-
 }
 
 ResourceTransferSystem::ResourceTransferSystem() : device(nullptr) {}

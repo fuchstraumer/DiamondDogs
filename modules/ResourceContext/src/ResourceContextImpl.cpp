@@ -1,7 +1,7 @@
 #include "ResourceContextImpl.hpp"
 
 #include "ResourceContext.hpp"
-#include "../../rendering_context/include/RenderingContext.hpp"
+#include "../../RenderingContext/include/RenderingContext.hpp"
 #include "Instance.hpp"
 
 #include <fstream>
