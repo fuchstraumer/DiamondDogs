@@ -7,9 +7,10 @@
 #include "ResourceTypes.hpp"
 #include "ResourceMessageReply.hpp"
 #include <vector>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 #include <atomic>
+#include "Math.hpp"
+
+using namespace math;
 
 struct LoadedObjModel
 {
@@ -20,8 +21,8 @@ struct LoadedObjModel
         {
             return (pos == other.pos) && (uv == other.uv);
         }
-        glm::vec3 pos;
-        glm::vec2 uv;
+        Float3 pos;
+        Float2 uv;
     };
     std::vector<vertex_t> vertices;
     std::vector<uint32_t> indices;
@@ -56,9 +57,9 @@ public:
 
     struct ubo_data_t
     {
-        glm::mat4 model{ glm::mat4(1.0f) };
-        glm::mat4 view{ glm::mat4(1.0f) };
-        glm::mat4 projection{ glm::mat4(1.0f) };
+        Float4x4 model{};
+        Float4x4 view{};
+        Float4x4 projection{};
     };
     ubo_data_t houseUboData;
     ubo_data_t skyboxUboData;
@@ -108,7 +109,7 @@ protected:
     GraphicsResource skyboxUBO;
     void* skyboxUboMappedPtr{ nullptr };
 
-    DepthStencil depthStencil;
+    std::vector<DepthStencil> depthStencils;
     std::unique_ptr<vpr::CommandPool> cmdPool{ nullptr };
     std::unique_ptr<vpr::ShaderModule> houseVert{ nullptr };
     std::unique_ptr<vpr::ShaderModule> houseFrag{ nullptr };

@@ -22,27 +22,28 @@
 #pragma warning(push, 1)
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
-#include "gli/gli.hpp"
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/hash.hpp>
 #define TINYOBJLOADER_IMPLEMENTATION 
 #include <tinyobjloader/tiny_obj_loader.h>
 #pragma warning(pop)
 
+#include "gli/gli.hpp"
+
 #include <iostream>
 #include <array>
 #include <fstream>
+#include <unordered_map>
+#include <numbers>
 
-const static std::array<glm::vec3, 8> skybox_positions
+const static std::array<Float3, 8> skybox_positions
 {
-    glm::vec3(-1.0f,-1.0f, 1.0f ),
-    glm::vec3( 1.0f,-1.0f, 1.0f ),
-    glm::vec3( 1.0f, 1.0f, 1.0f ),
-    glm::vec3(-1.0f, 1.0f, 1.0f ),
-    glm::vec3( 1.0f,-1.0f,-1.0f ),
-    glm::vec3(-1.0f,-1.0f,-1.0f ),
-    glm::vec3(-1.0f, 1.0f,-1.0f ),
-    glm::vec3( 1.0f, 1.0f,-1.0f )
+    Float3(-1.0f,-1.0f, 1.0f ),
+    Float3( 1.0f,-1.0f, 1.0f ),
+    Float3( 1.0f, 1.0f, 1.0f ),
+    Float3(-1.0f, 1.0f, 1.0f ),
+    Float3( 1.0f,-1.0f,-1.0f ),
+    Float3(-1.0f,-1.0f,-1.0f ),
+    Float3(-1.0f, 1.0f,-1.0f ),
+    Float3( 1.0f, 1.0f,-1.0f )
 };
 
 #ifndef _NDEBUG
@@ -61,13 +62,13 @@ struct skybox_mesh_data_t
 
     skybox_mesh_data_t()
     {
-        auto add_vertex = [&](const glm::vec3& v)->uint32_t
+        auto add_vertex = [&](const Float3& v)->uint32_t
         {
             vertices.emplace_back(v);
             return static_cast<uint32_t>(vertices.size() - 1);
         };
 
-        auto build_face = [&](const glm::vec3& v0, const glm::vec3& v1, const glm::vec3& v2, const glm::vec3& v3)
+        auto build_face = [&](const Float3& v0, const Float3& v1, const Float3& v2, const Float3& v3)
         {
             uint32_t i0 = add_vertex(v0);
             uint32_t i1 = add_vertex(v1);
@@ -86,7 +87,7 @@ struct skybox_mesh_data_t
         build_face(skybox_positions[4], skybox_positions[5], skybox_positions[6], skybox_positions[7]);
     }
 
-    std::vector<glm::vec3> vertices;
+    std::vector<Float3> vertices;
     std::vector<uint32_t> indices;
 };
 
@@ -120,7 +121,7 @@ struct vertex_hash
 {
     size_t operator()(const LoadedObjModel::vertex_t& v) const noexcept
     {
-        return (std::hash<glm::vec3>()(v.pos) ^ std::hash<glm::vec2>()(v.uv));
+        return (std::hash<Float3>()(v.pos) ^ std::hash<glm::vec2>()(v.uv));
     }
 };
 
@@ -161,7 +162,7 @@ LoadedObjModel::LoadedObjModel(const char* fname)
                 tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
                 
                 // Get vertex position
-                glm::vec3 pos
+                Float3 pos
                 {
                     attrib.vertices[3 * idx.vertex_index + 0],
                     attrib.vertices[3 * idx.vertex_index + 1],
@@ -169,7 +170,7 @@ LoadedObjModel::LoadedObjModel(const char* fname)
                 };
 
                 // Get texture coordinates if available
-                glm::vec2 uv{0.0f, 0.0f};
+                Float2 uv{0.0f, 0.0f};
                 if (idx.texcoord_index >= 0)
                 {
                     uv.x = attrib.texcoords[2 * idx.texcoord_index + 0];
@@ -208,7 +209,7 @@ VulkanComplexScene& VulkanComplexScene::GetScene()
     return scene;
 }    
 
-glm::vec3 scale(1.0f);
+Float3 scale(1.0f);
 
 void VulkanComplexScene::Construct(RequiredVprObjects objects, void* user_data)
 {
@@ -219,9 +220,15 @@ void VulkanComplexScene::Construct(RequiredVprObjects objects, void* user_data)
     createInfo.physicalDevice = objects.physicalDevice;
     createInfo.validationEnabled = true;
     resourceContext->Initialize(createInfo);
-    
-    houseUboData.view = glm::lookAt(glm::vec3(-2.0f, -2.0f, 1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    skyboxUboData.view = glm::mat3(houseUboData.view);
+    Matrix viewMatrix = Matrix::LookAt(Vector(-2.0f, -2.0f, 1.0f), Vector(0.0f), Vector(0.0f, 0.0f, 1.0f));
+    houseUboData.view = FromMatrix<Float4x4>(viewMatrix);
+    skyboxUboData.view = FromMatrix<Float3x3>(viewMatrix);
+    const float aspectRatio = static_cast<float>(objects.swapchain->Extent().width) / static_cast<float>(objects.swapchain->Extent().height);
+    Matrix projectionMatrix = Matrix::PerspectiveRH(
+        70.0f,
+        aspectRatio,
+        0.1f,
+        1000.0f);
     houseUboData.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(objects.swapchain->Extent().width), static_cast<float>(objects.swapchain->Extent().height), 0.1f, 1000.0f);
     houseUboData.projection[1][1] *= -1.0f;
     skyboxUboData.projection = houseUboData.projection;
@@ -462,10 +469,14 @@ void VulkanComplexScene::CreateHouseTexture(void * texture_data)
     {
         gpu_image_resource_data_t
         {
-            image_data->pixels,
-            sizeof(stbi_uc) * image_data->width * image_data->height * image_data->channels,
+            reinterpret_cast<const void*>(image_data->pixels),
+            static_cast<size_t>(sizeof(stbi_uc) * image_data->width * image_data->height * image_data->channels),
             static_cast<uint32_t>(image_data->width), 
             static_cast<uint32_t>(image_data->height),
+            0,
+            1,
+            0,
+            queue_family_flag_bits::Ignored
         }
     };
 
@@ -587,7 +598,7 @@ void VulkanComplexScene::WaitForAllLoaded()
     std::cerr << "All data loaded.";
 }
 
-const glm::vec3 translation(0.0f, 0.0f, 0.0f);
+const Float3 translation(0.0f, 0.0f, 0.0f);
 
 void VulkanComplexScene::update()
 {
@@ -595,12 +606,16 @@ void VulkanComplexScene::update()
     auto curr_time = std::chrono::high_resolution_clock::now();
     float diff = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(curr_time - start_time).count()) / 10000.0f;
     houseUboData.model = glm::scale(glm::mat4(1.0f), scale);
-    houseUboData.model = glm::rotate(houseUboData.model, diff * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)); // pivot house around center axis based on time.
+    houseUboData.model = glm::rotate(houseUboData.model, diff * glm::radians(90.0f), Float3(0.0f, 0.0f, 1.0f)); // pivot house around center axis based on time.
     houseUboData.model = glm::translate(houseUboData.model, translation);
     
     // persistently mapped, can just copy
+#ifdef memcpy
+#undef memcpy
+#endif
     std::memcpy(houseUboMappedPtr, &houseUboData, sizeof(decltype(houseUboData)));
     std::memcpy(skyboxUboMappedPtr, &skyboxUboData, sizeof(decltype(skyboxUboData)));
+
 }
 
 void VulkanComplexScene::recordCommands()
@@ -877,7 +892,7 @@ void VulkanComplexScene::createSkyboxMesh()
         VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         nullptr,
         0,
-        static_cast<VkDeviceSize>(sizeof(glm::vec3) * mesh_data.vertices.size()),
+        static_cast<VkDeviceSize>(sizeof(Float3) * mesh_data.vertices.size()),
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_SHARING_MODE_CONCURRENT,
         2u,
@@ -1048,39 +1063,6 @@ void VulkanComplexScene::createShaders()
     skyboxFrag = std::make_unique<vpr::ShaderModule>(vprObjects.device->vkHandle(), VK_SHADER_STAGE_FRAGMENT_BIT, skybox_shader_frag_spv, static_cast<uint32_t>(sizeof(skybox_shader_frag_spv)));
 }
 
-void VulkanComplexScene::createFramebuffers() {
-    framebuffers.resize(vprObjects.swapchain->ImageCount());
-    for (size_t i = 0; i < framebuffers.size(); ++i)
-    {
-        std::array<VkImageView, 2> views
-        {
-            vprObjects.swapchain->ImageView(i),
-            depthStencil.View
-        };
-
-        const VkFramebufferCreateInfo create_info
-        {
-            VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            nullptr,
-            0,
-            renderPass,
-            static_cast<uint32_t>(views.size()),
-            views.data(),
-            vprObjects.swapchain->Extent().width,
-            vprObjects.swapchain->Extent().height,
-            1
-        };
-
-        VkResult result = vkCreateFramebuffer(vprObjects.device->vkHandle(), &create_info, nullptr, &framebuffers[i]);
-        VkAssert(result);
-    }
-}
-
-void VulkanComplexScene::createRenderpass()
-{
-    renderPass = CreateBasicRenderpass(vprObjects.device, vprObjects.swapchain, depthStencil.Format);
-}
-
 void VulkanComplexScene::createHousePipeline()
 {
 
@@ -1098,7 +1080,7 @@ void VulkanComplexScene::createHousePipeline()
     constexpr static VkVertexInputAttributeDescription vertex_attrs[2]
     {
         VkVertexInputAttributeDescription{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 },
-        VkVertexInputAttributeDescription{ 1, 0, VK_FORMAT_R32G32_SFLOAT, sizeof(glm::vec3) }
+        VkVertexInputAttributeDescription{ 1, 0, VK_FORMAT_R32G32_SFLOAT, sizeof(Float3) }
     };
 
     constexpr static VkPipelineVertexInputStateCreateInfo vertex_info
@@ -1154,7 +1136,7 @@ void VulkanComplexScene::createSkyboxPipeline()
 
     constexpr static VkVertexInputBindingDescription vertex_bindings[1]
     {
-        VkVertexInputBindingDescription{ 0, sizeof(glm::vec3), VK_VERTEX_INPUT_RATE_VERTEX }
+        VkVertexInputBindingDescription{ 0, sizeof(Float3), VK_VERTEX_INPUT_RATE_VERTEX }
     };
 
     constexpr static VkVertexInputAttributeDescription vertex_attr[1]
