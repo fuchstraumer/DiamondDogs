@@ -33,7 +33,7 @@ add_subdirectory(RenderingContext)
 add_subdirectory(ResourceContext)
 # This module provides imgui as a basic debugging UI
 # that sits just BARELY over the resource and rendering contexts
-add_subdirectory(ImGuiModule)
+#add_subdirectory(ImGuiModule)
 #add_subdirectory(material_module)
 #add_subdirectory(content_compiler)
 #add_subdirectory(terrain_module)

@@ -65,3 +65,6 @@ add_custom_target(generate_extension_headers
 )
 
 add_dependencies(rendering_context generate_extension_headers)
+
+# throw this in the modules subdir in the IDE, so it's at least not cluttering the root
+set_target_properties(generate_extension_headers PROPERTIES FOLDER "Modules")

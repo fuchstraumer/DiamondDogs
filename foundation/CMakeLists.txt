@@ -109,3 +109,6 @@ else()
     # Set standard to C++20
     set_target_properties(foundation PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 endif()
+
+# Put foundation in the Modules folder in the IDE, avoiding root clutter (and it is just the root module, really)
+set_target_properties(foundation PROPERTIES FOLDER "Modules")
