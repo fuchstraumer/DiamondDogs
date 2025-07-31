@@ -3,6 +3,7 @@
 #include "DescriptorPool.hpp"
 #include "DescriptorSet.hpp"
 #include "DescriptorSetLayout.hpp"
+#include "Fence.hpp"
 #include "PipelineLayout.hpp"
 #include "ShaderModule.hpp"
 #include "LogicalDevice.hpp"
@@ -19,6 +20,7 @@
 #include "SkyboxShaders.hpp"
 #include "PipelineExecutableInfo.hpp"
 #include "ResourceMessageReply.hpp"
+#include "MathHashes.hpp"
 #pragma warning(push, 1)
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb/stb_image.h"
@@ -121,7 +123,7 @@ struct vertex_hash
 {
     size_t operator()(const LoadedObjModel::vertex_t& v) const noexcept
     {
-        return (std::hash<Float3>()(v.pos) ^ std::hash<glm::vec2>()(v.uv));
+        return (std::hash<Float3>()(v.pos) ^ std::hash<Float2>()(v.uv));
     }
 };
 
@@ -214,33 +216,33 @@ Float3 scale(1.0f);
 void VulkanComplexScene::Construct(RequiredVprObjects objects, void* user_data)
 {
     vprObjects = objects;
-    resourceContext = std::make_unique<ResourceContext>();
-    ResourceContextCreateInfo createInfo{};
-    createInfo.logicalDevice = objects.device;
-    createInfo.physicalDevice = objects.physicalDevice;
-    createInfo.validationEnabled = true;
-    resourceContext->Initialize(createInfo);
+    numFramebuffers = objects.swapchain->ImageCount();
+    resourceContext = reinterpret_cast<ResourceContext*>(user_data);
+
     Matrix viewMatrix = Matrix::LookAt(Vector(-2.0f, -2.0f, 1.0f), Vector(0.0f), Vector(0.0f, 0.0f, 1.0f));
     houseUboData.view = FromMatrix<Float4x4>(viewMatrix);
-    skyboxUboData.view = FromMatrix<Float3x3>(viewMatrix);
+    skyboxUboData.view = Float4x4(FromMatrix<Float3x3>(viewMatrix));
     const float aspectRatio = static_cast<float>(objects.swapchain->Extent().width) / static_cast<float>(objects.swapchain->Extent().height);
     Matrix projectionMatrix = Matrix::PerspectiveRH(
         70.0f,
         aspectRatio,
         0.1f,
         1000.0f);
-    houseUboData.projection = glm::perspectiveFov(glm::radians(70.0f), static_cast<float>(objects.swapchain->Extent().width), static_cast<float>(objects.swapchain->Extent().height), 0.1f, 1000.0f);
-    houseUboData.projection[1][1] *= -1.0f;
+
+    houseUboData.projection = FromMatrix<Float4x4>(projectionMatrix);
+    houseUboData.projection(1,1) *= -1.0f; // Vulkan uses a different coordinate system for Y
     skyboxUboData.projection = houseUboData.projection;
-    houseUboData.model = glm::mat4(1.0f);
-    houseUboData.model = glm::scale(houseUboData.model, scale);
-    skyboxUboData.model = glm::mat4(1.0f);
+
+    Matrix houseModelMatrix = Matrix::Identity() * Matrix::Scale(Vector(scale.x, scale.y, scale.z));
+    houseUboData.model = FromMatrix<Float4x4>(houseModelMatrix);
+    skyboxUboData.model = FromMatrix<Float4x4>(houseModelMatrix);
+
     sharedCache = std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), typeid(VulkanComplexScene).hash_code());
-    createSemaphores();
+    createFrameSyncObjects();
+    setupSwapchainDebugInfo();
     createSampler();
     createUBOs();
     update();
-    createFences();
     createCommandPool();
     createSkyboxMesh();
     createDescriptorPool();
@@ -248,9 +250,13 @@ void VulkanComplexScene::Construct(RequiredVprObjects objects, void* user_data)
     createDescriptorSetLayouts();
     createDescriptorSets();
     createPipelineLayouts();
-    depthStencil = CreateDepthStencil(vprObjects.device, vprObjects.physicalDevice, vprObjects.swapchain);
-    createRenderpass();
-    createFramebuffers();
+    for (uint32_t i = 0; i < numFramebuffers; ++i)
+    {
+        depthStencils.emplace_back(
+            vprObjects.device, 
+            vprObjects.physicalDevice, 
+            vprObjects.swapchain);
+    }
     createHousePipeline();
     createSkyboxPipeline();
 }
@@ -291,14 +297,14 @@ void VulkanComplexScene::Destroy()
     houseFrag.reset();
     skyboxVert.reset();
     skyboxFrag.reset();
-    imageAcquireSemaphore.reset();
-    renderCompleteSemaphore.reset();
-    destroyFences();
-    destroyFramebuffers();
-    vkDestroyRenderPass(vprObjects.device->vkHandle(), renderPass, nullptr);
-    vkFreeMemory(vprObjects.device->vkHandle(), depthStencil.Memory, nullptr);
-    vkDestroyImageView(vprObjects.device->vkHandle(), depthStencil.View, nullptr);
-    vkDestroyImage(vprObjects.device->vkHandle(), depthStencil.Image, nullptr);
+
+    for (auto& depthStencil : depthStencils)
+    {
+        vkFreeMemory(vprObjects.device->vkHandle(), depthStencil.Memory, nullptr);
+        vkDestroyImageView(vprObjects.device->vkHandle(), depthStencil.View, nullptr);
+        vkDestroyImage(vprObjects.device->vkHandle(), depthStencil.Image, nullptr);
+    }
+    depthStencils.clear();
     vkDestroyDescriptorUpdateTemplate(vprObjects.device->vkHandle(), houseTemplate, nullptr);
     vkDestroyDescriptorUpdateTemplate(vprObjects.device->vkHandle(), skyboxTemplate, nullptr);
     houseTextureReply.reset();
@@ -307,6 +313,8 @@ void VulkanComplexScene::Destroy()
     houseEboReply.reset();
     skyboxVboReply.reset();
     skyboxEboReply.reset();
+
+    destroyFrameSyncObjects();
 }
 
 void* VulkanComplexScene::LoadObjFile(const char* fname, void* user_data)
@@ -497,7 +505,7 @@ void VulkanComplexScene::CreateHouseTexture(void * texture_data)
 
 }
 
-void VulkanComplexScene::CreateSkyboxTexture(void * texture_data)
+void VulkanComplexScene::CreateSkyboxTexture(void* texture_data)
 {
 
     std::cout << "Creating backing resources for loaded compressed skybox texture...\n";
@@ -605,10 +613,9 @@ void VulkanComplexScene::update()
     static auto start_time = std::chrono::high_resolution_clock::now();
     auto curr_time = std::chrono::high_resolution_clock::now();
     float diff = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(curr_time - start_time).count()) / 10000.0f;
-    houseUboData.model = glm::scale(glm::mat4(1.0f), scale);
-    houseUboData.model = glm::rotate(houseUboData.model, diff * glm::radians(90.0f), Float3(0.0f, 0.0f, 1.0f)); // pivot house around center axis based on time.
-    houseUboData.model = glm::translate(houseUboData.model, translation);
-    
+    Matrix houseMatrix = Matrix::Identity() * Matrix::Scale(Vector(scale.x, scale.y, scale.z));
+    houseMatrix = houseMatrix * Matrix::RotationZ(diff * std::numbers::pi_v<float> / 2.0f) * Matrix::Translation(Vector(translation.x, translation.y, translation.z));
+    houseUboData.model = FromMatrix<Float4x4>(houseMatrix);
     // persistently mapped, can just copy
 #ifdef memcpy
 #undef memcpy
@@ -660,11 +667,9 @@ void VulkanComplexScene::recordCommands()
         houseEboReply.reset();
     }
 
-    static std::array<bool, 5> first_frame{ true, true, true, true, true };
-
-    if (!first_frame[currentBuffer])
+    if (!firstFrame[currentFrame])
     {
-        cmdPool->ResetCmdBuffer(currentBuffer);
+        cmdPool->ResetCmdBuffer(currentFrame);
     }
 
     constexpr static VkCommandBufferBeginInfo begin_info
@@ -702,41 +707,159 @@ void VulkanComplexScene::recordCommands()
         render_area
     };
 
-    VkRenderPassBeginInfo rpBegin
+    VkImage currentFrameBufferImage = vprObjects.swapchain->Image(currentAcquiredImage);
+    VkImageView currentFrameBufferImageView = vprObjects.swapchain->ImageView(currentAcquiredImage);
+    // color attachment image index is based on what we acquire from the API call, depth stencil we just round-robin
+    VkImage currentDepthStencilImage = depthStencils[currentFrame].Image;
+    VkImageView currentDepthStencilImageView = depthStencils[currentFrame].View;
+
+    std::vector<VkImageMemoryBarrier2> image_barriers;
+    VkImageMemoryBarrier2 image_transition0
     {
-        VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         nullptr,
-        renderPass,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        0,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        firstFrame[currentFrame] ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_QUEUE_FAMILY_IGNORED,
+        VK_QUEUE_FAMILY_IGNORED,
+        currentFrameBufferImage,
+        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+    };
+
+    image_barriers.emplace_back(std::move(image_transition0));
+
+    if (firstFrame[currentFrame])
+    {
+        VkImageMemoryBarrier2 depth_transition0
+        {
+            VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            nullptr,
+            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, // depth isn't involved in the presentation engine, so this is our src stage
+            0,
+            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            currentDepthStencilImage,
+            VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
+        };
+        image_barriers.emplace_back(std::move(depth_transition0));
+    }
+
+    const VkDependencyInfo dependency_info0
+    {
+        VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        nullptr,
+        0,
+        0, nullptr,
+        0, nullptr,
+        static_cast<uint32_t>(image_barriers.size()),
+        image_barriers.data()
+    };
+
+    const VkImageMemoryBarrier2 transition1[]
+    {
+        VkImageMemoryBarrier2
+        {
+            VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            nullptr,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+            0,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED,
+            currentFrameBufferImage,
+            VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
+        }
+    };
+
+    const VkDependencyInfo dependency_info1
+    {
+        VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        nullptr,
+        0,
+        0,
+        nullptr,
+        0,
+        nullptr,
+        static_cast<uint32_t>(std::size(transition1)), 
+        transition1
+    };
+
+    const VkRenderingAttachmentInfo color_attachment_info
+    {
+        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        nullptr,
+        currentFrameBufferImageView,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_RESOLVE_MODE_NONE,
         VK_NULL_HANDLE,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_ATTACHMENT_LOAD_OP_CLEAR,
+        VK_ATTACHMENT_STORE_OP_STORE,
+        clearValues[0]
+    };
+
+    const VkRenderingAttachmentInfo depth_attachment_info
+    {
+        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        nullptr,
+        currentDepthStencilImageView,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, // it should enter rendering in this layout
+        VK_RESOLVE_MODE_NONE,
+        VK_NULL_HANDLE,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_ATTACHMENT_LOAD_OP_CLEAR,
+        VK_ATTACHMENT_STORE_OP_DONT_CARE, // don't care about depth attachment after rendering
+        clearValues[1]
+    };
+
+    const VkRenderingInfo renderingInfo
+    {
+        VK_STRUCTURE_TYPE_RENDERING_INFO,
+        nullptr,
+        0,
         render_area,
-        static_cast<uint32_t>(clearValues.size()),
-        clearValues.data()
+        1,
+        0,
+        1,
+        &color_attachment_info,
+        &depth_attachment_info,
+        nullptr
     };
 
     {
-        rpBegin.framebuffer = framebuffers[currentBuffer];
         VkResult result = VK_SUCCESS;
+        VkCommandBuffer currentCmdBuffer = cmdPool->GetCmdBuffer(currentFrame);
         auto& pool = *cmdPool;
-        result = vkBeginCommandBuffer(pool[currentBuffer], &begin_info); VkAssert(result);
-            vkCmdBeginRenderPass(pool[currentBuffer], &rpBegin, VK_SUBPASS_CONTENTS_INLINE);
+        result = vkBeginCommandBuffer(currentCmdBuffer, &begin_info); VkAssert(result);
+            vkCmdBeginRendering(currentCmdBuffer, &renderingInfo);
             if (skyboxTexture)
             {
-                vkCmdSetViewport(pool[currentBuffer], 0, 1, &viewport);
-                vkCmdSetScissor(pool[currentBuffer], 0, 1, &scissor);
-                renderSkybox(pool[currentBuffer]);
+                vkCmdSetViewport(currentCmdBuffer, 0, 1, &viewport);
+                vkCmdSetScissor(currentCmdBuffer, 0, 1, &scissor);
+                renderSkybox(currentCmdBuffer);
             }
             if (houseTexture)
             {
-                vkCmdSetViewport(pool[currentBuffer], 0, 1, &viewport);
-                vkCmdSetScissor(pool[currentBuffer], 0, 1, &scissor);
-                renderHouse(pool[currentBuffer]);
+                vkCmdSetViewport(currentCmdBuffer, 0, 1, &viewport);
+                vkCmdSetScissor(currentCmdBuffer, 0, 1, &scissor);
+                renderHouse(currentCmdBuffer);
             }
-            vkCmdEndRenderPass(pool[currentBuffer]);
-        result = vkEndCommandBuffer(pool[currentBuffer]);
+            vkCmdEndRendering(currentCmdBuffer);
+        result = vkEndCommandBuffer(currentCmdBuffer);
         VkAssert(result);
     }
 
-    first_frame[currentBuffer] = false;
 }
 
 void VulkanComplexScene::renderHouse(VkCommandBuffer cmd)
@@ -763,32 +886,60 @@ void VulkanComplexScene::renderSkybox(VkCommandBuffer cmd)
 
 void VulkanComplexScene::draw() 
 {
+    constexpr static VkPipelineStageFlags waitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSemaphore imageAcquireSemaphore = imageAcquireSemaphores[currentFrame]->vkHandle();
+    VkSemaphore renderCompleteSemaphore = renderCompleteSemaphores[currentFrame]->vkHandle();
 
-    constexpr static VkPipelineStageFlags wait_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    const VkSubmitInfo submit_info{
-        VK_STRUCTURE_TYPE_SUBMIT_INFO,
+    const VkSemaphoreSubmitInfo imageAcquireSemaphoreInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
         nullptr,
-        1,
-        &imageAcquireSemaphore->vkHandle(),
-        &wait_mask,
-        1,
-        &cmdPool->GetCmdBuffer(currentBuffer),
-        1,
-        &renderCompleteSemaphore->vkHandle()
+        imageAcquireSemaphore,
+        0,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        0
     };
 
-    VkResult result = vkQueueSubmit(vprObjects.device->GraphicsQueue(), 1, &submit_info, fences[currentBuffer]);
+    const VkSemaphoreSubmitInfo renderCompleteSemaphoreInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+        nullptr,
+        renderCompleteSemaphore,
+        0,
+        VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+        0
+    };
+
+    VkCommandBuffer currentCmdBuffer = cmdPool->GetCmdBuffer(currentFrame);
+    const VkCommandBufferSubmitInfo cmdBufferSubmitInfo
+    {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+        nullptr,
+        currentCmdBuffer,
+        0
+    };
+
+    const VkSubmitInfo2 submission2
+    {
+        VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+        nullptr,
+        0,
+        1,
+        &imageAcquireSemaphoreInfo,
+        1,
+        &cmdBufferSubmitInfo,
+        1,
+        &renderCompleteSemaphoreInfo
+    };
+
+    VkQueue graphicsQueue = vprObjects.device->GraphicsQueue();
+    VkResult result = vkQueueSubmit2(graphicsQueue, 1, &submission2, endFrameFences[currentFrame]->vkHandle());
     VkAssert(result);
 }
 
 void VulkanComplexScene::endFrame()
 {
-
-    VkResult result = vkWaitForFences(vprObjects.device->vkHandle(), 1, &fences[currentBuffer], VK_TRUE, UINT64_MAX);
-    VkAssert(result);
-    result = vkResetFences(vprObjects.device->vkHandle(), 1, &fences[currentBuffer]);
-    VkAssert(result);
-
+    VulkanScene::endFrame();
 }
 
 void VulkanComplexScene::createSampler()
@@ -853,8 +1004,6 @@ void VulkanComplexScene::createUBOs()
         resource_usage::CPUOnly, 
         uboFlags, 
         (void*)houseUboStr);
-
-    auto houseUboMapReply = resourceContext->MapBuffer(houseUBO, sizeof(ubo_data_t), 0);
     
     auto skyboxUBOReply = resourceContext->CreateBuffer(
         ubo_info_val, 
@@ -865,15 +1014,16 @@ void VulkanComplexScene::createUBOs()
         uboFlags, 
         (void*)skyboxUboStr);
 
-    auto skyboxUboMapReply = resourceContext->MapBuffer(skyboxUBO, sizeof(ubo_data_t), 0);
-
     assert(houseUBOReply->WaitForCompletion() == MessageReply::Status::Completed);
     houseUBO = houseUBOReply->GetResource();
-    assert(houseUboMapReply->WaitForCompletion() == MessageReply::Status::Completed);
+    // can't map until we get the final result resource back to houseUBO
+    auto houseUboMapReply = resourceContext->MapBuffer(houseUBO, sizeof(ubo_data_t), 0);
+    houseUboMapReply->WaitForCompletion();
     houseUboMappedPtr = houseUboMapReply->GetPointer();
     assert(skyboxUBOReply->WaitForCompletion() == MessageReply::Status::Completed);
     skyboxUBO = skyboxUBOReply->GetResource();
-    assert(skyboxUboMapReply->WaitForCompletion() == MessageReply::Status::Completed);
+    auto skyboxUboMapReply = resourceContext->MapBuffer(skyboxUBO, sizeof(ubo_data_t), 0);
+    skyboxUboMapReply->WaitForCompletion();
     skyboxUboMappedPtr = skyboxUboMapReply->GetPointer();
 }
 
@@ -953,23 +1103,6 @@ void VulkanComplexScene::createSkyboxMesh()
         (void*)skyboxEboStr);
     
     skyboxIndexCount = static_cast<uint32_t>(mesh_data.indices.size());
-}
-
-void VulkanComplexScene::createFences()
-{
-    constexpr static VkFenceCreateInfo fence_info
-    {
-        VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        nullptr,
-        0
-    };
-
-    fences.resize(vprObjects.swapchain->ImageCount());
-    for (auto& fence : fences)
-    {
-        VkResult result = vkCreateFence(vprObjects.device->vkHandle(), &fence_info, nullptr, &fence);
-        VkAssert(result);
-    }
 }
 
 void VulkanComplexScene::createCommandPool()
@@ -1096,6 +1229,22 @@ void VulkanComplexScene::createHousePipeline()
 
     houseCache = std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), sharedCache->vkHandle(), typeid(VulkanComplexScene).hash_code() + std::hash<std::string>()("HouseCache"));
 
+    const VkFormat color_formats[1]
+    {
+        vprObjects.swapchain->ColorFormat()
+    };
+
+    const VkPipelineRenderingCreateInfo rendering_info
+    {
+        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        nullptr,
+        0,
+        std::size(color_formats),
+        color_formats,
+        depthStencils[0].Format, // format is same among all depth/stencil attachments
+        VK_FORMAT_UNDEFINED
+    };
+
     BasicPipelineCreateInfo housePipelineInfo
     {
         vprObjects.device,
@@ -1104,7 +1253,7 @@ void VulkanComplexScene::createHousePipeline()
         shader_stages,
         &vertex_info,
         pipelineLayout->vkHandle(),
-        renderPass,
+        &rendering_info,
         VK_COMPARE_OP_LESS,
         houseCache->vkHandle(),
         VK_NULL_HANDLE,
@@ -1157,6 +1306,22 @@ void VulkanComplexScene::createSkyboxPipeline()
 
     skyboxCache = std::make_unique<vpr::PipelineCache>(vprObjects.device->vkHandle(), vprObjects.physicalDevice->vkHandle(), sharedCache->vkHandle(), typeid(VulkanComplexScene).hash_code() + std::hash<std::string>()("SkyboxCache"));
 
+    const VkFormat color_formats[1]
+    {
+        vprObjects.swapchain->ColorFormat()
+    };
+
+    const VkPipelineRenderingCreateInfo rendering_info
+    {
+        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        nullptr,
+        0,
+        std::size(color_formats),
+        color_formats,
+        depthStencils[0].Format, // format is same among all depth/stencil attachments
+        VK_FORMAT_UNDEFINED
+    };
+
     BasicPipelineCreateInfo createInfo
     {
         vprObjects.device,
@@ -1165,7 +1330,7 @@ void VulkanComplexScene::createSkyboxPipeline()
         shader_stages,
         &vertex_info,
         pipelineLayout->vkHandle(),
-        renderPass,
+        &rendering_info,
         VK_COMPARE_OP_LESS_OR_EQUAL,
         skyboxCache->vkHandle(),
         housePipeline,
@@ -1184,22 +1349,6 @@ void VulkanComplexScene::createSkyboxPipeline()
 //    RetrievePipelineExecutableInfo(vprObjects.device->vkHandle(), *skyboxExecutableInfo);
 //#endif // !_NDEBUG
 
-}
-
-void VulkanComplexScene::destroyFences()
-{
-    for (auto& fence : fences)
-    {
-        vkDestroyFence(vprObjects.device->vkHandle(), fence, nullptr);
-    }
-}
-
-void VulkanComplexScene::destroyFramebuffers()
-{
-    for (auto& fbuff : framebuffers)
-    {
-        vkDestroyFramebuffer(vprObjects.device->vkHandle(), fbuff, nullptr);
-    }
 }
 
 void VulkanComplexScene::updateHouseDescriptorSet()
