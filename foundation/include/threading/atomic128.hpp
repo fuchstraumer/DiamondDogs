@@ -12,7 +12,10 @@
 struct alignas(16) cas_data128_t
 {
     /// Default constructor - initializes both fields to zero
-    cas_data128_t() noexcept : low{ 0u }, high{ 0u } {}
+    cas_data128_t() noexcept : low{ 0u }, high{ 0u }
+    {
+        memset(this, 0, sizeof(cas_data128_t));
+    }
     
     /**
      * @brief Constructor with initial values

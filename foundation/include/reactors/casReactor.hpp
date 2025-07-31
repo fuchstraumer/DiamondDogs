@@ -43,7 +43,7 @@ protected:
             
             if (cmpxchgOk)
             {
-                lastRead = new_data;
+                lastRead.data = new_data.data;
                 return;
             }
         }
@@ -66,7 +66,7 @@ protected:
             
             if (cmpxchgOk)
             {
-                lastRead = new_data;
+                lastRead.data = new_data.data;
                 return;
             }
         }

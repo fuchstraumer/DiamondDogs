@@ -16,14 +16,19 @@ namespace detail
 
     constexpr inline size_t mwsrQueueSize = 64u;
 
-    constexpr inline bool maskGetBit(uint64_t mask, uint64_t position) noexcept
+    constexpr inline bool maskGetBit(uint64_t mask, int position) noexcept
     {
         return (mask & (uint64_t(1u) << position)) != 0;
     }
 
-    constexpr inline uint64_t maskSetBit(uint64_t mask, uint64_t position) noexcept
+    constexpr inline uint64_t maskSetBit(uint64_t mask, int position) noexcept
     {
         return mask | (uint64_t(1u) << position);
+    }
+
+    constexpr inline uint64_t maskShiftOutBit0(uint64_t mask)
+    {
+        return mask >> 1;
     }
 
     struct EntranceReactorData
@@ -132,7 +137,8 @@ namespace detail
             auto reactFunction = [](EntranceReactorData& data, bool& earlyExit)->std::pair<uint64_t, bool>
             {
                 const uint64_t firstToWrite = data.getFirstIDToWrite();
-                uint64_t newIDToWrite = firstToWrite + 1u;
+                uint64_t newIDToWrite = firstToWrite + 1;
+                assert(newIDToWrite > firstToWrite);
                 data.setFirstIDToWrite(newIDToWrite);
 
                 bool willLock = false;
@@ -140,7 +146,9 @@ namespace detail
                 {
                     willLock = true;
                     const uint32_t lockedCount = data.getLockedThreadCount();
-                    data.setLockedThreadCount(lockedCount + 1u);
+                    uint32_t newLockCount = lockedCount + 1;
+                    assert(newLockCount > lockedCount);
+                    data.setLockedThreadCount(newLockCount);
                 }
 
                 return { firstToWrite, willLock };
@@ -159,7 +167,7 @@ namespace detail
             auto reactFunction = [](EntranceReactorData& data, bool& earlyExit)->int
             {
                 const uint32_t lockedCount = data.getLockedThreadCount();
-                uint32_t newLockedCount = lockedCount - 1u;
+                uint32_t newLockedCount = lockedCount - 1;
                 assert(newLockedCount < lockedCount);
                 data.setLockedThreadCount(newLockedCount);
                 return 0;
@@ -174,16 +182,16 @@ namespace detail
         {
             bool result = false;
 
-            auto reactFunction = [](EntranceReactorData& data, uint64_t newLastID)->bool
+            auto reactFunction = [](EntranceReactorData& data, uint64_t newLastID, bool& earlyExit)->bool
             {
                 const uint64_t lastIDToWrite = data.getLastIDToWrite();
                 assert(lastIDToWrite <= newLastID);
                 const uint32_t lockedCount = data.getLockedThreadCount();
                 data.setLastIDToWrite(newLastID);
-                return lockedCount > 0u;
+                return lockedCount > 0;
             };
 
-            React(result, reactFunction);
+            React(result, reactFunction, newLastIDToWrite);
 
             return result;
         }
@@ -217,7 +225,7 @@ namespace detail
 
         uint64_t getFirstIDToRead() const noexcept
         {
-            constexpr static uint64_t mask = 0x7FFFFFFFLL;
+            constexpr static uint64_t mask = 0x7FFF'FFFFLL;
             return data.high & mask;
         }
 
@@ -233,8 +241,8 @@ namespace detail
 
         void setFirstIDToRead(uint64_t value)
         {
-            assert((value & 0x80000000LL) != 0);
-            data.high = (data.high & 0x80000000LL) | value;
+            assert((value & 0x8000'0000LL) == 0);
+            data.high = (data.high & 0x8000'0000LL) | value;
         }
 
         void setCompletedWritesMask(uint64_t value) noexcept
@@ -260,7 +268,7 @@ namespace detail
 
         bool writeCompleted(uint64_t _id)
         {
-            auto reactFunction = [](ExitReactorData& data, uint64_t id)->bool
+            auto reactFunction = [](ExitReactorData& data, uint64_t id, bool& earlyExit)->bool
             {
                 const uint64_t firstToRead = data.getFirstIDToRead();
                 assert(id >= firstToRead);
@@ -268,9 +276,9 @@ namespace detail
                 assert(id < firstToRead + mwsrQueueSize);
                 const uint64_t mask = data.getCompletedWritesMask();
                 // make sure write hasn't already been marked as complete
-                assert(!maskGetBit(mask, id - firstToRead));
+                assert(!maskGetBit(mask, int(id - firstToRead)));
                 // IDs are all relative, so doing this gets us the offset into mask where "id" is
-                uint64_t newMask = maskSetBit(mask, id - firstToRead);
+                uint64_t newMask = maskSetBit(mask, int(id - firstToRead));
                 data.setCompletedWritesMask(newMask);
 
                 bool result = false;
@@ -286,7 +294,7 @@ namespace detail
 
             bool result = false;
             /// result is true if we've unlocked the reader (from locked), false if it wasn't even locked in the first place
-            React(result, reactFunction);
+            React(result, reactFunction, _id);
             return result;
         }
 
@@ -305,7 +313,7 @@ namespace detail
                     uint64_t n = 1u;
                     for(; n < mwsrQueueSize; ++n)
                     {
-                        if (!maskGetBit(mask, n))
+                        if (!maskGetBit(mask, int(n)))
                         {
                             break;
                         }
@@ -332,7 +340,7 @@ namespace detail
             auto reactFunction = [](ExitReactorData& data, uint64_t size, uint64_t id, bool& earlyExit)->uint64_t
             {
                 const uint64_t mask = data.getCompletedWritesMask();
-                assert(!maskGetBit(mask, 0));
+                assert(maskGetBit(mask, 0));
 
                 const uint64_t previousFirstIDToRead = data.getFirstIDToRead();
                 // update first ID to read based on how many we say have completed
@@ -341,7 +349,11 @@ namespace detail
                 assert(newFirstIDToRead > previousFirstIDToRead);
                 data.setFirstIDToRead(newFirstIDToRead);
 
-                uint64_t newMask = mask >> size;
+                uint64_t newMask = mask;
+                for (size_t i = 0; i < size; ++i)
+                {
+                    newMask = maskShiftOutBit0(newMask);
+                }
                 data.setCompletedWritesMask(newMask);
                 uint64_t newLastIDToWrite = newFirstIDToRead + mwsrQueueSize;
                 return newLastIDToWrite;
@@ -545,7 +557,7 @@ public:
      */
     bool empty() const noexcept
     {
-        return readCacheBegin != readCacheEnd;
+        return readCacheBegin == readCacheEnd;
     }
 
     /**
@@ -614,7 +626,7 @@ public:
             {
                 readCache[readCacheEnd++] = std::move(items[getQueueIndex(firstId + i)]);
             }
-            assert(readCacheEnd < detail::mwsrQueueSize - 1u);
+            assert(readCacheEnd < detail::mwsrQueueSize - 1);
 
             const uint64_t newLastWrite = exit.readCompleted(numRead, firstId);
 
@@ -622,7 +634,7 @@ public:
             const bool shouldUnlock = entrance.moveLastToWrite(newLastWrite);
             if (shouldUnlock)
             {
-                lockedWriters.unlockAllUpTo(firstId + numRead - 1u + detail::mwsrQueueSize);
+                lockedWriters.unlockAllUpTo(firstId + numRead - 1 + detail::mwsrQueueSize);
             }
 
             return std::move(resultItem);
