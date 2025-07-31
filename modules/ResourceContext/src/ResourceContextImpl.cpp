@@ -161,30 +161,8 @@ void ResourceContextImpl::processMessages()
 
     while (!shouldExitWorker.load())
     {
-        bool didProcessMessage = false;
-        
-        // Process all available messages
-        while (!messageQueue.empty())
-        {
-            ResourceMessagePayloadType message = messageQueue.pop();
-            std::visit(MessageVisitor, message);
-            didProcessMessage = true;
-        }
-        
-        // Adjust sleep behavior based on whether we processed any messages
-        if (didProcessMessage)
-        {
-            // Reset sleep duration to minimum if we processed messages
-            sleeper.reset();
-        }
-        else
-        {
-            // Back off if no messages were processed
-            sleeper.backoff();
-        }
-        
-        // Sleep for the calculated duration
-        sleeper.sleep();
+        ResourceMessagePayloadType message = messageQueue.pop();
+        std::visit(MessageVisitor, message);
     }
 }
 
@@ -557,6 +535,10 @@ void ResourceContextImpl::processMapResourceMessage(MapResourceMessage&& message
     {
         message.reply->SetStatus(MessageReply::Status::Failed);
         return;
+    }
+    else
+    {
+        message.reply->SetStatus(MessageReply::Status::Pending);
     }
 
     auto[ buffer_handle, allocation_info, allocation_handle, buffer_flags ] =
