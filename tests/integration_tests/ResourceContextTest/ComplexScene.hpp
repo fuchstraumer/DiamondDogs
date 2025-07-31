@@ -76,7 +76,6 @@ protected:
     void createSampler();
     void createUBOs();
     void createSkyboxMesh();
-    void createFences();
     void createCommandPool();
     void createDescriptorPool();
     void createDescriptorSetLayouts();
@@ -84,19 +83,15 @@ protected:
     void createUpdateTemplates();
     void createPipelineLayouts();
     void createShaders();
-    void createFramebuffers();
-    void createRenderpass();
     void createHousePipeline();
     void createSkyboxPipeline();
 
-    void destroyFences();
-    void destroyFramebuffers();
 
     // has to wait for loading to complete
     void updateHouseDescriptorSet();
     void updateSkyboxDescriptorSet();
 
-    std::unique_ptr<ResourceContext> resourceContext{ nullptr };
+    ResourceContext* resourceContext;
     GraphicsResource sampler;
     GraphicsResource houseVBO;
     GraphicsResource houseEBO;
@@ -105,42 +100,40 @@ protected:
     GraphicsResource skyboxVBO;
     GraphicsResource skyboxTexture;
     GraphicsResource houseUBO;
-    void* houseUboMappedPtr{ nullptr };
+    void* houseUboMappedPtr;
     GraphicsResource skyboxUBO;
-    void* skyboxUboMappedPtr{ nullptr };
+    void* skyboxUboMappedPtr;
 
     std::vector<DepthStencil> depthStencils;
-    std::unique_ptr<vpr::CommandPool> cmdPool{ nullptr };
-    std::unique_ptr<vpr::ShaderModule> houseVert{ nullptr };
-    std::unique_ptr<vpr::ShaderModule> houseFrag{ nullptr };
-    std::unique_ptr<vpr::ShaderModule> skyboxVert{ nullptr };
-    std::unique_ptr<vpr::ShaderModule> skyboxFrag{ nullptr };
-    std::unique_ptr<vpr::PipelineLayout> pipelineLayout{ nullptr };
-    std::unique_ptr<vpr::DescriptorPool> descriptorPool{ nullptr };
-    std::unique_ptr<vpr::DescriptorSetLayout> setLayout{ nullptr };
-    std::unique_ptr<vpr::DescriptorSet> houseSet{ nullptr };
-    std::unique_ptr<vpr::DescriptorSet> skyboxSet{ nullptr };
-    std::unique_ptr<vpr::DescriptorSet> baseSet{ nullptr };
+    std::unique_ptr<vpr::CommandPool> cmdPool;
+    std::unique_ptr<vpr::ShaderModule> houseVert;
+    std::unique_ptr<vpr::ShaderModule> houseFrag;
+    std::unique_ptr<vpr::ShaderModule> skyboxVert;
+    std::unique_ptr<vpr::ShaderModule> skyboxFrag;
+    std::unique_ptr<vpr::PipelineLayout> pipelineLayout;
+    std::unique_ptr<vpr::DescriptorPool> descriptorPool;
+    std::unique_ptr<vpr::DescriptorSetLayout> setLayout;
+    std::unique_ptr<vpr::DescriptorSet> houseSet;
+    std::unique_ptr<vpr::DescriptorSet> skyboxSet;
+    std::unique_ptr<vpr::DescriptorSet> baseSet;
     VkDescriptorUpdateTemplate houseTemplate{ VK_NULL_HANDLE };
     VkDescriptorUpdateTemplate skyboxTemplate{ VK_NULL_HANDLE };
-    std::unique_ptr<vpr::PipelineCache> houseCache{ nullptr };
-    std::unique_ptr<vpr::PipelineCache> skyboxCache{ nullptr };
-    std::unique_ptr<vpr::PipelineCache> sharedCache{ nullptr };
+    std::unique_ptr<vpr::PipelineCache> houseCache;
+    std::unique_ptr<vpr::PipelineCache> skyboxCache;
+    std::unique_ptr<vpr::PipelineCache> sharedCache;
     VkPipeline housePipeline{ VK_NULL_HANDLE };
     VkPipeline skyboxPipeline{ VK_NULL_HANDLE };
     VkRenderPass renderPass{ VK_NULL_HANDLE };
-    std::vector<VkFence> fences;
-    std::vector<VkFramebuffer> framebuffers;
 
     uint32_t houseIndexCount{ 0u };
     uint32_t skyboxIndexCount{ 0u };
-    std::shared_ptr<GraphicsResourceReply> samplerReply{ nullptr };
-    std::shared_ptr<GraphicsResourceReply> skyboxTextureReply{ nullptr };
-    std::shared_ptr<GraphicsResourceReply> houseTextureReply{ nullptr };
-    std::shared_ptr<GraphicsResourceReply> houseVboReply{ nullptr };
-    std::shared_ptr<GraphicsResourceReply> houseEboReply{ nullptr };
-    std::shared_ptr<GraphicsResourceReply> skyboxVboReply{ nullptr };
-    std::shared_ptr<GraphicsResourceReply> skyboxEboReply{ nullptr };
+    std::shared_ptr<GraphicsResourceReply> samplerReply;
+    std::shared_ptr<GraphicsResourceReply> skyboxTextureReply;
+    std::shared_ptr<GraphicsResourceReply> houseTextureReply;
+    std::shared_ptr<GraphicsResourceReply> houseVboReply;
+    std::shared_ptr<GraphicsResourceReply> houseEboReply;
+    std::shared_ptr<GraphicsResourceReply> skyboxVboReply;
+    std::shared_ptr<GraphicsResourceReply> skyboxEboReply;
 
 };
 
