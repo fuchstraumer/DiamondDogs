@@ -13,12 +13,14 @@
 #include <unordered_set>
 #include <functional>
 #include <vector>
+#include "threading/CriticalSection.hpp"
 
 using FactoryFunctor = void*(*)(const char* fname, void* user_data);
 using DeleteFunctor = void(*)(void* obj_instance, void* user_data);
 using SignalFunctor = void(*)(void* state, void* data, void* user_data);
 
-class ResourceLoader {
+class ResourceLoader
+{
     ResourceLoader(const ResourceLoader&) = delete;
     ResourceLoader& operator=(const ResourceLoader&) = delete;
     ResourceLoader();
@@ -78,8 +80,8 @@ private:
     std::unordered_set<uint64_t> pendingResources;
     std::unordered_map<uint64_t, std::vector<std::pair<void*, void*>>> pendingResourceListeners;
     std::list<loadRequest> requests;
-    std::recursive_mutex queueMutex;
-    std::recursive_mutex pendingDataMutex;
+    CriticalSection queueMutex;
+    CriticalSection pendingDataMutex;
     std::mutex subscribeMutex;
     std::condition_variable_any cVar;
     std::atomic<bool> shutdown{ false };

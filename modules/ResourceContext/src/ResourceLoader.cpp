@@ -4,6 +4,8 @@
 #include <locale>
 #include <execution>
 #include <iostream>
+#include "threading/ExponentialBackoffSleeper.hpp"
+#include "threading/CriticalSection.hpp"
 
 static std::mutex logMutex;
 
@@ -41,7 +43,7 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
 
     {
         // Check to see if resource is already loaded
-        std::lock_guard pendingDataGuard(pendingDataMutex);
+        auto pendingDataGuard = pendingDataMutex.GetLock();
         if (pendingResources.count(fileNameHash) != 0)
         {
             auto& listeners_vec = pendingResourceListeners[fileNameHash];
@@ -82,15 +84,14 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
     }
     else
     {
-        std::lock_guard pendingResourcesGuard(pendingDataMutex);
+        auto pendingResourcesGuard = pendingDataMutex.GetLock();
         req.type = load_req_type::FreshLoad;
         pendingResources.emplace(fileNameHash);
     }
 
     {
-        std::unique_lock<std::recursive_mutex> guard(queueMutex);
+        auto guard = queueMutex.GetLock();
         requests.push_back(req);
-        guard.unlock();
     }
     cVar.notify_one();
 }
@@ -103,8 +104,9 @@ void ResourceLoader::Load(const char* file_type, const char* _file_name, const c
 
     {
         // Check to see if resource is already queued for load
-        std::lock_guard pendingDataGuard(pendingDataMutex);
-        if (pendingResources.count(fileNameHash) != 0) {
+        auto pendingDataGuard = pendingDataMutex.GetLock();
+        if (pendingResources.count(fileNameHash) != 0)
+        {
             auto& listeners_vec = pendingResourceListeners[fileNameHash];
             listeners_vec.emplace_back(_requester, user_data);
             return;
@@ -139,15 +141,14 @@ void ResourceLoader::Load(const char* file_type, const char* _file_name, const c
     }
     else
     {
-        std::lock_guard pendingResourcesGuard(pendingDataMutex);
+        auto pendingResourcesGuard = pendingDataMutex.GetLock();
         req.type = load_req_type::FreshLoad;
         pendingResources.emplace(fileNameHash);
     }
 
     {
-        std::unique_lock<std::recursive_mutex> guard(queueMutex);
+        auto guard = queueMutex.GetLock();
         requests.push_back(req);
-        guard.unlock();
     }
     cVar.notify_one();
 }
@@ -158,15 +159,15 @@ void ResourceLoader::Unload(const char* file_type, const char* _path)
 
     uint64_t pathHash = std::hash<std::string>()(_path);
 
-    std::lock_guard<std::recursive_mutex> guard(queueMutex);
+    auto guard = queueMutex.GetLock();
     if (auto iter = resources.find(pathHash); iter != std::end(resources))
     {
         --iter->second.RefCount;
         if (iter->second.RefCount == 0)
         {
             deleters.at(iter->second.FileType)(iter->second.Data, nullptr);
+            resources.erase(iter);
         }
-        resources.erase(iter);
     }
 }
 
@@ -180,7 +181,7 @@ std::string ResourceLoader::FindFile(const std::string& fname, const std::string
 {
     namespace stdfs = std::filesystem;
     static std::unordered_map<std::string, stdfs::path> foundPathsCache;
-    static std::mutex cacheMutex;
+    static CriticalSection cacheCS;
 
     auto case_insensitive_comparison = [](const std::string & fname, const std::string & curr_entry)->bool
     {
@@ -202,7 +203,7 @@ std::string ResourceLoader::FindFile(const std::string& fname, const std::string
     }
 
     {
-        std::lock_guard cacheGuard(cacheMutex);
+        auto cacheGuard = cacheCS.GetLock();
         auto iter = foundPathsCache.find(fname);
         if (iter != foundPathsCache.end())
         {
@@ -234,7 +235,7 @@ std::string ResourceLoader::FindFile(const std::string& fname, const std::string
 
         if (case_insensitive_comparison(fname, curr_entry_str))
         {
-            std::lock_guard cacheGuard(cacheMutex);
+            auto cacheGuard = cacheCS.GetLock();
             auto iter = foundPathsCache.emplace(fname, entry_path);
             return iter.first->second.string();
         }
@@ -269,19 +270,17 @@ void ResourceLoader::Stop()
 
 void ResourceLoader::WaitForAllLoads()
 {
-    size_t counter = 0;
+    foundation::ExponentialBackoffSleeper sleeper(
+        std::chrono::milliseconds(1),   // min: 1ms
+        std::chrono::milliseconds(100), // max: 100ms
+        0.2f,                          // 20% jitter
+        1.5f                           // 1.5x backoff multiplier
+    );
+    
     while (!requests.empty())
     {
-        // every 100 loops, sleep for a millisecond so we don't just burn this core
-        if (counter % 100 == 0)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-
-        ++counter;
+        sleeper.sleepAndBackoff();
     }
-
-    counter = 0;
 }
 
 void ResourceLoader::workerFunction()
@@ -290,19 +289,20 @@ void ResourceLoader::workerFunction()
 
     while (!shutdown)
     {
-        std::unique_lock<std::recursive_mutex> lock{queueMutex};
-        cVar.wait(lock, [this]()->bool { return shutdown || !requests.empty(); });
+        queueMutex.lock();
+        cVar.wait(queueMutex, [this]()->bool { return shutdown || !requests.empty(); });
 
         if (requests.empty())
         {
             // get here when shutdown set true: we still want to finish out queued loads though
+            queueMutex.unlock();
             return;
         }
 
         loadRequest request = requests.front();
         requests.pop_front();
         FactoryFunctor factory_fn = factories.at(request.destinationData.FileType);
-        lock.unlock();
+        queueMutex.unlock();
 
         if (!fs::exists(request.destinationData.FileName))
         {
@@ -331,7 +331,7 @@ void ResourceLoader::workerFunction()
             if (pendingResourceListeners.count(iter.first->first) != 0)
             {
                 // we can use the same signal function on resources with same type string
-                std::unique_lock<std::recursive_mutex> pendingDataLock(pendingDataMutex);
+                auto pendingDataLock = pendingDataMutex.GetLock();
                 auto& listeners_vec = pendingResourceListeners.at(iter.first->first);
                 while (!listeners_vec.empty())
                 {
@@ -341,8 +341,7 @@ void ResourceLoader::workerFunction()
                     listeners_vec.pop_back();
                 }
                 pendingResourceListeners.erase(iter.first->first);
-                // safe to unlock, signal function won't mutate object variables unsafely
-                pendingDataLock.unlock();
+                // lock automatically released when pendingDataLock goes out of scope
             }
             // call other dependent items
             pendingResources.erase(iter.first->first);
