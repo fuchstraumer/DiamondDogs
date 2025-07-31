@@ -14,29 +14,19 @@ namespace foundation
      */
     struct ExponentialBackoffSleeper
     {
-        // Configuration parameters
-        std::chrono::milliseconds minSleepDuration;
-        std::chrono::milliseconds maxSleepDuration;
-        float jitterFactor; // 0.0 = no jitter, 0.3 = ±30% jitter
-        float backoffMultiplier;
-        
-        // Internal state
-        std::chrono::milliseconds currentSleepDuration;
-        std::mt19937 randomGenerator;
-        
         /**
          * Constructs a new ExponentialBackoffSleeper with the specified parameters.
          * 
          * @param minDuration Minimum sleep duration in milliseconds
          * @param maxDuration Maximum sleep duration in milliseconds
          * @param jitter Amount of jitter to apply (0.0 = none, 0.3 = ±30%)
-         * @param multiplier Factor to multiply sleep duration by when backing off (typically 1.5-2.0)
+         * @param multiplier Factor to multiply exponential sleep duration by when backing off. 1.0 means backoff is just pow2(backoffCount)
          */
         ExponentialBackoffSleeper(
             std::chrono::milliseconds minDuration = std::chrono::milliseconds(1),
-            std::chrono::milliseconds maxDuration = std::chrono::milliseconds(50),
+            std::chrono::milliseconds maxDuration = std::chrono::milliseconds(500),
             float jitter = 0.3f,
-            float multiplier = 2.0f
+            float multiplier = 1.0f
         ) noexcept;
 
         ~ExponentialBackoffSleeper() noexcept = default;
@@ -79,7 +69,15 @@ namespace foundation
         /**
          * Applies jitter to the current sleep duration.
          */
-        void applyJitter() noexcept;
+        void applyJitter() noexcept;       
+        
+        std::chrono::milliseconds minSleepDuration;
+        std::chrono::milliseconds maxSleepDuration;
+        float jitterFactor; // 0.0 = no jitter, 0.3 = ±30% jitter
+        float backoffMultiplier;
+        std::chrono::milliseconds currentSleepDuration;
+        std::mt19937 randomGenerator;
+        size_t backoffCount{ 1u };
     };
     
 } // namespace foundation

@@ -1,4 +1,5 @@
 #include "threading/ExponentialBackoffSleeper.hpp"
+#include <cmath>
 
 namespace foundation
 {
@@ -13,21 +14,26 @@ namespace foundation
         jitterFactor(jitter),
         backoffMultiplier(multiplier),
         currentSleepDuration(minDuration),
-        randomGenerator(std::random_device{}())
+        randomGenerator(std::random_device{}()),
+        backoffCount(1u)
     {
     }
 
     void ExponentialBackoffSleeper::reset() noexcept
     {
         currentSleepDuration = minSleepDuration;
+        backoffCount = 1u;
     }
 
     void ExponentialBackoffSleeper::backoff() noexcept
     {
         // Increase sleep duration exponentially up to the maximum
+        const double backoffFactor = std::exp2(static_cast<double>(backoffCount));
+        const int64_t backoffAmount = static_cast<int64_t>(std::ceil(backoffFactor * backoffMultiplier));
+
         std::chrono::milliseconds newDuration = std::min
         (
-            std::chrono::milliseconds(static_cast<long long>(currentSleepDuration.count() * backoffMultiplier)),
+            std::chrono::milliseconds(static_cast<long long>(currentSleepDuration.count() * backoffAmount)),
             maxSleepDuration
         );
         
@@ -38,6 +44,8 @@ namespace foundation
         {
             applyJitter();
         }
+
+        ++backoffCount;
     }
 
     void ExponentialBackoffSleeper::sleepAndBackoff()

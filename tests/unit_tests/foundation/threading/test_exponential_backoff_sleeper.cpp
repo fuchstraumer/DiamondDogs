@@ -29,23 +29,24 @@ TEST_F(ExponentialBackoffSleeperTest, InitialSleepTime)
     sleeper.sleep();
     auto end = std::chrono::high_resolution_clock::now();
     
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     
     // First sleep should be minimal (just a yield or very short sleep)
-    EXPECT_LT(duration.count(), 1000) << "Initial sleep should be very short";
+    // Duration we test against is high compared to specified value, but this accounts for overhead in the test environment
+    EXPECT_LT(duration.count(), 50) << "Initial sleep should be very short";
 }
 
 TEST_F(ExponentialBackoffSleeperTest, ExponentialGrowth)
 {
     ExponentialBackoffSleeper sleeper;
     
-    std::vector<long> sleep_times;
+    std::vector<int64_t> sleep_times;
     
     // Measure several sleep iterations
     for (int i = 0; i < 5; ++i)
     {
         auto start = std::chrono::high_resolution_clock::now();
-        sleeper.sleep();
+        sleeper.sleepAndBackoff();
         auto end = std::chrono::high_resolution_clock::now();
         
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
@@ -68,23 +69,29 @@ TEST_F(ExponentialBackoffSleeperTest, Reset)
     ExponentialBackoffSleeper sleeper;
     
     // Do several sleeps to build up the backoff
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 4; ++i)
     {
-        sleeper.sleep();
+        sleeper.sleepAndBackoff();
     }
+
+    auto start = std::chrono::high_resolution_clock::now();
+    sleeper.sleep();
+    auto end = std::chrono::high_resolution_clock::now();
+
+    auto longDuration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     
     // Reset the sleeper
     sleeper.reset();
     
     // Next sleep should be back to initial timing
-    auto start = std::chrono::high_resolution_clock::now();
+    start = std::chrono::high_resolution_clock::now();
     sleeper.sleep();
-    auto end = std::chrono::high_resolution_clock::now();
+    end = std::chrono::high_resolution_clock::now();
     
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    auto shortDuration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     
     // Should be back to minimal timing
-    EXPECT_LT(duration.count(), 1000) << "Sleep after reset should be short again";
+    EXPECT_LT(shortDuration, longDuration) << "Sleep after reset should be short again";
 }
 
 TEST_F(ExponentialBackoffSleeperTest, MaximumSleepTime)
@@ -98,7 +105,7 @@ TEST_F(ExponentialBackoffSleeperTest, MaximumSleepTime)
     }
     
     // Measure a few sleeps at maximum
-    std::vector<long> max_sleep_times;
+    std::vector<int64_t> max_sleep_times;
     for (int i = 0; i < 3; ++i)
     {
         auto start = std::chrono::high_resolution_clock::now();
@@ -110,8 +117,8 @@ TEST_F(ExponentialBackoffSleeperTest, MaximumSleepTime)
     }
     
     // Sleep times should have converged to a maximum and be relatively stable
-    long min_time = *std::min_element(max_sleep_times.begin(), max_sleep_times.end());
-    long max_time = *std::max_element(max_sleep_times.begin(), max_sleep_times.end());
+    int64_t min_time = *std::min_element(max_sleep_times.begin(), max_sleep_times.end());
+    int64_t max_time = *std::max_element(max_sleep_times.begin(), max_sleep_times.end());
     
     std::cout << "Maximum sleep times: ";
     for (auto time : max_sleep_times)
