@@ -13,8 +13,12 @@ struct CriticalSection
     CriticalSection& operator=(CriticalSection&& other) noexcept;
 
     void Lock();
+    /** @note This lowercase function was added for compatible with condition_variable */
+    void lock();
     bool TryLock();
     void Unlock();
+    /** @note This lowercase function was added for compatible with condition_variable */
+    void unlock();
 
     size_t SpinCount() const noexcept;
     void SetSpinCount(const size_t new_spin_count) noexcept;

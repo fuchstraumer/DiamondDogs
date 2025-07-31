@@ -47,12 +47,22 @@ void CriticalSection::Lock()
     EnterCriticalSection(static_cast<LPCRITICAL_SECTION>(criticalSectionObject));
 }
 
+void CriticalSection::lock()
+{
+    EnterCriticalSection(static_cast<LPCRITICAL_SECTION>(criticalSectionObject));
+}
+
 bool CriticalSection::TryLock()
 {
     return static_cast<bool>(TryEnterCriticalSection(static_cast<LPCRITICAL_SECTION>(criticalSectionObject)));
 }
 
 void CriticalSection::Unlock()
+{
+    LeaveCriticalSection(static_cast<LPCRITICAL_SECTION>(criticalSectionObject));
+}
+
+void CriticalSection::unlock()
 {
     LeaveCriticalSection(static_cast<LPCRITICAL_SECTION>(criticalSectionObject));
 }
