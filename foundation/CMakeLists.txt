@@ -31,12 +31,12 @@ set(foundation_containers_source_files
 set(threading_source_files
     "include/threading/atomic128.hpp"
     "include/threading/concurrent_vector.hpp"
-    "include/threading/critical_section.hpp"
+    "include/threading/CriticalSection.hpp"
     "include/threading/mcas.hpp"
     "include/threading/srw_lock.hpp"
     "include/threading/ExponentialBackoffSleeper.hpp"
     "src/threading/atomic128.cpp"
-    "src/threading/critical_section_win32.cpp"
+    "src/threading/CriticalSectionWin32.cpp"
     "src/threading/srw_lock_win32.cpp"
     "src/threading/ExponentialBackoffSleeper.cpp")
 

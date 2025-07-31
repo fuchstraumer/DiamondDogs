@@ -1,4 +1,4 @@
-#include "threading/critical_section.hpp"
+#include "threading/CriticalSection.hpp"
 #include <cstdint>
 #include <cstddef>
 #define NO_MINMAX
@@ -7,7 +7,7 @@
 #undef WIN32_LEAN_AND_MEAN
 #undef NO_MINMAX
 
-critical_section::critical_section()
+CriticalSection::CriticalSection()
 {
     criticalSectionObject = new CRITICAL_SECTION();
     memset(criticalSectionObject, 0, sizeof(CRITICAL_SECTION));
@@ -21,7 +21,7 @@ critical_section::critical_section()
 #endif
 }
 
-critical_section::~critical_section()
+CriticalSection::~CriticalSection()
 {
     if (criticalSectionObject != nullptr)
     {
@@ -30,54 +30,54 @@ critical_section::~critical_section()
     }
 }
 
-critical_section::critical_section(critical_section&& other) noexcept : criticalSectionObject(other.criticalSectionObject)
+CriticalSection::CriticalSection(CriticalSection&& other) noexcept : criticalSectionObject(other.criticalSectionObject)
 {
     other.criticalSectionObject = nullptr;
 }
 
-critical_section& critical_section::operator=(critical_section&& other) noexcept
+CriticalSection& CriticalSection::operator=(CriticalSection&& other) noexcept
 {
     criticalSectionObject = other.criticalSectionObject;
     other.criticalSectionObject = nullptr;
     return *this;
 }
 
-void critical_section::lock()
+void CriticalSection::Lock()
 {
     EnterCriticalSection(static_cast<LPCRITICAL_SECTION>(criticalSectionObject));
 }
 
-bool critical_section::try_lock()
+bool CriticalSection::TryLock()
 {
     return static_cast<bool>(TryEnterCriticalSection(static_cast<LPCRITICAL_SECTION>(criticalSectionObject)));
 }
 
-void critical_section::unlock()
+void CriticalSection::Unlock()
 {
     LeaveCriticalSection(static_cast<LPCRITICAL_SECTION>(criticalSectionObject));
 }
 
-size_t critical_section::spin_count() const noexcept
+size_t CriticalSection::SpinCount() const noexcept
 {
     return static_cast<size_t>(static_cast<LPCRITICAL_SECTION>(criticalSectionObject)->SpinCount);
 }
 
-void critical_section::set_spin_count(const size_t new_spin_count) noexcept
+void CriticalSection::SetSpinCount(const size_t new_spin_count) noexcept
 {
     SetCriticalSectionSpinCount(static_cast<LPCRITICAL_SECTION>(criticalSectionObject), static_cast<DWORD>(new_spin_count));
 }
 
-critical_section::raii_scoped_lock critical_section::get_lock() noexcept
+CriticalSection::ScopedLock CriticalSection::GetLock() noexcept
 {
-    return raii_scoped_lock(*this);
+    return ScopedLock(*this);
 }
 
-critical_section::raii_scoped_lock::raii_scoped_lock(critical_section& _section) noexcept : section(_section)
+CriticalSection::ScopedLock::ScopedLock(CriticalSection& _section) noexcept : section(_section)
 {
-    section.lock();
+    section.Lock();
 }
 
-critical_section::raii_scoped_lock::~raii_scoped_lock()
+CriticalSection::ScopedLock::~ScopedLock()
 {
-    section.unlock();
+    section.Unlock();
 }
