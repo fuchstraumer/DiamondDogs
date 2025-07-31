@@ -9,8 +9,7 @@
 
 srw_lock::srw_lock()
 {
-    auto pSrw = static_cast<PSRWLOCK>(srwLockPtr);
-    pSrw = new SRWLOCK();
+    PSRWLOCK pSrw = new SRWLOCK();
     memset(pSrw, 0, sizeof(SRWLOCK));
     InitializeSRWLock(pSrw);
     srwLockPtr = static_cast<void*>(pSrw);
