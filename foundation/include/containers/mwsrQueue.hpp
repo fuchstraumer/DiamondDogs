@@ -328,6 +328,40 @@ namespace detail
             return result;
         }
 
+        // Slight variation on startRead: avoids setting flag that reader is locked when we can't read, since that will
+        // cause misbehavior when we come back again and try to read in the next iteration (as startRead assumes we only
+        // will do that because we got unlocked after writes were completed)
+        std::pair<size_t, uint64_t> tryStartRead()
+        {
+            auto reactFunction = [](ExitReactorData& data, bool& earlyExit)->std::pair<size_t, uint64_t>
+            {
+                // no need to assert that reader is locked, it should never be in this path!
+                uint64_t mask = data.getCompletedWritesMask();
+                if (maskGetBit(mask, 0))
+                {
+                    // we have values to read, don't need to modify state
+                    earlyExit = true;
+                    uint64_t n = 1u;
+                    for (; n < mwsrQueueSize; ++n)
+                    {
+                        if (!maskGetBit(mask, int(n)))
+                        {
+                            break;
+                        }
+                    }
+                    return std::pair<size_t, uint64_t>{ size_t(n), data.getFirstIDToRead() };
+                }
+                else
+                {
+                    return { 0u, 0u };
+                }
+            };
+
+            std::pair<size_t, uint64_t> result{ 0u, 0u };
+            React(result, reactFunction);
+            return result;
+        }
+
         std::pair<size_t, uint64_t> startRead()
         {
             auto reactFunction = [](ExitReactorData& data, bool& earlyExit)->std::pair<size_t, uint64_t>
@@ -687,7 +721,7 @@ public:
         }
 
         detail::ExitReactorHandle exit(exitData);
-        auto[ numRead, firstId ] = exit.startRead();
+        auto[ numRead, firstId ] = exit.tryStartRead();
         if (!numRead)
         {
             // no items to read, return empty optional
