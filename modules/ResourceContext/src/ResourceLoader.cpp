@@ -43,7 +43,7 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
 
     {
         // Check to see if resource is already loaded
-        auto pendingDataGuard = pendingDataMutex.GetLock();
+        std::lock_guard pendingDataGuard(pendingDataMutex);
         if (pendingResources.count(fileNameHash) != 0)
         {
             auto& listeners_vec = pendingResourceListeners[fileNameHash];
@@ -84,13 +84,13 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
     }
     else
     {
-        auto pendingResourcesGuard = pendingDataMutex.GetLock();
+        std::lock_guard pendingResourcesGuard(pendingDataMutex);
         req.type = load_req_type::FreshLoad;
         pendingResources.emplace(fileNameHash);
     }
 
     {
-        auto guard = queueMutex.GetLock();
+        std::lock_guard queueGuard(queueMutex);
         requests.push_back(req);
     }
     cVar.notify_one();
@@ -104,7 +104,7 @@ void ResourceLoader::Load(const char* file_type, const char* _file_name, const c
 
     {
         // Check to see if resource is already queued for load
-        auto pendingDataGuard = pendingDataMutex.GetLock();
+        std::lock_guard pendingDataGuard(pendingDataMutex);
         if (pendingResources.count(fileNameHash) != 0)
         {
             auto& listeners_vec = pendingResourceListeners[fileNameHash];
@@ -141,13 +141,13 @@ void ResourceLoader::Load(const char* file_type, const char* _file_name, const c
     }
     else
     {
-        auto pendingResourcesGuard = pendingDataMutex.GetLock();
+        std::lock_guard pendingResourcesGuard(pendingDataMutex);
         req.type = load_req_type::FreshLoad;
         pendingResources.emplace(fileNameHash);
     }
 
     {
-        auto guard = queueMutex.GetLock();
+        std::lock_guard queueGuard(queueMutex);
         requests.push_back(req);
     }
     cVar.notify_one();
@@ -159,7 +159,7 @@ void ResourceLoader::Unload(const char* file_type, const char* _path)
 
     uint64_t pathHash = std::hash<std::string>()(_path);
 
-    auto guard = queueMutex.GetLock();
+    std::lock_guard queueGuard(queueMutex);
     if (auto iter = resources.find(pathHash); iter != std::end(resources))
     {
         --iter->second.RefCount;
@@ -203,7 +203,7 @@ std::string ResourceLoader::FindFile(const std::string& fname, const std::string
     }
 
     {
-        auto cacheGuard = cacheCS.GetLock();
+        std::lock_guard cacheGuard(cacheCS);
         auto iter = foundPathsCache.find(fname);
         if (iter != foundPathsCache.end())
         {
@@ -235,7 +235,7 @@ std::string ResourceLoader::FindFile(const std::string& fname, const std::string
 
         if (case_insensitive_comparison(fname, curr_entry_str))
         {
-            auto cacheGuard = cacheCS.GetLock();
+            std::lock_guard cacheGuard(cacheCS);
             auto iter = foundPathsCache.emplace(fname, entry_path);
             return iter.first->second.string();
         }
@@ -331,7 +331,7 @@ void ResourceLoader::workerFunction()
             if (pendingResourceListeners.count(iter.first->first) != 0)
             {
                 // we can use the same signal function on resources with same type string
-                auto pendingDataLock = pendingDataMutex.GetLock();
+                std::lock_guard pendingDataGuard(pendingDataMutex);
                 auto& listeners_vec = pendingResourceListeners.at(iter.first->first);
                 while (!listeners_vec.empty())
                 {
@@ -355,8 +355,3 @@ void ResourceLoader::workerFunction()
         }
     }
 }
-
-void ResourceLoader::waitForPendingRequest(const std::string & absolute_file_path, SignalFunctor signal) {
-
-}
-
