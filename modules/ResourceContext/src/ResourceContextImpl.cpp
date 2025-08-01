@@ -65,9 +65,13 @@ void ResourceContextImpl::destroy()
     // have to exit worker and then clear all the pending messages
     setExitWorker();
     // ... which we can only do by processing them :'(
-    while (!messageQueue.empty())
+    while (true)
     {
-        
+        auto message = messageQueue.try_pop();
+        if (!message.has_value())
+        {
+            break; // no more messages to process
+        }
     }
 
     // destroy transfer system, which may have pending resources and transfers
@@ -161,8 +165,17 @@ void ResourceContextImpl::processMessages()
 
     while (!shouldExitWorker.load())
     {
-        ResourceMessagePayloadType message = messageQueue.pop();
-        std::visit(MessageVisitor, message);
+        std::optional<ResourceMessagePayloadType> message = messageQueue.try_pop();
+        if (message.has_value())
+        {
+            std::visit(MessageVisitor, message.value());
+            // reset sleeper, since there's a chance we'll process more messages due to read cache batching
+            sleeper.reset();
+        }
+        else
+        {
+            sleeper.sleepAndBackoff();
+        }
     }
 }
 

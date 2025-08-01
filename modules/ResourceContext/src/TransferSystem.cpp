@@ -326,12 +326,8 @@ void ResourceTransferSystem::workerThreadJob()
         bool didWork = false;
         
         // Process messages with timeout
-        if (!messageQueue.empty())
-        {
-            processMessages(message_processing_timeout);
-            didWork = true;
-        }
-        
+        didWork = processMessages(message_processing_timeout);
+
         // Submit any pending commands
         if (!commands.empty())
         {
@@ -361,23 +357,37 @@ void ResourceTransferSystem::workerThreadJob()
     }
 }
 
-void ResourceTransferSystem::processMessages(std::chrono::milliseconds timeout)
+bool ResourceTransferSystem::processMessages(std::chrono::milliseconds timeout)
 {
     using clock = std::chrono::high_resolution_clock;
     const clock::time_point start = clock::now();
-    
+    bool processedMessages = false;
     
     // We will process messages until we've exceeded our time limit, or the queue is empty
-    while (!messageQueue.empty())
+    while (true)
     {
-        // Process next message
-        std::visit([this](auto&& msg) { processMessage(std::forward<decltype(msg)>(msg)); }, std::move(messageQueue.pop()));
+        std::optional<TransferPayloadType> message = messageQueue.try_pop();
+        if (!message.has_value())
+        {
+            // No messages to process, break out of the loop and let caller know we didn't do any work
+            return processedMessages;
+        }
+        else
+        {
+            // Process next message
+            std::visit([this](auto&& msg) { processMessage(std::forward<decltype(msg)>(msg)); }, std::move(message.value()));
+            // set this now so that we can return true to caller
+            processedMessages = true;
+        }
 
         // Check if we've exceeded time limit
         const auto now = clock::now();
-        if ((now - start) > timeout)
+        const bool shouldExitTimeout = (now - start) > timeout;
+
+        if (shouldExitTimeout)
         {
-            break;
+            // exiting because of timeout - return processedMessages status
+            return processedMessages;
         }
     }
 

@@ -85,7 +85,7 @@ private:
 
     // worker thread job, pops messages from the queue and processes them
     void workerThreadJob();
-    void processMessages(std::chrono::milliseconds timeout);
+    bool processMessages(std::chrono::milliseconds timeout);
     void submitTransferCommands();
     void waitForCommandsToComplete(std::chrono::milliseconds timeout);
 
