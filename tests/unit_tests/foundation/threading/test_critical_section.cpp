@@ -80,6 +80,12 @@ TEST_F(CriticalSectionTest, ConcurrentAccess)
 
 TEST_F(CriticalSectionTest, TryLock)
 {
+    bool acquired = cs.TryLock();
+    EXPECT_TRUE(acquired);
+}
+
+TEST_F(CriticalSectionTest, TryLockRecursive)
+{
     // Test try_lock functionality if available
     bool acquired = cs.TryLock();
     EXPECT_TRUE(acquired);
@@ -97,6 +103,22 @@ TEST_F(CriticalSectionTest, TryLock)
 TEST_F(CriticalSectionTest, TryLockFailure)
 {
     // Create two threads, one will hold the lock and the other will try and fail to acquire it.
+    std::thread t1([&]()
+    {
+        cs.lock();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        cs.unlock();
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Ensure t1 has locked the critical section
+
+    bool acquired = cs.TryLock();
+    EXPECT_FALSE(acquired) << "Should not be able to acquire lock while another thread holds it";
+
+    t1.join();
+
+    acquired = cs.TryLock();
+    EXPECT_TRUE(acquired) << "Should be able to acquire lock after it has been released by the other thread";
 }
 
 TEST_F(CriticalSectionTest, PerformanceBenchmark)
@@ -120,5 +142,5 @@ TEST_F(CriticalSectionTest, PerformanceBenchmark)
     std::cout << "Average: " << (duration.count() / static_cast<double>(operations)) 
               << " microseconds per lock/unlock\n";
     
-    EXPECT_EQ(shared_counter.load(), operations);
+    EXPECT_EQ(counter, operations);
 }
