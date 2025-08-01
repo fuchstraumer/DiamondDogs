@@ -6,6 +6,7 @@
 #include <cassert>
 #include <utility>
 #include <condition_variable>
+#include <optional>
 #include "threading/CriticalSection.hpp"
 
 // Article detailing this: https://accu.org/index.php/journals/2467
@@ -129,10 +130,39 @@ namespace detail
 
         }
 
+        // tries to allocate the next ID, but uses the willLock flag to instead decide whether we return without locking or getting an ID
+        std::pair<uint64_t, bool> tryAllocateNextID()
+        {
+            std::pair<uint64_t, bool> result{ 0u, false };
+
+            auto reactFunction = [](EntranceReactorData& data, bool& earlyExit)->std::pair<uint64_t, bool>
+            {
+                const uint64_t firstToWrite = data.getFirstIDToWrite();
+                const uint64_t newIDToWrite = firstToWrite + 1;
+                if (newIDToWrite >= data.getLastIDToWrite())
+                {
+                    // queue is full, so we cannot allocate an ID. set earlyExit to true so we don't do the compare-exchange
+                    earlyExit = true;
+                    return { 0u, false };
+                }
+                else
+                {
+                    // queue has room, we will allocate the ID and need to make sure we do the cmpexchg
+                    earlyExit = false;
+                    data.setFirstIDToWrite(newIDToWrite);
+                    return { firstToWrite, true };
+                }
+            };
+
+            React(result, reactFunction);
+
+            return result;
+        }
+
         // result.first contains the allocated ID, and result.second indicates whether caller should lock for a while
         std::pair<uint64_t, bool> allocateNextID()
         {
-            std::pair<uint64_t, bool> result{ false, 0u };
+            std::pair<uint64_t, bool> result{ 0u, false };
 
             auto reactFunction = [](EntranceReactorData& data, bool& earlyExit)->std::pair<uint64_t, bool>
             {
@@ -550,23 +580,11 @@ public:
     mwsrQueue& operator=(const mwsrQueue&) = delete;
 
     /**
-     * @brief Check if the queue appears empty from the reader's perspective
-     * 
-     * @return True if no items are immediately available for reading
-     * @note This only checks the read cache and may not reflect the true queue state
-     */
-    bool empty() const noexcept
-    {
-        return readCacheBegin == readCacheEnd;
-    }
-
-    /**
      * @brief Add an item to the queue
-     * 
      * @param item Item to add (moved into the queue)
      * @note Thread-safe for multiple concurrent writers. Will block if queue is full until space becomes available
      */
-    void push(T&& item)
+    void push(T item)
     {
         detail::EntranceReactorHandle entrance(entranceData);
         auto[ newId, willLock ] = entrance.allocateNextID();
@@ -587,11 +605,20 @@ public:
         }
     }
 
-    bool try_push(T&& item)
+    bool try_push(T item)
     {
         detail::EntranceReactorHandle entrance(entranceData);
-        auto [newId, willLock] = entrance.allocateNextID();
-
+        auto [newId, foundNewID] = entrance.tryAllocateNextID();
+        if (!foundNewID)
+        {
+            // queue is full, so we cannot push
+            return false;
+        }
+        else
+        {
+            size_t idx = getQueueIndex(newId);
+            items[idx] = std::move(item);
+        }
     }
 
     /**
@@ -615,7 +642,7 @@ public:
 
             auto[ numRead, firstId ] = exit.startRead();
             assert(numRead <= detail::mwsrQueueSize);
-
+            // nothing to read, so since this is the blocking call we need to wait
             if (!numRead)
             {
                 lockedReader.lockAndWait();
@@ -645,6 +672,52 @@ public:
 
             return std::move(resultItem);
         }
+    }
+
+    /**
+     * @brief Try to remove and return an item from the queue, without blocking when there's nothing to read or do.
+     * @return std::optional<T> containing the item if available, or std::nullopt if queue is empty
+     * @note This function does not block and will return immediately if no items are available.
+     */
+    std::optional<T> try_pop()
+    {
+        if (readCacheBegin < readCacheEnd)
+        {
+            return std::move(readCache[readCacheBegin++]);
+        }
+
+        detail::ExitReactorHandle exit(exitData);
+        auto[ numRead, firstId ] = exit.startRead();
+        if (!numRead)
+        {
+            // no items to read, return empty optional
+            return std::nullopt;
+        }
+
+        // populate the read cache now
+        const size_t queueIndex = getQueueIndex(firstId);
+        T resultItem = std::move(items[queueIndex]);
+        // reset read cache, readCacheBegin is always zero since we're pulling from the actual storage array
+        // into this sort of "session" read cache
+        readCacheBegin = 0u;
+        readCacheEnd = 0u;
+
+        // Iterate from 1 because we already grabbed the first item to return
+        for (size_t i = 1; i < numRead; ++i)
+        {
+            readCache[readCacheEnd++] = std::move(items[getQueueIndex(firstId + i)]);
+        }
+
+        const uint64_t newLastToWrite = exit.readCompleted(numRead, firstId);
+        // now let's release any potentially waiting writers, since we released some slots
+        detail::EntranceReactorHandle entrance(entranceData);
+        const bool shouldUnlock = entrance.moveLastToWrite(newLastToWrite);
+        if (shouldUnlock)
+        {
+            lockedWriters.unlockAllUpTo(firstId + numRead - 1 + detail::mwsrQueueSize);
+        }
+
+        return std::move(resultItem);
     }
 
 };
