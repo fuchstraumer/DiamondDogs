@@ -350,7 +350,7 @@ void VulkanComplexScene::DestroyCompressedTextureData(void* compressed_texture, 
     delete texture;
 }
 
-void VulkanComplexScene::CreateHouseMesh(void * obj_data)
+void VulkanComplexScene::CreateHouseMesh(void* obj_data)
 {
     LoadedObjModel* obj_model = reinterpret_cast<LoadedObjModel*>(obj_data);
     const auto device = vprObjects.device;
@@ -628,7 +628,7 @@ void VulkanComplexScene::update()
 void VulkanComplexScene::recordCommands()
 {
 
-    if (!skyboxTexture && skyboxTextureReply->IsCompleted())
+    if (skyboxTextureReply && !skyboxTexture && skyboxTextureReply->IsCompleted())
     {
         skyboxTexture = skyboxTextureReply->GetResource();
         updateSkyboxDescriptorSet();
@@ -636,32 +636,32 @@ void VulkanComplexScene::recordCommands()
         skyboxTextureReply.reset();
     }
 
-    if (!houseTexture && houseTextureReply->IsCompleted())
+    if (houseTextureReply && !houseTexture && houseTextureReply->IsCompleted())
     {
         houseTexture = houseTextureReply->GetResource();
         updateHouseDescriptorSet();
         houseTextureReply.reset();
     }
 
-    if (!skyboxVBO && skyboxVboReply->IsCompleted())
+    if (skyboxVboReply && !skyboxVBO && skyboxVboReply->IsCompleted())
     {
         skyboxVBO = skyboxVboReply->GetResource();
         skyboxVboReply.reset();
     }
 
-    if (!skyboxEBO && skyboxEboReply->IsCompleted())
+    if (skyboxEboReply && !skyboxEBO && skyboxEboReply->IsCompleted())
     {
         skyboxEBO = skyboxEboReply->GetResource();
         skyboxEboReply.reset();
     }
 
-    if (!houseVBO && houseVboReply->IsCompleted())
+    if (houseVboReply && !houseVBO && houseVboReply->IsCompleted())
     {
         houseVBO = houseVboReply->GetResource();
         houseVboReply.reset();
     }
 
-    if (!houseEBO && houseEboReply->IsCompleted())
+    if (houseEboReply && !houseEBO && houseEboReply->IsCompleted())
     {
         houseEBO = houseEboReply->GetResource();
         houseEboReply.reset();

@@ -127,13 +127,13 @@ protected:
 
     uint32_t houseIndexCount{ 0u };
     uint32_t skyboxIndexCount{ 0u };
-    std::shared_ptr<GraphicsResourceReply> samplerReply;
-    std::shared_ptr<GraphicsResourceReply> skyboxTextureReply;
-    std::shared_ptr<GraphicsResourceReply> houseTextureReply;
-    std::shared_ptr<GraphicsResourceReply> houseVboReply;
-    std::shared_ptr<GraphicsResourceReply> houseEboReply;
-    std::shared_ptr<GraphicsResourceReply> skyboxVboReply;
-    std::shared_ptr<GraphicsResourceReply> skyboxEboReply;
+    std::shared_ptr<GraphicsResourceReply> samplerReply = nullptr;
+    std::shared_ptr<GraphicsResourceReply> skyboxTextureReply = nullptr;
+    std::shared_ptr<GraphicsResourceReply> houseTextureReply = nullptr;
+    std::shared_ptr<GraphicsResourceReply> houseVboReply = nullptr;
+    std::shared_ptr<GraphicsResourceReply> houseEboReply = nullptr;
+    std::shared_ptr<GraphicsResourceReply> skyboxVboReply = nullptr;
+    std::shared_ptr<GraphicsResourceReply> skyboxEboReply = nullptr;
 
 };
 
