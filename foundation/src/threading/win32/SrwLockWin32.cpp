@@ -23,15 +23,25 @@ SrwLock::~SrwLock()
     }
 }
 
-SrwLock::SrwLock(SrwLock&& other) noexcept : srwLockPtr(other.srwLockPtr)
+SrwLock::SrwLock(SrwLock&& other) noexcept
 {
+    // Need to lock exclusively to ensure no other thread is using the lock
+    lock_exclusive();
+    srwLockPtr = other.srwLockPtr;
     other.srwLockPtr = nullptr;
+    unlock_exclusive();
 }
 
 SrwLock& SrwLock::operator=(SrwLock&& other) noexcept
 {
+    if (this == &other)
+    {
+        return *this; // Handle self-assignment
+    }
+    lock_exclusive();
     srwLockPtr = other.srwLockPtr;
     other.srwLockPtr = nullptr;
+    unlock_exclusive();
     return *this;
 }
 
