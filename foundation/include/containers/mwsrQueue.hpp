@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <cassert>
 #include <utility>
-#include <mutex>
 #include <condition_variable>
+#include "threading/CriticalSection.hpp"
 
 // Article detailing this: https://accu.org/index.php/journals/2467
 // Code sourced from: https://github.com/ITHare/mtprimitives/blob/master/src/mwsr.h
@@ -370,8 +370,8 @@ namespace detail
     {
     private:
         int64_t lockCount{ 0u };
-        std::mutex mutex;
-        std::condition_variable cv;
+        CriticalSection mutex;
+        std::condition_variable_any cv;
     public:
 
         void lockAndWait()
@@ -400,8 +400,8 @@ namespace detail
     {
         // ID of item we're waiting on
         uint64_t itemID{ std::numeric_limits<uint64_t>::max() };
-        std::mutex mutex;
-        std::condition_variable cv;
+        CriticalSection mutex;
+        std::condition_variable_any cv;
         LockedThreadsListLockItem* next{ nullptr };
     };
 
@@ -564,8 +564,7 @@ public:
      * @brief Add an item to the queue
      * 
      * @param item Item to add (moved into the queue)
-     * @note Thread-safe for multiple concurrent writers
-     * @note May block if queue is full until space becomes available
+     * @note Thread-safe for multiple concurrent writers. Will block if queue is full until space becomes available
      */
     void push(T&& item)
     {
@@ -586,6 +585,13 @@ public:
         {
             lockedReader.unlock();
         }
+    }
+
+    bool try_push(T&& item)
+    {
+        detail::EntranceReactorHandle entrance(entranceData);
+        auto [newId, willLock] = entrance.allocateNextID();
+
     }
 
     /**
