@@ -36,7 +36,7 @@ namespace detail
     private:
         friend class EntranceReactorHandle;
         friend class CasReactorHandle<EntranceReactorData>;
-        alignas(cas_data128_t) cas_data128_t data;
+        alignas(CasData128) CasData128 data;
         // "stores" fields by allowing access to them as parts of a bitfield
         // firstIDToWrite is a 64 bit unsigned int
         //      - this represents the first ID in the queue which is available for writing
@@ -53,7 +53,7 @@ namespace detail
             setIDsToWrite(firstToWrite, lastToWrite);
         }
 
-        cas_data128_t Data() const noexcept
+        CasData128 Data() const noexcept
         {
             return data;
         }
@@ -203,7 +203,7 @@ namespace detail
     class ExitReactorData
     {
     private:
-        alignas(cas_data128_t) cas_data128_t data;
+        alignas(CasData128) CasData128 data;
         friend class ExitReactorHandle;
         friend class CasReactorHandle<ExitReactorData>;
         // just like EntranceReactorData, stores stuff by just masking through to underlying bitfield

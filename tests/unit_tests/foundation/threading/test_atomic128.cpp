@@ -14,32 +14,32 @@ protected:
     void SetUp() override
     {
         // Reset test data
-        test_data = cas_data128_t(0, 0);
+        test_data = CasData128(0, 0);
     }
 
-    cas_data128_t test_data;
+    CasData128 test_data;
 };
 
 // Basic functionality tests
 TEST_F(Atomic128Test, DefaultConstruction)
 {
-    cas_data128_t data;
+    CasData128 data;
     EXPECT_EQ(data.low, 0u);
     EXPECT_EQ(data.high, 0u);
 }
 
 TEST_F(Atomic128Test, ValueConstruction)
 {
-    cas_data128_t data(0x1234567890ABCDEF, 0xFEDCBA0987654321);
+    CasData128 data(0x1234567890ABCDEF, 0xFEDCBA0987654321);
     EXPECT_EQ(data.low, 0x1234567890ABCDEF);
     EXPECT_EQ(data.high, 0xFEDCBA0987654321);
 }
 
 TEST_F(Atomic128Test, EqualityOperator)
 {
-    cas_data128_t data1(100, 200);
-    cas_data128_t data2(100, 200);
-    cas_data128_t data3(100, 201);
+    CasData128 data1(100, 200);
+    CasData128 data2(100, 200);
+    CasData128 data3(100, 201);
     
     EXPECT_TRUE(data1 == data2);
     EXPECT_FALSE(data1 == data3);
@@ -49,7 +49,7 @@ TEST_F(Atomic128Test, EqualityOperator)
 // Test alignment requirements
 TEST_F(Atomic128Test, AlignmentRequirement)
 {
-    cas_data128_t data;
+    CasData128 data;
     EXPECT_EQ(reinterpret_cast<uintptr_t>(&data) % 16, 0) 
         << "cas_data128_t must be 16-byte aligned for atomic operations";
 }
@@ -59,43 +59,43 @@ TEST_F(Atomic128Test, AlignmentRequirement)
 TEST_F(Atomic128Test, AtomicCASBasic)
 {
     atomic128 atomic_val;
-    cas_data128_t expected(0, 0);
-    cas_data128_t desired(42, 84);
+    CasData128 expected(0, 0);
+    CasData128 desired(42, 84);
     
     // Should succeed since initial value is 0,0
     bool result = atomic_val.compare_exchange_strong(expected, desired);
     EXPECT_TRUE(result);
     
     // Verify the value was set
-    cas_data128_t current = atomic_val.load();
+    CasData128 current = atomic_val.load();
     EXPECT_EQ(current, desired);
 }
 
 TEST_F(Atomic128Test, AtomicCASFailure)
 {
     atomic128 atomic_val;
-    atomic_val.store(cas_data128_t(10, 20));
+    atomic_val.store(CasData128(10, 20));
     
-    cas_data128_t expected(5, 15);  // Wrong expected value
-    cas_data128_t desired(42, 84);
+    CasData128 expected(5, 15);  // Wrong expected value
+    CasData128 desired(42, 84);
     
     // Should fail since expected doesn't match current
     bool result = atomic_val.compare_exchange_strong(expected, desired);
     EXPECT_FALSE(result);
     
     // expected should now contain the actual value
-    EXPECT_EQ(expected, cas_data128_t(10, 20));
+    EXPECT_EQ(expected, CasData128(10, 20));
     
     // Value should remain unchanged
-    cas_data128_t current = atomic_val.load();
-    EXPECT_EQ(current, cas_data128_t(10, 20));
+    CasData128 current = atomic_val.load();
+    EXPECT_EQ(current, CasData128(10, 20));
 }
 
 // Concurrency stress test - multiple threads trying to increment
 TEST_F(Atomic128Test, ConcurrentIncrementStressTest)
 {
     atomic128 atomic_counter;
-    atomic_counter.store(cas_data128_t(0, 0));
+    atomic_counter.store(CasData128(0, 0));
     
     constexpr int num_threads = 8;
     constexpr int increments_per_thread = 1000;
@@ -107,12 +107,12 @@ TEST_F(Atomic128Test, ConcurrentIncrementStressTest)
     {
         for (int i = 0; i < increments_per_thread; ++i)
         {
-            cas_data128_t current = atomic_counter.load();
-            cas_data128_t next;
+            CasData128 current = atomic_counter.load();
+            CasData128 next;
             
             do
             {
-                next = cas_data128_t(current.low + 1, current.high);
+                next = CasData128(current.low + 1, current.high);
             } while (!atomic_counter.compare_exchange_weak(current, next));
             
             successful_increments.fetch_add(1);
@@ -132,7 +132,7 @@ TEST_F(Atomic128Test, ConcurrentIncrementStressTest)
     }
     
     // Verify final count
-    cas_data128_t final_value = atomic_counter.load();
+    CasData128 final_value = atomic_counter.load();
     EXPECT_EQ(final_value.low, num_threads * increments_per_thread);
     EXPECT_EQ(final_value.high, 0);
     EXPECT_EQ(successful_increments.load(), num_threads * increments_per_thread);
@@ -142,14 +142,14 @@ TEST_F(Atomic128Test, ConcurrentIncrementStressTest)
 TEST_F(Atomic128Test, ABAProtectionTest)
 {
     atomic128 atomic_val;
-    atomic_val.store(cas_data128_t(100, 1));  // value=100, version=1
+    atomic_val.store(CasData128(100, 1));  // value=100, version=1
     
     std::atomic<bool> thread2_can_proceed{false};
     std::atomic<bool> thread1_done{false};
     
     std::thread thread1([&]()
     {
-        cas_data128_t expected = atomic_val.load();  // 100, 1
+        CasData128 expected = atomic_val.load();  // 100, 1
         
         // Signal thread2 to modify the value
         thread2_can_proceed = true;
@@ -161,7 +161,7 @@ TEST_F(Atomic128Test, ABAProtectionTest)
         }
         
         // Try to CAS with old expected value - should fail due to version change
-        cas_data128_t desired(200, expected.high);
+        CasData128 desired(200, expected.high);
         bool result = atomic_val.compare_exchange_strong(expected, desired);
         
         EXPECT_FALSE(result) << "CAS should fail due to ABA protection via version counter";
@@ -178,13 +178,13 @@ TEST_F(Atomic128Test, ABAProtectionTest)
         }
         
         // Change value to something else (A -> B)
-        cas_data128_t current = atomic_val.load();
-        cas_data128_t temp(999, current.high + 1);
+        CasData128 current = atomic_val.load();
+        CasData128 temp(999, current.high + 1);
         while (!atomic_val.compare_exchange_weak(current, temp)) {}
         
         // Change it back to original value but with incremented version (B -> A')
         current = atomic_val.load();
-        cas_data128_t back_to_original(100, current.high + 1);
+        CasData128 back_to_original(100, current.high + 1);
         while (!atomic_val.compare_exchange_weak(current, back_to_original)) {}
         
         thread1_done = true;
@@ -198,7 +198,7 @@ TEST_F(Atomic128Test, ABAProtectionTest)
 TEST_F(Atomic128Test, PerformanceBenchmark)
 {
     atomic128 atomic_val;
-    atomic_val.store(cas_data128_t(0, 0));
+    atomic_val.store(CasData128(0, 0));
     
     constexpr int operations = 100000;
     
@@ -206,11 +206,11 @@ TEST_F(Atomic128Test, PerformanceBenchmark)
     
     for (int i = 0; i < operations; ++i)
     {
-        cas_data128_t current = atomic_val.load();
-        cas_data128_t next(current.low + 1, current.high);
+        CasData128 current = atomic_val.load();
+        CasData128 next(current.low + 1, current.high);
         while (!atomic_val.compare_exchange_weak(current, next))
         {
-            next = cas_data128_t(current.low + 1, current.high);
+            next = CasData128(current.low + 1, current.high);
         }
     }
     
@@ -224,7 +224,7 @@ TEST_F(Atomic128Test, PerformanceBenchmark)
               << " microseconds per operation\n";
     
     // Verify correctness
-    cas_data128_t final = atomic_val.load();
+    CasData128 final = atomic_val.load();
     EXPECT_EQ(final.low, operations);
 }
 

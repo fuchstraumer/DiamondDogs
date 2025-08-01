@@ -9,12 +9,12 @@
  * Provides a 16-byte aligned structure containing two 64-bit values
  * that can be atomically updated using 128-bit compare-and-swap operations.
  */
-struct alignas(16) cas_data128_t
+struct alignas(16) CasData128
 {
     /// Default constructor - initializes both fields to zero
-    cas_data128_t() noexcept : low{ 0u }, high{ 0u }
+    CasData128() noexcept : low{ 0u }, high{ 0u }
     {
-        memset(this, 0, sizeof(cas_data128_t));
+        memset(this, 0, sizeof(CasData128));
     }
     
     /**
@@ -23,18 +23,18 @@ struct alignas(16) cas_data128_t
      * @param _low Initial value for the low 64 bits
      * @param _high Initial value for the high 64 bits
      */
-    cas_data128_t(uint64_t _low, uint64_t _high) noexcept : low{ _low }, high{ _high } {}
+    CasData128(uint64_t _low, uint64_t _high) noexcept : low{ _low }, high{ _high } {}
     
-    cas_data128_t(const cas_data128_t&) noexcept = default;
-    cas_data128_t(cas_data128_t&&) noexcept = default;
-    cas_data128_t& operator=(const cas_data128_t&) noexcept = default;
-    cas_data128_t& operator=(cas_data128_t&&) noexcept = default;
-    ~cas_data128_t() noexcept = default;
+    CasData128(const CasData128&) noexcept = default;
+    CasData128(CasData128&&) noexcept = default;
+    CasData128& operator=(const CasData128&) noexcept = default;
+    CasData128& operator=(CasData128&&) noexcept = default;
+    ~CasData128() noexcept = default;
     
     /// Equality comparison
-    constexpr bool operator==(const cas_data128_t& other) const noexcept { return low == other.low && high == other.high; }
+    constexpr bool operator==(const CasData128& other) const noexcept { return low == other.low && high == other.high; }
     /// Inequality comparison
-    constexpr bool operator!=(const cas_data128_t& other) const noexcept { return !(*this == other); }
+    constexpr bool operator!=(const CasData128& other) const noexcept { return !(*this == other); }
     
     uint64_t low;   ///< Lower 64 bits of the 128-bit value
     uint64_t high;  ///< Upper 64 bits of the 128-bit value
@@ -66,7 +66,7 @@ struct alignas(16) atomic128
      * 
      * @param value Initial value to store
      */
-    atomic128(const cas_data128_t value) noexcept : data{ value } {}
+    atomic128(const CasData128 value) noexcept : data{ value } {}
     
     /**
      * @brief Constructor from two 64-bit values
@@ -86,7 +86,7 @@ struct alignas(16) atomic128
      * 
      * @return Current 128-bit value
      */
-    [[nodiscard]] cas_data128_t load() const noexcept;
+    [[nodiscard]] CasData128 load() const noexcept;
 
     /**
      * @brief Atomically load the current value with specified memory ordering
@@ -95,7 +95,7 @@ struct alignas(16) atomic128
      * @return Current 128-bit value
      * @note Memory ordering parameter is ignored on x64 with current intrinsics
      */
-    [[nodiscard]] cas_data128_t load(const std::memory_order order) const noexcept;
+    [[nodiscard]] CasData128 load(const std::memory_order order) const noexcept;
 
     /**
      * @brief Atomically exchange the stored value
@@ -104,7 +104,7 @@ struct alignas(16) atomic128
      * @param order Memory ordering constraint
      * @return Previous value that was stored
      */
-    cas_data128_t exchange(const cas_data128_t value, const std::memory_order order) noexcept;
+    CasData128 exchange(const CasData128 value, const std::memory_order order) noexcept;
 
     /**
      * @brief Atomically exchange the stored value with sequential consistency
@@ -112,7 +112,7 @@ struct alignas(16) atomic128
      * @param value New value to store
      * @return Previous value that was stored
      */
-    cas_data128_t exchange(const cas_data128_t value) noexcept;
+    CasData128 exchange(const CasData128 value) noexcept;
 
     /**
      * @brief Strong compare-and-swap operation
@@ -122,7 +122,7 @@ struct alignas(16) atomic128
      * @param order Memory ordering constraint (ignored on x64)
      * @return True if exchange was successful, false otherwise
      */
-    bool compare_exchange_strong(cas_data128_t& expected, cas_data128_t desired,
+    bool compare_exchange_strong(CasData128& expected, CasData128 desired,
         const std::memory_order order = std::memory_order_seq_cst) noexcept;
 
     /**
@@ -133,14 +133,14 @@ struct alignas(16) atomic128
      * @return True if exchange was successful, false otherwise
      * @note No weak CAS intrinsics available, falls back to strong CAS
      */
-    bool compare_exchange_weak(cas_data128_t& expected, cas_data128_t desired) noexcept;
+    bool compare_exchange_weak(CasData128& expected, CasData128 desired) noexcept;
 
     /**
      * @brief Atomically store a new value
      * 
      * @param value Value to store
      */
-    void store(const cas_data128_t value) noexcept;
+    void store(const CasData128 value) noexcept;
 
     /**
      * @brief Atomically store a new value with specified memory ordering
@@ -148,20 +148,20 @@ struct alignas(16) atomic128
      * @param value Value to store
      * @param order Memory ordering constraint
      */
-    void store(const cas_data128_t value, const std::memory_order order) noexcept;
+    void store(const CasData128 value, const std::memory_order order) noexcept;
 
     /// Indicates that atomic operations are always lock-free
     constexpr static bool is_always_lock_free = true;
 
 private:
 
-    mutable cas_data128_t data;
+    mutable CasData128 data;
 };
 
 #else
 
-using atomic128 = std::atomic<cas_data128_t>;
-static_assert(std::atomic<cas_data128_t>::is_always_lock_free, "128bit cmpexchg not available on current platform.");
+using atomic128 = std::atomic<CasData128>;
+static_assert(std::atomic<CasData128>::is_always_lock_free, "128bit cmpexchg not available on current platform.");
 
 #endif
 

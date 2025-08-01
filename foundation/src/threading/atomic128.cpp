@@ -22,54 +22,54 @@ atomic128& atomic128::operator=(atomic128&& other) noexcept
     return *this;
 }
 
-cas_data128_t atomic128::load() const noexcept
+CasData128 atomic128::load() const noexcept
 {
     long long* const storagePtr = const_cast<long long*>(atomic_address_as<const long long>(data));
-    cas_data128_t result{};
+    CasData128 result{};
     _InterlockedCompareExchange128(storagePtr, 0, 0, &reinterpret_cast<long long&>(result.low));
-    return reinterpret_cast<cas_data128_t&>(result);
+    return reinterpret_cast<CasData128&>(result);
 }
 
-cas_data128_t atomic128::load(const std::memory_order order) const noexcept
+CasData128 atomic128::load(const std::memory_order order) const noexcept
 {
     return load();
 }
 
-cas_data128_t atomic128::exchange(const cas_data128_t value, const std::memory_order order) noexcept
+CasData128 atomic128::exchange(const CasData128 value, const std::memory_order order) noexcept
 {
-    cas_data128_t result{ value };
+    CasData128 result{ value };
     while (!compare_exchange_strong(result, value, order)) {}
     return result;
 }
 
-cas_data128_t atomic128::exchange(const cas_data128_t value) noexcept
+CasData128 atomic128::exchange(const CasData128 value) noexcept
 {
-    cas_data128_t result{ value };
+    CasData128 result{ value };
     while (!compare_exchange_strong(result, value)) {}
     return result;
 }
 
-bool atomic128::compare_exchange_strong(cas_data128_t& expected, cas_data128_t desired, const std::memory_order order /*= std::memory_order_seq_cst*/) noexcept
+bool atomic128::compare_exchange_strong(CasData128& expected, CasData128 desired, const std::memory_order order /*= std::memory_order_seq_cst*/) noexcept
 {
-    cas_data128_t desiredCopy{ desired };
-    cas_data128_t expectedTemp{ expected };
+    CasData128 desiredCopy{ desired };
+    CasData128 expectedTemp{ expected };
     unsigned char result = _InterlockedCompareExchange128(&reinterpret_cast<long long&>(data.low), desiredCopy.high, desiredCopy.low,
         &reinterpret_cast<long long&>(expectedTemp.low));
     // if result == 0, copy expectedTemp to expected THEN return (comma denotes sequencing)
     return result != 0 ? true : (expected = expectedTemp, false);
 }
 
-bool atomic128::compare_exchange_weak(cas_data128_t& expected, cas_data128_t desired) noexcept
+bool atomic128::compare_exchange_weak(CasData128& expected, CasData128 desired) noexcept
 {
     return compare_exchange_strong(expected, desired);
 }
 
-void atomic128::store(const cas_data128_t value) noexcept
+void atomic128::store(const CasData128 value) noexcept
 {
     (void)exchange(value);
 }
 
-void atomic128::store(const cas_data128_t value, const std::memory_order order) noexcept
+void atomic128::store(const CasData128 value, const std::memory_order order) noexcept
 {
     (void)exchange(value, order);
 }

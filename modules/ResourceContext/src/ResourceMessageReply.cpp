@@ -6,7 +6,7 @@
 #include <chrono>
 #include <thread>
 
-const static cas_data128_t null_atomic128 = cas_data128_t{ 0u, 0u };
+const static CasData128 null_atomic128 = CasData128{ 0u, 0u };
 constexpr static uint64_t vk_null_handle_uint64 = reinterpret_cast<uint64_t>(VK_NULL_HANDLE);
 constexpr static uint32_t entt_null_entity_uint32 = static_cast<uint32_t>(entt::null);
 const static GraphicsResource null_graphics_resource = GraphicsResource{ resource_type::Invalid, entt_null_entity_uint32, vk_null_handle_uint64, vk_null_handle_uint64, vk_null_handle_uint64 };
@@ -178,7 +178,6 @@ GraphicsResourceReply::VkResourceTypeAndEntityHandle::operator bool() const noex
     return (Type != (uint32_t)resource_type::Invalid) && (EntityHandle != entt::null);
 }
 
-
 GraphicsResourceReply::GraphicsResourceReply(resource_type _type) :
     resourceTypeAndEntityHandle{ VkResourceTypeAndEntityHandle(_type, entt::null) },
     vkHandleAndView{ null_atomic128 },
@@ -193,7 +192,6 @@ GraphicsResourceReply::GraphicsResourceReply(resource_type _type, vpr::Device* _
 {
 }
 
-
 GraphicsResourceReply::~GraphicsResourceReply()
 {
 }
@@ -203,7 +201,7 @@ GraphicsResource GraphicsResourceReply::GetResource() const noexcept
     VkResourceTypeAndEntityHandle typeAndEntity = resourceTypeAndEntityHandle.load(std::memory_order_acquire);
     if (typeAndEntity)
     {
-        cas_data128_t handleAndView = vkHandleAndView.load(std::memory_order_acquire);
+        CasData128 handleAndView = vkHandleAndView.load(std::memory_order_acquire);
         uint64_t samplerHandle = vkSamplerHandle.load(std::memory_order_acquire);
         return GraphicsResource(static_cast<resource_type>(typeAndEntity.Type), typeAndEntity.EntityHandle, handleAndView.low, handleAndView.high, samplerHandle);
     }
@@ -227,7 +225,7 @@ void GraphicsResourceReply::SetGraphicsResource(
 
     if (vk_handle != 0u || vk_view_handle != 0u)
     {
-        vkHandleAndView.store(cas_data128_t{ vk_handle, vk_view_handle }, std::memory_order_release);
+        vkHandleAndView.store(CasData128{ vk_handle, vk_view_handle }, std::memory_order_release);
     }
 
     resourceTypeAndEntityHandle.store(VkResourceTypeAndEntityHandle(_type, entity_handle), std::memory_order_release);
@@ -238,7 +236,7 @@ void GraphicsResourceReply::SetGraphicsResourceRelaxed(const GraphicsResource& r
 {
     // doesn't set status as this usually means there are dependent operations following this, which is what the user is actually waiting
     // on and why we can use relaxed stores
-    vkHandleAndView.store(cas_data128_t{ resource.VkHandle, resource.VkViewHandle }, std::memory_order_relaxed);
+    vkHandleAndView.store(CasData128{ resource.VkHandle, resource.VkViewHandle }, std::memory_order_relaxed);
     vkSamplerHandle.store(resource.VkSamplerHandle, std::memory_order_relaxed);
     resourceTypeAndEntityHandle.store(VkResourceTypeAndEntityHandle(resource.Type, resource.EntityHandle), std::memory_order_relaxed);
 }
