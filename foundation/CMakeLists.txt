@@ -37,7 +37,7 @@ set(threading_source_files
     "src/threading/atomic128.cpp"
     "src/threading/ExponentialBackoffSleeper.cpp")
 
-if(Win32)
+if(WIN32)
     set(threading_platform_source_files
         "src/threading/win32/CriticalSectionWin32.cpp"
         "src/threading/win32/SrwLockWin32.cpp")
@@ -65,7 +65,7 @@ set(maths_source_files
 
 source_group("foundation" FILES ${foundation_source_files})
 source_group("containers" FILES ${foundation_containers_source_files})
-source_group("threading" FILES ${threading_source_files})
+source_group("threading" FILES ${threading_source_files} ${threading_platform_source_files})
 source_group("utility" FILES ${utility_source_files})
 source_group("reactors" FILES ${reactors_source_files})
 source_group("maths" FILES ${maths_source_files})

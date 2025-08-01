@@ -76,18 +76,3 @@ void CriticalSection::SetSpinCount(const size_t new_spin_count) noexcept
 {
     SetCriticalSectionSpinCount(static_cast<LPCRITICAL_SECTION>(criticalSectionObject), static_cast<DWORD>(new_spin_count));
 }
-
-CriticalSection::ScopedLock CriticalSection::GetLock() noexcept
-{
-    return ScopedLock(*this);
-}
-
-CriticalSection::ScopedLock::ScopedLock(CriticalSection& _section) noexcept : section(_section)
-{
-    section.Lock();
-}
-
-CriticalSection::ScopedLock::~ScopedLock()
-{
-    section.Unlock();
-}

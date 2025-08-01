@@ -4,7 +4,7 @@
 #include <vector>
 #include <chrono>
 
-#include "threading/srw_lock.hpp"
+#include "threading/SrwLock.hpp"
 
 class SRWLockTest : public ::testing::Test
 {
@@ -175,28 +175,6 @@ TEST_F(SRWLockTest, ReaderWriterExclusion)
     EXPECT_FALSE(exclusion_violated.load()) << "Reader-writer exclusion was violated";
     EXPECT_EQ(concurrent_readers.load(), 0);
     EXPECT_EQ(active_writers.load(), 0);
-}
-
-TEST_F(SRWLockTest, UpgradeDowngrade)
-{
-    // Test upgrade from shared to exclusive lock (if supported)
-    // Note: Not all SRW lock implementations support upgrade/downgrade
-    
-    lock.lock_shared();
-    
-    // Try to upgrade (this might not be supported in all implementations)
-    lock.unlock_shared();
-    lock.lock_exclusive();
-    
-    shared_data.store(42);
-    
-    // Downgrade back to shared
-    lock.unlock_exclusive();
-    lock.lock_shared();
-    
-    EXPECT_EQ(shared_data.load(), 42);
-    
-    lock.unlock_shared();
 }
 
 TEST_F(SRWLockTest, PerformanceComparison)

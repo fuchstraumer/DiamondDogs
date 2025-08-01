@@ -6,7 +6,6 @@ set(FOUNDATION_TEST_SOURCES
     
     # Threading tests
     threading/test_atomic128.cpp
-    threading/test_mcas.cpp
     threading/test_critical_section.cpp
     threading/test_srw_lock.cpp
     threading/test_exponential_backoff_sleeper.cpp

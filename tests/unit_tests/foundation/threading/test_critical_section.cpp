@@ -32,6 +32,7 @@ TEST_F(CriticalSectionTest, BasicLockUnlock)
 
 TEST_F(CriticalSectionTest, RAIIGuard)
 {
+    // Also verifies standard library compatibility, meeting BasicLockable requirements
     {
         std::lock_guard<CriticalSection> guard(cs);
         int temp = shared_counter.load();
@@ -83,13 +84,19 @@ TEST_F(CriticalSectionTest, TryLock)
     bool acquired = cs.TryLock();
     EXPECT_TRUE(acquired);
     
+    bool reacquired = false;
     if (acquired)
     {
         // Try to acquire again from same thread - behavior depends on implementation
         // Some critical sections are recursive, others are not
-        
-        cs.unlock();
+        reacquired = cs.TryLock();
     }
+    EXPECT_TRUE(reacquired);
+}
+
+TEST_F(CriticalSectionTest, TryLockFailure)
+{
+    // Create two threads, one will hold the lock and the other will try and fail to acquire it.
 }
 
 TEST_F(CriticalSectionTest, PerformanceBenchmark)
@@ -97,11 +104,12 @@ TEST_F(CriticalSectionTest, PerformanceBenchmark)
     constexpr int operations = 100000;
     
     auto start = std::chrono::high_resolution_clock::now();
+    size_t counter = 0;
     
     for (int i = 0; i < operations; ++i)
     {
         std::lock_guard<CriticalSection> guard(cs);
-        shared_counter.fetch_add(1);
+        counter += 1;
     }
     
     auto end = std::chrono::high_resolution_clock::now();
