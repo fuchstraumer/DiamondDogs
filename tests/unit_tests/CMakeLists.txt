@@ -9,8 +9,7 @@ set(UNIT_TEST_LINK_LIBRARIES gtest_main gmock_main)
 
 if(MSVC)
     list(APPEND UNIT_TEST_COMPILE_OPTIONS 
-        "/arch:AVX2" 
-        "/std:c++latest" 
+        "/arch:AVX2"
         $<$<CONFIG:RELEASE>:/MP> 
         $<$<CONFIG:RELWITHDEBINFO>:/MP>
         $<$<CONFIG:RELEASE>:/Oi> 

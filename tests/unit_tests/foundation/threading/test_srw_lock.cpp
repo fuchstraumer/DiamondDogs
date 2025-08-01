@@ -14,7 +14,7 @@ protected:
         reader_count = 0;
     }
 
-    srw_lock lock;
+    SrwLock lock;
     std::atomic<int> shared_data{0};
     std::atomic<int> reader_count{0};
 };

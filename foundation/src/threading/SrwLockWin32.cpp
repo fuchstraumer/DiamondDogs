@@ -1,4 +1,4 @@
-#include "threading/srw_lock.hpp"
+#include "threading/SrwLock.hpp"
 #include <cstdint>
 #include <cstddef>
 #define NO_MINMAX
@@ -7,7 +7,7 @@
 #undef WIN32_LEAN_AND_MEAN
 #undef NO_MINMAX
 
-srw_lock::srw_lock()
+SrwLock::SrwLock()
 {
     PSRWLOCK pSrw = new SRWLOCK();
     memset(pSrw, 0, sizeof(SRWLOCK));
@@ -15,7 +15,7 @@ srw_lock::srw_lock()
     srwLockPtr = static_cast<void*>(pSrw);
 }
 
-srw_lock::~srw_lock()
+SrwLock::~SrwLock()
 {
     if (srwLockPtr != nullptr)
     {
@@ -23,64 +23,52 @@ srw_lock::~srw_lock()
     }
 }
 
-srw_lock::srw_lock(srw_lock&& other) noexcept : srwLockPtr(other.srwLockPtr)
+SrwLock::SrwLock(SrwLock&& other) noexcept : srwLockPtr(other.srwLockPtr)
 {
     other.srwLockPtr = nullptr;
 }
 
-srw_lock& srw_lock::operator=(srw_lock&& other) noexcept
+SrwLock& SrwLock::operator=(SrwLock&& other) noexcept
 {
     srwLockPtr = other.srwLockPtr;
     other.srwLockPtr = nullptr;
     return *this;
 }
 
-void srw_lock::lock_exclusive()
+void SrwLock::lock_exclusive()
 {
     AcquireSRWLockExclusive(static_cast<PSRWLOCK>(srwLockPtr));
 }
 
-void srw_lock::lock_shared()
+void SrwLock::lock_shared()
 {
     AcquireSRWLockShared(static_cast<PSRWLOCK>(srwLockPtr));
 }
 
-bool srw_lock::try_lock_exclusive()
+bool SrwLock::try_lock_exclusive()
 {
     return static_cast<bool>(TryAcquireSRWLockExclusive(static_cast<PSRWLOCK>(srwLockPtr)));
 }
 
-bool srw_lock::try_lock_shared()
+bool SrwLock::try_lock_shared()
 {
     return static_cast<bool>(TryAcquireSRWLockShared(static_cast<PSRWLOCK>(srwLockPtr)));
 }
 
-void srw_lock::unlock_exclusive()
+void SrwLock::unlock_exclusive()
 {
+    // Add annotation to inform static analysis that the lock is held
+#ifdef _PREFAST_
+    __analysis_assume_lock_held(*(static_cast<PSRWLOCK>(srwLockPtr)));
+#endif
     ReleaseSRWLockExclusive(static_cast<PSRWLOCK>(srwLockPtr));
 }
 
-void srw_lock::unlock_shared()
-{
+void SrwLock::unlock_shared()
+{    
+    // Add annotation to inform static analysis that the lock is held
+#ifdef _PREFAST_
+    __analysis_assume_lock_held(*(static_cast<PSRWLOCK>(srwLockPtr)));
+#endif
     ReleaseSRWLockShared(static_cast<PSRWLOCK>(srwLockPtr));
-}
-
-srw_lock::scoped_write_lock::scoped_write_lock(srw_lock& _lock) noexcept : lock(_lock)
-{
-    lock.lock_exclusive();
-}
-
-srw_lock::scoped_write_lock::~scoped_write_lock()
-{
-    lock.unlock_exclusive();
-}
-
-srw_lock::scoped_read_lock::scoped_read_lock(srw_lock& _lock) noexcept : lock(_lock)
-{
-    lock.lock_shared();
-}
-
-srw_lock::scoped_read_lock::~scoped_read_lock()
-{
-    lock.unlock_shared();
 }

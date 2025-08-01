@@ -13,29 +13,16 @@ struct CriticalSection
     CriticalSection& operator=(CriticalSection&& other) noexcept;
 
     void Lock();
-    /** @note This lowercase function was added for compatible with condition_variable */
-    void lock();
     bool TryLock();
     void Unlock();
-    /** @note This lowercase function was added for compatible with condition_variable */
+
+    // Functions named to match Mutex+BasicLockable interface requirements for stdlib compatibility
+    void lock();
+    bool try_lock();
     void unlock();
 
     size_t SpinCount() const noexcept;
     void SetSpinCount(const size_t new_spin_count) noexcept;
-
-    struct ScopedLock
-    {
-        ScopedLock(CriticalSection& _section) noexcept;
-        ~ScopedLock();
-
-        ScopedLock(const ScopedLock&) = delete;
-        ScopedLock& operator=(const ScopedLock&) = delete;
-
-    private:
-        CriticalSection& section;
-    };
-
-    ScopedLock GetLock() noexcept;
 
 private:
     void* criticalSectionObject{ nullptr };
