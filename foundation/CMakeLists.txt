@@ -32,12 +32,20 @@ set(threading_source_files
     "include/threading/atomic128.hpp"
     "include/threading/concurrent_vector.hpp"
     "include/threading/CriticalSection.hpp"
-    "include/threading/srw_lock.hpp"
+    "include/threading/SrwLock.hpp"
     "include/threading/ExponentialBackoffSleeper.hpp"
     "src/threading/atomic128.cpp"
-    "src/threading/CriticalSectionWin32.cpp"
-    "src/threading/SrwLockWin32.cpp"
     "src/threading/ExponentialBackoffSleeper.cpp")
+
+if(Win32)
+    set(threading_platform_source_files
+        "src/threading/win32/CriticalSectionWin32.cpp"
+        "src/threading/win32/SrwLockWin32.cpp")
+elseif(UNIX)
+    set(threading_platform_source_files
+        "src/threading/unix/CriticalSectionUnix.cpp"
+        "src/threading/unix/SrwLockUnix.cpp")
+endif()
 
 set(utility_source_files
     "include/utility/delegate.hpp"
@@ -66,6 +74,7 @@ add_library(foundation STATIC
     ${foundation_source_files}
     ${foundation_containers_source_files}
     ${threading_source_files}
+    ${threading_platform_source_files}
     ${utility_source_files}
     ${reactors_source_files}
     ${maths_source_files})
