@@ -237,9 +237,9 @@ namespace detail
         friend class ExitReactorHandle;
         friend class CasReactorHandle<ExitReactorData>;
         // just like EntranceReactorData, stores stuff by just masking through to underlying bitfield
-        // firstIDToRead is an unsigned 63 bit int
-        // readerIsLocked is a single bit, trailing firstIDToRead
-        // completedWritesMask is a 64 bit unsigned int
+        // firstIDToRead is an unsigned 63 bit int telling us what index we're reading first
+        // readerIsLocked is a single bit, trailing firstIDToRead, notifying us if we're locked
+        // completedWritesMask is a 64 bit unsigned int, each bit set to indicate a write in that slot is complete (I think?)
     public:
 
         static_assert(mwsrQueueSize <= 64u, "QueueSize cannot exceed number of bits in mask!");
@@ -464,10 +464,10 @@ namespace detail
     {
         // ID of item we're waiting on
         uint64_t itemID{ std::numeric_limits<uint64_t>::max() };
-        CriticalSection mutex;
         std::condition_variable_any cv;
         LockedThreadsListLockItem* next{ nullptr };
     };
+    thread_local LockedThreadsListLockItem lockedThreadsListTLS_data = LockedThreadsListLockItem{};
 
     // Templatization required, so that it works with more than one type of queue item
     // (as each template initialization will be a new type, causing new static members)
@@ -476,9 +476,8 @@ namespace detail
     {
     private:
         uint64_t unlockUpTo{ 0u };
-        std::mutex mutex;
+        CriticalSection mutex;
         LockedThreadsListLockItem* first{ nullptr };
-        inline static thread_local LockedThreadsListLockItem lockedThreadsListTLS_data = LockedThreadsListLockItem{};
     public:
 
         void lockAndWait(uint64_t itemId)
@@ -538,7 +537,7 @@ namespace detail
             }
             else
             {
-                assert(toInsert = prev->next);
+                assert(toInsert == prev->next);
                 iter->next = toInsert;
                 prev->next = iter;
             }
@@ -652,6 +651,14 @@ public:
         {
             size_t idx = getQueueIndex(newId);
             items[idx] = std::move(item);
+            // notify that we completed the write
+            detail::ExitReactorHandle exit(exitData);
+            bool unlock = exit.writeCompleted(newId);
+            if (unlock)
+            {
+                lockedReader.unlock();
+            }
+            return true;
         }
     }
 
