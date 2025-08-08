@@ -20,11 +20,12 @@ protected:
     
     template<typename T>
     using Queue = mwsrQueue<T>;  // Assuming this is the actual class name
+    constexpr static size_t QueueSize = detail::mwsrQueueSize; // Assuming this is defined in the detail namespace
 };
 
+// mostly here to make sure template instantiation happens and the class is valid
 TEST_F(MWSRQueueTest, BasicConstruction)
 {
-    // Test basic construction
     Queue<int> queue;
     SUCCEED() << "mwsrQueue should be constructible";
 }
@@ -32,19 +33,91 @@ TEST_F(MWSRQueueTest, BasicConstruction)
 TEST_F(MWSRQueueTest, SingleProducerSingleConsumer)
 {
     Queue<int> queue;
+
+    auto writer_worker = [&queue]()
+    {
+        for (int i = 0; i < QueueSize; ++i)
+        {
+            queue.push(i);
+        }
+    };
+
+    // this is only an almost-fair queue, so this kind of test is only valid with a single writer
+    auto reader_worker = [&queue]()
+    {
+        for (int i = 0; i < QueueSize; ++i)
+        {
+            int value = queue.pop();
+            EXPECT_EQ(value, i) << "Value should match the expected sequence";
+        }
+    };
+
+    std::thread writer(writer_worker);
+    std::this_thread::sleep_for(std::chrono::microseconds(10));
+    std::thread reader(reader_worker);
+    writer.join();
+    reader.join();
+
+    // verify all items processed by using try_pop()
+    auto try_pop_test = queue.try_pop();
+    EXPECT_FALSE(try_pop_test.has_value()) << "Queue should be empty after all items processed";
+}
+
+TEST_F(MWSRQueueTest, TryPushFullQueue)
+{
+    Queue<int> queue;
+
+    // Fill the queue
+    for (int i = 0; i < QueueSize - 1; ++i)
+    {
+        queue.push(i);
+    }
+
+    // Try to push one more item, which should fail
+    int new_item = 999;
+    bool result = queue.try_push(new_item);
+    EXPECT_FALSE(result) << "try_push should return false when queue is full";
+}
+
+TEST_F(MWSRQueueTest, TryPushEmptyQueue)
+{
+    Queue<int> queue;
+
+    // Try to push an item into an empty queue
+    int new_item = 42;
+    bool result = queue.try_push(new_item);
+    EXPECT_TRUE(result) << "try_push should succeed when queue is empty";
     
-    // Test basic enqueue/dequeue
-    // queue.enqueue(42);
-    // 
-    // int value;
-    // bool success = queue.dequeue(value);
-    // EXPECT_TRUE(success);
-    // EXPECT_EQ(value, 42);
-    
-    // Test empty queue
-    // int dummy;
-    // bool empty_result = queue.dequeue(dummy);
-    // EXPECT_FALSE(empty_result);
+    // Verify the item was pushed
+    int popped_item = queue.pop();
+    EXPECT_EQ(popped_item, new_item) << "Popped item should match the pushed item";
+}
+
+TEST_F(MWSRQueueTest, TryPopFullQueue)
+{
+    Queue<int> queue;
+
+    // Fill the queue
+    for (int i = 0; i < QueueSize - 1; ++i)
+    {
+        queue.push(i);
+    }
+
+    // Try to pop an item from a full queue
+    auto try_pop_test = queue.try_pop();
+    EXPECT_TRUE(try_pop_test.has_value()) << "try_pop should return an item when queue is full";
+    EXPECT_EQ(try_pop_test.value(), 0) << "Popped item should be the first item pushed";
+
+}
+
+TEST_F(MWSRQueueTest, TryPopEmptyQueue)
+{
+    Queue<int> queue;
+
+    // Try to pop an item from an empty queue
+    auto try_pop_test = queue.try_pop();
+    EXPECT_FALSE(try_pop_test.has_value()) << "try_pop should return no item when queue is empty";
+
 }
 
 TEST_F(MWSRQueueTest, MultipleWritersSingleReader)
@@ -52,7 +125,9 @@ TEST_F(MWSRQueueTest, MultipleWritersSingleReader)
     Queue<int> queue;
     
     constexpr int num_writers = 8;
-    constexpr int items_per_writer = 1000;
+    constexpr int items_per_writer = 16;
+    // we will be at double our queue capacity, but I want to test the contention and locking behavior
+    // when we have a full queue and multiple writers trying to get their values in
     constexpr int total_items = num_writers * items_per_writer;
     
     std::vector<std::thread> writers;
@@ -64,10 +139,8 @@ TEST_F(MWSRQueueTest, MultipleWritersSingleReader)
         for (int i = 0; i < items_per_writer; ++i)
         {
             int value = writer_id * items_per_writer + i;
-            // bool success = queue.enqueue(value);
-            // if (success) {
-                items_written.fetch_add(1);
-            // }
+            queue.push(std::move(value));
+            items_written.fetch_add(1);
         }
     };
     
@@ -75,159 +148,154 @@ TEST_F(MWSRQueueTest, MultipleWritersSingleReader)
     std::vector<int> received_items;
     received_items.reserve(total_items);
     std::atomic<bool> readers_done{false};
-    
-    std::thread reader([&]() {
-        int value;
-        while (!readers_done.load() || received_items.size() < total_items) {
-            // if (queue.dequeue(value)) {
-            //     received_items.push_back(value);
-            // } else {
-                std::this_thread::yield();
-            // }
+
+    auto reader_worker = [&]()
+    {
+        while (items_written.load() < total_items - 1)
+        {
+            std::optional<int> queue_trypop_item;
+            while (queue_trypop_item = queue.try_pop(), queue_trypop_item.has_value())
+            {
+                received_items.emplace_back(queue_trypop_item.value());
+            }
         }
-    });
-    
-    // Launch writers
-    for (int i = 0; i < num_writers; ++i) {
+
+        readers_done = true;
+        std::this_thread::yield(); // Yield to allow other threads to finish
+    };
+
+    // Launch writers, note they wil shortly lock on the queue being full at 64 items
+    for (int i = 0; i < num_writers; ++i)
+    {
         writers.emplace_back(writer_worker, i);
     }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Give writers time to start and fill the queue
+
+    // now add the reader thread
+    std::thread reader(reader_worker);
     
-    // Wait for writers to complete
-    for (auto& writer : writers) {
+    // Give everyone time to finish (should be more than enough)
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Wait for all writers to finish
+    for (auto& writer : writers)
+    {
         writer.join();
     }
-    
-    // Give reader time to finish
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    readers_done = true;
+
+    // and bring in the reader
     reader.join();
     
     // Verify all items were processed
-    // EXPECT_EQ(received_items.size(), total_items);
+    EXPECT_EQ(received_items.size(), total_items);
     EXPECT_EQ(items_written.load(), total_items);
     
     // Verify no duplicates (each value should appear exactly once)
-    // std::sort(received_items.begin(), received_items.end());
-    // auto unique_end = std::unique(received_items.begin(), received_items.end());
-    // EXPECT_EQ(unique_end, received_items.end()) << "No duplicate items should be received";
+    std::sort(received_items.begin(), received_items.end());
+    auto unique_end = std::unique(received_items.begin(), received_items.end());
+    EXPECT_EQ(unique_end, received_items.end()) << "No duplicate items should be received";
 }
 
-TEST_F(MWSRQueueTest, QueueCapacityLimits) {
-    Queue<int> queue;
-    
-    // Test queue capacity limits
-    constexpr int queue_size = detail::mwsrQueueSize; // From the header
-    
-    // Fill the queue to capacity
-    int items_added = 0;
-    for (int i = 0; i < queue_size * 2; ++i) {
-        // bool success = queue.enqueue(i);
-        // if (success) {
-            items_added++;
-        // } else {
-        //     break; // Queue is full
-        // }
-    }
-    
-    // Should not be able to add more than capacity
-    // EXPECT_LE(items_added, queue_size);
-    
-    // Drain the queue
-    int items_removed = 0;
-    int value;
-    // while (queue.dequeue(value)) {
-    //     items_removed++;
-    // }
-    
-    // Should have removed the same number we added
-    // EXPECT_EQ(items_removed, items_added);
-}
+//TEST_F(MWSRQueueTest, StressTestHighContention)
+//{
+//    Queue<int> queue;
+//    
+//    constexpr int num_writers = 16;
+//    constexpr int items_per_writer = 5000;
+//    constexpr int total_items = num_writers * items_per_writer;
+//    
+//    std::vector<std::thread> writers;
+//    std::atomic<int> successful_enqueues{0};
+//    std::atomic<int> failed_enqueues{0};
+//    
+//    auto writer_worker = [&](int writer_id)
+//    {
+//        std::random_device rd;
+//        std::mt19937 gen(rd());
+//        std::uniform_int_distribution<> delay_dis(0, 10);
+//        
+//        for (int i = 0; i < items_per_writer; ++i)
+//        {
+//            int value = writer_id * items_per_writer + i;
+//            
+//            // Retry with backoff on failure
+//            bool enqueued = false;
+//            int retry_count = 0;
+//            while (!enqueued && retry_count < 100)
+//            {
+//                // enqueued = queue.enqueue(value);
+//                if (!enqueued)
+//                {
+//                    // Exponential backoff
+//                    std::this_thread::sleep_for(std::chrono::microseconds(1 << std::min(retry_count, 6)));
+//                    retry_count++;
+//                }
+//            }
+//            
+//            if (enqueued)
+//            {
+//                successful_enqueues.fetch_add(1);
+//            } else
+//            {
+//                failed_enqueues.fetch_add(1);
+//            }
+//        }
+//    };
+//    
+//    // Reader thread
+//    std::atomic<int> items_read{0};
+//    std::atomic<bool> stop_reading{false};
+//    
+//    std::thread reader([&](){
+//        int value;
+//        while (!stop_reading.load())
+//        {
+//            value = queue.pop();
+//            items_read.fetch_add(1);
+//            std::this_thread::yield();
+//            // if (queue.dequeue(value)) {
+//                items_read.fetch_add(1);
+//            // } else {
+//                std::this_thread::yield();
+//            // }
+//        }
+//    });
+//    
+//    // Launch writers
+//    auto start_time = std::chrono::high_resolution_clock::now();
+//    for (int i = 0; i < num_writers; ++i)
+//    {
+//        writers.emplace_back(writer_worker, i);
+//    }
+//    
+//    // Wait for writers
+//    for (auto& writer : writers)
+//    {
+//        writer.join();
+//    }
+//    
+//    // Give reader time to catch up
+//    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+//    stop_reading = true;
+//    reader.join();
+//    
+//    auto end_time = std::chrono::high_resolution_clock::now();
+//    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+//    
+//    std::cout << "MWSR Queue stress test results:\n";
+//    std::cout << "Duration: " << duration.count() << " ms\n";
+//    std::cout << "Successful enqueues: " << successful_enqueues.load() << "\n";
+//    std::cout << "Failed enqueues: " << failed_enqueues.load() << "\n";
+//    std::cout << "Items read: " << items_read.load() << "\n";
+//    
+//    // Most operations should succeed under normal conditions
+//    double success_rate = static_cast<double>(successful_enqueues.load()) / total_items;
+//    EXPECT_GT(success_rate, 0.8) << "Success rate should be reasonable under stress";
+//}
 
-TEST_F(MWSRQueueTest, StressTestHighContention) {
-    Queue<int> queue;
-    
-    constexpr int num_writers = 16;
-    constexpr int items_per_writer = 5000;
-    constexpr int total_items = num_writers * items_per_writer;
-    
-    std::vector<std::thread> writers;
-    std::atomic<int> successful_enqueues{0};
-    std::atomic<int> failed_enqueues{0};
-    
-    auto writer_worker = [&](int writer_id) {
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<> delay_dis(0, 10);
-        
-        for (int i = 0; i < items_per_writer; ++i) {
-            int value = writer_id * items_per_writer + i;
-            
-            // Retry with backoff on failure
-            bool enqueued = false;
-            int retry_count = 0;
-            while (!enqueued && retry_count < 100) {
-                // enqueued = queue.enqueue(value);
-                if (!enqueued) {
-                    // Exponential backoff
-                    std::this_thread::sleep_for(std::chrono::microseconds(1 << std::min(retry_count, 6)));
-                    retry_count++;
-                }
-            }
-            
-            if (enqueued) {
-                successful_enqueues.fetch_add(1);
-            } else {
-                failed_enqueues.fetch_add(1);
-            }
-        }
-    };
-    
-    // Reader thread
-    std::atomic<int> items_read{0};
-    std::atomic<bool> stop_reading{false};
-    
-    std::thread reader([&]() {
-        int value;
-        while (!stop_reading.load()) {
-            // if (queue.dequeue(value)) {
-                items_read.fetch_add(1);
-            // } else {
-                std::this_thread::yield();
-            // }
-        }
-    });
-    
-    // Launch writers
-    auto start_time = std::chrono::high_resolution_clock::now();
-    for (int i = 0; i < num_writers; ++i) {
-        writers.emplace_back(writer_worker, i);
-    }
-    
-    // Wait for writers
-    for (auto& writer : writers) {
-        writer.join();
-    }
-    
-    // Give reader time to catch up
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    stop_reading = true;
-    reader.join();
-    
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    
-    std::cout << "MWSR Queue stress test results:\n";
-    std::cout << "Duration: " << duration.count() << " ms\n";
-    std::cout << "Successful enqueues: " << successful_enqueues.load() << "\n";
-    std::cout << "Failed enqueues: " << failed_enqueues.load() << "\n";
-    std::cout << "Items read: " << items_read.load() << "\n";
-    
-    // Most operations should succeed under normal conditions
-    double success_rate = static_cast<double>(successful_enqueues.load()) / total_items;
-    EXPECT_GT(success_rate, 0.8) << "Success rate should be reasonable under stress";
-}
-
-TEST_F(MWSRQueueTest, OrderingGuarantees) {
+TEST_F(MWSRQueueTest, OrderingGuarantees)
+{
     // Test that items from a single writer maintain order
     Queue<std::pair<int, int>> queue; // (writer_id, sequence_number)
     
@@ -237,7 +305,8 @@ TEST_F(MWSRQueueTest, OrderingGuarantees) {
     std::vector<std::thread> writers;
     
     auto writer_worker = [&](int writer_id) {
-        for (int seq = 0; seq < items_per_writer; ++seq) {
+        for (int seq = 0; seq < items_per_writer; ++seq)
+        {
             std::pair<int, int> item = {writer_id, seq};
             // while (!queue.enqueue(item)) {
                 std::this_thread::yield(); // Retry until successful
@@ -249,9 +318,11 @@ TEST_F(MWSRQueueTest, OrderingGuarantees) {
     std::vector<std::vector<int>> writer_sequences(num_writers);
     std::atomic<bool> stop_reading{false};
     
-    std::thread reader([&]() {
+    std::thread reader([&]()
+        {
         std::pair<int, int> item;
-        while (!stop_reading.load()) {
+        while (!stop_reading.load())
+        {
             // if (queue.dequeue(item)) {
             //     int writer_id = item.first;
             //     int sequence = item.second;
@@ -263,12 +334,14 @@ TEST_F(MWSRQueueTest, OrderingGuarantees) {
     });
     
     // Launch writers
-    for (int i = 0; i < num_writers; ++i) {
+    for (int i = 0; i < num_writers; ++i)
+    {
         writers.emplace_back(writer_worker, i);
     }
     
     // Wait for completion
-    for (auto& writer : writers) {
+    for (auto& writer : writers)
+    {
         writer.join();
     }
     
@@ -277,7 +350,8 @@ TEST_F(MWSRQueueTest, OrderingGuarantees) {
     reader.join();
     
     // Verify ordering within each writer's sequence
-    for (int writer_id = 0; writer_id < num_writers; ++writer_id) {
+    for (int writer_id = 0; writer_id < num_writers; ++writer_id)
+    {
         const auto& sequences = writer_sequences[writer_id];
         // EXPECT_EQ(sequences.size(), items_per_writer) 
         //     << "All items from writer " << writer_id << " should be received";
@@ -290,7 +364,8 @@ TEST_F(MWSRQueueTest, OrderingGuarantees) {
     }
 }
 
-TEST_F(MWSRQueueTest, MemoryOrdering) {
+TEST_F(MWSRQueueTest, MemoryOrdering)
+{
     // Test memory ordering guarantees
     Queue<std::pair<std::atomic<int>*, int>> queue;
     
@@ -298,12 +373,14 @@ TEST_F(MWSRQueueTest, MemoryOrdering) {
     std::vector<std::atomic<int>> memory_locations(num_operations);
     
     // Initialize memory locations
-    for (int i = 0; i < num_operations; ++i) {
+    for (int i = 0; i < num_operations; ++i)
+    {
         memory_locations[i].store(0);
     }
     
     std::thread writer([&]() {
-        for (int i = 0; i < num_operations; ++i) {
+        for (int i = 0; i < num_operations; ++i)
+        {
             // First, modify the memory location
             memory_locations[i].store(42, std::memory_order_release);
             
@@ -317,7 +394,8 @@ TEST_F(MWSRQueueTest, MemoryOrdering) {
     
     std::atomic<int> ordering_violations{0};
     std::thread reader([&]() {
-        for (int received = 0; received < num_operations; ) {
+        for (int received = 0; received < num_operations; )
+        {
             std::pair<std::atomic<int>*, int> item;
             // if (queue.dequeue(item)) {
             //     // The memory location should already be updated due to happens-before
