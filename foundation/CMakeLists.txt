@@ -112,7 +112,7 @@ if(MSVC)
     target_compile_options(foundation PRIVATE $<$<CONFIG:RELEASE>:/Oi> $<$<CONFIG:RELWITHDEBINFO>:/Oi>)
     # Set standard to latest, enable coroutines, and ensure AVX2 is 
     set_target_properties(foundation PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
-    target_compile_options(foundation PUBLIC "/arch:AVX2")
+    target_compile_options(foundation PUBLIC "/arch:AVX2" "/volatile:iso")
 else()
     # Set standard to C++20
     set_target_properties(foundation PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
