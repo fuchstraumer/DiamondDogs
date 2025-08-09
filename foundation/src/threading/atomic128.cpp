@@ -38,12 +38,11 @@ CasData128 atomic128::load(const std::memory_order order) const noexcept
 
 CasData128 atomic128::exchange(const CasData128 value, const std::memory_order order) noexcept
 {
-    // barriers and ordering handled by the functions
-    CasData128 current = load(std::memory_order_relaxed);
+    CasData128 result{ value };
 
-    while (!compare_exchange_strong(current, value, order)) {}
+    while (!compare_exchange_strong(result, value, order)) {}
 
-    return current;
+    return result;
 }
 
 CasData128 atomic128::exchange(const CasData128 value) noexcept
@@ -61,16 +60,12 @@ bool atomic128::compare_exchange_strong(CasData128& expected, CasData128 desired
         desiredCopy.low,
         reinterpret_cast<long long*>(&expectedTemp.low));
 
-    // if result == 0, copy expectedTemp to expected THEN return 
-    if (result != 0)
+    if (result == 0)
     {
-        return true;
+        expected = expectedTemp; // If the exchange was successful, update expected
     }
-    else
-    {
-        expected = expectedTemp;
-        return false;
-    } 
+
+    return result != 0;
 }
 
 bool atomic128::compare_exchange_weak(CasData128& expected, CasData128 desired) noexcept

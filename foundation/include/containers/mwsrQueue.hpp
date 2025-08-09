@@ -27,14 +27,14 @@ namespace detail
         return mask | (uint64_t(1u) << position);
     }
 
-    constexpr inline uint64_t maskShiftOutBit0(uint64_t mask)
+    constexpr inline uint64_t maskShiftOutBit0(uint64_t mask) noexcept
     {
         return mask >> 1;
     }
 
     struct EntranceReactorData
     {
-    private:
+    protected:
         friend class EntranceReactorHandle;
         friend class CasReactorHandle<EntranceReactorData>;
         alignas(CasData128) CasData128 data;
@@ -46,9 +46,9 @@ namespace detail
         //      - number of writers locked because the queue is full
     public:
 
-        EntranceReactorData() {}
+        EntranceReactorData() noexcept {}
 
-        EntranceReactorData(uint64_t firstToWrite, uint64_t lastToWrite)
+        EntranceReactorData(uint64_t firstToWrite, uint64_t lastToWrite) noexcept
         {
             memset(this, 0, sizeof(EntranceReactorData));
             setIDsToWrite(firstToWrite, lastToWrite);
@@ -81,7 +81,7 @@ namespace detail
             data.high = (data.high & 0xFFFFFFFFLL) | (uint64_t(value) << 32u);
         }
 
-        void setFirstIDToWrite(uint64_t value)
+        void setFirstIDToWrite(uint64_t value) noexcept
         {
             const uint32_t lockedCount = getLockedThreadCount();
             const uint64_t last = getLastIDToWrite();
@@ -89,31 +89,31 @@ namespace detail
             const int64_t offset = last - value;
             assert((int32_t)offset == offset);
             const uint64_t oldHigh = data.high;
-            data.high = (data.high & 0xFFFFFFFF00000000LL) | uint32_t(int32_t(offset));
+            data.high = (data.high & 0xFFFFFFFF'00000000LL) | uint32_t(int32_t(offset));
             assert(getFirstIDToWrite() == value);
             assert(getLastIDToWrite() == last);
             assert(lockedCount == getLockedThreadCount());
         }
 
-        void setLastIDToWrite(uint64_t value)
+        void setLastIDToWrite(uint64_t value) noexcept
         {
             uint32_t lockedCount = getLockedThreadCount();
             uint64_t first = getFirstIDToWrite();
             const int64_t offset = value - data.low;
             assert((int32_t)offset == offset);
-            data.high = (data.high & 0xFFFFFFFF00000000LL) | uint32_t(int32_t(offset));
+            data.high = (data.high & 0xFFFFFFFF'00000000LL) | uint32_t(int32_t(offset));
             assert(getFirstIDToWrite() == first);
             assert(getLastIDToWrite() == value);
             assert(getLockedThreadCount() == lockedCount);
         }
 
-        void setIDsToWrite(uint64_t first, uint64_t last)
+        void setIDsToWrite(uint64_t first, uint64_t last) noexcept
         {
             uint32_t lockedCount = getLockedThreadCount();
             data.low = first;
             const int64_t offset = last - first;
             assert(int32_t(offset) == offset);
-            data.high = (data.high & 0xFFFFFFFF00000000LL) | uint32_t(int32_t(offset));
+            data.high = (data.high & 0xFFFFFFFF'00000000LL) | uint32_t(int32_t(offset));
             assert(getFirstIDToWrite() == first);
             assert(getLastIDToWrite() == last);
             assert(lockedCount == getLockedThreadCount());
@@ -125,13 +125,11 @@ namespace detail
     {
     public:
 
-        EntranceReactorHandle(atomic128& cas_data) : CasReactorHandle<EntranceReactorData>(cas_data)
-        {
-
-        }
+        EntranceReactorHandle(atomic128& cas_data) noexcept : CasReactorHandle<EntranceReactorData>(cas_data)
+        {}
 
         // tries to allocate the next ID, but uses the willLock flag to instead decide whether we return without locking or getting an ID
-        std::pair<uint64_t, bool> tryAllocateNextID()
+        std::pair<uint64_t, bool> tryAllocateNextID() noexcept
         {
             std::pair<uint64_t, bool> result{ 0u, false };
 
@@ -154,13 +152,13 @@ namespace detail
                 }
             };
 
-            React(result, reactFunction);
+            ReactVoid(result, reactFunction);
 
             return result;
         }
 
         // result.first contains the allocated ID, and result.second indicates whether caller should lock for a while
-        std::pair<uint64_t, bool> allocateNextID()
+        std::pair<uint64_t, bool> allocateNextID() noexcept
         {
             std::pair<uint64_t, bool> result{ 0u, false };
 
@@ -184,13 +182,13 @@ namespace detail
                 return { firstToWrite, willLock };
             };
 
-            React(result, reactFunction);
+            ReactVoid(result, reactFunction);
             
             return result;
         }
 
         // indicates that a thread has unlocked (was able to add to queue)
-        void unlock()
+        void unlock() noexcept
         {
             int dummyResult{ 0 };
             
@@ -203,12 +201,12 @@ namespace detail
                 return 0;
             };
 
-            React(dummyResult, reactFunction);
+            ReactVoid(dummyResult, reactFunction);
         }
 
         // this tells the reactor that we've read everything up to lastIDToWrite, so more writes are now allowed.
         // the return value returns whether or not we should unlock a writer or two
-        bool moveLastToWrite(uint64_t newLastIDToWrite)
+        bool moveLastToWrite(uint64_t newLastIDToWrite) noexcept
         {
             bool result = false;
 
@@ -221,7 +219,7 @@ namespace detail
                 return lockedCount > 0;
             };
 
-            React(result, reactFunction, newLastIDToWrite);
+            ReactSingleUint(result, reactFunction, newLastIDToWrite);
 
             return result;
         }
@@ -232,7 +230,7 @@ namespace detail
 
     class ExitReactorData
     {
-    private:
+    protected:
         alignas(CasData128) CasData128 data;
         friend class ExitReactorHandle;
         friend class CasReactorHandle<ExitReactorData>;
@@ -246,9 +244,10 @@ namespace detail
         constexpr static uint64_t EntranceFirstToWrite = 0u;
         constexpr static uint64_t EntranceLastToWrite = mwsrQueueSize;
 
-        ExitReactorData()
+        ExitReactorData() noexcept
         {
             memset(this, 0, sizeof(ExitReactorData));
+            setFirstIDToRead(EntranceFirstToWrite);
         }
 
     private:
@@ -266,10 +265,10 @@ namespace detail
 
         bool getReaderIsLocked() const noexcept
         {
-            return (data.high & 0x80000000LL) != 0;
+            return (data.high & 0x8000'0000LL) != 0;
         }
 
-        void setFirstIDToRead(uint64_t value)
+        void setFirstIDToRead(uint64_t value) noexcept
         {
             assert((value & 0x8000'0000LL) == 0);
             data.high = (data.high & 0x8000'0000LL) | value;
@@ -282,21 +281,21 @@ namespace detail
 
         void setReaderIsLocked() noexcept
         {
-            data.high |= 0x80000000LL;
+            data.high |= 0x8000'0000LL;
         }
 
         void setReaderIsUnlocked() noexcept
         {
-            data.high &= ~0x80000000LL;
+            data.high &= ~0x8000'0000LL;
         }
     };
 
     class ExitReactorHandle : public CasReactorHandle<ExitReactorData>
     {
     public:
-        ExitReactorHandle(atomic128& atomic) : CasReactorHandle<ExitReactorData>(atomic) {}
+        ExitReactorHandle(atomic128& atomic) noexcept : CasReactorHandle<ExitReactorData>(atomic) {}
 
-        bool writeCompleted(uint64_t _id)
+        bool writeCompleted(uint64_t _id) noexcept
         {
             auto reactFunction = [](ExitReactorData& data, uint64_t id, bool& earlyExit)->bool
             {
@@ -324,18 +323,18 @@ namespace detail
 
             bool result = false;
             /// result is true if we've unlocked the reader (from locked), false if it wasn't even locked in the first place
-            React(result, reactFunction, _id);
+            ReactSingleUint(result, reactFunction, _id);
             return result;
         }
 
         // Slight variation on startRead: avoids setting flag that reader is locked when we can't read, since that will
         // cause misbehavior when we come back again and try to read in the next iteration (as startRead assumes we only
         // will do that because we got unlocked after writes were completed)
-        std::pair<size_t, uint64_t> tryStartRead()
+        std::pair<size_t, uint64_t> tryStartRead() noexcept
         {
             auto reactFunction = [](ExitReactorData& data, bool& earlyExit)->std::pair<size_t, uint64_t>
             {
-                // no need to assert that reader is locked, it should never be in this path!
+                assert(!data.getReaderIsLocked());
                 uint64_t mask = data.getCompletedWritesMask();
                 if (maskGetBit(mask, 0))
                 {
@@ -358,11 +357,11 @@ namespace detail
             };
 
             std::pair<size_t, uint64_t> result{ 0u, 0u };
-            React(result, reactFunction);
+            ReactVoid(result, reactFunction);
             return result;
         }
 
-        std::pair<size_t, uint64_t> startRead()
+        std::pair<size_t, uint64_t> startRead() noexcept
         {
             auto reactFunction = [](ExitReactorData& data, bool& earlyExit)->std::pair<size_t, uint64_t>
             {
@@ -395,11 +394,11 @@ namespace detail
             };
 
             std::pair<size_t, uint64_t> result{ 0u, 0u };
-            React(result, reactFunction);
+            ReactVoid(result, reactFunction);
             return result;
         }
 
-        uint64_t readCompleted(size_t _size, uint64_t _id)
+        uint64_t readCompleted(size_t _size, uint64_t _id) noexcept
         {
             auto reactFunction = [](ExitReactorData& data, uint64_t size, uint64_t id, bool& earlyExit)->uint64_t
             {
@@ -424,7 +423,7 @@ namespace detail
             };
 
             uint64_t result{ 0u };
-            React(result, reactFunction, _size, _id);
+            ReactDoubleUint(result, reactFunction, _size, _id);
             return result;
         }
 
@@ -607,7 +606,7 @@ public:
      * 
      * Initializes the queue with empty state and sets up internal synchronization structures.
      */
-    mwsrQueue() : entranceData{ detail::ExitReactorData::EntranceFirstToWrite, detail::ExitReactorData::EntranceLastToWrite } {}
+    mwsrQueue() noexcept : entranceData{ detail::ExitReactorData::EntranceFirstToWrite, detail::ExitReactorData::EntranceLastToWrite } {}
     
     mwsrQueue(const mwsrQueue&) = delete;
     mwsrQueue& operator=(const mwsrQueue&) = delete;
@@ -638,7 +637,7 @@ public:
         }
     }
 
-    bool try_push(T item)
+    bool try_push(T item) noexcept
     {
         detail::EntranceReactorHandle entrance(entranceData);
         auto [newId, foundNewID] = entrance.tryAllocateNextID();
@@ -720,7 +719,7 @@ public:
      * @return std::optional<T> containing the item if available, or std::nullopt if queue is empty
      * @note This function does not block and will return immediately if no items are available.
      */
-    std::optional<T> try_pop()
+    std::optional<T> try_pop() noexcept
     {
         if (readCacheBegin < readCacheEnd)
         {

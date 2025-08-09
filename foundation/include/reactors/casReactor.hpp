@@ -20,11 +20,12 @@ protected:
 
     CasReactorHandle(atomic128& cas_block) : casBlock(&cas_block)
     {
-        lastRead.data = casBlock->load();
+        CasData128 last_read_load = casBlock->load();
+        lastRead.data = last_read_load;
     }
 
     template<typename ReturnType, typename Function>
-    void React(ReturnType& out, Function&& function)
+    void ReactVoid(ReturnType& out, Function&& function)
     {
         while (true)
         {
@@ -50,7 +51,7 @@ protected:
     }
 
     template<typename ReturnType, typename Function>
-    void React(ReturnType& out, Function&& function, uint64_t param)
+    void ReactSingleUint(ReturnType& out, Function&& function, uint64_t param)
     {
         while (true)
         {
@@ -73,7 +74,7 @@ protected:
     }
 
     template<typename ReturnType, typename Function>
-    void React(ReturnType& out, Function&& function, uint64_t p0, uint64_t p1)
+    void ReactDoubleUint(ReturnType& out, Function&& function, uint64_t p0, uint64_t p1)
     {
         while (true)
         {

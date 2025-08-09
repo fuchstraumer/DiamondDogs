@@ -12,7 +12,7 @@
 struct alignas(16) CasData128
 {
     /// Default constructor - initializes both fields to zero
-    CasData128() noexcept : low{ 0u }, high{ 0u }
+    CasData128() noexcept
     {
         memset(this, 0, sizeof(CasData128));
     }
@@ -25,11 +25,28 @@ struct alignas(16) CasData128
      */
     CasData128(uint64_t _low, uint64_t _high) noexcept : low{ _low }, high{ _high } {}
     
-    CasData128(const CasData128&) noexcept = default;
-    CasData128(CasData128&&) noexcept = default;
-    CasData128& operator=(const CasData128&) noexcept = default;
-    CasData128& operator=(CasData128&&) noexcept = default;
-    ~CasData128() noexcept = default;
+    CasData128(const CasData128& other) noexcept : low{ other.low }, high{ other.high }
+    {}
+
+    CasData128(CasData128&& other) noexcept : low{ std::move(other.low) }, high{ std::move(other.high) }
+    {}
+
+    CasData128& operator=(const CasData128& other) noexcept
+    {
+        low = other.low;
+        high = other.high;
+        return *this;
+    }
+
+    CasData128& operator=(CasData128&& other) noexcept
+    {
+        if (this != &other)
+        {
+            low = std::move(other.low);
+            high = std::move(other.high);
+        }
+        return *this;
+    }
     
     /// Equality comparison
     constexpr bool operator==(const CasData128& other) const noexcept { return low == other.low && high == other.high; }
