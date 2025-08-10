@@ -466,7 +466,6 @@ namespace detail
         std::condition_variable_any cv;
         LockedThreadsListLockItem* next{ nullptr };
     };
-    thread_local LockedThreadsListLockItem lockedThreadsListTLS_data = LockedThreadsListLockItem{};
 
     // Templatization required, so that it works with more than one type of queue item
     // (as each template initialization will be a new type, causing new static members)
@@ -477,6 +476,7 @@ namespace detail
         uint64_t unlockUpTo{ 0u };
         CriticalSection mutex;
         LockedThreadsListLockItem* first{ nullptr };
+        inline static thread_local LockedThreadsListLockItem lockedThreadsListTLS_data = LockedThreadsListLockItem{};
     public:
 
         void lockAndWait(uint64_t itemId)
