@@ -14,7 +14,7 @@
  * @tparam Capacity Maximum number of elements the buffer can hold
  */
 template<typename T, size_t Capacity>
-struct circular_buffer
+struct CircularBuffer
 {
 private:
     size_t head{ 0u };
@@ -34,14 +34,14 @@ public:
     using const_iterator = decltype(data)::const_iterator;
 
     /// Default constructor
-    circular_buffer() noexcept = default;
+    CircularBuffer() noexcept = default;
     /// Destructor
-    ~circular_buffer() noexcept = default;
+    ~CircularBuffer() noexcept = default;
 
     /// Copy constructor
-    circular_buffer(const circular_buffer&) noexcept = default;
+    CircularBuffer(const CircularBuffer&) noexcept = default;
     /// Copy assignment operator
-    circular_buffer& operator=(const circular_buffer&) noexcept = default;
+    CircularBuffer& operator=(const CircularBuffer&) noexcept = default;
     
 
     /**

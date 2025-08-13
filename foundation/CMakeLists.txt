@@ -25,7 +25,8 @@ set(foundation_source_files
     ${foundation_plugin_manager_sources})
 
 set(foundation_containers_source_files
-    "include/containers/circular_buffer.hpp"
+    "include/containers/CircularBuffer.hpp"
+    "include/containers/ConcurrentDeque.hpp"
     "include/containers/mwsrQueue.hpp")
 
 set(threading_source_files
