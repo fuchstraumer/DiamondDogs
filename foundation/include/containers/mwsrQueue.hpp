@@ -482,8 +482,10 @@ namespace detail
     {
         // ID of item we're waiting on
         uint64_t itemID{ std::numeric_limits<uint64_t>::max() };
-        std::condition_variable_any cv;
         LockedThreadsListLockItem* next{ nullptr };
+#if !defined(__cpp_lib_atomic_wait) // don't need this if we have atomic wait, so define it out
+        std::condition_variable_any cv;
+#endif
     };
 
     // Templatization required, so that it works with more than one type of queue item
@@ -492,7 +494,11 @@ namespace detail
     class LockedThreadsList
     {
     private:
+#if defined(__cpp_lib_atomic_wait)
+        std::atomic<uint64_t> unlockUpTo{ 0u };
+#else
         uint64_t unlockUpTo{ 0u };
+#endif
         CriticalSection mutex;
         LockedThreadsListLockItem* first{ nullptr };
         inline static thread_local LockedThreadsListLockItem lockedThreadsListTLS_data = LockedThreadsListLockItem{};
@@ -500,6 +506,35 @@ namespace detail
 
         void lockAndWait(uint64_t itemId)
         {
+#if defined(__cpp_lib_atomic_wait)
+
+            {
+                // lock to insert in list first
+                std::unique_lock lock(mutex);
+                lockedThreadsListTLS_data.itemID = itemId;
+                insertSorted(&lockedThreadsListTLS_data);
+            }
+
+
+            // now use busy wait loop with atomic wait
+            uint64_t currentUnlockUpTo = unlockUpTo.load(std::memory_order_acquire);
+            while (itemId >= currentUnlockUpTo)
+            {
+                // wait while currentUnlockUpTo is same as unlockUpTo
+                unlockUpTo.wait(currentUnlockUpTo, std::memory_order_acquire);
+                // woken, update unlockUpTo to see if we exit the waiting loop
+                currentUnlockUpTo = unlockUpTo.load(std::memory_order_acquire);
+            }
+
+            {
+                // lock again to remove from list if we're unlocked and continuing on
+                std::unique_lock lock(mutex);
+                removeFromList(&lockedThreadsListTLS_data);
+            }
+
+#else
+            lockedThreadsListTLS_data.itemID = itemId;
+            insertSorted(&lockedThreadsListTLS_data);
             std::unique_lock lock(mutex);
             lockedThreadsListTLS_data.itemID = itemId;
             insertSorted(&lockedThreadsListTLS_data);
@@ -508,10 +543,15 @@ namespace detail
                 lockedThreadsListTLS_data.cv.wait(lock);
             }
             removeFromList(&lockedThreadsListTLS_data);
+#endif
         }
 
         void unlockAllUpTo(uint64_t id)
         {
+#if defined(__cpp_lib_atomic_wait)
+            unlockUpTo.store(id, std::memory_order_release);
+            unlockUpTo.notify_all();
+#else
             std::unique_lock lock(mutex);
             assert(id >= unlockUpTo);
             unlockUpTo = id;
@@ -523,6 +563,7 @@ namespace detail
                     iter->cv.notify_one();
                 }
             }
+#endif
         }
 
     private:
