@@ -432,30 +432,26 @@ namespace detail
     class LockedSingleThread
     {
     private:
-        int64_t lockCount{ 0u };
-        CriticalSection mutex;
-        std::condition_variable_any cv;
+        std::atomic_flag readerIsWaiting{};
     public:
 
         void lockAndWait()
         {
-            std::unique_lock lock(mutex);
-            assert(lockCount == -1 || lockCount == 0);
-            ++lockCount;
-            while (lockCount > 0)
+            while (readerIsWaiting.test_and_set(std::memory_order_acquire))
             {
-                // Thread will sleep while lock count is set
-                cv.wait(lock);
+#if defined(__cpp_lib_atomic_wait)
+                // waits while the flag is set to true, unlocks as soon as it changes
+                readerIsWaiting.wait(true, std::memory_order_acquire);
+#endif
             }
         }
 
         void unlock()
         {
-            std::unique_lock lock(mutex);
-            --lockCount;
-            lock.unlock();
-            // lockCount lowered, wake thread that was locked and waiting
-            cv.notify_one();
+            readerIsWaiting.clear(std::memory_order_release);
+#if defined(__cpp_lib_atomic_wait)
+            readerIsWaiting.notify_one();
+#endif
         }
     };
 
