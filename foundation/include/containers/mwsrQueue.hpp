@@ -432,25 +432,48 @@ namespace detail
     class LockedSingleThread
     {
     private:
+        // If we can, use atomic flag approach
+#if defined(__cpp_lib_atomic_wait)
         std::atomic_flag readerIsWaiting{};
+#else
+        // Fallback to traditional locking, avoiding spinning on the flag
+        int64_t lockCount{ 0u };
+        CriticalSection mutex;
+        std::condition_variable_any cv;
+#endif  
     public:
 
         void lockAndWait()
         {
+#if defined(__cpp_lib_atomic_wait)
             while (readerIsWaiting.test_and_set(std::memory_order_acquire))
             {
-#if defined(__cpp_lib_atomic_wait)
                 // waits while the flag is set to true, unlocks as soon as it changes
                 readerIsWaiting.wait(true, std::memory_order_acquire);
-#endif
             }
+#else
+            std::unique_lock lock(mutex);
+            assert(lockCount == -1 || lockCount == 0);
+            ++lockCount;
+            while (lockCount > 0)
+            {
+                // Thread will sleep while lock count is set
+                cv.wait(lock);
+            }
+#endif
         }
 
         void unlock()
         {
-            readerIsWaiting.clear(std::memory_order_release);
 #if defined(__cpp_lib_atomic_wait)
+            readerIsWaiting.clear(std::memory_order_release);
             readerIsWaiting.notify_one();
+#else
+            std::unique_lock lock(mutex);
+            --lockCount;
+            lock.unlock();
+            // lockCount lowered, wake thread that was locked and waiting
+            cv.notify_one();
 #endif
         }
     };
