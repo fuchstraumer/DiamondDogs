@@ -1,12 +1,13 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
-#include "containers/circular_buffer.hpp"
+#include "containers/CircularBuffer.hpp"
 
 class CircularBufferTest : public ::testing::Test
 {
 protected:
-    void SetUp() override {
+    void SetUp() override
+    {
         // Setup if needed
     }
 };

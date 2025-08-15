@@ -7,3 +7,4 @@
 - Transfer system needs to be able to handle weird inter-image copy requests better, like from different layers or subregions to other layers or subregions or even between formats and usages. Thinking of cases like copying depth resources for debug viewing to color targets, or other such silly things
 - Update all barriers and synchronization in the transfer system for synchronization2 extensions
 - Update memory handling and allocation and usages of buffers based on extensions. blech
+- We need to have a way to get a mapped resource pointer back when creating a buffer resource, as this will make things a lot more efficient.

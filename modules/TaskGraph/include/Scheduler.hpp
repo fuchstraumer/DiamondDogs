@@ -1,0 +1,5 @@
+#pragma once
+#ifndef TASK_GRAPH_SCHEDULER_HPP
+#define TASK_GRAPH_SCHEDULER_HPP
+
+#endif // !TASK_GRAPH_SCHEDULER_HPP

@@ -1,7 +1,7 @@
 /* sdnoise1234, Simplex noise with true analytic
  * derivative in 1D to 4D.
  *
- * Copyright © 2003-2012, Stefan Gustavson
+ * Copyright ï¿½ 2003-2012, Stefan Gustavson
  *
  * Contact: stefan.gustavson@gmail.com
  *
@@ -88,9 +88,9 @@ static void grad3(int32_t hash, float& gx, float& gy, float& gz) {
 }
 
 NoiseGen::NoiseGen() : randomDvc(), rng(randomDvc()) {
-	std::iota(permutationArray.begin(), permutationArray.begin() + 256, 0);
-	std::iota(permutationArray.begin() + 256, permutationArray.end(), 0);
-	std::shuffle(permutationArray.begin(), permutationArray.end(), rng);
+  std::iota(permutationArray.begin(), permutationArray.begin() + 256, 0);
+  std::iota(permutationArray.begin() + 256, permutationArray.end(), 0);
+  std::shuffle(permutationArray.begin(), permutationArray.end(), rng);
 }
 
 void NoiseGen::Seed(const size_t seed) noexcept
@@ -372,7 +372,7 @@ float NoiseGen::SimplexNoiseWithDerivative3D(float x, float y, float z, float* d
     /* Compute derivative, if requested by supplying non-null pointers
      * for the last three arguments */
     if (deriv != nullptr) {
-	/*  A straight, unoptimised calculation would be like:
+  /*  A straight, unoptimised calculation would be like:
      *     *deriv->x = -8.0f * t20 * t0 * x0 * dot(gx0, gy0, gz0, x0, y0, z0) + t40 * gx0;
      *    *deriv->y = -8.0f * t20 * t0 * y0 * dot(gx0, gy0, gz0, x0, y0, z0) + t40 * gy0;
      *    *deriv->z = -8.0f * t20 * t0 * z0 * dot(gx0, gy0, gz0, x0, y0, z0) + t40 * gz0;

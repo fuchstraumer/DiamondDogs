@@ -50,17 +50,17 @@ void mock_signal(void* state, void* data, void* user_data)
 TEST_F(ResourceLoaderTest, SingletonAccess)
 {
     // Test that GetResourceLoader returns the same instance
-    // ResourceLoader& loader1 = ResourceLoader::GetResourceLoader();
-    // ResourceLoader& loader2 = ResourceLoader::GetResourceLoader();
-    // EXPECT_EQ(&loader1, &loader2);
+    ResourceLoader& loader1 = ResourceLoader::GetResourceLoader();
+    ResourceLoader& loader2 = ResourceLoader::GetResourceLoader();
+    EXPECT_EQ(&loader1, &loader2);
     SUCCEED() << "Singleton access test to be implemented";
 }
 
 TEST_F(ResourceLoaderTest, SubscribeUnsubscribe)
 {
     // Test basic subscription and unsubscription
-    // loader->Subscribe("test", mock_factory, mock_delete);
-    // loader->Unsubscribe("test");
+    loader->Subscribe("test", mock_factory, mock_delete);
+    loader->Unsubscribe("test");
     SUCCEED() << "Subscribe/Unsubscribe test to be implemented";
 }
 
@@ -70,17 +70,15 @@ TEST_F(ResourceLoaderTest, BasicResourceLoading)
     factory_call_count = 0;
     signal_call_count = 0;
     
-    // loader->Subscribe("test", mock_factory, mock_delete);
-    // loader->Start();
+    loader->Subscribe("test", mock_factory, mock_delete);
     
-    // void* requester = this;
-    // loader->Load("test", "test_file.txt", requester, mock_signal);
+    void* requester = this;
+    loader->Load("test", "test_file.txt", requester, mock_signal);
     
-    // loader->WaitForAllLoads();
-    // loader->Stop();
+    loader->WaitForAllLoads();
     
-    // EXPECT_GT(factory_call_count.load(), 0);
-    // EXPECT_GT(signal_call_count.load(), 0);
+    EXPECT_GT(factory_call_count.load(), 0);
+    EXPECT_GT(signal_call_count.load(), 0);
     
     SUCCEED() << "Basic resource loading test to be implemented";
 }
@@ -94,37 +92,39 @@ TEST_F(ResourceLoaderTest, ConcurrentResourceLoading)
     factory_call_count = 0;
     signal_call_count = 0;
     
-    // loader->Subscribe("concurrent_test", mock_factory, mock_delete);
-    // loader->Start();
+    loader->Subscribe("concurrent_test", mock_factory, mock_delete);
     
     std::vector<std::thread> threads;
     std::atomic<int> completed_loads{0};
     
-    auto worker = [&](int thread_id) {
-        for (int i = 0; i < loads_per_thread; ++i) {
+    auto worker = [&](int thread_id)
+    {
+        for (int i = 0; i < loads_per_thread; ++i)
+        {
             std::string filename = "thread_" + std::to_string(thread_id) + "_file_" + std::to_string(i) + ".txt";
-            // loader->Load("concurrent_test", filename.c_str(), this, mock_signal);
+            loader->Load("concurrent_test", filename.c_str(), this, mock_signal);
             completed_loads.fetch_add(1);
         }
     };
     
     // Launch threads
-    for (int i = 0; i < num_threads; ++i) {
+    for (int i = 0; i < num_threads; ++i)
+    {
         threads.emplace_back(worker, i);
     }
     
     // Wait for all threads to submit their loads
-    for (auto& thread : threads) {
+    for (auto& thread : threads)
+    {
         thread.join();
     }
     
     // Wait for all loads to complete
-    // loader->WaitForAllLoads();
-    // loader->Stop();
+    loader->WaitForAllLoads();
     
-    // EXPECT_EQ(completed_loads.load(), num_threads * loads_per_thread);
-    // EXPECT_EQ(factory_call_count.load(), num_threads * loads_per_thread);
-    // EXPECT_EQ(signal_call_count.load(), num_threads * loads_per_thread);
+    EXPECT_EQ(completed_loads.load(), num_threads * loads_per_thread);
+    EXPECT_EQ(factory_call_count.load(), num_threads * loads_per_thread);
+    EXPECT_EQ(signal_call_count.load(), num_threads * loads_per_thread);
     
     SUCCEED() << "Concurrent resource loading test to be implemented";
 }
@@ -135,23 +135,21 @@ TEST_F(ResourceLoaderTest, DuplicateResourceLoading)
     factory_call_count = 0;
     signal_call_count = 0;
     
-    // loader->Subscribe("duplicate_test", mock_factory, mock_delete);
-    // loader->Start();
+    loader->Subscribe("duplicate_test", mock_factory, mock_delete);
     
     const char* filename = "duplicate_resource.txt";
     
     // Load the same resource multiple times
-    // loader->Load("duplicate_test", filename, this, mock_signal);
-    // loader->Load("duplicate_test", filename, this, mock_signal);
-    // loader->Load("duplicate_test", filename, this, mock_signal);
+    loader->Load("duplicate_test", filename, this, mock_signal);
+    loader->Load("duplicate_test", filename, this, mock_signal);
+    loader->Load("duplicate_test", filename, this, mock_signal);
     
-    // loader->WaitForAllLoads();
-    // loader->Stop();
+    loader->WaitForAllLoads();
     
     // The factory should only be called once for the same resource
-    // EXPECT_EQ(factory_call_count.load(), 1);
+    EXPECT_EQ(factory_call_count.load(), 1);
     // Signal should be called for each request
-    // EXPECT_EQ(signal_call_count.load(), 3);
+    EXPECT_EQ(signal_call_count.load(), 3);
     
     SUCCEED() << "Duplicate resource loading test to be implemented";
 }
@@ -162,22 +160,19 @@ TEST_F(ResourceLoaderTest, ResourceUnloading)
     factory_call_count = 0;
     delete_call_count = 0;
     
-    // loader->Subscribe("unload_test", mock_factory, mock_delete);
-    // loader->Start();
+    loader->Subscribe("unload_test", mock_factory, mock_delete);
     
     const char* filename = "unload_resource.txt";
     
     // Load a resource
-    // loader->Load("unload_test", filename, this, mock_signal);
-    // loader->WaitForAllLoads();
+    loader->Load("unload_test", filename, this, mock_signal);
+    loader->WaitForAllLoads();
     
     // Unload the resource
-    // loader->Unload("unload_test", filename);
+    loader->Unload("unload_test", filename);
     
-    // loader->Stop();
-    
-    // EXPECT_EQ(factory_call_count.load(), 1);
-    // EXPECT_EQ(delete_call_count.load(), 1);
+    EXPECT_EQ(factory_call_count.load(), 1);
+    EXPECT_EQ(delete_call_count.load(), 1);
     
     SUCCEED() << "Resource unloading test to be implemented";
 }
