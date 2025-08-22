@@ -237,8 +237,43 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
 
 DepthStencil::DepthStencil(const vpr::Device* device, const vpr::PhysicalDevice* p_device, const vpr::Swapchain* swap) : Parent(device->vkHandle())
 {
-    *this = CreateDepthStencil(device, p_device, swap);
+    *this = std::move(CreateDepthStencil(device, p_device, swap));
     Parent = device->vkHandle();
+}
+
+DepthStencil::DepthStencil() : Image{ VK_NULL_HANDLE }, Memory{ VK_NULL_HANDLE }, View{ VK_NULL_HANDLE }, Format{ VK_FORMAT_UNDEFINED }, Parent{ VK_NULL_HANDLE }
+{
+
+}
+
+DepthStencil::DepthStencil(DepthStencil&& other) noexcept
+{
+    Image = other.Image;
+    other.Image = VK_NULL_HANDLE;
+    Memory = other.Memory;
+    other.Memory = VK_NULL_HANDLE;
+    View = other.View;
+    other.View = VK_NULL_HANDLE;
+    Format = other.Format;
+    Parent = other.Parent;
+    other.Parent = VK_NULL_HANDLE;
+}
+
+DepthStencil& DepthStencil::operator=(DepthStencil&& other) noexcept
+{
+    if (this != &other)
+    {
+        Image = other.Image;
+        other.Image = VK_NULL_HANDLE;
+        Memory = other.Memory;
+        other.Memory = VK_NULL_HANDLE;
+        View = other.View;
+        other.View = VK_NULL_HANDLE;
+        Format = other.Format;
+        Parent = other.Parent;
+        other.Parent = VK_NULL_HANDLE;
+    }
+    return *this;
 }
 
 DepthStencil::~DepthStencil()
