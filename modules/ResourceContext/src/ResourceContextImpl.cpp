@@ -3,6 +3,7 @@
 #include "ResourceContext.hpp"
 #include "../../RenderingContext/include/RenderingContext.hpp"
 #include "Instance.hpp"
+#include "CreateInfoWrappers.hpp"
 
 #include <fstream>
 #include <format>
@@ -222,12 +223,16 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
         };
         message.reply->SetGraphicsResourceRelaxed(createdResource);
 
+        // need to retrieve buffer create info from stored shim
+        const ResourceContextBufferCreateInfo& buffer_info = resourceRegistry.get<ResourceContextBufferCreateInfo>(new_entity);
+        VkBufferCreateInfo vk_buffer_info = static_cast<VkBufferCreateInfo>(buffer_info);
+
         TransferSystemSetBufferDataMessage set_buffer_data_message
         {
             TransferSystemReqBufferInfo
             {
                 buffer_handle,
-                message.bufferInfo,
+                std::move(vk_buffer_info),
                 message.resourceUsage,
                 message.flags
             },
@@ -896,13 +901,13 @@ void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&&
 
 VkBuffer ResourceContextImpl::createBuffer(
     entt::entity new_entity,
-    VkBufferCreateInfo&& buffer_info,
+    ResourceContextBufferCreateInfo&& buffer_info,
     const resource_creation_flags _flags,
     const resource_usage _resource_usage,
     void* user_data_ptr,
     bool has_initial_data)
 {
-    VkBufferCreateInfo& buffer_create_info = resourceRegistry.emplace<VkBufferCreateInfo>(new_entity, std::move(buffer_info)); 
+    ResourceContextBufferCreateInfo& buffer_create_info = resourceRegistry.emplace<ResourceContextBufferCreateInfo>(new_entity, std::move(buffer_info));
     const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Buffer, _flags, _resource_usage);
     std::string debug_name;
     if (flags.flags & resource_creation_flag_bits::UserDataAsString)
@@ -917,7 +922,7 @@ VkBuffer ResourceContextImpl::createBuffer(
 
     if ((flags.resourceUsage == resource_usage::CPUToGPU || flags.resourceUsage == resource_usage::GPUToCPU || flags.resourceUsage == resource_usage::GPUOnly) && has_initial_data)
     {
-        buffer_create_info.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        buffer_create_info.UsageFlags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     }
 
     VmaAllocationCreateInfo alloc_create_info
@@ -932,7 +937,8 @@ VkBuffer ResourceContextImpl::createBuffer(
     };
 
     VkBuffer buffer_handle = VK_NULL_HANDLE;
-    VkResult result = vmaCreateBuffer(allocatorHandle, &buffer_create_info, &alloc_create_info, &buffer_handle, &alloc, &alloc_info);
+    const VkBufferCreateInfo vk_buffer_info = static_cast<VkBufferCreateInfo>(buffer_create_info);
+    VkResult result = vmaCreateBuffer(allocatorHandle, &vk_buffer_info, &alloc_create_info, &buffer_handle, &alloc, &alloc_info);
     VkAssert(result);
     
     if constexpr (RENDERING_CONTEXT_USE_DEBUG_INFO && RENDERING_CONTEXT_VALIDATION_ENABLED)
@@ -1010,13 +1016,13 @@ void ResourceContextImpl::setBufferDataHostOnly(entt::entity new_entity, Interna
 
 VkImage ResourceContextImpl::createImage(
     entt::entity new_entity,
-    VkImageCreateInfo&& image_info,
+    ResourceContextImageCreateInfo&& image_info,
     const resource_creation_flags _flags,
     const resource_usage _resource_usage,
     void* user_data_ptr,
     bool has_initial_data)
 {
-    VkImageCreateInfo& image_create_info = resourceRegistry.emplace<VkImageCreateInfo>(new_entity, std::move(image_info));
+    ResourceContextImageCreateInfo& image_create_info = resourceRegistry.emplace<ResourceContextImageCreateInfo>(new_entity, std::move(image_info));
     const ResourceFlags& flags = resourceRegistry.emplace<ResourceFlags>(new_entity, resource_type::Image, _flags, _resource_usage);
     std::string debug_name;
     if (flags.flags & resource_creation_flag_bits::UserDataAsString)
@@ -1027,9 +1033,9 @@ VkImage ResourceContextImpl::createImage(
     VmaAllocationInfo& alloc_info = resourceRegistry.emplace<VmaAllocationInfo>(new_entity);
     VmaAllocation& alloc = resourceRegistry.emplace<VmaAllocation>(new_entity);
 
-    if (!(image_create_info.usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) || (flags.resourceUsage != resource_usage::GPUOnly))
+    if (!(image_create_info.UsageFlags & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) || (flags.resourceUsage != resource_usage::GPUOnly))
     {
-        image_create_info.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        image_create_info.UsageFlags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     }
 
     VmaAllocationCreateInfo alloc_create_info
@@ -1044,7 +1050,8 @@ VkImage ResourceContextImpl::createImage(
     };
 
     VkImage image_handle = VK_NULL_HANDLE;
-    VkResult result = vmaCreateImage(allocatorHandle, &image_create_info, &alloc_create_info, &image_handle, &alloc, &alloc_info);
+    const VkImageCreateInfo vk_image_info = static_cast<VkImageCreateInfo>(image_create_info);
+    VkResult result = vmaCreateImage(allocatorHandle, &vk_image_info, &alloc_create_info, &image_handle, &alloc, &alloc_info);
     resourceRegistry.emplace<VkImage>(new_entity, image_handle);
     VkAssert(result);
 

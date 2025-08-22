@@ -16,7 +16,8 @@ struct UploadBuffer
     UploadBuffer(UploadBuffer&& other) noexcept;
     UploadBuffer& operator=(UploadBuffer&& other) noexcept;
     ~UploadBuffer();
-    std::vector<VkBufferCopy> SetData(const InternalResourceDataContainer::BufferDataVector& dataVector);
+    std::vector<VkBufferCopy> SetData(
+        const InternalResourceDataContainer::BufferDataVector& dataVector);
     std::vector<VkBufferImageCopy> SetData(
         const InternalResourceDataContainer::ImageDataVector& imageDataVector,
         const uint32_t numLayers);

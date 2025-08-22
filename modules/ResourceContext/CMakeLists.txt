@@ -5,6 +5,8 @@ ADD_MODULE(resource_context
     "include/ResourceLoader.hpp"
     "include/ResourceTypes.hpp"
     "include/TransferSystem.hpp"
+    "src/CreateInfoWrappers.hpp"
+    "src/CreateInfoWrappers.cpp"
     "src/ResourceContext.cpp"
     "src/ResourceContextImpl.cpp"
     "src/ResourceContextImpl.hpp"

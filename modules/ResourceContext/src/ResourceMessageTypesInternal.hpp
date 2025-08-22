@@ -3,6 +3,7 @@
 #define RESOURCE_MESSAGE_TYPES_INTERNAL_HPP
 #include "ResourceTypes.hpp"
 #include "ResourceMessageReply.hpp"
+#include "CreateInfoWrappers.hpp"
 #include <vulkan/vulkan_core.h>
 #include <memory>
 #include <variant>
@@ -71,7 +72,7 @@ struct InternalResourceDataContainer
 
 struct CreateBufferMessage
 {
-    VkBufferCreateInfo bufferInfo;
+    ResourceContextBufferCreateInfo bufferInfo;
     std::optional<VkBufferViewCreateInfo> viewInfo = std::nullopt;
     std::optional<InternalResourceDataContainer> initialData = std::nullopt;
     resource_usage resourceUsage;
@@ -82,7 +83,7 @@ struct CreateBufferMessage
 
 struct CreateImageMessage
 {
-    VkImageCreateInfo imageInfo;
+    ResourceContextImageCreateInfo imageInfo;
     std::optional<VkImageViewCreateInfo> viewInfo = std::nullopt;
     std::optional<InternalResourceDataContainer> initialData = std::nullopt;
     resource_usage resourceUsage;
@@ -93,7 +94,7 @@ struct CreateImageMessage
 
 struct CreateCombinedImageSamplerMessage
 {
-    VkImageCreateInfo imageInfo;
+    ResourceContextImageCreateInfo imageInfo;
     VkImageViewCreateInfo viewInfo;
     VkSamplerCreateInfo samplerInfo;
     std::optional<InternalResourceDataContainer> initialData = std::nullopt;
