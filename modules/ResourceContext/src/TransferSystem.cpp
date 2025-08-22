@@ -513,7 +513,7 @@ void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBuffer
         possible_accesses.data()
     };
 
-    thsvsCmdPipelineBarrier(cmd, &global_barrier, 1u, nullptr, 0u, nullptr);
+    thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
 
     // we can clear and free the stored data now
     transfer_command.EndRecording();
