@@ -1,6 +1,6 @@
 #pragma once
-#ifndef RESOURCE_CONTEXT_RESOURCE_USAGE_FLAGS_HPP
-#define RESOURCE_CONTEXT_RESOURCE_USAGE_FLAGS_HPP
+#ifndef RESOURCE_CONTEXT_RESOURCE_FLAGS_HPP
+#define RESOURCE_CONTEXT_RESOURCE_FLAGS_HPP
 #include <type_traits>
 
 
@@ -313,4 +313,4 @@ constexpr inline ImageUsageBits& operator&=(ImageUsageBits& a, const ImageUsageB
     return a;
 }
 
-#endif // !RESOURCE_CONTEXT_RESOURCE_USAGE_FLAGS_HPP
+#endif // !RESOURCE_CONTEXT_RESOURCE_FLAGS_HPP
