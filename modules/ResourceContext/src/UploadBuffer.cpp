@@ -132,16 +132,16 @@ void UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
     VkBufferCreateInfo create_info = k_defaultStagingBufferCreateInfo;
     create_info.size = size;
     VmaAllocationCreateInfo alloc_create_info = k_defaultAllocationCreateInfo;
+    VmaAllocationInfo result_alloc_info;
     VkResult result = vmaCreateBuffer(
         Allocator,
         &create_info,
         &alloc_create_info,
         &Buffer,
         &Allocation,
-        nullptr);
+        &result_alloc_info);
     VkAssert(result);
-    result = vmaMapMemory(Allocator, Allocation, &mappedPtr);
-    VkAssert(result);
+    mappedPtr = result_alloc_info.pMappedData;
     Size = size;
 
     RenderingContext::SetObjectName(
