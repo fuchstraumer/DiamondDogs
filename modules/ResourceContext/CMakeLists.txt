@@ -5,6 +5,7 @@ ADD_MODULE(resource_context
     "include/ResourceMessageReply.hpp"
     "include/ResourceLoader.hpp"
     "include/ResourceTypes.hpp"
+    "include/ResourceUsageFlags.hpp"
     "include/TransferSystem.hpp"
     "src/CreateInfoWrappers.hpp"
     "src/CreateInfoWrappers.cpp"

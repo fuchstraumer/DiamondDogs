@@ -3,7 +3,48 @@
 #define RESOURCE_CONTEXT_RESOURCE_USAGE_FLAGS_HPP
 #include <type_traits>
 
- /**
+
+/** @brief Describes where the resource is used or where it is stored within hardware domains */
+enum class ResourceDomain : uint8_t
+{
+    Invalid = 0,
+    GPUOnly = 1 << 0,
+    CPUOnly = 1 << 1,
+    CPUToGPU = 1 << 2,
+    GPUToCPU = 1 << 3,
+};
+
+/** @brief Describes the fundamental resource type, i.e. is it a buffer or image or sampler etc */
+enum class ResourceType : uint8_t
+{
+    Invalid = 0,
+    Buffer = 1 << 0,
+    BufferView = 1 << 1,
+    Image = 1 << 2,
+    ImageView = 1 << 3,
+    Sampler = 1 << 4,
+    CombinedImageSampler = 1 << 5
+};
+
+/** @brief Combinations of flag bits that control resource creation behavior and specific usage hints */
+enum class ResourceCreationFlags : uint16_t
+{
+    None = 0,
+    /** @brief User data pointer is a null-terminated string naming the resource */
+    UserDataAsNameString = 1 << 0,
+    /** @brief Place the resource in its own dedicated memory allocation */
+    DedicatedMemory = 1 << 1,
+    /** @brief Map the resource as part of creation process */
+    CreateMapped = 1 << 2,
+    /** @brief Keep the resource persistently mapped for its entire lifetime */
+    PersistentlyMapped = 1 << 3,
+    /** @brief Host will write to the resource in a consistent, linear fashion */
+    HostWritesLinear = 1 << 4,
+    /** @brief Host will write to the resource in a random access pattern */
+    HostWritesRandom = 1 << 5,
+};
+
+/**
   * Thinking about logical groupings of buffer usage flags and access bits:
   * - Transfer usage + transfer accesses for staging and transfer buffers. Probably a special case and not often visible
   *   to users writing typical rendering or compute code. Can probably exclude
@@ -28,6 +69,7 @@
   * https://anki3d.org/simplified-pipeline-barriers/
 */
 
+/** @brief Flags specifying the intended usage and access patterns for buffer resources */
 enum class BufferUsageBits : uint64_t
 {
     Invalid = 0,
@@ -107,6 +149,7 @@ enum class BufferUsageBits : uint64_t
 
 };
 
+/** @brief Flags specifying the intended usage and access patterns for image resources */
 enum class ImageUsageBits : uint64_t
 {
     Invalid = 0,
@@ -204,45 +247,67 @@ struct BitmaskTrueType
     constexpr explicit operator bool() const noexcept { return ToUnderlying(value); }
 };
 
-constexpr inline BitmaskTrueType<BufferUsageBits> operator|(BufferUsageBits a, BufferUsageBits b)
+constexpr inline BitmaskTrueType<ResourceCreationFlags> operator|(const ResourceCreationFlags a, const ResourceCreationFlags b) noexcept
 {
-    return static_cast<BufferUsageBits>(ToUnderlying(a) | ToUnderlying(b));
+    return static_cast<ResourceCreationFlags>(ToUnderlying(a) | ToUnderlying(b));
 }
 
-constexpr inline BitmaskTrueType<BufferUsageBits> operator&(BufferUsageBits a, BufferUsageBits b)
+constexpr inline BitmaskTrueType<ResourceCreationFlags> operator&(const ResourceCreationFlags a, const ResourceCreationFlags b) noexcept
 {
-    return static_cast<BufferUsageBits>(ToUnderlying<BufferUsageBits>(a) & ToUnderlying<BufferUsageBits>(b));
+    return static_cast<ResourceCreationFlags>(ToUnderlying(a) & ToUnderlying(b));
 }
 
-constexpr inline BufferUsageBits& operator|=(BufferUsageBits& a, BufferUsageBits b)
+constexpr inline ResourceCreationFlags& operator|=(ResourceCreationFlags& a, const ResourceCreationFlags b) noexcept
 {
     a = a | b;
     return a;
 }
 
-constexpr inline BufferUsageBits& operator&=(BufferUsageBits& a, BufferUsageBits b)
+constexpr inline ResourceCreationFlags& operator&=(ResourceCreationFlags& a, const ResourceCreationFlags b) noexcept
 {
     a = a & b;
     return a;
 }
 
-constexpr inline BitmaskTrueType<ImageUsageBits> operator|(ImageUsageBits a, ImageUsageBits b)
+constexpr inline BitmaskTrueType<BufferUsageBits> operator|(const BufferUsageBits a, const BufferUsageBits b) noexcept
 {
-    return static_cast<ImageUsageBits>(ToUnderlying(a) | ToUnderlying(b));
+    return static_cast<BufferUsageBits>(ToUnderlying(a) | ToUnderlying(b));
 }
 
-constexpr inline BitmaskTrueType<ImageUsageBits> operator&(ImageUsageBits a, ImageUsageBits b)
+constexpr inline BitmaskTrueType<BufferUsageBits> operator&(const BufferUsageBits a, const BufferUsageBits b) noexcept
 {
-    return static_cast<ImageUsageBits>(ToUnderlying<ImageUsageBits>(a) & ToUnderlying<ImageUsageBits>(b));
+    return static_cast<BufferUsageBits>(ToUnderlying(a) & ToUnderlying(b));
 }
 
-constexpr inline ImageUsageBits& operator|=(ImageUsageBits& a, ImageUsageBits b)
+constexpr inline BufferUsageBits& operator|=(BufferUsageBits& a, const BufferUsageBits b) noexcept
 {
     a = a | b;
     return a;
 }
 
-constexpr inline ImageUsageBits& operator&=(ImageUsageBits& a, ImageUsageBits b)
+constexpr inline BufferUsageBits& operator&=(BufferUsageBits& a, const BufferUsageBits b) noexcept
+{
+    a = a & b;
+    return a;
+}
+
+constexpr inline BitmaskTrueType<ImageUsageBits> operator|(const ImageUsageBits a, const ImageUsageBits b) noexcept
+{
+    return static_cast<ImageUsageBits>(ToUnderlying(a) | ToUnderlying(b));
+}
+
+constexpr inline BitmaskTrueType<ImageUsageBits> operator&(const ImageUsageBits a, const ImageUsageBits b) noexcept
+{
+    return static_cast<ImageUsageBits>(ToUnderlying(a) & ToUnderlying(b));
+}
+
+constexpr inline ImageUsageBits& operator|=(ImageUsageBits& a, const ImageUsageBits b) noexcept
+{
+    a = a | b;
+    return a;
+}
+
+constexpr inline ImageUsageBits& operator&=(ImageUsageBits& a, const ImageUsageBits b) noexcept
 {
     a = a & b;
     return a;
