@@ -1,5 +1,6 @@
 
 ADD_MODULE(resource_context
+    "include/ResourceBarriers.hpp"
     "include/ResourceContext.hpp"
     "include/ResourceMessageReply.hpp"
     "include/ResourceLoader.hpp"
@@ -7,6 +8,7 @@ ADD_MODULE(resource_context
     "include/TransferSystem.hpp"
     "src/CreateInfoWrappers.hpp"
     "src/CreateInfoWrappers.cpp"
+    "src/ResourceBarriers.cpp"
     "src/ResourceContext.cpp"
     "src/ResourceContextImpl.cpp"
     "src/ResourceContextImpl.hpp"
