@@ -30,7 +30,7 @@ endfunction()
 #add_subdirectory(ecs_module)
 #add_subdirectory(rendergraph_module)
 add_subdirectory(TaskGraph)
-add_subdirectory(RenderingContext)
+add_subdirectory(RhiSystem)
 add_subdirectory(ResourceContext)
 # This module provides imgui as a basic debugging UI
 # that sits just BARELY over the resource and rendering contexts

@@ -39,6 +39,10 @@ set(threading_source_files
     "src/threading/atomic128.cpp"
     "src/threading/ExponentialBackoffSleeper.cpp")
 
+set(event_source_files
+    "include/events/RhiEvents.hpp"
+    "include/events/PlatformEvents.hpp")
+
 if(WIN32)
     set(threading_platform_source_files
         "src/threading/win32/CriticalSectionWin32.cpp"
@@ -50,8 +54,8 @@ elseif(UNIX)
 endif()
 
 set(utility_source_files
-    "include/utility/delegate.hpp"
-    "include/utility/multicast_delegate.hpp"
+    "include/utility/Delegate.hpp"
+    "include/utility/MulticastDelegate.hpp"
     "include/utility/MurmurHash.hpp"
     "include/utility/tagged_bool.hpp"
     "src/utility/MurmurHash.cpp")
@@ -71,11 +75,13 @@ source_group("threading" FILES ${threading_source_files} ${threading_platform_so
 source_group("utility" FILES ${utility_source_files})
 source_group("reactors" FILES ${reactors_source_files})
 source_group("maths" FILES ${maths_source_files})
+source_group("events" FILES ${event_source_files})
 
 add_library(foundation STATIC
     ${foundation_source_files}
     ${foundation_containers_source_files}
     ${threading_source_files}
+    ${event_source_files}
     ${threading_platform_source_files}
     ${utility_source_files}
     ${reactors_source_files}
