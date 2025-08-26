@@ -1,6 +1,6 @@
 #pragma once
-#ifndef DIAMOND_DOGS_RENDERING_CONTEXT_HPP
-#define DIAMOND_DOGS_RENDERING_CONTEXT_HPP
+#ifndef DIAMOND_DOGS_RHI_SYSTEM_HPP
+#define DIAMOND_DOGS_RHI_SYSTEM_HPP
 #include "utility/delegate.hpp"
 #include <memory>
 #include <vector>
@@ -9,38 +9,38 @@
 #include <vulkan/vulkan_core.h>
 #include <nlohmann/json_fwd.hpp>
 
-#ifdef RENDERING_CONTEXT_USE_DEBUG_INFO_CONF
-constexpr static bool RENDERING_CONTEXT_USE_DEBUG_INFO = true;
+#ifdef RHI_SYSTEM_USE_DEBUG_INFO_CONF
+constexpr static bool RHI_SYSTEM_USE_DEBUG_INFO = true;
 #else
-constexpr static bool RENDERING_CONTEXT_USE_DEBUG_INFO = false;
+constexpr static bool RHI_SYSTEM_USE_DEBUG_INFO = false;
 #endif
 
-#ifdef RENDERING_CONTEXT_VALIDATION_ENABLED_CONF
-constexpr static bool RENDERING_CONTEXT_VALIDATION_ENABLED = true;
+#ifdef RHI_SYSTEM_VALIDATION_ENABLED_CONF
+constexpr static bool RHI_SYSTEM_VALIDATION_ENABLED = true;
 #else
-constexpr static bool RENDERING_CONTEXT_VALIDATION_ENABLED = false;
+constexpr static bool RHI_SYSTEM_VALIDATION_ENABLED = false;
 #endif
 
-#ifdef RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID_CONF
-constexpr static bool RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID = true;
+#ifdef RHI_SYSTEM_DEBUG_INFO_THREAD_ID_CONF
+constexpr static bool RHI_SYSTEM_DEBUG_INFO_THREAD_ID = true;
 #else
-constexpr static bool RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID = false;
+constexpr static bool RHI_SYSTEM_DEBUG_INFO_THREAD_ID = false;
 #endif
 
-#ifdef RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS_CONF
-constexpr static bool RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS = true;
+#ifdef RHI_SYSTEM_DEBUG_INFO_TIMESTAMPS_CONF
+constexpr static bool RHI_SYSTEM_DEBUG_INFO_TIMESTAMPS = true;
 #else
-constexpr static bool RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS = false;
+constexpr static bool RHI_SYSTEM_DEBUG_INFO_TIMESTAMPS = false;
 #endif
 
-#ifdef VTF_DEBUG_INFO_CALLING_FN_CONF
+#ifdef RHI_SYSTEM_DEBUG_INFO_CALLING_FN_CONF
 #include <source_location>
 #include <format>
 // In current configuration, this macro adds the calling function name and line to the objects name
-#define RENDERING_CONTEXT_DEBUG_OBJECT_NAME(name) std::format("{}_{}_{}", name, std::source_location::current().function_name(), std::source_location::current().line())
+#define RHI_SYSTEM_DEBUG_OBJECT_NAME(name) std::format("{}_{}_{}", name, std::source_location::current().function_name(), std::source_location::current().line())
 #else
 // In current configuration, this macro just returns the name without modification
-#define RENDERING_CONTEXT_DEBUG_OBJECT_NAME(name) name
+#define RHI_SYSTEM_DEBUG_OBJECT_NAME(name) name
 #endif
 
 namespace vpr
@@ -58,7 +58,7 @@ class PlatformWindow;
 struct GLFWwindow;
 struct GLFWcursor;
 struct GLFWimage;
-using CursorPosCallbackType = delegate_t<void(double pos_x, double pos_y)>;
+using CursorPosCallbackType = Foundation::Utility::Delegate<void(double pos_x, double pos_y)>;
 using CursorEnterCallbackType = delegate_t<void(int enter)>;
 using ScrollCallbackType = delegate_t<void(double scroll_x, double scroll_y)>;
 using CharCallbackType = delegate_t<void(unsigned int code_point)>;
@@ -68,7 +68,6 @@ using KeyboardKeyCallbackType = delegate_t<void(int key, int scancode, int actio
 
 using PostPhysicalDeviceInitPreLogicalDeviceInitFunction = void(*)(VkPhysicalDevice dvc, VkPhysicalDeviceFeatures** features, void** pNext);
 using PostLogicalDeviceInitFunction = void(*)(void* pNext);
-
 
 using SwapchainCreatedCallbackType = delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)>;
 using SwapchainBeginResizeCallbackType = delegate_t<void(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* userData)>;
@@ -87,28 +86,15 @@ struct SwapchainCallbacks
     void* SwapchainDestroyedUserData{ nullptr };
 };
 
-struct DescriptorLimits
+class RhiSystem
 {
-    DescriptorLimits(const vpr::PhysicalDevice* physicalDevice);
-    uint32_t MaxSamplers;
-    uint32_t MaxUniformBuffers;
-    uint32_t MaxDynamicUniformBuffers;
-    uint32_t MaxStorageBuffers;
-    uint32_t MaxDynamicStorageBuffers;
-    uint32_t MaxSampledImages;
-    uint32_t MaxStorageImages;
-    uint32_t MaxInputAttachments;
-};
-
-class RenderingContext
-{
-    RenderingContext() noexcept;
-    ~RenderingContext();
-    RenderingContext(const RenderingContext&) = delete;
-    RenderingContext& operator=(const RenderingContext&) = delete;
+    RhiSystem() noexcept;
+    ~RhiSystem();
+    RhiSystem(const RhiSystem&) = delete;
+    RhiSystem& operator=(const RhiSystem&) = delete;
 public:
 
-    static RenderingContext& Get() noexcept;
+    static RhiSystem& Get() noexcept;
     static void SetShouldResize(const bool val);
     static bool ShouldResizeExchange(const bool val);
 
@@ -176,4 +162,4 @@ private:
 
 };
 
-#endif //!DIAMOND_DOGS_RENDERING_CONTEXT_HPP
+#endif //!DIAMOND_DOGS_RHI_SYSTEM_HPP

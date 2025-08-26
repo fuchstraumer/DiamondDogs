@@ -52,7 +52,7 @@ public:
 
 private:
 
-    friend class RenderingContext;
+    friend class RhiSystem;
     struct GLFWwindow* glfwWindow() noexcept;
 
     void createWindow(const char* app_name);

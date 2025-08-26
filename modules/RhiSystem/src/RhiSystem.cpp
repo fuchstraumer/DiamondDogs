@@ -1,4 +1,4 @@
-#include "RenderingContext.hpp"
+#include "RhiSystem.hpp"
 #include "PlatformWindow.hpp"
 #include "Instance.hpp"
 #include "PhysicalDevice.hpp"
@@ -16,7 +16,7 @@
 #include <vector>
 #include "GLFW/glfw3.h"
 #ifdef APIENTRY
-// re-defined by glfw on windows, then seen again by easylogging
+// re-defined by glfw on windows
 #undef APIENTRY
 #endif
 #include "nlohmann/json.hpp"
@@ -66,46 +66,31 @@ static std::atomic<bool>& GetShouldResizeFlag()
     return should_resize;
 }
 
-DescriptorLimits::DescriptorLimits(const vpr::PhysicalDevice* hostDevice)
-{
-    VkPhysicalDeviceProperties properties;
-    vkGetPhysicalDeviceProperties(hostDevice->vkHandle(), &properties);
-    const VkPhysicalDeviceLimits& limits = properties.limits;
-    MaxSamplers = limits.maxDescriptorSetSamplers;
-    MaxUniformBuffers = limits.maxDescriptorSetUniformBuffers;
-    MaxDynamicUniformBuffers = limits.maxDescriptorSetUniformBuffersDynamic;
-    MaxStorageBuffers = limits.maxDescriptorSetStorageBuffers;
-    MaxDynamicStorageBuffers = limits.maxDescriptorSetStorageBuffersDynamic;
-    MaxSampledImages = limits.maxDescriptorSetSampledImages;
-    MaxStorageImages = limits.maxDescriptorSetStorageImages;
-    MaxInputAttachments = limits.maxDescriptorSetInputAttachments;
-}
-
-RenderingContext::~RenderingContext()
+RhiSystem::~RhiSystem()
 {
     Destroy();
 }
 
-RenderingContext::RenderingContext() noexcept {}
+RhiSystem::RhiSystem() noexcept {}
 
-RenderingContext& RenderingContext::Get() noexcept
+RhiSystem& RhiSystem::Get() noexcept
 {
-    static RenderingContext ctxt;
+    static RhiSystem ctxt;
     return ctxt;
 }
 
-void RenderingContext::SetShouldResize(bool resize)
+void RhiSystem::SetShouldResize(bool resize)
 {
     auto& flag = GetShouldResizeFlag();
     flag = resize;
 }
 
-bool RenderingContext::ShouldResizeExchange(bool value)
+bool RhiSystem::ShouldResizeExchange(bool value)
 {
     return GetShouldResizeFlag().exchange(value);
 }
 
-void RenderingContext::Construct(const char* file_path)
+void RhiSystem::Construct(const char* file_path)
 {
 
     std::ifstream input_file(file_path);
@@ -147,7 +132,7 @@ void RenderingContext::Construct(const char* file_path)
 
     createLogicalDevice(json_file, extensionPack);
 
-    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED)
+    if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
     {
         SetObjectNameFn = logicalDevice->DebugUtilsHandler().vkSetDebugUtilsObjectName;
 
@@ -215,7 +200,7 @@ void RenderingContext::Construct(const char* file_path)
 
     swapchain = std::make_unique<vpr::Swapchain>(logicalDevice.get(), window->glfwWindow(), windowSurface->vkHandle(), desired_mode);
 
-    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED && RENDERING_CONTEXT_USE_DEBUG_INFO)
+    if constexpr (RHI_SYSTEM_VALIDATION_ENABLED && RHI_SYSTEM_USE_DEBUG_INFO)
     {
         SetObjectName(VK_OBJECT_TYPE_SWAPCHAIN_KHR, (uint64_t)swapchain->vkHandle(), "RenderingContextSwapchain");
 
@@ -230,7 +215,7 @@ void RenderingContext::Construct(const char* file_path)
 
 }
 
-void RenderingContext::Update()
+void RhiSystem::Update()
 {
     window->Update();
     if (ShouldResizeExchange(false))
@@ -239,11 +224,11 @@ void RenderingContext::Update()
     }
 }
 
-void RenderingContext::Destroy()
+void RhiSystem::Destroy()
 {
     swapchain.reset();
     windowSurface.reset();
-    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED)
+    if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
     {
         logicalDevice->DebugUtilsHandler().vkDestroyDebugUtilsMessenger(vulkanInstance->vkHandle(), DebugUtilsMessenger, nullptr);
     }
@@ -254,44 +239,44 @@ void RenderingContext::Destroy()
     extensionWrangler.reset();
 }
 
-vpr::Instance * RenderingContext::Instance() noexcept
+vpr::Instance * RhiSystem::Instance() noexcept
 {
     return vulkanInstance.get();
 }
 
-vpr::PhysicalDevice * RenderingContext::PhysicalDevice(const size_t idx) noexcept
+vpr::PhysicalDevice * RhiSystem::PhysicalDevice(const size_t idx) noexcept
 {
     return physicalDevices[idx].get();
 }
 
-vpr::Device* RenderingContext::Device() noexcept
+vpr::Device* RhiSystem::Device() noexcept
 {
     return logicalDevice.get();
 }
 
-vpr::Swapchain* RenderingContext::Swapchain() noexcept
+vpr::Swapchain* RhiSystem::Swapchain() noexcept
 {
     return swapchain.get();
 }
 
-vpr::SurfaceKHR* RenderingContext::Surface() noexcept
+vpr::SurfaceKHR* RhiSystem::Surface() noexcept
 {
     return windowSurface.get();
 }
 
-PlatformWindow* RenderingContext::Window() noexcept
+PlatformWindow* RhiSystem::Window() noexcept
 {
     return window.get();
 }
 
-GLFWwindow* RenderingContext::glfwWindow() noexcept
+GLFWwindow* RhiSystem::glfwWindow() noexcept
 {
     return window->glfwWindow();
 }
 
 inline GLFWwindow* getWindow()
 {
-    auto& ctxt = RenderingContext::Get();
+    auto& ctxt = RhiSystem::Get();
     return ctxt.glfwWindow();
 }
 
@@ -301,7 +286,7 @@ inline GLFWwindow* getWindow()
 inline void RecreateSwapchain()
 {
 
-    auto& Context = RenderingContext::Get();
+    auto& Context = RhiSystem::Get();
 
     int width = 0;
     int height = 0;
@@ -358,13 +343,13 @@ inline void RecreateSwapchain()
 }
 #pragma warning(pop)
 
-void RenderingContext::AddSetupFunctions(PostPhysicalDeviceInitPreLogicalDeviceInitFunction fn0, PostLogicalDeviceInitFunction fn1)
+void RhiSystem::AddSetupFunctions(PostPhysicalDeviceInitPreLogicalDeviceInitFunction fn0, PostLogicalDeviceInitFunction fn1)
 {
     postPhysicalPreLogicalSetupFunction = fn0;
     postLogicalDeviceFunction = fn1;
 }
 
-void RenderingContext::AddSwapchainCallbacks(SwapchainCallbacks callbacks)
+void RhiSystem::AddSwapchainCallbacks(SwapchainCallbacks callbacks)
 {
     SwapchainCallbacksStorage.CreationFns.emplace_back(callbacks.SwapchainCreated);
     SwapchainCallbacksStorage.CreationFnUserData.emplace(callbacks.SwapchainCreated, callbacks.SwapchainCreatedUserData);
@@ -379,136 +364,136 @@ void RenderingContext::AddSwapchainCallbacks(SwapchainCallbacks callbacks)
     SwapchainCallbacksStorage.CreationFnUserData.emplace(callbacks.SwapchainCreated, callbacks.SwapchainCreatedUserData);
 }
 
-void RenderingContext::GetWindowSize(int& w, int& h)
+void RhiSystem::GetWindowSize(int& w, int& h)
 {
     glfwGetWindowSize(getWindow(), &w, &h);
 }
 
-void RenderingContext::GetFramebufferSize(int& w, int& h)
+void RhiSystem::GetFramebufferSize(int& w, int& h)
 {
     glfwGetFramebufferSize(getWindow(), &w, &h);
 }
 
-void RenderingContext::RegisterCursorPosCallback(CursorPosCallbackType callback_fn)
+void RhiSystem::RegisterCursorPosCallback(CursorPosCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddCursorPosCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterCursorEnterCallback(CursorEnterCallbackType callback_fn)
+void RhiSystem::RegisterCursorEnterCallback(CursorEnterCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddCursorEnterCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterScrollCallback(ScrollCallbackType callback_fn)
+void RhiSystem::RegisterScrollCallback(ScrollCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddScrollCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterCharCallback(CharCallbackType callback_fn)
+void RhiSystem::RegisterCharCallback(CharCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddCharCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterPathDropCallback(PathDropCallbackType callback_fn)
+void RhiSystem::RegisterPathDropCallback(PathDropCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddPathDropCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterMouseButtonCallback(MouseButtonCallbackType callback_fn)
+void RhiSystem::RegisterMouseButtonCallback(MouseButtonCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddMouseButtonCallbackFn(callback_fn);
 }
 
-void RenderingContext::RegisterKeyboardKeyCallback(KeyboardKeyCallbackType callback_fn)
+void RhiSystem::RegisterKeyboardKeyCallback(KeyboardKeyCallbackType callback_fn)
 {
     auto& ctxt = Get();
     ctxt.Window()->AddKeyboardKeyCallbackFn(callback_fn);
 }
 
-int RenderingContext::GetMouseButton(int button)
+int RhiSystem::GetMouseButton(int button)
 {
     return glfwGetMouseButton(getWindow(), button);
 }
 
-void RenderingContext::GetCursorPosition(double& x, double& y)
+void RhiSystem::GetCursorPosition(double& x, double& y)
 {
     glfwGetCursorPos(getWindow(), &x, &y);
 }
 
-void RenderingContext::SetCursorPosition(double x, double y)
+void RhiSystem::SetCursorPosition(double x, double y)
 {
     glfwSetCursorPos(getWindow(), x, y);
 }
 
-void RenderingContext::SetCursor(GLFWcursor* cursor)
+void RhiSystem::SetCursor(GLFWcursor* cursor)
 {
     glfwSetCursor(getWindow(), cursor);
 }
 
-GLFWcursor* RenderingContext::CreateCursor(GLFWimage* image, int w, int h)
+GLFWcursor* RhiSystem::CreateCursor(GLFWimage* image, int w, int h)
 {
     return glfwCreateCursor(image, w, h);
 }
 
-GLFWcursor* RenderingContext::CreateStandardCursor(int type)
+GLFWcursor* RhiSystem::CreateStandardCursor(int type)
 {
     return glfwCreateStandardCursor(type);
 }
 
-void RenderingContext::DestroyCursor(GLFWcursor* cursor)
+void RhiSystem::DestroyCursor(GLFWcursor* cursor)
 {
     glfwDestroyCursor(cursor);
 }
 
-bool RenderingContext::ShouldWindowClose()
+bool RhiSystem::ShouldWindowClose()
 {
     return glfwWindowShouldClose(getWindow());
 }
 
-int RenderingContext::GetWindowAttribute(int attrib)
+int RhiSystem::GetWindowAttribute(int attrib)
 {
     return glfwGetWindowAttrib(getWindow(), attrib);
 }
 
-void RenderingContext::SetInputMode(int mode, int val)
+void RhiSystem::SetInputMode(int mode, int val)
 {
     glfwSetInputMode(getWindow(), mode, val);
 }
 
-int RenderingContext::GetInputMode(int mode)
+int RhiSystem::GetInputMode(int mode)
 {
     return glfwGetInputMode(getWindow(), mode);
 }
 
-const char* RenderingContext::GetShaderCacheDir()
+const char* RhiSystem::GetShaderCacheDir()
 {
     auto& ctxt = Get();
     return ctxt.shaderCacheDir.c_str();
 }
 
-void RenderingContext::SetShaderCacheDir(const char* dir)
+void RhiSystem::SetShaderCacheDir(const char* dir)
 {
     auto& ctxt = Get();
     ctxt.shaderCacheDir = dir;
 }
 
-VkResult RenderingContext::SetObjectName(VkObjectType object_type, uint64_t handle, const char* name)
+VkResult RhiSystem::SetObjectName(VkObjectType object_type, uint64_t handle, const char* name)
 {
-    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED && RENDERING_CONTEXT_USE_DEBUG_INFO)
+    if constexpr (RHI_SYSTEM_VALIDATION_ENABLED && RHI_SYSTEM_USE_DEBUG_INFO)
     {
         auto& ctxt = Get();
 
-        if constexpr (RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID || RENDERING_CONTEXT_DEBUG_INFO_TIMESTAMPS)
+        if constexpr (RHI_SYSTEM_DEBUG_INFO_THREAD_ID || RHI_SYSTEM_DEBUG_INFO_TIMESTAMPS)
         {
             std::string object_name_str{ name };
-            
-            if constexpr (RENDERING_CONTEXT_DEBUG_INFO_THREAD_ID)
+
+            if constexpr (RHI_SYSTEM_DEBUG_INFO_THREAD_ID)
             {
                 std::string threadInfoStr = std::format("_ThreadID:{}", std::this_thread::get_id());
                 object_name_str += threadInfoStr;
@@ -544,7 +529,7 @@ VkResult RenderingContext::SetObjectName(VkObjectType object_type, uint64_t hand
     }
 }
 
-void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, std::string& _window_mode, vpr::VprExtensionPack& extensionPack)
+void RhiSystem::createInstanceAndWindow(const nlohmann::json& json_file, std::string& _window_mode, vpr::VprExtensionPack& extensionPack)
 {
     int window_width = json_file.at("InitialWindowWidth");
     int window_height = json_file.at("InitialWindowHeight");
@@ -666,7 +651,7 @@ void RenderingContext::createInstanceAndWindow(const nlohmann::json& json_file, 
     extensionWrangler.reset(); // reset because we'll need the VkPhysicalDevice handle for it's next incarnation
 }
 
-void RenderingContext::createLogicalDevice(const nlohmann::json& json_file, vpr::VprExtensionPack& extensionPack)
+void RhiSystem::createLogicalDevice(const nlohmann::json& json_file, vpr::VprExtensionPack& extensionPack)
 {
 
     extensionWrangler = std::make_unique<ExtensionWrangler>(vkApiVersion, physicalDevices.front()->vkHandle());
@@ -998,7 +983,6 @@ void GetVersions(const nlohmann::json& json_file, uint32_t& app_version, uint32_
 void AddDependenciesForSetOfExtensions(std::vector<std::string>& extensions)
 {
     std::vector<std::string> extensions_dependencies_strs;
-
 
     if (!extensions_dependencies_strs.empty())
     {
