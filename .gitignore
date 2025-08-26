@@ -7,3 +7,5 @@ assets/glTF/
 GeneratedExtensionHeader.hpp
 .cursorignore
 .cursor/
+
+modules/ResourceContext/chat.md
