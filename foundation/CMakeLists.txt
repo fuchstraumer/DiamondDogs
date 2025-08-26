@@ -16,6 +16,7 @@ elseif(UNIX)
 endif()
 
 set(foundation_source_files
+    "include/Unit.hpp"
     "include/foundation/CoreAPIs.hpp"
     "include/foundation/Handle.hpp"
     "include/foundation/PluginAPI.hpp"

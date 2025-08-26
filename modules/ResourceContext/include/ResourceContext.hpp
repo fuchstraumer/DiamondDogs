@@ -78,12 +78,9 @@ public:
      * @return Shared pointer to reply object for tracking creation progress
      */
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateBuffer(
-        const VkBufferCreateInfo& createInfo,
-        const VkBufferViewCreateInfo* viewCreateInfo = nullptr,
-        const gpu_resource_data_t* initialData = nullptr,
+        const BufferCreateInfo& createInfo,
+        const RhiBufferResourceData* initialData = nullptr,
         size_t numData = 0,
-        resource_usage resourceUsage = resource_usage::GPUOnly,
-        resource_creation_flags flags = 0,
         void* userData = nullptr);
 
     /**
@@ -103,7 +100,7 @@ public:
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateImage(
         const VkImageCreateInfo& createInfo,
         const VkImageViewCreateInfo* viewCreateInfo = nullptr,
-        const gpu_image_resource_data_t* initialData = nullptr,
+        const RhiImageResourceData* initialData = nullptr,
         size_t numData = 0,
         resource_usage resourceUsage = resource_usage::GPUOnly,
         resource_creation_flags flags = 0,
@@ -135,7 +132,7 @@ public:
      */
     [[nodiscard]] std::shared_ptr<ResourceTransferReply> SetBufferData(
         GraphicsResource buffer,
-        const gpu_resource_data_t* data,
+        const RhiBufferResourceData* data,
         size_t numData);
 
     /**
@@ -149,7 +146,7 @@ public:
      */
     [[nodiscard]] std::shared_ptr<ResourceTransferReply> SetImageData(
         GraphicsResource image,
-        const gpu_image_resource_data_t* data,
+        const RhiImageResourceData* data,
         size_t numData);
         
     /**

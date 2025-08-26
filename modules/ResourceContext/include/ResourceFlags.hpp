@@ -3,27 +3,37 @@
 #define RESOURCE_CONTEXT_RESOURCE_FLAGS_HPP
 #include <type_traits>
 
+/**
+ * @file ResourceFlags.hpp
+ * @brief Defines enums and flags used for resource management within the rendering hardware interface (RHI).
+ * This includes resource domains, types, and creation flags that dictate how resources are allocated,
+ * accessed, and used across different hardware and software layers. This lets us avoid having any Vulkan code
+ * or other graphics API specifics leak into the higher-level application logic, promoting portability and
+ * easier maintenance.
+ * @category RHI
+ */
+
 
 /** @brief Describes where the resource is used or where it is stored within hardware domains */
 enum class ResourceDomain : uint8_t
 {
     Invalid = 0,
-    GPUOnly = 1 << 0,
-    CPUOnly = 1 << 1,
-    CPUToGPU = 1 << 2,
-    GPUToCPU = 1 << 3,
+    GPUOnly,
+    CPUOnly,
+    CPUToGPU,
+    GPUToCPU
 };
 
 /** @brief Describes the fundamental resource type, i.e. is it a buffer or image or sampler etc */
 enum class ResourceType : uint8_t
 {
     Invalid = 0,
-    Buffer = 1 << 0,
-    BufferView = 1 << 1,
-    Image = 1 << 2,
-    ImageView = 1 << 3,
-    Sampler = 1 << 4,
-    CombinedImageSampler = 1 << 5
+    Buffer,
+    BufferView,
+    Image,
+    ImageView,
+    Sampler,
+    CombinedImageSampler
 };
 
 /** @brief Combinations of flag bits that control resource creation behavior and specific usage hints */
@@ -129,6 +139,7 @@ enum class BufferUsageBits : uint64_t
     ConditionalRendering = 1 << 22,
 
     // All flags after this point are reserved for internal usage in resource barrier generation, and should not be used by users
+    
     // Collected flags for common access patterns
     AllShaderUBO = VertexShaderUBO | FragmentShaderUBO | ComputeShaderUBO | RaytracingShaderUBO,
     AllShaderSRV = VertexShaderSRV | FragmentShaderSRV | ComputeShaderSRV | RaytracingShaderSRV,
@@ -136,15 +147,16 @@ enum class BufferUsageBits : uint64_t
     AllIndirect = IndirectCompute | IndirectDraw | IndirectRaytracing,
     AllTransfer = CopySource | CopyDestination,
 
-    // Collected flags for stages
+    // Collected flags for pipeline stages
     AllVertexStage = VertexShaderUBO | VertexShaderSRV | VertexShaderUAV,
     AllFragmentStage = FragmentShaderUBO | FragmentShaderSRV | FragmentShaderUAV,
     AllComputeStage = ComputeShaderUBO | ComputeShaderSRV | ComputeShaderUAV,
     AllRaytracingStage = RaytracingShaderUBO | RaytracingShaderSRV | RaytracingShaderUAV,
+    // this superset includes some usages that may fall outside of the actual raytracing shader, but could still be a pipeline stage
     AllRaytracingUsage = AllRaytracingStage | IndirectRaytracing | AccelerationStructureBuild | ShaderBindingTable | AccelerationStructureBuildScratch,
 
+    // note that we don't count UAV as read, because unordered access views are inherently read-write and their usage implies write access (which takes precedence)
     AllRead = AllShaderUBO | AllShaderSRV | VertexOrIndex | AllIndirect | CopySource | DeviceAddressBuffer | ShaderBindingTable | AccelerationStructureBuild | AccelerationStructureBuildScratch,
-    // hmm, thinking now maybe we want to disambiguate between indirect reads and writes: it is a stage flag and could have hardware relevancy. maybe check Mesa?
     AllWrite = AllShaderUAV | CopyDestination | AccelerationStructureBuildScratch,
 
 };
@@ -228,6 +240,69 @@ enum class ImageUsageBits : uint64_t
 
 };
 
+enum class ImageType : uint8_t
+{
+    Invalid = 0,
+    Type1D,
+    Type2D,
+    Type3D
+};
+
+enum class ImageViewType : uint8_t
+{
+    Invalid = 0,
+    Type1D,
+    Type1DArray,
+    Type2D,
+    Type2DArray,
+    Type3D,
+    Cube,
+    CubeArray
+};
+
+enum class ImageAspectFlags : uint8_t
+{
+    None = 0,
+    Color = 1 << 0,
+    Depth = 1 << 1,
+    Stencil = 1 << 2,
+    DepthStencil = Depth | Stencil
+};
+
+enum class ComponentSwizzle : uint8_t
+{
+    None = 0,
+    Red,
+    Green,
+    Blue,
+    Alpha
+};
+
+enum class ImageFilteringMode : uint8_t
+{
+    None = 0,
+    Nearest,
+    Linear,
+    /** @note Not supported for use as a mipmap filtering mode. */
+    Cubic
+};
+
+/** @brief Comparison operations for sampler depth testing or other comparison-based sampling operations
+ *  @note Maps 1:1 to Vulkan values currently, down to the ordering and values
+ */
+enum class ImageCompareOp : uint8_t
+{
+    None = 0,
+    Never = None,
+    Less,
+    Equal,
+    LessOrEqual,
+    Greater,
+    NotEqual,
+    GreaterOrEqual,
+    Always
+};
+
 // Set of shims and casts that let us do boolean test on bit flags in a typesafe manner
 template<typename T>
 using UnderlyingType = typename std::underlying_type<T>::type;
@@ -308,6 +383,28 @@ constexpr inline ImageUsageBits& operator|=(ImageUsageBits& a, const ImageUsageB
 }
 
 constexpr inline ImageUsageBits& operator&=(ImageUsageBits& a, const ImageUsageBits b) noexcept
+{
+    a = a & b;
+    return a;
+}
+
+constexpr inline BitmaskTrueType<ImageAspectFlags> operator|(const ImageAspectFlags a, const ImageAspectFlags b) noexcept
+{
+    return static_cast<ImageAspectFlags>(ToUnderlying(a) | ToUnderlying(b));
+}
+
+constexpr inline BitmaskTrueType<ImageAspectFlags> operator&(const ImageAspectFlags a, const ImageAspectFlags b) noexcept
+{
+    return static_cast<ImageAspectFlags>(ToUnderlying(a) & ToUnderlying(b));
+}
+
+constexpr inline ImageAspectFlags& operator|=(ImageAspectFlags& a, const ImageAspectFlags b) noexcept
+{
+    a = a | b;
+    return a;
+}
+
+constexpr inline ImageAspectFlags& operator&=(ImageAspectFlags& a, const ImageAspectFlags b) noexcept
 {
     a = a & b;
     return a;

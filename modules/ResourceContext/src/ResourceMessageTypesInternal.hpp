@@ -23,7 +23,7 @@ struct InternalResourceDataContainer
     struct BufferData
     {
         BufferData() noexcept;
-        BufferData(const gpu_resource_data_t& _data);
+        BufferData(const RhiBufferResourceData& _data);
         ~BufferData() = default;
 
         BufferData(const BufferData&) = delete;
@@ -41,7 +41,7 @@ struct InternalResourceDataContainer
     struct ImageData
     {
         ImageData() noexcept;
-        ImageData(const gpu_image_resource_data_t& _data);
+        ImageData(const RhiImageResourceData& _data);
         ~ImageData() = default;
 
         ImageData(const ImageData&) = delete;
@@ -63,9 +63,9 @@ struct InternalResourceDataContainer
     std::variant<BufferDataVector, ImageDataVector> DataVector;
     std::optional<uint32_t> NumLayers;
 
-    InternalResourceDataContainer(size_t numData, const gpu_resource_data_t* data);
+    InternalResourceDataContainer(size_t numData, const RhiBufferResourceData* data);
 
-    InternalResourceDataContainer(size_t numData, const gpu_image_resource_data_t* data);
+    InternalResourceDataContainer(size_t numData, const RhiImageResourceData* data);
 
     InternalResourceDataContainer() noexcept;
 };
@@ -118,7 +118,7 @@ struct SetBufferDataMessage
     SetBufferDataMessage(
         GraphicsResource _destBuffer,
         size_t numData,
-        const gpu_resource_data_t* data) noexcept;
+        const RhiBufferResourceData* data) noexcept;
     SetBufferDataMessage(
         GraphicsResource _destBuffer,
         InternalResourceDataContainer&& _data,
@@ -139,7 +139,7 @@ struct SetImageDataMessage
     SetImageDataMessage(
         GraphicsResource _destImage,
         size_t numData,
-        const gpu_image_resource_data_t* data) noexcept;
+        const RhiImageResourceData* data) noexcept;
     // for use when transferring rest of work to the transfer system
     SetImageDataMessage(
         GraphicsResource _destImage,

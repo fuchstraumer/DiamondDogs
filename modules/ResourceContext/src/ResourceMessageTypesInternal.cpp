@@ -1,7 +1,7 @@
 #include "ResourceMessageTypesInternal.hpp"
 
 
-InternalResourceDataContainer::BufferData::BufferData(const gpu_resource_data_t& _data) :
+InternalResourceDataContainer::BufferData::BufferData(const RhiBufferResourceData& _data) :
     data{ std::make_unique<std::byte[]>(_data.DataSize) },
     size{ _data.DataSize },
     alignment{ _data.DataAlignment }
@@ -30,7 +30,7 @@ InternalResourceDataContainer::InternalResourceDataContainer::BufferData& Intern
     return *this;
 }
 
-InternalResourceDataContainer::ImageData::ImageData(const gpu_image_resource_data_t& _data) :
+InternalResourceDataContainer::ImageData::ImageData(const RhiImageResourceData& _data) :
     data{ std::make_unique<std::byte[]>(_data.DataSize) },
     size{ _data.DataSize },
     width{ _data.Width },
@@ -78,7 +78,7 @@ InternalResourceDataContainer::InternalResourceDataContainer() noexcept :
     NumLayers{ std::nullopt }
 {}
 
-InternalResourceDataContainer::InternalResourceDataContainer(size_t numData, const gpu_image_resource_data_t* data)
+InternalResourceDataContainer::InternalResourceDataContainer(size_t numData, const RhiImageResourceData* data)
 {
     NumLayers = data[0].NumLayers;
     ImageDataVector image_data(numData);
@@ -89,7 +89,7 @@ InternalResourceDataContainer::InternalResourceDataContainer(size_t numData, con
     DataVector = std::move(image_data);
 }
 
-InternalResourceDataContainer::InternalResourceDataContainer(size_t numData, const gpu_resource_data_t* data) :
+InternalResourceDataContainer::InternalResourceDataContainer(size_t numData, const RhiBufferResourceData* data) :
     NumLayers{ std::nullopt }
 {
     BufferDataVector buffer_data(numData);
@@ -106,7 +106,7 @@ SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, Interna
     reply{ std::move(reply) }
 {}
 
-SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, size_t numData, const gpu_resource_data_t* data) noexcept :
+SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, size_t numData, const RhiBufferResourceData* data) noexcept :
     destBuffer{ _destBuffer },
     data{ InternalResourceDataContainer(numData, data) }
 {}
@@ -131,7 +131,7 @@ SetImageDataMessage::SetImageDataMessage(SetImageDataMessage&& other) noexcept :
     data{ std::move(other.data) }
 {}
 
-SetImageDataMessage::SetImageDataMessage(GraphicsResource _destImage, size_t numData, const gpu_image_resource_data_t* data) noexcept :
+SetImageDataMessage::SetImageDataMessage(GraphicsResource _destImage, size_t numData, const RhiImageResourceData* data) noexcept :
     destImage{ _destImage },
     data{ InternalResourceDataContainer(numData, data) }
 {}

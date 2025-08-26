@@ -68,7 +68,8 @@ constexpr static std::array<VkVertexInputAttributeDescription, 4> VertexAttribut
     VkVertexInputAttributeDescription{ 3, 0, VK_FORMAT_R32G32_SFLOAT, sizeof(float) * 9 }
 };
 
-constexpr static std::array<VkVertexInputBindingDescription, 1> VertexBindingDescriptions {
+constexpr static std::array<VkVertexInputBindingDescription, 1> VertexBindingDescriptions
+{
     VkVertexInputBindingDescription{ 0, sizeof(float) * 11, VK_VERTEX_INPUT_RATE_VERTEX }
 };
 

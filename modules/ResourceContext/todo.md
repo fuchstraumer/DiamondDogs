@@ -5,6 +5,6 @@
 - Put a bunch of the checks on resource validity and such that we do behind a preprocessor guard, so we can optimize them out in release builds
 - Have transfer system do some smarter pooling with the command pools, instead of single buffer single pool system that require deleting and rebuilding command pools every frame. In short term, just pooling and reusing the VkCommandPool objects themselves could help a bunch
 - Transfer system needs to be able to handle weird inter-image copy requests better, like from different layers or subregions to other layers or subregions or even between formats and usages. Thinking of cases like copying depth resources for debug viewing to color targets, or other such silly things
-- Update all barriers and synchronization in the transfer system for synchronization2 extensions
 - Update memory handling and allocation and usages of buffers based on extensions. blech
-- We need to have a way to get a mapped resource pointer back when creating a buffer resource, as this will make things a lot more efficient.
+- Barriers have been updated for newer Vulkan versions, now we should see if we can find more occasions to batch them and reduce overhead required by users to do so
+  - Might be better left to rendergraph or higher-level systems that interact with this one, but leaving this todo here so I don't forget it entirely
