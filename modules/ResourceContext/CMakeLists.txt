@@ -1,10 +1,15 @@
 
 ADD_MODULE(resource_context
+    "include/ResourceBarriers.hpp"
     "include/ResourceContext.hpp"
     "include/ResourceMessageReply.hpp"
     "include/ResourceLoader.hpp"
     "include/ResourceTypes.hpp"
+    "include/ResourceUsageFlags.hpp"
     "include/TransferSystem.hpp"
+    "src/CreateInfoWrappers.hpp"
+    "src/CreateInfoWrappers.cpp"
+    "src/ResourceBarriers.cpp"
     "src/ResourceContext.cpp"
     "src/ResourceContextImpl.cpp"
     "src/ResourceContextImpl.hpp"
@@ -28,4 +33,4 @@ TARGET_INCLUDE_DIRECTORIES(resource_context PRIVATE
     "../../third_party/entt/include"
 )
 
-TARGET_LINK_LIBRARIES(resource_context PUBLIC EnTT vpr_core vpr_command vpr_sync ${Vulkan_LIBRARY} VulkanMemoryAllocator)
+TARGET_LINK_LIBRARIES(resource_context PUBLIC EnTT vpr_core vpr_command vpr_sync ${Vulkan_LIBRARY} VulkanMemoryAllocator rendering_context)

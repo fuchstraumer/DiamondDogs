@@ -11,6 +11,7 @@
 #include "vkAssert.hpp"
 #include "UploadBuffer.hpp"
 #include "VkDebugUtils.hpp"
+#include "CreateInfoWrappers.hpp"
 #include "containers/mwsrQueue.hpp"
 
 #include <atomic>
@@ -72,7 +73,7 @@ private:
 
     VkBuffer createBuffer(
         entt::entity new_entity,
-        VkBufferCreateInfo&& buffer_info,
+        ResourceContextBufferCreateInfo&& buffer_info,
         const resource_creation_flags _flags,
         const resource_usage _resource_usage,
         void* user_data_ptr,
@@ -89,7 +90,7 @@ private:
 
     VkImage createImage(
         entt::entity new_entity,
-        VkImageCreateInfo&& image_info,
+        ResourceContextImageCreateInfo&& image_info,
         const resource_creation_flags _flags,
         const resource_usage _resource_usage,
         void* user_data_ptr,

@@ -2,3 +2,4 @@
 - Convert this module to C++ modules
 - Abstract further away from Vulkan in case we ever want to try a different rendering API (i.e., DX12 probably)
 - Extension wrangler needs to break down features into their supported boolean feature toggles, so that users can only enable features if they're actually supported fully
+- ExtensionWrangler should group maintenance feature structs together so that we can easily enable all the available ones for the current version or platform in one go

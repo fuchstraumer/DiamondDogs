@@ -14,9 +14,16 @@ namespace vpr
 
 struct DepthStencil
 {
-    DepthStencil() = default;
+    DepthStencil();
     DepthStencil(const vpr::Device* device, const vpr::PhysicalDevice* p_device, const vpr::Swapchain* swap);
     ~DepthStencil();
+
+    DepthStencil(const DepthStencil&) = delete;
+    DepthStencil& operator=(const DepthStencil&) = delete;
+
+    DepthStencil(DepthStencil&& other) noexcept;
+    DepthStencil& operator=(DepthStencil&& other) noexcept;
+
     VkImage Image{ VK_NULL_HANDLE };
     VkDeviceMemory Memory{ VK_NULL_HANDLE };
     VkImageView View{ VK_NULL_HANDLE };

@@ -183,17 +183,18 @@ void ResourceTransferSystem::TransferCommand::createCommandPool() noexcept
     VkCommandPoolCreateInfo pool_info = getCreateInfo(device);
     commandPool = std::make_unique<vpr::CommandPool>(device->vkHandle(), pool_info);
     commandPool->AllocateCmdBuffers(1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-    
-    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED && RENDERING_CONTEXT_USE_DEBUG_INFO)
-    {
-        device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(commandPool->GetCmdBuffer(0), &queue_debug_label);
-    }
 
     VkCommandBufferBeginInfo begin_info = {};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VkResult result = vkBeginCommandBuffer(commandPool->GetCmdBuffer(0), &begin_info);
     VkAssert(result);
+
+    if constexpr (RENDERING_CONTEXT_VALIDATION_ENABLED && RENDERING_CONTEXT_USE_DEBUG_INFO)
+    {
+        device->DebugUtilsHandler().vkCmdBeginDebugUtilsLabel(commandPool->GetCmdBuffer(0), &queue_debug_label);
+    }
+
 }
 
 ResourceTransferSystem::ResourceTransferSystem() : device(nullptr) {}
@@ -512,7 +513,7 @@ void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBuffer
         possible_accesses.data()
     };
 
-    thsvsCmdPipelineBarrier(cmd, &global_barrier, 1u, nullptr, 0u, nullptr);
+    thsvsCmdPipelineBarrier(cmd, &global_barrier, 0u, nullptr, 0u, nullptr);
 
     // we can clear and free the stored data now
     transfer_command.EndRecording();

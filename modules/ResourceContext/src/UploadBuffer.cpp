@@ -1,6 +1,7 @@
 #include "UploadBuffer.hpp"
 #include "LogicalDevice.hpp"
 #include <vk_mem_alloc.h>
+#include "../../RenderingContext/include/RenderingContext.hpp"
 
 constexpr static VkBufferCreateInfo k_defaultStagingBufferCreateInfo
 {
@@ -25,7 +26,7 @@ constexpr static VmaAllocationCreateInfo k_defaultAllocationCreateInfo
     nullptr
 };
 
-UploadBuffer::UploadBuffer(const vpr::Device * _device, VmaAllocator allocator) :
+UploadBuffer::UploadBuffer(const vpr::Device* _device, VmaAllocator allocator) :
     device{ _device },
     Allocator{ allocator },
     Allocation{ nullptr },
@@ -65,7 +66,8 @@ UploadBuffer::~UploadBuffer()
     vmaDestroyBuffer(Allocator, Buffer, Allocation);
 }
 
-std::vector<VkBufferCopy> UploadBuffer::SetData(const InternalResourceDataContainer::BufferDataVector& dataVector)
+std::vector<VkBufferCopy> UploadBuffer::SetData(
+    const InternalResourceDataContainer::BufferDataVector& dataVector)
 {
     VkDeviceSize total_size = 0;
     for (const auto& data : dataVector)
@@ -130,16 +132,22 @@ void UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
     VkBufferCreateInfo create_info = k_defaultStagingBufferCreateInfo;
     create_info.size = size;
     VmaAllocationCreateInfo alloc_create_info = k_defaultAllocationCreateInfo;
+    VmaAllocationInfo result_alloc_info;
     VkResult result = vmaCreateBuffer(
         Allocator,
         &create_info,
         &alloc_create_info,
         &Buffer,
         &Allocation,
-        nullptr
-    );
+        &result_alloc_info);
     VkAssert(result);
+    mappedPtr = result_alloc_info.pMappedData;
     Size = size;
+
+    RenderingContext::SetObjectName(
+        VK_OBJECT_TYPE_BUFFER,
+        reinterpret_cast<uint64_t>(Buffer),
+        RENDERING_CONTEXT_DEBUG_OBJECT_NAME("TransferSystem_UploadBuffer"));
 }
 
 void UploadBuffer::setDataAtOffset(const void* data, size_t data_size, size_t offset)
