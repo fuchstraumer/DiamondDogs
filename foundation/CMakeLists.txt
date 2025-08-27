@@ -55,7 +55,7 @@ endif()
 
 set(utility_source_files
     "include/utility/Delegate.hpp"
-    "include/utility/EnumUtils.hpp"
+    "include/utility/EnumFlagUtils.hpp"
     "include/utility/MulticastDelegate.hpp"
     "include/utility/MurmurHash.hpp"
     "include/utility/TaggedBool.hpp"
