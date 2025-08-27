@@ -2,7 +2,6 @@
 ADD_MODULE(resource_context
     "include/ResourceBarriers.hpp"
     "include/ResourceContext.hpp"
-    "include/ResourceDataFormats.hpp"
     "include/ResourceFlags.hpp"
     "include/ResourceLoader.hpp"
     "include/ResourceMessageReply.hpp"
