@@ -1,7 +1,7 @@
 #pragma once
 #ifndef RESOURCE_CONTEXT_RESOURCE_FLAGS_HPP
 #define RESOURCE_CONTEXT_RESOURCE_FLAGS_HPP
-#include <type_traits>
+#include "utility/EnumUtils.hpp"
 
 /**
  * @file ResourceFlags.hpp
@@ -303,111 +303,12 @@ enum class ImageCompareOp : uint8_t
     Always
 };
 
-// Set of shims and casts that let us do boolean test on bit flags in a typesafe manner
-template<typename T>
-using UnderlyingType = typename std::underlying_type<T>::type;
-template<typename T>
-constexpr UnderlyingType<T> ToUnderlying(T value) noexcept
-{
-    return static_cast<UnderlyingType<T>>(value);
-}
+MAKE_ENUM_CLASS_FLAGS(ResourceCreationFlags)
 
-/** @brief Stores the bitmask value and preserves that intact, but also lets us implicitly convert to bool for quick checks after mask operations */
-template<typename T>
-struct BitmaskTrueType
-{
-    T value;
-    constexpr BitmaskTrueType(T _value) : value(_value) {}
-    constexpr operator T() const { return value; }
-    constexpr explicit operator bool() const noexcept { return ToUnderlying(value); }
-};
+MAKE_ENUM_CLASS_FLAGS(BufferUsageBits)
 
-constexpr inline BitmaskTrueType<ResourceCreationFlags> operator|(const ResourceCreationFlags a, const ResourceCreationFlags b) noexcept
-{
-    return static_cast<ResourceCreationFlags>(ToUnderlying(a) | ToUnderlying(b));
-}
+MAKE_ENUM_CLASS_FLAGS(ImageUsageBits)
 
-constexpr inline BitmaskTrueType<ResourceCreationFlags> operator&(const ResourceCreationFlags a, const ResourceCreationFlags b) noexcept
-{
-    return static_cast<ResourceCreationFlags>(ToUnderlying(a) & ToUnderlying(b));
-}
-
-constexpr inline ResourceCreationFlags& operator|=(ResourceCreationFlags& a, const ResourceCreationFlags b) noexcept
-{
-    a = a | b;
-    return a;
-}
-
-constexpr inline ResourceCreationFlags& operator&=(ResourceCreationFlags& a, const ResourceCreationFlags b) noexcept
-{
-    a = a & b;
-    return a;
-}
-
-constexpr inline BitmaskTrueType<BufferUsageBits> operator|(const BufferUsageBits a, const BufferUsageBits b) noexcept
-{
-    return static_cast<BufferUsageBits>(ToUnderlying(a) | ToUnderlying(b));
-}
-
-constexpr inline BitmaskTrueType<BufferUsageBits> operator&(const BufferUsageBits a, const BufferUsageBits b) noexcept
-{
-    return static_cast<BufferUsageBits>(ToUnderlying(a) & ToUnderlying(b));
-}
-
-constexpr inline BufferUsageBits& operator|=(BufferUsageBits& a, const BufferUsageBits b) noexcept
-{
-    a = a | b;
-    return a;
-}
-
-constexpr inline BufferUsageBits& operator&=(BufferUsageBits& a, const BufferUsageBits b) noexcept
-{
-    a = a & b;
-    return a;
-}
-
-constexpr inline BitmaskTrueType<ImageUsageBits> operator|(const ImageUsageBits a, const ImageUsageBits b) noexcept
-{
-    return static_cast<ImageUsageBits>(ToUnderlying(a) | ToUnderlying(b));
-}
-
-constexpr inline BitmaskTrueType<ImageUsageBits> operator&(const ImageUsageBits a, const ImageUsageBits b) noexcept
-{
-    return static_cast<ImageUsageBits>(ToUnderlying(a) & ToUnderlying(b));
-}
-
-constexpr inline ImageUsageBits& operator|=(ImageUsageBits& a, const ImageUsageBits b) noexcept
-{
-    a = a | b;
-    return a;
-}
-
-constexpr inline ImageUsageBits& operator&=(ImageUsageBits& a, const ImageUsageBits b) noexcept
-{
-    a = a & b;
-    return a;
-}
-
-constexpr inline BitmaskTrueType<ImageAspectFlags> operator|(const ImageAspectFlags a, const ImageAspectFlags b) noexcept
-{
-    return static_cast<ImageAspectFlags>(ToUnderlying(a) | ToUnderlying(b));
-}
-
-constexpr inline BitmaskTrueType<ImageAspectFlags> operator&(const ImageAspectFlags a, const ImageAspectFlags b) noexcept
-{
-    return static_cast<ImageAspectFlags>(ToUnderlying(a) & ToUnderlying(b));
-}
-
-constexpr inline ImageAspectFlags& operator|=(ImageAspectFlags& a, const ImageAspectFlags b) noexcept
-{
-    a = a | b;
-    return a;
-}
-
-constexpr inline ImageAspectFlags& operator&=(ImageAspectFlags& a, const ImageAspectFlags b) noexcept
-{
-    a = a & b;
-    return a;
-}
+MAKE_ENUM_CLASS_FLAGS(ImageAspectFlags)
 
 #endif // !RESOURCE_CONTEXT_RESOURCE_FLAGS_HPP

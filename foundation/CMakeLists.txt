@@ -55,9 +55,10 @@ endif()
 
 set(utility_source_files
     "include/utility/Delegate.hpp"
+    "include/utility/EnumUtils.hpp"
     "include/utility/MulticastDelegate.hpp"
     "include/utility/MurmurHash.hpp"
-    "include/utility/tagged_bool.hpp"
+    "include/utility/TaggedBool.hpp"
     "src/utility/MurmurHash.cpp")
 
 set(reactors_source_files
