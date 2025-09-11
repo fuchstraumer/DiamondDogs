@@ -10,7 +10,7 @@
  * @category Foundation
 */
 
-namespace Foundation::Events
+namespace Events
 {
     /** @brief Informs about the recreation of a swapchain, typically due to window resizing or format changes.
      *

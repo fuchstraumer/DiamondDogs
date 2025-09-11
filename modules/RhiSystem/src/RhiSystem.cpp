@@ -21,8 +21,6 @@
 #endif
 #include "nlohmann/json.hpp"
 
-static PostPhysicalDeviceInitPreLogicalDeviceInitFunction postPhysicalPreLogicalSetupFunction = nullptr;
-static PostLogicalDeviceInitFunction postLogicalDeviceFunction = nullptr;
 static void* usedNextPtr = nullptr;
 static VkPhysicalDeviceFeatures* enabledDeviceFeatures = nullptr;
 static std::vector<std::string> extensionsBuffer;
@@ -107,11 +105,6 @@ void RhiSystem::Construct(const char* file_path)
 
     createInstanceAndWindow(json_file, windowMode, extensionPack);
     window->SetWindowUserPointer(this);
-
-    if (postPhysicalPreLogicalSetupFunction != nullptr)
-    {
-        postPhysicalPreLogicalSetupFunction(physicalDevices.back()->vkHandle(), nullptr, &usedNextPtr);
-    }
 
     {
         size_t num_instance_extensions = 0;
@@ -342,114 +335,6 @@ inline void RecreateSwapchain()
     vkDeviceWaitIdle(Context.Device()->vkHandle());
 }
 #pragma warning(pop)
-
-void RhiSystem::AddSetupFunctions(PostPhysicalDeviceInitPreLogicalDeviceInitFunction fn0, PostLogicalDeviceInitFunction fn1)
-{
-    postPhysicalPreLogicalSetupFunction = fn0;
-    postLogicalDeviceFunction = fn1;
-}
-
-void RhiSystem::AddSwapchainCallbacks(SwapchainCallbacks callbacks)
-{
-    SwapchainCallbacksStorage.CreationFns.emplace_back(callbacks.SwapchainCreated);
-    SwapchainCallbacksStorage.CreationFnUserData.emplace(callbacks.SwapchainCreated, callbacks.SwapchainCreatedUserData);
-
-    SwapchainCallbacksStorage.BeginFns.emplace_back(callbacks.BeginResize);
-    SwapchainCallbacksStorage.BeginFnUserData.emplace(callbacks.BeginResize, callbacks.BeginResizeUserData);
-
-    SwapchainCallbacksStorage.CompleteFns.emplace_back(callbacks.CompleteResize);
-    SwapchainCallbacksStorage.CompleteFnUserData.emplace(callbacks.CompleteResize, callbacks.CompleteResizeUserData);
-
-    SwapchainCallbacksStorage.CreationFns.emplace_back(callbacks.SwapchainCreated);
-    SwapchainCallbacksStorage.CreationFnUserData.emplace(callbacks.SwapchainCreated, callbacks.SwapchainCreatedUserData);
-}
-
-void RhiSystem::GetWindowSize(int& w, int& h)
-{
-    glfwGetWindowSize(getWindow(), &w, &h);
-}
-
-void RhiSystem::GetFramebufferSize(int& w, int& h)
-{
-    glfwGetFramebufferSize(getWindow(), &w, &h);
-}
-
-void RhiSystem::RegisterCursorPosCallback(CursorPosCallbackType callback_fn)
-{
-    auto& ctxt = Get();
-    ctxt.Window()->AddCursorPosCallbackFn(callback_fn);
-}
-
-void RhiSystem::RegisterCursorEnterCallback(CursorEnterCallbackType callback_fn)
-{
-    auto& ctxt = Get();
-    ctxt.Window()->AddCursorEnterCallbackFn(callback_fn);
-}
-
-void RhiSystem::RegisterScrollCallback(ScrollCallbackType callback_fn)
-{
-    auto& ctxt = Get();
-    ctxt.Window()->AddScrollCallbackFn(callback_fn);
-}
-
-void RhiSystem::RegisterCharCallback(CharCallbackType callback_fn)
-{
-    auto& ctxt = Get();
-    ctxt.Window()->AddCharCallbackFn(callback_fn);
-}
-
-void RhiSystem::RegisterPathDropCallback(PathDropCallbackType callback_fn)
-{
-    auto& ctxt = Get();
-    ctxt.Window()->AddPathDropCallbackFn(callback_fn);
-}
-
-void RhiSystem::RegisterMouseButtonCallback(MouseButtonCallbackType callback_fn)
-{
-    auto& ctxt = Get();
-    ctxt.Window()->AddMouseButtonCallbackFn(callback_fn);
-}
-
-void RhiSystem::RegisterKeyboardKeyCallback(KeyboardKeyCallbackType callback_fn)
-{
-    auto& ctxt = Get();
-    ctxt.Window()->AddKeyboardKeyCallbackFn(callback_fn);
-}
-
-int RhiSystem::GetMouseButton(int button)
-{
-    return glfwGetMouseButton(getWindow(), button);
-}
-
-void RhiSystem::GetCursorPosition(double& x, double& y)
-{
-    glfwGetCursorPos(getWindow(), &x, &y);
-}
-
-void RhiSystem::SetCursorPosition(double x, double y)
-{
-    glfwSetCursorPos(getWindow(), x, y);
-}
-
-void RhiSystem::SetCursor(GLFWcursor* cursor)
-{
-    glfwSetCursor(getWindow(), cursor);
-}
-
-GLFWcursor* RhiSystem::CreateCursor(GLFWimage* image, int w, int h)
-{
-    return glfwCreateCursor(image, w, h);
-}
-
-GLFWcursor* RhiSystem::CreateStandardCursor(int type)
-{
-    return glfwCreateStandardCursor(type);
-}
-
-void RhiSystem::DestroyCursor(GLFWcursor* cursor)
-{
-    glfwDestroyCursor(cursor);
-}
 
 bool RhiSystem::ShouldWindowClose()
 {

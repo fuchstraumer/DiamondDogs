@@ -2,7 +2,7 @@
 #ifndef FOUNDATION_PLATFORM_EVENT_TYPES_HPP
 #define FOUNDATION_PLATFORM_EVENT_TYPES_HPP
 
-namespace Foundation::Events
+namespace Events
 {
 
     /**
@@ -20,8 +20,8 @@ namespace Foundation::Events
         void* WindowHandle{ nullptr }; // GLFWwindow*, for now
     };
 
-    using CursorPosEvent = void(const CursorPosEventData&, void* userData);
-    using CursorEnterEvent = void(const int entered, void* userData);
+    using CursorPosEventFn = void(const CursorPosEventData&, void* userData);
+    using CursorEnterEventFn = void(const int entered, void* userData);
 
     struct ScrollEventData
     {
@@ -30,18 +30,18 @@ namespace Foundation::Events
         void* WindowHandle{ nullptr }; // GLFWwindow*, for now
     };
 
-    using ScrollEvent = void(const ScrollEventData&, void* userData);
+    using ScrollEventFn = void(const ScrollEventData&, void* userData);
 
-    using CharCallbackEvent = void(const unsigned int code_point, void* userData);
+    using CharEventFn = void(const unsigned int code_point, void* userData);
 
     struct PathDropEventData
     {
-        const char** Paths{ nullptr };
         int PathCount{ 0 };
+        const char** Paths{ nullptr };
         void* WindowHandle{ nullptr }; // GLFWwindow*, for now
     };
 
-    using PathDropEvent = void(const PathDropEventData&, void* userData);
+    using PathDropEventFn = void(const PathDropEventData&, void* userData);
 
     struct MouseButtonEventData
     {
@@ -51,7 +51,7 @@ namespace Foundation::Events
         void* WindowHandle{ nullptr }; // GLFWwindow*, for now
     };
 
-    using MouseButtonEvent = void(const MouseButtonEventData&, void* userData);
+    using MouseButtonEventFn = void(const MouseButtonEventData&, void* userData);
 
     struct KeyboardKeyEventData
     {
@@ -62,8 +62,8 @@ namespace Foundation::Events
         void* WindowHandle{ nullptr }; // GLFWwindow*, for now
     };
 
-    using KeyboardKeyEvent = void(const KeyboardKeyEventData&, void* userData);
-    
+    using KeyboardKeyEventFn = void(const KeyboardKeyEventData&, void* userData);
+
 }
 
 #endif //!FOUNDATION_PLATFORM_EVENT_TYPES_HPP
