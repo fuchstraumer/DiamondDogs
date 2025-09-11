@@ -1,0 +1,302 @@
+#include "PlatformSystem.hpp"
+#include "PlatformSystemImpl.hpp"
+#include "ImageDataFormats.hpp"
+#include <vector>
+#include <unordered_map>
+#include <stdexcept>
+
+#define GLFW_INCLUDE_VULKAN
+#include "GLFW/glfw3.h"
+#if defined(_WIN32)
+#undef APIENTRY
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include "GLFW/glfw3native.h"
+#endif
+
+struct CallbackStorage
+{
+    // we associate user data pointers with the hash of the delegate function
+    using UserDataStorageType = std::unordered_map<size_t, void*>;
+
+    std::vector<PlatformWindowSystem::CursorPosEvent> CursorPosEvents;
+    UserDataStorageType CursorPosEventUserData;
+    std::vector<PlatformWindowSystem::CursorEnterEvent> CursorEnterEvents;
+    UserDataStorageType CursorEnterEventUserData;
+    std::vector<PlatformWindowSystem::ScrollEvent> ScrollEvents;
+    UserDataStorageType ScrollEventUserData;
+    std::vector<PlatformWindowSystem::CharEvent> CharEvents;
+    UserDataStorageType CharEventUserData;
+    std::vector<PlatformWindowSystem::PathDropEvent> PathDropEvents;
+    UserDataStorageType PathDropEventUserData;
+    std::vector<PlatformWindowSystem::MouseButtonEvent> MouseButtonEvents;
+    UserDataStorageType MouseButtonEventUserData;
+    std::vector<PlatformWindowSystem::KeyboardKeyEvent> KeyboardKeyEvents;
+    UserDataStorageType KeyboardKeyEventUserData;
+};
+
+void CursorPosCallback(GLFWwindow* window, double pos_x, double pos_y)
+{
+    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+
+    const Events::CursorPosEventData eventData{ pos_x, pos_y, window };
+
+    for (auto& pos_fn : user_ptr->Callbacks->CursorPosEvents)
+    {
+        if (user_ptr->Callbacks->CursorPosEventUserData.contains(pos_fn.hash()))
+        {
+            pos_fn(eventData, user_ptr->Callbacks->CursorPosEventUserData[pos_fn.hash()]);
+        }
+        else
+        {
+            pos_fn(eventData, nullptr);
+        }
+    }
+}
+
+void CursorEnterCallback(GLFWwindow* window, int enter)
+{
+    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    for (auto& enter_fn : user_ptr->Callbacks->CursorEnterEvents)
+    {
+        if (user_ptr->Callbacks->CursorEnterEventUserData.contains(enter_fn.hash()))
+        {
+            enter_fn(enter, user_ptr->Callbacks->CursorEnterEventUserData[enter_fn.hash()]);
+        }
+        else
+        {
+            enter_fn(enter, nullptr);
+        }
+    }
+}
+
+void ScrollCallback(GLFWwindow* window, double x_offset, double y_offset)
+{
+    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    const Events::ScrollEventData eventData{ x_offset, y_offset, window };
+    for (auto& scroll_fn : user_ptr->Callbacks->ScrollEvents)
+    {
+        if (user_ptr->Callbacks->ScrollEventUserData.contains(scroll_fn.hash()))
+        {
+            scroll_fn(eventData, user_ptr->Callbacks->ScrollEventUserData[scroll_fn.hash()]);
+        }
+        else
+        {
+            scroll_fn(eventData, nullptr);
+        }
+    }
+}
+
+void CharCallback(GLFWwindow* window, unsigned int code)
+{
+    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    for (auto& char_fn : user_ptr->Callbacks->CharEvents)
+    {
+        if (user_ptr->Callbacks->CharEventUserData.contains(char_fn.hash()))
+        {
+            char_fn(code, user_ptr->Callbacks->CharEventUserData[char_fn.hash()]);
+        }
+        else
+        {
+            char_fn(code, nullptr);
+        }
+    }
+}
+
+void PathDropCallback(GLFWwindow* window, int count, const char** paths)
+{
+    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    const Events::PathDropEventData eventData{ count, paths, window };
+    for (auto& drop_fn : user_ptr->Callbacks->PathDropEvents)
+    {
+        if (user_ptr->Callbacks->PathDropEventUserData.contains(drop_fn.hash()))
+        {
+            drop_fn(eventData, user_ptr->Callbacks->PathDropEventUserData[drop_fn.hash()]);
+        }
+        else
+        {
+            drop_fn(eventData, nullptr);
+        }
+    }
+}
+
+void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
+{
+    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    const Events::MouseButtonEventData eventData{ button, action, mods, window };
+    for (auto& mouse_fn : user_ptr->Callbacks->MouseButtonEvents)
+    {
+        if (user_ptr->Callbacks->MouseButtonEventUserData.contains(mouse_fn.hash()))
+        {
+            mouse_fn(eventData, user_ptr->Callbacks->MouseButtonEventUserData[mouse_fn.hash()]);
+        }
+        else
+        {
+            mouse_fn(eventData, nullptr);
+        }
+    }
+}
+
+void KeyboardKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    const Events::KeyboardKeyEventData eventData{ key, scancode, action, mods, window };
+    for (auto& key_fn : user_ptr->Callbacks->KeyboardKeyEvents)
+    {
+        if (user_ptr->Callbacks->KeyboardKeyEventUserData.contains(key_fn.hash()))
+        {
+            key_fn(eventData, user_ptr->Callbacks->KeyboardKeyEventUserData[key_fn.hash()]);
+        }
+        else
+        {
+            key_fn(eventData, nullptr);
+        }
+    }
+}
+
+static DisplayInfo GetPrimaryDisplayInfo(bool findHDR)
+{
+    GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+    if (primaryMonitor)
+    {
+        int count = 0;
+        const GLFWvidmode* modes = glfwGetVideoModes(primaryMonitor, &count);
+
+        for (int i  = 0; i < count; ++i)
+        {
+            const GLFWvidmode& mode = modes[i];
+            // We're going to try and find the mode with the best color depth for usage with an HDR buffer, if possible.
+
+            // Our first choice, float16 mode
+            if (findHDR && (mode.redBits == 16 && mode.greenBits == 16 && mode.blueBits == 16))
+            {
+                return DisplayInfo{ static_cast<uint32_t>(mode.width), static_cast<uint32_t>(mode.height), 16, 16, 16, 1.0f, 1.0f, static_cast<float>(mode.refreshRate), HDRCapabilities{ true } };
+            }
+            // A2R10G10B10 mode, not as good as float16 mode but still pretty good and usable for HDR!
+            else if (findHDR && (mode.redBits == 10 && mode.greenBits == 10 && mode.blueBits == 10))
+            {
+                return DisplayInfo{ static_cast<uint32_t>(mode.width), static_cast<uint32_t>(mode.height), 10, 10, 10, 1.0f, 1.0f, static_cast<float>(mode.refreshRate), HDRCapabilities{ true } };
+            }
+            // R11G11B10 mode, least favored HDR mode because of the RG bias that can cause artifacts, but still better than RGBA8
+            else if (findHDR && (mode.redBits == 11 && mode.greenBits == 11 && mode.blueBits == 10))
+            {
+                return DisplayInfo{ static_cast<uint32_t>(mode.width), static_cast<uint32_t>(mode.height), 11, 11, 10, 1.0f, 1.0f, static_cast<float>(mode.refreshRate), HDRCapabilities{ true } };
+            }
+            else if (mode.redBits == 8 && mode.greenBits == 8 && mode.blueBits == 8)
+            {
+                // fallback to 8-bit color depth if nothing better is found
+                return DisplayInfo{ static_cast<uint32_t>(mode.width), static_cast<uint32_t>(mode.height), 8, 8, 8, 1.0f, 1.0f, static_cast<float>(mode.refreshRate), HDRCapabilities{ false } };
+            }
+        }
+
+        // didn't find any valid video modes we want to use
+        return DisplayInfo{};
+    }
+}
+
+PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInfo) :
+    Window(nullptr),
+    ActiveDisplay(nullptr),
+    AllDisplays(),
+    HDRSettings(),
+    Callbacks(std::make_unique<CallbackStorage>()),
+    Surface(nullptr)
+{
+    if (!glfwInit())
+    {
+        throw std::runtime_error("Failed to initialize GLFW");
+    }
+
+    // Get all displays
+    int monitorCount = 0;
+    GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
+    for (int i = 0; i < monitorCount; ++i)
+    {
+        GLFWmonitor* monitor = monitors[i];
+        if (monitor)
+        {
+            int count = 0;
+            const GLFWvidmode* modes = glfwGetVideoModes(monitor, &count);
+            if (count > 0)
+            {
+                // Just take the first mode, which is usually the "best" mode
+                const GLFWvidmode& mode = modes[0];
+                AllDisplays.push_back(DisplayInfo{ static_cast<uint32_t>(mode.width), static_cast<uint32_t>(mode.height), static_cast<uint8_t>(mode.redBits), static_cast<uint8_t>(mode.greenBits), static_cast<uint8_t>(mode.blueBits), 1.0f, 1.0f, static_cast<float>(mode.refreshRate), HDRCapabilities{ false } });
+            }
+        }
+    }
+
+    // Get primary display info
+    s_PrimaryDisplay = GetPrimaryDisplayInfo(true);
+    // We don't have a way to get more info about the primary display's HDR caps currently, like colorspaces and the like.
+    // That isn't retrievable until we have a surface with which to use for swapchain color space queries.
+    // For now, we try and make sure we're going to use a window that has the correct bit depth to support what we want!
+    s_PrimaryHDRCaps = s_PrimaryDisplay.HDRCapabilities;
+
+    // Create window with desired settings
+    if (createInfo.BehaviorFlags.Resizable && 
+        createInfo.DesiredWindowMode == PlatformWindowMode::Windowed)
+    {
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    }
+    else
+    {
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    }
+
+    if (createInfo.BehaviorFlags.Moveable)
+    {
+    }
+    else
+    {
+    }
+
+    // decorate only if flag set 
+    if (createInfo.BehaviorFlags.Decorated && 
+        (createInfo.DesiredWindowMode == PlatformWindowMode::Windowed ||
+         createInfo.DesiredWindowMode == PlatformWindowMode::MaximizedWindowed))
+    {
+        glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
+    }
+    else
+    {
+        glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+    }
+
+    // need to also make sure we acquire focus on show if we're going fullscreen
+    if (createInfo.BehaviorFlags.FocusOnShow || (createInfo.DesiredWindowMode == PlatformWindowMode::Fullscreen))
+    {
+        glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_TRUE);
+    }
+    else
+    {
+        glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
+    }
+
+    if (createInfo.BehaviorFlags.CenterMouse)
+    {
+        glfwWindowHint(GLFW_CENTER_CURSOR, GLFW_TRUE);
+    }
+    else
+    {
+        glfwWindowHint(GLFW_CENTER_CURSOR, GLFW_FALSE);
+    }
+
+    glfwWindowHint(GLFW_POSITION_X, static_cast<int>(createInfo.InitialPosX));
+    glfwWindowHint(GLFW_POSITION_Y, static_cast<int>(createInfo.InitialPosY));
+    glfwWindowHint(GLFW_RED_BITS, static_cast<int>(s_PrimaryDisplay.BitDepthRed));
+    glfwWindowHint(GLFW_GREEN_BITS, static_cast<int>(s_PrimaryDisplay.BitDepthGreen));
+    glfwWindowHint(GLFW_BLUE_BITS, static_cast<int>(s_PrimaryDisplay.BitDepthBlue));
+    glfwWindowHint(GLFW_REFRESH_RATE, static_cast<int>(s_PrimaryDisplay.RefreshRate));
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // We don't want OpenGL context
+
+    if (createInfo.DesiredWindowMode != PlatformWindowMode::Fullscreen)
+    {
+        Window = glfwCreateWindow(static_cast<int>(createInfo.InitialWidth), static_cast<int>(createInfo.InitialHeight), createInfo.WindowName, nullptr, nullptr);
+    }
+    else
+    {
+        Window = glfwCreateWindow(static_cast<int>(createInfo.InitialWidth), static_cast<int>(createInfo.InitialHeight), createInfo.WindowName, glfwGetPrimaryMonitor(), nullptr);
+    }
+
+    
+}
