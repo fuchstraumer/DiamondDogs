@@ -171,6 +171,14 @@ namespace math
             {
                 float x, y, z;
             };
+            struct
+            {
+                float r, g, b;
+            };
+            struct
+            {
+                float u, v, w;
+            };
         };
 
     };
@@ -252,6 +260,14 @@ namespace math
             struct
             {
                 float x, y, z, w;
+            };
+            struct
+            {
+                float r, g, b, a;
+            };
+            struct
+            {
+                float u, v, w, t;
             };
         };
 
@@ -872,11 +888,16 @@ namespace math
         Vector Abs() const noexcept;
         Vector Min(Vector other) const noexcept;
         Vector Max(Vector other) const noexcept;
+        Vector Pow(float exponent) const noexcept;
+        Vector Pow(Vector exponent) const noexcept;
 
         static Vector Replicate(float scalar) noexcept;
         static Vector Zero() noexcept;
         static Vector Epsilon() noexcept;
         static Vector Identity() noexcept;
+        static Vector Abs(Vector vec) noexcept;
+        static Vector Pow(Vector base, float exponent) noexcept;
+        static Vector Pow(Vector base, Vector exponent) noexcept;
 
         static Vector AlmostEqual(Vector other) noexcept;
         static Vector AlmostEqual(Vector other, float epsilon) noexcept;

@@ -1716,6 +1716,31 @@ namespace math
         return Vector{DirectX::XMVectorMax(data, other.data)};
     }
 
+    DD_MATH_FORCEINLINE Vector Vector::Pow(float exponent) const noexcept 
+    {
+        return Vector{DirectX::XMVectorPow(data, DirectX::XMVectorReplicate(exponent))};
+    }
+
+    DD_MATH_FORCEINLINE Vector Vector::Pow(Vector exponent) const noexcept 
+    {
+        return Vector{DirectX::XMVectorPow(data, exponent.data)};
+    }
+
+    DD_MATH_FORCEINLINE Vector Vector::Abs(Vector vec) noexcept 
+    {
+        return Vector{DirectX::XMVectorAbs(vec.data)};
+    }
+
+    DD_MATH_FORCEINLINE Vector Vector::Pow(Vector base, float exponent) noexcept 
+    {
+        return Vector{DirectX::XMVectorPow(base.data, DirectX::XMVectorReplicate(exponent))};
+    }
+
+    DD_MATH_FORCEINLINE Vector Vector::Pow(Vector base, Vector exponent) noexcept 
+    {
+        return Vector{DirectX::XMVectorPow(base.data, exponent.data)};
+    }
+
     // ================================
     // Free Function Implementations
     // ================================
