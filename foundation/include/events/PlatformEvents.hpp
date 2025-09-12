@@ -64,6 +64,14 @@ namespace Events
 
     using KeyboardKeyEventFn = void(const KeyboardKeyEventData&, void* userData);
 
+    struct ShouldResizeEventData
+    {
+        int Width{ 0 };
+        int Height{ 0 };
+    };
+
+    using ShouldResizeEventFn = void(const ShouldResizeEventData&, void* userData);
+
 }
 
 #endif //!FOUNDATION_PLATFORM_EVENT_TYPES_HPP

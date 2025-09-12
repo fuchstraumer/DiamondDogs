@@ -30,6 +30,8 @@ public:
     using PathDropEvent = Delegate<void(const Events::PathDropEventData&, void* userData)>;
     using MouseButtonEvent = Delegate<void(const Events::MouseButtonEventData&, void* userData)>;
     using KeyboardKeyEvent = Delegate<void(const Events::KeyboardKeyEventData&, void* userData)>;
+    using ShouldResizeEvent = Delegate<void(const Events::ShouldResizeEventData&, void* userData)>;
+    using ShouldCloseEvent = Delegate<void(void* userData)>;
 
     void AddCursorPosEventListener(CursorPosEvent listener, void* userData);
     void AddCursorEnterEventListener(CursorEnterEvent listener, void* userData);
@@ -38,6 +40,8 @@ public:
     void AddPathDropEventListener(PathDropEvent listener, void* userData);
     void AddMouseButtonEventListener(MouseButtonEvent listener, void* userData);
     void AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* userData);
+    void AddShouldResizeEventListener(ShouldResizeEvent listener, void* userData);
+    void AddShouldCloseEventListener(ShouldCloseEvent listener, void* userData);
 
     /** @brief Display is chosen during window creation, and isn't managed by `DisplaySystem` as it's later in the init process. */
     const DisplayInfo& GetActiveDisplayInfo() const noexcept;

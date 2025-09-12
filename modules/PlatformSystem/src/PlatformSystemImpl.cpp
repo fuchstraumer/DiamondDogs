@@ -32,6 +32,10 @@ struct CallbackStorage
     UserDataStorageType MouseButtonEventUserData;
     std::vector<PlatformWindowSystem::KeyboardKeyEvent> KeyboardKeyEvents;
     UserDataStorageType KeyboardKeyEventUserData;
+    std::vector<PlatformWindowSystem::ShouldResizeEvent> ShouldResizeEvents;
+    UserDataStorageType ShouldResizeEventUserData;
+    std::vector<PlatformWindowSystem::ShouldCloseEvent> ShouldCloseEvents;
+    UserDataStorageType ShouldCloseEventUserData;
 };
 
 void CursorPosCallback(GLFWwindow* window, double pos_x, double pos_y)
@@ -138,6 +142,13 @@ void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 
 void KeyboardKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
+    // Handle Alt + F4 to close window (default behavior)
+    if (key == GLFW_KEY_F4 && action == GLFW_PRESS && (mods & GLFW_MOD_ALT))
+    {
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+        return;
+    }
+
     PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
     const Events::KeyboardKeyEventData eventData{ key, scancode, action, mods, window };
     for (auto& key_fn : user_ptr->Callbacks->KeyboardKeyEvents)
@@ -149,6 +160,39 @@ void KeyboardKeyCallback(GLFWwindow* window, int key, int scancode, int action, 
         else
         {
             key_fn(eventData, nullptr);
+        }
+    }
+}
+
+void ResizeCallback(GLFWwindow* window, int width, int height)
+{
+    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    const Events::ShouldResizeEventData eventData{ width, height };
+    for (auto& resize_fn : user_ptr->Callbacks->ShouldResizeEvents)
+    {
+        if (user_ptr->Callbacks->ShouldResizeEventUserData.contains(resize_fn.hash()))
+        {
+            resize_fn(eventData, user_ptr->Callbacks->ShouldResizeEventUserData[resize_fn.hash()]);
+        }
+        else
+        {
+            resize_fn(eventData, nullptr);
+        }
+    }
+}
+
+void ShouldCloseCallback(GLFWwindow* window)
+{
+    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    for (auto& close_fn : user_ptr->Callbacks->ShouldCloseEvents)
+    {
+        if (user_ptr->Callbacks->ShouldCloseEventUserData.contains(close_fn.hash()))
+        {
+            close_fn(user_ptr->Callbacks->ShouldCloseEventUserData[close_fn.hash()]);
+        }
+        else
+        {
+            close_fn(nullptr);
         }
     }
 }
@@ -298,5 +342,41 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
         Window = glfwCreateWindow(static_cast<int>(createInfo.InitialWidth), static_cast<int>(createInfo.InitialHeight), createInfo.WindowName, glfwGetPrimaryMonitor(), nullptr);
     }
 
+    if (!Window)
+    {
+        glfwTerminate();
+        throw std::runtime_error("Failed to create GLFW window");
+    }
+
+    // Set resize callback, right now no listeners are connected to it but we'll connect them from other systems later
+    glfwSetWindowSizeCallback(Window, ResizeCallback);
+
+    // Set this impl as the user pointer for callbacks
+    glfwSetWindowUserPointer(Window, this);
+}
+
+PlatformSystemImpl::~PlatformSystemImpl()
+{
+    if (Window)
+    {
+        glfwDestroyWindow(Window);
+        Window = nullptr;
+    }
+    glfwTerminate();
+}
+
+PlatformSystemImpl::Update()
+{
+    glfwPollEvents();
+
+    if (glfwWindowShouldClose(Window))
+    {
+        ShouldCloseCallback(Window);
+    }
     
+}
+
+PlatformSystemImpl::WaitForEvents()
+{
+    glfwWaitEvents();
 }

@@ -2,7 +2,6 @@
 #ifndef PLATFORM_SYSTEM_IMPL_HPP
 #define PLATFORM_SYSTEM_IMPL_HPP
 #include "PlatformTypes.hpp"
-#include "PlatformSurface.hpp"
 #include "events/PlatformEvents.hpp"
 #include <vector>
 #include <memory>
@@ -12,7 +11,6 @@
  * @brief Implementation details for the PlatformSystem module, mostly private functions that would otherwise clutter the source code
  * of the platform system
 */
-
 
 // We use these as storage buffers before init 
 DisplayInfo s_PrimaryDisplay;
@@ -25,6 +23,7 @@ struct CallbackStorage;
 struct PlatformSystemImpl
 {
     PlatformSystemImpl(const PlatformWindowCreateInfo& createInfo);
+    ~PlatformSystemImpl();
     struct GLFWwindow* Window = nullptr;
     // pointer to ALlDisplays, describes active display
     DisplayInfo* ActiveDisplay = nullptr;
@@ -33,6 +32,8 @@ struct PlatformSystemImpl
     HDRCapabilities HDRSettings;
     std::unique_ptr<CallbackStorage> Callbacks;
     std::unique_ptr<PlatformSurface> Surface;
+    void Update();
+    void WaitForEvents();
 };
 
 void CursorPosCallback(GLFWwindow* window, double pos_x, double pos_y);
@@ -42,5 +43,7 @@ void CharCallback(GLFWwindow* window, unsigned int code);
 void PathDropCallback(GLFWwindow* window, int count, const char** paths);
 void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 void KeyboardKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
+void ResizeCallback(GLFWwindow* window, int width, int height);
+void ShouldCloseCallback(GLFWwindow* window);
 
 #endif //!PLATFORM_SYSTEM_IMPL_HPP
