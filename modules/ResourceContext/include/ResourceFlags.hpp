@@ -1,7 +1,7 @@
 #pragma once
 #ifndef RESOURCE_CONTEXT_RESOURCE_FLAGS_HPP
 #define RESOURCE_CONTEXT_RESOURCE_FLAGS_HPP
-#include "utility/EnumUtils.hpp"
+#include "utility/EnumFlagUtils.hpp"
 
 /**
  * @file ResourceFlags.hpp
