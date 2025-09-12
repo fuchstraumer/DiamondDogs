@@ -8,15 +8,13 @@ OPTION(RHI_SYSTEM_DEBUG_INFO_CALLING_FN "Enable calling function name in debug i
 ADD_MODULE(rhi_system
     "include/ExtensionWrangler.hpp"
     "include/PipelineExecutableInfo.hpp"
-    "include/PlatformWindow.hpp"
     "include/RhiSystem.hpp"
     "src/ExtensionWrangler.cpp"
     "src/PipelineExecutableInfo.cpp"
-    "src/PlatformWindow.cpp"
     "src/RhiSystem.cpp"
 )
 
-TARGET_LINK_LIBRARIES(rhi_system PUBLIC vpr_core glfw ${Vulkan_LIBRARY})
+TARGET_LINK_LIBRARIES(rhi_system PUBLIC vpr_core ${Vulkan_LIBRARY})
 TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC ${VPR_INCLUDE_DIRS_MODULE_RELATIVE}
     "../../third_party/json/include" ${Vulkan_INCLUDE_DIR})
 
