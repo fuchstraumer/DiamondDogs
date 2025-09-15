@@ -41,8 +41,9 @@ set(threading_source_files
     "src/threading/ExponentialBackoffSleeper.cpp")
 
 set(event_source_files
-    "include/events/RhiEvents.hpp"
-    "include/events/PlatformEvents.hpp")
+    "include/events/DisplayEvents.hpp"
+    "include/events/PlatformEvents.hpp"
+    "include/events/RhiEvents.hpp")
 
 if(WIN32)
     set(threading_platform_source_files
