@@ -12,39 +12,6 @@
 
 namespace Events
 {
-    /** @brief Informs about the recreation of a swapchain, typically due to window resizing or format changes.
-     *
-     * This event provides the new dimensions, HDR capability, color space, and the associated window handle.
-    */
-    struct SwapchainRecreatedEventData
-    {
-        uint64_t SwapchainHandle{ 0u }; // VkSwapchainKHR
-        uint32_t Width{ 0u };
-        uint32_t Height{ 0u };
-        bool HDRCapable{ false };
-        uint32_t ColorSpace{ 0u }; // VkColorSpaceKHR
-        void* WindowHandle{ nullptr }; // GLFWwindow*, for now
-    };
-
-    /**
-     * @brief Event signature for swapchain recreation notifications. This type is used for creation, beginning resize, and completion of resize events.
-     * @note Signature for destruction is `SwapchainDestroyedEvent`.
-     */
-    using SwapchainRecreatedEvent = void(const SwapchainRecreatedEventData&, void* userData);
-    /** @brief Event signature for swapchain destruction notifications. */
-    using SwapchainDestroyedEvent = void(const uint64_t swapchainHandle, void* userData);
-
-    /** @brief Event type for window resize notifications.
-     *
-     * Listeners can register callbacks matching this signature to be informed
-     * whenever a window is resized.
-    */
-    struct WindowResizeEventData
-    {
-        uint32_t Width{ 0u };
-        uint32_t Height{ 0u };
-        void* WindowHandle{ nullptr }; // GLFWwindow*, for now
-    };
 
     /** @brief Informs about a change in the High Dynamic Range (HDR) capabilities of a window's swapchain.
      *
