@@ -32,7 +32,7 @@ struct DisplayInfo
     float DisplayScaleY{ 1.0f };
     float RefreshRate{ 0.0f };
     // index to monitor we chose when querying GLFW monitors: using index as pointer would not guarantee lifetime
-    const int MonitorIdx{ -1 };
+    int MonitorIdx{ -1 };
 };
 
 /** @brief Struct that allows setting and toggling GLFW window hints, currently. */

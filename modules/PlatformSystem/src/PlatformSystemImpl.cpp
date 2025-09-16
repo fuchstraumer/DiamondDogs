@@ -197,84 +197,88 @@ void ShouldCloseCallback(GLFWwindow* window)
     }
 }
 
-static DisplayInfo GetPrimaryDisplayInfo(bool findHDR)
+static DisplayInfo GetPrimaryDisplayInfo(bool findHDR, const std::vector<DisplayInfo>& allDisplays)
 {
-    GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
-    if (primaryMonitor)
+    for (const auto& display : allDisplays)
     {
-        int count = 0;
-        const GLFWvidmode* modes = glfwGetVideoModes(primaryMonitor, &count);
+        // We're going to try and find the mode with the best color depth for usage with an HDR buffer, if possible.
 
-        for (int i  = 0; i < count; ++i)
+        // Our first choice, float16 mode
+        if (findHDR && (display.BitDepthRed == 16 && display.BitDepthGreen == 16 && display.BitDepthBlue == 16))
         {
-            const GLFWvidmode& mode = modes[i];
-            // We're going to try and find the mode with the best color depth for usage with an HDR buffer, if possible.
-
-            // Our first choice, float16 mode
-            if (findHDR && (mode.redBits == 16 && mode.greenBits == 16 && mode.blueBits == 16))
-            {
-                return DisplayInfo{ static_cast<uint32_t>(mode.width), static_cast<uint32_t>(mode.height), 16, 16, 16, 1.0f, 1.0f, static_cast<float>(mode.refreshRate), HDRCapabilities{ true } };
-            }
-            // A2R10G10B10 mode, not as good as float16 mode but still pretty good and usable for HDR!
-            else if (findHDR && (mode.redBits == 10 && mode.greenBits == 10 && mode.blueBits == 10))
-            {
-                return DisplayInfo{ static_cast<uint32_t>(mode.width), static_cast<uint32_t>(mode.height), 10, 10, 10, 1.0f, 1.0f, static_cast<float>(mode.refreshRate), HDRCapabilities{ true } };
-            }
-            // R11G11B10 mode, least favored HDR mode because of the RG bias that can cause artifacts, but still better than RGBA8
-            else if (findHDR && (mode.redBits == 11 && mode.greenBits == 11 && mode.blueBits == 10))
-            {
-                return DisplayInfo{ static_cast<uint32_t>(mode.width), static_cast<uint32_t>(mode.height), 11, 11, 10, 1.0f, 1.0f, static_cast<float>(mode.refreshRate), HDRCapabilities{ true } };
-            }
-            else if (mode.redBits == 8 && mode.greenBits == 8 && mode.blueBits == 8)
-            {
-                // fallback to 8-bit color depth if nothing better is found
-                return DisplayInfo{ static_cast<uint32_t>(mode.width), static_cast<uint32_t>(mode.height), 8, 8, 8, 1.0f, 1.0f, static_cast<float>(mode.refreshRate), HDRCapabilities{ false } };
-            }
+            return display;
         }
-
-        // didn't find any valid video modes we want to use
-        return DisplayInfo{};
+        // A2R10G10B10 mode, not as good as float16 mode but still pretty good and usable for HDR!
+        else if (findHDR && (display.BitDepthRed == 10 && display.BitDepthGreen == 10 && display.BitDepthBlue == 10))
+        {
+            return display;
+        }
+        // R11G11B10 mode, least favored HDR mode because of the RG bias that can cause artifacts, but still better than RGBA8
+        else if (findHDR && (display.BitDepthRed == 11 && display.BitDepthGreen == 11 && display.BitDepthBlue == 10))
+        {
+            return display;
+        }
+        else if (display.BitDepthRed == 8 && display.BitDepthGreen == 8 && display.BitDepthBlue == 8)
+        {
+            // fallback to 8-bit color depth if nothing better is found
+            return display;
+        }
     }
+
+    // didn't find any valid video modes we want to use
+    return allDisplays.front();
 }
 
 PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInfo) :
     Window(nullptr),
     ActiveDisplay(nullptr),
     AllDisplays(),
-    HDRSettings(),
-    Callbacks(std::make_unique<CallbackStorage>()),
-    Surface(nullptr)
+    Callbacks(std::make_unique<CallbackStorage>())
 {
     if (!glfwInit())
     {
         throw std::runtime_error("Failed to initialize GLFW");
     }
 
-    // Get all displays
-    int monitorCount = 0;
-    GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
-    for (int i = 0; i < monitorCount; ++i)
+    // for now, we only care about the primary monitor and the display info for that monitor. we'll choose the best from that pool
+    GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+    if (!primaryMonitor)
     {
-        GLFWmonitor* monitor = monitors[i];
-        if (monitor)
+        glfwTerminate();
+        throw std::runtime_error("Failed to get primary monitor");
+    }
+
+    int count = 0;
+    const GLFWvidmode* modes = glfwGetVideoModes(primaryMonitor, &count);
+    if (count == 0 || !modes)
+    {
+        glfwTerminate();
+        throw std::runtime_error("Failed to get video modes for primary monitor");
+    }
+    else
+    {
+        for (int i = 0; i < count; ++i)
         {
-            int count = 0;
-            const GLFWvidmode* modes = glfwGetVideoModes(monitor, &count);
-            if (count > 0)
-            {
-                // Just take the first mode, which is usually the "best" mode
-                const GLFWvidmode& mode = modes[0];
-                AllDisplays.push_back(DisplayInfo{ static_cast<uint32_t>(mode.width), static_cast<uint32_t>(mode.height), static_cast<uint8_t>(mode.redBits), static_cast<uint8_t>(mode.greenBits), static_cast<uint8_t>(mode.blueBits), 1.0f, 1.0f, static_cast<float>(mode.refreshRate), HDRCapabilities{ false } });
-            }
+            const GLFWvidmode& mode = modes[i];
+            // Just take the first mode, which is usually the "best" mode
+            AllDisplays.push_back(
+                DisplayInfo
+                {
+                    static_cast<uint32_t>(mode.width),
+                    static_cast<uint32_t>(mode.height),
+                    static_cast<uint8_t>(mode.redBits),
+                    static_cast<uint8_t>(mode.greenBits),
+                    static_cast<uint8_t>(mode.blueBits),
+                    1.0f,
+                    1.0f,
+                    static_cast<float>(mode.refreshRate)
+                });
         }
     }
 
-    // Get primary display info
-    s_PrimaryDisplay = GetPrimaryDisplayInfo(true);
-    // We don't have a way to get more info about the primary display's HDR caps currently, like colorspaces and the like.
-    // That isn't retrievable until we have a surface with which to use for swapchain color space queries.
-    // For now, we try and make sure we're going to use a window that has the correct bit depth to support what we want!
-    s_PrimaryHDRCaps = s_PrimaryDisplay.HDRCapabilities;
+    // for now, we just try to find the display with highest bit depth and use that as the primary display
+    s_PrimaryDisplay = GetPrimaryDisplayInfo(true, AllDisplays);
+    ActiveDisplay = &s_PrimaryDisplay;
 
     // Create window with desired settings
     if (createInfo.BehaviorFlags.Resizable && 
@@ -365,18 +369,103 @@ PlatformSystemImpl::~PlatformSystemImpl()
     glfwTerminate();
 }
 
-PlatformSystemImpl::Update()
+void PlatformSystemImpl::Update()
 {
     glfwPollEvents();
 
     if (glfwWindowShouldClose(Window))
     {
         ShouldCloseCallback(Window);
+        // begin shutdown sequence: anything that can't be handled by calling dtors as we terminate should've been handled in the callback!
+        // obviously not ideal long term, but this is good enough for now and should ensure we do respond to the window close event
+        // TODO: Implement proper engine shutdown sequence
+        std::terminate();
     }
     
 }
 
-PlatformSystemImpl::WaitForEvents()
+void PlatformSystemImpl::WaitForEvents()
 {
     glfwWaitEvents();
+}
+
+void PlatformSystemImpl::AddCursorPosEventListener(PlatformWindowSystem::CursorPosEvent listener, void* userData)
+{
+    Callbacks->CursorPosEvents.push_back(listener);
+    if (userData != nullptr)
+    {
+        Callbacks->CursorPosEventUserData[listener.hash()] = userData;
+    }
+}
+
+void PlatformSystemImpl::AddCursorEnterEventListener(PlatformWindowSystem::CursorEnterEvent listener, void* userData)
+{
+    Callbacks->CursorEnterEvents.push_back(listener);
+    if (userData != nullptr)
+    {
+        Callbacks->CursorEnterEventUserData[listener.hash()] = userData;
+    }
+}
+
+void PlatformSystemImpl::AddScrollEventListener(PlatformWindowSystem::ScrollEvent listener, void* userData)
+{
+    Callbacks->ScrollEvents.push_back(listener);
+    if (userData != nullptr)
+    {
+        Callbacks->ScrollEventUserData[listener.hash()] = userData;
+    }
+}
+
+void PlatformSystemImpl::AddCharEventListener(PlatformWindowSystem::CharEvent listener, void* userData)
+{
+    Callbacks->CharEvents.push_back(listener);
+    if (userData != nullptr)
+    {
+        Callbacks->CharEventUserData[listener.hash()] = userData;
+    }
+}
+
+void PlatformSystemImpl::AddPathDropEventListener(PlatformWindowSystem::PathDropEvent listener, void* userData)
+{
+    Callbacks->PathDropEvents.push_back(listener);
+    if (userData != nullptr)
+    {
+        Callbacks->PathDropEventUserData[listener.hash()] = userData;
+    }
+}
+
+void PlatformSystemImpl::AddMouseButtonEventListener(PlatformWindowSystem::MouseButtonEvent listener, void* userData)
+{
+    Callbacks->MouseButtonEvents.push_back(listener);
+    if (userData != nullptr)
+    {
+        Callbacks->MouseButtonEventUserData[listener.hash()] = userData;
+    }
+}
+
+void PlatformSystemImpl::AddKeyboardKeyEventListener(PlatformWindowSystem::KeyboardKeyEvent listener, void* userData)
+{
+    Callbacks->KeyboardKeyEvents.push_back(listener);
+    if (userData != nullptr)
+    {
+        Callbacks->KeyboardKeyEventUserData[listener.hash()] = userData;
+    }
+}
+
+void PlatformSystemImpl::AddShouldResizeEventListener(PlatformWindowSystem::ShouldResizeEvent listener, void* userData)
+{
+    Callbacks->ShouldResizeEvents.push_back(listener);
+    if (userData != nullptr)
+    {
+        Callbacks->ShouldResizeEventUserData[listener.hash()] = userData;
+    }
+}
+
+void PlatformSystemImpl::AddShouldCloseEventListener(PlatformWindowSystem::ShouldCloseEvent listener, void* userData)
+{
+    Callbacks->ShouldCloseEvents.push_back(listener);
+    if (userData != nullptr)
+    {
+        Callbacks->ShouldCloseEventUserData[listener.hash()] = userData;
+    }
 }

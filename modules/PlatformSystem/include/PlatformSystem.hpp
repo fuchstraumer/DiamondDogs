@@ -20,7 +20,7 @@ public:
     static size_t GetNumDisplays() noexcept;
     static DisplayInfo GetDisplayInfo(const size_t displayIndex) noexcept;
 
-    static PlatformWindowSystem* CreatePlatformWindowSystem(const PlatformWindowCreateInfo& createInfo, const void* vkInstancePtr);
+    static std::unique_ptr<PlatformWindowSystem> CreatePlatformWindowSystem(const PlatformWindowCreateInfo& createInfo, const void* vkInstancePtr);
     void Destroy();
 
     using CursorPosEvent = Delegate<void(const Events::CursorPosEventData&, void* userData)>;
@@ -46,6 +46,24 @@ public:
     /** @brief Display is chosen during window creation, and isn't managed by `DisplaySystem` as it's later in the init process. */
     const DisplayInfo& GetActiveDisplayInfo() const noexcept;
     const void* GetWindowHandle() const noexcept;
+
+    // Lifecycle management methods
+    void Update();
+    void WaitForEvents();
+    bool ShouldWindowClose() const;
+
+    bool IsHDRCapable() const noexcept;
+
+    // Window and input management (mirroring deprecated RhiSystem functionality)
+    void GetWindowSize(int& w, int& h) const;
+    void GetFramebufferSize(int& w, int& h) const;
+    int GetMouseButton(int button) const;
+    void GetCursorPosition(double& x, double& y) const;
+    void SetCursorPosition(double x, double y);
+    int GetWindowAttribute(int attrib) const;
+    void SetWindowAttribute(int attrib, int value);
+    int GetInputMode(int mode) const;
+    void SetInputMode(int mode, int val);
 
 private:
     

@@ -14,7 +14,6 @@
 
 // We use these as storage buffers before init 
 DisplayInfo s_PrimaryDisplay;
-HDRCapabilities s_PrimaryHDRCaps;
 
 struct GLFWwindow;
 struct CallbackStorage;
@@ -28,12 +27,18 @@ struct PlatformSystemImpl
     // pointer to ALlDisplays, describes active display
     DisplayInfo* ActiveDisplay = nullptr;
     std::vector<DisplayInfo> AllDisplays;
-    // stored here, this HDR caps struct describes active HDR settings
-    HDRCapabilities HDRSettings;
     std::unique_ptr<CallbackStorage> Callbacks;
-    std::unique_ptr<PlatformSurface> Surface;
     void Update();
     void WaitForEvents();
+    void AddCursorPosEventListener(PlatformWindowSystem::CursorPosEvent listener, void* userData);
+    void AddCursorEnterEventListener(PlatformWindowSystem::CursorEnterEvent listener, void* userData);
+    void AddScrollEventListener(PlatformWindowSystem::ScrollEvent listener, void* userData);
+    void AddCharEventListener(PlatformWindowSystem::CharEvent listener, void* userData);
+    void AddPathDropEventListener(PlatformWindowSystem::PathDropEvent listener, void* userData);
+    void AddMouseButtonEventListener(PlatformWindowSystem::MouseButtonEvent listener, void* userData);
+    void AddKeyboardKeyEventListener(PlatformWindowSystem::KeyboardKeyEvent listener, void* userData);
+    void AddShouldResizeEventListener(PlatformWindowSystem::ShouldResizeEvent listener, void* userData);
+    void AddShouldCloseEventListener(PlatformWindowSystem::ShouldCloseEvent listener, void* userData);
 };
 
 void CursorPosCallback(GLFWwindow* window, double pos_x, double pos_y);
