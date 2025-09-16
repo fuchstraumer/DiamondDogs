@@ -4,6 +4,7 @@
 #include "DisplaySystemTypes.hpp"
 #include <vulkan/vulkan_core.h>
 #include <vector>
+#include <atomic>
 
 struct SwapchainInfo
 {
@@ -37,6 +38,7 @@ struct SwapchainImpl
     // needed to properly recreate the swapchain
     VkSwapchainKHR OldSwapchain = VK_NULL_HANDLE;
     std::unique_ptr<SwapchainInfo> Info;
+    std::atomic<bool> ShouldResize{ false };
 
 private:
     /** @brief Converts application-specific swapchain information to Vulkan-compatible structure */

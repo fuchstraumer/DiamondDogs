@@ -35,6 +35,7 @@ public:
 
 private:
     std::unique_ptr<SwapchainImpl> impl;
+    class PlatformWindowSystem* PlatformSystem{ nullptr };
 };
 
 #endif // !DIAMOND_DOGS_DISPLAY_SYSTEM_SWAPCHAIN_HPP

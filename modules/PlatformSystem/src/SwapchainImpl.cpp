@@ -264,3 +264,19 @@ void SwapchainImpl::CreateSwapchainImageViews()
         }
     }
 }
+
+#pragma warning(push)
+#pragma warning(disable: 4302)
+#pragma warning(disable: 4311)
+inline void RecreateSwapchain(const Events::SwapchainRecreateEventData& event, void* userData)
+{
+    int width = 0;
+    int height = 0;
+
+    while (width == 0 || height == 0)
+    {
+        glfwGetFramebufferSize(reinterpret_cast<GLFWwindow*>(event.WindowHandle), &width, &height);
+        glfwWaitEvents();
+    }
+}
+#pragma warning(pop)
