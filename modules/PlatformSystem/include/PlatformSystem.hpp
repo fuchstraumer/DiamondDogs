@@ -6,6 +6,17 @@
 #include "PlatformTypes.hpp"
 #include <memory>
 
+
+using CursorPosEvent = Delegate<void(const Events::CursorPosEventData&, void* userData)>;
+using CursorEnterEvent = Delegate<void(const int, void* userData)>;
+using ScrollEvent = Delegate<void(const Events::ScrollEventData&, void* userData)>;
+using CharEvent = Delegate<void(const char, void* userData)>;
+using PathDropEvent = Delegate<void(const Events::PathDropEventData&, void* userData)>;
+using MouseButtonEvent = Delegate<void(const Events::MouseButtonEventData&, void* userData)>;
+using KeyboardKeyEvent = Delegate<void(const Events::KeyboardKeyEventData&, void* userData)>;
+using ShouldResizeEvent = Delegate<void(const Events::ShouldResizeEventData&, void* userData)>;
+using ShouldCloseEvent = Delegate<void(void* userData)>;
+
 // PlatformSystem uses PImpl mostly to avoid any GLFW includes leaking into the public API
 struct PlatformSystemImpl;
 
@@ -20,18 +31,15 @@ public:
     static size_t GetNumDisplays() noexcept;
     static DisplayInfo GetDisplayInfo(const size_t displayIndex) noexcept;
 
+    static std::unique_ptr<PlatformWindowSystem> CreatePlatformWindowSystem(const char* jsonPath, const void* vkInstancePtr);
+    // Alternative creation method using struct instead of JSON path
     static std::unique_ptr<PlatformWindowSystem> CreatePlatformWindowSystem(const PlatformWindowCreateInfo& createInfo, const void* vkInstancePtr);
     void Destroy();
 
-    using CursorPosEvent = Delegate<void(const Events::CursorPosEventData&, void* userData)>;
-    using CursorEnterEvent = Delegate<void(const int, void* userData)>;
-    using ScrollEvent = Delegate<void(const Events::ScrollEventData&, void* userData)>;
-    using CharEvent = Delegate<void(const char, void* userData)>;
-    using PathDropEvent = Delegate<void(const Events::PathDropEventData&, void* userData)>;
-    using MouseButtonEvent = Delegate<void(const Events::MouseButtonEventData&, void* userData)>;
-    using KeyboardKeyEvent = Delegate<void(const Events::KeyboardKeyEventData&, void* userData)>;
-    using ShouldResizeEvent = Delegate<void(const Events::ShouldResizeEventData&, void* userData)>;
-    using ShouldCloseEvent = Delegate<void(void* userData)>;
+    // Default swapchain just uses display info that we got from window creation as creation parameters. Also creates a surface using display parameters
+    void CreateDefaultSwapchain(const uint64_t vkInstanceHandle, const uint64_t vkDeviceHandle, const uint64_t vkPhysicalDeviceHandle);
+    void CreateSwapchain(const SwapchainCreateInfo& createInfo);
+    void DestroySwapchain();
 
     void AddCursorPosEventListener(CursorPosEvent listener, void* userData);
     void AddCursorEnterEventListener(CursorEnterEvent listener, void* userData);
@@ -64,6 +72,8 @@ public:
     void SetWindowAttribute(int attrib, int value);
     int GetInputMode(int mode) const;
     void SetInputMode(int mode, int val);
+
+    static bool IsHDREnabledOnSystem() noexcept;
 
 private:
     

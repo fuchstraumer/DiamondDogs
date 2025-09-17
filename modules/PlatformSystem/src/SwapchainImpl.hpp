@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_DISPLAY_SYSTEM_SWAPCHAIN_IMPL_HPP
 #define DIAMOND_DOGS_DISPLAY_SYSTEM_SWAPCHAIN_IMPL_HPP
-#include "DisplaySystemTypes.hpp"
+#include "PlatformTypes.hpp"
 #include <vulkan/vulkan_core.h>
 #include <vector>
 #include <atomic>

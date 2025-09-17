@@ -2,6 +2,7 @@
 #ifndef PLATFORM_SYSTEM_IMPL_HPP
 #define PLATFORM_SYSTEM_IMPL_HPP
 #include "PlatformTypes.hpp"
+#include "PlatformSystem.hpp" // unfortunate, but has delegate type aliases
 #include "events/PlatformEvents.hpp"
 #include <vector>
 #include <memory>
@@ -17,7 +18,8 @@ DisplayInfo s_PrimaryDisplay;
 
 struct GLFWwindow;
 struct CallbackStorage;
-
+class Swapchain;
+class PlatformSurface;
 
 struct PlatformSystemImpl
 {
@@ -28,17 +30,19 @@ struct PlatformSystemImpl
     DisplayInfo* ActiveDisplay = nullptr;
     std::vector<DisplayInfo> AllDisplays;
     std::unique_ptr<CallbackStorage> Callbacks;
+    std::unique_ptr<PlatformSurface> ActiveSurface;
+    std::unique_ptr<Swapchain> ActiveSwapchain;
     void Update();
     void WaitForEvents();
-    void AddCursorPosEventListener(PlatformWindowSystem::CursorPosEvent listener, void* userData);
-    void AddCursorEnterEventListener(PlatformWindowSystem::CursorEnterEvent listener, void* userData);
-    void AddScrollEventListener(PlatformWindowSystem::ScrollEvent listener, void* userData);
-    void AddCharEventListener(PlatformWindowSystem::CharEvent listener, void* userData);
-    void AddPathDropEventListener(PlatformWindowSystem::PathDropEvent listener, void* userData);
-    void AddMouseButtonEventListener(PlatformWindowSystem::MouseButtonEvent listener, void* userData);
-    void AddKeyboardKeyEventListener(PlatformWindowSystem::KeyboardKeyEvent listener, void* userData);
-    void AddShouldResizeEventListener(PlatformWindowSystem::ShouldResizeEvent listener, void* userData);
-    void AddShouldCloseEventListener(PlatformWindowSystem::ShouldCloseEvent listener, void* userData);
+    void AddCursorPosEventListener(CursorPosEvent listener, void* userData);
+    void AddCursorEnterEventListener(CursorEnterEvent listener, void* userData);
+    void AddScrollEventListener(ScrollEvent listener, void* userData);
+    void AddCharEventListener(CharEvent listener, void* userData);
+    void AddPathDropEventListener(PathDropEvent listener, void* userData);
+    void AddMouseButtonEventListener(MouseButtonEvent listener, void* userData);
+    void AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* userData);
+    void AddShouldResizeEventListener(ShouldResizeEvent listener, void* userData);
+    void AddShouldCloseEventListener(ShouldCloseEvent listener, void* userData);
 };
 
 void CursorPosCallback(GLFWwindow* window, double pos_x, double pos_y);

@@ -1,7 +1,7 @@
 #pragma once
-#ifndef DIAMOND_DOGS_DISPLAY_SYSTEM_SWAPCHAIN_HPP
-#define DIAMOND_DOGS_DISPLAY_SYSTEM_SWAPCHAIN_HPP
-#include "DisplaySystemTypes.hpp"
+#ifndef DIAMOND_DOGS_PLATFORM_SYSTEM_SWAPCHAIN_HPP
+#define DIAMOND_DOGS_PLATFORM_SYSTEM_SWAPCHAIN_HPP
+#include "PlatformTypes.hpp"
 #include "Math.hpp"
 #include <memory>
 
