@@ -101,14 +101,42 @@ enum class PresentMode : uint8_t
     VerticalSyncLatestReady = 6
 };
 
-/** @brief Describe the HDR support of the current display */
+/** @brief HDR/WCG information as queried from appropriate platform APIs, before system and swapchain initialization. Informs further configuration and usage. */
+struct DisplayColorCapabilities
+{
+    // HDR (High Dynamic Range) support
+    bool hdrSupported{ false };
+    bool hdrEnabled{ false };
+    bool hdrCanBeToggled{ false };  // Some systems may not allow programmatic HDR toggling
+    
+    // WCG (Wide Color Gamut) support - can be independent of HDR
+    bool wcgSupported{ false };
+    bool wcgEnabled{ false };
+    bool wcgCanBeToggled{ false };
+    
+    // Advanced color generally refers to HDR + WCG combined
+    bool advancedColorSupported{ false };
+    bool advancedColorEnabled{ false };
+    
+    // Additional metadata
+    float sdrWhiteLevel{ 80.0f }; // Default SDR white level in nits
+    uint32_t bitsPerColorChannel{ 8 };
+    uint32_t colorEncoding{ 0 }; // DISPLAYCONFIG_COLOR_ENCODING value
+    
+    // Helper methods
+    bool IsFullAdvancedColorSupported() const { return hdrSupported && wcgSupported; }
+    bool IsFullAdvancedColorEnabled() const { return hdrEnabled && wcgEnabled; }
+};
+
+/** @brief Describe the HDR support of the application as it is currently configured, after platform initialization.
+ *  This is informed by 'DisplayColorCapabilities', which is queried before creating a window and swapchain.
+ */
 struct HDRCapabilities
 {
     bool Supported{ false };
-    float MaxLuminance{ 0.0f };
-    float MinLuminance{ 0.0f };
-    float MaxContentLightLevel{ 0.0f };
-    float MaxFrameAverageLightLevel{ 0.0f };
+    bool Enabled{ false };
+    float sdrWhiteLevel{ 80.0f }; // in nits
+    uint32_t BitsPerColorChannel{ 8 };
     /** @brief Swapchain image format */
     ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::Default };
     /** @brief Color space that was chosen during swapchain creation */
@@ -140,5 +168,6 @@ struct SwapchainCreateInfo
     uint32_t DisplayIndex{ std::numeric_limits<uint32_t>::max() };
     class PlatformWindowSystem* PlatformSystem{ nullptr };
 };
+
 
 #endif //!DIAMOND_DOGS_PLATFORM_SYSTEM_TYPES_HPP
