@@ -5,6 +5,7 @@
 #include <vulkan/vulkan_core.h>
 #include <vector>
 #include <atomic>
+#include <memory>
 
 struct SwapchainInfo
 {
@@ -14,13 +15,12 @@ struct SwapchainInfo
     std::vector<VkPresentModeKHR> presentModes;
     std::vector<VkColorSpaceKHR> colorSpaces;
     VkSurfaceFormatKHR GetBestFormat(bool tryEnableHDR, ColorSpace preferredSdrColorSpace, ColorSpace preferredHdrColorSpace) const noexcept;
-    VkPresentModeKHR GetBestPresentMode(PresentMode desiredMode) const noexcept;
-    VkExtent2D ChooseSwapchainExtent(const void* platformWindow); // glfwWindow*
 };
 
 struct SwapchainImpl
 {
     SwapchainImpl(const SwapchainCreateInfo& createInfo);
+    ~SwapchainImpl();
 
     void Create(const SwapchainCreateInfo& createInfo);
     void Destroy();

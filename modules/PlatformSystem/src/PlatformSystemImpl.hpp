@@ -14,7 +14,7 @@
 */
 
 // We use these as storage buffers before init 
-DisplayInfo s_PrimaryDisplay;
+inline static DisplayInfo s_PrimaryDisplay;
 
 struct GLFWwindow;
 struct CallbackStorage;

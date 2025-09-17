@@ -33,7 +33,7 @@ namespace Events
      * @brief Event signature for swapchain recreation notifications. This type is used for creation, beginning resize, and completion of resize events.
      * @note Signature for destruction is `SwapchainDestroyedEvent`.
      */
-    using SwapchainRecreatedEvent = void(const Events::SwapchainRecreatedEvent&, void* userData);
+    using SwapchainRecreatedEvent = void(const SwapchainRecreateEventData&, void* userData);
     /** @brief Event signature for swapchain destruction notifications. */
     using SwapchainDestroyedEvent = void(const uint64_t swapchainHandle, void* userData);
 

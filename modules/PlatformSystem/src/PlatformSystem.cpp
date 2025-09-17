@@ -50,7 +50,7 @@ static const std::unordered_map<std::string, PresentMode> s_PresentModeFromStrMa
 
 ImageFormat ImageFormatFromString(const std::string_view& imageFormatStr)
 {
-
+    return ImageFormat{};
 }
 
 // Pile of defaults for various values, used as fallback when config doesn't contain them
@@ -65,16 +65,16 @@ constexpr static ColorSpace s_DefaultHDRColorSpace = ColorSpace::HDR10_ST2084;
 constexpr static ImageFormat s_DefaultSDRFormat = CommonFormats::RGBA8_SRGB;
 constexpr static ImageFormat s_DefaultHDRFormat = CommonFormats::HDR_RGBA16;
 
-std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindowSystem(const char* jsonPath,
-                                                                                       const uint64_t vkInstanceHandle,
-                                                                                       const uint64_t vkDeviceHandle,
-                                                                                       const uint64_t vkPhysicalDeviceHandle)
+PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
+                                           const uint64_t vkInstanceHandle,
+                                           const uint64_t vkDeviceHandle,
+                                           const uint64_t vkPhysicalDeviceHandle)
 {
     // Open up the JSON file
     std::ifstream jsonFile(jsonPath);
     if (!jsonFile.is_open())
     {
-        return nullptr;
+        throw std::runtime_error("Failed to open PlatformWindowSystem configuration JSON file.");
     }
 
     // Parse the JSON file
@@ -180,20 +180,19 @@ std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindow
     createInfo.BehaviorFlags.CenterMouse = false;
     
     // Create the platform window system
-    auto system = std::make_unique<PlatformWindowSystem>();
-    system->impl = std::make_unique<PlatformSystemImpl>(createInfo);
+    impl = std::make_unique<PlatformSystemImpl>(createInfo);
 
     // Now continue to create default surface + swapchain, since we have all the info we need and I don't see a situation in which we wouldn't do this together (yet)
-    system->impl->ActiveDisplay = &s_PrimaryDisplay; // for now, just use primary display. In future could allow config of this
-    system->impl->ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle,
-                                                                    vkPhysicalDeviceHandle,
-                                                                    system->impl->Window);
+    impl->ActiveDisplay = &s_PrimaryDisplay; // for now, just use primary display. In future could allow config of this
+    impl->ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle,
+                                                            vkPhysicalDeviceHandle,
+                                                            impl->Window);
 
     SwapchainCreateInfo swapchainInfo{};
     swapchainInfo.VkDeviceHandle = vkDeviceHandle;
     swapchainInfo.VkPhysicalDeviceHandle = vkPhysicalDeviceHandle;
-    swapchainInfo.PlatformWindowHandle = system->impl->Window;
-    swapchainInfo.VkSurfaceHandle = system->impl->ActiveSurface->GetVkSurface();
+    swapchainInfo.PlatformWindowHandle = impl->Window;
+    swapchainInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
     swapchainInfo.MinImageCount = swapchainImageCount;
     swapchainInfo.SwapchainPresentMode = presentMode;
     swapchainInfo.TryEnableHDR = enableHDR;
@@ -209,52 +208,33 @@ std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindow
         swapchainInfo.SdrColorSpace = desiredColorSpace;
         swapchainInfo.HdrColorSpace = s_DefaultHDRColorSpace;
     }
-    swapchainInfo.PlatformSystemPtr = system.get();
+    swapchainInfo.PlatformSystemPtr = this;
     swapchainInfo.DisplayIndex = 0;
 
-    system->impl->ActiveSwapchain = std::make_unique<Swapchain>(swapchainInfo);
-
-    return system;
+    impl->ActiveSwapchain = std::make_unique<Swapchain>(swapchainInfo);
 }
 
 // Factory function
-std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindowSystem(const PlatformWindowCreateInfo& createInfo, const uint64_t vkInstanceHandle)
+PlatformWindowSystem::PlatformWindowSystem(const PlatformWindowCreateInfo& createInfo, const uint64_t vkInstanceHandle) : impl(std::make_unique<PlatformSystemImpl>(createInfo))
 {
-    try
+    // Set active display to the requested display, or primary display if none specified
+    if (createInfo.DisplayToUse != nullptr)
     {
-        auto system = std::make_unique<PlatformWindowSystem>();
-        system->impl = std::make_unique<PlatformSystemImpl>(createInfo);
-        
-        // Set active display to the requested display, or primary display if none specified
-        if (createInfo.DisplayToUse != nullptr)
-        {
-            system->impl->ActiveDisplay = createInfo.DisplayToUse;
-        }
-        else
-        {
-            // Fallback to primary display buffer if no displays were enumerated
-            system->impl->ActiveDisplay = &s_PrimaryDisplay;
-        }
-        
-        // Note: vkInstancePtr is passed but not currently used in PlatformSystem
-        // In the future this could be used for Vulkan surface creation
-        
-        return system;
+        impl->ActiveDisplay = createInfo.DisplayToUse;
     }
-    catch (const std::exception&)
+    else
     {
-        return nullptr;
+        // Fallback to primary display buffer if no displays were enumerated
+        impl->ActiveDisplay = &s_PrimaryDisplay;
     }
-}
-
-// Constructor and Destructor
-PlatformWindowSystem::PlatformWindowSystem()
-    : impl(nullptr)
-{
 }
 
 PlatformWindowSystem::~PlatformWindowSystem()
 {
+    // make sure swapchain is destroyed before surface, because otherwise validation layers will complain
+    impl->ActiveSwapchain.reset();
+    impl->ActiveSurface.reset();
+    // dtor will get the rest
 }
 
 void PlatformWindowSystem::Destroy()
@@ -267,14 +247,11 @@ void PlatformWindowSystem::CreateDefaultSwapchain(
     const uint64_t vkDeviceHandle,
     const uint64_t vkPhysicalDeviceHandle)
 {
-    const VkInstance vkInstance = reinterpret_cast<VkInstance>(vkInstanceHandle);
-    const VkDevice vkDevice = reinterpret_cast<VkDevice>(vkDeviceHandle);
-    const VkPhysicalDevice vkPhysicalDevice = reinterpret_cast<VkPhysicalDevice>(vkPhysicalDeviceHandle);
     
     if (!impl->ActiveSurface)
     {
         // Create default platform surface
-        impl->ActiveSurface = std::make_unique<PlatformSurface>(vkInstance, vkPhysicalDevice, impl->Window);
+        impl->ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle, vkPhysicalDeviceHandle, impl->Window);
     }
 
     if (impl->ActiveSwapchain)
@@ -286,7 +263,7 @@ void PlatformWindowSystem::CreateDefaultSwapchain(
     createInfo.VkDeviceHandle = vkDeviceHandle;
     createInfo.VkPhysicalDeviceHandle = vkPhysicalDeviceHandle;
     createInfo.PlatformWindowHandle = impl->Window;
-    createInfo.VkSurfaceHandle = reinterpret_cast<uint64_t>(impl->ActiveSurface->GetVkSurface());
+    createInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
     createInfo.PlatformSystemPtr = this;
     createInfo.DisplayIndex = 0u;
     createInfo.MinImageCount = s_DefaultSwapchainImageCount;

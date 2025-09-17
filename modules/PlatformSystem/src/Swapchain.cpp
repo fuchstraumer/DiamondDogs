@@ -4,7 +4,7 @@
 
 Swapchain::Swapchain(const SwapchainCreateInfo& createInfo) :
     impl(std::make_unique<SwapchainImpl>(createInfo)),
-    PlatformSystem(createInfo.PlatformSystem)
+    PlatformSystem(reinterpret_cast<PlatformWindowSystem*>(createInfo.PlatformSystemPtr))
 {
     // impl ctor calls create, now we just register for the resize event
 }

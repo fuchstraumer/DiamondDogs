@@ -2,6 +2,8 @@
 #include "Swapchain.hpp"
 #include "ImageDataFormats.hpp"
 #include "PlatformSystem.hpp"
+#include "events/DisplayEvents.hpp"
+#include <GLFW/glfw3.h>
 #include <stdexcept>
 
 struct AppSurfaceFormat
@@ -68,10 +70,11 @@ VkPresentModeKHR ToVkPresentMode(const PresentMode mode) noexcept
     }
 }
 
-constexpr bool operator==(const VkSurfaceFormat2KHR& vkSurfaceFormat, const AppSurfaceFormat& appSurfaceFormat)
+bool operator==(const VkSurfaceFormat2KHR& vkSurfaceFormat, const AppSurfaceFormat& appSurfaceFormat) noexcept
 {
     const VkFormat appVkFormat = ToVkFormat(appSurfaceFormat.Format);
     const VkColorSpaceKHR appColorSpace = ToVkColorSpace(appSurfaceFormat.Space);
+    return (vkSurfaceFormat.surfaceFormat.format == appVkFormat) && (vkSurfaceFormat.surfaceFormat.colorSpace == appColorSpace);
 }
 
 SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sfc)
@@ -114,7 +117,7 @@ VkSurfaceFormatKHR SwapchainInfo::GetBestFormat(bool tryEnableHDR, ColorSpace pr
 }
 
 SwapchainImpl::SwapchainImpl(const SwapchainCreateInfo& createInfo) :
-    ParentDevice(reinterpret_cast<VkDevice>(createInfo.DeviceHandle)),
+    ParentDevice(reinterpret_cast<VkDevice>(createInfo.VkDeviceHandle)),
     Format(VK_FORMAT_UNDEFINED),
     Extent({ 0, 0 }),
     MinImageCount(createInfo.MinImageCount),
@@ -141,7 +144,7 @@ VkSwapchainCreateInfoKHR SwapchainImpl::GetCreateInfo(const SwapchainCreateInfo&
     swapchainCreateInfo.pNext = nullptr;
     swapchainCreateInfo.flags = 0;
 
-    swapchainCreateInfo.surface = reinterpret_cast<VkSurfaceKHR>(createInfo.SurfaceHandle);
+    swapchainCreateInfo.surface = reinterpret_cast<VkSurfaceKHR>(createInfo.VkSurfaceHandle);
     swapchainCreateInfo.minImageCount = createInfo.MinImageCount;
     swapchainCreateInfo.imageFormat = Format.format;
     swapchainCreateInfo.imageColorSpace = Format.colorSpace;
@@ -165,8 +168,8 @@ VkSwapchainCreateInfoKHR SwapchainImpl::GetCreateInfo(const SwapchainCreateInfo&
 
 void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
 {
-    VkPhysicalDevice physicalDevice = reinterpret_cast<VkPhysicalDevice>(createInfo.PhysicalDeviceHandle);
-    VkSurfaceKHR surface = reinterpret_cast<VkSurfaceKHR>(createInfo.SurfaceHandle);
+    VkPhysicalDevice physicalDevice = reinterpret_cast<VkPhysicalDevice>(createInfo.VkPhysicalDeviceHandle);
+    VkSurfaceKHR surface = reinterpret_cast<VkSurfaceKHR>(createInfo.VkSurfaceHandle);
 
     Info = std::make_unique<SwapchainInfo>(physicalDevice, surface);
 
@@ -268,7 +271,7 @@ void SwapchainImpl::CreateSwapchainImageViews()
 #pragma warning(push)
 #pragma warning(disable: 4302)
 #pragma warning(disable: 4311)
-inline void RecreateSwapchain(const Events::SwapchainRecreateEventData& event, void* userData)
+void RecreateSwapchain(const Events::SwapchainRecreateEventData& event, void* userData)
 {
     int width = 0;
     int height = 0;

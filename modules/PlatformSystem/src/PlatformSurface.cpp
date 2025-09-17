@@ -7,6 +7,30 @@
 #include <cassert>
 #include <utility>
 
+
+/**
+ * Verifies that the physical device supports presentation to this surface.
+ * This should be called before attempting to present to the surface.
+ * \param physicalDevice The physical device to check
+ * \param surface The surface to check presentation support for
+ * \return VK_TRUE if presentation is supported, VK_FALSE otherwise
+ */
+VkBool32 VerifyPresentationSupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
+{
+    // Check presentation support across the first few queue families
+    // Most devices will have presentation support in the first queue family
+    VkBool32 presentSupport = VK_FALSE;
+    for (uint32_t queueFamilyIndex = 0; queueFamilyIndex < 3; ++queueFamilyIndex)
+    {
+        vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, queueFamilyIndex, surface, &presentSupport);
+        if (presentSupport == VK_TRUE)
+        {
+            break;
+        }
+    }
+    return presentSupport;
+}
+
 struct PlatformSurfaceImpl
 {
     PlatformSurfaceImpl(const uint64_t vkInstanceHandle, const uint64_t vkPhysicalDeviceHandle, void* window) noexcept :
@@ -58,29 +82,6 @@ struct PlatformSurfaceImpl
     GLFWwindow* window{ nullptr };
     VkSurfaceKHR surface{ VK_NULL_HANDLE };
 };
-
-/**
- * Verifies that the physical device supports presentation to this surface.
- * This should be called before attempting to present to the surface.
- * \param physicalDevice The physical device to check
- * \param surface The surface to check presentation support for
- * \return VK_TRUE if presentation is supported, VK_FALSE otherwise
- */
-VkBool32 VerifyPresentationSupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
-{
-    // Check presentation support across the first few queue families
-    // Most devices will have presentation support in the first queue family
-    VkBool32 presentSupport = VK_FALSE;
-    for (uint32_t queueFamilyIndex = 0; queueFamilyIndex < 3; ++queueFamilyIndex)
-    {
-        vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, queueFamilyIndex, surface, &presentSupport);
-        if (presentSupport == VK_TRUE)
-        {
-            break;
-        }
-    }
-    return presentSupport;
-}
 
 PlatformSurface::PlatformSurface(const uint64_t vkInstanceHandle, const uint64_t vkPhysicalDeviceHandle, void* window) noexcept : 
     impl(std::make_unique<PlatformSurfaceImpl>(vkInstanceHandle, vkPhysicalDeviceHandle, window))

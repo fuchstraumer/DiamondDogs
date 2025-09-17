@@ -1,6 +1,8 @@
 #include "PlatformSystem.hpp"
 #include "PlatformSystemImpl.hpp"
 #include "ImageDataFormats.hpp"
+#include "Swapchain.hpp"
+#include "PlatformSurface.hpp"
 #include <vector>
 #include <unordered_map>
 #include <stdexcept>

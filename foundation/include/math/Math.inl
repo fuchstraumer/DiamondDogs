@@ -1,5 +1,6 @@
 #include "Math.hpp"
 #pragma once
+#include <utility>
 // Implementation file for Math.hpp - contains all function implementations to keep the header readable
 
 #if defined(_MSC_VER)

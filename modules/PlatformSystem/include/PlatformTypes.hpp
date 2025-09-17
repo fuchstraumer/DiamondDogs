@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_PLATFORM_SYSTEM_TYPES_HPP
 #include "ImageDataFormats.hpp"
 #include <cstdint>
+#include <limits>
 
 enum class PlatformWindowMode
 {
@@ -163,7 +164,7 @@ struct SwapchainCreateInfo
     /** @brief If set to true, Swapchain will attempt to use HdrColorSpace and best available colorbuffer format */
     bool TryEnableHDR{ false };
     /** @brief Pointer to the platform system this display swapchain will be a child of. */
-    const void* PlatformSystemPtr{ nullptr };
+    void* PlatformSystemPtr{ nullptr };
     /** @brief Index of the monitor/display used with this window. Will be used to query the platform system for dimensional info. Default value of is UINT32_MAX, which means just use the "primary" display if not changed. */
     uint32_t DisplayIndex{ std::numeric_limits<uint32_t>::max() };
 };
