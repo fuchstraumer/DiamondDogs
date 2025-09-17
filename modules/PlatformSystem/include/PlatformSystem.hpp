@@ -37,8 +37,7 @@ public:
                          const uint64_t vkPhysicalDeviceHandle);
 
     /** @brief Uses a create info struct, and does not create a default surface or swapchain. Used primarily for unit testing. */
-    PlatformWindowSystem(const PlatformWindowCreateInfo& createInfo,
-                         const uint64_t vkInstanceHandle);
+    PlatformWindowSystem(const PlatformWindowCreateInfo& createInfo);
 
     ~PlatformWindowSystem();
 

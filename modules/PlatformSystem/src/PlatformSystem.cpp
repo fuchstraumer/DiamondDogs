@@ -215,7 +215,7 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
 }
 
 // Factory function
-PlatformWindowSystem::PlatformWindowSystem(const PlatformWindowCreateInfo& createInfo, const uint64_t vkInstanceHandle) : impl(std::make_unique<PlatformSystemImpl>(createInfo))
+PlatformWindowSystem::PlatformWindowSystem(const PlatformWindowCreateInfo& createInfo) : impl(std::make_unique<PlatformSystemImpl>(createInfo))
 {
     // Set active display to the requested display, or primary display if none specified
     if (createInfo.DisplayToUse != nullptr)
