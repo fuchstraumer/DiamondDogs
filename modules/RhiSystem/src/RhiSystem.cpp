@@ -1,5 +1,4 @@
 #include "RhiSystem.hpp"
-#include "PlatformWindow.hpp"
 #include "Instance.hpp"
 #include "PhysicalDevice.hpp"
 #include "LogicalDevice.hpp"
@@ -14,11 +13,6 @@
 #include <fstream>
 #include <atomic>
 #include <vector>
-#include "GLFW/glfw3.h"
-#ifdef APIENTRY
-// re-defined by glfw on windows
-#undef APIENTRY
-#endif
 #include "nlohmann/json.hpp"
 
 static void* usedNextPtr = nullptr;
@@ -26,19 +20,10 @@ static VkPhysicalDeviceFeatures* enabledDeviceFeatures = nullptr;
 static std::vector<std::string> extensionsBuffer;
 static std::string windowingModeBuffer;
 static bool validationEnabled{ false };
-
-struct SwapchainCallbacksStorageType
-{
-    std::vector<SwapchainCreatedCallbackType> CreationFns;
-    std::unordered_map<SwapchainCreatedCallbackType, void*> CreationFnUserData;
-    std::vector<SwapchainBeginResizeCallbackType> BeginFns;
-    std::unordered_map<SwapchainBeginResizeCallbackType, void*> BeginFnUserData;
-    std::vector<SwapchainCompleteResizeCallbackType> CompleteFns;
-    std::unordered_map<SwapchainCompleteResizeCallbackType, void*> CompleteFnUserData;
-    std::vector<SwapchainDestroyedCallbackType> DestroyedFns;
-    std::unordered_map<SwapchainDestroyedCallbackType, void*> DestroyedFnUserData;
-};
-static SwapchainCallbacksStorageType SwapchainCallbacksStorage;
+// static instance of object name function, so that we can use it for static debug callbacks
+static PFN_vkSetDebugUtilsObjectNameEXT s_SetObjectNameFn{ nullptr };
+// set by first context to create, currently because we assume we'll only have one context
+static VkDevice s_DebugLogicalDeviceHandle{ VK_NULL_HANDLE };
 
 inline void RecreateSwapchain();
 
@@ -51,12 +36,7 @@ void AddDependenciesForSetOfExtensions(std::vector<std::string>& extensions);
 
 void GetPhysicalDeviceFeatures(VkInstance instance, const uint32_t apiVersion);
 
-static const std::unordered_map<std::string, windowing_mode> windowing_mode_str_to_flag
-{
-    { "Windowed", windowing_mode::Windowed },
-    { "BorderlessWindowed", windowing_mode::BorderlessWindowed },
-    { "Fullscreen", windowing_mode::Fullscreen }
-};
+
 
 static std::atomic<bool>& GetShouldResizeFlag()
 {
@@ -70,23 +50,6 @@ RhiSystem::~RhiSystem()
 }
 
 RhiSystem::RhiSystem() noexcept {}
-
-RhiSystem& RhiSystem::Get() noexcept
-{
-    static RhiSystem ctxt;
-    return ctxt;
-}
-
-void RhiSystem::SetShouldResize(bool resize)
-{
-    auto& flag = GetShouldResizeFlag();
-    flag = resize;
-}
-
-bool RhiSystem::ShouldResizeExchange(bool value)
-{
-    return GetShouldResizeFlag().exchange(value);
-}
 
 void RhiSystem::Construct(const char* file_path)
 {
@@ -103,8 +66,7 @@ void RhiSystem::Construct(const char* file_path)
     
     vpr::VprExtensionPack extensionPack;
 
-    createInstanceAndWindow(json_file, windowMode, extensionPack);
-    window->SetWindowUserPointer(this);
+    createInstance(json_file, extensionPack);
 
     {
         size_t num_instance_extensions = 0;
@@ -121,13 +83,12 @@ void RhiSystem::Construct(const char* file_path)
         }
     }
 
-    windowSurface = std::make_unique<vpr::SurfaceKHR>(vulkanInstance.get(), physicalDevices[0]->vkHandle(), (void*)window->glfwWindow());
-
     createLogicalDevice(json_file, extensionPack);
 
     if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
     {
-        SetObjectNameFn = logicalDevice->DebugUtilsHandler().vkSetDebugUtilsObjectName;
+        s_SetObjectNameFn = logicalDevice->DebugUtilsHandler().vkSetDebugUtilsObjectName;
+        s_DebugLogicalDeviceHandle = logicalDevice->vkHandle();
 
         const VkDebugUtilsMessengerCreateInfoEXT messenger_info
         {
@@ -171,56 +132,15 @@ void RhiSystem::Construct(const char* file_path)
         }
     }
 
-    static const std::unordered_map<std::string, vpr::vertical_sync_mode> present_mode_from_str_map
-    {
-        { "None", vpr::vertical_sync_mode::None },
-        { "VerticalSync", vpr::vertical_sync_mode::VerticalSync },
-        { "VerticalSyncRelaxed", vpr::vertical_sync_mode::VerticalSyncRelaxed },
-        { "VerticalSyncMailbox", vpr::vertical_sync_mode::VerticalSyncMailbox }
-    };
-
-    auto iter = json_file.find("VerticalSyncMode");
-    // We want to go for this, as it's the ideal mode usually.
-    vpr::vertical_sync_mode desired_mode = vpr::vertical_sync_mode::VerticalSyncMailbox;
-    if (iter != json_file.end())
-    {
-        auto present_mode_iter = present_mode_from_str_map.find(json_file.at("VerticalSyncMode"));
-        if (present_mode_iter != std::cend(present_mode_from_str_map))
-        {
-            desired_mode = present_mode_iter->second;
-        }
-    }
-
-    swapchain = std::make_unique<vpr::Swapchain>(logicalDevice.get(), window->glfwWindow(), windowSurface->vkHandle(), desired_mode);
-
-    if constexpr (RHI_SYSTEM_VALIDATION_ENABLED && RHI_SYSTEM_USE_DEBUG_INFO)
-    {
-        SetObjectName(VK_OBJECT_TYPE_SWAPCHAIN_KHR, (uint64_t)swapchain->vkHandle(), "RenderingContextSwapchain");
-
-        for (size_t i = 0u; i < swapchain->ImageCount(); ++i)
-        {
-            const std::string view_name = std::string("RenderingContextSwapchain_ImageView") + std::to_string(i);
-            SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t)swapchain->ImageView(i), view_name.c_str());
-            const std::string img_name = std::string("RenderingContextSwapchain_Image") + std::to_string(i);
-            SetObjectName(VK_OBJECT_TYPE_IMAGE, (uint64_t)swapchain->Image(i), img_name.c_str());
-        }
-    }
-
 }
 
 void RhiSystem::Update()
 {
-    window->Update();
-    if (ShouldResizeExchange(false))
-    {
-        RecreateSwapchain();
-    }
+
 }
 
 void RhiSystem::Destroy()
 {
-    swapchain.reset();
-    windowSurface.reset();
     if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
     {
         logicalDevice->DebugUtilsHandler().vkDestroyDebugUtilsMessenger(vulkanInstance->vkHandle(), DebugUtilsMessenger, nullptr);
@@ -228,16 +148,15 @@ void RhiSystem::Destroy()
     logicalDevice.reset();
     physicalDevices.clear();
     vulkanInstance.reset();
-    window.reset();
     extensionWrangler.reset();
 }
 
-vpr::Instance * RhiSystem::Instance() noexcept
+vpr::Instance* RhiSystem::Instance() noexcept
 {
     return vulkanInstance.get();
 }
 
-vpr::PhysicalDevice * RhiSystem::PhysicalDevice(const size_t idx) noexcept
+vpr::PhysicalDevice* RhiSystem::PhysicalDevice(const size_t idx) noexcept
 {
     return physicalDevices[idx].get();
 }
@@ -247,135 +166,20 @@ vpr::Device* RhiSystem::Device() noexcept
     return logicalDevice.get();
 }
 
-vpr::Swapchain* RhiSystem::Swapchain() noexcept
-{
-    return swapchain.get();
-}
-
-vpr::SurfaceKHR* RhiSystem::Surface() noexcept
-{
-    return windowSurface.get();
-}
-
-PlatformWindow* RhiSystem::Window() noexcept
-{
-    return window.get();
-}
-
-GLFWwindow* RhiSystem::glfwWindow() noexcept
-{
-    return window->glfwWindow();
-}
-
-inline GLFWwindow* getWindow()
-{
-    auto& ctxt = RhiSystem::Get();
-    return ctxt.glfwWindow();
-}
-
-#pragma warning(push)
-#pragma warning(disable: 4302)
-#pragma warning(disable: 4311)
-inline void RecreateSwapchain()
-{
-
-    auto& Context = RhiSystem::Get();
-
-    int width = 0;
-    int height = 0;
-    // We wait while this is true so that we don't bother running the app while this is zero
-    while (width == 0 || height == 0)
-    {
-        glfwGetFramebufferSize(Context.glfwWindow(), &width, &height);
-        glfwWaitEvents();
-    }
-
-    vkDeviceWaitIdle(Context.Device()->vkHandle());
-
-    Context.Window()->GetWindowSize(width, height);
-
-    for (auto& fn : SwapchainCallbacksStorage.BeginFns)
-    {
-        auto userDataIter = SwapchainCallbacksStorage.BeginFnUserData.find(fn);
-        if (userDataIter != SwapchainCallbacksStorage.BeginFnUserData.end())
-        {
-            void* userData = userDataIter->second;
-            if (userData)
-            {
-                fn(Context.Swapchain()->vkHandle(), width, height, userData);
-            }
-            else
-            {
-                fn(Context.Swapchain()->vkHandle(), width, height, nullptr);
-            }
-        }
-    }
-    
-    vpr::RecreateSwapchainAndSurface(Context.Swapchain(), Context.Surface());
-    Context.Device()->UpdateSurface(Context.Surface()->vkHandle());
-
-    Context.Window()->GetWindowSize(width, height);
-    for (auto& fn : SwapchainCallbacksStorage.CompleteFns)
-    {
-        auto userDataIter = SwapchainCallbacksStorage.CompleteFnUserData.find(fn);
-        if (userDataIter != SwapchainCallbacksStorage.CompleteFnUserData.end())
-        {
-            void* userData = userDataIter->second;
-            if (userData)
-            {
-                fn(Context.Swapchain()->vkHandle(), width, height, userData);
-            }
-            else
-            {
-                fn(Context.Swapchain()->vkHandle(), width, height, nullptr);
-            }
-        }
-    }
-
-    vkDeviceWaitIdle(Context.Device()->vkHandle());
-}
-#pragma warning(pop)
-
-bool RhiSystem::ShouldWindowClose()
-{
-    return glfwWindowShouldClose(getWindow());
-}
-
-int RhiSystem::GetWindowAttribute(int attrib)
-{
-    return glfwGetWindowAttrib(getWindow(), attrib);
-}
-
-void RhiSystem::SetInputMode(int mode, int val)
-{
-    glfwSetInputMode(getWindow(), mode, val);
-}
-
-int RhiSystem::GetInputMode(int mode)
-{
-    return glfwGetInputMode(getWindow(), mode);
-}
-
-const char* RhiSystem::GetShaderCacheDir()
-{
-    auto& ctxt = Get();
-    return ctxt.shaderCacheDir.c_str();
-}
-
-void RhiSystem::SetShaderCacheDir(const char* dir)
-{
-    auto& ctxt = Get();
-    ctxt.shaderCacheDir = dir;
-}
-
 VkResult RhiSystem::SetObjectName(VkObjectType object_type, uint64_t handle, const char* name)
 {
     if constexpr (RHI_SYSTEM_VALIDATION_ENABLED && RHI_SYSTEM_USE_DEBUG_INFO)
     {
-        auto& ctxt = Get();
+
+        if (!s_SetObjectNameFn)
+        {
+            // unlikely we'll introspect on this, but this error value is the only one that makes sense
+            return VK_ERROR_FEATURE_NOT_PRESENT;
+        }
 
         if constexpr (RHI_SYSTEM_DEBUG_INFO_THREAD_ID || RHI_SYSTEM_DEBUG_INFO_TIMESTAMPS)
         {
+
             std::string object_name_str{ name };
 
             if constexpr (RHI_SYSTEM_DEBUG_INFO_THREAD_ID)
@@ -393,7 +197,7 @@ VkResult RhiSystem::SetObjectName(VkObjectType object_type, uint64_t handle, con
                 object_name_str.c_str()
             };
 
-            return ctxt.SetObjectNameFn(ctxt.logicalDevice->vkHandle(), &name_info);
+            return s_SetObjectNameFn(s_DebugLogicalDeviceHandle, &name_info);
         }
         else
         {
@@ -405,7 +209,7 @@ VkResult RhiSystem::SetObjectName(VkObjectType object_type, uint64_t handle, con
                 handle,
                 name
             };
-            return ctxt.SetObjectNameFn(ctxt.logicalDevice->vkHandle(), &name_info);
+            return s_SetObjectNameFn(s_DebugLogicalDeviceHandle, &name_info);
         }
     }
     else
@@ -414,23 +218,10 @@ VkResult RhiSystem::SetObjectName(VkObjectType object_type, uint64_t handle, con
     }
 }
 
-void RhiSystem::createInstanceAndWindow(const nlohmann::json& json_file, std::string& _window_mode, vpr::VprExtensionPack& extensionPack)
+void RhiSystem::createInstance(const nlohmann::json& json_file, vpr::VprExtensionPack& extensionPack)
 {
-    int window_width = json_file.at("InitialWindowWidth");
-    int window_height = json_file.at("InitialWindowHeight");
     const std::string app_name = json_file.at("ApplicationName");
-    const std::string windowing_mode_str = json_file.at("InitialWindowMode");
-    windowingModeBuffer = windowing_mode_str;
-    _window_mode = windowingModeBuffer;
-    auto iter = windowing_mode_str_to_flag.find(windowing_mode_str);
-    windowing_mode window_mode = windowing_mode::Windowed;
-    if (iter != std::cend(windowing_mode_str_to_flag))
-    {
-        window_mode = iter->second;
-    }
-
-    window = std::make_unique<PlatformWindow>(window_width, window_height, app_name.c_str(), window_mode);
-
+    
     const std::string engine_name = json_file.at("EngineName");
     const bool using_validation = json_file.at("EnableValidation");
     validationEnabled = using_validation;
@@ -724,8 +515,10 @@ std::string objectTypeToString(const VkObjectType type)
     };
 }
 
-VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity, VkDebugUtilsMessageTypeFlagBitsEXT message_type, const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
-    void* user_data)
+VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
+                                                           VkDebugUtilsMessageTypeFlagBitsEXT message_type,
+                                                           const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
+                                                           void* user_data)
 {
 
     std::stringstream output_string_stream;
