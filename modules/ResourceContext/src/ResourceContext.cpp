@@ -19,7 +19,7 @@ void ResourceContext::Initialize(const ResourceContextCreateInfo& createInfo)
 std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
     const VkBufferCreateInfo& createInfo,
     const VkBufferViewCreateInfo* viewCreateInfo,
-    const gpu_resource_data_t* initialData,
+    const RhiBufferResourceData* initialData,
     size_t numData,
     resource_usage resourceUsage,
     resource_creation_flags flags,
@@ -48,7 +48,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
 std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateImage(
     const VkImageCreateInfo& createInfo,
     const VkImageViewCreateInfo* viewCreateInfo,
-    const gpu_image_resource_data_t* initialData,
+    const RhiImageResourceData* initialData,
     size_t numData,
     resource_usage resourceUsage,
     resource_creation_flags flags,
@@ -90,7 +90,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateSampler(
 
 std::shared_ptr<ResourceTransferReply> ResourceContext::SetBufferData(
     GraphicsResource buffer,
-    const gpu_resource_data_t* data,
+    const RhiBufferResourceData* data,
     size_t numData)
 {
     SetBufferDataMessage message(buffer, numData, data);
@@ -104,7 +104,7 @@ std::shared_ptr<ResourceTransferReply> ResourceContext::SetBufferData(
 
 std::shared_ptr<ResourceTransferReply> ResourceContext::SetImageData(
     GraphicsResource image,
-    const gpu_image_resource_data_t* data,
+    const RhiImageResourceData* data,
     size_t numData)
 {   
     SetImageDataMessage message(image, numData, data);

@@ -1,8 +1,9 @@
 
 add_module(task_graph
     "include/CoroutineAllocator.hpp"
+    "include/IScheduler.hpp"
     "include/Task.hpp"
-    "include/Scheduler.hpp"
+    "include/UnifiedTimelineSemaphore.hpp"
     "src/CoroutineAllocator.cpp"
 )
 

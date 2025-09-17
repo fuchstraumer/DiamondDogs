@@ -5,7 +5,7 @@
 #include <functional>
 
 template<typename T>
-class base_delegate_t;
+class BaseDelegate;
 
 /**
  * @brief Base class providing common functionality for delegate types
@@ -17,42 +17,42 @@ class base_delegate_t;
  * @tparam Args Parameter types of the callable
  */
 template<typename Result, typename...Args>
-class base_delegate_t<Result(Args...)>
+class BaseDelegate<Result(Args...)>
 {
 protected:
-    using func_stub_t = Result(*)(void* this_ptr, Args...);
+    using FuncStubType = Result(*)(void* this_ptr, Args...);
 
-    struct invocation_element_t
+    struct InvocationElement
     {
-        invocation_element_t() = default;
-        invocation_element_t(void* this_ptr, func_stub_t _stub) : object(this_ptr), stub(_stub) {}
+        InvocationElement() = default;
+        InvocationElement(void* this_ptr, FuncStubType _stub) : object(this_ptr), stub(_stub) {}
 
-        void copy_to(invocation_element_t& destination) const noexcept
+        void CopyTo(InvocationElement& destination) const noexcept
         {
             destination.stub = stub;
             destination.object = object;
         }
 
-        bool operator==(const invocation_element_t& other) const noexcept
+        bool operator==(const InvocationElement& other) const noexcept
         {
             return (other.stub == stub) && (other.object == object);
         }
 
-        bool operator!=(const invocation_element_t& other) const noexcept
+        bool operator!=(const InvocationElement& other) const noexcept
         {
             return (other.stub != stub) || (other.object != object);
         }
 
         void* object = nullptr;
-        func_stub_t stub = nullptr;
+        FuncStubType stub = nullptr;
     };
 };
 
 template<typename T>
-class delegate_t;
+class Delegate;
 
 template<typename T>
-class multicast_delegate_t;
+class MulticastDelegate;
 
 /**
  * @brief Type-erased function wrapper supporting member functions and free functions
@@ -65,20 +65,20 @@ class multicast_delegate_t;
  * @tparam Args Parameter types of the callable
  */
 template<typename Result, typename...Args>
-class delegate_t<Result(Args...)> final : private base_delegate_t<Result(Args...)>
+class Delegate<Result(Args...)> final : private BaseDelegate<Result(Args...)>
 {
-    friend class multicast_delegate_t<Result(Args...)>;
+    friend class MulticastDelegate<Result(Args...)>;
 public:
 
     /// Default constructor - creates empty delegate
-    delegate_t() = default;
+    Delegate() = default;
 
     /**
      * @brief Check if the delegate is empty (not bound to any callable)
      * 
      * @return True if delegate is empty, false otherwise
      */
-    bool empty() const noexcept
+    bool Empty() const noexcept
     {
         return invocation.stub == nullptr;
     }
@@ -101,7 +101,7 @@ public:
      */
     bool operator==(const void* ptr) const noexcept
     {
-        return (ptr == nullptr) && (empty());
+        return (ptr == nullptr) && (Empty());
     }
 
     /**
@@ -112,7 +112,7 @@ public:
      */
     bool operator!=(const void* ptr) const noexcept
     {
-        return (ptr != nullptr) || (!empty());
+        return (ptr != nullptr) || (!Empty());
     }
 
     /**
@@ -120,9 +120,9 @@ public:
      * 
      * @param other Delegate to copy from
      */
-    delegate_t(const delegate_t& other) noexcept
+    Delegate(const Delegate& other) noexcept
     {
-        other.invocation.copy_to(invocation);
+        other.invocation.CopyTo(invocation);
     }
 
     /**
@@ -131,9 +131,9 @@ public:
      * @param other Delegate to copy from
      * @return Reference to this delegate
      */
-    delegate_t& operator=(const delegate_t& other) noexcept
+    Delegate& operator=(const Delegate& other) noexcept
     {
-        other.invocation.copy_to(invocation);
+        other.invocation.CopyTo(invocation);
         return *this;
     }
 
@@ -142,7 +142,7 @@ public:
      * 
      * @param other Delegate to move from
      */
-    delegate_t(delegate_t&& other) noexcept : invocation(std::move(other.invocation)) {}
+    Delegate(Delegate&& other) noexcept : invocation(std::move(other.invocation)) {}
 
     /**
      * @brief Move assignment operator
@@ -150,7 +150,7 @@ public:
      * @param other Delegate to move from
      * @return Reference to this delegate
      */
-    delegate_t& operator=(delegate_t&& other) noexcept
+    Delegate& operator=(Delegate&& other) noexcept
     {
         invocation = std::move(other.invocation);
         return *this;
@@ -172,7 +172,7 @@ public:
      * @param other Delegate to compare with
      * @return True if both delegates refer to the same callable
      */
-    bool operator==(const delegate_t& other) const noexcept
+    bool operator==(const Delegate& other) const noexcept
     {
         return invocation == other.invocation;
     }
@@ -183,7 +183,7 @@ public:
      * @param other Delegate to compare with
      * @return True if delegates refer to different callables
      */
-    bool operator!=(const delegate_t& other) const noexcept
+    bool operator!=(const Delegate& other) const noexcept
     {
         return invocation != other.invocation;
     }
@@ -208,14 +208,38 @@ public:
     std::size_t hash() const noexcept
     {
         std::hash<void*> ptr_hasher;
-        std::hash<typename base_delegate_t<Result(Args...)>::func_stub_t> func_hasher;
-        
+        std::hash<typename BaseDelegate<Result(Args...)>::FuncStubType> func_hasher;
+
         // Combine hashes of both the function stub and object pointer
         // Use a simple hash combining technique (similar to boost::hash_combine)
         std::size_t seed = func_hasher(invocation.stub);
         seed ^= ptr_hasher(invocation.object) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
         return seed;
     }
+
+private:
+    
+    template<class T, Result(T::*Method)(Args...)>
+    static Result MethodStub(void* this_ptr, Args...args)
+    {
+        T* object_ptr = static_cast<T*>(this_ptr);
+        return (object_ptr->*Method)(args...);
+    }
+
+    template<class T, Result(T::*Method)(Args...) const>
+    static Result ConstMethodStub(void* this_ptr, Args...args)
+    {
+        T* const object_ptr = static_cast<T*>(this_ptr);
+        return (object_ptr->*Method)(args...);
+    }
+
+    template<Result(*Function)(Args...)>
+    static Result FunctionStub(void* this_ptr, Args...args)
+    {
+        return (Function)(args...);
+    }
+
+public:
 
     /**
      * @brief Create a delegate bound to a member function
@@ -226,66 +250,46 @@ public:
      * @return Delegate bound to the specified member function
      */
     template<class T, Result(T::*Method)(Args...)>
-    static delegate_t create(T* object)
+    static Delegate Create(T* object)
     {
-        return delegate_t(object, method_stub<T,Method>);
+        return Delegate(object, MethodStub<T,Method>);
     }
 
     template<class T, Result(T::*Method)(Args...) const>
-    static delegate_t create(const T* object)
+    static Delegate Create(const T* object)
     {
-        return delegate_t(const_cast<T*>(object), const_method_stub<T,Method>);
+        return Delegate(const_cast<T*>(object), ConstMethodStub<T,Method>);
     }
 
     template<Result(*Function)(Args...)>
-    static delegate_t create()
+    static Delegate Create()
     {
-        return delegate_t(nullptr, function_stub<Function>);
+        return Delegate(nullptr, FunctionStub<Function>);
     }
 
 private:
 
-    delegate_t(void* obj, typename base_delegate_t<Result(Args...)>::func_stub_t stub)
+    Delegate(void* obj, typename BaseDelegate<Result(Args...)>::FuncStubType stub)
     {
         this->invocation.object = obj;
         this->invocation.stub = stub;
     }
 
-    void assign(void* object_ptr, typename base_delegate_t<Result(Args...)>::func_stub_t _stub)
+    void Assign(void* object_ptr, typename BaseDelegate<Result(Args...)>::FuncStubType _stub)
     {
         this->invocation.object = object_ptr;
         this->invocation.stub = _stub;
     }
 
-    template<class T, Result(T::*Method)(Args...)>
-    static Result method_stub(void* this_ptr, Args...args)
-    {
-        T* object_ptr = static_cast<T*>(this_ptr);
-        return (object_ptr->*Method)(args...);
-    }
-
-    template<class T, Result(T::*Method)(Args...) const>
-    static Result const_method_stub(void* this_ptr, Args...args)
-    {
-        T* const object_ptr = static_cast<T*>(this_ptr);
-        return (object_ptr->*Method)(args...);
-    }
-
-    template<Result(*Function)(Args...)>
-    static Result function_stub(void* this_ptr, Args...args)
-    {
-        return (Function)(args...);
-    }
-
-    typename base_delegate_t<Result(Args...)>::invocation_element_t invocation;
+    typename BaseDelegate<Result(Args...)>::InvocationElement invocation;
 
 };
 
-// std::hash specialization for delegate_t
+// std::hash specialization for Delegate
 template<typename Result, typename...Args>
-struct std::hash<delegate_t<Result(Args...)>>
+struct std::hash<Delegate<Result(Args...)>>
 {
-    std::size_t operator()(const delegate_t<Result(Args...)>& delegate) const noexcept
+    std::size_t operator()(const Delegate<Result(Args...)>& delegate) const noexcept
     {
         return delegate.hash();
     }

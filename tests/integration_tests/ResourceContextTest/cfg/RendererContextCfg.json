@@ -4,7 +4,7 @@
     "EngineName" : "DiamondDogs",
     "EngineVersion" : "0.1.0",
     "EnableValidation" : true,
-    "VulkanVersion" : "1.3",
+    "VulkanVersion" : "Latest",
     "UseRecommendedExtensions" : true,
     "RequiredInstanceExtensions" : [
         "VK_EXT_debug_utils"
@@ -12,7 +12,8 @@
     "RequestedInstanceExtensions" : [
     ],
     "RequiredDeviceExtensions" : [
-        "VK_KHR_swapchain"
+        "VK_KHR_swapchain",
+        "VK_KHR_dynamic_rendering"
     ],
     "RequestedDeviceExtensions" : [
         "VK_KHR_dedicated_allocation",

@@ -17,6 +17,7 @@ static const fs::path SkyboxTexturePath = BasePath / fs::path("Starbox.dds");
 static const std::string SkyboxDdsFile = SkyboxTexturePath.string();
 
 static bool dataLoadedToRAM = false;
+
 static std::unique_ptr<ResourceContext> resourceContext{ nullptr };
 
 static void objFileLoadedCallback(void* scene_ptr, void* data_ptr, void* user_data)
@@ -113,6 +114,7 @@ int main(int argc, char* argv[])
     rsrc_loader.Load("OBJ", HouseObjFile.c_str(), &scene, objFileLoadedCallback, nullptr);
     rsrc_loader.Load("PNG", HousePngFile.c_str(), &scene, jpegLoadedCallback, nullptr);
     rsrc_loader.Load("DDS", SkyboxDdsFile.c_str(), &scene, skyboxLoadedCallback, nullptr);
+    rsrc_loader.WaitForAllLoads();
     dataLoadedToRAM = true;
 
     SwapchainCallbacks callbacks;

@@ -21,7 +21,8 @@
 #include <string>
 #include <unordered_map>
 
-struct SceneConfig_t {
+struct SceneConfig_t
+{
     bool EnableMSAA{ true };
     VkSampleCountFlagBits MSAA_SampleCount{ VK_SAMPLE_COUNT_8_BIT };
     float AnisotropyAmount{ 16.0f };
@@ -39,7 +40,8 @@ struct SceneConfig_t {
 
 inline static SceneConfig_t SceneConfig;
 
-struct alignas(16) PointLight {
+struct alignas(16) PointLight
+{
     glm::vec4 positionWS{ 0.0f, 0.0f, 0.0f, 1.0f };
     glm::vec4 positionVS{ 0.0f, 0.0f, 0.0f, 1.0f };
     glm::vec3 color{ 1.0f, 1.0f, 1.0f };
@@ -50,7 +52,8 @@ struct alignas(16) PointLight {
     float padding{ 0.0f };
 };
 
-struct alignas(16) SpotLight {
+struct alignas(16) SpotLight
+{
     glm::vec4 positionWS{ 0.0f, 0.0f, 0.0f, 1.0f };
     glm::vec4 positionVS{ 0.0f, 0.0f, 0.0f, 1.0f };
     glm::vec4 directionWS{ 0.0f, 0.0f, 1.0f, 0.0f };
@@ -63,7 +66,8 @@ struct alignas(16) SpotLight {
     uint32_t selected{ 0u };
 };
 
-struct alignas(16) DirectionalLight {
+struct alignas(16) DirectionalLight
+{
     glm::vec4 directionWS{};
     glm::vec4 directionVS{};
     glm::vec3 color{ 1.0f, 1.0f, 1.0f };
@@ -73,7 +77,8 @@ struct alignas(16) DirectionalLight {
     float padding[2]{ 0.0f, 0.0f };
 };
 
-struct SceneState_t {
+struct SceneState_t
+{
     SceneState_t() = default;
     SceneState_t(const SceneState_t&) = delete;
     SceneState_t& operator=(const SceneState_t&) = delete;
@@ -88,11 +93,13 @@ struct SceneState_t {
     }
 };
 
-static SceneState_t& SceneLightsState() {
+static SceneState_t& SceneLightsState()
+{
     return SceneState_t::Get();
 }
 
-struct alignas(16) Matrices_t {
+struct alignas(16) Matrices_t
+{
     glm::mat4 model{ glm::identity<glm::mat4>() };
     glm::mat4 view{ glm::identity<glm::mat4>() };
     glm::mat4 inverseView{ glm::identity<glm::mat4>() };
@@ -103,7 +110,8 @@ struct alignas(16) Matrices_t {
     glm::mat4 inverseTransposeModelView{ glm::identity<glm::mat4>() };
 };
 
-struct alignas(16) GlobalsData {
+struct alignas(16) GlobalsData
+{
     glm::vec4 viewPosition{ 0.0f, 0.0f, 0.0f, 0.0f };
     glm::vec2 mousePosition{ 0.0f, 0.0f };
     glm::vec2 windowSize{ 0.0f, 0.0f };
@@ -114,7 +122,8 @@ struct alignas(16) GlobalsData {
     float brightness{ 0.0f };
 };
 
-struct alignas(16) ClusterData_t {
+struct alignas(16) ClusterData_t
+{
     glm::uvec3 GridDim;
     float ViewNear;
     glm::uvec2 ScreenSize;
@@ -122,23 +131,27 @@ struct alignas(16) ClusterData_t {
     float LogGridDimY;
 };
 
-struct alignas(4) DispatchParams_t {
+struct alignas(4) DispatchParams_t
+{
     glm::uvec3 NumThreadGroups{};
     uint32_t Padding0{ 0u };
     glm::uvec3 NumThreads{};
     uint32_t Padding1{ 0u };
 };
 
-struct alignas(4) SortParams {
+struct alignas(4) SortParams
+{
     uint32_t NumElements;
     uint32_t ChunkSize;
 };
 
-struct alignas(16) Frustum {
+struct alignas(16) Frustum
+{
     glm::vec4 Planes[4];
 };
 
-struct alignas(16) AABB {
+struct alignas(16) AABB
+{
 
     glm::vec4 Min{ 
         std::numeric_limits<float>::max(), 
@@ -192,21 +205,24 @@ struct alignas(16) AABB {
 
 constexpr static uint32_t DEFAULT_MAX_LIGHTS = 2048u;
 
-struct alignas(16) LightCountsData {
+struct alignas(16) LightCountsData
+{
     uint32_t NumPointLights{ DEFAULT_MAX_LIGHTS };
     uint32_t NumSpotLights{ DEFAULT_MAX_LIGHTS };
     uint32_t NumDirectionalLights{ 4u };
     uint32_t Pad{ 0u };
 };
 
-struct alignas(16) Cone {
+struct alignas(16) Cone
+{
     glm::vec3 T;
     float h;
     glm::vec3 d;
     float r;
 };
 
-struct alignas(4) BVH_Params_t {
+struct alignas(4) BVH_Params_t
+{
     uint32_t PointLightLevels{ 0u };
     uint32_t SpotLightLevels{ 0u };
     uint32_t ChildLevel{ 0u };
@@ -227,7 +243,8 @@ struct vertex_t
     }
 };
 
-enum class render_type {
+enum class render_type
+{
     Invalid = 0,
     PrePass,
     Opaque,

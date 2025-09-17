@@ -1,21 +1,16 @@
 #pragma once
 #ifndef RESOURCE_CONTEXT_CREATE_INFO_WRAPPERS_HPP
 #define RESOURCE_CONTEXT_CREATE_INFO_WRAPPERS_HPP
+#include "ResourceTypes.hpp"
 #include <vulkan/vulkan_core.h>
 #include <vector>
 #include <optional>
 
 /*
-    Because we take the various vulkan create info structures and stash them away for later, we run into some potential problems -
-    mostly around the pointer members of the create info structs. Things like pQueueFamilyIndices especially are problematic, as they're
-    dynamically set per runtime instance based on the current logical device... and when set in the message then pushed to our worker thread,
-    calling thread will often move on and destroy the temporary local uint32_t array users make before worker thread reads it. 
-
-    Then we get layer validation errors because pQueueFamilyIndices is invalid. Same issue can happen with debug strings, though this is less common
-    since those usuaully end up baked into the executable in some form or another.
-
-    These objects store the values and all the data we'll need, and then convert to VkBufferCreateInfo or VkImageCreateInfo with explicit casts when needed.
-    These types are what we store in the EnTT containers, and what we associate with our entities.
+    Originally we made these to deal with some of the quirks of the Vulkan create info structs and their pointer members, but after the API
+    change to take our custom create info objects that abstract away the Vulkan API details from users, these wrappers have become less critical.
+    However, they still serve as a useful bridge between our internal representations and the Vulkan API, especially for handling pNext chains
+    and other Vulkan-specific nuances (as we are not yet fully API portable internally, even if our higher-level abstractions mostly are by now).
 */
 
 struct ResourceContextBufferCreateInfo
@@ -32,8 +27,6 @@ struct ResourceContextBufferCreateInfo
     // potential valid pNext members
     std::optional<VkBufferUsageFlags2CreateInfo> UsageFlags2Info;
     std::optional<VkBufferDeviceAddressCreateInfoEXT> DeviceAddressInfo;
-    std::optional<VkExternalMemoryBufferCreateInfo> ExternalMemoryInfo;
-    std::optional<VkDedicatedAllocationBufferCreateInfoNV> DedicatedAllocInfoNV;
 };
 
 struct ResourceContextImageCreateInfo
@@ -54,12 +47,6 @@ struct ResourceContextImageCreateInfo
     VkSharingMode SharingMode{ VK_SHARING_MODE_EXCLUSIVE };
     std::vector<uint32_t> QueueFamilyIndices;
     VkImageLayout InitialLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
-    // potential valid pNext members that we support, which also need to be kept around as deep copies
-    // until the API call is made and completed. yay!
-    std::optional<VkDedicatedAllocationImageCreateInfoNV> DedicatedAllocInfoNV;
-    std::optional<VkExternalMemoryImageCreateInfo> ExternalMemoryInfo;
-    std::optional<VkImageStencilUsageCreateInfoEXT> StencilUsageInfo;
-    std::optional<VkImageFormatListCreateInfo> FormatListInfo;
     std::optional<VkImageSwapchainCreateInfoKHR> SwapchainInfo;
 };
 

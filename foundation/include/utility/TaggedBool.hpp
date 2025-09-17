@@ -12,11 +12,11 @@
  * @tparam Tag Unique tag type to distinguish different boolean types
  */
 template<typename Tag>
-class tagged_bool
+class TaggedBool
 {
     bool value;
     template<typename>
-    friend class tagged_bool;
+    friend class TaggedBool;
 public:
     /**
      * @brief Constructor from boolean value
@@ -24,21 +24,21 @@ public:
      * @param v Boolean value to store
      * @note Explicit constructor prevents accidental conversions
      */
-    constexpr explicit tagged_bool(bool v) : value{v} {}
+    constexpr explicit TaggedBool(bool v) noexcept : value{v} {}
     
     /// Deleted constructors to prevent implicit conversions
-    constexpr explicit tagged_bool(int) = delete;
-    constexpr explicit tagged_bool(double) = delete;
-    constexpr explicit tagged_bool(void*) = delete;
+    constexpr explicit TaggedBool(int) = delete;
+    constexpr explicit TaggedBool(double) = delete;
+    constexpr explicit TaggedBool(void*) = delete;
 
     /**
-     * @brief Constructor from different tagged_bool type
+     * @brief Constructor from different TaggedBool type
      * 
-     * @tparam OtherTag Tag type of the other tagged_bool
-     * @param b Other tagged_bool to convert from
+     * @tparam OtherTag Tag type of the other TaggedBool
+     * @param b Other TaggedBool to convert from
      */
     template<typename OtherTag>
-    constexpr explicit tagged_bool(tagged_bool<OtherTag> b) : value{b.value} {}
+    constexpr explicit TaggedBool(TaggedBool<OtherTag> b) : value{b.value} {}
 
     /**
      * @brief Convert to boolean value
@@ -51,14 +51,14 @@ public:
     /**
      * @brief Logical NOT operator
      * 
-     * @return New tagged_bool with inverted value
+     * @return New TaggedBool with inverted value
      */
-    constexpr tagged_bool operator!() const noexcept { return tagged_bool{!value}; }
+    constexpr TaggedBool operator!() const noexcept { return TaggedBool{!value}; }
 
     /// Equality comparison
-    friend constexpr bool operator==(tagged_bool l, tagged_bool r) { return l.value == r.value; }
+    friend constexpr bool operator==(TaggedBool l, TaggedBool r) { return l.value == r.value; }
     /// Inequality comparison
-    friend constexpr bool operator!=(tagged_bool l, tagged_bool r) { return l.value != r.value; }
+    friend constexpr bool operator!=(TaggedBool l, TaggedBool r) { return l.value != r.value; }
     
 };
 

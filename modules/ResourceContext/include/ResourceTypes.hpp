@@ -2,94 +2,25 @@
 #ifndef DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #include <cstdint>
+#include "ResourceFlags.hpp"
+#include "ResourceDataFormats.hpp"
+#include <optional>
 
-enum class resource_type : uint64_t
+/**
+ * @brief Contains definitions for user-facing resource data structures for use with the resource context and RHI.
+ */
+
+/** @brief Holds the raw data and some metadata that will be used to set the contents of a buffer resource (especially during initial creation). */
+struct RhiBufferResourceData
 {
-    Invalid = 0,
-    Buffer,
-    BufferView,
-    Image,
-    ImageView,
-    Sampler,
-    CombinedImageSampler
-};
-
-enum class resource_usage : uint32_t
-{
-    InvalidResourceUsage = 0,
-    GPUOnly = 1,
-    CPUOnly = 2,
-    CPUToGPU = 3,
-    GPUToCPU = 4
-};
-
-struct queue_family_flag_bits
-{
-    enum : uint8_t
-    {
-        None = 0x0,
-        Graphics = 0x1,
-        Compute = 0x2,
-        Transfer = 0x4,
-        SparseBinding = 0x8,
-        // Used to indicate that we're using VK_SHARING_MODE_CONCURRENT, and that the queue family index is ignored
-        Ignored = 0x10
-    };
-};
-
-using queue_family_flags = uint8_t;
-
-struct resource_creation_flag_bits
-{
-    enum : uint32_t
-    {
-        UserDataAsString = 0x00000001,
-        DedicatedMemory = 0x00000002,
-        CreateMapped = 0x00000004,
-        PersistentlyMapped = 0x00000008,
-        HostWritesLinear = 0x00000010,
-        HostWritesRandom = 0x00000020,
-        
-    };
-};
-using resource_creation_flags = uint32_t;
-
-struct gpu_resource_data_t
-{
-    gpu_resource_data_t() noexcept = default;
-    ~gpu_resource_data_t() noexcept = default;
-    gpu_resource_data_t(
-        const void* data,
-        const size_t data_size,
-        const size_t data_alignment,
-        const queue_family_flags dest_queue_family) noexcept;
-    gpu_resource_data_t(const gpu_resource_data_t&) noexcept = delete;
-    gpu_resource_data_t& operator=(const gpu_resource_data_t&) noexcept = delete;
-    gpu_resource_data_t(gpu_resource_data_t&&) noexcept = default;
-    gpu_resource_data_t& operator=(gpu_resource_data_t&&) noexcept = default;
     const void* Data{ 0u };
     size_t DataSize{ 0u };
     size_t DataAlignment{ 0u };
-    queue_family_flags DestinationQueueFamily{ 0x0 };
 };
 
-struct gpu_image_resource_data_t
+/** @brief Holds the raw data and some dimensional metadata that will be made the contents of an image resource. */
+struct RhiImageResourceData
 {
-    gpu_image_resource_data_t() noexcept = default;
-    gpu_image_resource_data_t(
-        const void* _data,
-        const size_t data_size,
-        const uint32_t width,
-        const uint32_t height,
-        const uint32_t array_layer,
-        const uint32_t num_layers,
-        const uint32_t mip_level,
-        const queue_family_flags queue_flags) noexcept;
-    ~gpu_image_resource_data_t() noexcept = default;
-    gpu_image_resource_data_t(const gpu_image_resource_data_t&) noexcept = delete;
-    gpu_image_resource_data_t& operator=(const gpu_image_resource_data_t&) noexcept = delete;
-    gpu_image_resource_data_t(gpu_image_resource_data_t&&) noexcept = default;
-    gpu_image_resource_data_t& operator=(gpu_image_resource_data_t&&) noexcept = default;
     const void* Data{ nullptr };
     size_t DataSize{ 0u };
     uint32_t Width{ 0u };
@@ -97,49 +28,142 @@ struct gpu_image_resource_data_t
     uint32_t ArrayLayer{ 0u };
     uint32_t NumLayers{ 1u };
     uint32_t MipLevel{ 0u };
-    queue_family_flags DestinationQueueFamily{ 0x0 };
+    uint32_t NumMips{ 0u };
+};
+
+struct BufferCreateInfo
+{
+    ResourceDomain Domain{ ResourceDomain::Invalid };
+    ResourceCreationFlags Flags{ ResourceCreationFlags::None };
+    BufferUsageBits Usage{ BufferUsageBits::Invalid };
+    size_t Size{ 0u };
+    /** @brief If this member is given, the buffer will be created with a correponding BufferView object. Otherwise, we won't create a view. */
+    std::optional<ResourceFormat> ViewFormat{ std::nullopt };
+    /** @brief User-defined data pointer that can be associated with the buffer for application-specific purposes. */
+    void* UserData{ nullptr };
+};
+
+/** @brief Describes a specific range within an image, including mip levels and array layers, used for creating image views or specifying subresource ranges in image operations. */
+struct ImageRange
+{
+    ImageAspectFlags AspectMask{ ImageAspectFlags::None };
+    uint32_t BaseMipLevel{ 0u };
+    uint32_t LevelCount{ 1u };
+    uint32_t BaseArrayLayer{ 0u };
+    uint32_t LayerCount{ 1u };
+};
+
+/** @brief Describes the mapping of image components for a view, mapping components of the image in memory to what is returned by shader load instructions.
+ *  @note Can be left to identity in most cases, where each component maps directly to itself.
+ */
+struct ImageComponentMapping
+{
+    ComponentSwizzle R{ ComponentSwizzle::Red };
+    ComponentSwizzle G{ ComponentSwizzle::Green };
+    ComponentSwizzle B{ ComponentSwizzle::Blue };
+    ComponentSwizzle A{ ComponentSwizzle::Alpha };
+};
+
+/** @brief Default component mapping where each channel maps to itself (RGBA -> RGBA) */
+constexpr static inline ImageComponentMapping IdentityImageSwizzle{};
+
+struct ImageViewCreateInfo
+{
+    /** @brief Handle to the image resource this view is created from. Can be null when attached to an ImageCreateInfo struct, at which point it's considered the view for that image. */
+    uint64_t ImageHandle{ 0u };
+    ImageViewType ViewType{ ImageViewType::Invalid };
+    ImageComponentMapping ComponentMapping{ IdentityImageSwizzle };
+    ImageRange Range{};
+    /** @brief If provided, will reinterpret the format of the base image to the given image for this view */
+    std::optional<ResourceFormat> FormatOverride{ std::nullopt };
+    /** @brief User-defined data pointer that can be associated with the image view for application-specific purposes. */
+    void* UserData{ nullptr };
+};
+
+struct SamplerCreateInfo
+{
+    enum class AddressMode : uint8_t
+    {
+        None = 0,
+        Repeat,
+        MirroredRepeat,
+        ClampToEdge,
+        ClampToBorder,
+        /** @note Provided by VK_KHR_sampler_mirror_clamp_to_edge or Vk1.2. */
+        MirrorClampToEdge
+    };
+
+    enum class ImageBorderColor : uint8_t
+    {
+        None = 0,
+        FloatTransparentBlack,
+        IntTransparentBlack,
+        FloatOpaqueBlack,
+        IntOpaqueBlack,
+        FloatOpaqueWhite,
+        IntOpaqueWhite,
+        /** @note Requires optional member of sampler create info to be specified */
+        FloatCustom,
+        /** @note Requires optional member of sampler create info to be specified */
+        IntCustom
+    };
+
+
+    ImageFilteringMode MagFilter{ ImageFilteringMode::Linear };
+    ImageFilteringMode MinFilter{ ImageFilteringMode::Linear };
+    ImageFilteringMode MipFilter{ ImageFilteringMode::Linear };
+
+    AddressMode AddressU{ AddressMode::Repeat };
+    AddressMode AddressV{ AddressMode::Repeat };
+    AddressMode AddressW{ AddressMode::Repeat };
+
+    float MipLoadBias{ 0.0f };
+
+    bool AnisotropyEnabled{ false };
+    float MaxAnisotropy{ 1.0f };
+
+    bool CompareEnabled{ false };
+    ImageCompareOp CompareOp{ ImageCompareOp::None };
+
+    float MinLod{ 0.0f };
+    float MaxLod{ std::numeric_limits<float>::max() };
+
+    ImageBorderColor BorderColor{ ImageBorderColor::None };
+    // leaving undefined for now since we don't have RGBA color object yet
+    // std::optional<RGBAColor> CustomBorderColor;
+
+    bool UnnormalizedCoordinates{ false };
+};
+
+struct ImageCreateInfo
+{
+    ResourceDomain Domain{ ResourceDomain::Invalid };
+    ResourceCreationFlags Flags{ ResourceCreationFlags::None };
+    ImageUsageBits Usage{ ImageUsageBits::Invalid };
+    ImageType Type{ ImageType::Invalid };
+    ResourceFormat Format{};
+    uint32_t Width{ 0u };
+    uint32_t Height{ 0u };
+    uint32_t Depth{ 0u };
+    uint32_t MipLevels{ 1u };
+    uint32_t ArrayLayers{ 1u };
+    /** @brief Optional view info - if present we will create a view with this image, if not no view will be created. */
+    std::optional<ImageViewCreateInfo> ViewInfo{ std::nullopt };
+    /** @brief Optional sampler info - if present we will create a sampler with this image, if not no sampler will be created. */
+    std::optional<SamplerCreateInfo> SamplerInfo{ std::nullopt };
+    /** @brief User-defined data pointer that can be associated with the image for application-specific purposes. */
+    void* UserData{ nullptr };
 };
 
 struct GraphicsResource
 {
-    GraphicsResource() noexcept;
-    GraphicsResource(
-        const resource_type type,
-        const uint32_t resource_handle,
-        const uint64_t vk_handle,
-        const uint64_t vk_view_handle,
-        const uint64_t vk_sampler_handle) :
-        Type{ type },
-        EntityHandle{ resource_handle },
-        VkHandle{ vk_handle },
-        VkViewHandle{ vk_view_handle },
-        VkSamplerHandle{ vk_sampler_handle }
-    {}
-    ~GraphicsResource() noexcept = default;
-    GraphicsResource(const GraphicsResource&) noexcept = default;
-    GraphicsResource& operator=(const GraphicsResource&) noexcept = default;
-    GraphicsResource(GraphicsResource&&) noexcept = default;
-    GraphicsResource& operator=(GraphicsResource&&) noexcept = default;
-
     static GraphicsResource Null() noexcept;
     
-    constexpr bool operator==(const GraphicsResource& other) const noexcept
-    {
-        return Type == other.Type &&
-               EntityHandle == other.EntityHandle &&
-               VkHandle == other.VkHandle &&
-               VkViewHandle == other.VkViewHandle &&
-               VkSamplerHandle == other.VkSamplerHandle;
-    }
+    constexpr bool operator==(const GraphicsResource& other) const noexcept;
+    constexpr bool operator!=(const GraphicsResource& other) const noexcept;
+    constexpr explicit operator bool() const noexcept;
 
-    constexpr bool operator!=(const GraphicsResource& other) const noexcept
-    {
-        return !(*this == other);
-    }
-
-    operator bool() const noexcept;
-
-    resource_type Type{ resource_type::Invalid };
+    ResourceDomain Domain{ ResourceDomain::Invalid };
     uint32_t EntityHandle{ 0u };
     uint64_t VkHandle{ 0u };
     uint64_t VkViewHandle{ 0u };

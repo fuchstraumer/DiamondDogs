@@ -1,9 +1,8 @@
 #pragma once
 #ifndef DIAMOND_DOGS_MULTICAST_DELEGATE_HPP
 #define DIAMOND_DOGS_MULTICAST_DELEGATE_HPP
-#include "delegate.hpp"
+#include "Delegate.hpp"
 #include <vector>
-#include <functional>
 #include <memory>
 
 /**
@@ -17,21 +16,21 @@
  * @tparam Args Parameter types of the callables
  */
 template<typename Result, typename...Args>
-class multicast_delegate_t<Result(Args...)> final : private base_delegate_t<Result(Args...)>
+class MulticastDelegate final : private BaseDelegate<Result(Args...)>
 {
 public:
 
     /// Default constructor - creates empty multicast delegate
-    multicast_delegate_t() {}
+    MulticastDelegate() noexcept = default;
     /// Destructor
-    ~multicast_delegate_t() {}
+    ~MulticastDelegate() noexcept = default;
 
     /**
      * @brief Check if the multicast delegate is empty
      * 
      * @return True if no delegates are stored, false otherwise
      */
-    bool empty() const noexcept
+    bool Empty() const noexcept
     {
         return invocationVector.empty();
     }
@@ -63,7 +62,7 @@ public:
      * 
      * @return Number of delegates that will be called during invocation
      */
-    size_t size() const noexcept
+    size_t Size() const noexcept
     {
         return invocationVector.size();
     }
@@ -75,13 +74,14 @@ public:
      * @return Reference to this multicast delegate for chaining
      * @note Empty delegates are ignored and not added
      */
-    multicast_delegate_t& operator+=(const delegate_t<Result(Args...)>& fn)
+    MulticastDelegate& operator+=(const Delegate<Result(Args...)>& fn)
     {
-        if (fn.empty())
+        if (fn.Empty())
         {
             return *this;
         }
-        invocationVector.emplace_back(std::make_unique<list_value_t>(fn.invocation.object, fn.invocation.stub));
+        invocationVector.emplace_back(std::make_unique<typename BaseDelegate<Result(Args...)>::InvocationElement>(fn.invocation.object, fn.invocation.stub));
+        return *this;
     }
 
     /**
@@ -117,8 +117,8 @@ public:
 
 private:
 
-    using list_value_t = std::unique_ptr<typename base_delegate_t<Result(Args...)>::invocation_element_t>;
-    std::vector<list_value_t> invocationVector;
+    using ListValueType = std::unique_ptr<typename BaseDelegate<Result(Args...)>::InvocationElement>;
+    std::vector<ListValueType> invocationVector;
 
 };
 

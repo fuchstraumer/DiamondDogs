@@ -7,7 +7,14 @@
 namespace TaskGraph
 {
     
-    // Coroutine memory tracking with granular statistics
+    /**
+     * @brief Allocator for coroutine frames that uses a memory arena.
+     * Uses a high water mark to track memory usage, and then at each frame boundary resets the
+     * memory using a zero-initialized mimalloc heap realloc. This should remain quite fast,
+     * and individual allocations can just use a linear allocator.
+     * 
+     * If we request memory and we don't have enough room, we'll also use a zero-init realloc
+     */
     class CoroutineAllocator
     {
     public:
