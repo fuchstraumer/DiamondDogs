@@ -7,6 +7,7 @@
 
 enum class PlatformWindowMode
 {
+    Invalid = 0,
     /** @brief Conventional bordered window with set initial dimensions */
     Windowed,
     /** @brief Exclusive fullscreen mode using a specific monitor */
@@ -63,6 +64,7 @@ struct PlatformWindowCreateInfo
 */
 enum class ColorSpace : uint16_t
 {
+    Invalid = 0,
     /** @brief Standard sRGB nonlinear encoded color space */
     sRGB_Nonlinear = 1 << 0,
     /** @brief High Dynamic Range Display P3 color space with nonlinear encoding */
@@ -85,21 +87,22 @@ enum class ColorSpace : uint16_t
 };
 
 enum class PresentMode : uint8_t
-{
-    /** @brief Aliases to immediate present mode. No buffering, high incidences of tearing.*/
-    None = 0,
+{    
+    Invalid = 0,
+    /** @brief Immediate present mode. No buffering, high incidences of tearing.*/
+    Immediate = 1,
     /** @brief Aliases to simple FIFO mode - vertical sync and double-buffering, effectively.*/
-    VerticalSync = 1,
+    VerticalSync = 2,
     /** @brief Aliases to relaxed FIFO mode - if a frame is missed, tearing is allowed. Efficient and most effective on mobile platforms.*/
-    VerticalSyncRelaxed = 2,
+    VerticalSyncRelaxed = 3,
     /** @brief Aliases to Vulkan's mailbox mode, which effectively becomes triple-buffering.*/
-    VerticalSyncMailbox = 3,
+    VerticalSyncMailbox = 4,
     /** @brief Aliases to demand-refresh shared mode. Application may refresh as it wishes, but will also guarantee that it refreshes on a call to present.*/
-    SharedDemandRefresh = 4,
+    SharedDemandRefresh = 5,
     /** @brief Alias to the continued-refresh mode. Swapchain will continously refresh the contents of the screen as it sees fit, and makes no guarantee of a refresh upon a call to present.*/
-    SharedContinuousRefresh = 5,
+    SharedContinuousRefresh = 6,
     /** @brief Alias to FIFO latest ready mode. */
-    VerticalSyncLatestReady = 6
+    VerticalSyncLatestReady = 7
 };
 
 /** @brief HDR/WCG information as queried from appropriate platform APIs, before system and swapchain initialization. Informs further configuration and usage. */
