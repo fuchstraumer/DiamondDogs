@@ -31,9 +31,14 @@ public:
     static size_t GetNumDisplays() noexcept;
     static DisplayInfo GetDisplayInfo(const size_t displayIndex) noexcept;
 
-    static std::unique_ptr<PlatformWindowSystem> CreatePlatformWindowSystem(const char* jsonPath, const void* vkInstancePtr);
-    // Alternative creation method using struct instead of JSON path
-    static std::unique_ptr<PlatformWindowSystem> CreatePlatformWindowSystem(const PlatformWindowCreateInfo& createInfo, const void* vkInstancePtr);
+    /** @brief Factory method that reads configuration values for the platform window and swapchain from given JSON path, and creates a default surface + swapchain alongside the window. */
+    static std::unique_ptr<PlatformWindowSystem> CreatePlatformWindowSystem(const char* jsonPath,
+                                                                            const uint64_t vkInstanceHandle,
+                                                                            const uint64_t vkDeviceHandle,
+                                                                            const uint64_t vkPhysicalDeviceHandle);
+    /** @brief Factory method that uses a create info struct, and does not create a default surface or swapchain. Used primarily for unit testing. */
+    static std::unique_ptr<PlatformWindowSystem> CreatePlatformWindowSystem(const PlatformWindowCreateInfo& createInfo,
+                                                                            const uint64_t vkInstanceHandle);
     void Destroy();
 
     // Default swapchain just uses display info that we got from window creation as creation parameters. Also creates a surface using display parameters

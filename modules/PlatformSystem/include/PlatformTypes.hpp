@@ -145,10 +145,10 @@ struct HDRCapabilities
 
 struct SwapchainCreateInfo
 {
-    uint64_t DeviceHandle{ 0u }; // VkDevice
-    uint64_t PhysicalDeviceHandle{ 0u }; // VkPhysicalDevice
+    uint64_t VkDeviceHandle{ 0u };
+    uint64_t VkPhysicalDeviceHandle{ 0u };
     void* PlatformWindowHandle{ nullptr }; // GLFWwindow*
-    uint64_t SurfaceHandle{ 0u }; // VkSurfaceKHR
+    uint64_t VkSurfaceHandle{ 0u };
     /** @brief Min image count for swapchain */
     uint32_t MinImageCount{ 2 };
     /** @brief Optional image format to use for swapchain. If left to invalid default values, will auto-choose format: does not enable HDR */
@@ -166,7 +166,6 @@ struct SwapchainCreateInfo
     const void* PlatformSystemPtr{ nullptr };
     /** @brief Index of the monitor/display used with this window. Will be used to query the platform system for dimensional info. Default value of is UINT32_MAX, which means just use the "primary" display if not changed. */
     uint32_t DisplayIndex{ std::numeric_limits<uint32_t>::max() };
-    class PlatformWindowSystem* PlatformSystem{ nullptr };
 };
 
 

@@ -1,9 +1,9 @@
 #pragma once
 #ifndef DIAMOND_DOGS_PLATFORM_SURFACE_HPP
 #define DIAMOND_DOGS_PLATFORM_SURFACE_HPP
-#include <vulkan/vulkan_core.h>
+#include <memory>
 
-struct GLFWwindow;
+struct PlatformSurfaceImpl;
 
 /**
  * Platform abstraction for Vulkan surface creation and management.
@@ -17,18 +17,8 @@ class PlatformSurface
     PlatformSurface& operator=(const PlatformSurface&) = delete;
 
 public:
-    /**
-     * Creates a platform surface for the given Vulkan instance and physical device.
-     * \param instance The Vulkan instance handle
-     * \param physicalDevice The Vulkan physical device handle
-     * \param window Pointer to the platform window (currently GLFWwindow*)
-     */
-    PlatformSurface(VkInstance instance, VkPhysicalDevice physicalDevice, void* window) noexcept;
 
-    PlatformSurface(PlatformSurface&& other) noexcept;
-    PlatformSurface& operator=(PlatformSurface&& other) noexcept;
-
-    // Rule of 5: Destructor
+    PlatformSurface(const uint64_t vkInstanceHandle, const uint64_t vkPhysicalDeviceHandle, void* window) noexcept;
     ~PlatformSurface();
 
     /**
@@ -38,27 +28,15 @@ public:
 
     /**
      * Gets the underlying Vulkan surface handle.
-     * \return Reference to the VkSurfaceKHR handle
+     * \return Reference to the VkSurfaceKHR handle, as a uint64_t
      */
-    const VkSurfaceKHR& GetVkSurface() const noexcept;
-
-    /**
-     * Verifies that the physical device supports presentation to this surface.
-     * This should be called before attempting to present to the surface.
-     * \param physicalDevice The physical device to check
-     * \param surface The surface to check presentation support for
-     * \return VK_TRUE if presentation is supported, VK_FALSE otherwise
-     */
-    static VkBool32 VerifyPresentationSupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface);
+    const uint64_t GetVkSurface() const noexcept;
 
 private:
     void CreateSurface();
     void DestroySurface();
-
-    VkInstance instance{ VK_NULL_HANDLE };
-    VkPhysicalDevice physicalDevice{ VK_NULL_HANDLE };
-    GLFWwindow* window{ nullptr };
-    VkSurfaceKHR surface{ VK_NULL_HANDLE };
+    // just holds the Vulkan objects, to avoid leaking Vulkan headers
+    std::unique_ptr<PlatformSurfaceImpl> impl;
 };
 
 #endif // DIAMOND_DOGS_PLATFORM_SURFACE_HPP

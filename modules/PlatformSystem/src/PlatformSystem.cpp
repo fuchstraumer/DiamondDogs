@@ -65,7 +65,10 @@ constexpr static ColorSpace s_DefaultHDRColorSpace = ColorSpace::HDR10_ST2084;
 constexpr static ImageFormat s_DefaultSDRFormat = CommonFormats::RGBA8_SRGB;
 constexpr static ImageFormat s_DefaultHDRFormat = CommonFormats::HDR_RGBA16;
 
-std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindowSystem(const char* jsonPath, const void* vkInstancePtr)
+std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindowSystem(const char* jsonPath,
+                                                                                       const uint64_t vkInstanceHandle,
+                                                                                       const uint64_t vkDeviceHandle,
+                                                                                       const uint64_t vkPhysicalDeviceHandle)
 {
     // Open up the JSON file
     std::ifstream jsonFile(jsonPath);
@@ -77,30 +80,35 @@ std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindow
     // Parse the JSON file
     nlohmann::json jsonConfig;
     jsonFile >> jsonConfig;
+    nlohmann::json platformJson;
 
     // First check: is this a composite categorized configuration file, or a direct one?
     if (jsonConfig.contains("PlatformWindowConfig"))
     {
         // alias to the actual config section we want
-        jsonConfig = jsonConfig["PlatformWindowConfig"];
+        platformJson = jsonConfig["PlatformWindowConfig"];
+    }
+    else
+    {
+        platformJson = jsonConfig;
     }
 
     uint32_t initialWidth = s_DefaultInitialWidth;
-    if (jsonConfig.contains("InitialWindowWidth"))
+    if (platformJson.contains("InitialWindowWidth"))
     {
         initialWidth = jsonConfig.at("InitialWindowWidth");
     }
 
     uint32_t initialHeight = s_DefaultInitialHeight;
-    if (jsonConfig.contains("InitialWindowHeight"))
+    if (platformJson.contains("InitialWindowHeight"))
     {
-        initialHeight = jsonConfig.at("InitialWindowHeight");
+        initialHeight = platformJson.at("InitialWindowHeight");
     }
 
     PlatformWindowMode windowMode = s_DefaultWindowMode;
-    if (jsonConfig.contains("InitialWindowMode"))
+    if (platformJson.contains("InitialWindowMode"))
     {
-        const std::string windowModeStr = jsonConfig.at("InitialWindowMode");
+        const std::string windowModeStr = platformJson.at("InitialWindowMode");
         auto iter = s_WindowModeFromStrMap.find(windowModeStr);
         if (iter != s_WindowModeFromStrMap.end())
         {
@@ -109,9 +117,9 @@ std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindow
     }
 
     PresentMode presentMode = s_DefaultPresentMode;
-    if (jsonConfig.contains("PresentationMode"))
+    if (platformJson.contains("PresentationMode"))
     {
-        const std::string presentModeStr = jsonConfig.at("PresentationMode");
+        const std::string presentModeStr = platformJson.at("PresentationMode");
         auto iter = s_PresentModeFromStrMap.find(presentModeStr);
         if (iter != s_PresentModeFromStrMap.end())
         {
@@ -120,16 +128,16 @@ std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindow
     }
 
     uint32_t swapchainImageCount = s_DefaultSwapchainImageCount;
-    if (jsonConfig.contains("SwapchainImageCount"))
+    if (platformJson.contains("SwapchainImageCount"))
     {
-        uint32_t configImageCount = jsonConfig.at("SwapchainImageCount");
+        uint32_t configImageCount = platformJson.at("SwapchainImageCount");
         swapchainImageCount = std::max(2u, configImageCount);
     }
 
     ColorSpace desiredColorSpace = s_DefaultColorSpace;
-    if (jsonConfig.contains("ColorSpace"))
+    if (platformJson.contains("ColorSpace"))
     {
-        const std::string colorSpaceStr = jsonConfig.at("ColorSpace");
+        const std::string colorSpaceStr = platformJson.at("ColorSpace");
         auto iter = s_ColorSpaceFromStrMap.find(colorSpaceStr);
         if (iter != s_ColorSpaceFromStrMap.end())
         {
@@ -138,22 +146,79 @@ std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindow
     }
 
     bool enableHDR = false;
-    if (jsonConfig.contains("EnableHDR"))
+    if (platformJson.contains("EnableHDR"))
     {
-        enableHDR = jsonConfig.at("EnableHDR");
+        enableHDR = platformJson.at("EnableHDR");
     }
     // make sure that even if config tries to enable it, system supports it and has it on as well
     enableHDR = enableHDR && IsHDREnabledOnSystem();
 
+    // now grab EngineConfig to get the application name we'll use for the window title
+    std::string applicationName = "DiamondDogs Application";
+    if (jsonConfig.contains("EngineConfig"))
+    {
+        const nlohmann::json& engineJson = jsonConfig["EngineConfig"];
+        if (engineJson.contains("ApplicationName"))
+        {
+            applicationName = engineJson.at("ApplicationName");
+        }
+    }
+    else if (platformJson.contains("ApplicationName"))
+    {
+        applicationName = platformJson.at("ApplicationName");
+    }
+
+    PlatformWindowCreateInfo createInfo{};
+    createInfo.WindowName = applicationName.c_str();
+    createInfo.InitialWidth = initialWidth;
+    createInfo.InitialHeight = initialHeight;
+    createInfo.DesiredWindowMode = windowMode;
+    createInfo.BehaviorFlags.Resizable = true;
+    createInfo.BehaviorFlags.Moveable = true;
+    createInfo.BehaviorFlags.Decorated = true;
+    createInfo.BehaviorFlags.FocusOnShow = false;
+    createInfo.BehaviorFlags.CenterMouse = false;
+    
     // Create the platform window system
     auto system = std::make_unique<PlatformWindowSystem>();
-    system->impl = std::make_unique<PlatformSystemImpl>(PlatformWindowCreateInfo{});
+    system->impl = std::make_unique<PlatformSystemImpl>(createInfo);
+
+    // Now continue to create default surface + swapchain, since we have all the info we need and I don't see a situation in which we wouldn't do this together (yet)
+    system->impl->ActiveDisplay = &s_PrimaryDisplay; // for now, just use primary display. In future could allow config of this
+    system->impl->ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle,
+                                                                    vkPhysicalDeviceHandle,
+                                                                    system->impl->Window);
+
+    SwapchainCreateInfo swapchainInfo{};
+    swapchainInfo.VkDeviceHandle = vkDeviceHandle;
+    swapchainInfo.VkPhysicalDeviceHandle = vkPhysicalDeviceHandle;
+    swapchainInfo.PlatformWindowHandle = system->impl->Window;
+    swapchainInfo.VkSurfaceHandle = system->impl->ActiveSurface->GetVkSurface();
+    swapchainInfo.MinImageCount = swapchainImageCount;
+    swapchainInfo.SwapchainPresentMode = presentMode;
+    swapchainInfo.TryEnableHDR = enableHDR;
+    if (enableHDR)
+    {
+        swapchainInfo.SwapchainFormat = s_DefaultHDRFormat;
+        swapchainInfo.HdrColorSpace = desiredColorSpace;
+        swapchainInfo.SdrColorSpace = s_DefaultSDRColorSpace;
+    }
+    else
+    {
+        swapchainInfo.SwapchainFormat = s_DefaultSDRFormat;
+        swapchainInfo.SdrColorSpace = desiredColorSpace;
+        swapchainInfo.HdrColorSpace = s_DefaultHDRColorSpace;
+    }
+    swapchainInfo.PlatformSystemPtr = system.get();
+    swapchainInfo.DisplayIndex = 0;
+
+    system->impl->ActiveSwapchain = std::make_unique<Swapchain>(swapchainInfo);
 
     return system;
 }
 
 // Factory function
-std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindowSystem(const PlatformWindowCreateInfo& createInfo, const void* vkInstancePtr)
+std::unique_ptr<PlatformWindowSystem> PlatformWindowSystem::CreatePlatformWindowSystem(const PlatformWindowCreateInfo& createInfo, const uint64_t vkInstanceHandle)
 {
     try
     {
@@ -218,12 +283,18 @@ void PlatformWindowSystem::CreateDefaultSwapchain(
     }
 
     SwapchainCreateInfo createInfo{};
-    createInfo.DeviceHandle = vkDeviceHandle;
-    createInfo.PhysicalDeviceHandle = vkPhysicalDeviceHandle;
+    createInfo.VkDeviceHandle = vkDeviceHandle;
+    createInfo.VkPhysicalDeviceHandle = vkPhysicalDeviceHandle;
     createInfo.PlatformWindowHandle = impl->Window;
-    createInfo.SurfaceHandle = reinterpret_cast<uint64_t>(impl->ActiveSurface->GetVkSurface());
+    createInfo.VkSurfaceHandle = reinterpret_cast<uint64_t>(impl->ActiveSurface->GetVkSurface());
     createInfo.PlatformSystemPtr = this;
-    createInfo.DisplayIndex = static_cast<uint32_t>(impl->ActiveDisplay->MonitorIdx);
+    createInfo.DisplayIndex = 0u;
+    createInfo.MinImageCount = s_DefaultSwapchainImageCount;
+    createInfo.SwapchainPresentMode = s_DefaultPresentMode;
+    createInfo.SwapchainFormat = s_DefaultSDRFormat;
+    createInfo.SdrColorSpace = s_DefaultSDRColorSpace;
+    createInfo.HdrColorSpace = s_DefaultHDRColorSpace;
+    createInfo.TryEnableHDR = false;
     impl->ActiveSwapchain = std::make_unique<Swapchain>(createInfo);
 }
 

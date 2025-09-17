@@ -18,23 +18,23 @@ struct CallbackStorage
     // we associate user data pointers with the hash of the delegate function
     using UserDataStorageType = std::unordered_map<size_t, void*>;
 
-    std::vector<PlatformWindowSystem::CursorPosEvent> CursorPosEvents;
+    std::vector<CursorPosEvent> CursorPosEvents;
     UserDataStorageType CursorPosEventUserData;
-    std::vector<PlatformWindowSystem::CursorEnterEvent> CursorEnterEvents;
+    std::vector<CursorEnterEvent> CursorEnterEvents;
     UserDataStorageType CursorEnterEventUserData;
-    std::vector<PlatformWindowSystem::ScrollEvent> ScrollEvents;
+    std::vector<ScrollEvent> ScrollEvents;
     UserDataStorageType ScrollEventUserData;
-    std::vector<PlatformWindowSystem::CharEvent> CharEvents;
+    std::vector<CharEvent> CharEvents;
     UserDataStorageType CharEventUserData;
-    std::vector<PlatformWindowSystem::PathDropEvent> PathDropEvents;
+    std::vector<PathDropEvent> PathDropEvents;
     UserDataStorageType PathDropEventUserData;
-    std::vector<PlatformWindowSystem::MouseButtonEvent> MouseButtonEvents;
+    std::vector<MouseButtonEvent> MouseButtonEvents;
     UserDataStorageType MouseButtonEventUserData;
-    std::vector<PlatformWindowSystem::KeyboardKeyEvent> KeyboardKeyEvents;
+    std::vector<KeyboardKeyEvent> KeyboardKeyEvents;
     UserDataStorageType KeyboardKeyEventUserData;
-    std::vector<PlatformWindowSystem::ShouldResizeEvent> ShouldResizeEvents;
+    std::vector<ShouldResizeEvent> ShouldResizeEvents;
     UserDataStorageType ShouldResizeEventUserData;
-    std::vector<PlatformWindowSystem::ShouldCloseEvent> ShouldCloseEvents;
+    std::vector<ShouldCloseEvent> ShouldCloseEvents;
     UserDataStorageType ShouldCloseEventUserData;
 };
 
@@ -335,7 +335,7 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
     glfwWindowHint(GLFW_GREEN_BITS, static_cast<int>(s_PrimaryDisplay.BitDepthGreen));
     glfwWindowHint(GLFW_BLUE_BITS, static_cast<int>(s_PrimaryDisplay.BitDepthBlue));
     glfwWindowHint(GLFW_REFRESH_RATE, static_cast<int>(s_PrimaryDisplay.RefreshRate));
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // We don't want OpenGL context
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // required to create a Vulkan-capable window, otherwise we create an OpenGL context by default
 
     if (createInfo.DesiredWindowMode != PlatformWindowMode::Fullscreen)
     {
@@ -389,7 +389,7 @@ void PlatformSystemImpl::WaitForEvents()
     glfwWaitEvents();
 }
 
-void PlatformSystemImpl::AddCursorPosEventListener(PlatformWindowSystem::CursorPosEvent listener, void* userData)
+void PlatformSystemImpl::AddCursorPosEventListener(CursorPosEvent listener, void* userData)
 {
     Callbacks->CursorPosEvents.push_back(listener);
     if (userData != nullptr)
@@ -398,7 +398,7 @@ void PlatformSystemImpl::AddCursorPosEventListener(PlatformWindowSystem::CursorP
     }
 }
 
-void PlatformSystemImpl::AddCursorEnterEventListener(PlatformWindowSystem::CursorEnterEvent listener, void* userData)
+void PlatformSystemImpl::AddCursorEnterEventListener(CursorEnterEvent listener, void* userData)
 {
     Callbacks->CursorEnterEvents.push_back(listener);
     if (userData != nullptr)
@@ -407,7 +407,7 @@ void PlatformSystemImpl::AddCursorEnterEventListener(PlatformWindowSystem::Curso
     }
 }
 
-void PlatformSystemImpl::AddScrollEventListener(PlatformWindowSystem::ScrollEvent listener, void* userData)
+void PlatformSystemImpl::AddScrollEventListener(ScrollEvent listener, void* userData)
 {
     Callbacks->ScrollEvents.push_back(listener);
     if (userData != nullptr)
@@ -416,7 +416,7 @@ void PlatformSystemImpl::AddScrollEventListener(PlatformWindowSystem::ScrollEven
     }
 }
 
-void PlatformSystemImpl::AddCharEventListener(PlatformWindowSystem::CharEvent listener, void* userData)
+void PlatformSystemImpl::AddCharEventListener(CharEvent listener, void* userData)
 {
     Callbacks->CharEvents.push_back(listener);
     if (userData != nullptr)
@@ -425,7 +425,7 @@ void PlatformSystemImpl::AddCharEventListener(PlatformWindowSystem::CharEvent li
     }
 }
 
-void PlatformSystemImpl::AddPathDropEventListener(PlatformWindowSystem::PathDropEvent listener, void* userData)
+void PlatformSystemImpl::AddPathDropEventListener(PathDropEvent listener, void* userData)
 {
     Callbacks->PathDropEvents.push_back(listener);
     if (userData != nullptr)
@@ -434,7 +434,7 @@ void PlatformSystemImpl::AddPathDropEventListener(PlatformWindowSystem::PathDrop
     }
 }
 
-void PlatformSystemImpl::AddMouseButtonEventListener(PlatformWindowSystem::MouseButtonEvent listener, void* userData)
+void PlatformSystemImpl::AddMouseButtonEventListener(MouseButtonEvent listener, void* userData)
 {
     Callbacks->MouseButtonEvents.push_back(listener);
     if (userData != nullptr)
@@ -443,7 +443,7 @@ void PlatformSystemImpl::AddMouseButtonEventListener(PlatformWindowSystem::Mouse
     }
 }
 
-void PlatformSystemImpl::AddKeyboardKeyEventListener(PlatformWindowSystem::KeyboardKeyEvent listener, void* userData)
+void PlatformSystemImpl::AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* userData)
 {
     Callbacks->KeyboardKeyEvents.push_back(listener);
     if (userData != nullptr)
@@ -452,7 +452,7 @@ void PlatformSystemImpl::AddKeyboardKeyEventListener(PlatformWindowSystem::Keybo
     }
 }
 
-void PlatformSystemImpl::AddShouldResizeEventListener(PlatformWindowSystem::ShouldResizeEvent listener, void* userData)
+void PlatformSystemImpl::AddShouldResizeEventListener(ShouldResizeEvent listener, void* userData)
 {
     Callbacks->ShouldResizeEvents.push_back(listener);
     if (userData != nullptr)
@@ -461,7 +461,7 @@ void PlatformSystemImpl::AddShouldResizeEventListener(PlatformWindowSystem::Shou
     }
 }
 
-void PlatformSystemImpl::AddShouldCloseEventListener(PlatformWindowSystem::ShouldCloseEvent listener, void* userData)
+void PlatformSystemImpl::AddShouldCloseEventListener(ShouldCloseEvent listener, void* userData)
 {
     Callbacks->ShouldCloseEvents.push_back(listener);
     if (userData != nullptr)
