@@ -66,9 +66,10 @@ namespace rhi
                 return VK_API_VERSION_1_2;
             case ApiVersion::Vulkan13:
                 return VK_API_VERSION_1_3;
-            case ApiVersion::BestSupported:
-            default:
-                return VK_API_VERSION_1_3; // Default to 1.3 for best supported
+            case ApiVersion::Vulkan14:
+                [[fallthrough]];
+            case ApiVersion::Latest:
+                return VK_API_VERSION_1_4;
         }
     }
 

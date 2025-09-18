@@ -20,8 +20,7 @@ namespace rhi
         Vulkan12 = 3,
         Vulkan13 = 4,
         Vulkan14 = 5,
-        Latest = 254,
-        BestSupported = 255
+        Latest = 254
     };
 
     // Simplified extension management - combines ExtensionWrangler functionality
