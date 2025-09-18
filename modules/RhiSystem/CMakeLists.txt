@@ -14,6 +14,7 @@ set(RHI_CORE_SOURCES
     "src/RhiSystem.cpp")
 
 set(RHI_VPR_SOURCES
+    "include/DebugUtilFns.hpp"
     "include/Device.hpp"
     "include/ExtensionPack.hpp"
     "include/Instance.hpp"
@@ -25,7 +26,7 @@ set(RHI_VPR_SOURCES
 
 ADD_MODULE(rhi_system "${RHI_CORE_SOURCES}" "${RHI_VPR_SOURCES}")
 
-TARGET_LINK_LIBRARIES(rhi_system PUBLIC vpr_core ${Vulkan_LIBRARY})
+TARGET_LINK_LIBRARIES(rhi_system PUBLIC ${Vulkan_LIBRARY})
 TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC "../../third_party/json/include" ${Vulkan_INCLUDE_DIR})
 
 source_group("Core" FILES ${RHI_CORE_SOURCES})

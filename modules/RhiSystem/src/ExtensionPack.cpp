@@ -72,59 +72,17 @@ uint32_t ExtensionPack::GetVulkanApiVersion() const noexcept
     }
 }
 
-void ExtensionPack::AddRequiredInstanceExtensions(const std::vector<std::string_view>& extensions)
+void ExtensionPack::AddRequiredInstanceExtensions(std::vector<std::string> extensions)
 {
-    for (const std::string_view& ext : extensions)
-    {
-        requiredInstanceExts.emplace_back(ext);
-    }
-
-    resolveInstanceDependencies();
+    requiredInstanceExts = std::move(extensions);
 }
 
-void ExtensionPack::AddOptionalInstanceExtensions(const std::vector<std::string_view>& extensions)
+void ExtensionPack::AddOptionalInstanceExtensions(std::vector<std::string> extensions)
 {
-    for (const std::string_view& ext : extensions)
-    {
-        optionalInstanceExts.emplace_back(ext);
-    }
-
-    resolveInstanceDependencies();
+    optionalInstanceExts = std::move(extensions);
 }
 
-void ExtensionPack::SetPhysicalDevice(VkPhysicalDevice physicalDevice) noexcept
-{
-    // if already resolved or physical device already set, don't need to do this step
-    if (deviceExtensionsResolved || extensionWrangler->HasValidPhysicalDevice())
-    {
-        return;
-    }
-    
-    extensionWrangler->SetPhysicalDevice(physicalDevice);
-}
-
-void ExtensionPack::AddRequiredDeviceExtensions(const std::vector<std::string_view>& extensions)
-{
-    for (const std::string_view& ext : extensions)
-    {
-        requiredDeviceExts.emplace_back(ext);
-    }
-    
-    resolveDeviceDependencies();
-}
-
-void ExtensionPack::AddOptionalDeviceExtensions(const std::vector<std::string_view>& extensions)
-{
-    for (const std::string_view& ext : extensions)
-    {
-        optionalDeviceExts.emplace_back(ext);
-    }
-    
-    resolveDeviceDependencies();
-    deviceExtensionsResolved = true;
-}
-
-void ExtensionPack::resolveInstanceDependencies()
+void ExtensionPack::ResolveInstanceDependencies()
 {
     if (!extensionWrangler)
     {
@@ -207,9 +165,32 @@ void ExtensionPack::resolveInstanceDependencies()
         requiredInstanceExts.push_back(ext);
         instanceExtensions.push_back(requiredInstanceExts.back().c_str());
     }
+
+    instanceExtensionsResolved = true;
 }
 
-void ExtensionPack::resolveDeviceDependencies()
+void ExtensionPack::SetPhysicalDevice(VkPhysicalDevice physicalDevice) noexcept
+{
+    // if already resolved or physical device already set, don't need to do this step
+    if (deviceExtensionsResolved || extensionWrangler->HasValidPhysicalDevice())
+    {
+        return;
+    }
+    
+    extensionWrangler->SetPhysicalDevice(physicalDevice);
+}
+
+void ExtensionPack::AddRequiredDeviceExtensions(std::vector<std::string> extensions)
+{
+    requiredDeviceExts = std::move(extensions);
+}
+
+void ExtensionPack::AddOptionalDeviceExtensions(std::vector<std::string> extensions)
+{
+    optionalDeviceExts = std::move(extensions);
+}
+
+void ExtensionPack::ResolveDeviceDependencies()
 {
     if (!extensionWrangler)
     {
@@ -301,6 +282,8 @@ void ExtensionPack::resolveDeviceDependencies()
     {
         deviceFeatures = features.value();
     }
+
+    deviceExtensionsResolved = true;
 }
 
 const std::vector<const char*>& ExtensionPack::GetInstanceExtensions() const noexcept

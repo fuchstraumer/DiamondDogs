@@ -1,31 +1,26 @@
 #include "RhiSystem.hpp"
+
+#include "Device.hpp"
+#include "ExtensionPack.hpp"
+#include "ExtensionWrangler.hpp"
 #include "Instance.hpp"
 #include "PhysicalDevice.hpp"
-#include "LogicalDevice.hpp"
-#include "Swapchain.hpp"
-#include "SurfaceKHR.hpp"
-#include "VkDebugUtils.hpp"
-#include "vkAssert.hpp"
-#include "ExtensionWrangler.hpp"
-#include <thread>
+
+#include <thread> // for std::this_thread::get_id() for debug info
 #include <chrono>
 #include <iostream>
 #include <fstream>
-#include <atomic>
 #include <vector>
 #include "nlohmann/json.hpp"
 
-static void* usedNextPtr = nullptr;
-static VkPhysicalDeviceFeatures* enabledDeviceFeatures = nullptr;
-static std::vector<std::string> extensionsBuffer;
-static std::string windowingModeBuffer;
+namespace rhi
+{
+
 static bool validationEnabled{ false };
 // static instance of object name function, so that we can use it for static debug callbacks
 static PFN_vkSetDebugUtilsObjectNameEXT s_SetObjectNameFn{ nullptr };
 // set by first context to create, currently because we assume we'll only have one context
 static VkDevice s_DebugLogicalDeviceHandle{ VK_NULL_HANDLE };
-
-inline void RecreateSwapchain();
 
 std::string objectTypeToString(const VkObjectType type);
 VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity, VkDebugUtilsMessageTypeFlagBitsEXT message_type, const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
@@ -34,14 +29,42 @@ void SplitVersionString(std::string version_string, uint32_t& major_version, uin
 void GetVersions(const nlohmann::json& json_file, uint32_t& app_version, uint32_t& engine_version, uint32_t& api_version);
 void AddDependenciesForSetOfExtensions(std::vector<std::string>& extensions);
 
-void GetPhysicalDeviceFeatures(VkInstance instance, const uint32_t apiVersion);
+#ifdef _WIN32
+constexpr const char* SurfaceExtensionName = "VK_KHR_win32_surface";
+#elif defined(__linux__)
+constexpr const char* SurfaceExtensionName = "VK_KHR_xcb_surface";
+#endif
 
-
-
-static std::atomic<bool>& GetShouldResizeFlag()
+ApiVersion ApiVersionFromString(const std::string& version_string)
 {
-    static std::atomic<bool> should_resize{ false };
-    return should_resize;
+    if (version_string == "1.0" || version_string == "Vulkan10")
+    {
+        return ApiVersion::Vulkan10;
+    }
+    else if (version_string == "1.1" || version_string == "Vulkan11")
+    {
+        return ApiVersion::Vulkan11;
+    }
+    else if (version_string == "1.2" || version_string == "Vulkan12")
+    {
+        return ApiVersion::Vulkan12;
+    }
+    else if (version_string == "1.3" || version_string == "Vulkan13")
+    {
+        return ApiVersion::Vulkan13;
+    }
+    else if (version_string == "1.4" || version_string == "Vulkan14")
+    {
+        return ApiVersion::Vulkan14;
+    }
+    else if (version_string == "Latest" || version_string == "latest")
+    {
+        return ApiVersion::Latest;
+    }
+    else
+    {
+        throw std::runtime_error("Unknown Vulkan API version string: " + version_string);
+    }
 }
 
 RhiSystem::~RhiSystem()
@@ -63,27 +86,33 @@ void RhiSystem::Construct(const char* file_path)
 
     nlohmann::json json_file;
     input_file >> json_file;
+    nlohmann::json rhiConfig;
     
-    vpr::VprExtensionPack extensionPack;
-
-    createInstance(json_file, extensionPack);
-
+    // first step: see if this is categorized JSON or flat
+    if (json_file.contains("RHISystemConfig"))
     {
-        size_t num_instance_extensions = 0;
-        vulkanInstance->GetEnabledExtensions(&num_instance_extensions, nullptr);
-        if (num_instance_extensions != 0)
-        {
-            std::vector<char*> extensions_buffer(num_instance_extensions);
-            vulkanInstance->GetEnabledExtensions(&num_instance_extensions, extensions_buffer.data());
-            for (auto& str : extensions_buffer)
-            {
-                instanceExtensions.emplace_back(str);
-                free(str);
-            }
-        }
+        rhiConfig = json_file["RHISystemConfig"];
+    }
+    else
+    {
+        rhiConfig = json_file;
     }
 
-    createLogicalDevice(json_file, extensionPack);
+    ApiVersion preferredApiVersion = ApiVersion::Latest;
+    if (rhiConfig.contains("ApiVersion"))
+    {
+        preferredApiVersion = ApiVersionFromString(rhiConfig.at("ApiVersion").get<std::string>());
+    }
+    else if (rhiConfig.contains("VulkanVersion"))
+    {
+        preferredApiVersion = ApiVersionFromString(rhiConfig.at("VulkanVersion").get<std::string>());
+    }
+
+    extensionPack = std::make_unique<ExtensionPack>(preferredApiVersion);
+
+    gatherAndResolveInstanceExtensions(rhiConfig);
+    createInstance(json_file);
+    createLogicalDevice(json_file);
 
     if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
     {
@@ -117,21 +146,6 @@ void RhiSystem::Construct(const char* file_path)
         }
     }
 
-    {
-        size_t num_device_extensions = 0;
-        logicalDevice->GetEnabledExtensions(&num_device_extensions, nullptr);
-        if (num_device_extensions != 0)
-        {
-            std::vector<char*> extensions_buffer(num_device_extensions);
-            logicalDevice->GetEnabledExtensions(&num_device_extensions, extensions_buffer.data());
-            for (auto& str : extensions_buffer)
-            {
-                deviceExtensions.emplace_back(str);
-                free(str);
-            }
-        }
-    }
-
 }
 
 void RhiSystem::Update()
@@ -151,17 +165,17 @@ void RhiSystem::Destroy()
     extensionWrangler.reset();
 }
 
-vpr::Instance* RhiSystem::Instance() noexcept
+Instance* RhiSystem::GetInstance() noexcept
 {
     return vulkanInstance.get();
 }
 
-vpr::PhysicalDevice* RhiSystem::PhysicalDevice(const size_t idx) noexcept
+PhysicalDevice* RhiSystem::GetPhysicalDevice(const size_t idx) noexcept
 {
     return physicalDevices[idx].get();
 }
 
-vpr::Device* RhiSystem::Device() noexcept
+Device* RhiSystem::GetDevice() noexcept
 {
     return logicalDevice.get();
 }
@@ -218,11 +232,50 @@ VkResult RhiSystem::SetObjectName(VkObjectType object_type, uint64_t handle, con
     }
 }
 
-void RhiSystem::createInstance(const nlohmann::json& json_file, vpr::VprExtensionPack& extensionPack)
+void RhiSystem::gatherAndResolveInstanceExtensions(const nlohmann::json& rhiConfig)
 {
-    const std::string app_name = json_file.at("ApplicationName");
-    
-    const std::string engine_name = json_file.at("EngineName");
+    // Now, grab the extension lists first so we can initialize the extension pack and resolve instance extensions
+    std::vector<std::string> requiredInstanceExts;
+    std::vector<std::string> requestedInstanceExts;
+
+    {
+        nlohmann::json req_ext_json = rhiConfig.at("RequiredInstanceExtensions");
+        for (auto& entry : req_ext_json)
+        {
+            requiredInstanceExts.emplace_back(entry);
+        }
+    }
+
+    // quick check: do we need presentation support? are said extensions present (lol) in the required list?
+    const bool needsPresentationSupport = rhiConfig.value("NeedsPresentationSupport", false); // this is a required value
+    if (needsPresentationSupport)
+    {
+        const bool hasSurfaceExt = std::find(requiredInstanceExts.begin(), requiredInstanceExts.end(), SurfaceExtensionName) != requiredInstanceExts.end();
+        const bool hasSwapchainExt = std::find(requiredInstanceExts.begin(), requiredInstanceExts.end(), "VK_KHR_swapchain") != requiredInstanceExts.end();
+        if (!hasSurfaceExt || !hasSwapchainExt)
+        {
+            // user didn't include the extensions, so add them
+            requiredInstanceExts.push_back(SurfaceExtensionName);
+            requiredInstanceExts.push_back("VK_KHR_swapchain");
+        }
+    }
+
+    extensionPack->AddRequiredInstanceExtensions(requiredInstanceExts);
+
+    {
+        nlohmann::json ext_json = rhiConfig.at("RequestedInstanceExtensions");
+        for (auto& entry : ext_json)
+        {
+            requestedInstanceExts.emplace_back(entry);
+        }
+    }
+
+    extensionPack->AddOptionalInstanceExtensions(requestedInstanceExts);
+    extensionPack->ResolveInstanceDependencies();
+}
+
+void RhiSystem::createInstance(const nlohmann::json& rhiConfig)
+{
     const bool using_validation = json_file.at("EnableValidation");
     validationEnabled = using_validation;
 
@@ -232,26 +285,6 @@ void RhiSystem::createInstance(const nlohmann::json& json_file, vpr::VprExtensio
     GetVersions(json_file, app_version, engine_version, api_version);
     vkApiVersion = api_version;
 
-    // create extension wrangler, passing VK_NULL_HANDLE for physicalDevice to make it run in instance mode
-    extensionWrangler = std::make_unique<ExtensionWrangler>(api_version, VK_NULL_HANDLE);
-
-    std::vector<std::string> required_extensions_strs;
-    {
-        nlohmann::json req_ext_json = json_file.at("RequiredInstanceExtensions");
-        for (auto& entry : req_ext_json)
-        {
-            required_extensions_strs.emplace_back(entry);
-        }
-    }
-
-    std::vector<std::string> requested_extensions_strs;
-    {
-        nlohmann::json ext_json = json_file.at("RequestedInstanceExtensions");
-        for (auto& entry : ext_json)
-        {
-            requested_extensions_strs.emplace_back(entry);
-        }
-    }
 
     // convert to arrays of std::string_view for the extension wrangler 
 
@@ -325,6 +358,32 @@ void RhiSystem::createInstance(const nlohmann::json& json_file, vpr::VprExtensio
 
     physicalDevices.emplace_back(std::make_unique<vpr::PhysicalDevice>(vulkanInstance->vkHandle(), &extensionPack));
     extensionWrangler.reset(); // reset because we'll need the VkPhysicalDevice handle for it's next incarnation
+}
+
+void RhiSystem::gatherAndResolveDeviceExtensions(const nlohmann::json& rhiConfig)
+{
+    std::vector<std::string> requiredDeviceExts;
+    {
+        nlohmann::json req_ext_json = rhiConfig.at("RequiredDeviceExtensions");
+        for (auto& entry : req_ext_json)
+        {
+            requiredDeviceExts.emplace_back(entry);
+        }
+    }
+
+    extensionPack->AddRequiredDeviceExtensions(requiredDeviceExts);
+    
+    std::vector<std::string> requestedDeviceExts;
+    {
+        nlohmann::json ext_json = rhiConfig.at("RequestedDeviceExtensions");
+        for (auto& entry : ext_json)
+        {
+            requestedDeviceExts.emplace_back(entry);
+        }
+    }
+
+    extensionPack->AddOptionalDeviceExtensions(requestedDeviceExts);
+    extensionPack->ResolveDeviceDependencies();
 }
 
 void RhiSystem::createLogicalDevice(const nlohmann::json& json_file, vpr::VprExtensionPack& extensionPack)
@@ -416,12 +475,8 @@ void RhiSystem::createLogicalDevice(const nlohmann::json& json_file, vpr::VprExt
     extensionPack.featuresToEnable = nullptr;
     extensionPack.featuresToEnable2 = &all_extensions_features;
 
-    logicalDevice = std::make_unique<vpr::Device>(vulkanInstance.get(), physicalDevices.front().get(), windowSurface->vkHandle(), &extensionPack, nullptr, 0);
+    logicalDevice = std::make_unique<Device>(vulkanInstance.get(), physicalDevices.front().get(), windowSurface->vkHandle(), &extensionPack, nullptr, 0);
 
-    if (postLogicalDeviceFunction != nullptr)
-    {
-        postLogicalDeviceFunction(usedNextPtr);
-    }
 }
 
 std::string objectTypeToString(const VkObjectType type)
@@ -685,3 +740,5 @@ void AddDependenciesForSetOfExtensions(std::vector<std::string>& extensions)
         }
     }
 }
+
+} // namespace rhi

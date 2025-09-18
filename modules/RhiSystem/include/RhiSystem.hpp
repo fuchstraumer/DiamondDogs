@@ -43,13 +43,17 @@ constexpr static bool RHI_SYSTEM_DEBUG_INFO_TIMESTAMPS = false;
 #define RHI_SYSTEM_DEBUG_OBJECT_NAME(name) name
 #endif
 
-namespace vpr
+class ExtensionWrangler;
+class PlatformWindow;
+
+namespace rhi
 {
-    class Instance;
-    class PhysicalDevice;
-    class Device;
-    struct VprExtensionPack;
-}
+
+class Instance;
+class PhysicalDevice;
+class Device;
+struct ExtensionPack;
+struct RhiSystemImpl;
 
 struct RhiSystemCreateInfo
 {
@@ -66,14 +70,6 @@ struct RhiSystemCreateInfo
     std::string ShaderCacheDir;
 };
 
-class ExtensionWrangler;
-class PlatformWindow;
-struct GLFWwindow;
-struct GLFWcursor;
-struct GLFWimage;
-
-struct RhiSystemImpl;
-
 class RhiSystem
 {
     RhiSystem() noexcept;
@@ -86,9 +82,9 @@ public:
     void Update();
     void Destroy();
 
-    vpr::Instance* Instance() noexcept;
-    vpr::PhysicalDevice* PhysicalDevice(const size_t idx = 0) noexcept;
-    vpr::Device* Device() noexcept;
+    Instance* GetInstance() noexcept;
+    PhysicalDevice* GetPhysicalDevice(const size_t idx = 0) noexcept;
+    Device* GetDevice() noexcept;
 
     const char* GetShaderCacheDir();
     void SetShaderCacheDir(const char* dir);
@@ -96,21 +92,20 @@ public:
 
 private:
 
-    void createInstance(const nlohmann::json& json_file, vpr::VprExtensionPack& extensionPack);
-    void createLogicalDevice(const nlohmann::json& json_file, vpr::VprExtensionPack& extensionPack);
+    void gatherAndResolveInstanceExtensions(const nlohmann::json& json_file);
+    void createInstance(const nlohmann::json& json_file);
+    void gatherAndResolveDeviceExtensions(const nlohmann::json& json_file);
+    void createLogicalDevice(const nlohmann::json& json_file);
 
-    std::unique_ptr<vpr::Instance> vulkanInstance;
-    std::vector<std::unique_ptr<vpr::PhysicalDevice>> physicalDevices;
-    std::unique_ptr<vpr::Device> logicalDevice;
-
-    std::vector<std::string> instanceExtensions;
-    std::vector<std::string> deviceExtensions;
+    std::unique_ptr<Instance> vulkanInstance;
+    std::vector<std::unique_ptr<PhysicalDevice>> physicalDevices;
+    std::unique_ptr<Device> logicalDevice;
+    std::unique_ptr<ExtensionPack> extensionPack;
     std::string shaderCacheDir;
     VkDebugUtilsMessengerEXT DebugUtilsMessenger{ VK_NULL_HANDLE };
-    std::unique_ptr<::ExtensionWrangler> extensionWrangler;
-    uint32_t vkApiVersion{ 0u };
-
 
 };
+
+} // namespace rhi
 
 #endif //!DIAMOND_DOGS_RHI_SYSTEM_HPP

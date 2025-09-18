@@ -19,6 +19,8 @@ enum class ApiVersion : uint8_t
     Vulkan11 = 2,
     Vulkan12 = 3,
     Vulkan13 = 4,
+    Vulkan14 = 5,
+    Latest = 254,
     BestSupported = 255
 };
 
@@ -36,30 +38,27 @@ public:
     ExtensionPack& operator=(ExtensionPack&&) noexcept;
 
     // Add extensions (automatically resolves dependencies using internal ExtensionWrangler)
-    void AddRequiredInstanceExtensions(const std::vector<std::string_view>& extensions);
-    void AddOptionalInstanceExtensions(const std::vector<std::string_view>& extensions);
+    // Using pass-by-value because we'll be moving these into internal storage, since we'll be done with them at the callsite by this point
+    void AddRequiredInstanceExtensions(std::vector<std::string> extensions);
+    void AddOptionalInstanceExtensions(std::vector<std::string> extensions);
+    void ResolveInstanceDependencies();
 
     void SetPhysicalDevice(VkPhysicalDevice physicalDevice);
 
-    void AddRequiredDeviceExtensions(const std::vector<std::string_view>& extensions);
-    void AddOptionalDeviceExtensions(const std::vector<std::string_view>& extensions);
+    void AddRequiredDeviceExtensions(std::vector<std::string> extensions);
+    void AddOptionalDeviceExtensions(std::vector<std::string> extensions);
+    void ResolveDeviceDependencies();
 
     // Get finalized extension lists (with dependencies resolved)
     const std::vector<const char*>& GetInstanceExtensions() const noexcept;
-    
     const std::vector<const char*>& GetDeviceExtensions() const noexcept;
-    
     // Get device features for enabled extensions
     const VkPhysicalDeviceFeatures2* GetDeviceFeatures() const noexcept;
-    
     ApiVersion GetApiVersion() const noexcept;
-    
     uint32_t GetVulkanApiVersion() const noexcept;
 
 private:
     void resolveDependencies();
-    void resolveInstanceDependencies();
-    void resolveDeviceDependencies();
     
     ApiVersion apiVersion;
     
@@ -78,7 +77,8 @@ private:
     
     // Extension wrangler for dependency resolution
     std::unique_ptr<ExtensionWrangler> extensionWrangler;
-    bool deviceExtensionsResolved;
+    bool instanceExtensionsResolved{ false };
+    bool deviceExtensionsResolved{ false };
 };
 
 } // namespace rhi
