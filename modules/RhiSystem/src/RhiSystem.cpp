@@ -79,6 +79,31 @@ namespace rhi
         }
     }
 
+    ValidationLayers ValidationLayersFromString(const std::string& layer_string)
+    {
+        if (layer_string == "None" || layer_string == "none")
+        {
+            return ValidationLayers::None;
+        }
+        else if (layer_string == "Base" || layer_string == "base")
+        {
+            return ValidationLayers::BaseOnly;
+        }
+        else if (layer_string == "Synchronization" || layer_string == "synchronization")
+        {
+            return ValidationLayers::WithSynchronization;
+        }
+        else if (layer_string == "All" || layer_string == "all")
+        {
+            return ValidationLayers::Full;
+        }
+        else
+        {
+            std::cerr << std::format("Unknown validation layers string: {}, defaulting to no validation layers.\n", layer_string);
+            return ValidationLayers::None;
+        }
+    }
+
     RhiSystem::~RhiSystem()
     {
         Destroy();
@@ -123,12 +148,26 @@ namespace rhi
         extensionPack = std::make_unique<ExtensionPack>(preferredApiVersion);
 
         gatherAndResolveInstanceExtensions(rhiConfig);
-        createInstance(json_file);
-        createLogicalDevice(json_file);
+
+        nlohmann::json engineConfig;
+        if (json_file.contains("EngineConfig"))
+        {
+            engineConfig = json_file["EngineConfig"];
+        }
+        else
+        {
+            engineConfig = json_file;
+        }
+
+        createInstance(rhiConfig, engineConfig);
+        createPhysicalDevice();
+        gatherAndResolveDeviceExtensions(rhiConfig);
+        createLogicalDevice();
 
         if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
         {
-            s_SetObjectNameFn = logicalDevice->DebugUtilsHandler().vkSetDebugUtilsObjectName;
+            VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
+            s_SetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
             s_DebugLogicalDeviceHandle = logicalDevice->vkHandle();
 
             const VkDebugUtilsMessengerCreateInfoEXT messenger_info
@@ -142,16 +181,13 @@ namespace rhi
                 (PFN_vkDebugUtilsMessengerCallbackEXT)DebugUtilsMessengerCallback,
                 nullptr
             };
-
-            const auto& debugUtilsFnPtrs = logicalDevice->DebugUtilsHandler();
-
-            if (!debugUtilsFnPtrs.vkCreateDebugUtilsMessenger)
+            if (!debugUtilsFns.vkCreateDebugUtilsMessenger)
             {
                 std::cerr << "Debug utils function pointers struct doesn't have function pointer for debug utils messenger creation!\n";
                 throw std::runtime_error("Failed to create debug utils messenger: function pointer not loaded!");
             }
 
-            VkResult result = debugUtilsFnPtrs.vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
+            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
             if (result != VK_SUCCESS)
             {
                 throw std::runtime_error("Failed to create debug utils messenger.");
@@ -169,12 +205,16 @@ namespace rhi
     {
         if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
         {
-            logicalDevice->DebugUtilsHandler().vkDestroyDebugUtilsMessenger(vulkanInstance->vkHandle(), DebugUtilsMessenger, nullptr);
+            VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
+            if (DebugUtilsMessenger != VK_NULL_HANDLE && debugUtilsFns.vkDestroyDebugUtilsMessenger)
+            {
+                debugUtilsFns.vkDestroyDebugUtilsMessenger(vulkanInstance->vkHandle(), DebugUtilsMessenger, nullptr);
+            }
         }
         logicalDevice.reset();
         physicalDevices.clear();
         vulkanInstance.reset();
-        extensionWrangler.reset();
+        extensionPack.reset();
     }
 
     Instance* RhiSystem::GetInstance() noexcept
@@ -286,90 +326,39 @@ namespace rhi
         extensionPack->ResolveInstanceDependencies();
     }
 
-    void RhiSystem::createInstance(const nlohmann::json& rhiConfig)
+    void RhiSystem::createInstance(const nlohmann::json& rhiConfig, const nlohmann::json& engineConfig)
     {
-        const bool using_validation = json_file.at("EnableValidation");
-        validationEnabled = using_validation;
+        ValidationLayers layers = ValidationLayers::None;
+        if (rhiConfig.contains("ValidationLayers"))
+        {
+            layers = ValidationLayersFromString(rhiConfig.at("ValidationLayers").get<std::string>());
+        }
 
         uint32_t app_version = 0;
         uint32_t engine_version = 0;
         uint32_t api_version = 0;
-        GetVersions(json_file, app_version, engine_version, api_version);
-        vkApiVersion = api_version;
+        GetVersions(engineConfig, app_version, engine_version, api_version);
 
-
-        // convert to arrays of std::string_view for the extension wrangler 
-
-        std::vector<std::string_view> required_extensions;
-        for (auto& str : required_extensions_strs)
+        std::string applicationName = "DiamondDogs Application";
+        if (engineConfig.contains("ApplicationName"))
         {
-            required_extensions.emplace_back(str);
+            applicationName = engineConfig.at("ApplicationName").get<std::string>();
         }
 
-        std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> requiredExtensionDeps = extensionWrangler->GetExtensionDependencies(required_extensions.size(), required_extensions.data());
-        if (requiredExtensionDeps.has_value())
-        {
-            for (size_t i = 0; i < requiredExtensionDeps->numInstanceExtensionDeps; ++i)
-            {
-                required_extensions.emplace_back(requiredExtensionDeps->instanceExtensionDeps[i]);
-            }
-        }
+        static const std::string engineName = "DiamondDogsEngine";
+   
+        vulkanInstance = std::make_unique<Instance>(applicationName,
+                                                   engineName,
+                                                   app_version,
+                                                   engine_version,
+                                                   layers,
+                                                   *extensionPack);
 
-        std::vector<std::string_view> requested_extensions;
-        for (auto& str : requested_extensions_strs)
-        {
-            requested_extensions.emplace_back(str);
-        }
+    }
 
-        std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> requestedExtensionDeps = extensionWrangler->GetExtensionDependencies(requested_extensions.size(), requested_extensions.data());
-        if (requestedExtensionDeps.has_value())
-        {
-            for (size_t i = 0; i < requestedExtensionDeps->numInstanceExtensionDeps; ++i)
-            {
-                requested_extensions.emplace_back(requestedExtensionDeps->instanceExtensionDeps[i]);
-            }
-        }
-
-
-        // convert again to arrays of const char* for the extension pack. this is starting to get a bit absurd.
-        std::vector<const char*> required_extensions_cstr;
-        for (auto& str : required_extensions)
-        {
-            required_extensions_cstr.emplace_back(str.data());
-        }
-
-        std::vector<const char*> requested_extensions_cstr;
-        for (auto& str : requested_extensions)
-        {
-            requested_extensions_cstr.emplace_back(str.data());
-        }
-        
-
-        extensionPack.PreferredApiVersion = vpr::VprExtensionPack::ApiVersion::Vulkan13;
-        extensionPack.RequiredExtensionCount = static_cast<uint32_t>(required_extensions_cstr.size());
-        extensionPack.RequiredExtensionNames = reinterpret_cast<const char**>(required_extensions_cstr.data());
-        extensionPack.OptionalExtensionCount = static_cast<uint32_t>(requested_extensions_cstr.size());
-        extensionPack.OptionalExtensionNames = reinterpret_cast<const char**>(requested_extensions_cstr.data());
-
-        const VkApplicationInfo application_info
-        {
-            VK_STRUCTURE_TYPE_APPLICATION_INFO,
-            nullptr,
-            app_name.c_str(),
-            app_version,
-            engine_name.c_str(),
-            engine_version,
-            api_version
-        };
-
-        auto layers = using_validation ? vpr::Instance::instance_layers::Full : vpr::Instance::instance_layers::Disabled;
-        vulkanInstance = std::make_unique<vpr::Instance>(layers, &application_info, &extensionPack);
-
-        extensionPack.featuresToEnable = nullptr;
-        extensionPack.featuresToEnable2 = nullptr;// &queriedDeviceFeatures->deviceFeaturesBase;
-
-        physicalDevices.emplace_back(std::make_unique<vpr::PhysicalDevice>(vulkanInstance->vkHandle(), &extensionPack));
-        extensionWrangler.reset(); // reset because we'll need the VkPhysicalDevice handle for it's next incarnation
+    void RhiSystem::createPhysicalDevice()
+    {
+        physicalDevices.emplace_back(std::make_unique<PhysicalDevice>(vulkanInstance->vkHandle(), extensionPack->GetVulkanApiVersion()));
     }
 
     void RhiSystem::gatherAndResolveDeviceExtensions(const nlohmann::json& rhiConfig)
@@ -398,97 +387,10 @@ namespace rhi
         extensionPack->ResolveDeviceDependencies();
     }
 
-    void RhiSystem::createLogicalDevice(const nlohmann::json& json_file, vpr::VprExtensionPack& extensionPack)
+    void RhiSystem::createLogicalDevice()
     {
-
-        extensionWrangler = std::make_unique<ExtensionWrangler>(vkApiVersion, physicalDevices.front()->vkHandle());
-
-        std::vector<std::string> required_extensions_strs;
-        {
-            nlohmann::json req_ext_json = json_file.at("RequiredDeviceExtensions");
-            for (auto& entry : req_ext_json)
-            {
-                required_extensions_strs.emplace_back(entry);
-            }
-        }
-
-        std::vector<std::string> requested_extensions_strs;
-        {
-            nlohmann::json ext_json = json_file.at("RequestedDeviceExtensions");
-            for (auto& entry : ext_json)
-            {
-                requested_extensions_strs.emplace_back(entry);
-            }
-        }
-
-        // from string objects to std::string_view, then to query deps and add them to the list
-        std::vector<std::string_view> required_extensions_strs_view;
-        for (auto& str : required_extensions_strs)
-        {
-            required_extensions_strs_view.emplace_back(str);
-        }
-
-        std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> required_extension_deps =
-            extensionWrangler->GetExtensionDependencies(required_extensions_strs_view.size(), required_extensions_strs_view.data());
-        if (required_extension_deps.has_value())
-        {
-            for (size_t i = 0; i < required_extension_deps->numDeviceExtensionDeps; ++i)
-            {
-                required_extensions_strs_view.emplace_back(required_extension_deps->deviceExtensionDeps[i]);
-            }
-        }
-
-        std::vector<std::string_view> requested_extensions_strs_view;
-        for (auto& str : requested_extensions_strs)
-        {
-            requested_extensions_strs_view.emplace_back(str);
-        }
-
-        std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> requested_extension_deps =
-            extensionWrangler->GetExtensionDependencies(requested_extensions_strs_view.size(), requested_extensions_strs_view.data());
-        if (requested_extension_deps.has_value())
-        {
-            for (size_t i = 0; i < requested_extension_deps->numDeviceExtensionDeps; ++i)
-            {
-                requested_extensions_strs_view.emplace_back(requested_extension_deps->deviceExtensionDeps[i]);
-            }
-        }
-
-        // from str_view to cstr
-        std::vector<const char*> required_extensions;
-        for (auto& str : required_extensions_strs_view)
-        {
-            required_extensions.emplace_back(str.data());
-        }
-
-        std::vector<const char*> requested_extensions;
-        for (auto& str : requested_extensions_strs_view)
-        {
-            requested_extensions.emplace_back(str.data());
-        }
-
-        extensionPack.RequiredExtensionCount = static_cast<uint32_t>(required_extensions.size());
-        extensionPack.RequiredExtensionNames = required_extensions.data();
-        extensionPack.OptionalExtensionCount = static_cast<uint32_t>(requested_extensions.size());
-        extensionPack.OptionalExtensionNames = requested_extensions.data();
-
-        // last step: combine both pools of extensions to get the device features
-        // note: we need to tear out the split between required and optional extensions, as the device features are going to be enabled for all, but if for example
-        // we elect to disable any optional extensions, we need to ensure the device features are still valid
-        std::vector<std::string_view> all_extensions;
-        all_extensions.reserve(required_extensions_strs_view.size() + requested_extensions_strs_view.size());
-        all_extensions.insert(all_extensions.end(), required_extensions_strs_view.begin(), required_extensions_strs_view.end());
-        all_extensions.insert(all_extensions.end(), requested_extensions_strs_view.begin(), requested_extensions_strs_view.end());
-
-        std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> all_extensions_features_expected =
-            extensionWrangler->GetExtensionFeatures(all_extensions.size(), all_extensions.data(), ExtensionWrangler::GetVersionFeatures::True, ExtensionWrangler::CollectDependencies::False);
-
-        VkPhysicalDeviceFeatures2 all_extensions_features = all_extensions_features_expected.value_or(VkPhysicalDeviceFeatures2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, nullptr });
-        extensionPack.featuresToEnable = nullptr;
-        extensionPack.featuresToEnable2 = &all_extensions_features;
-
-        logicalDevice = std::make_unique<Device>(vulkanInstance.get(), physicalDevices.front().get(), windowSurface->vkHandle(), &extensionPack, nullptr, 0);
-
+        const VkPhysicalDeviceFeatures2* all_extensions_features = extensionPack->GetDeviceFeatures();
+        logicalDevice = std::make_unique<Device>(vulkanInstance.get(), physicalDevices.front().get(), *extensionPack);
     }
 
 } // namespace rhi
@@ -606,6 +508,7 @@ namespace
 
     void GetVersions(const nlohmann::json& json_file, uint32_t& app_version, uint32_t& engine_version, uint32_t& api_version)
     {
+        if (json_file.contains("ApplicationVersion"))
         {
             uint32_t app_version_major = 0;
             uint32_t app_version_minor = 0;
@@ -614,7 +517,12 @@ namespace
             SplitVersionString(app_version_str, app_version_major, app_version_minor, app_version_patch);
             app_version = VK_MAKE_VERSION(app_version_major, app_version_minor, app_version_patch);
         }
+        else
+        {
+            app_version = VK_MAKE_VERSION(0, 1, 0);
+        }
 
+        if (json_file.contains("EngineVersion"))
         {
             uint32_t engine_version_major = 0;
             uint32_t engine_version_minor = 0;
@@ -623,7 +531,12 @@ namespace
             SplitVersionString(engine_version_str, engine_version_major, engine_version_minor, engine_version_patch);
             engine_version = VK_MAKE_VERSION(engine_version_major, engine_version_minor, engine_version_patch);
         }
+        else
+        {
+            engine_version = VK_MAKE_VERSION(0, 1, 0);
+        }
 
+        if (json_file.contains("VulkanVersion"))
         {
             uint32_t api_version_major = 0;
             uint32_t api_version_minor = 0;
@@ -638,6 +551,10 @@ namespace
                 SplitVersionString(api_version_str, api_version_major, api_version_minor, api_version_patch);
                 api_version = VK_MAKE_VERSION(api_version_major, api_version_minor, api_version_patch);
             }
+        }
+        else
+        {
+            vkEnumerateInstanceVersion(&api_version);
         }
     }
 

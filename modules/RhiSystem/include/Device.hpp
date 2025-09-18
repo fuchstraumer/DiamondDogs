@@ -18,8 +18,8 @@ namespace rhi
     {
     public:
         Device(const Instance* instance, 
-            const PhysicalDevice* physical_device,
-            const ExtensionPack& extensions);
+               const PhysicalDevice* physical_device,
+               const ExtensionPack& extensions);
         
         ~Device();
         

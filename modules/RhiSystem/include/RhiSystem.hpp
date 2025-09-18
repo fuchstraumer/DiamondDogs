@@ -93,9 +93,10 @@ public:
 private:
 
     void gatherAndResolveInstanceExtensions(const nlohmann::json& json_file);
-    void createInstance(const nlohmann::json& json_file);
+    void createInstance(const nlohmann::json& rhiConfig, const nlohmann::json& engineConfig);
+    void createPhysicalDevice();
     void gatherAndResolveDeviceExtensions(const nlohmann::json& json_file);
-    void createLogicalDevice(const nlohmann::json& json_file);
+    void createLogicalDevice();
 
     std::unique_ptr<Instance> vulkanInstance;
     std::vector<std::unique_ptr<PhysicalDevice>> physicalDevices;
