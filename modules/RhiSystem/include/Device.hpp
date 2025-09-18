@@ -32,13 +32,13 @@ public:
     const PhysicalDevice& GetPhysicalDevice() const noexcept;
     
     // Queue access
-    VkQueue GetGraphicsQueue(uint32_t index = 0) const;
-    VkQueue GetComputeQueue(uint32_t index = 0) const;
-    VkQueue GetTransferQueue(uint32_t index = 0) const;
-    VkQueue GetSparseBindingQueue(uint32_t index = 0) const;
+    VkQueue GetGraphicsQueue(uint32_t index) const noexcept;
+    VkQueue GetComputeQueue(uint32_t index) const noexcept;
+    VkQueue GetTransferQueue(uint32_t index) const noexcept;
+    VkQueue GetSparseBindingQueue(uint32_t index) const noexcept;
     
     // Get a queue that supports graphics, compute, and transfer (if available)
-    VkQueue GetGeneralQueue(uint32_t index = 0) const;
+    VkQueue GetGeneralQueue() const noexcept;
     
     // Queue counts
     uint32_t GetGraphicsQueueCount() const noexcept;

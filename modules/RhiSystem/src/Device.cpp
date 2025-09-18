@@ -6,6 +6,7 @@
 #include <vector>
 #include <set>
 #include <algorithm>
+#include <format>
 #include <iostream>
 
 namespace rhi 
@@ -34,57 +35,41 @@ Device::~Device()
     }
 }
 
-VkQueue Device::GetGraphicsQueue(uint32_t index) const
+VkQueue Device::GetGraphicsQueue(uint32_t index) const noexcept
 {
-    if (index >= numGraphicsQueues)
-    {
-        throw std::out_of_range("Graphics queue index out of range");
-    }
     return graphicsQueues[index];
 }
 
-VkQueue Device::GetComputeQueue(uint32_t index) const
+VkQueue Device::GetComputeQueue(uint32_t index) const noexcept
 {
-    if (index >= numComputeQueues)
-    {
-        throw std::out_of_range("Compute queue index out of range");
-    }
     return computeQueues[index];
 }
 
-VkQueue Device::GetTransferQueue(uint32_t index) const
+VkQueue Device::GetTransferQueue(uint32_t index) const noexcept
 {
-    if (index >= numTransferQueues)
-    {
-        throw std::out_of_range("Transfer queue index out of range");
-    }
     return transferQueues[index];
 }
 
-VkQueue Device::GetSparseBindingQueue(uint32_t index) const
+VkQueue Device::GetSparseBindingQueue(uint32_t index) const noexcept
 {
-    if (index >= numSparseBindingQueues)
-    {
-        throw std::out_of_range("Sparse binding queue index out of range");
-    }
     return sparseBindingQueues[index];
 }
 
-VkQueue Device::GetGeneralQueue(uint32_t index) const
+VkQueue Device::GetGeneralQueue() const noexcept
 {
     // Prefer graphics queue as it supports all operations
-    if (index < numGraphicsQueues)
+    if (!graphicsQueues.empty())
     {
-        return graphicsQueues[index];
+        return graphicsQueues.front();
     }
     
     // Fallback to compute queue
-    if (index < numComputeQueues)
+    if (!computeQueues.empty())
     {
-        return computeQueues[index];
+        return computeQueues.front();
     }
     
-    throw std::out_of_range("No general queue available at index");
+    return VK_NULL_HANDLE;
 }
 
 bool Device::HasExtension(std::string_view extension_name) const noexcept
@@ -241,11 +226,14 @@ void Device::setupQueues()
             vkGetDeviceQueue(handle, queue_indices.sparseBinding, i, &sparseBindingQueues[i]);
         }
     }
-    
-    std::cout << "Device queues setup - Graphics: " << numGraphicsQueues 
-              << ", Compute: " << numComputeQueues 
-              << ", Transfer: " << numTransferQueues 
-              << ", Sparse: " << numSparseBindingQueues << std::endl;
+
+    std::string queue_info = std::format("Device queues setup - Graphics: {}, Compute: {}, Transfer: {}, Sparse: {}",
+                                         numGraphicsQueues, 
+                                         numComputeQueues, 
+                                         numTransferQueues, 
+                                         numSparseBindingQueues);
+
+    std::cout << queue_info << "\n";
 }
 
 VkDevice Device::GetHandle() const noexcept
