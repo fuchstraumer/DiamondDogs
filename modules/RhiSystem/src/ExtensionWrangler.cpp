@@ -155,6 +155,20 @@ ExtensionWrangler::~ExtensionWrangler() noexcept
 {
 }
 
+bool ExtensionWrangler::HasValidPhysicalDevice() const noexcept
+{
+    return physicalDevice != VK_NULL_HANDLE;
+}
+
+void ExtensionWrangler::SetPhysicalDevice(VkPhysicalDevice _physicalDevice) noexcept
+{
+    if (_physicalDevice != physicalDevice)
+    {
+        physicalDevice = _physicalDevice;
+        dependencyCache = std::make_unique<DependencyCache>(physicalDevice);
+    }
+}
+
 bool AreStringsEqual(const VkExtensionProperties& a, const char* b)
 {
     return strcmp(a.extensionName, b) == 0;

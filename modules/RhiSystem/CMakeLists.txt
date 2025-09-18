@@ -5,18 +5,32 @@ OPTION(RHI_SYSTEM_DEBUG_INFO_THREAD_ID "Enable thread ID in debug info for RHI s
 OPTION(RHI_SYSTEM_DEBUG_INFO_TIMESTAMPS "Enable timestamps in debug info for RHI system" ON)
 OPTION(RHI_SYSTEM_DEBUG_INFO_CALLING_FN "Enable calling function name in debug info for RHI system" OFF)
 
-ADD_MODULE(rhi_system
+set(RHI_CORE_SOURCES
     "include/ExtensionWrangler.hpp"
     "include/PipelineExecutableInfo.hpp"
     "include/RhiSystem.hpp"
     "src/ExtensionWrangler.cpp"
     "src/PipelineExecutableInfo.cpp"
-    "src/RhiSystem.cpp"
-)
+    "src/RhiSystem.cpp")
 
-TARGET_LINK_LIBRARIES(rhi_system PUBLIC vpr_core ${Vulkan_LIBRARY})
-TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC ${VPR_INCLUDE_DIRS_MODULE_RELATIVE}
-    "../../third_party/json/include" ${Vulkan_INCLUDE_DIR})
+set(RHI_VPR_SOURCES
+    "include/DebugUtilFns.hpp"
+    "include/Device.hpp"
+    "include/ExtensionPack.hpp"
+    "include/Instance.hpp"
+    "include/PhysicalDevice.hpp"
+    "src/Device.cpp"
+    "src/ExtensionPack.cpp"
+    "src/Instance.cpp"
+    "src/PhysicalDevice.cpp")
+
+ADD_MODULE(rhi_system "${RHI_CORE_SOURCES}" "${RHI_VPR_SOURCES}")
+
+TARGET_LINK_LIBRARIES(rhi_system PUBLIC ${Vulkan_LIBRARY})
+TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC "../../third_party/json/include" ${Vulkan_INCLUDE_DIR})
+
+source_group("Core" FILES ${RHI_CORE_SOURCES})
+source_group("VPR" FILES ${RHI_VPR_SOURCES})
 
 IF(RHI_SYSTEM_USE_DEBUG_INFO)
     TARGET_COMPILE_DEFINITIONS(rhi_system PUBLIC RHI_SYSTEM_USE_DEBUG_INFO_CONF)
