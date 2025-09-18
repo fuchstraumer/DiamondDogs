@@ -48,8 +48,6 @@ namespace vpr
     class Instance;
     class PhysicalDevice;
     class Device;
-    class Swapchain;
-    class SurfaceKHR;
     struct VprExtensionPack;
 }
 
