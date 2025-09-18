@@ -38,6 +38,9 @@ public:
     // Add extensions (automatically resolves dependencies using internal ExtensionWrangler)
     void AddRequiredInstanceExtensions(const std::vector<std::string_view>& extensions);
     void AddOptionalInstanceExtensions(const std::vector<std::string_view>& extensions);
+
+    void SetPhysicalDevice(VkPhysicalDevice physicalDevice);
+
     void AddRequiredDeviceExtensions(const std::vector<std::string_view>& extensions);
     void AddOptionalDeviceExtensions(const std::vector<std::string_view>& extensions);
 
@@ -52,9 +55,6 @@ public:
     ApiVersion GetApiVersion() const noexcept;
     
     uint32_t GetVulkanApiVersion() const noexcept;
-
-    // Called internally when physical device is available
-    void ResolveDeviceExtensions(VkPhysicalDevice physical_device);
 
 private:
     void resolveDependencies();

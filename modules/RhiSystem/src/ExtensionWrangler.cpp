@@ -160,7 +160,7 @@ bool ExtensionWrangler::HasValidPhysicalDevice() const noexcept
     return physicalDevice != VK_NULL_HANDLE;
 }
 
-void ExtensionWrangler::SetPhysicalDevice(VkPhysicalDevice _physicalDevice)
+void ExtensionWrangler::SetPhysicalDevice(VkPhysicalDevice _physicalDevice) noexcept
 {
     if (_physicalDevice != physicalDevice)
     {

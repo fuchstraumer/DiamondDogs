@@ -64,7 +64,7 @@ public:
     /** @brief Useful to know if a physical device has been attached already, or if it's not and we need it that we need to handle that. */
     bool HasValidPhysicalDevice() const noexcept;
     /** @brief Set the physical device */
-    void SetPhysicalDevice(VkPhysicalDevice _physicalDevice);
+    void SetPhysicalDevice(VkPhysicalDevice _physicalDevice) noexcept;
     /** @brief Simple query for is an extension is supported or not */
     bool IsExtensionSupported(const std::string_view extensionName) const;
     /** @brief Simply query for if a set of extensions is supported or not */

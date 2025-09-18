@@ -78,6 +78,7 @@ void ExtensionPack::AddRequiredInstanceExtensions(const std::vector<std::string_
     {
         requiredInstanceExts.emplace_back(ext);
     }
+
     resolveInstanceDependencies();
 }
 
@@ -87,7 +88,19 @@ void ExtensionPack::AddOptionalInstanceExtensions(const std::vector<std::string_
     {
         optionalInstanceExts.emplace_back(ext);
     }
+
     resolveInstanceDependencies();
+}
+
+void ExtensionPack::SetPhysicalDevice(VkPhysicalDevice physicalDevice) noexcept
+{
+    // if already resolved or physical device already set, don't need to do this step
+    if (deviceExtensionsResolved || extensionWrangler->HasValidPhysicalDevice())
+    {
+        return;
+    }
+    
+    extensionWrangler->SetPhysicalDevice(physicalDevice);
 }
 
 void ExtensionPack::AddRequiredDeviceExtensions(const std::vector<std::string_view>& extensions)
@@ -96,7 +109,8 @@ void ExtensionPack::AddRequiredDeviceExtensions(const std::vector<std::string_vi
     {
         requiredDeviceExts.emplace_back(ext);
     }
-    // Device dependencies resolved when physical device is available
+    
+    resolveDeviceDependencies();
 }
 
 void ExtensionPack::AddOptionalDeviceExtensions(const std::vector<std::string_view>& extensions)
@@ -105,18 +119,6 @@ void ExtensionPack::AddOptionalDeviceExtensions(const std::vector<std::string_vi
     {
         optionalDeviceExts.emplace_back(ext);
     }
-    // Device dependencies resolved when physical device is available
-}
-
-void ExtensionPack::ResolveDeviceExtensions(VkPhysicalDevice physical_device)
-{
-    if (deviceExtensionsResolved)
-    {
-        return;
-    }
-    
-    // Create extension wrangler with physical device
-    extensionWrangler = std::make_unique<ExtensionWrangler>(GetVulkanApiVersion(), physical_device);
     
     resolveDeviceDependencies();
     deviceExtensionsResolved = true;
@@ -316,7 +318,7 @@ const VkPhysicalDeviceFeatures2* ExtensionPack::GetDeviceFeatures() const noexce
     return &deviceFeatures;
 }
 
-ExtensionPack::ApiVersion ExtensionPack::GetApiVersion() const noexcept
+ApiVersion ExtensionPack::GetApiVersion() const noexcept
 {
     return apiVersion;
 }
