@@ -303,12 +303,10 @@ namespace rhi
         if (needsPresentationSupport)
         {
             const bool hasSurfaceExt = std::find(requiredInstanceExts.begin(), requiredInstanceExts.end(), SurfaceExtensionName) != requiredInstanceExts.end();
-            const bool hasSwapchainExt = std::find(requiredInstanceExts.begin(), requiredInstanceExts.end(), "VK_KHR_swapchain") != requiredInstanceExts.end();
-            if (!hasSurfaceExt || !hasSwapchainExt)
+            if (!hasSurfaceExt)
             {
                 // user didn't include the extensions, so add them
                 requiredInstanceExts.push_back(SurfaceExtensionName);
-                requiredInstanceExts.push_back("VK_KHR_swapchain");
             }
         }
 
@@ -370,6 +368,13 @@ namespace rhi
             {
                 requiredDeviceExts.emplace_back(entry);
             }
+        }
+
+
+        const bool hasSwapchainExt = std::find(requiredDeviceExts.begin(), requiredDeviceExts.end(), "VK_KHR_swapchain") != requiredDeviceExts.end();
+        if (!hasSwapchainExt && rhiConfig.value("NeedsPresentationSupport", false))
+        {
+            requiredDeviceExts.push_back("VK_KHR_swapchain");
         }
 
         extensionPack->AddRequiredDeviceExtensions(requiredDeviceExts);

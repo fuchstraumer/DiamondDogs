@@ -58,7 +58,6 @@ namespace rhi
         uint32_t GetVulkanApiVersion() const noexcept;
 
     private:
-        void resolveDependencies();
         
         ApiVersion apiVersion;
         

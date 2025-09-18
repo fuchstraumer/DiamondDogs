@@ -172,7 +172,7 @@ namespace rhi
     void ExtensionPack::SetPhysicalDevice(VkPhysicalDevice physicalDevice) noexcept
     {
         // if already resolved or physical device already set, don't need to do this step
-        if (deviceExtensionsResolved || extensionWrangler->HasValidPhysicalDevice())
+        if (deviceExtensionsResolved || (extensionWrangler && extensionWrangler->HasValidPhysicalDevice()))
         {
             return;
         }

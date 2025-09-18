@@ -25,6 +25,7 @@ namespace rhi
     {
         createDevice(extensions);
         setupQueues();
+        setupDebugUtils();
     }
 
     Device::~Device()
