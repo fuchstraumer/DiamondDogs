@@ -43,7 +43,7 @@ namespace rhi
         void AddOptionalInstanceExtensions(std::vector<std::string> extensions);
         void ResolveInstanceDependencies();
 
-        void SetPhysicalDevice(VkPhysicalDevice physicalDevice);
+        void SetPhysicalDevice(VkPhysicalDevice physicalDevice) noexcept;
 
         void AddRequiredDeviceExtensions(std::vector<std::string> extensions);
         void AddOptionalDeviceExtensions(std::vector<std::string> extensions);

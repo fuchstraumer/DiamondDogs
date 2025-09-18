@@ -52,7 +52,7 @@ namespace rhi
 class Instance;
 class PhysicalDevice;
 class Device;
-struct ExtensionPack;
+class ExtensionPack;
 struct RhiSystemImpl;
 
 struct RhiSystemCreateInfo
