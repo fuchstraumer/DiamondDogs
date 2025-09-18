@@ -26,8 +26,7 @@ set(RHI_VPR_SOURCES
 ADD_MODULE(rhi_system "${RHI_CORE_SOURCES}" "${RHI_VPR_SOURCES}")
 
 TARGET_LINK_LIBRARIES(rhi_system PUBLIC vpr_core ${Vulkan_LIBRARY})
-TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC ${VPR_INCLUDE_DIRS_MODULE_RELATIVE}
-    "../../third_party/json/include" ${Vulkan_INCLUDE_DIR})
+TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC "../../third_party/json/include" ${Vulkan_INCLUDE_DIR})
 
 source_group("Core" FILES ${RHI_CORE_SOURCES})
 source_group("VPR" FILES ${RHI_VPR_SOURCES})
