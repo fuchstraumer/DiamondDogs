@@ -48,16 +48,8 @@ private:
     void createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions);
     void setupValidation(ValidationLayers level);
     bool checkLayerSupport(const std::vector<const char*>& required_layers) const;
-    void setupDebugMessenger();
-    
-    static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-        VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
-        VkDebugUtilsMessageTypeFlagBitsEXT message_type,
-        const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
-        void* user_data);
     
     VkInstance handle;
-    VkDebugUtilsMessengerEXT debugMessenger;
     bool validationEnabled;
     std::vector<std::string> enabledExtensions;
     std::vector<std::string> enabledLayers;

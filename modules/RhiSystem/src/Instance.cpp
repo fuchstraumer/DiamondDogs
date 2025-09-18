@@ -1,10 +1,8 @@
 #include "Instance.hpp"
 #include "ExtensionPack.hpp"
-#include <stdexcept>
 #include <iostream>
-#include <sstream>
-#include <algorithm>
 #include <array>
+#include <cassert>
 
 namespace rhi 
 {
@@ -52,16 +50,6 @@ Instance::Instance(const std::string& app_name,
 
 Instance::~Instance()
 {
-    if (debugMessenger != VK_NULL_HANDLE)
-    {
-        auto vkDestroyDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
-            vkGetInstanceProcAddr(handle, "vkDestroyDebugUtilsMessengerEXT"));
-        if (vkDestroyDebugUtilsMessengerEXT != nullptr)
-        {
-            vkDestroyDebugUtilsMessengerEXT(handle, debugMessenger, nullptr);
-        }
-    }
-    
     if (handle != VK_NULL_HANDLE)
     {
         vkDestroyInstance(handle, nullptr);
@@ -76,12 +64,7 @@ bool Instance::HasExtension(std::string_view extension_name) const noexcept
 void Instance::createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions)
 {
     // Store enabled extensions
-    const std::vector<const char*>& ext_names = extensions.GetInstanceExtensions();
-    enabledExtensions.reserve(ext_names.size());
-    for (const char* name : ext_names)
-    {
-        enabledExtensions.emplace_back(name);
-    }
+    const std::vector<const char*>& enabledInstanceExtensions = extensions.GetInstanceExtensions();
     
     // Convert layer names to const char*
     std::vector<const char*> layer_names;
@@ -100,15 +83,12 @@ void Instance::createInstance(const VkApplicationInfo& app_info, const Extension
         &app_info,
         static_cast<uint32_t>(layer_names.size()),
         layer_names.data(),
-        static_cast<uint32_t>(ext_names.size()),
-        ext_names.data()
+        static_cast<uint32_t>(enabledInstanceExtensions.size()),
+        enabledInstanceExtensions.data()
     };
     
     VkResult result = vkCreateInstance(&create_info, nullptr, &handle);
-    if (result != VK_SUCCESS)
-    {
-        throw std::runtime_error("Failed to create Vulkan instance");
-    }
+    assert(result == VK_SUCCESS);
 }
 
 void Instance::setupValidation(ValidationLayers level)
@@ -139,10 +119,7 @@ void Instance::setupValidation(ValidationLayers level)
     }
     
     // Check layer support
-    if (!checkLayerSupport(required_layers))
-    {
-        throw std::runtime_error("Required validation layers not available");
-    }
+    assert(checkLayerSupport(required_layers));
     
     // Store enabled layers
     enabledLayers.reserve(required_layers.size());
@@ -180,96 +157,6 @@ bool Instance::checkLayerSupport(const std::vector<const char*>& required_layers
     }
     
     return true;
-}
-
-void Instance::setupDebugMessenger()
-{
-    auto vkCreateDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
-        vkGetInstanceProcAddr(handle, "vkCreateDebugUtilsMessengerEXT"));
-    
-    if (vkCreateDebugUtilsMessengerEXT == nullptr)
-    {
-        std::cerr << "Debug utils messenger extension not available" << std::endl;
-        return;
-    }
-    
-    VkDebugUtilsMessengerCreateInfoEXT create_info = 
-    {
-        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-        nullptr,
-        0,
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-        debugCallback,
-        nullptr
-    };
-    
-    VkResult result = vkCreateDebugUtilsMessengerEXT(handle, &create_info, nullptr, &debugMessenger);
-    if (result != VK_SUCCESS)
-    {
-        std::cerr << "Failed to create debug messenger" << std::endl;
-    }
-}
-
-VKAPI_ATTR VkBool32 VKAPI_CALL Instance::debugCallback(
-    VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
-    VkDebugUtilsMessageTypeFlagBitsEXT message_type,
-    const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
-    void* user_data)
-{
-    std::stringstream message;
-    
-    // Add severity
-    if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-    {
-        message << "[ERROR] ";
-    }
-    else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-    {
-        message << "[WARNING] ";
-    }
-    else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
-    {
-        message << "[INFO] ";
-    }
-    else
-    {
-        message << "[VERBOSE] ";
-    }
-    
-    // Add type
-    if (message_type & VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT)
-    {
-        message << "[GENERAL] ";
-    }
-    else if (message_type & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT)
-    {
-        message << "[VALIDATION] ";
-    }
-    else if (message_type & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
-    {
-        message << "[PERFORMANCE] ";
-    }
-    
-    // Add message ID
-    if (callback_data->messageIdNumber != 0)
-    {
-        message << "[ID: " << callback_data->messageIdNumber << "] ";
-    }
-    
-    message << callback_data->pMessage;
-    
-    // Output based on severity
-    if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
-    {
-        std::cerr << message.str() << std::endl;
-    }
-    else
-    {
-        std::cout << message.str() << std::endl;
-    }
-    
-    return VK_FALSE; // Don't abort execution
 }
 
 VkInstance Instance::GetHandle() const noexcept
