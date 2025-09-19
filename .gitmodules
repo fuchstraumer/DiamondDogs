@@ -1,7 +1,3 @@
-[submodule "third_party/vulpesrender"]
-	path = third_party/vulpesrender
-	url = https://github.com/fuchstraumer/vulpesrender
-	update = merge # use merge instead of checkout
 [submodule "third_party/imgui"]
 	path = third_party/imgui
 	url = https://github.com/ocornut/imgui
