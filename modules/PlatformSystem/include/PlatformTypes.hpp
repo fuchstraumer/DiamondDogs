@@ -91,9 +91,9 @@ enum class PresentMode : uint8_t
     Invalid = 0,
     /** @brief Immediate present mode. No buffering, high incidences of tearing.*/
     Immediate = 1,
-    /** @brief Aliases to simple FIFO mode - vertical sync and double-buffering, effectively.*/
+    /** @brief Simple FIFO mode - vertical sync and double-buffering, effectively.*/
     VerticalSync = 2,
-    /** @brief Aliases to relaxed FIFO mode - if a frame is missed, tearing is allowed. Efficient and most effective on mobile platforms.*/
+    /** @brief Relaxed FIFO mode - if a frame is missed, tearing is allowed. Efficient and most effective on mobile platforms.*/
     VerticalSyncRelaxed = 3,
     /** @brief Aliases to Vulkan's mailbox mode, which effectively becomes triple-buffering.*/
     VerticalSyncMailbox = 4,
@@ -163,7 +163,7 @@ struct SwapchainCreateInfo
      *  @note Enabling an HDR colorspace and using an HDR framebuffer is not enough, application shaders must perform final tonemapping and transforms.
      */
     ColorSpace HdrColorSpace{ ColorSpace::DCI_P3_Nonlinear };
-    PresentMode SwapchainPresentMode{ PresentMode::None };
+    PresentMode SwapchainPresentMode{ PresentMode::Invalid };
     /** @brief If set to true, Swapchain will attempt to use HdrColorSpace and best available colorbuffer format */
     bool TryEnableHDR{ false };
     /** @brief Pointer to the platform system this display swapchain will be a child of. */

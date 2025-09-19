@@ -62,6 +62,9 @@ public:
     const DisplayInfo& GetActiveDisplayInfo() const noexcept;
     const void* GetWindowHandle() const noexcept;
 
+    PresentMode GetPresentMode() const noexcept;
+    PlatformWindowMode GetWindowMode() const noexcept;
+
     // Lifecycle management methods
     void Update();
     void WaitForEvents();

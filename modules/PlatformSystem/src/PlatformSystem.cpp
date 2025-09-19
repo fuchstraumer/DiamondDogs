@@ -42,10 +42,13 @@ static const std::unordered_map<std::string, ColorSpace> s_ColorSpaceFromStrMap
 
 static const std::unordered_map<std::string, PresentMode> s_PresentModeFromStrMap
 {
-    { "None", PresentMode::None },
+    { "Immediate", PresentMode::Immediate },
     { "VerticalSync", PresentMode::VerticalSync },
     { "VerticalSyncRelaxed", PresentMode::VerticalSyncRelaxed },
-    { "VerticalSyncMailbox", PresentMode::VerticalSyncMailbox }
+    { "VerticalSyncMailbox", PresentMode::VerticalSyncMailbox },
+    { "SharedDemandRefresh", PresentMode::SharedDemandRefresh },
+    { "SharedContinuousRefresh", PresentMode::SharedContinuousRefresh },
+    { "VerticalSyncLatestReady", PresentMode::VerticalSyncLatestReady }
 };
 
 ImageFormat ImageFormatFromString(const std::string_view& imageFormatStr)
