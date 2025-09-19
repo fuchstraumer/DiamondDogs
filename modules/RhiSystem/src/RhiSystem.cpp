@@ -167,6 +167,7 @@ namespace rhi
 
         createInstance(rhiConfig, engineConfig);
         createPhysicalDevice();
+        extensionPack->SetPhysicalDevice(physicalDevices.front()->vkHandle());
         gatherAndResolveDeviceExtensions(rhiConfig);
         createLogicalDevice();
 
