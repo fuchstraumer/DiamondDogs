@@ -19,8 +19,5 @@ target_include_directories(rendering_context_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/Modules/RhiSystem/include"
     "${CMAKE_SOURCE_DIR}/foundation/include"
     "${CMAKE_SOURCE_DIR}/third_party"
-    "${CMAKE_SOURCE_DIR}/third_party/glm"
     "${CMAKE_SOURCE_DIR}/third_party/json/include"
-    "${CMAKE_SOURCE_DIR}/third_party/vulpesrender/core/include"
-    "${CMAKE_SOURCE_DIR}/third_party/vulpesrender/render/include"
     ${Vulkan_INCLUDE_DIR})
