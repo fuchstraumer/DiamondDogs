@@ -9,6 +9,7 @@ set(RHI_CORE_SOURCES
     "include/ExtensionWrangler.hpp"
     "include/PipelineExecutableInfo.hpp"
     "include/RhiSystem.hpp"
+    "include/RhiTypes.hpp"
     "src/ExtensionWrangler.cpp"
     "src/PipelineExecutableInfo.cpp"
     "src/RhiSystem.cpp")

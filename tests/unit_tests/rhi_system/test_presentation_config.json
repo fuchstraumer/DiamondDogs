@@ -1,0 +1,23 @@
+{
+    "EngineConfig": {
+        "EngineName": "DiamondDogsTestEngine",
+        "EngineVersion": "0.1.0",
+        "ApplicationName": "PresentationConfigTest",
+        "ApplicationVersion": "1.0.0"
+    },
+    "RHISystemConfig": {
+        "ApiVersion": "Latest",
+        "ValidationLayers": "Base",
+        "NeedsPresentationSupport": true,
+        "RequiredInstanceExtensions": [
+            "VK_EXT_debug_utils"
+        ],
+        "RequestedInstanceExtensions": [],
+        "RequiredDeviceExtensions": [],
+        "RequestedDeviceExtensions": [
+            "VK_KHR_dedicated_allocation",
+            "VK_KHR_get_memory_requirements2"
+        ],
+        "ShaderCacheDir": "temp_presentation_cache"
+    }
+}

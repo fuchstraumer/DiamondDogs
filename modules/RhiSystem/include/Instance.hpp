@@ -1,7 +1,8 @@
 #pragma once
 #ifndef RHI_SYSTEM_INSTANCE_HPP
 #define RHI_SYSTEM_INSTANCE_HPP
-#include <vulkan/vulkan.h>
+#include "RhiTypes.hpp"
+#include <vulkan/vulkan_core.h>
 #include <memory>
 #include <string>
 #include <vector>
@@ -11,13 +12,6 @@ namespace rhi
 
     class ExtensionPack;
 
-    enum class ValidationLayers : uint8_t 
-    {
-        None = 0,
-        BaseOnly = 1,               // Basic validation
-        WithSynchronization = 2,    // Base + synchronization validation
-        Full = 3                    // All available layers
-    };
 
     class Instance 
     {

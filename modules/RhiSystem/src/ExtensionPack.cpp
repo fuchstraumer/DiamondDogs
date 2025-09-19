@@ -69,6 +69,8 @@ namespace rhi
             case ApiVersion::Vulkan14:
                 [[fallthrough]];
             case ApiVersion::Latest:
+                [[fallthrough]];
+            default:
                 return VK_API_VERSION_1_4;
         }
     }

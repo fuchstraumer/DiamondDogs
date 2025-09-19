@@ -1,0 +1,28 @@
+{
+    "EngineConfig": {
+        "EngineName": "DiamondDogsTestEngine",
+        "EngineVersion": "0.1.0",
+        "ApplicationName": "JsonConfigTest",
+        "ApplicationVersion": "1.0.0"
+    },
+    "RHISystemConfig": {
+        "ApiVersion": "1.3",
+        "ValidationLayers": "Base",
+        "NeedsPresentationSupport": false,
+        "RequiredInstanceExtensions": [
+            "VK_EXT_debug_utils"
+        ],
+        "RequestedInstanceExtensions": [
+            "VK_EXT_validation_features"
+        ],
+        "RequiredDeviceExtensions": [
+            "VK_KHR_maintenance1"
+        ],
+        "RequestedDeviceExtensions": [
+            "VK_KHR_dedicated_allocation",
+            "VK_KHR_get_memory_requirements2",
+            "VK_KHR_pipeline_executable_properties"
+        ],
+        "ShaderCacheDir": "temp_test_cache"
+    }
+}

@@ -12,6 +12,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <filesystem>
 #include <vulkan/vk_enum_string_helper.h>
 #include "nlohmann/json.hpp"
 
@@ -33,13 +34,6 @@ namespace rhi
     static PFN_vkSetDebugUtilsObjectNameEXT s_SetObjectNameFn{ nullptr };
     // set by first context to create, currently because we assume we'll only have one context
     static VkDevice s_DebugLogicalDeviceHandle{ VK_NULL_HANDLE };
-
-    std::string objectTypeToString(const VkObjectType type);
-    VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT message_severity, VkDebugUtilsMessageTypeFlagBitsEXT message_type, const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
-        void* user_data);
-    void SplitVersionString(std::string version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version);
-    void GetVersions(const nlohmann::json& json_file, uint32_t& app_version, uint32_t& engine_version, uint32_t& api_version);
-    void AddDependenciesForSetOfExtensions(std::vector<std::string>& extensions);
 
     #ifdef _WIN32
     constexpr const char* SurfaceExtensionName = "VK_KHR_win32_surface";
@@ -79,6 +73,25 @@ namespace rhi
         }
     }
 
+    ApiVersion ApiVersionFromUint32(const uint32_t version)
+    {
+        switch (version)
+        {
+            case VK_API_VERSION_1_0:
+                return ApiVersion::Vulkan10;
+            case VK_API_VERSION_1_1:
+                return ApiVersion::Vulkan11;
+            case VK_API_VERSION_1_2:
+                return ApiVersion::Vulkan12;
+            case VK_API_VERSION_1_3:
+                return ApiVersion::Vulkan13;
+            case VK_API_VERSION_1_4:
+                return ApiVersion::Vulkan14;
+            default:
+                return ApiVersion::Latest;
+        }
+    }
+
     ValidationLayers ValidationLayersFromString(const std::string& layer_string)
     {
         if (layer_string == "None" || layer_string == "none")
@@ -104,14 +117,7 @@ namespace rhi
         }
     }
 
-    RhiSystem::~RhiSystem()
-    {
-        Destroy();
-    }
-
-    RhiSystem::RhiSystem() noexcept {}
-
-    void RhiSystem::Construct(const char* file_path)
+    RhiSystem::RhiSystem(const char* file_path)
     {
 
         std::ifstream input_file(file_path);
@@ -161,39 +167,73 @@ namespace rhi
 
         createInstance(rhiConfig, engineConfig);
         createPhysicalDevice();
+        extensionPack->SetPhysicalDevice(physicalDevices.front()->vkHandle());
         gatherAndResolveDeviceExtensions(rhiConfig);
         createLogicalDevice();
 
-        if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
+        createDebugUtilsMessenger();
+
+        std::filesystem::path shaderCacheDir = std::filesystem::temp_directory_path() / "DiamondDogs" / "ShaderCache";
+        if (rhiConfig.contains("ShaderCacheDir"))
         {
-            VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
-            s_SetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
-            s_DebugLogicalDeviceHandle = logicalDevice->vkHandle();
-
-            const VkDebugUtilsMessengerCreateInfoEXT messenger_info
+            shaderCacheDir = rhiConfig.at("ShaderCacheDir").get<std::string>();
+            if (!std::filesystem::exists(shaderCacheDir))
             {
-                VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-                nullptr,
-                0,
-                // capture warnings and info that the current one does not
-                VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-                VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-                (PFN_vkDebugUtilsMessengerCallbackEXT)DebugUtilsMessengerCallback,
-                nullptr
-            };
-            if (!debugUtilsFns.vkCreateDebugUtilsMessenger)
-            {
-                std::cerr << "Debug utils function pointers struct doesn't have function pointer for debug utils messenger creation!\n";
-                throw std::runtime_error("Failed to create debug utils messenger: function pointer not loaded!");
+                std::filesystem::create_directories(shaderCacheDir);
             }
+            shaderCacheDir = std::filesystem::absolute(shaderCacheDir);
+        }
+        
+    }
 
-            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
-            if (result != VK_SUCCESS)
-            {
-                throw std::runtime_error("Failed to create debug utils messenger.");
-            }
+    
+    RhiSystem::RhiSystem(const RhiSystemCreateInfo& createInfo)
+    {
+        extensionPack = std::make_unique<ExtensionPack>(createInfo.VkVersion);
+
+        if (createInfo.RequiredInstanceExtensions.size() > 0)
+        {
+            extensionPack->AddRequiredInstanceExtensions(createInfo.RequiredInstanceExtensions);
         }
 
+        if (createInfo.RequestedInstanceExtensions.size() > 0)
+        {
+            extensionPack->AddOptionalInstanceExtensions(createInfo.RequestedInstanceExtensions);
+        }
+
+        extensionPack->ResolveInstanceDependencies();
+
+        createInstance(createInfo);
+
+        createPhysicalDevice();
+        extensionPack->SetPhysicalDevice(physicalDevices.front()->vkHandle());
+
+        if (createInfo.RequiredDeviceExtensions.size() > 0)
+        {
+            extensionPack->AddRequiredDeviceExtensions(createInfo.RequiredDeviceExtensions);
+        }
+
+        if (createInfo.RequestedDeviceExtensions.size() > 0)
+        {
+            extensionPack->AddOptionalDeviceExtensions(createInfo.RequestedDeviceExtensions);
+        }
+
+        extensionPack->ResolveDeviceDependencies();
+
+        createLogicalDevice();
+
+        shaderCacheDir = createInfo.ShaderCacheDir;
+
+        if (vulkanInstance->HasValidation() && vulkanInstance->HasExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+        {
+            createDebugUtilsMessenger();
+        }
+        
+    }
+
+    RhiSystem::~RhiSystem()
+    {
+        Destroy();
     }
 
     void RhiSystem::Update()
@@ -346,12 +386,22 @@ namespace rhi
         static const std::string engineName = "DiamondDogsEngine";
    
         vulkanInstance = std::make_unique<Instance>(applicationName,
-                                                   engineName,
-                                                   app_version,
-                                                   engine_version,
-                                                   layers,
-                                                   *extensionPack);
+                                                    engineName,
+                                                    app_version,
+                                                    engine_version,
+                                                    layers,
+                                                    *extensionPack);
 
+    }
+
+    void RhiSystem::createInstance(const RhiSystemCreateInfo& createInfo)
+    {
+        vulkanInstance = std::make_unique<Instance>(createInfo.ApplicationName,
+                                                    createInfo.EngineName,
+                                                    createInfo.AppVersion,
+                                                    createInfo.EngineVersion,
+                                                    createInfo.ValidationLevel,
+                                                    *extensionPack);
     }
 
     void RhiSystem::createPhysicalDevice()
@@ -396,6 +446,40 @@ namespace rhi
     {
         const VkPhysicalDeviceFeatures2* all_extensions_features = extensionPack->GetDeviceFeatures();
         logicalDevice = std::make_unique<Device>(vulkanInstance.get(), physicalDevices.front().get(), *extensionPack);
+    }
+
+    void RhiSystem::createDebugUtilsMessenger()
+    {
+        if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
+        {
+            VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
+            s_SetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
+            s_DebugLogicalDeviceHandle = logicalDevice->vkHandle();
+
+            const VkDebugUtilsMessengerCreateInfoEXT messenger_info
+            {
+                VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+                nullptr,
+                0,
+                // capture warnings and info that the current one does not
+                VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+                VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+                (PFN_vkDebugUtilsMessengerCallbackEXT)DebugUtilsMessengerCallback,
+                nullptr
+            };
+
+            if (!debugUtilsFns.vkCreateDebugUtilsMessenger)
+            {
+                std::cerr << "Debug utils function pointers struct doesn't have function pointer for debug utils messenger creation!\n";
+                throw std::runtime_error("Failed to create debug utils messenger: function pointer not loaded!");
+            }
+
+            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
+            if (result != VK_SUCCESS)
+            {
+                throw std::runtime_error("Failed to create debug utils messenger.");
+            }
+        }   
     }
 
 } // namespace rhi

@@ -9,8 +9,6 @@ SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /JMC")
 
 
 FIND_PACKAGE(Vulkan REQUIRED)
-SET(VPR_BUILD_TESTS OFF CACHE BOOL "Build Unit and Integration tests")
-ADD_SUBDIRECTORY(third_party/vulpesrender)
 
 # Configure and organize Slang compiler for Vulkan/SPIR-V use
 include(cmake/ConfigureSlang.cmake)

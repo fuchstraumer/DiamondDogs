@@ -153,18 +153,18 @@ namespace rhi
             // Graphics queue (also supports compute and transfer)
             if (props.queueFlags & VK_QUEUE_GRAPHICS_BIT)
             {
-                if (queueFamilyIndices.graphics == VK_QUEUE_FAMILY_IGNORED)
+                if (queueFamilyIndices.Graphics == VK_QUEUE_FAMILY_IGNORED)
                 {
-                    queueFamilyIndices.graphics = i;
+                    queueFamilyIndices.Graphics = i;
                 }
             }
             
             // Dedicated compute queue (compute but not graphics)
             if ((props.queueFlags & VK_QUEUE_COMPUTE_BIT) && !(props.queueFlags & VK_QUEUE_GRAPHICS_BIT))
             {
-                if (queueFamilyIndices.compute == VK_QUEUE_FAMILY_IGNORED)
+                if (queueFamilyIndices.Compute == VK_QUEUE_FAMILY_IGNORED)
                 {
-                    queueFamilyIndices.compute = i;
+                    queueFamilyIndices.Compute = i;
                 }
             }
             
@@ -173,49 +173,44 @@ namespace rhi
                 !(props.queueFlags & VK_QUEUE_GRAPHICS_BIT) && 
                 !(props.queueFlags & VK_QUEUE_COMPUTE_BIT))
             {
-                if (queueFamilyIndices.transfer == VK_QUEUE_FAMILY_IGNORED)
+                if (queueFamilyIndices.Transfer == VK_QUEUE_FAMILY_IGNORED)
                 {
-                    queueFamilyIndices.transfer = i;
+                    queueFamilyIndices.Transfer = i;
                 }
             }
             
             // Sparse binding queue
             if (props.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT)
             {
-                if (queueFamilyIndices.sparseBinding == VK_QUEUE_FAMILY_IGNORED)
+                if (queueFamilyIndices.SparseBinding == VK_QUEUE_FAMILY_IGNORED)
                 {
-                    queueFamilyIndices.sparseBinding = i;
+                    queueFamilyIndices.SparseBinding = i;
                 }
             }
         }
         
         // Fallback: if no dedicated compute queue, use graphics queue
-        if (queueFamilyIndices.compute == VK_QUEUE_FAMILY_IGNORED)
+        if (queueFamilyIndices.Compute == VK_QUEUE_FAMILY_IGNORED)
         {
-            queueFamilyIndices.compute = queueFamilyIndices.graphics;
+            queueFamilyIndices.Compute = queueFamilyIndices.Graphics;
         }
         
         // Fallback: if no dedicated transfer queue, use graphics queue
-        if (queueFamilyIndices.transfer == VK_QUEUE_FAMILY_IGNORED)
+        if (queueFamilyIndices.Transfer == VK_QUEUE_FAMILY_IGNORED)
         {
-            queueFamilyIndices.transfer = queueFamilyIndices.graphics;
+            queueFamilyIndices.Transfer = queueFamilyIndices.Graphics;
         }
         
         // Fallback: if no sparse binding queue, use graphics queue
-        if (queueFamilyIndices.sparseBinding == VK_QUEUE_FAMILY_IGNORED)
+        if (queueFamilyIndices.SparseBinding == VK_QUEUE_FAMILY_IGNORED)
         {
-            queueFamilyIndices.sparseBinding = queueFamilyIndices.graphics;
+            queueFamilyIndices.SparseBinding = queueFamilyIndices.Graphics;
         }
         
-        if (!queueFamilyIndices.IsValid())
+        if (queueFamilyIndices.Graphics == VK_QUEUE_FAMILY_IGNORED)
         {
             throw std::runtime_error("Failed to find required queue families");
         }
-    }
-
-    bool QueueFamilyIndices::IsValid() const noexcept
-    {
-        return graphics != VK_QUEUE_FAMILY_IGNORED;
     }
 
     VkPhysicalDevice PhysicalDevice::vkHandle() const noexcept

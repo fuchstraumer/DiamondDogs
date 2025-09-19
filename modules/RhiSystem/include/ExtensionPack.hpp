@@ -1,7 +1,8 @@
 #pragma once
 #ifndef RHI_SYSTEM_EXTENSION_PACK_HPP
 #define RHI_SYSTEM_EXTENSION_PACK_HPP
-#include <vulkan/vulkan.h>
+#include "RhiTypes.hpp"
+#include <vulkan/vulkan_core.h>
 #include <vector>
 #include <string>
 #include <string_view>
@@ -11,17 +12,6 @@ class ExtensionWrangler;
 
 namespace rhi 
 {
-
-    enum class ApiVersion : uint8_t 
-    {
-        None = 0,
-        Vulkan10 = 1,
-        Vulkan11 = 2,
-        Vulkan12 = 3,
-        Vulkan13 = 4,
-        Vulkan14 = 5,
-        Latest = 254
-    };
 
     // Simplified extension management - combines ExtensionWrangler functionality
     class ExtensionPack 
