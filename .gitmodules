@@ -10,10 +10,6 @@
 	path = third_party/json
 	url = http://github.com/nlohmann/json
 	update = merge # use merge instead of checkout
-[submodule "third_party/glm"]
-	path = third_party/glm
-	url = http://github.com/g-truc/glm
-	update = merge # use merge instead of checkout
 [submodule "third_party/gli"]
 	path = third_party/gli
 	url = http://github.com/g-truc/gli
