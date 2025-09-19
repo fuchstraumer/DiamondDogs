@@ -1,0 +1,20 @@
+{
+    "PlatformWindowConfig": {
+        "InitialWindowWidth": 1280,
+        "InitialWindowHeight": 720,
+        "WindowMode": "MaximizedWindowed",
+        "WindowBehaviorFlags": {
+            "Resizable": true,
+            "Moveable": true,
+            "Decorated": true,
+            "FocusOnShow": false,
+            "CenterMouse": false
+        }
+    },
+    "SwapchainConfig": {
+        "ColorSpace": "Display_P3_Nonlinear",
+        "PresentMode": "VerticalSyncMailbox",
+        "SwapchainImageCount": 3,
+        "TryEnableHDR": false
+    }
+}

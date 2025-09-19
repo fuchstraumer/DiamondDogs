@@ -1,0 +1,8 @@
+{
+    "InitialWindowWidth": 800,
+    "InitialWindowHeight": 600,
+    "WindowMode": "Windowed",
+    "ColorSpace": "sRGB_Nonlinear",
+    "PresentMode": "VerticalSync",
+    "SwapchainImageCount": 2
+}

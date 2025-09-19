@@ -1,0 +1,9 @@
+{
+    "InitialWindowWidth": 1920,
+    "InitialWindowHeight": 1080,
+    "WindowMode": "Fullscreen",
+    "ColorSpace": "HDR10_ST2084",
+    "PresentMode": "VerticalSync",
+    "SwapchainImageCount": 2,
+    "TryEnableHDR": true
+}
