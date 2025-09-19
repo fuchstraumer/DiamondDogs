@@ -205,7 +205,7 @@ namespace rhi
             nullptr, // Layer names (deprecated at device level)
             static_cast<uint32_t>(device_extensions.size()),
             device_extensions.data(),
-            &device_features->features // Basic features
+            nullptr
         };
         
         VkResult result = vkCreateDevice(physicalDevice->vkHandle(), &create_info, nullptr, &handle);

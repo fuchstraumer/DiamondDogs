@@ -8,7 +8,7 @@ namespace rhi
 {
 
     // Validation layer names
-    static constexpr std::array<const char*, 3> BASE_VALIDATION_LAYERS = 
+    static constexpr std::array<const char*, 1> BASE_VALIDATION_LAYERS = 
     {
         "VK_LAYER_KHRONOS_validation"
     };
@@ -59,6 +59,10 @@ namespace rhi
     {
         // Store enabled extensions
         const std::vector<const char*>& enabledInstanceExtensions = extensions.GetInstanceExtensions();
+        for (auto& extension : enabledInstanceExtensions)
+        {
+            enabledExtensions.emplace_back(extension);
+        }
         
         // Convert layer names to const char*
         std::vector<const char*> layer_names;
