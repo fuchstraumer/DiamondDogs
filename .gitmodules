@@ -26,10 +26,6 @@
 	path = third_party/vma
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
 	update = merge # use merge instead of checkout
-[submodule "third_party/svs"]
-	path = third_party/svs
-	url = https://github.com/Tobski/simple_vulkan_synchronization
-	update = merge # use merge instead of checkout
 [submodule "third_party/basis_universal"]
 	path = third_party/basis_universal
 	url = https://github.com/BinomialLLC/basis_universal
