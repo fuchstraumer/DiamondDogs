@@ -10,12 +10,12 @@ set(RENDERING_CONTEXT_TEST_SOURCES
 )
 
 # Create test target
-add_unit_test_target(rendering_context_tests 
+add_unit_test_target(rhi_system_tests 
     "${RENDERING_CONTEXT_TEST_SOURCES}"
     "foundation;rhi_system")
 
 # Set include directories for rendering context tests
-target_include_directories(rendering_context_tests PRIVATE
+target_include_directories(rhi_system_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/Modules/RhiSystem/include"
     "${CMAKE_SOURCE_DIR}/foundation/include"
     "${CMAKE_SOURCE_DIR}/third_party"
