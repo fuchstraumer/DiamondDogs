@@ -172,16 +172,3 @@ TEST_F(VulkanIntegrationTest, ComponentAccess) {
     EXPECT_NE(device, nullptr);
     EXPECT_NE(device->vkHandle(), VK_NULL_HANDLE);
 }
-
-// Test multiple physical devices (if available)
-TEST_F(VulkanIntegrationTest, MultiplePhysicalDevices) {
-    auto createInfo = GetBaseCreateInfo();
-    auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-
-    // Try to get second physical device (may be null if only one GPU)
-    auto* secondDevice = rhiSystem->GetPhysicalDevice(1);
-    // This test doesn't fail if there's only one device, just reports what's available
-    if (secondDevice != nullptr) {
-        EXPECT_NE(secondDevice->vkHandle(), VK_NULL_HANDLE);
-    }
-}

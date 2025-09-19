@@ -5,24 +5,25 @@
 #include <filesystem>
 #include <fstream>
 
-class JsonConfigTest : public ::testing::Test {
+class JsonConfigTest : public ::testing::Test
+{
 protected:
-    void SetUp() override {
+    void SetUp() override
+    {
         // Get the test directory path
-        testDir = std::filesystem::current_path() / "tests" / "unit_tests" / "rendering_context";
-        if (!std::filesystem::exists(testDir)) {
-            // Try alternative path in case we're running from build directory
-            testDir = std::filesystem::current_path() / ".." / ".." / "tests" / "unit_tests" / "rendering_context";
-        }
-        
+        // Get current path, and see if it's the build subdir
+        testDir = "D:\\DiamondDogs\\tests\\unit_tests\\rendering_context";
+
         // Create shader cache cleanup directories
         shaderCacheCleanup.push_back(std::filesystem::temp_directory_path() / "temp_test_cache");
         shaderCacheCleanup.push_back(std::filesystem::temp_directory_path() / "temp_presentation_cache");
     }
 
-    void TearDown() override {
+    void TearDown() override
+    {
         // Clean up shader cache directories
-        for (const auto& dir : shaderCacheCleanup) {
+        for (const auto& dir : shaderCacheCleanup)
+        {
             if (std::filesystem::exists(dir)) {
                 std::filesystem::remove_all(dir);
             }
@@ -34,11 +35,13 @@ protected:
 };
 
 // Test basic JSON configuration loading
-TEST_F(JsonConfigTest, BasicJsonConfig) {
+TEST_F(JsonConfigTest, BasicJsonConfig)
+{
     auto configPath = testDir / "test_basic_config.json";
     
     // Skip test if config file doesn't exist
-    if (!std::filesystem::exists(configPath)) {
+    if (!std::filesystem::exists(configPath))
+    {
         GTEST_SKIP() << "Test config file not found: " << configPath;
         return;
     }
@@ -53,11 +56,13 @@ TEST_F(JsonConfigTest, BasicJsonConfig) {
 }
 
 // Test presentation support JSON configuration
-TEST_F(JsonConfigTest, PresentationJsonConfig) {
+TEST_F(JsonConfigTest, PresentationJsonConfig)
+{
     auto configPath = testDir / "test_presentation_config.json";
     
     // Skip test if config file doesn't exist
-    if (!std::filesystem::exists(configPath)) {
+    if (!std::filesystem::exists(configPath))
+    {
         GTEST_SKIP() << "Test config file not found: " << configPath;
         return;
     }
@@ -72,11 +77,13 @@ TEST_F(JsonConfigTest, PresentationJsonConfig) {
 }
 
 // Test minimal JSON configuration
-TEST_F(JsonConfigTest, MinimalJsonConfig) {
+TEST_F(JsonConfigTest, MinimalJsonConfig)
+{
     auto configPath = testDir / "test_minimal_config.json";
     
     // Skip test if config file doesn't exist
-    if (!std::filesystem::exists(configPath)) {
+    if (!std::filesystem::exists(configPath))
+    {
         GTEST_SKIP() << "Test config file not found: " << configPath;
         return;
     }
@@ -91,7 +98,8 @@ TEST_F(JsonConfigTest, MinimalJsonConfig) {
 }
 
 // Test using the provided RendererContextCfg.json as a template
-TEST_F(JsonConfigTest, RendererContextConfig) {
+TEST_F(JsonConfigTest, RendererContextConfig)
+{
     // Create a test configuration based on the provided example
     std::filesystem::path tempConfigPath = std::filesystem::temp_directory_path() / "test_renderer_context.json";
     
@@ -139,10 +147,12 @@ TEST_F(JsonConfigTest, RendererContextConfig) {
 }
 
 // Test different API versions through JSON
-TEST_F(JsonConfigTest, ApiVersionsViaJson) {
+TEST_F(JsonConfigTest, ApiVersionsViaJson)
+{
     std::vector<std::string> apiVersions = {"1.0", "1.1", "1.2", "1.3", "Latest"};
     
-    for (const auto& version : apiVersions) {
+    for (const auto& version : apiVersions)
+    {
         // Create temporary config for each version
         std::filesystem::path tempConfigPath = std::filesystem::temp_directory_path() / ("test_api_" + version + ".json");
         
@@ -186,15 +196,18 @@ TEST_F(JsonConfigTest, ApiVersionsViaJson) {
 }
 
 // Test validation layer configurations through JSON
-TEST_F(JsonConfigTest, ValidationLayersViaJson) {
-    std::vector<std::pair<std::string, bool>> validationConfigs = {
+TEST_F(JsonConfigTest, ValidationLayersViaJson)
+{
+    std::vector<std::pair<std::string, bool>> validationConfigs =
+    {
         {"None", false},     // No debug utils extension needed
         {"Base", true},      // Need debug utils extension
         {"Synchronization", true}, // Need debug utils extension
         {"All", true}        // Need debug utils extension
     };
     
-    for (const auto& [validation, needsDebugUtils] : validationConfigs) {
+    for (const auto& [validation, needsDebugUtils] : validationConfigs)
+    {
         std::filesystem::path tempConfigPath = std::filesystem::temp_directory_path() / ("test_validation_" + validation + ".json");
         
         std::ofstream configFile(tempConfigPath);
@@ -238,7 +251,8 @@ TEST_F(JsonConfigTest, ValidationLayersViaJson) {
 }
 
 // Test invalid JSON file handling
-TEST_F(JsonConfigTest, InvalidJsonFile) {
+TEST_F(JsonConfigTest, InvalidJsonFile)
+{
     std::filesystem::path invalidConfigPath = std::filesystem::temp_directory_path() / "invalid_config.json";
     
     // Create invalid JSON
@@ -255,7 +269,8 @@ TEST_F(JsonConfigTest, InvalidJsonFile) {
 }
 
 // Test missing JSON file handling
-TEST_F(JsonConfigTest, MissingJsonFile) {
+TEST_F(JsonConfigTest, MissingJsonFile)
+{
     std::filesystem::path missingPath = "nonexistent_config.json";
 
     EXPECT_THROW({
