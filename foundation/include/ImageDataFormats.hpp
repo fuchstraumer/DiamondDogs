@@ -196,9 +196,9 @@ constexpr bool IsCompressedFormat(const ImageFormat& format) noexcept
  * @param format ResourceFormat to check
  * @return True if the format uses sRGB encoding
  */
-constexpr bool IsSRGBFormat(const ImageFormat& format) noexcept
+constexpr bool Is_sRGBFormat(const ImageFormat& format) noexcept
 {
-    return format.DataType == ImageDataType::SRGB;
+    return format.DataType == ImageDataType::sRGB;
 }
 
 // Common format constants for convenience
@@ -206,12 +206,12 @@ namespace CommonFormats
 {
     // Common color formats
     constexpr ImageFormat RGBA8_UNorm = {ImageComponentFormats::RGBA8, ImageDataType::UNorm};
-    constexpr ImageFormat RGBA8_SRGB = {ImageComponentFormats::RGBA8, ImageDataType::SRGB};
+    constexpr ImageFormat RGBA8_SRGB = {ImageComponentFormats::RGBA8, ImageDataType::sRGB};
     constexpr ImageFormat RGBA16_Float = {ImageComponentFormats::RGBA16, ImageDataType::Float};
     constexpr ImageFormat RGBA32_Float = {ImageComponentFormats::RGBA32, ImageDataType::Float};
 
     constexpr ImageFormat RGB8_UNorm = {ImageComponentFormats::RGB8, ImageDataType::UNorm};
-    constexpr ImageFormat RGB8_SRGB = {ImageComponentFormats::RGB8, ImageDataType::SRGB};
+    constexpr ImageFormat RGB8_SRGB = {ImageComponentFormats::RGB8, ImageDataType::sRGB};
 
     constexpr ImageFormat RG8_UNorm = {ImageComponentFormats::RG8, ImageDataType::UNorm};
     constexpr ImageFormat RG16_Float = {ImageComponentFormats::RG16, ImageDataType::Float};
