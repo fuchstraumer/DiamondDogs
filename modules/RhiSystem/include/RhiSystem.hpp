@@ -1,7 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RHI_SYSTEM_HPP
 #define DIAMOND_DOGS_RHI_SYSTEM_HPP
-#include "utility/Delegate.hpp"
+#include "RhiTypes.hpp"
 #include <memory>
 #include <vector>
 #include <string>
@@ -57,10 +57,10 @@ struct RhiSystemImpl;
 
 struct RhiSystemCreateInfo
 {
-    uint32_t VkVersion{ 0u };
+    ApiVersion VkVersion{ ApiVersion::Latest };
     uint32_t EngineVersion{ 0u };
     uint32_t AppVersion{ 0u };
-    bool EnableValidationLayers{ false };
+    ValidationLayers ValidationLevel{ ValidationLayers::BaseOnly };
     std::string ApplicationName{ "DiamondDogs Application" };
     std::string EngineName{ "DiamondDogs" };
     std::vector<std::string> RequiredInstanceExtensions;
@@ -72,13 +72,14 @@ struct RhiSystemCreateInfo
 
 class RhiSystem
 {
-    RhiSystem() noexcept;
-    ~RhiSystem();
     RhiSystem(const RhiSystem&) = delete;
     RhiSystem& operator=(const RhiSystem&) = delete;
 public:
 
-    void Construct(const char* cfg_file_path);
+    RhiSystem(const char* cfg_file_path);
+    RhiSystem(const RhiSystemCreateInfo& create_info);
+    ~RhiSystem();
+
     void Update();
     void Destroy();
 
@@ -94,6 +95,8 @@ private:
 
     void gatherAndResolveInstanceExtensions(const nlohmann::json& json_file);
     void createInstance(const nlohmann::json& rhiConfig, const nlohmann::json& engineConfig);
+    void createInstance(const RhiSystemCreateInfo& createInfo);
+    void createDebugUtilsMessenger();
     void createPhysicalDevice();
     void gatherAndResolveDeviceExtensions(const nlohmann::json& json_file);
     void createLogicalDevice();

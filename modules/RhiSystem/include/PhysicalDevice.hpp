@@ -1,30 +1,13 @@
 #pragma once
 #ifndef RHI_SYSTEM_PHYSICAL_DEVICE_HPP
 #define RHI_SYSTEM_PHYSICAL_DEVICE_HPP
-#include <vulkan/vulkan.h>
+#include "RhiTypes.hpp"
+#include <vulkan/vulkan_core.h>
 #include <vector>
 #include <cstdint>
 
 namespace rhi 
 {
-
-    struct QueueFamilyIndices 
-    {
-        uint32_t graphics;
-        uint32_t compute;
-        uint32_t transfer;
-        uint32_t sparseBinding;
-        
-        QueueFamilyIndices() :
-            graphics{ VK_QUEUE_FAMILY_IGNORED },
-            compute{ VK_QUEUE_FAMILY_IGNORED },
-            transfer{ VK_QUEUE_FAMILY_IGNORED },
-            sparseBinding{ VK_QUEUE_FAMILY_IGNORED }
-        {
-        }
-        
-        bool IsValid() const noexcept;
-    };
 
     class PhysicalDevice 
     {

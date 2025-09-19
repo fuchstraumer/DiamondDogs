@@ -98,6 +98,10 @@ namespace rhi
         vkDeviceWaitIdle(handle);
     }
 
+    const VkDebugUtilsFunctions& Device::GetDebugUtilFns() const noexcept
+    {
+        return debugUtilsHandler;
+    }
 
     VkDevice Device::vkHandle() const noexcept
     {
@@ -141,10 +145,10 @@ namespace rhi
         // Collect unique queue families
         std::set<uint32_t> unique_queue_families = 
         {
-            queue_indices.graphics,
-            queue_indices.compute,
-            queue_indices.transfer,
-            queue_indices.sparseBinding
+            queue_indices.Graphics,
+            queue_indices.Compute,
+            queue_indices.Transfer,
+            queue_indices.SparseBinding
         };
         
         // Create queue create info for each unique family
@@ -217,50 +221,50 @@ namespace rhi
         const std::vector<VkQueueFamilyProperties>& queue_props = physicalDevice->GetQueueFamilyProperties();
         
         // Setup graphics queues
-        if (queue_indices.graphics != VK_QUEUE_FAMILY_IGNORED)
+        if (queue_indices.Graphics != VK_QUEUE_FAMILY_IGNORED)
         {
-            numGraphicsQueues = std::min(queue_props[queue_indices.graphics].queueCount, 4u);
+            numGraphicsQueues = std::min(queue_props[queue_indices.Graphics].queueCount, 4u);
             graphicsQueues.resize(numGraphicsQueues);
             
             for (uint32_t i = 0; i < numGraphicsQueues; ++i)
             {
-                vkGetDeviceQueue(handle, queue_indices.graphics, i, &graphicsQueues[i]);
+                vkGetDeviceQueue(handle, queue_indices.Graphics, i, &graphicsQueues[i]);
             }
         }
         
         // Setup compute queues
-        if (queue_indices.compute != VK_QUEUE_FAMILY_IGNORED)
+        if (queue_indices.Compute != VK_QUEUE_FAMILY_IGNORED)
         {
-            numComputeQueues = std::min(queue_props[queue_indices.compute].queueCount, 4u);
+            numComputeQueues = std::min(queue_props[queue_indices.Compute].queueCount, 4u);
             computeQueues.resize(numComputeQueues);
             
             for (uint32_t i = 0; i < numComputeQueues; ++i)
             {
-                vkGetDeviceQueue(handle, queue_indices.compute, i, &computeQueues[i]);
+                vkGetDeviceQueue(handle, queue_indices.Compute, i, &computeQueues[i]);
             }
         }
         
         // Setup transfer queues  
-        if (queue_indices.transfer != VK_QUEUE_FAMILY_IGNORED)
+        if (queue_indices.Transfer != VK_QUEUE_FAMILY_IGNORED)
         {
-            numTransferQueues = std::min(queue_props[queue_indices.transfer].queueCount, 4u);
+            numTransferQueues = std::min(queue_props[queue_indices.Transfer].queueCount, 4u);
             transferQueues.resize(numTransferQueues);
             
             for (uint32_t i = 0; i < numTransferQueues; ++i)
             {
-                vkGetDeviceQueue(handle, queue_indices.transfer, i, &transferQueues[i]);
+                vkGetDeviceQueue(handle, queue_indices.Transfer, i, &transferQueues[i]);
             }
         }
         
         // Setup sparse binding queues
-        if (queue_indices.sparseBinding != VK_QUEUE_FAMILY_IGNORED)
+        if (queue_indices.SparseBinding != VK_QUEUE_FAMILY_IGNORED)
         {
-            numSparseBindingQueues = std::min(queue_props[queue_indices.sparseBinding].queueCount, 4u);
+            numSparseBindingQueues = std::min(queue_props[queue_indices.SparseBinding].queueCount, 4u);
             sparseBindingQueues.resize(numSparseBindingQueues);
             
             for (uint32_t i = 0; i < numSparseBindingQueues; ++i)
             {
-                vkGetDeviceQueue(handle, queue_indices.sparseBinding, i, &sparseBindingQueues[i]);
+                vkGetDeviceQueue(handle, queue_indices.SparseBinding, i, &sparseBindingQueues[i]);
             }
         }
 
