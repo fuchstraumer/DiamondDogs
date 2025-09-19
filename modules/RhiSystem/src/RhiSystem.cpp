@@ -169,6 +169,7 @@ namespace rhi
         createPhysicalDevice();
         gatherAndResolveDeviceExtensions(rhiConfig);
         createLogicalDevice();
+
         createDebugUtilsMessenger();
 
         std::filesystem::path shaderCacheDir = std::filesystem::temp_directory_path() / "DiamondDogs" / "ShaderCache";
@@ -204,6 +205,7 @@ namespace rhi
         createInstance(createInfo);
 
         createPhysicalDevice();
+        extensionPack->SetPhysicalDevice(physicalDevices.front()->vkHandle());
 
         if (createInfo.RequiredDeviceExtensions.size() > 0)
         {
@@ -221,7 +223,10 @@ namespace rhi
 
         shaderCacheDir = createInfo.ShaderCacheDir;
 
-        createDebugUtilsMessenger();
+        if (vulkanInstance->HasValidation() && vulkanInstance->HasExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+        {
+            createDebugUtilsMessenger();
+        }
         
     }
 
@@ -461,6 +466,7 @@ namespace rhi
                 (PFN_vkDebugUtilsMessengerCallbackEXT)DebugUtilsMessengerCallback,
                 nullptr
             };
+
             if (!debugUtilsFns.vkCreateDebugUtilsMessenger)
             {
                 std::cerr << "Debug utils function pointers struct doesn't have function pointer for debug utils messenger creation!\n";
