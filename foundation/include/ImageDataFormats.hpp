@@ -28,6 +28,8 @@ enum class ImageComponentFormats : uint8_t
     
     // Four component formats
     RGBA8,
+    BRGA8,      // BGRA ordering
+    BGRA8,      // BGRA ordering
     RGBA16,
     RGBA32,
     
@@ -68,12 +70,13 @@ enum class ImageComponentFormats : uint8_t
 
 enum class ImageDataType : uint8_t
 {
+    Invalid = 0,
     UNorm,      // Unsigned normalized [0,1]
     SNorm,      // Signed normalized [-1,1]
     UInt,       // Unsigned integer
     SInt,       // Signed integer
     Float,      // Floating point
-    SRGB,       // sRGB color space
+    sRGB,       // sRGB color space
     
     // Default for most formats
     Default = UNorm
