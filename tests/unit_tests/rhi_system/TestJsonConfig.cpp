@@ -12,7 +12,7 @@ protected:
     {
         // Get the test directory path
         // Get current path, and see if it's the build subdir
-        testDir = "D:\\DiamondDogs\\tests\\unit_tests\\rendering_context";
+        testDir = "D:\\DiamondDogs\\tests\\unit_tests\\rhi_system";
 
         // Create shader cache cleanup directories
         shaderCacheCleanup.push_back(std::filesystem::temp_directory_path() / "temp_test_cache");
@@ -37,7 +37,7 @@ protected:
 // Test basic JSON configuration loading
 TEST_F(JsonConfigTest, BasicJsonConfig)
 {
-    auto configPath = testDir / "test_basic_config.json";
+    auto configPath = testDir / "TestBasicConfig.json";
     
     // Skip test if config file doesn't exist
     if (!std::filesystem::exists(configPath))
@@ -58,7 +58,7 @@ TEST_F(JsonConfigTest, BasicJsonConfig)
 // Test presentation support JSON configuration
 TEST_F(JsonConfigTest, PresentationJsonConfig)
 {
-    auto configPath = testDir / "test_presentation_config.json";
+    auto configPath = testDir / "TestPresentationConfig.json";
     
     // Skip test if config file doesn't exist
     if (!std::filesystem::exists(configPath))
@@ -79,7 +79,7 @@ TEST_F(JsonConfigTest, PresentationJsonConfig)
 // Test minimal JSON configuration
 TEST_F(JsonConfigTest, MinimalJsonConfig)
 {
-    auto configPath = testDir / "test_minimal_config.json";
+    auto configPath = testDir / "TestHeadlessConfig.json";
     
     // Skip test if config file doesn't exist
     if (!std::filesystem::exists(configPath))
@@ -149,12 +149,20 @@ TEST_F(JsonConfigTest, RendererContextConfig)
 // Test different API versions through JSON
 TEST_F(JsonConfigTest, ApiVersionsViaJson)
 {
-    std::vector<std::string> apiVersions = {"1.0", "1.1", "1.2", "1.3", "Latest"};
+    std::vector<std::string> apiVersions = {"1.0", "1.1", "1.2", "1.3", "1.4", "Latest"};
+    std::vector<uint32_t> apiVersionValues = {
+        VK_API_VERSION_1_0,
+        VK_API_VERSION_1_1,
+        VK_API_VERSION_1_2,
+        VK_API_VERSION_1_3,
+        VK_API_VERSION_1_4,
+        VK_API_VERSION_1_4
+    };
     
-    for (const auto& version : apiVersions)
+    for (size_t i = 0; i < apiVersions.size(); ++i)
     {
         // Create temporary config for each version
-        std::filesystem::path tempConfigPath = std::filesystem::temp_directory_path() / ("test_api_" + version + ".json");
+        std::filesystem::path tempConfigPath = std::filesystem::temp_directory_path() / ("test_api_" + apiVersions[i] + ".json");
         
         std::ofstream configFile(tempConfigPath);
         configFile << R"({
@@ -165,7 +173,7 @@ TEST_F(JsonConfigTest, ApiVersionsViaJson)
         "ApplicationVersion": "1.0.0"
     },
     "RHISystemConfig": {
-        "ApiVersion": ")" << version << R"(",
+        "ApiVersion": ")" << apiVersions[i] << R"(",
         "ValidationLayers": "Base",
         "NeedsPresentationSupport": false,
         "RequiredInstanceExtensions": [
@@ -176,19 +184,20 @@ TEST_F(JsonConfigTest, ApiVersionsViaJson)
         "RequestedDeviceExtensions": [
             "VK_KHR_dedicated_allocation"
         ],
-        "ShaderCacheDir": "temp_api_cache_)" << version << R"("
+        "ShaderCacheDir": "temp_api_cache_)" << apiVersions[i] << R"("
     }
 })";
         configFile.close();
 
         // Add to cleanup
-        shaderCacheCleanup.push_back(std::filesystem::temp_directory_path() / ("temp_api_cache_" + version));
+        shaderCacheCleanup.push_back(std::filesystem::temp_directory_path() / ("temp_api_cache_" + apiVersions[i]));
 
         EXPECT_NO_THROW({
             auto rhiSystem = std::make_unique<rhi::RhiSystem>(tempConfigPath.string().c_str());
             EXPECT_NE(rhiSystem, nullptr);
             EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        }) << "Failed for API version: " << version;
+            EXPECT_EQ(rhiSystem->GetVulkanApiVersion(), apiVersionValues[i]);
+        }) << "Failed for API version: " << apiVersions[i];
 
         // Clean up temporary config file
         std::filesystem::remove(tempConfigPath);

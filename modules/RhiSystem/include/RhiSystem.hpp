@@ -86,6 +86,7 @@ public:
     Instance* GetInstance() noexcept;
     PhysicalDevice* GetPhysicalDevice(const size_t idx = 0) noexcept;
     Device* GetDevice() noexcept;
+    uint32_t GetVulkanApiVersion() const noexcept;
 
     const char* GetShaderCacheDir();
     void SetShaderCacheDir(const char* dir);
