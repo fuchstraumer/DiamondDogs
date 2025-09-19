@@ -46,6 +46,7 @@ endfunction()
 # Add subdirectories for each module's tests
 add_subdirectory(foundation)
 add_subdirectory(rendering_context)
+add_subdirectory(platform_system) 
 add_subdirectory(resource_context)
 
 # Add other module test directories as they become available

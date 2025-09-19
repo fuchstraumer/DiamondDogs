@@ -1,0 +1,17 @@
+{
+    "EngineConfig": {
+        "EngineName": "DiamondDogsTestEngine",
+        "EngineVersion": "0.2.0",
+        "ApplicationName": "MinimalConfigTest",
+        "ApplicationVersion": "0.5.0"
+    },
+    "RHISystemConfig": {
+        "ApiVersion": "1.0",
+        "ValidationLayers": "None",
+        "NeedsPresentationSupport": false,
+        "RequiredInstanceExtensions": [],
+        "RequestedInstanceExtensions": [],
+        "RequiredDeviceExtensions": [],
+        "RequestedDeviceExtensions": []
+    }
+}

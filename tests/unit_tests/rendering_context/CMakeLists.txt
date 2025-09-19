@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 # Rendering Context unit tests
 set(RENDERING_CONTEXT_TEST_SOURCES
     test_extension_management.cpp
+    test_json_config.cpp
     test_main.cpp
     test_rendering_context.cpp
     test_vulkan_integration.cpp
@@ -11,14 +12,15 @@ set(RENDERING_CONTEXT_TEST_SOURCES
 # Create test target
 add_unit_test_target(rendering_context_tests 
     "${RENDERING_CONTEXT_TEST_SOURCES}"
-    "foundation")  # Will need to link to actual rendering context module when available
+    "foundation;rhi_system")
 
 # Set include directories for rendering context tests
 target_include_directories(rendering_context_tests PRIVATE
-    "${CMAKE_SOURCE_DIR}/modules/RenderingContext/include"
+    "${CMAKE_SOURCE_DIR}/Modules/RhiSystem/include"
     "${CMAKE_SOURCE_DIR}/foundation/include"
     "${CMAKE_SOURCE_DIR}/third_party"
     "${CMAKE_SOURCE_DIR}/third_party/glm"
+    "${CMAKE_SOURCE_DIR}/third_party/json/include"
     "${CMAKE_SOURCE_DIR}/third_party/vulpesrender/core/include"
     "${CMAKE_SOURCE_DIR}/third_party/vulpesrender/render/include"
     ${Vulkan_INCLUDE_DIR})
