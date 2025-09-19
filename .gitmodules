@@ -1,40 +1,27 @@
 [submodule "third_party/imgui"]
 	path = third_party/imgui
 	url = https://github.com/ocornut/imgui
-	update = merge # use merge instead of checkout
 [submodule "third_party/stb"]
 	path = third_party/stb
 	url = https://github.com/nothings/stb
-	update = merge # use merge instead of checkout
 [submodule "third_party/json"]
 	path = third_party/json
-	url = http://github.com/nlohmann/json
-	update = merge # use merge instead of checkout
+	url = https://github.com/nlohmann/json
 [submodule "third_party/gli"]
 	path = third_party/gli
-	url = http://github.com/g-truc/gli
-	update = merge # use merge instead of checkout
+	url = https://github.com/g-truc/gli
 [submodule "third_party/tinyobjloader"]
 	path = third_party/tinyobjloader
 	url = https://github.com/syoyo/tinyobjloader
-	update = merge # use merge instead of checkout
 [submodule "third_party/vma"]
 	path = third_party/vma
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator
-	update = merge # use merge instead of checkout
 [submodule "third_party/basis_universal"]
 	path = third_party/basis_universal
 	url = https://github.com/BinomialLLC/basis_universal
-	update = merge # use merge instead of checkout
 [submodule "third_party/mimalloc"]
 	path = third_party/mimalloc
 	url = https://github.com/microsoft/mimalloc
-	update = merge # use merge instead of checkout
 [submodule "third_party/entt"]
 	path = third_party/entt
 	url = https://github.com/skypjack/entt
-	update = merge # use merge instead of checkout
-[submodule "third_party/slang"]
-	path = third_party/slang
-	url = https://github.com/shader-slang/slang
-	update = merge # use merge instead of checkout
