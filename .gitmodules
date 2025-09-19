@@ -25,3 +25,6 @@
 [submodule "third_party/entt"]
 	path = third_party/entt
 	url = https://github.com/skypjack/entt
+[submodule "third_party/slang"]
+	path = third_party/slang
+	url = https://github.com/shader-slang/slang
