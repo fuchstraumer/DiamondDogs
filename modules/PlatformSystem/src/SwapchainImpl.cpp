@@ -1,15 +1,104 @@
 #include "SwapchainImpl.hpp"
 #include "Swapchain.hpp"
-#include "ImageDataFormats.hpp"
 #include "PlatformSystem.hpp"
 #include "events/DisplayEvents.hpp"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
+#include <unordered_map>
+#include <map>
 
-struct AppSurfaceFormat
+// Allows us to rank surface formats based on how "good" we believe they are
+// We place higher scores on formats we believe best for HDR, including suitable HDR color spaces
+// and 10-bit formats. Lower scores are placed on 8-bit formats and SDR color
+
+namespace std
 {
-    ImageFormat Format;
-    ColorSpace Space;
+    template<>
+    struct hash<VkSurfaceFormatKHR>
+    {
+        size_t operator()(const VkSurfaceFormatKHR& format) const noexcept
+        {
+            // Combine hashes of format and colorSpace using a simple but effective method
+            const size_t formatHash = std::hash<uint32_t>{}(static_cast<uint32_t>(format.format));
+            const size_t colorSpaceHash = std::hash<uint32_t>{}(static_cast<uint32_t>(format.colorSpace));
+            // Use bit shifting and XOR to combine the hashes
+            return formatHash ^ (colorSpaceHash << 1);
+        }
+    };
+}
+
+static const std::unordered_map<VkSurfaceFormatKHR, size_t> s_VkSurfaceFormatScores
+{
+    // 16-bit floating point formats - highest priority (1000+ points)
+    { { VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_HDR10_ST2084_EXT }, 1300 },
+    { { VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_HDR10_HLG_EXT }, 1290 },
+    { { VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_BT2020_LINEAR_EXT }, 1280 },
+    { { VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT }, 1200 },
+    { { VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT }, 1190 },
+    { { VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT }, 1100 },
+    { { VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }, 1050 },
+
+    // 10-bit formats - high priority for HDR (800-900 points)
+    { { VK_FORMAT_A2R10G10B10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_ST2084_EXT }, 950 },
+    { { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_ST2084_EXT }, 940 },
+    { { VK_FORMAT_A2R10G10B10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_HLG_EXT }, 930 },
+    { { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_HLG_EXT }, 920 },
+    { { VK_FORMAT_A2R10G10B10_UNORM_PACK32, VK_COLOR_SPACE_BT2020_LINEAR_EXT }, 900 },
+    { { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_BT2020_LINEAR_EXT }, 890 },
+    { { VK_FORMAT_A2R10G10B10_UNORM_PACK32, VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT }, 850 },
+    { { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT }, 840 },
+    { { VK_FORMAT_A2R10G10B10_UNORM_PACK32, VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT }, 830 },
+    { { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT }, 820 },
+    { { VK_FORMAT_A2R10G10B10_UNORM_PACK32, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT }, 810 },
+    { { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT }, 800 },
+
+    // 16-bit integer formats - medium-high priority (600-700 points)
+    { { VK_FORMAT_R16G16B16A16_UNORM, VK_COLOR_SPACE_HDR10_ST2084_EXT }, 750 },
+    { { VK_FORMAT_R16G16B16A16_UNORM, VK_COLOR_SPACE_HDR10_HLG_EXT }, 740 },
+    { { VK_FORMAT_R16G16B16A16_UNORM, VK_COLOR_SPACE_BT2020_LINEAR_EXT }, 720 },
+    { { VK_FORMAT_R16G16B16A16_UNORM, VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT }, 680 },
+    { { VK_FORMAT_R16G16B16A16_UNORM, VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT }, 670 },
+    { { VK_FORMAT_R16G16B16A16_UNORM, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT }, 650 },
+    { { VK_FORMAT_R16G16B16A16_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }, 600 },
+
+    // 8-bit formats with HDR color spaces - medium priority (400-500 points)
+    { { VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_HDR10_ST2084_EXT }, 500 },
+    { { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_HDR10_ST2084_EXT }, 490 },
+    { { VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_HDR10_ST2084_EXT }, 480 },
+    { { VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_HDR10_ST2084_EXT }, 470 },
+    { { VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_HDR10_HLG_EXT }, 460 },
+    { { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_HDR10_HLG_EXT }, 450 },
+    { { VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_BT2020_LINEAR_EXT }, 440 },
+    { { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_BT2020_LINEAR_EXT }, 430 },
+    { { VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT }, 420 },
+    { { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT }, 410 },
+    { { VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT }, 400 },
+    { { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT }, 390 },
+
+    // 8-bit formats with extended sRGB - low-medium priority (200-300 points)
+    { { VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT }, 300 },
+    { { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT }, 290 },
+    { { VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT }, 280 },
+    { { VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT }, 270 },
+    { { VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT }, 260 },
+    { { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT }, 250 },
+    { { VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT }, 240 },
+    { { VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT }, 230 },
+
+    // Standard sRGB 8-bit formats - lowest priority (50-150 points)
+    { { VK_FORMAT_R8G8B8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }, 150 },
+    { { VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }, 140 },
+    { { VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }, 120 },
+    { { VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }, 110 },
+    
+    // RGB8 formats (no alpha) - very low priority
+    { { VK_FORMAT_R8G8B8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }, 80 },
+    { { VK_FORMAT_B8G8R8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }, 70 },
+    { { VK_FORMAT_R8G8B8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }, 60 },
+    { { VK_FORMAT_B8G8R8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR }, 50 },
+
+    // Fallback/invalid entries
+    { VkSurfaceFormatKHR{ VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_MAX_ENUM_KHR }, 0 }
 };
 
 VkColorSpaceKHR ToVkColorSpace(const ColorSpace space) noexcept
@@ -47,6 +136,41 @@ VkColorSpaceKHR ToVkColorSpace(const ColorSpace space) noexcept
     }
 }
 
+ColorSpace FromVkColorSpace(const VkColorSpaceKHR space) noexcept
+{
+    switch (space)
+    {
+        case VK_COLOR_SPACE_SRGB_NONLINEAR_KHR:
+            return ColorSpace::sRGB_Nonlinear;
+        case VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT:
+            return ColorSpace::Display_P3_Nonlinear;
+        case VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT:
+            return ColorSpace::Extended_sRGB_Linear;
+        case VK_COLOR_SPACE_DISPLAY_P3_LINEAR_EXT:
+            return ColorSpace::Display_P3_Linear;
+        case VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT:
+            return ColorSpace::DCI_P3_Nonlinear;
+        case VK_COLOR_SPACE_BT709_LINEAR_EXT:
+            return ColorSpace::BT709_Linear;
+        case VK_COLOR_SPACE_BT709_NONLINEAR_EXT:
+            return ColorSpace::BT709_Nonlinear;
+        case VK_COLOR_SPACE_BT2020_LINEAR_EXT:
+            return ColorSpace::BT2020_Linear;
+        case VK_COLOR_SPACE_HDR10_ST2084_EXT:
+            return ColorSpace::HDR10_ST2084;
+        case VK_COLOR_SPACE_HDR10_HLG_EXT:
+            return ColorSpace::HDR10_HLG;
+        case VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT:
+            return ColorSpace::Extended_sRGB_Nonlinear;
+        case VK_COLOR_SPACE_PASS_THROUGH_EXT:
+            return ColorSpace::PassThrough;
+        case VK_COLOR_SPACE_DISPLAY_NATIVE_AMD:
+            return ColorSpace::DisplayNativeAMD;
+        default:
+            return ColorSpace::Invalid;
+    }
+}
+
 VkPresentModeKHR ToVkPresentMode(const PresentMode mode) noexcept
 {
     switch (mode)
@@ -70,6 +194,11 @@ VkPresentModeKHR ToVkPresentMode(const PresentMode mode) noexcept
         default:
             return VK_PRESENT_MODE_MAX_ENUM_KHR;
     }
+}
+
+bool operator==(const VkSurfaceFormatKHR& lhs, const VkSurfaceFormatKHR& rhs) noexcept
+{
+    return (lhs.format == rhs.format) && (lhs.colorSpace == rhs.colorSpace);
 }
 
 bool operator==(const VkSurfaceFormat2KHR& vkSurfaceFormat, const AppSurfaceFormat& appSurfaceFormat) noexcept
@@ -99,28 +228,105 @@ SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sf
 
 }
 
-VkSurfaceFormatKHR SwapchainInfo::GetBestFormat(bool tryEnableHDR, ColorSpace preferredSdrColorSpace, ColorSpace preferredHdrColorSpace) const noexcept
+VkSurfaceFormatKHR SwapchainInfo::FindBestFormat() const noexcept
 {
-    // Find the best format based on the preferred color spaces
+    // Create new unordered_map to hold scores for available formats, but use an ordered map and swap key-values to sort by score
+    std::map<size_t, VkSurfaceFormatKHR> availableFormatScores;
     for (const auto& format : formats)
     {
-        if (tryEnableHDR && format.colorSpace == ToVkColorSpace(preferredHdrColorSpace))
+        auto it = s_VkSurfaceFormatScores.find(format);
+        if (it != s_VkSurfaceFormatScores.end())
         {
-            return format;
+            availableFormatScores[it->second] = format;
         }
-        else if (format.colorSpace == ToVkColorSpace(preferredSdrColorSpace))
+        else
+        {
+            availableFormatScores[0] = format; // Unknown formats get a score of 0
+        }
+    }
+
+    VkSurfaceFormatKHR bestFormat{ VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_MAX_ENUM_KHR };
+    // Now find the format with the highest score in availableFormatScores
+    if (!availableFormatScores.empty())
+    {
+        bestFormat = availableFormatScores.rbegin()->second;
+    }
+
+    return bestFormat;
+}
+
+VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& requestedFormat) const noexcept
+{
+    if (formats.empty())
+    {
+        return { VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_MAX_ENUM_KHR };
+    }
+
+    // 1. First priority: Exact match
+    for (const auto& format : formats)
+    {
+        if (format.format == requestedFormat.format && format.colorSpace == requestedFormat.colorSpace)
         {
             return format;
         }
     }
 
-    // Fallback to the first format if no preferred formats are found
-    return formats.empty() ? VkSurfaceFormatKHR{} : formats[0];
+    // 2. Second priority: Same format, different color space
+    // Use scoring system to find the best color space match
+    VkSurfaceFormatKHR bestSameFormat{ VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_MAX_ENUM_KHR };
+    size_t bestSameFormatScore = 0;
+    
+    for (const auto& format : formats)
+    {
+        if (format.format == requestedFormat.format)
+        {
+            auto it = s_VkSurfaceFormatScores.find(format);
+            size_t score = (it != s_VkSurfaceFormatScores.end()) ? it->second : 0;
+            if (score > bestSameFormatScore)
+            {
+                bestSameFormatScore = score;
+                bestSameFormat = format;
+            }
+        }
+    }
+    
+    if (bestSameFormat.format != VK_FORMAT_UNDEFINED)
+    {
+        return bestSameFormat;
+    }
+
+    // 3. Third priority: Same color space, different format
+    // Use scoring system to find the best format match for the requested color space
+    VkSurfaceFormatKHR bestSameColorSpace{ VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_MAX_ENUM_KHR };
+    size_t bestSameColorSpaceScore = 0;
+    
+    for (const auto& format : formats)
+    {
+        if (format.colorSpace == requestedFormat.colorSpace)
+        {
+            auto it = s_VkSurfaceFormatScores.find(format);
+            size_t score = (it != s_VkSurfaceFormatScores.end()) ? it->second : 0;
+            if (score > bestSameColorSpaceScore)
+            {
+                bestSameColorSpaceScore = score;
+                bestSameColorSpace = format;
+            }
+        }
+    }
+    
+    if (bestSameColorSpace.format != VK_FORMAT_UNDEFINED)
+    {
+        return bestSameColorSpace;
+    }
+
+    // 4. Fallback: Use the best available format according to our scoring system
+    return FindBestFormat();
 }
 
 SwapchainImpl::SwapchainImpl(const SwapchainCreateInfo& createInfo) :
     ParentDevice(reinterpret_cast<VkDevice>(createInfo.VkDeviceHandle)),
-    Format(VK_FORMAT_UNDEFINED),
+    VulkanFormat(VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_MAX_ENUM_KHR),
+    AppFormat{},
     Extent({ 0, 0 }),
     MinImageCount(createInfo.MinImageCount),
     ImageCount(0),
@@ -148,8 +354,8 @@ VkSwapchainCreateInfoKHR SwapchainImpl::GetCreateInfo(const SwapchainCreateInfo&
 
     swapchainCreateInfo.surface = reinterpret_cast<VkSurfaceKHR>(createInfo.VkSurfaceHandle);
     swapchainCreateInfo.minImageCount = createInfo.MinImageCount;
-    swapchainCreateInfo.imageFormat = Format.format;
-    swapchainCreateInfo.imageColorSpace = Format.colorSpace;
+    swapchainCreateInfo.imageFormat = VulkanFormat.format;
+    swapchainCreateInfo.imageColorSpace = VulkanFormat.colorSpace;
     swapchainCreateInfo.imageExtent = Extent;
     swapchainCreateInfo.imageArrayLayers = 1; // always 1 unless doing stereoscopic 3D
     // will need color attachment bits because we also write to the swapchain images, not just present them
@@ -177,7 +383,26 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
 
     // recall that VkSurfaceFormatKHR has two members: VkFormat format and VkColorSpaceKHR colorSpace, so that we're aware of both.
     // We'll need the former to set the swapchain image format, and the latter to inform the rendering pipeline and tonemapper about the color space in use.
-    Format = Info->GetBestFormat(createInfo.TryEnableHDR, createInfo.SdrColorSpace, createInfo.HdrColorSpace);
+    
+    // Check if user specified a specific format, if so try to find closest match
+    if (createInfo.SwapchainFormat.ComponentFormat != ImageComponentFormats::Invalid)
+    {
+        // User requested a specific format, try to find the closest match
+        VkColorSpaceKHR preferredColorSpace = createInfo.TryEnableHDR ? 
+            ToVkColorSpace(createInfo.HdrColorSpace) : ToVkColorSpace(createInfo.SdrColorSpace);
+        
+        VkSurfaceFormatKHR requestedFormat{
+            ToVkFormat(createInfo.SwapchainFormat),
+            preferredColorSpace
+        };
+        
+        VulkanFormat = Info->FindClosestFormat(requestedFormat);
+    }
+    else
+    {
+        // No specific format requested, use our scoring heuristic to find the best one
+        VulkanFormat = Info->FindBestFormat();
+    }
     // get info about extents and dimensions from the platform system, since that chooses the primary display for us
     assert(createInfo.PlatformSystemPtr != nullptr && "PlatformSystemPtr must be set in SwapchainCreateInfo");
     const PlatformWindowSystem* platformSystem = reinterpret_cast<const PlatformWindowSystem*>(createInfo.PlatformSystemPtr);
@@ -252,7 +477,7 @@ void SwapchainImpl::CreateSwapchainImageViews()
         viewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewCreateInfo.image = Images[i];
         viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewCreateInfo.format = Format.format;
+        viewCreateInfo.format = VulkanFormat.format;
         viewCreateInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
         viewCreateInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
         viewCreateInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
