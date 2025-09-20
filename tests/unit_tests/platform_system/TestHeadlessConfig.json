@@ -1,0 +1,8 @@
+{
+    "InitialWindowWidth": 1024,
+    "InitialWindowHeight": 768,
+    "WindowMode": "Windowed",
+    "ColorSpace": "sRGB_Nonlinear",
+    "PresentMode": "Immediate",
+    "SwapchainImageCount": 2
+}

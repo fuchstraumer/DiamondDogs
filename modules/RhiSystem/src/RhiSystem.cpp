@@ -171,7 +171,10 @@ namespace rhi
         gatherAndResolveDeviceExtensions(rhiConfig);
         createLogicalDevice();
 
-        createDebugUtilsMessenger();
+        if (vulkanInstance->HasValidation() && vulkanInstance->HasExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+        {
+            createDebugUtilsMessenger();
+        }
 
         std::filesystem::path shaderCacheDir = std::filesystem::temp_directory_path() / "DiamondDogs" / "ShaderCache";
         if (rhiConfig.contains("ShaderCacheDir"))
@@ -270,6 +273,11 @@ namespace rhi
     Device* RhiSystem::GetDevice() noexcept
     {
         return logicalDevice.get();
+    }
+
+    uint32_t RhiSystem::GetVulkanApiVersion() const noexcept
+    {
+        return extensionPack->GetVulkanApiVersion();
     }
 
     VkResult RhiSystem::SetObjectName(VkObjectType object_type, uint64_t handle, const char* name)

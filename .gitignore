@@ -9,3 +9,5 @@ GeneratedExtensionHeader.hpp
 .cursor/
 
 modules/ResourceContext/chat.md
+
+fix-submodules.ps1

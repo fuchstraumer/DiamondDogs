@@ -51,7 +51,9 @@ VkPresentModeKHR ToVkPresentMode(const PresentMode mode) noexcept
 {
     switch (mode)
     {
-        case PresentMode::None:
+        case PresentMode::Invalid:
+            return VK_PRESENT_MODE_MAX_ENUM_KHR;
+        case PresentMode::Immediate:
             return VK_PRESENT_MODE_IMMEDIATE_KHR;
         case PresentMode::VerticalSync:
             return VK_PRESENT_MODE_FIFO_KHR;
