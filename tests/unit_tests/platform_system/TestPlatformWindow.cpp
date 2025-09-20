@@ -53,18 +53,15 @@ TEST_F(PlatformWindowTest, WindowModeCreation)
     {
         auto createInfo = GetDefaultCreateInfo();
         createInfo.DesiredWindowMode = mode;
+        auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
+        EXPECT_NE(platformSystem, nullptr);
+        EXPECT_NE(platformSystem->GetWindowHandle(), nullptr);
 
-        EXPECT_NO_THROW({
-            auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
-            EXPECT_NE(platformSystem, nullptr);
-            EXPECT_NE(platformSystem->GetWindowHandle(), nullptr);
-
-            // Test that window was created with correct properties
-            int width, height;
-            platformSystem->GetWindowSize(width, height);
-            EXPECT_GT(width, 0);
-            EXPECT_GT(height, 0);
-        });
+        // Test that window was created with correct properties
+        int width, height;
+        platformSystem->GetWindowSize(width, height);
+        EXPECT_GT(width, 0);
+        EXPECT_GT(height, 0);
     }
 }
 
@@ -139,19 +136,16 @@ TEST_F(PlatformWindowTest, WindowSizing)
         auto createInfo = GetDefaultCreateInfo();
         createInfo.InitialWidth = width;
         createInfo.InitialHeight = height;
+        auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
+        EXPECT_NE(platformSystem, nullptr);
 
-        EXPECT_NO_THROW({
-            auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
-            EXPECT_NE(platformSystem, nullptr);
+        // Verify window size is approximately correct
+        int actualWidth, actualHeight;
+        platformSystem->GetWindowSize(actualWidth, actualHeight);
 
-            // Verify window size is approximately correct
-            int actualWidth, actualHeight;
-            platformSystem->GetWindowSize(actualWidth, actualHeight);
-            
-            // Allow some tolerance for window decorations
-            EXPECT_NEAR(actualWidth, static_cast<int>(width), 100);
-            EXPECT_NEAR(actualHeight, static_cast<int>(height), 100);
-        });
+        // Allow some tolerance for window decorations
+        EXPECT_NEAR(actualWidth, static_cast<int>(width), 100);
+        EXPECT_NEAR(actualHeight, static_cast<int>(height), 100);
     }
 }
 

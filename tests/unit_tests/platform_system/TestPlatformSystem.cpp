@@ -73,21 +73,18 @@ protected:
 TEST_F(PlatformSystemTest, BasicCreateInfoConstruction)
 {
     auto createInfo = GetTestCreateInfo();
-    
-    EXPECT_NO_THROW({
-        auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
-        EXPECT_NE(platformSystem, nullptr);
-        EXPECT_NE(platformSystem->GetWindowHandle(), nullptr);
+    auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
+    EXPECT_NE(platformSystem, nullptr);
+    EXPECT_NE(platformSystem->GetWindowHandle(), nullptr);
         
-        // Validate stored configuration values
-        int width, height;
-        platformSystem->GetWindowSize(width, height);
-        EXPECT_GE(width, 0);
-        EXPECT_GE(height, 0);
+    // Validate stored configuration values
+    int width, height;
+    platformSystem->GetWindowSize(width, height);
+    EXPECT_GE(width, 0);
+    EXPECT_GE(height, 0);
         
-        // Test window mode is accessible (even if we can't directly get it without getter)
-        EXPECT_FALSE(platformSystem->ShouldWindowClose());
-    });
+    // Test window mode is accessible (even if we can't directly get it without getter)
+    EXPECT_FALSE(platformSystem->ShouldWindowClose());
 }
 
 // Test platform system with different window modes
@@ -103,18 +100,16 @@ TEST_F(PlatformSystemTest, WindowModeVariations)
     {
         auto createInfo = GetTestCreateInfo();
         createInfo.DesiredWindowMode = mode;
-        
-        EXPECT_NO_THROW({
-            auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
-            EXPECT_NE(platformSystem, nullptr);
-            EXPECT_NE(platformSystem->GetWindowHandle(), nullptr);
+
+        auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
+        EXPECT_NE(platformSystem, nullptr);
+        EXPECT_NE(platformSystem->GetWindowHandle(), nullptr);
             
-            // Validate window was created successfully
-            int width, height;
-            platformSystem->GetWindowSize(width, height);
-            EXPECT_GT(width, 0);
-            EXPECT_GT(height, 0);
-        });
+        // Validate window was created successfully
+        int width, height;
+        platformSystem->GetWindowSize(width, height);
+        EXPECT_GT(width, 0);
+        EXPECT_GT(height, 0);
     }
 }
 
@@ -134,21 +129,18 @@ TEST_F(PlatformSystemTest, WindowSizeVariations)
         auto createInfo = GetTestCreateInfo();
         createInfo.InitialWidth = width;
         createInfo.InitialHeight = height;
-        
-        EXPECT_NO_THROW({
-            auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
-            EXPECT_NE(platformSystem, nullptr);
+        auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
+        EXPECT_NE(platformSystem, nullptr);
             
-            // Validate window size (may not be exact due to window decorations)
-            int actualWidth, actualHeight;
-            platformSystem->GetWindowSize(actualWidth, actualHeight);
-            EXPECT_GT(actualWidth, 0);
-            EXPECT_GT(actualHeight, 0);
+        // Validate window size (may not be exact due to window decorations)
+        int actualWidth, actualHeight;
+        platformSystem->GetWindowSize(actualWidth, actualHeight);
+        EXPECT_GT(actualWidth, 0);
+        EXPECT_GT(actualHeight, 0);
             
-            // Should be reasonably close to requested size
-            EXPECT_NEAR(actualWidth, static_cast<int>(width), 100);
-            EXPECT_NEAR(actualHeight, static_cast<int>(height), 100);
-        });
+        // Should be reasonably close to requested size
+        EXPECT_NEAR(actualWidth, static_cast<int>(width), 100);
+        EXPECT_NEAR(actualHeight, static_cast<int>(height), 100);
     }
 }
 

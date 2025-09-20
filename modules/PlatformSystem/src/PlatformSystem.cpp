@@ -234,14 +234,14 @@ PlatformWindowSystem::PlatformWindowSystem(const PlatformWindowCreateInfo& creat
 
 PlatformWindowSystem::~PlatformWindowSystem()
 {
-    // make sure swapchain is destroyed before surface, because otherwise validation layers will complain
-    impl->ActiveSwapchain.reset();
-    impl->ActiveSurface.reset();
-    // dtor will get the rest
 }
 
 void PlatformWindowSystem::Destroy()
 {
+    // make sure swapchain is destroyed before surface, because otherwise validation layers will complain
+    impl->ActiveSwapchain.reset();
+    impl->ActiveSurface.reset();
+    // dtor will get the rest
     impl.reset();
 }
 

@@ -82,69 +82,107 @@ TEST_F(PlatformIntegrationTest, LifecycleWithEvents)
     });
 }
 
+// Static callback functions for event testing
+static std::atomic<int> s_cursorPosEvents{0};
+static std::atomic<int> s_cursorEnterEvents{0};
+static std::atomic<int> s_scrollEvents{0};
+static std::atomic<int> s_charEvents{0};
+static std::atomic<int> s_pathDropEvents{0};
+static std::atomic<int> s_mouseButtonEvents{0};
+static std::atomic<int> s_keyboardEvents{0};
+static std::atomic<int> s_resizeEvents{0};
+static std::atomic<int> s_closeEvents{0};
+
+static void TestCursorPosCallback(const Events::CursorPosEventData&, void*)
+{
+    s_cursorPosEvents++;
+}
+
+static void TestCursorEnterCallback(const int, void*)
+{
+    s_cursorEnterEvents++;
+}
+
+static void TestScrollCallback(const Events::ScrollEventData&, void*)
+{
+    s_scrollEvents++;
+}
+
+static void TestCharCallback(const char, void*)
+{
+    s_charEvents++;
+}
+
+static void TestPathDropCallback(const Events::PathDropEventData&, void*)
+{
+    s_pathDropEvents++;
+}
+
+static void TestMouseButtonCallback(const Events::MouseButtonEventData&, void*)
+{
+    s_mouseButtonEvents++;
+}
+
+static void TestKeyboardCallback(const Events::KeyboardKeyEventData&, void*)
+{
+    s_keyboardEvents++;
+}
+
+static void TestResizeCallback(const Events::ShouldResizeEventData&, void*)
+{
+    s_resizeEvents++;
+}
+
+static void TestCloseCallback(void*)
+{
+    s_closeEvents++;
+}
+
 // Test event listener registration
 TEST_F(PlatformIntegrationTest, EventListenerRegistration)
 {
     auto createInfo = GetIntegrationTestCreateInfo();
     auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
     
-    // Event counters to verify callbacks are registered correctly
-    std::atomic<int> cursorPosEvents{0};
-    std::atomic<int> cursorEnterEvents{0};
-    std::atomic<int> scrollEvents{0};
-    std::atomic<int> charEvents{0};
-    std::atomic<int> pathDropEvents{0};
-    std::atomic<int> mouseButtonEvents{0};
-    std::atomic<int> keyboardEvents{0};
-    std::atomic<int> resizeEvents{0};
-    std::atomic<int> closeEvents{0};
+    // Reset event counters
+    s_cursorPosEvents = 0;
+    s_cursorEnterEvents = 0;
+    s_scrollEvents = 0;
+    s_charEvents = 0;
+    s_pathDropEvents = 0;
+    s_mouseButtonEvents = 0;
+    s_keyboardEvents = 0;
+    s_resizeEvents = 0;
+    s_closeEvents = 0;
     
-    // Register event listeners
+    // Register event listeners using function pointers
     EXPECT_NO_THROW({
         platformSystem->AddCursorPosEventListener(
-            [&cursorPosEvents](const Events::CursorPosEventData&, void*) {
-                cursorPosEvents++;
-            }, nullptr);
+            CursorPosEvent::Create<TestCursorPosCallback>(), nullptr);
             
         platformSystem->AddCursorEnterEventListener(
-            [&cursorEnterEvents](const int, void*) {
-                cursorEnterEvents++;
-            }, nullptr);
+            CursorEnterEvent::Create<TestCursorEnterCallback>(), nullptr);
             
         platformSystem->AddScrollEventListener(
-            [&scrollEvents](const Events::ScrollEventData&, void*) {
-                scrollEvents++;
-            }, nullptr);
+            ScrollEvent::Create<TestScrollCallback>(), nullptr);
             
         platformSystem->AddCharEventListener(
-            [&charEvents](const char, void*) {
-                charEvents++;
-            }, nullptr);
+            CharEvent::Create<TestCharCallback>(), nullptr);
             
         platformSystem->AddPathDropEventListener(
-            [&pathDropEvents](const Events::PathDropEventData&, void*) {
-                pathDropEvents++;
-            }, nullptr);
+            PathDropEvent::Create<TestPathDropCallback>(), nullptr);
             
         platformSystem->AddMouseButtonEventListener(
-            [&mouseButtonEvents](const Events::MouseButtonEventData&, void*) {
-                mouseButtonEvents++;
-            }, nullptr);
+            MouseButtonEvent::Create<TestMouseButtonCallback>(), nullptr);
             
         platformSystem->AddKeyboardKeyEventListener(
-            [&keyboardEvents](const Events::KeyboardKeyEventData&, void*) {
-                keyboardEvents++;
-            }, nullptr);
+            KeyboardKeyEvent::Create<TestKeyboardCallback>(), nullptr);
             
         platformSystem->AddShouldResizeEventListener(
-            [&resizeEvents](const Events::ShouldResizeEventData&, void*) {
-                resizeEvents++;
-            }, nullptr);
+            ShouldResizeEvent::Create<TestResizeCallback>(), nullptr);
             
         platformSystem->AddShouldCloseEventListener(
-            [&closeEvents](void*) {
-                closeEvents++;
-            }, nullptr);
+            ShouldCloseEvent::Create<TestCloseCallback>(), nullptr);
     });
     
     // Process some update cycles to ensure event system is working
@@ -156,15 +194,15 @@ TEST_F(PlatformIntegrationTest, EventListenerRegistration)
     
     // Event counters might still be 0 since we're not generating actual events,
     // but registration should not have crashed
-    EXPECT_GE(cursorPosEvents.load(), 0);
-    EXPECT_GE(cursorEnterEvents.load(), 0);
-    EXPECT_GE(scrollEvents.load(), 0);
-    EXPECT_GE(charEvents.load(), 0);
-    EXPECT_GE(pathDropEvents.load(), 0);
-    EXPECT_GE(mouseButtonEvents.load(), 0);
-    EXPECT_GE(keyboardEvents.load(), 0);
-    EXPECT_GE(resizeEvents.load(), 0);
-    EXPECT_GE(closeEvents.load(), 0);
+    EXPECT_GE(s_cursorPosEvents.load(), 0);
+    EXPECT_GE(s_cursorEnterEvents.load(), 0);
+    EXPECT_GE(s_scrollEvents.load(), 0);
+    EXPECT_GE(s_charEvents.load(), 0);
+    EXPECT_GE(s_pathDropEvents.load(), 0);
+    EXPECT_GE(s_mouseButtonEvents.load(), 0);
+    EXPECT_GE(s_keyboardEvents.load(), 0);
+    EXPECT_GE(s_resizeEvents.load(), 0);
+    EXPECT_GE(s_closeEvents.load(), 0);
 }
 
 // Test window attribute manipulation
@@ -297,20 +335,18 @@ TEST_F(PlatformIntegrationTest, CursorPositionManagement)
     
     for (const auto& [testX, testY] : testPositions)
     {
-        EXPECT_NO_THROW({
-            platformSystem->SetCursorPosition(testX, testY);
-            
-            // Allow a brief moment for the position to be set
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            
-            double actualX, actualY;
-            platformSystem->GetCursorPosition(actualX, actualY);
-            
-            // Cursor position might not be exact due to window bounds, etc.
-            // Just ensure it doesn't crash and returns reasonable values
-            EXPECT_TRUE(std::isfinite(actualX));
-            EXPECT_TRUE(std::isfinite(actualY));
-        });
+        platformSystem->SetCursorPosition(testX, testY);
+
+        // Allow a brief moment for the position to be set
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        double actualX, actualY;
+        platformSystem->GetCursorPosition(actualX, actualY);
+
+        // Cursor position might not be exact due to window bounds, etc.
+        // Just ensure it doesn't crash and returns reasonable values
+        EXPECT_TRUE(std::isfinite(actualX));
+        EXPECT_TRUE(std::isfinite(actualY));
     }
 }
 
