@@ -15,7 +15,6 @@ ADD_MODULE(resource_context
     "src/ResourceContextImpl.hpp"
     "src/ResourceDataArena.hpp"
     "src/ResourceDataArena.cpp"
-    "src/ResourceDataFormats.cpp"
     "src/ResourceLoader.cpp"
     "src/ResourceMessageReply.cpp"
     "src/ResourceMessageTypesInternal.hpp"

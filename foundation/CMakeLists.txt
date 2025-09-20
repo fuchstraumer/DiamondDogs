@@ -23,6 +23,7 @@ set(foundation_source_files
     "include/foundation/PluginAPI.hpp"
     "include/foundation/PluginManager.hpp"
     "src/foundation/PluginManager.cpp"
+    "src/ImageDataFormats.cpp"
     "src/miMallocOverride.cpp"
     ${foundation_plugin_manager_sources})
 
