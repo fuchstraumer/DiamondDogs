@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <iostream>
 #include <string_view>
 #include "nlohmann/json.hpp"
 
@@ -66,7 +67,9 @@ constexpr static uint32_t s_DefaultSwapchainImageCount = 2;
 constexpr static ColorSpace s_DefaultSDRColorSpace = s_DefaultColorSpace;
 constexpr static ColorSpace s_DefaultHDRColorSpace = ColorSpace::HDR10_ST2084;
 constexpr static ImageFormat s_DefaultSDRFormat = CommonFormats::RGBA8_SRGB;
-constexpr static ImageFormat s_DefaultHDRFormat = CommonFormats::HDR_RGBA16;
+// previously we specified a desired format here, but we have a hueristic system in the swapchain
+// that should just automatically try and find us a format
+constexpr static ImageFormat s_DefaultHDRFormat = {};
 
 PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
                                            const uint64_t vkInstanceHandle,
@@ -154,6 +157,15 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
         enableHDR = platformJson.at("EnableHDR");
     }
     // make sure that even if config tries to enable it, system supports it and has it on as well
+    if (enableHDR && !IsHDREnabledOnSystem())
+    {
+        if (!SetAdvancedColorEnabled(enableHDR))
+        {
+            enableHDR = false;
+            std::cerr << "Warning: HDR was requested in configuration, but could not be enabled on system.\n";
+        }
+    }
+
     enableHDR = enableHDR && IsHDREnabledOnSystem();
 
     // now grab EngineConfig to get the application name we'll use for the window title
@@ -202,14 +214,12 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
     if (enableHDR)
     {
         swapchainInfo.SwapchainFormat = s_DefaultHDRFormat;
-        swapchainInfo.HdrColorSpace = desiredColorSpace;
-        swapchainInfo.SdrColorSpace = s_DefaultSDRColorSpace;
+        swapchainInfo.DesiredColorSpace = desiredColorSpace;
     }
     else
     {
         swapchainInfo.SwapchainFormat = s_DefaultSDRFormat;
-        swapchainInfo.SdrColorSpace = desiredColorSpace;
-        swapchainInfo.HdrColorSpace = s_DefaultHDRColorSpace;
+        swapchainInfo.DesiredColorSpace = desiredColorSpace;
     }
     swapchainInfo.PlatformSystemPtr = this;
     swapchainInfo.DisplayIndex = 0;
@@ -272,8 +282,7 @@ void PlatformWindowSystem::CreateDefaultSwapchain(
     createInfo.MinImageCount = s_DefaultSwapchainImageCount;
     createInfo.SwapchainPresentMode = s_DefaultPresentMode;
     createInfo.SwapchainFormat = s_DefaultSDRFormat;
-    createInfo.SdrColorSpace = s_DefaultSDRColorSpace;
-    createInfo.HdrColorSpace = s_DefaultHDRColorSpace;
+    createInfo.DesiredColorSpace = s_DefaultSDRColorSpace;
     createInfo.TryEnableHDR = false;
     impl->ActiveSwapchain = std::make_unique<Swapchain>(createInfo);
 }
@@ -352,6 +361,16 @@ const void* PlatformWindowSystem::GetWindowHandle() const noexcept
     return impl->Window;
 }
 
+PresentMode PlatformWindowSystem::GetPresentMode() const noexcept
+{
+    return impl->ActiveSwapchain->GetPresentMode();
+}
+
+PlatformWindowMode PlatformWindowSystem::GetWindowMode() const noexcept
+{
+    return PlatformWindowMode();
+}
+
 // Lifecycle methods
 void PlatformWindowSystem::Update()
 {
@@ -419,4 +438,9 @@ int PlatformWindowSystem::GetInputMode(int mode) const
 void PlatformWindowSystem::SetInputMode(int mode, int val)
 {
     glfwSetInputMode(impl->Window, mode, val);
+}
+
+void PlatformWindowSystem::SetWindowShouldClose(bool shouldClose)
+{
+    glfwSetWindowShouldClose(impl->Window, shouldClose ? GLFW_TRUE : GLFW_FALSE);
 }

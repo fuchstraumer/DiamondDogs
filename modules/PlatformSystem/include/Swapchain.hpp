@@ -31,6 +31,7 @@ public:
     uint32_t ImageCount() const noexcept;
     ImageFormat GetImageFormat() const noexcept;
     ColorSpace ColorSpace() const noexcept;
+    PresentMode GetPresentMode() const noexcept;
     const void* GetImageHandle(uint32_t index) const noexcept;
     const void* GetImageViewHandle(uint32_t index) const noexcept;
 

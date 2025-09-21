@@ -62,7 +62,9 @@ public:
     const DisplayInfo& GetActiveDisplayInfo() const noexcept;
     const void* GetWindowHandle() const noexcept;
 
+    /** @brief Returns active present mode for the current swapchain attached to this platform window system instance. */
     PresentMode GetPresentMode() const noexcept;
+    /** @brief Returns active windowing mode for the GLFWwindow attached to this platform window system instance. */
     PlatformWindowMode GetWindowMode() const noexcept;
 
     // Lifecycle management methods
@@ -80,6 +82,7 @@ public:
     void SetWindowAttribute(int attrib, int value);
     int GetInputMode(int mode) const;
     void SetInputMode(int mode, int val);
+    void SetWindowShouldClose(bool shouldClose);
 
     static bool IsHDREnabledOnSystem() noexcept;
 
