@@ -32,6 +32,8 @@ struct PlatformSystemImpl
     std::unique_ptr<CallbackStorage> Callbacks;
     std::unique_ptr<PlatformSurface> ActiveSurface;
     std::unique_ptr<Swapchain> ActiveSwapchain;
+    // Deletes GLFWwindow, but does not terminate GLFW (done in dtor)
+    void Destroy();
     void Update();
     void WaitForEvents();
     void AddCursorPosEventListener(CursorPosEvent listener, void* userData);

@@ -251,6 +251,7 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
     }
 
     int count = 0;
+    bool anyHdr = false;
     const GLFWvidmode* modes = glfwGetVideoModes(primaryMonitor, &count);
     if (count == 0 || !modes)
     {
@@ -262,6 +263,10 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
         for (int i = 0; i < count; ++i)
         {
             const GLFWvidmode& mode = modes[i];
+            if (mode.redBits > 8 || mode.greenBits > 8 || mode.blueBits > 8)
+            {
+                anyHdr = true;
+            }
             // Just take the first mode, which is usually the "best" mode
             AllDisplays.push_back(
                 DisplayInfo
@@ -279,7 +284,7 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
     }
 
     // for now, we just try to find the display with highest bit depth and use that as the primary display
-    s_PrimaryDisplay = GetPrimaryDisplayInfo(true, AllDisplays);
+    s_PrimaryDisplay = GetPrimaryDisplayInfo(false, AllDisplays);
     ActiveDisplay = &s_PrimaryDisplay;
 
     // Create window with desired settings
@@ -363,27 +368,33 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
 
 PlatformSystemImpl::~PlatformSystemImpl()
 {
+    Destroy();
+    glfwTerminate();
+}
+
+void PlatformSystemImpl::Destroy()
+{
     if (Window)
     {
         glfwDestroyWindow(Window);
         Window = nullptr;
     }
-    glfwTerminate();
 }
 
 void PlatformSystemImpl::Update()
 {
+    if (!Window)
+    {
+        return;
+    }
+
     glfwPollEvents();
 
     if (glfwWindowShouldClose(Window))
     {
         ShouldCloseCallback(Window);
-        // begin shutdown sequence: anything that can't be handled by calling dtors as we terminate should've been handled in the callback!
-        // obviously not ideal long term, but this is good enough for now and should ensure we do respond to the window close event
-        // TODO: Implement proper engine shutdown sequence
-        std::terminate();
+        Destroy();
     }
-    
 }
 
 void PlatformSystemImpl::WaitForEvents()
