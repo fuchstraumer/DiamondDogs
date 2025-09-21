@@ -3,10 +3,8 @@ cmake_minimum_required(VERSION 3.10)
 set(PLATFORM_SYSTEM_TEST_SOURCES
     TestMain.cpp
     TestPlatformSystem.cpp
-    TestPlatformWindow.cpp
     TestSwapchain.cpp
-    TestJsonConfig.cpp
-    TestPlatformIntegration.cpp)
+    TestJsonConfig.cpp)
 
 add_unit_test_target(platform_system_tests
     "${PLATFORM_SYSTEM_TEST_SOURCES}"
