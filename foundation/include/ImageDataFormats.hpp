@@ -28,7 +28,6 @@ enum class ImageComponentFormats : uint8_t
     
     // Four component formats
     RGBA8,
-    BRGA8,      // BGRA ordering
     BGRA8,      // BGRA ordering
     RGBA16,
     RGBA32,
@@ -63,6 +62,7 @@ enum class ImageComponentFormats : uint8_t
     BC5,          // RGTC2
     BC6H,         // BPTC float
     BC7,          // BPTC
+
     
     // Add more as needed
     Count
@@ -76,6 +76,7 @@ enum class ImageDataType : uint8_t
     UInt,       // Unsigned integer
     SInt,       // Signed integer
     Float,      // Floating point
+    UFloat,     // Unsigned floating point (for special packed formats)
     sRGB,       // sRGB color space
     
     // Default for most formats
@@ -135,6 +136,13 @@ ImageFormat GetImageFormat(const char* formatName, ImageDataType dataType = Imag
  * @return Corresponding VkFormat value
  */
 VkFormat ToVkFormat(const ImageFormat& format) noexcept;
+
+/**
+ * @brief Convert VkFormat to ImageFormat
+ * @param format VkFormat to convert
+ * @return Corresponding ImageFormat struct
+*/
+ImageFormat FromVkFormat(VkFormat format) noexcept;
 
 /**
  * @brief Create a ResourceFormat using component format and data type
