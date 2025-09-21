@@ -230,24 +230,19 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
 // Factory function
 PlatformWindowSystem::PlatformWindowSystem(const PlatformWindowCreateInfo& createInfo) : impl(std::make_unique<PlatformSystemImpl>(createInfo))
 {
-    // Set active display to the requested display, or primary display if none specified
-    if (createInfo.DisplayToUse != nullptr)
-    {
-        impl->ActiveDisplay = *createInfo.DisplayToUse;
-    }
-    else
-    {
-        // Fallback to primary display buffer if no displays were enumerated
-        impl->ActiveDisplay = PlatformWindowSystem::GetPrimaryDisplayInfo();
-    }
 }
 
 PlatformWindowSystem::~PlatformWindowSystem()
 {
+    Destroy();
 }
 
 void PlatformWindowSystem::Destroy()
 {
+    if (!impl)
+    {
+        return;
+    }
     // make sure swapchain is destroyed before surface, because otherwise validation layers will complain
     impl->ActiveSwapchain.reset();
     impl->ActiveSurface.reset();
@@ -398,6 +393,11 @@ bool PlatformWindowSystem::IsHDREnabledOnSystem() noexcept
 void PlatformWindowSystem::GetWindowSize(int& w, int& h) const
 {
     glfwGetWindowSize(impl->Window, &w, &h);
+}
+
+void PlatformWindowSystem::GetWindowPos(int& x, int& y) const
+{
+    glfwGetWindowPos(impl->Window, &x, &y);
 }
 
 void PlatformWindowSystem::GetFramebufferSize(int& w, int& h) const

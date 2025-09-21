@@ -77,6 +77,7 @@ public:
 
     // Window and input management (mirroring deprecated RhiSystem functionality)
     void GetWindowSize(int& w, int& h) const;
+    void GetWindowPos(int& x, int& y) const;
     void GetFramebufferSize(int& w, int& h) const;
     int GetMouseButton(int button) const;
     void GetCursorPosition(double& x, double& y) const;
