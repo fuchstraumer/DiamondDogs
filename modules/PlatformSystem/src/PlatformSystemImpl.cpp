@@ -308,7 +308,8 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
         Window = glfwCreateWindow(static_cast<int>(createInfo.InitialWidth), static_cast<int>(createInfo.InitialHeight), createInfo.WindowName, glfwGetPrimaryMonitor(), nullptr);
         break;
     case PlatformWindowMode::FullScreenWindowed:
-        Window = glfwCreateWindow(static_cast<int>(ActiveDisplay.Width), static_cast<int>(ActiveDisplay.Height), createInfo.WindowName, glfwGetPrimaryMonitor(), nullptr);
+        // borderless fullscreen windowed mode, set window size to match display size but avoid passing a monitor to avoid going exclusive fullscreen
+        Window = glfwCreateWindow(static_cast<int>(ActiveDisplay.Width), static_cast<int>(ActiveDisplay.Height), createInfo.WindowName, nullptr, nullptr);
         break;
     case PlatformWindowMode::MaximizedWindowed:
         throw std::domain_error("Oops, I was too lazy to implement this video mode!");
