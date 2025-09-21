@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include "utility/Delegate.hpp"
 #include "PlatformSystem.hpp"
 #include "PlatformTypes.hpp"
 #include "Swapchain.hpp"
@@ -255,4 +256,22 @@ TEST_F(PlatformSystemTest, LifecycleManagement)
     EXPECT_NO_THROW({
         platformSystem->Destroy();
     });
+}
+
+
+static size_t s_shouldCloseCallbackCount = 0;
+void TestShouldCloseCallback(void* userData)
+{
+    s_shouldCloseCallbackCount++;
+}
+
+// Test should close behavior
+TEST_F(PlatformSystemTest, ShouldCloseBehavior)
+{
+    auto createInfo = GetTestCreateInfo();
+    auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
+    
+    platformSystem->AddShouldCloseEventListener(ShouldCloseEvent::Create<TestShouldCloseCallback>(), nullptr);
+    platformSystem->SetWindowShouldClose(true);
+    EXPECT_EQ(s_shouldCloseCallbackCount, 1);
 }
