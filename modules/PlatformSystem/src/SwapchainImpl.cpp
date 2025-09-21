@@ -388,10 +388,10 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
     if (createInfo.SwapchainFormat.ComponentFormat != ImageComponentFormats::Invalid)
     {
         // User requested a specific format, try to find the closest match
-        VkColorSpaceKHR preferredColorSpace = createInfo.TryEnableHDR ? 
-            ToVkColorSpace(createInfo.HdrColorSpace) : ToVkColorSpace(createInfo.SdrColorSpace);
+        VkColorSpaceKHR preferredColorSpace = ToVkColorSpace(createInfo.DesiredColorSpace);
         
-        VkSurfaceFormatKHR requestedFormat{
+        VkSurfaceFormatKHR requestedFormat
+        {
             ToVkFormat(createInfo.SwapchainFormat),
             preferredColorSpace
         };
@@ -403,6 +403,7 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
         // No specific format requested, use our scoring heuristic to find the best one
         VulkanFormat = Info->FindBestFormat();
     }
+    
     // get info about extents and dimensions from the platform system, since that chooses the primary display for us
     assert(createInfo.PlatformSystemPtr != nullptr && "PlatformSystemPtr must be set in SwapchainCreateInfo");
     const PlatformWindowSystem* platformSystem = reinterpret_cast<const PlatformWindowSystem*>(createInfo.PlatformSystemPtr);

@@ -57,6 +57,8 @@ struct PlatformWindowCreateInfo
     uint32_t InitialPosX{ 0 };
     uint32_t InitialPosY{ 0 };
     PlatformWindowBehaviorFlags BehaviorFlags;
+    /** @brief Optional swapchain create info, if provided a swapchain will be created alongside the window using these parameters. */
+    struct SwapchainCreateInfo* SwapchainInfo{ nullptr };
 };
 
 /** @brief Defines color space for a surface - note that this is not the same as a format.
@@ -155,16 +157,14 @@ struct SwapchainCreateInfo
     uint64_t VkSurfaceHandle{ 0u };
     /** @brief Min image count for swapchain */
     uint32_t MinImageCount{ 2 };
+    /** @brief Desired color space for the swapchain */
+    ColorSpace DesiredColorSpace{ ColorSpace::sRGB_Nonlinear };
     /** @brief Optional image format to use for swapchain. If left to invalid default values, will auto-choose format: does not enable HDR */
     ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::Default };
-    /** @brief Preferred color space for SDR surfaces and content */
-    ColorSpace SdrColorSpace{ ColorSpace::sRGB_Nonlinear };
-    /** @brief Preferred color space if HDR is supported. Default value is DCI-P3, as this is the most highly supported.
-     *  @note Enabling an HDR colorspace and using an HDR framebuffer is not enough, application shaders must perform final tonemapping and transforms.
-     */
-    ColorSpace HdrColorSpace{ ColorSpace::DCI_P3_Nonlinear };
+    /** @brief Presentation mode/VSync mode to attempt to apply to this swapchain. Will choose "best" option if left to default. */
     PresentMode SwapchainPresentMode{ PresentMode::Invalid };
-    /** @brief If set to true, Swapchain will attempt to use HdrColorSpace and best available colorbuffer format */
+    /** @brief If set to true, will ensure HDR is supported and enabled for this swapchain. Compatible with blank/default `DesiredColorSpace` and `SwapchainFormat`.
+     * If those are set to specific HDR-capable values, will attempt to use those instead. */
     bool TryEnableHDR{ false };
     /** @brief Pointer to the platform system this display swapchain will be a child of. */
     void* PlatformSystemPtr{ nullptr };
