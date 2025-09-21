@@ -4,6 +4,11 @@
 #include "PlatformTypes.hpp"
 #include <cstdint>
 
+/**
+ * @file PlatformDisplayInfo.hpp
+ * @brief Platform-specific display information, currently focusing on HDR support and precise refresh rate detection.
+ */
+
 /** @brief Queries platform API, discovering if HDR is both supported and currently enabled. */
 bool IsHDRSupportedAndEnabled();
 
