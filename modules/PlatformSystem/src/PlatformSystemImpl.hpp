@@ -13,8 +13,6 @@
  * of the platform system
 */
 
-// We use these as storage buffers before init 
-inline static DisplayInfo s_PrimaryDisplay;
 
 struct GLFWwindow;
 struct CallbackStorage;
@@ -26,8 +24,7 @@ struct PlatformSystemImpl
     PlatformSystemImpl(const PlatformWindowCreateInfo& createInfo);
     ~PlatformSystemImpl();
     struct GLFWwindow* Window = nullptr;
-    // pointer to ALlDisplays, describes active display
-    DisplayInfo* ActiveDisplay = nullptr;
+    DisplayInfo ActiveDisplay;
     std::vector<DisplayInfo> AllDisplays;
     std::unique_ptr<CallbackStorage> Callbacks;
     std::unique_ptr<PlatformSurface> ActiveSurface;

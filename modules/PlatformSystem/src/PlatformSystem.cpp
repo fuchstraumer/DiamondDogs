@@ -198,7 +198,7 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
     impl = std::make_unique<PlatformSystemImpl>(createInfo);
 
     // Now continue to create default surface + swapchain, since we have all the info we need and I don't see a situation in which we wouldn't do this together (yet)
-    impl->ActiveDisplay = &s_PrimaryDisplay; // for now, just use primary display. In future could allow config of this
+    impl->ActiveDisplay = PlatformWindowSystem::GetPrimaryDisplayInfo(); // for now, just use primary display. In future could allow config of this
     impl->ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle,
                                                             vkPhysicalDeviceHandle,
                                                             impl->Window);
@@ -233,12 +233,12 @@ PlatformWindowSystem::PlatformWindowSystem(const PlatformWindowCreateInfo& creat
     // Set active display to the requested display, or primary display if none specified
     if (createInfo.DisplayToUse != nullptr)
     {
-        impl->ActiveDisplay = createInfo.DisplayToUse;
+        impl->ActiveDisplay = *createInfo.DisplayToUse;
     }
     else
     {
         // Fallback to primary display buffer if no displays were enumerated
-        impl->ActiveDisplay = &s_PrimaryDisplay;
+        impl->ActiveDisplay = PlatformWindowSystem::GetPrimaryDisplayInfo();
     }
 }
 
@@ -353,7 +353,7 @@ void PlatformWindowSystem::AddShouldCloseEventListener(ShouldCloseEvent listener
 // Accessors
 const DisplayInfo& PlatformWindowSystem::GetActiveDisplayInfo() const noexcept
 {
-    return *impl->ActiveDisplay;
+    return impl->ActiveDisplay;
 }
 
 const void* PlatformWindowSystem::GetWindowHandle() const noexcept
@@ -443,4 +443,29 @@ void PlatformWindowSystem::SetInputMode(int mode, int val)
 void PlatformWindowSystem::SetWindowShouldClose(bool shouldClose)
 {
     glfwSetWindowShouldClose(impl->Window, shouldClose ? GLFW_TRUE : GLFW_FALSE);
+}
+
+DisplayInfo PlatformWindowSystem::GetPrimaryDisplayInfo() noexcept
+{
+    const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+    if (!mode)
+    {
+        return DisplayInfo{};
+    }
+
+    float xScale = 1.0f;
+    float yScale = 1.0f;
+    glfwGetMonitorContentScale(glfwGetPrimaryMonitor(), &xScale, &yScale);
+    return DisplayInfo
+    {
+        static_cast<uint32_t>(mode->width),
+        static_cast<uint32_t>(mode->height),
+        static_cast<uint8_t>(mode->redBits),
+        static_cast<uint8_t>(mode->greenBits),
+        static_cast<uint8_t>(mode->blueBits),
+        xScale,
+        yScale,
+        static_cast<float>(mode->refreshRate),
+        0
+    };
 }

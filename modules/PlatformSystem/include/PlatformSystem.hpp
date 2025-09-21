@@ -60,7 +60,10 @@ public:
 
     /** @brief Display is chosen during window creation, and isn't managed by `DisplaySystem` as it's later in the init process. */
     const DisplayInfo& GetActiveDisplayInfo() const noexcept;
+    /** @brief Returns the window handle for the GLFWwindow attached to this platform window system instance. */
     const void* GetWindowHandle() const noexcept;
+    /** @brief Returns the primary display information, as in the underlying video mode and hardware configuration. Can differ from what is active for the system and rendering, though. */
+    static DisplayInfo GetPrimaryDisplayInfo() noexcept;
 
     /** @brief Returns active present mode for the current swapchain attached to this platform window system instance. */
     PresentMode GetPresentMode() const noexcept;

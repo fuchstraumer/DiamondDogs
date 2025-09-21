@@ -15,6 +15,9 @@
 #include "GLFW/glfw3native.h"
 #endif
 
+
+static DisplayInfo s_PrimaryDisplay;
+
 struct CallbackStorage
 {
     // we associate user data pointers with the hash of the delegate function
@@ -199,41 +202,9 @@ void ShouldCloseCallback(GLFWwindow* window)
     }
 }
 
-static DisplayInfo GetPrimaryDisplayInfo(bool findHDR, const std::vector<DisplayInfo>& allDisplays)
-{
-    for (const auto& display : allDisplays)
-    {
-        // We're going to try and find the mode with the best color depth for usage with an HDR buffer, if possible.
-
-        // Our first choice, float16 mode
-        if (findHDR && (display.BitDepthRed == 16 && display.BitDepthGreen == 16 && display.BitDepthBlue == 16))
-        {
-            return display;
-        }
-        // A2R10G10B10 mode, not as good as float16 mode but still pretty good and usable for HDR!
-        else if (findHDR && (display.BitDepthRed == 10 && display.BitDepthGreen == 10 && display.BitDepthBlue == 10))
-        {
-            return display;
-        }
-        // R11G11B10 mode, least favored HDR mode because of the RG bias that can cause artifacts, but still better than RGBA8
-        else if (findHDR && (display.BitDepthRed == 11 && display.BitDepthGreen == 11 && display.BitDepthBlue == 10))
-        {
-            return display;
-        }
-        else if (display.BitDepthRed == 8 && display.BitDepthGreen == 8 && display.BitDepthBlue == 8)
-        {
-            // fallback to 8-bit color depth if nothing better is found
-            return display;
-        }
-    }
-
-    // didn't find any valid video modes we want to use
-    return allDisplays.front();
-}
-
 PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInfo) :
     Window(nullptr),
-    ActiveDisplay(nullptr),
+    ActiveDisplay{},
     AllDisplays(),
     Callbacks(std::make_unique<CallbackStorage>())
 {
@@ -242,50 +213,33 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
         throw std::runtime_error("Failed to initialize GLFW");
     }
 
-    // for now, we only care about the primary monitor and the display info for that monitor. we'll choose the best from that pool
-    GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
-    if (!primaryMonitor)
-    {
-        glfwTerminate();
-        throw std::runtime_error("Failed to get primary monitor");
-    }
-
-    int count = 0;
-    bool anyHdr = false;
-    const GLFWvidmode* modes = glfwGetVideoModes(primaryMonitor, &count);
-    if (count == 0 || !modes)
-    {
-        glfwTerminate();
-        throw std::runtime_error("Failed to get video modes for primary monitor");
-    }
-    else
-    {
-        for (int i = 0; i < count; ++i)
-        {
-            const GLFWvidmode& mode = modes[i];
-            if (mode.redBits > 8 || mode.greenBits > 8 || mode.blueBits > 8)
-            {
-                anyHdr = true;
-            }
-            // Just take the first mode, which is usually the "best" mode
-            AllDisplays.push_back(
-                DisplayInfo
-                {
-                    static_cast<uint32_t>(mode.width),
-                    static_cast<uint32_t>(mode.height),
-                    static_cast<uint8_t>(mode.redBits),
-                    static_cast<uint8_t>(mode.greenBits),
-                    static_cast<uint8_t>(mode.blueBits),
-                    1.0f,
-                    1.0f,
-                    static_cast<float>(mode.refreshRate)
-                });
-        }
-    }
-
     // for now, we just try to find the display with highest bit depth and use that as the primary display
-    s_PrimaryDisplay = GetPrimaryDisplayInfo(false, AllDisplays);
-    ActiveDisplay = &s_PrimaryDisplay;
+    s_PrimaryDisplay = PlatformWindowSystem::GetPrimaryDisplayInfo();
+    if (createInfo.DisplayToUse == nullptr && 
+        (createInfo.DesiredWindowMode == PlatformWindowMode::Fullscreen ||
+         createInfo.DesiredWindowMode == PlatformWindowMode::FullScreenWindowed))
+    {
+        ActiveDisplay = s_PrimaryDisplay;
+    }
+    else if (createInfo.DesiredWindowMode == PlatformWindowMode::Windowed)
+    {
+        // Set active display to inherit most of the primary display's properties, but override width/height with requested window size
+        ActiveDisplay = s_PrimaryDisplay;
+        ActiveDisplay.Width = createInfo.InitialWidth;
+        ActiveDisplay.Height = createInfo.InitialHeight;
+    }
+    else if (createInfo.DesiredWindowMode == PlatformWindowMode::MaximizedWindowed)
+    {
+        // Set active display to inherit most of the primary display's properties, but override width/height with full display size
+        // We'll correct it after creation by querying actual window size from GLFW
+        ActiveDisplay = s_PrimaryDisplay;
+        ActiveDisplay.Width = s_PrimaryDisplay.Width;
+        ActiveDisplay.Height = s_PrimaryDisplay.Height;
+    }
+    else if (createInfo.DisplayToUse != nullptr)
+    {
+        ActiveDisplay = *createInfo.DisplayToUse;
+    }
 
     // Create window with desired settings
     if (createInfo.BehaviorFlags.Resizable && 
@@ -341,16 +295,33 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
     glfwWindowHint(GLFW_RED_BITS, static_cast<int>(s_PrimaryDisplay.BitDepthRed));
     glfwWindowHint(GLFW_GREEN_BITS, static_cast<int>(s_PrimaryDisplay.BitDepthGreen));
     glfwWindowHint(GLFW_BLUE_BITS, static_cast<int>(s_PrimaryDisplay.BitDepthBlue));
-    glfwWindowHint(GLFW_REFRESH_RATE, static_cast<int>(s_PrimaryDisplay.RefreshRate));
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // required to create a Vulkan-capable window, otherwise we create an OpenGL context by default
 
-    if (createInfo.DesiredWindowMode != PlatformWindowMode::Fullscreen)
+    switch (createInfo.DesiredWindowMode)
     {
+    case PlatformWindowMode::Windowed:
         Window = glfwCreateWindow(static_cast<int>(createInfo.InitialWidth), static_cast<int>(createInfo.InitialHeight), createInfo.WindowName, nullptr, nullptr);
-    }
-    else
-    {
+        break;
+    case PlatformWindowMode::Fullscreen:
+        // we only set this particular hint for fullscreen exclusive mode
+        glfwWindowHint(GLFW_REFRESH_RATE, static_cast<int>(s_PrimaryDisplay.RefreshRate));
         Window = glfwCreateWindow(static_cast<int>(createInfo.InitialWidth), static_cast<int>(createInfo.InitialHeight), createInfo.WindowName, glfwGetPrimaryMonitor(), nullptr);
+        break;
+    case PlatformWindowMode::FullScreenWindowed:
+        Window = glfwCreateWindow(static_cast<int>(ActiveDisplay.Width), static_cast<int>(ActiveDisplay.Height), createInfo.WindowName, glfwGetPrimaryMonitor(), nullptr);
+        break;
+    case PlatformWindowMode::MaximizedWindowed:
+        throw std::domain_error("Oops, I was too lazy to implement this video mode!");
+    default:
+        throw std::runtime_error("Invalid window mode, can't create GLFW window.");
+    };
+
+    if (createInfo.DesiredWindowMode == PlatformWindowMode::MaximizedWindowed)
+    {
+        int width, height;
+        glfwGetWindowSize(Window, &width, &height);
+        ActiveDisplay.Width = static_cast<uint32_t>(width);
+        ActiveDisplay.Height = static_cast<uint32_t>(height);
     }
 
     if (!Window)
