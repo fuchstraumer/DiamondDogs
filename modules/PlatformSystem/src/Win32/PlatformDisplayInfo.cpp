@@ -1,9 +1,10 @@
-#include "HDRSupport.hpp"
+#include "PlatformDisplayInfo.hpp"
 #include <vector>
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <wingdi.h>
 #include <physicalmonitorenumerationapi.h>
+#include <cmath>
 
 bool IsHDRSupportedAndEnabled()
 {
@@ -206,4 +207,62 @@ DisplayColorCapabilities GetDisplayColorCapabilities()
     }
 
     return caps;
+}
+
+DisplayRefreshRateCapabilities GetDisplayRefreshRateCapabilities(float desiredRefreshRate)
+{
+    constexpr float k_DefaultDesiredRefreshRate = 60.0f;
+
+    if (desiredRefreshRate <= 0.0f)
+    {
+        desiredRefreshRate = k_DefaultDesiredRefreshRate;
+    }
+    UINT32 pathCount, modeCount;
+
+    LONG result = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount);
+    if (result != ERROR_SUCCESS)
+    {
+        return DisplayRefreshRateCapabilities{ 0.0f, false, 0.0f};
+    }
+
+    std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
+    std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
+    float closestRefreshRate = -1.0f;
+    float smallestDiff = 1e8f;
+
+    result = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths.data(), &modeCount, modes.data(), nullptr);
+    if (result != ERROR_SUCCESS)
+    {
+        return DisplayRefreshRateCapabilities{ 0.0f, false, 0.0f};
+    }
+
+    for (UINT32 i = 0; i < pathCount; ++i)
+    {
+        const DISPLAYCONFIG_PATH_INFO& path = paths[i];
+        UINT32 targetModeIdx = path.targetInfo.modeInfoIdx;
+        if (targetModeIdx < modeCount && targetModeIdx != DISPLAYCONFIG_PATH_MODE_IDX_INVALID)
+        {
+            const DISPLAYCONFIG_MODE_INFO& mode = modes[targetModeIdx];
+            if (mode.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_TARGET)
+            {
+                const DISPLAYCONFIG_VIDEO_SIGNAL_INFO& signalInfo = mode.targetMode.targetVideoSignalInfo;
+
+                float refreshRate = static_cast<float>(signalInfo.vSyncFreq.Numerator) / static_cast<float>(signalInfo.vSyncFreq.Denominator);
+
+                float difference = std::abs(refreshRate - desiredRefreshRate);
+                if (difference < smallestDiff)
+                {
+                    smallestDiff = difference;
+                    closestRefreshRate = refreshRate;
+                }
+
+            }
+        }
+    }
+
+    DisplayRefreshRateCapabilities refreshCaps{};
+    refreshCaps.RefreshRate = (closestRefreshRate > 0.0f) ? closestRefreshRate : k_DefaultDesiredRefreshRate;
+    refreshCaps.IsInteger = std::abs(refreshCaps.RefreshRate - std::round(refreshCaps.RefreshRate)) < 0.01f;
+    refreshCaps.RoundedRefreshRate = std::round(refreshCaps.RefreshRate);
+    return refreshCaps;
 }

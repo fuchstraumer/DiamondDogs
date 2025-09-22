@@ -149,6 +149,13 @@ struct HDRCapabilities
     ColorSpace ActiveColorSpace{ ColorSpace::sRGB_Nonlinear };
 };
 
+struct DisplayRefreshRateCapabilities
+{
+    float RefreshRate{ 0.0f }; // Exact refresh rate, queried from platform API
+    bool IsInteger{ true }; // True if refresh rate is effectively an integer value
+    float RoundedRefreshRate{ 0.0f }; // Rounded to nearest whole number
+};
+
 struct SwapchainCreateInfo
 {
     uint64_t VkDeviceHandle{ 0u };

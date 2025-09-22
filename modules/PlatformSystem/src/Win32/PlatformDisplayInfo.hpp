@@ -22,5 +22,10 @@ bool SetHDREnabled(bool enableHDR);
 bool SetAdvancedColorEnabled(bool enableAdvancedColor);
 
 DisplayColorCapabilities GetDisplayColorCapabilities();
+/** @brief Gets the display refresh rate capabilities, by querying platform API.
+ *  @param desiredRefreshRate Optional parameter to specify a desired refresh rate. If set to 0.0f (default), will query current active refresh rate.
+ *         If non-zero, will attempt to find closest supported refresh rate and report capabilities for that.
+ */
+DisplayRefreshRateCapabilities GetDisplayRefreshRateCapabilities(float desiredRefreshRate = 0.0f);
 
 #endif // !DIAMOND_DOGS_PLATFORM_SYSTEM_HDR_SUPPORT_HPP
