@@ -2,7 +2,6 @@
 #ifndef DIAMOND_DOGS_PLATFORM_SYSTEM_HDR_SUPPORT_HPP
 #define DIAMOND_DOGS_PLATFORM_SYSTEM_HDR_SUPPORT_HPP
 #include "PlatformTypes.hpp"
-#include <cstdint>
 
 /**
  * @file PlatformDisplayInfo.hpp
