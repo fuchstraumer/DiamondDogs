@@ -1,7 +1,7 @@
 #include "PlatformSystem.hpp"
 #include "PlatformSystemImpl.hpp"
 // will include linux or windows version based on CMake configuration
-#include "HDRSupport.hpp"
+#include "PlatformDisplayInfo.hpp"
 #include "Swapchain.hpp"
 #include "PlatformSurface.hpp"
 #include <vulkan/vulkan_core.h>
@@ -159,11 +159,7 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
     // make sure that even if config tries to enable it, system supports it and has it on as well
     if (enableHDR && !IsHDREnabledOnSystem())
     {
-        if (!SetAdvancedColorEnabled(enableHDR))
-        {
-            enableHDR = false;
-            std::cerr << "Warning: HDR was requested in configuration, but could not be enabled on system.\n";
-        }
+        std::cerr << "Warning: HDR was requested in configuration, but is not enabled on system.\n";
     }
 
     enableHDR = enableHDR && IsHDREnabledOnSystem();

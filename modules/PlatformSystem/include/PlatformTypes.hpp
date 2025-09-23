@@ -56,6 +56,7 @@ struct PlatformWindowCreateInfo
     uint32_t InitialHeight{ 600 };
     uint32_t InitialPosX{ 0 };
     uint32_t InitialPosY{ 0 };
+    float DesiredRefreshRate{ 0.0f }; // if 0.0f, use default or current refresh rate
     PlatformWindowBehaviorFlags BehaviorFlags;
     /** @brief Optional swapchain create info, if provided a swapchain will be created alongside the window using these parameters. */
     struct SwapchainCreateInfo* SwapchainInfo{ nullptr };
@@ -120,16 +121,35 @@ struct DisplayColorCapabilities
     bool wcgEnabled{ false };
     bool wcgCanBeToggled{ false };
     
-    // Advanced color generally refers to HDR + WCG combined
-    bool advancedColorSupported{ false };
-    bool advancedColorEnabled{ false };
-    
     // Additional metadata
     float sdrWhiteLevel{ 80.0f }; // Default SDR white level in nits
     uint32_t bitsPerColorChannel{ 8 };
-    uint32_t colorEncoding{ 0 }; // DISPLAYCONFIG_COLOR_ENCODING value
+
+    enum class ColorModes : uint8_t
+    {
+        Invalid = 0,
+        SDR, // display referred color and luminance
+        WCG, // scene referred color, display referred luminance
+        HDR // scene referred color *and* luminance
+    };
+    ColorModes ColorMode{ ColorModes::Invalid };
+
+    // Following parameters are extracted from EDID, if available. Manufacturer may not provide these, or they could be incorrect (spruced up, usually, to look better in marketing material)
+    float MaxLuminance{ 0.0f }; // in nits
+    float MinLuminance{ 0.0f }; // in nits
+    float MaxAverageLuminance{ 0.0f }; // in nits
+
+    // Chromaticity coordinates, if available from EDID
+    float RedPrimaryX{ 0.0f };
+    float RedPrimaryY{ 0.0f };
+    float GreenPrimaryX{ 0.0f };
+    float GreenPrimaryY{ 0.0f };
+    float BluePrimaryX{ 0.0f };
+    float BluePrimaryY{ 0.0f };
+    float WhitePointX{ 0.0f };
+    float WhitePointY{ 0.0f };
     
-    // Helper methods
+    // Helper methods. Only really relevant on Win32, where these are separate capabilities
     bool IsFullAdvancedColorSupported() const { return hdrSupported && wcgSupported; }
     bool IsFullAdvancedColorEnabled() const { return hdrEnabled && wcgEnabled; }
 };
@@ -154,6 +174,12 @@ struct DisplayRefreshRateCapabilities
     float RefreshRate{ 0.0f }; // Exact refresh rate, queried from platform API
     bool IsInteger{ true }; // True if refresh rate is effectively an integer value
     float RoundedRefreshRate{ 0.0f }; // Rounded to nearest whole number
+};
+
+struct PlatformDisplayInfoQuery
+{
+    float DesiredRefreshRate{ 0.0f };
+    uint32_t DesiredBitDepth{ 0 };
 };
 
 struct SwapchainCreateInfo

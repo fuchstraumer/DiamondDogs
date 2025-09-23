@@ -1,0 +1,5 @@
+- Add handler for window refresh events, so that we continue drawing while resizing or moving the window
+- Enhance querying of platform displays to better identify format of surface and if HDR formats are actually working
+- Handle multi-monitor setups
+- Handle monitor connect/disconnect
+- Add some data to allow us to display monitor information in an ImGui UI for debugging/introspection
