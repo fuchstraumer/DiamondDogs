@@ -289,6 +289,7 @@ const GUID GUID_DEVINTERFACE_MONITOR = { 0xE6F07B5F, 0xEE97, 0x4A90, { 0xB0, 0x7
 
 std::vector<uint8_t> GetEDIDFromRegistry(const std::wstring& monitorFriendlyName)
 {
+    // what we're doing here actually doesn't account for the monitor name at all, but for now this just grabs the primary monitor effectively.
     HKEY displaysKey;
     LONG result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, 
         L"SYSTEM\\CurrentControlSet\\Enum\\DISPLAY", 0, KEY_READ, &displaysKey);
@@ -384,10 +385,8 @@ EDIDHdrData GetEDIDHdrData(const std::vector<uint8_t>& edidData)
         // Bytes 29-32: High 8 bits of Red, Green, Blue, White x coordinates
         // Bytes 33-36: High 8 bits of Red, Green, Blue, White y coordinates
         
-        uint8_t rxry_low = edidData[25];
-        uint8_t gxgy_low = edidData[26];
-        uint8_t bxby_low = edidData[27];
-        uint8_t wxwy_low = edidData[28];
+        uint8_t rxrygxgy_low = edidData[25];
+        uint8_t bxbywxwy_low = edidData[26];
         
         // Extract chromaticity coordinates (10-bit precision)
         auto extractCoordinate = [&](uint8_t high_byte, uint8_t low_bits) -> float
@@ -396,14 +395,14 @@ EDIDHdrData GetEDIDHdrData(const std::vector<uint8_t>& edidData)
             return static_cast<float>(value) / 1024.0f;
         };
         
-        chromaticity.RedX = extractCoordinate(edidData[29], (rxry_low >> 6) & 0x03);
-        chromaticity.RedY = extractCoordinate(edidData[30], (rxry_low >> 4) & 0x03);
-        chromaticity.GreenX = extractCoordinate(edidData[31], (gxgy_low >> 6) & 0x03);
-        chromaticity.GreenY = extractCoordinate(edidData[32], (gxgy_low >> 4) & 0x03);
-        chromaticity.BlueX = extractCoordinate(edidData[33], (bxby_low >> 6) & 0x03);
-        chromaticity.BlueY = extractCoordinate(edidData[34], (bxby_low >> 4) & 0x03);
-        chromaticity.WhitePointX = extractCoordinate(edidData[35], (wxwy_low >> 6) & 0x03);
-        chromaticity.WhitePointY = extractCoordinate(edidData[36], (wxwy_low >> 4) & 0x03);
+        chromaticity.RedX = extractCoordinate(edidData[27], (rxrygxgy_low >> 6) & 0x03);
+        chromaticity.RedY = extractCoordinate(edidData[28], (rxrygxgy_low >> 4) & 0x03);
+        chromaticity.GreenX = extractCoordinate(edidData[29], (rxrygxgy_low >> 2) & 0x03);
+        chromaticity.GreenY = extractCoordinate(edidData[30], (rxrygxgy_low >> 0) & 0x03);
+        chromaticity.BlueX = extractCoordinate(edidData[31], (bxbywxwy_low >> 6) & 0x03);
+        chromaticity.BlueY = extractCoordinate(edidData[32], (bxbywxwy_low >> 4) & 0x03);
+        chromaticity.WhitePointX = extractCoordinate(edidData[33], (bxbywxwy_low >> 2) & 0x03);
+        chromaticity.WhitePointY = extractCoordinate(edidData[34], (bxbywxwy_low >> 0) & 0x03);
 
         // Validate coordinates are reasonable (CIE 1931 space)
         auto isValidCoordinate = [](float x, float y) -> bool
