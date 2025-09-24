@@ -418,8 +418,15 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
     Extent.height = displayInfo.Height;
 
     // internal parameters set, retrieve create info using said parameters now
-    VkSwapchainCreateInfoKHR swapchainCreateInfo = GetCreateInfo(createInfo);
+    const VkSwapchainCreateInfoKHR swapchainCreateInfo = GetCreateInfo(createInfo);
 
+    VkResult result = vkCreateSwapchainKHR(ParentDevice, &swapchainCreateInfo, nullptr, &Swapchain);
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create swapchain!");
+    }
+    
+    
     if (device->HasExtension(VK_EXT_HDR_METADATA_EXTENSION_NAME))
     {
         // if HDR meatadata extension is supported, we can set HDR metadata on the swapchain if we're using an HDR format
@@ -455,21 +462,16 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
             hdrMetadata.maxContentLightLevel = displayInfo.ColorCapabilities.MaxLuminance * 0.9f; // set based on preferences. we can add a config for this later
             hdrMetadata.maxFrameAverageLightLevel = displayInfo.ColorCapabilities.MaxAverageLuminance;
 
-            // need to do create call here to make sure pNext isn't nullptr due to good ol' RAII
-            swapchainCreateInfo.pNext = &hdrMetadata;
-            VkResult result = vkCreateSwapchainKHR(ParentDevice, &swapchainCreateInfo, nullptr, &Swapchain);
-            if (result != VK_SUCCESS)
+            // get function pointer for vkSetHdrMetadataEXT
+            auto vkSetHdrMetadataEXT = (PFN_vkSetHdrMetadataEXT)vkGetDeviceProcAddr(ParentDevice, "vkSetHdrMetadataEXT");
+            if (vkSetHdrMetadataEXT)
             {
-                throw std::runtime_error("Failed to create swapchain!");
+                vkSetHdrMetadataEXT(ParentDevice, 1, &Swapchain, &hdrMetadata);
             }
-        }
-    }
-    else
-    {
-        VkResult result = vkCreateSwapchainKHR(ParentDevice, &swapchainCreateInfo, nullptr, &Swapchain);
-        if (result != VK_SUCCESS)
-        {
-            throw std::runtime_error("Failed to create swapchain!");
+            else
+            {
+                throw std::runtime_error("Failed to get function pointer for vkSetHdrMetadataEXT, even with extension enabled and HDR on.");
+            }
         }
     }
 
