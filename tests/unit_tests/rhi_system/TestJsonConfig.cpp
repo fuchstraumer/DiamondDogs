@@ -2,6 +2,7 @@
 #include <gmock/gmock.h>
 #include "RhiSystem.hpp"
 #include "RhiTypes.hpp"
+#include "Device.hpp"
 #include <filesystem>
 #include <fstream>
 
@@ -141,6 +142,56 @@ TEST_F(JsonConfigTest, RendererContextConfig)
         EXPECT_NE(rhiSystem->GetPhysicalDevice(), nullptr);
         EXPECT_NE(rhiSystem->GetDevice(), nullptr);
     });
+
+    // Clean up temporary config file
+    std::filesystem::remove(tempConfigPath);
+}
+
+TEST_F(JsonConfigTest, EnableHdrConfig)
+{
+    // Create a test configuration based on the provided example
+    std::filesystem::path tempConfigPath = std::filesystem::temp_directory_path() / "test_renderer_context.json";
+
+    // Create the JSON content programmatically
+    std::ofstream configFile(tempConfigPath);
+    configFile << R"({
+    "EngineConfig": {
+        "EngineName": "DiamondDogsTestEngine",
+        "EngineVersion": "0.1.0",
+        "ApplicationName": "RendererContextTest",
+        "ApplicationVersion": "1.0.0"
+    },
+    "RHISystemConfig": {
+        "ApiVersion": "Latest",
+        "ValidationLayers": "Base",
+        "NeedsPresentationSupport": true,
+        "RequiredInstanceExtensions": [
+            "VK_EXT_debug_utils"
+        ],
+        "RequestedInstanceExtensions": [],
+        "RequiredDeviceExtensions": [],
+        "RequestedDeviceExtensions": [
+            "VK_KHR_dedicated_allocation",
+            "VK_KHR_get_memory_requirements2",
+            "VK_KHR_pipeline_executable_properties"
+        ],
+        "ShaderCacheDir": "temp_renderer_cache"
+    },
+    "PlatformSystemConfig": {
+        "EnableHDR": true
+    }
+    })";
+    configFile.close();
+
+    // Add to cleanup list
+    shaderCacheCleanup.push_back(std::filesystem::temp_directory_path() / "temp_renderer_cache");
+    auto rhiSystem = std::make_unique<rhi::RhiSystem>(tempConfigPath.string().c_str());
+    EXPECT_NE(rhiSystem, nullptr);
+    EXPECT_NE(rhiSystem->GetInstance(), nullptr);
+    EXPECT_NE(rhiSystem->GetPhysicalDevice(), nullptr);
+    rhi::Device* device = rhiSystem->GetDevice();
+    EXPECT_NE(device, nullptr);
+    EXPECT_TRUE(device->HasExtension(VK_EXT_HDR_METADATA_EXTENSION_NAME));
 
     // Clean up temporary config file
     std::filesystem::remove(tempConfigPath);
