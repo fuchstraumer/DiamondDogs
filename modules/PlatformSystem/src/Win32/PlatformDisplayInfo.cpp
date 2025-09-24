@@ -639,7 +639,7 @@ EDIDHdrData GetEDIDHdrData(const std::vector<uint8_t>& edidData)
 
     // Parse chromaticity coordinates from base EDID block (bytes 25-34)
     // These are always present in EDID v1.3+
-    if (edidData.size() >= 37)
+    if (edidData.size() >= 35)
     {
         EDIDChromaticityCoordinates chromaticity{};
         

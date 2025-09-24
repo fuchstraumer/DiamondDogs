@@ -911,9 +911,9 @@ ImageFormat FromVkFormat(VkFormat format) noexcept
             return ImageFormat{ ImageComponentFormats::BC5, ImageDataType::SNorm };
 
         case VK_FORMAT_BC6H_UFLOAT_BLOCK:
-            return ImageFormat{ ImageComponentFormats::BC6H, ImageDataType::UInt };
+            return ImageFormat{ ImageComponentFormats::BC6H, ImageDataType::UFloat };
         case VK_FORMAT_BC6H_SFLOAT_BLOCK:
-            return ImageFormat{ ImageComponentFormats::BC6H, ImageDataType::SInt };
+            return ImageFormat{ ImageComponentFormats::BC6H, ImageDataType::Float };
 
         case VK_FORMAT_BC7_UNORM_BLOCK:
             return ImageFormat{ ImageComponentFormats::BC7, ImageDataType::UNorm };
