@@ -99,7 +99,7 @@ private:
     void createInstance(const RhiSystemCreateInfo& createInfo);
     void createDebugUtilsMessenger();
     void createPhysicalDevice();
-    void gatherAndResolveDeviceExtensions(const nlohmann::json& json_file);
+    void gatherAndResolveDeviceExtensions(const nlohmann::json& allConfig, const nlohmann::json& rhiConfig);
     void createLogicalDevice();
 
     std::unique_ptr<Instance> vulkanInstance;
