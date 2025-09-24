@@ -1,9 +1,16 @@
 #include "PlatformSystem.hpp"
 #include "PlatformSystemImpl.hpp"
+
 // will include linux or windows version based on CMake configuration
-#include "HDRSupport.hpp"
+#include "PlatformDisplayInfo.hpp"
 #include "Swapchain.hpp"
 #include "PlatformSurface.hpp"
+
+// rhi
+#include "Instance.hpp"
+#include "PhysicalDevice.hpp"
+#include "Device.hpp"
+
 #include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 #include "GLFW/glfw3.h"
@@ -12,6 +19,7 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <iostream>
 #include <string_view>
 #include "nlohmann/json.hpp"
 
@@ -63,16 +71,17 @@ constexpr static PlatformWindowMode s_DefaultWindowMode = PlatformWindowMode::Wi
 constexpr static ColorSpace s_DefaultColorSpace = ColorSpace::sRGB_Nonlinear;
 constexpr static PresentMode s_DefaultPresentMode = PresentMode::VerticalSync;
 constexpr static uint32_t s_DefaultSwapchainImageCount = 2;
-constexpr static ColorSpace s_DefaultSDRColorSpace = s_DefaultColorSpace;
-constexpr static ColorSpace s_DefaultHDRColorSpace = ColorSpace::HDR10_ST2084;
 constexpr static ImageFormat s_DefaultSDRFormat = CommonFormats::RGBA8_SRGB;
-constexpr static ImageFormat s_DefaultHDRFormat = CommonFormats::HDR_RGBA16;
+// for now, this format seems to be common in retrieved metadata from the system APIs
+constexpr static ImageFormat s_DefaultHDRFormat = CommonFormats::HDR_A2R10G10B10;
 
-PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
-                                           const uint64_t vkInstanceHandle,
-                                           const uint64_t vkDeviceHandle,
-                                           const uint64_t vkPhysicalDeviceHandle)
+PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath, void* RhiInstance, void* RhiDevice)
 {
+
+    // First, let's query the platform system to get display info. We can use this as fallbacks, and to know if HDR is supported and toggled on the system
+    const bool hdrEnabledOnSystem = IsHDREnabledOnSystem();
+    const DisplayInfo systemDisplayInfo = RetrievePlatformPrimaryDisplayInfo();
+
     // Open up the JSON file
     std::ifstream jsonFile(jsonPath);
     if (!jsonFile.is_open())
@@ -138,7 +147,12 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
     }
 
     ColorSpace desiredColorSpace = s_DefaultColorSpace;
-    if (platformJson.contains("ColorSpace"))
+    // ignore JSON configuration if system has a valid detected color space to use and HDR is enabled, since that is more likely to be correct
+    if (systemDisplayInfo.ColorCapabilities.DetectedColorSpace != ColorSpace::Invalid && hdrEnabledOnSystem)
+    {
+        desiredColorSpace = systemDisplayInfo.ColorCapabilities.DetectedColorSpace;
+    }
+    else if (platformJson.contains("ColorSpace"))
     {
         const std::string colorSpaceStr = platformJson.at("ColorSpace");
         auto iter = s_ColorSpaceFromStrMap.find(colorSpaceStr);
@@ -148,13 +162,11 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
         }
     }
 
-    bool enableHDR = false;
+    bool enableHDR = hdrEnabledOnSystem;
     if (platformJson.contains("EnableHDR"))
     {
         enableHDR = platformJson.at("EnableHDR");
     }
-    // make sure that even if config tries to enable it, system supports it and has it on as well
-    enableHDR = enableHDR && IsHDREnabledOnSystem();
 
     // now grab EngineConfig to get the application name we'll use for the window title
     std::string applicationName = "DiamondDogs Application";
@@ -185,15 +197,19 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
     // Create the platform window system
     impl = std::make_unique<PlatformSystemImpl>(createInfo);
 
+    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(RhiInstance);
+    const uint64_t vkInstanceHandle = (uint64_t)instance->vkHandle();
+    rhi::Device* device = reinterpret_cast<rhi::Device*>(RhiDevice);
+    const uint64_t physicalDeviceHandle = (uint64_t)device->GetPhysicalDevice().vkHandle();
+
     // Now continue to create default surface + swapchain, since we have all the info we need and I don't see a situation in which we wouldn't do this together (yet)
-    impl->ActiveDisplay = &s_PrimaryDisplay; // for now, just use primary display. In future could allow config of this
+    impl->ActiveDisplay = PlatformWindowSystem::GetPrimaryDisplayInfo(); // for now, just use primary display. In future could allow config of this
     impl->ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle,
-                                                            vkPhysicalDeviceHandle,
+                                                            physicalDeviceHandle,
                                                             impl->Window);
 
     SwapchainCreateInfo swapchainInfo{};
-    swapchainInfo.VkDeviceHandle = vkDeviceHandle;
-    swapchainInfo.VkPhysicalDeviceHandle = vkPhysicalDeviceHandle;
+    swapchainInfo.RhiDevice = (void*)RhiDevice;
     swapchainInfo.PlatformWindowHandle = impl->Window;
     swapchainInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
     swapchainInfo.MinImageCount = swapchainImageCount;
@@ -202,14 +218,13 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
     if (enableHDR)
     {
         swapchainInfo.SwapchainFormat = s_DefaultHDRFormat;
-        swapchainInfo.HdrColorSpace = desiredColorSpace;
-        swapchainInfo.SdrColorSpace = s_DefaultSDRColorSpace;
+        swapchainInfo.DesiredColorSpace = desiredColorSpace;
+        swapchainInfo.HdrColorCapabilities = systemDisplayInfo.ColorCapabilities;
     }
     else
     {
         swapchainInfo.SwapchainFormat = s_DefaultSDRFormat;
-        swapchainInfo.SdrColorSpace = desiredColorSpace;
-        swapchainInfo.HdrColorSpace = s_DefaultHDRColorSpace;
+        swapchainInfo.DesiredColorSpace = desiredColorSpace;
     }
     swapchainInfo.PlatformSystemPtr = this;
     swapchainInfo.DisplayIndex = 0;
@@ -220,24 +235,19 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath,
 // Factory function
 PlatformWindowSystem::PlatformWindowSystem(const PlatformWindowCreateInfo& createInfo) : impl(std::make_unique<PlatformSystemImpl>(createInfo))
 {
-    // Set active display to the requested display, or primary display if none specified
-    if (createInfo.DisplayToUse != nullptr)
-    {
-        impl->ActiveDisplay = createInfo.DisplayToUse;
-    }
-    else
-    {
-        // Fallback to primary display buffer if no displays were enumerated
-        impl->ActiveDisplay = &s_PrimaryDisplay;
-    }
 }
 
 PlatformWindowSystem::~PlatformWindowSystem()
 {
+    Destroy();
 }
 
 void PlatformWindowSystem::Destroy()
 {
+    if (!impl)
+    {
+        return;
+    }
     // make sure swapchain is destroyed before surface, because otherwise validation layers will complain
     impl->ActiveSwapchain.reset();
     impl->ActiveSurface.reset();
@@ -245,11 +255,12 @@ void PlatformWindowSystem::Destroy()
     impl.reset();
 }
 
-void PlatformWindowSystem::CreateDefaultSwapchain(
-    const uint64_t vkInstanceHandle,
-    const uint64_t vkDeviceHandle,
-    const uint64_t vkPhysicalDeviceHandle)
+void PlatformWindowSystem::CreateDefaultSwapchain(void* rhiInstance, void* rhiDevice)
 {
+    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(rhiInstance);
+    const uint64_t vkInstanceHandle = (uint64_t)instance->vkHandle();
+    rhi::Device* device = reinterpret_cast<rhi::Device*>(rhiDevice);
+    const uint64_t vkPhysicalDeviceHandle = (uint64_t)device->GetPhysicalDevice().vkHandle();
     
     if (!impl->ActiveSurface)
     {
@@ -262,19 +273,21 @@ void PlatformWindowSystem::CreateDefaultSwapchain(
         DestroySwapchain();
     }
 
+    const DisplayInfo& displayInfo = impl->ActiveDisplay;
+    const bool enableHDR = displayInfo.ColorCapabilities.hdrEnabled;
+
     SwapchainCreateInfo createInfo{};
-    createInfo.VkDeviceHandle = vkDeviceHandle;
-    createInfo.VkPhysicalDeviceHandle = vkPhysicalDeviceHandle;
+    createInfo.RhiDevice = rhiDevice;
     createInfo.PlatformWindowHandle = impl->Window;
     createInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
     createInfo.PlatformSystemPtr = this;
     createInfo.DisplayIndex = 0u;
     createInfo.MinImageCount = s_DefaultSwapchainImageCount;
     createInfo.SwapchainPresentMode = s_DefaultPresentMode;
-    createInfo.SwapchainFormat = s_DefaultSDRFormat;
-    createInfo.SdrColorSpace = s_DefaultSDRColorSpace;
-    createInfo.HdrColorSpace = s_DefaultHDRColorSpace;
-    createInfo.TryEnableHDR = false;
+    createInfo.TryEnableHDR = enableHDR;
+    createInfo.SwapchainFormat = enableHDR ? s_DefaultHDRFormat : s_DefaultSDRFormat;
+    createInfo.DesiredColorSpace = enableHDR ? displayInfo.ColorCapabilities.DetectedColorSpace : s_DefaultColorSpace;
+    createInfo.HdrColorCapabilities = displayInfo.ColorCapabilities;
     impl->ActiveSwapchain = std::make_unique<Swapchain>(createInfo);
 }
 
@@ -344,12 +357,22 @@ void PlatformWindowSystem::AddShouldCloseEventListener(ShouldCloseEvent listener
 // Accessors
 const DisplayInfo& PlatformWindowSystem::GetActiveDisplayInfo() const noexcept
 {
-    return *impl->ActiveDisplay;
+    return impl->ActiveDisplay;
 }
 
 const void* PlatformWindowSystem::GetWindowHandle() const noexcept
 {
     return impl->Window;
+}
+
+PresentMode PlatformWindowSystem::GetPresentMode() const noexcept
+{
+    return impl->ActiveSwapchain->GetPresentMode();
+}
+
+PlatformWindowMode PlatformWindowSystem::GetWindowMode() const noexcept
+{
+    return PlatformWindowMode();
 }
 
 // Lifecycle methods
@@ -379,6 +402,11 @@ bool PlatformWindowSystem::IsHDREnabledOnSystem() noexcept
 void PlatformWindowSystem::GetWindowSize(int& w, int& h) const
 {
     glfwGetWindowSize(impl->Window, &w, &h);
+}
+
+void PlatformWindowSystem::GetWindowPos(int& x, int& y) const
+{
+    glfwGetWindowPos(impl->Window, &x, &y);
 }
 
 void PlatformWindowSystem::GetFramebufferSize(int& w, int& h) const
@@ -419,4 +447,14 @@ int PlatformWindowSystem::GetInputMode(int mode) const
 void PlatformWindowSystem::SetInputMode(int mode, int val)
 {
     glfwSetInputMode(impl->Window, mode, val);
+}
+
+void PlatformWindowSystem::SetWindowShouldClose(bool shouldClose)
+{
+    glfwSetWindowShouldClose(impl->Window, shouldClose ? GLFW_TRUE : GLFW_FALSE);
+}
+
+DisplayInfo PlatformWindowSystem::GetPrimaryDisplayInfo() noexcept
+{
+    return RetrievePlatformPrimaryDisplayInfo();
 }

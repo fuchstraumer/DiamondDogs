@@ -168,7 +168,7 @@ namespace rhi
         createInstance(rhiConfig, engineConfig);
         createPhysicalDevice();
         extensionPack->SetPhysicalDevice(physicalDevices.front()->vkHandle());
-        gatherAndResolveDeviceExtensions(rhiConfig);
+        gatherAndResolveDeviceExtensions(json_file, rhiConfig);
         createLogicalDevice();
 
         if (vulkanInstance->HasValidation() && vulkanInstance->HasExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
@@ -417,9 +417,11 @@ namespace rhi
         physicalDevices.emplace_back(std::make_unique<PhysicalDevice>(vulkanInstance->vkHandle(), extensionPack->GetVulkanApiVersion()));
     }
 
-    void RhiSystem::gatherAndResolveDeviceExtensions(const nlohmann::json& rhiConfig)
+    void RhiSystem::gatherAndResolveDeviceExtensions(const nlohmann::json& allConfig, const nlohmann::json& rhiConfig)
     {
         std::vector<std::string> requiredDeviceExts;
+        std::vector<std::string> requestedDeviceExts;
+
         {
             nlohmann::json req_ext_json = rhiConfig.at("RequiredDeviceExtensions");
             for (auto& entry : req_ext_json)
@@ -433,11 +435,28 @@ namespace rhi
         if (!hasSwapchainExt && rhiConfig.value("NeedsPresentationSupport", false))
         {
             requiredDeviceExts.push_back("VK_KHR_swapchain");
+            // if we are enabling presentation support, we should also do a "horizontal" query of sorts to see if we're requesting HDR
+            // if we are, we should also enable the HDR extension. we need to use the "allConfig" because rhiConfig doesn't store surface/platform config data
+            const bool hasPlatformConfig = allConfig.contains("PlatformSystemConfig");
+            if (hasPlatformConfig)
+            {
+                // now check for HDR request
+                const nlohmann::json& platformConfig = allConfig.at("PlatformSystemConfig");
+                const bool wantsHDR = platformConfig.value("EnableHDR", false);
+                if (wantsHDR)
+                {
+                    const bool hasHDRExt = std::find(requiredDeviceExts.begin(), requiredDeviceExts.end(), VK_EXT_HDR_METADATA_EXTENSION_NAME) != requiredDeviceExts.end();
+                    if (!hasHDRExt)
+                    {
+                        // put this in requested, because it's not critical we have it but it is really nice to have! (and builds on the required swapchain ext)
+                        requestedDeviceExts.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
+                    }
+                }
+            }
         }
 
         extensionPack->AddRequiredDeviceExtensions(requiredDeviceExts);
         
-        std::vector<std::string> requestedDeviceExts;
         {
             nlohmann::json ext_json = rhiConfig.at("RequestedDeviceExtensions");
             for (auto& entry : ext_json)

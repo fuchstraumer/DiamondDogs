@@ -18,25 +18,6 @@ enum class PlatformWindowMode
     MaximizedWindowed
 };
 
-struct DisplayInfo
-{
-    uint32_t Width{ 0 };
-    uint32_t Height{ 0 };
-    /** Bit depth of the red color channel */
-    uint8_t BitDepthRed{ 0 };
-    /** Bit depth of the green color channel */
-    uint8_t BitDepthGreen{ 0 };
-    /** Bit depth of the blue color channel */
-    uint8_t BitDepthBlue{ 0 };
-    /** OS-specific horizontal display scale factor, for High DPI displays */
-    float DisplayScaleX{ 1.0f };
-    /** OS-specific vertical display scale factor, for High DPI displays */
-    float DisplayScaleY{ 1.0f };
-    float RefreshRate{ 0.0f };
-    // index to monitor we chose when querying GLFW monitors: using index as pointer would not guarantee lifetime
-    int MonitorIdx{ -1 };
-};
-
 /** @brief Struct that allows setting and toggling GLFW window hints, currently. */
 struct PlatformWindowBehaviorFlags
 {
@@ -47,6 +28,8 @@ struct PlatformWindowBehaviorFlags
     bool CenterMouse = false;
 };
 
+struct DisplayInfo;
+
 struct PlatformWindowCreateInfo
 {
     const char* WindowName;
@@ -56,7 +39,10 @@ struct PlatformWindowCreateInfo
     uint32_t InitialHeight{ 600 };
     uint32_t InitialPosX{ 0 };
     uint32_t InitialPosY{ 0 };
+    float DesiredRefreshRate{ 0.0f }; // if 0.0f, use default or current refresh rate
     PlatformWindowBehaviorFlags BehaviorFlags;
+    /** @brief Optional swapchain create info, if provided a swapchain will be created alongside the window using these parameters. */
+    struct SwapchainCreateInfo* SwapchainInfo{ nullptr };
 };
 
 /** @brief Defines color space for a surface - note that this is not the same as a format.
@@ -118,18 +104,56 @@ struct DisplayColorCapabilities
     bool wcgEnabled{ false };
     bool wcgCanBeToggled{ false };
     
-    // Advanced color generally refers to HDR + WCG combined
-    bool advancedColorSupported{ false };
-    bool advancedColorEnabled{ false };
-    
     // Additional metadata
     float sdrWhiteLevel{ 80.0f }; // Default SDR white level in nits
     uint32_t bitsPerColorChannel{ 8 };
-    uint32_t colorEncoding{ 0 }; // DISPLAYCONFIG_COLOR_ENCODING value
+
+    enum class ColorModes : uint8_t
+    {
+        Invalid = 0,
+        SDR, // display referred color and luminance
+        WCG, // scene referred color, display referred luminance
+        HDR // scene referred color *and* luminance
+    };
+    ColorModes ColorMode{ ColorModes::Invalid };
+
+    // Following parameters are extracted from EDID, if available. Manufacturer may not provide these, or they could be incorrect (spruced up, usually, to look better in marketing material)
+    float MaxLuminance{ 0.0f }; // in nits
+    float MinLuminance{ 0.0f }; // in nits
+    float MaxAverageLuminance{ 0.0f }; // in nits
+
+    // Chromaticity coordinates, if available from EDID
+    float RedPrimaryX{ 0.0f };
+    float RedPrimaryY{ 0.0f };
+    float GreenPrimaryX{ 0.0f };
+    float GreenPrimaryY{ 0.0f };
+    float BluePrimaryX{ 0.0f };
+    float BluePrimaryY{ 0.0f };
+    float WhitePointX{ 0.0f };
+    float WhitePointY{ 0.0f };
+    bool HasChromaticityData{ false };
     
-    // Helper methods
+    // Detected color space based on chromaticity analysis
+    ColorSpace DetectedColorSpace{ ColorSpace::Invalid };
+    float ColorSpaceConfidence{ 0.0f }; // 0.0 = no confidence, 1.0 = perfect match
+    
+    // Helper methods. Only really relevant on Win32, where these are separate capabilities
     bool IsFullAdvancedColorSupported() const { return hdrSupported && wcgSupported; }
     bool IsFullAdvancedColorEnabled() const { return hdrEnabled && wcgEnabled; }
+    
+    // Get human-readable name for detected color space
+    const char* GetDetectedColorSpaceName() const;
+    
+    // Check if detected color space indicates wide color gamut capability
+    bool HasWideColorGamut() const 
+    { 
+        return DetectedColorSpace == ColorSpace::Display_P3_Nonlinear ||
+               DetectedColorSpace == ColorSpace::Display_P3_Linear ||
+               DetectedColorSpace == ColorSpace::DCI_P3_Nonlinear ||
+               DetectedColorSpace == ColorSpace::BT2020_Linear ||
+               DetectedColorSpace == ColorSpace::HDR10_ST2084 ||
+               DetectedColorSpace == ColorSpace::HDR10_HLG;
+    }
 };
 
 /** @brief Describe the HDR support of the application as it is currently configured, after platform initialization.
@@ -147,25 +171,39 @@ struct HDRCapabilities
     ColorSpace ActiveColorSpace{ ColorSpace::sRGB_Nonlinear };
 };
 
+struct DisplayRefreshRateCapabilities
+{
+    float RefreshRate{ 0.0f }; // Exact refresh rate, queried from platform API
+    bool IsInteger{ true }; // True if refresh rate is effectively an integer value
+    float RoundedRefreshRate{ 0.0f }; // Rounded to nearest whole number
+};
+
+struct DisplayInfo
+{
+    uint32_t Width;
+    uint32_t Height;
+    DisplayColorCapabilities ColorCapabilities;
+    DisplayRefreshRateCapabilities RefreshRateCapabilities;
+};
+
 struct SwapchainCreateInfo
 {
-    uint64_t VkDeviceHandle{ 0u };
-    uint64_t VkPhysicalDeviceHandle{ 0u };
+    void* RhiDevice{ nullptr };
     void* PlatformWindowHandle{ nullptr }; // GLFWwindow*
     uint64_t VkSurfaceHandle{ 0u };
     /** @brief Min image count for swapchain */
     uint32_t MinImageCount{ 2 };
+    /** @brief Desired color space for the swapchain */
+    ColorSpace DesiredColorSpace{ ColorSpace::sRGB_Nonlinear };
     /** @brief Optional image format to use for swapchain. If left to invalid default values, will auto-choose format: does not enable HDR */
     ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::Default };
-    /** @brief Preferred color space for SDR surfaces and content */
-    ColorSpace SdrColorSpace{ ColorSpace::sRGB_Nonlinear };
-    /** @brief Preferred color space if HDR is supported. Default value is DCI-P3, as this is the most highly supported.
-     *  @note Enabling an HDR colorspace and using an HDR framebuffer is not enough, application shaders must perform final tonemapping and transforms.
-     */
-    ColorSpace HdrColorSpace{ ColorSpace::DCI_P3_Nonlinear };
+    /** @brief Presentation mode/VSync mode to attempt to apply to this swapchain. Will choose "best" option if left to default. */
     PresentMode SwapchainPresentMode{ PresentMode::Invalid };
-    /** @brief If set to true, Swapchain will attempt to use HdrColorSpace and best available colorbuffer format */
+    /** @brief If set to true, will ensure HDR is supported and enabled for this swapchain. Compatible with blank/default `DesiredColorSpace` and `SwapchainFormat`.
+     * If those are set to specific HDR-capable values, will attempt to use those instead. */
     bool TryEnableHDR{ false };
+    /** @brief If `TryEnableHDR` is true, this passes on the color capabilities to use for HDR configuration. Will be used to decide on a color space and set HDR metadata */
+    DisplayColorCapabilities HdrColorCapabilities{};
     /** @brief Pointer to the platform system this display swapchain will be a child of. */
     void* PlatformSystemPtr{ nullptr };
     /** @brief Index of the monitor/display used with this window. Will be used to query the platform system for dimensional info. Default value of is UINT32_MAX, which means just use the "primary" display if not changed. */

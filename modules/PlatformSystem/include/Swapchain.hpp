@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_PLATFORM_SYSTEM_SWAPCHAIN_HPP
 #define DIAMOND_DOGS_PLATFORM_SYSTEM_SWAPCHAIN_HPP
 #include "PlatformTypes.hpp"
+#include "ImageDataFormats.hpp"
 #include "Math.hpp"
 #include <memory>
 
@@ -28,8 +29,9 @@ public:
 
     math::Float2 GetExtent() const noexcept;
     uint32_t ImageCount() const noexcept;
-    ImageDataType ImageFormat() const noexcept;
+    ImageFormat GetImageFormat() const noexcept;
     ColorSpace ColorSpace() const noexcept;
+    PresentMode GetPresentMode() const noexcept;
     const void* GetImageHandle(uint32_t index) const noexcept;
     const void* GetImageViewHandle(uint32_t index) const noexcept;
 

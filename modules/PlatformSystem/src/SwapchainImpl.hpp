@@ -7,6 +7,12 @@
 #include <atomic>
 #include <memory>
 
+struct AppSurfaceFormat
+{
+    ImageFormat Format;
+    ColorSpace Space;
+};
+
 struct SwapchainInfo
 {
     SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sfc);
@@ -14,7 +20,10 @@ struct SwapchainInfo
     std::vector<VkSurfaceFormatKHR> formats;
     std::vector<VkPresentModeKHR> presentModes;
     std::vector<VkColorSpaceKHR> colorSpaces;
-    VkSurfaceFormatKHR GetBestFormat(bool tryEnableHDR, ColorSpace preferredSdrColorSpace, ColorSpace preferredHdrColorSpace) const noexcept;
+    /** @brief Attempts to find best format using a hueristic weighing bit depth and color spaces. Doesn't take any user input, used for default cases */
+    VkSurfaceFormatKHR FindBestFormat() const noexcept;
+    /** @brief Attempts to find format closest to requested format */
+    VkSurfaceFormatKHR FindClosestFormat(const VkSurfaceFormatKHR& requestedFormat) const noexcept;
 };
 
 struct SwapchainImpl
@@ -26,7 +35,9 @@ struct SwapchainImpl
     void Destroy();
 
     VkDevice ParentDevice;
-    VkSurfaceFormatKHR Format;
+    // we keep both formats around, as it makes conversion and queries easier
+    AppSurfaceFormat AppFormat;
+    VkSurfaceFormatKHR VulkanFormat;
     VkExtent2D Extent;
     uint32_t MinImageCount;
     uint32_t ImageCount;

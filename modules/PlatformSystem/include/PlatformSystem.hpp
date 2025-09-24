@@ -31,11 +31,7 @@ class PlatformWindowSystem
 public:
     
     /** @brief Reads configuration values for the platform window and swapchain from given JSON path, and creates a default surface + swapchain alongside the window. */
-    PlatformWindowSystem(const char* jsonPath,
-                         const uint64_t vkInstanceHandle,
-                         const uint64_t vkDeviceHandle,
-                         const uint64_t vkPhysicalDeviceHandle);
-
+    PlatformWindowSystem(const char* jsonPath, void* RhiInstance, void* RhiDevice);
     /** @brief Uses a create info struct, and does not create a default surface or swapchain. Used primarily for unit testing. */
     PlatformWindowSystem(const PlatformWindowCreateInfo& createInfo);
 
@@ -44,7 +40,7 @@ public:
     void Destroy();
 
     // Default swapchain just uses display info that we got from window creation as creation parameters. Also creates a surface using display parameters
-    void CreateDefaultSwapchain(const uint64_t vkInstanceHandle, const uint64_t vkDeviceHandle, const uint64_t vkPhysicalDeviceHandle);
+    void CreateDefaultSwapchain(void* rhiInstance, void* rhiDevice);
     void CreateSwapchain(const SwapchainCreateInfo& createInfo);
     void DestroySwapchain();
 
@@ -60,9 +56,14 @@ public:
 
     /** @brief Display is chosen during window creation, and isn't managed by `DisplaySystem` as it's later in the init process. */
     const DisplayInfo& GetActiveDisplayInfo() const noexcept;
+    /** @brief Returns the window handle for the GLFWwindow attached to this platform window system instance. */
     const void* GetWindowHandle() const noexcept;
+    /** @brief Returns the primary display information, as in the underlying video mode and hardware configuration. Can differ from what is active for the system and rendering, though. */
+    static DisplayInfo GetPrimaryDisplayInfo() noexcept;
 
+    /** @brief Returns active present mode for the current swapchain attached to this platform window system instance. */
     PresentMode GetPresentMode() const noexcept;
+    /** @brief Returns active windowing mode for the GLFWwindow attached to this platform window system instance. */
     PlatformWindowMode GetWindowMode() const noexcept;
 
     // Lifecycle management methods
@@ -72,6 +73,7 @@ public:
 
     // Window and input management (mirroring deprecated RhiSystem functionality)
     void GetWindowSize(int& w, int& h) const;
+    void GetWindowPos(int& x, int& y) const;
     void GetFramebufferSize(int& w, int& h) const;
     int GetMouseButton(int button) const;
     void GetCursorPosition(double& x, double& y) const;
@@ -80,6 +82,7 @@ public:
     void SetWindowAttribute(int attrib, int value);
     int GetInputMode(int mode) const;
     void SetInputMode(int mode, int val);
+    void SetWindowShouldClose(bool shouldClose);
 
     static bool IsHDREnabledOnSystem() noexcept;
 

@@ -1,16 +1,13 @@
-#include "HDRSupport.hpp"
+#include "PlatformDisplayInfo.hpp"
+#ifdef __linux__
 #include <cstring>
 #include <cstdlib>
 #include <unistd.h>
-
-// Linux-specific includes for display detection
-#ifdef __linux__
 #include <X11/Xlib.h>
 #include <X11/extensions/Xrandr.h>
-// Note: Wayland support would require different headers and protocols
-#endif
 
-namespace {
+namespace
+{
     // Linux HDR detection is very limited and heuristic-based
     // This attempts to detect some common scenarios
     
@@ -61,11 +58,13 @@ bool IsHDRSupportedAndEnabled()
     // 2. Fall back to X11 depth detection (unreliable)
     // 3. Default to false for safety
     
-    if (DetectWaylandHDR()) {
+    if (DetectWaylandHDR())
+    {
         return true;
     }
     
-    if (DetectX11HDR()) {
+    if (DetectX11HDR())
+    {
         // Even if X11 suggests HDR capability, we can't be sure it's enabled
         // Return false for safety unless explicitly hinted
         return false;
@@ -111,7 +110,8 @@ DisplayColorCapabilities GetDisplayColorCapabilities()
     const char* waylandDisplay = std::getenv("WAYLAND_DISPLAY");
     const char* x11Display = std::getenv("DISPLAY");
     
-    if (waylandDisplay) {
+    if (waylandDisplay)
+    {
         // Wayland: slightly better HDR prospects
         // Some compositors support color management
         
@@ -126,19 +126,25 @@ DisplayColorCapabilities GetDisplayColorCapabilities()
             caps.hdrEnabled = true;
         }
         
-    } else if (x11Display) {
+    } 
+    else if (x11Display)
+    {
         // X11: very limited HDR support
         #ifdef __linux__
         Display* display = XOpenDisplay(nullptr);
-        if (display) {
+        if (display)
+        {
             Screen* screen = DefaultScreenOfDisplay(display);
             int depth = DefaultDepthOfScreen(screen);
             
             // Heuristic based on color depth
-            if (depth >= 30) {
+            if (depth >= 30)
+            {
                 caps.wcgSupported = true;
                 caps.bitsPerColorChannel = 10;
-            } else if (depth >= 24) {
+            } 
+            else if (depth >= 24)
+            {
                 caps.bitsPerColorChannel = 8;
             }
             
@@ -157,7 +163,8 @@ DisplayColorCapabilities GetDisplayColorCapabilities()
     
     // Set reasonable defaults
     caps.sdrWhiteLevel = 80.0f;
-    if (caps.bitsPerColorChannel == 0) {
+    if (caps.bitsPerColorChannel == 0)
+    {
         caps.bitsPerColorChannel = 8; // Safe default
     }
     
@@ -178,3 +185,5 @@ HDRCapabilityInfo GetHDRCapabilities()
     
     return info;
 }
+
+#endif // __linux__
