@@ -26,6 +26,7 @@ protected:
             600,
             0,
             0,
+            60.0f,
             PlatformWindowBehaviorFlags
             {
                 true,   // Resizable

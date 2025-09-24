@@ -18,25 +18,6 @@ enum class PlatformWindowMode
     MaximizedWindowed
 };
 
-struct DisplayInfo
-{
-    uint32_t Width{ 0 };
-    uint32_t Height{ 0 };
-    /** Bit depth of the red color channel */
-    uint8_t BitDepthRed{ 0 };
-    /** Bit depth of the green color channel */
-    uint8_t BitDepthGreen{ 0 };
-    /** Bit depth of the blue color channel */
-    uint8_t BitDepthBlue{ 0 };
-    /** OS-specific horizontal display scale factor, for High DPI displays */
-    float DisplayScaleX{ 1.0f };
-    /** OS-specific vertical display scale factor, for High DPI displays */
-    float DisplayScaleY{ 1.0f };
-    float RefreshRate{ 0.0f };
-    // index to monitor we chose when querying GLFW monitors: using index as pointer would not guarantee lifetime
-    int MonitorIdx{ -1 };
-};
-
 /** @brief Struct that allows setting and toggling GLFW window hints, currently. */
 struct PlatformWindowBehaviorFlags
 {
@@ -46,6 +27,8 @@ struct PlatformWindowBehaviorFlags
     bool FocusOnShow = false;
     bool CenterMouse = false;
 };
+
+struct DisplayInfo;
 
 struct PlatformWindowCreateInfo
 {
@@ -148,10 +131,29 @@ struct DisplayColorCapabilities
     float BluePrimaryY{ 0.0f };
     float WhitePointX{ 0.0f };
     float WhitePointY{ 0.0f };
+    bool HasChromaticityData{ false };
+    
+    // Detected color space based on chromaticity analysis
+    ColorSpace DetectedColorSpace{ ColorSpace::Invalid };
+    float ColorSpaceConfidence{ 0.0f }; // 0.0 = no confidence, 1.0 = perfect match
     
     // Helper methods. Only really relevant on Win32, where these are separate capabilities
     bool IsFullAdvancedColorSupported() const { return hdrSupported && wcgSupported; }
     bool IsFullAdvancedColorEnabled() const { return hdrEnabled && wcgEnabled; }
+    
+    // Get human-readable name for detected color space
+    const char* GetDetectedColorSpaceName() const;
+    
+    // Check if detected color space indicates wide color gamut capability
+    bool HasWideColorGamut() const 
+    { 
+        return DetectedColorSpace == ColorSpace::Display_P3_Nonlinear ||
+               DetectedColorSpace == ColorSpace::Display_P3_Linear ||
+               DetectedColorSpace == ColorSpace::DCI_P3_Nonlinear ||
+               DetectedColorSpace == ColorSpace::BT2020_Linear ||
+               DetectedColorSpace == ColorSpace::HDR10_ST2084 ||
+               DetectedColorSpace == ColorSpace::HDR10_HLG;
+    }
 };
 
 /** @brief Describe the HDR support of the application as it is currently configured, after platform initialization.
@@ -176,16 +178,17 @@ struct DisplayRefreshRateCapabilities
     float RoundedRefreshRate{ 0.0f }; // Rounded to nearest whole number
 };
 
-struct PlatformDisplayInfoQuery
+struct DisplayInfo
 {
-    float DesiredRefreshRate{ 0.0f };
-    uint32_t DesiredBitDepth{ 0 };
+    uint32_t Width;
+    uint32_t Height;
+    DisplayColorCapabilities ColorCapabilities;
+    DisplayRefreshRateCapabilities RefreshRateCapabilities;
 };
 
 struct SwapchainCreateInfo
 {
-    uint64_t VkDeviceHandle{ 0u };
-    uint64_t VkPhysicalDeviceHandle{ 0u };
+    void* RhiDevice{ nullptr };
     void* PlatformWindowHandle{ nullptr }; // GLFWwindow*
     uint64_t VkSurfaceHandle{ 0u };
     /** @brief Min image count for swapchain */
@@ -199,6 +202,8 @@ struct SwapchainCreateInfo
     /** @brief If set to true, will ensure HDR is supported and enabled for this swapchain. Compatible with blank/default `DesiredColorSpace` and `SwapchainFormat`.
      * If those are set to specific HDR-capable values, will attempt to use those instead. */
     bool TryEnableHDR{ false };
+    /** @brief If `TryEnableHDR` is true, this passes on the color capabilities to use for HDR configuration. Will be used to decide on a color space and set HDR metadata */
+    DisplayColorCapabilities HdrColorCapabilities{};
     /** @brief Pointer to the platform system this display swapchain will be a child of. */
     void* PlatformSystemPtr{ nullptr };
     /** @brief Index of the monitor/display used with this window. Will be used to query the platform system for dimensional info. Default value of is UINT32_MAX, which means just use the "primary" display if not changed. */

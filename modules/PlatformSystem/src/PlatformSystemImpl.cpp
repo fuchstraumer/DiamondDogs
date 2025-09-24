@@ -292,9 +292,6 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
 
     glfwWindowHint(GLFW_POSITION_X, static_cast<int>(createInfo.InitialPosX));
     glfwWindowHint(GLFW_POSITION_Y, static_cast<int>(createInfo.InitialPosY));
-    glfwWindowHint(GLFW_RED_BITS, static_cast<int>(s_PrimaryDisplay.BitDepthRed));
-    glfwWindowHint(GLFW_GREEN_BITS, static_cast<int>(s_PrimaryDisplay.BitDepthGreen));
-    glfwWindowHint(GLFW_BLUE_BITS, static_cast<int>(s_PrimaryDisplay.BitDepthBlue));
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // required to create a Vulkan-capable window, otherwise we create an OpenGL context by default
 
     switch (createInfo.DesiredWindowMode)
@@ -304,7 +301,7 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
         break;
     case PlatformWindowMode::Fullscreen:
         // we only set this particular hint for fullscreen exclusive mode
-        glfwWindowHint(GLFW_REFRESH_RATE, static_cast<int>(s_PrimaryDisplay.RefreshRate));
+        glfwWindowHint(GLFW_REFRESH_RATE, static_cast<int>(s_PrimaryDisplay.RefreshRateCapabilities.RoundedRefreshRate));
         Window = glfwCreateWindow(static_cast<int>(createInfo.InitialWidth), static_cast<int>(createInfo.InitialHeight), createInfo.WindowName, glfwGetPrimaryMonitor(), nullptr);
         break;
     case PlatformWindowMode::FullScreenWindowed:

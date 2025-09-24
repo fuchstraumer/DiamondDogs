@@ -43,44 +43,261 @@ struct EDIDHdrData
     EDIDChromaticityCoordinates Chromaticity;
 };
 
-// stub here because I have to include more windows headers to get this :(
-std::vector<uint8_t> GetEDIDFromRegistry(const std::wstring& monitorFriendlyName);
-EDIDHdrData GetEDIDHdrData(const std::vector<uint8_t>& edidData);
-
-
-/** @brief Information about a display mode for a single monitor: analogous to GLFW monitor modes */
-struct DisplayMode
+struct ColorSpacePrimaries
 {
-    uint32_t Width;
-    uint32_t Height;
-    float RefreshRate;
-
-    constexpr bool operator==(const DisplayMode& other) const noexcept
+    float RedX, RedY;
+    float GreenX, GreenY;
+    float BlueX, BlueY;
+    float WhiteX, WhiteY;
+    
+    // Calculate gamut area using shoelace formula
+    float CalculateGamutArea() const noexcept
     {
-        return Width == other.Width && Height == other.Height && std::fabs(RefreshRate - other.RefreshRate) < 0.1f;
+        // Triangle area using cross product: 0.5 * |AB x AC|
+        // Where A=Red, B=Green, C=Blue in chromaticity space
+        const float area = 0.5f * std::abs((GreenX - RedX) * (BlueY - RedY) - (BlueX - RedX) * (GreenY - RedY));
+        return area;
     }
-
-    constexpr bool operator!=(const DisplayMode& other) const noexcept
+    
+    // Calculate distance metric between two color spaces
+    float CalculateDistance(const ColorSpacePrimaries& other) const noexcept
     {
-        return !(*this == other);
+        // Weighted euclidean distance in chromaticity space
+        // Weight primaries more heavily than white point since primaries define the gamut
+        const float redDist = std::sqrt((RedX - other.RedX) * (RedX - other.RedX) + (RedY - other.RedY) * (RedY - other.RedY));
+        const float greenDist = std::sqrt((GreenX - other.GreenX) * (GreenX - other.GreenX) + (GreenY - other.GreenY) * (GreenY - other.GreenY));
+        const float blueDist = std::sqrt((BlueX - other.BlueX) * (BlueX - other.BlueX) + (BlueY - other.BlueY) * (BlueY - other.BlueY));
+        const float whiteDist = std::sqrt((WhiteX - other.WhiteX) * (WhiteX - other.WhiteX) + (WhiteY - other.WhiteY) * (WhiteY - other.WhiteY));
+        
+        // Weight primaries 3x more than white point
+        return redDist + greenDist + blueDist + whiteDist;
     }
+};
 
-    constexpr bool operator<(const DisplayMode& other) const noexcept
+// Standard color space primaries (CIE 1931 xy chromaticity coordinates)
+namespace StandardColorSpaces
+{
+    // sRGB / Rec.709 (most common)
+    constexpr ColorSpacePrimaries sRGB =
     {
-        if (Width != other.Width)
+        0.64f, 0.33f,    // Red
+        0.30f, 0.60f,    // Green  
+        0.15f, 0.06f,    // Blue
+        0.3127f, 0.3290f // White point D65
+    };
+    
+    // Display P3 (Apple displays, many modern HDR monitors)
+    constexpr ColorSpacePrimaries DisplayP3 =
+    {
+        0.68f, 0.32f,    // Red
+        0.265f, 0.69f,   // Green
+        0.15f, 0.06f,    // Blue  
+        0.3127f, 0.3290f // White point D65
+    };
+    
+    // DCI-P3 (Digital cinema)
+    constexpr ColorSpacePrimaries DCIP3 =
+    {
+        0.68f, 0.32f,    // Red
+        0.265f, 0.69f,   // Green
+        0.15f, 0.06f,    // Blue
+        0.314f, 0.351f   // White point DCI (different from Display P3)
+    };
+    
+    // Rec.2020 (Ultra HD TV standard, very rare in consumer displays)
+    constexpr ColorSpacePrimaries Rec2020 =
+    {
+        0.708f, 0.292f,  // Red
+        0.170f, 0.797f,  // Green
+        0.131f, 0.046f,  // Blue
+        0.3127f, 0.3290f // White point D65
+    };
+    
+    // Adobe RGB (Photography/print)
+    constexpr ColorSpacePrimaries AdobeRGB =
+    {
+        0.64f, 0.33f,    // Red
+        0.21f, 0.71f,    // Green
+        0.15f, 0.06f,    // Blue
+        0.3127f, 0.3290f // White point D65
+    };
+}
+
+ColorSpace DetermineClosestColorSpace(const EDIDChromaticityCoordinates& chromaticity)
+{
+    if (!chromaticity.HasValidData)
+    {
+        return ColorSpace::sRGB_Nonlinear; // Safe fallback
+    }
+    
+    // Convert EDID chromaticity to our structure
+    ColorSpacePrimaries displayPrimaries
+    {
+        chromaticity.RedX, chromaticity.RedY,
+        chromaticity.GreenX, chromaticity.GreenY,
+        chromaticity.BlueX, chromaticity.BlueY,
+        chromaticity.WhitePointX, chromaticity.WhitePointY
+    };
+    
+    // Calculate distances to all known color spaces
+    struct ColorSpaceMatch
+    {
+        ColorSpace colorSpace;
+        float distance;
+        const char* name;
+    };
+    
+    std::vector<ColorSpaceMatch> matches =
+    {
+        { ColorSpace::sRGB_Nonlinear, displayPrimaries.CalculateDistance(StandardColorSpaces::sRGB), "sRGB" },
+        { ColorSpace::Display_P3_Nonlinear, displayPrimaries.CalculateDistance(StandardColorSpaces::DisplayP3), "Display P3" },
+        { ColorSpace::DCI_P3_Nonlinear, displayPrimaries.CalculateDistance(StandardColorSpaces::DCIP3), "DCI-P3" },
+        { ColorSpace::BT2020_Linear, displayPrimaries.CalculateDistance(StandardColorSpaces::Rec2020), "Rec.2020" }
+        // Note: Adobe RGB not in our enum, so skipping
+    };
+    
+    // Find the closest match
+    auto closest = std::min_element(matches.begin(), matches.end(), 
+        [](const ColorSpaceMatch& a, const ColorSpaceMatch& b)
+        { 
+            return a.distance < b.distance; 
+        });
+    
+    // Apply tolerance checks - consumer displays are often imprecise
+    constexpr float LOOSE_TOLERANCE = 0.2f;  // Very permissive for consumer displays
+    constexpr float TIGHT_TOLERANCE = 0.05f;  // For professional/reference displays
+    
+    // Calculate gamut area to help distinguish between similar color spaces
+    const float displayGamutArea = displayPrimaries.CalculateGamutArea();
+    const float sRGBGamutArea = StandardColorSpaces::sRGB.CalculateGamutArea();
+    const float p3GamutArea = StandardColorSpaces::DisplayP3.CalculateGamutArea();
+    const float rec2020GamutArea = StandardColorSpaces::Rec2020.CalculateGamutArea();
+    
+    // Use gamut area as a secondary discriminator
+    if (closest->distance < TIGHT_TOLERANCE)
+    {
+        // Very close match, trust the closest distance
+        return closest->colorSpace;
+    }
+    else if (closest->distance < LOOSE_TOLERANCE)
+    {
+        // Reasonably close, but verify with gamut area
+        if (closest->colorSpace == ColorSpace::Display_P3_Nonlinear)
         {
-            return Width < other.Width;
+            // P3 vs sRGB disambiguation using gamut area
+            const float p3AreaRatio = displayGamutArea / p3GamutArea;
+            const float sRGBAreaRatio = displayGamutArea / sRGBGamutArea;
+            
+            // If gamut area is much closer to sRGB, prefer sRGB despite chromaticity
+            if (std::abs(sRGBAreaRatio - 1.0f) < std::abs(p3AreaRatio - 1.0f) * 0.7f)
+            {
+                return ColorSpace::sRGB_Nonlinear;
+            }
         }
-        else if (Height != other.Height)
+        
+        return closest->colorSpace;
+    }
+    else
+    {
+        // No close match found, fall back to gamut area heuristics
+        if (displayGamutArea > p3GamutArea * 0.95f && displayGamutArea < rec2020GamutArea * 0.8f)
         {
-            return Height < other.Height;
+            return ColorSpace::Display_P3_Nonlinear; // Likely wide gamut
+        }
+        else if (displayGamutArea > rec2020GamutArea * 0.8f)
+        {
+            return ColorSpace::BT2020_Linear; // Very wide gamut
         }
         else
         {
-            return RefreshRate < other.RefreshRate;
+            return ColorSpace::sRGB_Nonlinear; // Conservative fallback
         }
     }
-};
+}
+
+const char* GetColorSpaceName(ColorSpace colorSpace)
+{
+    switch (colorSpace)
+    {
+        case ColorSpace::sRGB_Nonlinear: return "sRGB";
+        case ColorSpace::Display_P3_Nonlinear: return "Display P3";
+        case ColorSpace::Extended_sRGB_Linear: return "Extended sRGB Linear";
+        case ColorSpace::Display_P3_Linear: return "Display P3 Linear";
+        case ColorSpace::DCI_P3_Nonlinear: return "DCI-P3";
+        case ColorSpace::BT709_Linear: return "BT.709 Linear";
+        case ColorSpace::BT709_Nonlinear: return "BT.709";
+        case ColorSpace::BT2020_Linear: return "Rec.2020";
+        case ColorSpace::HDR10_ST2084: return "HDR10 (ST.2084)";
+        case ColorSpace::HDR10_HLG: return "HDR10 (HLG)";
+        case ColorSpace::Extended_sRGB_Nonlinear: return "Extended sRGB";
+        case ColorSpace::PassThrough: return "Pass Through";
+        case ColorSpace::DisplayNativeAMD: return "AMD FreeSync Premium Pro";
+        default: return "Unknown";
+    }
+}
+
+float CalculateColorSpaceConfidence(const EDIDChromaticityCoordinates& chromaticity, ColorSpace detectedColorSpace)
+{
+    if (!chromaticity.HasValidData)
+    {
+        return 0.0f;
+    }
+    
+    ColorSpacePrimaries displayPrimaries
+    {
+        chromaticity.RedX, chromaticity.RedY,
+        chromaticity.GreenX, chromaticity.GreenY,
+        chromaticity.BlueX, chromaticity.BlueY,
+        chromaticity.WhitePointX, chromaticity.WhitePointY
+    };
+    
+    // Get reference primaries for detected color space
+    const ColorSpacePrimaries* reference = nullptr;
+    switch (detectedColorSpace)
+    {
+        case ColorSpace::sRGB_Nonlinear:
+            [[fallthrough]];
+        case ColorSpace::Extended_sRGB_Linear:
+            [[fallthrough]];
+        case ColorSpace::Extended_sRGB_Nonlinear:
+            [[fallthrough]];
+        case ColorSpace::BT709_Linear:
+            [[fallthrough]];
+        case ColorSpace::BT709_Nonlinear:
+            reference = &StandardColorSpaces::sRGB;
+            break;
+        case ColorSpace::Display_P3_Nonlinear:
+            [[fallthrough]];
+        case ColorSpace::Display_P3_Linear:
+            reference = &StandardColorSpaces::DisplayP3;
+            break;
+        case ColorSpace::DCI_P3_Nonlinear:
+            reference = &StandardColorSpaces::DCIP3;
+            break;
+        case ColorSpace::BT2020_Linear:
+            [[fallthrough]];
+        case ColorSpace::HDR10_ST2084:
+            [[fallthrough]];
+        case ColorSpace::HDR10_HLG:
+            reference = &StandardColorSpaces::Rec2020;
+            break;
+        default:
+            return 0.5f; // Unknown color space
+    }
+    
+    if (!reference) return 0.0f;
+    
+    const float distance = displayPrimaries.CalculateDistance(*reference);
+    
+    // Convert distance to confidence (inverse relationship)
+    // Distance of 0.02 = 95% confidence, 0.05 = 80% confidence, 0.1 = 50% confidence
+    const float confidence = std::max(0.0f, 1.0f - (distance / 0.1f));
+    return std::min(1.0f, confidence);
+}
+
+// stub here because I have to include more windows headers to get this :(
+std::vector<uint8_t> GetEDIDFromRegistry(const std::wstring& monitorFriendlyName);
+EDIDHdrData GetEDIDHdrData(const std::vector<uint8_t>& edidData);
 
 // used to help us map GLFWmonitors to Windows monitors
 struct DisplayConfigMonitorInfo
@@ -246,6 +463,7 @@ void SetWindowsMonitorMappings()
 
         if (hdrData.Chromaticity.HasValidData)
         {
+            monitorInfo.ColorCapabilities.HasChromaticityData = true;
             monitorInfo.ColorCapabilities.RedPrimaryX = hdrData.Chromaticity.RedX;
             monitorInfo.ColorCapabilities.RedPrimaryY = hdrData.Chromaticity.RedY;
             monitorInfo.ColorCapabilities.GreenPrimaryX = hdrData.Chromaticity.GreenX;
@@ -254,6 +472,8 @@ void SetWindowsMonitorMappings()
             monitorInfo.ColorCapabilities.BluePrimaryY = hdrData.Chromaticity.BlueY;
             monitorInfo.ColorCapabilities.WhitePointX = hdrData.Chromaticity.WhitePointX;
             monitorInfo.ColorCapabilities.WhitePointY = hdrData.Chromaticity.WhitePointY;
+            monitorInfo.ColorCapabilities.DetectedColorSpace = DetermineClosestColorSpace(hdrData.Chromaticity);
+            monitorInfo.ColorCapabilities.ColorSpaceConfidence = CalculateColorSpaceConfidence(hdrData.Chromaticity, monitorInfo.ColorCapabilities.DetectedColorSpace);
         }
         else
         {
@@ -265,6 +485,8 @@ void SetWindowsMonitorMappings()
             monitorInfo.ColorCapabilities.BluePrimaryY = 0.0f;
             monitorInfo.ColorCapabilities.WhitePointX = 0.0f;
             monitorInfo.ColorCapabilities.WhitePointY = 0.0f;
+            monitorInfo.ColorCapabilities.DetectedColorSpace = ColorSpace::Invalid;
+            monitorInfo.ColorCapabilities.ColorSpaceConfidence = 0.0f;
         }
         
         g_WindowsMonitorInfoMap.emplace(friendlyName, monitorInfo);
@@ -281,7 +503,31 @@ bool IsHDRSupportedAndEnabled()
     });
 }
 
-// Monitor GUID
+DisplayInfo DisplayInfoFromDisplayConfigMonitorInfo(const DisplayConfigMonitorInfo& monitorInfo)
+{
+    DisplayInfo result{};
+    result.Width = monitorInfo.ActiveWidth;
+    result.Height = monitorInfo.ActiveHeight;
+    result.RefreshRateCapabilities.RefreshRate = monitorInfo.ActiveRefreshRate;
+    result.RefreshRateCapabilities.IsInteger = false;
+    result.RefreshRateCapabilities.RoundedRefreshRate = std::roundf(monitorInfo.ActiveRefreshRate);
+    result.ColorCapabilities = monitorInfo.ColorCapabilities;
+    return result;
+}
+
+DisplayInfo RetrievePlatformPrimaryDisplayInfo() noexcept
+{
+    if (g_WindowsMonitorInfoMap.empty())
+    {
+        SetWindowsMonitorMappings();
+    }
+
+    const auto& monitor = g_WindowsMonitorInfoMap.begin();
+    return DisplayInfoFromDisplayConfigMonitorInfo(monitor->second);
+}
+
+// Includes and pragma down here to keep some of the clutter out. I wish there was a better way to do this on Win32...
+// Monitor GUID from MSDN
 // {E6F07B5F-EE97-4A90-B076-33F57BF4EAA7}
 #include <SetupApi.h>
 #pragma comment(lib, "setupapi.lib")
@@ -326,6 +572,24 @@ std::vector<uint8_t> GetEDIDFromRegistry(const std::wstring& monitorFriendlyName
             
             if (result == ERROR_SUCCESS)
             {
+                // Check to see if friendly name matches, it's one of the values in the instance key
+                wchar_t friendlyName[256];
+                DWORD friendlyNameSize = sizeof(friendlyName);
+                result = RegQueryValueExW(instanceKey, L"FriendlyName", nullptr, nullptr, 
+                                          reinterpret_cast<LPBYTE>(friendlyName), &friendlyNameSize);
+                if (result == ERROR_SUCCESS)
+                {
+                    std::wstring friendlyNameStr(friendlyName, friendlyNameSize / sizeof(wchar_t) - 1);
+                    // Need to do an inexact match: sometimes the registry name has extra info, like the driver and other stuff
+                    // As long as we can find the monitor friendly name as a substring, we'll consider it a match
+                    if (friendlyNameStr.find(monitorFriendlyName) == std::wstring::npos)
+                    {
+                        // did not find the name, close the key and continue
+                        RegCloseKey(instanceKey);
+                        continue; // Not the monitor we're looking for
+                    }
+                }
+
                 // Check device parameters for EDID
                 HKEY paramsKey;
                 result = RegOpenKeyExW(instanceKey, L"Device Parameters", 0, KEY_READ, &paramsKey);

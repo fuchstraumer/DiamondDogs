@@ -2,6 +2,8 @@
 #include "Swapchain.hpp"
 #include "PlatformSystem.hpp"
 #include "events/DisplayEvents.hpp"
+#include "PhysicalDevice.hpp"
+#include "Device.hpp"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <unordered_map>
@@ -324,7 +326,7 @@ VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& re
 }
 
 SwapchainImpl::SwapchainImpl(const SwapchainCreateInfo& createInfo) :
-    ParentDevice(reinterpret_cast<VkDevice>(createInfo.VkDeviceHandle)),
+    ParentDevice(VK_NULL_HANDLE),
     VulkanFormat(VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_MAX_ENUM_KHR),
     AppFormat{},
     Extent({ 0, 0 }),
@@ -336,6 +338,8 @@ SwapchainImpl::SwapchainImpl(const SwapchainCreateInfo& createInfo) :
     Swapchain(VK_NULL_HANDLE),
     OldSwapchain(VK_NULL_HANDLE)
 {
+    rhi::Device* device = reinterpret_cast<rhi::Device*>(createInfo.RhiDevice);
+    ParentDevice = device->vkHandle();
     Create(createInfo);
 }
 
@@ -376,7 +380,8 @@ VkSwapchainCreateInfoKHR SwapchainImpl::GetCreateInfo(const SwapchainCreateInfo&
 
 void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
 {
-    VkPhysicalDevice physicalDevice = reinterpret_cast<VkPhysicalDevice>(createInfo.VkPhysicalDeviceHandle);
+    rhi::Device* device = reinterpret_cast<rhi::Device*>(createInfo.RhiDevice);
+    VkPhysicalDevice physicalDevice = device->GetPhysicalDevice().vkHandle();
     VkSurfaceKHR surface = reinterpret_cast<VkSurfaceKHR>(createInfo.VkSurfaceHandle);
 
     Info = std::make_unique<SwapchainInfo>(physicalDevice, surface);
@@ -413,14 +418,61 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
     Extent.height = displayInfo.Height;
 
     // internal parameters set, retrieve create info using said parameters now
-    const VkSwapchainCreateInfoKHR swapchainCreateInfo = GetCreateInfo(createInfo);
+    VkSwapchainCreateInfoKHR swapchainCreateInfo = GetCreateInfo(createInfo);
 
-    // Create the swapchain
-    VkResult result = vkCreateSwapchainKHR(ParentDevice, &swapchainCreateInfo, nullptr, &Swapchain);
-    if (result != VK_SUCCESS)
+    if (device->HasExtension(VK_EXT_HDR_METADATA_EXTENSION_NAME))
     {
-        throw std::runtime_error("Failed to create swapchain!");
+        // if HDR meatadata extension is supported, we can set HDR metadata on the swapchain if we're using an HDR format
+        bool isHDRFormat = false;
+        switch (VulkanFormat.format)
+        {
+            case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
+            case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+            case VK_FORMAT_R16G16B16A16_SFLOAT:
+            case VK_FORMAT_R16G16B16A16_UNORM:
+                isHDRFormat = true;
+                break;
+            default:
+                isHDRFormat = false;
+                break;
+        }
+
+        if (isHDRFormat)
+        {
+            VkHdrMetadataEXT hdrMetadata{};
+            hdrMetadata.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
+            hdrMetadata.pNext = nullptr;
+            hdrMetadata.displayPrimaryRed.x = displayInfo.ColorCapabilities.RedPrimaryX;
+            hdrMetadata.displayPrimaryRed.y = displayInfo.ColorCapabilities.RedPrimaryY;
+            hdrMetadata.displayPrimaryGreen.x = displayInfo.ColorCapabilities.GreenPrimaryX;
+            hdrMetadata.displayPrimaryGreen.y = displayInfo.ColorCapabilities.GreenPrimaryY;
+            hdrMetadata.displayPrimaryBlue.x = displayInfo.ColorCapabilities.BluePrimaryX;
+            hdrMetadata.displayPrimaryBlue.y = displayInfo.ColorCapabilities.BluePrimaryY;
+            hdrMetadata.whitePoint.x = displayInfo.ColorCapabilities.WhitePointX;
+            hdrMetadata.whitePoint.y = displayInfo.ColorCapabilities.WhitePointY;
+            hdrMetadata.maxLuminance = displayInfo.ColorCapabilities.MaxLuminance;
+            hdrMetadata.minLuminance = displayInfo.ColorCapabilities.MinLuminance;
+            hdrMetadata.maxContentLightLevel = displayInfo.ColorCapabilities.MaxLuminance * 0.9f; // set based on preferences. we can add a config for this later
+            hdrMetadata.maxFrameAverageLightLevel = displayInfo.ColorCapabilities.MaxAverageLuminance;
+
+            // need to do create call here to make sure pNext isn't nullptr due to good ol' RAII
+            swapchainCreateInfo.pNext = &hdrMetadata;
+            VkResult result = vkCreateSwapchainKHR(ParentDevice, &swapchainCreateInfo, nullptr, &Swapchain);
+            if (result != VK_SUCCESS)
+            {
+                throw std::runtime_error("Failed to create swapchain!");
+            }
+        }
     }
+    else
+    {
+        VkResult result = vkCreateSwapchainKHR(ParentDevice, &swapchainCreateInfo, nullptr, &Swapchain);
+        if (result != VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to create swapchain!");
+        }
+    }
+
 
     CreateSwapchainImages();
     CreateSwapchainImageViews();

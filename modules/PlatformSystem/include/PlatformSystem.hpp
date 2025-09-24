@@ -31,11 +31,7 @@ class PlatformWindowSystem
 public:
     
     /** @brief Reads configuration values for the platform window and swapchain from given JSON path, and creates a default surface + swapchain alongside the window. */
-    PlatformWindowSystem(const char* jsonPath,
-                         const uint64_t vkInstanceHandle,
-                         const uint64_t vkDeviceHandle,
-                         const uint64_t vkPhysicalDeviceHandle);
-
+    PlatformWindowSystem(const char* jsonPath, void* RhiInstance, void* RhiDevice);
     /** @brief Uses a create info struct, and does not create a default surface or swapchain. Used primarily for unit testing. */
     PlatformWindowSystem(const PlatformWindowCreateInfo& createInfo);
 
@@ -44,7 +40,7 @@ public:
     void Destroy();
 
     // Default swapchain just uses display info that we got from window creation as creation parameters. Also creates a surface using display parameters
-    void CreateDefaultSwapchain(const uint64_t vkInstanceHandle, const uint64_t vkDeviceHandle, const uint64_t vkPhysicalDeviceHandle);
+    void CreateDefaultSwapchain(void* rhiInstance, void* rhiDevice);
     void CreateSwapchain(const SwapchainCreateInfo& createInfo);
     void DestroySwapchain();
 

@@ -12,8 +12,8 @@ ADD_MODULE(platform_system
     "src/SwapchainImpl.cpp"
     "src/SwapchainImpl.hpp")
 
-target_link_libraries(platform_system PUBLIC foundation glfw ${Vulkan_LIBRARY})
-target_include_directories(platform_system PRIVATE ${Vulkan_INCLUDE_DIR} "../../third_party/json/include")
+target_link_libraries(platform_system PUBLIC foundation glfw ${Vulkan_LIBRARY} rhi_system)
+target_include_directories(platform_system PRIVATE ${Vulkan_INCLUDE_DIR} "../../third_party/json/include" "../RhiSystem/include")
 
 if (WIN32)
     target_sources(platform_system PRIVATE "src/Win32/PlatformDisplayInfo.hpp" "src/Win32/PlatformDisplayInfo.cpp")

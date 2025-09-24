@@ -16,6 +16,7 @@ constexpr static PlatformWindowCreateInfo s_DefaultCreateInfo
     600, // initial height
     0,   // initial pos x
     0,   // initial pos y
+    60.0f, // desired refresh rate
     PlatformWindowBehaviorFlags
     {
         true,   // Resizable
@@ -58,6 +59,7 @@ protected:
             768,
             100, // test different position
             100,
+            60.0f, // desired refresh rate
             PlatformWindowBehaviorFlags
             {
                 true,   // Resizable
@@ -218,13 +220,7 @@ TEST_F(PlatformSystemTest, DisplayInfoAccess)
     // Validate display info contains reasonable values
     EXPECT_GT(displayInfo.Width, 0);
     EXPECT_GT(displayInfo.Height, 0);
-    EXPECT_GE(displayInfo.BitDepthRed, 8);
-    EXPECT_GE(displayInfo.BitDepthGreen, 8);
-    EXPECT_GE(displayInfo.BitDepthBlue, 8);
-    EXPECT_GT(displayInfo.DisplayScaleX, 0.0f);
-    EXPECT_GT(displayInfo.DisplayScaleY, 0.0f);
-    EXPECT_GT(displayInfo.RefreshRate, 0.0f);
-    EXPECT_GE(displayInfo.MonitorIdx, -1); // -1 is valid for primary monitor
+    EXPECT_GT(displayInfo.RefreshRateCapabilities.RoundedRefreshRate, 0.0f);
 }
 
 // Test window and input management methods
