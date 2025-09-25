@@ -3,7 +3,7 @@
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #include <cstdint>
 #include "ResourceFlags.hpp"
-#include "ResourceDataFormats.hpp"
+#include "ImageDataFormats.hpp"
 #include <optional>
 
 /**
@@ -38,7 +38,7 @@ struct BufferCreateInfo
     BufferUsageBits Usage{ BufferUsageBits::Invalid };
     size_t Size{ 0u };
     /** @brief If this member is given, the buffer will be created with a correponding BufferView object. Otherwise, we won't create a view. */
-    std::optional<ResourceFormat> ViewFormat{ std::nullopt };
+    std::optional<ImageFormat> ViewFormat{ std::nullopt };
     /** @brief User-defined data pointer that can be associated with the buffer for application-specific purposes. */
     void* UserData{ nullptr };
 };
@@ -75,7 +75,7 @@ struct ImageViewCreateInfo
     ImageComponentMapping ComponentMapping{ IdentityImageSwizzle };
     ImageRange Range{};
     /** @brief If provided, will reinterpret the format of the base image to the given image for this view */
-    std::optional<ResourceFormat> FormatOverride{ std::nullopt };
+    std::optional<ImageFormat> FormatOverride{ std::nullopt };
     /** @brief User-defined data pointer that can be associated with the image view for application-specific purposes. */
     void* UserData{ nullptr };
 };

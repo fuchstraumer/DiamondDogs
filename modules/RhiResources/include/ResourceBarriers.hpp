@@ -1,7 +1,7 @@
 #pragma once
 #ifndef RESOURCE_CONTEXT_RESOURCE_BARRIERS_HPP
 #define RESOURCE_CONTEXT_RESOURCE_BARRIERS_HPP
-#include "ResourceUsageFlags.hpp"
+#include "ResourceFlags.hpp"
 #include <cstdint>
 
 /**
