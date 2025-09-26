@@ -1,7 +1,6 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
-#include <cstdint>
 #include "ResourceFlags.hpp"
 #include "ImageDataFormats.hpp"
 #include <optional>
@@ -126,7 +125,7 @@ struct SamplerCreateInfo
     ImageCompareOp CompareOp{ ImageCompareOp::None };
 
     float MinLod{ 0.0f };
-    float MaxLod{ std::numeric_limits<float>::max() };
+    float MaxLod{ 1e10f };
 
     ImageBorderColor BorderColor{ ImageBorderColor::None };
     // leaving undefined for now since we don't have RGBA color object yet
@@ -141,7 +140,7 @@ struct ImageCreateInfo
     ResourceCreationFlags Flags{ ResourceCreationFlags::None };
     ImageUsageBits Usage{ ImageUsageBits::Invalid };
     ImageType Type{ ImageType::Invalid };
-    ResourceFormat Format{};
+    ImageFormat Format{};
     uint32_t Width{ 0u };
     uint32_t Height{ 0u };
     uint32_t Depth{ 0u };
@@ -164,6 +163,7 @@ struct GraphicsResource
     constexpr explicit operator bool() const noexcept;
 
     ResourceDomain Domain{ ResourceDomain::Invalid };
+    ResourceType Type{ ResourceType::Invalid };
     uint32_t EntityHandle{ 0u };
     uint64_t VkHandle{ 0u };
     uint64_t VkViewHandle{ 0u };

@@ -2,6 +2,7 @@
 #ifndef RESOURCE_CONTEXT_RESOURCE_FLAGS_HPP
 #define RESOURCE_CONTEXT_RESOURCE_FLAGS_HPP
 #include "utility/EnumFlagUtils.hpp"
+#include <cstdint>
 
 /**
  * @file ResourceFlags.hpp
@@ -15,7 +16,7 @@
 
 
 /** @brief Describes where the resource is used or where it is stored within hardware domains */
-enum class ResourceDomain : uint8_t
+enum class ResourceDomain : uint16_t
 {
     Invalid = 0,
     GPUOnly,
@@ -25,7 +26,7 @@ enum class ResourceDomain : uint8_t
 };
 
 /** @brief Describes the fundamental resource type, i.e. is it a buffer or image or sampler etc */
-enum class ResourceType : uint8_t
+enum class ResourceType : uint16_t
 {
     Invalid = 0,
     Buffer,

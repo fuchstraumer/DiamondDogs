@@ -1,15 +1,15 @@
 #include "ResourceMessageReply.hpp"
 #include "entt/entt.hpp"
-#include "LogicalDevice.hpp"
-#include "vkAssert.hpp"
+#include "Device.hpp"
 
+#include <vulkan/vulkan_core.h>
 #include <chrono>
 #include <thread>
 
 const static CasData128 null_atomic128 = CasData128{ 0u, 0u };
 constexpr static uint64_t vk_null_handle_uint64 = reinterpret_cast<uint64_t>(VK_NULL_HANDLE);
 constexpr static uint32_t entt_null_entity_uint32 = static_cast<uint32_t>(entt::null);
-const static GraphicsResource null_graphics_resource = GraphicsResource{ resource_type::Invalid, entt_null_entity_uint32, vk_null_handle_uint64, vk_null_handle_uint64, vk_null_handle_uint64 };
+const static GraphicsResource null_graphics_resource = GraphicsResource{ ResourceDomain::Invalid, ResourceType::Invalid, entt_null_entity_uint32, vk_null_handle_uint64, vk_null_handle_uint64, vk_null_handle_uint64 };
 
 MessageReply::MessageReply(MessageReply&& other) noexcept
     : status(other.status.load(std::memory_order_relaxed))
@@ -69,7 +69,7 @@ void MessageReply::SetStatus(Status _status) noexcept
 ResourceTransferReply::ResourceTransferReply() : semaphoreHandle{ 0u }, device{ nullptr }
 {}
 
-ResourceTransferReply::ResourceTransferReply(vpr::Device* _device) : device{ _device }, semaphoreHandle{ 0u }
+ResourceTransferReply::ResourceTransferReply(rhi::Device* _device) : device{ _device }, semaphoreHandle{ 0u }
 {
     VkSemaphoreTypeCreateInfo semaphore_type_info
     {
@@ -86,7 +86,7 @@ ResourceTransferReply::ResourceTransferReply(vpr::Device* _device) : device{ _de
     };
     VkSemaphore semaphore = VK_NULL_HANDLE;
     VkResult result = vkCreateSemaphore(device->vkHandle(), &semaphore_info, nullptr, &semaphore);
-    VkAssert(result);
+    assert(result == VK_SUCCESS);
     semaphoreHandle = reinterpret_cast<uint64_t>(semaphore);
 }
 
@@ -108,7 +108,7 @@ uint64_t ResourceTransferReply::SemaphoreValue() const noexcept
     VkSemaphore semaphore = reinterpret_cast<VkSemaphore>(semaphoreHandle);
     uint64_t semaphoreValue = 0u;
     VkResult result = vkGetSemaphoreCounterValue(device->vkHandle(), semaphore, &semaphoreValue);
-    VkAssert(result);
+    assert(result == VK_SUCCESS);
     return semaphoreValue;
 }
 
@@ -153,39 +153,45 @@ MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeoutNs
 
 }
 
-GraphicsResourceReply::VkResourceTypeAndEntityHandle::VkResourceTypeAndEntityHandle() noexcept :
-    Type{ (uint32_t)resource_type::Invalid }, EntityHandle{ entt::null }
+GraphicsResourceReply::RhiResourceTypeAndEntityHandle::RhiResourceTypeAndEntityHandle() noexcept :
+    Type{ (uint32_t)ResourceType::Invalid }, EntityHandle{ entt::null }
 {
 }
 
-GraphicsResourceReply::VkResourceTypeAndEntityHandle::VkResourceTypeAndEntityHandle(const resource_type type, const uint32_t entity_handle) noexcept :
-    Type{ (uint32_t)type }, EntityHandle{ entity_handle }
+GraphicsResourceReply::RhiResourceTypeAndEntityHandle::RhiResourceTypeAndEntityHandle(
+    const ResourceDomain domain,
+    const ResourceType type,
+    const uint32_t entity_handle) noexcept :
+    Domain{ static_cast<uint16_t>(domain) },
+    Type{ static_cast<uint16_t>(type) },
+    EntityHandle{ entity_handle }
+{}
+
+bool GraphicsResourceReply::RhiResourceTypeAndEntityHandle::operator==(const RhiResourceTypeAndEntityHandle& other) const noexcept
 {
+    return Domain == other.Domain && Type == other.Type && EntityHandle == other.EntityHandle;
 }
 
-bool GraphicsResourceReply::VkResourceTypeAndEntityHandle::operator==(const VkResourceTypeAndEntityHandle& other) const noexcept
-{
-    return Type == other.Type && EntityHandle == other.EntityHandle;
-}
-
-bool GraphicsResourceReply::VkResourceTypeAndEntityHandle::operator!=(const VkResourceTypeAndEntityHandle& other) const noexcept
+bool GraphicsResourceReply::RhiResourceTypeAndEntityHandle::operator!=(const RhiResourceTypeAndEntityHandle& other) const noexcept
 {
     return !(*this == other);
 }
 
-GraphicsResourceReply::VkResourceTypeAndEntityHandle::operator bool() const noexcept
+GraphicsResourceReply::RhiResourceTypeAndEntityHandle::operator bool() const noexcept
 {
-    return (Type != (uint32_t)resource_type::Invalid) && (EntityHandle != entt::null);
+    return (Type != static_cast<uint16_t>(ResourceType::Invalid)) &&
+           (Domain != static_cast<uint16_t>(ResourceDomain::Invalid)) &&
+           (EntityHandle != entt::null);
 }
 
-GraphicsResourceReply::GraphicsResourceReply(resource_type _type) :
-    resourceTypeAndEntityHandle{ VkResourceTypeAndEntityHandle(_type, entt::null) },
+GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceType _type) :
+    resourceTypeAndEntityHandle{ RhiResourceTypeAndEntityHandle(_domain, _type, entt::null) },
     vkHandleAndView{ null_atomic128 },
     vkSamplerHandle{ 0u }
 {}
 
-GraphicsResourceReply::GraphicsResourceReply(resource_type _type, vpr::Device* _device) :
-    resourceTypeAndEntityHandle{ VkResourceTypeAndEntityHandle(_type, entt::null) },
+GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceType _type, rhi::Device* _device) :
+    resourceTypeAndEntityHandle{ RhiResourceTypeAndEntityHandle(_domain, _type, entt::null) },
     vkHandleAndView{ null_atomic128 },
     vkSamplerHandle{ 0u },
     ResourceTransferReply(_device)
@@ -198,19 +204,25 @@ GraphicsResourceReply::~GraphicsResourceReply()
 
 GraphicsResource GraphicsResourceReply::GetResource() const noexcept
 {
-    VkResourceTypeAndEntityHandle typeAndEntity = resourceTypeAndEntityHandle.load(std::memory_order_acquire);
+    RhiResourceTypeAndEntityHandle typeAndEntity = resourceTypeAndEntityHandle.load(std::memory_order_acquire);
     if (typeAndEntity)
     {
         CasData128 handleAndView = vkHandleAndView.load(std::memory_order_acquire);
         uint64_t samplerHandle = vkSamplerHandle.load(std::memory_order_acquire);
-        return GraphicsResource(static_cast<resource_type>(typeAndEntity.Type), typeAndEntity.EntityHandle, handleAndView.low, handleAndView.high, samplerHandle);
+        return GraphicsResource(static_cast<ResourceDomain>(typeAndEntity.Domain),
+                                static_cast<ResourceType>(typeAndEntity.Type),
+                                typeAndEntity.EntityHandle,
+                                handleAndView.low,
+                                handleAndView.high,
+                                samplerHandle);
     }
 
     return null_graphics_resource;
 }
 
 void GraphicsResourceReply::SetGraphicsResource(
-    const resource_type _type,
+    const ResourceDomain _domain,
+    const ResourceType _type,
     const uint32_t entity_handle,
     const uint64_t vk_handle,
     const uint64_t vk_view_handle,
@@ -228,7 +240,7 @@ void GraphicsResourceReply::SetGraphicsResource(
         vkHandleAndView.store(CasData128{ vk_handle, vk_view_handle }, std::memory_order_release);
     }
 
-    resourceTypeAndEntityHandle.store(VkResourceTypeAndEntityHandle(_type, entity_handle), std::memory_order_release);
+    resourceTypeAndEntityHandle.store(RhiResourceTypeAndEntityHandle(_domain, _type, entity_handle), std::memory_order_release);
     SetStatus(Status::Completed);
 }
 
@@ -238,7 +250,7 @@ void GraphicsResourceReply::SetGraphicsResourceRelaxed(const GraphicsResource& r
     // on and why we can use relaxed stores
     vkHandleAndView.store(CasData128{ resource.VkHandle, resource.VkViewHandle }, std::memory_order_relaxed);
     vkSamplerHandle.store(resource.VkSamplerHandle, std::memory_order_relaxed);
-    resourceTypeAndEntityHandle.store(VkResourceTypeAndEntityHandle(resource.Type, resource.EntityHandle), std::memory_order_relaxed);
+    resourceTypeAndEntityHandle.store(RhiResourceTypeAndEntityHandle(resource.Domain, resource.Type, resource.EntityHandle), std::memory_order_relaxed);
 }
 
 

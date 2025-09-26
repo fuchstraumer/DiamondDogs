@@ -32,7 +32,7 @@ endfunction()
 add_subdirectory(TaskGraph)
 add_subdirectory(RhiSystem)
 add_subdirectory(PlatformSystem)
-add_subdirectory(ResourceContext)
+add_subdirectory(RhiResources)
 # This module provides imgui as a basic debugging UI
 # that sits just BARELY over the resource and rendering contexts
 #add_subdirectory(ImGuiModule)
