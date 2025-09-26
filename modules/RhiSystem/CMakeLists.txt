@@ -6,32 +6,48 @@ OPTION(RHI_SYSTEM_DEBUG_INFO_TIMESTAMPS "Enable timestamps in debug info for RHI
 OPTION(RHI_SYSTEM_DEBUG_INFO_CALLING_FN "Enable calling function name in debug info for RHI system" OFF)
 
 set(RHI_CORE_SOURCES
+    "include/DebugUtilFns.hpp"
+    "include/ExtensionPack.hpp"
     "include/ExtensionWrangler.hpp"
     "include/PipelineExecutableInfo.hpp"
     "include/RhiSystem.hpp"
     "include/RhiTypes.hpp"
     "src/ExtensionWrangler.cpp"
+    "src/ExtensionPack.cpp"
     "src/PipelineExecutableInfo.cpp"
     "src/RhiSystem.cpp")
 
-set(RHI_VPR_SOURCES
-    "include/DebugUtilFns.hpp"
-    "include/Device.hpp"
-    "include/ExtensionPack.hpp"
-    "include/Instance.hpp"
-    "include/PhysicalDevice.hpp"
-    "src/Device.cpp"
-    "src/ExtensionPack.cpp"
-    "src/Instance.cpp"
-    "src/PhysicalDevice.cpp")
+set(RHI_OBJECT_SOURCES
+    "include/objects/CommandBuffer.hpp"
+    "include/objects/CommandPool.hpp"
+    "include/objects/Device.hpp"
+    "include/objects/Fence.hpp"
+    "include/objects/Instance.hpp"
+    "include/objects/PhysicalDevice.hpp"
+    "include/objects/RhiFunctions.hpp"
+    "include/objects/RhiHandle.hpp"
+    "include/objects/Semaphore.hpp"
+    "src/objects/CommandBuffer.cpp"
+    "src/objects/CommandPool.cpp"
+    "src/objects/Device.cpp"
+    "src/objects/Fence.cpp"
+    "src/objects/Instance.cpp"
+    "src/objects/RhiFunctions.cpp"
+    "src/objects/PhysicalDevice.cpp"
+    "src/objects/Semaphore.cpp"
+    "src/objects/Fence.cpp")
 
-ADD_MODULE(rhi_system "${RHI_CORE_SOURCES}" "${RHI_VPR_SOURCES}")
+ADD_MODULE(rhi_system "${RHI_CORE_SOURCES}" "${RHI_OBJECT_SOURCES}")
 
 TARGET_LINK_LIBRARIES(rhi_system PUBLIC ${Vulkan_LIBRARY})
-TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC "../../third_party/json/include" ${Vulkan_INCLUDE_DIR})
+TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC
+    "../../third_party/json/include"
+    ${Vulkan_INCLUDE_DIR}
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/objects")
 
 source_group("Core" FILES ${RHI_CORE_SOURCES})
-source_group("VPR" FILES ${RHI_VPR_SOURCES})
+source_group("Objects" FILES ${RHI_OBJECT_SOURCES})
 
 IF(RHI_SYSTEM_USE_DEBUG_INFO)
     TARGET_COMPILE_DEFINITIONS(rhi_system PUBLIC RHI_SYSTEM_USE_DEBUG_INFO_CONF)
