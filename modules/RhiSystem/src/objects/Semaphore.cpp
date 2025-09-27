@@ -71,22 +71,22 @@ namespace rhi
         createInfo.pNext = &timelineCreateInfo;
 
         VkSemaphore vkSemaphore = VK_NULL_HANDLE;
-        VkResult result = vkCreateSemaphore(device->vkHandle(), &createInfo, nullptr, &vkSemaphore);
+        VkResult result = vkCreateSemaphore(device.As<VkDevice>(), &createInfo, nullptr, &vkSemaphore);
         if (result == VK_SUCCESS)
         {
             handle.Set<VkSemaphore>(vkSemaphore);
         }
         else
         {
-            handle = SemaphoreHandle{ 0 };
+            handle = TimelineSemaphoreHandle{ 0 };
         }
     }
 
     TimelineSemaphore::TimelineSemaphore(TimelineSemaphore&& other) noexcept
         : device{ other.device }, handle{ std::move(other.handle) }, currentValue{ other.currentValue }
     {
-        other.handle = SemaphoreHandle{ 0 };
-        other.device = nullptr;
+        other.handle = TimelineSemaphoreHandle{ 0 };
+        other.device = DeviceHandle{ 0u };
         other.currentValue = 0u;
     }
 
@@ -97,8 +97,8 @@ namespace rhi
             device = other.device;
             handle = std::move(other.handle);
             currentValue = other.currentValue;
-            other.handle = SemaphoreHandle{ 0 };
-            other.device = nullptr;
+            other.handle = TimelineSemaphoreHandle{ 0 };
+            other.device = DeviceHandle{ 0u };
             other.currentValue = 0u;
         }
         return *this;
@@ -109,8 +109,8 @@ namespace rhi
         assert(device.IsValid() && "Device must be valid when destroying a timeline semaphore");
         if (handle.IsValid() && device)
         {
-            vkDestroySemaphore(device->vkHandle(), handle.As<VkSemaphore>(), nullptr);
-            handle = SemaphoreHandle{ 0 };
+            vkDestroySemaphore(device.As<VkDevice>(), handle.As<VkSemaphore>(), nullptr);
+            handle = TimelineSemaphoreHandle{ 0 };
             currentValue = 0u;
         }
     }
@@ -120,45 +120,52 @@ namespace rhi
         return handle;
     }
 
-    uint64_t TimelineSemaphore::GetValue() const noexcept
+    Result TimelineSemaphore::GetValue(uint64_t& value) const noexcept
     {
-        uint64_t value = 0;
-        VkResult = vkGetSemaphoreCounterValue(device.As<VkDevice>(), handle.As<VkSemaphore>(), &value);
-        if (result == VK_SUCCESS)
+        VkResult vk_result = vkGetSemaphoreCounterValue(device.As<VkDevice>(), handle.As<VkSemaphore>(), &value);
+        if (vk_result == VK_SUCCESS)
         {
             // might want to log if value == currentValue, saying that the value hasn't changed since last checked?
             currentValue = value;
-            return value;
+            return Result::Success();
         }
         else
         {
-            assert(false && "Failed to get timeline semaphore value");
-            return 0u;
+            return Result(vk_result);
         }
     }
 
-    void TimelineSemaphore::SetValue(uint64_t value) noexcept
+    Result TimelineSemaphore::SetValue(uint64_t value) noexcept
     {
         VkSemaphoreSignalInfo signalInfo{};
         signalInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
         signalInfo.semaphore = handle.As<VkSemaphore>();
         signalInfo.value = value;
-        VkResult result = vkSignalSemaphore(device->vkHandle(), &signalInfo);
-        if (result == VK_SUCCESS)
+        VkResult vk_result = vkSignalSemaphore(device.As<VkDevice>(), &signalInfo);
+        if (vk_result == VK_SUCCESS)
         {
             currentValue = value;
+            return Result::Success();
         }
         else
         {
-            assert(false && "Failed to signal timeline semaphore");
+            return Result(vk_result);
         }
     }
 
-    uint64_t TimelineSemaphore::Increment() noexcept
+    Result TimelineSemaphore::Increment(uint64_t newValue) noexcept
     {
-        const uint64_t newValue = currentValue + 1;
-        SetValue(newValue);
-        return newValue;
+        const uint64_t new_value = currentValue + 1;
+        Result result = SetValue(new_value);
+        if (result.IsSuccess())
+        {
+            newValue = currentValue;
+            return Result::Success();
+        }
+        else
+        {
+            return result;
+        }
     }
 #endif // RHI_SYSTEM_USE_VULKAN
 

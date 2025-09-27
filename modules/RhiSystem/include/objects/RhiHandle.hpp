@@ -100,7 +100,8 @@ namespace rhi
         struct PhysicalDeviceTag {};
         struct DeviceTag {};
         struct QueueTag {};
-        struct SemaphoreTag {};
+        struct BinarySemaphoreTag {};
+        struct TimelineSemaphoreTag {};
         struct FenceTag {};
     }
 
@@ -108,7 +109,8 @@ namespace rhi
     using PhysicalDeviceHandle = RhiHandle<detail::PhysicalDeviceTag>;
     using DeviceHandle = RhiHandle<detail::DeviceTag>;
     using QueueHandle = RhiHandle<detail::QueueTag>;
-    using SemaphoreHandle = RhiHandle<detail::SemaphoreTag>;
+    using BinarySemaphoreHandle = RhiHandle<detail::BinarySemaphoreTag>;
+    using TimelineSemaphoreHandle = RhiHandle<detail::TimelineSemaphoreTag>;
     using FenceHandle = RhiHandle<detail::FenceTag>;
 
 }

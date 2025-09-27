@@ -1,8 +1,15 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RHI_RESULT_HPP
 #define DIAMOND_DOGS_RHI_RESULT_HPP
+#include "RhiDefines.hpp"
 #include <cstdint>
 #include <string_view>
+
+#ifdef RHI_SYSTEM_USE_VULKAN
+    typedef enum VkResult : int;
+#elif defined(RHI_SYSTEM_USE_DX12)
+    typedef long HRESULT;
+#endif
 
 namespace rhi
 {
@@ -51,6 +58,11 @@ namespace rhi
         constexpr Result() noexcept : nativeResult{ 0 } {}
         constexpr Result(Code code) noexcept : nativeResult{ static_cast<int32_t>(code) } {}
         explicit constexpr Result(int32_t rawResult) noexcept : nativeResult{ rawResult } {}
+#ifdef RHI_SYSTEM_USE_VULKAN
+        explicit constexpr Result(VkResult vkResult) noexcept;
+#elif defined(RHI_SYSTEM_USE_DX12)
+        explicit constexpr Result(HRESULT hresult) noexcept;
+#endif
 
         bool IsSuccess() const noexcept;
         bool IsFailure() const noexcept;
@@ -97,17 +109,17 @@ namespace rhi
         {
             return GetCode() != code;
         }
+
+        constexpr static Result Success() noexcept
+        {
+            return Result(Result::Code::Success);
+        }
+
+        constexpr static Result Failure(Result::Code code = Result::Code::UnknownError) noexcept
+        {
+            return Result(code);
+        }
     };
-
-    constexpr Result Success() noexcept
-    {
-        return Result(Result::Code::Success);
-    }
-
-    constexpr Result Failure(Result::Code code = Result::Code::UnknownError) noexcept
-    {
-        return Result(code);
-    }
 
     Result FromVulkan(int32_t vkResult) noexcept;
     Result FromDirectX(int32_t hresult) noexcept;
