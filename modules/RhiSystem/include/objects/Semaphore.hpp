@@ -5,46 +5,47 @@
 
 namespace rhi
 {
-    class Device;
-
     namespace detail
     {
-        struct SemaphoreTag {};
+        struct BinarySemaphoreTag {};
+        // distinguishing types in our wrapper because this can be helpful for writing code that uses semaphores
+        struct TimelineSemaphoreTag {};
     }
 
-    using SemaphoreHandle = RhiHandle<SemaphoreTag>;
+    using BinarySemaphoreHandle = RhiHandle<detail::BinarySemaphoreTag>;
+    using TimelineSemaphoreHandle = RhiHandle<detail::TimelineSemaphoreTag>;
 
     class BinarySemaphore
     {
     public:
-        BinarySemaphore(const Device* device);
+        BinarySemaphore(const DeviceHandle device);
         ~BinarySemaphore();
         BinarySemaphore(const BinarySemaphore&) = delete;
         BinarySemaphore& operator=(const BinarySemaphore&) = delete;
         BinarySemaphore(BinarySemaphore&& other) noexcept;
         BinarySemaphore& operator=(BinarySemaphore&& other) noexcept;
-        uint64_t ApiHandle() const noexcept;
+        SemaphoreHandle Handle() const noexcept;
     private:
-        const Device* device;
+        DeviceHandle device;
         SemaphoreHandle handle;
     };
 
     class TimelineSemaphore
     {
     public:
-        TimelineSemaphore(const Device* device);
+        TimelineSemaphore(const DeviceHandle device);
         ~TimelineSemaphore();
         TimelineSemaphore(const TimelineSemaphore&) = delete;
         TimelineSemaphore& operator=(const TimelineSemaphore&) = delete;
         TimelineSemaphore(TimelineSemaphore&& other) noexcept;
         TimelineSemaphore& operator=(TimelineSemaphore&& other) noexcept;
-        uint64_t ApiHandle() const noexcept;
+        TimelineSemaphoreHandle Handle() const noexcept;
         uint64_t GetValue() const noexcept;
         void SetValue(uint64_t value) noexcept;
         uint64_t Increment() noexcept;
     private:
-        const Device* device;
-        SemaphoreHandle handle;
+        DeviceHandle device;
+        TimelineSemaphoreHandle handle;
         uint64_t currentValue;
     };
 

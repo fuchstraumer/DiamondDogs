@@ -28,9 +28,9 @@ set(RHI_OBJECT_HEADERS
     "include/objects/Device.hpp"
     "include/objects/Fence.hpp"
     "include/objects/Instance.hpp"
-    "include/objects/PhysicalDevice.hpp"
     "include/objects/RhiFunctions.hpp"
     "include/objects/RhiHandle.hpp"
+    "include/objects/RhiResult.hpp"
     "include/objects/Semaphore.hpp")
 
 set(RHI_OBJECT_SOURCES
@@ -40,9 +40,8 @@ set(RHI_OBJECT_SOURCES
     "src/objects/Fence.cpp"
     "src/objects/Instance.cpp"
     "src/objects/RhiFunctions.cpp"
-    "src/objects/PhysicalDevice.cpp"
-    "src/objects/Semaphore.cpp"
-    "src/objects/Fence.cpp")
+    "src/objects/RhiResult.cpp"
+    "src/objects/Semaphore.cpp")
 
 ADD_MODULE(rhi_system "${RHI_CORE_SOURCES}" "${RHI_OBJECT_HEADERS}" "${RHI_OBJECT_SOURCES}")
 
