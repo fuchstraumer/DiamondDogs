@@ -1,25 +1,38 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RHI_FENCE_HPP
 #define DIAMOND_DOGS_RHI_FENCE_HPP
+#include "utility/TaggedBool.hpp"
+#include "RhiHandle.hpp"
 
 namespace rhi
 {
     class Device;
 
+    namespace detail
+    {
+        struct FenceTag {};
+    }
+
+    using FenceHandle = RhiHandle<detail::FenceTag>;
+    using CreateFenceSignaled = TaggedBool<detail::FenceTag>;
+
     class Fence
     {
     public:
-        Fence(const Device* device);
+        Fence(const Device* device, CreateFenceSignaled signaled = CreateFenceSignaled{ false });
         ~Fence();
         Fence(const Fence&) = delete;
         Fence& operator=(const Fence&) = delete;
         Fence(Fence&& other) noexcept;
         Fence& operator=(Fence&& other) noexcept;
 
-        VkFence vkHandle() const noexcept;
+        FenceHandle Handle() const noexcept;
         bool IsSignaled() const;
         void Reset();
         bool Wait(uint64_t timeoutNs = UINT64_MAX) const;
+    private:
+        const Device* device;
+        FenceHandle handle;
     };
 
 }
