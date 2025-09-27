@@ -1,0 +1,13 @@
+#pragma once
+#ifndef DIAMOND_DOGS_RHI_DEFINES_HPP
+#define DIAMOND_DOGS_RHI_DEFINES_HPP
+
+#ifdef RHI_SYSTEM_USE_VULKAN_CONF
+    #define RHI_SYSTEM_USE_VULKAN 1
+    #define RHI_SYSTEM_USE_DX12 0
+#else
+    #define RHI_SYSTEM_USE_VULKAN 0
+    #define RHI_SYSTEM_USE_DX12 1
+#endif
+
+#endif // !DIAMOND_DOGS_RHI_DEFINES_HPP

@@ -7,6 +7,13 @@ namespace rhi
 {
     class Device;
 
+    namespace detail
+    {
+        struct SemaphoreTag {};
+    }
+
+    using SemaphoreHandle = RhiHandle<SemaphoreTag>;
+
     class BinarySemaphore
     {
     public:
@@ -19,7 +26,7 @@ namespace rhi
         uint64_t ApiHandle() const noexcept;
     private:
         const Device* device;
-        uint64_t handle;
+        SemaphoreHandle handle;
     };
 
     class TimelineSemaphore
@@ -37,7 +44,7 @@ namespace rhi
         uint64_t Increment() noexcept;
     private:
         const Device* device;
-        uint64_t handle;
+        SemaphoreHandle handle;
         uint64_t currentValue;
     };
 
