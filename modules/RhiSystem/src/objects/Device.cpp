@@ -19,33 +19,97 @@ namespace rhi
 
     struct DeviceImpl
     {
-        DeviceImpl(const Instance* instance, const PhysicalDevice* physical_device) :
+        DeviceImpl(const Instance* instance) :
             parentInstance{ instance },
-            physicalDevice{ physical_device },
+            physicalDevice{ VK_NULL_HANDLE },
             numGraphicsQueues{ 0u },
             numComputeQueues{ 0u },
             numTransferQueues{ 0u },
             numSparseBindingQueues{ 0u }
         {
+            // perform this step first, so that we have the physical device handle for later steps and device creation
+            selectBestPhysicalDevice();
             retrievePhysicalDeviceProperties();
             queryQueueProperties();
         }
 
+        void selectBestPhysicalDevice()
+        {
+            uint32_t device_count = 0;
+            vkEnumeratePhysicalDevices(parentInstance->Handle().As<VkInstance>(), &device_count, nullptr);
+            
+            if (device_count == 0)
+            {
+                throw std::runtime_error("No Vulkan-compatible physical devices found");
+            }
+            
+            std::vector<VkPhysicalDevice> devices(device_count);
+            vkEnumeratePhysicalDevices(parentInstance->Handle().As<VkInstance>(), &device_count, devices.data());
+            
+            // Simple scoring system - prefer discrete GPUs
+            VkPhysicalDevice best_device = VK_NULL_HANDLE;
+            int best_score = -1;
+            
+            for (VkPhysicalDevice device : devices)
+            {
+                VkPhysicalDeviceProperties device_props;
+                vkGetPhysicalDeviceProperties(device, &device_props);
+
+                int score = 0;
+                
+                // Prefer discrete GPUs
+                if (device_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+                {
+                    score += 1000;
+                }
+                else if (device_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+                {
+                    score += 100;
+                }
+                
+                // Add points for more memory
+                VkPhysicalDeviceMemoryProperties mem_props;
+                vkGetPhysicalDeviceMemoryProperties(device, &mem_props);
+                
+                VkDeviceSize total_memory = 0;
+                for (uint32_t i = 0; i < mem_props.memoryHeapCount; ++i)
+                {
+                    if (mem_props.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                    {
+                        total_memory += mem_props.memoryHeaps[i].size;
+                    }
+                }
+                
+                score += static_cast<int>(total_memory / (1024 * 1024 * 1024)); // GB of memory
+                
+                if (score > best_score)
+                {
+                    best_score = score;
+                    best_device = device;
+                }
+            }
+            
+            if (best_device == VK_NULL_HANDLE)
+            {
+                throw std::runtime_error("No suitable physical device found");
+            }
+            
+            physicalDevice = best_device;
+        }
+
         void retrievePhysicalDeviceProperties()
         {
-            VkPhysicalDevice pHandle = physicalDevice->Handle().As<VkPhysicalDevice>();
-            vkGetPhysicalDeviceProperties2(pHandle, &properties);
-            vkGetPhysicalDeviceFeatures2(pHandle, &features);
-            vkGetPhysicalDeviceMemoryProperties(pHandle, &memoryProperties);
+            vkGetPhysicalDeviceProperties2(physicalDevice, &properties);
+            vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
+            vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
         }
 
         void queryQueueProperties()
         {
-            VkPhysicalDevice pHandle = physicalDevice->Handle().As<VkPhysicalDevice>();
             uint32_t queueFamilyCount = 0;
-            vkGetPhysicalDeviceQueueFamilyProperties(pHandle, &queueFamilyCount, nullptr);
+            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
             queueFamilyProperties.resize(queueFamilyCount);
-            vkGetPhysicalDeviceQueueFamilyProperties(pHandle, &queueFamilyCount, queueFamilyProperties.data());
+            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilyProperties.data());
 
             for (uint32_t i = 0; i < queueFamilyCount; ++i)
             {
@@ -94,7 +158,6 @@ namespace rhi
                 }
             }
         }
-
 
         void setupQueues(VkDevice handle)
         {
@@ -214,7 +277,7 @@ namespace rhi
 
 
         const Instance* parentInstance;
-        const PhysicalDevice* physicalDevice;
+        VkPhysicalDevice physicalDevice;
 
         std::vector<QueueHandle> graphicsQueues;
         std::vector<QueueHandle> computeQueues;
@@ -236,11 +299,10 @@ namespace rhi
         std::vector<VkQueueFamilyProperties> queueFamilyProperties;
     };
 
-    Device::Device(const Instance* instance, 
-                const PhysicalDevice* physical_device,
-                const ExtensionPack& extensions) :
+    Device::Device(const Instance* instance,
+                   const ExtensionPack& extensions) :
         handle{ VK_NULL_HANDLE },
-        impl{ std::make_unique<DeviceImpl>(instance, physical_device) },
+        impl{ std::make_unique<DeviceImpl>(instance) },
     {
         createDevice(extensions);
     }
@@ -310,9 +372,9 @@ namespace rhi
         return handle;
     }
 
-    const PhysicalDeviceHandle& Device::GetPhysicalDevice() const noexcept
+    PhysicalDeviceHandle Device::GetPhysicalDevice() const noexcept
     {
-        return impl->physicalDevice->Handle();
+        return PhysicalDeviceHandle{ reinterpret_cast<uint64_t>(impl->physicalDevice) };
     }
 
     uint32_t Device::GetGraphicsQueueCount() const noexcept
@@ -410,8 +472,7 @@ namespace rhi
             nullptr
         };
         
-        // oh man this is ugly lol. some kind of type safety and handle wrapping but at what cost....
-        const VkPhysicalDevice pDevice = impl->physicalDevice->Handle().As<VkPhysicalDevice>();
+        const VkPhysicalDevice pDevice = impl->physicalDevice;
         VkDevice resultHandle = VK_NULL_HANDLE;
         VkResult result = vkCreateDevice(pDevice, &create_info, nullptr, &resultHandle);
         if (result != VK_SUCCESS)

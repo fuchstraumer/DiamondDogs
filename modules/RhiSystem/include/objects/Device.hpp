@@ -38,7 +38,7 @@ namespace rhi
         // Core access
         DeviceHandle Handle() const noexcept;
         
-        const PhysicalDeviceHandle& GetPhysicalDevice() const noexcept;
+        PhysicalDeviceHandle GetPhysicalDevice() const noexcept;
         
         // Queue access
         QueueHandle GetGraphicsQueue(uint32_t index) const noexcept;
