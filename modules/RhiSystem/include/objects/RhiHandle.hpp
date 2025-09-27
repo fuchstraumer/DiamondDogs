@@ -1,6 +1,7 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RHI_HANDLE_HPP
 #define DIAMOND_DOGS_RHI_HANDLE_HPP
+#include "RhiDefines.hpp"
 #include <cstdint>
 
 namespace rhi
@@ -18,10 +19,20 @@ namespace rhi
     public:
         constexpr RhiHandle() noexcept : handle{ 0u } {}
         explicit constexpr RhiHandle(uint64_t _handle) noexcept : handle{ _handle } {}
-        // no dtor: wrappers will implement the proper destruction process for the handle, based on API
-        // Handles cannot be copied, only moved
-        constexpr RhiHandle(const RhiHandle&) noexcept = delete;
-        constexpr RhiHandle& operator=(const RhiHandle&) noexcept = delete;
+        
+        // Handles can be copied, unlike the actual objects they represent.
+        // This allows multiple people to use the same handle, but still makes sure they don't accidentally use it after it's been destroyed
+        // or that it's not destroyed at all.
+
+        constexpr RhiHandle(const RhiHandle& other) noexcept : handle{ other.handle } {}
+        constexpr RhiHandle& operator=(const RhiHandle& other) noexcept
+        {
+            if (this != &other)
+            {
+                handle = other.handle;
+            }
+            return *this;
+        }
 
         constexpr RhiHandle(RhiHandle&& other) noexcept : handle{ other.handle }
         {
@@ -53,9 +64,15 @@ namespace rhi
             return handle;
         }
 
+        template<typename T>
+        constexpr void Set(T _handle) noexcept
+        {
+            handle = reinterpret_cast<uint64_t>(_handle);
+        }
+
         /** @brief Use the `As()` function to cast the type to the appropriate concrete RHI handle type */
         template<typename T>
-        explicit constexpr As() const noexcept
+        explicit constexpr T As() const noexcept
         {
             return reinterpret_cast<T>(handle);
         }
@@ -71,6 +88,28 @@ namespace rhi
         }
 
     };
+
+    // Define some of our most common and "core" handle types here
+    // Especially beneficial with things like Device, which is used everywhere to init objects when all we really
+    // need is the handle for 90% of the operations
+    namespace detail
+    {
+        // as a general rule, we place tags in a detail namespace to avoid polluting the rhi namespace
+        // all of these tag structs
+        struct InstanceTag {};
+        struct PhysicalDeviceTag {};
+        struct DeviceTag {};
+        struct QueueTag {};
+        struct SemaphoreTag {};
+        struct FenceTag {};
+    }
+
+    using InstanceHandle = RhiHandle<detail::InstanceTag>;
+    using PhysicalDeviceHandle = RhiHandle<detail::PhysicalDeviceTag>;
+    using DeviceHandle = RhiHandle<detail::DeviceTag>;
+    using QueueHandle = RhiHandle<detail::QueueTag>;
+    using SemaphoreHandle = RhiHandle<detail::SemaphoreTag>;
+    using FenceHandle = RhiHandle<detail::FenceTag>;
 
 }
 
