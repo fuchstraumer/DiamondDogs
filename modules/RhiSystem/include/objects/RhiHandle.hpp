@@ -103,6 +103,7 @@ namespace rhi
         struct BinarySemaphoreTag {};
         struct TimelineSemaphoreTag {};
         struct FenceTag {};
+        struct CommandBufferTag {};
     }
 
     using InstanceHandle = RhiHandle<detail::InstanceTag>;
@@ -112,6 +113,7 @@ namespace rhi
     using BinarySemaphoreHandle = RhiHandle<detail::BinarySemaphoreTag>;
     using TimelineSemaphoreHandle = RhiHandle<detail::TimelineSemaphoreTag>;
     using FenceHandle = RhiHandle<detail::FenceTag>;
+    using CommandBufferHandle = RhiHandle<detail::CommandBufferTag>;
 
 }
 
