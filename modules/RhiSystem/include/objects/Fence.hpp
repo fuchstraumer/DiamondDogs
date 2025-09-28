@@ -19,7 +19,7 @@ namespace rhi
     class Fence
     {
     public:
-        Fence(const Device* device, CreateFenceSignaled signaled = CreateFenceSignaled{ false });
+        Fence(DeviceHandle device, CreateFenceSignaled signaled = CreateFenceSignaled{ false });
         ~Fence();
         Fence(const Fence&) = delete;
         Fence& operator=(const Fence&) = delete;
@@ -31,7 +31,7 @@ namespace rhi
         void Reset();
         bool Wait(uint64_t timeoutNs = UINT64_MAX) const;
     private:
-        const Device* device;
+        DeviceHandle device;
         FenceHandle handle;
     };
 

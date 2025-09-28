@@ -6,7 +6,6 @@
 namespace rhi
 {
 #ifdef RHI_SYSTEM_USE_VULKAN
-
     BinarySemaphore::BinarySemaphore(DeviceHandle device) 
         : device{ device }, handle{ BinarySemaphoreHandle{0} }
     {
@@ -20,15 +19,15 @@ namespace rhi
         }
         else
         {
-            handle = SemaphoreHandle{ 0 };
+            handle = BinarySemaphoreHandle{ 0 };
         }
     }
 
     BinarySemaphore::BinarySemaphore(BinarySemaphore&& other) noexcept
         : device{ other.device }, handle{ std::move(other.handle) }
     {
-        other.handle = SemaphoreHandle{ 0 };
-        other.device = nullptr;
+        other.handle = BinarySemaphoreHandle{ 0 };
+        other.device = DeviceHandle{ 0u };
     }
 
     BinarySemaphore& BinarySemaphore::operator=(BinarySemaphore&& other) noexcept
@@ -37,8 +36,8 @@ namespace rhi
         {
             device = other.device;
             handle = std::move(other.handle);
-            other.handle = SemaphoreHandle{ 0 };
-            other.device = nullptr;
+            other.handle = BinarySemaphoreHandle{ 0 };
+            other.device = DeviceHandle{ 0u };
         }
         return *this;
     }

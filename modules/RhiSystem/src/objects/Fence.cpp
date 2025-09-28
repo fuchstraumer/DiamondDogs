@@ -7,15 +7,14 @@
 namespace rhi
 {
 #ifdef RHI_SYSTEM_USE_VULKAN
-
-    Fence::Fence(const Device* device, CreateFenceSignaled signaled) 
+    Fence::Fence(DeviceHandle device, CreateFenceSignaled signaled) 
         : device{ device }, handle{ FenceHandle{0} }
     {
         VkFenceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         createInfo.flags = signaled ? VK_FENCE_CREATE_SIGNALED_BIT : 0;
         VkFence vkFence = VK_NULL_HANDLE;
-        VkResult result = vkCreateFence(device->vkHandle(), &createInfo, nullptr, &vkFence);
+        VkResult result = vkCreateFence(device.As<VkDevice>(), &createInfo, nullptr, &vkFence);
         if (result == VK_SUCCESS)
         {
             handle.Set<VkFence>(vkFence);
@@ -30,7 +29,7 @@ namespace rhi
         : device{ other.device }, handle{ std::move(other.handle) }
     {
         other.handle = FenceHandle{ 0 };
-        other.device = nullptr;
+        other.device = DeviceHandle{ 0 };
     }
 
     Fence& Fence::operator=(Fence&& other) noexcept
@@ -40,7 +39,7 @@ namespace rhi
             device = other.device;
             handle = std::move(other.handle);
             other.handle = FenceHandle{ 0 };
-            other.device = nullptr;
+            other.device = DeviceHandle{ 0 };
         }
         return *this;
     }
@@ -49,7 +48,7 @@ namespace rhi
     {
         if (handle.IsValid() && device)
         {
-            vkDestroyFence(device->vkHandle(), handle.As<VkFence>(), nullptr);
+            vkDestroyFence(device.As<VkDevice>(), handle.As<VkFence>(), nullptr);
             handle = FenceHandle{ 0 };
         }
     }
@@ -61,7 +60,7 @@ namespace rhi
             throw std::runtime_error("Attempted to check status of an invalid fence!");
         }
 
-        VkResult result = vkGetFenceStatus(device->vkHandle(), handle.As<VkFence>());
+        VkResult result = vkGetFenceStatus(device.As<VkDevice>(), handle.As<VkFence>());
         if (result == VK_SUCCESS)
         {
             return true;
@@ -75,7 +74,6 @@ namespace rhi
             throw std::runtime_error("Failed to get fence status!");
         }
     }
-
 #endif
 
 }
