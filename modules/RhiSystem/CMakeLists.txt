@@ -9,18 +9,20 @@ OPTION(RHI_SYSTEM_DEBUG_INFO_CALLING_FN "Enable calling function name in debug i
 set(RHI_SYSTEM_GRAPHICS_API "Vulkan" CACHE STRING "Graphics API to use (Vulkan, DirectX12)")
 set_property(CACHE RHI_SYSTEM_GRAPHICS_API PROPERTY STRINGS "Vulkan" "DirectX12")
 
-set(RHI_CORE_SOURCES
-    "include/DebugUtilFns.hpp"
-    "include/ExtensionPack.hpp"
-    "include/ExtensionWrangler.hpp"
-    "include/PipelineExecutableInfo.hpp"
-    "include/RhiDefines.hpp"
-    "include/RhiSystem.hpp"
-    "include/RhiTypes.hpp"
-    "src/ExtensionWrangler.cpp"
-    "src/ExtensionPack.cpp"
-    "src/PipelineExecutableInfo.cpp"
-    "src/RhiSystem.cpp")
+set(RHI_CORE_HEADERS
+    "include/core/DebugUtilFns.hpp"
+    "include/core/ExtensionPack.hpp"
+    "include/core/ExtensionWrangler.hpp"
+    "include/core/PipelineExecutableInfo.hpp"
+    "include/core/RhiDefines.hpp"
+    "include/core/RhiSystem.hpp"
+    "include/core/RhiFlags.hpp")
+
+set(RHI_CORE_SOURCES 
+    "src/core/ExtensionWrangler.cpp"
+    "src/core/ExtensionPack.cpp"
+    "src/core/PipelineExecutableInfo.cpp"
+    "src/core/RhiSystem.cpp")
 
 set(RHI_OBJECT_HEADERS
     "include/objects/CommandBuffer.hpp"
@@ -39,11 +41,11 @@ set(RHI_OBJECT_SOURCES
     "src/objects/Device.cpp"
     "src/objects/Fence.cpp"
     "src/objects/Instance.cpp"
-    "src/objects/RhiFunctions.cpp"
+    "src/objects/RhiFunctionsVk.cpp"
     "src/objects/RhiResult.cpp"
     "src/objects/Semaphore.cpp")
 
-ADD_MODULE(rhi_system "${RHI_CORE_SOURCES}" "${RHI_OBJECT_HEADERS}" "${RHI_OBJECT_SOURCES}")
+ADD_MODULE(rhi_system "${RHI_CORE_HEADERS}""${RHI_CORE_SOURCES}" "${RHI_OBJECT_HEADERS}" "${RHI_OBJECT_SOURCES}")
 
 if(RHI_SYSTEM_GRAPHICS_API STREQUAL "Vulkan")
     target_link_libraries(rhi_system PUBLIC ${Vulkan_LIBRARY})
@@ -63,7 +65,8 @@ TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/objects")
 
-source_group("Core" FILES ${RHI_CORE_SOURCES})
+source_group("Core\\include" FILES ${RHI_CORE_HEADERS})
+source_group("Core\\src" FILES ${RHI_CORE_SOURCES})
 source_group("Objects\\include" FILES ${RHI_OBJECT_HEADERS})
 source_group("Objects\\src" FILES ${RHI_OBJECT_SOURCES})
 

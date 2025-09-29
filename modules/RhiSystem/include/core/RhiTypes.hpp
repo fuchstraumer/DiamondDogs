@@ -86,6 +86,20 @@ namespace rhi
         uint32_t layerCount = 1;
     };
 
+    struct SpecializationConstant
+    {
+        union ValueType
+        {
+            int32_t i32;
+            uint32_t u32; // u32 will also store bool values
+            float f32;
+        };
+        uint32_t ConstantId = 0;       // Constant ID in shader
+        ValueType Value;
+    };
+
+    
+
 }
 
 

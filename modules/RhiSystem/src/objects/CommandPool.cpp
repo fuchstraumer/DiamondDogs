@@ -96,8 +96,6 @@ namespace rhi
         : device{ device }, poolType{ poolType }, impl{ std::make_unique<CommandPoolImpl>(device, queueFamilyIndex) }
     {
 #ifdef RHI_SYSTEM_USE_VULKAN
-        impl->queueFamilyIndex = queueFamilyIndex;
-        
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.queueFamilyIndex = queueFamilyIndex;

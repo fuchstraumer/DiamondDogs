@@ -74,6 +74,7 @@ namespace rhi
         template<typename T>
         explicit constexpr T As() const noexcept
         {
+            static_assert(sizeof(T) == sizeof(uint64_t), "Size of destination type in As<T>() must be 64 bits");
             return reinterpret_cast<T>(handle);
         }
 
@@ -104,6 +105,16 @@ namespace rhi
         struct TimelineSemaphoreTag {};
         struct FenceTag {};
         struct CommandBufferTag {};
+        struct BufferTag {};
+        struct BufferViewTag {};
+        struct ImageTag {};
+        struct ImageViewTag {};
+        struct GraphicsPipelineTag {};
+        struct ComputePipelineTag {};
+        struct DescriptorSetTag {};
+        struct DescriptorSetLayoutTag {};
+        struct DescriptorPoolTag {};
+        struct DescriptorUpdateTemplateTag {};
     }
 
     using InstanceHandle = RhiHandle<detail::InstanceTag>;
@@ -114,6 +125,16 @@ namespace rhi
     using TimelineSemaphoreHandle = RhiHandle<detail::TimelineSemaphoreTag>;
     using FenceHandle = RhiHandle<detail::FenceTag>;
     using CommandBufferHandle = RhiHandle<detail::CommandBufferTag>;
+    using BufferHandle = RhiHandle<detail::BufferTag>;
+    using BufferViewHandle = RhiHandle<detail::BufferViewTag>;
+    using ImageHandle = RhiHandle<detail::ImageTag>;
+    using ImageViewHandle = RhiHandle<detail::ImageViewTag>;
+    using GraphicsPipelineHandle = RhiHandle<detail::GraphicsPipelineTag>;
+    using ComputePipelineHandle = RhiHandle<detail::ComputePipelineTag>;
+    using DescriptorSetHandle = RhiHandle<detail::DescriptorSetTag>;
+    using DescriptorSetLayoutHandle = RhiHandle<detail::DescriptorSetLayoutTag>;
+    using DescriptorPoolHandle = RhiHandle<detail::DescriptorPoolTag>;
+    using DescriptorUpdateTemplateHandle = RhiHandle<detail::DescriptorUpdateTemplateTag>;
 
 }
 
