@@ -14,14 +14,13 @@ namespace rhi
     class Instance;
     class PhysicalDevice;
     class ExtensionPack;
-    class DeviceImpl;
+    struct DeviceImpl;
 
     class Device 
     {
     public:
-        Device(const Instance* instance, 
-               const PhysicalDevice* physical_device,
-               const ExtensionPack& extensions);
+        Device(const Instance* instance,
+               ExtensionPack& extensions);
         
         ~Device();
         
@@ -60,7 +59,7 @@ namespace rhi
         const VkDebugUtilsFunctions& GetDebugUtilFns() const noexcept;
 
     private:
-        void createDevice(const ExtensionPack& extensions);
+        void createDevice(ExtensionPack& extensions);
         void setupQueues();
         void setupDebugUtils();
 

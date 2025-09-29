@@ -6,14 +6,6 @@
 
 namespace rhi
 {
-    class Device;
-
-    namespace detail
-    {
-        struct FenceTag {};
-    }
-
-    using FenceHandle = RhiHandle<detail::FenceTag>;
     using CreateFenceSignaled = TaggedBool<detail::FenceTag>;
 
     class Fence

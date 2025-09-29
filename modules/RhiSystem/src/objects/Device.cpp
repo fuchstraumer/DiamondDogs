@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <format>
 #include <iostream>
+#include <vulkan/vulkan_core.h>
 
 namespace rhi
 {
@@ -226,7 +227,7 @@ namespace rhi
             std::cout << queue_info << "\n";
         }
 
-        void setupDebugUtils(VkDevice device)
+        void setupDebugUtils(VkDevice handle)
         {
             if (!parentInstance->HasValidation() || !parentInstance->HasExtension("VK_EXT_debug_utils"))
             {
@@ -264,7 +265,7 @@ namespace rhi
                 reinterpret_cast<PFN_vkCmdInsertDebugUtilsLabelEXT>(vkGetDeviceProcAddr(handle, "vkCmdInsertDebugUtilsLabelEXT"));
             check_loaded_pfn((void*)debugUtilsHandler.vkCmdInsertDebugUtilsLabel, "vkCmdInsertDebugUtilsLabelEXT");
             debugUtilsHandler.vkCreateDebugUtilsMessenger =
-                reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(parentInstance->Handle().As<VkInstance(), "vkCreateDebugUtilsMessengerEXT"));
+                reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(parentInstance->Handle().As<VkInstance>(), "vkCreateDebugUtilsMessengerEXT"));
             check_loaded_pfn((void*)debugUtilsHandler.vkCreateDebugUtilsMessenger, "vkCreateDebugUtilsMessengerEXT");
             debugUtilsHandler.vkDestroyDebugUtilsMessenger =
                 reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(parentInstance->Handle().As<VkInstance>(), "vkDestroyDebugUtilsMessengerEXT"));
@@ -299,9 +300,9 @@ namespace rhi
     };
 
     Device::Device(const Instance* instance,
-                   const ExtensionPack& extensions) :
-        handle{ VK_NULL_HANDLE },
-        impl{ std::make_unique<DeviceImpl>(instance) },
+                   ExtensionPack& extensions) :
+        handle{ 0u },
+        impl{ std::make_unique<DeviceImpl>(instance) }
     {
         createDevice(extensions);
     }
@@ -401,9 +402,11 @@ namespace rhi
         return impl->enabledExtensions;
     }
 
-    void Device::createDevice(const ExtensionPack& extensions)
+    void Device::createDevice(ExtensionPack& extensions)
     {
         const QueueFamilyIndices& queue_indices = impl->queueFamilyIndices;
+        extensions.SetPhysicalDevice(impl->physicalDevice);
+        extensions.ResolveDeviceDependencies();
         
         // Collect unique queue families
         std::set<uint32_t> unique_queue_families = 

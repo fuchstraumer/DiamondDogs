@@ -35,8 +35,8 @@ namespace rhi
     /** @brief Cleanup RHI resources */
     void CleanupRhi(const DeviceHandle device);
     
-    [[nodiscard]] Result WaitForFences(const DeviceHandle device, std::span<FenceHandle> fences, bool waitAll, uint64_t timeout) noexcept;
-    [[nodiscard]] Result ResetFences(const DeviceHandle device, std::span<FenceHandle> fences) noexcept;
+    [[nodiscard]] Result WaitForFences(const DeviceHandle device, std::span<FenceHandle> fences, bool waitAll, uint64_t timeout);
+    [[nodiscard]] Result ResetFences(const DeviceHandle device, std::span<FenceHandle> fences);
 
     void CmdBeginRendering(CommandBufferHandle cmd, const RenderingInfo& renderingInfo) noexcept;
     void CmdEndRendering(CommandBufferHandle cmd) noexcept;

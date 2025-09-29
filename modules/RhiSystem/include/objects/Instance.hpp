@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+struct VkApplicationInfo;
+
 namespace rhi 
 {
 
@@ -39,7 +41,7 @@ namespace rhi
         const std::vector<std::string>& GetEnabledExtensions() const noexcept;
 
     private:
-        void createInstance(const struct ::VkApplicationInfo& app_info, const ExtensionPack& extensions);
+        void createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions);
         void setupValidation(ValidationLayers level);
         bool checkLayerSupport(const std::vector<const char*>& required_layers) const;
 

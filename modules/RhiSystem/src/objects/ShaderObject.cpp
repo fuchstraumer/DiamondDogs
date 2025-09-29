@@ -188,7 +188,7 @@ namespace rhi
 #endif
 
                 sessionDesc.compilerOptionEntries = compilerOptions.data();
-                sessionDesc.compilerOptionEntryCount = compilerOptions.size();
+                sessionDesc.compilerOptionEntryCount = static_cast<uint32_t>(compilerOptions.size());
 
                 // Create session
                 Slang::ComPtr<slang::ISession> resultSession;
@@ -288,7 +288,7 @@ namespace rhi
                 }
 
                 Slang::ComPtr<slang::IComponentType> linkedProgram;
-                SlangResult linkResult = resultSession->link(
+                SlangResult linkResult = composedProgram->link(
                     linkedProgram.writeRef(),
                     diagnosticsBlob.writeRef());
                 
@@ -479,10 +479,7 @@ namespace rhi
         impl{ std::move(impl) },
         handle{}
     {
-        if (this->impl)
-        {
-            handle.Set(reinterpret_cast<uint64_t>(this->impl.get()));
-        }
+        
     }
 
     ShaderObject::~ShaderObject() = default;
@@ -531,7 +528,7 @@ namespace rhi
             outShaderObject = ShaderObject(std::move(impl));
             return Result(Result::Code::Success);
         }
-        catch (const std::exception& e)
+        catch (...)
         {
             return Result(Result::Code::InitializationFailed);
         }

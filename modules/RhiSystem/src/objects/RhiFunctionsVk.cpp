@@ -28,45 +28,45 @@ namespace rhi
             assert(pfn_vkCmdBeginRendering && "Failed to load vkCmdBeginRendering");
 
             std::vector<VkRenderingAttachmentInfo> colorAttachments;
-            colorAttachments.reserve(renderingInfo.colorAttachments.size());
+            colorAttachments.reserve(renderingInfo.ColorAttachments.size());
             
-            for (const auto& attachment : renderingInfo.colorAttachments)
+            for (const auto& attachment : renderingInfo.ColorAttachments)
             {
                 VkRenderingAttachmentInfo vkAttachment{};
                 vkAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                vkAttachment.imageView = attachment.imageView.As<VkImageView>();
+                vkAttachment.imageView = attachment.ImageView.As<VkImageView>();
                 vkAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                vkAttachment.loadOp = static_cast<VkAttachmentLoadOp>(attachment.loadOp);
-                vkAttachment.storeOp = static_cast<VkAttachmentStoreOp>(attachment.storeOp);
-                vkAttachment.clearValue.color.float32[0] = attachment.clearValue.color.r;
-                vkAttachment.clearValue.color.float32[1] = attachment.clearValue.color.g;
-                vkAttachment.clearValue.color.float32[2] = attachment.clearValue.color.b;
-                vkAttachment.clearValue.color.float32[3] = attachment.clearValue.color.a;
+                vkAttachment.loadOp = static_cast<VkAttachmentLoadOp>(attachment.LoadOp);
+                vkAttachment.storeOp = static_cast<VkAttachmentStoreOp>(attachment.StoreOp);
+                vkAttachment.clearValue.color.float32[0] = attachment.ClearValue.r;
+                vkAttachment.clearValue.color.float32[1] = attachment.ClearValue.g;
+                vkAttachment.clearValue.color.float32[2] = attachment.ClearValue.b;
+                vkAttachment.clearValue.color.float32[3] = attachment.ClearValue.a;
 
                 colorAttachments.push_back(vkAttachment);
             }
             
             VkRenderingAttachmentInfo depthAttachment{};
-            if (renderingInfo.depthStencilAttachment)
+            if (renderingInfo.DepthStencilAttachment)
             {
                 depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                depthAttachment.imageView = renderingInfo.depthStencilAttachment->imageView.As<VkImageView>();
+                depthAttachment.imageView = renderingInfo.DepthStencilAttachment->ImageView.As<VkImageView>();
                 depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-                depthAttachment.loadOp = static_cast<VkAttachmentLoadOp>(renderingInfo.depthStencilAttachment->depthLoadOp);
-                depthAttachment.storeOp = static_cast<VkAttachmentStoreOp>(renderingInfo.depthStencilAttachment->depthStoreOp);
-                depthAttachment.clearValue.depthStencil.depth = renderingInfo.depthStencilAttachment->clearValue.depth;
-                depthAttachment.clearValue.depthStencil.stencil = renderingInfo.depthStencilAttachment->clearValue.stencil;
+                depthAttachment.loadOp = static_cast<VkAttachmentLoadOp>(renderingInfo.DepthStencilAttachment->DepthLoadOp);
+                depthAttachment.storeOp = static_cast<VkAttachmentStoreOp>(renderingInfo.DepthStencilAttachment->DepthStoreOp);
+                depthAttachment.clearValue.depthStencil.depth = renderingInfo.DepthStencilAttachment->ClearValue.Depth;
+                depthAttachment.clearValue.depthStencil.stencil = renderingInfo.DepthStencilAttachment->ClearValue.Stencil;
             }
             
             VkRenderingInfo vkRenderingInfo{};
             vkRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-            vkRenderingInfo.renderArea.offset = { renderingInfo.renderArea.x, renderingInfo.renderArea.y };
-            vkRenderingInfo.renderArea.extent = { renderingInfo.renderArea.width, renderingInfo.renderArea.height };
-            vkRenderingInfo.layerCount = renderingInfo.layerCount;
+            vkRenderingInfo.renderArea.offset = { renderingInfo.RenderArea.PosX, renderingInfo.RenderArea.PosY };
+            vkRenderingInfo.renderArea.extent = { renderingInfo.RenderArea.Width, renderingInfo.RenderArea.Height };
+            vkRenderingInfo.layerCount = renderingInfo.LayerCount;
             vkRenderingInfo.colorAttachmentCount = static_cast<uint32_t>(colorAttachments.size());
             vkRenderingInfo.pColorAttachments = colorAttachments.data();
-            vkRenderingInfo.pDepthAttachment = renderingInfo.depthStencilAttachment ? &depthAttachment : nullptr;
-            
+            vkRenderingInfo.pDepthAttachment = renderingInfo.DepthStencilAttachment ? &depthAttachment : nullptr;
+
             pfn_vkCmdBeginRendering(cmd.As<VkCommandBuffer>(), &vkRenderingInfo);
         }
 
@@ -118,109 +118,59 @@ namespace rhi
 
     Result GetFenceStatus(const Device* device, const Fence* fence) noexcept
     {
-        return detail::GetFunctions().GetFenceStatus(device, fence);
+        return Result::Success();
     }
 
     Result BeginCommandBuffer(CommandBuffer* commandBuffer) noexcept
     {
-        return detail::GetFunctions().BeginCommandBuffer(commandBuffer);
+        return Result::Success();
     }
 
     Result EndCommandBuffer(CommandBuffer* commandBuffer) noexcept
     {
-        return detail::GetFunctions().EndCommandBuffer(commandBuffer);
+        return Result::Success();
     }
 
     Result ResetCommandBuffer(CommandBuffer* commandBuffer) noexcept
     {
-        return detail::GetFunctions().ResetCommandBuffer(commandBuffer);
-    }
-
-    void CmdBeginRenderPass(CommandBuffer* commandBuffer, const RenderPass* renderPass) noexcept
-    {
-        detail::GetFunctions().CmdBeginRenderPass(commandBuffer, renderPass);
-    }
-
-    void CmdEndRenderPass(CommandBuffer* commandBuffer) noexcept
-    {
-        detail::GetFunctions().CmdEndRenderPass(commandBuffer);
+        return Result::Success();
     }
 
     void CmdBindPipeline(CommandBuffer* commandBuffer, const GraphicsPipeline* pipeline) noexcept
     {
-        detail::GetFunctions().CmdBindPipeline(commandBuffer, pipeline);
+
     }
 
     void CmdBindDescriptorSets(CommandBuffer* commandBuffer, uint32_t firstSet, 
                               uint32_t descriptorSetCount, const DescriptorSet* const* descriptorSets) noexcept
     {
-        detail::GetFunctions().CmdBindDescriptorSets(commandBuffer, firstSet, descriptorSetCount, descriptorSets);
+
     }
 
     void CmdDraw(CommandBuffer* commandBuffer, uint32_t vertexCount, 
                 uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) noexcept
     {
-        detail::GetFunctions().CmdDraw(commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
+
     }
 
     void CmdDrawIndexed(CommandBuffer* commandBuffer, uint32_t indexCount, 
                        uint32_t instanceCount, uint32_t firstIndex, 
                        int32_t vertexOffset, uint32_t firstInstance) noexcept
     {
-        detail::GetFunctions().CmdDrawIndexed(commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+
     }
 
     void CmdDispatch(CommandBuffer* commandBuffer, uint32_t groupCountX, 
                     uint32_t groupCountY, uint32_t groupCountZ) noexcept
     {
-        detail::GetFunctions().CmdDispatch(commandBuffer, groupCountX, groupCountY, groupCountZ);
-    }
 
-    void CmdCopyBuffer(CommandBuffer* commandBuffer, const Buffer* srcBuffer, 
-                      const Buffer* dstBuffer, uint64_t size, uint64_t srcOffset, uint64_t dstOffset) noexcept
-    {
-        detail::GetFunctions().CmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, size, srcOffset, dstOffset);
-    }
-
-    void CmdCopyImage(CommandBuffer* commandBuffer, const Image* srcImage, 
-                     const Image* dstImage, ImageLayout srcLayout, ImageLayout dstLayout) noexcept
-    {
-        detail::GetFunctions().CmdCopyImage(commandBuffer, srcImage, dstImage, srcLayout, dstLayout);
     }
 
     void CmdPipelineBarrier(CommandBuffer* commandBuffer, PipelineStage srcStage, 
                            PipelineStage dstStage, uint32_t memoryBarrierCount, 
                            uint32_t bufferMemoryBarrierCount, uint32_t imageMemoryBarrierCount) noexcept
     {
-        detail::GetFunctions().CmdPipelineBarrier(commandBuffer, srcStage, dstStage, memoryBarrierCount, bufferMemoryBarrierCount, imageMemoryBarrierCount);
+
     }
 
-    Result QueueSubmit(const Device* device, uint32_t submitCount, 
-                      CommandBuffer* const* commandBuffers, const Fence* fence) noexcept
-    {
-        return detail::GetFunctions().QueueSubmit(device, submitCount, commandBuffers, fence);
-    }
-
-    Result QueueWaitIdle(const Device* device) noexcept
-    {
-        return detail::GetFunctions().QueueWaitIdle(device);
-    }
-
-    Result DeviceWaitIdle(const Device* device) noexcept
-    {
-        return detail::GetFunctions().DeviceWaitIdle(device);
-    }
-
-    Result AcquireNextImage(const Device* device, const Swapchain* swapchain, 
-                           uint64_t timeout, const Semaphore* semaphore, 
-                           const Fence* fence, uint32_t* imageIndex) noexcept
-    {
-        return detail::GetFunctions().AcquireNextImage(device, swapchain, timeout, semaphore, fence, imageIndex);
-    }
-
-    Result QueuePresent(const Device* device, const Swapchain* swapchain, 
-                       uint32_t imageIndex, const Semaphore* waitSemaphore) noexcept
-    {
-        return detail::GetFunctions().QueuePresent(device, swapchain, imageIndex, waitSemaphore);
-    }
 }
