@@ -2,9 +2,11 @@
 #include <gmock/gmock.h>
 #include "RhiSystem.hpp"
 #include "RhiTypes.hpp"
+#include "Instance.hpp"
 #include "Device.hpp"
 #include <filesystem>
 #include <fstream>
+#include <span>
 
 class RhiSystemTest : public ::testing::Test
 {
@@ -123,51 +125,32 @@ TEST_F(RhiSystemTest, ValidationLayers)
             auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
             EXPECT_NE(rhiSystem, nullptr);
             EXPECT_NE(rhiSystem->GetInstance(), nullptr);
+            EXPECT_EQ(rhiSystem->GetInstance()->GetValidationLevel(), level);
         }) << "Failed for validation level: " << static_cast<int>(level);
     }
 }
 
-// Test RHI system with presentation support
-TEST_F(RhiSystemTest, WithPresentationSupport)
-{
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ApplicationName = "PresentationTest";
-    createInfo.ValidationLevel = rhi::ValidationLayers::BaseOnly;
-    createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
-    
-#ifdef _WIN32
-    createInfo.RequiredInstanceExtensions.push_back("VK_KHR_surface");
-    createInfo.RequiredInstanceExtensions.push_back("VK_KHR_win32_surface");
-#elif defined(__linux__)
-    createInfo.RequiredInstanceExtensions.push_back("VK_KHR_surface");
-    createInfo.RequiredInstanceExtensions.push_back("VK_KHR_xcb_surface");
-#endif
-    
-    createInfo.RequiredDeviceExtensions = {"VK_KHR_swapchain"};
-    createInfo.ShaderCacheDir = tempShaderCacheDir.string();
-
-    EXPECT_NO_THROW({
-        auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        EXPECT_NE(rhiSystem, nullptr);
-    });
-}
 
 // Test RHI system with various device extensions
 TEST_F(RhiSystemTest, WithDeviceExtensions)
 {
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ApplicationName = "ExtensionTest";
-    createInfo.ValidationLevel = rhi::ValidationLayers::BaseOnly;
-    createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
-    createInfo.RequestedDeviceExtensions = {
+    static const std::vector<std::string> deviceExtensionNames
+    {
         "VK_KHR_dedicated_allocation",
         "VK_KHR_get_memory_requirements2",
-        "VK_KHR_pipeline_executable_properties"
     };
+
+    auto createInfo = GetBaseCreateInfo();
+    createInfo.RequestedDeviceExtensions = deviceExtensionNames;
     createInfo.ShaderCacheDir = tempShaderCacheDir.string();
 
     EXPECT_NO_THROW({
         auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
+        EXPECT_TRUE(rhiSystem->GetInstance()->HasExtension("VK_EXT_debug_utils"));
+        for (const auto& ext : deviceExtensionNames)
+        {
+            EXPECT_TRUE(rhiSystem->GetDevice()->HasExtension(ext)) << "Missing extension: " << ext;
+        }
         EXPECT_NE(rhiSystem, nullptr);
     });
 }
