@@ -158,7 +158,7 @@ namespace rhi
         Result result = SetValue(new_value);
         if (result.IsSuccess())
         {
-            newValue = currentValue;
+            newValue = new_value;
             return Result::Success();
         }
         else

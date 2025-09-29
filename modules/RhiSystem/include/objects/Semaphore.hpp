@@ -1,6 +1,6 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RHI_SEMAPHORE_HPP
-#define DIMOND_DOGS_RHI_SEMAPHORE_HPP
+#define DIAMOND_DOGS_RHI_SEMAPHORE_HPP
 #include "RhiHandle.hpp"
 #include "RhiResult.hpp"
 
