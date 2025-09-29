@@ -3,12 +3,13 @@
 
 GraphicsResource GraphicsResource::Null() noexcept
 {
-    return GraphicsResource{ ResourceDomain::Invalid, entt::null, 0u, 0u, 0u };
+    return GraphicsResource{ ResourceDomain::Invalid, ResourceType::Invalid, entt::null, 0u, 0u, 0u };
 }
 
 constexpr bool GraphicsResource::operator==(const GraphicsResource& other) const noexcept
 {
     return Domain == other.Domain &&
+           Type == other.Type &&
            EntityHandle == other.EntityHandle &&
            VkHandle == other.VkHandle &&
            VkViewHandle == other.VkViewHandle &&
@@ -22,5 +23,7 @@ constexpr bool GraphicsResource::operator!=(const GraphicsResource& other) const
 
 constexpr GraphicsResource::operator bool() const noexcept
 {
-    return Domain != ResourceDomain::Invalid && EntityHandle != entt::null;
+    return Domain != ResourceDomain::Invalid && 
+           Type != ResourceType::Invalid &&
+           EntityHandle != entt::null;
 }

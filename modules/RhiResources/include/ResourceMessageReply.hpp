@@ -5,9 +5,8 @@
 #include "threading/atomic128.hpp"
 #include <atomic>
 #include <limits>
-#include <vulkan/vulkan_core.h>
 
-namespace vpr
+namespace rhi
 {
     class Device;
 }
@@ -97,7 +96,7 @@ public:
     /// Default constructor
     ResourceTransferReply();
     /// Constructor with device for semaphore operations
-    ResourceTransferReply(vpr::Device* _device);
+    ResourceTransferReply(rhi::Device* _device);
     /// Virtual destructor
     virtual ~ResourceTransferReply();
 
@@ -132,7 +131,7 @@ protected:
     friend class ResourceTransferSystem;
 
     uint64_t semaphoreHandle = 0u;
-    const vpr::Device* device = nullptr;
+    const rhi::Device* device = nullptr;
 };
 
 /**
@@ -145,17 +144,17 @@ protected:
 class GraphicsResourceReply final : public ResourceTransferReply
 {
     
-    struct VkResourceTypeAndEntityHandle
+    struct RhiResourceTypeAndEntityHandle
     {
-        VkResourceTypeAndEntityHandle() noexcept;
-        VkResourceTypeAndEntityHandle(const resource_type type, const uint32_t entity_handle) noexcept;
-        VkResourceTypeAndEntityHandle(const VkResourceTypeAndEntityHandle& other) noexcept = default;
-        VkResourceTypeAndEntityHandle& operator=(const VkResourceTypeAndEntityHandle& other) noexcept = default;
-        VkResourceTypeAndEntityHandle(VkResourceTypeAndEntityHandle&& other) noexcept = default;
-        VkResourceTypeAndEntityHandle& operator=(VkResourceTypeAndEntityHandle&& other) noexcept = default;
-        ~VkResourceTypeAndEntityHandle() noexcept = default;
-        bool operator==(const VkResourceTypeAndEntityHandle& other) const noexcept;
-        bool operator!=(const VkResourceTypeAndEntityHandle& other) const noexcept;
+        RhiResourceTypeAndEntityHandle() noexcept;
+        RhiResourceTypeAndEntityHandle(const ResourceDomain domain, const ResourceType type, const uint32_t entity_handle) noexcept;
+        RhiResourceTypeAndEntityHandle(const RhiResourceTypeAndEntityHandle& other) noexcept = default;
+        RhiResourceTypeAndEntityHandle& operator=(const RhiResourceTypeAndEntityHandle& other) noexcept = default;
+        RhiResourceTypeAndEntityHandle(RhiResourceTypeAndEntityHandle&& other) noexcept = default;
+        RhiResourceTypeAndEntityHandle& operator=(RhiResourceTypeAndEntityHandle&& other) noexcept = default;
+        ~RhiResourceTypeAndEntityHandle() noexcept = default;
+        bool operator==(const RhiResourceTypeAndEntityHandle& other) const noexcept;
+        bool operator!=(const RhiResourceTypeAndEntityHandle& other) const noexcept;
         
         /**
          * @brief Check if the resource handle is valid
@@ -166,31 +165,18 @@ class GraphicsResourceReply final : public ResourceTransferReply
          */
         operator bool() const noexcept;
         
-        uint32_t Type;         ///< Resource type from resource_type enum
+        uint16_t Domain;       ///< Resource domain from resource_domain enum
+        uint16_t Type;         ///< Resource type from resource_type enum
         uint32_t EntityHandle; ///< ECS entity handle for internal tracking
     };
 
 
 public:
 
-    /**
-     * @brief Constructor for resource replies of a specific type
-     * 
-     * @param _type The type of resource that will be created
-     */
-    GraphicsResourceReply(resource_type _type);
-    
-    /**
-     * @brief Constructor with device for transfer operations
-     * 
-     * @param _type The type of resource that will be created
-     * @param _device Device pointer for semaphore operations
-     */
-    GraphicsResourceReply(resource_type _type, vpr::Device* _device);
-    
-    /// Destructor
-    ~GraphicsResourceReply();
+    GraphicsResourceReply(ResourceDomain _domain, ResourceType _type);
+    GraphicsResourceReply(ResourceDomain _domain, ResourceType _type, rhi::Device* _device);
 
+    ~GraphicsResourceReply();
     GraphicsResourceReply(const GraphicsResourceReply&) = delete;
     GraphicsResourceReply& operator=(const GraphicsResourceReply&) = delete;
     
@@ -208,21 +194,20 @@ private:
 
     friend class ResourceContextImpl;
     friend class TransferSystem;
-    /**
-     * @brief Called by internal systems to update the internal data atomically.
-     */
+    /** @brief Called by internal systems to update the internal data atomically. */
     void SetGraphicsResource(
-        const resource_type _type,
+        const ResourceDomain _domain,
+        const ResourceType _type,
         const uint32_t entity_handle,
         const uint64_t vk_handle,
         const uint64_t vk_view_handle,
         const uint64_t vk_sampler_handle) noexcept;
-
+    /** @brief Relaxed version of SetGraphicsResource for use when already synchronized, or to push piecemeal updates without atomicity before a final atomic commit. */
     void SetGraphicsResourceRelaxed(const GraphicsResource& resource) noexcept;
     
-    std::atomic<VkResourceTypeAndEntityHandle> resourceTypeAndEntityHandle;
+    std::atomic<RhiResourceTypeAndEntityHandle> resourceTypeAndEntityHandle;
+    static_assert(decltype(resourceTypeAndEntityHandle)::is_always_lock_free, "std::atomic<RhiResourceTypeAndEntityHandle> is not lock-free on this platform/using this compiler");
     std::atomic<uint64_t> vkSamplerHandle;
-    static_assert(decltype(resourceTypeAndEntityHandle)::is_always_lock_free, "std::atomic<VkResourceTypeAndEntityHandle> is not lock-free on this platform/using this compiler");
     atomic128 vkHandleAndView;
 };
 

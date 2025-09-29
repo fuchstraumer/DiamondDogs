@@ -4,7 +4,6 @@
 #include "ExtensionPack.hpp"
 #include "ExtensionWrangler.hpp"
 #include "Instance.hpp"
-#include "PhysicalDevice.hpp"
 
 #include <thread> // for std::this_thread::get_id() for debug info
 #include <chrono>
@@ -167,8 +166,7 @@ namespace rhi
 
         createInstance(rhiConfig, engineConfig);
         createPhysicalDevice();
-        extensionPack->SetPhysicalDevice(physicalDevices.front()->vkHandle());
-        gatherAndResolveDeviceExtensions(json_file, rhiConfig);
+        gatherDeviceExtensions(json_file, rhiConfig);
         createLogicalDevice();
 
         if (vulkanInstance->HasValidation() && vulkanInstance->HasExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
@@ -209,7 +207,6 @@ namespace rhi
         createInstance(createInfo);
 
         createPhysicalDevice();
-        extensionPack->SetPhysicalDevice(physicalDevices.front()->vkHandle());
 
         if (createInfo.RequiredDeviceExtensions.size() > 0)
         {
@@ -220,8 +217,6 @@ namespace rhi
         {
             extensionPack->AddOptionalDeviceExtensions(createInfo.RequestedDeviceExtensions);
         }
-
-        extensionPack->ResolveDeviceDependencies();
 
         createLogicalDevice();
 
@@ -251,11 +246,10 @@ namespace rhi
             VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
             if (DebugUtilsMessenger != VK_NULL_HANDLE && debugUtilsFns.vkDestroyDebugUtilsMessenger)
             {
-                debugUtilsFns.vkDestroyDebugUtilsMessenger(vulkanInstance->vkHandle(), DebugUtilsMessenger, nullptr);
+                debugUtilsFns.vkDestroyDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), DebugUtilsMessenger, nullptr);
             }
         }
         logicalDevice.reset();
-        physicalDevices.clear();
         vulkanInstance.reset();
         extensionPack.reset();
     }
@@ -263,11 +257,6 @@ namespace rhi
     Instance* RhiSystem::GetInstance() noexcept
     {
         return vulkanInstance.get();
-    }
-
-    PhysicalDevice* RhiSystem::GetPhysicalDevice(const size_t idx) noexcept
-    {
-        return physicalDevices[idx].get();
     }
 
     Device* RhiSystem::GetDevice() noexcept
@@ -412,12 +401,7 @@ namespace rhi
                                                     *extensionPack);
     }
 
-    void RhiSystem::createPhysicalDevice()
-    {
-        physicalDevices.emplace_back(std::make_unique<PhysicalDevice>(vulkanInstance->vkHandle(), extensionPack->GetVulkanApiVersion()));
-    }
-
-    void RhiSystem::gatherAndResolveDeviceExtensions(const nlohmann::json& allConfig, const nlohmann::json& rhiConfig)
+    void RhiSystem::gatherDeviceExtensions(const nlohmann::json& allConfig, const nlohmann::json& rhiConfig)
     {
         std::vector<std::string> requiredDeviceExts;
         std::vector<std::string> requestedDeviceExts;
@@ -471,8 +455,7 @@ namespace rhi
 
     void RhiSystem::createLogicalDevice()
     {
-        const VkPhysicalDeviceFeatures2* all_extensions_features = extensionPack->GetDeviceFeatures();
-        logicalDevice = std::make_unique<Device>(vulkanInstance.get(), physicalDevices.front().get(), *extensionPack);
+        logicalDevice = std::make_unique<Device>(vulkanInstance.get(), *extensionPack);
     }
 
     void RhiSystem::createDebugUtilsMessenger()
@@ -481,7 +464,7 @@ namespace rhi
         {
             VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
             s_SetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
-            s_DebugLogicalDeviceHandle = logicalDevice->vkHandle();
+            s_DebugLogicalDeviceHandle = logicalDevice->Handle().As<VkDevice>();
 
             const VkDebugUtilsMessengerCreateInfoEXT messenger_info
             {
@@ -501,7 +484,7 @@ namespace rhi
                 throw std::runtime_error("Failed to create debug utils messenger: function pointer not loaded!");
             }
 
-            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
+            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), &messenger_info, nullptr, &DebugUtilsMessenger);
             if (result != VK_SUCCESS)
             {
                 throw std::runtime_error("Failed to create debug utils messenger.");

@@ -1,7 +1,8 @@
 #pragma once
 #ifndef RESOURCE_CONTEXT_RESOURCE_BARRIERS_HPP
 #define RESOURCE_CONTEXT_RESOURCE_BARRIERS_HPP
-#include "ResourceUsageFlags.hpp"
+#include "RhiHandle.hpp"
+#include "ResourceFlags.hpp"
 #include <cstdint>
 
 /**
@@ -15,7 +16,7 @@
 struct BufferBarrierInfo
 {
     /** @brief VkBuffer handle, cast to uint64_t to keep this header clean of Vulkan includes */
-    uint64_t Handle;
+    rhi::BufferHandle Handle;
     /** @brief Buffer usage flags applicable to given buffer before this barrier */
     BufferUsageBits BeforeUsage;
     /** @brief Buffer usage flags applicable to given buffer after this barrier */
@@ -25,7 +26,7 @@ struct BufferBarrierInfo
 struct ImageBarrierInfo
 {
     /** @brief VkImage handle, cast to uint64_t to keep this header clean of Vulkan includes */
-    uint64_t Handle;
+    rhi::ImageHandle Handle;
     /** @brief Image usage flags applicable to given image before this barrier */
     ImageUsageBits BeforeUsage;
     /** @brief Image usage flags applicable to given image after this barrier */

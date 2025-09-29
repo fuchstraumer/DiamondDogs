@@ -1,9 +1,8 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
-#include <cstdint>
 #include "ResourceFlags.hpp"
-#include "ResourceDataFormats.hpp"
+#include "ImageDataFormats.hpp"
 #include <optional>
 
 /**
@@ -38,7 +37,7 @@ struct BufferCreateInfo
     BufferUsageBits Usage{ BufferUsageBits::Invalid };
     size_t Size{ 0u };
     /** @brief If this member is given, the buffer will be created with a correponding BufferView object. Otherwise, we won't create a view. */
-    std::optional<ResourceFormat> ViewFormat{ std::nullopt };
+    std::optional<ImageFormat> ViewFormat{ std::nullopt };
     /** @brief User-defined data pointer that can be associated with the buffer for application-specific purposes. */
     void* UserData{ nullptr };
 };
@@ -75,7 +74,7 @@ struct ImageViewCreateInfo
     ImageComponentMapping ComponentMapping{ IdentityImageSwizzle };
     ImageRange Range{};
     /** @brief If provided, will reinterpret the format of the base image to the given image for this view */
-    std::optional<ResourceFormat> FormatOverride{ std::nullopt };
+    std::optional<ImageFormat> FormatOverride{ std::nullopt };
     /** @brief User-defined data pointer that can be associated with the image view for application-specific purposes. */
     void* UserData{ nullptr };
 };
@@ -126,7 +125,7 @@ struct SamplerCreateInfo
     ImageCompareOp CompareOp{ ImageCompareOp::None };
 
     float MinLod{ 0.0f };
-    float MaxLod{ std::numeric_limits<float>::max() };
+    float MaxLod{ 1e10f };
 
     ImageBorderColor BorderColor{ ImageBorderColor::None };
     // leaving undefined for now since we don't have RGBA color object yet
@@ -141,7 +140,7 @@ struct ImageCreateInfo
     ResourceCreationFlags Flags{ ResourceCreationFlags::None };
     ImageUsageBits Usage{ ImageUsageBits::Invalid };
     ImageType Type{ ImageType::Invalid };
-    ResourceFormat Format{};
+    ImageFormat Format{};
     uint32_t Width{ 0u };
     uint32_t Height{ 0u };
     uint32_t Depth{ 0u };
@@ -164,6 +163,7 @@ struct GraphicsResource
     constexpr explicit operator bool() const noexcept;
 
     ResourceDomain Domain{ ResourceDomain::Invalid };
+    ResourceType Type{ ResourceType::Invalid };
     uint32_t EntityHandle{ 0u };
     uint64_t VkHandle{ 0u };
     uint64_t VkViewHandle{ 0u };

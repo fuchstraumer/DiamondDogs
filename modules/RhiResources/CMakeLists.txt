@@ -1,5 +1,5 @@
 
-ADD_MODULE(resource_context
+ADD_MODULE(rhi_resources
     "include/ResourceBarriers.hpp"
     "include/ResourceContext.hpp"
     "include/ResourceFlags.hpp"
@@ -25,12 +25,13 @@ ADD_MODULE(resource_context
     "src/UploadBuffer.hpp"
 )
 
-TARGET_INCLUDE_DIRECTORIES(resource_context PRIVATE
+TARGET_INCLUDE_DIRECTORIES(rhi_resources PRIVATE
     ${VPR_INCLUDE_DIRS_MODULE_RELATIVE}
     ${Vulkan_INCLUDE_DIR}
     "../../third_party/svs"
     "../../third_party/json/include"
     "../../third_party/entt/include"
+    "../RhiSystem/include"
 )
 
-TARGET_LINK_LIBRARIES(resource_context PUBLIC EnTT vpr_core vpr_command vpr_sync ${Vulkan_LIBRARY} VulkanMemoryAllocator rendering_context)
+TARGET_LINK_LIBRARIES(rhi_resources PUBLIC EnTT vpr_core vpr_command vpr_sync ${Vulkan_LIBRARY} VulkanMemoryAllocator rhi_system)

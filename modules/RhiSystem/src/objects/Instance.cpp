@@ -3,10 +3,12 @@
 #include <iostream>
 #include <array>
 #include <cassert>
+#include "vulkan/vulkan_core.h"
 
 namespace rhi 
 {
 
+#ifdef RHI_SYSTEM_USE_VULKAN
     // Validation layer names
     static constexpr std::array<const char*, 1> BASE_VALIDATION_LAYERS = 
     {
@@ -24,7 +26,7 @@ namespace rhi
                     uint32_t engine_version,
                     ValidationLayers validation_level,
                     const ExtensionPack& extensions) :
-        handle{ VK_NULL_HANDLE },
+        handle{ 0u },
         validationEnabled{ validation_level != ValidationLayers::None }
     {
         const VkApplicationInfo app_info = 
@@ -44,9 +46,9 @@ namespace rhi
 
     Instance::~Instance()
     {
-        if (handle != VK_NULL_HANDLE)
+        if (handle.IsValid())
         {
-            vkDestroyInstance(handle, nullptr);
+            vkDestroyInstance(handle.As<VkInstance>(), nullptr);
         }
     }
 
@@ -85,8 +87,10 @@ namespace rhi
             enabledInstanceExtensions.data()
         };
         
-        VkResult result = vkCreateInstance(&create_info, nullptr, &handle);
+        VkInstance resultInstance = VK_NULL_HANDLE;
+        VkResult result = vkCreateInstance(&create_info, nullptr, &resultInstance);
         assert(result == VK_SUCCESS);
+        handle.Set<VkInstance>(resultInstance);
     }
 
     void Instance::setupValidation(ValidationLayers level)
@@ -157,7 +161,7 @@ namespace rhi
         return true;
     }
 
-    VkInstance Instance::vkHandle() const noexcept
+    InstanceHandle Instance::Handle() const noexcept
     {
         return handle;
     }
@@ -171,5 +175,7 @@ namespace rhi
     {
         return enabledExtensions;
     }
+
+#endif // RHI_SYSTEM_USE_VULKAN
 
 } // namespace rhi

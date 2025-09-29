@@ -84,7 +84,6 @@ public:
     void Destroy();
 
     Instance* GetInstance() noexcept;
-    PhysicalDevice* GetPhysicalDevice(const size_t idx = 0) noexcept;
     Device* GetDevice() noexcept;
     uint32_t GetVulkanApiVersion() const noexcept;
 
@@ -99,11 +98,10 @@ private:
     void createInstance(const RhiSystemCreateInfo& createInfo);
     void createDebugUtilsMessenger();
     void createPhysicalDevice();
-    void gatherAndResolveDeviceExtensions(const nlohmann::json& allConfig, const nlohmann::json& rhiConfig);
+    void gatherDeviceExtensions(const nlohmann::json& allConfig, const nlohmann::json& rhiConfig);
     void createLogicalDevice();
 
     std::unique_ptr<Instance> vulkanInstance;
-    std::vector<std::unique_ptr<PhysicalDevice>> physicalDevices;
     std::unique_ptr<Device> logicalDevice;
     std::unique_ptr<ExtensionPack> extensionPack;
     std::string shaderCacheDir;

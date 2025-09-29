@@ -2,10 +2,12 @@
 #ifndef RHI_SYSTEM_INSTANCE_HPP
 #define RHI_SYSTEM_INSTANCE_HPP
 #include "RhiTypes.hpp"
-#include <vulkan/vulkan_core.h>
+#include "RhiHandle.hpp"
 #include <memory>
 #include <string>
 #include <vector>
+
+struct VkApplicationInfo;
 
 namespace rhi 
 {
@@ -30,7 +32,7 @@ namespace rhi
         Instance& operator=(const Instance&) = delete;
         
         // Core access
-        VkInstance vkHandle() const noexcept;
+        InstanceHandle Handle() const noexcept;
         
         bool HasValidation() const noexcept;
         
@@ -42,8 +44,8 @@ namespace rhi
         void createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions);
         void setupValidation(ValidationLayers level);
         bool checkLayerSupport(const std::vector<const char*>& required_layers) const;
-        
-        VkInstance handle;
+
+        InstanceHandle handle;
         bool validationEnabled;
         std::vector<std::string> enabledExtensions;
         std::vector<std::string> enabledLayers;

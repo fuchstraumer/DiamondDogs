@@ -5,17 +5,12 @@
 #include "PhysicalDevice.hpp"
 #include "Instance.hpp"
 #include "Fence.hpp"
-#include "vkAssert.hpp"
 #include "UploadBuffer.hpp"
-#include "../../RenderingContext/include/RenderingContext.hpp"
-#include "VkDebugUtils.hpp"
 
 #include <array>
 #include <mutex>
 #include <unordered_map>
 
-#define THSVS_SIMPLER_VULKAN_SYNCHRONIZATION_IMPLEMENTATION
-#include <thsvs_simpler_vulkan_synchronization.h>
 
 constexpr static VkDebugUtilsLabelEXT queue_debug_label
 {
