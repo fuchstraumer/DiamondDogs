@@ -165,7 +165,6 @@ namespace rhi
         }
 
         createInstance(rhiConfig, engineConfig);
-        createPhysicalDevice();
         gatherDeviceExtensions(json_file, rhiConfig);
         createLogicalDevice();
 
@@ -205,8 +204,6 @@ namespace rhi
         extensionPack->ResolveInstanceDependencies();
 
         createInstance(createInfo);
-
-        createPhysicalDevice();
 
         if (createInfo.RequiredDeviceExtensions.size() > 0)
         {

@@ -87,8 +87,6 @@ public:
     Device* GetDevice() noexcept;
     uint32_t GetVulkanApiVersion() const noexcept;
 
-    const char* GetShaderCacheDir();
-    void SetShaderCacheDir(const char* dir);
     static VkResult SetObjectName(VkObjectType object_type, uint64_t handle, const char* name);
 
 private:
@@ -97,7 +95,6 @@ private:
     void createInstance(const nlohmann::json& rhiConfig, const nlohmann::json& engineConfig);
     void createInstance(const RhiSystemCreateInfo& createInfo);
     void createDebugUtilsMessenger();
-    void createPhysicalDevice();
     void gatherDeviceExtensions(const nlohmann::json& allConfig, const nlohmann::json& rhiConfig);
     void createLogicalDevice();
 

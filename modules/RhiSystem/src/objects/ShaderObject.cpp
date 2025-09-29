@@ -479,7 +479,11 @@ namespace rhi
         impl{ std::move(impl) },
         handle{}
     {
-        
+        if (this->impl)
+        {
+            const uint64_t implHandle = reinterpret_cast<uint64_t>(this->impl.get());
+            handle.Set(implHandle);
+        }
     }
 
     ShaderObject::~ShaderObject() = default;

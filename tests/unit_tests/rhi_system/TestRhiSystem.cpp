@@ -45,7 +45,6 @@ TEST_F(RhiSystemTest, BasicCreateInfoConstruction)
         auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
         EXPECT_NE(rhiSystem, nullptr);
         EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        EXPECT_NE(rhiSystem->GetPhysicalDevice(), nullptr);
         EXPECT_NE(rhiSystem->GetDevice(), nullptr);
     });
 }
@@ -122,7 +121,7 @@ TEST_F(RhiSystemTest, ObjectNaming)
     // Test object naming (should not throw)
     VkResult result = rhi::RhiSystem::SetObjectName(
         VK_OBJECT_TYPE_DEVICE, 
-        reinterpret_cast<uint64_t>(rhiSystem->GetDevice()->vkHandle()), 
+        reinterpret_cast<uint64_t>(rhiSystem->GetDevice()->Handle().As<VkDevice>()), 
         "TestDevice");
     
     // In debug builds with validation enabled, this should succeed

@@ -101,7 +101,7 @@ namespace rhi
         {
             vkFences[i] = fences[i].As<VkFence>();
         }
-        VkResult result = vkWaitForFences(device.As<VkDevice>(), fences.size(), vkFences, waitAll ? VK_TRUE : VK_FALSE, timeout);
+        VkResult result = vkWaitForFences(device.As<VkDevice>(), static_cast<uint32_t>(fences.size()), vkFences, waitAll ? VK_TRUE : VK_FALSE, timeout);
         return static_cast<Result>(result);
     }
 
@@ -112,7 +112,7 @@ namespace rhi
         {
             vkFences[i] = fences[i].As<VkFence>();
         }
-        VkResult result = vkResetFences(device.As<VkDevice>(), fences.size(), vkFences);
+        VkResult result = vkResetFences(device.As<VkDevice>(), static_cast<uint32_t>(fences.size()), vkFences);
         return static_cast<Result>(result);
     }
 

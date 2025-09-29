@@ -3,7 +3,6 @@
 #include "RhiSystem.hpp"
 #include "RhiTypes.hpp"
 #include "Instance.hpp"
-#include "PhysicalDevice.hpp"
 #include "Device.hpp"
 #include <filesystem>
 
@@ -160,15 +159,10 @@ TEST_F(VulkanIntegrationTest, ComponentAccess) {
     // Test instance access
     auto* instance = rhiSystem->GetInstance();
     EXPECT_NE(instance, nullptr);
-    EXPECT_NE(instance->vkHandle(), VK_NULL_HANDLE);
-
-    // Test physical device access
-    auto* physicalDevice = rhiSystem->GetPhysicalDevice();
-    EXPECT_NE(physicalDevice, nullptr);
-    EXPECT_NE(physicalDevice->vkHandle(), VK_NULL_HANDLE);
+    EXPECT_NE(instance->Handle().As<VkInstance>(), VK_NULL_HANDLE);
 
     // Test logical device access
     auto* device = rhiSystem->GetDevice();
     EXPECT_NE(device, nullptr);
-    EXPECT_NE(device->vkHandle(), VK_NULL_HANDLE);
+    EXPECT_NE(device->Handle().As<VkDevice>(), VK_NULL_HANDLE);
 }
