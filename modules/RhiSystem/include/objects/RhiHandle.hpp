@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_RHI_HANDLE_HPP
 #include "RhiDefines.hpp"
 #include <cstdint>
+#include <type_traits>
 
 namespace rhi
 {
@@ -67,7 +68,15 @@ namespace rhi
         template<typename T>
         constexpr void Set(T _handle) noexcept
         {
-            handle = reinterpret_cast<uint64_t>(_handle);
+            if constexpr (std::is_same_v<T, uint64_t>)
+            {
+                handle = _handle;
+                return;
+            }
+            else
+            {
+                handle = reinterpret_cast<uint64_t>(_handle);
+            }
         }
 
         /** @brief Use the `As()` function to cast the type to the appropriate concrete RHI handle type */
