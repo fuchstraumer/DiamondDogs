@@ -447,7 +447,6 @@ namespace rhi
         }
 
         extensionPack->AddOptionalDeviceExtensions(requestedDeviceExts);
-        extensionPack->ResolveDeviceDependencies();
     }
 
     void RhiSystem::createLogicalDevice()
