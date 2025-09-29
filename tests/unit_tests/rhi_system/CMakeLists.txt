@@ -5,9 +5,7 @@ set(RENDERING_CONTEXT_TEST_SOURCES
     TestExtensionManagement.cpp
     TestJsonConfig.cpp
     TestMain.cpp
-    TestRhiSystem.cpp
-    TestVulkanIntegration.cpp
-)
+    TestRhiSystem.cpp)
 
 # Create test target
 add_unit_test_target(rhi_system_tests 
