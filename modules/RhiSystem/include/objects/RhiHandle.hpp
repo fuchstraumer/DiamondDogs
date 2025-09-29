@@ -72,7 +72,7 @@ namespace rhi
 
         /** @brief Use the `As()` function to cast the type to the appropriate concrete RHI handle type */
         template<typename T>
-        explicit constexpr T As() const noexcept
+        constexpr T As() const noexcept
         {
             static_assert(sizeof(T) == sizeof(uint64_t), "Size of destination type in As<T>() must be 64 bits");
             return reinterpret_cast<T>(handle);
@@ -83,7 +83,7 @@ namespace rhi
             return handle != 0u;
         }
 
-        constexpr explicit bool IsValid() const noexcept
+        constexpr bool IsValid() const noexcept
         {
             return handle != 0u;
         }
@@ -115,6 +115,7 @@ namespace rhi
         struct DescriptorSetLayoutTag {};
         struct DescriptorPoolTag {};
         struct DescriptorUpdateTemplateTag {};
+        struct ShaderObjectTag {};
     }
 
     using InstanceHandle = RhiHandle<detail::InstanceTag>;
@@ -135,6 +136,7 @@ namespace rhi
     using DescriptorSetLayoutHandle = RhiHandle<detail::DescriptorSetLayoutTag>;
     using DescriptorPoolHandle = RhiHandle<detail::DescriptorPoolTag>;
     using DescriptorUpdateTemplateHandle = RhiHandle<detail::DescriptorUpdateTemplateTag>;
+    using ShaderObjectHandle = RhiHandle<detail::ShaderObjectTag>;
 
 }
 

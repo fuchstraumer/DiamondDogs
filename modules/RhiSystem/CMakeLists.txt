@@ -16,7 +16,8 @@ set(RHI_CORE_HEADERS
     "include/core/PipelineExecutableInfo.hpp"
     "include/core/RhiDefines.hpp"
     "include/core/RhiSystem.hpp"
-    "include/core/RhiFlags.hpp")
+    "include/core/RhiFlags.hpp"
+    "include/core/RhiTypes.hpp")
 
 set(RHI_CORE_SOURCES 
     "src/core/ExtensionWrangler.cpp"
@@ -33,7 +34,8 @@ set(RHI_OBJECT_HEADERS
     "include/objects/RhiFunctions.hpp"
     "include/objects/RhiHandle.hpp"
     "include/objects/RhiResult.hpp"
-    "include/objects/Semaphore.hpp")
+    "include/objects/Semaphore.hpp"
+    "include/objects/ShaderObject.hpp")
 
 set(RHI_OBJECT_SOURCES
     "src/objects/CommandBuffer.cpp"
@@ -43,7 +45,8 @@ set(RHI_OBJECT_SOURCES
     "src/objects/Instance.cpp"
     "src/objects/RhiFunctionsVk.cpp"
     "src/objects/RhiResult.cpp"
-    "src/objects/Semaphore.cpp")
+    "src/objects/Semaphore.cpp"
+    "src/objects/ShaderObject.cpp")
 
 ADD_MODULE(rhi_system "${RHI_CORE_HEADERS}""${RHI_CORE_SOURCES}" "${RHI_OBJECT_HEADERS}" "${RHI_OBJECT_SOURCES}")
 
@@ -58,11 +61,13 @@ else()
     message(FATAL_ERROR "Unknown RHI_SYSTEM_GRAPHICS_API: ${RHI_SYSTEM_GRAPHICS_API}. Supported values are Vulkan and DirectX12.")
 endif()
 
-TARGET_LINK_LIBRARIES(rhi_system PUBLIC ${Vulkan_LIBRARY})
+TARGET_LINK_LIBRARIES(rhi_system PUBLIC ${Vulkan_LIBRARY} slang)
 TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC
     "../../third_party/json/include"
+    "../../third_party/slang/include"
     ${Vulkan_INCLUDE_DIR}
-    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/core"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/objects")
 
 source_group("Core\\include" FILES ${RHI_CORE_HEADERS})

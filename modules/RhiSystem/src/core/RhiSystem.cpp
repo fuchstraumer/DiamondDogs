@@ -4,7 +4,6 @@
 #include "ExtensionPack.hpp"
 #include "ExtensionWrangler.hpp"
 #include "Instance.hpp"
-#include "PhysicalDevice.hpp"
 
 #include <thread> // for std::this_thread::get_id() for debug info
 #include <chrono>
@@ -412,11 +411,6 @@ namespace rhi
                                                     *extensionPack);
     }
 
-    void RhiSystem::createPhysicalDevice()
-    {
-        physicalDevices.emplace_back(std::make_unique<PhysicalDevice>(vulkanInstance->vkHandle(), extensionPack->GetVulkanApiVersion()));
-    }
-
     void RhiSystem::gatherAndResolveDeviceExtensions(const nlohmann::json& allConfig, const nlohmann::json& rhiConfig)
     {
         std::vector<std::string> requiredDeviceExts;
@@ -481,7 +475,7 @@ namespace rhi
         {
             VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
             s_SetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
-            s_DebugLogicalDeviceHandle = logicalDevice->vkHandle();
+            s_DebugLogicalDeviceHandle = logicalDevice->Handle().As<VkDevice>();
 
             const VkDebugUtilsMessengerCreateInfoEXT messenger_info
             {
@@ -501,7 +495,7 @@ namespace rhi
                 throw std::runtime_error("Failed to create debug utils messenger: function pointer not loaded!");
             }
 
-            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->vkHandle(), &messenger_info, nullptr, &DebugUtilsMessenger);
+            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), &messenger_info, nullptr, &DebugUtilsMessenger);
             if (result != VK_SUCCESS)
             {
                 throw std::runtime_error("Failed to create debug utils messenger.");

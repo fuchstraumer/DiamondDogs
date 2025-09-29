@@ -4,7 +4,7 @@
 #include "RhiDefines.hpp"
 #include "RhiHandle.hpp"
 #include "RhiResult.hpp"
-#include "RenderingInfo.hpp"
+#include "RhiTypes.hpp"
 #include <span>
 
 namespace rhi

@@ -6,7 +6,7 @@
 #include <string_view>
 
 #ifdef RHI_SYSTEM_USE_VULKAN
-    typedef enum VkResult : int;
+    enum VkResult : int;
 #elif defined(RHI_SYSTEM_USE_DX12)
     typedef long HRESULT;
 #endif
@@ -102,12 +102,12 @@ namespace rhi
 
         constexpr bool operator==(Code code) const noexcept
         {
-            return GetCode() == code;
+            return static_cast<Code>(nativeResult) == code;
         }
 
         constexpr bool operator!=(Code code) const noexcept
         {
-            return GetCode() != code;
+            return static_cast<Code>(nativeResult) != code;
         }
 
         constexpr static Result Success() noexcept

@@ -1,6 +1,5 @@
 #include "Device.hpp"
 #include "Instance.hpp"
-#include "PhysicalDevice.hpp"
 #include "ExtensionPack.hpp"
 #include <stdexcept>
 #include <vector>

@@ -3,6 +3,7 @@
 #define RHI_SYSTEM_DEVICE_HPP
 #include "DebugUtilFns.hpp"
 #include "RhiHandle.hpp"
+#include "RhiFlags.hpp"
 #include <memory>
 #include <vector>
 #include <string>
@@ -13,14 +14,7 @@ namespace rhi
     class Instance;
     class PhysicalDevice;
     class ExtensionPack;
-
-    struct QueueFamilyIndices
-    {
-        uint32_t Graphics{ 0u };
-        uint32_t Compute{ 0u };
-        uint32_t Transfer{ 0u };
-        uint32_t SparseBinding{ 0u };
-    };
+    class DeviceImpl;
 
     class Device 
     {
