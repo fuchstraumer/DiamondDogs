@@ -6,6 +6,9 @@
 
 #include "threading/CriticalSection.hpp"
 
+namespace threading
+{
+
 class CriticalSectionTest : public ::testing::Test
 {
 protected:
@@ -144,3 +147,5 @@ TEST_F(CriticalSectionTest, PerformanceBenchmark)
     
     EXPECT_EQ(counter, operations);
 }
+
+} // namespace threading

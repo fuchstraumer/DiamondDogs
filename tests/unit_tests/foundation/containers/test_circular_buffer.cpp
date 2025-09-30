@@ -3,6 +3,9 @@
 
 #include "containers/CircularBuffer.hpp"
 
+namespace containers
+{
+
 class CircularBufferTest : public ::testing::Test
 {
 protected:
@@ -19,3 +22,5 @@ TEST_F(CircularBufferTest, BasicConstruction)
 }
 
 // Add more tests as the circular_buffer implementation is completed
+
+} // namespace containers
