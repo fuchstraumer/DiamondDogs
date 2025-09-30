@@ -5,24 +5,18 @@
 
 namespace math
 {
-    // Macro to generate swizzle accessors
-    #define SWIZZLE_2D(x, y) \
-        constexpr Float2 x##y() const noexcept \
-        { \
-            return Float2(storage.x, storage.y); \
-        }
-
-    #define SWIZZLE_3D(x, y, z) \
-        constexpr Float3 x##y##z() const noexcept \
-        { \
-            return Float3(x(), y(), z()); \
-        }
-
-    #define SWIZZLE_4D(x, y, z, w) \
-        constexpr Float4 x##y##z##w() const noexcept \
-        { \
-            return Float4(x(), y(), z(), w()); \
-        }
+    // Swizzle generation macros - these create combinations from storage members
+    // 2-component swizzles returning Float2
+    #define SWIZZLE_2(a, b) \
+        constexpr Float2 a##b() const noexcept { return Float2(a, b); }
+    
+    // 3-component swizzles returning Float3
+    #define SWIZZLE_3(a, b, c) \
+        constexpr Float3 a##b##c() const noexcept { return Float3(a, b, c); }
+    
+    // 4-component swizzles returning Float4
+    #define SWIZZLE_4(a, b, c, d) \
+        constexpr Float4 a##b##c##d() const noexcept { return Float4(a, b, c, d); }
 
     // Forward declarations
     struct Float3;
@@ -163,6 +157,24 @@ namespace math
         constexpr bool operator==(const Float3& rhs) const noexcept;
         constexpr bool operator!=(const Float3& rhs) const noexcept;
         
+        // Swizzle accessors - 3D permutations
+        SWIZZLE_3(x, y, z)  // identity
+        SWIZZLE_3(x, z, y)
+        SWIZZLE_3(y, x, z)
+        SWIZZLE_3(y, z, x)
+        SWIZZLE_3(z, x, y)
+        SWIZZLE_3(z, y, x)
+        
+        // Broadcast swizzles
+        SWIZZLE_3(x, x, x)
+        SWIZZLE_3(y, y, y)
+        SWIZZLE_3(z, z, z)
+        
+        // 2D extractions
+        SWIZZLE_2(x, y)
+        SWIZZLE_2(x, z)
+        SWIZZLE_2(y, z)
+        
         // gross, but necessary for interop and simple accessors
         union
         {
@@ -242,17 +254,28 @@ namespace math
         constexpr bool operator==(const Float4& rhs) const noexcept;
         constexpr bool operator!=(const Float4& rhs) const noexcept;
         
-        // Swizzle accessors - common 4D combinations
-        constexpr Float4 xyzw() const noexcept;
-        constexpr Float4 xywz() const noexcept;
-        constexpr Float4 xzyw() const noexcept;
-        constexpr Float4 xzwy() const noexcept;
-        constexpr Float4 xwyz() const noexcept;
-        constexpr Float4 xwzy() const noexcept;
-        constexpr Float4 xxxx() const noexcept;
-        constexpr Float4 yyyy() const noexcept;
-        constexpr Float4 zzzz() const noexcept;
-        constexpr Float4 wwww() const noexcept;
+        // Swizzle accessors - 4D permutations (common ones)
+        SWIZZLE_4(x, y, z, w)  // identity
+        SWIZZLE_4(x, y, w, z)
+        SWIZZLE_4(x, z, y, w)
+        SWIZZLE_4(x, z, w, y)
+        SWIZZLE_4(x, w, y, z)
+        SWIZZLE_4(x, w, z, y)
+        SWIZZLE_4(w, x, y, z)
+        
+        // Broadcast swizzles
+        SWIZZLE_4(x, x, x, x)
+        SWIZZLE_4(y, y, y, y)
+        SWIZZLE_4(z, z, z, z)
+        SWIZZLE_4(w, w, w, w)
+        
+        // 3D extractions
+        SWIZZLE_3(x, y, z)
+        SWIZZLE_3(r, g, b)  // color accessor
+        
+        // 2D extractions  
+        SWIZZLE_2(x, y)
+        SWIZZLE_2(z, w)
 
         union
         {
@@ -1037,12 +1060,14 @@ namespace math
         constexpr Float4x3& operator=(Float4x3&& other) noexcept = default;
         
         constexpr float operator()(size_t row, size_t col) const noexcept 
-        { 
+        {
+            assert(row < 4 && col < 3);
             return storage.m[row][col]; 
         }
         
         constexpr float& operator()(size_t row, size_t col) noexcept 
-        { 
+        {
+            assert(row < 4 && col < 3);
             return storage.m[row][col]; 
         }
         
@@ -1326,7 +1351,7 @@ namespace math
     constexpr Float4 operator*(const Float4x4& mat, const Float4& vec) noexcept;
     constexpr Float3 operator*(const Float4x4& mat, const Float3& vec) noexcept;
     
-    Vector operator*(const Matrix& mat, Vector vec) noexcept;
+    // Note: Matrix * Vector is handled by Matrix::operator*(Vector) member function
 
     /**
      * @brief Convert Matrix3x3 storage type to SIMD Matrix
