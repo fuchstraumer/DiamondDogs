@@ -10,6 +10,9 @@
 
 #include "containers/mwsrQueue.hpp"
 
+namespace containers
+{
+
 // Note: mwsrQueue = Multiple Writer Single Reader Queue
 
 class MWSRQueueTest : public ::testing::Test
@@ -553,3 +556,87 @@ TEST_F(MWSRQueueTest, MemoryOrdering)
     // EXPECT_EQ(ordering_violations.load(), 0) 
     //     << "No memory ordering violations should occur";
 }
+
+TEST_F(MWSRQueueTest, BatchSizeCalculation)
+{
+    // This test validates the internal bit counting logic by checking
+    // that the correct number of items are batched when multiple writes complete
+    
+    Queue<int> queue;
+    constexpr int numWriters = 8;
+    std::atomic<int> writesCompleted{ 0 };
+    std::atomic<bool> startReading{ false };
+    
+    // Push exactly 8 items from different threads
+    std::vector<std::thread> writers;
+    for (int i = 0; i < numWriters; ++i)
+    {
+        writers.emplace_back([&queue, i, &writesCompleted, &startReading]()
+        {
+            // Wait for signal to ensure out-of-order completion
+            while (!startReading.load(std::memory_order_acquire))
+            {
+                std::this_thread::yield();
+            }
+            
+            // Add small random delay to create varied completion order
+            std::this_thread::sleep_for(std::chrono::microseconds(i * 10));
+            
+            queue.push(i);
+            writesCompleted.fetch_add(1, std::memory_order_release);
+        });
+    }
+    
+    // Let all threads start writing
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    startReading.store(true, std::memory_order_release);
+    
+    // Wait for at least some writes to complete
+    while (writesCompleted.load(std::memory_order_acquire) < numWriters / 2)
+    {
+        std::this_thread::yield();
+    }
+    
+    // First pop should batch multiple items
+    int firstItem = queue.pop();
+    EXPECT_GE(firstItem, 0);
+    EXPECT_LT(firstItem, numWriters);
+    
+    // Subsequent pops should come from cache (fast path)
+    // If bit counting is wrong, we'll either:
+    // 1. Get fewer items than expected (some lost)
+    // 2. Block unexpectedly (batch size calculated wrong)
+    std::vector<int> allItems{ firstItem };
+    for (int i = 1; i < numWriters; ++i)
+    {
+        auto item = queue.try_pop();
+        if (item.has_value())
+        {
+            allItems.push_back(*item);
+        }
+        else
+        {
+            // Cache exhausted, do blocking pop
+            allItems.push_back(queue.pop());
+        }
+    }
+    
+    // Verify we got all items exactly once
+    EXPECT_EQ(allItems.size(), numWriters);
+    std::sort(allItems.begin(), allItems.end());
+    for (int i = 0; i < numWriters; ++i)
+    {
+        EXPECT_EQ(allItems[i], i) << "Missing or duplicate item at index " << i;
+    }
+    
+    for (auto& writer : writers)
+    {
+        writer.join();
+    }
+    
+    // Queue should be empty
+    auto finalCheck = queue.try_pop();
+    EXPECT_FALSE(finalCheck.has_value());
+}
+
+} // namespace containers

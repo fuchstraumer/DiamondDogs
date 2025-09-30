@@ -32,6 +32,20 @@ namespace detail
         return mask >> 1;
     }
 
+    inline uint64_t countTrailingOnes(uint64_t value) noexcept
+    {
+        if (value == 0)
+            return 0;
+        uint64_t count = 0;
+#ifdef _MSC_VER
+        unsigned long index;
+        _BitScanForward64(&index, ~value);
+        return static_cast<uint64_t>(index);
+#else
+        return static_cast<uint64_t>(__builtin_ctzll(~value));
+#endif
+    }
+
     struct EntranceReactorData
     {
     protected:
@@ -341,14 +355,7 @@ namespace detail
                 {
                     // we have values to read, don't need to modify state
                     earlyExit = true;
-                    uint64_t n = 1u;
-                    for (; n < mwsrQueueSize; ++n)
-                    {
-                        if (!maskGetBit(mask, int(n)))
-                        {
-                            break;
-                        }
-                    }
+                    uint64_t n = countTrailingOnes(mask);
                     return std::pair<size_t, uint64_t>{ size_t(n), data.getFirstIDToRead() };
                 }
                 else
