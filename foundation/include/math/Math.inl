@@ -2321,12 +2321,12 @@ namespace math
 
     DD_MATH_FORCEINLINE Matrix Matrix::LookAt(Vector eye, Vector target, Vector up) noexcept
     {
-        return Matrix{DirectX::XMMatrixLookAtLH(eye.Data(), target.Data(), up.Data())};
+        return Matrix{DirectX::XMMatrixLookAtRH(eye.Data(), target.Data(), up.Data())};
     }
 
     DD_MATH_FORCEINLINE Matrix Matrix::LookTo(Vector eye, Vector direction, Vector up) noexcept
     {
-        return Matrix{DirectX::XMMatrixLookToLH(eye.Data(), direction.Data(), up.Data())};
+        return Matrix{DirectX::XMMatrixLookToRH(eye.Data(), direction.Data(), up.Data())};
     }
 
     DD_MATH_FORCEINLINE Matrix Matrix::Perspective(float fov_y_radians, float aspect_ratio, float near_plane, float far_plane) noexcept
@@ -2397,11 +2397,11 @@ namespace math
     {
         if constexpr (N == 2)
         {
-            return Vector{DirectX::XMVector2Transform(vector.Data(), matrix.Data())};
+            return Vector{DirectX::XMVector2TransformCoord(vector.Data(), matrix.Data())};
         }
         else if constexpr (N == 3)
         {
-            return Vector{DirectX::XMVector3Transform(vector.Data(), matrix.Data())};
+            return Vector{DirectX::XMVector3TransformCoord(vector.Data(), matrix.Data())};
         }
         else if constexpr (N == 4)
         {
