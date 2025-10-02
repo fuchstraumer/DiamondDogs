@@ -88,16 +88,16 @@ TEST_F(MathIntegrationTest, TransformPoint_SingleMatrix_vs_ChainedMatrices)
 {
     Matrix scale = Matrix::Scale(2.0f);
     Matrix translation = Matrix::Translation(10.0f, 20.0f, 30.0f);
-    Matrix combined = translation * scale;
+    Matrix combined = scale * translation;
     
     Vector point = ToVector(Float4(1.0f, 2.0f, 3.0f, 1.0f));
     
     // Method 1: Combined matrix
-    Vector result1 = combined * point;
+    Vector result1 = Transform<3>(point, combined);
     
     // Method 2: Sequential application
-    Vector temp = scale * point;
-    Vector result2 = translation * temp;
+    Vector temp = Transform<3>(point, scale);
+    Vector result2 = Transform<3>(temp, translation);
     
     EXPECT_NEAR(result1.x(), result2.x(), EPSILON);
     EXPECT_NEAR(result1.y(), result2.y(), EPSILON);
@@ -123,14 +123,14 @@ TEST_F(MathIntegrationTest, ModelViewProjection_Pipeline)
     
     // Projection transformation
     float fov = std::numbers::pi_v<float> / 4.0f;
-    Matrix projection = Matrix::PerspectiveRH(fov, 16.0f/9.0f, 0.1f, 1000.0f);
+    Matrix projection = Matrix::PerspectiveRH(fov, 16.0f/9.0f, 0.0001f, 1000.0f);
     
     // Combined MVP
-    Matrix mvp = projection * view * model;
+    Matrix mvp = model * view * projection;
     
     // Transform a model-space vertex
-    Vector vertex = ToVector(Float4(0.0f, 1.0f, 0.0f, 1.0f));
-    Vector clipSpace = mvp * vertex;
+    Vector vertex = ToVector(Float4(0.5f, 0.5f, 0.5f, 1.0f));
+    Vector clipSpace = Transform<4>(vertex, mvp);
     
     // Perspective divide to NDC
     Float3 ndc(
@@ -144,7 +144,7 @@ TEST_F(MathIntegrationTest, ModelViewProjection_Pipeline)
     EXPECT_LE(ndc.x, 1.0f);
     EXPECT_GE(ndc.y, -1.0f);
     EXPECT_LE(ndc.y, 1.0f);
-    EXPECT_GE(ndc.z, -1.0f);
+    EXPECT_GE(ndc.z, 0.0f);
     EXPECT_LE(ndc.z, 1.0f);
 }
 
@@ -205,13 +205,13 @@ TEST_F(MathIntegrationTest, WorldToScreen_FullPipeline)
     Vector up = ToVector(Float3(0.0f, 1.0f, 0.0f));
     Matrix view = Matrix::LookAt(eye, target, up);
     
-    Matrix vp = projection * view;
+    Matrix vp = view * projection;
     
     // World space point
     Vector worldPoint = ToVector(Float4(0.0f, 0.0f, 0.0f, 1.0f));
     
     // To clip space
-    Vector clipSpace = vp * worldPoint;
+    Vector clipSpace = Transform<4>(worldPoint, vp);
     
     // To NDC
     Float3 ndc(
