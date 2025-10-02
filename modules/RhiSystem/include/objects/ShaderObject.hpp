@@ -17,6 +17,12 @@ namespace rhi
     class Device;
     struct ShaderObjectImpl;
 
+    struct ShaderModuleInfo
+    {
+        const char* ModuleName = nullptr;
+        const char* ModulePath = nullptr;
+    };
+
     /**
      * @brief Modern shader object abstraction using VK_EXT_shader_object or DirectX 12 equivalents
      * Provides Slang-based shader compilation with reflection data extraction for specialization
@@ -54,8 +60,10 @@ namespace rhi
             SpecializationConstant::ValueType defaultValue{};
         };
 
-        // Construction - use static factory method
-        static Result Create(const Device& device, const CompileOptions& options, ShaderObject& outShaderObject);
+
+        ShaderObject();
+
+        static Result Create(DeviceHandle device, const CompileOptions& options, ShaderObject& outShaderObject);
         
         // No copy semantics
         ShaderObject(const ShaderObject&) = delete;
@@ -88,9 +96,7 @@ namespace rhi
     private:
         // Private constructor - use Create() factory method
         explicit ShaderObject(std::unique_ptr<ShaderObjectImpl> impl);
-        
-        // Default constructor for output parameter
-        ShaderObject();
+ 
         
         std::unique_ptr<ShaderObjectImpl> impl;
         ShaderObjectHandle handle;

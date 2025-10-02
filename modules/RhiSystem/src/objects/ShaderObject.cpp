@@ -32,13 +32,16 @@ void win32_OutputDebugString(const char* str)
 namespace rhi
 {
 
+    static PFN_vkCreateShadersEXT pfn_vkCreateShadersEXT = nullptr;
+    static PFN_vkDestroyShaderEXT pfn_vkDestroyShaderEXT = nullptr;
+
     using SlangModulePtr = Slang::ComPtr<slang::IModule>;
     using SlangBlobPtr = Slang::ComPtr<slang::IBlob>;
 
 #ifdef RHI_SYSTEM_USE_VULKAN
     struct ShaderObjectImpl
     {
-        ShaderObjectImpl(const Device* device) :
+        ShaderObjectImpl(DeviceHandle device) :
             parentDevice{ device },
             vkShaderObject{ VK_NULL_HANDLE },
             stage{ ShaderStageFlags::None },
@@ -50,18 +53,28 @@ namespace rhi
             sourcePath{},
             isValid{ false }
         {
+            if ((pfn_vkCreateShadersEXT == nullptr) || (pfn_vkDestroyShaderEXT == nullptr))
+            {
+                pfn_vkCreateShadersEXT = reinterpret_cast<PFN_vkCreateShadersEXT>(vkGetDeviceProcAddr(device.As<VkDevice>(), "vkCreateShadersEXT"));
+                pfn_vkDestroyShaderEXT = reinterpret_cast<PFN_vkDestroyShaderEXT>(vkGetDeviceProcAddr(device.As<VkDevice>(), "vkDestroyShaderEXT"));
+                if ((pfn_vkCreateShadersEXT == nullptr) || (pfn_vkDestroyShaderEXT == nullptr))
+                {
+                    throw std::runtime_error("Failed to load Vulkan shader object extension functions");
+                }
+            }
         }
 
         ~ShaderObjectImpl()
         {
             if (vkShaderObject != VK_NULL_HANDLE)
             {
-                vkDestroyShaderEXT(parentDevice->Handle().As<VkDevice>(), vkShaderObject, nullptr);
+                assert(pfn_vkDestroyShaderEXT);
+                pfn_vkDestroyShaderEXT(parentDevice.As<VkDevice>(), vkShaderObject, nullptr);
                 vkShaderObject = VK_NULL_HANDLE;
             }
         }
 
-        const Device* parentDevice;
+        DeviceHandle parentDevice;
         VkShaderEXT vkShaderObject;
         ShaderStageFlags stage;
         std::vector<uint8_t> bytecode;
@@ -432,14 +445,13 @@ namespace rhi
             createInfo.pSetLayouts = nullptr;
             createInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
             createInfo.pPushConstantRanges = reinterpret_cast<const VkPushConstantRange*>(pushConstantRanges.data());
-
-            VkResult result = vkCreateShadersEXT(
-                parentDevice->Handle().As<VkDevice>(),
+            assert(pfn_vkCreateShadersEXT);
+            VkResult result = pfn_vkCreateShadersEXT(
+                parentDevice.As<VkDevice>(),
                 1,
                 &createInfo,
                 nullptr,
-                &vkShaderObject
-            );
+                &vkShaderObject);
 
             if (result != VK_SUCCESS)
             {
@@ -506,11 +518,11 @@ namespace rhi
         return *this;
     }
 
-    Result ShaderObject::Create(const Device& device, const CompileOptions& options, ShaderObject& outShaderObject)
+    Result ShaderObject::Create(DeviceHandle device, const CompileOptions& options, ShaderObject& outShaderObject)
     {
         try
         {
-            auto impl = std::make_unique<ShaderObjectImpl>(&device);
+            auto impl = std::make_unique<ShaderObjectImpl>(device);
             
             // Compile shader from Slang source
             if (!impl->CompileShaderFromSlang(options))
