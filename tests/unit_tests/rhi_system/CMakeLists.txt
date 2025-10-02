@@ -4,7 +4,8 @@ cmake_minimum_required(VERSION 3.10)
 set(RENDERING_CONTEXT_TEST_SOURCES
     TestJsonConfig.cpp
     TestMain.cpp
-    TestRhiSystem.cpp)
+    TestRhiSystem.cpp
+    TestShaderObject.cpp)
 
 # Create test target
 add_unit_test_target(rhi_system_tests 
