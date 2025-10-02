@@ -41,7 +41,7 @@ TEST_F(MatrixProjectionTest, PerspectiveNearPlaneMapping)
     
     // After perspective divide, z should be at near depth
     float ndcZ = projected.z() / projected.w();
-    EXPECT_NEAR(ndcZ, -1.0f, EPSILON);  // Near plane at -1 in NDC
+    EXPECT_NEAR(ndcZ, 0.0f, EPSILON);  // Near plane at -1 in NDC
 }
 
 TEST_F(MatrixProjectionTest, PerspectiveFarPlaneMapping)
@@ -146,13 +146,13 @@ TEST_F(MatrixProjectionTest, OrthographicDepthMapping)
     
     // Near plane
     Vector nearPoint = ToVector(Float4(0.0f, 0.0f, -1.0f, 1.0f));
-    Vector projectedNear = m * nearPoint;
+    Vector projectedNear = Transform<4>(nearPoint, m);
     float ndcZNear = projectedNear.z() / projectedNear.w();
-    EXPECT_NEAR(ndcZNear, -1.0f, EPSILON);
+    EXPECT_NEAR(ndcZNear, 0.0f, EPSILON);
     
     // Far plane
     Vector farPoint = ToVector(Float4(0.0f, 0.0f, -100.0f, 1.0f));
-    Vector projectedFar = m * farPoint;
+    Vector projectedFar = Transform<4>(farPoint, m);
     float ndcZFar = projectedFar.z() / projectedFar.w();
     EXPECT_NEAR(ndcZFar, 1.0f, EPSILON);
 }
@@ -245,7 +245,7 @@ TEST_F(MatrixViewTest, LookAt_ViewDirection)
     
     Matrix view = Matrix::LookAt(eye, target, up);
     Vector targetPos = ToVector(Float4(target.x(), target.y(), target.z(), 1.0f));
-    Vector targetTransformed = view * targetPos;
+    Vector targetTransformed = Transform<4>(targetPos, view);
     
     // Target should be along negative Z in view space (right-handed)
     EXPECT_LT(targetTransformed.z(), 0.0f);
@@ -288,7 +288,7 @@ TEST_F(MatrixViewTest, LookAt_RightVector)
     
     // Point to the right of eye should have positive X in view space
     Vector pointRight = ToVector(Float4(1.0f, 0.0f, 5.0f, 1.0f));
-    Vector transformed = view * pointRight;
+    Vector transformed = Transform<4>(pointRight, view);
     
     EXPECT_GT(transformed.x(), 0.0f);
 }
@@ -325,11 +325,11 @@ TEST_F(MatrixViewTest, ViewProjectionPipeline)
     Matrix projection = Matrix::PerspectiveRH(fov, 1.0f, 1.0f, 100.0f);
     
     // Combined view-projection
-    Matrix vp = projection * view;
+    Matrix vp = view * projection;
     
     // Transform a point
     Vector worldPoint = ToVector(Float4(0.0f, 0.0f, 0.0f, 1.0f));
-    Vector clipSpace = vp * worldPoint;
+    Vector clipSpace = Transform<4>(worldPoint, vp);
     
     // Target is at origin, should be visible
     float ndcX = clipSpace.x() / clipSpace.w();

@@ -264,9 +264,9 @@ TEST_F(MatrixTest, TranslationFactory)
 {
     Matrix m = Matrix::Translation(10.0f, 20.0f, 30.0f);
     
-    EXPECT_FLOAT_EQ(m(0, 3), 10.0f);
-    EXPECT_FLOAT_EQ(m(1, 3), 20.0f);
-    EXPECT_FLOAT_EQ(m(2, 3), 30.0f);
+    EXPECT_FLOAT_EQ(m(3, 0), 10.0f);
+    EXPECT_FLOAT_EQ(m(3, 1), 20.0f);
+    EXPECT_FLOAT_EQ(m(3, 2), 30.0f);
     EXPECT_FLOAT_EQ(m(3, 3), 1.0f);
 }
 
@@ -404,7 +404,7 @@ TEST_F(MatrixTest, TRS_TranslationRotationScale)
     
     Matrix m = Matrix::TRS(translation, rotation, scale);
     Vector point = ToVector(Float4(1.0f, 0.0f, 0.0f, 1.0f));
-    Vector result = m * point;
+    Vector result = Transform<3>(point, m);
     
     // Should scale then translate (rotation is identity)
     EXPECT_NEAR(result.x(), 12.0f, EPSILON);
@@ -416,11 +416,10 @@ TEST_F(MatrixTest, CombinedTransformations)
 {
     Matrix translation = Matrix::Translation(5.0f, 0.0f, 0.0f);
     Matrix scale = Matrix::Scale(2.0f);
-    Matrix combined = translation * scale;
+    Matrix combined = scale * translation;
     
     Vector point = ToVector(Float4(1.0f, 1.0f, 1.0f, 1.0f));
-    Vector result = combined * point;
-    
+    Vector result = Transform<3>(point, combined);
     // Scale happens first, then translate
     EXPECT_NEAR(result.x(), 7.0f, EPSILON);
     EXPECT_NEAR(result.y(), 2.0f, EPSILON);
