@@ -35,6 +35,7 @@ namespace rhi
         InstanceHandle Handle() const noexcept;
         
         bool HasValidation() const noexcept;
+        ValidationLayers GetValidationLevel() const noexcept;
         
         // Extension queries
         bool HasExtension(std::string_view extension_name) const noexcept;
@@ -42,11 +43,11 @@ namespace rhi
 
     private:
         void createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions);
-        void setupValidation(ValidationLayers level);
+        void setupValidation();
         bool checkLayerSupport(const std::vector<const char*>& required_layers) const;
 
         InstanceHandle handle;
-        bool validationEnabled;
+        ValidationLayers validationLevel;
         std::vector<std::string> enabledExtensions;
         std::vector<std::string> enabledLayers;
     };

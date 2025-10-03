@@ -22,6 +22,15 @@ set(FOUNDATION_TEST_SOURCES
     
     # Math tests
     math/test_math.cpp
+    math/test_float2.cpp
+    math/test_float3.cpp
+    math/test_float4.cpp
+    math/test_integer_vectors.cpp
+    math/test_vector_simd.cpp
+    math/test_matrix_storage.cpp
+    math/test_matrix_simd.cpp
+    math/test_matrix_projection.cpp
+    math/test_math_integration.cpp
 
 )
 

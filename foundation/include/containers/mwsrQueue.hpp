@@ -32,6 +32,20 @@ namespace detail
         return mask >> 1;
     }
 
+    inline uint64_t countTrailingOnes(uint64_t value) noexcept
+    {
+        if (value == 0)
+            return 0;
+        uint64_t count = 0;
+#ifdef _MSC_VER
+        unsigned long index;
+        _BitScanForward64(&index, ~value);
+        return static_cast<uint64_t>(index);
+#else
+        return static_cast<uint64_t>(__builtin_ctzll(~value));
+#endif
+    }
+
     struct EntranceReactorData
     {
     protected:
@@ -126,7 +140,8 @@ namespace detail
     public:
 
         EntranceReactorHandle(atomic128& cas_data) noexcept : CasReactorHandle<EntranceReactorData>(cas_data)
-        {}
+        {
+        }
 
         // tries to allocate the next ID, but uses the willLock flag to instead decide whether we return without locking or getting an ID
         std::pair<uint64_t, bool> tryAllocateNextID() noexcept
@@ -183,7 +198,7 @@ namespace detail
             };
 
             ReactVoid(result, reactFunction);
-            
+
             return result;
         }
 
@@ -191,7 +206,7 @@ namespace detail
         void unlock() noexcept
         {
             int dummyResult{ 0 };
-            
+
             auto reactFunction = [](EntranceReactorData& data, bool& earlyExit)->int
             {
                 const uint32_t lockedCount = data.getLockedThreadCount();
@@ -340,14 +355,7 @@ namespace detail
                 {
                     // we have values to read, don't need to modify state
                     earlyExit = true;
-                    uint64_t n = 1u;
-                    for (; n < mwsrQueueSize; ++n)
-                    {
-                        if (!maskGetBit(mask, int(n)))
-                        {
-                            break;
-                        }
-                    }
+                    uint64_t n = countTrailingOnes(mask);
                     return std::pair<size_t, uint64_t>{ size_t(n), data.getFirstIDToRead() };
                 }
                 else
@@ -374,7 +382,7 @@ namespace detail
                     // we'll exit without modifying the state
                     earlyExit = true;
                     uint64_t n = 1u;
-                    for(; n < mwsrQueueSize; ++n)
+                    for (; n < mwsrQueueSize; ++n)
                     {
                         if (!maskGetBit(mask, int(n)))
                         {
@@ -432,26 +440,13 @@ namespace detail
     class LockedSingleThread
     {
     private:
-        // If we can, use atomic flag approach
-#if defined(__cpp_lib_atomic_wait)
-        std::atomic_flag readerIsWaiting{};
-#else
-        // Fallback to traditional locking, avoiding spinning on the flag
         int64_t lockCount{ 0u };
         CriticalSection mutex;
         std::condition_variable_any cv;
-#endif  
     public:
 
         void lockAndWait()
         {
-#if defined(__cpp_lib_atomic_wait)
-            while (readerIsWaiting.test_and_set(std::memory_order_acquire))
-            {
-                // waits while the flag is set to true, unlocks as soon as it changes
-                readerIsWaiting.wait(true, std::memory_order_acquire);
-            }
-#else
             std::unique_lock lock(mutex);
             assert(lockCount == -1 || lockCount == 0);
             ++lockCount;
@@ -460,21 +455,15 @@ namespace detail
                 // Thread will sleep while lock count is set
                 cv.wait(lock);
             }
-#endif
         }
 
         void unlock()
         {
-#if defined(__cpp_lib_atomic_wait)
-            readerIsWaiting.clear(std::memory_order_release);
-            readerIsWaiting.notify_one();
-#else
             std::unique_lock lock(mutex);
             --lockCount;
             lock.unlock();
             // lockCount lowered, wake thread that was locked and waiting
             cv.notify_one();
-#endif
         }
     };
 
@@ -482,11 +471,10 @@ namespace detail
     {
         // ID of item we're waiting on
         uint64_t itemID{ std::numeric_limits<uint64_t>::max() };
-        LockedThreadsListLockItem* next{ nullptr };
-#if !defined(__cpp_lib_atomic_wait) // don't need this if we have atomic wait, so define it out
         std::condition_variable_any cv;
-#endif
+        LockedThreadsListLockItem* next{ nullptr };
     };
+    thread_local LockedThreadsListLockItem lockedThreadsListTLS_data = LockedThreadsListLockItem{};
 
     // Templatization required, so that it works with more than one type of queue item
     // (as each template initialization will be a new type, causing new static members)
@@ -494,11 +482,7 @@ namespace detail
     class LockedThreadsList
     {
     private:
-#if defined(__cpp_lib_atomic_wait)
-        std::atomic<uint64_t> unlockUpTo{ 0u };
-#else
         uint64_t unlockUpTo{ 0u };
-#endif
         CriticalSection mutex;
         LockedThreadsListLockItem* first{ nullptr };
         inline static thread_local LockedThreadsListLockItem lockedThreadsListTLS_data = LockedThreadsListLockItem{};
@@ -506,35 +490,6 @@ namespace detail
 
         void lockAndWait(uint64_t itemId)
         {
-#if defined(__cpp_lib_atomic_wait)
-
-            {
-                // lock to insert in list first
-                std::unique_lock lock(mutex);
-                lockedThreadsListTLS_data.itemID = itemId;
-                insertSorted(&lockedThreadsListTLS_data);
-            }
-
-
-            // now use busy wait loop with atomic wait
-            uint64_t currentUnlockUpTo = unlockUpTo.load(std::memory_order_acquire);
-            while (itemId >= currentUnlockUpTo)
-            {
-                // wait while currentUnlockUpTo is same as unlockUpTo
-                unlockUpTo.wait(currentUnlockUpTo, std::memory_order_acquire);
-                // woken, update unlockUpTo to see if we exit the waiting loop
-                currentUnlockUpTo = unlockUpTo.load(std::memory_order_acquire);
-            }
-
-            {
-                // lock again to remove from list if we're unlocked and continuing on
-                std::unique_lock lock(mutex);
-                removeFromList(&lockedThreadsListTLS_data);
-            }
-
-#else
-            lockedThreadsListTLS_data.itemID = itemId;
-            insertSorted(&lockedThreadsListTLS_data);
             std::unique_lock lock(mutex);
             lockedThreadsListTLS_data.itemID = itemId;
             insertSorted(&lockedThreadsListTLS_data);
@@ -543,15 +498,10 @@ namespace detail
                 lockedThreadsListTLS_data.cv.wait(lock);
             }
             removeFromList(&lockedThreadsListTLS_data);
-#endif
         }
 
         void unlockAllUpTo(uint64_t id)
         {
-#if defined(__cpp_lib_atomic_wait)
-            unlockUpTo.store(id, std::memory_order_release);
-            unlockUpTo.notify_all();
-#else
             std::unique_lock lock(mutex);
             assert(id >= unlockUpTo);
             unlockUpTo = id;
@@ -563,11 +513,10 @@ namespace detail
                     iter->cv.notify_one();
                 }
             }
-#endif
         }
 
     private:
-        
+
         void insertSorted(LockedThreadsListLockItem* item)
         {
             LockedThreadsListLockItem* previous{ nullptr };
@@ -630,11 +579,11 @@ namespace detail
 
 /**
  * @brief Lock-free multiple-writer, single-reader queue with fixed capacity
- * 
+ *
  * High-performance concurrent queue supporting multiple producer threads and a single
  * consumer thread. Uses lock-free atomic operations for the fast path and minimal
  * locking when the queue is full or empty.
- * 
+ *
  * @tparam T Element type that must be default-constructible and move-assignable
  * @note Queue capacity is fixed at 64 elements at compile time
  */
@@ -663,11 +612,11 @@ public:
 
     /**
      * @brief Default constructor
-     * 
+     *
      * Initializes the queue with empty state and sets up internal synchronization structures.
      */
     mwsrQueue() noexcept : entranceData{ detail::ExitReactorData::EntranceFirstToWrite, detail::ExitReactorData::EntranceLastToWrite } {}
-    
+
     mwsrQueue(const mwsrQueue&) = delete;
     mwsrQueue& operator=(const mwsrQueue&) = delete;
 
@@ -679,7 +628,7 @@ public:
     void push(T item)
     {
         detail::EntranceReactorHandle entrance(entranceData);
-        auto[ newId, willLock ] = entrance.allocateNextID();
+        auto [newId, willLock] = entrance.allocateNextID();
         if (willLock)
         {
             lockedWriters.lockAndWait(newId);
@@ -723,7 +672,7 @@ public:
 
     /**
      * @brief Remove and return an item from the queue
-     * 
+     *
      * @return Item moved out of the queue
      * @note Only safe to call from a single reader thread, and blocks if queue is empty until an item becomes available
      */
@@ -740,7 +689,7 @@ public:
         {
             detail::ExitReactorHandle exit(exitData);
 
-            auto[ numRead, firstId ] = exit.startRead();
+            auto [numRead, firstId] = exit.startRead();
             assert(numRead <= detail::mwsrQueueSize);
             // nothing to read, so since this is the blocking call we need to wait
             if (!numRead)
@@ -787,7 +736,7 @@ public:
         }
 
         detail::ExitReactorHandle exit(exitData);
-        auto[ numRead, firstId ] = exit.tryStartRead();
+        auto [numRead, firstId] = exit.tryStartRead();
         if (!numRead)
         {
             // no items to read, return empty optional

@@ -304,56 +304,7 @@ namespace math
         return !(*this == rhs);
     }
 
-    // Float4 swizzle implementations
-    constexpr Float4 Float4::xyzw() const noexcept 
-    { 
-        return Float4(storage.x, storage.y, storage.z, storage.w); 
-    }
-    
-    constexpr Float4 Float4::xywz() const noexcept 
-    { 
-        return Float4(storage.x, storage.y, storage.w, storage.z); 
-    }
-    
-    constexpr Float4 Float4::xzyw() const noexcept 
-    { 
-        return Float4(storage.x, storage.z, storage.y, storage.w); 
-    }
-    
-    constexpr Float4 Float4::xzwy() const noexcept 
-    { 
-        return Float4(storage.x, storage.z, storage.w, storage.y); 
-    }
-    
-    constexpr Float4 Float4::xwyz() const noexcept 
-    { 
-        return Float4(storage.x, storage.w, storage.y, storage.z); 
-    }
-    
-    constexpr Float4 Float4::xwzy() const noexcept 
-    { 
-        return Float4(storage.x, storage.w, storage.z, storage.y); 
-    }
-    
-    constexpr Float4 Float4::xxxx() const noexcept 
-    { 
-        return Float4(storage.x, storage.x, storage.x, storage.x); 
-    }
-    
-    constexpr Float4 Float4::yyyy() const noexcept 
-    { 
-        return Float4(storage.y, storage.y, storage.y, storage.y); 
-    }
-    
-    constexpr Float4 Float4::zzzz() const noexcept 
-    { 
-        return Float4(storage.z, storage.z, storage.z, storage.z); 
-    }
-    
-    constexpr Float4 Float4::wwww() const noexcept 
-    { 
-        return Float4(storage.w, storage.w, storage.w, storage.w); 
-    }
+    // Note: Float3 and Float4 swizzle functions are now generated via macros in Math.hpp
 
     // ================================
     // Int2 Implementation
@@ -1428,6 +1379,22 @@ namespace math
         return DirectX::XMVectorGetW(data); 
     }
     
+    // Static factory methods
+    DD_MATH_FORCEINLINE Vector Vector::Zero() noexcept
+    {
+        return Vector{DirectX::XMVectorZero()};
+    }
+    
+    DD_MATH_FORCEINLINE Vector Vector::Replicate(float scalar) noexcept
+    {
+        return Vector{DirectX::XMVectorReplicate(scalar)};
+    }
+    
+    DD_MATH_FORCEINLINE Vector Vector::Identity() noexcept
+    {
+        return Vector{DirectX::XMVectorSet(1.0f, 1.0f, 1.0f, 1.0f)};
+    }
+    
     // Arithmetic operators
     DD_MATH_FORCEINLINE Vector Vector::operator+(Vector rhs) const noexcept 
     {
@@ -2354,12 +2321,12 @@ namespace math
 
     DD_MATH_FORCEINLINE Matrix Matrix::LookAt(Vector eye, Vector target, Vector up) noexcept
     {
-        return Matrix{DirectX::XMMatrixLookAtLH(eye.Data(), target.Data(), up.Data())};
+        return Matrix{DirectX::XMMatrixLookAtRH(eye.Data(), target.Data(), up.Data())};
     }
 
     DD_MATH_FORCEINLINE Matrix Matrix::LookTo(Vector eye, Vector direction, Vector up) noexcept
     {
-        return Matrix{DirectX::XMMatrixLookToLH(eye.Data(), direction.Data(), up.Data())};
+        return Matrix{DirectX::XMMatrixLookToRH(eye.Data(), direction.Data(), up.Data())};
     }
 
     DD_MATH_FORCEINLINE Matrix Matrix::Perspective(float fov_y_radians, float aspect_ratio, float near_plane, float far_plane) noexcept
@@ -2430,11 +2397,11 @@ namespace math
     {
         if constexpr (N == 2)
         {
-            return Vector{DirectX::XMVector2Transform(vector.Data(), matrix.Data())};
+            return Vector{DirectX::XMVector2TransformCoord(vector.Data(), matrix.Data())};
         }
         else if constexpr (N == 3)
         {
-            return Vector{DirectX::XMVector3Transform(vector.Data(), matrix.Data())};
+            return Vector{DirectX::XMVector3TransformCoord(vector.Data(), matrix.Data())};
         }
         else if constexpr (N == 4)
         {

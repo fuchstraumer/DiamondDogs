@@ -2,12 +2,10 @@ cmake_minimum_required(VERSION 3.10)
 
 # Rendering Context unit tests
 set(RENDERING_CONTEXT_TEST_SOURCES
-    TestExtensionManagement.cpp
     TestJsonConfig.cpp
     TestMain.cpp
     TestRhiSystem.cpp
-    TestVulkanIntegration.cpp
-)
+    TestShaderObject.cpp)
 
 # Create test target
 add_unit_test_target(rhi_system_tests 

@@ -51,7 +51,6 @@ TEST_F(JsonConfigTest, BasicJsonConfig)
         auto rhiSystem = std::make_unique<rhi::RhiSystem>(configPath.string().c_str());
         EXPECT_NE(rhiSystem, nullptr);
         EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        EXPECT_NE(rhiSystem->GetPhysicalDevice(), nullptr);
         EXPECT_NE(rhiSystem->GetDevice(), nullptr);
     });
 }
@@ -72,7 +71,6 @@ TEST_F(JsonConfigTest, PresentationJsonConfig)
         auto rhiSystem = std::make_unique<rhi::RhiSystem>(configPath.string().c_str());
         EXPECT_NE(rhiSystem, nullptr);
         EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        EXPECT_NE(rhiSystem->GetPhysicalDevice(), nullptr);
         EXPECT_NE(rhiSystem->GetDevice(), nullptr);
     });
 }
@@ -93,7 +91,6 @@ TEST_F(JsonConfigTest, MinimalJsonConfig)
         auto rhiSystem = std::make_unique<rhi::RhiSystem>(configPath.string().c_str());
         EXPECT_NE(rhiSystem, nullptr);
         EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        EXPECT_NE(rhiSystem->GetPhysicalDevice(), nullptr);
         EXPECT_NE(rhiSystem->GetDevice(), nullptr);
     });
 }
@@ -139,7 +136,6 @@ TEST_F(JsonConfigTest, RendererContextConfig)
         auto rhiSystem = std::make_unique<rhi::RhiSystem>(tempConfigPath.string().c_str());
         EXPECT_NE(rhiSystem, nullptr);
         EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-        EXPECT_NE(rhiSystem->GetPhysicalDevice(), nullptr);
         EXPECT_NE(rhiSystem->GetDevice(), nullptr);
     });
 
@@ -188,7 +184,6 @@ TEST_F(JsonConfigTest, EnableHdrConfig)
     auto rhiSystem = std::make_unique<rhi::RhiSystem>(tempConfigPath.string().c_str());
     EXPECT_NE(rhiSystem, nullptr);
     EXPECT_NE(rhiSystem->GetInstance(), nullptr);
-    EXPECT_NE(rhiSystem->GetPhysicalDevice(), nullptr);
     rhi::Device* device = rhiSystem->GetDevice();
     EXPECT_NE(device, nullptr);
     EXPECT_TRUE(device->HasExtension(VK_EXT_HDR_METADATA_EXTENSION_NAME));

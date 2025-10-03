@@ -30,11 +30,14 @@ namespace rhi
          */
         struct CompileOptions
         {
-            std::span<const char*> searchPaths{}; // Additional include search paths
-            std::span<const char*> moduleNames{}; // Additional module names to load
-            std::filesystem::path slangSourcePath{};
-            std::string entryPointName{};
-            ShaderStageFlags stage = ShaderStageFlags::None;
+            std::span<const char*> SearchPaths{}; // Additional include search paths
+            std::span<const char*> ModuleNames{}; // Additional module names to load
+            std::filesystem::path SlangSourcePath{};
+            // Name to assign to the module in Slang. If empty, will use filename without extension
+            std::string ModuleName;
+            // Entry point name
+            std::string EntryPointName = "main";
+            ShaderStageFlags Stage = ShaderStageFlags::None;
             
             // Slang-specific compilation options
             std::string target = "spirv";           // "spirv" for Vulkan, "dxil" for DX12
@@ -54,8 +57,10 @@ namespace rhi
             SpecializationConstant::ValueType defaultValue{};
         };
 
-        // Construction - use static factory method
-        static Result Create(const Device& device, const CompileOptions& options, ShaderObject& outShaderObject);
+
+        ShaderObject();
+
+        static Result Create(DeviceHandle device, const CompileOptions& options, ShaderObject& outShaderObject);
         
         // No copy semantics
         ShaderObject(const ShaderObject&) = delete;
@@ -88,9 +93,7 @@ namespace rhi
     private:
         // Private constructor - use Create() factory method
         explicit ShaderObject(std::unique_ptr<ShaderObjectImpl> impl);
-        
-        // Default constructor for output parameter
-        ShaderObject();
+ 
         
         std::unique_ptr<ShaderObjectImpl> impl;
         ShaderObjectHandle handle;

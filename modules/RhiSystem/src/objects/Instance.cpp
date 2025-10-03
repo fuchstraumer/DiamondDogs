@@ -27,7 +27,7 @@ namespace rhi
                     ValidationLayers validation_level,
                     const ExtensionPack& extensions) :
         handle{ 0u },
-        validationEnabled{ validation_level != ValidationLayers::None }
+        validationLevel{ validation_level }
     {
         const VkApplicationInfo app_info = 
         {
@@ -40,7 +40,7 @@ namespace rhi
             extensions.GetVulkanApiVersion()
         };
         
-        setupValidation(validation_level);
+        setupValidation();
         createInstance(app_info, extensions);
     }
 
@@ -93,9 +93,9 @@ namespace rhi
         handle.Set<VkInstance>(resultInstance);
     }
 
-    void Instance::setupValidation(ValidationLayers level)
+    void Instance::setupValidation()
     {
-        if (level == ValidationLayers::None)
+        if (validationLevel == ValidationLayers::None)
         {
             return;
         }
@@ -103,7 +103,7 @@ namespace rhi
         std::vector<const char*> required_layers;
         
         // Add base validation layers
-        if (level >= ValidationLayers::BaseOnly)
+        if (validationLevel >= ValidationLayers::BaseOnly)
         {
             for (const char* layer : BASE_VALIDATION_LAYERS)
             {
@@ -112,7 +112,7 @@ namespace rhi
         }
         
         // Add synchronization layers
-        if (level >= ValidationLayers::WithSynchronization)
+        if (validationLevel >= ValidationLayers::WithSynchronization)
         {
             for (const char* layer : SYNCHRONIZATION_LAYERS)
             {
@@ -129,6 +129,7 @@ namespace rhi
         {
             enabledLayers.emplace_back(layer);
         }
+
     }
 
     bool Instance::checkLayerSupport(const std::vector<const char*>& required_layers) const
@@ -168,7 +169,12 @@ namespace rhi
 
     bool Instance::HasValidation() const noexcept
     {
-        return validationEnabled;
+        return validationLevel != ValidationLayers::None;
+    }
+
+    ValidationLayers Instance::GetValidationLevel() const noexcept
+    {
+        return validationLevel;
     }
 
     const std::vector<std::string>& Instance::GetEnabledExtensions() const noexcept

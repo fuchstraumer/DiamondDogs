@@ -6,6 +6,9 @@
 
 #include "threading/SrwLock.hpp"
 
+namespace threading
+{
+
 class SRWLockTest : public ::testing::Test
 {
 protected:
@@ -208,3 +211,5 @@ TEST_F(SRWLockTest, PerformanceComparison)
     std::cout << "Shared locks: " << duration_shared.count() << " microseconds\n";
     std::cout << "Shared/Exclusive ratio: " << (static_cast<double>(duration_shared.count()) / duration_exclusive.count()) << "\n";
 }
+
+} // namespace threading

@@ -6,6 +6,9 @@
 #include "threading/ExponentialBackoffSleeper.hpp"
 using namespace foundation;
 
+namespace threading
+{
+
 class ExponentialBackoffSleeperTest : public ::testing::Test
 {
 protected:
@@ -193,3 +196,5 @@ TEST_F(ExponentialBackoffSleeperTest, SpinWaitIntegration)
     EXPECT_GT(spin_count.load(), 0);
     EXPECT_LT(spin_count.load(), 10000) << "Should not spin excessively";
 }
+
+} // namespace threading

@@ -99,6 +99,11 @@ namespace rhi
 
         void retrievePhysicalDeviceProperties()
         {
+            properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            properties.pNext = nullptr;
+            features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            features.pNext = nullptr;
+
             vkGetPhysicalDeviceProperties2(physicalDevice, &properties);
             vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
             vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);

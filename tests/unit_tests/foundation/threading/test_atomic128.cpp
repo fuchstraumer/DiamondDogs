@@ -8,6 +8,9 @@
 
 #include "threading/atomic128.hpp"
 
+namespace threading
+{
+
 class Atomic128Test : public ::testing::Test
 {
 protected:
@@ -229,3 +232,5 @@ TEST_F(Atomic128Test, PerformanceBenchmark)
 }
 
 #endif // _MSC_VER
+
+} // namespace foundation::tests::threading
