@@ -107,24 +107,29 @@ namespace rhi
             try
             {
                 // Read source file
-                if (!std::filesystem::exists(options.slangSourcePath))
+                if (!std::filesystem::exists(options.SlangSourcePath))
                 {
-                    compilationLog = std::format("Slang source file not found: {}", options.slangSourcePath.string());
+                    compilationLog = std::format("Slang source file not found: {}", options.SlangSourcePath.string());
                     return false;
                 }
 
-                std::ifstream file(options.slangSourcePath, std::ios::binary | std::ios::ate);
+                std::ifstream file(options.SlangSourcePath, std::ios::binary | std::ios::ate);
                 if (!file.is_open())
                 {
-                    compilationLog = std::format("Failed to open Slang source file: {}", options.slangSourcePath.string());
+                    compilationLog = std::format("Failed to open Slang source file: {}", options.SlangSourcePath.string());
                     return false;
                 }
 
-                // use istreambuf iterator to read file content all at once into source code string
-                std::string sourceCode{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+                std::streampos fileSize = file.tellg(); // Get current position (file size)
+                file.seekg(0); // Seek back to the beginning
+
+                std::string sourceCode;
+                sourceCode.resize(static_cast<size_t>(fileSize));
+                file.read(sourceCode.data(), fileSize);
+
                 if (sourceCode.empty())
                 {
-                    compilationLog = std::format("Failed to read Slang source file: {}", options.slangSourcePath.string());
+                    compilationLog = std::format("Failed to read Slang source file: {}", options.SlangSourcePath.string());
                     return false;
                 }
 
@@ -142,8 +147,8 @@ namespace rhi
 
                 // Will eventually cache this and make it more reusable, but for now this gets us running
                 slang::SessionDesc sessionDesc = {};
-                sessionDesc.searchPaths = options.searchPaths.data();
-                sessionDesc.searchPathCount = static_cast<SlangInt>(options.searchPaths.size());
+                sessionDesc.searchPaths = options.SearchPaths.data();
+                sessionDesc.searchPathCount = static_cast<SlangInt>(options.SearchPaths.size());
                 sessionDesc.allowGLSLSyntax = true; // We write with GLSL-like syntax in many cases
 
                 // Create compilation target
@@ -192,9 +197,6 @@ namespace rhi
                 vulkanOption.name = slang::CompilerOptionName::VulkanEmitReflection;
                 vulkanOption.value.intValue0 = 1; // Enable reflection
                 compilerOptions.push_back(vulkanOption);
-                vulkanOption.name = slang::CompilerOptionName::AllowGLSL;
-                vulkanOption.value.intValue0 = 1; // Allow GLSL-like syntax
-                compilerOptions.push_back(vulkanOption);
                 vulkanOption.name = slang::CompilerOptionName::EmitSpirvDirectly;
                 vulkanOption.value.intValue0 = 1; // Emit SPIR-V directly, so we can use it as-is
                 compilerOptions.push_back(vulkanOption);
@@ -214,7 +216,7 @@ namespace rhi
                 }
 
                 std::vector<SlangModulePtr> loadedModules;
-                for (const char* moduleName : options.moduleNames)
+                for (const char* moduleName : options.ModuleNames)
                 {
                     SlangModulePtr module;
                     module = resultSession->loadModule(moduleName);
@@ -231,11 +233,11 @@ namespace rhi
 
                 // Now load the main module from given source path
                 SlangModulePtr sourceModule;
-                std::filesystem::path absolutePath = std::filesystem::absolute(options.slangSourcePath);
+                std::filesystem::path absolutePath = std::filesystem::absolute(options.SlangSourcePath);
                 std::string filePath = absolutePath.string();
                 SlangBlobPtr diagnosticsBlob;
                 sourceModule = resultSession->loadModuleFromSourceString(
-                    options.slangSourcePath.filename().string().c_str(),
+                    options.SlangSourcePath.filename().string().c_str(),
                     filePath.c_str(),
                     sourceCode.c_str(),
                     diagnosticsBlob.writeRef());
@@ -259,10 +261,10 @@ namespace rhi
 
                 // Create entry point
                 Slang::ComPtr<slang::IEntryPoint> entryPoint;
-                SlangResult entryPointResult = sourceModule->findEntryPointByName(options.entryPointName.c_str(), entryPoint.writeRef());
+                SlangResult entryPointResult = sourceModule->findEntryPointByName(options.EntryPointName.c_str(), entryPoint.writeRef());
                 if (SLANG_FAILED(entryPointResult) || !entryPoint)
                 {
-                    compilationLog = std::format("Entry point '{}' not found in Slang module", options.entryPointName);
+                    compilationLog = std::format("Entry point '{}' not found in Slang module", options.EntryPointName);
                     resultSession->release();
                     slangGlobalSession->release();
                     return false;
@@ -358,13 +360,17 @@ namespace rhi
                     std::memcpy(bytecode.data(), codeBlob->getBufferPointer(), codeSize);
                 }
 
+#ifdef _NDEBUG
+                // copy contents of bytecode to a string so we can peek at it
+#endif
+
                 // Extract reflection information
                 ExtractReflectionData(linkedProgram);
 
                 // Store compilation info
-                entryPointName = options.entryPointName;
-                sourcePath = options.slangSourcePath;
-                stage = options.stage;
+                entryPointName = options.EntryPointName;
+                sourcePath = options.SlangSourcePath;
+                stage = options.Stage;
 
                 // Store diagnostics even on success (warnings, etc.)
                 if (diagnosticsBlob)
