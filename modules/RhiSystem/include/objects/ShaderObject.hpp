@@ -57,7 +57,6 @@ namespace rhi
             SpecializationConstant::ValueType defaultValue{};
         };
 
-
         ShaderObject();
 
         static Result Create(DeviceHandle device, const CompileOptions& options, ShaderObject& outShaderObject);
