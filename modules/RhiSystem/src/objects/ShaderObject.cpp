@@ -42,6 +42,28 @@ namespace rhi
     using SlangLayoutPtr = slang::ProgramLayout*;
     using SlangMetadataPtr = Slang::ComPtr<slang::IMetadata>;
 
+    ShaderStageFlags FromSlangStage(SlangStage stage)
+    {
+        switch (stage)
+        {
+            case SLANG_STAGE_VERTEX: return ShaderStageFlags::Vertex;
+            case SLANG_STAGE_HULL: return ShaderStageFlags::TesselationControl;
+            case SLANG_STAGE_DOMAIN: return ShaderStageFlags::TesselationEvaluation;
+            case SLANG_STAGE_GEOMETRY: return ShaderStageFlags::Geometry;
+            case SLANG_STAGE_FRAGMENT: return ShaderStageFlags::Fragment;
+            case SLANG_STAGE_COMPUTE: return ShaderStageFlags::Compute;
+            case SLANG_STAGE_RAY_GENERATION: return ShaderStageFlags::RayGeneration;
+            case SLANG_STAGE_ANY_HIT: return ShaderStageFlags::AnyHit;
+            case SLANG_STAGE_CLOSEST_HIT: return ShaderStageFlags::ClosestHit;
+            case SLANG_STAGE_MISS: return ShaderStageFlags::Miss;
+            case SLANG_STAGE_INTERSECTION: return ShaderStageFlags::Intersection;
+            case SLANG_STAGE_CALLABLE: return ShaderStageFlags::Callable;
+            case SLANG_STAGE_MESH: return ShaderStageFlags::Mesh;
+            case SLANG_STAGE_AMPLIFICATION: return ShaderStageFlags::Task;
+            default: return ShaderStageFlags::None;
+        }
+    }
+
     struct AccessPathNode
     {
         slang::VariableLayoutReflection* VarLayout = nullptr;
@@ -103,10 +125,18 @@ namespace rhi
 
     struct YamlBuilder
     {
+
+        YamlBuilder(std::vector<SlangMetadataPtr>* entrypointMetadata = nullptr, SlangLayoutPtr programLayout = nullptr)
+            : EntrypointMetadata(entrypointMetadata)
+            , ProgramLayout(programLayout)
+        {
+        }
+
         std::string result;
         size_t indentation = 0;
         bool afterArrayElement = true;
         std::vector<SlangMetadataPtr>* EntrypointMetadata = nullptr;
+        SlangLayoutPtr ProgramLayout = nullptr;
 
         struct CumulativeOffset
         {
@@ -198,6 +228,12 @@ namespace rhi
         }
 
         YamlBuilder& PrintUint32(uint32_t value)
+        {
+            result += std::to_string(value);
+            return *this;
+        }
+
+        YamlBuilder& PrintInt32(int32_t value)
         {
             result += std::to_string(value);
             return *this;
@@ -363,6 +399,85 @@ namespace rhi
             return *this;
         }
 
+        YamlBuilder& PrintShaderStageMask(ShaderStageFlags stage)
+        {
+            if (stage == ShaderStageFlags::None)
+            {
+                result += "None";
+                return *this;
+            }
+            bool first = true;
+            if ((stage & ShaderStageFlags::Vertex) != ShaderStageFlags::None)
+            {
+                result += "Vertex";
+                first = false;
+            }
+            if ((stage & ShaderStageFlags::TesselationControl) != ShaderStageFlags::None)
+            {
+                if (!first) result += " | ";
+                result += "TesselationControl";
+                first = false;
+            }
+            if ((stage & ShaderStageFlags::TesselationEvaluation) != ShaderStageFlags::None)
+            {
+                if (!first) result += " | ";
+                result += "TesselationEvaluation";
+                first = false;
+            }
+            if ((stage & ShaderStageFlags::Geometry) != ShaderStageFlags::None)
+            {
+                if (!first) result += " | ";
+                result += "Geometry";
+                first = false;
+            }
+            if ((stage & ShaderStageFlags::Fragment) != ShaderStageFlags::None)
+            {
+                if (!first) result += " | ";
+                result += "Fragment";
+                first = false;
+            }
+            if ((stage & ShaderStageFlags::Compute) != ShaderStageFlags::None)
+            {
+                if (!first) result += " | ";
+                result += "Compute";
+                first = false;
+            }
+            if ((stage & ShaderStageFlags::RayGeneration) != ShaderStageFlags::None)
+            {
+                if (!first) result += " | ";
+                result += "RayGeneration";
+                first = false;
+            }
+            if ((stage & ShaderStageFlags::AnyHit) != ShaderStageFlags::None)
+            {
+                if (!first) result += " | ";
+                result += "AnyHit";
+                first = false;
+            }
+            if ((stage & ShaderStageFlags::ClosestHit) != ShaderStageFlags::None)
+            {
+                if (!first) result += " | ";
+                result += "ClosestHit";
+                first = false;
+            }
+            if ((stage & ShaderStageFlags::Miss) != ShaderStageFlags::None)
+            {
+                if (!first) result += " | ";
+                result += "Miss";
+                first = false;
+            }
+            if ((stage & ShaderStageFlags::Intersection) != ShaderStageFlags::None)
+            {
+                if (!first) result += " | ";
+                result += "Intersection";
+                first = false;
+            }
+
+            // insert quotes at beginning and end since this is a string value in yaml
+            result = "\"" + result + "\"";
+            return *this;
+        }
+
         void PrintVariable(slang::VariableReflection* variable)
         {
             YamlScopedObject(*this);
@@ -393,7 +508,7 @@ namespace rhi
                 case slang::TypeReflection::Kind::Struct:
                 {
                     unsigned int fieldCount = type->getFieldCount();
-                    Key("Fields").PrintUint(static_cast<uint32_t>(fieldCount));
+                    Key("Fields").PrintUint32(static_cast<uint32_t>(fieldCount));
                     {
                         YamlScopedArray array(*this);
                         for (unsigned int i = 0; i < fieldCount; i++)
@@ -480,17 +595,6 @@ namespace rhi
             default:
                 break;
             }
-        }
-
-        void PrintVariableLayout(slang::VariableLayoutReflection* variable_layout, AccessPath access_path)
-        {
-            YamlScopedObject(*this);
-            const char* name = variable_layout->getName();
-            Key("Name").PrintQuotedString(name);
-            PrintOffsets(variable_layout, access_path);
-            PrintVaryingParameterInfo(variable_layout);
-            ExtendedAccessPath variable_path(access_path, variable_layout);
-            Key("TypeLayout");
         }
 
         void PrintOffset(slang::ParameterCategory layout_unit, size_t offset, size_t space_offset)
@@ -606,6 +710,70 @@ namespace rhi
             }
         }
 
+        ShaderStageFlags CalculateParameterStageMask(slang::ParameterCategory layout_unit, CumulativeOffset offset)
+        {
+            ShaderStageFlags stageMask = ShaderStageFlags::None;
+            auto entryPointCount = EntrypointMetadata->size();
+            for (size_t i = 0; i < entryPointCount; ++i)
+            {
+                bool isUsed = false;
+                auto metadata = (*EntrypointMetadata)[i];
+                metadata->isParameterLocationUsed(SlangParameterCategory(layout_unit), uint32_t(offset.Value), uint32_t(offset.Space), isUsed);
+                if (isUsed)
+                {
+                    SlangStage entryPointStage = ProgramLayout->getEntryPointByIndex(SlangUInt(i))->getStage();
+                    stageMask |= FromSlangStage(entryPointStage);
+                }
+            }
+        }
+
+        ShaderStageFlags CalculateStageMask(slang::VariableLayoutReflection* variable_layout, AccessPath access_path)
+        {
+            ShaderStageFlags stageMask = ShaderStageFlags::None;
+            unsigned int usedLayoutUnitCount = variable_layout->getCategoryCount();
+            for (unsigned int i = 0; i < usedLayoutUnitCount; ++i)
+            {
+                auto layoutUnit = variable_layout->getCategoryByIndex(i);
+                auto offset = CalculateCumulativeOffset(variable_layout, layoutUnit, access_path);
+                stageMask |= CalculateParameterStageMask(layoutUnit, offset);
+            }
+            return stageMask;
+        }
+
+        void PrintStageUsage(slang::VariableLayoutReflection* variable_layout, AccessPath access_path)
+        {
+            ShaderStageFlags stageMask = CalculateStageMask(variable_layout, access_path);
+            Key("StageUsage").PrintShaderStageMask(stageMask);
+        }
+
+        void PrintStageSpecificInfo(slang::EntryPointReflection* entry_point_layout)
+        {
+            switch (entry_point_layout->getStage())
+            {
+            case SLANG_STAGE_COMPUTE:
+            {
+                constexpr static size_t kAxisCount = 3u;
+                SlangUInt sizes[kAxisCount];
+                entry_point_layout->getComputeThreadGroupSize(kAxisCount, sizes);
+                Key("ComputeThreadGroupSize");
+                {
+                    YamlScopedObject obj(*this);
+                    Key("X").PrintUint64(sizes[0]);
+                    Key("Y").PrintUint64(sizes[1]);
+                    Key("Z").PrintUint64(sizes[2]);
+                }
+                break;
+            }
+            case SLANG_STAGE_FRAGMENT:
+            {
+                Key("UsesAnySampleRateInputs").PrintBool(entry_point_layout->usesAnySampleRateInputs());
+                break;
+            }
+            default:
+                break;
+            }
+        }
+
         void PrintOffsets(slang::VariableLayoutReflection* variable_layout, AccessPath access_path)
         {
             Key("Offset");
@@ -624,6 +792,39 @@ namespace rhi
             }
         }
 
+        void PrintSize(slang::ParameterCategory layout_unit, size_t size)
+        {
+            YamlScopedObject(*this);
+            Key("Value").PrintPossiblyUnbounded(size);
+            Key("Unit").PrintLayoutUnit(layout_unit);
+        }
+
+        void PrintSize(slang::TypeLayoutReflection* type_layout, slang::ParameterCategory layout_unit)
+        {
+            PrintSize(layout_unit, type_layout->getSize(layout_unit));
+        }
+
+        void PrintSizes(slang::TypeLayoutReflection* type_layout)
+        {
+            Key("Size");
+            unsigned int usedLayoutUnitCount = type_layout->getCategoryCount();
+            {
+                YamlScopedArray obj(*this);
+                for (unsigned int i = 0; i < usedLayoutUnitCount; ++i)
+                {
+                    ArrayElement();
+                    slang::ParameterCategory layout_unit = type_layout->getCategoryByIndex(i);
+                    PrintSize(type_layout, layout_unit);
+                }
+            }
+
+            if (type_layout->getSize() != 0)
+            {
+                Key("ByteAlignment").PrintInt32(type_layout->getAlignment());
+                Key("ByteStride").PrintUint64(type_layout->getStride());
+            }
+        }
+
         void PrintVaryingParameterInfo(slang::VariableLayoutReflection* variable_layout)
         {
             if (auto semanticName = variable_layout->getSemanticName())
@@ -635,44 +836,202 @@ namespace rhi
             }
         }
 
-        ShaderStageFlags CalculateParameterStageMask(slang::ParameterCategory layout_unit, CumulativeOffset offset)
+        void PrintKindSpecificInfo(slang::TypeLayoutReflection* type_layout, AccessPath access_path)
         {
-            ShaderStageFlags stageMask = ShaderStageFlags::None;
-            auto entryPointCount = EntrypointMetadata->size();
-            for (size_t i = 0; i < entryPointCount; i++)
+            switch (type_layout->getKind())
             {
-                bool isUsed = false;
-                auto metadata = (*EntrypointMetadata)[i];
-                metadata->isParameterLocationUsed(SlangParameterCategory(layout_unit), uint32_t(offset.Value), uint32_t(offset.Space), isUsed);
-                if (isUsed)
+            case slang::TypeReflection::Kind::Struct:
+            {
+                Key("Fields");
+                unsigned int fieldCount = type_layout->getFieldCount();
                 {
-                    //auto entryPointStage = 
+                    YamlScopedArray array(*this);
+                    for (unsigned int i = 0; i < fieldCount; i++)
+                    {
+                        ArrayElement(); // start new array element
+                        slang::VariableLayoutReflection* field = type_layout->getFieldByIndex(i);
+                        PrintVariableLayout(field, access_path);
+                    }
+                }
+                break;
+            }
+            case slang::TypeReflection::Kind::Array:
+                [[fallthrough]];
+            case slang::TypeReflection::Kind::Matrix:
+                [[fallthrough]];
+            case slang::TypeReflection::Kind::Vector:
+            {
+                Key("ElementTypeLayout");
+                PrintTypeLayout(type_layout->getElementTypeLayout(), access_path);
+                break;
+            }
+            case slang::TypeReflection::Kind::ConstantBuffer:
+                [[fallthrough]];
+            case slang::TypeReflection::Kind::ParameterBlock:
+                [[fallthrough]];
+            case slang::TypeReflection::Kind::TextureBuffer:
+                [[fallthrough]];
+            case slang::TypeReflection::Kind::ShaderStorageBuffer:
+            {
+                slang::VariableLayoutReflection* containerVarLayout = type_layout->getContainerVarLayout();
+                slang::VariableLayoutReflection* elementVarLayout = type_layout->getElementVarLayout();
+                AccessPath innerOffsets = access_path;
+                innerOffsets.DeepestConstantBuffer = innerOffsets.Leaf;
+                if (containerVarLayout->getTypeLayout()->getSize(slang::ParameterCategory::SubElementRegisterSpace) != 0)
+                {
+                    innerOffsets.DeepestParameterBlock = innerOffsets.Leaf;
+                }
+
+                Key("Container");
+                {
+                    YamlScopedObject obj(*this);
+                    PrintOffsets(containerVarLayout, innerOffsets);
+                }
+
+                Key("Contents");
+                {
+                    YamlScopedObject obj(*this);
+                    PrintOffsets(elementVarLayout, innerOffsets);
+                    ExtendedAccessPath elementOffsets(innerOffsets, elementVarLayout);
+                    Key("TypeLayout");
+                    PrintTypeLayout(elementVarLayout->getTypeLayout(), elementOffsets);
+                }
+
+                break;
+            }
+            case slang::TypeReflection::Kind::Resource:
+            {
+                if ((type_layout->getResourceShape() & SLANG_RESOURCE_BASE_SHAPE_MASK) == SLANG_STRUCTURED_BUFFER)
+                {
+                    Key("ElementTypeLayout");
+                    PrintTypeLayout(type_layout->getElementTypeLayout(), access_path);
+                }
+                else
+                {
+                    Key("ResultTypeLayout");
+                    PrintSlangType(type_layout->getResourceResultType());
+                }
+                break;
+            }
+            default:
+                break;
+            }
+        }
+
+        void PrintTypeLayout(slang::TypeLayoutReflection* type_layout, AccessPath access_path)
+        {
+            YamlScopedObject(*this);
+            const char* type_name = type_layout->getName();
+            Key("Name").PrintQuotedString(type_name);
+            Key("Kind").PrintSlangTypeKind(type_layout->getKind());
+            PrintCommonTypeInfo(type_layout->getType());
+            PrintSizes(type_layout);
+            PrintKindSpecificInfo(type_layout, access_path);
+        }
+
+        void PrintVariableLayout(slang::VariableLayoutReflection* variable_layout, AccessPath access_path)
+        {
+            YamlScopedObject(*this);
+            const char* name = variable_layout->getName();
+            Key("Name").PrintQuotedString(name);
+            PrintOffsets(variable_layout, access_path);
+            PrintVaryingParameterInfo(variable_layout);
+            ExtendedAccessPath variable_path(access_path, variable_layout);
+            Key("TypeLayout");
+            PrintTypeLayout(variable_layout->getTypeLayout(), variable_path);
+        }
+
+        void PrintScope(slang::VariableLayoutReflection* variable_layout, AccessPath access_path)
+        {
+            ExtendedAccessPath scopeOffsets(access_path, variable_layout);
+            auto type_layout = variable_layout->getTypeLayout();
+            switch (type_layout->getKind())
+            {
+            case slang::TypeReflection::Kind::Struct:
+            {
+                Key("Fields");
+                unsigned int fieldCount = type_layout->getFieldCount();
+                for (unsigned int i = 0; i < fieldCount; i++)
+                {
+                    ArrayElement();
+                    slang::VariableLayoutReflection* field = type_layout->getFieldByIndex(i);
+                    PrintVariableLayout(field, scopeOffsets);
+                }
+                break;
+            }
+            case slang::TypeReflection::Kind::ConstantBuffer:
+            {
+                PrintComment("This seems to represent a constant buffer automatically introduced by Slang for global-scope variables");
+                Key("AutomaticallyIntroducedConstantBuffer");
+                {
+                    YamlScopedObject obj(*this);
+                    PrintOffsets(type_layout->getContainerVarLayout(), scopeOffsets);
+                }
+                PrintScope(type_layout->getElementVarLayout(), scopeOffsets);
+                break;
+            }
+            case slang::TypeReflection::Kind::ParameterBlock:
+            {
+                PrintComment("This seems to represent a parameter block automatically introduced by Slang for global-scope variables");
+                Key("AutomaticallyIntroducedParameterBlock");
+                {
+                    YamlScopedObject obj(*this);
+                    PrintOffsets(type_layout->getContainerVarLayout(), scopeOffsets);
+                }
+                PrintScope(type_layout->getElementVarLayout(), scopeOffsets);
+                break;
+            }
+            default:
+                Key("VariableLayout");
+                PrintVariableLayout(variable_layout, access_path);
+                break;
+            }
+        }
+
+        void PrintEntryPointLayout(slang::EntryPointReflection* entry_point_layout, AccessPath access_path)
+        {
+            YamlScopedObject(*this);
+            Key("Stage").PrintShaderStageMask(FromSlangStage(entry_point_layout->getStage()));
+            PrintStageSpecificInfo(entry_point_layout);
+            PrintScope(entry_point_layout->getVarLayout(), access_path);
+            auto result_variable_layout = entry_point_layout->getResultVarLayout();
+            if (result_variable_layout->getTypeLayout()->getKind() != slang::TypeReflection::Kind::None)
+            {
+                Key("Result");
+                PrintVariableLayout(result_variable_layout, access_path);
+            }
+        }
+
+        void PrintProgramLayout()
+        {
+            if (!ProgramLayout)
+            {
+                return;
+            }
+
+            YamlScopedObject topLevel(*this);
+            AccessPath rootOffsets{};
+            rootOffsets.Valid = true;
+
+            Key("GlobalScope");
+            {
+                YamlScopedObject obj(*this);
+                PrintScope(ProgramLayout->getGlobalParamsVarLayout(), rootOffsets);
+            }
+
+            Key("EntryPoints");
+            {
+                YamlScopedArray array(*this);
+                auto entryPointCount = ProgramLayout->getEntryPointCount();
+                for (SlangUInt i = 0; i < entryPointCount; ++i)
+                {
+                    ArrayElement(); // start new array element
+                    slang::EntryPointReflection* entry_point_layout = ProgramLayout->getEntryPointByIndex(i);
+                    PrintEntryPointLayout(entry_point_layout, rootOffsets);
                 }
             }
         }
 
-        ShaderStageFlags CalculateStageMask(slang::VariableLayoutReflection* variable_layout, AccessPath access_path)
-        {
-            ShaderStageFlags stageMask = ShaderStageFlags::None;
-            int usedLayoutUnitCount = variable_layout->getCategoryCount();
-            for (int i = 0; i < usedLayoutUnitCount; i++)
-            {
-                auto layoutUnit = variable_layout->getCategoryByIndex(i);
-                auto offset = CalculateCumulativeOffset(variable_layout, layoutUnit, access_path);
-                stageMask |= CalculateParameterStageMask(layoutUnit, offset);
-            }
-            return stageMask;
-        }
-
-        void PrintStageUsage(slang::VariableLayoutReflection* variable_layout, AccessPath access_path)
-        {
-            uint32_t stageMask = 0;
-            for (auto node = access_path.Leaf; node != nullptr; node = node->Outer)
-            {
-                stageMask |= node->VarLayout->getStageUsage();
-            }
-            Key("StageUsage").PrintUint32(stageMask);
-        }
     };
 
 
