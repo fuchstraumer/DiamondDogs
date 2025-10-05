@@ -203,7 +203,7 @@ namespace rhi
                 NewLine();
             }
             afterArrayElement = false;
-            auto keyStr = std::format("{} : ", key);
+            auto keyStr = std::format("\"{}\" : ", key);
             result += keyStr;
             return *this;
         }
@@ -213,11 +213,19 @@ namespace rhi
             NewLine();
             result += "- ";
             afterArrayElement = true;
+            return *this;
         }
 
-        YamlBuilder& PrintQuotedString(std::string_view str)
+        YamlBuilder& PrintQuotedString(const char* str)
         {
-            result += std::format("\"{}\"", str);
+            if (str != nullptr)
+            {
+                result += std::format("\"{}\"", str);
+            }
+            else
+            {
+                result += "\"null\"";
+            }
             return *this;
         }
 
@@ -374,6 +382,7 @@ namespace rhi
                 case slang::TypeReflection::ScalarType::UInt16: result += "UInt16"; break;
                 default: result += "Unknown"; break;
             }
+            return *this;
         }
 
         YamlBuilder& PrintBindingType(slang::BindingType type)
@@ -725,6 +734,7 @@ namespace rhi
                     stageMask |= FromSlangStage(entryPointStage);
                 }
             }
+            return stageMask;
         }
 
         ShaderStageFlags CalculateStageMask(slang::VariableLayoutReflection* variable_layout, AccessPath access_path)
@@ -766,7 +776,7 @@ namespace rhi
             }
             case SLANG_STAGE_FRAGMENT:
             {
-                Key("UsesAnySampleRateInputs").PrintBool(entry_point_layout->usesAnySampleRateInputs());
+                Key("UsesAnySampleRateInputs").PrintBool(entry_point_layout->usesAnySampleRateInput());
                 break;
             }
             default:
@@ -832,7 +842,7 @@ namespace rhi
                 Key("Semantic");
                 YamlScopedObject obj(*this);
                 Key("Name").PrintQuotedString(semanticName);
-                Key("Index").PrintUint32(variable_layout->getSemanticIndex());
+                Key("Index").PrintUint64(variable_layout->getSemanticIndex());
             }
         }
 
@@ -1360,27 +1370,33 @@ namespace rhi
                     std::memcpy(Bytecode.data(), codeBlob->getBufferPointer(), codeSize);
                 }
 
+                // Store diagnostics even on success (warnings, etc.)
+                if (diagnosticsBlob)
+                {
+                    CompilationLog = std::string(static_cast<const char*>(diagnosticsBlob->getBufferPointer()),
+                        diagnosticsBlob->getBufferSize());
+                    diagnosticsBlob->release();
+                }
+
                 // only ever one entry point for now, and target index is always zero
                 // TODO: extend to multiple entry points and varying target indices
                 CollectEntryPointMetadata(1);
 
-                ExtractReflectionData();
+                YamlBuilder yamlPrinter(&slangMetadata, LinkedProgram->getLayout());
+                yamlPrinter.PrintProgramLayout();
+                // dump generated YAML to current directory for inspection
+                std::ofstream yamlFile("SlangReflectionOutput.yaml");
+                assert(yamlFile.is_open());
+                yamlFile << yamlPrinter.result;
+                yamlFile.close();
 
                 // Store compilation info
                 EntryPointName = options.EntryPointName;
                 SourcePath = options.SlangSourcePath;
                 Stage = options.Stage;
 
-                // Store diagnostics even on success (warnings, etc.)
-                if (diagnosticsBlob)
-                {
-                    CompilationLog = std::string(static_cast<const char*>(diagnosticsBlob->getBufferPointer()), 
-                                               diagnosticsBlob->getBufferSize());
-                    diagnosticsBlob->release();
-                }
-
                 // Cleanup
-                linkedProgram->release();
+                LinkedProgram->release();
                 resultSession->release();
                 SlangGlobalSession->release();
 
