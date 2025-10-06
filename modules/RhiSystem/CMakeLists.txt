@@ -17,13 +17,21 @@ set(RHI_CORE_HEADERS
     "include/core/RhiDefines.hpp"
     "include/core/RhiSystem.hpp"
     "include/core/RhiFlags.hpp"
-    "include/core/RhiTypes.hpp")
+    "include/core/RhiTypes.hpp"
+    "include/core/ShaderCompiler.hpp"
+    "include/core/ShaderCompilerReply.hpp")
 
 set(RHI_CORE_SOURCES 
     "src/core/ExtensionWrangler.cpp"
     "src/core/ExtensionPack.cpp"
     "src/core/PipelineExecutableInfo.cpp"
-    "src/core/RhiSystem.cpp")
+    "src/core/RhiSystem.cpp"
+    "src/core/ShaderCompiler.cpp"
+    "src/core/ShaderCompilerReply.cpp")
+
+# Internal shader compiler message headers (not installed, used only within module)
+set(RHI_CORE_INTERNAL_HEADERS
+    "src/core/ShaderCompilerMessages.hpp")
 
 set(RHI_OBJECT_HEADERS
     "include/objects/CommandBuffer.hpp"
@@ -48,7 +56,7 @@ set(RHI_OBJECT_SOURCES
     "src/objects/Semaphore.cpp"
     "src/objects/ShaderObject.cpp")
 
-ADD_MODULE(rhi_system "${RHI_CORE_HEADERS}""${RHI_CORE_SOURCES}" "${RHI_OBJECT_HEADERS}" "${RHI_OBJECT_SOURCES}")
+ADD_MODULE(rhi_system "${RHI_CORE_HEADERS}""${RHI_CORE_SOURCES}" "${RHI_OBJECT_HEADERS}" "${RHI_OBJECT_SOURCES}" "${RHI_CORE_INTERNAL_HEADERS}")
 
 if(RHI_SYSTEM_GRAPHICS_API STREQUAL "Vulkan")
     target_link_libraries(rhi_system PUBLIC ${Vulkan_LIBRARY})
@@ -72,6 +80,7 @@ TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC
 
 source_group("Core\\include" FILES ${RHI_CORE_HEADERS})
 source_group("Core\\src" FILES ${RHI_CORE_SOURCES})
+source_group("Core\\src\\internal" FILES ${RHI_CORE_INTERNAL_HEADERS})
 source_group("Objects\\include" FILES ${RHI_OBJECT_HEADERS})
 source_group("Objects\\src" FILES ${RHI_OBJECT_SOURCES})
 
