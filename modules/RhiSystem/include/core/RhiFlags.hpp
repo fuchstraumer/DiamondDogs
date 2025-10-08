@@ -48,7 +48,8 @@ namespace rhi
         Intersection = 1 << 10,
         Callable = 1 << 11,
         Task = 1 << 12,
-        Mesh = 1 << 13
+        Mesh = 1 << 13,
+        Count = 14,
     };
 
     MAKE_ENUM_CLASS_FLAGS(ShaderStageFlags);

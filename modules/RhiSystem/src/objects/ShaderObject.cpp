@@ -172,13 +172,17 @@ namespace rhi
 
         YamlBuilder& PrintIndentation()
         {
-            result += std::string(indentation * 2, ' ');
+            for (int i = 1; i < indentation; ++i)
+            {
+                result += "  ";
+            }
             return *this;
         }
 
         YamlBuilder& NewLine()
         {
             result += "\n";
+            PrintIndentation();
             return *this;
         }
 
@@ -203,8 +207,7 @@ namespace rhi
                 NewLine();
             }
             afterArrayElement = false;
-            auto keyStr = std::format("\"{}\" : ", key);
-            result += keyStr;
+            result += std::format("{}: ", key);
             return *this;
         }
 
@@ -224,7 +227,7 @@ namespace rhi
             }
             else
             {
-                result += "\"null\"";
+                result += "null";
             }
             return *this;
         }
@@ -410,6 +413,7 @@ namespace rhi
 
         YamlBuilder& PrintShaderStageMask(ShaderStageFlags stage)
         {
+            std::string stageStr;
             if (stage == ShaderStageFlags::None)
             {
                 result += "None";
@@ -418,78 +422,77 @@ namespace rhi
             bool first = true;
             if ((stage & ShaderStageFlags::Vertex) != ShaderStageFlags::None)
             {
-                result += "Vertex";
+                stageStr += "Vertex";
                 first = false;
             }
             if ((stage & ShaderStageFlags::TesselationControl) != ShaderStageFlags::None)
             {
-                if (!first) result += " | ";
-                result += "TesselationControl";
+                if (!first) stageStr += " | ";
+                stageStr += "TesselationControl";
                 first = false;
             }
             if ((stage & ShaderStageFlags::TesselationEvaluation) != ShaderStageFlags::None)
             {
-                if (!first) result += " | ";
-                result += "TesselationEvaluation";
+                if (!first) stageStr += " | ";
+                stageStr += "TesselationEvaluation";
                 first = false;
             }
             if ((stage & ShaderStageFlags::Geometry) != ShaderStageFlags::None)
             {
-                if (!first) result += " | ";
-                result += "Geometry";
+                if (!first) stageStr += " | ";
+                stageStr += "Geometry";
                 first = false;
             }
             if ((stage & ShaderStageFlags::Fragment) != ShaderStageFlags::None)
             {
-                if (!first) result += " | ";
-                result += "Fragment";
+                if (!first) stageStr += " | ";
+                stageStr += "Fragment";
                 first = false;
             }
             if ((stage & ShaderStageFlags::Compute) != ShaderStageFlags::None)
             {
-                if (!first) result += " | ";
-                result += "Compute";
+                if (!first) stageStr += " | ";
+                stageStr += "Compute";
                 first = false;
             }
             if ((stage & ShaderStageFlags::RayGeneration) != ShaderStageFlags::None)
             {
-                if (!first) result += " | ";
-                result += "RayGeneration";
+                if (!first) stageStr += " | ";
+                stageStr += "RayGeneration";
                 first = false;
             }
             if ((stage & ShaderStageFlags::AnyHit) != ShaderStageFlags::None)
             {
-                if (!first) result += " | ";
-                result += "AnyHit";
+                if (!first) stageStr += " | ";
+                stageStr += "AnyHit";
                 first = false;
             }
             if ((stage & ShaderStageFlags::ClosestHit) != ShaderStageFlags::None)
             {
-                if (!first) result += " | ";
-                result += "ClosestHit";
+                if (!first) stageStr += " | ";
+                stageStr += "ClosestHit";
                 first = false;
             }
             if ((stage & ShaderStageFlags::Miss) != ShaderStageFlags::None)
             {
-                if (!first) result += " | ";
-                result += "Miss";
+                if (!first) stageStr += " | ";
+                stageStr += "Miss";
                 first = false;
             }
             if ((stage & ShaderStageFlags::Intersection) != ShaderStageFlags::None)
             {
-                if (!first) result += " | ";
-                result += "Intersection";
+                if (!first) stageStr += " | ";
+                stageStr += "Intersection";
                 first = false;
             }
 
-            // insert quotes at beginning and end since this is a string value in yaml
-            result = "\"" + result + "\"";
+            result += stageStr;
             return *this;
         }
 
         void PrintVariable(slang::VariableReflection* variable)
         {
-            YamlScopedObject(*this);
+            YamlScopedObject scopedObj(*this);
             const char* name = variable->getName();
             slang::TypeReflection* type = variable->getType();
 
@@ -505,7 +508,7 @@ namespace rhi
 
         void PrintSlangType(slang::TypeReflection* type)
         {
-            YamlScopedObject(*this);
+            YamlScopedObject scopedObj(*this);
             const char* name = type->getName();
             slang::TypeReflection::Kind kind = type->getKind();
             Key("Name").PrintQuotedString(name);
@@ -608,7 +611,7 @@ namespace rhi
 
         void PrintOffset(slang::ParameterCategory layout_unit, size_t offset, size_t space_offset)
         {
-            YamlScopedObject(*this);
+            YamlScopedObject scopedObj(*this);
             Key("Value").PrintUint64(offset);
             Key("Unit").PrintLayoutUnit(layout_unit);
             switch (layout_unit)
@@ -804,7 +807,7 @@ namespace rhi
 
         void PrintSize(slang::ParameterCategory layout_unit, size_t size)
         {
-            YamlScopedObject(*this);
+            YamlScopedObject scopedObj(*this);
             Key("Value").PrintPossiblyUnbounded(size);
             Key("Unit").PrintLayoutUnit(layout_unit);
         }
@@ -930,7 +933,7 @@ namespace rhi
 
         void PrintTypeLayout(slang::TypeLayoutReflection* type_layout, AccessPath access_path)
         {
-            YamlScopedObject(*this);
+            YamlScopedObject scopedObj(*this);
             const char* type_name = type_layout->getName();
             Key("Name").PrintQuotedString(type_name);
             Key("Kind").PrintSlangTypeKind(type_layout->getKind());
@@ -941,7 +944,7 @@ namespace rhi
 
         void PrintVariableLayout(slang::VariableLayoutReflection* variable_layout, AccessPath access_path)
         {
-            YamlScopedObject(*this);
+            YamlScopedObject scopedObj(*this);
             const char* name = variable_layout->getName();
             Key("Name").PrintQuotedString(name);
             PrintOffsets(variable_layout, access_path);
@@ -1000,7 +1003,7 @@ namespace rhi
 
         void PrintEntryPointLayout(slang::EntryPointReflection* entry_point_layout, AccessPath access_path)
         {
-            YamlScopedObject(*this);
+            YamlScopedObject scopedObj(*this);
             Key("Stage").PrintShaderStageMask(FromSlangStage(entry_point_layout->getStage()));
             PrintStageSpecificInfo(entry_point_layout);
             PrintScope(entry_point_layout->getVarLayout(), access_path);
