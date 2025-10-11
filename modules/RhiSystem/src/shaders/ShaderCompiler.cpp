@@ -145,6 +145,19 @@ namespace rhi
             const std::string& entryPointName,
             bool includeDescriptors,
             bool includeMemberReflection);
+        
+        // Helper: Create composite component type from module and entry points
+        Result CreateComposite(
+            slang::ISession* session,
+            const std::vector<slang::IComponentType*>& componentTypes,
+            Slang::ComPtr<slang::IComponentType>& outComposite,
+            std::string& outDiagnostics);
+        
+        // Helper: Link a composite component type
+        Result LinkComposite(
+            Slang::ComPtr<slang::IComponentType> composite,
+            SlangProgramPtr& outLinkedProgram,
+            std::string& outDiagnostics);
     };
 
     void ShaderCompilerImpl::ProcessMessage(ShaderCompilerMessagePayload message)
@@ -457,81 +470,79 @@ namespace rhi
             outStorage.ModuleName = moduleNameToUse;
             outStorage.SourcePath = options.SlangSourcePath;
 
-            // Compile each entry point
+            // start with root module, then add each entry point and do a collective link and compile
+            std::vector<slang::IComponentType*> componentTypes;
+            componentTypes.push_back(sourceModule);
+
+            // add entry points
             for (const auto& entryPointName : entryPointsToCompile)
             {
                 Slang::ComPtr<slang::IEntryPoint> entryPoint;
-                SlangResult entryPointResult = sourceModule->findEntryPointByName(
-                    entryPointName.c_str(), 
-                    entryPoint.writeRef());
-                
-                if (SLANG_FAILED(entryPointResult) || !entryPoint)
+                SlangResult epResult = sourceModule->findEntryPointByName(
+                    entryPointName.c_str(), entryPoint.writeRef());
+                if (SLANG_SUCCEEDED(epResult) && entryPoint)
                 {
+                    componentTypes.push_back(entryPoint);
+                }
+                else
+                {
+                    // Track failed entry point but continue with others (per-entry-point error handling)
                     std::string errorMsg = std::format("Entry point '{}' not found in module", entryPointName);
                     outStorage.CompilationLog += errorMsg + "\n";
-                    // Continue with other entry points - per-entry-point error handling
-                    continue;
                 }
+            }
 
-                // Create component types for this entry point
-                std::vector<slang::IComponentType*> componentTypes = { sourceModule, entryPoint };
-                for (const auto& mod : loadedModules)
-                {
-                    componentTypes.push_back(mod);
-                }
+            // Create composite component type from module + all entry points
+            Slang::ComPtr<slang::IComponentType> composedProgram;
+            std::string compositeDiagnostics;
+            Result composeResult = CreateComposite(
+                resultSession,
+                componentTypes,
+                composedProgram,
+                compositeDiagnostics);
+            
+            if (composeResult != Result::Success())
+            {
+                outStorage.CompilationLog += std::format("Failed to create composite: {}\n", compositeDiagnostics);
+                return Result::Failure();
+            }
 
-                Slang::ComPtr<slang::IComponentType> composedProgram;
-                SlangBlobPtr composeDialogBlob;
-                SlangResult composeResult = resultSession->createCompositeComponentType(
-                    componentTypes.data(),
-                    componentTypes.size(),
-                    composedProgram.writeRef(),
-                    composeDialogBlob.writeRef());
+            // Link the composite to resolve all dependencies
+            SlangProgramPtr linkedProgram;
+            std::string linkDiagnostics;
+            Result linkResult = LinkComposite(composedProgram, linkedProgram, linkDiagnostics);
+            
+            if (linkResult != Result::Success())
+            {
+                outStorage.CompilationLog += std::format("Failed to link composite: {}\n", linkDiagnostics);
+                return Result::Failure();
+            }
 
-                if (SLANG_FAILED(composeResult) || !composedProgram)
-                {
-                    std::string errorMsg = std::format("Failed to compose program for entry point '{}'", entryPointName);
-                    if (composeDialogBlob)
-                    {
-                        const char* diagStr = static_cast<const char*>(composeDialogBlob->getBufferPointer());
-                        #ifdef WIN32
-                        win32_OutputDebugString(diagStr);
-                        #endif
-                        errorMsg += std::format("\nDiagnostics: {}", diagStr);
-                    }
-                    outStorage.CompilationLog += errorMsg + "\n";
-                    continue;
-                }
+            // Store the linked program and layout for later reflection queries
+            outStorage.LinkedProgram = linkedProgram;
+            outStorage.ProgramLayout = linkedProgram->getLayout();
 
-                SlangProgramPtr linkedProgram;
-                SlangBlobPtr linkDiagBlob;
-                SlangResult linkResult = composedProgram->link(linkedProgram.writeRef(), linkDiagBlob.writeRef());
-
-                if (SLANG_FAILED(linkResult) || !linkedProgram)
-                {
-                    std::string errorMsg = std::format("Failed to link program for entry point '{}'", entryPointName);
-                    if (linkDiagBlob)
-                    {
-                        const char* diagStr = static_cast<const char*>(linkDiagBlob->getBufferPointer());
-                        #ifdef WIN32
-                        win32_OutputDebugString(diagStr);
-                        #endif
-                        errorMsg += std::format("\nDiagnostics: {}", diagStr);
-                    }
-                    outStorage.CompilationLog += errorMsg + "\n";
-                    continue;
-                }
-
-                // Extract bytecode (entry point index 0, target index 0)
+            // Now extract bytecode for each entry point from the linked program
+            // Entry points start at index 0 (module is not an entry point in the composite)
+            for (size_t i = 0; i < entryPointsToCompile.size(); ++i)
+            {
+                const std::string& entryPointName = entryPointsToCompile[i];
+                
+                // Extract bytecode
                 std::vector<uint8_t> bytecode;
                 std::string bytecodeError;
-                if (!ExtractEntryPointBytecode(linkedProgram, 0, bytecode, bytecodeError))
+                if (!ExtractEntryPointBytecode(linkedProgram, i, bytecode, bytecodeError))
                 {
                     std::string errorMsg = std::format("Failed to extract bytecode for entry point '{}': {}", 
                         entryPointName, bytecodeError);
                     outStorage.CompilationLog += errorMsg + "\n";
-                    continue;
+                    continue; // Per-entry-point error handling
                 }
+
+                // Get stage from entry point reflection
+                slang::EntryPointReflection* epReflection = outStorage.ProgramLayout->getEntryPointByIndex(i);
+                SlangStage slangStage = epReflection->getStage();
+                ShaderStageFlags stage = FromSlangStage(slangStage);
 
                 // Store entry point data
                 ModuleStorage::EntryPointData epData;
@@ -539,16 +550,10 @@ namespace rhi
                 epData.Stage = stage;
                 epData.Bytecode = std::move(bytecode);
 
-                // Store the first linked program and layout for later reflection queries
-                if (!outStorage.LinkedProgram)
-                {
-                    outStorage.LinkedProgram = linkedProgram;
-                    outStorage.ProgramLayout = linkedProgram->getLayout();
-                }
-
                 outStorage.EntryPoints[entryPointName] = std::move(epData);
             }
 
+            
             // Check if we compiled at least one entry point
             if (outStorage.EntryPoints.empty())
             {
@@ -627,6 +632,73 @@ namespace rhi
         // This will be implemented in a follow-up
         
         return reflection;
+    }
+
+    Result ShaderCompilerImpl::CreateComposite(
+        slang::ISession* session,
+        const std::vector<slang::IComponentType*>& componentTypes,
+        Slang::ComPtr<slang::IComponentType>& outComposite,
+        std::string& outDiagnostics)
+    {
+        SlangBlobPtr diagnosticsBlob;
+        
+        SlangResult result = session->createCompositeComponentType(
+            componentTypes.data(),
+            componentTypes.size(),
+            outComposite.writeRef(),
+            diagnosticsBlob.writeRef());
+        
+        if (diagnosticsBlob)
+        {
+            const char* diagStr = static_cast<const char*>(diagnosticsBlob->getBufferPointer());
+            #ifdef WIN32
+            win32_OutputDebugString(diagStr);
+            #endif
+            outDiagnostics = diagStr;
+        }
+        
+        if (SLANG_FAILED(result) || !outComposite)
+        {
+            if (outDiagnostics.empty())
+            {
+                outDiagnostics = "Failed to create composite component type";
+            }
+            return Result::Failure();
+        }
+        
+        return Result::Success();
+    }
+
+    Result ShaderCompilerImpl::LinkComposite(
+        Slang::ComPtr<slang::IComponentType> composite,
+        SlangProgramPtr& outLinkedProgram,
+        std::string& outDiagnostics)
+    {
+        SlangBlobPtr diagnosticsBlob;
+        
+        SlangResult result = composite->link(
+            outLinkedProgram.writeRef(),
+            diagnosticsBlob.writeRef());
+        
+        if (diagnosticsBlob)
+        {
+            const char* diagStr = static_cast<const char*>(diagnosticsBlob->getBufferPointer());
+            #ifdef WIN32
+            win32_OutputDebugString(diagStr);
+            #endif
+            outDiagnostics = diagStr;
+        }
+        
+        if (SLANG_FAILED(result) || !outLinkedProgram)
+        {
+            if (outDiagnostics.empty())
+            {
+                outDiagnostics = "Failed to link composite component type";
+            }
+            return Result::Failure();
+        }
+        
+        return Result::Success();
     }
 
     // ShaderCompiler public API implementation

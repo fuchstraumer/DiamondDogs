@@ -13,25 +13,15 @@ set(RHI_CORE_HEADERS
     "include/core/DebugUtilFns.hpp"
     "include/core/ExtensionPack.hpp"
     "include/core/ExtensionWrangler.hpp"
-    "include/core/PipelineExecutableInfo.hpp"
     "include/core/RhiDefines.hpp"
     "include/core/RhiSystem.hpp"
     "include/core/RhiFlags.hpp"
-    "include/core/RhiTypes.hpp"
-    "include/core/ShaderCompiler.hpp"
-    "include/core/ShaderCompilerReply.hpp")
+    "include/core/RhiTypes.hpp")
 
 set(RHI_CORE_SOURCES 
     "src/core/ExtensionWrangler.cpp"
     "src/core/ExtensionPack.cpp"
-    "src/core/PipelineExecutableInfo.cpp"
-    "src/core/RhiSystem.cpp"
-    "src/core/ShaderCompiler.cpp"
-    "src/core/ShaderCompilerReply.cpp")
-
-# Internal shader compiler message headers (not installed, used only within module)
-set(RHI_CORE_INTERNAL_HEADERS
-    "src/core/ShaderCompilerMessages.hpp")
+    "src/core/RhiSystem.cpp")
 
 set(RHI_OBJECT_HEADERS
     "include/objects/CommandBuffer.hpp"
@@ -56,7 +46,21 @@ set(RHI_OBJECT_SOURCES
     "src/objects/Semaphore.cpp"
     "src/objects/ShaderObject.cpp")
 
-ADD_MODULE(rhi_system "${RHI_CORE_HEADERS}""${RHI_CORE_SOURCES}" "${RHI_OBJECT_HEADERS}" "${RHI_OBJECT_SOURCES}" "${RHI_CORE_INTERNAL_HEADERS}")
+set(RHI_SHADER_SYSTEM_HEADERS
+    "include/shaders/PipelineExecutableInfo.hpp"
+    "include/shaders/ShaderCompiler.hpp"
+    "include/shaders/ShaderCompilerReply.hpp")
+
+set(RHI_SHADER_SYSTEM_SOURCES
+    "src/shaders/PipelineExecutableInfo.cpp"
+    "src/shaders/ShaderCompiler.cpp"
+    "src/shaders/ShaderCompilerMessages.hpp"
+    "src/shaders/ShaderCompilerReply.cpp")
+
+ADD_MODULE(rhi_system
+    "${RHI_CORE_HEADERS}" "${RHI_CORE_SOURCES}"
+    "${RHI_OBJECT_HEADERS}" "${RHI_OBJECT_SOURCES}"
+    "${RHI_SHADER_SYSTEM_HEADERS}" "${RHI_SHADER_SYSTEM_SOURCES}")
 
 if(RHI_SYSTEM_GRAPHICS_API STREQUAL "Vulkan")
     target_link_libraries(rhi_system PUBLIC ${Vulkan_LIBRARY})
@@ -76,13 +80,16 @@ TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC
     ${Vulkan_INCLUDE_DIR}
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/core"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/objects")
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/objects"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/shaders")
 
 source_group("Core\\include" FILES ${RHI_CORE_HEADERS})
 source_group("Core\\src" FILES ${RHI_CORE_SOURCES})
 source_group("Core\\src\\internal" FILES ${RHI_CORE_INTERNAL_HEADERS})
 source_group("Objects\\include" FILES ${RHI_OBJECT_HEADERS})
 source_group("Objects\\src" FILES ${RHI_OBJECT_SOURCES})
+source_group("Shaders\\include" FILES ${RHI_SHADER_SYSTEM_HEADERS})
+source_group("Shaders\\src" FILES ${RHI_SHADER_SYSTEM_SOURCES})
 
 IF(RHI_SYSTEM_USE_DEBUG_INFO)
     TARGET_COMPILE_DEFINITIONS(rhi_system PUBLIC RHI_SYSTEM_USE_DEBUG_INFO_CONF)
