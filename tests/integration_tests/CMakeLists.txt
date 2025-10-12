@@ -19,6 +19,7 @@ FUNCTION(ADD_INTEGRATION_TEST NAME)
         "../../../third_party"
         ${Vulkan_INCLUDE_DIR}
         "../fixtures"
+        "${CMAKE_BINARY_DIR}/include"  # Include generated headers like SourcePaths.hpp
     )
     TARGET_COMPILE_DEFINITIONS(${NAME} PUBLIC
         "NOMINMAX" "_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS")
@@ -36,6 +37,12 @@ FUNCTION(ADD_INTEGRATION_TEST NAME)
         COMMAND_EXPAND_LISTS)
 
 ENDFUNCTION()
+
+# Helper macro to copy Slang DLLs to an integration test target
+# Call this after ADD_INTEGRATION_TEST if the test links against modules that use Slang
+macro(COPY_SLANG_DLLS_TO_INTEGRATION_TEST NAME)
+    copy_slang_dlls_to_target(${NAME})
+endmacro()
 
 ADD_SUBDIRECTORY(TriangleTest)
 ADD_SUBDIRECTORY(ResourceContextTest)

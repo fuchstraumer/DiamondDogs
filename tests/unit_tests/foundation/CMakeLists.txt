@@ -19,6 +19,7 @@ set(FOUNDATION_TEST_SOURCES
     utility/test_multicast_delegate.cpp
     utility/test_murmur_hash.cpp
     utility/test_tagged_bool.cpp
+    utility/test_source_paths.cpp
     
     # Math tests
     math/test_math.cpp

@@ -5,6 +5,7 @@ set(RENDERING_CONTEXT_TEST_SOURCES
     TestJsonConfig.cpp
     TestMain.cpp
     TestRhiSystem.cpp
+    TestShaderCompiler.cpp
     TestShaderObject.cpp)
 
 # Create test target
@@ -14,7 +15,9 @@ add_unit_test_target(rhi_system_tests
 
 # Set include directories for rendering context tests
 target_include_directories(rhi_system_tests PRIVATE
-    "${CMAKE_SOURCE_DIR}/Modules/RhiSystem/include"
+    "${CMAKE_SOURCE_DIR}/Modules/RhiSystem/core/include"
+    "${CMAKE_SOURCE_DIR}/Modules/RhiSystem/objects/include"
+    "${CMAKE_SOURCE_DIR}/Modules/RhiSystem/shaders/include"
     "${CMAKE_SOURCE_DIR}/foundation/include"
     "${CMAKE_SOURCE_DIR}/third_party"
     "${CMAKE_SOURCE_DIR}/third_party/json/include"

@@ -4,12 +4,32 @@
 #include "RhiTypes.hpp"
 #include "Instance.hpp"
 #include "Device.hpp"
-#include "ShaderObject.hpp"
+#include "RhiSystem.hpp"
+#include "ShaderCompiler.hpp"
 #include "SourcePaths.hpp"
 #include <filesystem>
 
-class ShaderObjectTest : public ::testing::Test
+class ShaderCompilerTest : public ::testing::Test
 {
+public:
+
+    static rhi::RhiSystemCreateInfo GetDefaultCreateInfo()
+    {
+        // Setup RHI system first
+        rhi::RhiSystemCreateInfo createInfo{};
+        createInfo.ApplicationName = "ShaderObjectTest";
+        createInfo.EngineName = "DiamondDogsTestEngine";
+        createInfo.AppVersion = VK_MAKE_VERSION(1, 0, 0);
+        createInfo.EngineVersion = VK_MAKE_VERSION(0, 1, 0);
+        createInfo.VkVersion = rhi::ApiVersion::Vulkan13;
+        createInfo.ValidationLevel = rhi::ValidationLayers::BaseOnly;
+        createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
+        createInfo.RequestedDeviceExtensions = { "VK_EXT_shader_object" };
+        const auto shaderCacheDir = std::filesystem::temp_directory_path() / "DiamondDogsTest" / "ShaderCache";
+        createInfo.ShaderCacheDir = shaderCacheDir.string();
+        return createInfo;
+    }
+
     void SetUp() override
     {
 
@@ -22,22 +42,17 @@ class ShaderObjectTest : public ::testing::Test
 
 };
 
-
-TEST_F(ShaderObjectTest, CreateFromValidSlangFile)
+const char* SearchPaths[]
 {
-    // Setup RHI system first
-    rhi::RhiSystemCreateInfo createInfo{};
-    createInfo.ApplicationName = "ShaderObjectTest";
-    createInfo.EngineName = "DiamondDogsTestEngine";
-    createInfo.AppVersion = VK_MAKE_VERSION(1, 0, 0);
-    createInfo.EngineVersion = VK_MAKE_VERSION(0, 1, 0);
-    createInfo.VkVersion = rhi::ApiVersion::Vulkan13;
-    createInfo.ValidationLevel = rhi::ValidationLayers::BaseOnly;
-    createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
-    createInfo.RequestedDeviceExtensions = { "VK_EXT_shader_object" };
-    const auto shaderCacheDir = std::filesystem::temp_directory_path() / "DiamondDogsTest" / "ShaderCache";
-    createInfo.ShaderCacheDir = shaderCacheDir.string();
+    
+};
 
+// Single entrypoint compiliation test
+TEST_F(ShaderCompilerTest, SimplestPossibleCompile)
+{
+    
+    using namespace rhi;
+    auto createInfo = ShaderCompilerTest::GetDefaultCreateInfo();
     auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
     ASSERT_NE(rhiSystem, nullptr);
     auto device = rhiSystem->GetDevice();
@@ -48,10 +63,8 @@ TEST_F(ShaderObjectTest, CreateFromValidSlangFile)
     ASSERT_TRUE(std::filesystem::exists(slangShaderPath)) << "Slang shader file does not exist: " << slangShaderPath;
 
     // Setup compile options
-    rhi::ShaderObject::CompileOptions VertexCompileOptions{};
+    rhi::ShaderCompiler::ModuleCompileOptions VertexCompileOptions{};
     VertexCompileOptions.SlangSourcePath = slangShaderPath;
-    VertexCompileOptions.EntryPointName = "vertexMain";
-    VertexCompileOptions.Stage = rhi::ShaderStageFlags::Vertex;
     VertexCompileOptions.target = "spirv";
     VertexCompileOptions.enableDebugInfo = true;
     VertexCompileOptions.enableOptimizations = false;
