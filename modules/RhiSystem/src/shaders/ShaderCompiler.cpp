@@ -270,36 +270,6 @@ namespace rhi
     {
         try
         {
-            // Read source file
-            if (!std::filesystem::exists(options.SlangSourcePath))
-            {
-                outStorage.CompilationLog = std::format("Slang source file not found: {}", 
-                    options.SlangSourcePath.string());
-                return Result::Failure();
-            }
-
-            std::ifstream file(options.SlangSourcePath, std::ios::binary | std::ios::ate);
-            if (!file.is_open())
-            {
-                outStorage.CompilationLog = std::format("Failed to open Slang source file: {}", 
-                    options.SlangSourcePath.string());
-                return Result::Failure();
-            }
-
-            std::streampos fileSize = file.tellg();
-            file.seekg(0);
-
-            std::string sourceCode;
-            sourceCode.resize(static_cast<size_t>(fileSize));
-            file.read(sourceCode.data(), fileSize);
-
-            if (sourceCode.empty())
-            {
-                outStorage.CompilationLog = std::format("Failed to read Slang source file: {}", 
-                    options.SlangSourcePath.string());
-                return Result::Failure();
-            }
-
             // Initialize Slang global session if needed
             if (!SlangGlobalSession)
             {
@@ -412,11 +382,11 @@ namespace rhi
             std::string moduleNameToUse = options.ModuleName.empty() ? 
                 options.SlangSourcePath.stem().string() : 
                 options.ModuleName;
-            
-            sourceModule = resultSession->loadModuleFromSourceString(
+
+            // Important: use loadModule, not loadModuleFromSourceString, to respect search paths and import declarations
+            // Otherwise, this crashes since things can't be resolved correctly (especially with multiple entry points and dependencies)
+            sourceModule = resultSession->loadModule(
                 moduleNameToUse.c_str(),
-                filePath.c_str(),
-                sourceCode.c_str(),
                 diagnosticsBlob.writeRef());
 
             if (!sourceModule)
@@ -553,7 +523,6 @@ namespace rhi
                 outStorage.EntryPoints[entryPointName] = std::move(epData);
             }
 
-            
             // Check if we compiled at least one entry point
             if (outStorage.EntryPoints.empty())
             {
@@ -727,8 +696,7 @@ namespace rhi
         }
     }
 
-    std::shared_ptr<ShaderModuleCompileReply> ShaderCompiler::CompileModule(
-        const ModuleCompileOptions& options)
+    std::shared_ptr<ShaderModuleCompileReply> ShaderCompiler::CompileModule(const ModuleCompileOptions& options)
     {
         auto reply = std::make_shared<ShaderModuleCompileReply>();
         reply->SetStatus(ShaderModuleCompileReply::Status::Pending);
@@ -743,8 +711,7 @@ namespace rhi
         return reply;
     }
 
-    std::shared_ptr<ShaderReflectionQueryReply> ShaderCompiler::QueryReflection(
-        const ShaderIdentifier& identifier)
+    std::shared_ptr<ShaderReflectionQueryReply> ShaderCompiler::QueryReflection(const ShaderIdentifier& identifier)
     {
         auto reply = std::make_shared<ShaderReflectionQueryReply>();
         reply->SetStatus(ShaderReflectionQueryReply::Status::Pending);
@@ -759,8 +726,7 @@ namespace rhi
         return reply;
     }
 
-    ShaderCompiler::CompiledShader ShaderCompiler::GetCompiledShader(
-        const ShaderIdentifier& identifier)
+    ShaderCompiler::CompiledShader ShaderCompiler::GetCompiledShader(const ShaderIdentifier& identifier)
     {
         std::lock_guard<std::mutex> lock{ impl->moduleStorageMutex };
         
