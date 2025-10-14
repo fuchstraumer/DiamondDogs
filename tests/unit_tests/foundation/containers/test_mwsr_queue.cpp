@@ -1,5 +1,4 @@
 #include <gtest/gtest.h>
-#include <gmock/gmock.h>
 #include <thread>
 #include <vector>
 #include <atomic>
@@ -7,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <numeric>
+#include <chrono>
 
 #include "containers/mwsrQueue.hpp"
 

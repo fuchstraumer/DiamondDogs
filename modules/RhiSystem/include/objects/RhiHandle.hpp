@@ -84,7 +84,14 @@ namespace rhi
         constexpr T As() const noexcept
         {
             static_assert(sizeof(T) == sizeof(uint64_t), "Size of destination type in As<T>() must be 64 bits");
-            return reinterpret_cast<T>(handle);
+            if constexpr (std::is_same_v<T, uint64_t>)
+            {
+                return handle;
+            }
+            else
+            {
+                return reinterpret_cast<T>(handle);
+            }
         }
 
         constexpr explicit operator bool() const noexcept

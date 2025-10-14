@@ -2,7 +2,6 @@
 #include "Swapchain.hpp"
 #include "PlatformSystem.hpp"
 #include "events/DisplayEvents.hpp"
-#include "PhysicalDevice.hpp"
 #include "Device.hpp"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
@@ -339,7 +338,7 @@ SwapchainImpl::SwapchainImpl(const SwapchainCreateInfo& createInfo) :
     OldSwapchain(VK_NULL_HANDLE)
 {
     rhi::Device* device = reinterpret_cast<rhi::Device*>(createInfo.RhiDevice);
-    ParentDevice = device->vkHandle();
+    ParentDevice = device->Handle().As<VkDevice>();
     Create(createInfo);
 }
 
@@ -381,7 +380,7 @@ VkSwapchainCreateInfoKHR SwapchainImpl::GetCreateInfo(const SwapchainCreateInfo&
 void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
 {
     rhi::Device* device = reinterpret_cast<rhi::Device*>(createInfo.RhiDevice);
-    VkPhysicalDevice physicalDevice = device->GetPhysicalDevice().vkHandle();
+    VkPhysicalDevice physicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
     VkSurfaceKHR surface = reinterpret_cast<VkSurfaceKHR>(createInfo.VkSurfaceHandle);
 
     Info = std::make_unique<SwapchainInfo>(physicalDevice, surface);

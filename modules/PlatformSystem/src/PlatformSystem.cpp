@@ -8,7 +8,6 @@
 
 // rhi
 #include "Instance.hpp"
-#include "PhysicalDevice.hpp"
 #include "Device.hpp"
 
 #include <vulkan/vulkan_core.h>
@@ -198,9 +197,9 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath, void* RhiInstan
     impl = std::make_unique<PlatformSystemImpl>(createInfo);
 
     rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(RhiInstance);
-    const uint64_t vkInstanceHandle = (uint64_t)instance->vkHandle();
+    const uint64_t vkInstanceHandle = instance->Handle().As<uint64_t>();
     rhi::Device* device = reinterpret_cast<rhi::Device*>(RhiDevice);
-    const uint64_t physicalDeviceHandle = (uint64_t)device->GetPhysicalDevice().vkHandle();
+    const uint64_t physicalDeviceHandle = device->GetPhysicalDevice().As<uint64_t>();
 
     // Now continue to create default surface + swapchain, since we have all the info we need and I don't see a situation in which we wouldn't do this together (yet)
     impl->ActiveDisplay = PlatformWindowSystem::GetPrimaryDisplayInfo(); // for now, just use primary display. In future could allow config of this
@@ -258,9 +257,9 @@ void PlatformWindowSystem::Destroy()
 void PlatformWindowSystem::CreateDefaultSwapchain(void* rhiInstance, void* rhiDevice)
 {
     rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(rhiInstance);
-    const uint64_t vkInstanceHandle = (uint64_t)instance->vkHandle();
+    const uint64_t vkInstanceHandle = instance->Handle().Get();
     rhi::Device* device = reinterpret_cast<rhi::Device*>(rhiDevice);
-    const uint64_t vkPhysicalDeviceHandle = (uint64_t)device->GetPhysicalDevice().vkHandle();
+    const uint64_t vkPhysicalDeviceHandle = device->GetPhysicalDevice().Get();
     
     if (!impl->ActiveSurface)
     {

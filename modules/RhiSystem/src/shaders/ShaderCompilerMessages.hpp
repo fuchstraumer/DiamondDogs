@@ -15,6 +15,9 @@ namespace rhi
      */
     struct CompileModuleMessage
     {
+
+        CompileModuleMessage() : Options{}, Reply{ nullptr } {}
+
         // Copy of options with owned string data (spans converted to vectors)
         struct OwnedModuleCompileOptions
         {
@@ -31,6 +34,17 @@ namespace rhi
             bool GenerateReflectionData;
             bool GenerateDescriptorReflection;
             bool GenerateMemberReflection;
+
+            OwnedModuleCompileOptions() :
+                EnableDebugInfo{ false },
+                EnableOptimizations{ false },
+                EnableValidation{ false },
+                CompileAllEntryPoints{ false },
+                GenerateReflectionData{ false },
+                GenerateDescriptorReflection{ false },
+                GenerateMemberReflection{ false }
+            {
+            }
 
             // Construct from user-facing options (takes copies of span data)
             explicit OwnedModuleCompileOptions(const ShaderCompiler::ModuleCompileOptions& opts) :
@@ -69,8 +83,7 @@ namespace rhi
      */
     using ShaderCompilerMessagePayload = std::variant<
         CompileModuleMessage,
-        QueryReflectionMessage
-    >;
+        QueryReflectionMessage>;
 
 } // namespace rhi
 
