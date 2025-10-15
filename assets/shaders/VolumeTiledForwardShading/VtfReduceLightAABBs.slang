@@ -6,12 +6,12 @@ import ddCommon;
 [SpecializationConstant]
 const uint ReductionType = 0;
 [SpecializationConstant]
-const uint NumThreads = 512;
+const uint ReduceLightsNumThreads = 512;
 
 internal const static float VTF_FLT_MAX = 3.402823466e+38f;
 
-groupshared float3 gs_AABBMin[NumThreads];
-groupshared float3 gs_AABBMax[NumThreads];
+groupshared float3 gs_AABBMin[ReduceLightsNumThreads];
+groupshared float3 gs_AABBMax[ReduceLightsNumThreads];
 
 struct ReduceLightAABBParams
 {
@@ -52,7 +52,7 @@ internal void WaveOptimizedReduction(
     GroupMemoryBarrierWithGroupSync();
     
     // Now do traditional log-step reduction on the much smaller set of wave results
-    uint numWaves = (NumThreads + WaveGetLaneCount() - 1) / WaveGetLaneCount();
+    uint numWaves = (ReduceLightsNumThreads + WaveGetLaneCount() - 1) / WaveGetLaneCount();
     uint reduceIndex = numWaves >> 1;
     
     // Only the first wave needs to do the cross-wave reduction
@@ -87,7 +87,7 @@ internal void LogStepReduction(
     uint localInvocationIndex,
     uint3 workGroupID)
 {
-    uint reduceIndex = NumThreads >> 1;
+    uint reduceIndex = ReduceLightsNumThreads >> 1;
 
     [unroll]
     while (reduceIndex > 32)
@@ -107,7 +107,7 @@ internal void LogStepReduction(
         [unroll]
         while (reduceIndex > 0)
         {
-            if (NumThreads >= (reduceIndex << 1))
+            if (ReduceLightsNumThreads >= (reduceIndex << 1))
             {
                 gs_AABBMin[localInvocationIndex] = min(gs_AABBMin[localInvocationIndex], gs_AABBMin[localInvocationIndex + reduceIndex]);
                 gs_AABBMax[localInvocationIndex] = max(gs_AABBMax[localInvocationIndex], gs_AABBMax[localInvocationIndex + reduceIndex]);
@@ -135,9 +135,10 @@ internal void ReduceFromLights(
 {
     float3 aabbMin = float3(VTF_FLT_MAX, VTF_FLT_MAX, VTF_FLT_MAX);
     float3 aabbMax = float3(-VTF_FLT_MAX, -VTF_FLT_MAX, -VTF_FLT_MAX);
+    const uint IterationStride = ReduceLightsNumThreads * resources.params.NumThreadGroupsX;
 
     // Process point lights
-    for (uint i = globalInvocationIndex; i < resources.lightCounts.NumPointLights; i += NumThreads * resources.params.NumThreadGroupsX)
+    for (uint i = globalInvocationIndex; i < resources.lightCounts.NumPointLights; i += ReduceLightsNumThreads * resources.params.NumThreadGroupsX)
     {
         float3 lightPos = resources.pointLights[i].PositionViewSpace.xyz;
         float range = resources.pointLights[i].Range;
@@ -146,7 +147,7 @@ internal void ReduceFromLights(
     }
 
     // Process spot lights
-    for (uint i = globalInvocationIndex; i < resources.lightCounts.NumSpotLights; i += NumThreads * resources.params.NumThreadGroupsX)
+    for (uint i = globalInvocationIndex; i < resources.lightCounts.NumSpotLights; i += ReduceLightsNumThreads * resources.params.NumThreadGroupsX)
     {
         float3 lightPos = resources.spotLights[i].PositionViewSpace.xyz;
         float range = resources.spotLights[i].Range;
@@ -173,7 +174,7 @@ internal void ReduceFromAABBs(
     float3 aabbMin = float3(VTF_FLT_MAX, VTF_FLT_MAX, VTF_FLT_MAX);
     float3 aabbMax = float3(-VTF_FLT_MAX, -VTF_FLT_MAX, -VTF_FLT_MAX);
 
-    for (uint i = localInvocationIndex; i < resources.params.ReductionNumElements; i += NumThreads * resources.params.NumThreadGroupsX)
+    for (uint i = localInvocationIndex; i < resources.params.ReductionNumElements; i += ReduceLightsNumThreads * resources.params.NumThreadGroupsX)
     {
         aabbMin = min(aabbMin, resources.lightAABBs[i].Min);
         aabbMax = max(aabbMax, resources.lightAABBs[i].Max);
@@ -187,7 +188,7 @@ internal void ReduceFromAABBs(
     WaveOptimizedReduction(resources, localInvocationIndex, workGroupID);
 }
 
-[shader("compute")][NumThreads(NumThreads, 1, 1)]
+[shader("compute")][NumThreads(ReduceLightsNumThreads, 1, 1)]
 void ReduceLightAABBs(
     uint3 dispatchThreadID : SV_DispatchThreadID,
     uint3 workGroupID : SV_GroupID,

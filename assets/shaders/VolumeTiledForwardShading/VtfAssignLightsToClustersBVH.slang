@@ -287,13 +287,13 @@ void AssignLightsToClusters(
     // Write light indices to output lists using wave-optimized loops
     uint pointLightCount = gs_PointLightCount.load();
     uint spotLightCount = gs_SpotLightCount.load();
-    
-    for (uint i = childOffset; i < pointLightCount; i += NumThreads)
+
+    for (uint i = childOffset; i < pointLightCount; i += AssignLightsToClustersNumThreads)
     {
         resources.pointLightIndexList[gs_PointLightStartOffset + i] = gs_PointLightList[i];
     }
 
-    for (uint i = childOffset; i < spotLightCount; i += NumThreads)
+    for (uint i = childOffset; i < spotLightCount; i += AssignLightsToClustersNumThreads)
     {
         resources.spotLightIndexList[gs_SpotLightStartOffset + i] = gs_SpotLightList[i];
     }

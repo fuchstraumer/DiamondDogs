@@ -26,9 +26,9 @@ internal uint CalculateMortonCode(const in int3 quantized_coord, const in uint k
 
 // Set at construction time to scale the number of threads per thread group, then used to set indexing
 [SpecializationConstant]
-internal const uint NumThreadsPerGroup = 1024u;
+internal const uint MortonCodesNumThreadsPerGroup = 1024u;
 
-[shader("compute")][NumThreads(NumThreadsPerGroup, 1, 1)]
+[shader("compute")][NumThreads(MortonCodesNumThreadsPerGroup, 1, 1)]
 public void VtfComputeMortonCodes(uint localInvocationIndex : SV_GroupIndex,
                            uniform PointLight* pointLights,
                            uniform SpotLight* spotLights,

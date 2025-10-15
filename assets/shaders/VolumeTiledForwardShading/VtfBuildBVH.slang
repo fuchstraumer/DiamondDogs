@@ -197,7 +197,7 @@ internal void BuildUpper(
 [SpecializationConstant]
 const uint BuildStage = 0; // 0 for bottom, 1 for upper
 [SpecializationConstant]
-const uint NumThreads_X = 32 * 16; // wave size * 16
+const uint BuildBvhNumThreadsX = 32 * 16; // wave size * 16
 
 public struct VtfBuildBvhResourcePointers
 {
@@ -212,7 +212,7 @@ public struct VtfBuildBvhResourcePointers
 }
 
 // ChildLevel should automatically be made a push constant by the compiler
-[shader("compute")][NumThreads(NumThreads_X, 1, 1)]
+[shader("compute")][NumThreads(BuildBvhNumThreadsX, 1, 1)]
 public void VtfBuildBVH(uint3 dispatchThreadID : SV_DispatchThreadID, uniform VtfBuildBvhResourcePointers resources, uniform uint childLevel)
 {
     switch (BuildStage)
