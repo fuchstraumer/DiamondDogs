@@ -29,7 +29,7 @@ internal uint CalculateMortonCode(const in int3 quantized_coord, const in uint k
 internal const uint NumThreadsPerGroup = 1024u;
 
 [shader("compute")][NumThreads(NumThreadsPerGroup, 1, 1)]
-void VtfComputeMortonCodes(uint localInvocationIndex : SV_GroupIndex,
+public void VtfComputeMortonCodes(uint localInvocationIndex : SV_GroupIndex,
                            uniform PointLight* pointLights,
                            uniform SpotLight* spotLights,
                            uniform uint* pointLightIndices,

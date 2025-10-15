@@ -2,7 +2,6 @@ implementing VolumeTiledForwardShading;
 __include VtfTypes;
 
 import ddCommon; // indirect arg structs
-import glsl; // atomicAdd
 
 // Small entrypoints for VTF shaders, also has the convenient side effect of making entry point naming easier: if you name an entrypoint
 // the same name as the file, it will confuse the compiler if you're targeting specific entrypoints. This file collects a bunch of tiny
@@ -21,19 +20,13 @@ void VtfFindUniqueClusters(
     if (clusterFlags[localInvocationIndex] != 0)
     {
         // This thread is responsible for a unique cluster
-        uint32_t clusterIndex = atomicAdd(*uniqueClustersCounter, 1u);
+        uint clusterIndex = 0;
+        InterlockedAdd(*uniqueClustersCounter, 1u, clusterIndex);
         if (clusterIndex < SmallEntrypointsNumThreadsPerGroup)
         {
             uniqueClusters[clusterIndex] = localInvocationIndex;
         }
     }
-}
-
-internal struct UpdateLightsGlobalMatrices
-{
-    float4x4 *viewMatrix;
-    float4x4 *projectionMatrix;
-    float4x4 *viewProjectionMatrix;
 }
 
 [Shader("compute")] [NumThreads(SmallEntrypointsNumThreadsPerGroup, 1, 1)]
@@ -43,7 +36,7 @@ internal void VtfUpdateLights(
     uniform SpotLight *spotLights,
     uniform DirectionalLight *directionalLights,
     uniform LightCounts *lightCounts,
-    uniform UpdateLightsGlobalMatrices *globalMatrices)
+    uniform CommonMatrices *globalMatrices)
 {
     // compute shader method of updating light view-space positions and directions each frame
     // becomes more efficient with larger numbers of lights
@@ -60,20 +53,20 @@ internal void VtfUpdateLights(
     if (!exits.x)
     {
         // update point lights
-        pointLights[localInvocationIndex].PositionViewSpace = mul(pointLights[localInvocationIndex].Position, *globalMatrices.viewMatrix);
+        pointLights[localInvocationIndex].PositionViewSpace = mul(pointLights[localInvocationIndex].Position, globalMatrices.viewMatrix);
     }
 
     if (!exits.y)
     {
         // update spot lights
-        spotLights[localInvocationIndex].PositionViewSpace = mul(spotLights[localInvocationIndex].Position, *globalMatrices.viewMatrix);
-        spotLights[localInvocationIndex].DirectionViewSpace = normalize(mul(spotLights[localInvocationIndex].Direction, *globalMatrices.viewMatrix));
+        spotLights[localInvocationIndex].PositionViewSpace = mul(spotLights[localInvocationIndex].Position, globalMatrices.viewMatrix);
+        spotLights[localInvocationIndex].DirectionViewSpace = normalize(mul(spotLights[localInvocationIndex].Direction, globalMatrices.viewMatrix));
     }
 
     if (!exits.z)
     {
         // update directional lights
-        directionalLights[localInvocationIndex].DirectionViewSpace = normalize(mul(directionalLights[localInvocationIndex].Direction, *globalMatrices.viewMatrix));
+        directionalLights[localInvocationIndex].DirectionViewSpace = normalize(mul(directionalLights[localInvocationIndex].Direction, globalMatrices.viewMatrix));
     }
 }
 

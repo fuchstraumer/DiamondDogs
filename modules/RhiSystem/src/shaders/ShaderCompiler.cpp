@@ -293,14 +293,13 @@ namespace rhi
             slang::SessionDesc sessionDesc = {};
             sessionDesc.searchPaths = searchPathPtrs.data();
             sessionDesc.searchPathCount = static_cast<SlangInt>(searchPathPtrs.size());
-            sessionDesc.allowGLSLSyntax = true;
 
             // Create compilation target
             slang::TargetDesc targetDesc = {};
             if (options.Target == "spirv")
             {
                 targetDesc.format = SLANG_SPIRV;
-                targetDesc.profile = SlangGlobalSession->findProfile("spirv_1_5");
+                targetDesc.profile = SlangGlobalSession->findProfile("spirv_1_6");
             }
             else if (options.Target == "dxil")
             {
@@ -363,11 +362,20 @@ namespace rhi
             std::vector<SlangModulePtr> loadedModules;
             for (const auto& moduleName : options.AdditionalModules)
             {
+                SlangBlobPtr moduleLoadDiagnostics;
                 SlangModulePtr module;
-                module = resultSession->loadModule(moduleName.c_str());
+                module = resultSession->loadModule(moduleName.c_str(), moduleLoadDiagnostics.writeRef());
                 if (!module)
                 {
-                    outStorage.CompilationLog = std::format("Failed to load Slang module: {}", moduleName);
+                    outStorage.CompilationLog = std::format("Failed to load additional Slang module: {}", moduleName);
+                    if (moduleLoadDiagnostics)
+                    {
+                        const char* diagStr = static_cast<const char*>(moduleLoadDiagnostics->getBufferPointer());
+                        #ifdef WIN32
+                        win32_OutputDebugString(diagStr);
+                        #endif
+                        outStorage.CompilationLog += std::format("\nDiagnostics: {}", diagStr);
+                    }
                     return Result::Failure();
                 }
                 loadedModules.push_back(module);
@@ -401,6 +409,17 @@ namespace rhi
                     outStorage.CompilationLog += std::format("\nSlang Diagnostics: {}", diagStr);
                 }
                 return Result::Failure();
+            }
+            else if (diagnosticsBlob)
+            {
+                if (diagnosticsBlob)
+                {
+                    const char* diagStr = static_cast<const char*>(diagnosticsBlob->getBufferPointer());
+#ifdef WIN32
+                    win32_OutputDebugString(diagStr);
+#endif
+                    outStorage.CompilationLog += std::format("\nSlang Diagnostics: {}", diagStr);
+                }
             }
 
             // Discover all entry points in the module
@@ -442,9 +461,11 @@ namespace rhi
 
             // start with root module, then add each entry point and do a collective link and compile
             std::vector<slang::IComponentType*> componentTypes;
+            std::vector<Slang::ComPtr<slang::IEntryPoint>> entryPointStorage;
+            
             componentTypes.push_back(sourceModule);
 
-            // add entry points
+            // add entry points - store ComPtrs to maintain lifetime
             for (const auto& entryPointName : entryPointsToCompile)
             {
                 Slang::ComPtr<slang::IEntryPoint> entryPoint;
@@ -452,7 +473,8 @@ namespace rhi
                     entryPointName.c_str(), entryPoint.writeRef());
                 if (SLANG_SUCCEEDED(epResult) && entryPoint)
                 {
-                    componentTypes.push_back(entryPoint);
+                    entryPointStorage.push_back(entryPoint);
+                    componentTypes.push_back(entryPoint.get());
                 }
                 else
                 {
@@ -623,7 +645,7 @@ namespace rhi
             #ifdef WIN32
             win32_OutputDebugString(diagStr);
             #endif
-            outDiagnostics = diagStr;
+            outDiagnostics += diagStr;
         }
         
         if (SLANG_FAILED(result) || !outComposite)
@@ -655,7 +677,7 @@ namespace rhi
             #ifdef WIN32
             win32_OutputDebugString(diagStr);
             #endif
-            outDiagnostics = diagStr;
+            outDiagnostics += diagStr;
         }
         
         if (SLANG_FAILED(result) || !outLinkedProgram)

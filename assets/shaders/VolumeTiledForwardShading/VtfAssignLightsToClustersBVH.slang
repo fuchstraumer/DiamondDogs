@@ -3,8 +3,6 @@ __include VtfTypes;
 __include VtfFunctions;
 
 import ddCommon;
-// allow usage of GLSL atomic intrinsics
-import glsl;
 
 [SpecializationConstant]
 const uint AssignLightsToClustersNumThreads = 32;
@@ -268,9 +266,8 @@ void AssignLightsToClusters(
     {
         uint pointLightCount = gs_PointLightCount.load();
         uint spotLightCount = gs_SpotLightCount.load();
-        
-        gs_PointLightStartOffset = atomicAdd(resources.pointLightIndexCounter[0], pointLightCount);
-        gs_SpotLightStartOffset = atomicAdd(resources.spotLightIndexCounter[0], spotLightCount);
+        InterlockedAdd(resources.pointLightIndexCounter[0], pointLightCount, gs_PointLightStartOffset);
+        InterlockedAdd(resources.spotLightIndexCounter[0], spotLightCount, gs_SpotLightStartOffset);
         
         // Store grid data (offset and count)
         resources.pointLightGrid[gs_ClusterIndex1D * 2] = gs_PointLightStartOffset;

@@ -198,7 +198,7 @@ const uint BuildStage = 0; // 0 for bottom, 1 for upper
 [SpecializationConstant]
 const uint NumThreads_X = 32 * 16; // wave size * 16
 
-internal struct ResourcePointers
+public struct VtfBuildBvhResourcePointers
 {
     AABB* PointLightBVH;
     AABB* SpotLightBVH;
@@ -212,7 +212,7 @@ internal struct ResourcePointers
 
 // ChildLevel should automatically be made a push constant by the compiler
 [shader("compute")][NumThreads(NumThreads_X, 1, 1)]
-void BuildBVH(uint3 dispatchThreadID : SV_DispatchThreadID, uniform ResourcePointers resources, uniform uint childLevel)
+public void VtfBuildBVH(uint3 dispatchThreadID : SV_DispatchThreadID, uniform VtfBuildBvhResourcePointers resources, uniform uint childLevel)
 {
     switch (BuildStage)
     {

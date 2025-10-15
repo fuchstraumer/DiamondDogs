@@ -18,18 +18,6 @@
     #include <dxgi1_6.h>
 #endif
 
-#ifdef WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <debugapi.h>
-
-void win32_OutputDebugString(const char* str)
-{
-    OutputDebugStringA(str);
-}
-
-#endif
-
 namespace rhi
 {
 
@@ -1061,7 +1049,8 @@ namespace rhi
             CompilationLog{},
             EntryPointName{},
             SourcePath{},
-            isValid{ false }
+            isValid{ false },
+            ProgramLayout{ nullptr }
         {
             if ((pfn_vkCreateShadersEXT == nullptr) || (pfn_vkDestroyShaderEXT == nullptr))
             {
@@ -1262,9 +1251,6 @@ namespace rhi
                     if (diagnosticsBlob != nullptr)
                     {
                         const char* diagStr = static_cast<const char*>(diagnosticsBlob->getBufferPointer());
-#ifdef WIN32
-                        win32_OutputDebugString(diagStr);
-#endif
                         std::string diagString = std::format("Slang Diagnostics: {}\n", diagStr);
                         CompilationLog += "\n" + diagString;
                     }
@@ -1305,9 +1291,6 @@ namespace rhi
                     if (diagnosticsBlob != nullptr)
                     {
                         const char* diagStr = static_cast<const char*>(diagnosticsBlob->getBufferPointer());
-#ifdef WIN32
-                        win32_OutputDebugString(diagStr);
-#endif
                         std::string diagString = std::format("Slang Diagnostics: {}\n", diagStr);
                         CompilationLog += "\n" + diagString;
                     }
@@ -1326,9 +1309,6 @@ namespace rhi
                     if (diagnosticsBlob != nullptr)
                     {
                         const char* diagStr = static_cast<const char*>(diagnosticsBlob->getBufferPointer());
-#ifdef WIN32
-                        win32_OutputDebugString(diagStr);
-#endif
                         std::string diagString = std::format("Slang Diagnostics: {}\n", diagStr);
                         CompilationLog += "\n" + diagString;
                     }
@@ -1346,9 +1326,6 @@ namespace rhi
                     if (diagnosticsBlob != nullptr)
                     {
                         const char* diagStr = static_cast<const char*>(diagnosticsBlob->getBufferPointer());
-#ifdef WIN32
-                        win32_OutputDebugString(diagStr);
-#endif
                         std::string diagString = std::format("Slang Diagnostics: {}\n", diagStr);
                         CompilationLog += "\n" + diagString;
                     }
@@ -1435,9 +1412,6 @@ namespace rhi
                     if (diagnostics)
                     {
                         const char* diagStr = static_cast<const char*>(diagnostics->getBufferPointer());
-#ifdef WIN32
-                        win32_OutputDebugString(diagStr);
-#endif
                         std::string diagString = std::format("Slang Metadata Diagnostics: {}\n", diagStr);
                         CompilationLog += "\n" + diagString;
                     }
