@@ -5,11 +5,11 @@ __include VtfFunctions;
 import ddCommon;
 
 [SpecializationConstant]
-const uint AssignLightsToClustersNumThreads = 32;
+internal const uint AssignLightsToClustersNumThreads = 32;
 [SpecializationConstant]
-const uint MaxLights = 2048;
+internal const uint MaxLights = 2048;
 [SpecializationConstant]
-const uint NODE_STACK_LIMITS = 1024;
+internal const uint NODE_STACK_LIMITS = 1024;
 
 internal static const uint NumChildNodes[6] =
 {
@@ -71,7 +71,7 @@ internal uint PopNode()
 
 internal uint GetFirstChild()
 {
-    return (gs_ParentIdx * NumThreads) + 1u;
+    return (gs_ParentIdx * AssignLightsToClustersNumThreads) + 1u;
 }
 
 internal bool IsLeafNode(const in uint childIndex, const in uint numLevels)
@@ -118,8 +118,13 @@ internal void ProcessSpotLights(
 
         // Use wave operations to collect lights from all lanes
         // why is this a uint4 return? 
+        // answer: can represent up to 128 lanes. we were only counting first 32 lanes before
         uint4 activeLaneMask = WaveActiveBallot(shouldAddLight);
-        uint numActiveLights = countbits(activeLaneMask.x);
+        // corrected to count all potential lanes, as futureproofing for wider wave sizes
+        uint numActiveLights = countbits(activeLaneMask.x) +
+                               countbits(activeLaneMask.y) +
+                               countbits(activeLaneMask.z) +
+                               countbits(activeLaneMask.w);
         
         if (numActiveLights > 0)
         {
@@ -139,7 +144,7 @@ internal void ProcessSpotLights(
             gs_ParentIdx = PopNode();
         }
 
-        GroupMemoryBarrierWithGroupSync();
+        GroupMemoryBarrier();
 
         if (gs_ParentIdx == 0u)
         {

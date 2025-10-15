@@ -38,7 +38,8 @@ internal void BuildBottomPointLights(
     in uniform PointLight* pointLights,
     out AABB* pointLightBVH)
 {
-        // First, have each thread in the wave load a light and compute its AABB
+    const uint waveSize = WaveGetLaneCount();
+    // First, have each thread in the wave load a light and compute its AABB
     uint leafIdx = dispatchThreadIndex;
     uint lightIdx = 0;
     float3 minAABB = float3(FLT_MAX, FLT_MAX, FLT_MAX);
@@ -60,7 +61,7 @@ internal void BuildBottomPointLights(
     if (WaveIsFirstLane())
     {
         uint numLevels = numPointLightLevels;
-        uint nodeOffset = dispatchThreadIndex / WaveGetLaneCount();
+        uint nodeOffset = dispatchThreadIndex / waveSize;
 
         if (numLevels > 0 && nodeOffset < NumLevelNodes[numLevels - 1])
         {
@@ -165,7 +166,7 @@ internal void BuildUpperImpl(
 
         if (childLevel < numLevels && nodeOffset < NumLevelNodes[childLevel - 1])
         {
-            uint nodeIndex = FirstNodeIndex[childLevel + 1] + nodeOffset;
+            uint nodeIndex = FirstNodeIndex[childLevel - 1] + nodeOffset;
             lightBVH[nodeIndex].Min = waveMinAABB;
             lightBVH[nodeIndex].Max = waveMaxAABB;
         }

@@ -18,7 +18,7 @@ internal uint CalculateMortonCode(const in int3 quantized_coord, const in uint k
         mortonCode |= ((quantized_coord.y & bitMask) << (bitShift + 1));
         mortonCode |= ((quantized_coord.z & bitMask) << (bitShift + 2));
         bitMask <<= 1;
-        bitShift++;
+        bitShift += 2;
     }
 
     return mortonCode;

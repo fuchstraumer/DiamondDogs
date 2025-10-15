@@ -10,6 +10,18 @@ import ddCommon; // indirect arg structs
 [SpecializationConstant]
 internal const uint SmallEntrypointsNumThreadsPerGroup = 1024u;
 
+internal uint AtomicAddWaveAggregated(uniform uint32_t *counter, uint value)
+{
+    uint waveSum = WaveActiveSum(value);
+    uint waveOffset;
+    if (WaveIsFirstLane())
+    {
+        InterlockedAdd(*counter, waveSum, waveOffset);
+    }
+    waveOffset = WaveReadLaneFirst(waveOffset);
+    return waveOffset + WavePrefixSum(value);
+}
+
 [shader("compute")] [NumThreads(SmallEntrypointsNumThreadsPerGroup, 1, 1)]
 void VtfFindUniqueClusters(
     uint localInvocationIndex: SV_GroupIndex,
@@ -53,20 +65,20 @@ internal void VtfUpdateLights(
     if (!exits.x)
     {
         // update point lights
-        pointLights[localInvocationIndex].PositionViewSpace = mul(pointLights[localInvocationIndex].Position, globalMatrices.viewMatrix);
+        pointLights[localInvocationIndex].PositionViewSpace = mul(globalMatrices.viewMatrix, pointLights[localInvocationIndex].Position);
     }
 
     if (!exits.y)
     {
         // update spot lights
-        spotLights[localInvocationIndex].PositionViewSpace = mul(spotLights[localInvocationIndex].Position, globalMatrices.viewMatrix);
-        spotLights[localInvocationIndex].DirectionViewSpace = normalize(mul(spotLights[localInvocationIndex].Direction, globalMatrices.viewMatrix));
+        spotLights[localInvocationIndex].PositionViewSpace = mul(globalMatrices.viewMatrix, spotLights[localInvocationIndex].Position);
+        spotLights[localInvocationIndex].DirectionViewSpace = normalize(mul(globalMatrices.viewMatrix, spotLights[localInvocationIndex].Direction));
     }
 
     if (!exits.z)
     {
         // update directional lights
-        directionalLights[localInvocationIndex].DirectionViewSpace = normalize(mul(directionalLights[localInvocationIndex].Direction, globalMatrices.viewMatrix));
+        directionalLights[localInvocationIndex].DirectionViewSpace = normalize(mul(globalMatrices.viewMatrix, directionalLights[localInvocationIndex].Direction));
     }
 }
 

@@ -8,7 +8,7 @@ const uint ReductionType = 0;
 [SpecializationConstant]
 const uint NumThreads = 512;
 
-internal const static float VTF_FLT_MAX = 3.402823466e+36f;
+internal const static float VTF_FLT_MAX = 3.402823466e+38f;
 
 groupshared float3 gs_AABBMin[NumThreads];
 groupshared float3 gs_AABBMax[NumThreads];
