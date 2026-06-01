@@ -19,6 +19,7 @@ using ShouldCloseEvent = Delegate<void(void* userData)>;
 
 // PlatformSystem uses PImpl mostly to avoid any GLFW includes leaking into the public API
 struct PlatformSystemImpl;
+class Swapchain;
 
 /**
  * @brief System that owns the core GLFW window and handles input events
@@ -43,6 +44,8 @@ public:
     void CreateDefaultSwapchain(void* rhiInstance, void* rhiDevice);
     void CreateSwapchain(const SwapchainCreateInfo& createInfo);
     void DestroySwapchain();
+    // Returns `VkSwapchainKHR` as `void*`, or nullptr if no swapchain is active (for now)
+    const Swapchain* GetActiveSwapchain() const noexcept;
 
     void AddCursorPosEventListener(CursorPosEvent listener, void* userData);
     void AddCursorEnterEventListener(CursorEnterEvent listener, void* userData);
