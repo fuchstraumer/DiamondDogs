@@ -28,6 +28,9 @@ namespace std
     };
 }
 
+// needed as otherwise sType and pNext would be uninitialized and cause validation errors when we query for capabilities with extended structures
+constexpr static VkSurfaceCapabilities2KHR DefaultSurfaceCapabilities2KHR = { VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR, nullptr };
+
 static const std::unordered_map<VkSurfaceFormatKHR, size_t> s_VkSurfaceFormatScores
 {
     // 16-bit floating point formats - highest priority (1000+ points)
@@ -209,7 +212,7 @@ bool operator==(const VkSurfaceFormat2KHR& vkSurfaceFormat, const AppSurfaceForm
     return (vkSurfaceFormat.surfaceFormat.format == appVkFormat) && (vkSurfaceFormat.surfaceFormat.colorSpace == appColorSpace);
 }
 
-SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sfc)
+SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sfc) : capabilities(DefaultSurfaceCapabilities2KHR)
 {
     const VkPhysicalDeviceSurfaceInfo2KHR surfaceInfo = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR, nullptr, sfc };
     // Query surface capabilities
