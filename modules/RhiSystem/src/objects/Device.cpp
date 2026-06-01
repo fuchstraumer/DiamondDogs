@@ -402,6 +402,11 @@ namespace rhi
         return impl->numSparseBindingQueues;
     }
 
+    const QueueFamilyIndices& Device::GetQueueFamilyIndices() const noexcept
+    {
+        return impl->queueFamilyIndices;
+    }
+
     const std::vector<std::string>& Device::GetEnabledExtensions() const noexcept
     {
         return impl->enabledExtensions;
