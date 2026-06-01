@@ -307,6 +307,11 @@ void PlatformWindowSystem::DestroySwapchain()
     }
 }
 
+const Swapchain* PlatformWindowSystem::GetActiveSwapchain() const noexcept
+{
+    return impl->ActiveSwapchain.get();
+}
+
 // Event listener registration methods
 void PlatformWindowSystem::AddCursorPosEventListener(CursorPosEvent listener, void* userData)
 {
