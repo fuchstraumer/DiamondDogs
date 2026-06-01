@@ -40,9 +40,9 @@ void Swapchain::Destroy()
     impl.reset();
 }
 
-const void* Swapchain::GetNativeHandle() const noexcept
+void* Swapchain::GetNativeHandle() const noexcept
 {
-    return reinterpret_cast<const void*>(impl->Swapchain);
+    return reinterpret_cast<void*>(impl->Swapchain);
 }
 
 math::Float2 Swapchain::GetExtent() const noexcept
@@ -75,22 +75,22 @@ PresentMode Swapchain::GetPresentMode() const noexcept
     return PresentMode::Invalid;
 }
 
-const void* Swapchain::GetImageHandle(uint32_t index) const noexcept
+void* Swapchain::GetImageHandle(uint32_t index) const noexcept
 {
     if (index >= impl->ImageCount)
     {
         return nullptr;
     }
-    return reinterpret_cast<const void*>(impl->Images[index]);
+    return reinterpret_cast<void*>(impl->Images[index]);
 }
 
-const void* Swapchain::GetImageViewHandle(uint32_t index) const noexcept
+void* Swapchain::GetImageViewHandle(uint32_t index) const noexcept
 {
     if (index >= impl->ImageCount)
     {
         return nullptr;
     }
-    return reinterpret_cast<const void*>(impl->ImageViews[index]);
+    return reinterpret_cast<void*>(impl->ImageViews[index]);
 }
 
 Swapchain& Swapchain::operator=(Swapchain&& other) noexcept
