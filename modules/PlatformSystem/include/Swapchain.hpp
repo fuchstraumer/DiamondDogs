@@ -29,11 +29,11 @@ public:
 
     math::Float2 GetExtent() const noexcept;
     uint32_t ImageCount() const noexcept;
-    ImageFormat GetImageFormat() const noexcept;
+    ImageFormat ImageFormat() const noexcept;
     ColorSpace ColorSpace() const noexcept;
-    PresentMode GetPresentMode() const noexcept;
-    void* GetImageHandle(uint32_t index) const noexcept;
-    void* GetImageViewHandle(uint32_t index) const noexcept;
+    PresentMode PresentMode() const noexcept;
+    void* ImageHandle(uint32_t index) const noexcept;
+    void* ImageViewHandle(uint32_t index) const noexcept;
 
 private:
     std::unique_ptr<SwapchainImpl> impl;
