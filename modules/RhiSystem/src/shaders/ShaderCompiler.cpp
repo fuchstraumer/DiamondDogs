@@ -1427,7 +1427,7 @@ namespace rhi
                 for (SlangUInt i = 0; i < entryPointCount; ++i)
                 {
                     Slang::ComPtr<slang::IEntryPoint> entryPoint;
-                    SlangResult epResult = sourceModule->getDefinedEntryPoint(i, entryPoint.writeRef());
+                    SlangResult epResult = sourceModule->getDefinedEntryPoint(static_cast<SlangInt32>(i), entryPoint.writeRef());
                     if (SLANG_SUCCEEDED(epResult) && entryPoint)
                     {
                         const char* epName = entryPoint->getFunctionReflection()->getName();
