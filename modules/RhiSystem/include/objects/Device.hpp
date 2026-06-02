@@ -58,6 +58,8 @@ namespace rhi
 
         const VkDebugUtilsFunctions& GetDebugUtilFns() const noexcept;
 
+        uint32_t GetMemoryTypeIndex(const uint32_t type_bitfield, const uint32_t property_flags) const;
+
     private:
         void createDevice(ExtensionPack& extensions);
         void setupQueues();

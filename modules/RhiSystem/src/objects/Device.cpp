@@ -372,6 +372,28 @@ namespace rhi
         return impl->debugUtilsHandler;
     }
 
+    uint32_t Device::GetMemoryTypeIndex(const uint32_t type_bitfield, const uint32_t property_flags) const
+    {
+        const VkMemoryPropertyFlags required_flags = static_cast<VkMemoryPropertyFlags>(property_flags);
+        const VkPhysicalDeviceMemoryProperties& mem_props = impl->memoryProperties;
+        const uint32_t num_memory_types = mem_props.memoryTypeCount;
+        uint32_t bitfield = type_bitfield;
+
+        for (uint32_t i = 0; i < num_memory_types; ++i)
+        {
+            if (bitfield & 1)
+            {
+                if ((mem_props.memoryTypes[i].propertyFlags & property_flags) == required_flags)
+                {
+                    return i;
+                }
+            }
+            bitfield >>= 1;
+        }
+        
+        return std::numeric_limits<uint32_t>::max();
+    }
+
     DeviceHandle Device::Handle() const noexcept
     {
         return handle;
