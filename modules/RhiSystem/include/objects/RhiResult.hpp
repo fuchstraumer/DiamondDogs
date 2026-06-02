@@ -6,7 +6,7 @@
 #include <string_view>
 
 #ifdef RHI_SYSTEM_USE_VULKAN
-    enum VkResult : int;
+    typedef enum VkResult VkResult;
 #elif defined(RHI_SYSTEM_USE_DX12)
     typedef long HRESULT;
 #endif
@@ -59,9 +59,9 @@ namespace rhi
         constexpr Result(Code code) noexcept : nativeResult{ static_cast<int32_t>(code) } {}
         explicit constexpr Result(int32_t rawResult) noexcept : nativeResult{ rawResult } {}
 #ifdef RHI_SYSTEM_USE_VULKAN
-        explicit constexpr Result(VkResult vkResult) noexcept;
+        constexpr Result(VkResult vkResult) noexcept : nativeResult{ static_cast<int32_t>(vkResult) } {}
 #elif defined(RHI_SYSTEM_USE_DX12)
-        explicit constexpr Result(HRESULT hresult) noexcept;
+        constexpr Result(HRESULT hresult) noexcept : nativeResult{ static_cast<int32_t>(hresult) } {}
 #endif
 
         bool IsSuccess() const noexcept;

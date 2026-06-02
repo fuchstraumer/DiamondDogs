@@ -10,19 +10,6 @@
 namespace rhi
 {
 
-#ifdef RHI_SYSTEM_USE_VULKAN
-    constexpr Result::Result(VkResult vkResult) noexcept
-        : nativeResult{ static_cast<int32_t>(vkResult) }
-    {
-    }
-#elif defined(RHI_SYSTEM_USE_DX12)
-    constexpr Result::Result(HRESULT hresult) noexcept
-        : nativeResult{ static_cast<int32_t>(hresult) }
-    {
-    }
-#endif
-
-
     bool Result::IsSuccess() const noexcept
     {
 #ifdef RHI_SYSTEM_USE_VULKAN

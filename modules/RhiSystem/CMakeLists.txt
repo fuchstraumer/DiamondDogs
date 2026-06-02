@@ -13,6 +13,7 @@ set(RHI_CORE_HEADERS
     "include/core/DebugUtilFns.hpp"
     "include/core/ExtensionPack.hpp"
     "include/core/ExtensionWrangler.hpp"
+    "include/core/RhiAssert.hpp"
     "include/core/RhiDefines.hpp"
     "include/core/RhiSystem.hpp"
     "include/core/RhiFlags.hpp"
