@@ -19,16 +19,16 @@ class Swapchain;
 class VulkanScene
 {
 protected:
-    VulkanScene(rhi::RhiSystem* rhiSystem, PlatformWindowSystem* platformSystem);
     virtual ~VulkanScene();
     VulkanScene(const VulkanScene&) = delete;
     VulkanScene& operator=(const VulkanScene&) = delete;
 public:
+    VulkanScene(rhi::RhiSystem* rhiSystem, PlatformWindowSystem* platformSystem);
 
-    virtual void Construct(void* user_data) = 0;
+    virtual void Initialize(void* user_data) = 0;
     virtual void Destroy() = 0;
     virtual void Render(void* user_data);
-    size_t CurrentFrameBufferIdx() const;
+    size_t CurrentFramebufferIdx() const;
 
 protected:
 
