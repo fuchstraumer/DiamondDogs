@@ -4,18 +4,18 @@
 #include <vulkan/vulkan.h>
 #include <array>
 
-namespace vpr
+namespace rhi
 {
     class Instance;
-    class PhysicalDevice;
     class Device;
-    class Swapchain;
 }
+
+class Swapchain;
 
 struct DepthStencil
 {
     DepthStencil();
-    DepthStencil(const vpr::Device* device, const vpr::PhysicalDevice* p_device, const vpr::Swapchain* swap);
+    DepthStencil(const rhi::Device* device, const Swapchain* swap);
     ~DepthStencil();
 
     DepthStencil(const DepthStencil&) = delete;
@@ -33,7 +33,7 @@ struct DepthStencil
 
 struct BasicPipelineCreateInfo
 {
-    const vpr::Device* device{ nullptr };
+    const rhi::Device* device{ nullptr };
     VkPipelineCreateFlags pipelineFlags{ 0 };
     uint32_t numStages{ 0u };
     const VkPipelineShaderStageCreateInfo* stages{ nullptr };
@@ -47,7 +47,7 @@ struct BasicPipelineCreateInfo
     VkPrimitiveTopology topology{ VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST };
 };
 
-DepthStencil CreateDepthStencil(const vpr::Device* device, const vpr::PhysicalDevice* physical_device, const vpr::Swapchain* swapchain);
+DepthStencil CreateDepthStencil(const rhi::Device* device, const Swapchain* swapchain);
 VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo);
 
 #endif //!DIAMOND_DOGS_TESTS_COMMON_CREATION_FUNCTIONS_HPP
