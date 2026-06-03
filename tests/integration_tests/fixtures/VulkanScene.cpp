@@ -1,6 +1,7 @@
 #include "VulkanScene.hpp"
 #include "Device.hpp"
 #include "PlatformSystem.hpp"
+#include "RhiAssert.hpp"
 #include "RhiResult.hpp"
 #include "RhiSystem.hpp"
 #include "RhiTypes.hpp"
@@ -9,17 +10,16 @@
 #include <format>
 #include <string>
 
-VulkanScene::VulkanScene(rhi::RhiSystem* rhiSystem, PlatformWindowSystem* platformSystem)
-    : rhiSystem(rhiSystem), platformSystem(platformSystem)
+VulkanScene::VulkanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platform_system)
+    : rhiSystem(rhi_system), platformSystem(platform_system), swapchain(platform_system->GetActiveSwapchain())
 {
     currentFrame = 0;
     currentAcquiredImage = 0;
-    const Swapchain* swapchainPtr = platformSystem->GetActiveSwapchain();
     device = rhiSystem->GetDevice();
     vkDevice = device->Handle().As<VkDevice>();
     vkPhysicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
 
-    numFramebuffers = swapchainPtr->ImageCount();
+    numFramebuffers = swapchain->ImageCount();
     limiterA = std::chrono::system_clock::now();
     limiterB = std::chrono::system_clock::now();
 }
@@ -110,12 +110,10 @@ void VulkanScene::beginFrame()
     // it makes sure that all previous work using this frames contextual data (command buffers, etc) is done
     VkDevice vkDevice = device->Handle().As<VkDevice>();
     VkFence currFence = inFlightFences[currentFrame];
-    VkResult result = vkWaitForFences(vkDevice, 1, &currFence, VK_TRUE, 1000000000);
+    rhi::Result result = vkWaitForFences(vkDevice, 1, &currFence, VK_TRUE, 1000000000);
+    RhiAssert(result);
     result = vkResetFences(vkDevice, 1, &currFence);
-    if (rhi::FromVulkan(result).IsFailure())
-    {
-        throw std::runtime_error("Failed to reset in-flight fence: " + std::string(rhi::FromVulkan(result).GetMessage()));
-    }
+    RhiAssert(result);
 }
 
 void VulkanScene::limitFrame()

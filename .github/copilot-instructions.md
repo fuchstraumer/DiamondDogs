@@ -159,7 +159,7 @@ Struct::Struct(int _val0, int _val1, int _val2) :
 - **Threading**: Prefer lock-free algorithms over mutex-based synchronization
 - **Memory**: Minimize `auto` usage except for iterators/complex nested types
 - **Span**: Use `std::span` for array parameters instead of raw pointers + size
-- **Math**: Row-major matrices, right-handed coordinate system, depth range [-1,1]
+- **Math**: Row-major matrices, right-handed coordinate system, depth range [0,1] (like in Vulkan and DirectX)
 - **String conversion**: Use `charconv` instead of C conversion functions for string/char to integral types
 - **Error Handling**: Use `Result` types for function return status within RHI code; avoid exceptions
 

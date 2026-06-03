@@ -55,7 +55,7 @@ protected:
     // shortcutting to Vulkan device handle for convenience, even though we have RHI device
     VkDevice vkDevice{ VK_NULL_HANDLE };
     PlatformWindowSystem* platformSystem{ nullptr };
-    Swapchain* swapchain{ nullptr };
+    const Swapchain* swapchain{ nullptr };
     VkPhysicalDevice vkPhysicalDevice{ VK_NULL_HANDLE };
     std::vector<VkSemaphore> imageAvailableSemaphores;
     std::vector<VkSemaphore> renderFinishedSemaphores;

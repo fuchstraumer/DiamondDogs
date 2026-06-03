@@ -423,9 +423,10 @@ void VulkanTriangle::setupPipeline()
         vertex_attributes
     };
 
+    ImageFormat swapchain_color_format = swapchain->ImageFormat();
     const VkFormat color_formats[1]
     {
-        
+        ToVkFormat(swapchain_color_format)
     };
 
     const VkPipelineRenderingCreateInfo rendering_info

@@ -42,12 +42,6 @@ namespace rhi
     using SlangLayoutPtr = slang::ProgramLayout*;
     using SlangMetadataPtr = Slang::ComPtr<slang::IMetadata>;
 
-    using SlangModulePtr = Slang::ComPtr<slang::IModule>;
-    using SlangBlobPtr = Slang::ComPtr<slang::IBlob>;
-    using SlangProgramPtr = Slang::ComPtr<slang::IComponentType>;
-    using SlangLayoutPtr = slang::ProgramLayout*;
-    using SlangMetadataPtr = Slang::ComPtr<slang::IMetadata>;
-
     ShaderStageFlags FromSlangStage(SlangStage stage)
     {
         switch (stage)
