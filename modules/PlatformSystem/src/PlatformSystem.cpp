@@ -371,7 +371,7 @@ const void* PlatformWindowSystem::GetWindowHandle() const noexcept
 
 PresentMode PlatformWindowSystem::GetPresentMode() const noexcept
 {
-    return impl->ActiveSwapchain->GetPresentMode();
+    return impl->ActiveSwapchain->PresentMode();
 }
 
 PlatformWindowMode PlatformWindowSystem::GetWindowMode() const noexcept
