@@ -164,6 +164,12 @@ namespace rhi
 
     ShaderObject::~ShaderObject() = default;
 
+    void ShaderObject::Destroy() noexcept
+    {
+        impl.reset();
+        handle = {};
+    }
+
     ShaderObject::ShaderObject(ShaderObject&& other) noexcept :
         impl{ std::move(other.impl) },
         handle{ std::move(other.handle) }
@@ -196,6 +202,39 @@ namespace rhi
             }
 #elif defined(RHI_SYSTEM_USE_DX12)
             // DX12 shader object creation would go here
+            return Result(Result::Code::FeatureNotPresent);
+#endif
+
+            outShaderObject = ShaderObject(std::move(impl));
+            return Result(Result::Code::Success);
+        }
+        catch (...)
+        {
+            return Result(Result::Code::InitializationFailed);
+        }
+    }
+
+    Result ShaderObject::Create(DeviceHandle device, const BinaryOptions& options, ShaderObject& outShaderObject)
+    {
+        try
+        {
+            auto impl = std::make_unique<ShaderObjectImpl>(device);
+            
+            // Copy bytecode (uint32_t -> uint8_t)
+            size_t byteSize = options.Bytecode.size_bytes();
+            impl->Bytecode.resize(byteSize);
+            std::memcpy(impl->Bytecode.data(), options.Bytecode.data(), byteSize);
+            
+            impl->Stage = options.Stage;
+            impl->EntryPointName = options.EntryPointName;
+
+            // Create platform-specific shader object
+#ifdef RHI_SYSTEM_USE_VULKAN
+            if (!impl->CreateVulkanShaderObject())
+            {
+                return Result(Result::Code::InitializationFailed);
+            }
+#elif defined(RHI_SYSTEM_USE_DX12)
             return Result(Result::Code::FeatureNotPresent);
 #endif
 

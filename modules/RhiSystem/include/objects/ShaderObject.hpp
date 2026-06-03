@@ -47,6 +47,16 @@ namespace rhi
         };
 
         /**
+         * @brief Raw bytecode options for pre-compiled shaders
+         */
+        struct BinaryOptions
+        {
+            std::span<const uint32_t> Bytecode{}; // SPIR-V or DXIL bytecode
+            ShaderStageFlags Stage = ShaderStageFlags::None;
+            std::string EntryPointName = "main";
+        };
+
+        /**
          * @brief Extended specialization constant with name and size information from reflection
          */
         struct ReflectedSpecializationConstant
@@ -60,6 +70,7 @@ namespace rhi
         ShaderObject();
 
         static Result Create(DeviceHandle device, const CompileOptions& options, ShaderObject& outShaderObject);
+        static Result Create(DeviceHandle device, const BinaryOptions& options, ShaderObject& outShaderObject);
         
         // No copy semantics
         ShaderObject(const ShaderObject&) = delete;
@@ -70,6 +81,8 @@ namespace rhi
         ShaderObject& operator=(ShaderObject&& other) noexcept;
         
         ~ShaderObject();
+        
+        void Destroy() noexcept;
 
         // Core access
         ShaderObjectHandle Handle() const noexcept;
