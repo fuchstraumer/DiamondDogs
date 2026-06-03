@@ -93,7 +93,7 @@ DepthStencil CreateDepthStencil(const rhi::Device* device, const Swapchain* swap
         0,
         VK_IMAGE_TYPE_2D,
         depth_stencil.Format,
-        VkExtent3D{ swapchain->Extent().width, swapchain->Extent().height, 1 },
+        VkExtent3D{ static_cast<uint32_t>(swapchain->GetExtent().x), static_cast<uint32_t>(swapchain->GetExtent().y), 1 },
         1,
         1,
         VK_SAMPLE_COUNT_1_BIT,
@@ -114,7 +114,7 @@ DepthStencil CreateDepthStencil(const rhi::Device* device, const Swapchain* swap
     VkMemoryRequirements memreqs{};
     vkGetImageMemoryRequirements(vkDevice, depth_stencil.Image, &memreqs);
     alloc_info.allocationSize = memreqs.size;
-    alloc_info.memoryTypeIndex = device->GetMemoryTypeIdx(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    alloc_info.memoryTypeIndex = device->GetMemoryTypeIndex(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     result = vkAllocateMemory(vkDevice, &alloc_info, nullptr, &depth_stencil.Memory);
     RhiAssert(result);
     result = vkBindImageMemory(vkDevice, depth_stencil.Image, depth_stencil.Memory, 0);

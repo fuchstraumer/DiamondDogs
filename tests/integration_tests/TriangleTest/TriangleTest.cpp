@@ -1,16 +1,22 @@
 #include "TriangleTest.hpp"
-#include "RenderingContext.hpp"
-#include "PhysicalDevice.hpp"
-#include "LogicalDevice.hpp"
-#include "ShaderModule.hpp"
+#include "RhiSystem.hpp"
+#include "CommandPool.hpp"
+#include "CommandBuffer.hpp"
+#include "ShaderObject.hpp"
+#include "ImageDataFormats.hpp"
+#include "PlatformSystem.hpp"
+#include "Device.hpp"
 #include "Swapchain.hpp"
-#include "vkAssert.hpp"
 #include "Semaphore.hpp"
 #include "Fence.hpp"
+#include "RhiResult.hpp"
+#include "RhiAssert.hpp"
 #include "Math.hpp"
 #include <fstream>
 #include <numbers>
 #include <format>
+#include <array>
+#include <span>
 
 using namespace math;
 
@@ -83,36 +89,29 @@ constexpr static const uint32_t triangle_frag_shader_spv[133] =
 	0x0003003e,0x00000009,0x00000012,0x000100fd,0x00010038
 };
 
-VulkanTriangle::VulkanTriangle() : VulkanScene() {}
+VulkanTriangle::VulkanTriangle(rhi::RhiSystem* rhiSystem, PlatformWindowSystem* platformSystem) : VulkanScene(rhiSystem, platformSystem)
+{
+}
 
 VulkanTriangle::~VulkanTriangle()
 {
-    if (setup) {
+    if (setup)
+    {
         Destroy();
     }
 }
 
-VulkanTriangle& VulkanTriangle::GetScene()
+void VulkanTriangle::Initialize(void* user_data)
 {
-    static VulkanTriangle app;
-    return app;
-}
-
-void VulkanTriangle::Construct(RequiredVprObjects objects, void* user_data)
-{
-    vprObjects = objects;
-    numFramebuffers = vprObjects.swapchain->ImageCount();
     prepareVertices();
     setupUniformBuffer();
     setupCommandPool();
-    setupCommandBuffers();
     setupDescriptorPool();
     setupLayouts();
     setupDescriptorSet();
     setupShaderModules();
     setupDepthStencil();
     setupPipeline();
-    setupSwapchainDebugInfo();
     createFrameSyncObjects();
     setup = true;
     limiterA = std::chrono::system_clock::now();
@@ -121,34 +120,34 @@ void VulkanTriangle::Construct(RequiredVprObjects objects, void* user_data)
 
 void VulkanTriangle::Destroy()
 {
-    vkDeviceWaitIdle(vprObjects.device->vkHandle());
+    vkDeviceWaitIdle(vkDevice);
 
     destroyFrameSyncObjects();
 
-    vkDestroyPipeline(vprObjects.device->vkHandle(), pipeline, nullptr);
+    vkDestroyPipeline(vkDevice, pipeline, nullptr);
 
     for (auto& depthStencil : depthStencils)
     {
-        vkFreeMemory(vprObjects.device->vkHandle(), depthStencil.Memory, nullptr);
-        vkDestroyImageView(vprObjects.device->vkHandle(), depthStencil.View, nullptr);
-        vkDestroyImage(vprObjects.device->vkHandle(), depthStencil.Image, nullptr);
+        vkFreeMemory(vkDevice, depthStencil.Memory, nullptr);
+        vkDestroyImageView(vkDevice, depthStencil.View, nullptr);
+        vkDestroyImage(vkDevice, depthStencil.Image, nullptr);
     }
     depthStencils.clear();
 
-    vkDestroyShaderModule(vprObjects.device->vkHandle(), fragmentShader, nullptr);
-    vkDestroyShaderModule(vprObjects.device->vkHandle(), vertexShader, nullptr);
-    vkFreeDescriptorSets(vprObjects.device->vkHandle(), descriptorPool, 1, &descriptorSet);
-    vkDestroyPipelineLayout(vprObjects.device->vkHandle(), pipelineLayout, nullptr);
-    vkDestroyDescriptorSetLayout(vprObjects.device->vkHandle(), setLayout, nullptr);
-    vkDestroyDescriptorPool(vprObjects.device->vkHandle(), descriptorPool, nullptr);
-    vkFreeCommandBuffers(vprObjects.device->vkHandle(), commandPool, static_cast<uint32_t>(drawCmdBuffers.size()), drawCmdBuffers.data());
-    vkDestroyCommandPool(vprObjects.device->vkHandle(), commandPool, nullptr);
-    vkFreeMemory(vprObjects.device->vkHandle(), uniformBufferVS.memory, nullptr);
-    vkDestroyBuffer(vprObjects.device->vkHandle(), uniformBufferVS.buffer, nullptr);
-    vkFreeMemory(vprObjects.device->vkHandle(), Indices.memory, nullptr);
-    vkDestroyBuffer(vprObjects.device->vkHandle(), Indices.buffer, nullptr);
-    vkFreeMemory(vprObjects.device->vkHandle(), Vertices.memory, nullptr);
-    vkDestroyBuffer(vprObjects.device->vkHandle(), Vertices.buffer, nullptr);
+    vkFreeDescriptorSets(vkDevice, descriptorPool, 1, &descriptorSet);
+    vkDestroyPipelineLayout(vkDevice, pipelineLayout, nullptr);
+    vkDestroyDescriptorSetLayout(vkDevice, setLayout, nullptr);
+    vkDestroyDescriptorPool(vkDevice, descriptorPool, nullptr);
+    vkFreeMemory(vkDevice, uniformBufferVS.memory, nullptr);
+    vkDestroyBuffer(vkDevice, uniformBufferVS.buffer, nullptr);
+    vkFreeMemory(vkDevice, Indices.memory, nullptr);
+    vkDestroyBuffer(vkDevice, Indices.buffer, nullptr);
+    vkFreeMemory(vkDevice, Vertices.memory, nullptr);
+    vkDestroyBuffer(vkDevice, Vertices.buffer, nullptr);
+    
+    commandPool.reset();
+    vertexShader.Destroy();
+    fragmentShader.Destroy();
 }
 
 void VulkanTriangle::prepareVertices()  {
@@ -170,6 +169,7 @@ void VulkanTriangle::prepareVertices()  {
     };
 
     void* data = nullptr;
+    constexpr static uint32_t required_memory_flags = uint32_t(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
     {
         const VkBufferCreateInfo buffer_info
@@ -184,16 +184,16 @@ void VulkanTriangle::prepareVertices()  {
             nullptr
         };
 
-        vkCreateBuffer(vprObjects.device->vkHandle(), &buffer_info, nullptr, &Vertices.buffer);
+        vkCreateBuffer(vkDevice, &buffer_info, nullptr, &Vertices.buffer);
         VkMemoryRequirements memreqs{};
-        vkGetBufferMemoryRequirements(vprObjects.device->vkHandle(), Vertices.buffer, &memreqs);
+        vkGetBufferMemoryRequirements(vkDevice, Vertices.buffer, &memreqs);
         alloc_info.allocationSize = memreqs.size;
-        alloc_info.memoryTypeIndex = vprObjects.device->GetMemoryTypeIdx(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-        vkAllocateMemory(vprObjects.device->vkHandle(), &alloc_info, nullptr, &Vertices.memory);
-        vkMapMemory(vprObjects.device->vkHandle(), Vertices.memory, 0, alloc_info.allocationSize, 0, &data);
+        alloc_info.memoryTypeIndex = device->GetMemoryTypeIndex(memreqs.memoryTypeBits, required_memory_flags);
+        vkAllocateMemory(vkDevice, &alloc_info, nullptr, &Vertices.memory);
+        vkMapMemory(vkDevice, Vertices.memory, 0, alloc_info.allocationSize, 0, &data);
         memcpy(data, base_vertices.data(), sizeof(Vertex) * base_vertices.size());
-        vkUnmapMemory(vprObjects.device->vkHandle(), Vertices.memory);
-        vkBindBufferMemory(vprObjects.device->vkHandle(), Vertices.buffer, Vertices.memory, 0);
+        vkUnmapMemory(vkDevice, Vertices.memory);
+        vkBindBufferMemory(vkDevice, Vertices.buffer, Vertices.memory, 0);
 
     }
 
@@ -210,16 +210,16 @@ void VulkanTriangle::prepareVertices()  {
             nullptr
         };
 
-        vkCreateBuffer(vprObjects.device->vkHandle(), &buffer_info, nullptr, &Indices.buffer);
+        vkCreateBuffer(vkDevice, &buffer_info, nullptr, &Indices.buffer);
         VkMemoryRequirements memreqs{};
-        vkGetBufferMemoryRequirements(vprObjects.device->vkHandle(), Indices.buffer, &memreqs);
+        vkGetBufferMemoryRequirements(vkDevice, Indices.buffer, &memreqs);
         alloc_info.allocationSize = memreqs.size;
-        alloc_info.memoryTypeIndex = vprObjects.device->GetMemoryTypeIdx(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-        vkAllocateMemory(vprObjects.device->vkHandle(), &alloc_info, nullptr, &Indices.memory);
-        vkMapMemory(vprObjects.device->vkHandle(), Indices.memory, 0, alloc_info.allocationSize, 0, &data);
+        alloc_info.memoryTypeIndex = device->GetMemoryTypeIndex(memreqs.memoryTypeBits, required_memory_flags);
+        vkAllocateMemory(vkDevice, &alloc_info, nullptr, &Indices.memory);
+        vkMapMemory(vkDevice, Indices.memory, 0, alloc_info.allocationSize, 0, &data);
         memcpy(data, base_indices.data(), sizeof(uint16_t) * base_indices.size());
-        vkUnmapMemory(vprObjects.device->vkHandle(), Indices.memory);
-        vkBindBufferMemory(vprObjects.device->vkHandle(), Indices.buffer, Indices.memory, 0);
+        vkUnmapMemory(vkDevice, Indices.memory);
+        vkBindBufferMemory(vkDevice, Indices.buffer, Indices.memory, 0);
     }
 }
 
@@ -238,20 +238,16 @@ void VulkanTriangle::setupUniformBuffer()
         nullptr
     };
 
-    VkResult result = vkCreateBuffer(vprObjects.device->vkHandle(), &buffer_info, nullptr, &uniformBufferVS.buffer);
-    VkAssert(result);
+    VkResult result = vkCreateBuffer(vkDevice, &buffer_info, nullptr, &uniformBufferVS.buffer);
 
     VkMemoryRequirements memreqs;
-    vkGetBufferMemoryRequirements(vprObjects.device->vkHandle(), uniformBufferVS.buffer, &memreqs);
+    vkGetBufferMemoryRequirements(vkDevice, uniformBufferVS.buffer, &memreqs);
     VkMemoryAllocateInfo alloc_info{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr };
     alloc_info.allocationSize = memreqs.size;
-    alloc_info.memoryTypeIndex = vprObjects.device->GetMemoryTypeIdx(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+    alloc_info.memoryTypeIndex = device->GetMemoryTypeIndex(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
     
-    result = vkAllocateMemory(vprObjects.device->vkHandle(), &alloc_info, nullptr, &uniformBufferVS.memory);
-    VkAssert(result);
-    result = vkBindBufferMemory(vprObjects.device->vkHandle(), uniformBufferVS.buffer, uniformBufferVS.memory, 0);
-    VkAssert(result);
-
+    result = vkAllocateMemory(vkDevice, &alloc_info, nullptr, &uniformBufferVS.memory);
+    result = vkBindBufferMemory(vkDevice, uniformBufferVS.buffer, uniformBufferVS.memory, 0);
     uniformBufferVS.descriptor = VkDescriptorBufferInfo{ uniformBufferVS.buffer, 0, sizeof(uboDataVS) };
 
     update();
@@ -259,45 +255,10 @@ void VulkanTriangle::setupUniformBuffer()
 
 void VulkanTriangle::setupCommandPool()
 {
-
-    const VkCommandPoolCreateInfo pool_info
-    {
-        VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-        nullptr,
-        VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-        vprObjects.device->QueueFamilyIndices().Graphics
-    };
-
-    VkResult result = vkCreateCommandPool(vprObjects.device->vkHandle(), &pool_info, nullptr, &commandPool);
-
-}
-
-void VulkanTriangle::setupCommandBuffers()
-{
-
-    drawCmdBuffers.resize(vprObjects.swapchain->ImageCount());
-
-    const VkCommandBufferAllocateInfo cmd_info
-    {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        nullptr,
-        commandPool,
-        VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        static_cast<uint32_t>(drawCmdBuffers.size())
-    };
-
-    VkResult result = vkAllocateCommandBuffers(vprObjects.device->vkHandle(), &cmd_info, drawCmdBuffers.data());
-    VkAssert(result);
-
-    uint32_t i = 0;
-    for (VkCommandBuffer cmdBuffer : drawCmdBuffers)
-    {
-        std::string cmdBufferName = std::format("DrawCmdBuffer_{}", i);
-        const uint64_t handleCast = reinterpret_cast<uint64_t>(cmdBuffer);
-        RenderingContext::SetObjectName(VK_OBJECT_TYPE_COMMAND_BUFFER, handleCast, cmdBufferName.c_str());
-        ++i;
-    }
-
+    using namespace rhi;
+    commandPool = std::make_unique<CommandPool>(device->Handle(), CommandPool::Type::Graphics, device->GetQueueFamilyIndices().Graphics);
+    Result result = commandPool->AllocateCommandBuffers(numFramebuffers);
+    RhiAssert(result);
 }
 
 void VulkanTriangle::setupDescriptorPool()
@@ -318,8 +279,8 @@ void VulkanTriangle::setupDescriptorPool()
         typeCounts
     };
 
-    VkResult result = vkCreateDescriptorPool(vprObjects.device->vkHandle(), &pool_info, nullptr, &descriptorPool);
-    VkAssert(result);
+    rhi::Result result = vkCreateDescriptorPool(vkDevice, &pool_info, nullptr, &descriptorPool);
+    RhiAssert(result);
 }
 
 void VulkanTriangle::setupLayouts()
@@ -343,8 +304,8 @@ void VulkanTriangle::setupLayouts()
         &layout_binding
     };
 
-    VkResult result = vkCreateDescriptorSetLayout(vprObjects.device->vkHandle(), &layout_info, nullptr, &setLayout);
-    VkAssert(result);
+    rhi::Result result = vkCreateDescriptorSetLayout(vkDevice, &layout_info, nullptr, &setLayout);
+    RhiAssert(result);
 
     const VkPipelineLayoutCreateInfo pipeline_layout_info
     {
@@ -357,9 +318,8 @@ void VulkanTriangle::setupLayouts()
         nullptr
     };
 
-    result = vkCreatePipelineLayout(vprObjects.device->vkHandle(), &pipeline_layout_info, nullptr, &pipelineLayout);
-    VkAssert(result);
-
+    result = vkCreatePipelineLayout(vkDevice, &pipeline_layout_info, nullptr, &pipelineLayout);
+    RhiAssert(result);
 }
 
 void VulkanTriangle::setupDescriptorSet()
@@ -374,8 +334,8 @@ void VulkanTriangle::setupDescriptorSet()
         &setLayout
     };
 
-    VkResult result = vkAllocateDescriptorSets(vprObjects.device->vkHandle(), &alloc_info, &descriptorSet);
-    VkAssert(result);
+    rhi::Result result = vkAllocateDescriptorSets(vkDevice, &alloc_info, &descriptorSet);
+    RhiAssert(result);
 
     const VkWriteDescriptorSet write_descriptor
     {
@@ -391,55 +351,54 @@ void VulkanTriangle::setupDescriptorSet()
         nullptr
     };
 
-    vkUpdateDescriptorSets(vprObjects.device->vkHandle(), 1, &write_descriptor, 0, nullptr);
+    vkUpdateDescriptorSets(vkDevice, 1, &write_descriptor, 0, nullptr);
 }
 
 void VulkanTriangle::setupShaderModules() 
 {
+    using namespace rhi;
 
-    
-    constexpr static VkShaderModuleCreateInfo vertex_info
+    auto vertex_shader_code_span = std::span<const uint32_t>(triangle_vert_shader_spv, std::size(triangle_vert_shader_spv));
+    static const ShaderObject::BinaryOptions vertex_options
     {
-        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        nullptr,
-        0,
-        sizeof(triangle_vert_shader_spv),
-        triangle_vert_shader_spv
-    };
-    
-    vertexShader = VK_NULL_HANDLE;
-    VkResult result = vkCreateShaderModule(vprObjects.device->vkHandle(), &vertex_info, nullptr, &vertexShader);
-    VkAssert(result);
-
-    constexpr static VkShaderModuleCreateInfo fragment_info{
-        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-        nullptr,
-        0,
-        sizeof(triangle_frag_shader_spv),
-        triangle_frag_shader_spv
+        std::span<const uint32_t>(triangle_vert_shader_spv, std::size(triangle_vert_shader_spv)),
+        ShaderStageFlags::Vertex,
+        "main"
     };
 
-    fragmentShader = VK_NULL_HANDLE;
-    result = vkCreateShaderModule(vprObjects.device->vkHandle(), &fragment_info, nullptr, &fragmentShader);
-    VkAssert(result);
+    Result result = ShaderObject::Create(device->Handle(), vertex_options, vertexShader);
+    RhiAssert(result);
 
+    static const ShaderObject::BinaryOptions fragment_options
+    {
+        std::span<const uint32_t>(triangle_frag_shader_spv, std::size(triangle_frag_shader_spv)),
+        ShaderStageFlags::Fragment,
+        "main"
+    };
+
+    result = ShaderObject::Create(device->Handle(), fragment_options, fragmentShader);
+    RhiAssert(result);
 }
 
 void VulkanTriangle::setupDepthStencil() 
 {
     for (uint32_t i = 0; i < numFramebuffers; ++i)
     {
-        depthStencils.emplace_back(CreateDepthStencil(vprObjects.device, vprObjects.physicalDevice, vprObjects.swapchain));
+        depthStencils.emplace_back(CreateDepthStencil(device, platformSystem->GetActiveSwapchain()));
     }
 }
 
 void VulkanTriangle::setupPipeline() 
 {
 
+    const VkShaderModule vertexShaderModule = vertexShader.Handle().As<VkShaderModule>();
+    const VkShaderModule fragmentShaderModule = fragmentShader.Handle().As<VkShaderModule>();
+    const VkPipelineShaderStageCreateInfo vertexInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertexShaderModule, "main", nullptr };
+    const VkPipelineShaderStageCreateInfo fragmentInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fragmentShaderModule, "main", nullptr };
     const VkPipelineShaderStageCreateInfo shader_stages[2]
     {
-        VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertexShader, "main", nullptr },
-        VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fragmentShader, "main", nullptr }
+        vertexInfo,
+        fragmentInfo
     };
 
     constexpr static VkVertexInputBindingDescription vertex_binding
@@ -466,7 +425,7 @@ void VulkanTriangle::setupPipeline()
 
     const VkFormat color_formats[1]
     {
-        vprObjects.swapchain->ColorFormat()
+        
     };
 
     const VkPipelineRenderingCreateInfo rendering_info
@@ -482,7 +441,7 @@ void VulkanTriangle::setupPipeline()
 
     BasicPipelineCreateInfo pipelineCreateInfo
     {
-        vprObjects.device,
+        device,
         0,
         2,
         shader_stages,
@@ -498,6 +457,8 @@ void VulkanTriangle::setupPipeline()
 
 void VulkanTriangle::recordCommands()
 {
+    using namespace math;
+    using namespace rhi;
 
     constexpr static VkCommandBufferBeginInfo begin_info
     {
@@ -513,18 +474,20 @@ void VulkanTriangle::recordCommands()
         VkClearValue{ 1.0f, 0 }
     };
 
+    const Float2 swapchainExtent = swapchain->GetExtent();
+
     const VkRect2D render_area
     { 
         VkOffset2D{ 0, 0 },
-        VkExtent2D{ vprObjects.swapchain->Extent() }
+        VkExtent2D{ static_cast<uint32_t>(swapchainExtent.x), static_cast<uint32_t>(swapchainExtent.y) }
     };
 
     const VkViewport viewport
     {
         0.0f,
         0.0f,
-        static_cast<float>(vprObjects.swapchain->Extent().width),
-        static_cast<float>(vprObjects.swapchain->Extent().height),
+        static_cast<float>(swapchainExtent.x),
+        static_cast<float>(swapchainExtent.y),
         0.0f,
         1.0f
     };
@@ -534,8 +497,8 @@ void VulkanTriangle::recordCommands()
         render_area
     };
 
-    VkImage currentFrameBufferImage = vprObjects.swapchain->Image(currentAcquiredImage);
-    VkImageView currentFrameBufferImageView = vprObjects.swapchain->ImageView(currentAcquiredImage);
+    VkImage currentFrameBufferImage = reinterpret_cast<VkImage>(swapchain->ImageHandle(currentAcquiredImage));
+    VkImageView currentFrameBufferImageView = reinterpret_cast<VkImageView>(swapchain->ImageViewHandle(currentAcquiredImage));
     // color attachment image index is based on what we acquire from the API call, depth stencil we just round-robin
     VkImage currentDepthStencilImage = depthStencils[currentFrame].Image;
     VkImageView currentDepthStencilImageView = depthStencils[currentFrame].View;
@@ -666,10 +629,12 @@ void VulkanTriangle::recordCommands()
 
     {
         
-        VkCommandBuffer currentBuffer = drawCmdBuffers[currentFrame];
-        VkResult result = VK_SUCCESS;
-        result = vkBeginCommandBuffer(drawCmdBuffers[currentFrame], &begin_info);
-        VkAssert(result);
+        CommandBuffer currCmdBuffer = commandPool->GetCommandBuffer(currentFrame);
+        rhi::Result result = rhi::Result::Success();
+
+        result = currCmdBuffer.Begin();
+        RhiAssert(result);
+            const VkCommandBuffer currentBuffer = currCmdBuffer.Handle().As<VkCommandBuffer>();
             vkCmdPipelineBarrier2(currentBuffer, &dependency_info0);
             vkCmdBeginRendering(currentBuffer, &renderingInfo);
             vkCmdBindPipeline(currentBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -682,8 +647,8 @@ void VulkanTriangle::recordCommands()
             vkCmdDrawIndexed(currentBuffer, Indices.count, 1, 0, 0, 0);
             vkCmdEndRendering(currentBuffer);
             vkCmdPipelineBarrier2(currentBuffer, &dependency_info1);
-        result = vkEndCommandBuffer(currentBuffer);
-        VkAssert(result);
+        result = currCmdBuffer.End();
+        RhiAssert(result);
     }
 
 }
@@ -692,8 +657,8 @@ void VulkanTriangle::draw()
 {
 
     constexpr static VkPipelineStageFlags waitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSemaphore imageAcquireSemaphore = imageAcquireSemaphores[currentFrame]->vkHandle();
-    VkSemaphore renderCompleteSemaphore = renderCompleteSemaphores[currentFrame]->vkHandle();
+    VkSemaphore imageAcquireSemaphore = imageAvailableSemaphores[currentFrame];
+    VkSemaphore renderCompleteSemaphore = renderFinishedSemaphores[currentFrame];
 
     const VkSemaphoreSubmitInfo imageAcquireSemaphoreInfo
     {
@@ -715,11 +680,12 @@ void VulkanTriangle::draw()
         0
     };
 
+    VkCommandBuffer currentCmdBuffer = commandPool->GetCommandBuffer(currentFrame).As<VkCommandBuffer>();
     const VkCommandBufferSubmitInfo cmdBufferSubmitInfo
     {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
         nullptr,
-        drawCmdBuffers[currentFrame],
+        currentCmdBuffer,
         0
     };
 
@@ -736,9 +702,13 @@ void VulkanTriangle::draw()
         &renderCompleteSemaphoreInfo
     };
 
-    VkQueue graphicsQueue = vprObjects.device->GraphicsQueue();
-    VkResult result = vkQueueSubmit2(graphicsQueue, 1, &submission2, endFrameFences[currentFrame]->vkHandle());
-    VkAssert(result);
+    VkQueue graphicsQueue = device->GetGraphicsQueue(0).As<VkQueue>();
+    VkResult result = vkQueueSubmit2(graphicsQueue, 1, &submission2, inFlightFences[currentFrame]);
+    if (result != VK_SUCCESS)
+    {
+        // handle submission failure (e.g., by recreating the swapchain)
+        throw std::runtime_error("Failed to submit draw command buffer!");
+    }
 }
 
 void VulkanTriangle::endFrame()
@@ -749,8 +719,9 @@ void VulkanTriangle::endFrame()
 void VulkanTriangle::update()
 {
     constexpr float radians_ratio = std::numbers::pi_v<float> / 180.0f;
-    const float window_width = static_cast<float>(vprObjects.swapchain->Extent().width);
-    const float window_height = static_cast<float>(vprObjects.swapchain->Extent().height);
+    const math::Float2 windowSize = swapchain->GetExtent();
+    const float window_width = static_cast<float>(windowSize.x);
+    const float window_height = static_cast<float>(windowSize.y);
     math::Matrix projection_matrix = math::Matrix::PerspectiveRH(60.0f * radians_ratio, window_width / window_height, 0.1f, 300.0f);
     //projection_matrix = projection_matrix.Transpose(); // Vulkan expects column-major matrices
     // need to set [1][1] *= -1.0f to flip the Y axis
@@ -763,7 +734,7 @@ void VulkanTriangle::update()
     uboDataVS.model = Float4x4::Identity();
 
     void* p_data;
-    vkMapMemory(vprObjects.device->vkHandle(), uniformBufferVS.memory, 0, sizeof(uboDataVS), 0, &p_data);
+    vkMapMemory(vkDevice, uniformBufferVS.memory, 0, sizeof(uboDataVS), 0, &p_data);
     memcpy(p_data, &uboDataVS, sizeof(uboDataVS));
-    vkUnmapMemory(vprObjects.device->vkHandle(), uniformBufferVS.memory);
+    vkUnmapMemory(vkDevice, uniformBufferVS.memory);
 }
