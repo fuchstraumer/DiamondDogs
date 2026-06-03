@@ -205,6 +205,7 @@ function(copy_slang_dlls_to_target TARGET_NAME)
     # These are built by Slang and required at runtime
     set(SLANG_DLL_NAMES
         "slang.dll"
+        "slang.pdb"
         "dxcompiler.dll"
         "dxil.dll"
         "d3dcompiler_47.dll"
