@@ -38,4 +38,4 @@ ADD_CUSTOM_COMMAND(TARGET resource_context_test POST_BUILD COMMAND ${CMAKE_COMMA
     -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/../../../assets/ResourceContextTestAssets/" "${CMAKE_CURRENT_BINARY_DIR}/")
 
 # Copy Slang DLLs since resource_context depends on rhi_system which uses Slang
-COPY_SLANG_DLLS_TO_INTEGRATION_TEST(resource_context_test)
+copy_slang_dlls_to_target(resource_context_test)

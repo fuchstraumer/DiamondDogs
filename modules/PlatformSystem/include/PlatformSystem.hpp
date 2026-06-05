@@ -44,7 +44,6 @@ public:
     void CreateDefaultSwapchain(void* rhiInstance, void* rhiDevice);
     void CreateSwapchain(const SwapchainCreateInfo& createInfo);
     void DestroySwapchain();
-    // Returns `VkSwapchainKHR` as `void*`, or nullptr if no swapchain is active (for now)
     const Swapchain* GetActiveSwapchain() const noexcept;
 
     void AddCursorPosEventListener(CursorPosEvent listener, void* userData);
