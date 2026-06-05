@@ -29,7 +29,7 @@ endfunction()
 
 #add_subdirectory(ecs_module)
 #add_subdirectory(rendergraph_module)
-add_subdirectory(TaskGraph)
+#add_subdirectory(TaskGraph)  # Shelved - coroutine-based task system for later
 add_subdirectory(RhiSystem)
 add_subdirectory(PlatformSystem)
 add_subdirectory(RhiResources)

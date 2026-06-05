@@ -2,7 +2,6 @@
 #include "Swapchain.hpp"
 #include "PlatformSystem.hpp"
 #include "events/DisplayEvents.hpp"
-#include "PhysicalDevice.hpp"
 #include "Device.hpp"
 #include <GLFW/glfw3.h>
 #include <stdexcept>
@@ -28,6 +27,9 @@ namespace std
         }
     };
 }
+
+// needed as otherwise sType and pNext would be uninitialized and cause validation errors when we query for capabilities with extended structures
+constexpr static VkSurfaceCapabilities2KHR DefaultSurfaceCapabilities2KHR = { VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR, nullptr };
 
 static const std::unordered_map<VkSurfaceFormatKHR, size_t> s_VkSurfaceFormatScores
 {
@@ -210,7 +212,7 @@ bool operator==(const VkSurfaceFormat2KHR& vkSurfaceFormat, const AppSurfaceForm
     return (vkSurfaceFormat.surfaceFormat.format == appVkFormat) && (vkSurfaceFormat.surfaceFormat.colorSpace == appColorSpace);
 }
 
-SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sfc)
+SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sfc) : capabilities(DefaultSurfaceCapabilities2KHR)
 {
     const VkPhysicalDeviceSurfaceInfo2KHR surfaceInfo = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR, nullptr, sfc };
     // Query surface capabilities
@@ -339,7 +341,7 @@ SwapchainImpl::SwapchainImpl(const SwapchainCreateInfo& createInfo) :
     OldSwapchain(VK_NULL_HANDLE)
 {
     rhi::Device* device = reinterpret_cast<rhi::Device*>(createInfo.RhiDevice);
-    ParentDevice = device->vkHandle();
+    ParentDevice = device->Handle().As<VkDevice>();
     Create(createInfo);
 }
 
@@ -381,7 +383,7 @@ VkSwapchainCreateInfoKHR SwapchainImpl::GetCreateInfo(const SwapchainCreateInfo&
 void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
 {
     rhi::Device* device = reinterpret_cast<rhi::Device*>(createInfo.RhiDevice);
-    VkPhysicalDevice physicalDevice = device->GetPhysicalDevice().vkHandle();
+    VkPhysicalDevice physicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
     VkSurfaceKHR surface = reinterpret_cast<VkSurfaceKHR>(createInfo.VkSurfaceHandle);
 
     Info = std::make_unique<SwapchainInfo>(physicalDevice, surface);

@@ -20,10 +20,10 @@ public struct SpotLight
     float4 Direction;
     float4 DirectionViewSpace;
     float3 Color;
+    float SpotLightAngle;
     float Range;
     float Intensity;
     bool Enabled;
-    float Padding;
 }
 
 // 64 bytes

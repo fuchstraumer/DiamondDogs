@@ -1,55 +1,62 @@
 #include "TriangleTest.hpp"
-#include "RenderingContext.hpp"
-
-static void SwapchainCreatedCallback(VkSwapchainKHR swapchain, uint32_t width, uint32_t height, void* user_data)
-{
-}
-
-static void BeginRecreateCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* user_data)
-{
-    auto& tri = VulkanTriangle::GetScene();
-    tri.Destroy();
-}
-
-static void CompleteResizeCallback(VkSwapchainKHR handle, uint32_t width, uint32_t height, void* user_data)
-{
-    auto& tri = VulkanTriangle::GetScene();
-    auto& context = RenderingContext::Get();
-    RequiredVprObjects objects
-    {
-        context.Device(), context.PhysicalDevice(), context.Instance(), context.Swapchain()
-    };
-    tri.Construct(objects, nullptr);
-}
-
-static void SwapchainDestroyedCallback(VkSwapchainKHR swapchain, void* user_data)
-{
-}
+#include "RhiSystem.hpp"
+#include "PlatformSystem.hpp"
+#include <iostream>
+#include <stdexcept>
 
 int main(int argc, char* argv[])
 {
-
-    RenderingContext& renderer_context = RenderingContext::Get();
-    renderer_context.Construct("RendererContextCfg.json");
-
-    SwapchainCallbacks callbacks;
-    callbacks.SwapchainCreated = SwapchainCreatedCallbackType::create<&SwapchainCreatedCallback>();
-    callbacks.BeginResize = SwapchainBeginResizeCallbackType::create<&BeginRecreateCallback>();
-    callbacks.CompleteResize = SwapchainCompleteResizeCallbackType::create<&CompleteResizeCallback>();
-    callbacks.SwapchainDestroyed = SwapchainDestroyedCallbackType::create<&SwapchainDestroyedCallback>();
-    renderer_context.AddSwapchainCallbacks(callbacks);
-
-    auto& triangle = VulkanTriangle::GetScene();
-    RequiredVprObjects objects
+    try
     {
-        renderer_context.Device(), renderer_context.PhysicalDevice(), renderer_context.Instance(), renderer_context.Swapchain()
-    };
-    triangle.Construct(objects, nullptr);
+        // Initialize RHI system
+        rhi::RhiSystemCreateInfo rhiCreateInfo{};
+        rhiCreateInfo.ApplicationName = "TriangleTest";
+        rhiCreateInfo.VkVersion = rhi::ApiVersion::Latest;
+        rhiCreateInfo.ValidationLevel = rhi::ValidationLayers::BaseOnly;
+        rhiCreateInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils", "VK_KHR_surface", "VK_KHR_win32_surface", "VK_KHR_get_surface_capabilities2", "VK_EXT_swapchain_colorspace" };
+        rhiCreateInfo.RequiredDeviceExtensions = { "VK_KHR_swapchain" };
 
-    while (!renderer_context.ShouldWindowClose())
+        auto rhiSystem = std::make_unique<rhi::RhiSystem>(rhiCreateInfo);
+
+        // Initialize platform window system with swapchain
+        PlatformWindowCreateInfo platformCreateInfo
+        {
+            "DiamondDogs - Triangle Test",
+            nullptr, // use primary display
+            PlatformWindowMode::Windowed,
+            1280,
+            720,
+            100,
+            100,
+            60.0f,
+            PlatformWindowBehaviorFlags{ true, true, true, false, false }
+        };
+
+        auto platformSystem = std::make_unique<PlatformWindowSystem>(platformCreateInfo);
+        
+        // Create swapchain after window is created
+        platformSystem->CreateDefaultSwapchain(rhiSystem->GetInstance(), rhiSystem->GetDevice());
+
+        // Create triangle renderer
+        VulkanTriangle triangle(rhiSystem.get(), platformSystem.get());
+        triangle.Initialize(nullptr);
+
+        // Main loop
+        while (!platformSystem->ShouldWindowClose())
+        {
+            platformSystem->Update();
+            triangle.Render(nullptr);
+        }
+
+        // Cleanup
+        triangle.Destroy();
+        platformSystem->DestroySwapchain();
+    }
+    catch (const std::exception& e)
     {
-        renderer_context.Update();
-        triangle.Render(nullptr);
+        std::cerr << "Fatal error: " << e.what() << std::endl;
+        return 1;
     }
 
+    return 0;
 }

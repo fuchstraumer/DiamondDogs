@@ -26,6 +26,9 @@ function(add_unit_test_target TARGET_NAME TEST_SOURCES LINK_LIBRARIES)
     
     target_compile_options(${TARGET_NAME} PRIVATE ${UNIT_TEST_COMPILE_OPTIONS})
     
+    # Include the generated header directory for SourcePaths.hpp
+    target_include_directories(${TARGET_NAME} PRIVATE "${CMAKE_BINARY_DIR}/include")
+    
     target_link_libraries(${TARGET_NAME} 
         ${UNIT_TEST_LINK_LIBRARIES}
         ${LINK_LIBRARIES})
@@ -41,6 +44,12 @@ function(add_unit_test_target TARGET_NAME TEST_SOURCES LINK_LIBRARIES)
     
     # Discover and register tests with CTest
     gtest_discover_tests(${TARGET_NAME})
+
+    # Check if this test links against rhi_system (which depends on Slang)
+    # If so, automatically copy Slang DLLs to the test output directory
+    if("${LINK_LIBRARIES}" MATCHES "rhi_system")
+        copy_slang_dlls_to_target(${TARGET_NAME})
+    endif()
 endfunction()
 
 # Add subdirectories for each module's tests

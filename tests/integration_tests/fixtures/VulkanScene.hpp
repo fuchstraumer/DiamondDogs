@@ -1,48 +1,39 @@
 #pragma once
 #ifndef VULKAN_SCENE_TEST_FIXTURE_HPP
 #define VULKAN_SCENE_TEST_FIXTURE_HPP
+#include <vulkan/vulkan_core.h>
 #include <cstdint>
 #include <chrono>
 #include <memory>
 #include <vector>
 
-namespace vpr
+namespace rhi
 {
+    class RhiSystem;
     class Device;
-    class PhysicalDevice;
-    class Instance;
-    class Swapchain;
-    class Semaphore;
-    class Fence;
 }
 
-struct RequiredVprObjects
-{
-    vpr::Device* device;
-    vpr::PhysicalDevice* physicalDevice;
-    vpr::Instance* instance;
-    vpr::Swapchain* swapchain;
-};
+class PlatformWindowSystem;
+class Swapchain;
 
 class VulkanScene
 {
 protected:
-    VulkanScene();
     virtual ~VulkanScene();
     VulkanScene(const VulkanScene&) = delete;
     VulkanScene& operator=(const VulkanScene&) = delete;
 public:
+    VulkanScene(rhi::RhiSystem* rhiSystem, PlatformWindowSystem* platformSystem);
 
-    virtual void Construct(RequiredVprObjects vpr_objects, void* user_data) = 0;
+    virtual void Initialize(void* user_data) = 0;
     virtual void Destroy() = 0;
     virtual void Render(void* user_data);
-    size_t CurrentFrameBufferIdx() const;
+    size_t CurrentFramebufferIdx() const;
 
 protected:
 
     void createFrameSyncObjects();
     void destroyFrameSyncObjects();
-    void setupSwapchainDebugInfo();
 
     virtual void beginFrame();
     virtual void limitFrame();
@@ -58,11 +49,18 @@ protected:
     uint32_t currentFrame; // Index of the current frame, but *NOT* the current framebuffer
     uint32_t currentAcquiredImage;
     uint32_t numFramebuffers;
-    RequiredVprObjects vprObjects;
-    std::vector<std::unique_ptr<vpr::Semaphore>> imageAcquireSemaphores;
-    std::vector<std::unique_ptr<vpr::Semaphore>> renderCompleteSemaphores;
+    
+    rhi::RhiSystem* rhiSystem{ nullptr };
+    rhi::Device* device{ nullptr };
+    // shortcutting to Vulkan device handle for convenience, even though we have RHI device
+    VkDevice vkDevice{ VK_NULL_HANDLE };
+    PlatformWindowSystem* platformSystem{ nullptr };
+    const Swapchain* swapchain{ nullptr };
+    VkPhysicalDevice vkPhysicalDevice{ VK_NULL_HANDLE };
+    std::vector<VkSemaphore> imageAvailableSemaphores;
+    std::vector<VkSemaphore> renderFinishedSemaphores;
+    std::vector<VkFence> inFlightFences;
     std::vector<bool> firstFrame;
-    std::vector<std::unique_ptr<vpr::Fence>> endFrameFences;
 
 };
 

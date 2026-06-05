@@ -1,0 +1,37 @@
+#pragma once
+
+#include <string_view>
+#include <filesystem>
+
+namespace DiamondDogs
+{
+    // Source tree root directory (absolute path)
+    constexpr std::string_view SOURCE_ROOT_DIR = "@CMAKE_CURRENT_SOURCE_DIR@";
+    
+    // Assets directory (absolute path)
+    constexpr std::string_view ASSETS_DIR = "@CMAKE_CURRENT_SOURCE_DIR@/assets";
+    
+    // Helper function to get source root as filesystem path
+    inline std::filesystem::path GetSourceRootPath()
+    {
+        return std::filesystem::path{ SOURCE_ROOT_DIR };
+    }
+    
+    // Helper function to get assets directory as filesystem path
+    inline std::filesystem::path GetAssetsPath()
+    {
+        return std::filesystem::path{ ASSETS_DIR };
+    }
+    
+    // Helper function to get path relative to source root
+    inline std::filesystem::path GetSourceRelativePath(const std::filesystem::path& relativePath)
+    {
+        return GetSourceRootPath() / relativePath;
+    }
+    
+    // Helper function to get path relative to assets directory
+    inline std::filesystem::path GetAssetPath(const std::filesystem::path& assetRelativePath)
+    {
+        return GetAssetsPath() / assetRelativePath;
+    }
+}

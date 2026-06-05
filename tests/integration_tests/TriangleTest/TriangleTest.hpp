@@ -4,18 +4,22 @@
 #include "VulkanScene.hpp"
 #include "CommonCreationFunctions.hpp"
 #include "Math.hpp"
+#include "ShaderObject.hpp"
 #include <vector>
+
+namespace rhi
+{
+    class CommandPool;
+}
 
 class VulkanTriangle : public VulkanScene
 {
-protected:
-    VulkanTriangle();
-    ~VulkanTriangle();
 public:
 
-    static VulkanTriangle& GetScene();
+    VulkanTriangle(rhi::RhiSystem* rhiSystem, PlatformWindowSystem* platformSystem);
+    ~VulkanTriangle();
 
-    void Construct(RequiredVprObjects objects, void* user_data) final;
+    void Initialize(void* user_data) final;
     void Destroy() final;
 
 protected:
@@ -28,7 +32,6 @@ protected:
     void prepareVertices();
     void setupUniformBuffer();
     void setupCommandPool();
-    void setupCommandBuffers();
     void setupDescriptorPool();
     void setupLayouts();
     void setupDescriptorSet();
@@ -76,10 +79,9 @@ protected:
     VkDescriptorSet descriptorSet;
     VkDescriptorPool descriptorPool;
     VkSubmitInfo submitInfo;
-    VkCommandPool commandPool;
-    VkShaderModule vertexShader = VK_NULL_HANDLE;
-    VkShaderModule fragmentShader = VK_NULL_HANDLE;
-    std::vector<VkCommandBuffer> drawCmdBuffers;
+    std::unique_ptr<rhi::CommandPool> commandPool;
+    rhi::ShaderObject vertexShader;
+    rhi::ShaderObject fragmentShader;
 
     bool setup = false;
 };

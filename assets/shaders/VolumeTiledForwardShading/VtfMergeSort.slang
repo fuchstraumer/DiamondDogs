@@ -4,14 +4,14 @@ __include VtfTypes;
 [SpecializationConstant]
 const uint SortAlgorithm = 0;
 [SpecializationConstant]
-const uint NumThreadsX = 256;
+const uint MergeSortNumThreadsX = 256;
 [SpecializationConstant]
-const uint NumValuesPerThread = 8;
+const uint MergeSortNumValuesPerThread = 8;
 
-static const uint NumValuesPerThreadGroup = NumThreadsX * NumValuesPerThread;
+static const uint MergeSortNumValuesPerThreadGroup = MergeSortNumThreadsX * MergeSortNumValuesPerThread;
 
-internal groupshared uint gs_Keys[NumValuesPerThreadGroup];
-internal groupshared uint gs_Values[NumValuesPerThreadGroup];
+internal groupshared uint gs_Keys[MergeSortNumValuesPerThreadGroup];
+internal groupshared uint gs_Values[MergeSortNumValuesPerThreadGroup];
 
 struct MergeSortParams
 {
@@ -130,7 +130,7 @@ internal void MergePathPartitionsFn(
     uint numSortGroups = numChunks / 2;
 
     // total number of "partitions" per group, then we find index of work group thread is in
-    uint numPartitionsPerSortGroup = uint(ceil(numValuesPerSortGroup / float(NumValuesPerThreadGroup))) + 1;
+    uint numPartitionsPerSortGroup = uint(ceil(numValuesPerSortGroup / float(MergeSortNumValuesPerThreadGroup))) + 1;
     uint sortGroup = globalInvocationIndex / numPartitionsPerSortGroup;
     uint partitionInSortGroup = globalInvocationIndex % numPartitionsPerSortGroup;
 
@@ -149,7 +149,7 @@ internal void MergePathPartitionsFn(
         // number of values to sort total in this sort group
         int numValues = aCount + bCount;
         // diagonal in the merge matrix we're building
-        int diag = int(min(partitionInSortGroup * NumValuesPerThreadGroup, numValues));
+        int diag = int(min(partitionInSortGroup * MergeSortNumValuesPerThreadGroup, numValues));
         // Find the right merge path for this partition
         int mergePath = MergePath(resources, a0, aCount, b0, bCount, diag, false);
 
@@ -173,7 +173,7 @@ internal void SerialMerge(
     bValue = gs_Values[b0];
 
     [unroll]
-    for (i = 0u; i < NumValuesPerThread && diag + i < numValues; ++i)
+    for (i = 0u; i < MergeSortNumValuesPerThread && diag + i < numValues; ++i)
     {
         if (b0 >= b1 || (a0 < a1 && aKey < bKey))
         {
@@ -210,7 +210,7 @@ internal void MergeSort(
     uint numSortGroups = max(numChunks / 2, 1);
     // find values per group, thread groups per group, and partitions per group
     uint numValuesPerSortGroup = min(chunkSize * 2, numElements);
-    uint numThreadGroupsPerSortGroup = uint(ceil(numValuesPerSortGroup / float(NumValuesPerThreadGroup)));
+    uint numThreadGroupsPerSortGroup = uint(ceil(numValuesPerSortGroup / float(MergeSortNumValuesPerThreadGroup)));
     uint numPartitionsPerSortGroup = numThreadGroupsPerSortGroup + 1;
     // use preceding information to find current sort-group and sub-partition of said group
     uint sortGroup = workGroupID.x / numThreadGroupsPerSortGroup;
@@ -221,8 +221,8 @@ internal void MergeSort(
     // Load required keys about merge paths to take from textures written to previously
     int mergePath0 = resources.MergePathPartitions[globalPartition];
     int mergePath1 = resources.MergePathPartitions[globalPartition + 1];
-    int diag0 = int(min(partitionVal * NumValuesPerThreadGroup, numValuesPerSortGroup));
-    int diag1 = int(min((partitionVal + 1) * NumValuesPerThreadGroup, numValuesPerSortGroup));
+    int diag0 = int(min(partitionVal * MergeSortNumValuesPerThreadGroup, numValuesPerSortGroup));
+    int diag1 = int(min((partitionVal + 1) * MergeSortNumValuesPerThreadGroup, numValuesPerSortGroup));
 
     // Compute chunk ranges in current input set
     int chunkOffsetA0 = int(min(sortGroup * numValuesPerSortGroup, numElements));
@@ -245,11 +245,11 @@ internal void MergeSort(
     int numB = min(b1 - b0, chunkSizeB);
 
     // diagonal for this particular thread
-    int diag = int(localInvocationIndex * NumValuesPerThread);
+    int diag = int(localInvocationIndex * MergeSortNumValuesPerThread);
 
     // loading of keys and values into local memory
     [unroll]
-    for (i = 0; i < NumValuesPerThread; ++i)
+    for (i = 0; i < MergeSortNumValuesPerThread; ++i)
     {
         int a = a0 + diag + int(i);
         int b = b0 + (a - a1);
@@ -276,7 +276,7 @@ internal void MergeSort(
     SerialMerge(resources, mergePath, numA, numA + diag - mergePath, numA + numB, diag0 + diag, numValues, chunkOffsetA0);
 }
 
-[shader("compute")] [NumThreads(NumThreadsX, 1, 1)]
+[shader("compute")] [NumThreads(MergeSortNumThreadsX, 1, 1)]
 void MergeSortCompute(
     uint3 dispatchThreadID: SV_DispatchThreadID,
     uint3 workGroupID: SV_GroupID,

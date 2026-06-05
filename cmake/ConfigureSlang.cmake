@@ -11,13 +11,19 @@ set(SLANG_ENABLE_GFX OFF CACHE BOOL "Enable gfx targets")
 set(SLANG_ENABLE_SLANGD OFF CACHE BOOL "Enable language server target")
 set(SLANG_ENABLE_SLANGC OFF CACHE BOOL "Enable standalone compiler target")
 set(SLANG_ENABLE_SLANGI OFF CACHE BOOL "Enable Slang interpreter target")
-set(SLANG_ENABLE_SLANG_GLSLANG OFF CACHE BOOL "Enable glslang dependency and slang-glslang wrapper target")
 set(SLANG_ENABLE_TESTS OFF CACHE BOOL "Enable test targets, some tests may require SLANG_ENABLE_GFX, SLANG_ENABLE_SLANGD or SLANG_ENABLE_SLANGRT")
 set(SLANG_ENABLE_EXAMPLES OFF CACHE BOOL "Enable example targets, requires SLANG_ENABLE_GFX")
 set(SLANG_ENABLE_REPLAYER OFF CACHE BOOL "Enable slang-replay tool")
 set(SLANG_ENABLE_SLANG_RHI OFF CACHE BOOL "Use slang-rhi as dependency")
 set(SLANG_EXCLUDE_DAWN ON CACHE BOOL "Optionally exclude webgpu_dawn from the build")
 set(SLANG_EXCLUDE_TINT ON CACHE BOOL "Optionally exclude slang-tint from the build")
+
+# Disable Slang's mimalloc for SPIRV-Tools to avoid duplicate target conflicts
+# DiamondDogs uses its own mimalloc from third_party/mimalloc
+set(SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC OFF CACHE BOOL "Disable mimalloc for SPIRV-Tools to avoid conflicts")
+
+# Use Slang's bundled Vulkan headers instead of system headers to avoid path issues
+set(SLANG_USE_SYSTEM_VULKAN_HEADERS OFF CACHE BOOL "Use Slang's bundled Vulkan headers")
 
 # Function to organize all Slang targets into IDE folders
 function(organize_slang_targets)
@@ -180,4 +186,39 @@ function(organize_slang_targets)
     if(TARGET slang-llvm)
         set_target_properties(slang-llvm PROPERTIES FOLDER "third_party/slang/external")
     endif()
+endfunction()
+
+# Function to copy Slang runtime DLLs to target output directory
+# This ensures executables can find slang.dll and its dependencies at runtime
+function(copy_slang_dlls_to_target TARGET_NAME)
+    if(NOT TARGET ${TARGET_NAME})
+        message(WARNING "copy_slang_dlls_to_target: Target ${TARGET_NAME} does not exist")
+        return()
+    endif()
+
+    if(NOT TARGET slang)
+        message(WARNING "copy_slang_dlls_to_target: slang target does not exist")
+        return()
+    endif()
+
+    # Define the list of DLLs that need to be copied
+    # These are built by Slang and required at runtime
+    set(SLANG_DLL_NAMES
+        "slang.dll"
+        "slang.pdb"
+        "dxcompiler.dll"
+        "dxil.dll"
+        "d3dcompiler_47.dll"
+    )
+
+    # For each DLL, add a post-build command to copy it to the target's output directory
+    foreach(DLL_NAME ${SLANG_DLL_NAMES})
+        add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_BINARY_DIR}/$<CONFIG>/bin/${DLL_NAME}"
+                "$<TARGET_FILE_DIR:${TARGET_NAME}>/${DLL_NAME}"
+            COMMENT "Copying ${DLL_NAME} to ${TARGET_NAME} output directory"
+            VERBATIM
+        )
+    endforeach()
 endfunction()

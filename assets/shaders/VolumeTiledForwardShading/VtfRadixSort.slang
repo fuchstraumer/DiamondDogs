@@ -21,12 +21,12 @@ internal static const uint UINT_MAX = 0xFFFFFFFFu;
 internal static const uint NumBits = 32u;
 
 [shader("compute")][NumThreads(RadixSortNumThreads, 1, 1)]
-void VtfRadixSort_NoWaveOps(
+public void VtfRadixSort_NoWaveOps(
     uint localInvocationIndex : SV_GroupIndex,
-    const uint* InputKeys,
-    const uint* InputValues,
-    uint* OutputKeys,
-    uint* OutputValues,
+    uniform uint* InputKeys,
+    uniform uint* InputValues,
+    uniform uint* OutputKeys,
+    uniform uint* OutputValues,
     uniform uint NumElements)
 {
     // Initialize keys and values in shared memory
@@ -99,12 +99,12 @@ void VtfRadixSort_NoWaveOps(
 // Way fewer barriers - 3 barriers per bit tested for a total of 96 sync points, vs 192 sync points in the non-wave version
 // also probably about 1kb reduction in shared memory usage, so hopefully higher occupancy
 [shader("compute")][NumThreads(RadixSortNumThreads, 1, 1)]
-void VtfRadixSort_WaveOps(
+public void VtfRadixSort(
     uint localInvocationIndex: SV_GroupIndex,
-    const uint *InputKeys,
-    const uint *InputValues,
-    uint *OutputKeys,
-    uint *OutputValues,
+    uniform uint* InputKeys,
+    uniform uint* InputValues,
+    uniform uint* OutputKeys,
+    uniform uint* OutputValues,
     uniform uint NumElements)
 {
     // Initialize keys and values in shared memory

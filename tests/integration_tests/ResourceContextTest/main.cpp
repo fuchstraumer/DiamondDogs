@@ -3,12 +3,14 @@
 #include "ResourceContext.hpp"
 #include "ResourceLoader.hpp"
 #include "PipelineCache.hpp"
+#include "SourcePaths.hpp"
 #include <iostream>
 
 #include <filesystem>
 namespace fs = std::filesystem;
 
-static const fs::path BasePath{ fs::current_path() };
+// Use the generated source paths instead of unreliable current_path()
+static const fs::path BasePath = DiamondDogs::GetAssetPath("ResourceContextTestAssets");
 static const fs::path ObjFilePath = BasePath / fs::path("House.obj");
 static const std::string HouseObjFile = ObjFilePath.string();
 static const fs::path HouseTexturePath = BasePath / fs::path("House.png");

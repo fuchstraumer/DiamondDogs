@@ -38,7 +38,8 @@ internal void BuildBottomPointLights(
     in uniform PointLight* pointLights,
     out AABB* pointLightBVH)
 {
-        // First, have each thread in the wave load a light and compute its AABB
+    const uint waveSize = WaveGetLaneCount();
+    // First, have each thread in the wave load a light and compute its AABB
     uint leafIdx = dispatchThreadIndex;
     uint lightIdx = 0;
     float3 minAABB = float3(FLT_MAX, FLT_MAX, FLT_MAX);
@@ -60,7 +61,7 @@ internal void BuildBottomPointLights(
     if (WaveIsFirstLane())
     {
         uint numLevels = numPointLightLevels;
-        uint nodeOffset = dispatchThreadIndex / WaveGetLaneCount();
+        uint nodeOffset = dispatchThreadIndex / waveSize;
 
         if (numLevels > 0 && nodeOffset < NumLevelNodes[numLevels - 1])
         {
@@ -165,7 +166,7 @@ internal void BuildUpperImpl(
 
         if (childLevel < numLevels && nodeOffset < NumLevelNodes[childLevel - 1])
         {
-            uint nodeIndex = FirstNodeIndex[childLevel + 1] + nodeOffset;
+            uint nodeIndex = FirstNodeIndex[childLevel - 1] + nodeOffset;
             lightBVH[nodeIndex].Min = waveMinAABB;
             lightBVH[nodeIndex].Max = waveMaxAABB;
         }
@@ -196,9 +197,9 @@ internal void BuildUpper(
 [SpecializationConstant]
 const uint BuildStage = 0; // 0 for bottom, 1 for upper
 [SpecializationConstant]
-const uint NumThreads_X = 32 * 16; // wave size * 16
+const uint BuildBvhNumThreadsX = 32 * 16; // wave size * 16
 
-internal struct ResourcePointers
+public struct VtfBuildBvhResourcePointers
 {
     AABB* PointLightBVH;
     AABB* SpotLightBVH;
@@ -211,8 +212,8 @@ internal struct ResourcePointers
 }
 
 // ChildLevel should automatically be made a push constant by the compiler
-[shader("compute")][NumThreads(NumThreads_X, 1, 1)]
-void BuildBVH(uint3 dispatchThreadID : SV_DispatchThreadID, uniform ResourcePointers resources, uniform uint childLevel)
+[shader("compute")][NumThreads(BuildBvhNumThreadsX, 1, 1)]
+public void VtfBuildBVH(uint3 dispatchThreadID : SV_DispatchThreadID, uniform VtfBuildBvhResourcePointers resources, uniform uint childLevel)
 {
     switch (BuildStage)
     {

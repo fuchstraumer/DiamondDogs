@@ -45,3 +45,14 @@ public struct DrawIndexedIndirectArgs
     public int VertexOffset; // signed to allow negative offsets
     public uint FirstInstance;
 }
+
+// Core common view and projection matrices + their inverses for use across all shaders in this codebase
+public struct CommonMatrices
+{
+    public float4x4 viewMatrix;
+    public float4x4 projectionMatrix;
+    public float4x4 viewProjectionMatrix;
+    public float4x4 inverseViewMatrix;
+    public float4x4 inverseProjectionMatrix;
+    public float4x4 inverseViewProjectionMatrix;
+}

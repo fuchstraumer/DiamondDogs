@@ -24,16 +24,16 @@ public:
     /** @brief Required as part of the swapchain lifecycle, for handling recreation events */
     void Destroy();
 
-    /** @brief Get the native swapchain handle. @return `VkSwapchainKHR` as `const void*` */
-    const void* GetNativeHandle() const noexcept;
+    /** @brief Get the native swapchain handle. @return `VkSwapchainKHR` as `void*` */
+    void* GetNativeHandle() const noexcept;
 
     math::Float2 GetExtent() const noexcept;
     uint32_t ImageCount() const noexcept;
-    ImageFormat GetImageFormat() const noexcept;
+    ImageFormat ImageFormat() const noexcept;
     ColorSpace ColorSpace() const noexcept;
-    PresentMode GetPresentMode() const noexcept;
-    const void* GetImageHandle(uint32_t index) const noexcept;
-    const void* GetImageViewHandle(uint32_t index) const noexcept;
+    PresentMode PresentMode() const noexcept;
+    void* ImageHandle(uint32_t index) const noexcept;
+    void* ImageViewHandle(uint32_t index) const noexcept;
 
 private:
     std::unique_ptr<SwapchainImpl> impl;

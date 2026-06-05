@@ -1,13 +1,61 @@
 #include "CommonCreationFunctions.hpp"
-#include "LogicalDevice.hpp"
-#include "PhysicalDevice.hpp"
+#include "Device.hpp"
 #include "Swapchain.hpp"
-#include "vkAssert.hpp"
+#include "RhiResult.hpp"
+#include "RhiAssert.hpp"
 #include <vector>
 
 #if defined(_MSC_VER) && !defined(strdup)
 #define strdup _strdup
 #endif
+
+// used to have this in VPR device, but now that we have an API abstracted RHI device it doesn't belong there anymore
+// handling depth format choice and query is TBD for the rest of our cod3ebase, but for now this is fine for our test fixtures.
+VkFormat FindSupportedFormat(const rhi::Device* device, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
+{
+    for (VkFormat format : candidates)
+    {
+        VkFormatProperties props;
+        vkGetPhysicalDeviceFormatProperties(device->GetPhysicalDevice().As<VkPhysicalDevice>(), format, &props);
+
+        if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
+        {
+            return format;
+        }
+        else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features)
+        {
+            return format;
+        }
+    }
+
+    throw std::runtime_error("Failed to find supported format!");
+}
+
+VkImageTiling GetFormatTiling(const rhi::Device* device, VkFormat format, VkFormatFeatureFlags features)
+{
+    VkFormatProperties props;
+    vkGetPhysicalDeviceFormatProperties(device->GetPhysicalDevice().As<VkPhysicalDevice>(), format, &props);
+
+    if ((props.linearTilingFeatures & features) == features)
+    {
+        return VK_IMAGE_TILING_LINEAR;
+    }
+    else if ((props.optimalTilingFeatures & features) == features)
+    {
+        return VK_IMAGE_TILING_OPTIMAL;
+    }
+    else
+    {
+        throw std::runtime_error("Requested format does not support required features with either tiling!");
+    }
+}
+
+const static std::vector<VkFormat> DepthFormats =
+{
+    VK_FORMAT_D32_SFLOAT,
+    VK_FORMAT_D32_SFLOAT_S8_UINT,
+    VK_FORMAT_D24_UNORM_S8_UINT
+};
 
 struct PipelineExecutableFunctions
 {
@@ -33,10 +81,10 @@ static PipelineExecutableFunctions& GetPipelineExecutableFunctions(const VkDevic
     return functions;
 }
 
-DepthStencil CreateDepthStencil(const vpr::Device* device, const vpr::PhysicalDevice* physical_device, const vpr::Swapchain* swapchain)
+DepthStencil CreateDepthStencil(const rhi::Device* device, const Swapchain* swapchain)
 {
     DepthStencil depth_stencil;
-    depth_stencil.Format = device->FindDepthFormat();
+    depth_stencil.Format = FindSupportedFormat(device, DepthFormats, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 
     const VkImageCreateInfo image_info
     {
@@ -45,11 +93,11 @@ DepthStencil CreateDepthStencil(const vpr::Device* device, const vpr::PhysicalDe
         0,
         VK_IMAGE_TYPE_2D,
         depth_stencil.Format,
-        VkExtent3D{ swapchain->Extent().width, swapchain->Extent().height, 1 },
+        VkExtent3D{ static_cast<uint32_t>(swapchain->GetExtent().x), static_cast<uint32_t>(swapchain->GetExtent().y), 1 },
         1,
         1,
         VK_SAMPLE_COUNT_1_BIT,
-        device->GetFormatTiling(depth_stencil.Format, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
+        GetFormatTiling(device, depth_stencil.Format, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
         VK_SHARING_MODE_EXCLUSIVE,
         0,
@@ -57,19 +105,20 @@ DepthStencil CreateDepthStencil(const vpr::Device* device, const vpr::PhysicalDe
         VK_IMAGE_LAYOUT_UNDEFINED
     };
 
+    VkDevice vkDevice = device->Handle().As<VkDevice>();
     VkResult result = VK_SUCCESS;
-    result = vkCreateImage(device->vkHandle(), &image_info, nullptr, &depth_stencil.Image);
-    VkAssert(result);
+    result = vkCreateImage(vkDevice, &image_info, nullptr, &depth_stencil.Image);
+    RhiAssert(result);
 
     VkMemoryAllocateInfo alloc_info{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr };
     VkMemoryRequirements memreqs{};
-    vkGetImageMemoryRequirements(device->vkHandle(), depth_stencil.Image, &memreqs);
+    vkGetImageMemoryRequirements(vkDevice, depth_stencil.Image, &memreqs);
     alloc_info.allocationSize = memreqs.size;
-    alloc_info.memoryTypeIndex = device->GetMemoryTypeIdx(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    result = vkAllocateMemory(device->vkHandle(), &alloc_info, nullptr, &depth_stencil.Memory);
-    VkAssert(result);
-    result = vkBindImageMemory(device->vkHandle(), depth_stencil.Image, depth_stencil.Memory, 0);
-    VkAssert(result);
+    alloc_info.memoryTypeIndex = device->GetMemoryTypeIndex(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    result = vkAllocateMemory(vkDevice, &alloc_info, nullptr, &depth_stencil.Memory);
+    RhiAssert(result);
+    result = vkBindImageMemory(vkDevice, depth_stencil.Image, depth_stencil.Memory, 0);
+    RhiAssert(result);
 
     const VkImageViewCreateInfo view_info
     {
@@ -83,8 +132,8 @@ DepthStencil CreateDepthStencil(const vpr::Device* device, const vpr::PhysicalDe
         VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
     };
 
-    result = vkCreateImageView(device->vkHandle(), &view_info, nullptr, &depth_stencil.View);
-    VkAssert(result);
+    result = vkCreateImageView(vkDevice, &view_info, nullptr, &depth_stencil.View);
+    RhiAssert(result);
 
     return depth_stencil;
 }
@@ -229,16 +278,16 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
         -1
     };
 
-    VkResult result = vkCreateGraphicsPipelines(createInfo.device->vkHandle(), createInfo.pipelineCache, 1, &pipeline_create_info, nullptr, &pipeline);
-    VkAssert(result);
+    VkDevice vkDevice = createInfo.device->Handle().As<VkDevice>();
+    VkResult result = vkCreateGraphicsPipelines(vkDevice, createInfo.pipelineCache, 1, &pipeline_create_info, nullptr, &pipeline);
+    RhiAssert(result);
 
     return pipeline;
 }
 
-DepthStencil::DepthStencil(const vpr::Device* device, const vpr::PhysicalDevice* p_device, const vpr::Swapchain* swap) : Parent(device->vkHandle())
+DepthStencil::DepthStencil(const rhi::Device* device, const Swapchain* swap) : Parent(device->Handle().As<VkDevice>())
 {
-    *this = std::move(CreateDepthStencil(device, p_device, swap));
-    Parent = device->vkHandle();
+    *this = std::move(CreateDepthStencil(device, swap));
 }
 
 DepthStencil::DepthStencil() : Image{ VK_NULL_HANDLE }, Memory{ VK_NULL_HANDLE }, View{ VK_NULL_HANDLE }, Format{ VK_FORMAT_UNDEFINED }, Parent{ VK_NULL_HANDLE }

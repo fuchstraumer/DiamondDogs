@@ -2,6 +2,7 @@
 #include "RenderingContext.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceLoader.hpp"
+#include "SourcePaths.hpp"
 #include <experimental/filesystem>
 #include "GLFW/glfw3.h"
 #include "easylogging++.h"
@@ -9,8 +10,8 @@ INITIALIZE_EASYLOGGINGPP
 
 namespace fs = std::experimental::filesystem;
 
-const std::string Skybox0_Path(fs::path(fs::current_path() / fs::path("Starbox.dds")).string());
-const std::string Skybox1_Path(fs::path(fs::current_path() / fs::path("TestSkyboxBC3.dds")).string());
+const std::string Skybox0_Path = DiamondDogs::GetAssetPath("ResourceContextTestAssets/Starbox.dds").string();
+const std::string Skybox1_Path = DiamondDogs::GetAssetPath("ResourceContextTestAssets/TestSkyboxBC3.dds").string();
 
 static void Texture0_Callback(void* instance, void* data) {
     reinterpret_cast<DescriptorTest*>(instance)->CreateSkyboxTexture0(data);

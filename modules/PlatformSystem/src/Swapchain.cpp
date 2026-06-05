@@ -2,6 +2,7 @@
 #include "SwapchainImpl.hpp"
 #include "events/DisplayEvents.hpp"
 #include <unordered_map>
+#include <stdexcept>
 
 // Forward declaration for conversion function
 extern ColorSpace FromVkColorSpace(const VkColorSpaceKHR space) noexcept;
@@ -32,7 +33,8 @@ Swapchain::Swapchain(Swapchain&& other) noexcept : impl(std::move(other.impl)), 
 
 void Swapchain::Recreate(const SwapchainCreateInfo& createInfo)
 {
-
+    // painful exception to make myself not forget this
+    throw std::runtime_error("Swapchain recreation is not yet implemented!");
 }
 
 void Swapchain::Destroy()
@@ -40,9 +42,9 @@ void Swapchain::Destroy()
     impl.reset();
 }
 
-const void* Swapchain::GetNativeHandle() const noexcept
+void* Swapchain::GetNativeHandle() const noexcept
 {
-    return reinterpret_cast<const void*>(impl->Swapchain);
+    return reinterpret_cast<void*>(impl->Swapchain);
 }
 
 math::Float2 Swapchain::GetExtent() const noexcept
@@ -55,7 +57,7 @@ uint32_t Swapchain::ImageCount() const noexcept
     return impl->ImageCount;
 }
 
-ImageFormat Swapchain::GetImageFormat() const noexcept
+ImageFormat Swapchain::ImageFormat() const noexcept
 {
     return FromVkFormat(impl->VulkanFormat.format);
 }
@@ -65,7 +67,7 @@ ColorSpace Swapchain::ColorSpace() const noexcept
     return FromVkColorSpace(impl->VulkanFormat.colorSpace);
 }
 
-PresentMode Swapchain::GetPresentMode() const noexcept
+PresentMode Swapchain::PresentMode() const noexcept
 {
     auto iter = s_PresentModeFromVkPresentModeMap.find(impl->PresentMode);
     if (iter != s_PresentModeFromVkPresentModeMap.end())
@@ -75,22 +77,22 @@ PresentMode Swapchain::GetPresentMode() const noexcept
     return PresentMode::Invalid;
 }
 
-const void* Swapchain::GetImageHandle(uint32_t index) const noexcept
+void* Swapchain::ImageHandle(uint32_t index) const noexcept
 {
     if (index >= impl->ImageCount)
     {
         return nullptr;
     }
-    return reinterpret_cast<const void*>(impl->Images[index]);
+    return reinterpret_cast<void*>(impl->Images[index]);
 }
 
-const void* Swapchain::GetImageViewHandle(uint32_t index) const noexcept
+void* Swapchain::ImageViewHandle(uint32_t index) const noexcept
 {
     if (index >= impl->ImageCount)
     {
         return nullptr;
     }
-    return reinterpret_cast<const void*>(impl->ImageViews[index]);
+    return reinterpret_cast<void*>(impl->ImageViews[index]);
 }
 
 Swapchain& Swapchain::operator=(Swapchain&& other) noexcept

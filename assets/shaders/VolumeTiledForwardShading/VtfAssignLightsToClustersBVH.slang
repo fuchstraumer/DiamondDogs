@@ -3,15 +3,13 @@ __include VtfTypes;
 __include VtfFunctions;
 
 import ddCommon;
-// allow usage of GLSL atomic intrinsics
-import glsl;
 
 [SpecializationConstant]
-const uint AssignLightsToClustersNumThreads = 32;
+internal const uint AssignLightsToClustersNumThreads = 32;
 [SpecializationConstant]
-const uint MaxLights = 2048;
+internal const uint MaxLights = 2048;
 [SpecializationConstant]
-const uint NODE_STACK_LIMITS = 1024;
+internal const uint NODE_STACK_LIMITS = 1024;
 
 internal static const uint NumChildNodes[6] =
 {
@@ -73,7 +71,7 @@ internal uint PopNode()
 
 internal uint GetFirstChild()
 {
-    return (gs_ParentIdx * NumThreads) + 1u;
+    return (gs_ParentIdx * AssignLightsToClustersNumThreads) + 1u;
 }
 
 internal bool IsLeafNode(const in uint childIndex, const in uint numLevels)
@@ -120,8 +118,13 @@ internal void ProcessSpotLights(
 
         // Use wave operations to collect lights from all lanes
         // why is this a uint4 return? 
+        // answer: can represent up to 128 lanes. we were only counting first 32 lanes before
         uint4 activeLaneMask = WaveActiveBallot(shouldAddLight);
-        uint numActiveLights = countbits(activeLaneMask.x);
+        // corrected to count all potential lanes, as futureproofing for wider wave sizes
+        uint numActiveLights = countbits(activeLaneMask.x) +
+                               countbits(activeLaneMask.y) +
+                               countbits(activeLaneMask.z) +
+                               countbits(activeLaneMask.w);
         
         if (numActiveLights > 0)
         {
@@ -141,7 +144,7 @@ internal void ProcessSpotLights(
             gs_ParentIdx = PopNode();
         }
 
-        GroupMemoryBarrierWithGroupSync();
+        GroupMemoryBarrier();
 
         if (gs_ParentIdx == 0u)
         {
@@ -268,9 +271,8 @@ void AssignLightsToClusters(
     {
         uint pointLightCount = gs_PointLightCount.load();
         uint spotLightCount = gs_SpotLightCount.load();
-        
-        gs_PointLightStartOffset = atomicAdd(resources.pointLightIndexCounter[0], pointLightCount);
-        gs_SpotLightStartOffset = atomicAdd(resources.spotLightIndexCounter[0], spotLightCount);
+        InterlockedAdd(resources.pointLightIndexCounter[0], pointLightCount, gs_PointLightStartOffset);
+        InterlockedAdd(resources.spotLightIndexCounter[0], spotLightCount, gs_SpotLightStartOffset);
         
         // Store grid data (offset and count)
         resources.pointLightGrid[gs_ClusterIndex1D * 2] = gs_PointLightStartOffset;
@@ -285,13 +287,13 @@ void AssignLightsToClusters(
     // Write light indices to output lists using wave-optimized loops
     uint pointLightCount = gs_PointLightCount.load();
     uint spotLightCount = gs_SpotLightCount.load();
-    
-    for (uint i = childOffset; i < pointLightCount; i += NumThreads)
+
+    for (uint i = childOffset; i < pointLightCount; i += AssignLightsToClustersNumThreads)
     {
         resources.pointLightIndexList[gs_PointLightStartOffset + i] = gs_PointLightList[i];
     }
 
-    for (uint i = childOffset; i < spotLightCount; i += NumThreads)
+    for (uint i = childOffset; i < spotLightCount; i += AssignLightsToClustersNumThreads)
     {
         resources.spotLightIndexList[gs_SpotLightStartOffset + i] = gs_SpotLightList[i];
     }

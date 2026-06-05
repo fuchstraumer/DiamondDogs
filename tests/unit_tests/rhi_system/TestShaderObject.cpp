@@ -5,6 +5,7 @@
 #include "Instance.hpp"
 #include "Device.hpp"
 #include "ShaderObject.hpp"
+#include "SourcePaths.hpp"
 #include <filesystem>
 
 class ShaderObjectTest : public ::testing::Test
@@ -42,8 +43,8 @@ TEST_F(ShaderObjectTest, CreateFromValidSlangFile)
     auto device = rhiSystem->GetDevice();
     ASSERT_NE(device, nullptr);
 
-    // Prepare valid Slang shader file path (adjust path as needed)
-    std::filesystem::path slangShaderPath = std::filesystem::current_path() / "Triangle.slang";
+    // Prepare valid Slang shader file path using source tree path
+    std::filesystem::path slangShaderPath = DiamondDogs::GetAssetPath("shaders/Triangle.slang");
     ASSERT_TRUE(std::filesystem::exists(slangShaderPath)) << "Slang shader file does not exist: " << slangShaderPath;
 
     // Setup compile options
