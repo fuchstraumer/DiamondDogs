@@ -5,6 +5,7 @@
 #include "RhiResult.hpp"
 #include "RhiTypes.hpp"
 #include "RhiFlags.hpp"
+#include "ShaderTypes.hpp"
 #include <slang.h>
 #include <filesystem>
 #include <string>
@@ -38,13 +39,17 @@ namespace rhi
          */
         struct ModuleCompileOptions
         {
+            ModuleCompileOptions() = default;
+
+            // move ctor since most external callers work with temp blob options objects
+            ModuleCompileOptions(ShaderBlobCompileOptions&& blobOptions) noexcept;
             std::filesystem::path SlangSourcePath;
             std::string ModuleName; // If empty, uses filename without extension
-            std::span<const std::string_view> SearchPaths{};
+            std::span<const std::filesystem::path> SearchPaths{};
             std::span<const std::string_view> AdditionalModules{};
             
             // Compilation settings
-            std::string Target = "spirv"; // "spirv" for Vulkan, "dxil" for DX12
+            TargetShaderIR Target = TargetShaderIR::Invalid;
             bool EnableDebugInfo = false;
             bool EnableOptimizations = true;
             bool EnableValidation = true;
@@ -81,103 +86,6 @@ namespace rhi
             std::span<const uint8_t> Bytecode; // Non-owning view into internal storage
             bool IsValid;
             std::string ErrorMessage; // Only populated if IsValid == false
-        };
-
-        /**
-         * @brief Reflection data for specialization constants
-         */
-        struct SpecializationConstantReflection
-        {
-            uint32_t ConstantId;
-            std::string Name;
-            uint32_t SizeBytes;
-            std::string TypeName; // e.g., "uint", "float", "bool"
-            SpecializationConstant::ValueType DefaultValue;
-        };
-
-        /**
-         * @brief Reflection data for push constants
-         */
-        struct PushConstantReflection
-        {
-            std::string Name;
-            uint32_t Offset;
-            uint32_t Size;
-            ShaderStageFlags StageFlags;
-            std::string TypeName; // Struct type name if applicable
-            
-            // Nested member information for structured push constants (optional)
-            struct Member
-            {
-                std::string Name;
-                uint32_t Offset;
-                uint32_t Size;
-                std::string TypeName;
-            };
-            std::vector<Member> Members;
-        };
-
-        /**
-         * @brief Reflection data for descriptor bindings
-         */
-        struct DescriptorBindingReflection
-        {
-            uint32_t Set;
-            uint32_t Binding;
-            std::string Name;
-            slang::BindingType BindingType; // From Slang
-            uint32_t DescriptorCount;
-            ShaderStageFlags StageFlags;
-            std::string ResourceTypeName; // e.g., "Texture2D", "StructuredBuffer<Foo>"
-            
-            // Optional member-level reflection for structured types
-            struct MemberReflection
-            {
-                std::string Name;
-                uint32_t Offset;
-                uint32_t Size;
-                std::string TypeName;
-            };
-            std::optional<std::vector<MemberReflection>> Members;
-        };
-
-        /**
-         * @brief Complete reflection data for a single shader entry point
-         */
-        struct ShaderReflection
-        {
-            ShaderIdentifier Identifier;
-            
-            // Resource bindings (optional)
-            std::optional<std::vector<DescriptorBindingReflection>> DescriptorBindings;
-            
-            // Specialization constants (always generated if reflection enabled)
-            std::vector<SpecializationConstantReflection> SpecializationConstants;
-            
-            // Push constants (always generated if reflection enabled)
-            std::vector<PushConstantReflection> PushConstantRanges;
-            
-            // Compute shader specific
-            struct ComputeInfo
-            {
-                uint32_t ThreadGroupSizeX;
-                uint32_t ThreadGroupSizeY;
-                uint32_t ThreadGroupSizeZ;
-            };
-            std::optional<ComputeInfo> ComputeWorkgroupSize;
-            
-            // Fragment shader specific
-            struct FragmentInfo
-            {
-                bool WritesDepth;
-                uint32_t NumColorAttachments;
-            };
-            std::optional<FragmentInfo> FragmentOutputs;
-            
-            // Full YAML dump (only in debug builds when SHADER_COMPILER_ENABLE_YAML_REFLECTION is true)
-            #if defined(_DEBUG) || !defined(NDEBUG)
-            std::string FullReflectionYaml;
-            #endif
         };
 
         ShaderCompiler();

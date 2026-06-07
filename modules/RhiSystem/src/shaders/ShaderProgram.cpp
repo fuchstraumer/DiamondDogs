@@ -1,6 +1,8 @@
-#include "ShaderObject.hpp"
+#include "ShaderProgram.hpp"
 #include "Device.hpp"
 #include "RhiDefines.hpp"
+#include "ShaderCompiler.hpp"
+#include "ShaderCompilerReply.hpp"
 #include <slang.h>
 #include <slang-com-ptr.h>
 #include <slang-com-helper.h>
@@ -31,7 +33,6 @@ namespace rhi
             ParentDevice{ device },
             ShaderObject{ VK_NULL_HANDLE },
             Stage{ ShaderStageFlags::None },
-            Bytecode{},
             SpecializationConstants{},
             PushConstantRanges{},
             EntryPointName{},
@@ -62,8 +63,9 @@ namespace rhi
         DeviceHandle ParentDevice;
         VkShaderEXT ShaderObject;
         ShaderStageFlags Stage;
-        std::vector<uint8_t> Bytecode;
-        std::vector<ShaderObject::ReflectedSpecializationConstant> SpecializationConstants;
+        std::vector<ShaderObjectHandle> Handles;
+        std::unordered_map<ShaderStageFlags, ShaderObjectHandle> StageToHandleMap;
+        std::vector<SpecializationConstantReflection> SpecializationConstants;
         std::vector<PushConstantRange> PushConstantRanges;
         std::string CompilationLog;
         std::string EntryPointName;
@@ -85,16 +87,11 @@ namespace rhi
                     throw std::invalid_argument("Unsupported shader stage for Vulkan conversion");
             }
         }
-#endif // RHI_SYSTEM_USE_VULKAN
 
         bool CreateVulkanShaderObject()
         {
-            if (Bytecode.empty())
-            {
-                CompilationLog = "No bytecode available for Vulkan shader object creation";
-                return false;
-            }
 
+            
             VkShaderCreateInfoEXT createInfo = {};
             createInfo.sType = VK_STRUCTURE_TYPE_SHADER_CREATE_INFO_EXT;
             createInfo.pNext = nullptr;
@@ -110,12 +107,11 @@ namespace rhi
             createInfo.pushConstantRangeCount = static_cast<uint32_t>(PushConstantRanges.size());
             createInfo.pPushConstantRanges = reinterpret_cast<const VkPushConstantRange*>(PushConstantRanges.data());
             assert(pfn_vkCreateShadersEXT);
-            VkResult result = pfn_vkCreateShadersEXT(
-                ParentDevice.As<VkDevice>(),
-                1,
-                &createInfo,
-                nullptr,
-                &ShaderObject);
+            VkResult result = pfn_vkCreateShadersEXT(ParentDevice.As<VkDevice>(),
+                                                     1,
+                                                     &createInfo,
+                                                     nullptr,
+                                                     &ShaderObject);
 
             if (result != VK_SUCCESS)
             {
@@ -126,7 +122,8 @@ namespace rhi
             isValid = true;
             return true;
         }
-    };
+    }; 
+#endif // RHI_SYSTEM_USE_VULKAN
 
 #if defined(RHI_SYSTEM_USE_DX12)
     // DX12 implementation would go here
@@ -192,19 +189,71 @@ namespace rhi
     {
         try
         {
+            // Init compiler + compile shader source
+            ShaderCompiler compiler;
+            Result initResult = compiler.Initialize(device);
+            if (!initResult)
+            {
+                return Result(Result::Code::InitializationFailed);
+            }
+
+            // Map CompileOptions -> ShaderCompiler::ModuleCompileOptions
+            ShaderCompiler::ModuleCompileOptions compileOpts;
+            compileOpts.SlangSourcePath = options.SlangSourcePath;
+            compileOpts.ModuleName = options.ModuleName;
+            compileOpts.SearchPaths = options.SearchPaths;
+            compileOpts.AdditionalModules = options.ModuleNames;
+            compileOpts.Target = options.target;
+            compileOpts.EnableDebugInfo = options.enableDebugInfo;
+            compileOpts.EnableOptimizations = options.enableOptimizations;
+            compileOpts.EnableValidation = options.enableValidation;
+            compileOpts.CompileAllEntryPoints = false;
+            std::vector<std::string_view> entryPoints{ options.EntryPointName };
+            compileOpts.SpecificEntryPoints = entryPoints;
+            compileOpts.GenerateReflectionData = true;
+
+            // Compile
+            auto reply = compiler.CompileModule(compileOpts);
+            if (!reply || !reply->W)
+            {
+                return Result::Failure();
+            }
+
+            // Fetch bytecode
+            std::string moduleName = options.ModuleName.empty() 
+                ? options.SlangSourcePath.stem().string() 
+                : options.ModuleName;
+            ShaderCompiler::ShaderIdentifier shaderId
+            {
+                moduleName,
+                options.EntryPointName,
+                options.Stage
+            };
+
+            auto compiledShader = compiler.GetCompiledShader(shaderId);
+            if (!compiledShader.IsValid || compiledShader.Bytecode.empty())
+            {
+                return Result::Failure();
+            }
+
+            // Create impl + copy bytecode
             auto impl = std::make_unique<ShaderObjectImpl>(device);
- 
-            // Create platform-specific shader object
+            impl->Bytecode.assign(compiledShader.Bytecode.begin(), compiledShader.Bytecode.end());
+            impl->Stage = options.Stage;
+            impl->EntryPointName = options.EntryPointName;
+            impl->SourcePath = options.SlangSourcePath;
+
+            // Create platform shader object
 #ifdef RHI_SYSTEM_USE_VULKAN
             if (!impl->CreateVulkanShaderObject())
             {
                 return Result(Result::Code::InitializationFailed);
             }
 #elif defined(RHI_SYSTEM_USE_DX12)
-            // DX12 shader object creation would go here
             return Result(Result::Code::FeatureNotPresent);
 #endif
 
+            compiler.Shutdown();
             outShaderObject = ShaderObject(std::move(impl));
             return Result(Result::Code::Success);
         }
@@ -267,15 +316,15 @@ namespace rhi
         return impl ? impl->Bytecode.size() : 0;
     }
 
-    const std::vector<ShaderObject::ReflectedSpecializationConstant>& ShaderObject::GetSpecializationConstants() const noexcept
+    const std::vector<SpecializationConstantReflection>& ShaderObject::GetSpecializationConstants() const noexcept
     {
-        static const std::vector<ReflectedSpecializationConstant> empty;
+        static const std::vector<SpecializationConstantReflection> empty;
         return impl ? impl->SpecializationConstants : empty;
     }
 
     const std::vector<PushConstantRange>& ShaderObject::GetPushConstantRanges() const noexcept
     {
-        static const std::vector<PushConstantRange> empty;
+        static const std::vector<PushConstantReflection> empty;
         return impl ? impl->PushConstantRanges : empty;
     }
 

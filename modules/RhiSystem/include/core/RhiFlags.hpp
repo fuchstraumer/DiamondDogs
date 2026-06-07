@@ -117,6 +117,28 @@ namespace rhi
         Always = 7
     };
 
+    // 1:1 match to Slang, will tweak later if needed but now this lets us publish clear reflection data w/o needing slang polluting top-level includes
+    enum class ShaderBindingType : uint8_t
+    {
+        Sampler,
+        Texture,
+        ConstantBuffer,
+        ParameterBlock,
+        TypedBuffer,
+        RawBuffer,
+        CombinedTextureSampler,
+        InputRenderTarget,
+        InlineUniformData,
+        RayTracingAccelerationStructure,
+        VaryingInput,
+        VaryingOutput,
+        ExistentialValue,
+        PushConstant,
+        MutableTexture,
+        MutableTypedBuffer,
+        MutableRawBuffer
+    };
+
 }
 
 #endif //!RHI_SYSTEM_RHI_FLAGS_HPP

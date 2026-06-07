@@ -33,8 +33,7 @@ set(RHI_OBJECT_HEADERS
     "include/objects/RhiFunctions.hpp"
     "include/objects/RhiHandle.hpp"
     "include/objects/RhiResult.hpp"
-    "include/objects/Semaphore.hpp"
-    "include/objects/ShaderObject.hpp")
+    "include/objects/Semaphore.hpp")
 
 set(RHI_OBJECT_SOURCES
     "src/objects/CommandBuffer.cpp"
@@ -44,19 +43,23 @@ set(RHI_OBJECT_SOURCES
     "src/objects/Instance.cpp"
     "src/objects/RhiFunctionsVk.cpp"
     "src/objects/RhiResult.cpp"
-    "src/objects/Semaphore.cpp"
-    "src/objects/ShaderObject.cpp")
+    "src/objects/Semaphore.cpp")
 
 set(RHI_SHADER_SYSTEM_HEADERS
     "include/shaders/PipelineExecutableInfo.hpp"
+    "include/shaders/ShaderBlob.hpp"
     "include/shaders/ShaderCompiler.hpp"
-    "include/shaders/ShaderCompilerReply.hpp")
+    "include/shaders/ShaderCompilerReply.hpp"
+    "include/shaders/ShaderProgram.hpp"
+    "include/shaders/ShaderTypes.hpp")
 
 set(RHI_SHADER_SYSTEM_SOURCES
+    "src/shaders/ShaderBlob.cpp"
     "src/shaders/PipelineExecutableInfo.cpp"
     "src/shaders/ShaderCompiler.cpp"
     "src/shaders/ShaderCompilerMessages.hpp"
-    "src/shaders/ShaderCompilerReply.cpp")
+    "src/shaders/ShaderCompilerReply.cpp"
+    "src/shaders/ShaderProgram.cpp")
 
 ADD_MODULE(rhi_system
     "${RHI_CORE_HEADERS}" "${RHI_CORE_SOURCES}"
