@@ -138,7 +138,7 @@ internal void ReduceFromLights(
     const uint IterationStride = ReduceLightsNumThreads * resources.params.NumThreadGroupsX;
 
     // Process point lights
-    for (uint i = globalInvocationIndex; i < resources.lightCounts.NumPointLights; i += ReduceLightsNumThreads * resources.params.NumThreadGroupsX)
+    for (uint i = globalInvocationIndex; i < resources.lightCounts.NumPointLights; i += IterationStride)
     {
         float3 lightPos = resources.pointLights[i].PositionViewSpace.xyz;
         float range = resources.pointLights[i].Range;
@@ -147,7 +147,7 @@ internal void ReduceFromLights(
     }
 
     // Process spot lights
-    for (uint i = globalInvocationIndex; i < resources.lightCounts.NumSpotLights; i += ReduceLightsNumThreads * resources.params.NumThreadGroupsX)
+    for (uint i = globalInvocationIndex; i < resources.lightCounts.NumSpotLights; i += IterationStride)
     {
         float3 lightPos = resources.spotLights[i].PositionViewSpace.xyz;
         float range = resources.spotLights[i].Range;
@@ -173,8 +173,9 @@ internal void ReduceFromAABBs(
 {
     float3 aabbMin = float3(VTF_FLT_MAX, VTF_FLT_MAX, VTF_FLT_MAX);
     float3 aabbMax = float3(-VTF_FLT_MAX, -VTF_FLT_MAX, -VTF_FLT_MAX);
+    const uint IterationStride = ReduceLightsNumThreads * resources.params.NumThreadGroupsX;
 
-    for (uint i = localInvocationIndex; i < resources.params.ReductionNumElements; i += ReduceLightsNumThreads * resources.params.NumThreadGroupsX)
+    for (uint i = localInvocationIndex; i < resources.params.ReductionNumElements; i += IterationStride)
     {
         aabbMin = min(aabbMin, resources.lightAABBs[i].Min);
         aabbMax = max(aabbMax, resources.lightAABBs[i].Max);
