@@ -115,30 +115,36 @@ IF(RHI_SYSTEM_DEBUG_INFO_CALLING_FN)
     TARGET_COMPILE_DEFINITIONS(rhi_system PUBLIC RHI_SYSTEM_DEBUG_INFO_CALLING_FN_CONF)
 ENDIF()
 
-find_package(Python COMPONENTS Interpreter)
+find_package(Python COMPONENTS Interpreter REQUIRED)
 
 # Define paths for dependency tracking
 set(RHI_SYSTEM_VK_XML_PATH "$ENV{VULKAN_SDK}/share/vulkan/registry/vk.xml")
 set(RHI_SYSTEM_GENERATOR_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/GenerateExtensionAndFeatureHeaders.py")
-set(RHI_SYSTEM_OUTPUT_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/src/GeneratedExtensionHeader.hpp")
+set(RHI_SYSTEM_OUTPUT_HEADER "${CMAKE_CURRENT_BINARY_DIR}/GeneratedExtensionHeader.hpp")
 
 if (RHI_SYSTEM_GRAPHICS_API STREQUAL "Vulkan")
     add_custom_command(
         OUTPUT "${RHI_SYSTEM_OUTPUT_HEADER}"
-        COMMAND ${Python_EXECUTABLE} "${RHI_SYSTEM_GENERATOR_SCRIPT}"
-                                    "-specDir=$ENV{VULKAN_SDK}" "-outputDir=${CMAKE_CURRENT_SOURCE_DIR}/src"
+        COMMAND "${Python_EXECUTABLE}" "${RHI_SYSTEM_GENERATOR_SCRIPT}"
+                                    "-specDir=$ENV{VULKAN_SDK}" "-outputDir=${CMAKE_CURRENT_BINARY_DIR}"
         DEPENDS "${RHI_SYSTEM_VK_XML_PATH}" "${RHI_SYSTEM_GENERATOR_SCRIPT}"
         COMMENT "Generating extension lookup header (dependencies changed)"
         VERBATIM
     )
 
+    set_source_files_properties("${RHI_SYSTEM_OUTPUT_HEADER}" PROPERTIES GENERATED TRUE)
+
+    target_sources(rhi_system PRIVATE "${RHI_SYSTEM_OUTPUT_HEADER}")
+
     # Custom target that depends on the output file
-    add_custom_target(generate_extension_headers
-        DEPENDS "${OUTPUT_HEADER}"
+    add_custom_target(rhi_system_generate_extension_headers
+        DEPENDS "${RHI_SYSTEM_OUTPUT_HEADER}"
     )
 
-    add_dependencies(rhi_system generate_extension_headers)
+    add_dependencies(rhi_system rhi_system_generate_extension_headers)
 
     # throw this in the modules subdir in the IDE, so it's at least not cluttering the root
-    set_target_properties(generate_extension_headers PROPERTIES FOLDER "Generators")
+    set_target_properties(rhi_system_generate_extension_headers PROPERTIES FOLDER "Generators")
+
+    target_include_directories(rhi_system PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
 endif()

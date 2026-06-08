@@ -135,7 +135,8 @@ def ConstructExtensionObjects(extensionXmlObjects):
         extensionObject.noFeatures = extension.get('nofeatures') == 'true'
         extensionObject.provisional = extension.get('provisional') == 'true'
 
-        extensionObject.promotedTo = extension.get('promotedto')
+        promotedTo = extension.get('promotedto')
+        extensionObject.promotedTo = NormalizeVersionName(promotedTo) if promotedTo else None
         extensionObject.obsoletedOrDeprecatedBy = extension.get('obsoletedby')
         if extensionObject.obsoletedOrDeprecatedBy is None:
             extensionObject.obsoletedOrDeprecatedBy = extension.get('deprecatedby')
@@ -167,17 +168,24 @@ def GetVersionList(tree):
     Args:
         tree: xml.etree.ElementTree object containing the vk.xml data
     Returns:
-        list: list of version elements from vk.xml
+        list: list of version macro names (VK_API_VERSION_1_1, etc)
     '''
     result = []
-    versions = tree.findall('./feature')
-    for version in versions:
-        version_name = version.get('name')
-        if 'VKSC_VERSION_1_0' in version_name:
-            continue
-
-        result.append(version)
-
+    features = tree.findall('./feature')
+    
+    for feature in features:
+        # Find require blocks with "API version macros" comment
+        for require in feature.findall('./require'):
+            comment = require.get('comment')
+            if comment == 'API version macros':
+                # Extract type names from this require block
+                for type_elem in require.findall('./type'):
+                    type_name = type_elem.get('name')
+                    # Only want VK_API_VERSION_1_X macros (X = 0,1,2,3,4...)
+                    # Skip helper macros like VK_API_VERSION_MAJOR, VK_MAKE_API_VERSION, etc
+                    if type_name and type_name.startswith('VK_API_VERSION_1_') and 'VKSC' not in type_name:
+                        result.append(type_name)
+    
     return result
 
 def GetVersionsGreaterThanOrEqualTo(versionNames, versionName):
@@ -211,18 +219,17 @@ def GetVersionsLessThan(versionNames, versionName):
             result.append(version)
     return result
 
-def MakeVersionStrVersionNumber(version):
+def NormalizeVersionName(version):
     '''
-    Turns a version name string into a VK_VERSION_X_Y macro name (so it works as uint key to maps)
+    Converts VK_VERSION_X_Y -> VK_API_VERSION_X_Y for matching.
+    Extension dependencies use VK_VERSION_X_Y format, but version list uses VK_API_VERSION_X_Y.
     Args:
-        version: version name
+        version: version string (VK_VERSION_1_2 or VK_API_VERSION_1_2)
     Returns:
-        string: version macro name, which evaluates to a uint when compiled
+        string: normalized version macro (VK_API_VERSION_X_Y)
     '''
-    insertionPointIdx = version.find('_VERSION')
-    if insertionPointIdx != -1:
-        outputStr = version[:insertionPointIdx] + '_API' + version[insertionPointIdx:]
-        return outputStr
+    if version.startswith('VK_VERSION_') and not version.startswith('VK_API_VERSION_'):
+        return version.replace('VK_VERSION_', 'VK_API_VERSION_')
     return version  # Return original if pattern not found
 
 def VersionSortKey(item):
@@ -282,14 +289,13 @@ def FindAllPromotedExtensions(extensionObjects, versions):
     '''
     promotedExtensions = {}
     versionPromotedExtensions = {}
-    versionNames = [version.get('name') for version in versions]
-    for version in versionNames:
+    for version in versions:
         versionPromotedExtensions[version] = []
 
     for extension in extensionObjects:
-        if extension.promotedTo is not None and extension.promotedTo in versionNames:
+        if extension.promotedTo is not None and extension.promotedTo in versions:
             versionPromotedExtensions[extension.promotedTo].append(extension.name)
-        elif extension.promotedTo is not None and extension.promotedTo not in versionNames:
+        elif extension.promotedTo is not None and extension.promotedTo not in versions:
             promotedExtensions[extension.name] = extension.promotedTo
 
     return promotedExtensions, versionPromotedExtensions
@@ -350,7 +356,7 @@ def ProcessDependencyAST(extensionObject, dependencyAST, versionNameList):
             if type == 'VERSION':
                 # If an OR node processes a version, it indicates the end of the previous version's
                 # dependency stack, and the beginning of a new version's dependency stack
-                next_version_name = term['name']
+                next_version_name = NormalizeVersionName(term['name'])
                 if next_version_name not in extensionObject.dependencies:
                     extensionObject.dependencies[next_version_name] = []
                 extensionObject.dependencies[version_stack[-1]].extend(extension_stack)
@@ -373,7 +379,7 @@ def ProcessDependencyAST(extensionObject, dependencyAST, versionNameList):
                 # indicates the beginning of support for an extension, so we pop the previous version 
                 # (usually this is just vk1.0, as far as I can tell from investigating the vk.xml)
                 version_stack.pop()
-                version_stack.append(factor['name'])
+                version_stack.append(NormalizeVersionName(factor['name']))
 
         return 'AND'
     
@@ -384,7 +390,7 @@ def ProcessDependencyAST(extensionObject, dependencyAST, versionNameList):
             # For VERSION nodes, we create a version-specific dependency entry
             # We return the node type, because what we do with each version depends
             # if we're in an AND or OR node.
-            version_name = node['name']
+            version_name = NormalizeVersionName(node['name'])
             if version_name not in extensionObject.dependencies:
                 extensionObject.dependencies[version_name] = []
             return 'VERSION'
@@ -489,12 +495,11 @@ def FindAllExtensionsDependencies(extensionObjects, versions):
     ExtensionDependencies objects.
     Args:
         extensionObjects: list of ExtensionWithDependencies objects
-        versions: list of version elements from vk.xml
+        versions: list of version macro names (VK_API_VERSION_X_Y)
     Returns:
         int: maximum overall number of dependencies found for any one extension
              (used to set the size of the std::array in generated header)
     '''
-    versionNameList = [version.get('name') for version in versions]
 
     mostDeps = 0
     mostTokens = []
@@ -513,8 +518,8 @@ def FindAllExtensionsDependencies(extensionObjects, versions):
             dependencyAST = ParseDependencyString(dependenciesAttrib)
 
             # Process the AST to update the extension's dependencies
-            ProcessDependencyAST(extensionObject, dependencyAST.children, versionNameList)
-            FinalizeDependencies(extensionObject, versionNameList)
+            ProcessDependencyAST(extensionObject, dependencyAST.children, versions)
+            FinalizeDependencies(extensionObject, versions)
             
             # Calculate total number of dependencies for this extension
             totalDeps = sum(len(deps) for deps in extensionObject.dependencies.values())
@@ -560,7 +565,6 @@ def WriteMasterExtensionNameTable(extensionObjects, versions, fileStream):
         fileStream: file stream to write to
     '''
     nameTable = []
-    versionNames = [version.get('name') for version in versions]
 
     extensionNamesList = [ext.name for ext in extensionObjects]
 
@@ -571,7 +575,7 @@ def WriteMasterExtensionNameTable(extensionObjects, versions, fileStream):
         extension.nameIndex = len(nameTable)
         nameTable.append(extension.name)
 
-    aliasedExtensionObjects = [ ext for ext in extensionObjects if ext.promotedTo is not None and ext.promotedTo not in versionNames ]
+    aliasedExtensionObjects = [ ext for ext in extensionObjects if ext.promotedTo is not None and ext.promotedTo not in versions ]
     for extension in aliasedExtensionObjects:
         # Find the extension object that this extension is aliased to
         aliasedExtension = next((e for e in extensionObjects if e.name == extension.promotedTo), None)
@@ -678,11 +682,9 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
     # Get list of macros for each version
     versionedDependencyTables = {}
     for version in versions:
-        if version.get('name') == 'ANY_VERSION':
+        if version == 'ANY_VERSION':
             continue
-        versionName = version.get('name')
-        versionMacro = MakeVersionStrVersionNumber(versionName)
-        versionedDependencyTables[versionMacro] = {}
+        versionedDependencyTables[version] = {}
     
 
     # Built a local dict of extension name to extension indices for quick lookup
@@ -710,10 +712,9 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
     # Build a list of VK_API_VERSION macros for each version in versions
     versionMacros = {}
     for version in versions:
-        if version.get('name') == 'ANY_VERSION':
+        if version == 'ANY_VERSION':
             continue
-        versionName = version.get('name')
-        versionMacros[versionName] = MakeVersionStrVersionNumber(versionName)
+        versionMacros[version] = version
 
     dependencyVectorStr = 'std::vector<' + dependencyIndexType + '>'
     print('// Extension dependency table - hierarchical map: version -> extension index -> dependencies', file=fileStream)
@@ -721,8 +722,6 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
     print('using ExtensionDependencyMap = std::unordered_map<size_t, ' + dependencyVectorStr + '>;', file=fileStream)
     print('static const std::unordered_map<uint32_t, ExtensionDependencyMap> extensionDependencyTable', file=fileStream)
     print('{', file=fileStream)
-    
-    versionNameList = [version.get('name') for version in versions]
     
     # Collect extensions by version
     anyVersionExtensions = {}  # extension_index -> dependencies
@@ -737,7 +736,7 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
         
         if hasattr(extensionObject, 'dependencies') and extensionObject.dependencies:
             # Check if this extension has version-specific dependencies
-            for version in versionNameList:
+            for version in versions:
                 if version in extensionObject.dependencies:
                     hasVersionSpecificDeps = True
                     
@@ -750,14 +749,12 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
                     
                     if len(dependencies) == 0:
                         # Empty dependency list means version-only dependency
-                        versionMacro = MakeVersionStrVersionNumber(version)
-                        dependencyIndices.append(versionMacro)
+                        dependencyIndices.append(version)
                     else:
                         for dependency in dependencies:
                             if dependency == "PromotedToCore":
                                 # Extension was promoted to core in this version
-                                versionMacro = MakeVersionStrVersionNumber(version)
-                                dependencyIndices.append(versionMacro)
+                                dependencyIndices.append(version)
                                 continue
                             if dependency in extensionNameToIndexDict:
                                 dependencyIndices.append(extensionNameToIndexDict[dependency])
@@ -804,7 +801,7 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
         print('    }},', file=fileStream)
     
     # Generate versioned maps
-    for version in versionNameList:
+    for version in versions:
         if version in versionedExtensions:
             versionMacro = MakeVersionStrVersionNumber(version)
             print(f'    // Version: {version} extensions', file=fileStream)
@@ -816,7 +813,7 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
                 
                 if dependencyIndices:
                     for depIdx in dependencyIndices:
-                        if depIdx == MakeVersionStrVersionNumber(version):
+                        if depIdx == version:
                             dependencyNames.append(f"requires {version}")
                         else:
                             depName = next((ext.name for ext in extensionObjects if ext.nameIndex == depIdx), f"Index_{depIdx}")
@@ -857,7 +854,7 @@ def PrintPromotedVersionedExtensions(promotedVersionedExtensions, extensionIdxDi
         indexList = [GetExtensionIdx(ext, extensionIdxDict) for ext in versionedExtensions]
         if indexList:  # Only print if we have valid indices
             indexStr = ', '.join(map(str, indexList))
-            print('    { ' + MakeVersionStrVersionNumber(version) + ', ' + '{ ' + indexStr + ' } }, ', file=fileStream)
+            print('    { ' + version + ', ' + '{ ' + indexStr + ' } }, ', file=fileStream)
 
     print('};\n', file=fileStream)
 
