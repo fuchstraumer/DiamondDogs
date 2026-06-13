@@ -15,13 +15,13 @@ namespace rhi
      */
     struct PushConstantRange
     {
-        ShaderStageFlags stageFlags = ShaderStageFlags::None;
+        ShaderStageFlags StageFlags = ShaderStageFlags::None;
         uint32_t Offset{ 0 };           // Byte offset within push constant block
         uint32_t Size{ 0 };             // Size in bytes (must be multiple of 4 for DX12)
 
         constexpr PushConstantRange() noexcept = default;
         constexpr PushConstantRange(ShaderStageFlags stages, uint32_t offset, uint32_t size) noexcept
-            : stageFlags{ stages }, Offset{ offset }, Size{ size }
+            : StageFlags{ stages }, Offset{ offset }, Size{ size }
         {
         }
     };

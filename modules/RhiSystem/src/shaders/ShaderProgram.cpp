@@ -98,7 +98,7 @@ namespace rhi
         DeviceHandle ParentDevice;
         ProgramType Type{ ProgramType::Invalid };
 
-        static VkShaderStageFlagBits ConvertStageToVulkan(ShaderStageFlags stage)
+        static VkShaderStageFlags ConvertStageToVulkan(ShaderStageFlags stage)
         {
             switch (stage)
             {
@@ -193,7 +193,7 @@ namespace rhi
                 for (size_t i = 0; i < stagesToCreate.size(); ++i)
                 {
                     const auto& stageOptions = stagesToCreate[i];
-                    createInfos[i].stage = ConvertStageToVulkan(stageOptions.Stage);
+                    createInfos[i].stage = static_cast<VkShaderStageFlagBits>(ConvertStageToVulkan(stageOptions.Stage));
                     if (i < stagesToCreate.size() - 1)
                     {
                         createInfos[i].nextStage = ConvertStageToVulkan(stagesToCreate[i + 1].Stage);
@@ -204,14 +204,28 @@ namespace rhi
 
                     if (stageOptions.PushConstants.size() > 0)
                     {
-                        stageMetaInfo[stageOptions.Stage].first = PushConstantsVec(stageOptions.PushConstants.begin(), stageOptions.PushConstants.end());
+                        stageMetaInfo[stageOptions.Stage].first = PushConstantsVec(stageOptions.PushConstants.size(), VkPushConstantRange{});
+                        std::transform(stageOptions.PushConstants.begin(),
+                                       stageOptions.PushConstants.end(),
+                                       stageMetaInfo[stageOptions.Stage].first.begin(),
+                                       [](const PushConstantRange& r)
+                                       {
+                                           return VkPushConstantRange{ ConvertStageToVulkan(r.StageFlags), r.Offset, r.Size };
+                                       });
                         createInfos[i].pushConstantRangeCount = static_cast<uint32_t>(stageOptions.PushConstants.size());
                         createInfos[i].pPushConstantRanges = stageMetaInfo[stageOptions.Stage].first.data();
                     }
 
                     if (stageOptions.DescriptorLayouts.size() > 0)
                     {
-                        stageMetaInfo[stageOptions.Stage].second = DescriptorSetLayoutsVec(stageOptions.DescriptorLayouts.begin(), stageOptions.DescriptorLayouts.end());
+                        stageMetaInfo[stageOptions.Stage].second = DescriptorSetLayoutsVec(stageOptions.DescriptorLayouts.size(), VK_NULL_HANDLE);
+                        std::transform(stageOptions.DescriptorLayouts.begin(),
+                                       stageOptions.DescriptorLayouts.end(),
+                                       stageMetaInfo[stageOptions.Stage].second.begin(),
+                                       [](const rhi::DescriptorSetLayoutHandle& h)
+                                       {
+                                           return h.As<VkDescriptorSetLayout>();
+                                       });
                         createInfos[i].setLayoutCount = static_cast<uint32_t>(stageOptions.DescriptorLayouts.size());
                         createInfos[i].pSetLayouts = stageMetaInfo[stageOptions.Stage].second.data();
                     }
@@ -233,9 +247,8 @@ namespace rhi
                 }
 
                 // now the sort of annoying meta-information layer: we need to figure out what kind of program this is based on the used set of stages,
-                // and then fill the unused stages based on that. we have our static vectors of stage flags for each program type, so we can use those to determine the type and unused stages
-                // TODO: Identify if we can't pare down the device features to disable unused stages like geoemetry and tesselation, bc they're rarely used anyways
-                // TODO: Do we need to even consider unused stages for mesh and ray tracing programs, given that they usually require having the entire set?
+                // and then fill the unused stages based on that
+                // TODO: Identify if we can't pare down the device features to disable unused stages like geoemetry and tesselation, bc they're rarely used
                 if (std::any_of(VulkanGraphicsStages.begin(), VulkanGraphicsStages.end(), [&](VkShaderStageFlagBits stage) { return std::find(usedStages.begin(), usedStages.end(), stage) != usedStages.end(); }))
                 {
                     Type = ProgramType::Graphics;
