@@ -17,6 +17,7 @@ namespace rhi
 {
     class Device;
     struct ShaderProgramImpl;
+    class ShaderBlob;
 
     /**
      * @brief ShaderPrograms represent a either a single compiled shader entry point,
@@ -26,10 +27,10 @@ namespace rhi
      */
     class ShaderProgram
     {
-        // Shouldn't be constructible publicly, only from ShaderBlob or static factory from
-        // precompiled bytecode
-        ShaderProgram();
     public:
+
+        ShaderProgram(DeviceHandle device, ShaderBlob& parent_blob, std::span<ShaderStage> stagesInProgram);
+        ShaderProgram(DeviceHandle device, std::span<ShaderBinaryOptions> binaryOptions);
 
         ShaderProgram(const ShaderProgram&) = delete;
         ShaderProgram& operator=(const ShaderProgram&) = delete;
@@ -39,7 +40,7 @@ namespace rhi
         ~ShaderProgram();
         void Destroy() noexcept;
 
-        std::span<ShaderObjectHandle> GetHandles() const noexcept;
+        Result BindShaders(CommandBufferHandle cmdBuffer) const;
         bool IsSingleStage() const noexcept;
         ShaderStageFlags GetStages() const noexcept;
         std::span<std::string_view> GetEntryPointNames() const noexcept;
@@ -47,8 +48,7 @@ namespace rhi
         const std::vector<PushConstantReflection>& GetPushConstantRanges() const noexcept;
 
     private:
-        // again, private ctor so we can control creation exactly
-        explicit ShaderProgram(std::unique_ptr<ShaderProgramImpl> impl);
+        friend class ShaderBlob;
         std::unique_ptr<ShaderProgramImpl> impl;
     };
 

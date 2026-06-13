@@ -3,6 +3,7 @@
 #define RHI_SYSTEM_SHADER_TYPES_HPP
 #include "RhiFlags.hpp"
 #include "RhiTypes.hpp"
+#include "RhiHandle.hpp"
 #include <optional>
 #include <string>
 #include <filesystem>
@@ -14,45 +15,13 @@
 namespace rhi
 {
 
-    enum class TargetShaderIR : uint8_t
+    /** @brief Used primarily to create ShaderPrograms - a span of these is used to
+     * retrieve the entry points to bundle together from the parent blob, to create
+     * the needed API objects. */
+    struct ShaderStage
     {
-        Invalid = 0,
-        SPIRV,
-        DXIL
-    };
-
-    /**
-     * @brief Shader compilation options for Slang source files
-    */
-    struct ShaderBlobCompileOptions
-    {
-        std::filesystem::path SlangSourcePath{};
-        // Name to assign to the module in Slang. If empty, will use filename without extension
-        std::string ModuleName;
-        std::span<std::filesystem::path> SearchPaths{}; // Additional include search paths
-        std::span<std::string_view> ModuleNames{}; // Additional module names to load
-
-        TargetShaderIR TargetIR = TargetShaderIR::SPIRV;
-        bool EnableDebugInfo = false;
-        bool EnableOptimizations = true;
-        bool EnableValidation = true;
-
-        bool CompileAllEntryPoints = true;
-        std::span<std::string_view> SpecificEntryPoints{}; // Only used if CompileAllEntryPoints is false
-
-        bool GenerateReflectionData = true;
-        bool GenerateDescriptorReflection = true; // Requires GenerateReflectionData = true
-        bool GenerateMemberReflection = true;    // Include struct member details for descriptors
-    };
-    
-    /**
-     * @brief Raw bytecode options for pre-compiled shaders
-     */
-    struct ShaderBinaryOptions
-    {
-        std::span<const uint32_t> Bytecode{}; // SPIR-V or DXIL bytecode
-        ShaderStageFlags Stage = ShaderStageFlags::None;
-        std::string EntryPointName = "main";
+        ShaderStageFlags Stage;
+        std::string_view EntryPointName;
     };
 
     /**
@@ -152,6 +121,59 @@ namespace rhi
         std::string FullReflectionYaml;
         #endif
     };
+
+    enum class TargetShaderIR : uint8_t
+    {
+        Invalid = 0,
+        SPIRV,
+        DXIL
+    };
+
+    /**
+     * @brief Shader compilation options for Slang source files
+    */
+    struct ShaderBlobCompileOptions
+    {
+        std::filesystem::path SlangSourcePath{};
+        // Name to assign to the module in Slang. If empty, will use filename without extension
+        std::string ModuleName;
+        std::span<std::filesystem::path> SearchPaths{}; // Additional include search paths
+        std::span<std::string_view> ModuleNames{}; // Additional module names to load
+
+        TargetShaderIR TargetIR = TargetShaderIR::SPIRV;
+        bool EnableDebugInfo = false;
+        bool EnableOptimizations = true;
+        bool EnableValidation = true;
+
+        bool CompileAllEntryPoints = true;
+        std::span<std::string_view> SpecificEntryPoints{}; // Only used if CompileAllEntryPoints is false
+
+        bool GenerateReflectionData = true;
+        bool GenerateDescriptorReflection = true; // Requires GenerateReflectionData = true
+        bool GenerateMemberReflection = true;    // Include struct member details for descriptors
+    };
+
+    // Minimal struct for push constant ranges, for use with ShaderBinaryOptions when creating ShaderPrograms without reflection data
+    struct PushConstantRange
+    {
+        uint32_t Offset;
+        uint32_t Size;
+        ShaderStageFlags StageFlags;
+    };
+    
+    /**
+     * @brief Raw bytecode options for pre-compiled shaders
+     */
+    struct ShaderBinaryOptions
+    {
+        std::span<const uint32_t> Bytecode{}; // SPIR-V or DXIL bytecode
+        ShaderStageFlags Stage = ShaderStageFlags::None;
+        std::string EntryPointName = "main";
+        // Push constants need to be provided separately since we don't reflect on them
+        std::span<const PushConstantRange> PushConstants{};
+        std::span<rhi::DescriptorSetLayoutHandle> DescriptorLayouts{};
+    };
+
 }
 
 #endif //!RHI_SYSTEM_SHADER_TYPES_HPP
