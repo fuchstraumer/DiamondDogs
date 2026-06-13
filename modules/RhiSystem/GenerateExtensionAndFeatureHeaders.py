@@ -135,8 +135,7 @@ def ConstructExtensionObjects(extensionXmlObjects):
         extensionObject.noFeatures = extension.get('nofeatures') == 'true'
         extensionObject.provisional = extension.get('provisional') == 'true'
 
-        promotedTo = extension.get('promotedto')
-        extensionObject.promotedTo = NormalizeVersionName(promotedTo) if promotedTo else None
+        extensionObject.promotedTo = extension.get('promotedto')
         extensionObject.obsoletedOrDeprecatedBy = extension.get('obsoletedby')
         if extensionObject.obsoletedOrDeprecatedBy is None:
             extensionObject.obsoletedOrDeprecatedBy = extension.get('deprecatedby')
@@ -163,28 +162,30 @@ def GetIndexTypeString():
 # get list of current vulkan version names
 def GetVersionList(tree):
     '''
-    Returns list of current vulkan versions, excluding the safety critical version
-    and the 1.0 version, as that isn't relevant to extensions and features.
+    Returns list of version names from features that define API version macros.
+    After vk.xml split features into base/graphics/compute, not all features have version macros.
+    We extract VK_API_VERSION_X_Y from "API version macros" blocks and convert to VK_VERSION_X_Y
+    format (which extension dependencies use).
     Args:
         tree: xml.etree.ElementTree object containing the vk.xml data
     Returns:
-        list: list of version macro names (VK_API_VERSION_1_1, etc)
+        list: version names like VK_VERSION_1_0, VK_VERSION_1_1, etc (NOT VK_API_VERSION_X_Y)
     '''
     result = []
     features = tree.findall('./feature')
     
     for feature in features:
-        # Find require blocks with "API version macros" comment
+        # Find "API version macros" require blocks
         for require in feature.findall('./require'):
-            comment = require.get('comment')
-            if comment == 'API version macros':
-                # Extract type names from this require block
+            if require.get('comment') == 'API version macros':
+                # Look for VK_API_VERSION_1_X types and convert to VK_VERSION_1_X
                 for type_elem in require.findall('./type'):
                     type_name = type_elem.get('name')
-                    # Only want VK_API_VERSION_1_X macros (X = 0,1,2,3,4...)
-                    # Skip helper macros like VK_API_VERSION_MAJOR, VK_MAKE_API_VERSION, etc
+                    # Only VK_API_VERSION_1_X macros (skip helper macros, VKSC, etc)
                     if type_name and type_name.startswith('VK_API_VERSION_1_') and 'VKSC' not in type_name:
-                        result.append(type_name)
+                        # Convert VK_API_VERSION_1_1 -> VK_VERSION_1_1 (matches extension dep format)
+                        version_name = type_name.replace('VK_API_VERSION_', 'VK_VERSION_')
+                        result.append(version_name)
     
     return result
 
@@ -219,18 +220,18 @@ def GetVersionsLessThan(versionNames, versionName):
             result.append(version)
     return result
 
-def NormalizeVersionName(version):
+def MakeVersionStrVersionNumber(version):
     '''
-    Converts VK_VERSION_X_Y -> VK_API_VERSION_X_Y for matching.
-    Extension dependencies use VK_VERSION_X_Y format, but version list uses VK_API_VERSION_X_Y.
+    Converts version feature name to API version macro for C++ code generation.
+    VK_VERSION_1_2 -> VK_API_VERSION_1_2
     Args:
-        version: version string (VK_VERSION_1_2 or VK_API_VERSION_1_2)
+        version: feature name like VK_VERSION_1_1
     Returns:
-        string: normalized version macro (VK_API_VERSION_X_Y)
+        string: API version macro like VK_API_VERSION_1_1
     '''
     if version.startswith('VK_VERSION_') and not version.startswith('VK_API_VERSION_'):
         return version.replace('VK_VERSION_', 'VK_API_VERSION_')
-    return version  # Return original if pattern not found
+    return version
 
 def VersionSortKey(item):
     '''
@@ -349,53 +350,36 @@ def ProcessDependencyAST(extensionObject, dependencyAST, versionNameList):
     # Helper function to process OR nodes (alternative dependency paths)
     def process_or_node(node):
         nonlocal version_stack, extension_stack
-        # Each OR node is always going to specify a version dependency, or an extension
-        # dependency, OR another set of AST nodes to process.
         for term in node['terms']:
             type = process_node(term)
             if type == 'VERSION':
-                # If an OR node processes a version, it indicates the end of the previous version's
-                # dependency stack, and the beginning of a new version's dependency stack
-                next_version_name = NormalizeVersionName(term['name'])
+                next_version_name = term['name']
                 if next_version_name not in extensionObject.dependencies:
                     extensionObject.dependencies[next_version_name] = []
                 extensionObject.dependencies[version_stack[-1]].extend(extension_stack)
                 version_stack.append(next_version_name)
                 extension_stack = []
-
         return 'OR'
 
-    
     # Helper function to process AND nodes (dependencies that must all be satisfied)
     def process_and_node(node):
-        # For AND nodes, all factors must be satisfied
-        # We need to collect all dependencies and add them to the current version
         nonlocal version_stack, extension_stack
-        
         for factor in node['factors']:
             type = process_node(factor)
             if type == 'VERSION':
-                # If an AND node returns a version, it's going to be the first argument and always
-                # indicates the beginning of support for an extension, so we pop the previous version 
-                # (usually this is just vk1.0, as far as I can tell from investigating the vk.xml)
                 version_stack.pop()
-                version_stack.append(NormalizeVersionName(factor['name']))
-
+                version_stack.append(factor['name'])
         return 'AND'
     
     # Helper function to process leaf nodes (VERSION or EXTENSION)
     def process_leaf_node(node):
         nonlocal version_stack, extension_stack
         if node['type'] == 'VERSION':
-            # For VERSION nodes, we create a version-specific dependency entry
-            # We return the node type, because what we do with each version depends
-            # if we're in an AND or OR node.
-            version_name = NormalizeVersionName(node['name'])
+            version_name = node['name']
             if version_name not in extensionObject.dependencies:
                 extensionObject.dependencies[version_name] = []
             return 'VERSION'
         elif node['type'] == 'EXTENSION':
-            # For EXTENSION nodes, we add the extension to the current version's dependency list
             extension_name = node['name']
             extension_stack.append(extension_name)
             return 'EXTENSION'
@@ -803,9 +787,8 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
     # Generate versioned maps
     for version in versions:
         if version in versionedExtensions:
-            versionMacro = MakeVersionStrVersionNumber(version)
             print(f'    // Version: {version} extensions', file=fileStream)
-            print(f'    {{ {versionMacro}, {{', file=fileStream)
+            print(f'    {{ {version}, {{', file=fileStream)
             
             for extensionIndex, dependencyIndices in versionedExtensions[version].items():
                 extensionName = next(ext.name for ext in extensionObjects if ext.nameIndex == extensionIndex)
