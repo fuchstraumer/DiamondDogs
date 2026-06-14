@@ -445,7 +445,8 @@ def FinalizeDependencies(extensionObject, versionNameList):
                 found_current = True
         
         # If there's no next version with dependencies, we're done with this version
-        if len(versionsToAdd) == 0 or len(dependencies) == 0:
+        # Note: we DO still propagate empty dep lists (meaning "needs only the version") to later versions
+        if len(versionsToAdd) == 0:
             continue
         else:
             # Add dependencies from the current version to the next version
@@ -698,7 +699,7 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
     for version in versions:
         if version == 'ANY_VERSION':
             continue
-        versionMacros[version] = version
+        versionMacros[version] = MakeVersionStrVersionNumber(version)
 
     dependencyVectorStr = 'std::vector<' + dependencyIndexType + '>'
     print('// Extension dependency table - hierarchical map: version -> extension index -> dependencies', file=fileStream)
@@ -788,7 +789,7 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
     for version in versions:
         if version in versionedExtensions:
             print(f'    // Version: {version} extensions', file=fileStream)
-            print(f'    {{ {version}, {{', file=fileStream)
+            print(f'    {{ {versionMacros[version]}, {{', file=fileStream)
             
             for extensionIndex, dependencyIndices in versionedExtensions[version].items():
                 extensionName = next(ext.name for ext in extensionObjects if ext.nameIndex == extensionIndex)
