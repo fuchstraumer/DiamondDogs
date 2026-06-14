@@ -1266,11 +1266,14 @@ namespace rhi
             }
 
             // Convert search paths to C-string pointers
+            std::vector<std::string> searchPathStorage;
             std::vector<const char*> searchPathPtrs;
+            searchPathStorage.reserve(options.SearchPaths.size());
             searchPathPtrs.reserve(options.SearchPaths.size());
             for (const auto& path : options.SearchPaths)
             {
-                searchPathPtrs.push_back(path.c_str());
+                searchPathStorage.push_back(path.string());
+                searchPathPtrs.push_back(searchPathStorage.back().c_str());
             }
 
             // Create session descriptor
