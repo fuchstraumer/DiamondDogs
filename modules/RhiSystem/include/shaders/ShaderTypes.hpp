@@ -152,25 +152,30 @@ namespace rhi
         bool GenerateDescriptorReflection = true; // Requires GenerateReflectionData = true
         bool GenerateMemberReflection = true;    // Include struct member details for descriptors
     };
-
-    // Minimal struct for push constant ranges, for use with ShaderBinaryOptions when creating ShaderPrograms without reflection data
-    struct PushConstantRange
-    {
-        uint32_t Offset;
-        uint32_t Size;
-        ShaderStageFlags StageFlags;
-    };
     
     /**
      * @brief Raw bytecode options for pre-compiled shaders
      */
     struct ShaderBinaryOptions
     {
+        ShaderBinaryOptions(
+            std::span<const uint32_t> bytecode,
+            ShaderStageFlags stage,
+            std::string_view entryPointName,
+            std::span<PushConstantRange> pushConstants = {},
+            std::span<rhi::DescriptorSetLayoutHandle> descriptorLayouts = {}) noexcept :
+            Bytecode{ bytecode },
+            Stage{ stage },
+            EntryPointName{ entryPointName },
+            PushConstants{ pushConstants },
+            DescriptorLayouts{ descriptorLayouts }
+        {
+        }
         std::span<const uint32_t> Bytecode{}; // SPIR-V or DXIL bytecode
         ShaderStageFlags Stage = ShaderStageFlags::None;
         std::string EntryPointName = "main";
         // Push constants need to be provided separately since we don't reflect on them
-        std::span<const PushConstantRange> PushConstants{};
+        std::span<PushConstantRange> PushConstants{};
         std::span<rhi::DescriptorSetLayoutHandle> DescriptorLayouts{};
     };
 
