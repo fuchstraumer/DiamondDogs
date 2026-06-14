@@ -1,5 +1,6 @@
 #include "CommandPool.hpp"
 #include "Device.hpp"
+#include <cassert>
 
 #ifdef RHI_SYSTEM_USE_VULKAN
     #include <vulkan/vulkan_core.h>
@@ -20,13 +21,13 @@ namespace rhi
         }
 #ifdef RHI_SYSTEM_USE_VULKAN
         uint32_t queueFamilyIndex;
-        std::vector<VkCommandBuffer> allocatedBuffers;  // Track allocated command buffers
-        PFN_vkTrimCommandPoolKHR vkTrimCommandPool = nullptr; // Optional function pointer for trimming, if available
+        std::vector<VkCommandBuffer> allocatedBuffers; 
+        PFN_vkTrimCommandPoolKHR vkTrimCommandPool = nullptr;
 #elif defined(RHI_SYSTEM_USE_DX12)
         D3D12_COMMAND_LIST_TYPE commandListType;
         std::vector<Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>> commandLists;
-        std::vector<bool> commandListInUse;  // Track which command lists are currently being recorded
-        uint32_t nextAvailableIndex = 0;    // Optimization: start search from last allocated
+        std::vector<bool> commandListInUse;
+        uint32_t nextAvailableIndex = 0;
 #endif
         void GetTrimFunction()
         {
@@ -41,6 +42,9 @@ namespace rhi
         Result AllocateCommandBuffers(CommandPoolHandle handle, uint32_t count)
         {
 #ifdef RHI_SYSTEM_USE_VULKAN
+            // For simplicity, this implementation assumes all command buffers are freed together with the pool.
+            // More complex tracking would be needed for individual frees.
+            assert(allocatedBuffers.empty()); 
             VkCommandBufferAllocateInfo allocInfo{};
             allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
             allocInfo.commandPool = handle.As<VkCommandPool>();
@@ -259,8 +263,7 @@ namespace rhi
     // Helper method to allocate command buffers (similar to Vulkan's vkAllocateCommandBuffers)
     Result CommandPool::AllocateCommandBuffers(uint32_t count) noexcept
     {
-        //return impl->AllocateCommandBuffers(count);
-        return Result::Success();
+        return impl->AllocateCommandBuffers(handle, count);
     }
 
 }
