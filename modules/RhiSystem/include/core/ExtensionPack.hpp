@@ -36,6 +36,11 @@ namespace rhi
 
         void AddRequiredDeviceExtensions(std::vector<std::string> extensions);
         void AddOptionalDeviceExtensions(std::vector<std::string> extensions);
+        /** @brief Queries the extension wrangler for all VK_KHR_maintenance[N] extensions supported by
+         * the current physical device that are not already promoted to core, then adds them as optional
+         * device extensions. Must be called after SetPhysicalDevice and before ResolveDeviceDependencies.
+         */
+        void AddAllSupportedMaintenanceExtensions();
         void ResolveDeviceDependencies();
 
         // Get finalized extension lists (with dependencies resolved)

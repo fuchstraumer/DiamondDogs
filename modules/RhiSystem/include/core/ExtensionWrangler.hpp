@@ -7,6 +7,8 @@
 #include <optional>
 #include <string_view>
 #include <expected>
+#include <vector>
+#include <span>
 
 // Will have to allocate room for the extension deps, so need the whole rule of 5
 struct ExtensionDependencies
@@ -74,10 +76,15 @@ public:
     /** @brief If an extension is core in the current Vulkan API version in use in this environment, then it does not need to be explicitly enabled at all. */
     bool ExtensionCoreInActiveVersion(const std::string_view extensionName) const;
 
+    /** @brief Returns all device extensions whose names start with the given prefix that are supported by the current physical device and not already promoted to core.
+     * Useful for bulk-enabling a family of related extensions (e.g. prefix "VK_KHR_maintenance").
+     */
+    std::vector<std::string_view> GetSupportedExtensionsByPrefix(std::string_view prefix) const;
+
     /** @brief Returns an instance of the ExtensionDependencies struct containing all required dependencies for the specified extension. */
     std::expected<ExtensionDependencies, DependencyError> GetExtensionDependencies(const std::string_view extensionName) const;
     /** @brief Returns a deduplicated instance of ExtensionDependencies with all required dependencies for the specified set of extensions (i.e, the common set of required dependencies) */
-    std::expected<ExtensionDependencies, DependencyError> GetExtensionDependencies(const size_t numExtensions, const std::string_view* extensionNames) const;
+    std::expected<ExtensionDependencies, DependencyError> GetExtensionDependencies(std::span<std::string_view> extensionNames) const;
 
     enum class GetVersionFeatures
     {
@@ -92,15 +99,13 @@ public:
     };
 
     /** @brief Returns a VkPhysicalDeviceFeatures2 struct with the pNext chain fully populated for the given set of input extensions, which can be used to create a device.
-     * @param numExtensions The number of extensions in the extensionNames array.
-     * @param extensionNames An array of C-style strings representing the names of the extensions to get features for.
+     * @param extensionNames A span of strings representing the names of the extensions to get features for.
      * @param getVersionFeatures Whether to include the version features in the pNext chain (default: false)
      * @param collectDependencies Whether to collect dependencies for the extensions (default: false)
      * @return A VkPhysicalDeviceFeatures2 struct with the pNext chain populated with the features for the given extensions
      */
     std::expected<VkPhysicalDeviceFeatures2, DependencyError> GetExtensionFeatures(
-        const size_t numExtensions,
-        const std::string_view* extensionNames,
+        std::span<std::string_view> extensionNames,
         GetVersionFeatures getVersionFeatures = GetVersionFeatures::False,
         CollectDependencies collectDependencies = CollectDependencies::False) const;
 

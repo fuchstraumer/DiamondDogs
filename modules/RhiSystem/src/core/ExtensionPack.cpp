@@ -113,8 +113,9 @@ namespace rhi
         }
         
         // Get dependencies
+        std::span<std::string_view> allInstanceExtsSpan(allInstanceExts.data(), allInstanceExts.size());
         std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> deps = 
-            extensionWrangler->GetExtensionDependencies(allInstanceExts.size(), allInstanceExts.data());
+            extensionWrangler->GetExtensionDependencies(allInstanceExtsSpan);
         
         // Build final extension list
         std::unordered_set<std::string> finalExtensions;
@@ -193,6 +194,30 @@ namespace rhi
         optionalDeviceExts = std::move(extensions);
     }
 
+    void ExtensionPack::AddAllSupportedMaintenanceExtensions()
+    {
+        if (!extensionWrangler || !extensionWrangler->HasValidPhysicalDevice())
+        {
+            return;
+        }
+
+        const std::vector<std::string_view> maintenanceExts =
+            extensionWrangler->GetSupportedExtensionsByPrefix("VK_KHR_maintenance");
+
+        for (const std::string_view ext : maintenanceExts)
+        {
+            const bool alreadyRequired =
+                std::find(requiredDeviceExts.begin(), requiredDeviceExts.end(), ext) != requiredDeviceExts.end();
+            const bool alreadyOptional =
+                std::find(optionalDeviceExts.begin(), optionalDeviceExts.end(), ext) != optionalDeviceExts.end();
+
+            if (!alreadyRequired && !alreadyOptional)
+            {
+                optionalDeviceExts.emplace_back(ext);
+            }
+        }
+    }
+
     void ExtensionPack::ResolveDeviceDependencies()
     {
         if (!extensionWrangler)
@@ -220,9 +245,15 @@ namespace rhi
         }
         
         // Get dependencies
+        std::span<std::string_view> allDeviceExtsSpan(allDeviceExts.data(), allDeviceExts.size());
         std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> deps = 
-            extensionWrangler->GetExtensionDependencies(allDeviceExts.size(), allDeviceExts.data());
+            extensionWrangler->GetExtensionDependencies(allDeviceExtsSpan);
         
+        if (!deps.has_value() && deps.error() != ExtensionWrangler::DependencyError::NoDependenciesForExtension)
+        {
+            throw std::runtime_error("Failed to resolve device extension dependencies: " + std::to_string(static_cast<int>(deps.error())));
+        }
+
         // Build final extension list
         std::unordered_set<std::string> finalExtensions;
         
@@ -276,10 +307,11 @@ namespace rhi
         }
         
         // Get device features for enabled extensions
+        allDeviceExtsSpan = std::span<std::string_view>(allDeviceExts.data(), allDeviceExts.size());
         std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> features = 
-            extensionWrangler->GetExtensionFeatures(allDeviceExts.size(), allDeviceExts.data(), 
-                                                ExtensionWrangler::GetVersionFeatures::True,
-                                                ExtensionWrangler::CollectDependencies::False);
+            extensionWrangler->GetExtensionFeatures(allDeviceExtsSpan, 
+                                                    ExtensionWrangler::GetVersionFeatures::True,
+                                                    ExtensionWrangler::CollectDependencies::False);
         
         if (features.has_value())
         {

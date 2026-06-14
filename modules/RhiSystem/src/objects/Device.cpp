@@ -438,6 +438,7 @@ namespace rhi
     {
         const QueueFamilyIndices& queue_indices = impl->queueFamilyIndices;
         extensions.SetPhysicalDevice(impl->physicalDevice);
+        extensions.AddAllSupportedMaintenanceExtensions();
         extensions.ResolveDeviceDependencies();
         
         // Collect unique queue families
