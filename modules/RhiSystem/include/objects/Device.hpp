@@ -64,6 +64,7 @@ namespace rhi
         void createDevice(ExtensionPack& extensions);
         void setupQueues();
         void setupDebugUtils();
+        void setupDeviceFaultHandler();
 
         // has the bonus of letting us swap members and contents based on RHI backend
         std::unique_ptr<DeviceImpl> impl;

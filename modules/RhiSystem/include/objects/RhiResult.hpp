@@ -68,6 +68,7 @@ namespace rhi
         bool IsSuccess() const noexcept;
         bool IsFailure() const noexcept;
         bool IsError() const noexcept;
+        bool IsDeviceLost() const noexcept;
 
 
         Code GetCode() const noexcept;
