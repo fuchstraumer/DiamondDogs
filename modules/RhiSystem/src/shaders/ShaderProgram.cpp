@@ -170,7 +170,7 @@ namespace rhi
                     VK_SHADER_CREATE_LINK_STAGE_BIT_EXT,
                     VkShaderStageFlagBits(0), // stage
                     0, // nextStage
-                    VK_SHADER_CODE_TYPE_BINARY_EXT, // codeType
+                    VK_SHADER_CODE_TYPE_SPIRV_EXT, // codeType
                     0, // codeSize
                     nullptr, // pCode
                     "main", // pName
