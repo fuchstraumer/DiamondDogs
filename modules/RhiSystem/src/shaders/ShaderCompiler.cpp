@@ -1638,6 +1638,8 @@ namespace rhi
         {
             reflection.EntryPointName = entryPointName;
         }
+
+        auto layout = module.ProgramLayout;
         
         // TODO: Extract actual reflection data from module.ProgramLayout
         // This will be implemented in a follow-up

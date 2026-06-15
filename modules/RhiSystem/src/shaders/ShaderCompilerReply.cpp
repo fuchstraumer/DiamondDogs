@@ -173,7 +173,7 @@ namespace rhi
         return status.load(std::memory_order_acquire) == Status::Failed;
     }
 
-    ShaderCompiler::ShaderReflection ShaderReflectionQueryReply::GetReflection() const
+    ShaderReflection ShaderReflectionQueryReply::GetReflection() const
     {
         std::lock_guard<std::mutex> lock{ dataMutex };
         return reflection;
@@ -190,7 +190,7 @@ namespace rhi
         status.store(newStatus, std::memory_order_release);
     }
 
-    void ShaderReflectionQueryReply::SetReflection(ShaderCompiler::ShaderReflection newReflection)
+    void ShaderReflectionQueryReply::SetReflection(ShaderReflection newReflection)
     {
         std::lock_guard<std::mutex> lock{ dataMutex };
         reflection = std::move(newReflection);

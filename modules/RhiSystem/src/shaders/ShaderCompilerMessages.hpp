@@ -23,7 +23,7 @@ namespace rhi
         {
             std::filesystem::path SlangSourcePath;
             std::string ModuleName;
-            std::vector<std::string> SearchPaths;
+            std::vector<std::filesystem::path> SearchPaths;
             std::vector<std::string> AdditionalModules;
             std::string Target;
             bool EnableDebugInfo;
@@ -52,7 +52,7 @@ namespace rhi
                 ModuleName{ opts.ModuleName },
                 SearchPaths{ opts.SearchPaths.begin(), opts.SearchPaths.end() },
                 AdditionalModules{ opts.AdditionalModules.begin(), opts.AdditionalModules.end() },
-                Target{ opts.Target },
+                Target{ opts.Target == TargetShaderIR::SPIRV ? "spirv" : opts.Target == TargetShaderIR::DXIL ? "dxil" : "invalid" },
                 EnableDebugInfo{ opts.EnableDebugInfo },
                 EnableOptimizations{ opts.EnableOptimizations },
                 EnableValidation{ opts.EnableValidation },

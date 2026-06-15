@@ -9,7 +9,8 @@
 #include <string_view>
 
 namespace rhi
-{   
+{
+    struct ShaderBlobImpl;
     class ShaderModuleCompileReply;
 
     /** @brief Container for multiple entry points, effectively the output of a Slang module compile. It owns the API resource,
@@ -30,14 +31,14 @@ namespace rhi
         ShaderBlob(ShaderBlob&& other) noexcept;
         ShaderBlob& operator=(ShaderBlob&& other) noexcept;
 
-        using DescriptorBindingRange = std::span<const DescriptorBindingReflection>;
-        using SpecConstantRange = std::span<const SpecializationConstantReflection>;
-
         std::span<const std::string_view> GetAllEntrypoints() const noexcept;
         std::string_view GetModuleName() const noexcept;
 
+        ShaderProgram GetShaderProgram(std::span<ShaderStage> stagesInProgram) const;
+
     private:
         friend class ShaderProgram;
+        std::unique_ptr<ShaderBlobImpl> impl;
         std::shared_ptr<ShaderModuleCompileReply> compileReply;
     };
 

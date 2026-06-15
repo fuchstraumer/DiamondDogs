@@ -1,5 +1,7 @@
 - Move most of the stuff included in the main header behind an impl wall
 - Convert this module to C++ modules
-- Abstract further away from Vulkan in case we ever want to try a different rendering API (i.e., DX12 probably)
 - Extension wrangler needs to break down features into their supported boolean feature toggles, so that users can only enable features if they're actually supported fully
 - ExtensionWrangler should group maintenance feature structs together so that we can easily enable all the available ones for the current version or platform in one go
+- ShaderBlob and ShaderCompiler will need info on the current RHI device to figure out what IR instructions and extensions are even valid to use
+- ShaderCompilerReply really needs a delegate it can fire when the compile completes in Slang, so that the blob can then start auto-populating and configuring itself freely on a worker. If user tries to retrieve something, then we join that thread by forcing it to complete this work and return to the user (blocking optimistically)
+- Add support for VK_KHR_device_fault, so if that we do get device loss crashes (TDRs) we can extract more info about what exactly broke to cause it hopefully
