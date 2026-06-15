@@ -1,8 +1,9 @@
 #include "Instance.hpp"
 #include "ExtensionPack.hpp"
+#include "RhiAssert.hpp"
+#include "RhiResult.hpp"
 #include <iostream>
 #include <array>
-#include <cassert>
 #include "vulkan/vulkan_core.h"
 
 namespace rhi 
@@ -88,8 +89,8 @@ namespace rhi
         };
         
         VkInstance resultInstance = VK_NULL_HANDLE;
-        VkResult result = vkCreateInstance(&create_info, nullptr, &resultInstance);
-        assert(result == VK_SUCCESS);
+        rhi::Result result = vkCreateInstance(&create_info, nullptr, &resultInstance);
+        RhiAssert(result);
         handle.Set<VkInstance>(resultInstance);
     }
 
@@ -118,6 +119,12 @@ namespace rhi
             {
                 required_layers.push_back(layer);
             }
+        }
+
+        if (validationLevel >= ValidationLayers::CrashDiagnostic)
+        {
+            required_layers.push_back("VK_LAYER_LUNARG_crash_diagnostic");
+            required_layers.push_back("VK_LAYER_KHRONOS_shader_object");
         }
         
         // Check layer support

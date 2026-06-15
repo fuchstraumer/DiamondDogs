@@ -29,7 +29,8 @@ namespace rhi
         None = 0,
         BaseOnly = 1,               // Basic validation
         WithSynchronization = 2,    // Base + synchronization validation
-        Full = 3                    // All available layers
+        Full = 3,                    // All available layers
+        CrashDiagnostic = 4,        // VK_LAYER_crash_diagnostic
     };
 
     enum class ShaderStageFlags : uint32_t

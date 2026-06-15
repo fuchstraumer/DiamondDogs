@@ -674,21 +674,17 @@ namespace rhi
         
         const VkPhysicalDevice pDevice = impl->physicalDevice;
         VkDevice resultHandle = VK_NULL_HANDLE;
-        VkResult result = vkCreateDevice(pDevice, &create_info, nullptr, &resultHandle);
-        if (result != VK_SUCCESS)
+        rhi::Result result = vkCreateDevice(pDevice, &create_info, nullptr, &resultHandle);
+        RhiAssert(result);
+ 
+        handle.Set<VkDevice>(resultHandle);
+        impl->setupQueues(handle.As<VkDevice>());
+        impl->setupDebugUtils(handle.As<VkDevice>());
+        if (HasExtension("VK_KHR_device_fault"))
         {
-            throw std::runtime_error("Failed to create logical device");
+            impl->setupDeviceFaultHandler(handle.As<VkDevice>());
         }
-        else
-        {
-            handle.Set<VkDevice>(resultHandle);
-            impl->setupQueues(handle.As<VkDevice>());
-            impl->setupDebugUtils(handle.As<VkDevice>());
-            if (HasExtension("VK_KHR_device_fault"))
-            {
-                impl->setupDeviceFaultHandler(handle.As<VkDevice>());
-            }
-        }
+        
     }
 
 #endif // RHI_SYSTEM_USE_VULKAN
