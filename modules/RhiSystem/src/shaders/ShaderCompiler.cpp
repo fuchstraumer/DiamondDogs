@@ -1,26 +1,27 @@
 #include "ShaderCompiler.hpp"
-#include "ShaderCompilerReply.hpp"
-#include "ShaderCompilerMessages.hpp"
 #include "Device.hpp"
 #include "RhiDefines.hpp"
+#include "ShaderCompilerReply.hpp"
+#include "ShaderCompilerMessages.hpp"
+#include "ShaderTypes.hpp"
+
+#include <algorithm>
+#include <iostream>
+#include <format>
+#include <fstream>
+#include <mutex>
 #include <slang.h>
 #include <slang-com-ptr.h>
 #include <slang-com-helper.h>
-#include <stdexcept>
-#include <fstream>
 #include <sstream>
-#include <iostream>
-#include <format>
+#include <stdexcept>
 #include <vector>
 #include <unordered_map>
-#include <mutex>
-#include <algorithm>
 
 #ifdef WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <debugapi.h>
-
 void win32_OutputDebugString(const char* str)
 {
     OutputDebugStringA(str);
@@ -1094,7 +1095,7 @@ namespace rhi
                 std::vector<uint8_t> Bytecode;
                 
                 // Optional cached reflection
-                std::optional<ShaderCompiler::ShaderReflection> CachedReflection;
+                std::optional<ShaderReflection> CachedReflection;
             };
             std::unordered_map<std::string, EntryPointData> EntryPoints;
         };
@@ -1123,7 +1124,7 @@ namespace rhi
             std::string& outError);
         
         // Reflection generation (placeholder - will be implemented)
-        ShaderCompiler::ShaderReflection GenerateReflection(
+        ShaderReflection GenerateReflection(
             const ModuleStorage& module,
             const std::string& entryPointName,
             bool includeDescriptors,
@@ -1233,7 +1234,7 @@ namespace rhi
         }
         
         // Generate reflection on-demand (placeholder - needs implementation)
-        ShaderCompiler::ShaderReflection reflection = GenerateReflection(
+        ShaderReflection reflection = GenerateReflection(
             module,
             message.Identifier.EntryPointName,
             true,  // includeDescriptors
@@ -1265,11 +1266,14 @@ namespace rhi
             }
 
             // Convert search paths to C-string pointers
+            std::vector<std::string> searchPathStorage;
             std::vector<const char*> searchPathPtrs;
+            searchPathStorage.reserve(options.SearchPaths.size());
             searchPathPtrs.reserve(options.SearchPaths.size());
             for (const auto& path : options.SearchPaths)
             {
-                searchPathPtrs.push_back(path.c_str());
+                searchPathStorage.push_back(path.string());
+                searchPathPtrs.push_back(searchPathStorage.back().c_str());
             }
 
             // Create session descriptor
@@ -1516,13 +1520,21 @@ namespace rhi
                 entrypointMetadata.emplace_back(metadata);
             }
 
-            YamlBuilder yamlBuilder(&entrypointMetadata, outStorage.ProgramLayout);
-            yamlBuilder.PrintProgramLayout();
             // dump generated YAML to current directory for inspection
-            std::ofstream yamlFile("SlangReflectionOutput.yaml");
-            assert(yamlFile.is_open());
-            yamlFile << yamlBuilder.result;
-            yamlFile.close();
+            if constexpr (SHADER_COMPILER_ENABLE_YAML_REFLECTION)
+            {
+                if (options.GenerateReflectionData)
+                {
+                    YamlBuilder yamlBuilder(&entrypointMetadata, outStorage.ProgramLayout);
+                    yamlBuilder.PrintProgramLayout();
+                    std::ofstream yamlFile("SlangReflectionOutput.yaml", std::ios::trunc);
+                    if(yamlFile.is_open())
+                    {
+                        yamlFile << yamlBuilder.result;
+                        yamlFile.close();
+                    }
+                }
+            }
 
             // Now extract bytecode for each entry point from the linked program
             // Entry points start at index 0 (module is not an entry point in the composite)
@@ -1612,21 +1624,19 @@ namespace rhi
         return true;
     }
 
-    ShaderCompiler::ShaderReflection ShaderCompilerImpl::GenerateReflection(
+    ShaderReflection ShaderCompilerImpl::GenerateReflection(
         const ModuleStorage& module,
         const std::string& entryPointName,
         bool includeDescriptors,
         bool includeMemberReflection)
     {
         // Placeholder implementation - will be expanded with actual reflection extraction
-        ShaderCompiler::ShaderReflection reflection;
+        ShaderReflection reflection;
         
         auto entryIt = module.EntryPoints.find(entryPointName);
         if (entryIt != module.EntryPoints.end())
         {
-            reflection.Identifier.ModuleName = module.ModuleName;
-            reflection.Identifier.EntryPointName = entryPointName;
-            reflection.Identifier.Stage = entryIt->second.Stage;
+            reflection.EntryPointName = entryPointName;
         }
         
         // TODO: Extract actual reflection data from module.ProgramLayout
@@ -1700,6 +1710,23 @@ namespace rhi
         }
         
         return Result::Success();
+    }
+
+    ShaderCompiler::ModuleCompileOptions::ModuleCompileOptions(ShaderBlobCompileOptions&& blobOptions) noexcept :
+        SlangSourcePath(std::move(blobOptions.SlangSourcePath)),
+        ModuleName(std::move(blobOptions.ModuleName)),
+        SearchPaths(std::move(blobOptions.SearchPaths)),
+        AdditionalModules(std::move(blobOptions.ModuleNames)),
+        Target(blobOptions.TargetIR),
+        EnableDebugInfo(blobOptions.EnableDebugInfo),
+        EnableOptimizations(blobOptions.EnableOptimizations),
+        EnableValidation(blobOptions.EnableValidation),
+        CompileAllEntryPoints(blobOptions.CompileAllEntryPoints),
+        SpecificEntryPoints(std::move(blobOptions.SpecificEntryPoints)),
+        GenerateReflectionData(blobOptions.GenerateReflectionData),
+        GenerateDescriptorReflection(blobOptions.GenerateDescriptorReflection),
+        GenerateMemberReflection(blobOptions.GenerateMemberReflection)
+    {
     }
 
     // ShaderCompiler public API implementation

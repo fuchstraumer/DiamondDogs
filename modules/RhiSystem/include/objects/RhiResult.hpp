@@ -46,6 +46,7 @@ namespace rhi
             IncompatibleDisplayKHR = -1000003001,
             ValidationFailedEXT = -1000011001,
             InvalidShaderNV = -1000012000,
+            SlangCompilationFailed = -1000013000,
             
             // Generic error for unmapped platform-specific errors
             UnknownError = -999999999
@@ -67,6 +68,7 @@ namespace rhi
         bool IsSuccess() const noexcept;
         bool IsFailure() const noexcept;
         bool IsError() const noexcept;
+        bool IsDeviceLost() const noexcept;
 
 
         Code GetCode() const noexcept;

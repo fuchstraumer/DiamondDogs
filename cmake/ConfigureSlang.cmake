@@ -204,12 +204,8 @@ function(copy_slang_dlls_to_target TARGET_NAME)
     # Define the list of DLLs that need to be copied
     # These are built by Slang and required at runtime
     set(SLANG_DLL_NAMES
-        "slang.dll"
-        "slang.pdb"
-        "dxcompiler.dll"
-        "dxil.dll"
-        "d3dcompiler_47.dll"
-    )
+        "slang-compiler.dll"
+        "slang-compiler.pdb")
 
     # For each DLL, add a post-build command to copy it to the target's output directory
     foreach(DLL_NAME ${SLANG_DLL_NAMES})

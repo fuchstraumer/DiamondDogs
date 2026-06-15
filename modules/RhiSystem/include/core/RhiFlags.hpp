@@ -29,7 +29,8 @@ namespace rhi
         None = 0,
         BaseOnly = 1,               // Basic validation
         WithSynchronization = 2,    // Base + synchronization validation
-        Full = 3                    // All available layers
+        Full = 3,                    // All available layers
+        CrashDiagnostic = 4,        // VK_LAYER_crash_diagnostic
     };
 
     enum class ShaderStageFlags : uint32_t
@@ -115,6 +116,28 @@ namespace rhi
         NotEqual = 5,
         GreaterOrEqual = 6,
         Always = 7
+    };
+
+    // 1:1 match to Slang, will tweak later if needed but now this lets us publish clear reflection data w/o needing slang polluting top-level includes
+    enum class ShaderBindingType : uint8_t
+    {
+        Sampler,
+        Texture,
+        ConstantBuffer,
+        ParameterBlock,
+        TypedBuffer,
+        RawBuffer,
+        CombinedTextureSampler,
+        InputRenderTarget,
+        InlineUniformData,
+        RayTracingAccelerationStructure,
+        VaryingInput,
+        VaryingOutput,
+        ExistentialValue,
+        PushConstant,
+        MutableTexture,
+        MutableTypedBuffer,
+        MutableRawBuffer
     };
 
 }

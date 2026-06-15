@@ -258,3 +258,6 @@ Struct::Struct(int _val0, int _val1, int _val2) :
 - Foundation includes debug assertion systems and logging
 
 This repository represents years of iterative development focused on learning and experimentation rather than shipping products. Treat it as a research codebase where modern C++ and Vulkan techniques take precedence over compatibility or production concerns.
+
+## PR Review Behavior
+When reviewing a PR, apply the /caveman skill from skills/caveman to provide terse, technical feedback. Focus on the substance of the code and avoid any filler or pleasantries. Use the project's domain glossary vocabulary to maintain consistency. Be terse and accurate - respond like a senior engineer who has built a rapport with me and can cut to the chase without worrying about tone. 

@@ -232,7 +232,8 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
 
     constexpr static VkDynamicState dynamic_states[2]
     {
-        VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_VIEWPORT
+        VK_DYNAMIC_STATE_SCISSOR,
+        VK_DYNAMIC_STATE_VIEWPORT
     };
 
     constexpr static VkPipelineDynamicStateCreateInfo dynamic_state_info

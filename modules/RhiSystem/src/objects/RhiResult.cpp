@@ -13,7 +13,11 @@ namespace rhi
     bool Result::IsSuccess() const noexcept
     {
 #ifdef RHI_SYSTEM_USE_VULKAN
-        return nativeResult >= 0;  // VkResult: >= 0 is success
+        // Vulkan has many non-negative "success" codes, but those usually still indicate something isn't quite right.
+        // We will treat anything that isn't VK_SUCCESS as a failure, since in most cases the caller will want to know
+        // about these other conditions and handle them explicitly if needed, rather than accidentally treating them
+        // as success.
+        return nativeResult == VK_SUCCESS;
 #elif defined(RHI_SYSTEM_USE_DX12)
         return SUCCEEDED(static_cast<HRESULT>(nativeResult));  // HRESULT: use Windows macro
 #else
@@ -29,6 +33,18 @@ namespace rhi
     bool Result::IsError() const noexcept
     {
         return IsFailure();
+    }
+
+    bool Result::IsDeviceLost() const noexcept
+    {
+#ifdef RHI_SYSTEM_USE_VULKAN
+        return static_cast<VkResult>(nativeResult) == VK_ERROR_DEVICE_LOST;
+#elif defined(RHI_SYSTEM_USE_DX12)
+        return static_cast<HRESULT>(nativeResult) == DXGI_ERROR_DEVICE_REMOVED ||
+               static_cast<HRESULT>(nativeResult) == DXGI_ERROR_DEVICE_RESET;
+#else
+        return static_cast<Code>(nativeResult) == Code::Timeout;
+#endif
     }
 
     Result::Code Result::GetCode() const noexcept

@@ -1,6 +1,8 @@
 #include "Device.hpp"
 #include "Instance.hpp"
 #include "ExtensionPack.hpp"
+#include "RhiResult.hpp"
+#include "RhiAssert.hpp"
 #include <stdexcept>
 #include <vector>
 #include <set>
@@ -16,6 +18,166 @@ namespace rhi
     // Exceedingly rare to have more than 1 queue per family in the actual hardware anyways, otherwise it's just multiplexing to the actual command processor.
     // Two queues at least gives us some flexibility for parallelism without going overboard.
     constexpr static uint32_t k_MaxQueuesPerFamily = 2u;
+    static VkDevice LossHandlerDevice = VK_NULL_HANDLE;
+    PFN_vkGetDeviceFaultReportsKHR pfn_vkGetDeviceFaultReportsKHR = nullptr;
+
+    std::string DeviceFaultAddressTypeToStr(VkDeviceFaultAddressTypeKHR type)
+    {
+        switch (type)
+        {
+        case VK_DEVICE_FAULT_ADDRESS_TYPE_NONE_KHR:
+            return "None";
+        case VK_DEVICE_FAULT_ADDRESS_TYPE_READ_INVALID_KHR:
+            return "Read Invalid";
+        case VK_DEVICE_FAULT_ADDRESS_TYPE_WRITE_INVALID_KHR:
+            return "Write Invalid";
+        case VK_DEVICE_FAULT_ADDRESS_TYPE_EXECUTE_INVALID_KHR:
+            return "Execute Invalid";
+        case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_UNKNOWN_KHR:
+            return "Instruction Pointer Unknown";
+        case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_INVALID_KHR:
+            return "Instruction Pointer Invalid";
+        case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_FAULT_KHR:
+            return "Instruction Pointer Fault";
+        default:
+            return "Unknown VkDeviceFaultAddressTypeKHR value";
+        }
+    }
+
+    std::string DeviceFaultFlagBitsToStr(VkDeviceFaultFlagBitsKHR bits)
+    {
+        if (bits == 0)
+        {
+            return "None";
+        }
+
+        std::string result;
+
+        auto appendFault = [&](const char* name)
+        {
+            result += name;
+            if (!result.empty())
+            {
+                result += " | ";
+            }
+        };
+
+        if (bits & VK_DEVICE_FAULT_FLAG_DEVICE_LOST_KHR) 
+        {
+            appendFault("DeviceLost");
+        }
+
+        if (bits & VK_DEVICE_FAULT_FLAG_MEMORY_ADDRESS_KHR)
+        {
+            appendFault("MemoryAddress");
+        }
+
+        if (bits & VK_DEVICE_FAULT_FLAG_INSTRUCTION_ADDRESS_KHR)
+        {
+            appendFault("InstructionAddress");
+        }
+
+        if (bits & VK_DEVICE_FAULT_FLAG_VENDOR_KHR)
+        {
+            appendFault("VendorSpecificFault");
+        }
+
+        if (bits & VK_DEVICE_FAULT_FLAG_WATCHDOG_TIMEOUT_KHR)
+        {
+            appendFault("WatchdogTimeout");
+        }
+
+        if (bits & VK_DEVICE_FAULT_FLAG_OVERFLOW_KHR)
+        {
+            appendFault("Overflow");
+        }
+
+        // trim any trailing spaces and " | "
+        if (result.ends_with(" | "))
+        {
+            result = result.substr(0, result.size() - 3);
+        }
+
+        return result;
+    }
+
+    std::string VkDeviceFaultAddressInfoToStr(const VkDeviceFaultAddressInfoKHR& addressInfo)
+    {
+        if (addressInfo.addressPrecision == 0)
+        {
+            return std::format("Reported Address: 0x{:016X}, AddressType: {}",
+                addressInfo.reportedAddress,
+                DeviceFaultAddressTypeToStr(addressInfo.addressType));
+        }
+
+        const uint64_t mask = addressInfo.addressPrecision - 1;
+        const uint64_t lower_address = addressInfo.reportedAddress & ~mask;
+        const uint64_t upper_address = lower_address + mask;
+        return std::format("Address Range Begin: 0x{:016X}, Address Range End: 0x{:016X}, AddressType: {}",
+            lower_address,
+            upper_address,
+            DeviceFaultAddressTypeToStr(addressInfo.addressType));
+    }
+
+    void DeviceLostHandler(const Result& deviceLossResult, const char* message)
+    {
+
+        std::cerr << std::format("Device Fault: {}\n", message);
+        if (pfn_vkGetDeviceFaultReportsKHR)
+        {
+            uint32_t faultCount = 0;
+            pfn_vkGetDeviceFaultReportsKHR(LossHandlerDevice, 0, &faultCount, nullptr);
+            std::vector<VkDeviceFaultInfoKHR> faultInfos(faultCount, { VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_KHR, nullptr });
+            pfn_vkGetDeviceFaultReportsKHR(LossHandlerDevice, 0, &faultCount, faultInfos.data());
+            for (auto& faultInfo : faultInfos)
+            {
+                std::string faultFlagsStr = DeviceFaultFlagBitsToStr(static_cast<VkDeviceFaultFlagBitsKHR>(faultInfo.flags));
+                uint64_t groupID = faultInfo.groupId;
+                std::string_view faultDescription(faultInfo.description);
+                std::string FaultAddressInfoStr = VkDeviceFaultAddressInfoToStr(faultInfo.faultAddressInfo);
+                std::string FaultInstructionAddressInfoStr = VkDeviceFaultAddressInfoToStr(faultInfo.instructionAddressInfo);
+                std::string_view vendorDescription(faultInfo.vendorInfo.description);
+                // no idea whatr we do with these vendor fault data currently? Old format used to suggest we could dump things like aftermath
+                // reports or nvdbg dumps or something
+                uint64_t vendorFaultCode = faultInfo.vendorInfo.vendorFaultCode;
+                uint64_t vendorFaultData = faultInfo.vendorInfo.vendorFaultData;
+
+                std::cerr << std::format("Fault Flags: {}, Group ID: {}\n", faultFlagsStr, groupID);
+
+                if (!faultDescription.empty())
+                {
+                    std::cerr << std::format("Description: {}\n", faultDescription);
+                }
+
+                if (faultInfo.faultAddressInfo.addressType != VK_DEVICE_FAULT_ADDRESS_TYPE_NONE_KHR)
+                {
+                    std::cerr << std::format("FaultAddressInfo: {}\n", FaultAddressInfoStr);
+                }
+
+                if (faultInfo.instructionAddressInfo.addressType != VK_DEVICE_FAULT_ADDRESS_TYPE_NONE_KHR)
+                {
+                    std::cerr << std::format("InstructionAddressInfo: {}\n", FaultInstructionAddressInfoStr);
+                }
+
+                if (!vendorDescription.empty() || vendorFaultCode != 0 || vendorFaultData != 0)
+                {
+                    std::cerr << "Vendor Fault Info:\n"; 
+                    if (!vendorDescription.empty())
+                    {
+                        std::cerr << std::format("VendorDescription: {}\n", vendorDescription);
+                    }
+                    if (vendorFaultCode != 0)
+                    {
+                        std::cerr << std::format("VendorFaultCode: 0x{:016X}\n", vendorFaultCode);
+                    }
+                    if (vendorFaultData != 0)
+                    {
+                        std::cerr << std::format("VendorFaultData: 0x{:016X}\n", vendorFaultData);
+                    }
+                }
+            }
+        }
+    }
 
     struct DeviceImpl
     {
@@ -280,6 +442,16 @@ namespace rhi
             check_loaded_pfn((void*)debugUtilsHandler.vkSubmitDebugUtilsMessage, "vkSubmitDebugUtilsMessageEXT");
         }
 
+        void setupDeviceFaultHandler(VkDevice handle)
+        {
+            g_DeviceLossHandler = DeviceLostHandler;
+            LossHandlerDevice = handle;
+            pfn_vkGetDeviceFaultReportsKHR = reinterpret_cast<PFN_vkGetDeviceFaultReportsKHR>(vkGetDeviceProcAddr(handle, "vkGetDeviceFaultReportsKHR"));
+            if (pfn_vkGetDeviceFaultReportsKHR == nullptr)
+            {
+                std::cerr << "Warning: Device fault reporting function vkGetDeviceFaultReportsKHR not available. Device loss events may not report detailed fault information.\n";
+            }
+        }
 
         const Instance* parentInstance;
         VkPhysicalDevice physicalDevice;
@@ -438,6 +610,7 @@ namespace rhi
     {
         const QueueFamilyIndices& queue_indices = impl->queueFamilyIndices;
         extensions.SetPhysicalDevice(impl->physicalDevice);
+        extensions.AddAllSupportedMaintenanceExtensions();
         extensions.ResolveDeviceDependencies();
         
         // Collect unique queue families
@@ -508,17 +681,17 @@ namespace rhi
         
         const VkPhysicalDevice pDevice = impl->physicalDevice;
         VkDevice resultHandle = VK_NULL_HANDLE;
-        VkResult result = vkCreateDevice(pDevice, &create_info, nullptr, &resultHandle);
-        if (result != VK_SUCCESS)
+        rhi::Result result = vkCreateDevice(pDevice, &create_info, nullptr, &resultHandle);
+        RhiAssert(result);
+ 
+        handle.Set<VkDevice>(resultHandle);
+        impl->setupQueues(handle.As<VkDevice>());
+        impl->setupDebugUtils(handle.As<VkDevice>());
+        if (HasExtension("VK_KHR_device_fault"))
         {
-            throw std::runtime_error("Failed to create logical device");
+            impl->setupDeviceFaultHandler(handle.As<VkDevice>());
         }
-        else
-        {
-            handle.Set<VkDevice>(resultHandle);
-            impl->setupQueues(handle.As<VkDevice>());
-            impl->setupDebugUtils(handle.As<VkDevice>());
-        }
+        
     }
 
 #endif // RHI_SYSTEM_USE_VULKAN

@@ -33,8 +33,7 @@ set(RHI_OBJECT_HEADERS
     "include/objects/RhiFunctions.hpp"
     "include/objects/RhiHandle.hpp"
     "include/objects/RhiResult.hpp"
-    "include/objects/Semaphore.hpp"
-    "include/objects/ShaderObject.hpp")
+    "include/objects/Semaphore.hpp")
 
 set(RHI_OBJECT_SOURCES
     "src/objects/CommandBuffer.cpp"
@@ -44,19 +43,23 @@ set(RHI_OBJECT_SOURCES
     "src/objects/Instance.cpp"
     "src/objects/RhiFunctionsVk.cpp"
     "src/objects/RhiResult.cpp"
-    "src/objects/Semaphore.cpp"
-    "src/objects/ShaderObject.cpp")
+    "src/objects/Semaphore.cpp")
 
 set(RHI_SHADER_SYSTEM_HEADERS
     "include/shaders/PipelineExecutableInfo.hpp"
+    "include/shaders/ShaderBlob.hpp"
     "include/shaders/ShaderCompiler.hpp"
-    "include/shaders/ShaderCompilerReply.hpp")
+    "include/shaders/ShaderCompilerReply.hpp"
+    "include/shaders/ShaderProgram.hpp"
+    "include/shaders/ShaderTypes.hpp")
 
 set(RHI_SHADER_SYSTEM_SOURCES
+    "src/shaders/ShaderBlob.cpp"
     "src/shaders/PipelineExecutableInfo.cpp"
     "src/shaders/ShaderCompiler.cpp"
     "src/shaders/ShaderCompilerMessages.hpp"
-    "src/shaders/ShaderCompilerReply.cpp")
+    "src/shaders/ShaderCompilerReply.cpp"
+    "src/shaders/ShaderProgram.cpp")
 
 ADD_MODULE(rhi_system
     "${RHI_CORE_HEADERS}" "${RHI_CORE_SOURCES}"
@@ -112,30 +115,36 @@ IF(RHI_SYSTEM_DEBUG_INFO_CALLING_FN)
     TARGET_COMPILE_DEFINITIONS(rhi_system PUBLIC RHI_SYSTEM_DEBUG_INFO_CALLING_FN_CONF)
 ENDIF()
 
-find_package(Python COMPONENTS Interpreter)
+find_package(Python COMPONENTS Interpreter REQUIRED)
 
 # Define paths for dependency tracking
 set(RHI_SYSTEM_VK_XML_PATH "$ENV{VULKAN_SDK}/share/vulkan/registry/vk.xml")
 set(RHI_SYSTEM_GENERATOR_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/GenerateExtensionAndFeatureHeaders.py")
-set(RHI_SYSTEM_OUTPUT_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/src/GeneratedExtensionHeader.hpp")
+set(RHI_SYSTEM_OUTPUT_HEADER "${CMAKE_CURRENT_BINARY_DIR}/GeneratedExtensionHeader.hpp")
 
 if (RHI_SYSTEM_GRAPHICS_API STREQUAL "Vulkan")
     add_custom_command(
         OUTPUT "${RHI_SYSTEM_OUTPUT_HEADER}"
-        COMMAND ${Python_EXECUTABLE} "${RHI_SYSTEM_GENERATOR_SCRIPT}"
-                                    "-specDir=$ENV{VULKAN_SDK}" "-outputDir=${CMAKE_CURRENT_SOURCE_DIR}/src"
+        COMMAND "${Python_EXECUTABLE}" "${RHI_SYSTEM_GENERATOR_SCRIPT}"
+                                    "-specDir=$ENV{VULKAN_SDK}" "-outputDir=${CMAKE_CURRENT_BINARY_DIR}"
         DEPENDS "${RHI_SYSTEM_VK_XML_PATH}" "${RHI_SYSTEM_GENERATOR_SCRIPT}"
         COMMENT "Generating extension lookup header (dependencies changed)"
         VERBATIM
     )
 
+    set_source_files_properties("${RHI_SYSTEM_OUTPUT_HEADER}" PROPERTIES GENERATED TRUE)
+
+    target_sources(rhi_system PRIVATE "${RHI_SYSTEM_OUTPUT_HEADER}")
+
     # Custom target that depends on the output file
-    add_custom_target(generate_extension_headers
-        DEPENDS "${OUTPUT_HEADER}"
+    add_custom_target(rhi_system_generate_extension_headers
+        DEPENDS "${RHI_SYSTEM_OUTPUT_HEADER}"
     )
 
-    add_dependencies(rhi_system generate_extension_headers)
+    add_dependencies(rhi_system rhi_system_generate_extension_headers)
 
     # throw this in the modules subdir in the IDE, so it's at least not cluttering the root
-    set_target_properties(generate_extension_headers PROPERTIES FOLDER "Generators")
+    set_target_properties(rhi_system_generate_extension_headers PROPERTIES FOLDER "Generators")
+
+    target_include_directories(rhi_system PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
 endif()

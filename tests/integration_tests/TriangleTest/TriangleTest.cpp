@@ -2,7 +2,7 @@
 #include "RhiSystem.hpp"
 #include "CommandPool.hpp"
 #include "CommandBuffer.hpp"
-#include "ShaderObject.hpp"
+#include "ShaderProgram.hpp"
 #include "ImageDataFormats.hpp"
 #include "PlatformSystem.hpp"
 #include "Device.hpp"
@@ -12,13 +12,96 @@
 #include "RhiResult.hpp"
 #include "RhiAssert.hpp"
 #include "Math.hpp"
+#include <cassert>
 #include <fstream>
 #include <numbers>
 #include <format>
 #include <array>
 #include <span>
+#include <stdexcept>
 
 using namespace math;
+
+// EXT function pointers for dynamic state - load via vkGetDeviceProcAddr
+static PFN_vkCmdSetPrimitiveTopologyEXT pfn_vkCmdSetPrimitiveTopologyEXT = nullptr;
+static PFN_vkCmdSetPrimitiveRestartEnableEXT pfn_vkCmdSetPrimitiveRestartEnableEXT = nullptr;
+static PFN_vkCmdSetVertexInputEXT pfn_vkCmdSetVertexInputEXT = nullptr;
+static PFN_vkCmdSetDepthClampEnableEXT pfn_vkCmdSetDepthClampEnableEXT = nullptr;
+static PFN_vkCmdSetRasterizerDiscardEnableEXT pfn_vkCmdSetRasterizerDiscardEnableEXT = nullptr;
+static PFN_vkCmdSetPolygonModeEXT pfn_vkCmdSetPolygonModeEXT = nullptr;
+static PFN_vkCmdSetCullModeEXT pfn_vkCmdSetCullModeEXT = nullptr;
+static PFN_vkCmdSetFrontFaceEXT pfn_vkCmdSetFrontFaceEXT = nullptr;
+static PFN_vkCmdSetDepthBiasEnableEXT pfn_vkCmdSetDepthBiasEnableEXT = nullptr;
+static PFN_vkCmdSetRasterizationSamplesEXT pfn_vkCmdSetRasterizationSamplesEXT = nullptr;
+static PFN_vkCmdSetAlphaToCoverageEnableEXT pfn_vkCmdSetAlphaToCoverageEnableEXT = nullptr;
+static PFN_vkCmdSetAlphaToOneEnableEXT pfn_vkCmdSetAlphaToOneEnableEXT = nullptr;
+static PFN_vkCmdSetColorBlendEnableEXT pfn_vkCmdSetColorBlendEnableEXT = nullptr;
+static PFN_vkCmdSetColorBlendEquationEXT pfn_vkCmdSetColorBlendEquationEXT = nullptr;
+static PFN_vkCmdSetColorWriteMaskEXT pfn_vkCmdSetColorWriteMaskEXT = nullptr;
+static PFN_vkCmdSetLogicOpEnableEXT pfn_vkCmdSetLogicOpEnableEXT = nullptr;
+static PFN_vkCmdSetDepthTestEnableEXT pfn_vkCmdSetDepthTestEnableEXT = nullptr;
+static PFN_vkCmdSetDepthWriteEnableEXT pfn_vkCmdSetDepthWriteEnableEXT = nullptr;
+static PFN_vkCmdSetDepthCompareOpEXT pfn_vkCmdSetDepthCompareOpEXT = nullptr;
+static PFN_vkCmdSetDepthBoundsTestEnableEXT pfn_vkCmdSetDepthBoundsTestEnableEXT = nullptr;
+static PFN_vkCmdSetStencilTestEnableEXT pfn_vkCmdSetStencilTestEnableEXT = nullptr;
+static PFN_vkCmdBindVertexBuffers2EXT pfn_vkCmdBindVertexBuffers2EXT = nullptr;
+static PFN_vkCmdSetSampleMaskEXT pfn_vkCmdSetSampleMaskEXT = nullptr;
+static PFN_vkCmdSetViewportWithCountEXT pfn_vkCmdSetViewportWithCountEXT = nullptr;
+static PFN_vkCmdSetScissorWithCountEXT pfn_vkCmdSetScissorWithCountEXT = nullptr;
+
+static void LoadExtensionFunctions(VkDevice device)
+{
+    pfn_vkCmdSetPrimitiveTopologyEXT = reinterpret_cast<PFN_vkCmdSetPrimitiveTopologyEXT>(vkGetDeviceProcAddr(device, "vkCmdSetPrimitiveTopologyEXT"));
+    assert(pfn_vkCmdSetPrimitiveTopologyEXT && "Failed to load vkCmdSetPrimitiveTopologyEXT");
+    pfn_vkCmdSetPrimitiveRestartEnableEXT = reinterpret_cast<PFN_vkCmdSetPrimitiveRestartEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetPrimitiveRestartEnableEXT"));
+    assert(pfn_vkCmdSetPrimitiveRestartEnableEXT && "Failed to load vkCmdSetPrimitiveRestartEnableEXT");
+    pfn_vkCmdSetVertexInputEXT = reinterpret_cast<PFN_vkCmdSetVertexInputEXT>(vkGetDeviceProcAddr(device, "vkCmdSetVertexInputEXT"));
+    assert(pfn_vkCmdSetVertexInputEXT && "Failed to load vkCmdSetVertexInputEXT");
+    pfn_vkCmdSetDepthClampEnableEXT = reinterpret_cast<PFN_vkCmdSetDepthClampEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthClampEnableEXT"));
+    assert(pfn_vkCmdSetDepthClampEnableEXT && "Failed to load vkCmdSetDepthClampEnableEXT");
+    pfn_vkCmdSetRasterizerDiscardEnableEXT = reinterpret_cast<PFN_vkCmdSetRasterizerDiscardEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetRasterizerDiscardEnableEXT"));
+    assert(pfn_vkCmdSetRasterizerDiscardEnableEXT && "Failed to load vkCmdSetRasterizerDiscardEnableEXT");
+    pfn_vkCmdSetPolygonModeEXT = reinterpret_cast<PFN_vkCmdSetPolygonModeEXT>(vkGetDeviceProcAddr(device, "vkCmdSetPolygonModeEXT"));
+    assert(pfn_vkCmdSetPolygonModeEXT && "Failed to load vkCmdSetPolygonModeEXT");
+    pfn_vkCmdSetCullModeEXT = reinterpret_cast<PFN_vkCmdSetCullModeEXT>(vkGetDeviceProcAddr(device, "vkCmdSetCullModeEXT"));
+    assert(pfn_vkCmdSetCullModeEXT && "Failed to load vkCmdSetCullModeEXT");
+    pfn_vkCmdSetFrontFaceEXT = reinterpret_cast<PFN_vkCmdSetFrontFaceEXT>(vkGetDeviceProcAddr(device, "vkCmdSetFrontFaceEXT"));
+    assert(pfn_vkCmdSetFrontFaceEXT && "Failed to load vkCmdSetFrontFaceEXT");
+    pfn_vkCmdSetDepthBiasEnableEXT = reinterpret_cast<PFN_vkCmdSetDepthBiasEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthBiasEnableEXT"));
+    assert(pfn_vkCmdSetDepthBiasEnableEXT && "Failed to load vkCmdSetDepthBiasEnableEXT");
+    pfn_vkCmdSetRasterizationSamplesEXT = reinterpret_cast<PFN_vkCmdSetRasterizationSamplesEXT>(vkGetDeviceProcAddr(device, "vkCmdSetRasterizationSamplesEXT"));
+    assert(pfn_vkCmdSetRasterizationSamplesEXT && "Failed to load vkCmdSetRasterizationSamplesEXT");
+    pfn_vkCmdSetAlphaToCoverageEnableEXT = reinterpret_cast<PFN_vkCmdSetAlphaToCoverageEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetAlphaToCoverageEnableEXT"));
+    assert(pfn_vkCmdSetAlphaToCoverageEnableEXT && "Failed to load vkCmdSetAlphaToCoverageEnableEXT");
+    pfn_vkCmdSetAlphaToOneEnableEXT = reinterpret_cast<PFN_vkCmdSetAlphaToOneEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetAlphaToOneEnableEXT"));
+    assert(pfn_vkCmdSetAlphaToOneEnableEXT && "Failed to load vkCmdSetAlphaToOneEnableEXT");
+    pfn_vkCmdSetColorBlendEnableEXT = reinterpret_cast<PFN_vkCmdSetColorBlendEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetColorBlendEnableEXT"));
+    assert(pfn_vkCmdSetColorBlendEnableEXT && "Failed to load vkCmdSetColorBlendEnableEXT");
+    pfn_vkCmdSetColorBlendEquationEXT = reinterpret_cast<PFN_vkCmdSetColorBlendEquationEXT>(vkGetDeviceProcAddr(device, "vkCmdSetColorBlendEquationEXT"));
+    assert(pfn_vkCmdSetColorBlendEquationEXT && "Failed to load vkCmdSetColorBlendEquationEXT");
+    pfn_vkCmdSetColorWriteMaskEXT = reinterpret_cast<PFN_vkCmdSetColorWriteMaskEXT>(vkGetDeviceProcAddr(device, "vkCmdSetColorWriteMaskEXT"));
+    assert(pfn_vkCmdSetColorWriteMaskEXT && "Failed to load vkCmdSetColorWriteMaskEXT");
+    pfn_vkCmdSetLogicOpEnableEXT = reinterpret_cast<PFN_vkCmdSetLogicOpEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetLogicOpEnableEXT"));
+    assert(pfn_vkCmdSetLogicOpEnableEXT && "Failed to load vkCmdSetLogicOpEnableEXT");
+    pfn_vkCmdSetDepthTestEnableEXT = reinterpret_cast<PFN_vkCmdSetDepthTestEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthTestEnableEXT"));
+    assert(pfn_vkCmdSetDepthTestEnableEXT && "Failed to load vkCmdSetDepthTestEnableEXT");
+    pfn_vkCmdSetDepthWriteEnableEXT = reinterpret_cast<PFN_vkCmdSetDepthWriteEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthWriteEnableEXT"));
+    assert(pfn_vkCmdSetDepthWriteEnableEXT && "Failed to load vkCmdSetDepthWriteEnableEXT");
+    pfn_vkCmdSetDepthCompareOpEXT = reinterpret_cast<PFN_vkCmdSetDepthCompareOpEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthCompareOpEXT"));
+    assert(pfn_vkCmdSetDepthCompareOpEXT && "Failed to load vkCmdSetDepthCompareOpEXT");
+    pfn_vkCmdSetDepthBoundsTestEnableEXT = reinterpret_cast<PFN_vkCmdSetDepthBoundsTestEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthBoundsTestEnableEXT"));
+    assert(pfn_vkCmdSetDepthBoundsTestEnableEXT && "Failed to load vkCmdSetDepthBoundsTestEnableEXT");
+    pfn_vkCmdSetStencilTestEnableEXT = reinterpret_cast<PFN_vkCmdSetStencilTestEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetStencilTestEnableEXT"));
+    assert(pfn_vkCmdSetStencilTestEnableEXT && "Failed to load vkCmdSetStencilTestEnableEXT");
+    pfn_vkCmdBindVertexBuffers2EXT = reinterpret_cast<PFN_vkCmdBindVertexBuffers2EXT>(vkGetDeviceProcAddr(device, "vkCmdBindVertexBuffers2EXT"));
+    assert(pfn_vkCmdBindVertexBuffers2EXT && "Failed to load vkCmdBindVertexBuffers2EXT");
+    pfn_vkCmdSetSampleMaskEXT = reinterpret_cast<PFN_vkCmdSetSampleMaskEXT>(vkGetDeviceProcAddr(device, "vkCmdSetSampleMaskEXT"));
+    assert(pfn_vkCmdSetSampleMaskEXT && "Failed to load vkCmdSetSampleMaskEXT");
+    pfn_vkCmdSetViewportWithCountEXT = reinterpret_cast<PFN_vkCmdSetViewportWithCountEXT>(vkGetDeviceProcAddr(device, "vkCmdSetViewportWithCountEXT"));
+    assert(pfn_vkCmdSetViewportWithCountEXT && "Failed to load vkCmdSetViewportWithCountEXT");
+    pfn_vkCmdSetScissorWithCountEXT = reinterpret_cast<PFN_vkCmdSetScissorWithCountEXT>(vkGetDeviceProcAddr(device, "vkCmdSetScissorWithCountEXT"));
+    assert(pfn_vkCmdSetScissorWithCountEXT && "Failed to load vkCmdSetScissorWithCountEXT");
+}
 
 constexpr static const uint32_t triangle_vert_shader_spv[349] =
 {
@@ -103,6 +186,7 @@ VulkanTriangle::~VulkanTriangle()
 
 void VulkanTriangle::Initialize(void* user_data)
 {
+    LoadExtensionFunctions(vkDevice);
     prepareVertices();
     setupUniformBuffer();
     setupCommandPool();
@@ -111,7 +195,6 @@ void VulkanTriangle::Initialize(void* user_data)
     setupDescriptorSet();
     setupShaderModules();
     setupDepthStencil();
-    setupPipeline();
     createFrameSyncObjects();
     setup = true;
     limiterA = std::chrono::system_clock::now();
@@ -146,8 +229,7 @@ void VulkanTriangle::Destroy()
     vkDestroyBuffer(vkDevice, Vertices.buffer, nullptr);
     
     commandPool.reset();
-    vertexShader.Destroy();
-    fragmentShader.Destroy();
+    shaderProgram.reset();
 }
 
 void VulkanTriangle::prepareVertices()  {
@@ -184,16 +266,21 @@ void VulkanTriangle::prepareVertices()  {
             nullptr
         };
 
-        vkCreateBuffer(vkDevice, &buffer_info, nullptr, &Vertices.buffer);
+        rhi::Result result = vkCreateBuffer(vkDevice, &buffer_info, nullptr, &Vertices.buffer);
+        RhiAssert(result);
         VkMemoryRequirements memreqs{};
         vkGetBufferMemoryRequirements(vkDevice, Vertices.buffer, &memreqs);
         alloc_info.allocationSize = memreqs.size;
         alloc_info.memoryTypeIndex = device->GetMemoryTypeIndex(memreqs.memoryTypeBits, required_memory_flags);
-        vkAllocateMemory(vkDevice, &alloc_info, nullptr, &Vertices.memory);
-        vkMapMemory(vkDevice, Vertices.memory, 0, alloc_info.allocationSize, 0, &data);
+        result = vkAllocateMemory(vkDevice, &alloc_info, nullptr, &Vertices.memory);
+        RhiAssert(result);
+        result = vkMapMemory(vkDevice, Vertices.memory, 0, alloc_info.allocationSize, 0, &data);
+        RhiAssert(result);
         memcpy(data, base_vertices.data(), sizeof(Vertex) * base_vertices.size());
         vkUnmapMemory(vkDevice, Vertices.memory);
-        vkBindBufferMemory(vkDevice, Vertices.buffer, Vertices.memory, 0);
+        result = vkBindBufferMemory(vkDevice, Vertices.buffer, Vertices.memory, 0);
+        RhiAssert(result);
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_BUFFER, (uint64_t)Vertices.buffer, "VertexBuffer");
 
     }
 
@@ -210,16 +297,21 @@ void VulkanTriangle::prepareVertices()  {
             nullptr
         };
 
-        vkCreateBuffer(vkDevice, &buffer_info, nullptr, &Indices.buffer);
+        rhi::Result result = vkCreateBuffer(vkDevice, &buffer_info, nullptr, &Indices.buffer);
+        RhiAssert(result);
         VkMemoryRequirements memreqs{};
         vkGetBufferMemoryRequirements(vkDevice, Indices.buffer, &memreqs);
         alloc_info.allocationSize = memreqs.size;
         alloc_info.memoryTypeIndex = device->GetMemoryTypeIndex(memreqs.memoryTypeBits, required_memory_flags);
-        vkAllocateMemory(vkDevice, &alloc_info, nullptr, &Indices.memory);
-        vkMapMemory(vkDevice, Indices.memory, 0, alloc_info.allocationSize, 0, &data);
+        result = vkAllocateMemory(vkDevice, &alloc_info, nullptr, &Indices.memory);
+        RhiAssert(result);
+        result = vkMapMemory(vkDevice, Indices.memory, 0, alloc_info.allocationSize, 0, &data);
+        RhiAssert(result);
         memcpy(data, base_indices.data(), sizeof(uint16_t) * base_indices.size());
         vkUnmapMemory(vkDevice, Indices.memory);
-        vkBindBufferMemory(vkDevice, Indices.buffer, Indices.memory, 0);
+        result = vkBindBufferMemory(vkDevice, Indices.buffer, Indices.memory, 0);
+        RhiAssert(result);
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_BUFFER, (uint64_t)Indices.buffer, "IndexBuffer");
     }
 }
 
@@ -238,7 +330,9 @@ void VulkanTriangle::setupUniformBuffer()
         nullptr
     };
 
-    VkResult result = vkCreateBuffer(vkDevice, &buffer_info, nullptr, &uniformBufferVS.buffer);
+    rhi::Result result = vkCreateBuffer(vkDevice, &buffer_info, nullptr, &uniformBufferVS.buffer);
+    RhiAssert(result);
+    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_BUFFER, (uint64_t)uniformBufferVS.buffer, "UniformBufferVS");
 
     VkMemoryRequirements memreqs;
     vkGetBufferMemoryRequirements(vkDevice, uniformBufferVS.buffer, &memreqs);
@@ -247,7 +341,9 @@ void VulkanTriangle::setupUniformBuffer()
     alloc_info.memoryTypeIndex = device->GetMemoryTypeIndex(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
     
     result = vkAllocateMemory(vkDevice, &alloc_info, nullptr, &uniformBufferVS.memory);
+    RhiAssert(result);
     result = vkBindBufferMemory(vkDevice, uniformBufferVS.buffer, uniformBufferVS.memory, 0);
+    RhiAssert(result);
     uniformBufferVS.descriptor = VkDescriptorBufferInfo{ uniformBufferVS.buffer, 0, sizeof(uboDataVS) };
 
     update();
@@ -259,6 +355,7 @@ void VulkanTriangle::setupCommandPool()
     commandPool = std::make_unique<CommandPool>(device->Handle(), CommandPool::Type::Graphics, device->GetQueueFamilyIndices().Graphics);
     Result result = commandPool->AllocateCommandBuffers(numFramebuffers);
     RhiAssert(result);
+    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, commandPool->Handle().As<uint64_t>(), "CommandPool");
 }
 
 void VulkanTriangle::setupDescriptorPool()
@@ -281,6 +378,8 @@ void VulkanTriangle::setupDescriptorPool()
 
     rhi::Result result = vkCreateDescriptorPool(vkDevice, &pool_info, nullptr, &descriptorPool);
     RhiAssert(result);
+    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, (uint64_t)descriptorPool, "DescriptorPool");
+    
 }
 
 void VulkanTriangle::setupLayouts()
@@ -306,6 +405,7 @@ void VulkanTriangle::setupLayouts()
 
     rhi::Result result = vkCreateDescriptorSetLayout(vkDevice, &layout_info, nullptr, &setLayout);
     RhiAssert(result);
+    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, (uint64_t)setLayout, "DescriptorSetLayout");
 
     const VkPipelineLayoutCreateInfo pipeline_layout_info
     {
@@ -320,6 +420,8 @@ void VulkanTriangle::setupLayouts()
 
     result = vkCreatePipelineLayout(vkDevice, &pipeline_layout_info, nullptr, &pipelineLayout);
     RhiAssert(result);
+    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT, (uint64_t)pipelineLayout, "PipelineLayout");
+    
 }
 
 void VulkanTriangle::setupDescriptorSet()
@@ -336,6 +438,7 @@ void VulkanTriangle::setupDescriptorSet()
 
     rhi::Result result = vkAllocateDescriptorSets(vkDevice, &alloc_info, &descriptorSet);
     RhiAssert(result);
+    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, (uint64_t)descriptorSet, "DescriptorSet");
 
     const VkWriteDescriptorSet write_descriptor
     {
@@ -357,27 +460,21 @@ void VulkanTriangle::setupDescriptorSet()
 void VulkanTriangle::setupShaderModules() 
 {
     using namespace rhi;
-
-    auto vertex_shader_code_span = std::span<const uint32_t>(triangle_vert_shader_spv, std::size(triangle_vert_shader_spv));
-    static const ShaderObject::BinaryOptions vertex_options
+    std::span<const uint32_t> vertShaderCode(triangle_vert_shader_spv);
+    std::span<const uint32_t> fragShaderCode(triangle_frag_shader_spv);
+    std::span<PushConstantRange> vertexPushConstants = {};
+    std::span<PushConstantRange> fragmentPushConstants = {};
+    DescriptorSetLayoutHandle setLayoutHandle;
+    setLayoutHandle.Set(setLayout);
+    std::span<DescriptorSetLayoutHandle> vertexDescriptorSetLayouts(&setLayoutHandle, 1);
+    std::span<DescriptorSetLayoutHandle> fragmentDescriptorSetLayouts(&setLayoutHandle, 1);
+    ShaderBinaryOptions shaderOptions[2]
     {
-        std::span<const uint32_t>(triangle_vert_shader_spv, std::size(triangle_vert_shader_spv)),
-        ShaderStageFlags::Vertex,
-        "main"
+        ShaderBinaryOptions{ vertShaderCode, ShaderStageFlags::Vertex, "main", vertexPushConstants, vertexDescriptorSetLayouts },
+        ShaderBinaryOptions{ fragShaderCode, ShaderStageFlags::Fragment, "main", fragmentPushConstants, fragmentDescriptorSetLayouts }
     };
-
-    Result result = ShaderObject::Create(device->Handle(), vertex_options, vertexShader);
-    RhiAssert(result);
-
-    static const ShaderObject::BinaryOptions fragment_options
-    {
-        std::span<const uint32_t>(triangle_frag_shader_spv, std::size(triangle_frag_shader_spv)),
-        ShaderStageFlags::Fragment,
-        "main"
-    };
-
-    result = ShaderObject::Create(device->Handle(), fragment_options, fragmentShader);
-    RhiAssert(result);
+    std::span<ShaderBinaryOptions> shaderOptionsSpan(shaderOptions);
+    shaderProgram = std::make_unique<ShaderProgram>(device->Handle(), shaderOptions);
 }
 
 void VulkanTriangle::setupDepthStencil() 
@@ -385,75 +482,131 @@ void VulkanTriangle::setupDepthStencil()
     for (uint32_t i = 0; i < numFramebuffers; ++i)
     {
         depthStencils.emplace_back(CreateDepthStencil(device, platformSystem->GetActiveSwapchain()));
+        auto& depthStencil = depthStencils.back();
+        const std::string imageName = "DepthStencilImage_Frame" + std::to_string(i);
+        const std::string imageViewName = "DepthStencilImageView_Frame" + std::to_string(i);
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, (uint64_t)depthStencil.Image, imageName.c_str());
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t)depthStencil.View, imageViewName.c_str());
     }
 }
 
-void VulkanTriangle::setupPipeline() 
+void VulkanTriangle::setInputStates(rhi::CommandBufferHandle cmdBuffer)
 {
+    VkCommandBuffer vkCmdBuffer = cmdBuffer.As<VkCommandBuffer>();
 
-    const VkShaderModule vertexShaderModule = vertexShader.Handle().As<VkShaderModule>();
-    const VkShaderModule fragmentShaderModule = fragmentShader.Handle().As<VkShaderModule>();
-    const VkPipelineShaderStageCreateInfo vertexInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertexShaderModule, "main", nullptr };
-    const VkPipelineShaderStageCreateInfo fragmentInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fragmentShaderModule, "main", nullptr };
-    const VkPipelineShaderStageCreateInfo shader_stages[2]
-    {
-        vertexInfo,
-        fragmentInfo
-    };
+    pfn_vkCmdSetPrimitiveTopologyEXT(vkCmdBuffer, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    pfn_vkCmdSetPrimitiveRestartEnableEXT(vkCmdBuffer, VK_FALSE);
 
-    constexpr static VkVertexInputBindingDescription vertex_binding
+    constexpr static VkVertexInputBindingDescription2EXT vertex_binding
     {
-        0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX
-    };
-
-    constexpr static VkVertexInputAttributeDescription vertex_attributes[2]
-    {
-        VkVertexInputAttributeDescription{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 },
-        VkVertexInputAttributeDescription{ 1, 0, VK_FORMAT_R32G32B32_SFLOAT, sizeof(float) * 3 },
-    };
-
-    constexpr static VkPipelineVertexInputStateCreateInfo vertex_info
-    {
-        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT,
         nullptr,
         0,
-        1,
-        &vertex_binding,
-        2,
-        vertex_attributes
+        sizeof(Vertex),
+        VK_VERTEX_INPUT_RATE_VERTEX,
+        1
     };
 
-    ImageFormat swapchain_color_format = swapchain->ImageFormat();
-    const VkFormat color_formats[1]
+    constexpr static VkVertexInputAttributeDescription2EXT vertex_attributes[2]
     {
-        ToVkFormat(swapchain_color_format)
+        VkVertexInputAttributeDescription2EXT
+        {
+            VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT,
+            nullptr,
+            0,
+            0,
+            VK_FORMAT_R32G32B32_SFLOAT,
+            0
+        },
+        VkVertexInputAttributeDescription2EXT
+        {
+            VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT,
+            nullptr,
+            1,
+            0,
+            VK_FORMAT_R32G32B32_SFLOAT,
+            sizeof(float) * 3
+        }
     };
 
-    const VkPipelineRenderingCreateInfo rendering_info
+    pfn_vkCmdSetVertexInputEXT(vkCmdBuffer, 1, &vertex_binding, 2, vertex_attributes);
+}
+
+void VulkanTriangle::setRasterizationAndSampleStates(rhi::CommandBufferHandle cmdBuffer)
+{
+    VkCommandBuffer vkCmdBuffer = cmdBuffer.As<VkCommandBuffer>();
+
+    pfn_vkCmdSetDepthClampEnableEXT(vkCmdBuffer, VK_FALSE);
+    pfn_vkCmdSetRasterizerDiscardEnableEXT(vkCmdBuffer, VK_FALSE);
+    pfn_vkCmdSetPolygonModeEXT(vkCmdBuffer, VK_POLYGON_MODE_FILL);
+    pfn_vkCmdSetCullModeEXT(vkCmdBuffer, VK_CULL_MODE_BACK_BIT);
+    pfn_vkCmdSetFrontFaceEXT(vkCmdBuffer, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    pfn_vkCmdSetDepthBiasEnableEXT(vkCmdBuffer, VK_FALSE);
+
+    pfn_vkCmdSetRasterizationSamplesEXT(vkCmdBuffer, VK_SAMPLE_COUNT_1_BIT);
+    pfn_vkCmdSetAlphaToCoverageEnableEXT(vkCmdBuffer, VK_FALSE);
+    pfn_vkCmdSetAlphaToOneEnableEXT(vkCmdBuffer, VK_FALSE);
+    constexpr static VkSampleMask sample_mask = 0xffffffff;
+    pfn_vkCmdSetSampleMaskEXT(vkCmdBuffer, VK_SAMPLE_COUNT_1_BIT, &sample_mask);
+}
+
+void VulkanTriangle::setColorBlendStates(rhi::CommandBufferHandle cmdBuffer)
+{
+    VkCommandBuffer vkCmdBuffer = cmdBuffer.As<VkCommandBuffer>();
+    constexpr static VkBool32 blend_enable[1] = { VK_TRUE };
+    pfn_vkCmdSetColorBlendEnableEXT(vkCmdBuffer, 0, 1, blend_enable);
+
+    constexpr static VkColorBlendEquationEXT blend_equation[1]
     {
-        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-        nullptr,
-        0,
-        std::size(color_formats),
-        color_formats,
-        depthStencils[0].Format, // format is same among all depth/stencil attachments
-        VK_FORMAT_UNDEFINED
+        VkColorBlendEquationEXT
+        {
+            VK_BLEND_FACTOR_SRC_ALPHA,
+            VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            VK_BLEND_OP_ADD,
+            VK_BLEND_FACTOR_SRC_ALPHA,
+            VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+            VK_BLEND_OP_ADD
+        }
     };
+    pfn_vkCmdSetColorBlendEquationEXT(vkCmdBuffer, 0, 1, blend_equation);
 
-    BasicPipelineCreateInfo pipelineCreateInfo
+    constexpr static VkColorComponentFlags color_write_mask[1]
     {
-        device,
-        0,
-        2,
-        shader_stages,
-        &vertex_info,
-        pipelineLayout,
-        &rendering_info,
-        VK_COMPARE_OP_LESS
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
     };
+    pfn_vkCmdSetColorWriteMaskEXT(vkCmdBuffer, 0, 1, color_write_mask);
+    pfn_vkCmdSetLogicOpEnableEXT(vkCmdBuffer, VK_FALSE);
+}
 
-    pipeline = CreateBasicPipeline(pipelineCreateInfo);
-    
+void VulkanTriangle::setDepthStencilStates(rhi::CommandBufferHandle cmdBuffer)
+{
+    VkCommandBuffer vkCmdBuffer = cmdBuffer.As<VkCommandBuffer>();
+
+    pfn_vkCmdSetDepthTestEnableEXT(vkCmdBuffer, VK_TRUE);
+    pfn_vkCmdSetDepthWriteEnableEXT(vkCmdBuffer, VK_TRUE);
+    pfn_vkCmdSetDepthCompareOpEXT(vkCmdBuffer, VK_COMPARE_OP_LESS);
+    pfn_vkCmdSetDepthBoundsTestEnableEXT(vkCmdBuffer, VK_FALSE);
+    pfn_vkCmdSetStencilTestEnableEXT(vkCmdBuffer, VK_FALSE);
+}
+
+void VulkanTriangle::bindPipeline(rhi::CommandBufferHandle cmdBuffer)
+{
+    // if we weren't in shader objects mode, this is where we'd bind the pipeline and so on,
+    // now we just set a bunch of dynamic states
+    shaderProgram->BindShaders(cmdBuffer);
+    setInputStates(cmdBuffer);
+    setRasterizationAndSampleStates(cmdBuffer);
+    setColorBlendStates(cmdBuffer);
+    setDepthStencilStates(cmdBuffer);
+}
+
+void VulkanTriangle::bindGeometryBuffers(rhi::CommandBufferHandle cmdBuffer)
+{
+    VkCommandBuffer vkCmdBuffer = cmdBuffer.As<VkCommandBuffer>();
+    VkBuffer vertexBuffers[] = { Vertices.buffer };
+    VkDeviceSize offsets[] = { 0 };
+    pfn_vkCmdBindVertexBuffers2EXT(vkCmdBuffer, 0, 1, vertexBuffers, offsets, nullptr, nullptr);
+    vkCmdBindIndexBuffer(vkCmdBuffer, Indices.buffer, 0, VK_INDEX_TYPE_UINT16);
 }
 
 void VulkanTriangle::recordCommands()
@@ -638,13 +791,11 @@ void VulkanTriangle::recordCommands()
             const VkCommandBuffer currentBuffer = currCmdBuffer.Handle().As<VkCommandBuffer>();
             vkCmdPipelineBarrier2(currentBuffer, &dependency_info0);
             vkCmdBeginRendering(currentBuffer, &renderingInfo);
-            vkCmdBindPipeline(currentBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            bindPipeline(currCmdBuffer.Handle());
             vkCmdBindDescriptorSets(currentBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-            constexpr static VkDeviceSize offsets[1]{ 0 };
-            vkCmdBindVertexBuffers(currentBuffer, 0, 1, &Vertices.buffer, offsets);
-            vkCmdBindIndexBuffer(currentBuffer, Indices.buffer, 0, VK_INDEX_TYPE_UINT16);
-            vkCmdSetViewport(currentBuffer, 0, 1, &viewport);
-            vkCmdSetScissor(currentBuffer, 0, 1, &scissor);
+            bindGeometryBuffers(currCmdBuffer.Handle());
+            pfn_vkCmdSetViewportWithCountEXT(currentBuffer, 1, &viewport);
+            pfn_vkCmdSetScissorWithCountEXT(currentBuffer, 1, &scissor);
             vkCmdDrawIndexed(currentBuffer, Indices.count, 1, 0, 0, 0);
             vkCmdEndRendering(currentBuffer);
             vkCmdPipelineBarrier2(currentBuffer, &dependency_info1);
@@ -704,12 +855,8 @@ void VulkanTriangle::draw()
     };
 
     VkQueue graphicsQueue = device->GetGraphicsQueue(0).As<VkQueue>();
-    VkResult result = vkQueueSubmit2(graphicsQueue, 1, &submission2, inFlightFences[currentFrame]);
-    if (result != VK_SUCCESS)
-    {
-        // handle submission failure (e.g., by recreating the swapchain)
-        throw std::runtime_error("Failed to submit draw command buffer!");
-    }
+    rhi::Result result = vkQueueSubmit2(graphicsQueue, 1, &submission2, inFlightFences[currentFrame]);
+    RhiAssert(result);
 }
 
 void VulkanTriangle::endFrame()

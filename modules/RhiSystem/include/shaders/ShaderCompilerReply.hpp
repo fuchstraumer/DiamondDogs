@@ -2,6 +2,7 @@
 #ifndef RHI_SYSTEM_SHADER_COMPILER_REPLY_HPP
 #define RHI_SYSTEM_SHADER_COMPILER_REPLY_HPP
 #include "ShaderCompiler.hpp"
+#include "ShaderTypes.hpp"
 #include <atomic>
 #include <mutex>
 #include <string>
@@ -97,19 +98,19 @@ namespace rhi
         bool HasFailed() const noexcept;
 
         // Access reflection data (blocks until complete)
-        ShaderCompiler::ShaderReflection GetReflection() const;
+        ShaderReflection GetReflection() const;
         std::string GetErrorMessage() const;
 
         // Internal use only
         void SetStatus(Status status);
-        void SetReflection(ShaderCompiler::ShaderReflection reflection);
+        void SetReflection(ShaderReflection reflection);
         void SetError(std::string error);
 
     private:
         mutable std::mutex dataMutex;
         std::atomic<Status> status;
         
-        ShaderCompiler::ShaderReflection reflection;
+        ShaderReflection reflection;
         std::string errorMessage;
     };
 

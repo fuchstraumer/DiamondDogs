@@ -3,6 +3,67 @@
 #include <vector>
 #include <cstring>
 #include <set>
+
+#ifndef VK_BASE_API_VERSION_1_0
+#define VK_BASE_API_VERSION_1_0 VK_API_VERSION_1_0
+#endif
+
+#ifndef VK_COMPUTE_API_VERSION_1_0
+#define VK_COMPUTE_API_VERSION_1_0 VK_API_VERSION_1_0
+#endif
+
+#ifndef VK_GRAPHICS_API_VERSION_1_0
+#define VK_GRAPHICS_API_VERSION_1_0 VK_API_VERSION_1_0
+#endif
+
+#ifndef VK_BASE_API_VERSION_1_1
+#define VK_BASE_API_VERSION_1_1 VK_API_VERSION_1_1
+#endif
+
+#ifndef VK_COMPUTE_API_VERSION_1_1
+#define VK_COMPUTE_API_VERSION_1_1 VK_API_VERSION_1_1
+#endif
+
+#ifndef VK_GRAPHICS_API_VERSION_1_1
+#define VK_GRAPHICS_API_VERSION_1_1 VK_API_VERSION_1_1
+#endif
+
+#ifndef VK_BASE_API_VERSION_1_2
+#define VK_BASE_API_VERSION_1_2 VK_API_VERSION_1_2
+#endif
+
+#ifndef VK_COMPUTE_API_VERSION_1_2
+#define VK_COMPUTE_API_VERSION_1_2 VK_API_VERSION_1_2
+#endif
+
+#ifndef VK_GRAPHICS_API_VERSION_1_2
+#define VK_GRAPHICS_API_VERSION_1_2 VK_API_VERSION_1_2
+#endif
+
+#ifndef VK_BASE_API_VERSION_1_3
+#define VK_BASE_API_VERSION_1_3 VK_API_VERSION_1_3
+#endif
+
+#ifndef VK_COMPUTE_API_VERSION_1_3
+#define VK_COMPUTE_API_VERSION_1_3 VK_API_VERSION_1_3
+#endif
+
+#ifndef VK_GRAPHICS_API_VERSION_1_3
+#define VK_GRAPHICS_API_VERSION_1_3 VK_API_VERSION_1_3
+#endif
+
+#ifndef VK_BASE_API_VERSION_1_4
+#define VK_BASE_API_VERSION_1_4 VK_API_VERSION_1_4
+#endif
+
+#ifndef VK_COMPUTE_API_VERSION_1_4
+#define VK_COMPUTE_API_VERSION_1_4 VK_API_VERSION_1_4
+#endif
+
+#ifndef VK_GRAPHICS_API_VERSION_1_4
+#define VK_GRAPHICS_API_VERSION_1_4 VK_API_VERSION_1_4
+#endif
+
 #include "GeneratedExtensionHeader.hpp"
 
 static const std::set<uint32_t> BuiltInVkVersions
@@ -267,6 +328,23 @@ bool ExtensionWrangler::ExtensionCoreInActiveVersion(const std::string_view exte
     return std::find(promotedExtensionsForVersion.begin(), promotedExtensionsForVersion.end(), extensionIndex) != promotedExtensionsForVersion.end();
 }
 
+std::vector<std::string_view> ExtensionWrangler::GetSupportedExtensionsByPrefix(std::string_view prefix) const
+{
+    std::vector<std::string_view> result;
+    for (const char* extName : masterExtensionNameTable)
+    {
+        const std::string_view extNameView{ extName };
+        if (extNameView.starts_with(prefix) &&
+            ExtensionIsDeviceExtension(extNameView) &&
+            !ExtensionCoreInActiveVersion(extNameView) &&
+            IsExtensionSupported(extNameView))
+        {
+            result.emplace_back(extNameView);
+        }
+    }
+    return result;
+}
+
 std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionDependencies(const std::string_view extensionName) const
 {
     if (ExtensionCoreInActiveVersion(extensionName))
@@ -314,9 +392,9 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     }
 }
 
-std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionDependencies(const size_t numExtensions, const std::string_view* extensionNames) const
+std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionDependencies(std::span<std::string_view> extensionNames) const
 {
-    if (numExtensions == 0)
+    if (extensionNames.empty())
     {
         return std::unexpected<DependencyError>(DependencyError::NoExtensionsProvided);
     }
@@ -324,7 +402,7 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     std::set<std::string_view> uniqueInstanceDependencies;
     std::set<std::string_view> uniqueDeviceDependencies;
 
-    for (size_t i = 0; i < numExtensions; ++i)
+    for (size_t i = 0; i < extensionNames.size(); ++i)
     {
         auto dependencies = GetExtensionDependencies(extensionNames[i]);
         if (!dependencies.has_value() && (dependencies.error() == DependencyError::NoDependenciesForExtension))
@@ -380,8 +458,7 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
 }
 
 std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionFeatures(
-    const size_t numExtensions,
-    const std::string_view* extensionNames,
+    std::span<std::string_view> extensionNames,
     GetVersionFeatures getVersionFeatures,
     CollectDependencies collectDependencies) const
 {
@@ -389,7 +466,7 @@ std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> Ext
     features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     features2.pNext = nullptr;
 
-    if (numExtensions == 0 && getVersionFeatures == GetVersionFeatures::False)
+    if (extensionNames.empty() && getVersionFeatures == GetVersionFeatures::False)
     {
         // No extensions, return empty features
         return features2;
@@ -450,11 +527,11 @@ std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> Ext
     }
 
     // unfortunately need a duplicate list of the names, since we may need to add to it for dependencies (I expect this to be a common case)
-    std::vector<std::string_view> extensionNamesVec{ extensionNames, extensionNames + numExtensions };
+    std::vector<std::string_view> extensionNamesVec{ extensionNames.begin(), extensionNames.end() };
     if (collectDependencies == CollectDependencies::True)
     {
         // Collect dependencies for the extensions
-        auto extensionDeps = GetExtensionDependencies(numExtensions, extensionNames);
+        auto extensionDeps = GetExtensionDependencies(extensionNames);
         if (!extensionDeps.has_value())
         {
             // If we couldn't collect dependencies, forward the error

@@ -3,13 +3,14 @@
 #define VULKAN_TRIANGLE_RENDERER_CONTEXT_TEST_HPP
 #include "VulkanScene.hpp"
 #include "CommonCreationFunctions.hpp"
+#include "RhiHandle.hpp"
 #include "Math.hpp"
-#include "ShaderObject.hpp"
 #include <vector>
 
 namespace rhi
 {
     class CommandPool;
+    class ShaderProgram;
 }
 
 class VulkanTriangle : public VulkanScene
@@ -37,7 +38,14 @@ protected:
     void setupDescriptorSet();
     void setupShaderModules();
     void setupDepthStencil();
-    void setupPipeline();
+
+    void setInputStates(rhi::CommandBufferHandle cmdBuffer);
+    void setRasterizationAndSampleStates(rhi::CommandBufferHandle cmdBuffer);
+    void setColorBlendStates(rhi::CommandBufferHandle cmdBuffer);
+    void setDepthStencilStates(rhi::CommandBufferHandle cmdBuffer);
+
+    void bindPipeline(rhi::CommandBufferHandle cmdBuffer);
+    void bindGeometryBuffers(rhi::CommandBufferHandle cmdBuffer);
 
     struct Vertex
     {
@@ -80,8 +88,7 @@ protected:
     VkDescriptorPool descriptorPool;
     VkSubmitInfo submitInfo;
     std::unique_ptr<rhi::CommandPool> commandPool;
-    rhi::ShaderObject vertexShader;
-    rhi::ShaderObject fragmentShader;
+    std::unique_ptr<rhi::ShaderProgram> shaderProgram;
 
     bool setup = false;
 };
