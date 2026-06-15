@@ -47,7 +47,7 @@ void VulkanScene::createFrameSyncObjects()
 {
     using namespace rhi;
     constexpr static VkSemaphoreCreateInfo semaphoreInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
-    constexpr static VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, VK_FENCE_CREATE_SIGNALED_BIT };
+    constexpr static VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, 0 };
     imageAvailableSemaphores.resize(numFramebuffers);
     renderFinishedSemaphores.resize(numFramebuffers);
     inFlightFences.resize(numFramebuffers);
@@ -55,26 +55,17 @@ void VulkanScene::createFrameSyncObjects()
     for (uint32_t i = 0; i < numFramebuffers; ++i)
     {
         Result result = FromVulkan(vkCreateSemaphore(vkDevice, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]));
-        if (result.IsFailure())
-        {
-            throw std::runtime_error("Failed to create image available semaphore: " + std::string(result.GetMessage()));
-        }
+        RhiAssert(result);
         
         RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, (uint64_t)imageAvailableSemaphores[i], std::format("ImageAvailableSemaphore_{}", i).c_str());
 
-        result = FromVulkan(vkCreateSemaphore(vkDevice, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]));
-        if (result.IsFailure())
-        {
-            throw std::runtime_error("Failed to create render finished semaphore: " + std::string(result.GetMessage()));
-        }
+        result = vkCreateSemaphore(vkDevice, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]);
+        RhiAssert(result);
 
         RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, (uint64_t)renderFinishedSemaphores[i], std::format("RenderFinishedSemaphore_{}", i).c_str());
 
-        result = FromVulkan(vkCreateFence(vkDevice, &fenceInfo, nullptr, &inFlightFences[i]));
-        if (result.IsFailure())
-        {
-            throw std::runtime_error("Failed to create in-flight fence: " + std::string(result.GetMessage()));
-        }
+        result = vkCreateFence(vkDevice, &fenceInfo, nullptr, &inFlightFences[i]);
+        RhiAssert(result);
 
         RhiSystem::SetObjectName(VK_OBJECT_TYPE_FENCE, (uint64_t)inFlightFences[i], std::format("InFlightFence_{}", i).c_str());
     }
@@ -88,12 +79,9 @@ void VulkanScene::destroyFrameSyncObjects()
     {
         vkDestroySemaphore(vkDevice, imageAvailableSemaphores[i], nullptr);
         vkDestroySemaphore(vkDevice, renderFinishedSemaphores[i], nullptr);
-        VkResult result = vkWaitForFences(vkDevice, 1, &inFlightFences[i], VK_TRUE, 1000000000);
-        if (rhi::FromVulkan(result).IsFailure())
-        {
-            throw std::runtime_error("Failed to wait for in-flight fence during cleanup: " +
-                                      std::string(rhi::FromVulkan(result).GetMessage()));
-        }
+        VkFence currFence = inFlightFences[i];
+        rhi::Result result = vkWaitForFences(vkDevice, 1, &currFence, VK_TRUE, 1000000000);
+        RhiAssert(result);
         vkDestroyFence(vkDevice, inFlightFences[i], nullptr);
     }
 
@@ -106,8 +94,12 @@ void VulkanScene::destroyFrameSyncObjects()
 
 void VulkanScene::beginFrame()
 {
-    // this fence was created in signaled state, so the first time through the wait is free. from then on,
-    // it makes sure that all previous work using this frames contextual data (command buffers, etc) is done
+    if (firstFrame[currentFrame])
+    {
+        // skip waiting on the fence the first time we use it, since it was created in a signaled state
+        return;
+    }
+    
     VkDevice vkDevice = device->Handle().As<VkDevice>();
     VkFence currFence = inFlightFences[currentFrame];
     rhi::Result result = vkWaitForFences(vkDevice, 1, &currFence, VK_TRUE, 1000000000);
@@ -147,18 +139,8 @@ void VulkanScene::acquireImage()
         RootDeviceMask
     };
 
-    VkResult result = vkAcquireNextImage2KHR(vkDevice, &acquire_info, &currentAcquiredImage);
-    if (result == VK_ERROR_OUT_OF_DATE_KHR)
-    {
-        // Swapchain is out of date, likely due to window resize, so we need to recreate it and all related resources
-        //swapchain->Recreate(swapchain->CreateInfo());
-        throw std::runtime_error("Swapchain is out of date and needs to be recreated");
-        return;
-    }
-    else if (rhi::FromVulkan(result).IsFailure())
-    {
-        throw std::runtime_error("Failed to acquire next image: " + std::string(rhi::FromVulkan(result).GetMessage()));
-    }
+    rhi::Result result = vkAcquireNextImage2KHR(vkDevice, &acquire_info, &currentAcquiredImage);
+    RhiAssert(result);
 }
 
 void VulkanScene::present()
@@ -180,12 +162,8 @@ void VulkanScene::present()
     };
 
     VkQueue GraphicsQueue = device->GetGraphicsQueue(0).As<VkQueue>();
-    VkResult result = vkQueuePresentKHR(GraphicsQueue, &present_info);
-    if (rhi::FromVulkan(result).IsFailure())
-    {
-        throw std::runtime_error("Failed to present image: " + std::string(rhi::FromVulkan(result).GetMessage()));
-    }
-
+    rhi::Result result = vkQueuePresentKHR(GraphicsQueue, &present_info);
+    RhiAssert(result);
 }
 
 void VulkanScene::endFrame()
