@@ -11,8 +11,8 @@
 #include "Fence.hpp"
 #include "RhiResult.hpp"
 #include "RhiAssert.hpp"
-#include "RhiSystem.hpp"
 #include "Math.hpp"
+#include <cassert>
 #include <fstream>
 #include <numbers>
 #include <format>
@@ -52,30 +52,55 @@ static PFN_vkCmdSetScissorWithCountEXT pfn_vkCmdSetScissorWithCountEXT = nullptr
 static void LoadExtensionFunctions(VkDevice device)
 {
     pfn_vkCmdSetPrimitiveTopologyEXT = reinterpret_cast<PFN_vkCmdSetPrimitiveTopologyEXT>(vkGetDeviceProcAddr(device, "vkCmdSetPrimitiveTopologyEXT"));
+    assert(pfn_vkCmdSetPrimitiveTopologyEXT && "Failed to load vkCmdSetPrimitiveTopologyEXT");
     pfn_vkCmdSetPrimitiveRestartEnableEXT = reinterpret_cast<PFN_vkCmdSetPrimitiveRestartEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetPrimitiveRestartEnableEXT"));
+    assert(pfn_vkCmdSetPrimitiveRestartEnableEXT && "Failed to load vkCmdSetPrimitiveRestartEnableEXT");
     pfn_vkCmdSetVertexInputEXT = reinterpret_cast<PFN_vkCmdSetVertexInputEXT>(vkGetDeviceProcAddr(device, "vkCmdSetVertexInputEXT"));
+    assert(pfn_vkCmdSetVertexInputEXT && "Failed to load vkCmdSetVertexInputEXT");
     pfn_vkCmdSetDepthClampEnableEXT = reinterpret_cast<PFN_vkCmdSetDepthClampEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthClampEnableEXT"));
+    assert(pfn_vkCmdSetDepthClampEnableEXT && "Failed to load vkCmdSetDepthClampEnableEXT");
     pfn_vkCmdSetRasterizerDiscardEnableEXT = reinterpret_cast<PFN_vkCmdSetRasterizerDiscardEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetRasterizerDiscardEnableEXT"));
+    assert(pfn_vkCmdSetRasterizerDiscardEnableEXT && "Failed to load vkCmdSetRasterizerDiscardEnableEXT");
     pfn_vkCmdSetPolygonModeEXT = reinterpret_cast<PFN_vkCmdSetPolygonModeEXT>(vkGetDeviceProcAddr(device, "vkCmdSetPolygonModeEXT"));
+    assert(pfn_vkCmdSetPolygonModeEXT && "Failed to load vkCmdSetPolygonModeEXT");
     pfn_vkCmdSetCullModeEXT = reinterpret_cast<PFN_vkCmdSetCullModeEXT>(vkGetDeviceProcAddr(device, "vkCmdSetCullModeEXT"));
+    assert(pfn_vkCmdSetCullModeEXT && "Failed to load vkCmdSetCullModeEXT");
     pfn_vkCmdSetFrontFaceEXT = reinterpret_cast<PFN_vkCmdSetFrontFaceEXT>(vkGetDeviceProcAddr(device, "vkCmdSetFrontFaceEXT"));
+    assert(pfn_vkCmdSetFrontFaceEXT && "Failed to load vkCmdSetFrontFaceEXT");
     pfn_vkCmdSetDepthBiasEnableEXT = reinterpret_cast<PFN_vkCmdSetDepthBiasEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthBiasEnableEXT"));
+    assert(pfn_vkCmdSetDepthBiasEnableEXT && "Failed to load vkCmdSetDepthBiasEnableEXT");
     pfn_vkCmdSetRasterizationSamplesEXT = reinterpret_cast<PFN_vkCmdSetRasterizationSamplesEXT>(vkGetDeviceProcAddr(device, "vkCmdSetRasterizationSamplesEXT"));
+    assert(pfn_vkCmdSetRasterizationSamplesEXT && "Failed to load vkCmdSetRasterizationSamplesEXT");
     pfn_vkCmdSetAlphaToCoverageEnableEXT = reinterpret_cast<PFN_vkCmdSetAlphaToCoverageEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetAlphaToCoverageEnableEXT"));
+    assert(pfn_vkCmdSetAlphaToCoverageEnableEXT && "Failed to load vkCmdSetAlphaToCoverageEnableEXT");
     pfn_vkCmdSetAlphaToOneEnableEXT = reinterpret_cast<PFN_vkCmdSetAlphaToOneEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetAlphaToOneEnableEXT"));
+    assert(pfn_vkCmdSetAlphaToOneEnableEXT && "Failed to load vkCmdSetAlphaToOneEnableEXT");
     pfn_vkCmdSetColorBlendEnableEXT = reinterpret_cast<PFN_vkCmdSetColorBlendEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetColorBlendEnableEXT"));
+    assert(pfn_vkCmdSetColorBlendEnableEXT && "Failed to load vkCmdSetColorBlendEnableEXT");
     pfn_vkCmdSetColorBlendEquationEXT = reinterpret_cast<PFN_vkCmdSetColorBlendEquationEXT>(vkGetDeviceProcAddr(device, "vkCmdSetColorBlendEquationEXT"));
+    assert(pfn_vkCmdSetColorBlendEquationEXT && "Failed to load vkCmdSetColorBlendEquationEXT");
     pfn_vkCmdSetColorWriteMaskEXT = reinterpret_cast<PFN_vkCmdSetColorWriteMaskEXT>(vkGetDeviceProcAddr(device, "vkCmdSetColorWriteMaskEXT"));
+    assert(pfn_vkCmdSetColorWriteMaskEXT && "Failed to load vkCmdSetColorWriteMaskEXT");
     pfn_vkCmdSetLogicOpEnableEXT = reinterpret_cast<PFN_vkCmdSetLogicOpEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetLogicOpEnableEXT"));
+    assert(pfn_vkCmdSetLogicOpEnableEXT && "Failed to load vkCmdSetLogicOpEnableEXT");
     pfn_vkCmdSetDepthTestEnableEXT = reinterpret_cast<PFN_vkCmdSetDepthTestEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthTestEnableEXT"));
+    assert(pfn_vkCmdSetDepthTestEnableEXT && "Failed to load vkCmdSetDepthTestEnableEXT");
     pfn_vkCmdSetDepthWriteEnableEXT = reinterpret_cast<PFN_vkCmdSetDepthWriteEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthWriteEnableEXT"));
+    assert(pfn_vkCmdSetDepthWriteEnableEXT && "Failed to load vkCmdSetDepthWriteEnableEXT");
     pfn_vkCmdSetDepthCompareOpEXT = reinterpret_cast<PFN_vkCmdSetDepthCompareOpEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthCompareOpEXT"));
+    assert(pfn_vkCmdSetDepthCompareOpEXT && "Failed to load vkCmdSetDepthCompareOpEXT");
     pfn_vkCmdSetDepthBoundsTestEnableEXT = reinterpret_cast<PFN_vkCmdSetDepthBoundsTestEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetDepthBoundsTestEnableEXT"));
+    assert(pfn_vkCmdSetDepthBoundsTestEnableEXT && "Failed to load vkCmdSetDepthBoundsTestEnableEXT");
     pfn_vkCmdSetStencilTestEnableEXT = reinterpret_cast<PFN_vkCmdSetStencilTestEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetStencilTestEnableEXT"));
+    assert(pfn_vkCmdSetStencilTestEnableEXT && "Failed to load vkCmdSetStencilTestEnableEXT");
     pfn_vkCmdBindVertexBuffers2EXT = reinterpret_cast<PFN_vkCmdBindVertexBuffers2EXT>(vkGetDeviceProcAddr(device, "vkCmdBindVertexBuffers2EXT"));
+    assert(pfn_vkCmdBindVertexBuffers2EXT && "Failed to load vkCmdBindVertexBuffers2EXT");
     pfn_vkCmdSetSampleMaskEXT = reinterpret_cast<PFN_vkCmdSetSampleMaskEXT>(vkGetDeviceProcAddr(device, "vkCmdSetSampleMaskEXT"));
+    assert(pfn_vkCmdSetSampleMaskEXT && "Failed to load vkCmdSetSampleMaskEXT");
     pfn_vkCmdSetViewportWithCountEXT = reinterpret_cast<PFN_vkCmdSetViewportWithCountEXT>(vkGetDeviceProcAddr(device, "vkCmdSetViewportWithCountEXT"));
+    assert(pfn_vkCmdSetViewportWithCountEXT && "Failed to load vkCmdSetViewportWithCountEXT");
     pfn_vkCmdSetScissorWithCountEXT = reinterpret_cast<PFN_vkCmdSetScissorWithCountEXT>(vkGetDeviceProcAddr(device, "vkCmdSetScissorWithCountEXT"));
+    assert(pfn_vkCmdSetScissorWithCountEXT && "Failed to load vkCmdSetScissorWithCountEXT");
 }
 
 constexpr static const uint32_t triangle_vert_shader_spv[349] =
@@ -566,7 +591,7 @@ void VulkanTriangle::setDepthStencilStates(rhi::CommandBufferHandle cmdBuffer)
 
 void VulkanTriangle::bindPipeline(rhi::CommandBufferHandle cmdBuffer)
 {
-    // if we weren't in shader objects mode, this is where we'd bind the pipeline annd so on,
+    // if we weren't in shader objects mode, this is where we'd bind the pipeline and so on,
     // now we just set a bunch of dynamic states
     shaderProgram->BindShaders(cmdBuffer);
     setInputStates(cmdBuffer);

@@ -98,13 +98,21 @@ namespace rhi
             result = result.substr(0, result.size() - 3);
         }
 
-        return result.c_str();
+        return result;
     }
 
     std::string VkDeviceFaultAddressInfoToStr(const VkDeviceFaultAddressInfoKHR& addressInfo)
     {
-        uint64_t lower_address = addressInfo.reportedAddress & (~(addressInfo.addressPrecision - 1));
-        uint64_t upper_address = addressInfo.reportedAddress & (addressInfo.addressPrecision - 1);
+        if (addressInfo.addressPrecision == 0)
+        {
+            return std::format("Reported Address: 0x{:016X}, AddressType: {}",
+                addressInfo.reportedAddress,
+                DeviceFaultAddressTypeToStr(addressInfo.addressType));
+        }
+
+        const uint64_t mask = addressInfo.addressPrecision - 1;
+        const uint64_t lower_address = addressInfo.reportedAddress & ~mask;
+        const uint64_t upper_address = lower_address + mask;
         return std::format("Address Range Begin: 0x{:016X}, Address Range End: 0x{:016X}, AddressType: {}",
             lower_address,
             upper_address,

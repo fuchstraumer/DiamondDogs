@@ -13,6 +13,10 @@ namespace rhi
     bool Result::IsSuccess() const noexcept
     {
 #ifdef RHI_SYSTEM_USE_VULKAN
+        // Vulkan has many non-negative "success" codes, but those usually still indicate something isn't quite right.
+        // We will treat anything that isn't VK_SUCCESS as a failure, since in most cases the caller will want to know
+        // about these other conditions and handle them explicitly if needed, rather than accidentally treating them
+        // as success.
         return nativeResult == VK_SUCCESS;
 #elif defined(RHI_SYSTEM_USE_DX12)
         return SUCCEEDED(static_cast<HRESULT>(nativeResult));  // HRESULT: use Windows macro

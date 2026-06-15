@@ -47,7 +47,7 @@ void VulkanScene::createFrameSyncObjects()
 {
     using namespace rhi;
     constexpr static VkSemaphoreCreateInfo semaphoreInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
-    constexpr static VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, 0 };
+    constexpr static VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, VK_FENCE_CREATE_SIGNALED_BIT };
     imageAvailableSemaphores.resize(numFramebuffers);
     renderFinishedSemaphores.resize(numFramebuffers);
     inFlightFences.resize(numFramebuffers);
@@ -94,12 +94,6 @@ void VulkanScene::destroyFrameSyncObjects()
 
 void VulkanScene::beginFrame()
 {
-    if (firstFrame[currentFrame])
-    {
-        // skip waiting on the fence the first time we use it, since it was created in a signaled state
-        return;
-    }
-    
     VkDevice vkDevice = device->Handle().As<VkDevice>();
     VkFence currFence = inFlightFences[currentFrame];
     rhi::Result result = vkWaitForFences(vkDevice, 1, &currFence, VK_TRUE, 1000000000);

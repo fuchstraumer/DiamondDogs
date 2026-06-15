@@ -10,7 +10,7 @@ int main(int argc, char* argv[])
     rhi::RhiSystemCreateInfo rhiCreateInfo{};
     rhiCreateInfo.ApplicationName = "TriangleTest";
     rhiCreateInfo.VkVersion = rhi::ApiVersion::Latest;
-    rhiCreateInfo.ValidationLevel = rhi::ValidationLayers::CrashDiagnostic; // Use crash diagnostic layer for better error reporting during development
+    rhiCreateInfo.ValidationLevel = rhi::ValidationLayers::Full;
 
     rhiCreateInfo.RequiredInstanceExtensions =
     { 

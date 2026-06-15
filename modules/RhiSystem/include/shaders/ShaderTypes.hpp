@@ -5,6 +5,7 @@
 #include "RhiTypes.hpp"
 #include "RhiHandle.hpp"
 #include <optional>
+#include <vector>
 #include <string>
 #include <filesystem>
 #include <span>

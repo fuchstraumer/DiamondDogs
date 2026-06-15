@@ -2,6 +2,7 @@
 #include "ExtensionPack.hpp"
 #include "RhiAssert.hpp"
 #include "RhiResult.hpp"
+#include <cassert>
 #include <iostream>
 #include <array>
 #include "vulkan/vulkan_core.h"

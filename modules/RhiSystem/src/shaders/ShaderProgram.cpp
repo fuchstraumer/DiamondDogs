@@ -6,15 +6,19 @@
 #include "ShaderBlob.hpp"
 #include "ShaderCompiler.hpp"
 #include "ShaderCompilerReply.hpp"
+#include <algorithm>
+#include <cassert>
+#include <format>
+#include <fstream>
+#include <iostream>
+#include <iterator>
 #include <slang.h>
 #include <slang-com-ptr.h>
 #include <slang-com-helper.h>
 #include <stdexcept>
-#include <fstream>
 #include <sstream>
-#include <iostream>
-#include <format>
 #include <vector>
+#include <unordered_map>
 
 #ifdef RHI_SYSTEM_USE_VULKAN
     #include <vulkan/vulkan.h>
