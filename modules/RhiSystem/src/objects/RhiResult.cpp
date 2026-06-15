@@ -13,7 +13,7 @@ namespace rhi
     bool Result::IsSuccess() const noexcept
     {
 #ifdef RHI_SYSTEM_USE_VULKAN
-        return nativeResult >= 0;  // VkResult: >= 0 is success
+        return nativeResult == VK_SUCCESS;
 #elif defined(RHI_SYSTEM_USE_DX12)
         return SUCCEEDED(static_cast<HRESULT>(nativeResult));  // HRESULT: use Windows macro
 #else
