@@ -22,7 +22,7 @@ namespace rhi
     public:
 
         /** TODO: We probably want a way to either store enabled device/IR options in the compile options, or query them from the RHI device per API? */
-        ShaderBlob(ShaderBlobCompileOptions&& options);
+        ShaderBlob(DeviceHandle device, ShaderBlobCompileOptions&& options);
         ~ShaderBlob();
 
         ShaderBlob(const ShaderBlob&) = delete;
@@ -34,7 +34,12 @@ namespace rhi
         std::span<const std::string_view> GetAllEntrypoints() const noexcept;
         std::string_view GetModuleName() const noexcept;
 
-        ShaderProgram GetShaderProgram(std::span<ShaderStage> stagesInProgram) const;
+        /** @brief Retrieve a program object constructed from the given set of shader stages and entrypoint 
+         *  @param stagesInProgram Set of stages and entry points to include in the program. Must be a subset of the entry points compiled in this blob.
+         *  @return ShaderProgram reference with the requested stages, or throws if any entry point is invalid or compilation is not yet complete. 
+         * @note The returned reference is valid as long as the ShaderBlob object is alive.
+        */
+        ShaderProgram* GetShaderProgram(std::span<ShaderStage> stagesInProgram);
 
     private:
         friend class ShaderProgram;
