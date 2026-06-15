@@ -103,13 +103,12 @@ namespace rhi
 
     std::string VkDeviceFaultAddressInfoToStr(const VkDeviceFaultAddressInfoKHR& addressInfo)
     {
-        // what are the units of addressPrecision
-        // power of two value specifying how precisely device can report the address. How to convey that?
-
-        return std::format("Address: 0x{:016X}, AddressType: {}, AddressPrecision: {}",
-            addressInfo.reportedAddress,
-            DeviceFaultAddressTypeToStr(addressInfo.addressType),
-            addressInfo.addressPrecision);
+        uint64_t lower_address = addressInfo.reportedAddress & (~(addressInfo.addressPrecision - 1));
+        uint64_t upper_address = addressInfo.reportedAddress & (addressInfo.addressPrecision - 1);
+        return std::format("Address Range Begin: 0x{:016X}, Address Range End: 0x{:016X}, AddressType: {}",
+            lower_address,
+            upper_address,
+            DeviceFaultAddressTypeToStr(addressInfo.addressType));
     }
 
     void DeviceLostHandler(const Result& deviceLossResult, const char* message)
