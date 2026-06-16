@@ -30,7 +30,7 @@ namespace rhi
     public:
 
         ShaderProgram(DeviceHandle device, ShaderBlob& parent_blob, std::span<ShaderStage> stagesInProgram);
-        ShaderProgram(DeviceHandle device, std::span<ShaderBinaryOptions> binaryOptions);
+        ShaderProgram(std::unique_ptr<ShaderProgramImpl>&& impl) noexcept;
 
         ShaderProgram(const ShaderProgram&) = delete;
         ShaderProgram& operator=(const ShaderProgram&) = delete;
@@ -43,10 +43,15 @@ namespace rhi
         Result BindShaders(CommandBufferHandle cmdBuffer) const;
         bool IsSingleStage() const noexcept;
         ShaderStageFlags GetStages() const noexcept;
-        std::span<std::string_view> GetEntryPointNames() const noexcept;
+        std::span<std::string> GetEntryPointNames() const noexcept;
         const std::vector<SpecializationConstantReflection>& GetSpecializationConstants() const noexcept;
         const std::vector<PushConstantReflection>& GetPushConstantRanges() const noexcept;
 
+        static Result CreateFromBinary(
+            DeviceHandle device,
+            std::span<ShaderBinaryOptions> binaryOptions,
+            std::unique_ptr<ShaderProgram>& outProgram);
+        
     private:
         friend class ShaderBlob;
         std::unique_ptr<ShaderProgramImpl> impl;

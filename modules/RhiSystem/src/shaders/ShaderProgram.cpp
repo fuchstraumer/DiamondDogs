@@ -29,9 +29,8 @@
 
 namespace rhi
 {
+// very little shared code between impls per API, so doing top-level macro blocks
 #ifdef RHI_SYSTEM_USE_VULKAN
-
-
     static PFN_vkCreateShadersEXT pfn_vkCreateShadersEXT = nullptr;
     static PFN_vkDestroyShaderEXT pfn_vkDestroyShaderEXT = nullptr;
     static PFN_vkCmdBindShadersEXT pfn_vkCmdBindShadersEXT = nullptr;
@@ -98,6 +97,7 @@ namespace rhi
         std::vector<VkShaderEXT> shaders;
         std::vector<VkShaderStageFlagBits> usedStages;
         std::vector<VkShaderStageFlagBits> unusedStages;
+        std::vector<std::string> entryPointNames;
 
         DeviceHandle ParentDevice;
         ProgramType Type{ ProgramType::Invalid };
@@ -163,6 +163,7 @@ namespace rhi
 
                 shaders.emplace_back(createdShader);
                 usedStages.emplace_back(createInfo.stage);
+                entryPointNames.emplace_back(createInfo.pName);
                 return result;
             }
             else
@@ -204,6 +205,7 @@ namespace rhi
                     }
                     createInfos[i].codeSize = stageOptions.Bytecode.size() * sizeof(uint32_t);
                     createInfos[i].pCode = stageOptions.Bytecode.data();
+                    entryPointNames.emplace_back(stageOptions.EntryPointName);
                     createInfos[i].pName = stageOptions.EntryPointName.c_str();
 
                     if (stageOptions.PushConstants.size() > 0)
@@ -307,7 +309,65 @@ namespace rhi
             return Result::Success();
         }
 
-    }; 
+        ShaderStageFlags GetStages() const
+        {
+            ShaderStageFlags flags = ShaderStageFlags::None;
+            for (VkShaderStageFlagBits stage : usedStages)
+            {
+                switch (stage)
+                {
+                    case VK_SHADER_STAGE_VERTEX_BIT:
+                        flags |= ShaderStageFlags::Vertex;
+                        break;
+                    case VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT:
+                        flags |= ShaderStageFlags::TesselationControl;
+                        break;
+                    case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT:
+                        flags |= ShaderStageFlags::TesselationEvaluation;
+                        break;
+                    case VK_SHADER_STAGE_GEOMETRY_BIT:
+                        flags |= ShaderStageFlags::Geometry;
+                        break;
+                    case VK_SHADER_STAGE_FRAGMENT_BIT:
+                        flags |= ShaderStageFlags::Fragment;
+                        break;
+                    case VK_SHADER_STAGE_COMPUTE_BIT:
+                        flags |= ShaderStageFlags::Compute;
+                        break;
+                    case VK_SHADER_STAGE_RAYGEN_BIT_KHR:
+                        flags |= ShaderStageFlags::RayGeneration;
+                        break;
+                    case VK_SHADER_STAGE_ANY_HIT_BIT_KHR:
+                        flags |= ShaderStageFlags::AnyHit;
+                        break;
+                    case VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR:
+                        flags |= ShaderStageFlags::ClosestHit;
+                        break;
+                    case VK_SHADER_STAGE_MISS_BIT_KHR:
+                        flags |= ShaderStageFlags::Miss;
+                        break;
+                    case VK_SHADER_STAGE_INTERSECTION_BIT_KHR:
+                        flags |= ShaderStageFlags::Intersection;
+                        break;
+                    case VK_SHADER_STAGE_CALLABLE_BIT_KHR:
+                        flags |= ShaderStageFlags::Callable;
+                        break;
+                    case VK_SHADER_STAGE_TASK_BIT_EXT:
+                        flags |= ShaderStageFlags::Task;
+                        break;
+                    case VK_SHADER_STAGE_MESH_BIT_EXT:
+                        flags |= ShaderStageFlags::Mesh;
+                        break;
+                    default:
+                        throw std::runtime_error("Encountered unknown Vulkan shader stage flag during conversion to RHI shader stage flags");
+                }
+            }
+            return flags;
+        }
+
+
+    };
+
 #endif // RHI_SYSTEM_USE_VULKAN
 
 #if defined(RHI_SYSTEM_USE_DX12)
@@ -338,14 +398,9 @@ namespace rhi
     {
     }
 
-    ShaderProgram::ShaderProgram(DeviceHandle device, std::span<ShaderBinaryOptions> binaryOptions) :
-        impl{ std::make_unique<ShaderProgramImpl>(device) }
+    ShaderProgram::ShaderProgram(std::unique_ptr<ShaderProgramImpl>&& impl) noexcept :
+        impl{ std::move(impl) }
     {
-        Result isValid = impl->CreateShaderObjects(binaryOptions);
-        if (isValid.IsFailure())
-        {
-            throw std::runtime_error("Failed to create shader objects from binary options");
-        }
     }
 
     ShaderProgram::ShaderProgram(ShaderProgram&& other) noexcept :
@@ -377,10 +432,57 @@ namespace rhi
         return impl->BindShaders(cmdBuffer);
     }
 
+    bool ShaderProgram::IsSingleStage() const noexcept
+    {
+        return impl->usedStages.size() == 1;
+    }
+
+    ShaderStageFlags ShaderProgram::GetStages() const noexcept
+    {
+        // dispatch to impl since it'll change per backend
+        return impl->GetStages();
+    }
+
+    std::span<std::string> ShaderProgram::GetEntryPointNames() const noexcept
+    {
+        if (impl)
+        {
+            return std::span<std::string>{impl->entryPointNames.data(), impl->entryPointNames.size()};
+        }
+
+        return std::span<std::string>{};
+    }
+
     const std::vector<SpecializationConstantReflection>& ShaderProgram::GetSpecializationConstants() const noexcept
     {
         static const std::vector<SpecializationConstantReflection> empty;
         return empty;
+    }
+
+    Result ShaderProgram::CreateFromBinary(
+        DeviceHandle device,
+        std::span<ShaderBinaryOptions> binaryOptions,
+        std::unique_ptr<ShaderProgram>& outProgram)
+    {
+        try
+        {
+            auto impl = std::make_unique<ShaderProgramImpl>(device);
+            Result result = impl->CreateShaderObjects(binaryOptions);
+            if (result.IsFailure())
+            {
+                return result;
+            }
+            else
+            {
+                outProgram = std::make_unique<ShaderProgram>(std::move(impl));
+                return Result::Success();
+            }
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "Error creating ShaderProgram from binary options: " << e.what() << std::endl;
+            return Result::Failure();
+        }
     }
 
 }
