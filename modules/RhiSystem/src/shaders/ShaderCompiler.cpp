@@ -1283,19 +1283,19 @@ namespace rhi
 
             // Create compilation target
             slang::TargetDesc targetDesc = {};
-            if (options.Target == "spirv")
+            if (options.Target == TargetShaderIR::SPIRV)
             {
                 targetDesc.format = SLANG_SPIRV;
                 targetDesc.profile = SlangGlobalSession->findProfile("spirv_1_6");
             }
-            else if (options.Target == "dxil")
+            else if (options.Target == TargetShaderIR::DXIL)
             {
                 targetDesc.format = SLANG_DXIL;
                 targetDesc.profile = SlangGlobalSession->findProfile("sm_6_6");
             }
             else
             {
-                outStorage.CompilationLog = std::format("Unsupported compilation target: {}", options.Target);
+                outStorage.CompilationLog = std::format("Unsupported compilation target: {}", static_cast<int>(options.Target));
                 return Result::Failure();
             }
 

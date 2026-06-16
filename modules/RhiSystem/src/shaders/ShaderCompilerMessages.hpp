@@ -3,6 +3,7 @@
 #define RHI_SYSTEM_SHADER_COMPILER_MESSAGES_HPP
 #include "ShaderCompiler.hpp"
 #include "ShaderCompilerReply.hpp"
+#include "ShaderTypes.hpp"
 #include <variant>
 #include <optional>
 #include <vector>
@@ -25,7 +26,7 @@ namespace rhi
             std::string ModuleName;
             std::vector<std::filesystem::path> SearchPaths;
             std::vector<std::string> AdditionalModules;
-            std::string Target;
+            TargetShaderIR Target;
             bool EnableDebugInfo;
             bool EnableOptimizations;
             bool EnableValidation;
@@ -52,7 +53,7 @@ namespace rhi
                 ModuleName{ opts.ModuleName },
                 SearchPaths{ opts.SearchPaths.begin(), opts.SearchPaths.end() },
                 AdditionalModules{ opts.AdditionalModules.begin(), opts.AdditionalModules.end() },
-                Target{ opts.Target == TargetShaderIR::SPIRV ? "spirv" : opts.Target == TargetShaderIR::DXIL ? "dxil" : "invalid" },
+                Target{ opts.Target },
                 EnableDebugInfo{ opts.EnableDebugInfo },
                 EnableOptimizations{ opts.EnableOptimizations },
                 EnableValidation{ opts.EnableValidation },

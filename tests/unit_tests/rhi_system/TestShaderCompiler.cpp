@@ -5,6 +5,7 @@
 #include "Instance.hpp"
 #include "Device.hpp"
 #include "RhiSystem.hpp"
+#include "ShaderTypes.hpp"
 #include "ShaderCompiler.hpp"
 #include "ShaderCompilerReply.hpp"
 #include "SourcePaths.hpp"
@@ -15,18 +16,19 @@ public:
 
     rhi::ShaderCompiler compiler;
     std::unique_ptr<rhi::RhiSystem> rhiSystem;
+    
 
     static rhi::RhiSystemCreateInfo GetDefaultCreateInfo()
     {
         // Setup RHI system first
         rhi::RhiSystemCreateInfo createInfo{};
-        createInfo.ApplicationName = "ShaderObjectTest";
+        createInfo.ApplicationName = "ShaderCompilerTest";
         createInfo.EngineName = "DiamondDogsTestEngine";
         createInfo.AppVersion = VK_MAKE_VERSION(1, 0, 0);
         createInfo.EngineVersion = VK_MAKE_VERSION(0, 1, 0);
         createInfo.VkVersion = rhi::ApiVersion::Vulkan13;
         createInfo.ValidationLevel = rhi::ValidationLayers::BaseOnly;
-        createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils" };
+        createInfo.RequiredInstanceExtensions = { "VK_EXT_debug_utils", "VK_KHR_surface" };
         createInfo.RequestedDeviceExtensions = { "VK_EXT_shader_object" };
         const auto shaderCacheDir = std::filesystem::temp_directory_path() / "DiamondDogsTest" / "ShaderCache";
         createInfo.ShaderCacheDir = shaderCacheDir.string();
@@ -56,15 +58,12 @@ namespace fs = std::filesystem;
 static const fs::path ShadersPath = fs::path(DiamondDogs::ASSETS_DIR) / "shaders";
 static const fs::path VtfPath = ShadersPath / "VolumeTiledForwardShading";
 static const fs::path CommonShadersPath = ShadersPath / "common";
-static const std::string ShadersPathStr = ShadersPath.string();
-static const std::string VtfPathStr = VtfPath.string();
-static const std::string CommonShadersPathStr = CommonShadersPath.string();
 
-const std::string_view SearchPaths[]
+const fs::path SearchPaths[]
 {
-    ShadersPathStr,
-    VtfPathStr,
-    CommonShadersPathStr
+    ShadersPath,
+    VtfPath,
+    CommonShadersPath
 };
 
 // Single entrypoint compiliation test
@@ -79,7 +78,8 @@ TEST_F(ShaderCompilerTest, SimplestPossibleCompile)
     // Setup compile options
     rhi::ShaderCompiler::ModuleCompileOptions VertexCompileOptions{};
     VertexCompileOptions.SlangSourcePath = slangShaderPath;
-    VertexCompileOptions.SearchPaths = SearchPaths;
+    VertexCompileOptions.SearchPaths = std::span<const fs::path>(SearchPaths, std::size(SearchPaths));
+    VertexCompileOptions.Target = TargetShaderIR::SPIRV;
     auto reply = compiler.CompileModule(VertexCompileOptions);
     ASSERT_NE(reply, nullptr);
     ShaderModuleCompileReply::Status compileStatus = reply->GetStatus();
@@ -99,10 +99,12 @@ TEST_F(ShaderCompilerTest, CompileCommonShaders)
     rhi::ShaderCompiler::ModuleCompileOptions VtfCompileOptions{};
     VtfCompileOptions.SlangSourcePath = slangShaderPath;
     VtfCompileOptions.ModuleName = "ddCommon";
-    VtfCompileOptions.SearchPaths = SearchPaths;
+    VtfCompileOptions.SearchPaths = std::span<const fs::path>(SearchPaths, std::size(SearchPaths));
     VtfCompileOptions.EnableDebugInfo = true;
     VtfCompileOptions.EnableOptimizations = false;
     VtfCompileOptions.EnableValidation = true;
+    VtfCompileOptions.CompileAllEntryPoints = false; // No entrypoints in common module
+    VtfCompileOptions.Target = TargetShaderIR::SPIRV;
     auto reply = compiler.CompileModule(VtfCompileOptions);
     ASSERT_NE(reply, nullptr);
     ShaderModuleCompileReply::Status compileStatus = reply->GetStatus();
@@ -122,12 +124,22 @@ TEST_F(ShaderCompilerTest, CompileVtf)
     rhi::ShaderCompiler::ModuleCompileOptions VtfCompileOptions{};
     VtfCompileOptions.SlangSourcePath = slangShaderPath;
     VtfCompileOptions.ModuleName = "VolumeTiledForwardShading";
-    VtfCompileOptions.SearchPaths = SearchPaths;
+    VtfCompileOptions.SearchPaths = std::span<const fs::path>(SearchPaths, std::size(SearchPaths));
     VtfCompileOptions.EnableDebugInfo = true;
     VtfCompileOptions.EnableOptimizations = false;
     VtfCompileOptions.EnableValidation = true;
+    VtfCompileOptions.CompileAllEntryPoints = true;
+    VtfCompileOptions.Target = TargetShaderIR::SPIRV;
     auto reply = compiler.CompileModule(VtfCompileOptions);
     ASSERT_NE(reply, nullptr);
     ShaderModuleCompileReply::Status compileStatus = reply->GetStatus();
     ASSERT_EQ(compileStatus, ShaderModuleCompileReply::Status::Complete) << "Shader compilation did not complete successfully";  
+    auto entryPoints = reply->GetEntryPointNames();
+    for (const auto& entryPoint : entryPoints)
+    {
+        auto shader = reply->GetShader(entryPoint);
+        std::cerr << "Entry point: " << entryPoint << " IsValid: " << shader.IsValid << " Error: " << shader.ErrorMessage << std::endl;
+        ASSERT_TRUE(shader.IsValid) << "Entry point compilation failed: " << entryPoint << " Error: " << shader.ErrorMessage;
+    }
+    ASSERT_TRUE(entryPoints.size() > 0) << "No entry points found in compiled module";
 }

@@ -1,9 +1,8 @@
 #include "ShaderCompilerReply.hpp"
-#include <stdexcept>
 
 namespace rhi
 {
-    // ShaderModuleCompileReply implementation
+
     ShaderModuleCompileReply::ShaderModuleCompileReply() :
         status{ Status::Invalid }
     {
@@ -202,4 +201,4 @@ namespace rhi
         errorMessage = std::move(error);
     }
 
-} // namespace rhi
+}
