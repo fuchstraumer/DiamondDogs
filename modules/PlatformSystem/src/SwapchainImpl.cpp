@@ -39,9 +39,9 @@ namespace std
 }
 
 // needed as otherwise sType and pNext would be uninitialized and cause validation errors when we query for capabilities with extended structures
-constexpr static VkSurfaceCapabilities2KHR DefaultSurfaceCapabilities2KHR = { VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR, nullptr };
+constexpr static VkSurfaceCapabilities2KHR k_DefaultSurfaceCapabilities2Khr = { VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR, nullptr };
 
-static const std::unordered_map<VkSurfaceFormatKHR, size_t> s_VkSurfaceFormatScores
+static const std::unordered_map<VkSurfaceFormatKHR, size_t> k_SVkSurfaceFormatScores
 {
     // 16-bit floating point formats - highest priority (1000+ points)
     { { VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_HDR10_ST2084_EXT }, 1300 },
@@ -215,14 +215,14 @@ static bool operator==(const VkSurfaceFormatKHR& lhs, const VkSurfaceFormatKHR& 
     return (lhs.format == rhs.format) && (lhs.colorSpace == rhs.colorSpace);
 }
 
-static bool operator==(const VkSurfaceFormat2KHR& vkSurfaceFormat, const AppSurfaceFormat& appSurfaceFormat) noexcept
+static bool operator==(const VkSurfaceFormat2KHR& vk_surface_format, const AppSurfaceFormat& app_surface_format) noexcept
 {
-    const VkFormat appVkFormat = ToVkFormat(appSurfaceFormat.Format);
-    const VkColorSpaceKHR appColorSpace = ToVkColorSpace(appSurfaceFormat.Space);
-    return (vkSurfaceFormat.surfaceFormat.format == appVkFormat) && (vkSurfaceFormat.surfaceFormat.colorSpace == appColorSpace);
+    const VkFormat appVkFormat = ToVkFormat(app_surface_format.Format);
+    const VkColorSpaceKHR appColorSpace = ToVkColorSpace(app_surface_format.Space);
+    return (vk_surface_format.surfaceFormat.format == appVkFormat) && (vk_surface_format.surfaceFormat.colorSpace == appColorSpace);
 }
 
-SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sfc) : capabilities(DefaultSurfaceCapabilities2KHR)
+SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sfc) : capabilities(k_DefaultSurfaceCapabilities2Khr)
 {
     const VkPhysicalDeviceSurfaceInfo2KHR surfaceInfo = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR, nullptr, sfc };
     // Query surface capabilities
@@ -248,8 +248,8 @@ VkSurfaceFormatKHR SwapchainInfo::FindBestFormat() const noexcept
     std::map<size_t, VkSurfaceFormatKHR> availableFormatScores;
     for (const auto& format : formats)
     {
-        auto it = s_VkSurfaceFormatScores.find(format);
-        if (it != s_VkSurfaceFormatScores.end())
+        auto it = k_SVkSurfaceFormatScores.find(format);
+        if (it != k_SVkSurfaceFormatScores.end())
         {
             availableFormatScores[it->second] = format;
         }
@@ -269,7 +269,7 @@ VkSurfaceFormatKHR SwapchainInfo::FindBestFormat() const noexcept
     return bestFormat;
 }
 
-VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& requestedFormat) const noexcept
+VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& requested_format) const noexcept
 {
     if (formats.empty())
     {
@@ -279,7 +279,7 @@ VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& re
     // 1. First priority: Exact match
     for (const auto& format : formats)
     {
-        if (format.format == requestedFormat.format && format.colorSpace == requestedFormat.colorSpace)
+        if (format.format == requested_format.format && format.colorSpace == requested_format.colorSpace)
         {
             return format;
         }
@@ -292,10 +292,10 @@ VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& re
     
     for (const auto& format : formats)
     {
-        if (format.format == requestedFormat.format)
+        if (format.format == requested_format.format)
         {
-            auto it = s_VkSurfaceFormatScores.find(format);
-            size_t score = (it != s_VkSurfaceFormatScores.end()) ? it->second : 0;
+            auto it = k_SVkSurfaceFormatScores.find(format);
+            size_t score = (it != k_SVkSurfaceFormatScores.end()) ? it->second : 0;
             if (score > bestSameFormatScore)
             {
                 bestSameFormatScore = score;
@@ -316,10 +316,10 @@ VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& re
     
     for (const auto& format : formats)
     {
-        if (format.colorSpace == requestedFormat.colorSpace)
+        if (format.colorSpace == requested_format.colorSpace)
         {
-            auto it = s_VkSurfaceFormatScores.find(format);
-            size_t score = (it != s_VkSurfaceFormatScores.end()) ? it->second : 0;
+            auto it = k_SVkSurfaceFormatScores.find(format);
+            size_t score = (it != k_SVkSurfaceFormatScores.end()) ? it->second : 0;
             if (score > bestSameColorSpaceScore)
             {
                 bestSameColorSpaceScore = score;
@@ -472,8 +472,8 @@ VkExtent2D SwapchainImpl::chooseExtent(const SwapchainCreateInfo& create_info) c
     // the extent used to come from the active display info, which is the whole screen on the JSON path. The
     // surface knows the real size of the window
     const VkSurfaceCapabilitiesKHR& capabilities = Info->capabilities.surfaceCapabilities;
-    constexpr uint32_t surfaceTakesSwapchainExtent = std::numeric_limits<uint32_t>::max();
-    if (capabilities.currentExtent.width != surfaceTakesSwapchainExtent)
+    constexpr uint32_t k_SurfaceTakesSwapchainExtent = std::numeric_limits<uint32_t>::max();
+    if (capabilities.currentExtent.width != k_SurfaceTakesSwapchainExtent)
     {
         return capabilities.currentExtent;
     }

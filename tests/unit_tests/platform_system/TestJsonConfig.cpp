@@ -8,9 +8,9 @@
 #include <memory>
 
 // Mock RHI system handles for testing - in real tests, these would come from an actual RHI system
-static constexpr uint64_t MOCK_VK_INSTANCE_HANDLE = 0x1234567890ABCDEF;
-static constexpr uint64_t MOCK_VK_DEVICE_HANDLE = 0xFEDCBA0987654321;
-static constexpr uint64_t MOCK_VK_PHYSICAL_DEVICE_HANDLE = 0xABCDEF1234567890;
+static constexpr uint64_t k_MockVkInstanceHandle = 0x1234567890ABCDEF;
+static constexpr uint64_t k_MockVkDeviceHandle = 0xFEDCBA0987654321;
+static constexpr uint64_t k_MockVkPhysicalDeviceHandle = 0xABCDEF1234567890;
 
 class JsonConfigTest : public ::testing::Test
 {

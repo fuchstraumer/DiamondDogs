@@ -7,41 +7,41 @@
 #include <tchar.h>
 
 template<class T>
-static T struct_cast(void* ptr, LONG offset = 0)
+static T StructCast(void* ptr, LONG offset = 0)
 {
     return reinterpret_cast<T>(reinterpret_cast<intptr_t>(ptr) + offset);
 }
 
 using DebugInfoSignature = DWORD;
-constexpr static DWORD CR_RSDS_SIGNATURE = 'SDSR';
-struct rsds_header
+constexpr static DWORD k_CrRsdsSignature = 'SDSR';
+struct RsdsHeader
 {
     DebugInfoSignature Signature;
-    GUID guid;
-    long version;
-    char filename[1];
+    GUID Guid;
+    long Version;
+    char Filename[1];
 };
 
-static bool pe_debugdir_rva(PIMAGE_OPTIONAL_HEADER optionalHeader, DWORD& debugDirRva, DWORD& debugDirSize)
+static bool PeDebugdirRva(PIMAGE_OPTIONAL_HEADER optional_header, DWORD& debug_dir_rva, DWORD& debug_dir_size)
 {
-    if (optionalHeader->Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+    if (optional_header->Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
     {
-        PIMAGE_OPTIONAL_HEADER64 optionalHeader64 = struct_cast<PIMAGE_OPTIONAL_HEADER64>(optionalHeader);
-        debugDirRva = optionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG].VirtualAddress;
-        debugDirSize = optionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG].Size;
+        PIMAGE_OPTIONAL_HEADER64 optionalHeader64 = StructCast<PIMAGE_OPTIONAL_HEADER64>(optional_header);
+        debug_dir_rva = optionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG].VirtualAddress;
+        debug_dir_size = optionalHeader64->DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG].Size;
     }
     else
     {
-        PIMAGE_OPTIONAL_HEADER32 optionalHeader32 = struct_cast<PIMAGE_OPTIONAL_HEADER32>(optionalHeader);
-        debugDirRva = optionalHeader32->DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG].VirtualAddress;
-        debugDirSize = optionalHeader32->DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG].Size;
+        PIMAGE_OPTIONAL_HEADER32 optionalHeader32 = StructCast<PIMAGE_OPTIONAL_HEADER32>(optional_header);
+        debug_dir_rva = optionalHeader32->DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG].VirtualAddress;
+        debug_dir_size = optionalHeader32->DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG].Size;
     }
 
-    if (debugDirRva == 0 && debugDirSize == 0)
+    if (debug_dir_rva == 0 && debug_dir_size == 0)
     {
         return true;
     }
-    else if (debugDirRva == 0 || debugDirSize == 0)
+    else if (debug_dir_rva == 0 || debug_dir_size == 0)
     {
         return false;
     }
@@ -49,11 +49,11 @@ static bool pe_debugdir_rva(PIMAGE_OPTIONAL_HEADER optionalHeader, DWORD& debugD
     return true;
 }
 
-static bool pe_fileoffset_rva(PIMAGE_NT_HEADERS ntHeaders, DWORD rva, DWORD& fileOffset)
+static bool PeFileoffsetRva(PIMAGE_NT_HEADERS nt_headers, DWORD rva, DWORD& file_offset)
 {
     bool found = false;
-    PIMAGE_SECTION_HEADER sectionHeader = IMAGE_FIRST_SECTION(ntHeaders);
-    for (int i = 0; i < ntHeaders->FileHeader.NumberOfSections; ++i, sectionHeader++)
+    PIMAGE_SECTION_HEADER sectionHeader = IMAGE_FIRST_SECTION(nt_headers);
+    for (int i = 0; i < nt_headers->FileHeader.NumberOfSections; ++i, sectionHeader++)
     {
         DWORD sectionSize = sectionHeader->Misc.VirtualSize;
         if ((rva >= sectionHeader->VirtualAddress) && (rva < sectionHeader->VirtualAddress + sectionSize))
@@ -69,14 +69,14 @@ static bool pe_fileoffset_rva(PIMAGE_NT_HEADERS ntHeaders, DWORD rva, DWORD& fil
     }
 
     const int diff = static_cast<int>(sectionHeader->VirtualAddress - sectionHeader->PointerToRawData);
-    fileOffset = static_cast<DWORD>(rva - diff);
+    file_offset = static_cast<DWORD>(rva - diff);
     return true;
 }
 
-static char* find_pdb(LPBYTE imageBase, PIMAGE_DEBUG_DIRECTORY debugDir)
+static char* FindPdb(LPBYTE image_base, PIMAGE_DEBUG_DIRECTORY debug_dir)
 {
-    LPBYTE debugInfo = imageBase + debugDir->PointerToRawData;
-    const DWORD debugInfoSize = debugDir->SizeOfData;
+    LPBYTE debugInfo = image_base + debug_dir->PointerToRawData;
+    const DWORD debugInfoSize = debug_dir->SizeOfData;
     if (debugInfo == 0 || debugInfoSize == 0)
     {
         return nullptr;
@@ -92,30 +92,30 @@ static char* find_pdb(LPBYTE imageBase, PIMAGE_DEBUG_DIRECTORY debugDir)
         return nullptr;
     }
 
-    if (debugDir->Type == IMAGE_DEBUG_TYPE_CODEVIEW)
+    if (debug_dir->Type == IMAGE_DEBUG_TYPE_CODEVIEW)
     {
-        DWORD signature = *(DWORD*)debugInfo;
-        if (signature == CR_RSDS_SIGNATURE)
+        DWORD signature = *reinterpret_cast<DWORD*>(debugInfo);
+        if (signature == k_CrRsdsSignature)
         {
-            rsds_header* info = (rsds_header*)(debugInfo);
-            if (IsBadReadPtr(debugInfo, sizeof(rsds_header)))
+            RsdsHeader* info = reinterpret_cast<RsdsHeader*>(debugInfo);
+            if (IsBadReadPtr(debugInfo, sizeof(RsdsHeader)))
             {
                 return nullptr;
             }
 
-            if (IsBadStringPtrA((const char*)info->filename, UINT_MAX))
+            if (IsBadStringPtrA(reinterpret_cast<const char*>(info->Filename), UINT_MAX))
             {
                 return nullptr;
             }
 
-            return info->filename;
+            return info->Filename;
         }
     }
 
     return nullptr;
 }
 
-static bool pdb_replace(const std::wstring& fname, const std::wstring& pdb_name, wchar_t* pdb_name_buffer, int pdb_name_len)
+static bool PdbReplace(const std::wstring& fname, const std::wstring& pdb_name, wchar_t* pdb_name_buffer, int pdb_name_len)
 {
     HANDLE fp = nullptr;
     HANDLE filemap = nullptr;
@@ -124,7 +124,7 @@ static bool pdb_replace(const std::wstring& fname, const std::wstring& pdb_name,
     do
     {
 
-        fp = CreateFile((LPCTSTR)fname.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+        fp = CreateFile(reinterpret_cast<LPCTSTR>(fname.c_str()), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, nullptr,
             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
         
         if ((fp == INVALID_HANDLE_VALUE) || (fp == nullptr))
@@ -144,7 +144,7 @@ static bool pdb_replace(const std::wstring& fname, const std::wstring& pdb_name,
             break;
         }
 
-        PIMAGE_DOS_HEADER dosHeader = struct_cast<PIMAGE_DOS_HEADER>(mem);
+        PIMAGE_DOS_HEADER dosHeader = StructCast<PIMAGE_DOS_HEADER>(mem);
         if (dosHeader == 0)
         {
             break;
@@ -160,7 +160,7 @@ static bool pdb_replace(const std::wstring& fname, const std::wstring& pdb_name,
             break;
         }
 
-        PIMAGE_NT_HEADERS ntHeaders = struct_cast<PIMAGE_NT_HEADERS>(dosHeader, dosHeader->e_lfanew);
+        PIMAGE_NT_HEADERS ntHeaders = StructCast<PIMAGE_NT_HEADERS>(dosHeader, dosHeader->e_lfanew);
         if (ntHeaders == 0) {
             break;
         }
@@ -198,7 +198,7 @@ static bool pdb_replace(const std::wstring& fname, const std::wstring& pdb_name,
 
         DWORD debugDirRva = 0;
         DWORD debugDirSize = 0;
-        if (!pe_debugdir_rva(&ntHeaders->OptionalHeader, debugDirRva, debugDirSize))
+        if (!PeDebugdirRva(&ntHeaders->OptionalHeader, debugDirRva, debugDirSize))
         {
             break;
         }
@@ -209,12 +209,12 @@ static bool pdb_replace(const std::wstring& fname, const std::wstring& pdb_name,
         }
 
         DWORD debugDirOffset = 0;
-        if (!pe_fileoffset_rva(ntHeaders, debugDirRva, debugDirOffset))
+        if (!PeFileoffsetRva(ntHeaders, debugDirRva, debugDirOffset))
         {
             break;
         }
 
-        PIMAGE_DEBUG_DIRECTORY debugDir = struct_cast<PIMAGE_DEBUG_DIRECTORY>(mem, debugDirOffset);
+        PIMAGE_DEBUG_DIRECTORY debugDir = StructCast<PIMAGE_DEBUG_DIRECTORY>(mem, debugDirOffset);
         if (debugDir == 0)
         {
             break;
@@ -238,13 +238,13 @@ static bool pdb_replace(const std::wstring& fname, const std::wstring& pdb_name,
 
         for (int i = 1; i <= numEntries; i++, debugDir++)
         {
-            char* pdb_found = find_pdb((LPBYTE)mem, debugDir);
-            if (pdb_found && strlen(pdb_found) >= pdb_name.length())
+            char* pdbFound = FindPdb(static_cast<LPBYTE>(mem), debugDir);
+            if (pdbFound && strlen(pdbFound) >= pdb_name.length())
             {
-                size_t len = strlen(pdb_found);
-                memcpy_s(pdb_name_buffer, pdb_name_len, pdb_found, len);
-                std::memset(pdb_found, '\0', len);
-                memcpy_s(pdb_found, len, pdb_name.c_str(), pdb_name.length());
+                size_t len = strlen(pdbFound);
+                memcpy_s(pdb_name_buffer, pdb_name_len, pdbFound, len);
+                std::memset(pdbFound, '\0', len);
+                memcpy_s(pdbFound, len, pdb_name.c_str(), pdb_name.length());
                 result = true;
             }
         }
@@ -271,9 +271,9 @@ static bool pdb_replace(const std::wstring& fname, const std::wstring& pdb_name,
 
 bool ProcessPDB(const std::wstring& fname, const std::wstring& pdbname)
 {
-    wchar_t ORIG_PDB_FILE[MAX_PATH];
-    memset(ORIG_PDB_FILE, 0, sizeof(ORIG_PDB_FILE));
-    bool result = pdb_replace(fname, pdbname, ORIG_PDB_FILE, sizeof(ORIG_PDB_FILE));
-    result &= static_cast<bool>(CopyFileW(ORIG_PDB_FILE, pdbname.c_str(), 0));
+    wchar_t origPdbFile[MAX_PATH];
+    memset(origPdbFile, 0, sizeof(origPdbFile));
+    bool result = PdbReplace(fname, pdbname, origPdbFile, sizeof(origPdbFile));
+    result &= static_cast<bool>(CopyFileW(origPdbFile, pdbname.c_str(), 0));
     return result;
 }

@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <memory>
 
-constexpr static PlatformWindowCreateInfo s_DefaultCreateInfo
+constexpr static PlatformWindowCreateInfo k_SDefaultCreateInfo
 {
     "UnitTestWindow", // window name
     nullptr, // use primary display
@@ -48,7 +48,7 @@ protected:
 
     std::filesystem::path tempConfigDir;
 
-    PlatformWindowCreateInfo GetTestCreateInfo()
+    PlatformWindowCreateInfo getTestCreateInfo()
     {
         return PlatformWindowCreateInfo
         {
@@ -75,7 +75,7 @@ protected:
 // Test basic platform system construction with CreateInfo
 TEST_F(PlatformSystemTest, BasicCreateInfoConstruction)
 {
-    auto createInfo = GetTestCreateInfo();
+    auto createInfo = getTestCreateInfo();
     auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
     EXPECT_NE(platformSystem, nullptr);
     EXPECT_NE(platformSystem->GetWindowHandle(), nullptr);
@@ -121,11 +121,11 @@ TEST_F(PlatformSystemTest, WindowModeVariations)
     
     for (auto mode : windowModes)
     {
-        auto createInfo = GetTestCreateInfo();
+        auto createInfo = getTestCreateInfo();
         createInfo.DesiredWindowMode = mode;
 
         auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
-        DisplayInfo HardwareDisplay = PlatformWindowSystem::GetPrimaryDisplayInfo();
+        DisplayInfo hardwareDisplay = PlatformWindowSystem::GetPrimaryDisplayInfo();
         EXPECT_NE(platformSystem, nullptr);
         EXPECT_NE(platformSystem->GetWindowHandle(), nullptr);
             
@@ -142,12 +142,12 @@ TEST_F(PlatformSystemTest, WindowModeVariations)
             break;
         case PlatformWindowMode::Fullscreen:
             // maximized window fills screen except taskbar, so should be close to full size
-            EXPECT_GT(static_cast<float>(width), static_cast<float>(HardwareDisplay.Width) * 0.8f);
-            EXPECT_GT(static_cast<float>(height), static_cast<float>(HardwareDisplay.Height) * 0.8f);
+            EXPECT_GT(static_cast<float>(width), static_cast<float>(hardwareDisplay.Width) * 0.8f);
+            EXPECT_GT(static_cast<float>(height), static_cast<float>(hardwareDisplay.Height) * 0.8f);
             break;
         case PlatformWindowMode::FullScreenWindowed:
-            EXPECT_EQ(width, HardwareDisplay.Width);
-            EXPECT_EQ(height, HardwareDisplay.Height);
+            EXPECT_EQ(width, hardwareDisplay.Width);
+            EXPECT_EQ(height, hardwareDisplay.Height);
             break;
         }
     }
@@ -166,7 +166,7 @@ TEST_F(PlatformSystemTest, WindowSizeVariations)
     
     for (const auto& [width, height] : sizes)
     {
-        auto createInfo = GetTestCreateInfo();
+        auto createInfo = getTestCreateInfo();
         createInfo.InitialWidth = width;
         createInfo.InitialHeight = height;
         auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
@@ -198,7 +198,7 @@ TEST_F(PlatformSystemTest, BehaviorFlags)
     
     for (const auto& flags : flagVariations)
     {
-        auto createInfo = GetTestCreateInfo();
+        auto createInfo = getTestCreateInfo();
         createInfo.BehaviorFlags = flags;
         
         EXPECT_NO_THROW({
@@ -212,7 +212,7 @@ TEST_F(PlatformSystemTest, BehaviorFlags)
 // Test display info access
 TEST_F(PlatformSystemTest, DisplayInfoAccess)
 {
-    auto createInfo = GetTestCreateInfo();
+    auto createInfo = getTestCreateInfo();
     auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
     
     const DisplayInfo& displayInfo = platformSystem->GetActiveDisplayInfo();
@@ -226,7 +226,7 @@ TEST_F(PlatformSystemTest, DisplayInfoAccess)
 // Test window and input management methods
 TEST_F(PlatformSystemTest, WindowAndInputManagement)
 {
-    auto createInfo = GetTestCreateInfo();
+    auto createInfo = getTestCreateInfo();
     auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
     
     // Test window size getter
@@ -271,7 +271,7 @@ TEST_F(PlatformSystemTest, HDRSupportQuery)
 // Test lifecycle management
 TEST_F(PlatformSystemTest, LifecycleManagement)
 {
-    auto createInfo = GetTestCreateInfo();
+    auto createInfo = getTestCreateInfo();
     auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
     
     // Test update (should not crash)
@@ -292,97 +292,97 @@ TEST_F(PlatformSystemTest, LifecycleManagement)
 }
 
 
-static size_t s_shouldCloseCallbackCount = 0;
-void TestShouldCloseCallback(void* userData)
+static size_t k_SShouldCloseCallbackCount = 0;
+void TestShouldCloseCallback(void* user_data)
 {
-    s_shouldCloseCallbackCount++;
+    k_SShouldCloseCallbackCount++;
 }
 
 // Test should close behavior
 TEST_F(PlatformSystemTest, ShouldCloseBehavior)
 {
-    auto createInfo = GetTestCreateInfo();
+    auto createInfo = getTestCreateInfo();
     auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
     
     platformSystem->AddShouldCloseEventListener(ShouldCloseEvent::Create<TestShouldCloseCallback>(), nullptr);
     platformSystem->Update();
     platformSystem->SetWindowShouldClose(true);
     platformSystem->Update();
-    EXPECT_EQ(s_shouldCloseCallbackCount, 1);
+    EXPECT_EQ(k_SShouldCloseCallbackCount, 1);
 }
 
 // Static callback functions for event testing
-static std::atomic<int> s_cursorPosEvents{0};
-static std::atomic<int> s_cursorEnterEvents{0};
-static std::atomic<int> s_scrollEvents{0};
-static std::atomic<int> s_charEvents{0};
-static std::atomic<int> s_pathDropEvents{0};
-static std::atomic<int> s_mouseButtonEvents{0};
-static std::atomic<int> s_keyboardEvents{0};
-static std::atomic<int> s_resizeEvents{0};
-static std::atomic<int> s_closeEvents{0};
+static std::atomic<int> k_SCursorPosEvents{0};
+static std::atomic<int> k_SCursorEnterEvents{0};
+static std::atomic<int> k_SScrollEvents{0};
+static std::atomic<int> k_SCharEvents{0};
+static std::atomic<int> k_SPathDropEvents{0};
+static std::atomic<int> k_SMouseButtonEvents{0};
+static std::atomic<int> k_SKeyboardEvents{0};
+static std::atomic<int> k_SResizeEvents{0};
+static std::atomic<int> k_SCloseEvents{0};
 
 static void TestCursorPosCallback(const Events::CursorPosEventData&, void*)
 {
-    s_cursorPosEvents++;
+    k_SCursorPosEvents++;
 }
 
 static void TestCursorEnterCallback(const int, void*)
 {
-    s_cursorEnterEvents++;
+    k_SCursorEnterEvents++;
 }
 
 static void TestScrollCallback(const Events::ScrollEventData&, void*)
 {
-    s_scrollEvents++;
+    k_SScrollEvents++;
 }
 
 static void TestCharCallback(const char, void*)
 {
-    s_charEvents++;
+    k_SCharEvents++;
 }
 
 static void TestPathDropCallback(const Events::PathDropEventData&, void*)
 {
-    s_pathDropEvents++;
+    k_SPathDropEvents++;
 }
 
 static void TestMouseButtonCallback(const Events::MouseButtonEventData&, void*)
 {
-    s_mouseButtonEvents++;
+    k_SMouseButtonEvents++;
 }
 
 static void TestKeyboardCallback(const Events::KeyboardKeyEventData&, void*)
 {
-    s_keyboardEvents++;
+    k_SKeyboardEvents++;
 }
 
 static void TestResizeCallback(const Events::ShouldResizeEventData&, void*)
 {
-    s_resizeEvents++;
+    k_SResizeEvents++;
 }
 
 static void TestCloseCallback(void*)
 {
-    s_closeEvents++;
+    k_SCloseEvents++;
 }
 
 // Test event listener registration
 TEST_F(PlatformSystemTest, EventListenerRegistration)
 {
-    auto createInfo = GetTestCreateInfo();
+    auto createInfo = getTestCreateInfo();
     auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
     
     // Reset event counters
-    s_cursorPosEvents = 0;
-    s_cursorEnterEvents = 0;
-    s_scrollEvents = 0;
-    s_charEvents = 0;
-    s_pathDropEvents = 0;
-    s_mouseButtonEvents = 0;
-    s_keyboardEvents = 0;
-    s_resizeEvents = 0;
-    s_closeEvents = 0;
+    k_SCursorPosEvents = 0;
+    k_SCursorEnterEvents = 0;
+    k_SScrollEvents = 0;
+    k_SCharEvents = 0;
+    k_SPathDropEvents = 0;
+    k_SMouseButtonEvents = 0;
+    k_SKeyboardEvents = 0;
+    k_SResizeEvents = 0;
+    k_SCloseEvents = 0;
     
     // Register event listeners using function pointers
     EXPECT_NO_THROW({
@@ -423,21 +423,21 @@ TEST_F(PlatformSystemTest, EventListenerRegistration)
     
     // Event counters might still be 0 since we're not generating actual events,
     // but registration should not have crashed
-    EXPECT_GE(s_cursorPosEvents.load(), 0);
-    EXPECT_GE(s_cursorEnterEvents.load(), 0);
-    EXPECT_GE(s_scrollEvents.load(), 0);
-    EXPECT_GE(s_charEvents.load(), 0);
-    EXPECT_GE(s_pathDropEvents.load(), 0);
-    EXPECT_GE(s_mouseButtonEvents.load(), 0);
-    EXPECT_GE(s_keyboardEvents.load(), 0);
-    EXPECT_GE(s_resizeEvents.load(), 0);
-    EXPECT_GE(s_closeEvents.load(), 0);
+    EXPECT_GE(k_SCursorPosEvents.load(), 0);
+    EXPECT_GE(k_SCursorEnterEvents.load(), 0);
+    EXPECT_GE(k_SScrollEvents.load(), 0);
+    EXPECT_GE(k_SCharEvents.load(), 0);
+    EXPECT_GE(k_SPathDropEvents.load(), 0);
+    EXPECT_GE(k_SMouseButtonEvents.load(), 0);
+    EXPECT_GE(k_SKeyboardEvents.load(), 0);
+    EXPECT_GE(k_SResizeEvents.load(), 0);
+    EXPECT_GE(k_SCloseEvents.load(), 0);
 }
 
 // Test window attribute manipulation
 TEST_F(PlatformSystemTest, WindowAttributeManipulation)
 {
-    auto createInfo = GetTestCreateInfo();
+    auto createInfo = getTestCreateInfo();
     auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
     
     // Test getting window attributes (values depend on GLFW constants)
@@ -460,7 +460,7 @@ TEST_F(PlatformSystemTest, WindowAttributeManipulation)
 // Test input mode manipulation
 TEST_F(PlatformSystemTest, InputModeManipulation)
 {
-    auto createInfo = GetTestCreateInfo();
+    auto createInfo = getTestCreateInfo();
     auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
     
     // Test cursor modes
@@ -483,7 +483,7 @@ TEST_F(PlatformSystemTest, InputModeManipulation)
 // Test cursor position management
 TEST_F(PlatformSystemTest, CursorPositionManagement)
 {
-    auto createInfo = GetTestCreateInfo();
+    auto createInfo = getTestCreateInfo();
     auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
     
     // Test cursor position setting and getting
@@ -514,12 +514,12 @@ TEST_F(PlatformSystemTest, CursorPositionManagement)
 // Test multiple platform systems (if supported)
 TEST_F(PlatformSystemTest, MultiplePlatformSystems)
 {
-    auto createInfo1 = GetTestCreateInfo();
+    auto createInfo1 = getTestCreateInfo();
     createInfo1.WindowName = "PlatformTest1";
     createInfo1.InitialPosX = 0;
     createInfo1.InitialPosY = 0;
 
-    auto createInfo2 = GetTestCreateInfo();
+    auto createInfo2 = getTestCreateInfo();
     createInfo2.WindowName = "PlatformTest2";
     createInfo2.InitialPosX = 100;
     createInfo2.InitialPosY = 100;

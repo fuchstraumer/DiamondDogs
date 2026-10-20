@@ -117,9 +117,9 @@ namespace rhi
 #endif
     }
 
-    Result FromVulkan(int32_t vkResult) noexcept
+    Result FromVulkan(int32_t vk_result) noexcept
     {
-        return Result(vkResult);
+        return Result(vk_result);
     }
 
     Result FromDirectX(int32_t hresult) noexcept

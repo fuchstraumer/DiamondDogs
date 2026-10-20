@@ -395,7 +395,7 @@ namespace
 
     VkShaderStageFlags ToVkShaderStages(lodestone::ShaderStageKind stages) noexcept
     {
-        constexpr std::pair<lodestone::ShaderStageKind, VkShaderStageFlagBits> stageTable[]
+        constexpr std::pair<lodestone::ShaderStageKind, VkShaderStageFlagBits> k_StageTable[]
         {
             { lodestone::ShaderStageKind::Vertex, VK_SHADER_STAGE_VERTEX_BIT },
             { lodestone::ShaderStageKind::Hull, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT },
@@ -416,7 +416,7 @@ namespace
             { lodestone::ShaderStageKind::Task, VK_SHADER_STAGE_TASK_BIT_EXT },
         };
         VkShaderStageFlags result = 0;
-        for (const auto& [stage, vkStage] : stageTable)
+        for (const auto& [stage, vkStage] : k_StageTable)
         {
             if ((static_cast<uint32_t>(stages) & static_cast<uint32_t>(stage)) != 0u)
             {

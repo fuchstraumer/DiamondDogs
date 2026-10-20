@@ -52,17 +52,17 @@ MessageReply::Status MessageReply::GetStatus() const noexcept
     return status.load(std::memory_order_acquire);
 }
 
-MessageReply::Status MessageReply::WaitForCompletion(uint64_t timeoutNs) noexcept
+MessageReply::Status MessageReply::WaitForCompletion(uint64_t timeout_ns) noexcept
 {
     std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
     while (!IsCompleted())
     {
         // Check timeout
-        if (timeoutNs != std::numeric_limits<uint64_t>::max())
+        if (timeout_ns != std::numeric_limits<uint64_t>::max())
         {
             std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
             const int64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(currentTime - startTime).count();
-            if (std::cmp_greater_equal(elapsedNs , timeoutNs))
+            if (std::cmp_greater_equal(elapsedNs , timeout_ns))
             {
                 return Status::Timeout;
             }

@@ -121,8 +121,8 @@ namespace rhi
 
     Result TimelineSemaphore::GetValue(uint64_t& value) const noexcept
     {
-        VkResult vk_result = vkGetSemaphoreCounterValue(device.As<VkDevice>(), handle.As<VkSemaphore>(), &value);
-        if (vk_result == VK_SUCCESS)
+        VkResult vkResult = vkGetSemaphoreCounterValue(device.As<VkDevice>(), handle.As<VkSemaphore>(), &value);
+        if (vkResult == VK_SUCCESS)
         {
             // might want to log if value == currentValue, saying that the value hasn't changed since last checked?
             currentValue = value;
@@ -130,7 +130,7 @@ namespace rhi
         }
         else
         {
-            return Result(vk_result);
+            return Result(vkResult);
         }
     }
 
@@ -140,25 +140,25 @@ namespace rhi
         signalInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
         signalInfo.semaphore = handle.As<VkSemaphore>();
         signalInfo.value = value;
-        VkResult vk_result = vkSignalSemaphore(device.As<VkDevice>(), &signalInfo);
-        if (vk_result == VK_SUCCESS)
+        VkResult vkResult = vkSignalSemaphore(device.As<VkDevice>(), &signalInfo);
+        if (vkResult == VK_SUCCESS)
         {
             currentValue = value;
             return Result::Success();
         }
         else
         {
-            return Result(vk_result);
+            return Result(vkResult);
         }
     }
 
-    Result TimelineSemaphore::Increment(uint64_t newValue) noexcept
+    Result TimelineSemaphore::Increment(uint64_t new_value) noexcept
     {
-        const uint64_t new_value = currentValue + 1;
-        Result result = SetValue(new_value);
+        const uint64_t newValue = currentValue + 1;
+        Result result = SetValue(newValue);
         if (result.IsSuccess())
         {
-            newValue = new_value;
+            new_value = newValue;
             return Result::Success();
         }
         else

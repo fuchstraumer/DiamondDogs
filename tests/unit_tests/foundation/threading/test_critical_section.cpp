@@ -14,23 +14,23 @@ class CriticalSectionTest : public ::testing::Test
 protected:
     void SetUp() override
     {
-        shared_counter = 0;
+        sharedCounter = 0;
     }
 
     CriticalSection cs;
-    std::atomic<int> shared_counter{0};
+    std::atomic<int> sharedCounter{0};
 };
 
 TEST_F(CriticalSectionTest, BasicLockUnlock)
 {
     cs.lock();
     // Critical section - should be exclusive
-    int temp = shared_counter.load();
+    int temp = sharedCounter.load();
     std::this_thread::sleep_for(std::chrono::microseconds(1));
-    shared_counter.store(temp + 1);
+    sharedCounter.store(temp + 1);
     cs.unlock();
     
-    EXPECT_EQ(shared_counter.load(), 1);
+    EXPECT_EQ(sharedCounter.load(), 1);
 }
 
 TEST_F(CriticalSectionTest, RAIIGuard)
@@ -38,35 +38,35 @@ TEST_F(CriticalSectionTest, RAIIGuard)
     // Also verifies standard library compatibility, meeting BasicLockable requirements
     {
         std::lock_guard<CriticalSection> guard(cs);
-        int temp = shared_counter.load();
+        int temp = sharedCounter.load();
         std::this_thread::sleep_for(std::chrono::microseconds(1));
-        shared_counter.store(temp + 1);
+        sharedCounter.store(temp + 1);
     } // cs should unlock here
     
-    EXPECT_EQ(shared_counter.load(), 1);
+    EXPECT_EQ(sharedCounter.load(), 1);
 }
 
 TEST_F(CriticalSectionTest, ConcurrentAccess)
 {
-    constexpr int num_threads = 10;
-    constexpr int increments_per_thread = 1000;
+    constexpr int k_NumThreads = 10;
+    constexpr int k_IncrementsPerThread = 1000;
     
     std::vector<std::thread> threads;
     
     auto worker = [&]()
     {
-        for (int i = 0; i < increments_per_thread; ++i)
+        for (int i = 0; i < k_IncrementsPerThread; ++i)
         {
             std::lock_guard<CriticalSection> guard(cs);
-            int temp = shared_counter.load();
+            int temp = sharedCounter.load();
             // Simulate some work that could cause race conditions
             std::this_thread::yield();
-            shared_counter.store(temp + 1);
+            sharedCounter.store(temp + 1);
         }
     };
     
     // Launch threads
-    for (int i = 0; i < num_threads; ++i)
+    for (int i = 0; i < k_NumThreads; ++i)
     {
         threads.emplace_back(worker);
     }
@@ -78,7 +78,7 @@ TEST_F(CriticalSectionTest, ConcurrentAccess)
     }
     
     // Verify no race conditions occurred
-    EXPECT_EQ(shared_counter.load(), num_threads * increments_per_thread);
+    EXPECT_EQ(sharedCounter.load(), k_NumThreads * k_IncrementsPerThread);
 }
 
 TEST_F(CriticalSectionTest, TryLock)
@@ -126,12 +126,12 @@ TEST_F(CriticalSectionTest, TryLockFailure)
 
 TEST_F(CriticalSectionTest, PerformanceBenchmark)
 {
-    constexpr int operations = 100000;
+    constexpr int k_Operations = 100000;
     
     auto start = std::chrono::high_resolution_clock::now();
     size_t counter = 0;
     
-    for (int i = 0; i < operations; ++i)
+    for (int i = 0; i < k_Operations; ++i)
     {
         std::lock_guard<CriticalSection> guard(cs);
         counter += 1;
@@ -140,12 +140,12 @@ TEST_F(CriticalSectionTest, PerformanceBenchmark)
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     
-    std::cout << "CriticalSection operations: " << operations 
+    std::cout << "CriticalSection operations: " << k_Operations 
               << " in " << duration.count() << " microseconds\n";
-    std::cout << "Average: " << (duration.count() / static_cast<double>(operations)) 
+    std::cout << "Average: " << (duration.count() / static_cast<double>(k_Operations)) 
               << " microseconds per lock/unlock\n";
     
-    EXPECT_EQ(counter, operations);
+    EXPECT_EQ(counter, k_Operations);
 }
 
 } // namespace threading

@@ -235,19 +235,19 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
         return;
     }
 
-    const entt::entity new_entity = entt::entity(createdResource->EntityHandle);
-    if (message.initialData.has_value() && !allocationIsHostVisible(new_entity))
+    const entt::entity newEntity = entt::entity(createdResource->EntityHandle);
+    if (message.initialData.has_value() && !allocationIsHostVisible(newEntity))
     {
         // pass responsiblity on to transfer system now, transferring ownership of data with a move
         message.reply->setGraphicsResourceRelaxed(*createdResource);
         message.reply->setStatus(MessageReply::Status::Transferring);
-        enqueueBufferUpload(new_entity, std::move(*message.initialData), std::move(message.reply));
+        enqueueBufferUpload(newEntity, std::move(*message.initialData), std::move(message.reply));
         return;
     }
 
     if (message.initialData.has_value())
     {
-        setBufferDataHostOnly(new_entity, *message.initialData);
+        setBufferDataHostOnly(newEntity, *message.initialData);
     }
 
     completeWithResource(*message.reply, *createdResource);

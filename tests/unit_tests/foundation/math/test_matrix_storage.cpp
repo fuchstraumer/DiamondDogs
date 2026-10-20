@@ -8,7 +8,7 @@ namespace math
 class Float3x3Test : public ::testing::Test
 {
 protected:
-    static constexpr float EPSILON = 1e-6f;
+    static constexpr float k_Epsilon = 1e-6f;
 };
 
 TEST_F(Float3x3Test, DefaultConstruction)
@@ -143,7 +143,7 @@ TEST_F(Float4x3Test, ColumnAccessors)
 class Float4x4Test : public ::testing::Test
 {
 protected:
-    static constexpr float EPSILON = 1e-6f;
+    static constexpr float k_Epsilon = 1e-6f;
 };
 
 TEST_F(Float4x4Test, DefaultConstruction)

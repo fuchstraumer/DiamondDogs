@@ -4,7 +4,7 @@
 #include <cstdint>
 
 /// Function pointer type for retrieving engine APIs
-typedef void*(*GetEngineAPI_Fn)(uint32_t api_id);
+typedef void*(*GetEngineApiFn)(uint32_t api_id);
 
 /**
  * @brief Standard API structure that all plugins must export
@@ -12,19 +12,19 @@ typedef void*(*GetEngineAPI_Fn)(uint32_t api_id);
  * Defines the required functions that the plugin manager will call
  * for plugin lifecycle management and updates.
  */
-struct Plugin_API {
+struct PluginApi {
     /// Get the human-readable name of this plugin
     const char* (*PluginName)(void);
     /// Get the unique numerical identifier for this plugin
     uint32_t (*PluginID)(void);
     /// Called when plugin is first loaded
-    void (*Load)(GetEngineAPI_Fn engine_api_fn);
+    void (*Load)(GetEngineApiFn engine_api_fn);
     /// Called right before dlclose or process detachment
     void (*Unload)(void);
     /// Returns pointer to state data for given plugin, used to later restore state
-    void* (*BeginReload)(GetEngineAPI_Fn engine_api_fn);
+    void* (*BeginReload)(GetEngineApiFn engine_api_fn);
     /// Complete reloading of a plugin, using state data stored in given pointer
-    void (*FinishReload)(GetEngineAPI_Fn engine_api_fn, void* state_data);
+    void (*FinishReload)(GetEngineApiFn engine_api_fn, void* state_data);
     /// Fixed-timestep update of logical components not requiring updates w/ timestep value
     void (*LogicalUpdate)(void);
     /// Called per frame, dt is frametime - use for time-dependent updates like physics

@@ -3,7 +3,7 @@
 #include <cassert>
 #include <cstring>
 
-constexpr static VkBufferCreateInfo k_defaultStagingBufferCreateInfo
+constexpr static VkBufferCreateInfo k_DefaultStagingBufferCreateInfo
 {
     VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
     nullptr,
@@ -15,7 +15,7 @@ constexpr static VkBufferCreateInfo k_defaultStagingBufferCreateInfo
     nullptr
 };
 
-constexpr static VmaAllocationCreateInfo k_defaultAllocationCreateInfo
+constexpr static VmaAllocationCreateInfo k_DefaultAllocationCreateInfo
 {
     VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
     VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
@@ -28,7 +28,7 @@ constexpr static VmaAllocationCreateInfo k_defaultAllocationCreateInfo
 
 // buffer to image copies need the buffer offset to be a multiple of the texel block size (and 4, on a transfer queue).
 // 16 covers every uncompressed format and every block-compressed one
-constexpr static VkDeviceSize k_imageCopyOffsetAlignment = 16u;
+constexpr static VkDeviceSize k_ImageCopyOffsetAlignment = 16u;
 
 UploadBuffer::UploadBuffer(VmaAllocator allocator) :
     Allocator{ allocator }
@@ -69,80 +69,80 @@ UploadBuffer::~UploadBuffer()
 }
 
 std::vector<VkBufferCopy> UploadBuffer::SetData(
-    const InternalResourceDataContainer::BufferDataVector& dataVector)
+    const InternalResourceDataContainer::BufferDataVector& data_vector)
 {
-    VkDeviceSize total_size = 0;
-    for (const auto& data : dataVector)
+    VkDeviceSize totalSize = 0;
+    for (const auto& data : data_vector)
     {
-        total_size += static_cast<VkDeviceSize>(data.size);
+        totalSize += static_cast<VkDeviceSize>(data.size);
     }
 
-    createAndAllocateBuffer(total_size);
-    std::vector<VkBufferCopy> buffer_copies(dataVector.size());
+    createAndAllocateBuffer(totalSize);
+    std::vector<VkBufferCopy> bufferCopies(data_vector.size());
     VkDeviceSize offset = 0;
-    for (size_t i = 0; i < dataVector.size(); ++i)
+    for (size_t i = 0; i < data_vector.size(); ++i)
     {
-        setDataAtOffset(dataVector[i].data.get(), dataVector[i].size, offset);
-        buffer_copies[i].size = dataVector[i].size;
-        buffer_copies[i].dstOffset = offset;
-        buffer_copies[i].srcOffset = offset;
-        offset += dataVector[i].size;
+        setDataAtOffset(data_vector[i].data.get(), data_vector[i].size, offset);
+        bufferCopies[i].size = data_vector[i].size;
+        bufferCopies[i].dstOffset = offset;
+        bufferCopies[i].srcOffset = offset;
+        offset += data_vector[i].size;
     }
 
-    return buffer_copies;
+    return bufferCopies;
 }
 
 std::vector<VkBufferImageCopy> UploadBuffer::SetData(
-    const InternalResourceDataContainer::ImageDataVector& imageDataVector,
+    const InternalResourceDataContainer::ImageDataVector& image_data_vector,
     VkImageAspectFlags aspect_mask)
 {
-    VkDeviceSize total_size = 0;
-    for (const auto& data : imageDataVector)
+    VkDeviceSize totalSize = 0;
+    for (const auto& data : image_data_vector)
     {
-        total_size = ((total_size + k_imageCopyOffsetAlignment - 1u) / k_imageCopyOffsetAlignment) * k_imageCopyOffsetAlignment;
-        total_size += static_cast<VkDeviceSize>(data.size);
+        totalSize = ((totalSize + k_ImageCopyOffsetAlignment - 1u) / k_ImageCopyOffsetAlignment) * k_ImageCopyOffsetAlignment;
+        totalSize += static_cast<VkDeviceSize>(data.size);
     }
 
-    createAndAllocateBuffer(total_size);
+    createAndAllocateBuffer(totalSize);
     // fixed: this sized the vector to the element count and then also emplaced each copy, so every region was recorded
     // twice, the second time over the first. it also used the image's layer count for every element
-    std::vector<VkBufferImageCopy> buffer_image_copies(imageDataVector.size());
+    std::vector<VkBufferImageCopy> bufferImageCopies(image_data_vector.size());
     VkDeviceSize offset = 0;
-    for (size_t i = 0; i < imageDataVector.size(); ++i)
+    for (size_t i = 0; i < image_data_vector.size(); ++i)
     {
-        offset = ((offset + k_imageCopyOffsetAlignment - 1u) / k_imageCopyOffsetAlignment) * k_imageCopyOffsetAlignment;
-        setDataAtOffset(imageDataVector[i].data.get(), imageDataVector[i].size, offset);
-        VkBufferImageCopy& copy = buffer_image_copies[i];
+        offset = ((offset + k_ImageCopyOffsetAlignment - 1u) / k_ImageCopyOffsetAlignment) * k_ImageCopyOffsetAlignment;
+        setDataAtOffset(image_data_vector[i].data.get(), image_data_vector[i].size, offset);
+        VkBufferImageCopy& copy = bufferImageCopies[i];
         copy.bufferOffset = offset;
         copy.bufferRowLength = 0u;
         copy.bufferImageHeight = 0u;
         copy.imageSubresource.aspectMask = aspect_mask;
-        copy.imageSubresource.baseArrayLayer = imageDataVector[i].arrayLayer;
-        copy.imageSubresource.layerCount = imageDataVector[i].numLayers;
-        copy.imageSubresource.mipLevel = imageDataVector[i].mipLevel;
+        copy.imageSubresource.baseArrayLayer = image_data_vector[i].arrayLayer;
+        copy.imageSubresource.layerCount = image_data_vector[i].numLayers;
+        copy.imageSubresource.mipLevel = image_data_vector[i].mipLevel;
         copy.imageOffset = VkOffset3D{ 0, 0, 0 };
-        copy.imageExtent = VkExtent3D{ imageDataVector[i].width, imageDataVector[i].height, 1u };
-        offset += static_cast<VkDeviceSize>(imageDataVector[i].size);
+        copy.imageExtent = VkExtent3D{ image_data_vector[i].width, image_data_vector[i].height, 1u };
+        offset += static_cast<VkDeviceSize>(image_data_vector[i].size);
     }
 
-    return buffer_image_copies;
+    return bufferImageCopies;
 }
 
 void UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
 {
-    VkBufferCreateInfo create_info = k_defaultStagingBufferCreateInfo;
-    create_info.size = size;
-    VmaAllocationCreateInfo alloc_create_info = k_defaultAllocationCreateInfo;
-    VmaAllocationInfo result_alloc_info;
+    VkBufferCreateInfo createInfo = k_DefaultStagingBufferCreateInfo;
+    createInfo.size = size;
+    VmaAllocationCreateInfo allocCreateInfo = k_DefaultAllocationCreateInfo;
+    VmaAllocationInfo resultAllocInfo;
     VkResult result = vmaCreateBuffer(
         Allocator,
-        &create_info,
-        &alloc_create_info,
+        &createInfo,
+        &allocCreateInfo,
         &Buffer,
         &Allocation,
-        &result_alloc_info);
+        &resultAllocInfo);
     assert(result == VK_SUCCESS);
-    mappedPtr = result_alloc_info.pMappedData;
+    mappedPtr = resultAllocInfo.pMappedData;
     Size = size;
 
     if constexpr (RHI_SYSTEM_USE_DEBUG_INFO && RHI_SYSTEM_VALIDATION_ENABLED)

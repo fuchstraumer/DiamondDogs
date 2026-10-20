@@ -13,7 +13,7 @@
 // Forward declaration for conversion function
 extern ColorSpace FromVkColorSpace(const VkColorSpaceKHR space) noexcept;
 
-static const std::unordered_map<VkPresentModeKHR, PresentMode> s_PresentModeFromVkPresentModeMap
+static const std::unordered_map<VkPresentModeKHR, PresentMode> k_SPresentModeFromVkPresentModeMap
 {
     { VK_PRESENT_MODE_IMMEDIATE_KHR, PresentMode::Immediate },
     { VK_PRESENT_MODE_FIFO_KHR, PresentMode::VerticalSync },
@@ -80,8 +80,8 @@ ColorSpace Swapchain::ColorSpace() const noexcept
 
 PresentMode Swapchain::PresentMode() const noexcept
 {
-    auto iter = s_PresentModeFromVkPresentModeMap.find(impl->PresentMode);
-    if (iter != s_PresentModeFromVkPresentModeMap.end())
+    auto iter = k_SPresentModeFromVkPresentModeMap.find(impl->PresentMode);
+    if (iter != k_SPresentModeFromVkPresentModeMap.end())
     {
         return iter->second;
     }

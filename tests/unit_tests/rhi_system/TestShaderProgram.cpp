@@ -10,7 +10,7 @@
 #include "SourcePaths.hpp"
 #include <filesystem>
 
-constexpr static const uint32_t triangle_vert_shader_spv[349] =
+constexpr static const uint32_t k_TriangleVertShaderSpv[349] =
 {
 	0x07230203,0x00010000,0x00080007,0x0000002c,0x00000000,0x00020011,0x00000001,0x0006000b,
 	0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,0x00000000,0x00000001,
@@ -59,7 +59,7 @@ constexpr static const uint32_t triangle_vert_shader_spv[349] =
 };
 
 
-constexpr static VkDescriptorSetLayoutBinding TestSetLayoutBinding
+constexpr static VkDescriptorSetLayoutBinding k_TestSetLayoutBinding
 {
     0,
     VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -68,22 +68,22 @@ constexpr static VkDescriptorSetLayoutBinding TestSetLayoutBinding
     nullptr
 };
 
-constexpr static VkDescriptorSetLayoutCreateInfo TestSetLayoutCreateInfo
+constexpr static VkDescriptorSetLayoutCreateInfo k_TestSetLayoutCreateInfo
 {
     VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
     nullptr,
     0,
     1,
-    &TestSetLayoutBinding
+    &k_TestSetLayoutBinding
 };
 
 class ShaderProgramTest : public ::testing::Test
 {
 public:
     // need test set layout so we can create the dummy shader we use
-    std::unique_ptr<rhi::RhiSystem> rhiSystem;
-    rhi::DeviceHandle testDevice;
-    VkDescriptorSetLayout testSetLayout;
+    std::unique_ptr<rhi::RhiSystem> RhiSystem;
+    rhi::DeviceHandle TestDevice;
+    VkDescriptorSetLayout TestSetLayout;
 
 
     static rhi::RhiSystemCreateInfo GetDefaultCreateInfo()
@@ -106,26 +106,26 @@ public:
     void SetUp() override
     {
         auto createInfo = GetDefaultCreateInfo();
-        rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
-        ASSERT_NE(rhiSystem, nullptr);
-        auto device = rhiSystem->GetDevice();
+        RhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
+        ASSERT_NE(RhiSystem, nullptr);
+        auto device = RhiSystem->GetDevice();
         ASSERT_NE(device, nullptr);
-        testDevice = device->Handle();
-        ASSERT_TRUE(testDevice.IsValid());
-        rhi::Result result = vkCreateDescriptorSetLayout(testDevice.As<VkDevice>(), &TestSetLayoutCreateInfo, nullptr, &testSetLayout);
+        TestDevice = device->Handle();
+        ASSERT_TRUE(TestDevice.IsValid());
+        rhi::Result result = vkCreateDescriptorSetLayout(TestDevice.As<VkDevice>(), &k_TestSetLayoutCreateInfo, nullptr, &TestSetLayout);
         ASSERT_EQ(result.GetCode(), rhi::Result::Code::Success);
-        ASSERT_NE(testSetLayout, VK_NULL_HANDLE);
+        ASSERT_NE(TestSetLayout, VK_NULL_HANDLE);
     }
 
     void TearDown() override
     {
-        if (testSetLayout != VK_NULL_HANDLE)
+        if (TestSetLayout != VK_NULL_HANDLE)
         {
-            vkDestroyDescriptorSetLayout(testDevice.As<VkDevice>(), testSetLayout, nullptr);
-            testSetLayout = VK_NULL_HANDLE;
+            vkDestroyDescriptorSetLayout(TestDevice.As<VkDevice>(), TestSetLayout, nullptr);
+            TestSetLayout = VK_NULL_HANDLE;
         }
 
-        rhiSystem.reset();
+        RhiSystem.reset();
     }
 
 };
@@ -133,10 +133,10 @@ public:
 TEST_F(ShaderProgramTest, CreateFromBakedBinary)
 {
     // Prepare shader binary options
-    rhi::DescriptorSetLayoutHandle testSetLayoutHandle(reinterpret_cast<uint64_t>(testSetLayout));
+    rhi::DescriptorSetLayoutHandle testSetLayoutHandle(reinterpret_cast<uint64_t>(TestSetLayout));
     rhi::ShaderBinaryOptions testBinaryOptions
     {
-        std::span<const uint32_t>(triangle_vert_shader_spv, 349),
+        std::span<const uint32_t>(k_TriangleVertShaderSpv, 349),
         rhi::ShaderStageFlags::Vertex,
         "main",
         std::span<rhi::PushConstantRange>{},
@@ -145,7 +145,7 @@ TEST_F(ShaderProgramTest, CreateFromBakedBinary)
 
     std::span<rhi::ShaderBinaryOptions> binaryOptionsSpan(&testBinaryOptions, 1);
     std::unique_ptr<rhi::ShaderProgram> shaderProgram = nullptr;
-    rhi::Result result = rhi::ShaderProgram::CreateFromBinary(testDevice, binaryOptionsSpan, shaderProgram);
+    rhi::Result result = rhi::ShaderProgram::CreateFromBinary(TestDevice, binaryOptionsSpan, shaderProgram);
     ASSERT_TRUE(result.IsSuccess());
     ASSERT_NE(shaderProgram, nullptr);
 

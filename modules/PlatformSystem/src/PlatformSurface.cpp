@@ -15,14 +15,14 @@
  * \param surface The surface to check presentation support for
  * \return VK_TRUE if presentation is supported, VK_FALSE otherwise
  */
-VkBool32 VerifyPresentationSupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
+VkBool32 VerifyPresentationSupport(VkPhysicalDevice physical_device, VkSurfaceKHR surface)
 {
     // Check presentation support across the first few queue families
     // Most devices will have presentation support in the first queue family
     VkBool32 presentSupport = VK_FALSE;
     for (uint32_t queueFamilyIndex = 0; queueFamilyIndex < 3; ++queueFamilyIndex)
     {
-        vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, queueFamilyIndex, surface, &presentSupport);
+        vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, queueFamilyIndex, surface, &presentSupport);
         if (presentSupport == VK_TRUE)
         {
             break;
@@ -33,11 +33,11 @@ VkBool32 VerifyPresentationSupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR
 
 struct PlatformSurfaceImpl
 {
-    PlatformSurfaceImpl(const uint64_t vkInstanceHandle, const uint64_t vkPhysicalDeviceHandle, void* window) noexcept :
-        instance(reinterpret_cast<VkInstance>(vkInstanceHandle)),
-        physicalDevice(reinterpret_cast<VkPhysicalDevice>(vkPhysicalDeviceHandle)),
-        window(reinterpret_cast<GLFWwindow*>(window)),
-        surface(VK_NULL_HANDLE)
+    PlatformSurfaceImpl(const uint64_t vk_instance_handle, const uint64_t vk_physical_device_handle, void* window) noexcept :
+        Instance(reinterpret_cast<VkInstance>(vk_instance_handle)),
+        PhysicalDevice(reinterpret_cast<VkPhysicalDevice>(vk_physical_device_handle)),
+        Window(reinterpret_cast<GLFWwindow*>(window)),
+        Surface(VK_NULL_HANDLE)
     {}
 
     ~PlatformSurfaceImpl()
@@ -47,14 +47,14 @@ struct PlatformSurfaceImpl
 
     void CreateSurface()
     {
-        VkResult result = glfwCreateWindowSurface(instance, window, nullptr, &surface);
+        VkResult result = glfwCreateWindowSurface(Instance, Window, nullptr, &Surface);
         if (result != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to create window surface!");
         }
 
         // Verify that the physical device supports presentation to this surface
-        if (!VerifyPresentationSupport(physicalDevice, surface))
+        if (!VerifyPresentationSupport(PhysicalDevice, Surface))
         {
             throw std::runtime_error("Physical device does not support presentation to this surface!");
         }
@@ -62,29 +62,29 @@ struct PlatformSurfaceImpl
 
     void DestroySurface()
     {
-        if (surface != VK_NULL_HANDLE && instance != VK_NULL_HANDLE)
+        if (Surface != VK_NULL_HANDLE && Instance != VK_NULL_HANDLE)
         {
-            vkDestroySurfaceKHR(instance, surface, nullptr);
-            surface = VK_NULL_HANDLE;
+            vkDestroySurfaceKHR(Instance, Surface, nullptr);
+            Surface = VK_NULL_HANDLE;
         }
     }
 
     void ClearHandles()
     {
-        instance = VK_NULL_HANDLE;
-        physicalDevice = VK_NULL_HANDLE;
-        window = nullptr;
-        surface = VK_NULL_HANDLE;
+        Instance = VK_NULL_HANDLE;
+        PhysicalDevice = VK_NULL_HANDLE;
+        Window = nullptr;
+        Surface = VK_NULL_HANDLE;
     }
 
-    VkInstance instance{ VK_NULL_HANDLE };
-    VkPhysicalDevice physicalDevice{ VK_NULL_HANDLE };
-    GLFWwindow* window{ nullptr };
-    VkSurfaceKHR surface{ VK_NULL_HANDLE };
+    VkInstance Instance{ VK_NULL_HANDLE };
+    VkPhysicalDevice PhysicalDevice{ VK_NULL_HANDLE };
+    GLFWwindow* Window{ nullptr };
+    VkSurfaceKHR Surface{ VK_NULL_HANDLE };
 };
 
-PlatformSurface::PlatformSurface(const uint64_t vkInstanceHandle, const uint64_t vkPhysicalDeviceHandle, void* window) noexcept : 
-    impl(std::make_unique<PlatformSurfaceImpl>(vkInstanceHandle, vkPhysicalDeviceHandle, window))
+PlatformSurface::PlatformSurface(const uint64_t vk_instance_handle, const uint64_t vk_physical_device_handle, void* window) noexcept : 
+    impl(std::make_unique<PlatformSurfaceImpl>(vk_instance_handle, vk_physical_device_handle, window))
 {
     CreateSurface();
 }
@@ -102,7 +102,7 @@ void PlatformSurface::Recreate()
 
 const uint64_t PlatformSurface::GetVkSurface() const noexcept
 {
-    return reinterpret_cast<uint64_t>(impl->surface);
+    return reinterpret_cast<uint64_t>(impl->Surface);
 }
 
 void PlatformSurface::CreateSurface()

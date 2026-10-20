@@ -14,15 +14,15 @@ namespace rhi
 {
     struct CommandPoolImpl
     {
-        DeviceHandle device;
-        CommandPoolImpl(DeviceHandle _device, uint32_t _queueFamilyIndex) noexcept : device{ _device }, queueFamilyIndex{ _queueFamilyIndex }
+        DeviceHandle Device;
+        CommandPoolImpl(DeviceHandle _device, uint32_t _queueFamilyIndex) noexcept : Device{ _device }, QueueFamilyIndex{ _queueFamilyIndex }
         {
             GetTrimFunction();
         }
 #ifdef RHI_SYSTEM_USE_VULKAN
-        uint32_t queueFamilyIndex;
-        std::vector<VkCommandBuffer> allocatedBuffers; 
-        PFN_vkTrimCommandPoolKHR vkTrimCommandPool = nullptr;
+        uint32_t QueueFamilyIndex;
+        std::vector<VkCommandBuffer> AllocatedBuffers; 
+        PFN_vkTrimCommandPoolKHR VkTrimCommandPool = nullptr;
 #elif defined(RHI_SYSTEM_USE_DX12)
         D3D12_COMMAND_LIST_TYPE commandListType;
         std::vector<Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>> commandLists;
@@ -32,9 +32,9 @@ namespace rhi
         void GetTrimFunction()
         {
 #ifdef RHI_SYSTEM_USE_VULKAN
-            if (!vkTrimCommandPool)
+            if (!VkTrimCommandPool)
             {
-                vkTrimCommandPool = reinterpret_cast<PFN_vkTrimCommandPoolKHR>(vkGetDeviceProcAddr(device.As<VkDevice>(), "vkTrimCommandPoolKHR"));
+                VkTrimCommandPool = reinterpret_cast<PFN_vkTrimCommandPoolKHR>(vkGetDeviceProcAddr(Device.As<VkDevice>(), "vkTrimCommandPoolKHR"));
             }
 #endif
         }
@@ -44,7 +44,7 @@ namespace rhi
 #ifdef RHI_SYSTEM_USE_VULKAN
             // For simplicity, this implementation assumes all command buffers are freed together with the pool.
             // More complex tracking would be needed for individual frees.
-            assert(allocatedBuffers.empty()); 
+            assert(AllocatedBuffers.empty()); 
             VkCommandBufferAllocateInfo allocInfo{};
             allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
             allocInfo.commandPool = handle.As<VkCommandPool>();
@@ -52,11 +52,11 @@ namespace rhi
             allocInfo.commandBufferCount = count;
             
             std::vector<VkCommandBuffer> newBuffers(count);
-            VkResult result = vkAllocateCommandBuffers(device.As<VkDevice>(), &allocInfo, newBuffers.data());
+            VkResult result = vkAllocateCommandBuffers(Device.As<VkDevice>(), &allocInfo, newBuffers.data());
             
             if (result == VK_SUCCESS)
             {
-                allocatedBuffers.insert(allocatedBuffers.end(), newBuffers.begin(), newBuffers.end());
+                AllocatedBuffers.insert(AllocatedBuffers.end(), newBuffers.begin(), newBuffers.end());
             }
             
             return Result(result);
@@ -96,13 +96,13 @@ namespace rhi
 
     };
 
-    CommandPool::CommandPool(DeviceHandle device, Type poolType, uint32_t queueFamilyIndex)
-        : device{ device }, poolType{ poolType }, impl{ std::make_unique<CommandPoolImpl>(device, queueFamilyIndex) }
+    CommandPool::CommandPool(DeviceHandle device, Type pool_type, uint32_t queue_family_index)
+        : device{ device }, poolType{ pool_type }, impl{ std::make_unique<CommandPoolImpl>(device, queue_family_index) }
     {
 #ifdef RHI_SYSTEM_USE_VULKAN
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.queueFamilyIndex = queueFamilyIndex;
+        poolInfo.queueFamilyIndex = queue_family_index;
         // Only use transient bit, we reset the pool each frame and don't need individual buffer resets
         poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
         
@@ -140,10 +140,10 @@ namespace rhi
         if (handle.IsValid())
         {
             // Free all allocated command buffers
-            if (!impl->allocatedBuffers.empty())
+            if (!impl->AllocatedBuffers.empty())
             {
                 vkFreeCommandBuffers(device.As<VkDevice>(), handle.As<VkCommandPool>(), 
-                    static_cast<uint32_t>(impl->allocatedBuffers.size()), impl->allocatedBuffers.data());
+                    static_cast<uint32_t>(impl->AllocatedBuffers.size()), impl->AllocatedBuffers.data());
             }
             vkDestroyCommandPool(device.As<VkDevice>(), handle.As<VkCommandPool>(), nullptr);
         }
@@ -199,9 +199,9 @@ namespace rhi
     CommandBufferHandle CommandPool::GetCommandBuffer(uint32_t idx) const noexcept
     {
 #ifdef RHI_SYSTEM_USE_VULKAN
-        if (idx < impl->allocatedBuffers.size())
+        if (idx < impl->AllocatedBuffers.size())
         {
-            return CommandBufferHandle{ reinterpret_cast<uint64_t>(impl->allocatedBuffers[idx]) };
+            return CommandBufferHandle{ reinterpret_cast<uint64_t>(impl->AllocatedBuffers[idx]) };
         }
         return CommandBufferHandle{};
         

@@ -11,7 +11,7 @@ namespace
         const std::vector<std::string>& optional);
     std::vector<std::string> MergeExtensionsWithDependencies(
         std::span<const std::string_view> requested,
-        uint32_t dependencyCount,
+        uint32_t dependency_count,
         const char* const* dependencies);
     std::vector<const char*> PointersToNames(const std::vector<std::string>& names);
 }
@@ -134,7 +134,7 @@ namespace rhi
         instanceExtensionsResolved = true;
     }
 
-    void ExtensionPack::SetPhysicalDevice(VkPhysicalDevice physicalDevice) noexcept
+    void ExtensionPack::SetPhysicalDevice(VkPhysicalDevice physical_device) noexcept
     {
         // if already resolved or physical device already set, don't need to do this step
         if (deviceExtensionsResolved || (extensionWrangler && extensionWrangler->HasValidPhysicalDevice()))
@@ -142,7 +142,7 @@ namespace rhi
             return;
         }
 
-        extensionWrangler->SetPhysicalDevice(physicalDevice);
+        extensionWrangler->SetPhysicalDevice(physical_device);
     }
 
     void ExtensionPack::AddRequiredDeviceExtensions(std::vector<std::string> extensions)
@@ -332,13 +332,13 @@ namespace
 
     std::vector<std::string> MergeExtensionsWithDependencies(
         std::span<const std::string_view> requested,
-        uint32_t dependencyCount,
+        uint32_t dependency_count,
         const char* const* dependencies)
     {
         std::vector<std::string> merged;
-        merged.reserve(requested.size() + dependencyCount);
+        merged.reserve(requested.size() + dependency_count);
         merged.insert(merged.end(), requested.begin(), requested.end());
-        for (uint32_t i = 0; i < dependencyCount; ++i)
+        for (uint32_t i = 0; i < dependency_count; ++i)
         {
             merged.emplace_back(dependencies[i]);
         }

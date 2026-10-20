@@ -28,9 +28,9 @@ ResourceDataArena& ResourceDataArena::operator=(ResourceDataArena&& other) noexc
 
 void ResourceDataArena::reset()
 {
-    mi_heap_t* new_heap = mi_heap_new();
+    mi_heap_t* newHeap = mi_heap_new();
     mi_heap_delete(heap);
-    heap = new_heap;
+    heap = newHeap;
 }
 
 void* ResourceDataArena::Allocate(size_t size)

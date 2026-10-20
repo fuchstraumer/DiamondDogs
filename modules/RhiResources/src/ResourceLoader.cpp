@@ -7,7 +7,7 @@
 #include "threading/ExponentialBackoffSleeper.hpp"
 #include "threading/CriticalSection.hpp"
 
-static std::mutex logMutex;
+static std::mutex k_LogMutex;
 
 ResourceLoader::ResourceLoader()
 {
@@ -38,16 +38,16 @@ void ResourceLoader::Unsubscribe(const char* file_type)
 void ResourceLoader::Load(const char* file_type, const char* file_path, void* _requester, SignalFunctor signal, void* user_data)
 {
     namespace fs = std::filesystem;
-    const std::string file_name{ file_path };
-    const uint64_t fileNameHash{ std::hash<std::string>()(file_name) };
+    const std::string fileName{ file_path };
+    const uint64_t fileNameHash{ std::hash<std::string>()(fileName) };
 
     {
         // Check to see if resource is already loaded
         std::lock_guard pendingDataGuard(pendingDataMutex);
         if (pendingResources.count(fileNameHash) != 0)
         {
-            auto& listeners_vec = pendingResourceListeners[fileNameHash];
-            listeners_vec.emplace_back(_requester, user_data);
+            auto& listenersVec = pendingResourceListeners[fileNameHash];
+            listenersVec.emplace_back(_requester, user_data);
             return;
         }
     }
@@ -65,12 +65,12 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
     ResourceData data;
     data.FileType = file_type;
     data.RefCount = 1;
-    data.FileName = file_name;
+    data.FileName = fileName;
     data.FileNameHash = fileNameHash;
 
-    if (fs::exists(file_name))
+    if (fs::exists(fileName))
     {
-        data.AbsoluteFilePath = fs::canonical(file_name).string();
+        data.AbsoluteFilePath = fs::canonical(fileName).string();
     }
 
     loadRequest req(data);
@@ -96,19 +96,19 @@ void ResourceLoader::Load(const char* file_type, const char* file_path, void* _r
     cVar.notify_one();
 }
 
-void ResourceLoader::Load(const char* file_type, const char* _file_name, const char* search_dir, void* _requester, SignalFunctor signal, void* user_data)
+void ResourceLoader::Load(const char* file_type, const char* file_name, const char* search_dir, void* _requester, SignalFunctor signal, void* user_data)
 {
     namespace fs = std::filesystem;
-    const std::string file_name{ _file_name };
-    const uint64_t fileNameHash{ std::hash<std::string>()(file_name) };
+    const std::string fileName{ file_name };
+    const uint64_t fileNameHash{ std::hash<std::string>()(fileName) };
 
     {
         // Check to see if resource is already queued for load
         std::lock_guard pendingDataGuard(pendingDataMutex);
         if (pendingResources.count(fileNameHash) != 0)
         {
-            auto& listeners_vec = pendingResourceListeners[fileNameHash];
-            listeners_vec.emplace_back(_requester, user_data);
+            auto& listenersVec = pendingResourceListeners[fileNameHash];
+            listenersVec.emplace_back(_requester, user_data);
             return;
         }
     }
@@ -126,7 +126,7 @@ void ResourceLoader::Load(const char* file_type, const char* _file_name, const c
     ResourceData data;
     data.FileType = file_type;
     data.RefCount = 1;
-    data.FileName = file_name;
+    data.FileName = fileName;
     data.FileNameHash = std::hash<std::string>()(data.FileName);
     data.SearchDir = std::string(search_dir);
 
@@ -183,7 +183,7 @@ std::string ResourceLoader::FindFile(const std::string& fname, const std::string
     static std::unordered_map<std::string, stdfs::path> foundPathsCache;
     static CriticalSection cacheCS;
 
-    auto case_insensitive_comparison = [](const std::string & fname, const std::string & curr_entry)->bool
+    auto caseInsensitiveComparison = [](const std::string & fname, const std::string & curr_entry)->bool
     {
 
         return std::equal(std::execution::par_unseq, fname.cbegin(), fname.cend(), curr_entry.cbegin(), curr_entry.cend(), [](const char a, const char b)
@@ -192,14 +192,14 @@ std::string ResourceLoader::FindFile(const std::string& fname, const std::string
             });
     };
 
-    stdfs::path starting_path(stdfs::canonical(init_dir));
+    stdfs::path startingPath(stdfs::canonical(init_dir));
 
-    stdfs::path file_name_path(fname);
-    file_name_path = file_name_path.filename();
+    stdfs::path fileNamePath(fname);
+    fileNamePath = fileNamePath.filename();
 
-    if (stdfs::exists(file_name_path))
+    if (stdfs::exists(fileNamePath))
     {
-        return file_name_path.string();
+        return fileNamePath.string();
     }
 
     {
@@ -211,32 +211,32 @@ std::string ResourceLoader::FindFile(const std::string& fname, const std::string
         }
     }
 
-    stdfs::path file_path = starting_path;
+    stdfs::path filePath = startingPath;
 
     for (size_t i = 0; i < depth; ++i)
     {
-        file_path = file_path.parent_path();
+        filePath = filePath.parent_path();
     }
 
-    for (auto& dir_entry : stdfs::recursive_directory_iterator(file_path))
+    for (auto& dirEntry : stdfs::recursive_directory_iterator(filePath))
     {
-        if (dir_entry == starting_path)
+        if (dirEntry == startingPath)
         {
             continue;
         }
 
-        if (!stdfs::is_regular_file(dir_entry) || stdfs::is_directory(dir_entry))
+        if (!stdfs::is_regular_file(dirEntry) || stdfs::is_directory(dirEntry))
         {
             continue;
         }
 
-        const stdfs::path entry_path(dir_entry);
-        const std::string curr_entry_str = entry_path.filename().string();
+        const stdfs::path entryPath(dirEntry);
+        const std::string currEntryStr = entryPath.filename().string();
 
-        if (case_insensitive_comparison(fname, curr_entry_str))
+        if (caseInsensitiveComparison(fname, currEntryStr))
         {
             std::lock_guard cacheGuard(cacheCS);
-            auto iter = foundPathsCache.emplace(fname, entry_path);
+            auto iter = foundPathsCache.emplace(fname, entryPath);
             return iter.first->second.string();
         }
     }
@@ -301,20 +301,20 @@ void ResourceLoader::workerFunction()
 
         loadRequest request = requests.front();
         requests.pop_front();
-        FactoryFunctor factory_fn = factories.at(request.destinationData.FileType);
+        FactoryFunctor factoryFn = factories.at(request.destinationData.FileType);
         queueMutex.unlock();
 
         if (!fs::exists(request.destinationData.FileName))
         {
             // Gotta find file path.
-            std::string found_path = FindFile(request.destinationData.FileName, request.destinationData.SearchDir, 2);
-            if (found_path.empty())
+            std::string foundPath = FindFile(request.destinationData.FileName, request.destinationData.SearchDir, 2);
+            if (foundPath.empty())
             {
-                std::lock_guard failMutex{ logMutex };
+                std::lock_guard failMutex{ k_LogMutex };
                 std::cerr << "Failed to load resource! File name was " << request.destinationData.FileName;
                 throw std::runtime_error("Failed to load resource!"); // how could we handle this without throwing?
             }
-            request.destinationData.AbsoluteFilePath = std::move(found_path);
+            request.destinationData.AbsoluteFilePath = std::move(foundPath);
             request.destinationData.SearchDir.clear();
             request.destinationData.SearchDir.shrink_to_fit();
 
@@ -323,7 +323,7 @@ void ResourceLoader::workerFunction()
         if (request.type == load_req_type::FreshLoad)
         {
 
-            request.destinationData.Data = factory_fn(request.destinationData.AbsoluteFilePath.c_str(), request.userData);
+            request.destinationData.Data = factoryFn(request.destinationData.AbsoluteFilePath.c_str(), request.userData);
             auto iter = resources.emplace(request.destinationData.FileNameHash, std::move(request.destinationData));
             void* data = iter.first->second.Data;
             // signal first requester first
@@ -332,13 +332,13 @@ void ResourceLoader::workerFunction()
             {
                 // we can use the same signal function on resources with same type string
                 std::lock_guard pendingDataGuard(pendingDataMutex);
-                auto& listeners_vec = pendingResourceListeners.at(iter.first->first);
-                while (!listeners_vec.empty())
+                auto& listenersVec = pendingResourceListeners.at(iter.first->first);
+                while (!listenersVec.empty())
                 {
-                    request.signal(listeners_vec.back().first, data, listeners_vec.back().second);
+                    request.signal(listenersVec.back().first, data, listenersVec.back().second);
                     // we couldn't increment this earlier because it didn't exist, so let's do so now
                     ++iter.first->second.RefCount;
-                    listeners_vec.pop_back();
+                    listenersVec.pop_back();
                 }
                 pendingResourceListeners.erase(iter.first->first);
                 // lock automatically released when pendingDataLock goes out of scope

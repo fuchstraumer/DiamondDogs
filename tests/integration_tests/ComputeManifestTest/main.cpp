@@ -262,12 +262,12 @@ namespace
         const GraphicsResource output = outputReply->GetResource();
         const GraphicsResource readback = readbackReply->GetResource();
 
-        constexpr VkDescriptorPoolSize poolSizes[2]
+        constexpr VkDescriptorPoolSize k_PoolSizes[2]
         {
             { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 },
             { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1 },
         };
-        const VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0, 1, 2, poolSizes };
+        const VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0, 1, 2, k_PoolSizes };
         VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
         RhiAssert(rhi::Result(vkCreateDescriptorPool(vkDevice, &poolInfo, nullptr, &descriptorPool)));
 

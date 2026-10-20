@@ -13,24 +13,24 @@ ResourceContext::~ResourceContext()
     impl->destroy();
 }
 
-void ResourceContext::Initialize(const ResourceContextCreateInfo& createInfo)
+void ResourceContext::Initialize(const ResourceContextCreateInfo& create_info)
 {
-    impl->construct(createInfo);
+    impl->construct(create_info);
 }
 
 std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
-    const BufferCreateInfo& createInfo,
-    std::span<const RhiBufferResourceData> initialData)
+    const BufferCreateInfo& create_info,
+    std::span<const RhiBufferResourceData> initial_data)
 {
     CreateBufferMessage message;
-    message.bufferInfo = createInfo;
-    if (!initialData.empty())
+    message.bufferInfo = create_info;
+    if (!initial_data.empty())
     {
-        message.initialData = InternalResourceDataContainer(initialData);
+        message.initialData = InternalResourceDataContainer(initial_data);
     }
 
     // replies that may reach the transfer system own a timeline semaphore, which the transfer signals
-    message.reply = std::make_shared<GraphicsResourceReply>(createInfo.Domain, ResourceType::Buffer, impl->Device());
+    message.reply = std::make_shared<GraphicsResourceReply>(create_info.Domain, ResourceType::Buffer, impl->Device());
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -39,18 +39,18 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
 }
 
 std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateImage(
-    const ImageCreateInfo& createInfo,
-    std::span<const RhiImageResourceData> initialData)
+    const ImageCreateInfo& create_info,
+    std::span<const RhiImageResourceData> initial_data)
 {
     CreateImageMessage message;
-    message.imageInfo = createInfo;
-    if (!initialData.empty())
+    message.imageInfo = create_info;
+    if (!initial_data.empty())
     {
-        message.initialData = InternalResourceDataContainer(initialData);
+        message.initialData = InternalResourceDataContainer(initial_data);
     }
 
-    const ResourceType resourceType = createInfo.SamplerInfo.has_value() ? ResourceType::CombinedImageSampler : ResourceType::Image;
-    message.reply = std::make_shared<GraphicsResourceReply>(createInfo.Domain, resourceType, impl->Device());
+    const ResourceType resourceType = create_info.SamplerInfo.has_value() ? ResourceType::CombinedImageSampler : ResourceType::Image;
+    message.reply = std::make_shared<GraphicsResourceReply>(create_info.Domain, resourceType, impl->Device());
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -59,12 +59,12 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateImage(
 }
 
 std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateSampler(
-    const SamplerCreateInfo& createInfo,
-    void* userData)
+    const SamplerCreateInfo& create_info,
+    void* user_data)
 {
     CreateSamplerMessage message;
-    message.samplerInfo = createInfo;
-    message.userData = userData;
+    message.samplerInfo = create_info;
+    message.userData = user_data;
     message.reply = std::make_shared<GraphicsResourceReply>(ResourceDomain::GPUOnly, ResourceType::Sampler);
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
@@ -154,11 +154,11 @@ std::shared_ptr<MessageReply> ResourceContext::UnmapBuffer(
 
 std::shared_ptr<GraphicsResourceReply> ResourceContext::CopyBuffer(
     GraphicsResource src,
-    bool copyContents)
+    bool copy_contents)
 {
     CopyResourceMessage message;
     message.sourceResource = src;
-    message.copyContents = copyContents;
+    message.copyContents = copy_contents;
     message.reply = std::make_shared<GraphicsResourceReply>(src.Domain, ResourceType::Buffer, impl->Device());
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
@@ -167,13 +167,13 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CopyBuffer(
     return reply;
 }
 
-std::shared_ptr<GraphicsResourceReply> ResourceContext::CopyImage(GraphicsResource srcImage)
+std::shared_ptr<GraphicsResourceReply> ResourceContext::CopyImage(GraphicsResource src_image)
 {
     // fixed: declared, never defined
     CopyResourceMessage message;
-    message.sourceResource = srcImage;
+    message.sourceResource = src_image;
     message.copyContents = true;
-    message.reply = std::make_shared<GraphicsResourceReply>(srcImage.Domain, srcImage.Type, impl->Device());
+    message.reply = std::make_shared<GraphicsResourceReply>(src_image.Domain, src_image.Type, impl->Device());
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));

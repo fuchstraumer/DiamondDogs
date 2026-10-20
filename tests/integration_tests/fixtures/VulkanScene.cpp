@@ -68,28 +68,28 @@ size_t VulkanScene::CurrentFramebufferIdx() const
 void VulkanScene::createFrameSyncObjects()
 {
     using namespace rhi;
-    constexpr static VkSemaphoreCreateInfo semaphoreInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
-    constexpr static VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, VK_FENCE_CREATE_SIGNALED_BIT };
+    constexpr static VkSemaphoreCreateInfo k_SemaphoreInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
+    constexpr static VkFenceCreateInfo k_FenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, VK_FENCE_CREATE_SIGNALED_BIT };
     imageAvailableSemaphores.resize(numFramebuffers);
     renderFinishedSemaphores.resize(numFramebuffers);
     inFlightFences.resize(numFramebuffers);
 
     for (uint32_t i = 0; i < numFramebuffers; ++i)
     {
-        Result result = FromVulkan(vkCreateSemaphore(vkDevice, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]));
+        Result result = FromVulkan(vkCreateSemaphore(vkDevice, &k_SemaphoreInfo, nullptr, &imageAvailableSemaphores[i]));
         RhiAssert(result);
         
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, (uint64_t)imageAvailableSemaphores[i], std::format("ImageAvailableSemaphore_{}", i).c_str());
+        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(imageAvailableSemaphores[i]), std::format("ImageAvailableSemaphore_{}", i).c_str());
 
-        result = vkCreateSemaphore(vkDevice, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]);
+        result = vkCreateSemaphore(vkDevice, &k_SemaphoreInfo, nullptr, &renderFinishedSemaphores[i]);
         RhiAssert(result);
 
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, (uint64_t)renderFinishedSemaphores[i], std::format("RenderFinishedSemaphore_{}", i).c_str());
+        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(renderFinishedSemaphores[i]), std::format("RenderFinishedSemaphore_{}", i).c_str());
 
-        result = vkCreateFence(vkDevice, &fenceInfo, nullptr, &inFlightFences[i]);
+        result = vkCreateFence(vkDevice, &k_FenceInfo, nullptr, &inFlightFences[i]);
         RhiAssert(result);
 
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_FENCE, (uint64_t)inFlightFences[i], std::format("InFlightFence_{}", i).c_str());
+        RhiSystem::SetObjectName(VK_OBJECT_TYPE_FENCE, reinterpret_cast<uint64_t>(inFlightFences[i]), std::format("InFlightFence_{}", i).c_str());
     }
 
     firstFrame.resize(numFramebuffers, true);
@@ -158,12 +158,12 @@ void VulkanScene::onSwapchainRecreated()
 void VulkanScene::limitFrame()
 {
     limiterA = std::chrono::system_clock::now();
-    std::chrono::duration<double, std::milli> work_time = limiterA - limiterB;
-    if (work_time.count() < 16.0)
+    std::chrono::duration<double, std::milli> workTime = limiterA - limiterB;
+    if (workTime.count() < 16.0)
     {
-        std::chrono::duration<double, std::milli> delta_ms(16.0 - work_time.count());
-            auto delta_ms_dur = std::chrono::duration_cast<std::chrono::milliseconds>(delta_ms);
-            std::this_thread::sleep_for(std::chrono::milliseconds(delta_ms_dur.count()));
+        std::chrono::duration<double, std::milli> deltaMs(16.0 - workTime.count());
+            auto deltaMsDur = std::chrono::duration_cast<std::chrono::milliseconds>(deltaMs);
+            std::this_thread::sleep_for(std::chrono::milliseconds(deltaMsDur.count()));
     }
     limiterB = std::chrono::system_clock::now();
 }
@@ -173,9 +173,9 @@ bool VulkanScene::acquireImage()
     VkSemaphore currAcquireSemaphore = imageAvailableSemaphores[currentFrame];
     VkSwapchainKHR vkSwapchain = reinterpret_cast<VkSwapchainKHR>(swapchain->GetNativeHandle());
     // we should only ever be using the first device, and this is a bitmask so that means it can't be zero (its not an index)
-    constexpr static uint32_t RootDeviceMask = 0x1;
+    constexpr static uint32_t k_RootDeviceMask = 0x1;
 
-    const VkAcquireNextImageInfoKHR acquire_info
+    const VkAcquireNextImageInfoKHR acquireInfo
     {
         VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
         nullptr,
@@ -183,10 +183,10 @@ bool VulkanScene::acquireImage()
         1000000000,
         currAcquireSemaphore,
         VK_NULL_HANDLE,
-        RootDeviceMask
+        k_RootDeviceMask
     };
 
-    const VkResult result = vkAcquireNextImage2KHR(vkDevice, &acquire_info, &currentAcquiredImage);
+    const VkResult result = vkAcquireNextImage2KHR(vkDevice, &acquireInfo, &currentAcquiredImage);
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
         return false;
@@ -203,11 +203,11 @@ bool VulkanScene::acquireImage()
 
 void VulkanScene::present()
 {
-    VkResult present_results[1]{ VK_SUCCESS };
+    VkResult presentResults[1]{ VK_SUCCESS };
     VkSemaphore currRenderCompleteSemaphore = renderFinishedSemaphores[currentFrame];
     VkSwapchainKHR vkSwapchain = reinterpret_cast<VkSwapchainKHR>(swapchain->GetNativeHandle());
 
-    const VkPresentInfoKHR present_info
+    const VkPresentInfoKHR presentInfo
     {
         VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         nullptr,
@@ -216,11 +216,11 @@ void VulkanScene::present()
         1,
         &vkSwapchain,
         &currentAcquiredImage,
-        present_results
+        presentResults
     };
 
-    VkQueue GraphicsQueue = device->GetGraphicsQueue(0).As<VkQueue>();
-    const VkResult result = vkQueuePresentKHR(GraphicsQueue, &present_info);
+    VkQueue graphicsQueue = device->GetGraphicsQueue(0).As<VkQueue>();
+    const VkResult result = vkQueuePresentKHR(graphicsQueue, &presentInfo);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {
         swapchainOutOfDate = true;

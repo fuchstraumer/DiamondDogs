@@ -41,7 +41,7 @@ protected:
 
     std::unique_ptr<PlatformWindowSystem> platformSystem;
 
-    SwapchainCreateInfo GetDefaultSwapchainCreateInfo()
+    SwapchainCreateInfo getDefaultSwapchainCreateInfo()
     {
         SwapchainCreateInfo createInfo;
         createInfo.RhiDevice = nullptr;
@@ -71,7 +71,7 @@ TEST_F(SwapchainTest, PresentModeVariations)
 
     for (auto presentMode : presentModes)
     {
-        auto createInfo = GetDefaultSwapchainCreateInfo();
+        auto createInfo = getDefaultSwapchainCreateInfo();
         createInfo.SwapchainPresentMode = presentMode;
 
         // Note: Actual swapchain creation would require real Vulkan handles
@@ -94,7 +94,7 @@ TEST_F(SwapchainTest, ImageCountVariations)
 
     for (auto imageCount : imageCounts)
     {
-        auto createInfo = GetDefaultSwapchainCreateInfo();
+        auto createInfo = getDefaultSwapchainCreateInfo();
         createInfo.MinImageCount = imageCount;
 
         EXPECT_NO_THROW({
@@ -110,8 +110,8 @@ TEST_F(SwapchainTest, FormatConfigurations)
 {
     struct FormatTest
     {
-        ImageFormat format;
-        std::string description;
+        ImageFormat Format;
+        std::string Description;
     };
 
     std::vector<FormatTest> formatTests = {
@@ -124,14 +124,14 @@ TEST_F(SwapchainTest, FormatConfigurations)
 
     for (const auto& test : formatTests)
     {
-        auto createInfo = GetDefaultSwapchainCreateInfo();
-        createInfo.SwapchainFormat = test.format;
+        auto createInfo = getDefaultSwapchainCreateInfo();
+        createInfo.SwapchainFormat = test.Format;
 
         EXPECT_NO_THROW({
             // Validate format configuration
             EXPECT_NE(createInfo.SwapchainFormat.ComponentFormat, ImageComponentFormats::Invalid);
             EXPECT_NE(createInfo.SwapchainFormat.DataType, ImageDataType::Invalid);
-        }) << "Failed with " << test.description;
+        }) << "Failed with " << test.Description;
     }
 }
 
@@ -141,7 +141,7 @@ TEST_F(SwapchainTest, PlatformSystemIntegration)
     EXPECT_NE(platformSystem, nullptr);
     EXPECT_NE(platformSystem->GetWindowHandle(), nullptr);
 
-    auto createInfo = GetDefaultSwapchainCreateInfo();
+    auto createInfo = getDefaultSwapchainCreateInfo();
 
     // Validate that the swapchain create info correctly references the platform system
     EXPECT_EQ(createInfo.PlatformSystemPtr, platformSystem.get());
@@ -181,7 +181,7 @@ TEST_F(SwapchainTest, HDRConfigurationConsistency)
 // Test swapchain recreation parameters
 TEST_F(SwapchainTest, RecreationParameters)
 {
-    auto baseCreateInfo = GetDefaultSwapchainCreateInfo();
+    auto baseCreateInfo = getDefaultSwapchainCreateInfo();
     
     // Test parameters that might change during recreation
     std::vector<std::pair<uint32_t, uint32_t>> newSizes = {

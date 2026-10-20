@@ -141,120 +141,120 @@ namespace
 
     VkPipelineStageFlags2 StageFlagsFromBufferUsageBits(const BufferUsageBits bits) noexcept
     {
-        VkPipelineStageFlags2 stage_flags = 0;
+        VkPipelineStageFlags2 stageFlags = 0;
 
         if (HasAny(bits, BufferUsageBits::AllIndirect))
         {
-            stage_flags |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+            stageFlags |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::VertexOrIndex))
         {
-            stage_flags |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
-            stage_flags |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+            stageFlags |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+            stageFlags |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::AllVertexStage))
         {
-            stage_flags |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+            stageFlags |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::AllFragmentStage))
         {
-            stage_flags |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            stageFlags |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::AllComputeStage))
         {
-            stage_flags |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            stageFlags |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::AllRaytracingStage))
         {
-            stage_flags |= VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+            stageFlags |= VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
         }
 
         if (HasAny(bits, BufferUsageBits::AllTransfer))
         {
-            stage_flags |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            stageFlags |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::AccelerationStructureBuild | BufferUsageBits::ShaderBindingTable | BufferUsageBits::AccelerationStructureBuildScratch))
         {
-            stage_flags |= VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+            stageFlags |= VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
         }
 
         if (HasAny(bits, BufferUsageBits::ConditionalRendering))
         {
-            stage_flags |= VK_PIPELINE_STAGE_2_CONDITIONAL_RENDERING_BIT_EXT;
+            stageFlags |= VK_PIPELINE_STAGE_2_CONDITIONAL_RENDERING_BIT_EXT;
         }
 
-        return stage_flags;
+        return stageFlags;
     }
 
     VkAccessFlags2 AccessFlagsfromBufferUsageBits(const BufferUsageBits bits) noexcept
     {
-        VkAccessFlags2 access_flags = 0;
+        VkAccessFlags2 accessFlags = 0;
 
         if (HasAny(bits, BufferUsageBits::AllIndirect))
         {
-            access_flags |= VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+            accessFlags |= VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::VertexOrIndex))
         {
-            access_flags |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-            access_flags |= VK_ACCESS_2_INDEX_READ_BIT;
+            accessFlags |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+            accessFlags |= VK_ACCESS_2_INDEX_READ_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::AllShaderUBO))
         {
-            access_flags |= VK_ACCESS_2_UNIFORM_READ_BIT;
+            accessFlags |= VK_ACCESS_2_UNIFORM_READ_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::AllShaderSRV))
         {
-            access_flags |= VK_ACCESS_2_SHADER_READ_BIT;
+            accessFlags |= VK_ACCESS_2_SHADER_READ_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::AllShaderUAV))
         {
-            access_flags |= VK_ACCESS_2_SHADER_READ_BIT;
-            access_flags |= VK_ACCESS_2_SHADER_WRITE_BIT;
+            accessFlags |= VK_ACCESS_2_SHADER_READ_BIT;
+            accessFlags |= VK_ACCESS_2_SHADER_WRITE_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::CopySource))
         {
-            access_flags |= VK_ACCESS_2_TRANSFER_READ_BIT;
+            accessFlags |= VK_ACCESS_2_TRANSFER_READ_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::CopyDestination))
         {
-            access_flags |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            accessFlags |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
         }
 
         if (HasAny(bits, BufferUsageBits::AccelerationStructureBuild))
         {
-            access_flags |= VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+            accessFlags |= VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
         }
 
         if (HasAny(bits, BufferUsageBits::ShaderBindingTable))
         {
-            access_flags |= VK_ACCESS_2_SHADER_BINDING_TABLE_READ_BIT_KHR;
+            accessFlags |= VK_ACCESS_2_SHADER_BINDING_TABLE_READ_BIT_KHR;
         }
 
         if (HasAny(bits, BufferUsageBits::AccelerationStructureBuildScratch))
         {
-            access_flags |= VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-            access_flags |= VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+            accessFlags |= VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+            accessFlags |= VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
         }
 
         if (HasAny(bits, BufferUsageBits::ConditionalRendering))
         {
-            access_flags |= VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT;
+            accessFlags |= VK_ACCESS_2_CONDITIONAL_RENDERING_READ_BIT_EXT;
         }
 
-        return access_flags;
+        return accessFlags;
     }
 
     VkAccessFlags2 GetAccessMaskFromImageUsageBits(const ImageUsageBits bits) noexcept
@@ -387,22 +387,22 @@ namespace
         // note that after this point, we know the two usages are at least asymmetric. we will then find the
         // layouts, and depending on how that returns (which can change based on version) we know if we need
         // to execute the layout transition
-        VkImageLayout before_layout = ImageLayoutFromUsageBits(before);
-        VkImageLayout after_layout = ImageLayoutFromUsageBits(after);
+        VkImageLayout beforeLayout = ImageLayoutFromUsageBits(before);
+        VkImageLayout afterLayout = ImageLayoutFromUsageBits(after);
 
-        if (before_layout == VK_IMAGE_LAYOUT_UNDEFINED || after_layout == VK_IMAGE_LAYOUT_UNDEFINED)
+        if (beforeLayout == VK_IMAGE_LAYOUT_UNDEFINED || afterLayout == VK_IMAGE_LAYOUT_UNDEFINED)
         {
             // If we couldn't determine a valid layout for either usage, we can't proceed
             return std::nullopt;
         }
 
-        if (before_layout == after_layout)
+        if (beforeLayout == afterLayout)
         {
             // No transition needed if layouts are the same
             return std::nullopt;
         }
 
-        return ImageLayouts{before_layout, after_layout};
+        return ImageLayouts{beforeLayout, afterLayout};
     }
 
     std::optional<VkImageMemoryBarrier2> MakeLayoutTransitionBarrier(const ImageBarrierInfo& barrier) noexcept

@@ -15,7 +15,10 @@
 
 // used to have this in VPR device, but now that we have an API abstracted RHI device it doesn't belong there anymore
 // handling depth format choice and query is TBD for the rest of our cod3ebase, but for now this is fine for our test fixtures.
-VkFormat FindSupportedFormat(const rhi::Device* device, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
+static VkFormat FindSupportedFormat(const rhi::Device* device,
+                                    const std::vector<VkFormat>& candidates,
+                                    VkImageTiling tiling,
+                                    VkFormatFeatureFlags features)
 {
     for (VkFormat format : candidates)
     {
@@ -35,7 +38,7 @@ VkFormat FindSupportedFormat(const rhi::Device* device, const std::vector<VkForm
     throw std::runtime_error("Failed to find supported format!");
 }
 
-VkImageTiling GetFormatTiling(const rhi::Device* device, VkFormat format, VkFormatFeatureFlags features)
+static VkImageTiling GetFormatTiling(const rhi::Device* device, VkFormat format, VkFormatFeatureFlags features)
 {
     VkFormatProperties props;
     vkGetPhysicalDeviceFormatProperties(device->GetPhysicalDevice().As<VkPhysicalDevice>(), format, &props);
@@ -54,25 +57,27 @@ VkImageTiling GetFormatTiling(const rhi::Device* device, VkFormat format, VkForm
     }
 }
 
-const static std::vector<VkFormat> DepthFormats =
+const static std::vector<VkFormat> k_DepthFormats =
 {
     VK_FORMAT_D32_SFLOAT,
     VK_FORMAT_D32_SFLOAT_S8_UINT,
     VK_FORMAT_D24_UNORM_S8_UINT
 };
 
+//NOLINTBEGIN(readability-identifier-naming)
 struct PipelineExecutableFunctions
 {
     PFN_vkGetPipelineExecutablePropertiesKHR vkGetPipelineExecutablePropertiesKHR{ nullptr };
     PFN_vkGetPipelineExecutableStatisticsKHR vkGetPipelineExecutableStatisticsKHR{ nullptr };
     PFN_vkGetPipelineExecutableInternalRepresentationsKHR vkGetPipelineExecutableInternalRepresentationsKHR{ nullptr };
-    bool initialized{ false };
+    bool Initialized{ false };
 };
+//NOLINTEND(readability-identifier-naming)
 
 static PipelineExecutableFunctions& GetPipelineExecutableFunctions(const VkDevice device)
 {
     static PipelineExecutableFunctions functions;
-    if (!functions.initialized)
+    if (!functions.Initialized)
     {
         functions.vkGetPipelineExecutablePropertiesKHR =
             reinterpret_cast<PFN_vkGetPipelineExecutablePropertiesKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutablePropertiesKHR"));
@@ -80,28 +85,28 @@ static PipelineExecutableFunctions& GetPipelineExecutableFunctions(const VkDevic
             reinterpret_cast<PFN_vkGetPipelineExecutableStatisticsKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutableStatisticsKHR"));
         functions.vkGetPipelineExecutableInternalRepresentationsKHR =
             reinterpret_cast<PFN_vkGetPipelineExecutableInternalRepresentationsKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutableInternalRepresentationsKHR"));
-        functions.initialized = true;
+        functions.Initialized = true;
     }
     return functions;
 }
 
 DepthStencil CreateDepthStencil(const rhi::Device* device, const Swapchain* swapchain)
 {
-    DepthStencil depth_stencil;
-    depth_stencil.Format = FindSupportedFormat(device, DepthFormats, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+    DepthStencil depthStencil;
+    depthStencil.Format = FindSupportedFormat(device, k_DepthFormats, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 
-    const VkImageCreateInfo image_info
+    const VkImageCreateInfo imageInfo
     {
         VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         nullptr,
         0,
         VK_IMAGE_TYPE_2D,
-        depth_stencil.Format,
+        depthStencil.Format,
         VkExtent3D{ static_cast<uint32_t>(swapchain->GetExtent().x), static_cast<uint32_t>(swapchain->GetExtent().y), 1 },
         1,
         1,
         VK_SAMPLE_COUNT_1_BIT,
-        GetFormatTiling(device, depth_stencil.Format, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
+        GetFormatTiling(device, depthStencil.Format, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT),
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
         VK_SHARING_MODE_EXCLUSIVE,
         0,
@@ -111,51 +116,51 @@ DepthStencil CreateDepthStencil(const rhi::Device* device, const Swapchain* swap
 
     VkDevice vkDevice = device->Handle().As<VkDevice>();
     VkResult result = VK_SUCCESS;
-    result = vkCreateImage(vkDevice, &image_info, nullptr, &depth_stencil.Image);
+    result = vkCreateImage(vkDevice, &imageInfo, nullptr, &depthStencil.Image);
     RhiAssert(result);
 
-    VkMemoryAllocateInfo alloc_info{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr };
+    VkMemoryAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, nullptr };
     VkMemoryRequirements memreqs{};
-    vkGetImageMemoryRequirements(vkDevice, depth_stencil.Image, &memreqs);
-    alloc_info.allocationSize = memreqs.size;
-    alloc_info.memoryTypeIndex = device->GetMemoryTypeIndex(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    result = vkAllocateMemory(vkDevice, &alloc_info, nullptr, &depth_stencil.Memory);
+    vkGetImageMemoryRequirements(vkDevice, depthStencil.Image, &memreqs);
+    allocInfo.allocationSize = memreqs.size;
+    allocInfo.memoryTypeIndex = device->GetMemoryTypeIndex(memreqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    result = vkAllocateMemory(vkDevice, &allocInfo, nullptr, &depthStencil.Memory);
     RhiAssert(result);
-    result = vkBindImageMemory(vkDevice, depth_stencil.Image, depth_stencil.Memory, 0);
+    result = vkBindImageMemory(vkDevice, depthStencil.Image, depthStencil.Memory, 0);
     RhiAssert(result);
 
-    const VkImageViewCreateInfo view_info
+    const VkImageViewCreateInfo viewInfo
     {
         VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
         nullptr,
         0,
-        depth_stencil.Image,
+        depthStencil.Image,
         VK_IMAGE_VIEW_TYPE_2D,
-        depth_stencil.Format,
+        depthStencil.Format,
         {},
         VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
     };
 
-    result = vkCreateImageView(vkDevice, &view_info, nullptr, &depth_stencil.View);
+    result = vkCreateImageView(vkDevice, &viewInfo, nullptr, &depthStencil.View);
     RhiAssert(result);
 
-    return depth_stencil;
+    return depthStencil;
 }
 
-VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
+VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& create_info)
 {
     VkPipeline pipeline = VK_NULL_HANDLE;
 
-    const VkPipelineInputAssemblyStateCreateInfo assembly_info
+    const VkPipelineInputAssemblyStateCreateInfo assemblyInfo
     {
         VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
         nullptr,
         0,
-        createInfo.topology,
+        create_info.topology,
         VK_FALSE
     };
 
-    constexpr static VkPipelineViewportStateCreateInfo viewport_info
+    constexpr static VkPipelineViewportStateCreateInfo k_ViewportInfo
     {
         VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
         nullptr,
@@ -166,7 +171,7 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
         nullptr
     };
 
-    const VkPipelineRasterizationStateCreateInfo rasterization_info
+    const VkPipelineRasterizationStateCreateInfo rasterizationInfo
     {
         VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         nullptr,
@@ -174,7 +179,7 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
         VK_FALSE,
         VK_FALSE,
         VK_POLYGON_MODE_FILL,
-        createInfo.cullMode,
+        create_info.cullMode,
         VK_FRONT_FACE_COUNTER_CLOCKWISE,
         VK_FALSE,
         0.0f,
@@ -183,7 +188,7 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
         1.0f
     };
 
-    constexpr static VkPipelineMultisampleStateCreateInfo multisample_info
+    constexpr static VkPipelineMultisampleStateCreateInfo k_MultisampleInfo
     {
         VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         nullptr,
@@ -196,21 +201,21 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
         VK_FALSE
     };
 
-    const VkPipelineDepthStencilStateCreateInfo depth_info
+    const VkPipelineDepthStencilStateCreateInfo depthInfo
     {
-        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        nullptr,
-        0,
-        VK_TRUE,
-        VK_TRUE,
-        createInfo.depthCompareOp,
-        VK_FALSE,
-        VK_FALSE,
-        VK_STENCIL_OP_ZERO,
-        VK_STENCIL_OP_ZERO,
+        .sType=VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .pNext=nullptr,
+        .flags=0,
+        .depthTestEnable=VK_TRUE,
+        .depthWriteEnable=VK_TRUE,
+        .depthCompareOp=create_info.depthCompareOp,
+        .depthBoundsTestEnable=VK_FALSE,
+        .stencilTestEnable=VK_FALSE,
+        .front={ .failOp=VK_STENCIL_OP_ZERO, .passOp=VK_STENCIL_OP_ZERO},
+        .back={ .failOp=VK_STENCIL_OP_ZERO, .passOp=VK_STENCIL_OP_ZERO},
     };
 
-    constexpr static VkPipelineColorBlendAttachmentState colorBlendAttachment
+    constexpr static VkPipelineColorBlendAttachmentState k_ColorBlendAttachmentInfo
     {
         VK_TRUE,
         VK_BLEND_FACTOR_SRC_ALPHA,
@@ -222,7 +227,7 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
     };
 
-    constexpr static VkPipelineColorBlendStateCreateInfo color_blend_info
+    constexpr static VkPipelineColorBlendStateCreateInfo k_ColorBlendInfo
     {
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
         nullptr,
@@ -230,28 +235,28 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
         VK_FALSE,
         VK_LOGIC_OP_COPY,
         1,
-        &colorBlendAttachment,
+        &k_ColorBlendAttachmentInfo,
         { 1.0f, 1.0f, 1.0f, 1.0f }
     };
 
-    constexpr static VkDynamicState dynamic_states[2]
+    constexpr static VkDynamicState k_DynamicStates[2]
     {
         VK_DYNAMIC_STATE_SCISSOR,
         VK_DYNAMIC_STATE_VIEWPORT
     };
 
-    constexpr static VkPipelineDynamicStateCreateInfo dynamic_state_info
+    constexpr static VkPipelineDynamicStateCreateInfo k_DynamicStateInfo
     {
         VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
         nullptr,
         0,
         2,
-        dynamic_states
+        k_DynamicStates
     };
 
-    VkPipelineCreateFlags createFlags = createInfo.pipelineFlags;
+    VkPipelineCreateFlags createFlags = create_info.pipelineFlags;
 
-    if (createInfo.derivedPipeline != VK_NULL_HANDLE)
+    if (create_info.derivedPipeline != VK_NULL_HANDLE)
     {
         createFlags |= VK_PIPELINE_CREATE_DERIVATIVE_BIT;
     }
@@ -260,56 +265,58 @@ VkPipeline CreateBasicPipeline(const BasicPipelineCreateInfo& createInfo)
         createFlags |= VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT;
     }
 
-    VkGraphicsPipelineCreateInfo pipeline_create_info =
+    VkGraphicsPipelineCreateInfo pipelineCreateInfo =
     {
         VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-        createInfo.renderingCreateInfo,
-        VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT,
-        createInfo.numStages,
-        createInfo.stages,
-        createInfo.vertexState,
-        &assembly_info,
+        create_info.renderingCreateInfo,
+        createFlags,
+        create_info.numStages,
+        create_info.stages,
+        create_info.vertexState,
+        &assemblyInfo,
         nullptr,
-        &viewport_info,
-        &rasterization_info,
-        &multisample_info,
-        &depth_info,
-        &color_blend_info,
-        &dynamic_state_info,
-        createInfo.pipelineLayout,
+        &k_ViewportInfo,
+        &rasterizationInfo,
+        &k_MultisampleInfo,
+        &depthInfo,
+        &k_ColorBlendInfo,
+        &k_DynamicStateInfo,
+        create_info.pipelineLayout,
         VK_NULL_HANDLE,
         0,
-        createInfo.derivedPipeline,
+        create_info.derivedPipeline,
         -1
     };
 
-    VkDevice vkDevice = createInfo.device->Handle().As<VkDevice>();
-    VkResult result = vkCreateGraphicsPipelines(vkDevice, createInfo.pipelineCache, 1, &pipeline_create_info, nullptr, &pipeline);
+    VkDevice vkDevice = create_info.device->Handle().As<VkDevice>();
+    VkResult result = vkCreateGraphicsPipelines(vkDevice, create_info.pipelineCache, 1, &pipelineCreateInfo, nullptr, &pipeline);
     RhiAssert(result);
 
     return pipeline;
 }
 
-DepthStencil::DepthStencil(const rhi::Device* device, const Swapchain* swap) : Parent(device->Handle().As<VkDevice>())
+DepthStencil::DepthStencil(const rhi::Device* device, const Swapchain* swap) :
+    Format{ VK_FORMAT_UNDEFINED },
+    Parent{ device->Handle().As<VkDevice>() }
 {
-    *this = std::move(CreateDepthStencil(device, swap));
+    *this = CreateDepthStencil(device, swap);
 }
 
-DepthStencil::DepthStencil() : Image{ VK_NULL_HANDLE }, Memory{ VK_NULL_HANDLE }, View{ VK_NULL_HANDLE }, Format{ VK_FORMAT_UNDEFINED }, Parent{ VK_NULL_HANDLE }
+DepthStencil::DepthStencil() : Format{ VK_FORMAT_UNDEFINED }
 {
 
 }
 
-DepthStencil::DepthStencil(DepthStencil&& other) noexcept
+DepthStencil::DepthStencil(DepthStencil&& other) noexcept :
+    Image{ other.Image },
+    Memory{ other.Memory },
+    View{ other.View },
+    Format{ other.Format },
+    Parent{ other.Parent }
 {
-    Image = other.Image;
     other.Image = VK_NULL_HANDLE;
-    Memory = other.Memory;
     other.Memory = VK_NULL_HANDLE;
-    View = other.View;
     other.View = VK_NULL_HANDLE;
-    Format = other.Format;
-    Parent = other.Parent;
     other.Parent = VK_NULL_HANDLE;
 }
 
@@ -352,4 +359,3 @@ DepthStencil::~DepthStencil()
         vkDestroyImage(Parent, Image, nullptr);
     }
 }
-

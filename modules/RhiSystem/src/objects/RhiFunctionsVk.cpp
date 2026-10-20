@@ -23,14 +23,14 @@ namespace rhi
         static PFN_vkCmdPipelineBarrier2 pfn_vkCmdPipelineBarrier2 = nullptr;
         static PFN_vkQueueSubmit pfn_vkQueueSubmit = nullptr;
 
-        void VulkanBeginRendering(CommandBufferHandle cmd, const RenderingInfo& renderingInfo)
+        void VulkanBeginRendering(CommandBufferHandle cmd, const RenderingInfo& rendering_info)
         {
             assert(pfn_vkCmdBeginRendering && "Failed to load vkCmdBeginRendering");
 
             std::vector<VkRenderingAttachmentInfo> colorAttachments;
-            colorAttachments.reserve(renderingInfo.ColorAttachments.size());
+            colorAttachments.reserve(rendering_info.ColorAttachments.size());
             
-            for (const auto& attachment : renderingInfo.ColorAttachments)
+            for (const auto& attachment : rendering_info.ColorAttachments)
             {
                 VkRenderingAttachmentInfo vkAttachment{};
                 vkAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -47,25 +47,25 @@ namespace rhi
             }
             
             VkRenderingAttachmentInfo depthAttachment{};
-            if (renderingInfo.DepthStencilAttachment)
+            if (rendering_info.DepthStencilAttachment)
             {
                 depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                depthAttachment.imageView = renderingInfo.DepthStencilAttachment->ImageView.As<VkImageView>();
+                depthAttachment.imageView = rendering_info.DepthStencilAttachment->ImageView.As<VkImageView>();
                 depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-                depthAttachment.loadOp = static_cast<VkAttachmentLoadOp>(renderingInfo.DepthStencilAttachment->DepthLoadOp);
-                depthAttachment.storeOp = static_cast<VkAttachmentStoreOp>(renderingInfo.DepthStencilAttachment->DepthStoreOp);
-                depthAttachment.clearValue.depthStencil.depth = renderingInfo.DepthStencilAttachment->ClearValue.Depth;
-                depthAttachment.clearValue.depthStencil.stencil = renderingInfo.DepthStencilAttachment->ClearValue.Stencil;
+                depthAttachment.loadOp = static_cast<VkAttachmentLoadOp>(rendering_info.DepthStencilAttachment->DepthLoadOp);
+                depthAttachment.storeOp = static_cast<VkAttachmentStoreOp>(rendering_info.DepthStencilAttachment->DepthStoreOp);
+                depthAttachment.clearValue.depthStencil.depth = rendering_info.DepthStencilAttachment->ClearValue.Depth;
+                depthAttachment.clearValue.depthStencil.stencil = rendering_info.DepthStencilAttachment->ClearValue.Stencil;
             }
             
             VkRenderingInfo vkRenderingInfo{};
             vkRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-            vkRenderingInfo.renderArea.offset = { renderingInfo.RenderArea.PosX, renderingInfo.RenderArea.PosY };
-            vkRenderingInfo.renderArea.extent = { renderingInfo.RenderArea.Width, renderingInfo.RenderArea.Height };
-            vkRenderingInfo.layerCount = renderingInfo.LayerCount;
+            vkRenderingInfo.renderArea.offset = { rendering_info.RenderArea.PosX, rendering_info.RenderArea.PosY };
+            vkRenderingInfo.renderArea.extent = { rendering_info.RenderArea.Width, rendering_info.RenderArea.Height };
+            vkRenderingInfo.layerCount = rendering_info.LayerCount;
             vkRenderingInfo.colorAttachmentCount = static_cast<uint32_t>(colorAttachments.size());
             vkRenderingInfo.pColorAttachments = colorAttachments.data();
-            vkRenderingInfo.pDepthAttachment = renderingInfo.DepthStencilAttachment ? &depthAttachment : nullptr;
+            vkRenderingInfo.pDepthAttachment = rendering_info.DepthStencilAttachment ? &depthAttachment : nullptr;
 
             pfn_vkCmdBeginRendering(cmd.As<VkCommandBuffer>(), &vkRenderingInfo);
         }
@@ -93,7 +93,7 @@ namespace rhi
     {
     }
 
-    Result WaitForFences(DeviceHandle device, std::span<FenceHandle> fences, bool waitAll, uint64_t timeout)
+    Result WaitForFences(DeviceHandle device, std::span<FenceHandle> fences, bool wait_all, uint64_t timeout)
     {
         assert(fences.size() <= 64 && "Too many fences to wait on");
         VkFence vkFences[64];
@@ -101,7 +101,7 @@ namespace rhi
         {
             vkFences[i] = fences[i].As<VkFence>();
         }
-        VkResult result = vkWaitForFences(device.As<VkDevice>(), static_cast<uint32_t>(fences.size()), vkFences, waitAll ? VK_TRUE : VK_FALSE, timeout);
+        VkResult result = vkWaitForFences(device.As<VkDevice>(), static_cast<uint32_t>(fences.size()), vkFences, wait_all ? VK_TRUE : VK_FALSE, timeout);
         return static_cast<Result>(result);
     }
 
@@ -121,54 +121,54 @@ namespace rhi
         return Result::Success();
     }
 
-    Result BeginCommandBuffer(CommandBuffer* commandBuffer) noexcept
+    Result BeginCommandBuffer(CommandBuffer* command_buffer) noexcept
     {
         return Result::Success();
     }
 
-    Result EndCommandBuffer(CommandBuffer* commandBuffer) noexcept
+    Result EndCommandBuffer(CommandBuffer* command_buffer) noexcept
     {
         return Result::Success();
     }
 
-    Result ResetCommandBuffer(CommandBuffer* commandBuffer) noexcept
+    Result ResetCommandBuffer(CommandBuffer* command_buffer) noexcept
     {
         return Result::Success();
     }
 
-    void CmdBindPipeline(CommandBuffer* commandBuffer, const GraphicsPipeline* pipeline) noexcept
+    void CmdBindPipeline(CommandBuffer* command_buffer, const GraphicsPipeline* pipeline) noexcept
     {
 
     }
 
-    void CmdBindDescriptorSets(CommandBuffer* commandBuffer, uint32_t firstSet, 
-                              uint32_t descriptorSetCount, const DescriptorSet* const* descriptorSets) noexcept
+    void CmdBindDescriptorSets(CommandBuffer* command_buffer, uint32_t first_set, 
+                              uint32_t descriptor_set_count, const DescriptorSet* const* descriptor_sets) noexcept
     {
 
     }
 
-    void CmdDraw(CommandBuffer* commandBuffer, uint32_t vertexCount, 
-                uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) noexcept
+    void CmdDraw(CommandBuffer* command_buffer, uint32_t vertex_count, 
+                uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) noexcept
     {
 
     }
 
-    void CmdDrawIndexed(CommandBuffer* commandBuffer, uint32_t indexCount, 
-                       uint32_t instanceCount, uint32_t firstIndex, 
-                       int32_t vertexOffset, uint32_t firstInstance) noexcept
+    void CmdDrawIndexed(CommandBuffer* command_buffer, uint32_t index_count, 
+                       uint32_t instance_count, uint32_t first_index, 
+                       int32_t vertex_offset, uint32_t first_instance) noexcept
     {
 
     }
 
-    void CmdDispatch(CommandBuffer* commandBuffer, uint32_t groupCountX, 
-                    uint32_t groupCountY, uint32_t groupCountZ) noexcept
+    void CmdDispatch(CommandBuffer* command_buffer, uint32_t group_count_x, 
+                    uint32_t group_count_y, uint32_t group_count_z) noexcept
     {
 
     }
 
-    void CmdPipelineBarrier(CommandBuffer* commandBuffer, PipelineStage srcStage, 
-                           PipelineStage dstStage, uint32_t memoryBarrierCount, 
-                           uint32_t bufferMemoryBarrierCount, uint32_t imageMemoryBarrierCount) noexcept
+    void CmdPipelineBarrier(CommandBuffer* command_buffer, PipelineStage src_stage, 
+                           PipelineStage dst_stage, uint32_t memory_barrier_count, 
+                           uint32_t buffer_memory_barrier_count, uint32_t image_memory_barrier_count) noexcept
     {
 
     }

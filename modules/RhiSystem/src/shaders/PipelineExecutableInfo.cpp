@@ -9,24 +9,24 @@
 
 struct PipelineExecutableFunctions
 {
-    PFN_vkGetPipelineExecutablePropertiesKHR vkGetPipelineExecutablePropertiesKHR{ nullptr };
-    PFN_vkGetPipelineExecutableStatisticsKHR vkGetPipelineExecutableStatisticsKHR{ nullptr };
-    PFN_vkGetPipelineExecutableInternalRepresentationsKHR vkGetPipelineExecutableInternalRepresentationsKHR{ nullptr };
-    bool initialized{ false };
+    PFN_vkGetPipelineExecutablePropertiesKHR VkGetPipelineExecutablePropertiesKhr{ nullptr };
+    PFN_vkGetPipelineExecutableStatisticsKHR VkGetPipelineExecutableStatisticsKhr{ nullptr };
+    PFN_vkGetPipelineExecutableInternalRepresentationsKHR VkGetPipelineExecutableInternalRepresentationsKhr{ nullptr };
+    bool Initialized{ false };
 };
 
 static PipelineExecutableFunctions& GetPipelineExecutableFunctions(const VkDevice device)
 {
     static PipelineExecutableFunctions functions;
-    if (!functions.initialized)
+    if (!functions.Initialized)
     {
-        functions.vkGetPipelineExecutablePropertiesKHR =
+        functions.VkGetPipelineExecutablePropertiesKhr =
             reinterpret_cast<PFN_vkGetPipelineExecutablePropertiesKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutablePropertiesKHR"));
-        functions.vkGetPipelineExecutableStatisticsKHR =
+        functions.VkGetPipelineExecutableStatisticsKhr =
             reinterpret_cast<PFN_vkGetPipelineExecutableStatisticsKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutableStatisticsKHR"));
-        functions.vkGetPipelineExecutableInternalRepresentationsKHR =
+        functions.VkGetPipelineExecutableInternalRepresentationsKhr =
             reinterpret_cast<PFN_vkGetPipelineExecutableInternalRepresentationsKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutableInternalRepresentationsKHR"));
-        functions.initialized = true;
+        functions.Initialized = true;
     }
     return functions;
 }
@@ -132,22 +132,22 @@ const ShaderExecutableInfo& PipelineExecutableInfo::ExecutableInfo(const uint32_
     return *execInfos[idx];
 }
 
-void RetrievePipelineExecutableInfo(const VkDevice deviceHandle, PipelineExecutableInfo& pipelineExecutableInfo)
+void RetrievePipelineExecutableInfo(const VkDevice device_handle, PipelineExecutableInfo& pipeline_executable_info)
 {
-    auto execFns = GetPipelineExecutableFunctions(deviceHandle);
+    auto execFns = GetPipelineExecutableFunctions(device_handle);
 
     VkPipelineInfoKHR pipelineInfo
     {
         VK_STRUCTURE_TYPE_PIPELINE_INFO_KHR,
         nullptr,
-        pipelineExecutableInfo.pipeline
+        pipeline_executable_info.pipeline
     };
 
     uint32_t propertyCount{ 0u };
-    VkResult result = execFns.vkGetPipelineExecutablePropertiesKHR(deviceHandle, &pipelineInfo, &propertyCount, nullptr);
+    VkResult result = execFns.VkGetPipelineExecutablePropertiesKhr(device_handle, &pipelineInfo, &propertyCount, nullptr);
 
     std::vector<VkPipelineExecutablePropertiesKHR> pipelineProperties(propertyCount, VkPipelineExecutablePropertiesKHR{});
-    result = execFns.vkGetPipelineExecutablePropertiesKHR(deviceHandle, &pipelineInfo, &propertyCount, pipelineProperties.data());
+    result = execFns.VkGetPipelineExecutablePropertiesKhr(device_handle, &pipelineInfo, &propertyCount, pipelineProperties.data());
 
     std::vector<VkPipelineExecutableInfoKHR> pipelineExecInfos(propertyCount);
     for (uint32_t i = 0; i < propertyCount; ++i)
@@ -156,16 +156,16 @@ void RetrievePipelineExecutableInfo(const VkDevice deviceHandle, PipelineExecuta
         {
             VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_INFO_KHR,
             nullptr,
-            pipelineExecutableInfo.pipeline,
+            pipeline_executable_info.pipeline,
             i
         };
 
         uint32_t statisticsCount{ 0u };
-        result = execFns.vkGetPipelineExecutableStatisticsKHR(deviceHandle, &vkExecutableInfo, &statisticsCount, nullptr);
+        result = execFns.VkGetPipelineExecutableStatisticsKhr(device_handle, &vkExecutableInfo, &statisticsCount, nullptr);
 
-        pipelineExecutableInfo.execInfos[i] = new ShaderExecutableInfo(statisticsCount);
+        pipeline_executable_info.execInfos[i] = new ShaderExecutableInfo(statisticsCount);
 
-        ShaderExecutableInfo& execInfo = *pipelineExecutableInfo.execInfos[i];
+        ShaderExecutableInfo& execInfo = *pipeline_executable_info.execInfos[i];
 
         const size_t nameLen = std::strlen(pipelineProperties[i].name);
 #ifdef _MSC_VER
@@ -185,7 +185,7 @@ void RetrievePipelineExecutableInfo(const VkDevice deviceHandle, PipelineExecuta
         {
 
             std::vector<VkPipelineExecutableStatisticKHR> pipelineStatistics(statisticsCount);
-            result = execFns.vkGetPipelineExecutableStatisticsKHR(deviceHandle, &vkExecutableInfo, &statisticsCount, pipelineStatistics.data());
+            result = execFns.VkGetPipelineExecutableStatisticsKhr(device_handle, &vkExecutableInfo, &statisticsCount, pipelineStatistics.data());
 
             for (uint32_t j = 0; j < statisticsCount; ++j)
             {

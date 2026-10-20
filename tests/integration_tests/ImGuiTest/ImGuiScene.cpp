@@ -76,20 +76,20 @@ void ImGuiScene::recordCommands()
     RhiAssert(pool.Reset());
     const VkCommandBuffer cmd = pool.GetCommandBuffer(0).As<VkCommandBuffer>();
 
-    constexpr static VkCommandBufferBeginInfo beginInfo
+    constexpr static VkCommandBufferBeginInfo k_BeginInfo
     {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
         nullptr,
         VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
         nullptr
     };
-    RhiAssert(rhi::Result(vkBeginCommandBuffer(cmd, &beginInfo)));
+    RhiAssert(rhi::Result(vkBeginCommandBuffer(cmd, &k_BeginInfo)));
 
     const VkImage image = reinterpret_cast<VkImage>(swapchain->ImageHandle(currentAcquiredImage));
     const VkImageView imageView = reinterpret_cast<VkImageView>(swapchain->ImageViewHandle(currentAcquiredImage));
     const math::Float2 swapchainExtent = swapchain->GetExtent();
     const VkExtent2D extent{ static_cast<uint32_t>(swapchainExtent.x), static_cast<uint32_t>(swapchainExtent.y) };
-    constexpr VkImageSubresourceRange colorRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    constexpr VkImageSubresourceRange k_ColorRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
     // the attachment is cleared, so the old contents can be discarded and UNDEFINED is always a valid old layout
     const VkImageMemoryBarrier2 toAttachment
@@ -105,7 +105,7 @@ void ImGuiScene::recordCommands()
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
         image,
-        colorRange
+        k_ColorRange
     };
     const VkDependencyInfo toAttachmentDependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO, nullptr, 0, 0, nullptr, 0, nullptr, 1, &toAttachment };
     vkCmdPipelineBarrier2(cmd, &toAttachmentDependency);
@@ -155,7 +155,7 @@ void ImGuiScene::recordCommands()
         VK_QUEUE_FAMILY_IGNORED,
         VK_QUEUE_FAMILY_IGNORED,
         image,
-        colorRange
+        k_ColorRange
     };
     const VkDependencyInfo toPresentDependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO, nullptr, 0, 0, nullptr, 0, nullptr, 1, &toPresent };
     vkCmdPipelineBarrier2(cmd, &toPresentDependency);

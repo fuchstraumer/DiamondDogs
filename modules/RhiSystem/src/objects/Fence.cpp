@@ -90,10 +90,10 @@ namespace rhi
         }
     }
 
-    bool Fence::Wait(uint64_t timeoutNs) const
+    bool Fence::Wait(uint64_t timeout_ns) const
     {
         const VkFence vkFence = handle.As<VkFence>();
-        const VkResult result = vkWaitForFences(device.As<VkDevice>(), 1, &vkFence, VK_TRUE, timeoutNs);
+        const VkResult result = vkWaitForFences(device.As<VkDevice>(), 1, &vkFence, VK_TRUE, timeout_ns);
         if (result == VK_SUCCESS)
         {
             return true;

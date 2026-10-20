@@ -86,23 +86,23 @@ InternalResourceDataContainer::InternalResourceDataContainer() noexcept :
 InternalResourceDataContainer::InternalResourceDataContainer(std::span<const RhiImageResourceData> data)
 {
     NumLayers = data[0].NumLayers;
-    ImageDataVector image_data(data.size());
+    ImageDataVector imageData(data.size());
     for (size_t i = 0; i < data.size(); ++i)
     {
-        image_data[i] = ImageData(data[i]);
+        imageData[i] = ImageData(data[i]);
     }
-    DataVector = std::move(image_data);
+    DataVector = std::move(imageData);
 }
 
 InternalResourceDataContainer::InternalResourceDataContainer(std::span<const RhiBufferResourceData> data) :
     NumLayers{ std::nullopt }
 {
-    BufferDataVector buffer_data(data.size());
+    BufferDataVector bufferData(data.size());
     for (size_t i = 0; i < data.size(); ++i)
     {
-        buffer_data[i] = BufferData(data[i]);
+        bufferData[i] = BufferData(data[i]);
     }
-    DataVector = std::move(buffer_data);
+    DataVector = std::move(bufferData);
 }
 
 SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, InternalResourceDataContainer&& _data, std::shared_ptr<ResourceTransferReply>&& reply) noexcept :

@@ -344,13 +344,13 @@ void ResourceTransferSystem::workerThreadJob()
 
 bool ResourceTransferSystem::processMessages(std::chrono::milliseconds timeout)
 {
-    using clock = std::chrono::steady_clock;
-    const clock::time_point start = clock::now();
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point start = Clock::now();
     bool processedMessages = false;
 
     // fixed: dispatch went through explicit specializations of a member template declared in class scope, which only
     // MSVC accepts. an overload set on the process functions does the same job
-    auto MessageVisitor =
+    auto messageVisitor =
         [this](auto&& message)
         {
             using T = std::decay_t<decltype(message)>;
@@ -394,10 +394,10 @@ bool ResourceTransferSystem::processMessages(std::chrono::milliseconds timeout)
             return processedMessages;
         }
 
-        std::visit(MessageVisitor, std::move(*message));
+        std::visit(messageVisitor, std::move(*message));
         processedMessages = true;
 
-        if ((clock::now() - start) > timeout)
+        if ((Clock::now() - start) > timeout)
         {
             return processedMessages;
         }
@@ -442,12 +442,12 @@ void ResourceTransferSystem::submitTransferCommands()
 
 void ResourceTransferSystem::waitForCommandsToComplete(std::chrono::milliseconds timeout)
 {
-    using clock = std::chrono::steady_clock;
-    const clock::time_point waitStart = clock::now();
-    const clock::time_point waitEnd = waitStart + timeout;
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point waitStart = Clock::now();
+    const Clock::time_point waitEnd = waitStart + timeout;
     for (auto batchIter = inflightCommandBatches.begin(); batchIter != inflightCommandBatches.end();)
     {
-        const clock::time_point nowOuter = clock::now();
+        const Clock::time_point nowOuter = Clock::now();
         if (nowOuter >= waitEnd)
         {
             break;
@@ -455,7 +455,7 @@ void ResourceTransferSystem::waitForCommandsToComplete(std::chrono::milliseconds
 
         for (auto iter = batchIter->Commands.begin(); iter != batchIter->Commands.end();)
         {
-            const clock::time_point nowInner = clock::now();
+            const Clock::time_point nowInner = Clock::now();
             if (nowInner >= waitEnd)
             {
                 break;

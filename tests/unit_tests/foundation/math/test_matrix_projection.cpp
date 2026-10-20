@@ -8,7 +8,7 @@ namespace math
 class MatrixProjectionTest : public ::testing::Test
 {
 protected:
-    static constexpr float EPSILON = 1e-4f;
+    static constexpr float k_Epsilon = 1e-4f;
 };
 
 // Perspective Projection Tests
@@ -41,7 +41,7 @@ TEST_F(MatrixProjectionTest, PerspectiveNearPlaneMapping)
     
     // After perspective divide, z should be at near depth
     float ndcZ = projected.z() / projected.w();
-    EXPECT_NEAR(ndcZ, 0.0f, EPSILON);  // Near plane at -1 in NDC
+    EXPECT_NEAR(ndcZ, 0.0f, k_Epsilon);  // Near plane at -1 in NDC
 }
 
 TEST_F(MatrixProjectionTest, PerspectiveFarPlaneMapping)
@@ -58,7 +58,7 @@ TEST_F(MatrixProjectionTest, PerspectiveFarPlaneMapping)
     Vector projected = m * point;
     
     float ndcZ = projected.z() / projected.w();
-    EXPECT_NEAR(ndcZ, 1.0f, EPSILON);  // Far plane at +1 in NDC
+    EXPECT_NEAR(ndcZ, 1.0f, k_Epsilon);  // Far plane at +1 in NDC
 }
 
 TEST_F(MatrixProjectionTest, PerspectiveDepthRange)
@@ -137,7 +137,7 @@ TEST_F(MatrixProjectionTest, OrthographicNoDistortion)
     float dx1 = proj1.x() / proj1.w();
     float dx2 = proj2.x() / proj2.w();
     
-    EXPECT_NEAR(dx1, dx2, EPSILON);
+    EXPECT_NEAR(dx1, dx2, k_Epsilon);
 }
 
 TEST_F(MatrixProjectionTest, OrthographicDepthMapping)
@@ -148,13 +148,13 @@ TEST_F(MatrixProjectionTest, OrthographicDepthMapping)
     Vector nearPoint = ToVector(Float4(0.0f, 0.0f, -1.0f, 1.0f));
     Vector projectedNear = Transform<4>(nearPoint, m);
     float ndcZNear = projectedNear.z() / projectedNear.w();
-    EXPECT_NEAR(ndcZNear, 0.0f, EPSILON);
+    EXPECT_NEAR(ndcZNear, 0.0f, k_Epsilon);
     
     // Far plane
     Vector farPoint = ToVector(Float4(0.0f, 0.0f, -100.0f, 1.0f));
     Vector projectedFar = Transform<4>(farPoint, m);
     float ndcZFar = projectedFar.z() / projectedFar.w();
-    EXPECT_NEAR(ndcZFar, 1.0f, EPSILON);
+    EXPECT_NEAR(ndcZFar, 1.0f, k_Epsilon);
 }
 
 TEST_F(MatrixProjectionTest, OrthographicDepthLinear)
@@ -178,7 +178,7 @@ TEST_F(MatrixProjectionTest, OrthographicDepthLinear)
     float diff1 = z2 - z1;
     float diff2 = z3 - z2;
     
-    EXPECT_NEAR(diff1, diff2, EPSILON);
+    EXPECT_NEAR(diff1, diff2, k_Epsilon);
 }
 
 TEST_F(MatrixProjectionTest, OrthographicPreservesParallelism)
@@ -196,18 +196,18 @@ TEST_F(MatrixProjectionTest, OrthographicPreservesParallelism)
     Vector p3 = m * v3;
     Vector p4 = m * v4;
     
-    float dx_near = (p2.x() / p2.w()) - (p1.x() / p1.w());
-    float dx_far = (p4.x() / p4.w()) - (p3.x() / p3.w());
+    float dxNear = (p2.x() / p2.w()) - (p1.x() / p1.w());
+    float dxFar = (p4.x() / p4.w()) - (p3.x() / p3.w());
     
     // Distance should be same regardless of depth
-    EXPECT_NEAR(dx_near, dx_far, EPSILON);
+    EXPECT_NEAR(dxNear, dxFar, k_Epsilon);
 }
 
 // View Matrix Tests
 class MatrixViewTest : public ::testing::Test
 {
 protected:
-    static constexpr float EPSILON = 1e-4f;
+    static constexpr float k_Epsilon = 1e-4f;
 };
 
 TEST_F(MatrixViewTest, LookAt_BasicConstruction)
@@ -232,9 +232,9 @@ TEST_F(MatrixViewTest, LookAt_TransformsEyeToOrigin)
     Vector eyeTransformed = view * ToVector(Float4(eye.x(), eye.y(), eye.z(), 1.0f));
     
     // Eye position should be at origin in view space
-    EXPECT_NEAR(eyeTransformed.x(), 0.0f, EPSILON);
-    EXPECT_NEAR(eyeTransformed.y(), 0.0f, EPSILON);
-    EXPECT_NEAR(eyeTransformed.z(), 0.0f, EPSILON);
+    EXPECT_NEAR(eyeTransformed.x(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(eyeTransformed.y(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(eyeTransformed.z(), 0.0f, k_Epsilon);
 }
 
 TEST_F(MatrixViewTest, LookAt_ViewDirection)
@@ -306,9 +306,9 @@ TEST_F(MatrixViewTest, LookAt_InvertedView)
     Vector origin = ToVector(Float4(0.0f, 0.0f, 0.0f, 1.0f));
     Vector backToWorld = inverse * origin;
     
-    EXPECT_NEAR(backToWorld.x(), eye.x(), EPSILON);
-    EXPECT_NEAR(backToWorld.y(), eye.y(), EPSILON);
-    EXPECT_NEAR(backToWorld.z(), eye.z(), EPSILON);
+    EXPECT_NEAR(backToWorld.x(), eye.x(), k_Epsilon);
+    EXPECT_NEAR(backToWorld.y(), eye.y(), k_Epsilon);
+    EXPECT_NEAR(backToWorld.z(), eye.z(), k_Epsilon);
 }
 
 // Combined View-Projection Tests

@@ -5,8 +5,8 @@
 #include <filesystem>
 #include <functional>
 
-constexpr static auto PATH_SEPARATOR = '\\';
-constexpr static auto PATH_SEPARATOR_INVALID = '/';
+constexpr static auto k_PathSeparator = '\\';
+constexpr static auto k_PathSeparatorInvalid = '/';
 
 static void* GetEngineApiFnPtr(uint32_t id)
 {
@@ -16,44 +16,44 @@ static void* GetEngineApiFnPtr(uint32_t id)
 
 static void SplitPath(std::string path, std::string& parent_dir, std::string& base_name, std::string& ext)
 {
-    std::replace(path.begin(), path.end(), PATH_SEPARATOR_INVALID, PATH_SEPARATOR);
-    const size_t sep_pos = path.rfind(PATH_SEPARATOR);
-    const size_t dot_pos = path.rfind('.');
+    std::replace(path.begin(), path.end(), k_PathSeparatorInvalid, k_PathSeparator);
+    const size_t sepPos = path.rfind(k_PathSeparator);
+    const size_t dotPos = path.rfind('.');
 
-    if (sep_pos == std::string::npos)
+    if (sepPos == std::string::npos)
     {
         parent_dir = "";
-        if (dot_pos == std::string::npos)
+        if (dotPos == std::string::npos)
         {
             ext = "";
             base_name = path;
         }
         else
         {
-            ext = path.substr(dot_pos);
-            base_name = path.substr(0, dot_pos);
+            ext = path.substr(dotPos);
+            base_name = path.substr(0, dotPos);
         }
     }
     else
     {
-        parent_dir = path.substr(0, sep_pos + 1);
-        if (dot_pos == std::string::npos || sep_pos > dot_pos)
+        parent_dir = path.substr(0, sepPos + 1);
+        if (dotPos == std::string::npos || sepPos > dotPos)
         {
             ext = "";
-            base_name = path.substr(sep_pos + 1);
+            base_name = path.substr(sepPos + 1);
         }
         else
         {
-            ext = path.substr(dot_pos);
-            base_name = path.substr(sep_pos + 1, dot_pos - sep_pos - 1);
+            ext = path.substr(dotPos);
+            base_name = path.substr(sepPos + 1, dotPos - sepPos - 1);
         }
     }
 }
 
 static std::string ReplaceExtension(const std::string& file_path, const std::string& ext)
 {
-    std::string folder, filename, old_ext;
-    SplitPath(file_path, folder, filename, old_ext);
+    std::string folder, filename, oldExt;
+    SplitPath(file_path, folder, filename, oldExt);
     return folder + filename + ext;
 }
 
@@ -64,54 +64,54 @@ void PluginManagerImpl::LoadPlugin(const char* fname)
 {
     namespace fs = std::filesystem;
 
-    fs::path plugin_path(fname);
-    if (!fs::exists(plugin_path))
+    fs::path pluginPath(fname);
+    if (!fs::exists(pluginPath))
     {
         std::cerr << "Given path to plugin does not exist";
     }
 
-    std::string new_pdb = ReplaceExtension(plugin_path.string(), ".pdb");
+    std::string newPdb = ReplaceExtension(pluginPath.string(), ".pdb");
     // will need to handle this better eventually, since wchar_t needed for wide strings and localization...
-    const std::wstring new_pdb_wstr{ new_pdb.begin(), new_pdb.end() };
+    const std::wstring newPdbWstr{ newPdb.begin(), newPdb.end() };
 
-    if (!ProcessPDB(plugin_path.wstring(), new_pdb_wstr))
+    if (!ProcessPDB(pluginPath.wstring(), newPdbWstr))
     {
         std::cerr << "Couldn't process/find PDB for loaded library - debugging may be affected!\n";
     }
 
     // This used to take a wstring... what changed?
-    const std::wstring absolute_path_wstr = fs::absolute(plugin_path).wstring();
-    const std::string absolute_path_str = fs::absolute(plugin_path).string();
-    HMODULE new_handle = LoadLibrary(absolute_path_str.c_str());
+    const std::wstring absolutePathWstr = fs::absolute(pluginPath).wstring();
+    const std::string absolutePathStr = fs::absolute(pluginPath).string();
+    HMODULE newHandle = LoadLibrary(absolutePathStr.c_str());
 
-    if (!new_handle)
+    if (!newHandle)
     {
         DWORD err = GetLastError();
         std::cerr << "failed to load plugin: " << std::to_string(err) << " \n";
     }
     else
     {
-        plugins.emplace(absolute_path_wstr, new_handle);
+        plugins.emplace(absolutePathWstr, newHandle);
 
-        void* get_api_fn = GetProcAddress(new_handle, "GetPluginAPI");
-        if (!get_api_fn)
+        void* getApiFn = GetProcAddress(newHandle, "GetPluginAPI");
+        if (!getApiFn)
         {
             std::cerr << "Couldn't find function address in plugin.";
         }
 
-        void* core_api_ptr = reinterpret_cast<GetEngineAPI_Fn>(get_api_fn)(0);
-        if (!core_api_ptr)
+        void* coreApiPtr = reinterpret_cast<GetEngineApiFn>(getApiFn)(0);
+        if (!coreApiPtr)
         {
             std::cerr << "Plugin failed to return core API pointer!\n";
         }
 
-        Plugin_API* api = reinterpret_cast<Plugin_API*>(core_api_ptr);
+        PluginApi* api = reinterpret_cast<PluginApi*>(coreApiPtr);
         uint32_t id = api->PluginID();
-        pluginFilesToIDMap.emplace(absolute_path_wstr, id);
+        pluginFilesToIDMap.emplace(absolutePathWstr, id);
         coreApiPointers.emplace(id, api);
 
-        void* unique_api = reinterpret_cast<GetEngineAPI_Fn>(get_api_fn)(id);
-        apiPointers.emplace(id, unique_api);
+        void* uniqueApi = reinterpret_cast<GetEngineApiFn>(getApiFn)(id);
+        apiPointers.emplace(id, uniqueApi);
 
         api->Load(GetEngineApiFnPtr);
        
@@ -123,19 +123,19 @@ void PluginManagerImpl::UnloadPlugin(const char* fname)
     namespace fs = std::filesystem;
     std::string fnameTemp{ fname };
     const std::wstring wfname{ fnameTemp.begin(), fnameTemp.end() };
-    const std::wstring plugin_path = fs::absolute(fs::path(fname)).wstring();
+    const std::wstring pluginPath = fs::absolute(fs::path(fname)).wstring();
 
-    auto iter = plugins.find(plugin_path);
+    auto iter = plugins.find(pluginPath);
     if (iter != std::end(plugins))
     {
-        uint32_t id = pluginFilesToIDMap.at(plugin_path);
-        Plugin_API* api = coreApiPointers.at(id);
+        uint32_t id = pluginFilesToIDMap.at(pluginPath);
+        PluginApi* api = coreApiPointers.at(id);
         api->Unload();
         coreApiPointers.erase(id);
         apiPointers.erase(id);
         pluginFilesToIDMap.erase(wfname);
         FreeLibrary(iter->second);
-        plugins.erase(plugin_path);
+        plugins.erase(pluginPath);
     }
 }
 
@@ -166,7 +166,7 @@ void PluginManagerImpl::LoadedPlugins(uint32_t* num_plugins, uint32_t* plugin_id
     }
 }
 
-Plugin_API* PluginManagerImpl::GetCoreAPI(uint32_t api_id)
+PluginApi* PluginManagerImpl::GetCoreAPI(uint32_t api_id)
 {
     auto iter = coreApiPointers.find(api_id);
     if (iter == std::end(coreApiPointers))

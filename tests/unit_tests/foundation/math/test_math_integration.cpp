@@ -8,7 +8,7 @@ namespace math
 class MathIntegrationTest : public ::testing::Test
 {
 protected:
-    static constexpr float EPSILON = 1e-4f;
+    static constexpr float k_Epsilon = 1e-4f;
 };
 
 // Storage to SIMD Roundtrip Tests
@@ -61,7 +61,7 @@ TEST_F(MathIntegrationTest, Float4x4_MatrixRoundtrip)
     {
         for (size_t j = 0; j < 4; ++j)
         {
-            EXPECT_NEAR(roundtrip(i, j), original(i, j), EPSILON);
+            EXPECT_NEAR(roundtrip(i, j), original(i, j), k_Epsilon);
         }
     }
 }
@@ -99,10 +99,10 @@ TEST_F(MathIntegrationTest, TransformPoint_SingleMatrix_vs_ChainedMatrices)
     Vector temp = Transform<3>(point, scale);
     Vector result2 = Transform<3>(temp, translation);
     
-    EXPECT_NEAR(result1.x(), result2.x(), EPSILON);
-    EXPECT_NEAR(result1.y(), result2.y(), EPSILON);
-    EXPECT_NEAR(result1.z(), result2.z(), EPSILON);
-    EXPECT_NEAR(result1.w(), result2.w(), EPSILON);
+    EXPECT_NEAR(result1.x(), result2.x(), k_Epsilon);
+    EXPECT_NEAR(result1.y(), result2.y(), k_Epsilon);
+    EXPECT_NEAR(result1.z(), result2.z(), k_Epsilon);
+    EXPECT_NEAR(result1.w(), result2.w(), k_Epsilon);
 }
 
 // Model-View-Projection Pipeline
@@ -182,9 +182,9 @@ TEST_F(MathIntegrationTest, NormalMatrix_UniformScale)
     transformedNormal1 = transformedNormal1.Normalize<3>();
     transformedNormal2 = transformedNormal2.Normalize<3>();
     
-    EXPECT_NEAR(transformedNormal1.x(), transformedNormal2.x(), EPSILON);
-    EXPECT_NEAR(transformedNormal1.y(), transformedNormal2.y(), EPSILON);
-    EXPECT_NEAR(transformedNormal1.z(), transformedNormal2.z(), EPSILON);
+    EXPECT_NEAR(transformedNormal1.x(), transformedNormal2.x(), k_Epsilon);
+    EXPECT_NEAR(transformedNormal1.y(), transformedNormal2.y(), k_Epsilon);
+    EXPECT_NEAR(transformedNormal1.z(), transformedNormal2.z(), k_Epsilon);
 }
 
 // World to Screen Space Conversion
@@ -241,8 +241,8 @@ TEST_F(MathIntegrationTest, VectorMatrixInteraction_TransformNormal)
     Vector transformed = TransformNormal(normal, rotation);
     
     // Should rotate normal 90 degrees around Y
-    EXPECT_NEAR(transformed.x(), 0.0f, EPSILON);
-    EXPECT_NEAR(transformed.z(), -1.0f, EPSILON);
+    EXPECT_NEAR(transformed.x(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(transformed.z(), -1.0f, k_Epsilon);
 }
 
 TEST_F(MathIntegrationTest, VectorMatrixInteraction_Transform3D)
@@ -252,9 +252,9 @@ TEST_F(MathIntegrationTest, VectorMatrixInteraction_Transform3D)
     
     Vector transformed = Transform<3>(point, transform);
     
-    EXPECT_NEAR(transformed.x(), 6.0f, EPSILON);
-    EXPECT_NEAR(transformed.y(), 12.0f, EPSILON);
-    EXPECT_NEAR(transformed.z(), 18.0f, EPSILON);
+    EXPECT_NEAR(transformed.x(), 6.0f, k_Epsilon);
+    EXPECT_NEAR(transformed.y(), 12.0f, k_Epsilon);
+    EXPECT_NEAR(transformed.z(), 18.0f, k_Epsilon);
 }
 
 // Lighting Calculations
@@ -271,7 +271,7 @@ TEST_F(MathIntegrationTest, LightingCalculation_DiffuseReflection)
     // Diffuse term: max(dot(N, -L), 0)
     float diffuse = std::max(0.0f, normal.Dot<3>(-lightDir));
     
-    EXPECT_NEAR(diffuse, 1.0f, EPSILON);
+    EXPECT_NEAR(diffuse, 1.0f, k_Epsilon);
 }
 
 TEST_F(MathIntegrationTest, LightingCalculation_SpecularReflection)
@@ -305,7 +305,7 @@ TEST_F(MathIntegrationTest, QuaternionRotation_IdentityQuaternion)
     Matrix rotation = Matrix::RotationQuaternion(quat);
     
     // Should be identity matrix
-    EXPECT_TRUE(rotation.IsNearlyEqual(Matrix::Identity(), EPSILON));
+    EXPECT_TRUE(rotation.IsNearlyEqual(Matrix::Identity(), k_Epsilon));
 }
 
 // Accumulated Floating Point Error Test
@@ -364,9 +364,9 @@ TEST_F(MathIntegrationTest, TriangleNormal_CrossProduct)
     normal = normal.Normalize<3>();
     
     // Triangle in XY plane should have normal pointing along +Z
-    EXPECT_NEAR(normal.x(), 0.0f, EPSILON);
-    EXPECT_NEAR(normal.y(), 0.0f, EPSILON);
-    EXPECT_NEAR(normal.z(), 1.0f, EPSILON);
+    EXPECT_NEAR(normal.x(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(normal.y(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(normal.z(), 1.0f, k_Epsilon);
 }
 
 // Interpolation Test
@@ -387,7 +387,7 @@ TEST_F(MathIntegrationTest, VectorInterpolation_SmoothPath)
     // Check equal spacing
     float dist1 = (mid2 - mid1).Length<3>();
     float dist2 = (mid3 - mid2).Length<3>();
-    EXPECT_NEAR(dist1, dist2, EPSILON);
+    EXPECT_NEAR(dist1, dist2, k_Epsilon);
 }
 
 } // namespace math

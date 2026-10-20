@@ -28,14 +28,14 @@ namespace
 namespace rhi
 {
 
-    static bool validationEnabled{ false };
+    static bool k_ValidationEnabled{ false };
     // static instance of object name function, so that we can use it for static debug callbacks
-    static PFN_vkSetDebugUtilsObjectNameEXT s_SetObjectNameFn{ nullptr };
+    static PFN_vkSetDebugUtilsObjectNameEXT k_SSetObjectNameFn{ nullptr };
     // set by first context to create, currently because we assume we'll only have one context
-    static VkDevice s_DebugLogicalDeviceHandle{ VK_NULL_HANDLE };
+    static VkDevice k_SDebugLogicalDeviceHandle{ VK_NULL_HANDLE };
 
     #ifdef _WIN32
-    constexpr const char* SurfaceExtensionName = "VK_KHR_win32_surface";
+    constexpr const char* k_SurfaceExtensionName = "VK_KHR_win32_surface";
     #elif defined(__linux__)
     constexpr const char* SurfaceExtensionName = "VK_KHR_xcb_surface";
     #endif
@@ -119,25 +119,25 @@ namespace rhi
     RhiSystem::RhiSystem(const char* file_path)
     {
 
-        std::ifstream input_file(file_path);
+        std::ifstream inputFile(file_path);
 
-        if (!input_file.is_open())
+        if (!inputFile.is_open())
         {
             throw std::runtime_error("Couldn't open input file.");
         }
 
-        nlohmann::json json_file;
-        input_file >> json_file;
+        nlohmann::json jsonFile;
+        inputFile >> jsonFile;
         nlohmann::json rhiConfig;
         
         // first step: see if this is categorized JSON or flat
-        if (json_file.contains("RHISystemConfig"))
+        if (jsonFile.contains("RHISystemConfig"))
         {
-            rhiConfig = json_file["RHISystemConfig"];
+            rhiConfig = jsonFile["RHISystemConfig"];
         }
         else
         {
-            rhiConfig = json_file;
+            rhiConfig = jsonFile;
         }
 
         ApiVersion preferredApiVersion = ApiVersion::Latest;
@@ -155,17 +155,17 @@ namespace rhi
         gatherAndResolveInstanceExtensions(rhiConfig);
 
         nlohmann::json engineConfig;
-        if (json_file.contains("EngineConfig"))
+        if (jsonFile.contains("EngineConfig"))
         {
-            engineConfig = json_file["EngineConfig"];
+            engineConfig = jsonFile["EngineConfig"];
         }
         else
         {
-            engineConfig = json_file;
+            engineConfig = jsonFile;
         }
 
         createInstance(rhiConfig, engineConfig);
-        gatherDeviceExtensions(json_file, rhiConfig);
+        gatherDeviceExtensions(jsonFile, rhiConfig);
         createLogicalDevice();
 
         if (vulkanInstance->HasValidation() && vulkanInstance->HasExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
@@ -187,37 +187,37 @@ namespace rhi
     }
 
     
-    RhiSystem::RhiSystem(const RhiSystemCreateInfo& createInfo)
+    RhiSystem::RhiSystem(const RhiSystemCreateInfo& create_info)
     {
-        extensionPack = std::make_unique<ExtensionPack>(createInfo.VkVersion);
+        extensionPack = std::make_unique<ExtensionPack>(create_info.VkVersion);
 
-        if (createInfo.RequiredInstanceExtensions.size() > 0)
+        if (create_info.RequiredInstanceExtensions.size() > 0)
         {
-            extensionPack->AddRequiredInstanceExtensions(createInfo.RequiredInstanceExtensions);
+            extensionPack->AddRequiredInstanceExtensions(create_info.RequiredInstanceExtensions);
         }
 
-        if (createInfo.RequestedInstanceExtensions.size() > 0)
+        if (create_info.RequestedInstanceExtensions.size() > 0)
         {
-            extensionPack->AddOptionalInstanceExtensions(createInfo.RequestedInstanceExtensions);
+            extensionPack->AddOptionalInstanceExtensions(create_info.RequestedInstanceExtensions);
         }
 
         extensionPack->ResolveInstanceDependencies();
 
-        createInstance(createInfo);
+        createInstance(create_info);
 
-        if (createInfo.RequiredDeviceExtensions.size() > 0)
+        if (create_info.RequiredDeviceExtensions.size() > 0)
         {
-            extensionPack->AddRequiredDeviceExtensions(createInfo.RequiredDeviceExtensions);
+            extensionPack->AddRequiredDeviceExtensions(create_info.RequiredDeviceExtensions);
         }
 
-        if (createInfo.RequestedDeviceExtensions.size() > 0)
+        if (create_info.RequestedDeviceExtensions.size() > 0)
         {
-            extensionPack->AddOptionalDeviceExtensions(createInfo.RequestedDeviceExtensions);
+            extensionPack->AddOptionalDeviceExtensions(create_info.RequestedDeviceExtensions);
         }
 
         createLogicalDevice();
 
-        shaderCacheDir = createInfo.ShaderCacheDir;
+        shaderCacheDir = create_info.ShaderCacheDir;
 
         if (vulkanInstance->HasValidation() && vulkanInstance->HasExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
         {
@@ -271,7 +271,7 @@ namespace rhi
         if constexpr (RHI_SYSTEM_VALIDATION_ENABLED && RHI_SYSTEM_USE_DEBUG_INFO)
         {
 
-            if (!s_SetObjectNameFn)
+            if (!k_SSetObjectNameFn)
             {
                 // unlikely we'll introspect on this, but this error value is the only one that makes sense
                 return VK_ERROR_FEATURE_NOT_PRESENT;
@@ -280,28 +280,28 @@ namespace rhi
             if constexpr (RHI_SYSTEM_DEBUG_INFO_THREAD_ID || RHI_SYSTEM_DEBUG_INFO_TIMESTAMPS)
             {
 
-                std::string object_name_str{ name };
+                std::string objectNameStr{ name };
 
                 if constexpr (RHI_SYSTEM_DEBUG_INFO_THREAD_ID)
                 {
                     std::string threadInfoStr = std::format("_ThreadID:{}", std::this_thread::get_id());
-                    object_name_str += threadInfoStr;
+                    objectNameStr += threadInfoStr;
                 }
 
-                const VkDebugUtilsObjectNameInfoEXT name_info
+                const VkDebugUtilsObjectNameInfoEXT nameInfo
                 {
                     VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
                     nullptr,
                     object_type,
                     handle,
-                    object_name_str.c_str()
+                    objectNameStr.c_str()
                 };
 
-                return s_SetObjectNameFn(s_DebugLogicalDeviceHandle, &name_info);
+                return k_SSetObjectNameFn(k_SDebugLogicalDeviceHandle, &nameInfo);
             }
             else
             {
-                const VkDebugUtilsObjectNameInfoEXT name_info
+                const VkDebugUtilsObjectNameInfoEXT nameInfo
                 {
                     VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
                     nullptr,
@@ -309,7 +309,7 @@ namespace rhi
                     handle,
                     name
                 };
-                return s_SetObjectNameFn(s_DebugLogicalDeviceHandle, &name_info);
+                return k_SSetObjectNameFn(k_SDebugLogicalDeviceHandle, &nameInfo);
             }
         }
         else
@@ -318,37 +318,37 @@ namespace rhi
         }
     }
 
-    void RhiSystem::gatherAndResolveInstanceExtensions(const nlohmann::json& rhiConfig)
+    void RhiSystem::gatherAndResolveInstanceExtensions(const nlohmann::json& rhi_config)
     {
         // Now, grab the extension lists first so we can initialize the extension pack and resolve instance extensions
         std::vector<std::string> requiredInstanceExts;
         std::vector<std::string> requestedInstanceExts;
 
         {
-            nlohmann::json req_ext_json = rhiConfig.at("RequiredInstanceExtensions");
-            for (auto& entry : req_ext_json)
+            nlohmann::json reqExtJson = rhi_config.at("RequiredInstanceExtensions");
+            for (auto& entry : reqExtJson)
             {
                 requiredInstanceExts.emplace_back(entry);
             }
         }
 
         // quick check: do we need presentation support? are said extensions present (lol) in the required list?
-        const bool needsPresentationSupport = rhiConfig.value("NeedsPresentationSupport", false); // this is a required value
+        const bool needsPresentationSupport = rhi_config.value("NeedsPresentationSupport", false); // this is a required value
         if (needsPresentationSupport)
         {
-            const bool hasSurfaceExt = std::find(requiredInstanceExts.begin(), requiredInstanceExts.end(), SurfaceExtensionName) != requiredInstanceExts.end();
+            const bool hasSurfaceExt = std::find(requiredInstanceExts.begin(), requiredInstanceExts.end(), k_SurfaceExtensionName) != requiredInstanceExts.end();
             if (!hasSurfaceExt)
             {
                 // user didn't include the extensions, so add them
-                requiredInstanceExts.push_back(SurfaceExtensionName);
+                requiredInstanceExts.push_back(k_SurfaceExtensionName);
             }
         }
 
         extensionPack->AddRequiredInstanceExtensions(requiredInstanceExts);
 
         {
-            nlohmann::json ext_json = rhiConfig.at("RequestedInstanceExtensions");
-            for (auto& entry : ext_json)
+            nlohmann::json extJson = rhi_config.at("RequestedInstanceExtensions");
+            for (auto& entry : extJson)
             {
                 requestedInstanceExts.emplace_back(entry);
             }
@@ -358,54 +358,54 @@ namespace rhi
         extensionPack->ResolveInstanceDependencies();
     }
 
-    void RhiSystem::createInstance(const nlohmann::json& rhiConfig, const nlohmann::json& engineConfig)
+    void RhiSystem::createInstance(const nlohmann::json& rhi_config, const nlohmann::json& engine_config)
     {
         ValidationLayers layers = ValidationLayers::None;
-        if (rhiConfig.contains("ValidationLayers"))
+        if (rhi_config.contains("ValidationLayers"))
         {
-            layers = ValidationLayersFromString(rhiConfig.at("ValidationLayers").get<std::string>());
+            layers = ValidationLayersFromString(rhi_config.at("ValidationLayers").get<std::string>());
         }
 
-        uint32_t app_version = 0;
-        uint32_t engine_version = 0;
-        uint32_t api_version = 0;
-        GetVersions(engineConfig, app_version, engine_version, api_version);
+        uint32_t appVersion = 0;
+        uint32_t engineVersion = 0;
+        uint32_t apiVersion = 0;
+        GetVersions(engine_config, appVersion, engineVersion, apiVersion);
 
         std::string applicationName = "DiamondDogs Application";
-        if (engineConfig.contains("ApplicationName"))
+        if (engine_config.contains("ApplicationName"))
         {
-            applicationName = engineConfig.at("ApplicationName").get<std::string>();
+            applicationName = engine_config.at("ApplicationName").get<std::string>();
         }
 
         static const std::string engineName = "DiamondDogsEngine";
    
         vulkanInstance = std::make_unique<Instance>(applicationName,
                                                     engineName,
-                                                    app_version,
-                                                    engine_version,
+                                                    appVersion,
+                                                    engineVersion,
                                                     layers,
                                                     *extensionPack);
 
     }
 
-    void RhiSystem::createInstance(const RhiSystemCreateInfo& createInfo)
+    void RhiSystem::createInstance(const RhiSystemCreateInfo& create_info)
     {
-        vulkanInstance = std::make_unique<Instance>(createInfo.ApplicationName,
-                                                    createInfo.EngineName,
-                                                    createInfo.AppVersion,
-                                                    createInfo.EngineVersion,
-                                                    createInfo.ValidationLevel,
+        vulkanInstance = std::make_unique<Instance>(create_info.ApplicationName,
+                                                    create_info.EngineName,
+                                                    create_info.AppVersion,
+                                                    create_info.EngineVersion,
+                                                    create_info.ValidationLevel,
                                                     *extensionPack);
     }
 
-    void RhiSystem::gatherDeviceExtensions(const nlohmann::json& allConfig, const nlohmann::json& rhiConfig)
+    void RhiSystem::gatherDeviceExtensions(const nlohmann::json& all_config, const nlohmann::json& rhi_config)
     {
         std::vector<std::string> requiredDeviceExts;
         std::vector<std::string> requestedDeviceExts;
 
         {
-            nlohmann::json req_ext_json = rhiConfig.at("RequiredDeviceExtensions");
-            for (auto& entry : req_ext_json)
+            nlohmann::json reqExtJson = rhi_config.at("RequiredDeviceExtensions");
+            for (auto& entry : reqExtJson)
             {
                 requiredDeviceExts.emplace_back(entry);
             }
@@ -413,16 +413,16 @@ namespace rhi
 
 
         const bool hasSwapchainExt = std::find(requiredDeviceExts.begin(), requiredDeviceExts.end(), "VK_KHR_swapchain") != requiredDeviceExts.end();
-        if (!hasSwapchainExt && rhiConfig.value("NeedsPresentationSupport", false))
+        if (!hasSwapchainExt && rhi_config.value("NeedsPresentationSupport", false))
         {
             requiredDeviceExts.push_back("VK_KHR_swapchain");
             // if we are enabling presentation support, we should also do a "horizontal" query of sorts to see if we're requesting HDR
             // if we are, we should also enable the HDR extension. we need to use the "allConfig" because rhiConfig doesn't store surface/platform config data
-            const bool hasPlatformConfig = allConfig.contains("PlatformSystemConfig");
+            const bool hasPlatformConfig = all_config.contains("PlatformSystemConfig");
             if (hasPlatformConfig)
             {
                 // now check for HDR request
-                const nlohmann::json& platformConfig = allConfig.at("PlatformSystemConfig");
+                const nlohmann::json& platformConfig = all_config.at("PlatformSystemConfig");
                 const bool wantsHDR = platformConfig.value("EnableHDR", false);
                 if (wantsHDR)
                 {
@@ -439,8 +439,8 @@ namespace rhi
         extensionPack->AddRequiredDeviceExtensions(requiredDeviceExts);
         
         {
-            nlohmann::json ext_json = rhiConfig.at("RequestedDeviceExtensions");
-            for (auto& entry : ext_json)
+            nlohmann::json extJson = rhi_config.at("RequestedDeviceExtensions");
+            for (auto& entry : extJson)
             {
                 requestedDeviceExts.emplace_back(entry);
             }
@@ -459,10 +459,10 @@ namespace rhi
         if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
         {
             VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
-            s_SetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
-            s_DebugLogicalDeviceHandle = logicalDevice->Handle().As<VkDevice>();
+            k_SSetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
+            k_SDebugLogicalDeviceHandle = logicalDevice->Handle().As<VkDevice>();
 
-            const VkDebugUtilsMessengerCreateInfoEXT messenger_info
+            const VkDebugUtilsMessengerCreateInfoEXT messengerInfo
             {
                 VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
                 nullptr,
@@ -470,7 +470,7 @@ namespace rhi
                 // capture warnings and info that the current one does not
                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
                 VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-                (PFN_vkDebugUtilsMessengerCallbackEXT)DebugUtilsMessengerCallback,
+                reinterpret_cast<PFN_vkDebugUtilsMessengerCallbackEXT>(DebugUtilsMessengerCallback),
                 nullptr
             };
 
@@ -480,7 +480,7 @@ namespace rhi
                 throw std::runtime_error("Failed to create debug utils messenger: function pointer not loaded!");
             }
 
-            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), &messenger_info, nullptr, &DebugUtilsMessenger);
+            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), &messengerInfo, nullptr, &DebugUtilsMessenger);
             if (result != VK_SUCCESS)
             {
                 throw std::runtime_error("Failed to create debug utils messenger.");
@@ -498,61 +498,61 @@ namespace
                                                                const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
                                                                void* user_data)
     {
-        std::string output_message;
+        std::string outputMessage;
         
         if (callback_data->messageIdNumber != 0u)
         {
-            output_message += std::format("VUID:{}:VUID_NAME:{}\n", callback_data->messageIdNumber, callback_data->pMessageIdName);
+            outputMessage += std::format("VUID:{}:VUID_NAME:{}\n", callback_data->messageIdNumber, callback_data->pMessageIdName);
         }
 
         // fixed: this used to drop every message containing "CREATE", which hid all vkCreate* validation errors
-        const std::string message_str{ callback_data->pMessage };
-        output_message += std::format("    Message: {}\n", message_str);
+        const std::string messageStr{ callback_data->pMessage };
+        outputMessage += std::format("    Message: {}\n", messageStr);
         
         if (callback_data->queueLabelCount != 0u)
         {
-            output_message += std::format("    Error occured in queue: {}\n", callback_data->pQueueLabels[0].pLabelName);
+            outputMessage += std::format("    Error occured in queue: {}\n", callback_data->pQueueLabels[0].pLabelName);
         }
 
         if (callback_data->cmdBufLabelCount != 0u)
         {
-            output_message += "    Error occured executing command buffer(s): \n";
+            outputMessage += "    Error occured executing command buffer(s): \n";
             for (uint32_t i = 0; i < callback_data->cmdBufLabelCount; ++i)
             {
-                output_message += std::format("    {}\n", callback_data->pCmdBufLabels[i].pLabelName);
+                outputMessage += std::format("    {}\n", callback_data->pCmdBufLabels[i].pLabelName);
             }
         }
         
         if (callback_data->objectCount != 0u)
         {
-            auto& p_objects = callback_data->pObjects;
-            output_message += "    Object(s) involved: \n";
+            auto& pObjects = callback_data->pObjects;
+            outputMessage += "    Object(s) involved: \n";
             for (uint32_t i = 0; i < callback_data->objectCount; ++i)
             {
-                if (p_objects[i].pObjectName)
+                if (pObjects[i].pObjectName)
                 {
-                    output_message += std::format("        ObjectName: {}\n", p_objects[i].pObjectName);
+                    outputMessage += std::format("        ObjectName: {}\n", pObjects[i].pObjectName);
                 }
                 else
                 {
-                    output_message += "        UNNAMED_OBJECT\n";
+                    outputMessage += "        UNNAMED_OBJECT\n";
                 }
-                output_message += std::format("            ObjectType: {}\n", string_VkObjectType(p_objects[i].objectType));
-                output_message += std::format("            ObjectHandle: {:x}\n", p_objects[i].objectHandle);
+                outputMessage += std::format("            ObjectType: {}\n", string_VkObjectType(pObjects[i].objectType));
+                outputMessage += std::format("            ObjectHandle: {:x}\n", pObjects[i].objectHandle);
             }
         }
 
         if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
         {
-            std::cerr << output_message << "\n";
+            std::cerr << outputMessage << "\n";
         }
         else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
         {
-            std::cerr << output_message << "\n";
+            std::cerr << outputMessage << "\n";
         }
         else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
         {
-            std::cout << output_message << "\n";
+            std::cout << outputMessage << "\n";
         }
 
         return VK_FALSE;
@@ -560,25 +560,25 @@ namespace
 
     void SplitVersionString(std::string version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version)
     {
-        const size_t minor_dot_pos = version_string.find('.');
-        const size_t patch_dot_pos = version_string.rfind('.');
-        if (patch_dot_pos == std::string::npos)
+        const size_t minorDotPos = version_string.find('.');
+        const size_t patchDotPos = version_string.rfind('.');
+        if (patchDotPos == std::string::npos)
         {
             patch_version = 0;
-            if (minor_dot_pos == std::string::npos)
+            if (minorDotPos == std::string::npos)
             {
                 minor_version = 0;
                 major_version = static_cast<uint32_t>(strtod(version_string.c_str(), nullptr));
             }
             else
             {
-                minor_version = static_cast<uint32_t>(strtod(version_string.substr(minor_dot_pos).c_str(), nullptr));
-                major_version = static_cast<uint32_t>(strtod(version_string.substr(0, minor_dot_pos).c_str(), nullptr));
+                minor_version = static_cast<uint32_t>(strtod(version_string.substr(minorDotPos).c_str(), nullptr));
+                major_version = static_cast<uint32_t>(strtod(version_string.substr(0, minorDotPos).c_str(), nullptr));
             }
         }
         else
         {
-            if (minor_dot_pos == std::string::npos)
+            if (minorDotPos == std::string::npos)
             {
                 major_version = static_cast<uint32_t>(strtod(version_string.c_str(), nullptr));
                 minor_version = 0;
@@ -587,9 +587,9 @@ namespace
             }
             else
             {
-                major_version = static_cast<uint32_t>(strtod(version_string.substr(0, minor_dot_pos + 1).c_str(), nullptr));
-                minor_version = static_cast<uint32_t>(strtod(version_string.substr(minor_dot_pos + 1, patch_dot_pos - minor_dot_pos - 1).c_str(), nullptr));
-                patch_version = static_cast<uint32_t>(strtod(version_string.substr(patch_dot_pos).c_str(), nullptr));
+                major_version = static_cast<uint32_t>(strtod(version_string.substr(0, minorDotPos + 1).c_str(), nullptr));
+                minor_version = static_cast<uint32_t>(strtod(version_string.substr(minorDotPos + 1, patchDotPos - minorDotPos - 1).c_str(), nullptr));
+                patch_version = static_cast<uint32_t>(strtod(version_string.substr(patchDotPos).c_str(), nullptr));
             }
         }
     }
@@ -598,12 +598,12 @@ namespace
     {
         if (json_file.contains("ApplicationVersion"))
         {
-            uint32_t app_version_major = 0;
-            uint32_t app_version_minor = 0;
-            uint32_t app_version_patch = 0;
-            const std::string app_version_str = json_file.at("ApplicationVersion");
-            SplitVersionString(app_version_str, app_version_major, app_version_minor, app_version_patch);
-            app_version = VK_MAKE_VERSION(app_version_major, app_version_minor, app_version_patch);
+            uint32_t appVersionMajor = 0;
+            uint32_t appVersionMinor = 0;
+            uint32_t appVersionPatch = 0;
+            const std::string appVersionStr = json_file.at("ApplicationVersion");
+            SplitVersionString(appVersionStr, appVersionMajor, appVersionMinor, appVersionPatch);
+            app_version = VK_MAKE_VERSION(appVersionMajor, appVersionMinor, appVersionPatch);
         }
         else
         {
@@ -612,12 +612,12 @@ namespace
 
         if (json_file.contains("EngineVersion"))
         {
-            uint32_t engine_version_major = 0;
-            uint32_t engine_version_minor = 0;
-            uint32_t engine_version_patch = 0;
-            const std::string engine_version_str = json_file.at("EngineVersion");
-            SplitVersionString(engine_version_str, engine_version_major, engine_version_minor, engine_version_patch);
-            engine_version = VK_MAKE_VERSION(engine_version_major, engine_version_minor, engine_version_patch);
+            uint32_t engineVersionMajor = 0;
+            uint32_t engineVersionMinor = 0;
+            uint32_t engineVersionPatch = 0;
+            const std::string engineVersionStr = json_file.at("EngineVersion");
+            SplitVersionString(engineVersionStr, engineVersionMajor, engineVersionMinor, engineVersionPatch);
+            engine_version = VK_MAKE_VERSION(engineVersionMajor, engineVersionMinor, engineVersionPatch);
         }
         else
         {
@@ -626,18 +626,18 @@ namespace
 
         if (json_file.contains("VulkanVersion"))
         {
-            uint32_t api_version_major = 0;
-            uint32_t api_version_minor = 0;
-            uint32_t api_version_patch = 0;
-            const std::string api_version_str = json_file.at("VulkanVersion");
-            if (api_version_str == "Latest")
+            uint32_t apiVersionMajor = 0;
+            uint32_t apiVersionMinor = 0;
+            uint32_t apiVersionPatch = 0;
+            const std::string apiVersionStr = json_file.at("VulkanVersion");
+            if (apiVersionStr == "Latest")
             {
                 vkEnumerateInstanceVersion(&api_version);
             }
             else
             {
-                SplitVersionString(api_version_str, api_version_major, api_version_minor, api_version_patch);
-                api_version = VK_MAKE_VERSION(api_version_major, api_version_minor, api_version_patch);
+                SplitVersionString(apiVersionStr, apiVersionMajor, apiVersionMinor, apiVersionPatch);
+                api_version = VK_MAKE_VERSION(apiVersionMajor, apiVersionMinor, apiVersionPatch);
             }
         }
         else

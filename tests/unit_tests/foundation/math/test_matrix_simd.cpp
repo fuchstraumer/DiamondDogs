@@ -8,10 +8,10 @@ namespace math
 class MatrixTest : public ::testing::Test
 {
 protected:
-    static constexpr float EPSILON = 1e-4f;
-    static constexpr float EPSILON_INVERSE = 1e-3f;
+    static constexpr float k_Epsilon = 1e-4f;
+    static constexpr float k_EpsilonInverse = 1e-3f;
     
-    static void ExpectNear(const Matrix& actual, const Matrix& expected, float epsilon = EPSILON)
+    static void expectNear(const Matrix& actual, const Matrix& expected, float epsilon = k_Epsilon)
     {
         for (size_t i = 0; i < 4; ++i)
         {
@@ -107,7 +107,7 @@ TEST_F(MatrixTest, MatrixMultiplicationIdentity)
     Matrix m = Matrix::Identity();
     Matrix result = m * m;
     
-    ExpectNear(result, Matrix::Identity());
+    expectNear(result, Matrix::Identity());
 }
 
 TEST_F(MatrixTest, MatrixMultiplicationNonCommutative)
@@ -163,7 +163,7 @@ TEST_F(MatrixTest, TransposeIdentity)
     Matrix m = Matrix::Identity();
     Matrix transposed = m.Transpose();
     
-    ExpectNear(transposed, m);
+    expectNear(transposed, m);
 }
 
 TEST_F(MatrixTest, TransposeDoubleInversion)
@@ -178,7 +178,7 @@ TEST_F(MatrixTest, TransposeDoubleInversion)
     Matrix transposed = m.Transpose();
     Matrix doubleTransposed = transposed.Transpose();
     
-    ExpectNear(doubleTransposed, m);
+    expectNear(doubleTransposed, m);
 }
 
 TEST_F(MatrixTest, TransposeSwapsRowsAndColumns)
@@ -202,7 +202,7 @@ TEST_F(MatrixTest, DeterminantIdentity)
     Matrix m = Matrix::Identity();
     float det = m.Determinant();
     
-    EXPECT_NEAR(det, 1.0f, EPSILON);
+    EXPECT_NEAR(det, 1.0f, k_Epsilon);
 }
 
 TEST_F(MatrixTest, DeterminantZero)
@@ -210,7 +210,7 @@ TEST_F(MatrixTest, DeterminantZero)
     Matrix m = Matrix::Zero();
     float det = m.Determinant();
     
-    EXPECT_NEAR(det, 0.0f, EPSILON);
+    EXPECT_NEAR(det, 0.0f, k_Epsilon);
 }
 
 TEST_F(MatrixTest, DeterminantScale)
@@ -219,7 +219,7 @@ TEST_F(MatrixTest, DeterminantScale)
     float det = m.Determinant();
     
     // Determinant of diagonal matrix is product of diagonal elements
-    EXPECT_NEAR(det, 24.0f, EPSILON);
+    EXPECT_NEAR(det, 24.0f, k_Epsilon);
 }
 
 // Inverse Tests
@@ -228,7 +228,7 @@ TEST_F(MatrixTest, InverseIdentity)
     Matrix m = Matrix::Identity();
     Matrix inverse = m.Inverse();
     
-    ExpectNear(inverse, m);
+    expectNear(inverse, m);
 }
 
 TEST_F(MatrixTest, InverseMultiplicationIdentity)
@@ -237,7 +237,7 @@ TEST_F(MatrixTest, InverseMultiplicationIdentity)
     Matrix inverse = m.Inverse();
     Matrix result = m * inverse;
     
-    ExpectNear(result, Matrix::Identity(), EPSILON_INVERSE);
+    expectNear(result, Matrix::Identity(), k_EpsilonInverse);
 }
 
 TEST_F(MatrixTest, InverseDoubleInversion)
@@ -246,7 +246,7 @@ TEST_F(MatrixTest, InverseDoubleInversion)
     Matrix inverse = m.Inverse();
     Matrix doubleInverse = inverse.Inverse();
     
-    ExpectNear(doubleInverse, m, EPSILON_INVERSE);
+    expectNear(doubleInverse, m, k_EpsilonInverse);
 }
 
 TEST_F(MatrixTest, InverseScale)
@@ -254,9 +254,9 @@ TEST_F(MatrixTest, InverseScale)
     Matrix m = Matrix::Scale(2.0f, 4.0f, 8.0f);
     Matrix inverse = m.Inverse();
     
-    EXPECT_NEAR(inverse(0, 0), 0.5f, EPSILON);
-    EXPECT_NEAR(inverse(1, 1), 0.25f, EPSILON);
-    EXPECT_NEAR(inverse(2, 2), 0.125f, EPSILON);
+    EXPECT_NEAR(inverse(0, 0), 0.5f, k_Epsilon);
+    EXPECT_NEAR(inverse(1, 1), 0.25f, k_Epsilon);
+    EXPECT_NEAR(inverse(2, 2), 0.125f, k_Epsilon);
 }
 
 // Translation Tests
@@ -276,10 +276,10 @@ TEST_F(MatrixTest, TranslationTransformsPoint)
     Vector point = ToVector(Float4(0.0f, 0.0f, 0.0f, 1.0f));  // Homogeneous point
     Vector result = m * point;
     
-    EXPECT_NEAR(result.x(), 5.0f, EPSILON);
-    EXPECT_NEAR(result.y(), 10.0f, EPSILON);
-    EXPECT_NEAR(result.z(), 15.0f, EPSILON);
-    EXPECT_NEAR(result.w(), 1.0f, EPSILON);
+    EXPECT_NEAR(result.x(), 5.0f, k_Epsilon);
+    EXPECT_NEAR(result.y(), 10.0f, k_Epsilon);
+    EXPECT_NEAR(result.z(), 15.0f, k_Epsilon);
+    EXPECT_NEAR(result.w(), 1.0f, k_Epsilon);
 }
 
 TEST_F(MatrixTest, TranslationDoesNotAffectDirection)
@@ -288,10 +288,10 @@ TEST_F(MatrixTest, TranslationDoesNotAffectDirection)
     Vector direction = ToVector(Float4(1.0f, 0.0f, 0.0f, 0.0f));  // Homogeneous direction
     Vector result = m * direction;
     
-    EXPECT_NEAR(result.x(), 1.0f, EPSILON);
-    EXPECT_NEAR(result.y(), 0.0f, EPSILON);
-    EXPECT_NEAR(result.z(), 0.0f, EPSILON);
-    EXPECT_NEAR(result.w(), 0.0f, EPSILON);
+    EXPECT_NEAR(result.x(), 1.0f, k_Epsilon);
+    EXPECT_NEAR(result.y(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(result.z(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(result.w(), 0.0f, k_Epsilon);
 }
 
 // Scale Tests
@@ -301,9 +301,9 @@ TEST_F(MatrixTest, UniformScale)
     Vector v = ToVector(Float3(1.0f, 2.0f, 3.0f));
     Vector result = m * v;
     
-    EXPECT_NEAR(result.x(), 2.0f, EPSILON);
-    EXPECT_NEAR(result.y(), 4.0f, EPSILON);
-    EXPECT_NEAR(result.z(), 6.0f, EPSILON);
+    EXPECT_NEAR(result.x(), 2.0f, k_Epsilon);
+    EXPECT_NEAR(result.y(), 4.0f, k_Epsilon);
+    EXPECT_NEAR(result.z(), 6.0f, k_Epsilon);
 }
 
 TEST_F(MatrixTest, NonUniformScale)
@@ -312,9 +312,9 @@ TEST_F(MatrixTest, NonUniformScale)
     Vector v = ToVector(Float3(1.0f, 1.0f, 1.0f));
     Vector result = m * v;
     
-    EXPECT_NEAR(result.x(), 2.0f, EPSILON);
-    EXPECT_NEAR(result.y(), 3.0f, EPSILON);
-    EXPECT_NEAR(result.z(), 4.0f, EPSILON);
+    EXPECT_NEAR(result.x(), 2.0f, k_Epsilon);
+    EXPECT_NEAR(result.y(), 3.0f, k_Epsilon);
+    EXPECT_NEAR(result.z(), 4.0f, k_Epsilon);
 }
 
 TEST_F(MatrixTest, ScaleDeterminant)
@@ -322,7 +322,7 @@ TEST_F(MatrixTest, ScaleDeterminant)
     Matrix m = Matrix::Scale(2.0f, 3.0f, 4.0f);
     float det = m.Determinant();
     
-    EXPECT_NEAR(det, 24.0f, EPSILON);
+    EXPECT_NEAR(det, 24.0f, k_Epsilon);
 }
 
 // Rotation Tests
@@ -332,9 +332,9 @@ TEST_F(MatrixTest, RotationX_90Degrees)
     Vector v = ToVector(Float3(0.0f, 1.0f, 0.0f));
     Vector result = m * v;
     
-    EXPECT_NEAR(result.x(), 0.0f, EPSILON);
-    EXPECT_NEAR(result.y(), 0.0f, EPSILON);
-    EXPECT_NEAR(result.z(), 1.0f, EPSILON);
+    EXPECT_NEAR(result.x(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(result.y(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(result.z(), 1.0f, k_Epsilon);
 }
 
 TEST_F(MatrixTest, RotationY_90Degrees)
@@ -343,9 +343,9 @@ TEST_F(MatrixTest, RotationY_90Degrees)
     Vector v = ToVector(Float3(1.0f, 0.0f, 0.0f));
     Vector result = m * v;
     
-    EXPECT_NEAR(result.x(), 0.0f, EPSILON);
-    EXPECT_NEAR(result.y(), 0.0f, EPSILON);
-    EXPECT_NEAR(result.z(), -1.0f, EPSILON);
+    EXPECT_NEAR(result.x(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(result.y(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(result.z(), -1.0f, k_Epsilon);
 }
 
 TEST_F(MatrixTest, RotationZ_90Degrees)
@@ -354,9 +354,9 @@ TEST_F(MatrixTest, RotationZ_90Degrees)
     Vector v = ToVector(Float3(1.0f, 0.0f, 0.0f));
     Vector result = m * v;
     
-    EXPECT_NEAR(result.x(), 0.0f, EPSILON);
-    EXPECT_NEAR(result.y(), 1.0f, EPSILON);
-    EXPECT_NEAR(result.z(), 0.0f, EPSILON);
+    EXPECT_NEAR(result.x(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(result.y(), 1.0f, k_Epsilon);
+    EXPECT_NEAR(result.z(), 0.0f, k_Epsilon);
 }
 
 TEST_F(MatrixTest, Rotation360Degrees)
@@ -365,9 +365,9 @@ TEST_F(MatrixTest, Rotation360Degrees)
     Vector v = ToVector(Float3(1.0f, 2.0f, 3.0f));
     Vector result = m * v;
     
-    EXPECT_NEAR(result.x(), 1.0f, EPSILON);
-    EXPECT_NEAR(result.y(), 2.0f, EPSILON);
-    EXPECT_NEAR(result.z(), 3.0f, EPSILON);
+    EXPECT_NEAR(result.x(), 1.0f, k_Epsilon);
+    EXPECT_NEAR(result.y(), 2.0f, k_Epsilon);
+    EXPECT_NEAR(result.z(), 3.0f, k_Epsilon);
 }
 
 TEST_F(MatrixTest, RotationPreservesLength)
@@ -379,7 +379,7 @@ TEST_F(MatrixTest, RotationPreservesLength)
     Vector result = m * v;
     float rotatedLength = result.Length<3>();
     
-    EXPECT_NEAR(originalLength, rotatedLength, EPSILON);
+    EXPECT_NEAR(originalLength, rotatedLength, k_Epsilon);
 }
 
 TEST_F(MatrixTest, RotationArbitraryAxis)
@@ -391,8 +391,8 @@ TEST_F(MatrixTest, RotationArbitraryAxis)
     Vector v = ToVector(Float3(1.0f, 0.0f, 0.0f));
     Vector result = m * v;
     
-    EXPECT_NEAR(result.x(), 0.0f, EPSILON);
-    EXPECT_NEAR(result.y(), 1.0f, EPSILON);
+    EXPECT_NEAR(result.x(), 0.0f, k_Epsilon);
+    EXPECT_NEAR(result.y(), 1.0f, k_Epsilon);
 }
 
 // Compound Transformation Tests
@@ -407,9 +407,9 @@ TEST_F(MatrixTest, TRS_TranslationRotationScale)
     Vector result = Transform<3>(point, m);
     
     // Should scale then translate (rotation is identity)
-    EXPECT_NEAR(result.x(), 12.0f, EPSILON);
-    EXPECT_NEAR(result.y(), 20.0f, EPSILON);
-    EXPECT_NEAR(result.z(), 30.0f, EPSILON);
+    EXPECT_NEAR(result.x(), 12.0f, k_Epsilon);
+    EXPECT_NEAR(result.y(), 20.0f, k_Epsilon);
+    EXPECT_NEAR(result.z(), 30.0f, k_Epsilon);
 }
 
 TEST_F(MatrixTest, CombinedTransformations)
@@ -421,9 +421,9 @@ TEST_F(MatrixTest, CombinedTransformations)
     Vector point = ToVector(Float4(1.0f, 1.0f, 1.0f, 1.0f));
     Vector result = Transform<3>(point, combined);
     // Scale happens first, then translate
-    EXPECT_NEAR(result.x(), 7.0f, EPSILON);
-    EXPECT_NEAR(result.y(), 2.0f, EPSILON);
-    EXPECT_NEAR(result.z(), 2.0f, EPSILON);
+    EXPECT_NEAR(result.x(), 7.0f, k_Epsilon);
+    EXPECT_NEAR(result.y(), 2.0f, k_Epsilon);
+    EXPECT_NEAR(result.z(), 2.0f, k_Epsilon);
 }
 
 // Comparison Tests

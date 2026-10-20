@@ -5,15 +5,15 @@ namespace foundation
 {
 
     ExponentialBackoffSleeper::ExponentialBackoffSleeper(
-        std::chrono::milliseconds minDuration,
-        std::chrono::milliseconds maxDuration,
+        std::chrono::milliseconds min_duration,
+        std::chrono::milliseconds max_duration,
         float jitter,
         float multiplier) noexcept : 
-        minSleepDuration(minDuration),
-        maxSleepDuration(maxDuration),
+        minSleepDuration(min_duration),
+        maxSleepDuration(max_duration),
         jitterFactor(jitter),
         backoffMultiplier(multiplier),
-        currentSleepDuration(minDuration),
+        currentSleepDuration(min_duration),
         randomGenerator(std::random_device{}()),
         backoffCount(1u)
     {

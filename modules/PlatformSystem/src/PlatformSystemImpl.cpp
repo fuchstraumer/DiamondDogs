@@ -16,7 +16,7 @@
 #endif
 
 
-static DisplayInfo s_PrimaryDisplay;
+static DisplayInfo k_SPrimaryDisplay;
 
 struct CallbackStorage
 {
@@ -45,102 +45,102 @@ struct CallbackStorage
 
 void CursorPosCallback(GLFWwindow* window, double pos_x, double pos_y)
 {
-    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    PlatformSystemImpl* userPtr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
 
     const Events::CursorPosEventData eventData{ pos_x, pos_y, window };
 
-    for (auto& pos_fn : user_ptr->Callbacks->CursorPosEvents)
+    for (auto& posFn : userPtr->Callbacks->CursorPosEvents)
     {
-        if (user_ptr->Callbacks->CursorPosEventUserData.contains(pos_fn.hash()))
+        if (userPtr->Callbacks->CursorPosEventUserData.contains(posFn.hash()))
         {
-            pos_fn(eventData, user_ptr->Callbacks->CursorPosEventUserData[pos_fn.hash()]);
+            posFn(eventData, userPtr->Callbacks->CursorPosEventUserData[posFn.hash()]);
         }
         else
         {
-            pos_fn(eventData, nullptr);
+            posFn(eventData, nullptr);
         }
     }
 }
 
 void CursorEnterCallback(GLFWwindow* window, int enter)
 {
-    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
-    for (auto& enter_fn : user_ptr->Callbacks->CursorEnterEvents)
+    PlatformSystemImpl* userPtr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    for (auto& enterFn : userPtr->Callbacks->CursorEnterEvents)
     {
-        if (user_ptr->Callbacks->CursorEnterEventUserData.contains(enter_fn.hash()))
+        if (userPtr->Callbacks->CursorEnterEventUserData.contains(enterFn.hash()))
         {
-            enter_fn(enter, user_ptr->Callbacks->CursorEnterEventUserData[enter_fn.hash()]);
+            enterFn(enter, userPtr->Callbacks->CursorEnterEventUserData[enterFn.hash()]);
         }
         else
         {
-            enter_fn(enter, nullptr);
+            enterFn(enter, nullptr);
         }
     }
 }
 
 void ScrollCallback(GLFWwindow* window, double x_offset, double y_offset)
 {
-    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    PlatformSystemImpl* userPtr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
     const Events::ScrollEventData eventData{ x_offset, y_offset, window };
-    for (auto& scroll_fn : user_ptr->Callbacks->ScrollEvents)
+    for (auto& scrollFn : userPtr->Callbacks->ScrollEvents)
     {
-        if (user_ptr->Callbacks->ScrollEventUserData.contains(scroll_fn.hash()))
+        if (userPtr->Callbacks->ScrollEventUserData.contains(scrollFn.hash()))
         {
-            scroll_fn(eventData, user_ptr->Callbacks->ScrollEventUserData[scroll_fn.hash()]);
+            scrollFn(eventData, userPtr->Callbacks->ScrollEventUserData[scrollFn.hash()]);
         }
         else
         {
-            scroll_fn(eventData, nullptr);
+            scrollFn(eventData, nullptr);
         }
     }
 }
 
 void CharCallback(GLFWwindow* window, unsigned int code)
 {
-    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
-    for (auto& char_fn : user_ptr->Callbacks->CharEvents)
+    PlatformSystemImpl* userPtr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    for (auto& charFn : userPtr->Callbacks->CharEvents)
     {
-        if (user_ptr->Callbacks->CharEventUserData.contains(char_fn.hash()))
+        if (userPtr->Callbacks->CharEventUserData.contains(charFn.hash()))
         {
-            char_fn(code, user_ptr->Callbacks->CharEventUserData[char_fn.hash()]);
+            charFn(code, userPtr->Callbacks->CharEventUserData[charFn.hash()]);
         }
         else
         {
-            char_fn(code, nullptr);
+            charFn(code, nullptr);
         }
     }
 }
 
 void PathDropCallback(GLFWwindow* window, int count, const char** paths)
 {
-    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    PlatformSystemImpl* userPtr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
     const Events::PathDropEventData eventData{ count, paths, window };
-    for (auto& drop_fn : user_ptr->Callbacks->PathDropEvents)
+    for (auto& dropFn : userPtr->Callbacks->PathDropEvents)
     {
-        if (user_ptr->Callbacks->PathDropEventUserData.contains(drop_fn.hash()))
+        if (userPtr->Callbacks->PathDropEventUserData.contains(dropFn.hash()))
         {
-            drop_fn(eventData, user_ptr->Callbacks->PathDropEventUserData[drop_fn.hash()]);
+            dropFn(eventData, userPtr->Callbacks->PathDropEventUserData[dropFn.hash()]);
         }
         else
         {
-            drop_fn(eventData, nullptr);
+            dropFn(eventData, nullptr);
         }
     }
 }
 
 void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 {
-    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    PlatformSystemImpl* userPtr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
     const Events::MouseButtonEventData eventData{ button, action, mods, window };
-    for (auto& mouse_fn : user_ptr->Callbacks->MouseButtonEvents)
+    for (auto& mouseFn : userPtr->Callbacks->MouseButtonEvents)
     {
-        if (user_ptr->Callbacks->MouseButtonEventUserData.contains(mouse_fn.hash()))
+        if (userPtr->Callbacks->MouseButtonEventUserData.contains(mouseFn.hash()))
         {
-            mouse_fn(eventData, user_ptr->Callbacks->MouseButtonEventUserData[mouse_fn.hash()]);
+            mouseFn(eventData, userPtr->Callbacks->MouseButtonEventUserData[mouseFn.hash()]);
         }
         else
         {
-            mouse_fn(eventData, nullptr);
+            mouseFn(eventData, nullptr);
         }
     }
 }
@@ -154,55 +154,55 @@ void KeyboardKeyCallback(GLFWwindow* window, int key, int scancode, int action, 
         return;
     }
 
-    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    PlatformSystemImpl* userPtr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
     const Events::KeyboardKeyEventData eventData{ key, scancode, action, mods, window };
-    for (auto& key_fn : user_ptr->Callbacks->KeyboardKeyEvents)
+    for (auto& keyFn : userPtr->Callbacks->KeyboardKeyEvents)
     {
-        if (user_ptr->Callbacks->KeyboardKeyEventUserData.contains(key_fn.hash()))
+        if (userPtr->Callbacks->KeyboardKeyEventUserData.contains(keyFn.hash()))
         {
-            key_fn(eventData, user_ptr->Callbacks->KeyboardKeyEventUserData[key_fn.hash()]);
+            keyFn(eventData, userPtr->Callbacks->KeyboardKeyEventUserData[keyFn.hash()]);
         }
         else
         {
-            key_fn(eventData, nullptr);
+            keyFn(eventData, nullptr);
         }
     }
 }
 
 void ResizeCallback(GLFWwindow* window, int width, int height)
 {
-    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    PlatformSystemImpl* userPtr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
     const Events::ShouldResizeEventData eventData{ width, height };
-    for (auto& resize_fn : user_ptr->Callbacks->ShouldResizeEvents)
+    for (auto& resizeFn : userPtr->Callbacks->ShouldResizeEvents)
     {
-        if (user_ptr->Callbacks->ShouldResizeEventUserData.contains(resize_fn.hash()))
+        if (userPtr->Callbacks->ShouldResizeEventUserData.contains(resizeFn.hash()))
         {
-            resize_fn(eventData, user_ptr->Callbacks->ShouldResizeEventUserData[resize_fn.hash()]);
+            resizeFn(eventData, userPtr->Callbacks->ShouldResizeEventUserData[resizeFn.hash()]);
         }
         else
         {
-            resize_fn(eventData, nullptr);
+            resizeFn(eventData, nullptr);
         }
     }
 }
 
 void ShouldCloseCallback(GLFWwindow* window)
 {
-    PlatformSystemImpl* user_ptr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
-    for (auto& close_fn : user_ptr->Callbacks->ShouldCloseEvents)
+    PlatformSystemImpl* userPtr = reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    for (auto& closeFn : userPtr->Callbacks->ShouldCloseEvents)
     {
-        if (user_ptr->Callbacks->ShouldCloseEventUserData.contains(close_fn.hash()))
+        if (userPtr->Callbacks->ShouldCloseEventUserData.contains(closeFn.hash()))
         {
-            close_fn(user_ptr->Callbacks->ShouldCloseEventUserData[close_fn.hash()]);
+            closeFn(userPtr->Callbacks->ShouldCloseEventUserData[closeFn.hash()]);
         }
         else
         {
-            close_fn(nullptr);
+            closeFn(nullptr);
         }
     }
 }
 
-PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInfo) :
+PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& create_info) :
     Window(nullptr),
     ActiveDisplay{},
     AllDisplays(),
@@ -214,36 +214,36 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
     }
 
     // for now, we just try to find the display with highest bit depth and use that as the primary display
-    s_PrimaryDisplay = PlatformWindowSystem::GetPrimaryDisplayInfo();
-    if (createInfo.DisplayToUse == nullptr && 
-        (createInfo.DesiredWindowMode == PlatformWindowMode::Fullscreen ||
-         createInfo.DesiredWindowMode == PlatformWindowMode::FullScreenWindowed))
+    k_SPrimaryDisplay = PlatformWindowSystem::GetPrimaryDisplayInfo();
+    if (create_info.DisplayToUse == nullptr && 
+        (create_info.DesiredWindowMode == PlatformWindowMode::Fullscreen ||
+         create_info.DesiredWindowMode == PlatformWindowMode::FullScreenWindowed))
     {
-        ActiveDisplay = s_PrimaryDisplay;
+        ActiveDisplay = k_SPrimaryDisplay;
     }
-    else if (createInfo.DesiredWindowMode == PlatformWindowMode::Windowed)
+    else if (create_info.DesiredWindowMode == PlatformWindowMode::Windowed)
     {
         // Set active display to inherit most of the primary display's properties, but override width/height with requested window size
-        ActiveDisplay = s_PrimaryDisplay;
-        ActiveDisplay.Width = createInfo.InitialWidth;
-        ActiveDisplay.Height = createInfo.InitialHeight;
+        ActiveDisplay = k_SPrimaryDisplay;
+        ActiveDisplay.Width = create_info.InitialWidth;
+        ActiveDisplay.Height = create_info.InitialHeight;
     }
-    else if (createInfo.DesiredWindowMode == PlatformWindowMode::MaximizedWindowed)
+    else if (create_info.DesiredWindowMode == PlatformWindowMode::MaximizedWindowed)
     {
         // Set active display to inherit most of the primary display's properties, but override width/height with full display size
         // We'll correct it after creation by querying actual window size from GLFW
-        ActiveDisplay = s_PrimaryDisplay;
-        ActiveDisplay.Width = s_PrimaryDisplay.Width;
-        ActiveDisplay.Height = s_PrimaryDisplay.Height;
+        ActiveDisplay = k_SPrimaryDisplay;
+        ActiveDisplay.Width = k_SPrimaryDisplay.Width;
+        ActiveDisplay.Height = k_SPrimaryDisplay.Height;
     }
-    else if (createInfo.DisplayToUse != nullptr)
+    else if (create_info.DisplayToUse != nullptr)
     {
-        ActiveDisplay = *createInfo.DisplayToUse;
+        ActiveDisplay = *create_info.DisplayToUse;
     }
 
     // Create window with desired settings
-    if (createInfo.BehaviorFlags.Resizable && 
-        createInfo.DesiredWindowMode == PlatformWindowMode::Windowed)
+    if (create_info.BehaviorFlags.Resizable && 
+        create_info.DesiredWindowMode == PlatformWindowMode::Windowed)
     {
         glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     }
@@ -252,7 +252,7 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
     }
 
-    if (createInfo.BehaviorFlags.Moveable)
+    if (create_info.BehaviorFlags.Moveable)
     {
     }
     else
@@ -260,9 +260,9 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
     }
 
     // decorate only if flag set 
-    if (createInfo.BehaviorFlags.Decorated && 
-        (createInfo.DesiredWindowMode == PlatformWindowMode::Windowed ||
-         createInfo.DesiredWindowMode == PlatformWindowMode::MaximizedWindowed))
+    if (create_info.BehaviorFlags.Decorated && 
+        (create_info.DesiredWindowMode == PlatformWindowMode::Windowed ||
+         create_info.DesiredWindowMode == PlatformWindowMode::MaximizedWindowed))
     {
         glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
     }
@@ -272,7 +272,7 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
     }
 
     // need to also make sure we acquire focus on show if we're going fullscreen
-    if (createInfo.BehaviorFlags.FocusOnShow || (createInfo.DesiredWindowMode == PlatformWindowMode::Fullscreen))
+    if (create_info.BehaviorFlags.FocusOnShow || (create_info.DesiredWindowMode == PlatformWindowMode::Fullscreen))
     {
         glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_TRUE);
     }
@@ -281,7 +281,7 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
         glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
     }
 
-    if (createInfo.BehaviorFlags.CenterMouse)
+    if (create_info.BehaviorFlags.CenterMouse)
     {
         glfwWindowHint(GLFW_CENTER_CURSOR, GLFW_TRUE);
     }
@@ -290,23 +290,23 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
         glfwWindowHint(GLFW_CENTER_CURSOR, GLFW_FALSE);
     }
 
-    glfwWindowHint(GLFW_POSITION_X, static_cast<int>(createInfo.InitialPosX));
-    glfwWindowHint(GLFW_POSITION_Y, static_cast<int>(createInfo.InitialPosY));
+    glfwWindowHint(GLFW_POSITION_X, static_cast<int>(create_info.InitialPosX));
+    glfwWindowHint(GLFW_POSITION_Y, static_cast<int>(create_info.InitialPosY));
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API); // required to create a Vulkan-capable window, otherwise we create an OpenGL context by default
 
-    switch (createInfo.DesiredWindowMode)
+    switch (create_info.DesiredWindowMode)
     {
     case PlatformWindowMode::Windowed:
-        Window = glfwCreateWindow(static_cast<int>(createInfo.InitialWidth), static_cast<int>(createInfo.InitialHeight), createInfo.WindowName, nullptr, nullptr);
+        Window = glfwCreateWindow(static_cast<int>(create_info.InitialWidth), static_cast<int>(create_info.InitialHeight), create_info.WindowName, nullptr, nullptr);
         break;
     case PlatformWindowMode::Fullscreen:
         // we only set this particular hint for fullscreen exclusive mode
-        glfwWindowHint(GLFW_REFRESH_RATE, static_cast<int>(s_PrimaryDisplay.RefreshRateCapabilities.RoundedRefreshRate));
-        Window = glfwCreateWindow(static_cast<int>(createInfo.InitialWidth), static_cast<int>(createInfo.InitialHeight), createInfo.WindowName, glfwGetPrimaryMonitor(), nullptr);
+        glfwWindowHint(GLFW_REFRESH_RATE, static_cast<int>(k_SPrimaryDisplay.RefreshRateCapabilities.RoundedRefreshRate));
+        Window = glfwCreateWindow(static_cast<int>(create_info.InitialWidth), static_cast<int>(create_info.InitialHeight), create_info.WindowName, glfwGetPrimaryMonitor(), nullptr);
         break;
     case PlatformWindowMode::FullScreenWindowed:
         // borderless fullscreen windowed mode, set window size to match display size but avoid passing a monitor to avoid going exclusive fullscreen
-        Window = glfwCreateWindow(static_cast<int>(ActiveDisplay.Width), static_cast<int>(ActiveDisplay.Height), createInfo.WindowName, nullptr, nullptr);
+        Window = glfwCreateWindow(static_cast<int>(ActiveDisplay.Width), static_cast<int>(ActiveDisplay.Height), create_info.WindowName, nullptr, nullptr);
         break;
     case PlatformWindowMode::MaximizedWindowed:
         throw std::domain_error("Oops, I was too lazy to implement this video mode!");
@@ -314,7 +314,7 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& createInf
         throw std::runtime_error("Invalid window mode, can't create GLFW window.");
     };
 
-    if (createInfo.DesiredWindowMode == PlatformWindowMode::MaximizedWindowed)
+    if (create_info.DesiredWindowMode == PlatformWindowMode::MaximizedWindowed)
     {
         int width, height;
         glfwGetWindowSize(Window, &width, &height);
@@ -371,83 +371,83 @@ void PlatformSystemImpl::WaitForEvents()
     glfwWaitEvents();
 }
 
-void PlatformSystemImpl::AddCursorPosEventListener(CursorPosEvent listener, void* userData)
+void PlatformSystemImpl::AddCursorPosEventListener(CursorPosEvent listener, void* user_data)
 {
     Callbacks->CursorPosEvents.push_back(listener);
-    if (userData != nullptr)
+    if (user_data != nullptr)
     {
-        Callbacks->CursorPosEventUserData[listener.hash()] = userData;
+        Callbacks->CursorPosEventUserData[listener.hash()] = user_data;
     }
 }
 
-void PlatformSystemImpl::AddCursorEnterEventListener(CursorEnterEvent listener, void* userData)
+void PlatformSystemImpl::AddCursorEnterEventListener(CursorEnterEvent listener, void* user_data)
 {
     Callbacks->CursorEnterEvents.push_back(listener);
-    if (userData != nullptr)
+    if (user_data != nullptr)
     {
-        Callbacks->CursorEnterEventUserData[listener.hash()] = userData;
+        Callbacks->CursorEnterEventUserData[listener.hash()] = user_data;
     }
 }
 
-void PlatformSystemImpl::AddScrollEventListener(ScrollEvent listener, void* userData)
+void PlatformSystemImpl::AddScrollEventListener(ScrollEvent listener, void* user_data)
 {
     Callbacks->ScrollEvents.push_back(listener);
-    if (userData != nullptr)
+    if (user_data != nullptr)
     {
-        Callbacks->ScrollEventUserData[listener.hash()] = userData;
+        Callbacks->ScrollEventUserData[listener.hash()] = user_data;
     }
 }
 
-void PlatformSystemImpl::AddCharEventListener(CharEvent listener, void* userData)
+void PlatformSystemImpl::AddCharEventListener(CharEvent listener, void* user_data)
 {
     Callbacks->CharEvents.push_back(listener);
-    if (userData != nullptr)
+    if (user_data != nullptr)
     {
-        Callbacks->CharEventUserData[listener.hash()] = userData;
+        Callbacks->CharEventUserData[listener.hash()] = user_data;
     }
 }
 
-void PlatformSystemImpl::AddPathDropEventListener(PathDropEvent listener, void* userData)
+void PlatformSystemImpl::AddPathDropEventListener(PathDropEvent listener, void* user_data)
 {
     Callbacks->PathDropEvents.push_back(listener);
-    if (userData != nullptr)
+    if (user_data != nullptr)
     {
-        Callbacks->PathDropEventUserData[listener.hash()] = userData;
+        Callbacks->PathDropEventUserData[listener.hash()] = user_data;
     }
 }
 
-void PlatformSystemImpl::AddMouseButtonEventListener(MouseButtonEvent listener, void* userData)
+void PlatformSystemImpl::AddMouseButtonEventListener(MouseButtonEvent listener, void* user_data)
 {
     Callbacks->MouseButtonEvents.push_back(listener);
-    if (userData != nullptr)
+    if (user_data != nullptr)
     {
-        Callbacks->MouseButtonEventUserData[listener.hash()] = userData;
+        Callbacks->MouseButtonEventUserData[listener.hash()] = user_data;
     }
 }
 
-void PlatformSystemImpl::AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* userData)
+void PlatformSystemImpl::AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* user_data)
 {
     Callbacks->KeyboardKeyEvents.push_back(listener);
-    if (userData != nullptr)
+    if (user_data != nullptr)
     {
-        Callbacks->KeyboardKeyEventUserData[listener.hash()] = userData;
+        Callbacks->KeyboardKeyEventUserData[listener.hash()] = user_data;
     }
 }
 
-void PlatformSystemImpl::AddShouldResizeEventListener(ShouldResizeEvent listener, void* userData)
+void PlatformSystemImpl::AddShouldResizeEventListener(ShouldResizeEvent listener, void* user_data)
 {
     Callbacks->ShouldResizeEvents.push_back(listener);
-    if (userData != nullptr)
+    if (user_data != nullptr)
     {
-        Callbacks->ShouldResizeEventUserData[listener.hash()] = userData;
+        Callbacks->ShouldResizeEventUserData[listener.hash()] = user_data;
     }
 }
 
-void PlatformSystemImpl::AddShouldCloseEventListener(ShouldCloseEvent listener, void* userData)
+void PlatformSystemImpl::AddShouldCloseEventListener(ShouldCloseEvent listener, void* user_data)
 {
     Callbacks->ShouldCloseEvents.push_back(listener);
-    if (userData != nullptr)
+    if (user_data != nullptr)
     {
-        Callbacks->ShouldCloseEventUserData[listener.hash()] = userData;
+        Callbacks->ShouldCloseEventUserData[listener.hash()] = user_data;
     }
 }

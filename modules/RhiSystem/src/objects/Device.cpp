@@ -18,7 +18,7 @@ namespace rhi
     // Exceedingly rare to have more than 1 queue per family in the actual hardware anyways, otherwise it's just multiplexing to the actual command processor.
     // Two queues at least gives us some flexibility for parallelism without going overboard.
     constexpr static uint32_t k_MaxQueuesPerFamily = 2u;
-    static VkDevice LossHandlerDevice = VK_NULL_HANDLE;
+    static VkDevice k_LossHandlerDevice = VK_NULL_HANDLE;
     PFN_vkGetDeviceFaultReportsKHR pfn_vkGetDeviceFaultReportsKHR = nullptr;
 
     std::string DeviceFaultAddressTypeToStr(VkDeviceFaultAddressTypeKHR type)
@@ -101,41 +101,41 @@ namespace rhi
         return result;
     }
 
-    std::string VkDeviceFaultAddressInfoToStr(const VkDeviceFaultAddressInfoKHR& addressInfo)
+    std::string VkDeviceFaultAddressInfoToStr(const VkDeviceFaultAddressInfoKHR& address_info)
     {
-        if (addressInfo.addressPrecision == 0)
+        if (address_info.addressPrecision == 0)
         {
             return std::format("Reported Address: 0x{:016X}, AddressType: {}",
-                addressInfo.reportedAddress,
-                DeviceFaultAddressTypeToStr(addressInfo.addressType));
+                address_info.reportedAddress,
+                DeviceFaultAddressTypeToStr(address_info.addressType));
         }
 
-        const uint64_t mask = addressInfo.addressPrecision - 1;
-        const uint64_t lower_address = addressInfo.reportedAddress & ~mask;
-        const uint64_t upper_address = lower_address + mask;
+        const uint64_t mask = address_info.addressPrecision - 1;
+        const uint64_t lowerAddress = address_info.reportedAddress & ~mask;
+        const uint64_t upperAddress = lowerAddress + mask;
         return std::format("Address Range Begin: 0x{:016X}, Address Range End: 0x{:016X}, AddressType: {}",
-            lower_address,
-            upper_address,
-            DeviceFaultAddressTypeToStr(addressInfo.addressType));
+            lowerAddress,
+            upperAddress,
+            DeviceFaultAddressTypeToStr(address_info.addressType));
     }
 
-    void DeviceLostHandler(const Result& deviceLossResult, const char* message)
+    void DeviceLostHandler(const Result& device_loss_result, const char* message)
     {
 
         std::cerr << std::format("Device Fault: {}\n", message);
         if (pfn_vkGetDeviceFaultReportsKHR)
         {
             uint32_t faultCount = 0;
-            pfn_vkGetDeviceFaultReportsKHR(LossHandlerDevice, 0, &faultCount, nullptr);
+            pfn_vkGetDeviceFaultReportsKHR(k_LossHandlerDevice, 0, &faultCount, nullptr);
             std::vector<VkDeviceFaultInfoKHR> faultInfos(faultCount, { VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_KHR, nullptr });
-            pfn_vkGetDeviceFaultReportsKHR(LossHandlerDevice, 0, &faultCount, faultInfos.data());
+            pfn_vkGetDeviceFaultReportsKHR(k_LossHandlerDevice, 0, &faultCount, faultInfos.data());
             for (auto& faultInfo : faultInfos)
             {
                 std::string faultFlagsStr = DeviceFaultFlagBitsToStr(static_cast<VkDeviceFaultFlagBitsKHR>(faultInfo.flags));
                 uint64_t groupID = faultInfo.groupId;
                 std::string_view faultDescription(faultInfo.description);
-                std::string FaultAddressInfoStr = VkDeviceFaultAddressInfoToStr(faultInfo.faultAddressInfo);
-                std::string FaultInstructionAddressInfoStr = VkDeviceFaultAddressInfoToStr(faultInfo.instructionAddressInfo);
+                std::string faultAddressInfoStr = VkDeviceFaultAddressInfoToStr(faultInfo.faultAddressInfo);
+                std::string faultInstructionAddressInfoStr = VkDeviceFaultAddressInfoToStr(faultInfo.instructionAddressInfo);
                 std::string_view vendorDescription(faultInfo.vendorInfo.description);
                 // no idea whatr we do with these vendor fault data currently? Old format used to suggest we could dump things like aftermath
                 // reports or nvdbg dumps or something
@@ -151,12 +151,12 @@ namespace rhi
 
                 if (faultInfo.faultAddressInfo.addressType != VK_DEVICE_FAULT_ADDRESS_TYPE_NONE_KHR)
                 {
-                    std::cerr << std::format("FaultAddressInfo: {}\n", FaultAddressInfoStr);
+                    std::cerr << std::format("FaultAddressInfo: {}\n", faultAddressInfoStr);
                 }
 
                 if (faultInfo.instructionAddressInfo.addressType != VK_DEVICE_FAULT_ADDRESS_TYPE_NONE_KHR)
                 {
-                    std::cerr << std::format("InstructionAddressInfo: {}\n", FaultInstructionAddressInfoStr);
+                    std::cerr << std::format("InstructionAddressInfo: {}\n", faultInstructionAddressInfoStr);
                 }
 
                 if (!vendorDescription.empty() || vendorFaultCode != 0 || vendorFaultData != 0)
@@ -182,134 +182,134 @@ namespace rhi
     struct DeviceImpl
     {
         DeviceImpl(const Instance* instance, uint32_t api_version) :
-            parentInstance{ instance },
-            apiVersion{ api_version },
-            physicalDevice{ VK_NULL_HANDLE },
-            numGraphicsQueues{ 0u },
-            numComputeQueues{ 0u },
-            numTransferQueues{ 0u },
-            numSparseBindingQueues{ 0u }
+            ParentInstance{ instance },
+            ApiVersion{ api_version },
+            PhysicalDevice{ VK_NULL_HANDLE },
+            NumGraphicsQueues{ 0u },
+            NumComputeQueues{ 0u },
+            NumTransferQueues{ 0u },
+            NumSparseBindingQueues{ 0u }
         {
             // perform this step first, so that we have the physical device handle for later steps and device creation
-            selectBestPhysicalDevice();
-            retrievePhysicalDeviceProperties();
-            queryQueueProperties();
+            SelectBestPhysicalDevice();
+            RetrievePhysicalDeviceProperties();
+            QueryQueueProperties();
         }
 
-        void selectBestPhysicalDevice()
+        void SelectBestPhysicalDevice()
         {
-            uint32_t device_count = 0;
-            vkEnumeratePhysicalDevices(parentInstance->Handle().As<VkInstance>(), &device_count, nullptr);
+            uint32_t deviceCount = 0;
+            vkEnumeratePhysicalDevices(ParentInstance->Handle().As<VkInstance>(), &deviceCount, nullptr);
             
-            if (device_count == 0)
+            if (deviceCount == 0)
             {
                 throw std::runtime_error("No Vulkan-compatible physical devices found");
             }
             
-            std::vector<VkPhysicalDevice> devices(device_count);
-            vkEnumeratePhysicalDevices(parentInstance->Handle().As<VkInstance>(), &device_count, devices.data());
+            std::vector<VkPhysicalDevice> devices(deviceCount);
+            vkEnumeratePhysicalDevices(ParentInstance->Handle().As<VkInstance>(), &deviceCount, devices.data());
             
             // Simple scoring system - prefer discrete GPUs
-            VkPhysicalDevice best_device = VK_NULL_HANDLE;
-            int best_score = -1;
+            VkPhysicalDevice bestDevice = VK_NULL_HANDLE;
+            int bestScore = -1;
             
             for (VkPhysicalDevice device : devices)
             {
-                VkPhysicalDeviceProperties device_props;
-                vkGetPhysicalDeviceProperties(device, &device_props);
+                VkPhysicalDeviceProperties deviceProps;
+                vkGetPhysicalDeviceProperties(device, &deviceProps);
 
                 int score = 0;
                 
                 // Prefer discrete GPUs
-                if (device_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+                if (deviceProps.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
                 {
                     score += 1000;
                 }
-                else if (device_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+                else if (deviceProps.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
                 {
                     score += 100;
                 }
                 
                 // Add points for more memory
-                VkPhysicalDeviceMemoryProperties mem_props;
-                vkGetPhysicalDeviceMemoryProperties(device, &mem_props);
+                VkPhysicalDeviceMemoryProperties memProps;
+                vkGetPhysicalDeviceMemoryProperties(device, &memProps);
                 
-                VkDeviceSize total_memory = 0;
-                for (uint32_t i = 0; i < mem_props.memoryHeapCount; ++i)
+                VkDeviceSize totalMemory = 0;
+                for (uint32_t i = 0; i < memProps.memoryHeapCount; ++i)
                 {
-                    if (mem_props.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                    if (memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
                     {
-                        total_memory += mem_props.memoryHeaps[i].size;
+                        totalMemory += memProps.memoryHeaps[i].size;
                     }
                 }
                 
-                score += static_cast<int>(total_memory / (1024 * 1024 * 1024)); // GB of memory
+                score += static_cast<int>(totalMemory / (1024 * 1024 * 1024)); // GB of memory
                 
-                if (score > best_score)
+                if (score > bestScore)
                 {
-                    best_score = score;
-                    best_device = device;
+                    bestScore = score;
+                    bestDevice = device;
                 }
             }
             
-            if (best_device == VK_NULL_HANDLE)
+            if (bestDevice == VK_NULL_HANDLE)
             {
                 throw std::runtime_error("No suitable physical device found");
             }
             
-            physicalDevice = best_device;
+            PhysicalDevice = bestDevice;
         }
 
-        void retrievePhysicalDeviceProperties()
+        void RetrievePhysicalDeviceProperties()
         {
-            properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-            properties.pNext = nullptr;
-            features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-            features.pNext = nullptr;
+            Properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            Properties.pNext = nullptr;
+            Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            Features.pNext = nullptr;
 
             // the *2 queries are core from 1.1. A 1.0 instance may only call them through the KHR extension,
             // which we don't require, so it uses the 1.0 queries and leaves both pNext chains empty
-            if (apiVersion >= VK_API_VERSION_1_1)
+            if (ApiVersion >= VK_API_VERSION_1_1)
             {
-                vkGetPhysicalDeviceProperties2(physicalDevice, &properties);
-                vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
+                vkGetPhysicalDeviceProperties2(PhysicalDevice, &Properties);
+                vkGetPhysicalDeviceFeatures2(PhysicalDevice, &Features);
             }
             else
             {
-                vkGetPhysicalDeviceProperties(physicalDevice, &properties.properties);
-                vkGetPhysicalDeviceFeatures(physicalDevice, &features.features);
+                vkGetPhysicalDeviceProperties(PhysicalDevice, &Properties.properties);
+                vkGetPhysicalDeviceFeatures(PhysicalDevice, &Features.features);
             }
-            vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+            vkGetPhysicalDeviceMemoryProperties(PhysicalDevice, &MemoryProperties);
         }
 
-        void queryQueueProperties()
+        void QueryQueueProperties()
         {
             uint32_t queueFamilyCount = 0;
-            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
-            queueFamilyProperties.resize(queueFamilyCount);
-            vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilyProperties.data());
+            vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &queueFamilyCount, nullptr);
+            QueueFamilyProperties.resize(queueFamilyCount);
+            vkGetPhysicalDeviceQueueFamilyProperties(PhysicalDevice, &queueFamilyCount, QueueFamilyProperties.data());
 
             for (uint32_t i = 0; i < queueFamilyCount; ++i)
             {
-                const VkQueueFamilyProperties& props = queueFamilyProperties[i];
+                const VkQueueFamilyProperties& props = QueueFamilyProperties[i];
 
                 // Graphics queue (also supports compute and transfer)
                 if (props.queueFlags & VK_QUEUE_GRAPHICS_BIT)
                 {
-                    if (queueFamilyIndices.Graphics == ~0u)
+                    if (QueueFamilyIndices.Graphics == ~0u)
                     {
-                        queueFamilyIndices.Graphics = i;
-                        numGraphicsQueues = props.queueCount;
+                        QueueFamilyIndices.Graphics = i;
+                        NumGraphicsQueues = props.queueCount;
                     }
                 }
 
                 // Dedicated compute queue (compute but not graphics)
                 if ((props.queueFlags & VK_QUEUE_COMPUTE_BIT) && !(props.queueFlags & VK_QUEUE_GRAPHICS_BIT))
                 {
-                    if (queueFamilyIndices.Compute == ~0u)
+                    if (QueueFamilyIndices.Compute == ~0u)
                     {
-                        queueFamilyIndices.Compute = i;
-                        numComputeQueues = props.queueCount;
+                        QueueFamilyIndices.Compute = i;
+                        NumComputeQueues = props.queueCount;
                     }
                 }
 
@@ -318,101 +318,101 @@ namespace rhi
                     !(props.queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
                     !(props.queueFlags & VK_QUEUE_COMPUTE_BIT))
                 {
-                    if (queueFamilyIndices.Transfer == ~0u)
+                    if (QueueFamilyIndices.Transfer == ~0u)
                     {
-                        queueFamilyIndices.Transfer = i;
-                        numTransferQueues = props.queueCount;
+                        QueueFamilyIndices.Transfer = i;
+                        NumTransferQueues = props.queueCount;
                     }
                 }
 
                 // Sparse binding queue
                 if (props.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT)
                 {
-                    if (queueFamilyIndices.SparseBinding == ~0u)
+                    if (QueueFamilyIndices.SparseBinding == ~0u)
                     {
-                        queueFamilyIndices.SparseBinding = i;
-                        numSparseBindingQueues = props.queueCount;
+                        QueueFamilyIndices.SparseBinding = i;
+                        NumSparseBindingQueues = props.queueCount;
                     }
                 }
             }
         }
 
-        void setupQueues(VkDevice handle)
+        void SetupQueues(VkDevice handle)
         {
             
             // Setup graphics queues
-            if (queueFamilyIndices.Graphics != VK_QUEUE_FAMILY_IGNORED)
+            if (QueueFamilyIndices.Graphics != VK_QUEUE_FAMILY_IGNORED)
             {
-                numGraphicsQueues = std::min(queueFamilyProperties[queueFamilyIndices.Graphics].queueCount, k_MaxQueuesPerFamily);
-                graphicsQueues.resize(numGraphicsQueues);
+                NumGraphicsQueues = std::min(QueueFamilyProperties[QueueFamilyIndices.Graphics].queueCount, k_MaxQueuesPerFamily);
+                GraphicsQueues.resize(NumGraphicsQueues);
                 
-                for (uint32_t i = 0; i < numGraphicsQueues; ++i)
+                for (uint32_t i = 0; i < NumGraphicsQueues; ++i)
                 {
                     VkQueue queue;
-                    vkGetDeviceQueue(handle, queueFamilyIndices.Graphics, i, &queue);
-                    graphicsQueues[i] = QueueHandle{ reinterpret_cast<uint64_t>(queue) };
+                    vkGetDeviceQueue(handle, QueueFamilyIndices.Graphics, i, &queue);
+                    GraphicsQueues[i] = QueueHandle{ reinterpret_cast<uint64_t>(queue) };
                 }
             }
             
             // Setup compute queues
-            if (queueFamilyIndices.Compute != VK_QUEUE_FAMILY_IGNORED)
+            if (QueueFamilyIndices.Compute != VK_QUEUE_FAMILY_IGNORED)
             {
-                numComputeQueues = std::min(queueFamilyProperties[queueFamilyIndices.Compute].queueCount, k_MaxQueuesPerFamily);
-                computeQueues.resize(numComputeQueues);
+                NumComputeQueues = std::min(QueueFamilyProperties[QueueFamilyIndices.Compute].queueCount, k_MaxQueuesPerFamily);
+                ComputeQueues.resize(NumComputeQueues);
                 
-                for (uint32_t i = 0; i < numComputeQueues; ++i)
+                for (uint32_t i = 0; i < NumComputeQueues; ++i)
                 {
                     VkQueue queue;
-                    vkGetDeviceQueue(handle, queueFamilyIndices.Compute, i, &queue);
-                    computeQueues[i] = QueueHandle{ reinterpret_cast<uint64_t>(queue) };
+                    vkGetDeviceQueue(handle, QueueFamilyIndices.Compute, i, &queue);
+                    ComputeQueues[i] = QueueHandle{ reinterpret_cast<uint64_t>(queue) };
                 }
             }
             
             // Setup transfer queues  
-            if (queueFamilyIndices.Transfer != VK_QUEUE_FAMILY_IGNORED)
+            if (QueueFamilyIndices.Transfer != VK_QUEUE_FAMILY_IGNORED)
             {
-                numTransferQueues = std::min(queueFamilyProperties[queueFamilyIndices.Transfer].queueCount, k_MaxQueuesPerFamily);
-                transferQueues.resize(numTransferQueues);
+                NumTransferQueues = std::min(QueueFamilyProperties[QueueFamilyIndices.Transfer].queueCount, k_MaxQueuesPerFamily);
+                TransferQueues.resize(NumTransferQueues);
                 
-                for (uint32_t i = 0; i < numTransferQueues; ++i)
+                for (uint32_t i = 0; i < NumTransferQueues; ++i)
                 {
                     VkQueue queue;
-                    vkGetDeviceQueue(handle, queueFamilyIndices.Transfer, i, &queue);
-                    transferQueues[i] = QueueHandle{ reinterpret_cast<uint64_t>(queue) };
+                    vkGetDeviceQueue(handle, QueueFamilyIndices.Transfer, i, &queue);
+                    TransferQueues[i] = QueueHandle{ reinterpret_cast<uint64_t>(queue) };
                 }
             }
             
             // Setup sparse binding queues
-            if (queueFamilyIndices.SparseBinding != VK_QUEUE_FAMILY_IGNORED)
+            if (QueueFamilyIndices.SparseBinding != VK_QUEUE_FAMILY_IGNORED)
             {
-                numSparseBindingQueues = std::min(queueFamilyProperties[queueFamilyIndices.SparseBinding].queueCount, k_MaxQueuesPerFamily);
-                sparseBindingQueues.resize(numSparseBindingQueues);
+                NumSparseBindingQueues = std::min(QueueFamilyProperties[QueueFamilyIndices.SparseBinding].queueCount, k_MaxQueuesPerFamily);
+                SparseBindingQueues.resize(NumSparseBindingQueues);
                 
-                for (uint32_t i = 0; i < numSparseBindingQueues; ++i)
+                for (uint32_t i = 0; i < NumSparseBindingQueues; ++i)
                 {
                     VkQueue queue;
-                    vkGetDeviceQueue(handle, queueFamilyIndices.SparseBinding, i, &queue);
-                    sparseBindingQueues[i] = QueueHandle{ reinterpret_cast<uint64_t>(queue) };
+                    vkGetDeviceQueue(handle, QueueFamilyIndices.SparseBinding, i, &queue);
+                    SparseBindingQueues[i] = QueueHandle{ reinterpret_cast<uint64_t>(queue) };
                 }
             }
 
-            std::string queue_info = std::format("Device queues setup - Graphics: {}, Compute: {}, Transfer: {}, Sparse: {}",
-                                                numGraphicsQueues, 
-                                                numComputeQueues, 
-                                                numTransferQueues, 
-                                                numSparseBindingQueues);
+            std::string queueInfo = std::format("Device queues setup - Graphics: {}, Compute: {}, Transfer: {}, Sparse: {}",
+                                                NumGraphicsQueues, 
+                                                NumComputeQueues, 
+                                                NumTransferQueues, 
+                                                NumSparseBindingQueues);
 
-            std::cout << queue_info << "\n";
+            std::cout << queueInfo << "\n";
         }
 
-        void setupDebugUtils(VkDevice handle)
+        void SetupDebugUtils(VkDevice handle)
         {
-            if (!parentInstance->HasValidation() || !parentInstance->HasExtension("VK_EXT_debug_utils"))
+            if (!ParentInstance->HasValidation() || !ParentInstance->HasExtension("VK_EXT_debug_utils"))
             {
                 return;
             }
 
-            auto check_loaded_pfn = [](const void* ptr, const char* function_name)
+            auto checkLoadedPfn = [](const void* ptr, const char* function_name)
             {
                 if (ptr == nullptr)
                 {
@@ -420,43 +420,43 @@ namespace rhi
                 }
             };
 
-            debugUtilsHandler = {};
-            debugUtilsHandler.vkSetDebugUtilsObjectName = 
+            DebugUtilsHandler = {};
+            DebugUtilsHandler.vkSetDebugUtilsObjectName = 
                 reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(vkGetDeviceProcAddr(handle, "vkSetDebugUtilsObjectNameEXT"));
-            check_loaded_pfn((void*)debugUtilsHandler.vkSetDebugUtilsObjectName, "vkSetDebugUtilsObjectNameEXT");
-            debugUtilsHandler.vkSetDebugUtilsObjectTag =
+            checkLoadedPfn(reinterpret_cast<void*>(DebugUtilsHandler.vkSetDebugUtilsObjectName), "vkSetDebugUtilsObjectNameEXT");
+            DebugUtilsHandler.vkSetDebugUtilsObjectTag =
                 reinterpret_cast<PFN_vkSetDebugUtilsObjectTagEXT>(vkGetDeviceProcAddr(handle, "vkSetDebugUtilsObjectTagEXT"));
-            check_loaded_pfn((void*)debugUtilsHandler.vkSetDebugUtilsObjectTag, "vkSetDebugUtilsObjectTagEXT");
-            debugUtilsHandler.vkQueueBeginDebugUtilsLabel = 
+            checkLoadedPfn(reinterpret_cast<void*>(DebugUtilsHandler.vkSetDebugUtilsObjectTag), "vkSetDebugUtilsObjectTagEXT");
+            DebugUtilsHandler.vkQueueBeginDebugUtilsLabel = 
                 reinterpret_cast<PFN_vkQueueBeginDebugUtilsLabelEXT>(vkGetDeviceProcAddr(handle, "vkQueueBeginDebugUtilsLabelEXT"));
-            check_loaded_pfn((void*)debugUtilsHandler.vkQueueBeginDebugUtilsLabel, "vkQueueBeginDebugUtilsLabelEXT");
-            debugUtilsHandler.vkQueueEndDebugUtilsLabel = 
+            checkLoadedPfn(reinterpret_cast<void*>(DebugUtilsHandler.vkQueueBeginDebugUtilsLabel), "vkQueueBeginDebugUtilsLabelEXT");
+            DebugUtilsHandler.vkQueueEndDebugUtilsLabel = 
                 reinterpret_cast<PFN_vkQueueEndDebugUtilsLabelEXT>(vkGetDeviceProcAddr(handle, "vkQueueEndDebugUtilsLabelEXT"));
-            check_loaded_pfn((void*)debugUtilsHandler.vkQueueEndDebugUtilsLabel, "vkQueueEndDebugUtilsLabelEXT");
-            debugUtilsHandler.vkCmdBeginDebugUtilsLabel =
+            checkLoadedPfn(reinterpret_cast<void*>(DebugUtilsHandler.vkQueueEndDebugUtilsLabel), "vkQueueEndDebugUtilsLabelEXT");
+            DebugUtilsHandler.vkCmdBeginDebugUtilsLabel =
                 reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(vkGetDeviceProcAddr(handle, "vkCmdBeginDebugUtilsLabelEXT"));
-            check_loaded_pfn((void*)debugUtilsHandler.vkCmdBeginDebugUtilsLabel, "vkCmdBeginDebugUtilsLabelEXT");
-            debugUtilsHandler.vkCmdEndDebugUtilsLabel =
+            checkLoadedPfn(reinterpret_cast<void*>(DebugUtilsHandler.vkCmdBeginDebugUtilsLabel), "vkCmdBeginDebugUtilsLabelEXT");
+            DebugUtilsHandler.vkCmdEndDebugUtilsLabel =
                 reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(vkGetDeviceProcAddr(handle, "vkCmdEndDebugUtilsLabelEXT"));
-            check_loaded_pfn((void*)debugUtilsHandler.vkCmdEndDebugUtilsLabel, "vkCmdEndDebugUtilsLabelEXT");
-            debugUtilsHandler.vkCmdInsertDebugUtilsLabel =
+            checkLoadedPfn(reinterpret_cast<void*>(DebugUtilsHandler.vkCmdEndDebugUtilsLabel), "vkCmdEndDebugUtilsLabelEXT");
+            DebugUtilsHandler.vkCmdInsertDebugUtilsLabel =
                 reinterpret_cast<PFN_vkCmdInsertDebugUtilsLabelEXT>(vkGetDeviceProcAddr(handle, "vkCmdInsertDebugUtilsLabelEXT"));
-            check_loaded_pfn((void*)debugUtilsHandler.vkCmdInsertDebugUtilsLabel, "vkCmdInsertDebugUtilsLabelEXT");
-            debugUtilsHandler.vkCreateDebugUtilsMessenger =
-                reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(parentInstance->Handle().As<VkInstance>(), "vkCreateDebugUtilsMessengerEXT"));
-            check_loaded_pfn((void*)debugUtilsHandler.vkCreateDebugUtilsMessenger, "vkCreateDebugUtilsMessengerEXT");
-            debugUtilsHandler.vkDestroyDebugUtilsMessenger =
-                reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(parentInstance->Handle().As<VkInstance>(), "vkDestroyDebugUtilsMessengerEXT"));
-            check_loaded_pfn((void*)debugUtilsHandler.vkDestroyDebugUtilsMessenger, "vkDestroyDebugUtilsMessengerEXT");
-            debugUtilsHandler.vkSubmitDebugUtilsMessage =
-                reinterpret_cast<PFN_vkSubmitDebugUtilsMessageEXT>(vkGetInstanceProcAddr(parentInstance->Handle().As<VkInstance>(), "vkSubmitDebugUtilsMessageEXT"));
-            check_loaded_pfn((void*)debugUtilsHandler.vkSubmitDebugUtilsMessage, "vkSubmitDebugUtilsMessageEXT");
+            checkLoadedPfn(reinterpret_cast<void*>(DebugUtilsHandler.vkCmdInsertDebugUtilsLabel), "vkCmdInsertDebugUtilsLabelEXT");
+            DebugUtilsHandler.vkCreateDebugUtilsMessenger =
+                reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(ParentInstance->Handle().As<VkInstance>(), "vkCreateDebugUtilsMessengerEXT"));
+            checkLoadedPfn(reinterpret_cast<void*>(DebugUtilsHandler.vkCreateDebugUtilsMessenger), "vkCreateDebugUtilsMessengerEXT");
+            DebugUtilsHandler.vkDestroyDebugUtilsMessenger =
+                reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(ParentInstance->Handle().As<VkInstance>(), "vkDestroyDebugUtilsMessengerEXT"));
+            checkLoadedPfn(reinterpret_cast<void*>(DebugUtilsHandler.vkDestroyDebugUtilsMessenger), "vkDestroyDebugUtilsMessengerEXT");
+            DebugUtilsHandler.vkSubmitDebugUtilsMessage =
+                reinterpret_cast<PFN_vkSubmitDebugUtilsMessageEXT>(vkGetInstanceProcAddr(ParentInstance->Handle().As<VkInstance>(), "vkSubmitDebugUtilsMessageEXT"));
+            checkLoadedPfn(reinterpret_cast<void*>(DebugUtilsHandler.vkSubmitDebugUtilsMessage), "vkSubmitDebugUtilsMessageEXT");
         }
 
-        void setupDeviceFaultHandler(VkDevice handle)
+        void SetupDeviceFaultHandler(VkDevice handle)
         {
             g_DeviceLossHandler = DeviceLostHandler;
-            LossHandlerDevice = handle;
+            k_LossHandlerDevice = handle;
             pfn_vkGetDeviceFaultReportsKHR = reinterpret_cast<PFN_vkGetDeviceFaultReportsKHR>(vkGetDeviceProcAddr(handle, "vkGetDeviceFaultReportsKHR"));
             if (pfn_vkGetDeviceFaultReportsKHR == nullptr)
             {
@@ -464,29 +464,29 @@ namespace rhi
             }
         }
 
-        const Instance* parentInstance;
-        uint32_t apiVersion;
-        VkPhysicalDevice physicalDevice;
+        const Instance* ParentInstance;
+        uint32_t ApiVersion;
+        VkPhysicalDevice PhysicalDevice;
 
-        std::vector<QueueHandle> graphicsQueues;
-        std::vector<QueueHandle> computeQueues;
-        std::vector<QueueHandle> transferQueues;
-        std::vector<QueueHandle> sparseBindingQueues;
+        std::vector<QueueHandle> GraphicsQueues;
+        std::vector<QueueHandle> ComputeQueues;
+        std::vector<QueueHandle> TransferQueues;
+        std::vector<QueueHandle> SparseBindingQueues;
 
-        QueueFamilyIndices queueFamilyIndices;
-        uint32_t numGraphicsQueues;
-        uint32_t numComputeQueues;
-        uint32_t numTransferQueues;
-        uint32_t numSparseBindingQueues;
+        QueueFamilyIndices QueueFamilyIndices;
+        uint32_t NumGraphicsQueues;
+        uint32_t NumComputeQueues;
+        uint32_t NumTransferQueues;
+        uint32_t NumSparseBindingQueues;
         
-        std::vector<std::string> enabledExtensions;
-        std::vector<std::string> coreExtensions;
-        VkDebugUtilsFunctions debugUtilsHandler;
+        std::vector<std::string> EnabledExtensions;
+        std::vector<std::string> CoreExtensions;
+        VkDebugUtilsFunctions DebugUtilsHandler;
 
-        VkPhysicalDeviceProperties2 properties;
-        VkPhysicalDeviceFeatures2 features;
-        VkPhysicalDeviceMemoryProperties memoryProperties;
-        std::vector<VkQueueFamilyProperties> queueFamilyProperties;
+        VkPhysicalDeviceProperties2 Properties;
+        VkPhysicalDeviceFeatures2 Features;
+        VkPhysicalDeviceMemoryProperties MemoryProperties;
+        std::vector<VkQueueFamilyProperties> QueueFamilyProperties;
     };
 
     Device::Device(const Instance* instance,
@@ -507,36 +507,36 @@ namespace rhi
 
     QueueHandle Device::GetGraphicsQueue(uint32_t index) const noexcept
     {
-        return impl->graphicsQueues[index];
+        return impl->GraphicsQueues[index];
     }
 
     QueueHandle Device::GetComputeQueue(uint32_t index) const noexcept
     {
-        return impl->computeQueues[index];
+        return impl->ComputeQueues[index];
     }
 
     QueueHandle Device::GetTransferQueue(uint32_t index) const noexcept
     {
-        return impl->transferQueues[index];
+        return impl->TransferQueues[index];
     }
 
     QueueHandle Device::GetSparseBindingQueue(uint32_t index) const noexcept
     {
-        return impl->sparseBindingQueues[index];
+        return impl->SparseBindingQueues[index];
     }
 
     QueueHandle Device::GetGeneralQueue() const noexcept
     {
         // Prefer graphics queue as it supports all operations
-        if (!impl->graphicsQueues.empty())
+        if (!impl->GraphicsQueues.empty())
         {
-            return impl->graphicsQueues.front();
+            return impl->GraphicsQueues.front();
         }
         
         // Fallback to compute queue
-        if (!impl->computeQueues.empty())
+        if (!impl->ComputeQueues.empty())
         {
-            return impl->computeQueues.front();
+            return impl->ComputeQueues.front();
         }
 
         return QueueHandle{ 0u };
@@ -545,8 +545,8 @@ namespace rhi
     bool Device::HasExtension(std::string_view extension_name) const noexcept
     {
         // a requested extension that is core in the active version is available without being enabled by name
-        return std::find(impl->enabledExtensions.begin(), impl->enabledExtensions.end(), extension_name) != impl->enabledExtensions.end() ||
-               std::find(impl->coreExtensions.begin(), impl->coreExtensions.end(), extension_name) != impl->coreExtensions.end();
+        return std::find(impl->EnabledExtensions.begin(), impl->EnabledExtensions.end(), extension_name) != impl->EnabledExtensions.end() ||
+               std::find(impl->CoreExtensions.begin(), impl->CoreExtensions.end(), extension_name) != impl->CoreExtensions.end();
     }
 
     void Device::WaitDeviceIdle() const
@@ -556,21 +556,21 @@ namespace rhi
 
     const VkDebugUtilsFunctions& Device::GetDebugUtilFns() const noexcept
     {
-        return impl->debugUtilsHandler;
+        return impl->DebugUtilsHandler;
     }
 
     uint32_t Device::GetMemoryTypeIndex(const uint32_t type_bitfield, const uint32_t property_flags) const
     {
-        const VkMemoryPropertyFlags required_flags = static_cast<VkMemoryPropertyFlags>(property_flags);
-        const VkPhysicalDeviceMemoryProperties& mem_props = impl->memoryProperties;
-        const uint32_t num_memory_types = mem_props.memoryTypeCount;
+        const VkMemoryPropertyFlags requiredFlags = static_cast<VkMemoryPropertyFlags>(property_flags);
+        const VkPhysicalDeviceMemoryProperties& memProps = impl->MemoryProperties;
+        const uint32_t numMemoryTypes = memProps.memoryTypeCount;
         uint32_t bitfield = type_bitfield;
 
-        for (uint32_t i = 0; i < num_memory_types; ++i)
+        for (uint32_t i = 0; i < numMemoryTypes; ++i)
         {
             if (bitfield & 1)
             {
-                if ((mem_props.memoryTypes[i].propertyFlags & property_flags) == required_flags)
+                if ((memProps.memoryTypes[i].propertyFlags & property_flags) == requiredFlags)
                 {
                     return i;
                 }
@@ -588,131 +588,131 @@ namespace rhi
 
     PhysicalDeviceHandle Device::GetPhysicalDevice() const noexcept
     {
-        return PhysicalDeviceHandle{ reinterpret_cast<uint64_t>(impl->physicalDevice) };
+        return PhysicalDeviceHandle{ reinterpret_cast<uint64_t>(impl->PhysicalDevice) };
     }
 
     uint32_t Device::GetGraphicsQueueCount() const noexcept
     {
-        return impl->numGraphicsQueues;
+        return impl->NumGraphicsQueues;
     }
 
     uint32_t Device::GetComputeQueueCount() const noexcept
     {
-        return impl->numComputeQueues;
+        return impl->NumComputeQueues;
     }
 
     uint32_t Device::GetTransferQueueCount() const noexcept
     {
-        return impl->numTransferQueues;
+        return impl->NumTransferQueues;
     }
 
     uint32_t Device::GetSparseBindingQueueCount() const noexcept
     {
-        return impl->numSparseBindingQueues;
+        return impl->NumSparseBindingQueues;
     }
 
     const QueueFamilyIndices& Device::GetQueueFamilyIndices() const noexcept
     {
-        return impl->queueFamilyIndices;
+        return impl->QueueFamilyIndices;
     }
 
     const std::vector<std::string>& Device::GetEnabledExtensions() const noexcept
     {
-        return impl->enabledExtensions;
+        return impl->EnabledExtensions;
     }
 
     void Device::createDevice(ExtensionPack& extensions)
     {
-        const QueueFamilyIndices& queue_indices = impl->queueFamilyIndices;
-        extensions.SetPhysicalDevice(impl->physicalDevice);
+        const QueueFamilyIndices& queueIndices = impl->QueueFamilyIndices;
+        extensions.SetPhysicalDevice(impl->PhysicalDevice);
         extensions.AddAllSupportedMaintenanceExtensions();
         extensions.ResolveDeviceDependencies();
         
         // Collect unique queue families
-        std::set<uint32_t> unique_queue_families = 
+        std::set<uint32_t> uniqueQueueFamilies = 
         {
-            queue_indices.Graphics,
-            queue_indices.Compute,
-            queue_indices.Transfer,
-            queue_indices.SparseBinding
+            queueIndices.Graphics,
+            queueIndices.Compute,
+            queueIndices.Transfer,
+            queueIndices.SparseBinding
         };
         
         // Create queue create info for each unique family
-        std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-        std::vector<std::vector<float>> queue_priorities_storage;
+        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+        std::vector<std::vector<float>> queuePrioritiesStorage;
 
-        const std::vector<VkQueueFamilyProperties>& queue_props = impl->queueFamilyProperties;
+        const std::vector<VkQueueFamilyProperties>& queueProps = impl->QueueFamilyProperties;
 
-        for (uint32_t queue_family : unique_queue_families)
+        for (uint32_t queueFamily : uniqueQueueFamilies)
         {
-            if (queue_family == VK_QUEUE_FAMILY_IGNORED)
+            if (queueFamily == VK_QUEUE_FAMILY_IGNORED)
             {
                 continue;
             }
             
-            const uint32_t queue_count = std::min(queue_props[queue_family].queueCount, k_MaxQueuesPerFamily);
+            const uint32_t queueCount = std::min(queueProps[queueFamily].queueCount, k_MaxQueuesPerFamily);
             
-            queue_priorities_storage.emplace_back(queue_count, 1.0f);
+            queuePrioritiesStorage.emplace_back(queueCount, 1.0f);
             
-            VkDeviceQueueCreateInfo queue_create_info = 
+            VkDeviceQueueCreateInfo queueCreateInfo = 
             {
                 VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
                 nullptr,
                 0,
-                queue_family,
-                queue_count,
-                queue_priorities_storage.back().data()
+                queueFamily,
+                queueCount,
+                queuePrioritiesStorage.back().data()
             };
             
-            queue_create_infos.push_back(queue_create_info);
+            queueCreateInfos.push_back(queueCreateInfo);
         }
         
         // Get device extensions
-        const std::vector<const char*>& device_extensions = extensions.GetDeviceExtensions();
+        const std::vector<const char*>& deviceExtensions = extensions.GetDeviceExtensions();
         
         // Store enabled extensions
-        impl->enabledExtensions.reserve(device_extensions.size());
-        for (const char* ext : device_extensions)
+        impl->EnabledExtensions.reserve(deviceExtensions.size());
+        for (const char* ext : deviceExtensions)
         {
-            impl->enabledExtensions.emplace_back(ext);
+            impl->EnabledExtensions.emplace_back(ext);
         }
-        impl->coreExtensions = extensions.GetCoreDeviceExtensions();
+        impl->CoreExtensions = extensions.GetCoreDeviceExtensions();
         
         // Device features
-        const VkPhysicalDeviceFeatures2* device_features = extensions.GetDeviceFeatures();
+        const VkPhysicalDeviceFeatures2* deviceFeatures = extensions.GetDeviceFeatures();
         
-        VkDeviceCreateInfo create_info = 
+        VkDeviceCreateInfo createInfo = 
         {
             VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-            device_features, // pNext chain for extended features
+            deviceFeatures, // pNext chain for extended features
             0,
-            static_cast<uint32_t>(queue_create_infos.size()),
-            queue_create_infos.data(),
+            static_cast<uint32_t>(queueCreateInfos.size()),
+            queueCreateInfos.data(),
             0, // Layer count (deprecated at device level)
             nullptr, // Layer names (deprecated at device level)
-            static_cast<uint32_t>(device_extensions.size()),
-            device_extensions.data(),
+            static_cast<uint32_t>(deviceExtensions.size()),
+            deviceExtensions.data(),
             nullptr
         };
 
         // a 1.0 device can't take VkPhysicalDeviceFeatures2 in pNext, so it gets the 1.0 features directly
-        if (impl->apiVersion < VK_API_VERSION_1_1)
+        if (impl->ApiVersion < VK_API_VERSION_1_1)
         {
-            create_info.pNext = nullptr;
-            create_info.pEnabledFeatures = &device_features->features;
+            createInfo.pNext = nullptr;
+            createInfo.pEnabledFeatures = &deviceFeatures->features;
         }
         
-        const VkPhysicalDevice pDevice = impl->physicalDevice;
+        const VkPhysicalDevice pDevice = impl->PhysicalDevice;
         VkDevice resultHandle = VK_NULL_HANDLE;
-        rhi::Result result = vkCreateDevice(pDevice, &create_info, nullptr, &resultHandle);
+        rhi::Result result = vkCreateDevice(pDevice, &createInfo, nullptr, &resultHandle);
         RhiAssert(result);
  
         handle.Set<VkDevice>(resultHandle);
-        impl->setupQueues(handle.As<VkDevice>());
-        impl->setupDebugUtils(handle.As<VkDevice>());
+        impl->SetupQueues(handle.As<VkDevice>());
+        impl->SetupDebugUtils(handle.As<VkDevice>());
         if (HasExtension("VK_KHR_device_fault"))
         {
-            impl->setupDeviceFaultHandler(handle.As<VkDevice>());
+            impl->SetupDeviceFaultHandler(handle.As<VkDevice>());
         }
         
     }

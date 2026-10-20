@@ -71,7 +71,7 @@
 static_assert(std::ranges::is_sorted(deviceExtensionTable), "deviceExtensionTable must be sorted for binary search");
 static_assert(std::ranges::is_sorted(instanceExtensionTable), "instanceExtensionTable must be sorted for binary search");
 
-static const std::set<uint32_t> BuiltInVkVersions
+static const std::set<uint32_t> k_BuiltInVkVersions
 {
     VK_API_VERSION_1_0,
     VK_API_VERSION_1_1,
@@ -80,25 +80,25 @@ static const std::set<uint32_t> BuiltInVkVersions
     VK_API_VERSION_1_4
 };
 
-static VkPhysicalDeviceVulkan11Features localVulkan11Features
+static VkPhysicalDeviceVulkan11Features k_LocalVulkan11Features
 {
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
     nullptr
 };
 
-static VkPhysicalDeviceVulkan12Features localVulkan12Features
+static VkPhysicalDeviceVulkan12Features k_LocalVulkan12Features
 {
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
     nullptr
 };
 
-static VkPhysicalDeviceVulkan13Features localVulkan13Features
+static VkPhysicalDeviceVulkan13Features k_LocalVulkan13Features
 {
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
     nullptr
 };
 
-static VkPhysicalDeviceVulkan14Features localVulkan14Features
+static VkPhysicalDeviceVulkan14Features k_LocalVulkan14Features
 {
     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
     nullptr
@@ -110,19 +110,19 @@ struct DependencyCache
     {
         uint32_t numInstanceExtensions = 0;
         vkEnumerateInstanceExtensionProperties(nullptr, &numInstanceExtensions, nullptr);
-        instanceExtensionDependencies.resize(numInstanceExtensions);
-        vkEnumerateInstanceExtensionProperties(nullptr, &numInstanceExtensions, instanceExtensionDependencies.data());
+        InstanceExtensionDependencies.resize(numInstanceExtensions);
+        vkEnumerateInstanceExtensionProperties(nullptr, &numInstanceExtensions, InstanceExtensionDependencies.data());
 
         if (_physicalDevice != VK_NULL_HANDLE)
         {
             uint32_t numDeviceExtensions = 0;
             vkEnumerateDeviceExtensionProperties(_physicalDevice, nullptr, &numDeviceExtensions, nullptr);
-            deviceExtensionDependencies.resize(numDeviceExtensions);
-            vkEnumerateDeviceExtensionProperties(_physicalDevice, nullptr, &numDeviceExtensions, deviceExtensionDependencies.data());
+            DeviceExtensionDependencies.resize(numDeviceExtensions);
+            vkEnumerateDeviceExtensionProperties(_physicalDevice, nullptr, &numDeviceExtensions, DeviceExtensionDependencies.data());
         }
     }
-    std::vector<VkExtensionProperties> deviceExtensionDependencies;
-    std::vector<VkExtensionProperties> instanceExtensionDependencies;
+    std::vector<VkExtensionProperties> DeviceExtensionDependencies;
+    std::vector<VkExtensionProperties> InstanceExtensionDependencies;
 };
 
 ExtensionDependencies::ExtensionDependencies(uint32_t _numInstanceExtensionDeps, uint32_t _numDeviceExtensionDeps) :
@@ -201,12 +201,12 @@ ExtensionWrangler::ExtensionWrangler(
 {
     // Find the highest API version that is <= the input API version
     // upper_bound returns iterator to first element > apiVersion, so we want the element before that
-    auto upperBoundIt = std::upper_bound(std::begin(BuiltInVkVersions), std::end(BuiltInVkVersions), apiVersion);
+    auto upperBoundIt = std::upper_bound(std::begin(k_BuiltInVkVersions), std::end(k_BuiltInVkVersions), apiVersion);
     
     // If upper_bound points to begin(), then apiVersion is less than all built-in versions, use the first one
-    if (upperBoundIt == std::begin(BuiltInVkVersions))
+    if (upperBoundIt == std::begin(k_BuiltInVkVersions))
     {
-        apiVersion = *BuiltInVkVersions.begin();
+        apiVersion = *k_BuiltInVkVersions.begin();
     }
     else
     {
@@ -240,31 +240,31 @@ bool AreStringsEqual(const VkExtensionProperties& a, const char* b)
     return strcmp(a.extensionName, b) == 0;
 }
 
-bool ExtensionWrangler::IsExtensionSupported(const std::string_view extensionName) const
+bool ExtensionWrangler::IsExtensionSupported(const std::string_view extension_name) const
 {
     // if extension is core in active version, we're all good!
-    if (ExtensionCoreInActiveVersion(extensionName))
+    if (ExtensionCoreInActiveVersion(extension_name))
     {
         return true;
     }
 
-    if (ExtensionIsDeviceExtension(extensionName))
+    if (ExtensionIsDeviceExtension(extension_name))
     {
         // if extension is device extension, we need to check if the physical device supports it
-        auto& supportedDeviceExtensions = dependencyCache->deviceExtensionDependencies;
+        auto& supportedDeviceExtensions = dependencyCache->DeviceExtensionDependencies;
         auto extensionIter = std::find_if(
             supportedDeviceExtensions.begin(),
             supportedDeviceExtensions.end(),
-            [&extensionName](const VkExtensionProperties& props) { return strcmp(props.extensionName, extensionName.data()) == 0; });
+            [&extension_name](const VkExtensionProperties& props) { return strcmp(props.extensionName, extension_name.data()) == 0; });
         return extensionIter != supportedDeviceExtensions.end();
     }
-    else if (ExtensionIsInstanceExtension(extensionName))
+    else if (ExtensionIsInstanceExtension(extension_name))
     {
-        auto& supportedInstanceExtensions = dependencyCache->instanceExtensionDependencies;
+        auto& supportedInstanceExtensions = dependencyCache->InstanceExtensionDependencies;
         auto extensionIter = std::find_if(
             supportedInstanceExtensions.begin(),
             supportedInstanceExtensions.end(),
-            [&extensionName](const VkExtensionProperties& props) { return strcmp(props.extensionName, extensionName.data()) == 0; });
+            [&extension_name](const VkExtensionProperties& props) { return strcmp(props.extensionName, extension_name.data()) == 0; });
         return extensionIter != supportedInstanceExtensions.end();
     }
     else
@@ -274,11 +274,11 @@ bool ExtensionWrangler::IsExtensionSupported(const std::string_view extensionNam
     }
 }
 
-bool ExtensionWrangler::AreExtensionsSupported(const size_t numExtensions, const std::string_view* extensionNames) const
+bool ExtensionWrangler::AreExtensionsSupported(const size_t num_extensions, const std::string_view* extension_names) const
 {
-    for (size_t i = 0; i < numExtensions; i++)
+    for (size_t i = 0; i < num_extensions; i++)
     {
-        if (!IsExtensionSupported(extensionNames[i]))
+        if (!IsExtensionSupported(extension_names[i]))
         {
             return false;
         }
@@ -287,9 +287,9 @@ bool ExtensionWrangler::AreExtensionsSupported(const size_t numExtensions, const
     return true;
 }
 
-bool ExtensionWrangler::ExtensionIsDeviceExtension(const std::string_view extensionName) const
+bool ExtensionWrangler::ExtensionIsDeviceExtension(const std::string_view extension_name) const
 {
-    auto extensionNameIter = extensionIndexLookupMap.find(extensionName);
+    auto extensionNameIter = extensionIndexLookupMap.find(extension_name);
     if (extensionNameIter == extensionIndexLookupMap.end())
     {
         return false;
@@ -300,9 +300,9 @@ bool ExtensionWrangler::ExtensionIsDeviceExtension(const std::string_view extens
     return std::binary_search(deviceExtensionTable.begin(), deviceExtensionTable.end(), extensionIndex);
 }
 
-bool ExtensionWrangler::ExtensionIsInstanceExtension(const std::string_view extensionName) const
+bool ExtensionWrangler::ExtensionIsInstanceExtension(const std::string_view extension_name) const
 {
-    auto extensionNameIter = extensionIndexLookupMap.find(extensionName);
+    auto extensionNameIter = extensionIndexLookupMap.find(extension_name);
     if (extensionNameIter == extensionIndexLookupMap.end())
     {
         return false;
@@ -313,9 +313,9 @@ bool ExtensionWrangler::ExtensionIsInstanceExtension(const std::string_view exte
     return std::binary_search(instanceExtensionTable.begin(), instanceExtensionTable.end(), extensionIndex);
 }
 
-bool ExtensionWrangler::ExtensionCoreInActiveVersion(const std::string_view extensionName) const
+bool ExtensionWrangler::ExtensionCoreInActiveVersion(const std::string_view extension_name) const
 {
-    auto extensionNameIter = extensionIndexLookupMap.find(extensionName);
+    auto extensionNameIter = extensionIndexLookupMap.find(extension_name);
     if (extensionNameIter == extensionIndexLookupMap.end())
     {
         return false;
@@ -356,45 +356,45 @@ std::vector<std::string_view> ExtensionWrangler::GetSupportedExtensionsByPrefix(
     return result;
 }
 
-std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionDependencies(const std::string_view extensionName) const
+std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionDependencies(const std::string_view extension_name) const
 {
-    if (ExtensionCoreInActiveVersion(extensionName))
+    if (ExtensionCoreInActiveVersion(extension_name))
     {
         ExtensionDependencies dependencies(0, 0);
         dependencies.versionDep = apiVersion;
         return std::move(dependencies);
     }
-    else if (ExtensionIsInstanceExtension(extensionName))
+    else if (ExtensionIsInstanceExtension(extension_name))
     {
-        auto& supportedInstanceExtensions = dependencyCache->instanceExtensionDependencies;
+        auto& supportedInstanceExtensions = dependencyCache->InstanceExtensionDependencies;
         auto supportedInstanceExtensionIter = std::find_if(
             supportedInstanceExtensions.begin(),
             supportedInstanceExtensions.end(),
-            [&extensionName](const VkExtensionProperties& props) { return strcmp(props.extensionName, extensionName.data()) == 0; });
+            [&extension_name](const VkExtensionProperties& props) { return strcmp(props.extensionName, extension_name.data()) == 0; });
         if (supportedInstanceExtensionIter == supportedInstanceExtensions.end())
         {
             return std::unexpected<DependencyError>(DependencyError::ExtensionNotSupported);
         }
 
         // found the extension, now get its dependencies
-        const size_t extensionIndex = extensionIndexLookupMap.find(extensionName)->second;
-        return getExtensionDependenciesInternal(extensionName, extensionIndex);
+        const size_t extensionIndex = extensionIndexLookupMap.find(extension_name)->second;
+        return getExtensionDependenciesInternal(extension_name, extensionIndex);
     }
-    else if (physicalDevice != VK_NULL_HANDLE && ExtensionIsDeviceExtension(extensionName))
+    else if (physicalDevice != VK_NULL_HANDLE && ExtensionIsDeviceExtension(extension_name))
     {
         // if extension is device extension, we need to check if the physical device supports it
-        auto& supportedDeviceExtensions = dependencyCache->deviceExtensionDependencies;
+        auto& supportedDeviceExtensions = dependencyCache->DeviceExtensionDependencies;
         auto supportedDeviceExtensionIter = std::find_if(
             supportedDeviceExtensions.begin(),
             supportedDeviceExtensions.end(),
-            [&extensionName](const VkExtensionProperties& props) { return strcmp(props.extensionName, extensionName.data()) == 0; });
+            [&extension_name](const VkExtensionProperties& props) { return strcmp(props.extensionName, extension_name.data()) == 0; });
         if (supportedDeviceExtensionIter == supportedDeviceExtensions.end())
         {
             return std::unexpected<DependencyError>(DependencyError::ExtensionNotSupported);
         }
 
-        const size_t extensionIndex = extensionIndexLookupMap.find(extensionName)->second;
-        return getExtensionDependenciesInternal(extensionName, extensionIndex);
+        const size_t extensionIndex = extensionIndexLookupMap.find(extension_name)->second;
+        return getExtensionDependenciesInternal(extension_name, extensionIndex);
     }
     else
     {
@@ -403,9 +403,9 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     }
 }
 
-std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionDependencies(std::span<std::string_view> extensionNames) const
+std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionDependencies(std::span<std::string_view> extension_names) const
 {
-    if (extensionNames.empty())
+    if (extension_names.empty())
     {
         return std::unexpected<DependencyError>(DependencyError::NoExtensionsProvided);
     }
@@ -413,9 +413,9 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     std::set<std::string_view> uniqueInstanceDependencies;
     std::set<std::string_view> uniqueDeviceDependencies;
 
-    for (size_t i = 0; i < extensionNames.size(); ++i)
+    for (size_t i = 0; i < extension_names.size(); ++i)
     {
-        auto dependencies = GetExtensionDependencies(extensionNames[i]);
+        auto dependencies = GetExtensionDependencies(extension_names[i]);
         if (!dependencies.has_value() && (dependencies.error() == DependencyError::NoDependenciesForExtension))
         {
             // totally fine, we just don't have dependencies for this particular extension!
@@ -469,15 +469,15 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
 }
 
 std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionFeatures(
-    std::span<std::string_view> extensionNames,
-    GetVersionFeatures getVersionFeatures,
-    CollectDependencies collectDependencies) const
+    std::span<std::string_view> extension_names,
+    GetVersionFeatures get_version_features,
+    CollectDependencies collect_dependencies) const
 {
     VkPhysicalDeviceFeatures2 features2 = {};
     features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     features2.pNext = nullptr;
 
-    if (extensionNames.empty() && getVersionFeatures == GetVersionFeatures::False)
+    if (extension_names.empty() && get_version_features == GetVersionFeatures::False)
     {
         // No extensions, return empty features
         return features2;
@@ -487,8 +487,8 @@ std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> Ext
     // this is totally safe, since we're not ever storing actual objects, just pointers to these structs
     struct FeaturesStructAlias
     {
-        VkStructureType sType;
-        void* pNext;
+        VkStructureType SType;
+        void* PNext;
     };
 
     auto castToFeaturesStructAlias = [](void* ptr) -> FeaturesStructAlias*
@@ -500,49 +500,49 @@ std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> Ext
     featuresVec.emplace_back(castToFeaturesStructAlias(&features2));
 
     // We're going to want to use a stack of sorts to build the pNext chain, so we start with the base features
-    if (getVersionFeatures == GetVersionFeatures::True)
+    if (get_version_features == GetVersionFeatures::True)
     {
 
         // Cumulatively add feature structs for all versions up to and including apiVersion
         if (apiVersion >= VK_API_VERSION_1_1)
         {
             FeaturesStructAlias* currentBack = featuresVec.back();
-            FeaturesStructAlias* features11Alias = castToFeaturesStructAlias(&localVulkan11Features);
-            currentBack->pNext = features11Alias;
+            FeaturesStructAlias* features11Alias = castToFeaturesStructAlias(&k_LocalVulkan11Features);
+            currentBack->PNext = features11Alias;
             featuresVec.push_back(features11Alias);
         }
 
         if (apiVersion >= VK_API_VERSION_1_2)
         {
             FeaturesStructAlias* currentBack = featuresVec.back();
-            FeaturesStructAlias* features12Alias = castToFeaturesStructAlias(&localVulkan12Features);
-            currentBack->pNext = features12Alias;
+            FeaturesStructAlias* features12Alias = castToFeaturesStructAlias(&k_LocalVulkan12Features);
+            currentBack->PNext = features12Alias;
             featuresVec.push_back(features12Alias);
         }
 
         if (apiVersion >= VK_API_VERSION_1_3)
         {
             FeaturesStructAlias* currentBack = featuresVec.back();
-            FeaturesStructAlias* features13Alias = castToFeaturesStructAlias(&localVulkan13Features);
-            currentBack->pNext = features13Alias;
+            FeaturesStructAlias* features13Alias = castToFeaturesStructAlias(&k_LocalVulkan13Features);
+            currentBack->PNext = features13Alias;
             featuresVec.push_back(features13Alias);
         }
 
         if (apiVersion >= VK_API_VERSION_1_4)
         {
             FeaturesStructAlias* currentBack = featuresVec.back();
-            FeaturesStructAlias* features14Alias = castToFeaturesStructAlias(&localVulkan14Features);
-            currentBack->pNext = features14Alias;
+            FeaturesStructAlias* features14Alias = castToFeaturesStructAlias(&k_LocalVulkan14Features);
+            currentBack->PNext = features14Alias;
             featuresVec.push_back(features14Alias);
         }
     }
 
     // unfortunately need a duplicate list of the names, since we may need to add to it for dependencies (I expect this to be a common case)
-    std::vector<std::string_view> extensionNamesVec{ extensionNames.begin(), extensionNames.end() };
-    if (collectDependencies == CollectDependencies::True)
+    std::vector<std::string_view> extensionNamesVec{ extension_names.begin(), extension_names.end() };
+    if (collect_dependencies == CollectDependencies::True)
     {
         // Collect dependencies for the extensions
-        auto extensionDeps = GetExtensionDependencies(extensionNames);
+        auto extensionDeps = GetExtensionDependencies(extension_names);
         if (!extensionDeps.has_value())
         {
             // If we couldn't collect dependencies, forward the error
@@ -593,7 +593,7 @@ std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> Ext
         FeaturesStructAlias* currentFeatureAlias = castToFeaturesStructAlias(const_cast<void*>(featureStructPtr));
         // Now we need to add this to the pNext chain
         FeaturesStructAlias* lastFeatureAlias = featuresVec.back();
-        lastFeatureAlias->pNext = currentFeatureAlias;
+        lastFeatureAlias->PNext = currentFeatureAlias;
         featuresVec.emplace_back(currentFeatureAlias);
     }
 
@@ -613,8 +613,8 @@ std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> Ext
 }
 
 std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::getExtensionDependenciesInternal(
-    const std::string_view extensionName,
-    const size_t extensionIndex) const
+    const std::string_view extension_name,
+    const size_t extension_index) const
 {
     // Now use API version + extension index to find the dependencies in the dependency table
     auto extensionDepMapIter = extensionDependencyTable.find(apiVersion);
@@ -625,13 +625,13 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     }
 
     const ExtensionDependencyMap& extensionDepMap = extensionDepMapIter->second;
-    auto depIter = extensionDepMap.find(extensionIndex);
+    auto depIter = extensionDepMap.find(extension_index);
     if (depIter == extensionDepMap.end() && apiVersion != 0)
     {
         // We first try to find the extension in the dependency map for this version, but now we'll try to find it in the any version map (which is totally fine!)
         extensionDepMapIter = extensionDependencyTable.find(0);
         const ExtensionDependencyMap& extensionDepMapTakeTwo = extensionDepMapIter->second;
-        depIter = extensionDepMapTakeTwo.find(extensionIndex);
+        depIter = extensionDepMapTakeTwo.find(extension_index);
         // now if we're still at the end of the map, then we have a problem
         if (depIter == extensionDepMapTakeTwo.end())
         {
@@ -660,7 +660,7 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     for (const size_t dependencyIndex : deps)
     {
         // First check - is this dependency index an extension or version dep?
-        if (BuiltInVkVersions.contains(static_cast<uint32_t>(dependencyIndex)))
+        if (k_BuiltInVkVersions.contains(static_cast<uint32_t>(dependencyIndex)))
         {
             // It is a version dependency, so check that against API version
             if (apiVersion >= dependencyIndex)

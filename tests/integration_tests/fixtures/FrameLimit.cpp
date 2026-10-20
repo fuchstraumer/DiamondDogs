@@ -6,15 +6,15 @@
 
 int32_t ParseFrameLimit(int argc, char* argv[])
 {
-    constexpr std::string_view framesFlag{ "--frames=" };
+    constexpr std::string_view k_FramesFlag{ "--frames=" };
     for (int i = 1; i < argc; ++i)
     {
         const std::string_view argument{ argv[i] };
-        if (!argument.starts_with(framesFlag))
+        if (!argument.starts_with(k_FramesFlag))
         {
             continue;
         }
-        const std::string_view value = argument.substr(framesFlag.size());
+        const std::string_view value = argument.substr(k_FramesFlag.size());
         int32_t frameLimit = -1;
         const std::from_chars_result parsed = std::from_chars(value.data(), value.data() + value.size(), frameLimit);
         if (parsed.ec != std::errc{})
