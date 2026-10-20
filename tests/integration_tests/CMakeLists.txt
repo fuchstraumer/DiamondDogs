@@ -26,14 +26,16 @@ FUNCTION(ADD_INTEGRATION_TEST NAME)
         ADD_CUSTOM_COMMAND(TARGET ${NAME} POST_BUILD COMMAND ${CMAKE_COMMAND}
             -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/cfg/" "${CMAKE_CURRENT_BINARY_DIR}/")
     ENDIF()
+    # cmake -E copy fails on an empty list. no test links a shared library since Slang left rhi_system
     ADD_CUSTOM_COMMAND(TARGET ${NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:${NAME}> $<TARGET_FILE_DIR:${NAME}>
+        COMMAND "$<$<BOOL:$<TARGET_RUNTIME_DLLS:${NAME}>>:${CMAKE_COMMAND};-E;copy;$<TARGET_RUNTIME_DLLS:${NAME}>;$<TARGET_FILE_DIR:${NAME}>>"
         COMMAND_EXPAND_LISTS)
 
 ENDFUNCTION()
 
 ADD_SUBDIRECTORY(TriangleTest)
 ADD_SUBDIRECTORY(ComputeManifestTest)
+ADD_SUBDIRECTORY(ImGuiTest)
 #ADD_SUBDIRECTORY(ResourceContextTest)  # Requires rewrite for new RhiResources module
 #ADD_SUBDIRECTORY(ContentCompilerTest)
 #ADD_SUBDIRECTORY(VolumetricForward)

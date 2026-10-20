@@ -2,6 +2,8 @@
 #include "CommandPool.hpp"
 #include "Device.hpp"
 #include "Fence.hpp"
+#include "ResourceBarriers.hpp"
+#include "ResourceContext.hpp"
 #include "RhiAssert.hpp"
 #include "RhiSystem.hpp"
 #include "ShaderLibrary.hpp"
@@ -11,6 +13,7 @@
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <expected>
@@ -21,11 +24,17 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <vector>
 
 // Cooks HashFill.slang through Lodestone (a build step), opens the bundle with rhi::ShaderLibrary, and runs
 // both variants of its HASH_TWICE axis headless. Every output word is compared with the same hash on the CPU.
 // The uniform member offsets and the binding numbers are read from the manifest, never written down here,
 // so the test also proves that the CPU and the shader agree on the layout.
+//
+// Every buffer comes from ResourceContext, one per path through it: Params is host-visible and written directly,
+// Output is device-local and its sentinel fill goes through the transfer system (the dispatch waits on the reply's
+// timeline semaphore), and Readback is a GPUToCPU buffer read through MapBuffer.
 
 namespace
 {
@@ -35,14 +44,6 @@ namespace
     constexpr uint32_t k_Sentinel = 0xDEADBEEFu;
     constexpr std::string_view k_ModuleName{ "HashFill" };
     constexpr std::array<std::string_view, 1> k_EntryPoints{ "HashFillCS" };
-
-    struct HostVisibleBuffer
-    {
-        VkBuffer Buffer{ VK_NULL_HANDLE };
-        VkDeviceMemory Memory{ VK_NULL_HANDLE };
-        void* Mapped{ nullptr };
-        VkDeviceSize Size{ 0u };
-    };
 
     struct ParamsLayout
     {
@@ -56,9 +57,10 @@ namespace
     [[nodiscard]] uint32_t PcgHash(uint32_t value) noexcept;
     [[nodiscard]] uint32_t ExpectedWord(uint32_t index, bool hash_twice) noexcept;
     [[nodiscard]] std::optional<ParamsLayout> ReadParamsLayout(const lodestone::ManifestIndex& index, lodestone::VariantKey variant);
-    [[nodiscard]] HostVisibleBuffer CreateHostVisibleBuffer(const rhi::Device& device, VkDeviceSize size, VkBufferUsageFlags usage);
-    void DestroyBuffer(VkDevice device, HostVisibleBuffer& buffer) noexcept;
-    [[nodiscard]] int32_t RunVariant(rhi::RhiSystem& rhi_system, const rhi::ShaderLibrary& library, bool hash_twice);
+    [[nodiscard]] bool WaitUntilResourceIsKnown(const GraphicsResourceReply& reply) noexcept;
+    [[nodiscard]] int32_t RunVariant(rhi::RhiSystem& rhi_system, ResourceContext& resources, const rhi::ShaderLibrary& library, bool hash_twice);
+
+    constexpr uint64_t k_TimeoutNs = 5'000'000'000ull;
 }
 
 int main()
@@ -79,9 +81,13 @@ int main()
     }
 
     int32_t failures = 0;
-    for (const bool hashTwice : { false, true })
     {
-        failures += RunVariant(*rhiSystem, **library, hashTwice);
+        ResourceContext resources;
+        resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+        for (const bool hashTwice : { false, true })
+        {
+            failures += RunVariant(*rhiSystem, resources, **library, hashTwice);
+        }
     }
 
     if (failures != 0)
@@ -161,56 +167,27 @@ namespace
         return layout;
     }
 
-    HostVisibleBuffer CreateHostVisibleBuffer(const rhi::Device& device, VkDeviceSize size, VkBufferUsageFlags usage)
+    bool WaitUntilResourceIsKnown(const GraphicsResourceReply& reply) noexcept
     {
-        const VkDevice vkDevice = device.Handle().As<VkDevice>();
-        HostVisibleBuffer result{};
-        result.Size = size;
-
-        const VkBufferCreateInfo bufferInfo
+        // the handles are known once the reply reaches Transferring. the dispatch waits for the upload on the GPU,
+        // through the reply's semaphore, so the CPU does not wait for the transfer itself
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
+        while (std::chrono::steady_clock::now() < deadline)
         {
-            VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-            nullptr,
-            0,
-            size,
-            usage,
-            VK_SHARING_MODE_EXCLUSIVE,
-            0,
-            nullptr
-        };
-        RhiAssert(rhi::Result(vkCreateBuffer(vkDevice, &bufferInfo, nullptr, &result.Buffer)));
-
-        VkMemoryRequirements requirements{};
-        vkGetBufferMemoryRequirements(vkDevice, result.Buffer, &requirements);
-        const uint32_t memoryType = device.GetMemoryTypeIndex(
-            requirements.memoryTypeBits,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-        const VkMemoryAllocateInfo allocateInfo
-        {
-            VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            nullptr,
-            requirements.size,
-            memoryType
-        };
-        RhiAssert(rhi::Result(vkAllocateMemory(vkDevice, &allocateInfo, nullptr, &result.Memory)));
-        RhiAssert(rhi::Result(vkBindBufferMemory(vkDevice, result.Buffer, result.Memory, 0)));
-        RhiAssert(rhi::Result(vkMapMemory(vkDevice, result.Memory, 0, VK_WHOLE_SIZE, 0, &result.Mapped)));
-        return result;
-    }
-
-    void DestroyBuffer(VkDevice device, HostVisibleBuffer& buffer) noexcept
-    {
-        if (buffer.Mapped != nullptr)
-        {
-            vkUnmapMemory(device, buffer.Memory);
+            const MessageReply::Status status = reply.GetStatus();
+            if (status == MessageReply::Status::Transferring || status == MessageReply::Status::Completed)
+            {
+                return true;
+            }
+            if (status == MessageReply::Status::Failed)
+            {
+                return false;
+            }
+            std::this_thread::yield();
         }
-        vkDestroyBuffer(device, buffer.Buffer, nullptr);
-        vkFreeMemory(device, buffer.Memory, nullptr);
-        buffer = HostVisibleBuffer{};
+        return false;
     }
-
-    int32_t RunVariant(rhi::RhiSystem& rhi_system, const rhi::ShaderLibrary& library, bool hash_twice)
+    int32_t RunVariant(rhi::RhiSystem& rhi_system, ResourceContext& resources, const rhi::ShaderLibrary& library, bool hash_twice)
     {
         const std::string variantName = std::format("HASH_TWICE={}", hash_twice);
         rhi::Device& device = *rhi_system.GetDevice();
@@ -247,13 +224,43 @@ namespace
             return 1;
         }
 
-        HostVisibleBuffer params = CreateHostVisibleBuffer(device, std::max<VkDeviceSize>(paramsLayout->ParamsByteSize, 16u), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-        HostVisibleBuffer output = CreateHostVisibleBuffer(device, sizeof(uint32_t) * k_ElementCount, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-        std::byte* paramsBytes = static_cast<std::byte*>(params.Mapped);
-        std::memcpy(paramsBytes + paramsLayout->SeedOffset, &k_Seed, sizeof(k_Seed));
-        std::memcpy(paramsBytes + paramsLayout->CountOffset, &k_ElementCount, sizeof(k_ElementCount));
-        std::span<uint32_t> outputWords{ static_cast<uint32_t*>(output.Mapped), k_ElementCount };
-        std::ranges::fill(outputWords, k_Sentinel);
+        const size_t paramsBytes = static_cast<size_t>(std::max<uint64_t>(paramsLayout->ParamsByteSize, 16u));
+        std::vector<std::byte> paramsData(paramsBytes);
+        std::memcpy(paramsData.data() + paramsLayout->SeedOffset, &k_Seed, sizeof(k_Seed));
+        std::memcpy(paramsData.data() + paramsLayout->CountOffset, &k_ElementCount, sizeof(k_ElementCount));
+        const RhiBufferResourceData paramsInitial{ std::span<const std::byte>{ paramsData }, 0u };
+        BufferCreateInfo paramsInfo{};
+        paramsInfo.Domain = ResourceDomain::CPUToGPU;
+        paramsInfo.Usage = BufferUsageBits::ComputeShaderUBO;
+        paramsInfo.Size = paramsBytes;
+        std::shared_ptr<GraphicsResourceReply> paramsReply = resources.CreateBuffer(paramsInfo, std::span{ &paramsInitial, 1u });
+
+        const size_t outputBytes = sizeof(uint32_t) * k_ElementCount;
+        const std::vector<uint32_t> sentinel(k_ElementCount, k_Sentinel);
+        const RhiBufferResourceData outputInitial{ std::as_bytes(std::span{ sentinel }), 0u };
+        BufferCreateInfo outputInfo{};
+        outputInfo.Domain = ResourceDomain::GPUOnly;
+        // the dispatch result is copied to the readback buffer. the sentinel upload adds CopyDestination itself
+        outputInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource;
+        outputInfo.Size = outputBytes;
+        std::shared_ptr<GraphicsResourceReply> outputReply = resources.CreateBuffer(outputInfo, std::span{ &outputInitial, 1u });
+
+        BufferCreateInfo readbackInfo{};
+        readbackInfo.Domain = ResourceDomain::GPUToCPU;
+        readbackInfo.Usage = BufferUsageBits::CopyDestination;
+        readbackInfo.Size = outputBytes;
+        std::shared_ptr<GraphicsResourceReply> readbackReply = resources.CreateBuffer(readbackInfo, {});
+
+        if (paramsReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed ||
+            readbackReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed ||
+            !WaitUntilResourceIsKnown(*outputReply))
+        {
+            std::cerr << std::format("[{}] ResourceContext did not create the buffers\n", variantName);
+            return 1;
+        }
+        const GraphicsResource params = paramsReply->GetResource();
+        const GraphicsResource output = outputReply->GetResource();
+        const GraphicsResource readback = readbackReply->GetResource();
 
         constexpr VkDescriptorPoolSize poolSizes[2]
         {
@@ -270,12 +277,12 @@ namespace
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         RhiAssert(rhi::Result(vkAllocateDescriptorSets(vkDevice, &setInfo, &descriptorSet)));
 
-        const VkDescriptorBufferInfo paramsInfo{ params.Buffer, 0, VK_WHOLE_SIZE };
-        const VkDescriptorBufferInfo outputInfo{ output.Buffer, 0, VK_WHOLE_SIZE };
+        const VkDescriptorBufferInfo paramsDescriptor{ reinterpret_cast<VkBuffer>(params.VkHandle), 0, VK_WHOLE_SIZE };
+        const VkDescriptorBufferInfo outputDescriptor{ reinterpret_cast<VkBuffer>(output.VkHandle), 0, VK_WHOLE_SIZE };
         const VkWriteDescriptorSet writes[2]
         {
-            { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, paramsLayout->ParamsBinding, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &paramsInfo, nullptr },
-            { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, paramsLayout->OutputBinding, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &outputInfo, nullptr },
+            { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, paramsLayout->ParamsBinding, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &paramsDescriptor, nullptr },
+            { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, descriptorSet, paramsLayout->OutputBinding, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &outputDescriptor, nullptr },
         };
         vkUpdateDescriptorSets(vkDevice, 2, writes, 0, nullptr);
 
@@ -292,12 +299,17 @@ namespace
             const uint32_t workgroupX = (*program)->Workgroup()[0];
             vkCmdDispatch(vkCommandBuffer, (k_ElementCount + workgroupX - 1u) / workgroupX, 1, 1);
 
+            const BufferBarrierInfo toCopy{ rhi::BufferHandle{ output.VkHandle }, BufferUsageBits::ComputeShaderUAV, BufferUsageBits::CopySource };
+            ExecuteBufferBarrier(commandBuffer.Handle(), toCopy);
+            const VkBufferCopy copyRegion{ 0u, 0u, outputBytes };
+            vkCmdCopyBuffer(vkCommandBuffer, reinterpret_cast<VkBuffer>(output.VkHandle), reinterpret_cast<VkBuffer>(readback.VkHandle), 1, &copyRegion);
+
             const VkMemoryBarrier2 toHost
             {
                 VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
                 nullptr,
-                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                VK_PIPELINE_STAGE_2_COPY_BIT,
+                VK_ACCESS_2_TRANSFER_WRITE_BIT,
                 VK_PIPELINE_STAGE_2_HOST_BIT,
                 VK_ACCESS_2_HOST_READ_BIT
             };
@@ -305,8 +317,13 @@ namespace
             vkCmdPipelineBarrier2(vkCommandBuffer, &dependency);
             RhiAssert(commandBuffer.End());
 
+            // the sentinel upload runs on the transfer queue, and signals the output reply's semaphore when it finishes
+            const VkSemaphore uploadSemaphore = reinterpret_cast<VkSemaphore>(outputReply->SemaphoreHandle());
+            const uint64_t uploadValue = k_TransferCompleteSemaphoreValue;
+            const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            const VkTimelineSemaphoreSubmitInfo timelineInfo{ VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO, nullptr, 1, &uploadValue, 0, nullptr };
             rhi::Fence fence(device.Handle());
-            const VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO, nullptr, 0, nullptr, nullptr, 1, &vkCommandBuffer, 0, nullptr };
+            const VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO, &timelineInfo, 1, &uploadSemaphore, &waitStage, 1, &vkCommandBuffer, 0, nullptr };
             RhiAssert(rhi::Result(vkQueueSubmit(device.GetGeneralQueue().As<VkQueue>(), 1, &submitInfo, fence.Handle().As<VkFence>())));
             if (!fence.Wait())
             {
@@ -314,6 +331,14 @@ namespace
                 return 1;
             }
         }
+
+        std::shared_ptr<PointerMessageReply> mapReply = resources.MapBuffer(readback, outputBytes, 0u);
+        if (mapReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        {
+            std::cerr << std::format("[{}] MapBuffer failed on the readback buffer\n", variantName);
+            return 1;
+        }
+        const std::span<const uint32_t> outputWords{ static_cast<const uint32_t*>(mapReply->GetPointer()), k_ElementCount };
 
         uint32_t mismatches = 0u;
         for (uint32_t i = 0; i < k_ElementCount; ++i)
@@ -329,10 +354,23 @@ namespace
             }
         }
 
-        vkDestroyDescriptorPool(vkDevice, descriptorPool, nullptr);
-        DestroyBuffer(vkDevice, params);
-        DestroyBuffer(vkDevice, output);
+        std::shared_ptr<MessageReply> unmapReply = resources.UnmapBuffer(readback, outputBytes, 0u);
+        if (unmapReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        {
+            std::cerr << std::format("[{}] UnmapBuffer failed\n", variantName);
+            ++mismatches;
+        }
 
+        vkDestroyDescriptorPool(vkDevice, descriptorPool, nullptr);
+        for (const GraphicsResource& resource : { params, output, readback })
+        {
+            std::shared_ptr<MessageReply> destroyReply = resources.DestroyResource(resource);
+            if (destroyReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            {
+                std::cerr << std::format("[{}] DestroyResource failed\n", variantName);
+                ++mismatches;
+            }
+        }
         if (mismatches != 0u)
         {
             std::cerr << std::format("[{}] {} of {} words differ from the CPU reference\n", variantName, mismatches, k_ElementCount);

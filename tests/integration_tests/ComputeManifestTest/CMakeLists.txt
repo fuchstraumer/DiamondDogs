@@ -1,5 +1,5 @@
 # Cooks HashFill.slang with Lodestone as a build step, then runs it headless through rhi::ShaderLibrary and
-# compares the output with a CPU reference. No window and no swapchain: this is the compute path that a
+# compares the output with a CPU reference. ResourceContext creates and uploads every buffer. No window and no swapchain: this is the compute path that a
 # noise graph host uses.
 lodestone_add_shader_cook(compute_manifest_test_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
@@ -11,8 +11,9 @@ ADD_INTEGRATION_TEST(ComputeManifestTest
     "main.cpp"
     "HashFill.slang")
 add_dependencies(ComputeManifestTest compute_manifest_test_shaders)
+# the buffers come from ResourceContext, so this test is also the integration proof for RhiResources
+target_link_libraries(ComputeManifestTest PRIVATE rhi_resources)
 target_compile_definitions(ComputeManifestTest PRIVATE
     "COMPUTE_MANIFEST_TEST_MANIFEST=\"$<TARGET_PROPERTY:compute_manifest_test_shaders,LODESTONE_MANIFEST>\"")
-copy_slang_dlls_to_target(ComputeManifestTest)
 
 add_test(NAME ComputeManifestTest COMMAND ComputeManifestTest)
