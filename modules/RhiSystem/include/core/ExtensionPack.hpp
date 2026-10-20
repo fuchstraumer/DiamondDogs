@@ -46,13 +46,18 @@ namespace rhi
         // Get finalized extension lists (with dependencies resolved)
         const std::vector<const char*>& GetInstanceExtensions() const noexcept;
         const std::vector<const char*>& GetDeviceExtensions() const noexcept;
+        /** @brief Returns the requested device extensions that are core in the active API version, which are
+         *  therefore not enabled by name. */
+        const std::vector<std::string>& GetCoreDeviceExtensions() const noexcept;
         // Get device features for enabled extensions
         const VkPhysicalDeviceFeatures2* GetDeviceFeatures() const noexcept;
         ApiVersion GetApiVersion() const noexcept;
         uint32_t GetVulkanApiVersion() const noexcept;
 
     private:
-        
+
+        [[nodiscard]] bool MaintenanceDependenciesSatisfied(std::string_view extension_name) const;
+
         ApiVersion apiVersion;
         
         // Input extension lists
@@ -61,7 +66,12 @@ namespace rhi
         std::vector<std::string> requiredDeviceExts;
         std::vector<std::string> optionalDeviceExts;
         
-        // Finalized extension lists (c_str pointers into above vectors)
+        // Finalized extension names: requested extensions that survived support filtering, plus dependencies
+        std::vector<std::string> enabledInstanceExtNames;
+        std::vector<std::string> enabledDeviceExtNames;
+        std::vector<std::string> coreDeviceExtNames;
+
+        // c_str pointers into the enabled name vectors above, in the form Vulkan create infos take
         std::vector<const char*> instanceExtensions;
         std::vector<const char*> deviceExtensions;
         

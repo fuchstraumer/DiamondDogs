@@ -1,10 +1,22 @@
 #include "ExtensionPack.hpp"
 #include "ExtensionWrangler.hpp"
 #include <stdexcept>
-#include <unordered_set>
 #include <algorithm>
 
-namespace rhi 
+namespace
+{
+    std::vector<std::string_view> CollectSupportedRequestedExtensions(
+        const ExtensionWrangler& wrangler,
+        const std::vector<std::string>& required,
+        const std::vector<std::string>& optional);
+    std::vector<std::string> MergeExtensionsWithDependencies(
+        std::span<const std::string_view> requested,
+        uint32_t dependencyCount,
+        const char* const* dependencies);
+    std::vector<const char*> PointersToNames(const std::vector<std::string>& names);
+}
+
+namespace rhi
 {
 
     ExtensionPack::ExtensionPack(ApiVersion preferred_version) noexcept :
@@ -23,13 +35,18 @@ namespace rhi
         optionalInstanceExts{ std::move(other.optionalInstanceExts) },
         requiredDeviceExts{ std::move(other.requiredDeviceExts) },
         optionalDeviceExts{ std::move(other.optionalDeviceExts) },
+        enabledInstanceExtNames{ std::move(other.enabledInstanceExtNames) },
+        enabledDeviceExtNames{ std::move(other.enabledDeviceExtNames) },
+        coreDeviceExtNames{ std::move(other.coreDeviceExtNames) },
         instanceExtensions{ std::move(other.instanceExtensions) },
         deviceExtensions{ std::move(other.deviceExtensions) },
         deviceFeatures{ other.deviceFeatures },
         extensionWrangler{ std::move(other.extensionWrangler) },
+        instanceExtensionsResolved{ other.instanceExtensionsResolved },
         deviceExtensionsResolved{ other.deviceExtensionsResolved }
     {
         other.deviceFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, nullptr };
+        other.instanceExtensionsResolved = false;
         other.deviceExtensionsResolved = false;
     }
 
@@ -42,13 +59,18 @@ namespace rhi
             optionalInstanceExts = std::move(other.optionalInstanceExts);
             requiredDeviceExts = std::move(other.requiredDeviceExts);
             optionalDeviceExts = std::move(other.optionalDeviceExts);
+            enabledInstanceExtNames = std::move(other.enabledInstanceExtNames);
+            enabledDeviceExtNames = std::move(other.enabledDeviceExtNames);
+            coreDeviceExtNames = std::move(other.coreDeviceExtNames);
             instanceExtensions = std::move(other.instanceExtensions);
             deviceExtensions = std::move(other.deviceExtensions);
             deviceFeatures = other.deviceFeatures;
             extensionWrangler = std::move(other.extensionWrangler);
+            instanceExtensionsResolved = other.instanceExtensionsResolved;
             deviceExtensionsResolved = other.deviceExtensionsResolved;
-            
+
             other.deviceFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, nullptr };
+            other.instanceExtensionsResolved = false;
             other.deviceExtensionsResolved = false;
         }
         return *this;
@@ -92,84 +114,23 @@ namespace rhi
             // Create extension wrangler without physical device for instance extensions
             extensionWrangler = std::make_unique<ExtensionWrangler>(GetVulkanApiVersion(), VK_NULL_HANDLE);
         }
-        
-        // Combine required and optional extensions
-        std::vector<std::string_view> allInstanceExts;
-        allInstanceExts.reserve(requiredInstanceExts.size() + optionalInstanceExts.size());
-        
-        for (const std::string& ext : requiredInstanceExts)
-        {
-            allInstanceExts.emplace_back(ext);
-        }
-        
-        for (const std::string& ext : optionalInstanceExts)
-        {
-            allInstanceExts.emplace_back(ext);
-        }
-        
-        if (allInstanceExts.empty())
+
+        std::vector<std::string_view> requested =
+            CollectSupportedRequestedExtensions(*extensionWrangler, requiredInstanceExts, optionalInstanceExts);
+        if (requested.empty())
         {
             return;
         }
-        
-        // Get dependencies
-        std::span<std::string_view> allInstanceExtsSpan(allInstanceExts.data(), allInstanceExts.size());
-        std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> deps = 
-            extensionWrangler->GetExtensionDependencies(allInstanceExtsSpan);
-        
-        // Build final extension list
-        std::unordered_set<std::string> finalExtensions;
-        
-        // Add original extensions
-        for (const std::string& ext : requiredInstanceExts)
-        {
-            finalExtensions.insert(ext);
-        }
-        
-        for (const std::string& ext : optionalInstanceExts)
-        {
-            // Only add optional extensions if they're supported
-            if (extensionWrangler->IsExtensionSupported(ext))
-            {
-                finalExtensions.insert(ext);
-            }
-        }
-        
-        // Add dependencies
-        if (deps.has_value())
-        {
-            for (uint32_t i = 0; i < deps->numInstanceExtensionDeps; ++i)
-            {
-                finalExtensions.insert(deps->instanceExtensionDeps[i]);
-            }
-        }
-        
-        // Convert to c_str array
-        instanceExtensions.clear();
-        instanceExtensions.reserve(finalExtensions.size());
-        
-        for (const std::string& ext : finalExtensions)
-        {
-            // Find the extension in our stored strings to get stable pointer
-            auto findRequired = std::find(requiredInstanceExts.begin(), requiredInstanceExts.end(), ext);
-            if (findRequired != requiredInstanceExts.end())
-            {
-                instanceExtensions.push_back(findRequired->c_str());
-                continue;
-            }
-            
-            auto findOptional = std::find(optionalInstanceExts.begin(), optionalInstanceExts.end(), ext);
-            if (findOptional != optionalInstanceExts.end())
-            {
-                instanceExtensions.push_back(findOptional->c_str());
-                continue;
-            }
-            
-            // This is a dependency - add it to required list for stable storage
-            requiredInstanceExts.push_back(ext);
-            instanceExtensions.push_back(requiredInstanceExts.back().c_str());
-        }
 
+        std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> deps =
+            extensionWrangler->GetExtensionDependencies(std::span<std::string_view>(requested));
+
+        // instance dependency failures were ignored before this change too: a required extension the
+        // loader doesn't know still fails at vkCreateInstance, with a clearer message than ours
+        const uint32_t dependencyCount = deps.has_value() ? deps->numInstanceExtensionDeps : 0u;
+        const char* const* dependencies = deps.has_value() ? deps->instanceExtensionDeps : nullptr;
+        enabledInstanceExtNames = MergeExtensionsWithDependencies(requested, dependencyCount, dependencies);
+        instanceExtensions = PointersToNames(enabledInstanceExtNames);
         instanceExtensionsResolved = true;
     }
 
@@ -180,7 +141,7 @@ namespace rhi
         {
             return;
         }
-        
+
         extensionWrangler->SetPhysicalDevice(physicalDevice);
     }
 
@@ -196,7 +157,9 @@ namespace rhi
 
     void ExtensionPack::AddAllSupportedMaintenanceExtensions()
     {
-        if (!extensionWrangler || !extensionWrangler->HasValidPhysicalDevice())
+        // maintenance1 to 3 are core in 1.1, and every later one needs 1.1. The generated dependency table does not
+        // model a version requirement above the table's own version (see docs/audit.md), so check it here
+        if (!extensionWrangler || !extensionWrangler->HasValidPhysicalDevice() || GetVulkanApiVersion() < VK_API_VERSION_1_1)
         {
             return;
         }
@@ -211,11 +174,33 @@ namespace rhi
             const bool alreadyOptional =
                 std::find(optionalDeviceExts.begin(), optionalDeviceExts.end(), ext) != optionalDeviceExts.end();
 
-            if (!alreadyRequired && !alreadyOptional)
+            if (!alreadyRequired && !alreadyOptional && MaintenanceDependenciesSatisfied(ext))
             {
                 optionalDeviceExts.emplace_back(ext);
             }
         }
+    }
+
+    bool ExtensionPack::MaintenanceDependenciesSatisfied(std::string_view extension_name) const
+    {
+        // the instance already exists when maintenance extensions are gathered, so an extension that needs an
+        // instance extension we didn't enable, or a newer API version, can't be enabled. A 1.0 instance hit both:
+        // maintenance9 to 11 need VK_KHR_get_physical_device_properties2, and maintenance5 needs 1.1
+        std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> deps =
+            extensionWrangler->GetExtensionDependencies(extension_name);
+        if (!deps.has_value())
+        {
+            return deps.error() == ExtensionWrangler::DependencyError::NoDependenciesForExtension;
+        }
+        for (uint32_t i = 0; i < deps->numInstanceExtensionDeps; ++i)
+        {
+            const std::string_view instanceDependency{ deps->instanceExtensionDeps[i] };
+            if (std::ranges::find(enabledInstanceExtNames, instanceDependency) == enabledInstanceExtNames.end())
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     void ExtensionPack::ResolveDeviceDependencies()
@@ -224,98 +209,73 @@ namespace rhi
         {
             return;
         }
-        
-        // Combine required and optional device extensions
-        std::vector<std::string_view> allDeviceExts;
-        allDeviceExts.reserve(requiredDeviceExts.size() + optionalDeviceExts.size());
-        
-        for (const std::string& ext : requiredDeviceExts)
-        {
-            allDeviceExts.emplace_back(ext);
-        }
-        
-        for (const std::string& ext : optionalDeviceExts)
-        {
-            allDeviceExts.emplace_back(ext);
-        }
-        
-        if (allDeviceExts.empty())
+
+        // Unsupported optional extensions are dropped before dependency resolution. The wrangler rejects any
+        // name it can't find, so one unknown optional extension used to throw here and fail the whole device.
+        std::vector<std::string_view> requested =
+            CollectSupportedRequestedExtensions(*extensionWrangler, requiredDeviceExts, optionalDeviceExts);
+        if (requested.empty())
         {
             return;
         }
-        
-        // Get dependencies
-        std::span<std::string_view> allDeviceExtsSpan(allDeviceExts.data(), allDeviceExts.size());
-        std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> deps = 
-            extensionWrangler->GetExtensionDependencies(allDeviceExtsSpan);
-        
-        if (!deps.has_value() && deps.error() != ExtensionWrangler::DependencyError::NoDependenciesForExtension)
+
+        std::span<std::string_view> requestedSpan(requested);
+
+        // the dependency table lists direct dependencies only, so resolve to a fixed point: maintenance5 pulls in
+        // VK_KHR_dynamic_rendering on 1.1, and that needs VK_KHR_depth_stencil_resolve in turn. The pass limit
+        // only guards against a cycle in generated data; real chains are two or three deep
+        constexpr int32_t k_MaxDependencyPasses = 8;
+        std::vector<std::string> mergedNames = MergeExtensionsWithDependencies(requested, 0u, nullptr);
+        for (int32_t pass = 0; pass < k_MaxDependencyPasses; ++pass)
         {
-            throw std::runtime_error("Failed to resolve device extension dependencies: " + std::to_string(static_cast<int>(deps.error())));
+            std::vector<std::string_view> currentNames(mergedNames.begin(), mergedNames.end());
+            std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> deps =
+                extensionWrangler->GetExtensionDependencies(std::span<std::string_view>(currentNames));
+            if (!deps.has_value() && deps.error() != ExtensionWrangler::DependencyError::NoDependenciesForExtension)
+            {
+                throw std::runtime_error("Failed to resolve device extension dependencies: " + std::to_string(static_cast<int>(deps.error())));
+            }
+
+            const uint32_t dependencyCount = deps.has_value() ? deps->numDeviceExtensionDeps : 0u;
+            const char* const* dependencies = deps.has_value() ? deps->deviceExtensionDeps : nullptr;
+            std::vector<std::string> nextNames = MergeExtensionsWithDependencies(currentNames, dependencyCount, dependencies);
+            const bool reachedFixedPoint = nextNames.size() == mergedNames.size();
+            mergedNames = std::move(nextNames);
+            if (reachedFixedPoint)
+            {
+                break;
+            }
         }
 
-        // Build final extension list
-        std::unordered_set<std::string> finalExtensions;
-        
-        // Add original extensions (filtering optional by support)
-        for (const std::string& ext : requiredDeviceExts)
+        // an extension that is core in the active version is not enabled by name: its functionality is already
+        // there, and enabling a promoted extension makes the validation layer demand its pre-promotion dependencies
+        // (VK_KHR_dynamic_rendering then needs VK_KHR_depth_stencil_resolve, even on 1.3). Device::HasExtension
+        // still answers true for these, through GetCoreDeviceExtensions
+        enabledDeviceExtNames.clear();
+        coreDeviceExtNames.clear();
+        for (std::string& name : mergedNames)
         {
-            finalExtensions.insert(ext);
-        }
-        
-        for (const std::string& ext : optionalDeviceExts)
-        {
-            if (extensionWrangler->IsExtensionSupported(ext))
+            if (extensionWrangler->ExtensionCoreInActiveVersion(name))
             {
-                finalExtensions.insert(ext);
+                coreDeviceExtNames.push_back(std::move(name));
+            }
+            else
+            {
+                enabledDeviceExtNames.push_back(std::move(name));
             }
         }
-        
-        // Add dependencies
-        if (deps.has_value())
-        {
-            for (uint32_t i = 0; i < deps->numDeviceExtensionDeps; ++i)
-            {
-                finalExtensions.insert(deps->deviceExtensionDeps[i]);
-            }
-        }
-        
-        // Convert to c_str array
-        deviceExtensions.clear();
-        deviceExtensions.reserve(finalExtensions.size());
-        
-        for (const std::string& ext : finalExtensions)
-        {
-            // Find the extension in our stored strings to get stable pointer
-            auto findRequired = std::find(requiredDeviceExts.begin(), requiredDeviceExts.end(), ext);
-            if (findRequired != requiredDeviceExts.end())
-            {
-                deviceExtensions.push_back(findRequired->c_str());
-                continue;
-            }
-            
-            auto findOptional = std::find(optionalDeviceExts.begin(), optionalDeviceExts.end(), ext);
-            if (findOptional != optionalDeviceExts.end())
-            {
-                deviceExtensions.push_back(findOptional->c_str());
-                continue;
-            }
-            
-            // This is a dependency - add it to required list for stable storage
-            requiredDeviceExts.push_back(ext);
-            deviceExtensions.push_back(requiredDeviceExts.back().c_str());
-        }
-        
-        // Get device features for enabled extensions
-        allDeviceExtsSpan = std::span<std::string_view>(allDeviceExts.data(), allDeviceExts.size());
-        std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> features = 
-            extensionWrangler->GetExtensionFeatures(allDeviceExtsSpan, 
+        deviceExtensions = PointersToNames(enabledDeviceExtNames);
+
+        // the feature chain is built from the same filtered list: chaining the feature struct of an extension
+        // we don't enable is a validation error
+        std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> features =
+            extensionWrangler->GetExtensionFeatures(requestedSpan,
                                                     ExtensionWrangler::GetVersionFeatures::True,
                                                     ExtensionWrangler::CollectDependencies::False);
-        
+
         if (features.has_value())
         {
-            deviceFeatures = features.value();
+            deviceFeatures = *features;
         }
 
         deviceExtensionsResolved = true;
@@ -331,6 +291,11 @@ namespace rhi
         return deviceExtensions;
     }
 
+    const std::vector<std::string>& ExtensionPack::GetCoreDeviceExtensions() const noexcept
+    {
+        return coreDeviceExtNames;
+    }
+
     const VkPhysicalDeviceFeatures2* ExtensionPack::GetDeviceFeatures() const noexcept
     {
         return &deviceFeatures;
@@ -342,3 +307,55 @@ namespace rhi
     }
 
 } // namespace rhi
+
+namespace
+{
+    std::vector<std::string_view> CollectSupportedRequestedExtensions(
+        const ExtensionWrangler& wrangler,
+        const std::vector<std::string>& required,
+        const std::vector<std::string>& optional)
+    {
+        std::vector<std::string_view> requested;
+        requested.reserve(required.size() + optional.size());
+        // required extensions are kept even when unsupported, so that device or instance creation fails
+        // loudly and names the extension, rather than us silently creating something the caller didn't ask for
+        requested.insert(requested.end(), required.begin(), required.end());
+        for (const std::string& ext : optional)
+        {
+            if (wrangler.IsExtensionSupported(ext))
+            {
+                requested.emplace_back(ext);
+            }
+        }
+        return requested;
+    }
+
+    std::vector<std::string> MergeExtensionsWithDependencies(
+        std::span<const std::string_view> requested,
+        uint32_t dependencyCount,
+        const char* const* dependencies)
+    {
+        std::vector<std::string> merged;
+        merged.reserve(requested.size() + dependencyCount);
+        merged.insert(merged.end(), requested.begin(), requested.end());
+        for (uint32_t i = 0; i < dependencyCount; ++i)
+        {
+            merged.emplace_back(dependencies[i]);
+        }
+        std::ranges::sort(merged);
+        const auto [firstDuplicate, last] = std::ranges::unique(merged);
+        merged.erase(firstDuplicate, last);
+        return merged;
+    }
+
+    std::vector<const char*> PointersToNames(const std::vector<std::string>& names)
+    {
+        std::vector<const char*> pointers;
+        pointers.reserve(names.size());
+        for (const std::string& name : names)
+        {
+            pointers.push_back(name.c_str());
+        }
+        return pointers;
+    }
+}
