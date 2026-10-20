@@ -96,7 +96,7 @@ public:
     /// Default constructor
     ResourceTransferReply();
     /// Constructor with device for semaphore operations
-    ResourceTransferReply(rhi::Device* _device);
+    ResourceTransferReply(const rhi::Device* _device);
     /// Virtual destructor
     virtual ~ResourceTransferReply();
 
@@ -174,7 +174,7 @@ class GraphicsResourceReply final : public ResourceTransferReply
 public:
 
     GraphicsResourceReply(ResourceDomain _domain, ResourceType _type);
-    GraphicsResourceReply(ResourceDomain _domain, ResourceType _type, rhi::Device* _device);
+    GraphicsResourceReply(ResourceDomain _domain, ResourceType _type, const rhi::Device* _device);
 
     ~GraphicsResourceReply();
     GraphicsResourceReply(const GraphicsResourceReply&) = delete;
@@ -193,7 +193,7 @@ public:
 private:
 
     friend class ResourceContextImpl;
-    friend class TransferSystem;
+    friend class ResourceTransferSystem;
     /** @brief Called by internal systems to update the internal data atomically. */
     void SetGraphicsResource(
         const ResourceDomain _domain,

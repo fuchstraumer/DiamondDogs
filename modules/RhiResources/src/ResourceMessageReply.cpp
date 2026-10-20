@@ -1,6 +1,7 @@
 #include "ResourceMessageReply.hpp"
 #include "entt/entt.hpp"
 #include "Device.hpp"
+#include "ResourceContext.hpp"
 
 #include <vulkan/vulkan_core.h>
 #include <chrono>
@@ -29,7 +30,8 @@ MessageReply& MessageReply::operator=(MessageReply&& other) noexcept
 
 bool MessageReply::IsCompleted() const noexcept
 {
-    return status.load(std::memory_order_acquire) != Status::Invalid;
+    const Status current = status.load(std::memory_order_acquire);
+    return current == Status::Completed || current == Status::Failed;
 }
 
 MessageReply::Status MessageReply::GetStatus() const noexcept
@@ -40,8 +42,7 @@ MessageReply::Status MessageReply::GetStatus() const noexcept
 MessageReply::Status MessageReply::WaitForCompletion(uint64_t timeoutNs) noexcept
 {
     std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-    // less than wait_for_status because statuses are arranged in order of completion
-    while (status.load(std::memory_order_acquire) != Status::Completed)
+    while (!IsCompleted())
     {
         // Check timeout
         if (timeoutNs != std::numeric_limits<uint64_t>::max())
@@ -69,7 +70,7 @@ void MessageReply::SetStatus(Status _status) noexcept
 ResourceTransferReply::ResourceTransferReply() : semaphoreHandle{ 0u }, device{ nullptr }
 {}
 
-ResourceTransferReply::ResourceTransferReply(rhi::Device* _device) : device{ _device }, semaphoreHandle{ 0u }
+ResourceTransferReply::ResourceTransferReply(const rhi::Device* _device) : semaphoreHandle{ 0u }, device{ _device }
 {
     VkSemaphoreTypeCreateInfo semaphore_type_info
     {
@@ -85,7 +86,7 @@ ResourceTransferReply::ResourceTransferReply(rhi::Device* _device) : device{ _de
         0u
     };
     VkSemaphore semaphore = VK_NULL_HANDLE;
-    VkResult result = vkCreateSemaphore(device->vkHandle(), &semaphore_info, nullptr, &semaphore);
+    VkResult result = vkCreateSemaphore(device->Handle().As<VkDevice>(), &semaphore_info, nullptr, &semaphore);
     assert(result == VK_SUCCESS);
     semaphoreHandle = reinterpret_cast<uint64_t>(semaphore);
 }
@@ -94,7 +95,7 @@ ResourceTransferReply::~ResourceTransferReply()
 {
     if (semaphoreHandle != 0u)
     {
-        vkDestroySemaphore(device->vkHandle(), reinterpret_cast<VkSemaphore>(semaphoreHandle), nullptr);
+        vkDestroySemaphore(device->Handle().As<VkDevice>(), reinterpret_cast<VkSemaphore>(semaphoreHandle), nullptr);
     }
 }
 
@@ -107,7 +108,7 @@ uint64_t ResourceTransferReply::SemaphoreValue() const noexcept
 {
     VkSemaphore semaphore = reinterpret_cast<VkSemaphore>(semaphoreHandle);
     uint64_t semaphoreValue = 0u;
-    VkResult result = vkGetSemaphoreCounterValue(device->vkHandle(), semaphore, &semaphoreValue);
+    VkResult result = vkGetSemaphoreCounterValue(device->Handle().As<VkDevice>(), semaphore, &semaphoreValue);
     assert(result == VK_SUCCESS);
     return semaphoreValue;
 }
@@ -119,13 +120,34 @@ MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeoutNs
     {
         return MessageReply::WaitForCompletion(timeoutNs);
     }
+    
+    // fixed: we always check the CPU-side status and wait on that, since many resources don't actually need
+    // to use the transfer system. if the transfer system sets the status, then we will wait on the GPU semaphore as needed.
+    const std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
+    while (status.load(std::memory_order_acquire) == Status::Invalid || status.load(std::memory_order_acquire) == Status::Pending)
+    {
+        if (timeoutNs != std::numeric_limits<uint64_t>::max())
+        {
+            const uint64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
+            if (elapsedNs >= timeoutNs)
+            {
+                return Status::Timeout;
+            }
+        }
+        std::this_thread::yield();
+    }
+
+    if (status.load(std::memory_order_acquire) != Status::Transferring)
+    {
+        return status.load(std::memory_order_acquire);
+    }
     else
     {
         // In short, the reason we go through this song and dance is so that the transfer system
         // does not have to block to submit it's work. It just submits transfer commands, and then eventually
         // the completed transfer will update the semaphore value indicating that the transfer is complete.
         VkSemaphore semaphore = reinterpret_cast<VkSemaphore>(semaphoreHandle);
-        const uint64_t semaphoreWaitValue = 2;
+        const uint64_t semaphoreWaitValue = k_TransferCompleteSemaphoreValue;
         VkSemaphoreWaitInfo wait_info
         {
             VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
@@ -135,7 +157,7 @@ MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeoutNs
             &semaphore,
             &semaphoreWaitValue
         };
-        VkResult result = vkWaitSemaphores(device->vkHandle(), &wait_info, timeoutNs);
+        VkResult result = vkWaitSemaphores(device->Handle().As<VkDevice>(), &wait_info, timeoutNs);
         if (result == VK_TIMEOUT)
         {
             return Status::Timeout;
@@ -154,7 +176,9 @@ MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeoutNs
 }
 
 GraphicsResourceReply::RhiResourceTypeAndEntityHandle::RhiResourceTypeAndEntityHandle() noexcept :
-    Type{ (uint32_t)ResourceType::Invalid }, EntityHandle{ entt::null }
+    Domain{ static_cast<uint16_t>(ResourceDomain::Invalid) },
+    Type{ static_cast<uint16_t>(ResourceType::Invalid) },
+    EntityHandle{ entt::null }
 {
 }
 
@@ -186,15 +210,15 @@ GraphicsResourceReply::RhiResourceTypeAndEntityHandle::operator bool() const noe
 
 GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceType _type) :
     resourceTypeAndEntityHandle{ RhiResourceTypeAndEntityHandle(_domain, _type, entt::null) },
-    vkHandleAndView{ null_atomic128 },
-    vkSamplerHandle{ 0u }
+    vkSamplerHandle{ 0u },
+    vkHandleAndView{ null_atomic128 }
 {}
 
-GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceType _type, rhi::Device* _device) :
+GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceType _type, const rhi::Device* _device) :
+    ResourceTransferReply(_device),
     resourceTypeAndEntityHandle{ RhiResourceTypeAndEntityHandle(_domain, _type, entt::null) },
-    vkHandleAndView{ null_atomic128 },
     vkSamplerHandle{ 0u },
-    ResourceTransferReply(_device)
+    vkHandleAndView{ null_atomic128 }
 {
 }
 
