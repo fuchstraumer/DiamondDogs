@@ -1,7 +1,7 @@
 #include "UploadBuffer.hpp"
-#include "LogicalDevice.hpp"
-#include <vk_mem_alloc.h>
-#include "../../RenderingContext/include/RenderingContext.hpp"
+#include "RhiSystem.hpp"
+#include <cassert>
+#include <cstring>
 
 constexpr static VkBufferCreateInfo k_defaultStagingBufferCreateInfo
 {
@@ -17,8 +17,8 @@ constexpr static VkBufferCreateInfo k_defaultStagingBufferCreateInfo
 
 constexpr static VmaAllocationCreateInfo k_defaultAllocationCreateInfo
 {
-    VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-    VMA_MEMORY_USAGE_AUTO,
+    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+    VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
     0,
     0u,
     UINT32_MAX,
@@ -26,44 +26,46 @@ constexpr static VmaAllocationCreateInfo k_defaultAllocationCreateInfo
     nullptr
 };
 
-UploadBuffer::UploadBuffer(const vpr::Device* _device, VmaAllocator allocator) :
-    device{ _device },
-    Allocator{ allocator },
-    Allocation{ nullptr },
-    Buffer{ VK_NULL_HANDLE },
-    mappedPtr{ nullptr },
-    Size{ 0u }
+// buffer to image copies need the buffer offset to be a multiple of the texel block size (and 4, on a transfer queue).
+// 16 covers every uncompressed format and every block-compressed one
+constexpr static VkDeviceSize k_imageCopyOffsetAlignment = 16u;
+
+UploadBuffer::UploadBuffer(VmaAllocator allocator) :
+    Allocator{ allocator }
 {}
 
 UploadBuffer::UploadBuffer(UploadBuffer&& other) noexcept :
-    Buffer(std::move(other.Buffer)),
-    Allocation(std::move(other.Allocation)),
-    device(other.device),
-    Allocator(std::move(other.Allocator)),
+    Buffer(other.Buffer),
+    Allocation(other.Allocation),
+    Allocator(other.Allocator),
     mappedPtr(other.mappedPtr),
     Size(other.Size)
 {
     other.Buffer = VK_NULL_HANDLE;
+    other.Allocation = VK_NULL_HANDLE;
 }
 
 UploadBuffer& UploadBuffer::operator=(UploadBuffer&& other) noexcept
 {
     if (this != &other)
     {
-        Buffer = std::move(other.Buffer);
-        Allocation = std::move(other.Allocation);
-        device = other.device;
-        Allocator = std::move(other.Allocator);
+        Buffer = other.Buffer;
+        Allocation = other.Allocation;
+        Allocator = other.Allocator;
         mappedPtr = other.mappedPtr;
         Size = other.Size;
         other.Buffer = VK_NULL_HANDLE;
+        other.Allocation = VK_NULL_HANDLE;
     }
     return *this;
 }
 
 UploadBuffer::~UploadBuffer()
 {
-    vmaDestroyBuffer(Allocator, Buffer, Allocation);
+    if (Buffer != VK_NULL_HANDLE)
+    {
+        vmaDestroyBuffer(Allocator, Buffer, Allocation);
+    }
 }
 
 std::vector<VkBufferCopy> UploadBuffer::SetData(
@@ -74,8 +76,6 @@ std::vector<VkBufferCopy> UploadBuffer::SetData(
     {
         total_size += static_cast<VkDeviceSize>(data.size);
     }
-
-    Size = total_size;
 
     createAndAllocateBuffer(total_size);
     std::vector<VkBufferCopy> buffer_copies(dataVector.size());
@@ -94,33 +94,34 @@ std::vector<VkBufferCopy> UploadBuffer::SetData(
 
 std::vector<VkBufferImageCopy> UploadBuffer::SetData(
     const InternalResourceDataContainer::ImageDataVector& imageDataVector,
-    const uint32_t numLayers)
+    VkImageAspectFlags aspect_mask)
 {
     VkDeviceSize total_size = 0;
     for (const auto& data : imageDataVector)
     {
+        total_size = ((total_size + k_imageCopyOffsetAlignment - 1u) / k_imageCopyOffsetAlignment) * k_imageCopyOffsetAlignment;
         total_size += static_cast<VkDeviceSize>(data.size);
     }
 
-    Size = total_size;
-
     createAndAllocateBuffer(total_size);
+    // fixed: this sized the vector to the element count and then also emplaced each copy, so every region was recorded
+    // twice, the second time over the first. it also used the image's layer count for every element
     std::vector<VkBufferImageCopy> buffer_image_copies(imageDataVector.size());
     VkDeviceSize offset = 0;
     for (size_t i = 0; i < imageDataVector.size(); ++i)
     {
+        offset = ((offset + k_imageCopyOffsetAlignment - 1u) / k_imageCopyOffsetAlignment) * k_imageCopyOffsetAlignment;
         setDataAtOffset(imageDataVector[i].data.get(), imageDataVector[i].size, offset);
         VkBufferImageCopy& copy = buffer_image_copies[i];
         copy.bufferOffset = offset;
         copy.bufferRowLength = 0u;
         copy.bufferImageHeight = 0u;
-        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copy.imageSubresource.aspectMask = aspect_mask;
         copy.imageSubresource.baseArrayLayer = imageDataVector[i].arrayLayer;
-        copy.imageSubresource.layerCount = numLayers;
+        copy.imageSubresource.layerCount = imageDataVector[i].numLayers;
         copy.imageSubresource.mipLevel = imageDataVector[i].mipLevel;
         copy.imageOffset = VkOffset3D{ 0, 0, 0 };
         copy.imageExtent = VkExtent3D{ imageDataVector[i].width, imageDataVector[i].height, 1u };
-        buffer_image_copies.emplace_back(std::move(copy));
         offset += static_cast<VkDeviceSize>(imageDataVector[i].size);
     }
 
@@ -140,14 +141,17 @@ void UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
         &Buffer,
         &Allocation,
         &result_alloc_info);
-    VkAssert(result);
+    assert(result == VK_SUCCESS);
     mappedPtr = result_alloc_info.pMappedData;
     Size = size;
 
-    RenderingContext::SetObjectName(
-        VK_OBJECT_TYPE_BUFFER,
-        reinterpret_cast<uint64_t>(Buffer),
-        RENDERING_CONTEXT_DEBUG_OBJECT_NAME("TransferSystem_UploadBuffer"));
+    if constexpr (RHI_SYSTEM_USE_DEBUG_INFO && RHI_SYSTEM_VALIDATION_ENABLED)
+    {
+        rhi::RhiSystem::SetObjectName(
+            VK_OBJECT_TYPE_BUFFER,
+            reinterpret_cast<uint64_t>(Buffer),
+            "TransferSystem_UploadBuffer");
+    }
 }
 
 void UploadBuffer::setDataAtOffset(const void* data, size_t data_size, size_t offset)
@@ -155,4 +159,6 @@ void UploadBuffer::setDataAtOffset(const void* data, size_t data_size, size_t of
     assert((data_size + offset) <= Size);
     auto destAddress = reinterpret_cast<std::byte*>(mappedPtr) + offset;
     std::memcpy(destAddress, data, data_size);
+    // the allocation is host-visible but may not be coherent
+    vmaFlushAllocation(Allocator, Allocation, offset, data_size);
 }

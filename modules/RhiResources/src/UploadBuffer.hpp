@@ -1,16 +1,14 @@
 #pragma once
 #ifndef RESOURCE_CONTEXT_UPLOAD_BUFFER_HPP
 #define RESOURCE_CONTEXT_UPLOAD_BUFFER_HPP
-#include "ForwardDecl.hpp"
-#include "vkAssert.hpp"
 #include "ResourceMessageTypesInternal.hpp"
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 #include <vk_mem_alloc.h>
 #include <vector>
 
 struct UploadBuffer
 {
-    UploadBuffer(const vpr::Device* _device, VmaAllocator alloc);
+    UploadBuffer(VmaAllocator alloc);
     UploadBuffer(const UploadBuffer&) = delete;
     UploadBuffer& operator=(const UploadBuffer&) = delete;
     UploadBuffer(UploadBuffer&& other) noexcept;
@@ -20,11 +18,10 @@ struct UploadBuffer
         const InternalResourceDataContainer::BufferDataVector& dataVector);
     std::vector<VkBufferImageCopy> SetData(
         const InternalResourceDataContainer::ImageDataVector& imageDataVector,
-        const uint32_t numLayers);
+        VkImageAspectFlags aspect_mask);
     VkBuffer Buffer{ VK_NULL_HANDLE };
     VmaAllocation Allocation{ VK_NULL_HANDLE };
     VmaAllocator Allocator{ VK_NULL_HANDLE };
-    const vpr::Device* device{ nullptr };
     void* mappedPtr{ nullptr };
     VkDeviceSize Size{ 0u };
 private:
