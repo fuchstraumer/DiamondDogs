@@ -18,17 +18,20 @@ ADD_MODULE(rhi_resources
     "src/ResourceMessageTypesInternal.cpp"
     "src/ResourceTypes.cpp"
     "src/TransferSystem.cpp"
+    "src/TransferSystem.hpp"
     "src/UploadBuffer.cpp"
     "src/UploadBuffer.hpp"
+    "src/VulkanConversions.cpp"
+    "src/VulkanConversions.hpp"
 )
 
+# the public headers include foundation headers (EnumFlagUtils, ImageDataFormats), and foundation does not export its folder
+TARGET_INCLUDE_DIRECTORIES(rhi_resources PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../foundation/include"
+    ${Vulkan_INCLUDE_DIR})
 TARGET_INCLUDE_DIRECTORIES(rhi_resources PRIVATE
-    ${VPR_INCLUDE_DIRS_MODULE_RELATIVE}
-    ${Vulkan_INCLUDE_DIR}
-    "../../third_party/svs"
-    "../../third_party/json/include"
-    "../../third_party/entt/include"
-    "../RhiSystem/include"
-)
+    "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-TARGET_LINK_LIBRARIES(rhi_resources PUBLIC EnTT vpr_core vpr_command vpr_sync ${Vulkan_LIBRARY} VulkanMemoryAllocator rhi_system)
+TARGET_LINK_LIBRARIES(rhi_resources PUBLIC rhi_system ${Vulkan_LIBRARY})
+TARGET_LINK_LIBRARIES(rhi_resources PRIVATE EnTT VulkanMemoryAllocator)

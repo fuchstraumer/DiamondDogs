@@ -1,7 +1,6 @@
 # Lodestone cooks DiamondDogs' shaders at build time and provides the manifest client that the runtime
-# reads them with. It also brings the Slang compiler target (`slang`), which RhiSystem's runtime
-# ShaderCompiler links. DiamondDogs therefore no longer builds its own copy of Slang: two copies define the
-# same targets, and they also disagree on the Slang version.
+# reads them with. DiamondDogs has no Slang of its own: the cooker is the only Slang user, and it runs at
+# build time.
 #
 # Lodestone is consumed as a sibling checkout by default, because both repositories are developed together.
 # Point DIAMOND_DOGS_LODESTONE_DIR elsewhere to use another checkout.

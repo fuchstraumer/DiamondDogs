@@ -1,4 +1,7 @@
 #pragma once
+#include "ResourceFlags.hpp"
+#include "entt/entity/fwd.hpp"
+#include <cstdint>
 #ifndef RESOURCE_CONTEXT_IMPL_HPP
 #define RESOURCE_CONTEXT_IMPL_HPP
 #include "ResourceTypes.hpp"
@@ -29,7 +32,7 @@ class ResourceContextImpl
 {
 public:
 
-    void construct(const ResourceContextCreateInfo& createInfo);
+    void construct(const ResourceContextCreateInfo& create_info);
     void destroy();
     /**
      * @brief Locks current thread and forces it to wait for all pending operations to complete, unlike how it used to be (required per-frame ticks).
@@ -98,7 +101,7 @@ private:
     /** @brief Returns true when the allocation landed in host-visible memory, so data can be written without the transfer system. */
     [[nodiscard]] bool allocationIsHostVisible(entt::entity entity) const;
     // in case of host-visible buffers (e.g. UBOs and such) we just handle it in the resource context instead of the transfer system
-    void setBufferDataHostOnly(entt::entity entity, InternalResourceDataContainer& dataContainer);
+    void setBufferDataHostOnly(entt::entity entity, InternalResourceDataContainer& data_container);
     void enqueueBufferUpload(entt::entity entity, InternalResourceDataContainer&& data, std::shared_ptr<ResourceTransferReply>&& reply);
     void enqueueImageUpload(entt::entity entity, InternalResourceDataContainer&& data, std::shared_ptr<ResourceTransferReply>&& reply);
     [[nodiscard]] TransferSystemReqBufferInfo bufferTransferInfo(entt::entity entity) const;

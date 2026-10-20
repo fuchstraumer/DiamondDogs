@@ -37,8 +37,8 @@
             "displayName": "Win64 Clang-CL",
             "inherits": "ninja-x64",
             "cacheVariables": {
-                "CMAKE_C_COMPILER": "clang.exe",
-                "CMAKE_CXX_COMPILER": "clang++.exe"
+                "CMAKE_C_COMPILER": "clang-cl.exe",
+                "CMAKE_CXX_COMPILER": "clang-cl.exe"
             }
         }
     ],

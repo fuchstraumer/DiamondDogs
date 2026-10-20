@@ -17,6 +17,7 @@ endif()
 
 set(foundation_source_files
     "include/ImageDataFormats.hpp"
+    "include/ImageDataFormatsVulkan.hpp"
     "include/Unit.hpp"
     "include/foundation/CoreAPIs.hpp"
     "include/foundation/Handle.hpp"

@@ -44,12 +44,6 @@ function(add_unit_test_target TARGET_NAME TEST_SOURCES LINK_LIBRARIES)
     
     # Discover and register tests with CTest
     gtest_discover_tests(${TARGET_NAME})
-
-    # Check if this test links against rhi_system (which depends on Slang)
-    # If so, automatically copy Slang DLLs to the test output directory
-    if("${LINK_LIBRARIES}" MATCHES "rhi_system")
-        copy_slang_dlls_to_target(${TARGET_NAME})
-    endif()
 endfunction()
 
 # Add subdirectories for each module's tests

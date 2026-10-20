@@ -471,6 +471,7 @@ void ResourceTransferSystem::waitForCommandsToComplete(std::chrono::milliseconds
                 // (maybe worth checking to see if we've hit a TDR?)
                 break;
             }
+            
             // I wonder how much time we burn in erasing the command and running the destructor?
             // Probably doesn't matter since commands are still in flight, but still
             iter = batch_iter->commands.erase(iter);
