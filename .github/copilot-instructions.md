@@ -415,6 +415,8 @@ above, the shared rules now win, and the difference is listed under "Superseded"
 - Use `VERBATIM`.
 - `cmake -E copy` fails on an empty list. Guard a copy of `$<TARGET_RUNTIME_DLLS:...>` (see
   `tests/integration_tests/CMakeLists.txt`).
+- `MSVC` is true for clang-cl too. Use `DIAMOND_DOGS_COMPILER_IS_CL` for what only cl.exe has (`/MP`, SVML), and
+  build with both presets.
 
 ### Math
 
@@ -438,7 +440,8 @@ above, the shared rules now win, and the difference is listed under "Superseded"
 ### Validation
 
 - A test passes only with exit code 0 and no validation message in its output (see `CLAUDE.md`).
-- Run the windowed tests with `--frames=N`.
+- `ValidationLayers::WithSynchronization` and above turn on synchronization validation. No environment variable.
+- Run the windowed tests with `--frames=N`, and with `--resize` to exercise swapchain recreation.
 
 ### Superseded
 

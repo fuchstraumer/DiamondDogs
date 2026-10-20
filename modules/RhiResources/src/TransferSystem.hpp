@@ -31,7 +31,8 @@ public:
 
     ResourceTransferSystem(const ResourceTransferSystem&) = delete;
     ResourceTransferSystem& operator=(const ResourceTransferSystem&) = delete;
-
+    ResourceTransferSystem& operator=(ResourceTransferSystem&& other) noexcept = delete;
+    ResourceTransferSystem(ResourceTransferSystem&& other) noexcept = delete;
     ResourceTransferSystem();
     ~ResourceTransferSystem();
 
@@ -76,7 +77,7 @@ private:
 
         [[nodiscard]] VkCommandBuffer CmdBuffer() const noexcept;
         void EndRecording();
-        [[nodiscard]] MessageReply::Status WaitForCompletion(uint64_t timeoutNs);
+        [[nodiscard]] MessageReply::Status WaitForCompletion(uint64_t timeout_ns);
         [[nodiscard]] VkSemaphore Semaphore() const;
         [[nodiscard]] UploadBuffer* GetUploadBuffer() noexcept;
 
@@ -114,10 +115,10 @@ private:
     {
         // need to move commands that have been submitted out of the class vector, so that we don't
         // add to them during the next batch and accidentally dual-submit commands!
-        std::vector<TransferCommand> commands;
+        std::vector<TransferCommand> Commands;
         // optional and rarely used, but useful if we have to force wait for some reason or another
         // (potentially swapchain resize or device loss? need to assess more)
-        std::unique_ptr<rhi::Fence> fence;
+        std::unique_ptr<rhi::Fence> Fence;
     };
     std::vector<InflightCommandBatch> inflightCommandBatches;
 

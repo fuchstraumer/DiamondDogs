@@ -18,7 +18,7 @@
 const static CasData128 k_NullAtomic128 = CasData128{ 0u, 0u };
 constexpr static uint64_t k_VkNullHandleUi64 = 0u;
 constexpr static uint32_t k_EnttNullEntityUi32 = static_cast<uint32_t>(entt::null);
-const static GraphicsResource k_NulLGraphicsRsrc = GraphicsResource{ ResourceDomain::Invalid,
+const static GraphicsResource k_NullGraphicsRsrc = GraphicsResource{ ResourceDomain::Invalid,
                                                                      ResourceType::Invalid,
                                                                      k_EnttNullEntityUi32,
                                                                      k_VkNullHandleUi64,
@@ -187,7 +187,7 @@ MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeout_n
         }
         else
         {
-            SetStatus(Status::Completed);
+            setStatus(Status::Completed);
             return Status::Completed;
         }
     }
@@ -263,7 +263,7 @@ GraphicsResource GraphicsResourceReply::GetResource() const noexcept
     return k_NullGraphicsRsrc;
 }
 
-void GraphicsResourceReply::SetGraphicsResource(
+void GraphicsResourceReply::setGraphicsResource(
     const ResourceDomain _domain,
     const ResourceType _type,
     const uint32_t entity_handle,
@@ -284,10 +284,10 @@ void GraphicsResourceReply::SetGraphicsResource(
     }
 
     resourceTypeAndEntityHandle.store(RhiResourceTypeAndEntityHandle(_domain, _type, entity_handle), std::memory_order_release);
-    SetStatus(Status::Completed);
+    setStatus(Status::Completed);
 }
 
-void GraphicsResourceReply::SetGraphicsResourceRelaxed(const GraphicsResource& resource) noexcept
+void GraphicsResourceReply::setGraphicsResourceRelaxed(const GraphicsResource& resource) noexcept
 {
     // doesn't set status as this usually means there are dependent operations following this, which is what the user is actually waiting
     // on and why we can use relaxed stores
@@ -317,8 +317,8 @@ void* PointerMessageReply::GetPointer() const noexcept
     return data.load(std::memory_order_acquire);
 }
 
-void PointerMessageReply::SetPointer(void* ptr) noexcept
+void PointerMessageReply::setPointer(void* ptr) noexcept
 {
     data.store(ptr, std::memory_order_release);
-    SetStatus(Status::Completed);
+    setStatus(Status::Completed);
 }

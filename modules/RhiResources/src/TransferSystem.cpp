@@ -28,7 +28,7 @@
 #include <variant>
 #include <vector>
 
-constexpr static VkDebugUtilsLabelEXT queue_debug_label
+constexpr static VkDebugUtilsLabelEXT k_QueueDebugLabel
 {
     VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
     nullptr,
@@ -126,9 +126,9 @@ void ResourceTransferSystem::TransferCommand::EndRecording()
     assert(result == VK_SUCCESS);
 }
 
-MessageReply::Status ResourceTransferSystem::TransferCommand::WaitForCompletion(uint64_t timeoutNs)
+MessageReply::Status ResourceTransferSystem::TransferCommand::WaitForCompletion(uint64_t timeout_ns)
 {
-    MessageReply::Status status = reply->WaitForCompletion(timeoutNs);
+    MessageReply::Status status = reply->WaitForCompletion(timeout_ns);
     if (status == MessageReply::Status::Timeout)
     {
         return status;
@@ -157,16 +157,16 @@ void ResourceTransferSystem::TransferCommand::createCommandPool(uint32_t queue_f
     rhi::Result allocResult = commandPool->AllocateCommandBuffers(1);
     assert(allocResult.IsSuccess());
 
-    VkCommandBufferBeginInfo begin_info = {};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VkResult result = vkBeginCommandBuffer(CmdBuffer(), &begin_info);
+    VkCommandBufferBeginInfo beginInfo = {};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkResult result = vkBeginCommandBuffer(CmdBuffer(), &beginInfo);
     assert(result == VK_SUCCESS);
 
     const rhi::VkDebugUtilsFunctions& debugFns = device->GetDebugUtilFns();
     if (debugFns.vkCmdBeginDebugUtilsLabel != nullptr)
     {
-        debugFns.vkCmdBeginDebugUtilsLabel(CmdBuffer(), &queue_debug_label);
+        debugFns.vkCmdBeginDebugUtilsLabel(CmdBuffer(), &k_QueueDebugLabel);
     }
 
     // every transfer is ordered after the transfers before it on this queue. submissions on one queue give no memory
@@ -174,7 +174,7 @@ void ResourceTransferSystem::TransferCommand::createCommandPool(uint32_t queue_f
     RecordTransferOrderingBarrier(CmdBuffer());
 }
 
-ResourceTransferSystem::ResourceTransferSystem() {}
+ResourceTransferSystem::ResourceTransferSystem() = default;
 
 ResourceTransferSystem::~ResourceTransferSystem()
 {
@@ -206,14 +206,14 @@ void ResourceTransferSystem::Initialize(const rhi::Device* _device, VkInstance i
     }
 
     // we run this on a single thread, so we don't need to have the library sync for us!
-    VmaAllocatorCreateInfo create_info = {};
-    create_info.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
-    create_info.physicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
-    create_info.device = device->Handle().As<VkDevice>();
-    create_info.instance = instance;
-    create_info.vulkanApiVersion = vulkan_api_version;
+    VmaAllocatorCreateInfo createInfo = {};
+    createInfo.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
+    createInfo.physicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
+    createInfo.device = device->Handle().As<VkDevice>();
+    createInfo.instance = instance;
+    createInfo.vulkanApiVersion = vulkan_api_version;
 
-    VkResult result = vmaCreateAllocator(&create_info, &allocatorHandle);
+    VkResult result = vmaCreateAllocator(&createInfo, &allocatorHandle);
     assert(result == VK_SUCCESS);
 
     initialized = true;
@@ -277,10 +277,10 @@ void ResourceTransferSystem::processRemainingAndWait()
 
     for (InflightCommandBatch& batch : inflightCommandBatches)
     {
-        batch.fence->Wait();
-        for (TransferCommand& command : batch.commands)
+        batch.Fence->Wait();
+        for (TransferCommand& command : batch.Commands)
         {
-            command.WaitForCompletion(std::numeric_limits<uint64_t>::max());
+            [[maybe_unused]] MessageReply::Status status = command.WaitForCompletion(std::numeric_limits<uint64_t>::max());
         }
     }
     inflightCommandBatches.clear();
@@ -295,10 +295,10 @@ void ResourceTransferSystem::workerThreadJob()
 {
     // 2ms chosen as it's about half of one frame at 240hz, which is small but still enough to do work CPU-side on this thread
     // Rest of the 2ms will be used to submit commands and wait for them to complete
-    static constexpr std::chrono::milliseconds message_processing_timeout = std::chrono::milliseconds(2);
+    static constexpr std::chrono::milliseconds k_MessageProcessingTimeout = std::chrono::milliseconds(2);
     // 1ms chosen to give us less time than the message processing, but still enough for GPU to do work
     // PCI bus goes WHIRRRRRRRRRRRRRRRRR
-    static constexpr std::chrono::milliseconds command_submission_timeout = std::chrono::milliseconds(1);
+    static constexpr std::chrono::milliseconds k_CommandSubmissionTimeout = std::chrono::milliseconds(1);
 
     // Create a backoff sleeper with custom parameters for transfer system
     // Use a smaller min sleep time (1ms) since transfers are often time-sensitive
@@ -314,7 +314,7 @@ void ResourceTransferSystem::workerThreadJob()
         bool didWork = false;
 
         // Process messages with timeout
-        didWork = processMessages(message_processing_timeout);
+        didWork = processMessages(k_MessageProcessingTimeout);
 
         // Submit any pending commands
         if (!commands.empty())
@@ -326,7 +326,7 @@ void ResourceTransferSystem::workerThreadJob()
         // Wait for in-flight commands to complete
         if (!inflightCommandBatches.empty())
         {
-            waitForCommandsToComplete(command_submission_timeout);
+            waitForCommandsToComplete(k_CommandSubmissionTimeout);
             didWork = true;
         }
 
@@ -406,34 +406,34 @@ bool ResourceTransferSystem::processMessages(std::chrono::milliseconds timeout)
 
 void ResourceTransferSystem::submitTransferCommands()
 {
-    std::vector<VkCommandBuffer> cmd_buffers;
-    std::vector<VkSemaphore> signal_semaphores;
-    cmd_buffers.reserve(commands.size());
-    signal_semaphores.reserve(commands.size());
-    const std::vector<uint64_t> signal_values(commands.size(), k_TransferCompleteSemaphoreValue);
+    std::vector<VkCommandBuffer> cmdBuffers;
+    std::vector<VkSemaphore> signalSemaphores;
+    cmdBuffers.reserve(commands.size());
+    signalSemaphores.reserve(commands.size());
+    const std::vector<uint64_t> signalValues(commands.size(), k_TransferCompleteSemaphoreValue);
 
     for (auto& command : commands)
     {
-        cmd_buffers.emplace_back(command.CmdBuffer());
-        signal_semaphores.emplace_back(command.Semaphore());
+        cmdBuffers.emplace_back(command.CmdBuffer());
+        signalSemaphores.emplace_back(command.Semaphore());
     }
 
-    VkTimelineSemaphoreSubmitInfo timeline_info = {};
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    timeline_info.pSignalSemaphoreValues = signal_values.data();
-    timeline_info.signalSemaphoreValueCount = static_cast<uint32_t>(signal_values.size());
+    VkTimelineSemaphoreSubmitInfo timelineInfo = {};
+    timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+    timelineInfo.pSignalSemaphoreValues = signalValues.data();
+    timelineInfo.signalSemaphoreValueCount = static_cast<uint32_t>(signalValues.size());
 
-    VkSubmitInfo submit_info = {};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pNext = &timeline_info;
-    submit_info.commandBufferCount = static_cast<uint32_t>(cmd_buffers.size());
-    submit_info.pCommandBuffers = cmd_buffers.data();
-    submit_info.signalSemaphoreCount = static_cast<uint32_t>(signal_semaphores.size());
-    submit_info.pSignalSemaphores = signal_semaphores.data();
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.pNext = &timelineInfo;
+    submitInfo.commandBufferCount = static_cast<uint32_t>(cmdBuffers.size());
+    submitInfo.pCommandBuffers = cmdBuffers.data();
+    submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size());
+    submitInfo.pSignalSemaphores = signalSemaphores.data();
 
     // fixed: the fence was created after the submit and never passed to it, so waiting on it never returned
     std::unique_ptr<rhi::Fence> batchFence = std::make_unique<rhi::Fence>(device->Handle());
-    VkResult result = vkQueueSubmit(transferQueue, 1, &submit_info, batchFence->Handle().As<VkFence>());
+    VkResult result = vkQueueSubmit(transferQueue, 1, &submitInfo, batchFence->Handle().As<VkFence>());
     assert(result == VK_SUCCESS);
 
     inflightCommandBatches.emplace_back(std::move(commands), std::move(batchFence));
@@ -443,28 +443,28 @@ void ResourceTransferSystem::submitTransferCommands()
 void ResourceTransferSystem::waitForCommandsToComplete(std::chrono::milliseconds timeout)
 {
     using clock = std::chrono::steady_clock;
-    const clock::time_point wait_start = clock::now();
-    const clock::time_point wait_end = wait_start + timeout;
-    for (auto batch_iter = inflightCommandBatches.begin(); batch_iter != inflightCommandBatches.end();)
+    const clock::time_point waitStart = clock::now();
+    const clock::time_point waitEnd = waitStart + timeout;
+    for (auto batchIter = inflightCommandBatches.begin(); batchIter != inflightCommandBatches.end();)
     {
-        const clock::time_point now_outer = clock::now();
-        if (now_outer >= wait_end)
+        const clock::time_point nowOuter = clock::now();
+        if (nowOuter >= waitEnd)
         {
             break;
         }
 
-        for (auto iter = batch_iter->commands.begin(); iter != batch_iter->commands.end();)
+        for (auto iter = batchIter->Commands.begin(); iter != batchIter->Commands.end();)
         {
-            const clock::time_point now_inner = clock::now();
-            if (now_inner >= wait_end)
+            const clock::time_point nowInner = clock::now();
+            if (nowInner >= waitEnd)
             {
                 break;
             }
 
             // Calculate remaining time in nanoseconds
-            const uint64_t remaining = std::chrono::duration_cast<std::chrono::nanoseconds>(wait_end - now_inner).count();
+            const int64_t remaining = std::chrono::duration_cast<std::chrono::nanoseconds>(waitEnd - nowInner).count();
 
-            MessageReply::Status status = iter->WaitForCompletion(remaining);
+            MessageReply::Status status = iter->WaitForCompletion(static_cast<uint64_t>(remaining));
             if (status == MessageReply::Status::Timeout)
             {
                 // we'll get em next time
@@ -474,17 +474,17 @@ void ResourceTransferSystem::waitForCommandsToComplete(std::chrono::milliseconds
             
             // I wonder how much time we burn in erasing the command and running the destructor?
             // Probably doesn't matter since commands are still in flight, but still
-            iter = batch_iter->commands.erase(iter);
+            iter = batchIter->Commands.erase(iter);
         }
 
-        if (batch_iter->commands.empty())
+        if (batchIter->Commands.empty())
         {
             // every command signalled, so the fence is signalled too
-            batch_iter = inflightCommandBatches.erase(batch_iter);
+            batchIter = inflightCommandBatches.erase(batchIter);
         }
         else
         {
-            ++batch_iter;
+            ++batchIter;
         }
     }
 }
@@ -495,80 +495,80 @@ void ResourceTransferSystem::waitForCommandsToComplete(std::chrono::milliseconds
 
 void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBufferDataMessage&& message)
 {
-    const VkBuffer buffer_handle = message.bufferInfo.bufferHandle;
+    const VkBuffer bufferHandle = message.bufferInfo.bufferHandle;
 
-    TransferCommand transfer_command(device, transferQueueFamily, allocatorHandle, std::move(message.reply));
+    TransferCommand transferCommand(device, transferQueueFamily, allocatorHandle, std::move(message.reply));
 
     // note that this is copying to an API managed staging buffer, not just another raw data buffer like our data container. will only be briefly duplicated
     InternalResourceDataContainer::BufferDataVector& dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(message.data.DataVector);
 
-    UploadBuffer* upload_buffer = transfer_command.GetUploadBuffer();
-    std::vector<VkBufferCopy> buffer_copies = upload_buffer->SetData(dataVector);
+    UploadBuffer* uploadBuffer = transferCommand.GetUploadBuffer();
+    std::vector<VkBufferCopy> bufferCopies = uploadBuffer->SetData(dataVector);
 
-    VkCommandBuffer cmd = transfer_command.CmdBuffer();
-    vkCmdCopyBuffer(cmd, upload_buffer->Buffer, buffer_handle, static_cast<uint32_t>(buffer_copies.size()), buffer_copies.data());
+    VkCommandBuffer cmd = transferCommand.CmdBuffer();
+    vkCmdCopyBuffer(cmd, uploadBuffer->Buffer, bufferHandle, static_cast<uint32_t>(bufferCopies.size()), bufferCopies.data());
 
     // no barrier after the copy: other queues see the write through the reply's semaphore, which consumers wait on
-    transfer_command.EndRecording();
+    transferCommand.EndRecording();
     dataVector.clear();
-    commands.emplace_back(std::move(transfer_command));
+    commands.emplace_back(std::move(transferCommand));
 }
 
 void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDataMessage&& message)
 {
-    const ImageCreateInfo& image_info = message.imageInfo.createInfo;
-    const VkImage image_handle = message.imageInfo.imageHandle;
-    const VkImageSubresourceRange range = WholeImageRange(image_info);
-    const VkImageLayout final_layout = ImageLayoutAfterTransfer(image_info.Usage);
+    const ImageCreateInfo& imageInfo = message.imageInfo.createInfo;
+    const VkImage imageHandle = message.imageInfo.imageHandle;
+    const VkImageSubresourceRange range = WholeImageRange(imageInfo);
+    const VkImageLayout finalLayout = ImageLayoutAfterTransfer(imageInfo.Usage);
 
-    TransferCommand transfer_command(device, transferQueueFamily, allocatorHandle, std::move(message.reply));
+    TransferCommand transferCommand(device, transferQueueFamily, allocatorHandle, std::move(message.reply));
     InternalResourceDataContainer::ImageDataVector& imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.data.DataVector);
 
-    UploadBuffer* upload_buffer = transfer_command.GetUploadBuffer();
-    std::vector<VkBufferImageCopy> buffer_image_copies = upload_buffer->SetData(imageDataVector, range.aspectMask);
+    UploadBuffer* uploadBuffer = transferCommand.GetUploadBuffer();
+    std::vector<VkBufferImageCopy> bufferImageCopies = uploadBuffer->SetData(imageDataVector, range.aspectMask);
 
-    VkCommandBuffer cmd = transfer_command.CmdBuffer();
+    VkCommandBuffer cmd = transferCommand.CmdBuffer();
 
     // required, unlike with buffers. forces a layout transition. stages are limited to the ones a transfer queue has
-    RecordImageLayoutTransition(cmd, image_handle, range,
+    RecordImageLayoutTransition(cmd, imageHandle, range,
         message.imageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     vkCmdCopyBufferToImage(
         cmd,
-        upload_buffer->Buffer,
-        image_handle,
+        uploadBuffer->Buffer,
+        imageHandle,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        static_cast<uint32_t>(buffer_image_copies.size()),
-        buffer_image_copies.data());
-    RecordImageLayoutTransition(cmd, image_handle, range,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, final_layout,
+        static_cast<uint32_t>(bufferImageCopies.size()),
+        bufferImageCopies.data());
+    RecordImageLayoutTransition(cmd, imageHandle, range,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, finalLayout,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    transfer_command.EndRecording();
+    transferCommand.EndRecording();
     imageDataVector.clear();
-    commands.emplace_back(std::move(transfer_command));
+    commands.emplace_back(std::move(transferCommand));
 }
 
 void ResourceTransferSystem::processFillBufferMessage(TransferSystemFillBufferMessage&& message)
 {
-    const VkBuffer buffer_handle = message.bufferInfo.bufferHandle;
+    const VkBuffer bufferHandle = message.bufferInfo.bufferHandle;
 
-    TransferCommand transfer_command(device, transferQueueFamily, std::move(message.reply));
-    VkCommandBuffer cmd = transfer_command.CmdBuffer();
-    vkCmdFillBuffer(cmd, buffer_handle, message.offset, message.size, message.value);
-    transfer_command.EndRecording();
-    commands.emplace_back(std::move(transfer_command));
+    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
+    VkCommandBuffer cmd = transferCommand.CmdBuffer();
+    vkCmdFillBuffer(cmd, bufferHandle, message.offset, message.size, message.value);
+    transferCommand.EndRecording();
+    commands.emplace_back(std::move(transferCommand));
 }
 
 void ResourceTransferSystem::processCopyBufferToBufferMessage(TransferSystemCopyBufferToBufferMessage&& message)
 {
-    const BufferCreateInfo& src_info = message.srcBufferInfo.createInfo;
-    const BufferCreateInfo& dst_info = message.dstBufferInfo.createInfo;
-    if (src_info.Size > dst_info.Size)
+    const BufferCreateInfo& srcInfo = message.srcBufferInfo.createInfo;
+    const BufferCreateInfo& dstInfo = message.dstBufferInfo.createInfo;
+    if (srcInfo.Size > dstInfo.Size)
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -576,125 +576,125 @@ void ResourceTransferSystem::processCopyBufferToBufferMessage(TransferSystemCopy
     {
         0u,
         0u,
-        src_info.Size
+        srcInfo.Size
     };
 
-    TransferCommand transfer_command(device, transferQueueFamily, std::move(message.reply));
-    VkCommandBuffer cmd = transfer_command.CmdBuffer();
+    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
+    VkCommandBuffer cmd = transferCommand.CmdBuffer();
     vkCmdCopyBuffer(cmd, message.srcBufferInfo.bufferHandle, message.dstBufferInfo.bufferHandle, 1, &copy);
-    transfer_command.EndRecording();
-    commands.emplace_back(std::move(transfer_command));
+    transferCommand.EndRecording();
+    commands.emplace_back(std::move(transferCommand));
 }
 
 void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyImageToImageMessage&& message)
 {
-    const ImageCreateInfo& src_info = message.srcImageInfo.createInfo;
-    const ImageCreateInfo& dst_info = message.dstImageInfo.createInfo;
-    const VkImage src_handle = message.srcImageInfo.imageHandle;
-    const VkImage dst_handle = message.dstImageInfo.imageHandle;
-    const VkImageSubresourceRange src_range = WholeImageRange(src_info);
-    const VkImageSubresourceRange dst_range = WholeImageRange(dst_info);
+    const ImageCreateInfo& srcInfo = message.srcImageInfo.createInfo;
+    const ImageCreateInfo& dstInfo = message.dstImageInfo.createInfo;
+    const VkImage srcHandle = message.srcImageInfo.imageHandle;
+    const VkImage dstHandle = message.dstImageInfo.imageHandle;
+    const VkImageSubresourceRange srcRange = WholeImageRange(srcInfo);
+    const VkImageSubresourceRange dstRange = WholeImageRange(dstInfo);
 
-    if (src_range.aspectMask != dst_range.aspectMask ||
-        src_info.ArrayLayers != dst_info.ArrayLayers ||
-        src_info.Width != dst_info.Width ||
-        src_info.Height != dst_info.Height ||
-        src_info.Depth != dst_info.Depth ||
-        src_info.MipLevels != dst_info.MipLevels)
+    if (srcRange.aspectMask != dstRange.aspectMask ||
+        srcInfo.ArrayLayers != dstInfo.ArrayLayers ||
+        srcInfo.Width != dstInfo.Width ||
+        srcInfo.Height != dstInfo.Height ||
+        srcInfo.Depth != dstInfo.Depth ||
+        srcInfo.MipLevels != dstInfo.MipLevels)
     {
         // if these traits don't match, we can't copy (for now)
         // may need to investigate and return to this later, but most of these traits
         // shouldn't be a problem. may need to specify copy region/layer somehow
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
-    const VkExtent3D extent = ImageExtent(src_info);
-    std::vector<VkImageCopy> image_copies;
-    image_copies.reserve(src_info.MipLevels);
-    for (uint32_t mip = 0; mip < src_info.MipLevels; ++mip)
+    const VkExtent3D extent = ImageExtent(srcInfo);
+    std::vector<VkImageCopy> imageCopies;
+    imageCopies.reserve(srcInfo.MipLevels);
+    for (uint32_t mip = 0; mip < srcInfo.MipLevels; ++mip)
     {
         // all layers of a mip level go in one region
-        const VkExtent3D mip_extent
+        const VkExtent3D mipExtent
         {
             std::max(extent.width >> mip, 1u),
             std::max(extent.height >> mip, 1u),
             std::max(extent.depth >> mip, 1u)
         };
-        const VkImageSubresourceLayers subresource{ src_range.aspectMask, mip, 0u, src_info.ArrayLayers };
-        image_copies.push_back(VkImageCopy{ subresource, VkOffset3D{ 0, 0, 0 }, subresource, VkOffset3D{ 0, 0, 0 }, mip_extent });
+        const VkImageSubresourceLayers subresource{ srcRange.aspectMask, mip, 0u, srcInfo.ArrayLayers };
+        imageCopies.push_back(VkImageCopy{ subresource, VkOffset3D{ 0, 0, 0 }, subresource, VkOffset3D{ 0, 0, 0 }, mipExtent });
     }
 
-    const VkImageLayout src_final = ImageLayoutAfterTransfer(src_info.Usage);
-    const VkImageLayout dst_final = ImageLayoutAfterTransfer(dst_info.Usage);
+    const VkImageLayout srcFinal = ImageLayoutAfterTransfer(srcInfo.Usage);
+    const VkImageLayout dstFinal = ImageLayoutAfterTransfer(dstInfo.Usage);
 
-    TransferCommand transfer_command(device, transferQueueFamily, std::move(message.reply));
-    VkCommandBuffer cmd = transfer_command.CmdBuffer();
-    RecordImageLayoutTransition(cmd, src_handle, src_range,
+    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
+    VkCommandBuffer cmd = transferCommand.CmdBuffer();
+    RecordImageLayoutTransition(cmd, srcHandle, srcRange,
         message.srcImageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
-    RecordImageLayoutTransition(cmd, dst_handle, dst_range,
+    RecordImageLayoutTransition(cmd, dstHandle, dstRange,
         message.dstImageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     // fixed: the copy named the usage layouts (shader read, attachment) instead of the transfer layouts
     vkCmdCopyImage(
         cmd,
-        src_handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        dst_handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        static_cast<uint32_t>(image_copies.size()), image_copies.data());
-    RecordImageLayoutTransition(cmd, src_handle, src_range,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, src_final,
+        srcHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        dstHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        static_cast<uint32_t>(imageCopies.size()), imageCopies.data());
+    RecordImageLayoutTransition(cmd, srcHandle, srcRange,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, srcFinal,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_NONE,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
-    RecordImageLayoutTransition(cmd, dst_handle, dst_range,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dst_final,
+    RecordImageLayoutTransition(cmd, dstHandle, dstRange,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dstFinal,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    transfer_command.EndRecording();
-    commands.emplace_back(std::move(transfer_command));
+    transferCommand.EndRecording();
+    commands.emplace_back(std::move(transferCommand));
 }
 
 void ResourceTransferSystem::processCopyImageToBufferMessage(TransferSystemCopyImageToBufferMessage&& message)
 {
     // Not implemented and I really don't want to do it right now lol
-    message.reply->SetStatus(MessageReply::Status::Failed);
+    message.reply->setStatus(MessageReply::Status::Failed);
 }
 
 void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyBufferToImageMessage&& message)
 {
-    const ImageCreateInfo& dst_info = message.imageInfo.createInfo;
-    const VkImage dst_handle = message.imageInfo.imageHandle;
-    const VkImageSubresourceRange dst_range = WholeImageRange(dst_info);
+    const ImageCreateInfo& dstInfo = message.imageInfo.createInfo;
+    const VkImage dstHandle = message.imageInfo.imageHandle;
+    const VkImageSubresourceRange dstRange = WholeImageRange(dstInfo);
 
     // copies the whole buffer into mip 0 of every layer, tightly packed
-    const VkBufferImageCopy copy_params
+    const VkBufferImageCopy copyParams
     {
         0u,
         0u,
         0u,
-        VkImageSubresourceLayers{ dst_range.aspectMask, 0u, 0u, dst_info.ArrayLayers },
+        VkImageSubresourceLayers{ dstRange.aspectMask, 0u, 0u, dstInfo.ArrayLayers },
         VkOffset3D{ 0, 0, 0 },
-        ImageExtent(dst_info)
+        ImageExtent(dstInfo)
     };
 
-    TransferCommand transfer_command(device, transferQueueFamily, std::move(message.reply));
-    VkCommandBuffer cmd = transfer_command.CmdBuffer();
-    RecordImageLayoutTransition(cmd, dst_handle, dst_range,
+    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
+    VkCommandBuffer cmd = transferCommand.CmdBuffer();
+    RecordImageLayoutTransition(cmd, dstHandle, dstRange,
         message.imageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     // fixed: the copy named the usage layout instead of TRANSFER_DST_OPTIMAL
-    vkCmdCopyBufferToImage(cmd, message.bufferInfo.bufferHandle, dst_handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copy_params);
-    RecordImageLayoutTransition(cmd, dst_handle, dst_range,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, ImageLayoutAfterTransfer(dst_info.Usage),
+    vkCmdCopyBufferToImage(cmd, message.bufferInfo.bufferHandle, dstHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copyParams);
+    RecordImageLayoutTransition(cmd, dstHandle, dstRange,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, ImageLayoutAfterTransfer(dstInfo.Usage),
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    transfer_command.EndRecording();
-    commands.emplace_back(std::move(transfer_command));
+    transferCommand.EndRecording();
+    commands.emplace_back(std::move(transferCommand));
 }
 
 namespace

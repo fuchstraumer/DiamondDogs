@@ -27,8 +27,6 @@ ImGuiModule::ImGuiModule(const ImGuiModuleCreateInfo& create_info)
     io.IniFilename = nullptr;
     ImGui::StyleColorsDark();
 
-    // the backend takes a non-const window, and PlatformWindowSystem hands out a const one. ImGui only installs
-    // callbacks on it and reads its state
     GLFWwindow* window = static_cast<GLFWwindow*>(create_info.PlatformWindowHandle);
     const bool glfwInitialized = ImGui_ImplGlfw_InitForVulkan(window, create_info.InstallInputCallbacks);
     assert(glfwInitialized);

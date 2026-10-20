@@ -177,6 +177,12 @@ struct DestroyResourceMessage
     std::shared_ptr<MessageReply> reply = nullptr;
 };
 
+/** @brief Tells the worker thread to return. Shutdown is a message so that the worker can block on the queue instead
+ *  of polling a flag. */
+struct ExitWorkerMessage
+{
+};
+
 using ResourceMessagePayloadType = std::variant<CreateBufferMessage,
                                                 CreateImageMessage,
                                                 CreateSamplerMessage,
@@ -187,7 +193,8 @@ using ResourceMessagePayloadType = std::variant<CreateBufferMessage,
                                                 UnmapResourceMessage,
                                                 CopyResourceMessage,
                                                 CopyResourceContentsMessage,
-                                                DestroyResourceMessage>;
+                                                DestroyResourceMessage,
+                                                ExitWorkerMessage>;
 
 // following message types are broadly the same, but feature extra info to reduce need for thread sync or
 // safety concerns with transfer system.

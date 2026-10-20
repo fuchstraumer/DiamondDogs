@@ -21,17 +21,22 @@ build green, and add a row to `Lodestone/docs/diamonddogs-requests.md`.
 
 ## Build and test
 
-Ninja Multi-Config with MSVC from Visual Studio 18, in `build/ninja-msvc`. Configure and build from a shell that
-has run `vcvars64.bat` from Visual Studio 18, as Lodestone's `scripts\build.bat` does. A configure from another
-environment writes a cache that names another toolset.
+Ninja Multi-Config, with two presets: `ninja-msvc` (cl.exe, in `build/ninja-msvc`) and `ninja-clang-cl` (LLVM's
+clang-cl, in `build/ninja-clang-cl`). Configure and build from a shell that has run `vcvars64.bat` from Visual
+Studio 18, as Lodestone's `scripts\build.bat` does. A configure from another environment writes a cache that names
+another toolset. Both compilers must build and pass: check both after a change to CMake or to a header.
 
 ```bat
-cmake -S . -B build/ninja-msvc -G "Ninja Multi-Config" -DCMAKE_C_COMPILER=cl.exe -DCMAKE_CXX_COMPILER=cl.exe
+cmake --preset ninja-msvc
 ```
 
 ```bat
 cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests TriangleTest ComputeManifestTest ImGuiTest
 ```
+
+CMake sets `MSVC` for clang-cl too, so `if(MSVC)` means "cl-style flags", not "cl.exe". clang-cl has no `/MP` (and
+gtest builds with `-WX`, so the warning fails the build) and no SVML library (`_XM_SVML_INTRINSICS_` breaks
+DirectXMath). Guard those with `DIAMOND_DOGS_COMPILER_IS_CL`, which the root `CMakeLists.txt` sets.
 
 Requirements:
 
@@ -48,25 +53,27 @@ outside the repositories are not real.
 `Validation Error` and `VUID_NAME`. RhiSystem's debug callback prints each message and does not fail the run, so
 exit code 0 alone proved nothing in the first audit (a filter hid every `vkCreate*` error).
 
-Run with synchronization validation too: set `VK_KHRONOS_VALIDATION_VALIDATE_SYNC=true` in the environment.
-`ValidationLayers::WithSynchronization` is not that. It loads the sync2 emulation layer. The environment setting
-is proven to work: it caught a present hazard in the first draft of ImGuiTest.
+Synchronization validation is on for `ValidationLayers::WithSynchronization` and above, and every test uses `Full`.
+`Instance` sets the validation layer's `validate_sync` setting through `VK_EXT_layer_settings`, so no environment
+variable is needed. This is proven: a planted present hazard in ImGuiTest reported `SYNC-HAZARD-PRESENT-AFTER-WRITE`
+with the variable unset.
 
 Run each test from its own output folder. The windowed tests (TriangleTest, ImGuiTest) take `--frames=N` and exit
-after N frames, so that an unattended run ends.
+after N frames, so that an unattended run ends. With `--resize` they also resize their window three times, and exit
+1 unless the swapchain was recreated once per resize and matches the framebuffer. Use at least 120 frames.
 
 A Debug `assert` in a test opens a dialog and blocks. An unattended run then looks like a hang until its timeout.
 VMA asserts this way when a mapped allocation is destroyed.
 
 | Target | Proves |
 |---|---|
-| `foundation_tests` | Containers (the MWSR queue), math, threading primitives, delegates. |
+| `foundation_tests` | Containers (the MWSR queue, including IDs that cross 2^31, 2^32 and 2^62), math, threading primitives, delegates. |
 | `rhi_system_tests` | Instance and device creation per API version, extension resolution, shader objects. |
 | `platform_system_tests` | Displays, windows, swapchain creation, JSON configuration. |
 | `resource_context_tests` | `ResourceContext` on a real device: every create path, uploads read back word for word, fills, copies, maps, samplers, four threads at once, and shutdown with queued work. |
 | `ComputeManifestTest` | The cook-to-dispatch path. Lodestone cooks `HashFill.slang`, `rhi::ShaderLibrary` selects each variant, `ResourceContext` creates every buffer, and every output word matches the CPU. |
-| `TriangleTest` | A windowed frame loop with shader objects and dynamic rendering. |
-| `ImGuiTest` | `ImGuiModule` on the official backends draws the demo window. |
+| `TriangleTest` | A windowed frame loop with shader objects and dynamic rendering. With `--resize`, swapchain recreation and depth images rebuilt at the new size. |
+| `ImGuiTest` | `ImGuiModule` on the official backends draws the demo window. With `--resize`, swapchain recreation. |
 
 ## Where the code lives
 
