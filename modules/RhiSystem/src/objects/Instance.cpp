@@ -2,7 +2,9 @@
 #include "ExtensionPack.hpp"
 #include "RhiAssert.hpp"
 #include "RhiResult.hpp"
+#include <algorithm>
 #include <cassert>
+#include <cstring>
 #include <iostream>
 #include <array>
 #include "vulkan/vulkan_core.h"
@@ -12,15 +14,14 @@ namespace rhi
 
 #ifdef RHI_SYSTEM_USE_VULKAN
     // Validation layer names
-    static constexpr std::array<const char*, 1> BASE_VALIDATION_LAYERS = 
+    static constexpr std::array<const char*, 1> BASE_VALIDATION_LAYERS =
     {
         "VK_LAYER_KHRONOS_validation"
     };
 
-    static constexpr std::array<const char*, 1> SYNCHRONIZATION_LAYERS = 
-    {
-        "VK_LAYER_KHRONOS_synchronization2"
-    };
+    // synchronization validation is a setting of the validation layer. this used to load
+    // VK_LAYER_KHRONOS_synchronization2, which only emulates sync2 on drivers without it and validates nothing
+    static constexpr const char* SYNCHRONIZATION_VALIDATION_SETTING = "validate_sync";
 
     Instance::Instance(const std::string& app_name,
                     const std::string& engine_name,
@@ -61,13 +62,37 @@ namespace rhi
 
     void Instance::createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions)
     {
+        std::vector<const char*> enabledInstanceExtensions = extensions.GetInstanceExtensions();
+
+        const VkBool32 settingEnabled = VK_TRUE;
+        const VkLayerSettingEXT syncValidationSetting
+        {
+            BASE_VALIDATION_LAYERS[0],
+            SYNCHRONIZATION_VALIDATION_SETTING,
+            VK_LAYER_SETTING_TYPE_BOOL32_EXT,
+            1u,
+            &settingEnabled
+        };
+        const VkLayerSettingsCreateInfoEXT layerSettings
+        {
+            VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
+            nullptr,
+            1u,
+            &syncValidationSetting
+        };
+        const bool enableSyncValidation = validationLevel >= ValidationLayers::WithSynchronization &&
+            validationLayerHasExtension(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+        if (enableSyncValidation)
+        {
+            enabledInstanceExtensions.push_back(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+        }
+
         // Store enabled extensions
-        const std::vector<const char*>& enabledInstanceExtensions = extensions.GetInstanceExtensions();
-        for (auto& extension : enabledInstanceExtensions)
+        for (const char* extension : enabledInstanceExtensions)
         {
             enabledExtensions.emplace_back(extension);
         }
-        
+
         // Convert layer names to const char*
         std::vector<const char*> layer_names;
         layer_names.reserve(enabledLayers.size());
@@ -75,12 +100,12 @@ namespace rhi
         {
             layer_names.push_back(layer.c_str());
         }
-        
+
         // Create instance
-        VkInstanceCreateInfo create_info = 
+        VkInstanceCreateInfo create_info =
         {
             VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            nullptr,
+            enableSyncValidation ? &layerSettings : nullptr,
             0,
             &app_info,
             static_cast<uint32_t>(layer_names.size()),
@@ -113,15 +138,6 @@ namespace rhi
             }
         }
         
-        // Add synchronization layers
-        if (validationLevel >= ValidationLayers::WithSynchronization)
-        {
-            for (const char* layer : SYNCHRONIZATION_LAYERS)
-            {
-                required_layers.push_back(layer);
-            }
-        }
-
         if (validationLevel >= ValidationLayers::CrashDiagnostic)
         {
             required_layers.push_back("VK_LAYER_LUNARG_crash_diagnostic");
@@ -168,6 +184,26 @@ namespace rhi
         }
         
         return true;
+    }
+
+    bool Instance::validationLayerHasExtension(const char* extension_name) const
+    {
+        const char* layerName = BASE_VALIDATION_LAYERS[0];
+        uint32_t extensionCount = 0;
+        vkEnumerateInstanceExtensionProperties(layerName, &extensionCount, nullptr);
+        std::vector<VkExtensionProperties> layerExtensions(extensionCount);
+        vkEnumerateInstanceExtensionProperties(layerName, &extensionCount, layerExtensions.data());
+
+        const bool found = std::ranges::any_of(layerExtensions, [extension_name](const VkExtensionProperties& properties)
+        {
+            return std::strcmp(properties.extensionName, extension_name) == 0;
+        });
+        if (!found)
+        {
+            std::cerr << "The validation layer does not provide " << extension_name
+                      << ", so synchronization validation stays off\n";
+        }
+        return found;
     }
 
     InstanceHandle Instance::Handle() const noexcept
