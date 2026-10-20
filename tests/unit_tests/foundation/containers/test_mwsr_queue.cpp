@@ -154,9 +154,13 @@ TEST_F(MWSRQueueTest, MultipleWritersSingleReader)
     received_items.reserve(total_items);
     std::atomic<bool> readers_done{false};
 
+    // fixed: this used to stop once items_written reached total_items - 1, with no final drain, so the last push
+    // could land after the reader quit and the test failed with 127 of 128 now and then. Read until every item
+    // has arrived instead, with a deadline so that a real lost item fails the test rather than hanging it
     auto reader_worker = [&]()
     {
-        while (items_written.load() < total_items - 1)
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (std::ssize(received_items) < total_items && std::chrono::steady_clock::now() < deadline)
         {
             std::optional<int> queue_trypop_item;
             while (queue_trypop_item = queue.try_pop(), queue_trypop_item.has_value())
