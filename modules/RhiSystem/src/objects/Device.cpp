@@ -181,8 +181,9 @@ namespace rhi
 
     struct DeviceImpl
     {
-        DeviceImpl(const Instance* instance) :
+        DeviceImpl(const Instance* instance, uint32_t api_version) :
             parentInstance{ instance },
+            apiVersion{ api_version },
             physicalDevice{ VK_NULL_HANDLE },
             numGraphicsQueues{ 0u },
             numComputeQueues{ 0u },
@@ -266,8 +267,18 @@ namespace rhi
             features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
             features.pNext = nullptr;
 
-            vkGetPhysicalDeviceProperties2(physicalDevice, &properties);
-            vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
+            // the *2 queries are core from 1.1. A 1.0 instance may only call them through the KHR extension,
+            // which we don't require, so it uses the 1.0 queries and leaves both pNext chains empty
+            if (apiVersion >= VK_API_VERSION_1_1)
+            {
+                vkGetPhysicalDeviceProperties2(physicalDevice, &properties);
+                vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
+            }
+            else
+            {
+                vkGetPhysicalDeviceProperties(physicalDevice, &properties.properties);
+                vkGetPhysicalDeviceFeatures(physicalDevice, &features.features);
+            }
             vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
         }
 
@@ -454,6 +465,7 @@ namespace rhi
         }
 
         const Instance* parentInstance;
+        uint32_t apiVersion;
         VkPhysicalDevice physicalDevice;
 
         std::vector<QueueHandle> graphicsQueues;
@@ -468,6 +480,7 @@ namespace rhi
         uint32_t numSparseBindingQueues;
         
         std::vector<std::string> enabledExtensions;
+        std::vector<std::string> coreExtensions;
         VkDebugUtilsFunctions debugUtilsHandler;
 
         VkPhysicalDeviceProperties2 properties;
@@ -479,7 +492,7 @@ namespace rhi
     Device::Device(const Instance* instance,
                    ExtensionPack& extensions) :
         handle{ 0u },
-        impl{ std::make_unique<DeviceImpl>(instance) }
+        impl{ std::make_unique<DeviceImpl>(instance, extensions.GetVulkanApiVersion()) }
     {
         createDevice(extensions);
     }
@@ -531,7 +544,9 @@ namespace rhi
 
     bool Device::HasExtension(std::string_view extension_name) const noexcept
     {
-        return std::find(impl->enabledExtensions.begin(), impl->enabledExtensions.end(), extension_name) != impl->enabledExtensions.end();
+        // a requested extension that is core in the active version is available without being enabled by name
+        return std::find(impl->enabledExtensions.begin(), impl->enabledExtensions.end(), extension_name) != impl->enabledExtensions.end() ||
+               std::find(impl->coreExtensions.begin(), impl->coreExtensions.end(), extension_name) != impl->coreExtensions.end();
     }
 
     void Device::WaitDeviceIdle() const
@@ -661,6 +676,7 @@ namespace rhi
         {
             impl->enabledExtensions.emplace_back(ext);
         }
+        impl->coreExtensions = extensions.GetCoreDeviceExtensions();
         
         // Device features
         const VkPhysicalDeviceFeatures2* device_features = extensions.GetDeviceFeatures();
@@ -678,6 +694,13 @@ namespace rhi
             device_extensions.data(),
             nullptr
         };
+
+        // a 1.0 device can't take VkPhysicalDeviceFeatures2 in pNext, so it gets the 1.0 features directly
+        if (impl->apiVersion < VK_API_VERSION_1_1)
+        {
+            create_info.pNext = nullptr;
+            create_info.pEnabledFeatures = &device_features->features;
+        }
         
         const VkPhysicalDevice pDevice = impl->physicalDevice;
         VkDevice resultHandle = VK_NULL_HANDLE;

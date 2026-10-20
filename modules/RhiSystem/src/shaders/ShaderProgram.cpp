@@ -129,14 +129,17 @@ namespace rhi
         {
             if (stagesToCreate.front().Stage == ShaderStageFlags::Compute)
             {
+                // fixed: this used VK_SHADER_CODE_TYPE_BINARY_EXT (the code is SPIR-V, not a cached driver binary),
+                // set no layouts or push constants (so any shader with a binding failed to create), and required
+                // full subgroups (which fails for any workgroup X size that isn't a multiple of the subgroup size)
                 constexpr static VkShaderCreateInfoEXT computeCreateInfo
                 {
                     VK_STRUCTURE_TYPE_SHADER_CREATE_INFO_EXT,
                     nullptr,
-                    VK_SHADER_CREATE_REQUIRE_FULL_SUBGROUPS_BIT_EXT,
+                    0, // flags
                     VK_SHADER_STAGE_COMPUTE_BIT, // stage
                     0, // nextStage
-                    VK_SHADER_CODE_TYPE_BINARY_EXT, // codeType
+                    VK_SHADER_CODE_TYPE_SPIRV_EXT, // codeType
                     0, // codeSize
                     nullptr, // pCode
                     "main", // pName
@@ -148,10 +151,28 @@ namespace rhi
                 };
 
                 Type = ProgramType::Compute;
+                const ShaderBinaryOptions& computeOptions = stagesToCreate.front();
+                std::vector<VkPushConstantRange> pushConstantRanges;
+                pushConstantRanges.reserve(computeOptions.PushConstants.size());
+                for (const PushConstantRange& range : computeOptions.PushConstants)
+                {
+                    pushConstantRanges.push_back(VkPushConstantRange{ ConvertStageToVulkan(range.StageFlags), range.Offset, range.Size });
+                }
+                std::vector<VkDescriptorSetLayout> setLayouts;
+                setLayouts.reserve(computeOptions.DescriptorLayouts.size());
+                for (const DescriptorSetLayoutHandle& layout : computeOptions.DescriptorLayouts)
+                {
+                    setLayouts.push_back(layout.As<VkDescriptorSetLayout>());
+                }
+
                 VkShaderCreateInfoEXT createInfo = computeCreateInfo;
-                createInfo.codeSize = stagesToCreate.front().Bytecode.size() * sizeof(uint32_t);
-                createInfo.pCode = stagesToCreate.front().Bytecode.data();
-                createInfo.pName = stagesToCreate.front().EntryPointName.c_str();
+                createInfo.codeSize = computeOptions.Bytecode.size() * sizeof(uint32_t);
+                createInfo.pCode = computeOptions.Bytecode.data();
+                createInfo.pName = computeOptions.EntryPointName.c_str();
+                createInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+                createInfo.pSetLayouts = setLayouts.data();
+                createInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
+                createInfo.pPushConstantRanges = pushConstantRanges.data();
                 VkShaderEXT createdShader = VK_NULL_HANDLE;
 
                 Result result = pfn_vkCreateShadersEXT(ParentDevice.As<VkDevice>(),
