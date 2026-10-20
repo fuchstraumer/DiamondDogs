@@ -81,13 +81,14 @@ protected:
     } uboDataVS;
 
     std::vector<DepthStencil> depthStencils;
-    VkPipelineLayout pipelineLayout;
-    VkPipeline pipeline;
-    VkDescriptorSetLayout setLayout;
-    VkDescriptorSet descriptorSet;
-    VkDescriptorPool descriptorPool;
+    VkPipelineLayout pipelineLayout{ VK_NULL_HANDLE };
+    // never created: this test draws with shader objects. Kept null so that teardown's vkDestroyPipeline is a no-op
+    VkPipeline pipeline{ VK_NULL_HANDLE };
+    VkDescriptorSetLayout setLayout{ VK_NULL_HANDLE };
+    VkDescriptorSet descriptorSet{ VK_NULL_HANDLE };
+    VkDescriptorPool descriptorPool{ VK_NULL_HANDLE };
     VkSubmitInfo submitInfo;
-    std::unique_ptr<rhi::CommandPool> commandPool;
+    std::vector<std::unique_ptr<rhi::CommandPool>> commandPools;
     std::unique_ptr<rhi::ShaderProgram> shaderProgram;
 
     bool setup = false;

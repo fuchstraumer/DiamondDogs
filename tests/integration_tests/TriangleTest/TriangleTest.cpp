@@ -203,6 +203,13 @@ void VulkanTriangle::Initialize(void* user_data)
 
 void VulkanTriangle::Destroy()
 {
+    // main() calls this explicitly and the destructor calls it again, so the second call must be a no-op
+    if (!setup)
+    {
+        return;
+    }
+    setup = false;
+
     vkDeviceWaitIdle(vkDevice);
 
     destroyFrameSyncObjects();
@@ -228,7 +235,7 @@ void VulkanTriangle::Destroy()
     vkFreeMemory(vkDevice, Vertices.memory, nullptr);
     vkDestroyBuffer(vkDevice, Vertices.buffer, nullptr);
     
-    commandPool.reset();
+    commandPools.clear();
     shaderProgram.reset();
 }
 
@@ -352,10 +359,16 @@ void VulkanTriangle::setupUniformBuffer()
 void VulkanTriangle::setupCommandPool()
 {
     using namespace rhi;
-    commandPool = std::make_unique<CommandPool>(device->Handle(), CommandPool::Type::Graphics, device->GetQueueFamilyIndices().Graphics);
-    Result result = commandPool->AllocateCommandBuffers(numFramebuffers);
-    RhiAssert(result);
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, commandPool->Handle().As<uint64_t>(), "CommandPool");
+    // one pool per frame in flight: CommandPool is reset whole, after beginFrame() waits on that frame's fence
+    commandPools.reserve(numFramebuffers);
+    for (uint32_t i = 0; i < numFramebuffers; ++i)
+    {
+        auto& framePool = commandPools.emplace_back(std::make_unique<CommandPool>(device->Handle(), CommandPool::Type::Graphics, device->GetQueueFamilyIndices().Graphics));
+        Result result = framePool->AllocateCommandBuffers(1);
+        RhiAssert(result);
+        const std::string poolName = std::format("CommandPool_Frame{}", i);
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_COMMAND_POOL, framePool->Handle().As<uint64_t>(), poolName.c_str());
+    }
 }
 
 void VulkanTriangle::setupDescriptorPool()
@@ -474,7 +487,7 @@ void VulkanTriangle::setupShaderModules()
         ShaderBinaryOptions{ fragShaderCode, ShaderStageFlags::Fragment, "main", fragmentPushConstants, fragmentDescriptorSetLayouts }
     };
     std::span<ShaderBinaryOptions> shaderOptionsSpan(shaderOptions);
-    shaderProgram = std::make_unique<ShaderProgram>(device->Handle(), shaderOptions);
+    RhiAssert(ShaderProgram::CreateFromBinary(device->Handle(), shaderOptionsSpan, shaderProgram));
 }
 
 void VulkanTriangle::setupDepthStencil() 
@@ -783,8 +796,9 @@ void VulkanTriangle::recordCommands()
 
     {
         
-        CommandBuffer currCmdBuffer = commandPool->GetCommandBuffer(currentFrame);
-        rhi::Result result = rhi::Result::Success();
+        rhi::Result result = commandPools[currentFrame]->Reset();
+        RhiAssert(result);
+        CommandBuffer currCmdBuffer = commandPools[currentFrame]->GetCommandBuffer(0);
 
         result = currCmdBuffer.Begin();
         RhiAssert(result);
@@ -832,7 +846,7 @@ void VulkanTriangle::draw()
         0
     };
 
-    VkCommandBuffer currentCmdBuffer = commandPool->GetCommandBuffer(currentFrame).As<VkCommandBuffer>();
+    VkCommandBuffer currentCmdBuffer = commandPools[currentFrame]->GetCommandBuffer(0).As<VkCommandBuffer>();
     const VkCommandBufferSubmitInfo cmdBufferSubmitInfo
     {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
