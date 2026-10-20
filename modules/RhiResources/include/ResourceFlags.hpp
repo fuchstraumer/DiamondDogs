@@ -217,10 +217,13 @@ enum class ImageUsageBits : uint64_t
     /** @brief Image used as regular sampled texture in shaders */
     SampledImage = 1 << 19,
 
+    /** @brief Image used as source for copy/transfer operations */
+    TransferSource = 1 << 20,
+
     // All flags after this point are reserved for internal usage in resource barrier generation, and should not be used by users
     // Collected flags for common *access* patterns (also useful with layouts, since that understandably tends to mirror access patterns)
     AllShaderSRV = SrvVertexShader | SrvFragmentShader | SrvComputeShader | SrvRaytracingShader,
-    AllTransfer = TransferDestination,
+    AllTransfer = TransferDestination | TransferSource,
     AllShaderUAV = UavVertexShader | UavFragmentShader | UavComputeShader | UavRaytracingShader,
     AllRenderTarget = RenderTargetRead | RenderTargetWrite,
     AllDepth = DepthRead | DepthWrite,
