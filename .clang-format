@@ -1,0 +1,38 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+UseTab: Never # use spaces because it's ontologically correct
+NamespaceIndentation: Inner # only indent for things like detail::
+IndentAccessModifiers: false
+AccessModifierOffset: -4
+ColumnLimit: 110
+PenaltyReturnTypeOnItsOwnLine: 1000000
+
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: None
+
+InsertBraces: true
+BreakBeforeBraces: Allman
+Cpp11BracedListStyle: false
+
+BinPackArguments: false
+BinPackParameters: false
+# use this to make sure closing paren and noexcept/const aren't broken to newline
+# (it drives me insane)
+AlignAfterOpenBracket: Align
+
+PackConstructorInitializers: Never
+ConstructorInitializerIndentWidth: 4
+AlignConsecutiveDeclarations: None
+
+# keep templates densely packed, and declared on newline before the object they're on
+AlwaysBreakTemplateDeclarations: Yes
+SpaceAfterTemplateKeyword: false
+
+PointerAlignment: Left
+DerivePointerAlignment: false

@@ -1,0 +1,76 @@
+---
+If:
+  PathMatch: .*(foundation|modules|tests|applications)/.*
+  PathExclude: .*(third_party|build)/.*
+
+# The compilation database comes from the ninja-msvc preset, so clangd reads cl.exe command lines in clang-cl
+# mode. The C++ standard comes from those command lines (/std:c++latest), and the compiler is not replaced:
+# Lodestone's `Compiler: clang++` would make clangd parse /MDd and the other MSVC flags as file names.
+CompileFlags:
+  Add: [ -Wall, -Wpedantic, -Wextra, -Weverything,
+         -Wno-c++98-compat, -Wno-c++98-compat-pedantic, -Wno-pre-c++17-compat,
+         -Wno-exit-time-destructors, -Wno-global-constructors,
+         -Wno-padded, -Wno-switch-default ]
+
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
+  ClangTidy:
+    CheckOptions:
+      # --- Types (CamelCase) ---
+      readability-identifier-naming.ClassCase: CamelCase
+      readability-identifier-naming.StructCase: CamelCase
+      readability-identifier-naming.EnumCase: CamelCase
+      readability-identifier-naming.EnumConstantCase: CamelCase
+      readability-identifier-naming.UnionCase: CamelCase
+      readability-identifier-naming.TypeAliasCase: CamelCase
+      readability-identifier-naming.TypedefCase: CamelCase
+
+      # --- Variables and Members ---
+      # Public / Local
+      readability-identifier-naming.VariableCase: CamelCase
+      readability-identifier-naming.PublicMemberCase: CamelCase
+      readability-identifier-naming.PublicMethodCase: CamelCase
+      # Private / Protected
+      readability-identifier-naming.PrivateMemberCase: camelBack
+      readability-identifier-naming.ProtectedMemberCase: camelBack
+
+      # --- Functions and Methods ---
+      # Public / Default
+      readability-identifier-naming.FunctionCase: CamelCase
+      readability-identifier-naming.MethodCase: CamelCase
+      # Private / Protected
+      readability-identifier-naming.PrivateMethodCase: camelBack
+      readability-identifier-naming.ProtectedMethodCase: camelBack
+
+      # --- Parameters (lower_case) ---
+      readability-identifier-naming.ParameterCase: lower_case
+      readability-identifier-naming.LocalVariableCase: camelBack
+
+      # --- Constants (k_CamelCase) ---
+      readability-identifier-naming.GlobalVariableCase: CamelCase
+      readability-identifier-naming.GlobalVariablePrefix: k_
+      readability-identifier-naming.StaticConstexprVariableCase: CamelCase
+      readability-identifier-naming.StaticConstexprVariablePrefix: k_
+      readability-identifier-naming.LocalConstexprVariableCase: CamelCase
+      readability-identifier-naming.LocalConstexprVariablePrefix: k_
+      readability-identifier-naming.ConstexprVariableCase: CamelCase
+      readability-identifier-naming.ConstexprVariablePrefix: k_
+      readability-identifier-naming.GlobalConstexprVariableCase: CamelCase
+      readability-identifier-naming.GlobalConstexprVariablePrefix: k_
+    FastCheckFilter: None
+
+InlayHints:
+  Enabled: Yes
+  ParameterNames: Yes
+  DeducedTypes: Yes
+
+Index:
+  Background: Build
+  StandardLibrary: true
+
+Completion:
+  HeaderInsertion: IWYU
+
+Documentation:
+  CommentFormat: Doxygen
