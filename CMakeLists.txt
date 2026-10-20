@@ -16,24 +16,30 @@ configure_file(
 
 FIND_PACKAGE(Vulkan REQUIRED)
 
-# Configure and organize Slang compiler for Vulkan/SPIR-V use
-include(cmake/ConfigureSlang.cmake)
-add_subdirectory(third_party/slang)
-organize_slang_targets()
-
-add_subdirectory(third_party/vma)
-add_subdirectory(third_party/entt)
-SET(GLI_TEST_ENABLE OFF CACHE BOOL "Build unit tests")
-add_subdirectory(third_party/gli)
-set_target_properties(gli PROPERTIES FOLDER "third_party")
-set_target_properties(gli_dummy PROPERTIES FOLDER "third_party")
+# mimalloc options go first: Lodestone's Slang creates the mimalloc-static target that we link (see
+# ConfigureLodestone.cmake), and these cache entries decide how that target is built
 SET(MI_BUILD_OBJECT OFF CACHE BOOL "Build object library")
 SET(MI_BUILD_SHARED OFF CACHE BOOL "Build shared library")
 SET(MI_BUILD_TESTS OFF CACHE BOOL "Build test executables")
 SET(MI_WIN_REDIRECT OFF CACHE BOOL "Use redirection module ('mimalloc-redirect') on Windows if compiling mimalloc as a DLL")
-SET(MI_WIN_USE_FIXED_TLS ON CACHE BOOL "Use a fixed TLS slot on Windows to avoid extra tests in the malloc fast path")
-add_subdirectory(third_party/mimalloc)
+
+# Lodestone: the shader cooker, the manifest client, and the Slang compiler target
+include(cmake/ConfigureLodestone.cmake)
+
+if (NOT TARGET mimalloc-static)
+    add_subdirectory(third_party/mimalloc)
+endif()
 set_target_properties(mimalloc-static PROPERTIES FOLDER "third_party")
+
+add_subdirectory(third_party/vma)
+add_subdirectory(third_party/entt)
+SET(GLI_TEST_ENABLE OFF CACHE BOOL "Build unit tests")
+# gli asks for CMake 3.1, and CMake 4 removed compatibility with anything below 3.5
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+add_subdirectory(third_party/gli)
+unset(CMAKE_POLICY_VERSION_MINIMUM)
+set_target_properties(gli PROPERTIES FOLDER "third_party")
+set_target_properties(gli_dummy PROPERTIES FOLDER "third_party")
 
 SET(GLFW_BUILD_DOCS OFF CACHE BOOL "Build the GLFW documentation")
 SET(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "Build the GLFW example programs")
