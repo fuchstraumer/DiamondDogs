@@ -1,9 +1,11 @@
 #pragma once
 #ifndef RESOURCE_CONTEXT_RESOURCE_MESSAGE_REPLY_HPP
 #define RESOURCE_CONTEXT_RESOURCE_MESSAGE_REPLY_HPP
+#include "ResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include "threading/atomic128.hpp"
 #include <atomic>
+#include <cstdint>
 #include <limits>
 
 namespace rhi
@@ -29,12 +31,12 @@ public:
      */
     enum class Status : uint8_t
     {
-        Invalid = 0,     /** Reply object is in an invalid state */
-        Pending = 1,     /** Message has been queued and is actively being processed */
-        Transferring,    /** Resource created and transfer data attached, not safe to use yet */
-        Completed,       /** Creation, transfer, or both completed - safe to use */
-        Failed,          /** Message processing failed, no resource created */
-        Timeout,         /** Waiting for completion timed out, operation may still be in progress */
+        Invalid = 0,         /** Reply object is in an invalid state */
+        Pending = 1,         /** Message has been queued and is actively being processed */
+        Transferring = 2,    /** Resource created and transfer data attached, not safe to use yet */
+        Completed = 3,       /** Creation, transfer, or both completed - safe to use */
+        Failed = 4,          /** Message processing failed, no resource created */
+        Timeout = 5,         /** Waiting for completion timed out, operation may still be in progress */
     };
 
     /// Default constructor - initializes status to Invalid
@@ -72,12 +74,12 @@ public:
      * @return Final status after waiting (Completed, Failed, or Timeout)
      * @note Use `std::numeric_limits<uint64_t>::max()` for no timeout
      */
-    virtual Status WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) noexcept;
+    virtual Status WaitForCompletion(uint64_t timeout_ns = std::numeric_limits<uint64_t>::max()) noexcept;
     
 protected:
     friend class ResourceContextImpl;
     friend class ResourceTransferSystem;
-    void SetStatus(Status status) noexcept;
+    void setStatus(Status _status) noexcept;
     std::atomic<Status> status;
     static_assert(decltype(status)::is_always_lock_free, "std::atomic<Status> is not lock-free on this platform/using this compiler");
 };
@@ -124,14 +126,14 @@ public:
      * 
      * @note Waits for both CPU-side completion and GPU-side transfer completion
      */
-    Status WaitForCompletion(uint64_t timeoutNs = std::numeric_limits<uint64_t>::max()) noexcept final;
+    Status WaitForCompletion(uint64_t timeout_ns = std::numeric_limits<uint64_t>::max()) noexcept final;
 
 protected:
     friend class ResourceContextImpl;
     friend class ResourceTransferSystem;
 
-    uint64_t semaphoreHandle = 0u;
-    const rhi::Device* device = nullptr;
+    uint64_t semaphoreHandle{ 0u };
+    const rhi::Device* device{ nullptr };
 };
 
 /**
@@ -195,7 +197,7 @@ private:
     friend class ResourceContextImpl;
     friend class ResourceTransferSystem;
     /** @brief Called by internal systems to update the internal data atomically. */
-    void SetGraphicsResource(
+    void setGraphicsResource(
         const ResourceDomain _domain,
         const ResourceType _type,
         const uint32_t entity_handle,
@@ -203,7 +205,7 @@ private:
         const uint64_t vk_view_handle,
         const uint64_t vk_sampler_handle) noexcept;
     /** @brief Relaxed version of SetGraphicsResource for use when already synchronized, or to push piecemeal updates without atomicity before a final atomic commit. */
-    void SetGraphicsResourceRelaxed(const GraphicsResource& resource) noexcept;
+    void setGraphicsResourceRelaxed(const GraphicsResource& resource) noexcept;
     
     std::atomic<RhiResourceTypeAndEntityHandle> resourceTypeAndEntityHandle;
     static_assert(decltype(resourceTypeAndEntityHandle)::is_always_lock_free, "std::atomic<RhiResourceTypeAndEntityHandle> is not lock-free on this platform/using this compiler");
@@ -244,7 +246,7 @@ public:
     
 private:
     friend class ResourceContextImpl;
-    void SetPointer(void* ptr) noexcept;
+    void setPointer(void* ptr) noexcept;
 
     std::atomic<void*> data;
 };

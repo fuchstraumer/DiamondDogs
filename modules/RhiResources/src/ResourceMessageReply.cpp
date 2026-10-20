@@ -1,16 +1,29 @@
 #include "ResourceMessageReply.hpp"
+#include "ResourceFlags.hpp"
+#include "ResourceTypes.hpp"
 #include "entt/entt.hpp"
 #include "Device.hpp"
 #include "ResourceContext.hpp"
+#include "threading/atomic128.hpp"
 
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <limits>
 #include <vulkan/vulkan_core.h>
 #include <chrono>
 #include <thread>
+#include <utility>
 
-const static CasData128 null_atomic128 = CasData128{ 0u, 0u };
-constexpr static uint64_t vk_null_handle_uint64 = reinterpret_cast<uint64_t>(VK_NULL_HANDLE);
-constexpr static uint32_t entt_null_entity_uint32 = static_cast<uint32_t>(entt::null);
-const static GraphicsResource null_graphics_resource = GraphicsResource{ ResourceDomain::Invalid, ResourceType::Invalid, entt_null_entity_uint32, vk_null_handle_uint64, vk_null_handle_uint64, vk_null_handle_uint64 };
+const static CasData128 k_NullAtomic128 = CasData128{ 0u, 0u };
+constexpr static uint64_t k_VkNullHandleUi64 = 0u;
+constexpr static uint32_t k_EnttNullEntityUi32 = static_cast<uint32_t>(entt::null);
+const static GraphicsResource k_NulLGraphicsRsrc = GraphicsResource{ ResourceDomain::Invalid,
+                                                                     ResourceType::Invalid,
+                                                                     k_EnttNullEntityUi32,
+                                                                     k_VkNullHandleUi64,
+                                                                     k_VkNullHandleUi64,
+                                                                     k_VkNullHandleUi64 };
 
 MessageReply::MessageReply(MessageReply&& other) noexcept
     : status(other.status.load(std::memory_order_relaxed))
@@ -48,8 +61,8 @@ MessageReply::Status MessageReply::WaitForCompletion(uint64_t timeoutNs) noexcep
         if (timeoutNs != std::numeric_limits<uint64_t>::max())
         {
             std::chrono::high_resolution_clock::time_point currentTime = std::chrono::high_resolution_clock::now();
-            const uint64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(currentTime - startTime).count();
-            if (elapsedNs >= timeoutNs)
+            const int64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(currentTime - startTime).count();
+            if (std::cmp_greater_equal(elapsedNs , timeoutNs))
             {
                 return Status::Timeout;
             }
@@ -62,31 +75,31 @@ MessageReply::Status MessageReply::WaitForCompletion(uint64_t timeoutNs) noexcep
     return status.load(std::memory_order_relaxed);
 }
 
-void MessageReply::SetStatus(Status _status) noexcept
+void MessageReply::setStatus(Status _status) noexcept
 {
     status.store(_status, std::memory_order_release);
 }
 
-ResourceTransferReply::ResourceTransferReply() : semaphoreHandle{ 0u }, device{ nullptr }
+ResourceTransferReply::ResourceTransferReply() : device{ nullptr }
 {}
 
-ResourceTransferReply::ResourceTransferReply(const rhi::Device* _device) : semaphoreHandle{ 0u }, device{ _device }
+ResourceTransferReply::ResourceTransferReply(const rhi::Device* _device) : device{ _device }
 {
-    VkSemaphoreTypeCreateInfo semaphore_type_info
+    VkSemaphoreTypeCreateInfo semaphoreTypeInfo
     {
         VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
         nullptr,
         VK_SEMAPHORE_TYPE_TIMELINE,
         0u
     };
-    VkSemaphoreCreateInfo semaphore_info
+    VkSemaphoreCreateInfo semaphoreInfo
     {
         VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        &semaphore_type_info,
+        &semaphoreTypeInfo,
         0u
     };
     VkSemaphore semaphore = VK_NULL_HANDLE;
-    VkResult result = vkCreateSemaphore(device->Handle().As<VkDevice>(), &semaphore_info, nullptr, &semaphore);
+    VkResult result = vkCreateSemaphore(device->Handle().As<VkDevice>(), &semaphoreInfo, nullptr, &semaphore);
     assert(result == VK_SUCCESS);
     semaphoreHandle = reinterpret_cast<uint64_t>(semaphore);
 }
@@ -95,7 +108,9 @@ ResourceTransferReply::~ResourceTransferReply()
 {
     if (semaphoreHandle != 0u)
     {
-        vkDestroySemaphore(device->Handle().As<VkDevice>(), reinterpret_cast<VkSemaphore>(semaphoreHandle), nullptr);
+        vkDestroySemaphore(device->Handle().As<VkDevice>(),
+                           reinterpret_cast<VkSemaphore>(semaphoreHandle),
+                           nullptr);
     }
 }
 
@@ -113,12 +128,12 @@ uint64_t ResourceTransferReply::SemaphoreValue() const noexcept
     return semaphoreValue;
 }
 
-MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeoutNs) noexcept
+MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeout_ns) noexcept
 {
     // this is not actually a transfer reply, so waiting for completion is just using base class implementation
     if (device == nullptr && semaphoreHandle == 0u)
     {
-        return MessageReply::WaitForCompletion(timeoutNs);
+        return MessageReply::WaitForCompletion(timeout_ns);
     }
     
     // fixed: we always check the CPU-side status and wait on that, since many resources don't actually need
@@ -126,10 +141,10 @@ MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeoutNs
     const std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
     while (status.load(std::memory_order_acquire) == Status::Invalid || status.load(std::memory_order_acquire) == Status::Pending)
     {
-        if (timeoutNs != std::numeric_limits<uint64_t>::max())
+        if (timeout_ns != std::numeric_limits<uint64_t>::max())
         {
-            const uint64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
-            if (elapsedNs >= timeoutNs)
+            const int64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
+            if (std::cmp_greater_equal(elapsedNs , timeout_ns))
             {
                 return Status::Timeout;
             }
@@ -148,7 +163,7 @@ MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeoutNs
         // the completed transfer will update the semaphore value indicating that the transfer is complete.
         VkSemaphore semaphore = reinterpret_cast<VkSemaphore>(semaphoreHandle);
         const uint64_t semaphoreWaitValue = k_TransferCompleteSemaphoreValue;
-        VkSemaphoreWaitInfo wait_info
+        VkSemaphoreWaitInfo waitInfo
         {
             VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
             nullptr,
@@ -157,12 +172,16 @@ MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeoutNs
             &semaphore,
             &semaphoreWaitValue
         };
-        VkResult result = vkWaitSemaphores(device->Handle().As<VkDevice>(), &wait_info, timeoutNs);
-        if (result == VK_TIMEOUT)
+
+        VkResult result = vkWaitSemaphores(device->Handle().As<VkDevice>(),
+                                           &waitInfo,
+                                           timeout_ns);
+
+        if (result == VK_TIMEOUT) [[unlikely]]
         {
             return Status::Timeout;
         }
-        else if (result != VK_SUCCESS)
+        else if (result != VK_SUCCESS) [[unlikely]]
         {
             return Status::Failed;
         }
@@ -211,14 +230,14 @@ GraphicsResourceReply::RhiResourceTypeAndEntityHandle::operator bool() const noe
 GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceType _type) :
     resourceTypeAndEntityHandle{ RhiResourceTypeAndEntityHandle(_domain, _type, entt::null) },
     vkSamplerHandle{ 0u },
-    vkHandleAndView{ null_atomic128 }
+    vkHandleAndView{ k_NullAtomic128 }
 {}
 
 GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceType _type, const rhi::Device* _device) :
     ResourceTransferReply(_device),
     resourceTypeAndEntityHandle{ RhiResourceTypeAndEntityHandle(_domain, _type, entt::null) },
     vkSamplerHandle{ 0u },
-    vkHandleAndView{ null_atomic128 }
+    vkHandleAndView{ k_NullAtomic128 }
 {
 }
 
@@ -241,7 +260,7 @@ GraphicsResource GraphicsResourceReply::GetResource() const noexcept
                                 samplerHandle);
     }
 
-    return null_graphics_resource;
+    return k_NullGraphicsRsrc;
 }
 
 void GraphicsResourceReply::SetGraphicsResource(
