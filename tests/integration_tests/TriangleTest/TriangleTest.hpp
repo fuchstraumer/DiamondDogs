@@ -29,6 +29,7 @@ protected:
     void recordCommands() final;
     void draw() final;
     void endFrame() final;
+    void onSwapchainRecreated() final;
 
     void prepareVertices();
     void setupUniformBuffer();
@@ -38,6 +39,7 @@ protected:
     void setupDescriptorSet();
     void setupShaderModules();
     void setupDepthStencil();
+    void destroyDepthStencil();
 
     void setInputStates(rhi::CommandBufferHandle cmdBuffer);
     void setRasterizationAndSampleStates(rhi::CommandBufferHandle cmdBuffer);

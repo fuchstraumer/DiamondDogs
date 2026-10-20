@@ -216,13 +216,7 @@ void VulkanTriangle::Destroy()
 
     vkDestroyPipeline(vkDevice, pipeline, nullptr);
 
-    for (auto& depthStencil : depthStencils)
-    {
-        vkFreeMemory(vkDevice, depthStencil.Memory, nullptr);
-        vkDestroyImageView(vkDevice, depthStencil.View, nullptr);
-        vkDestroyImage(vkDevice, depthStencil.Image, nullptr);
-    }
-    depthStencils.clear();
+    destroyDepthStencil();
 
     vkFreeDescriptorSets(vkDevice, descriptorPool, 1, &descriptorSet);
     vkDestroyPipelineLayout(vkDevice, pipelineLayout, nullptr);
@@ -501,6 +495,23 @@ void VulkanTriangle::setupDepthStencil()
         rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, (uint64_t)depthStencil.Image, imageName.c_str());
         rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t)depthStencil.View, imageViewName.c_str());
     }
+}
+
+void VulkanTriangle::destroyDepthStencil()
+{
+    for (DepthStencil& depthStencil : depthStencils)
+    {
+        vkFreeMemory(vkDevice, depthStencil.Memory, nullptr);
+        vkDestroyImageView(vkDevice, depthStencil.View, nullptr);
+        vkDestroyImage(vkDevice, depthStencil.Image, nullptr);
+    }
+    depthStencils.clear();
+}
+
+void VulkanTriangle::onSwapchainRecreated()
+{
+    destroyDepthStencil();
+    setupDepthStencil();
 }
 
 void VulkanTriangle::setInputStates(rhi::CommandBufferHandle cmdBuffer)

@@ -1,5 +1,6 @@
 #include "ResourceContextFixture.hpp"
 #include <atomic>
+#include <chrono>
 #include <thread>
 
 // ResourceContext is multi-writer, single-reader: any thread may send messages. this drives every path at once
@@ -44,6 +45,35 @@ TEST_F(ResourceContextTest, ManyThreadsCreateUploadAndDestroy)
         thread.join();
     }
     EXPECT_EQ(failures.load(), 0u);
+}
+
+// the worker used to poll with a backoff sleeper that grew to 500ms (with 30% jitter), so the first request after an
+// idle stretch waited for the rest of that sleep. it blocks on the queue now, so a request after idling is served at
+// once. three idle rounds, so that the old worker would almost surely have been caught mid-sleep in one of them
+TEST_F(ResourceContextTest, RequestAfterIdleIsServedPromptly)
+{
+    constexpr int32_t k_IdleRounds = 3;
+    constexpr std::chrono::milliseconds k_IdleTime{ 800 };
+    constexpr std::chrono::milliseconds k_MaxLatency{ 100 };
+
+    for (int32_t round = 0; round < k_IdleRounds; ++round)
+    {
+        std::this_thread::sleep_for(k_IdleTime);
+
+        // no initial data, so the request never reaches the transfer system and only measures the context's worker
+        BufferCreateInfo info{};
+        info.Domain = ResourceDomain::CPUToGPU;
+        info.Usage = BufferUsageBits::ComputeShaderSRV;
+        info.Size = 256u;
+        const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+        std::shared_ptr<GraphicsResourceReply> reply = context->CreateBuffer(info, {});
+        ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+        const std::chrono::steady_clock::duration latency = std::chrono::steady_clock::now() - start;
+
+        EXPECT_LT(latency, k_MaxLatency) << "round " << round << " took "
+            << std::chrono::duration_cast<std::chrono::milliseconds>(latency).count() << "ms";
+        DestroyAndWait(reply->GetResource());
+    }
 }
 
 TEST_F(ResourceContextTest, ShutdownWithPendingWorkCompletesEveryReply)

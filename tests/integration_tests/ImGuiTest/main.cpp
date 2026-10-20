@@ -1,12 +1,13 @@
 #include "FrameLimit.hpp"
 #include "ImGuiScene.hpp"
 #include "PlatformSystem.hpp"
+#include "ResizeTest.hpp"
 #include "RhiSystem.hpp"
 #include <cstdint>
 #include <memory>
 
 // Opens a window and draws the Dear ImGui demo through ImGuiModule (official GLFW and Vulkan backends, dynamic
-// rendering). Pass --frames=N for an unattended run.
+// rendering). Pass --frames=N for an unattended run, and --resize to resize the window and recreate the swapchain.
 int main(int argc, char* argv[])
 {
     rhi::RhiSystemCreateInfo rhiCreateInfo{};
@@ -46,15 +47,25 @@ int main(int argc, char* argv[])
     scene.Initialize(nullptr);
 
     const int32_t frameLimit = ParseFrameLimit(argc, argv);
+    const bool resizeTest = ParseResizeTest(argc, argv);
     int32_t framesRendered = 0;
     while (!platformSystem->ShouldWindowClose() && (frameLimit < 0 || framesRendered < frameLimit))
     {
+        if (resizeTest)
+        {
+            ApplyScheduledResize(*platformSystem, framesRendered);
+        }
         platformSystem->Update();
         scene.Render(nullptr);
         ++framesRendered;
     }
 
+    int exitCode = 0;
+    if (resizeTest)
+    {
+        exitCode = VerifyScheduledResize(*platformSystem, scene.SwapchainRecreationCount());
+    }
     scene.Destroy();
     platformSystem->DestroySwapchain();
-    return 0;
+    return exitCode;
 }

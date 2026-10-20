@@ -7,6 +7,8 @@ ADD_INTEGRATION_TEST(TriangleTest
     "../fixtures/CommonCreationFunctions.cpp"
     "../fixtures/FrameLimit.hpp"
     "../fixtures/FrameLimit.cpp"
+    "../fixtures/ResizeTest.hpp"
+    "../fixtures/ResizeTest.cpp"
     "TriangleTest.cpp"
     "TriangleTest.hpp"
 )

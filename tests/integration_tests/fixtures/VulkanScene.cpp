@@ -1,11 +1,18 @@
 #include "VulkanScene.hpp"
 #include "Device.hpp"
 #include "PlatformSystem.hpp"
+#include "PlatformTypes.hpp"
 #include "RhiAssert.hpp"
 #include "RhiResult.hpp"
 #include "RhiSystem.hpp"
-#include "RhiTypes.hpp"
 #include "Swapchain.hpp"
+#include "vulkan/vulkan_core.h"
+#include <algorithm>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <ratio>
+#include <stdexcept>
 #include <thread>
 #include <format>
 #include <string>
@@ -29,13 +36,28 @@ VulkanScene::~VulkanScene() {}
 void VulkanScene::Render(void* user_data)
 {
     beginFrame();
-    acquireImage();
+    if (!acquireImage())
+    {
+        recreateSwapchain();
+        return;
+    }
+    // reset only once a submit will follow: an acquire that fails would leave the fence unsignaled forever
+    resetFrameFence();
     update();
     recordCommands();
     draw();
     present();
     limitFrame();
     endFrame();
+    if (swapchainOutOfDate)
+    {
+        recreateSwapchain();
+    }
+}
+
+uint32_t VulkanScene::SwapchainRecreationCount() const noexcept
+{
+    return swapchainRecreationCount;
 }
 
 size_t VulkanScene::CurrentFramebufferIdx() const
@@ -98,8 +120,39 @@ void VulkanScene::beginFrame()
     VkFence currFence = inFlightFences[currentFrame];
     rhi::Result result = vkWaitForFences(vkDevice, 1, &currFence, VK_TRUE, 1000000000);
     RhiAssert(result);
-    result = vkResetFences(vkDevice, 1, &currFence);
+}
+
+void VulkanScene::resetFrameFence()
+{
+    VkFence currFence = inFlightFences[currentFrame];
+    rhi::Result result = vkResetFences(vkDevice, 1, &currFence);
     RhiAssert(result);
+}
+
+void VulkanScene::recreateSwapchain()
+{
+    rhi::Result result = vkDeviceWaitIdle(vkDevice);
+    RhiAssert(result);
+    const SwapchainRecreateResult recreateResult = platformSystem->RecreateSwapchain();
+    if (recreateResult == SwapchainRecreateResult::SurfaceHasZeroArea)
+    {
+        // minimized: keep the flag, and try again next frame
+        swapchainOutOfDate = true;
+        return;
+    }
+    if (recreateResult != SwapchainRecreateResult::Success)
+    {
+        throw std::runtime_error("Swapchain recreation failed");
+    }
+    swapchainOutOfDate = false;
+    ++swapchainRecreationCount;
+    // the new images start in UNDEFINED
+    std::ranges::fill(firstFrame, true);
+    onSwapchainRecreated();
+}
+
+void VulkanScene::onSwapchainRecreated()
+{
 }
 
 void VulkanScene::limitFrame()
@@ -115,7 +168,7 @@ void VulkanScene::limitFrame()
     limiterB = std::chrono::system_clock::now();
 }
 
-void VulkanScene::acquireImage()
+bool VulkanScene::acquireImage()
 {
     VkSemaphore currAcquireSemaphore = imageAvailableSemaphores[currentFrame];
     VkSwapchainKHR vkSwapchain = reinterpret_cast<VkSwapchainKHR>(swapchain->GetNativeHandle());
@@ -133,8 +186,19 @@ void VulkanScene::acquireImage()
         RootDeviceMask
     };
 
-    rhi::Result result = vkAcquireNextImage2KHR(vkDevice, &acquire_info, &currentAcquiredImage);
-    RhiAssert(result);
+    const VkResult result = vkAcquireNextImage2KHR(vkDevice, &acquire_info, &currentAcquiredImage);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        return false;
+    }
+    // suboptimal still acquired an image and signals the semaphore, so this frame goes on
+    if (result == VK_SUBOPTIMAL_KHR)
+    {
+        swapchainOutOfDate = true;
+        return true;
+    }
+    RhiAssert(rhi::Result(result));
+    return true;
 }
 
 void VulkanScene::present()
@@ -156,8 +220,13 @@ void VulkanScene::present()
     };
 
     VkQueue GraphicsQueue = device->GetGraphicsQueue(0).As<VkQueue>();
-    rhi::Result result = vkQueuePresentKHR(GraphicsQueue, &present_info);
-    RhiAssert(result);
+    const VkResult result = vkQueuePresentKHR(GraphicsQueue, &present_info);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    {
+        swapchainOutOfDate = true;
+        return;
+    }
+    RhiAssert(rhi::Result(result));
 }
 
 void VulkanScene::endFrame()

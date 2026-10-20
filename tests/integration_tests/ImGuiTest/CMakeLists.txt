@@ -7,5 +7,7 @@ ADD_INTEGRATION_TEST(ImGuiTest
     "../fixtures/VulkanScene.cpp"
     "../fixtures/FrameLimit.hpp"
     "../fixtures/FrameLimit.cpp"
+    "../fixtures/ResizeTest.hpp"
+    "../fixtures/ResizeTest.cpp"
 )
 target_link_libraries(ImGuiTest PRIVATE imgui_module)
