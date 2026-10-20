@@ -5,7 +5,6 @@
 #include "RhiTypes.hpp"
 #include "Instance.hpp"
 #include "Device.hpp"
-#include "ShaderBlob.hpp"
 #include "ShaderProgram.hpp"
 #include "ShaderTypes.hpp"
 #include "SourcePaths.hpp"
