@@ -3,25 +3,26 @@
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #include "ResourceFlags.hpp"
 #include "ImageDataFormats.hpp"
+#include <cstddef>
 #include <optional>
+#include <span>
 
 /**
  * @brief Contains definitions for user-facing resource data structures for use with the resource context and RHI.
  */
 
-/** @brief Holds the raw data and some metadata that will be used to set the contents of a buffer resource (especially during initial creation). */
+/** @brief Holds the raw data and some metadata that will be used to set the contents of a buffer resource (especially during initial creation).
+ *  Build Data with std::as_bytes(std::span{ values }). The context copies the bytes before the call returns. */
 struct RhiBufferResourceData
 {
-    const void* Data{ 0u };
-    size_t DataSize{ 0u };
+    std::span<const std::byte> Data{};
     size_t DataAlignment{ 0u };
 };
 
 /** @brief Holds the raw data and some dimensional metadata that will be made the contents of an image resource. */
 struct RhiImageResourceData
 {
-    const void* Data{ nullptr };
-    size_t DataSize{ 0u };
+    std::span<const std::byte> Data{};
     uint32_t Width{ 0u };
     uint32_t Height{ 0u };
     uint32_t ArrayLayer{ 0u };
@@ -157,10 +158,10 @@ struct ImageCreateInfo
 struct GraphicsResource
 {
     static GraphicsResource Null() noexcept;
-    
-    constexpr bool operator==(const GraphicsResource& other) const noexcept;
-    constexpr bool operator!=(const GraphicsResource& other) const noexcept;
-    constexpr explicit operator bool() const noexcept;
+
+    bool operator==(const GraphicsResource& other) const noexcept;
+    bool operator!=(const GraphicsResource& other) const noexcept;
+    explicit operator bool() const noexcept;
 
     ResourceDomain Domain{ ResourceDomain::Invalid };
     ResourceType Type{ ResourceType::Invalid };
