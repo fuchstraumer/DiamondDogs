@@ -6,7 +6,6 @@
 #include "RhiResult.hpp"
 #include "RhiTypes.hpp"
 #include "ShaderTypes.hpp"
-#include <filesystem>
 #include <memory>
 #include <span>
 #include <string>
@@ -17,7 +16,6 @@ namespace rhi
 {
     class Device;
     struct ShaderProgramImpl;
-    class ShaderBlob;
 
     /**
      * @brief ShaderPrograms represent a either a single compiled shader entry point,
@@ -29,7 +27,6 @@ namespace rhi
     {
     public:
 
-        ShaderProgram(DeviceHandle device, ShaderBlob& parent_blob, std::span<ShaderStage> stagesInProgram);
         ShaderProgram(std::unique_ptr<ShaderProgramImpl>&& impl) noexcept;
 
         ShaderProgram(const ShaderProgram&) = delete;
@@ -53,7 +50,6 @@ namespace rhi
             std::unique_ptr<ShaderProgram>& outProgram);
         
     private:
-        friend class ShaderBlob;
         std::unique_ptr<ShaderProgramImpl> impl;
     };
 

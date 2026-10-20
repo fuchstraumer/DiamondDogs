@@ -3,18 +3,12 @@
 #include "RhiResult.hpp"
 #include "RhiAssert.hpp"
 #include "RhiDefines.hpp"
-#include "ShaderBlob.hpp"
-#include "ShaderCompiler.hpp"
-#include "ShaderCompilerReply.hpp"
 #include <algorithm>
 #include <cassert>
 #include <format>
 #include <fstream>
 #include <iostream>
 #include <iterator>
-#include <slang.h>
-#include <slang-com-ptr.h>
-#include <slang-com-helper.h>
 #include <stdexcept>
 #include <sstream>
 #include <vector>
@@ -414,11 +408,6 @@ namespace rhi
 #endif
 
     // ShaderObject implementation
-    ShaderProgram::ShaderProgram(DeviceHandle device, ShaderBlob& parent_blob, std::span<ShaderStage> stagesInProgram) :
-        impl{ std::make_unique<ShaderProgramImpl>(device) }
-    {
-    }
-
     ShaderProgram::ShaderProgram(std::unique_ptr<ShaderProgramImpl>&& impl) noexcept :
         impl{ std::move(impl) }
     {
