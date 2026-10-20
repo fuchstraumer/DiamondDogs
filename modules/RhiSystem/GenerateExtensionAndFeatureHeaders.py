@@ -639,7 +639,12 @@ def WriteDeviceOrInstanceExtensionTable(extensionObjects, fileStream, extensionT
         elif correctExtensionType and validNameIndex and isAliased:
             extensionIndices.append(extensionObject.aliasedTo)
 
-    print('// Table of ' + extensionTypeToWrite + ' extension indices, indexed by the extension name', file=fileStream)
+    # ExtensionWrangler binary-searches this table, so it must be sorted and unique. Aliases append the index of
+    # the extension they alias, which broke the order and made some device extensions (VK_KHR_dynamic_rendering)
+    # read as neither instance nor device extensions
+    extensionIndices = sorted(set(extensionIndices))
+
+    print('// Table of ' + extensionTypeToWrite + ' extension indices, sorted, so that it can be binary-searched', file=fileStream)
     print('constexpr static std::array<size_t, ' + str(len(extensionIndices)) + '> ' + extensionTypeToWrite + 'ExtensionTable', file=fileStream)
     print('{', file=fileStream)
     for idx, extensionIdx in enumerate(extensionIndices):
@@ -808,13 +813,16 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
                     print(f'        // Extension: {extensionName} for {version} (no dependencies)', file=fileStream)
                 
                 if dependencyIndices:
-                    dependencyIdxString = ', '.join(map(str, dependencyIndices))
+                    # a version dependency must be written as VK_API_VERSION_X_Y. VK_VERSION_X_Y is a feature guard
+                    # macro defined to 1, so it read as "depends on extension index 1" (VK_KHR_swapchain), and every
+                    # extension that required a core version silently pulled in the swapchain extension
+                    dependencyIdxString = ', '.join(MakeVersionStrVersionNumber(dep) if isinstance(dep, str) else str(dep) for dep in dependencyIndices)
                     print(f'        {{ {extensionIndex}, {dependencyVectorStr}{{ {dependencyIdxString} }} }},', file=fileStream)
                 else:
                     print(f'        {{ {extensionIndex}, {dependencyVectorStr}{{}} }},', file=fileStream)
-            
+
             print('    }},', file=fileStream)
-    
+
     print('};\n', file=fileStream)
 
 def PrintPromotedVersionedExtensions(promotedVersionedExtensions, extensionIdxDict, fileStream):
@@ -838,7 +846,8 @@ def PrintPromotedVersionedExtensions(promotedVersionedExtensions, extensionIdxDi
         indexList = [GetExtensionIdx(ext, extensionIdxDict) for ext in versionedExtensions]
         if indexList:  # Only print if we have valid indices
             indexStr = ', '.join(map(str, indexList))
-            print('    { ' + version + ', ' + '{ ' + indexStr + ' } }, ', file=fileStream)
+            # keyed by VK_API_VERSION_X_Y: VK_VERSION_X_Y is defined to 1, so every key collided and only the 1.1 row survived
+            print('    { ' + MakeVersionStrVersionNumber(version) + ', ' + '{ ' + indexStr + ' } }, ', file=fileStream)
 
     print('};\n', file=fileStream)
 
