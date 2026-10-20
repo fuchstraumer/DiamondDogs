@@ -12,7 +12,6 @@
 #include "RhiSystem.hpp"
 #include "VulkanConversions.hpp"
 #include "entt/entity/fwd.hpp"
-#include "threading/ExponentialBackoffSleeper.hpp"
 #include "vulkan/vulkan_core.h"
 
 #include <algorithm>
@@ -132,14 +131,14 @@ void ResourceContextImpl::setExitWorker()
 {
     if (workerThread.joinable())
     {
-        shouldExitWorker.store(true);
+        // messages pushed before this are processed by worker, any pushed after it by the drain in destroy()
+        messageQueue.push(ExitWorkerMessage{});
         workerThread.join();
     }
 }
 
 void ResourceContextImpl::startWorker()
 {
-    shouldExitWorker.store(false);
     workerThread = std::thread(&ResourceContextImpl::processMessages, this);
 }
 
@@ -150,22 +149,16 @@ const rhi::Device* ResourceContextImpl::Device() const noexcept
 
 void ResourceContextImpl::processMessages()
 {
-    // Create a backoff sleeper with default parameters
-    foundation::ExponentialBackoffSleeper sleeper;
-
-    while (!shouldExitWorker.load())
+    // fixed: we used to use an exponential backoff sleeper, which was totally pointless since mwsr queue
+    // blocks on pop(). we now use `ExitWorkerMessage` instead of a flag to handle worker exit more cleanly
+    while (true)
     {
-        std::optional<ResourceMessagePayloadType> message = messageQueue.try_pop();
-        if (message.has_value())
+        ResourceMessagePayloadType message = messageQueue.pop();
+        if (std::holds_alternative<ExitWorkerMessage>(message))
         {
-            processMessage(std::move(*message));
-            // reset sleeper, since there's a chance we'll process more messages due to read cache batching
-            sleeper.reset();
+            return;
         }
-        else
-        {
-            sleeper.sleepAndBackoff();
-        }
+        processMessage(std::move(message));
     }
 }
 
@@ -227,7 +220,7 @@ void ResourceContextImpl::processMessage(ResourceMessagePayloadType&& message)
 
 void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& message)
 {
-    message.reply->SetStatus(MessageReply::Status::Pending);
+    message.reply->setStatus(MessageReply::Status::Pending);
 
     // a staged upload needs the destination bit. host-visible domains are written directly and never stage
     if (message.initialData.has_value() && !DomainIsHostVisible(message.bufferInfo.Domain))
@@ -238,7 +231,7 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
     std::optional<GraphicsResource> createdResource = createBufferEntity(message.bufferInfo);
     if (!createdResource.has_value())
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -246,8 +239,8 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
     if (message.initialData.has_value() && !allocationIsHostVisible(new_entity))
     {
         // pass responsiblity on to transfer system now, transferring ownership of data with a move
-        message.reply->SetGraphicsResourceRelaxed(*createdResource);
-        message.reply->SetStatus(MessageReply::Status::Transferring);
+        message.reply->setGraphicsResourceRelaxed(*createdResource);
+        message.reply->setStatus(MessageReply::Status::Transferring);
         enqueueBufferUpload(new_entity, std::move(*message.initialData), std::move(message.reply));
         return;
     }
@@ -262,7 +255,7 @@ void ResourceContextImpl::processCreateBufferMessage(CreateBufferMessage&& messa
 
 void ResourceContextImpl::processCreateImageMessage(CreateImageMessage&& message)
 {
-    message.reply->SetStatus(MessageReply::Status::Pending);
+    message.reply->setStatus(MessageReply::Status::Pending);
 
     if (message.initialData.has_value())
     {
@@ -272,14 +265,14 @@ void ResourceContextImpl::processCreateImageMessage(CreateImageMessage&& message
     std::optional<GraphicsResource> createdResource = createImageEntity(message.imageInfo);
     if (!createdResource.has_value())
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
     if (message.initialData.has_value())
     {
-        message.reply->SetGraphicsResourceRelaxed(*createdResource);
-        message.reply->SetStatus(MessageReply::Status::Transferring);
+        message.reply->setGraphicsResourceRelaxed(*createdResource);
+        message.reply->setStatus(MessageReply::Status::Transferring);
         enqueueImageUpload(entt::entity(createdResource->EntityHandle), std::move(*message.initialData), std::move(message.reply));
         return;
     }
@@ -382,7 +375,7 @@ std::optional<GraphicsResource> ResourceContextImpl::createImageEntity(const Ima
 
 void ResourceContextImpl::completeWithResource(GraphicsResourceReply& reply, const GraphicsResource& resource) noexcept
 {
-    reply.SetGraphicsResource(
+    reply.setGraphicsResource(
         resource.Domain,
         resource.Type,
         resource.EntityHandle,
@@ -393,7 +386,7 @@ void ResourceContextImpl::completeWithResource(GraphicsResourceReply& reply, con
 
 void ResourceContextImpl::processCreateSamplerMessage(CreateSamplerMessage&& message)
 {
-    message.reply->SetStatus(MessageReply::Status::Pending);
+    message.reply->setStatus(MessageReply::Status::Pending);
 
     const entt::entity newEntity = resourceRegistry.create();
     resourceRegistry.emplace<ResourceFlags>(newEntity, ResourceType::Sampler, ResourceCreationFlags::None, ResourceDomain::GPUOnly);
@@ -401,11 +394,11 @@ void ResourceContextImpl::processCreateSamplerMessage(CreateSamplerMessage&& mes
     if (sampler == VK_NULL_HANDLE)
     {
         destroyEntityResources(newEntity);
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
-    message.reply->SetGraphicsResource(
+    message.reply->setGraphicsResource(
         ResourceDomain::GPUOnly,
         ResourceType::Sampler,
         static_cast<uint32_t>(newEntity),
@@ -417,24 +410,24 @@ void ResourceContextImpl::processSetBufferDataMessage(SetBufferDataMessage&& mes
     const entt::entity entity = entt::entity(message.destBuffer.EntityHandle);
     if (!resourceRegistry.valid(entity) || !resourceRegistry.all_of<VkBuffer>(entity))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
     if (allocationIsHostVisible(entity))
     {
         setBufferDataHostOnly(entity, message.data);
-        message.reply->SetStatus(MessageReply::Status::Completed);
+        message.reply->setStatus(MessageReply::Status::Completed);
         return;
     }
 
     if (!CanBeTransferDestination(resourceRegistry, entity))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
-    message.reply->SetStatus(MessageReply::Status::Transferring);
+    message.reply->setStatus(MessageReply::Status::Transferring);
     enqueueBufferUpload(entity, std::move(message.data), std::move(message.reply));
 }
 
@@ -443,11 +436,11 @@ void ResourceContextImpl::processSetImageDataMessage(SetImageDataMessage&& messa
     const entt::entity entity = entt::entity(message.destImage.EntityHandle);
     if (!resourceRegistry.valid(entity) || !resourceRegistry.all_of<VkImage>(entity) || !CanBeTransferDestination(resourceRegistry, entity))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
-    message.reply->SetStatus(MessageReply::Status::Transferring);
+    message.reply->setStatus(MessageReply::Status::Transferring);
     enqueueImageUpload(entity, std::move(message.data), std::move(message.reply));
 }
 
@@ -456,7 +449,7 @@ void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& messa
     const entt::entity entity = entt::entity(message.resource.EntityHandle);
     if (!resourceRegistry.valid(entity) || !resourceRegistry.all_of<VkBuffer>(entity) || !CanBeTransferDestination(resourceRegistry, entity))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -464,11 +457,11 @@ void ResourceContextImpl::processFillResourceMessage(FillResourceMessage&& messa
     const bool sizeIsValid = (message.size == VK_WHOLE_SIZE) || (message.size % 4u == 0u);
     if (message.offset % 4u != 0u || !sizeIsValid)
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
-    message.reply->SetStatus(MessageReply::Status::Transferring);
+    message.reply->setStatus(MessageReply::Status::Transferring);
 
     TransferSystemFillBufferMessage fillBufferMessage
     {
@@ -487,11 +480,11 @@ void ResourceContextImpl::processMapResourceMessage(MapResourceMessage&& message
     const entt::entity entity = entt::entity(message.resource.EntityHandle);
     if (!resourceRegistry.valid(entity))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
-    message.reply->SetStatus(MessageReply::Status::Pending);
+    message.reply->setStatus(MessageReply::Status::Pending);
 
     auto[ bufferHandle, allocInfo, allocHandle, flags ] =
         resourceRegistry.try_get<VkBuffer, VmaAllocationInfo, VmaAllocation, ResourceFlags>(entity);
@@ -501,14 +494,14 @@ void ResourceContextImpl::processMapResourceMessage(MapResourceMessage&& message
         (flags == nullptr) ||
         !allocationIsHostVisible(entity))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
     // sanity check - is the VkBuffer in the resource the same as the one in the registry?
     if (message.resource.VkHandle != reinterpret_cast<uint64_t>(*bufferHandle))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -523,7 +516,7 @@ void ResourceContextImpl::processMapResourceMessage(MapResourceMessage&& message
                                HasFlag(flags->flags, ResourceCreationFlags::CreateMapped);
     if (createdMapped && (allocInfo->pMappedData != nullptr))
     {
-        message.reply->SetPointer(static_cast<std::byte*>(allocInfo->pMappedData) + message.offset);
+        message.reply->setPointer(static_cast<std::byte*>(allocInfo->pMappedData) + message.offset);
         return;
     }
 
@@ -532,13 +525,13 @@ void ResourceContextImpl::processMapResourceMessage(MapResourceMessage&& message
     VkResult result = vmaMapMemory(allocatorHandle, *allocHandle, &mappedPointer);
     if (result != VK_SUCCESS)
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
     resourceRegistry.get_or_emplace<UserMapCount>(entity).Count += 1;
     // fixed: the offset parameter was ignored
-    message.reply->SetPointer(static_cast<std::byte*>(mappedPointer) + message.offset);
+    message.reply->setPointer(static_cast<std::byte*>(mappedPointer) + message.offset);
 }
 
 void ResourceContextImpl::processUnmapResourceMessage(UnmapResourceMessage&& message)
@@ -546,7 +539,7 @@ void ResourceContextImpl::processUnmapResourceMessage(UnmapResourceMessage&& mes
     const entt::entity entity = entt::entity(message.resource.EntityHandle);
     if (!resourceRegistry.valid(entity))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -556,13 +549,13 @@ void ResourceContextImpl::processUnmapResourceMessage(UnmapResourceMessage&& mes
         (allocationHandle == VK_NULL_HANDLE) ||
         (flags == nullptr))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
     if (message.resource.VkHandle != reinterpret_cast<uint64_t>(*bufferHandle))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -580,18 +573,18 @@ void ResourceContextImpl::processUnmapResourceMessage(UnmapResourceMessage&& mes
     }
 
     // fixed: the unmap reply was never completed
-    message.reply->SetStatus(MessageReply::Status::Completed);
+    message.reply->setStatus(MessageReply::Status::Completed);
 }
 
 void ResourceContextImpl::processCopyResourceMessage(CopyResourceMessage&& message)
 {
     // fixed: this checked the type and did nothing else, so its reply never completed
-    message.reply->SetStatus(MessageReply::Status::Pending);
+    message.reply->setStatus(MessageReply::Status::Pending);
 
     const entt::entity srcEntity = entt::entity(message.sourceResource.EntityHandle);
     if (!resourceRegistry.valid(srcEntity))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -622,7 +615,7 @@ void ResourceContextImpl::processCopyResourceMessage(CopyResourceMessage&& messa
 
     if (!created.has_value())
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -632,7 +625,7 @@ void ResourceContextImpl::processCopyResourceMessage(CopyResourceMessage&& messa
         return;
     }
 
-    message.reply->SetGraphicsResourceRelaxed(*created);
+    message.reply->setGraphicsResourceRelaxed(*created);
     CopyResourceContentsMessage copyMessage{ message.sourceResource, *created, std::move(message.reply) };
     processCopyResourceContentsMessage(std::move(copyMessage));
 }
@@ -644,7 +637,7 @@ void ResourceContextImpl::processCopyResourceContentsMessage(CopyResourceContent
     const entt::entity dstEntity = entt::entity(message.destinationResource.EntityHandle);
     if (!resourceRegistry.valid(srcEntity) || !resourceRegistry.valid(dstEntity))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -654,38 +647,38 @@ void ResourceContextImpl::processCopyResourceContentsMessage(CopyResourceContent
     const bool dstIsImage = resourceRegistry.all_of<VkImage, ImageCreateInfo>(dstEntity);
     if (!CanBeTransferSource(resourceRegistry, srcEntity) || !CanBeTransferDestination(resourceRegistry, dstEntity))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
     // Switch message type based on resource types involved
     if (srcIsBuffer && dstIsBuffer)
     {
-        message.reply->SetStatus(MessageReply::Status::Transferring);
+        message.reply->setStatus(MessageReply::Status::Transferring);
         transferSystem.EnqueueTransfer(TransferSystemCopyBufferToBufferMessage{ bufferTransferInfo(srcEntity), bufferTransferInfo(dstEntity), std::move(message.reply) });
         return;
     }
     else if (srcIsImage && dstIsImage)
     {
-        message.reply->SetStatus(MessageReply::Status::Transferring);
+        message.reply->setStatus(MessageReply::Status::Transferring);
         transferSystem.EnqueueTransfer(TransferSystemCopyImageToImageMessage{ imageTransferInfo(srcEntity), imageTransferInfo(dstEntity), std::move(message.reply) });
         return;
     }
     else if (srcIsBuffer && dstIsImage)
     {
-        message.reply->SetStatus(MessageReply::Status::Transferring);
+        message.reply->setStatus(MessageReply::Status::Transferring);
         transferSystem.EnqueueTransfer(TransferSystemCopyBufferToImageMessage{ bufferTransferInfo(srcEntity), imageTransferInfo(dstEntity), std::move(message.reply) });
         return;
     }
     else if (srcIsImage && dstIsBuffer)
     {
-        message.reply->SetStatus(MessageReply::Status::Transferring);
+        message.reply->setStatus(MessageReply::Status::Transferring);
         transferSystem.EnqueueTransfer(TransferSystemCopyImageToBufferMessage{ imageTransferInfo(srcEntity), bufferTransferInfo(dstEntity), std::move(message.reply) });
         return;
     }
 
     // invalid types or handles
-    message.reply->SetStatus(MessageReply::Status::Failed);
+    message.reply->setStatus(MessageReply::Status::Failed);
 }
 
 void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&& message)
@@ -693,7 +686,7 @@ void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&&
     const entt::entity entity = entt::entity(message.resource.EntityHandle);
     if (!resourceRegistry.valid(entity))
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -709,12 +702,12 @@ void ResourceContextImpl::processDestroyResourceMessage(DestroyResourceMessage&&
         (sampler != nullptr && reinterpret_cast<uint64_t>(*sampler) == message.resource.VkSamplerHandle);
     if (!handleMatches)
     {
-        message.reply->SetStatus(MessageReply::Status::Failed);
+        message.reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
     destroyEntityResources(entity);
-    message.reply->SetStatus(MessageReply::Status::Completed);
+    message.reply->setStatus(MessageReply::Status::Completed);
 }
 
 VkBuffer ResourceContextImpl::createBuffer(entt::entity new_entity, const BufferCreateInfo& buffer_info)
@@ -799,7 +792,7 @@ VkBufferView ResourceContextImpl::createBufferView(entt::entity new_entity, cons
     return bufferView;
 }
 
-void ResourceContextImpl::setBufferDataHostOnly(entt::entity entity, InternalResourceDataContainer& dataContainer)
+void ResourceContextImpl::setBufferDataHostOnly(entt::entity entity, InternalResourceDataContainer& data_container)
 {
     const VmaAllocationInfo& allocInfo = resourceRegistry.get<VmaAllocationInfo>(entity);
     const VmaAllocation& alloc = resourceRegistry.get<VmaAllocation>(entity);
@@ -812,7 +805,8 @@ void ResourceContextImpl::setBufferDataHostOnly(entt::entity entity, InternalRes
         assert(result == VK_SUCCESS);
     }
 
-    InternalResourceDataContainer::BufferDataVector& dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(dataContainer.DataVector);
+    InternalResourceDataContainer::BufferDataVector& dataVector =
+        std::get<InternalResourceDataContainer::BufferDataVector>(data_container.DataVector);
 
     size_t offset = 0u;
     for (const InternalResourceDataContainer::BufferData& data : dataVector)

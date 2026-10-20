@@ -117,7 +117,6 @@ private:
 
     mwsrQueue<ResourceMessagePayloadType> messageQueue;
     std::thread workerThread;
-    std::atomic<bool> shouldExitWorker{ false };
 
     VmaAllocator allocatorHandle{ VK_NULL_HANDLE };
 
