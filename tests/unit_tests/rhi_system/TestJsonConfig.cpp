@@ -3,6 +3,7 @@
 #include "RhiSystem.hpp"
 #include "RhiTypes.hpp"
 #include "Device.hpp"
+#include "SourcePaths.hpp"
 #include <filesystem>
 #include <fstream>
 
@@ -11,9 +12,7 @@ class JsonConfigTest : public ::testing::Test
 protected:
     void SetUp() override
     {
-        // Get the test directory path
-        // Get current path, and see if it's the build subdir
-        testDir = "D:\\DiamondDogs\\tests\\unit_tests\\rhi_system";
+        testDir = DiamondDogs::GetSourceRelativePath("tests/unit_tests/rhi_system");
 
         // Create shader cache cleanup directories
         shaderCacheCleanup.push_back(std::filesystem::temp_directory_path() / "temp_test_cache");
