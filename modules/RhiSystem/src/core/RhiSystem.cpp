@@ -505,15 +505,8 @@ namespace
             output_message += std::format("VUID:{}:VUID_NAME:{}\n", callback_data->messageIdNumber, callback_data->pMessageIdName);
         }
 
-        const static std::string SKIP_STR{ "CREATE" };
+        // fixed: this used to drop every message containing "CREATE", which hid all vkCreate* validation errors
         const std::string message_str{ callback_data->pMessage };
-        size_t found_skippable = message_str.find(SKIP_STR);
-
-        if (found_skippable != std::string::npos)
-        {
-            return VK_FALSE;
-        }
-
         output_message += std::format("    Message: {}\n", message_str);
         
         if (callback_data->queueLabelCount != 0u)
