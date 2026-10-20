@@ -7,15 +7,15 @@
 #include <memory>
 
 
-using CursorPosEvent = Delegate<void(const Events::CursorPosEventData&, void* userData)>;
-using CursorEnterEvent = Delegate<void(const int, void* userData)>;
-using ScrollEvent = Delegate<void(const Events::ScrollEventData&, void* userData)>;
-using CharEvent = Delegate<void(const char, void* userData)>;
-using PathDropEvent = Delegate<void(const Events::PathDropEventData&, void* userData)>;
-using MouseButtonEvent = Delegate<void(const Events::MouseButtonEventData&, void* userData)>;
-using KeyboardKeyEvent = Delegate<void(const Events::KeyboardKeyEventData&, void* userData)>;
-using ShouldResizeEvent = Delegate<void(const Events::ShouldResizeEventData&, void* userData)>;
-using ShouldCloseEvent = Delegate<void(void* userData)>;
+using CursorPosEvent = Delegate<void(const Events::CursorPosEventData&, void* user_data)>;
+using CursorEnterEvent = Delegate<void(const int, void* user_data)>;
+using ScrollEvent = Delegate<void(const Events::ScrollEventData&, void* user_data)>;
+using CharEvent = Delegate<void(const char, void* user_data)>;
+using PathDropEvent = Delegate<void(const Events::PathDropEventData&, void* user_data)>;
+using MouseButtonEvent = Delegate<void(const Events::MouseButtonEventData&, void* user_data)>;
+using KeyboardKeyEvent = Delegate<void(const Events::KeyboardKeyEventData&, void* user_data)>;
+using ShouldResizeEvent = Delegate<void(const Events::ShouldResizeEventData&, void* user_data)>;
+using ShouldCloseEvent = Delegate<void(void* user_data)>;
 
 // PlatformSystem uses PImpl mostly to avoid any GLFW includes leaking into the public API
 struct PlatformSystemImpl;
@@ -26,65 +26,68 @@ class Swapchain;
  */
 class PlatformWindowSystem
 {
-    PlatformWindowSystem(const PlatformWindowSystem&) = delete;
-    PlatformWindowSystem& operator=(const PlatformWindowSystem&) = delete;
 
 public:
     
     /** @brief Reads configuration values for the platform window and swapchain from given JSON path, and creates a default surface + swapchain alongside the window. */
-    PlatformWindowSystem(const char* jsonPath, void* RhiInstance, void* RhiDevice);
+    PlatformWindowSystem(const char* json_path, void* rhi_instance, void* rhi_device);
     /** @brief Uses a create info struct, and does not create a default surface or swapchain. Used primarily for unit testing. */
-    PlatformWindowSystem(const PlatformWindowCreateInfo& createInfo);
-
+    PlatformWindowSystem(const PlatformWindowCreateInfo& create_info);
+    PlatformWindowSystem(const PlatformWindowSystem&) = delete;
+    PlatformWindowSystem& operator=(const PlatformWindowSystem&) = delete;
     ~PlatformWindowSystem();
 
     void Destroy();
 
     // Default swapchain just uses display info that we got from window creation as creation parameters. Also creates a surface using display parameters
-    void CreateDefaultSwapchain(void* rhiInstance, void* rhiDevice);
-    void CreateSwapchain(const SwapchainCreateInfo& createInfo);
+    void CreateDefaultSwapchain(void* rhi_instance, void* rhi_device);
+    void CreateSwapchain(const SwapchainCreateInfo& create_info);
     void DestroySwapchain();
-    const Swapchain* GetActiveSwapchain() const noexcept;
+    /** @brief Recreates the active swapchain at the window's current size, with its last create info. Call it after
+     * a present or acquire returns out of date or suboptimal, once the device has finished with the old images. */
+    [[nodiscard]] SwapchainRecreateResult RecreateSwapchain();
+    [[nodiscard]] const Swapchain* GetActiveSwapchain() const noexcept;
 
-    void AddCursorPosEventListener(CursorPosEvent listener, void* userData);
-    void AddCursorEnterEventListener(CursorEnterEvent listener, void* userData);
-    void AddScrollEventListener(ScrollEvent listener, void* userData);
-    void AddCharEventListener(CharEvent listener, void* userData);
-    void AddPathDropEventListener(PathDropEvent listener, void* userData);
-    void AddMouseButtonEventListener(MouseButtonEvent listener, void* userData);
-    void AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* userData);
-    void AddShouldResizeEventListener(ShouldResizeEvent listener, void* userData);
-    void AddShouldCloseEventListener(ShouldCloseEvent listener, void* userData);
+    void AddCursorPosEventListener(CursorPosEvent listener, void* user_data);
+    void AddCursorEnterEventListener(CursorEnterEvent listener, void* user_data);
+    void AddScrollEventListener(ScrollEvent listener, void* user_data);
+    void AddCharEventListener(CharEvent listener, void* user_data);
+    void AddPathDropEventListener(PathDropEvent listener, void* user_data);
+    void AddMouseButtonEventListener(MouseButtonEvent listener, void* user_data);
+    void AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* user_data);
+    void AddShouldResizeEventListener(ShouldResizeEvent listener, void* user_data);
+    void AddShouldCloseEventListener(ShouldCloseEvent listener, void* user_data);
 
     /** @brief Display is chosen during window creation, and isn't managed by `DisplaySystem` as it's later in the init process. */
-    const DisplayInfo& GetActiveDisplayInfo() const noexcept;
+    [[nodiscard]] const DisplayInfo& GetActiveDisplayInfo() const noexcept;
     /** @brief Returns the window handle for the GLFWwindow attached to this platform window system instance. */
-    const void* GetWindowHandle() const noexcept;
+    [[nodiscard]] void* GetWindowHandle() const noexcept;
     /** @brief Returns the primary display information, as in the underlying video mode and hardware configuration. Can differ from what is active for the system and rendering, though. */
     static DisplayInfo GetPrimaryDisplayInfo() noexcept;
 
     /** @brief Returns active present mode for the current swapchain attached to this platform window system instance. */
-    PresentMode GetPresentMode() const noexcept;
+    [[nodiscard]] PresentMode GetPresentMode() const noexcept;
     /** @brief Returns active windowing mode for the GLFWwindow attached to this platform window system instance. */
-    PlatformWindowMode GetWindowMode() const noexcept;
+    [[nodiscard]] PlatformWindowMode GetWindowMode() const noexcept;
 
     // Lifecycle management methods
     void Update();
     void WaitForEvents();
-    bool ShouldWindowClose() const;
+    [[nodiscard]] bool ShouldWindowClose() const;
 
     // Window and input management (mirroring deprecated RhiSystem functionality)
     void GetWindowSize(int& w, int& h) const;
+    void SetWindowSize(int w, int h);
     void GetWindowPos(int& x, int& y) const;
     void GetFramebufferSize(int& w, int& h) const;
-    int GetMouseButton(int button) const;
+    [[nodiscard]] int GetMouseButton(int button) const;
     void GetCursorPosition(double& x, double& y) const;
     void SetCursorPosition(double x, double y);
-    int GetWindowAttribute(int attrib) const;
+    [[nodiscard]] int GetWindowAttribute(int attrib) const;
     void SetWindowAttribute(int attrib, int value);
-    int GetInputMode(int mode) const;
+    [[nodiscard]] int GetInputMode(int mode) const;
     void SetInputMode(int mode, int val);
-    void SetWindowShouldClose(bool shouldClose);
+    void SetWindowShouldClose(bool should_close);
 
     static bool IsHDREnabledOnSystem() noexcept;
 
