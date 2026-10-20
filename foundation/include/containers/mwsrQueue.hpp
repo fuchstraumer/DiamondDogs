@@ -389,14 +389,7 @@ namespace detail
                 {
                     // we'll exit without modifying the state
                     earlyExit = true;
-                    uint64_t n = 1u;
-                    for (; n < mwsrQueueSize; ++n)
-                    {
-                        if (!maskGetBit(mask, static_cast<int32_t>(n)))
-                        {
-                            break;
-                        }
-                    }
+                    const uint64_t n = countTrailingOnes(mask);
                     // returns number of completed writes, and then the first ID to read from
                     return std::pair<size_t, uint64_t>{ static_cast<size_t>(n), data.getFirstIDToRead() };
                 }
@@ -482,9 +475,6 @@ namespace detail
         std::condition_variable_any cv;
         LockedThreadsListLockItem* next{ nullptr };
     };
-    
-    // fixed: made inline to avoid cross-TU link errors due to initialization of thread-local variable
-    inline thread_local LockedThreadsListLockItem lockedThreadsListTLS_data = LockedThreadsListLockItem{};
 
     // Templatization required, so that it works with more than one type of queue item
     // (as each template initialization will be a new type, causing new static members)
@@ -601,10 +591,16 @@ template<typename T>
 class mwsrQueue
 {
 private:
+    // the entrance and exit data are CAS targets for every push and pop. each gets its own 128 bytes, so that neither
+    // shares a line with the other, the last item, or the locked writer list. measured 2026-10-20 on a 7800X3D, 1 to 7
+    // writers: 10-25% more throughput than packed. 64 and 128 measured the same there; 128 also covers Intel's
+    // adjacent-line prefetcher, which pulls lines in pairs
+    constexpr static size_t k_SharedStateAlignment = 128u;
+
     T items[detail::mwsrQueueSize];
-    atomic128 entranceData;
-    atomic128 exitData;
-    detail::LockedThreadsList<T> lockedWriters;
+    alignas(k_SharedStateAlignment) atomic128 entranceData;
+    alignas(k_SharedStateAlignment) atomic128 exitData;
+    alignas(k_SharedStateAlignment) detail::LockedThreadsList<T> lockedWriters;
     detail::LockedSingleThread lockedReader;
 
     T readCache[detail::mwsrQueueSize - 1u];
@@ -619,6 +615,10 @@ private:
 public:
     static_assert(std::is_default_constructible_v<T>, "QueueItem used in mwsrQueue must be default-constructible!");
     static_assert(std::is_move_assignable_v<T>, "QueueItem must be move-assignable!");
+    // push() allocates an ID before it moves the item into the slot. if that move throws, the slot never completes,
+    // and the reader waits on it forever
+    static_assert(std::is_nothrow_move_assignable_v<T>, "QueueItem must be nothrow move-assignable!");
+    static_assert(std::is_nothrow_move_constructible_v<T>, "QueueItem must be nothrow move-constructible!");
 
     /**
      * @brief Default constructor
@@ -741,7 +741,7 @@ public:
                 lockedWriters.unlockAllUpTo(firstId + numRead - 1 + detail::mwsrQueueSize);
             }
 
-            return std::move(resultItem);
+            return resultItem;
         }
     }
 
@@ -790,7 +790,7 @@ public:
             lockedWriters.unlockAllUpTo(firstId + numRead - 1 + detail::mwsrQueueSize);
         }
 
-        return std::move(resultItem);
+        return resultItem;
     }
 
 };
