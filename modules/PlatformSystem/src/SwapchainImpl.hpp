@@ -2,10 +2,11 @@
 #ifndef DIAMOND_DOGS_DISPLAY_SYSTEM_SWAPCHAIN_IMPL_HPP
 #define DIAMOND_DOGS_DISPLAY_SYSTEM_SWAPCHAIN_IMPL_HPP
 #include "PlatformTypes.hpp"
-#include <vulkan/vulkan_core.h>
+#include "ImageDataFormats.hpp"
+#include <cstdint>
 #include <vector>
-#include <atomic>
 #include <memory>
+#include <vulkan/vulkan_core.h>
 
 struct AppSurfaceFormat
 {
@@ -21,19 +22,22 @@ struct SwapchainInfo
     std::vector<VkPresentModeKHR> presentModes;
     std::vector<VkColorSpaceKHR> colorSpaces;
     /** @brief Attempts to find best format using a hueristic weighing bit depth and color spaces. Doesn't take any user input, used for default cases */
-    VkSurfaceFormatKHR FindBestFormat() const noexcept;
+    [[nodiscard]] VkSurfaceFormatKHR FindBestFormat() const noexcept;
     /** @brief Attempts to find format closest to requested format */
-    VkSurfaceFormatKHR FindClosestFormat(const VkSurfaceFormatKHR& requestedFormat) const noexcept;
+    [[nodiscard]] VkSurfaceFormatKHR FindClosestFormat(const VkSurfaceFormatKHR& requested_format) const noexcept;
 };
 
 struct SwapchainImpl
 {
-    SwapchainImpl(const SwapchainCreateInfo& createInfo);
+    SwapchainImpl(const SwapchainCreateInfo& create_info);
     ~SwapchainImpl();
 
-    void Create(const SwapchainCreateInfo& createInfo);
+    void Create(const SwapchainCreateInfo& create_info);
+    [[nodiscard]] SwapchainRecreateResult Recreate(const SwapchainCreateInfo& create_info);
     void Destroy();
 
+    /** @brief The create info of the current swapchain, so that a resize can recreate it with the same parameters */
+    SwapchainCreateInfo CreateInfo;
     VkDevice ParentDevice;
     // we keep both formats around, as it makes conversion and queries easier
     AppSurfaceFormat AppFormat;
@@ -46,16 +50,22 @@ struct SwapchainImpl
     VkPresentModeKHR PresentMode;
 
     VkSwapchainKHR Swapchain = VK_NULL_HANDLE;
-    // needed to properly recreate the swapchain
-    VkSwapchainKHR OldSwapchain = VK_NULL_HANDLE;
     std::unique_ptr<SwapchainInfo> Info;
-    std::atomic<bool> ShouldResize{ false };
 
 private:
     /** @brief Converts application-specific swapchain information to Vulkan-compatible structure */
-    VkSwapchainCreateInfoKHR GetCreateInfo(const SwapchainCreateInfo& createInfo) const noexcept;
-    void CreateSwapchainImages();
-    void CreateSwapchainImageViews();
+    VkSwapchainCreateInfoKHR getCreateInfo(const SwapchainCreateInfo& create_info, VkSwapchainKHR old_swapchain) const noexcept;
+    void querySurface(const SwapchainCreateInfo& create_info);
+    void chooseSurfaceFormat(const SwapchainCreateInfo& create_info);
+    /** @brief Returns the surface's current extent, or the framebuffer size clamped to the surface limits when the
+     * surface lets the swapchain decide. Zero area means a minimized window. */
+    [[nodiscard]] VkExtent2D chooseExtent(const SwapchainCreateInfo& create_info) const noexcept;
+    [[nodiscard]] uint32_t chooseMinImageCount(const SwapchainCreateInfo& create_info) const noexcept;
+    void createSwapchainHandle(const SwapchainCreateInfo& create_info, VkSwapchainKHR old_swapchain);
+    void setHdrMetadata(const SwapchainCreateInfo& create_info);
+    void createSwapchainImages();
+    void createSwapchainImageViews();
+    void destroySwapchainImageViews();
 };
 
 #endif // !DIAMOND_DOGS_DISPLAY_SYSTEM_SWAPCHAIN_IMPL_HPP

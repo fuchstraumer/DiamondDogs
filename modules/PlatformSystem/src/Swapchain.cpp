@@ -1,8 +1,14 @@
 #include "Swapchain.hpp"
+#include "ImageDataFormats.hpp"
 #include "ImageDataFormatsVulkan.hpp"
+#include "Math.hpp"
+#include "PlatformTypes.hpp"
 #include "SwapchainImpl.hpp"
+#include "vulkan/vulkan_core.h"
+#include <cstdint>
+#include <memory>
 #include <unordered_map>
-#include <stdexcept>
+#include <utility>
 
 // Forward declaration for conversion function
 extern ColorSpace FromVkColorSpace(const VkColorSpaceKHR space) noexcept;
@@ -20,21 +26,26 @@ static const std::unordered_map<VkPresentModeKHR, PresentMode> s_PresentModeFrom
     { VK_PRESENT_MODE_MAX_ENUM_KHR, PresentMode::Invalid } // just to have a max enum value
 };
 
-Swapchain::Swapchain(const SwapchainCreateInfo& createInfo) :
-    impl(std::make_unique<SwapchainImpl>(createInfo)),
-    PlatformSystem(reinterpret_cast<PlatformWindowSystem*>(createInfo.PlatformSystemPtr))
+Swapchain::Swapchain(const SwapchainCreateInfo& create_info) :
+    impl(std::make_unique<SwapchainImpl>(create_info)),
+    platformSystem(reinterpret_cast<PlatformWindowSystem*>(create_info.PlatformSystemPtr))
 {
     // impl ctor calls create, now we just register for the resize event
 }
-
-Swapchain::Swapchain(Swapchain&& other) noexcept : impl(std::move(other.impl)), PlatformSystem(other.PlatformSystem)
+    
+Swapchain::Swapchain(Swapchain&& other) noexcept : impl(std::move(other.impl)), platformSystem(other.platformSystem)
 {
 }
 
-void Swapchain::Recreate(const SwapchainCreateInfo& createInfo)
+SwapchainRecreateResult Swapchain::Recreate(const SwapchainCreateInfo& create_info)
 {
-    // painful exception to make myself not forget this
-    throw std::runtime_error("Swapchain recreation is not yet implemented!");
+    return impl->Recreate(create_info);
+}
+
+SwapchainRecreateResult Swapchain::Recreate()
+{
+    const SwapchainCreateInfo lastCreateInfo = impl->CreateInfo;
+    return impl->Recreate(lastCreateInfo);
 }
 
 void Swapchain::Destroy()
@@ -100,7 +111,8 @@ Swapchain& Swapchain::operator=(Swapchain&& other) noexcept
     if (this != &other)
     {
         impl = std::move(other.impl);
-        PlatformSystem = other.PlatformSystem;
+        platformSystem = other.platformSystem;
+        other.platformSystem = nullptr;
         other.impl = nullptr;
     }
     return *this;
