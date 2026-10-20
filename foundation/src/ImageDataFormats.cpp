@@ -1,24 +1,28 @@
 #include "ImageDataFormats.hpp"
+#include "ImageDataFormatsVulkan.hpp"
 #include <vulkan/vulkan_core.h>
 #include <string_view>
 #include <cctype>
 #include <algorithm>
+#include <ranges>
 
 namespace
 {
     // Helper function for case-insensitive string comparison using string_view
-    bool StringsEqual(std::string_view a, std::string_view b) noexcept
+    bool StringsEqual(std::string_view lhs, std::string_view rhs) noexcept
     {
-        if (a.size() != b.size())
+        if (lhs.size() != rhs.size())
         {
             return false;
         }
-        
-        return std::equal(a.begin(), a.end(), b.begin(), 
-            [](char ca, char cb) {
-                return std::tolower(static_cast<unsigned char>(ca)) == 
-                       std::tolower(static_cast<unsigned char>(cb));
-            });
+
+        auto toLowerCompare = [](char ca, char cb)
+        {
+            return std::tolower(static_cast<unsigned char>(ca)) == 
+                   std::tolower(static_cast<unsigned char>(cb));
+        };
+
+        return std::ranges::equal(lhs, rhs, toLowerCompare);
     }
 }
 
