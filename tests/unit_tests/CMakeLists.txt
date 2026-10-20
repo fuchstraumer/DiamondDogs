@@ -8,12 +8,15 @@ set(UNIT_TEST_COMPILE_OPTIONS)
 set(UNIT_TEST_LINK_LIBRARIES gtest_main gmock_main)
 
 if(MSVC)
-    list(APPEND UNIT_TEST_COMPILE_OPTIONS 
+    list(APPEND UNIT_TEST_COMPILE_OPTIONS
         "/arch:AVX2"
-        $<$<CONFIG:RELEASE>:/MP> 
-        $<$<CONFIG:RELWITHDEBINFO>:/MP>
-        $<$<CONFIG:RELEASE>:/Oi> 
+        $<$<CONFIG:RELEASE>:/Oi>
         $<$<CONFIG:RELWITHDEBINFO>:/Oi>)
+    if(DIAMOND_DOGS_COMPILER_IS_CL)
+        list(APPEND UNIT_TEST_COMPILE_OPTIONS
+            $<$<CONFIG:RELEASE>:/MP>
+            $<$<CONFIG:RELWITHDEBINFO>:/MP>)
+    endif()
     list(APPEND UNIT_TEST_LINK_LIBRARIES)
 else()
     list(APPEND UNIT_TEST_COMPILE_OPTIONS "-std=c++23")
@@ -34,11 +37,12 @@ function(add_unit_test_target TARGET_NAME TEST_SOURCES LINK_LIBRARIES)
         ${LINK_LIBRARIES})
         
     if(MSVC)
-        target_compile_definitions(${TARGET_NAME} PRIVATE "NOMINMAX" "_XM_SVML_INTRINSICS_" "XM_AVX2_INTRINSICS_")
-        set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
-    else()
-        set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+        target_compile_definitions(${TARGET_NAME} PRIVATE "NOMINMAX" "XM_AVX2_INTRINSICS_")
     endif()
+    if(DIAMOND_DOGS_COMPILER_IS_CL)
+        target_compile_definitions(${TARGET_NAME} PRIVATE "_XM_SVML_INTRINSICS_")
+    endif()
+    set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 
     set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Tests/UnitTests")
     

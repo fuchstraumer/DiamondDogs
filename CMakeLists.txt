@@ -2,10 +2,22 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
 PROJECT(DiamondDogs)
 # and turquoise days...
 
-SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /MP /Gy")
-SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /Oi /MP /Gy")
-SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Gy")
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /JMC /bigobj")
+# MSVC is also true for clang-cl, which takes the same flags but has no /MP and no SVML library. Test
+# DIAMOND_DOGS_COMPILER_IS_CL for those two, and MSVC for everything cl-style.
+# clang-cl ignores /JMC without debug info, and warns about it, so it goes only where /Zi is.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    SET(DIAMOND_DOGS_COMPILER_IS_CL ON)
+else()
+    SET(DIAMOND_DOGS_COMPILER_IS_CL OFF)
+endif()
+
+SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /Oi /Gy")
+SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /JMC /Gy")
+SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /JMC /Gy")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj")
+if(DIAMOND_DOGS_COMPILER_IS_CL)
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+endif()
 
 # Generate header with source tree paths for tests
 configure_file(

@@ -118,8 +118,12 @@ endif()
 
 if(MSVC)
     # make sure DirectXMath has right arch defines enabled
-    target_compile_definitions(foundation PUBLIC "NOMINMAX" "_XM_SVML_INTRINSICS_" "XM_AVX2_INTRINSICS_")
-    target_compile_options(foundation PRIVATE $<$<CONFIG:RELEASE>:/MP> $<$<CONFIG:RELWITHDEBINFO>:/MP>)
+    target_compile_definitions(foundation PUBLIC "NOMINMAX" "XM_AVX2_INTRINSICS_")
+    # SVML is a library that only cl.exe provides
+    if(DIAMOND_DOGS_COMPILER_IS_CL)
+        target_compile_definitions(foundation PUBLIC "_XM_SVML_INTRINSICS_")
+        target_compile_options(foundation PRIVATE $<$<CONFIG:RELEASE>:/MP> $<$<CONFIG:RELWITHDEBINFO>:/MP>)
+    endif()
     # Enable intrinsics in both release and relwithdebinfo, since those shouldn't have much debug info anyways
     # (And can largely affect perf)
     target_compile_options(foundation PRIVATE $<$<CONFIG:RELEASE>:/Oi> $<$<CONFIG:RELWITHDEBINFO>:/Oi>)

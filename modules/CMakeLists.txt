@@ -15,8 +15,10 @@ function(add_module NAME)
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "../../foundation/include")
     target_link_libraries(${NAME} PUBLIC foundation)
-    if(MSVC)
+    if(DIAMOND_DOGS_COMPILER_IS_CL)
         target_compile_options(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/MP> $<$<CONFIG:RELWITHDEBINFO>:/MP>)
+    endif()
+    if(MSVC)
         target_compile_options(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/Oi> $<$<CONFIG:RELWITHDEBINFO>:/Oi>)
         target_compile_definitions(${NAME} PRIVATE 
             "NOMINMAX")
