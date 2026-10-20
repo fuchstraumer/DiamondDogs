@@ -1,6 +1,6 @@
 #include "Swapchain.hpp"
+#include "ImageDataFormatsVulkan.hpp"
 #include "SwapchainImpl.hpp"
-#include "events/DisplayEvents.hpp"
 #include <unordered_map>
 #include <stdexcept>
 

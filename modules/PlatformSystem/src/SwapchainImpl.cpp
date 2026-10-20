@@ -1,4 +1,5 @@
 #include "SwapchainImpl.hpp"
+#include "ImageDataFormatsVulkan.hpp"
 #include "Swapchain.hpp"
 #include "PlatformSystem.hpp"
 #include "events/DisplayEvents.hpp"
