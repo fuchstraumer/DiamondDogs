@@ -2,11 +2,14 @@
 #include "ImageDataFormatsVulkan.hpp"
 #include "Device.hpp"
 #include "Instance.hpp"
+#include "RhiHandle.hpp"
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
+#include "vulkan/vulkan_core.h"
 #include <GLFW/glfw3.h>
 #include <cassert>
+#include <cstdint>
 #include <iostream>
 
 namespace
@@ -26,7 +29,7 @@ ImGuiModule::ImGuiModule(const ImGuiModuleCreateInfo& create_info)
 
     // the backend takes a non-const window, and PlatformWindowSystem hands out a const one. ImGui only installs
     // callbacks on it and reads its state
-    GLFWwindow* window = static_cast<GLFWwindow*>(const_cast<void*>(create_info.PlatformWindowHandle));
+    GLFWwindow* window = static_cast<GLFWwindow*>(create_info.PlatformWindowHandle);
     const bool glfwInitialized = ImGui_ImplGlfw_InitForVulkan(window, create_info.InstallInputCallbacks);
     assert(glfwInitialized);
 

@@ -13,8 +13,7 @@ namespace rhi
 
 struct ImGuiModuleCreateInfo
 {
-    /** @brief The GLFWwindow, as PlatformWindowSystem::GetWindowHandle returns it */
-    const void* PlatformWindowHandle{ nullptr };
+    void* PlatformWindowHandle{ nullptr };
     const rhi::Instance* Instance{ nullptr };
     const rhi::Device* Device{ nullptr };
     /** @brief The packed API version the instance was created with (RhiSystem::GetVulkanApiVersion) */
@@ -28,8 +27,7 @@ struct ImGuiModuleCreateInfo
 };
 
 /**
- * @brief Dear ImGui on the official GLFW and Vulkan backends, with dynamic rendering. Replaced the custom
- * ImGuiWrapper, which carried its own pipeline, font upload, and input handling against VulpesRender.
+ * @brief Dear ImGui on the official GLFW and Vulkan backends, with dynamic rendering.
  *
  * One instance owns the ImGui context, so at most one may exist at a time. Draw on the thread that owns the window.
  */
