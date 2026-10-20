@@ -1,9 +1,18 @@
 #include "PluginManagerImpl.hpp"
+#include "foundation/CoreAPIs.hpp"
 #include "foundation/PluginManager.hpp"
 #include "PDB_Helpers.hpp"
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <errhandlingapi.h>
 #include <iostream>
+#include <iterator>
+#include <libloaderapi.h>
+#include <minwindef.h>
+#include <ranges>
 #include <filesystem>
-#include <functional>
+#include <string>
 
 constexpr static auto k_PathSeparator = '\\';
 constexpr static auto k_PathSeparatorInvalid = '/';
@@ -16,7 +25,7 @@ static void* GetEngineApiFnPtr(uint32_t id)
 
 static void SplitPath(std::string path, std::string& parent_dir, std::string& base_name, std::string& ext)
 {
-    std::replace(path.begin(), path.end(), k_PathSeparatorInvalid, k_PathSeparator);
+    std::ranges::replace(path, k_PathSeparatorInvalid, k_PathSeparator);
     const size_t sepPos = path.rfind(k_PathSeparator);
     const size_t dotPos = path.rfind('.');
 
@@ -52,7 +61,9 @@ static void SplitPath(std::string path, std::string& parent_dir, std::string& ba
 
 static std::string ReplaceExtension(const std::string& file_path, const std::string& ext)
 {
-    std::string folder, filename, oldExt;
+    std::string folder;
+    std::string filename;
+    std::string oldExt;
     SplitPath(file_path, folder, filename, oldExt);
     return folder + filename + ext;
 }
@@ -157,12 +168,7 @@ void PluginManagerImpl::LoadedPlugins(uint32_t* num_plugins, uint32_t* plugin_id
     *num_plugins = static_cast<uint32_t>(coreApiPointers.size());
     if (plugin_ids != nullptr)
     {
-        std::vector<uint32_t> results;
-        for (const auto& entry : coreApiPointers)
-        {
-            results.emplace_back(entry.first);
-        }
-        std::copy(results.begin(), results.end(), plugin_ids);
+        std::ranges::copy(coreApiPointers | std::views::keys, plugin_ids);
     }
 }
 

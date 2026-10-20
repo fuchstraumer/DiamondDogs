@@ -1,6 +1,10 @@
 #include "CommandPool.hpp"
-#include "Device.hpp"
+#include "RhiHandle.hpp"
+#include "RhiResult.hpp"
 #include <cassert>
+#include <cstdint>
+#include <memory>
+#include <utility>
 
 #ifdef RHI_SYSTEM_USE_VULKAN
     #include <vulkan/vulkan_core.h>
@@ -15,7 +19,7 @@ namespace rhi
     struct CommandPoolImpl
     {
         DeviceHandle Device;
-        CommandPoolImpl(DeviceHandle _device, uint32_t _queueFamilyIndex) noexcept : Device{ _device }, QueueFamilyIndex{ _queueFamilyIndex }
+        CommandPoolImpl(const DeviceHandle& _device, uint32_t _queueFamilyIndex) noexcept : Device{ _device }, QueueFamilyIndex{ _queueFamilyIndex }
         {
             GetTrimFunction();
         }
@@ -23,7 +27,7 @@ namespace rhi
         uint32_t QueueFamilyIndex;
         std::vector<VkCommandBuffer> AllocatedBuffers; 
         PFN_vkTrimCommandPoolKHR VkTrimCommandPool = nullptr;
-#elif defined(RHI_SYSTEM_USE_DX12)
+#elifdef RHI_SYSTEM_USE_DX12
         D3D12_COMMAND_LIST_TYPE commandListType;
         std::vector<Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>> commandLists;
         std::vector<bool> commandListInUse;
@@ -39,7 +43,7 @@ namespace rhi
 #endif
         }
 
-        Result AllocateCommandBuffers(CommandPoolHandle handle, uint32_t count)
+        Result AllocateCommandBuffers(const CommandPoolHandle& handle, uint32_t count)
         {
 #ifdef RHI_SYSTEM_USE_VULKAN
             // For simplicity, this implementation assumes all command buffers are freed together with the pool.
@@ -60,7 +64,7 @@ namespace rhi
             }
             
             return Result(result);
-#elif defined(RHI_SYSTEM_USE_DX12)
+#elifdef RHI_SYSTEM_USE_DX12
             // Create the requested number of command lists
             for (uint32_t i = 0; i < count; ++i)
             {
@@ -96,7 +100,7 @@ namespace rhi
 
     };
 
-    CommandPool::CommandPool(DeviceHandle device, Type pool_type, uint32_t queue_family_index)
+    CommandPool::CommandPool(const DeviceHandle& device, Type pool_type, uint32_t queue_family_index)
         : device{ device }, poolType{ pool_type }, impl{ std::make_unique<CommandPoolImpl>(device, queue_family_index) }
     {
 #ifdef RHI_SYSTEM_USE_VULKAN
@@ -106,7 +110,7 @@ namespace rhi
         // Only use transient bit, we reset the pool each frame and don't need individual buffer resets
         poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
         
-        VkCommandPool vkPool;
+        VkCommandPool vkPool = VK_NULL_HANDLE;
         VkResult result = vkCreateCommandPool(device.As<VkDevice>(), &poolInfo, nullptr, &vkPool);
         if (result == VK_SUCCESS)
         {
@@ -205,7 +209,7 @@ namespace rhi
         }
         return CommandBufferHandle{};
         
-#elif defined(RHI_SYSTEM_USE_DX12)
+#elifdef RHI_SYSTEM_USE_DX12
         // For DX12, return the next available command list
         // Find first unused command list starting from nextAvailableIndex
         for (uint32_t i = 0; i < impl->commandLists.size(); ++i)
@@ -234,7 +238,7 @@ namespace rhi
         VkCommandPoolResetFlags resetFlags = VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT;
         VkResult result = vkResetCommandPool(device.As<VkDevice>(), handle.As<VkCommandPool>(), resetFlags);
         return Result(result);
-#elif defined(RHI_SYSTEM_USE_DX12)
+#elifdef RHI_SYSTEM_USE_DX12
 
         HRESULT hr = handle.As<ID3D12CommandAllocator>()->Reset();
         

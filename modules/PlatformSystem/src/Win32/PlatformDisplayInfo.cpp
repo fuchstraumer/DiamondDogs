@@ -6,6 +6,7 @@
 #include <cassert>
 #include <stdexcept>
 #include <algorithm>
+#include <ranges>
 
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -157,11 +158,7 @@ ColorSpace DetermineClosestColorSpace(const EDIDChromaticityCoordinates& chromat
     };
     
     // Find the closest match
-    auto closest = std::min_element(matches.begin(), matches.end(), 
-        [](const ColorSpaceMatch& a, const ColorSpaceMatch& b)
-        { 
-            return a.Distance < b.Distance; 
-        });
+    auto closest = std::ranges::min_element(matches, std::ranges::less{}, &ColorSpaceMatch::Distance);
     
     // Apply tolerance checks - consumer displays are often imprecise
     constexpr float k_LooseTolerance = 0.2f;  // Very permissive for consumer displays
@@ -497,9 +494,9 @@ bool IsHDRSupportedAndEnabled()
 {
     SetWindowsMonitorMappings();
     // if any monitor does not support or have HDR enabled, return false
-    return std::all_of(k_GWindowsMonitorInfoMap.begin(), k_GWindowsMonitorInfoMap.end(), [](const auto& pair)
+    return std::ranges::all_of(k_GWindowsMonitorInfoMap | std::views::values, [](const auto& monitorInfo)
     {
-        return pair.second.ColorCapabilities.hdrSupported && pair.second.ColorCapabilities.hdrEnabled;
+        return monitorInfo.ColorCapabilities.hdrSupported && monitorInfo.ColorCapabilities.hdrEnabled;
     });
 }
 

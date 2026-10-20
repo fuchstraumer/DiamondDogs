@@ -44,7 +44,7 @@ public:
     void BeginFrame();
     /** @brief Ends the ImGui frame and records its draws. The caller has begun dynamic rendering on cmd, with one color
      *  attachment of the ColorFormat given at creation. */
-    void Render(rhi::CommandBufferHandle cmd);
+    void Render(const rhi::CommandBufferHandle& cmd);
     /** @brief Call after the swapchain is recreated with another minimum image count. */
     void SetMinImageCount(uint32_t min_image_count);
 };

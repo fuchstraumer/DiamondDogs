@@ -323,47 +323,47 @@ const Swapchain* PlatformWindowSystem::GetActiveSwapchain() const noexcept
 }
 
 // Event listener registration methods
-void PlatformWindowSystem::AddCursorPosEventListener(CursorPosEvent listener, void* user_data)
+void PlatformWindowSystem::AddCursorPosEventListener(const CursorPosEvent& listener, void* user_data)
 {
     impl->AddCursorPosEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddCursorEnterEventListener(CursorEnterEvent listener, void* user_data)
+void PlatformWindowSystem::AddCursorEnterEventListener(const CursorEnterEvent& listener, void* user_data)
 {
     impl->AddCursorEnterEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddScrollEventListener(ScrollEvent listener, void* user_data)
+void PlatformWindowSystem::AddScrollEventListener(const ScrollEvent& listener, void* user_data)
 {
     impl->AddScrollEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddCharEventListener(CharEvent listener, void* user_data)
+void PlatformWindowSystem::AddCharEventListener(const CharEvent& listener, void* user_data)
 {
     impl->AddCharEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddPathDropEventListener(PathDropEvent listener, void* user_data)
+void PlatformWindowSystem::AddPathDropEventListener(const PathDropEvent& listener, void* user_data)
 { 
     impl->AddPathDropEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddMouseButtonEventListener(MouseButtonEvent listener, void* user_data)
+void PlatformWindowSystem::AddMouseButtonEventListener(const MouseButtonEvent& listener, void* user_data)
 { 
     impl->AddMouseButtonEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* user_data)
+void PlatformWindowSystem::AddKeyboardKeyEventListener(const KeyboardKeyEvent& listener, void* user_data)
 { 
     impl->AddKeyboardKeyEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddShouldResizeEventListener(ShouldResizeEvent listener, void* user_data)
+void PlatformWindowSystem::AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data)
 {
     impl->AddShouldResizeEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddShouldCloseEventListener(ShouldCloseEvent listener, void* user_data)
+void PlatformWindowSystem::AddShouldCloseEventListener(const ShouldCloseEvent& listener, void* user_data)
 {
     impl->AddShouldCloseEventListener(std::move(listener), user_data);
 }

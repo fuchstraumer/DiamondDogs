@@ -33,15 +33,15 @@ struct PlatformSystemImpl
     void Destroy();
     void Update();
     void WaitForEvents();
-    void AddCursorPosEventListener(CursorPosEvent listener, void* userData);
-    void AddCursorEnterEventListener(CursorEnterEvent listener, void* userData);
-    void AddScrollEventListener(ScrollEvent listener, void* userData);
-    void AddCharEventListener(CharEvent listener, void* userData);
-    void AddPathDropEventListener(PathDropEvent listener, void* userData);
-    void AddMouseButtonEventListener(MouseButtonEvent listener, void* userData);
-    void AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* userData);
-    void AddShouldResizeEventListener(ShouldResizeEvent listener, void* userData);
-    void AddShouldCloseEventListener(ShouldCloseEvent listener, void* userData);
+    void AddCursorPosEventListener(const CursorPosEvent& listener, void* user_data);
+    void AddCursorEnterEventListener(const CursorEnterEvent& listener, void* user_data);
+    void AddScrollEventListener(const ScrollEvent& listener, void* user_data);
+    void AddCharEventListener(const CharEvent& listener, void* user_data);
+    void AddPathDropEventListener(const PathDropEvent& listener, void* user_data);
+    void AddMouseButtonEventListener(const MouseButtonEvent& listener, void* user_data);
+    void AddKeyboardKeyEventListener(const KeyboardKeyEvent& listener, void* user_data);
+    void AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data);
+    void AddShouldCloseEventListener(const ShouldCloseEvent& listener, void* user_data);
 };
 
 void CursorPosCallback(GLFWwindow* window, double pos_x, double pos_y);

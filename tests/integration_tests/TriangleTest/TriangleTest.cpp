@@ -1,24 +1,33 @@
 #include "TriangleTest.hpp"
+#include "CommonCreationFunctions.hpp"
+#include "RhiFlags.hpp"
+#include "RhiHandle.hpp"
 #include "RhiSystem.hpp"
 #include "CommandPool.hpp"
 #include "CommandBuffer.hpp"
+#include "RhiTypes.hpp"
 #include "ShaderProgram.hpp"
-#include "ImageDataFormats.hpp"
 #include "PlatformSystem.hpp"
 #include "Device.hpp"
+#include "ShaderTypes.hpp"
 #include "Swapchain.hpp"
-#include "Semaphore.hpp"
-#include "Fence.hpp"
 #include "RhiResult.hpp"
 #include "RhiAssert.hpp"
 #include "Math.hpp"
+#include "VulkanScene.hpp"
+#include "vulkan/vulkan_core.h"
 #include <cassert>
-#include <fstream>
+#include <chrono>
+#include <cstdint>
+#include <cstring>
+#include <memory>
 #include <numbers>
 #include <format>
 #include <array>
 #include <span>
-#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 
 using namespace math;
 
@@ -514,7 +523,7 @@ void VulkanTriangle::onSwapchainRecreated()
     setupDepthStencil();
 }
 
-void VulkanTriangle::setInputStates(rhi::CommandBufferHandle cmd_buffer)
+void VulkanTriangle::setInputStates(const rhi::CommandBufferHandle& cmd_buffer)
 {
     VkCommandBuffer vkCmdBuffer = cmd_buffer.As<VkCommandBuffer>();
 
@@ -556,7 +565,7 @@ void VulkanTriangle::setInputStates(rhi::CommandBufferHandle cmd_buffer)
     pfn_vkCmdSetVertexInputEXT(vkCmdBuffer, 1, &k_VertexBinding, 2, k_VertexAttributes);
 }
 
-void VulkanTriangle::setRasterizationAndSampleStates(rhi::CommandBufferHandle cmd_buffer)
+void VulkanTriangle::setRasterizationAndSampleStates(const rhi::CommandBufferHandle& cmd_buffer)
 {
     VkCommandBuffer vkCmdBuffer = cmd_buffer.As<VkCommandBuffer>();
 
@@ -574,7 +583,7 @@ void VulkanTriangle::setRasterizationAndSampleStates(rhi::CommandBufferHandle cm
     pfn_vkCmdSetSampleMaskEXT(vkCmdBuffer, VK_SAMPLE_COUNT_1_BIT, &k_SampleMask);
 }
 
-void VulkanTriangle::setColorBlendStates(rhi::CommandBufferHandle cmd_buffer)
+void VulkanTriangle::setColorBlendStates(const rhi::CommandBufferHandle& cmd_buffer)
 {
     VkCommandBuffer vkCmdBuffer = cmd_buffer.As<VkCommandBuffer>();
     constexpr static VkBool32 k_BlendEnable[1] = { VK_TRUE };
@@ -602,7 +611,7 @@ void VulkanTriangle::setColorBlendStates(rhi::CommandBufferHandle cmd_buffer)
     pfn_vkCmdSetLogicOpEnableEXT(vkCmdBuffer, VK_FALSE);
 }
 
-void VulkanTriangle::setDepthStencilStates(rhi::CommandBufferHandle cmd_buffer)
+void VulkanTriangle::setDepthStencilStates(const rhi::CommandBufferHandle& cmd_buffer)
 {
     VkCommandBuffer vkCmdBuffer = cmd_buffer.As<VkCommandBuffer>();
 
@@ -613,18 +622,18 @@ void VulkanTriangle::setDepthStencilStates(rhi::CommandBufferHandle cmd_buffer)
     pfn_vkCmdSetStencilTestEnableEXT(vkCmdBuffer, VK_FALSE);
 }
 
-void VulkanTriangle::bindPipeline(rhi::CommandBufferHandle cmd_buffer)
+void VulkanTriangle::bindPipeline(const rhi::CommandBufferHandle& cmd_buffer)
 {
     // if we weren't in shader objects mode, this is where we'd bind the pipeline and so on,
     // now we just set a bunch of dynamic states
-    shaderProgram->BindShaders(cmd_buffer);
+    [[maybe_unused]] Result shaderBindResult = shaderProgram->BindShaders(cmd_buffer);
     setInputStates(cmd_buffer);
     setRasterizationAndSampleStates(cmd_buffer);
     setColorBlendStates(cmd_buffer);
     setDepthStencilStates(cmd_buffer);
 }
 
-void VulkanTriangle::bindGeometryBuffers(rhi::CommandBufferHandle cmd_buffer)
+void VulkanTriangle::bindGeometryBuffers(const rhi::CommandBufferHandle& cmd_buffer)
 {
     VkCommandBuffer vkCmdBuffer = cmd_buffer.As<VkCommandBuffer>();
     VkBuffer vertexBuffers[] = { Vertices.buffer };

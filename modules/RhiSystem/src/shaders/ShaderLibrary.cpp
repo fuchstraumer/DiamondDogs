@@ -1,12 +1,30 @@
 #include "ShaderLibrary.hpp"
+#include "RhiFlags.hpp"
+#include "RhiHandle.hpp"
+#include "RhiTypes.hpp"
+#include "ShaderLibraryTypes.hpp"
+#include "ShaderManifestFormat.hpp"
+#include "ShaderManifestLayout.hpp"
 #include "ShaderProgram.hpp"
 #include "ShaderTypes.hpp"
 #include "ShaderManifest.hpp"
 #include "ShaderManifestIndex.hpp"
+#include "VariantKey.hpp"
 #include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <filesystem>
 #include <fstream>
+#include <ios>
+#include <memory>
+#include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
@@ -30,7 +48,12 @@ namespace rhi
 {
     struct ManifestProgramImpl
     {
+        ManifestProgramImpl() noexcept = default;
         ~ManifestProgramImpl();
+        ManifestProgramImpl(const ManifestProgramImpl&) = delete;
+        ManifestProgramImpl& operator=(const ManifestProgramImpl&) = delete;
+        ManifestProgramImpl(ManifestProgramImpl&&) noexcept = default;
+        ManifestProgramImpl& operator=(ManifestProgramImpl&&) noexcept = default;
 
         DeviceHandle Device;
         std::unique_ptr<ShaderProgram> Program;
@@ -153,6 +176,7 @@ namespace rhi
         {
             return std::unexpected(ShaderLibraryError::ManifestInvalid);
         }
+
         libraryImpl->Bundle = *bundle;
 
         const int32_t profileIndex = libraryImpl->Bundle.FindProfile(profile_name);
@@ -160,21 +184,25 @@ namespace rhi
         {
             return std::unexpected(ShaderLibraryError::ProfileNotInManifest);
         }
+
         std::span<const lodestone::manifest::Profile> profiles = libraryImpl->Bundle.Profiles();
         if (profiles[profileIndex].CodeFormat != lodestone::ShaderCodeFormat::Spirv)
         {
             return std::unexpected(ShaderLibraryError::ProfileNotSpirv);
         }
+
         libraryImpl->ProfileIndex = static_cast<uint32_t>(profileIndex);
 
         for (uint32_t moduleIndex = 0; moduleIndex < libraryImpl->Bundle.ModuleCount(); ++moduleIndex)
         {
             lodestone::manifest::ManifestResult<lodestone::manifest::EnvironmentView> environment =
                 libraryImpl->Bundle.OpenEnvironment(libraryImpl->ProfileIndex, moduleIndex);
+
             if (!environment.has_value())
             {
                 return std::unexpected(ShaderLibraryError::EnvironmentInvalid);
             }
+
             ShaderLibraryModule libraryModule;
             libraryModule.Environment = std::make_unique<lodestone::manifest::EnvironmentView>(*environment);
             libraryModule.Index = std::make_unique<lodestone::ManifestIndex>(*libraryModule.Environment);
@@ -188,15 +216,17 @@ namespace rhi
     ShaderLibraryResult<const lodestone::ManifestIndex*> ShaderLibrary::ModuleIndex(std::string_view module_name) const
     {
         ShaderLibraryResult<const ShaderLibraryModule*> libraryModule = impl->FindModule(module_name);
+
         if (!libraryModule.has_value())
         {
             return std::unexpected(libraryModule.error());
         }
+
         return (*libraryModule)->Index.get();
     }
 
     ShaderLibraryResult<std::unique_ptr<ManifestProgram>> ShaderLibrary::CreateProgram(
-        DeviceHandle device,
+        const DeviceHandle& device,
         std::string_view module_name,
         lodestone::VariantKey variant,
         std::span<const std::string_view> entry_points) const
@@ -221,13 +251,16 @@ namespace rhi
 
         std::vector<lodestone::manifest::EntryPointInstanceView> instances;
         instances.reserve(entry_points.size());
+
         for (const std::string_view entryPointName : entry_points)
         {
             lodestone::manifest::ManifestResult<uint32_t> entryPointIndex = environment.Module().FindEntryPointIndex(entryPointName);
+
             if (!entryPointIndex.has_value())
             {
                 return std::unexpected(ShaderLibraryError::EntryPointNotInModule);
             }
+
             if (environment.FindEntryPointInstance(*entryPointIndex, variant) == nullptr)
             {
                 return std::unexpected(ShaderLibraryError::EntryPointNotInVariant);
@@ -262,11 +295,14 @@ namespace rhi
                 static_cast<uint32_t>(set.Bindings.size()),
                 set.Bindings.data()
             };
+
             VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+
             if (vkCreateDescriptorSetLayout(vkDevice, &setLayoutInfo, nullptr, &setLayout) != VK_SUCCESS)
             {
                 return std::unexpected(ShaderLibraryError::DescriptorSetLayoutCreationFailed);
             }
+
             DescriptorSetLayoutHandle& setLayoutHandle = programImpl->SetLayouts.emplace_back();
             setLayoutHandle.Set(setLayout);
         }
@@ -290,11 +326,14 @@ namespace rhi
             0,
             nullptr
         };
+
         VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+
         if (vkCreatePipelineLayout(vkDevice, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
         {
             return std::unexpected(ShaderLibraryError::PipelineLayoutCreationFailed);
         }
+
         programImpl->PipelineLayout.Set(pipelineLayout);
 
         // ShaderBinaryOptions keeps spans and an entry point name, so this storage must outlive program creation
@@ -335,17 +374,20 @@ namespace
         {
             return std::unexpected(rhi::ShaderLibraryError::ManifestFileUnreadable);
         }
+
         const std::streamsize fileSize = manifestFile.tellg();
         if (fileSize <= 0)
         {
             return std::unexpected(rhi::ShaderLibraryError::ManifestFileUnreadable);
         }
+
         std::vector<std::byte> bytes(static_cast<size_t>(fileSize));
         manifestFile.seekg(0, std::ios::beg);
         if (!manifestFile.read(reinterpret_cast<char*>(bytes.data()), fileSize))
         {
             return std::unexpected(rhi::ShaderLibraryError::ManifestFileUnreadable);
         }
+
         return bytes;
     }
 
@@ -361,14 +403,17 @@ namespace
         {
             const uint32_t opcode = words[position] & 0xFFFFu;
             const uint32_t wordCount = words[position] >> 16u;
+
             if (wordCount == 0u)
             {
                 break;
             }
+
             if (opcode == k_OpEntryPoint && wordCount > k_NameWordOffset)
             {
                 return std::string_view{ reinterpret_cast<const char*>(words.data() + position + k_NameWordOffset) };
             }
+
             position += wordCount;
         }
         return std::string_view{ "main" };
@@ -377,6 +422,7 @@ namespace
     std::expected<VkDescriptorType, rhi::ShaderLibraryError> ToVkDescriptorType(const lodestone::manifest::ResolvedResource& resource) noexcept
     {
         const bool writable = resource.Access() != lodestone::ResourceAccess::ReadOnly;
+
         switch (resource.Kind())
         {
             case lodestone::BindingKind::Sampler: return VK_DESCRIPTOR_TYPE_SAMPLER;
@@ -463,25 +509,28 @@ namespace
             {
                 return std::unexpected(rhi::ShaderLibraryError::UnsupportedResourcePlacement);
             }
+
             std::expected<VkDescriptorType, rhi::ShaderLibraryError> descriptorType = ToVkDescriptorType(resource);
+
             if (!descriptorType.has_value())
             {
                 return std::unexpected(descriptorType.error());
             }
+
             const lodestone::manifest::PlacementPayload placement = resource.PlacementValue();
             const uint32_t setIndex = placement.Word0;
             if (sets.size() <= setIndex)
             {
                 sets.resize(setIndex + 1u);
             }
-            sets[setIndex].Bindings.push_back(VkDescriptorSetLayoutBinding
-            {
-                placement.Word1,
-                *descriptorType,
-                std::max(resource.ArrayCount(), 1u),
-                ToVkShaderStages(merged.Stages),
-                nullptr
-            });
+
+            sets[setIndex].Bindings.emplace_back(placement.Word1,
+                                                 *descriptorType,
+                                                 std::max(resource.ArrayCount(),
+                                                 1u),
+                                                 ToVkShaderStages(merged.Stages),
+                                                 nullptr);
+
         }
         return sets;
     }
@@ -492,6 +541,7 @@ namespace
         {
             vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
         }
+        
         for (const rhi::DescriptorSetLayoutHandle& setLayout : set_layouts)
         {
             vkDestroyDescriptorSetLayout(device, setLayout.As<VkDescriptorSetLayout>(), nullptr);

@@ -36,27 +36,27 @@ namespace
     [[nodiscard]] std::optional<VkImageMemoryBarrier2> MakeLayoutTransitionBarrier(const ImageBarrierInfo& barrier) noexcept;
 }
 
-void ExecuteBufferBarrier(rhi::CommandBufferHandle cmd, const BufferBarrierInfo& barrier)
+void ExecuteBufferBarrier(const rhi::CommandBufferHandle& cmd, const BufferBarrierInfo& barrier)
 {
     ExecuteBufferBarriers(cmd, std::span<const BufferBarrierInfo>{ &barrier, 1u });
 }
 
-void ExecuteBufferBarriers(rhi::CommandBufferHandle cmd, std::span<const BufferBarrierInfo> barriers)
+void ExecuteBufferBarriers(const rhi::CommandBufferHandle& cmd, std::span<const BufferBarrierInfo> barriers)
 {
     ExecuteBarriers(cmd, barriers, std::span<const ImageBarrierInfo>{});
 }
 
-void ExecuteImageBarrier(rhi::CommandBufferHandle cmd, const ImageBarrierInfo& barrier)
+void ExecuteImageBarrier(const rhi::CommandBufferHandle& cmd, const ImageBarrierInfo& barrier)
 {
     ExecuteImageBarriers(cmd, std::span<const ImageBarrierInfo>{ &barrier, 1u });
 }
 
-void ExecuteImageBarriers(rhi::CommandBufferHandle cmd, std::span<const ImageBarrierInfo> barriers)
+void ExecuteImageBarriers(const rhi::CommandBufferHandle& cmd, std::span<const ImageBarrierInfo> barriers)
 {
     ExecuteBarriers(cmd, std::span<const BufferBarrierInfo>{}, barriers);
 }
 
-void ExecuteBarriers(rhi::CommandBufferHandle cmd,
+void ExecuteBarriers(const rhi::CommandBufferHandle& cmd,
                      std::span<const BufferBarrierInfo> buffer_barriers,
                      std::span<const ImageBarrierInfo> image_barriers)
 {

@@ -37,17 +37,17 @@ namespace rhi
         ~ShaderProgram();
         void Destroy() noexcept;
 
-        Result BindShaders(CommandBufferHandle cmdBuffer) const;
-        bool IsSingleStage() const noexcept;
-        ShaderStageFlags GetStages() const noexcept;
-        std::span<std::string> GetEntryPointNames() const noexcept;
-        const std::vector<SpecializationConstantReflection>& GetSpecializationConstants() const noexcept;
-        const std::vector<PushConstantReflection>& GetPushConstantRanges() const noexcept;
+        [[nodiscard]] Result BindShaders(const CommandBufferHandle& cmd_buffer) const;
+        [[nodiscard]] bool IsSingleStage() const noexcept;
+        [[nodiscard]] ShaderStageFlags GetStages() const noexcept;
+        [[nodiscard]] std::span<std::string> GetEntryPointNames() const noexcept;
+        [[nodiscard]] const std::vector<SpecializationConstantReflection>& GetSpecializationConstants() const noexcept;
+        [[nodiscard]] const std::vector<PushConstantReflection>& GetPushConstantRanges() const noexcept;
 
         static Result CreateFromBinary(
-            DeviceHandle device,
-            std::span<ShaderBinaryOptions> binaryOptions,
-            std::unique_ptr<ShaderProgram>& outProgram);
+            const DeviceHandle& device,
+            std::span<ShaderBinaryOptions> binary_options,
+            std::unique_ptr<ShaderProgram>& out_program);
         
     private:
         std::unique_ptr<ShaderProgramImpl> impl;

@@ -1,6 +1,9 @@
 #include "CommandBuffer.hpp"
+#include "RhiHandle.hpp"
+#include "RhiResult.hpp"
 #include <cassert>
 #include <iostream>
+#include <utility>
 
 #ifdef RHI_SYSTEM_USE_VULKAN
     #include <vulkan/vulkan_core.h>
@@ -11,7 +14,7 @@
 
 namespace rhi
 {
-    CommandBuffer::CommandBuffer(CommandBufferHandle handle) noexcept : handle{ handle }
+    CommandBuffer::CommandBuffer(const CommandBufferHandle& handle) noexcept : handle{ handle }
     {
     }
 
@@ -64,8 +67,8 @@ namespace rhi
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         beginInfo.pInheritanceInfo = nullptr; // Only relevant for secondary command buffers
         VkResult result = vkBeginCommandBuffer(handle.As<VkCommandBuffer>(), &beginInfo);
-        return Result(result);
-#elif defined(RHI_SYSTEM_USE_DX12)
+        return {result};
+#elifdef RHI_SYSTEM_USE_DX12
         // In DX12, command lists are implicitly open for recording after being created and passed to the ctor of CommandBuffer
         return Result::Success();
 #endif
@@ -77,8 +80,8 @@ namespace rhi
         isRecording = false;
 #ifdef RHI_SYSTEM_USE_VULKAN
         VkResult result = vkEndCommandBuffer(handle.As<VkCommandBuffer>());
-        return Result(result);
-#elif defined(RHI_SYSTEM_USE_DX12)
+        return {result};
+#elifdef RHI_SYSTEM_USE_DX12
         ID3D12GraphicsCommandList* cmdList = handle.As<ID3D12GraphicsCommandList*>();
         HRESULT hr = cmdList->Close();
         if (SUCCEEDED(hr))

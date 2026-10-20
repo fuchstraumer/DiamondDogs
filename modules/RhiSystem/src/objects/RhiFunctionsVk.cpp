@@ -1,8 +1,13 @@
 #include "RhiFunctions.hpp"
 #include "Device.hpp"
 #include "Fence.hpp"
+#include "RhiHandle.hpp"
+#include "RhiResult.hpp"
+#include "RhiTypes.hpp"
+#include <cstdint>
+#include <span>
+#include <vector>
 #include <vulkan/vulkan_core.h>
-#include <array>
 #include <cassert>
 
 namespace rhi
@@ -23,7 +28,7 @@ namespace rhi
         static PFN_vkCmdPipelineBarrier2 pfn_vkCmdPipelineBarrier2 = nullptr;
         static PFN_vkQueueSubmit pfn_vkQueueSubmit = nullptr;
 
-        void VulkanBeginRendering(CommandBufferHandle cmd, const RenderingInfo& rendering_info)
+        void VulkanBeginRendering(const CommandBufferHandle& cmd, const RenderingInfo& rendering_info)
         {
             assert(pfn_vkCmdBeginRendering && "Failed to load vkCmdBeginRendering");
 
@@ -70,7 +75,7 @@ namespace rhi
             pfn_vkCmdBeginRendering(cmd.As<VkCommandBuffer>(), &vkRenderingInfo);
         }
 
-        void VulkanEndRendering(CommandBufferHandle cmd)
+        void VulkanEndRendering(const CommandBufferHandle& cmd)
         {
             assert(pfn_vkCmdEndRendering && "Failed to load vkCmdEndRendering");
             pfn_vkCmdEndRendering(cmd.As<VkCommandBuffer>());
@@ -78,7 +83,7 @@ namespace rhi
 
     }
 
-    void InitializeRhi(const DeviceHandle device)
+    void InitializeRhi(const DeviceHandle& device)
     {
         const VkDevice deviceVk = device.As<VkDevice>();
         functions::pfn_vkCmdBeginRendering = reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(deviceVk, "vkCmdBeginRendering"));
@@ -93,7 +98,7 @@ namespace rhi
     {
     }
 
-    Result WaitForFences(DeviceHandle device, std::span<FenceHandle> fences, bool wait_all, uint64_t timeout)
+    Result WaitForFences(const DeviceHandle& device, std::span<FenceHandle> fences, bool wait_all, uint64_t timeout)
     {
         assert(fences.size() <= 64 && "Too many fences to wait on");
         VkFence vkFences[64];
@@ -105,7 +110,7 @@ namespace rhi
         return static_cast<Result>(result);
     }
 
-    Result ResetFences(DeviceHandle device, std::span<FenceHandle> fences)
+    Result ResetFences(const DeviceHandle& device, std::span<FenceHandle> fences)
     {
         VkFence vkFences[64];
         for (uint32_t i = 0; i < fences.size(); ++i)

@@ -1,14 +1,16 @@
 #include "Fence.hpp"
-#include "Device.hpp"
-#include <vulkan/vulkan_core.h>
-#include <utility>
+#include "RhiHandle.hpp"
+#include <cstdint>
 #include <stdexcept>
+#include <utility>
+#include <vulkan/vulkan_core.h>
 
 namespace rhi
 {
 #ifdef RHI_SYSTEM_USE_VULKAN
-    Fence::Fence(DeviceHandle device, CreateFenceSignaled signaled) 
-        : device{ device }, handle{ FenceHandle{0} }
+    Fence::Fence(const DeviceHandle& _device, CreateFenceSignaled signaled) 
+        : device{ _device },
+          handle{ FenceHandle{0} }
     {
         VkFenceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;

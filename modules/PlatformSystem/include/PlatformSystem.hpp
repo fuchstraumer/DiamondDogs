@@ -48,15 +48,15 @@ public:
     [[nodiscard]] SwapchainRecreateResult RecreateSwapchain();
     [[nodiscard]] const Swapchain* GetActiveSwapchain() const noexcept;
 
-    void AddCursorPosEventListener(CursorPosEvent listener, void* user_data);
-    void AddCursorEnterEventListener(CursorEnterEvent listener, void* user_data);
-    void AddScrollEventListener(ScrollEvent listener, void* user_data);
-    void AddCharEventListener(CharEvent listener, void* user_data);
-    void AddPathDropEventListener(PathDropEvent listener, void* user_data);
-    void AddMouseButtonEventListener(MouseButtonEvent listener, void* user_data);
-    void AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* user_data);
-    void AddShouldResizeEventListener(ShouldResizeEvent listener, void* user_data);
-    void AddShouldCloseEventListener(ShouldCloseEvent listener, void* user_data);
+    void AddCursorPosEventListener(const CursorPosEvent& listener, void* user_data);
+    void AddCursorEnterEventListener(const CursorEnterEvent& listener, void* user_data);
+    void AddScrollEventListener(const ScrollEvent& listener, void* user_data);
+    void AddCharEventListener(const CharEvent& listener, void* user_data);
+    void AddPathDropEventListener(const PathDropEvent& listener, void* user_data);
+    void AddMouseButtonEventListener(const MouseButtonEvent& listener, void* user_data);
+    void AddKeyboardKeyEventListener(const KeyboardKeyEvent& listener, void* user_data);
+    void AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data);
+    void AddShouldCloseEventListener(const ShouldCloseEvent& listener, void* user_data);
 
     /** @brief Display is chosen during window creation, and isn't managed by `DisplaySystem` as it's later in the init process. */
     [[nodiscard]] const DisplayInfo& GetActiveDisplayInfo() const noexcept;

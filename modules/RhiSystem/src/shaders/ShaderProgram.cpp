@@ -1,16 +1,24 @@
 #include "ShaderProgram.hpp"
-#include "Device.hpp"
+#include "RhiFlags.hpp"
+#include "RhiHandle.hpp"
 #include "RhiResult.hpp"
 #include "RhiAssert.hpp"
 #include "RhiDefines.hpp"
+#include "RhiTypes.hpp"
+#include "ShaderTypes.hpp"
+#include "vulkan/vulkan_core.h"
 #include <algorithm>
 #include <cassert>
-#include <format>
-#include <fstream>
+#include <cstdint>
+#include <exception>
 #include <iostream>
 #include <iterator>
+#include <memory>
+#include <ranges>
+#include <span>
 #include <stdexcept>
-#include <sstream>
+#include <string>
+#include <utility>
 #include <vector>
 #include <unordered_map>
 
@@ -54,7 +62,7 @@ namespace rhi
 
         // In order to later discriminate how to handle unbound shader stages during binding, we need to be cognizant
         // of the broader "type" of program represented here
-        enum class ProgramType
+        enum class ProgramType : uint8_t
         {
             Invalid = 0,
             Graphics,
@@ -62,7 +70,7 @@ namespace rhi
             Mesh
         };
 
-        ShaderProgramImpl(DeviceHandle device) :
+        ShaderProgramImpl(const DeviceHandle& device) :
             ParentDevice{ device }
         {
             if ((pfn_vkCreateShadersEXT == nullptr) || (pfn_vkDestroyShaderEXT == nullptr) || (pfn_vkCmdBindShadersEXT == nullptr))
@@ -119,6 +127,11 @@ namespace rhi
             }
         }
 
+        static VkPushConstantRange ConvertPushConstantRange(const PushConstantRange& range)
+        {
+            return VkPushConstantRange{ ConvertStageToVulkan(range.StageFlags), range.Offset, range.Size };
+        }
+
         Result CreateShaderObjects(std::span<ShaderBinaryOptions> stages_to_create)
         {
             if (stages_to_create.front().Stage == ShaderStageFlags::Compute)
@@ -146,18 +159,12 @@ namespace rhi
 
                 Type = ProgramType::Compute;
                 const ShaderBinaryOptions& computeOptions = stages_to_create.front();
-                std::vector<VkPushConstantRange> pushConstantRanges;
-                pushConstantRanges.reserve(computeOptions.PushConstants.size());
-                for (const PushConstantRange& range : computeOptions.PushConstants)
-                {
-                    pushConstantRanges.push_back(VkPushConstantRange{ ConvertStageToVulkan(range.StageFlags), range.Offset, range.Size });
-                }
-                std::vector<VkDescriptorSetLayout> setLayouts;
-                setLayouts.reserve(computeOptions.DescriptorLayouts.size());
-                for (const DescriptorSetLayoutHandle& layout : computeOptions.DescriptorLayouts)
-                {
-                    setLayouts.push_back(layout.As<VkDescriptorSetLayout>());
-                }
+                const std::vector<VkPushConstantRange> pushConstantRanges = computeOptions.PushConstants |
+                    std::views::transform(ConvertPushConstantRange) |
+                    std::ranges::to<std::vector>();
+                const std::vector<VkDescriptorSetLayout> setLayouts = computeOptions.DescriptorLayouts |
+                    std::views::transform(&DescriptorSetLayoutHandle::As<VkDescriptorSetLayout>) |
+                    std::ranges::to<std::vector>();
 
                 VkShaderCreateInfoEXT createInfo = k_ComputeCreateInfo;
                 createInfo.codeSize = computeOptions.Bytecode.size() * sizeof(uint32_t);
@@ -210,46 +217,39 @@ namespace rhi
                 std::vector<VkShaderCreateInfoEXT> createInfos(stages_to_create.size(), k_GraphicsCreateInfo);
                 std::vector<VkShaderEXT> createdShaders(stages_to_create.size(), VK_NULL_HANDLE);
 
-                for (size_t i = 0; i < stages_to_create.size(); ++i)
+                for (auto&& [stageOptions, createInfo] : std::views::zip(stages_to_create, createInfos))
                 {
-                    const auto& stageOptions = stages_to_create[i];
-                    createInfos[i].stage = static_cast<VkShaderStageFlagBits>(ConvertStageToVulkan(stageOptions.Stage));
-                    if (i < stages_to_create.size() - 1)
-                    {
-                        createInfos[i].nextStage = ConvertStageToVulkan(stages_to_create[i + 1].Stage);
-                    }
-                    createInfos[i].codeSize = stageOptions.Bytecode.size() * sizeof(uint32_t);
-                    createInfos[i].pCode = stageOptions.Bytecode.data();
+                    createInfo.stage = static_cast<VkShaderStageFlagBits>(ConvertStageToVulkan(stageOptions.Stage));
+                    createInfo.codeSize = stageOptions.Bytecode.size() * sizeof(uint32_t);
+                    createInfo.pCode = stageOptions.Bytecode.data();
                     EntryPointNames.emplace_back(stageOptions.EntryPointName);
-                    createInfos[i].pName = stageOptions.EntryPointName.c_str();
+                    createInfo.pName = stageOptions.EntryPointName.c_str();
 
-                    if (stageOptions.PushConstants.size() > 0)
+                    auto& [pushConstantRanges, setLayouts] = stageMetaInfo[stageOptions.Stage];
+
+                    if (!stageOptions.PushConstants.empty())
                     {
-                        stageMetaInfo[stageOptions.Stage].first = PushConstantsVec(stageOptions.PushConstants.size(), VkPushConstantRange{});
-                        std::transform(stageOptions.PushConstants.begin(),
-                                       stageOptions.PushConstants.end(),
-                                       stageMetaInfo[stageOptions.Stage].first.begin(),
-                                       [](const PushConstantRange& r)
-                                       {
-                                           return VkPushConstantRange{ ConvertStageToVulkan(r.StageFlags), r.Offset, r.Size };
-                                       });
-                        createInfos[i].pushConstantRangeCount = static_cast<uint32_t>(stageOptions.PushConstants.size());
-                        createInfos[i].pPushConstantRanges = stageMetaInfo[stageOptions.Stage].first.data();
+                        pushConstantRanges = stageOptions.PushConstants |
+                            std::views::transform(ConvertPushConstantRange) |
+                            std::ranges::to<PushConstantsVec>();
+                        createInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
+                        createInfo.pPushConstantRanges = pushConstantRanges.data();
                     }
 
-                    if (stageOptions.DescriptorLayouts.size() > 0)
+                    if (!stageOptions.DescriptorLayouts.empty())
                     {
-                        stageMetaInfo[stageOptions.Stage].second = DescriptorSetLayoutsVec(stageOptions.DescriptorLayouts.size(), VK_NULL_HANDLE);
-                        std::transform(stageOptions.DescriptorLayouts.begin(),
-                                       stageOptions.DescriptorLayouts.end(),
-                                       stageMetaInfo[stageOptions.Stage].second.begin(),
-                                       [](const rhi::DescriptorSetLayoutHandle& h)
-                                       {
-                                           return h.As<VkDescriptorSetLayout>();
-                                       });
-                        createInfos[i].setLayoutCount = static_cast<uint32_t>(stageOptions.DescriptorLayouts.size());
-                        createInfos[i].pSetLayouts = stageMetaInfo[stageOptions.Stage].second.data();
+                        setLayouts = stageOptions.DescriptorLayouts |
+                            std::views::transform(&DescriptorSetLayoutHandle::As<VkDescriptorSetLayout>) |
+                            std::ranges::to<DescriptorSetLayoutsVec>();
+                        createInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+                        createInfo.pSetLayouts = setLayouts.data();
                     }
+                }
+
+                // every stage but the last links to the stage after it, and zip stops at the shorter range
+                for (auto&& [createInfo, nextStageOptions] : std::views::zip(createInfos, stages_to_create | std::views::drop(1)))
+                {
+                    createInfo.nextStage = ConvertStageToVulkan(nextStageOptions.Stage);
                 }
 
                 assert(pfn_vkCreateShadersEXT);
@@ -261,26 +261,26 @@ namespace rhi
                 RhiAssert(result);
 
                 
-                for (size_t i = 0; i < stages_to_create.size(); ++i)
-                {
-                    Shaders.emplace_back(createdShaders[i]);
-                    UsedStages.emplace_back(createInfos[i].stage);
-                }
+                Shaders.append_range(createdShaders);
+                UsedStages.append_range(createInfos | std::views::transform(&VkShaderCreateInfoEXT::stage));
 
                 // now the sort of annoying meta-information layer: we need to figure out what kind of program this is based on the used set of stages,
                 // and then fill the unused stages based on that
                 // TODO: Identify if we can't pare down the device features to disable unused stages like geoemetry and tesselation, bc they're rarely used
-                if (std::any_of(k_VulkanGraphicsStages.begin(), k_VulkanGraphicsStages.end(), [&](VkShaderStageFlagBits stage) { return std::find(UsedStages.begin(), UsedStages.end(), stage) != UsedStages.end(); }))
+                const auto usesAnyStageOf = [this](const std::vector<VkShaderStageFlagBits>& stages)
+                {
+                    return std::ranges::find_first_of(stages, UsedStages) != stages.end();
+                };
+
+                if (usesAnyStageOf(k_VulkanGraphicsStages))
                 {
                     Type = ProgramType::Graphics;
-                    std::set_difference(k_VulkanGraphicsStages.begin(), k_VulkanGraphicsStages.end(),
-                                        UsedStages.begin(), UsedStages.end(), std::back_inserter(UnusedStages));
+                    std::ranges::set_difference(k_VulkanGraphicsStages, UsedStages, std::back_inserter(UnusedStages));
                 }
-                else if (std::any_of(k_VulkanMeshStages.begin(), k_VulkanMeshStages.end(), [&](VkShaderStageFlagBits stage) { return std::find(UsedStages.begin(), UsedStages.end(), stage) != UsedStages.end(); }))
+                else if (usesAnyStageOf(k_VulkanMeshStages))
                 {
                     Type = ProgramType::Mesh;
-                    std::set_difference(k_VulkanMeshStages.begin(), k_VulkanMeshStages.end(),
-                                        UsedStages.begin(), UsedStages.end(), std::back_inserter(UnusedStages));
+                    std::ranges::set_difference(k_VulkanMeshStages, UsedStages, std::back_inserter(UnusedStages));
                 }
                 else
                 {
@@ -292,25 +292,18 @@ namespace rhi
             }
         }
 
-        [[nodiscard]] Result BindShaders(CommandBufferHandle cmd_buffer) const
+        [[nodiscard]] Result BindShaders(const CommandBufferHandle& cmd_buffer) const
         {
             // If device was created with the tesselation and geometry shader features on, in order to use shader objects we have to 
             // bind null shaders for the unused stages after binding the actual stages we want to use
 
             // So first, we'll find all the stages that are actually used and bind them - accumulating the used stage bits into a bitmask,
             // which we then invert to find the unused stages, and bind null shaders for those stages (also collect handles into a local vector)
-            std::vector<VkShaderEXT> shadersToBind;
-            std::vector<VkShaderStageFlagBits> stagesToBind;
-            for (size_t i = 0; i < UsedStages.size(); ++i)
-            {
-                shadersToBind.emplace_back(Shaders[i]);
-                stagesToBind.emplace_back(UsedStages[i]);
-            }
-
+            // Shaders and UsedStages are appended together, so they already line up one to one
             pfn_vkCmdBindShadersEXT(cmd_buffer.As<VkCommandBuffer>(),
-                                static_cast<uint32_t>(shadersToBind.size()),
-                                stagesToBind.data(),
-                                shadersToBind.data());
+                                static_cast<uint32_t>(UsedStages.size()),
+                                UsedStages.data(),
+                                Shaders.data());
 
             // now bind null shaders for unused stages
             if (!UnusedStages.empty())
@@ -374,7 +367,7 @@ namespace rhi
                         flags |= ShaderStageFlags::Mesh;
                         break;
                     default:
-                        throw std::runtime_error("Encountered unknown Vulkan shader stage flag during conversion to RHI shader stage flags");
+                        std::unreachable();
                 }
             }
             return flags;
@@ -389,7 +382,7 @@ namespace rhi
     // DX12 implementation would go here
     struct ShaderProgramImpl
     {
-        ShaderProgramImpl(DeviceHandle device) :
+        ShaderProgramImpl(const DeviceHandle& device) :
             ParentDevice{ device }
         {
             // DX12 shader object implementation
@@ -436,7 +429,7 @@ namespace rhi
         impl.reset();
     }
 
-    Result ShaderProgram::BindShaders(CommandBufferHandle cmd_buffer) const
+    Result ShaderProgram::BindShaders(const CommandBufferHandle& cmd_buffer) const
     {
         // Binding logic has to go through the impl, as it contains API-specific code and functionality
         return impl->BindShaders(cmd_buffer);
@@ -470,7 +463,7 @@ namespace rhi
     }
 
     Result ShaderProgram::CreateFromBinary(
-        DeviceHandle device,
+        const DeviceHandle& device,
         std::span<ShaderBinaryOptions> binary_options,
         std::unique_ptr<ShaderProgram>& out_program)
     {

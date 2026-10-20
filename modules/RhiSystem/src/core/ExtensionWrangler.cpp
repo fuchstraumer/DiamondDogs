@@ -1,8 +1,16 @@
 #include "ExtensionWrangler.hpp"
+#include "vulkan/vulkan_core.h"
 #include <algorithm>
+#include <cstdint>
+#include <expected>
+#include <memory>
+#include <utility>
 #include <vector>
 #include <cstring>
 #include <set>
+#include <span>
+#include <string_view>
+#include <ranges>
 
 #ifndef VK_BASE_API_VERSION_1_0
 #define VK_BASE_API_VERSION_1_0 VK_API_VERSION_1_0
@@ -71,6 +79,14 @@
 static_assert(std::ranges::is_sorted(deviceExtensionTable), "deviceExtensionTable must be sorted for binary search");
 static_assert(std::ranges::is_sorted(instanceExtensionTable), "instanceExtensionTable must be sorted for binary search");
 
+namespace
+{
+    bool AreStringsEqual(const VkExtensionProperties& ext_props, const char* str);
+    std::string_view ExtensionNameOf(const VkExtensionProperties& properties) noexcept;
+    const char* StringViewData(std::string_view view) noexcept;
+}
+
+//NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 static const std::set<uint32_t> k_BuiltInVkVersions
 {
     VK_API_VERSION_1_0,
@@ -125,69 +141,70 @@ struct DependencyCache
     std::vector<VkExtensionProperties> InstanceExtensionDependencies;
 };
 
-ExtensionDependencies::ExtensionDependencies(uint32_t _numInstanceExtensionDeps, uint32_t _numDeviceExtensionDeps) :
-    versionDep{ 0 },
-    numInstanceExtensionDeps{ _numInstanceExtensionDeps },
-    instanceExtensionDeps{ nullptr },
-    numDeviceExtensionDeps{ _numDeviceExtensionDeps },
-    deviceExtensionDeps{ nullptr }
+ExtensionDependencies::ExtensionDependencies(
+    uint32_t num_instance_extension_deps,
+    uint32_t num_device_extension_deps) :
+    VersionDep{ 0 },
+    NumInstanceExtensionDeps{ num_instance_extension_deps },
+    InstanceExtensionDeps{ nullptr },
+    NumDeviceExtensionDeps{ num_device_extension_deps },
+    DeviceExtensionDeps{ nullptr }
 {
 
-    if (numInstanceExtensionDeps > 0)
+    if (NumInstanceExtensionDeps > 0)
     {
-        instanceExtensionDeps = new const char*[numInstanceExtensionDeps];
+        InstanceExtensionDeps = new const char*[NumInstanceExtensionDeps];
     }
 
-    if (numDeviceExtensionDeps > 0)
+    if (NumDeviceExtensionDeps > 0)
     {
-        deviceExtensionDeps = new const char*[numDeviceExtensionDeps];
+        DeviceExtensionDeps = new const char*[NumDeviceExtensionDeps];
     }
 
 }
 
 ExtensionDependencies::~ExtensionDependencies()
 {
-    if (numInstanceExtensionDeps > 0 && instanceExtensionDeps != nullptr)
+    if (NumInstanceExtensionDeps > 0 && InstanceExtensionDeps != nullptr)
     {
-        delete[] instanceExtensionDeps;
+        delete[] InstanceExtensionDeps;
     }
-    if (numDeviceExtensionDeps > 0 && deviceExtensionDeps != nullptr)
+    if (NumDeviceExtensionDeps > 0 && DeviceExtensionDeps != nullptr)
     {
-        delete[] deviceExtensionDeps;
+        delete[] DeviceExtensionDeps;
     }
 }
 
-ExtensionDependencies::ExtensionDependencies(ExtensionDependencies&& other) noexcept
+ExtensionDependencies::ExtensionDependencies(ExtensionDependencies&& other) noexcept :
+    VersionDep{ other.VersionDep },
+    NumInstanceExtensionDeps{ other.NumInstanceExtensionDeps },
+    InstanceExtensionDeps{ other.InstanceExtensionDeps },
+    NumDeviceExtensionDeps{ other.NumDeviceExtensionDeps },
+    DeviceExtensionDeps{ other.DeviceExtensionDeps }
 {
-    versionDep = other.versionDep;
-    instanceExtensionDeps = other.instanceExtensionDeps;
-    deviceExtensionDeps = other.deviceExtensionDeps;
-    numInstanceExtensionDeps = other.numInstanceExtensionDeps;
-    numDeviceExtensionDeps = other.numDeviceExtensionDeps;
-
-    other.instanceExtensionDeps = nullptr;
-    other.deviceExtensionDeps = nullptr;
-    other.numInstanceExtensionDeps = 0;
-    other.numDeviceExtensionDeps = 0;
+    other.InstanceExtensionDeps = nullptr;
+    other.DeviceExtensionDeps = nullptr;
+    other.NumInstanceExtensionDeps = 0;
+    other.NumDeviceExtensionDeps = 0;
 }
 
 ExtensionDependencies& ExtensionDependencies::operator=(ExtensionDependencies&& other) noexcept
 {
     if (this != &other)
     {
-        delete[] instanceExtensionDeps;
-        delete[] deviceExtensionDeps;
+        delete[] InstanceExtensionDeps;
+        delete[] DeviceExtensionDeps;
 
-        versionDep = other.versionDep;
-        instanceExtensionDeps = other.instanceExtensionDeps;
-        deviceExtensionDeps = other.deviceExtensionDeps;
-        numInstanceExtensionDeps = other.numInstanceExtensionDeps;
-        numDeviceExtensionDeps = other.numDeviceExtensionDeps;
+        VersionDep = other.VersionDep;
+        InstanceExtensionDeps = other.InstanceExtensionDeps;
+        DeviceExtensionDeps = other.DeviceExtensionDeps;
+        NumInstanceExtensionDeps = other.NumInstanceExtensionDeps;
+        NumDeviceExtensionDeps = other.NumDeviceExtensionDeps;
 
-        other.instanceExtensionDeps = nullptr;
-        other.deviceExtensionDeps = nullptr;
-        other.numInstanceExtensionDeps = 0;
-        other.numDeviceExtensionDeps = 0;
+        other.InstanceExtensionDeps = nullptr;
+        other.DeviceExtensionDeps = nullptr;
+        other.NumInstanceExtensionDeps = 0;
+        other.NumDeviceExtensionDeps = 0;
     }
     return *this;
 }
@@ -201,10 +218,10 @@ ExtensionWrangler::ExtensionWrangler(
 {
     // Find the highest API version that is <= the input API version
     // upper_bound returns iterator to first element > apiVersion, so we want the element before that
-    auto upperBoundIt = std::upper_bound(std::begin(k_BuiltInVkVersions), std::end(k_BuiltInVkVersions), apiVersion);
+    auto upperBoundIt = k_BuiltInVkVersions.upper_bound(apiVersion);
     
     // If upper_bound points to begin(), then apiVersion is less than all built-in versions, use the first one
-    if (upperBoundIt == std::begin(k_BuiltInVkVersions))
+    if (upperBoundIt == k_BuiltInVkVersions.begin())
     {
         apiVersion = *k_BuiltInVkVersions.begin();
     }
@@ -226,18 +243,13 @@ bool ExtensionWrangler::HasValidPhysicalDevice() const noexcept
     return physicalDevice != VK_NULL_HANDLE;
 }
 
-void ExtensionWrangler::SetPhysicalDevice(VkPhysicalDevice _physicalDevice) noexcept
+void ExtensionWrangler::SetPhysicalDevice(VkPhysicalDevice physical_device) noexcept
 {
-    if (_physicalDevice != physicalDevice)
+    if (physical_device != physicalDevice)
     {
-        physicalDevice = _physicalDevice;
+        physicalDevice = physical_device;
         dependencyCache = std::make_unique<DependencyCache>(physicalDevice);
     }
-}
-
-bool AreStringsEqual(const VkExtensionProperties& a, const char* b)
-{
-    return strcmp(a.extensionName, b) == 0;
 }
 
 bool ExtensionWrangler::IsExtensionSupported(const std::string_view extension_name) const
@@ -252,20 +264,12 @@ bool ExtensionWrangler::IsExtensionSupported(const std::string_view extension_na
     {
         // if extension is device extension, we need to check if the physical device supports it
         auto& supportedDeviceExtensions = dependencyCache->DeviceExtensionDependencies;
-        auto extensionIter = std::find_if(
-            supportedDeviceExtensions.begin(),
-            supportedDeviceExtensions.end(),
-            [&extension_name](const VkExtensionProperties& props) { return strcmp(props.extensionName, extension_name.data()) == 0; });
-        return extensionIter != supportedDeviceExtensions.end();
+        return std::ranges::contains(supportedDeviceExtensions, extension_name, ExtensionNameOf);
     }
     else if (ExtensionIsInstanceExtension(extension_name))
     {
         auto& supportedInstanceExtensions = dependencyCache->InstanceExtensionDependencies;
-        auto extensionIter = std::find_if(
-            supportedInstanceExtensions.begin(),
-            supportedInstanceExtensions.end(),
-            [&extension_name](const VkExtensionProperties& props) { return strcmp(props.extensionName, extension_name.data()) == 0; });
-        return extensionIter != supportedInstanceExtensions.end();
+        return std::ranges::contains(supportedInstanceExtensions, extension_name, ExtensionNameOf);
     }
     else
     {
@@ -276,15 +280,8 @@ bool ExtensionWrangler::IsExtensionSupported(const std::string_view extension_na
 
 bool ExtensionWrangler::AreExtensionsSupported(const size_t num_extensions, const std::string_view* extension_names) const
 {
-    for (size_t i = 0; i < num_extensions; i++)
-    {
-        if (!IsExtensionSupported(extension_names[i]))
-        {
-            return false;
-        }
-    }
-
-    return true;
+    const std::span<const std::string_view> extensionNames{ extension_names, num_extensions };
+    return std::ranges::all_of(extensionNames, [this](const std::string_view name) { return IsExtensionSupported(name); });
 }
 
 bool ExtensionWrangler::ExtensionIsDeviceExtension(const std::string_view extension_name) const
@@ -297,7 +294,7 @@ bool ExtensionWrangler::ExtensionIsDeviceExtension(const std::string_view extens
     
     size_t extensionIndex = extensionNameIter->second;
 
-    return std::binary_search(deviceExtensionTable.begin(), deviceExtensionTable.end(), extensionIndex);
+    return std::ranges::binary_search(deviceExtensionTable, extensionIndex);
 }
 
 bool ExtensionWrangler::ExtensionIsInstanceExtension(const std::string_view extension_name) const
@@ -310,7 +307,7 @@ bool ExtensionWrangler::ExtensionIsInstanceExtension(const std::string_view exte
     
     size_t extensionIndex = extensionNameIter->second;
 
-    return std::binary_search(instanceExtensionTable.begin(), instanceExtensionTable.end(), extensionIndex);
+    return std::ranges::binary_search(instanceExtensionTable, extensionIndex);
 }
 
 bool ExtensionWrangler::ExtensionCoreInActiveVersion(const std::string_view extension_name) const
@@ -325,35 +322,28 @@ bool ExtensionWrangler::ExtensionCoreInActiveVersion(const std::string_view exte
 
     // an extension promoted in any version up to the active one is core. fixed: this only checked the row of the
     // active version, so an extension promoted in 1.1 read as "not core" on 1.4
-    for (const auto& [promotedInVersion, promotedExtensions] : promotedExtensionsMap)
+    auto promotedFilter = [&](const auto& promoted_entry)
     {
-        if (promotedInVersion > apiVersion)
-        {
-            continue;
-        }
-        if (std::find(promotedExtensions.begin(), promotedExtensions.end(), extensionIndex) != promotedExtensions.end())
-        {
-            return true;
-        }
-    }
-    return false;
+        const auto& [promotedInVersion, promotedExtensions] = promoted_entry;
+        return promotedInVersion <= apiVersion && std::ranges::contains(promotedExtensions, extensionIndex);
+    };
+    return std::ranges::any_of(promotedExtensionsMap, promotedFilter);
 }
 
 std::vector<std::string_view> ExtensionWrangler::GetSupportedExtensionsByPrefix(std::string_view prefix) const
 {
-    std::vector<std::string_view> result;
-    for (const char* extName : masterExtensionNameTable)
+    const auto isSupportedDeviceExtensionWithPrefix = [&](const std::string_view extension_name)
     {
-        const std::string_view extNameView{ extName };
-        if (extNameView.starts_with(prefix) &&
-            ExtensionIsDeviceExtension(extNameView) &&
-            !ExtensionCoreInActiveVersion(extNameView) &&
-            IsExtensionSupported(extNameView))
-        {
-            result.emplace_back(extNameView);
-        }
-    }
-    return result;
+        return extension_name.starts_with(prefix) &&
+            ExtensionIsDeviceExtension(extension_name) &&
+            !ExtensionCoreInActiveVersion(extension_name) &&
+            IsExtensionSupported(extension_name);
+    };
+
+    return masterExtensionNameTable |
+        std::views::transform([](const char* extension_name) { return std::string_view{ extension_name }; }) |
+        std::views::filter(isSupportedDeviceExtensionWithPrefix) |
+        std::ranges::to<std::vector>();
 }
 
 std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> ExtensionWrangler::GetExtensionDependencies(const std::string_view extension_name) const
@@ -361,17 +351,13 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     if (ExtensionCoreInActiveVersion(extension_name))
     {
         ExtensionDependencies dependencies(0, 0);
-        dependencies.versionDep = apiVersion;
+        dependencies.VersionDep = apiVersion;
         return std::move(dependencies);
     }
     else if (ExtensionIsInstanceExtension(extension_name))
     {
         auto& supportedInstanceExtensions = dependencyCache->InstanceExtensionDependencies;
-        auto supportedInstanceExtensionIter = std::find_if(
-            supportedInstanceExtensions.begin(),
-            supportedInstanceExtensions.end(),
-            [&extension_name](const VkExtensionProperties& props) { return strcmp(props.extensionName, extension_name.data()) == 0; });
-        if (supportedInstanceExtensionIter == supportedInstanceExtensions.end())
+        if (!std::ranges::contains(supportedInstanceExtensions, extension_name, ExtensionNameOf))
         {
             return std::unexpected<DependencyError>(DependencyError::ExtensionNotSupported);
         }
@@ -384,11 +370,7 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     {
         // if extension is device extension, we need to check if the physical device supports it
         auto& supportedDeviceExtensions = dependencyCache->DeviceExtensionDependencies;
-        auto supportedDeviceExtensionIter = std::find_if(
-            supportedDeviceExtensions.begin(),
-            supportedDeviceExtensions.end(),
-            [&extension_name](const VkExtensionProperties& props) { return strcmp(props.extensionName, extension_name.data()) == 0; });
-        if (supportedDeviceExtensionIter == supportedDeviceExtensions.end())
+        if (!std::ranges::contains(supportedDeviceExtensions, extension_name, ExtensionNameOf))
         {
             return std::unexpected<DependencyError>(DependencyError::ExtensionNotSupported);
         }
@@ -413,9 +395,9 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     std::set<std::string_view> uniqueInstanceDependencies;
     std::set<std::string_view> uniqueDeviceDependencies;
 
-    for (size_t i = 0; i < extension_names.size(); ++i)
+    for (const std::string_view extensionName : extension_names)
     {
-        auto dependencies = GetExtensionDependencies(extension_names[i]);
+        auto dependencies = GetExtensionDependencies(extensionName);
         if (!dependencies.has_value() && (dependencies.error() == DependencyError::NoDependenciesForExtension))
         {
             // totally fine, we just don't have dependencies for this particular extension!
@@ -428,15 +410,10 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
         }
 
         // Collect unique dependencies
-        for (size_t i = 0; i < dependencies->numInstanceExtensionDeps; ++i)
-        {
-            uniqueInstanceDependencies.insert(dependencies->instanceExtensionDeps[i]);
-        }
-
-        for (size_t i = 0; i < dependencies->numDeviceExtensionDeps; ++i)
-        {
-            uniqueDeviceDependencies.insert(dependencies->deviceExtensionDeps[i]);
-        }
+        const std::span<const char* const> instanceDependencyNames{ dependencies->InstanceExtensionDeps, dependencies->NumInstanceExtensionDeps };
+        const std::span<const char* const> deviceDependencyNames{ dependencies->DeviceExtensionDeps, dependencies->NumDeviceExtensionDeps };
+        uniqueInstanceDependencies.insert_range(instanceDependencyNames);
+        uniqueDeviceDependencies.insert_range(deviceDependencyNames);
     }
 
     // Create a new ExtensionDependencies instance with the collected unique dependencies
@@ -445,7 +422,7 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
         static_cast<uint32_t>(uniqueDeviceDependencies.size()));
     
     // set the version dependency to the API version
-    combinedDependencies.versionDep = apiVersion;
+    combinedDependencies.VersionDep = apiVersion;
     if (uniqueDeviceDependencies.empty() && uniqueInstanceDependencies.empty())
     {
         // if no dependencies, just return the API version
@@ -453,17 +430,8 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     }
 
     // Move unique dependencies into the combined instance
-    size_t instanceDepIdx = 0;
-    for (const auto& dep : uniqueInstanceDependencies)
-    {
-        combinedDependencies.instanceExtensionDeps[instanceDepIdx++] = dep.data();
-    }
-
-    size_t deviceDepIdx = 0;
-    for (const auto& dep : uniqueDeviceDependencies)
-    {
-        combinedDependencies.deviceExtensionDeps[deviceDepIdx++] = dep.data();
-    }
+    std::ranges::copy(uniqueInstanceDependencies | std::views::transform(StringViewData), combinedDependencies.InstanceExtensionDeps);
+    std::ranges::copy(uniqueDeviceDependencies | std::views::transform(StringViewData), combinedDependencies.DeviceExtensionDeps);
 
     return std::move(combinedDependencies);
 }
@@ -551,19 +519,15 @@ std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> Ext
         else
         {
             // Only care about the device extensions here, since instance extensions don't have features
-            for (size_t i = 0; i < extensionDeps->numDeviceExtensionDeps; ++i)
-            {
-                const char* dep = extensionDeps->deviceExtensionDeps[i];
-                extensionNamesVec.emplace_back(dep);
-            }
+            const std::span<const char* const> deviceDependencyNames{ extensionDeps->DeviceExtensionDeps, extensionDeps->NumDeviceExtensionDeps };
+            extensionNamesVec.append_range(deviceDependencyNames);
         }
     }
 
 
     // Iterate through the extensions and populate the features
-    for (size_t i = 0; i < extensionNamesVec.size(); i++)
+    for (const std::string_view extensionName : extensionNamesVec)
     {
-        const char* extensionName = extensionNamesVec[i].data();
         if (ExtensionCoreInActiveVersion(extensionName) || ExtensionIsInstanceExtension(extensionName))
         {
             // If the extension is core in the active version or an instance extension, we don't need to query features for it
@@ -693,17 +657,31 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
     }
 
     ExtensionDependencies dependencies(static_cast<uint32_t>(instanceDeps.size()), static_cast<uint32_t>(deviceDeps.size()));
-    dependencies.versionDep = apiVersion;
+    dependencies.VersionDep = apiVersion;
     
-    for (size_t i = 0; i < instanceDeps.size(); i++)
-    {
-        dependencies.instanceExtensionDeps[i] = instanceDeps[i].data();
-    }
-
-    for (size_t i = 0; i < deviceDeps.size(); i++)
-    {
-        dependencies.deviceExtensionDeps[i] = deviceDeps[i].data();
-    }
+    std::ranges::copy(instanceDeps | std::views::transform(StringViewData), dependencies.InstanceExtensionDeps);
+    std::ranges::copy(deviceDeps | std::views::transform(StringViewData), dependencies.DeviceExtensionDeps);
 
     return std::move(dependencies);
 }
+
+namespace
+{
+
+    bool AreStringsEqual(const VkExtensionProperties& ext_props, const char* str)
+    {
+        return strcmp(ext_props.extensionName, str) == 0;
+    }
+
+    std::string_view ExtensionNameOf(const VkExtensionProperties& properties) noexcept
+    {
+        return std::string_view{ properties.extensionName };
+    }
+
+    const char* StringViewData(const std::string_view view) noexcept
+    {
+        return view.data();
+    }
+
+}
+//NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)

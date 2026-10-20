@@ -1,12 +1,18 @@
 #include "Instance.hpp"
 #include "ExtensionPack.hpp"
 #include "RhiAssert.hpp"
+#include "RhiFlags.hpp"
+#include "RhiHandle.hpp"
 #include "RhiResult.hpp"
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <array>
+#include <string>
+#include <string_view>
+#include <vector>
 #include "vulkan/vulkan_core.h"
 
 namespace rhi 
@@ -57,7 +63,7 @@ namespace rhi
 
     bool Instance::HasExtension(std::string_view extension_name) const noexcept
     {
-        return std::find(enabledExtensions.begin(), enabledExtensions.end(), extension_name) != enabledExtensions.end();
+        return std::ranges::contains(enabledExtensions, extension_name);
     }
 
     void Instance::createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions)

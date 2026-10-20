@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_RHI_FENCE_HPP
 #include "utility/TaggedBool.hpp"
 #include "RhiHandle.hpp"
+#include <cstdint>
 
 namespace rhi
 {
@@ -11,17 +12,17 @@ namespace rhi
     class Fence
     {
     public:
-        Fence(DeviceHandle device, CreateFenceSignaled signaled = CreateFenceSignaled{ false });
+        Fence(const DeviceHandle& device, CreateFenceSignaled signaled = CreateFenceSignaled{ false });
         ~Fence();
         Fence(const Fence&) = delete;
         Fence& operator=(const Fence&) = delete;
         Fence(Fence&& other) noexcept;
         Fence& operator=(Fence&& other) noexcept;
 
-        FenceHandle Handle() const noexcept;
-        bool IsSignaled() const;
+        [[nodiscard]] FenceHandle Handle() const noexcept;
+        [[nodiscard]] bool IsSignaled() const;
         void Reset();
-        bool Wait(uint64_t timeoutNs = UINT64_MAX) const;
+        [[nodiscard]] bool Wait(uint64_t timeout_ns = UINT64_MAX) const;
     private:
         DeviceHandle device;
         FenceHandle handle;

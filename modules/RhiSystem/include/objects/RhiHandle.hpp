@@ -25,15 +25,8 @@ namespace rhi
         // This allows multiple people to use the same handle, but still makes sure they don't accidentally use it after it's been destroyed
         // or that it's not destroyed at all.
 
-        constexpr RhiHandle(const RhiHandle& other) noexcept : handle{ other.handle } {}
-        constexpr RhiHandle& operator=(const RhiHandle& other) noexcept
-        {
-            if (this != &other)
-            {
-                handle = other.handle;
-            }
-            return *this;
-        }
+        constexpr RhiHandle(const RhiHandle& other) noexcept = default;
+        constexpr RhiHandle& operator=(const RhiHandle& other) noexcept = default;
 
         constexpr RhiHandle(RhiHandle&& other) noexcept : handle{ other.handle }
         {
@@ -60,15 +53,15 @@ namespace rhi
             return handle != other.handle;
         }
 
-        constexpr uint64_t Get() const noexcept
+        [[nodiscard]] constexpr uint64_t Get() const noexcept
         {
             return handle;
         }
 
-        template<typename T>
-        constexpr void Set(T _handle) noexcept
+        template<typename U>
+        constexpr void Set(U _handle) noexcept
         {
-            if constexpr (std::is_same_v<T, uint64_t>)
+            if constexpr (std::is_same_v<U, uint64_t>)
             {
                 handle = _handle;
                 return;
@@ -80,17 +73,17 @@ namespace rhi
         }
 
         /** @brief Use the `As()` function to cast the type to the appropriate concrete RHI handle type */
-        template<typename T>
-        constexpr T As() const noexcept
+        template<typename U>
+        [[nodiscard]] constexpr U As() const noexcept
         {
-            static_assert(sizeof(T) == sizeof(uint64_t), "Size of destination type in As<T>() must be 64 bits");
-            if constexpr (std::is_same_v<T, uint64_t>)
+            static_assert(sizeof(U) == sizeof(uint64_t), "Size of destination type in As<T>() must be 64 bits");
+            if constexpr (std::is_same_v<U, uint64_t>)
             {
                 return handle;
             }
             else
             {
-                return reinterpret_cast<T>(handle);
+                return reinterpret_cast<U>(handle);
             }
         }
 
@@ -99,7 +92,7 @@ namespace rhi
             return handle != 0u;
         }
 
-        constexpr bool IsValid() const noexcept
+        [[nodiscard]] constexpr bool IsValid() const noexcept
         {
             return handle != 0u;
         }

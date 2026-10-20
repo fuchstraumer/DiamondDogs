@@ -52,12 +52,11 @@ CasData128 atomic128::exchange(const CasData128 value) noexcept
 
 bool atomic128::compare_exchange_strong(CasData128& expected, CasData128 desired, const std::memory_order order /*= std::memory_order_seq_cst*/) noexcept
 {
-    CasData128 desiredCopy{ desired };
     CasData128 expectedTemp{ expected };
     unsigned char result = _InterlockedCompareExchange128(
         AtomicAddressAs<long long>(data.low),
-        desiredCopy.high,
-        desiredCopy.low,
+        desired.high,
+        desired.low,
         reinterpret_cast<long long*>(&expectedTemp.low));
 
     if (result == 0)

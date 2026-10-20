@@ -71,7 +71,7 @@ void ImGuiModule::BeginFrame()
     ImGui::NewFrame();
 }
 
-void ImGuiModule::Render(rhi::CommandBufferHandle cmd)
+void ImGuiModule::Render(const rhi::CommandBufferHandle& cmd)
 {
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd.As<VkCommandBuffer>());

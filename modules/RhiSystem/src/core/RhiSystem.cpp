@@ -1,19 +1,28 @@
 #include "RhiSystem.hpp"
-
+#include "DebugUtilFns.hpp"
 #include "Device.hpp"
 #include "ExtensionPack.hpp"
-#include "ExtensionWrangler.hpp"
 #include "Instance.hpp"
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
+#include <stdexcept>
+#include <string>
 #include <thread> // for std::this_thread::get_id() for debug info
-#include <chrono>
 #include <format>
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <filesystem>
-#include <vulkan/vk_enum_string_helper.h>
+
+#include "RhiFlags.hpp"
 #include "nlohmann/json.hpp"
+#include "vulkan/vk_platform.h"
+#include "vulkan/vulkan_core.h"
+#include <vulkan/vk_enum_string_helper.h>
 
 namespace
 {
@@ -21,100 +30,31 @@ namespace
                                                                VkDebugUtilsMessageTypeFlagBitsEXT message_type,
                                                                const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
                                                                void* user_data);
-    void SplitVersionString(std::string version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version);
-    void GetVersions(const nlohmann::json& json_file, uint32_t& app_version, uint32_t& engine_version, uint32_t& api_version); 
+    void SplitVersionString(const std::string& version_string,
+                            uint32_t& major_version,
+                            uint32_t& minor_version,
+                            uint32_t& patch_version);
+    void GetVersions(const nlohmann::json& json_file,
+                     uint32_t& app_version,
+                     uint32_t& engine_version,
+                     uint32_t& api_version);
+    rhi::ApiVersion ApiVersionFromString(const std::string& version_string);
+    rhi::ApiVersion ApiVersionFromUint32(const uint32_t version);
+    rhi::ValidationLayers ValidationLayersFromString(const std::string& layer_string);
 }
 
 namespace rhi
 {
-
-    static bool k_ValidationEnabled{ false };
     // static instance of object name function, so that we can use it for static debug callbacks
-    static PFN_vkSetDebugUtilsObjectNameEXT k_SSetObjectNameFn{ nullptr };
+    static PFN_vkSetDebugUtilsObjectNameEXT k_SetObjectNameFn{ nullptr };
     // set by first context to create, currently because we assume we'll only have one context
-    static VkDevice k_SDebugLogicalDeviceHandle{ VK_NULL_HANDLE };
+    static VkDevice k_DebugLogicalDeviceHandle{ VK_NULL_HANDLE };
 
     #ifdef _WIN32
     constexpr const char* k_SurfaceExtensionName = "VK_KHR_win32_surface";
-    #elif defined(__linux__)
-    constexpr const char* SurfaceExtensionName = "VK_KHR_xcb_surface";
+    #elifdef __linux__
+    constexpr const char* k_SurfaceExtensionName = "VK_KHR_xcb_surface";
     #endif
-
-    ApiVersion ApiVersionFromString(const std::string& version_string)
-    {
-        if (version_string == "1.0" || version_string == "Vulkan10")
-        {
-            return ApiVersion::Vulkan10;
-        }
-        else if (version_string == "1.1" || version_string == "Vulkan11")
-        {
-            return ApiVersion::Vulkan11;
-        }
-        else if (version_string == "1.2" || version_string == "Vulkan12")
-        {
-            return ApiVersion::Vulkan12;
-        }
-        else if (version_string == "1.3" || version_string == "Vulkan13")
-        {
-            return ApiVersion::Vulkan13;
-        }
-        else if (version_string == "1.4" || version_string == "Vulkan14")
-        {
-            return ApiVersion::Vulkan14;
-        }
-        else if (version_string == "Latest" || version_string == "latest")
-        {
-            return ApiVersion::Latest;
-        }
-        else
-        {
-            throw std::runtime_error("Unknown Vulkan API version string: " + version_string);
-        }
-    }
-
-    ApiVersion ApiVersionFromUint32(const uint32_t version)
-    {
-        switch (version)
-        {
-            case VK_API_VERSION_1_0:
-                return ApiVersion::Vulkan10;
-            case VK_API_VERSION_1_1:
-                return ApiVersion::Vulkan11;
-            case VK_API_VERSION_1_2:
-                return ApiVersion::Vulkan12;
-            case VK_API_VERSION_1_3:
-                return ApiVersion::Vulkan13;
-            case VK_API_VERSION_1_4:
-                return ApiVersion::Vulkan14;
-            default:
-                return ApiVersion::Latest;
-        }
-    }
-
-    ValidationLayers ValidationLayersFromString(const std::string& layer_string)
-    {
-        if (layer_string == "None" || layer_string == "none")
-        {
-            return ValidationLayers::None;
-        }
-        else if (layer_string == "Base" || layer_string == "base")
-        {
-            return ValidationLayers::BaseOnly;
-        }
-        else if (layer_string == "Synchronization" || layer_string == "synchronization")
-        {
-            return ValidationLayers::WithSynchronization;
-        }
-        else if (layer_string == "All" || layer_string == "all")
-        {
-            return ValidationLayers::Full;
-        }
-        else
-        {
-            std::cerr << std::format("Unknown validation layers string: {}, defaulting to no validation layers.\n", layer_string);
-            return ValidationLayers::None;
-        }
-    }
 
     RhiSystem::RhiSystem(const char* file_path)
     {
@@ -173,16 +113,18 @@ namespace rhi
             createDebugUtilsMessenger();
         }
 
-        std::filesystem::path shaderCacheDir = std::filesystem::temp_directory_path() / "DiamondDogs" / "ShaderCache";
+        std::filesystem::path shaderCachePath = std::filesystem::temp_directory_path() / "DiamondDogs" / "ShaderCache";
         if (rhiConfig.contains("ShaderCacheDir"))
         {
-            shaderCacheDir = rhiConfig.at("ShaderCacheDir").get<std::string>();
-            if (!std::filesystem::exists(shaderCacheDir))
+            shaderCachePath = rhiConfig.at("ShaderCacheDir").get<std::string>();
+            if (!std::filesystem::exists(shaderCachePath))
             {
-                std::filesystem::create_directories(shaderCacheDir);
+                std::filesystem::create_directories(shaderCachePath);
             }
-            shaderCacheDir = std::filesystem::absolute(shaderCacheDir);
+            shaderCachePath = std::filesystem::absolute(shaderCachePath);
         }
+
+        shaderCacheDir = shaderCachePath.string();
         
     }
 
@@ -191,12 +133,12 @@ namespace rhi
     {
         extensionPack = std::make_unique<ExtensionPack>(create_info.VkVersion);
 
-        if (create_info.RequiredInstanceExtensions.size() > 0)
+        if (!create_info.RequiredInstanceExtensions.empty())
         {
             extensionPack->AddRequiredInstanceExtensions(create_info.RequiredInstanceExtensions);
         }
 
-        if (create_info.RequestedInstanceExtensions.size() > 0)
+        if (!create_info.RequestedInstanceExtensions.empty())
         {
             extensionPack->AddOptionalInstanceExtensions(create_info.RequestedInstanceExtensions);
         }
@@ -205,12 +147,12 @@ namespace rhi
 
         createInstance(create_info);
 
-        if (create_info.RequiredDeviceExtensions.size() > 0)
+        if (!create_info.RequiredDeviceExtensions.empty())
         {
             extensionPack->AddRequiredDeviceExtensions(create_info.RequiredDeviceExtensions);
         }
 
-        if (create_info.RequestedDeviceExtensions.size() > 0)
+        if (!create_info.RequestedDeviceExtensions.empty())
         {
             extensionPack->AddOptionalDeviceExtensions(create_info.RequestedDeviceExtensions);
         }
@@ -241,9 +183,9 @@ namespace rhi
         if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
         {
             VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
-            if (DebugUtilsMessenger != VK_NULL_HANDLE && debugUtilsFns.vkDestroyDebugUtilsMessenger)
+            if (debugUtilsMessenger != VK_NULL_HANDLE && (debugUtilsFns.vkDestroyDebugUtilsMessenger != nullptr))
             {
-                debugUtilsFns.vkDestroyDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), DebugUtilsMessenger, nullptr);
+                debugUtilsFns.vkDestroyDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), debugUtilsMessenger, nullptr);
             }
         }
         logicalDevice.reset();
@@ -271,7 +213,7 @@ namespace rhi
         if constexpr (RHI_SYSTEM_VALIDATION_ENABLED && RHI_SYSTEM_USE_DEBUG_INFO)
         {
 
-            if (!k_SSetObjectNameFn)
+            if (!k_SetObjectNameFn)
             {
                 // unlikely we'll introspect on this, but this error value is the only one that makes sense
                 return VK_ERROR_FEATURE_NOT_PRESENT;
@@ -297,7 +239,7 @@ namespace rhi
                     objectNameStr.c_str()
                 };
 
-                return k_SSetObjectNameFn(k_SDebugLogicalDeviceHandle, &nameInfo);
+                return k_SetObjectNameFn(k_DebugLogicalDeviceHandle, &nameInfo);
             }
             else
             {
@@ -309,7 +251,7 @@ namespace rhi
                     handle,
                     name
                 };
-                return k_SSetObjectNameFn(k_SDebugLogicalDeviceHandle, &nameInfo);
+                return k_SetObjectNameFn(k_DebugLogicalDeviceHandle, &nameInfo);
             }
         }
         else
@@ -336,11 +278,11 @@ namespace rhi
         const bool needsPresentationSupport = rhi_config.value("NeedsPresentationSupport", false); // this is a required value
         if (needsPresentationSupport)
         {
-            const bool hasSurfaceExt = std::find(requiredInstanceExts.begin(), requiredInstanceExts.end(), k_SurfaceExtensionName) != requiredInstanceExts.end();
+            const bool hasSurfaceExt = std::ranges::contains(requiredInstanceExts, k_SurfaceExtensionName);
             if (!hasSurfaceExt)
             {
                 // user didn't include the extensions, so add them
-                requiredInstanceExts.push_back(k_SurfaceExtensionName);
+                requiredInstanceExts.emplace_back(k_SurfaceExtensionName);
             }
         }
 
@@ -412,10 +354,10 @@ namespace rhi
         }
 
 
-        const bool hasSwapchainExt = std::find(requiredDeviceExts.begin(), requiredDeviceExts.end(), "VK_KHR_swapchain") != requiredDeviceExts.end();
+        const bool hasSwapchainExt = std::ranges::contains(requiredDeviceExts, "VK_KHR_swapchain");
         if (!hasSwapchainExt && rhi_config.value("NeedsPresentationSupport", false))
         {
-            requiredDeviceExts.push_back("VK_KHR_swapchain");
+            requiredDeviceExts.emplace_back("VK_KHR_swapchain");
             // if we are enabling presentation support, we should also do a "horizontal" query of sorts to see if we're requesting HDR
             // if we are, we should also enable the HDR extension. we need to use the "allConfig" because rhiConfig doesn't store surface/platform config data
             const bool hasPlatformConfig = all_config.contains("PlatformSystemConfig");
@@ -426,7 +368,7 @@ namespace rhi
                 const bool wantsHDR = platformConfig.value("EnableHDR", false);
                 if (wantsHDR)
                 {
-                    const bool hasHDRExt = std::find(requiredDeviceExts.begin(), requiredDeviceExts.end(), VK_EXT_HDR_METADATA_EXTENSION_NAME) != requiredDeviceExts.end();
+                    const bool hasHDRExt = std::ranges::contains(requiredDeviceExts, VK_EXT_HDR_METADATA_EXTENSION_NAME);
                     if (!hasHDRExt)
                     {
                         // put this in requested, because it's not critical we have it but it is really nice to have! (and builds on the required swapchain ext)
@@ -459,8 +401,8 @@ namespace rhi
         if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
         {
             VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
-            k_SSetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
-            k_SDebugLogicalDeviceHandle = logicalDevice->Handle().As<VkDevice>();
+            k_SetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
+            k_DebugLogicalDeviceHandle = logicalDevice->Handle().As<VkDevice>();
 
             const VkDebugUtilsMessengerCreateInfoEXT messengerInfo
             {
@@ -474,13 +416,13 @@ namespace rhi
                 nullptr
             };
 
-            if (!debugUtilsFns.vkCreateDebugUtilsMessenger)
+            if (debugUtilsFns.vkCreateDebugUtilsMessenger == nullptr)
             {
                 std::cerr << "Debug utils function pointers struct doesn't have function pointer for debug utils messenger creation!\n";
                 throw std::runtime_error("Failed to create debug utils messenger: function pointer not loaded!");
             }
 
-            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), &messengerInfo, nullptr, &DebugUtilsMessenger);
+            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), &messengerInfo, nullptr, &debugUtilsMessenger);
             if (result != VK_SUCCESS)
             {
                 throw std::runtime_error("Failed to create debug utils messenger.");
@@ -525,11 +467,11 @@ namespace
         
         if (callback_data->objectCount != 0u)
         {
-            auto& pObjects = callback_data->pObjects;
+            const auto& pObjects = callback_data->pObjects;
             outputMessage += "    Object(s) involved: \n";
             for (uint32_t i = 0; i < callback_data->objectCount; ++i)
             {
-                if (pObjects[i].pObjectName)
+                if (pObjects[i].pObjectName != nullptr)
                 {
                     outputMessage += std::format("        ObjectName: {}\n", pObjects[i].pObjectName);
                 }
@@ -542,15 +484,15 @@ namespace
             }
         }
 
-        if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+        if ((message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0)
         {
             std::cerr << outputMessage << "\n";
         }
-        else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+        else if ((message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0)
         {
             std::cerr << outputMessage << "\n";
         }
-        else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT)
+        else if ((message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) != 0)
         {
             std::cout << outputMessage << "\n";
         }
@@ -558,7 +500,7 @@ namespace
         return VK_FALSE;
     }
 
-    void SplitVersionString(std::string version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version)
+    void SplitVersionString(const std::string& version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version)
     {
         const size_t minorDotPos = version_string.find('.');
         const size_t patchDotPos = version_string.rfind('.');
@@ -643,6 +585,85 @@ namespace
         else
         {
             vkEnumerateInstanceVersion(&api_version);
+        }
+    }
+
+    rhi::ApiVersion ApiVersionFromString(const std::string& version_string)
+    {
+        using namespace rhi;
+        if (version_string == "1.0" || version_string == "Vulkan10")
+        {
+            return ApiVersion::Vulkan10;
+        }
+        else if (version_string == "1.1" || version_string == "Vulkan11")
+        {
+            return ApiVersion::Vulkan11;
+        }
+        else if (version_string == "1.2" || version_string == "Vulkan12")
+        {
+            return ApiVersion::Vulkan12;
+        }
+        else if (version_string == "1.3" || version_string == "Vulkan13")
+        {
+            return ApiVersion::Vulkan13;
+        }
+        else if (version_string == "1.4" || version_string == "Vulkan14")
+        {
+            return ApiVersion::Vulkan14;
+        }
+        else if (version_string == "Latest" || version_string == "latest")
+        {
+            return ApiVersion::Latest;
+        }
+        else
+        {
+            throw std::runtime_error("Unknown Vulkan API version string: " + version_string);
+        }
+    }
+
+    rhi::ApiVersion ApiVersionFromUint32(const uint32_t version)
+    {
+        using namespace rhi;
+        switch (version)
+        {
+            case VK_API_VERSION_1_0:
+                return ApiVersion::Vulkan10;
+            case VK_API_VERSION_1_1:
+                return ApiVersion::Vulkan11;
+            case VK_API_VERSION_1_2:
+                return ApiVersion::Vulkan12;
+            case VK_API_VERSION_1_3:
+                return ApiVersion::Vulkan13;
+            case VK_API_VERSION_1_4:
+                return ApiVersion::Vulkan14;
+            default:
+                return ApiVersion::Latest;
+        }
+    }
+
+    rhi::ValidationLayers ValidationLayersFromString(const std::string& layer_string)
+    {
+        using namespace rhi;
+        if (layer_string == "None" || layer_string == "none")
+        {
+            return ValidationLayers::None;
+        }
+        else if (layer_string == "Base" || layer_string == "base")
+        {
+            return ValidationLayers::BaseOnly;
+        }
+        else if (layer_string == "Synchronization" || layer_string == "synchronization")
+        {
+            return ValidationLayers::WithSynchronization;
+        }
+        else if (layer_string == "All" || layer_string == "all")
+        {
+            return ValidationLayers::Full;
+        }
+        else
+        {
+            std::cerr << std::format("Unknown validation layers string: {}, defaulting to no validation layers.\n", layer_string);
+            return ValidationLayers::None;
         }
     }
 

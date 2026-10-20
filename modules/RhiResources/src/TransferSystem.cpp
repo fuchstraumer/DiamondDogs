@@ -277,7 +277,7 @@ void ResourceTransferSystem::processRemainingAndWait()
 
     for (InflightCommandBatch& batch : inflightCommandBatches)
     {
-        batch.Fence->Wait();
+        [[maybe_unused]] bool waitResult = batch.Fence->Wait();
         for (TransferCommand& command : batch.Commands)
         {
             [[maybe_unused]] MessageReply::Status status = command.WaitForCompletion(std::numeric_limits<uint64_t>::max());

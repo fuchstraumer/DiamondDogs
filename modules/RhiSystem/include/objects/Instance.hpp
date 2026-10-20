@@ -1,10 +1,11 @@
 #pragma once
 #ifndef RHI_SYSTEM_INSTANCE_HPP
 #define RHI_SYSTEM_INSTANCE_HPP
-#include "RhiTypes.hpp"
+#include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
-#include <memory>
+#include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 struct VkApplicationInfo;
@@ -13,7 +14,6 @@ namespace rhi
 {
 
     class ExtensionPack;
-
 
     class Instance 
     {
@@ -30,21 +30,23 @@ namespace rhi
         // No copy/move
         Instance(const Instance&) = delete;
         Instance& operator=(const Instance&) = delete;
+        Instance(Instance&&) = delete;
+        Instance& operator=(Instance&&) = delete;
         
         // Core access
-        InstanceHandle Handle() const noexcept;
+        [[nodiscard]] InstanceHandle Handle() const noexcept;
         
-        bool HasValidation() const noexcept;
-        ValidationLayers GetValidationLevel() const noexcept;
+        [[nodiscard]] bool HasValidation() const noexcept;
+        [[nodiscard]] ValidationLayers GetValidationLevel() const noexcept;
         
         // Extension queries
-        bool HasExtension(std::string_view extension_name) const noexcept;
-        const std::vector<std::string>& GetEnabledExtensions() const noexcept;
+        [[nodiscard]] bool HasExtension(std::string_view extension_name) const noexcept;
+        [[nodiscard]] const std::vector<std::string>& GetEnabledExtensions() const noexcept;
 
     private:
         void createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions);
         void setupValidation();
-        bool checkLayerSupport(const std::vector<const char*>& required_layers) const;
+        [[nodiscard]] bool checkLayerSupport(const std::vector<const char*>& required_layers) const;
         bool validationLayerHasExtension(const char* extension_name) const;
 
         InstanceHandle handle;

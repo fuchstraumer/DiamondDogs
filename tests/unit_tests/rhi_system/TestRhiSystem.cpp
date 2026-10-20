@@ -27,7 +27,7 @@ protected:
         }
     }
 
-    rhi::RhiSystemCreateInfo GetBaseCreateInfo()
+    rhi::RhiSystemCreateInfo getBaseCreateInfo()
     {
         rhi::RhiSystemCreateInfo createInfo{};
         createInfo.ApplicationName = "RhiSystemTest";
@@ -47,7 +47,7 @@ protected:
 // Test basic RHI system construction with CreateInfo
 TEST_F(RhiSystemTest, BasicCreateInfoConstruction)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     EXPECT_NO_THROW({
         auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
         EXPECT_NE(rhiSystem, nullptr);
@@ -72,7 +72,7 @@ TEST_F(RhiSystemTest, MinimalConfiguration)
 // Test Vulkan 1.0 API version, to see if we can still create an instance of this version
 TEST_F(RhiSystemTest, Vulkan10ApiVersion)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.VkVersion = rhi::ApiVersion::Vulkan10;
 
     EXPECT_NO_THROW({
@@ -85,7 +85,7 @@ TEST_F(RhiSystemTest, Vulkan10ApiVersion)
 // Test Vulkan 1.1 API version (another key version for use)
 TEST_F(RhiSystemTest, Vulkan11ApiVersion)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.VkVersion = rhi::ApiVersion::Vulkan11;
 
     EXPECT_NO_THROW({
@@ -97,7 +97,7 @@ TEST_F(RhiSystemTest, Vulkan11ApiVersion)
 
 // Test Latest API version
 TEST_F(RhiSystemTest, LatestApiVersion) {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.VkVersion = rhi::ApiVersion::Latest;
 
     EXPECT_NO_THROW({
@@ -120,7 +120,7 @@ TEST_F(RhiSystemTest, ValidationLayers)
 
     for (const auto& level : validationLevels)
     {
-        auto createInfo = GetBaseCreateInfo();
+        auto createInfo = getBaseCreateInfo();
         createInfo.ValidationLevel = level;
 
         EXPECT_NO_THROW({
@@ -142,7 +142,7 @@ TEST_F(RhiSystemTest, WithDeviceExtensions)
         "VK_KHR_get_memory_requirements2",
     };
 
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.RequestedDeviceExtensions = deviceExtensionNames;
     createInfo.ShaderCacheDir = tempShaderCacheDir.string();
 
@@ -182,7 +182,7 @@ TEST_F(RhiSystemTest, ObjectNaming)
 // Test optional instance extensions
 TEST_F(RhiSystemTest, OptionalInstanceExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     std::vector<std::string> optionalExtensions
     {
         "VK_EXT_validation_features",  // May or may not be available
@@ -205,7 +205,7 @@ TEST_F(RhiSystemTest, OptionalInstanceExtensions)
 // Test optional device extensions
 TEST_F(RhiSystemTest, OptionalDeviceExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
     createInfo.RequiredDeviceExtensions = { "VK_KHR_maintenance1" };
     createInfo.RequestedDeviceExtensions = {
@@ -230,7 +230,7 @@ TEST_F(RhiSystemTest, OptionalDeviceExtensions)
 // Test mixing required and optional extensions
 TEST_F(RhiSystemTest, MixedExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     
     // Instance extensions
     createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
@@ -259,7 +259,7 @@ TEST_F(RhiSystemTest, MixedExtensions)
 // Test presentation support extensions (platform specific)
 TEST_F(RhiSystemTest, PresentationExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.RequiredInstanceExtensions =
     {
         "VK_EXT_debug_utils",
@@ -291,7 +291,7 @@ TEST_F(RhiSystemTest, PresentationExtensions)
 // Test empty extension lists (should still work)
 TEST_F(RhiSystemTest, NoExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.ValidationLevel = rhi::ValidationLayers::None;
     // Leave all extension vectors empty
 
@@ -306,7 +306,7 @@ TEST_F(RhiSystemTest, NoExtensions)
 // Test Vulkan 1.3+ specific extensions
 TEST_F(RhiSystemTest, Vulkan13Extensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.VkVersion = rhi::ApiVersion::Vulkan13;
     createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
     
@@ -329,7 +329,7 @@ TEST_F(RhiSystemTest, Vulkan13Extensions)
 // Test handling of potentially unsupported extensions
 TEST_F(RhiSystemTest, UnsupportedOptionalExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
     
     // Add some extensions that might not be supported everywhere

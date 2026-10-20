@@ -84,6 +84,8 @@ namespace rhi
         ~ShaderLibrary();
         ShaderLibrary(const ShaderLibrary&) = delete;
         ShaderLibrary& operator=(const ShaderLibrary&) = delete;
+        ShaderLibrary(ShaderLibrary&& other) noexcept = default;
+        ShaderLibrary& operator=(ShaderLibrary&& other) noexcept = default;
 
         /** @brief Reads the bundle at `manifest_path` and validates it. */
         [[nodiscard]] static ShaderLibraryResult<std::unique_ptr<ShaderLibrary>> Open(
@@ -97,7 +99,7 @@ namespace rhi
         /** @brief Builds a program from the named entry points of one variant. The layouts are merged across the
          *  entry points, so a resource that two stages read appears once with both stage bits. */
         [[nodiscard]] ShaderLibraryResult<std::unique_ptr<ManifestProgram>> CreateProgram(
-            DeviceHandle device,
+            const DeviceHandle& device,
             std::string_view module_name,
             lodestone::VariantKey variant,
             std::span<const std::string_view> entry_points) const;

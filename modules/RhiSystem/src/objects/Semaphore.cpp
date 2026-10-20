@@ -1,12 +1,15 @@
 #include "Semaphore.hpp"
-#include "Device.hpp"
-#include <vulkan/vulkan_core.h>
+#include "RhiHandle.hpp"
+#include "RhiResult.hpp"
 #include <cassert>
+#include <cstdint>
+#include <utility>
+#include <vulkan/vulkan_core.h>
 
 namespace rhi
 {
 #ifdef RHI_SYSTEM_USE_VULKAN
-    BinarySemaphore::BinarySemaphore(DeviceHandle device) 
+    BinarySemaphore::BinarySemaphore(const DeviceHandle& device) 
         : device{ device }, handle{ BinarySemaphoreHandle{0} }
     {
         VkSemaphoreCreateInfo createInfo{};
@@ -57,7 +60,7 @@ namespace rhi
         return handle;
     }
 
-    TimelineSemaphore::TimelineSemaphore(DeviceHandle device) 
+    TimelineSemaphore::TimelineSemaphore(const DeviceHandle& device) 
         : device{ device }, handle{ TimelineSemaphoreHandle{0} }, currentValue{ 0u }
     {
         VkSemaphoreTypeCreateInfo timelineCreateInfo{};
@@ -152,13 +155,13 @@ namespace rhi
         }
     }
 
-    Result TimelineSemaphore::Increment(uint64_t new_value) noexcept
+    Result TimelineSemaphore::Increment(uint64_t amount) noexcept
     {
-        const uint64_t newValue = currentValue + 1;
+        const uint64_t newValue = currentValue + amount;
         Result result = SetValue(newValue);
         if (result.IsSuccess())
         {
-            new_value = newValue;
+            currentValue = newValue;
             return Result::Success();
         }
         else

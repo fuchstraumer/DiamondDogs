@@ -17,14 +17,14 @@ namespace rhi
      */
     struct CommandBuffer
     {
-        CommandBuffer(CommandBufferHandle handle) noexcept;
+        CommandBuffer(const CommandBufferHandle& handle) noexcept;
         ~CommandBuffer();
         CommandBuffer(const CommandBuffer&) = delete;
         CommandBuffer& operator=(const CommandBuffer&) = delete;
         CommandBuffer(CommandBuffer&& other) noexcept;
         CommandBuffer& operator=(CommandBuffer&& other) noexcept;
 
-        CommandBufferHandle Handle() const noexcept;
+        [[nodiscard]] CommandBufferHandle Handle() const noexcept;
         Result Begin() noexcept;
         Result End() noexcept;
 

@@ -371,7 +371,7 @@ void PlatformSystemImpl::WaitForEvents()
     glfwWaitEvents();
 }
 
-void PlatformSystemImpl::AddCursorPosEventListener(CursorPosEvent listener, void* user_data)
+void PlatformSystemImpl::AddCursorPosEventListener(const CursorPosEvent& listener, void* user_data)
 {
     Callbacks->CursorPosEvents.push_back(listener);
     if (user_data != nullptr)
@@ -380,7 +380,7 @@ void PlatformSystemImpl::AddCursorPosEventListener(CursorPosEvent listener, void
     }
 }
 
-void PlatformSystemImpl::AddCursorEnterEventListener(CursorEnterEvent listener, void* user_data)
+void PlatformSystemImpl::AddCursorEnterEventListener(const CursorEnterEvent& listener, void* user_data)
 {
     Callbacks->CursorEnterEvents.push_back(listener);
     if (user_data != nullptr)
@@ -389,7 +389,7 @@ void PlatformSystemImpl::AddCursorEnterEventListener(CursorEnterEvent listener, 
     }
 }
 
-void PlatformSystemImpl::AddScrollEventListener(ScrollEvent listener, void* user_data)
+void PlatformSystemImpl::AddScrollEventListener(const ScrollEvent& listener, void* user_data)
 {
     Callbacks->ScrollEvents.push_back(listener);
     if (user_data != nullptr)
@@ -398,7 +398,7 @@ void PlatformSystemImpl::AddScrollEventListener(ScrollEvent listener, void* user
     }
 }
 
-void PlatformSystemImpl::AddCharEventListener(CharEvent listener, void* user_data)
+void PlatformSystemImpl::AddCharEventListener(const CharEvent& listener, void* user_data)
 {
     Callbacks->CharEvents.push_back(listener);
     if (user_data != nullptr)
@@ -407,7 +407,7 @@ void PlatformSystemImpl::AddCharEventListener(CharEvent listener, void* user_dat
     }
 }
 
-void PlatformSystemImpl::AddPathDropEventListener(PathDropEvent listener, void* user_data)
+void PlatformSystemImpl::AddPathDropEventListener(const PathDropEvent& listener, void* user_data)
 {
     Callbacks->PathDropEvents.push_back(listener);
     if (user_data != nullptr)
@@ -416,7 +416,7 @@ void PlatformSystemImpl::AddPathDropEventListener(PathDropEvent listener, void* 
     }
 }
 
-void PlatformSystemImpl::AddMouseButtonEventListener(MouseButtonEvent listener, void* user_data)
+void PlatformSystemImpl::AddMouseButtonEventListener(const MouseButtonEvent& listener, void* user_data)
 {
     Callbacks->MouseButtonEvents.push_back(listener);
     if (user_data != nullptr)
@@ -425,7 +425,7 @@ void PlatformSystemImpl::AddMouseButtonEventListener(MouseButtonEvent listener, 
     }
 }
 
-void PlatformSystemImpl::AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* user_data)
+void PlatformSystemImpl::AddKeyboardKeyEventListener(const KeyboardKeyEvent& listener, void* user_data)
 {
     Callbacks->KeyboardKeyEvents.push_back(listener);
     if (user_data != nullptr)
@@ -434,7 +434,7 @@ void PlatformSystemImpl::AddKeyboardKeyEventListener(KeyboardKeyEvent listener, 
     }
 }
 
-void PlatformSystemImpl::AddShouldResizeEventListener(ShouldResizeEvent listener, void* user_data)
+void PlatformSystemImpl::AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data)
 {
     Callbacks->ShouldResizeEvents.push_back(listener);
     if (user_data != nullptr)
@@ -443,7 +443,7 @@ void PlatformSystemImpl::AddShouldResizeEventListener(ShouldResizeEvent listener
     }
 }
 
-void PlatformSystemImpl::AddShouldCloseEventListener(ShouldCloseEvent listener, void* user_data)
+void PlatformSystemImpl::AddShouldCloseEventListener(const ShouldCloseEvent& listener, void* user_data)
 {
     Callbacks->ShouldCloseEvents.push_back(listener);
     if (user_data != nullptr)

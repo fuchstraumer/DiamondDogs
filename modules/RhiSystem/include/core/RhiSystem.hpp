@@ -1,11 +1,11 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RHI_SYSTEM_HPP
 #define DIAMOND_DOGS_RHI_SYSTEM_HPP
-#include "RhiTypes.hpp"
+#include "RhiFlags.hpp"
+#include <cstdint>
 #include <memory>
-#include <vector>
 #include <string>
-#include <functional>
+#include <vector>
 #include <vulkan/vulkan_core.h>
 #include <nlohmann/json_fwd.hpp>
 
@@ -72,37 +72,37 @@ struct RhiSystemCreateInfo
 
 class RhiSystem
 {
-    RhiSystem(const RhiSystem&) = delete;
-    RhiSystem& operator=(const RhiSystem&) = delete;
 public:
 
     RhiSystem(const char* cfg_file_path);
     RhiSystem(const RhiSystemCreateInfo& create_info);
     ~RhiSystem();
+    RhiSystem(const RhiSystem&) = delete;
+    RhiSystem& operator=(const RhiSystem&) = delete;
 
     void Update();
     void Destroy();
 
-    Instance* GetInstance() noexcept;
-    Device* GetDevice() noexcept;
-    uint32_t GetVulkanApiVersion() const noexcept;
+    [[nodiscard]] Instance* GetInstance() noexcept;
+    [[nodiscard]] Device* GetDevice() noexcept;
+    [[nodiscard]] uint32_t GetVulkanApiVersion() const noexcept;
 
     static VkResult SetObjectName(VkObjectType object_type, uint64_t handle, const char* name);
 
 private:
 
     void gatherAndResolveInstanceExtensions(const nlohmann::json& json_file);
-    void createInstance(const nlohmann::json& rhiConfig, const nlohmann::json& engineConfig);
-    void createInstance(const RhiSystemCreateInfo& createInfo);
+    void createInstance(const nlohmann::json& rhi_config, const nlohmann::json& engine_config);
+    void createInstance(const RhiSystemCreateInfo& create_info);
     void createDebugUtilsMessenger();
-    void gatherDeviceExtensions(const nlohmann::json& allConfig, const nlohmann::json& rhiConfig);
+    void gatherDeviceExtensions(const nlohmann::json& all_config, const nlohmann::json& rhi_config);
     void createLogicalDevice();
 
     std::unique_ptr<Instance> vulkanInstance;
     std::unique_ptr<Device> logicalDevice;
     std::unique_ptr<ExtensionPack> extensionPack;
     std::string shaderCacheDir;
-    VkDebugUtilsMessengerEXT DebugUtilsMessenger{ VK_NULL_HANDLE };
+    VkDebugUtilsMessengerEXT debugUtilsMessenger{ VK_NULL_HANDLE };
 
 };
 

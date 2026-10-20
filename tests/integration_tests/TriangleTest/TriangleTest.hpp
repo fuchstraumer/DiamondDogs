@@ -17,7 +17,7 @@ class VulkanTriangle : public VulkanScene
 {
 public:
 
-    VulkanTriangle(rhi::RhiSystem* rhiSystem, PlatformWindowSystem* platformSystem);
+    VulkanTriangle(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platform_system);
     ~VulkanTriangle();
 
     void Initialize(void* user_data) final;
@@ -41,13 +41,13 @@ protected:
     void setupDepthStencil();
     void destroyDepthStencil();
 
-    void setInputStates(rhi::CommandBufferHandle cmdBuffer);
-    void setRasterizationAndSampleStates(rhi::CommandBufferHandle cmdBuffer);
-    void setColorBlendStates(rhi::CommandBufferHandle cmdBuffer);
-    void setDepthStencilStates(rhi::CommandBufferHandle cmdBuffer);
+    void setInputStates(const rhi::CommandBufferHandle& cmd_buffer);
+    void setRasterizationAndSampleStates(const rhi::CommandBufferHandle& cmd_buffer);
+    void setColorBlendStates(const rhi::CommandBufferHandle& cmd_buffer);
+    void setDepthStencilStates(const rhi::CommandBufferHandle& cmd_buffer);
 
-    void bindPipeline(rhi::CommandBufferHandle cmdBuffer);
-    void bindGeometryBuffers(rhi::CommandBufferHandle cmdBuffer);
+    void bindPipeline(const rhi::CommandBufferHandle& cmd_buffer);
+    void bindGeometryBuffers(const rhi::CommandBufferHandle& cmd_buffer);
 
     struct Vertex
     {
