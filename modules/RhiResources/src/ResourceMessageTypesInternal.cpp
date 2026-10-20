@@ -1,12 +1,13 @@
 #include "ResourceMessageTypesInternal.hpp"
+#include <cstring>
 
 
 InternalResourceDataContainer::BufferData::BufferData(const RhiBufferResourceData& _data) :
-    data{ std::make_unique<std::byte[]>(_data.DataSize) },
-    size{ _data.DataSize },
+    data{ std::make_unique<std::byte[]>(_data.Data.size()) },
+    size{ _data.Data.size() },
     alignment{ _data.DataAlignment }
 {
-    std::memcpy(data.get(), _data.Data, _data.DataSize);
+    std::memcpy(data.get(), _data.Data.data(), _data.Data.size());
 }
 
 InternalResourceDataContainer::BufferData::BufferData(BufferData&& other) noexcept :
@@ -31,14 +32,15 @@ InternalResourceDataContainer::InternalResourceDataContainer::BufferData& Intern
 }
 
 InternalResourceDataContainer::ImageData::ImageData(const RhiImageResourceData& _data) :
-    data{ std::make_unique<std::byte[]>(_data.DataSize) },
-    size{ _data.DataSize },
+    data{ std::make_unique<std::byte[]>(_data.Data.size()) },
+    size{ _data.Data.size() },
     width{ _data.Width },
     height{ _data.Height },
     arrayLayer{ _data.ArrayLayer },
+    numLayers{ _data.NumLayers },
     mipLevel{ _data.MipLevel }
 {
-    std::memcpy(data.get(), _data.Data, _data.DataSize);
+    std::memcpy(data.get(), _data.Data.data(), _data.Data.size());
 }
 
 InternalResourceDataContainer::ImageData::ImageData(ImageData&& other) noexcept :
@@ -47,6 +49,7 @@ InternalResourceDataContainer::ImageData::ImageData(ImageData&& other) noexcept 
     width{ other.width },
     height{ other.height },
     arrayLayer{ other.arrayLayer },
+    numLayers{ other.numLayers },
     mipLevel{ other.mipLevel }
 {}
 
@@ -56,6 +59,7 @@ InternalResourceDataContainer::ImageData::ImageData() noexcept :
     width{ 0 },
     height{ 0 },
     arrayLayer{ 0 },
+    numLayers{ 1 },
     mipLevel{ 0 }
 {}
 
@@ -70,6 +74,7 @@ InternalResourceDataContainer::InternalResourceDataContainer::ImageData& Interna
     width = other.width;
     height = other.height;
     arrayLayer = other.arrayLayer;
+    numLayers = other.numLayers;
     mipLevel = other.mipLevel;
     return *this;
 }
@@ -78,22 +83,22 @@ InternalResourceDataContainer::InternalResourceDataContainer() noexcept :
     NumLayers{ std::nullopt }
 {}
 
-InternalResourceDataContainer::InternalResourceDataContainer(size_t numData, const RhiImageResourceData* data)
+InternalResourceDataContainer::InternalResourceDataContainer(std::span<const RhiImageResourceData> data)
 {
     NumLayers = data[0].NumLayers;
-    ImageDataVector image_data(numData);
-    for (size_t i = 0; i < numData; ++i)
+    ImageDataVector image_data(data.size());
+    for (size_t i = 0; i < data.size(); ++i)
     {
         image_data[i] = ImageData(data[i]);
     }
     DataVector = std::move(image_data);
 }
 
-InternalResourceDataContainer::InternalResourceDataContainer(size_t numData, const RhiBufferResourceData* data) :
+InternalResourceDataContainer::InternalResourceDataContainer(std::span<const RhiBufferResourceData> data) :
     NumLayers{ std::nullopt }
 {
-    BufferDataVector buffer_data(numData);
-    for (size_t i = 0; i < numData; ++i)
+    BufferDataVector buffer_data(data.size());
+    for (size_t i = 0; i < data.size(); ++i)
     {
         buffer_data[i] = BufferData(data[i]);
     }
@@ -106,14 +111,16 @@ SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, Interna
     reply{ std::move(reply) }
 {}
 
-SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, size_t numData, const RhiBufferResourceData* data) noexcept :
+SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, std::span<const RhiBufferResourceData> data) noexcept :
     destBuffer{ _destBuffer },
-    data{ InternalResourceDataContainer(numData, data) }
+    data{ InternalResourceDataContainer(data) }
 {}
 
+// fixed: the move constructors and assignments dropped the reply, so the reply that SetBufferData returned never completed
 SetBufferDataMessage::SetBufferDataMessage(SetBufferDataMessage&& other) noexcept :
     destBuffer{ other.destBuffer },
-    data{ std::move(other.data) }
+    data{ std::move(other.data) },
+    reply{ std::move(other.reply) }
 {}
 
 SetBufferDataMessage& SetBufferDataMessage::operator=(SetBufferDataMessage&& other) noexcept
@@ -122,18 +129,20 @@ SetBufferDataMessage& SetBufferDataMessage::operator=(SetBufferDataMessage&& oth
     {
         destBuffer = other.destBuffer;
         data = std::move(other.data);
+        reply = std::move(other.reply);
     }
     return *this;
 }
 
 SetImageDataMessage::SetImageDataMessage(SetImageDataMessage&& other) noexcept :
     destImage{ other.destImage },
-    data{ std::move(other.data) }
+    data{ std::move(other.data) },
+    reply{ std::move(other.reply) }
 {}
 
-SetImageDataMessage::SetImageDataMessage(GraphicsResource _destImage, size_t numData, const RhiImageResourceData* data) noexcept :
+SetImageDataMessage::SetImageDataMessage(GraphicsResource _destImage, std::span<const RhiImageResourceData> data) noexcept :
     destImage{ _destImage },
-    data{ InternalResourceDataContainer(numData, data) }
+    data{ InternalResourceDataContainer(data) }
 {}
 
 SetImageDataMessage::SetImageDataMessage(GraphicsResource _destImage, InternalResourceDataContainer&& _data, std::shared_ptr<ResourceTransferReply>&& reply) noexcept :
@@ -148,6 +157,7 @@ SetImageDataMessage& SetImageDataMessage::operator=(SetImageDataMessage&& other)
     {
         destImage = other.destImage;
         data = std::move(other.data);
+        reply = std::move(other.reply);
     }
     return *this;
 }

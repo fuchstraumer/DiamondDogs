@@ -1,20 +1,22 @@
 #pragma once
 #ifndef RESOURCE_MESSAGE_TYPES_INTERNAL_HPP
 #define RESOURCE_MESSAGE_TYPES_INTERNAL_HPP
-#include "ResourceTypes.hpp"
 #include "ResourceMessageReply.hpp"
-#include "CreateInfoWrappers.hpp"
-#include <vulkan/vulkan_core.h>
+#include "ResourceTypes.hpp"
+
+#include <cstddef>
+#include <cstdint>
 #include <memory>
-#include <variant>
 #include <optional>
+#include <span>
+#include <variant>
 #include <vector>
-#include <limits>
+#include <vulkan/vulkan_core.h>
 
 // Users still call functions with the old API on the surface, but we translate to these internal structures
 // so that we can place them in the message queue (type erased by being shoved in a variant, effectively)
 
-// Because users just provide pointers to raw data, we need to take a copy of the data so that exiting 
+// Because users just provide pointers to raw data, we need to take a copy of the data so that exiting
 // the function once they finish enqueuing the message doesn't invalidate the data right before we use it.
 // We'll free this as soon as it's uploaded to the GPU or a staging buffer
 struct InternalResourceDataContainer
@@ -56,58 +58,40 @@ struct InternalResourceDataContainer
         uint32_t width;
         uint32_t height;
         uint32_t arrayLayer;
+        uint32_t numLayers;
         uint32_t mipLevel;
     };
     using ImageDataVector = std::vector<ImageData>;
-    
+
     std::variant<BufferDataVector, ImageDataVector> DataVector;
     std::optional<uint32_t> NumLayers;
 
-    InternalResourceDataContainer(size_t numData, const RhiBufferResourceData* data);
+    InternalResourceDataContainer(std::span<const RhiBufferResourceData> data);
 
-    InternalResourceDataContainer(size_t numData, const RhiImageResourceData* data);
+    InternalResourceDataContainer(std::span<const RhiImageResourceData> data);
 
     InternalResourceDataContainer() noexcept;
 };
 
 struct CreateBufferMessage
 {
-    ResourceContextBufferCreateInfo bufferInfo;
-    std::optional<VkBufferViewCreateInfo> viewInfo = std::nullopt;
+    BufferCreateInfo bufferInfo;
     std::optional<InternalResourceDataContainer> initialData = std::nullopt;
-    resource_usage resourceUsage;
-    resource_creation_flags flags;
-    void* userData = nullptr;
     std::shared_ptr<GraphicsResourceReply> reply = nullptr;
 };
 
+// an image with a SamplerInfo becomes a CombinedImageSampler, which replaced
+// CreateCombinedImageSamplerMessage
 struct CreateImageMessage
 {
-    ResourceContextImageCreateInfo imageInfo;
-    std::optional<VkImageViewCreateInfo> viewInfo = std::nullopt;
+    ImageCreateInfo imageInfo;
     std::optional<InternalResourceDataContainer> initialData = std::nullopt;
-    resource_usage resourceUsage;
-    resource_creation_flags flags;
-    void* userData = nullptr;
-    std::shared_ptr<GraphicsResourceReply> reply = nullptr;
-};
-
-struct CreateCombinedImageSamplerMessage
-{
-    ResourceContextImageCreateInfo imageInfo;
-    VkImageViewCreateInfo viewInfo;
-    VkSamplerCreateInfo samplerInfo;
-    std::optional<InternalResourceDataContainer> initialData = std::nullopt;
-    resource_usage resourceUsage;
-    resource_creation_flags flags;
-    void* userData = nullptr;
     std::shared_ptr<GraphicsResourceReply> reply = nullptr;
 };
 
 struct CreateSamplerMessage
 {
-    VkSamplerCreateInfo samplerInfo;
-    resource_creation_flags flags;
+    SamplerCreateInfo samplerInfo;
     void* userData = nullptr;
     std::shared_ptr<GraphicsResourceReply> reply = nullptr;
 };
@@ -115,19 +99,15 @@ struct CreateSamplerMessage
 struct SetBufferDataMessage
 {
     SetBufferDataMessage() noexcept = default;
-    SetBufferDataMessage(
-        GraphicsResource _destBuffer,
-        size_t numData,
-        const RhiBufferResourceData* data) noexcept;
-    SetBufferDataMessage(
-        GraphicsResource _destBuffer,
-        InternalResourceDataContainer&& _data,
-        std::shared_ptr<ResourceTransferReply>&& reply) noexcept;
+    SetBufferDataMessage(GraphicsResource _destBuffer, std::span<const RhiBufferResourceData> data) noexcept;
+    SetBufferDataMessage(GraphicsResource _destBuffer,
+                         InternalResourceDataContainer&& _data,
+                         std::shared_ptr<ResourceTransferReply>&& reply) noexcept;
     SetBufferDataMessage(const SetBufferDataMessage&) = delete;
     SetBufferDataMessage& operator=(const SetBufferDataMessage&) = delete;
     SetBufferDataMessage(SetBufferDataMessage&& other) noexcept;
     SetBufferDataMessage& operator=(SetBufferDataMessage&& other) noexcept;
-    
+
     GraphicsResource destBuffer{ GraphicsResource::Null() };
     InternalResourceDataContainer data;
     std::shared_ptr<ResourceTransferReply> reply = nullptr;
@@ -136,20 +116,16 @@ struct SetBufferDataMessage
 struct SetImageDataMessage
 {
     SetImageDataMessage() noexcept = default;
-    SetImageDataMessage(
-        GraphicsResource _destImage,
-        size_t numData,
-        const RhiImageResourceData* data) noexcept;
+    SetImageDataMessage(GraphicsResource _destImage, std::span<const RhiImageResourceData> data) noexcept;
     // for use when transferring rest of work to the transfer system
-    SetImageDataMessage(
-        GraphicsResource _destImage,
-        InternalResourceDataContainer&& _data,
-        std::shared_ptr<ResourceTransferReply>&& reply) noexcept;
+    SetImageDataMessage(GraphicsResource _destImage,
+                        InternalResourceDataContainer&& _data,
+                        std::shared_ptr<ResourceTransferReply>&& reply) noexcept;
     SetImageDataMessage(const SetImageDataMessage&) = delete;
     SetImageDataMessage& operator=(const SetImageDataMessage&) = delete;
     SetImageDataMessage(SetImageDataMessage&& other) noexcept;
     SetImageDataMessage& operator=(SetImageDataMessage&& other) noexcept;
-    
+
     GraphicsResource destImage{ GraphicsResource::Null() };
     InternalResourceDataContainer data;
     std::shared_ptr<ResourceTransferReply> reply = nullptr;
@@ -201,37 +177,33 @@ struct DestroyResourceMessage
     std::shared_ptr<MessageReply> reply = nullptr;
 };
 
-using ResourceMessagePayloadType = std::variant<
-    CreateBufferMessage,
-    CreateImageMessage,
-    CreateCombinedImageSamplerMessage,
-    CreateSamplerMessage,
-    SetBufferDataMessage,
-    SetImageDataMessage,
-    FillResourceMessage,
-    MapResourceMessage,
-    UnmapResourceMessage,
-    CopyResourceMessage,
-    CopyResourceContentsMessage,
-    DestroyResourceMessage>;
+using ResourceMessagePayloadType = std::variant<CreateBufferMessage,
+                                                CreateImageMessage,
+                                                CreateSamplerMessage,
+                                                SetBufferDataMessage,
+                                                SetImageDataMessage,
+                                                FillResourceMessage,
+                                                MapResourceMessage,
+                                                UnmapResourceMessage,
+                                                CopyResourceMessage,
+                                                CopyResourceContentsMessage,
+                                                DestroyResourceMessage>;
 
-// following message types are broadly the same, but feature extra info to reduce need for thread sync or safety concerns
-// with transfer system.
+// following message types are broadly the same, but feature extra info to reduce need for thread sync or
+// safety concerns with transfer system.
 
 struct TransferSystemReqBufferInfo
 {
     VkBuffer bufferHandle{ VK_NULL_HANDLE };
-    VkBufferCreateInfo createInfo;
-    resource_usage resourceUsage{ resource_usage::InvalidResourceUsage };
-    resource_creation_flags flags{ static_cast<resource_creation_flags>(std::numeric_limits<uint32_t>::max()) };
+    BufferCreateInfo createInfo;
 };
 
 struct TransferSystemReqImageInfo
 {
     VkImage imageHandle{ VK_NULL_HANDLE };
-    VkImageCreateInfo createInfo;
-    resource_usage resourceUsage{ resource_usage::InvalidResourceUsage };
-    resource_creation_flags flags{ static_cast<resource_creation_flags>(std::numeric_limits<uint32_t>::max()) };
+    ImageCreateInfo createInfo;
+    // the layout image is in when transfer starts. UNDEFINED until the first upload, then the usage's layout
+    VkImageLayout currentLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
 };
 
 struct TransferSystemSetBufferDataMessage
@@ -285,14 +257,12 @@ struct TransferSystemCopyBufferToImageMessage
     std::shared_ptr<ResourceTransferReply> reply = nullptr;
 };
 
-using TransferPayloadType = std::variant<
-    TransferSystemSetBufferDataMessage,
-    TransferSystemSetImageDataMessage,
-    TransferSystemFillBufferMessage,
-    TransferSystemCopyBufferToBufferMessage,
-    TransferSystemCopyImageToImageMessage,
-    TransferSystemCopyImageToBufferMessage,
-    TransferSystemCopyBufferToImageMessage>;
-
+using TransferPayloadType = std::variant<TransferSystemSetBufferDataMessage,
+                                         TransferSystemSetImageDataMessage,
+                                         TransferSystemFillBufferMessage,
+                                         TransferSystemCopyBufferToBufferMessage,
+                                         TransferSystemCopyImageToImageMessage,
+                                         TransferSystemCopyImageToBufferMessage,
+                                         TransferSystemCopyBufferToImageMessage>;
 
 #endif // RESOURCE_MESSAGE_TYPES_INTERNAL_HPP
