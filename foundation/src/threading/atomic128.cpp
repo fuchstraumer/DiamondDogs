@@ -62,7 +62,7 @@ bool atomic128::compare_exchange_strong(CasData128& expected, CasData128 desired
 
     if (result == 0)
     {
-        expected = expectedTemp; // If the exchange was successful, update expected
+        expected = expectedTemp; // the exchange failed: report the value that was there instead
     }
 
     return result != 0;
