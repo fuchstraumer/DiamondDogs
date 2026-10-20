@@ -1,0 +1,89 @@
+{
+    "version": 10,
+    "configurePresets": [
+        {
+            "name": "ninja-base-multi",
+            "hidden": true,
+            "generator": "Ninja Multi-Config",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "ninja-x64",
+            "hidden": true,
+            "inherits": "ninja-base-multi",
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "toolset": {
+                "value": "host=x64",
+                "strategy": "external"
+            }
+        },
+        {
+            "name": "ninja-msvc",
+            "displayName": "Win64 MSVC",
+            "inherits": "ninja-x64",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "cl.exe",
+                "CMAKE_CXX_COMPILER": "cl.exe"
+            }
+        },
+        {
+            "name": "ninja-clang-cl",
+            "displayName": "Win64 Clang-CL",
+            "inherits": "ninja-x64",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang-cl.exe",
+                "CMAKE_CXX_COMPILER": "clang-cl.exe"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "windows-ninja-msvc-debug",
+            "displayName": "Win64 MSVC Debug",
+            "description": "Builds the project using the Windows x64 MSVC (Ninja) configure preset",
+            "configurePreset": "ninja-msvc",
+            "configuration": "Debug"
+        },
+        {
+            "name": "windows-ninja-msvc-relwithdebinfo",
+            "displayName": "Win64 MSVC RelWithDebInfo",
+            "description": "Builds the project using the Windows x64 MSVC (Ninja) configure preset",
+            "configurePreset": "ninja-msvc",
+            "configuration": "RelWithDebInfo"
+        },
+        {
+            "name": "windows-ninja-msvc-release",
+            "displayName": "Win64 MSVC Release",
+            "description": "Builds the project using the Windows x64 MSVC (Ninja) configure preset",
+            "configurePreset": "ninja-msvc",
+            "configuration": "Release"
+        },
+        {
+            "name": "windows-ninja-clang-debug",
+            "displayName": "Win64 Clang Debug",
+            "description": "Builds the project using the Windows x64 Clang configure preset",
+            "configurePreset": "ninja-clang-cl",
+            "configuration": "Debug"
+        },
+        {
+            "name": "windows-ninja-clang-relwithdebinfo",
+            "displayName": "Win64 Clang RelWithDebInfo",
+            "description": "Builds the project using the Windows x64 Clang configure preset",
+            "configurePreset": "ninja-clang-cl",
+            "configuration": "RelWithDebInfo"
+        },
+        {
+            "name": "windows-ninja-clang-release",
+            "displayName": "Win64 Clang Release",
+            "description": "Builds the project using the Windows x64 Clang configure preset",
+            "configurePreset": "ninja-clang-cl",
+            "configuration": "Release"
+        }
+    ]
+}

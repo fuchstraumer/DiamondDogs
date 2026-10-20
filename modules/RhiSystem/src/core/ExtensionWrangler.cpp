@@ -66,6 +66,11 @@
 
 #include "GeneratedExtensionHeader.hpp"
 
+// ExtensionIsDeviceExtension and ExtensionIsInstanceExtension binary-search these, so an unsorted table from the
+// generator must fail the build rather than misclassify extensions at runtime
+static_assert(std::ranges::is_sorted(deviceExtensionTable), "deviceExtensionTable must be sorted for binary search");
+static_assert(std::ranges::is_sorted(instanceExtensionTable), "instanceExtensionTable must be sorted for binary search");
+
 static const std::set<uint32_t> BuiltInVkVersions
 {
     VK_API_VERSION_1_0,
@@ -317,15 +322,21 @@ bool ExtensionWrangler::ExtensionCoreInActiveVersion(const std::string_view exte
     }
     
     size_t extensionIndex = extensionNameIter->second;
-    
-    auto promotedExtensionsForVersionIter = promotedExtensionsMap.find(apiVersion);
-    if (promotedExtensionsForVersionIter == promotedExtensionsMap.end())
-    {
-        return false; // no promoted extensions for this version
-    }
 
-    const std::vector<size_t>& promotedExtensionsForVersion = promotedExtensionsForVersionIter->second;
-    return std::find(promotedExtensionsForVersion.begin(), promotedExtensionsForVersion.end(), extensionIndex) != promotedExtensionsForVersion.end();
+    // an extension promoted in any version up to the active one is core. fixed: this only checked the row of the
+    // active version, so an extension promoted in 1.1 read as "not core" on 1.4
+    for (const auto& [promotedInVersion, promotedExtensions] : promotedExtensionsMap)
+    {
+        if (promotedInVersion > apiVersion)
+        {
+            continue;
+        }
+        if (std::find(promotedExtensions.begin(), promotedExtensions.end(), extensionIndex) != promotedExtensions.end())
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::vector<std::string_view> ExtensionWrangler::GetSupportedExtensionsByPrefix(std::string_view prefix) const
@@ -584,6 +595,15 @@ std::expected<VkPhysicalDeviceFeatures2, ExtensionWrangler::DependencyError> Ext
         FeaturesStructAlias* lastFeatureAlias = featuresVec.back();
         lastFeatureAlias->pNext = currentFeatureAlias;
         featuresVec.emplace_back(currentFeatureAlias);
+    }
+
+    // vkGetPhysicalDeviceFeatures2 is core from 1.1. A 1.0 device can't take extension feature structs without
+    // VK_KHR_get_physical_device_properties2, which we don't require, so it gets the 1.0 features and no chain
+    if (apiVersion < VK_API_VERSION_1_1)
+    {
+        features2.pNext = nullptr;
+        vkGetPhysicalDeviceFeatures(physicalDevice, &features2.features);
+        return features2;
     }
 
     // last step: call vkGetPhysicalDeviceFeatures2 to populate the features

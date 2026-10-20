@@ -1,8 +1,10 @@
+#include "FrameLimit.hpp"
+#include "ResizeTest.hpp"
 #include "TriangleTest.hpp"
 #include "RhiSystem.hpp"
 #include "PlatformSystem.hpp"
+#include <cstdint>
 #include <iostream>
-#include <stdexcept>
 
 int main(int argc, char* argv[])
 {
@@ -53,15 +55,30 @@ int main(int argc, char* argv[])
     VulkanTriangle triangle(rhiSystem.get(), platformSystem.get());
     triangle.Initialize(nullptr);
 
-    // Main loop
-    while (!platformSystem->ShouldWindowClose())
+    // --frames=N exits after N frames, so that an unattended run (an agent, or CI) can use this as a smoke test
+    const int32_t frameLimit = ParseFrameLimit(argc, argv);
+    // --resize resizes the window on a schedule, so that the run exercises swapchain recreation
+    const bool resizeTest = ParseResizeTest(argc, argv);
+    int32_t framesRendered = 0;
+    while (!platformSystem->ShouldWindowClose() && (frameLimit < 0 || framesRendered < frameLimit))
     {
+        if (resizeTest)
+        {
+            ApplyScheduledResize(*platformSystem, framesRendered);
+        }
         platformSystem->Update();
         triangle.Render(nullptr);
+        ++framesRendered;
+    }
+
+    int exitCode = 0;
+    if (resizeTest)
+    {
+        exitCode = VerifyScheduledResize(*platformSystem, triangle.SwapchainRecreationCount());
     }
 
     // Cleanup
     triangle.Destroy();
     platformSystem->DestroySwapchain();
-    return 0;
+    return exitCode;
 }

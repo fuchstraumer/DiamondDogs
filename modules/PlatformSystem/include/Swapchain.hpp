@@ -4,40 +4,47 @@
 #include "PlatformTypes.hpp"
 #include "ImageDataFormats.hpp"
 #include "Math.hpp"
+#include <cstdint>
 #include <memory>
 
 struct SwapchainImpl;
 
 class Swapchain
 {
+public:
+    Swapchain(const SwapchainCreateInfo& create_info);
+    ~Swapchain();
     Swapchain(const Swapchain&) = delete;
     Swapchain& operator=(const Swapchain&) = delete;
-public:
-    Swapchain(const SwapchainCreateInfo& createInfo);
-    ~Swapchain();
-
     Swapchain(Swapchain&& other) noexcept;
     Swapchain& operator=(Swapchain&& other) noexcept;
 
-    /** @brief Takes swapchain create info as we may have adjusted parameters that caused the recreation to occur. */
-    void Recreate(const SwapchainCreateInfo& createInfo);
+    /** @brief Takes swapchain create info as we may have adjusted parameters that caused the recreation to occur.
+     *
+     * The new swapchain takes the surface's current extent, and is created with the old one as its `oldSwapchain`.
+     * The handles that this object returns change, but the object itself stays valid. The caller must make sure that
+     * the device has finished all work that uses the old images (`vkDeviceWaitIdle` is enough) before this call.
+     */
+    [[nodiscard]] SwapchainRecreateResult Recreate(const SwapchainCreateInfo& create_info);
+    /** @brief Recreates with the create info that the swapchain was last created with. Used after a resize. */
+    [[nodiscard]] SwapchainRecreateResult Recreate();
     /** @brief Required as part of the swapchain lifecycle, for handling recreation events */
     void Destroy();
 
     /** @brief Get the native swapchain handle. @return `VkSwapchainKHR` as `void*` */
-    void* GetNativeHandle() const noexcept;
+    [[nodiscard]] void* GetNativeHandle() const noexcept;
 
-    math::Float2 GetExtent() const noexcept;
-    uint32_t ImageCount() const noexcept;
-    ImageFormat ImageFormat() const noexcept;
-    ColorSpace ColorSpace() const noexcept;
-    PresentMode PresentMode() const noexcept;
-    void* ImageHandle(uint32_t index) const noexcept;
-    void* ImageViewHandle(uint32_t index) const noexcept;
+    [[nodiscard]] math::Float2 GetExtent() const noexcept;
+    [[nodiscard]] uint32_t ImageCount() const noexcept;
+    [[nodiscard]] ImageFormat ImageFormat() const noexcept;
+    [[nodiscard]] ColorSpace ColorSpace() const noexcept;
+    [[nodiscard]] PresentMode PresentMode() const noexcept;
+    [[nodiscard]] void* ImageHandle(uint32_t index) const noexcept;
+    [[nodiscard]] void* ImageViewHandle(uint32_t index) const noexcept;
 
 private:
     std::unique_ptr<SwapchainImpl> impl;
-    class PlatformWindowSystem* PlatformSystem{ nullptr };
+    class PlatformWindowSystem* platformSystem{ nullptr };
 };
 
 #endif // !DIAMOND_DOGS_DISPLAY_SYSTEM_SWAPCHAIN_HPP

@@ -28,7 +28,7 @@ namespace rhi
     {
         None = 0,
         BaseOnly = 1,               // Basic validation
-        WithSynchronization = 2,    // Base + synchronization validation
+        WithSynchronization = 2,    // Base + synchronization validation (the validation layer's validate_sync setting)
         Full = 3,                    // All available layers
         CrashDiagnostic = 4,        // VK_LAYER_crash_diagnostic
     };

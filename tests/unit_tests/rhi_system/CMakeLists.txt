@@ -5,8 +5,7 @@ set(RENDERING_CONTEXT_TEST_SOURCES
     TestJsonConfig.cpp
     TestMain.cpp
     TestRhiSystem.cpp
-    TestShaderCompiler.cpp
-    TestShaderObject.cpp)
+    TestShaderProgram.cpp)
 
 # Create test target
 add_unit_test_target(rhi_system_tests 

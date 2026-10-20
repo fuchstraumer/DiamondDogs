@@ -7,6 +7,7 @@
 #include <array>
 #include <numeric>
 #include <chrono>
+#include <optional>
 
 #include "containers/mwsrQueue.hpp"
 
@@ -154,9 +155,13 @@ TEST_F(MWSRQueueTest, MultipleWritersSingleReader)
     received_items.reserve(total_items);
     std::atomic<bool> readers_done{false};
 
+    // fixed: this used to stop once items_written reached total_items - 1, with no final drain, so the last push
+    // could land after the reader quit and the test failed with 127 of 128 now and then. Read until every item
+    // has arrived instead, with a deadline so that a real lost item fails the test rather than hanging it
     auto reader_worker = [&]()
     {
-        while (items_written.load() < total_items - 1)
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (std::ssize(received_items) < total_items && std::chrono::steady_clock::now() < deadline)
         {
             std::optional<int> queue_trypop_item;
             while (queue_trypop_item = queue.try_pop(), queue_trypop_item.has_value())
@@ -637,6 +642,88 @@ TEST_F(MWSRQueueTest, BatchSizeCalculation)
     // Queue should be empty
     auto finalCheck = queue.try_pop();
     EXPECT_FALSE(finalCheck.has_value());
+}
+
+TEST_F(MWSRQueueTest, CountTrailingOnes)
+{
+    EXPECT_EQ(detail::countTrailingOnes(0u), 0u);
+    EXPECT_EQ(detail::countTrailingOnes(0b0111u), 3u);
+    EXPECT_EQ(detail::countTrailingOnes(~uint64_t(0u)), 64u);
+}
+
+// the exit reactor used to keep its "reader is locked" flag at bit 31 of the read ID, so the 2^31st read collided
+// with the flag. these start the IDs just below each boundary and read across it
+constexpr std::array<uint64_t, 3> s_IDBoundaryStarts
+{
+    (uint64_t(1u) << 31u) - 100u,
+    (uint64_t(1u) << 32u) - 100u,
+    (uint64_t(1u) << 62u) - 100u,
+};
+
+TEST_F(MWSRQueueTest, SingleThreadReadsAcrossIDBoundaries)
+{
+    constexpr int batchSize = 32;
+    constexpr int batchCount = 16;
+    for (const uint64_t firstID : s_IDBoundaryStarts)
+    {
+        Queue<int> queue(firstID);
+        int nextToPush = 0;
+        int nextToPop = 0;
+        for (int batch = 0; batch < batchCount; ++batch)
+        {
+            for (int i = 0; i < batchSize; ++i)
+            {
+                ASSERT_TRUE(queue.try_push(nextToPush++)) << "first ID " << firstID;
+            }
+            for (int i = 0; i < batchSize; ++i)
+            {
+                const std::optional<int> item = queue.try_pop();
+                ASSERT_TRUE(item.has_value()) << "first ID " << firstID;
+                EXPECT_EQ(*item, nextToPop++) << "first ID " << firstID;
+            }
+        }
+        EXPECT_FALSE(queue.try_pop().has_value()) << "first ID " << firstID;
+    }
+}
+
+TEST_F(MWSRQueueTest, BlockingWritersAndReaderAcrossIDBoundaries)
+{
+    constexpr int numWriters = 4;
+    constexpr int itemsPerWriter = 500;
+    constexpr int totalItems = numWriters * itemsPerWriter;
+    for (const uint64_t firstID : s_IDBoundaryStarts)
+    {
+        Queue<int> queue(firstID);
+        std::vector<std::thread> writers;
+        for (int writerIndex = 0; writerIndex < numWriters; ++writerIndex)
+        {
+            writers.emplace_back([&queue, writerIndex]()
+            {
+                for (int i = 0; i < itemsPerWriter; ++i)
+                {
+                    queue.push(writerIndex * itemsPerWriter + i);
+                }
+            });
+        }
+
+        // the blocking pop sets and clears the reader lock flag, which is the bit that moved
+        std::vector<int> received;
+        received.reserve(totalItems);
+        for (int i = 0; i < totalItems; ++i)
+        {
+            received.emplace_back(queue.pop());
+        }
+        for (std::thread& writer : writers)
+        {
+            writer.join();
+        }
+
+        std::ranges::sort(received);
+        std::vector<int> expected(totalItems);
+        std::iota(expected.begin(), expected.end(), 0);
+        EXPECT_EQ(received, expected) << "first ID " << firstID;
+        EXPECT_FALSE(queue.try_pop().has_value()) << "first ID " << firstID;
+    }
 }
 
 } // namespace containers

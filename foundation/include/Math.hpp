@@ -290,7 +290,7 @@ namespace math
             };
             struct
             {
-                float u, v, w, t;
+                float u, v;
             };
         };
 

@@ -15,8 +15,10 @@ function(add_module NAME)
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
         "../../foundation/include")
     target_link_libraries(${NAME} PUBLIC foundation)
-    if(MSVC)
+    if(DIAMOND_DOGS_COMPILER_IS_CL)
         target_compile_options(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/MP> $<$<CONFIG:RELWITHDEBINFO>:/MP>)
+    endif()
+    if(MSVC)
         target_compile_options(${NAME} PRIVATE $<$<CONFIG:RELEASE>:/Oi> $<$<CONFIG:RELWITHDEBINFO>:/Oi>)
         target_compile_definitions(${NAME} PRIVATE 
             "NOMINMAX")
@@ -35,7 +37,7 @@ add_subdirectory(PlatformSystem)
 add_subdirectory(RhiResources)
 # This module provides imgui as a basic debugging UI
 # that sits just BARELY over the resource and rendering contexts
-#add_subdirectory(ImGuiModule)
+add_subdirectory(ImGuiModule)
 #add_subdirectory(material_module)
 #add_subdirectory(content_compiler)
 #add_subdirectory(terrain_module)

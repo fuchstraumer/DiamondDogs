@@ -45,6 +45,7 @@ namespace rhi
         void createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions);
         void setupValidation();
         bool checkLayerSupport(const std::vector<const char*>& required_layers) const;
+        bool validationLayerHasExtension(const char* extension_name) const;
 
         InstanceHandle handle;
         ValidationLayers validationLevel;

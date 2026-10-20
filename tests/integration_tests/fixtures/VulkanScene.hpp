@@ -29,6 +29,8 @@ public:
     virtual void Destroy() = 0;
     virtual void Render(void* user_data);
     size_t CurrentFramebufferIdx() const;
+    /** @brief Returns how many times the scene recreated the swapchain after an out of date or suboptimal result */
+    uint32_t SwapchainRecreationCount() const noexcept;
 
 protected:
 
@@ -36,13 +38,21 @@ protected:
     void destroyFrameSyncObjects();
 
     virtual void beginFrame();
+    void resetFrameFence();
     virtual void limitFrame();
     virtual void update() = 0;
-    virtual void acquireImage();
+    /** @brief Returns false when the swapchain is out of date, and no image was acquired */
+    virtual bool acquireImage();
     virtual void recordCommands() = 0;
     virtual void draw() = 0;
     virtual void present();
     virtual void endFrame();
+    void recreateSwapchain();
+    /** @brief Called after the swapchain was recreated, to rebuild anything sized to it */
+    virtual void onSwapchainRecreated();
+
+    bool swapchainOutOfDate{ false };
+    uint32_t swapchainRecreationCount{ 0u };
 
     std::chrono::system_clock::time_point limiterA;
     std::chrono::system_clock::time_point limiterB;

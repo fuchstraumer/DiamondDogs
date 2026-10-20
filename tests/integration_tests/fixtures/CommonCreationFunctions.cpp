@@ -3,6 +3,10 @@
 #include "Swapchain.hpp"
 #include "RhiResult.hpp"
 #include "RhiAssert.hpp"
+#include "vulkan/vulkan_core.h"
+#include <cstdint>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 #if defined(_MSC_VER) && !defined(strdup)

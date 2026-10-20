@@ -3,8 +3,8 @@
 #define FOUNDATION_IMAGE_DATA_FORMATS_HPP
 #include <cstdint>
 
-// Forward declaration to hide Vulkan headers from users
-enum VkFormat : int;
+// the VkFormat conversions are in ImageDataFormatsVulkan.hpp. this header used to forward-declare
+// enum VkFormat : int, but vulkan_core.h declares VkFormat with no fixed underlying type, and clang rejects the mismatch
 
 enum class ImageComponentFormats : uint8_t
 {
@@ -129,20 +129,6 @@ struct ImageFormatDescriptor
  * - GetImageFormat("a2r10g10b10", ImageDataType::UInt) -> 10-bit RGB, 2-bit alpha as unsigned int
  */
 ImageFormat GetImageFormat(const char* formatName, ImageDataType dataType = ImageDataType::Default) noexcept;
-
-/**
- * @brief Convert ImageFormat to VkFormat
- * @param format ImageFormat to convert
- * @return Corresponding VkFormat value
- */
-VkFormat ToVkFormat(const ImageFormat& format) noexcept;
-
-/**
- * @brief Convert VkFormat to ImageFormat
- * @param format VkFormat to convert
- * @return Corresponding ImageFormat struct
-*/
-ImageFormat FromVkFormat(VkFormat format) noexcept;
 
 /**
  * @brief Create a ResourceFormat using component format and data type

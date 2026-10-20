@@ -210,5 +210,14 @@ struct SwapchainCreateInfo
     uint32_t DisplayIndex{ std::numeric_limits<uint32_t>::max() };
 };
 
+enum class SwapchainRecreateResult : uint8_t
+{
+    Invalid = 0,
+    Success = 1,
+    /** @brief The surface has no area, because the window is minimized. The old swapchain is kept: retry once the
+     * window has a size again. */
+    SurfaceHasZeroArea = 2,
+};
+
 
 #endif //!DIAMOND_DOGS_PLATFORM_SYSTEM_TYPES_HPP

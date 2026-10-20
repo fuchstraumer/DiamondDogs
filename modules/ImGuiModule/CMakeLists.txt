@@ -6,19 +6,25 @@ set(imgui_source_files
     "../../third_party/imgui/imconfig.h"
     "../../third_party/imgui/imgui_demo.cpp"
     "../../third_party/imgui/imgui_internal.h"
-    "../../third_party/imgui/imgui_widgets.cpp")
+    "../../third_party/imgui/imgui_tables.cpp"
+    "../../third_party/imgui/imgui_widgets.cpp"
+    "../../third_party/imgui/backends/imgui_impl_glfw.h"
+    "../../third_party/imgui/backends/imgui_impl_glfw.cpp"
+    "../../third_party/imgui/backends/imgui_impl_vulkan.h"
+    "../../third_party/imgui/backends/imgui_impl_vulkan.cpp")
 
 source_group("imgui_ext" FILES ${imgui_source_files})
 
 ADD_MODULE(imgui_module
     "include/ImGuiModule.hpp"
     ${imgui_source_files}
-    "src/ImGuiModule.cpp"
-    "src/ImGuiWrapper.hpp"
-    "src/ImGuiWrapper.cpp")
+    "src/ImGuiModule.cpp")
 
-target_link_libraries(imgui_module PRIVATE glfw ${Vulkan_LIBRARY} vpr_resource)
+target_link_libraries(imgui_module PUBLIC rhi_system glfw ${Vulkan_LIBRARY})
 
-target_include_directories(imgui_module PRIVATE "../../third_party/" "../../third_party/imgui"
-    "../rendering_context/include" "../resource_context/include" ${VPR_INCLUDE_DIRS_MODULE_RELATIVE}
+# users call ImGui:: directly, so the imgui folder is public
+target_include_directories(imgui_module PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../foundation/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/imgui"
     ${Vulkan_INCLUDE_DIR})

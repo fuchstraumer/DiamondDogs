@@ -45,7 +45,7 @@ protected:
     {
         SwapchainCreateInfo createInfo;
         createInfo.RhiDevice = nullptr;
-        createInfo.PlatformWindowHandle = const_cast<void*>(platformSystem->GetWindowHandle());
+        createInfo.PlatformWindowHandle = platformSystem->GetWindowHandle();
         createInfo.VkSurfaceHandle = 0xFFFFFFFFFFF;
         createInfo.MinImageCount = 2;
         // BGRA8 sRGB is most common format for windows GDI, since it still prefers that over RGBA8

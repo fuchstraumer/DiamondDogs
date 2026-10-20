@@ -2,10 +2,22 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
 PROJECT(DiamondDogs)
 # and turquoise days...
 
-SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /MP /Gy")
-SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /Oi /MP /Gy")
-SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Gy")
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /JMC /bigobj")
+# MSVC is also true for clang-cl, which takes the same flags but has no /MP and no SVML library. Test
+# DIAMOND_DOGS_COMPILER_IS_CL for those two, and MSVC for everything cl-style.
+# clang-cl ignores /JMC without debug info, and warns about it, so it goes only where /Zi is.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    SET(DIAMOND_DOGS_COMPILER_IS_CL ON)
+else()
+    SET(DIAMOND_DOGS_COMPILER_IS_CL OFF)
+endif()
+
+SET(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /Oi /Gy")
+SET(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /JMC /Gy")
+SET(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /JMC /Gy")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj")
+if(DIAMOND_DOGS_COMPILER_IS_CL)
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+endif()
 
 # Generate header with source tree paths for tests
 configure_file(
@@ -16,24 +28,30 @@ configure_file(
 
 FIND_PACKAGE(Vulkan REQUIRED)
 
-# Configure and organize Slang compiler for Vulkan/SPIR-V use
-include(cmake/ConfigureSlang.cmake)
-add_subdirectory(third_party/slang)
-organize_slang_targets()
-
-add_subdirectory(third_party/vma)
-add_subdirectory(third_party/entt)
-SET(GLI_TEST_ENABLE OFF CACHE BOOL "Build unit tests")
-add_subdirectory(third_party/gli)
-set_target_properties(gli PROPERTIES FOLDER "third_party")
-set_target_properties(gli_dummy PROPERTIES FOLDER "third_party")
+# mimalloc options go first: Lodestone's Slang creates the mimalloc-static target that we link (see
+# ConfigureLodestone.cmake), and these cache entries decide how that target is built
 SET(MI_BUILD_OBJECT OFF CACHE BOOL "Build object library")
 SET(MI_BUILD_SHARED OFF CACHE BOOL "Build shared library")
 SET(MI_BUILD_TESTS OFF CACHE BOOL "Build test executables")
 SET(MI_WIN_REDIRECT OFF CACHE BOOL "Use redirection module ('mimalloc-redirect') on Windows if compiling mimalloc as a DLL")
-SET(MI_WIN_USE_FIXED_TLS ON CACHE BOOL "Use a fixed TLS slot on Windows to avoid extra tests in the malloc fast path")
-add_subdirectory(third_party/mimalloc)
+
+# Lodestone: the shader cooker, the manifest client, and the Slang compiler target
+include(cmake/ConfigureLodestone.cmake)
+
+if (NOT TARGET mimalloc-static)
+    add_subdirectory(third_party/mimalloc)
+endif()
 set_target_properties(mimalloc-static PROPERTIES FOLDER "third_party")
+
+add_subdirectory(third_party/vma)
+add_subdirectory(third_party/entt)
+SET(GLI_TEST_ENABLE OFF CACHE BOOL "Build unit tests")
+# gli asks for CMake 3.1, and CMake 4 removed compatibility with anything below 3.5
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+add_subdirectory(third_party/gli)
+unset(CMAKE_POLICY_VERSION_MINIMUM)
+set_target_properties(gli PROPERTIES FOLDER "third_party")
+set_target_properties(gli_dummy PROPERTIES FOLDER "third_party")
 
 SET(GLFW_BUILD_DOCS OFF CACHE BOOL "Build the GLFW documentation")
 SET(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "Build the GLFW example programs")

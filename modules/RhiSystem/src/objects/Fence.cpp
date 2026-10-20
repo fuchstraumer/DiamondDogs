@@ -74,6 +74,39 @@ namespace rhi
             throw std::runtime_error("Failed to get fence status!");
         }
     }
+
+    // Handle, Reset, and Wait were declared and never defined, so any caller failed to link
+    FenceHandle Fence::Handle() const noexcept
+    {
+        return handle;
+    }
+
+    void Fence::Reset()
+    {
+        const VkFence vkFence = handle.As<VkFence>();
+        if (vkResetFences(device.As<VkDevice>(), 1, &vkFence) != VK_SUCCESS)
+        {
+            throw std::runtime_error("Failed to reset fence!");
+        }
+    }
+
+    bool Fence::Wait(uint64_t timeoutNs) const
+    {
+        const VkFence vkFence = handle.As<VkFence>();
+        const VkResult result = vkWaitForFences(device.As<VkDevice>(), 1, &vkFence, VK_TRUE, timeoutNs);
+        if (result == VK_SUCCESS)
+        {
+            return true;
+        }
+        else if (result == VK_TIMEOUT)
+        {
+            return false;
+        }
+        else
+        {
+            throw std::runtime_error("Failed to wait on fence!");
+        }
+    }
 #endif
 
 }

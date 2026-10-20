@@ -1,28 +1,33 @@
 #include "PlatformSystem.hpp"
+#include "ImageDataFormats.hpp"
 #include "PlatformSystemImpl.hpp"
-
 // will include linux or windows version based on CMake configuration
 #include "PlatformDisplayInfo.hpp"
+#include "PlatformTypes.hpp"
 #include "Swapchain.hpp"
 #include "PlatformSurface.hpp"
-
 // rhi
 #include "Instance.hpp"
 #include "Device.hpp"
+#include "nlohmann/json_fwd.hpp"
 
+#include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <stdexcept>
+#include <unordered_map>
+#include <string>
+#include <fstream>
+#include <string_view>
+#include <utility>
+#include <utility>
+
+#include "nlohmann/json.hpp"
 #include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 #include "GLFW/glfw3.h"
 
-#include <unordered_map>
-#include <vector>
-#include <string>
-#include <fstream>
-#include <iostream>
-#include <string_view>
-#include "nlohmann/json.hpp"
-
-static const std::unordered_map<std::string, PlatformWindowMode> s_WindowModeFromStrMap
+static const std::unordered_map<std::string, PlatformWindowMode> k_WindowModeFromStrMap
 {
     { "Windowed", PlatformWindowMode::Windowed },
     { "Fullscreen", PlatformWindowMode::Fullscreen },
@@ -30,7 +35,7 @@ static const std::unordered_map<std::string, PlatformWindowMode> s_WindowModeFro
     { "MaximizedWindowed", PlatformWindowMode::MaximizedWindowed }
 };
 
-static const std::unordered_map<std::string, ColorSpace> s_ColorSpaceFromStrMap
+static const std::unordered_map<std::string, ColorSpace> k_ColorSpaceFromStrMap
 {
     { "sRGB_Nonlinear", ColorSpace::sRGB_Nonlinear },
     { "Display_P3_Nonlinear", ColorSpace::Display_P3_Nonlinear },
@@ -47,7 +52,7 @@ static const std::unordered_map<std::string, ColorSpace> s_ColorSpaceFromStrMap
     { "DisplayNativeAMD", ColorSpace::DisplayNativeAMD }
 };
 
-static const std::unordered_map<std::string, PresentMode> s_PresentModeFromStrMap
+static const std::unordered_map<std::string, PresentMode> k_PresentModeFromStrMap
 {
     { "Immediate", PresentMode::Immediate },
     { "VerticalSync", PresentMode::VerticalSync },
@@ -58,23 +63,23 @@ static const std::unordered_map<std::string, PresentMode> s_PresentModeFromStrMa
     { "VerticalSyncLatestReady", PresentMode::VerticalSyncLatestReady }
 };
 
-ImageFormat ImageFormatFromString(const std::string_view& imageFormatStr)
+static ImageFormat ImageFormatFromString(const std::string_view& image_format_str)
 {
     return ImageFormat{};
 }
 
 // Pile of defaults for various values, used as fallback when config doesn't contain them
-constexpr static uint32_t s_DefaultInitialWidth = 800;
-constexpr static uint32_t s_DefaultInitialHeight = 600;
-constexpr static PlatformWindowMode s_DefaultWindowMode = PlatformWindowMode::Windowed;
-constexpr static ColorSpace s_DefaultColorSpace = ColorSpace::sRGB_Nonlinear;
-constexpr static PresentMode s_DefaultPresentMode = PresentMode::VerticalSync;
-constexpr static uint32_t s_DefaultSwapchainImageCount = 2;
-constexpr static ImageFormat s_DefaultSDRFormat = CommonFormats::RGBA8_SRGB;
+constexpr static uint32_t k_DefaultInitialWidth = 800;
+constexpr static uint32_t k_DefaultInitialHeight = 600;
+constexpr static PlatformWindowMode k_DefaultWindowMode = PlatformWindowMode::Windowed;
+constexpr static ColorSpace k_DefaultColorSpace = ColorSpace::sRGB_Nonlinear;
+constexpr static PresentMode k_DefaultPresentMode = PresentMode::VerticalSync;
+constexpr static uint32_t k_DefaultSwapchainImageCount = 2;
+constexpr static ImageFormat k_DefaultSDRFormat = CommonFormats::RGBA8_SRGB;
 // for now, this format seems to be common in retrieved metadata from the system APIs
-constexpr static ImageFormat s_DefaultHDRFormat = CommonFormats::HDR_A2R10G10B10;
+constexpr static ImageFormat k_DefaultHDRFormat = CommonFormats::HDR_A2R10G10B10;
 
-PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath, void* RhiInstance, void* RhiDevice)
+PlatformWindowSystem::PlatformWindowSystem(const char* json_path, void* rhi_instance, void* rhi_device)
 {
 
     // First, let's query the platform system to get display info. We can use this as fallbacks, and to know if HDR is supported and toggled on the system
@@ -82,7 +87,7 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath, void* RhiInstan
     const DisplayInfo systemDisplayInfo = RetrievePlatformPrimaryDisplayInfo();
 
     // Open up the JSON file
-    std::ifstream jsonFile(jsonPath);
+    std::ifstream jsonFile(json_path);
     if (!jsonFile.is_open())
     {
         throw std::runtime_error("Failed to open PlatformWindowSystem configuration JSON file.");
@@ -104,48 +109,48 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath, void* RhiInstan
         platformJson = jsonConfig;
     }
 
-    uint32_t initialWidth = s_DefaultInitialWidth;
+    uint32_t initialWidth = k_DefaultInitialWidth;
     if (platformJson.contains("InitialWindowWidth"))
     {
-        initialWidth = jsonConfig.at("InitialWindowWidth");
+        initialWidth = platformJson.at("InitialWindowWidth");
     }
 
-    uint32_t initialHeight = s_DefaultInitialHeight;
+    uint32_t initialHeight = k_DefaultInitialHeight;
     if (platformJson.contains("InitialWindowHeight"))
     {
         initialHeight = platformJson.at("InitialWindowHeight");
     }
 
-    PlatformWindowMode windowMode = s_DefaultWindowMode;
+    PlatformWindowMode windowMode = k_DefaultWindowMode;
     if (platformJson.contains("InitialWindowMode"))
     {
         const std::string windowModeStr = platformJson.at("InitialWindowMode");
-        auto iter = s_WindowModeFromStrMap.find(windowModeStr);
-        if (iter != s_WindowModeFromStrMap.end())
+        auto iter = k_WindowModeFromStrMap.find(windowModeStr);
+        if (iter != k_WindowModeFromStrMap.end())
         {
             windowMode = iter->second;
         }
     }
 
-    PresentMode presentMode = s_DefaultPresentMode;
+    PresentMode presentMode = k_DefaultPresentMode;
     if (platformJson.contains("PresentationMode"))
     {
         const std::string presentModeStr = platformJson.at("PresentationMode");
-        auto iter = s_PresentModeFromStrMap.find(presentModeStr);
-        if (iter != s_PresentModeFromStrMap.end())
+        auto iter = k_PresentModeFromStrMap.find(presentModeStr);
+        if (iter != k_PresentModeFromStrMap.end())
         {
             presentMode = iter->second;
         }
     }
 
-    uint32_t swapchainImageCount = s_DefaultSwapchainImageCount;
+    uint32_t swapchainImageCount = k_DefaultSwapchainImageCount;
     if (platformJson.contains("SwapchainImageCount"))
     {
         uint32_t configImageCount = platformJson.at("SwapchainImageCount");
         swapchainImageCount = std::max(2u, configImageCount);
     }
 
-    ColorSpace desiredColorSpace = s_DefaultColorSpace;
+    ColorSpace desiredColorSpace = k_DefaultColorSpace;
     // ignore JSON configuration if system has a valid detected color space to use and HDR is enabled, since that is more likely to be correct
     if (systemDisplayInfo.ColorCapabilities.DetectedColorSpace != ColorSpace::Invalid && hdrEnabledOnSystem)
     {
@@ -154,8 +159,8 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath, void* RhiInstan
     else if (platformJson.contains("ColorSpace"))
     {
         const std::string colorSpaceStr = platformJson.at("ColorSpace");
-        auto iter = s_ColorSpaceFromStrMap.find(colorSpaceStr);
-        if (iter != s_ColorSpaceFromStrMap.end())
+        auto iter = k_ColorSpaceFromStrMap.find(colorSpaceStr);
+        if (iter != k_ColorSpaceFromStrMap.end())
         {
             desiredColorSpace = iter->second;
         }
@@ -196,9 +201,9 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath, void* RhiInstan
     // Create the platform window system
     impl = std::make_unique<PlatformSystemImpl>(createInfo);
 
-    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(RhiInstance);
+    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(rhi_instance);
     const uint64_t vkInstanceHandle = instance->Handle().As<uint64_t>();
-    rhi::Device* device = reinterpret_cast<rhi::Device*>(RhiDevice);
+    rhi::Device* device = reinterpret_cast<rhi::Device*>(rhi_device);
     const uint64_t physicalDeviceHandle = device->GetPhysicalDevice().As<uint64_t>();
 
     // Now continue to create default surface + swapchain, since we have all the info we need and I don't see a situation in which we wouldn't do this together (yet)
@@ -208,7 +213,7 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath, void* RhiInstan
                                                             impl->Window);
 
     SwapchainCreateInfo swapchainInfo{};
-    swapchainInfo.RhiDevice = (void*)RhiDevice;
+    swapchainInfo.RhiDevice = rhi_device;
     swapchainInfo.PlatformWindowHandle = impl->Window;
     swapchainInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
     swapchainInfo.MinImageCount = swapchainImageCount;
@@ -216,13 +221,13 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath, void* RhiInstan
     swapchainInfo.TryEnableHDR = enableHDR;
     if (enableHDR)
     {
-        swapchainInfo.SwapchainFormat = s_DefaultHDRFormat;
+        swapchainInfo.SwapchainFormat = k_DefaultHDRFormat;
         swapchainInfo.DesiredColorSpace = desiredColorSpace;
         swapchainInfo.HdrColorCapabilities = systemDisplayInfo.ColorCapabilities;
     }
     else
     {
-        swapchainInfo.SwapchainFormat = s_DefaultSDRFormat;
+        swapchainInfo.SwapchainFormat = k_DefaultSDRFormat;
         swapchainInfo.DesiredColorSpace = desiredColorSpace;
     }
     swapchainInfo.PlatformSystemPtr = this;
@@ -232,7 +237,7 @@ PlatformWindowSystem::PlatformWindowSystem(const char* jsonPath, void* RhiInstan
 }
 
 // Factory function
-PlatformWindowSystem::PlatformWindowSystem(const PlatformWindowCreateInfo& createInfo) : impl(std::make_unique<PlatformSystemImpl>(createInfo))
+PlatformWindowSystem::PlatformWindowSystem(const PlatformWindowCreateInfo& create_info) : impl(std::make_unique<PlatformSystemImpl>(create_info))
 {
 }
 
@@ -254,11 +259,11 @@ void PlatformWindowSystem::Destroy()
     impl.reset();
 }
 
-void PlatformWindowSystem::CreateDefaultSwapchain(void* rhiInstance, void* rhiDevice)
+void PlatformWindowSystem::CreateDefaultSwapchain(void* rhi_instance, void* rhi_device)
 {
-    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(rhiInstance);
+    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(rhi_instance);
     const uint64_t vkInstanceHandle = instance->Handle().Get();
-    rhi::Device* device = reinterpret_cast<rhi::Device*>(rhiDevice);
+    rhi::Device* device = reinterpret_cast<rhi::Device*>(rhi_device);
     const uint64_t vkPhysicalDeviceHandle = device->GetPhysicalDevice().Get();
     
     if (!impl->ActiveSurface)
@@ -276,27 +281,27 @@ void PlatformWindowSystem::CreateDefaultSwapchain(void* rhiInstance, void* rhiDe
     const bool enableHDR = displayInfo.ColorCapabilities.hdrEnabled;
 
     SwapchainCreateInfo createInfo{};
-    createInfo.RhiDevice = rhiDevice;
+    createInfo.RhiDevice = rhi_device;
     createInfo.PlatformWindowHandle = impl->Window;
     createInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
     createInfo.PlatformSystemPtr = this;
     createInfo.DisplayIndex = 0u;
-    createInfo.MinImageCount = s_DefaultSwapchainImageCount;
-    createInfo.SwapchainPresentMode = s_DefaultPresentMode;
+    createInfo.MinImageCount = k_DefaultSwapchainImageCount;
+    createInfo.SwapchainPresentMode = k_DefaultPresentMode;
     createInfo.TryEnableHDR = enableHDR;
-    createInfo.SwapchainFormat = enableHDR ? s_DefaultHDRFormat : s_DefaultSDRFormat;
-    createInfo.DesiredColorSpace = enableHDR ? displayInfo.ColorCapabilities.DetectedColorSpace : s_DefaultColorSpace;
+    createInfo.SwapchainFormat = enableHDR ? k_DefaultHDRFormat : k_DefaultSDRFormat;
+    createInfo.DesiredColorSpace = enableHDR ? displayInfo.ColorCapabilities.DetectedColorSpace : k_DefaultColorSpace;
     createInfo.HdrColorCapabilities = displayInfo.ColorCapabilities;
     impl->ActiveSwapchain = std::make_unique<Swapchain>(createInfo);
 }
 
-void PlatformWindowSystem::CreateSwapchain(const SwapchainCreateInfo& createInfo)
+void PlatformWindowSystem::CreateSwapchain(const SwapchainCreateInfo& create_info)
 {
     if (impl->ActiveSwapchain)
     {
         DestroySwapchain();
     }
-    impl->ActiveSwapchain = std::make_unique<Swapchain>(createInfo);
+    impl->ActiveSwapchain = std::make_unique<Swapchain>(create_info);
 }
 
 void PlatformWindowSystem::DestroySwapchain()
@@ -307,55 +312,60 @@ void PlatformWindowSystem::DestroySwapchain()
     }
 }
 
+SwapchainRecreateResult PlatformWindowSystem::RecreateSwapchain()
+{
+    return impl->ActiveSwapchain->Recreate();
+}
+
 const Swapchain* PlatformWindowSystem::GetActiveSwapchain() const noexcept
 {
     return impl->ActiveSwapchain.get();
 }
 
 // Event listener registration methods
-void PlatformWindowSystem::AddCursorPosEventListener(CursorPosEvent listener, void* userData)
+void PlatformWindowSystem::AddCursorPosEventListener(CursorPosEvent listener, void* user_data)
 {
-    impl->AddCursorPosEventListener(listener, userData);
+    impl->AddCursorPosEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddCursorEnterEventListener(CursorEnterEvent listener, void* userData)
+void PlatformWindowSystem::AddCursorEnterEventListener(CursorEnterEvent listener, void* user_data)
 {
-    impl->AddCursorEnterEventListener(listener, userData);
+    impl->AddCursorEnterEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddScrollEventListener(ScrollEvent listener, void* userData)
+void PlatformWindowSystem::AddScrollEventListener(ScrollEvent listener, void* user_data)
 {
-    impl->AddScrollEventListener(listener, userData);
+    impl->AddScrollEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddCharEventListener(CharEvent listener, void* userData)
+void PlatformWindowSystem::AddCharEventListener(CharEvent listener, void* user_data)
 {
-    impl->AddCharEventListener(listener, userData);
+    impl->AddCharEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddPathDropEventListener(PathDropEvent listener, void* userData)
+void PlatformWindowSystem::AddPathDropEventListener(PathDropEvent listener, void* user_data)
 { 
-    impl->AddPathDropEventListener(listener, userData);
+    impl->AddPathDropEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddMouseButtonEventListener(MouseButtonEvent listener, void* userData)
+void PlatformWindowSystem::AddMouseButtonEventListener(MouseButtonEvent listener, void* user_data)
 { 
-    impl->AddMouseButtonEventListener(listener, userData);
+    impl->AddMouseButtonEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* userData)
+void PlatformWindowSystem::AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* user_data)
 { 
-    impl->AddKeyboardKeyEventListener(listener, userData);
+    impl->AddKeyboardKeyEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddShouldResizeEventListener(ShouldResizeEvent listener, void* userData)
+void PlatformWindowSystem::AddShouldResizeEventListener(ShouldResizeEvent listener, void* user_data)
 {
-    impl->AddShouldResizeEventListener(listener, userData);
+    impl->AddShouldResizeEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddShouldCloseEventListener(ShouldCloseEvent listener, void* userData)
+void PlatformWindowSystem::AddShouldCloseEventListener(ShouldCloseEvent listener, void* user_data)
 {
-    impl->AddShouldCloseEventListener(listener, userData);
+    impl->AddShouldCloseEventListener(std::move(listener), user_data);
 }
 
 // Accessors
@@ -364,7 +374,7 @@ const DisplayInfo& PlatformWindowSystem::GetActiveDisplayInfo() const noexcept
     return impl->ActiveDisplay;
 }
 
-const void* PlatformWindowSystem::GetWindowHandle() const noexcept
+void* PlatformWindowSystem::GetWindowHandle() const noexcept
 {
     return impl->Window;
 }
@@ -406,6 +416,11 @@ bool PlatformWindowSystem::IsHDREnabledOnSystem() noexcept
 void PlatformWindowSystem::GetWindowSize(int& w, int& h) const
 {
     glfwGetWindowSize(impl->Window, &w, &h);
+}
+
+void PlatformWindowSystem::SetWindowSize(int w, int h)
+{
+    glfwSetWindowSize(impl->Window, w, h);
 }
 
 void PlatformWindowSystem::GetWindowPos(int& x, int& y) const
@@ -453,9 +468,9 @@ void PlatformWindowSystem::SetInputMode(int mode, int val)
     glfwSetInputMode(impl->Window, mode, val);
 }
 
-void PlatformWindowSystem::SetWindowShouldClose(bool shouldClose)
+void PlatformWindowSystem::SetWindowShouldClose(bool should_close)
 {
-    glfwSetWindowShouldClose(impl->Window, shouldClose ? GLFW_TRUE : GLFW_FALSE);
+    glfwSetWindowShouldClose(impl->Window, should_close ? GLFW_TRUE : GLFW_FALSE);
 }
 
 DisplayInfo PlatformWindowSystem::GetPrimaryDisplayInfo() noexcept

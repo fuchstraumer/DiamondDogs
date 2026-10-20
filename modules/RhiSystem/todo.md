@@ -1,5 +1,1 @@
-- Move most of the stuff included in the main header behind an impl wall
-- Convert this module to C++ modules
-- Abstract further away from Vulkan in case we ever want to try a different rendering API (i.e., DX12 probably)
-- Extension wrangler needs to break down features into their supported boolean feature toggles, so that users can only enable features if they're actually supported fully
-- ExtensionWrangler should group maintenance feature structs together so that we can easily enable all the available ones for the current version or platform in one go
+- Add support for VK_KHR_device_fault, so if that we do get device loss crashes (TDRs) we can extract more info about what exactly broke to cause it hopefully

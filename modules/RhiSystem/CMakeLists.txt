@@ -47,18 +47,13 @@ set(RHI_OBJECT_SOURCES
 
 set(RHI_SHADER_SYSTEM_HEADERS
     "include/shaders/PipelineExecutableInfo.hpp"
-    "include/shaders/ShaderBlob.hpp"
-    "include/shaders/ShaderCompiler.hpp"
-    "include/shaders/ShaderCompilerReply.hpp"
+    "include/shaders/ShaderLibrary.hpp"
     "include/shaders/ShaderProgram.hpp"
     "include/shaders/ShaderTypes.hpp")
 
 set(RHI_SHADER_SYSTEM_SOURCES
-    "src/shaders/ShaderBlob.cpp"
     "src/shaders/PipelineExecutableInfo.cpp"
-    "src/shaders/ShaderCompiler.cpp"
-    "src/shaders/ShaderCompilerMessages.hpp"
-    "src/shaders/ShaderCompilerReply.cpp"
+    "src/shaders/ShaderLibrary.cpp"
     "src/shaders/ShaderProgram.cpp")
 
 ADD_MODULE(rhi_system
@@ -77,10 +72,9 @@ else()
     message(FATAL_ERROR "Unknown RHI_SYSTEM_GRAPHICS_API: ${RHI_SYSTEM_GRAPHICS_API}. Supported values are Vulkan and DirectX12.")
 endif()
 
-TARGET_LINK_LIBRARIES(rhi_system PUBLIC ${Vulkan_LIBRARY} slang)
+TARGET_LINK_LIBRARIES(rhi_system PUBLIC ${Vulkan_LIBRARY} lodestone::client_library lodestone::client_interface)
 TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC
     "../../third_party/json/include"
-    "../../third_party/slang/include"
     ${Vulkan_INCLUDE_DIR}
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/core"

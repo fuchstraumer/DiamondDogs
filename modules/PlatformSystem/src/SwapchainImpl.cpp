@@ -1,9 +1,19 @@
 #include "SwapchainImpl.hpp"
+#include "ImageDataFormats.hpp"
+#include "ImageDataFormatsVulkan.hpp"
+#include "PlatformTypes.hpp"
 #include "Swapchain.hpp"
 #include "PlatformSystem.hpp"
-#include "events/DisplayEvents.hpp"
 #include "Device.hpp"
+#include "vulkan/vulkan_core.h"
 #include <GLFW/glfw3.h>
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <limits>
+#include <memory>
 #include <stdexcept>
 #include <unordered_map>
 #include <map>
@@ -200,12 +210,12 @@ VkPresentModeKHR ToVkPresentMode(const PresentMode mode) noexcept
     }
 }
 
-bool operator==(const VkSurfaceFormatKHR& lhs, const VkSurfaceFormatKHR& rhs) noexcept
+static bool operator==(const VkSurfaceFormatKHR& lhs, const VkSurfaceFormatKHR& rhs) noexcept
 {
     return (lhs.format == rhs.format) && (lhs.colorSpace == rhs.colorSpace);
 }
 
-bool operator==(const VkSurfaceFormat2KHR& vkSurfaceFormat, const AppSurfaceFormat& appSurfaceFormat) noexcept
+static bool operator==(const VkSurfaceFormat2KHR& vkSurfaceFormat, const AppSurfaceFormat& appSurfaceFormat) noexcept
 {
     const VkFormat appVkFormat = ToVkFormat(appSurfaceFormat.Format);
     const VkColorSpaceKHR appColorSpace = ToVkColorSpace(appSurfaceFormat.Space);
@@ -327,22 +337,20 @@ VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& re
     return FindBestFormat();
 }
 
-SwapchainImpl::SwapchainImpl(const SwapchainCreateInfo& createInfo) :
-    ParentDevice(VK_NULL_HANDLE),
-    VulkanFormat(VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_MAX_ENUM_KHR),
+SwapchainImpl::SwapchainImpl(const SwapchainCreateInfo& create_info) :
+    CreateInfo{ create_info },
+    ParentDevice{ VK_NULL_HANDLE },
     AppFormat{},
-    Extent({ 0, 0 }),
-    MinImageCount(createInfo.MinImageCount),
-    ImageCount(0),
-    Images(),
-    ImageViews(),
-    PresentMode(VK_PRESENT_MODE_FIFO_KHR),
-    Swapchain(VK_NULL_HANDLE),
-    OldSwapchain(VK_NULL_HANDLE)
+    VulkanFormat{ .format = VK_FORMAT_UNDEFINED, .colorSpace = VK_COLOR_SPACE_MAX_ENUM_KHR },
+    Extent{ .width=0, .height=0 },
+    MinImageCount{ create_info.MinImageCount },
+    ImageCount{ 0 },
+    PresentMode{ VK_PRESENT_MODE_FIFO_KHR },
+    Swapchain{ VK_NULL_HANDLE }
 {
-    rhi::Device* device = reinterpret_cast<rhi::Device*>(createInfo.RhiDevice);
+    rhi::Device* device = reinterpret_cast<rhi::Device*>(create_info.RhiDevice);
     ParentDevice = device->Handle().As<VkDevice>();
-    Create(createInfo);
+    Create(create_info);
 }
 
 SwapchainImpl::~SwapchainImpl()
@@ -351,15 +359,16 @@ SwapchainImpl::~SwapchainImpl()
 }
 
 
-VkSwapchainCreateInfoKHR SwapchainImpl::GetCreateInfo(const SwapchainCreateInfo& createInfo) const noexcept
+VkSwapchainCreateInfoKHR SwapchainImpl::getCreateInfo(const SwapchainCreateInfo& create_info,
+                                                      VkSwapchainKHR old_swapchain) const noexcept
 {
     VkSwapchainCreateInfoKHR swapchainCreateInfo;
     swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     swapchainCreateInfo.pNext = nullptr;
     swapchainCreateInfo.flags = 0;
 
-    swapchainCreateInfo.surface = reinterpret_cast<VkSurfaceKHR>(createInfo.VkSurfaceHandle);
-    swapchainCreateInfo.minImageCount = createInfo.MinImageCount;
+    swapchainCreateInfo.surface = reinterpret_cast<VkSurfaceKHR>(create_info.VkSurfaceHandle);
+    swapchainCreateInfo.minImageCount = MinImageCount;
     swapchainCreateInfo.imageFormat = VulkanFormat.format;
     swapchainCreateInfo.imageColorSpace = VulkanFormat.colorSpace;
     swapchainCreateInfo.imageExtent = Extent;
@@ -371,35 +380,81 @@ VkSwapchainCreateInfoKHR SwapchainImpl::GetCreateInfo(const SwapchainCreateInfo&
     swapchainCreateInfo.pQueueFamilyIndices = nullptr;
     swapchainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR; // no pre-transform
     swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // ignore alpha channel, for now - no blending with other windows or layers
-    swapchainCreateInfo.presentMode = ToVkPresentMode(createInfo.SwapchainPresentMode);
+    swapchainCreateInfo.presentMode = ToVkPresentMode(create_info.SwapchainPresentMode);
     swapchainCreateInfo.clipped = VK_TRUE; // expected default, we should hopefully never change this
-    swapchainCreateInfo.oldSwapchain = OldSwapchain;
+    swapchainCreateInfo.oldSwapchain = old_swapchain;
 
     // this will need to be adjusted if we ever start setting pointer parameters....
     assert(swapchainCreateInfo.pNext == nullptr && (swapchainCreateInfo.pQueueFamilyIndices == nullptr));
     return swapchainCreateInfo;
 }
 
-void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
+void SwapchainImpl::Create(const SwapchainCreateInfo& create_info)
 {
-    rhi::Device* device = reinterpret_cast<rhi::Device*>(createInfo.RhiDevice);
-    VkPhysicalDevice physicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
-    VkSurfaceKHR surface = reinterpret_cast<VkSurfaceKHR>(createInfo.VkSurfaceHandle);
+    querySurface(create_info);
+    chooseSurfaceFormat(create_info);
+    Extent = chooseExtent(create_info);
+    if (Extent.width == 0u || Extent.height == 0u)
+    {
+        throw std::runtime_error("Cannot create a swapchain for a surface with no area: is the window minimized?");
+    }
+    MinImageCount = chooseMinImageCount(create_info);
+    createSwapchainHandle(create_info, VK_NULL_HANDLE);
+    setHdrMetadata(create_info);
+    createSwapchainImages();
+    createSwapchainImageViews();
+}
 
+SwapchainRecreateResult SwapchainImpl::Recreate(const SwapchainCreateInfo& create_info)
+{
+    querySurface(create_info);
+    const VkExtent2D newExtent = chooseExtent(create_info);
+    if (newExtent.width == 0u || newExtent.height == 0u)
+    {
+        return SwapchainRecreateResult::SurfaceHasZeroArea;
+    }
+
+    // oldSwapchain must belong to the same surface
+    const bool sameSurface = create_info.VkSurfaceHandle == CreateInfo.VkSurfaceHandle;
+    CreateInfo = create_info;
+    chooseSurfaceFormat(create_info);
+    Extent = newExtent;
+    MinImageCount = chooseMinImageCount(create_info);
+
+    // the old swapchain lives until the new one exists, so that the presentation engine can hand its resources over
+    destroySwapchainImageViews();
+    const VkSwapchainKHR oldSwapchain = Swapchain;
+    createSwapchainHandle(create_info, sameSurface ? oldSwapchain : VK_NULL_HANDLE);
+    vkDestroySwapchainKHR(ParentDevice, oldSwapchain, nullptr);
+
+    setHdrMetadata(create_info);
+    createSwapchainImages();
+    createSwapchainImageViews();
+    return SwapchainRecreateResult::Success;
+}
+
+void SwapchainImpl::querySurface(const SwapchainCreateInfo& create_info)
+{
+    const rhi::Device* device = reinterpret_cast<const rhi::Device*>(create_info.RhiDevice);
+    const VkPhysicalDevice physicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
+    const VkSurfaceKHR surface = reinterpret_cast<VkSurfaceKHR>(create_info.VkSurfaceHandle);
     Info = std::make_unique<SwapchainInfo>(physicalDevice, surface);
+}
 
+void SwapchainImpl::chooseSurfaceFormat(const SwapchainCreateInfo& create_info)
+{
     // recall that VkSurfaceFormatKHR has two members: VkFormat format and VkColorSpaceKHR colorSpace, so that we're aware of both.
     // We'll need the former to set the swapchain image format, and the latter to inform the rendering pipeline and tonemapper about the color space in use.
     
     // Check if user specified a specific format, if so try to find closest match
-    if (createInfo.SwapchainFormat.ComponentFormat != ImageComponentFormats::Invalid)
+    if (create_info.SwapchainFormat.ComponentFormat != ImageComponentFormats::Invalid)
     {
         // User requested a specific format, try to find the closest match
-        VkColorSpaceKHR preferredColorSpace = ToVkColorSpace(createInfo.DesiredColorSpace);
+        VkColorSpaceKHR preferredColorSpace = ToVkColorSpace(create_info.DesiredColorSpace);
         
         VkSurfaceFormatKHR requestedFormat
         {
-            ToVkFormat(createInfo.SwapchainFormat),
+            ToVkFormat(create_info.SwapchainFormat),
             preferredColorSpace
         };
         
@@ -410,30 +465,62 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
         // No specific format requested, use our scoring heuristic to find the best one
         VulkanFormat = Info->FindBestFormat();
     }
-    
-    // get info about extents and dimensions from the platform system, since that chooses the primary display for us
-    assert(createInfo.PlatformSystemPtr != nullptr && "PlatformSystemPtr must be set in SwapchainCreateInfo");
-    const PlatformWindowSystem* platformSystem = reinterpret_cast<const PlatformWindowSystem*>(createInfo.PlatformSystemPtr);
-    DisplayInfo displayInfo = platformSystem->GetActiveDisplayInfo();
-    // need to add retrieval based on display index later, when we support multiple monitors and use this code more to drive implementation better
-    Extent.width = displayInfo.Width;
-    Extent.height = displayInfo.Height;
+}
 
-    // internal parameters set, retrieve create info using said parameters now
-    const VkSwapchainCreateInfoKHR swapchainCreateInfo = GetCreateInfo(createInfo);
+VkExtent2D SwapchainImpl::chooseExtent(const SwapchainCreateInfo& create_info) const noexcept
+{
+    // the extent used to come from the active display info, which is the whole screen on the JSON path. The
+    // surface knows the real size of the window
+    const VkSurfaceCapabilitiesKHR& capabilities = Info->capabilities.surfaceCapabilities;
+    constexpr uint32_t surfaceTakesSwapchainExtent = std::numeric_limits<uint32_t>::max();
+    if (capabilities.currentExtent.width != surfaceTakesSwapchainExtent)
+    {
+        return capabilities.currentExtent;
+    }
 
-    VkResult result = vkCreateSwapchainKHR(ParentDevice, &swapchainCreateInfo, nullptr, &Swapchain);
+    int framebufferWidth = 0;
+    int framebufferHeight = 0;
+    glfwGetFramebufferSize(static_cast<GLFWwindow*>(create_info.PlatformWindowHandle), &framebufferWidth, &framebufferHeight);
+    const uint32_t clampedWidth = std::clamp(static_cast<uint32_t>(framebufferWidth), capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+    const uint32_t clampedHeight = std::clamp(static_cast<uint32_t>(framebufferHeight), capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+    return VkExtent2D{ clampedWidth, clampedHeight };
+}
+
+uint32_t SwapchainImpl::chooseMinImageCount(const SwapchainCreateInfo& create_info) const noexcept
+{
+    const VkSurfaceCapabilitiesKHR& capabilities = Info->capabilities.surfaceCapabilities;
+    const uint32_t atLeastSurfaceMinimum = std::max(create_info.MinImageCount, capabilities.minImageCount);
+    // a maximum of 0 means the surface sets no limit
+    if (capabilities.maxImageCount == 0u)
+    {
+        return atLeastSurfaceMinimum;
+    }
+    return std::min(atLeastSurfaceMinimum, capabilities.maxImageCount);
+}
+
+void SwapchainImpl::createSwapchainHandle(const SwapchainCreateInfo& create_info, VkSwapchainKHR old_swapchain)
+{
+    const VkSwapchainCreateInfoKHR swapchainCreateInfo = getCreateInfo(create_info, old_swapchain);
+    const VkResult result = vkCreateSwapchainKHR(ParentDevice, &swapchainCreateInfo, nullptr, &Swapchain);
     if (result != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create swapchain!");
     }
-    
-    
+    PresentMode = swapchainCreateInfo.presentMode;
+}
+
+void SwapchainImpl::setHdrMetadata(const SwapchainCreateInfo& create_info)
+{
+    const rhi::Device* device = reinterpret_cast<const rhi::Device*>(create_info.RhiDevice);
+    assert(create_info.PlatformSystemPtr != nullptr && "PlatformSystemPtr must be set in SwapchainCreateInfo");
+    const PlatformWindowSystem* platformSystem = reinterpret_cast<const PlatformWindowSystem*>(create_info.PlatformSystemPtr);
+    const DisplayInfo& displayInfo = platformSystem->GetActiveDisplayInfo();
+
     if (device->HasExtension(VK_EXT_HDR_METADATA_EXTENSION_NAME))
     {
         // if HDR meatadata extension is supported, we can set HDR metadata on the swapchain if we're using an HDR format
         bool isHDRFormat = false;
-        switch (VulkanFormat.format)
+        switch (ToVkFormat(create_info.SwapchainFormat))
         {
             case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
             case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
@@ -465,8 +552,9 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
             hdrMetadata.maxFrameAverageLightLevel = displayInfo.ColorCapabilities.MaxAverageLuminance;
 
             // get function pointer for vkSetHdrMetadataEXT
-            auto vkSetHdrMetadataEXT = (PFN_vkSetHdrMetadataEXT)vkGetDeviceProcAddr(ParentDevice, "vkSetHdrMetadataEXT");
-            if (vkSetHdrMetadataEXT)
+            auto vkSetHdrMetadataEXT =
+                reinterpret_cast<PFN_vkSetHdrMetadataEXT>(vkGetDeviceProcAddr(ParentDevice, "vkSetHdrMetadataEXT"));
+            if (vkSetHdrMetadataEXT != nullptr)
             {
                 vkSetHdrMetadataEXT(ParentDevice, 1, &Swapchain, &hdrMetadata);
             }
@@ -476,44 +564,32 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& createInfo)
             }
         }
     }
-
-
-    CreateSwapchainImages();
-    CreateSwapchainImageViews();
 }
 
 void SwapchainImpl::Destroy()
 {
-    
-    for (auto imageView : ImageViews)
-    {
-        if (imageView != VK_NULL_HANDLE)
-        {
-            vkDestroyImageView(ParentDevice, imageView, nullptr);
-        }
-    }
-
-    ImageViews.clear();
-
-    for (auto image : Images)
-    {
-        image = VK_NULL_HANDLE; // images are owned by the swapchain, so we don't destroy them directly
-    }
-
-    Images.clear();
-    ImageCount = 0;
+    destroySwapchainImageViews();
 
     if (Swapchain != VK_NULL_HANDLE)
     {
-        // persist old handle in case this is a recreation call
-        OldSwapchain = Swapchain;
         vkDestroySwapchainKHR(ParentDevice, Swapchain, nullptr);
         Swapchain = VK_NULL_HANDLE;
     }
-
 }
 
-void SwapchainImpl::CreateSwapchainImages()
+void SwapchainImpl::destroySwapchainImageViews()
+{
+    for (VkImageView imageView : ImageViews)
+    {
+        vkDestroyImageView(ParentDevice, imageView, nullptr);
+    }
+    ImageViews.clear();
+    // images are owned by the swapchain, so we don't destroy them directly
+    Images.clear();
+    ImageCount = 0;
+}
+
+void SwapchainImpl::createSwapchainImages()
 {
     // Retrieve the swapchain images
     uint32_t imageCount = 0;
@@ -524,7 +600,7 @@ void SwapchainImpl::CreateSwapchainImages()
     assert(ImageCount >= MinImageCount); // should never hit this because we did set this during construction
 }
 
-void SwapchainImpl::CreateSwapchainImageViews()
+void SwapchainImpl::createSwapchainImageViews()
 {
     ImageViews.resize(ImageCount);
 
@@ -551,19 +627,3 @@ void SwapchainImpl::CreateSwapchainImageViews()
         }
     }
 }
-
-#pragma warning(push)
-#pragma warning(disable: 4302)
-#pragma warning(disable: 4311)
-void RecreateSwapchain(const Events::SwapchainRecreateEventData& event, void* userData)
-{
-    int width = 0;
-    int height = 0;
-
-    while (width == 0 || height == 0)
-    {
-        glfwGetFramebufferSize(reinterpret_cast<GLFWwindow*>(event.WindowHandle), &width, &height);
-        glfwWaitEvents();
-    }
-}
-#pragma warning(pop)
