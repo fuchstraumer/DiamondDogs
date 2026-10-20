@@ -9,6 +9,8 @@ ResourceContext::ResourceContext()
 
 ResourceContext::~ResourceContext()
 {
+    // fixed: the destructor did nothing, so the worker threads were still joinable when impl was destroyed (std::terminate)
+    impl->destroy();
 }
 
 void ResourceContext::Initialize(const ResourceContextCreateInfo& createInfo)
@@ -17,27 +19,18 @@ void ResourceContext::Initialize(const ResourceContextCreateInfo& createInfo)
 }
 
 std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
-    const VkBufferCreateInfo& createInfo,
-    const VkBufferViewCreateInfo* viewCreateInfo,
-    const RhiBufferResourceData* initialData,
-    size_t numData,
-    resource_usage resourceUsage,
-    resource_creation_flags flags,
-    void* userData)
+    const BufferCreateInfo& createInfo,
+    std::span<const RhiBufferResourceData> initialData)
 {
     CreateBufferMessage message;
-    resource_type resourceType = resource_type::Buffer;
     message.bufferInfo = createInfo;
-    message.viewInfo = viewCreateInfo ? std::optional<VkBufferViewCreateInfo>(*viewCreateInfo) : std::nullopt;
-    if (numData > 0)
+    if (!initialData.empty())
     {
-        message.initialData = InternalResourceDataContainer(numData, initialData);
+        message.initialData = InternalResourceDataContainer(initialData);
     }
 
-    message.resourceUsage = resourceUsage;
-    message.flags = flags;
-    message.userData = userData;
-    message.reply = std::make_shared<GraphicsResourceReply>(resource_type::Buffer);
+    // replies that may reach the transfer system own a timeline semaphore, which the transfer signals
+    message.reply = std::make_shared<GraphicsResourceReply>(createInfo.Domain, ResourceType::Buffer, impl->Device());
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -46,26 +39,18 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
 }
 
 std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateImage(
-    const VkImageCreateInfo& createInfo,
-    const VkImageViewCreateInfo* viewCreateInfo,
-    const RhiImageResourceData* initialData,
-    size_t numData,
-    resource_usage resourceUsage,
-    resource_creation_flags flags,
-    void* userData) 
+    const ImageCreateInfo& createInfo,
+    std::span<const RhiImageResourceData> initialData)
 {
     CreateImageMessage message;
     message.imageInfo = createInfo;
-    message.viewInfo = viewCreateInfo ? std::optional<VkImageViewCreateInfo>(*viewCreateInfo) : std::nullopt;
-    if (numData > 0)
+    if (!initialData.empty())
     {
-        message.initialData = InternalResourceDataContainer(numData, initialData);
+        message.initialData = InternalResourceDataContainer(initialData);
     }
 
-    message.resourceUsage = resourceUsage;
-    message.flags = flags;
-    message.userData = userData;
-    message.reply = std::make_shared<GraphicsResourceReply>(resource_type::Image);
+    const ResourceType resourceType = createInfo.SamplerInfo.has_value() ? ResourceType::CombinedImageSampler : ResourceType::Image;
+    message.reply = std::make_shared<GraphicsResourceReply>(createInfo.Domain, resourceType, impl->Device());
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -74,13 +59,13 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateImage(
 }
 
 std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateSampler(
-    const VkSamplerCreateInfo& createInfo,
+    const SamplerCreateInfo& createInfo,
     void* userData)
 {
     CreateSamplerMessage message;
     message.samplerInfo = createInfo;
     message.userData = userData;
-    message.reply = std::make_shared<GraphicsResourceReply>(resource_type::Sampler);
+    message.reply = std::make_shared<GraphicsResourceReply>(ResourceDomain::GPUOnly, ResourceType::Sampler);
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -90,11 +75,10 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateSampler(
 
 std::shared_ptr<ResourceTransferReply> ResourceContext::SetBufferData(
     GraphicsResource buffer,
-    const RhiBufferResourceData* data,
-    size_t numData)
+    std::span<const RhiBufferResourceData> data)
 {
-    SetBufferDataMessage message(buffer, numData, data);
-    message.reply = std::make_shared<ResourceTransferReply>();
+    SetBufferDataMessage message(buffer, data);
+    message.reply = std::make_shared<ResourceTransferReply>(impl->Device());
     std::shared_ptr<ResourceTransferReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -104,11 +88,10 @@ std::shared_ptr<ResourceTransferReply> ResourceContext::SetBufferData(
 
 std::shared_ptr<ResourceTransferReply> ResourceContext::SetImageData(
     GraphicsResource image,
-    const RhiImageResourceData* data,
-    size_t numData)
-{   
-    SetImageDataMessage message(image, numData, data);
-    message.reply = std::make_shared<ResourceTransferReply>();
+    std::span<const RhiImageResourceData> data)
+{
+    SetImageDataMessage message(image, data);
+    message.reply = std::make_shared<ResourceTransferReply>(impl->Device());
     std::shared_ptr<ResourceTransferReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -121,13 +104,13 @@ std::shared_ptr<ResourceTransferReply> ResourceContext::FillBuffer(
     uint32_t value,
     size_t offset,
     size_t size)
-{   
+{
     FillResourceMessage message;
     message.resource = buffer;
     message.value = value;
     message.offset = offset;
     message.size = size;
-    message.reply = std::make_shared<ResourceTransferReply>();
+    message.reply = std::make_shared<ResourceTransferReply>(impl->Device());
     std::shared_ptr<ResourceTransferReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -176,7 +159,21 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CopyBuffer(
     CopyResourceMessage message;
     message.sourceResource = src;
     message.copyContents = copyContents;
-    message.reply = std::make_shared<GraphicsResourceReply>(resource_type::Buffer);
+    message.reply = std::make_shared<GraphicsResourceReply>(src.Domain, ResourceType::Buffer, impl->Device());
+    std::shared_ptr<GraphicsResourceReply> reply = message.reply;
+
+    impl->pushMessage(std::move(message));
+
+    return reply;
+}
+
+std::shared_ptr<GraphicsResourceReply> ResourceContext::CopyImage(GraphicsResource srcImage)
+{
+    // fixed: declared, never defined
+    CopyResourceMessage message;
+    message.sourceResource = srcImage;
+    message.copyContents = true;
+    message.reply = std::make_shared<GraphicsResourceReply>(srcImage.Domain, srcImage.Type, impl->Device());
     std::shared_ptr<GraphicsResourceReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));
@@ -191,7 +188,7 @@ std::shared_ptr<ResourceTransferReply> ResourceContext::CopyBufferContents(
     CopyResourceContentsMessage message;
     message.sourceResource = src;
     message.destinationResource = dst;
-    message.reply = std::make_shared<ResourceTransferReply>();
+    message.reply = std::make_shared<ResourceTransferReply>(impl->Device());
     std::shared_ptr<ResourceTransferReply> reply = message.reply;
 
     impl->pushMessage(std::move(message));

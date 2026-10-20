@@ -1,11 +1,17 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RESOURCE_CONTEXT_HPP
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_HPP
-#include "ForwardDecl.hpp"
 #include "ResourceTypes.hpp"
 #include "ResourceMessageReply.hpp"
-#include <vulkan/vulkan.h>
+#include <cstdint>
 #include <memory>
+#include <span>
+
+namespace rhi
+{
+    class Device;
+    class Instance;
+}
 
 /**
  * @brief Configuration structure for initializing a ResourceContext
@@ -14,9 +20,10 @@
  */
 struct ResourceContextCreateInfo
 {
-    vpr::Device* logicalDevice;        ///< The Vulkan logical device to use for resource operations
-    vpr::PhysicalDevice* physicalDevice; ///< The Vulkan physical device for memory allocation
-    bool validationEnabled;            ///< Whether Vulkan validation layers are enabled
+    const rhi::Instance* Instance{ nullptr };   ///< The instance that created Device, used to create the allocator
+    const rhi::Device* Device{ nullptr };       ///< The logical device to use for resource operations
+    uint32_t VulkanApiVersion{ 0u };            ///< The packed API version the instance was created with (RhiSystem::GetVulkanApiVersion)
+    bool ValidationEnabled{ false };            ///< Whether Vulkan validation layers are enabled
 };
 
 /// Semaphore value used to signal when transfer operations are complete
@@ -64,59 +71,43 @@ public:
     void Initialize(const ResourceContextCreateInfo& createInfo);
 
     /**
-     * @brief Create a Vulkan buffer with optional buffer view and initial data. If initialData
-     * is provided, the buffer will be created in a transferring state and will not be complete
-     * until this is finished. Additionally, buffer views are only created if viewCreateInfo is provided.
-     * 
-     * @param createInfo Vulkan buffer creation parameters
-     * @param viewCreateInfo Optional buffer view creation parameters (can be nullptr)
-     * @param initialData Optional array of initial data to upload to the buffer
-     * @param numData Number of elements in the initialData array
-     * @param resourceUsage Memory usage pattern for the buffer (GPU/CPU accessibility)
-     * @param flags Additional creation flags controlling behavior
-     * @param userData Optional user data pointer associated with this resource
+     * @brief Create a buffer, with a buffer view when `createInfo.ViewFormat` is set. If initialData is provided,
+     * the buffer is created in a transferring state and is not complete until the upload finishes. Host-visible
+     * buffers are written directly; device-local buffers go through the transfer system.
+     *
+     * @param createInfo Domain, usage, size and creation flags. `UserData` is the name string when the flags
+     * contain `UserDataAsNameString`.
+     * @param initialData Initial data regions, written one after another from offset 0. Empty for none.
      * @return Shared pointer to reply object for tracking creation progress
      */
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateBuffer(
         const BufferCreateInfo& createInfo,
-        const RhiBufferResourceData* initialData = nullptr,
-        size_t numData = 0,
-        void* userData = nullptr);
+        std::span<const RhiBufferResourceData> initialData);
 
     /**
-     * @brief Create a Vulkan image with optional image view and initial data.
-     * Image views are only created if viewCreateInfo is provided, and layout transitions
-     * will also be handled automatically if initialData is provided.
-     * 
-     * @param createInfo Vulkan image creation parameters
-     * @param viewCreateInfo Optional image view creation parameters (can be nullptr)
-     * @param initialData Optional array of initial data to upload to the image
-     * @param numData Number of elements in the initialData array
-     * @param resourceUsage Memory usage pattern for the image (GPU/CPU accessibility)
-     * @param flags Additional creation flags controlling behavior
-     * @param userData Optional user data pointer associated with this resource
+     * @brief Create an image, with a view when `createInfo.ViewInfo` is set and a sampler when
+     * `createInfo.SamplerInfo` is set (the resource type is then CombinedImageSampler). With initialData, the
+     * transfer system uploads the data and moves the image to the layout that its usage asks for.
+     *
+     * @param createInfo Domain, usage, format, extent and optional view and sampler
+     * @param initialData Initial data, one element per mip level and array layer range. Empty for none.
      * @return Shared pointer to reply object for tracking creation progress
      */
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateImage(
-        const VkImageCreateInfo& createInfo,
-        const VkImageViewCreateInfo* viewCreateInfo = nullptr,
-        const RhiImageResourceData* initialData = nullptr,
-        size_t numData = 0,
-        resource_usage resourceUsage = resource_usage::GPUOnly,
-        resource_creation_flags flags = 0,
-        void* userData = nullptr);
+        const ImageCreateInfo& createInfo,
+        std::span<const RhiImageResourceData> initialData);
 
     /**
-     * @brief Create a Vulkan sampler
-     * 
-     * @param createInfo Vulkan sampler creation parameters
+     * @brief Create a sampler
+     *
+     * @param createInfo Sampler creation parameters
      * @param userData Optional user data pointer associated with this resource
      * @return Shared pointer to reply object for tracking creation progress
-     * 
+     *
      * @note Sampler creation is typically fast as it doesn't involve memory allocation
      */
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateSampler(
-        const VkSamplerCreateInfo& createInfo,
+        const SamplerCreateInfo& createInfo,
         void* userData = nullptr);
 
     /**
@@ -126,28 +117,24 @@ public:
      * uploaded in a single operation.
      * 
      * @param buffer The target buffer resource to update
-     * @param data Array of data structures containing the data to upload
-     * @param numData Number of elements in the data array
+     * @param data The data regions to upload
      * @return Shared pointer to reply object for tracking transfer progress
      */
     [[nodiscard]] std::shared_ptr<ResourceTransferReply> SetBufferData(
         GraphicsResource buffer,
-        const RhiBufferResourceData* data,
-        size_t numData);
+        std::span<const RhiBufferResourceData> data);
 
     /**
      * @brief Upload data to an existing image, including specific mip levels and array layers.
      * Uses staging buffers and performs layout transitions as needed.
      * 
      * @param image The target image resource to update
-     * @param data Array of image data structures containing the data to upload
-     * @param numData Number of elements in the data array
+     * @param data The data regions to upload
      * @return Shared pointer to reply object for tracking transfer progress
      */
     [[nodiscard]] std::shared_ptr<ResourceTransferReply> SetImageData(
         GraphicsResource image,
-        const RhiImageResourceData* data,
-        size_t numData);
+        std::span<const RhiImageResourceData> data);
         
     /**
      * @brief Fill a buffer region with a repeating 32-bit value
