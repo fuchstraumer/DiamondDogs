@@ -384,8 +384,9 @@ namespace
             return std::nullopt;
         }
 
-        // note that after this point, we know the two usages are at least asymmetric. we will then find the layouts, and depending on how that returns
-        // (which can change based on version) we know if we need to execute the layout transition
+        // note that after this point, we know the two usages are at least asymmetric. we will then find the
+        // layouts, and depending on how that returns (which can change based on version) we know if we need
+        // to execute the layout transition
         VkImageLayout before_layout = ImageLayoutFromUsageBits(before);
         VkImageLayout after_layout = ImageLayoutFromUsageBits(after);
 
@@ -407,6 +408,7 @@ namespace
     std::optional<VkImageMemoryBarrier2> MakeLayoutTransitionBarrier(const ImageBarrierInfo& barrier) noexcept
     {
         std::optional<ImageLayouts> layouts = GetImageLayouts(barrier.BeforeUsage, barrier.AfterUsage);
+        
         if (!layouts.has_value())
         {
             return std::nullopt;
@@ -432,6 +434,7 @@ namespace
             barrier.Range.BaseArrayLayer,
             barrier.Range.LayerCount,
         };
+
         return imageBarrier;
     }
 
