@@ -15,6 +15,7 @@
 #include "ResourceMessageReply.hpp"
 #include "ResourceTypes.hpp"
 #include "SceneCommands.hpp"
+#include "SeaState.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
@@ -54,8 +55,6 @@ namespace
     constexpr std::string_view k_RenderModule{ "OceanRender" };
     constexpr std::array<std::string_view, 2> k_SurfaceEntryPoints{ "OceanSurfaceVS", "OceanSurfaceFS" };
     constexpr std::array<std::string_view, 2> k_SeabedEntryPoints{ "SeabedVS", "SeabedFS" };
-    // the seabed reaches past the surface patch, so its edge is not right under the camera
-    constexpr float k_SeabedSize = 2048.0f;
     // hardware MSAA for the ocean pass: lower when the device supports less (a render setting, eventually)
     constexpr uint32_t k_MaxMsaaSamples = 8u;
 
@@ -67,8 +66,9 @@ namespace
         std::array<float, 4> LengthScales{};
         std::array<float, 4> CascadeWeights{};
         std::array<float, 4> SunDirectionSeabedDepth{};
+        std::array<float, 4> LodParameters{};
     };
-    static_assert(sizeof(OceanViewParameters) == 128u);
+    static_assert(sizeof(OceanViewParameters) == 144u);
 
     // OceanGridParameters, the push constants of both vertex stages
     struct OceanGridParameters
@@ -77,6 +77,8 @@ namespace
         float OriginZ{ 0.0f };
         float Size{ 0.0f };
         uint32_t Resolution{ 1u };
+        uint32_t Ring{ 0u };
+        uint32_t OuterResolution{ 1u };
     };
 
     constexpr float k_DegreesToRadians = std::numbers::pi_v<float> / 180.0f;
@@ -124,6 +126,10 @@ OceanScene::OceanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platfor
     spectrum{ _settings.Simulation.Spectrum },
     choppiness{ _settings.Simulation.Choppiness }
 {
+    // the simulation starts from the sea state, not from the raw spectrum defaults
+    applySeaState();
+    settings.Simulation.Spectrum = spectrum;
+
     camera.Current.Distance = 0.6f * settings.GridSize;
 
     if (settings.InitialCamera.has_value())
@@ -474,6 +480,13 @@ void OceanScene::runCommand(const SceneCommand& command)
     }
 }
 
+void OceanScene::applySeaState()
+{
+    const ocean::SeaStateResult result = ocean::ApplySeaState(seaState, spectrum);
+    spectrum = result.Spectrum;
+    seaReadout = result.Readout;
+}
+
 void OceanScene::drawPanel()
 {
     ImGui::Begin("Ocean");
@@ -482,28 +495,76 @@ void OceanScene::drawPanel()
     ImGui::Text("IFFT %s %u, %s", simulationSettings.Kernel == ocean::IfftKernel::Radix2 ? "radix-2" : "radix-4", simulationSettings.Size,
         simulationSettings.WaveSize == 0u ? "no wave ops" : std::format("wave {}, full subgroups", simulationSettings.WaveSize).c_str());
 
-    if (ImGui::CollapsingHeader("Spectrum", ImGuiTreeNodeFlags_DefaultOpen))
+    // every change runs the sea state pipe and recomputes the initial spectrum (cheap, but it waits for the device)
+    bool seaStateChanged = false;
+    if (ImGui::CollapsingHeader("Sea state", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        // every change recomputes the initial spectrum (cheap, but it waits for the device)
-        spectrumChanged |= ImGui::SliderFloat("Wind speed (m/s)", &spectrum.WindSpeed, 0.5f, 30.0f);
-        spectrumChanged |= ImGui::SliderFloat("Fetch (km)", &spectrum.Fetch, 0.5f, 500.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
-        spectrumChanged |= ImGui::SliderAngle("Wind direction", &spectrum.LocalWindDirection, -180.0f, 180.0f);
-        spectrumChanged |= ImGui::SliderFloat("Swell", &spectrum.SwellAmount, 0.0f, 1.0f);
-        spectrumChanged |= ImGui::SliderFloat("Alignment", &spectrum.Alignment, 0.0f, 1.0f);
-        spectrumChanged |= ImGui::SliderFloat("Peaking (gamma)", &spectrum.PeakingFactor, 1.0f, 7.0f);
-        spectrumChanged |= ImGui::SliderFloat("Short wave fade (m)", &spectrum.FadeLength, 0.0f, 0.1f);
-        spectrumChanged |= ImGui::SliderFloat("Depth (m)", &spectrum.Depth, 1.0f, 500.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+        for (const ocean::SeaStatePreset& preset : ocean::SeaStatePresets())
+        {
+            if (ImGui::SmallButton(std::string{ preset.Name }.c_str()))
+            {
+                seaState = preset.State;
+                seaStateChanged = true;
+            }
+
+            ImGui::SameLine();
+        }
+
+        ImGui::NewLine();
+        ImGui::Text("Hs %.2f m (sea %.2f, swell %.2f), %.1f s, %.0f m waves", seaReadout.SignificantHeight, seaReadout.WindSeaHeight,
+            seaReadout.SwellHeight, seaReadout.PeakPeriod, seaReadout.PeakWavelength);
+
+        seaStateChanged |= ImGui::SliderFloat("Wind force", &seaState.WindForce, 0.0f, 12.0f, std::format("Beaufort %.1f, {}", seaReadout.BeaufortName).c_str());
+        ImGui::SetItemTooltip("%.1f m/s", seaReadout.WindSpeed);
+        seaStateChanged |= ImGui::SliderFloat("Open water", &seaState.Openness, 0.0f, 1.0f, "%.2f");
+        ImGui::SetItemTooltip("0: sheltered, 5 km of fetch. 1: open ocean, a fully developed sea");
+        seaStateChanged |= ImGui::SliderFloat("Wind direction", &seaState.WindDirection, -180.0f, 180.0f, "%.0f deg");
+        seaStateChanged |= ImGui::SliderFloat("Spread", &seaState.Spread, 0.0f, 1.0f, "%.2f");
+        ImGui::SetItemTooltip("0: waves line up with the wind. 1: a confused sea");
+        seaStateChanged |= ImGui::SliderFloat("Regularity", &seaState.Regularity, 0.0f, 1.0f, "%.2f");
+        ImGui::SetItemTooltip("0: broad, confused wave lengths. 1: clean, regular wave groups");
+        seaStateChanged |= ImGui::SliderFloat("Ripple detail", &seaState.RippleDetail, 0.0f, 1.0f, "%.2f");
+        seaStateChanged |= ImGui::SliderFloat("Water depth", &seaState.Depth, 2.0f, 500.0f, "%.0f m", ImGuiSliderFlags_Logarithmic);
+
+        ImGui::SeparatorText("Swell");
+        seaStateChanged |= ImGui::SliderFloat("Swell height", &seaState.SwellHeight, 0.0f, 6.0f, "%.2f m");
+        seaStateChanged |= ImGui::SliderFloat("Swell period", &seaState.SwellPeriod, 5.0f, 20.0f, std::format("%.1f s, {:.0f} m", seaReadout.SwellWavelength).c_str());
+        seaStateChanged |= ImGui::SliderFloat("Swell direction", &seaState.SwellDirection, -180.0f, 180.0f, "%.0f deg");
+        seaStateChanged |= ImGui::SliderFloat("Swell order", &seaState.SwellOrder, 0.0f, 1.0f, "%.2f");
+        ImGui::SetItemTooltip("0: a loose swell. 1: long, parallel, regular crests");
+
+        ImGui::Separator();
+        // 1 is physical; the GodotOceanWaves and Ocean-URP references sit near 2.8
+        seaStateChanged |= ImGui::SliderFloat("Height scale", &seaState.HeightScale, 0.0f, 4.0f, "%.2f x");
+    }
+
+    if (ImGui::CollapsingHeader("Spectrum (physics)"))
+    {
+        // what the sea state became, read-only, plus the two choices the sea state does not own
         int mode = static_cast<int>(spectrum.DirectionalSpreadingMode);
         spectrumChanged |= ImGui::Combo("Spreading", &mode, "Mitsuyasu\0Hasselmann\0Donelan-Banner\0");
         spectrum.DirectionalSpreadingMode = static_cast<uint32_t>(mode);
         int seed = static_cast<int>(spectrum.NoiseSeed);
         spectrumChanged |= ImGui::InputInt("Seed", &seed);
         spectrum.NoiseSeed = static_cast<uint32_t>(seed);
+
+        ImGui::Text("Wind sea: %.1f m/s over %.0f km, gamma %.1f, fade %.3f m", spectrum.WindSpeed, spectrum.Fetch, spectrum.PeakingFactor, spectrum.FadeLength);
+        ImGui::Text("Spreading: alignment %.2f, narrowness %.2f", spectrum.Alignment, spectrum.SwellAmount);
+        ImGui::Text("Swell: %.1f m/s over %.0f km, gamma %.1f, narrowness %.1f, energy x %.3f", spectrum.SwellWindSpeed, spectrum.SwellFetch,
+            spectrum.SwellPeakingFactor, spectrum.SwellSpread, spectrum.SwellScale);
+    }
+
+    if (seaStateChanged)
+    {
+        applySeaState();
+        spectrumChanged = true;
     }
 
     if (ImGui::CollapsingHeader("Surface", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::SliderFloat("Choppiness", &choppiness, 0.0f, 2.0f);
+        // each cascade fades out from this many of its own patch lengths away
+        ImGui::SliderFloat("Detail distance", &lodScale, 1.0f, 60.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
         ImGui::SliderFloat("Time scale", &timeScale, 0.0f, 4.0f);
         ImGui::Checkbox("Paused", &paused);
         for (uint32_t cascade = 0; cascade < ocean::k_CascadeCount; ++cascade)
@@ -577,25 +638,34 @@ void OceanScene::writeViewParameters()
 
     const float cosElevation = std::cos(sunElevation);
     view.SunDirectionSeabedDepth = { std::sin(sunAzimuth) * cosElevation, std::sin(sunElevation), std::cos(sunAzimuth) * cosElevation, seabedDepth };
+    view.LodParameters = { lodScale, 0.0f, 0.0f, 0.0f };
 
     // beginFrame waited on this frame's fence, so the GPU is done with this frame's buffer
     std::memcpy(viewBufferPointers[currentFrame], &view, sizeof(view));
 }
 
-void OceanScene::recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgram& program, float grid_size, uint32_t grid_resolution, bool alpha_blend) const
+uint32_t OceanScene::ringResolution(uint32_t ring) const noexcept
+{
+    // halved per ring, so neighbouring rings are a power of two apart and their edges stitch exactly
+    const uint32_t shifted = ring < 31u ? (settings.GridResolution >> ring) : 0u;
+    return std::max(shifted, settings.GridMinResolution);
+}
+
+void OceanScene::recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgram& program, const std::array<float, 2>& origin, float tile_size,
+                            uint32_t resolution, uint32_t ring, uint32_t outer_resolution, uint32_t instance_count, bool alpha_blend) const
 {
     RhiAssert(command_buffer.BindShaders(program.Program->Program()));
     SetShaderObjectDrawState(command_buffer.Handle().As<VkCommandBuffer>(), ShaderObjectDrawState{ true, true, alpha_blend, VK_CULL_MODE_NONE, msaaSamples });
     const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(program.Sets[currentFrame]) };
     command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Graphics, program.Program->PipelineLayout(), 0, std::span{ &set, 1 });
-    const OceanGridParameters grid{ -0.5f * grid_size, -0.5f * grid_size, grid_size, grid_resolution };
 
+    const OceanGridParameters grid{ origin[0], origin[1], tile_size, resolution, ring, outer_resolution };
     if (const std::optional<rhi::PushConstantRange> range = program.Program->PushConstants(); range.has_value())
     {
         command_buffer.PushConstants(program.Program->PipelineLayout(), range->StageFlags, 0u, std::as_bytes(std::span{ &grid, 1 }));
     }
 
-    command_buffer.Draw(6u * grid_resolution * grid_resolution, 1u, 0u, 0u);
+    command_buffer.Draw(6u * resolution * resolution, instance_count, 0u, 0u);
 }
 
 void OceanScene::recordCommands()
@@ -699,8 +769,28 @@ void OceanScene::recordCommands()
     const rhi::Viewport viewport{ 0.0f, 0.0f, extent.x, extent.y, 0.0f, 1.0f };
     cmd.SetViewports(std::span{ &viewport, 1 });
     cmd.SetScissors(std::span{ &renderingInfo.RenderArea, 1 });
-    recordDraw(cmd, seabed, k_SeabedSize, 1u, false);
-    recordDraw(cmd, surface, settings.GridSize, settings.GridResolution, true);
+
+    // the rings follow the camera a whole tile at a time, so the surface's world-space sampling never moves under it
+    const ArcballCamera::Vector3 cameraPosition = camera.Position();
+    const float tileSize = settings.GridSize;
+    const std::array<float, 2> centerTile
+    {
+        (std::round(cameraPosition[0] / tileSize) - 0.5f) * tileSize,
+        (std::round(cameraPosition[2] / tileSize) - 0.5f) * tileSize
+    };
+
+    // one seabed tile under every ring
+    const float rings = static_cast<float>(settings.GridRings);
+    const float seabedSize = (2.0f * rings + 1.0f) * tileSize;
+    const std::array<float, 2> seabedOrigin{ centerTile[0] - rings * tileSize, centerTile[1] - rings * tileSize };
+    recordDraw(cmd, seabed, seabedOrigin, seabedSize, 1u, 0u, 1u, 1u, false);
+
+    for (uint32_t ring = 0; ring <= settings.GridRings; ++ring)
+    {
+        const uint32_t tiles = ring == 0u ? 1u : 8u * ring;
+        recordDraw(cmd, surface, centerTile, tileSize, ringResolution(ring), ring, ringResolution(ring + 1u), tiles, true);
+    }
+
     cmd.EndRendering();
 
     // ImGui's pipeline was created for a color attachment only, so it gets its own pass, which keeps the ocean's pixels.

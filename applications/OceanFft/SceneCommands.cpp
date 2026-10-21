@@ -213,7 +213,13 @@ std::vector<SceneCommand> SceneCommands::TakeForFrame()
             continue;
         }
 
+        // a capture takes this frame as the commands so far left it, so the ones after it wait for the next frame
+        const bool endsFrame = parsed->Type == SceneCommand::Kind::Capture;
         commands.push_back(std::move(*parsed));
+        if (endsFrame)
+        {
+            break;
+        }
     }
 
     return commands;

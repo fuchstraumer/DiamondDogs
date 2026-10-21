@@ -14,14 +14,20 @@ internal SurfaceSample SampleSurface(float2 surface_xz)
 {
     float2 slope = float2(0.0f);
     float jacobian = 1.0f;
+    const float distance = length(surface_xz - View.CameraPositionTime.xz);
     [unroll]
     for (uint cascade = 0; cascade < OCEAN_CASCADE_COUNT; ++cascade)
     {
-        const float3 uvw = float3(CascadeUv(surface_xz, cascade), float(cascade));
-        const float4 derivatives = Derivatives.Sample(OceanSampler, uvw) * View.CascadeWeights[cascade];
-        // with choppy displacement the surface is (x + Dx, h, z + Dz): divide the height slope by the stretch
-        slope += derivatives.xy / (1.0f + derivatives.zw);
-        jacobian *= lerp(1.0f, Displacement.Sample(OceanSampler, uvw).w, View.CascadeWeights[cascade]);
+        // the same distance fade as the vertex stage, so a cascade's slopes go with its displacement
+        const float weight = CascadeDistanceWeight(cascade, distance);
+        if (weight > 0.0f)
+        {
+            const float3 uvw = float3(CascadeUv(surface_xz, cascade), float(cascade));
+            const float4 derivatives = Derivatives.Sample(OceanSampler, uvw) * weight;
+            // with choppy displacement the surface is (x + Dx, h, z + Dz): divide the height slope by the stretch
+            slope += derivatives.xy / (1.0f + derivatives.zw);
+            jacobian *= lerp(1.0f, Displacement.Sample(OceanSampler, uvw).w, weight);
+        }
     }
     SurfaceSample result;
     result.Normal = normalize(float3(-slope.x, 1.0f, -slope.y));

@@ -40,6 +40,17 @@ namespace ocean
         float SwellDirection{ 0.0f };            // radians
         float FadeLength{ 0.01f };               // m
         float PeakingFactor{ 3.3f };
+        /** @brief Multiplies every wave amplitude. 1 is the physical spectrum; GodotOceanWaves and Ocean-URP both run
+         *  at about 2.8 (docs/ocean-reference-comparison.md, section 1) */
+        float WaveHeightScale{ 1.0f };
+        /** @brief The swell's energy relative to its physical spectrum. 0 turns the swell off. The swell's direction is
+         *  SwellDirection, and it comes from distant wind: SwellWindSpeed over SwellFetch */
+        float SwellScale{ 0.25f };
+        float SwellWindSpeed{ 12.0f };           // m/s
+        float SwellFetch{ 600.0f };              // km: about 11.6 s, 210 m waves at 12 m/s
+        float SwellPeakingFactor{ 7.0f };        // a swell is narrow-banded
+        float SwellSpread{ 2.0f };               // narrows the swell's spreading lobe, like SwellAmount for the wind sea
+        float SwellFadeLength{ 1.0f };           // m: a swell has no short waves
     };
 
     /** @brief CascadeParameters in OceanFftCommon.slang, std140 */
@@ -52,7 +63,7 @@ namespace ocean
         std::array<float, 2> Pad0{};
     };
     static_assert(sizeof(CascadeParameters) == 64u);
-    static_assert(sizeof(SpectrumParameters) == 44u);
+    static_assert(sizeof(SpectrumParameters) == 72u);
 
     enum class IfftKernel : uint8_t
     {
@@ -71,7 +82,7 @@ namespace ocean
          *  the subgroup size the IFFT shaders are created with (full subgroups required). See PickWaveSize. */
         uint32_t WaveSize{ 0u };
         /** @brief The patch size of each cascade, in meters, largest first */
-        std::array<float, k_CascadeCount> LengthScales{ 256.0f, 48.0f, 12.0f, 3.0f };
+        std::array<float, k_CascadeCount> LengthScales{ 1024.0f, 192.0f, 32.0f, 6.0f };
         SpectrumParameters Spectrum{};
         float Choppiness{ 1.0f };
     };

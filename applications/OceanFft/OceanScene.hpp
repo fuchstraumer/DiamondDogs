@@ -4,6 +4,7 @@
 #include "ArcballCamera.hpp"
 #include "FrameCapture.hpp"
 #include "OceanSimulation.hpp"
+#include "SeaState.hpp"
 #include "ResourceTypes.hpp"
 #include "VariantKey.hpp"
 #include "VulkanScene.hpp"
@@ -30,9 +31,13 @@ namespace rhi
 struct OceanSceneSettings
 {
     ocean::OceanSimulationSettings Simulation{};
-    /** @brief The surface grid: Resolution x Resolution quads over Size meters, centered on the origin */
+    /** @brief The surface: tiles of GridSize meters in GridRings rings around the camera's tile. The center tile has
+     *  GridResolution x GridResolution quads; each ring out halves that, down to GridMinResolution (powers of two
+     *  apart, so the rings stitch without cracks) */
     float GridSize{ 256.0f };
     uint32_t GridResolution{ 384u };
+    uint32_t GridRings{ 12u };
+    uint32_t GridMinResolution{ 6u };
     std::optional<ArcballCamera::State> InitialCamera;
     /** @brief Captures go here, from the schedule and from capture commands */
     std::filesystem::path CaptureDirectory{ "captures" };
@@ -80,8 +85,13 @@ private:
     void runCommand(const SceneCommand& command);
     void recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image);
     void drawPanel();
+    /** @brief Runs the sea state pipe into spectrum and seaReadout */
+    void applySeaState();
     void writeViewParameters();
-    void recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgram& program, float grid_size, uint32_t grid_resolution, bool alpha_blend) const;
+    /** @brief Binds program and draws instance_count tiles of one ring (see OceanGridParameters in OceanRenderCommon.slang) */
+    void recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgram& program, const std::array<float, 2>& origin, float tile_size,
+                    uint32_t resolution, uint32_t ring, uint32_t outer_resolution, uint32_t instance_count, bool alpha_blend) const;
+    [[nodiscard]] uint32_t ringResolution(uint32_t ring) const noexcept;
 
     OceanSceneSettings settings;
     std::unique_ptr<ResourceContext> resources;
@@ -102,12 +112,17 @@ private:
     std::vector<void*> viewBufferPointers;
 
     ArcballCamera camera;
+    // the editor values, and what they measure. spectrum is the sea state run through ApplySeaState
+    ocean::SeaState seaState{};
+    ocean::SeaStateReadout seaReadout{};
     ocean::SpectrumParameters spectrum{};
     std::array<bool, ocean::k_CascadeCount> cascadeEnabled{ true, true, true, true };
     float choppiness{ 1.0f };
     float timeScale{ 1.0f };
     float simulationTime{ 0.0f };
     float seabedDepth{ 30.0f };
+    // cascade c fades out between lodScale and 2 lodScale times its patch length from the camera
+    float lodScale{ 15.0f };
     float sunElevation{ 0.5f };
     float sunAzimuth{ 2.2f };
     bool paused{ false };

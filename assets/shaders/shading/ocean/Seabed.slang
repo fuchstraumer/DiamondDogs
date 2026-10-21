@@ -1,6 +1,6 @@
 implementing OceanRender;
 
-// A flat seabed under the surface patch, at View.SunDirectionSeabedDepth.w meters below sea level. Placeholder
+// A flat seabed under the surface rings (one tile, Ring 0, as large as all of them), at View.SunDirectionSeabedDepth.w meters below sea level. Placeholder
 // procedural sand until the CC0 sand textures are in: a texture binding replaces SeabedAlbedo.
 
 public struct SeabedVaryings

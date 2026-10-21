@@ -22,7 +22,8 @@
  *    time seconds                          set the simulation time
  *    dt seconds                            fixed simulation step per frame (0 goes back to real time)
  *    pause on|off
- *    capture [name]                        write this frame to <capture dir>/<name>.png
+ *    capture [name]                        write this frame to <capture dir>/<name>.png. The commands after it
+ *                                          run on the next frame, so the capture sees only the ones before it
  *    wait frames                           render this many frames before the next command
  *    print                                 print the camera and the time to stdout
  *    quit

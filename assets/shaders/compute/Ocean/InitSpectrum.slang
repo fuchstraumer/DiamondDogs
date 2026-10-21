@@ -160,14 +160,39 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
                                                   SpectrumParams.PeakingFactor);
 
         const float fade = ShortWavesFade(kLength, SpectrumParams.FadeLength);
-        const float finalSpectrum = freqComponent * directionalComponent * fade;
+        float finalSpectrum = freqComponent * directionalComponent * fade;
+
+        // the swell: long-period energy from distant wind, from its own direction. Its spreading uses the same model,
+        // with full alignment: SwellSpread narrows the lobe through the same swell shaping term
+        if (SpectrumParams.SwellScale > 0.0f)
+        {
+            const float swellFetch = GetDimensionlessFetch(SpectrumParams.SwellFetch, SpectrumParams.SwellWindSpeed);
+            const float swellPeakOmega = GetJonswapPeakOmega(swellFetch, SpectrumParams.SwellWindSpeed);
+            const float swellDirectional = DirectionalSpreading(theta,
+                                                                omegaAnddOmegadK.x,
+                                                                swellPeakOmega,
+                                                                SpectrumParams.SwellWindSpeed,
+                                                                SpectrumParams.SwellSpread,
+                                                                SpectrumParams.DirectionalSpreadingMode,
+                                                                SpectrumParams.SwellDirection,
+                                                                1.0f);
+
+            const float swellFrequency = OceanEnergySpectrum(SpectrumParams.SwellWindSpeed,
+                                                             SpectrumParams.SwellFetch,
+                                                             omegaAnddOmegadK.x,
+                                                             SpectrumParams.Depth,
+                                                             SpectrumParams.SwellPeakingFactor);
+
+            finalSpectrum += SpectrumParams.SwellScale * swellFrequency * swellDirectional * ShortWavesFade(kLength, SpectrumParams.SwellFadeLength);
+        }
+
         const float dK2 = dK * dK;
         const float dOmegaUnit = abs(omegaAnddOmegadK.y) / kLength;
         // fix: multiplied by 2.0f, which is the Tessendorf form instead of Horvath's improved form.
         // the field variance must be S(k) dK^2 per wave vector, and the tick's h0(k) + conj(h0(-k)) sum doubles it, so
         // E|h0|^2 = S dK^2 / 2. randomFloats is one complex Gaussian with E|xi|^2 = 2, which leaves 1/4 inside the root
-        // (OceanFftTest checks the resulting significant wave height against 0.21 U^2 / g)
-        const float spectrumNorm = sqrt(0.25f * finalSpectrum * dOmegaUnit * dK2);
+        // (OceanFftTest checks the resulting significant wave height). WaveHeightScale is the artist's multiplier on top
+        const float spectrumNorm = SpectrumParams.WaveHeightScale * sqrt(0.25f * finalSpectrum * dOmegaUnit * dK2);
         const float2 scaledPermutedSpectrum = contribution.xx * randomFloats * spectrumNorm.xx;
         // for the sake of debugging right now, we put finalSpectrum in .y
         WaveData[linearIndex] = half4(half(k.x),

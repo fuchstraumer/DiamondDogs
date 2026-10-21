@@ -23,6 +23,16 @@ public struct SpectrumParameters
     float SwellDirection;
     float FadeLength;
     float PeakingFactor;
+    // multiplies every amplitude: 1 is the physical spectrum (OceanFftTest checks its wave height)
+    float WaveHeightScale;
+    // the swell: a second JONSWAP spectrum from distant wind, added to the local wind sea's energy. It has its own
+    // direction (SwellDirection, above), and SwellSpread narrows its spreading lobe. SwellScale 0 turns it off
+    float SwellScale;
+    float SwellWindSpeed;
+    float SwellFetch;
+    float SwellPeakingFactor;
+    float SwellSpread;
+    float SwellFadeLength;
 };
 
 public struct CascadeParameters
