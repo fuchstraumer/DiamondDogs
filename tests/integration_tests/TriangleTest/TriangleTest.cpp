@@ -53,10 +53,7 @@ static PFN_vkCmdSetDepthWriteEnableEXT pfn_vkCmdSetDepthWriteEnableEXT = nullptr
 static PFN_vkCmdSetDepthCompareOpEXT pfn_vkCmdSetDepthCompareOpEXT = nullptr;
 static PFN_vkCmdSetDepthBoundsTestEnableEXT pfn_vkCmdSetDepthBoundsTestEnableEXT = nullptr;
 static PFN_vkCmdSetStencilTestEnableEXT pfn_vkCmdSetStencilTestEnableEXT = nullptr;
-static PFN_vkCmdBindVertexBuffers2EXT pfn_vkCmdBindVertexBuffers2EXT = nullptr;
 static PFN_vkCmdSetSampleMaskEXT pfn_vkCmdSetSampleMaskEXT = nullptr;
-static PFN_vkCmdSetViewportWithCountEXT pfn_vkCmdSetViewportWithCountEXT = nullptr;
-static PFN_vkCmdSetScissorWithCountEXT pfn_vkCmdSetScissorWithCountEXT = nullptr;
 
 static void LoadExtensionFunctions(VkDevice device)
 {
@@ -102,14 +99,8 @@ static void LoadExtensionFunctions(VkDevice device)
     assert(pfn_vkCmdSetDepthBoundsTestEnableEXT && "Failed to load vkCmdSetDepthBoundsTestEnableEXT");
     pfn_vkCmdSetStencilTestEnableEXT = reinterpret_cast<PFN_vkCmdSetStencilTestEnableEXT>(vkGetDeviceProcAddr(device, "vkCmdSetStencilTestEnableEXT"));
     assert(pfn_vkCmdSetStencilTestEnableEXT && "Failed to load vkCmdSetStencilTestEnableEXT");
-    pfn_vkCmdBindVertexBuffers2EXT = reinterpret_cast<PFN_vkCmdBindVertexBuffers2EXT>(vkGetDeviceProcAddr(device, "vkCmdBindVertexBuffers2EXT"));
-    assert(pfn_vkCmdBindVertexBuffers2EXT && "Failed to load vkCmdBindVertexBuffers2EXT");
     pfn_vkCmdSetSampleMaskEXT = reinterpret_cast<PFN_vkCmdSetSampleMaskEXT>(vkGetDeviceProcAddr(device, "vkCmdSetSampleMaskEXT"));
     assert(pfn_vkCmdSetSampleMaskEXT && "Failed to load vkCmdSetSampleMaskEXT");
-    pfn_vkCmdSetViewportWithCountEXT = reinterpret_cast<PFN_vkCmdSetViewportWithCountEXT>(vkGetDeviceProcAddr(device, "vkCmdSetViewportWithCountEXT"));
-    assert(pfn_vkCmdSetViewportWithCountEXT && "Failed to load vkCmdSetViewportWithCountEXT");
-    pfn_vkCmdSetScissorWithCountEXT = reinterpret_cast<PFN_vkCmdSetScissorWithCountEXT>(vkGetDeviceProcAddr(device, "vkCmdSetScissorWithCountEXT"));
-    assert(pfn_vkCmdSetScissorWithCountEXT && "Failed to load vkCmdSetScissorWithCountEXT");
 }
 
 constexpr static const uint32_t k_TriangleVertShaderSpv[349] =
@@ -622,24 +613,24 @@ void VulkanTriangle::setDepthStencilStates(const rhi::CommandBufferHandle& cmd_b
     pfn_vkCmdSetStencilTestEnableEXT(vkCmdBuffer, VK_FALSE);
 }
 
-void VulkanTriangle::bindPipeline(const rhi::CommandBufferHandle& cmd_buffer)
+void VulkanTriangle::bindPipeline(rhi::CommandBuffer& cmd_buffer)
 {
     // if we weren't in shader objects mode, this is where we'd bind the pipeline and so on,
     // now we just set a bunch of dynamic states
-    [[maybe_unused]] rhi::Result shaderBindResult = shaderProgram->BindShaders(cmd_buffer);
-    setInputStates(cmd_buffer);
-    setRasterizationAndSampleStates(cmd_buffer);
-    setColorBlendStates(cmd_buffer);
-    setDepthStencilStates(cmd_buffer);
+    RhiAssert(cmd_buffer.BindShaders(*shaderProgram));
+    setInputStates(cmd_buffer.Handle());
+    setRasterizationAndSampleStates(cmd_buffer.Handle());
+    setColorBlendStates(cmd_buffer.Handle());
+    setDepthStencilStates(cmd_buffer.Handle());
 }
 
-void VulkanTriangle::bindGeometryBuffers(const rhi::CommandBufferHandle& cmd_buffer)
+void VulkanTriangle::bindGeometryBuffers(rhi::CommandBuffer& cmd_buffer)
 {
-    VkCommandBuffer vkCmdBuffer = cmd_buffer.As<VkCommandBuffer>();
-    VkBuffer vertexBuffers[] = { Vertices.buffer };
-    VkDeviceSize offsets[] = { 0 };
-    pfn_vkCmdBindVertexBuffers2EXT(vkCmdBuffer, 0, 1, vertexBuffers, offsets, nullptr, nullptr);
-    vkCmdBindIndexBuffer(vkCmdBuffer, Indices.buffer, 0, VK_INDEX_TYPE_UINT16);
+    // the stride comes from vkCmdSetVertexInputEXT in setInputStates
+    const rhi::BufferHandle vertexBuffers[] = { rhi::BufferHandle{ reinterpret_cast<uint64_t>(Vertices.buffer) } };
+    constexpr uint64_t k_Offsets[] = { 0 };
+    cmd_buffer.BindVertexBuffers(0, vertexBuffers, k_Offsets);
+    cmd_buffer.BindIndexBuffer(rhi::BufferHandle{ reinterpret_cast<uint64_t>(Indices.buffer) }, 0, rhi::IndexType::Uint16);
 }
 
 void VulkanTriangle::recordCommands()
@@ -647,250 +638,83 @@ void VulkanTriangle::recordCommands()
     using namespace math;
     using namespace rhi;
 
-    constexpr static VkCommandBufferBeginInfo k_BeginInfo
-    {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        nullptr,
-        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT,
-        nullptr
-    };
-
-    constexpr static std::array<VkClearValue, 2> k_ClearValues
-    {
-        VkClearValue{ VkClearColorValue{ 0.0f, 0.0f, 0.5f, 1.0f } },
-        VkClearValue{ 1.0f, 0 }
-    };
-
     const Float2 swapchainExtent = swapchain->GetExtent();
+    const Rect2D renderArea{ 0, 0, static_cast<uint32_t>(swapchainExtent.x), static_cast<uint32_t>(swapchainExtent.y) };
+    const Viewport viewport{ 0.0f, 0.0f, swapchainExtent.x, swapchainExtent.y, 0.0f, 1.0f };
 
-    const VkRect2D renderArea
-    { 
-        VkOffset2D{ 0, 0 },
-        VkExtent2D{ static_cast<uint32_t>(swapchainExtent.x), static_cast<uint32_t>(swapchainExtent.y) }
-    };
-
-    const VkViewport viewport
-    {
-        0.0f,
-        0.0f,
-        static_cast<float>(swapchainExtent.x),
-        static_cast<float>(swapchainExtent.y),
-        0.0f,
-        1.0f
-    };
-
-    const VkRect2D scissor
-    {
-        renderArea
-    };
-
-    VkImage currentFrameBufferImage = reinterpret_cast<VkImage>(swapchain->ImageHandle(currentAcquiredImage));
-    VkImageView currentFrameBufferImageView = reinterpret_cast<VkImageView>(swapchain->ImageViewHandle(currentAcquiredImage));
+    const ImageHandle currentFrameBufferImage{ reinterpret_cast<uint64_t>(swapchain->ImageHandle(currentAcquiredImage)) };
+    const ImageViewHandle currentFrameBufferImageView{ reinterpret_cast<uint64_t>(swapchain->ImageViewHandle(currentAcquiredImage)) };
     // color attachment image index is based on what we acquire from the API call, depth stencil we just round-robin
-    VkImage currentDepthStencilImage = depthStencils[currentFrame].Image;
-    VkImageView currentDepthStencilImageView = depthStencils[currentFrame].View;
+    const ImageHandle currentDepthStencilImage{ reinterpret_cast<uint64_t>(depthStencils[currentFrame].Image) };
+    const ImageViewHandle currentDepthStencilImageView{ reinterpret_cast<uint64_t>(depthStencils[currentFrame].View) };
+    constexpr ImageSubresourceRange k_ColorRange{ ImageAspect::Color, 0, 1, 0, 1 };
 
-    std::vector<VkImageMemoryBarrier2> imageBarriers;
-    VkImageMemoryBarrier2 imageTransition0
+    std::vector<ImageBarrier> imageBarriers;
+    imageBarriers.push_back(ImageBarrier
     {
-        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-        nullptr,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        0,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        firstFrame[currentFrame] ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_QUEUE_FAMILY_IGNORED,
-        VK_QUEUE_FAMILY_IGNORED,
         currentFrameBufferImage,
-        VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-    };
-
-    imageBarriers.emplace_back(std::move(imageTransition0));
+        PipelineStage::ColorAttachmentOutput, Access::None,
+        PipelineStage::ColorAttachmentOutput, Access::ColorAttachmentWrite,
+        firstFrame[currentFrame] ? ImageLayout::Undefined : ImageLayout::PresentSource,
+        ImageLayout::ColorAttachment,
+        k_ColorRange
+    });
 
     if (firstFrame[currentFrame])
     {
-        VkImageMemoryBarrier2 depthTransition0
+        imageBarriers.push_back(ImageBarrier
         {
-            VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            nullptr,
-            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, // depth isn't involved in the presentation engine, so this is our src stage
-            0,
-            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
             currentDepthStencilImage,
-            VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 }
-        };
-        imageBarriers.emplace_back(std::move(depthTransition0));
+            PipelineStage::TopOfPipe, Access::None, // depth isn't involved in the presentation engine, so this is our src stage
+            PipelineStage::EarlyFragmentTests, Access::DepthStencilAttachmentWrite | Access::DepthStencilAttachmentRead,
+            ImageLayout::Undefined,
+            ImageLayout::DepthStencilAttachment,
+            ImageSubresourceRange{ ImageAspect::Depth, 0, 1, 0, 1 }
+        });
     }
 
-    const VkDependencyInfo dependencyInfo0
+    const ImageBarrier toPresent
     {
-        VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        nullptr,
-        0,
-        0, nullptr,
-        0, nullptr,
-        static_cast<uint32_t>(imageBarriers.size()),
-        imageBarriers.data()
+        currentFrameBufferImage,
+        PipelineStage::ColorAttachmentOutput, Access::ColorAttachmentWrite,
+        PipelineStage::AllGraphics, Access::None,
+        ImageLayout::ColorAttachment,
+        ImageLayout::PresentSource,
+        k_ColorRange
     };
 
-    const VkImageMemoryBarrier2 transition1[]
-    {
-        VkImageMemoryBarrier2
-        {
-            VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            nullptr,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-            0,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-            VK_QUEUE_FAMILY_IGNORED,
-            VK_QUEUE_FAMILY_IGNORED,
-            currentFrameBufferImage,
-            VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 }
-        }
-    };
+    ColorAttachment colorAttachment{};
+    colorAttachment.ImageView = currentFrameBufferImageView;
+    colorAttachment.ClearValue = ClearColorValue{ 0.0f, 0.0f, 0.5f, 1.0f };
+    DepthStencilAttachment depthAttachment{};
+    depthAttachment.ImageView = currentDepthStencilImageView; // it should enter rendering in DepthStencilAttachment
+    depthAttachment.DepthStoreOp = StoreOp::DontCare; // don't care about depth attachment after rendering
+    depthAttachment.ClearValue = ClearDepthStencilValue{ 1.0f, 0 };
+    RenderingInfo renderingInfo{};
+    renderingInfo.ColorAttachments = std::span{ &colorAttachment, 1 };
+    renderingInfo.DepthStencilAttachment = depthAttachment;
+    renderingInfo.RenderArea = renderArea;
 
-    const VkDependencyInfo dependencyInfo1
-    {
-        VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        nullptr,
-        0,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        static_cast<uint32_t>(std::size(transition1)), 
-        transition1
-    };
-
-    const VkRenderingAttachmentInfo colorAttachmentInfo
-    {
-        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        nullptr,
-        currentFrameBufferImageView,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_RESOLVE_MODE_NONE,
-        VK_NULL_HANDLE,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_ATTACHMENT_LOAD_OP_CLEAR,
-        VK_ATTACHMENT_STORE_OP_STORE,
-        k_ClearValues[0]
-    };
-
-    const VkRenderingAttachmentInfo depthAttachmentInfo
-    {
-        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        nullptr,
-        currentDepthStencilImageView,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, // it should enter rendering in this layout
-        VK_RESOLVE_MODE_NONE,
-        VK_NULL_HANDLE,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_ATTACHMENT_LOAD_OP_CLEAR,
-        VK_ATTACHMENT_STORE_OP_DONT_CARE, // don't care about depth attachment after rendering
-        k_ClearValues[1]
-    };
-
-    const VkRenderingInfo renderingInfo
-    {
-        VK_STRUCTURE_TYPE_RENDERING_INFO,
-        nullptr,
-        0,
-        renderArea,
-        1,
-        0,
-        1,
-        &colorAttachmentInfo,
-        &depthAttachmentInfo,
-        nullptr
-    };
-
-    {
-        
-        rhi::Result result = commandPools[currentFrame]->Reset();
-        RhiAssert(result);
-        CommandBuffer currCmdBuffer = commandPools[currentFrame]->GetCommandBuffer(0);
-
-        result = currCmdBuffer.Begin();
-        RhiAssert(result);
-            const VkCommandBuffer currentBuffer = currCmdBuffer.Handle().As<VkCommandBuffer>();
-            vkCmdPipelineBarrier2(currentBuffer, &dependencyInfo0);
-            vkCmdBeginRendering(currentBuffer, &renderingInfo);
-            bindPipeline(currCmdBuffer.Handle());
-            vkCmdBindDescriptorSets(currentBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-            bindGeometryBuffers(currCmdBuffer.Handle());
-            pfn_vkCmdSetViewportWithCountEXT(currentBuffer, 1, &viewport);
-            pfn_vkCmdSetScissorWithCountEXT(currentBuffer, 1, &scissor);
-            vkCmdDrawIndexed(currentBuffer, Indices.count, 1, 0, 0, 0);
-            vkCmdEndRendering(currentBuffer);
-            vkCmdPipelineBarrier2(currentBuffer, &dependencyInfo1);
-        result = currCmdBuffer.End();
-        RhiAssert(result);
-    }
-
+    RhiAssert(commandPools[currentFrame]->Reset());
+    CommandBuffer cmd(commandPools[currentFrame]->GetCommandBuffer(0));
+    RhiAssert(cmd.Begin());
+        cmd.Barrier(DependencyInfo{ {}, {}, imageBarriers });
+        cmd.BeginRendering(renderingInfo);
+        bindPipeline(cmd);
+        const DescriptorSetHandle descriptorSetHandle{ reinterpret_cast<uint64_t>(descriptorSet) };
+        cmd.BindDescriptorSets(PipelineBindPoint::Graphics, PipelineLayoutHandle{ reinterpret_cast<uint64_t>(pipelineLayout) }, 0, std::span{ &descriptorSetHandle, 1 });
+        bindGeometryBuffers(cmd);
+        cmd.SetViewports(std::span{ &viewport, 1 });
+        cmd.SetScissors(std::span{ &renderArea, 1 });
+        cmd.DrawIndexed(Indices.count, 1, 0, 0, 0);
+        cmd.EndRendering();
+        cmd.Barrier(DependencyInfo{ {}, {}, std::span{ &toPresent, 1 } });
+    RhiAssert(cmd.End());
 }
 
 void VulkanTriangle::draw()
 {
-
-    constexpr static VkPipelineStageFlags k_WaitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSemaphore imageAcquireSemaphore = imageAvailableSemaphores[currentFrame];
-    VkSemaphore renderCompleteSemaphore = renderFinishedSemaphores[currentFrame];
-
-    const VkSemaphoreSubmitInfo imageAcquireSemaphoreInfo
-    {
-        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-        nullptr,
-        imageAcquireSemaphore,
-        0,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        0
-    };
-
-    const VkSemaphoreSubmitInfo renderCompleteSemaphoreInfo
-    {
-        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-        nullptr,
-        renderCompleteSemaphore,
-        0,
-        VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-        0
-    };
-
-    VkCommandBuffer currentCmdBuffer = commandPools[currentFrame]->GetCommandBuffer(0).As<VkCommandBuffer>();
-    const VkCommandBufferSubmitInfo cmdBufferSubmitInfo
-    {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-        nullptr,
-        currentCmdBuffer,
-        0
-    };
-
-    const VkSubmitInfo2 submission2
-    {
-        VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-        nullptr,
-        0,
-        1,
-        &imageAcquireSemaphoreInfo,
-        1,
-        &cmdBufferSubmitInfo,
-        1,
-        &renderCompleteSemaphoreInfo
-    };
-
-    VkQueue graphicsQueue = device->GetGraphicsQueue(0).As<VkQueue>();
-    rhi::Result result = vkQueueSubmit2(graphicsQueue, 1, &submission2, inFlightFences[currentFrame]);
-    RhiAssert(result);
+    submitFrame(commandPools[currentFrame]->GetCommandBuffer(0));
 }
 
 void VulkanTriangle::endFrame()

@@ -2,6 +2,8 @@
 #include "Device.hpp"
 #include "PlatformSystem.hpp"
 #include "PlatformTypes.hpp"
+#include "Queue.hpp"
+#include "RhiTypes.hpp"
 #include "RhiAssert.hpp"
 #include "RhiResult.hpp"
 #include "RhiSystem.hpp"
@@ -68,28 +70,32 @@ size_t VulkanScene::CurrentFramebufferIdx() const
 void VulkanScene::createFrameSyncObjects()
 {
     using namespace rhi;
-    constexpr static VkSemaphoreCreateInfo k_SemaphoreInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
-    constexpr static VkFenceCreateInfo k_FenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, VK_FENCE_CREATE_SIGNALED_BIT };
-    imageAvailableSemaphores.resize(numFramebuffers);
-    renderFinishedSemaphores.resize(numFramebuffers);
-    inFlightFences.resize(numFramebuffers);
+    imageAvailableSemaphores.reserve(numFramebuffers);
+    renderFinishedSemaphores.reserve(numFramebuffers);
+    inFlightFences.reserve(numFramebuffers);
 
     for (uint32_t i = 0; i < numFramebuffers; ++i)
     {
-        Result result = FromVulkan(vkCreateSemaphore(vkDevice, &k_SemaphoreInfo, nullptr, &imageAvailableSemaphores[i]));
-        RhiAssert(result);
-        
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(imageAvailableSemaphores[i]), std::format("ImageAvailableSemaphore_{}", i).c_str());
+        const BinarySemaphore& imageAvailable = imageAvailableSemaphores.emplace_back(device->Handle());
+        if (!imageAvailable.Handle().IsValid())
+        {
+            throw std::runtime_error("Failed to create the frame synchronization objects");
+        }
+        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, imageAvailable.Handle().Get(), std::format("ImageAvailableSemaphore_{}", i).c_str());
 
-        result = vkCreateSemaphore(vkDevice, &k_SemaphoreInfo, nullptr, &renderFinishedSemaphores[i]);
-        RhiAssert(result);
+        const BinarySemaphore& renderFinished = renderFinishedSemaphores.emplace_back(device->Handle());
+        if (!renderFinished.Handle().IsValid())
+        {
+            throw std::runtime_error("Failed to create the frame synchronization objects");
+        }
+        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, renderFinished.Handle().Get(), std::format("RenderFinishedSemaphore_{}", i).c_str());
 
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(renderFinishedSemaphores[i]), std::format("RenderFinishedSemaphore_{}", i).c_str());
-
-        result = vkCreateFence(vkDevice, &k_FenceInfo, nullptr, &inFlightFences[i]);
-        RhiAssert(result);
-
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_FENCE, reinterpret_cast<uint64_t>(inFlightFences[i]), std::format("InFlightFence_{}", i).c_str());
+        const Fence& inFlight = inFlightFences.emplace_back(device->Handle(), CreateFenceSignaled{ true });
+        if (!inFlight.Handle().IsValid())
+        {
+            throw std::runtime_error("Failed to create the frame synchronization objects");
+        }
+        RhiSystem::SetObjectName(VK_OBJECT_TYPE_FENCE, inFlight.Handle().Get(), std::format("InFlightFence_{}", i).c_str());
     }
 
     firstFrame.resize(numFramebuffers, true);
@@ -97,14 +103,12 @@ void VulkanScene::createFrameSyncObjects()
 
 void VulkanScene::destroyFrameSyncObjects()
 {
-    for (size_t i = 0; i < numFramebuffers; ++i)
+    for (const rhi::Fence& fence : inFlightFences)
     {
-        vkDestroySemaphore(vkDevice, imageAvailableSemaphores[i], nullptr);
-        vkDestroySemaphore(vkDevice, renderFinishedSemaphores[i], nullptr);
-        VkFence currFence = inFlightFences[i];
-        rhi::Result result = vkWaitForFences(vkDevice, 1, &currFence, VK_TRUE, 1000000000);
-        RhiAssert(result);
-        vkDestroyFence(vkDevice, inFlightFences[i], nullptr);
+        if (!fence.Wait(1000000000))
+        {
+            throw std::runtime_error("A frame fence did not signal");
+        }
     }
 
     imageAvailableSemaphores.clear();
@@ -116,23 +120,28 @@ void VulkanScene::destroyFrameSyncObjects()
 
 void VulkanScene::beginFrame()
 {
-    VkDevice vkDevice = device->Handle().As<VkDevice>();
-    VkFence currFence = inFlightFences[currentFrame];
-    rhi::Result result = vkWaitForFences(vkDevice, 1, &currFence, VK_TRUE, 1000000000);
-    RhiAssert(result);
+    if (!inFlightFences[currentFrame].Wait(1000000000))
+    {
+        throw std::runtime_error("The frame fence did not signal");
+    }
 }
 
 void VulkanScene::resetFrameFence()
 {
-    VkFence currFence = inFlightFences[currentFrame];
-    rhi::Result result = vkResetFences(vkDevice, 1, &currFence);
-    RhiAssert(result);
+    inFlightFences[currentFrame].Reset();
+}
+
+void VulkanScene::submitFrame(const rhi::CommandBufferHandle& command_buffer)
+{
+    const rhi::SemaphoreSubmitInfo imageAvailable{ imageAvailableSemaphores[currentFrame].Handle(), rhi::PipelineStage::ColorAttachmentOutput };
+    const rhi::SemaphoreSubmitInfo renderFinished{ renderFinishedSemaphores[currentFrame].Handle(), rhi::PipelineStage::AllGraphics };
+    const rhi::SubmitInfo submit{ std::span{ &imageAvailable, 1 }, std::span{ &command_buffer, 1 }, std::span{ &renderFinished, 1 } };
+    RhiAssert(rhi::QueueSubmit(device->GetGraphicsQueue(0), submit, inFlightFences[currentFrame].Handle()));
 }
 
 void VulkanScene::recreateSwapchain()
 {
-    rhi::Result result = vkDeviceWaitIdle(vkDevice);
-    RhiAssert(result);
+    device->WaitDeviceIdle();
     const SwapchainRecreateResult recreateResult = platformSystem->RecreateSwapchain();
     if (recreateResult == SwapchainRecreateResult::SurfaceHasZeroArea)
     {
@@ -170,7 +179,7 @@ void VulkanScene::limitFrame()
 
 bool VulkanScene::acquireImage()
 {
-    VkSemaphore currAcquireSemaphore = imageAvailableSemaphores[currentFrame];
+    VkSemaphore currAcquireSemaphore = imageAvailableSemaphores[currentFrame].Handle().As<VkSemaphore>();
     VkSwapchainKHR vkSwapchain = reinterpret_cast<VkSwapchainKHR>(swapchain->GetNativeHandle());
     // we should only ever be using the first device, and this is a bitmask so that means it can't be zero (its not an index)
     constexpr static uint32_t k_RootDeviceMask = 0x1;
@@ -204,7 +213,7 @@ bool VulkanScene::acquireImage()
 void VulkanScene::present()
 {
     VkResult presentResults[1]{ VK_SUCCESS };
-    VkSemaphore currRenderCompleteSemaphore = renderFinishedSemaphores[currentFrame];
+    VkSemaphore currRenderCompleteSemaphore = renderFinishedSemaphores[currentFrame].Handle().As<VkSemaphore>();
     VkSwapchainKHR vkSwapchain = reinterpret_cast<VkSwapchainKHR>(swapchain->GetNativeHandle());
 
     const VkPresentInfoKHR presentInfo

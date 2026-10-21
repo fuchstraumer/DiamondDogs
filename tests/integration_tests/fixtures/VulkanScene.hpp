@@ -1,6 +1,9 @@
 #pragma once
 #ifndef VULKAN_SCENE_TEST_FIXTURE_HPP
 #define VULKAN_SCENE_TEST_FIXTURE_HPP
+#include "Fence.hpp"
+#include "RhiHandle.hpp"
+#include "Semaphore.hpp"
 #include <vulkan/vulkan_core.h>
 #include <cstdint>
 #include <chrono>
@@ -47,6 +50,8 @@ protected:
     virtual void draw() = 0;
     virtual void present();
     virtual void endFrame();
+    /** @brief Submits the frame's command buffer: waits on the acquire semaphore, signals the present semaphore and the frame fence */
+    void submitFrame(const rhi::CommandBufferHandle& command_buffer);
     void recreateSwapchain();
     /** @brief Called after the swapchain was recreated, to rebuild anything sized to it */
     virtual void onSwapchainRecreated();
@@ -67,9 +72,9 @@ protected:
     PlatformWindowSystem* platformSystem{ nullptr };
     const Swapchain* swapchain{ nullptr };
     VkPhysicalDevice vkPhysicalDevice{ VK_NULL_HANDLE };
-    std::vector<VkSemaphore> imageAvailableSemaphores;
-    std::vector<VkSemaphore> renderFinishedSemaphores;
-    std::vector<VkFence> inFlightFences;
+    std::vector<rhi::BinarySemaphore> imageAvailableSemaphores;
+    std::vector<rhi::BinarySemaphore> renderFinishedSemaphores;
+    std::vector<rhi::Fence> inFlightFences;
     std::vector<bool> firstFrame;
 
 };

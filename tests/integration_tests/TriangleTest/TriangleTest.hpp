@@ -10,6 +10,7 @@
 namespace rhi
 {
     class CommandPool;
+    struct CommandBuffer;
     class ShaderProgram;
 }
 
@@ -46,8 +47,8 @@ protected:
     void setColorBlendStates(const rhi::CommandBufferHandle& cmd_buffer);
     void setDepthStencilStates(const rhi::CommandBufferHandle& cmd_buffer);
 
-    void bindPipeline(const rhi::CommandBufferHandle& cmd_buffer);
-    void bindGeometryBuffers(const rhi::CommandBufferHandle& cmd_buffer);
+    void bindPipeline(rhi::CommandBuffer& cmd_buffer);
+    void bindGeometryBuffers(rhi::CommandBuffer& cmd_buffer);
 
     struct Vertex
     {
