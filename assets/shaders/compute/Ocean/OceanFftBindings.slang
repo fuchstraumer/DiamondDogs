@@ -22,10 +22,12 @@ uniform RWStructuredBuffer<half4> IfftInput;
 ConstantBuffer<CascadeParameters> CascadeParams;
 ConstantBuffer<SpectrumParameters> SpectrumParams;
 
-// sin/cos table for the LUT overload of ComplexExp (y pre-conjugated). No IFFT kernel reads it yet
-[ls_extent_1d("IFFT_SIZE")]
+// sin/cos table for the LUT overload of ComplexExp (y pre-conjugated), from ocean_fft_support.py. One table at the
+// largest IFFT size serves every size, read with Load, so it needs no sampler. No IFFT kernel reads it yet
+static const uint OCEAN_FFT_SINCOS_LUT_SIZE = 1024u;
+static const uint OCEAN_FFT_SINCOS_LUT_LOG2_SIZE = 10u;
+[ls_extent_1d("1024")]
 uniform Texture1D<half2> IfftSinCosLUT;
-uniform SamplerState IfftLUTSampler;
 
 // Donelan-Banner normalization LUT, only read when DirectionalSpreadingMode is OCEAN_FFT_SPREAD_MODE_DONELAN_BANNER
 uniform Texture2D normTexture;

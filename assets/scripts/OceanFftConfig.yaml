@@ -39,7 +39,7 @@ ocean_numerical_parameter_ranges:
   # Ocean resolution - must be power-of-2 for FFT to work. power-of-4 sizes give us better performance on some GPUs,
   # but that would leave us with relatively few options if we used that alone. 
   - name: fft_resolution
-    values: [128, 256, 512, 1024, 2048]
+    values: [128, 256, 512, 1024] # the IFFT kernels run at most 1024
     unit: px
 
   # This sets the absolute max of wave cascades - performance scaling may drop some cascades
@@ -57,17 +57,18 @@ ocean_numerical_parameter_ranges:
     max: 4
 
   # Controls the degree of the polynomial used to approximate the normalization factor Q(s) for Mitsuyasu spreading function
-  # Following were tuned by analytical comparison to get to at most 1e-3 error
+  # Degree 7 keeps both under 1e-3 relative error over s in [1e-4, max] (about 7e-4). The fit samples are now spaced
+  # in log(s): spaced in s, they hid a 3% error at small s behind a reported 8e-4. Init-only cost, so the terms are free
   - name: mitsuyasu_polynomial_degree
-    value: 3
+    value: 7
 
   - name: hasselmann_polynomial_degree
-    value: 4
+    value: 7
   
 lut_resolution_settings:
 
-  # Resolution of the f32x2 LUT used for computing the Donnelan-Banner spreading function
-  # U Axis = Beta, V Axis = Swell, result = Q(s) normalization factor (1/integral of spreading function)
+  # Resolution of the f32 LUT (R32_SFLOAT) used for computing the Donnelan-Banner spreading function
+  # U Axis = Beta (linear), V Axis = Swell (square root mapped), result = Q(s) normalization factor (1/integral of spreading function)
   - name: donnelan_banner_spreading
     resolution: 256 # 256x256
     use_f16: false # We use f32 for most spectral calculations, since the expensive bit only happens at sim init
@@ -75,7 +76,7 @@ lut_resolution_settings:
   # Resolution of the f16x2 LUT used for computing complex exponentials in the form exp(i*theta) for theta in [0, 2*pi),
   # as the result of the sincos(). This is used in the IFFT for the butterfly operations
   - name: complex_exp_sincos
-    resolution: 512 # 512x1 - no y coord
+    resolution: 1024 # 1024x1 - no y coord. Must be the largest fft_resolution: smaller sizes read every (1024 / size)th entry
     # f16 is really *required* for this to be worth it: conventional sincos() is f32 and also means we see cvt_f32 etc
     # functions in generated shader ISA. using f16 means we can stay in f16 pipe, which also tends to run as packed
     # (meaning 2x f16 ops per cycle on most modern GPUs!)

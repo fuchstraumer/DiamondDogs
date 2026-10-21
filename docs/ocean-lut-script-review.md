@@ -1,8 +1,21 @@
 # Review: `assets/scripts/ocean_fft_support.py` (2026-10-21)
 
 The script generates the Donelan-Banner normalization LUT, the f16 sin/cos LUT, and the Mitsuyasu and Hasselmann
-Q(s) polynomial fits, from `OceanFftConfig.yaml`. It came from VeloxRhi, where it runs as a build step. Nothing in
-DiamondDogs runs it yet: `SpectrumInitCS` binds a 1x1 stand-in LUT, so the Donelan-Banner mode is not usable.
+Q(s) polynomial fits, from `OceanFftConfig.yaml`. It came from VeloxRhi, where it runs as a build step.
+
+**Status (2026-10-21, fourth session):**
+- **Fixed:** items 1-6, 8 and 9. The script now runs as the DiamondDogs build step `ocean_fft_support_data`.
+  Item 10 is also fixed: `Spectra` includes the generated file.
+- **Open:** item 7, the sin/cos sign. It waits for an IFFT kernel that uses the LUT.
+- **Fixes that went past the review:**
+  - The quadrature checks itself against a dense trapezoid and fails the build above 1e-3. It measures 1.4e-7.
+  - The fits clamp s to their range, so log(0) cannot happen.
+  - The fit degrees went from 3 and 4 to 7. Item 5's log-spaced sampling showed that 3 and 4 had 3.2% and 0.8%
+    error.
+  - scipy is replaced by `math.lgamma`.
+  - The generated Slang float literals always have a decimal point.
+
+The findings below are as written before the fixes.
 
 Ordered by impact. Item 1 was measured with an independent check of the same integral (2,000,001-point trapezoid
 over [-pi, pi]); the script itself was not run here.

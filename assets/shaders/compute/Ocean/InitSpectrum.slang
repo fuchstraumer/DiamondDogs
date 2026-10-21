@@ -58,6 +58,8 @@ internal float2 GetGaussianRandomFloat2(in int2 coordinates, in int cascade, in 
     return radius * scTheta;
 }
 
+// the amplitude weight of this cascade at k: 0 outside its band, else 1 / sqrt(n) for the n cascades whose bands cover
+// k. Each cascade draws its own phases, so their variances add, and the 1 / sqrt(n) keeps the total at the spectrum's
 internal float CascadeContribution(in float k, in uint cascade)
 {
     float lengthScale = CascadeParams.LengthScales[cascade];
@@ -79,7 +81,7 @@ internal float CascadeContribution(in float k, in uint cascade)
                 total += 1.0f;
             }
         }
-        return total;
+        return rsqrt(total);
     }
 }
 
@@ -161,8 +163,11 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
         const float finalSpectrum = freqComponent * directionalComponent * fade;
         const float dK2 = dK * dK;
         const float dOmegaUnit = abs(omegaAnddOmegadK.y) / kLength;
-        // fix: multiplied by 2.0f, which is the Tessendorf form instead of Horvath's improved form
-        const float spectrumNorm = sqrt(finalSpectrum * dOmegaUnit * dK2);
+        // fix: multiplied by 2.0f, which is the Tessendorf form instead of Horvath's improved form.
+        // the field variance must be S(k) dK^2 per wave vector, and the tick's h0(k) + conj(h0(-k)) sum doubles it, so
+        // E|h0|^2 = S dK^2 / 2. randomFloats is one complex Gaussian with E|xi|^2 = 2, which leaves 1/4 inside the root
+        // (OceanFftTest checks the resulting significant wave height against 0.21 U^2 / g)
+        const float spectrumNorm = sqrt(0.25f * finalSpectrum * dOmegaUnit * dK2);
         const float2 scaledPermutedSpectrum = contribution.xx * randomFloats * spectrumNorm.xx;
         // for the sake of debugging right now, we put finalSpectrum in .y
         WaveData[linearIndex] = half4(half(k.x),

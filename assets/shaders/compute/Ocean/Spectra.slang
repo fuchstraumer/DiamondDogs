@@ -1,50 +1,8 @@
 implementing OceanFft;
 __include OceanFftCommon;
-
-internal float MitsuyasuNormalizationFactor(in float s)
-{
-    // Mitsuyasu normalization Q(s) -- fit in ln(s)/ln(Q) space
-    // valid range: s in [0.0000, 2611117.4963]
-    // max relative error: low segment 8.14e-04, high segment 1.58e-06
-    static const float MitsuyasuSplitS = 10239.676456f;
-    const float lnS = log(s);
-    if (s <= MitsuyasuSplitS)
-    {
-        return exp(mad(mad(mad(-8.16284866e-05f, lnS, 0.00183001919f), lnS, 0.486468889f), lnS, -1.23247265f));
-    }
-    else
-    {
-        return exp(mad(mad(mad(-1.28201575e-07f, lnS, 5.21772775e-06f), lnS, 0.499929208f), lnS, -1.26519176f));
-    }
-}
-
-internal float HasselmanNormalizationFactor(in float s)
-{
-    // Hasselman normalization Q(s) -- fit in ln(s)/ln(Q) space
-    // valid range: s in [0.0000, 16.2533]
-    // max relative error: low segment 8.72e-03, high segment 7.55e-05
-    static const float HasselmanSplitS = 1.211027f;
-    const float lnS = log(s);
-    if (s <= HasselmanSplitS)
-    {
-        return exp(mad(mad(mad(mad(9.88014667e-06f, lnS, 0.00542962148f), lnS, 0.0805614352f), lnS, 0.403896908f), lnS, -1.14450026f));
-    }
-    else
-    {
-        return exp(mad(mad(mad(mad(0.000922057072f, lnS, -0.0101488669f), lnS, 0.0469920358f), lnS, 0.387426512f), lnS, -1.14497632f));
-    }
-}
-
-// reads the normTexture and normSampler globals directly: the cook records sampler and texture pairs by tracing them
-// back to bound variables, which a function parameter hides
-internal float SampleHasselmanLUT(in float beta, in float swell)
-{
-    beta = clamp(beta, 8.253544693039466e-07, 1.250472256940183);
-    swell = clamp(swell, 0.0, 16.1);
-    float u = (beta - 8.253544693039466e-07) / 1.2504714315857137;
-    float v = swell / 16.1;
-    return normTexture.SampleLevel(normSampler, float2(u, v), 0.0f).r;
-}
+// the Q(s) polynomial fits and SampleDonelanBannerLUT, generated from assets/scripts/OceanFftConfig.yaml by
+// ocean_fft_support.py as a build step
+__include OceanFftGenerated;
 
 internal float GetDimensionlessFetch(in float fetch, in float windSpeed)
 {
@@ -266,7 +224,7 @@ internal float DonelanBannerDirectionalSpreading(
     const float beta = DonelanBannerBeta(omega, peakOmega);               // u axis
     const float swellShape = SwellShaper(omega, peakOmega, swellAmount);  // v axis
     // LUT is stored as the inverse, so we can just mul it
-    const float norm = SampleHasselmanLUT(beta, swellShape);
+    const float norm = SampleDonelanBannerLUT(beta, swellShape);
     const float db = 1.0f / cosh(theta * beta);
     const float db2 = db * db;
     const float swell = SwellDirectionalSpreading(theta, omega, peakOmega, swellAmount);

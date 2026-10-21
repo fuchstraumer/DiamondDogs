@@ -1,20 +1,59 @@
 # The OceanFft demo: the ocean FFT compute chain (assets/shaders/compute/Ocean) and its render passes
-# (assets/shaders/Ocean), cooked by Lodestone into one bundle as a build step.
+# (assets/shaders/shading/ocean), cooked by Lodestone into one bundle as a build step.
 # ocean_simulation is the compute side on its own, so the headless OceanFftTest runs the same code as the demo.
 set(OCEAN_FFT_SHADER_DIR "${PROJECT_SOURCE_DIR}/assets/shaders/compute/Ocean")
+
+# ocean_fft_support.py turns OceanFftConfig.yaml into the spreading-normalization fits and LUTs. The LUTs are C++ sources
+# in the build directory. OceanFftGenerated.slang has to sit next to Spectra.slang, because the cooker only searches a
+# module's own folder, so it is written into the source tree (only when its contents change). Needs numpy and pyyaml.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}" -c "import numpy, yaml"
+    RESULT_VARIABLE OCEAN_FFT_PYTHON_MODULES_MISSING
+    OUTPUT_QUIET ERROR_QUIET)
+if (OCEAN_FFT_PYTHON_MODULES_MISSING)
+    message(FATAL_ERROR "OceanFft: ${Python3_EXECUTABLE} needs numpy and pyyaml for assets/scripts/ocean_fft_support.py "
+                        "(\"${Python3_EXECUTABLE}\" -m pip install --user numpy pyyaml)")
+endif()
+set(OCEAN_FFT_SCRIPT_DIR "${PROJECT_SOURCE_DIR}/assets/scripts")
+set(OCEAN_FFT_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(OCEAN_FFT_GENERATED_SOURCES
+    "${OCEAN_FFT_GENERATED_DIR}/DonelanBannerNormLUT.cpp"
+    "${OCEAN_FFT_GENERATED_DIR}/DonelanBannerNormLUT.hpp"
+    "${OCEAN_FFT_GENERATED_DIR}/SinCosLUT.cpp"
+    "${OCEAN_FFT_GENERATED_DIR}/SinCosLUT.hpp")
+set(OCEAN_FFT_SUPPORT_STAMP "${OCEAN_FFT_GENERATED_DIR}/ocean_fft_support.stamp")
+add_custom_command(
+    OUTPUT "${OCEAN_FFT_SUPPORT_STAMP}"
+    BYPRODUCTS ${OCEAN_FFT_GENERATED_SOURCES} "${OCEAN_FFT_SHADER_DIR}/OceanFftGenerated.slang"
+    COMMAND Python3::Interpreter "${OCEAN_FFT_SCRIPT_DIR}/ocean_fft_support.py"
+        --config "${OCEAN_FFT_SCRIPT_DIR}/OceanFftConfig.yaml"
+        --lut_dir "${OCEAN_FFT_GENERATED_DIR}"
+        --shader_dir "${OCEAN_FFT_SHADER_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E touch "${OCEAN_FFT_SUPPORT_STAMP}"
+    DEPENDS "${OCEAN_FFT_SCRIPT_DIR}/ocean_fft_support.py" "${OCEAN_FFT_SCRIPT_DIR}/OceanFftConfig.yaml"
+    COMMENT "Generating the OceanFft spreading fits and LUTs"
+    VERBATIM)
+add_custom_target(ocean_fft_support_data DEPENDS "${OCEAN_FFT_SUPPORT_STAMP}")
+set_target_properties(ocean_fft_support_data PROPERTIES FOLDER "Applications/OceanFft")
+
 lodestone_add_shader_cook(ocean_fft_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
     TARGETS spirv
     POLICY_FILE "${OCEAN_FFT_SHADER_DIR}/OceanFftPolicy.toml"
-    MODULES "${OCEAN_FFT_SHADER_DIR}/OceanFft.slang" "${PROJECT_SOURCE_DIR}/assets/shaders/Ocean/OceanRender.slang")
+    MODULES "${OCEAN_FFT_SHADER_DIR}/OceanFft.slang" "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanRender.slang")
 set_target_properties(ocean_fft_shaders PROPERTIES FOLDER "Applications/OceanFft")
+# the cook reads OceanFftGenerated.slang, so the generator runs first
+add_dependencies(ocean_fft_shaders ocean_fft_support_data)
 
 add_library(ocean_simulation STATIC
     "simulation/OceanSimulation.cpp"
     "simulation/OceanSimulation.hpp"
     "simulation/ManifestDescriptors.cpp"
-    "simulation/ManifestDescriptors.hpp")
+    "simulation/ManifestDescriptors.hpp"
+    ${OCEAN_FFT_GENERATED_SOURCES})
 target_include_directories(ocean_simulation PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/simulation")
+target_include_directories(ocean_simulation PRIVATE "${OCEAN_FFT_GENERATED_DIR}")
 target_link_libraries(ocean_simulation PUBLIC rhi_resources rhi_system foundation lodestone::client_library)
 target_compile_definitions(ocean_simulation PUBLIC
     "NOMINMAX"

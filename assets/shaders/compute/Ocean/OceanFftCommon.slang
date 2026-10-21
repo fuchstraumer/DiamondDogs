@@ -82,15 +82,15 @@ internal half2 ComplexExp(in half x)
 }
 
 // LUT-based complex exponential, allowing us to stay entirely in half precision pipe for IDFT math
-// RGA shows F32 ops showing up only around this function, so this should help knock those into f16
+// RGA shows F32 ops showing up only around this function, so this should help knock those into f16.
+// The table holds e^(-i 2 pi n / OCEAN_FFT_SINCOS_LUT_SIZE) (y pre-conjugated, so one less mul), built for the largest
+// IFFT size. This size reads every (OCEAN_FFT_SINCOS_LUT_SIZE / IFFT_SIZE)th entry with an integer load, so no two
+// entries are ever blended. A caller that needs e^(+i theta) negates .y
 internal half2 ComplexExp(in const uint log2GroupSize, in const uint j, in const uint tapIndex)
 {
-    const float fftSizeInv = 1.0f / float(IFFT_SIZE);
     const uint mask = (1u << log2GroupSize) - 1u;
     const uint p = (j * tapIndex & mask) << (IFFT_LOG2_SIZE - log2GroupSize);
-    const float uCoord = (float(p) + 0.5f) * fftSizeInv;
-    // texture has y coord pre-conjugated, so one less mul as well
-    return IfftSinCosLUT.SampleLevel(IfftLUTSampler, uCoord, 0.0f);
+    return IfftSinCosLUT.Load(int2(int(p << (OCEAN_FFT_SINCOS_LUT_LOG2_SIZE - IFFT_LOG2_SIZE)), 0));
 }
 
 internal float2 ComplexMul(in float2 a, in float2 b)
