@@ -35,13 +35,15 @@ internal float HasselmanNormalizationFactor(in float s)
     }
 }
 
-internal float SampleHasselmanLUT(in float beta, in float swell, in Texture2D normTexture, in SamplerState normSampler)
+// reads the normTexture and normSampler globals directly: the cook records sampler and texture pairs by tracing them
+// back to bound variables, which a function parameter hides
+internal float SampleHasselmanLUT(in float beta, in float swell)
 {
     beta = clamp(beta, 8.253544693039466e-07, 1.250472256940183);
     swell = clamp(swell, 0.0, 16.1);
     float u = (beta - 8.253544693039466e-07) / 1.2504714315857137;
     float v = swell / 16.1;
-    return normTexture.GatherRed(normSampler, float2(u, v)).r;
+    return normTexture.SampleLevel(normSampler, float2(u, v), 0.0f).r;
 }
 
 internal float GetDimensionlessFetch(in float fetch, in float windSpeed)
@@ -259,14 +261,12 @@ internal float DonelanBannerDirectionalSpreading(
     in float theta,
     in float omega,
     in float peakOmega,
-    in float swellAmount,
-    in SamplerState normSampler,
-    in Texture2D normTexture)
+    in float swellAmount)
 {
     const float beta = DonelanBannerBeta(omega, peakOmega);               // u axis
     const float swellShape = SwellShaper(omega, peakOmega, swellAmount);  // v axis
     // LUT is stored as the inverse, so we can just mul it
-    const float norm = SampleHasselmanLUT(beta, swellShape, normTexture, normSampler);
+    const float norm = SampleHasselmanLUT(beta, swellShape);
     const float db = 1.0f / cosh(theta * beta);
     const float db2 = db * db;
     const float swell = SwellDirectionalSpreading(theta, omega, peakOmega, swellAmount);

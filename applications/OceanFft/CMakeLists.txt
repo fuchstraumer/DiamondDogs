@@ -1,0 +1,46 @@
+# The OceanFft demo: the ocean FFT compute chain (assets/shaders/compute/Ocean) and its render passes
+# (assets/shaders/Ocean), cooked by Lodestone into one bundle as a build step.
+# ocean_simulation is the compute side on its own, so the headless OceanFftTest runs the same code as the demo.
+set(OCEAN_FFT_SHADER_DIR "${PROJECT_SOURCE_DIR}/assets/shaders/compute/Ocean")
+lodestone_add_shader_cook(ocean_fft_shaders
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
+    TARGETS spirv
+    POLICY_FILE "${OCEAN_FFT_SHADER_DIR}/OceanFftPolicy.toml"
+    MODULES "${OCEAN_FFT_SHADER_DIR}/OceanFft.slang" "${PROJECT_SOURCE_DIR}/assets/shaders/Ocean/OceanRender.slang")
+set_target_properties(ocean_fft_shaders PROPERTIES FOLDER "Applications/OceanFft")
+
+add_library(ocean_simulation STATIC
+    "simulation/OceanSimulation.cpp"
+    "simulation/OceanSimulation.hpp"
+    "simulation/ManifestDescriptors.cpp"
+    "simulation/ManifestDescriptors.hpp")
+target_include_directories(ocean_simulation PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/simulation")
+target_link_libraries(ocean_simulation PUBLIC rhi_resources rhi_system foundation lodestone::client_library)
+target_compile_definitions(ocean_simulation PUBLIC
+    "NOMINMAX"
+    "OCEAN_FFT_MANIFEST=\"$<TARGET_PROPERTY:ocean_fft_shaders,LODESTONE_MANIFEST>\"")
+add_dependencies(ocean_simulation ocean_fft_shaders)
+set_target_properties(ocean_simulation PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+
+# The demo itself. It borrows the VulkanScene frame loop from the integration test fixtures until there is an
+# application framework to put it in.
+set(DIAMOND_DOGS_TEST_FIXTURES "${PROJECT_SOURCE_DIR}/tests/integration_tests/fixtures")
+add_executable(OceanFft
+    "main.cpp"
+    "ArcballCamera.cpp"
+    "ArcballCamera.hpp"
+    "OceanScene.cpp"
+    "OceanScene.hpp"
+    "ShaderObjectState.cpp"
+    "ShaderObjectState.hpp"
+    "${DIAMOND_DOGS_TEST_FIXTURES}/VulkanScene.cpp"
+    "${DIAMOND_DOGS_TEST_FIXTURES}/VulkanScene.hpp"
+    "${DIAMOND_DOGS_TEST_FIXTURES}/FrameLimit.cpp"
+    "${DIAMOND_DOGS_TEST_FIXTURES}/FrameLimit.hpp")
+# platform_system does not export its include folder (ADD_INTEGRATION_TEST adds it by hand, too)
+target_include_directories(OceanFft PRIVATE "${DIAMOND_DOGS_TEST_FIXTURES}" "${PROJECT_SOURCE_DIR}/modules/PlatformSystem/include" "${CMAKE_BINARY_DIR}/include")
+target_link_libraries(OceanFft PRIVATE ocean_simulation imgui_module platform_system glfw ${Vulkan_LIBRARY})
+set_target_properties(OceanFft PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+if (DIAMOND_DOGS_COMPILER_IS_CL)
+    target_compile_options(OceanFft PRIVATE "/MP")
+endif()

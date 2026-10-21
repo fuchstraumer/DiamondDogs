@@ -65,6 +65,7 @@ set_target_properties(glfw PROPERTIES FOLDER "third_party")
 # Also our building block reactor objects, used to build higher-level systems
 ADD_SUBDIRECTORY(foundation)
 ADD_SUBDIRECTORY(modules)
+ADD_SUBDIRECTORY(applications)
 
 # Configure Google Test for unit testing
 include(FetchContent)
