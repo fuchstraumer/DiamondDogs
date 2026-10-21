@@ -2,12 +2,14 @@
 #ifndef RHI_SYSTEM_SHADER_LIBRARY_HPP
 #define RHI_SYSTEM_SHADER_LIBRARY_HPP
 #include "RhiHandle.hpp"
+#include "RhiTypes.hpp"
 #include "VariantKey.hpp"
 #include <array>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -46,6 +48,15 @@ namespace rhi
 
     [[nodiscard]] std::string_view ToString(ShaderLibraryError error) noexcept;
 
+    /** @brief Creation options the manifest does not carry. They apply to every compute entry point of the program. */
+    struct ManifestProgramOptions
+    {
+        /** @brief See ShaderBinaryOptions: for variants whose wave ops assume lane == local thread index.
+         *  The caller knows which variant it picked, so it sets these from the same axis values. */
+        uint32_t RequiredSubgroupSize{ 0u };
+        bool RequireFullSubgroups{ false };
+    };
+
     template<typename T>
     using ShaderLibraryResult = std::expected<T, ShaderLibraryError>;
 
@@ -69,6 +80,9 @@ namespace rhi
         [[nodiscard]] std::span<const DescriptorSetLayoutHandle> SetLayouts() const noexcept;
         /** @brief Returns the workgroup size of the first entry point, as reflected by the cook. */
         [[nodiscard]] std::array<uint32_t, 3> Workgroup() const noexcept;
+        /** @brief The one push constant range of the program, from offset 0, for every stage that reads push constants:
+         *  the entry point `uniform` parameters of ordinary data. Empty when no stage has any. */
+        [[nodiscard]] std::optional<PushConstantRange> PushConstants() const noexcept;
 
     private:
         std::unique_ptr<ManifestProgramImpl> impl;
@@ -102,7 +116,8 @@ namespace rhi
             const DeviceHandle& device,
             std::string_view module_name,
             lodestone::VariantKey variant,
-            std::span<const std::string_view> entry_points) const;
+            std::span<const std::string_view> entry_points,
+            const ManifestProgramOptions& options = {}) const;
 
     private:
         std::unique_ptr<ShaderLibraryImpl> impl;

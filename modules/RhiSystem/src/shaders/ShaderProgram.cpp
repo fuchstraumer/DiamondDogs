@@ -121,9 +121,6 @@ namespace rhi
         {
             if (stages_to_create.front().Stage == ShaderStageFlags::Compute)
             {
-                // fixed: this used VK_SHADER_CODE_TYPE_BINARY_EXT (the code is SPIR-V, not a cached driver binary),
-                // set no layouts or push constants (so any shader with a binding failed to create), and required
-                // full subgroups (which fails for any workgroup X size that isn't a multiple of the subgroup size)
                 constexpr static VkShaderCreateInfoEXT k_ComputeCreateInfo
                 {
                     VK_STRUCTURE_TYPE_SHADER_CREATE_INFO_EXT,
@@ -159,6 +156,25 @@ namespace rhi
                 createInfo.pSetLayouts = setLayouts.data();
                 createInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
                 createInfo.pPushConstantRanges = pushConstantRanges.data();
+
+                // full subgroups are opt-in again: only shaders that rely on lane == local thread index ask for them
+                if (computeOptions.RequireFullSubgroups)
+                {
+                    createInfo.flags |= VK_SHADER_CREATE_REQUIRE_FULL_SUBGROUPS_BIT_EXT;
+                }
+
+                const VkShaderRequiredSubgroupSizeCreateInfoEXT requiredSubgroupSize
+                {
+                    VK_STRUCTURE_TYPE_SHADER_REQUIRED_SUBGROUP_SIZE_CREATE_INFO_EXT,
+                    nullptr,
+                    computeOptions.RequiredSubgroupSize
+                };
+
+                if (computeOptions.RequiredSubgroupSize != 0u)
+                {
+                    createInfo.pNext = &requiredSubgroupSize;
+                }
+
                 VkShaderEXT createdShader = VK_NULL_HANDLE;
 
                 Result result = pfn_vkCreateShadersEXT(ParentDevice.As<VkDevice>(),

@@ -39,6 +39,7 @@ namespace
     [[nodiscard]] std::expected<VkDescriptorType, rhi::ShaderLibraryError> ToVkDescriptorType(const lodestone::manifest::ResolvedResource& resource) noexcept;
     [[nodiscard]] VkShaderStageFlags ToVkShaderStages(lodestone::ShaderStageKind stages) noexcept;
     [[nodiscard]] rhi::ShaderStageFlags ToRhiShaderStage(lodestone::ShaderStageKind stage) noexcept;
+    [[nodiscard]] rhi::ShaderStageFlags ToRhiShaderStages(lodestone::ShaderStageKind stages) noexcept;
     [[nodiscard]] rhi::ShaderLibraryResult<std::vector<DescriptorSetBindings>> CollectSetBindings(const lodestone::manifest::MergedLayoutView& layout);
     void DestroyLayouts(VkDevice device, std::span<const rhi::DescriptorSetLayoutHandle> set_layouts, VkPipelineLayout pipeline_layout) noexcept;
 }
@@ -59,6 +60,7 @@ namespace rhi
         std::vector<DescriptorSetLayoutHandle> SetLayouts;
         PipelineLayoutHandle PipelineLayout;
         std::array<uint32_t, 3> Workgroup{ 1u, 1u, 1u };
+        std::optional<PushConstantRange> PushConstants;
     };
 
     struct ShaderLibraryModule
@@ -149,6 +151,11 @@ namespace rhi
         return impl->Workgroup;
     }
 
+    std::optional<PushConstantRange> ManifestProgram::PushConstants() const noexcept
+    {
+        return impl->PushConstants;
+    }
+
     ShaderLibrary::ShaderLibrary(std::unique_ptr<ShaderLibraryImpl>&& _impl) noexcept :
         impl{ std::move(_impl) }
     {
@@ -228,7 +235,8 @@ namespace rhi
         const DeviceHandle& device,
         std::string_view module_name,
         lodestone::VariantKey variant,
-        std::span<const std::string_view> entry_points) const
+        std::span<const std::string_view> entry_points,
+        const ManifestProgramOptions& options) const
     {
         if (entry_points.empty())
         {
@@ -313,8 +321,17 @@ namespace rhi
             vkSetLayouts.push_back(setLayout.As<VkDescriptorSetLayout>());
         }
 
-        // todo: push constants. The cook reflects entry point `uniform` parameters, but how they appear in the
-        // manifest is still an open Lodestone question (see todo.md), so cooked programs use none for now
+        // Slang puts every stage's push constant block at offset 0, and Merge checked that the blocks agree where they
+        // overlap, so one range covers the pipeline (Lodestone C1)
+        std::vector<PushConstantRange> pushConstantRanges;
+        VkPushConstantRange vkPushConstantRange{};
+        if (const std::optional<lodestone::manifest::MergedPushConstants> pushConstants = mergedLayout->PushConstants())
+        {
+            programImpl->PushConstants = PushConstantRange{ ToRhiShaderStages(pushConstants->Stages), 0u, pushConstants->Constants.ByteSize() };
+            pushConstantRanges.push_back(*programImpl->PushConstants);
+            vkPushConstantRange = VkPushConstantRange{ ToVkShaderStages(pushConstants->Stages), 0u, pushConstants->Constants.ByteSize() };
+        }
+
         const VkPipelineLayoutCreateInfo pipelineLayoutInfo
         {
             VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -322,8 +339,8 @@ namespace rhi
             0,
             static_cast<uint32_t>(vkSetLayouts.size()),
             vkSetLayouts.data(),
-            0,
-            nullptr
+            programImpl->PushConstants.has_value() ? 1u : 0u,
+            programImpl->PushConstants.has_value() ? &vkPushConstantRange : nullptr
         };
 
         VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
@@ -346,8 +363,10 @@ namespace rhi
                 instance.SpirvWords(),
                 ToRhiShaderStage(instance.Stage()),
                 entry_points[i],
-                std::span<PushConstantRange>{},
+                std::span<PushConstantRange>{ pushConstantRanges },
                 std::span<DescriptorSetLayoutHandle>{ programImpl->SetLayouts });
+            binaryOptions.back().RequiredSubgroupSize = options.RequiredSubgroupSize;
+            binaryOptions.back().RequireFullSubgroups = options.RequireFullSubgroups;
         }
 
         const lodestone::WorkgroupSize workgroup = instances.front().Workgroup();
@@ -437,6 +456,19 @@ namespace
             if ((static_cast<uint32_t>(stages) & static_cast<uint32_t>(stage)) != 0u)
             {
                 result |= vkStage;
+            }
+        }
+        return result;
+    }
+
+    rhi::ShaderStageFlags ToRhiShaderStages(lodestone::ShaderStageKind stages) noexcept
+    {
+        rhi::ShaderStageFlags result = rhi::ShaderStageFlags::None;
+        for (uint32_t bit = 1u; bit < static_cast<uint32_t>(lodestone::ShaderStageKind::Count); bit <<= 1u)
+        {
+            if ((static_cast<uint32_t>(stages) & bit) != 0u)
+            {
+                result |= ToRhiShaderStage(static_cast<lodestone::ShaderStageKind>(bit));
             }
         }
         return result;
