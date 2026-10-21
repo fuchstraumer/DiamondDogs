@@ -12,6 +12,8 @@ struct ShaderObjectDrawState
     bool DepthWrite{ true };
     bool AlphaBlend{ false };
     VkCullModeFlags CullMode{ VK_CULL_MODE_NONE };
+    /** @brief Must match the sample count of the attachments being rendered to */
+    VkSampleCountFlagBits Samples{ VK_SAMPLE_COUNT_1_BIT };
 };
 
 /** @brief Loads the EXT entry points. Call once, after the device exists */

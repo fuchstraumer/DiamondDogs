@@ -147,8 +147,8 @@ int main(int argc, char* argv[])
         "DiamondDogs - OceanFft",
         nullptr, // use primary display
         PlatformWindowMode::Windowed,
-        1600,
-        900,
+        1920,
+        1080,
         100,
         100,
         60.0f,

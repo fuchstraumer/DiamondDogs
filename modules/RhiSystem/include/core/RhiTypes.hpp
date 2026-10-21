@@ -49,6 +49,9 @@ namespace rhi
         LoadOp LoadOp = LoadOp::Clear;
         StoreOp StoreOp = StoreOp::Store;
         ClearColorValue ClearValue{};
+        /** @brief When set, a multisampled attachment is averaged into this single-sampled view at the end of rendering */
+        ImageViewHandle ResolveImageView{};
+        ImageLayout ResolveLayout = ImageLayout::ColorAttachment;
     };
 
     struct DepthStencilAttachment

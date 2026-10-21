@@ -57,9 +57,10 @@ void SetShaderObjectDrawState(VkCommandBuffer command_buffer, const ShaderObject
     vkCmdSetFrontFace(command_buffer, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     vkCmdSetDepthBiasEnable(command_buffer, VK_FALSE);
 
-    pfn_vkCmdSetRasterizationSamplesEXT(command_buffer, VK_SAMPLE_COUNT_1_BIT);
+    pfn_vkCmdSetRasterizationSamplesEXT(command_buffer, state.Samples);
+    // one 32-bit word covers up to 32 samples
     constexpr VkSampleMask k_SampleMask = 0xFFFFFFFFu;
-    pfn_vkCmdSetSampleMaskEXT(command_buffer, VK_SAMPLE_COUNT_1_BIT, &k_SampleMask);
+    pfn_vkCmdSetSampleMaskEXT(command_buffer, state.Samples, &k_SampleMask);
     pfn_vkCmdSetAlphaToCoverageEnableEXT(command_buffer, VK_FALSE);
     pfn_vkCmdSetAlphaToOneEnableEXT(command_buffer, VK_FALSE);
 

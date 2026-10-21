@@ -74,8 +74,8 @@ private:
     };
 
     void createRenderPrograms();
-    void createDepthImage();
-    void destroyDepthImage();
+    void createRenderTargets();
+    void destroyRenderTargets();
     void updateCamera();
     void runCommand(const SceneCommand& command);
     void recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image);
@@ -95,6 +95,9 @@ private:
     DrawProgram seabed;
     GraphicsResource sampler;
     GraphicsResource depthImage;
+    // the scene renders at msaaSamples into msaaColorImage and depthImage, and resolves into the swapchain image
+    GraphicsResource msaaColorImage;
+    VkSampleCountFlagBits msaaSamples{ VK_SAMPLE_COUNT_1_BIT };
     std::vector<GraphicsResource> viewBuffers;
     std::vector<void*> viewBufferPointers;
 

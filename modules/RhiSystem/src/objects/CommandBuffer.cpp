@@ -135,6 +135,12 @@ namespace rhi
             vkAttachment.clearValue.color.float32[1] = attachment.ClearValue[1];
             vkAttachment.clearValue.color.float32[2] = attachment.ClearValue[2];
             vkAttachment.clearValue.color.float32[3] = attachment.ClearValue[3];
+            if (attachment.ResolveImageView)
+            {
+                vkAttachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                vkAttachment.resolveImageView = attachment.ResolveImageView.As<VkImageView>();
+                vkAttachment.resolveImageLayout = vk::ToVulkan(attachment.ResolveLayout);
+            }
         }
 
         VkRenderingAttachmentInfo depthAttachment{};

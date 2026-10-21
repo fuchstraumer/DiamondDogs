@@ -30,7 +30,7 @@ namespace ocean
     struct SpectrumParameters
     {
         uint32_t NoiseSeed{ 1u };
-        uint32_t DirectionalSpreadingMode{ 0u }; // 0 Mitsuyasu, 1 Hasselman, 2 Donelan-Banner (needs the real LUT)
+        uint32_t DirectionalSpreadingMode{ 0u }; // 0 Mitsuyasu, 1 Hasselman, 2 Donelan-Banner
         float WindSpeed{ 10.0f };                // m/s
         float Fetch{ 100.0f };                   // km
         float Depth{ 50.0f };                    // m

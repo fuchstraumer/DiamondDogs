@@ -46,6 +46,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -55,6 +56,8 @@ namespace
     constexpr std::array<std::string_view, 2> k_SeabedEntryPoints{ "SeabedVS", "SeabedFS" };
     // the seabed reaches past the surface patch, so its edge is not right under the camera
     constexpr float k_SeabedSize = 2048.0f;
+    // hardware MSAA for the ocean pass: lower when the device supports less (a render setting, eventually)
+    constexpr uint32_t k_MaxMsaaSamples = 8u;
 
     // OceanViewParameters in OceanRenderCommon.slang (std140, all float4)
     struct OceanViewParameters
@@ -188,7 +191,7 @@ void OceanScene::Initialize(void* user_data)
         viewBufferPointers.push_back(map->GetPointer());
     }
 
-    createDepthImage();
+    createRenderTargets();
     createRenderPrograms();
 
     const ImGuiModuleCreateInfo imguiInfo
@@ -278,37 +281,69 @@ void OceanScene::createRenderPrograms()
     }
 }
 
-void OceanScene::createDepthImage()
+void OceanScene::createRenderTargets()
 {
+    // the highest count up to k_MaxMsaaSamples that both color and depth attachments support
+    if (msaaSamples == VK_SAMPLE_COUNT_1_BIT)
+    {
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(vkPhysicalDevice, &properties);
+        const VkSampleCountFlags supported = properties.limits.framebufferColorSampleCounts & properties.limits.framebufferDepthSampleCounts;
+        for (uint32_t samples = k_MaxMsaaSamples; samples > 1u; samples >>= 1u)
+        {
+            if ((supported & samples) != 0u)
+            {
+                msaaSamples = static_cast<VkSampleCountFlagBits>(samples);
+                break;
+            }
+        }
+    }
+
     const math::Float2 extent = swapchain->GetExtent();
-    ImageCreateInfo info{};
-    info.Domain = ResourceDomain::GPUOnly;
-    info.Usage = ImageUsageBits::DepthRead | ImageUsageBits::DepthWrite;
-    info.Type = ImageType::Type2D;
-    info.Format = CommonFormats::Depth32;
-    info.Width = static_cast<uint32_t>(extent.x);
-    info.Height = static_cast<uint32_t>(extent.y);
-    info.Depth = 1u;
-    info.ViewInfo = ImageViewCreateInfo{};
-    info.ViewInfo->ViewType = ImageViewType::Type2D;
-    info.ViewInfo->Range.AspectMask = ImageAspectFlags::Depth;
-    depthImage = WaitForResource(resources->CreateImage(info, {}), "the depth image");
+    ImageCreateInfo depthInfo{};
+    depthInfo.Domain = ResourceDomain::GPUOnly;
+    depthInfo.Usage = ImageUsageBits::DepthRead | ImageUsageBits::DepthWrite;
+    depthInfo.Type = ImageType::Type2D;
+    depthInfo.Format = CommonFormats::Depth32;
+    depthInfo.Width = static_cast<uint32_t>(extent.x);
+    depthInfo.Height = static_cast<uint32_t>(extent.y);
+    depthInfo.Depth = 1u;
+    depthInfo.SampleCount = static_cast<uint32_t>(msaaSamples);
+    depthInfo.ViewInfo = ImageViewCreateInfo{};
+    depthInfo.ViewInfo->ViewType = ImageViewType::Type2D;
+    depthInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Depth;
+    depthImage = WaitForResource(resources->CreateImage(depthInfo, {}), "the depth image");
+
+    if (msaaSamples == VK_SAMPLE_COUNT_1_BIT)
+    {
+        return;
+    }
+
+    // the same format as the swapchain, since it resolves straight into the swapchain image
+    ImageCreateInfo colorInfo = depthInfo;
+    colorInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite;
+    colorInfo.Format = swapchain->ImageFormat();
+    colorInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
+    msaaColorImage = WaitForResource(resources->CreateImage(colorInfo, {}), "the multisampled color image");
 }
 
-void OceanScene::destroyDepthImage()
+void OceanScene::destroyRenderTargets()
 {
-    if (depthImage)
+    for (GraphicsResource* target : { &depthImage, &msaaColorImage })
     {
-        (void)resources->DestroyResource(depthImage)->WaitForCompletion(k_TimeoutNs);
-        depthImage = GraphicsResource{};
+        if (*target)
+        {
+            (void)resources->DestroyResource(*target)->WaitForCompletion(k_TimeoutNs);
+            *target = GraphicsResource{};
+        }
     }
 }
 
 void OceanScene::onSwapchainRecreated()
 {
-    // recreateSwapchain waited for the device, so nothing still uses the old depth image
-    destroyDepthImage();
-    createDepthImage();
+    // recreateSwapchain waited for the device, so nothing still uses the old targets
+    destroyRenderTargets();
+    createRenderTargets();
 }
 
 void OceanScene::Destroy()
@@ -340,7 +375,7 @@ void OceanScene::Destroy()
         descriptorPool = VK_NULL_HANDLE;
     }
 
-    destroyDepthImage();
+    destroyRenderTargets();
 
     for (const GraphicsResource& buffer : viewBuffers)
     {
@@ -459,8 +494,7 @@ void OceanScene::drawPanel()
         spectrumChanged |= ImGui::SliderFloat("Short wave fade (m)", &spectrum.FadeLength, 0.0f, 0.1f);
         spectrumChanged |= ImGui::SliderFloat("Depth (m)", &spectrum.Depth, 1.0f, 500.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
         int mode = static_cast<int>(spectrum.DirectionalSpreadingMode);
-        // Donelan-Banner needs the normalization LUT from assets/scripts, which isn't generated in this build yet
-        spectrumChanged |= ImGui::Combo("Spreading", &mode, "Mitsuyasu\0Hasselmann\0");
+        spectrumChanged |= ImGui::Combo("Spreading", &mode, "Mitsuyasu\0Hasselmann\0Donelan-Banner\0");
         spectrum.DirectionalSpreadingMode = static_cast<uint32_t>(mode);
         int seed = static_cast<int>(spectrum.NoiseSeed);
         spectrumChanged |= ImGui::InputInt("Seed", &seed);
@@ -551,7 +585,7 @@ void OceanScene::writeViewParameters()
 void OceanScene::recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgram& program, float grid_size, uint32_t grid_resolution, bool alpha_blend) const
 {
     RhiAssert(command_buffer.BindShaders(program.Program->Program()));
-    SetShaderObjectDrawState(command_buffer.Handle().As<VkCommandBuffer>(), ShaderObjectDrawState{ true, true, alpha_blend, VK_CULL_MODE_NONE });
+    SetShaderObjectDrawState(command_buffer.Handle().As<VkCommandBuffer>(), ShaderObjectDrawState{ true, true, alpha_blend, VK_CULL_MODE_NONE, msaaSamples });
     const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(program.Sets[currentFrame]) };
     command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Graphics, program.Program->PipelineLayout(), 0, std::span{ &set, 1 });
     const OceanGridParameters grid{ -0.5f * grid_size, -0.5f * grid_size, grid_size, grid_resolution };
@@ -600,9 +634,11 @@ void OceanScene::recordCommands()
     const math::Float2 extent = swapchain->GetExtent();
     constexpr rhi::ImageSubresourceRange k_ColorRange{ rhi::ImageAspect::Color, 0, 1, 0, 1 };
     constexpr rhi::ImageSubresourceRange k_DepthRange{ rhi::ImageAspect::Depth, 0, 1, 0, 1 };
-    // both attachments are cleared, so UNDEFINED is always a valid old layout. One depth image serves every frame
-    // in flight, so the previous frame's depth writes must finish first
-    const std::array<rhi::ImageBarrier, 2> toAttachments
+    // every attachment is cleared or fully overwritten by the resolve, so UNDEFINED is always a valid old layout. One
+    // depth image and one multisampled color image serve every frame in flight, so the previous frame's writes to
+    // them must finish first
+    const bool multisampled = static_cast<bool>(msaaColorImage);
+    std::vector<rhi::ImageBarrier> toAttachments
     {
         rhi::ImageBarrier
         {
@@ -621,11 +657,36 @@ void OceanScene::recordCommands()
             k_DepthRange
         },
     };
+
+    if (multisampled)
+    {
+        toAttachments.push_back(rhi::ImageBarrier
+        {
+            rhi::ImageHandle{ msaaColorImage.VkHandle },
+            rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite,
+            rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentRead | rhi::Access::ColorAttachmentWrite,
+            rhi::ImageLayout::Undefined, rhi::ImageLayout::ColorAttachment,
+            k_ColorRange
+        });
+    }
+
     cmd.Barrier(rhi::DependencyInfo{ {}, {}, toAttachments });
 
+    const rhi::ImageViewHandle swapchainView{ reinterpret_cast<uint64_t>(swapchain->ImageViewHandle(currentAcquiredImage)) };
     rhi::ColorAttachment colorAttachment{};
-    colorAttachment.ImageView = rhi::ImageViewHandle{ reinterpret_cast<uint64_t>(swapchain->ImageViewHandle(currentAcquiredImage)) };
     colorAttachment.ClearValue = rhi::ClearColorValue{ 0.30f, 0.45f, 0.65f, 1.0f };
+    if (multisampled)
+    {
+        // the samples are only needed until the resolve, so they are not stored
+        colorAttachment.ImageView = rhi::ImageViewHandle{ msaaColorImage.VkViewHandle };
+        colorAttachment.StoreOp = rhi::StoreOp::DontCare;
+        colorAttachment.ResolveImageView = swapchainView;
+    }
+    else
+    {
+        colorAttachment.ImageView = swapchainView;
+    }
+
     rhi::DepthStencilAttachment depthAttachment{};
     depthAttachment.ImageView = rhi::ImageViewHandle{ depthImage.VkViewHandle };
     depthAttachment.ClearValue = rhi::ClearDepthStencilValue{ 1.0f, 0 };
@@ -650,9 +711,13 @@ void OceanScene::recordCommands()
         rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentRead | rhi::Access::ColorAttachmentWrite
     };
     cmd.Barrier(rhi::DependencyInfo{ std::span{ &oceanToUi, 1 }, {}, {} });
-    colorAttachment.LoadOp = rhi::LoadOp::Load;
+
+    // the UI draws single-sampled, straight onto the resolved swapchain image
+    rhi::ColorAttachment uiAttachment{};
+    uiAttachment.ImageView = swapchainView;
+    uiAttachment.LoadOp = rhi::LoadOp::Load;
     rhi::RenderingInfo uiRenderingInfo{};
-    uiRenderingInfo.ColorAttachments = std::span{ &colorAttachment, 1 };
+    uiRenderingInfo.ColorAttachments = std::span{ &uiAttachment, 1 };
     uiRenderingInfo.RenderArea = renderingInfo.RenderArea;
     cmd.BeginRendering(uiRenderingInfo);
     imgui->Render(cmd.Handle());

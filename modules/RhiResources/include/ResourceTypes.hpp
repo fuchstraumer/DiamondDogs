@@ -147,6 +147,9 @@ struct ImageCreateInfo
     uint32_t Depth{ 0u };
     uint32_t MipLevels{ 1u };
     uint32_t ArrayLayers{ 1u };
+    /** @brief Samples per texel: 1, or a power of two the device supports for this format and usage (multisampled
+     *  render targets). A multisampled image has one mip level and cannot take initial data */
+    uint32_t SampleCount{ 1u };
     /** @brief Optional view info - if present we will create a view with this image, if not no view will be created. */
     std::optional<ImageViewCreateInfo> ViewInfo{ std::nullopt };
     /** @brief Optional sampler info - if present we will create a sampler with this image, if not no sampler will be created. */

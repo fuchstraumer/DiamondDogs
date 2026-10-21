@@ -837,7 +837,8 @@ VkImage ResourceContextImpl::createImage(entt::entity new_entity, const ImageCre
         VkExtent3D{ image_info.Width, std::max(image_info.Height, 1u), std::max(image_info.Depth, 1u) },
         image_info.MipLevels,
         image_info.ArrayLayers,
-        VK_SAMPLE_COUNT_1_BIT,
+        // the VkSampleCountFlagBits values are the counts themselves
+        static_cast<VkSampleCountFlagBits>(std::max(image_info.SampleCount, 1u)),
         VK_IMAGE_TILING_OPTIMAL,
         ToVkImageUsage(image_info.Usage),
         queueFamilyIndices.size() > 1u ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
