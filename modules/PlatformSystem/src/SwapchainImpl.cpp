@@ -375,6 +375,11 @@ VkSwapchainCreateInfoKHR SwapchainImpl::getCreateInfo(const SwapchainCreateInfo&
     swapchainCreateInfo.imageArrayLayers = 1; // always 1 unless doing stereoscopic 3D
     // will need color attachment bits because we also write to the swapchain images, not just present them
     swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    // transfer source lets FrameCapture copy the presented image out, when the surface allows it
+    if ((Info->capabilities.surfaceCapabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0u)
+    {
+        swapchainCreateInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
     swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; // assume only one queue family for now
     swapchainCreateInfo.queueFamilyIndexCount = 0;
     swapchainCreateInfo.pQueueFamilyIndices = nullptr;

@@ -41,6 +41,8 @@ public:
     [[nodiscard]] PresentMode PresentMode() const noexcept;
     [[nodiscard]] void* ImageHandle(uint32_t index) const noexcept;
     [[nodiscard]] void* ImageViewHandle(uint32_t index) const noexcept;
+    /** @brief True when the images have transfer source usage, so FrameCapture can copy them out */
+    [[nodiscard]] bool SupportsTransferSource() const noexcept;
 
 private:
     std::unique_ptr<SwapchainImpl> impl;

@@ -122,3 +122,10 @@ Swapchain::~Swapchain()
 {
     Destroy();
 }
+
+bool Swapchain::SupportsTransferSource() const noexcept
+{
+    return impl->Info != nullptr &&
+        (impl->Info->capabilities.surfaceCapabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0u;
+}
+
