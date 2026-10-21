@@ -3,6 +3,7 @@
 #include "CommandBuffer.hpp"
 #include "CommandPool.hpp"
 #include "Device.hpp"
+#include "FrameCapture.hpp"
 #include "ImGuiModule.hpp"
 #include "ImageDataFormats.hpp"
 #include "ManifestDescriptors.hpp"
@@ -13,6 +14,7 @@
 #include "ResourceFlags.hpp"
 #include "ResourceMessageReply.hpp"
 #include "ResourceTypes.hpp"
+#include "SceneCommands.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
@@ -35,7 +37,9 @@
 #include <cstring>
 #include <expected>
 #include <format>
+#include <iostream>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -72,6 +76,35 @@ namespace
         uint32_t Resolution{ 1u };
     };
 
+    constexpr float k_DegreesToRadians = std::numbers::pi_v<float> / 180.0f;
+
+    /** @brief How the swapchain encodes color, or nothing when FrameCapture cannot convert it */
+    std::optional<capture::CaptureEncoding> CaptureEncodingFor(ImageFormat format, ColorSpace color_space)
+    {
+        std::optional<capture::CaptureEncoding> encoding;
+        switch (color_space)
+        {
+        case ColorSpace::sRGB_Nonlinear:
+            encoding = capture::CaptureEncoding::sRGB;
+            break;
+        case ColorSpace::Extended_sRGB_Linear:
+            encoding = capture::CaptureEncoding::LinearExtendedSRGB;
+            break;
+        case ColorSpace::HDR10_ST2084:
+            encoding = capture::CaptureEncoding::HDR10_PQ;
+            break;
+        default:
+            break;
+        }
+
+        if (encoding.has_value() && !capture::FrameCapture::IsSupported(format, *encoding))
+        {
+            encoding.reset();
+        }
+
+        return encoding;
+    }
+
     [[nodiscard]] GraphicsResource WaitForResource(const std::shared_ptr<GraphicsResourceReply>& reply, std::string_view what)
     {
         if (reply == nullptr || reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
@@ -89,6 +122,11 @@ OceanScene::OceanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platfor
     choppiness{ _settings.Simulation.Choppiness }
 {
     camera.Current.Distance = 0.6f * settings.GridSize;
+
+    if (settings.InitialCamera.has_value())
+    {
+        camera.Current = *settings.InitialCamera;
+    }
 }
 
 OceanScene::~OceanScene()
@@ -116,6 +154,7 @@ void OceanScene::Initialize(void* user_data)
     {
         throw std::runtime_error(std::format("OceanScene: opening {} failed: {}", OCEAN_FFT_MANIFEST, rhi::ToString(opened.error())));
     }
+
     library = std::move(*opened);
 
     auto created = ocean::OceanSimulation::Create(*device, *resources, *library, settings.Simulation);
@@ -123,6 +162,7 @@ void OceanScene::Initialize(void* user_data)
     {
         throw std::runtime_error(std::format("OceanScene: {}", created.error()));
     }
+
     simulation = std::move(*created);
 
     // linear and repeating: each cascade tiles with its own patch size
@@ -138,11 +178,13 @@ void OceanScene::Initialize(void* user_data)
         info.Usage = BufferUsageBits::VertexShaderUBO | BufferUsageBits::FragmentShaderUBO;
         info.Size = sizeof(OceanViewParameters);
         const GraphicsResource& buffer = viewBuffers.emplace_back(WaitForResource(resources->CreateBuffer(info, {}), "a view buffer"));
+
         std::shared_ptr<PointerMessageReply> map = resources->MapBuffer(buffer, sizeof(OceanViewParameters), 0u);
         if (map->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
         {
             throw std::runtime_error("OceanScene: mapping a view buffer failed");
         }
+
         viewBufferPointers.push_back(map->GetPointer());
     }
 
@@ -161,6 +203,20 @@ void OceanScene::Initialize(void* user_data)
         true
     };
     imgui = std::make_unique<ImGuiModule>(imguiInfo);
+
+    // capture only costs anything on the frames it copies, but it needs transfer source usage on the swapchain
+    if (settings.Capture.Count > 0u || settings.Commands != nullptr)
+    {
+        if (swapchain->SupportsTransferSource())
+        {
+            frameCapture = std::make_unique<capture::FrameCapture>(*resources, numFramebuffers, settings.CaptureDirectory);
+        }
+        else
+        {
+            std::cerr << "OceanFft: the swapchain images cannot be a transfer source, so capture is off\n";
+        }
+    }
+
     setup = true;
 }
 
@@ -190,11 +246,13 @@ void OceanScene::createRenderPrograms()
         {
             throw std::runtime_error(std::format("OceanScene: no {} variant for {}", k_RenderModule, entryPoints[0]));
         }
+
         rhi::ShaderLibraryResult<std::unique_ptr<rhi::ManifestProgram>> created = library->CreateProgram(device->Handle(), k_RenderModule, *variant, entryPoints);
         if (!created.has_value())
         {
             throw std::runtime_error(std::format("OceanScene: {}: {}", entryPoints[0], rhi::ToString(created.error())));
         }
+
         program->Program = std::move(*created);
 
         const VkDescriptorSetLayout setLayout = program->Program->SetLayouts()[0].As<VkDescriptorSetLayout>();
@@ -211,6 +269,7 @@ void OceanScene::createRenderPrograms()
                 { "Derivatives", { simulation->Derivatives(), VK_IMAGE_LAYOUT_GENERAL } },
                 { "OceanSampler", { sampler } },
             };
+
             if (std::optional<std::string> error = ocean::WriteManifestDescriptors(vkDevice, set, **index, *variant, entryPoints, bound); error.has_value())
             {
                 throw std::runtime_error(std::format("OceanScene: {}", *error));
@@ -262,20 +321,33 @@ void OceanScene::Destroy()
     setup = false;
 
     device->WaitDeviceIdle();
+
+    if (frameCapture != nullptr)
+    {
+        frameCapture->Flush();
+        std::cout << std::format("OceanFft: wrote {} capture(s) to {}{}\n", frameCapture->WrittenCount(), frameCapture->Directory().string(),
+            frameCapture->FailedCount() > 0u ? std::format(", {} failed", frameCapture->FailedCount()) : std::string{});
+        frameCapture.reset();
+    }
+
     imgui.reset();
     surface = DrawProgram{};
     seabed = DrawProgram{};
+
     if (descriptorPool != VK_NULL_HANDLE)
     {
         vkDestroyDescriptorPool(vkDevice, descriptorPool, nullptr);
         descriptorPool = VK_NULL_HANDLE;
     }
+
     destroyDepthImage();
+
     for (const GraphicsResource& buffer : viewBuffers)
     {
         (void)resources->UnmapBuffer(buffer, sizeof(OceanViewParameters), 0u)->WaitForCompletion(k_TimeoutNs);
         (void)resources->DestroyResource(buffer)->WaitForCompletion(k_TimeoutNs);
     }
+
     viewBuffers.clear();
     viewBufferPointers.clear();
     (void)resources->DestroyResource(sampler)->WaitForCompletion(k_TimeoutNs);
@@ -293,17 +365,77 @@ void OceanScene::updateCamera()
     {
         return;
     }
+
     if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
     {
         camera.Rotate(io.MouseDelta.x, io.MouseDelta.y);
     }
+
     if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))
     {
         camera.Pan(io.MouseDelta.x, io.MouseDelta.y, swapchain->GetExtent().y);
     }
+
     if (io.MouseWheel != 0.0f)
     {
         camera.Zoom(io.MouseWheel);
+    }
+}
+
+void OceanScene::runCommand(const SceneCommand& command)
+{
+    ArcballCamera::State& state = camera.Current;
+    constexpr float k_MaxPitch = 0.5f * std::numbers::pi_v<float> - 0.01f;
+    const std::array<float, 6>& v = command.Values;
+    switch (command.Type)
+    {
+    case SceneCommand::Kind::Camera:
+        state.Yaw = v[0] * k_DegreesToRadians;
+        state.Pitch = std::clamp(v[1] * k_DegreesToRadians, -k_MaxPitch, k_MaxPitch);
+        state.Distance = std::clamp(v[2], 2.0f, 2000.0f);
+        if (command.ValueCount == 6u)
+        {
+            state.Target = { v[3], v[4], v[5] };
+        }
+        break;
+    case SceneCommand::Kind::Orbit:
+        state.Yaw += v[0] * k_DegreesToRadians;
+        state.Pitch = std::clamp(state.Pitch + v[1] * k_DegreesToRadians, -k_MaxPitch, k_MaxPitch);
+        break;
+    case SceneCommand::Kind::Pan:
+    {
+        const float height = swapchain->GetExtent().y;
+        camera.Pan(v[0] * height, v[1] * height, height);
+        break;
+    }
+    case SceneCommand::Kind::Move:
+        state.Target = { state.Target[0] + v[0], state.Target[1] + v[1], state.Target[2] + v[2] };
+        break;
+    case SceneCommand::Kind::Zoom:
+        camera.Zoom(v[0]);
+        break;
+    case SceneCommand::Kind::Time:
+        simulationTime = v[0];
+        break;
+    case SceneCommand::Kind::TimeStep:
+        settings.FixedTimeStep = std::max(v[0], 0.0f);
+        break;
+    case SceneCommand::Kind::Pause:
+        paused = command.Text == "on";
+        break;
+    case SceneCommand::Kind::Capture:
+        captureRequest = command.Text.empty() ? std::format("capture_{:06}", frameNumber) : command.Text;
+        break;
+    case SceneCommand::Kind::Print:
+        std::cout << std::format("frame {} time {:.4f} camera {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f}\n", frameNumber, simulationTime,
+            state.Yaw / k_DegreesToRadians, state.Pitch / k_DegreesToRadians, state.Distance, state.Target[0], state.Target[1], state.Target[2])
+            << std::flush;
+        break;
+    case SceneCommand::Kind::Quit:
+        quitRequested = true;
+        break;
+    case SceneCommand::Kind::Wait:
+        break;
     }
 }
 
@@ -334,6 +466,7 @@ void OceanScene::drawPanel()
         spectrumChanged |= ImGui::InputInt("Seed", &seed);
         spectrum.NoiseSeed = static_cast<uint32_t>(seed);
     }
+
     if (ImGui::CollapsingHeader("Surface", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::SliderFloat("Choppiness", &choppiness, 0.0f, 2.0f);
@@ -344,6 +477,7 @@ void OceanScene::drawPanel()
             ImGui::Checkbox(std::format("Cascade {} ({:.0f} m)", cascade, simulationSettings.LengthScales[cascade]).c_str(), &cascadeEnabled[cascade]);
         }
     }
+
     if (ImGui::CollapsingHeader("Scene"))
     {
         ImGui::SliderFloat("Seabed depth (m)", &seabedDepth, 1.0f, 200.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
@@ -351,6 +485,7 @@ void OceanScene::drawPanel()
         ImGui::SliderAngle("Sun azimuth", &sunAzimuth, -180.0f, 180.0f);
         ImGui::TextUnformatted("Left drag: orbit. Right or middle drag: pan. Wheel: zoom");
     }
+
     ImGui::End();
 }
 
@@ -358,11 +493,23 @@ void OceanScene::update()
 {
     imgui->BeginFrame();
     updateCamera();
+
+    if (settings.Commands != nullptr)
+    {
+        for (const SceneCommand& command : settings.Commands->TakeForFrame())
+        {
+            runCommand(command);
+        }
+    }
+
     drawPanel();
+
     if (!paused)
     {
-        simulationTime += ImGui::GetIO().DeltaTime * timeScale;
+        const float step = settings.FixedTimeStep > 0.0f ? settings.FixedTimeStep : ImGui::GetIO().DeltaTime;
+        simulationTime += step * timeScale;
     }
+
     if (spectrumChanged)
     {
         // the init passes read the spectrum buffer, and earlier frames may still be reading their outputs
@@ -374,6 +521,7 @@ void OceanScene::update()
         needsInitialize = true;
         spectrumChanged = false;
     }
+
     simulation->SetChoppiness(choppiness);
 }
 
@@ -382,16 +530,20 @@ void OceanScene::writeViewParameters()
     const math::Float2 extent = swapchain->GetExtent();
     const ArcballCamera::Vector3 position = camera.Position();
     const ocean::OceanSimulationSettings& simulationSettings = simulation->Settings();
+
     OceanViewParameters view{};
     view.ViewProjectionRows = camera.ViewProjection(extent.x / std::max(extent.y, 1.0f));
     view.CameraPositionTime = { position[0], position[1], position[2], simulationTime };
+
     for (uint32_t cascade = 0; cascade < ocean::k_CascadeCount; ++cascade)
     {
         view.LengthScales[cascade] = simulationSettings.LengthScales[cascade];
         view.CascadeWeights[cascade] = cascadeEnabled[cascade] ? 1.0f : 0.0f;
     }
+
     const float cosElevation = std::cos(sunElevation);
     view.SunDirectionSeabedDepth = { std::sin(sunAzimuth) * cosElevation, std::sin(sunElevation), std::cos(sunAzimuth) * cosElevation, seabedDepth };
+
     // beginFrame waited on this frame's fence, so the GPU is done with this frame's buffer
     std::memcpy(viewBufferPointers[currentFrame], &view, sizeof(view));
 }
@@ -403,10 +555,12 @@ void OceanScene::recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgra
     const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(program.Sets[currentFrame]) };
     command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Graphics, program.Program->PipelineLayout(), 0, std::span{ &set, 1 });
     const OceanGridParameters grid{ -0.5f * grid_size, -0.5f * grid_size, grid_size, grid_resolution };
+
     if (const std::optional<rhi::PushConstantRange> range = program.Program->PushConstants(); range.has_value())
     {
         command_buffer.PushConstants(program.Program->PipelineLayout(), range->StageFlags, 0u, std::as_bytes(std::span{ &grid, 1 }));
     }
+
     command_buffer.Draw(6u * grid_resolution * grid_resolution, 1u, 0u, 0u);
 }
 
@@ -432,7 +586,9 @@ void OceanScene::recordCommands()
         rhi::PipelineStage::ComputeShader, rhi::Access::None
     };
     cmd.Barrier(rhi::DependencyInfo{ std::span{ &drawsToCompute, 1 }, {}, {} });
+
     simulation->RecordTick(cmd, simulationTime);
+    
     const rhi::GlobalBarrier computeToDraws
     {
         rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
@@ -502,6 +658,39 @@ void OceanScene::recordCommands()
     imgui->Render(cmd.Handle());
     cmd.EndRendering();
 
+    recordPresentOrCapture(cmd, image);
+    RhiAssert(cmd.End());
+    ++frameNumber;
+}
+
+void OceanScene::recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image)
+{
+    std::optional<std::string> name = std::move(captureRequest);
+    captureRequest.reset();
+    if (!name.has_value() && settings.Capture.Due(frameNumber))
+    {
+        name = std::format("frame_{:06}", frameNumber);
+    }
+
+    if (name.has_value() && frameCapture != nullptr)
+    {
+        const std::optional<capture::CaptureEncoding> encoding = CaptureEncodingFor(swapchain->ImageFormat(), swapchain->ColorSpace());
+        const math::Float2 extent = swapchain->GetExtent();
+        capture::CaptureSource source{};
+        source.Image = image;
+        source.Width = static_cast<uint32_t>(extent.x);
+        source.Height = static_cast<uint32_t>(extent.y);
+        source.Format = swapchain->ImageFormat();
+        source.Encoding = encoding.value_or(capture::CaptureEncoding::sRGB);
+        // the copy barrier also moves the image on to PresentSource
+        if (encoding.has_value() && frameCapture->RecordCopy(command_buffer, currentFrame, source, std::move(*name)))
+        {
+            return;
+        }
+        std::cerr << "OceanFft: this swapchain format cannot be captured\n";
+    }
+
+    constexpr rhi::ImageSubresourceRange k_ColorRange{ rhi::ImageAspect::Color, 0, 1, 0, 1 };
     const rhi::ImageBarrier toPresent
     {
         image,
@@ -510,8 +699,7 @@ void OceanScene::recordCommands()
         rhi::ImageLayout::ColorAttachment, rhi::ImageLayout::PresentSource,
         k_ColorRange
     };
-    cmd.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &toPresent, 1 } });
-    RhiAssert(cmd.End());
+    command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &toPresent, 1 } });
 }
 
 void OceanScene::draw()

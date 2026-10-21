@@ -155,10 +155,12 @@ namespace ocean
         {
             return;
         }
+
         if (DescriptorPool != VK_NULL_HANDLE)
         {
             vkDestroyDescriptorPool(Device->Handle().As<VkDevice>(), DescriptorPool, nullptr);
         }
+
         std::vector<std::shared_ptr<MessageReply>> replies;
         for (const GraphicsResource& resource : Buffers)
         {
@@ -167,6 +169,7 @@ namespace ocean
                 replies.push_back(Resources->DestroyResource(resource));
             }
         }
+
         for (const GraphicsResource& resource : { CascadeParamsBuffer, SpectrumParamsBuffer, NormalizationLut, DisplacementImage, DerivativesImage })
         {
             if (resource)
@@ -174,6 +177,7 @@ namespace ocean
                 replies.push_back(Resources->DestroyResource(resource));
             }
         }
+
         for (const std::shared_ptr<MessageReply>& reply : replies)
         {
             (void)reply->WaitForCompletion(k_TimeoutNs);
@@ -216,6 +220,7 @@ namespace ocean
         parameters.LengthScales = length_scales;
         parameters.Dimensions = { size, size };
         float lowerBound = 0.0001f;
+
         for (uint32_t i = 0; i < k_CascadeCount; ++i)
         {
             parameters.CutoffsLow[i] = lowerBound;
@@ -225,6 +230,7 @@ namespace ocean
             parameters.CutoffsHigh[i] = upperBound;
             lowerBound = upperBound;
         }
+
         return parameters;
     }
 
@@ -269,12 +275,15 @@ namespace ocean
                     {
                         continue;
                     }
+
                     if (resource.ByteSize() < check.ByteSize)
                     {
                         return std::format("{} is {} bytes in the manifest, {} here", check.Resource, resource.ByteSize(), check.ByteSize);
                     }
+
                     for (const auto& [memberName, offset] : check.Members)
                     {
+
                         bool found = false;
                         for (const lodestone::manifest::UniformMemberView member : resource.Members())
                         {
@@ -287,6 +296,7 @@ namespace ocean
                                 }
                             }
                         }
+                        
                         if (!found)
                         {
                             return std::format("{}.{} is not in the manifest", check.Resource, memberName);
@@ -323,6 +333,7 @@ namespace ocean
         {
             query = query.Where("IFFT_WAVE_SIZE", settings.WaveSize);
         }
+
         std::expected<lodestone::VariantKey, lodestone::QueryError> variant = query.SingleFor(k_EntryPoints);
         if (!variant.has_value())
         {
@@ -336,6 +347,7 @@ namespace ocean
         {
             return std::unexpected(std::string{ "the selected variant is not in the environment" });
         }
+
         {
             lodestone::manifest::ManifestResult<uint32_t> initIndex = environment.Module().FindEntryPointIndex(k_EntryPoints[0]);
             if (!initIndex.has_value())
@@ -439,7 +451,7 @@ namespace ocean
         {
             return std::unexpected(std::string{ "creating the uniform buffers or the images failed" });
         }
-        
+
         impl->CascadeParamsBuffer = cascadeReply->GetResource();
         impl->SpectrumParamsBuffer = spectrumReply->GetResource();
         impl->NormalizationLut = lutReply->GetResource();
@@ -457,6 +469,7 @@ namespace ocean
         };
         const VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0,
             static_cast<uint32_t>(impl->Programs.size()), static_cast<uint32_t>(k_PoolSizes.size()), k_PoolSizes.data() };
+
         if (vkCreateDescriptorPool(vkDevice, &poolInfo, nullptr, &impl->DescriptorPool) != VK_SUCCESS)
         {
             return std::unexpected(std::string{ "descriptor pool creation failed" });
@@ -481,15 +494,18 @@ namespace ocean
             const std::string_view entryPoint = k_EntryPoints[passIndex];
             const bool isIfft = passIndex == static_cast<size_t>(Pass::IfftRadix2) || passIndex == static_cast<size_t>(Pass::IfftRadix4);
             rhi::ManifestProgramOptions options{};
+
             if (isIfft && settings.WaveSize != 0u)
             {
                 // the wave-op stages index lanes with the local thread index, so each subgroup must be full and exactly WaveSize
                 options.RequiredSubgroupSize = settings.WaveSize;
                 options.RequireFullSubgroups = true;
             }
+
             const std::array<std::string_view, 1> entryPoints{ entryPoint };
             rhi::ShaderLibraryResult<std::unique_ptr<rhi::ManifestProgram>> program =
                 library.CreateProgram(device.Handle(), k_ModuleName, *variant, entryPoints, options);
+
             if (!program.has_value())
             {
                 return std::unexpected(std::format("{}: {}", entryPoint, rhi::ToString(program.error())));
@@ -499,6 +515,7 @@ namespace ocean
             passProgram.Program = std::move(*program);
             const VkDescriptorSetLayout setLayout = passProgram.Program->SetLayouts()[0].As<VkDescriptorSetLayout>();
             const VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, impl->DescriptorPool, 1, &setLayout };
+
             if (vkAllocateDescriptorSets(vkDevice, &setInfo, &passProgram.Set) != VK_SUCCESS)
             {
                 return std::unexpected(std::format("{}: descriptor set allocation failed", entryPoint));
@@ -613,16 +630,19 @@ namespace ocean
         const uint32_t sign = (value & 0x8000u) << 16u;
         const uint32_t exponent = (value >> 10u) & 0x1Fu;
         const uint32_t mantissa = value & 0x3FFu;
+
         if (exponent == 0u)
         {
             // zero or denormal: mantissa * 2^-24
             const float magnitude = std::ldexp(static_cast<float>(mantissa), -24);
             return sign != 0u ? -magnitude : magnitude;
         }
+
         if (exponent == 31u)
         {
             return std::bit_cast<float>(sign | 0x7F800000u | (mantissa << 13u));
         }
+
         return std::bit_cast<float>(sign | ((exponent + 112u) << 23u) | (mantissa << 13u));
     }
 
@@ -631,19 +651,23 @@ namespace ocean
         const uint32_t bits = std::bit_cast<uint32_t>(value);
         const uint16_t sign = static_cast<uint16_t>((bits >> 16u) & 0x8000u);
         const float magnitude = std::fabs(value);
+
         if (std::isnan(value))
         {
             return static_cast<uint16_t>(sign | 0x7E00u);
         }
+
         if (magnitude >= 65520.0f)
         {
             return static_cast<uint16_t>(sign | 0x7C00u);
         }
+
         if (magnitude < 6.103515625e-05f)
         {
             // denormal: round to the nearest multiple of 2^-24
             return static_cast<uint16_t>(sign | static_cast<uint16_t>(std::nearbyint(magnitude * 16777216.0f)));
         }
+        
         // round to nearest even on the 13 dropped mantissa bits
         const uint32_t magnitudeBits = bits & 0x7FFFFFFFu;
         const uint32_t rounded = magnitudeBits + 0x0FFFu + ((magnitudeBits >> 13u) & 1u);

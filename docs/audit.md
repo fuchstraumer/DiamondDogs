@@ -335,9 +335,8 @@ Status 2026-10-20: steps 1, 2, 4 and 5 are done (log). Step 3 waits for a sessio
 
 Not ordered by the author yet. Roughly in order of how much they unblock the noise host:
 
-1. **Push constants through `ShaderLibrary`.** Read `MergedLayoutView::PushConstants()`, add the range to the
-   pipeline layout and to every shader object, and expose it on `ManifestProgram`. Then a ComputeManifestTest
-   variant (or a new cooked shader) that feeds per-dispatch data through `CommandBuffer::PushConstants`. Small.
+1. ~~Push constants through `ShaderLibrary`~~: done 2026-10-21 for the ocean demo (`ManifestProgram::PushConstants`).
+   OceanFftTest is its test: the IFFT, tick and resolve passes all take their per-dispatch data as push constants.
 2. **RhiResources upgrades** (docs/rhi-resources-design.md, the author's design): the transfer timeline,
    retirement, streaming, buffer device address, bindless. Questions in section 10. The design is the author's,
    so this one starts with a session together. L17's `RequiredBufferUsage` may feed `BufferUsageBits`.
@@ -489,6 +488,33 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
   - The mimalloc assert showed as a CRT Retry dialog during the build's gtest discovery step. Debug asserts
     block unattended runs; the run helper now skips tests when the build fails, so stale binaries don't pass.
   - Result: 9/9 on ninja-msvc and ninja-clang-cl, Debug and Release, zero validation messages.
+
+- 2026-10-21 (OceanFft compute, headless test and demo). The author asked for the compute shaders fixed, a headless
+  test, the subgroup variant with full subgroups on this NVIDIA GPU, the vertex stage, and a demo under `applications`.
+  - Shaders (`assets/shaders/compute/Ocean`): `IFFT_SIZE` limited to 128-1024 (one row per workgroup of
+    `IFFT_SIZE` threads, 1024 is the limit). `IFFT_LOG4_WAVE_SIZE` = (log2 wave - 1) / 2: the old constant 2 was
+    only right for waves 32 and 64. `InitSpectrum` fixed (names, includes, the spread-mode constants, per-set
+    bindings gone) and `SpectrumConjugateCS` written. New `OceanTick.slang` (time evolution, eight fields packed
+    two per complex value into two slices per cascade) and `OceanResolve.slang` (unpack, checkerboard sign, scale,
+    Jacobian, rgba16f array textures). The IFFT scale is split as IFFT_SIZE before and after, so heights stay normal
+    in half. IFFT parameters, time and choppiness are entry point uniforms (push constants). `SampleHasselmanLUT`
+    reads the globals (the cook could not trace a sampler pair through parameters) and uses `SampleLevel`.
+  - RhiSystem: `ShaderBinaryOptions::RequiredSubgroupSize` and `RequireFullSubgroups` (compute only, opt-in), and
+    `ManifestProgramOptions` on `ShaderLibrary::CreateProgram`. `ManifestProgram::PushConstants()`.
+  - `applications/OceanFft`: `ocean_simulation` (OceanSimulation, ManifestDescriptors) shared by the demo and
+    `tests/integration_tests/OceanFftTest`. `ocean::PickWaveSize` picks the device subgroup size (32 here) when
+    size control, full subgroups and shuffles are supported.
+  - OceanFftTest: Radix2 and Radix4, with and without wave 32, at 256 and 512, against a double CPU FFT: relative
+    RMS 2e-3. Conjugate pass bit exact. Tick, IFFT and resolve against the CPU from the GPU's own h0: all eight
+    fields 5e-4 to 3e-3.
+  - Render module `assets/shaders/Ocean` (OceanRender): grid from SV_VertexID, all cascades displaced at the vertex,
+    a placeholder fragment shader (the author writes the shading), a flat procedural seabed. The demo: arcball
+    camera, ImGui panel (spectrum, choppiness, cascade toggles, sun, seabed depth). Validation clean.
+  - Findings for the author: the spectrum gives Hs 4.19 m at 10 m/s and 100 km fetch, about 2x JONSWAP (h0 has no
+    1/sqrt(2), and the two Gaussians already have E|xi|^2 = 2). `CascadeContribution` multiplies by the number of
+    cascades that cover k instead of dividing. The Donelan-Banner LUT script needs fixes before it is used: see
+    docs/ocean-lut-script-review.md (quadrature at large swell, linear V axis, transposed LUT, sampling function,
+    sin/cos LUT size, C++ linkage). Donelan-Banner mode has a 1x1 stand-in LUT until then.
 
 ## 10. RhiResources: questions for the author, and inputs for the design session
 

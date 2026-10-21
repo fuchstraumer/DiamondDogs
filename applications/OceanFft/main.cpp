@@ -3,10 +3,15 @@
 #include "OceanScene.hpp"
 #include "PlatformSystem.hpp"
 #include "RhiSystem.hpp"
+#include "SceneCommands.hpp"
 #include <charconv>
 #include <cstdint>
+#include <expected>
 #include <iostream>
 #include <memory>
+#include <numbers>
+#include <optional>
+#include <string>
 #include <string_view>
 
 // The OceanFft demo: a square of FFT ocean over a seabed, with an orbit camera and an ImGui panel.
@@ -14,10 +19,33 @@
 //   --size=N        IFFT size: 128, 256, 512 (default) or 1024
 //   --radix2        use the radix-2 IFFT kernel instead of radix-4
 //   --no-wave-ops   use the variant without subgroup operations, even when the device supports them
+// Capture and scripted control (see SceneCommands.hpp for the command language):
+//   --capture=DIR        write captures to DIR (default "captures")
+//   --capture-count=K    capture K frames, the first at --capture-first=F (default 0), one every --capture-every=N
+//                        (default 1). Without --frames, the demo exits after the last one
+//   --dt=SECONDS         fixed simulation step per frame, so captures N frames apart are N * SECONDS apart
+//   --camera=YAW,PITCH,DISTANCE[,TX,TY,TZ]   initial camera, degrees and meters
+//   --script=FILE        run the commands in FILE between frames
+//   --stdin              also read commands from standard input
 namespace
 {
-    void ParseArguments(int argc, char* argv[], OceanSceneSettings& settings, bool& no_wave_ops)
+    struct CommandLine
     {
+        bool NoWaveOps{ false };
+        bool Stdin{ false };
+        std::optional<std::string> Script;
+    };
+
+    template<typename T>
+    bool ParseNumber(std::string_view text, T& value)
+    {
+        const std::from_chars_result result = std::from_chars(text.data(), text.data() + text.size(), value);
+        return result.ec == std::errc{} && result.ptr == text.data() + text.size();
+    }
+
+    void ParseArguments(int argc, char* argv[], OceanSceneSettings& settings, CommandLine& command_line)
+    {
+        constexpr float k_DegreesToRadians = std::numbers::pi_v<float> / 180.0f;
         for (int i = 1; i < argc; ++i)
         {
             const std::string_view argument{ argv[i] };
@@ -27,7 +55,53 @@ namespace
             }
             else if (argument == "--no-wave-ops")
             {
-                no_wave_ops = true;
+                command_line.NoWaveOps = true;
+            }
+            else if (argument == "--stdin")
+            {
+                command_line.Stdin = true;
+            }
+            else if (argument.starts_with("--script="))
+            {
+                command_line.Script = std::string{ argument.substr(9) };
+            }
+            else if (argument.starts_with("--capture="))
+            {
+                settings.CaptureDirectory = std::string{ argument.substr(10) };
+            }
+            else if (argument.starts_with("--capture-count="))
+            {
+                if (!ParseNumber(argument.substr(16), settings.Capture.Count)) { std::cerr << "--capture-count takes a whole number\n"; }
+            }
+            else if (argument.starts_with("--capture-every="))
+            {
+                if (!ParseNumber(argument.substr(16), settings.Capture.Every)) { std::cerr << "--capture-every takes a whole number\n"; }
+            }
+            else if (argument.starts_with("--capture-first="))
+            {
+                if (!ParseNumber(argument.substr(16), settings.Capture.First)) { std::cerr << "--capture-first takes a whole number\n"; }
+            }
+            else if (argument.starts_with("--dt="))
+            {
+                if (!ParseNumber(argument.substr(5), settings.FixedTimeStep)) { std::cerr << "--dt takes seconds\n"; }
+            }
+            else if (argument.starts_with("--camera="))
+            {
+                const std::expected<SceneCommand, std::string> parsed = SceneCommand::Parse(std::string{ "camera " } + std::string{ argument.substr(9) });
+                if (!parsed.has_value())
+                {
+                    std::cerr << "--camera: " << parsed.error() << "\n";
+                    continue;
+                }
+                ArcballCamera::State state{};
+                state.Yaw = parsed->Values[0] * k_DegreesToRadians;
+                state.Pitch = parsed->Values[1] * k_DegreesToRadians;
+                state.Distance = parsed->Values[2];
+                if (parsed->ValueCount == 6u)
+                {
+                    state.Target = { parsed->Values[3], parsed->Values[4], parsed->Values[5] };
+                }
+                settings.InitialCamera = state;
             }
             else if (argument.starts_with("--size="))
             {
@@ -84,17 +158,40 @@ int main(int argc, char* argv[])
     platformSystem->CreateDefaultSwapchain(rhiSystem->GetInstance(), rhiSystem->GetDevice());
 
     OceanSceneSettings settings{};
-    bool noWaveOps = false;
-    ParseArguments(argc, argv, settings, noWaveOps);
-    settings.Simulation.WaveSize = noWaveOps ? 0u : ocean::PickWaveSize(*rhiSystem->GetDevice());
+    CommandLine commandLine{};
+    ParseArguments(argc, argv, settings, commandLine);
+    settings.Simulation.WaveSize = commandLine.NoWaveOps ? 0u : ocean::PickWaveSize(*rhiSystem->GetDevice());
+
+    SceneCommands commands;
+    if (commandLine.Script.has_value())
+    {
+        if (const std::expected<void, std::string> loaded = commands.LoadScript(*commandLine.Script); !loaded.has_value())
+        {
+            std::cerr << "--script: " << loaded.error() << "\n";
+            return 1;
+        }
+    }
+    if (commandLine.Stdin)
+    {
+        commands.StartStdin();
+    }
+    if (commandLine.Script.has_value() || commandLine.Stdin)
+    {
+        settings.Commands = &commands;
+    }
 
     int exitCode = 0;
     {
         OceanScene scene(rhiSystem.get(), platformSystem.get(), settings);
         scene.Initialize(nullptr);
-        const int32_t frameLimit = ParseFrameLimit(argc, argv);
+        int32_t frameLimit = ParseFrameLimit(argc, argv);
+        // a capture schedule without a frame limit ends with its last capture
+        if (frameLimit < 0 && settings.Capture.Count > 0u && !commandLine.Stdin && !commandLine.Script.has_value())
+        {
+            frameLimit = static_cast<int32_t>(settings.Capture.LastFrame() + 1u);
+        }
         int32_t framesRendered = 0;
-        while (!platformSystem->ShouldWindowClose() && (frameLimit < 0 || framesRendered < frameLimit))
+        while (!platformSystem->ShouldWindowClose() && !scene.QuitRequested() && (frameLimit < 0 || framesRendered < frameLimit))
         {
             platformSystem->Update();
             scene.Render(nullptr);

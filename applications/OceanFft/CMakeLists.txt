@@ -31,6 +31,8 @@ add_executable(OceanFft
     "ArcballCamera.hpp"
     "OceanScene.cpp"
     "OceanScene.hpp"
+    "SceneCommands.cpp"
+    "SceneCommands.hpp"
     "ShaderObjectState.cpp"
     "ShaderObjectState.hpp"
     "${DIAMOND_DOGS_TEST_FIXTURES}/VulkanScene.cpp"
@@ -39,7 +41,7 @@ add_executable(OceanFft
     "${DIAMOND_DOGS_TEST_FIXTURES}/FrameLimit.hpp")
 # platform_system does not export its include folder (ADD_INTEGRATION_TEST adds it by hand, too)
 target_include_directories(OceanFft PRIVATE "${DIAMOND_DOGS_TEST_FIXTURES}" "${PROJECT_SOURCE_DIR}/modules/PlatformSystem/include" "${CMAKE_BINARY_DIR}/include")
-target_link_libraries(OceanFft PRIVATE ocean_simulation imgui_module platform_system glfw ${Vulkan_LIBRARY})
+target_link_libraries(OceanFft PRIVATE ocean_simulation frame_capture imgui_module platform_system glfw ${Vulkan_LIBRARY})
 set_target_properties(OceanFft PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 if (DIAMOND_DOGS_COMPILER_IS_CL)
     target_compile_options(OceanFft PRIVATE "/MP")

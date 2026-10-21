@@ -125,6 +125,28 @@ TEST_F(ResourceContextTest, CopyImageDuplicatesTheImage)
     EXPECT_NE(copyReply->GetResource().VkHandle, reply->GetResource().VkHandle);
 }
 
+TEST_F(ResourceContextTest, ImageReadsBackIntoABuffer)
+{
+    constexpr uint32_t k_Size = 32u;
+    const std::vector<uint32_t> texels = MakeWordPattern(k_Size * k_Size, 7u);
+    RhiImageResourceData data{};
+    data.Data = std::as_bytes(std::span{ texels });
+    data.Width = k_Size;
+    data.Height = k_Size;
+
+    ImageCreateInfo info = SampledTexture(k_Size, k_Size);
+    info.Usage |= ImageUsageBits::TransferSource;
+    std::shared_ptr<GraphicsResourceReply> reply = context->CreateImage(info, std::span{ &data, 1u });
+    ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+
+    // twice, so the second copy starts from the layout the first one left
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        const std::vector<uint32_t> words = ReadBackWords(reply->GetResource(), texels.size() * sizeof(uint32_t));
+        EXPECT_EQ(words, texels);
+    }
+}
+
 TEST_F(ResourceContextTest, StandaloneSamplerCreateAndDestroy)
 {
     SamplerCreateInfo info{};
