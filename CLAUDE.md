@@ -42,6 +42,9 @@ Requirements:
 
 - Lodestone at `../Lodestone` with its submodules. `-DDIAMOND_DOGS_LODESTONE_DIR=<path>` overrides it.
 - Python with `lark` (`python -m pip install --user lark`). The extension header generator imports it.
+- The same Python needs numpy and pyyaml (`python -m pip install --user numpy pyyaml`). OceanFft's
+  `assets/scripts/ocean_fft_support.py` build step imports them, and configure fails without them. On this machine
+  CMake picks `C:\Python315`.
 - CMake 4.x. `third_party/gli` asks for CMake 3.1, so the root file sets `CMAKE_POLICY_VERSION_MINIMUM` around it.
 
 For agents on Windows: run builds and tests through PowerShell. The Bash tool runs in a sandbox, and its writes
@@ -110,6 +113,24 @@ are hers: plan and explain, and do not write that code unless she asks. Conversi
 She dislikes default arguments. Propose an explicit argument, an overload, or a named constant instead.
 
 Commit only when she asks.
+
+### Code spacing
+
+She reads and audits every line, so code must not look dense. Whitespace is free. In C++:
+
+- **Before a block:** put a blank line before each control block or brace block (`if`/`else`, `for`, `while`,
+  `switch`, a scoped `{}`, a multi-line lambda). Variables that exist only to feed that block's test sit directly
+  above it, with no blank line, as part of its chunk.
+- **After a block:** put a blank line after each closing `}`, before the next statement. That includes `continue`,
+  `break` and the final `return`.
+- **Between chunks:** separate chunks of straight-line code where the work changes step, for example a result
+  variable declared at the top, then the setup below it.
+- **No padding inside braces:** no blank line right after `{` or right before `}`. `else` stays attached to its `if`.
+  Short `case` bodies inside a `switch` stay compact.
+- **Comments:** a comment line can take the place of a blank line.
+- **Reference files:** `applications/OceanFft/OceanScene.cpp` and `SceneCommands.cpp`.
+- **Scope:** apply this to new code and to code being edited. Don't reformat files that aren't otherwise being
+  touched.
 
 ## Documents
 
