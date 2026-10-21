@@ -35,6 +35,8 @@ endfunction()
 add_subdirectory(RhiSystem)
 add_subdirectory(PlatformSystem)
 add_subdirectory(RhiResources)
+# copies rendered images out to PNG files
+add_subdirectory(FrameCapture)
 # This module provides imgui as a basic debugging UI
 # that sits just BARELY over the resource and rendering contexts
 add_subdirectory(ImGuiModule)
