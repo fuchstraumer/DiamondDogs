@@ -1,0 +1,82 @@
+
+# Parameters related to the *physical*, i.e. empirical parameters of the ocean simulation
+# These are used to construct a parameter space with numpy, which we then use to generate our lookup tables
+# and function approximations. By fitting these all to our actual parameter space, we can make sure to keep our
+# evaluations and approximations valid only in the ranges they'll actually appear in, considerably improving
+# accuracy and stability of our various approximations and LUTs. This is especially important for Donelan-Banner
+ocean_physical_parameter_ranges:
+  - name: wind_speed
+    min: 0.01
+    max: 30.0
+    unit: m/s
+
+  - name: fetch_length
+    min: 0.01
+    max: 10.0
+    unit: km
+
+  - name: swell
+    min: 0.0
+    max: 30.0
+    unit: None
+
+  - name: omega_ratio
+    min: 0.05
+    max: 8.0
+    unit: None
+    # omega/peakOmega range seen in practice -- DB branches at 0.95 and 1.6; spectrum negligible outside this
+
+    # We use a log-space distribution for cascades based on the wavelength range, so that each cascade represents
+    # an approx similar range of detail in terms of frequency. Ideally, better distr. than linear cascade spacing
+  - name: wavelength
+    min: 0.017 # 1.7cm is where surface tension takes over *entirely*, so stop using spectra here
+    max: 700.0 # Swell waves from strong systems cap out about here
+    unit: m
+
+# Parameters related to the numerical simulation aspects of the ocean simulation
+ocean_numerical_parameter_ranges:
+
+  # Ocean resolution - must be power-of-2 for FFT to work. power-of-4 sizes give us better performance on some GPUs,
+  # but that would leave us with relatively few options if we used that alone. 
+  - name: fft_resolution
+    values: [128, 256, 512, 1024, 2048]
+    unit: px
+
+  # This sets the absolute max of wave cascades - performance scaling may drop some cascades
+  - name: num_wave_cascades_max
+    value: 4
+
+  # Scales parameters to ensure at least this many waves are present in each cascade, helps hide artifacts
+  - name: min_waves_per_cascade
+    value: 6
+
+  # Further scales parameters like an extra "safety factor" to keep us over nyquist limit and avoid aliasing
+  # "min" is for the outermost cascade (lowest detail), max is for the inner cascades (higher freq.)
+  - name: margin_factor
+    min: 2
+    max: 4
+
+  # Controls the degree of the polynomial used to approximate the normalization factor Q(s) for Mitsuyasu spreading function
+  # Following were tuned by analytical comparison to get to at most 1e-3 error
+  - name: mitsuyasu_polynomial_degree
+    value: 3
+
+  - name: hasselmann_polynomial_degree
+    value: 4
+  
+lut_resolution_settings:
+
+  # Resolution of the f32x2 LUT used for computing the Donnelan-Banner spreading function
+  # U Axis = Beta, V Axis = Swell, result = Q(s) normalization factor (1/integral of spreading function)
+  - name: donnelan_banner_spreading
+    resolution: 256 # 256x256
+    use_f16: false # We use f32 for most spectral calculations, since the expensive bit only happens at sim init
+
+  # Resolution of the f16x2 LUT used for computing complex exponentials in the form exp(i*theta) for theta in [0, 2*pi),
+  # as the result of the sincos(). This is used in the IFFT for the butterfly operations
+  - name: complex_exp_sincos
+    resolution: 512 # 512x1 - no y coord
+    # f16 is really *required* for this to be worth it: conventional sincos() is f32 and also means we see cvt_f32 etc
+    # functions in generated shader ISA. using f16 means we can stay in f16 pipe, which also tends to run as packed
+    # (meaning 2x f16 ops per cycle on most modern GPUs!)
+    use_f16: true
