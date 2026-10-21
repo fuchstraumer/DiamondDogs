@@ -1,0 +1,5 @@
+[OceanFft.InertAxesForEntryPoints]
+IfftPermuteCS = ["IFFT_USE_WAVE_OPS", "IFFT_WAVE_SIZE"]
+
+[OceanFft.targets.wgsl]
+MaxVariants = 64

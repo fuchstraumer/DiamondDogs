@@ -237,37 +237,53 @@ Swapchain recreation (4.3) will need `SetMinImageCount`.
 - `rhi::ShaderLibrary` (`modules/RhiSystem/include/shaders/ShaderLibrary.hpp`): opens a cooked bundle for the
   `spirv` profile, gives each module's `ManifestIndex` for variant queries, and builds a `ManifestProgram` from
   the entry points of one variant: descriptor set layouts from the merged layout, a pipeline layout, and shader
-  objects from the cooked SPIR-V. It reads the SPIR-V entry point name from `OpEntryPoint`, because Slang names
-  every SPIR-V entry point `main`.
+  objects from the cooked SPIR-V. The requested entry point name is the SPIR-V name: since Lodestone request C2
+  (2026-10-21) the cook sets `VulkanUseEntryPointName` and fails when `OpEntryPoint` differs from the manifest.
 - `tests/integration_tests/ComputeManifestTest`: `lodestone_add_shader_cook` cooks `HashFill.slang` (one boolean
   technique axis) as a build step. The test queries each variant with `Where(...).SingleFor(...)`, reads the
   uniform member offsets and binding numbers from the manifest, dispatches headless, and compares all 4099
   output words of both variants with the same hash on the CPU.
 
-### Workarounds in DiamondDogs for Lodestone embedding issues
+### Lodestone embedding issues (all fixed upstream in `acce8d5`, 2026-10-21)
 
-Each one is a small Lodestone change. They are listed here so that they can move upstream.
+Lodestone's `docs/diamonddogs-requests.md` tracks E1 to E3 and C1 to C5 with their status. E1 (`${CMAKE_SOURCE_DIR}`
+in the tool and test CMake files) and E2 (the `FindVulkanHeaders` module path) needed workarounds here, and they
+are removed. E3: Lodestone now keeps a parent's value for `SLANG_ENABLE_MIMALLOC` and
+`SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC`, but DiamondDogs still uses Slang's mimalloc v2.1.7, for two reasons:
+- With both options OFF, Slang skips setting SPIRV-Tools' own `SPIRV_TOOLS_USE_MIMALLOC` options, which
+  default ON on Windows, so configure fails (`install TARGETS given target "mimalloc-static" which does not
+  exist`). Lodestone should also force those two OFF when the Slang option is OFF. DiamondDogs can set them.
+- Our mimalloc v3.0.7 then asserts at startup of every Debug executable (`page-map.c:339`,
+  `_mi_page_map_register`: the page map is not initialized), because foundation's new/delete override
+  allocates first. Fix that (a newer v3, or initialize early) before switching. Steps in `ConfigureLodestone.cmake`.
+`MI_WIN_USE_FIXED_TLS` stays OFF.
 
-| Issue | Workaround here | Upstream fix |
-|---|---|---|
-| `tools/cooker_console/CMakeLists.txt` (and `manifest_dump`, `tests/`) use `${CMAKE_SOURCE_DIR}`, which is the parent's root when Lodestone is a subdirectory. | `ConfigureLodestone.cmake` adds the correct include folders to `lodestone_cooker_console`. | Use `${PROJECT_SOURCE_DIR}`. |
-| `LodestoneCooker.cmake` adds its `FindVulkanHeaders` module only when it calls `find_package(Vulkan)` itself. A parent that found Vulkan first makes Slang's `find_package(VulkanHeaders)` fail. | `ConfigureLodestone.cmake` prepends Lodestone's `cmake/` to `CMAKE_MODULE_PATH`. | Prepend the module path unconditionally. |
-| `ConfigureSlang.cmake` forces `SLANG_ENABLE_MIMALLOC` and `SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC` with plain `set()`, so a parent cannot turn them off, and SPIRV-Tools then adds a `mimalloc-static` target unconditionally. | DiamondDogs links Slang's mimalloc target (Slang's pinned v2.1.7) instead of its own v3.0.7. `MI_WIN_USE_FIXED_TLS` must be OFF: with several mimalloc instances in one process (slang.dll and each executable), fixed TLS crashed `slang-bootstrap` with an access violation. | Respect a parent's value (`if(NOT DEFINED ...)`), or skip when `TARGET mimalloc-static` exists. |
-
-### A Lodestone defect found and fixed (uncommitted in the Lodestone working tree)
+### A Lodestone defect found and fixed (committed upstream as `5ee6508`, 2026-10-19)
 
 `src/target/impl/SpvModuleReader.cpp`: `ParseModule` parsed a local copy of the SPIR-V words, and the parse
 callbacks stored `std::string_view` names that point into that copy. Every name dangled once `ParseModule`
 returned. RelWithDebInfo builds still read the old bytes by luck. A Debug cooker read the debug heap fill and
 failed every cook that has a binding with `ReflectionMismatch`. Fix: `ParseState` owns the word copy
-(`ParseState::Words`). The change is in the Lodestone working tree, not committed, for the author to review.
+(`ParseState::Words`). The author committed it in Lodestone `5ee6508`.
 
 ### Open questions for the integration
 
-- Push constants. `ShaderLibrary` creates programs with no push constant ranges, because how an entry point
-  `uniform` parameter appears in the manifest is still Lodestone task L14.
-- The manifest does not store the SPIR-V entry point name. `ShaderLibrary` reads it from the code. A manifest
-  field would remove the parse.
+- Push constants. `ShaderLibrary` still creates programs with no push constant ranges. Unblocked 2026-10-20: L14
+  is done (format 11, `EntryPointConstants`), and `MergedLayoutView::PushConstants()` returns one
+  `MergedPushConstants` (the largest stage block, offset 0, with the stage mask) when any stage has the
+  `PushConstant` delivery. A `UniformBuffer` delivery is an ordinary resource in the merged layout.
+- SPIR-V entry point name: done (C2, 2026-10-21). `ShaderLibrary` no longer parses `OpEntryPoint`.
+- Lodestone timeline for the open requests (from its requests doc): C3 (live cook) is deferred until DiamondDogs
+  needs hot reload; `RunCook` with `MemoryOutputSink` works in-process but has no public header yet. C4 (Pointer
+  and Handle placements on SPIR-V, for BDA and bindless) is deferred to phase F step F4, after the VeloxRhi
+  rendergraph works on WebGPU. C5 (device capability filter) is deferred to F3. So RhiResources BDA and bindless
+  work in DiamondDogs can't get manifest support soon; plan it around Bound placements, or raw addresses.
+- Lodestone review 2026-10-20 (read only, no build): the three CMake embedding issues in the table above are
+  unchanged (`${CMAKE_SOURCE_DIR}` in the tool and test CMake files, the module path prepended only when this
+  file finds Vulkan itself, mimalloc forced ON). L18 (`ls_extent_1d`) is done. L17 (resource roles such as
+  `IndirectDispatch`/`IndexData`, free `[ls_resource_tags]`, and `ResolvedResource::RequiredBufferUsage` for the
+  creation usage) is in the uncommitted working tree, format 12. It bears on the RhiResources usage flags: a buffer's
+  creation usage could come from the manifest. L17 was committed upstream as `0a4e3fd` on 2026-10-21.
 - Runtime compilation: decided (section 7). The runtime compiler is gone; a live cook is Lodestone request C3.
 
 ## 6. Inactive modules: keep or discard
@@ -314,6 +330,27 @@ Status 2026-10-20: steps 1, 2, 4 and 5 are done (log). Step 3 waits for a sessio
 3. Design note: transfer system rework, streaming, buffer device address, bindless.
 4. ImGuiModule on official backends, plus a small windowed test.
 5. Port agent instructions (`CLAUDE.md`, `.github/copilot-instructions.md`) from Lodestone's, adapted to DD.
+
+### Candidates for the next work (2026-10-20, after the RhiSystem passes)
+
+Not ordered by the author yet. Roughly in order of how much they unblock the noise host:
+
+1. **Push constants through `ShaderLibrary`.** Read `MergedLayoutView::PushConstants()`, add the range to the
+   pipeline layout and to every shader object, and expose it on `ManifestProgram`. Then a ComputeManifestTest
+   variant (or a new cooked shader) that feeds per-dispatch data through `CommandBuffer::PushConstants`. Small.
+2. **RhiResources upgrades** (docs/rhi-resources-design.md, the author's design): the transfer timeline,
+   retirement, streaming, buffer device address, bindless. Questions in section 10. The design is the author's,
+   so this one starts with a session together. L17's `RequiredBufferUsage` may feed `BufferUsageBits`.
+3. **Enable device features by request** (section 4.2 proposal). Needed before BDA (bufferDeviceAddress) is
+   enabled on purpose rather than by accident, and to turn `robustBufferAccess` off.
+4. **Small RhiSystem gaps found while porting:** the transfer thread still polls with the backoff sleeper (the
+   author doubts the sleeper); `Device` has no wrapper for the shader-object dynamic state, so TriangleTest still
+   loads ~20 `vkCmdSet*EXT` pointers; the present semaphore is per frame in flight, while the spec wants one
+   per swapchain image (fixed 2026-10-21); acquire and present are still raw Vulkan in `VulkanScene`.
+5. ~~Lodestone embedding fixes upstream~~: done upstream (`acce8d5`), workarounds removed 2026-10-21.
+6. **Build hygiene** (noticed, untouched): Release flags copied from RelWithDebInfo, `XM_AVX2_INTRINSICS_`
+   missing its leading underscore, `SwapchainImpl.hpp` includes above its include guard, an unused variable in
+   `Math.inl:2188`, `-fno-omit-frame-pointer` ignored by clang-cl.
 
 ## 9. Log
 
@@ -415,6 +452,43 @@ Status 2026-10-20: steps 1, 2, 4 and 5 are done (log). Step 3 waits for a sessio
     The clang-cl Debug slang PCHs went stale too (same Windows SDK cause); cleared the same way.
   - MSVC and clang-cl, Debug and Release: 9 of 9 runs each, zero validation messages, rhi_system_tests at 31.
     Next: the RhiResources upgrades (docs/rhi-resources-design.md).
+
+- 2026-10-20 (RhiSystem pass 3, callers ported). The author asked to port the remaining raw-Vulkan callers.
+  - `VulkanScene` fixture: the frame semaphores and fences are `rhi::BinarySemaphore` and `rhi::Fence`, and a
+    new `submitFrame(CommandBufferHandle)` submits through `rhi::QueueSubmit` (wait on the acquire semaphore at
+    color attachment output, signal the present semaphore at all graphics, the frame fence). Acquire and present
+    are still raw Vulkan (no RHI swapchain calls exist).
+  - `ImGuiScene` and `TriangleTest` record through `rhi::CommandBuffer` (barriers, dynamic rendering, shaders,
+    descriptor sets, vertex and index buffers, viewport and scissor, draw) and submit with `submitFrame`. The
+    barriers are the same stages, accesses and layouts as before. TriangleTest dropped the
+    `vkCmdBindVertexBuffers2EXT` and `vkCmd*WithCountEXT` pointers; the ~20 shader-object dynamic state pointers
+    stay (no RHI equivalent).
+  - **Not verified at the time (verified 2026-10-21, below).** The MSVC Debug build compiled every changed file, and every test target linked except
+    ComputeManifestTest: Lodestone's cooker console failed to link (`EnvironmentView::ResourceTags`) because
+    another agent is changing Lodestone's working tree right now (L17, format 12). The author stopped the test
+    run, so that work is not disturbed and no files are locked. Run the 9-run suite on both compilers once
+    Lodestone settles. ComputeManifestTest's sources did not change in this pass.
+- 2026-10-21 (pass 3 verified; the author committed passes 2 and 3 as b6824418 and 113b2d9e). Built against
+  Lodestone's staged L17 work (the author reports it complete and validated).
+  - The first run failed TriangleTest on all 4 configurations with `VUID-vkCmdDraw-None-09600`. This bug is older
+    than the port: the color barrier's old layout came from `firstFrame[currentFrame]`, which is per frame in
+    flight, but the image is the one acquired, so a fresh image could be claimed to be in `PRESENT_SRC`. Fix: the
+    color attachment is cleared on load, so the barrier always starts from `Undefined`.
+  - One MSVC Debug run then reported `VUID-vkQueueSubmit2-semaphore-03868` (present semaphore still in use by
+    the swapchain), the section 8 item. Fix: `renderFinishedSemaphores` is indexed by `currentAcquiredImage`.
+    Both arrays are sized to the image count. Swapchain recreation does not resize them, which is only correct
+    while the image count stays the same.
+  - Result: 9/9 on ninja-msvc and ninja-clang-cl, Debug and Release, with zero validation messages.
+  - Lodestone warning on clang-cl: `SlangReflector` is declared as a struct and defined as a class
+    (`-Wmismatched-tags`, SlangReflector.hpp:21). Pass to the author for the Lodestone side.
+
+- 2026-10-21 (Lodestone embedding fixes and C2 adopted).
+  - `ShaderLibrary` uses the requested entry point name; the `OpEntryPoint` parser is deleted.
+  - `ConfigureLodestone.cmake`: the `cooker_console` include workaround (E1) and the module path prepend (E2) are
+    removed. Switching to our own mimalloc (E3) failed twice; see section 5. Slang's copy stays.
+  - The mimalloc assert showed as a CRT Retry dialog during the build's gtest discovery step. Debug asserts
+    block unattended runs; the run helper now skips tests when the build fails, so stale binaries don't pass.
+  - Result: 9/9 on ninja-msvc and ninja-clang-cl, Debug and Release, zero validation messages.
 
 ## 10. RhiResources: questions for the author, and inputs for the design session
 

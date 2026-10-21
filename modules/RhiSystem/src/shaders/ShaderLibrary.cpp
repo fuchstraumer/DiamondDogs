@@ -36,7 +36,6 @@ namespace
     };
 
     [[nodiscard]] rhi::ShaderLibraryResult<std::vector<std::byte>> ReadManifestBytes(const std::filesystem::path& manifest_path);
-    [[nodiscard]] std::string_view SpirvEntryPointName(std::span<const uint32_t> words) noexcept;
     [[nodiscard]] std::expected<VkDescriptorType, rhi::ShaderLibraryError> ToVkDescriptorType(const lodestone::manifest::ResolvedResource& resource) noexcept;
     [[nodiscard]] VkShaderStageFlags ToVkShaderStages(lodestone::ShaderStageKind stages) noexcept;
     [[nodiscard]] rhi::ShaderStageFlags ToRhiShaderStage(lodestone::ShaderStageKind stage) noexcept;
@@ -339,15 +338,14 @@ namespace rhi
         // ShaderBinaryOptions keeps spans and an entry point name, so this storage must outlive program creation
         std::vector<ShaderBinaryOptions> binaryOptions;
         binaryOptions.reserve(instances.size());
-        for (const lodestone::manifest::EntryPointInstanceView& instance : instances)
+        for (size_t i = 0; i < instances.size(); ++i)
         {
-            // the cooked SPIR-V does not keep the Slang entry point name: Slang names every SPIR-V entry point
-            // "main". Read the name from the code itself, so a change on the Slang side can't break us silently
-            const std::span<const uint32_t> words = instance.SpirvWords();
+            // the cook fails when OpEntryPoint differs from the manifest's entry point name, so the requested name is the SPIR-V name
+            const lodestone::manifest::EntryPointInstanceView& instance = instances[i];
             binaryOptions.emplace_back(
-                words,
+                instance.SpirvWords(),
                 ToRhiShaderStage(instance.Stage()),
-                SpirvEntryPointName(words),
+                entry_points[i],
                 std::span<PushConstantRange>{},
                 std::span<DescriptorSetLayoutHandle>{ programImpl->SetLayouts });
         }
@@ -389,34 +387,6 @@ namespace
         }
 
         return bytes;
-    }
-
-    std::string_view SpirvEntryPointName(std::span<const uint32_t> words) noexcept
-    {
-        // SPIR-V: a 5 word header, then instructions whose first word is (word count << 16) | opcode.
-        // OpEntryPoint (opcode 15) stores the execution model, the function id, then a null-terminated name
-        constexpr uint32_t k_HeaderWordCount = 5u;
-        constexpr uint32_t k_OpEntryPoint = 15u;
-        constexpr uint32_t k_NameWordOffset = 3u;
-        size_t position = k_HeaderWordCount;
-        while (position < words.size())
-        {
-            const uint32_t opcode = words[position] & 0xFFFFu;
-            const uint32_t wordCount = words[position] >> 16u;
-
-            if (wordCount == 0u)
-            {
-                break;
-            }
-
-            if (opcode == k_OpEntryPoint && wordCount > k_NameWordOffset)
-            {
-                return std::string_view{ reinterpret_cast<const char*>(words.data() + position + k_NameWordOffset) };
-            }
-
-            position += wordCount;
-        }
-        return std::string_view{ "main" };
     }
 
     std::expected<VkDescriptorType, rhi::ShaderLibraryError> ToVkDescriptorType(const lodestone::manifest::ResolvedResource& resource) noexcept

@@ -1,0 +1,48 @@
+# Cook policy for VolumeTiledForwardShading.
+#
+# The shader DECLARES the axes. This file GOVERNS which variants a given target actually cooks.
+# Nothing here is compiled in: tech artists can manage this. The same string expression evaluator
+# that runs an in-shader constraint runs CookIf here, at cook time, before a single variant compiles.
+
+# --- WebGPU: the shipping envelope -----------------------------------------------------------
+[VolumeTiledForwardShading.targets.wgsl]
+# Hard ceiling. These axes multiply into millions of combinations; the cook fails if it would exceed this.
+MaxVariants = 4096
+# CookIf says only cook variants that fully satisfy the given conditions:
+#  - groupshared merge buffers must fit the 16 KiB workgroup budget
+#  - a BVH thread group must cover whole branching groups (multiple of 32)
+#  - the radix bit count must match the Morton code width (10 bits -> 30 bits)
+# So for each variant, we substitute in the axis value for a variant and discard it if it fails
+# This allows dynamic pruning of variants at cook time, based on platform caps or other constraints.
+CookIf = """
+    VTF_MERGE_SORT_NUM_THREADS * VTF_MERGE_VALUES_PER_THREAD <= 2048 &&
+    VTF_BUILD_BVH_NUM_THREADS % 32 == 0 && VTF_ASSIGN_LIGHTS_NUM_THREADS % 32 == 0 &&
+    VTF_RADIX_BITS == VTF_MORTON_BITS * 3
+"""
+
+# Narrow individual axes to the values this target ships (a subset of what the shader declares).
+# This helps constrain variant counts, but also ensures that only valid configurations are cooked
+# for a given target or platform
+[VolumeTiledForwardShading.targets.wgsl.CookValues]
+VTF_USE_WAVE_OPS = [true]          # WGSL minspec guarantees subgroup ops
+VTF_WAVE_SIZE = [16,32,64,128]     # Cook the full range of wave sizes, since mobile GPUs vary a lot
+# Fix the cluster grid to specific values
+VTF_CLUSTER_GRID_X = [24]
+VTF_CLUSTER_GRID_Y = [16]
+VTF_CLUSTER_GRID_Z = [24]
+# Constrain light counts to their minimums
+VTF_MAX_POINT_LIGHTS = [1024]
+VTF_MAX_SPOT_LIGHTS = [512]
+VTF_MAX_DIRECTIONAL_LIGHTS = [2]
+
+# So, for example, you can widen the envelope massively on desktop targets compared to WebGPU.
+[VolumeTiledForwardShading.targets.spirv]
+MaxVariants = 65536
+CookIf = """
+    VTF_MERGE_SORT_NUM_THREADS * VTF_MERGE_VALUES_PER_THREAD <= 2048 &&
+    VTF_BUILD_BVH_NUM_THREADS % 32 == 0 && VTF_ASSIGN_LIGHTS_NUM_THREADS % 32 == 0 &&
+    VTF_RADIX_BITS == VTF_MORTON_BITS * 3
+"""
+
+[VolumeTiledForwardShading.targets.spirv.CookValues]
+VTF_WAVE_SIZE = [32, 64] # cook only the common desktop wave widths (NVIDIA 32, AMD 64)
