@@ -6,6 +6,7 @@
 #include "RhiDefines.hpp"
 #include "RhiTypes.hpp"
 #include "ShaderTypes.hpp"
+#include "core/VulkanConversions.hpp"
 #include "vulkan/vulkan_core.h"
 #include <algorithm>
 #include <cassert>
@@ -111,50 +112,9 @@ namespace rhi
         DeviceHandle ParentDevice;
         ProgramType Type{ ProgramType::Invalid };
 
-        static VkShaderStageFlags ConvertStageToVulkan(ShaderStageFlags stages)
-        {
-            // a mask can name several stages (a push constant range shared by vertex and fragment, say)
-            VkShaderStageFlags result = 0;
-            uint32_t remaining = static_cast<uint32_t>(stages);
-            if (remaining == 0)
-            {
-                throw std::invalid_argument("Unsupported shader stage for Vulkan conversion");
-            }
-            while (remaining != 0)
-            {
-                const uint32_t lowestBit = remaining & (~remaining + 1u);
-                result |= ConvertSingleStageToVulkan(static_cast<ShaderStageFlags>(lowestBit));
-                remaining &= ~lowestBit;
-            }
-            return result;
-        }
-
-        static VkShaderStageFlags ConvertSingleStageToVulkan(ShaderStageFlags stage)
-        {
-            switch (stage)
-            {
-                case ShaderStageFlags::Vertex: return VK_SHADER_STAGE_VERTEX_BIT;
-                case ShaderStageFlags::TesselationControl: return VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
-                case ShaderStageFlags::TesselationEvaluation: return VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
-                case ShaderStageFlags::Geometry: return VK_SHADER_STAGE_GEOMETRY_BIT;
-                case ShaderStageFlags::Fragment: return VK_SHADER_STAGE_FRAGMENT_BIT;
-                case ShaderStageFlags::Compute: return VK_SHADER_STAGE_COMPUTE_BIT;
-                case ShaderStageFlags::RayGeneration: return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
-                case ShaderStageFlags::AnyHit: return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
-                case ShaderStageFlags::ClosestHit: return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
-                case ShaderStageFlags::Miss: return VK_SHADER_STAGE_MISS_BIT_KHR;
-                case ShaderStageFlags::Intersection: return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
-                case ShaderStageFlags::Callable: return VK_SHADER_STAGE_CALLABLE_BIT_KHR;
-                case ShaderStageFlags::Task: return VK_SHADER_STAGE_TASK_BIT_EXT;
-                case ShaderStageFlags::Mesh: return VK_SHADER_STAGE_MESH_BIT_EXT;
-                default:
-                    throw std::invalid_argument("Unsupported shader stage for Vulkan conversion");
-            }
-        }
-
         static VkPushConstantRange ConvertPushConstantRange(const PushConstantRange& range)
         {
-            return VkPushConstantRange{ ConvertStageToVulkan(range.StageFlags), range.Offset, range.Size };
+            return VkPushConstantRange{ vk::ToVulkanStages(range.StageFlags), range.Offset, range.Size };
         }
 
         Result CreateShaderObjects(std::span<ShaderBinaryOptions> stages_to_create)
@@ -244,7 +204,7 @@ namespace rhi
 
                 for (auto&& [stageOptions, createInfo] : std::views::zip(stages_to_create, createInfos))
                 {
-                    createInfo.stage = static_cast<VkShaderStageFlagBits>(ConvertStageToVulkan(stageOptions.Stage));
+                    createInfo.stage = static_cast<VkShaderStageFlagBits>(vk::ToVulkanStages(stageOptions.Stage));
                     createInfo.codeSize = stageOptions.Bytecode.size() * sizeof(uint32_t);
                     createInfo.pCode = stageOptions.Bytecode.data();
                     EntryPointNames.emplace_back(stageOptions.EntryPointName);
@@ -274,7 +234,7 @@ namespace rhi
                 // every stage but the last links to the stage after it, and zip stops at the shorter range
                 for (auto&& [createInfo, nextStageOptions] : std::views::zip(createInfos, stages_to_create | std::views::drop(1)))
                 {
-                    createInfo.nextStage = ConvertStageToVulkan(nextStageOptions.Stage);
+                    createInfo.nextStage = vk::ToVulkanStages(nextStageOptions.Stage);
                 }
 
                 assert(pfn_vkCreateShadersEXT);

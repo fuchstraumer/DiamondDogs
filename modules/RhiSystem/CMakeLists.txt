@@ -24,13 +24,16 @@ set(RHI_CORE_SOURCES
     "src/core/ExtensionPack.cpp"
     "src/core/RhiSystem.cpp")
 
+set(RHI_CORE_INTERNAL_HEADERS
+    "src/core/VulkanConversions.hpp")
+
 set(RHI_OBJECT_HEADERS
     "include/objects/CommandBuffer.hpp"
     "include/objects/CommandPool.hpp"
     "include/objects/Device.hpp"
     "include/objects/Fence.hpp"
     "include/objects/Instance.hpp"
-    "include/objects/RhiFunctions.hpp"
+    "include/objects/Queue.hpp"
     "include/objects/RhiHandle.hpp"
     "include/objects/RhiResult.hpp"
     "include/objects/Semaphore.hpp")
@@ -41,7 +44,7 @@ set(RHI_OBJECT_SOURCES
     "src/objects/Device.cpp"
     "src/objects/Fence.cpp"
     "src/objects/Instance.cpp"
-    "src/objects/RhiFunctionsVk.cpp"
+    "src/objects/Queue.cpp"
     "src/objects/RhiResult.cpp"
     "src/objects/Semaphore.cpp")
 
@@ -57,7 +60,7 @@ set(RHI_SHADER_SYSTEM_SOURCES
     "src/shaders/ShaderProgram.cpp")
 
 ADD_MODULE(rhi_system
-    "${RHI_CORE_HEADERS}" "${RHI_CORE_SOURCES}"
+    "${RHI_CORE_HEADERS}" "${RHI_CORE_SOURCES}" "${RHI_CORE_INTERNAL_HEADERS}"
     "${RHI_OBJECT_HEADERS}" "${RHI_OBJECT_SOURCES}"
     "${RHI_SHADER_SYSTEM_HEADERS}" "${RHI_SHADER_SYSTEM_SOURCES}")
 

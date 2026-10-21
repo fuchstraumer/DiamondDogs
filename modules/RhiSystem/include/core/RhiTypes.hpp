@@ -45,6 +45,7 @@ namespace rhi
     struct ColorAttachment
     {
         ImageViewHandle ImageView{};
+        ImageLayout Layout = ImageLayout::ColorAttachment;
         LoadOp LoadOp = LoadOp::Clear;
         StoreOp StoreOp = StoreOp::Store;
         ClearColorValue ClearValue{};
@@ -53,6 +54,9 @@ namespace rhi
     struct DepthStencilAttachment
     {
         ImageViewHandle ImageView{};
+        ImageLayout Layout = ImageLayout::DepthStencilAttachment;
+        // set for a combined depth-stencil format, so the stencil ops apply too
+        bool HasStencil{ false };
         LoadOp DepthLoadOp = LoadOp::Clear;
         StoreOp DepthStoreOp = StoreOp::DontCare;
         LoadOp StencilLoadOp = LoadOp::DontCare;
@@ -84,6 +88,114 @@ namespace rhi
         std::optional<DepthStencilAttachment> DepthStencilAttachment = std::nullopt;
         Rect2D RenderArea{};
         uint32_t LayerCount{ 1 };
+    };
+
+    constexpr uint64_t k_WholeSize = ~0ull;
+    constexpr uint32_t k_QueueFamilyIgnored = ~0u;
+    constexpr uint32_t k_RemainingMipLevels = ~0u;
+    constexpr uint32_t k_RemainingArrayLayers = ~0u;
+
+    /** @brief A global memory dependency (VkMemoryBarrier2; not named MemoryBarrier, which winnt.h defines as a macro): everything before SrcStages/SrcAccess, against everything after DstStages/DstAccess */
+    struct GlobalBarrier
+    {
+        PipelineStage SrcStages = PipelineStage::None;
+        Access SrcAccess = Access::None;
+        PipelineStage DstStages = PipelineStage::None;
+        Access DstAccess = Access::None;
+    };
+
+    struct BufferBarrier
+    {
+        BufferHandle Buffer{};
+        PipelineStage SrcStages = PipelineStage::None;
+        Access SrcAccess = Access::None;
+        PipelineStage DstStages = PipelineStage::None;
+        Access DstAccess = Access::None;
+        uint64_t Offset{ 0u };
+        uint64_t Size{ k_WholeSize };
+        // set both to transfer queue family ownership; the release and acquire barriers must match
+        uint32_t SrcQueueFamily{ k_QueueFamilyIgnored };
+        uint32_t DstQueueFamily{ k_QueueFamilyIgnored };
+    };
+
+    struct ImageSubresourceRange
+    {
+        ImageAspect Aspects = ImageAspect::Color;
+        uint32_t BaseMipLevel{ 0u };
+        uint32_t LevelCount{ k_RemainingMipLevels };
+        uint32_t BaseArrayLayer{ 0u };
+        uint32_t LayerCount{ k_RemainingArrayLayers };
+    };
+
+    struct ImageBarrier
+    {
+        ImageHandle Image{};
+        PipelineStage SrcStages = PipelineStage::None;
+        Access SrcAccess = Access::None;
+        PipelineStage DstStages = PipelineStage::None;
+        Access DstAccess = Access::None;
+        ImageLayout OldLayout = ImageLayout::Undefined;
+        ImageLayout NewLayout = ImageLayout::Undefined;
+        ImageSubresourceRange Range{};
+        uint32_t SrcQueueFamily{ k_QueueFamilyIgnored };
+        uint32_t DstQueueFamily{ k_QueueFamilyIgnored };
+    };
+
+    /** @brief One barrier command's worth of dependencies (VkDependencyInfo) */
+    struct DependencyInfo
+    {
+        std::span<const GlobalBarrier> GlobalBarriers;
+        std::span<const BufferBarrier> BufferBarriers;
+        std::span<const ImageBarrier> ImageBarriers;
+    };
+
+    struct BufferCopy
+    {
+        uint64_t SrcOffset{ 0u };
+        uint64_t DstOffset{ 0u };
+        uint64_t Size{ 0u };
+    };
+
+    /** @brief Copies one subresource layer set of an image into a buffer. A zero row length or image height means tightly packed */
+    struct BufferImageCopy
+    {
+        uint64_t BufferOffset{ 0u };
+        uint32_t BufferRowLength{ 0u };
+        uint32_t BufferImageHeight{ 0u };
+        ImageAspect Aspect = ImageAspect::Color;
+        uint32_t MipLevel{ 0u };
+        uint32_t BaseArrayLayer{ 0u };
+        uint32_t LayerCount{ 1u };
+        int32_t OffsetX{ 0 };
+        int32_t OffsetY{ 0 };
+        int32_t OffsetZ{ 0 };
+        uint32_t Width{ 0u };
+        uint32_t Height{ 0u };
+        uint32_t Depth{ 1u };
+    };
+
+    /** @brief A semaphore wait or signal in a queue submission. Value is ignored for binary semaphores */
+    struct SemaphoreSubmitInfo
+    {
+        constexpr SemaphoreSubmitInfo(const TimelineSemaphoreHandle& semaphore, uint64_t value, PipelineStage stages) noexcept
+            : Semaphore{ semaphore.Get() }, Value{ value }, Stages{ stages }
+        {
+        }
+        constexpr SemaphoreSubmitInfo(const BinarySemaphoreHandle& semaphore, PipelineStage stages) noexcept
+            : Semaphore{ semaphore.Get() }, Stages{ stages }
+        {
+        }
+
+        uint64_t Semaphore{ 0u };
+        uint64_t Value{ 0u };
+        PipelineStage Stages = PipelineStage::AllCommands;
+    };
+
+    struct SubmitInfo
+    {
+        std::span<const SemaphoreSubmitInfo> Waits;
+        std::span<const CommandBufferHandle> CommandBuffers;
+        std::span<const SemaphoreSubmitInfo> Signals;
     };
 
     struct SpecializationConstant

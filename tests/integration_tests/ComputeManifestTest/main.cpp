@@ -2,7 +2,7 @@
 #include "CommandPool.hpp"
 #include "Device.hpp"
 #include "Fence.hpp"
-#include "ResourceBarriers.hpp"
+#include "Queue.hpp"
 #include "ResourceContext.hpp"
 #include "RhiAssert.hpp"
 #include "RhiSystem.hpp"
@@ -290,41 +290,32 @@ namespace
             rhi::CommandPool commandPool(device.Handle(), rhi::CommandPool::Type::Compute, device.GetQueueFamilyIndices().Graphics);
             RhiAssert(commandPool.AllocateCommandBuffers(1));
             rhi::CommandBuffer commandBuffer(commandPool.GetCommandBuffer(0));
-            const VkCommandBuffer vkCommandBuffer = commandBuffer.Handle().As<VkCommandBuffer>();
-
             RhiAssert(commandBuffer.Begin());
-            RhiAssert((*program)->Program().BindShaders(commandBuffer.Handle()));
-            vkCmdBindDescriptorSets(vkCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                (*program)->PipelineLayout().As<VkPipelineLayout>(), 0, 1, &descriptorSet, 0, nullptr);
+            RhiAssert(commandBuffer.BindShaders((*program)->Program()));
+            const rhi::DescriptorSetHandle descriptorSetHandle{ reinterpret_cast<uint64_t>(descriptorSet) };
+            commandBuffer.BindDescriptorSets(rhi::PipelineBindPoint::Compute, (*program)->PipelineLayout(), 0, std::span{ &descriptorSetHandle, 1 });
             const uint32_t workgroupX = (*program)->Workgroup()[0];
-            vkCmdDispatch(vkCommandBuffer, (k_ElementCount + workgroupX - 1u) / workgroupX, 1, 1);
+            commandBuffer.Dispatch((k_ElementCount + workgroupX - 1u) / workgroupX, 1, 1);
 
-            const BufferBarrierInfo toCopy{ rhi::BufferHandle{ output.VkHandle }, BufferUsageBits::ComputeShaderUAV, BufferUsageBits::CopySource };
-            ExecuteBufferBarrier(commandBuffer.Handle(), toCopy);
-            const VkBufferCopy copyRegion{ 0u, 0u, outputBytes };
-            vkCmdCopyBuffer(vkCommandBuffer, reinterpret_cast<VkBuffer>(output.VkHandle), reinterpret_cast<VkBuffer>(readback.VkHandle), 1, &copyRegion);
-
-            const VkMemoryBarrier2 toHost
+            const rhi::BufferHandle outputHandle{ output.VkHandle };
+            const rhi::BufferBarrier toCopy
             {
-                VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-                nullptr,
-                VK_PIPELINE_STAGE_2_COPY_BIT,
-                VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                VK_PIPELINE_STAGE_2_HOST_BIT,
-                VK_ACCESS_2_HOST_READ_BIT
+                outputHandle,
+                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+                rhi::PipelineStage::Copy, rhi::Access::TransferRead
             };
-            const VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO, nullptr, 0, 1, &toHost, 0, nullptr, 0, nullptr };
-            vkCmdPipelineBarrier2(vkCommandBuffer, &dependency);
+            commandBuffer.Barrier(rhi::DependencyInfo{ {}, std::span{ &toCopy, 1 }, {} });
+            const rhi::BufferCopy copyRegion{ 0u, 0u, outputBytes };
+            commandBuffer.CopyBuffer(outputHandle, rhi::BufferHandle{ readback.VkHandle }, std::span{ &copyRegion, 1 });
+            const rhi::GlobalBarrier toHost{ rhi::PipelineStage::Copy, rhi::Access::TransferWrite, rhi::PipelineStage::Host, rhi::Access::HostRead };
+            commandBuffer.Barrier(rhi::DependencyInfo{ std::span{ &toHost, 1 }, {}, {} });
             RhiAssert(commandBuffer.End());
 
             // the sentinel upload runs on the transfer queue, and signals the output reply's semaphore when it finishes
-            const VkSemaphore uploadSemaphore = reinterpret_cast<VkSemaphore>(outputReply->SemaphoreHandle());
-            const uint64_t uploadValue = k_TransferCompleteSemaphoreValue;
-            const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-            const VkTimelineSemaphoreSubmitInfo timelineInfo{ VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO, nullptr, 1, &uploadValue, 0, nullptr };
+            const rhi::SemaphoreSubmitInfo uploadWait{ rhi::TimelineSemaphoreHandle{ outputReply->SemaphoreHandle() }, k_TransferCompleteSemaphoreValue, rhi::PipelineStage::ComputeShader };
+            const rhi::CommandBufferHandle commandBufferHandle = commandBuffer.Handle();
             rhi::Fence fence(device.Handle());
-            const VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO, &timelineInfo, 1, &uploadSemaphore, &waitStage, 1, &vkCommandBuffer, 0, nullptr };
-            RhiAssert(rhi::Result(vkQueueSubmit(device.GetGeneralQueue().As<VkQueue>(), 1, &submitInfo, fence.Handle().As<VkFence>())));
+            RhiAssert(rhi::QueueSubmit(device.GetGeneralQueue(), rhi::SubmitInfo{ std::span{ &uploadWait, 1 }, std::span{ &commandBufferHandle, 1 }, {} }, fence.Handle()));
             if (!fence.Wait())
             {
                 std::cerr << std::format("[{}] the dispatch did not finish\n", variantName);
