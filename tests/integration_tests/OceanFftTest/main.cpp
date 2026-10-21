@@ -225,8 +225,10 @@ namespace
 
     [[nodiscard]] std::string Describe(const ocean::OceanSimulationSettings& settings)
     {
-        return std::format("{} size {} {}", settings.Kernel == ocean::IfftKernel::Radix2 ? "Radix2" : "Radix4", settings.Size,
-            settings.WaveSize == 0u ? std::string{ "no wave ops" } : std::format("wave {}", settings.WaveSize));
+        constexpr std::array<std::string_view, 3> k_SpreadingNames{ "Mitsuyasu", "Hasselmann", "Donelan-Banner" };
+        const uint32_t spreading = std::min(settings.Spectrum.DirectionalSpreadingMode, 2u);
+        return std::format("{} size {} {} {}", settings.Kernel == ocean::IfftKernel::Radix2 ? "Radix2" : "Radix4", settings.Size,
+            settings.WaveSize == 0u ? std::string{ "no wave ops" } : std::format("wave {}", settings.WaveSize), k_SpreadingNames[spreading]);
     }
 
     int32_t TestIfft(const TestContext& context, const ocean::OceanSimulationSettings& settings)
@@ -499,8 +501,17 @@ namespace
             }
             heightSquared += height * height;
         }
-        std::cout << std::format("[pipeline {}] significant wave height {:.2f} m at {} m/s wind\n",
-            name, 4.0 * std::sqrt(heightSquared / static_cast<double>(planeElements)), settings.Spectrum.WindSpeed);
+
+        // a fully developed sea has Hs = 0.21 U^2 / g. Fetch-limited JONSWAP (100 km at 10 m/s) gives about 0.75 of
+        // that, so the band takes both, and catches a factor of 2 in amplitude either way
+        const double significantHeight = 4.0 * std::sqrt(heightSquared / static_cast<double>(planeElements));
+        const double fullyDeveloped = 0.21 * settings.Spectrum.WindSpeed * settings.Spectrum.WindSpeed / 9.81;
+        const double heightRatio = significantHeight / fullyDeveloped;
+        const bool heightPassed = heightRatio > 0.55 && heightRatio < 1.35;
+        (heightPassed ? std::cout : std::cerr) << std::format("[pipeline {}] significant wave height {:.2f} m at {} m/s wind, {:.2f} of fully developed (limits 0.55 to 1.35)\n",
+            name, significantHeight, settings.Spectrum.WindSpeed, heightRatio);
+        failures += heightPassed ? 0 : 1;
+
         return failures;
     }
 }
@@ -552,11 +563,18 @@ int main()
             }
         }
 
-        ocean::OceanSimulationSettings settings{};
-        settings.Size = 256u;
-        settings.Kernel = ocean::IfftKernel::Radix4;
-        settings.WaveSize = context.WaveSize;
-        failures += TestPipeline(context, settings, 3.25f);
+
+        // every spreading function is normalized over the circle, so each one must give the same plausible wave height.
+        // Donelan-Banner reads the generated LUT, so this also checks its upload and its axis mapping
+        for (const uint32_t spreading : { 0u, 1u, 2u })
+        {
+            ocean::OceanSimulationSettings settings{};
+            settings.Size = 256u;
+            settings.Kernel = ocean::IfftKernel::Radix4;
+            settings.WaveSize = context.WaveSize;
+            settings.Spectrum.DirectionalSpreadingMode = spreading;
+            failures += TestPipeline(context, settings, 3.25f);
+        }
     }
 
     if (failures != 0)
