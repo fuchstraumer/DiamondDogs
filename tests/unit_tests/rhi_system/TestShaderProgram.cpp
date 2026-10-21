@@ -157,3 +157,28 @@ TEST_F(ShaderProgramTest, CreateFromBakedBinary)
     ASSERT_EQ(entryPoints[0], "main");
 
 }
+
+// ConvertStageToVulkan used to throw on a mask naming more than one stage, so a shared push constant range failed
+TEST_F(ShaderProgramTest, PushConstantRangeSharedByTwoStages)
+{
+    rhi::DescriptorSetLayoutHandle testSetLayoutHandle(reinterpret_cast<uint64_t>(TestSetLayout));
+    rhi::PushConstantRange sharedRange{};
+    sharedRange.StageFlags = rhi::ShaderStageFlags::Vertex | rhi::ShaderStageFlags::Fragment;
+    sharedRange.Offset = 0;
+    sharedRange.Size = 16;
+    rhi::ShaderBinaryOptions testBinaryOptions
+    {
+        std::span<const uint32_t>(k_TriangleVertShaderSpv, 349),
+        rhi::ShaderStageFlags::Vertex,
+        "main",
+        std::span<rhi::PushConstantRange>{ &sharedRange, 1 },
+        std::span<rhi::DescriptorSetLayoutHandle>{ &testSetLayoutHandle, 1 }
+    };
+
+    std::span<rhi::ShaderBinaryOptions> binaryOptionsSpan(&testBinaryOptions, 1);
+    std::unique_ptr<rhi::ShaderProgram> shaderProgram = nullptr;
+    rhi::Result result = rhi::Result::Success();
+    ASSERT_NO_THROW(result = rhi::ShaderProgram::CreateFromBinary(TestDevice, binaryOptionsSpan, shaderProgram));
+    ASSERT_TRUE(result.IsSuccess());
+    ASSERT_NE(shaderProgram, nullptr);
+}

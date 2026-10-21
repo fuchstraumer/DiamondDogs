@@ -46,6 +46,7 @@ namespace rhi
         VK_SHADER_STAGE_FRAGMENT_BIT
     };
 
+    // a mesh program also binds null to the vertex pipeline stages, so this list holds both kinds
     static const std::vector<VkShaderStageFlagBits> k_VulkanMeshStages
     {
         VK_SHADER_STAGE_VERTEX_BIT,
@@ -53,6 +54,12 @@ namespace rhi
         VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
         VK_SHADER_STAGE_GEOMETRY_BIT,
         VK_SHADER_STAGE_FRAGMENT_BIT,
+        VK_SHADER_STAGE_TASK_BIT_EXT,
+        VK_SHADER_STAGE_MESH_BIT_EXT
+    };
+
+    static const std::vector<VkShaderStageFlagBits> k_VulkanMeshOnlyStages
+    {
         VK_SHADER_STAGE_TASK_BIT_EXT,
         VK_SHADER_STAGE_MESH_BIT_EXT
     };
@@ -104,7 +111,25 @@ namespace rhi
         DeviceHandle ParentDevice;
         ProgramType Type{ ProgramType::Invalid };
 
-        static VkShaderStageFlags ConvertStageToVulkan(ShaderStageFlags stage)
+        static VkShaderStageFlags ConvertStageToVulkan(ShaderStageFlags stages)
+        {
+            // a mask can name several stages (a push constant range shared by vertex and fragment, say)
+            VkShaderStageFlags result = 0;
+            uint32_t remaining = static_cast<uint32_t>(stages);
+            if (remaining == 0)
+            {
+                throw std::invalid_argument("Unsupported shader stage for Vulkan conversion");
+            }
+            while (remaining != 0)
+            {
+                const uint32_t lowestBit = remaining & (~remaining + 1u);
+                result |= ConvertSingleStageToVulkan(static_cast<ShaderStageFlags>(lowestBit));
+                remaining &= ~lowestBit;
+            }
+            return result;
+        }
+
+        static VkShaderStageFlags ConvertSingleStageToVulkan(ShaderStageFlags stage)
         {
             switch (stage)
             {
@@ -272,15 +297,20 @@ namespace rhi
                     return std::ranges::find_first_of(stages, UsedStages) != stages.end();
                 };
 
-                if (usesAnyStageOf(k_VulkanGraphicsStages))
-                {
-                    Type = ProgramType::Graphics;
-                    std::ranges::set_difference(k_VulkanGraphicsStages, UsedStages, std::back_inserter(UnusedStages));
-                }
-                else if (usesAnyStageOf(k_VulkanMeshStages))
+                // set_difference needs both ranges sorted, and the caller may list stages in any order
+                std::vector<VkShaderStageFlagBits> sortedUsedStages = UsedStages;
+                std::ranges::sort(sortedUsedStages);
+
+                // mesh first: a mesh program has a fragment stage too, so the graphics test would match it
+                if (usesAnyStageOf(k_VulkanMeshOnlyStages))
                 {
                     Type = ProgramType::Mesh;
-                    std::ranges::set_difference(k_VulkanMeshStages, UsedStages, std::back_inserter(UnusedStages));
+                    std::ranges::set_difference(k_VulkanMeshStages, sortedUsedStages, std::back_inserter(UnusedStages));
+                }
+                else if (usesAnyStageOf(k_VulkanGraphicsStages))
+                {
+                    Type = ProgramType::Graphics;
+                    std::ranges::set_difference(k_VulkanGraphicsStages, sortedUsedStages, std::back_inserter(UnusedStages));
                 }
                 else
                 {
