@@ -209,6 +209,9 @@ public:
      * 
      * @note The entire source buffer is copied to the destination buffer
      * @note Uses GPU-side copy operations for optimal performance
+     * @note Either side may be an image: image to buffer copies mip 0 of every layer, tightly packed from offset 0
+     *       (the readback path; the image needs TransferSource usage and the buffer CopyDestination), and buffer to
+     *       image is the reverse
      */
     [[nodiscard]] std::shared_ptr<ResourceTransferReply> CopyBufferContents(
         GraphicsResource srcBuffer,

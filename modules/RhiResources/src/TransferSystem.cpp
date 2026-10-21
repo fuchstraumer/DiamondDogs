@@ -659,8 +659,38 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
 
 void ResourceTransferSystem::processCopyImageToBufferMessage(TransferSystemCopyImageToBufferMessage&& message)
 {
-    // Not implemented and I really don't want to do it right now lol
-    message.reply->setStatus(MessageReply::Status::Failed);
+    const ImageCreateInfo& srcInfo = message.imageInfo.createInfo;
+    const VkImage srcHandle = message.imageInfo.imageHandle;
+    const VkImageSubresourceRange srcRange = WholeImageRange(srcInfo);
+
+    // the mirror of processCopyBufferToImageMessage: mip 0 of every layer, tightly packed from offset 0. the caller
+    // sizes the buffer (width * height * depth * layers * texel size); there is no format size table to check it here
+    const VkBufferImageCopy copyParams
+    {
+        0u,
+        0u,
+        0u,
+        VkImageSubresourceLayers{ srcRange.aspectMask, 0u, 0u, srcInfo.ArrayLayers },
+        VkOffset3D{ 0, 0, 0 },
+        ImageExtent(srcInfo)
+    };
+
+    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
+    VkCommandBuffer cmd = transferCommand.CmdBuffer();
+    RecordImageLayoutTransition(cmd, srcHandle, srcRange,
+        message.imageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+    vkCmdCopyImageToBuffer(cmd, srcHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, message.bufferInfo.bufferHandle, 1u, &copyParams);
+    RecordImageLayoutTransition(cmd, srcHandle, srcRange,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, ImageLayoutAfterTransfer(srcInfo.Usage),
+        VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_NONE,
+        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
+    // no barrier for the buffer: the host sees the write once the reply's semaphore signals (GPUToCPU memory is
+    // host-coherent or invalidated on map)
+
+    transferCommand.EndRecording();
+    commands.emplace_back(std::move(transferCommand));
 }
 
 void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyBufferToImageMessage&& message)
