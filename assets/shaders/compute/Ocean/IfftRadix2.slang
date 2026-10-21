@@ -75,8 +75,12 @@ internal half4 DoIfftRadix2(in const uint threadIdx, in const half4 input)
     return pingPong ? s_DataB[threadIdx] : s_DataA[threadIdx];
 }
 
+// one row of one slice per workgroup: dispatch (1, IFFT_SIZE, IFFT_NUM_WAVE_CASCADES * IFFT_NUM_SLICES), once with
+// Transpose false (rows) and once with it true (columns). The parameters are push constants on SPIR-V
+[shader("compute")]
 [numthreads(IFFT_SIZE, 1, 1)]
 void IfftRadix2CS(
+    uniform IfftParameters IfftParams,
     in uint3 dispatchThreadId : SV_DispatchThreadID,
     in uint3 groupId : SV_GroupID)
 {

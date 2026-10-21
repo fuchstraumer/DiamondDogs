@@ -2,6 +2,7 @@ implementing OceanFft;
 __include OceanFftCommon;
 
 // apply checkerboard to the final output of the IFFT, to recenter it for rendering
+[shader("compute")]
 [numthreads(32, 32, 1)]
 void IfftPermuteCS(
     in uint3 dispatchThreadId: SV_DispatchThreadID,

@@ -6,3 +6,5 @@ __include OceanFftCommon;
 __include IfftRadix2;
 __include IfftRadix4;
 __include IfftPermute;
+__include Spectra;
+__include InitSpectrum;

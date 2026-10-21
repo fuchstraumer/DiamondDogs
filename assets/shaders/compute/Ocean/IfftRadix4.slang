@@ -135,7 +135,7 @@ half4 DoIfftRadix4(in const uint threadIdx, in const half4 input)
         half4 threadData = s_DataA[threadIdx];
         uint bitOffset = 0;
         // 2 radix-4 stages: bits 0-3, i.e. 16 lanes
-        [unroll(Radix4_Parameters.Log4WaveSize)]
+        [unroll(IFFT_LOG4_WAVE_SIZE)]
         for (; bitOffset + 2 < firstbithigh(IFFT_WAVE_SIZE); bitOffset += 2)
         {
             const uint logStep = 1u << bitOffset;
@@ -271,8 +271,12 @@ half4 DoIfftRadix4(in const uint threadIdx, in const half4 input)
 }
 
 
+// one row of one slice per workgroup: dispatch (1, IFFT_SIZE, IFFT_NUM_WAVE_CASCADES * IFFT_NUM_SLICES), once with
+// Transpose false (rows) and once with it true (columns). The parameters are push constants on SPIR-V
+[shader("compute")]
 [numthreads(IFFT_SIZE, 1, 1)]
 void IfftRadix4CS(
+    uniform IfftParameters IfftParams,
     in uint3 dispatchThreadID : SV_DispatchThreadID,
     in uint3 groupID : SV_GroupID)
 {

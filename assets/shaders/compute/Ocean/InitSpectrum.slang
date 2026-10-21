@@ -1,13 +1,12 @@
 implementing OceanFft;
 __include OceanFftCommon;
-__include OceanFftSpectra;
+__include OceanFftBindings;
+__include Spectra;
 
-[[vk::binding(0, 0)]] uniform CascadeParameters CascadeParams;
-[[vk::binding(0, 1)]] uniform SpectrumParameters SpectrumParams;
-[[vk::binding(0, 2)]] uniform RWStructuredBuffer<half4> WaveData;
-[[vk::binding(0, 3)]] uniform RWStructuredBuffer<half2> h0K; // h0
-[[vk::binding(0, 4)]] uniform SamplerState normSampler;
-[[vk::binding(0, 5)]] uniform Texture2D normTexture;
+// the values of SpectrumParameters::DirectionalSpreadingMode
+internal const static uint OCEAN_FFT_SPREAD_MODE_MITSUYASU = 0u;
+internal const static uint OCEAN_FFT_SPREAD_MODE_HASSELMAN = 1u;
+internal const static uint OCEAN_FFT_SPREAD_MODE_DONELAN_BANNER = 2u;
 
 internal uint4 Rand4DPCG32(in int4 p)
 {
@@ -59,11 +58,11 @@ internal float2 GetGaussianRandomFloat2(in int2 coordinates, in int cascade, in 
     return radius * scTheta;
 }
 
-internal float CascadeContribution(in float k, in uint cascade, in uniform CascadeParameters cascadeParams)
+internal float CascadeContribution(in float k, in uint cascade)
 {
-    float lengthScale = cascadeParams.LengthScales[cascade];
-    float cutoffHigh = cascadeParams.CutoffsHigh[cascade];
-    float cutoffLow = cascadeParams.CutoffsLow[cascade];
+    float lengthScale = CascadeParams.LengthScales[cascade];
+    float cutoffHigh = CascadeParams.CutoffsHigh[cascade];
+    float cutoffLow = CascadeParams.CutoffsLow[cascade];
 
     if (k < cutoffLow || k > cutoffHigh)
     {
@@ -72,9 +71,9 @@ internal float CascadeContribution(in float k, in uint cascade, in uniform Casca
     else
     {
         float total = 0.0f;
-        for (uint i = 0; i < FFT_NUM_WAVE_CASCADES; ++i)
+        for (uint i = 0; i < IFFT_NUM_WAVE_CASCADES; ++i)
         {
-            bool kInRange = (k >= cascadeParams.CutoffsLow[i] && k <= cascadeParams.CutoffsHigh[i]);
+            bool kInRange = (k >= CascadeParams.CutoffsLow[i] && k <= CascadeParams.CutoffsHigh[i]);
             if (kInRange)
             {
                 total += 1.0f;
@@ -92,9 +91,7 @@ internal float DirectionalSpreading(
     in uniform float swellAmount,
     in uniform uint DirectionalSpreadingMode,
     in uniform float ThetaOffset,
-    in uniform float Alignment,
-    in uniform SamplerState normSampler,
-    in uniform Texture2D normTexture)
+    in uniform float Alignment)
 {
     float theta = thetaIn - ThetaOffset;
     // wrap theta to [-pi, pi] range, required for donelan-banner spreading, optimal for others
@@ -111,7 +108,7 @@ internal float DirectionalSpreading(
     }
     else if (DirectionalSpreadingMode == OCEAN_FFT_SPREAD_MODE_DONELAN_BANNER)
     {
-        spread = DonelanBannerDirectionalSpreading(theta, omega, peakOmega, swellAmount, normSampler, normTexture);
+        spread = DonelanBannerDirectionalSpreading(theta, omega, peakOmega, swellAmount);
     }
 
     // now get into range
@@ -124,44 +121,43 @@ internal float ShortWavesFade(in float kLength, in float fadeLength)
 }
 
 [shader("compute")]
-[numthreads(8, 8, FFT_NUM_WAVE_CASCADES)]
+// dispatch (IFFT_SIZE / 8, IFFT_SIZE / 8, 1): one thread per wave vector of every cascade
+[numthreads(8, 8, IFFT_NUM_WAVE_CASCADES)]
 void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
                     uint3 groupThreadID : SV_GroupThreadID)
 {
     // even though we partition this into workgroups, it's still important to consider coords as global
-    int2 coordinates = int2(dispatchThreadID.x - FFT_SIZE / 2, dispatchThreadID.y - FFT_SIZE / 2);
+    int2 coordinates = int2(dispatchThreadID.xy) - int(IFFT_SIZE / 2);
     int cascade = dispatchThreadID.z;
-    float dK = OceanFft_2PI / cascadeParams.LengthScales[cascade];
+    float dK = OceanFft_2PI / CascadeParams.LengthScales[cascade];
     const float2 k = dK * float2(coordinates);
     const float kLength = max(length(k), 1e-6f);
-    const uint linearIndex = LinearizeThreadIndex(dispatchThreadID, cascadeParams.Dimensions);
+    const uint linearIndex = LinearizeThreadIndex(dispatchThreadID, CascadeParams.Dimensions);
 
-    float contribution = CascadeContribution(kLength, cascade, cascadeParams);
+    float contribution = CascadeContribution(kLength, cascade);
     if (contribution > 0.0f)
     {
-        const float2 randomFloats = GetGaussianRandomFloat2(coordinates, cascade, spectrumParams.NoiseSeed);
+        const float2 randomFloats = GetGaussianRandomFloat2(coordinates, cascade, SpectrumParams.NoiseSeed);
         const float theta = atan2(k.y, k.x);
-        float2 omegaAnddOmegadK = DispersionRelationWithDerivative(kLength, spectrumParams.Depth);
-        const float dimensionlessFetch = GetDimensionlessFetch(spectrumParams.Fetch, spectrumParams.WindSpeed);
-        const float peakOmega = GetJonswapPeakOmega(dimensionlessFetch, spectrumParams.WindSpeed);
+        float2 omegaAnddOmegadK = DispersionRelationWithDerivative(kLength, SpectrumParams.Depth);
+        const float dimensionlessFetch = GetDimensionlessFetch(SpectrumParams.Fetch, SpectrumParams.WindSpeed);
+        const float peakOmega = GetJonswapPeakOmega(dimensionlessFetch, SpectrumParams.WindSpeed);
         float directionalComponent = DirectionalSpreading(theta,
                                                           omegaAnddOmegadK.x,
                                                           peakOmega,
-                                                          spectrumParams.WindSpeed,
-                                                          spectrumParams.SwellAmount,
-                                                          spectrumParams.DirectionalSpreadingMode,
-                                                          spectrumParams.LocalWindDirection,
-                                                          spectrumParams.Alignment,
-                                                          normSampler,
-                                                          normTexture);
+                                                          SpectrumParams.WindSpeed,
+                                                          SpectrumParams.SwellAmount,
+                                                          SpectrumParams.DirectionalSpreadingMode,
+                                                          SpectrumParams.LocalWindDirection,
+                                                          SpectrumParams.Alignment);
 
-        float freqComponent = OceanEnergySpectrum(spectrumParams.WindSpeed,
-                                                  spectrumParams.Fetch,
+        float freqComponent = OceanEnergySpectrum(SpectrumParams.WindSpeed,
+                                                  SpectrumParams.Fetch,
                                                   omegaAnddOmegadK.x,
-                                                  spectrumParams.Depth,
-                                                  spectrumParams.PeakingFactor);
+                                                  SpectrumParams.Depth,
+                                                  SpectrumParams.PeakingFactor);
 
-        const float fade = ShortWavesFade(kLength, spectrumParams.FadeLength);
+        const float fade = ShortWavesFade(kLength, SpectrumParams.FadeLength);
         const float finalSpectrum = freqComponent * directionalComponent * fade;
         const float dK2 = dK * dK;
         const float dOmegaUnit = abs(omegaAnddOmegadK.y) / kLength;
@@ -184,14 +180,14 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
     }
 }
 
+// conj(h0(-k)), so the per-frame tick reads two values instead of mirroring the index itself.
+// Index x holds k.x = (x - IFFT_SIZE / 2) * dK, so -k.x is at (IFFT_SIZE - x) % IFFT_SIZE: the Nyquist row maps to itself
 [shader("compute")]
-[numthreads(8, 8, NUM_WAVE_CASCADES)]
-void SpectrumConjugateCS(
-    uint3 id: SV_DispatchThreadID,
-    uniform CascadeParameters cascadeParams,
-    uniform StructuredBuffer<half2> h0K,
-    uniform RWStructuredBuffer<half2> h0KConjugate)
+[numthreads(8, 8, IFFT_NUM_WAVE_CASCADES)]
+void SpectrumConjugateCS(uint3 id : SV_DispatchThreadID)
 {
-    const uint linearIndex = LinearizeThreadIndex(id, cascadeParams.Dimensions);
-    
+    const uint linearIndex = LinearizeThreadIndex(id, CascadeParams.Dimensions);
+    const uint3 mirrored = uint3((IFFT_SIZE - id.xy) % IFFT_SIZE, id.z);
+    const half2 h0Mirrored = h0K[LinearizeThreadIndex(mirrored, CascadeParams.Dimensions)];
+    h0KConjugate[linearIndex] = ComplexConj(h0Mirrored);
 }
