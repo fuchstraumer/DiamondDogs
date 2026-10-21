@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <vulkan/vulkan_core.h>
 
 struct VkApplicationInfo;
 
@@ -23,7 +24,8 @@ namespace rhi
                 uint32_t app_version,
                 uint32_t engine_version,
                 ValidationLayers validation_level,
-                const ExtensionPack& extensions);
+                const ExtensionPack& extensions,
+                const VkDebugUtilsMessengerCreateInfoEXT* debug_messenger_info = nullptr);
         
         ~Instance();
         
@@ -44,7 +46,7 @@ namespace rhi
         [[nodiscard]] const std::vector<std::string>& GetEnabledExtensions() const noexcept;
 
     private:
-        void createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions);
+        void createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions, const VkDebugUtilsMessengerCreateInfoEXT* debug_messenger_info);
         void setupValidation();
         [[nodiscard]] bool checkLayerSupport(const std::vector<const char*>& required_layers) const;
         bool validationLayerHasExtension(const char* extension_name) const;

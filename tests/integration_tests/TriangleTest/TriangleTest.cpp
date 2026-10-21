@@ -626,7 +626,7 @@ void VulkanTriangle::bindPipeline(const rhi::CommandBufferHandle& cmd_buffer)
 {
     // if we weren't in shader objects mode, this is where we'd bind the pipeline and so on,
     // now we just set a bunch of dynamic states
-    [[maybe_unused]] Result shaderBindResult = shaderProgram->BindShaders(cmd_buffer);
+    [[maybe_unused]] rhi::Result shaderBindResult = shaderProgram->BindShaders(cmd_buffer);
     setInputStates(cmd_buffer);
     setRasterizationAndSampleStates(cmd_buffer);
     setColorBlendStates(cmd_buffer);

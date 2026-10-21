@@ -5,6 +5,8 @@
 #include "Instance.hpp"
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -30,10 +32,6 @@ namespace
                                                                VkDebugUtilsMessageTypeFlagBitsEXT message_type,
                                                                const VkDebugUtilsMessengerCallbackDataEXT* callback_data,
                                                                void* user_data);
-    void SplitVersionString(const std::string& version_string,
-                            uint32_t& major_version,
-                            uint32_t& minor_version,
-                            uint32_t& patch_version);
     void GetVersions(const nlohmann::json& json_file,
                      uint32_t& app_version,
                      uint32_t& engine_version,
@@ -41,6 +39,20 @@ namespace
     rhi::ApiVersion ApiVersionFromString(const std::string& version_string);
     rhi::ApiVersion ApiVersionFromUint32(const uint32_t version);
     rhi::ValidationLayers ValidationLayersFromString(const std::string& layer_string);
+
+    VkDebugUtilsMessengerCreateInfoEXT MessengerCreateInfo() noexcept
+    {
+        return VkDebugUtilsMessengerCreateInfoEXT
+        {
+            VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+            nullptr,
+            0,
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+            VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+            reinterpret_cast<PFN_vkDebugUtilsMessengerCallbackEXT>(DebugUtilsMessengerCallback),
+            nullptr
+        };
+    }
 }
 
 namespace rhi
@@ -105,13 +117,11 @@ namespace rhi
         }
 
         createInstance(rhiConfig, engineConfig);
+        // before the device, so that device creation messages reach our callback
+        createDebugUtilsMessenger();
         gatherDeviceExtensions(jsonFile, rhiConfig);
         createLogicalDevice();
-
-        if (vulkanInstance->HasValidation() && vulkanInstance->HasExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
-        {
-            createDebugUtilsMessenger();
-        }
+        setupObjectNaming();
 
         std::filesystem::path shaderCachePath = std::filesystem::temp_directory_path() / "DiamondDogs" / "ShaderCache";
         if (rhiConfig.contains("ShaderCacheDir"))
@@ -146,6 +156,8 @@ namespace rhi
         extensionPack->ResolveInstanceDependencies();
 
         createInstance(create_info);
+        // before the device, so that device creation messages reach our callback
+        createDebugUtilsMessenger();
 
         if (!create_info.RequiredDeviceExtensions.empty())
         {
@@ -158,14 +170,9 @@ namespace rhi
         }
 
         createLogicalDevice();
+        setupObjectNaming();
 
         shaderCacheDir = create_info.ShaderCacheDir;
-
-        if (vulkanInstance->HasValidation() && vulkanInstance->HasExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
-        {
-            createDebugUtilsMessenger();
-        }
-        
     }
 
     RhiSystem::~RhiSystem()
@@ -180,15 +187,20 @@ namespace rhi
 
     void RhiSystem::Destroy()
     {
-        if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
+        // safe to call twice: the destructor calls it after an explicit Destroy
+        if (logicalDevice && k_DebugLogicalDeviceHandle == logicalDevice->Handle().As<VkDevice>())
         {
-            VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
-            if (debugUtilsMessenger != VK_NULL_HANDLE && (debugUtilsFns.vkDestroyDebugUtilsMessenger != nullptr))
-            {
-                debugUtilsFns.vkDestroyDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), debugUtilsMessenger, nullptr);
-            }
+            k_SetObjectNameFn = nullptr;
+            k_DebugLogicalDeviceHandle = VK_NULL_HANDLE;
         }
         logicalDevice.reset();
+        // after the device, so that device destruction messages still reach our callback
+        if (debugUtilsMessenger != VK_NULL_HANDLE && vulkanInstance && destroyDebugUtilsMessenger != nullptr)
+        {
+            destroyDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), debugUtilsMessenger, nullptr);
+        }
+        debugUtilsMessenger = VK_NULL_HANDLE;
+        destroyDebugUtilsMessenger = nullptr;
         vulkanInstance.reset();
         extensionPack.reset();
     }
@@ -321,23 +333,27 @@ namespace rhi
 
         static const std::string engineName = "DiamondDogsEngine";
    
+        const VkDebugUtilsMessengerCreateInfoEXT messengerInfo = MessengerCreateInfo();
         vulkanInstance = std::make_unique<Instance>(applicationName,
                                                     engineName,
                                                     appVersion,
                                                     engineVersion,
                                                     layers,
-                                                    *extensionPack);
+                                                    *extensionPack,
+                                                    RHI_SYSTEM_VALIDATION_ENABLED ? &messengerInfo : nullptr);
 
     }
 
     void RhiSystem::createInstance(const RhiSystemCreateInfo& create_info)
     {
+        const VkDebugUtilsMessengerCreateInfoEXT messengerInfo = MessengerCreateInfo();
         vulkanInstance = std::make_unique<Instance>(create_info.ApplicationName,
                                                     create_info.EngineName,
                                                     create_info.AppVersion,
                                                     create_info.EngineVersion,
                                                     create_info.ValidationLevel,
-                                                    *extensionPack);
+                                                    *extensionPack,
+                                                    RHI_SYSTEM_VALIDATION_ENABLED ? &messengerInfo : nullptr);
     }
 
     void RhiSystem::gatherDeviceExtensions(const nlohmann::json& all_config, const nlohmann::json& rhi_config)
@@ -400,34 +416,61 @@ namespace rhi
     {
         if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
         {
-            VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
-            k_SetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
-            k_DebugLogicalDeviceHandle = logicalDevice->Handle().As<VkDevice>();
-
-            const VkDebugUtilsMessengerCreateInfoEXT messengerInfo
+            if (!vulkanInstance->HasValidation() ||
+                !vulkanInstance->HasExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
             {
-                VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-                nullptr,
-                0,
-                // capture warnings and info that the current one does not
-                VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-                VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-                reinterpret_cast<PFN_vkDebugUtilsMessengerCallbackEXT>(DebugUtilsMessengerCallback),
-                nullptr
-            };
+                return;
+            }
 
-            if (debugUtilsFns.vkCreateDebugUtilsMessenger == nullptr)
+            const VkInstance instance = vulkanInstance->Handle().As<VkInstance>();
+            const auto createFn = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
+            destroyDebugUtilsMessenger = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"));
+            if (createFn == nullptr || destroyDebugUtilsMessenger == nullptr)
             {
-                std::cerr << "Debug utils function pointers struct doesn't have function pointer for debug utils messenger creation!\n";
                 throw std::runtime_error("Failed to create debug utils messenger: function pointer not loaded!");
             }
 
-            VkResult result = debugUtilsFns.vkCreateDebugUtilsMessenger(vulkanInstance->Handle().As<VkInstance>(), &messengerInfo, nullptr, &debugUtilsMessenger);
+            const VkDebugUtilsMessengerCreateInfoEXT messengerInfo = MessengerCreateInfo();
+            const VkResult result = createFn(instance, &messengerInfo, nullptr, &debugUtilsMessenger);
             if (result != VK_SUCCESS)
             {
                 throw std::runtime_error("Failed to create debug utils messenger.");
             }
-        }   
+        }
+    }
+
+    void RhiSystem::setupObjectNaming()
+    {
+        if constexpr (RHI_SYSTEM_VALIDATION_ENABLED)
+        {
+            if (debugUtilsMessenger == VK_NULL_HANDLE)
+            {
+                return;
+            }
+            const VkDebugUtilsFunctions debugUtilsFns = logicalDevice->GetDebugUtilFns();
+            k_SetObjectNameFn = debugUtilsFns.vkSetDebugUtilsObjectName;
+            k_DebugLogicalDeviceHandle = logicalDevice->Handle().As<VkDevice>();
+        }
+    }
+
+    void detail::SplitVersionString(const std::string& version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version)
+    {
+        // "major[.minor[.patch]]"; a missing or non-numeric component reads as 0
+        std::array<uint32_t, 3> parts{ 0u, 0u, 0u };
+        const char* first = version_string.data();
+        const char* const last = first + version_string.size();
+        for (uint32_t& part : parts)
+        {
+            first = std::from_chars(first, last, part).ptr;
+            if (first == last || *first != '.')
+            {
+                break;
+            }
+            ++first;
+        }
+        major_version = parts[0];
+        minor_version = parts[1];
+        patch_version = parts[2];
     }
 
 } // namespace rhi
@@ -500,42 +543,6 @@ namespace
         return VK_FALSE;
     }
 
-    void SplitVersionString(const std::string& version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version)
-    {
-        const size_t minorDotPos = version_string.find('.');
-        const size_t patchDotPos = version_string.rfind('.');
-        if (patchDotPos == std::string::npos)
-        {
-            patch_version = 0;
-            if (minorDotPos == std::string::npos)
-            {
-                minor_version = 0;
-                major_version = static_cast<uint32_t>(strtod(version_string.c_str(), nullptr));
-            }
-            else
-            {
-                minor_version = static_cast<uint32_t>(strtod(version_string.substr(minorDotPos).c_str(), nullptr));
-                major_version = static_cast<uint32_t>(strtod(version_string.substr(0, minorDotPos).c_str(), nullptr));
-            }
-        }
-        else
-        {
-            if (minorDotPos == std::string::npos)
-            {
-                major_version = static_cast<uint32_t>(strtod(version_string.c_str(), nullptr));
-                minor_version = 0;
-                patch_version = 0;
-                return;
-            }
-            else
-            {
-                major_version = static_cast<uint32_t>(strtod(version_string.substr(0, minorDotPos + 1).c_str(), nullptr));
-                minor_version = static_cast<uint32_t>(strtod(version_string.substr(minorDotPos + 1, patchDotPos - minorDotPos - 1).c_str(), nullptr));
-                patch_version = static_cast<uint32_t>(strtod(version_string.substr(patchDotPos).c_str(), nullptr));
-            }
-        }
-    }
-
     void GetVersions(const nlohmann::json& json_file, uint32_t& app_version, uint32_t& engine_version, uint32_t& api_version)
     {
         if (json_file.contains("ApplicationVersion"))
@@ -544,7 +551,7 @@ namespace
             uint32_t appVersionMinor = 0;
             uint32_t appVersionPatch = 0;
             const std::string appVersionStr = json_file.at("ApplicationVersion");
-            SplitVersionString(appVersionStr, appVersionMajor, appVersionMinor, appVersionPatch);
+            rhi::detail::SplitVersionString(appVersionStr, appVersionMajor, appVersionMinor, appVersionPatch);
             app_version = VK_MAKE_VERSION(appVersionMajor, appVersionMinor, appVersionPatch);
         }
         else
@@ -558,7 +565,7 @@ namespace
             uint32_t engineVersionMinor = 0;
             uint32_t engineVersionPatch = 0;
             const std::string engineVersionStr = json_file.at("EngineVersion");
-            SplitVersionString(engineVersionStr, engineVersionMajor, engineVersionMinor, engineVersionPatch);
+            rhi::detail::SplitVersionString(engineVersionStr, engineVersionMajor, engineVersionMinor, engineVersionPatch);
             engine_version = VK_MAKE_VERSION(engineVersionMajor, engineVersionMinor, engineVersionPatch);
         }
         else
@@ -578,7 +585,7 @@ namespace
             }
             else
             {
-                SplitVersionString(apiVersionStr, apiVersionMajor, apiVersionMinor, apiVersionPatch);
+                rhi::detail::SplitVersionString(apiVersionStr, apiVersionMajor, apiVersionMinor, apiVersionPatch);
                 api_version = VK_MAKE_VERSION(apiVersionMajor, apiVersionMinor, apiVersionPatch);
             }
         }

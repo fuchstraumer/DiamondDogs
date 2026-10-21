@@ -34,7 +34,8 @@ namespace rhi
                     uint32_t app_version,
                     uint32_t engine_version,
                     ValidationLayers validation_level,
-                    const ExtensionPack& extensions) :
+                    const ExtensionPack& extensions,
+                    const VkDebugUtilsMessengerCreateInfoEXT* debug_messenger_info) :
         handle{ 0u },
         validationLevel{ validation_level }
     {
@@ -50,7 +51,7 @@ namespace rhi
         };
         
         setupValidation();
-        createInstance(appInfo, extensions);
+        createInstance(appInfo, extensions, debug_messenger_info);
     }
 
     Instance::~Instance()
@@ -66,7 +67,7 @@ namespace rhi
         return std::ranges::contains(enabledExtensions, extension_name);
     }
 
-    void Instance::createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions)
+    void Instance::createInstance(const VkApplicationInfo& app_info, const ExtensionPack& extensions, const VkDebugUtilsMessengerCreateInfoEXT* debug_messenger_info)
     {
         std::vector<const char*> enabledInstanceExtensions = extensions.GetInstanceExtensions();
 
@@ -79,15 +80,34 @@ namespace rhi
             1u,
             &settingEnabled
         };
+
+        // a messenger create info in the chain reports messages from vkCreateInstance and vkDestroyInstance, which a
+        // messenger created afterwards cannot see. it needs VK_EXT_debug_utils in the enabled list
+        auto strCmpLambda = [](const char* name)
+        {
+            return std::strcmp(name, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0;
+        };
+
+        const bool chainMessenger = debug_messenger_info != nullptr &&
+            std::ranges::any_of(enabledInstanceExtensions, strCmpLambda);
+        VkDebugUtilsMessengerCreateInfoEXT messengerInfo{};
+        if (chainMessenger)
+        {
+            messengerInfo = *debug_messenger_info;
+            messengerInfo.pNext = nullptr;
+        }
+
         const VkLayerSettingsCreateInfoEXT layerSettings
         {
             VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
-            nullptr,
+            chainMessenger ? &messengerInfo : nullptr,
             1u,
             &syncValidationSetting
         };
+
         const bool enableSyncValidation = validationLevel >= ValidationLayers::WithSynchronization &&
             validationLayerHasExtension(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+
         if (enableSyncValidation)
         {
             enabledInstanceExtensions.push_back(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
@@ -111,7 +131,7 @@ namespace rhi
         VkInstanceCreateInfo createInfo =
         {
             VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            enableSyncValidation ? &layerSettings : nullptr,
+            enableSyncValidation ? static_cast<const void*>(&layerSettings) : (chainMessenger ? static_cast<const void*>(&messengerInfo) : nullptr),
             0,
             &app_info,
             static_cast<uint32_t>(layerNames.size()),
@@ -204,11 +224,13 @@ namespace rhi
         {
             return std::strcmp(properties.extensionName, extension_name) == 0;
         });
+
         if (!found)
         {
             std::cerr << "The validation layer does not provide " << extension_name
                       << ", so synchronization validation stays off\n";
         }
+        
         return found;
     }
 

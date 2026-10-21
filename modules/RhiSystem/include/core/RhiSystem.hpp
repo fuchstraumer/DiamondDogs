@@ -97,14 +97,22 @@ private:
     void createDebugUtilsMessenger();
     void gatherDeviceExtensions(const nlohmann::json& all_config, const nlohmann::json& rhi_config);
     void createLogicalDevice();
+    void setupObjectNaming();
 
     std::unique_ptr<Instance> vulkanInstance;
     std::unique_ptr<Device> logicalDevice;
     std::unique_ptr<ExtensionPack> extensionPack;
     std::string shaderCacheDir;
     VkDebugUtilsMessengerEXT debugUtilsMessenger{ VK_NULL_HANDLE };
+    PFN_vkDestroyDebugUtilsMessengerEXT destroyDebugUtilsMessenger{ nullptr };
 
 };
+
+namespace detail
+{
+    /** @brief Parses "major[.minor[.patch]]". A missing or non-numeric component reads as 0. Exposed for tests. */
+    void SplitVersionString(const std::string& version_string, uint32_t& major_version, uint32_t& minor_version, uint32_t& patch_version);
+}
 
 } // namespace rhi
 
