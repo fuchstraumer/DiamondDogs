@@ -134,7 +134,7 @@ void VulkanScene::resetFrameFence()
 void VulkanScene::submitFrame(const rhi::CommandBufferHandle& command_buffer)
 {
     const rhi::SemaphoreSubmitInfo imageAvailable{ imageAvailableSemaphores[currentFrame].Handle(), rhi::PipelineStage::ColorAttachmentOutput };
-    const rhi::SemaphoreSubmitInfo renderFinished{ renderFinishedSemaphores[currentFrame].Handle(), rhi::PipelineStage::AllGraphics };
+    const rhi::SemaphoreSubmitInfo renderFinished{ renderFinishedSemaphores[currentAcquiredImage].Handle(), rhi::PipelineStage::AllGraphics };
     const rhi::SubmitInfo submit{ std::span{ &imageAvailable, 1 }, std::span{ &command_buffer, 1 }, std::span{ &renderFinished, 1 } };
     RhiAssert(rhi::QueueSubmit(device->GetGraphicsQueue(0), submit, inFlightFences[currentFrame].Handle()));
 }
@@ -213,7 +213,7 @@ bool VulkanScene::acquireImage()
 void VulkanScene::present()
 {
     VkResult presentResults[1]{ VK_SUCCESS };
-    VkSemaphore currRenderCompleteSemaphore = renderFinishedSemaphores[currentFrame].Handle().As<VkSemaphore>();
+    VkSemaphore currRenderCompleteSemaphore = renderFinishedSemaphores[currentAcquiredImage].Handle().As<VkSemaphore>();
     VkSwapchainKHR vkSwapchain = reinterpret_cast<VkSwapchainKHR>(swapchain->GetNativeHandle());
 
     const VkPresentInfoKHR presentInfo

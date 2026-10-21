@@ -655,7 +655,8 @@ void VulkanTriangle::recordCommands()
         currentFrameBufferImage,
         PipelineStage::ColorAttachmentOutput, Access::None,
         PipelineStage::ColorAttachmentOutput, Access::ColorAttachmentWrite,
-        firstFrame[currentFrame] ? ImageLayout::Undefined : ImageLayout::PresentSource,
+        // the attachment is cleared on load, so discard the old contents: this also covers images the swapchain hands out for the first time
+        ImageLayout::Undefined,
         ImageLayout::ColorAttachment,
         k_ColorRange
     });

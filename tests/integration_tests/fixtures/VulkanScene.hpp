@@ -73,6 +73,7 @@ protected:
     const Swapchain* swapchain{ nullptr };
     VkPhysicalDevice vkPhysicalDevice{ VK_NULL_HANDLE };
     std::vector<rhi::BinarySemaphore> imageAvailableSemaphores;
+    // indexed by the acquired swapchain image: presentation holds it until that image is acquired again
     std::vector<rhi::BinarySemaphore> renderFinishedSemaphores;
     std::vector<rhi::Fence> inFlightFences;
     std::vector<bool> firstFrame;
