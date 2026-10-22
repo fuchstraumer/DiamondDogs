@@ -65,6 +65,23 @@ namespace ocean
             float Choppiness{ 1.0f };
         };
 
+        struct MipsPushConstants
+        {
+            uint32_t SourceSize{ 0u };
+            uint32_t LevelCount{ 0u };
+        };
+
+        // OceanMips.slang: one dispatch reads one level and writes up to five below it, from 32x32 source tiles
+        constexpr uint32_t k_MipsLevelsPerDispatch = 5u;
+        constexpr uint32_t k_MipsSourceTile = 32u;
+        constexpr std::array<std::string_view, k_MipsLevelsPerDispatch> k_MipTargetNames
+        {
+            "MipTarget0", "MipTarget1", "MipTarget2", "MipTarget3", "MipTarget4"
+        };
+        // the first dispatch reads mip 0, the second reads mip 5. That covers every level up to size 1024 (11 levels)
+        constexpr uint32_t k_MipsDispatches = 2u;
+        constexpr uint32_t k_OutputImageCount = 2u;
+
         enum class Pass : uint8_t
         {
             SpectrumInit,
@@ -73,11 +90,12 @@ namespace ocean
             IfftRadix2,
             IfftRadix4,
             Resolve,
+            Mips,
             Count
         };
         constexpr std::array<std::string_view, static_cast<size_t>(Pass::Count)> k_EntryPoints
         {
-            "SpectrumInitCS", "SpectrumConjugateCS", "OceanTickCS", "IfftRadix2CS", "IfftRadix4CS", "OceanResolveCS"
+            "SpectrumInitCS", "SpectrumConjugateCS", "OceanTickCS", "IfftRadix2CS", "IfftRadix4CS", "OceanResolveCS", "OceanMipsCS"
         };
 
         struct PassProgram
@@ -97,6 +115,17 @@ namespace ocean
             {
                 rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
                 rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite
+            };
+            command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &barrier, 1 }, {}, {} });
+        }
+
+        // OceanMipsCS samples the level that the dispatch before it wrote as a storage image
+        void StorageToSampledBarrier(rhi::CommandBuffer& command_buffer)
+        {
+            const rhi::GlobalBarrier barrier
+            {
+                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderSampledRead | rhi::Access::ShaderStorageWrite
             };
             command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &barrier, 1 }, {}, {} });
         }
@@ -132,6 +161,11 @@ namespace ocean
         GraphicsResource DisplacementImage;
         GraphicsResource DerivativesImage;
         uint32_t MipLevels{ 1u };
+        // OceanMipsCS reads and writes single levels, so it needs a view of each one. ResourceContext makes one view
+        // per image, so these are owned here. Indexed [image][level], image 0 is Displacement
+        std::array<std::vector<VkImageView>, k_OutputImageCount> MipViews;
+        // [image][dispatch]
+        std::array<std::array<VkDescriptorSet, k_MipsDispatches>, k_OutputImageCount> MipSets{};
 
         [[nodiscard]] const PassProgram& Program(Pass pass) const noexcept
         {
@@ -151,38 +185,31 @@ namespace ocean
             return Settings.Size / 8u;
         }
 
-        // fills mips 1 and up of both outputs from mip 0, one level at a time: each blit reads the level that the
-        // step before it wrote. A linear blit of an exact halving averages each 2x2 block
+        // fills mips 1 and up of both outputs from mip 0. The first dispatch per image reads mip 0 and writes up to five
+        // levels; the second reads the last of those and writes the rest. Each texel averages the 2x2 block above it
         void RecordMips(rhi::CommandBuffer& command_buffer) const
         {
-            const std::array<rhi::ImageHandle, 2> images{ rhi::ImageHandle{ DisplacementImage.VkHandle }, rhi::ImageHandle{ DerivativesImage.VkHandle } };
+            const rhi::ManifestProgram& program = *Program(Pass::Mips).Program;
+            RhiAssert(command_buffer.BindShaders(program.Program()));
+            uint32_t sourceLevel = 0u;
 
-            for (uint32_t level = 1u; level < MipLevels; ++level)
+            for (uint32_t dispatch = 0u; dispatch < k_MipsDispatches && sourceLevel + 1u < MipLevels; ++dispatch)
             {
-                // the resolve wrote mip 0 as a storage image, and the previous blit wrote every other source level
-                const bool fromResolve = level == 1u;
-                const rhi::PipelineStage srcStages = fromResolve ? rhi::PipelineStage::ComputeShader : rhi::PipelineStage::Blit;
-                const rhi::Access srcAccess = fromResolve ? rhi::Access::ShaderStorageWrite : rhi::Access::TransferWrite;
-                const rhi::ImageSubresourceRange source{ rhi::ImageAspect::Color, level - 1u, 1u, 0u, k_CascadeCount };
-                std::array<rhi::ImageBarrier, 2> toBlit{};
+                // the resolve wrote the first source level, and the first dispatch wrote the second
+                StorageToSampledBarrier(command_buffer);
+                const uint32_t sourceSize = Settings.Size >> sourceLevel;
+                const uint32_t levelCount = std::min(k_MipsLevelsPerDispatch, MipLevels - 1u - sourceLevel);
+                const uint32_t groups = std::max(sourceSize / k_MipsSourceTile, 1u);
+                PushConstants(command_buffer, program, MipsPushConstants{ sourceSize, levelCount });
 
-                for (size_t i = 0; i < images.size(); ++i)
+                for (uint32_t image = 0u; image < k_OutputImageCount; ++image)
                 {
-                    toBlit[i] = rhi::ImageBarrier{ images[i], srcStages, srcAccess, rhi::PipelineStage::Blit, rhi::Access::TransferRead,
-                        rhi::ImageLayout::General, rhi::ImageLayout::General, source };
+                    const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(MipSets[image][dispatch]) };
+                    command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Compute, program.PipelineLayout(), 0, std::span{ &set, 1 });
+                    command_buffer.Dispatch(groups, groups, k_CascadeCount);
                 }
 
-                command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, toBlit });
-
-                const uint32_t sourceSize = Settings.Size >> (level - 1u);
-                const uint32_t targetSize = sourceSize / 2u;
-                const rhi::ImageBlit blit{ rhi::ImageAspect::Color, level - 1u, level, 0u, k_CascadeCount,
-                    sourceSize, sourceSize, 1u, targetSize, targetSize, 1u };
-
-                for (const rhi::ImageHandle& image : images)
-                {
-                    command_buffer.BlitImage(image, rhi::ImageLayout::General, image, rhi::ImageLayout::General, std::span{ &blit, 1 }, rhi::BlitFilter::Linear);
-                }
+                sourceLevel += k_MipsLevelsPerDispatch;
             }
         }
     };
@@ -194,9 +221,19 @@ namespace ocean
             return;
         }
 
+        const VkDevice vkDevice = Device->Handle().As<VkDevice>();
+
         if (DescriptorPool != VK_NULL_HANDLE)
         {
-            vkDestroyDescriptorPool(Device->Handle().As<VkDevice>(), DescriptorPool, nullptr);
+            vkDestroyDescriptorPool(vkDevice, DescriptorPool, nullptr);
+        }
+
+        for (const std::vector<VkImageView>& views : MipViews)
+        {
+            for (const VkImageView view : views)
+            {
+                vkDestroyImageView(vkDevice, view, nullptr);
+            }
         }
 
         std::vector<std::shared_ptr<MessageReply>> replies;
@@ -475,16 +512,21 @@ namespace ocean
 
         // the outputs are storage images for the resolve and sampled images for the renderer, and stay in General.
         // A full mip chain, down to 1x1: the renderer samples distant water from the smaller mips. One view covers
-        // every mip, and a storage write through it goes to its base level, mip 0
+        // every mip, and a storage write through it goes to its base level, mip 0. Copies out are for tests
         impl->MipLevels = static_cast<uint32_t>(std::bit_width(size));
-        std::array<std::shared_ptr<GraphicsResourceReply>, 2> imageReplies;
+        std::array<std::shared_ptr<GraphicsResourceReply>, k_OutputImageCount> imageReplies;
+
+        if (impl->MipLevels - 1u > k_MipsLevelsPerDispatch * k_MipsDispatches)
+        {
+            return std::unexpected(std::format("size {} has more mip levels than OceanMipsCS writes in {} dispatches", size, k_MipsDispatches));
+        }
 
         for (std::shared_ptr<GraphicsResourceReply>& reply : imageReplies)
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
             info.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SampledImage | ImageUsageBits::SrvVertexShader |
-                ImageUsageBits::SrvFragmentShader | ImageUsageBits::TransferSource | ImageUsageBits::TransferDestination;
+                ImageUsageBits::SrvFragmentShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferSource;
             info.Type = ImageType::Type2D;
             info.Format = CommonFormats::RGBA16_Float;
             info.Width = size;
@@ -519,18 +561,44 @@ namespace ocean
         impl->NormalizationLut = lutReply->GetResource();
         impl->DisplacementImage = imageReplies[0]->GetResource();
         impl->DerivativesImage = imageReplies[1]->GetResource();
+        const std::array<GraphicsResource, k_OutputImageCount> outputImages{ impl->DisplacementImage, impl->DerivativesImage };
 
-        // every pass has one descriptor set, set 0, with only the resources it reads
+        for (uint32_t image = 0u; image < k_OutputImageCount; ++image)
+        {
+            std::vector<VkImageView>& views = impl->MipViews[image];
+
+            for (uint32_t level = 0u; level < impl->MipLevels; ++level)
+            {
+                const VkImageViewCreateInfo viewInfo
+                {
+                    VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, nullptr, 0,
+                    reinterpret_cast<VkImage>(outputImages[image].VkHandle), VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_FORMAT_R16G16B16A16_SFLOAT,
+                    VkComponentMapping{}, VkImageSubresourceRange{ VK_IMAGE_ASPECT_COLOR_BIT, level, 1u, 0u, k_CascadeCount }
+                };
+                VkImageView view{ VK_NULL_HANDLE };
+
+                if (vkCreateImageView(vkDevice, &viewInfo, nullptr, &view) != VK_SUCCESS)
+                {
+                    return std::unexpected(std::format("creating the view of mip {} failed", level));
+                }
+
+                views.push_back(view);
+            }
+        }
+
+        // every pass has one descriptor set, set 0, with only the resources it reads. OceanMipsCS has one per image
+        // and dispatch, with the levels of that dispatch
+        constexpr uint32_t k_MipSetCount = k_OutputImageCount * k_MipsDispatches;
         constexpr std::array<VkDescriptorPoolSize, 5> k_PoolSizes
         {
             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 32 },
             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16 },
-            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 8 },
+            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 8 + k_MipSetCount },
             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, 8 },
-            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 8 },
+            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 8 + k_MipSetCount * k_MipsLevelsPerDispatch },
         };
         const VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0,
-            static_cast<uint32_t>(impl->Programs.size()), static_cast<uint32_t>(k_PoolSizes.size()), k_PoolSizes.data() };
+            static_cast<uint32_t>(impl->Programs.size()) + k_MipSetCount, static_cast<uint32_t>(k_PoolSizes.size()), k_PoolSizes.data() };
 
         if (vkCreateDescriptorPool(vkDevice, &poolInfo, nullptr, &impl->DescriptorPool) != VK_SUCCESS)
         {
@@ -575,6 +643,13 @@ namespace ocean
 
             PassProgram& passProgram = impl->Programs[passIndex];
             passProgram.Program = std::move(*program);
+
+            // the mip sets are written below, with the views of single levels
+            if (passIndex == static_cast<size_t>(Pass::Mips))
+            {
+                continue;
+            }
+
             const VkDescriptorSetLayout setLayout = passProgram.Program->SetLayouts()[0].As<VkDescriptorSetLayout>();
             const VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, impl->DescriptorPool, 1, &setLayout };
 
@@ -589,6 +664,49 @@ namespace ocean
             }
         }
 
+        const rhi::ManifestProgram& mipsProgram = *impl->Program(Pass::Mips).Program;
+        const VkDescriptorSetLayout mipsSetLayout = mipsProgram.SetLayouts()[0].As<VkDescriptorSetLayout>();
+        const std::array<std::string_view, 1> mipsEntryPoints{ k_EntryPoints[static_cast<size_t>(Pass::Mips)] };
+
+        for (uint32_t image = 0u; image < k_OutputImageCount; ++image)
+        {
+            const std::vector<VkImageView>& views = impl->MipViews[image];
+
+            for (uint32_t dispatch = 0u; dispatch < k_MipsDispatches; ++dispatch)
+            {
+                // a view of one level, as the descriptor writer reads it: the image handle and that view
+                const auto levelResource = [&](uint32_t level)
+                {
+                    GraphicsResource resource = outputImages[image];
+                    resource.VkViewHandle = reinterpret_cast<uint64_t>(views[std::min(level, impl->MipLevels - 1u)]);
+                    return resource;
+                };
+
+                const VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, impl->DescriptorPool, 1, &mipsSetLayout };
+                VkDescriptorSet& set = impl->MipSets[image][dispatch];
+
+                if (vkAllocateDescriptorSets(vkDevice, &setInfo, &set) != VK_SUCCESS)
+                {
+                    return std::unexpected(std::string{ "OceanMipsCS: descriptor set allocation failed" });
+                }
+
+                // a dispatch with fewer than five levels to write still binds every target. The extra ones view the
+                // last level, and the shader never writes them
+                const uint32_t sourceLevel = dispatch * k_MipsLevelsPerDispatch;
+                BoundResources mipResources{ { "MipSource", { levelResource(sourceLevel), VK_IMAGE_LAYOUT_GENERAL } } };
+
+                for (uint32_t target = 0u; target < k_MipsLevelsPerDispatch; ++target)
+                {
+                    mipResources.emplace(k_MipTargetNames[target], BoundResource{ levelResource(sourceLevel + 1u + target), VK_IMAGE_LAYOUT_GENERAL });
+                }
+
+                if (std::optional<std::string> error = WriteManifestDescriptors(vkDevice, set, **index, *variant, mipsEntryPoints, mipResources); error.has_value())
+                {
+                    return std::unexpected(*error);
+                }
+            }
+        }
+
         return std::make_unique<OceanSimulation>(std::move(impl));
     }
 
@@ -597,7 +715,7 @@ namespace ocean
 
     void OceanSimulation::RecordInitialize(rhi::CommandBuffer& command_buffer) const
     {
-        // the tick writes mip 0 with the resolve and the other mips with blits, so both wait for the transition
+        // the tick writes mip 0 with the resolve and the other mips with OceanMipsCS, so both wait for the transition
         const std::array<rhi::ImageBarrier, 2> toGeneral
         {
             rhi::ImageBarrier{ rhi::ImageHandle{ impl->DisplacementImage.VkHandle },

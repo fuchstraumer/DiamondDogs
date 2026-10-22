@@ -40,3 +40,18 @@ uniform SamplerState normSampler;
 uniform RWTexture2DArray<float4> Displacement;
 [format("rgba16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
 uniform RWTexture2DArray<float4> Derivatives;
+
+// OceanMipsCS: views of single mip levels of Displacement or Derivatives, which the host picks per dispatch.
+// MipSource is one level; MipTarget0 to MipTarget4 are the five levels below it. A sampled view for the source, so
+// that the WGSL target needs no read-write storage texture
+uniform Texture2DArray<float4> MipSource;
+[format("rgba16f")]
+uniform RWTexture2DArray<float4> MipTarget0;
+[format("rgba16f")]
+uniform RWTexture2DArray<float4> MipTarget1;
+[format("rgba16f")]
+uniform RWTexture2DArray<float4> MipTarget2;
+[format("rgba16f")]
+uniform RWTexture2DArray<float4> MipTarget3;
+[format("rgba16f")]
+uniform RWTexture2DArray<float4> MipTarget4;

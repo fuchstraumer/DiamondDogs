@@ -26,6 +26,7 @@ namespace rhi
 //
 // Once:      SpectrumInitCS -> SpectrumConjugateCS                  (h0(k), conj(h0(-k)), wave data)
 // Per frame: OceanTickCS -> IFFT rows -> IFFT columns -> OceanResolveCS (Displacement and Derivatives textures)
+//            -> OceanMipsCS twice per texture (its mip chain)
 namespace ocean
 {
     /** @brief SpectrumParameters in OceanFftCommon.slang, std140. Create() checks it against the manifest. */
@@ -125,10 +126,10 @@ namespace ocean
          *  and again after SetSpectrum */
         void RecordInitialize(rhi::CommandBuffer& command_buffer) const;
         /** @brief The stages and accesses that RecordTick writes the output textures with. The resolve writes mip 0 as
-         *  a storage image, and blits fill the other mips from it. A reader's barrier waits on these. The barrier
-         *  before the next tick must make k_TickStages wait for that reader */
-        static constexpr rhi::PipelineStage k_TickStages = rhi::PipelineStage::ComputeShader | rhi::PipelineStage::Blit;
-        static constexpr rhi::Access k_TickWriteAccess = rhi::Access::ShaderStorageWrite | rhi::Access::TransferWrite;
+         *  a storage image, and OceanMipsCS writes the other mips from it, also as storage images. A reader's barrier
+         *  waits on these. The barrier before the next tick must make k_TickStages wait for that reader */
+        static constexpr rhi::PipelineStage k_TickStages = rhi::PipelineStage::ComputeShader;
+        static constexpr rhi::Access k_TickWriteAccess = rhi::Access::ShaderStorageWrite;
 
         /** @brief Tick, both IFFT passes, the resolve, and the mip chains of the output textures. Records no barrier
          *  after the last mip: the reader of the textures adds its own (from k_TickStages and k_TickWriteAccess).

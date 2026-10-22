@@ -243,6 +243,14 @@ for valid paths and directories.
   - **Message Passing**: as such, interfaces between modules of code that may need to talk to each  other should
     use message-passing paradigms. This allows for better thread isolation of work, and encourages a validate-
     try-commit model that is more recoverable.
+  - **Atomics over mutexes**: always prefer atomics, ownership handoff (one thread owns the data until it hands it
+    over with a release store), or a single-threaded coalesce step (for example at the start or end of a frame) to a
+    mutex. A mutex serializes every thread that touches it. It also tends to spread, because the next fix adds a
+    second lock. `rhi::GpuTimers` is the pattern: atomic compare-exchange to take a block, a release store to hand it
+    back, and a coalesce step for everything shared.
+  - **Tell the author about every mutex**: if you think a mutex (or `shared_mutex`, `condition_variable`, or any
+    other lock) is needed, do not add it quietly. Say so in your reply, explain why atomics or ownership handoff do
+    not work there, and get her agreement first. When you change code that already has a lock, say so too.
 - **Memory**: Avoid dynamic allocations as often as possible. On web targets, we are running in a virtual env
   with a pre-allocated linear span of memory. We must be frugal with memory, and should favor using statically
   allocated arenas and being efficient with our choice of datatypes.

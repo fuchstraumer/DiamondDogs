@@ -6,7 +6,7 @@ detailed findings (sections 4, 5, 9); new work is logged here.
 Branch `dev/lodestone`. The author commits herself; the agent never commits. Check `git status` for what is still
 uncommitted. Her code spacing rule is in CLAUDE.md ("Code spacing").
 
-## State (2026-10-21, end of the seventh session; the newest work is at the end of this section)
+## State (2026-10-21, eighth session; the newest work is at the end of this section, and in Next work 6a)
 
 Committed by the author:
 - **Earlier work:** the ocean compute fixes, OceanFft (`ocean_simulation` and the demo), and OceanFftTest.
@@ -188,8 +188,22 @@ Uncommitted (this session):
    sampling of a narrower lobe.
 6. **Done (seventh session): GPU profiling and debug labels.** All four steps are built. See the state above.
    - What the benchmark found, with fixes to try (`docs/ocean-benchmark-2026-10-21.md`):
-     - **6a. Compute downsample:** replace the blit mip chain, which is about 32-47 µs of fixed cost and 60% of the
-       tick at 128. Use a single-pass compute downsample, then rerun the benchmark.
+     - **6a. Done (eighth session), uncommitted:** `OceanMipsCS` (`compute/Ocean/OceanMips.slang`) replaces the blit
+       mip chain.
+       - Two dispatches per image, each five levels through groupshared memory. The source is a sampled view of one
+         level, and the five targets are storage views of single levels (`MipSource`, `MipTarget0`-`4` in
+         `OceanFftBindings.slang`).
+       - `OceanSimulation` owns the per-level views and four descriptor sets. A dispatch with fewer than five levels
+         binds its extra targets to the last level and does not write them.
+       - `k_TickStages` is now `ComputeShader` only, and `k_TickWriteAccess` is `ShaderStorageWrite` only. The images
+         lost `TransferDestination` and gained `SrvComputeShader`.
+       - OceanFftTest now checks every displacement mip against the 2x2 average of the level the GPU wrote above it,
+         not only mip 1. At 256 that covers both dispatches.
+       - Mips: 32.8 to 6.1 µs at 128, and 47.1 to 16.4 µs at 512. 1024 is bandwidth-bound at 132 µs. Numbers:
+         `docs/ocean-benchmark-2026-10-21.md`.
+       - Checked: OceanFftTest on MSVC Debug and Release and on clang-cl Debug, with zero validation messages. The
+         demo ran 240 frames in Debug with sync validation and no messages. All six configurations build. The other
+         suites were not rerun: only ocean code changed.
      - **6b. 1024 falls off the 64 MB L2:** `IfftInput` is 67 MB there. Try fp16 storage, or fewer planes.
    - **The transfer system hook** waits for her (`docs/gpu-timers-plan.md`).
 7. **HDR, as a color-domain transform pipe.** The same shape as `SeaState`, narrowed to color:

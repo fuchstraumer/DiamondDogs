@@ -10,3 +10,4 @@ __include Spectra;
 __include InitSpectrum;
 __include OceanTick;
 __include OceanResolve;
+__include OceanMips;

@@ -88,6 +88,12 @@ if (DIAMOND_DOGS_COMPILER_IS_CL)
     target_compile_options(OceanFft PRIVATE "/MP")
 endif()
 
+# OceanFftBenchmark: GPU time per compute pass, for every IFFT size, radix and wave-op setting. Headless and
+# unvalidated; it measures only where GPU timers are compiled in (Debug, RelWithDebInfo)
+add_executable(OceanFftBenchmark "benchmark/main.cpp")
+target_link_libraries(OceanFftBenchmark PRIVATE ocean_simulation rhi_resources)
+set_target_properties(OceanFftBenchmark PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+
 # The demo looks for its shader bundle next to the executable first (main.cpp), so the output folder runs on its own
 set(OCEAN_FFT_BUNDLE "$<TARGET_PROPERTY:ocean_fft_shaders,LODESTONE_MANIFEST>")
 add_custom_command(TARGET OceanFft POST_BUILD

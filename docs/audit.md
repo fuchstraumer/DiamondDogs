@@ -521,6 +521,8 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
   - The shareable static-CRT package.
   - The GPU timers (`QueryPool`, `GpuTimers`) and `OceanFftBenchmark`. The results are in
     `docs/ocean-benchmark-2026-10-21.md`.
+- 2026-10-21, session eight: the `OceanMipsCS` compute downsample replaces the blit mip chain (handoff, Next work
+  6a). The mip chain is 4-5x faster up to 512. OceanFftTest now checks every mip level.
 
 ## 10. RhiResources: questions for the author, and inputs for the design session
 
