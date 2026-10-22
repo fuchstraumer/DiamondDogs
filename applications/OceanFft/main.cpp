@@ -31,6 +31,7 @@
 //   --size=N        IFFT size: 128, 256, 512 (default) or 1024
 //   --radix2        use the radix-2 IFFT kernel instead of radix-4
 //   --no-wave-ops   use the variant without subgroup operations, even when the device supports them
+//   --validation=off  run without the validation layer even when it is installed, for the GPU timings panel
 // Capture and scripted control (see SceneCommands.hpp for the command language):
 //   --capture=DIR        write captures to DIR (default "captures")
 //   --capture-count=K    capture K frames, the first at --capture-first=F (default 0), one every --capture-every=N
@@ -183,7 +184,10 @@ int main(int argc, char* argv[])
     rhi::RhiSystemCreateInfo rhiCreateInfo{};
     rhiCreateInfo.ApplicationName = "OceanFft";
     rhiCreateInfo.VkVersion = rhi::ApiVersion::Latest;
-    rhiCreateInfo.ValidationLevel = PickValidationLayers();
+    // the instance comes before the other arguments are parsed, so this one is looked for here
+    const bool validationOff = std::ranges::contains(std::span{ argv, static_cast<size_t>(argc) }, std::string_view{ "--validation=off" },
+        [](const char* argument) { return std::string_view{ argument }; });
+    rhiCreateInfo.ValidationLevel = validationOff ? rhi::ValidationLayers::None : PickValidationLayers();
     rhiCreateInfo.RequiredInstanceExtensions =
     {
         "VK_EXT_debug_utils",
@@ -216,6 +220,7 @@ int main(int argc, char* argv[])
 
     OceanSceneSettings settings{};
     settings.ManifestPath = FindManifest();
+    settings.ValidationEnabled = rhiCreateInfo.ValidationLevel != rhi::ValidationLayers::None;
     CommandLine commandLine{};
     ParseArguments(argc, argv, settings, commandLine);
     settings.Simulation.WaveSize = commandLine.NoWaveOps ? 0u : ocean::PickWaveSize(*rhiSystem->GetDevice());
