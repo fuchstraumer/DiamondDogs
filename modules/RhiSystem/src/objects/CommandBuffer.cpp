@@ -372,6 +372,29 @@ namespace rhi
                                static_cast<uint32_t>(vkRegions.size()), vkRegions.data());
     }
 
+    void CommandBuffer::CopyBufferToImage(const BufferHandle& src, const ImageHandle& dst, ImageLayout dst_layout, std::span<const BufferImageCopy> regions) noexcept
+    {
+        assert(isRecording && "CommandBuffer::CopyBufferToImage() called while not in recording mode.");
+        std::vector<VkBufferImageCopy> vkRegions;
+        vkRegions.reserve(regions.size());
+
+        for (const BufferImageCopy& region : regions)
+        {
+            vkRegions.push_back(VkBufferImageCopy
+            {
+                region.BufferOffset,
+                region.BufferRowLength,
+                region.BufferImageHeight,
+                VkImageSubresourceLayers{ vk::ToVulkan(region.Aspect), region.MipLevel, region.BaseArrayLayer, region.LayerCount },
+                VkOffset3D{ region.OffsetX, region.OffsetY, region.OffsetZ },
+                VkExtent3D{ region.Width, region.Height, region.Depth }
+            });
+        }
+
+        vkCmdCopyBufferToImage(handle.As<VkCommandBuffer>(), src.As<VkBuffer>(), dst.As<VkImage>(), vk::ToVulkan(dst_layout),
+                               static_cast<uint32_t>(vkRegions.size()), vkRegions.data());
+    }
+
     void CommandBuffer::BlitImage(const ImageHandle& src, ImageLayout src_layout, const ImageHandle& dst, ImageLayout dst_layout,
                                   std::span<const ImageBlit> regions, BlitFilter filter) noexcept
     {
