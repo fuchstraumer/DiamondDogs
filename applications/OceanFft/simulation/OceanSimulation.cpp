@@ -596,15 +596,16 @@ namespace ocean
 
     void OceanSimulation::RecordInitialize(rhi::CommandBuffer& command_buffer) const
     {
+        // the tick writes mip 0 with the resolve and the other mips with blits, so both wait for the transition
         const std::array<rhi::ImageBarrier, 2> toGeneral
         {
             rhi::ImageBarrier{ rhi::ImageHandle{ impl->DisplacementImage.VkHandle },
                 rhi::PipelineStage::None, rhi::Access::None,
-                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+                k_TickStages, k_TickWriteAccess,
                 rhi::ImageLayout::Undefined, rhi::ImageLayout::General },
             rhi::ImageBarrier{ rhi::ImageHandle{ impl->DerivativesImage.VkHandle },
                 rhi::PipelineStage::None, rhi::Access::None,
-                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+                k_TickStages, k_TickWriteAccess,
                 rhi::ImageLayout::Undefined, rhi::ImageLayout::General },
         };
         command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, toGeneral });

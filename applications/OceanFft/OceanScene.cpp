@@ -57,6 +57,8 @@ namespace
     constexpr std::array<std::string_view, 2> k_SeabedEntryPoints{ "SeabedVS", "SeabedFS" };
     // hardware MSAA for the ocean pass: lower when the device supports less (a render setting, eventually)
     constexpr uint32_t k_MaxMsaaSamples = 8u;
+    // anisotropic filtering of the surface textures: lower when the device supports less
+    constexpr float k_MaxAnisotropy = 16.0f;
 
     // OceanViewParameters in OceanRenderCommon.slang (std140, all float4)
     struct OceanViewParameters
@@ -174,8 +176,21 @@ void OceanScene::Initialize(void* user_data)
 
     simulation = std::move(*created);
 
-    // linear and repeating: each cascade tiles with its own patch size
-    sampler = WaitForResource(resources->CreateSampler(SamplerCreateInfo{}), "the ocean sampler");
+    // linear and repeating: each cascade tiles with its own patch size. Anisotropic, because most of the water is seen
+    // at a grazing angle, where one trilinear lookup blurs the waves away
+    SamplerCreateInfo samplerInfo{};
+    VkPhysicalDeviceFeatures features{};
+    vkGetPhysicalDeviceFeatures(vkPhysicalDevice, &features);
+
+    if (features.samplerAnisotropy == VK_TRUE)
+    {
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(vkPhysicalDevice, &properties);
+        samplerInfo.AnisotropyEnabled = true;
+        samplerInfo.MaxAnisotropy = std::min(k_MaxAnisotropy, properties.limits.maxSamplerAnisotropy);
+    }
+
+    sampler = WaitForResource(resources->CreateSampler(samplerInfo), "the ocean sampler");
 
     viewBuffers.reserve(numFramebuffers);
     viewBufferPointers.reserve(numFramebuffers);
@@ -683,13 +698,14 @@ void OceanScene::recordCommands()
         needsInitialize = false;
     }
 
-    // the previous frame's draws sampled the textures this tick rewrites, with the resolve and the mip blits
+    // the previous frame's draws sampled the textures this tick rewrites, with the resolve and the mip blits. The
+    // previous tick's writes need a memory dependency too: write after write
     const rhi::GlobalBarrier drawsToCompute
     {
-        rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader,
-        rhi::Access::None,
+        rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader | ocean::OceanSimulation::k_TickStages,
+        ocean::OceanSimulation::k_TickWriteAccess,
         ocean::OceanSimulation::k_TickStages,
-        rhi::Access::None
+        ocean::OceanSimulation::k_TickWriteAccess
     };
     cmd.Barrier(rhi::DependencyInfo{ std::span{ &drawsToCompute, 1 }, {}, {} });
 

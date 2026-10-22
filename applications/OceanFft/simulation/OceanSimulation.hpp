@@ -77,7 +77,7 @@ namespace ocean
     struct OceanSimulationSettings
     {
         /** @brief One of the IFFT_SIZE axis values: 128, 256, 512, 1024 */
-        uint32_t Size{ 512u };
+        uint32_t Size{ 1024u };
         IfftKernel Kernel{ IfftKernel::Radix4 };
         /** @brief 0 selects the variant without wave ops. Otherwise the IFFT_WAVE_SIZE of the wave-op variant, and
          *  the subgroup size the IFFT shaders are created with (full subgroups required). See PickWaveSize. */
