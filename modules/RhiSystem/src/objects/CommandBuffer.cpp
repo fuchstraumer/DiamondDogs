@@ -401,6 +401,18 @@ namespace rhi
         vkCmdBlitImage(handle.As<VkCommandBuffer>(), src.As<VkImage>(), vk::ToVulkan(src_layout), dst.As<VkImage>(), vk::ToVulkan(dst_layout),
                        static_cast<uint32_t>(vkRegions.size()), vkRegions.data(), vkFilter);
     }
+
+    void CommandBuffer::ResetQueryPool(const QueryPoolHandle& pool, uint32_t first, uint32_t count) noexcept
+    {
+        assert(isRecording && "CommandBuffer::ResetQueryPool() called while not in recording mode.");
+        vkCmdResetQueryPool(handle.As<VkCommandBuffer>(), pool.As<VkQueryPool>(), first, count);
+    }
+
+    void CommandBuffer::WriteTimestamp(PipelineStage stage, const QueryPoolHandle& pool, uint32_t query) noexcept
+    {
+        assert(isRecording && "CommandBuffer::WriteTimestamp() called while not in recording mode.");
+        vkCmdWriteTimestamp2(handle.As<VkCommandBuffer>(), vk::ToVulkan(stage), pool.As<VkQueryPool>(), query);
+    }
 #endif // RHI_SYSTEM_USE_VULKAN
 
 }

@@ -126,6 +126,7 @@ namespace rhi
         struct DescriptorUpdateTemplateTag {};
         struct PipelineLayoutTag {};
         struct ShaderObjectTag {};
+        struct QueryPoolTag {};
     }
 
     using InstanceHandle = RhiHandle<detail::InstanceTag>;
@@ -148,6 +149,7 @@ namespace rhi
     using DescriptorUpdateTemplateHandle = RhiHandle<detail::DescriptorUpdateTemplateTag>;
     using PipelineLayoutHandle = RhiHandle<detail::PipelineLayoutTag>;
     using ShaderObjectHandle = RhiHandle<detail::ShaderObjectTag>;
+    using QueryPoolHandle = RhiHandle<detail::QueryPoolTag>;
 
 }
 

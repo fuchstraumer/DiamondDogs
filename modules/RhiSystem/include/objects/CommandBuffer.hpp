@@ -67,6 +67,13 @@ namespace rhi
         void BlitImage(const ImageHandle& src, ImageLayout src_layout, const ImageHandle& dst, ImageLayout dst_layout,
                        std::span<const ImageBlit> regions, BlitFilter filter) noexcept;
 
+        /** @brief vkCmdResetQueryPool. Graphics and compute queues only: the transfer queue cannot record it, so
+         *  pools that it writes use QueryPool::Reset on the host */
+        void ResetQueryPool(const QueryPoolHandle& pool, uint32_t first, uint32_t count) noexcept;
+        /** @brief Writes the timestamp once every earlier command has reached `stage` (vkCmdWriteTimestamp2). Any
+         *  queue whose family has timestamp valid bits */
+        void WriteTimestamp(PipelineStage stage, const QueryPoolHandle& pool, uint32_t query) noexcept;
+
     private:
         bool isRecording = false;
         CommandBufferHandle handle;
