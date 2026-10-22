@@ -733,7 +733,7 @@ void VulkanTriangle::update()
     //projection_matrix = projection_matrix.Transpose(); // Vulkan expects column-major matrices
     // need to set [1][1] *= -1.0f to flip the Y axis
     uboDataVS.projection = math::FromMatrix<Float4x4>(projectionMatrix);
-    uboDataVS.projection(1, 1) *= -1.0f;
+    uboDataVS.projection[1, 1] *= -1.0f;
     math::Matrix viewMatrix = math::Matrix::Identity();
     viewMatrix = viewMatrix.Translation(0.0f, 0.0f, -2.5f);
     //view_matrix = view_matrix.Transpose(); // Vulkan expects column-major matrices

@@ -72,7 +72,16 @@ set(reactors_source_files
 
 set(maths_source_files
     "include/Math.hpp"
-    "include/math/Math.inl")
+    "include/math/Math.hpp"
+    "include/math/Math.inl"
+    "include/math/MathBackendDX.inl"
+    "include/math/MathBackendWASM.inl"
+    "include/math/MathHashes.hpp"
+    "include/math/MathPolynomials.hpp"
+    "include/math/QuaternionBackendDX.inl"
+    "include/math/QuaternionBackendWASM.inl"
+    "include/math/TranscendentalBackendDX.inl"
+    "include/math/TranscendentalBackendWASM.inl")
 
 source_group("foundation" FILES ${foundation_source_files})
 source_group("containers" FILES ${foundation_containers_source_files})
@@ -137,3 +146,5 @@ endif()
 
 # Put foundation in the Modules folder in the IDE, avoiding root clutter (and it is just the root module, really)
 set_target_properties(foundation PROPERTIES FOLDER "Modules")
+
+diamond_dogs_add_pch(foundation LIBRARY)
