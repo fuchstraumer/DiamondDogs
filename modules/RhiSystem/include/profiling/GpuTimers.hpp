@@ -20,11 +20,14 @@
  *          rhi::ScopedGpuTimer tick(block, "Ocean tick");
  *          ...
  *      }
- *      // after the submit, on any thread, at any time:
- *      timers.Collect();
+ *      // later, in the coalesce step, once every frame before oldestUnfinishedFrame has passed its fence:
+ *      timers.Collect(oldestUnfinishedFrame);
  *
- *  Collect reads results with VK_QUERY_RESULT_WITH_AVAILABILITY_BIT and never waits: a block whose queries are not
- *  all written yet stays pending until a later Collect. The query pool is reset on the host, which works for every
+ *  Each block carries a submission value that rises in submission order on its queue: a frame number, or the
+ *  timeline semaphore value the submission signals. Collect frees only the blocks below the caller's completed value.
+ *  Availability alone is not enough: a block's last timestamp is written before its command buffer finishes, and the
+ *  host may only reset queries whose submitted commands have completed. Collect reads with
+ *  VK_QUERY_RESULT_WITH_AVAILABILITY_BIT and never waits. The query pool is reset on the host, which works for every
  *  queue type (the transfer queue cannot record vkCmdResetQueryPool).
  *
  *  Threading, with no locks:
@@ -32,14 +35,14 @@
  *    compare-exchange and handed back with a release store, and everything between belongs to its thread.
  *  - The coalesce step: Collect, Latest, TakeCompleted, Find and Name run on one thread at a time, for example at the
  *    start of each frame. They may run while other threads record.
- *  - From any thread: TakeBusyNanoseconds, DroppedBlocks, Active and InactiveReason. */
+ *  - From any thread: TakeBusyNanoseconds, DroppedBlocks, LostBlocks, Active and InactiveReason. */
 #ifndef RHI_GPU_TIMERS_ENABLED
 #define RHI_GPU_TIMERS_ENABLED 0
 #endif
 
 namespace rhi
 {
-    class CommandBuffer;
+    struct CommandBuffer;
     class Device;
 
     /** @brief 64-bit FNV-1a. Scope names are only hashed: the hash is the key for every record, result and lookup */
@@ -77,8 +80,8 @@ namespace rhi
 
     struct GpuTimingBlock
     {
-        /** @brief The caller's tag from the GpuTimerBlock, for example a frame number */
-        uint64_t Tag{ 0u };
+        /** @brief The submission value the GpuTimerBlock was given: a frame number or a timeline value */
+        uint64_t Submission{ 0u };
         /** @brief In record order. Record order and depth give the scope tree */
         std::vector<GpuTiming> Timings;
         /** @brief The sum of the depth 0 scopes: how long the queue was busy with this block's scoped work */
@@ -102,9 +105,11 @@ namespace rhi
         [[nodiscard]] bool Active() const noexcept;
         [[nodiscard]] std::string_view InactiveReason() const noexcept;
 
-        /** @brief Reads every finished block whose queries are all available, publishes it, and frees it. Never
-         *  waits. The coalesce step: one thread at a time */
-        void Collect();
+        /** @brief Reads, publishes and frees every handed-back block with a submission value below
+         *  `completed_before`. The caller guarantees those submissions finished executing (their fence or timeline
+         *  value passed). A block that is below it but was never fully written (its command buffer was not
+         *  submitted) is freed and counted in LostBlocks. Never waits. The coalesce step: one thread at a time */
+        void Collect(uint64_t completed_before);
         /** @brief The most recently collected block, by the order the blocks were begun */
         [[nodiscard]] std::optional<GpuTimingBlock> Latest() const;
         /** @brief Every block collected since the last call, oldest first (at most the last 1024) */
@@ -120,6 +125,8 @@ namespace rhi
         [[nodiscard]] std::string_view Name(uint64_t hash) const;
         /** @brief Blocks that found no free block, because too many were pending */
         [[nodiscard]] uint64_t DroppedBlocks() const noexcept;
+        /** @brief Completed blocks whose queries were not all written: their command buffers were never submitted */
+        [[nodiscard]] uint64_t LostBlocks() const noexcept;
 
     private:
         friend class GpuTimerBlock;
@@ -129,11 +136,12 @@ namespace rhi
 
     /** @brief One command buffer's scopes. It takes a free block on construction (or none, when every block is
      *  pending: then its scopes record nothing). The destructor hands it to Collect, so destroy it once its last
-     *  scope is closed. A block and its scopes are used by one thread; other threads use their own blocks */
+     *  scope is closed. A block and its scopes are used by one thread; other threads use their own blocks.
+     *  `submission` is the value Collect's completed_before is compared with */
     class GpuTimerBlock
     {
     public:
-        GpuTimerBlock(GpuTimers& timers, CommandBuffer& command_buffer, uint64_t tag);
+        GpuTimerBlock(GpuTimers& timers, CommandBuffer& command_buffer, uint64_t submission);
         ~GpuTimerBlock();
         GpuTimerBlock(const GpuTimerBlock&) = delete;
         GpuTimerBlock& operator=(const GpuTimerBlock&) = delete;
@@ -148,8 +156,10 @@ namespace rhi
         uint32_t depth{ 0u };
     };
 
-    /** @brief A timestamp at TopOfPipe on construction and at AllCommands on destruction, plus a debug utils label
-     *  region with the same name, so RenderDoc, PIX and Nsight show the scopes too */
+    /** @brief A timestamp on construction and on destruction, both at AllCommands: each is written once every earlier
+     *  command in the queue has finished, so back-to-back scopes never overlap. Without a barrier between two scopes,
+     *  the GPU can start the later scope's work before its begin timestamp is written, so that scope reads short.
+     *  Also a debug utils label region with the same name, so RenderDoc, PIX and Nsight show the scopes too */
     class ScopedGpuTimer
     {
     public:
@@ -173,7 +183,7 @@ namespace rhi
 
         [[nodiscard]] bool Active() const noexcept { return false; }
         [[nodiscard]] std::string_view InactiveReason() const noexcept { return "GPU timers are compiled out of Release builds"; }
-        void Collect() noexcept {}
+        void Collect([[maybe_unused]] uint64_t completed_before) noexcept {}
         [[nodiscard]] std::optional<GpuTimingBlock> Latest() const noexcept { return std::nullopt; }
         [[nodiscard]] std::vector<GpuTimingBlock> TakeCompleted() noexcept { return {}; }
         [[nodiscard]] double TakeBusyNanoseconds() noexcept { return 0.0; }
@@ -181,12 +191,13 @@ namespace rhi
         [[nodiscard]] std::optional<double> Find([[maybe_unused]] std::string_view name) const noexcept { return std::nullopt; }
         [[nodiscard]] std::string_view Name([[maybe_unused]] uint64_t hash) const noexcept { return {}; }
         [[nodiscard]] uint64_t DroppedBlocks() const noexcept { return 0u; }
+        [[nodiscard]] uint64_t LostBlocks() const noexcept { return 0u; }
     };
 
     class GpuTimerBlock
     {
     public:
-        GpuTimerBlock([[maybe_unused]] GpuTimers& timers, [[maybe_unused]] CommandBuffer& command_buffer, [[maybe_unused]] uint64_t tag) noexcept {}
+        GpuTimerBlock([[maybe_unused]] GpuTimers& timers, [[maybe_unused]] CommandBuffer& command_buffer, [[maybe_unused]] uint64_t submission) noexcept {}
         GpuTimerBlock(const GpuTimerBlock&) = delete;
         GpuTimerBlock& operator=(const GpuTimerBlock&) = delete;
 

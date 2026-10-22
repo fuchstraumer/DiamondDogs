@@ -515,6 +515,12 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
     cascades that cover k instead of dividing. The Donelan-Banner LUT script needs fixes before it is used: see
     docs/ocean-lut-script-review.md (quadrature at large swell, linear V axis, transposed LUT, sampling function,
     sin/cos LUT size, C++ linkage). Donelan-Banner mode has a 1x1 stand-in LUT until then.
+- 2026-10-21, sessions five to seven: logged in `docs/agent_handoff.md` ("State").
+  - The swell spectrum and the SeaState pipe.
+  - The horizon rings, MSAA, mips and anisotropy.
+  - The shareable static-CRT package.
+  - The GPU timers (`QueryPool`, `GpuTimers`) and `OceanFftBenchmark`. The results are in
+    `docs/ocean-benchmark-2026-10-21.md`.
 
 ## 10. RhiResources: questions for the author, and inputs for the design session
 

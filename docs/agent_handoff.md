@@ -6,7 +6,7 @@ detailed findings (sections 4, 5, 9); new work is logged here.
 Branch `dev/lodestone`. The author commits herself; the agent never commits. Check `git status` for what is still
 uncommitted. Her code spacing rule is in CLAUDE.md ("Code spacing").
 
-## State (2026-10-21, end of the fourth session)
+## State (2026-10-21, end of the seventh session; the newest work is at the end of this section)
 
 Committed by the author:
 - **Earlier work:** the ocean compute fixes, OceanFft (`ocean_simulation` and the demo), and OceanFftTest.
@@ -118,6 +118,26 @@ Uncommitted (this session):
     distance flat.
   - OceanFftTest checks that displacement mip 1 is the 2x2 average of mip 0 (measured 2.3e-4 relative RMS).
   - Captures: the horizon sparkle is gone. Motion shimmer was not checked by eye in a running window.
+- **Shareable build (seventh session):**
+  - The demo falls back to no validation when the layer is missing.
+  - It loads `OceanFft.ldmanifest` from beside the exe.
+  - `OceanFft_package` builds a folder to send.
+  - The `ninja-msvc-static` preset links the static CRT into everything. See CLAUDE.md, and item 0b below.
+- **GPU timers (seventh session):** `rhi::QueryPool` and `rhi::GpuTimers` / `GpuTimerBlock` / `ScopedGpuTimer` in
+  RhiSystem.
+  - They are compiled into Debug and RelWithDebInfo only.
+  - They take no locks. Threads take and hand back blocks through atomics, and `Collect(completed_before)` frees
+    blocks by submission value.
+  - The OceanFft scopes feed a "GPU timings" panel, and `OceanFftBenchmark` sweeps size, radix and wave ops.
+  - `docs/gpu-timers-plan.md` has the design as built. `docs/ocean-benchmark-2026-10-21.md` has the results.
+  - The author is checking the debug labels in RenderDoc.
+- **Rules added (seventh session):** prefer atomics, ownership handoff or a coalesce step to any mutex. Tell the
+  author before adding a lock. This is in `.github/copilot-instructions.md` under Threading.
+- **Fixes in passing (seventh session):**
+  - `OceanScene` created its `ResourceContext` with validation hard-coded on, which asserted without the layer.
+  - The `rhi::CommandBuffer` forward declarations now match the definition, a `struct`. clang warns
+    `-Wmismatched-tags`, and the MSVC ABI mangles struct and class differently.
+  - Stale clang-cl RelWithDebInfo Slang PCHs were deleted (a toolset version change).
 
 ## Lodestone requests C6-C9 (added to `../Lodestone/docs/diamonddogs-requests.md` on 2026-10-21, with approval)
 
@@ -166,12 +186,13 @@ Uncommitted (this session):
 4. **mimalloc:** try our v3.5.4 in place of Slang's v2.1.7 (audit section 5).
 5. **Donelan-Banner's Hs excess** (2.15 vs 2.10 m): check whether it is the LUT, the alignment lerp, or the k-grid
    sampling of a narrower lobe.
-6. **GPU profiling and debug labels** (next; drafted in `docs/gpu-timers-plan.md`, awaiting her go-ahead):
-   - A push/pop scope model: `ScopedGpuZone` / `cmd.PushZone("name")` writes a timestamp query (or a pair) and a
-     `VK_EXT_debug_utils` label region, so RenderDoc, PIX and Nsight see the same names.
-   - Results are read back a few frames late from a ring of query pools, and shown in the panel as a tree.
-   - Pipeline-statistics queries are optional.
-7. **HDR, as a color-domain transform pipe** (after profiling). The same shape as `SeaState`, narrowed to color:
+6. **Done (seventh session): GPU profiling and debug labels.** All four steps are built. See the state above.
+   - What the benchmark found, with fixes to try (`docs/ocean-benchmark-2026-10-21.md`):
+     - **6a. Compute downsample:** replace the blit mip chain, which is about 32-47 µs of fixed cost and 60% of the
+       tick at 128. Use a single-pass compute downsample, then rerun the benchmark.
+     - **6b. 1024 falls off the 64 MB L2:** `IfftInput` is 67 MB there. Try fp16 storage, or fewer planes.
+   - **The transfer system hook** waits for her (`docs/gpu-timers-plan.md`).
+7. **HDR, as a color-domain transform pipe.** The same shape as `SeaState`, narrowed to color:
    - Scene-referred linear light, then exposure, then tonemap or display mapping, then encode for the swapchain's
      color space (sRGB, scRGB, HDR10 PQ).
    - The display's capabilities (peak and paper-white nits, from `setHdrMetadata` and the surface query) are inputs.

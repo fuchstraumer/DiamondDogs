@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_OCEAN_SCENE_HPP
 #include "ArcballCamera.hpp"
 #include "FrameCapture.hpp"
+#include "GpuTimers.hpp"
 #include "OceanSimulation.hpp"
 #include "SeaState.hpp"
 #include "ResourceTypes.hpp"
@@ -14,6 +15,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 class ImGuiModule;
@@ -33,6 +35,8 @@ struct OceanSceneSettings
     ocean::OceanSimulationSettings Simulation{};
     /** @brief The cooked shader bundle (OceanFft.ldmanifest) */
     std::filesystem::path ManifestPath;
+    /** @brief Whether the instance has the validation layer, so debug object names can be set */
+    bool ValidationEnabled{ false };
     /** @brief The surface: tiles of GridSize meters in GridRings rings around the camera's tile. The center tile has
      *  GridResolution x GridResolution quads; each ring out halves that, down to GridMinResolution (powers of two
      *  apart, so the rings stitch without cracks) */
@@ -87,6 +91,9 @@ private:
     void runCommand(const SceneCommand& command);
     void recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image);
     void drawPanel();
+    void drawTimingsPanel();
+    /** @brief The frame's coalesce step for the GPU timers: collects finished frames into the rolling averages */
+    void collectGpuTimings();
     /** @brief Runs the sea state pipe into spectrum and seaReadout */
     void applySeaState();
     void writeViewParameters();
@@ -135,6 +142,11 @@ private:
     uint64_t frameNumber{ 0u };
     std::optional<std::string> captureRequest;
     std::unique_ptr<capture::FrameCapture> frameCapture;
+
+    // GPU timer scopes on the graphics queue, one block per frame command buffer (inactive in Release). Averages are
+    // exponential, per scope hash, in nanoseconds
+    std::unique_ptr<rhi::GpuTimers> gpuTimers;
+    std::unordered_map<uint64_t, double> gpuTimingAverages;
 };
 
 #endif //!DIAMOND_DOGS_OCEAN_SCENE_HPP

@@ -166,15 +166,15 @@ TEST_F(GpuTimersTest, NestedScopesDepthsAndDroppedScopes)
 
     ASSERT_TRUE(cmd.End().IsSuccess());
 
-    // not submitted yet: Collect finds nothing ready, and does not wait
-    timers.Collect();
+    // submission 7 has not finished yet, so Collect leaves its block alone, and does not wait
+    timers.Collect(7u);
     EXPECT_FALSE(timers.Latest().has_value());
 
     submitAndWait(device->GetGeneralQueue(), cmd);
-    timers.Collect();
+    timers.Collect(8u);
     const std::optional<rhi::GpuTimingBlock> latest = timers.Latest();
     ASSERT_TRUE(latest.has_value());
-    EXPECT_EQ(latest->Tag, 7u);
+    EXPECT_EQ(latest->Submission, 7u);
     EXPECT_EQ(latest->DroppedScopes, 1u);
     ASSERT_EQ(latest->Timings.size(), 2u);
 
@@ -232,9 +232,9 @@ TEST_F(GpuTimersTest, BlocksRunOutWhilePendingAndComeBackAfterCollect)
     EXPECT_EQ(timers.DroppedBlocks(), 1u);
 
     submitAndWait(device->GetGeneralQueue(), first);
-    timers.Collect();
+    timers.Collect(2u);
     ASSERT_TRUE(timers.Latest().has_value());
-    EXPECT_EQ(timers.Latest()->Tag, 1u);
+    EXPECT_EQ(timers.Latest()->Submission, 1u);
 
     // collected, so the block is free again
     ASSERT_TRUE(graphicsPool->Reset().IsSuccess());
@@ -250,8 +250,40 @@ TEST_F(GpuTimersTest, BlocksRunOutWhilePendingAndComeBackAfterCollect)
 
     ASSERT_TRUE(again.End().IsSuccess());
     submitAndWait(device->GetGeneralQueue(), again);
-    timers.Collect();
-    EXPECT_EQ(timers.Latest()->Tag, 3u);
+    timers.Collect(4u);
+    EXPECT_EQ(timers.Latest()->Submission, 3u);
+}
+
+// A block whose command buffer is never submitted can't be read, but once its submission value is completed it is
+// freed, so a skipped frame doesn't leak a block
+TEST_F(GpuTimersTest, UnsubmittedBlockIsLostAndFreed)
+{
+    rhi::GpuTimers timers(*device, rhi::GpuTimersCreateInfo{ graphicsFamily, 1u, 4u });
+    ASSERT_TRUE(timers.Active()) << timers.InactiveReason();
+
+    rhi::CommandBuffer skipped(graphicsPool->GetCommandBuffer(0));
+    ASSERT_TRUE(skipped.Begin().IsSuccess());
+
+    {
+        rhi::GpuTimerBlock block(timers, skipped, 0u);
+        ASSERT_TRUE(block.Active());
+        rhi::ScopedGpuTimer scope(block, "never submitted");
+    }
+
+    ASSERT_TRUE(skipped.End().IsSuccess());
+    timers.Collect(1u);
+    EXPECT_EQ(timers.LostBlocks(), 1u);
+    EXPECT_FALSE(timers.Latest().has_value());
+
+    rhi::CommandBuffer next(graphicsPool->GetCommandBuffer(1));
+    ASSERT_TRUE(next.Begin().IsSuccess());
+
+    {
+        rhi::GpuTimerBlock block(timers, next, 1u);
+        EXPECT_TRUE(block.Active());
+    }
+
+    ASSERT_TRUE(next.End().IsSuccess());
 }
 
 // Four threads record their own blocks at the same time, with no lock in GpuTimers; one coalesce step collects them
@@ -318,15 +350,16 @@ TEST_F(GpuTimersTest, ThreadsRecordBlocksAtOnce)
     ASSERT_TRUE(rhi::QueueSubmit(device->GetGeneralQueue(), rhi::SubmitInfo{ {}, handles, {} }, fence.Handle()).IsSuccess());
     ASSERT_TRUE(fence.Wait(k_TimeoutNs));
 
-    timers.Collect();
+    // each thread used its index as the submission value, and the one submit finished all of them
+    timers.Collect(k_Threads);
     const std::vector<rhi::GpuTimingBlock> completed = timers.TakeCompleted();
     ASSERT_EQ(completed.size(), k_Threads);
-    std::array<bool, k_Threads> seenTags{};
+    std::array<bool, k_Threads> seenSubmissions{};
 
     for (const rhi::GpuTimingBlock& result : completed)
     {
-        ASSERT_LT(result.Tag, k_Threads);
-        seenTags[result.Tag] = true;
+        ASSERT_LT(result.Submission, k_Threads);
+        seenSubmissions[result.Submission] = true;
         ASSERT_EQ(result.Timings.size(), k_ScopesPerThread);
 
         for (uint32_t scope = 0; scope < k_ScopesPerThread; ++scope)
@@ -336,7 +369,7 @@ TEST_F(GpuTimersTest, ThreadsRecordBlocksAtOnce)
         }
     }
 
-    EXPECT_TRUE(std::ranges::all_of(seenTags, [](bool seen) { return seen; }));
+    EXPECT_TRUE(std::ranges::all_of(seenSubmissions, [](bool seen) { return seen; }));
     EXPECT_EQ(timers.Name(rhi::HashGpuTimerName("s5")), "s5");
     EXPECT_EQ(timers.DroppedBlocks(), 0u);
 }
@@ -370,7 +403,7 @@ TEST_F(GpuTimersTest, TransferQueueBusyTime)
 
     ASSERT_TRUE(cmd.End().IsSuccess());
     submitAndWait(device->GetTransferQueue(0), cmd);
-    timers.Collect();
+    timers.Collect(1u);
     EXPECT_GT(timers.TakeBusyNanoseconds(), 0.0);
 }
 #else
@@ -389,7 +422,7 @@ TEST_F(GpuTimersTest, CompiledOutOfRelease)
     }
 
     ASSERT_TRUE(cmd.End().IsSuccess());
-    timers.Collect();
+    timers.Collect(1u);
     EXPECT_FALSE(timers.Latest().has_value());
 }
 #endif

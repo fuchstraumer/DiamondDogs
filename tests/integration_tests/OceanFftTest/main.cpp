@@ -2,6 +2,7 @@
 #include "CommandPool.hpp"
 #include "Device.hpp"
 #include "Fence.hpp"
+#include "GpuTimers.hpp"
 #include "OceanSimulation.hpp"
 #include "Queue.hpp"
 #include "ResourceContext.hpp"
@@ -20,6 +21,7 @@
 #include <iostream>
 #include <memory>
 #include <numbers>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
@@ -132,7 +134,7 @@ namespace
 
     void ComputeToCopyBarrier(rhi::CommandBuffer& command_buffer)
     {
-        // a tick writes with compute and with the mip blits
+        // a tick writes every level of the textures with compute
         const rhi::GlobalBarrier barrier{ ocean::OceanSimulation::k_TickStages, ocean::OceanSimulation::k_TickWriteAccess, rhi::PipelineStage::Copy, rhi::Access::TransferRead };
         command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &barrier, 1 }, {}, {} });
     }
@@ -339,16 +341,27 @@ namespace
         const uint64_t displacementOffset = waveOffset + ocean.BufferBytes(Buffer::WaveData);
         const uint64_t textureBytes = spectrumElements * 8u;
         const uint64_t derivativesOffset = displacementOffset + textureBytes;
-        // and mip 1 of the displacement, which the blit chain made from mip 0
-        const uint32_t mipSize = size / 2u;
-        const uint64_t mipElements = uint64_t{ mipSize } * mipSize * ocean::k_CascadeCount;
-        const uint64_t displacementMipOffset = derivativesOffset + textureBytes;
-        Readback readback(context.Resources, displacementMipOffset + mipElements * 8u);
+        // and every other mip of the displacement, which OceanMipsCS made from mip 0. Both of its dispatches write some
+        const uint32_t mipLevels = ocean.MipLevels();
+        std::vector<uint64_t> mipOffsets{ displacementOffset };
+        uint64_t readbackBytes = derivativesOffset + textureBytes;
+
+        for (uint32_t level = 1u; level < mipLevels; ++level)
+        {
+            const uint64_t levelSize = size >> level;
+            mipOffsets.push_back(readbackBytes);
+            readbackBytes += levelSize * levelSize * ocean::k_CascadeCount * 8u;
+        }
+
+        Readback readback(context.Resources, readbackBytes);
+        // per-pass GPU times, for information only: one cold frame is noisy, so nothing is checked against them
+        rhi::GpuTimers timers(context.Device, rhi::GpuTimersCreateInfo{ context.Device.GetQueueFamilyIndices().Graphics, 1u, 8u });
 
         const bool finished = readback.Valid() && Submit(context.Device, [&](rhi::CommandBuffer& command_buffer)
         {
+            rhi::GpuTimerBlock timerBlock(timers, command_buffer, 0u);
             ocean.RecordInitialize(command_buffer);
-            ocean.RecordTick(command_buffer, time);
+            ocean.RecordTick(command_buffer, timerBlock, time);
             ComputeToCopyBarrier(command_buffer);
             for (const auto& [buffer, offset] : { std::pair{ Buffer::H0K, h0Offset }, std::pair{ Buffer::H0KConjugate, conjugateOffset }, std::pair{ Buffer::WaveData, waveOffset } })
             {
@@ -365,13 +378,17 @@ namespace
                 command_buffer.CopyImageToBuffer(rhi::ImageHandle{ image.VkHandle }, rhi::ImageLayout::General, readback.Handle(), std::span{ &region, 1 });
             }
 
-            rhi::BufferImageCopy mipRegion{};
-            mipRegion.BufferOffset = displacementMipOffset;
-            mipRegion.MipLevel = 1u;
-            mipRegion.LayerCount = ocean::k_CascadeCount;
-            mipRegion.Width = mipSize;
-            mipRegion.Height = mipSize;
-            command_buffer.CopyImageToBuffer(rhi::ImageHandle{ ocean.Displacement().VkHandle }, rhi::ImageLayout::General, readback.Handle(), std::span{ &mipRegion, 1 });
+            for (uint32_t level = 1u; level < mipLevels; ++level)
+            {
+                rhi::BufferImageCopy mipRegion{};
+                mipRegion.BufferOffset = mipOffsets[level];
+                mipRegion.MipLevel = level;
+                mipRegion.LayerCount = ocean::k_CascadeCount;
+                mipRegion.Width = size >> level;
+                mipRegion.Height = size >> level;
+                command_buffer.CopyImageToBuffer(rhi::ImageHandle{ ocean.Displacement().VkHandle }, rhi::ImageLayout::General, readback.Handle(), std::span{ &mipRegion, 1 });
+            }
+
             CopyToHostBarrier(command_buffer);
         });
         if (!finished)
@@ -381,6 +398,20 @@ namespace
         }
 
         int32_t failures = 0;
+        // Submit waited on the fence, so submission 0 finished
+        timers.Collect(1u);
+
+        if (const std::optional<rhi::GpuTimingBlock> timings = timers.Latest(); timings.has_value())
+        {
+            std::string line = std::format("[pipeline {}] GPU", name);
+
+            for (const rhi::GpuTiming& timing : timings->Timings)
+            {
+                line += std::format(" | {} {:.1f} us", timers.Name(timing.Hash), timing.Nanoseconds * 1e-3);
+            }
+
+            std::cout << line << "\n";
+        }
 
         // 2. the conjugate pass only flips one sign bit of the mirrored element, so it must match exactly
         const std::vector<uint16_t> h0Raw = readback.ReadRaw(h0Offset, spectrumElements * 2u);
@@ -506,38 +537,60 @@ namespace
             failures += passed ? 0 : 1;
         }
 
-        // 4. a linear blit of an exact halving averages each 2x2 block, so mip 1 must be that average of mip 0
-        const std::vector<float> displacementMip = readback.ReadHalves(displacementMipOffset, mipElements * 4u);
-        std::vector<double> gpuMip;
-        std::vector<double> referenceMip;
-        gpuMip.reserve(mipElements * 4u);
-        referenceMip.reserve(mipElements * 4u);
+        // 4. every mip texel is the average of the 2x2 block above it, so each level must be that average of the level
+        // the GPU wrote above it. The worst level is reported
+        ErrorStats worstMip{};
+        uint32_t worstMipLevel = 0u;
+        bool mipsPassed = true;
+        std::vector<float> above = displacement;
 
-        for (uint32_t cascade = 0; cascade < ocean::k_CascadeCount; ++cascade)
+        for (uint32_t level = 1u; level < mipLevels; ++level)
         {
-            for (uint32_t y = 0; y < mipSize; ++y)
-            {
-                for (uint32_t x = 0; x < mipSize; ++x)
-                {
-                    const uint64_t mipTexel = (uint64_t{ cascade } * mipSize + y) * mipSize + x;
-                    const uint64_t texel = (uint64_t{ cascade } * size + 2u * y) * size + 2u * x;
+            const uint32_t aboveSize = size >> (level - 1u);
+            const uint32_t levelSize = size >> level;
+            const uint64_t levelElements = uint64_t{ levelSize } * levelSize * ocean::k_CascadeCount;
+            const std::vector<float> mip = readback.ReadHalves(mipOffsets[level], levelElements * 4u);
+            std::vector<double> gpuMip;
+            std::vector<double> referenceMip;
+            gpuMip.reserve(levelElements * 4u);
+            referenceMip.reserve(levelElements * 4u);
 
-                    for (uint64_t channel = 0; channel < 4u; ++channel)
+            for (uint32_t cascade = 0; cascade < ocean::k_CascadeCount; ++cascade)
+            {
+                for (uint32_t y = 0; y < levelSize; ++y)
+                {
+                    for (uint32_t x = 0; x < levelSize; ++x)
                     {
-                        const double average = 0.25 * (double{ displacement[texel * 4u + channel] } + displacement[(texel + 1u) * 4u + channel] +
-                            displacement[(texel + size) * 4u + channel] + displacement[(texel + size + 1u) * 4u + channel]);
-                        gpuMip.push_back(displacementMip[mipTexel * 4u + channel]);
-                        referenceMip.push_back(average);
+                        const uint64_t mipTexel = (uint64_t{ cascade } * levelSize + y) * levelSize + x;
+                        const uint64_t texel = (uint64_t{ cascade } * aboveSize + 2u * y) * aboveSize + 2u * x;
+
+                        for (uint64_t channel = 0; channel < 4u; ++channel)
+                        {
+                            const double average = 0.25 * (double{ above[texel * 4u + channel] } + above[(texel + 1u) * 4u + channel] +
+                                above[(texel + aboveSize) * 4u + channel] + above[(texel + aboveSize + 1u) * 4u + channel]);
+                            gpuMip.push_back(mip[mipTexel * 4u + channel]);
+                            referenceMip.push_back(average);
+                        }
                     }
                 }
             }
+
+            const ErrorStats stats = Compare(gpuMip, referenceMip);
+            const bool passed = stats.Finite && stats.RelativeRms < k_MipTolerance;
+
+            if (!passed || stats.RelativeRms >= worstMip.RelativeRms)
+            {
+                worstMip = stats;
+                worstMipLevel = level;
+            }
+
+            mipsPassed = mipsPassed && passed;
+            above = mip;
         }
 
-        const ErrorStats mipStats = Compare(gpuMip, referenceMip);
-        const bool mipPassed = mipStats.Finite && mipStats.RelativeRms < k_MipTolerance;
-        (mipPassed ? std::cout : std::cerr) << std::format("[pipeline {}] displacement mip 1 against the 2x2 average of mip 0: relative RMS error {:.2e} (limit {:.0e}){}\n",
-            name, mipStats.RelativeRms, k_MipTolerance, mipStats.Finite ? "" : ", non-finite values");
-        failures += mipPassed ? 0 : 1;
+        (mipsPassed ? std::cout : std::cerr) << std::format("[pipeline {}] displacement mips 1 to {} against the 2x2 average of the level above: worst relative RMS error {:.2e} at mip {} (limit {:.0e}){}\n",
+            name, mipLevels - 1u, worstMip.RelativeRms, worstMipLevel, k_MipTolerance, worstMip.Finite ? "" : ", non-finite values");
+        failures += mipsPassed ? 0 : 1;
 
         // significant wave height of all cascades together, as a plausibility number for the spectrum
         double heightSquared = 0.0;

@@ -4,6 +4,7 @@
 #include "ManifestDescriptors.hpp"
 #include "CommandBuffer.hpp"
 #include "Device.hpp"
+#include "GpuTimers.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
 #include "ResourceMessageReply.hpp"
@@ -634,21 +635,35 @@ namespace ocean
         }
     }
 
-    void OceanSimulation::RecordTick(rhi::CommandBuffer& command_buffer, float time_seconds) const
+    void OceanSimulation::RecordTick(rhi::CommandBuffer& command_buffer, rhi::GpuTimerBlock& timers, float time_seconds) const
     {
         const uint32_t groups = impl->SpectrumGroups();
-        impl->Bind(command_buffer, Pass::Tick);
-        PushConstants(command_buffer, *impl->Program(Pass::Tick).Program, TickPushConstants{ time_seconds });
-        command_buffer.Dispatch(groups, groups, 1);
-        ComputeBarrier(command_buffer);
 
-        RecordIfft(command_buffer);
+        // a scope's timestamps are written when all earlier work is done, so each pass's time is its own
+        {
+            const rhi::ScopedGpuTimer timer(timers, "Spectrum tick");
+            impl->Bind(command_buffer, Pass::Tick);
+            PushConstants(command_buffer, *impl->Program(Pass::Tick).Program, TickPushConstants{ time_seconds });
+            command_buffer.Dispatch(groups, groups, 1);
+            ComputeBarrier(command_buffer);
+        }
 
-        impl->Bind(command_buffer, Pass::Resolve);
-        PushConstants(command_buffer, *impl->Program(Pass::Resolve).Program, ResolvePushConstants{ impl->Settings.Choppiness });
-        command_buffer.Dispatch(groups, groups, k_CascadeCount);
+        {
+            const rhi::ScopedGpuTimer timer(timers, "IFFT");
+            RecordIfft(command_buffer);
+        }
 
-        impl->RecordMips(command_buffer);
+        {
+            const rhi::ScopedGpuTimer timer(timers, "Resolve");
+            impl->Bind(command_buffer, Pass::Resolve);
+            PushConstants(command_buffer, *impl->Program(Pass::Resolve).Program, ResolvePushConstants{ impl->Settings.Choppiness });
+            command_buffer.Dispatch(groups, groups, k_CascadeCount);
+        }
+
+        {
+            const rhi::ScopedGpuTimer timer(timers, "Mips");
+            impl->RecordMips(command_buffer);
+        }
     }
 
     bool OceanSimulation::SetSpectrum(const SpectrumParameters& spectrum)

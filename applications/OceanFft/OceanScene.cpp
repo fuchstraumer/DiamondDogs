@@ -59,6 +59,10 @@ namespace
     constexpr uint32_t k_MaxMsaaSamples = 8u;
     // anisotropic filtering of the surface textures: lower when the device supports less
     constexpr float k_MaxAnisotropy = 16.0f;
+    // the estimate of GPU timer scopes per frame (the panel shows any that were dropped)
+    constexpr uint32_t k_MaxGpuTimerScopes = 32u;
+    // the weight of the newest frame in each scope's rolling average
+    constexpr double k_GpuTimingSmoothing = 0.05;
 
     // OceanViewParameters in OceanRenderCommon.slang (std140, all float4)
     struct OceanViewParameters
@@ -155,10 +159,13 @@ void OceanScene::Initialize(void* user_data)
             std::make_unique<rhi::CommandPool>(device->Handle(), rhi::CommandPool::Type::Graphics, device->GetQueueFamilyIndices().Graphics));
         RhiAssert(framePool->AllocateCommandBuffers(1));
     }
+
+    // one block per frame command buffer, plus one: a frame's block is collected only after its fence has passed
+    gpuTimers = std::make_unique<rhi::GpuTimers>(*device, rhi::GpuTimersCreateInfo{ device->GetQueueFamilyIndices().Graphics, numFramebuffers + 1u, k_MaxGpuTimerScopes });
     LoadShaderObjectStateFunctions(vkDevice);
 
     resources = std::make_unique<ResourceContext>();
-    resources->Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+    resources->Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), settings.ValidationEnabled });
 
     rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> opened = rhi::ShaderLibrary::Open(settings.ManifestPath);
     if (!opened.has_value())
@@ -387,6 +394,7 @@ void OceanScene::Destroy()
     }
 
     imgui.reset();
+    gpuTimers.reset();
     surface = DrawProgram{};
     seabed = DrawProgram{};
 
@@ -509,6 +517,7 @@ void OceanScene::drawPanel()
     const ocean::OceanSimulationSettings& simulationSettings = simulation->Settings();
     ImGui::Text("IFFT %s %u, %s", simulationSettings.Kernel == ocean::IfftKernel::Radix2 ? "radix-2" : "radix-4", simulationSettings.Size,
         simulationSettings.WaveSize == 0u ? "no wave ops" : std::format("wave {}, full subgroups", simulationSettings.WaveSize).c_str());
+    drawTimingsPanel();
 
     // every change runs the sea state pipe and recomputes the initial spectrum (cheap, but it waits for the device)
     bool seaStateChanged = false;
@@ -599,6 +608,88 @@ void OceanScene::drawPanel()
     ImGui::End();
 }
 
+void OceanScene::collectGpuTimings()
+{
+    // beginFrame waited on this slot's fence, which frame frameNumber - numFramebuffers signaled: it and every
+    // earlier frame have finished
+    const uint64_t framesInFlight = numFramebuffers;
+    const uint64_t completedBefore = frameNumber >= framesInFlight ? frameNumber - framesInFlight + 1u : 0u;
+    gpuTimers->Collect(completedBefore);
+
+    // every finished frame feeds the averages, so none is skipped when two finish between updates
+    for (const rhi::GpuTimingBlock& block : gpuTimers->TakeCompleted())
+    {
+        // a scope opened more than once in a frame counts once, with its total
+        std::unordered_map<uint64_t, double> totals;
+
+        for (const rhi::GpuTiming& timing : block.Timings)
+        {
+            totals[timing.Hash] += timing.Nanoseconds;
+        }
+
+        for (const auto& [hash, nanoseconds] : totals)
+        {
+            const auto [average, inserted] = gpuTimingAverages.try_emplace(hash, nanoseconds);
+
+            if (!inserted)
+            {
+                average->second += k_GpuTimingSmoothing * (nanoseconds - average->second);
+            }
+        }
+    }
+}
+
+void OceanScene::drawTimingsPanel()
+{
+    if (!ImGui::CollapsingHeader("GPU timings", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        return;
+    }
+
+    if (!gpuTimers->Active())
+    {
+        ImGui::TextUnformatted(std::string{ gpuTimers->InactiveReason() }.c_str());
+        return;
+    }
+
+    const std::optional<rhi::GpuTimingBlock> latest = gpuTimers->Latest();
+
+    if (!latest.has_value())
+    {
+        ImGui::TextUnformatted("waiting for the first frame");
+        return;
+    }
+
+    // the latest frame's scopes in record order: the depth gives the indent
+    constexpr ImGuiTableFlags k_TableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp;
+
+    if (ImGui::BeginTable("GpuTimings", 3, k_TableFlags))
+    {
+        ImGui::TableSetupColumn("Scope", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+        ImGui::TableSetupColumn("Average ms");
+        ImGui::TableSetupColumn("Last ms");
+        ImGui::TableHeadersRow();
+
+        for (const rhi::GpuTiming& timing : latest->Timings)
+        {
+            const std::string_view name = gpuTimers->Name(timing.Hash);
+            const auto average = gpuTimingAverages.find(timing.Hash);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("%*s%.*s", static_cast<int>(timing.Depth * 2u), "", static_cast<int>(name.size()), name.data());
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", average != gpuTimingAverages.end() ? average->second * 1e-6 : 0.0);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", timing.Nanoseconds * 1e-6);
+        }
+
+        ImGui::EndTable();
+    }
+
+    ImGui::Text("Scoped GPU time %.3f ms. Dropped: %u scopes, %llu frames. Lost: %llu frames", latest->TopLevelNanoseconds * 1e-6,
+        latest->DroppedScopes, static_cast<unsigned long long>(gpuTimers->DroppedBlocks()), static_cast<unsigned long long>(gpuTimers->LostBlocks()));
+}
+
 void OceanScene::update()
 {
     imgui->BeginFrame();
@@ -612,6 +703,7 @@ void OceanScene::update()
         }
     }
 
+    collectGpuTimings();
     drawPanel();
 
     if (!paused)
@@ -691,25 +783,34 @@ void OceanScene::recordCommands()
     RhiAssert(pool.Reset());
     rhi::CommandBuffer cmd(pool.GetCommandBuffer(0));
     RhiAssert(cmd.Begin());
+    // this command buffer's GPU timer scopes, collected by a later frame's update
+    rhi::GpuTimerBlock timerBlock(*gpuTimers, cmd, frameNumber);
 
     if (needsInitialize)
     {
+        const rhi::ScopedGpuTimer timer(timerBlock, "Ocean initialize");
         simulation->RecordInitialize(cmd);
         needsInitialize = false;
     }
 
-    // the previous frame's draws sampled the textures this tick rewrites, with the resolve and the mip blits. The
-    // previous tick's writes need a memory dependency too: write after write
-    const rhi::GlobalBarrier drawsToCompute
     {
-        rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader | ocean::OceanSimulation::k_TickStages,
-        ocean::OceanSimulation::k_TickWriteAccess,
-        ocean::OceanSimulation::k_TickStages,
-        ocean::OceanSimulation::k_TickWriteAccess
-    };
-    cmd.Barrier(rhi::DependencyInfo{ std::span{ &drawsToCompute, 1 }, {}, {} });
+        const rhi::ScopedGpuTimer timer(timerBlock, "Ocean simulation");
+        // the previous frame's draws sampled the textures this tick rewrites, with the resolve and OceanMipsCS. The
+        // previous tick's writes need a memory dependency too: write after write
+        const rhi::GlobalBarrier drawsToCompute
+        {
+            rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader | ocean::OceanSimulation::k_TickStages,
+            ocean::OceanSimulation::k_TickWriteAccess,
+            ocean::OceanSimulation::k_TickStages,
+            ocean::OceanSimulation::k_TickWriteAccess
+        };
+        cmd.Barrier(rhi::DependencyInfo{ std::span{ &drawsToCompute, 1 }, {}, {} });
+        simulation->RecordTick(cmd, timerBlock, simulationTime);
+    }
 
-    simulation->RecordTick(cmd, simulationTime);
+    // the pass's scope also covers the attachment clears and the MSAA resolve at EndRendering, so it is ended by hand
+    std::optional<rhi::ScopedGpuTimer> passTimer;
+    passTimer.emplace(timerBlock, "Ocean pass");
 
     const rhi::GlobalBarrier computeToDraws
     {
@@ -803,15 +904,24 @@ void OceanScene::recordCommands()
     const float rings = static_cast<float>(settings.GridRings);
     const float seabedSize = (2.0f * rings + 1.0f) * tileSize;
     const std::array<float, 2> seabedOrigin{ centerTile[0] - rings * tileSize, centerTile[1] - rings * tileSize };
-    recordDraw(cmd, seabed, seabedOrigin, seabedSize, 1u, 0u, 1u, 1u, false);
 
-    for (uint32_t ring = 0; ring <= settings.GridRings; ++ring)
     {
-        const uint32_t tiles = ring == 0u ? 1u : 8u * ring;
-        recordDraw(cmd, surface, centerTile, tileSize, ringResolution(ring), ring, ringResolution(ring + 1u), tiles, true);
+        const rhi::ScopedGpuTimer timer(timerBlock, "Seabed");
+        recordDraw(cmd, seabed, seabedOrigin, seabedSize, 1u, 0u, 1u, 1u, false);
+    }
+
+    {
+        const rhi::ScopedGpuTimer timer(timerBlock, "Surface");
+
+        for (uint32_t ring = 0; ring <= settings.GridRings; ++ring)
+        {
+            const uint32_t tiles = ring == 0u ? 1u : 8u * ring;
+            recordDraw(cmd, surface, centerTile, tileSize, ringResolution(ring), ring, ringResolution(ring + 1u), tiles, true);
+        }
     }
 
     cmd.EndRendering();
+    passTimer.reset();
 
     // ImGui's pipeline was created for a color attachment only, so it gets its own pass, which keeps the ocean's pixels.
     // The barrier orders the ocean pass's color writes before the UI pass loads and blends over them
@@ -822,18 +932,24 @@ void OceanScene::recordCommands()
     };
     cmd.Barrier(rhi::DependencyInfo{ std::span{ &oceanToUi, 1 }, {}, {} });
 
-    // the UI draws single-sampled, straight onto the resolved swapchain image
-    rhi::ColorAttachment uiAttachment{};
-    uiAttachment.ImageView = swapchainView;
-    uiAttachment.LoadOp = rhi::LoadOp::Load;
-    rhi::RenderingInfo uiRenderingInfo{};
-    uiRenderingInfo.ColorAttachments = std::span{ &uiAttachment, 1 };
-    uiRenderingInfo.RenderArea = renderingInfo.RenderArea;
-    cmd.BeginRendering(uiRenderingInfo);
-    imgui->Render(cmd.Handle());
-    cmd.EndRendering();
+    {
+        const rhi::ScopedGpuTimer timer(timerBlock, "UI");
+        // the UI draws single-sampled, straight onto the resolved swapchain image
+        rhi::ColorAttachment uiAttachment{};
+        uiAttachment.ImageView = swapchainView;
+        uiAttachment.LoadOp = rhi::LoadOp::Load;
+        rhi::RenderingInfo uiRenderingInfo{};
+        uiRenderingInfo.ColorAttachments = std::span{ &uiAttachment, 1 };
+        uiRenderingInfo.RenderArea = renderingInfo.RenderArea;
+        cmd.BeginRendering(uiRenderingInfo);
+        imgui->Render(cmd.Handle());
+        cmd.EndRendering();
+    }
 
-    recordPresentOrCapture(cmd, image);
+    {
+        const rhi::ScopedGpuTimer timer(timerBlock, "Present or capture");
+        recordPresentOrCapture(cmd, image);
+    }
     RhiAssert(cmd.End());
     ++frameNumber;
 }

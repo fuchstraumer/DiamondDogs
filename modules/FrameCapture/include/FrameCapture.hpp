@@ -20,7 +20,7 @@ class ResourceContext;
 
 namespace rhi
 {
-    class CommandBuffer;
+    struct CommandBuffer;
 }
 
 namespace capture

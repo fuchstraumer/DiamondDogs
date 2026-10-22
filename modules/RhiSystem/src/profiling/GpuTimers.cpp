@@ -54,7 +54,8 @@ namespace rhi
         struct Block
         {
             std::atomic<BlockState> State{ BlockState::Free };
-            uint64_t Tag{ 0u };
+            uint64_t Submission{ 0u };
+            // the order blocks were taken in, which also orders blocks of one submission
             uint64_t Sequence{ 0u };
             std::vector<ScopeRecord> Scopes;
             std::vector<char> Names;
@@ -75,6 +76,7 @@ namespace rhi
         std::atomic<uint32_t> NextBlock{ 0u };
         std::atomic<uint64_t> NextSequence{ 0u };
         std::atomic<uint64_t> DroppedBlocks{ 0u };
+        std::atomic<uint64_t> LostBlocks{ 0u };
         // whole nanoseconds, so the transfer thread's Collect and the frame's reader need no lock
         std::atomic<uint64_t> BusyNanoseconds{ 0u };
 
@@ -104,7 +106,7 @@ namespace rhi
         [[nodiscard]] std::optional<GpuTimingBlock> ReadBlock(const Block& block, uint32_t index) const
         {
             GpuTimingBlock result{};
-            result.Tag = block.Tag;
+            result.Submission = block.Submission;
             result.DroppedScopes = block.Dropped;
             const uint32_t used = static_cast<uint32_t>(block.Scopes.size());
 
@@ -216,42 +218,48 @@ namespace rhi
         return impl->InactiveReason;
     }
 
-    void GpuTimers::Collect()
+    void GpuTimers::Collect(uint64_t completed_before)
     {
         if (!Active())
         {
             return;
         }
 
-        // in the order the blocks were begun, so Completed stays oldest first
-        std::vector<uint32_t> pending;
+        // handed-back blocks whose submissions finished, in the order they were taken, so Completed stays oldest first
+        std::vector<uint32_t> finished;
 
         for (uint32_t index = 0; index < impl->BlockCount; ++index)
         {
-            if (impl->Blocks[index].State.load(std::memory_order_acquire) == GpuTimersImpl::BlockState::Pending)
+            const GpuTimersImpl::Block& block = impl->Blocks[index];
+
+            if (block.State.load(std::memory_order_acquire) == GpuTimersImpl::BlockState::Pending && block.Submission < completed_before)
             {
-                pending.push_back(index);
+                finished.push_back(index);
             }
         }
 
-        std::ranges::sort(pending, std::less{}, [this](uint32_t index) { return impl->Blocks[index].Sequence; });
+        std::ranges::sort(finished, std::less{}, [this](uint32_t index) { return impl->Blocks[index].Sequence; });
 
-        for (const uint32_t index : pending)
+        for (const uint32_t index : finished)
         {
             GpuTimersImpl::Block& block = impl->Blocks[index];
             std::optional<GpuTimingBlock> result = impl->ReadBlock(block, index);
-
-            if (!result.has_value())
-            {
-                continue;
-            }
-
-            // every query of the block was written, so the GPU is done with them
+            // the submission finished, so its queries are no longer in use and a host reset is allowed
             const uint32_t used = static_cast<uint32_t>(block.Scopes.size());
 
             if (used != 0u)
             {
                 impl->Pool->Reset(impl->FirstQuery(index, 0u), used * 2u);
+            }
+
+            if (!result.has_value())
+            {
+                // finished, but not every query was written: the command buffer was never submitted
+                impl->LostBlocks.fetch_add(1u, std::memory_order_relaxed);
+                block.Scopes.clear();
+                block.Dropped = 0u;
+                block.State.store(GpuTimersImpl::BlockState::Free, std::memory_order_release);
+                continue;
             }
 
             for (uint32_t scope = 0; scope < used; ++scope)
@@ -335,7 +343,12 @@ namespace rhi
         return impl->DroppedBlocks.load(std::memory_order_relaxed);
     }
 
-    GpuTimerBlock::GpuTimerBlock(GpuTimers& _timers, CommandBuffer& command_buffer, uint64_t tag) : timers{ &_timers }, commandBuffer{ &command_buffer }
+    uint64_t GpuTimers::LostBlocks() const noexcept
+    {
+        return impl->LostBlocks.load(std::memory_order_relaxed);
+    }
+
+    GpuTimerBlock::GpuTimerBlock(GpuTimers& _timers, CommandBuffer& command_buffer, uint64_t submission) : timers{ &_timers }, commandBuffer{ &command_buffer }
     {
         if (!timers->Active())
         {
@@ -366,7 +379,7 @@ namespace rhi
         }
 
         GpuTimersImpl::Block& block = impl.Blocks[index];
-        block.Tag = tag;
+        block.Submission = submission;
         block.Sequence = impl.NextSequence.fetch_add(1u, std::memory_order_relaxed);
     }
 
@@ -411,7 +424,9 @@ namespace rhi
         std::memcpy(nameCopy, name.data(), length);
         nameCopy[length] = '\0';
 
-        block->commandBuffer->WriteTimestamp(PipelineStage::TopOfPipe, impl.Pool->Handle(), impl.FirstQuery(block->index, scope));
+        // AllCommands, not TopOfPipe: a top-of-pipe stamp can be written while the previous scope's work still runs,
+        // and back-to-back scopes would then count that time twice
+        block->commandBuffer->WriteTimestamp(PipelineStage::AllCommands, impl.Pool->Handle(), impl.FirstQuery(block->index, scope));
 
         if (impl.BeginLabel != nullptr)
         {

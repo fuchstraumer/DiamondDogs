@@ -17,6 +17,7 @@ namespace rhi
 {
     struct CommandBuffer;
     class Device;
+    class GpuTimerBlock;
     class ShaderLibrary;
 }
 
@@ -130,8 +131,10 @@ namespace ocean
         static constexpr rhi::Access k_TickWriteAccess = rhi::Access::ShaderStorageWrite | rhi::Access::TransferWrite;
 
         /** @brief Tick, both IFFT passes, the resolve, and the mip chains of the output textures. Records no barrier
-         *  after the last mip: the reader of the textures adds its own (from k_TickStages and k_TickWriteAccess) */
-        void RecordTick(rhi::CommandBuffer& command_buffer, float time_seconds) const;
+         *  after the last mip: the reader of the textures adds its own (from k_TickStages and k_TickWriteAccess).
+         *  Each pass gets a GPU timer scope in `timers`, the block of `command_buffer` (scope names: "Spectrum tick",
+         *  "IFFT", "Resolve", "Mips"). An inactive block, and every Release build, records no scopes */
+        void RecordTick(rhi::CommandBuffer& command_buffer, rhi::GpuTimerBlock& timers, float time_seconds) const;
         /** @brief Only the two IFFT passes over IfftInput, in place. For tests */
         void RecordIfft(rhi::CommandBuffer& command_buffer) const;
 
