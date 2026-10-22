@@ -177,6 +177,29 @@ namespace rhi
         uint32_t Depth{ 1u };
     };
 
+    enum class BlitFilter : uint8_t
+    {
+        Nearest,
+        Linear
+    };
+
+    /** @brief Scales one mip level of a set of array layers onto another (VkImageBlit). Each box starts at texel
+     *  (0, 0, 0), and the whole source box is scaled onto the whole destination box */
+    struct ImageBlit
+    {
+        ImageAspect Aspect = ImageAspect::Color;
+        uint32_t SrcMipLevel{ 0u };
+        uint32_t DstMipLevel{ 0u };
+        uint32_t BaseArrayLayer{ 0u };
+        uint32_t LayerCount{ 1u };
+        uint32_t SrcWidth{ 0u };
+        uint32_t SrcHeight{ 0u };
+        uint32_t SrcDepth{ 1u };
+        uint32_t DstWidth{ 0u };
+        uint32_t DstHeight{ 0u };
+        uint32_t DstDepth{ 1u };
+    };
+
     /** @brief A semaphore wait or signal in a queue submission. Value is ignored for binary semaphores */
     struct SemaphoreSubmitInfo
     {

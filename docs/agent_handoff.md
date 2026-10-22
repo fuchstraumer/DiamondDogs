@@ -64,9 +64,68 @@ Uncommitted (this session):
   - MSAA only smooths geometry edges. The distant noise is shading aliasing: the fine cascades are sampled without
     mips (see next work).
 
+- **Swell spectrum (fifth session):** `SpectrumParameters` gained `WaveHeightScale` and `SwellScale/WindSpeed/Fetch/
+  PeakingFactor/Spread/FadeLength`, and the existing `SwellDirection` is now used.
+  - `SpectrumInitCS` adds a second JONSWAP (distant wind, its own direction, narrowed by `SwellSpread`) to the wind
+    sea's energy. `WaveHeightScale` multiplies every amplitude; 1 is physical, and the references run at about 2.8.
+  - The buffer is now 80 bytes.
+  - OceanFftTest's wave height band runs with `SwellScale = 0`.
+  - The uniform layout check matched names by suffix (`SwellWindSpeed` for `WindSpeed`). It now matches the last
+    name component whole.
+- **Cascades:** now 1024 / 192 / 32 / 6 m, so a 200 m swell fits. Hs went from 2.09 to 2.04 m (the integral gives
+  2.01), and the Donelan-Banner excess disappeared, so it was k-grid sampling.
+- **Horizon:**
+  - The surface is 12 rings of 256 m tiles around the camera's tile: one draw per ring, a tile per instance. The
+    center tile is 384 quads; each ring out halves that, down to 6. A ring's outer edge vertices snap onto the
+    coarser ring's vertices, so there are no cracks. The seabed is one tile under all of it.
+  - Each cascade fades out between `lodScale` (15, the "Detail distance" slider) and twice that many patch lengths,
+    in both the vertex and fragment stages.
+- **Scene commands:** `capture` now ends the frame's command batch, so the commands after it apply to the next
+  frame.
+- **OBS:** the running OBS (`obs64`) injects `VK_LAYER_OBS_HOOK`, which reports 11 validation messages of its own (an
+  NT-handle memory import, present-after-write hazards). Run with `VK_LOADER_LAYERS_DISABLE=VK_LAYER_OBS_HOOK`; the
+  scratchpad test helper does.
+
+- **Sea state pipe (sixth session):** `applications/OceanFft/simulation/SeaState.hpp/.cpp`, in `ocean_simulation`.
+  - It maps editor values to `SpectrumParameters` in pure stages:
+    `SeaState -> ResolveWind -> ResolveSwell -> ResolveSpreading -> BuildSpectrum -> MeasureSpectrum`, composed by
+    `ApplySeaState`.
+  - **Wind:** wind force is Beaufort (U = 0.836 B^1.5). Openness walks the fetch from 5 km to fully developed
+    (chi = 2.17e4), evenly in log.
+  - **Wind sea shape:** regularity gives gamma = 1 + 6r. Ripple detail gives the fade length.
+  - **Swell:** swell height and period are inverted. The period gives a distant wind
+    (U = 3.5 g T chi^-0.33, fully developed), and `SwellScale` is solved so the swell's Hs is the one asked for.
+  - **Readout:** `MeasureSpectrum` integrates the spectrum on the CPU the way `SpectrumInitCS` evaluates it.
+    OceanFftTest checks the readout against the GPU's Hs within 10% (measured: 0.6-1.5%), including the default sea
+    state with swell.
+  - **Panel:** preset buttons (Glassy, Breezy, Fresh, Rough, Gale, Long swell), readouts, and tooltips. The raw
+    physics is a collapsed read-only section. Spreading model and seed stay there, since the sea state does not own
+    them.
+  - **Pattern:** this is the first "domain transform pipe" outside Lodestone. The HDR work is to follow the same
+    shape.
+
+## Lodestone requests C6-C9 (added to `../Lodestone/docs/diamonddogs-requests.md` on 2026-10-21, with approval)
+
+- **C6, generated host layout headers:**
+  - The cook emits a C++ header per module with each uniform block, push constant block and struct as a C++ type:
+    exact std140/std430 offsets, padding members, `static_assert(sizeof)` and `offsetof`.
+  - Today DiamondDogs mirrors `SpectrumParameters`, `CascadeParameters`, `OceanViewParameters` and
+    `OceanGridParameters` by hand, and checks some of them at runtime (`CheckUniformLayouts`). That check had a name
+    bug this session.
+  - A generated header would remove the mirrors and move the check to compile time.
+- **C7, exact member lookup:** `UniformMemberView` lookup by path (`FindMember("WindSpeed")`) with exact matching,
+  and documented qualification. Hand-written suffix matching took `SwellWindSpeed` for `WindSpeed`.
+- **C8, include search paths:** `INCLUDE_DIRS` on `lodestone_add_shader_cook` (and the cooker's `-I`).
+  Build-generated Slang (`OceanFftGenerated.slang`) currently has to be written into the source tree.
+- **C9, shorter diagnostics:** the "no specific policy coverage" warning prints a full C++ function signature on
+  every build. Print the module and target, and leave out the source location, or put it behind `--verbose`.
+  Separately, "cannot write the module cache file" appeared once during a concurrent build.
+- **C10, push constants per draw in the manifest view:** this already works. Listed only to note that the
+  `PushConstants()` range is what the ring draws rely on.
+
 ## Next work
 
-0. **Distant-surface aliasing:** generate mips for Displacement and Derivatives after the resolve pass (or fade the
+0. **Distant-surface aliasing (now very visible near the horizon):** generate mips for Displacement and Derivatives after the resolve pass (or fade the
    fine cascades out with distance), and sample with LOD. MSAA cannot fix this.
 
 1. **Math backport, then cameras.** Replace foundation's math outright with `C:\SoftwareDev\VeloxRhi\include\math`
@@ -80,7 +139,17 @@ Uncommitted (this session):
 4. **mimalloc:** try our v3.5.4 in place of Slang's v2.1.7 (audit section 5).
 5. **Donelan-Banner's Hs excess** (2.15 vs 2.10 m): check whether it is the LUT, the alignment lerp, or the k-grid
    sampling of a narrower lobe.
-6. **HDR handling.** A separate session; the author is still forming her thoughts on it.
+6. **GPU profiling and debug labels** (the author's order: after the mips):
+   - A push/pop scope model: `ScopedGpuZone` / `cmd.PushZone("name")` writes a timestamp query (or a pair) and a
+     `VK_EXT_debug_utils` label region, so RenderDoc, PIX and Nsight see the same names.
+   - Results are read back a few frames late from a ring of query pools, and shown in the panel as a tree.
+   - Pipeline-statistics queries are optional.
+7. **HDR, as a color-domain transform pipe** (after profiling). The same shape as `SeaState`, narrowed to color:
+   - Scene-referred linear light, then exposure, then tonemap or display mapping, then encode for the swapchain's
+     color space (sRGB, scRGB, HDR10 PQ).
+   - The display's capabilities (peak and paper-white nits, from `setHdrMetadata` and the surface query) are inputs.
+   - Editing must look the same on SDR and HDR displays.
+   - FrameCapture's converters are the end of that pipe in reverse.
 
 Older candidates are still open in audit.md section 8: RhiResources upgrades, features by request, the
 shader-object dynamic state wrapper (`applications/OceanFft/ShaderObjectState` is the stopgap), and build hygiene.

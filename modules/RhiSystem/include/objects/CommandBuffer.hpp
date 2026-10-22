@@ -62,6 +62,10 @@ namespace rhi
         void FillBuffer(const BufferHandle& buffer, uint64_t offset, uint64_t size, uint32_t value) noexcept;
         void CopyBuffer(const BufferHandle& src, const BufferHandle& dst, std::span<const BufferCopy> regions) noexcept;
         void CopyImageToBuffer(const ImageHandle& src, ImageLayout src_layout, const BufferHandle& dst, std::span<const BufferImageCopy> regions) noexcept;
+        /** @brief The images may be the same image, for example to fill a mip chain one level at a time. Each region's
+         *  source and destination must not overlap */
+        void BlitImage(const ImageHandle& src, ImageLayout src_layout, const ImageHandle& dst, ImageLayout dst_layout,
+                       std::span<const ImageBlit> regions, BlitFilter filter) noexcept;
 
     private:
         bool isRecording = false;

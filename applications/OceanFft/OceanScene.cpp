@@ -686,8 +686,10 @@ void OceanScene::recordCommands()
     // the previous frame's draws sampled the textures this tick rewrites
     const rhi::GlobalBarrier drawsToCompute
     {
-        rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader, rhi::Access::None,
-        rhi::PipelineStage::ComputeShader, rhi::Access::None
+        rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader,
+        rhi::Access::None,
+        rhi::PipelineStage::ComputeShader,
+        rhi::Access::None
     };
     cmd.Barrier(rhi::DependencyInfo{ std::span{ &drawsToCompute, 1 }, {}, {} });
 

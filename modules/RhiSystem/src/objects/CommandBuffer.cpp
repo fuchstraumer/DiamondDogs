@@ -371,6 +371,36 @@ namespace rhi
         vkCmdCopyImageToBuffer(handle.As<VkCommandBuffer>(), src.As<VkImage>(), vk::ToVulkan(src_layout), dst.As<VkBuffer>(),
                                static_cast<uint32_t>(vkRegions.size()), vkRegions.data());
     }
+
+    void CommandBuffer::BlitImage(const ImageHandle& src, ImageLayout src_layout, const ImageHandle& dst, ImageLayout dst_layout,
+                                  std::span<const ImageBlit> regions, BlitFilter filter) noexcept
+    {
+        assert(isRecording && "CommandBuffer::BlitImage() called while not in recording mode.");
+        std::vector<VkImageBlit> vkRegions;
+        vkRegions.reserve(regions.size());
+
+        for (const ImageBlit& region : regions)
+        {
+            const VkImageAspectFlags aspect = vk::ToVulkan(region.Aspect);
+            vkRegions.push_back(VkImageBlit
+            {
+                VkImageSubresourceLayers{ aspect, region.SrcMipLevel, region.BaseArrayLayer, region.LayerCount },
+                {
+                    VkOffset3D{ 0, 0, 0 },
+                    VkOffset3D{ static_cast<int32_t>(region.SrcWidth), static_cast<int32_t>(region.SrcHeight), static_cast<int32_t>(region.SrcDepth) }
+                },
+                VkImageSubresourceLayers{ aspect, region.DstMipLevel, region.BaseArrayLayer, region.LayerCount },
+                {
+                    VkOffset3D{ 0, 0, 0 },
+                    VkOffset3D{ static_cast<int32_t>(region.DstWidth), static_cast<int32_t>(region.DstHeight), static_cast<int32_t>(region.DstDepth) }
+                }
+            });
+        }
+
+        const VkFilter vkFilter = filter == BlitFilter::Linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+        vkCmdBlitImage(handle.As<VkCommandBuffer>(), src.As<VkImage>(), vk::ToVulkan(src_layout), dst.As<VkImage>(), vk::ToVulkan(dst_layout),
+                       static_cast<uint32_t>(vkRegions.size()), vkRegions.data(), vkFilter);
+    }
 #endif // RHI_SYSTEM_USE_VULKAN
 
 }

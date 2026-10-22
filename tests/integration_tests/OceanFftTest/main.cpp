@@ -5,6 +5,7 @@
 #include "OceanSimulation.hpp"
 #include "Queue.hpp"
 #include "ResourceContext.hpp"
+#include "SeaState.hpp"
 #include "RhiAssert.hpp"
 #include "RhiSystem.hpp"
 #include "ShaderLibrary.hpp"
@@ -507,10 +508,19 @@ namespace
         const double significantHeight = 4.0 * std::sqrt(heightSquared / static_cast<double>(planeElements));
         const double fullyDeveloped = 0.21 * settings.Spectrum.WindSpeed * settings.Spectrum.WindSpeed / 9.81;
         const double heightRatio = significantHeight / fullyDeveloped;
-        const bool heightPassed = heightRatio > 0.55 && heightRatio < 1.35;
+        // the band holds for the wind sea alone: a swell adds its own energy
+        const bool heightPassed = settings.Spectrum.SwellScale > 0.0f || (heightRatio > 0.55 && heightRatio < 1.35);
         (heightPassed ? std::cout : std::cerr) << std::format("[pipeline {}] significant wave height {:.2f} m at {} m/s wind, {:.2f} of fully developed (limits 0.55 to 1.35)\n",
             name, significantHeight, settings.Spectrum.WindSpeed, heightRatio);
         failures += heightPassed ? 0 : 1;
+
+        // the editor's readout integrates the same spectrum on the CPU: it must agree with what the GPU made
+        const double readoutHeight = ocean::MeasureSpectrum(settings.Spectrum).SignificantHeight;
+        const double readoutRatio = significantHeight / readoutHeight;
+        const bool readoutPassed = readoutRatio > 0.9 && readoutRatio < 1.1;
+        (readoutPassed ? std::cout : std::cerr) << std::format("[pipeline {}] sea state readout {:.2f} m, GPU {:.2f} m (ratio {:.3f}, limits 0.9 to 1.1)\n",
+            name, readoutHeight, significantHeight, readoutRatio);
+        failures += readoutPassed ? 0 : 1;
 
         return failures;
     }
@@ -573,8 +583,18 @@ int main()
             settings.Kernel = ocean::IfftKernel::Radix4;
             settings.WaveSize = context.WaveSize;
             settings.Spectrum.DirectionalSpreadingMode = spreading;
+            // the wave height band is for the wind sea alone: the swell adds its own energy
+            settings.Spectrum.SwellScale = 0.0f;
             failures += TestPipeline(context, settings, 3.25f);
         }
+
+        // the editor's whole pipe, swell included: the default sea state's spectrum against its own readout
+        ocean::OceanSimulationSettings seaStateSettings{};
+        seaStateSettings.Size = 256u;
+        seaStateSettings.Kernel = ocean::IfftKernel::Radix4;
+        seaStateSettings.WaveSize = context.WaveSize;
+        seaStateSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, seaStateSettings.Spectrum).Spectrum;
+        failures += TestPipeline(context, seaStateSettings, 3.25f);
     }
 
     if (failures != 0)
