@@ -1,11 +1,13 @@
 
 ADD_MODULE(rhi_resources
+    "include/ManifestDescriptors.hpp"
     "include/ResourceBarriers.hpp"
     "include/ResourceContext.hpp"
     "include/ResourceFlags.hpp"
     "include/ResourceLoader.hpp"
     "include/ResourceMessageReply.hpp"
     "include/ResourceTypes.hpp"
+    "src/ManifestDescriptors.cpp"
     "src/ResourceBarriers.cpp"
     "src/ResourceContext.cpp"
     "src/ResourceContextImpl.cpp"

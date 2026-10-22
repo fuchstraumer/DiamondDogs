@@ -293,7 +293,7 @@ void OceanScene::createRenderPrograms()
             const VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, descriptorPool, 1, &setLayout };
             RhiAssert(rhi::Result(vkAllocateDescriptorSets(vkDevice, &setInfo, &set)));
             // the simulation's textures stay in General: the compute passes write them as storage images
-            const ocean::BoundResources bound
+            const BoundResources bound
             {
                 { "View", { viewBuffers[frame] } },
                 { "Displacement", { simulation->Displacement(), VK_IMAGE_LAYOUT_GENERAL } },
@@ -301,7 +301,7 @@ void OceanScene::createRenderPrograms()
                 { "OceanSampler", { sampler } },
             };
 
-            if (std::optional<std::string> error = ocean::WriteManifestDescriptors(vkDevice, set, **index, *variant, entryPoints, bound); error.has_value())
+            if (std::optional<std::string> error = WriteManifestDescriptors(vkDevice, set, **index, *variant, entryPoints, bound); error.has_value())
             {
                 throw std::runtime_error(std::format("OceanScene: {}", *error));
             }
@@ -795,7 +795,7 @@ void OceanScene::recordCommands()
 
     {
         const rhi::ScopedGpuTimer timer(timerBlock, "Ocean simulation");
-        // the previous frame's draws sampled the textures this tick rewrites, with the resolve and OceanMipsCS. The
+        // the previous frame's draws sampled the textures this tick rewrites, with the resolve and the mip generator. The
         // previous tick's writes need a memory dependency too: write after write
         const rhi::GlobalBarrier drawsToCompute
         {
