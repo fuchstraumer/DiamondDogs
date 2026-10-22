@@ -41,7 +41,8 @@ lodestone_add_shader_cook(ocean_fft_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
     TARGETS spirv
     POLICY_FILE "${OCEAN_FFT_SHADER_DIR}/OceanFftPolicy.toml"
-    MODULES "${OCEAN_FFT_SHADER_DIR}/OceanFft.slang" "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanRender.slang")
+    MODULES "${OCEAN_FFT_SHADER_DIR}/OceanFft.slang" "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanRender.slang"
+        "${GPU_PYRAMID_SHADER_MODULE}")
 set_target_properties(ocean_fft_shaders PROPERTIES FOLDER "Applications/OceanFft")
 # the cook reads OceanFftGenerated.slang, so the generator runs first
 add_dependencies(ocean_fft_shaders ocean_fft_support_data)
@@ -49,14 +50,12 @@ add_dependencies(ocean_fft_shaders ocean_fft_support_data)
 add_library(ocean_simulation STATIC
     "simulation/OceanSimulation.cpp"
     "simulation/OceanSimulation.hpp"
-    "simulation/ManifestDescriptors.cpp"
-    "simulation/ManifestDescriptors.hpp"
     "simulation/SeaState.cpp"
     "simulation/SeaState.hpp"
     ${OCEAN_FFT_GENERATED_SOURCES})
 target_include_directories(ocean_simulation PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/simulation")
 target_include_directories(ocean_simulation PRIVATE "${OCEAN_FFT_GENERATED_DIR}")
-target_link_libraries(ocean_simulation PUBLIC rhi_resources rhi_system foundation lodestone::client_library)
+target_link_libraries(ocean_simulation PUBLIC gpu_pyramid rhi_resources rhi_system foundation lodestone::client_library)
 target_compile_definitions(ocean_simulation PUBLIC
     "NOMINMAX"
     "OCEAN_FFT_MANIFEST=\"$<TARGET_PROPERTY:ocean_fft_shaders,LODESTONE_MANIFEST>\"")
@@ -94,12 +93,20 @@ add_executable(OceanFftBenchmark "benchmark/main.cpp")
 target_link_libraries(OceanFftBenchmark PRIVATE ocean_simulation rhi_resources)
 set_target_properties(OceanFftBenchmark PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 
-# The demo looks for its shader bundle next to the executable first (main.cpp), so the output folder runs on its own
+# The demo looks for its shader bundle next to the executable first (main.cpp), so the output folder runs on its own.
+# The copy is its own step, which depends on the bundle: a POST_BUILD copy ran only when the executable relinked, so
+# a change to the shaders alone left the old bundle next to it
 set(OCEAN_FFT_BUNDLE "$<TARGET_PROPERTY:ocean_fft_shaders,LODESTONE_MANIFEST>")
-add_custom_command(TARGET OceanFft POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${OCEAN_FFT_BUNDLE}" "$<TARGET_FILE_DIR:OceanFft>/OceanFft.ldmanifest"
+set(OCEAN_FFT_BUNDLE_COPY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/OceanFft.ldmanifest")
+add_custom_command(
+    OUTPUT "${OCEAN_FFT_BUNDLE_COPY}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${OCEAN_FFT_BUNDLE}" "${OCEAN_FFT_BUNDLE_COPY}"
+    DEPENDS "${OCEAN_FFT_BUNDLE}" ocean_fft_shaders
     COMMENT "Copying the OceanFft shader bundle next to the executable"
     VERBATIM)
+add_custom_target(ocean_fft_bundle_copy DEPENDS "${OCEAN_FFT_BUNDLE_COPY}")
+set_target_properties(ocean_fft_bundle_copy PROPERTIES FOLDER "Applications/OceanFft")
+add_dependencies(OceanFft ocean_fft_bundle_copy)
 
 # OceanFft_package: a folder to copy to another machine, in build/<preset>/package/OceanFft-<config>. It holds the
 # executable and the shader bundle and, with a DLL C runtime, the release VC++ runtime DLLs (app-local deployment,

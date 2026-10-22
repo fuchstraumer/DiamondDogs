@@ -523,6 +523,8 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
     `docs/ocean-benchmark-2026-10-21.md`.
 - 2026-10-21, session eight: the `OceanMipsCS` compute downsample replaces the blit mip chain (handoff, Next work
   6a). The mip chain is 4-5x faster up to 512. OceanFftTest now checks every mip level.
+  - Then `modules/GpuPyramid`: NVIDIA's nvpro_pyramid transcribed to Slang with attribution. It replaced
+    `OceanMipsCS` at the same speed, and is checked by `GpuPyramidTest`. Lodestone requests C11 and C12 were added.
 
 ## 10. RhiResources: questions for the author, and inputs for the design session
 

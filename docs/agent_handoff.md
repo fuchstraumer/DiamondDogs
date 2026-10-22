@@ -6,6 +6,89 @@ detailed findings (sections 4, 5, 9); new work is logged here.
 Branch `dev/lodestone`. The author commits herself; the agent never commits. Check `git status` for what is still
 uncommitted. Her code spacing rule is in CLAUDE.md ("Code spacing").
 
+## Start here (written at the end of the eighth session, 2026-10-21)
+
+The first eight sessions ran in one long conversation that was started from `C:\SoftwareDev\CUDA_Noise`. From now on
+sessions start in DiamondDogs, so that conversation's memory folder and scratchpad are gone. Everything needed is in
+this file, CLAUDE.md, `.github/copilot-instructions.md` and `docs/agent-scripts`.
+
+**First steps:**
+1. Read CLAUDE.md, `.github/copilot-instructions.md` (its Threading section too), and this file.
+2. Run `git status` in DiamondDogs and in `../Lodestone`, and `git log --oneline -5` in both. She commits often, so
+   check what landed before you assume something is uncommitted.
+3. Check whether Lodestone compiles again (see "Open items").
+4. Then the next task: **the HDR color pipe** (Next work, item 7). Plan it first, as a doc, and get her answers
+   before you write code (see "HDR: how to start" below).
+
+**Uncommitted at the end of the eighth session** (check `git status`; she may have committed some of it):
+- `modules/GpuPyramid` (new), `assets/shaders/compute/Pyramid` (new: four `.slang` files and
+  `LICENSE.nvpro_pyramid`), and `tests/integration_tests/GpuPyramidTest` (new).
+- `modules/RhiResources`: `ManifestDescriptors.hpp/.cpp`, moved here from OceanFft. She already edited its includes.
+- `RhiSystem`: `CommandBuffer::CopyBufferToImage`.
+- OceanFft: `OceanSimulation` uses `pyramid::MipGenerator`, `OceanMips.slang` is deleted, and the CMake file has
+  the bundle-copy step and the pyramid module in the cook.
+- CLAUDE.md (module and test tables), and `modules/CMakeLists.txt` and `tests/integration_tests/CMakeLists.txt`.
+- In Lodestone: rows C11 and C12 in `docs/diamonddogs-requests.md`. She approved editing that file. She did not
+  approve Lodestone source edits.
+
+**Open items:**
+- **MSVC Debug rebuild.** After the last GpuPyramid change (5 fast levels per dispatch), MSVC Debug did not build:
+  `Lodestone/client/src/ShaderManifestValidator.cpp(100): error C2078`. That file is part of another agent's
+  in-flight Lodestone edit. When Lodestone compiles again, rebuild MSVC Debug and run the suite. clang-cl Debug
+  passed with the final code.
+- **Lodestone C11 and C12** may land with that edit: the other agent was changing `SpvModuleReader` and the
+  validators.
+  - C12 (binding arrays): fold `PyramidLevel0`-`15` back into `PyramidLevels[16]`. The host writer already
+    handles arrays.
+  - C11 (`ls_format`): replace `[format("unknown")]`.
+- **RenderDoc:** she checked the debug labels; they look right.
+
+**Scripts** (`docs/agent-scripts`; run them from PowerShell):
+- `dd-build.cmd <preset> <config> [configure]` builds every test target and the demos, after VS18 vcvars64.
+- `dd-one.cmd <preset> <config> <configure|noconf> <target>` builds one target.
+- `dd_run_tests.ps1 -Preset <preset> -Config <config>` runs every suite and counts validation messages. A pass is
+  "failed: 0". The logs go to `docs/agent-scripts/logs`. It sets `VK_LOADER_LAYERS_DISABLE=VK_LAYER_OBS_HOOK`,
+  because OBS's layer reports its own messages.
+
+**Environment facts that cost time before:**
+- **Builds:** use PowerShell, not the Bash tool. The Bash sandbox does not write outside the repositories.
+- **Deleting files:** `Remove-Item` is sometimes blocked. `[IO.File]::Delete(path)` works.
+- **Another agent edits `../Lodestone` at the same time.** A DiamondDogs build compiles its half-done edits:
+  - this session saw a cooker crash (0xC0000005) and an MSVC compile error, and neither came from DiamondDogs;
+  - check Lodestone's `git status` before full builds;
+  - say so when a failure is in Lodestone. Do not "fix" it there.
+- **Stale clang-cl Slang PCH** ("file modified since the precompiled header was built"): delete that config's
+  `cmake_pch.cxx.obj` and `.pch` under `build/ninja-clang-cl/third_party`.
+- **Benchmarks:** measure on an idle GPU without validation (`VK_LOADER_LAYERS_DISABLE=~all~`). Check the GPU first:
+  `(Get-Counter '\GPU Engine(*engtype_3D)\Utilization Percentage').CounterSamples | Measure-Object CookedValue -Sum`.
+  She plays games on this machine, and a game made the numbers meaningless once.
+- **Slang storage formats:** a storage image without `[format]` is guessed from its element type (`float4` becomes
+  `rgba32f`). Validation then reports `Undefined-Value-StorageImage-FormatMismatch-ImageView` on any other view
+  format. Test new compute code on the format the real consumer uses.
+- **The demo's bundle:** it reads `OceanFft.ldmanifest` next to the exe. The copy is a build step now, so it is no
+  longer stale after a shader-only change.
+
+### HDR: how to start
+
+Item 7 under Next work holds the design notes so far: a color-domain transform pipe shaped like `SeaState`, from
+scene-referred linear light to exposure, then a tonemap or display mapping, then an encode for the swapchain's color
+space. Write `docs/hdr-plan.md` (the shape of `docs/gpu-timers-plan.md`) and ask her before you build:
+- **The display:** which surface formats and color spaces does her display report? Query them first:
+  `vkGetPhysicalDeviceSurfaceFormatsKHR`, and whether `VK_EXT_swapchain_colorspace` and `VK_EXT_hdr_metadata` are
+  there. Is it HDR10 (PQ, `A2B10G10R10` + `HDR10_ST2084`), or scRGB (`R16G16B16A16_SFLOAT` + `EXTENDED_SRGB_LINEAR`)?
+- **The ownership line:** she writes the ocean's fragment shading. The HDR pipe changes what that shading outputs
+  (linear scene light, no encode). Agree where her code ends and the pipe begins before you touch the render path.
+- **Exposure:** manual first, or auto-exposure? Auto-exposure fits `pyramid::MipGenerator`: an average-luminance
+  chain (log luminance, `Reduction::Average`), read from the 1x1 level. That is the first planned reuse of the
+  module.
+- **The tonemapper:** for example ACES-like, AgX, or a simple Reinhard on luminance, and how SDR and HDR stay
+  matched (editing must look the same on both).
+- **Smaller parts the pipe changes:**
+  - the MSAA color target becomes RGBA16F;
+  - FrameCapture's converters must handle the new swapchain formats, and PNG capture of an HDR frame needs a
+    defined SDR conversion;
+  - `--capture` comparisons in agent workflows depend on that.
+
 ## State (2026-10-21, eighth session; the newest work is at the end of this section, and in Next work 6a)
 
 Committed by the author:
@@ -188,8 +271,44 @@ Uncommitted (this session):
    sampling of a narrower lobe.
 6. **Done (seventh session): GPU profiling and debug labels.** All four steps are built. See the state above.
    - What the benchmark found, with fixes to try (`docs/ocean-benchmark-2026-10-21.md`):
-     - **6a. Done (eighth session), uncommitted:** `OceanMipsCS` (`compute/Ocean/OceanMips.slang`) replaces the blit
-       mip chain.
+     - **6a+. Done (eighth session), uncommitted: `modules/GpuPyramid`.** NVIDIA's nvpro_pyramid (from
+       `C:\SoftwareDev\vk_compute_mipmaps-main\nvpro_pyramid`, Apache 2.0) transcribed to Slang in
+       `assets/shaders/compute/Pyramid`, as a general mip module. It replaced `OceanMipsCS` (below), which she had
+       committed.
+       - **Attribution:** every `.slang` file starts with NVIDIA's copyright and SPDX line, says that the algorithm
+         is NVIDIA's, and lists our changes (Apache 2.0 section 4(b)). `LICENSE.nvpro_pyramid` sits next to them.
+       - **Shaders:** `NvproPyramidFastCS` (subgroup shuffles, up to 6 levels) and `NvproPyramidGeneralCS` (any
+         size, the 3-tap kernel for odd sizes).
+         - Axes: `PYRAMID_REDUCTION`, an interface axis (`PyramidAverage`, `PyramidMin`, `PyramidMax`), and
+           `PYRAMID_SHARED_F16`.
+         - Our additions: a layer index (SV_GroupID.z), and if-chains in place of the fallthrough switches.
+       - **Host:** `pyramid::MipGenerator` (programs, sampler) and `pyramid::MipTarget` (views, sets, schedule per
+         texture).
+         - `Record(cmd, targets)` interleaves the targets' dispatches, with one barrier between steps.
+         - The fast pipeline runs only with full subgroups of 32 (nvpro never tested other sizes).
+         - The dispatcher stops at 5 levels per dispatch, not nvpro's 6: 6 was 11-46% slower here.
+       - **Consumers:** they cook `GPU_PYRAMID_SHADER_MODULE` into their own bundle. OceanFft does.
+       - **Two Lodestone stubs**, rows C11 and C12 in the requests file (added with her approval):
+         - the level bindings are `[format("unknown")]`, because Slang guesses `rgba32f` without a format, so the
+           module needs `shaderStorageImageWriteWithoutFormat` and has no WGSL target yet;
+         - they are 16 separate bindings with a switch, because the cook's SPIR-V validator rejects binding arrays.
+       - **Moved:** `WriteManifestDescriptors` moved from OceanFft to RhiResources (global namespace), and now writes
+         array bindings from `ArrayCount()`.
+       - **Added:** `rhi::CommandBuffer::CopyBufferToImage`.
+       - **Fixed:** the demo's bundle copy next to the exe is now its own build step. As a POST_BUILD step it went
+         stale whenever only the shaders changed.
+       - **Tests:** `GpuPyramidTest` has 16 cases (rgba32f and rgba16f; power-of-two, odd and non-square; average, min,
+         max; fp16 cache). Min and max match bit for bit, and averages are within 1.4e-7 (rgba32f) or 4.3e-4
+         (rgba16f).
+       - **Checked:** all suites pass with zero validation messages on MSVC Debug and Release and clang-cl Debug, with
+         the 6-level dispatcher. After the switch to 5 levels: clang-cl Debug passes and MSVC RelWithDebInfo builds
+         (the benchmark ran on it).
+       - **Not checked:** MSVC Debug did not build after the switch to 5 levels. The other agent's uncommitted
+         Lodestone edit (`client/src/ShaderManifestValidator.cpp` line 100, C2078) breaks the MSVC client build. It is
+         not a DiamondDogs error. Rebuild once Lodestone compiles again.
+       - **Speed:** level with `OceanMipsCS` (`docs/ocean-benchmark-2026-10-21.md`, last section).
+     - **6a. Done (eighth session), replaced by GpuPyramid above:** `OceanMipsCS` (`compute/Ocean/OceanMips.slang`,
+       now deleted) replaced the blit mip chain.
        - Two dispatches per image, each five levels through groupshared memory. The source is a sampled view of one
          level, and the five targets are storage views of single levels (`MipSource`, `MipTarget0`-`4` in
          `OceanFftBindings.slang`).

@@ -11,7 +11,7 @@ Write your text in ASD-STE100 (Simplified Technical English), as the style file 
 
 DiamondDogs is a Vulkan engine that the author uses for research. Its current job is to host the noise graph and
 planet generator (the plan is in `C:\SoftwareDev\CUDA_Noise\noise-audit-and-slang-plan.md`). The live modules are
-`foundation`, `RhiSystem`, `PlatformSystem`, `RhiResources`, and `ImGuiModule`. Everything else in `modules/` is out
+`foundation`, `RhiSystem`, `PlatformSystem`, `RhiResources`, `FrameCapture`, `GpuPyramid`, and `ImGuiModule`. Everything else in `modules/` is out
 of the build; `docs/audit.md` section 6 says which to keep.
 
 **Lodestone is the only shader path.** Lodestone (`../Lodestone`, a sibling checkout, not a submodule) cooks Slang to
@@ -83,6 +83,8 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `platform_system_tests` | Displays, windows, swapchain creation, JSON configuration. |
 | `resource_context_tests` | `ResourceContext` on a real device: every create path, uploads read back word for word, fills, copies, maps, samplers, four threads at once, and shutdown with queued work. |
 | `ComputeManifestTest` | The cook-to-dispatch path. Lodestone cooks `HashFill.slang`, `rhi::ShaderLibrary` selects each variant, `ResourceContext` creates every buffer, and every output word matches the CPU. |
+| `GpuPyramidTest` | `pyramid::MipGenerator` fills every level of rgba32f and rgba16f 2D arrays, on the fast and the general pipeline, for power-of-two, odd and non-square sizes. Each level matches the CPU reduction of the level above it: min and max bit for bit, averages within float rounding. |
+| `OceanFftTest` | The ocean compute chain (IFFT kernels, spectrum, tick, resolve, mips) against double precision on the CPU. |
 | `TriangleTest` | A windowed frame loop with shader objects and dynamic rendering. With `--resize`, swapchain recreation and depth images rebuilt at the new size. |
 | `ImGuiTest` | `ImGuiModule` on the official backends draws the demo window. With `--resize`, swapchain recreation. |
 
@@ -93,7 +95,8 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `foundation/` | Containers, math, threading, delegates, image formats. No graphics API. |
 | `modules/RhiSystem/` | Instance, device, extensions, command pools, fences, semaphores, shader objects, and `ShaderLibrary` (the Lodestone client). `GenerateExtensionAndFeatureHeaders.py` writes the extension tables from `vk.xml`. |
 | `modules/PlatformSystem/` | GLFW windows, displays, the swapchain. |
-| `modules/RhiResources/` | `ResourceContext`: buffers, images, samplers, uploads, through messages to a worker thread and a transfer thread. |
+| `modules/RhiResources/` | `ResourceContext`: buffers, images, samplers, uploads, through messages to a worker thread and a transfer thread. Also `WriteManifestDescriptors`, which writes a descriptor set from the names, bindings and array counts that the cook reflected. |
+| `modules/GpuPyramid/` | `pyramid::MipGenerator`: fills mip chains with compute shaders. The shaders, `assets/shaders/compute/Pyramid`, are a Slang transcription of NVIDIA's nvpro_pyramid (Apache 2.0, attribution in each file). A consumer cooks `GPU_PYRAMID_SHADER_MODULE` into its own bundle. |
 | `modules/ImGuiModule/` | Dear ImGui on `imgui_impl_glfw` and `imgui_impl_vulkan`. |
 | `cmake/ConfigureLodestone.cmake` | Adds Lodestone, and works around its embedding issues (each one is listed in the Lodestone requests file). |
 | `tests/unit_tests/`, `tests/integration_tests/` | Google Test suites, and executables with their own `main`. |
@@ -121,6 +124,28 @@ are hers: plan and explain, and do not write that code unless she asks. Conversi
 She dislikes default arguments. Propose an explicit argument, an overload, or a named constant instead.
 
 Commit only when she asks.
+
+What eight sessions of working with her showed (2026-10-21):
+
+- **Report results straight.** When a change measures slower, say so with the numbers, then find out why. She
+  wants the real outcome, not a positive spin. The nvpro_pyramid port first measured slower than the code it
+  replaced. The cause was found and fixed, and the docs record both.
+- **Design forks:** bring her a question with a recommendation and the reason, and she answers fast. When she says
+  "go ahead exactly as you planned, no notes", do that, and do not grow the scope.
+- **Approvals are as wide as their words.** "Feel free to edit the file over in Lodestone" meant the requests doc,
+  not Lodestone's source. Read approvals narrowly. Stub on the DiamondDogs side, and add a request row (see "What this repository is now").
+- **Locks:** she has been hurt by mutexes ("ask me how I know ._."). Tell her before you add any lock, and offer an
+  atomic, an ownership handoff or a single-threaded coalesce step first.
+- **Credit:** credit other people's work fully. Ported code keeps its license and copyright, says plainly that the
+  algorithm is not ours, and lists what we changed ("building on the greats who came before us").
+- **Tone:** candid, warm and a little dry. She jokes and apologizes for interruptions (gaming on the GPU, usage
+  limits). Answer in kind briefly, then get back to the work. No flattery, no padding.
+- **The chat UI can hide text.** In the desktop app's next-step box, a recap and question can be all she sees. Put
+  every answer, finding and decision in the message text itself. Never write "below" about content that is only in
+  the box.
+- **Practical context:** the RTX 4080 desktop is shared with her games, so check that the GPU is idle before you
+  benchmark. Her spouse runs packaged demo builds on a laptop with a 4080: keep the `ninja-msvc-static` package
+  working.
 
 ### Code spacing
 
