@@ -26,6 +26,7 @@ function(add_module NAME)
     endif()
     set_target_properties(${NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
     set_target_properties(${NAME} PROPERTIES FOLDER "Modules")
+    diamond_dogs_add_pch(${NAME} LIBRARY)
 endfunction()
 
 

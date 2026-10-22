@@ -6,6 +6,46 @@ detailed findings (sections 4, 5, 9); new work is logged here.
 Branch `dev/lodestone`. The author commits herself; the agent never commits. Check `git status` for what is still
 uncommitted. Her code spacing rule is in CLAUDE.md ("Code spacing").
 
+## Start here (written in the ninth session, 2026-10-22)
+
+The ninth session ran as Opus, the planner, and sent the build and test work to Haiku and Sonnet subagents. The
+eighth session's work is committed (`3d24a659` and earlier).
+
+**Done this session (uncommitted; check `git status`):**
+- HDR steps 1-3: `DisplayProbe`, the PlatformSystem capability fixes, and `modules/ColorPipe` + `ddColor`. The state
+  and the pick-up list are at the top of `docs/hdr-plan.md`. **HDR is paused** until Lodestone C13 lands.
+- Lodestone request C13 (cross-module imports) was added to `../Lodestone/docs/diamonddogs-requests.md`.
+- The "Single-word parameters" rule was narrowed in both `.github/copilot-instructions.md` copies (DiamondDogs and
+  Lodestone): the underscore applies only in constructors and member functions.
+
+**Hygiene done so far (uncommitted, both presets Debug, suite failed: 0):**
+- Precompiled headers: `cmake/DiamondDogsPch.cmake`, `DIAMOND_DOGS_USE_PCH`. See `docs/build-time-2026-10-22.md`.
+- The math port: VeloxRhi `include/math` (commit `0a1c91b`) is copied byte for byte into `foundation/include/math/`, and
+  `foundation/include/Math.hpp` aliases `namespace math = velox::math;`. Sync by plain file copy. `MathTests.cpp` is
+  ported to gtest (12 cases, 230 checks), and the old math tests, the integer vectors, `MathHashes.hpp`, the Lottes
+  `Tonemapper.hpp` and `ddTonemapping.slang` are deleted. `foundation_tests` also passes in Release.
+- `dd_run_tests.ps1` needs `pwsh` (it fails under Windows PowerShell 5), and it does not run `color_pipe_tests` or
+  `ColorMathTest`. Add them.
+- The our_machinery summaries and the decisions are in `docs/our-machinery/` (`SYNTHESIS.md` first).
+
+**Now: code hygiene** (the author's order):
+1. Build health: where the build time goes, and how to cut it (measure first).
+2. The math backport from VeloxRhi (Next work, item 1), used where it applies, `ColorPipe` included.
+3. The our_machinery docs (`C:\SoftwareDev\DocParse\results\our_machinery`, 18 files): subagents summarize them,
+   and the author and Opus decide what to adopt, in a discussion session.
+4. Then the include cleanup and the purge of unused foundation code.
+
+**How to dispatch:**
+- Only one subagent builds at a time. Two builds in one `build/<preset>` folder race.
+- Read-only agents can run in parallel.
+- Haiku: narrow jobs with a pass/fail check.
+- Sonnet: multi-file ports and tests.
+- Opus and the author: design.
+- Every brief says: read the style file, edit only the listed files, no locks, no default arguments, no commit, no
+  Lodestone source edits, build both presets, and report in a fixed short format.
+- Another agent edits Lodestone's source now. A DiamondDogs build compiles its half-done edits, so a failure in
+  Lodestone is reported, not fixed.
+
 ## Start here (written at the end of the eighth session, 2026-10-21)
 
 The first eight sessions ran in one long conversation that was started from `C:\SoftwareDev\CUDA_Noise`. From now on

@@ -35,6 +35,9 @@ SET(MI_BUILD_SHARED OFF CACHE BOOL "Build shared library")
 SET(MI_BUILD_TESTS OFF CACHE BOOL "Build test executables")
 SET(MI_WIN_REDIRECT OFF CACHE BOOL "Use redirection module ('mimalloc-redirect') on Windows if compiling mimalloc as a DLL")
 
+# Precompiled headers for our own targets (never for third_party): see cmake/DiamondDogsPch.cmake
+include(cmake/DiamondDogsPch.cmake)
+
 # Lodestone: the shader cooker, the manifest client, and the Slang compiler target
 include(cmake/ConfigureLodestone.cmake)
 

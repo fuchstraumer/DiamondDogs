@@ -526,6 +526,16 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
   - Then `modules/GpuPyramid`: NVIDIA's nvpro_pyramid transcribed to Slang with attribution. It replaced
     `OceanMipsCS` at the same speed, and is checked by `GpuPyramidTest`. Lodestone requests C11 and C12 were added.
 
+### 2026-10-22 (ninth session, Opus planning with Haiku and Sonnet subagents)
+
+- HDR plan written (`docs/hdr-plan.md`), and every design question answered: AP1 working space, SB2383 AgX on
+  Rec.2020 primaries, the shoulder limit from headroom, and the pyramid-based metering (the author writes it).
+- The DisplayProbe found the `SDRWhiteLevel` units bug (4350 raw = 348 nits) and confirmed the display's pairs: HDR10
+  PQ 10-bit and scRGB FP16.
+- PlatformSystem no longer writes display state during a capability query, and DXGI is its first source.
+- `ColorPipe` + `ddColor`: the GPU agrees with the double reference within about 2e-7 (matrices) and 5.3e-5 (PQ).
+- Lodestone C13 added. HDR paused until it lands. The next work is code hygiene.
+
 ## 10. RhiResources: questions for the author, and inputs for the design session
 
 ### Questions (the port made a choice; each one is easy to reverse)

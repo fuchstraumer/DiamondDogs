@@ -61,6 +61,7 @@ target_compile_definitions(ocean_simulation PUBLIC
     "OCEAN_FFT_MANIFEST=\"$<TARGET_PROPERTY:ocean_fft_shaders,LODESTONE_MANIFEST>\"")
 add_dependencies(ocean_simulation ocean_fft_shaders)
 set_target_properties(ocean_simulation PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+diamond_dogs_add_pch(ocean_simulation LIBRARY)
 
 # The demo itself. It borrows the VulkanScene frame loop from the integration test fixtures until there is an
 # application framework to put it in.
@@ -83,6 +84,7 @@ add_executable(OceanFft
 target_include_directories(OceanFft PRIVATE "${DIAMOND_DOGS_TEST_FIXTURES}" "${PROJECT_SOURCE_DIR}/modules/PlatformSystem/include" "${CMAKE_BINARY_DIR}/include")
 target_link_libraries(OceanFft PRIVATE ocean_simulation frame_capture imgui_module platform_system glfw ${Vulkan_LIBRARY})
 set_target_properties(OceanFft PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+diamond_dogs_add_pch(OceanFft LIBRARY)
 if (DIAMOND_DOGS_COMPILER_IS_CL)
     target_compile_options(OceanFft PRIVATE "/MP")
 endif()
@@ -92,6 +94,7 @@ endif()
 add_executable(OceanFftBenchmark "benchmark/main.cpp")
 target_link_libraries(OceanFftBenchmark PRIVATE ocean_simulation rhi_resources)
 set_target_properties(OceanFftBenchmark PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+diamond_dogs_add_pch(OceanFftBenchmark LIBRARY)
 
 # The demo looks for its shader bundle next to the executable first (main.cpp), so the output folder runs on its own.
 # The copy is its own step, which depends on the bundle: a POST_BUILD copy ran only when the executable relinked, so

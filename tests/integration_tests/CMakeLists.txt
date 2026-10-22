@@ -22,6 +22,7 @@ FUNCTION(ADD_INTEGRATION_TEST NAME)
     ENDIF()
     SET_TARGET_PROPERTIES(${NAME} PROPERTIES FOLDER "Tests/Integration Tests")
     SET_TARGET_PROPERTIES(${NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+    diamond_dogs_add_pch(${NAME} LIBRARY)
     # headless tests have no cfg folder, and copy_directory fails on a missing source
     IF(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cfg")
         ADD_CUSTOM_COMMAND(TARGET ${NAME} POST_BUILD COMMAND ${CMAKE_COMMAND}

@@ -45,6 +45,7 @@ function(add_unit_test_target TARGET_NAME TEST_SOURCES LINK_LIBRARIES)
     set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 
     set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Tests/UnitTests")
+    diamond_dogs_add_pch(${TARGET_NAME} TEST)
     
     # Discover and register tests with CTest
     gtest_discover_tests(${TARGET_NAME})

@@ -12,6 +12,7 @@ target_include_directories(color_pipe PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/includ
 add_executable(color_matrix_gen "tools/color_matrix_gen.cpp")
 target_link_libraries(color_matrix_gen PRIVATE color_pipe)
 set_target_properties(color_matrix_gen PROPERTIES FOLDER "Modules" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+diamond_dogs_add_pch(color_matrix_gen LIBRARY)
 
 # ddColorGenerated.slang has to sit next to ddColor.slang, because the cooker only searches a module's own folder, so
 # it is written into the source tree (only when its contents change). A cook of ddColor needs the output of this
