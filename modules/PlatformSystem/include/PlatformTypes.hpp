@@ -91,21 +91,33 @@ enum class PresentMode : uint8_t
     VerticalSyncLatestReady = 7
 };
 
+/** @brief Tells a consumer which query produced a display value. */
+enum class DisplayValueSource : uint8_t
+{
+    Invalid = 0,
+    /** @brief Read from DXGI (`IDXGIOutput6::GetDesc1`). */
+    Dxgi,
+    /** @brief Parsed from the monitor's EDID. */
+    Edid,
+    /** @brief No query produced the value, so it holds a default. */
+    Fallback
+};
+
 /** @brief HDR/WCG information as queried from appropriate platform APIs, before system and swapchain initialization. Informs further configuration and usage. */
 struct DisplayColorCapabilities
 {
     // HDR (High Dynamic Range) support
     bool hdrSupported{ false };
     bool hdrEnabled{ false };
-    bool hdrCanBeToggled{ false };  // Some systems may not allow programmatic HDR toggling
+    // true when Windows reports that policy limits advanced color on this display. Read only: nothing here changes display state.
+    bool advancedColorLimitedByPolicy{ false };
     
     // WCG (Wide Color Gamut) support - can be independent of HDR
     bool wcgSupported{ false };
     bool wcgEnabled{ false };
-    bool wcgCanBeToggled{ false };
     
     // Additional metadata
-    float sdrWhiteLevel{ 80.0f }; // Default SDR white level in nits
+    float sdrWhiteLevel{ 80.0f }; // SDR white level in nits (80 nits is the default)
     uint32_t bitsPerColorChannel{ 8 };
 
     enum class ColorModes : uint8_t
@@ -117,12 +129,17 @@ struct DisplayColorCapabilities
     };
     ColorModes ColorMode{ ColorModes::Invalid };
 
-    // Following parameters are extracted from EDID, if available. Manufacturer may not provide these, or they could be incorrect (spruced up, usually, to look better in marketing material)
+    // Where MaxLuminance, MinLuminance and MaxAverageLuminance came from
+    DisplayValueSource LuminanceSource{ DisplayValueSource::Invalid };
+    // Where the primaries and the white point came from
+    DisplayValueSource ChromaticitySource{ DisplayValueSource::Invalid };
+
+    // Following parameters come from DXGI when it provides them, and from EDID otherwise. Manufacturer may not provide these, or they could be incorrect (spruced up, usually, to look better in marketing material)
     float MaxLuminance{ 0.0f }; // in nits
     float MinLuminance{ 0.0f }; // in nits
     float MaxAverageLuminance{ 0.0f }; // in nits
 
-    // Chromaticity coordinates, if available from EDID
+    // Chromaticity coordinates, if available from DXGI or EDID
     float RedPrimaryX{ 0.0f };
     float RedPrimaryY{ 0.0f };
     float GreenPrimaryX{ 0.0f };

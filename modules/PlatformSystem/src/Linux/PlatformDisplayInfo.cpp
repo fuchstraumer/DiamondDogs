@@ -158,8 +158,6 @@ DisplayColorCapabilities GetDisplayColorCapabilities()
     caps.advancedColorEnabled = caps.hdrEnabled && caps.wcgEnabled;
     
     // Linux generally doesn't allow programmatic toggling
-    caps.hdrCanBeToggled = false;
-    caps.wcgCanBeToggled = false;
     
     // Set reasonable defaults
     caps.sdrWhiteLevel = 80.0f;
@@ -179,7 +177,7 @@ HDRCapabilityInfo GetHDRCapabilities()
     HDRCapabilityInfo info{};
     info.isSupported = caps.hdrSupported;
     info.isEnabled = caps.hdrEnabled;
-    info.canBeToggled = caps.hdrCanBeToggled;
+    info.canBeToggled = false;
     info.sdrWhiteLevel = caps.sdrWhiteLevel;
     info.bitsPerColorChannel = caps.bitsPerColorChannel;
     

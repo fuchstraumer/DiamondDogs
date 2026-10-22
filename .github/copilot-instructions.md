@@ -62,9 +62,11 @@ meaning, and don't always reach for highly abstract verbiage. As a reminder some
 - **Naming**: PascalCase for public APIs, camelCase for private members, snake_case for parameters
 - **Single-word parameters**: snake_case and camelCase converge for a single token, so a single-word
   parameter can silently collide with a member of the same name. Prefix those with an underscore
-  (`_instance`, `_createInfo`). Most compilers still resolve the member initialization correctly, but
-  it is a silent killer when they don't, and the prefix is free. Multi-word parameters stay snake_case
-  and need no prefix (`create_info`, `module_path`)
+  (`_instance`, `_createInfo`) in constructors and member functions, where a member of that name can
+  exist. Most compilers still resolve the member initialization correctly, but it is a silent killer
+  when they don't, and the prefix is free. Free functions have no members to collide with, so their
+  parameters take no prefix (`main(int argc, char** argv)`, `Luminance(const Gamut& gamut, ...)`).
+  Multi-word parameters stay snake_case and need no prefix (`create_info`, `module_path`)
 - **Member prefixes**: `m_` must NEVER be used as prefix for member variables
 - **Array and aggregate initializers**: The opening brace goes on its own line, as every other brace
   does. One element per line when the list does not fit on one line:

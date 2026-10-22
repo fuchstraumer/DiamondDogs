@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <ranges>
+#include <span>
 
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -15,6 +16,8 @@
 #include <windows.h>
 #include <wingdi.h>
 #include <physicalmonitorenumerationapi.h>
+#include <wrl/client.h>
+#include <dxgi1_6.h>
 
 struct EDIDChromaticityCoordinates
 {
@@ -43,6 +46,35 @@ struct EDIDHdrData
     EDIDLuminanceData Luminance;
     EDIDChromaticityCoordinates Chromaticity;
 };
+
+namespace
+{
+    struct DxgiOutputColorData
+    {
+        std::wstring GdiDeviceName;
+        float MaxLuminance{ 0.0f };
+        float MinLuminance{ 0.0f };
+        float MaxFullFrameLuminance{ 0.0f };
+        float RedX{ 0.0f };
+        float RedY{ 0.0f };
+        float GreenX{ 0.0f };
+        float GreenY{ 0.0f };
+        float BlueX{ 0.0f };
+        float BlueY{ 0.0f };
+        float WhiteX{ 0.0f };
+        float WhiteY{ 0.0f };
+    };
+
+    std::vector<DxgiOutputColorData> QueryDxgiOutputColorData();
+    void AppendAdapterOutputs(IDXGIAdapter1* _adapter, std::vector<DxgiOutputColorData>& outputs);
+    std::wstring QueryGdiDeviceName(const DISPLAYCONFIG_PATH_INFO& path);
+    const DxgiOutputColorData* FindDxgiOutput(std::span<const DxgiOutputColorData> outputs, const std::wstring& gdi_device_name);
+    bool DxgiHasLuminance(const DxgiOutputColorData& output);
+    bool DxgiHasChromaticity(const DxgiOutputColorData& output);
+    void ApplyDxgiOutput(DisplayColorCapabilities& caps, const DxgiOutputColorData& output);
+    void ApplyEdidWhereDxgiMissing(DisplayColorCapabilities& caps, const EDIDHdrData& hdr_data);
+    void SetChromaticityAndDetectedColorSpace(DisplayColorCapabilities& caps, const EDIDChromaticityCoordinates& chromaticity);
+}
 
 struct ColorSpacePrimaries
 {
@@ -335,6 +367,8 @@ void SetWindowsMonitorMappings()
         throw std::runtime_error("Failed to get display config buffer sizes.");
     }
 
+    const std::vector<DxgiOutputColorData> dxgiOutputs = QueryDxgiOutputColorData();
+
     std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
     std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
 
@@ -406,23 +440,7 @@ void SetWindowsMonitorMappings()
             caps.wcgSupported = colorInfo.wideColorSupported;
             caps.wcgEnabled = colorInfo.wideColorUserEnabled;
 
-            // Test toggle capability
-            if (colorInfo.advancedColorSupported || colorInfo.highDynamicRangeSupported || colorInfo.wideColorSupported)
-            {
-                DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE testSetState{};
-                testSetState.header.type = DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE;
-                testSetState.header.size = sizeof(DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE);
-                testSetState.header.adapterId = path.targetInfo.adapterId;
-                testSetState.header.id = path.targetInfo.id;
-                testSetState.enableAdvancedColor = colorInfo.advancedColorActive;
-
-                LONG testResult = DisplayConfigSetDeviceInfo(&testSetState.header);
-                bool canToggle = (testResult == ERROR_SUCCESS);
-
-                // Windows typically toggles HDR and WCG together
-                caps.hdrCanBeToggled = canToggle && caps.hdrSupported;
-                caps.wcgCanBeToggled = canToggle && caps.wcgSupported;
-            }
+            caps.advancedColorLimitedByPolicy = colorInfo.advancedColorLimitedByPolicy;
 
             DISPLAYCONFIG_SDR_WHITE_LEVEL whiteLevelInfo{};
             whiteLevelInfo.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL;
@@ -432,7 +450,8 @@ void SetWindowsMonitorMappings()
             result = DisplayConfigGetDeviceInfo(&whiteLevelInfo.header);
             if (result == ERROR_SUCCESS)
             {
-                caps.sdrWhiteLevel = static_cast<float>(whiteLevelInfo.SDRWhiteLevel);
+                // SDRWhiteLevel is a multiplier, where 1000 means 80 nits
+                caps.sdrWhiteLevel = static_cast<float>(whiteLevelInfo.SDRWhiteLevel) / 1000.0f * 80.0f;
             }
             else
             {
@@ -442,50 +461,19 @@ void SetWindowsMonitorMappings()
             monitorInfo.ColorCapabilities = caps;
         }
 
-        // Now move on to try and extract EDID luminance data
-        std::vector<uint8_t> edidData = GetEDIDFromRegistry(wFriendlyName);
-        EDIDHdrData hdrData = GetEDIDHdrData(edidData);
-        if (hdrData.Luminance.HasValidData)
+        // DXGI is the preferred source: match its output to this path by GDI device name
+        const std::wstring gdiDeviceName = QueryGdiDeviceName(path);
+        const DxgiOutputColorData* dxgiOutput = FindDxgiOutput(dxgiOutputs, gdiDeviceName);
+        if (dxgiOutput != nullptr)
         {
-            monitorInfo.ColorCapabilities.MaxLuminance = hdrData.Luminance.Max;
-            monitorInfo.ColorCapabilities.MinLuminance = hdrData.Luminance.Min;
-            monitorInfo.ColorCapabilities.MaxAverageLuminance = hdrData.Luminance.MaxAverage;
-        }
-        else
-        {
-            monitorInfo.ColorCapabilities.MaxLuminance = 0.0f;
-            monitorInfo.ColorCapabilities.MinLuminance = 0.0f;
-            monitorInfo.ColorCapabilities.MaxAverageLuminance = 0.0f;
+            ApplyDxgiOutput(monitorInfo.ColorCapabilities, *dxgiOutput);
         }
 
-        if (hdrData.Chromaticity.HasValidData)
-        {
-            monitorInfo.ColorCapabilities.HasChromaticityData = true;
-            monitorInfo.ColorCapabilities.RedPrimaryX = hdrData.Chromaticity.RedX;
-            monitorInfo.ColorCapabilities.RedPrimaryY = hdrData.Chromaticity.RedY;
-            monitorInfo.ColorCapabilities.GreenPrimaryX = hdrData.Chromaticity.GreenX;
-            monitorInfo.ColorCapabilities.GreenPrimaryY = hdrData.Chromaticity.GreenY;
-            monitorInfo.ColorCapabilities.BluePrimaryX = hdrData.Chromaticity.BlueX;
-            monitorInfo.ColorCapabilities.BluePrimaryY = hdrData.Chromaticity.BlueY;
-            monitorInfo.ColorCapabilities.WhitePointX = hdrData.Chromaticity.WhitePointX;
-            monitorInfo.ColorCapabilities.WhitePointY = hdrData.Chromaticity.WhitePointY;
-            monitorInfo.ColorCapabilities.DetectedColorSpace = DetermineClosestColorSpace(hdrData.Chromaticity);
-            monitorInfo.ColorCapabilities.ColorSpaceConfidence = CalculateColorSpaceConfidence(hdrData.Chromaticity, monitorInfo.ColorCapabilities.DetectedColorSpace);
-        }
-        else
-        {
-            monitorInfo.ColorCapabilities.RedPrimaryX = 0.0f;
-            monitorInfo.ColorCapabilities.RedPrimaryY = 0.0f;
-            monitorInfo.ColorCapabilities.GreenPrimaryX = 0.0f;
-            monitorInfo.ColorCapabilities.GreenPrimaryY = 0.0f;
-            monitorInfo.ColorCapabilities.BluePrimaryX = 0.0f;
-            monitorInfo.ColorCapabilities.BluePrimaryY = 0.0f;
-            monitorInfo.ColorCapabilities.WhitePointX = 0.0f;
-            monitorInfo.ColorCapabilities.WhitePointY = 0.0f;
-            monitorInfo.ColorCapabilities.DetectedColorSpace = ColorSpace::Invalid;
-            monitorInfo.ColorCapabilities.ColorSpaceConfidence = 0.0f;
-        }
-        
+        // EDID fills only what DXGI did not provide
+        std::vector<uint8_t> edidData = GetEDIDFromRegistry(wFriendlyName);
+        EDIDHdrData hdrData = GetEDIDHdrData(edidData);
+        ApplyEdidWhereDxgiMissing(monitorInfo.ColorCapabilities, hdrData);
+
         k_GWindowsMonitorInfoMap.emplace(friendlyName, monitorInfo);
     }
 }
@@ -780,4 +768,190 @@ EDIDHdrData GetEDIDHdrData(const std::vector<uint8_t>& edid_data)
 
     return hdrData;
 
+}
+
+namespace
+{
+    std::vector<DxgiOutputColorData> QueryDxgiOutputColorData()
+    {
+        std::vector<DxgiOutputColorData> outputs;
+
+        Microsoft::WRL::ComPtr<IDXGIFactory6> factory;
+        const HRESULT factoryResult = CreateDXGIFactory2(0, IID_PPV_ARGS(&factory));
+        if (FAILED(factoryResult))
+        {
+            return outputs;
+        }
+
+        for (UINT adapterIndex = 0;; ++adapterIndex)
+        {
+            Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
+            const HRESULT adapterResult = factory->EnumAdapters1(adapterIndex, adapter.GetAddressOf());
+            if (FAILED(adapterResult))
+            {
+                break;
+            }
+
+            AppendAdapterOutputs(adapter.Get(), outputs);
+        }
+
+        return outputs;
+    }
+
+    void AppendAdapterOutputs(IDXGIAdapter1* _adapter, std::vector<DxgiOutputColorData>& outputs)
+    {
+        for (UINT outputIndex = 0;; ++outputIndex)
+        {
+            Microsoft::WRL::ComPtr<IDXGIOutput> output;
+            const HRESULT outputResult = _adapter->EnumOutputs(outputIndex, output.GetAddressOf());
+            if (FAILED(outputResult))
+            {
+                break;
+            }
+
+            Microsoft::WRL::ComPtr<IDXGIOutput6> output6;
+            const HRESULT queryResult = output.As(&output6);
+            if (FAILED(queryResult))
+            {
+                continue;
+            }
+
+            DXGI_OUTPUT_DESC1 desc{};
+            const HRESULT descResult = output6->GetDesc1(&desc);
+            if (FAILED(descResult))
+            {
+                continue;
+            }
+
+            DxgiOutputColorData data;
+            data.GdiDeviceName = desc.DeviceName;
+            data.MaxLuminance = desc.MaxLuminance;
+            data.MinLuminance = desc.MinLuminance;
+            data.MaxFullFrameLuminance = desc.MaxFullFrameLuminance;
+            data.RedX = desc.RedPrimary[0];
+            data.RedY = desc.RedPrimary[1];
+            data.GreenX = desc.GreenPrimary[0];
+            data.GreenY = desc.GreenPrimary[1];
+            data.BlueX = desc.BluePrimary[0];
+            data.BlueY = desc.BluePrimary[1];
+            data.WhiteX = desc.WhitePoint[0];
+            data.WhiteY = desc.WhitePoint[1];
+            outputs.push_back(std::move(data));
+        }
+    }
+
+    std::wstring QueryGdiDeviceName(const DISPLAYCONFIG_PATH_INFO& path)
+    {
+        DISPLAYCONFIG_SOURCE_DEVICE_NAME sourceName{};
+        sourceName.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+        sourceName.header.size = sizeof(DISPLAYCONFIG_SOURCE_DEVICE_NAME);
+        sourceName.header.adapterId = path.sourceInfo.adapterId;
+        sourceName.header.id = path.sourceInfo.id;
+        const LONG result = DisplayConfigGetDeviceInfo(&sourceName.header);
+        if (result != ERROR_SUCCESS)
+        {
+            return {};
+        }
+
+        return std::wstring(sourceName.viewGdiDeviceName);
+    }
+
+    const DxgiOutputColorData* FindDxgiOutput(std::span<const DxgiOutputColorData> outputs, const std::wstring& gdi_device_name)
+    {
+        if (gdi_device_name.empty())
+        {
+            return nullptr;
+        }
+
+        const auto match = std::ranges::find(outputs, gdi_device_name, &DxgiOutputColorData::GdiDeviceName);
+        if (match == outputs.end())
+        {
+            return nullptr;
+        }
+
+        return &*match;
+    }
+
+    bool DxgiHasLuminance(const DxgiOutputColorData& output)
+    {
+        return output.MaxLuminance > 0.0f;
+    }
+
+    bool DxgiHasChromaticity(const DxgiOutputColorData& output)
+    {
+        return output.RedX > 0.0f && output.GreenX > 0.0f && output.BlueX > 0.0f && output.WhiteX > 0.0f;
+    }
+
+    void ApplyDxgiOutput(DisplayColorCapabilities& caps, const DxgiOutputColorData& output)
+    {
+        if (DxgiHasLuminance(output))
+        {
+            caps.MaxLuminance = output.MaxLuminance;
+            caps.MinLuminance = output.MinLuminance;
+            caps.MaxAverageLuminance = output.MaxFullFrameLuminance;
+            caps.LuminanceSource = DisplayValueSource::Dxgi;
+        }
+
+        if (DxgiHasChromaticity(output))
+        {
+            EDIDChromaticityCoordinates chromaticity;
+            chromaticity.HasValidData = true;
+            chromaticity.RedX = output.RedX;
+            chromaticity.RedY = output.RedY;
+            chromaticity.GreenX = output.GreenX;
+            chromaticity.GreenY = output.GreenY;
+            chromaticity.BlueX = output.BlueX;
+            chromaticity.BlueY = output.BlueY;
+            chromaticity.WhitePointX = output.WhiteX;
+            chromaticity.WhitePointY = output.WhiteY;
+            SetChromaticityAndDetectedColorSpace(caps, chromaticity);
+            caps.ChromaticitySource = DisplayValueSource::Dxgi;
+        }
+    }
+
+    void ApplyEdidWhereDxgiMissing(DisplayColorCapabilities& caps, const EDIDHdrData& hdr_data)
+    {
+        if (caps.LuminanceSource == DisplayValueSource::Invalid)
+        {
+            if (hdr_data.Luminance.HasValidData)
+            {
+                caps.MaxLuminance = hdr_data.Luminance.Max;
+                caps.MinLuminance = hdr_data.Luminance.Min;
+                caps.MaxAverageLuminance = hdr_data.Luminance.MaxAverage;
+                caps.LuminanceSource = DisplayValueSource::Edid;
+            }
+            else
+            {
+                caps.LuminanceSource = DisplayValueSource::Fallback;
+            }
+        }
+
+        if (caps.ChromaticitySource == DisplayValueSource::Invalid)
+        {
+            if (hdr_data.Chromaticity.HasValidData)
+            {
+                SetChromaticityAndDetectedColorSpace(caps, hdr_data.Chromaticity);
+                caps.ChromaticitySource = DisplayValueSource::Edid;
+            }
+            else
+            {
+                caps.ChromaticitySource = DisplayValueSource::Fallback;
+            }
+        }
+    }
+
+    void SetChromaticityAndDetectedColorSpace(DisplayColorCapabilities& caps, const EDIDChromaticityCoordinates& chromaticity)
+    {
+        caps.HasChromaticityData = true;
+        caps.RedPrimaryX = chromaticity.RedX;
+        caps.RedPrimaryY = chromaticity.RedY;
+        caps.GreenPrimaryX = chromaticity.GreenX;
+        caps.GreenPrimaryY = chromaticity.GreenY;
+        caps.BluePrimaryX = chromaticity.BlueX;
+        caps.BluePrimaryY = chromaticity.BlueY;
+        caps.WhitePointX = chromaticity.WhitePointX;
+        caps.WhitePointY = chromaticity.WhitePointY;
+        caps.DetectedColorSpace = DetermineClosestColorSpace(chromaticity);
+        caps.ColorSpaceConfidence = CalculateColorSpaceConfidence(chromaticity, caps.DetectedColorSpace);
+    }
 }
