@@ -37,6 +37,8 @@ add_subdirectory(PlatformSystem)
 add_subdirectory(RhiResources)
 # copies rendered images out to PNG files
 add_subdirectory(FrameCapture)
+# fills mip chains with compute shaders (NvproPyramid)
+add_subdirectory(GpuPyramid)
 # This module provides imgui as a basic debugging UI
 # that sits just BARELY over the resource and rendering contexts
 add_subdirectory(ImGuiModule)

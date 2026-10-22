@@ -37,6 +37,7 @@ ENDFUNCTION()
 ADD_SUBDIRECTORY(TriangleTest)
 ADD_SUBDIRECTORY(ComputeManifestTest)
 ADD_SUBDIRECTORY(OceanFftTest)
+ADD_SUBDIRECTORY(GpuPyramidTest)
 ADD_SUBDIRECTORY(ImGuiTest)
 #ADD_SUBDIRECTORY(ResourceContextTest)  # Requires rewrite for new RhiResources module
 #ADD_SUBDIRECTORY(ContentCompilerTest)
