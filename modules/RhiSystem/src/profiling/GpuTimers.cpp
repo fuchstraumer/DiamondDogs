@@ -7,16 +7,15 @@
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include <algorithm>
-#include <array>
+#include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <deque>
 #include <format>
 #include <iostream>
 #include <memory>
-#include <mutex>
 #include <optional>
-#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -29,8 +28,9 @@ namespace rhi
     namespace
     {
         constexpr size_t k_MaxCompletedBlocks = 1024u;
-        // debug utils labels need a terminated string; longer names are cut in the label only
-        constexpr size_t k_MaxLabelLength = 127u;
+        // each scope's name is copied into its block: up to 63 characters and a terminator, which the debug label
+        // uses as it is
+        constexpr size_t k_NameStride = 64u;
     }
 
     struct GpuTimersImpl
@@ -48,14 +48,16 @@ namespace rhi
             uint32_t Depth{ 0u };
         };
 
-        // the recording thread owns Scopes and Dropped while the block is Recording; the state changes under the
-        // mutex, which also publishes them to Collect
+        // State hands a block between threads. A recording thread takes it Free -> Recording with an acquire CAS, and
+        // owns everything else in the block until it stores Pending with release. The coalesce step reads Pending
+        // with acquire, and stores Free with release once it is done with the block
         struct Block
         {
-            BlockState State{ BlockState::Free };
+            std::atomic<BlockState> State{ BlockState::Free };
             uint64_t Tag{ 0u };
             uint64_t Sequence{ 0u };
             std::vector<ScopeRecord> Scopes;
+            std::vector<char> Names;
             uint32_t Dropped{ 0u };
         };
 
@@ -67,16 +69,19 @@ namespace rhi
         PFN_vkCmdBeginDebugUtilsLabelEXT BeginLabel{ nullptr };
         PFN_vkCmdEndDebugUtilsLabelEXT EndLabel{ nullptr };
 
-        mutable std::mutex Mutex;
-        std::vector<Block> Blocks;
-        uint64_t NextSequence{ 0u };
-        uint64_t DroppedBlocks{ 0u };
+        // shared by recording threads: atomics only
+        uint32_t BlockCount{ 0u };
+        std::unique_ptr<Block[]> Blocks;
+        std::atomic<uint32_t> NextBlock{ 0u };
+        std::atomic<uint64_t> NextSequence{ 0u };
+        std::atomic<uint64_t> DroppedBlocks{ 0u };
+        // whole nanoseconds, so the transfer thread's Collect and the frame's reader need no lock
+        std::atomic<uint64_t> BusyNanoseconds{ 0u };
+
+        // the coalesce step's alone
         std::optional<GpuTimingBlock> Latest;
         uint64_t LatestSequence{ 0u };
         std::deque<GpuTimingBlock> Completed;
-        double BusyNanoseconds{ 0.0 };
-
-        mutable std::shared_mutex NamesMutex;
         std::unordered_map<uint64_t, std::string> Names;
         std::unordered_set<uint64_t> ReportedCollisions;
 
@@ -85,20 +90,9 @@ namespace rhi
             return (block * MaxScopes + scope) * 2u;
         }
 
-        // the first name seen for a hash is copied, so nothing points into the caller's string
+        // the first name seen for a hash is kept, so a Name() view stays valid
         void InternName(uint64_t hash, std::string_view name)
         {
-            {
-                const std::shared_lock lock(NamesMutex);
-                const auto found = Names.find(hash);
-
-                if (found != Names.end() && found->second == name)
-                {
-                    return;
-                }
-            }
-
-            const std::unique_lock lock(NamesMutex);
             const auto [found, inserted] = Names.try_emplace(hash, name);
 
             if (!inserted && found->second != name && ReportedCollisions.insert(hash).second)
@@ -107,7 +101,7 @@ namespace rhi
             }
         }
 
-        [[nodiscard]] std::optional<GpuTimingBlock> ReadBlock(Block& block, uint32_t index) const
+        [[nodiscard]] std::optional<GpuTimingBlock> ReadBlock(const Block& block, uint32_t index) const
         {
             GpuTimingBlock result{};
             result.Tag = block.Tag;
@@ -194,11 +188,13 @@ namespace rhi
         impl->MaxScopes = create_info.MaxScopesPerBlock;
         impl->TimestampPeriod = static_cast<double>(properties.limits.timestampPeriod);
         impl->ValidMask = validBits >= 64u ? ~0ull : (1ull << validBits) - 1ull;
-        impl->Blocks.resize(create_info.BlockCount);
+        impl->BlockCount = create_info.BlockCount;
+        impl->Blocks = std::make_unique<GpuTimersImpl::Block[]>(create_info.BlockCount);
 
-        for (GpuTimersImpl::Block& block : impl->Blocks)
+        for (uint32_t index = 0; index < impl->BlockCount; ++index)
         {
-            block.Scopes.reserve(create_info.MaxScopesPerBlock);
+            impl->Blocks[index].Scopes.reserve(create_info.MaxScopesPerBlock);
+            impl->Blocks[index].Names.resize(size_t{ create_info.MaxScopesPerBlock } * k_NameStride);
         }
 
         impl->Pool.emplace(device.Handle(), QueryType::Timestamp, create_info.BlockCount * create_info.MaxScopesPerBlock * 2u);
@@ -227,13 +223,12 @@ namespace rhi
             return;
         }
 
-        const std::lock_guard lock(impl->Mutex);
         // in the order the blocks were begun, so Completed stays oldest first
         std::vector<uint32_t> pending;
 
-        for (uint32_t index = 0; index < impl->Blocks.size(); ++index)
+        for (uint32_t index = 0; index < impl->BlockCount; ++index)
         {
-            if (impl->Blocks[index].State == GpuTimersImpl::BlockState::Pending)
+            if (impl->Blocks[index].State.load(std::memory_order_acquire) == GpuTimersImpl::BlockState::Pending)
             {
                 pending.push_back(index);
             }
@@ -252,12 +247,20 @@ namespace rhi
             }
 
             // every query of the block was written, so the GPU is done with them
-            if (!block.Scopes.empty())
+            const uint32_t used = static_cast<uint32_t>(block.Scopes.size());
+
+            if (used != 0u)
             {
-                impl->Pool->Reset(impl->FirstQuery(index, 0u), static_cast<uint32_t>(block.Scopes.size()) * 2u);
+                impl->Pool->Reset(impl->FirstQuery(index, 0u), used * 2u);
             }
 
-            impl->BusyNanoseconds += result->TopLevelNanoseconds;
+            for (uint32_t scope = 0; scope < used; ++scope)
+            {
+                const char* name = block.Names.data() + size_t{ scope } * k_NameStride;
+                impl->InternName(block.Scopes[scope].Hash, std::string_view{ name, std::strlen(name) });
+            }
+
+            impl->BusyNanoseconds.fetch_add(static_cast<uint64_t>(std::llround(result->TopLevelNanoseconds)), std::memory_order_relaxed);
 
             if (!impl->Latest.has_value() || block.Sequence >= impl->LatestSequence)
             {
@@ -274,36 +277,29 @@ namespace rhi
 
             block.Scopes.clear();
             block.Dropped = 0u;
-            block.State = GpuTimersImpl::BlockState::Free;
+            block.State.store(GpuTimersImpl::BlockState::Free, std::memory_order_release);
         }
     }
 
     std::optional<GpuTimingBlock> GpuTimers::Latest() const
     {
-        const std::lock_guard lock(impl->Mutex);
         return impl->Latest;
     }
 
     std::vector<GpuTimingBlock> GpuTimers::TakeCompleted()
     {
-        const std::lock_guard lock(impl->Mutex);
         std::vector<GpuTimingBlock> completed{ std::make_move_iterator(impl->Completed.begin()), std::make_move_iterator(impl->Completed.end()) };
         impl->Completed.clear();
         return completed;
     }
 
-    double GpuTimers::TakeBusyNanoseconds()
+    double GpuTimers::TakeBusyNanoseconds() noexcept
     {
-        const std::lock_guard lock(impl->Mutex);
-        const double busy = impl->BusyNanoseconds;
-        impl->BusyNanoseconds = 0.0;
-        return busy;
+        return static_cast<double>(impl->BusyNanoseconds.exchange(0u, std::memory_order_relaxed));
     }
 
     std::optional<double> GpuTimers::Find(uint64_t hash) const
     {
-        const std::lock_guard lock(impl->Mutex);
-
         if (!impl->Latest.has_value())
         {
             return std::nullopt;
@@ -329,16 +325,14 @@ namespace rhi
 
     std::string_view GpuTimers::Name(uint64_t hash) const
     {
-        const std::shared_lock lock(impl->NamesMutex);
         const auto found = impl->Names.find(hash);
-        // the map is node-based and never erases, so the view stays valid after the lock
+        // the map is node-based and never erases, so the view stays valid
         return found != impl->Names.end() ? std::string_view{ found->second } : std::string_view{};
     }
 
     uint64_t GpuTimers::DroppedBlocks() const noexcept
     {
-        const std::lock_guard lock(impl->Mutex);
-        return impl->DroppedBlocks;
+        return impl->DroppedBlocks.load(std::memory_order_relaxed);
     }
 
     GpuTimerBlock::GpuTimerBlock(GpuTimers& _timers, CommandBuffer& command_buffer, uint64_t tag) : timers{ &_timers }, commandBuffer{ &command_buffer }
@@ -349,19 +343,31 @@ namespace rhi
         }
 
         GpuTimersImpl& impl = *timers->impl;
-        const std::lock_guard lock(impl.Mutex);
-        const auto freeBlock = std::ranges::find(impl.Blocks, GpuTimersImpl::BlockState::Free, &GpuTimersImpl::Block::State);
+        // threads start their search at different blocks, so they rarely race for the same one
+        const uint32_t start = impl.NextBlock.fetch_add(1u, std::memory_order_relaxed);
 
-        if (freeBlock == impl.Blocks.end())
+        for (uint32_t offset = 0; offset < impl.BlockCount; ++offset)
         {
-            ++impl.DroppedBlocks;
+            const uint32_t candidate = (start + offset) % impl.BlockCount;
+            GpuTimersImpl::BlockState expected = GpuTimersImpl::BlockState::Free;
+
+            if (impl.Blocks[candidate].State.compare_exchange_strong(expected, GpuTimersImpl::BlockState::Recording,
+                                                                     std::memory_order_acquire, std::memory_order_relaxed))
+            {
+                index = candidate;
+                break;
+            }
+        }
+
+        if (index == ~0u)
+        {
+            impl.DroppedBlocks.fetch_add(1u, std::memory_order_relaxed);
             return;
         }
 
-        freeBlock->State = GpuTimersImpl::BlockState::Recording;
-        freeBlock->Tag = tag;
-        freeBlock->Sequence = impl.NextSequence++;
-        index = static_cast<uint32_t>(freeBlock - impl.Blocks.begin());
+        GpuTimersImpl::Block& block = impl.Blocks[index];
+        block.Tag = tag;
+        block.Sequence = impl.NextSequence.fetch_add(1u, std::memory_order_relaxed);
     }
 
     GpuTimerBlock::~GpuTimerBlock()
@@ -371,9 +377,7 @@ namespace rhi
             return;
         }
 
-        GpuTimersImpl& impl = *timers->impl;
-        const std::lock_guard lock(impl.Mutex);
-        impl.Blocks[index].State = GpuTimersImpl::BlockState::Pending;
+        timers->impl->Blocks[index].State.store(GpuTimersImpl::BlockState::Pending, std::memory_order_release);
     }
 
     bool GpuTimerBlock::Active() const noexcept
@@ -388,6 +392,7 @@ namespace rhi
             return;
         }
 
+        // the block belongs to this thread while it records, so nothing here is shared
         GpuTimersImpl& impl = *block->timers->impl;
         GpuTimersImpl::Block& record = impl.Blocks[block->index];
 
@@ -397,20 +402,20 @@ namespace rhi
             return;
         }
 
-        const uint64_t hash = HashGpuTimerName(name);
-        impl.InternName(hash, name);
         scope = static_cast<uint32_t>(record.Scopes.size());
-        record.Scopes.push_back(GpuTimersImpl::ScopeRecord{ hash, block->depth });
+        record.Scopes.push_back(GpuTimersImpl::ScopeRecord{ HashGpuTimerName(name), block->depth });
         ++block->depth;
+
+        char* nameCopy = record.Names.data() + size_t{ scope } * k_NameStride;
+        const size_t length = std::min(name.size(), k_NameStride - 1u);
+        std::memcpy(nameCopy, name.data(), length);
+        nameCopy[length] = '\0';
 
         block->commandBuffer->WriteTimestamp(PipelineStage::TopOfPipe, impl.Pool->Handle(), impl.FirstQuery(block->index, scope));
 
         if (impl.BeginLabel != nullptr)
         {
-            std::array<char, k_MaxLabelLength + 1u> label{};
-            const size_t length = std::min(name.size(), k_MaxLabelLength);
-            std::memcpy(label.data(), name.data(), length);
-            const VkDebugUtilsLabelEXT labelInfo{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT, nullptr, label.data(), { 0.0f, 0.0f, 0.0f, 0.0f } };
+            const VkDebugUtilsLabelEXT labelInfo{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT, nullptr, nameCopy, { 0.0f, 0.0f, 0.0f, 0.0f } };
             impl.BeginLabel(block->commandBuffer->Handle().As<VkCommandBuffer>(), &labelInfo);
         }
     }

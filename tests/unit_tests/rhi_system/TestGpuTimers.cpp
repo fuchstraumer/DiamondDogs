@@ -10,12 +10,15 @@
 #include "RhiResult.hpp"
 #include "RhiSystem.hpp"
 #include "RhiTypes.hpp"
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <string_view>
+#include <thread>
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
@@ -249,6 +252,93 @@ TEST_F(GpuTimersTest, BlocksRunOutWhilePendingAndComeBackAfterCollect)
     submitAndWait(device->GetGeneralQueue(), again);
     timers.Collect();
     EXPECT_EQ(timers.Latest()->Tag, 3u);
+}
+
+// Four threads record their own blocks at the same time, with no lock in GpuTimers; one coalesce step collects them
+TEST_F(GpuTimersTest, ThreadsRecordBlocksAtOnce)
+{
+    constexpr uint32_t k_Threads = 4u;
+    constexpr uint32_t k_ScopesPerThread = 8u;
+    constexpr VkDeviceSize k_Chunk = k_BufferBytes / k_ScopesPerThread;
+    constexpr std::array<std::string_view, k_ScopesPerThread> k_Names{ "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7" };
+    rhi::GpuTimers timers(*device, rhi::GpuTimersCreateInfo{ graphicsFamily, k_Threads, k_ScopesPerThread });
+    ASSERT_TRUE(timers.Active()) << timers.InactiveReason();
+
+    // command pools are externally synchronized, so each thread gets its own, and its own buffer
+    std::vector<std::unique_ptr<rhi::CommandPool>> pools;
+    std::vector<const TestBuffer*> targets;
+
+    for (uint32_t thread = 0; thread < k_Threads; ++thread)
+    {
+        pools.push_back(std::make_unique<rhi::CommandPool>(device->Handle(), rhi::CommandPool::Type::Graphics, graphicsFamily));
+        ASSERT_TRUE(pools.back()->AllocateCommandBuffers(1).IsSuccess());
+        targets.push_back(&createBuffer(VK_BUFFER_USAGE_TRANSFER_DST_BIT));
+    }
+
+    std::array<bool, k_Threads> recorded{};
+    std::vector<std::thread> threads;
+
+    for (uint32_t thread = 0; thread < k_Threads; ++thread)
+    {
+        threads.emplace_back([&, thread]()
+        {
+            rhi::CommandBuffer cmd(pools[thread]->GetCommandBuffer(0));
+            recorded[thread] = cmd.Begin().IsSuccess();
+
+            {
+                rhi::GpuTimerBlock block(timers, cmd, thread);
+                recorded[thread] = recorded[thread] && block.Active();
+
+                // each scope fills its own chunk, so the fills need no barriers between them
+                for (uint32_t scope = 0; scope < k_ScopesPerThread; ++scope)
+                {
+                    rhi::ScopedGpuTimer timer(block, k_Names[scope]);
+                    cmd.FillBuffer(targets[thread]->Handle(), scope * k_Chunk, k_Chunk, scope);
+                }
+            }
+
+            recorded[thread] = cmd.End().IsSuccess() && recorded[thread];
+        });
+    }
+
+    for (std::thread& thread : threads)
+    {
+        thread.join();
+    }
+
+    std::vector<rhi::CommandBufferHandle> handles;
+
+    for (uint32_t thread = 0; thread < k_Threads; ++thread)
+    {
+        ASSERT_TRUE(recorded[thread]) << "thread " << thread;
+        handles.push_back(pools[thread]->GetCommandBuffer(0));
+    }
+
+    rhi::Fence fence(device->Handle());
+    ASSERT_TRUE(rhi::QueueSubmit(device->GetGeneralQueue(), rhi::SubmitInfo{ {}, handles, {} }, fence.Handle()).IsSuccess());
+    ASSERT_TRUE(fence.Wait(k_TimeoutNs));
+
+    timers.Collect();
+    const std::vector<rhi::GpuTimingBlock> completed = timers.TakeCompleted();
+    ASSERT_EQ(completed.size(), k_Threads);
+    std::array<bool, k_Threads> seenTags{};
+
+    for (const rhi::GpuTimingBlock& result : completed)
+    {
+        ASSERT_LT(result.Tag, k_Threads);
+        seenTags[result.Tag] = true;
+        ASSERT_EQ(result.Timings.size(), k_ScopesPerThread);
+
+        for (uint32_t scope = 0; scope < k_ScopesPerThread; ++scope)
+        {
+            EXPECT_EQ(result.Timings[scope].Hash, rhi::HashGpuTimerName(k_Names[scope]));
+            EXPECT_EQ(result.Timings[scope].Depth, 0u);
+        }
+    }
+
+    EXPECT_TRUE(std::ranges::all_of(seenTags, [](bool seen) { return seen; }));
+    EXPECT_EQ(timers.Name(rhi::HashGpuTimerName("s5")), "s5");
+    EXPECT_EQ(timers.DroppedBlocks(), 0u);
 }
 
 // The transfer queue cannot reset a query pool in a command buffer, so this proves the host reset path too

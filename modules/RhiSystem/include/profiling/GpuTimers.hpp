@@ -25,7 +25,14 @@
  *
  *  Collect reads results with VK_QUERY_RESULT_WITH_AVAILABILITY_BIT and never waits: a block whose queries are not
  *  all written yet stays pending until a later Collect. The query pool is reset on the host, which works for every
- *  queue type (the transfer queue cannot record vkCmdResetQueryPool). */
+ *  queue type (the transfer queue cannot record vkCmdResetQueryPool).
+ *
+ *  Threading, with no locks:
+ *  - Recording: any number of threads at once, each with its own blocks. A block is taken with an atomic
+ *    compare-exchange and handed back with a release store, and everything between belongs to its thread.
+ *  - The coalesce step: Collect, Latest, TakeCompleted, Find and Name run on one thread at a time, for example at the
+ *    start of each frame. They may run while other threads record.
+ *  - From any thread: TakeBusyNanoseconds, DroppedBlocks, Active and InactiveReason. */
 #ifndef RHI_GPU_TIMERS_ENABLED
 #define RHI_GPU_TIMERS_ENABLED 0
 #endif
@@ -96,18 +103,20 @@ namespace rhi
         [[nodiscard]] std::string_view InactiveReason() const noexcept;
 
         /** @brief Reads every finished block whose queries are all available, publishes it, and frees it. Never
-         *  waits. Safe from any thread */
+         *  waits. The coalesce step: one thread at a time */
         void Collect();
         /** @brief The most recently collected block, by the order the blocks were begun */
         [[nodiscard]] std::optional<GpuTimingBlock> Latest() const;
         /** @brief Every block collected since the last call, oldest first (at most the last 1024) */
         [[nodiscard]] std::vector<GpuTimingBlock> TakeCompleted();
-        /** @brief The sum of TopLevelNanoseconds over the blocks collected since the last call: queue busy time */
-        [[nodiscard]] double TakeBusyNanoseconds();
+        /** @brief The sum of TopLevelNanoseconds over the blocks collected since the last call: queue busy time, in
+         *  whole nanoseconds. Any thread, so the transfer thread can collect while the frame reads */
+        [[nodiscard]] double TakeBusyNanoseconds() noexcept;
         /** @brief The total time of every scope with this hash in Latest(), or nothing when it has none */
         [[nodiscard]] std::optional<double> Find(uint64_t hash) const;
         [[nodiscard]] std::optional<double> Find(std::string_view name) const;
-        /** @brief The name a scope with this hash was first opened with (GpuTimers keeps its own copy), or empty */
+        /** @brief The name a scope with this hash was first opened with, as of the last Collect (GpuTimers keeps its
+         *  own copy, of up to 63 characters), or empty */
         [[nodiscard]] std::string_view Name(uint64_t hash) const;
         /** @brief Blocks that found no free block, because too many were pending */
         [[nodiscard]] uint64_t DroppedBlocks() const noexcept;
@@ -120,8 +129,7 @@ namespace rhi
 
     /** @brief One command buffer's scopes. It takes a free block on construction (or none, when every block is
      *  pending: then its scopes record nothing). The destructor hands it to Collect, so destroy it once its last
-     *  scope is closed. Recording state is local to the block, so several blocks of one GpuTimers can record on
-     *  different threads at once */
+     *  scope is closed. A block and its scopes are used by one thread; other threads use their own blocks */
     class GpuTimerBlock
     {
     public:
