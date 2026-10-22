@@ -104,6 +104,21 @@ Uncommitted (this session):
   - **Pattern:** this is the first "domain transform pipe" outside Lodestone. The HDR work is to follow the same
     shape.
 
+- **Mips and anisotropy (seventh session):**
+  - Displacement and Derivatives have full mip chains (10 levels at 512). `RecordTick` fills them after the resolve
+    with a chain of linear blits (`OceanSimulationImpl::RecordMips`). One view covers every mip, and the resolve's
+    storage write goes to the view's base level, mip 0.
+  - New in RhiSystem: `rhi::CommandBuffer::BlitImage`, `rhi::ImageBlit` and `rhi::BlitFilter`.
+  - `OceanSimulation::k_TickStages` / `k_TickWriteAccess` name the tick's writes (compute and blit). The scene's
+    barriers before and after the tick and `RecordInitialize`'s transition use them. Synchronization validation
+    found both misses (the transition, and write-after-write across frames).
+  - Vertex stage: each cascade is read at `CascadeLod(cascade, quadSize)`, the mip whose texels are as wide as the
+    ring's quads (`LodParameters.y` is the texture size). The fragment stage needed no change: `Sample` picks the mip.
+  - The ocean sampler is 16x anisotropic when the device supports it (`k_MaxAnisotropy`). Trilinear alone blurred the
+    distance flat.
+  - OceanFftTest checks that displacement mip 1 is the 2x2 average of mip 0 (measured 2.3e-4 relative RMS).
+  - Captures: the horizon sparkle is gone. Motion shimmer was not checked by eye in a running window.
+
 ## Lodestone requests C6-C9 (added to `../Lodestone/docs/diamonddogs-requests.md` on 2026-10-21, with approval)
 
 - **C6, generated host layout headers:**
@@ -125,8 +140,20 @@ Uncommitted (this session):
 
 ## Next work
 
-0. **Distant-surface aliasing (now very visible near the horizon):** generate mips for Displacement and Derivatives after the resolve pass (or fade the
-   fine cascades out with distance), and sample with LOD. MSAA cannot fix this.
+0. **Done (seventh session):** mips and anisotropic filtering for the surface textures. A possible refinement: the
+   slope variance lost by averaging the Derivatives mips (a "Toksvig" or LEAN-style roughness term) belongs in her
+   fragment shading.
+
+0b. **Done (seventh session): a shareable demo build.**
+   - `main.cpp` picks `Full` validation only when `VK_LAYER_KHRONOS_validation` is installed, and `None` otherwise
+     (with a message). `Instance::setupValidation` still has the Release-only hole: its `assert(checkLayerSupport)`
+     disappears in Release, so other executables still fail on a machine without the SDK.
+   - The bundle is copied next to the exe as `OceanFft.ldmanifest` after each build. `FindManifest` in `main.cpp`
+     prefers that copy over the compiled-in `OCEAN_FFT_MANIFEST`, and `OceanSceneSettings::ManifestPath` carries it.
+   - `OceanFft_package` writes `build/<preset>/package/OceanFft-<config>`. With `ninja-msvc-static` that is two files
+     (exe and bundle). With the other presets it also holds the VC++ runtime DLLs (`InstallRequiredSystemLibraries`).
+   - Checked: both packages ran from a scratchpad copy with `VK_LOADER_LAYERS_DISABLE=~all~`, and the static
+     package captured a frame. The static exe imports only system DLLs and `vulkan-1.dll`.
 
 1. **Math backport, then cameras.** Replace foundation's math outright with `C:\SoftwareDev\VeloxRhi\include\math`
    (it began as a trimmed copy of foundation's math, and adds bug fixes, cleanup and a WASM backend). Port
@@ -139,7 +166,7 @@ Uncommitted (this session):
 4. **mimalloc:** try our v3.5.4 in place of Slang's v2.1.7 (audit section 5).
 5. **Donelan-Banner's Hs excess** (2.15 vs 2.10 m): check whether it is the LUT, the alignment lerp, or the k-grid
    sampling of a narrower lobe.
-6. **GPU profiling and debug labels** (the author's order: after the mips):
+6. **GPU profiling and debug labels** (next; drafted in `docs/gpu-timers-plan.md`, awaiting her go-ahead):
    - A push/pop scope model: `ScopedGpuZone` / `cmd.PushZone("name")` writes a timestamp query (or a pair) and a
      `VK_EXT_debug_utils` label region, so RenderDoc, PIX and Nsight see the same names.
    - Results are read back a few frames late from a ring of query pools, and shown in the panel as a tree.

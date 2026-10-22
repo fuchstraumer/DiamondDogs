@@ -34,6 +34,14 @@ cmake --preset ninja-msvc
 cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests TriangleTest ComputeManifestTest ImGuiTest
 ```
 
+A third preset, `ninja-msvc-static` (in `build/ninja-msvc-static`), links the static C runtime into everything,
+Slang included, for builds that run on other machines. Build its `OceanFft_package` target in Release. The result,
+`package/OceanFft-Release`, needs only a GPU driver with Vulkan. The preset also sets `CMAKE_POLICY_DEFAULT_CMP0091`
+to NEW, because the root `cmake_minimum_required(VERSION 3.10)` leaves that policy OLD, and OLD ignores
+`CMAKE_MSVC_RUNTIME_LIBRARY`. It sets glfw's `USE_MSVC_RUNTIME_LIBRARY_DLL` OFF too. Check the result with
+`dumpbin /dependents`: no `VCRUNTIME140.dll` or `MSVCP140.dll`. The same target in the other presets copies the
+VC++ runtime DLLs next to the exe instead (app-local deployment).
+
 CMake sets `MSVC` for clang-cl too, so `if(MSVC)` means "cl-style flags", not "cl.exe". clang-cl has no `/MP` (and
 gtest builds with `-WX`, so the warning fails the build) and no SVML library (`_XM_SVML_INTRINSICS_` breaks
 DirectXMath). Guard those with `DIAMOND_DOGS_COMPILER_IS_CL`, which the root `CMakeLists.txt` sets.

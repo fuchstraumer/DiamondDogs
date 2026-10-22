@@ -160,10 +160,10 @@ void OceanScene::Initialize(void* user_data)
     resources = std::make_unique<ResourceContext>();
     resources->Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
 
-    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> opened = rhi::ShaderLibrary::Open(OCEAN_FFT_MANIFEST);
+    rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> opened = rhi::ShaderLibrary::Open(settings.ManifestPath);
     if (!opened.has_value())
     {
-        throw std::runtime_error(std::format("OceanScene: opening {} failed: {}", OCEAN_FFT_MANIFEST, rhi::ToString(opened.error())));
+        throw std::runtime_error(std::format("OceanScene: opening {} failed: {}", settings.ManifestPath.string(), rhi::ToString(opened.error())));
     }
 
     library = std::move(*opened);

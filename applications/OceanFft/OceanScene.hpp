@@ -31,6 +31,8 @@ namespace rhi
 struct OceanSceneSettings
 {
     ocean::OceanSimulationSettings Simulation{};
+    /** @brief The cooked shader bundle (OceanFft.ldmanifest) */
+    std::filesystem::path ManifestPath;
     /** @brief The surface: tiles of GridSize meters in GridRings rings around the camera's tile. The center tile has
      *  GridResolution x GridResolution quads; each ring out halves that, down to GridMinResolution (powers of two
      *  apart, so the rings stitch without cracks) */

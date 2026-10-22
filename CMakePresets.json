@@ -33,6 +33,17 @@
             }
         },
         {
+            "name": "ninja-msvc-static",
+            "displayName": "Win64 MSVC, static C runtime",
+            "description": "For builds that run on other machines: no VC++ runtime DLLs needed (build the OceanFft_package target)",
+            "inherits": "ninja-msvc",
+            "cacheVariables": {
+                "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
+                "CMAKE_POLICY_DEFAULT_CMP0091": "NEW",
+                "USE_MSVC_RUNTIME_LIBRARY_DLL": "OFF"
+            }
+        },
+        {
             "name": "ninja-clang-cl",
             "displayName": "Win64 Clang-CL",
             "inherits": "ninja-x64",

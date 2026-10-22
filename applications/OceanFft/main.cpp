@@ -1,18 +1,30 @@
+#include "ArcballCamera.hpp"
 #include "Device.hpp"
 #include "FrameLimit.hpp"
 #include "OceanScene.hpp"
 #include "PlatformSystem.hpp"
 #include "RhiSystem.hpp"
 #include "SceneCommands.hpp"
+#define WIN32_LEAN_AND_MEAN
+// Windows.h first: libloaderapi.h and minwindef.h need the target architecture macros it sets
+#include <Windows.h>
+#include <libloaderapi.h>
+#include <minwindef.h>
+#include <system_error>
+#include <vulkan/vulkan_core.h>
+#include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <numbers>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // The OceanFft demo: a square of FFT ocean over a seabed, with an orbit camera and an ImGui panel.
 //   --frames=N      render N frames and exit (for unattended runs)
@@ -35,6 +47,51 @@ namespace
         bool Stdin{ false };
         std::optional<std::string> Script;
     };
+
+    // The validation layer comes with the Vulkan SDK, not with the GPU driver. On a machine without the SDK the demo
+    // runs without validation, instead of failing to create its instance
+    rhi::ValidationLayers PickValidationLayers()
+    {
+        uint32_t count = 0u;
+        std::vector<VkLayerProperties> layers;
+
+        if (vkEnumerateInstanceLayerProperties(&count, nullptr) == VK_SUCCESS)
+        {
+            layers.resize(count);
+            vkEnumerateInstanceLayerProperties(&count, layers.data());
+            layers.resize(count);
+        }
+
+        const bool found = std::ranges::any_of(layers, [](const VkLayerProperties& layer)
+        {
+            return std::string_view{ layer.layerName } == "VK_LAYER_KHRONOS_validation";
+        });
+
+        if (!found)
+        {
+            std::cerr << "OceanFft: VK_LAYER_KHRONOS_validation is not installed (it comes with the Vulkan SDK), so the demo runs without validation\n";
+            return rhi::ValidationLayers::None;
+        }
+
+        return rhi::ValidationLayers::Full;
+    }
+
+    // The build copies the cooked shader bundle next to the executable, so the folder runs on another machine. A
+    // build-tree executable without the copy falls back to the bundle in the build directory
+    std::filesystem::path FindManifest()
+    {
+        std::array<wchar_t, 32768> modulePath{};
+        const DWORD length = GetModuleFileNameW(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
+        const std::filesystem::path beside = std::filesystem::path{ std::wstring_view{ modulePath.data(), length } }.parent_path() / "OceanFft.ldmanifest";
+        std::error_code error;
+
+        if (length != 0u && std::filesystem::exists(beside, error))
+        {
+            return beside;
+        }
+
+        return std::filesystem::path{ OCEAN_FFT_MANIFEST };
+    }
 
     template<typename T>
     bool ParseNumber(std::string_view text, T& value)
@@ -126,7 +183,7 @@ int main(int argc, char* argv[])
     rhi::RhiSystemCreateInfo rhiCreateInfo{};
     rhiCreateInfo.ApplicationName = "OceanFft";
     rhiCreateInfo.VkVersion = rhi::ApiVersion::Latest;
-    rhiCreateInfo.ValidationLevel = rhi::ValidationLayers::Full;
+    rhiCreateInfo.ValidationLevel = PickValidationLayers();
     rhiCreateInfo.RequiredInstanceExtensions =
     {
         "VK_EXT_debug_utils",
@@ -158,6 +215,7 @@ int main(int argc, char* argv[])
     platformSystem->CreateDefaultSwapchain(rhiSystem->GetInstance(), rhiSystem->GetDevice());
 
     OceanSceneSettings settings{};
+    settings.ManifestPath = FindManifest();
     CommandLine commandLine{};
     ParseArguments(argc, argv, settings, commandLine);
     settings.Simulation.WaveSize = commandLine.NoWaveOps ? 0u : ocean::PickWaveSize(*rhiSystem->GetDevice());

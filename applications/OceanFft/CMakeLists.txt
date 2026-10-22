@@ -87,3 +87,34 @@ set_target_properties(OceanFft PROPERTIES FOLDER "Applications/OceanFft" CXX_STA
 if (DIAMOND_DOGS_COMPILER_IS_CL)
     target_compile_options(OceanFft PRIVATE "/MP")
 endif()
+
+# The demo looks for its shader bundle next to the executable first (main.cpp), so the output folder runs on its own
+set(OCEAN_FFT_BUNDLE "$<TARGET_PROPERTY:ocean_fft_shaders,LODESTONE_MANIFEST>")
+add_custom_command(TARGET OceanFft POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${OCEAN_FFT_BUNDLE}" "$<TARGET_FILE_DIR:OceanFft>/OceanFft.ldmanifest"
+    COMMENT "Copying the OceanFft shader bundle next to the executable"
+    VERBATIM)
+
+# OceanFft_package: a folder to copy to another machine, in build/<preset>/package/OceanFft-<config>. It holds the
+# executable and the shader bundle and, with a DLL C runtime, the release VC++ runtime DLLs (app-local deployment,
+# so the other machine needs no redistributable installer). Use a Release build: Debug executables need the debug
+# runtime, which only Visual Studio installs. The other machine needs only a GPU driver with Vulkan and
+# VK_EXT_shader_object; without the Vulkan SDK the demo runs without validation.
+set(OCEAN_FFT_PACKAGE_DIR "${CMAKE_BINARY_DIR}/package/OceanFft-$<CONFIG>")
+set(OCEAN_FFT_PACKAGE_RUNTIME_DLLS "")
+
+if (MSVC AND (NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY OR CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "DLL"))
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+    include(InstallRequiredSystemLibraries)
+    set(OCEAN_FFT_PACKAGE_RUNTIME_DLLS ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS})
+endif()
+
+add_custom_target(OceanFft_package
+    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${OCEAN_FFT_PACKAGE_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${OCEAN_FFT_PACKAGE_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:OceanFft>" ${OCEAN_FFT_PACKAGE_RUNTIME_DLLS} "${OCEAN_FFT_PACKAGE_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy "${OCEAN_FFT_BUNDLE}" "${OCEAN_FFT_PACKAGE_DIR}/OceanFft.ldmanifest"
+    COMMENT "Packaging OceanFft into ${OCEAN_FFT_PACKAGE_DIR}"
+    VERBATIM)
+add_dependencies(OceanFft_package OceanFft)
+set_target_properties(OceanFft_package PROPERTIES FOLDER "Applications/OceanFft")
