@@ -130,6 +130,7 @@ namespace ocean
         GraphicsResource NormalizationLut;
         GraphicsResource DisplacementImage;
         GraphicsResource DerivativesImage;
+        uint32_t MipLevels{ 1u };
 
         [[nodiscard]] const PassProgram& Program(Pass pass) const noexcept
         {
@@ -147,6 +148,41 @@ namespace ocean
         [[nodiscard]] uint32_t SpectrumGroups() const noexcept
         {
             return Settings.Size / 8u;
+        }
+
+        // fills mips 1 and up of both outputs from mip 0, one level at a time: each blit reads the level that the
+        // step before it wrote. A linear blit of an exact halving averages each 2x2 block
+        void RecordMips(rhi::CommandBuffer& command_buffer) const
+        {
+            const std::array<rhi::ImageHandle, 2> images{ rhi::ImageHandle{ DisplacementImage.VkHandle }, rhi::ImageHandle{ DerivativesImage.VkHandle } };
+
+            for (uint32_t level = 1u; level < MipLevels; ++level)
+            {
+                // the resolve wrote mip 0 as a storage image, and the previous blit wrote every other source level
+                const bool fromResolve = level == 1u;
+                const rhi::PipelineStage srcStages = fromResolve ? rhi::PipelineStage::ComputeShader : rhi::PipelineStage::Blit;
+                const rhi::Access srcAccess = fromResolve ? rhi::Access::ShaderStorageWrite : rhi::Access::TransferWrite;
+                const rhi::ImageSubresourceRange source{ rhi::ImageAspect::Color, level - 1u, 1u, 0u, k_CascadeCount };
+                std::array<rhi::ImageBarrier, 2> toBlit{};
+
+                for (size_t i = 0; i < images.size(); ++i)
+                {
+                    toBlit[i] = rhi::ImageBarrier{ images[i], srcStages, srcAccess, rhi::PipelineStage::Blit, rhi::Access::TransferRead,
+                        rhi::ImageLayout::General, rhi::ImageLayout::General, source };
+                }
+
+                command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, toBlit });
+
+                const uint32_t sourceSize = Settings.Size >> (level - 1u);
+                const uint32_t targetSize = sourceSize / 2u;
+                const rhi::ImageBlit blit{ rhi::ImageAspect::Color, level - 1u, level, 0u, k_CascadeCount,
+                    sourceSize, sourceSize, 1u, targetSize, targetSize, 1u };
+
+                for (const rhi::ImageHandle& image : images)
+                {
+                    command_buffer.BlitImage(image, rhi::ImageLayout::General, image, rhi::ImageLayout::General, std::span{ &blit, 1 }, rhi::BlitFilter::Linear);
+                }
+            }
         }
     };
 
@@ -436,22 +472,28 @@ namespace ocean
         lutInfo.SamplerInfo = lutSampler;
         std::shared_ptr<GraphicsResourceReply> lutReply = resources.CreateImage(lutInfo, std::span{ &lutData, 1 });
 
-        // the outputs are storage images for the resolve and sampled images for the renderer, and stay in General
+        // the outputs are storage images for the resolve and sampled images for the renderer, and stay in General.
+        // A full mip chain, down to 1x1: the renderer samples distant water from the smaller mips. One view covers
+        // every mip, and a storage write through it goes to its base level, mip 0
+        impl->MipLevels = static_cast<uint32_t>(std::bit_width(size));
         std::array<std::shared_ptr<GraphicsResourceReply>, 2> imageReplies;
+
         for (std::shared_ptr<GraphicsResourceReply>& reply : imageReplies)
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
             info.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SampledImage | ImageUsageBits::SrvVertexShader |
-                ImageUsageBits::SrvFragmentShader | ImageUsageBits::TransferSource;
+                ImageUsageBits::SrvFragmentShader | ImageUsageBits::TransferSource | ImageUsageBits::TransferDestination;
             info.Type = ImageType::Type2D;
             info.Format = CommonFormats::RGBA16_Float;
             info.Width = size;
             info.Height = size;
             info.Depth = 1u;
+            info.MipLevels = impl->MipLevels;
             info.ArrayLayers = k_CascadeCount;
             info.ViewInfo = ImageViewCreateInfo{};
             info.ViewInfo->ViewType = ImageViewType::Type2DArray;
+            info.ViewInfo->Range.LevelCount = impl->MipLevels;
             info.ViewInfo->Range.LayerCount = k_CascadeCount;
             reply = resources.CreateImage(info, {});
         }
@@ -604,6 +646,8 @@ namespace ocean
         impl->Bind(command_buffer, Pass::Resolve);
         PushConstants(command_buffer, *impl->Program(Pass::Resolve).Program, ResolvePushConstants{ impl->Settings.Choppiness });
         command_buffer.Dispatch(groups, groups, k_CascadeCount);
+
+        impl->RecordMips(command_buffer);
     }
 
     bool OceanSimulation::SetSpectrum(const SpectrumParameters& spectrum)
@@ -642,6 +686,11 @@ namespace ocean
     GraphicsResource OceanSimulation::Derivatives() const noexcept
     {
         return impl->DerivativesImage;
+    }
+
+    uint32_t OceanSimulation::MipLevels() const noexcept
+    {
+        return impl->MipLevels;
     }
 
     float HalfToFloat(uint16_t value) noexcept

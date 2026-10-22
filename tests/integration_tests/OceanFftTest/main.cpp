@@ -41,6 +41,8 @@ namespace
     // half has 11 bits of mantissa, and every IFFT stage rounds once more
     constexpr double k_IfftTolerance = 1.0e-2;
     constexpr double k_PipelineTolerance = 2.0e-2;
+    // a mip texel is one more half rounding of four halves
+    constexpr double k_MipTolerance = 2.0e-3;
 
     struct TestContext
     {
@@ -130,7 +132,8 @@ namespace
 
     void ComputeToCopyBarrier(rhi::CommandBuffer& command_buffer)
     {
-        const rhi::GlobalBarrier barrier{ rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite, rhi::PipelineStage::Copy, rhi::Access::TransferRead };
+        // a tick writes with compute and with the mip blits
+        const rhi::GlobalBarrier barrier{ ocean::OceanSimulation::k_TickStages, ocean::OceanSimulation::k_TickWriteAccess, rhi::PipelineStage::Copy, rhi::Access::TransferRead };
         command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &barrier, 1 }, {}, {} });
     }
 
@@ -336,7 +339,11 @@ namespace
         const uint64_t displacementOffset = waveOffset + ocean.BufferBytes(Buffer::WaveData);
         const uint64_t textureBytes = spectrumElements * 8u;
         const uint64_t derivativesOffset = displacementOffset + textureBytes;
-        Readback readback(context.Resources, derivativesOffset + textureBytes);
+        // and mip 1 of the displacement, which the blit chain made from mip 0
+        const uint32_t mipSize = size / 2u;
+        const uint64_t mipElements = uint64_t{ mipSize } * mipSize * ocean::k_CascadeCount;
+        const uint64_t displacementMipOffset = derivativesOffset + textureBytes;
+        Readback readback(context.Resources, displacementMipOffset + mipElements * 8u);
 
         const bool finished = readback.Valid() && Submit(context.Device, [&](rhi::CommandBuffer& command_buffer)
         {
@@ -357,6 +364,14 @@ namespace
                 region.Height = size;
                 command_buffer.CopyImageToBuffer(rhi::ImageHandle{ image.VkHandle }, rhi::ImageLayout::General, readback.Handle(), std::span{ &region, 1 });
             }
+
+            rhi::BufferImageCopy mipRegion{};
+            mipRegion.BufferOffset = displacementMipOffset;
+            mipRegion.MipLevel = 1u;
+            mipRegion.LayerCount = ocean::k_CascadeCount;
+            mipRegion.Width = mipSize;
+            mipRegion.Height = mipSize;
+            command_buffer.CopyImageToBuffer(rhi::ImageHandle{ ocean.Displacement().VkHandle }, rhi::ImageLayout::General, readback.Handle(), std::span{ &mipRegion, 1 });
             CopyToHostBarrier(command_buffer);
         });
         if (!finished)
@@ -490,6 +505,39 @@ namespace
                 name, k_FieldNames[field], stats.ReferenceRms, stats.RelativeRms, k_PipelineTolerance, stats.Finite ? "" : ", non-finite values");
             failures += passed ? 0 : 1;
         }
+
+        // 4. a linear blit of an exact halving averages each 2x2 block, so mip 1 must be that average of mip 0
+        const std::vector<float> displacementMip = readback.ReadHalves(displacementMipOffset, mipElements * 4u);
+        std::vector<double> gpuMip;
+        std::vector<double> referenceMip;
+        gpuMip.reserve(mipElements * 4u);
+        referenceMip.reserve(mipElements * 4u);
+
+        for (uint32_t cascade = 0; cascade < ocean::k_CascadeCount; ++cascade)
+        {
+            for (uint32_t y = 0; y < mipSize; ++y)
+            {
+                for (uint32_t x = 0; x < mipSize; ++x)
+                {
+                    const uint64_t mipTexel = (uint64_t{ cascade } * mipSize + y) * mipSize + x;
+                    const uint64_t texel = (uint64_t{ cascade } * size + 2u * y) * size + 2u * x;
+
+                    for (uint64_t channel = 0; channel < 4u; ++channel)
+                    {
+                        const double average = 0.25 * (double{ displacement[texel * 4u + channel] } + displacement[(texel + 1u) * 4u + channel] +
+                            displacement[(texel + size) * 4u + channel] + displacement[(texel + size + 1u) * 4u + channel]);
+                        gpuMip.push_back(displacementMip[mipTexel * 4u + channel]);
+                        referenceMip.push_back(average);
+                    }
+                }
+            }
+        }
+
+        const ErrorStats mipStats = Compare(gpuMip, referenceMip);
+        const bool mipPassed = mipStats.Finite && mipStats.RelativeRms < k_MipTolerance;
+        (mipPassed ? std::cout : std::cerr) << std::format("[pipeline {}] displacement mip 1 against the 2x2 average of mip 0: relative RMS error {:.2e} (limit {:.0e}){}\n",
+            name, mipStats.RelativeRms, k_MipTolerance, mipStats.Finite ? "" : ", non-finite values");
+        failures += mipPassed ? 0 : 1;
 
         // significant wave height of all cascades together, as a plausibility number for the spectrum
         double heightSquared = 0.0;

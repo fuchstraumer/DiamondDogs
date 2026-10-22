@@ -638,7 +638,7 @@ void OceanScene::writeViewParameters()
 
     const float cosElevation = std::cos(sunElevation);
     view.SunDirectionSeabedDepth = { std::sin(sunAzimuth) * cosElevation, std::sin(sunElevation), std::cos(sunAzimuth) * cosElevation, seabedDepth };
-    view.LodParameters = { lodScale, 0.0f, 0.0f, 0.0f };
+    view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), 0.0f, 0.0f };
 
     // beginFrame waited on this frame's fence, so the GPU is done with this frame's buffer
     std::memcpy(viewBufferPointers[currentFrame], &view, sizeof(view));
@@ -683,22 +683,24 @@ void OceanScene::recordCommands()
         needsInitialize = false;
     }
 
-    // the previous frame's draws sampled the textures this tick rewrites
+    // the previous frame's draws sampled the textures this tick rewrites, with the resolve and the mip blits
     const rhi::GlobalBarrier drawsToCompute
     {
         rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader,
         rhi::Access::None,
-        rhi::PipelineStage::ComputeShader,
+        ocean::OceanSimulation::k_TickStages,
         rhi::Access::None
     };
     cmd.Barrier(rhi::DependencyInfo{ std::span{ &drawsToCompute, 1 }, {}, {} });
 
     simulation->RecordTick(cmd, simulationTime);
-    
+
     const rhi::GlobalBarrier computeToDraws
     {
-        rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
-        rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader, rhi::Access::ShaderSampledRead
+        ocean::OceanSimulation::k_TickStages,
+        ocean::OceanSimulation::k_TickWriteAccess,
+        rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader,
+        rhi::Access::ShaderSampledRead
     };
     cmd.Barrier(rhi::DependencyInfo{ std::span{ &computeToDraws, 1 }, {}, {} });
 

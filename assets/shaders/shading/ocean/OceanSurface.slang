@@ -42,6 +42,9 @@ OceanSurfaceVaryings OceanSurfaceVS(uint vertexId : SV_VertexID, uint instanceId
     // a power-of-two ratio between rings keeps these exact, so shared edge vertices land on the same position
     const float2 surfaceXZ = Grid.Origin + (float2(tile) + float2(vertex) / float(Grid.Resolution)) * Grid.Size;
     const float distance = length(surfaceXZ - View.CameraPositionTime.xz);
+    // waves shorter than two quads would alias into the vertex positions, so each cascade is read at the mip whose
+    // texels are as wide as this ring's quads
+    const float quadSize = Grid.Size / float(Grid.Resolution);
 
     float3 displacement = float3(0.0f);
     [unroll]
@@ -51,7 +54,7 @@ OceanSurfaceVaryings OceanSurfaceVS(uint vertexId : SV_VertexID, uint instanceId
         if (weight > 0.0f)
         {
             const float3 uvw = float3(CascadeUv(surfaceXZ, cascade), float(cascade));
-            displacement += Displacement.SampleLevel(OceanSampler, uvw, 0.0f).xyz * weight;
+            displacement += Displacement.SampleLevel(OceanSampler, uvw, CascadeLod(cascade, quadSize)).xyz * weight;
         }
     }
 

@@ -16,7 +16,7 @@ public struct OceanViewParameters
     // xyz: unit vector towards the sun, w: seabed depth in meters (positive down)
     public float4 SunDirectionSeabedDepth;
     // x: the cascade fade distance in patch lengths. Cascade c fades out between x * LengthScales[c] and twice that,
-    // so waves far smaller than a pixel stop shimmering. yzw unused
+    // so waves far smaller than a pixel stop shimmering. y: texels along an edge of mip 0 of the textures. zw unused
     public float4 LodParameters;
 };
 
@@ -68,6 +68,14 @@ internal float CascadeDistanceWeight(uint cascade, float distance)
 {
     const float fadeStart = View.LodParameters.x * View.LengthScales[cascade];
     return View.CascadeWeights[cascade] * (1.0f - smoothstep(fadeStart, 2.0f * fadeStart, distance));
+}
+
+// The mip of cascade `cascade` whose texels are `spacing` meters wide: the level that holds no wave finer than a grid
+// with that spacing can carry
+internal float CascadeLod(uint cascade, float spacing)
+{
+    const float texelSize = View.LengthScales[cascade] / View.LodParameters.y;
+    return max(0.0f, log2(spacing / texelSize));
 }
 
 ConstantBuffer<OceanViewParameters> View;

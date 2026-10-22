@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_OCEAN_SIMULATION_HPP
 #define DIAMOND_DOGS_OCEAN_SIMULATION_HPP
 #include "ResourceTypes.hpp"
+#include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include <array>
 #include <cstdint>
@@ -122,8 +123,14 @@ namespace ocean
         /** @brief Moves the output textures to the General layout, then computes the initial spectrum. Record once,
          *  and again after SetSpectrum */
         void RecordInitialize(rhi::CommandBuffer& command_buffer) const;
-        /** @brief Tick, both IFFT passes, and the resolve. Records no barrier after the resolve: the reader of the
-         *  textures adds its own (compute shader storage write to its stage and access) */
+        /** @brief The stages and accesses that RecordTick writes the output textures with. The resolve writes mip 0 as
+         *  a storage image, and blits fill the other mips from it. A reader's barrier waits on these. The barrier
+         *  before the next tick must make k_TickStages wait for that reader */
+        static constexpr rhi::PipelineStage k_TickStages = rhi::PipelineStage::ComputeShader | rhi::PipelineStage::Blit;
+        static constexpr rhi::Access k_TickWriteAccess = rhi::Access::ShaderStorageWrite | rhi::Access::TransferWrite;
+
+        /** @brief Tick, both IFFT passes, the resolve, and the mip chains of the output textures. Records no barrier
+         *  after the last mip: the reader of the textures adds its own (from k_TickStages and k_TickWriteAccess) */
         void RecordTick(rhi::CommandBuffer& command_buffer, float time_seconds) const;
         /** @brief Only the two IFFT passes over IfftInput, in place. For tests */
         void RecordIfft(rhi::CommandBuffer& command_buffer) const;
@@ -136,9 +143,11 @@ namespace ocean
         [[nodiscard]] const OceanSimulationSettings& Settings() const noexcept;
         [[nodiscard]] GraphicsResource GetBuffer(Buffer buffer) const noexcept;
         [[nodiscard]] uint64_t BufferBytes(Buffer buffer) const noexcept;
-        /** @brief rgba16f 2D arrays, one layer per cascade, in the General layout after RecordInitialize */
+        /** @brief rgba16f 2D arrays, one layer per cascade, with a full mip chain (MipLevels), in the General layout
+         *  after RecordInitialize. The view covers every mip; storage writes go to mip 0 */
         [[nodiscard]] GraphicsResource Displacement() const noexcept;
         [[nodiscard]] GraphicsResource Derivatives() const noexcept;
+        [[nodiscard]] uint32_t MipLevels() const noexcept;
 
     private:
         std::unique_ptr<OceanSimulationImpl> impl;
