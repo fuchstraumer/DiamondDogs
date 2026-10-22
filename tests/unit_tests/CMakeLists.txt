@@ -55,6 +55,7 @@ add_subdirectory(foundation)
 add_subdirectory(rhi_system)
 add_subdirectory(platform_system) 
 add_subdirectory(resource_context)
+add_subdirectory(color_pipe)
 
 # Add other module test directories as they become available
 # add_subdirectory(content_compiler)
