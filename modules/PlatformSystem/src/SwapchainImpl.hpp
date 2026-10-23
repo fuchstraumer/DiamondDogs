@@ -27,6 +27,8 @@ struct SwapchainInfo
     [[nodiscard]] VkSurfaceFormatKHR FindClosestFormat(const VkSurfaceFormatKHR& requested_format) const noexcept;
 };
 
+[[nodiscard]] std::vector<SurfaceFormatPair> QuerySurfaceFormatPairs(const SwapchainCreateInfo& create_info);
+
 struct SwapchainImpl
 {
     SwapchainImpl(const SwapchainCreateInfo& create_info);
@@ -35,6 +37,7 @@ struct SwapchainImpl
     void Create(const SwapchainCreateInfo& create_info);
     [[nodiscard]] SwapchainRecreateResult Recreate(const SwapchainCreateInfo& create_info);
     void Destroy();
+    void ApplyHdrMetadata(const SwapchainHdrMetadata& metadata);
 
     /** @brief The create info of the current swapchain, so that a resize can recreate it with the same parameters */
     SwapchainCreateInfo CreateInfo;

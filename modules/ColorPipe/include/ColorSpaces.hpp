@@ -6,8 +6,7 @@
 
 namespace color
 {
-    /** @brief A color or a position in a three-component space, in double precision. The CPU reference of the
-     *  color pipe uses this in place of a graphics math type. */
+    /** @brief A color or a position in a three-component space, in double precision */
     struct Vec3d
     {
         double X{ 0.0 };

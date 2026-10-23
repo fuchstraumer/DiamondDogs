@@ -9,9 +9,8 @@
 #include <string>
 #include <string_view>
 
-// Writes the matrices of ddColor.slang, derived from the same chromaticities as the CPU reference. A Slang matrix
-// multiplies a row vector (mul(vec, mat)), so each constant is the transpose of the column-vector matrix in
-// color_pipe. The file is rewritten only when its contents change, so that an unchanged run does not re-run the cook.
+// a Slang matrix multiplies a row vector, so each constant is the transpose of the color_math matrix. The file is
+// rewritten only when its contents change, so that an unchanged run does not re-run the cook
 
 namespace
 {

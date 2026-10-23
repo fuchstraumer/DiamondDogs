@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
-// Main entry point for the color pipe unit tests
 int main(int argc, char** argv)
 {
     ::testing::InitGoogleTest(&argc, argv);

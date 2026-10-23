@@ -436,6 +436,30 @@ VkFormat ToVkFormat(const ImageFormat& format) noexcept
                 return VK_FORMAT_R8G8B8A8_UNORM;
             }
 
+        // FromVkFormat maps these four formats to BGRA8, and the swapchain formats B8G8R8A8_UNORM and _SRGB are among them,
+        // so this direction needs them too: an explicit swapchain pair and an offscreen image use them
+        case ImageComponentFormats::BGRA8:
+            if (dataType == ImageDataType::UInt)
+            {
+                return VK_FORMAT_B8G8R8A8_UINT;
+            }
+            else if (dataType == ImageDataType::SInt)
+            {
+                return VK_FORMAT_B8G8R8A8_SINT;
+            }
+            else if (dataType == ImageDataType::SNorm)
+            {
+                return VK_FORMAT_B8G8R8A8_SNORM;
+            }
+            else if (dataType == ImageDataType::sRGB)
+            {
+                return VK_FORMAT_B8G8R8A8_SRGB;
+            }
+            else
+            {
+                return VK_FORMAT_B8G8R8A8_UNORM;
+            }
+
         case ImageComponentFormats::RGBA16:
             if (dataType == ImageDataType::UInt)
             {

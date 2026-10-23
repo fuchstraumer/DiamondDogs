@@ -11,7 +11,7 @@ Write your text in ASD-STE100 (Simplified Technical English), as the style file 
 
 DiamondDogs is a Vulkan engine that the author uses for research. Its current job is to host the noise graph and
 planet generator (the plan is in `C:\SoftwareDev\CUDA_Noise\noise-audit-and-slang-plan.md`). The live modules are
-`foundation`, `RhiSystem`, `PlatformSystem`, `RhiResources`, `FrameCapture`, `GpuPyramid`, and `ImGuiModule`. Everything else in `modules/` is out
+`foundation`, `RhiSystem`, `PlatformSystem`, `RhiResources`, `FrameCapture`, `GpuPyramid`, `ColorPipe`, and `ImGuiModule`. Everything else in `modules/` is out
 of the build; `docs/audit.md` section 6 says which to keep.
 
 **Lodestone is the only shader path.** Lodestone (`../Lodestone`, a sibling checkout, not a submodule) cooks Slang to
@@ -87,6 +87,10 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `OceanFftTest` | The ocean compute chain (IFFT kernels, spectrum, tick, resolve, mips) against double precision on the CPU. |
 | `TriangleTest` | A windowed frame loop with shader objects and dynamic rendering. With `--resize`, swapchain recreation and depth images rebuilt at the new size. |
 | `ImGuiTest` | `ImGuiModule` on the official backends draws the demo window. With `--resize`, swapchain recreation. |
+| `color_pipe_tests` | The double-precision color reference (gamuts, adaptation, transfer functions, Kelvin), `ChooseSurface` and `ResolveDisplayTarget` on the author's real display pairs, and the CPU model of the composite. |
+| `ColorMathTest` | Every `ddColor` Slang function against the double reference, on the GPU. |
+| `ColorPipeTest` | The HDR composite, headless: each tonemapper x encoding against the CPU model of the whole composite, within about one code value. |
+| `DisplayProbe` | Not a test: prints the display's Vulkan surface pairs, DXGI and DisplayConfig data, read-only. `--platform` adds PlatformSystem's view. |
 
 ## Where the code lives
 
@@ -97,6 +101,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `modules/PlatformSystem/` | GLFW windows, displays, the swapchain. |
 | `modules/RhiResources/` | `ResourceContext`: buffers, images, samplers, uploads, through messages to a worker thread and a transfer thread. Also `WriteManifestDescriptors`, which writes a descriptor set from the names, bindings and array counts that the cook reflected. |
 | `modules/GpuPyramid/` | `pyramid::MipGenerator`: fills mip chains with compute shaders. The shaders, `assets/shaders/compute/Pyramid`, are a Slang transcription of NVIDIA's nvpro_pyramid (Apache 2.0, attribution in each file). A consumer cooks `GPU_PYRAMID_SHADER_MODULE` into its own bundle. |
+| `modules/ColorPipe/` | The HDR color pipe. `color_math` is the double-precision CPU reference. `color_pipe` is the runtime: the scene and UI targets, and the composite (exposure, tonemapper, display primaries, encode). `README.md` explains it. |
 | `modules/ImGuiModule/` | Dear ImGui on `imgui_impl_glfw` and `imgui_impl_vulkan`. |
 | `cmake/ConfigureLodestone.cmake` | Adds Lodestone, and works around its embedding issues (each one is listed in the Lodestone requests file). |
 | `tests/unit_tests/`, `tests/integration_tests/` | Google Test suites, and executables with their own `main`. |
@@ -115,6 +120,18 @@ ownership transfer exists. The author likes this design. Keep it.
 ## Working with this author
 
 The author is a woman. Use she and her.
+
+Read `docs/working-relationship.md` at the start of every session, and again after a compaction. It explains who she
+is, how she works, the tone of this partnership, and how the planner works with subagents. Keep it current: when you
+learn something new about how to work with her, add it there.
+
+New since the ninth session (2026-10-22):
+
+- **Explanations go in module READMEs, not in code comments.** Code keeps only short "why" lines. Agents and humans
+  both read the README.
+- **She stages work herself**, sometimes during an agent's run, to watch the diffs and split the commits. Never touch
+  the git index. Tell her if it differs from what you expect.
+- **Teach before you delegate** where she says a topic is new to her. Use first principles and concrete numbers.
 
 Blunt and specific beats reassuring. If a plan is wrong, say which part and why. Check a claim rather than hedge it.
 

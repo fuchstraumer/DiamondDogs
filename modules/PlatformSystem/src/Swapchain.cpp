@@ -37,6 +37,11 @@ Swapchain::Swapchain(Swapchain&& other) noexcept : impl(std::move(other.impl)), 
 {
 }
 
+std::vector<SurfaceFormatPair> Swapchain::QuerySurfaceFormats(const SwapchainCreateInfo& create_info)
+{
+    return QuerySurfaceFormatPairs(create_info);
+}
+
 SwapchainRecreateResult Swapchain::Recreate(const SwapchainCreateInfo& create_info)
 {
     return impl->Recreate(create_info);
@@ -127,5 +132,10 @@ bool Swapchain::SupportsTransferSource() const noexcept
 {
     return impl->Info != nullptr &&
         (impl->Info->capabilities.surfaceCapabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0u;
+}
+
+void Swapchain::SetHdrMetadata(const SwapchainHdrMetadata& metadata)
+{
+    impl->ApplyHdrMetadata(metadata);
 }
 

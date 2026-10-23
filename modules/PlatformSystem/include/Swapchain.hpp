@@ -6,6 +6,7 @@
 #include "Math.hpp"
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 struct SwapchainImpl;
 
@@ -18,6 +19,10 @@ public:
     Swapchain& operator=(const Swapchain&) = delete;
     Swapchain(Swapchain&& other) noexcept;
     Swapchain& operator=(Swapchain&& other) noexcept;
+
+    /** @brief Returns the pairs that the surface offers, in driver order, without a swapchain. Pairs that this module
+     * does not map are left out. */
+    [[nodiscard]] static std::vector<SurfaceFormatPair> QuerySurfaceFormats(const SwapchainCreateInfo& create_info);
 
     /** @brief Takes swapchain create info as we may have adjusted parameters that caused the recreation to occur.
      *
@@ -43,6 +48,10 @@ public:
     [[nodiscard]] void* ImageViewHandle(uint32_t index) const noexcept;
     /** @brief True when the images have transfer source usage, so FrameCapture can copy them out */
     [[nodiscard]] bool SupportsTransferSource() const noexcept;
+
+    /** @brief Sets the static HDR metadata of the current swapchain. Does nothing without VK_EXT_hdr_metadata. Call it
+     * again after a recreation. */
+    void SetHdrMetadata(const SwapchainHdrMetadata& metadata);
 
 private:
     std::unique_ptr<SwapchainImpl> impl;

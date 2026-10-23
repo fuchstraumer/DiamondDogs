@@ -535,6 +535,35 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 - PlatformSystem no longer writes display state during a capability query, and DXGI is its first source.
 - `ColorPipe` + `ddColor`: the GPU agrees with the double reference within about 2e-7 (matrices) and 5.3e-5 (PQ).
 - Lodestone C13 added. HDR paused until it lands. The next work is code hygiene.
+- Hygiene, all verified on both presets:
+  - precompiled headers (`DIAMOND_DOGS_USE_PCH`);
+  - the VeloxRhi math port (byte-identical copy and a namespace alias);
+  - Release `/Ob2`;
+  - `RhiAssert` out of line;
+  - the script fixes;
+  - `FrameCapture` and `SceneCommands` moved off mutexes onto `mwsrQueue` plus `std::atomic::wait`, with a memory cap
+    on capture jobs.
+- The our_machinery review: `docs/our-machinery/SYNTHESIS.md`. Build time: `docs/build-time-2026-10-22.md`.
+  Containers: `docs/container-inventory-2026-10-22.md`.
+- Lodestone C7, C8, C12 and C13 adopted. HDR step 4 part A (`color_pipe` and `ColorPipeTest`) is done. Part B
+  (OceanFft) is next.
+- `docs/working-relationship.md` written, so that the working relationship survives compaction.
+
+### 2026-10-22 (tenth session, Sonnet: HDR step 4, part A)
+
+- `modules/ColorPipe` has two targets now. `color_math` is the double reference. `color_pipe` is the runtime: `ChooseSurface`,
+  `ResolveDisplayTarget`, the CPU reference of the composite, and `color::ColorPipe`.
+- `assets/shaders/shading/ColorPipe/ColorComposite.slang` is the composite pass. It has the `TONEMAPPER` interface axis
+  (`Passthrough`, `FalseColorEv`) and the `ENCODE` enum axis, and cooks 6 variants.
+- PlatformSystem: `Swapchain::QuerySurfaceFormats`, `PlatformWindowSystem::QuerySurfaceFormats`,
+  `SwapchainCreateInfo::ExplicitSurfaceFormat`, `CreateSwapchainWithSurfaceFormat` and `Swapchain::SetHdrMetadata`.
+  `TriangleTest --surface-pairs` creates a swapchain with each pair of the LG (7), PQ and scRGB included.
+- Foundation fix: `ToVkFormat` had no BGRA8 case, so it returned `VK_FORMAT_UNDEFINED` for `B8G8R8A8_UNORM`. An explicit
+  swapchain pair and an offscreen BGRA8 image both need it.
+- `ColorPipeTest` (headless) compares every pixel of the composite with the double reference, for 2 tonemappers and 3
+  encodings, after 3 exposures, a `SetOverrides` and a `Resize`. The largest errors are 0.56 code (sRGB), 0.56 code (PQ)
+  and 1 ulp (scRGB). This GPU truncates when it writes `R16G16B16A16_SFLOAT`, so 1 ulp is the bound there.
+- OceanFft does not use the pipe yet (part B).
 
 ## 10. RhiResources: questions for the author, and inputs for the design session
 

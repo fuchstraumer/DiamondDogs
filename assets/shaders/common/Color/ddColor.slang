@@ -1,10 +1,6 @@
 module ddColor;
 
-// Color math for the HDR pipe, in float. modules/ColorPipe has the same functions in double (the CPU reference), and
-// ColorMathTest compares the two on the GPU.
-//
-// The matrices in ddColorGenerated.slang are written by color_matrix_gen from the same chromaticities as the CPU
-// reference. They multiply a row vector: mul(rgb, matrix). Gamut conversions use Bradford adaptation.
+// float version of the color_math functions. The generated matrices multiply a row vector: mul(rgb, matrix)
 __include ddColorGenerated;
 
 internal static const float k_SrgbDecodeBreak = 0.0404482362771082;
@@ -96,7 +92,6 @@ public float Gamma22Decode(float encoded)
     return sign(encoded) * pow(abs(encoded), 2.2);
 }
 
-// absolute nits in, PQ signal in [0, 1] out
 public float PqEncode(float nits)
 {
     const float normalized = clamp(nits / k_PqPeakNits, 0.0, 1.0);
@@ -166,8 +161,7 @@ public float3 ScRgbDecode(float3 scrgb)
     return scrgb * ScRgbReferenceNits;
 }
 
-// the Krystek (1985) approximation of the Planckian locus in CIE 1960 uv, converted to xy. Kelvin is clamped to the
-// valid range of 1000 K to 15000 K
+// Krystek (1985), valid from 1000 K to 15000 K, so the input is clamped
 public float2 KelvinToXy(float kelvin)
 {
     const float t = clamp(kelvin, KelvinMinimum, KelvinMaximum);
@@ -185,7 +179,6 @@ public float2 KelvinToXy(float kelvin)
     return float2(3.0 * u / scale, 2.0 * v / scale);
 }
 
-// the linear AP1 color of a blackbody, normalized to Y = 1
 public float3 KelvinToAp1(float kelvin)
 {
     const float2 xy = KelvinToXy(kelvin);

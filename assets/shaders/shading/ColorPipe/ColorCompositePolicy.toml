@@ -1,0 +1,7 @@
+# The vertex stage draws a fullscreen triangle, so no axis changes it
+[ColorComposite.InertAxesForEntryPoints]
+ColorCompositeVS = ["TONEMAPPER", "ENCODE"]
+
+# fails the cook when an axis multiplies the variant count by accident
+[ColorComposite.targets.spirv]
+MaxVariants = 24

@@ -79,6 +79,8 @@ constexpr static ImageFormat k_DefaultSDRFormat = CommonFormats::RGBA8_SRGB;
 // for now, this format seems to be common in retrieved metadata from the system APIs
 constexpr static ImageFormat k_DefaultHDRFormat = CommonFormats::HDR_A2R10G10B10;
 
+static void EnsureSurface(PlatformSystemImpl& impl, void* rhi_instance, void* rhi_device);
+
 PlatformWindowSystem::PlatformWindowSystem(const char* json_path, void* rhi_instance, void* rhi_device)
 {
 
@@ -261,16 +263,7 @@ void PlatformWindowSystem::Destroy()
 
 void PlatformWindowSystem::CreateDefaultSwapchain(void* rhi_instance, void* rhi_device)
 {
-    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(rhi_instance);
-    const uint64_t vkInstanceHandle = instance->Handle().Get();
-    rhi::Device* device = reinterpret_cast<rhi::Device*>(rhi_device);
-    const uint64_t vkPhysicalDeviceHandle = device->GetPhysicalDevice().Get();
-    
-    if (!impl->ActiveSurface)
-    {
-        // Create default platform surface
-        impl->ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle, vkPhysicalDeviceHandle, impl->Window);
-    }
+    EnsureSurface(*impl, rhi_instance, rhi_device);
 
     if (impl->ActiveSwapchain)
     {
@@ -292,6 +285,39 @@ void PlatformWindowSystem::CreateDefaultSwapchain(void* rhi_instance, void* rhi_
     createInfo.SwapchainFormat = enableHDR ? k_DefaultHDRFormat : k_DefaultSDRFormat;
     createInfo.DesiredColorSpace = enableHDR ? displayInfo.ColorCapabilities.DetectedColorSpace : k_DefaultColorSpace;
     createInfo.HdrColorCapabilities = displayInfo.ColorCapabilities;
+    impl->ActiveSwapchain = std::make_unique<Swapchain>(createInfo);
+}
+
+std::vector<SurfaceFormatPair> PlatformWindowSystem::QuerySurfaceFormats(void* rhi_instance, void* rhi_device)
+{
+    EnsureSurface(*impl, rhi_instance, rhi_device);
+
+    SwapchainCreateInfo createInfo{};
+    createInfo.RhiDevice = rhi_device;
+    createInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
+
+    return Swapchain::QuerySurfaceFormats(createInfo);
+}
+
+void PlatformWindowSystem::CreateSwapchainWithSurfaceFormat(void* rhi_instance, void* rhi_device, const SurfaceFormatPair& surface_format)
+{
+    EnsureSurface(*impl, rhi_instance, rhi_device);
+
+    if (impl->ActiveSwapchain)
+    {
+        DestroySwapchain();
+    }
+
+    SwapchainCreateInfo createInfo{};
+    createInfo.RhiDevice = rhi_device;
+    createInfo.PlatformWindowHandle = impl->Window;
+    createInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
+    createInfo.PlatformSystemPtr = this;
+    createInfo.DisplayIndex = 0u;
+    createInfo.MinImageCount = k_DefaultSwapchainImageCount;
+    createInfo.SwapchainPresentMode = k_DefaultPresentMode;
+    createInfo.HdrColorCapabilities = impl->ActiveDisplay.ColorCapabilities;
+    createInfo.ExplicitSurfaceFormat = surface_format;
     impl->ActiveSwapchain = std::make_unique<Swapchain>(createInfo);
 }
 
@@ -318,6 +344,11 @@ SwapchainRecreateResult PlatformWindowSystem::RecreateSwapchain()
 }
 
 const Swapchain* PlatformWindowSystem::GetActiveSwapchain() const noexcept
+{
+    return impl->ActiveSwapchain.get();
+}
+
+Swapchain* PlatformWindowSystem::GetActiveSwapchain() noexcept
 {
     return impl->ActiveSwapchain.get();
 }
@@ -476,4 +507,18 @@ void PlatformWindowSystem::SetWindowShouldClose(bool should_close)
 DisplayInfo PlatformWindowSystem::GetPrimaryDisplayInfo() noexcept
 {
     return RetrievePlatformPrimaryDisplayInfo();
+}
+
+static void EnsureSurface(PlatformSystemImpl& impl, void* rhi_instance, void* rhi_device)
+{
+    if (impl.ActiveSurface)
+    {
+        return;
+    }
+
+    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(rhi_instance);
+    const uint64_t vkInstanceHandle = instance->Handle().Get();
+    rhi::Device* device = reinterpret_cast<rhi::Device*>(rhi_device);
+    const uint64_t vkPhysicalDeviceHandle = device->GetPhysicalDevice().Get();
+    impl.ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle, vkPhysicalDeviceHandle, impl.Window);
 }

@@ -5,6 +5,7 @@
 #include "utility/Delegate.hpp"
 #include "PlatformTypes.hpp"
 #include <memory>
+#include <vector>
 
 
 using CursorPosEvent = Delegate<void(const Events::CursorPosEventData&, void* user_data)>;
@@ -41,12 +42,20 @@ public:
 
     // Default swapchain just uses display info that we got from window creation as creation parameters. Also creates a surface using display parameters
     void CreateDefaultSwapchain(void* rhi_instance, void* rhi_device);
+    /** @brief Returns the pairs that the window's surface offers, in driver order. Creates the surface when the window has none.
+     * The HDR pairs need `VK_EXT_swapchain_colorspace`. */
+    [[nodiscard]] std::vector<SurfaceFormatPair> QuerySurfaceFormats(void* rhi_instance, void* rhi_device);
+    /** @brief Like CreateDefaultSwapchain, but with exactly `surface_format`, which must come from QuerySurfaceFormats.
+     * Throws when the surface does not offer it. Sets no HDR metadata. */
+    void CreateSwapchainWithSurfaceFormat(void* rhi_instance, void* rhi_device, const SurfaceFormatPair& surface_format);
     void CreateSwapchain(const SwapchainCreateInfo& create_info);
     void DestroySwapchain();
     /** @brief Recreates the active swapchain at the window's current size, with its last create info. Call it after
      * a present or acquire returns out of date or suboptimal, once the device has finished with the old images. */
     [[nodiscard]] SwapchainRecreateResult RecreateSwapchain();
     [[nodiscard]] const Swapchain* GetActiveSwapchain() const noexcept;
+    /** @brief Returns the mutable swapchain, for Swapchain::SetHdrMetadata. */
+    [[nodiscard]] Swapchain* GetActiveSwapchain() noexcept;
 
     void AddCursorPosEventListener(const CursorPosEvent& listener, void* user_data);
     void AddCursorEnterEventListener(const CursorEnterEvent& listener, void* user_data);

@@ -12,6 +12,7 @@ $tests = @(
     @{ Name = "resource_context_tests"; Path = "$build\unit_tests\resource_context\$Config\resource_context_tests.exe"; Args = @("--gtest_brief=1") },
     @{ Name = "platform_system_tests"; Path = "$build\unit_tests\platform_system\$Config\platform_system_tests.exe"; Args = @("--gtest_brief=1") },
     @{ Name = "color_pipe_tests"; Path = "$build\unit_tests\color_pipe\$Config\color_pipe_tests.exe"; Args = @("--gtest_brief=1") },
+    @{ Name = "ColorPipeTest"; Path = "$build\integration_tests\ColorPipeTest\$Config\ColorPipeTest.exe"; Args = @() },
     @{ Name = "ComputeManifestTest"; Path = "$build\integration_tests\ComputeManifestTest\$Config\ComputeManifestTest.exe"; Args = @() },
     @{ Name = "OceanFftTest"; Path = "$build\integration_tests\OceanFftTest\$Config\OceanFftTest.exe"; Args = @() },
     @{ Name = "GpuPyramidTest"; Path = "$build\integration_tests\GpuPyramidTest\$Config\GpuPyramidTest.exe"; Args = @() },
@@ -20,6 +21,7 @@ $tests = @(
     @{ Name = "TriangleTest"; Path = "$build\integration_tests\TriangleTest\$Config\TriangleTest.exe"; Args = @("--frames=240") },
     @{ Name = "ImGuiTest_resize"; Path = "$build\integration_tests\ImGuiTest\$Config\ImGuiTest.exe"; Args = @("--frames=150", "--resize") },
     @{ Name = "OceanFft"; Path = "C:\SoftwareDev\DiamondDogs\build\$Preset\applications\OceanFft\$Config\OceanFft.exe"; Args = @("--frames=240") },
+    @{ Name = "TriangleTest_surfaces"; Path = "$build\integration_tests\TriangleTest\$Config\TriangleTest.exe"; Args = @("--frames=30", "--surface-pairs") },
     @{ Name = "TriangleTest_resize"; Path = "$build\integration_tests\TriangleTest\$Config\TriangleTest.exe"; Args = @("--frames=150", "--resize") }
 )
 $failed = 0

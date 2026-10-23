@@ -4,6 +4,7 @@
 #include "ImageDataFormats.hpp"
 #include <cstdint>
 #include <limits>
+#include <optional>
 
 enum class PlatformWindowMode
 {
@@ -203,6 +204,30 @@ struct DisplayInfo
     DisplayRefreshRateCapabilities RefreshRateCapabilities;
 };
 
+/** @brief One image format and color space that a surface can present */
+struct SurfaceFormatPair
+{
+    ImageFormat Format;
+    ColorSpace Space;
+};
+
+/** @brief The static HDR metadata of a swapchain (VK_EXT_hdr_metadata), in nits and CIE 1931 xy */
+struct SwapchainHdrMetadata
+{
+    float RedPrimaryX{ 0.0f };
+    float RedPrimaryY{ 0.0f };
+    float GreenPrimaryX{ 0.0f };
+    float GreenPrimaryY{ 0.0f };
+    float BluePrimaryX{ 0.0f };
+    float BluePrimaryY{ 0.0f };
+    float WhitePointX{ 0.0f };
+    float WhitePointY{ 0.0f };
+    float MaxLuminance{ 0.0f };
+    float MinLuminance{ 0.0f };
+    float MaxContentLightLevel{ 0.0f };
+    float MaxFrameAverageLightLevel{ 0.0f };
+};
+
 struct SwapchainCreateInfo
 {
     void* RhiDevice{ nullptr };
@@ -214,6 +239,9 @@ struct SwapchainCreateInfo
     ColorSpace DesiredColorSpace{ ColorSpace::sRGB_Nonlinear };
     /** @brief Optional image format to use for swapchain. If left to invalid default values, will auto-choose format: does not enable HDR */
     ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::Default };
+    /** @brief When set, the swapchain uses exactly this pair and ignores the other format fields. Creation throws when the
+     * surface does not offer it. The caller sets the HDR metadata with `Swapchain::SetHdrMetadata`. */
+    std::optional<SurfaceFormatPair> ExplicitSurfaceFormat{ std::nullopt };
     /** @brief Presentation mode/VSync mode to attempt to apply to this swapchain. Will choose "best" option if left to default. */
     PresentMode SwapchainPresentMode{ PresentMode::Invalid };
     /** @brief If set to true, will ensure HDR is supported and enabled for this swapchain. Compatible with blank/default `DesiredColorSpace` and `SwapchainFormat`.

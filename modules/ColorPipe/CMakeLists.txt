@@ -1,23 +1,37 @@
-# Color math for the HDR pipe: gamut matrices derived from chromaticities, luminance, transfer functions and Kelvin, in
-# double precision. This is the CPU reference. The Slang module ddColor (assets/shaders/common/Color) has the same
-# functions in float, and its matrices are written by color_matrix_gen from this library.
-ADD_MODULE(color_pipe
+ADD_MODULE(color_math
     "include/ColorSpaces.hpp"
     "include/TransferFunctions.hpp"
     "src/ColorSpaces.cpp"
     "src/TransferFunctions.cpp")
 
-target_include_directories(color_pipe PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(color_math PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
 add_executable(color_matrix_gen "tools/color_matrix_gen.cpp")
-target_link_libraries(color_matrix_gen PRIVATE color_pipe)
+target_link_libraries(color_matrix_gen PRIVATE color_math)
 set_target_properties(color_matrix_gen PROPERTIES FOLDER "Modules" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(color_matrix_gen LIBRARY)
 
-# ddColorGenerated.slang is written into the build directory. A cook that imports ddColor adds
-# COLOR_PIPE_GENERATED_SHADER_DIR to its INCLUDE_DIRS, so that the __include in ddColor.slang finds it, and adds
-# COLOR_PIPE_SHADER_DIR for ddColor.slang itself. A cook of ddColor needs the output of this command: add a dependency on
-# color_pipe_shader_data to the cook target.
+# PlatformSystem and foundation do not export their include folders, and the public headers of color_pipe include them
+ADD_MODULE(color_pipe
+    "include/ColorComposite.hpp"
+    "include/ColorPipe.hpp"
+    "include/ColorPipeError.hpp"
+    "include/DisplayTarget.hpp"
+    "src/ColorComposite.cpp"
+    "src/ColorPipe.cpp"
+    "src/ColorPipeError.cpp"
+    "src/FullscreenDrawState.cpp"
+    "src/FullscreenDrawState.hpp"
+    "src/DisplayTarget.cpp")
+
+target_include_directories(color_pipe PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../PlatformSystem/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../foundation/include")
+target_link_libraries(color_pipe PUBLIC color_math rhi_resources rhi_system platform_system)
+
+# ddColorGenerated.slang is written at build time. A cook that imports ddColor needs both folders in INCLUDE_DIRS, and a
+# dependency on color_pipe_shader_data
 set(COLOR_PIPE_SHADER_DIR "${PROJECT_SOURCE_DIR}/assets/shaders/common/Color"
     CACHE INTERNAL "The folder of the ddColor Slang module")
 set(COLOR_PIPE_GENERATED_SHADER_DIR "${CMAKE_BINARY_DIR}/generated/shaders/Color"
@@ -36,7 +50,14 @@ add_custom_command(
 add_custom_target(color_pipe_shader_data DEPENDS "${COLOR_PIPE_GENERATED_STAMP}")
 set_target_properties(color_pipe_shader_data PROPERTIES FOLDER "Modules")
 
-# The module has no bundle of its own. A consumer cooks it through a module that imports it, with both folders above in
-# INCLUDE_DIRS. COLOR_PIPE_SHADER_MODULE is the source file, for a consumer that wants ddColor in its bundle as a module.
 set(COLOR_PIPE_SHADER_MODULE "${COLOR_PIPE_SHADER_DIR}/ddColor.slang"
     CACHE INTERNAL "The ddColor Slang module, for consumers to cook into their bundles")
+
+set(COLOR_PIPE_COMPOSITE_SHADER_DIR "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ColorPipe"
+    CACHE INTERNAL "The folder of the ColorComposite Slang module")
+set(COLOR_PIPE_COMPOSITE_SHADER_MODULE "${COLOR_PIPE_COMPOSITE_SHADER_DIR}/ColorComposite.slang"
+    CACHE INTERNAL "The ColorComposite Slang module, for consumers to cook into their bundles")
+set(COLOR_PIPE_COMPOSITE_POLICY_FILE "${COLOR_PIPE_COMPOSITE_SHADER_DIR}/ColorCompositePolicy.toml"
+    CACHE INTERNAL "The cook policy of ColorComposite")
+set(COLOR_PIPE_COMPOSITE_INCLUDE_DIRS "${COLOR_PIPE_SHADER_DIR};${COLOR_PIPE_GENERATED_SHADER_DIR}"
+    CACHE INTERNAL "The INCLUDE_DIRS that a cook of ColorComposite needs")

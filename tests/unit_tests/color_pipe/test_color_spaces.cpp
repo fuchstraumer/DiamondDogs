@@ -97,8 +97,7 @@ TEST(ColorSpacesTest, XyzToRgbInvertsRgbToXyz)
     }
 }
 
-// The published Rec.709 and Rec.2020 weights have four digits, so the tolerance is the rounding of the last digit.
-// AP1 is published with seven digits.
+// each tolerance is the rounding of the last published digit
 TEST(ColorSpacesTest, LuminanceWeightsMatchPublishedValues)
 {
     const color::Vec3d red{ 1.0, 0.0, 0.0 };

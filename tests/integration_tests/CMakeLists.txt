@@ -40,6 +40,7 @@ ADD_SUBDIRECTORY(ComputeManifestTest)
 ADD_SUBDIRECTORY(OceanFftTest)
 ADD_SUBDIRECTORY(GpuPyramidTest)
 ADD_SUBDIRECTORY(ColorMathTest)
+ADD_SUBDIRECTORY(ColorPipeTest)
 ADD_SUBDIRECTORY(ImGuiTest)
 ADD_SUBDIRECTORY(DisplayProbe)
 #ADD_SUBDIRECTORY(ResourceContextTest)  # Requires rewrite for new RhiResources module

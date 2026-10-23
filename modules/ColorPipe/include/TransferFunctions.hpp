@@ -17,7 +17,7 @@ namespace color
     // each encode and decode below mirrors a negative input about zero, so that extended-range values keep their sign
 
     /** @brief Encodes linear to sRGB (IEC 61966-2-1). The breakpoints are the exact continuity points of the two
-     *  segments, so that decode(encode(x)) is x. The published 0.0031308 and 0.04045 are roundings of them. */
+     *  segments, and not the rounded 0.0031308 and 0.04045. */
     [[nodiscard]] double SrgbEncode(double linear) noexcept;
     [[nodiscard]] double SrgbDecode(double encoded) noexcept;
 

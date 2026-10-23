@@ -41,6 +41,27 @@ eighth session's work is committed (`3d24a659` and earlier).
    and the author and Opus decide what to adopt, in a discussion session.
 4. Then the include cleanup and the purge of unused foundation code.
 
+**Pick up here (end of the ninth session, 2026-10-22):**
+1. Read `docs/working-relationship.md` first.
+2. Lodestone C7, C8, C12 and C13 are adopted. HDR is unblocked, and steps 1-3 and step 4 part A are done (see the top
+   of `docs/hdr-plan.md`). The author staged part A herself, so that she can split the commits.
+3. A Sonnet comment pass was running at the end: it compresses part A's comments and adds `modules/ColorPipe/README.md`.
+   Its edits are unstaged on top of her staged part A. Review its diff before anything else.
+4. **Next: step 4 part B, OceanFft adopts the pipe.** It is planned for the tenth session. Its inputs are in the
+   part A notes in `docs/hdr-plan.md`:
+   - an RGBA16F MSAA target resolving into `SceneTarget`;
+   - ImGui into `UiTarget` (RGBA8 UNORM, cleared to 0);
+   - `RecordComposite`;
+   - the merged composite policy and `COLOR_PIPE_COMPOSITE_INCLUDE_DIRS`;
+   - `Rec709ToAp1` at the ocean shaders' output (4e);
+   - merge `FullscreenDrawState` with OceanFft's `ShaderObjectState`, ideally into `rhi_system`;
+   - run `--resize` on the PQ pair.
+5. Small open items for the author:
+   - the HDR metadata uses the container's primaries, and the panel's may be better;
+   - the explicit-pair path throws `std::runtime_error`;
+   - the pyramid binding-array benchmark (she has not answered);
+   - `git rm --cached` of the two generated `.slang` files.
+
 **How to dispatch:**
 - Only one subagent builds at a time. Two builds in one `build/<preset>` folder race.
 - Read-only agents can run in parallel.

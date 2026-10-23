@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <map>
+#include <vector>
 
 // Allows us to rank surface formats based on how "good" we believe they are
 // We place higher scores on formats we believe best for HDR, including suitable HDR color spaces
@@ -242,6 +243,34 @@ SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sf
 
 }
 
+std::vector<SurfaceFormatPair> QuerySurfaceFormatPairs(const SwapchainCreateInfo& create_info)
+{
+    const rhi::Device* device = reinterpret_cast<const rhi::Device*>(create_info.RhiDevice);
+    const VkPhysicalDevice physicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
+    const VkSurfaceKHR surface = reinterpret_cast<VkSurfaceKHR>(create_info.VkSurfaceHandle);
+
+    uint32_t formatCount = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
+    std::vector<VkSurfaceFormatKHR> surfaceFormats(formatCount);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, surfaceFormats.data());
+
+    std::vector<SurfaceFormatPair> pairs;
+    pairs.reserve(surfaceFormats.size());
+
+    for (const VkSurfaceFormatKHR& surfaceFormat : surfaceFormats)
+    {
+        const ImageFormat format = FromVkFormat(surfaceFormat.format);
+        const ColorSpace space = FromVkColorSpace(surfaceFormat.colorSpace);
+
+        if (format.IsValid() && space != ColorSpace::Invalid)
+        {
+            pairs.push_back(SurfaceFormatPair{ format, space });
+        }
+    }
+
+    return pairs;
+}
+
 VkSurfaceFormatKHR SwapchainInfo::FindBestFormat() const noexcept
 {
     // Create new unordered_map to hold scores for available formats, but use an ordered map and swap key-values to sort by score
@@ -451,8 +480,29 @@ void SwapchainImpl::chooseSurfaceFormat(const SwapchainCreateInfo& create_info)
     // recall that VkSurfaceFormatKHR has two members: VkFormat format and VkColorSpaceKHR colorSpace, so that we're aware of both.
     // We'll need the former to set the swapchain image format, and the latter to inform the rendering pipeline and tonemapper about the color space in use.
     
+    // a near match is an error: the caller needs exactly this encoding
+    if (create_info.ExplicitSurfaceFormat.has_value())
+    {
+        const VkSurfaceFormatKHR requestedPair
+        {
+            ToVkFormat(create_info.ExplicitSurfaceFormat->Format),
+            ToVkColorSpace(create_info.ExplicitSurfaceFormat->Space)
+        };
+
+        const auto offered = std::ranges::find_if(Info->formats, [&requestedPair](const VkSurfaceFormatKHR& surface_format)
+        {
+            return surface_format.format == requestedPair.format && surface_format.colorSpace == requestedPair.colorSpace;
+        });
+
+        if (offered == Info->formats.end())
+        {
+            throw std::runtime_error("The surface does not offer the explicitly requested format and color space pair");
+        }
+
+        VulkanFormat = *offered;
+    }
     // Check if user specified a specific format, if so try to find closest match
-    if (create_info.SwapchainFormat.ComponentFormat != ImageComponentFormats::Invalid)
+    else if (create_info.SwapchainFormat.ComponentFormat != ImageComponentFormats::Invalid)
     {
         // User requested a specific format, try to find the closest match
         VkColorSpaceKHR preferredColorSpace = ToVkColorSpace(create_info.DesiredColorSpace);
@@ -514,61 +564,94 @@ void SwapchainImpl::createSwapchainHandle(const SwapchainCreateInfo& create_info
     PresentMode = swapchainCreateInfo.presentMode;
 }
 
+void SwapchainImpl::ApplyHdrMetadata(const SwapchainHdrMetadata& metadata)
+{
+    const rhi::Device* device = reinterpret_cast<const rhi::Device*>(CreateInfo.RhiDevice);
+
+    if (!device->HasExtension(VK_EXT_HDR_METADATA_EXTENSION_NAME))
+    {
+        return;
+    }
+
+    VkHdrMetadataEXT hdrMetadata{};
+    hdrMetadata.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
+    hdrMetadata.pNext = nullptr;
+    hdrMetadata.displayPrimaryRed.x = metadata.RedPrimaryX;
+    hdrMetadata.displayPrimaryRed.y = metadata.RedPrimaryY;
+    hdrMetadata.displayPrimaryGreen.x = metadata.GreenPrimaryX;
+    hdrMetadata.displayPrimaryGreen.y = metadata.GreenPrimaryY;
+    hdrMetadata.displayPrimaryBlue.x = metadata.BluePrimaryX;
+    hdrMetadata.displayPrimaryBlue.y = metadata.BluePrimaryY;
+    hdrMetadata.whitePoint.x = metadata.WhitePointX;
+    hdrMetadata.whitePoint.y = metadata.WhitePointY;
+    hdrMetadata.maxLuminance = metadata.MaxLuminance;
+    hdrMetadata.minLuminance = metadata.MinLuminance;
+    hdrMetadata.maxContentLightLevel = metadata.MaxContentLightLevel;
+    hdrMetadata.maxFrameAverageLightLevel = metadata.MaxFrameAverageLightLevel;
+
+    auto vkSetHdrMetadataEXT = reinterpret_cast<PFN_vkSetHdrMetadataEXT>(vkGetDeviceProcAddr(ParentDevice, "vkSetHdrMetadataEXT"));
+
+    if (vkSetHdrMetadataEXT == nullptr)
+    {
+        throw std::runtime_error("Failed to get function pointer for vkSetHdrMetadataEXT, even with extension enabled and HDR on.");
+    }
+
+    vkSetHdrMetadataEXT(ParentDevice, 1, &Swapchain, &hdrMetadata);
+}
+
 void SwapchainImpl::setHdrMetadata(const SwapchainCreateInfo& create_info)
 {
+    // the caller sets the metadata
+    if (create_info.ExplicitSurfaceFormat.has_value())
+    {
+        return;
+    }
+
     const rhi::Device* device = reinterpret_cast<const rhi::Device*>(create_info.RhiDevice);
     assert(create_info.PlatformSystemPtr != nullptr && "PlatformSystemPtr must be set in SwapchainCreateInfo");
     const PlatformWindowSystem* platformSystem = reinterpret_cast<const PlatformWindowSystem*>(create_info.PlatformSystemPtr);
     const DisplayInfo& displayInfo = platformSystem->GetActiveDisplayInfo();
 
-    if (device->HasExtension(VK_EXT_HDR_METADATA_EXTENSION_NAME))
+    if (!device->HasExtension(VK_EXT_HDR_METADATA_EXTENSION_NAME))
     {
-        // if HDR meatadata extension is supported, we can set HDR metadata on the swapchain if we're using an HDR format
-        bool isHDRFormat = false;
-        switch (ToVkFormat(create_info.SwapchainFormat))
-        {
-            case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
-            case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
-            case VK_FORMAT_R16G16B16A16_SFLOAT:
-            case VK_FORMAT_R16G16B16A16_UNORM:
-                isHDRFormat = true;
-                break;
-            default:
-                isHDRFormat = false;
-                break;
-        }
-
-        if (isHDRFormat)
-        {
-            VkHdrMetadataEXT hdrMetadata{};
-            hdrMetadata.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
-            hdrMetadata.pNext = nullptr;
-            hdrMetadata.displayPrimaryRed.x = displayInfo.ColorCapabilities.RedPrimaryX;
-            hdrMetadata.displayPrimaryRed.y = displayInfo.ColorCapabilities.RedPrimaryY;
-            hdrMetadata.displayPrimaryGreen.x = displayInfo.ColorCapabilities.GreenPrimaryX;
-            hdrMetadata.displayPrimaryGreen.y = displayInfo.ColorCapabilities.GreenPrimaryY;
-            hdrMetadata.displayPrimaryBlue.x = displayInfo.ColorCapabilities.BluePrimaryX;
-            hdrMetadata.displayPrimaryBlue.y = displayInfo.ColorCapabilities.BluePrimaryY;
-            hdrMetadata.whitePoint.x = displayInfo.ColorCapabilities.WhitePointX;
-            hdrMetadata.whitePoint.y = displayInfo.ColorCapabilities.WhitePointY;
-            hdrMetadata.maxLuminance = displayInfo.ColorCapabilities.MaxLuminance;
-            hdrMetadata.minLuminance = displayInfo.ColorCapabilities.MinLuminance;
-            hdrMetadata.maxContentLightLevel = displayInfo.ColorCapabilities.MaxLuminance * 0.9f; // set based on preferences. we can add a config for this later
-            hdrMetadata.maxFrameAverageLightLevel = displayInfo.ColorCapabilities.MaxAverageLuminance;
-
-            // get function pointer for vkSetHdrMetadataEXT
-            auto vkSetHdrMetadataEXT =
-                reinterpret_cast<PFN_vkSetHdrMetadataEXT>(vkGetDeviceProcAddr(ParentDevice, "vkSetHdrMetadataEXT"));
-            if (vkSetHdrMetadataEXT != nullptr)
-            {
-                vkSetHdrMetadataEXT(ParentDevice, 1, &Swapchain, &hdrMetadata);
-            }
-            else
-            {
-                throw std::runtime_error("Failed to get function pointer for vkSetHdrMetadataEXT, even with extension enabled and HDR on.");
-            }
-        }
+        return;
     }
+
+    // if HDR meatadata extension is supported, we can set HDR metadata on the swapchain if we're using an HDR format
+    bool isHDRFormat = false;
+    switch (ToVkFormat(create_info.SwapchainFormat))
+    {
+        case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
+        case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+        case VK_FORMAT_R16G16B16A16_SFLOAT:
+        case VK_FORMAT_R16G16B16A16_UNORM:
+            isHDRFormat = true;
+            break;
+        default:
+            isHDRFormat = false;
+            break;
+    }
+
+    if (!isHDRFormat)
+    {
+        return;
+    }
+
+    const DisplayColorCapabilities& capabilities = displayInfo.ColorCapabilities;
+    SwapchainHdrMetadata metadata{};
+    metadata.RedPrimaryX = capabilities.RedPrimaryX;
+    metadata.RedPrimaryY = capabilities.RedPrimaryY;
+    metadata.GreenPrimaryX = capabilities.GreenPrimaryX;
+    metadata.GreenPrimaryY = capabilities.GreenPrimaryY;
+    metadata.BluePrimaryX = capabilities.BluePrimaryX;
+    metadata.BluePrimaryY = capabilities.BluePrimaryY;
+    metadata.WhitePointX = capabilities.WhitePointX;
+    metadata.WhitePointY = capabilities.WhitePointY;
+    metadata.MaxLuminance = capabilities.MaxLuminance;
+    metadata.MinLuminance = capabilities.MinLuminance;
+    metadata.MaxContentLightLevel = capabilities.MaxLuminance * 0.9f; // set based on preferences. we can add a config for this later
+    metadata.MaxFrameAverageLightLevel = capabilities.MaxAverageLuminance;
+    ApplyHdrMetadata(metadata);
 }
 
 void SwapchainImpl::Destroy()
