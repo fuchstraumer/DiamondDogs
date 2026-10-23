@@ -4,8 +4,8 @@
 set(OCEAN_FFT_SHADER_DIR "${PROJECT_SOURCE_DIR}/assets/shaders/compute/Ocean")
 
 # ocean_fft_support.py turns OceanFftConfig.yaml into the spreading-normalization fits and LUTs. The LUTs are C++ sources
-# in the build directory. OceanFftGenerated.slang has to sit next to Spectra.slang, because the cooker only searches a
-# module's own folder, so it is written into the source tree (only when its contents change). Needs numpy and pyyaml.
+# in the build directory, and so is OceanFftGenerated.slang, which every cook of Spectra.slang finds through INCLUDE_DIRS.
+# Needs numpy and pyyaml.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 execute_process(
     COMMAND "${Python3_EXECUTABLE}" -c "import numpy, yaml"
@@ -17,6 +17,8 @@ if (OCEAN_FFT_PYTHON_MODULES_MISSING)
 endif()
 set(OCEAN_FFT_SCRIPT_DIR "${PROJECT_SOURCE_DIR}/assets/scripts")
 set(OCEAN_FFT_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(OCEAN_FFT_GENERATED_SHADER_DIR "${CMAKE_BINARY_DIR}/generated/shaders/Ocean"
+    CACHE INTERNAL "The folder of OceanFftGenerated.slang, which is written at build time")
 set(OCEAN_FFT_GENERATED_SOURCES
     "${OCEAN_FFT_GENERATED_DIR}/DonelanBannerNormLUT.cpp"
     "${OCEAN_FFT_GENERATED_DIR}/DonelanBannerNormLUT.hpp"
@@ -25,11 +27,12 @@ set(OCEAN_FFT_GENERATED_SOURCES
 set(OCEAN_FFT_SUPPORT_STAMP "${OCEAN_FFT_GENERATED_DIR}/ocean_fft_support.stamp")
 add_custom_command(
     OUTPUT "${OCEAN_FFT_SUPPORT_STAMP}"
-    BYPRODUCTS ${OCEAN_FFT_GENERATED_SOURCES} "${OCEAN_FFT_SHADER_DIR}/OceanFftGenerated.slang"
+    BYPRODUCTS ${OCEAN_FFT_GENERATED_SOURCES} "${OCEAN_FFT_GENERATED_SHADER_DIR}/OceanFftGenerated.slang"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${OCEAN_FFT_GENERATED_SHADER_DIR}"
     COMMAND Python3::Interpreter "${OCEAN_FFT_SCRIPT_DIR}/ocean_fft_support.py"
         --config "${OCEAN_FFT_SCRIPT_DIR}/OceanFftConfig.yaml"
         --lut_dir "${OCEAN_FFT_GENERATED_DIR}"
-        --shader_dir "${OCEAN_FFT_SHADER_DIR}"
+        --shader_dir "${OCEAN_FFT_GENERATED_SHADER_DIR}"
     COMMAND "${CMAKE_COMMAND}" -E touch "${OCEAN_FFT_SUPPORT_STAMP}"
     DEPENDS "${OCEAN_FFT_SCRIPT_DIR}/ocean_fft_support.py" "${OCEAN_FFT_SCRIPT_DIR}/OceanFftConfig.yaml"
     COMMENT "Generating the OceanFft spreading fits and LUTs"
@@ -41,6 +44,7 @@ lodestone_add_shader_cook(ocean_fft_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
     TARGETS spirv
     POLICY_FILE "${OCEAN_FFT_SHADER_DIR}/OceanFftPolicy.toml"
+    INCLUDE_DIRS "${OCEAN_FFT_GENERATED_SHADER_DIR}"
     MODULES "${OCEAN_FFT_SHADER_DIR}/OceanFft.slang" "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanRender.slang"
         "${GPU_PYRAMID_SHADER_MODULE}")
 set_target_properties(ocean_fft_shaders PROPERTIES FOLDER "Applications/OceanFft")

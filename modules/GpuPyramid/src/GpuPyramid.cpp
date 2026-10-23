@@ -41,14 +41,9 @@ namespace pyramid
         constexpr std::array<std::string_view, static_cast<size_t>(Pipeline::Count)> k_EntryPoints{ "NvproPyramidFastCS", "NvproPyramidGeneralCS" };
         constexpr std::array<std::string_view, 3> k_ReductionNames{ "PyramidAverage", "PyramidMin", "PyramidMax" };
 
-        // PYRAMID_MAX_LEVELS in NvproPyramid.slang: one storage binding per level (an array once Lodestone's
-        // SPIR-V validator reads binding arrays, request C12)
+        // PYRAMID_MAX_LEVELS in NvproPyramid.slang: the length of the PyramidLevels binding array
         constexpr uint32_t k_MaxLevels = 16u;
-        constexpr std::array<std::string_view, k_MaxLevels> k_LevelNames
-        {
-            "PyramidLevel0", "PyramidLevel1", "PyramidLevel2", "PyramidLevel3", "PyramidLevel4", "PyramidLevel5", "PyramidLevel6", "PyramidLevel7",
-            "PyramidLevel8", "PyramidLevel9", "PyramidLevel10", "PyramidLevel11", "PyramidLevel12", "PyramidLevel13", "PyramidLevel14", "PyramidLevel15"
-        };
+        constexpr std::string_view k_LevelsName{ "PyramidLevels" };
         // nvpro_pyramid_dispatch.hpp: the push constant is input level << 5 | level count
         constexpr uint32_t k_InputLevelShift = 5u;
         // the fast pipeline's subgroup shuffles assume this many lanes (see MipGenerator::Create)
@@ -288,6 +283,11 @@ namespace pyramid
             return std::unexpected(std::string{ "the device has no shaderStorageImageWriteWithoutFormat, which NvproPyramid needs until its levels declare a format" });
         }
 
+        if (features.shaderStorageImageArrayDynamicIndexing != VK_TRUE)
+        {
+            return std::unexpected(std::string{ "the device has no shaderStorageImageArrayDynamicIndexing, which NvproPyramid needs to index PyramidLevels by the level" });
+        }
+
         rhi::ShaderLibraryResult<const lodestone::ManifestIndex*> index = library.ModuleIndex(k_ModuleName);
         if (!index.has_value())
         {
@@ -436,12 +436,17 @@ namespace pyramid
             { "PyramidSampler", BoundResource{ input, VK_IMAGE_LAYOUT_GENERAL, {} } },
         };
 
-        // the level bindings past the last level view the last level. No dispatch writes them
+        // the elements of PyramidLevels past the last level view the last level. No dispatch writes them
+        BoundResource levels{ GraphicsResource::Null(), VK_IMAGE_LAYOUT_GENERAL, {} };
+        levels.Elements.reserve(k_MaxLevels);
+
         for (uint32_t level = 0u; level < k_MaxLevels; ++level)
         {
             const VkImageView view = target->LevelViews[std::min(level, create_info.MipLevels - 1u)];
-            resources.emplace(k_LevelNames[level], BoundResource{ ViewResource(create_info.Image, view, VK_NULL_HANDLE), VK_IMAGE_LAYOUT_GENERAL, {} });
+            levels.Elements.push_back(ViewResource(create_info.Image, view, VK_NULL_HANDLE));
         }
+
+        resources.emplace(k_LevelsName, std::move(levels));
 
         for (size_t pipeline = 0; pipeline < impl->Programs.size(); ++pipeline)
         {

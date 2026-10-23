@@ -20,7 +20,7 @@
 //   - NVPRO_PYRAMID_LOAD, NVPRO_PYRAMID_LOAD_REDUCE4, NVPRO_PYRAMID_STORE and NVPRO_PYRAMID_LEVEL_SIZE read and
 //     write the bindings below. LOAD_REDUCE4 uses a bilinear fetch when the reduction says it is exact (an
 //     average), as the sample's sRGB preamble does.
-// - The levels are sixteen bindings instead of the sample's imageMipLevels[16] array, for now (see the todo below).
+// - The levels are one binding array, PyramidLevels[16], indexed by the level, as the sample's imageMipLevels[16] is.
 // - A layer index: SV_GroupID.z is the array layer, so one dispatch covers every layer of a 2D array texture. The
 //   original is 2D only and dispatches with y and z of 1.
 // - The fallthrough switches of reduceStoreSample_ are if-chains with the same loads and the same arithmetic.
@@ -52,80 +52,25 @@ uniform Texture2DArray<float4> PyramidInput;
 // linear filtering, clamp to edge: only the bilinear LOAD_REDUCE4 reads through it
 uniform SamplerState PyramidSampler;
 
-// PyramidLevel<n> views level n of the same texture, all layers (the original's imageMipLevels[n]). A dispatch never
-// writes the level it reads. The host binds a view of the last level to every binding past the texture's level count.
-// todo: two Lodestone requests.
-// - C12: these are one array, `PyramidLevels[PYRAMID_MAX_LEVELS]`, once the cook's SPIR-V validator reads binding
-//   arrays. Until then they are sixteen bindings, and PyramidLevelStore and PyramidLevelSize switch on the level.
-// - C11: the storage format is "unknown", because a [format] attribute takes a literal and an axis cannot pick it.
-//   Without the attribute Slang guesses rgba32f from float4, and that is wrong for any other format. Writes without
-//   a format need shaderStorageImageWriteWithoutFormat, so the WGSL target cannot cook this module until C11 lands.
+// PyramidLevels[n] views level n of the same texture, all layers (the original's imageMipLevels[n]). A dispatch never
+// writes the level it reads. The host binds a view of the last level to every element past the texture's level count.
+// todo: C11. The storage format is "unknown", because a [format] attribute takes a literal and an axis cannot pick it.
+// Without the attribute Slang guesses rgba32f from float4, and that is wrong for any other format. Writes without a
+// format need shaderStorageImageWriteWithoutFormat, so the WGSL target cannot cook this module until C11 lands.
 static const uint PYRAMID_MAX_LEVELS = 16u;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel0;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel1;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel2;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel3;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel4;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel5;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel6;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel7;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel8;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel9;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel10;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel11;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel12;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel13;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel14;
-[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevel15;
+[format("unknown")] uniform RWTexture2DArray<float4> PyramidLevels[PYRAMID_MAX_LEVELS];
 
-// `level` is dynamically uniform, so every thread takes the same case
+// `level` is dynamically uniform, so every thread reads the same element. This needs
+// shaderStorageImageArrayDynamicIndexing
 void PyramidLevelStore(int level, uint3 texel, float4 value)
 {
-    switch (level)
-    {
-    case 0: PyramidLevel0[texel] = value; break;
-    case 1: PyramidLevel1[texel] = value; break;
-    case 2: PyramidLevel2[texel] = value; break;
-    case 3: PyramidLevel3[texel] = value; break;
-    case 4: PyramidLevel4[texel] = value; break;
-    case 5: PyramidLevel5[texel] = value; break;
-    case 6: PyramidLevel6[texel] = value; break;
-    case 7: PyramidLevel7[texel] = value; break;
-    case 8: PyramidLevel8[texel] = value; break;
-    case 9: PyramidLevel9[texel] = value; break;
-    case 10: PyramidLevel10[texel] = value; break;
-    case 11: PyramidLevel11[texel] = value; break;
-    case 12: PyramidLevel12[texel] = value; break;
-    case 13: PyramidLevel13[texel] = value; break;
-    case 14: PyramidLevel14[texel] = value; break;
-    default: PyramidLevel15[texel] = value; break;
-    }
+    PyramidLevels[level][texel] = value;
 }
 
 uint3 PyramidLevelDimensions(int level)
 {
     uint3 size;
-
-    switch (level)
-    {
-    case 0: PyramidLevel0.GetDimensions(size.x, size.y, size.z); break;
-    case 1: PyramidLevel1.GetDimensions(size.x, size.y, size.z); break;
-    case 2: PyramidLevel2.GetDimensions(size.x, size.y, size.z); break;
-    case 3: PyramidLevel3.GetDimensions(size.x, size.y, size.z); break;
-    case 4: PyramidLevel4.GetDimensions(size.x, size.y, size.z); break;
-    case 5: PyramidLevel5.GetDimensions(size.x, size.y, size.z); break;
-    case 6: PyramidLevel6.GetDimensions(size.x, size.y, size.z); break;
-    case 7: PyramidLevel7.GetDimensions(size.x, size.y, size.z); break;
-    case 8: PyramidLevel8.GetDimensions(size.x, size.y, size.z); break;
-    case 9: PyramidLevel9.GetDimensions(size.x, size.y, size.z); break;
-    case 10: PyramidLevel10.GetDimensions(size.x, size.y, size.z); break;
-    case 11: PyramidLevel11.GetDimensions(size.x, size.y, size.z); break;
-    case 12: PyramidLevel12.GetDimensions(size.x, size.y, size.z); break;
-    case 13: PyramidLevel13.GetDimensions(size.x, size.y, size.z); break;
-    case 14: PyramidLevel14.GetDimensions(size.x, size.y, size.z); break;
-    default: PyramidLevel15.GetDimensions(size.x, size.y, size.z); break;
-    }
-
+    PyramidLevels[level].GetDimensions(size.x, size.y, size.z);
     return size;
 }
 

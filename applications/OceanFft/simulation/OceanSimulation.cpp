@@ -327,32 +327,22 @@ namespace ocean
 
                     for (const auto& [memberName, offset] : check.Members)
                     {
+                        // Find matches the whole dotted path from the root of the block's struct, never a suffix
+                        const std::optional<lodestone::manifest::UniformMemberView> member = resource.Members().Find(memberName);
 
-                        bool found = false;
-                        for (const lodestone::manifest::UniformMemberView member : resource.Members())
-                        {
-                            // the manifest may qualify the name, so match its last component whole: a bare ends_with
-                            // also took SwellWindSpeed for WindSpeed
-                            const std::string_view name = member.Name();
-                            const bool nameMatches = name == memberName ||
-                                (name.ends_with(memberName) && name[name.size() - memberName.size() - 1u] == '.');
-                            if (nameMatches)
-                            {
-                                found = true;
-                                if (member.Offset() != offset)
-                                {
-                                    return std::format("{}.{} is at offset {} in the manifest, {} here", check.Resource, memberName, member.Offset(), offset);
-                                }
-                            }
-                        }
-                        
-                        if (!found)
+                        if (!member.has_value())
                         {
                             return std::format("{}.{} is not in the manifest", check.Resource, memberName);
+                        }
+
+                        if (member->Offset() != offset)
+                        {
+                            return std::format("{}.{} is at offset {} in the manifest, {} here", check.Resource, memberName, member->Offset(), offset);
                         }
                     }
                 }
             }
+
             return std::nullopt;
         }
     }
