@@ -4,9 +4,11 @@
 #include <array>
 #include <cstdint>
 #include <deque>
+#include "containers/mwsrQueue.hpp"
 #include <expected>
 #include <filesystem>
-#include <mutex>
+#include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -54,8 +56,8 @@ struct SceneCommand
     [[nodiscard]] static std::expected<SceneCommand, std::string> Parse(std::string_view line);
 };
 
-/** Holds the lines from the script and stdin, and hands out the commands for each frame. Thread safe: the stdin
- *  reader pushes lines from its own thread. */
+/** Holds the lines from the script and stdin, and hands out the commands for each frame. Push may be called from any
+ *  thread. The stdin reader pushes through the queue. Every other method runs on the frame thread. */
 class SceneCommands
 {
 public:
@@ -72,8 +74,10 @@ public:
     [[nodiscard]] bool Busy() const;
 
 private:
-    mutable std::mutex mutex;
-    std::deque<std::string> lines;
+    void drainIncoming() const;
+
+    std::shared_ptr<mwsrQueue<std::string>> incoming{ std::make_shared<mwsrQueue<std::string>>() };
+    mutable std::deque<std::string> lines;
     uint32_t waitFrames{ 0u };
 };
 

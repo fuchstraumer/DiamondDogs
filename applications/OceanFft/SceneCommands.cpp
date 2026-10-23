@@ -6,7 +6,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <mutex>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -148,7 +147,7 @@ std::expected<void, std::string> SceneCommands::LoadScript(const std::filesystem
     std::string line;
     while (std::getline(file, line))
     {
-        Push(std::move(line));
+        lines.push_back(std::move(line));
     }
 
     return {};
@@ -156,28 +155,39 @@ std::expected<void, std::string> SceneCommands::LoadScript(const std::filesystem
 
 void SceneCommands::StartStdin()
 {
-    // detached: getline blocks until a line or end of file, and the process can exit while it waits
-    std::thread([this]
+    // detached: getline blocks until a line or end of file, and the process can exit while it waits. The thread
+    // holds its own copy of the queue pointer, so a line that arrives after this object is destroyed still has a queue.
+    std::thread([queue = incoming]
     {
         std::string line;
         while (std::getline(std::cin, line))
         {
-            Push(std::move(line));
+            queue->push(std::move(line));
         }
     }).detach();
 }
 
 void SceneCommands::Push(std::string line)
 {
-    std::scoped_lock lock(mutex);
-    lines.push_back(std::move(line));
+    incoming->push(std::move(line));
+}
+
+void SceneCommands::drainIncoming() const
+{
+    std::optional<std::string> line = incoming->try_pop();
+    while (line.has_value())
+    {
+        lines.push_back(std::move(*line));
+        line = incoming->try_pop();
+    }
 }
 
 std::vector<SceneCommand> SceneCommands::TakeForFrame()
 {
+    drainIncoming();
+
     std::vector<SceneCommand> commands;
 
-    std::scoped_lock lock(mutex);
     if (waitFrames > 0u)
     {
         --waitFrames;
@@ -227,6 +237,7 @@ std::vector<SceneCommand> SceneCommands::TakeForFrame()
 
 bool SceneCommands::Busy() const
 {
-    std::scoped_lock lock(mutex);
+    drainIncoming();
+
     return waitFrames > 0u || !lines.empty();
 }

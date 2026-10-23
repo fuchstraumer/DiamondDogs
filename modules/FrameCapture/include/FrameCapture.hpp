@@ -5,13 +5,11 @@
 #include "ResourceTypes.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
-#include <condition_variable>
+#include "containers/mwsrQueue.hpp"
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <filesystem>
-#include <mutex>
-#include <stop_token>
 #include <string>
 #include <thread>
 #include <vector>
@@ -107,32 +105,32 @@ namespace capture
             std::string Name;
         };
 
+        // no default member initializers: clang checks the queue's default constructor before this class is complete,
+        // and it rejects a nested class whose initializers are not parsed yet. Job{} still zeroes every member.
         struct Job
         {
             std::vector<std::byte> Pixels;
-            uint32_t Width{ 0u };
-            uint32_t Height{ 0u };
+            uint32_t Width;
+            uint32_t Height;
             ImageFormat Format;
-            CaptureEncoding Encoding{ CaptureEncoding::sRGB };
+            CaptureEncoding Encoding;
             std::filesystem::path Path;
         };
 
         void drainSlot(Slot& slot);
         bool ensureBuffer(Slot& slot, uint64_t bytes);
-        void writerLoop(std::stop_token stop);
+        void waitForOutstandingBelow(uint32_t limit);
+        void writerLoop();
 
         ResourceContext& resources;
         std::filesystem::path directory;
         std::vector<Slot> slots;
 
-        mutable std::mutex jobMutex;
-        std::condition_variable_any jobAvailable;
-        std::condition_variable_any jobsDone;
-        std::deque<Job> jobs;
-        uint32_t busyJobs{ 0u };
-        uint32_t written{ 0u };
-        uint32_t failed{ 0u };
-        std::jthread writer;
+        mwsrQueue<Job> jobs;
+        std::atomic<uint32_t> outstanding{ 0u };
+        std::atomic<uint32_t> written{ 0u };
+        std::atomic<uint32_t> failed{ 0u };
+        std::thread writer;
     };
 }
 
