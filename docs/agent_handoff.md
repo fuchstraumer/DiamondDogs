@@ -24,8 +24,14 @@ eighth session's work is committed (`3d24a659` and earlier).
   `foundation/include/Math.hpp` aliases `namespace math = velox::math;`. Sync by plain file copy. `MathTests.cpp` is
   ported to gtest (12 cases, 230 checks), and the old math tests, the integer vectors, `MathHashes.hpp`, the Lottes
   `Tonemapper.hpp` and `ddTonemapping.slang` are deleted. `foundation_tests` also passes in Release.
-- `dd_run_tests.ps1` needs `pwsh` (it fails under Windows PowerShell 5), and it does not run `color_pipe_tests` or
-  `ColorMathTest`. Add them.
+- Smaller items, all done: `RhiAssert.hpp` out of line, `dd_run_tests.ps1` (PS 5 and 7, plus the ColorPipe tests),
+  `dd-one.cmd` (several targets), and the Release `/Ob2` flags. See `docs/build-time-2026-10-22.md`.
+- `docs/container-inventory-2026-10-22.md`: no hot path justifies a container swap yet. A fixed-capacity inline vector
+  and interned names come first. It also found the locks in `FrameCapture` and `SceneCommands`, which wait for the
+  author's decision.
+- Open for the next session with the author: the ContentCompiler rework (recipes as data, coroutines as the
+  executor; see `docs/our-machinery/SYNTHESIS.md`), the two locks, and the Debug/Release cooker bundle difference
+  (a Lodestone question).
 - The our_machinery summaries and the decisions are in `docs/our-machinery/` (`SYNTHESIS.md` first).
 
 **Now: code hygiene** (the author's order):

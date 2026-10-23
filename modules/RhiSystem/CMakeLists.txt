@@ -19,9 +19,10 @@ set(RHI_CORE_HEADERS
     "include/core/RhiFlags.hpp"
     "include/core/RhiTypes.hpp")
 
-set(RHI_CORE_SOURCES 
+set(RHI_CORE_SOURCES
     "src/core/ExtensionWrangler.cpp"
     "src/core/ExtensionPack.cpp"
+    "src/core/RhiAssert.cpp"
     "src/core/RhiSystem.cpp")
 
 set(RHI_CORE_INTERNAL_HEADERS

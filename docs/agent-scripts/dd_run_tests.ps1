@@ -11,9 +11,11 @@ $tests = @(
     @{ Name = "rhi_system_tests"; Path = "$build\unit_tests\rhi_system\$Config\rhi_system_tests.exe"; Args = @("--gtest_brief=1") },
     @{ Name = "resource_context_tests"; Path = "$build\unit_tests\resource_context\$Config\resource_context_tests.exe"; Args = @("--gtest_brief=1") },
     @{ Name = "platform_system_tests"; Path = "$build\unit_tests\platform_system\$Config\platform_system_tests.exe"; Args = @("--gtest_brief=1") },
+    @{ Name = "color_pipe_tests"; Path = "$build\unit_tests\color_pipe\$Config\color_pipe_tests.exe"; Args = @("--gtest_brief=1") },
     @{ Name = "ComputeManifestTest"; Path = "$build\integration_tests\ComputeManifestTest\$Config\ComputeManifestTest.exe"; Args = @() },
     @{ Name = "OceanFftTest"; Path = "$build\integration_tests\OceanFftTest\$Config\OceanFftTest.exe"; Args = @() },
     @{ Name = "GpuPyramidTest"; Path = "$build\integration_tests\GpuPyramidTest\$Config\GpuPyramidTest.exe"; Args = @() },
+    @{ Name = "ColorMathTest"; Path = "$build\integration_tests\ColorMathTest\$Config\ColorMathTest.exe"; Args = @() },
     @{ Name = "ImGuiTest"; Path = "$build\integration_tests\ImGuiTest\$Config\ImGuiTest.exe"; Args = @("--frames=180") },
     @{ Name = "TriangleTest"; Path = "$build\integration_tests\TriangleTest\$Config\TriangleTest.exe"; Args = @("--frames=240") },
     @{ Name = "ImGuiTest_resize"; Path = "$build\integration_tests\ImGuiTest\$Config\ImGuiTest.exe"; Args = @("--frames=150", "--resize") },
@@ -25,8 +27,12 @@ foreach ($test in $tests) {
     if (-not (Test-Path $test.Path)) { "{0,-24} NOT BUILT" -f $test.Name; $failed++; continue }
     $log = "$logs\$($test.Name).log"
     Push-Location (Split-Path $test.Path)
-    $proc = Start-Process -FilePath $test.Path -ArgumentList $test.Args -NoNewWindow -PassThru -RedirectStandardOutput "$log.out" -RedirectStandardError "$log.err"
-    if (-not $proc.WaitForExit(600000)) { $proc.Kill(); $code = "TIMEOUT" } else { $code = $proc.ExitCode }
+    $startParams = @{ FilePath = $test.Path; NoNewWindow = $true; PassThru = $true; RedirectStandardOutput = "$log.out"; RedirectStandardError = "$log.err" }
+    if ($test.Args.Count -gt 0) { $startParams.ArgumentList = $test.Args }
+    $proc = Start-Process @startParams
+    # Windows PowerShell 5 leaves ExitCode null unless the handle is read before the wait.
+    $null = $proc.Handle
+    if (-not $proc.WaitForExit(600000)) { $proc.Kill(); $code = "TIMEOUT" } else { $proc.WaitForExit(); $code = $proc.ExitCode }
     Pop-Location
     $text = (Get-Content "$log.out" -Raw) + (Get-Content "$log.err" -Raw)
     $vuids = ([regex]::Matches($text, "VUID_NAME:\S+|Validation Error")).Count
