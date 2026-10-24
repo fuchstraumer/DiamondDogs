@@ -3,7 +3,10 @@ cmake_minimum_required(VERSION 3.10)
 # Foundation unit tests
 set(FOUNDATION_TEST_SOURCES
     test_main.cpp
-    
+
+    # Async tests
+    async/test_task_scheduler.cpp
+
     # Threading tests
     threading/test_atomic128.cpp
     threading/test_critical_section.cpp
@@ -19,6 +22,7 @@ set(FOUNDATION_TEST_SOURCES
     utility/test_multicast_delegate.cpp
     utility/test_murmur_hash.cpp
     utility/test_tagged_bool.cpp
+    utility/test_xxhash.cpp
     utility/test_source_paths.cpp
     
     # Math tests
@@ -37,3 +41,6 @@ target_include_directories(foundation_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/third_party"
     "${CMAKE_SOURCE_DIR}/third_party/glm"
     ${Vulkan_INCLUDE_DIR})
+
+# xxHash comes from Lodestone's checkout (see cmake/ConfigureLodestone.cmake). Only this test links it for now.
+target_link_libraries(foundation_tests xxHash::xxhash)

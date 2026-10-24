@@ -14,11 +14,12 @@ namespace foundation
 
 class Scheduler;
 
-// An awaitable that needs the scheduler of the coroutine that awaits it
+// An awaitable that needs the scheduler of the coroutine that awaits it + it's awaiting promise
+// to help construct readable traces and graphs
 template<typename Awaiter>
-concept SchedulerBound = requires(std::remove_reference_t<Awaiter>& awaiter, Scheduler* owner)
+concept SchedulerBound = requires(std::remove_reference_t<Awaiter>& awaiter, Scheduler* owner, BasePromise* awaiting)
 {
-    awaiter.BindOwner(owner);
+    awaiter.BindOwner(owner, awaiting);
 };
 
 namespace detail
@@ -46,7 +47,7 @@ namespace detail
     {
         std::optional<Unit> Value;
 
-        void return_void()
+        void return_void() noexcept
         {
             Value.emplace(k_Unit);
         }
@@ -77,7 +78,7 @@ public:
             if constexpr (SchedulerBound<Awaiter>)
             {
                 // passing `this` is how we keep the callstack intact for tracing/debugging
-                awaiter.BindOwner(Owner, this);
+                awaiter.BindOwner(Owner, static_cast<BasePromise*>(this));
             }
 
             return std::forward<Awaiter>(awaiter);
@@ -100,7 +101,7 @@ public:
     Task& operator=(const Task&) = delete; // disable copy assignment
     ~Task();
 
-    void BindOwner(Scheduler* owner) noexcept; // what makes SchedulerBound true/usable
+    void BindOwner(Scheduler* owner, BasePromise* awaiting) noexcept; // what makes SchedulerBound true/usable
     Awaiter operator co_await() && noexcept;
 private:
     friend class Scheduler;
@@ -111,7 +112,10 @@ private:
 template<typename T>
 Task<T> Task<T>::promise_type::get_return_object() noexcept
 {
-    return Task<T>{ std::coroutine_handle<promise_type>::from_promise(*this) };
+    auto resultHandle =
+        std::coroutine_handle<promise_type>::from_promise(*this);
+    FrameAddress = resultHandle.address();
+    return Task<T>{ resultHandle };
 }
 
 template<typename T>
@@ -183,8 +187,25 @@ Task<T>::~Task()
     // we will handle cancellation later
     if (handle)
     {
+        handle.promise().Owner = nullptr;
+        handle.promise().Awaiting = nullptr;
         handle.destroy();
     }
+}
+
+template<typename T>
+void Task<T>::BindOwner(Scheduler* owner, BasePromise* awaiting) noexcept
+{
+    promise_type& promise = handle.promise();
+    promise.Owner = owner;
+    promise.Awaiting = awaiting;
+}
+
+template<typename T>
+typename Task<T>::Awaiter Task<T>::operator co_await() && noexcept
+{
+    // the Task stays alive in the awaiting frame's co_await expression, so it still destroys the child frame
+    return Awaiter{ handle };
 }
 
 } // namespace foundation

@@ -12,6 +12,7 @@ set(foundation_async_source_files
     "include/async/Scheduler.hpp"
     "include/async/Task.hpp"
     "include/async/Timeline.hpp"
+    "src/async/Scheduler.cpp"
     "src/async/Timeline.cpp")
 
 set(foundation_containers_source_files

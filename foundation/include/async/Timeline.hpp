@@ -7,17 +7,21 @@
 
 namespace foundation
 {
+
 class Timeline;
 class Scheduler;
+struct BasePromise;
 
 struct TimelineAwaiter
 {
     [[nodiscard]] bool await_ready() const noexcept;
     void await_suspend(std::coroutine_handle<> handle) noexcept;
     void await_resume() const noexcept;
+    void BindOwner(Scheduler* scheduler, BasePromise* awaiting) noexcept;
     const Timeline* Source{ nullptr };
     uint64_t TargetValue{ 0u };
     Scheduler* Owner{ nullptr };
+    BasePromise* Waiter{ nullptr };
 };
 
 /**@brief Core synchronization primitive for coordinating and managing progress of asynchronous tasks

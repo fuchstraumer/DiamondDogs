@@ -36,6 +36,22 @@ foreach(lodestoneTarget IN ITEMS lodestone lodestone_client_library lodestone_cl
     endif()
 endforeach()
 
+# Lodestone adds its clang Debug flags when the compiler ID is not MSVC, and clang-cl reports Clang. clang-cl
+# ignores -fno-omit-frame-pointer with a warning on every file. /Od keeps frame pointers anyway, so we drop it.
+# Request E4 in Lodestone's docs/diamonddogs-requests.md
+if (NOT DIAMOND_DOGS_COMPILER_IS_CL AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    foreach(lodestoneTarget IN ITEMS lodestone lodestone_client_library)
+        if (TARGET ${lodestoneTarget})
+            get_target_property(lodestoneOptions ${lodestoneTarget} COMPILE_OPTIONS)
+
+            if (lodestoneOptions)
+                string(REPLACE ";-fno-omit-frame-pointer" "" lodestoneOptions "${lodestoneOptions}")
+                set_target_properties(${lodestoneTarget} PROPERTIES COMPILE_OPTIONS "${lodestoneOptions}")
+            endif()
+        endif()
+    endforeach()
+endif()
+
 # DiamondDogs reads Lodestone's copy of xxHash on purpose: one checkout of the library, and one version, for the
 # cooker and for us. The cooker always builds here, and its add_xxhash() defines this target.
 if (NOT TARGET xxHash::xxhash)

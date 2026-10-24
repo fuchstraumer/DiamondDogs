@@ -20,6 +20,8 @@ namespace foundation
     {
         Scheduler* Owner{ nullptr };
         std::coroutine_handle<> Continuation{ nullptr };
+        BasePromise* Awaiting{ nullptr }; // awaiting promise used to read async backtrace
+        void* FrameAddress{ nullptr }; // used by async backtrace to print names
     };
 
     template<typename PromiseType>
@@ -35,7 +37,7 @@ namespace foundation
         }
 
         template<ValidPromiseType PromiseType>
-        FINAL_AWAITER_NOINLINE std::coroutine_handle<> await_suspend(std::coroutine_handle<PromiseType> handle)
+        FINAL_AWAITER_NOINLINE std::coroutine_handle<> await_suspend(std::coroutine_handle<PromiseType> handle) noexcept
         {
             auto& promise = handle.promise();
             if (promise.Continuation)
