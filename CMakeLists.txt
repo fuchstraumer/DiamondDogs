@@ -28,8 +28,8 @@ configure_file(
 
 FIND_PACKAGE(Vulkan REQUIRED)
 
-# mimalloc options go first: Lodestone's Slang creates the mimalloc-static target that we link (see
-# ConfigureLodestone.cmake), and these cache entries decide how that target is built
+# mimalloc: our checkout (third_party/mimalloc) is the only allocator that DiamondDogs executables link. These options
+# go first because the cache entries decide how the mimalloc-static target is built
 SET(MI_BUILD_OBJECT OFF CACHE BOOL "Build object library")
 SET(MI_BUILD_SHARED OFF CACHE BOOL "Build shared library")
 SET(MI_BUILD_TESTS OFF CACHE BOOL "Build test executables")
@@ -41,9 +41,16 @@ include(cmake/DiamondDogsPch.cmake)
 # Lodestone: the shader cooker, the manifest client, and the Slang compiler target
 include(cmake/ConfigureLodestone.cmake)
 
-if (NOT TARGET mimalloc-static)
-    add_subdirectory(third_party/mimalloc)
+# Lodestone builds Slang in its own tree, so no other project defines mimalloc-static in this build. If one does, two
+# allocators would override new and delete in one process.
+if (TARGET mimalloc-static)
+    get_target_property(mimallocSourceDir mimalloc-static SOURCE_DIR)
+    message(FATAL_ERROR
+        "mimalloc-static is already defined (source directory: ${mimallocSourceDir}). DiamondDogs adds its own "
+        "third_party/mimalloc, and only one mimalloc-static can exist. Find the project that adds it (Lodestone's Slang "
+        "build does that when LODESTONE_ISOLATE_SLANG is OFF) and stop it.")
 endif()
+add_subdirectory(third_party/mimalloc)
 set_target_properties(mimalloc-static PROPERTIES FOLDER "third_party")
 
 add_subdirectory(third_party/vma)

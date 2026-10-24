@@ -19,22 +19,11 @@ endif()
 set(LODESTONE_ENABLE_WGSL OFF CACHE BOOL "DiamondDogs cooks SPIR-V only" FORCE)
 set(LODESTONE_BUILD_COOKER ON CACHE BOOL "DiamondDogs cooks its shaders as a build step")
 
-# Slang's SPIRV-Tools build adds its own mimalloc-static target (Slang's pinned v2.1.7), and the root CMakeLists
-# only adds our checkout (v3.0.7) when Slang did not. We keep Slang's: with our v3.0.7, every Debug executable
-# hits mimalloc's page-map assert at startup (page-map.c:339, measured 2026-10-21), because foundation's
-# new/delete override allocates before the page map exists. Lodestone leaves the options ON when we don't set
-# them. To use our copy, set SLANG_ENABLE_MIMALLOC, SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC, SPIRV_TOOLS_USE_MIMALLOC
-# and SPIRV_TOOLS_USE_MIMALLOC_IN_STATIC_BUILD OFF here (SPIRV-Tools defaults its two ON on Windows), and fix
-# that assert first.
-unset(SLANG_ENABLE_MIMALLOC CACHE)
-unset(SLANG_ENABLE_SPIRV_TOOLS_MIMALLOC CACHE)
-unset(SPIRV_TOOLS_USE_MIMALLOC CACHE)
-unset(SPIRV_TOOLS_USE_MIMALLOC_IN_STATIC_BUILD CACHE)
-
-# Fixed TLS must stay off. When several allocator instances share a process (slang.dll and each executable),
-# fixed TLS makes all of them claim the same TLS slot. slang-bootstrap crashed with an access violation while
-# generating the core module when this was on (measured 2026-10-19).
-set(MI_WIN_USE_FIXED_TLS OFF CACHE BOOL "Must stay off: several mimalloc instances can share a process" FORCE)
+# Fixed TLS must stay off. Several mimalloc instances share the cooker process: Lodestone builds Slang in its own
+# tree, and slang-compiler.dll keeps a private mimalloc, while the executable links ours. With fixed TLS, all of them
+# claim the same TLS slot. slang-bootstrap crashed with an access violation while generating the core module when
+# this was on (measured 2026-10-19).
+set(MI_WIN_USE_FIXED_TLS OFF CACHE BOOL "Must stay off: several mimalloc instances share a process" FORCE)
 
 add_subdirectory("${DIAMOND_DOGS_LODESTONE_DIR}" "${CMAKE_BINARY_DIR}/third_party/lodestone")
 
@@ -46,3 +35,11 @@ foreach(lodestoneTarget IN ITEMS lodestone lodestone_client_library lodestone_cl
         set_target_properties(${lodestoneTarget} PROPERTIES FOLDER "third_party/lodestone")
     endif()
 endforeach()
+
+# DiamondDogs reads Lodestone's copy of xxHash on purpose: one checkout of the library, and one version, for the
+# cooker and for us. The cooker always builds here, and its add_xxhash() defines this target.
+if (NOT TARGET xxHash::xxhash)
+    message(FATAL_ERROR
+        "Lodestone did not define xxHash::xxhash. DiamondDogs uses Lodestone's xxHash "
+        "(${DIAMOND_DOGS_LODESTONE_DIR}/third_party/xxHash), which add_xxhash() in cmake/LodestoneCooker.cmake adds.")
+endif()
