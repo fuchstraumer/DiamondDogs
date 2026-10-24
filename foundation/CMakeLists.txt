@@ -1,32 +1,15 @@
-if(WIN32)
-    # We also need PDB repair utilities on windows to make sure plugin PDBs work right
-    set(foundation_plugin_manager_sources 
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Win32/PluginManagerImpl.hpp" 
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Win32/PluginManagerImpl.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Win32/PDB_Helpers.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Win32/PDB_Helpers.cpp"
-    )
-    set(plugin_manager_impl_include_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Win32")
-elseif(UNIX)
-    set(foundation_plugin_manager_sources
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Unix/PluginManagerImpl.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Unix/PluginManagerImpl.cpp"
-    )
-    set(plugin_manager_impl_include_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Unix")
-endif()
 
 set(foundation_source_files
     "include/ImageDataFormats.hpp"
     "include/ImageDataFormatsVulkan.hpp"
     "include/Unit.hpp"
-    "include/foundation/CoreAPIs.hpp"
-    "include/foundation/Handle.hpp"
-    "include/foundation/PluginAPI.hpp"
-    "include/foundation/PluginManager.hpp"
-    "src/foundation/PluginManager.cpp"
+    "include/Handle.hpp"
     "src/ImageDataFormats.cpp"
-    "src/miMallocOverride.cpp"
-    ${foundation_plugin_manager_sources})
+    "src/miMallocOverride.cpp")
+
+set(foundation_async_source_files
+    "include/async/Timeline.hpp"
+    "src/async/Timeline.cpp")
 
 set(foundation_containers_source_files
     "include/containers/CircularBuffer.hpp"
@@ -37,8 +20,8 @@ set(threading_source_files
     "include/threading/atomic128.hpp"
     "include/threading/concurrent_vector.hpp"
     "include/threading/CriticalSection.hpp"
-    "include/threading/SrwLock.hpp"
     "include/threading/ExponentialBackoffSleeper.hpp"
+    "include/threading/SrwLock.hpp"
     "src/threading/atomic128.cpp"
     "src/threading/ExponentialBackoffSleeper.cpp")
 
@@ -84,6 +67,7 @@ set(maths_source_files
     "include/math/TranscendentalBackendWASM.inl")
 
 source_group("foundation" FILES ${foundation_source_files})
+source_group("async" FILES ${foundation_async_source_files})
 source_group("containers" FILES ${foundation_containers_source_files})
 source_group("threading" FILES ${threading_source_files} ${threading_platform_source_files})
 source_group("utility" FILES ${utility_source_files})
@@ -92,6 +76,7 @@ source_group("maths" FILES ${maths_source_files})
 source_group("events" FILES ${event_source_files})
 
 add_library(foundation STATIC
+    ${foundation_async_source_files}
     ${foundation_source_files}
     ${foundation_containers_source_files}
     ${threading_source_files}
@@ -101,23 +86,10 @@ add_library(foundation STATIC
     ${reactors_source_files}
     ${maths_source_files})
 
-set(foundation_vpr_include_dirs
-    "../third_party/vulpesrender/alloc/include"
-    "../third_party/vulpesrender/command/include"
-    "../third_party/vulpesrender/common"
-    "../third_party/vulpesrender/core/include"
-    "../third_party/vulpesrender/render/include"
-    "../third_party/vulpesrender/resource/include"
-    "../third_party/vulpesrender/sync/include")
-
 target_include_directories(foundation PRIVATE
-    "../modules/common"
-    ${foundation_vpr_include_dirs}
     "../third_party"
-    "../third_party/glm"
     ${Vulkan_INCLUDE_DIR}
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/"
-    ${plugin_manager_impl_include_dir})
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/")
 
 target_link_libraries(foundation PUBLIC mimalloc-static)
 

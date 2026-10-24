@@ -11,3 +11,7 @@ GeneratedExtensionHeader.hpp
 modules/ResourceContext/chat.md
 
 fix-submodules.ps1
+docs/agent-scripts/logs/
+
+assets/shaders/common/Color/ddColorGenerated.slang
+assets/shaders/compute/Ocean/OceanFftGenerated.slang
