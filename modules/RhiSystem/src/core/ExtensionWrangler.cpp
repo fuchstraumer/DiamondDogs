@@ -81,7 +81,6 @@ static_assert(std::ranges::is_sorted(instanceExtensionTable), "instanceExtension
 
 namespace
 {
-    bool AreStringsEqual(const VkExtensionProperties& ext_props, const char* str);
     std::string_view ExtensionNameOf(const VkExtensionProperties& properties) noexcept;
     const char* StringViewData(std::string_view view) noexcept;
 }
@@ -667,11 +666,6 @@ std::expected<ExtensionDependencies, ExtensionWrangler::DependencyError> Extensi
 
 namespace
 {
-
-    bool AreStringsEqual(const VkExtensionProperties& ext_props, const char* str)
-    {
-        return strcmp(ext_props.extensionName, str) == 0;
-    }
 
     std::string_view ExtensionNameOf(const VkExtensionProperties& properties) noexcept
     {

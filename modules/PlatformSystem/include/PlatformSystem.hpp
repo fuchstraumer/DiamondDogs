@@ -2,7 +2,7 @@
 #ifndef PLATFORM_SYSTEM_HPP
 #define PLATFORM_SYSTEM_HPP
 #include "events/PlatformEvents.hpp"
-#include "utility/Delegate.hpp"
+#include "utility/delegate.hpp"
 #include "PlatformTypes.hpp"
 #include <memory>
 #include <vector>

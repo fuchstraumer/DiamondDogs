@@ -211,6 +211,12 @@ VkPresentModeKHR ToVkPresentMode(const PresentMode mode) noexcept
     }
 }
 
+// i have no idea how clang decides (incorrectly) that these are unused, but it sure does!
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-function"
+#endif
+
 static bool operator==(const VkSurfaceFormatKHR& lhs, const VkSurfaceFormatKHR& rhs) noexcept
 {
     return (lhs.format == rhs.format) && (lhs.colorSpace == rhs.colorSpace);
@@ -222,6 +228,10 @@ static bool operator==(const VkSurfaceFormat2KHR& vk_surface_format, const AppSu
     const VkColorSpaceKHR appColorSpace = ToVkColorSpace(app_surface_format.Space);
     return (vk_surface_format.surfaceFormat.format == appVkFormat) && (vk_surface_format.surfaceFormat.colorSpace == appColorSpace);
 }
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sfc) : capabilities(k_DefaultSurfaceCapabilities2Khr)
 {
@@ -374,8 +384,7 @@ SwapchainImpl::SwapchainImpl(const SwapchainCreateInfo& create_info) :
     Extent{ .width=0, .height=0 },
     MinImageCount{ create_info.MinImageCount },
     ImageCount{ 0 },
-    PresentMode{ VK_PRESENT_MODE_FIFO_KHR },
-    Swapchain{ VK_NULL_HANDLE }
+    PresentMode{ VK_PRESENT_MODE_FIFO_KHR }
 {
     rhi::Device* device = reinterpret_cast<rhi::Device*>(create_info.RhiDevice);
     ParentDevice = device->Handle().As<VkDevice>();
