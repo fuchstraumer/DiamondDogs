@@ -8,6 +8,9 @@ set(foundation_source_files
     "src/miMallocOverride.cpp")
 
 set(foundation_async_source_files
+    "include/async/Promise.hpp"
+    "include/async/Scheduler.hpp"
+    "include/async/Task.hpp"
     "include/async/Timeline.hpp"
     "src/async/Timeline.cpp")
 
