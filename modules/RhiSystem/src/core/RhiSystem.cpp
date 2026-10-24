@@ -37,7 +37,6 @@ namespace
                      uint32_t& engine_version,
                      uint32_t& api_version);
     rhi::ApiVersion ApiVersionFromString(const std::string& version_string);
-    rhi::ApiVersion ApiVersionFromUint32(const uint32_t version);
     rhi::ValidationLayers ValidationLayersFromString(const std::string& layer_string);
 
     VkDebugUtilsMessengerCreateInfoEXT MessengerCreateInfo() noexcept
@@ -625,26 +624,6 @@ namespace
         else
         {
             throw std::runtime_error("Unknown Vulkan API version string: " + version_string);
-        }
-    }
-
-    rhi::ApiVersion ApiVersionFromUint32(const uint32_t version)
-    {
-        using namespace rhi;
-        switch (version)
-        {
-            case VK_API_VERSION_1_0:
-                return ApiVersion::Vulkan10;
-            case VK_API_VERSION_1_1:
-                return ApiVersion::Vulkan11;
-            case VK_API_VERSION_1_2:
-                return ApiVersion::Vulkan12;
-            case VK_API_VERSION_1_3:
-                return ApiVersion::Vulkan13;
-            case VK_API_VERSION_1_4:
-                return ApiVersion::Vulkan14;
-            default:
-                return ApiVersion::Latest;
         }
     }
 

@@ -63,11 +63,6 @@ static const std::unordered_map<std::string, PresentMode> k_PresentModeFromStrMa
     { "VerticalSyncLatestReady", PresentMode::VerticalSyncLatestReady }
 };
 
-static ImageFormat ImageFormatFromString(const std::string_view& image_format_str)
-{
-    return ImageFormat{};
-}
-
 // Pile of defaults for various values, used as fallback when config doesn't contain them
 constexpr static uint32_t k_DefaultInitialWidth = 800;
 constexpr static uint32_t k_DefaultInitialHeight = 600;

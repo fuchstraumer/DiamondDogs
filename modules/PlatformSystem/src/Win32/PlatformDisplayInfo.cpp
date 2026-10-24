@@ -145,15 +145,6 @@ namespace StandardColorSpaces
         0.131f, 0.046f,  // Blue
         0.3127f, 0.3290f // White point D65
     };
-    
-    // Adobe RGB (Photography/print)
-    constexpr ColorSpacePrimaries k_AdobeRgb =
-    {
-        0.64f, 0.33f,    // Red
-        0.21f, 0.71f,    // Green
-        0.15f, 0.06f,    // Blue
-        0.3127f, 0.3290f // White point D65
-    };
 }
 
 ColorSpace DetermineClosestColorSpace(const EDIDChromaticityCoordinates& chromaticity)
@@ -510,13 +501,6 @@ DisplayInfo RetrievePlatformPrimaryDisplayInfo() noexcept
     const auto& monitor = k_GWindowsMonitorInfoMap.begin();
     return DisplayInfoFromDisplayConfigMonitorInfo(monitor->second);
 }
-
-// Includes and pragma down here to keep some of the clutter out. I wish there was a better way to do this on Win32...
-// Monitor GUID from MSDN
-// {E6F07B5F-EE97-4A90-B076-33F57BF4EAA7}
-#include <SetupApi.h>
-#pragma comment(lib, "setupapi.lib")
-const GUID k_GuidDevinterfaceMonitor = { 0xE6F07B5F, 0xEE97, 0x4A90, { 0xB0, 0x76, 0x33, 0xF5, 0x7B, 0xF4, 0xEA, 0xA7 } };
 
 std::vector<uint8_t> GetEDIDFromRegistry(const std::wstring& monitor_friendly_name)
 {

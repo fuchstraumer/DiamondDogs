@@ -4,6 +4,7 @@ cmake_minimum_required(VERSION 3.10)
 set(RENDERING_CONTEXT_TEST_SOURCES
     TestCommandBuffer.cpp
     TestGpuTimers.cpp
+    TestExecutableStatistics.cpp
     TestJsonConfig.cpp
     TestMain.cpp
     TestRhiSystem.cpp

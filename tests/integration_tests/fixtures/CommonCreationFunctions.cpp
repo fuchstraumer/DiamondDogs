@@ -9,10 +9,6 @@
 #include <utility>
 #include <vector>
 
-#if defined(_MSC_VER) && !defined(strdup)
-#define strdup _strdup
-#endif
-
 // used to have this in VPR device, but now that we have an API abstracted RHI device it doesn't belong there anymore
 // handling depth format choice and query is TBD for the rest of our cod3ebase, but for now this is fine for our test fixtures.
 static VkFormat FindSupportedFormat(const rhi::Device* device,
@@ -63,32 +59,6 @@ const static std::vector<VkFormat> k_DepthFormats =
     VK_FORMAT_D32_SFLOAT_S8_UINT,
     VK_FORMAT_D24_UNORM_S8_UINT
 };
-
-//NOLINTBEGIN(readability-identifier-naming)
-struct PipelineExecutableFunctions
-{
-    PFN_vkGetPipelineExecutablePropertiesKHR vkGetPipelineExecutablePropertiesKHR{ nullptr };
-    PFN_vkGetPipelineExecutableStatisticsKHR vkGetPipelineExecutableStatisticsKHR{ nullptr };
-    PFN_vkGetPipelineExecutableInternalRepresentationsKHR vkGetPipelineExecutableInternalRepresentationsKHR{ nullptr };
-    bool Initialized{ false };
-};
-//NOLINTEND(readability-identifier-naming)
-
-static PipelineExecutableFunctions& GetPipelineExecutableFunctions(const VkDevice device)
-{
-    static PipelineExecutableFunctions functions;
-    if (!functions.Initialized)
-    {
-        functions.vkGetPipelineExecutablePropertiesKHR =
-            reinterpret_cast<PFN_vkGetPipelineExecutablePropertiesKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutablePropertiesKHR"));
-        functions.vkGetPipelineExecutableStatisticsKHR =
-            reinterpret_cast<PFN_vkGetPipelineExecutableStatisticsKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutableStatisticsKHR"));
-        functions.vkGetPipelineExecutableInternalRepresentationsKHR =
-            reinterpret_cast<PFN_vkGetPipelineExecutableInternalRepresentationsKHR>(vkGetDeviceProcAddr(device, "vkGetPipelineExecutableInternalRepresentationsKHR"));
-        functions.Initialized = true;
-    }
-    return functions;
-}
 
 DepthStencil CreateDepthStencil(const rhi::Device* device, const Swapchain* swapchain)
 {

@@ -1,9 +1,17 @@
 #include "Device.hpp"
+#include "DebugUtilFns.hpp"
 #include "Instance.hpp"
 #include "ExtensionPack.hpp"
+#include "RhiFlags.hpp"
+#include "RhiHandle.hpp"
 #include "RhiResult.hpp"
 #include "RhiAssert.hpp"
+#include <cstdint>
+#include <limits>
+#include <memory>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <vector>
 #include <set>
 #include <algorithm>
@@ -491,8 +499,8 @@ namespace rhi
 
     Device::Device(const Instance* instance,
                    ExtensionPack& extensions) :
-        handle{ 0u },
-        impl{ std::make_unique<DeviceImpl>(instance, extensions.GetVulkanApiVersion()) }
+        impl{ std::make_unique<DeviceImpl>(instance, extensions.GetVulkanApiVersion()) },
+        handle{ 0u }
     {
         createDevice(extensions);
     }
