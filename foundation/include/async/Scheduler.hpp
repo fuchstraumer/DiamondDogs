@@ -1,6 +1,7 @@
 #pragma once
 #ifndef FOUNDATION_ASYNC_SCHEDULER_HPP
 #define FOUNDATION_ASYNC_SCHEDULER_HPP
+#include "async/FrameNames.hpp"
 #include "async/Task.hpp"
 #include <coroutine>
 #include <cstdint>
@@ -13,6 +14,7 @@ namespace foundation
 
 struct BasePromise;
 class Timeline;
+class TimelineSource;
 
 /**@brief Runs coroutines on one owner thread. Spawned roots start on the next Tick, and frames parked on a Timeline
  * resume on the first Tick that sees their target reached. Every call must come from the owner thread, which is the
@@ -33,8 +35,14 @@ public:
     void Spawn(Task<void>&& root);
     /** @brief Called by TimelineAwaiter::await_suspend. `waiter` is the promise of the parked frame. */
     void Park(const Timeline& source, uint64_t target_value, std::coroutine_handle<> handle, BasePromise* waiter);
-    /** @brief Starts spawned roots, resumes parked frames whose target is reached, and destroys finished roots. A frame
-     * that parks during this Tick, or whose target is reached during it, resumes on a later Tick. */
+    /** @brief Registers a source that Tick polls. The source must outlive its registration. */
+    void AddSource(TimelineSource& source);
+    /** @brief Unregisters a source. The source must be registered. */
+    void RemoveSource(TimelineSource& source);
+    /** @brief Polls every source, resumes parked frames whose target is reached, starts spawned roots, and destroys
+     * finished roots. The sources are polled first, so a target that a source reaches in this Tick resumes its frame in
+     * this Tick. A frame that parks during this Tick, or whose target is reached by another frame during it, resumes on
+     * a later Tick. */
     void Tick();
 
     /** @brief Returns true when no root is alive. */
@@ -43,7 +51,8 @@ public:
     [[nodiscard]] int32_t ParkedCount() const noexcept;
     [[nodiscard]] int64_t TickCount() const noexcept;
     /** @brief Returns one line for each parked frame (its target, the current value, the ticks parked), followed by
-     * the frame addresses of its async backtrace, from the parked frame up to its root. */
+     * the frame descriptions of its async backtrace (function names where DbgHelp is available, else addresses), from
+     * the parked frame up to its root. */
     [[nodiscard]] std::string DumpState() const;
 
 private:
@@ -57,6 +66,7 @@ private:
     };
 
     void checkOwnerThread() noexcept;
+    void pollSources();
     void startSpawnedRoots();
     void resumeReachedFrames();
     void destroyFinishedRoots();
@@ -66,6 +76,8 @@ private:
     std::vector<std::coroutine_handle<>> starting;
     std::vector<ParkedFrame> parked;
     std::vector<ParkedFrame> resuming;
+    std::vector<TimelineSource*> sources;
+    mutable FrameSymbolizer symbolizer; // DumpState is const but a symbolizer starts its DbgHelp session on first use
     std::thread::id ownerThread{};
     int64_t tickCount{ 0 };
 };

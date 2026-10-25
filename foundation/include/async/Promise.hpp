@@ -2,6 +2,7 @@
 #ifndef FOUNDATION_ASYNC_PROMISE_HPP
 #define FOUNDATION_ASYNC_PROMISE_HPP
 #include <coroutine>
+#include <cstddef>
 #include <type_traits>
 #include <utility>
 
@@ -22,6 +23,10 @@ namespace foundation
         std::coroutine_handle<> Continuation{ nullptr };
         BasePromise* Awaiting{ nullptr }; // awaiting promise used to read async backtrace
         void* FrameAddress{ nullptr }; // used by async backtrace to print names
+
+        // every promise type inherits these, so every coroutine frame is counted (see FrameStatistics.hpp)
+        static void* operator new(std::size_t size);
+        static void operator delete(void* frame, std::size_t size) noexcept;
     };
 
     template<typename PromiseType>
