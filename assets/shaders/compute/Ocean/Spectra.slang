@@ -130,7 +130,9 @@ internal float DonelanBannerBeta(in float omega, in float peakOmega)
 internal float SwellShaper(in float omega, in float peakOmega, in float swellAmount)
 {
     const float peakOmegaOverOmega = peakOmega / omega;
-    return 16.1f * tanh(peakOmegaOverOmega) * (swellAmount * swellAmount);
+    // Cap the shaping exponent so discrete Fourier bins at low wavenumbers retain angular width,
+    // creating natural crest length variation instead of infinite parallel grating lines.
+    return min(16.1f * tanh(peakOmegaOverOmega) * (swellAmount * swellAmount), 16.0f);
 }
 
 internal float SwellDirectionalSpreading(in float theta, in float omega, in float peakOmega, in float swellAmount)

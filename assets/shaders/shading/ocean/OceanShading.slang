@@ -12,8 +12,9 @@ internal struct SurfaceSample
 
 internal SurfaceSample SampleSurface(float2 surface_xz)
 {
-    float2 slope = float2(0.0f);
-    float jacobian = 1.0f;
+    float2 totalSlope = float2(0.0f);
+    float2 totalStretch = float2(0.0f);
+    float foam = 0.0f;
     const float distance = length(surface_xz - View.CameraPositionTime.xz);
     [unroll]
     for (uint cascade = 0; cascade < OCEAN_CASCADE_COUNT; ++cascade)
@@ -24,14 +25,25 @@ internal SurfaceSample SampleSurface(float2 surface_xz)
         {
             const float3 uvw = float3(CascadeUv(surface_xz, cascade), float(cascade));
             const float4 derivatives = Derivatives.Sample(OceanSampler, uvw) * weight;
-            // with choppy displacement the surface is (x + Dx, h, z + Dz): divide the height slope by the stretch
-            slope += derivatives.xy / (1.0f + derivatives.zw);
-            jacobian *= lerp(1.0f, Displacement.Sample(OceanSampler, uvw).w, weight);
+            const float4 displacement = Displacement.Sample(OceanSampler, uvw);
+
+            totalSlope += derivatives.xy;
+            totalStretch += derivatives.zw;
+
+            // Jacobian in displacement.w: calm water is 1.0, crest compression is < 1.0, folding occurs below ~0.3.
+            // Only highlight breaking crests where surface is folded AND height is positive.
+            // Cascade 0 (swell) is a long roller that rarely whitecaps on its own; cascades 1-3 provide steep chop.
+            const float whitecapThreshold = cascade == 0 ? 0.20f : 0.50f;
+            const float fold = max(0.0f, whitecapThreshold - displacement.w);
+            const float crest = saturate(displacement.y * 1.5f + 0.1f);
+            foam += fold * crest * weight * 2.0f;
         }
     }
     SurfaceSample result;
+    // Clamping the denominator prevents division by zero and normal spikes when waves fold
+    const float2 slope = totalSlope / max(float2(0.1f), 1.0f + totalStretch);
     result.Normal = normalize(float3(-slope.x, 1.0f, -slope.y));
-    result.Foam = saturate(1.0f - jacobian);
+    result.Foam = saturate(foam);
     return result;
 }
 
