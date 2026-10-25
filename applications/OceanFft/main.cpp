@@ -94,6 +94,21 @@ namespace
         return std::filesystem::path{ OCEAN_FFT_MANIFEST };
     }
 
+    std::filesystem::path FindFonts()
+    {
+        std::array<wchar_t, 32768> modulePath{};
+        const DWORD length = GetModuleFileNameW(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
+        const std::filesystem::path beside = std::filesystem::path{ std::wstring_view{ modulePath.data(), length } }.parent_path() / "fonts";
+        std::error_code error;
+
+        if (length != 0u && std::filesystem::exists(beside, error))
+        {
+            return beside;
+        }
+
+        return std::filesystem::path{ OCEAN_FFT_FONT_DIR };
+    }
+
     template<typename T>
     bool ParseNumber(std::string_view text, T& value)
     {
@@ -220,6 +235,7 @@ int main(int argc, char* argv[])
 
     OceanSceneSettings settings{};
     settings.ManifestPath = FindManifest();
+    settings.FontDirectory = FindFonts();
     settings.ValidationEnabled = rhiCreateInfo.ValidationLevel != rhi::ValidationLayers::None;
     CommandLine commandLine{};
     ParseArguments(argc, argv, settings, commandLine);

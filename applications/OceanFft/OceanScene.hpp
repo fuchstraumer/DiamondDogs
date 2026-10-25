@@ -5,6 +5,7 @@
 #include "FrameCapture.hpp"
 #include "GpuTimers.hpp"
 #include "OceanSimulation.hpp"
+#include "OceanUi.hpp"
 #include "SeaState.hpp"
 #include "ResourceTypes.hpp"
 #include "VariantKey.hpp"
@@ -35,6 +36,8 @@ struct OceanSceneSettings
     ocean::OceanSimulationSettings Simulation{};
     /** @brief The cooked shader bundle (OceanFft.ldmanifest) */
     std::filesystem::path ManifestPath;
+    /** @brief Root folder of the UI fonts (assets/fonts or the copy beside the executable) */
+    std::filesystem::path FontDirectory;
     /** @brief Whether the instance has the validation layer, so debug object names can be set */
     bool ValidationEnabled{ false };
     /** @brief The surface: tiles of GridSize meters in GridRings rings around the camera's tile. The center tile has
@@ -134,6 +137,7 @@ private:
     float lodScale{ 15.0f };
     float sunElevation{ 0.5f };
     float sunAzimuth{ 2.2f };
+    ocean::HeaderFontMode headerFontMode{ ocean::HeaderFontMode::Blinker };
     bool paused{ false };
     bool spectrumChanged{ false };
     bool needsInitialize{ true };

@@ -76,6 +76,8 @@ add_executable(OceanFft
     "ArcballCamera.hpp"
     "OceanScene.cpp"
     "OceanScene.hpp"
+    "OceanUi.cpp"
+    "OceanUi.hpp"
     "SceneCommands.cpp"
     "SceneCommands.hpp"
     "ShaderObjectState.cpp"
@@ -86,6 +88,7 @@ add_executable(OceanFft
     "${DIAMOND_DOGS_TEST_FIXTURES}/FrameLimit.hpp")
 # platform_system does not export its include folder (ADD_INTEGRATION_TEST adds it by hand, too)
 target_include_directories(OceanFft PRIVATE "${DIAMOND_DOGS_TEST_FIXTURES}" "${PROJECT_SOURCE_DIR}/modules/PlatformSystem/include" "${CMAKE_BINARY_DIR}/include")
+target_compile_definitions(OceanFft PRIVATE "OCEAN_FFT_FONT_DIR=\"${PROJECT_SOURCE_DIR}/assets/fonts\"")
 target_link_libraries(OceanFft PRIVATE ocean_simulation frame_capture imgui_module platform_system glfw ${Vulkan_LIBRARY})
 set_target_properties(OceanFft PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(OceanFft LIBRARY)
@@ -108,8 +111,9 @@ set(OCEAN_FFT_BUNDLE_COPY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/OceanFft.ldmani
 add_custom_command(
     OUTPUT "${OCEAN_FFT_BUNDLE_COPY}"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${OCEAN_FFT_BUNDLE}" "${OCEAN_FFT_BUNDLE_COPY}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PROJECT_SOURCE_DIR}/assets/fonts" "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/fonts"
     DEPENDS "${OCEAN_FFT_BUNDLE}" ocean_fft_shaders
-    COMMENT "Copying the OceanFft shader bundle next to the executable"
+    COMMENT "Copying the OceanFft shader bundle and fonts next to the executable"
     VERBATIM)
 add_custom_target(ocean_fft_bundle_copy DEPENDS "${OCEAN_FFT_BUNDLE_COPY}")
 set_target_properties(ocean_fft_bundle_copy PROPERTIES FOLDER "Applications/OceanFft")
@@ -134,6 +138,7 @@ add_custom_target(OceanFft_package
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${OCEAN_FFT_PACKAGE_DIR}"
     COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:OceanFft>" ${OCEAN_FFT_PACKAGE_RUNTIME_DLLS} "${OCEAN_FFT_PACKAGE_DIR}"
     COMMAND "${CMAKE_COMMAND}" -E copy "${OCEAN_FFT_BUNDLE}" "${OCEAN_FFT_PACKAGE_DIR}/OceanFft.ldmanifest"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PROJECT_SOURCE_DIR}/assets/fonts" "${OCEAN_FFT_PACKAGE_DIR}/fonts"
     COMMENT "Packaging OceanFft into ${OCEAN_FFT_PACKAGE_DIR}"
     VERBATIM)
 add_dependencies(OceanFft_package OceanFft)

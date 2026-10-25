@@ -4,12 +4,26 @@
 #include "ImageDataFormats.hpp"
 #include "RhiHandle.hpp"
 #include <cstdint>
+#include <filesystem>
+
+struct ImFont;
 
 namespace rhi
 {
     class Device;
     class Instance;
 }
+
+struct ImGuiFontSet
+{
+    ImFont* Body{ nullptr };
+    ImFont* BodyBold{ nullptr };
+    ImFont* BodyItalic{ nullptr };
+    ImFont* HeaderBlinker{ nullptr };
+    ImFont* SectionBlinker{ nullptr };
+    ImFont* HeaderMichroma{ nullptr };
+    ImFont* SectionMichroma{ nullptr };
+};
 
 struct ImGuiModuleCreateInfo
 {
@@ -24,6 +38,8 @@ struct ImGuiModuleCreateInfo
     ImageFormat ColorFormat{};
     /** @brief Installs the GLFW input callbacks. They chain to the callbacks that were installed before them. */
     bool InstallInputCallbacks{ false };
+    /** @brief Optional root folder of the engine's TTF fonts (assets/fonts). Empty keeps ImGui's default font. */
+    std::filesystem::path FontDirectory{};
 };
 
 /**
@@ -47,6 +63,11 @@ public:
     void Render(const rhi::CommandBufferHandle& cmd);
     /** @brief Call after the swapchain is recreated with another minimum image count. */
     void SetMinImageCount(uint32_t min_image_count);
+    /** @brief Returns the loaded font slots. Every slot is non-null: missing files fall back to ImGui's default font. */
+    [[nodiscard]] const ImGuiFontSet& Fonts() const noexcept;
+
+private:
+    ImGuiFontSet fonts{};
 };
 
 #endif // !DIAMOND_DOGS_IMGUI_MODULE_HPP

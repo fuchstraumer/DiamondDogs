@@ -231,7 +231,8 @@ void OceanScene::Initialize(void* user_data)
         numFramebuffers,
         numFramebuffers,
         swapchain->ImageFormat(),
-        true
+        true,
+        settings.FontDirectory
     };
     imgui = std::make_unique<ImGuiModule>(imguiInfo);
 
@@ -512,100 +513,309 @@ void OceanScene::applySeaState()
 
 void OceanScene::drawPanel()
 {
-    ImGui::Begin("Ocean");
-    ImGui::Text("%.2f ms (%.0f fps)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+    const ImGuiFontSet& fonts = imgui->Fonts();
     const ocean::OceanSimulationSettings& simulationSettings = simulation->Settings();
-    ImGui::Text("IFFT %s %u, %s", simulationSettings.Kernel == ocean::IfftKernel::Radix2 ? "radix-2" : "radix-4", simulationSettings.Size,
-        simulationSettings.WaveSize == 0u ? "no wave ops" : std::format("wave {}, full subgroups", simulationSettings.WaveSize).c_str());
-    drawTimingsPanel();
 
-    // every change runs the sea state pipe and recomputes the initial spectrum (cheap, but it waits for the device)
-    bool seaStateChanged = false;
-    if (ImGui::CollapsingHeader("Sea state", ImGuiTreeNodeFlags_DefaultOpen))
+    if (ocean::BeginTelemetryPanel("Ocean", fonts, headerFontMode))
     {
-        for (const ocean::SeaStatePreset& preset : ocean::SeaStatePresets())
+        ocean::DrawTelemetryBanner(fonts, headerFontMode, simulationSettings);
+        ocean::DrawSeaReadoutCard(fonts, seaState, seaReadout);
+
+        // every change runs the sea state pipe and recomputes the initial spectrum (cheap, but it waits for the device)
+        bool seaStateChanged = false;
+        if (ocean::DrawSectionHeader("SEA STATE  //  ARTIST DOMAIN", fonts, headerFontMode, ocean::AccentTone::Cyan, true))
         {
-            if (ImGui::SmallButton(std::string{ preset.Name }.c_str()))
+            seaStateChanged |= ocean::DrawPresetGrid(fonts, seaState);
+
+            seaStateChanged |= ocean::DrawArtistSlider(
+                "##wind_force",
+                "Wind force",
+                seaReadout.BeaufortName,
+                &seaState.WindForce,
+                0.0f,
+                12.0f,
+                std::format("Bft {:.1f}  ({:.1f}", seaState.WindForce, seaReadout.WindSpeed),
+                "m/s)",
+                fonts,
+                ocean::AccentTone::Cyan,
+                false);
+
+            seaStateChanged |= ocean::DrawArtistSlider(
+                "##open_water",
+                "Open water",
+                "sheltered 5 km -> full sea",
+                &seaState.Openness,
+                0.0f,
+                1.0f,
+                std::format("{:.0f}%  ({:.0f}", seaState.Openness * 100.0f, spectrum.Fetch),
+                "km)",
+                fonts,
+                ocean::AccentTone::Cyan,
+                false);
+
+            seaStateChanged |= ocean::DrawCenteredAngleSlider(
+                "##wind_dir",
+                "Wind direction",
+                "travel heading",
+                &seaState.WindDirection,
+                -180.0f,
+                180.0f,
+                fonts,
+                ocean::AccentTone::Cyan);
+
+            seaStateChanged |= ocean::DrawArtistSlider(
+                "##spread",
+                "Directional spread",
+                "aligned -> confused sea",
+                &seaState.Spread,
+                0.0f,
+                1.0f,
+                std::format("{:.2f}", seaState.Spread),
+                "",
+                fonts,
+                ocean::AccentTone::Cyan,
+                false);
+
+            seaStateChanged |= ocean::DrawArtistSlider(
+                "##regularity",
+                "Wave regularity",
+                "broad band -> clean groups",
+                &seaState.Regularity,
+                0.0f,
+                1.0f,
+                std::format("{:.2f}  (gamma {:.1f})", seaState.Regularity, spectrum.PeakingFactor),
+                "",
+                fonts,
+                ocean::AccentTone::Cyan,
+                false);
+
+            seaStateChanged |= ocean::DrawArtistSlider(
+                "##ripple_detail",
+                "Ripple detail",
+                "smooth -> fine capillary",
+                &seaState.RippleDetail,
+                0.0f,
+                1.0f,
+                std::format("{:.0f}%", seaState.RippleDetail * 100.0f),
+                "",
+                fonts,
+                ocean::AccentTone::Cyan,
+                false);
+
+            seaStateChanged |= ocean::DrawArtistSlider(
+                "##water_depth",
+                "Water depth",
+                "shoaling dispersion",
+                &seaState.Depth,
+                2.0f,
+                500.0f,
+                std::format("{:.0f}", seaState.Depth),
+                "m",
+                fonts,
+                ocean::AccentTone::Cyan,
+                true);
+
+            ocean::DrawSubSectionDivider("DISTANT SWELL", fonts, headerFontMode, ocean::AccentTone::Amber);
+
+            seaStateChanged |= ocean::DrawArtistSlider(
+                "##swell_height",
+                "Swell height",
+                "0 turns swell off",
+                &seaState.SwellHeight,
+                0.0f,
+                6.0f,
+                std::format("{:.2f}", seaState.SwellHeight),
+                "m",
+                fonts,
+                ocean::AccentTone::Amber,
+                false);
+
+            seaStateChanged |= ocean::DrawArtistSlider(
+                "##swell_period",
+                "Swell period",
+                "wavelength dispersion",
+                &seaState.SwellPeriod,
+                5.0f,
+                20.0f,
+                std::format("{:.1f} s  ({:.0f}", seaState.SwellPeriod, seaReadout.SwellWavelength),
+                "m)",
+                fonts,
+                ocean::AccentTone::Amber,
+                false);
+
+            seaStateChanged |= ocean::DrawCenteredAngleSlider(
+                "##swell_dir",
+                "Swell direction",
+                "distant storm heading",
+                &seaState.SwellDirection,
+                -180.0f,
+                180.0f,
+                fonts,
+                ocean::AccentTone::Amber);
+
+            seaStateChanged |= ocean::DrawArtistSlider(
+                "##swell_order",
+                "Swell order",
+                "loose -> parallel crests",
+                &seaState.SwellOrder,
+                0.0f,
+                1.0f,
+                std::format("{:.2f}", seaState.SwellOrder),
+                "",
+                fonts,
+                ocean::AccentTone::Amber,
+                false);
+
+            ocean::DrawSubSectionDivider("AMPLITUDE ENVELOPE", fonts, headerFontMode, ocean::AccentTone::Ice);
+
+            // 1 is physical; the GodotOceanWaves and Ocean-URP references sit near 2.8
+            seaStateChanged |= ocean::DrawArtistSlider(
+                "##height_scale",
+                "Height scale",
+                "1.0x physical reference",
+                &seaState.HeightScale,
+                0.0f,
+                4.0f,
+                std::format("{:.2f}", seaState.HeightScale),
+                "x",
+                fonts,
+                ocean::AccentTone::Ice,
+                false);
+        }
+
+        if (ocean::DrawSectionHeader("SPECTRUM  //  PHYSICS DOMAIN", fonts, headerFontMode, ocean::AccentTone::Ice, false))
+        {
+            spectrumChanged |= ocean::DrawSpectrumPhysicsInspector(fonts, spectrum);
+        }
+
+        if (seaStateChanged)
+        {
+            applySeaState();
+            spectrumChanged = true;
+        }
+
+        if (ocean::DrawSectionHeader("SURFACE  //  CASCADES & TIME", fonts, headerFontMode, ocean::AccentTone::Cyan, true))
+        {
+            (void)ocean::DrawArtistSlider(
+                "##choppiness",
+                "Choppiness",
+                "horizontal Gerstner lambda",
+                &choppiness,
+                0.0f,
+                2.0f,
+                std::format("{:.2f}", choppiness),
+                "lambda",
+                fonts,
+                ocean::AccentTone::Cyan,
+                false);
+
+            // each cascade fades out from this many of its own patch lengths away
+            (void)ocean::DrawArtistSlider(
+                "##detail_distance",
+                "Detail distance",
+                "cascade fade multiplier",
+                &lodScale,
+                1.0f,
+                60.0f,
+                std::format("{:.1f}", lodScale),
+                "x patch",
+                fonts,
+                ocean::AccentTone::Cyan,
+                true);
+
+            (void)ocean::DrawArtistSlider(
+                "##time_scale",
+                "Time scale",
+                "simulation clock rate",
+                &timeScale,
+                0.0f,
+                4.0f,
+                std::format("{:.2f}", timeScale),
+                "x",
+                fonts,
+                ocean::AccentTone::Cyan,
+                false);
+
+            (void)ocean::DrawTelemetryToggle(
+                "##sim_paused",
+                "Simulation clock",
+                "RUNNING",
+                "PAUSED",
+                &paused,
+                fonts,
+                ocean::AccentTone::Amber);
+
+            ocean::DrawCascadeBandStrip(fonts, simulationSettings.LengthScales, cascadeEnabled);
+        }
+
+        if (ocean::DrawSectionHeader("SCENE  //  ENVIRONMENT & UI", fonts, headerFontMode, ocean::AccentTone::Amber, false))
+        {
+            (void)ocean::DrawArtistSlider(
+                "##seabed_depth",
+                "Seabed depth",
+                "absorption floor",
+                &seabedDepth,
+                1.0f,
+                200.0f,
+                std::format("{:.1f}", seabedDepth),
+                "m",
+                fonts,
+                ocean::AccentTone::Cyan,
+                true);
+
+            float sunElevationDeg = sunElevation / k_DegreesToRadians;
+            if (ocean::DrawArtistSlider(
+                    "##sun_elevation",
+                    "Sun elevation",
+                    "horizon -> zenith",
+                    &sunElevationDeg,
+                    1.0f,
+                    90.0f,
+                    std::format("{:.1f}", sunElevationDeg),
+                    "deg",
+                    fonts,
+                    ocean::AccentTone::Amber,
+                    false))
             {
-                seaState = preset.State;
-                seaStateChanged = true;
+                sunElevation = sunElevationDeg * k_DegreesToRadians;
             }
 
-            ImGui::SameLine();
+            float sunAzimuthDeg = sunAzimuth / k_DegreesToRadians;
+            if (ocean::DrawCenteredAngleSlider(
+                    "##sun_azimuth",
+                    "Sun azimuth",
+                    "solar heading",
+                    &sunAzimuthDeg,
+                    -180.0f,
+                    180.0f,
+                    fonts,
+                    ocean::AccentTone::Amber))
+            {
+                sunAzimuth = sunAzimuthDeg * k_DegreesToRadians;
+            }
+
+            bool useMichroma = headerFontMode == ocean::HeaderFontMode::Michroma;
+            if (ocean::DrawTelemetryToggle(
+                    "##header_font_mode",
+                    "Header typeface",
+                    "BLINKER",
+                    "MICHROMA",
+                    &useMichroma,
+                    fonts,
+                    ocean::AccentTone::Ice))
+            {
+                headerFontMode = useMichroma ? ocean::HeaderFontMode::Michroma : ocean::HeaderFontMode::Blinker;
+            }
+
+            ImGui::PushFont(fonts.BodyItalic);
+            ImGui::TextColored(ImVec4{ 0.48f, 0.60f, 0.72f, 1.0f }, "Left drag: orbit   |   Right/middle drag: pan   |   Wheel: zoom");
+            ImGui::PopFont();
         }
 
-        ImGui::NewLine();
-        ImGui::Text("Hs %.2f m (sea %.2f, swell %.2f), %.1f s, %.0f m waves", seaReadout.SignificantHeight, seaReadout.WindSeaHeight,
-            seaReadout.SwellHeight, seaReadout.PeakPeriod, seaReadout.PeakWavelength);
-
-        seaStateChanged |= ImGui::SliderFloat("Wind force", &seaState.WindForce, 0.0f, 12.0f, std::format("Beaufort %.1f, {}", seaReadout.BeaufortName).c_str());
-        ImGui::SetItemTooltip("%.1f m/s", seaReadout.WindSpeed);
-        seaStateChanged |= ImGui::SliderFloat("Open water", &seaState.Openness, 0.0f, 1.0f, "%.2f");
-        ImGui::SetItemTooltip("0: sheltered, 5 km of fetch. 1: open ocean, a fully developed sea");
-        seaStateChanged |= ImGui::SliderFloat("Wind direction", &seaState.WindDirection, -180.0f, 180.0f, "%.0f deg");
-        seaStateChanged |= ImGui::SliderFloat("Spread", &seaState.Spread, 0.0f, 1.0f, "%.2f");
-        ImGui::SetItemTooltip("0: waves line up with the wind. 1: a confused sea");
-        seaStateChanged |= ImGui::SliderFloat("Regularity", &seaState.Regularity, 0.0f, 1.0f, "%.2f");
-        ImGui::SetItemTooltip("0: broad, confused wave lengths. 1: clean, regular wave groups");
-        seaStateChanged |= ImGui::SliderFloat("Ripple detail", &seaState.RippleDetail, 0.0f, 1.0f, "%.2f");
-        seaStateChanged |= ImGui::SliderFloat("Water depth", &seaState.Depth, 2.0f, 500.0f, "%.0f m", ImGuiSliderFlags_Logarithmic);
-
-        ImGui::SeparatorText("Swell");
-        seaStateChanged |= ImGui::SliderFloat("Swell height", &seaState.SwellHeight, 0.0f, 6.0f, "%.2f m");
-        seaStateChanged |= ImGui::SliderFloat("Swell period", &seaState.SwellPeriod, 5.0f, 20.0f, std::format("%.1f s, {:.0f} m", seaReadout.SwellWavelength).c_str());
-        seaStateChanged |= ImGui::SliderFloat("Swell direction", &seaState.SwellDirection, -180.0f, 180.0f, "%.0f deg");
-        seaStateChanged |= ImGui::SliderFloat("Swell order", &seaState.SwellOrder, 0.0f, 1.0f, "%.2f");
-        ImGui::SetItemTooltip("0: a loose swell. 1: long, parallel, regular crests");
-
-        ImGui::Separator();
-        // 1 is physical; the GodotOceanWaves and Ocean-URP references sit near 2.8
-        seaStateChanged |= ImGui::SliderFloat("Height scale", &seaState.HeightScale, 0.0f, 4.0f, "%.2f x");
+        drawTimingsPanel();
     }
 
-    if (ImGui::CollapsingHeader("Spectrum (physics)"))
-    {
-        // what the sea state became, read-only, plus the two choices the sea state does not own
-        int mode = static_cast<int>(spectrum.DirectionalSpreadingMode);
-        spectrumChanged |= ImGui::Combo("Spreading", &mode, "Mitsuyasu\0Hasselmann\0Donelan-Banner\0");
-        spectrum.DirectionalSpreadingMode = static_cast<uint32_t>(mode);
-        int seed = static_cast<int>(spectrum.NoiseSeed);
-        spectrumChanged |= ImGui::InputInt("Seed", &seed);
-        spectrum.NoiseSeed = static_cast<uint32_t>(seed);
-
-        ImGui::Text("Wind sea: %.1f m/s over %.0f km, gamma %.1f, fade %.3f m", spectrum.WindSpeed, spectrum.Fetch, spectrum.PeakingFactor, spectrum.FadeLength);
-        ImGui::Text("Spreading: alignment %.2f, narrowness %.2f", spectrum.Alignment, spectrum.SwellAmount);
-        ImGui::Text("Swell: %.1f m/s over %.0f km, gamma %.1f, narrowness %.1f, energy x %.3f", spectrum.SwellWindSpeed, spectrum.SwellFetch,
-            spectrum.SwellPeakingFactor, spectrum.SwellSpread, spectrum.SwellScale);
-    }
-
-    if (seaStateChanged)
-    {
-        applySeaState();
-        spectrumChanged = true;
-    }
-
-    if (ImGui::CollapsingHeader("Surface", ImGuiTreeNodeFlags_DefaultOpen))
-    {
-        ImGui::SliderFloat("Choppiness", &choppiness, 0.0f, 2.0f);
-        // each cascade fades out from this many of its own patch lengths away
-        ImGui::SliderFloat("Detail distance", &lodScale, 1.0f, 60.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
-        ImGui::SliderFloat("Time scale", &timeScale, 0.0f, 4.0f);
-        ImGui::Checkbox("Paused", &paused);
-        for (uint32_t cascade = 0; cascade < ocean::k_CascadeCount; ++cascade)
-        {
-            ImGui::Checkbox(std::format("Cascade {} ({:.0f} m)", cascade, simulationSettings.LengthScales[cascade]).c_str(), &cascadeEnabled[cascade]);
-        }
-    }
-
-    if (ImGui::CollapsingHeader("Scene"))
-    {
-        ImGui::SliderFloat("Seabed depth (m)", &seabedDepth, 1.0f, 200.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
-        ImGui::SliderAngle("Sun elevation", &sunElevation, 1.0f, 90.0f);
-        ImGui::SliderAngle("Sun azimuth", &sunAzimuth, -180.0f, 180.0f);
-        ImGui::TextUnformatted("Left drag: orbit. Right or middle drag: pan. Wheel: zoom");
-    }
-
-    ImGui::End();
+    ocean::EndTelemetryPanel();
 }
 
 void OceanScene::collectGpuTimings()
@@ -641,53 +851,7 @@ void OceanScene::collectGpuTimings()
 
 void OceanScene::drawTimingsPanel()
 {
-    if (!ImGui::CollapsingHeader("GPU timings", ImGuiTreeNodeFlags_DefaultOpen))
-    {
-        return;
-    }
-
-    if (!gpuTimers->Active())
-    {
-        ImGui::TextUnformatted(std::string{ gpuTimers->InactiveReason() }.c_str());
-        return;
-    }
-
-    const std::optional<rhi::GpuTimingBlock> latest = gpuTimers->Latest();
-
-    if (!latest.has_value())
-    {
-        ImGui::TextUnformatted("waiting for the first frame");
-        return;
-    }
-
-    // the latest frame's scopes in record order: the depth gives the indent
-    constexpr ImGuiTableFlags k_TableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp;
-
-    if (ImGui::BeginTable("GpuTimings", 3, k_TableFlags))
-    {
-        ImGui::TableSetupColumn("Scope", ImGuiTableColumnFlags_WidthStretch, 2.0f);
-        ImGui::TableSetupColumn("Average ms");
-        ImGui::TableSetupColumn("Last ms");
-        ImGui::TableHeadersRow();
-
-        for (const rhi::GpuTiming& timing : latest->Timings)
-        {
-            const std::string_view name = gpuTimers->Name(timing.Hash);
-            const auto average = gpuTimingAverages.find(timing.Hash);
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("%*s%.*s", static_cast<int>(timing.Depth * 2u), "", static_cast<int>(name.size()), name.data());
-            ImGui::TableNextColumn();
-            ImGui::Text("%.3f", average != gpuTimingAverages.end() ? average->second * 1e-6 : 0.0);
-            ImGui::TableNextColumn();
-            ImGui::Text("%.3f", timing.Nanoseconds * 1e-6);
-        }
-
-        ImGui::EndTable();
-    }
-
-    ImGui::Text("Scoped GPU time %.3f ms. Dropped: %u scopes, %llu frames. Lost: %llu frames", latest->TopLevelNanoseconds * 1e-6,
-        latest->DroppedScopes, static_cast<unsigned long long>(gpuTimers->DroppedBlocks()), static_cast<unsigned long long>(gpuTimers->LostBlocks()));
+    ocean::DrawGpuTimingsSection(imgui->Fonts(), headerFontMode, *gpuTimers, gpuTimingAverages);
 }
 
 void OceanScene::update()
