@@ -8,10 +8,15 @@ set(foundation_source_files
     "src/miMallocOverride.cpp")
 
 set(foundation_async_source_files
+    "include/async/FrameNames.hpp"
+    "include/async/FrameStatistics.hpp"
     "include/async/Promise.hpp"
     "include/async/Scheduler.hpp"
     "include/async/Task.hpp"
     "include/async/Timeline.hpp"
+    "include/async/TimelineSource.hpp"
+    "src/async/FrameNames.cpp"
+    "src/async/Promise.cpp"
     "src/async/Scheduler.cpp"
     "src/async/Timeline.cpp")
 
@@ -96,6 +101,13 @@ target_include_directories(foundation PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include/")
 
 target_link_libraries(foundation PUBLIC mimalloc-static)
+
+if(WIN32)
+    # FrameSymbolizer reads function names with DbgHelp in every build below Release (RelWithDebInfo defines NDEBUG too,
+    # so NDEBUG can't decide this)
+    target_link_libraries(foundation PUBLIC dbghelp)
+    target_compile_definitions(foundation PUBLIC "FOUNDATION_ASYNC_SYMBOLS=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
+endif()
 
 if(UNIX)
     target_link_libraries(foundation PUBLIC "c++fs" "dl" "pthread")

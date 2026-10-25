@@ -565,6 +565,28 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
   and 1 ulp (scRGB). This GPU truncates when it writes `R16G16B16A16_SFLOAT`, so 1 ulp is the bound there.
 - OceanFft does not use the pipe yet (part B).
 
+### 2026-10-24 (Opus with a Sonnet subagent: shader executable statistics, phase 1)
+
+- `PipelineExecutableInfo.*` is deleted. It had no live caller, it could not query shader objects, and it had memory
+  bugs (heap overflow when the driver count exceeded the caller's count, leaking move assignments, `sType` 0).
+- New `rhi::CaptureComputeStatistics` (`shaders/ExecutableStatistics.*`) compiles the same `ShaderBinaryOptions` as a
+  temporary compute pipeline with the capture flag and returns plain values. `modules/RhiSystem/README.md` is new and
+  explains the probe and its caveat.
+- RTX 4080 (driver 617.14): five `UINT64` statistics (Register Count, Binary Size, Stack Size, Local Memory Size, Shared
+  Memory Size). Local Memory Size always has bit 36 set; the low 32 bits are the byte count.
+- `TestExecutableStatistics.cpp`: 5 cases, 42/42 `rhi_system_tests` on both presets, zero validation messages.
+- A planted bug (no capture flag) passes every case. Only validation catches it
+  (`VUID-vkGetPipelineExecutableStatisticsKHR-pipeline-03274`), because the driver returns statistics anyway.
+- The dead function-pointer copy in `tests/integration_tests/fixtures/CommonCreationFunctions.cpp` is deleted (author
+  approved). TriangleTest builds and runs 120 frames clean on both presets. Phases 2 and 3 are in
+  `docs/executable-statistics-plan.md`.
+- Warning pass (clang-cl): deleted the unused `strdup` macro (`CommonCreationFunctions.cpp`), `ApiVersionFromUint32`
+  (`RhiSystem.cpp`), the `ImageFormatFromString` stub (`PlatformSystem.cpp`), and `k_AdobeRgb` plus the monitor GUID
+  with its `SetupApi.h` include and `setupapi.lib` pragma (`PlatformDisplayInfo.cpp`). `Device`'s initializer list now
+  follows member order. `cmake/ConfigureLodestone.cmake` removes `-fno-omit-frame-pointer` from `lodestone` and
+  `lodestone_client_library` under clang-cl (Lodestone request E4). `MAKE_ENUM_CLASS_FLAGS` is left for the author.
+  All affected tests pass on both presets with zero validation messages.
+
 ## 10. RhiResources: questions for the author, and inputs for the design session
 
 ### Questions (the port made a choice; each one is easy to reverse)

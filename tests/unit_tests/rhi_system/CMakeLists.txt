@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 # Rendering Context unit tests
 set(RENDERING_CONTEXT_TEST_SOURCES
     TestCommandBuffer.cpp
+    TestGpuTimeline.cpp
     TestGpuTimers.cpp
     TestExecutableStatistics.cpp
     TestJsonConfig.cpp

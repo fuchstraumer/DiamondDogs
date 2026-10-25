@@ -1,6 +1,7 @@
 #include "async/Scheduler.hpp"
 #include "async/Task.hpp"
 #include "async/Timeline.hpp"
+#include "async/TimelineSource.hpp"
 #include <algorithm>
 #include <cassert>
 #include <coroutine>
@@ -66,9 +67,28 @@ void Scheduler::Tick()
     checkOwnerThread();
     ++tickCount;
 
+    pollSources();
     resumeReachedFrames();
     startSpawnedRoots();
     destroyFinishedRoots();
+}
+
+void Scheduler::AddSource(TimelineSource& source)
+{
+    checkOwnerThread();
+    assert(std::ranges::find(sources, &source) == sources.end() && "a source is added once");
+
+    sources.push_back(&source);
+}
+
+void Scheduler::RemoveSource(TimelineSource& source)
+{
+    checkOwnerThread();
+
+    const auto removed = std::ranges::remove(sources, &source);
+    assert(!removed.empty() && "RemoveSource needs a registered source");
+
+    sources.erase(removed.begin(), removed.end());
 }
 
 bool Scheduler::Idle() const noexcept
@@ -103,7 +123,8 @@ std::string Scheduler::DumpState() const
 
         for (const BasePromise* promise = frame.Waiter; promise != nullptr; promise = promise->Awaiting)
         {
-            std::format_to(std::back_inserter(output), "    frame {}\n", promise->FrameAddress);
+            std::string description = symbolizer.DescribeFrame(promise->FrameAddress);
+            std::format_to(std::back_inserter(output), "    frame {}\n", description);
         }
     }
 
@@ -120,6 +141,14 @@ void Scheduler::checkOwnerThread() noexcept
     }
 
     assert(ownerThread == current && "a Scheduler is used from one owner thread only");
+}
+
+void Scheduler::pollSources()
+{
+    for (TimelineSource* source : sources)
+    {
+        source->Poll();
+    }
 }
 
 void Scheduler::startSpawnedRoots()

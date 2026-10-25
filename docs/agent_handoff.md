@@ -62,6 +62,15 @@ eighth session's work is committed (`3d24a659` and earlier).
    - the pyramid binding-array benchmark (she has not answered);
    - `git rm --cached` of the two generated `.slang` files.
 
+**Tenth session (2026-10-23/24):** HDR part B is parked while Lodestone moves. The content compiler design is in
+`docs/content-compiler-plan.md` (forks CC1-CC8, tasks T0-T5). T0 is done, uncommitted, and Opus reviewed the diff:
+- isolated Slang and our mimalloc v3.5.4, with no Debug assert;
+- xxHash from Lodestone's copy, linked to `foundation_tests` only;
+- both presets pass Debug, and `ninja-msvc` passes Release;
+- a cold Debug build takes 37 s with Slang prebuilt, against 155 s before.
+**The static package fails** (Lodestone request C14: the isolated SPIRV-Tools uses the dynamic CRT). Fix it before the
+spouse's next package. `foundation/include/threading/Timeline.hpp` is the author's own work in progress (T1).
+
 **How to dispatch:**
 - Only one subagent builds at a time. Two builds in one `build/<preset>` folder race.
 - Read-only agents can run in parallel.
