@@ -40,14 +40,16 @@ void OceanTickCS(uniform OceanTickParameters TickParams, uint3 id : SV_DispatchT
 
     const float kLength = length(k);
     const float inverseKLength = kLength > 1e-6f ? 1.0f / kLength : 0.0f;
-    // D = -i (k / |k|) h. Its x derivative is i k.x D = (k.x^2 / |k|) h
-    const float2 dx = ComplexMulNegI(h) * (k.x * inverseKLength);
-    const float2 dz = ComplexMulNegI(h) * (k.y * inverseKLength);
+    // Horizontal displacement D pulls vertices towards crests and away from troughs:
+    // D = +i (k / |k|) h. In our +i IFFT convention, its spatial derivative is i * k * D:
+    // dDx/dx = (i k.x) * (i k.x / |k|) h = -(k.x^2 / |k|) h
+    const float2 dx = ComplexMulI(h) * (k.x * inverseKLength);
+    const float2 dz = ComplexMulI(h) * (k.y * inverseKLength);
     const float2 dHeightDx = ComplexMulI(h) * k.x;
     const float2 dHeightDz = ComplexMulI(h) * k.y;
-    const float2 dDxDx = h * (k.x * k.x * inverseKLength);
-    const float2 dDzDz = h * (k.y * k.y * inverseKLength);
-    const float2 dDxDz = h * (k.x * k.y * inverseKLength);
+    const float2 dDxDx = -h * (k.x * k.x * inverseKLength);
+    const float2 dDzDz = -h * (k.y * k.y * inverseKLength);
+    const float2 dDxDz = -h * (k.x * k.y * inverseKLength);
 
     const uint sliceStride = IFFT_SIZE * IFFT_SIZE * IFFT_NUM_WAVE_CASCADES;
     IfftInput[linearIndex] = half4(half2(dx + ComplexMulI(h)), half2(dz + ComplexMulI(dHeightDx)));
