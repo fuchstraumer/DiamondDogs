@@ -124,7 +124,6 @@ half4 DoIfftRadix4(in const uint threadIdx, in const half4 input)
     using namespace Radix4;
     const uint digitReversedIdx = DigitReverse4(threadIdx);
     s_DataA[digitReversedIdx] = half4(input);
-    s_DataB[digitReversedIdx] = 0.0h; // zero out the other
     GroupMemoryBarrierWithGroupSync();
 
     bool pingPong = false;
