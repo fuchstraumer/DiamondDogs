@@ -1,7 +1,12 @@
 #include "UploadBuffer.hpp"
+#include "ResourceMessageTypesInternal.hpp"
 #include "RhiSystem.hpp"
+#include "vulkan/vulkan_core.h"
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <vector>
 
 constexpr static VkBufferCreateInfo k_DefaultStagingBufferCreateInfo
 {
@@ -74,7 +79,7 @@ std::vector<VkBufferCopy> UploadBuffer::SetData(
     VkDeviceSize totalSize = 0;
     for (const auto& data : data_vector)
     {
-        totalSize += static_cast<VkDeviceSize>(data.size);
+        totalSize += static_cast<VkDeviceSize>(data.Size);
     }
 
     createAndAllocateBuffer(totalSize);
@@ -82,11 +87,11 @@ std::vector<VkBufferCopy> UploadBuffer::SetData(
     VkDeviceSize offset = 0;
     for (size_t i = 0; i < data_vector.size(); ++i)
     {
-        setDataAtOffset(data_vector[i].data.get(), data_vector[i].size, offset);
-        bufferCopies[i].size = data_vector[i].size;
+        setDataAtOffset(data_vector[i].Data.get(), data_vector[i].Size, offset);
+        bufferCopies[i].size = data_vector[i].Size;
         bufferCopies[i].dstOffset = offset;
         bufferCopies[i].srcOffset = offset;
-        offset += data_vector[i].size;
+        offset += data_vector[i].Size;
     }
 
     return bufferCopies;
@@ -100,7 +105,7 @@ std::vector<VkBufferImageCopy> UploadBuffer::SetData(
     for (const auto& data : image_data_vector)
     {
         totalSize = ((totalSize + k_ImageCopyOffsetAlignment - 1u) / k_ImageCopyOffsetAlignment) * k_ImageCopyOffsetAlignment;
-        totalSize += static_cast<VkDeviceSize>(data.size);
+        totalSize += static_cast<VkDeviceSize>(data.Size);
     }
 
     createAndAllocateBuffer(totalSize);
@@ -111,18 +116,18 @@ std::vector<VkBufferImageCopy> UploadBuffer::SetData(
     for (size_t i = 0; i < image_data_vector.size(); ++i)
     {
         offset = ((offset + k_ImageCopyOffsetAlignment - 1u) / k_ImageCopyOffsetAlignment) * k_ImageCopyOffsetAlignment;
-        setDataAtOffset(image_data_vector[i].data.get(), image_data_vector[i].size, offset);
+        setDataAtOffset(image_data_vector[i].Data.get(), image_data_vector[i].Size, offset);
         VkBufferImageCopy& copy = bufferImageCopies[i];
         copy.bufferOffset = offset;
         copy.bufferRowLength = 0u;
         copy.bufferImageHeight = 0u;
         copy.imageSubresource.aspectMask = aspect_mask;
-        copy.imageSubresource.baseArrayLayer = image_data_vector[i].arrayLayer;
-        copy.imageSubresource.layerCount = image_data_vector[i].numLayers;
-        copy.imageSubresource.mipLevel = image_data_vector[i].mipLevel;
+        copy.imageSubresource.baseArrayLayer = image_data_vector[i].ArrayLayer;
+        copy.imageSubresource.layerCount = image_data_vector[i].NumLayers;
+        copy.imageSubresource.mipLevel = image_data_vector[i].MipLevel;
         copy.imageOffset = VkOffset3D{ 0, 0, 0 };
-        copy.imageExtent = VkExtent3D{ image_data_vector[i].width, image_data_vector[i].height, 1u };
-        offset += static_cast<VkDeviceSize>(image_data_vector[i].size);
+        copy.imageExtent = VkExtent3D{ image_data_vector[i].Width, image_data_vector[i].Height, 1u };
+        offset += static_cast<VkDeviceSize>(image_data_vector[i].Size);
     }
 
     return bufferImageCopies;
@@ -157,7 +162,7 @@ void UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
 void UploadBuffer::setDataAtOffset(const void* data, size_t data_size, size_t offset)
 {
     assert((data_size + offset) <= Size);
-    auto destAddress = reinterpret_cast<std::byte*>(mappedPtr) + offset;
+    auto* destAddress = reinterpret_cast<std::byte*>(mappedPtr) + offset;
     std::memcpy(destAddress, data, data_size);
     // the allocation is host-visible but may not be coherent
     vmaFlushAllocation(Allocator, Allocation, offset, data_size);

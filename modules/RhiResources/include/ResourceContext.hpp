@@ -4,6 +4,7 @@
 #include "ResourceTypes.hpp"
 #include "ResourceMessageReply.hpp"
 #include <cstdint>
+#include <cstddef>
 #include <memory>
 #include <span>
 
@@ -71,44 +72,44 @@ public:
     void Initialize(const ResourceContextCreateInfo& createInfo);
 
     /**
-     * @brief Create a buffer, with a buffer view when `createInfo.ViewFormat` is set. If initialData is provided,
+     * @brief Create a buffer, with a buffer view when `createInfo.ViewFormat` is set. If initial_data is provided,
      * the buffer is created in a transferring state and is not complete until the upload finishes. Host-visible
      * buffers are written directly; device-local buffers go through the transfer system.
      *
-     * @param createInfo Domain, usage, size and creation flags. `UserData` is the name string when the flags
+     * @param create_info Domain, usage, size and creation flags. `UserData` is the name string when the flags
      * contain `UserDataAsNameString`.
-     * @param initialData Initial data regions, written one after another from offset 0. Empty for none.
+     * @param initial_data Initial data regions, written one after another from offset 0. Empty for none.
      * @return Shared pointer to reply object for tracking creation progress
      */
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateBuffer(
-        const BufferCreateInfo& createInfo,
-        std::span<const RhiBufferResourceData> initialData);
+        const BufferCreateInfo& create_info,
+        std::span<const RhiBufferResourceData> initial_data);
 
     /**
      * @brief Create an image, with a view when `createInfo.ViewInfo` is set and a sampler when
      * `createInfo.SamplerInfo` is set (the resource type is then CombinedImageSampler). With initialData, the
      * transfer system uploads the data and moves the image to the layout that its usage asks for.
      *
-     * @param createInfo Domain, usage, format, extent and optional view and sampler
-     * @param initialData Initial data, one element per mip level and array layer range. Empty for none.
+     * @param create_info Domain, usage, format, extent and optional view and sampler
+     * @param initial_data Initial data, one element per mip level and array layer range. Empty for none.
      * @return Shared pointer to reply object for tracking creation progress
      */
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateImage(
-        const ImageCreateInfo& createInfo,
-        std::span<const RhiImageResourceData> initialData);
+        const ImageCreateInfo& create_info,
+        std::span<const RhiImageResourceData> initial_data);
 
     /**
      * @brief Create a sampler
      *
-     * @param createInfo Sampler creation parameters
-     * @param userData Optional user data pointer associated with this resource
+     * @param create_info Sampler creation parameters
+     * @param sampler_name Optional name for the sampler resource
      * @return Shared pointer to reply object for tracking creation progress
      *
      * @note Sampler creation is typically fast as it doesn't involve memory allocation
      */
     [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CreateSampler(
-        const SamplerCreateInfo& createInfo,
-        void* userData = nullptr);
+        const SamplerCreateInfo& create_info,
+        std::string_view sampler_name = {});
 
     /**
      * @brief Upload data to an existing buffer.
@@ -157,8 +158,8 @@ public:
      * @brief Map a buffer region into CPU-accessible memory
      * 
      * @param buffer The buffer resource to map
-     * @param size Number of bytes to map
-     * @param offset Byte offset from the start of the buffer
+     * @param size The size of the region to map
+     * @param offset The byte offset from the start of the buffer
      * @return Shared pointer to reply object containing the mapped pointer
      * 
      * @note Only works with CPU-accessible buffers (CPUOnly, CPUToGPU, GPUToCPU usage) and multiple overlapping map operations are not supported
@@ -184,27 +185,27 @@ public:
     /**
      * @brief Create a copy of an existing buffer
      * 
-     * @param srcBuffer The source buffer to copy from
-     * @param copyContents Whether to copy the buffer's contents or just create an empty buffer with the same properties
+     * @param src The source buffer to copy from
+     * @param copy_contents Whether to copy the buffer's contents or just create an empty buffer with the same properties
      * @return Shared pointer to reply object containing the new buffer resource
      */
-    [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CopyBuffer(GraphicsResource srcBuffer, bool copyContents);
+    [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CopyBuffer(GraphicsResource src, bool copy_contents);
 
     /**
      * @brief Create a copy of an existing image
      * 
-     * @param srcImage The source image to copy from
+     * @param src The source image to copy from
      * @return Shared pointer to reply object containing the new image resource
      * 
      * @note Proper image layout transitions are handled automatically
      */
-    [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CopyImage(GraphicsResource srcImage);
+    [[nodiscard]] std::shared_ptr<GraphicsResourceReply> CopyImage(GraphicsResource src);
     
     /**
      * @brief Copy contents from one buffer to another existing buffer
      * 
-     * @param srcBuffer The source buffer to copy from
-     * @param destBuffer The destination buffer to copy to
+     * @param src The source buffer to copy from
+     * @param dst The destination buffer to copy to
      * @return Shared pointer to reply object for tracking transfer progress
      * 
      * @note The entire source buffer is copied to the destination buffer
@@ -214,8 +215,8 @@ public:
      *       image is the reverse
      */
     [[nodiscard]] std::shared_ptr<ResourceTransferReply> CopyBufferContents(
-        GraphicsResource srcBuffer,
-        GraphicsResource destBuffer);
+        GraphicsResource src,
+        GraphicsResource dst);
 
     /**
      * @brief Destroy a graphics resource and free its memory

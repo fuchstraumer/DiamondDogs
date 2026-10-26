@@ -4,8 +4,10 @@
 #include "ResourceFlags.hpp"
 #include "ImageDataFormats.hpp"
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
+#include <string_view>
 
 /**
  * @brief Contains definitions for user-facing resource data structures for use with the resource context and RHI.
@@ -15,14 +17,14 @@
  *  Build Data with std::as_bytes(std::span{ values }). The context copies the bytes before the call returns. */
 struct RhiBufferResourceData
 {
-    std::span<const std::byte> Data{};
+    std::span<const std::byte> Data;
     size_t DataAlignment{ 0u };
 };
 
 /** @brief Holds the raw data and some dimensional metadata that will be made the contents of an image resource. */
 struct RhiImageResourceData
 {
-    std::span<const std::byte> Data{};
+    std::span<const std::byte> Data;
     uint32_t Width{ 0u };
     uint32_t Height{ 0u };
     uint32_t ArrayLayer{ 0u };
@@ -39,8 +41,7 @@ struct BufferCreateInfo
     size_t Size{ 0u };
     /** @brief If this member is given, the buffer will be created with a correponding BufferView object. Otherwise, we won't create a view. */
     std::optional<ImageFormat> ViewFormat{ std::nullopt };
-    /** @brief User-defined data pointer that can be associated with the buffer for application-specific purposes. */
-    void* UserData{ nullptr };
+    std::string_view Name; // leaving this empty is valid behavior
 };
 
 /** @brief Describes a specific range within an image, including mip levels and array layers, used for creating image views or specifying subresource ranges in image operations. */
@@ -76,8 +77,7 @@ struct ImageViewCreateInfo
     ImageRange Range{};
     /** @brief If provided, will reinterpret the format of the base image to the given image for this view */
     std::optional<ImageFormat> FormatOverride{ std::nullopt };
-    /** @brief User-defined data pointer that can be associated with the image view for application-specific purposes. */
-    void* UserData{ nullptr };
+    std::string_view Name; // leaving this empty is valid behavior
 };
 
 struct SamplerCreateInfo
@@ -141,7 +141,7 @@ struct ImageCreateInfo
     ResourceCreationFlags Flags{ ResourceCreationFlags::None };
     ImageUsageBits Usage{ ImageUsageBits::Invalid };
     ImageType Type{ ImageType::Invalid };
-    ImageFormat Format{};
+    ImageFormat Format;
     uint32_t Width{ 0u };
     uint32_t Height{ 0u };
     uint32_t Depth{ 0u };
@@ -154,8 +154,7 @@ struct ImageCreateInfo
     std::optional<ImageViewCreateInfo> ViewInfo{ std::nullopt };
     /** @brief Optional sampler info - if present we will create a sampler with this image, if not no sampler will be created. */
     std::optional<SamplerCreateInfo> SamplerInfo{ std::nullopt };
-    /** @brief User-defined data pointer that can be associated with the image for application-specific purposes. */
-    void* UserData{ nullptr };
+    std::string_view Name; // leaving this empty is valid behavior
 };
 
 struct GraphicsResource

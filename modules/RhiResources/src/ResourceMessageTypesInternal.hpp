@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <variant>
 #include <vector>
 #include <vulkan/vulkan_core.h>
@@ -34,11 +35,13 @@ struct InternalResourceDataContainer
         BufferData(BufferData&& other) noexcept;
         BufferData& operator=(BufferData&& other) noexcept;
 
-        std::unique_ptr<std::byte[]> data;
-        size_t size;
-        size_t alignment;
+        std::unique_ptr<std::byte[]> Data{ nullptr };
+        size_t Size{ 0u };
+        size_t Alignment{ 0u };
     };
+
     using BufferDataVector = std::vector<BufferData>;
+
     // Images have a bit more metadata, so we need this struct for them
     struct ImageData
     {
@@ -52,15 +55,16 @@ struct InternalResourceDataContainer
         ImageData(ImageData&& other) noexcept;
         ImageData& operator=(ImageData&& other) noexcept;
 
-        std::unique_ptr<std::byte[]> data;
+        std::unique_ptr<std::byte[]> Data{ nullptr };
         // size of the actual image data, not width/height info
-        size_t size;
-        uint32_t width;
-        uint32_t height;
-        uint32_t arrayLayer;
-        uint32_t numLayers;
-        uint32_t mipLevel;
+        size_t Size{ 0u };
+        uint32_t Width{ 0u };
+        uint32_t Height{ 0u };
+        uint32_t ArrayLayer{ 0u };
+        uint32_t NumLayers{ 0u };
+        uint32_t MipLevel{ 0u };
     };
+
     using ImageDataVector = std::vector<ImageData>;
 
     std::variant<BufferDataVector, ImageDataVector> DataVector;
@@ -75,25 +79,25 @@ struct InternalResourceDataContainer
 
 struct CreateBufferMessage
 {
-    BufferCreateInfo bufferInfo;
-    std::optional<InternalResourceDataContainer> initialData = std::nullopt;
-    std::shared_ptr<GraphicsResourceReply> reply = nullptr;
+    BufferCreateInfo BufferInfo;
+    std::optional<InternalResourceDataContainer> InitialData = std::nullopt;
+    std::shared_ptr<GraphicsResourceReply> Reply{ nullptr };
 };
 
 // an image with a SamplerInfo becomes a CombinedImageSampler, which replaced
 // CreateCombinedImageSamplerMessage
 struct CreateImageMessage
 {
-    ImageCreateInfo imageInfo;
-    std::optional<InternalResourceDataContainer> initialData = std::nullopt;
-    std::shared_ptr<GraphicsResourceReply> reply = nullptr;
+    ImageCreateInfo ImageInfo;
+    std::optional<InternalResourceDataContainer> InitialData = std::nullopt;
+    std::shared_ptr<GraphicsResourceReply> Reply{ nullptr };
 };
 
 struct CreateSamplerMessage
 {
-    SamplerCreateInfo samplerInfo;
-    void* userData = nullptr;
-    std::shared_ptr<GraphicsResourceReply> reply = nullptr;
+    SamplerCreateInfo SamplerInfo;
+    std::string_view Name;
+    std::shared_ptr<GraphicsResourceReply> Reply{ nullptr };
 };
 
 struct SetBufferDataMessage
@@ -108,9 +112,9 @@ struct SetBufferDataMessage
     SetBufferDataMessage(SetBufferDataMessage&& other) noexcept;
     SetBufferDataMessage& operator=(SetBufferDataMessage&& other) noexcept;
 
-    GraphicsResource destBuffer{ GraphicsResource::Null() };
-    InternalResourceDataContainer data;
-    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+    GraphicsResource DestBuffer{ GraphicsResource::Null() };
+    InternalResourceDataContainer Data;
+    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
 };
 
 struct SetImageDataMessage
@@ -126,55 +130,55 @@ struct SetImageDataMessage
     SetImageDataMessage(SetImageDataMessage&& other) noexcept;
     SetImageDataMessage& operator=(SetImageDataMessage&& other) noexcept;
 
-    GraphicsResource destImage{ GraphicsResource::Null() };
-    InternalResourceDataContainer data;
-    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+    GraphicsResource DestImage{ GraphicsResource::Null() };
+    InternalResourceDataContainer Data;
+    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
 };
 
 struct FillResourceMessage
 {
-    GraphicsResource resource{ GraphicsResource::Null() };
-    uint32_t value{ 0 };
-    size_t offset{ 0 };
-    size_t size{ 0 };
-    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+    GraphicsResource Resource{ GraphicsResource::Null() };
+    uint32_t Value{ 0 };
+    size_t Offset{ 0 };
+    size_t Size{ 0 };
+    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
 };
 
 struct MapResourceMessage
 {
-    GraphicsResource resource{ GraphicsResource::Null() };
-    size_t size{ 0 };
-    size_t offset{ 0 };
-    std::shared_ptr<PointerMessageReply> reply = nullptr;
+    GraphicsResource Resource{ GraphicsResource::Null() };
+    size_t Size{ 0 };
+    size_t Offset{ 0 };
+    std::shared_ptr<PointerMessageReply> Reply{ nullptr };
 };
 
 struct UnmapResourceMessage
 {
-    GraphicsResource resource{ GraphicsResource::Null() };
-    size_t size{ 0 };
-    size_t offset{ 0 };
-    std::shared_ptr<MessageReply> reply = nullptr;
+    GraphicsResource Resource{ GraphicsResource::Null() };
+    size_t Size{ 0 };
+    size_t Offset{ 0 };
+    std::shared_ptr<MessageReply> Reply{ nullptr };
 };
 
 struct CopyResourceMessage
 {
-    GraphicsResource sourceResource{ GraphicsResource::Null() };
+    GraphicsResource SourceResource{ GraphicsResource::Null() };
     // not copying contents just means using the source like a template I guess
-    bool copyContents = false;
-    std::shared_ptr<GraphicsResourceReply> reply = nullptr;
+    bool CopyContents = false;
+    std::shared_ptr<GraphicsResourceReply> Reply{ nullptr };
 };
 
 struct CopyResourceContentsMessage
 {
-    GraphicsResource sourceResource{ GraphicsResource::Null() };
-    GraphicsResource destinationResource{ GraphicsResource::Null() };
-    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+    GraphicsResource SourceResource{ GraphicsResource::Null() };
+    GraphicsResource DestinationResource{ GraphicsResource::Null() };
+    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
 };
 
 struct DestroyResourceMessage
 {
-    GraphicsResource resource{ GraphicsResource::Null() };
-    std::shared_ptr<MessageReply> reply = nullptr;
+    GraphicsResource Resource{ GraphicsResource::Null() };
+    std::shared_ptr<MessageReply> Reply{ nullptr };
 };
 
 /** @brief Tells the worker thread to return. Shutdown is a message so that the worker can block on the queue instead
@@ -201,67 +205,67 @@ using ResourceMessagePayloadType = std::variant<CreateBufferMessage,
 
 struct TransferSystemReqBufferInfo
 {
-    VkBuffer bufferHandle{ VK_NULL_HANDLE };
-    BufferCreateInfo createInfo;
+    VkBuffer BufferHandle{ VK_NULL_HANDLE };
+    BufferCreateInfo CreateInfo;
 };
 
 struct TransferSystemReqImageInfo
 {
-    VkImage imageHandle{ VK_NULL_HANDLE };
-    ImageCreateInfo createInfo;
+    VkImage ImageHandle{ VK_NULL_HANDLE };
+    ImageCreateInfo CreateInfo;
     // the layout image is in when transfer starts. UNDEFINED until the first upload, then the usage's layout
-    VkImageLayout currentLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+    VkImageLayout CurrentLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
 };
 
 struct TransferSystemSetBufferDataMessage
 {
-    TransferSystemReqBufferInfo bufferInfo;
-    InternalResourceDataContainer data;
-    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+    TransferSystemReqBufferInfo BufferInfo;
+    InternalResourceDataContainer Data;
+    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
 };
 
 struct TransferSystemSetImageDataMessage
 {
-    TransferSystemReqImageInfo imageInfo;
-    InternalResourceDataContainer data;
-    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+    TransferSystemReqImageInfo ImageInfo;
+    InternalResourceDataContainer Data;
+    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
 };
 
 struct TransferSystemFillBufferMessage
 {
-    TransferSystemReqBufferInfo bufferInfo;
-    uint32_t value{ 0 };
-    size_t offset{ 0 };
-    size_t size{ 0 };
-    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+    TransferSystemReqBufferInfo BufferInfo;
+    uint32_t Value{ 0u };
+    size_t Offset{ 0u };
+    size_t Size{ 0u };
+    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
 };
 
 struct TransferSystemCopyBufferToBufferMessage
 {
-    TransferSystemReqBufferInfo srcBufferInfo;
-    TransferSystemReqBufferInfo dstBufferInfo;
-    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+    TransferSystemReqBufferInfo SrcBufferInfo;
+    TransferSystemReqBufferInfo DstBufferInfo;
+    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
 };
 
 struct TransferSystemCopyImageToImageMessage
 {
-    TransferSystemReqImageInfo srcImageInfo;
-    TransferSystemReqImageInfo dstImageInfo;
-    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+    TransferSystemReqImageInfo SrcImageInfo;
+    TransferSystemReqImageInfo DstImageInfo;
+    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
 };
 
 struct TransferSystemCopyImageToBufferMessage
 {
-    TransferSystemReqImageInfo imageInfo;
-    TransferSystemReqBufferInfo bufferInfo;
-    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+    TransferSystemReqImageInfo ImageInfo;
+    TransferSystemReqBufferInfo BufferInfo;
+    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
 };
 
 struct TransferSystemCopyBufferToImageMessage
 {
-    TransferSystemReqBufferInfo bufferInfo;
-    TransferSystemReqImageInfo imageInfo;
-    std::shared_ptr<ResourceTransferReply> reply = nullptr;
+    TransferSystemReqBufferInfo BufferInfo;
+    TransferSystemReqImageInfo ImageInfo;
+    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
 };
 
 using TransferPayloadType = std::variant<TransferSystemSetBufferDataMessage,

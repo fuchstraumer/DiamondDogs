@@ -1,4 +1,5 @@
 #include "ResourceTypes.hpp"
+#include "ResourceFlags.hpp"
 #include "entt/entt.hpp"
 
 GraphicsResource GraphicsResource::Null() noexcept

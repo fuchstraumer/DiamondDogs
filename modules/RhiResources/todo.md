@@ -6,5 +6,6 @@
 - Have transfer system do some smarter pooling with the command pools, instead of single buffer single pool system that require deleting and rebuilding command pools every frame. In short term, just pooling and reusing the VkCommandPool objects themselves could help a bunch
 - Transfer system needs to be able to handle weird inter-image copy requests better, like from different layers or subregions to other layers or subregions or even between formats and usages. Thinking of cases like copying depth resources for debug viewing to color targets, or other such silly things
 - Update memory handling and allocation and usages of buffers based on extensions. blech
-- Barriers have been updated for newer Vulkan versions, now we should see if we can find more occasions to batch them and reduce overhead required by users to do so
-  - Might be better left to rendergraph or higher-level systems that interact with this one, but leaving this todo here so I don't forget it entirely
+- `std::span` belongs in way more places
+- A lot of the code is very dated in terms of string handling: predates string_view. Drop string_view in everywhere we can
+- Ranges-ify things

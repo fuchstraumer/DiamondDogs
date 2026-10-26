@@ -10,10 +10,10 @@
 #include "TransferSystem.hpp"
 #include "containers/mwsrQueue.hpp"
 
-#include <atomic>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -32,18 +32,18 @@ class ResourceContextImpl
 {
 public:
 
-    void construct(const ResourceContextCreateInfo& create_info);
-    void destroy();
+    void Construct(const ResourceContextCreateInfo& create_info);
+    void Destroy();
     /**
      * @brief Locks current thread and forces it to wait for all pending operations to complete, unlike how it used to be (required per-frame ticks).
      * Useful for when you want to flush all operations, e.g, swapchain events or key engine boundary events.
     */
-    void update();
-
+    void Update();
+    
     /** @brief Adds a message - using by-value since we will always be moving this data */
-    void pushMessage(ResourceMessagePayloadType message);
-    void setExitWorker();
-    void startWorker();
+    void PushMessage(ResourceMessagePayloadType message);
+    void SetExitWorker();
+    void StartWorker();
 
     /** @brief Returns the device, so that ResourceContext can create replies that own a timeline semaphore. */
     [[nodiscard]] const rhi::Device* Device() const noexcept;
@@ -52,9 +52,9 @@ private:
 
     struct ResourceFlags
     {
-        ResourceType type;
-        ResourceCreationFlags flags;
-        ResourceDomain domain;
+        ResourceType Type;
+        ResourceCreationFlags Flags;
+        ResourceDomain Domain;
     };
 
     // counts the vmaMapMemory calls that MapBuffer made and UnmapBuffer has not undone, so destroy can undo them.
@@ -96,7 +96,7 @@ private:
     VkBufferView createBufferView(entt::entity new_entity, const BufferCreateInfo& buffer_info);
     VkImage createImage(entt::entity new_entity, const ImageCreateInfo& image_info);
     VkImageView createImageView(entt::entity new_entity, const ImageCreateInfo& image_info);
-    VkSampler createSampler(entt::entity new_entity, const SamplerCreateInfo& sampler_info, ResourceCreationFlags flags, void* user_data_ptr);
+    VkSampler createSampler(entt::entity new_entity, const SamplerCreateInfo& sampler_info, std::string_view user_name_str);
 
     /** @brief Returns true when the allocation landed in host-visible memory, so data can be written without the transfer system. */
     [[nodiscard]] bool allocationIsHostVisible(entt::entity entity) const;
@@ -107,7 +107,7 @@ private:
     [[nodiscard]] TransferSystemReqBufferInfo bufferTransferInfo(entt::entity entity) const;
     /** @brief Returns the image's transfer info, and records the layout that the transfer will leave the image in. */
     [[nodiscard]] TransferSystemReqImageInfo imageTransferInfo(entt::entity entity);
-    void setObjectName(VkObjectType object_type, uint64_t handle, const std::string& name) const;
+    void setObjectName(VkObjectType object_type, uint64_t handle, std::string_view name) const;
 
     /** @brief Destroys every API object that the entity has, and the entity. Used for destroy messages, for creation
      *  failures part-way through, and for resources still alive at shutdown. */

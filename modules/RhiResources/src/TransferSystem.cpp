@@ -356,31 +356,31 @@ bool ResourceTransferSystem::processMessages(std::chrono::milliseconds timeout)
             using T = std::decay_t<decltype(message)>;
             if constexpr (std::is_same_v<T, TransferSystemSetBufferDataMessage>)
             {
-                processSetBufferDataMessage(std::move(message));
+                processSetBufferDataMessage(std::forward<decltype(message)>(message));
             }
             else if constexpr (std::is_same_v<T, TransferSystemSetImageDataMessage>)
             {
-                processSetImageDataMessage(std::move(message));
+                processSetImageDataMessage(std::forward<decltype(message)>(message));
             }
             else if constexpr (std::is_same_v<T, TransferSystemFillBufferMessage>)
             {
-                processFillBufferMessage(std::move(message));
+                processFillBufferMessage(std::forward<decltype(message)>(message));
             }
             else if constexpr (std::is_same_v<T, TransferSystemCopyBufferToBufferMessage>)
             {
-                processCopyBufferToBufferMessage(std::move(message));
+                processCopyBufferToBufferMessage(std::forward<decltype(message)>(message));
             }
             else if constexpr (std::is_same_v<T, TransferSystemCopyImageToImageMessage>)
             {
-                processCopyImageToImageMessage(std::move(message));
+                processCopyImageToImageMessage(std::forward<decltype(message)>(message));
             }
             else if constexpr (std::is_same_v<T, TransferSystemCopyImageToBufferMessage>)
             {
-                processCopyImageToBufferMessage(std::move(message));
+                processCopyImageToBufferMessage(std::forward<decltype(message)>(message));
             }
             else if constexpr (std::is_same_v<T, TransferSystemCopyBufferToImageMessage>)
             {
-                processCopyBufferToImageMessage(std::move(message));
+                processCopyBufferToImageMessage(std::forward<decltype(message)>(message));
             }
         };
 
@@ -495,12 +495,12 @@ void ResourceTransferSystem::waitForCommandsToComplete(std::chrono::milliseconds
 
 void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBufferDataMessage&& message)
 {
-    const VkBuffer bufferHandle = message.bufferInfo.bufferHandle;
+    const VkBuffer bufferHandle = message.BufferInfo.BufferHandle;
 
-    TransferCommand transferCommand(device, transferQueueFamily, allocatorHandle, std::move(message.reply));
+    TransferCommand transferCommand(device, transferQueueFamily, allocatorHandle, std::move(message.Reply));
 
     // note that this is copying to an API managed staging buffer, not just another raw data buffer like our data container. will only be briefly duplicated
-    InternalResourceDataContainer::BufferDataVector& dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(message.data.DataVector);
+    InternalResourceDataContainer::BufferDataVector& dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(message.Data.DataVector);
 
     UploadBuffer* uploadBuffer = transferCommand.GetUploadBuffer();
     std::vector<VkBufferCopy> bufferCopies = uploadBuffer->SetData(dataVector);
@@ -516,13 +516,13 @@ void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBuffer
 
 void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDataMessage&& message)
 {
-    const ImageCreateInfo& imageInfo = message.imageInfo.createInfo;
-    const VkImage imageHandle = message.imageInfo.imageHandle;
+    const ImageCreateInfo& imageInfo = message.ImageInfo.CreateInfo;
+    const VkImage imageHandle = message.ImageInfo.ImageHandle;
     const VkImageSubresourceRange range = WholeImageRange(imageInfo);
     const VkImageLayout finalLayout = ImageLayoutAfterTransfer(imageInfo.Usage);
 
-    TransferCommand transferCommand(device, transferQueueFamily, allocatorHandle, std::move(message.reply));
-    InternalResourceDataContainer::ImageDataVector& imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.data.DataVector);
+    TransferCommand transferCommand(device, transferQueueFamily, allocatorHandle, std::move(message.Reply));
+    InternalResourceDataContainer::ImageDataVector& imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.Data.DataVector);
 
     UploadBuffer* uploadBuffer = transferCommand.GetUploadBuffer();
     std::vector<VkBufferImageCopy> bufferImageCopies = uploadBuffer->SetData(imageDataVector, range.aspectMask);
@@ -531,7 +531,7 @@ void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDa
 
     // required, unlike with buffers. forces a layout transition. stages are limited to the ones a transfer queue has
     RecordImageLayoutTransition(cmd, imageHandle, range,
-        message.imageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        message.ImageInfo.CurrentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     vkCmdCopyBufferToImage(
@@ -553,22 +553,22 @@ void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDa
 
 void ResourceTransferSystem::processFillBufferMessage(TransferSystemFillBufferMessage&& message)
 {
-    const VkBuffer bufferHandle = message.bufferInfo.bufferHandle;
+    const VkBuffer bufferHandle = message.BufferInfo.BufferHandle;
 
-    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
+    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.Reply));
     VkCommandBuffer cmd = transferCommand.CmdBuffer();
-    vkCmdFillBuffer(cmd, bufferHandle, message.offset, message.size, message.value);
+    vkCmdFillBuffer(cmd, bufferHandle, message.Offset, message.Size, message.Value);
     transferCommand.EndRecording();
     commands.emplace_back(std::move(transferCommand));
 }
 
 void ResourceTransferSystem::processCopyBufferToBufferMessage(TransferSystemCopyBufferToBufferMessage&& message)
 {
-    const BufferCreateInfo& srcInfo = message.srcBufferInfo.createInfo;
-    const BufferCreateInfo& dstInfo = message.dstBufferInfo.createInfo;
+    const BufferCreateInfo& srcInfo = message.SrcBufferInfo.CreateInfo;
+    const BufferCreateInfo& dstInfo = message.DstBufferInfo.CreateInfo;
     if (srcInfo.Size > dstInfo.Size)
     {
-        message.reply->setStatus(MessageReply::Status::Failed);
+        message.Reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -579,19 +579,19 @@ void ResourceTransferSystem::processCopyBufferToBufferMessage(TransferSystemCopy
         srcInfo.Size
     };
 
-    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
+    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.Reply));
     VkCommandBuffer cmd = transferCommand.CmdBuffer();
-    vkCmdCopyBuffer(cmd, message.srcBufferInfo.bufferHandle, message.dstBufferInfo.bufferHandle, 1, &copy);
+    vkCmdCopyBuffer(cmd, message.SrcBufferInfo.BufferHandle, message.DstBufferInfo.BufferHandle, 1, &copy);
     transferCommand.EndRecording();
     commands.emplace_back(std::move(transferCommand));
 }
 
 void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyImageToImageMessage&& message)
 {
-    const ImageCreateInfo& srcInfo = message.srcImageInfo.createInfo;
-    const ImageCreateInfo& dstInfo = message.dstImageInfo.createInfo;
-    const VkImage srcHandle = message.srcImageInfo.imageHandle;
-    const VkImage dstHandle = message.dstImageInfo.imageHandle;
+    const ImageCreateInfo& srcInfo = message.SrcImageInfo.CreateInfo;
+    const ImageCreateInfo& dstInfo = message.DstImageInfo.CreateInfo;
+    const VkImage srcHandle = message.SrcImageInfo.ImageHandle;
+    const VkImage dstHandle = message.DstImageInfo.ImageHandle;
     const VkImageSubresourceRange srcRange = WholeImageRange(srcInfo);
     const VkImageSubresourceRange dstRange = WholeImageRange(dstInfo);
 
@@ -605,7 +605,7 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
         // if these traits don't match, we can't copy (for now)
         // may need to investigate and return to this later, but most of these traits
         // shouldn't be a problem. may need to specify copy region/layer somehow
-        message.reply->setStatus(MessageReply::Status::Failed);
+        message.Reply->setStatus(MessageReply::Status::Failed);
         return;
     }
 
@@ -628,14 +628,14 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
     const VkImageLayout srcFinal = ImageLayoutAfterTransfer(srcInfo.Usage);
     const VkImageLayout dstFinal = ImageLayoutAfterTransfer(dstInfo.Usage);
 
-    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
+    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.Reply));
     VkCommandBuffer cmd = transferCommand.CmdBuffer();
     RecordImageLayoutTransition(cmd, srcHandle, srcRange,
-        message.srcImageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        message.SrcImageInfo.CurrentLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
     RecordImageLayoutTransition(cmd, dstHandle, dstRange,
-        message.dstImageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        message.DstImageInfo.CurrentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     // fixed: the copy named the usage layouts (shader read, attachment) instead of the transfer layouts
@@ -659,8 +659,8 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
 
 void ResourceTransferSystem::processCopyImageToBufferMessage(TransferSystemCopyImageToBufferMessage&& message)
 {
-    const ImageCreateInfo& srcInfo = message.imageInfo.createInfo;
-    const VkImage srcHandle = message.imageInfo.imageHandle;
+    const ImageCreateInfo& srcInfo = message.ImageInfo.CreateInfo;
+    const VkImage srcHandle = message.ImageInfo.ImageHandle;
     const VkImageSubresourceRange srcRange = WholeImageRange(srcInfo);
 
     // the mirror of processCopyBufferToImageMessage: mip 0 of every layer, tightly packed from offset 0. the caller
@@ -675,13 +675,13 @@ void ResourceTransferSystem::processCopyImageToBufferMessage(TransferSystemCopyI
         ImageExtent(srcInfo)
     };
 
-    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
+    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.Reply));
     VkCommandBuffer cmd = transferCommand.CmdBuffer();
     RecordImageLayoutTransition(cmd, srcHandle, srcRange,
-        message.imageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        message.ImageInfo.CurrentLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
-    vkCmdCopyImageToBuffer(cmd, srcHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, message.bufferInfo.bufferHandle, 1u, &copyParams);
+    vkCmdCopyImageToBuffer(cmd, srcHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, message.BufferInfo.BufferHandle, 1u, &copyParams);
     RecordImageLayoutTransition(cmd, srcHandle, srcRange,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, ImageLayoutAfterTransfer(srcInfo.Usage),
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_NONE,
@@ -695,8 +695,8 @@ void ResourceTransferSystem::processCopyImageToBufferMessage(TransferSystemCopyI
 
 void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyBufferToImageMessage&& message)
 {
-    const ImageCreateInfo& dstInfo = message.imageInfo.createInfo;
-    const VkImage dstHandle = message.imageInfo.imageHandle;
+    const ImageCreateInfo& dstInfo = message.ImageInfo.CreateInfo;
+    const VkImage dstHandle = message.ImageInfo.ImageHandle;
     const VkImageSubresourceRange dstRange = WholeImageRange(dstInfo);
 
     // copies the whole buffer into mip 0 of every layer, tightly packed
@@ -710,14 +710,14 @@ void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyB
         ImageExtent(dstInfo)
     };
 
-    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
+    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.Reply));
     VkCommandBuffer cmd = transferCommand.CmdBuffer();
     RecordImageLayoutTransition(cmd, dstHandle, dstRange,
-        message.imageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        message.ImageInfo.CurrentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     // fixed: the copy named the usage layout instead of TRANSFER_DST_OPTIMAL
-    vkCmdCopyBufferToImage(cmd, message.bufferInfo.bufferHandle, dstHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copyParams);
+    vkCmdCopyBufferToImage(cmd, message.BufferInfo.BufferHandle, dstHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copyParams);
     RecordImageLayoutTransition(cmd, dstHandle, dstRange,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, ImageLayoutAfterTransfer(dstInfo.Usage),
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
