@@ -23,131 +23,133 @@ namespace ocean
         constexpr float k_DegreesToRadians = k_Pi / 180.0f;
 
         // --- Telemetry Panel and Chassis Colors ---
-        constexpr ImU32 k_ColorPanelBg = IM_COL32(9, 14, 22, 232);
-        constexpr ImU32 k_ColorPanelBorder = IM_COL32(140, 188, 230, 44);
-        constexpr ImU32 k_ColorPanelReticle = IM_COL32(0, 210, 255, 115);
-        constexpr ImU32 k_ColorTopBarAccent = IM_COL32(0, 210, 255, 235);
-        constexpr ImU32 k_ColorHeaderGradientTop = IM_COL32(0, 195, 245, 28);
-        constexpr ImU32 k_ColorHeaderGradientMid = IM_COL32(0, 195, 245, 4);
-        constexpr ImU32 k_ColorHeaderGradientEnd = IM_COL32(9, 14, 22, 0);
+        constexpr ImU32 k_ColorPanelBg = IM_COL32(4, 7, 11, 238);
+        constexpr ImU32 k_ColorPanelBorder = IM_COL32(65, 88, 112, 28);
+        constexpr ImU32 k_ColorPanelReticle = IM_COL32(50, 105, 140, 42);
+        constexpr ImU32 k_ColorTopBarAccent = IM_COL32(0, 175, 210, 140);
+        constexpr ImU32 k_ColorHeaderGradientTop = IM_COL32(0, 155, 195, 12);
+        constexpr ImU32 k_ColorHeaderGradientMid = IM_COL32(0, 155, 195, 2);
+        constexpr ImU32 k_ColorHeaderGradientEnd = IM_COL32(4, 7, 11, 0);
 
         // --- Cards and Group Enclosures ---
-        constexpr ImU32 k_ColorCardBg = IM_COL32(13, 21, 33, 215);
-        constexpr ImU32 k_ColorCardBorder = IM_COL32(130, 180, 225, 42);
-        constexpr ImU32 k_ColorCardAccentBar = IM_COL32(0, 210, 255, 220);
-        constexpr ImU32 k_ColorCardSubBg = IM_COL32(11, 18, 28, 210);
-        constexpr ImU32 k_ColorCardSubBorder = IM_COL32(130, 175, 215, 36);
+        constexpr ImU32 k_ColorCardBg = IM_COL32(7, 11, 16, 215);
+        constexpr ImU32 k_ColorCardBorder = IM_COL32(60, 85, 110, 20);
+        constexpr ImU32 k_ColorCardAccentBar = IM_COL32(0, 165, 200, 120);
+        constexpr ImU32 k_ColorCardSubBg = IM_COL32(5, 8, 13, 200);
+        constexpr ImU32 k_ColorCardSubBorder = IM_COL32(60, 85, 110, 16);
 
         // --- Dividers and Separator Hairlines ---
-        constexpr ImU32 k_ColorHairline = IM_COL32(150, 195, 235, 38);
-        constexpr ImU32 k_ColorHairlineSub = IM_COL32(150, 195, 235, 30);
-        constexpr ImU32 k_ColorHairlineBanner = IM_COL32(140, 188, 230, 36);
+        constexpr ImU32 k_ColorHairline = IM_COL32(65, 90, 115, 20);
+        constexpr ImU32 k_ColorHairlineSub = IM_COL32(65, 90, 115, 15);
+        constexpr ImU32 k_ColorHairlineBanner = IM_COL32(65, 90, 115, 22);
 
         // --- Typography (ImU32 Direct DrawList Colors) ---
-        constexpr ImU32 k_ColorTextHeader = IM_COL32(232, 244, 255, 255);
-        constexpr ImU32 k_ColorTextHeaderHover = IM_COL32(238, 247, 255, 255);
-        constexpr ImU32 k_ColorTextSection = IM_COL32(198, 218, 236, 245);
-        constexpr ImU32 k_ColorTextSubHeader = IM_COL32(175, 202, 228, 240);
-        constexpr ImU32 k_ColorTextLabel = IM_COL32(176, 196, 216, 245);
-        constexpr ImU32 k_ColorTextLabelHover = IM_COL32(236, 245, 255, 255);
-        constexpr ImU32 k_ColorTextHint = IM_COL32(105, 132, 160, 230);
-        constexpr ImU32 k_ColorTextValue = IM_COL32(215, 230, 245, 245);
-        constexpr ImU32 k_ColorTextValueHover = IM_COL32(245, 252, 255, 255);
-        constexpr ImU32 k_ColorTextUnit = IM_COL32(118, 152, 184, 240);
-        constexpr ImU32 k_ColorTextCyanAccent = IM_COL32(0, 210, 255, 230);
-        constexpr ImU32 k_ColorTextBodyMuted = IM_COL32(160, 182, 204, 240);
-        constexpr ImU32 k_ColorTextSubMuted = IM_COL32(120, 160, 195, 230);
+        constexpr ImU32 k_ColorTextHeader = IM_COL32(220, 230, 240, 245);
+        constexpr ImU32 k_ColorTextHeaderHover = IM_COL32(240, 248, 255, 255);
+        constexpr ImU32 k_ColorTextSection = IM_COL32(165, 185, 205, 225);
+        constexpr ImU32 k_ColorTextSubHeader = IM_COL32(140, 165, 188, 215);
+        constexpr ImU32 k_ColorTextLabel = IM_COL32(112, 134, 156, 210);
+        constexpr ImU32 k_ColorTextLabelHover = IM_COL32(190, 215, 238, 240);
+        constexpr ImU32 k_ColorTextHint = IM_COL32(82, 104, 126, 195);
+        constexpr ImU32 k_ColorTextValue = IM_COL32(195, 215, 232, 235);
+        constexpr ImU32 k_ColorTextValueHover = IM_COL32(235, 246, 255, 255);
+        constexpr ImU32 k_ColorTextUnit = IM_COL32(88, 112, 136, 195);
+        constexpr ImU32 k_ColorTextCyanAccent = IM_COL32(0, 175, 210, 200);
+        constexpr ImU32 k_ColorTextBodyMuted = IM_COL32(120, 142, 165, 215);
+        constexpr ImU32 k_ColorTextSubMuted = IM_COL32(92, 116, 140, 195);
 
         // --- Typography (ImVec4 TextColored Constants) ---
-        constexpr ImVec4 k_ColorVecTitle{ 0.91f, 0.96f, 1.00f, 1.0f };
-        constexpr ImVec4 k_ColorVecSubtitle{ 0.45f, 0.62f, 0.76f, 1.0f };
-        constexpr ImVec4 k_ColorVecNote{ 0.45f, 0.62f, 0.78f, 1.0f };
-        constexpr ImVec4 k_ColorVecMutedStatus{ 0.55f, 0.65f, 0.75f, 1.0f };
-        constexpr ImVec4 k_ColorVecTimingRoot{ 0.90f, 0.95f, 1.00f, 1.0f };
-        constexpr ImVec4 k_ColorVecTimingChild{ 0.68f, 0.78f, 0.88f, 1.0f };
-        constexpr ImVec4 k_ColorVecTimingAvg{ 0.82f, 0.92f, 1.00f, 1.0f };
-        constexpr ImVec4 k_ColorVecTimingLast{ 0.58f, 0.70f, 0.82f, 1.0f };
-        constexpr ImVec4 k_ColorVecTimingFooter{ 0.48f, 0.60f, 0.72f, 1.0f };
+        constexpr ImVec4 k_ColorVecTitle{ 0.86f, 0.92f, 0.98f, 0.95f };
+        constexpr ImVec4 k_ColorVecSubtitle{ 0.38f, 0.50f, 0.62f, 0.90f };
+        constexpr ImVec4 k_ColorVecNote{ 0.38f, 0.50f, 0.62f, 0.90f };
+        constexpr ImVec4 k_ColorVecMutedStatus{ 0.44f, 0.54f, 0.64f, 0.85f };
+        constexpr ImVec4 k_ColorVecTimingRoot{ 0.82f, 0.90f, 0.96f, 0.95f };
+        constexpr ImVec4 k_ColorVecTimingChild{ 0.52f, 0.63f, 0.74f, 0.90f };
+        constexpr ImVec4 k_ColorVecTimingAvg{ 0.74f, 0.84f, 0.92f, 0.95f };
+        constexpr ImVec4 k_ColorVecTimingLast{ 0.45f, 0.55f, 0.65f, 0.85f };
+        constexpr ImVec4 k_ColorVecTimingFooter{ 0.35f, 0.45f, 0.55f, 0.80f };
 
         // --- Slider Tracks and Chunky Thumbs ---
-        constexpr ImU32 k_ColorTrackBg = IM_COL32(6, 10, 16, 230);
-        constexpr ImU32 k_ColorTrackTick = IM_COL32(150, 190, 225, 26);
-        constexpr ImU32 k_ColorCenterTick = IM_COL32(200, 225, 245, 130);
-        constexpr ImU32 k_ColorThumbBg = IM_COL32(18, 30, 46, 250);
-        constexpr ImU32 k_ColorThumbBgHover = IM_COL32(28, 48, 72, 255);
+        constexpr ImU32 k_ColorTrackBg = IM_COL32(3, 5, 8, 245);
+        constexpr ImU32 k_ColorTrackTick = IM_COL32(90, 120, 150, 12);
+        constexpr ImU32 k_ColorCenterTick = IM_COL32(130, 165, 195, 50);
+        constexpr ImU32 k_ColorThumbBg = IM_COL32(13, 20, 30, 250);
+        constexpr ImU32 k_ColorThumbBgHover = IM_COL32(20, 32, 48, 255);
+        constexpr ImU32 k_ColorThumbBorder = IM_COL32(65, 95, 125, 60);
+        constexpr ImU32 k_ColorThumbNotch = IM_COL32(75, 105, 135, 80);
 
         // --- Preset Buttons ---
-        constexpr ImU32 k_ColorButtonBg = IM_COL32(13, 21, 33, 195);
-        constexpr ImU32 k_ColorButtonBgHover = IM_COL32(22, 38, 58, 220);
-        constexpr ImU32 k_ColorButtonBgActive = IM_COL32(0, 95, 135, 190);
-        constexpr ImU32 k_ColorButtonBorderActive = IM_COL32(0, 215, 255, 240);
-        constexpr ImU32 k_ColorButtonIndicator = IM_COL32(0, 225, 255, 255);
-        constexpr ImU32 k_ColorButtonText = IM_COL32(180, 204, 226, 235);
-        constexpr ImU32 k_ColorButtonTextActive = IM_COL32(240, 250, 255, 255);
+        constexpr ImU32 k_ColorButtonBg = IM_COL32(8, 13, 20, 180);
+        constexpr ImU32 k_ColorButtonBgHover = IM_COL32(15, 24, 36, 210);
+        constexpr ImU32 k_ColorButtonBgActive = IM_COL32(0, 68, 100, 150);
+        constexpr ImU32 k_ColorButtonBorderActive = IM_COL32(0, 175, 210, 180);
+        constexpr ImU32 k_ColorButtonIndicator = IM_COL32(0, 185, 215, 220);
+        constexpr ImU32 k_ColorButtonText = IM_COL32(135, 160, 185, 215);
+        constexpr ImU32 k_ColorButtonTextActive = IM_COL32(225, 240, 250, 255);
 
         // --- Toggle Switches and Segmented Selectors ---
-        constexpr ImU32 k_ColorToggleOffBg = IM_COL32(10, 16, 26, 200);
-        constexpr ImU32 k_ColorToggleOffText = IM_COL32(125, 150, 176, 210);
-        constexpr ImU32 k_ColorChevronClosed = IM_COL32(125, 155, 185, 200);
+        constexpr ImU32 k_ColorToggleOffBg = IM_COL32(6, 10, 16, 200);
+        constexpr ImU32 k_ColorToggleOffText = IM_COL32(95, 120, 145, 185);
+        constexpr ImU32 k_ColorChevronClosed = IM_COL32(90, 115, 140, 180);
 
         // --- Cascade Bands ---
-        constexpr ImU32 k_ColorBandOffBg = IM_COL32(10, 16, 25, 200);
-        constexpr ImU32 k_ColorBandOnBg = IM_COL32(0, 88, 128, 175);
-        constexpr ImU32 k_ColorBandOffBorder = IM_COL32(120, 160, 200, 45);
-        constexpr ImU32 k_ColorBandOnBorder = IM_COL32(0, 210, 255, 225);
-        constexpr ImU32 k_ColorBandHoverBorder = IM_COL32(140, 185, 225, 120);
-        constexpr ImU32 k_ColorBandOffLed = IM_COL32(70, 95, 120, 90);
-        constexpr ImU32 k_ColorBandOnLed = IM_COL32(0, 225, 255, 255);
-        constexpr ImU32 k_ColorBandOffText = IM_COL32(110, 135, 160, 200);
-        constexpr ImU32 k_ColorBandOnText = IM_COL32(238, 248, 255, 255);
+        constexpr ImU32 k_ColorBandOffBg = IM_COL32(6, 10, 16, 200);
+        constexpr ImU32 k_ColorBandOnBg = IM_COL32(0, 65, 96, 140);
+        constexpr ImU32 k_ColorBandOffBorder = IM_COL32(65, 90, 115, 22);
+        constexpr ImU32 k_ColorBandOnBorder = IM_COL32(0, 175, 210, 170);
+        constexpr ImU32 k_ColorBandHoverBorder = IM_COL32(90, 130, 170, 70);
+        constexpr ImU32 k_ColorBandOffLed = IM_COL32(40, 60, 80, 75);
+        constexpr ImU32 k_ColorBandOnLed = IM_COL32(0, 195, 225, 230);
+        constexpr ImU32 k_ColorBandOffText = IM_COL32(90, 115, 140, 180);
+        constexpr ImU32 k_ColorBandOnText = IM_COL32(220, 238, 250, 250);
 
         // --- Spectrum Model Segment Buttons ---
-        constexpr ImU32 k_ColorSegmentOffBg = IM_COL32(10, 16, 25, 205);
-        constexpr ImU32 k_ColorSegmentOnBg = IM_COL32(0, 90, 130, 185);
-        constexpr ImU32 k_ColorSegmentOnBorder = IM_COL32(0, 210, 255, 235);
-        constexpr ImU32 k_ColorSegmentOffText = IM_COL32(145, 170, 195, 220);
+        constexpr ImU32 k_ColorSegmentOffBg = IM_COL32(6, 10, 16, 200);
+        constexpr ImU32 k_ColorSegmentOnBg = IM_COL32(0, 65, 96, 140);
+        constexpr ImU32 k_ColorSegmentOnBorder = IM_COL32(0, 175, 210, 170);
+        constexpr ImU32 k_ColorSegmentOffText = IM_COL32(110, 135, 160, 185);
 
         // --- Compass Reticle ---
-        constexpr ImU32 k_ColorCompassBg = IM_COL32(7, 12, 20, 235);
-        constexpr ImU32 k_ColorCompassRingOuter = IM_COL32(130, 180, 225, 75);
-        constexpr ImU32 k_ColorCompassRingInner = IM_COL32(130, 180, 225, 28);
-        constexpr ImU32 k_ColorCompassCrosshair = IM_COL32(150, 195, 235, 110);
-        constexpr ImU32 k_ColorCompassPivot = IM_COL32(220, 240, 255, 220);
-        constexpr ImU32 k_ColorCompassWind = IM_COL32(0, 215, 255, 255);
-        constexpr ImU32 k_ColorCompassSwell = IM_COL32(245, 165, 20, 240);
+        constexpr ImU32 k_ColorCompassBg = IM_COL32(4, 7, 11, 240);
+        constexpr ImU32 k_ColorCompassRingOuter = IM_COL32(80, 110, 140, 36);
+        constexpr ImU32 k_ColorCompassRingInner = IM_COL32(80, 110, 140, 14);
+        constexpr ImU32 k_ColorCompassCrosshair = IM_COL32(90, 120, 150, 40);
+        constexpr ImU32 k_ColorCompassPivot = IM_COL32(175, 200, 220, 170);
+        constexpr ImU32 k_ColorCompassWind = IM_COL32(0, 180, 215, 200);
+        constexpr ImU32 k_ColorCompassSwell = IM_COL32(220, 140, 28, 190);
 
         // --- Physics Inspection Row ---
-        constexpr ImU32 k_ColorPhysicsLabel = IM_COL32(140, 165, 190, 235);
-        constexpr ImU32 k_ColorPhysicsValueA = IM_COL32(220, 238, 255, 250);
-        constexpr ImU32 k_ColorPhysicsUnitA = IM_COL32(0, 205, 250, 220);
-        constexpr ImU32 k_ColorPhysicsValueB = IM_COL32(165, 188, 210, 235);
+        constexpr ImU32 k_ColorPhysicsLabel = IM_COL32(108, 132, 156, 205);
+        constexpr ImU32 k_ColorPhysicsValueA = IM_COL32(195, 215, 235, 235);
+        constexpr ImU32 k_ColorPhysicsUnitA = IM_COL32(0, 170, 205, 175);
+        constexpr ImU32 k_ColorPhysicsValueB = IM_COL32(130, 155, 180, 195);
 
         // --- Performance Badge ---
-        constexpr ImU32 k_ColorPerfBadgeBg = IM_COL32(14, 26, 40, 210);
-        constexpr ImU32 k_ColorPerfBadgeBorder = IM_COL32(0, 210, 255, 85);
-        constexpr ImU32 k_ColorPerfBadgeText = IM_COL32(170, 232, 255, 255);
+        constexpr ImU32 k_ColorPerfBadgeBg = IM_COL32(7, 12, 19, 210);
+        constexpr ImU32 k_ColorPerfBadgeBorder = IM_COL32(0, 170, 205, 45);
+        constexpr ImU32 k_ColorPerfBadgeText = IM_COL32(130, 190, 220, 230);
 
         // --- GPU Timings Scope Bars ---
-        constexpr ImU32 k_ColorTimingBarRoot = IM_COL32(0, 195, 255, 34);
-        constexpr ImU32 k_ColorTimingBarChild = IM_COL32(0, 210, 255, 20);
-        constexpr ImU32 k_ColorTimingBarUnderline = IM_COL32(0, 210, 255, 110);
-        constexpr ImU32 k_ColorTimingTreeTick = IM_COL32(120, 165, 205, 130);
+        constexpr ImU32 k_ColorTimingBarRoot = IM_COL32(0, 155, 205, 20);
+        constexpr ImU32 k_ColorTimingBarChild = IM_COL32(0, 170, 210, 12);
+        constexpr ImU32 k_ColorTimingBarUnderline = IM_COL32(0, 170, 210, 65);
+        constexpr ImU32 k_ColorTimingTreeTick = IM_COL32(75, 110, 140, 75);
 
         // --- Primary Accent Palettes (Cyan, Amber, Ice) ---
-        constexpr ImU32 k_ColorCyanPrimary = IM_COL32(0, 212, 255, 255);
-        constexpr ImU32 k_ColorCyanFillBright = IM_COL32(0, 185, 235, 185);
-        constexpr ImU32 k_ColorCyanFillMuted = IM_COL32(0, 90, 135, 120);
-        constexpr ImU32 k_ColorCyanGlow = IM_COL32(70, 235, 255, 95);
+        constexpr ImU32 k_ColorCyanPrimary = IM_COL32(0, 180, 220, 225);
+        constexpr ImU32 k_ColorCyanFillBright = IM_COL32(0, 125, 165, 115);
+        constexpr ImU32 k_ColorCyanFillMuted = IM_COL32(0, 50, 80, 65);
+        constexpr ImU32 k_ColorCyanGlow = IM_COL32(0, 180, 220, 30);
 
-        constexpr ImU32 k_ColorAmberPrimary = IM_COL32(245, 165, 20, 255);
-        constexpr ImU32 k_ColorAmberFillBright = IM_COL32(235, 145, 15, 185);
-        constexpr ImU32 k_ColorAmberFillMuted = IM_COL32(130, 72, 8, 120);
-        constexpr ImU32 k_ColorAmberGlow = IM_COL32(255, 195, 70, 90);
+        constexpr ImU32 k_ColorAmberPrimary = IM_COL32(220, 140, 28, 225);
+        constexpr ImU32 k_ColorAmberFillBright = IM_COL32(165, 100, 18, 115);
+        constexpr ImU32 k_ColorAmberFillMuted = IM_COL32(75, 40, 8, 65);
+        constexpr ImU32 k_ColorAmberGlow = IM_COL32(220, 140, 28, 25);
 
-        constexpr ImU32 k_ColorIcePrimary = IM_COL32(150, 215, 255, 255);
-        constexpr ImU32 k_ColorIceFillBright = IM_COL32(110, 185, 240, 175);
-        constexpr ImU32 k_ColorIceFillMuted = IM_COL32(45, 95, 145, 120);
-        constexpr ImU32 k_ColorIceGlow = IM_COL32(180, 230, 255, 90);
+        constexpr ImU32 k_ColorIcePrimary = IM_COL32(125, 180, 220, 225);
+        constexpr ImU32 k_ColorIceFillBright = IM_COL32(80, 135, 180, 115);
+        constexpr ImU32 k_ColorIceFillMuted = IM_COL32(30, 60, 90, 65);
+        constexpr ImU32 k_ColorIceGlow = IM_COL32(125, 180, 220, 25);
 
         struct ToneColors
         {
@@ -314,7 +316,7 @@ namespace ocean
         // left vertical cyan telemetry bar
         drawList->AddRectFilled(
             cardMin,
-            ImVec2{ cardMin.x + 3.0f, cardMax.y },
+            ImVec2{ cardMin.x + 2.0f, cardMax.y },
             k_ColorCardAccentBar);
 
         // left side: measured significant height and wave metrics
@@ -386,14 +388,14 @@ namespace ocean
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         if (hoverT > 0.01f)
         {
-            const uint8_t bgAlpha = static_cast<uint8_t>(std::lround(28.0f * hoverT));
+            const uint8_t bgAlpha = static_cast<uint8_t>(std::lround(14.0f * hoverT));
             drawList->AddRectFilledMultiColor(
                 pos,
                 ImVec2{ pos.x + availWidth, pos.y + k_HeaderHeight },
-                IM_COL32(0, 195, 245, bgAlpha),
-                IM_COL32(0, 195, 245, 0),
-                IM_COL32(0, 195, 245, 0),
-                IM_COL32(0, 195, 245, bgAlpha));
+                IM_COL32(0, 155, 195, bgAlpha),
+                IM_COL32(0, 155, 195, 0),
+                IM_COL32(0, 155, 195, 0),
+                IM_COL32(0, 155, 195, bgAlpha));
         }
 
         ImFont* sectionFont = PickSectionFont(fonts, font_mode);
@@ -427,7 +429,7 @@ namespace ocean
             drawList->AddConvexPolyFilled(tri.data(), 3, k_ColorChevronClosed);
         }
 
-        // full-width 1px hairline + 2px left accent bar
+        // full-width 1px hairline + subtle left accent bar
         const float lineY = pos.y + k_HeaderHeight - 1.0f;
         drawList->AddLine(
             ImVec2{ pos.x, lineY },
@@ -435,12 +437,12 @@ namespace ocean
             k_ColorHairline,
             1.0f);
 
-        const float accentWidth = isOpen ? (42.0f + 28.0f * hoverT) : (18.0f + 16.0f * hoverT);
+        const float accentWidth = isOpen ? (32.0f + 20.0f * hoverT) : (14.0f + 12.0f * hoverT);
         drawList->AddLine(
             ImVec2{ pos.x, lineY },
             ImVec2{ pos.x + accentWidth, lineY },
             tone.Primary,
-            2.0f);
+            1.5f);
 
         ImGui::Dummy(ImVec2{ 0.0f, 2.0f });
         return isOpen;
@@ -458,7 +460,7 @@ namespace ocean
         const ImVec2 textSize = ImGui::CalcTextSize(label);
         drawList->AddRectFilled(
             ImVec2{ pos.x, pos.y + 3.0f },
-            ImVec2{ pos.x + 3.0f, pos.y + 3.0f + textSize.y },
+            ImVec2{ pos.x + 2.0f, pos.y + 3.0f + textSize.y },
             tone.Primary);
         drawList->AddText(ImVec2{ pos.x + 9.0f, pos.y + 2.0f }, k_ColorTextSubHeader, label);
         ImGui::PopFont();
@@ -529,7 +531,7 @@ namespace ocean
                 (hovered ? k_ColorButtonBgHover : k_ColorButtonBg);
             const ImU32 borderCol = active ?
                 k_ColorButtonBorderActive :
-                DynamicBorderColor(static_cast<uint8_t>(45 + 110 * hoverT));
+                DynamicBorderColor(static_cast<uint8_t>(18 + 40 * hoverT));
 
             DrawChamferedRect(drawList, minPos, maxPos, 5.0f, fillCol, borderCol, 1.0f);
 
@@ -539,7 +541,7 @@ namespace ocean
                     ImVec2{ minPos.x + 1.0f, maxPos.y - 1.0f },
                     ImVec2{ maxPos.x - 5.0f, maxPos.y - 1.0f },
                     k_ColorButtonIndicator,
-                    2.0f);
+                    1.5f);
             }
 
             const std::string labelStr{ preset.Name };
@@ -658,7 +660,7 @@ namespace ocean
             chanMax,
             3.0f,
             k_ColorTrackBg,
-            DynamicTrackBorderColor(static_cast<uint8_t>(38 + 55 * highlight)),
+            DynamicTrackBorderColor(static_cast<uint8_t>(16 + 24 * highlight)),
             1.0f);
 
         // subtle quarter-interval graduation ticks inside the channel
@@ -782,7 +784,7 @@ namespace ocean
             chanMax,
             3.0f,
             k_ColorTrackBg,
-            DynamicTrackBorderColor(static_cast<uint8_t>(38 + 55 * highlight)),
+            DynamicTrackBorderColor(static_cast<uint8_t>(16 + 24 * highlight)),
             1.0f);
 
         const float zeroNorm = NormalizeSliderValue(0.0f, min_degrees, max_degrees, false);
@@ -857,7 +859,7 @@ namespace ocean
                 k_ColorToggleOffBg;
             const ImU32 borderCol = sideActive ?
                 tone.Primary :
-                DynamicBorderColor(static_cast<uint8_t>(40 + 60 * highlight));
+                DynamicBorderColor(static_cast<uint8_t>(18 + 32 * highlight));
 
             DrawChamferedRect(drawList, boxMin, boxMax, 4.0f, fillCol, borderCol, 1.0f);
 
@@ -1259,12 +1261,12 @@ namespace ocean
 
         ImU32 DynamicBorderColor(uint8_t alpha) noexcept
         {
-            return IM_COL32(130, 175, 215, alpha);
+            return IM_COL32(70, 95, 125, alpha);
         }
 
         ImU32 DynamicTrackBorderColor(uint8_t alpha) noexcept
         {
-            return IM_COL32(130, 175, 220, alpha);
+            return IM_COL32(70, 100, 135, alpha);
         }
 
         void DrawChamferedRect(ImDrawList* draw_list, const ImVec2& min_pos, const ImVec2& max_pos, float chamfer,
@@ -1436,14 +1438,16 @@ namespace ocean
                 k_ColorThumbBgHover :
                 k_ColorThumbBg;
 
-            DrawChamferedRect(draw_list, minPos, maxPos, 3.0f, bodyFill, tone.Primary, 1.5f);
+            const ImU32 thumbBorder = highlight > 0.2f ? tone.Primary : k_ColorThumbBorder;
+            DrawChamferedRect(draw_list, minPos, maxPos, 3.0f, bodyFill, thumbBorder, 1.0f);
 
-            // crisp vertical grip Notch inside the chunky slider thumb
+            // subtle vertical grip notch inside the chunky slider thumb
+            const ImU32 notchColor = highlight > 0.2f ? tone.Primary : k_ColorThumbNotch;
             draw_list->AddLine(
                 ImVec2{ center.x, minPos.y + 3.0f },
                 ImVec2{ center.x, maxPos.y - 3.0f },
-                tone.Primary,
-                1.5f);
+                notchColor,
+                1.0f);
         }
 
         void DrawPhysicsRow(const ImGuiFontSet& fonts, std::string_view label, std::string_view value_a,
