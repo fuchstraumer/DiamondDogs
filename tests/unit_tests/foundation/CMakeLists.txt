@@ -12,6 +12,7 @@ set(FOUNDATION_TEST_SOURCES
     threading/test_critical_section.cpp
     threading/test_srw_lock.cpp
     threading/test_exponential_backoff_sleeper.cpp
+    threading/test_frame_limiter.cpp
     
     # Container tests
     containers/test_circular_buffer.cpp

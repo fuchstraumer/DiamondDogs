@@ -480,14 +480,14 @@ namespace
                 const Complex h = Complex{ h0[index * 2u], h0[index * 2u + 1u] } * phase + Complex{ h0Conjugate[index * 2u], h0Conjugate[index * 2u + 1u] } * std::conj(phase);
                 const double kLength = std::hypot(kx, kz);
                 const double inverseKLength = kLength > 1e-6 ? 1.0 / kLength : 0.0;
-                planes[0][element] = -i * h * (kx * inverseKLength);          // Dx
+                planes[0][element] = i * h * (kx * inverseKLength);           // Dx
                 planes[1][element] = h;                                       // height
-                planes[2][element] = -i * h * (kz * inverseKLength);          // Dz
+                planes[2][element] = i * h * (kz * inverseKLength);           // Dz
                 planes[4][element] = i * h * kx;                              // dHeight/dx
                 planes[5][element] = i * h * kz;                              // dHeight/dz
-                planes[6][element] = h * (kx * kx * inverseKLength);          // dDx/dx
-                planes[7][element] = h * (kz * kz * inverseKLength);          // dDz/dz
-                planes[3][element] = h * (kx * kz * inverseKLength);          // dDx/dz, for the Jacobian
+                planes[6][element] = -h * (kx * kx * inverseKLength);         // dDx/dx
+                planes[7][element] = -h * (kz * kz * inverseKLength);         // dDz/dz
+                planes[3][element] = -h * (kx * kz * inverseKLength);         // dDx/dz, for the Jacobian
             }
             for (std::vector<Complex>& plane : planes)
             {
