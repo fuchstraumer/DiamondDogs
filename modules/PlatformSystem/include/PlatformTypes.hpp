@@ -244,6 +244,7 @@ struct SwapchainCreateInfo
     std::optional<SurfaceFormatPair> ExplicitSurfaceFormat{ std::nullopt };
     /** @brief Presentation mode/VSync mode to attempt to apply to this swapchain. Will choose "best" option if left to default. */
     PresentMode SwapchainPresentMode{ PresentMode::Invalid };
+    float RefreshRate{ 0.0f };
     /** @brief If set to true, will ensure HDR is supported and enabled for this swapchain. Compatible with blank/default `DesiredColorSpace` and `SwapchainFormat`.
      * If those are set to specific HDR-capable values, will attempt to use those instead. */
     bool TryEnableHDR{ false };

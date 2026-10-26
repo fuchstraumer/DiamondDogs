@@ -197,8 +197,6 @@ void VulkanTriangle::Initialize(void* user_data)
     setupDepthStencil();
     createFrameSyncObjects();
     setup = true;
-    limiterA = std::chrono::system_clock::now();
-    limiterB = std::chrono::system_clock::now();
 }
 
 void VulkanTriangle::Destroy()

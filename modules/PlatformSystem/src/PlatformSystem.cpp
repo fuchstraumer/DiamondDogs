@@ -215,6 +215,7 @@ PlatformWindowSystem::PlatformWindowSystem(const char* json_path, void* rhi_inst
     swapchainInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
     swapchainInfo.MinImageCount = swapchainImageCount;
     swapchainInfo.SwapchainPresentMode = presentMode;
+    swapchainInfo.RefreshRate = impl->ActiveDisplay.RefreshRateCapabilities.RefreshRate;
     swapchainInfo.TryEnableHDR = enableHDR;
     if (enableHDR)
     {
@@ -276,6 +277,7 @@ void PlatformWindowSystem::CreateDefaultSwapchain(void* rhi_instance, void* rhi_
     createInfo.DisplayIndex = 0u;
     createInfo.MinImageCount = k_DefaultSwapchainImageCount;
     createInfo.SwapchainPresentMode = k_DefaultPresentMode;
+    createInfo.RefreshRate = displayInfo.RefreshRateCapabilities.RefreshRate;
     createInfo.TryEnableHDR = enableHDR;
     createInfo.SwapchainFormat = enableHDR ? k_DefaultHDRFormat : k_DefaultSDRFormat;
     createInfo.DesiredColorSpace = enableHDR ? displayInfo.ColorCapabilities.DetectedColorSpace : k_DefaultColorSpace;
@@ -311,6 +313,7 @@ void PlatformWindowSystem::CreateSwapchainWithSurfaceFormat(void* rhi_instance, 
     createInfo.DisplayIndex = 0u;
     createInfo.MinImageCount = k_DefaultSwapchainImageCount;
     createInfo.SwapchainPresentMode = k_DefaultPresentMode;
+    createInfo.RefreshRate = impl->ActiveDisplay.RefreshRateCapabilities.RefreshRate;
     createInfo.HdrColorCapabilities = impl->ActiveDisplay.ColorCapabilities;
     createInfo.ExplicitSurfaceFormat = surface_format;
     impl->ActiveSwapchain = std::make_unique<Swapchain>(createInfo);

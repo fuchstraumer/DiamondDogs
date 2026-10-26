@@ -5,6 +5,7 @@
 #include "PlatformTypes.hpp"
 #include "SwapchainImpl.hpp"
 #include "vulkan/vulkan_core.h"
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -91,6 +92,18 @@ PresentMode Swapchain::PresentMode() const noexcept
         return iter->second;
     }
     return PresentMode::Invalid;
+}
+
+float Swapchain::RefreshRate() const noexcept
+{
+    return impl ? impl->RefreshRate : 60.0f;
+}
+
+std::chrono::duration<double, std::milli> Swapchain::TargetFrameInterval() const noexcept
+{
+    const double fps = static_cast<double>(RefreshRate());
+    const double validFps = (fps > 1.0) ? fps : 60.0;
+    return std::chrono::duration<double, std::milli>(1000.0 / validFps);
 }
 
 void* Swapchain::ImageHandle(uint32_t index) const noexcept

@@ -5,6 +5,7 @@
 #include "ImageDataFormats.hpp"
 #include "Math.hpp"
 #include <cstdint>
+#include <chrono>
 #include <memory>
 #include <vector>
 
@@ -44,6 +45,8 @@ public:
     [[nodiscard]] ImageFormat ImageFormat() const noexcept;
     [[nodiscard]] ColorSpace ColorSpace() const noexcept;
     [[nodiscard]] PresentMode PresentMode() const noexcept;
+    [[nodiscard]] float RefreshRate() const noexcept;
+    [[nodiscard]] std::chrono::duration<double, std::milli> TargetFrameInterval() const noexcept;
     [[nodiscard]] void* ImageHandle(uint32_t index) const noexcept;
     [[nodiscard]] void* ImageViewHandle(uint32_t index) const noexcept;
     /** @brief True when the images have transfer source usage, so FrameCapture can copy them out */

@@ -4,6 +4,7 @@
 #include "Fence.hpp"
 #include "RhiHandle.hpp"
 #include "Semaphore.hpp"
+#include "threading/FrameLimiter.hpp"
 #include <vulkan/vulkan_core.h>
 #include <cstdint>
 #include <chrono>
@@ -59,8 +60,7 @@ protected:
     bool swapchainOutOfDate{ false };
     uint32_t swapchainRecreationCount{ 0u };
 
-    std::chrono::system_clock::time_point limiterA;
-    std::chrono::system_clock::time_point limiterB;
+    foundation::FrameLimiter frameLimiter;
     uint32_t currentFrame; // Index of the current frame, but *NOT* the current framebuffer
     uint32_t currentAcquiredImage;
     uint32_t numFramebuffers;

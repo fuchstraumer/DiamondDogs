@@ -4,6 +4,7 @@
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include "Math.hpp"
+#include <cstdint>
 #include <span>
 #include <optional>
 
@@ -132,7 +133,7 @@ namespace rhi
 
     struct ImageBarrier
     {
-        ImageHandle Image{};
+        ImageHandle Image;
         PipelineStage SrcStages = PipelineStage::None;
         Access SrcAccess = Access::None;
         PipelineStage DstStages = PipelineStage::None;

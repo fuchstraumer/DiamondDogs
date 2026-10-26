@@ -434,6 +434,22 @@ VkSwapchainCreateInfoKHR SwapchainImpl::getCreateInfo(const SwapchainCreateInfo&
 
 void SwapchainImpl::Create(const SwapchainCreateInfo& create_info)
 {
+    if (create_info.RefreshRate > 1.0f)
+    {
+        RefreshRate = create_info.RefreshRate;
+    }
+    else if (create_info.PlatformSystemPtr != nullptr)
+    {
+        const auto* platformSystem = reinterpret_cast<const PlatformWindowSystem*>(create_info.PlatformSystemPtr);
+        const auto& displayInfo = platformSystem->GetActiveDisplayInfo();
+        const float queriedRate = displayInfo.RefreshRateCapabilities.RefreshRate;
+        RefreshRate = (queriedRate > 1.0f) ? queriedRate : 60.0f;
+    }
+    else
+    {
+        RefreshRate = 60.0f;
+    }
+
     querySurface(create_info);
     chooseSurfaceFormat(create_info);
     Extent = chooseExtent(create_info);
@@ -450,6 +466,21 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& create_info)
 
 SwapchainRecreateResult SwapchainImpl::Recreate(const SwapchainCreateInfo& create_info)
 {
+    if (create_info.RefreshRate > 1.0f)
+    {
+        RefreshRate = create_info.RefreshRate;
+    }
+    else if (create_info.PlatformSystemPtr != nullptr)
+    {
+        const auto* platformSystem = reinterpret_cast<const PlatformWindowSystem*>(create_info.PlatformSystemPtr);
+        const auto& displayInfo = platformSystem->GetActiveDisplayInfo();
+        const float queriedRate = displayInfo.RefreshRateCapabilities.RefreshRate;
+        if (queriedRate > 1.0f)
+        {
+            RefreshRate = queriedRate;
+        }
+    }
+
     querySurface(create_info);
     const VkExtent2D newExtent = chooseExtent(create_info);
     if (newExtent.width == 0u || newExtent.height == 0u)

@@ -30,9 +30,11 @@ set(threading_source_files
     "include/threading/concurrent_vector.hpp"
     "include/threading/CriticalSection.hpp"
     "include/threading/ExponentialBackoffSleeper.hpp"
+    "include/threading/FrameLimiter.hpp"
     "include/threading/SrwLock.hpp"
     "src/threading/atomic128.cpp"
-    "src/threading/ExponentialBackoffSleeper.cpp")
+    "src/threading/ExponentialBackoffSleeper.cpp"
+    "src/threading/FrameLimiter.cpp")
 
 set(event_source_files
     "include/events/DisplayEvents.hpp"

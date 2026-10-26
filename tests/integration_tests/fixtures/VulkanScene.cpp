@@ -29,8 +29,10 @@ VulkanScene::VulkanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platf
     vkPhysicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
 
     numFramebuffers = swapchain->ImageCount();
-    limiterA = std::chrono::system_clock::now();
-    limiterB = std::chrono::system_clock::now();
+    if (swapchain != nullptr)
+    {
+        frameLimiter.SetTargetFramerate(static_cast<double>(swapchain->RefreshRate()));
+    }
 }
 
 VulkanScene::~VulkanScene() {}
@@ -162,19 +164,16 @@ void VulkanScene::recreateSwapchain()
 
 void VulkanScene::onSwapchainRecreated()
 {
+    if (swapchain != nullptr)
+    {
+        frameLimiter.SetTargetFramerate(static_cast<double>(swapchain->RefreshRate()));
+        frameLimiter.Reset();
+    }
 }
 
 void VulkanScene::limitFrame()
 {
-    limiterA = std::chrono::system_clock::now();
-    std::chrono::duration<double, std::milli> workTime = limiterA - limiterB;
-    if (workTime.count() < 16.0)
-    {
-        std::chrono::duration<double, std::milli> deltaMs(16.0 - workTime.count());
-            auto deltaMsDur = std::chrono::duration_cast<std::chrono::milliseconds>(deltaMs);
-            std::this_thread::sleep_for(std::chrono::milliseconds(deltaMsDur.count()));
-    }
-    limiterB = std::chrono::system_clock::now();
+    frameLimiter.WaitNextFrame();
 }
 
 bool VulkanScene::acquireImage()

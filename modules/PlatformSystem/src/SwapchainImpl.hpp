@@ -51,6 +51,7 @@ struct SwapchainImpl
     std::vector<VkImage> Images;
     std::vector<VkImageView> ImageViews;
     VkPresentModeKHR PresentMode;
+    float RefreshRate{ 60.0f };
 
     VkSwapchainKHR Swapchain = VK_NULL_HANDLE;
     std::unique_ptr<SwapchainInfo> Info;
