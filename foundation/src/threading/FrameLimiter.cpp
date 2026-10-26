@@ -1,7 +1,6 @@
 #include "threading/FrameLimiter.hpp"
 #include <chrono>
 #include <ratio>
-#include <thread>
 #include <immintrin.h>
 
 namespace foundation
@@ -23,7 +22,8 @@ void FrameLimiter::SetTargetFramerate(double fps) noexcept
 
     targetFps = fps;
 
-    targetInterval = std::chrono::duration_cast<Clock::duration>(
+    targetInterval = std::chrono::duration_cast<Clock::duration>
+    (
         std::chrono::duration<double, std::ratio<1, 1>>(1.0 / targetFps)
     );
     
@@ -38,6 +38,16 @@ double FrameLimiter::TargetFramerate() const noexcept
 std::chrono::duration<double, std::milli> FrameLimiter::TargetFrameInterval() const noexcept
 {
     return std::chrono::duration<double, std::milli>(1000.0 / targetFps);
+}
+
+void FrameLimiter::SetSpinMargin(std::chrono::microseconds margin) noexcept
+{
+    spinMargin = margin;
+}
+
+std::chrono::microseconds FrameLimiter::SpinMargin() const noexcept
+{
+    return spinMargin;
 }
 
 void FrameLimiter::Reset() noexcept
@@ -62,21 +72,16 @@ void FrameLimiter::WaitNextFrame() noexcept
         return;
     }
 
-    constexpr auto k_SpinMargin = std::chrono::microseconds(1500);
-    while (Clock::now() + k_SpinMargin < nextDeadline)
+    while (Clock::now() + spinMargin < nextDeadline)
     {
         const auto remaining = nextDeadline - Clock::now();
-        if (remaining > k_SpinMargin)
+        if (remaining > spinMargin)
         {
-            const auto sleepTime = std::chrono::duration_cast<std::chrono::milliseconds>(remaining - k_SpinMargin);
-            if (sleepTime.count() > 0)
-            {
-                std::this_thread::sleep_for(sleepTime);
-            }
-            else
-            {
-                break;
-            }
+            precisionTimer.SleepFor(remaining - spinMargin);
+        }
+        else
+        {
+            break;
         }
     }
 

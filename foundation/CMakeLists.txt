@@ -31,6 +31,7 @@ set(threading_source_files
     "include/threading/CriticalSection.hpp"
     "include/threading/ExponentialBackoffSleeper.hpp"
     "include/threading/FrameLimiter.hpp"
+    "include/threading/PrecisionTimer.hpp"
     "include/threading/SrwLock.hpp"
     "src/threading/atomic128.cpp"
     "src/threading/ExponentialBackoffSleeper.cpp"
@@ -44,10 +45,12 @@ set(event_source_files
 if(WIN32)
     set(threading_platform_source_files
         "src/threading/win32/CriticalSectionWin32.cpp"
+        "src/threading/win32/PrecisionTimerWin32.cpp"
         "src/threading/win32/SrwLockWin32.cpp")
 elseif(UNIX)
     set(threading_platform_source_files
         "src/threading/unix/CriticalSectionUnix.cpp"
+        "src/threading/unix/PrecisionTimerUnix.cpp"
         "src/threading/unix/SrwLockUnix.cpp")
 endif()
 
@@ -107,7 +110,7 @@ target_link_libraries(foundation PUBLIC mimalloc-static)
 if(WIN32)
     # FrameSymbolizer reads function names with DbgHelp in every build below Release (RelWithDebInfo defines NDEBUG too,
     # so NDEBUG can't decide this)
-    target_link_libraries(foundation PUBLIC dbghelp)
+    target_link_libraries(foundation PUBLIC dbghelp winmm)
     target_compile_definitions(foundation PUBLIC "FOUNDATION_ASYNC_SYMBOLS=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
 endif()
 

@@ -13,6 +13,7 @@ set(FOUNDATION_TEST_SOURCES
     threading/test_srw_lock.cpp
     threading/test_exponential_backoff_sleeper.cpp
     threading/test_frame_limiter.cpp
+    threading/test_precision_timer.cpp
     
     # Container tests
     containers/test_circular_buffer.cpp
