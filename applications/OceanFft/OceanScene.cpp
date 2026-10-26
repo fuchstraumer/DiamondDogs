@@ -78,8 +78,8 @@ namespace
         std::array<float, 4> CascadeWeights{};
         std::array<float, 4> SunDirectionSeabedDepth{};
         std::array<float, 4> LodParameters{};
-        // We only use the X, but this buffer is in std140
-        std::array<float, 4> WhitecapThreshold{0.0f, 0.0f, 0.0f, 0.0f};
+        // x: WhitecapThreshold, y: FoamAmount, z: FoamSpread, w: FoamContrast
+        std::array<float, 4> WhitecapParameters{ 0.5f, 1.0f, 1.0f, 1.0f };
     };
     static_assert(sizeof(OceanViewParameters) == 160u);
 
@@ -717,19 +717,6 @@ void OceanScene::drawPanel()
                 ocean::AccentTone::Cyan,
                 false);
 
-            (void)ocean::DrawArtistSlider(
-                "##Whitecap_threshold",
-                "Whitecap threshold",
-                "0: only violent breaking, 1: broad whitecaps",
-                &seaState.WhitecapThreshold,
-                0.0f,
-                1.0f,
-                std::format("{:.2f}", seaState.WhitecapThreshold),
-                "",
-                fonts,
-                ocean::AccentTone::Cyan,
-                false);
-
             // each cascade fades out from this many of its own patch lengths away
             (void)ocean::DrawArtistSlider(
                 "##detail_distance",
@@ -767,6 +754,61 @@ void OceanScene::drawPanel()
                 ocean::AccentTone::Amber);
 
             ocean::DrawCascadeBandStrip(fonts, simulationSettings.LengthScales, cascadeEnabled);
+        }
+
+        if (ocean::DrawSectionHeader("FOAM & WHITECAPS  //  COVERAGE & DYNAMICS", fonts, headerFontMode, ocean::AccentTone::Ice, true))
+        {
+            (void)ocean::DrawArtistSlider(
+                "##whitecap_threshold",
+                "Breaking threshold",
+                "0: violent breaking only, 1: broad whitecaps",
+                &seaState.WhitecapThreshold,
+                0.0f,
+                1.0f,
+                std::format("{:.2f}", seaState.WhitecapThreshold),
+                "",
+                fonts,
+                ocean::AccentTone::Ice,
+                false);
+
+            (void)ocean::DrawArtistSlider(
+                "##foam_amount",
+                "Foam amount",
+                "0: none, 1: physical reference, 2+: heavy foam",
+                &seaState.FoamAmount,
+                0.0f,
+                4.0f,
+                std::format("{:.2f}", seaState.FoamAmount),
+                "x",
+                fonts,
+                ocean::AccentTone::Ice,
+                false);
+
+            (void)ocean::DrawArtistSlider(
+                "##foam_spread",
+                "Foam spread",
+                "dispersion: <1 tight crests, >1 diffuse coverage",
+                &seaState.FoamSpread,
+                0.1f,
+                3.0f,
+                std::format("{:.2f}", seaState.FoamSpread),
+                "x",
+                fonts,
+                ocean::AccentTone::Ice,
+                false);
+
+            (void)ocean::DrawArtistSlider(
+                "##foam_contrast",
+                "Foam contrast",
+                "falloff: >1 punchy cores, <1 milky froth",
+                &seaState.FoamContrast,
+                0.2f,
+                3.0f,
+                std::format("{:.2f}", seaState.FoamContrast),
+                "x",
+                fonts,
+                ocean::AccentTone::Ice,
+                false);
         }
 
         if (ocean::DrawSectionHeader("SCENE  //  ENVIRONMENT & UI", fonts, headerFontMode, ocean::AccentTone::Amber, false))
@@ -931,7 +973,7 @@ void OceanScene::writeViewParameters()
     const float cosElevation = std::cos(sunElevation);
     view.SunDirectionSeabedDepth = { std::sin(sunAzimuth) * cosElevation, std::sin(sunElevation), std::cos(sunAzimuth) * cosElevation, seabedDepth };
     view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), 0.0f, 0.0f };
-    view.WhitecapThreshold = { seaState.WhitecapThreshold, 0.0f, 0.0f, 0.0f };
+    view.WhitecapParameters = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.FoamSpread, seaState.FoamContrast };
 
     // beginFrame waited on this frame's fence, so the GPU is done with this frame's buffer
     std::memcpy(viewBufferPointers[currentFrame], &view, sizeof(view));

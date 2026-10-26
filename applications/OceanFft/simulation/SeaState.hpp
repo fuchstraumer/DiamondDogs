@@ -45,9 +45,14 @@ namespace ocean
 
         /** @brief The artist's multiplier on every wave height. 1 is physical */
         float HeightScale{ 1.0f };
-        /** @brief User-defined threshold for whitecap formation, in the range 0-1. One of the few
-          * params here that are just straight passthroughs. */
+        /** @brief User-defined threshold for whitecap formation, in the range 0-1. Maps to [-0.2, 0.2] in shader */
         float WhitecapThreshold{ 0.5f };
+        /** @brief Linear foam coverage multiplier. 0: none, 1: physical reference, 2+: heavy foam */
+        float FoamAmount{ 1.0f };
+        /** @brief Footprint dispersion factor. <1 creates tight crest lines, >1 diffuses foam across wave faces */
+        float FoamSpread{ 1.0f };
+        /** @brief Contrast/falloff exponent. >1 suppresses fringes for punchy cores, <1 broadens milky froth */
+        float FoamContrast{ 1.0f };
     };
 
     /** @brief ResolveWind's output: the wind sea in the physics domain */
