@@ -152,6 +152,7 @@ namespace ocean
         [[nodiscard]] GraphicsResource Displacement() const noexcept;
         [[nodiscard]] GraphicsResource Derivatives() const noexcept;
         [[nodiscard]] uint32_t MipLevels() const noexcept;
+        [[nodiscard]] GraphicsResource Whitecaps() const noexcept;
 
     private:
         std::unique_ptr<OceanSimulationImpl> impl;

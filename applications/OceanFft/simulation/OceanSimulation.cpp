@@ -127,18 +127,20 @@ namespace ocean
         std::array<PassProgram, static_cast<size_t>(Pass::Count)> Programs;
         VkDescriptorPool DescriptorPool{ VK_NULL_HANDLE };
 
-        std::array<GraphicsResource, 4> Buffers{};
+        std::array<GraphicsResource, k_CascadeCount> Buffers{};
         std::array<uint64_t, 4> BufferBytes{};
         GraphicsResource CascadeParamsBuffer;
         GraphicsResource SpectrumParamsBuffer;
         GraphicsResource NormalizationLut;
         GraphicsResource DisplacementImage;
         GraphicsResource DerivativesImage;
+        GraphicsResource WhitecapsImage;
         uint32_t MipLevels{ 1u };
         // fills both mip chains from mip 0, with NvproPyramid (modules/GpuPyramid). Image 0 is Displacement. The
         // targets are destroyed before their generator
         std::unique_ptr<pyramid::MipGenerator> MipGenerator;
         std::array<std::unique_ptr<pyramid::MipTarget>, k_OutputImageCount> MipTargets;
+        std::unique_ptr<pyramid::MipTarget> WhitecapsMipTarget; // runs with same settings as the other mip targets, but specifically for the whitecaps image
 
         [[nodiscard]] const PassProgram& Program(Pass pass) const noexcept
         {
@@ -169,8 +171,14 @@ namespace ocean
             };
             command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &resolveToMips, 1 }, {}, {} });
 
-            const std::array<const pyramid::MipTarget*, k_OutputImageCount> targets{ MipTargets[0].get(), MipTargets[1].get() };
+            const std::array<const pyramid::MipTarget*, 3> targets
+            {
+                MipTargets[0].get(),
+                MipTargets[1].get(),
+                WhitecapsMipTarget.get()
+            };
             MipGenerator->Record(command_buffer, targets);
+
         }
     };
 
@@ -190,6 +198,7 @@ namespace ocean
 
         // their views must go before the images
         MipTargets = {};
+        WhitecapsMipTarget.reset();
         MipGenerator.reset();
 
         std::vector<std::shared_ptr<MessageReply>> replies;
@@ -211,7 +220,7 @@ namespace ocean
 
         for (const std::shared_ptr<MessageReply>& reply : replies)
         {
-            (void)reply->WaitForCompletion(k_TimeoutNs);
+            reply->WaitForCompletion(k_TimeoutNs);
         }
     }
 
@@ -359,6 +368,10 @@ namespace ocean
         impl->Settings = settings;
         const uint32_t size = settings.Size;
         const VkDevice vkDevice = device.Handle().As<VkDevice>();
+        // the outputs are storage images for the resolve and sampled images for the renderer, and stay in General.
+        // A full mip chain, down to 1x1: the renderer samples distant water from the smaller mips. One view covers
+        // every mip, and a storage write through it goes to its base level, mip 0. Copies out are for tests
+        impl->MipLevels = static_cast<uint32_t>(std::bit_width(size));
 
         rhi::ShaderLibraryResult<const lodestone::ManifestIndex*> index = library.ModuleIndex(k_ModuleName);
         if (!index.has_value())
@@ -402,7 +415,14 @@ namespace ocean
         // buffers: every spectrum buffer has one element per (x, y, cascade). IfftInput has two slices of that
         const uint64_t elementCount = uint64_t{ size } * size * k_CascadeCount;
         const std::array<uint64_t, 4> bufferBytes{ elementCount * 4u, elementCount * 4u, elementCount * 8u, elementCount * 8u * 2u };
-        constexpr std::array<const char*, 4> k_BufferNames{ "Ocean_h0K", "Ocean_h0KConjugate", "Ocean_WaveData", "Ocean_IfftInput" };
+        static std::array<std::string_view, 4> k_BufferNames
+        {
+            "Ocean_h0K",
+            "Ocean_h0KConjugate",
+            "Ocean_WaveData",
+            "Ocean_IfftInput"
+        };
+
         std::array<std::shared_ptr<GraphicsResourceReply>, 4> bufferReplies;
         for (size_t i = 0; i < bufferReplies.size(); ++i)
         {
@@ -412,9 +432,35 @@ namespace ocean
             // copies both ways, so tests can upload IFFT input and read every buffer back
             info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource | BufferUsageBits::CopyDestination;
             info.Size = bufferBytes[i];
-            info.UserData = const_cast<char*>(k_BufferNames[i]);
+            info.Name = k_BufferNames[i];
             bufferReplies[i] = resources.CreateBuffer(info, {});
             impl->BufferBytes[i] = bufferBytes[i];
+        }
+
+        // the whitecaps images, one per cascade. pre-fill with zeroes just on init.
+        std::shared_ptr<GraphicsResourceReply> whitecapReply;
+        {
+            ImageCreateInfo info{};
+            info.Domain = ResourceDomain::GPUOnly;
+            info.Flags = ResourceCreationFlags::UserDataAsNameString;
+            info.Usage = ImageUsageBits::UavComputeShader |
+                         ImageUsageBits::SampledImage |
+                         ImageUsageBits::SrvFragmentShader |
+                         ImageUsageBits::SrvComputeShader;
+            info.Format = CommonFormats::RG16_Float; // two-element half image
+            info.Width = size;
+            info.Height = size;
+            info.ArrayLayers = k_CascadeCount;
+            info.MipLevels = impl->MipLevels;
+            info.ViewInfo = ImageViewCreateInfo{};
+            info.ViewInfo->ViewType = ImageViewType::Type2DArray;
+            info.ViewInfo->Range.BaseMipLevel = 0u;
+            info.ViewInfo->Range.LevelCount = impl->MipLevels;
+            info.ViewInfo->Range.BaseArrayLayer = 0u;
+            info.ViewInfo->Range.LayerCount = k_CascadeCount;
+            info.Name = "Ocean_Whitecaps";
+            // we leave it empty at the start, and later once it's created we'll fill it from a buffer
+            whitecapReply = resources.CreateImage(info, {});
         }
 
         const CascadeParameters cascadeParameters = MakeCascadeParameters(size, settings.LengthScales);
@@ -456,10 +502,6 @@ namespace ocean
         lutInfo.SamplerInfo = lutSampler;
         std::shared_ptr<GraphicsResourceReply> lutReply = resources.CreateImage(lutInfo, std::span{ &lutData, 1 });
 
-        // the outputs are storage images for the resolve and sampled images for the renderer, and stay in General.
-        // A full mip chain, down to 1x1: the renderer samples distant water from the smaller mips. One view covers
-        // every mip, and a storage write through it goes to its base level, mip 0. Copies out are for tests
-        impl->MipLevels = static_cast<uint32_t>(std::bit_width(size));
         std::array<std::shared_ptr<GraphicsResourceReply>, k_OutputImageCount> imageReplies;
 
         for (std::shared_ptr<GraphicsResourceReply>& reply : imageReplies)
@@ -491,8 +533,12 @@ namespace ocean
             impl->Buffers[i] = bufferReplies[i]->GetResource();
         }
 
-        if (!WaitForReply(cascadeReply) || !WaitForReply(spectrumReply) || !WaitForReply(lutReply) ||
-            !WaitForReply(imageReplies[0]) || !WaitForReply(imageReplies[1]))
+        if (!WaitForReply(cascadeReply) ||
+            !WaitForReply(spectrumReply) ||
+            !WaitForReply(lutReply) ||
+            !WaitForReply(imageReplies[0]) ||
+            !WaitForReply(imageReplies[1]) ||
+            !WaitForReply(whitecapReply))
         {
             return std::unexpected(std::string{ "creating the uniform buffers or the images failed" });
         }
@@ -502,6 +548,7 @@ namespace ocean
         impl->NormalizationLut = lutReply->GetResource();
         impl->DisplacementImage = imageReplies[0]->GetResource();
         impl->DerivativesImage = imageReplies[1]->GetResource();
+        impl->WhitecapsImage = whitecapReply->GetResource();
 
         // the mip chains: NvproPyramid is cooked into the same bundle as this module
         std::expected<std::unique_ptr<pyramid::MipGenerator>, std::string> generator =
@@ -527,6 +574,24 @@ namespace ocean
 
             impl->MipTargets[image] = std::move(*target);
         }
+
+        pyramid::MipTargetCreateInfo whitecapInfo
+        {
+            .Image=reinterpret_cast<VkImage>(impl->WhitecapsImage.VkHandle),
+            .Format=VK_FORMAT_R16G16_SFLOAT,
+            .Width=size,
+            .Height=size,
+            .MipLevels=impl->MipLevels,
+            .ArrayLayers=k_CascadeCount
+        };
+        std::expected<std::unique_ptr<pyramid::MipTarget>, std::string> whitecapTarget = impl->MipGenerator->CreateTarget(whitecapInfo);
+
+        if (!whitecapTarget.has_value())
+        {
+            return std::unexpected(std::format("the mip target of whitecaps image: {}", whitecapTarget.error()));
+        }
+
+        impl->WhitecapsMipTarget = std::move(*whitecapTarget);
 
         // every pass has one descriptor set, set 0, with only the resources it reads
         constexpr std::array<VkDescriptorPoolSize, 5> k_PoolSizes
@@ -606,16 +671,38 @@ namespace ocean
     void OceanSimulation::RecordInitialize(rhi::CommandBuffer& command_buffer) const
     {
         // the tick writes mip 0 with the resolve and the other mips with the mip generator, so both wait for the transition
-        const std::array<rhi::ImageBarrier, 2> toGeneral
+        const std::array<rhi::ImageBarrier, 3> toGeneral
         {
-            rhi::ImageBarrier{ rhi::ImageHandle{ impl->DisplacementImage.VkHandle },
-                rhi::PipelineStage::None, rhi::Access::None,
-                k_TickStages, k_TickWriteAccess,
-                rhi::ImageLayout::Undefined, rhi::ImageLayout::General },
-            rhi::ImageBarrier{ rhi::ImageHandle{ impl->DerivativesImage.VkHandle },
-                rhi::PipelineStage::None, rhi::Access::None,
-                k_TickStages, k_TickWriteAccess,
-                rhi::ImageLayout::Undefined, rhi::ImageLayout::General },
+            rhi::ImageBarrier
+            { 
+                .Image=rhi::ImageHandle{ impl->DisplacementImage.VkHandle },
+                .SrcStages=rhi::PipelineStage::None,
+                .SrcAccess=rhi::Access::None,
+                .DstStages=k_TickStages,
+                .DstAccess=k_TickWriteAccess,
+                .OldLayout=rhi::ImageLayout::Undefined,
+                .NewLayout=rhi::ImageLayout::General
+            },
+            rhi::ImageBarrier
+            { 
+                .Image=rhi::ImageHandle{ impl->DerivativesImage.VkHandle },
+                .SrcStages=rhi::PipelineStage::None,
+                .SrcAccess=rhi::Access::None,
+                .DstStages=k_TickStages,
+                .DstAccess=k_TickWriteAccess,
+                .OldLayout=rhi::ImageLayout::Undefined,
+                .NewLayout=rhi::ImageLayout::General
+            },
+            rhi::ImageBarrier
+            { 
+                .Image=rhi::ImageHandle{ impl->WhitecapsImage.VkHandle },
+                .SrcStages=rhi::PipelineStage::None,
+                .SrcAccess=rhi::Access::None,
+                .DstStages=k_TickStages,
+                .DstAccess=k_TickWriteAccess,
+                .OldLayout=rhi::ImageLayout::Undefined,
+                .NewLayout=rhi::ImageLayout::General
+            }
         };
         command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, toGeneral });
 

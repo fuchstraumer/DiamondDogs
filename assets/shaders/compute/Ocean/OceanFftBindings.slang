@@ -40,3 +40,5 @@ uniform SamplerState normSampler;
 uniform RWTexture2DArray<float4> Displacement;
 [format("rgba16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
 uniform RWTexture2DArray<float4> Derivatives;
+[format("rg16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
+uniform RWTexture2DArray<float2> Whitecaps;

@@ -85,6 +85,10 @@ Texture2DArray<float4> Displacement;
 Texture2DArray<float4> Derivatives;
 // linear, repeat: each cascade tiles with its own patch size
 SamplerState OceanSampler;
+// written by OceanResolveCS: (mu, sum k^2) moments for whitecap coverage evaluation
+// [IFFT_SIZE, IFFT_SIZE, CASCADE_COUNT]
+[format("rg16f")]
+Texture2DArray<float2> Whitecaps;
 
 internal float4 WorldToClip(float3 world_position)
 {

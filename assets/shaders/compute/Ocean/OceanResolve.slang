@@ -40,4 +40,11 @@ void OceanResolveCS(uniform OceanResolveParameters ResolveParams, uint3 id : SV_
 
     Displacement[id] = float4(dx * ResolveParams.Choppiness, height, dz * ResolveParams.Choppiness, jacobian);
     Derivatives[id] = float4(dHeightDx, dHeightDz, dDxDx, dDzDz);
+
+    // now handle the whitecaps data
+    // Dupuy 2012 per-cascade scalar kernel k_i
+    static const float invN = 0.25f; // 1 / n for n = 4 cascades
+    const float k_i = invN + dDxDx + dDzDz + (dDxDx * dDzDz) - (dDxDz * dDxDz);
+    const float k_i_sq = k_i * k_i;
+    Whitecaps[id] = float2(k_i, k_i_sq);
 }
