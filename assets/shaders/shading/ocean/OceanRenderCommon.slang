@@ -18,6 +18,9 @@ public struct OceanViewParameters
     // x: the cascade fade distance in patch lengths. Cascade c fades out between x * LengthScales[c] and twice that,
     // so waves far smaller than a pixel stop shimmering. y: texels along an edge of mip 0 of the textures. zw unused
     public float4 LodParameters;
+    // the threshold for whitecap formation, lower = only violent folding breaks, higher = broader whitecaps
+    // input as 0-1, transformed in shader to -0.2:0.2
+    public float4 WhitecapThreshold;
 };
 
 // Per draw, as push constants. The surface is square tiles of Size meters, each a grid of Resolution x Resolution
@@ -35,6 +38,9 @@ public struct OceanGridParameters
     // quads along a tile edge in ring Ring + 1. When it is coarser, this ring's outer edge vertices snap onto its
     // vertices, so the rings meet without cracks
     public uint OuterResolution;
+    // the threshold for whitecap formation, lower = only violent folding breaks, higher = broader whitecaps
+    // input as 0-1, transformed in shader to -0.2:0.2
+    public float WhitecapThreshold;
 };
 
 // The tile of ring `ring` that instance `instance` draws, in tiles from the center tile

@@ -552,7 +552,7 @@ namespace ocean
 
         // the mip chains: NvproPyramid is cooked into the same bundle as this module
         std::expected<std::unique_ptr<pyramid::MipGenerator>, std::string> generator =
-            pyramid::MipGenerator::Create(device, library, pyramid::MipGeneratorCreateInfo{ pyramid::Reduction::Average, false });
+            pyramid::MipGenerator::Create(device, library, pyramid::MipGeneratorCreateInfo{ .Reduce=pyramid::Reduction::Average, .SharedF16=true });
 
         if (!generator.has_value())
         {
@@ -622,6 +622,7 @@ namespace ocean
             { "normSampler", { impl->NormalizationLut } },
             { "Displacement", { impl->DisplacementImage } },
             { "Derivatives", { impl->DerivativesImage } },
+            { "Whitecaps", { impl->WhitecapsImage } }
         };
 
         for (size_t passIndex = 0; passIndex < impl->Programs.size(); ++passIndex)
@@ -648,7 +649,8 @@ namespace ocean
 
             PassProgram& passProgram = impl->Programs[passIndex];
             passProgram.Program = std::move(*program);
-            const VkDescriptorSetLayout setLayout = passProgram.Program->SetLayouts()[0].As<VkDescriptorSetLayout>();
+            std::span<const rhi::DescriptorSetLayoutHandle> setLayouts = passProgram.Program->SetLayouts();
+            const VkDescriptorSetLayout setLayout = setLayouts[0].As<VkDescriptorSetLayout>();
             const VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, impl->DescriptorPool, 1, &setLayout };
 
             if (vkAllocateDescriptorSets(vkDevice, &setInfo, &passProgram.Set) != VK_SUCCESS)
@@ -797,6 +799,11 @@ namespace ocean
     GraphicsResource OceanSimulation::Derivatives() const noexcept
     {
         return impl->DerivativesImage;
+    }
+
+    GraphicsResource OceanSimulation::Whitecaps() const noexcept
+    {
+        return impl->WhitecapsImage;
     }
 
     uint32_t OceanSimulation::MipLevels() const noexcept

@@ -29,29 +29,35 @@ float FastErf(float x)
 float EvaluateWhitecapCoverage(float2 surface_xz, float distance)
 {
     float muA = 0.0f;
+    float varA = 0.0f;
     float sumKSq = 0.0f;
 
     [unroll]
     for (int cascade = 0; cascade < OCEAN_CASCADE_COUNT; ++cascade)
     {
-        const float weight = CascadeDistanceWeight(cascade, distance);
-        if (weight > 0.0f)
+        const float enabled = View.CascadeWeights[cascade];
+        if (enabled > 0.0f)
         {
             const float3 uvw = float3(CascadeUv(surface_xz, cascade), float(cascade));
-            // use anisotropic filtering on this texture: we already have such a sampler for the derivatives
             const float2 moments = Whitecaps.Sample(OceanSampler, uvw).xy;
-            muA += moments.x * weight;
-            sumKSq += moments.y * weight;
+            muA += moments.x;
+            varA += max(0.0f, moments.y - moments.x * moments.x);
+        }
+        else
+        {
+            // if cascade disabled, add "rest state" value with no variance
+            muA += 0.25f;
         }
     }
 
-    // footprint variance (sigma^2 = E[k^2] - (E[k])^2
-    const float sigmaSq = max(1e-6f, sumKSq - muA * muA);
+    // guard against zero variance up close to avoid div by zero
+    const float sigmaSq = max(1e-4f, varA);
     const float sigmaA = sqrt(sigmaSq);
+
     // TODO: Get this in the sea state buffer!! Soon!
     // wave breaking threshold: [-0.2, 0.2]. depends on wind and steepness
     // lower = only violent folding breaks higer = broader whitecaps
-    const float epsilon = -0.05f;
+    const float epsilon = View.WhitecapThreshold.x * 0.4f - 0.2f;
     // closed-form guassian integral over the pixel footprint given by whitecaps value
     // 0.70710678 = sqrt(2)/2 here
     const float errfIn = 0.70710678f * (epsilon - muA) / sigmaA;
@@ -104,19 +110,26 @@ float4 OceanSurfaceFS(OceanSurfaceVaryings input) : SV_Target
     const float3 skyColor = lerp(float3(0.35f, 0.5f, 0.7f), float3(0.08f, 0.2f, 0.45f), saturate(reflect(-toCamera, surface.Normal).y));
     const float fresnel = 0.02f + 0.98f * pow(1.0f - saturate(dot(surface.Normal, toCamera)), 5.0f);
     const float3 halfVector = normalize(toSun + toCamera);
-    const float sun = pow(saturate(dot(surface.Normal, halfVector)), 400.0f) * 8.0f;
-
-    float3 color = lerp(deepColor, skyColor, fresnel) + sun.xxx;
+    const float sun = pow(saturate(dot(surface.Normal, halfVector)), 400.0f) * 12.0f;
 
     // evaluate whitecap coverage based on the precomputed moments
     const float distance = length(input.SurfaceXZ - View.CameraPositionTime.xz);
     const float whitecaps = EvaluateWhitecapCoverage(input.SurfaceXZ, distance);
     // evaluated as classic lambertian diffuse with albedo 0.40
     const float nDotL = saturate(dot(surface.Normal, toSun));
-    const float3 foamAlbedo = 0.40f.xxx;
+    const float3 foamAlbedo = 0.85f.xxx;
     const float3 foamRadiance = foamAlbedo * (nDotL * float3(1.0f, 0.95f, 0.9f) + skyColor * 0.5f);
 
-    color = lerp(color, foamRadiance, whitecaps);
-    // partly transparent, so the seabed shows through while the real shading is written
-    return float4(color, 0.9f);
+    const float3 waterBase = lerp(deepColor, skyColor, fresnel);
+    float3 color = lerp(waterBase, foamRadiance, whitecaps) + sun.xxx;
+
+    // scale hdr to match my monitor paper white
+    static const float k_PaperWhiteNits = 348.0f;
+    static const float k_PeakNits = 600.0f;
+    static const float k_ScRgbRefNits = 80.0f;
+    color *= (k_PaperWhiteNits / k_ScRgbRefNits);
+    // smoothly roll off highlights beyond the peak nits to prevent clipping
+    const float k_peakScRgb = k_PeakNits / k_ScRgbRefNits;
+    color = min(color, float3(k_peakScRgb));
+    return float4(color, 0.96f);
 }

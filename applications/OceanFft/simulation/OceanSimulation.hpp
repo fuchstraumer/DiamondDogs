@@ -151,8 +151,8 @@ namespace ocean
          *  after RecordInitialize. The view covers every mip; storage writes go to mip 0 */
         [[nodiscard]] GraphicsResource Displacement() const noexcept;
         [[nodiscard]] GraphicsResource Derivatives() const noexcept;
-        [[nodiscard]] uint32_t MipLevels() const noexcept;
         [[nodiscard]] GraphicsResource Whitecaps() const noexcept;
+        [[nodiscard]] uint32_t MipLevels() const noexcept;
 
     private:
         std::unique_ptr<OceanSimulationImpl> impl;

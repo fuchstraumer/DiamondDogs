@@ -22,6 +22,133 @@ namespace ocean
         constexpr float k_Pi = std::numbers::pi_v<float>;
         constexpr float k_DegreesToRadians = k_Pi / 180.0f;
 
+        // --- Telemetry Panel and Chassis Colors ---
+        constexpr ImU32 k_ColorPanelBg = IM_COL32(9, 14, 22, 232);
+        constexpr ImU32 k_ColorPanelBorder = IM_COL32(140, 188, 230, 44);
+        constexpr ImU32 k_ColorPanelReticle = IM_COL32(0, 210, 255, 115);
+        constexpr ImU32 k_ColorTopBarAccent = IM_COL32(0, 210, 255, 235);
+        constexpr ImU32 k_ColorHeaderGradientTop = IM_COL32(0, 195, 245, 28);
+        constexpr ImU32 k_ColorHeaderGradientMid = IM_COL32(0, 195, 245, 4);
+        constexpr ImU32 k_ColorHeaderGradientEnd = IM_COL32(9, 14, 22, 0);
+
+        // --- Cards and Group Enclosures ---
+        constexpr ImU32 k_ColorCardBg = IM_COL32(13, 21, 33, 215);
+        constexpr ImU32 k_ColorCardBorder = IM_COL32(130, 180, 225, 42);
+        constexpr ImU32 k_ColorCardAccentBar = IM_COL32(0, 210, 255, 220);
+        constexpr ImU32 k_ColorCardSubBg = IM_COL32(11, 18, 28, 210);
+        constexpr ImU32 k_ColorCardSubBorder = IM_COL32(130, 175, 215, 36);
+
+        // --- Dividers and Separator Hairlines ---
+        constexpr ImU32 k_ColorHairline = IM_COL32(150, 195, 235, 38);
+        constexpr ImU32 k_ColorHairlineSub = IM_COL32(150, 195, 235, 30);
+        constexpr ImU32 k_ColorHairlineBanner = IM_COL32(140, 188, 230, 36);
+
+        // --- Typography (ImU32 Direct DrawList Colors) ---
+        constexpr ImU32 k_ColorTextHeader = IM_COL32(232, 244, 255, 255);
+        constexpr ImU32 k_ColorTextHeaderHover = IM_COL32(238, 247, 255, 255);
+        constexpr ImU32 k_ColorTextSection = IM_COL32(198, 218, 236, 245);
+        constexpr ImU32 k_ColorTextSubHeader = IM_COL32(175, 202, 228, 240);
+        constexpr ImU32 k_ColorTextLabel = IM_COL32(176, 196, 216, 245);
+        constexpr ImU32 k_ColorTextLabelHover = IM_COL32(236, 245, 255, 255);
+        constexpr ImU32 k_ColorTextHint = IM_COL32(105, 132, 160, 230);
+        constexpr ImU32 k_ColorTextValue = IM_COL32(215, 230, 245, 245);
+        constexpr ImU32 k_ColorTextValueHover = IM_COL32(245, 252, 255, 255);
+        constexpr ImU32 k_ColorTextUnit = IM_COL32(118, 152, 184, 240);
+        constexpr ImU32 k_ColorTextCyanAccent = IM_COL32(0, 210, 255, 230);
+        constexpr ImU32 k_ColorTextBodyMuted = IM_COL32(160, 182, 204, 240);
+        constexpr ImU32 k_ColorTextSubMuted = IM_COL32(120, 160, 195, 230);
+
+        // --- Typography (ImVec4 TextColored Constants) ---
+        constexpr ImVec4 k_ColorVecTitle{ 0.91f, 0.96f, 1.00f, 1.0f };
+        constexpr ImVec4 k_ColorVecSubtitle{ 0.45f, 0.62f, 0.76f, 1.0f };
+        constexpr ImVec4 k_ColorVecNote{ 0.45f, 0.62f, 0.78f, 1.0f };
+        constexpr ImVec4 k_ColorVecMutedStatus{ 0.55f, 0.65f, 0.75f, 1.0f };
+        constexpr ImVec4 k_ColorVecTimingRoot{ 0.90f, 0.95f, 1.00f, 1.0f };
+        constexpr ImVec4 k_ColorVecTimingChild{ 0.68f, 0.78f, 0.88f, 1.0f };
+        constexpr ImVec4 k_ColorVecTimingAvg{ 0.82f, 0.92f, 1.00f, 1.0f };
+        constexpr ImVec4 k_ColorVecTimingLast{ 0.58f, 0.70f, 0.82f, 1.0f };
+        constexpr ImVec4 k_ColorVecTimingFooter{ 0.48f, 0.60f, 0.72f, 1.0f };
+
+        // --- Slider Tracks and Chunky Thumbs ---
+        constexpr ImU32 k_ColorTrackBg = IM_COL32(6, 10, 16, 230);
+        constexpr ImU32 k_ColorTrackTick = IM_COL32(150, 190, 225, 26);
+        constexpr ImU32 k_ColorCenterTick = IM_COL32(200, 225, 245, 130);
+        constexpr ImU32 k_ColorThumbBg = IM_COL32(18, 30, 46, 250);
+        constexpr ImU32 k_ColorThumbBgHover = IM_COL32(28, 48, 72, 255);
+
+        // --- Preset Buttons ---
+        constexpr ImU32 k_ColorButtonBg = IM_COL32(13, 21, 33, 195);
+        constexpr ImU32 k_ColorButtonBgHover = IM_COL32(22, 38, 58, 220);
+        constexpr ImU32 k_ColorButtonBgActive = IM_COL32(0, 95, 135, 190);
+        constexpr ImU32 k_ColorButtonBorderActive = IM_COL32(0, 215, 255, 240);
+        constexpr ImU32 k_ColorButtonIndicator = IM_COL32(0, 225, 255, 255);
+        constexpr ImU32 k_ColorButtonText = IM_COL32(180, 204, 226, 235);
+        constexpr ImU32 k_ColorButtonTextActive = IM_COL32(240, 250, 255, 255);
+
+        // --- Toggle Switches and Segmented Selectors ---
+        constexpr ImU32 k_ColorToggleOffBg = IM_COL32(10, 16, 26, 200);
+        constexpr ImU32 k_ColorToggleOffText = IM_COL32(125, 150, 176, 210);
+        constexpr ImU32 k_ColorChevronClosed = IM_COL32(125, 155, 185, 200);
+
+        // --- Cascade Bands ---
+        constexpr ImU32 k_ColorBandOffBg = IM_COL32(10, 16, 25, 200);
+        constexpr ImU32 k_ColorBandOnBg = IM_COL32(0, 88, 128, 175);
+        constexpr ImU32 k_ColorBandOffBorder = IM_COL32(120, 160, 200, 45);
+        constexpr ImU32 k_ColorBandOnBorder = IM_COL32(0, 210, 255, 225);
+        constexpr ImU32 k_ColorBandHoverBorder = IM_COL32(140, 185, 225, 120);
+        constexpr ImU32 k_ColorBandOffLed = IM_COL32(70, 95, 120, 90);
+        constexpr ImU32 k_ColorBandOnLed = IM_COL32(0, 225, 255, 255);
+        constexpr ImU32 k_ColorBandOffText = IM_COL32(110, 135, 160, 200);
+        constexpr ImU32 k_ColorBandOnText = IM_COL32(238, 248, 255, 255);
+
+        // --- Spectrum Model Segment Buttons ---
+        constexpr ImU32 k_ColorSegmentOffBg = IM_COL32(10, 16, 25, 205);
+        constexpr ImU32 k_ColorSegmentOnBg = IM_COL32(0, 90, 130, 185);
+        constexpr ImU32 k_ColorSegmentOnBorder = IM_COL32(0, 210, 255, 235);
+        constexpr ImU32 k_ColorSegmentOffText = IM_COL32(145, 170, 195, 220);
+
+        // --- Compass Reticle ---
+        constexpr ImU32 k_ColorCompassBg = IM_COL32(7, 12, 20, 235);
+        constexpr ImU32 k_ColorCompassRingOuter = IM_COL32(130, 180, 225, 75);
+        constexpr ImU32 k_ColorCompassRingInner = IM_COL32(130, 180, 225, 28);
+        constexpr ImU32 k_ColorCompassCrosshair = IM_COL32(150, 195, 235, 110);
+        constexpr ImU32 k_ColorCompassPivot = IM_COL32(220, 240, 255, 220);
+        constexpr ImU32 k_ColorCompassWind = IM_COL32(0, 215, 255, 255);
+        constexpr ImU32 k_ColorCompassSwell = IM_COL32(245, 165, 20, 240);
+
+        // --- Physics Inspection Row ---
+        constexpr ImU32 k_ColorPhysicsLabel = IM_COL32(140, 165, 190, 235);
+        constexpr ImU32 k_ColorPhysicsValueA = IM_COL32(220, 238, 255, 250);
+        constexpr ImU32 k_ColorPhysicsUnitA = IM_COL32(0, 205, 250, 220);
+        constexpr ImU32 k_ColorPhysicsValueB = IM_COL32(165, 188, 210, 235);
+
+        // --- Performance Badge ---
+        constexpr ImU32 k_ColorPerfBadgeBg = IM_COL32(14, 26, 40, 210);
+        constexpr ImU32 k_ColorPerfBadgeBorder = IM_COL32(0, 210, 255, 85);
+        constexpr ImU32 k_ColorPerfBadgeText = IM_COL32(170, 232, 255, 255);
+
+        // --- GPU Timings Scope Bars ---
+        constexpr ImU32 k_ColorTimingBarRoot = IM_COL32(0, 195, 255, 34);
+        constexpr ImU32 k_ColorTimingBarChild = IM_COL32(0, 210, 255, 20);
+        constexpr ImU32 k_ColorTimingBarUnderline = IM_COL32(0, 210, 255, 110);
+        constexpr ImU32 k_ColorTimingTreeTick = IM_COL32(120, 165, 205, 130);
+
+        // --- Primary Accent Palettes (Cyan, Amber, Ice) ---
+        constexpr ImU32 k_ColorCyanPrimary = IM_COL32(0, 212, 255, 255);
+        constexpr ImU32 k_ColorCyanFillBright = IM_COL32(0, 185, 235, 185);
+        constexpr ImU32 k_ColorCyanFillMuted = IM_COL32(0, 90, 135, 120);
+        constexpr ImU32 k_ColorCyanGlow = IM_COL32(70, 235, 255, 95);
+
+        constexpr ImU32 k_ColorAmberPrimary = IM_COL32(245, 165, 20, 255);
+        constexpr ImU32 k_ColorAmberFillBright = IM_COL32(235, 145, 15, 185);
+        constexpr ImU32 k_ColorAmberFillMuted = IM_COL32(130, 72, 8, 120);
+        constexpr ImU32 k_ColorAmberGlow = IM_COL32(255, 195, 70, 90);
+
+        constexpr ImU32 k_ColorIcePrimary = IM_COL32(150, 215, 255, 255);
+        constexpr ImU32 k_ColorIceFillBright = IM_COL32(110, 185, 240, 175);
+        constexpr ImU32 k_ColorIceFillMuted = IM_COL32(45, 95, 145, 120);
+        constexpr ImU32 k_ColorIceGlow = IM_COL32(180, 230, 255, 90);
+
         struct ToneColors
         {
             ImU32 Primary{ 0u };
@@ -34,6 +161,8 @@ namespace ocean
         [[nodiscard]] ImFont* PickSectionFont(const ImGuiFontSet& fonts, HeaderFontMode font_mode) noexcept;
         [[nodiscard]] ToneColors ResolveTone(AccentTone tone) noexcept;
         [[nodiscard]] float SmoothHoverState(ImGuiID id, bool active_or_hovered) noexcept;
+        [[nodiscard]] ImU32 DynamicBorderColor(uint8_t alpha) noexcept;
+        [[nodiscard]] ImU32 DynamicTrackBorderColor(uint8_t alpha) noexcept;
         void DrawChamferedRect(ImDrawList* draw_list, const ImVec2& min_pos, const ImVec2& max_pos, float chamfer,
                                ImU32 fill_color, ImU32 border_color, float border_thickness);
         void DrawCornerReticles(ImDrawList* draw_list, const ImVec2& min_pos, const ImVec2& max_pos, float arm_length,
@@ -80,24 +209,24 @@ namespace ocean
             winMin,
             winMax,
             k_PanelChamfer,
-            IM_COL32(9, 14, 22, 232),
-            IM_COL32(140, 188, 230, 44),
+            k_ColorPanelBg,
+            k_ColorPanelBorder,
             1.0f);
 
         // subtle top atmospheric header band
         drawList->AddRectFilledMultiColor(
             winMin,
             ImVec2{ winMax.x, winMin.y + 54.0f },
-            IM_COL32(0, 195, 245, 28),
-            IM_COL32(0, 195, 245, 4),
-            IM_COL32(9, 14, 22, 0),
-            IM_COL32(9, 14, 22, 0));
+            k_ColorHeaderGradientTop,
+            k_ColorHeaderGradientMid,
+            k_ColorHeaderGradientEnd,
+            k_ColorHeaderGradientEnd);
 
         // top-left cyan structural bar
         drawList->AddLine(
             ImVec2{ winMin.x, winMin.y },
             ImVec2{ winMin.x + 88.0f, winMin.y },
-            IM_COL32(0, 210, 255, 235),
+            k_ColorTopBarAccent,
             2.0f);
 
         DrawCornerReticles(
@@ -105,7 +234,7 @@ namespace ocean
             ImVec2{ winMin.x + 3.0f, winMin.y + 3.0f },
             ImVec2{ winMax.x - 3.0f, winMax.y - 3.0f },
             6.0f,
-            IM_COL32(0, 210, 255, 115));
+            k_ColorPanelReticle);
 
         return open;
     }
@@ -122,7 +251,7 @@ namespace ocean
         const float availWidth = ImGui::GetContentRegionAvail().x;
 
         ImGui::PushFont(PickHeaderFont(fonts, font_mode));
-        ImGui::TextColored(ImVec4{ 0.91f, 0.96f, 1.00f, 1.0f }, "OCEAN SIMULATION");
+        ImGui::TextColored(k_ColorVecTitle, "OCEAN SIMULATION");
         ImGui::PopFont();
 
         const float fps = ImGui::GetIO().Framerate;
@@ -138,12 +267,12 @@ namespace ocean
             badgeMin,
             badgeMax,
             5.0f,
-            IM_COL32(14, 26, 40, 210),
-            IM_COL32(0, 210, 255, 85),
+            k_ColorPerfBadgeBg,
+            k_ColorPerfBadgeBorder,
             1.0f);
         drawList->AddText(
             ImVec2{ badgeMin.x + 7.0f, badgeMin.y + 3.0f },
-            IM_COL32(170, 232, 255, 255),
+            k_ColorPerfBadgeText,
             perfText.c_str());
 
         const std::string kernelTag = settings.Kernel == IfftKernel::Radix2 ? "RADIX-2" : "RADIX-4";
@@ -153,14 +282,14 @@ namespace ocean
         const std::string specLine = std::format("IFFT {}  //  {}x{}  //  {} CASCADES  //  {}",
             kernelTag, settings.Size, settings.Size, k_CascadeCount, waveTag);
 
-        ImGui::TextColored(ImVec4{ 0.45f, 0.62f, 0.76f, 1.0f }, "%s", specLine.c_str());
+        ImGui::TextColored(k_ColorVecSubtitle, "%s", specLine.c_str());
         ImGui::PopFont();
 
         const ImVec2 linePos = ImGui::GetCursorScreenPos();
         drawList->AddLine(
             ImVec2{ linePos.x, linePos.y + 2.0f },
             ImVec2{ linePos.x + availWidth, linePos.y + 2.0f },
-            IM_COL32(140, 188, 230, 36),
+            k_ColorHairlineBanner,
             1.0f);
         ImGui::Dummy(ImVec2{ 0.0f, 6.0f });
     }
@@ -178,15 +307,15 @@ namespace ocean
             cardMin,
             cardMax,
             8.0f,
-            IM_COL32(13, 21, 33, 215),
-            IM_COL32(130, 180, 225, 42),
+            k_ColorCardBg,
+            k_ColorCardBorder,
             1.0f);
 
         // left vertical cyan telemetry bar
         drawList->AddRectFilled(
             cardMin,
             ImVec2{ cardMin.x + 3.0f, cardMax.y },
-            IM_COL32(0, 210, 255, 220));
+            k_ColorCardAccentBar);
 
         // left side: measured significant height and wave metrics
         const float textLeft = cardMin.x + 12.0f;
@@ -194,7 +323,7 @@ namespace ocean
             fonts.SectionBlinker,
             13.0f,
             ImVec2{ textLeft, cardMin.y + 7.0f },
-            IM_COL32(120, 160, 195, 230),
+            k_ColorTextSubMuted,
             "MEASURED SEA STATE  (4 sqrt(m0))");
 
         const std::string hsValue = std::format("Hs {:.2f} m", readout.SignificantHeight);
@@ -202,7 +331,7 @@ namespace ocean
             fonts.HeaderBlinker,
             22.0f,
             ImVec2{ textLeft, cardMin.y + 23.0f },
-            IM_COL32(232, 244, 255, 255),
+            k_ColorTextHeader,
             hsValue.c_str());
 
         const std::string beaufortTag = std::format("Bft {:.1f}  //  {} ({:.1f} m/s)",
@@ -211,7 +340,7 @@ namespace ocean
             fonts.BodyItalic,
             14.0f,
             ImVec2{ textLeft + 104.0f, cardMin.y + 29.0f },
-            IM_COL32(0, 210, 255, 230),
+            k_ColorTextCyanAccent,
             beaufortTag.c_str());
 
         const std::string detailLine = std::format("Wind sea {:.2f} m   |   Swell {:.2f} m   |   Peak {:.1f} s ({:.0f} m)",
@@ -220,7 +349,7 @@ namespace ocean
             fonts.Body,
             15.0f,
             ImVec2{ textLeft, cardMin.y + 53.0f },
-            IM_COL32(160, 182, 204, 240),
+            k_ColorTextBodyMuted,
             detailLine.c_str());
 
         // right side: circular wind vs. swell vector compass reticle
@@ -271,7 +400,7 @@ namespace ocean
         ImGui::PushFont(sectionFont);
         const ImVec2 textSize = ImGui::CalcTextSize(label);
         const float textY = pos.y + 0.5f * (k_HeaderHeight - textSize.y) - 1.0f;
-        const ImU32 textColor = hovered ? IM_COL32(238, 247, 255, 255) : IM_COL32(198, 218, 236, 245);
+        const ImU32 textColor = hovered ? k_ColorTextHeaderHover : k_ColorTextSection;
         drawList->AddText(ImVec2{ pos.x + 10.0f, textY }, textColor, label);
         ImGui::PopFont();
 
@@ -295,7 +424,7 @@ namespace ocean
                 ImVec2{ chevronCenter.x + 3.5f, chevronCenter.y },
                 ImVec2{ chevronCenter.x - 2.0f, chevronCenter.y + 4.5f },
             };
-            drawList->AddConvexPolyFilled(tri.data(), 3, IM_COL32(125, 155, 185, 200));
+            drawList->AddConvexPolyFilled(tri.data(), 3, k_ColorChevronClosed);
         }
 
         // full-width 1px hairline + 2px left accent bar
@@ -303,7 +432,7 @@ namespace ocean
         drawList->AddLine(
             ImVec2{ pos.x, lineY },
             ImVec2{ pos.x + availWidth, lineY },
-            IM_COL32(150, 195, 235, 38),
+            k_ColorHairline,
             1.0f);
 
         const float accentWidth = isOpen ? (42.0f + 28.0f * hoverT) : (18.0f + 16.0f * hoverT);
@@ -331,7 +460,7 @@ namespace ocean
             ImVec2{ pos.x, pos.y + 3.0f },
             ImVec2{ pos.x + 3.0f, pos.y + 3.0f + textSize.y },
             tone.Primary);
-        drawList->AddText(ImVec2{ pos.x + 9.0f, pos.y + 2.0f }, IM_COL32(175, 202, 228, 240), label);
+        drawList->AddText(ImVec2{ pos.x + 9.0f, pos.y + 2.0f }, k_ColorTextSubHeader, label);
         ImGui::PopFont();
 
         const float lineX = pos.x + textSize.x + 18.0f;
@@ -341,7 +470,7 @@ namespace ocean
             drawList->AddLine(
                 ImVec2{ lineX, lineY },
                 ImVec2{ pos.x + availWidth, lineY },
-                IM_COL32(150, 195, 235, 30),
+                k_ColorHairlineSub,
                 1.0f);
         }
 
@@ -396,11 +525,11 @@ namespace ocean
             const float hoverT = SmoothHoverState(ImGui::GetItemID(), hovered || active);
 
             const ImU32 fillCol = active ?
-                IM_COL32(0, 95, 135, 190) :
-                (hovered ? IM_COL32(22, 38, 58, 220) : IM_COL32(13, 21, 33, 195));
+                k_ColorButtonBgActive :
+                (hovered ? k_ColorButtonBgHover : k_ColorButtonBg);
             const ImU32 borderCol = active ?
-                IM_COL32(0, 215, 255, 240) :
-                IM_COL32(130, 175, 215, static_cast<int>(45 + 110 * hoverT));
+                k_ColorButtonBorderActive :
+                DynamicBorderColor(static_cast<uint8_t>(45 + 110 * hoverT));
 
             DrawChamferedRect(drawList, minPos, maxPos, 5.0f, fillCol, borderCol, 1.0f);
 
@@ -409,7 +538,7 @@ namespace ocean
                 drawList->AddLine(
                     ImVec2{ minPos.x + 1.0f, maxPos.y - 1.0f },
                     ImVec2{ maxPos.x - 5.0f, maxPos.y - 1.0f },
-                    IM_COL32(0, 225, 255, 255),
+                    k_ColorButtonIndicator,
                     2.0f);
             }
 
@@ -420,7 +549,7 @@ namespace ocean
                 minPos.x + 0.5f * (buttonWidth - textSize.x),
                 minPos.y + 0.5f * (k_ButtonHeight - textSize.y) - 0.5f
             };
-            const ImU32 textCol = active ? IM_COL32(240, 250, 255, 255) : IM_COL32(180, 204, 226, 235);
+            const ImU32 textCol = active ? k_ColorButtonTextActive : k_ColorButtonText;
             drawList->AddText(textPos, textCol, labelStr.c_str());
         }
 
@@ -464,7 +593,7 @@ namespace ocean
         }
 
         // left column: humanist parameter label + optional semantic transform hint
-        const ImU32 labelColor = (hovered || active) ? IM_COL32(236, 245, 255, 255) : IM_COL32(176, 196, 216, 245);
+        const ImU32 labelColor = (hovered || active) ? k_ColorTextLabelHover : k_ColorTextLabel;
         drawList->AddText(
             fonts.Body,
             16.0f,
@@ -479,7 +608,7 @@ namespace ocean
                 fonts.BodyItalic,
                 13.5f,
                 ImVec2{ rowMin.x + 2.0f, rowMin.y + 17.0f },
-                IM_COL32(105, 132, 160, 230),
+                k_ColorTextHint,
                 hint.data(),
                 hint.data() + hint.size());
         }
@@ -502,7 +631,7 @@ namespace ocean
             fonts.BodyBold,
             15.0f,
             ImVec2{ valX, rowMin.y + 0.0f },
-            (hovered || active) ? IM_COL32(245, 252, 255, 255) : IM_COL32(215, 230, 245, 245),
+            (hovered || active) ? k_ColorTextValueHover : k_ColorTextValue,
             value_text.data(),
             value_text.data() + value_text.size());
 
@@ -512,7 +641,7 @@ namespace ocean
                 fonts.BodyItalic,
                 13.5f,
                 ImVec2{ unitX, rowMin.y + 1.0f },
-                IM_COL32(118, 152, 184, 240),
+                k_ColorTextUnit,
                 unit_text.data(),
                 unit_text.data() + unit_text.size());
         }
@@ -528,8 +657,8 @@ namespace ocean
             chanMin,
             chanMax,
             3.0f,
-            IM_COL32(6, 10, 16, 230),
-            IM_COL32(130, 175, 220, static_cast<int>(38 + 55 * highlight)),
+            k_ColorTrackBg,
+            DynamicTrackBorderColor(static_cast<uint8_t>(38 + 55 * highlight)),
             1.0f);
 
         // subtle quarter-interval graduation ticks inside the channel
@@ -539,7 +668,7 @@ namespace ocean
             drawList->AddLine(
                 ImVec2{ tickX, chanMin.y + 1.0f },
                 ImVec2{ tickX, chanMax.y - 1.0f },
-                IM_COL32(150, 190, 225, 26),
+                k_ColorTrackTick,
                 1.0f);
         }
 
@@ -600,7 +729,7 @@ namespace ocean
             }
         }
 
-        const ImU32 labelColor = (hovered || active) ? IM_COL32(236, 245, 255, 255) : IM_COL32(176, 196, 216, 245);
+        const ImU32 labelColor = (hovered || active) ? k_ColorTextLabelHover : k_ColorTextLabel;
         drawList->AddText(
             fonts.Body,
             16.0f,
@@ -615,7 +744,7 @@ namespace ocean
                 fonts.BodyItalic,
                 13.5f,
                 ImVec2{ rowMin.x + 2.0f, rowMin.y + 17.0f },
-                IM_COL32(105, 132, 160, 230),
+                k_ColorTextHint,
                 hint.data(),
                 hint.data() + hint.size());
         }
@@ -633,12 +762,12 @@ namespace ocean
 
         const float unitX = trackRight - unitSize.x;
         const float valX = unitX - valSize.x - 4.0f;
-        drawList->AddText(fonts.BodyBold, 15.0f, ImVec2{ valX, rowMin.y }, IM_COL32(215, 230, 245, 245), valueText.c_str());
+        drawList->AddText(fonts.BodyBold, 15.0f, ImVec2{ valX, rowMin.y }, k_ColorTextValue, valueText.c_str());
         drawList->AddText(
             fonts.BodyItalic,
             13.5f,
             ImVec2{ unitX, rowMin.y + 1.0f },
-            IM_COL32(118, 152, 184, 240),
+            k_ColorTextUnit,
             k_UnitText.data(),
             k_UnitText.data() + k_UnitText.size());
 
@@ -652,8 +781,8 @@ namespace ocean
             chanMin,
             chanMax,
             3.0f,
-            IM_COL32(6, 10, 16, 230),
-            IM_COL32(130, 175, 220, static_cast<int>(38 + 55 * highlight)),
+            k_ColorTrackBg,
+            DynamicTrackBorderColor(static_cast<uint8_t>(38 + 55 * highlight)),
             1.0f);
 
         const float zeroNorm = NormalizeSliderValue(0.0f, min_degrees, max_degrees, false);
@@ -676,7 +805,7 @@ namespace ocean
         drawList->AddLine(
             ImVec2{ zeroX, chanMin.y - 2.0f },
             ImVec2{ zeroX, chanMax.y + 2.0f },
-            IM_COL32(200, 225, 245, 130),
+            k_ColorCenterTick,
             1.0f);
 
         DrawChunkyThumb(drawList, ImVec2{ thumbX, channelCenterY }, 8.0f, 6.5f, tone, highlight);
@@ -706,7 +835,7 @@ namespace ocean
             fonts.Body,
             16.0f,
             ImVec2{ rowMin.x + 2.0f, rowMin.y + 3.0f },
-            hovered ? IM_COL32(236, 245, 255, 255) : IM_COL32(176, 196, 216, 245),
+            hovered ? k_ColorTextLabelHover : k_ColorTextLabel,
             label.data(),
             label.data() + label.size());
 
@@ -725,10 +854,10 @@ namespace ocean
 
             const ImU32 fillCol = sideActive ?
                 tone.FillMuted :
-                IM_COL32(10, 16, 26, 200);
+                k_ColorToggleOffBg;
             const ImU32 borderCol = sideActive ?
                 tone.Primary :
-                IM_COL32(130, 175, 215, static_cast<int>(40 + 60 * highlight));
+                DynamicBorderColor(static_cast<uint8_t>(40 + 60 * highlight));
 
             DrawChamferedRect(drawList, boxMin, boxMax, 4.0f, fillCol, borderCol, 1.0f);
 
@@ -740,7 +869,7 @@ namespace ocean
             };
             drawList->AddText(
                 textPos,
-                sideActive ? IM_COL32(240, 250, 255, 255) : IM_COL32(125, 150, 176, 210),
+                sideActive ? k_ColorButtonTextActive : k_ColorToggleOffText,
                 sideText.data(),
                 sideText.data() + sideText.size());
         }
@@ -760,7 +889,7 @@ namespace ocean
             fonts.Body,
             16.0f,
             ImVec2{ startPos.x + 2.0f, startPos.y + 5.0f },
-            IM_COL32(176, 196, 216, 245),
+            k_ColorTextLabel,
             "Active cascades");
 
         const float stripLeft = startPos.x + k_LabelColumnWidth;
@@ -792,16 +921,16 @@ namespace ocean
             const bool hovered = ImGui::IsItemHovered();
 
             const ImU32 fillCol = enabled ?
-                IM_COL32(0, 88, 128, 175) :
-                IM_COL32(10, 16, 25, 200);
+                k_ColorBandOnBg :
+                k_ColorBandOffBg;
             const ImU32 borderCol = enabled ?
-                IM_COL32(0, 210, 255, 225) :
-                (hovered ? IM_COL32(140, 185, 225, 120) : IM_COL32(120, 160, 200, 45));
+                k_ColorBandOnBorder :
+                (hovered ? k_ColorBandHoverBorder : k_ColorBandOffBorder);
 
             DrawChamferedRect(drawList, cellMin, cellMax, 5.0f, fillCol, borderCol, 1.0f);
 
             // top LED status bar
-            const ImU32 ledCol = enabled ? IM_COL32(0, 225, 255, 255) : IM_COL32(70, 95, 120, 90);
+            const ImU32 ledCol = enabled ? k_ColorBandOnLed : k_ColorBandOffLed;
             drawList->AddLine(
                 ImVec2{ cellMin.x + 4.0f, cellMin.y + 2.0f },
                 ImVec2{ cellMax.x - 4.0f, cellMin.y + 2.0f },
@@ -812,7 +941,7 @@ namespace ocean
             const ImVec2 textSize = ImGui::CalcTextSize(bandLabel.c_str());
             drawList->AddText(
                 ImVec2{ cellMin.x + 0.5f * (cellWidth - textSize.x), cellMin.y + 8.0f },
-                enabled ? IM_COL32(238, 248, 255, 255) : IM_COL32(110, 135, 160, 200),
+                enabled ? k_ColorBandOnText : k_ColorBandOffText,
                 bandLabel.c_str());
         }
 
@@ -832,7 +961,7 @@ namespace ocean
             fonts.Body,
             16.0f,
             ImVec2{ rowMin.x + 2.0f, rowMin.y + 4.0f },
-            IM_COL32(176, 196, 216, 245),
+            k_ColorTextLabel,
             "Spreading model");
 
         constexpr std::array<std::string_view, 3> k_Models{ "MITSUYASU", "HASSELMANN", "DONELAN" };
@@ -867,15 +996,15 @@ namespace ocean
                 cMin,
                 cMax,
                 4.0f,
-                selected ? IM_COL32(0, 90, 130, 185) : IM_COL32(10, 16, 25, 205),
-                selected ? IM_COL32(0, 210, 255, 235) : (hovered ? IM_COL32(140, 185, 225, 120) : IM_COL32(120, 160, 200, 45)),
+                selected ? k_ColorSegmentOnBg : k_ColorSegmentOffBg,
+                selected ? k_ColorSegmentOnBorder : (hovered ? k_ColorBandHoverBorder : k_ColorBandOffBorder),
                 1.0f);
 
             const std::string_view modelName = k_Models[static_cast<size_t>(m)];
             const ImVec2 tSize = ImGui::CalcTextSize(modelName.data(), modelName.data() + modelName.size());
             drawList->AddText(
                 ImVec2{ cMin.x + 0.5f * (cellW - tSize.x), cMin.y + 0.5f * (k_CellH - tSize.y) - 0.5f },
-                selected ? IM_COL32(240, 250, 255, 255) : IM_COL32(145, 170, 195, 220),
+                selected ? k_ColorButtonTextActive : k_ColorSegmentOffText,
                 modelName.data(),
                 modelName.data() + modelName.size());
         }
@@ -887,7 +1016,7 @@ namespace ocean
             fonts.Body,
             16.0f,
             ImVec2{ seedMin.x + 2.0f, seedMin.y + 3.0f },
-            IM_COL32(176, 196, 216, 245),
+            k_ColorTextLabel,
             "Spectrum seed");
 
         ImGui::SetCursorScreenPos(ImVec2{ seedMin.x + k_LabelColumnWidth, seedMin.y });
@@ -911,13 +1040,13 @@ namespace ocean
             cardMin,
             cardMax,
             6.0f,
-            IM_COL32(11, 18, 28, 210),
-            IM_COL32(130, 175, 215, 36),
+            k_ColorCardSubBg,
+            k_ColorCardSubBorder,
             1.0f);
 
         ImGui::SetCursorScreenPos(ImVec2{ cardMin.x + 10.0f, cardMin.y + 6.0f });
         ImGui::PushFont(fonts.BodyItalic);
-        ImGui::TextColored(ImVec4{ 0.45f, 0.62f, 0.78f, 1.0f }, "Resolved physical spectrum (SeaState -> SpectrumParameters)");
+        ImGui::TextColored(k_ColorVecNote, "Resolved physical spectrum (SeaState -> SpectrumParameters)");
         ImGui::PopFont();
 
         DrawPhysicsRow(
@@ -955,7 +1084,7 @@ namespace ocean
         if (!gpu_timers.Active())
         {
             ImGui::PushFont(fonts.BodyItalic);
-            ImGui::TextColored(ImVec4{ 0.55f, 0.65f, 0.75f, 1.0f }, "%s", std::string{ gpu_timers.InactiveReason() }.c_str());
+            ImGui::TextColored(k_ColorVecMutedStatus, "%s", std::string{ gpu_timers.InactiveReason() }.c_str());
             ImGui::PopFont();
             return;
         }
@@ -964,7 +1093,7 @@ namespace ocean
         if (!latest.has_value())
         {
             ImGui::PushFont(fonts.BodyItalic);
-            ImGui::TextColored(ImVec4{ 0.55f, 0.65f, 0.75f, 1.0f }, "Waiting for first completed frame...");
+            ImGui::TextColored(k_ColorVecMutedStatus, "Waiting for first completed frame...");
             ImGui::PopFont();
             return;
         }
@@ -1002,8 +1131,8 @@ namespace ocean
                 if (barWidth > 1.0f)
                 {
                     const ImU32 barCol = timing.Depth == 0u ?
-                        IM_COL32(0, 195, 255, 34) :
-                        IM_COL32(0, 210, 255, 20);
+                        k_ColorTimingBarRoot :
+                        k_ColorTimingBarChild;
                     drawList->AddRectFilled(
                         ImVec2{ cellMin.x, cellMin.y + 1.0f },
                         ImVec2{ cellMin.x + barWidth, cellMin.y + 19.0f },
@@ -1011,7 +1140,7 @@ namespace ocean
                     drawList->AddLine(
                         ImVec2{ cellMin.x, cellMin.y + 19.0f },
                         ImVec2{ cellMin.x + barWidth, cellMin.y + 19.0f },
-                        IM_COL32(0, 210, 255, 110),
+                        k_ColorTimingBarUnderline,
                         1.0f);
                 }
 
@@ -1023,28 +1152,28 @@ namespace ocean
                     drawList->AddLine(
                         ImVec2{ tickX, tickY - 5.0f },
                         ImVec2{ tickX, tickY },
-                        IM_COL32(120, 165, 205, 130),
+                        k_ColorTimingTreeTick,
                         1.0f);
                     drawList->AddLine(
                         ImVec2{ tickX, tickY },
                         ImVec2{ tickX + 5.0f, tickY },
-                        IM_COL32(120, 165, 205, 130),
+                        k_ColorTimingTreeTick,
                         1.0f);
                 }
 
                 ImGui::SetCursorScreenPos(ImVec2{ cellMin.x + indentPx, cellMin.y });
                 const ImVec4 scopeColor = timing.Depth == 0u ?
-                    ImVec4{ 0.90f, 0.95f, 1.00f, 1.0f } :
-                    ImVec4{ 0.68f, 0.78f, 0.88f, 1.0f };
+                    k_ColorVecTimingRoot :
+                    k_ColorVecTimingChild;
                 ImGui::TextColored(scopeColor, "%.*s", static_cast<int>(name.size()), name.data());
 
                 ImGui::TableNextColumn();
                 ImGui::PushFont(fonts.BodyBold);
-                ImGui::TextColored(ImVec4{ 0.82f, 0.92f, 1.00f, 1.0f }, "%.3f", avgMs);
+                ImGui::TextColored(k_ColorVecTimingAvg, "%.3f", avgMs);
                 ImGui::PopFont();
 
                 ImGui::TableNextColumn();
-                ImGui::TextColored(ImVec4{ 0.58f, 0.70f, 0.82f, 1.0f }, "%.3f", lastMs);
+                ImGui::TextColored(k_ColorVecTimingLast, "%.3f", lastMs);
             }
 
             ImGui::EndTable();
@@ -1052,7 +1181,7 @@ namespace ocean
 
         ImGui::PushFont(fonts.BodyItalic);
         ImGui::TextColored(
-            ImVec4{ 0.48f, 0.60f, 0.72f, 1.0f },
+            k_ColorVecTimingFooter,
             "Scoped GPU total: %.3f ms   |   Dropped: %u scopes, %llu frames   |   Lost: %llu",
             topLevelMs,
             latest->DroppedScopes,
@@ -1090,28 +1219,28 @@ namespace ocean
             case AccentTone::Amber:
                 return ToneColors
                 {
-                    IM_COL32(245, 165, 20, 255),
-                    IM_COL32(235, 145, 15, 185),
-                    IM_COL32(130, 72, 8, 120),
-                    IM_COL32(255, 195, 70, 90),
+                    k_ColorAmberPrimary,
+                    k_ColorAmberFillBright,
+                    k_ColorAmberFillMuted,
+                    k_ColorAmberGlow,
                 };
             case AccentTone::Ice:
                 return ToneColors
                 {
-                    IM_COL32(150, 215, 255, 255),
-                    IM_COL32(110, 185, 240, 175),
-                    IM_COL32(45, 95, 145, 120),
-                    IM_COL32(180, 230, 255, 90),
+                    k_ColorIcePrimary,
+                    k_ColorIceFillBright,
+                    k_ColorIceFillMuted,
+                    k_ColorIceGlow,
                 };
             case AccentTone::Cyan:
             case AccentTone::Invalid:
             default:
                 return ToneColors
                 {
-                    IM_COL32(0, 212, 255, 255),
-                    IM_COL32(0, 185, 235, 185),
-                    IM_COL32(0, 90, 135, 120),
-                    IM_COL32(70, 235, 255, 95),
+                    k_ColorCyanPrimary,
+                    k_ColorCyanFillBright,
+                    k_ColorCyanFillMuted,
+                    k_ColorCyanGlow,
                 };
             }
         }
@@ -1126,6 +1255,16 @@ namespace ocean
             const float next = current + (target - current) * step;
             storage->SetFloat(id, next);
             return next;
+        }
+
+        ImU32 DynamicBorderColor(uint8_t alpha) noexcept
+        {
+            return IM_COL32(130, 175, 215, alpha);
+        }
+
+        ImU32 DynamicTrackBorderColor(uint8_t alpha) noexcept
+        {
+            return IM_COL32(130, 175, 220, alpha);
         }
 
         void DrawChamferedRect(ImDrawList* draw_list, const ImVec2& min_pos, const ImVec2& max_pos, float chamfer,
@@ -1171,9 +1310,9 @@ namespace ocean
         void DrawCompassReticle(ImDrawList* draw_list, const ImVec2& center, float radius, const SeaState& state,
                                 const ImGuiFontSet& fonts)
         {
-            draw_list->AddCircleFilled(center, radius, IM_COL32(7, 12, 20, 235), 32);
-            draw_list->AddCircle(center, radius, IM_COL32(130, 180, 225, 75), 32, 1.0f);
-            draw_list->AddCircle(center, radius * 0.5f, IM_COL32(130, 180, 225, 28), 24, 1.0f);
+            draw_list->AddCircleFilled(center, radius, k_ColorCompassBg, 32);
+            draw_list->AddCircle(center, radius, k_ColorCompassRingOuter, 32, 1.0f);
+            draw_list->AddCircle(center, radius * 0.5f, k_ColorCompassRingInner, 24, 1.0f);
 
             // cardinal crosshair ticks
             for (int32_t i = 0; i < 4; ++i)
@@ -1184,7 +1323,7 @@ namespace ocean
                 draw_list->AddLine(
                     ImVec2{ center.x + c * (radius - 4.0f), center.y + s * (radius - 4.0f) },
                     ImVec2{ center.x + c * radius, center.y + s * radius },
-                    IM_COL32(150, 195, 235, 110),
+                    k_ColorCompassCrosshair,
                     1.0f);
             }
 
@@ -1194,16 +1333,16 @@ namespace ocean
             {
                 const float swellAngle = (state.SwellDirection - 90.0f) * k_DegreesToRadians;
                 const float swellLen = (0.30f + 0.62f * swellFraction) * (radius - 4.0f);
-                DrawCompassArrow(draw_list, center, swellAngle, swellLen, IM_COL32(245, 165, 20, 240), 2.0f);
+                DrawCompassArrow(draw_list, center, swellAngle, swellLen, k_ColorCompassSwell, 2.0f);
             }
 
             // wind vector in cyan
             const float windFraction = std::clamp(state.WindForce / 12.0f, 0.15f, 1.0f);
             const float windAngle = (state.WindDirection - 90.0f) * k_DegreesToRadians;
             const float windLen = (0.30f + 0.62f * windFraction) * (radius - 4.0f);
-            DrawCompassArrow(draw_list, center, windAngle, windLen, IM_COL32(0, 215, 255, 255), 2.0f);
+            DrawCompassArrow(draw_list, center, windAngle, windLen, k_ColorCompassWind, 2.0f);
 
-            draw_list->AddCircleFilled(center, 2.0f, IM_COL32(220, 240, 255, 220), 8);
+            draw_list->AddCircleFilled(center, 2.0f, k_ColorCompassPivot, 8);
             (void)fonts;
         }
 
@@ -1294,8 +1433,8 @@ namespace ocean
             }
 
             const ImU32 bodyFill = highlight > 0.3f ?
-                IM_COL32(28, 48, 72, 255) :
-                IM_COL32(18, 30, 46, 250);
+                k_ColorThumbBgHover :
+                k_ColorThumbBg;
 
             DrawChamferedRect(draw_list, minPos, maxPos, 3.0f, bodyFill, tone.Primary, 1.5f);
 
@@ -1316,7 +1455,7 @@ namespace ocean
                 fonts.Body,
                 15.0f,
                 ImVec2{ rowPos.x + 10.0f, rowPos.y },
-                IM_COL32(140, 165, 190, 235),
+                k_ColorPhysicsLabel,
                 label.data(),
                 label.data() + label.size());
 
@@ -1324,7 +1463,7 @@ namespace ocean
                 fonts.BodyBold,
                 14.5f,
                 ImVec2{ rowPos.x + 108.0f, rowPos.y },
-                IM_COL32(220, 238, 255, 250),
+                k_ColorPhysicsValueA,
                 value_a.data(),
                 value_a.data() + value_a.size());
 
@@ -1337,7 +1476,7 @@ namespace ocean
                 fonts.BodyItalic,
                 13.5f,
                 ImVec2{ unitAX, rowPos.y + 1.0f },
-                IM_COL32(0, 205, 250, 220),
+                k_ColorPhysicsUnitA,
                 unit_a.data(),
                 unit_a.data() + unit_a.size());
 
@@ -1345,7 +1484,7 @@ namespace ocean
                 fonts.Body,
                 14.0f,
                 ImVec2{ rowPos.x + 178.0f, rowPos.y + 0.5f },
-                IM_COL32(165, 188, 210, 235),
+                k_ColorPhysicsValueB,
                 value_b.data(),
                 value_b.data() + value_b.size());
 

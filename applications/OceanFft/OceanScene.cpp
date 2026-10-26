@@ -4,12 +4,15 @@
 #include "CommandPool.hpp"
 #include "Device.hpp"
 #include "FrameCapture.hpp"
+#include "GpuTimers.hpp"
 #include "ImGuiModule.hpp"
 #include "ImageDataFormats.hpp"
 #include "ManifestDescriptors.hpp"
 #include "Math.hpp"
 #include "OceanSimulation.hpp"
+#include "OceanUi.hpp"
 #include "PlatformSystem.hpp"
+#include "PlatformTypes.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
 #include "ResourceMessageReply.hpp"
@@ -30,6 +33,7 @@
 #include "VariantKey.hpp"
 #include "VulkanScene.hpp"
 #include "imgui.h"
+#include "math/Math.hpp"
 #include "vulkan/vulkan_core.h"
 #include <algorithm>
 #include <array>
@@ -46,6 +50,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -73,8 +78,10 @@ namespace
         std::array<float, 4> CascadeWeights{};
         std::array<float, 4> SunDirectionSeabedDepth{};
         std::array<float, 4> LodParameters{};
+        // We only use the X, but this buffer is in std140
+        std::array<float, 4> WhitecapThreshold{0.0f, 0.0f, 0.0f, 0.0f};
     };
-    static_assert(sizeof(OceanViewParameters) == 144u);
+    static_assert(sizeof(OceanViewParameters) == 160u);
 
     // OceanGridParameters, the push constants of both vertex stages
     struct OceanGridParameters
@@ -299,6 +306,7 @@ void OceanScene::createRenderPrograms()
                 { "View", { viewBuffers[frame] } },
                 { "Displacement", { simulation->Displacement(), VK_IMAGE_LAYOUT_GENERAL } },
                 { "Derivatives", { simulation->Derivatives(), VK_IMAGE_LAYOUT_GENERAL } },
+                { "Whitecaps", { simulation->Whitecaps(), VK_IMAGE_LAYOUT_GENERAL } },
                 { "OceanSampler", { sampler } },
             };
 
@@ -709,6 +717,19 @@ void OceanScene::drawPanel()
                 ocean::AccentTone::Cyan,
                 false);
 
+            (void)ocean::DrawArtistSlider(
+                "##Whitecap_threshold",
+                "Whitecap threshold",
+                "0: only violent breaking, 1: broad whitecaps",
+                &seaState.WhitecapThreshold,
+                0.0f,
+                1.0f,
+                std::format("{:.2f}", seaState.WhitecapThreshold),
+                "",
+                fonts,
+                ocean::AccentTone::Cyan,
+                false);
+
             // each cascade fades out from this many of its own patch lengths away
             (void)ocean::DrawArtistSlider(
                 "##detail_distance",
@@ -910,6 +931,7 @@ void OceanScene::writeViewParameters()
     const float cosElevation = std::cos(sunElevation);
     view.SunDirectionSeabedDepth = { std::sin(sunAzimuth) * cosElevation, std::sin(sunElevation), std::cos(sunAzimuth) * cosElevation, seabedDepth };
     view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), 0.0f, 0.0f };
+    view.WhitecapThreshold = { seaState.WhitecapThreshold, 0.0f, 0.0f, 0.0f };
 
     // beginFrame waited on this frame's fence, so the GPU is done with this frame's buffer
     std::memcpy(viewBufferPointers[currentFrame], &view, sizeof(view));
@@ -1029,7 +1051,10 @@ void OceanScene::recordCommands()
 
     const rhi::ImageViewHandle swapchainView{ reinterpret_cast<uint64_t>(swapchain->ImageViewHandle(currentAcquiredImage)) };
     rhi::ColorAttachment colorAttachment{};
-    colorAttachment.ClearValue = rhi::ClearColorValue{ 0.30f, 0.45f, 0.65f, 1.0f };
+    static const float k_ScRgbRefNits = 80.0f;
+    static const float k_PaperWhiteNits = 348.0f;
+    static const float k_peakScRgb = k_PaperWhiteNits / k_ScRgbRefNits;
+    colorAttachment.ClearValue = rhi::ClearColorValue{ 0.30f * k_peakScRgb, 0.45f * k_peakScRgb, 0.65f * k_peakScRgb, 1.0f };
     if (multisampled)
     {
         // the samples are only needed until the resolve, so they are not stored

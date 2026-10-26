@@ -8,7 +8,6 @@
 #include "OceanUi.hpp"
 #include "SeaState.hpp"
 #include "ResourceTypes.hpp"
-#include "VariantKey.hpp"
 #include "VulkanScene.hpp"
 #include <vulkan/vulkan_core.h>
 #include <array>

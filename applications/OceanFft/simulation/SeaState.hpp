@@ -45,6 +45,9 @@ namespace ocean
 
         /** @brief The artist's multiplier on every wave height. 1 is physical */
         float HeightScale{ 1.0f };
+        /** @brief User-defined threshold for whitecap formation, in the range 0-1. One of the few
+          * params here that are just straight passthroughs. */
+        float WhitecapThreshold{ 0.5f };
     };
 
     /** @brief ResolveWind's output: the wind sea in the physics domain */

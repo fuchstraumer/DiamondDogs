@@ -250,10 +250,12 @@ int main(int argc, char* argv[])
             return 1;
         }
     }
+    
     if (commandLine.Stdin)
     {
         commands.StartStdin();
     }
+
     if (commandLine.Script.has_value() || commandLine.Stdin)
     {
         settings.Commands = &commands;
@@ -278,6 +280,8 @@ int main(int argc, char* argv[])
         }
         scene.Destroy();
     }
+
     platformSystem->DestroySwapchain();
+
     return exitCode;
 }
