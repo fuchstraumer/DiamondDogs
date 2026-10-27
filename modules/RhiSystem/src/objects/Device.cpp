@@ -415,7 +415,9 @@ namespace rhi
 
         void SetupDebugUtils(VkDevice handle)
         {
-            if (!ParentInstance->HasValidation() || !ParentInstance->HasExtension("VK_EXT_debug_utils"))
+            // the extension alone is enough: Nsight and RenderDoc implement the labels themselves, and profiling runs
+            // are the ones without validation
+            if (!ParentInstance->HasExtension("VK_EXT_debug_utils"))
             {
                 return;
             }

@@ -29,8 +29,8 @@
 
 // Runs the OceanFft compute chain headless, through the same ocean::OceanSimulation the OceanFft application uses,
 // and checks it against double precision on the CPU:
-//  1. IFFT kernels alone: Radix2 and Radix4, with and without wave ops, at 256 (even log2) and 512 (odd log2, so the
-//     radix-2 tail runs). Random half input, compared with a CPU 2D inverse FFT of the same quantized values.
+//  1. The radix-4 IFFT kernel alone, with and without wave ops, at 256 (even log2) and 512 (odd log2, so the
+//     radix-2 tail stage runs). Random half input, compared with a CPU 2D inverse FFT of the same quantized values.
 //  2. SpectrumConjugateCS: conj(h0(-k)), bit exact.
 //  3. Tick, IFFT and resolve: the CPU repeats the tick and the transform from the GPU's own h0(k) and wave data,
 //     and every field of the Displacement and Derivatives textures is compared with it.
@@ -233,7 +233,7 @@ namespace
     {
         constexpr std::array<std::string_view, 3> k_SpreadingNames{ "Mitsuyasu", "Hasselmann", "Donelan-Banner" };
         const uint32_t spreading = std::min(settings.Spectrum.DirectionalSpreadingMode, 2u);
-        return std::format("{} size {} {} {}", settings.Kernel == ocean::IfftKernel::Radix2 ? "Radix2" : "Radix4", settings.Size,
+        return std::format("size {} {} {}", settings.Size,
             settings.WaveSize == 0u ? std::string{ "no wave ops" } : std::format("wave {}", settings.WaveSize), k_SpreadingNames[spreading]);
     }
 
@@ -659,18 +659,14 @@ int main()
         {
             waveSizes.push_back(context.WaveSize);
         }
-        for (const ocean::IfftKernel kernel : { ocean::IfftKernel::Radix2, ocean::IfftKernel::Radix4 })
+        for (const uint32_t waveSize : waveSizes)
         {
-            for (const uint32_t waveSize : waveSizes)
+            for (const uint32_t size : { 256u, 512u })
             {
-                for (const uint32_t size : { 256u, 512u })
-                {
-                    ocean::OceanSimulationSettings settings{};
-                    settings.Size = size;
-                    settings.Kernel = kernel;
-                    settings.WaveSize = waveSize;
-                    failures += TestIfft(context, settings);
-                }
+                ocean::OceanSimulationSettings settings{};
+                settings.Size = size;
+                settings.WaveSize = waveSize;
+                failures += TestIfft(context, settings);
             }
         }
 
@@ -681,7 +677,6 @@ int main()
         {
             ocean::OceanSimulationSettings settings{};
             settings.Size = 256u;
-            settings.Kernel = ocean::IfftKernel::Radix4;
             settings.WaveSize = context.WaveSize;
             settings.Spectrum.DirectionalSpreadingMode = spreading;
             // the wave height band is for the wind sea alone: the swell adds its own energy
@@ -692,7 +687,6 @@ int main()
         // the editor's whole pipe, swell included: the default sea state's spectrum against its own readout
         ocean::OceanSimulationSettings seaStateSettings{};
         seaStateSettings.Size = 256u;
-        seaStateSettings.Kernel = ocean::IfftKernel::Radix4;
         seaStateSettings.WaveSize = context.WaveSize;
         seaStateSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, seaStateSettings.Spectrum).Spectrum;
         failures += TestPipeline(context, seaStateSettings, 3.25f);
