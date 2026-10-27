@@ -7,7 +7,13 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from .db_store import init_db
+try:
+    from .db_store import init_db
+except ImportError:
+    script_dir = Path(__file__).resolve().parent
+    if str(script_dir) not in sys.path:
+        sys.path.insert(0, str(script_dir))
+    from db_store import init_db
 
 
 def to_markdown_table(headers: List[str], rows: List[List[str]]) -> str:
@@ -92,6 +98,31 @@ class BenchmarkDB:
             WHERE run_id = ?
             ORDER BY bottleneck_id ASC;
         """, (run_id,))
+        return [dict(r) for r in cursor.fetchall()]
+
+    def get_metrics(
+        self,
+        run_id: int,
+        shader_id: Optional[int] = None,
+        category: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve all recorded metrics for a given run, optionally filtered by shader and category."""
+        query = """
+            SELECT m.metric_id, m.run_id, m.shader_id, s.shader_name,
+                   m.category, m.metric_name, m.metric_value, m.unit, m.pct_of_peak
+            FROM metrics m
+            LEFT JOIN shaders s ON m.shader_id = s.shader_id
+            WHERE m.run_id = ?
+        """
+        params: List[Any] = [run_id]
+        if shader_id is not None:
+            query += " AND m.shader_id = ?"
+            params.append(shader_id)
+        if category is not None:
+            query += " AND m.category = ?"
+            params.append(category)
+        query += " ORDER BY m.metric_id ASC;"
+        cursor = self.conn.execute(query, tuple(params))
         return [dict(r) for r in cursor.fetchall()]
 
     def compare_runs(self, run_id_a: int, run_id_b: int) -> Dict[str, Any]:
@@ -213,6 +244,42 @@ def format_bottlenecks_md(run_id: int, bottlenecks: List[Dict[str, Any]]) -> str
     return f"### Bottlenecks (Run {run_id})\n\n{table}"
 
 
+def format_metrics_md(run_id: int, metrics: List[Dict[str, Any]]) -> str:
+    """Format metrics list into a GitHub markdown table."""
+    if not metrics:
+        return f"### Metrics (Run {run_id})\n\n_No metrics recorded for Run {run_id}._"
+
+    headers = ["ID", "Shader", "Category", "Metric Name", "Value", "Unit", "% Peak"]
+    rows = []
+    for m in metrics:
+        val = m.get("metric_value")
+        if val is None:
+            val_str = "-"
+        elif isinstance(val, float):
+            val_str = f"{val:.4f}".rstrip("0").rstrip(".") if "." in f"{val:.4f}" else f"{val:.4f}"
+        else:
+            val_str = str(val)
+
+        pct = m.get("pct_of_peak")
+        pct_str = f"{pct:.2f}%" if pct is not None else "-"
+
+        shader_name = m.get("shader_name")
+        shader_id = m.get("shader_id")
+        shader_str = shader_name if shader_name else (f"Shader #{shader_id}" if shader_id else "-")
+
+        rows.append([
+            str(m.get("metric_id", "")),
+            shader_str,
+            str(m.get("category") or ""),
+            str(m.get("metric_name") or ""),
+            val_str,
+            str(m.get("unit") or ""),
+            pct_str,
+        ])
+    table = to_markdown_table(headers, rows)
+    return f"### Detailed Metrics (Run {run_id})\n\n{table}"
+
+
 def format_compare_runs_md(cmp: Dict[str, Any]) -> str:
     """Format run comparison dictionary into GitHub markdown tables."""
     run_a = cmp["run_a"]
@@ -264,6 +331,9 @@ def main() -> int:
     parser.add_argument("--db", default="profiler.db", help="Path to SQLite database (default: profiler.db)")
     parser.add_argument("--latest", action="store_true", help="Display summary of the latest run")
     parser.add_argument("--run", type=int, help="Specify run ID to query")
+    parser.add_argument("--shader", type=int, help="Filter metrics by shader ID")
+    parser.add_argument("--category", help="Filter metrics by category")
+    parser.add_argument("--metrics", action="store_true", help="Display detailed metrics table for a run or shader")
     parser.add_argument("--bottlenecks", action="store_true", help="Display diagnosed bottlenecks")
     parser.add_argument("--compare", nargs=2, type=int, metavar=("ID1", "ID2"), help="Compare two profiling runs")
     parser.add_argument("--json", action="store_true", help="Output results in JSON format")
@@ -292,7 +362,16 @@ def main() -> int:
                 print("No runs found in database.", file=sys.stderr)
                 return 1
 
-        # 3. Bottlenecks only
+        # 3. Metrics only mode
+        if args.metrics and not args.latest:
+            metrics = db.get_metrics(target_run_id, shader_id=args.shader, category=args.category)
+            if args.json:
+                print(json.dumps(metrics, indent=2))
+            else:
+                print(format_metrics_md(target_run_id, metrics))
+            return 0
+
+        # 4. Bottlenecks only
         if args.bottlenecks and not args.latest:
             bottlenecks = db.get_bottlenecks(target_run_id)
             if args.json:
@@ -301,13 +380,15 @@ def main() -> int:
                 print(format_bottlenecks_md(target_run_id, bottlenecks))
             return 0
 
-        # 4. Run summary (latest or specified run)
+        # 5. Run summary (latest or specified run)
         summary = db.get_run_summary(target_run_id)
         if not summary:
             print(f"Run ID {target_run_id} not found.", file=sys.stderr)
             return 1
 
         if args.json:
+            if args.metrics:
+                summary["metrics"] = db.get_metrics(target_run_id, shader_id=args.shader, category=args.category)
             if args.bottlenecks:
                 print(json.dumps(summary["bottlenecks"], indent=2))
             else:
@@ -316,6 +397,9 @@ def main() -> int:
             print(format_run_summary_md(summary))
             if args.bottlenecks:
                 print("\n" + format_bottlenecks_md(target_run_id, summary["bottlenecks"]))
+            if args.metrics:
+                metrics = db.get_metrics(target_run_id, shader_id=args.shader, category=args.category)
+                print("\n" + format_metrics_md(target_run_id, metrics))
 
         return 0
     finally:

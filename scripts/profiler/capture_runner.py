@@ -10,14 +10,29 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .db_store import (
-    analyze_bottlenecks,
-    init_db,
-    insert_metric,
-    insert_pass,
-    insert_run,
-    insert_shader,
-)
+try:
+    from .db_store import (
+        analyze_bottlenecks,
+        ingest_ncu_report,
+        init_db,
+        insert_metric,
+        insert_pass,
+        insert_run,
+        insert_shader,
+    )
+except ImportError:
+    script_dir = Path(__file__).resolve().parent
+    if str(script_dir) not in sys.path:
+        sys.path.insert(0, str(script_dir))
+    from db_store import (
+        analyze_bottlenecks,
+        ingest_ncu_report,
+        init_db,
+        insert_metric,
+        insert_pass,
+        insert_run,
+        insert_shader,
+    )
 
 
 def get_git_commit() -> str:
@@ -350,7 +365,8 @@ def run_present_mode(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Automated Nsight & Benchmark Profiler Runner")
-    parser.add_argument("--exe", required=True, help="Path to executable binary")
+    parser.add_argument("--exe", default=None, help="Path to executable binary")
+    parser.add_argument("--ncu-rep", default=None, help="Path to an .ncu-rep file to import directly")
     parser.add_argument("--args", default="", help="Command-line arguments to pass to the binary")
     parser.add_argument("--frames", type=int, default=60, help="Number of frames to profile (default: 60)")
     parser.add_argument("--warmup", type=int, default=5, help="Warmup frames or capture trigger frame (default: 5)")
@@ -363,6 +379,18 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+
+    if args.ncu_rep:
+        conn = init_db(args.db)
+        try:
+            run_id = ingest_ncu_report(conn, args.ncu_rep)
+            print(f"[Profiler] Successfully ingested NCU report '{args.ncu_rep}' as run {run_id}.")
+            return 0
+        finally:
+            conn.close()
+
+    if not args.exe:
+        parser.error("argument --exe is required when not importing an .ncu-rep file")
 
     mode = args.mode
     if mode == "auto":
