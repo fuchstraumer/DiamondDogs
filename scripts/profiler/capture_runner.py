@@ -1,4 +1,4 @@
-"""Automated profiler capture and execution runner for DiamondDogs."""
+"""Execute GPU workload captures and record profiling metrics."""
 
 import argparse
 import csv
@@ -36,7 +36,10 @@ except ImportError:
 
 
 def get_git_commit() -> str:
-    """Retrieve current HEAD commit hash from git."""
+    """Retrieve the current HEAD commit hash from git.
+
+    Return the commit hash or unknown.
+    """
     try:
         res = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -50,7 +53,10 @@ def get_git_commit() -> str:
 
 
 def get_gpu_info() -> Tuple[str, str]:
-    """Retrieve GPU model name and driver version via nvidia-smi."""
+    """Retrieve GPU model name and driver version through nvidia-smi.
+
+    Return a tuple containing the GPU name and driver version.
+    """
     try:
         res = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
@@ -70,7 +76,10 @@ def get_gpu_info() -> Tuple[str, str]:
 
 
 def locate_nsight_tools() -> Tuple[Path, Path]:
-    """Locate ngfx-capture.exe and ngfx-replay.exe CLI tools."""
+    """Locate Nsight Graphics capture and replay executable tools.
+
+    Return paths to ngfx-capture and ngfx-replay binaries.
+    """
     primary_dir = Path(
         r"C:\Program Files\NVIDIA Corporation\Nsight Graphics 2026.3.1\host\windows-desktop-nomad-x64"
     )
@@ -91,7 +100,10 @@ def locate_nsight_tools() -> Tuple[Path, Path]:
 
 
 def parse_benchmark_output(output_text: str) -> Tuple[Optional[str], int, List[str], List[Dict[str, Any]]]:
-    """Parse benchmark timing table (such as OceanFftBenchmark) from stdout."""
+    """Parse benchmark timing tables from standard output text.
+
+    Return parsed GPU name, ticks per config, scopes, and rows.
+    """
     scopes: List[str] = []
     rows: List[Dict[str, Any]] = []
     gpu_name: Optional[str] = None
@@ -138,7 +150,10 @@ def parse_benchmark_output(output_text: str) -> Tuple[Optional[str], int, List[s
 
 
 def run_benchmark_mode(args: argparse.Namespace) -> int:
-    """Execute benchmark binary directly and ingest timing table."""
+    """Execute the benchmark binary and ingest timing results.
+
+    Return the process exit code.
+    """
     exe_path = Path(args.exe).resolve()
     if not exe_path.exists():
         raise FileNotFoundError(f"Executable not found: {exe_path}")
@@ -214,7 +229,10 @@ def run_benchmark_mode(args: argparse.Namespace) -> int:
 
 
 def run_present_mode(args: argparse.Namespace) -> int:
-    """Execute application through Nsight Graphics capture and replay."""
+    """Profile the application through Nsight Graphics capture and replay.
+
+    Return the process exit code.
+    """
     exe_path = Path(args.exe).resolve()
     if not exe_path.exists():
         raise FileNotFoundError(f"Executable not found: {exe_path}")
@@ -364,6 +382,10 @@ def run_present_mode(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    """Parse command-line arguments and run the selected profiler workflow.
+
+    Return the exit status code.
+    """
     parser = argparse.ArgumentParser(description="Automated Nsight & Benchmark Profiler Runner")
     parser.add_argument("--exe", default=None, help="Path to executable binary")
     parser.add_argument("--ncu-rep", default=None, help="Path to an .ncu-rep file to import directly")

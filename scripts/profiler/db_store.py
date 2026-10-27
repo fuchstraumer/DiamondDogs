@@ -1,4 +1,4 @@
-"""Database storage and analysis for automated GPU profiling metrics."""
+"""Store and analyze automated GPU profiling metrics in SQLite."""
 
 import sqlite3
 from datetime import datetime, timezone
@@ -15,7 +15,10 @@ except ImportError:
 
 
 def init_db(db_path: Union[str, Path]) -> sqlite3.Connection:
-    """Initialize SQLite database with required tables for profiler runs."""
+    """Initialize the SQLite database with required profiler tables.
+
+    Return the database connection.
+    """
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
@@ -104,7 +107,10 @@ def init_db(db_path: Union[str, Path]) -> sqlite3.Connection:
 
 
 def insert_run(conn: sqlite3.Connection, run_data: Dict[str, Any]) -> int:
-    """Insert a new run entry and return its run_id."""
+    """Insert a new run entry into the database.
+
+    Return the run identifier.
+    """
     query = """
         INSERT INTO runs (
             timestamp, binary_name, binary_path, command_args,
@@ -134,7 +140,10 @@ def insert_run(conn: sqlite3.Connection, run_data: Dict[str, Any]) -> int:
 
 
 def insert_pass(conn: sqlite3.Connection, pass_data: Dict[str, Any]) -> int:
-    """Insert a pass timing record and return its pass_id."""
+    """Insert a pass timing record into the database.
+
+    Return the pass identifier.
+    """
     query = """
         INSERT INTO passes (
             run_id, pass_name, queue_family, duration_ns, iteration
@@ -155,7 +164,10 @@ def insert_pass(conn: sqlite3.Connection, pass_data: Dict[str, Any]) -> int:
 
 
 def insert_shader(conn: sqlite3.Connection, shader_data: Dict[str, Any]) -> int:
-    """Insert shader static analysis metadata and return its shader_id."""
+    """Insert shader metadata into the database.
+
+    Return the shader identifier.
+    """
     query = """
         INSERT INTO shaders (
             run_id, pass_id, stage, shader_name, entry_point,
@@ -182,7 +194,10 @@ def insert_shader(conn: sqlite3.Connection, shader_data: Dict[str, Any]) -> int:
 
 
 def insert_metric(conn: sqlite3.Connection, metric_data: Dict[str, Any]) -> int:
-    """Insert profiling metric counter and return its metric_id."""
+    """Insert a profiling metric counter into the database.
+
+    Return the metric identifier.
+    """
     query = """
         INSERT INTO metrics (
             run_id, shader_id, category, metric_name,
@@ -207,7 +222,10 @@ def insert_metric(conn: sqlite3.Connection, metric_data: Dict[str, Any]) -> int:
 
 
 def analyze_bottlenecks(conn: sqlite3.Connection, run_id: int) -> None:
-    """Analyze profiling data for a given run and insert diagnosed bottlenecks."""
+    """Analyze profiling data for a specified run.
+
+    Insert diagnosed performance bottlenecks into the database.
+    """
     with conn:
         # Clear previous analysis for this run to keep analysis idempotent
         conn.execute("DELETE FROM bottlenecks WHERE run_id = ? AND category != 'ncu_rule';", (run_id,))
@@ -394,7 +412,10 @@ def ingest_ncu_report(
     report_path: Union[str, Path],
     run_id: Optional[int] = None,
 ) -> int:
-    """Ingest NVIDIA Nsight Compute (.ncu-rep) report file into profiler database."""
+    """Ingest an NVIDIA Nsight Compute report into the database.
+
+    Return the run identifier.
+    """
     if not HAS_NCU_REPORT or ncu_report is None:
         raise RuntimeError("ncu_report module is not available")
 
