@@ -8,7 +8,9 @@
 #include "ImGuiModule.hpp"
 #include "ImageDataFormats.hpp"
 #include "ManifestDescriptors.hpp"
+#include "FoamReplay.hpp"
 #include "Math.hpp"
+#include "OceanFoam.hpp"
 #include "OceanSimulation.hpp"
 #include "OceanUi.hpp"
 #include "PlatformSystem.hpp"
@@ -81,12 +83,14 @@ namespace
         std::array<float, 4> LodParameters{};
         // x: WhitecapThreshold, y: FoamAmount, z: FoamSpread, w: FoamContrast
         std::array<float, 4> WhitecapParameters{ 0.5f, 1.0f, 1.0f, 1.0f };
-        // x: 1 adds the persistent foam, y: its amount, zw: unused
+        // x: 1 lets the persistent foam raise the breaking threshold, y: the raise, z, w: texel size of clipmap levels 0 and 1 in meters
         std::array<float, 4> PersistentFoamParameters{};
-        // float4[4] in the shader: xy cascade 2i, zw cascade 2i + 1
-        std::array<float, 16> FoamDriftOffsets{};
+        // xy: the foam's drift-frame offset in world meters, zw: the world xz the clipmap windows are centered on
+        std::array<float, 4> FoamDrift{};
+        // x: residual foam amount, y: its dissolve softness, z: its noise cell size in meters, w: unused
+        std::array<float, 4> FoamResidualParameters{};
     };
-    static_assert(sizeof(OceanViewParameters) == 304u);
+    static_assert(sizeof(OceanViewParameters) == 272u);
 
     // OceanGridParameters, the push constants of both vertex stages
     struct OceanGridParameters
@@ -236,6 +240,15 @@ void OceanScene::Initialize(void* user_data)
         viewBufferPointers.push_back(map->GetPointer());
     }
 
+    // the foam binds the view buffers and the sampler, so it is created after them and destroyed before them
+    auto createdFoam = ocean::OceanFoam::Create(*device, *resources, *library, *simulation, viewBuffers, sampler, foamSettings);
+    if (!createdFoam.has_value())
+    {
+        throw std::runtime_error(std::format("OceanScene: the foam: {}", createdFoam.error()));
+    }
+
+    foam = std::move(*createdFoam);
+
     createRenderTargets();
     createRenderPrograms();
     std::cout << std::format("OceanFft: msaa {}x, anisotropy {}x, grid {}\n", static_cast<uint32_t>(msaaSamples), anisotropy, settings.GridResolution)
@@ -280,7 +293,7 @@ void OceanScene::createRenderPrograms()
     }
 
     // two sets per frame (surface, seabed), each with up to every simulation texture: Displacement, Derivatives,
-    // Whitecaps, Foam. A pool that is too small is not a validation error, but the sets past its end can alias
+    // Whitecaps, FoamClipmap. A pool that is too small is not a validation error, but the sets past its end can alias
     constexpr uint32_t k_SampledImagesPerSet = 4u;
     const std::array<VkDescriptorPoolSize, 3> poolSizes
     {
@@ -322,7 +335,7 @@ void OceanScene::createRenderPrograms()
                 { "Displacement", { simulation->Displacement(), VK_IMAGE_LAYOUT_GENERAL } },
                 { "Derivatives", { simulation->Derivatives(), VK_IMAGE_LAYOUT_GENERAL } },
                 { "Whitecaps", { simulation->Whitecaps(), VK_IMAGE_LAYOUT_GENERAL } },
-                { "Foam", { simulation->Foam(), VK_IMAGE_LAYOUT_GENERAL } },
+                { "FoamClipmap", { foam->Clipmap(), VK_IMAGE_LAYOUT_GENERAL } },
                 { "OceanSampler", { sampler } },
             };
 
@@ -420,6 +433,7 @@ void OceanScene::Destroy()
 
     imgui.reset();
     gpuTimers.reset();
+    foam.reset();
     surface = DrawProgram{};
     seabed = DrawProgram{};
 
@@ -537,7 +551,7 @@ void OceanScene::runCommand(const SceneCommand& command)
         setFoamField(command.Text, v[0]);
         break;
     case SceneCommand::Kind::FoamReset:
-        foamResetRequested = true;
+        foamReplayPending = true;
         break;
     case SceneCommand::Kind::Rotate:
         rotateCascades = command.Text == "on";
@@ -604,27 +618,31 @@ void OceanScene::setFoamField(std::string_view _name, float _value)
 {
     if (_name == "enable")
     {
-        persistentFoamEnabled = _value > 0.5f;
+        foamSettings.Enabled = _value > 0.5f;
     }
-    else if (_name == "amount")
+    else if (_name == "raise")
     {
-        persistentFoamAmount = std::max(_value, 0.0f);
+        foamSettings.ThresholdRaise = std::clamp(_value, 0.0f, 0.5f);
     }
     else if (_name == "decay")
     {
         foamSettings.DecayTime = std::max(_value, 0.1f);
     }
-    else if (_name == "threshold")
+    else if (_name == "gain")
     {
-        foamSettings.InjectThreshold = _value;
+        foamSettings.PersistenceGain = std::max(_value, 0.0f);
     }
-    else if (_name == "sharpness")
+    else if (_name == "residual")
     {
-        foamSettings.InjectSharpness = std::max(_value, 0.0f);
+        foamSettings.ResidualAmount = std::max(_value, 0.0f);
     }
-    else if (_name == "rate")
+    else if (_name == "softness")
     {
-        foamSettings.InjectRate = std::clamp(_value, 0.0f, 1.0f);
+        foamSettings.ResidualSoftness = std::max(_value, 0.01f);
+    }
+    else if (_name == "scale")
+    {
+        foamSettings.ResidualScale = std::max(_value, 0.05f);
     }
     else if (_name == "drift")
     {
@@ -659,9 +677,9 @@ void OceanScene::printState() const
         std::cout << ' ' << weight;
     }
 
-    std::cout << std::format("\npersistent foam {} amount {} decay {} threshold {} sharpness {} rate {} drift {}",
-        persistentFoamEnabled ? "on" : "off", persistentFoamAmount, foamSettings.DecayTime, foamSettings.InjectThreshold,
-        foamSettings.InjectSharpness, foamSettings.InjectRate, foamSettings.WindDrift);
+    std::cout << std::format("\npersistent foam {} raise {} decay {} gain {} drift {} residual {} softness {} scale {}",
+        foamSettings.Enabled ? "on" : "off", foamSettings.ThresholdRaise, foamSettings.DecayTime, foamSettings.PersistenceGain,
+        foamSettings.WindDrift, foamSettings.ResidualAmount, foamSettings.ResidualSoftness, foamSettings.ResidualScale);
 
     std::cout << "\nrotate cascades " << (rotateCascades ? "on" : "off");
     std::cout << '\n' << std::flush;
@@ -1066,9 +1084,22 @@ void OceanScene::drawPersistentFoamControls()
         "Persistent foam",
         "OFF",
         "ON",
-        &persistentFoamEnabled,
+        &foamSettings.Enabled,
         fonts,
         ocean::AccentTone::Ice);
+
+    (void)ocean::DrawArtistSlider(
+        "##foam_threshold_raise",
+        "Threshold raise",
+        "how far old foam raises the breaking threshold",
+        &foamSettings.ThresholdRaise,
+        0.0f,
+        0.5f,
+        std::format("{:.2f}", foamSettings.ThresholdRaise),
+        "",
+        fonts,
+        ocean::AccentTone::Ice,
+        false);
 
     (void)ocean::DrawArtistSlider(
         "##foam_decay",
@@ -1076,7 +1107,7 @@ void OceanScene::drawPersistentFoamControls()
         "seconds for foam to fall to 1/e",
         &foamSettings.DecayTime,
         0.1f,
-        10.0f,
+        20.0f,
         std::format("{:.2f}", foamSettings.DecayTime),
         "s",
         fonts,
@@ -1084,40 +1115,53 @@ void OceanScene::drawPersistentFoamControls()
         false);
 
     (void)ocean::DrawArtistSlider(
-        "##foam_inject_threshold",
-        "Inject threshold",
-        "Jacobian below which a crest leaves foam",
-        &foamSettings.InjectThreshold,
-        -0.5f,
-        1.0f,
-        std::format("{:.2f}", foamSettings.InjectThreshold),
-        "",
-        fonts,
-        ocean::AccentTone::Ice,
-        false);
-
-    (void)ocean::DrawArtistSlider(
-        "##foam_inject_sharpness",
-        "Inject sharpness",
-        "how fast injection rises below the threshold",
-        &foamSettings.InjectSharpness,
-        0.5f,
-        16.0f,
-        std::format("{:.2f}", foamSettings.InjectSharpness),
-        "",
-        fonts,
-        ocean::AccentTone::Ice,
-        false);
-
-    (void)ocean::DrawArtistSlider(
-        "##foam_inject_rate",
-        "Inject rate",
-        "foam value that a crest leaves",
-        &foamSettings.InjectRate,
+        "##foam_gain",
+        "Persistence gain",
+        "1: stored foam is the coverage averaged over the decay time, higher saturates",
+        &foamSettings.PersistenceGain,
         0.0f,
+        8.0f,
+        std::format("{:.2f}", foamSettings.PersistenceGain),
+        "x",
+        fonts,
+        ocean::AccentTone::Ice,
+        false);
+
+    (void)ocean::DrawArtistSlider(
+        "##foam_residual",
+        "Residual amount",
+        "area of old foam per unit of stored foam: 4 draws 40 % where 0.1 is stored",
+        &foamSettings.ResidualAmount,
+        0.0f,
+        8.0f,
+        std::format("{:.2f}", foamSettings.ResidualAmount),
+        "x",
+        fonts,
+        ocean::AccentTone::Ice,
+        false);
+
+    (void)ocean::DrawArtistSlider(
+        "##foam_residual_softness",
+        "Dissolve softness",
+        "edge width of the residual foam as it dissolves",
+        &foamSettings.ResidualSoftness,
+        0.01f,
         1.0f,
-        std::format("{:.2f}", foamSettings.InjectRate),
+        std::format("{:.2f}", foamSettings.ResidualSoftness),
         "",
+        fonts,
+        ocean::AccentTone::Ice,
+        false);
+
+    (void)ocean::DrawArtistSlider(
+        "##foam_residual_scale",
+        "Dissolve scale",
+        "noise cell size of the residual foam",
+        &foamSettings.ResidualScale,
+        0.1f,
+        10.0f,
+        std::format("{:.2f}", foamSettings.ResidualScale),
+        "m",
         fonts,
         ocean::AccentTone::Ice,
         false);
@@ -1135,22 +1179,9 @@ void OceanScene::drawPersistentFoamControls()
         ocean::AccentTone::Ice,
         false);
 
-    (void)ocean::DrawArtistSlider(
-        "##persistent_foam_amount",
-        "Persistent amount",
-        "0: none, 1: as stored, 2: boosted",
-        &persistentFoamAmount,
-        0.0f,
-        2.0f,
-        std::format("{:.2f}", persistentFoamAmount),
-        "x",
-        fonts,
-        ocean::AccentTone::Ice,
-        false);
-
-    if (ImGui::Button("Reset foam"))
+    if (ImGui::Button("Rebuild foam"))
     {
-        foamResetRequested = true;
+        foamReplayPending = true;
     }
 }
 
@@ -1230,18 +1261,39 @@ void OceanScene::update()
         }
         needsInitialize = true;
         spectrumChanged = false;
+        foamReplayPending = true;
     }
 
     simulation->SetChoppiness(choppiness);
-    simulation->SetFoamSettings(foamSettings);
+    advanceFoam(foamStep);
+}
 
-    if (foamResetRequested)
+void OceanScene::advanceFoam(double delta_seconds)
+{
+    foam->SetSettings(foamSettings);
+    // centered on the orbit target, not the eye: zoom and orbit then leave the window where it is, so a paused
+    // camera move does not scroll it and replay the foam
+    const ArcballCamera::Vector3 target = camera.Current.Target;
+    foam->Advance(delta_seconds, { target[0], target[2] }, spectrum.LocalWindDirection, spectrum.WindSpeed);
+
+    FoamReplayInputs inputs{};
+    inputs.Foam = foam->Settings();
+    inputs.Whitecaps = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.FoamSpread, seaState.FoamContrast };
+    inputs.FoamWeights = foamWeights;
+    inputs.CascadeEnabled = cascadeEnabled;
+    inputs.Choppiness = choppiness;
+    inputs.WindowOrigins = foam->WindowOrigins();
+
+    // a running sea fills a new foam in by itself, but a paused one would show nothing new until time passes. The
+    // foam also has no history from before it was switched on
+    const bool switchedOn = inputs.Foam.Enabled && !lastReplayInputs.Foam.Enabled;
+
+    if (switchedOn || (paused && inputs != lastReplayInputs))
     {
-        simulation->ResetFoam();
-        foamResetRequested = false;
+        foamReplayPending = true;
     }
 
-    simulation->AdvanceFoam(foamStep);
+    lastReplayInputs = inputs;
 }
 
 void OceanScene::writeViewParameters()
@@ -1265,8 +1317,7 @@ void OceanScene::writeViewParameters()
     view.SunDirectionSeabedDepth = { std::sin(sunAzimuth) * cosElevation, std::sin(sunElevation), std::cos(sunAzimuth) * cosElevation, seabedDepth };
     view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), rotateCascades ? 1.0f : 0.0f, 0.0f };
     view.WhitecapParameters = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.FoamSpread, seaState.FoamContrast };
-    view.PersistentFoamParameters = { persistentFoamEnabled ? 1.0f : 0.0f, persistentFoamAmount, 0.0f, 0.0f };
-    view.FoamDriftOffsets = simulation->FoamDriftOffsets();
+    foam->FillView(view.PersistentFoamParameters, view.FoamDrift, view.FoamResidualParameters);
 
     // beginFrame waited on this frame's fence, so the GPU is done with this frame's buffer
     std::memcpy(viewBufferPointers[currentFrame], &view, sizeof(view));
@@ -1332,19 +1383,39 @@ void OceanScene::recordCommands()
         needsInitialize = false;
     }
 
+    // the previous frame's draws sampled the textures this tick rewrites, with the resolve and the mip generator. The
+    // previous tick's writes need a memory dependency too: write after write
+    const rhi::GlobalBarrier drawsToCompute
     {
-        const rhi::ScopedGpuTimer timer(timerBlock, "Ocean simulation");
-        // the previous frame's draws sampled the textures this tick rewrites, with the resolve and the mip generator. The
-        // previous tick's writes need a memory dependency too: write after write
-        const rhi::GlobalBarrier drawsToCompute
+        rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader | ocean::OceanSimulation::k_TickStages,
+        ocean::OceanSimulation::k_TickWriteAccess,
+        ocean::OceanSimulation::k_TickStages,
+        ocean::OceanSimulation::k_TickWriteAccess
+    };
+    cmd.Barrier(rhi::DependencyInfo{ std::span{ &drawsToCompute, 1 }, {}, {} });
+
+    // a replay ends with the tick and the foam step of this frame, so it takes the place of both
+    const bool replayFoam = foamReplayPending && foam->Settings().Enabled;
+    foamReplayPending = false;
+
+    if (replayFoam)
+    {
+        const rhi::ScopedGpuTimer timer(timerBlock, "Foam replay");
+        const ArcballCamera::Vector3 target = camera.Current.Target;
+        ocean::RecordFoamReplay(cmd, *simulation, *foam, currentFrame, static_cast<double>(simulationTime),
+            { target[0], target[2] }, spectrum.LocalWindDirection, spectrum.WindSpeed);
+    }
+    else
+    {
         {
-            rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader | ocean::OceanSimulation::k_TickStages,
-            ocean::OceanSimulation::k_TickWriteAccess,
-            ocean::OceanSimulation::k_TickStages,
-            ocean::OceanSimulation::k_TickWriteAccess
-        };
-        cmd.Barrier(rhi::DependencyInfo{ std::span{ &drawsToCompute, 1 }, {}, {} });
-        simulation->RecordTick(cmd, timerBlock, simulationTime);
+            const rhi::ScopedGpuTimer timer(timerBlock, "Ocean simulation");
+            simulation->RecordTick(cmd, timerBlock, simulationTime);
+        }
+
+        {
+            const rhi::ScopedGpuTimer timer(timerBlock, "Foam");
+            foam->RecordStep(cmd, currentFrame);
+        }
     }
 
     // the pass's scope also covers the attachment clears and the MSAA resolve at EndRendering, so it is ended by hand

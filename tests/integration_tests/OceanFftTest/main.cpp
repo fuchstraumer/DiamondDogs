@@ -452,112 +452,6 @@ namespace
         return failures;
     }
 
-    // OceanFoamSimCS with no drift (AdvanceFoam is never called, so the decay factor is 1 and the offsets 0). With the
-    // threshold far below any Jacobian, several ticks must leave the foam exactly 0. With the default threshold,
-    // the foam must be the injection of the Displacement.w read back in the same submit, within half rounding
-    int32_t TestFoam(const TestContext& context, const ocean::OceanSimulationSettings& settings, float time)
-    {
-        const std::string name = Describe(settings);
-        auto simulation = ocean::OceanSimulation::Create(context.Device, context.Resources, context.Library, settings);
-
-        if (!simulation.has_value())
-        {
-            std::cerr << std::format("[foam {}] {}\n", name, simulation.error());
-            return 1;
-        }
-
-        ocean::OceanSimulation& ocean = **simulation;
-        const uint32_t size = settings.Size;
-        const uint64_t elements = uint64_t{ size } * size * ocean::k_CascadeCount;
-        const uint64_t foamOffset = elements * 8u;
-        const uint64_t readbackBytes = foamOffset + elements * 2u;
-
-        const auto run = [&](float threshold, bool initialize, const Readback& readback)
-        {
-            ocean::FoamSettings foam = settings.Foam;
-            foam.InjectThreshold = threshold;
-            ocean.SetFoamSettings(foam);
-            rhi::GpuTimers timers(context.Device, rhi::GpuTimersCreateInfo{ context.Device.GetQueueFamilyIndices().Graphics, 1u, 16u });
-
-            return readback.Valid() && Submit(context.Device, [&](rhi::CommandBuffer& command_buffer)
-            {
-                rhi::GpuTimerBlock timerBlock(timers, command_buffer, 0u);
-
-                if (initialize)
-                {
-                    ocean.RecordInitialize(command_buffer);
-                }
-
-                // the same time each tick: the injection is the same, so max() must not change the foam after the first
-                for (uint32_t tick = 0u; tick < 4u; ++tick)
-                {
-                    ocean.RecordTick(command_buffer, timerBlock, time);
-                }
-
-                ComputeToCopyBarrier(command_buffer);
-
-                const std::array<std::pair<GraphicsResource, uint64_t>, 2> images
-                {
-                    std::pair{ ocean.Displacement(), uint64_t{ 0u } },
-                    std::pair{ ocean.Foam(), foamOffset }
-                };
-
-                for (const auto& [image, offset] : images)
-                {
-                    rhi::BufferImageCopy region{};
-                    region.BufferOffset = offset;
-                    region.LayerCount = ocean::k_CascadeCount;
-                    region.Width = size;
-                    region.Height = size;
-                    command_buffer.CopyImageToBuffer(rhi::ImageHandle{ image.VkHandle }, rhi::ImageLayout::General, readback.Handle(), std::span{ &region, 1 });
-                }
-
-                CopyToHostBarrier(command_buffer);
-            });
-        };
-
-        const Readback quiet(context.Resources, readbackBytes);
-        const Readback injected(context.Resources, readbackBytes);
-
-        if (!run(-1000.0f, true, quiet) || !run(settings.Foam.InjectThreshold, false, injected))
-        {
-            std::cerr << std::format("[foam {}] the dispatches did not finish\n", name);
-            return 1;
-        }
-
-        int32_t failures = 0;
-
-        const std::vector<uint16_t> quietFoam = quiet.ReadRaw(foamOffset, elements);
-        const uint64_t quietNonZero = static_cast<uint64_t>(std::ranges::count_if(quietFoam, [](uint16_t h) { return h != 0u; }));
-        const bool quietPassed = quietFoam.size() == elements && quietNonZero == 0u;
-        (quietPassed ? std::cout : std::cerr) << std::format("[foam {}] no injection: {} of {} texels non-zero\n", name, quietNonZero, elements);
-        failures += quietPassed ? 0 : 1;
-
-        const std::vector<float> displacement = injected.ReadHalves(0u, elements * 4u);
-        const std::vector<float> foam = injected.ReadHalves(foamOffset, elements);
-        uint64_t nonFinite = 0u;
-        uint64_t mismatches = 0u;
-        uint64_t foamy = 0u;
-        float maxError = 0.0f;
-
-        for (uint64_t i = 0; i < elements; ++i)
-        {
-            const float jacobian = displacement[4u * i + 3u];
-            nonFinite += std::isfinite(jacobian) ? 0u : 1u;
-            const float expected = std::clamp((settings.Foam.InjectThreshold - jacobian) * settings.Foam.InjectSharpness, 0.0f, 1.0f) * settings.Foam.InjectRate;
-            const float error = std::abs(foam[i] - expected);
-            maxError = std::max(maxError, std::isfinite(error) ? error : 1.0f);
-            mismatches += error <= 2.0e-3f ? 0u : 1u;
-            foamy += foam[i] > 0.0f ? 1u : 0u;
-        }
-
-        const bool injectedPassed = foam.size() == elements && nonFinite == 0u && mismatches == 0u && foamy != 0u;
-        (injectedPassed ? std::cout : std::cerr) << std::format("[foam {}] injection: {} mismatches (max error {:.2e}), {} foamy texels, {} non-finite Jacobians\n",
-            name, mismatches, maxError, foamy, nonFinite);
-        failures += injectedPassed ? 0 : 1;
-        return failures;
-    }
-
     int32_t TestPipeline(const TestContext& context, const ocean::OceanSimulationSettings& settings, float time)
     {
         const std::string name = Describe(settings);
@@ -937,12 +831,6 @@ int main()
         // the default settings above run the fused kernels: run the unfused passes through the same checks too
         seaStateSettings.FusedKernels = false;
         failures += TestPipeline(context, seaStateSettings, 3.25f);
-
-        // the persistent foam, on a sea rough enough to fold: the default sea state at 512
-        ocean::OceanSimulationSettings foamSettings = seaStateSettings;
-        foamSettings.Size = 512u;
-        foamSettings.FusedKernels = true;
-        failures += TestFoam(context, foamSettings, 3.25f);
     }
 
     if (failures != 0)

@@ -587,6 +587,47 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
   `lodestone_client_library` under clang-cl (Lodestone request E4). `MAKE_ENUM_CLASS_FLAGS` is left for the author.
   All affected tests pass on both presets with zero validation messages.
 
+### 2026-10-26 (Opus with Sonnet and Haiku subagents: IFFT review, profiler, cascades, shared stages)
+
+- IfftRadix4: the agent-written optimization was explained to the author, then rewritten for readability with short
+  inline comments (author-approved for this one shader). Two tweaks: the stage 1 shuffle sends 2 values per round
+  instead of 4, and the final write uses `k * N/4 + lineThread` so the LDS read is conflict-free and the row store
+  coalesces. A float64 Python model matched numpy at every size before the build. The author committed it.
+- Radix-2 removed everywhere (the author deleted the shaders): `IfftKernel`, `Settings.Kernel`, the test loop, the
+  dead helpers in `OceanFftCommon.slang`. A missing `IfftRadix2CS` entry point aborted the app with 0xC0000409 and no
+  message (stdout was lost on abort). Missing shader content should report, not abort: candidate Lodestone request.
+- Profiler scripts (`scripts/profiler`): the previous agents' version never stored a counter (7 runs, 0 metrics),
+  targeted Nsight Compute (not installed, does not profile Vulkan), and had heuristics on invented metric names. A
+  Sonnet pass fixed submit and present modes (4 present-mode bugs confirmed live) and the schema (v2). A Haiku pass
+  added `--mode gputrace` / `--gputrace-dir` and schema v3 (`metrics.pass_id`). `--architecture Ada` is required, or
+  ngfx ignores `--multi-pass-metrics`. 29 tests pass.
+- GPU Trace facts: the headless benchmark cannot be traced (no present); trace the windowed app. Counter access needs
+  the NVIDIA Control Panel run as admin (`RmProfilingAdminOnly` = 0). Clocks are locked to base. Validation inflates
+  some scopes (Mips 0.87 ms on, 0.18 ms off).
+- RhiSystem: `Device::SetupDebugUtils` now needs only `VK_EXT_debug_utils`, not validation, so GpuTimers labels exist
+  in profiling runs. `RhiSystem::setupObjectNaming` still keys object names to the validation messenger (unchanged).
+  All RHI and OceanFft tests pass on both presets.
+- OceanFft is now 5 cascades with IFFT_SIZE at most 512 (Haiku). Per-cascade uniforms are `float4[2]` with accessors.
+  Default length scales 1024, 238, 55.4, 12.9, 3.0 m (ratio about 4.3, not tuned by eye).
+- Shared stages (Haiku): `OceanFftStages.slang` (tick, resolve, radix-4 line functions) and `OceanFftEntryPoints.slang`.
+  OceanFftTest output was text-identical before and after. Then WaveData holds omega only (k is rebuilt from the
+  index), and Whitecaps is r16f holding k_i^2: Dupuy's k_i equals J - 1 + 1/n exactly, and J is in Displacement.w.
+- Live GPU Trace at the 512 default (an NVENC encode ran at the same time): Ocean simulation 0.198 ms in total
+  (it was 0.915 ms at 4 x 1024). Surface 1.248 ms, L1TEX at 77 %. Fusion (step C) is on hold pending the author's
+  choice, because the Surface pass now dominates.
+- `docs/ocean-fidelity-survey.md` (Sonnet) with 10 references in `../DocParse/results/ocean/`.
+- Fused kernels (Sonnet): `OceanTickRowsCS` and `OceanColumnsResolveCS`, bit-identical to the unfused path (test).
+  Only 7 % faster at 512 and 13 % at 256: the data is L2-resident now. Fused is the default; `--unfused` A/Bs it.
+- Surface sweep (GPU Trace, one frame each): 8x MSAA and 16x anisotropy cost most (MSAA off -62 %, 4x+4x -52 %),
+  and grid density matters (overshading). Defaults are now 4x MSAA and 4x anisotropy.
+- Fixed ring-seam cracks: a vertex shared by two grid rings sampled each ring's own mip (`OceanSurface.slang`).
+- Experiment controls: `--msaa`, `--aniso`, `--grid-resolution`; commands `preset`, `sea`, `cascade`, `choppiness`,
+  `ui`, `foamweight`, `rotate`; capture scripts in `applications/OceanFft/scripts/`. Captures divide out the
+  348/80 paper-white scale. Camera distance up to 10 km (the grid covers only about 3.2 km).
+- Tiling: no lattice peak is measurable up close; cascade 4 (3 m) produced most of the foam speckle. Per-cascade foam
+  weights (default 1, 1, 1, 0.7, 0.35) put the foam on the crests. The rotation toggle rotates each cascade's wave
+  field, so it also turns that cascade's wave direction: wrong for a wind-aligned sea. Offsets alone keep direction.
+
 ## 10. RhiResources: questions for the author, and inputs for the design session
 
 ### Questions (the port made a choice; each one is easy to reverse)

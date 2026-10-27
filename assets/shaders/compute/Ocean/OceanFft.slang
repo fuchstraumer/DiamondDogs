@@ -9,4 +9,3 @@ __include Spectra;
 __include InitSpectrum;
 __include OceanFftStages;
 __include OceanFftEntryPoints;
-__include OceanFoamSim;

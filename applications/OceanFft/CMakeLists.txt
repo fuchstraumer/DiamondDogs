@@ -68,6 +68,18 @@ add_dependencies(ocean_simulation ocean_fft_shaders)
 set_target_properties(ocean_simulation PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(ocean_simulation LIBRARY)
 
+# ocean_foam is the persistent foam: the clipmap, its compute step, and the replay that rebuilds it. It is a library on its
+# own so that a test can link it without the demo.
+add_library(ocean_foam STATIC
+    "foam/OceanFoam.cpp"
+    "foam/OceanFoam.hpp"
+    "foam/FoamReplay.cpp"
+    "foam/FoamReplay.hpp")
+target_include_directories(ocean_foam PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/foam")
+target_link_libraries(ocean_foam PUBLIC ocean_simulation)
+set_target_properties(ocean_foam PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+diamond_dogs_add_pch(ocean_foam LIBRARY)
+
 # The demo itself. It borrows the VulkanScene frame loop from the integration test fixtures until there is an
 # application framework to put it in.
 set(DIAMOND_DOGS_TEST_FIXTURES "${PROJECT_SOURCE_DIR}/tests/integration_tests/fixtures")
@@ -90,7 +102,7 @@ add_executable(OceanFft
 # platform_system does not export its include folder (ADD_INTEGRATION_TEST adds it by hand, too)
 target_include_directories(OceanFft PRIVATE "${DIAMOND_DOGS_TEST_FIXTURES}" "${PROJECT_SOURCE_DIR}/modules/PlatformSystem/include" "${CMAKE_BINARY_DIR}/include")
 target_compile_definitions(OceanFft PRIVATE "OCEAN_FFT_FONT_DIR=\"${PROJECT_SOURCE_DIR}/assets/fonts\"")
-target_link_libraries(OceanFft PRIVATE ocean_simulation frame_capture imgui_module platform_system glfw ${Vulkan_LIBRARY})
+target_link_libraries(OceanFft PRIVATE ocean_simulation ocean_foam frame_capture imgui_module platform_system glfw ${Vulkan_LIBRARY})
 set_target_properties(OceanFft PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(OceanFft LIBRARY)
 if (DIAMOND_DOGS_COMPILER_IS_CL)

@@ -26,12 +26,16 @@ public struct OceanViewParameters
     // x: WhitecapThreshold (breaking trigger [0, 1] -> [-0.2, 0.2]), y: FoamAmount (coverage scale),
     // z: FoamSpread (footprint dispersion), w: FoamContrast (falloff gamma)
     public float4 WhitecapParameters;
-    // x: 1 adds the persistent foam (OceanFoamSimCS) to the whitecaps, 0 leaves them as they were (A/B).
-    // y: persistent foam amount. zw unused
+    // the persistent foam (OceanFoam.slang). x: 1 lets it raise the breaking threshold, 0 leaves the whitecaps as
+    // they were (A/B). y: the threshold raise at foam 1, in Jacobian units. z, w: texel size of clipmap levels 0 and
+    // 1 in meters
     public float4 PersistentFoamParameters;
-    // the foam drift offset of each cascade in uv, wrapped to [0, 1): xy cascade 2i, zw cascade 2i + 1. The same
-    // values the foam pass got, so the foam reads back where it was written
-    public float4 FoamDriftOffsets[4];
+    // xy: the foam's drift-frame offset in world meters (world = frame + xy). zw: the world xz the clipmap windows
+    // are centered on (the orbit target)
+    public float4 FoamDrift;
+    // the residual foam, drawn on its own where the stored foam outlasts the breaking (OceanFoam.slang).
+    // x: amount, y: dissolve softness, z: noise cell size of the first octave in meters, w unused
+    public float4 FoamResidualParameters;
 };
 
 // Per draw, as push constants. The surface is square tiles of Size meters, each a grid of Resolution x Resolution
@@ -160,15 +164,12 @@ SamplerState OceanSampler;
 // [IFFT_SIZE, IFFT_SIZE, CASCADE_COUNT]
 [format("r16f")]
 Texture2DArray<float> Whitecaps;
-// written by OceanFoamSimCS: persistent foam coverage [0, 1], in each cascade's drifting frame (see FoamDriftOffset)
+// the persistent foam clipmap, one layer per level (OceanFoam.slang): OceanFoamStepCS writes it as storage, the
+// fragment stage samples it. Both bind the same image
 [format("r16f")]
-Texture2DArray<float> Foam;
-
-internal float2 FoamDriftOffset(uint cascade)
-{
-    const float4 pair = View.FoamDriftOffsets[cascade >> 1u];
-    return (cascade & 1u) == 0u ? pair.xy : pair.zw;
-}
+RWTexture2DArray<float> FoamClipmapStorage;
+[format("r16f")]
+Texture2DArray<float> FoamClipmap;
 
 internal float4 WorldToClip(float3 world_position)
 {

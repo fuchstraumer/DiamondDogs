@@ -4,6 +4,7 @@
 #include "ArcballCamera.hpp"
 #include "FrameCapture.hpp"
 #include "GpuTimers.hpp"
+#include "OceanFoam.hpp"
 #include "OceanSimulation.hpp"
 #include "OceanUi.hpp"
 #include "SeaState.hpp"
@@ -119,6 +120,8 @@ private:
     /** @brief Sets one persistent foam field by the name that the foam command uses */
     void setFoamField(std::string_view _name, float _value);
     void drawPersistentFoamControls();
+    /** @brief Moves the foam by this frame's step, and requests a replay when the foam's inputs changed */
+    void advanceFoam(double delta_seconds);
     /** @brief Prints the camera, the time, the sea state and the enabled cascades, for the print command */
     void printState() const;
     void writeViewParameters();
@@ -131,6 +134,7 @@ private:
     std::unique_ptr<ResourceContext> resources;
     std::unique_ptr<rhi::ShaderLibrary> library;
     std::unique_ptr<ocean::OceanSimulation> simulation;
+    std::unique_ptr<ocean::OceanFoam> foam;
     std::unique_ptr<ImGuiModule> imgui;
     std::vector<std::unique_ptr<rhi::CommandPool>> commandPools;
 
@@ -155,11 +159,25 @@ private:
     std::array<bool, ocean::k_CascadeCount> cascadeEnabled{ true, true, true, true, true };
     // per-cascade weight on the whitecap model's foam, 1 is as computed. Scene state, not part of the sea state
     std::array<float, ocean::k_CascadeCount> foamWeights{ 1.0f, 1.0f, 1.0f, 0.7f, 0.35f };
-    // the persistent foam (OceanFoamSim.slang). Off by default, so the default image is the one without it
+    // the persistent foam (OceanFoam.slang). Off by default, so the default image is the one without it
     ocean::FoamSettings foamSettings{};
-    bool persistentFoamEnabled{ false };
-    float persistentFoamAmount{ 1.0f };
-    bool foamResetRequested{ false };
+    // true rebuilds the foam on the GPU in the next frame (RecordFoamReplay), at most once per frame
+    bool foamReplayPending{ true };
+
+    // everything the foam's history depends on. While paused, a change to any of these rebuilds the foam, because
+    // the foam of the new values would otherwise show only as time passes
+    struct FoamReplayInputs
+    {
+        ocean::FoamSettings Foam{};
+        std::array<float, 4> Whitecaps{};
+        std::array<float, ocean::k_CascadeCount> FoamWeights{};
+        std::array<bool, ocean::k_CascadeCount> CascadeEnabled{};
+        float Choppiness{ 0.0f };
+        std::array<int32_t, 4> WindowOrigins{};
+
+        [[nodiscard]] bool operator==(const FoamReplayInputs& other) const = default;
+    };
+    FoamReplayInputs lastReplayInputs{};
     // tiling A/B: sample each cascade through its own rotation and offset (see CascadeUv in OceanRenderCommon.slang)
     bool rotateCascades{ false };
     float choppiness{ 1.0f };

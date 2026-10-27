@@ -72,9 +72,9 @@ namespace
         SeaStateField{ "FoamContrast", &ocean::SeaState::FoamContrast },
     };
 
-    const std::array<std::string_view, 7> k_FoamFields
+    const std::array<std::string_view, 8> k_FoamFields
     {
-        "enable", "amount", "decay", "threshold", "sharpness", "rate", "drift"
+        "enable", "raise", "decay", "gain", "drift", "residual", "softness", "scale"
     };
 
     std::vector<std::string_view> SplitWords(std::string_view line)

@@ -68,18 +68,6 @@ namespace ocean
             float Choppiness{ 1.0f };
         };
 
-        // OceanFoamSimParameters in OceanFoamSim.slang. DriftOffsets is float4[3]: cascade c is at float 2c
-        struct FoamSimPushConstants
-        {
-            float DecayFactor{ 1.0f };
-            float InjectThreshold{ 0.0f };
-            float InjectSharpness{ 0.0f };
-            float InjectRate{ 0.0f };
-            std::array<float, 16> DriftOffsets{};
-        };
-        static_assert(sizeof(FoamSimPushConstants) == 80u);
-        static_assert(k_CascadeCount <= 6u);
-
         constexpr uint32_t k_OutputImageCount = 2u;
 
         enum class Pass : uint8_t
@@ -91,16 +79,17 @@ namespace ocean
             Resolve,
             TickRows,
             ColumnsResolve,
-            FoamSim,
             Count
         };
         constexpr std::array<std::string_view, static_cast<size_t>(Pass::Count)> k_EntryPoints
         {
             "SpectrumInitCS", "SpectrumConjugateCS", "OceanTickCS", "IfftRadix4CS", "OceanResolveCS",
-            "OceanTickRowsCS", "OceanColumnsResolveCS", "OceanFoamSimCS"
+            "OceanTickRowsCS", "OceanColumnsResolveCS"
         };
 
         [[nodiscard]] ImageCreateInfo MakeCascadeScalarImageInfo(uint32_t size, uint32_t mip_levels, ImageUsageBits usage, std::string_view name);
+
+        void OpenTimer(std::optional<rhi::ScopedGpuTimer>& timer, rhi::GpuTimerBlock* timers, std::string_view name);
 
         struct PassProgram
         {
@@ -162,19 +151,13 @@ namespace ocean
         GraphicsResource DisplacementImage;
         GraphicsResource DerivativesImage;
         GraphicsResource WhitecapsImage;
-        GraphicsResource FoamImage;
         uint32_t MipLevels{ 1u };
 
-        // the foam state of the CPU. The offsets stay in double so that a long run does not lose the drift
-        std::array<std::array<double, 2>, k_CascadeCount> FoamOffsets{};
-        double FoamDecayFactor{ 1.0 };
-        bool FoamResetPending{ false };
         // fills both mip chains from mip 0, with NvproPyramid (modules/GpuPyramid). Image 0 is Displacement. The
         // targets are destroyed before their generator
         std::unique_ptr<pyramid::MipGenerator> MipGenerator;
         std::array<std::unique_ptr<pyramid::MipTarget>, k_OutputImageCount> MipTargets;
         std::unique_ptr<pyramid::MipTarget> WhitecapsMipTarget; // runs with same settings as the other mip targets, but specifically for the whitecaps image
-        std::unique_ptr<pyramid::MipTarget> FoamMipTarget;
 
         [[nodiscard]] const PassProgram& Program(Pass pass) const noexcept
         {
@@ -205,81 +188,18 @@ namespace ocean
             };
             command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &resolveToMips, 1 }, {}, {} });
 
-            const std::array<const pyramid::MipTarget*, 4> targets
+            const std::array<const pyramid::MipTarget*, 3> targets
             {
                 MipTargets[0].get(),
                 MipTargets[1].get(),
-                WhitecapsMipTarget.get(),
-                FoamMipTarget.get()
+                WhitecapsMipTarget.get()
             };
             MipGenerator->Record(command_buffer, targets);
 
         }
 
-        // moves the foam image to General and fills every mip and layer with 0, so that no garbage (a NaN would survive
-        // the decay) reaches the first foam dispatch. The offsets restart at 0 with it
-        void RecordFoamClear(rhi::CommandBuffer& command_buffer)
-        {
-            const rhi::ImageBarrier toClear
-            {
-                .Image=rhi::ImageHandle{ FoamImage.VkHandle },
-                .SrcStages=rhi::PipelineStage::None,
-                .SrcAccess=rhi::Access::None,
-                .DstStages=rhi::PipelineStage::Clear,
-                .DstAccess=rhi::Access::TransferWrite,
-                .OldLayout=rhi::ImageLayout::Undefined,
-                .NewLayout=rhi::ImageLayout::General
-            };
-            command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &toClear, 1 } });
-
-            const VkClearColorValue zero{};
-            const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, MipLevels, 0u, k_CascadeCount };
-            vkCmdClearColorImage(command_buffer.Handle().As<VkCommandBuffer>(), reinterpret_cast<VkImage>(FoamImage.VkHandle),
-                VK_IMAGE_LAYOUT_GENERAL, &zero, 1u, &range);
-
-            const rhi::GlobalBarrier clearToCompute
-            {
-                rhi::PipelineStage::Clear, rhi::Access::TransferWrite,
-                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite
-            };
-            command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &clearToCompute, 1 }, {}, {} });
-
-            FoamOffsets = {};
-            FoamResetPending = false;
-        }
-
-        // runs after the resolve and before the mips: it reads Displacement and updates Foam in place
-        void RecordFoam(rhi::CommandBuffer& command_buffer)
-        {
-            FoamSimPushConstants constants{};
-            constants.DecayFactor = static_cast<float>(FoamDecayFactor);
-            constants.InjectThreshold = Settings.Foam.InjectThreshold;
-            constants.InjectSharpness = Settings.Foam.InjectSharpness;
-            constants.InjectRate = Settings.Foam.InjectRate;
-
-            // a decay factor of 0 with no injection clears the image in one dispatch
-            if (FoamResetPending)
-            {
-                constants.DecayFactor = 0.0f;
-                constants.InjectRate = 0.0f;
-                FoamResetPending = false;
-            }
-
-            for (uint32_t cascade = 0u; cascade < k_CascadeCount; ++cascade)
-            {
-                const std::array<double, 2>& offset = FoamOffsets[cascade];
-                constants.DriftOffsets[2u * cascade] = static_cast<float>(offset[0]);
-                constants.DriftOffsets[2u * cascade + 1u] = static_cast<float>(offset[1]);
-            }
-
-            // the resolve wrote Displacement, and the mip pass that follows has its own barrier
-            ComputeBarrier(command_buffer);
-
-            const uint32_t groups = SpectrumGroups();
-            Bind(command_buffer, Pass::FoamSim);
-            PushConstants(command_buffer, *Program(Pass::FoamSim).Program, constants);
-            command_buffer.Dispatch(groups, groups, k_CascadeCount);
-        }
+        void RecordIfft(rhi::CommandBuffer& command_buffer) const;
+        void RecordTickPasses(rhi::CommandBuffer& command_buffer, rhi::GpuTimerBlock* timers, float time_seconds) const;
     };
 
     OceanSimulationImpl::~OceanSimulationImpl()
@@ -299,7 +219,6 @@ namespace ocean
         // their views must go before the images
         MipTargets = {};
         WhitecapsMipTarget.reset();
-        FoamMipTarget.reset();
         MipGenerator.reset();
 
         std::vector<std::shared_ptr<MessageReply>> replies;
@@ -311,7 +230,7 @@ namespace ocean
             }
         }
 
-        for (const GraphicsResource& resource : { CascadeParamsBuffer, SpectrumParamsBuffer, NormalizationLut, DisplacementImage, DerivativesImage, WhitecapsImage, FoamImage })
+        for (const GraphicsResource& resource : { CascadeParamsBuffer, SpectrumParamsBuffer, NormalizationLut, DisplacementImage, DerivativesImage, WhitecapsImage })
         {
             if (resource)
             {
@@ -377,6 +296,14 @@ namespace ocean
 
     namespace
     {
+        void OpenTimer(std::optional<rhi::ScopedGpuTimer>& timer, rhi::GpuTimerBlock* timers, std::string_view name)
+        {
+            if (timers != nullptr)
+            {
+                timer.emplace(*timers, name);
+            }
+        }
+
         ImageCreateInfo MakeCascadeScalarImageInfo(uint32_t size, uint32_t mip_levels, ImageUsageBits usage, std::string_view name)
         {
             ImageCreateInfo info{};
@@ -569,10 +496,6 @@ namespace ocean
         std::shared_ptr<GraphicsResourceReply> whitecapReply =
             resources.CreateImage(MakeCascadeScalarImageInfo(size, impl->MipLevels, k_ScalarImageUsage, "Ocean_Whitecaps"), {});
 
-        // the persistent foam. RecordInitialize clears it on the GPU, so no upload is needed. TransferDestination is for that clear
-        std::shared_ptr<GraphicsResourceReply> foamReply = resources.CreateImage(
-            MakeCascadeScalarImageInfo(size, impl->MipLevels, k_ScalarImageUsage | ImageUsageBits::TransferDestination, "Ocean_Foam"), {});
-
         const CascadeParameters cascadeParameters = MakeCascadeParameters(size, settings.LengthScales);
         const RhiBufferResourceData cascadeData{ std::as_bytes(std::span{ &cascadeParameters, 1 }), 0u };
         BufferCreateInfo cascadeInfo{};
@@ -648,8 +571,7 @@ namespace ocean
             !WaitForReply(lutReply) ||
             !WaitForReply(imageReplies[0]) ||
             !WaitForReply(imageReplies[1]) ||
-            !WaitForReply(whitecapReply) ||
-            !WaitForReply(foamReply))
+            !WaitForReply(whitecapReply))
         {
             return std::unexpected(std::string{ "creating the uniform buffers or the images failed" });
         }
@@ -660,7 +582,6 @@ namespace ocean
         impl->DisplacementImage = imageReplies[0]->GetResource();
         impl->DerivativesImage = imageReplies[1]->GetResource();
         impl->WhitecapsImage = whitecapReply->GetResource();
-        impl->FoamImage = foamReply->GetResource();
 
         // the mip chains: NvproPyramid is cooked into the same bundle as this module
         std::expected<std::unique_ptr<pyramid::MipGenerator>, std::string> generator =
@@ -705,24 +626,6 @@ namespace ocean
 
         impl->WhitecapsMipTarget = std::move(*whitecapTarget);
 
-        pyramid::MipTargetCreateInfo foamInfo
-        {
-            .Image=reinterpret_cast<VkImage>(impl->FoamImage.VkHandle),
-            .Format=VK_FORMAT_R16_SFLOAT,
-            .Width=size,
-            .Height=size,
-            .MipLevels=impl->MipLevels,
-            .ArrayLayers=k_CascadeCount
-        };
-        std::expected<std::unique_ptr<pyramid::MipTarget>, std::string> foamTarget = impl->MipGenerator->CreateTarget(foamInfo);
-
-        if (!foamTarget.has_value())
-        {
-            return std::unexpected(std::format("the mip target of foam image: {}", foamTarget.error()));
-        }
-
-        impl->FoamMipTarget = std::move(*foamTarget);
-
         // every pass has one descriptor set, set 0, with only the resources it reads
         constexpr std::array<VkDescriptorPoolSize, 5> k_PoolSizes
         {
@@ -752,8 +655,7 @@ namespace ocean
             { "normSampler", { impl->NormalizationLut } },
             { "Displacement", { impl->DisplacementImage } },
             { "Derivatives", { impl->DerivativesImage } },
-            { "Whitecaps", { impl->WhitecapsImage } },
-            { "Foam", { impl->FoamImage } }
+            { "Whitecaps", { impl->WhitecapsImage } }
         };
 
         for (size_t passIndex = 0; passIndex < impl->Programs.size(); ++passIndex)
@@ -840,7 +742,6 @@ namespace ocean
             }
         };
         command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, toGeneral });
-        impl->RecordFoamClear(command_buffer);
 
         const uint32_t groups = impl->SpectrumGroups();
         impl->Bind(command_buffer, Pass::SpectrumInit);
@@ -851,78 +752,96 @@ namespace ocean
         ComputeBarrier(command_buffer);
     }
 
-    void OceanSimulation::RecordIfft(rhi::CommandBuffer& command_buffer) const
+    void OceanSimulationImpl::RecordIfft(rhi::CommandBuffer& command_buffer) const
     {
-        const rhi::ManifestProgram& program = *impl->Program(Pass::IfftRadix4).Program;
-        impl->Bind(command_buffer, Pass::IfftRadix4);
+        const rhi::ManifestProgram& program = *Program(Pass::IfftRadix4).Program;
+        Bind(command_buffer, Pass::IfftRadix4);
         // one workgroup per 4 rows (or columns) of every slice of every cascade
         const uint32_t slices = k_CascadeCount * 2u;
-        const uint32_t yGroups = impl->Settings.Size / 4u;
+        const uint32_t yGroups = Settings.Size / 4u;
+
         for (const uint32_t transpose : { 0u, 1u })
         {
-            PushConstants(command_buffer, program, IfftPushConstants{ transpose, impl->Settings.WaveSize, 0u, 0u });
+            PushConstants(command_buffer, program, IfftPushConstants{ transpose, Settings.WaveSize, 0u, 0u });
             command_buffer.Dispatch(1, yGroups, slices);
             ComputeBarrier(command_buffer);
         }
     }
 
-    void OceanSimulation::RecordTick(rhi::CommandBuffer& command_buffer, rhi::GpuTimerBlock& timers, float time_seconds) const
+    void OceanSimulationImpl::RecordTickPasses(rhi::CommandBuffer& command_buffer, rhi::GpuTimerBlock* timers, float time_seconds) const
     {
-        const uint32_t groups = impl->SpectrumGroups();
+        const uint32_t groups = SpectrumGroups();
 
-        // a scope's timestamps are written when all earlier work is done, so each pass's time is its own
-        if (impl->Settings.FusedKernels)
+        // a scope's timestamps are written when all earlier work is done, so each pass's time is its own. A null
+        // `timers` records no scopes: the foam replay uses that
+        if (Settings.FusedKernels)
         {
             // one workgroup per 4 rows (or columns) of one cascade, with both slices inside
-            const uint32_t yGroups = impl->Settings.Size / 4u;
+            const uint32_t yGroups = Settings.Size / 4u;
 
             {
-                const rhi::ScopedGpuTimer timer(timers, "Tick + IFFT rows");
-                impl->Bind(command_buffer, Pass::TickRows);
-                PushConstants(command_buffer, *impl->Program(Pass::TickRows).Program, TickPushConstants{ time_seconds });
+                std::optional<rhi::ScopedGpuTimer> timer;
+                OpenTimer(timer, timers, "Tick + IFFT rows");
+                Bind(command_buffer, Pass::TickRows);
+                PushConstants(command_buffer, *Program(Pass::TickRows).Program, TickPushConstants{ time_seconds });
                 command_buffer.Dispatch(1, yGroups, k_CascadeCount);
                 ComputeBarrier(command_buffer);
             }
 
             {
-                const rhi::ScopedGpuTimer timer(timers, "IFFT columns + Resolve");
-                impl->Bind(command_buffer, Pass::ColumnsResolve);
-                PushConstants(command_buffer, *impl->Program(Pass::ColumnsResolve).Program, ResolvePushConstants{ impl->Settings.Choppiness });
+                std::optional<rhi::ScopedGpuTimer> timer;
+                OpenTimer(timer, timers, "IFFT columns + Resolve");
+                Bind(command_buffer, Pass::ColumnsResolve);
+                PushConstants(command_buffer, *Program(Pass::ColumnsResolve).Program, ResolvePushConstants{ Settings.Choppiness });
                 command_buffer.Dispatch(1, yGroups, k_CascadeCount);
             }
         }
         else
         {
             {
-                const rhi::ScopedGpuTimer timer(timers, "Spectrum tick");
-                impl->Bind(command_buffer, Pass::Tick);
-                PushConstants(command_buffer, *impl->Program(Pass::Tick).Program, TickPushConstants{ time_seconds });
+                std::optional<rhi::ScopedGpuTimer> timer;
+                OpenTimer(timer, timers, "Spectrum tick");
+                Bind(command_buffer, Pass::Tick);
+                PushConstants(command_buffer, *Program(Pass::Tick).Program, TickPushConstants{ time_seconds });
                 command_buffer.Dispatch(groups, groups, 1);
                 ComputeBarrier(command_buffer);
             }
 
             {
-                const rhi::ScopedGpuTimer timer(timers, "IFFT");
+                std::optional<rhi::ScopedGpuTimer> timer;
+                OpenTimer(timer, timers, "IFFT");
                 RecordIfft(command_buffer);
             }
 
             {
-                const rhi::ScopedGpuTimer timer(timers, "Resolve");
-                impl->Bind(command_buffer, Pass::Resolve);
-                PushConstants(command_buffer, *impl->Program(Pass::Resolve).Program, ResolvePushConstants{ impl->Settings.Choppiness });
+                std::optional<rhi::ScopedGpuTimer> timer;
+                OpenTimer(timer, timers, "Resolve");
+                Bind(command_buffer, Pass::Resolve);
+                PushConstants(command_buffer, *Program(Pass::Resolve).Program, ResolvePushConstants{ Settings.Choppiness });
                 command_buffer.Dispatch(groups, groups, k_CascadeCount);
             }
         }
 
         {
-            const rhi::ScopedGpuTimer timer(timers, "Foam");
-            impl->RecordFoam(command_buffer);
+            std::optional<rhi::ScopedGpuTimer> timer;
+            OpenTimer(timer, timers, "Mips");
+            RecordMips(command_buffer);
         }
+    }
 
-        {
-            const rhi::ScopedGpuTimer timer(timers, "Mips");
-            impl->RecordMips(command_buffer);
-        }
+    void OceanSimulation::RecordIfft(rhi::CommandBuffer& command_buffer) const
+    {
+        impl->RecordIfft(command_buffer);
+    }
+
+    void OceanSimulation::RecordTick(rhi::CommandBuffer& command_buffer, rhi::GpuTimerBlock& timers, float time_seconds) const
+    {
+        impl->RecordTickPasses(command_buffer, &timers, time_seconds);
+    }
+
+    void OceanSimulation::RecordTick(rhi::CommandBuffer& command_buffer, float time_seconds) const
+    {
+        impl->RecordTickPasses(command_buffer, nullptr, time_seconds);
     }
 
     bool OceanSimulation::SetSpectrum(const SpectrumParameters& spectrum)
@@ -936,54 +855,6 @@ namespace ocean
     void OceanSimulation::SetChoppiness(float choppiness) noexcept
     {
         impl->Settings.Choppiness = choppiness;
-    }
-
-    void OceanSimulation::SetFoamSettings(const FoamSettings& foam) noexcept
-    {
-        impl->Settings.Foam = foam;
-    }
-
-    void OceanSimulation::AdvanceFoam(double delta_seconds) noexcept
-    {
-        const OceanSimulationSettings& settings = impl->Settings;
-        const double decayTime = std::max(static_cast<double>(settings.Foam.DecayTime), 1.0e-3);
-        impl->FoamDecayFactor = std::exp(-delta_seconds / decayTime);
-
-        // LocalWindDirection is the angle of the wave vector in the (x, y) plane of the textures
-        const double windAngle = static_cast<double>(settings.Spectrum.LocalWindDirection);
-        const double driftSpeed = static_cast<double>(settings.Spectrum.WindSpeed) * static_cast<double>(settings.Foam.WindDrift);
-        const double driftX = std::cos(windAngle) * driftSpeed * delta_seconds;
-        const double driftY = std::sin(windAngle) * driftSpeed * delta_seconds;
-
-        for (uint32_t cascade = 0u; cascade < k_CascadeCount; ++cascade)
-        {
-            const double lengthScale = static_cast<double>(settings.LengthScales[cascade]);
-            std::array<double, 2>& offset = impl->FoamOffsets[cascade];
-            offset[0] += driftX / lengthScale;
-            offset[1] += driftY / lengthScale;
-            offset[0] -= std::floor(offset[0]);
-            offset[1] -= std::floor(offset[1]);
-        }
-    }
-
-    void OceanSimulation::ResetFoam() noexcept
-    {
-        impl->FoamOffsets = {};
-        impl->FoamResetPending = true;
-    }
-
-    std::array<float, 16> OceanSimulation::FoamDriftOffsets() const noexcept
-    {
-        std::array<float, 16> offsets{};
-
-        for (uint32_t cascade = 0u; cascade < k_CascadeCount; ++cascade)
-        {
-            const std::array<double, 2>& offset = impl->FoamOffsets[cascade];
-            offsets[2u * cascade] = static_cast<float>(offset[0]);
-            offsets[2u * cascade + 1u] = static_cast<float>(offset[1]);
-        }
-
-        return offsets;
     }
 
     void OceanSimulation::SetFusedKernels(bool fused) noexcept
@@ -1019,11 +890,6 @@ namespace ocean
     GraphicsResource OceanSimulation::Whitecaps() const noexcept
     {
         return impl->WhitecapsImage;
-    }
-
-    GraphicsResource OceanSimulation::Foam() const noexcept
-    {
-        return impl->FoamImage;
     }
 
     uint32_t OceanSimulation::MipLevels() const noexcept

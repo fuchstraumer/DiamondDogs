@@ -29,7 +29,7 @@ namespace rhi
 //            -> the mip chain of each texture (pyramid::MipGenerator, modules/GpuPyramid)
 // Fused:     OceanTickRowsCS (the tick and the IFFT rows) -> OceanColumnsResolveCS (the IFFT columns and the resolve)
 //            -> the mips. Same results, bit for bit, with less global memory traffic (FusedKernels, on by default)
-// Both paths run OceanFoamSimCS (persistent foam) after the resolve and before the mips.
+// The persistent foam is not part of this chain: it lives in applications/OceanFft/foam.
 namespace ocean
 {
     /** @brief SpectrumParameters in OceanFftCommon.slang, std140. Create() checks it against the manifest. */
@@ -75,22 +75,6 @@ namespace ocean
     constexpr uint32_t k_CascadeCount = 5u;
     static_assert(k_CascadeCount <= 8u);
 
-    /** @brief Settings of the persistent foam (OceanFoamSim.slang). The foam image is fixed in a frame that drifts
-     *  with the wind, so a cascade's foam moves by WindDrift times the wind speed. */
-    struct FoamSettings
-    {
-        /** @brief Seconds for the foam to fall to 1/e of its value */
-        float DecayTime{ 3.0f };
-        /** @brief The Jacobian below which a cascade injects foam. 1 is the rest state */
-        float InjectThreshold{ 0.4f };
-        /** @brief How fast injection goes from 0 to 1 per unit of Jacobian below the threshold */
-        float InjectSharpness{ 4.0f };
-        /** @brief The injected foam value, 0 to 1 */
-        float InjectRate{ 1.0f };
-        /** @brief The drift speed as a fraction of the wind speed */
-        float WindDrift{ 0.03f };
-    };
-
     struct OceanSimulationSettings
     {
         /** @brief One of the IFFT_SIZE axis values: 128, 256, 512 */
@@ -102,7 +86,6 @@ namespace ocean
         std::array<float, k_CascadeCount> LengthScales{ 1024.0f, 238.0f, 55.4f, 12.9f, 3.0f };
         SpectrumParameters Spectrum{};
         float Choppiness{ 1.0f };
-        FoamSettings Foam{};
         /** @brief true records the two fused kernels (tick + IFFT rows, IFFT columns + resolve) instead of the tick, the
          *  two IFFT passes and the resolve. Both paths give the same output. */
         bool FusedKernels{ true };
@@ -155,6 +138,8 @@ namespace ocean
          *  "IFFT", "Resolve", "Mips"; the fused path has "Tick + IFFT rows", "IFFT columns + Resolve", "Mips"). An
          *  inactive block, and every Release build, records no scopes */
         void RecordTick(rhi::CommandBuffer& command_buffer, rhi::GpuTimerBlock& timers, float time_seconds) const;
+        /** @brief The same work as the overload with timers, without GPU timer scopes. The foam replay records this */
+        void RecordTick(rhi::CommandBuffer& command_buffer, float time_seconds) const;
         /** @brief Only the two IFFT passes over IfftInput, in place. For tests */
         void RecordIfft(rhi::CommandBuffer& command_buffer) const;
 
@@ -162,16 +147,6 @@ namespace ocean
          *  submitted work still reads the uniform buffer */
         [[nodiscard]] bool SetSpectrum(const SpectrumParameters& spectrum);
         void SetChoppiness(float choppiness) noexcept;
-        void SetFoamSettings(const FoamSettings& foam) noexcept;
-        /** @brief Advances the foam decay factor and the drift offsets of every cascade by one step. Call it once per
-         *  frame, with the step that the simulation time advanced by (0 when paused: nothing decays or drifts). RecordTick
-         *  uses the result. */
-        void AdvanceFoam(double delta_seconds) noexcept;
-        /** @brief Clears the foam on the GPU in the next RecordTick, and zeros the drift offsets */
-        void ResetFoam() noexcept;
-        /** @brief Returns the drift offsets in uv, two floats per cascade (x then y), wrapped to [0, 1). The layout
-         *  matches FoamDriftOffsets in OceanViewParameters: cascade c is at index 2c, and the unused cascades are 0 */
-        [[nodiscard]] std::array<float, 16> FoamDriftOffsets() const noexcept;
         /** @brief Selects the fused or the unfused path of RecordTick. The caller makes sure no recording of the other
          *  path is still being built on another thread */
         void SetFusedKernels(bool fused) noexcept;
@@ -184,8 +159,6 @@ namespace ocean
         [[nodiscard]] GraphicsResource Displacement() const noexcept;
         [[nodiscard]] GraphicsResource Derivatives() const noexcept;
         [[nodiscard]] GraphicsResource Whitecaps() const noexcept;
-        /** @brief r16f 2D array like Whitecaps: the persistent foam coverage, 0 to 1 (only after RecordTick) */
-        [[nodiscard]] GraphicsResource Foam() const noexcept;
         [[nodiscard]] uint32_t MipLevels() const noexcept;
 
     private:

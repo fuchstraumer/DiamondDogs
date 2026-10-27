@@ -34,9 +34,10 @@
  *    cascade index on|off                  enable or disable one cascade, index 0 to 4
  *    foamweight index value                set one cascade's foam weight (0 to 1.5 in the UI, 1 is the whitecap
  *                                          model as computed), index 0 to 4
- *    foam field value                      set one persistent foam field: enable (0 or 1), amount (0 to 2), decay (seconds),
- *                                          threshold, sharpness, rate (0 to 1), drift (fraction of wind speed)
- *    foamreset                             clear the persistent foam and its drift
+ *    foam field value                      set one persistent foam field: enable (0 or 1), raise (threshold raise, 0 to 0.5),
+ *                                          decay (seconds), gain (persistence gain, 1 = averaged coverage), drift
+ *                                          (fraction of wind speed), residual (amount), softness, scale (meters)
+ *    foamreset                             rebuild the persistent foam by replaying its history
  *    rotate on|off                       rotate and offset each cascade's lattice when sampled (tiling A/B)
  *    capture [name]                        write this frame to <capture dir>/<name>.png. The commands after it
  *                                          run on the next frame, so the capture sees only the ones before it
