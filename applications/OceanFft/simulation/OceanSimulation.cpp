@@ -73,14 +73,13 @@ namespace ocean
             SpectrumInit,
             SpectrumConjugate,
             Tick,
-            IfftRadix2,
             IfftRadix4,
             Resolve,
             Count
         };
         constexpr std::array<std::string_view, static_cast<size_t>(Pass::Count)> k_EntryPoints
         {
-            "SpectrumInitCS", "SpectrumConjugateCS", "OceanTickCS", "IfftRadix2CS", "IfftRadix4CS", "OceanResolveCS"
+            "SpectrumInitCS", "SpectrumConjugateCS", "OceanTickCS", "IfftRadix4CS", "OceanResolveCS"
         };
 
         struct PassProgram
@@ -628,7 +627,7 @@ namespace ocean
         for (size_t passIndex = 0; passIndex < impl->Programs.size(); ++passIndex)
         {
             const std::string_view entryPoint = k_EntryPoints[passIndex];
-            const bool isIfft = passIndex == static_cast<size_t>(Pass::IfftRadix2) || passIndex == static_cast<size_t>(Pass::IfftRadix4);
+            const bool isIfft = passIndex == static_cast<size_t>(Pass::IfftRadix4);
             rhi::ManifestProgramOptions options{};
 
             if (isIfft && settings.WaveSize != 0u)
@@ -719,15 +718,15 @@ namespace ocean
 
     void OceanSimulation::RecordIfft(rhi::CommandBuffer& command_buffer) const
     {
-        const Pass pass = impl->Settings.Kernel == IfftKernel::Radix2 ? Pass::IfftRadix2 : Pass::IfftRadix4;
-        const rhi::ManifestProgram& program = *impl->Program(pass).Program;
-        impl->Bind(command_buffer, pass);
-        // one workgroup per row of every slice of every cascade
+        const rhi::ManifestProgram& program = *impl->Program(Pass::IfftRadix4).Program;
+        impl->Bind(command_buffer, Pass::IfftRadix4);
+        // one workgroup per 4 rows (or columns) of every slice of every cascade
         const uint32_t slices = k_CascadeCount * 2u;
+        const uint32_t yGroups = impl->Settings.Size / 4u;
         for (const uint32_t transpose : { 0u, 1u })
         {
             PushConstants(command_buffer, program, IfftPushConstants{ transpose, impl->Settings.WaveSize, 0u, 0u });
-            command_buffer.Dispatch(1, impl->Settings.Size, slices);
+            command_buffer.Dispatch(1, yGroups, slices);
             ComputeBarrier(command_buffer);
         }
     }

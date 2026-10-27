@@ -17,8 +17,7 @@ __include OceanFftCommon;
 // base + j + k * S, multiplies element k by w^k with w = e^(+2*pi*i * j / 4S), and runs a 4-point DFT on
 // the result. each half4 packs two complex values (xy and zw), so this is two transforms at once
 
-// unique name rather than a namespace: groupshared declarations land at module scope, next to the radix-2
-// kernel's
+// groupshared declarations land at module scope, so the name must be unique across the whole OceanFft module
 internal groupshared half4 s_Radix4Data[4u * IFFT_SIZE];
 
 // rows sit row-major. columns interleave the 4 lines, because the column pass puts the 4 lines on

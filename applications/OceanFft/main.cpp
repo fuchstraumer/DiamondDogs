@@ -29,7 +29,6 @@
 // The OceanFft demo: a square of FFT ocean over a seabed, with an orbit camera and an ImGui panel.
 //   --frames=N      render N frames and exit (for unattended runs)
 //   --size=N        IFFT size: 128, 256, 512 (default) or 1024
-//   --radix2        use the radix-2 IFFT kernel instead of radix-4
 //   --no-wave-ops   use the variant without subgroup operations, even when the device supports them
 //   --validation=off  run without the validation layer even when it is installed, for the GPU timings panel
 // Capture and scripted control (see SceneCommands.hpp for the command language):
@@ -122,11 +121,7 @@ namespace
         for (int i = 1; i < argc; ++i)
         {
             const std::string_view argument{ argv[i] };
-            if (argument == "--radix2")
-            {
-                settings.Simulation.Kernel = ocean::IfftKernel::Radix2;
-            }
-            else if (argument == "--no-wave-ops")
+            if (argument == "--no-wave-ops")
             {
                 command_line.NoWaveOps = true;
             }

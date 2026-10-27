@@ -277,7 +277,7 @@ namespace ocean
             k_ColorPerfBadgeText,
             perfText.c_str());
 
-        const std::string kernelTag = settings.Kernel == IfftKernel::Radix2 ? "RADIX-2" : "RADIX-4";
+        const std::string kernelTag = "RADIX-4";
         const std::string waveTag = settings.WaveSize == 0u ?
             std::string{ "NO WAVE OPS" } :
             std::format("WAVE {}", settings.WaveSize);

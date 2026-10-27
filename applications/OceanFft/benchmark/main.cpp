@@ -197,29 +197,25 @@ int main()
 
         for (const uint32_t size : { 128u, 256u, 512u, 1024u })
         {
-            for (const ocean::IfftKernel kernel : { ocean::IfftKernel::Radix2, ocean::IfftKernel::Radix4 })
+            for (const uint32_t wave : waveSizes)
             {
-                for (const uint32_t wave : waveSizes)
+                ocean::OceanSimulationSettings settings{};
+                settings.Size = size;
+                settings.WaveSize = wave;
+                // the demo's default sea, swell included
+                settings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, settings.Spectrum).Spectrum;
+
+                const std::unordered_map<uint64_t, std::vector<double>> samples = RunConfiguration(device, resources, **library, pool, settings);
+                std::string line = std::format("{:>5} {:>7} {:>5}", size, "4", wave == 0u ? "off" : std::to_string(wave));
+
+                for (const std::string_view scope : k_Scopes)
                 {
-                    ocean::OceanSimulationSettings settings{};
-                    settings.Size = size;
-                    settings.Kernel = kernel;
-                    settings.WaveSize = wave;
-                    // the demo's default sea, swell included
-                    settings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, settings.Spectrum).Spectrum;
-
-                    const std::unordered_map<uint64_t, std::vector<double>> samples = RunConfiguration(device, resources, **library, pool, settings);
-                    std::string line = std::format("{:>5} {:>7} {:>5}", size, kernel == ocean::IfftKernel::Radix2 ? "2" : "4", wave == 0u ? "off" : std::to_string(wave));
-
-                    for (const std::string_view scope : k_Scopes)
-                    {
-                        const auto found = samples.find(rhi::HashGpuTimerName(scope));
-                        const Percentiles measured = found != samples.end() ? Measure(found->second) : Percentiles{};
-                        line += std::format(" | {:>7.1f} {:>7.1f}", measured.Median * 1e-3, measured.P95 * 1e-3);
-                    }
-
-                    std::cout << line << std::endl;
+                    const auto found = samples.find(rhi::HashGpuTimerName(scope));
+                    const Percentiles measured = found != samples.end() ? Measure(found->second) : Percentiles{};
+                    line += std::format(" | {:>7.1f} {:>7.1f}", measured.Median * 1e-3, measured.P95 * 1e-3);
                 }
+
+                std::cout << line << std::endl;
             }
         }
     }

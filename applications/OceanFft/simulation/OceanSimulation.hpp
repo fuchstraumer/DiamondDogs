@@ -68,19 +68,12 @@ namespace ocean
     static_assert(sizeof(CascadeParameters) == 64u);
     static_assert(sizeof(SpectrumParameters) == 72u);
 
-    enum class IfftKernel : uint8_t
-    {
-        Radix2,
-        Radix4,
-    };
-
     constexpr uint32_t k_CascadeCount = 4u;
 
     struct OceanSimulationSettings
     {
         /** @brief One of the IFFT_SIZE axis values: 128, 256, 512, 1024 */
         uint32_t Size{ 1024u };
-        IfftKernel Kernel{ IfftKernel::Radix4 };
         /** @brief 0 selects the variant without wave ops. Otherwise the IFFT_WAVE_SIZE of the wave-op variant, and
          *  the subgroup size the IFFT shaders are created with (full subgroups required). See PickWaveSize. */
         uint32_t WaveSize{ 0u };
