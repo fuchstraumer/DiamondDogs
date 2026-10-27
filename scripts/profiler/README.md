@@ -1,209 +1,169 @@
-# DiamondDogs GPU Profiler Suite
+# DiamondDogs GPU Profiler Scripts
 
 ## Overview
-The DiamondDogs GPU Profiler Suite provides automated tools for GPU performance capture and analysis.
-The suite records hardware counters, pass execution times, and compute shader statistics.
-Engineers use these tools to identify performance bottlenecks and compare optimization results across git commits.
+These scripts run a workload and store its timings in a SQLite database.
+They also record which code was measured.
+You can then compare two runs.
 
-## SQLite Database Schema
-The profiler stores all records in a local SQLite database with write-ahead logging enabled.
-Foreign key constraints maintain relational integrity across five primary tables.
+## What these scripts do not do
+- They collect no hardware counters on this machine yet. The `metrics` table has 0 rows.
+- Nsight Compute (NCU) is not installed on this machine.
+  NCU profiles CUDA kernels. It does not profile Vulkan dispatches.
+  The `--ncu-rep` path can read an `.ncu-rep` file, but this engine cannot make one.
+- Present mode stores replay frame times only. They are whole-frame times, not render pass times.
+- The GPU Trace (Nsight Graphics) path is planned. `ingest_gpu_trace` in `db_store.py` is a stub.
+- The scripts give no advice. They do not diagnose bottlenecks.
+  The `bottlenecks` table holds NCU rule results only.
 
-### `runs` Table
-The `runs` table stores top-level session metadata for each profiling execution.
-- `run_id`: Unique integer identifier for the run.
-- `timestamp`: UTC ISO 8601 timestamp string.
-- `binary_name`: Name of the executed binary file.
-- `binary_path`: Absolute file system path to the binary.
-- `command_args`: Command-line arguments passed to the application.
-- `git_commit`: HEAD commit hash at test execution time.
-- `gpu_name`: Hardware name of the graphics adapter.
-- `driver_version`: Installed GPU graphics driver version string.
-- `frame_count`: Total number of profiled frames.
-- `avg_frame_time_ms`: Average frame duration measured in milliseconds.
-- `avg_fps`: Average frames per second calculated across the run.
-
-### `passes` Table
-The `passes` table stores timing measurements for individual render or compute passes.
-- `pass_id`: Unique integer identifier for the pass record.
-- `run_id`: Foreign key reference to the parent run.
-- `pass_name`: Descriptive name of the pass or kernel.
-- `queue_family`: Vulkan queue family type such as Compute or Graphics.
-- `duration_ns`: Measured pass duration in nanoseconds.
-- `iteration`: Frame iteration index for the measurement.
-
-### `shaders` Table
-The `shaders` table records static resource allocation and compilation metadata.
-- `shader_id`: Unique integer identifier for the shader record.
-- `run_id`: Foreign key reference to the parent run.
-- `pass_id`: Optional foreign key reference to the associated pass.
-- `stage`: Pipeline stage name such as compute, vertex, or fragment.
-- `shader_name`: Identifier or module name of the compiled shader.
-- `entry_point`: Function entry point symbol name.
-- `register_count`: Number of VGPR registers allocated per thread.
-- `shared_mem_bytes`: Allocated shared memory or LDS in bytes.
-- `local_mem_bytes`: Allocated thread local memory spill in bytes.
-- `subgroup_size`: Configured workgroup size or warp width.
-
-### `metrics` Table
-The `metrics` table stores performance counters and utilization values.
-- `metric_id`: Unique integer identifier for the counter record.
-- `run_id`: Foreign key reference to the parent run.
-- `shader_id`: Optional foreign key reference to the target shader.
-- `category`: Classification label such as stall, throughput, or general.
-- `metric_name`: Canonical hardware counter name.
-- `metric_value`: Recorded numerical metric value.
-- `unit`: Unit of measurement such as percentage, byte, or nanosecond.
-- `pct_of_peak`: Measured value expressed as a percentage of theoretical peak hardware throughput.
-
-### `bottlenecks` Table
-The `bottlenecks` table stores automated diagnostic warnings and optimization guidance.
-- `bottleneck_id`: Unique integer identifier for the bottleneck record.
-- `run_id`: Foreign key reference to the parent run.
-- `shader_id`: Optional foreign key reference to the culprit shader.
-- `severity`: Severity level string set to warning or critical.
-- `category`: Diagnostic category such as occupancy, lds_conflict, or memory_latency.
-- `summary`: Short title describing the detected performance issue.
-- `detail`: Detailed numerical findings and observed threshold values.
-- `recommendation`: Actionable guidance to resolve the performance issue.
-
-## Profiling Modes
-
-### Benchmark Profiling Mode (`--mode submit`)
-Benchmark profiling mode targets headless computational binaries and benchmark drivers.
-This mode executes the binary directly through a subprocess call.
-The runner parses stdout text tables formatted with pipe characters.
-It extracts pass scopes, median durations, and percentile timings.
-The runner computes average frame times and writes all records to the SQLite database.
-
-### Graphics Capture and Replay Mode (`--mode present`)
-Graphics capture mode profiles graphical applications using NVIDIA Nsight Graphics command-line tools.
-The runner invokes `ngfx-capture.exe` to record API calls into an `.nsight-gfxtrace` capture file.
-It then executes `ngfx-replay.exe` to replay the capture in headless mode.
-The replay tool outputs frame iteration timings and performance counter CSV files.
-The runner parses the CSV files and inserts timing passes and hardware metrics into the database.
-
-### NCU Report Ingestion Mode (`--ncu-rep`)
-NCU report mode imports profile reports generated by NVIDIA Nsight Compute.
-Use this mode to ingest existing `.ncu-rep` files into the database.
-The runner loads the report with the official `ncu_report` Python module.
-It iterates across recorded ranges and kernel actions.
-The parser extracts duration metrics, register usage, shared memory size, and hardware counters.
-It converts NCU rule evaluation messages and estimated speedup values into bottleneck records.
-
-## CLI Usage Examples
-
-### Capture Workloads
-Execute a headless benchmark binary in submit mode:
+## Run the tests
+Run this command from the repository root:
 ```powershell
-python -m scripts.profiler.capture_runner --exe build/bin/OceanFftBenchmark.exe --mode submit --db profiler.db
+python -m unittest discover -s scripts/profiler -p "test_*.py" -v
+```
+The tests that need the real `ncu_report` module skip when it is missing.
+
+## Modes
+
+### Submit mode (`--mode submit`)
+Submit mode runs a benchmark executable and parses its stdout table.
+The header line of the table has the words `size` and `radix`.
+The parser reads the configuration columns (size, radix, wave) from this header.
+Each row gives the median and the p95 of each scope, in microseconds.
+The runner stores one `passes` row for each configuration and scope.
+It stores the median in `duration_ns` and the p95 in `p95_ns`.
+
+The runner stores no average frame time in this mode.
+An average across sizes 128 to 1024 has no meaning.
+`avg_frame_time_ms`, `avg_fps` and `frame_count` are NULL.
+The runner stores `ticks_per_config` and `warmup_ticks` as the benchmark prints them.
+
+### Present mode (`--mode present`)
+Present mode captures one frame with `ngfx-capture`, then replays it with `ngfx-replay`.
+- `--frames` is the number of frames in the capture (1 to 600, default 1).
+- `--warmup` is the 1-based frame to capture. It must be greater than 1.
+- `--replay-loops` is the number of replay iterations (at least 2, default 10).
+- `--capture-dir` is the folder for the capture and the report.
+  The default is `build/profiler_captures` under the current directory. The runner makes it absolute.
+- `--timeout-s` is the timeout of each subprocess (default 600). A timeout is a failure.
+
+`ngfx-capture` appends `.ngfx-capture` to the output name, and it returns 0 even when it fails.
+The runner looks for the file on disk. It fails when no capture file exists.
+One captured OceanFft frame is about 250 MB. Delete the capture files when you finish.
+
+The replay writes `iteration_times.csv`. The runner reads it by column name.
+It stores these values for each iteration:
+- `ReplayFrameCpu`: `msFrameTime` (CPU time, submit plus finish) in `duration_ns`.
+  `cpu_submit_ms` and `cpu_finish_ms` hold the two parts.
+- `ReplayFrameGpu`: `msGpuTime`, only when it is not -1. The replay often does not collect it.
+
+Iteration 0 includes first-use overhead. The runner does not store it and skips it in the averages.
+`avg_frame_time_ms` is the mean `msFrameTime` of the other iterations. It is a CPU time.
+
+### NCU report import (`--ncu-rep`)
+This mode reads an `.ncu-rep` file with the `ncu_report` Python module.
+The runner looks for the module on `sys.path`.
+If the import fails, it searches `C:\Program Files\NVIDIA Corporation\Nsight Compute*\extras\python`.
+The import runs in one transaction. It prints the number of metrics that it skipped.
+- Metric `category` is the text before the first `__` in the metric name (for example `sm`, `dram`, `smsp`).
+  A name without `__` has the category `general`.
+- `block_size` holds `launch__block_size`. `subgroup_size` stays NULL.
+- Each NCU rule becomes a `bottlenecks` row with category `ncu_rule`.
+  The severity is the type or severity that the rule gives, or `info`. The recommendation is NULL.
+- The run has no frame time, no git commit and no GPU name. The importer cannot know them.
+
+## Which code was measured
+Each run in submit mode and present mode stores:
+- `git_commit`, `git_dirty` (1 when `git status --porcelain` is not empty), and `git_diff_hash`
+  (the first 16 hex digits of the sha256 of `git diff HEAD`).
+  The diff hash covers tracked files only. Untracked files set the dirty flag but not the hash.
+- `exe_hash` and `exe_mtime` of the executable.
+- `shader_manifest_hash` and `shader_manifest_mtime` of `OceanFft.ldmanifest` in the executable folder.
+  They are NULL when the file does not exist.
+
+## Database schema
+`PRAGMA user_version` holds the schema version (now 2).
+On open, `init_db` creates missing tables and adds missing columns with `ALTER TABLE`.
+Old rows keep NULL in the new columns.
+Each ingest is one transaction. The insert helpers do not commit.
+
+### `runs`
+- `run_id`, `timestamp` (UTC ISO 8601), `binary_name`, `binary_path`, `command_args`.
+- `mode`: `submit`, `present` or `ncu`.
+- `git_commit`, `git_dirty`, `git_diff_hash`.
+- `exe_hash`, `exe_mtime`, `shader_manifest_hash`, `shader_manifest_mtime`.
+- `gpu_name`, `driver_version`.
+- `frame_count`: the replay iterations used in the average. NULL in submit mode.
+- `avg_frame_time_ms`, `avg_fps`: NULL in submit mode and in NCU import.
+- `ticks_per_config`, `warmup_ticks`: from the benchmark header.
+- `artifact_path`: the capture file or the NCU report.
+
+### `passes`
+- `pass_id`, `run_id`, `pass_name`, `queue_family`, `iteration`.
+- `duration_ns`: the median (submit), the CPU or GPU frame time (present), or the kernel duration (NCU).
+- `p95_ns`: the p95 (submit only).
+- `config_size`, `config_radix`, `config_wave`: the benchmark configuration. `config_wave` is text, `off` or a number.
+- `cpu_submit_ms`, `cpu_finish_ms`: the replay parts of `msFrameTime`.
+
+A pass is identified by the configuration and the pass name together.
+
+### `shaders`
+`shader_id`, `run_id`, `pass_id`, `stage`, `shader_name`, `entry_point`, `register_count`, `shared_mem_bytes`,
+`local_mem_bytes`, `subgroup_size` (always NULL now), `block_size`.
+
+### `metrics`
+`metric_id`, `run_id`, `shader_id`, `category`, `metric_name`, `metric_value`, `unit`, `pct_of_peak`.
+Only an NCU import writes this table.
+
+### `bottlenecks`
+`bottleneck_id`, `run_id`, `shader_id`, `severity`, `category`, `summary`, `detail`, `recommendation`.
+Only an NCU import writes this table.
+
+## CLI examples
+Run these commands from the repository root.
+
+Run the benchmark and store the table:
+```powershell
+python -m scripts.profiler.capture_runner --exe build/ninja-msvc/applications/OceanFft/RelWithDebInfo/OceanFftBenchmark.exe --mode submit --db profiler.db
 ```
 
-Profile a graphical application with Nsight Graphics:
+Capture frame 30 of the windowed app and store the replay times:
 ```powershell
-python -m scripts.profiler.capture_runner --exe build/bin/DiamondDogsApp.exe --mode present --frames 120 --warmup 10 --db profiler.db
+python -m scripts.profiler.capture_runner --exe build/ninja-msvc/applications/OceanFft/RelWithDebInfo/OceanFft.exe --mode present --frames 1 --warmup 30 --replay-loops 10 --capture-dir build/profiler_captures --db profiler.db
 ```
 
-Ingest an NVIDIA Nsight Compute report file:
+Import an NCU report:
 ```powershell
-python -m scripts.profiler.capture_runner --ncu-rep reports/ocean_fft_kernel.ncu-rep --db profiler.db
+python -m scripts.profiler.capture_runner --ncu-rep reports/kernel.ncu-rep --db profiler.db
 ```
 
-### Query Database Records
-Display a summary of the most recent profiling run:
+Show the latest run:
 ```powershell
 python -m scripts.profiler.query_metrics --latest --db profiler.db
 ```
 
-Display diagnosed bottlenecks for run 4:
-```powershell
-python -m scripts.profiler.query_metrics --run 4 --bottlenecks --db profiler.db
-```
-
-Filter performance metrics by shader and category:
-```powershell
-python -m scripts.profiler.query_metrics --run 4 --shader 1 --category stall --metrics --db profiler.db
-```
-
-Compare performance between two profiling runs:
+Compare run 2 with run 4. The comparison lines up the same configuration and pass in both runs, and shows median and p95:
 ```powershell
 python -m scripts.profiler.query_metrics --compare 2 4 --db profiler.db
 ```
 
-Export query results as structured JSON:
+Show a run as JSON:
 ```powershell
-python -m scripts.profiler.query_metrics --run 4 --metrics --json --db profiler.db
+python -m scripts.profiler.query_metrics --run 4 --json --db profiler.db
 ```
 
-## Python Query API
-Use the `BenchmarkDB` class to query profiler data programmatically in Python scripts.
-
-### Basic Query Example
-```python
-from scripts.profiler.query_metrics import BenchmarkDB
-
-with BenchmarkDB("profiler.db") as db:
-    latest = db.get_latest_run()
-    if latest:
-        run_id = latest["run_id"]
-        summary = db.get_run_summary(run_id)
-        print(f"Run {run_id}: {summary['binary_name']}")
-        print(f"Average frame time: {summary['avg_frame_time_ms']:.4f} ms")
+Show the NCU bottlenecks or the metrics of a run:
+```powershell
+python -m scripts.profiler.query_metrics --run 4 --bottlenecks --db profiler.db
+python -m scripts.profiler.query_metrics --run 4 --metrics --category sm --db profiler.db
 ```
 
-### Bottlenecks and Metrics Example
-```python
-from scripts.profiler.query_metrics import BenchmarkDB
-
-with BenchmarkDB("profiler.db") as db:
-    run_id = 1
-    bottlenecks = db.get_bottlenecks(run_id)
-    for b in bottlenecks:
-        print(f"[{b['severity'].upper()}] {b['category']}: {b['summary']}")
-        print(f"  Recommendation: {b['recommendation']}")
-
-    stall_metrics = db.get_metrics(run_id, category="stall")
-    for m in stall_metrics:
-        print(f"Metric: {m['metric_name']} = {m['metric_value']} {m['unit']}")
-```
-
-### Run Comparison Example
+## Python query API
 ```python
 from scripts.profiler.query_metrics import BenchmarkDB
 
 with BenchmarkDB("profiler.db") as db:
     comparison = db.compare_runs(run_id_a=1, run_id_b=2)
-    delta_ms = comparison["frame_time_delta_ms"]
-    pct = comparison["frame_time_pct_change"]
-    print(f"Delta: {delta_ms:+.4f} ms ({pct:+.2f}%)")
     for p in comparison["pass_comparisons"]:
-        print(f"Pass {p['pass_name']}: {p['delta_us']:+.2f} us")
+        print(p["config"], p["pass_name"], p["median_us_a"], p["median_us_b"], p["pct_change"])
 ```
-
-## Automated Bottleneck Heuristics
-The profiler executes heuristic analysis rules during data ingestion.
-The engine diagnoses five primary GPU performance bottlenecks for compute shaders.
-
-### LDS Bank Conflicts
-- Category: `lds_conflict`
-- Severity: `critical`
-- Condition: The rule flags shaders when `shared_mem_bank_conflict_stalls` exceeds 15.0 or `lds_bank_conflicts` exceeds 0.
-- Recommendation: Pad group shared memory allocations with `index + (index >> 4)` or change array-of-structures layouts to structure-of-arrays.
-
-### Long Scoreboard Memory Latency Stalls
-- Category: `memory_latency`
-- Severity: `critical`
-- Condition: The rule flags shaders when `long_scoreboard_stalls` exceeds 30.0 percent.
-- Recommendation: Use 16-bit precision types, cache data tiles in shared memory, or add independent instructions to hide latency.
-
-### Low Warp Occupancy from Register Pressure
-- Category: `occupancy`
-- Severity: `warning`
-- Condition: The rule flags shaders when `register_count` exceeds 32 registers per thread.
-- Recommendation: Spill temporary variables, split large functions, or move uniform data into push constant buffers.
-
-### Workgroup Barrier Synchronization Stalls
-- Category: `sync`
-- Severity: `warning`
-- Condition: The rule flags shaders when `barrier_stalls` exceeds 15.0 percent.
-- Recommendation: Use wave-level shuffle intrinsics to replace workgroup barrier synchronizations.
+`avg_frame_time_ms`, `avg_fps` and the frame time deltas are `None` for a benchmark run.

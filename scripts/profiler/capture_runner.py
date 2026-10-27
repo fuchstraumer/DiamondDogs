@@ -1,8 +1,13 @@
-"""Execute GPU workload captures and record profiling metrics."""
+"""Run a workload and record the timings in the profiler database.
+
+Submit mode runs a benchmark and parses its stdout table.
+Present mode captures one frame with Nsight Graphics and replays it.
+Present mode stores replay frame times only. It collects no hardware counters.
+"""
 
 import argparse
 import csv
-import json
+import hashlib
 import re
 import subprocess
 import sys
@@ -12,44 +17,102 @@ from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from .db_store import (
-        analyze_bottlenecks,
         ingest_ncu_report,
         init_db,
-        insert_metric,
         insert_pass,
         insert_run,
-        insert_shader,
     )
 except ImportError:
     script_dir = Path(__file__).resolve().parent
     if str(script_dir) not in sys.path:
         sys.path.insert(0, str(script_dir))
     from db_store import (
-        analyze_bottlenecks,
         ingest_ncu_report,
         init_db,
-        insert_metric,
         insert_pass,
         insert_run,
-        insert_shader,
     )
 
+REPO_DIR = Path(__file__).resolve().parents[2]
+GIT_TIMEOUT_S = 30
+MANIFEST_NAME = "OceanFft.ldmanifest"
+CAPTURE_FRAME_MAX = 600
 
-def get_git_commit() -> str:
-    """Retrieve the current HEAD commit hash from git.
+# Columns that ngfx-replay writes to iteration_times.csv. We read them by exact name.
+REPLAY_COLUMNS = ("i", "msSubmitTime", "msFinishTime", "msFrameTime", "msGpuTime")
 
-    Return the commit hash or unknown.
+
+def run_command(cmd: List[str], timeout_s: int, capture: bool) -> Optional[subprocess.CompletedProcess]:
+    """Run a subprocess with a timeout.
+
+    Return the completed process, or None when the timeout expires.
     """
     try:
-        res = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
+        return subprocess.run(cmd, capture_output=capture, text=capture, timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        print(f"[Profiler] Timeout after {timeout_s} s: {' '.join(cmd)}", file=sys.stderr)
+        return None
+
+
+def get_code_state(repo_dir: Path) -> Dict[str, Any]:
+    """Read the git state of the code that the run measures.
+
+    The diff hash covers tracked files only. The dirty flag covers untracked files too.
+    Return commit, dirty flag (0 or 1) and the first 16 hex digits of sha256 of `git diff HEAD`.
+    """
+    state: Dict[str, Any] = {"git_commit": "unknown", "git_dirty": None, "git_diff_hash": None}
+
+    try:
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True,
+            check=True, timeout=GIT_TIMEOUT_S,
         )
-        return res.stdout.strip()
-    except Exception:
-        return "unknown"
+        state["git_commit"] = head.stdout.strip()
+
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=repo_dir, capture_output=True, text=True,
+            check=True, timeout=GIT_TIMEOUT_S,
+        )
+        state["git_dirty"] = 1 if status.stdout.strip() else 0
+
+        diff = subprocess.run(
+            ["git", "diff", "HEAD"], cwd=repo_dir, capture_output=True,
+            check=True, timeout=GIT_TIMEOUT_S,
+        )
+        state["git_diff_hash"] = hashlib.sha256(diff.stdout).hexdigest()[:16]
+    except (OSError, subprocess.SubprocessError) as err:
+        print(f"[Profiler] Warning: git state is incomplete: {err}", file=sys.stderr)
+
+    return state
+
+
+def fingerprint_file(path: Path) -> Tuple[Optional[str], Optional[str]]:
+    """Hash a file and read its modification time.
+
+    Return the first 16 hex digits of sha256 and the UTC mtime. Both are None when the file is missing.
+    """
+    if not path.is_file():
+        return None, None
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+
+    mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+    return digest.hexdigest()[:16], mtime
+
+
+def get_build_fingerprint(exe_path: Path) -> Dict[str, Optional[str]]:
+    """Fingerprint the executable and the cooked shader manifest next to it."""
+    exe_hash, exe_mtime = fingerprint_file(exe_path)
+    manifest_hash, manifest_mtime = fingerprint_file(exe_path.parent / MANIFEST_NAME)
+    return {
+        "exe_hash": exe_hash,
+        "exe_mtime": exe_mtime,
+        "shader_manifest_hash": manifest_hash,
+        "shader_manifest_mtime": manifest_mtime,
+    }
 
 
 def get_gpu_info() -> Tuple[str, str]:
@@ -63,6 +126,7 @@ def get_gpu_info() -> Tuple[str, str]:
             capture_output=True,
             text=True,
             check=True,
+            timeout=GIT_TIMEOUT_S,
         )
         line = res.stdout.strip()
         if line:
@@ -70,8 +134,8 @@ def get_gpu_info() -> Tuple[str, str]:
             gpu_name = parts[0] if len(parts) > 0 else "NVIDIA GPU"
             driver_ver = parts[1] if len(parts) > 1 else "Unknown"
             return gpu_name, driver_ver
-    except Exception:
-        pass
+    except (OSError, subprocess.SubprocessError):
+        print("[Profiler] Warning: nvidia-smi failed. GPU name and driver are unknown.", file=sys.stderr)
     return "NVIDIA GPU", "Unknown"
 
 
@@ -99,15 +163,22 @@ def locate_nsight_tools() -> Tuple[Path, Path]:
     raise FileNotFoundError("Could not locate ngfx-capture.exe and ngfx-replay.exe in Nsight Graphics directory.")
 
 
-def parse_benchmark_output(output_text: str) -> Tuple[Optional[str], int, List[str], List[Dict[str, Any]]]:
-    """Parse benchmark timing tables from standard output text.
+def parse_benchmark_output(output_text: str) -> Dict[str, Any]:
+    """Parse the benchmark stdout table.
 
-    Return parsed GPU name, ticks per config, scopes, and rows.
+    The header line has the words size and radix in its first cell. The cells after the first
+    are the scopes. Each row has the configuration values, then "median p95" per scope, in microseconds.
+    Return a dictionary with gpu_name, ticks_per_config, warmup_ticks, config_columns, scopes and rows.
+    Each row has a config dictionary and a timings dictionary of scope -> median_us and p95_us.
     """
-    scopes: List[str] = []
-    rows: List[Dict[str, Any]] = []
-    gpu_name: Optional[str] = None
-    ticks_per_config = 256
+    result: Dict[str, Any] = {
+        "gpu_name": None,
+        "ticks_per_config": None,
+        "warmup_ticks": None,
+        "config_columns": [],
+        "scopes": [],
+        "rows": [],
+    }
 
     for line in output_text.splitlines():
         line_clean = line.strip()
@@ -117,40 +188,84 @@ def parse_benchmark_output(output_text: str) -> Tuple[Optional[str], int, List[s
         if "timestamp period" in line_clean:
             match_gpu = re.search(r"^(.*?),\s*timestamp period", line_clean)
             if match_gpu:
-                gpu_name = match_gpu.group(1).strip()
+                result["gpu_name"] = match_gpu.group(1).strip()
             match_ticks = re.search(r"(\d+)\s+ticks per configuration", line_clean)
             if match_ticks:
-                ticks_per_config = int(match_ticks.group(1))
+                result["ticks_per_config"] = int(match_ticks.group(1))
+            match_warm = re.search(r"(\d+)\s+warm-up ticks", line_clean)
+            if match_warm:
+                result["warmup_ticks"] = int(match_warm.group(1))
+            continue
 
-        if "|" in line_clean:
-            parts = [p.strip() for p in line_clean.split("|")]
-            if not scopes and ("Tick" in parts or any("IFFT" in p for p in parts)):
-                scopes = parts[1:]
-            elif scopes:
-                cfg_str = parts[0]
-                col_values = parts[1:]
-                timings: Dict[str, Dict[str, float]] = {}
-                for idx, col_val in enumerate(col_values):
-                    if idx >= len(scopes):
-                        break
-                    scope_name = scopes[idx]
-                    nums = [float(x) for x in col_val.split() if re.match(r"^-?\d+(\.\d+)?$", x)]
-                    if nums:
-                        timings[scope_name] = {
-                            "median_us": nums[0],
-                            "p95_us": nums[1] if len(nums) > 1 else nums[0],
-                        }
-                if timings:
-                    rows.append({
-                        "config": cfg_str,
-                        "timings": timings,
-                    })
+        if "|" not in line_clean:
+            continue
 
-    return gpu_name, ticks_per_config, scopes, rows
+        parts = [p.strip() for p in line_clean.split("|")]
+        first_words = parts[0].lower().split()
+
+        if not result["scopes"]:
+            if "size" in first_words and "radix" in first_words:
+                result["config_columns"] = first_words
+                result["scopes"] = parts[1:]
+            continue
+
+        cfg_values = parts[0].split()
+        if len(cfg_values) != len(result["config_columns"]):
+            continue
+
+        config = dict(zip(result["config_columns"], cfg_values))
+        timings: Dict[str, Dict[str, float]] = {}
+        for idx, col_val in enumerate(parts[1:]):
+            if idx >= len(result["scopes"]):
+                break
+            nums = [float(x) for x in col_val.split() if re.match(r"^-?\d+(\.\d+)?$", x)]
+            if len(nums) == 2:
+                timings[result["scopes"][idx]] = {"median_us": nums[0], "p95_us": nums[1]}
+
+        if timings:
+            result["rows"].append({"config": config, "timings": timings})
+
+    return result
+
+
+def parse_iteration_times(csv_path: Path) -> List[Dict[str, Any]]:
+    """Parse the iteration_times.csv file of ngfx-replay by exact column name.
+
+    Iteration 0 is in the list. It includes first-use overhead, so the callers must skip it in averages.
+    msGpuTime is -1 when replay did not collect it. The result holds None then.
+    Raise ValueError when a column is missing.
+    """
+    iterations: List[Dict[str, Any]] = []
+
+    with open(csv_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+        reader = csv.reader(f)
+        header = [h.strip() for h in next(reader, [])]
+        missing = [c for c in REPLAY_COLUMNS if c not in header]
+        if missing:
+            raise ValueError(f"{csv_path} has no column {missing}. Columns found: {header}")
+
+        index = {name: header.index(name) for name in REPLAY_COLUMNS}
+        for cells in reader:
+            if len(cells) < len(header):
+                continue
+
+            try:
+                gpu_ms = float(cells[index["msGpuTime"]])
+                iterations.append({
+                    "iteration": int(float(cells[index["i"]])),
+                    "submit_ms": float(cells[index["msSubmitTime"]]),
+                    "finish_ms": float(cells[index["msFinishTime"]]),
+                    "frame_ms": float(cells[index["msFrameTime"]]),
+                    "gpu_ms": gpu_ms if gpu_ms != -1.0 else None,
+                })
+            except ValueError:
+                continue
+
+    return iterations
 
 
 def run_benchmark_mode(args: argparse.Namespace) -> int:
-    """Execute the benchmark binary and ingest timing results.
+    """Execute the benchmark binary and ingest its timing table.
 
     Return the process exit code.
     """
@@ -158,7 +273,8 @@ def run_benchmark_mode(args: argparse.Namespace) -> int:
     if not exe_path.exists():
         raise FileNotFoundError(f"Executable not found: {exe_path}")
 
-    git_commit = get_git_commit()
+    code_state = get_code_state(REPO_DIR)
+    fingerprint = get_build_fingerprint(exe_path)
     gpu_name_smi, driver_version = get_gpu_info()
 
     cmd = [str(exe_path)]
@@ -166,71 +282,78 @@ def run_benchmark_mode(args: argparse.Namespace) -> int:
         cmd.extend(args.args.split())
 
     print(f"[Profiler] Launching benchmark: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_command(cmd, args.timeout_s, capture=True)
+    if result is None:
+        return 1
+
     if result.returncode != 0:
         print(f"[Profiler] Benchmark failed with code {result.returncode}:\n{result.stderr}", file=sys.stderr)
         return result.returncode
 
-    stdout = result.stdout
-    print(stdout)
+    print(result.stdout)
 
-    gpu_from_out, ticks_per_config, scopes, rows = parse_benchmark_output(stdout)
-    gpu_name = gpu_from_out or gpu_name_smi
-
+    parsed = parse_benchmark_output(result.stdout)
+    rows = parsed["rows"]
     if not rows:
-        print("[Profiler] Warning: No timing table rows parsed from benchmark output.", file=sys.stderr)
+        print("[Profiler] Error: no timing table rows parsed from benchmark output.", file=sys.stderr)
         return 1
 
-    # Compute overall frame times
-    tick_medians = [r["timings"]["Tick"]["median_us"] for r in rows if "Tick" in r["timings"]]
-    if tick_medians:
-        avg_frame_time_us = sum(tick_medians) / len(tick_medians)
-    else:
-        avg_frame_time_us = 0.0
-
-    avg_frame_time_ms = avg_frame_time_us / 1000.0
-    avg_fps = (1000.0 / avg_frame_time_ms) if avg_frame_time_ms > 0.0 else 0.0
-    frame_count = ticks_per_config * len(rows)
-
     conn = init_db(args.db)
-
-    run_data = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "binary_name": exe_path.name,
-        "binary_path": str(exe_path),
-        "command_args": args.args or "",
-        "git_commit": git_commit,
-        "gpu_name": gpu_name,
-        "driver_version": driver_version,
-        "frame_count": frame_count,
-        "avg_frame_time_ms": avg_frame_time_ms,
-        "avg_fps": avg_fps,
-    }
-    run_id = insert_run(conn, run_data)
-    print(f"[Profiler] Ingested run {run_id} (avg_frame_time={avg_frame_time_ms:.4f} ms, fps={avg_fps:.1f})")
-
-    # Ingest pass records
-    for i, row in enumerate(rows):
-        for scope_name, timing in row["timings"].items():
-            duration_ns = timing["median_us"] * 1000.0
-            insert_pass(conn, {
-                "run_id": run_id,
-                "pass_name": scope_name,
-                "queue_family": "Compute",
-                "duration_ns": duration_ns,
-                "iteration": i,
+    try:
+        with conn:
+            run_id = insert_run(conn, {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "binary_name": exe_path.name,
+                "binary_path": str(exe_path),
+                "command_args": args.args or "",
+                "gpu_name": parsed["gpu_name"] or gpu_name_smi,
+                "driver_version": driver_version,
+                "frame_count": None,
+                "avg_frame_time_ms": None,
+                "avg_fps": None,
+                "mode": "submit",
+                "ticks_per_config": parsed["ticks_per_config"],
+                "warmup_ticks": parsed["warmup_ticks"],
+                **code_state,
+                **fingerprint,
             })
 
-    # Analyze bottlenecks
-    analyze_bottlenecks(conn, run_id)
-    conn.close()
-    print(f"[Profiler] Bottleneck analysis complete for run {run_id}.")
+            for row in rows:
+                config = row["config"]
+                for scope_name, timing in row["timings"].items():
+                    insert_pass(conn, {
+                        "run_id": run_id,
+                        "pass_name": scope_name,
+                        "queue_family": "Compute",
+                        "duration_ns": timing["median_us"] * 1000.0,
+                        "p95_ns": timing["p95_us"] * 1000.0,
+                        "config_size": int(config["size"]),
+                        "config_radix": int(config["radix"]),
+                        "config_wave": config.get("wave"),
+                    })
+    finally:
+        conn.close()
+
+    print(f"[Profiler] Ingested run {run_id}: {len(rows)} configurations, {len(parsed['scopes'])} scopes each.")
     return 0
 
 
-def run_present_mode(args: argparse.Namespace) -> int:
-    """Profile the application through Nsight Graphics capture and replay.
+def find_capture_file(cap_dir: Path, base_name: str) -> Optional[Path]:
+    """Find the capture file that ngfx-capture wrote.
 
+    ngfx-capture appends .ngfx-capture to the -o name. Return the newest non-empty file, or None.
+    """
+    matches = [p for p in cap_dir.glob(base_name + "*") if p.is_file() and p.stat().st_size > 0]
+    if not matches:
+        return None
+    return max(matches, key=lambda p: p.stat().st_mtime)
+
+
+def run_present_mode(args: argparse.Namespace) -> int:
+    """Capture one frame with Nsight Graphics, replay it, and store the replay frame times.
+
+    The replay reports whole-frame CPU times (msFrameTime) and GPU time (msGpuTime) when it has it.
+    Iteration 0 includes first-use overhead. We do not store it and we skip it in the averages.
     Return the process exit code.
     """
     exe_path = Path(args.exe).resolve()
@@ -240,22 +363,21 @@ def run_present_mode(args: argparse.Namespace) -> int:
     capture_exe, replay_exe = locate_nsight_tools()
     print(f"[Profiler] Found Nsight tools:\n  Capture: {capture_exe}\n  Replay:  {replay_exe}")
 
-    git_commit = get_git_commit()
+    code_state = get_code_state(REPO_DIR)
+    fingerprint = get_build_fingerprint(exe_path)
     gpu_name, driver_version = get_gpu_info()
 
-    cap_dir = Path("build/profiler_captures")
+    cap_dir = Path(args.capture_dir).resolve()
     cap_dir.mkdir(parents=True, exist_ok=True)
-    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    cap_path = cap_dir / f"{exe_path.stem}_{timestamp_str}.nsight-gfxtrace"
-
-    warmup_frame = max(1, args.warmup)
+    base_name = f"{exe_path.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     capture_cmd = [
         str(capture_exe),
         "-e", str(exe_path),
-        "-o", str(cap_path),
+        "--wd", str(exe_path.parent),
+        "-o", str(cap_dir / base_name),
         "-n", str(args.frames),
-        "--capture-frame", str(warmup_frame),
+        "--capture-frame", str(args.warmup),
         "--no-hud",
         "--terminate-after-capture",
         "--bundle-replayer",
@@ -264,121 +386,145 @@ def run_present_mode(args: argparse.Namespace) -> int:
         capture_cmd.extend(["--args", args.args])
 
     print(f"[Profiler] Launching ngfx-capture: {' '.join(capture_cmd)}")
-    cap_res = subprocess.run(capture_cmd)
+    cap_res = run_command(capture_cmd, args.timeout_s, capture=False)
+    if cap_res is None:
+        return 1
+
     if cap_res.returncode != 0:
         print(f"[Profiler] ngfx-capture failed with code {cap_res.returncode}", file=sys.stderr)
         return cap_res.returncode
 
-    perf_report_dir = cap_dir / f"{exe_path.stem}_{timestamp_str}_report"
-    perf_report_dir.mkdir(parents=True, exist_ok=True)
+    # ngfx-capture exits 0 even when it fails, so we look for the file.
+    cap_file = find_capture_file(cap_dir, base_name)
+    if cap_file is None:
+        print(f"[Profiler] Error: ngfx-capture exited 0 but wrote no capture file '{base_name}*' in {cap_dir}.",
+              file=sys.stderr)
+        return 1
+
+    print(f"[Profiler] Capture file: {cap_file} ({cap_file.stat().st_size / 1e6:.1f} MB)")
+
+    report_dir = cap_dir / f"{base_name}_report"
+    report_dir.mkdir(parents=True, exist_ok=True)
 
     replay_cmd = [
         str(replay_exe),
-        "--perf-report-dir", str(perf_report_dir),
+        "-n", str(args.replay_loops),
+        "--perf-report-dir", str(report_dir),
         "--present-hidden",
         "--bundle-replayer",
         "--no-block-on-incompatibility",
-        str(cap_path),
+        str(cap_file),
     ]
 
     print(f"[Profiler] Launching ngfx-replay: {' '.join(replay_cmd)}")
-    rep_res = subprocess.run(replay_cmd)
+    rep_res = run_command(replay_cmd, args.timeout_s, capture=False)
+    if rep_res is None:
+        return 1
+
     if rep_res.returncode != 0:
         print(f"[Profiler] ngfx-replay failed with code {rep_res.returncode}", file=sys.stderr)
         return rep_res.returncode
 
-    # Locate iteration_times.csv
-    csv_candidates = list(perf_report_dir.glob("**/iteration_times.csv"))
+    csv_candidates = sorted(report_dir.glob("**/iteration_times.csv"), key=lambda p: p.stat().st_mtime)
     if not csv_candidates:
-        csv_candidates = list(perf_report_dir.glob("**/*.csv"))
-
-    if not csv_candidates:
-        print(f"[Profiler] Error: iteration_times.csv not found in {perf_report_dir}", file=sys.stderr)
+        print(f"[Profiler] Error: iteration_times.csv not found in {report_dir}", file=sys.stderr)
         return 1
 
-    csv_path = csv_candidates[0]
+    csv_path = csv_candidates[-1]
     print(f"[Profiler] Parsing report CSV: {csv_path}")
 
-    frame_times_ms: List[float] = []
-    with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            for k, v in row.items():
-                k_lower = (k or "").lower()
-                if "time" in k_lower or "gpu" in k_lower or "duration" in k_lower:
-                    try:
-                        val = float(v)
-                        if "ns" in k_lower:
-                            frame_times_ms.append(val / 1_000_000.0)
-                        elif "us" in k_lower:
-                            frame_times_ms.append(val / 1000.0)
-                        else:
-                            frame_times_ms.append(val)
-                        break
-                    except ValueError:
-                        continue
+    try:
+        iterations = parse_iteration_times(csv_path)
+    except ValueError as err:
+        print(f"[Profiler] Error: {err}", file=sys.stderr)
+        return 1
 
-    if not frame_times_ms:
-        frame_times_ms = [16.667]
+    used = [it for it in iterations if it["iteration"] > 0]
+    if not used:
+        print(f"[Profiler] Error: {csv_path} has no usable rows after iteration 0.", file=sys.stderr)
+        return 1
 
-    avg_frame_time_ms = sum(frame_times_ms) / len(frame_times_ms)
-    avg_fps = (1000.0 / avg_frame_time_ms) if avg_frame_time_ms > 0.0 else 0.0
-    frame_count = len(frame_times_ms)
+    avg_frame_time_ms = sum(it["frame_ms"] for it in used) / len(used)
+    avg_fps = (1000.0 / avg_frame_time_ms) if avg_frame_time_ms > 0.0 else None
+    gpu_times = [it["gpu_ms"] for it in used if it["gpu_ms"] is not None]
 
     conn = init_db(args.db)
+    try:
+        with conn:
+            run_id = insert_run(conn, {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "binary_name": exe_path.name,
+                "binary_path": str(exe_path),
+                "command_args": (
+                    f"{args.args or ''} [capture frames={args.frames} frame={args.warmup}, "
+                    f"replay loops={args.replay_loops}]"
+                ).strip(),
+                "gpu_name": gpu_name,
+                "driver_version": driver_version,
+                "frame_count": len(used),
+                "avg_frame_time_ms": avg_frame_time_ms,
+                "avg_fps": avg_fps,
+                "mode": "present",
+                "artifact_path": str(cap_file),
+                **code_state,
+                **fingerprint,
+            })
 
-    run_data = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "binary_name": exe_path.name,
-        "binary_path": str(exe_path),
-        "command_args": args.args or "",
-        "git_commit": git_commit,
-        "gpu_name": gpu_name,
-        "driver_version": driver_version,
-        "frame_count": frame_count,
-        "avg_frame_time_ms": avg_frame_time_ms,
-        "avg_fps": avg_fps,
-    }
-    run_id = insert_run(conn, run_data)
-    print(f"[Profiler] Ingested run {run_id} (avg_frame_time={avg_frame_time_ms:.4f} ms, fps={avg_fps:.1f})")
+            for it in used:
+                insert_pass(conn, {
+                    "run_id": run_id,
+                    "pass_name": "ReplayFrameCpu",
+                    "duration_ns": it["frame_ms"] * 1_000_000.0,
+                    "iteration": it["iteration"],
+                    "cpu_submit_ms": it["submit_ms"],
+                    "cpu_finish_ms": it["finish_ms"],
+                })
+                if it["gpu_ms"] is not None:
+                    insert_pass(conn, {
+                        "run_id": run_id,
+                        "pass_name": "ReplayFrameGpu",
+                        "duration_ns": it["gpu_ms"] * 1_000_000.0,
+                        "iteration": it["iteration"],
+                    })
+    finally:
+        conn.close()
 
-    for i, ft_ms in enumerate(frame_times_ms):
-        insert_pass(conn, {
-            "run_id": run_id,
-            "pass_name": "Present",
-            "queue_family": "Graphics",
-            "duration_ns": ft_ms * 1_000_000.0,
-            "iteration": i,
-        })
-
-    # Check for metadata metrics
-    for metrics_file in perf_report_dir.glob("**/*metric*.csv"):
-        try:
-            with open(metrics_file, "r", encoding="utf-8", errors="ignore") as mf:
-                m_reader = csv.DictReader(mf)
-                for m_row in m_reader:
-                    name = m_row.get("metric_name") or m_row.get("Name")
-                    val_str = m_row.get("metric_value") or m_row.get("Value")
-                    if name and val_str:
-                        try:
-                            insert_metric(conn, {
-                                "run_id": run_id,
-                                "shader_id": None,
-                                "category": m_row.get("category", "hardware"),
-                                "metric_name": name,
-                                "metric_value": float(val_str),
-                                "unit": m_row.get("unit", ""),
-                                "pct_of_peak": float(m_row.get("pct_of_peak", 0.0)),
-                            })
-                        except ValueError:
-                            pass
-        except Exception:
-            pass
-
-    analyze_bottlenecks(conn, run_id)
-    conn.close()
-    print(f"[Profiler] Bottleneck analysis complete for run {run_id}.")
+    gpu_text = f"{sum(gpu_times) / len(gpu_times):.4f} ms" if gpu_times else "not collected"
+    print(f"[Profiler] Ingested run {run_id}: {len(used)} replay iterations (iteration 0 skipped), "
+          f"mean CPU frame time {avg_frame_time_ms:.4f} ms, GPU time {gpu_text}.")
     return 0
+
+
+def capture_frame_arg(text: str) -> int:
+    """Argparse type: a 1-based capture frame that is greater than 1."""
+    value = int(text)
+    if value <= 1:
+        raise argparse.ArgumentTypeError("must be greater than 1 (ngfx-capture rejects frame 1)")
+    return value
+
+
+def frames_arg(text: str) -> int:
+    """Argparse type: a frame count from 1 to 600."""
+    value = int(text)
+    if not 1 <= value <= CAPTURE_FRAME_MAX:
+        raise argparse.ArgumentTypeError(f"must be from 1 to {CAPTURE_FRAME_MAX}")
+    return value
+
+
+def replay_loops_arg(text: str) -> int:
+    """Argparse type: a replay loop count of at least 2. Iteration 0 is skipped, so 1 leaves no data."""
+    value = int(text)
+    if value < 2:
+        raise argparse.ArgumentTypeError("must be at least 2 (iteration 0 is skipped)")
+    return value
+
+
+def timeout_arg(text: str) -> int:
+    """Argparse type: a positive timeout in seconds."""
+    value = int(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return value
 
 
 def main() -> int:
@@ -386,18 +532,27 @@ def main() -> int:
 
     Return the exit status code.
     """
-    parser = argparse.ArgumentParser(description="Automated Nsight & Benchmark Profiler Runner")
+    parser = argparse.ArgumentParser(description="Benchmark and Nsight replay profiler runner")
     parser.add_argument("--exe", default=None, help="Path to executable binary")
     parser.add_argument("--ncu-rep", default=None, help="Path to an .ncu-rep file to import directly")
     parser.add_argument("--args", default="", help="Command-line arguments to pass to the binary")
-    parser.add_argument("--frames", type=int, default=60, help="Number of frames to profile (default: 60)")
-    parser.add_argument("--warmup", type=int, default=5, help="Warmup frames or capture trigger frame (default: 5)")
+    parser.add_argument("--frames", type=frames_arg, default=1,
+                        help="Present mode: number of frames IN the capture, 1 to 600 (default: 1)")
+    parser.add_argument("--warmup", type=capture_frame_arg, default=5,
+                        help="Present mode: the 1-based frame to capture, greater than 1 (default: 5)")
+    parser.add_argument("--replay-loops", type=replay_loops_arg, default=10,
+                        help="Present mode: replay iterations, at least 2 (default: 10)")
+    parser.add_argument("--capture-dir", default="build/profiler_captures",
+                        help="Present mode: folder for capture files and replay reports "
+                             "(default: build/profiler_captures under the current directory)")
+    parser.add_argument("--timeout-s", type=timeout_arg, default=600,
+                        help="Timeout in seconds for each subprocess (default: 600)")
     parser.add_argument("--db", default="profiler.db", help="Path to SQLite database (default: profiler.db)")
     parser.add_argument(
         "--mode",
         choices=["auto", "present", "submit"],
         default="auto",
-        help="Profiling mode: auto, present (Nsight Graphics capture), or submit (direct benchmark invocation)",
+        help="Profiling mode: auto, present (Nsight Graphics capture and replay), or submit (benchmark run)",
     )
 
     args = parser.parse_args()
@@ -406,8 +561,11 @@ def main() -> int:
         conn = init_db(args.db)
         try:
             run_id = ingest_ncu_report(conn, args.ncu_rep)
-            print(f"[Profiler] Successfully ingested NCU report '{args.ncu_rep}' as run {run_id}.")
+            print(f"[Profiler] Ingested NCU report '{args.ncu_rep}' as run {run_id}.")
             return 0
+        except RuntimeError as err:
+            print(f"[Profiler] Error: {err}", file=sys.stderr)
+            return 1
         finally:
             conn.close()
 
@@ -416,16 +574,11 @@ def main() -> int:
 
     mode = args.mode
     if mode == "auto":
-        exe_name = Path(args.exe).name.lower()
-        if "benchmark" in exe_name:
-            mode = "submit"
-        else:
-            mode = "present"
+        mode = "submit" if "benchmark" in Path(args.exe).name.lower() else "present"
 
     if mode == "submit":
         return run_benchmark_mode(args)
-    else:
-        return run_present_mode(args)
+    return run_present_mode(args)
 
 
 if __name__ == "__main__":
