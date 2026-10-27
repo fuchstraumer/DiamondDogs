@@ -112,7 +112,7 @@ namespace ocean
         const float openness = std::clamp(state.Openness, 0.0f, 1.0f);
         wind.Fetch = std::exp(std::lerp(std::log(sheltered), std::log(fullyDeveloped), openness));
 
-        wind.PeakingFactor = 1.0f + 6.0f * std::clamp(state.Regularity, 0.0f, 1.0f);
+        wind.PeakingFactor = 1.0f + 6.0f * std::clamp(state.Regularity, 0.0f, 3.0f);
         wind.FadeLength = 0.1f * (1.0f - std::clamp(state.RippleDetail, 0.0f, 1.0f));
         return wind;
     }

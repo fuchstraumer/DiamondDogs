@@ -202,6 +202,7 @@ private:
     float sunElevation{ 0.5f };
     float sunAzimuth{ 2.2f };
     ocean::HeaderFontMode headerFontMode{ ocean::HeaderFontMode::Blinker };
+    ocean::TelemetryTab currentTab{ ocean::TelemetryTab::SeaState };
     bool paused{ false };
     bool showUi{ true };
     bool spectrumChanged{ false };

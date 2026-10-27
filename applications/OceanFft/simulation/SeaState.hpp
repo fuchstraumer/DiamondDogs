@@ -27,7 +27,7 @@ namespace ocean
         float WindDirection{ 0.0f };
         /** @brief 0: waves line up with the wind. 1: a confused sea, waves from many directions */
         float Spread{ 0.2f };
-        /** @brief 0: a confused, broad-banded sea. 1: clean, regular wave groups (JONSWAP gamma 1 to 7) */
+        /** @brief 0: a confused, broad-banded sea. 1: clean, regular wave groups (JONSWAP gamma 1 to 7, up to 19 at 3.0) */
         float Regularity{ 0.4f };
         /** @brief 0: the short ripples are smoothed away. 1: every ripple down to the finest cascade */
         float RippleDetail{ 0.9f };

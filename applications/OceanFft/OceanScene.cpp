@@ -809,7 +809,7 @@ void OceanScene::drawPanel()
                 "broad band -> clean groups",
                 &seaState.Regularity,
                 0.0f,
-                1.0f,
+                3.0f,
                 std::format("{:.2f}  (gamma {:.1f})", seaState.Regularity, spectrum.PeakingFactor),
                 "",
                 fonts,

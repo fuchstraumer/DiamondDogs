@@ -30,6 +30,16 @@ namespace ocean
         Ice = 3,
     };
 
+    enum class TelemetryTab : uint8_t
+    {
+        SeaState = 0,
+        Surface = 1,
+        Foam = 2,
+        Physics = 3,
+        Timings = 4,
+        Scene = 5,
+    };
+
     struct OceanPanelState
     {
         SeaState* State{ nullptr };
@@ -49,18 +59,30 @@ namespace ocean
         bool SpectrumChanged{ false };
     };
 
-    /** @brief Opens the frameless chamfered telemetry panel and draws its background chassis. */
-    [[nodiscard]] bool BeginTelemetryPanel(const char* name, const ImGuiFontSet& fonts, HeaderFontMode font_mode);
-    /** @brief Draws the panel's outer hairline border and corner reticles, then closes the ImGui window. */
+    /** @brief Opens the rounded, horizontally resizable telemetry panel and draws its chassis. */
+    [[nodiscard]] bool BeginTelemetryPanel(const char* name, const ImGuiFontSet& fonts, HeaderFontMode font_mode,
+                                           bool* p_open = nullptr);
+    /** @brief Closes the ImGui telemetry panel. */
     void EndTelemetryPanel();
 
-    /** @brief Draws the top title banner, frame rate badge, and IFFT compute configuration line. */
-    void DrawTelemetryBanner(const ImGuiFontSet& fonts, HeaderFontMode font_mode, const OceanSimulationSettings& settings);
+    /** @brief Draws a compact floating pill button in the upper-left quadrant to restore a closed panel. */
+    [[nodiscard]] bool DrawRestoreMenuButton(const ImGuiFontSet& fonts, bool* p_open);
+
+    /** @brief Draws the top title banner, frame rate badge, compute config, and optional close button. */
+    void DrawTelemetryBanner(const ImGuiFontSet& fonts, HeaderFontMode font_mode, const OceanSimulationSettings& settings,
+                             bool* p_open = nullptr);
 
     /** @brief Draws the measured sea-state summary card and the wind/swell directional compass reticle. */
     void DrawSeaReadoutCard(const ImGuiFontSet& fonts, const SeaState& state, const SeaStateReadout& readout);
 
-    /** @brief Draws a collapsible stenciled section header with a 1px hairline and a 2px left accent bar. */
+    /** @brief Draws the top-level simulation transport bar (Run/Pause toggle and time scale indicator). */
+    [[nodiscard]] bool DrawSimulationTransportBar(const ImGuiFontSet& fonts, bool* paused, float* time_scale,
+                                                 AccentTone tone);
+
+    /** @brief Draws the top HUD tab bar selector (Sea State, Surface, Foam, Physics, Timings, Scene). */
+    [[nodiscard]] bool DrawTelemetryTabBar(const ImGuiFontSet& fonts, TelemetryTab& active_tab, AccentTone tone);
+
+    /** @brief Draws a collapsible stenciled section header with a 1px hairline and an accent bar. */
     [[nodiscard]] bool DrawSectionHeader(const char* label, const ImGuiFontSet& fonts, HeaderFontMode font_mode,
                                          AccentTone accent_tone, bool default_open);
 
