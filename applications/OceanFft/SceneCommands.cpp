@@ -1,5 +1,6 @@
 #include "SceneCommands.hpp"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <charconv>
 #include <cstddef>
@@ -8,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -16,6 +18,7 @@
 #include <utility>
 #include <vector>
 #include "OceanSimulation.hpp"
+#include "SeaState.hpp"
 
 namespace
 {
@@ -44,6 +47,7 @@ namespace
         { "cascade", { SceneCommand::Kind::Cascade, 0u, 0u, false } },
         { "foamweight", { SceneCommand::Kind::FoamWeight, 0u, 0u, false } },
         { "foam", { SceneCommand::Kind::Foam, 0u, 0u, false } },
+        { "shading", { SceneCommand::Kind::Shading, 0u, 0u, false } },
         { "foamreset", { SceneCommand::Kind::FoamReset, 0u, 0u, false } },
         { "rotate", { SceneCommand::Kind::Rotate, 0u, 0u, true } },
         { "capture", { SceneCommand::Kind::Capture, 0u, 0u, true } },
@@ -52,7 +56,7 @@ namespace
         { "quit", { SceneCommand::Kind::Quit, 0u, 0u, false } },
     };
 
-    const std::array<SeaStateField, 16> k_SeaStateFields
+    const std::array<SeaStateField, 15> k_SeaStateFields
     {
         SeaStateField{ "WindForce", &ocean::SeaState::WindForce },
         SeaStateField{ "Openness", &ocean::SeaState::Openness },
@@ -68,13 +72,17 @@ namespace
         SeaStateField{ "HeightScale", &ocean::SeaState::HeightScale },
         SeaStateField{ "WhitecapThreshold", &ocean::SeaState::WhitecapThreshold },
         SeaStateField{ "FoamAmount", &ocean::SeaState::FoamAmount },
-        SeaStateField{ "FoamSpread", &ocean::SeaState::FoamSpread },
-        SeaStateField{ "FoamContrast", &ocean::SeaState::FoamContrast },
+        SeaStateField{ "CrestSharpness", &ocean::SeaState::CrestSharpness },
     };
 
     const std::array<std::string_view, 8> k_FoamFields
     {
         "enable", "raise", "decay", "gain", "drift", "residual", "softness", "scale"
+    };
+
+    const std::array<std::string_view, 4> k_ShadingFields
+    {
+        "underwater", "specular", "albedo", "normal"
     };
 
     std::vector<std::string_view> SplitWords(std::string_view line)
@@ -113,6 +121,7 @@ namespace
     std::expected<SceneCommand, std::string> ParseCascade(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseFoamWeight(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseFoam(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseShading(const std::vector<std::string_view>& words);
 }
 
 std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view line)
@@ -158,6 +167,11 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
     if (shape.Kind == Kind::Foam)
     {
         return ParseFoam(words);
+    }
+
+    if (shape.Kind == Kind::Shading)
+    {
+        return ParseShading(words);
     }
 
     SceneCommand command{};
@@ -228,7 +242,7 @@ const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name)
     return found != presets.end() ? &*found : nullptr;
 }
 
-const std::array<SeaStateField, 16>& SeaStateFields() noexcept
+const std::array<SeaStateField, 15>& SeaStateFields() noexcept
 {
     return k_SeaStateFields;
 }
@@ -505,6 +519,37 @@ namespace
 
         SceneCommand command{};
         command.Type = SceneCommand::Kind::Foam;
+        command.Text = std::string{ *field };
+        command.Values[0] = value;
+        command.ValueCount = 1u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseShading(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "shading takes a field and a value" });
+        }
+
+        const auto field = std::ranges::find_if(k_ShadingFields, [&words](std::string_view name)
+        {
+            return EqualsIgnoreCase(name, words[1]);
+        });
+
+        if (field == k_ShadingFields.end())
+        {
+            return std::unexpected(std::string{ "shading: unknown field '" } + std::string{ words[1] } + "'");
+        }
+
+        float value = 0.0f;
+        if (!ParseFloat(words[2], value))
+        {
+            return std::unexpected(std::string{ "shading: '" } + std::string{ words[2] } + "' is not a number");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Shading;
         command.Text = std::string{ *field };
         command.Values[0] = value;
         command.ValueCount = 1u;

@@ -1,7 +1,11 @@
 #include "SeaState.hpp"
+#include "OceanSimulation.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <numbers>
+#include <string_view>
 
 namespace ocean
 {
@@ -220,12 +224,115 @@ namespace ocean
     {
         static const std::array<SeaStatePreset, 6> k_Presets
         {
-            SeaStatePreset{ "Glassy", SeaState{ 1.0f, 0.3f, 0.0f, 0.4f, 0.2f, 0.6f, 50.0f, 0.3f, 9.0f, 30.0f, 0.6f, 1.0f } },
-            SeaStatePreset{ "Breezy", SeaState{ 3.0f, 0.5f, 0.0f, 0.3f, 0.3f, 0.9f, 50.0f, 0.6f, 10.0f, 40.0f, 0.5f, 1.0f } },
-            SeaStatePreset{ "Fresh", SeaState{} },
-            SeaStatePreset{ "Rough", SeaState{ 7.0f, 0.8f, 0.0f, 0.2f, 0.5f, 1.0f, 50.0f, 1.5f, 12.0f, 30.0f, 0.5f, 1.0f } },
-            SeaStatePreset{ "Gale", SeaState{ 9.0f, 0.95f, 0.0f, 0.15f, 0.6f, 1.0f, 100.0f, 2.5f, 13.0f, 20.0f, 0.4f, 1.0f } },
-            SeaStatePreset{ "Long swell", SeaState{ 2.0f, 0.4f, 0.0f, 0.3f, 0.3f, 0.8f, 80.0f, 2.0f, 15.0f, 60.0f, 0.85f, 1.0f } },
+            SeaStatePreset
+            { 
+                "Glassy",
+                SeaState
+                {
+                    .WindForce=1.0f,
+                    .Openness=0.3f,
+                    .WindDirection=0.0f,
+                    .Spread=0.4f,
+                    .Regularity=0.2f,
+                    .RippleDetail=0.6f,
+                    .Depth=50.0f,
+                    .SwellHeight=0.3f,
+                    .SwellPeriod=9.0f,
+                    .SwellDirection=30.0f,
+                    .SwellOrder=0.6f,
+                    .HeightScale=1.0f,
+                    .WhitecapThreshold=0.5f,
+                    .FoamAmount=1.0f,
+                    .CrestSharpness=0.2f
+                }
+            },
+            SeaStatePreset
+            { 
+                "Breezy",
+                SeaState
+                {
+                    .WindForce=3.0f,
+                    .Openness=0.5f,
+                    .WindDirection=0.0f,
+                    .Spread=0.3f,
+                    .Regularity=0.3f,
+                    .RippleDetail=0.9f,
+                    .Depth=50.0f,
+                    .SwellHeight=0.6f,
+                    .SwellPeriod=10.0f,
+                    .SwellDirection=40.0f,
+                    .SwellOrder=0.5f,
+                    .HeightScale=1.0f,
+                    .WhitecapThreshold=0.5f,
+                    .FoamAmount=1.0f,
+                    .CrestSharpness=0.2f
+                }
+            },
+            SeaStatePreset
+            { 
+                "Fresh",
+                SeaState{} 
+            },
+            SeaStatePreset
+            { 
+                "Gale",
+                SeaState
+                {
+                    .WindForce=9.0f,
+                    .Openness=0.95f,
+                    .WindDirection=0.0f,
+                    .Spread=0.15f,
+                    .Regularity=0.6f,
+                    .RippleDetail=1.0f,
+                    .Depth=100.0f,
+                    .SwellHeight=2.5f,
+                    .SwellPeriod=13.0f,
+                    .SwellDirection=20.0f,
+                    .SwellOrder=0.4f,
+                    .HeightScale=1.0f
+                }
+            },
+            SeaStatePreset
+            { 
+                "GaleFoam",
+                SeaState
+                {
+                    .WindForce=9.0f,
+                    .Openness=0.10f,
+                    .WindDirection=0.0f,
+                    .Spread=0.15f,
+                    .Regularity=0.6f,
+                    .RippleDetail=1.0f,
+                    .Depth=4.0f,
+                    .SwellHeight=2.5f,
+                    .SwellPeriod=13.0f,
+                    .SwellDirection=20.0f,
+                    .SwellOrder=0.4f,
+                    .HeightScale=1.5f,
+                    .WhitecapThreshold=0.50f,
+                    .FoamAmount=3.0f,
+                    .CrestSharpness=0.35f
+                }
+            },
+            SeaStatePreset
+            { 
+                "Long swell",
+                SeaState
+                {
+                    .WindForce=2.0f,
+                    .Openness=0.4f,
+                    .WindDirection=0.0f,
+                    .Spread=0.3f,
+                    .Regularity=0.3f,
+                    .RippleDetail=0.8f,
+                    .Depth=80.0f,
+                    .SwellHeight=2.0f,
+                    .SwellPeriod=15.0f,
+                    .SwellDirection=60.0f,
+                    .SwellOrder=0.85f,
+                    .HeightScale=1.0f
+                }
+            }
         };
         return k_Presets;
     }

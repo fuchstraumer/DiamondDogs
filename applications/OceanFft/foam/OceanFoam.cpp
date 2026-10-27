@@ -126,7 +126,7 @@ namespace ocean
 
     void OceanFoamImpl::RecordDispatch(rhi::CommandBuffer& command_buffer, uint32_t frame_index)
     {
-        // the simulation wrote Displacement and Whitecaps (and the last frame's draws sampled the clipmap), and this
+        // the simulation wrote Displacement, Derivatives and Whitecaps (and the last frame's draws sampled the clipmap), and this
         // step reads both and rewrites the clipmap in place
         const rhi::GlobalBarrier inputsToStep
         {
@@ -215,12 +215,12 @@ namespace ocean
 
         impl->Program = std::move(*program);
 
-        // per set: the view uniform, Displacement and Whitecaps, the sampler, and the clipmap as a storage image
+        // per set: the view uniform, Displacement, Derivatives and Whitecaps, the sampler, and the clipmap as a storage image
         const uint32_t setCount = static_cast<uint32_t>(view_buffers.size());
         const std::array<VkDescriptorPoolSize, 4> poolSizes
         {
             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, setCount },
-            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 2u * setCount },
+            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 3u * setCount },
             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, setCount },
             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, setCount },
         };
@@ -249,6 +249,7 @@ namespace ocean
             {
                 { "View", { viewBuffer } },
                 { "Displacement", { simulation.Displacement(), VK_IMAGE_LAYOUT_GENERAL } },
+                { "Derivatives", { simulation.Derivatives(), VK_IMAGE_LAYOUT_GENERAL } },
                 { "Whitecaps", { simulation.Whitecaps(), VK_IMAGE_LAYOUT_GENERAL } },
                 { "OceanSampler", { sampler } },
                 { "FoamClipmapStorage", { impl->ClipmapImage } },
@@ -297,7 +298,7 @@ namespace ocean
             for (size_t axis = 0u; axis < 2u; ++axis)
             {
                 const double framePosition = static_cast<double>(camera_xz[axis]) - impl->Drift[axis];
-                impl->Origins[2u * level + axis] = static_cast<int32_t>(std::floor(framePosition / texelSize - halfSize));
+                impl->Origins[(2u * level) + axis] = static_cast<int32_t>(std::floor((framePosition / texelSize) - halfSize));
             }
         }
     }
@@ -307,7 +308,7 @@ namespace ocean
         const FoamSettings& settings = impl->Settings;
         persistent_foam_parameters = { settings.Enabled ? 1.0f : 0.0f, settings.ThresholdRaise, settings.TexelSizes[0], settings.TexelSizes[1] };
         foam_drift = { static_cast<float>(impl->Drift[0]), static_cast<float>(impl->Drift[1]), impl->Center[0], impl->Center[1] };
-        foam_residual = { settings.ResidualAmount, settings.ResidualSoftness, settings.ResidualScale, 0.0f };
+        foam_residual = { settings.ResidualAmount, settings.ResidualSoftness, settings.TextureTileSize, 0.0f };
     }
 
     void OceanFoam::RecordStep(rhi::CommandBuffer& command_buffer, uint32_t frame_index)

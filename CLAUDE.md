@@ -53,6 +53,8 @@ Requirements:
 - The same Python needs numpy and pyyaml (`python -m pip install --user numpy pyyaml`). OceanFft's
   `assets/scripts/ocean_fft_support.py` build step imports them, and configure fails without them. On this machine
   CMake picks `C:\Python315`.
+- A Python with Pillow and numpy packs the OceanFft foam textures. Set it with
+  `-DOCEAN_FFT_TEXTURE_PYTHON=C:/Python313/python.exe`. Configure fails without it.
 - CMake 4.x. `third_party/gli` asks for CMake 3.1, so the root file sets `CMAKE_POLICY_VERSION_MINIMUM` around it.
 
 For agents on Windows: run builds and tests through PowerShell. The Bash tool runs in a sandbox, and its writes

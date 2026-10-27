@@ -8,6 +8,7 @@
 #include "ImGuiModule.hpp"
 #include "ImageDataFormats.hpp"
 #include "ManifestDescriptors.hpp"
+#include "FoamMaterial.hpp"
 #include "FoamReplay.hpp"
 #include "Math.hpp"
 #include "OceanFoam.hpp"
@@ -69,6 +70,9 @@ namespace
     // the weight of the newest frame in each scope's rolling average
     constexpr double k_GpuTimingSmoothing = 0.05;
 
+    // prints the message to stderr, then throws it, so that a failed setup is never silent
+    [[noreturn]] void Fail(std::string_view message);
+
     // OceanViewParameters in OceanRenderCommon.slang (std140, all float4)
     struct OceanViewParameters
     {
@@ -81,16 +85,22 @@ namespace
         std::array<float, 4> SunDirectionSeabedDepth{};
         // x: fade distance in patch lengths, y: mip 0 size in texels, z: 1 when cascades are rotated, w: unused
         std::array<float, 4> LodParameters{};
-        // x: WhitecapThreshold, y: FoamAmount, z: FoamSpread, w: FoamContrast
-        std::array<float, 4> WhitecapParameters{ 0.5f, 1.0f, 1.0f, 1.0f };
+        // x: WhitecapThreshold, y: FoamAmount, z: CrestSharpness, w: unused
+        std::array<float, 4> WhitecapParameters{ 0.5f, 1.0f, 1.0f, 0.0f };
         // x: 1 lets the persistent foam raise the breaking threshold, y: the raise, z, w: texel size of clipmap levels 0 and 1 in meters
         std::array<float, 4> PersistentFoamParameters{};
         // xy: the foam's drift-frame offset in world meters, zw: the world xz the clipmap windows are centered on
         std::array<float, 4> FoamDrift{};
-        // x: residual foam amount, y: its dissolve softness, z: its noise cell size in meters, w: unused
+        // x: residual foam amount, y: its dissolve softness, z: meters per tile of the foam texture, w: unused
         std::array<float, 4> FoamResidualParameters{};
+        // x: underwater foam strength, y: sun specular scale, zw: unused
+        std::array<float, 4> ShadingParameters{};
+        // x: albedo gain on the foam texture's luminance, y: normal strength, zw: unused
+        std::array<float, 4> FoamTextureParameters{};
+        // rgb: the albedo tint of the foam material, w: unused
+        std::array<float, 4> FoamTextureTint{};
     };
-    static_assert(sizeof(OceanViewParameters) == 272u);
+    static_assert(sizeof(OceanViewParameters) == 320u);
 
     // OceanGridParameters, the push constants of both vertex stages
     struct OceanGridParameters
@@ -140,7 +150,7 @@ namespace
     {
         if (reply == nullptr || reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
         {
-            throw std::runtime_error(std::format("OceanScene: creating {} failed", what));
+            Fail(std::format("OceanScene: creating {} failed", what));
         }
         return reply->GetResource();
     }
@@ -190,7 +200,7 @@ void OceanScene::Initialize(void* user_data)
     rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> opened = rhi::ShaderLibrary::Open(settings.ManifestPath);
     if (!opened.has_value())
     {
-        throw std::runtime_error(std::format("OceanScene: opening {} failed: {}", settings.ManifestPath.string(), rhi::ToString(opened.error())));
+        Fail(std::format("OceanScene: opening {} failed: {}", settings.ManifestPath.string(), rhi::ToString(opened.error())));
     }
 
     library = std::move(*opened);
@@ -198,7 +208,7 @@ void OceanScene::Initialize(void* user_data)
     auto created = ocean::OceanSimulation::Create(*device, *resources, *library, settings.Simulation);
     if (!created.has_value())
     {
-        throw std::runtime_error(std::format("OceanScene: {}", created.error()));
+        Fail(std::format("OceanScene: {}", created.error()));
     }
 
     simulation = std::move(*created);
@@ -234,17 +244,26 @@ void OceanScene::Initialize(void* user_data)
         std::shared_ptr<PointerMessageReply> map = resources->MapBuffer(buffer, sizeof(OceanViewParameters), 0u);
         if (map->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
         {
-            throw std::runtime_error("OceanScene: mapping a view buffer failed");
+            Fail("OceanScene: mapping a view buffer failed");
         }
 
         viewBufferPointers.push_back(map->GetPointer());
     }
 
+    std::expected<std::unique_ptr<ocean::FoamMaterial>, std::string> loadedMaterial =
+        ocean::FoamMaterial::Load(*resources, settings.FoamMaterialDirectory, settings.FoamMaterialName);
+    if (!loadedMaterial.has_value())
+    {
+        Fail(std::format("OceanScene: the foam material: {}", loadedMaterial.error()));
+    }
+
+    foamMaterial = std::move(*loadedMaterial);
+
     // the foam binds the view buffers and the sampler, so it is created after them and destroyed before them
     auto createdFoam = ocean::OceanFoam::Create(*device, *resources, *library, *simulation, viewBuffers, sampler, foamSettings);
     if (!createdFoam.has_value())
     {
-        throw std::runtime_error(std::format("OceanScene: the foam: {}", createdFoam.error()));
+        Fail(std::format("OceanScene: the foam: {}", createdFoam.error()));
     }
 
     foam = std::move(*createdFoam);
@@ -289,12 +308,13 @@ void OceanScene::createRenderPrograms()
     rhi::ShaderLibraryResult<const lodestone::ManifestIndex*> index = library->ModuleIndex(k_RenderModule);
     if (!index.has_value())
     {
-        throw std::runtime_error(std::format("OceanScene: module {}: {}", k_RenderModule, rhi::ToString(index.error())));
+        Fail(std::format("OceanScene: module {}: {}", k_RenderModule, rhi::ToString(index.error())));
     }
 
-    // two sets per frame (surface, seabed), each with up to every simulation texture: Displacement, Derivatives,
-    // Whitecaps, FoamClipmap. A pool that is too small is not a validation error, but the sets past its end can alias
-    constexpr uint32_t k_SampledImagesPerSet = 4u;
+    // two sets per frame (surface, seabed), each with up to every sampled texture: Displacement, Derivatives,
+    // Whitecaps, FoamClipmap, FoamSurface, FoamNormal. A pool that is too small is not a validation error, but the
+    // sets past its end can alias
+    constexpr uint32_t k_SampledImagesPerSet = 6u;
     const std::array<VkDescriptorPoolSize, 3> poolSizes
     {
         VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2u * numFramebuffers },
@@ -311,13 +331,13 @@ void OceanScene::createRenderPrograms()
         std::expected<lodestone::VariantKey, lodestone::QueryError> variant = (*index)->Query().SingleFor(entryPoints);
         if (!variant.has_value())
         {
-            throw std::runtime_error(std::format("OceanScene: no {} variant for {}", k_RenderModule, entryPoints[0]));
+            Fail(std::format("OceanScene: no {} variant for {}", k_RenderModule, entryPoints[0]));
         }
 
         rhi::ShaderLibraryResult<std::unique_ptr<rhi::ManifestProgram>> created = library->CreateProgram(device->Handle(), k_RenderModule, *variant, entryPoints);
         if (!created.has_value())
         {
-            throw std::runtime_error(std::format("OceanScene: {}: {}", entryPoints[0], rhi::ToString(created.error())));
+            Fail(std::format("OceanScene: {}: {}", entryPoints[0], rhi::ToString(created.error())));
         }
 
         program->Program = std::move(*created);
@@ -336,12 +356,14 @@ void OceanScene::createRenderPrograms()
                 { "Derivatives", { simulation->Derivatives(), VK_IMAGE_LAYOUT_GENERAL } },
                 { "Whitecaps", { simulation->Whitecaps(), VK_IMAGE_LAYOUT_GENERAL } },
                 { "FoamClipmap", { foam->Clipmap(), VK_IMAGE_LAYOUT_GENERAL } },
+                { "FoamSurface", { foamMaterial->Surface() } },
+                { "FoamNormal", { foamMaterial->Normal() } },
                 { "OceanSampler", { sampler } },
             };
 
             if (std::optional<std::string> error = WriteManifestDescriptors(vkDevice, set, **index, *variant, entryPoints, bound); error.has_value())
             {
-                throw std::runtime_error(std::format("OceanScene: {}", *error));
+                Fail(std::format("OceanScene: {}", *error));
             }
         }
     }
@@ -443,6 +465,8 @@ void OceanScene::Destroy()
         descriptorPool = VK_NULL_HANDLE;
     }
 
+    foamMaterial.reset();
+
     destroyRenderTargets();
 
     for (const GraphicsResource& buffer : viewBuffers)
@@ -537,6 +561,10 @@ void OceanScene::runCommand(const SceneCommand& command)
         break;
     case SceneCommand::Kind::Preset:
         setSeaStatePreset(command.Text);
+        if (command.Text == "GaleFoam")
+        {
+            choppiness = 1.4f;
+        }
         break;
     case SceneCommand::Kind::Sea:
         setSeaStateField(command.Text, v[0]);
@@ -549,6 +577,9 @@ void OceanScene::runCommand(const SceneCommand& command)
         break;
     case SceneCommand::Kind::Foam:
         setFoamField(command.Text, v[0]);
+        break;
+    case SceneCommand::Kind::Shading:
+        setShadingField(command.Text, v[0]);
         break;
     case SceneCommand::Kind::FoamReset:
         foamReplayPending = true;
@@ -642,11 +673,31 @@ void OceanScene::setFoamField(std::string_view _name, float _value)
     }
     else if (_name == "scale")
     {
-        foamSettings.ResidualScale = std::max(_value, 0.05f);
+        foamSettings.TextureTileSize = std::max(_value, 0.05f);
     }
     else if (_name == "drift")
     {
         foamSettings.WindDrift = std::max(_value, 0.0f);
+    }
+}
+
+void OceanScene::setShadingField(std::string_view _name, float _value)
+{
+    if (_name == "underwater")
+    {
+        underwaterFoam = std::max(_value, 0.0f);
+    }
+    else if (_name == "specular")
+    {
+        sunSpecular = std::max(_value, 0.0f);
+    }
+    else if (_name == "albedo")
+    {
+        foamAlbedoGain = std::max(_value, 0.0f);
+    }
+    else if (_name == "normal")
+    {
+        foamNormalStrength = std::max(_value, 0.0f);
     }
 }
 
@@ -677,9 +728,11 @@ void OceanScene::printState() const
         std::cout << ' ' << weight;
     }
 
-    std::cout << std::format("\npersistent foam {} raise {} decay {} gain {} drift {} residual {} softness {} scale {}",
+    std::cout << std::format("\npersistent foam {} raise {} decay {} gain {} drift {} residual {} softness {} texture tile {}",
         foamSettings.Enabled ? "on" : "off", foamSettings.ThresholdRaise, foamSettings.DecayTime, foamSettings.PersistenceGain,
-        foamSettings.WindDrift, foamSettings.ResidualAmount, foamSettings.ResidualSoftness, foamSettings.ResidualScale);
+        foamSettings.WindDrift, foamSettings.ResidualAmount, foamSettings.ResidualSoftness, foamSettings.TextureTileSize);
+
+    std::cout << std::format("\nshading underwater {} specular {} albedo {} normal {}", underwaterFoam, sunSpecular, foamAlbedoGain, foamNormalStrength);
 
     std::cout << "\nrotate cascades " << (rotateCascades ? "on" : "off");
     std::cout << '\n' << std::flush;
@@ -959,27 +1012,14 @@ void OceanScene::drawPanel()
                 false);
 
             (void)ocean::DrawArtistSlider(
-                "##foam_spread",
-                "Foam spread",
-                "dispersion: <1 tight crests, >1 diffuse coverage",
-                &seaState.FoamSpread,
-                0.1f,
-                3.0f,
-                std::format("{:.2f}", seaState.FoamSpread),
-                "x",
-                fonts,
-                ocean::AccentTone::Ice,
-                false);
-
-            (void)ocean::DrawArtistSlider(
-                "##foam_contrast",
-                "Foam contrast",
-                "falloff: >1 punchy cores, <1 milky froth",
-                &seaState.FoamContrast,
-                0.2f,
-                3.0f,
-                std::format("{:.2f}", seaState.FoamContrast),
-                "x",
+                "##crest_sharpness",
+                "Crest sharpness",
+                "0: blobs (determinant), 1: sharp crest lines (eigenvalue)",
+                &seaState.CrestSharpness,
+                0.0f,
+                1.0f,
+                std::format("{:.2f}", seaState.CrestSharpness),
+                "",
                 fonts,
                 ocean::AccentTone::Ice,
                 false);
@@ -1003,6 +1043,60 @@ void OceanScene::drawPanel()
             }
 
             drawPersistentFoamControls();
+
+            ocean::DrawSubSectionDivider("LOOKDEV", fonts, headerFontMode, ocean::AccentTone::Ice);
+
+            (void)ocean::DrawArtistSlider(
+                "##underwater_foam",
+                "Underwater foam",
+                "tints the water under the foam and removes its specular",
+                &underwaterFoam,
+                0.0f,
+                2.0f,
+                std::format("{:.2f}", underwaterFoam),
+                "x",
+                fonts,
+                ocean::AccentTone::Ice,
+                false);
+
+            (void)ocean::DrawArtistSlider(
+                "##sun_specular",
+                "Sun specular",
+                "0 turns the sun highlight off, for foam lookdev",
+                &sunSpecular,
+                0.0f,
+                2.0f,
+                std::format("{:.2f}", sunSpecular),
+                "x",
+                fonts,
+                ocean::AccentTone::Ice,
+                false);
+
+            (void)ocean::DrawArtistSlider(
+                "##foam_albedo",
+                "Foam albedo",
+                "gain on the brightness of the foam texture",
+                &foamAlbedoGain,
+                0.0f,
+                4.0f,
+                std::format("{:.2f}", foamAlbedoGain),
+                "x",
+                fonts,
+                ocean::AccentTone::Ice,
+                false);
+
+            (void)ocean::DrawArtistSlider(
+                "##foam_normal",
+                "Foam normal",
+                "how far the foam texture bends the surface normal",
+                &foamNormalStrength,
+                0.0f,
+                2.0f,
+                std::format("{:.2f}", foamNormalStrength),
+                "x",
+                fonts,
+                ocean::AccentTone::Ice,
+                false);
         }
 
         if (ocean::DrawSectionHeader("SCENE  //  ENVIRONMENT & UI", fonts, headerFontMode, ocean::AccentTone::Amber, false))
@@ -1154,13 +1248,13 @@ void OceanScene::drawPersistentFoamControls()
         false);
 
     (void)ocean::DrawArtistSlider(
-        "##foam_residual_scale",
-        "Dissolve scale",
-        "noise cell size of the residual foam",
-        &foamSettings.ResidualScale,
-        0.1f,
-        10.0f,
-        std::format("{:.2f}", foamSettings.ResidualScale),
+        "##foam_texture_scale",
+        "Foam texture scale",
+        "meters per tile of the foam texture",
+        &foamSettings.TextureTileSize,
+        0.5f,
+        20.0f,
+        std::format("{:.2f}", foamSettings.TextureTileSize),
         "m",
         fonts,
         ocean::AccentTone::Ice,
@@ -1257,7 +1351,7 @@ void OceanScene::update()
         device->WaitDeviceIdle();
         if (!simulation->SetSpectrum(spectrum))
         {
-            throw std::runtime_error("OceanScene: writing the spectrum parameters failed");
+            Fail("OceanScene: writing the spectrum parameters failed");
         }
         needsInitialize = true;
         spectrumChanged = false;
@@ -1278,7 +1372,7 @@ void OceanScene::advanceFoam(double delta_seconds)
 
     FoamReplayInputs inputs{};
     inputs.Foam = foam->Settings();
-    inputs.Whitecaps = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.FoamSpread, seaState.FoamContrast };
+    inputs.Whitecaps = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.CrestSharpness, 0.0f };
     inputs.FoamWeights = foamWeights;
     inputs.CascadeEnabled = cascadeEnabled;
     inputs.Choppiness = choppiness;
@@ -1316,7 +1410,11 @@ void OceanScene::writeViewParameters()
     const float cosElevation = std::cos(sunElevation);
     view.SunDirectionSeabedDepth = { std::sin(sunAzimuth) * cosElevation, std::sin(sunElevation), std::cos(sunAzimuth) * cosElevation, seabedDepth };
     view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), rotateCascades ? 1.0f : 0.0f, 0.0f };
-    view.WhitecapParameters = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.FoamSpread, seaState.FoamContrast };
+    view.WhitecapParameters = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.CrestSharpness, 0.0f };
+    view.ShadingParameters = { underwaterFoam, sunSpecular, 0.0f, 0.0f };
+    const std::array<float, 3> foamTint = foamMaterial->Tint();
+    view.FoamTextureParameters = { foamAlbedoGain, foamNormalStrength, 0.0f, 0.0f };
+    view.FoamTextureTint = { foamTint[0], foamTint[1], foamTint[2], 0.0f };
     foam->FillView(view.PersistentFoamParameters, view.FoamDrift, view.FoamResidualParameters);
 
     // beginFrame waited on this frame's fence, so the GPU is done with this frame's buffer
@@ -1613,4 +1711,13 @@ void OceanScene::recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi:
 void OceanScene::draw()
 {
     submitFrame(commandPools[currentFrame]->GetCommandBuffer(0));
+}
+
+namespace
+{
+    void Fail(std::string_view message)
+    {
+        std::cerr << message << '\n' << std::flush;
+        throw std::runtime_error(std::string{ message });
+    }
 }

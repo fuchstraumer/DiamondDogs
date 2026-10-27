@@ -40,7 +40,7 @@ uniform SamplerState normSampler;
 uniform RWTexture2DArray<float4> Displacement;
 [format("rgba16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
 uniform RWTexture2DArray<float4> Derivatives;
-// k_i^2 only. The mean of k_i is Displacement.w - 1 + 1/n (the Jacobian is 1 + k_i - 1/n), so the Jacobian's mips give it
-[format("r16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
-uniform RWTexture2DArray<float> Whitecaps;
+// x: k_i^2, y: dDx/dz. The mean of k_i is Displacement.w - 1 + 1/n (the Jacobian is 1 + k_i - 1/n), so the Jacobian's mips give it
+[format("rg16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
+uniform RWTexture2DArray<float2> Whitecaps;
 

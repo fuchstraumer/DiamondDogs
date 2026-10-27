@@ -8,7 +8,8 @@ implementing OceanRender;
 //
 // The foam integrates the same coverage the fragment stage draws (EvaluateWhitecapCoverage, unbiased), as
 // df/dt = production * coverage - f / tau. The fragment stage reads it back twice: as a raise of the breaking
-// threshold, so foam near a crest keeps the whitecaps' detail, and as residual foam that dissolves through a noise
+// threshold, so foam near a crest keeps the whitecaps' detail, and as residual foam that dissolves through the foam
+// material's mask
 
 public static const uint FOAM_LEVELS = 2u;
 
@@ -122,71 +123,49 @@ internal float SamplePersistentFoam(float2 surface_xz)
     return foam;
 }
 
-// an integer hash of a lattice cell, [0, 1). Exact at any distance: the sin() hash loses its low bits once the
-// argument is large, which showed as straight-edged shards a few hundred meters out
-internal float FoamHash(int2 cell)
+
+internal struct FoamMaterial
 {
-    uint2 v = uint2(cell) * 1664525u + 1013904223u;
-    v.x += v.y * 1664525u;
-    v.y += v.x * 1664525u;
-    v ^= v >> 16u;
-    v.x += v.y * 1664525u;
-    v.y += v.x * 1664525u;
-    v ^= v >> 16u;
-    return float(v.x) * (1.0f / 4294967296.0f);
+    // the opacity mask, uniform on [0, 1]
+    float Mask;
+    float3 Albedo;
+    float2 NormalXY;
+};
+
+// the foam material at a world position, in the drift frame so it travels with the stored foam
+internal FoamMaterial SampleFoamMaterial(float2 surface_xz)
+{
+    const float tileSize = max(0.1f, View.FoamResidualParameters.z);
+    const float2 uv = (surface_xz - View.FoamDrift.xy) / tileSize;
+    const float4 surface = FoamSurface.Sample(OceanSampler, uv);
+
+    FoamMaterial material;
+    material.Mask = surface.r;
+    material.Albedo = saturate(surface.a * View.FoamTextureParameters.x * View.FoamTextureTint.rgb);
+    material.NormalXY = FoamNormal.Sample(OceanSampler, uv) * 2.0f - 1.0f;
+    return material;
 }
 
-// value noise, three octaves, [0, 1]. It is evaluated in the drift frame, so its pattern travels with the stored foam
-// and does not tile
-internal float FoamResidualNoise(float2 frame_position, float cell_size)
-{
-    float2 position = frame_position / cell_size;
-    float sum = 0.0f;
-    float amplitude = 0.5f;
-    float total = 0.0f;
-
-    [unroll]
-    for (uint octave = 0u; octave < 3u; ++octave)
-    {
-        const float2 floored = floor(position);
-        const int2 cell = int2(floored);
-        const float2 t = position - floored;
-        const float2 s = t * t * (3.0f - 2.0f * t);
-        const float a = FoamHash(cell);
-        const float b = FoamHash(cell + int2(1, 0));
-        const float c = FoamHash(cell + int2(0, 1));
-        const float d = FoamHash(cell + int2(1, 1));
-        sum += amplitude * lerp(lerp(a, b, s.x), lerp(c, d, s.x), s.y);
-        total += amplitude;
-        amplitude *= 0.5f;
-        // a rotation and a doubling between octaves keeps their lattices from lining up
-        position = float2(1.6f * position.x - 1.2f * position.y, 1.2f * position.x + 1.6f * position.y);
-    }
-
-    return sum / total;
-}
-
-// the old foam on its own: as the stored foam decays it dissolves through the noise, so it breaks into patches
-// that drift instead of showing as a veil. The stored foam is an averaged coverage, so the dissolve keeps it as an
-// area: with uniform noise u, P(u > 1 - a) = a, and amount * stored of the surface is foam. Once a pixel covers
-// several noise cells, the dissolve would alias, so it blends into its own filtered value, the area itself
-internal float EvaluateResidualFoam(float2 surface_xz, float2 grad_x, float2 grad_y, float stored_foam)
+// the old foam on its own: as the stored foam decays it dissolves through the material's mask, so it breaks into the
+// texture's patches and drifts with them. The stored foam is an averaged coverage, and the packer equalized the mask
+// to uniform, so the dissolve keeps area: P(mask > 1 - a) = a, and amount * stored of the surface is foam. Once a
+// pixel covers a few of the mask's features, its mips have averaged them toward 0.5 and a cut would be wrong, so the
+// dissolve blends into its filtered value, the area itself
+internal float EvaluateResidualFoam(float2 surface_xz, float2 grad_x, float2 grad_y, float stored_foam, float mask)
 {
     const float area = saturate(max(0.0f, View.FoamResidualParameters.x) * stored_foam);
-    const float cellSize = max(0.05f, View.FoamResidualParameters.z);
+
+    uint width;
+    uint height;
+    uint levels;
+    FoamSurface.GetDimensions(0u, width, height, levels);
+    const float texelSize = max(0.1f, View.FoamResidualParameters.z) / float(width);
     const float footprint = max(length(grad_x), length(grad_y));
-    const float detail = 1.0f - smoothstep(0.25f, 1.0f, footprint / cellSize);
+    // Foam002's patches are tens of texels across: from 8 texels per pixel up, the mask stops resolving them
+    const float lod = log2(max(footprint / texelSize, 1.0f));
+    const float detail = 1.0f - smoothstep(2.5f, 5.0f, lod);
 
-    if (detail <= 0.0f)
-    {
-        return area;
-    }
-
-    // the three octaves sum to a bell around 0.5 with a standard deviation of 0.14 (measured): its Gaussian CDF makes
-    // it close to uniform. 5.05 = 1 / (0.14 * sqrt(2))
-    const float noise = FoamResidualNoise(surface_xz - View.FoamDrift.xy, cellSize);
-    const float uniformNoise = 0.5f + 0.5f * FastErf((noise - 0.5f) * 5.05f);
     const float softness = max(0.01f, View.FoamResidualParameters.y);
-    const float dissolved = saturate((area - (1.0f - uniformNoise)) / softness);
+    const float dissolved = saturate((area - (1.0f - mask)) / softness);
     return lerp(area, dissolved, detail);
 }

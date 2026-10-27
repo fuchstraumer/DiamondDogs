@@ -40,6 +40,43 @@ add_custom_command(
 add_custom_target(ocean_fft_support_data DEPENDS "${OCEAN_FFT_SUPPORT_STAMP}")
 set_target_properties(ocean_fft_support_data PROPERTIES FOLDER "Applications/OceanFft")
 
+# foam_texture_pack.py packs the Foam002 material into the two KTX textures and the tint file that the demo loads. It
+# needs Pillow and numpy, and the Python above may not have Pillow, so this one is its own variable.
+set(OCEAN_FFT_TEXTURE_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH
+    "Python with Pillow and numpy, which runs assets/scripts/foam_texture_pack.py")
+execute_process(
+    COMMAND "${OCEAN_FFT_TEXTURE_PYTHON}" -c "import PIL, numpy"
+    RESULT_VARIABLE OCEAN_FFT_TEXTURE_PYTHON_MODULES_MISSING
+    OUTPUT_QUIET ERROR_QUIET)
+if (OCEAN_FFT_TEXTURE_PYTHON_MODULES_MISSING)
+    message(FATAL_ERROR "OceanFft: OCEAN_FFT_TEXTURE_PYTHON (${OCEAN_FFT_TEXTURE_PYTHON}) needs Pillow and numpy for "
+                        "assets/scripts/foam_texture_pack.py. Install them, or set the variable to a Python that has them, "
+                        "for example -DOCEAN_FFT_TEXTURE_PYTHON=C:/Python313/python.exe")
+endif()
+
+set(OCEAN_FFT_FOAM_MATERIAL_NAME "Foam002")
+set(OCEAN_FFT_FOAM_SOURCE_DIR "${PROJECT_SOURCE_DIR}/assets/textures/${OCEAN_FFT_FOAM_MATERIAL_NAME}")
+set(OCEAN_FFT_FOAM_DIR "${CMAKE_CURRENT_BINARY_DIR}/foam")
+set(OCEAN_FFT_FOAM_FILES
+    "${OCEAN_FFT_FOAM_DIR}/${OCEAN_FFT_FOAM_MATERIAL_NAME}_Surface.ktx"
+    "${OCEAN_FFT_FOAM_DIR}/${OCEAN_FFT_FOAM_MATERIAL_NAME}_Normal.ktx"
+    "${OCEAN_FFT_FOAM_DIR}/${OCEAN_FFT_FOAM_MATERIAL_NAME}_Material.json")
+add_custom_command(
+    OUTPUT ${OCEAN_FFT_FOAM_FILES}
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${OCEAN_FFT_FOAM_DIR}"
+    COMMAND "${OCEAN_FFT_TEXTURE_PYTHON}" "${OCEAN_FFT_SCRIPT_DIR}/foam_texture_pack.py"
+        "${OCEAN_FFT_FOAM_SOURCE_DIR}" "${OCEAN_FFT_FOAM_MATERIAL_NAME}" "${OCEAN_FFT_FOAM_DIR}" 1024
+    DEPENDS "${OCEAN_FFT_SCRIPT_DIR}/foam_texture_pack.py"
+        "${OCEAN_FFT_FOAM_SOURCE_DIR}/${OCEAN_FFT_FOAM_MATERIAL_NAME}_4K_Color.jpg"
+        "${OCEAN_FFT_FOAM_SOURCE_DIR}/${OCEAN_FFT_FOAM_MATERIAL_NAME}_4K_Opacity.jpg"
+        "${OCEAN_FFT_FOAM_SOURCE_DIR}/${OCEAN_FFT_FOAM_MATERIAL_NAME}_4K_Displacement.jpg"
+        "${OCEAN_FFT_FOAM_SOURCE_DIR}/${OCEAN_FFT_FOAM_MATERIAL_NAME}_4K_Roughness.jpg"
+        "${OCEAN_FFT_FOAM_SOURCE_DIR}/${OCEAN_FFT_FOAM_MATERIAL_NAME}_4K_NormalGL.jpg"
+    COMMENT "Packing the ${OCEAN_FFT_FOAM_MATERIAL_NAME} foam textures"
+    VERBATIM)
+add_custom_target(ocean_fft_foam_textures DEPENDS ${OCEAN_FFT_FOAM_FILES})
+set_target_properties(ocean_fft_foam_textures PROPERTIES FOLDER "Applications/OceanFft")
+
 lodestone_add_shader_cook(ocean_fft_shaders
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cooked"
     TARGETS spirv
@@ -73,10 +110,13 @@ diamond_dogs_add_pch(ocean_simulation LIBRARY)
 add_library(ocean_foam STATIC
     "foam/OceanFoam.cpp"
     "foam/OceanFoam.hpp"
+    "foam/FoamMaterial.cpp"
+    "foam/FoamMaterial.hpp"
     "foam/FoamReplay.cpp"
     "foam/FoamReplay.hpp")
 target_include_directories(ocean_foam PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/foam")
-target_link_libraries(ocean_foam PUBLIC ocean_simulation)
+target_include_directories(ocean_foam PRIVATE "${PROJECT_SOURCE_DIR}/third_party/json/include")
+target_link_libraries(ocean_foam PUBLIC ocean_simulation PRIVATE gli)
 set_target_properties(ocean_foam PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(ocean_foam LIBRARY)
 
@@ -101,7 +141,10 @@ add_executable(OceanFft
     "${DIAMOND_DOGS_TEST_FIXTURES}/FrameLimit.hpp")
 # platform_system does not export its include folder (ADD_INTEGRATION_TEST adds it by hand, too)
 target_include_directories(OceanFft PRIVATE "${DIAMOND_DOGS_TEST_FIXTURES}" "${PROJECT_SOURCE_DIR}/modules/PlatformSystem/include" "${CMAKE_BINARY_DIR}/include")
-target_compile_definitions(OceanFft PRIVATE "OCEAN_FFT_FONT_DIR=\"${PROJECT_SOURCE_DIR}/assets/fonts\"")
+target_compile_definitions(OceanFft PRIVATE
+    "OCEAN_FFT_FONT_DIR=\"${PROJECT_SOURCE_DIR}/assets/fonts\""
+    "OCEAN_FFT_FOAM_DIR=\"${OCEAN_FFT_FOAM_DIR}\""
+    "OCEAN_FFT_FOAM_NAME=\"${OCEAN_FFT_FOAM_MATERIAL_NAME}\"")
 target_link_libraries(OceanFft PRIVATE ocean_simulation ocean_foam frame_capture imgui_module platform_system glfw ${Vulkan_LIBRARY})
 set_target_properties(OceanFft PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(OceanFft LIBRARY)
@@ -125,15 +168,16 @@ add_custom_command(
     OUTPUT "${OCEAN_FFT_BUNDLE_COPY}"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${OCEAN_FFT_BUNDLE}" "${OCEAN_FFT_BUNDLE_COPY}"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PROJECT_SOURCE_DIR}/assets/fonts" "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/fonts"
-    DEPENDS "${OCEAN_FFT_BUNDLE}" ocean_fft_shaders
-    COMMENT "Copying the OceanFft shader bundle and fonts next to the executable"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${OCEAN_FFT_FOAM_FILES} "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>"
+    DEPENDS "${OCEAN_FFT_BUNDLE}" ocean_fft_shaders ${OCEAN_FFT_FOAM_FILES}
+    COMMENT "Copying the OceanFft shader bundle, fonts and foam textures next to the executable"
     VERBATIM)
 add_custom_target(ocean_fft_bundle_copy DEPENDS "${OCEAN_FFT_BUNDLE_COPY}")
 set_target_properties(ocean_fft_bundle_copy PROPERTIES FOLDER "Applications/OceanFft")
 add_dependencies(OceanFft ocean_fft_bundle_copy)
 
 # OceanFft_package: a folder to copy to another machine, in build/<preset>/package/OceanFft-<config>. It holds the
-# executable and the shader bundle and, with a DLL C runtime, the release VC++ runtime DLLs (app-local deployment,
+# executable, the shader bundle, the foam textures and, with a DLL C runtime, the release VC++ runtime DLLs (app-local deployment,
 # so the other machine needs no redistributable installer). Use a Release build: Debug executables need the debug
 # runtime, which only Visual Studio installs. The other machine needs only a GPU driver with Vulkan and
 # VK_EXT_shader_object; without the Vulkan SDK the demo runs without validation.
@@ -152,7 +196,8 @@ add_custom_target(OceanFft_package
     COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:OceanFft>" ${OCEAN_FFT_PACKAGE_RUNTIME_DLLS} "${OCEAN_FFT_PACKAGE_DIR}"
     COMMAND "${CMAKE_COMMAND}" -E copy "${OCEAN_FFT_BUNDLE}" "${OCEAN_FFT_PACKAGE_DIR}/OceanFft.ldmanifest"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory "${PROJECT_SOURCE_DIR}/assets/fonts" "${OCEAN_FFT_PACKAGE_DIR}/fonts"
+    COMMAND "${CMAKE_COMMAND}" -E copy ${OCEAN_FFT_FOAM_FILES} "${OCEAN_FFT_PACKAGE_DIR}"
     COMMENT "Packaging OceanFft into ${OCEAN_FFT_PACKAGE_DIR}"
     VERBATIM)
-add_dependencies(OceanFft_package OceanFft)
+add_dependencies(OceanFft_package OceanFft ocean_fft_foam_textures)
 set_target_properties(OceanFft_package PROPERTIES FOLDER "Applications/OceanFft")

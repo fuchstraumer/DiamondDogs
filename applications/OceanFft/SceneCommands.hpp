@@ -27,8 +27,7 @@
  *    pause on|off
  *    choppiness value                      the horizontal displacement multiplier (lambda), as the UI slider
  *    ui on|off                             show or hide the panel, for clean captures
- *    preset name                           apply a sea state preset by name (Glassy, Breezy, Fresh, Rough, Gale,
- *                                          Long swell), as the preset buttons do
+ *    preset name                           apply a sea state preset by name (Glassy, Breezy, Fresh, Gale, GaleFoam, Long swell), as the preset buttons do
  *    sea field value                       set one sea state field by its C++ name (WindForce, Openness, ...), as its
  *                                          slider does. print writes the same names
  *    cascade index on|off                  enable or disable one cascade, index 0 to 4
@@ -36,7 +35,10 @@
  *                                          model as computed), index 0 to 4
  *    foam field value                      set one persistent foam field: enable (0 or 1), raise (threshold raise, 0 to 0.5),
  *                                          decay (seconds), gain (persistence gain, 1 = averaged coverage), drift
- *                                          (fraction of wind speed), residual (amount), softness, scale (meters)
+ *                                          (fraction of wind speed), residual (amount), softness, scale (meters per tile of the foam texture)
+ *    shading field value                   set one lookdev field: underwater (0 to 2, tints the water under the foam and
+ *                                          removes its specular), specular (0 to 2, the sun highlight scale, 0 is off),
+ *                                          albedo (0 to 4, the brightness gain of the foam texture), normal (0 to 2, its normal strength)
  *    foamreset                             rebuild the persistent foam by replaying its history
  *    rotate on|off                       rotate and offset each cascade's lattice when sampled (tiling A/B)
  *    capture [name]                        write this frame to <capture dir>/<name>.png. The commands after it
@@ -64,6 +66,7 @@ struct SceneCommand
         Cascade,
         FoamWeight,
         Foam,
+        Shading,
         FoamReset,
         Rotate,
         Capture,
@@ -92,7 +95,7 @@ struct SeaStateField
 /** @brief Returns the preset whose name matches, ignoring case, or null when no preset matches */
 [[nodiscard]] const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name);
 /** @brief Returns every float field of the sea state, in declaration order */
-[[nodiscard]] const std::array<SeaStateField, 16>& SeaStateFields() noexcept;
+[[nodiscard]] const std::array<SeaStateField, 15>& SeaStateFields() noexcept;
 
 /** Holds the lines from the script and stdin, and hands out the commands for each frame. Push may be called from any
  *  thread. The stdin reader pushes through the queue. Every other method runs on the frame thread. */

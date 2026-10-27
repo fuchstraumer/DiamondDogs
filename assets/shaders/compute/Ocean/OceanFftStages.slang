@@ -60,7 +60,8 @@ internal struct ResolvedTexel
 {
     float4 Displacement;
     float4 Derivatives;
-    float Whitecaps;
+    // x: k_i^2, y: dDx/dz (the off-diagonal of the Jacobian tensor, for the crest eigenvalue)
+    float2 Whitecaps;
 };
 
 // Unpacks the transformed slices of the tick into the Displacement and Derivatives textures. It also applies the
@@ -95,7 +96,7 @@ internal ResolvedTexel ResolveTexel(half4 slice0Input, half4 slice1Input, uint2 
     ResolvedTexel texel;
     texel.Displacement = float4(dx * choppiness, height, dz * choppiness, jacobian);
     texel.Derivatives = float4(dHeightDx, dHeightDz, dDxDx, dDzDz);
-    texel.Whitecaps = k_i_sq;
+    texel.Whitecaps = float2(k_i_sq, dDxDz);
 
     return texel;
 }

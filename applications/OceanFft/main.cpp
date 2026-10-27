@@ -118,6 +118,24 @@ namespace
         return std::filesystem::path{ OCEAN_FFT_FONT_DIR };
     }
 
+    // The build copies the packed foam textures next to the executable. A build-tree executable without the copy
+    // falls back to the folder that the packer wrote
+    std::filesystem::path FindFoamMaterialDirectory()
+    {
+        std::array<wchar_t, 32768> modulePath{};
+        const DWORD length = GetModuleFileNameW(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
+        const std::filesystem::path besideDirectory = std::filesystem::path{ std::wstring_view{ modulePath.data(), length } }.parent_path();
+        const std::filesystem::path besideFile = besideDirectory / (std::string{ OCEAN_FFT_FOAM_NAME } + "_Surface.ktx");
+        std::error_code error;
+
+        if (length != 0u && std::filesystem::exists(besideFile, error))
+        {
+            return besideDirectory;
+        }
+
+        return std::filesystem::path{ OCEAN_FFT_FOAM_DIR };
+    }
+
     template<typename T>
     bool ParseNumber(std::string_view text, T& value)
     {
@@ -300,6 +318,8 @@ int main(int argc, char* argv[])
     OceanSceneSettings settings{};
     settings.ManifestPath = FindManifest();
     settings.FontDirectory = FindFonts();
+    settings.FoamMaterialDirectory = FindFoamMaterialDirectory();
+    settings.FoamMaterialName = OCEAN_FFT_FOAM_NAME;
     settings.ValidationEnabled = rhiCreateInfo.ValidationLevel != rhi::ValidationLayers::None;
     CommandLine commandLine{};
     ParseArguments(argc, argv, settings, commandLine);

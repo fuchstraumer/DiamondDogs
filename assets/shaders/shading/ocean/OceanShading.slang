@@ -66,16 +66,26 @@ float4 OceanSurfaceFS(OceanSurfaceVaryings input) : SV_Target
     const float storedFoam = persistent ? SamplePersistentFoam(input.SurfaceXZ) : 0.0f;
     const float2 footprintX = ddx(input.SurfaceXZ);
     const float2 footprintY = ddy(input.SurfaceXZ);
+    // the foam material, in the drift frame so it travels with the stored foam: its mask dissolves the residual,
+    // and its albedo and normal shade all foam
+    const FoamMaterial material = SampleFoamMaterial(input.SurfaceXZ);
     const float breaking = EvaluateWhitecapCoverage(input.SurfaceXZ, footprintX, footprintY, View.PersistentFoamParameters.y * storedFoam);
-    const float residual = persistent ? EvaluateResidualFoam(input.SurfaceXZ, footprintX, footprintY, storedFoam) : 0.0f;
+    const float residual = persistent ? EvaluateResidualFoam(input.SurfaceXZ, footprintX, footprintY, storedFoam, material.Mask) : 0.0f;
     const float whitecaps = max(breaking, residual);
-    // evaluated as classic lambertian diffuse with albedo 0.40
-    const float nDotL = saturate(dot(surface.Normal, toSun));
-    const float3 foamAlbedo = 0.85f.xxx;
+    // lambertian diffuse, lit through the foam's own normal: the texture's normal tilts the surface normal in world xz
+    const float3 foamNormal = normalize(surface.Normal + View.FoamTextureParameters.y * float3(material.NormalXY.x, 0.0f, material.NormalXY.y));
+    const float nDotL = saturate(dot(foamNormal, toSun));
+    const float3 foamAlbedo = material.Albedo;
     const float3 foamRadiance = foamAlbedo * (nDotL * float3(1.0f, 0.95f, 0.9f) + skyColor * 0.5f);
 
-    const float3 waterBase = lerp(deepColor, skyColor, fresnel);
-    float3 color = lerp(waterBase, foamRadiance, whitecaps) + sun.xxx;
+    // underwater foam: the bubbles a breaker mixes down lighten the water around and under the surface foam, and
+    // break up its mirror, so the sun's highlight goes with it (after Ocean-URP's (1 - coverage)^5). It covers more
+    // than the surface foam: the stored foam's whole area, not only its dissolved patches
+    const float underwaterFoam = saturate(View.ShadingParameters.x * max(breaking, saturate(View.FoamResidualParameters.x * storedFoam)));
+    const float3 underwaterColor = float3(0.05f, 0.14f, 0.16f);
+    const float specularMask = pow(1.0f - underwaterFoam, 5.0f) * (1.0f - whitecaps);
+    const float3 waterBase = lerp(lerp(deepColor, underwaterColor, underwaterFoam), skyColor, fresnel);
+    float3 color = lerp(waterBase, foamRadiance, whitecaps) + (sun * specularMask * max(0.0f, View.ShadingParameters.y)).xxx;
 
     // scale hdr to match my monitor paper white
     // k_PaperWhiteNits and k_ScRgbRefNits must stay equal to the ones in OceanScene.cpp, which scales captures back

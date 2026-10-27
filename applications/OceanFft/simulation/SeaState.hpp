@@ -49,10 +49,10 @@ namespace ocean
         float WhitecapThreshold{ 0.5f };
         /** @brief Linear foam coverage multiplier. 0: none, 1: physical reference, 2+: heavy foam */
         float FoamAmount{ 1.0f };
-        /** @brief Footprint dispersion factor. <1 creates tight crest lines, >1 diffuses foam across wave faces */
-        float FoamSpread{ 1.0f };
-        /** @brief Contrast/falloff exponent. >1 suppresses fringes for punchy cores, <1 broadens milky froth */
-        float FoamContrast{ 1.0f };
+        /** @brief Shape of the whitecap coverage, in the range 0-1. 0: Dupuy's Jacobian determinant (blobs). 1: the smaller
+         *  eigenvalue of the Jacobian tensor (crests as sharp lines). 0.2 keeps the determinant's varied foam and
+         *  pulls it onto the crest (the author's lookdev, 0.1 to 0.5 reads well) */
+        float CrestSharpness{ 0.2f };
     };
 
     /** @brief ResolveWind's output: the wind sea in the physics domain */

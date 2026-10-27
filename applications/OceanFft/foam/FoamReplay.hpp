@@ -17,7 +17,7 @@ namespace ocean
     /** @brief Rebuilds the foam for `time_now` from nothing. The spectrum is analytic in time, so the foam is the
      *  only state, and its history can be replayed exactly: this records ReplaySteps steps over three decay times
      *  (a tick of the simulation, then a foam step), with the drift moved back by the wind. The last step lands at
-     *  `time_now` with the drift at its current value, so the Displacement and Whitecaps images match the frame, and
+     *  `time_now` with the drift at its current value, so the Displacement, Derivatives and Whitecaps images match the frame, and
      *  the caller records no tick or foam step after it. The replay records no GPU timer scopes */
     void RecordFoamReplay(
         rhi::CommandBuffer& command_buffer,

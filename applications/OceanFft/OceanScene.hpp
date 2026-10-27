@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_OCEAN_SCENE_HPP
 #define DIAMOND_DOGS_OCEAN_SCENE_HPP
 #include "ArcballCamera.hpp"
+#include "FoamMaterial.hpp"
 #include "FrameCapture.hpp"
 #include "GpuTimers.hpp"
 #include "OceanFoam.hpp"
@@ -39,6 +40,9 @@ struct OceanSceneSettings
     std::filesystem::path ManifestPath;
     /** @brief Root folder of the UI fonts (assets/fonts or the copy beside the executable) */
     std::filesystem::path FontDirectory;
+    /** @brief The folder of the packed foam textures, and the material name that prefixes their file names */
+    std::filesystem::path FoamMaterialDirectory;
+    std::string FoamMaterialName;
     /** @brief Whether the instance has the validation layer, so debug object names can be set */
     bool ValidationEnabled{ false };
     /** @brief The surface: tiles of GridSize meters in GridRings rings around the camera's tile. The center tile has
@@ -119,6 +123,8 @@ private:
     void setFoamWeight(uint32_t _cascade, float _weight);
     /** @brief Sets one persistent foam field by the name that the foam command uses */
     void setFoamField(std::string_view _name, float _value);
+    /** @brief Sets one lookdev shading field by the name that the shading command uses */
+    void setShadingField(std::string_view _name, float _value);
     void drawPersistentFoamControls();
     /** @brief Moves the foam by this frame's step, and requests a replay when the foam's inputs changed */
     void advanceFoam(double delta_seconds);
@@ -135,6 +141,7 @@ private:
     std::unique_ptr<rhi::ShaderLibrary> library;
     std::unique_ptr<ocean::OceanSimulation> simulation;
     std::unique_ptr<ocean::OceanFoam> foam;
+    std::unique_ptr<ocean::FoamMaterial> foamMaterial;
     std::unique_ptr<ImGuiModule> imgui;
     std::vector<std::unique_ptr<rhi::CommandPool>> commandPools;
 
@@ -161,6 +168,12 @@ private:
     std::array<float, ocean::k_CascadeCount> foamWeights{ 1.0f, 1.0f, 1.0f, 0.7f, 0.35f };
     // the persistent foam (OceanFoam.slang). Off by default, so the default image is the one without it
     ocean::FoamSettings foamSettings{};
+    // lookdev scales for the foam. Scene state, not part of the sea state, and not an input of the foam replay
+    float underwaterFoam{ 1.0f };
+    float sunSpecular{ 1.0f };
+    // the foam texture's albedo gain, and how far its normal bends the surface normal
+    float foamAlbedoGain{ 2.3f };
+    float foamNormalStrength{ 0.5f };
     // true rebuilds the foam on the GPU in the next frame (RecordFoamReplay), at most once per frame
     bool foamReplayPending{ true };
 

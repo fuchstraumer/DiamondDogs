@@ -26,6 +26,9 @@ float EvaluateWhitecapCoverage(float2 surface_xz, float2 grad_x, float2 grad_y, 
 {
     float muA = 0.0f;
     float varA = 0.0f;
+    // the horizontal Jacobian tensor of the whole surface, minus the identity: (dDx/dx, dDz/dz, dDx/dz) summed over
+    // the cascades. It is linear in the cascades and in the mips, so its filtered value is the footprint's mean
+    float3 tensor = float3(0.0f);
 
     [unroll]
     for (int cascade = 0; cascade < OCEAN_CASCADE_COUNT; ++cascade)
@@ -41,10 +44,13 @@ float EvaluateWhitecapCoverage(float2 surface_xz, float2 grad_x, float2 grad_y, 
             const float rest = 1.0f / float(OCEAN_CASCADE_COUNT);
             const float jacobianDeviation = Displacement.SampleGrad(OceanSampler, uvw, uvGradX, uvGradY).w - 1.0f;
             const float kMean = jacobianDeviation + rest;
-            const float secondMoment = Whitecaps.SampleGrad(OceanSampler, uvw, uvGradX, uvGradY);
+            // x: k_i^2, y: dDx/dz
+            const float2 moments = Whitecaps.SampleGrad(OceanSampler, uvw, uvGradX, uvGradY);
+            const float2 stretch = Derivatives.SampleGrad(OceanSampler, uvw, uvGradX, uvGradY).zw;
             const float foamWeight = ViewFoamWeight(cascade);
             muA += rest + foamWeight * jacobianDeviation;
-            varA += foamWeight * foamWeight * max(0.0f, secondMoment - kMean * kMean);
+            varA += foamWeight * foamWeight * max(0.0f, moments.x - kMean * kMean);
+            tensor += foamWeight * CascadeTensorToWorld(float3(stretch, moments.y), cascade);
         }
         else
         {
@@ -53,11 +59,17 @@ float EvaluateWhitecapCoverage(float2 surface_xz, float2 grad_x, float2 grad_y, 
         }
     }
 
-    // FoamSpread: scale footprint dispersion (>1 softer/broader, <1 tighter crest lines)
-    // Hard clamp to prevent division by zero or negative dispersion
-    const float foamSpread = max(0.05f, View.WhitecapParameters.z);
+    // Crest sharpness: the smaller eigenvalue of the Jacobian tensor measures compression along the most compressed
+    // axis, so crests show as lines where the determinant (Dupuy's mean) shows blobs. Both are 1 at rest, so the
+    // threshold means the same for each. 0 is the determinant, 1 the eigenvalue
+    const float jxx = 1.0f + tensor.x;
+    const float jzz = 1.0f + tensor.y;
+    const float halfDifference = 0.5f * (jxx - jzz);
+    const float minorEigenvalue = 0.5f * (jxx + jzz) - sqrt(halfDifference * halfDifference + tensor.z * tensor.z);
+    muA = lerp(muA, minorEigenvalue, saturate(View.WhitecapParameters.z));
+
     const float sigmaSq = max(1e-4f, varA);
-    const float sigmaA = sqrt(sigmaSq) * foamSpread;
+    const float sigmaA = sqrt(sigmaSq);
 
     // Wave breaking threshold: [-0.2, 0.2] default range
     // Soft range in UI [0, 1]; hard clamp allows creative pushing while stopping blowout
@@ -68,15 +80,10 @@ float EvaluateWhitecapCoverage(float2 surface_xz, float2 grad_x, float2 grad_y, 
     const float errfIn = 0.70710678f * (epsilon - muA) / sigmaA;
     const float rawCoverage = saturate(0.5f + (0.5f * FastErf(errfIn)));
 
-    // FoamContrast: gamma falloff curve (>1 punchy cores, <1 broad milky froth)
-    // Hard clamp to avoid zero/negative exponents in pow()
-    const float foamContrast = clamp(View.WhitecapParameters.w, 0.05f, 8.0f);
-    const float shapedCoverage = pow(rawCoverage, foamContrast);
-
     // FoamAmount: linear coverage multiplier (0 = none, 1 = physical Dupuy, 2+ = heavy foam)
     // Hard clamp against negative amounts; saturate clamps maximum pixel coverage to 1.0
     const float foamAmount = max(0.0f, View.WhitecapParameters.y);
-    const float whitecapCoverage = saturate(shapedCoverage * foamAmount);
+    const float whitecapCoverage = saturate(rawCoverage * foamAmount);
 
     return whitecapCoverage;
 }

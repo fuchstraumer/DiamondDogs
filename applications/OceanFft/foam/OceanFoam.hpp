@@ -40,10 +40,10 @@ namespace ocean
         float PersistenceGain{ 2.0f };
         /** @brief How far old foam raises the breaking threshold, in Jacobian units */
         float ThresholdRaise{ 0.15f };
-        /** @brief The residual foam: its amount, how soft its dissolve edge is, and the noise cell size in meters */
+        /** @brief The residual foam: its amount, how soft its dissolve edge is, and the meters per tile of the foam texture */
         float ResidualAmount{ 1.0f };
         float ResidualSoftness{ 0.2f };
-        float ResidualScale{ 1.5f };
+        float TextureTileSize{ 4.0f };
         /** @brief The drift speed as a fraction of the wind speed */
         float WindDrift{ 0.03f };
         /** @brief The steps of one replay, which covers three decay times */
@@ -58,7 +58,7 @@ namespace ocean
     {
     public:
         /** @brief Creates the clipmap image, the step program, and one descriptor set for each view buffer. The
-         *  simulation supplies Displacement and Whitecaps. The view buffers and the sampler must outlive the foam */
+         *  simulation supplies Displacement, Derivatives and Whitecaps. The view buffers and the sampler must outlive the foam */
         [[nodiscard]] static std::expected<std::unique_ptr<OceanFoam>, std::string> Create(
             rhi::Device& device,
             ResourceContext& resources,

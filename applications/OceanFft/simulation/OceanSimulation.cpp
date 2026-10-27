@@ -310,7 +310,7 @@ namespace ocean
             info.Domain = ResourceDomain::GPUOnly;
             info.Flags = ResourceCreationFlags::UserDataAsNameString;
             info.Usage = usage;
-            info.Format = CommonFormats::R16_Float;
+            info.Format = CommonFormats::RG16_Float;
             info.Width = size;
             info.Height = size;
             info.ArrayLayers = k_CascadeCount;
@@ -487,7 +487,7 @@ namespace ocean
         }
 
         // the whitecaps images, one per cascade. pre-fill with zeroes just on init.
-        // one-element half image: k_i^2. We leave it empty at the start, and later once it's created we'll fill it from a buffer
+        // two-channel half image: x = k_i^2, y = dDx/dz (the crest sharpness term). The tick fills it every frame
         constexpr ImageUsageBits k_ScalarImageUsage = ImageUsageBits::UavComputeShader |
                                                       ImageUsageBits::SampledImage |
                                                       ImageUsageBits::SrvFragmentShader |
@@ -611,7 +611,7 @@ namespace ocean
         pyramid::MipTargetCreateInfo whitecapInfo
         {
             .Image=reinterpret_cast<VkImage>(impl->WhitecapsImage.VkHandle),
-            .Format=VK_FORMAT_R16_SFLOAT,
+            .Format=VK_FORMAT_R16G16_SFLOAT,
             .Width=size,
             .Height=size,
             .MipLevels=impl->MipLevels,

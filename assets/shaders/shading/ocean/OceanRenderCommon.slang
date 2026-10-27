@@ -24,7 +24,7 @@ public struct OceanViewParameters
     // z: 1 rotates and offsets each cascade's lattice (tiling A/B, see CascadeUv), 0 samples them all aligned. w unused
     public float4 LodParameters;
     // x: WhitecapThreshold (breaking trigger [0, 1] -> [-0.2, 0.2]), y: FoamAmount (coverage scale),
-    // z: FoamSpread (footprint dispersion), w: FoamContrast (falloff gamma)
+    // z: CrestSharpness (0: Dupuy's determinant, 1: the tensor's smaller eigenvalue), w unused
     public float4 WhitecapParameters;
     // the persistent foam (OceanFoam.slang). x: 1 lets it raise the breaking threshold, 0 leaves the whitecaps as
     // they were (A/B). y: the threshold raise at foam 1, in Jacobian units. z, w: texel size of clipmap levels 0 and
@@ -34,8 +34,16 @@ public struct OceanViewParameters
     // are centered on (the orbit target)
     public float4 FoamDrift;
     // the residual foam, drawn on its own where the stored foam outlasts the breaking (OceanFoam.slang).
-    // x: amount, y: dissolve softness, z: noise cell size of the first octave in meters, w unused
+    // x: amount, y: dissolve softness, z: the foam texture's tile size in meters, w unused
     public float4 FoamResidualParameters;
+    // lookdev of the placeholder shading. x: underwater foam strength (tints the water under the foam and removes
+    // its specular), y: sun specular scale (0 turns the sun's highlight off), zw unused
+    public float4 ShadingParameters;
+    // the foam material (FoamSurface, FoamNormal). x: albedo gain on the texture's luminance, y: normal strength,
+    // zw unused
+    public float4 FoamTextureParameters;
+    // rgb: the material's albedo tint (its mean linear color over its mean luminance, printed by the packer), w unused
+    public float4 FoamTextureTint;
 };
 
 // Per draw, as push constants. The surface is square tiles of Size meters, each a grid of Resolution x Resolution
@@ -137,6 +145,21 @@ internal float2 CascadeStretchToWorld(float2 stretch, uint cascade)
     return float2(cosineSq * stretch.x + sineSq * stretch.y, sineSq * stretch.x + cosineSq * stretch.y);
 }
 
+// a symmetric tensor (xx, zz, xz) sampled in the cascade's rotated frame, in the world frame: R^T M R. Unlike
+// CascadeStretchToWorld, the off-diagonal term is known here, so this is exact
+internal float3 CascadeTensorToWorld(float3 tensor, uint cascade)
+{
+    float sine;
+    float cosine;
+    sincos(CascadeAngle(cascade), sine, cosine);
+    const float cosineSq = cosine * cosine;
+    const float sineSq = sine * sine;
+    const float cross = cosine * sine;
+    return float3(cosineSq * tensor.x + 2.0f * cross * tensor.z + sineSq * tensor.y,
+                  sineSq * tensor.x - 2.0f * cross * tensor.z + cosineSq * tensor.y,
+                  cross * (tensor.y - tensor.x) + (cosineSq - sineSq) * tensor.z);
+}
+
 // A cascade's weight at a horizontal distance from the camera: the A/B weight, faded out once its waves are far
 // below a pixel
 internal float CascadeDistanceWeight(uint cascade, float distance)
@@ -160,16 +183,21 @@ Texture2DArray<float4> Displacement;
 Texture2DArray<float4> Derivatives;
 // linear, repeat: each cascade tiles with its own patch size
 SamplerState OceanSampler;
-// written by OceanResolveCS: k_i^2 for whitecap coverage evaluation. The mean is in Displacement.w
-// [IFFT_SIZE, IFFT_SIZE, CASCADE_COUNT]
-[format("r16f")]
-Texture2DArray<float> Whitecaps;
+// written by OceanResolveCS for the whitecap coverage. x: k_i^2 (the mean of k_i is in Displacement.w), y: dDx/dz,
+// the Jacobian tensor's off-diagonal. [IFFT_SIZE, IFFT_SIZE, CASCADE_COUNT]
+[format("rg16f")]
+Texture2DArray<float2> Whitecaps;
 // the persistent foam clipmap, one layer per level (OceanFoam.slang): OceanFoamStepCS writes it as storage, the
 // fragment stage samples it. Both bind the same image
 [format("r16f")]
 RWTexture2DArray<float> FoamClipmapStorage;
 [format("r16f")]
 Texture2DArray<float> FoamClipmap;
+// the foam material, packed by assets/scripts/foam_texture_pack.py. r: opacity mask, histogram-equalized (uniform, so
+// the dissolve keeps area), g: height, b: roughness, a: albedo luminance (linear)
+Texture2D<float4> FoamSurface;
+// rg: tangent-space normal xy (OpenGL convention), unorm: * 2 - 1 gives [-1, 1]
+Texture2D<float2> FoamNormal;
 
 internal float4 WorldToClip(float3 world_position)
 {
