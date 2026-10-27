@@ -45,6 +45,7 @@ lodestone_add_shader_cook(ocean_fft_shaders
     TARGETS spirv
     POLICY_FILE "${OCEAN_FFT_SHADER_DIR}/OceanFftPolicy.toml"
     INCLUDE_DIRS "${OCEAN_FFT_GENERATED_SHADER_DIR}"
+    OPTIONS --O3 --g3
     MODULES "${OCEAN_FFT_SHADER_DIR}/OceanFft.slang" "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanRender.slang"
         "${GPU_PYRAMID_SHADER_MODULE}")
 set_target_properties(ocean_fft_shaders PROPERTIES FOLDER "Applications/OceanFft")
