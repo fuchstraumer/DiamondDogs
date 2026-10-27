@@ -116,6 +116,9 @@ private:
     void setSeaStateField(std::string_view _name, float _value);
     void setCascade(uint32_t _cascade, bool _enabled);
     void setFoamWeight(uint32_t _cascade, float _weight);
+    /** @brief Sets one persistent foam field by the name that the foam command uses */
+    void setFoamField(std::string_view _name, float _value);
+    void drawPersistentFoamControls();
     /** @brief Prints the camera, the time, the sea state and the enabled cascades, for the print command */
     void printState() const;
     void writeViewParameters();
@@ -152,6 +155,11 @@ private:
     std::array<bool, ocean::k_CascadeCount> cascadeEnabled{ true, true, true, true, true };
     // per-cascade weight on the whitecap model's foam, 1 is as computed. Scene state, not part of the sea state
     std::array<float, ocean::k_CascadeCount> foamWeights{ 1.0f, 1.0f, 1.0f, 0.7f, 0.35f };
+    // the persistent foam (OceanFoamSim.slang). Off by default, so the default image is the one without it
+    ocean::FoamSettings foamSettings{};
+    bool persistentFoamEnabled{ false };
+    float persistentFoamAmount{ 1.0f };
+    bool foamResetRequested{ false };
     // tiling A/B: sample each cascade through its own rotation and offset (see CascadeUv in OceanRenderCommon.slang)
     bool rotateCascades{ false };
     float choppiness{ 1.0f };

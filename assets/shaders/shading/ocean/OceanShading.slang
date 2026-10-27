@@ -83,6 +83,26 @@ float EvaluateWhitecapCoverage(float2 surface_xz, float distance)
     return whitecapCoverage;
 }
 
+// The foam that OceanFoamSimCS kept from earlier crests. Cascades combine as 1 - prod(1 - w_i f_i): a sum overshoots
+// where their foam overlaps, and a max lets the coarse cascades hide the fine ones
+float EvaluatePersistentFoam(float2 surface_xz)
+{
+    float clear = 1.0f;
+
+    [unroll]
+    for (int cascade = 0; cascade < OCEAN_CASCADE_COUNT; ++cascade)
+    {
+        if (ViewCascadeWeight(cascade) > 0.0f)
+        {
+            const float2 uv = CascadeUv(surface_xz, cascade) - FoamDriftOffset(cascade);
+            const float foam = Foam.Sample(OceanSampler, float3(uv, float(cascade)));
+            clear *= 1.0f - saturate(ViewFoamWeight(cascade) * foam);
+        }
+    }
+
+    return (1.0f - clear) * max(0.0f, View.PersistentFoamParameters.y);
+}
+
 internal SurfaceSample SampleSurface(float2 surface_xz)
 {
     float2 totalSlope = float2(0.0f);
@@ -132,7 +152,10 @@ float4 OceanSurfaceFS(OceanSurfaceVaryings input) : SV_Target
 
     // evaluate whitecap coverage based on the precomputed moments
     const float distance = length(input.SurfaceXZ - View.CameraPositionTime.xz);
-    const float whitecaps = EvaluateWhitecapCoverage(input.SurfaceXZ, distance);
+    const float breaking = EvaluateWhitecapCoverage(input.SurfaceXZ, distance);
+    // the persistent foam only fills in behind the crests: max keeps the breaking crest as it was
+    const float persistent = View.PersistentFoamParameters.x > 0.5f ? EvaluatePersistentFoam(input.SurfaceXZ) : 0.0f;
+    const float whitecaps = saturate(max(breaking, persistent));
     // evaluated as classic lambertian diffuse with albedo 0.40
     const float nDotL = saturate(dot(surface.Normal, toSun));
     const float3 foamAlbedo = 0.85f.xxx;

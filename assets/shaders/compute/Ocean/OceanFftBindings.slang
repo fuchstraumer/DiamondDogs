@@ -43,8 +43,7 @@ uniform RWTexture2DArray<float4> Derivatives;
 // k_i^2 only. The mean of k_i is Displacement.w - 1 + 1/n (the Jacobian is 1 + k_i - 1/n), so the Jacobian's mips give it
 [format("r16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
 uniform RWTexture2DArray<float> Whitecaps;
+// persistent foam coverage [0, 1], written in place by OceanFoamSimCS (see OceanFoamSim.slang for its drifting frame)
 [format("r16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
-uniform RWTexture2DArray<float2> Foam[2]; // ping-pong buffers for foam simulation
-// Linear sampler for reading from the ping-pong foam buffers in the foam simulation compute shader
-SamplerState LinearSampler;
+uniform RWTexture2DArray<float> Foam;
 

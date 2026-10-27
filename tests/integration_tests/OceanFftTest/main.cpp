@@ -12,9 +12,11 @@
 #include "ShaderLibrary.hpp"
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <complex>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <functional>
@@ -25,6 +27,8 @@
 #include <random>
 #include <span>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 // Runs the OceanFft compute chain headless, through the same ocean::OceanSimulation the OceanFft application uses,
@@ -32,8 +36,11 @@
 //  1. The radix-4 IFFT kernel alone, with and without wave ops, at 256 (even log2) and 512 (odd log2, so the
 //     radix-2 tail stage runs). Random half input, compared with a CPU 2D inverse FFT of the same quantized values.
 //  2. SpectrumConjugateCS: conj(h0(-k)), bit exact.
-//  3. Tick, IFFT and resolve: the CPU repeats the tick and the transform from the GPU's own h0(k) and wave data,
-//     and every field of the Displacement and Derivatives textures is compared with it.
+//  3. Tick, IFFT and resolve: the CPU repeats the tick and the transform from the GPU's own h0(k) and omega,
+//     and every field of the Displacement and Derivatives textures is compared with it. The default settings run
+//     the fused kernels, and one more run uses the unfused passes.
+//  4. The fused kernels (OceanTickRowsCS, OceanColumnsResolveCS) against the unfused passes, from the same spectrum
+//     and time: Displacement, Derivatives and Whitecaps (mip 0) must be bit identical.
 // The GPU works in half precision, so the comparisons use the relative RMS error over each field.
 
 namespace
@@ -233,8 +240,9 @@ namespace
     {
         constexpr std::array<std::string_view, 3> k_SpreadingNames{ "Mitsuyasu", "Hasselmann", "Donelan-Banner" };
         const uint32_t spreading = std::min(settings.Spectrum.DirectionalSpreadingMode, 2u);
-        return std::format("size {} {} {}", settings.Size,
-            settings.WaveSize == 0u ? std::string{ "no wave ops" } : std::format("wave {}", settings.WaveSize), k_SpreadingNames[spreading]);
+        return std::format("size {} {} {} {}", settings.Size,
+            settings.WaveSize == 0u ? std::string{ "no wave ops" } : std::format("wave {}", settings.WaveSize), k_SpreadingNames[spreading],
+            settings.FusedKernels ? "fused" : "unfused");
     }
 
     int32_t TestIfft(const TestContext& context, const ocean::OceanSimulationSettings& settings)
@@ -317,6 +325,237 @@ namespace
         (passed ? std::cout : std::cerr) << std::format("[IFFT {}] relative RMS error {:.2e} (limit {:.0e}){}\n",
             name, stats.RelativeRms, k_IfftTolerance, stats.Finite ? "" : ", non-finite values");
         return passed ? 0 : 1;
+    }
+
+    // the distance in representable halves between two bit patterns
+    [[nodiscard]] uint32_t HalfUlpDistance(uint16_t a, uint16_t b) noexcept
+    {
+        const auto ordered = [](uint16_t bits) -> int32_t
+        {
+            const int32_t magnitude = bits & 0x7FFF;
+            return (bits & 0x8000) != 0 ? -magnitude : magnitude;
+        };
+
+        return static_cast<uint32_t>(std::abs(ordered(a) - ordered(b)));
+    }
+
+    int32_t TestFusedMatchesUnfused(const TestContext& context, const ocean::OceanSimulationSettings& settings, float time)
+    {
+        const std::string name = Describe(settings);
+        ocean::OceanSimulationSettings fusedSettings = settings;
+        fusedSettings.FusedKernels = true;
+        auto simulation = ocean::OceanSimulation::Create(context.Device, context.Resources, context.Library, fusedSettings);
+        if (!simulation.has_value())
+        {
+            std::cerr << std::format("[fused vs unfused {}] {}\n", name, simulation.error());
+            return 1;
+        }
+        ocean::OceanSimulation& ocean = **simulation;
+        const uint32_t size = settings.Size;
+        const uint64_t spectrumElements = uint64_t{ size } * size * ocean::k_CascadeCount;
+
+        // Displacement and Derivatives (rgba16f), then Whitecaps (r16f): mip 0 of every layer
+        const uint64_t textureBytes = spectrumElements * 8u;
+        const uint64_t derivativesOffset = textureBytes;
+        const uint64_t whitecapsOffset = textureBytes * 2u;
+        const uint64_t readbackBytes = whitecapsOffset + spectrumElements * 2u;
+
+        // the first run also computes the spectrum, and the second run reuses it: both ticks see the same h0(k) and time
+        const auto run = [&](bool fused, bool initialize, const Readback& readback)
+        {
+            ocean.SetFusedKernels(fused);
+            rhi::GpuTimers timers(context.Device, rhi::GpuTimersCreateInfo{ context.Device.GetQueueFamilyIndices().Graphics, 1u, 8u });
+
+            return readback.Valid() && Submit(context.Device, [&](rhi::CommandBuffer& command_buffer)
+            {
+                rhi::GpuTimerBlock timerBlock(timers, command_buffer, 0u);
+
+                if (initialize)
+                {
+                    ocean.RecordInitialize(command_buffer);
+                }
+
+                ocean.RecordTick(command_buffer, timerBlock, time);
+                ComputeToCopyBarrier(command_buffer);
+
+                const std::array<std::pair<GraphicsResource, uint64_t>, 3> images
+                {
+                    std::pair{ ocean.Displacement(), uint64_t{ 0u } },
+                    std::pair{ ocean.Derivatives(), derivativesOffset },
+                    std::pair{ ocean.Whitecaps(), whitecapsOffset }
+                };
+
+                for (const auto& [image, offset] : images)
+                {
+                    rhi::BufferImageCopy region{};
+                    region.BufferOffset = offset;
+                    region.LayerCount = ocean::k_CascadeCount;
+                    region.Width = size;
+                    region.Height = size;
+                    command_buffer.CopyImageToBuffer(rhi::ImageHandle{ image.VkHandle }, rhi::ImageLayout::General, readback.Handle(), std::span{ &region, 1 });
+                }
+
+                CopyToHostBarrier(command_buffer);
+            });
+        };
+
+        const Readback fusedReadback(context.Resources, readbackBytes);
+        const Readback unfusedReadback(context.Resources, readbackBytes);
+
+        if (!run(true, true, fusedReadback) || !run(false, false, unfusedReadback))
+        {
+            std::cerr << std::format("[fused vs unfused {}] the dispatches did not finish\n", name);
+            return 1;
+        }
+
+        struct Field
+        {
+            std::string_view Name;
+            uint64_t Offset;
+            uint64_t Halves;
+        };
+        const std::array<Field, 3> fields
+        {
+            Field{ "Displacement", 0u, spectrumElements * 4u },
+            Field{ "Derivatives", derivativesOffset, spectrumElements * 4u },
+            Field{ "Whitecaps", whitecapsOffset, spectrumElements }
+        };
+
+        int32_t failures = 0;
+
+        for (const Field& field : fields)
+        {
+            const std::vector<uint16_t> fusedValues = fusedReadback.ReadRaw(field.Offset, field.Halves);
+            const std::vector<uint16_t> unfusedValues = unfusedReadback.ReadRaw(field.Offset, field.Halves);
+            uint64_t differences = 0u;
+            uint64_t nonZero = 0u;
+            uint32_t maxUlp = 0u;
+
+            for (uint64_t i = 0; i < field.Halves; ++i)
+            {
+                nonZero += (unfusedValues[i] & 0x7FFFu) != 0u ? 1u : 0u;
+
+                if (fusedValues[i] != unfusedValues[i])
+                {
+                    ++differences;
+                    maxUlp = std::max(maxUlp, HalfUlpDistance(fusedValues[i], unfusedValues[i]));
+                }
+            }
+
+            // an all-zero output would match trivially
+            const bool passed = differences == 0u && nonZero != 0u && fusedValues.size() == field.Halves && unfusedValues.size() == field.Halves;
+            (passed ? std::cout : std::cerr) << std::format("[fused vs unfused {}] {:<12} {} of {} halves differ (max {} ulp), {} non-zero in the unfused output\n",
+                name, field.Name, differences, field.Halves, maxUlp, nonZero);
+            failures += passed ? 0 : 1;
+        }
+
+        return failures;
+    }
+
+    // OceanFoamSimCS with no drift (AdvanceFoam is never called, so the decay factor is 1 and the offsets 0). With the
+    // threshold far below any Jacobian, several ticks must leave the foam exactly 0. With the default threshold,
+    // the foam must be the injection of the Displacement.w read back in the same submit, within half rounding
+    int32_t TestFoam(const TestContext& context, const ocean::OceanSimulationSettings& settings, float time)
+    {
+        const std::string name = Describe(settings);
+        auto simulation = ocean::OceanSimulation::Create(context.Device, context.Resources, context.Library, settings);
+
+        if (!simulation.has_value())
+        {
+            std::cerr << std::format("[foam {}] {}\n", name, simulation.error());
+            return 1;
+        }
+
+        ocean::OceanSimulation& ocean = **simulation;
+        const uint32_t size = settings.Size;
+        const uint64_t elements = uint64_t{ size } * size * ocean::k_CascadeCount;
+        const uint64_t foamOffset = elements * 8u;
+        const uint64_t readbackBytes = foamOffset + elements * 2u;
+
+        const auto run = [&](float threshold, bool initialize, const Readback& readback)
+        {
+            ocean::FoamSettings foam = settings.Foam;
+            foam.InjectThreshold = threshold;
+            ocean.SetFoamSettings(foam);
+            rhi::GpuTimers timers(context.Device, rhi::GpuTimersCreateInfo{ context.Device.GetQueueFamilyIndices().Graphics, 1u, 16u });
+
+            return readback.Valid() && Submit(context.Device, [&](rhi::CommandBuffer& command_buffer)
+            {
+                rhi::GpuTimerBlock timerBlock(timers, command_buffer, 0u);
+
+                if (initialize)
+                {
+                    ocean.RecordInitialize(command_buffer);
+                }
+
+                // the same time each tick: the injection is the same, so max() must not change the foam after the first
+                for (uint32_t tick = 0u; tick < 4u; ++tick)
+                {
+                    ocean.RecordTick(command_buffer, timerBlock, time);
+                }
+
+                ComputeToCopyBarrier(command_buffer);
+
+                const std::array<std::pair<GraphicsResource, uint64_t>, 2> images
+                {
+                    std::pair{ ocean.Displacement(), uint64_t{ 0u } },
+                    std::pair{ ocean.Foam(), foamOffset }
+                };
+
+                for (const auto& [image, offset] : images)
+                {
+                    rhi::BufferImageCopy region{};
+                    region.BufferOffset = offset;
+                    region.LayerCount = ocean::k_CascadeCount;
+                    region.Width = size;
+                    region.Height = size;
+                    command_buffer.CopyImageToBuffer(rhi::ImageHandle{ image.VkHandle }, rhi::ImageLayout::General, readback.Handle(), std::span{ &region, 1 });
+                }
+
+                CopyToHostBarrier(command_buffer);
+            });
+        };
+
+        const Readback quiet(context.Resources, readbackBytes);
+        const Readback injected(context.Resources, readbackBytes);
+
+        if (!run(-1000.0f, true, quiet) || !run(settings.Foam.InjectThreshold, false, injected))
+        {
+            std::cerr << std::format("[foam {}] the dispatches did not finish\n", name);
+            return 1;
+        }
+
+        int32_t failures = 0;
+
+        const std::vector<uint16_t> quietFoam = quiet.ReadRaw(foamOffset, elements);
+        const uint64_t quietNonZero = static_cast<uint64_t>(std::ranges::count_if(quietFoam, [](uint16_t h) { return h != 0u; }));
+        const bool quietPassed = quietFoam.size() == elements && quietNonZero == 0u;
+        (quietPassed ? std::cout : std::cerr) << std::format("[foam {}] no injection: {} of {} texels non-zero\n", name, quietNonZero, elements);
+        failures += quietPassed ? 0 : 1;
+
+        const std::vector<float> displacement = injected.ReadHalves(0u, elements * 4u);
+        const std::vector<float> foam = injected.ReadHalves(foamOffset, elements);
+        uint64_t nonFinite = 0u;
+        uint64_t mismatches = 0u;
+        uint64_t foamy = 0u;
+        float maxError = 0.0f;
+
+        for (uint64_t i = 0; i < elements; ++i)
+        {
+            const float jacobian = displacement[4u * i + 3u];
+            nonFinite += std::isfinite(jacobian) ? 0u : 1u;
+            const float expected = std::clamp((settings.Foam.InjectThreshold - jacobian) * settings.Foam.InjectSharpness, 0.0f, 1.0f) * settings.Foam.InjectRate;
+            const float error = std::abs(foam[i] - expected);
+            maxError = std::max(maxError, std::isfinite(error) ? error : 1.0f);
+            mismatches += error <= 2.0e-3f ? 0u : 1u;
+            foamy += foam[i] > 0.0f ? 1u : 0u;
+        }
+
+        const bool injectedPassed = foam.size() == elements && nonFinite == 0u && mismatches == 0u && foamy != 0u;
+        (injectedPassed ? std::cout : std::cerr) << std::format("[foam {}] injection: {} mismatches (max error {:.2e}), {} foamy texels, {} non-finite Jacobians\n",
+            name, mismatches, maxError, foamy, nonFinite);
+        failures += injectedPassed ? 0 : 1;
+        return failures;
     }
 
     int32_t TestPipeline(const TestContext& context, const ocean::OceanSimulationSettings& settings, float time)
@@ -453,7 +692,7 @@ namespace
         // 3. the tick and the transform in double precision, from the GPU's inputs
         const std::vector<float> h0 = readback.ReadHalves(h0Offset, spectrumElements * 2u);
         const std::vector<float> h0Conjugate = readback.ReadHalves(conjugateOffset, spectrumElements * 2u);
-        const std::vector<float> wave = readback.ReadHalves(waveOffset, spectrumElements * 4u);
+        const std::vector<float> omegas = readback.ReadHalves(waveOffset, spectrumElements);
         const std::vector<float> displacement = readback.ReadHalves(displacementOffset, spectrumElements * 4u);
         const std::vector<float> derivatives = readback.ReadHalves(derivativesOffset, spectrumElements * 4u);
 
@@ -473,9 +712,13 @@ namespace
             for (uint64_t element = 0; element < planeElements; ++element)
             {
                 const uint64_t index = cascade * planeElements + element;
-                const double kx = wave[index * 4u];
-                const double kz = wave[index * 4u + 2u];
-                const double omega = wave[index * 4u + 3u];
+                // k follows from the thread position and the cascade, as WaveSpacing computes it on the GPU
+                const double waveSpacing = 2.0 * std::numbers::pi / static_cast<double>(settings.LengthScales[cascade]);
+                const int64_t offsetX = static_cast<int64_t>(element % size) - static_cast<int64_t>(size / 2u);
+                const int64_t offsetY = static_cast<int64_t>(element / size) - static_cast<int64_t>(size / 2u);
+                const double kx = waveSpacing * static_cast<double>(offsetX);
+                const double kz = waveSpacing * static_cast<double>(offsetY);
+                const double omega = omegas[index];
                 const Complex phase = std::polar(1.0, omega * static_cast<double>(time));
                 const Complex h = Complex{ h0[index * 2u], h0[index * 2u + 1u] } * phase + Complex{ h0Conjugate[index * 2u], h0Conjugate[index * 2u + 1u] } * std::conj(phase);
                 const double kLength = std::hypot(kx, kz);
@@ -667,9 +910,9 @@ int main()
                 settings.Size = size;
                 settings.WaveSize = waveSize;
                 failures += TestIfft(context, settings);
+                failures += TestFusedMatchesUnfused(context, settings, 3.25f);
             }
         }
-
 
         // every spreading function is normalized over the circle, so each one must give the same plausible wave height.
         // Donelan-Banner reads the generated LUT, so this also checks its upload and its axis mapping
@@ -690,6 +933,16 @@ int main()
         seaStateSettings.WaveSize = context.WaveSize;
         seaStateSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, seaStateSettings.Spectrum).Spectrum;
         failures += TestPipeline(context, seaStateSettings, 3.25f);
+
+        // the default settings above run the fused kernels: run the unfused passes through the same checks too
+        seaStateSettings.FusedKernels = false;
+        failures += TestPipeline(context, seaStateSettings, 3.25f);
+
+        // the persistent foam, on a sea rough enough to fold: the default sea state at 512
+        ocean::OceanSimulationSettings foamSettings = seaStateSettings;
+        foamSettings.Size = 512u;
+        foamSettings.FusedKernels = true;
+        failures += TestFoam(context, foamSettings, 3.25f);
     }
 
     if (failures != 0)

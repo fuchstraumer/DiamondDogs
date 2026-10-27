@@ -23,8 +23,10 @@
 #include "VariantKey.hpp"
 #include <array>
 #include <cstdint>
+#include <cstdio>
 #include <expected>
 #include <memory>
+#include <print>
 #include <string>
 #include <string_view>
 #include <vulkan/vulkan_core.h>
@@ -66,6 +68,18 @@ namespace ocean
             float Choppiness{ 1.0f };
         };
 
+        // OceanFoamSimParameters in OceanFoamSim.slang. DriftOffsets is float4[3]: cascade c is at float 2c
+        struct FoamSimPushConstants
+        {
+            float DecayFactor{ 1.0f };
+            float InjectThreshold{ 0.0f };
+            float InjectSharpness{ 0.0f };
+            float InjectRate{ 0.0f };
+            std::array<float, 16> DriftOffsets{};
+        };
+        static_assert(sizeof(FoamSimPushConstants) == 80u);
+        static_assert(k_CascadeCount <= 6u);
+
         constexpr uint32_t k_OutputImageCount = 2u;
 
         enum class Pass : uint8_t
@@ -77,13 +91,16 @@ namespace ocean
             Resolve,
             TickRows,
             ColumnsResolve,
+            FoamSim,
             Count
         };
         constexpr std::array<std::string_view, static_cast<size_t>(Pass::Count)> k_EntryPoints
         {
             "SpectrumInitCS", "SpectrumConjugateCS", "OceanTickCS", "IfftRadix4CS", "OceanResolveCS",
-            "OceanTickRowsCS", "OceanColumnsResolveCS"
+            "OceanTickRowsCS", "OceanColumnsResolveCS", "OceanFoamSimCS"
         };
+
+        [[nodiscard]] ImageCreateInfo MakeCascadeScalarImageInfo(uint32_t size, uint32_t mip_levels, ImageUsageBits usage, std::string_view name);
 
         struct PassProgram
         {
@@ -109,11 +126,19 @@ namespace ocean
         template<typename T>
         void PushConstants(rhi::CommandBuffer& command_buffer, const rhi::ManifestProgram& program, const T& value)
         {
+            static bool loggedWarning = false;
             const std::optional<rhi::PushConstantRange> range = program.PushConstants();
             if (range.has_value())
             {
                 command_buffer.PushConstants(program.PipelineLayout(), range->StageFlags, 0u,
                     std::as_bytes(std::span{ &value, 1 }).first(std::min<size_t>(sizeof(T), range->Size)));
+            }
+            else if (!loggedWarning)
+            {
+                loggedWarning = true;
+                // get the name of the type T that's trying to be pushed but failed
+                const char* typeName = typeid(T).name();
+                std::println(stderr, "PushConstants called for type: {}, but no constants could be resolved from the program.", typeName);
             }
         }
     }
@@ -137,12 +162,19 @@ namespace ocean
         GraphicsResource DisplacementImage;
         GraphicsResource DerivativesImage;
         GraphicsResource WhitecapsImage;
+        GraphicsResource FoamImage;
         uint32_t MipLevels{ 1u };
+
+        // the foam state of the CPU. The offsets stay in double so that a long run does not lose the drift
+        std::array<std::array<double, 2>, k_CascadeCount> FoamOffsets{};
+        double FoamDecayFactor{ 1.0 };
+        bool FoamResetPending{ false };
         // fills both mip chains from mip 0, with NvproPyramid (modules/GpuPyramid). Image 0 is Displacement. The
         // targets are destroyed before their generator
         std::unique_ptr<pyramid::MipGenerator> MipGenerator;
         std::array<std::unique_ptr<pyramid::MipTarget>, k_OutputImageCount> MipTargets;
         std::unique_ptr<pyramid::MipTarget> WhitecapsMipTarget; // runs with same settings as the other mip targets, but specifically for the whitecaps image
+        std::unique_ptr<pyramid::MipTarget> FoamMipTarget;
 
         [[nodiscard]] const PassProgram& Program(Pass pass) const noexcept
         {
@@ -173,14 +205,80 @@ namespace ocean
             };
             command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &resolveToMips, 1 }, {}, {} });
 
-            const std::array<const pyramid::MipTarget*, 3> targets
+            const std::array<const pyramid::MipTarget*, 4> targets
             {
                 MipTargets[0].get(),
                 MipTargets[1].get(),
-                WhitecapsMipTarget.get()
+                WhitecapsMipTarget.get(),
+                FoamMipTarget.get()
             };
             MipGenerator->Record(command_buffer, targets);
 
+        }
+
+        // moves the foam image to General and fills every mip and layer with 0, so that no garbage (a NaN would survive
+        // the decay) reaches the first foam dispatch. The offsets restart at 0 with it
+        void RecordFoamClear(rhi::CommandBuffer& command_buffer)
+        {
+            const rhi::ImageBarrier toClear
+            {
+                .Image=rhi::ImageHandle{ FoamImage.VkHandle },
+                .SrcStages=rhi::PipelineStage::None,
+                .SrcAccess=rhi::Access::None,
+                .DstStages=rhi::PipelineStage::Clear,
+                .DstAccess=rhi::Access::TransferWrite,
+                .OldLayout=rhi::ImageLayout::Undefined,
+                .NewLayout=rhi::ImageLayout::General
+            };
+            command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &toClear, 1 } });
+
+            const VkClearColorValue zero{};
+            const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, MipLevels, 0u, k_CascadeCount };
+            vkCmdClearColorImage(command_buffer.Handle().As<VkCommandBuffer>(), reinterpret_cast<VkImage>(FoamImage.VkHandle),
+                VK_IMAGE_LAYOUT_GENERAL, &zero, 1u, &range);
+
+            const rhi::GlobalBarrier clearToCompute
+            {
+                rhi::PipelineStage::Clear, rhi::Access::TransferWrite,
+                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite
+            };
+            command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &clearToCompute, 1 }, {}, {} });
+
+            FoamOffsets = {};
+            FoamResetPending = false;
+        }
+
+        // runs after the resolve and before the mips: it reads Displacement and updates Foam in place
+        void RecordFoam(rhi::CommandBuffer& command_buffer)
+        {
+            FoamSimPushConstants constants{};
+            constants.DecayFactor = static_cast<float>(FoamDecayFactor);
+            constants.InjectThreshold = Settings.Foam.InjectThreshold;
+            constants.InjectSharpness = Settings.Foam.InjectSharpness;
+            constants.InjectRate = Settings.Foam.InjectRate;
+
+            // a decay factor of 0 with no injection clears the image in one dispatch
+            if (FoamResetPending)
+            {
+                constants.DecayFactor = 0.0f;
+                constants.InjectRate = 0.0f;
+                FoamResetPending = false;
+            }
+
+            for (uint32_t cascade = 0u; cascade < k_CascadeCount; ++cascade)
+            {
+                const std::array<double, 2>& offset = FoamOffsets[cascade];
+                constants.DriftOffsets[2u * cascade] = static_cast<float>(offset[0]);
+                constants.DriftOffsets[2u * cascade + 1u] = static_cast<float>(offset[1]);
+            }
+
+            // the resolve wrote Displacement, and the mip pass that follows has its own barrier
+            ComputeBarrier(command_buffer);
+
+            const uint32_t groups = SpectrumGroups();
+            Bind(command_buffer, Pass::FoamSim);
+            PushConstants(command_buffer, *Program(Pass::FoamSim).Program, constants);
+            command_buffer.Dispatch(groups, groups, k_CascadeCount);
         }
     };
 
@@ -201,6 +299,7 @@ namespace ocean
         // their views must go before the images
         MipTargets = {};
         WhitecapsMipTarget.reset();
+        FoamMipTarget.reset();
         MipGenerator.reset();
 
         std::vector<std::shared_ptr<MessageReply>> replies;
@@ -212,7 +311,7 @@ namespace ocean
             }
         }
 
-        for (const GraphicsResource& resource : { CascadeParamsBuffer, SpectrumParamsBuffer, NormalizationLut, DisplacementImage, DerivativesImage })
+        for (const GraphicsResource& resource : { CascadeParamsBuffer, SpectrumParamsBuffer, NormalizationLut, DisplacementImage, DerivativesImage, WhitecapsImage, FoamImage })
         {
             if (resource)
             {
@@ -278,6 +377,27 @@ namespace ocean
 
     namespace
     {
+        ImageCreateInfo MakeCascadeScalarImageInfo(uint32_t size, uint32_t mip_levels, ImageUsageBits usage, std::string_view name)
+        {
+            ImageCreateInfo info{};
+            info.Domain = ResourceDomain::GPUOnly;
+            info.Flags = ResourceCreationFlags::UserDataAsNameString;
+            info.Usage = usage;
+            info.Format = CommonFormats::R16_Float;
+            info.Width = size;
+            info.Height = size;
+            info.ArrayLayers = k_CascadeCount;
+            info.MipLevels = mip_levels;
+            info.ViewInfo = ImageViewCreateInfo{};
+            info.ViewInfo->ViewType = ImageViewType::Type2DArray;
+            info.ViewInfo->Range.BaseMipLevel = 0u;
+            info.ViewInfo->Range.LevelCount = mip_levels;
+            info.ViewInfo->Range.BaseArrayLayer = 0u;
+            info.ViewInfo->Range.LayerCount = k_CascadeCount;
+            info.Name = name;
+            return info;
+        }
+
         struct UniformLayoutCheck
         {
             std::string_view Resource;
@@ -440,31 +560,18 @@ namespace ocean
         }
 
         // the whitecaps images, one per cascade. pre-fill with zeroes just on init.
-        std::shared_ptr<GraphicsResourceReply> whitecapReply;
-        {
-            ImageCreateInfo info{};
-            info.Domain = ResourceDomain::GPUOnly;
-            info.Flags = ResourceCreationFlags::UserDataAsNameString;
-            info.Usage = ImageUsageBits::UavComputeShader |
-                         ImageUsageBits::SampledImage |
-                         ImageUsageBits::SrvFragmentShader |
-                         ImageUsageBits::SrvComputeShader |
-                         ImageUsageBits::TransferSource; // copies out are for tests
-            info.Format = CommonFormats::R16_Float; // one-element half image: k_i^2
-            info.Width = size;
-            info.Height = size;
-            info.ArrayLayers = k_CascadeCount;
-            info.MipLevels = impl->MipLevels;
-            info.ViewInfo = ImageViewCreateInfo{};
-            info.ViewInfo->ViewType = ImageViewType::Type2DArray;
-            info.ViewInfo->Range.BaseMipLevel = 0u;
-            info.ViewInfo->Range.LevelCount = impl->MipLevels;
-            info.ViewInfo->Range.BaseArrayLayer = 0u;
-            info.ViewInfo->Range.LayerCount = k_CascadeCount;
-            info.Name = "Ocean_Whitecaps";
-            // we leave it empty at the start, and later once it's created we'll fill it from a buffer
-            whitecapReply = resources.CreateImage(info, {});
-        }
+        // one-element half image: k_i^2. We leave it empty at the start, and later once it's created we'll fill it from a buffer
+        constexpr ImageUsageBits k_ScalarImageUsage = ImageUsageBits::UavComputeShader |
+                                                      ImageUsageBits::SampledImage |
+                                                      ImageUsageBits::SrvFragmentShader |
+                                                      ImageUsageBits::SrvComputeShader |
+                                                      ImageUsageBits::TransferSource; // copies out are for tests
+        std::shared_ptr<GraphicsResourceReply> whitecapReply =
+            resources.CreateImage(MakeCascadeScalarImageInfo(size, impl->MipLevels, k_ScalarImageUsage, "Ocean_Whitecaps"), {});
+
+        // the persistent foam. RecordInitialize clears it on the GPU, so no upload is needed. TransferDestination is for that clear
+        std::shared_ptr<GraphicsResourceReply> foamReply = resources.CreateImage(
+            MakeCascadeScalarImageInfo(size, impl->MipLevels, k_ScalarImageUsage | ImageUsageBits::TransferDestination, "Ocean_Foam"), {});
 
         const CascadeParameters cascadeParameters = MakeCascadeParameters(size, settings.LengthScales);
         const RhiBufferResourceData cascadeData{ std::as_bytes(std::span{ &cascadeParameters, 1 }), 0u };
@@ -541,7 +648,8 @@ namespace ocean
             !WaitForReply(lutReply) ||
             !WaitForReply(imageReplies[0]) ||
             !WaitForReply(imageReplies[1]) ||
-            !WaitForReply(whitecapReply))
+            !WaitForReply(whitecapReply) ||
+            !WaitForReply(foamReply))
         {
             return std::unexpected(std::string{ "creating the uniform buffers or the images failed" });
         }
@@ -552,6 +660,7 @@ namespace ocean
         impl->DisplacementImage = imageReplies[0]->GetResource();
         impl->DerivativesImage = imageReplies[1]->GetResource();
         impl->WhitecapsImage = whitecapReply->GetResource();
+        impl->FoamImage = foamReply->GetResource();
 
         // the mip chains: NvproPyramid is cooked into the same bundle as this module
         std::expected<std::unique_ptr<pyramid::MipGenerator>, std::string> generator =
@@ -596,14 +705,32 @@ namespace ocean
 
         impl->WhitecapsMipTarget = std::move(*whitecapTarget);
 
+        pyramid::MipTargetCreateInfo foamInfo
+        {
+            .Image=reinterpret_cast<VkImage>(impl->FoamImage.VkHandle),
+            .Format=VK_FORMAT_R16_SFLOAT,
+            .Width=size,
+            .Height=size,
+            .MipLevels=impl->MipLevels,
+            .ArrayLayers=k_CascadeCount
+        };
+        std::expected<std::unique_ptr<pyramid::MipTarget>, std::string> foamTarget = impl->MipGenerator->CreateTarget(foamInfo);
+
+        if (!foamTarget.has_value())
+        {
+            return std::unexpected(std::format("the mip target of foam image: {}", foamTarget.error()));
+        }
+
+        impl->FoamMipTarget = std::move(*foamTarget);
+
         // every pass has one descriptor set, set 0, with only the resources it reads
         constexpr std::array<VkDescriptorPoolSize, 5> k_PoolSizes
         {
             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 32 },
             VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16 },
-            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 8 },
-            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, 8 },
-            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 8 },
+            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 16 },
+            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, 16 },
+            VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 32 },
         };
         const VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0,
             static_cast<uint32_t>(impl->Programs.size()), static_cast<uint32_t>(k_PoolSizes.size()), k_PoolSizes.data() };
@@ -625,7 +752,8 @@ namespace ocean
             { "normSampler", { impl->NormalizationLut } },
             { "Displacement", { impl->DisplacementImage } },
             { "Derivatives", { impl->DerivativesImage } },
-            { "Whitecaps", { impl->WhitecapsImage } }
+            { "Whitecaps", { impl->WhitecapsImage } },
+            { "Foam", { impl->FoamImage } }
         };
 
         for (size_t passIndex = 0; passIndex < impl->Programs.size(); ++passIndex)
@@ -712,6 +840,7 @@ namespace ocean
             }
         };
         command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, toGeneral });
+        impl->RecordFoamClear(command_buffer);
 
         const uint32_t groups = impl->SpectrumGroups();
         impl->Bind(command_buffer, Pass::SpectrumInit);
@@ -786,6 +915,11 @@ namespace ocean
         }
 
         {
+            const rhi::ScopedGpuTimer timer(timers, "Foam");
+            impl->RecordFoam(command_buffer);
+        }
+
+        {
             const rhi::ScopedGpuTimer timer(timers, "Mips");
             impl->RecordMips(command_buffer);
         }
@@ -802,6 +936,54 @@ namespace ocean
     void OceanSimulation::SetChoppiness(float choppiness) noexcept
     {
         impl->Settings.Choppiness = choppiness;
+    }
+
+    void OceanSimulation::SetFoamSettings(const FoamSettings& foam) noexcept
+    {
+        impl->Settings.Foam = foam;
+    }
+
+    void OceanSimulation::AdvanceFoam(double delta_seconds) noexcept
+    {
+        const OceanSimulationSettings& settings = impl->Settings;
+        const double decayTime = std::max(static_cast<double>(settings.Foam.DecayTime), 1.0e-3);
+        impl->FoamDecayFactor = std::exp(-delta_seconds / decayTime);
+
+        // LocalWindDirection is the angle of the wave vector in the (x, y) plane of the textures
+        const double windAngle = static_cast<double>(settings.Spectrum.LocalWindDirection);
+        const double driftSpeed = static_cast<double>(settings.Spectrum.WindSpeed) * static_cast<double>(settings.Foam.WindDrift);
+        const double driftX = std::cos(windAngle) * driftSpeed * delta_seconds;
+        const double driftY = std::sin(windAngle) * driftSpeed * delta_seconds;
+
+        for (uint32_t cascade = 0u; cascade < k_CascadeCount; ++cascade)
+        {
+            const double lengthScale = static_cast<double>(settings.LengthScales[cascade]);
+            std::array<double, 2>& offset = impl->FoamOffsets[cascade];
+            offset[0] += driftX / lengthScale;
+            offset[1] += driftY / lengthScale;
+            offset[0] -= std::floor(offset[0]);
+            offset[1] -= std::floor(offset[1]);
+        }
+    }
+
+    void OceanSimulation::ResetFoam() noexcept
+    {
+        impl->FoamOffsets = {};
+        impl->FoamResetPending = true;
+    }
+
+    std::array<float, 16> OceanSimulation::FoamDriftOffsets() const noexcept
+    {
+        std::array<float, 16> offsets{};
+
+        for (uint32_t cascade = 0u; cascade < k_CascadeCount; ++cascade)
+        {
+            const std::array<double, 2>& offset = impl->FoamOffsets[cascade];
+            offsets[2u * cascade] = static_cast<float>(offset[0]);
+            offsets[2u * cascade + 1u] = static_cast<float>(offset[1]);
+        }
+
+        return offsets;
     }
 
     void OceanSimulation::SetFusedKernels(bool fused) noexcept
@@ -837,6 +1019,11 @@ namespace ocean
     GraphicsResource OceanSimulation::Whitecaps() const noexcept
     {
         return impl->WhitecapsImage;
+    }
+
+    GraphicsResource OceanSimulation::Foam() const noexcept
+    {
+        return impl->FoamImage;
     }
 
     uint32_t OceanSimulation::MipLevels() const noexcept

@@ -43,6 +43,8 @@ namespace
         { "sea", { SceneCommand::Kind::Sea, 0u, 0u, false } },
         { "cascade", { SceneCommand::Kind::Cascade, 0u, 0u, false } },
         { "foamweight", { SceneCommand::Kind::FoamWeight, 0u, 0u, false } },
+        { "foam", { SceneCommand::Kind::Foam, 0u, 0u, false } },
+        { "foamreset", { SceneCommand::Kind::FoamReset, 0u, 0u, false } },
         { "rotate", { SceneCommand::Kind::Rotate, 0u, 0u, true } },
         { "capture", { SceneCommand::Kind::Capture, 0u, 0u, true } },
         { "wait", { SceneCommand::Kind::Wait, 1u, 1u, false } },
@@ -68,6 +70,11 @@ namespace
         SeaStateField{ "FoamAmount", &ocean::SeaState::FoamAmount },
         SeaStateField{ "FoamSpread", &ocean::SeaState::FoamSpread },
         SeaStateField{ "FoamContrast", &ocean::SeaState::FoamContrast },
+    };
+
+    const std::array<std::string_view, 7> k_FoamFields
+    {
+        "enable", "amount", "decay", "threshold", "sharpness", "rate", "drift"
     };
 
     std::vector<std::string_view> SplitWords(std::string_view line)
@@ -105,6 +112,7 @@ namespace
     std::expected<SceneCommand, std::string> ParseSea(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseCascade(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseFoamWeight(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseFoam(const std::vector<std::string_view>& words);
 }
 
 std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view line)
@@ -145,6 +153,11 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
     if (shape.Kind == Kind::FoamWeight)
     {
         return ParseFoamWeight(words);
+    }
+
+    if (shape.Kind == Kind::Foam)
+    {
+        return ParseFoam(words);
     }
 
     SceneCommand command{};
@@ -464,6 +477,37 @@ namespace
         command.Values[0] = static_cast<float>(index);
         command.Values[1] = value;
         command.ValueCount = 2u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseFoam(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "foam takes a field and a value" });
+        }
+
+        const auto field = std::ranges::find_if(k_FoamFields, [&words](std::string_view name)
+        {
+            return EqualsIgnoreCase(name, words[1]);
+        });
+
+        if (field == k_FoamFields.end())
+        {
+            return std::unexpected(std::string{ "foam: unknown field '" } + std::string{ words[1] } + "'");
+        }
+
+        float value = 0.0f;
+        if (!ParseFloat(words[2], value))
+        {
+            return std::unexpected(std::string{ "foam: '" } + std::string{ words[2] } + "' is not a number");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Foam;
+        command.Text = std::string{ *field };
+        command.Values[0] = value;
+        command.ValueCount = 1u;
         return command;
     }
 }
