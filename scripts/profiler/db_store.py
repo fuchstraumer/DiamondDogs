@@ -2,8 +2,6 @@
 
 The insert helpers do not commit. The caller wraps one ingest in `with conn:`,
 so one run is one transaction.
-
-Planned: GPU Trace (Nsight Graphics) ingestion. See `ingest_gpu_trace`.
 """
 
 import sqlite3
@@ -11,7 +9,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Dict, Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Set, Union
+
+try:
+    from .gpu_trace import parse_gpu_trace_export
+except ImportError:
+    script_dir = Path(__file__).resolve().parent
+    if str(script_dir) not in sys.path:
+        sys.path.insert(0, str(script_dir))
+    from gpu_trace import parse_gpu_trace_export
 
 NCU_INSTALL_ROOT = Path(r"C:\Program Files\NVIDIA Corporation")
 
@@ -50,7 +56,7 @@ ncu_report = _load_ncu_report()
 HAS_NCU_REPORT = ncu_report is not None
 
 # PRAGMA user_version of a database that this code created or migrated.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 RUN_COLUMNS: Dict[str, str] = {
     "timestamp": "TEXT",
@@ -59,6 +65,7 @@ RUN_COLUMNS: Dict[str, str] = {
     "command_args": "TEXT",
     "git_commit": "TEXT",
     "gpu_name": "TEXT",
+    "gpu_clocks": "TEXT",
     "driver_version": "TEXT",
     "frame_count": "INTEGER",
     "avg_frame_time_ms": "REAL",
@@ -84,6 +91,7 @@ PASS_COLUMNS: Dict[str, str] = {
     "config_size": "INTEGER",
     "config_radix": "INTEGER",
     "config_wave": "TEXT",
+    "config_path": "TEXT",
     "p95_ns": "REAL",
     "cpu_submit_ms": "REAL",
     "cpu_finish_ms": "REAL",
@@ -105,8 +113,10 @@ SHADER_COLUMNS: Dict[str, str] = {
 METRIC_COLUMNS: Dict[str, str] = {
     "run_id": "INTEGER",
     "shader_id": "INTEGER",
+    "pass_id": "INTEGER",
     "category": "TEXT",
     "metric_name": "TEXT",
+    "raw_name": "TEXT",
     "metric_value": "REAL",
     "unit": "TEXT",
     "pct_of_peak": "REAL",
@@ -144,6 +154,7 @@ TABLES: Dict[str, Any] = {
         [
             "FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE",
             "FOREIGN KEY (shader_id) REFERENCES shaders(shader_id) ON DELETE SET NULL",
+            "FOREIGN KEY (pass_id) REFERENCES passes(pass_id) ON DELETE SET NULL",
         ],
     ),
     "bottlenecks": (
@@ -242,9 +253,114 @@ def insert_bottleneck(conn: sqlite3.Connection, bottleneck_data: Dict[str, Any])
     return _insert(conn, "bottlenecks", list(BOTTLENECK_COLUMNS), bottleneck_data)
 
 
-def ingest_gpu_trace(conn: sqlite3.Connection, trace_path: Union[str, Path]) -> int:
-    """Ingest an Nsight Graphics GPU Trace capture. Planned, not written yet."""
-    raise NotImplementedError("GPU Trace (Nsight Graphics) ingestion is not implemented.")
+def _find_trace_artifact(out_dir: Path) -> Optional[Path]:
+    """Find the .ngfx-gputrace file in the export folder, or return None."""
+    matches = sorted(out_dir.glob("*.ngfx-gputrace"), key=lambda p: p.stat().st_mtime)
+    return matches[-1] if matches else None
+
+
+def _warn_if_validation_on(app_args: str) -> None:
+    """Print a warning when the app runs with the validation layer on.
+
+    The validation layer changes GPU times, so the trace times are then not comparable.
+    """
+    if "--validation=off" not in app_args.split():
+        print("[Profiler] Warning: the app arguments do not contain --validation=off. "
+              "The validation layer changes GPU times (Mips: 0.87 ms on, 0.18 ms off).")
+
+
+def _trace_metric_row(run_id: int, pass_id: Optional[int], metric: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the metrics row of one GPU Trace metric record."""
+    name = metric["metric_name"]
+    return {
+        "run_id": run_id,
+        "pass_id": pass_id,
+        "category": _metric_category(name),
+        "metric_name": name,
+        "raw_name": metric["raw_name"],
+        "metric_value": metric["value"],
+        "unit": "%" if ".pct" in name else None,
+        "pct_of_peak": metric["value"] if "pct_of_peak" in name else None,
+    }
+
+
+def ingest_gpu_trace(
+    conn: sqlite3.Connection,
+    out_dir: Path,
+    exe_path: Optional[Path],
+    app_args: str,
+    provenance: Optional[Dict[str, Any]],
+) -> int:
+    """Ingest a GPU Trace export folder as one transaction.
+
+    The run stores one frame. Each debug-label scope becomes a pass, and each scope metric
+    is linked to its pass. Whole-frame metrics have no pass. The run stores the provenance
+    dictionary only when the caller passes one. The export folder must contain a BASE folder.
+    Return the run identifier.
+    """
+    export = parse_gpu_trace_export(out_dir / "BASE")
+    repro = export["repro_info"]
+    effective_args = app_args or repro.get("Command Line", "")
+    _warn_if_validation_on(effective_args)
+
+    frame_time_ms = export["frame_time_ms"]
+    avg_fps = 1000.0 / frame_time_ms if frame_time_ms else None
+    if exe_path is not None:
+        binary_path = str(exe_path.resolve())
+        binary_name = exe_path.name
+    else:
+        binary_path = repro.get("Process File Name")
+        binary_name = Path(binary_path).name if binary_path else None
+
+    artifact = _find_trace_artifact(out_dir)
+    attached_paths: Set[str] = set()
+    metric_count = 0
+
+    with conn:
+        run_id = insert_run(conn, {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "binary_name": binary_name,
+            "binary_path": binary_path,
+            "command_args": effective_args,
+            "gpu_name": repro.get("Device Name"),
+            "driver_version": repro.get("Driver Version"),
+            "gpu_clocks": repro.get("GPU Clocks"),
+            "frame_count": 1,
+            "avg_frame_time_ms": frame_time_ms,
+            "avg_fps": avg_fps,
+            "mode": "gputrace",
+            "artifact_path": str(artifact) if artifact else None,
+            **(provenance or {}),
+        })
+
+        for scope in export["scopes"]:
+            path = scope["path"]
+            pass_id = insert_pass(conn, {
+                "run_id": run_id,
+                "pass_name": path,
+                "queue_family": "Graphics",
+                "duration_ns": scope["time_ms"] * 1_000_000.0,
+            })
+
+            # A repeated scope path has one regimes row, so its metrics go to the first pass only.
+            if path in attached_paths:
+                continue
+
+            attached_paths.add(path)
+            for metric in export["scope_metrics"][path]:
+                insert_metric(conn, _trace_metric_row(run_id, pass_id, metric))
+                metric_count += 1
+
+        for metric in export["frame_metrics"]:
+            insert_metric(conn, _trace_metric_row(run_id, None, metric))
+            metric_count += 1
+
+    unmatched = export["unmatched_scopes"]
+    print(f"[Profiler] GPU Trace ingest: {len(export['scopes'])} scopes, {metric_count} metrics, "
+          f"{export['skipped_cells']} cells skipped.")
+    if unmatched:
+        print(f"[Profiler] Warning: no regimes row for scopes: {', '.join(unmatched)}")
+    return run_id
 
 
 def _duration_to_ns(value: float, unit: str) -> float:

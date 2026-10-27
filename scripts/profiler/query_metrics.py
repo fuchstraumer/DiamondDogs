@@ -45,11 +45,26 @@ def fmt_num(value: Optional[float], spec: str, suffix: str) -> str:
     return f"{value:{spec}}{suffix}"
 
 
-def config_label(size: Optional[int], radix: Optional[int], wave: Optional[str]) -> str:
-    """Name a benchmark configuration. Return a dash for a pass without one."""
+# Metric name, short label. The names are normalized: the unit instance and metric set are dropped.
+SCOPE_METRICS: Tuple[Tuple[str, str], ...] = (
+    ("dramc__throughput.avg.pct_of_peak_sustained_elapsed", "DRAM"),
+    ("lts__throughput.avg.pct_of_peak_sustained_elapsed", "LTS"),
+    ("sm__throughput.avg.pct_of_peak_sustained_elapsed", "SM"),
+    ("l1tex__throughput.avg.pct_of_peak_sustained_elapsed", "L1tex"),
+    ("l1tex__data_pipe_lsu_wavefronts_mem_shared_realtime.avg.pct_of_peak_sustained_elapsed", "Shared LSU"),
+    ("tpc__warps_active_shader_cs_realtime.avg.pct_of_peak_sustained_elapsed", "Warps (CS)"),
+)
+
+
+def config_label(size: Optional[int], radix: Optional[int], wave: Optional[str], path: Optional[str]) -> str:
+    """Name a benchmark configuration. Return a dash for a pass without one.
+
+    The path is "fused" or "unfused". A run from before schema 4 has none, and its label ends at the wave.
+    """
     if size is None and radix is None and wave is None:
         return "-"
-    return f"{size}/r{radix}/wave {wave}"
+    label = f"{size}/r{radix}/wave {wave}"
+    return f"{label}/{path}" if path else label
 
 
 class BenchmarkDB:
@@ -94,7 +109,7 @@ class BenchmarkDB:
         run_dict = dict(run_row)
 
         pass_cursor = self.conn.execute("""
-            SELECT config_size, config_radix, config_wave, pass_name,
+            SELECT config_size, config_radix, config_wave, config_path, pass_name,
                    AVG(duration_ns) as avg_duration_ns,
                    AVG(p95_ns) as avg_p95_ns,
                    MIN(duration_ns) as min_duration_ns,
@@ -102,7 +117,7 @@ class BenchmarkDB:
                    COUNT(*) as sample_count
             FROM passes
             WHERE run_id = ?
-            GROUP BY config_size, config_radix, config_wave, pass_name
+            GROUP BY config_size, config_radix, config_wave, config_path, pass_name
             ORDER BY MIN(pass_id) ASC;
         """, (run_id,))
         run_dict["passes"] = [dict(r) for r in pass_cursor.fetchall()]
@@ -141,10 +156,11 @@ class BenchmarkDB:
         Return the list of metric records.
         """
         query = """
-            SELECT m.metric_id, m.run_id, m.shader_id, s.shader_name,
+            SELECT m.metric_id, m.run_id, m.shader_id, s.shader_name, m.pass_id, p.pass_name,
                    m.category, m.metric_name, m.metric_value, m.unit, m.pct_of_peak
             FROM metrics m
             LEFT JOIN shaders s ON m.shader_id = s.shader_id
+            LEFT JOIN passes p ON m.pass_id = p.pass_id
             WHERE m.run_id = ?
         """
         params: List[Any] = [run_id]
@@ -157,6 +173,63 @@ class BenchmarkDB:
         query += " ORDER BY m.metric_id ASC;"
         cursor = self.conn.execute(query, tuple(params))
         return [dict(r) for r in cursor.fetchall()]
+
+    def get_pass_metrics(self, run_id: int, pass_text: str) -> List[Dict[str, Any]]:
+        """Retrieve the metrics of the passes whose name contains the text, ignoring case.
+
+        Whole-frame metrics have no pass, so they are not in the result.
+        Return the list of metric records.
+        """
+        cursor = self.conn.execute("""
+            SELECT m.metric_id, m.run_id, m.shader_id, s.shader_name, m.pass_id, p.pass_name,
+                   m.category, m.metric_name, m.metric_value, m.unit, m.pct_of_peak
+            FROM metrics m
+            JOIN passes p ON m.pass_id = p.pass_id
+            LEFT JOIN shaders s ON m.shader_id = s.shader_id
+            WHERE m.run_id = ? AND INSTR(LOWER(p.pass_name), LOWER(?)) > 0
+            ORDER BY m.metric_id ASC;
+        """, (run_id, pass_text))
+        return [dict(r) for r in cursor.fetchall()]
+
+    def get_scope_rows(self, run_id: int) -> List[Dict[str, Any]]:
+        """Build one record per GPU Trace scope, in file order.
+
+        Each record holds the scope path, the time in ms, and the value of each SCOPE_METRICS name.
+        A value is None when the scope has no such metric.
+        Return the list of records.
+        """
+        pass_rows = self.conn.execute("""
+            SELECT pass_id, pass_name, duration_ns
+            FROM passes
+            WHERE run_id = ?
+            ORDER BY pass_id ASC;
+        """, (run_id,)).fetchall()
+
+        metric_names = [name for name, _label in SCOPE_METRICS]
+        placeholders = ", ".join("?" for _ in metric_names)
+        metric_rows = self.conn.execute(f"""
+            SELECT pass_id, metric_name, metric_value
+            FROM metrics
+            WHERE run_id = ? AND pass_id IS NOT NULL AND metric_name IN ({placeholders});
+        """, (run_id, *metric_names)).fetchall()
+
+        values: Dict[Tuple[int, str], Optional[float]] = {}
+        for row in metric_rows:
+            values.setdefault((row["pass_id"], row["metric_name"]), row["metric_value"])
+
+        rows: List[Dict[str, Any]] = []
+        for p in pass_rows:
+            duration_ns = p["duration_ns"]
+            entry: Dict[str, Any] = {
+                "pass_id": p["pass_id"],
+                "scope": p["pass_name"],
+                "time_ms": duration_ns / 1_000_000.0 if duration_ns is not None else None,
+            }
+            for name in metric_names:
+                entry[name] = values.get((p["pass_id"], name))
+            rows.append(entry)
+
+        return rows
 
     def compare_runs(self, run_id_a: int, run_id_b: int) -> Dict[str, Any]:
         """Compare performance metrics and passes between two runs.
@@ -181,7 +254,7 @@ class BenchmarkDB:
         fps_pct = (fps_delta / fps_a * 100.0) if fps_delta is not None and fps_a > 0.0 else None
 
         def key_of(p: Dict[str, Any]) -> Tuple[Any, ...]:
-            return (p["config_size"], p["config_radix"], p["config_wave"], p["pass_name"])
+            return (p["config_size"], p["config_radix"], p["config_wave"], p["config_path"], p["pass_name"])
 
         passes_a = {key_of(p): p for p in summary_a.get("passes", [])}
         passes_b = {key_of(p): p for p in summary_b.get("passes", [])}
@@ -210,8 +283,9 @@ class BenchmarkDB:
                 "config_size": key[0],
                 "config_radix": key[1],
                 "config_wave": key[2],
-                "config": config_label(key[0], key[1], key[2]),
-                "pass_name": key[3],
+                "config_path": key[3],
+                "config": config_label(key[0], key[1], key[2], key[3]),
+                "pass_name": key[4],
                 "median_us_a": med_a,
                 "median_us_b": med_b,
                 "delta_us": delta,
@@ -271,7 +345,7 @@ def format_run_summary_md(summary: Dict[str, Any]) -> str:
         pass_rows = []
         for p in passes:
             pass_rows.append([
-                config_label(p["config_size"], p["config_radix"], p["config_wave"]),
+                config_label(p["config_size"], p["config_radix"], p["config_wave"], p["config_path"]),
                 p["pass_name"],
                 fmt_num(p["avg_duration_ns"] / 1000.0 if p["avg_duration_ns"] is not None else None, ".2f", ""),
                 fmt_num(p["avg_p95_ns"] / 1000.0 if p["avg_p95_ns"] is not None else None, ".2f", ""),
@@ -286,7 +360,7 @@ def format_run_summary_md(summary: Dict[str, Any]) -> str:
     out = [
         f"### Run Summary (Run {summary.get('run_id')})\n",
         meta_table,
-        "\n### Pass Timings (submit: median over ticks; replay: mean over iterations)\n",
+        "\n### Pass Timings (submit: median over ticks; replay: mean over iterations; trace: one frame)\n",
         pass_table,
     ]
     return "\n".join(out)
@@ -323,7 +397,7 @@ def format_metrics_md(run_id: int, metrics: List[Dict[str, Any]]) -> str:
     if not metrics:
         return f"### Metrics (Run {run_id})\n\n_No metrics recorded for Run {run_id}._"
 
-    headers = ["ID", "Shader", "Category", "Metric Name", "Value", "Unit", "% Peak"]
+    headers = ["ID", "Shader / Pass", "Category", "Metric Name", "Value", "Unit", "% Peak"]
     rows = []
     for m in metrics:
         val = m.get("metric_value")
@@ -339,7 +413,8 @@ def format_metrics_md(run_id: int, metrics: List[Dict[str, Any]]) -> str:
 
         shader_name = m.get("shader_name")
         shader_id = m.get("shader_id")
-        shader_str = shader_name if shader_name else (f"Shader #{shader_id}" if shader_id else "-")
+        pass_name = m.get("pass_name")
+        shader_str = shader_name if shader_name else (f"Shader #{shader_id}" if shader_id else (pass_name or "-"))
 
         rows.append([
             str(m.get("metric_id", "")),
@@ -352,6 +427,26 @@ def format_metrics_md(run_id: int, metrics: List[Dict[str, Any]]) -> str:
         ])
     table = to_markdown_table(headers, rows)
     return f"### Detailed Metrics (Run {run_id})\n\n{table}"
+
+
+def format_scopes_md(run_id: int, scope_rows: List[Dict[str, Any]]) -> str:
+    """Format the GPU Trace scope records into a GitHub markdown table.
+
+    The metric columns are percent of peak, as the trace reports them.
+    Return the markdown text.
+    """
+    if not scope_rows:
+        return f"### Scopes (Run {run_id})\n\n_No scopes recorded for Run {run_id}._"
+
+    headers = ["Scope", "Time (ms)"] + [f"{label} %" for _name, label in SCOPE_METRICS]
+    rows = []
+    for entry in scope_rows:
+        cells = [str(entry["scope"]), fmt_num(entry["time_ms"], ".4f", "")]
+        for name, _label in SCOPE_METRICS:
+            cells.append(fmt_num(entry[name], ".2f", ""))
+        rows.append(cells)
+    table = to_markdown_table(headers, rows)
+    return f"### Scopes (Run {run_id}, GPU Trace, one frame)\n\n{table}"
 
 
 def format_compare_runs_md(cmp: Dict[str, Any]) -> str:
@@ -413,6 +508,23 @@ def format_compare_runs_md(cmp: Dict[str, Any]) -> str:
     return "\n".join(out)
 
 
+def select_metrics(db: BenchmarkDB, run_id: int, args: argparse.Namespace) -> List[Dict[str, Any]]:
+    """Select the metrics of a run for the command-line filters.
+
+    With --pass, the metrics come from the matching passes, then the shader and category filters apply.
+    Return the list of metric records.
+    """
+    if args.pass_text is None:
+        return db.get_metrics(run_id, shader_id=args.shader, category=args.category)
+
+    metrics = db.get_pass_metrics(run_id, args.pass_text)
+    if args.shader is not None:
+        metrics = [m for m in metrics if m["shader_id"] == args.shader]
+    if args.category is not None:
+        metrics = [m for m in metrics if m["category"] == args.category]
+    return metrics
+
+
 def main() -> int:
     """Parse command-line arguments and execute the requested query operation.
 
@@ -425,6 +537,10 @@ def main() -> int:
     parser.add_argument("--shader", type=int, help="Filter metrics by shader ID")
     parser.add_argument("--category", help="Filter metrics by category")
     parser.add_argument("--metrics", action="store_true", help="Display detailed metrics table for a run or shader")
+    parser.add_argument("--pass", dest="pass_text", default=None,
+                        help="With --metrics: only the metrics of passes whose name contains this text")
+    parser.add_argument("--scopes", action="store_true",
+                        help="Display one row per GPU Trace scope: time and percent-of-peak counters")
     parser.add_argument("--bottlenecks", action="store_true", help="Display diagnosed bottlenecks")
     parser.add_argument("--compare", nargs=2, type=int, metavar=("ID1", "ID2"), help="Compare two profiling runs")
     parser.add_argument("--json", action="store_true", help="Output results in JSON format")
@@ -455,11 +571,28 @@ def main() -> int:
 
         # 3. Metrics only mode
         if args.metrics and not args.latest:
-            metrics = db.get_metrics(target_run_id, shader_id=args.shader, category=args.category)
+            metrics = select_metrics(db, target_run_id, args)
             if args.json:
                 print(json.dumps(metrics, indent=2))
             else:
                 print(format_metrics_md(target_run_id, metrics))
+            return 0
+
+        # 3a. GPU Trace scopes only
+        if args.scopes:
+            scope_summary = db.get_run_summary(target_run_id)
+            if not scope_summary:
+                print(f"Run ID {target_run_id} not found.", file=sys.stderr)
+                return 1
+            if scope_summary.get("mode") != "gputrace":
+                print(f"Run ID {target_run_id} is not a GPU Trace run.", file=sys.stderr)
+                return 1
+
+            scope_rows = db.get_scope_rows(target_run_id)
+            if args.json:
+                print(json.dumps(scope_rows, indent=2))
+            else:
+                print(format_scopes_md(target_run_id, scope_rows))
             return 0
 
         # 4. Bottlenecks only
@@ -479,7 +612,7 @@ def main() -> int:
 
         if args.json:
             if args.metrics:
-                summary["metrics"] = db.get_metrics(target_run_id, shader_id=args.shader, category=args.category)
+                summary["metrics"] = select_metrics(db, target_run_id, args)
             if args.bottlenecks:
                 print(json.dumps(summary["bottlenecks"], indent=2))
             else:
@@ -489,7 +622,7 @@ def main() -> int:
             if args.bottlenecks:
                 print("\n" + format_bottlenecks_md(target_run_id, summary["bottlenecks"]))
             if args.metrics:
-                metrics = db.get_metrics(target_run_id, shader_id=args.shader, category=args.category)
+                metrics = select_metrics(db, target_run_id, args)
                 print("\n" + format_metrics_md(target_run_id, metrics))
 
         return 0

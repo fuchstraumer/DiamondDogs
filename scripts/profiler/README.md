@@ -11,7 +11,8 @@ You can then compare two runs.
   NCU profiles CUDA kernels. It does not profile Vulkan dispatches.
   The `--ncu-rep` path can read an `.ncu-rep` file, but this engine cannot make one.
 - Present mode stores replay frame times only. They are whole-frame times, not render pass times.
-- The GPU Trace (Nsight Graphics) path is planned. `ingest_gpu_trace` in `db_store.py` is a stub.
+- GPU Trace stores scope times and counters. It does not store stall reasons or per-line shader data.
+  Those stay in the `.ngfx-gputrace` file, which you open in the Nsight Graphics UI.
 - The scripts give no advice. They do not diagnose bottlenecks.
   The `bottlenecks` table holds NCU rule results only.
 
@@ -27,7 +28,7 @@ The tests that need the real `ncu_report` module skip when it is missing.
 ### Submit mode (`--mode submit`)
 Submit mode runs a benchmark executable and parses its stdout table.
 The header line of the table has the words `size` and `radix`.
-The parser reads the configuration columns (size, radix, wave) from this header.
+The parser reads the configuration columns (size, radix, wave, path) from this header.
 Each row gives the median and the p95 of each scope, in microseconds.
 The runner stores one `passes` row for each configuration and scope.
 It stores the median in `duration_ns` and the p95 in `p95_ns`.
@@ -59,6 +60,40 @@ It stores these values for each iteration:
 Iteration 0 includes first-use overhead. The runner does not store it and skips it in the averages.
 `avg_frame_time_ms` is the mean `msFrameTime` of the other iterations. It is a CPU time.
 
+### GPU Trace mode (`--mode gputrace`)
+GPU Trace mode runs the Nsight Graphics GPU Trace activity on the app.
+It stores the GPU time of each debug-label scope and the counters of one frame.
+
+The target must present frames. The runner starts the trace after frame 120 and records one frame.
+A headless app, such as OceanFftBenchmark, never finishes a trace. The runner then reports
+"Data fetching never started".
+
+- `--trace-args` sets the app arguments (default `--frames=1500 --validation=off`).
+- `--trace-start-frame` sets the frame that starts the trace (default 120).
+- `--capture-dir` is the folder for the runs. Each run gets one new subfolder.
+  The subfolder holds the `.ngfx-gputrace` file and a `BASE` folder of exports.
+- `--timeout-s` applies to the ngfx process.
+- `--gputrace-dir <folder>` ingests an existing export folder. It runs nothing.
+  It stores no code state and no build fingerprint, because the folder does not record them.
+
+The run stores:
+- One `runs` row. Its `mode` is `gputrace`. It holds the frame time, the GPU name, the driver and `gpu_clocks`.
+- One `passes` row for each scope. `pass_name` is the scope path, such as `Ocean simulation/IFFT`.
+  The path joins the nested scope names with `/`. `queue_family` is `Graphics`.
+- One `metrics` row for each counter of each scope. `pass_id` links it to its scope.
+  Whole-frame counters have `pass_id` NULL.
+- Each counter name is normalized. The unit instance and the metric set are dropped, so
+  `SM_A.TriageAC.l1tex__throughput.avg.pct_of_peak_sustained_elapsed` becomes
+  `l1tex__throughput.avg.pct_of_peak_sustained_elapsed`. `raw_name` keeps the full name.
+
+The GPU clocks are locked to base during the trace. Its times are not comparable with submit mode times.
+
+The validation layer changes GPU times. Mips measured 0.87 ms with it on and 0.18 ms with it off.
+The runner prints a warning when the app arguments do not contain `--validation=off`.
+
+Use `query_metrics --scopes` for one row per scope. It shows the time and six counters as percent of peak:
+DRAM, LTS, SM, L1tex, shared-memory LSU wavefronts and active warps in compute shaders.
+
 ### NCU report import (`--ncu-rep`)
 This mode reads an `.ncu-rep` file with the `ncu_report` Python module.
 The runner looks for the module on `sys.path`.
@@ -81,14 +116,16 @@ Each run in submit mode and present mode stores:
   They are NULL when the file does not exist.
 
 ## Database schema
-`PRAGMA user_version` holds the schema version (now 2).
+`PRAGMA user_version` holds the schema version (now 4).
 On open, `init_db` creates missing tables and adds missing columns with `ALTER TABLE`.
-Old rows keep NULL in the new columns.
+Old rows keep NULL in the new columns. A version 2 database gets `gpu_clocks`, `pass_id` and `raw_name`.
+The `pass_id` column of an old database has no foreign key constraint. A new database has one.
 Each ingest is one transaction. The insert helpers do not commit.
 
 ### `runs`
 - `run_id`, `timestamp` (UTC ISO 8601), `binary_name`, `binary_path`, `command_args`.
-- `mode`: `submit`, `present` or `ncu`.
+- `mode`: `submit`, `present`, `ncu` or `gputrace`.
+- `gpu_clocks`: the GPU clock setting of a GPU Trace run, for example `Locked to Base`.
 - `git_commit`, `git_dirty`, `git_diff_hash`.
 - `exe_hash`, `exe_mtime`, `shader_manifest_hash`, `shader_manifest_mtime`.
 - `gpu_name`, `driver_version`.
@@ -99,9 +136,10 @@ Each ingest is one transaction. The insert helpers do not commit.
 
 ### `passes`
 - `pass_id`, `run_id`, `pass_name`, `queue_family`, `iteration`.
-- `duration_ns`: the median (submit), the CPU or GPU frame time (present), or the kernel duration (NCU).
+- `duration_ns`: the median (submit), the CPU or GPU frame time (present), the kernel duration (NCU),
+  or the GPU time of the scope (GPU Trace).
 - `p95_ns`: the p95 (submit only).
-- `config_size`, `config_radix`, `config_wave`: the benchmark configuration. `config_wave` is text, `off` or a number.
+- `config_size`, `config_radix`, `config_wave`, `config_path`: the benchmark configuration. `config_wave` is text, `off` or a number. `config_path` is `fused` or `unfused`, and NULL for a run from before schema 4.
 - `cpu_submit_ms`, `cpu_finish_ms`: the replay parts of `msFrameTime`.
 
 A pass is identified by the configuration and the pass name together.
@@ -111,8 +149,10 @@ A pass is identified by the configuration and the pass name together.
 `local_mem_bytes`, `subgroup_size` (always NULL now), `block_size`.
 
 ### `metrics`
-`metric_id`, `run_id`, `shader_id`, `category`, `metric_name`, `metric_value`, `unit`, `pct_of_peak`.
-Only an NCU import writes this table.
+`metric_id`, `run_id`, `shader_id`, `pass_id`, `category`, `metric_name`, `raw_name`, `metric_value`, `unit`,
+`pct_of_peak`.
+An NCU import writes this table with `shader_id`. A GPU Trace run writes it with `pass_id`.
+`raw_name` is the counter name as ngfx wrote it. It is NULL for NCU rows.
 
 ### `bottlenecks`
 `bottleneck_id`, `run_id`, `shader_id`, `severity`, `category`, `summary`, `detail`, `recommendation`.
@@ -134,6 +174,26 @@ python -m scripts.profiler.capture_runner --exe build/ninja-msvc/applications/Oc
 Import an NCU report:
 ```powershell
 python -m scripts.profiler.capture_runner --ncu-rep reports/kernel.ncu-rep --db profiler.db
+```
+
+Run a GPU Trace of the windowed app, with the validation layer off:
+```powershell
+python -m scripts.profiler.capture_runner --exe build/ninja-msvc/applications/OceanFft/RelWithDebInfo/OceanFft.exe --mode gputrace --trace-args "--frames=1500 --size=1024 --validation=off" --capture-dir build/profiler_captures --db profiler.db
+```
+
+Import an existing GPU Trace export folder (the folder that holds `BASE`):
+```powershell
+python -m scripts.profiler.capture_runner --gputrace-dir build/profiler_captures/OceanFft_gputrace_20261026_200000 --db profiler.db
+```
+
+Show the scopes of a GPU Trace run, one row per scope:
+```powershell
+python -m scripts.profiler.query_metrics --run 5 --scopes --db profiler.db
+```
+
+Show the metrics of the IFFT scope only:
+```powershell
+python -m scripts.profiler.query_metrics --run 5 --metrics --pass IFFT --db profiler.db
 ```
 
 Show the latest run:

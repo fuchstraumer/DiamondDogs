@@ -3,6 +3,7 @@
 Submit mode runs a benchmark and parses its stdout table.
 Present mode captures one frame with Nsight Graphics and replays it.
 Present mode stores replay frame times only. It collects no hardware counters.
+GPU Trace mode runs the Nsight Graphics GPU Trace activity and stores its scope times and counters.
 """
 
 import argparse
@@ -17,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from .db_store import (
+        ingest_gpu_trace,
         ingest_ncu_report,
         init_db,
         insert_pass,
@@ -27,6 +29,7 @@ except ImportError:
     if str(script_dir) not in sys.path:
         sys.path.insert(0, str(script_dir))
     from db_store import (
+        ingest_gpu_trace,
         ingest_ncu_report,
         init_db,
         insert_pass,
@@ -37,6 +40,13 @@ REPO_DIR = Path(__file__).resolve().parents[2]
 GIT_TIMEOUT_S = 30
 MANIFEST_NAME = "OceanFft.ldmanifest"
 CAPTURE_FRAME_MAX = 600
+GPU_TRACE_ACTIVITY = "GPU Trace Profiler"
+GPU_TRACE_REGIMES = Path("BASE") / "GPUTRACE_REGIMES.xls"
+GPU_TRACE_NO_DATA_TEXT = "Data fetching never started"
+GPU_TRACE_HEADLESS_MESSAGE = (
+    "[Profiler] Error: ngfx reports 'Data fetching never started'. The target did not present a frame. "
+    "A headless app cannot be traced with GPU Trace. Use a windowed app that presents frames."
+)
 
 # Columns that ngfx-replay writes to iteration_times.csv. We read them by exact name.
 REPLAY_COLUMNS = ("i", "msSubmitTime", "msFinishTime", "msFrameTime", "msGpuTime")
@@ -330,6 +340,7 @@ def run_benchmark_mode(args: argparse.Namespace) -> int:
                         "config_size": int(config["size"]),
                         "config_radix": int(config["radix"]),
                         "config_wave": config.get("wave"),
+                        "config_path": config.get("path"),
                     })
     finally:
         conn.close()
@@ -495,6 +506,132 @@ def run_present_mode(args: argparse.Namespace) -> int:
     return 0
 
 
+def locate_ngfx() -> Path:
+    """Locate ngfx.exe, the Nsight Graphics command-line front end.
+
+    Return the path to ngfx.exe.
+    """
+    primary_exe = Path(
+        r"C:\Program Files\NVIDIA Corporation\Nsight Graphics 2026.3.1\host\windows-desktop-nomad-x64\ngfx.exe"
+    )
+    if primary_exe.exists():
+        return primary_exe
+
+    base_dir = Path(r"C:\Program Files\NVIDIA Corporation")
+    if base_dir.exists():
+        for candidate in base_dir.glob("**/ngfx.exe"):
+            return candidate
+
+    raise FileNotFoundError("Could not locate ngfx.exe in the Nsight Graphics directory.")
+
+
+def require_regimes_file(out_dir: Path) -> Path:
+    """Return the regimes file of a GPU Trace export folder.
+
+    Raise FileNotFoundError when the folder has no regimes file.
+    """
+    regimes_path = out_dir / GPU_TRACE_REGIMES
+    if not regimes_path.is_file():
+        raise FileNotFoundError(
+            f"No {GPU_TRACE_REGIMES} in {out_dir}. The GPU Trace export is incomplete or the trace failed."
+        )
+    return regimes_path
+
+
+def run_gputrace_mode(args: argparse.Namespace) -> int:
+    """Run the Nsight Graphics GPU Trace activity on the app, then ingest the export.
+
+    The app must present frames. The trace uses locked base GPU clocks, so its times are not
+    comparable with submit mode times. Return the process exit code.
+    """
+    exe_path = Path(args.exe).resolve()
+    if not exe_path.exists():
+        raise FileNotFoundError(f"Executable not found: {exe_path}")
+
+    ngfx_exe = locate_ngfx()
+    print(f"[Profiler] Found Nsight Graphics: {ngfx_exe}")
+
+    provenance = {**get_code_state(REPO_DIR), **get_build_fingerprint(exe_path)}
+
+    cap_dir = Path(args.capture_dir).resolve()
+    out_dir = cap_dir / f"{exe_path.stem}_gputrace_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    trace_cmd = [
+        str(ngfx_exe),
+        "--activity", GPU_TRACE_ACTIVITY,
+        "--exe", str(exe_path),
+        "--args", args.trace_args,
+        "--dir", str(exe_path.parent),
+        "--output-dir", str(out_dir),
+        "--start-after-frames", str(args.trace_start_frame),
+        "--limit-to-frames", "1",
+        "--auto-export",
+        # ngfx ignores the per-architecture options below unless --architecture names the GPU family
+        "--architecture", args.trace_architecture,
+        "--multi-pass-metrics",
+        "--real-time-shader-profiler",
+    ]
+
+    print(f"[Profiler] Launching ngfx: {' '.join(trace_cmd)}")
+    trace_res = run_command(trace_cmd, args.timeout_s, capture=True)
+    if trace_res is None:
+        return 1
+
+    output_text = (trace_res.stdout or "") + (trace_res.stderr or "")
+    if GPU_TRACE_NO_DATA_TEXT in output_text:
+        print(GPU_TRACE_HEADLESS_MESSAGE, file=sys.stderr)
+        return 1
+
+    if trace_res.returncode != 0:
+        print(f"[Profiler] ngfx failed with code {trace_res.returncode}:\n{output_text}", file=sys.stderr)
+        return trace_res.returncode
+
+    try:
+        require_regimes_file(out_dir)
+    except FileNotFoundError as err:
+        print(f"[Profiler] Error: {err}", file=sys.stderr)
+        return 1
+
+    conn = init_db(args.db)
+    try:
+        run_id = ingest_gpu_trace(conn, out_dir, exe_path, args.trace_args, provenance)
+    except (OSError, ValueError) as err:
+        print(f"[Profiler] Error: {err}", file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+
+    print(f"[Profiler] Ingested run {run_id} from {out_dir}.")
+    return 0
+
+
+def run_gputrace_ingest(args: argparse.Namespace) -> int:
+    """Ingest an existing GPU Trace export folder without running anything.
+
+    The run gets no code state and no build fingerprint, because the folder does not record them.
+    Return the process exit code.
+    """
+    out_dir = Path(args.gputrace_dir).resolve()
+    try:
+        require_regimes_file(out_dir)
+    except FileNotFoundError as err:
+        print(f"[Profiler] Error: {err}", file=sys.stderr)
+        return 1
+
+    conn = init_db(args.db)
+    try:
+        run_id = ingest_gpu_trace(conn, out_dir, None, "", None)
+    except (OSError, ValueError) as err:
+        print(f"[Profiler] Error: {err}", file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+
+    print(f"[Profiler] Ingested GPU Trace export '{out_dir}' as run {run_id}.")
+    return 0
+
+
 def capture_frame_arg(text: str) -> int:
     """Argparse type: a 1-based capture frame that is greater than 1."""
     value = int(text)
@@ -543,16 +680,29 @@ def main() -> int:
     parser.add_argument("--replay-loops", type=replay_loops_arg, default=10,
                         help="Present mode: replay iterations, at least 2 (default: 10)")
     parser.add_argument("--capture-dir", default="build/profiler_captures",
-                        help="Present mode: folder for capture files and replay reports "
+                        help="Present mode: folder for capture files and replay reports. GPU Trace mode: "
+                             "folder that gets one new subfolder per run "
                              "(default: build/profiler_captures under the current directory)")
+    parser.add_argument("--trace-args", default="--frames=1500 --validation=off",
+                        help="GPU Trace mode: command-line arguments of the app "
+                             "(default: --frames=1500 --validation=off)")
+    parser.add_argument("--trace-start-frame", type=int, default=120,
+                        help="GPU Trace mode: the frame after which the trace starts (default: 120)")
+    parser.add_argument("--trace-architecture", default="Ada",
+                        help="GPU Trace mode: the GPU family for the metric options, as ngfx.exe --help-all "
+                             "lists them, for example Ada or Blackwell GB20x (default: Ada, the RTX 4080)")
+    parser.add_argument("--gputrace-dir", default=None,
+                        help="Import an existing GPU Trace export folder (the folder that holds BASE) "
+                             "without running anything")
     parser.add_argument("--timeout-s", type=timeout_arg, default=600,
                         help="Timeout in seconds for each subprocess (default: 600)")
     parser.add_argument("--db", default="profiler.db", help="Path to SQLite database (default: profiler.db)")
     parser.add_argument(
         "--mode",
-        choices=["auto", "present", "submit"],
+        choices=["auto", "present", "submit", "gputrace"],
         default="auto",
-        help="Profiling mode: auto, present (Nsight Graphics capture and replay), or submit (benchmark run)",
+        help="Profiling mode: auto, present (Nsight Graphics capture and replay), submit (benchmark run), "
+             "or gputrace (Nsight Graphics GPU Trace of a presenting app)",
     )
 
     args = parser.parse_args()
@@ -569,8 +719,11 @@ def main() -> int:
         finally:
             conn.close()
 
+    if args.gputrace_dir:
+        return run_gputrace_ingest(args)
+
     if not args.exe:
-        parser.error("argument --exe is required when not importing an .ncu-rep file")
+        parser.error("argument --exe is required when not importing an .ncu-rep file or a GPU Trace folder")
 
     mode = args.mode
     if mode == "auto":
@@ -578,6 +731,8 @@ def main() -> int:
 
     if mode == "submit":
         return run_benchmark_mode(args)
+    if mode == "gputrace":
+        return run_gputrace_mode(args)
     return run_present_mode(args)
 
 

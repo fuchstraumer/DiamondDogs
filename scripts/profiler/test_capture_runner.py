@@ -30,6 +30,14 @@ NVIDIA GeForce RTX 4080, timestamp period 1 ns. 256 ticks per configuration afte
  1024       4    32 |   841.7  1316.9 |   162.8   342.0 |   264.2   551.9 |   226.3   491.5 |   178.2   200.7
 """
 
+# Output of OceanFftBenchmark.exe with the path column: each size and wave setting runs fused, then unfused.
+# A scope that the path does not record shows a dash.
+BENCHMARK_TWO_PATH_STDOUT = """NVIDIA GeForce RTX 4080, timestamp period 1 ns. 256 ticks per configuration after 64 warm-up ticks. Times in microseconds, median / p95
+ size   radix  wave     path |            Tick | Tick + IFFT rows | IFFT columns + Resolve |   Spectrum tick |            IFFT |         Resolve |            Mips
+  256       4    32    fused |    30.0    31.0 |    14.0    15.0 |    13.0    14.0 |       -       - |       -       - |       -       - |     9.2    10.2
+  256       4    32  unfused |    34.8    35.8 |       -       - |       -       - |     6.1     6.1 |    13.3    14.3 |     6.1     7.2 |     9.2    10.2
+"""
+
 REPLAY_CSV = (
     "i, replayTotalFps, replayAdjustedFps, msResetTimePerFrame, msResetFinishTimePerFrame, msSubmitTime, "
     "msFinishTime, msFrameTime, msGpuTime, numFrames, mae, maeToleranceOverride\n"
@@ -136,7 +144,7 @@ class TestSchemaMigration(unittest.TestCase):
                     self.assertIn(name, run_columns)
 
                 pass_columns = {r["name"] for r in conn.execute("PRAGMA table_info(passes);")}
-                for name in ("config_size", "config_radix", "config_wave", "p95_ns", "cpu_submit_ms"):
+                for name in ("config_size", "config_radix", "config_wave", "config_path", "p95_ns", "cpu_submit_ms"):
                     self.assertIn(name, pass_columns)
 
                 shader_columns = {r["name"] for r in conn.execute("PRAGMA table_info(shaders);")}
@@ -237,6 +245,58 @@ class TestBenchmarkStoreAndCompare(unittest.TestCase):
         self.assertAlmostEqual(target[0]["median_us_a"], 264.2)
         self.assertAlmostEqual(target[0]["median_us_b"], 528.4)
         self.assertAlmostEqual(target[0]["p95_us_b"], 1103.8)
+
+
+class TestBenchmarkPathColumn(unittest.TestCase):
+    """The path column is a configuration column, and it is part of the pass identity."""
+
+    def setUp(self):
+        self.parsed = capture_runner.parse_benchmark_output(BENCHMARK_TWO_PATH_STDOUT)
+
+    def test_path_is_a_config_column(self):
+        self.assertEqual(self.parsed["config_columns"], ["size", "radix", "wave", "path"])
+        self.assertEqual([r["config"]["path"] for r in self.parsed["rows"]], ["fused", "unfused"])
+
+    def test_dash_scopes_are_skipped(self):
+        fused, unfused = self.parsed["rows"]
+        self.assertEqual(fused["timings"]["Tick + IFFT rows"], {"median_us": 14.0, "p95_us": 15.0})
+        self.assertNotIn("IFFT", fused["timings"])
+        self.assertNotIn("Tick + IFFT rows", unfused["timings"])
+        self.assertEqual(unfused["timings"]["IFFT"], {"median_us": 13.3, "p95_us": 14.3})
+
+    def test_compare_keeps_the_two_paths_apart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = db_store.init_db(Path(tmp) / "prof.db")
+            try:
+                for scale in (1.0, 2.0):
+                    with conn:
+                        run_id = db_store.insert_run(conn, {"binary_name": "b.exe", "mode": "submit"})
+                        for row in self.parsed["rows"]:
+                            cfg = row["config"]
+                            for scope, t in row["timings"].items():
+                                db_store.insert_pass(conn, {
+                                    "run_id": run_id,
+                                    "pass_name": scope,
+                                    "duration_ns": t["median_us"] * 1000.0 * scale,
+                                    "p95_ns": t["p95_us"] * 1000.0 * scale,
+                                    "config_size": int(cfg["size"]),
+                                    "config_radix": int(cfg["radix"]),
+                                    "config_wave": cfg["wave"],
+                                    "config_path": cfg["path"],
+                                })
+            finally:
+                conn.close()
+
+            with BenchmarkDB(Path(tmp) / "prof.db") as db:
+                cmp = db.compare_runs(1, 2)
+
+        tick = [p for p in cmp["pass_comparisons"] if p["pass_name"] == "Tick"]
+        self.assertEqual(sorted(p["config_path"] for p in tick), ["fused", "unfused"])
+        by_path = {p["config_path"]: p for p in tick}
+        self.assertAlmostEqual(by_path["fused"]["median_us_a"], 30.0)
+        self.assertAlmostEqual(by_path["unfused"]["median_us_a"], 34.8)
+        self.assertTrue(by_path["fused"]["config"].endswith("/fused"))
+        self.assertEqual(len(cmp["pass_comparisons"]), 4 + 5)
 
 
 if __name__ == "__main__":
