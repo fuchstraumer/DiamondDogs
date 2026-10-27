@@ -62,9 +62,8 @@ internal float2 GetGaussianRandomFloat2(in int2 coordinates, in int cascade, in 
 // k. Each cascade draws its own phases, so their variances add, and the 1 / sqrt(n) keeps the total at the spectrum's
 internal float CascadeContribution(in float k, in uint cascade)
 {
-    float lengthScale = CascadeParams.LengthScales[cascade];
-    float cutoffHigh = CascadeParams.CutoffsHigh[cascade];
-    float cutoffLow = CascadeParams.CutoffsLow[cascade];
+    float cutoffHigh = CascadeCutoffHigh(cascade);
+    float cutoffLow = CascadeCutoffLow(cascade);
 
     if (k < cutoffLow || k > cutoffHigh)
     {
@@ -75,7 +74,7 @@ internal float CascadeContribution(in float k, in uint cascade)
         float total = 0.0f;
         for (uint i = 0; i < IFFT_NUM_WAVE_CASCADES; ++i)
         {
-            bool kInRange = (k >= CascadeParams.CutoffsLow[i] && k <= CascadeParams.CutoffsHigh[i]);
+            bool kInRange = (k >= CascadeCutoffLow(i) && k <= CascadeCutoffHigh(i));
             if (kInRange)
             {
                 total += 1.0f;
@@ -131,7 +130,7 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
     // even though we partition this into workgroups, it's still important to consider coords as global
     int2 coordinates = int2(dispatchThreadID.xy) - int(IFFT_SIZE / 2);
     int cascade = dispatchThreadID.z;
-    float dK = OceanFft_2PI / CascadeParams.LengthScales[cascade];
+    float dK = WaveSpacing(cascade);
     const float2 k = dK * float2(coordinates);
     const float kLength = max(length(k), 1e-6f);
     const uint linearIndex = LinearizeThreadIndex(dispatchThreadID, CascadeParams.Dimensions);
@@ -194,18 +193,14 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
         // (OceanFftTest checks the resulting significant wave height). WaveHeightScale is the artist's multiplier on top
         const float spectrumNorm = SpectrumParams.WaveHeightScale * sqrt(0.25f * finalSpectrum * dOmegaUnit * dK2);
         const float2 scaledPermutedSpectrum = contribution.xx * randomFloats * spectrumNorm.xx;
-        // for the sake of debugging right now, we put finalSpectrum in .y
-        WaveData[linearIndex] = half4(half(k.x),
-                                      half(finalSpectrum),
-                                      half(k.y),
-                                      half(omegaAnddOmegadK.x));
+        WaveData[linearIndex] = half(omegaAnddOmegadK.x);
         // doing it this way just bc of warnings about implicit conversions, lol
         h0K[linearIndex].x = half(scaledPermutedSpectrum.x);
         h0K[linearIndex].y = half(scaledPermutedSpectrum.y);
     }
     else
     {
-        WaveData[linearIndex] = half4(half(k.x), 0.0h, half(k.y), 0.0h);
+        WaveData[linearIndex] = 0.0h;
         h0K[linearIndex] = half2(0.0h, 0.0h);
     }
 }

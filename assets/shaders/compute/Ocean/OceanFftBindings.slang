@@ -10,12 +10,12 @@ import LodestoneAttributes;
 uniform RWStructuredBuffer<half2> h0K; // h0(k), written once by SpectrumInitCS
 [ls_element_count("IFFT_SIZE * IFFT_SIZE * IFFT_NUM_WAVE_CASCADES")]
 uniform RWStructuredBuffer<half2> h0KConjugate; // conj(h0(-k)), written once by SpectrumConjugateCS
-// (k.x, spectrum, k.y, omega) for each wave vector. .y is the energy spectrum, kept for debugging
+// omega for each wave vector. The wave vector itself follows from the thread position (see WaveSpacing)
 [ls_element_count("IFFT_SIZE * IFFT_SIZE * IFFT_NUM_WAVE_CASCADES")]
-uniform RWStructuredBuffer<half4> WaveData;
+uniform RWStructuredBuffer<half> WaveData;
 
 // IFFT_NUM_SLICES slices of IFFT_SIZE * IFFT_SIZE elements: slice s of cascade c is z = s * IFFT_NUM_WAVE_CASCADES + c.
-// Each half4 holds two complex values, so each slice carries four real fields (see OceanTick.slang).
+// Each half4 holds two complex values, so each slice carries four real fields (see OceanFftStages.slang).
 [ls_element_count("IFFT_SIZE * IFFT_SIZE * IFFT_NUM_WAVE_CASCADES * 2")]
 uniform RWStructuredBuffer<half4> IfftInput;
 
@@ -40,5 +40,11 @@ uniform SamplerState normSampler;
 uniform RWTexture2DArray<float4> Displacement;
 [format("rgba16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
 uniform RWTexture2DArray<float4> Derivatives;
-[format("rg16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
-uniform RWTexture2DArray<float2> Whitecaps;
+// k_i^2 only. The mean of k_i is Displacement.w - 1 + 1/n (the Jacobian is 1 + k_i - 1/n), so the Jacobian's mips give it
+[format("r16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
+uniform RWTexture2DArray<float> Whitecaps;
+[format("r16f")][ls_extent_3d("IFFT_SIZE", "IFFT_SIZE", "IFFT_NUM_WAVE_CASCADES")]
+uniform RWTexture2DArray<float2> Foam[2]; // ping-pong buffers for foam simulation
+// Linear sampler for reading from the ping-pong foam buffers in the foam simulation compute shader
+SamplerState LinearSampler;
+

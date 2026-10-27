@@ -35,14 +35,35 @@ public struct SpectrumParameters
     float SwellFadeLength;
 };
 
+// each per-cascade array holds eight cascades in two float4s. Read them through the helpers below
 public struct CascadeParameters
 {
-    float4 LengthScales;
-    float4 CutoffsHigh;
-    float4 CutoffsLow;
+    float4 LengthScales[2];
+    float4 CutoffsHigh[2];
+    float4 CutoffsLow[2];
     uint2 Dimensions;
     float2 Pad0;
 };
+
+internal float CascadeLengthScale(uint cascade)
+{
+    return CascadeParams.LengthScales[cascade >> 2u][cascade & 3u];
+}
+
+internal float CascadeCutoffHigh(uint cascade)
+{
+    return CascadeParams.CutoffsHigh[cascade >> 2u][cascade & 3u];
+}
+
+internal float CascadeCutoffLow(uint cascade)
+{
+    return CascadeParams.CutoffsLow[cascade >> 2u][cascade & 3u];
+}
+
+internal float WaveSpacing(uint cascade)
+{
+    return OceanFft_2PI / CascadeLengthScale(cascade);
+}
 
 public struct IfftParameters
 {

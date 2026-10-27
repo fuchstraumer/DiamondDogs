@@ -22,12 +22,16 @@ OceanSurfaceVaryings OceanSurfaceVS(uint vertexId : SV_VertexID, uint instanceId
 
     // on an edge that borders the coarser next ring, snap onto that ring's vertices: the triangles there collapse,
     // and the two rings share every edge vertex
+    bool onOuterEdge = false;
+
     if (Grid.OuterResolution < Grid.Resolution)
     {
         const uint ratio = Grid.Resolution / Grid.OuterResolution;
         const int r = int(Grid.Ring);
         const bool onOuterX = (tile.x == r && vertex.x == Grid.Resolution) || (tile.x == -r && vertex.x == 0u);
         const bool onOuterZ = (tile.y == r && vertex.y == Grid.Resolution) || (tile.y == -r && vertex.y == 0u);
+        onOuterEdge = onOuterX || onOuterZ;
+
         if (onOuterX)
         {
             vertex.y = (vertex.y / ratio) * ratio;
@@ -43,8 +47,10 @@ OceanSurfaceVaryings OceanSurfaceVS(uint vertexId : SV_VertexID, uint instanceId
     const float2 surfaceXZ = Grid.Origin + (float2(tile) + float2(vertex) / float(Grid.Resolution)) * Grid.Size;
     const float distance = length(surfaceXZ - View.CameraPositionTime.xz);
     // waves shorter than two quads would alias into the vertex positions, so each cascade is read at the mip whose
-    // texels are as wide as this ring's quads
-    const float quadSize = Grid.Size / float(Grid.Resolution);
+    // texels are as wide as this ring's quads. a shared edge vertex reads the coarser ring's mip, as that ring does:
+    // with two different mips the rings displaced it differently, and the seam cracked open
+    const uint lodResolution = onOuterEdge ? Grid.OuterResolution : Grid.Resolution;
+    const float quadSize = Grid.Size / float(lodResolution);
 
     float3 displacement = float3(0.0f);
     [unroll]

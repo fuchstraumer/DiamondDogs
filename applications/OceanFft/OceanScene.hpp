@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -46,6 +47,11 @@ struct OceanSceneSettings
     uint32_t GridResolution{ 384u };
     uint32_t GridRings{ 12u };
     uint32_t GridMinResolution{ 6u };
+    /** @brief The highest MSAA sample count: 1, 2, 4 or 8. The scene uses the highest count up to this one that the color
+     *  and depth attachments both support. 1 turns MSAA off */
+    uint32_t MaxMsaaSamples{ 8u };
+    /** @brief The anisotropic filtering of the surface sampler: 1, 2, 4, 8 or 16. 1 turns it off. The device limit caps it */
+    float MaxAnisotropy{ 16.0f };
     std::optional<ArcballCamera::State> InitialCamera;
     /** @brief Captures go here, from the schedule and from capture commands */
     std::filesystem::path CaptureDirectory{ "captures" };
@@ -55,6 +61,12 @@ struct OceanSceneSettings
     /** @brief Commands from a script or stdin, run between frames. May be null */
     SceneCommands* Commands{ nullptr };
 };
+
+/** @brief Returns the quads per edge of one ring. Each ring halves the one inside it, down to min_resolution */
+[[nodiscard]] uint32_t GridRingResolution(uint32_t grid_resolution, uint32_t min_resolution, uint32_t ring) noexcept;
+/** @brief True when every ring's resolution is a power of two times the resolution of the ring outside it, so the rings
+ *  stitch without cracks. grid_resolution must also be at least min_resolution */
+[[nodiscard]] bool GridStitches(uint32_t grid_resolution, uint32_t rings, uint32_t min_resolution) noexcept;
 
 /** A square of ocean over a flat seabed, with an orbit camera (left drag rotates, right or middle drag pans, the
  *  wheel zooms) and an ImGui panel for the spectrum and the cascades. Compute runs on the graphics queue each frame:
@@ -98,6 +110,13 @@ private:
     void collectGpuTimings();
     /** @brief Runs the sea state pipe into spectrum and seaReadout */
     void applySeaState();
+    /** @brief Runs the sea state pipe and marks the spectrum for the next update. The panel and the commands both call it */
+    void seaStateEdited();
+    void setSeaStatePreset(std::string_view _name);
+    void setSeaStateField(std::string_view _name, float _value);
+    void setCascade(uint32_t _cascade, bool _enabled);
+    /** @brief Prints the camera, the time, the sea state and the enabled cascades, for the print command */
+    void printState() const;
     void writeViewParameters();
     /** @brief Binds program and draws instance_count tiles of one ring (see OceanGridParameters in OceanRenderCommon.slang) */
     void recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgram& program, const std::array<float, 2>& origin, float tile_size,
@@ -119,6 +138,8 @@ private:
     // the scene renders at msaaSamples into msaaColorImage and depthImage, and resolves into the swapchain image
     GraphicsResource msaaColorImage;
     VkSampleCountFlagBits msaaSamples{ VK_SAMPLE_COUNT_1_BIT };
+    // the anisotropy the surface sampler uses, 1 when filtering is off
+    float anisotropy{ 1.0f };
     std::vector<GraphicsResource> viewBuffers;
     std::vector<void*> viewBufferPointers;
 
@@ -127,7 +148,7 @@ private:
     ocean::SeaState seaState{};
     ocean::SeaStateReadout seaReadout{};
     ocean::SpectrumParameters spectrum{};
-    std::array<bool, ocean::k_CascadeCount> cascadeEnabled{ true, true, true, true };
+    std::array<bool, ocean::k_CascadeCount> cascadeEnabled{ true, true, true, true, true };
     float choppiness{ 1.0f };
     float timeScale{ 1.0f };
     float simulationTime{ 0.0f };

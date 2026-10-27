@@ -1,4 +1,6 @@
 #include "SceneCommands.hpp"
+#include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
@@ -13,6 +15,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include "OceanSimulation.hpp"
 
 namespace
 {
@@ -34,10 +37,33 @@ namespace
         { "time", { SceneCommand::Kind::Time, 1u, 1u, false } },
         { "dt", { SceneCommand::Kind::TimeStep, 1u, 1u, false } },
         { "pause", { SceneCommand::Kind::Pause, 0u, 0u, true } },
+        { "preset", { SceneCommand::Kind::Preset, 0u, 0u, false } },
+        { "sea", { SceneCommand::Kind::Sea, 0u, 0u, false } },
+        { "cascade", { SceneCommand::Kind::Cascade, 0u, 0u, false } },
         { "capture", { SceneCommand::Kind::Capture, 0u, 0u, true } },
         { "wait", { SceneCommand::Kind::Wait, 1u, 1u, false } },
         { "print", { SceneCommand::Kind::Print, 0u, 0u, false } },
         { "quit", { SceneCommand::Kind::Quit, 0u, 0u, false } },
+    };
+
+    const std::array<SeaStateField, 16> k_SeaStateFields
+    {
+        SeaStateField{ "WindForce", &ocean::SeaState::WindForce },
+        SeaStateField{ "Openness", &ocean::SeaState::Openness },
+        SeaStateField{ "WindDirection", &ocean::SeaState::WindDirection },
+        SeaStateField{ "Spread", &ocean::SeaState::Spread },
+        SeaStateField{ "Regularity", &ocean::SeaState::Regularity },
+        SeaStateField{ "RippleDetail", &ocean::SeaState::RippleDetail },
+        SeaStateField{ "Depth", &ocean::SeaState::Depth },
+        SeaStateField{ "SwellHeight", &ocean::SeaState::SwellHeight },
+        SeaStateField{ "SwellPeriod", &ocean::SeaState::SwellPeriod },
+        SeaStateField{ "SwellDirection", &ocean::SeaState::SwellDirection },
+        SeaStateField{ "SwellOrder", &ocean::SeaState::SwellOrder },
+        SeaStateField{ "HeightScale", &ocean::SeaState::HeightScale },
+        SeaStateField{ "WhitecapThreshold", &ocean::SeaState::WhitecapThreshold },
+        SeaStateField{ "FoamAmount", &ocean::SeaState::FoamAmount },
+        SeaStateField{ "FoamSpread", &ocean::SeaState::FoamSpread },
+        SeaStateField{ "FoamContrast", &ocean::SeaState::FoamContrast },
     };
 
     std::vector<std::string_view> SplitWords(std::string_view line)
@@ -68,6 +94,12 @@ namespace
 
         return words;
     }
+
+    bool EqualsIgnoreCase(std::string_view left, std::string_view right);
+    bool ParseFloat(std::string_view word, float& value);
+    std::expected<SceneCommand, std::string> ParsePreset(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSea(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseCascade(const std::vector<std::string_view>& words);
 }
 
 std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view line)
@@ -90,6 +122,21 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
     }
 
     const CommandShape& shape = found->second;
+    if (shape.Kind == Kind::Preset)
+    {
+        return ParsePreset(words);
+    }
+
+    if (shape.Kind == Kind::Sea)
+    {
+        return ParseSea(words);
+    }
+
+    if (shape.Kind == Kind::Cascade)
+    {
+        return ParseCascade(words);
+    }
+
     SceneCommand command{};
     command.Type = shape.Kind;
     if (shape.TakesText)
@@ -134,6 +181,32 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
     }
 
     return command;
+}
+
+const SeaStateField* FindSeaStateField(std::string_view name)
+{
+    const auto found = std::ranges::find_if(k_SeaStateFields, [name](const SeaStateField& field)
+    {
+        return EqualsIgnoreCase(field.Name, name);
+    });
+
+    return found != k_SeaStateFields.end() ? &*found : nullptr;
+}
+
+const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name)
+{
+    const std::array<ocean::SeaStatePreset, 6>& presets = ocean::SeaStatePresets();
+    const auto found = std::ranges::find_if(presets, [name](const ocean::SeaStatePreset& preset)
+    {
+        return EqualsIgnoreCase(preset.Name, name);
+    });
+
+    return found != presets.end() ? &*found : nullptr;
+}
+
+const std::array<SeaStateField, 16>& SeaStateFields() noexcept
+{
+    return k_SeaStateFields;
 }
 
 std::expected<void, std::string> SceneCommands::LoadScript(const std::filesystem::path& path)
@@ -240,4 +313,112 @@ bool SceneCommands::Busy() const
     drainIncoming();
 
     return waitFrames > 0u || !lines.empty();
+}
+
+namespace
+{
+    bool EqualsIgnoreCase(std::string_view left, std::string_view right)
+    {
+        return std::ranges::equal(left, right, [](char a, char b)
+        {
+            return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+        });
+    }
+
+    bool ParseFloat(std::string_view word, float& value)
+    {
+        const std::from_chars_result result = std::from_chars(word.data(), word.data() + word.size(), value);
+        return result.ec == std::errc{} && result.ptr == word.data() + word.size();
+    }
+
+    std::expected<SceneCommand, std::string> ParsePreset(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u)
+        {
+            return std::unexpected(std::string{ "preset takes a name" });
+        }
+
+        // a preset name can have spaces ("Long swell"), so the words after the command are joined back together
+        std::string name;
+        for (size_t i = 1; i < words.size(); ++i)
+        {
+            if (i > 1u)
+            {
+                name += ' ';
+            }
+
+            name += words[i];
+        }
+
+        if (FindSeaStatePreset(name) == nullptr)
+        {
+            return std::unexpected(std::string{ "preset: unknown preset '" } + name + "'");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Preset;
+        command.Text = std::move(name);
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSea(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "sea takes a field name and a value" });
+        }
+
+        const SeaStateField* field = FindSeaStateField(words[1]);
+        if (field == nullptr)
+        {
+            return std::unexpected(std::string{ "sea: unknown field '" } + std::string{ words[1] } + "'");
+        }
+
+        float value = 0.0f;
+        if (!ParseFloat(words[2], value))
+        {
+            return std::unexpected(std::string{ "sea: '" } + std::string{ words[2] } + "' is not a number");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Sea;
+        command.Text = std::string{ field->Name };
+        command.Values[0] = value;
+        command.ValueCount = 1u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseCascade(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "cascade takes an index and on or off" });
+        }
+
+        const std::string_view indexWord = words[1];
+        int32_t index = -1;
+        const std::from_chars_result result = std::from_chars(indexWord.data(), indexWord.data() + indexWord.size(), index);
+        if (result.ec != std::errc{} || result.ptr != indexWord.data() + indexWord.size())
+        {
+            return std::unexpected(std::string{ "cascade: '" } + std::string{ indexWord } + "' is not a whole number");
+        }
+
+        if (index < 0 || index >= static_cast<int32_t>(ocean::k_CascadeCount))
+        {
+            return std::unexpected("cascade: index must be 0 to " + std::to_string(ocean::k_CascadeCount - 1u));
+        }
+
+        const std::string_view state = words[2];
+        if (state != "on" && state != "off")
+        {
+            return std::unexpected(std::string{ "cascade takes on or off" });
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Cascade;
+        command.Text = std::string{ state };
+        command.Values[0] = static_cast<float>(index);
+        command.ValueCount = 1u;
+        return command;
+    }
 }

@@ -1,6 +1,6 @@
 implementing OceanRender;
 
-public static const uint OCEAN_CASCADE_COUNT = 4u;
+public static const uint OCEAN_CASCADE_COUNT = 5u;
 
 // Per frame. std140: every member is a whole float4
 public struct OceanViewParameters
@@ -9,10 +9,11 @@ public struct OceanViewParameters
     public float4 ViewProjectionRows[4];
     // xyz: camera position in world space, w: simulation time in seconds
     public float4 CameraPositionTime;
-    // the patch size of each cascade in meters, as the simulation was created with
-    public float4 LengthScales;
+    // the patch size of each cascade in meters, as the simulation was created with. Each per-cascade array holds
+    // eight cascades in two float4s, read through the helpers below
+    public float4 LengthScales[2];
     // per-cascade weights on displacement and slopes: 1 is the simulation as computed, 0 turns a cascade off (A/B)
-    public float4 CascadeWeights;
+    public float4 CascadeWeights[2];
     // xyz: unit vector towards the sun, w: seabed depth in meters (positive down)
     public float4 SunDirectionSeabedDepth;
     // x: the cascade fade distance in patch lengths. Cascade c fades out between x * LengthScales[c] and twice that,
@@ -65,19 +66,29 @@ internal int2 RingTile(uint ring, uint instance)
     }
 }
 
+internal float ViewLengthScale(uint cascade)
+{
+    return View.LengthScales[cascade >> 2u][cascade & 3u];
+}
+
+internal float ViewCascadeWeight(uint cascade)
+{
+    return View.CascadeWeights[cascade >> 2u][cascade & 3u];
+}
+
 // A cascade's weight at a horizontal distance from the camera: the A/B weight, faded out once its waves are far
 // below a pixel
 internal float CascadeDistanceWeight(uint cascade, float distance)
 {
-    const float fadeStart = View.LodParameters.x * View.LengthScales[cascade];
-    return View.CascadeWeights[cascade] * (1.0f - smoothstep(fadeStart, 2.0f * fadeStart, distance));
+    const float fadeStart = View.LodParameters.x * ViewLengthScale(cascade);
+    return ViewCascadeWeight(cascade) * (1.0f - smoothstep(fadeStart, 2.0f * fadeStart, distance));
 }
 
 // The mip of cascade `cascade` whose texels are `spacing` meters wide: the level that holds no wave finer than a grid
 // with that spacing can carry
 internal float CascadeLod(uint cascade, float spacing)
 {
-    const float texelSize = View.LengthScales[cascade] / View.LodParameters.y;
+    const float texelSize = ViewLengthScale(cascade) / View.LodParameters.y;
     return max(0.0f, log2(spacing / texelSize));
 }
 
@@ -88,10 +99,10 @@ Texture2DArray<float4> Displacement;
 Texture2DArray<float4> Derivatives;
 // linear, repeat: each cascade tiles with its own patch size
 SamplerState OceanSampler;
-// written by OceanResolveCS: (mu, sum k^2) moments for whitecap coverage evaluation
+// written by OceanResolveCS: k_i^2 for whitecap coverage evaluation. The mean is in Displacement.w
 // [IFFT_SIZE, IFFT_SIZE, CASCADE_COUNT]
-[format("rg16f")]
-Texture2DArray<float2> Whitecaps;
+[format("r16f")]
+Texture2DArray<float> Whitecaps;
 
 internal float4 WorldToClip(float3 world_position)
 {
@@ -102,7 +113,7 @@ internal float4 WorldToClip(float3 world_position)
 
 internal float2 CascadeUv(float2 world_xz, uint cascade)
 {
-    return world_xz / View.LengthScales[cascade];
+    return world_xz / ViewLengthScale(cascade);
 }
 
 // Six vertices per quad, two triangles, no vertex or index buffer. Returns the quad corner in [0, 1]^2

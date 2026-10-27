@@ -34,18 +34,20 @@ float EvaluateWhitecapCoverage(float2 surface_xz, float distance)
     [unroll]
     for (int cascade = 0; cascade < OCEAN_CASCADE_COUNT; ++cascade)
     {
-        const float enabled = View.CascadeWeights[cascade];
+        const float enabled = ViewCascadeWeight(cascade);
         if (enabled > 0.0f)
         {
             const float3 uvw = float3(CascadeUv(surface_xz, cascade), float(cascade));
-            const float2 moments = Whitecaps.Sample(OceanSampler, uvw).xy;
-            muA += moments.x;
-            varA += max(0.0f, moments.y - moments.x * moments.x);
+            // k_i = J - 1 + 1/n, where J is Displacement.w
+            const float mu = Displacement.Sample(OceanSampler, uvw).w - 1.0f + 1.0f / float(OCEAN_CASCADE_COUNT);
+            const float secondMoment = Whitecaps.Sample(OceanSampler, uvw);
+            muA += mu;
+            varA += max(0.0f, secondMoment - mu * mu);
         }
         else
         {
             // if cascade disabled, add "rest state" value with no variance
-            muA += 0.25f;
+            muA += 1.0f / float(OCEAN_CASCADE_COUNT);
         }
     }
 
@@ -98,7 +100,7 @@ internal SurfaceSample SampleSurface(float2 surface_xz)
 
             // Jacobian in displacement.w: calm water is 1.0, crest compression is < 1.0, folding occurs below ~0.3.
             // Only highlight breaking crests where surface is folded AND height is positive.
-            // Cascade 0 (swell) is a long roller that rarely whitecaps on its own; cascades 1-3 provide steep chop.
+            // Cascade 0 (swell) is a long roller that rarely whitecaps on its own; cascades 1-4 provide steep chop.
             const float whitecapThreshold = cascade == 0 ? 0.20f : 0.50f;
             const float fold = max(0.0f, whitecapThreshold - displacement.w);
             const float crest = saturate(displacement.y * 1.5f + 0.1f);

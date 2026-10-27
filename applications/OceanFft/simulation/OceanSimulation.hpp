@@ -27,6 +27,8 @@ namespace rhi
 // Once:      SpectrumInitCS -> SpectrumConjugateCS                  (h0(k), conj(h0(-k)), wave data)
 // Per frame: OceanTickCS -> IFFT rows -> IFFT columns -> OceanResolveCS (Displacement and Derivatives textures)
 //            -> the mip chain of each texture (pyramid::MipGenerator, modules/GpuPyramid)
+// Fused:     OceanTickRowsCS (the tick and the IFFT rows) -> OceanColumnsResolveCS (the IFFT columns and the resolve)
+//            -> the mips. Same results, bit for bit, with less global memory traffic (FusedKernels, on by default)
 namespace ocean
 {
     /** @brief SpectrumParameters in OceanFftCommon.slang, std140. Create() checks it against the manifest. */
@@ -56,31 +58,36 @@ namespace ocean
         float SwellFadeLength{ 1.0f };           // m: a swell has no short waves
     };
 
-    /** @brief CascadeParameters in OceanFftCommon.slang, std140 */
+    /** @brief CascadeParameters in OceanFftCommon.slang, std140. Each per-cascade array is float4[2] in the shader, so
+     *  it holds eight cascades: cascade c is element c, and the elements past k_CascadeCount stay 0 */
     struct CascadeParameters
     {
-        std::array<float, 4> LengthScales{};
-        std::array<float, 4> CutoffsHigh{};
-        std::array<float, 4> CutoffsLow{};
+        std::array<float, 8> LengthScales{};
+        std::array<float, 8> CutoffsHigh{};
+        std::array<float, 8> CutoffsLow{};
         std::array<uint32_t, 2> Dimensions{};
         std::array<float, 2> Pad0{};
     };
-    static_assert(sizeof(CascadeParameters) == 64u);
+    static_assert(sizeof(CascadeParameters) == 112u);
     static_assert(sizeof(SpectrumParameters) == 72u);
 
-    constexpr uint32_t k_CascadeCount = 4u;
+    constexpr uint32_t k_CascadeCount = 5u;
+    static_assert(k_CascadeCount <= 8u);
 
     struct OceanSimulationSettings
     {
-        /** @brief One of the IFFT_SIZE axis values: 128, 256, 512, 1024 */
-        uint32_t Size{ 1024u };
+        /** @brief One of the IFFT_SIZE axis values: 128, 256, 512 */
+        uint32_t Size{ 512u };
         /** @brief 0 selects the variant without wave ops. Otherwise the IFFT_WAVE_SIZE of the wave-op variant, and
          *  the subgroup size the IFFT shaders are created with (full subgroups required). See PickWaveSize. */
         uint32_t WaveSize{ 0u };
         /** @brief The patch size of each cascade, in meters, largest first */
-        std::array<float, k_CascadeCount> LengthScales{ 1024.0f, 192.0f, 32.0f, 6.0f };
+        std::array<float, k_CascadeCount> LengthScales{ 1024.0f, 238.0f, 55.4f, 12.9f, 3.0f };
         SpectrumParameters Spectrum{};
         float Choppiness{ 1.0f };
+        /** @brief true records the two fused kernels (tick + IFFT rows, IFFT columns + resolve) instead of the tick, the
+         *  two IFFT passes and the resolve. Both paths give the same output. */
+        bool FusedKernels{ true };
     };
 
     /** @brief Returns the device's subgroup size when the wave-op variants can run with it (an IFFT_WAVE_SIZE axis
@@ -127,7 +134,8 @@ namespace ocean
         /** @brief Tick, both IFFT passes, the resolve, and the mip chains of the output textures. Records no barrier
          *  after the last mip: the reader of the textures adds its own (from k_TickStages and k_TickWriteAccess).
          *  Each pass gets a GPU timer scope in `timers`, the block of `command_buffer` (scope names: "Spectrum tick",
-         *  "IFFT", "Resolve", "Mips"). An inactive block, and every Release build, records no scopes */
+         *  "IFFT", "Resolve", "Mips"; the fused path has "Tick + IFFT rows", "IFFT columns + Resolve", "Mips"). An
+         *  inactive block, and every Release build, records no scopes */
         void RecordTick(rhi::CommandBuffer& command_buffer, rhi::GpuTimerBlock& timers, float time_seconds) const;
         /** @brief Only the two IFFT passes over IfftInput, in place. For tests */
         void RecordIfft(rhi::CommandBuffer& command_buffer) const;
@@ -136,6 +144,9 @@ namespace ocean
          *  submitted work still reads the uniform buffer */
         [[nodiscard]] bool SetSpectrum(const SpectrumParameters& spectrum);
         void SetChoppiness(float choppiness) noexcept;
+        /** @brief Selects the fused or the unfused path of RecordTick. The caller makes sure no recording of the other
+         *  path is still being built on another thread */
+        void SetFusedKernels(bool fused) noexcept;
 
         [[nodiscard]] const OceanSimulationSettings& Settings() const noexcept;
         [[nodiscard]] GraphicsResource GetBuffer(Buffer buffer) const noexcept;

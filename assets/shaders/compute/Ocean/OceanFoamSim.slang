@@ -23,7 +23,7 @@ void OceanFoamSimCS(uint3 dispatchThreadID : SV_DispatchThreadID,
     const float2 windDir = float2(cos(SpectrumParams.LocalWindDirection), sin(SpectrumParams.LocalWindDirection));
     // get advection offset in uv space
     const float2 worldDrift = windDir * (SpectrumParams.WindSpeed * Params.FoamWindPower) * Params.DeltaTime;
-    const float2 advectedUv = frac(uv - (worldDrift / CascadeParams.LengthScales[cascade]));
+    const float2 advectedUv = frac(uv - (worldDrift / CascadeLengthScale(cascade)));
     // read previous foam value
     const float prevFoam = 
 

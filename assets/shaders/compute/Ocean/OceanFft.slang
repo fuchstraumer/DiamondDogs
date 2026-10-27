@@ -7,5 +7,5 @@ __include IfftRadix4;
 __include IfftPermute;
 __include Spectra;
 __include InitSpectrum;
-__include OceanTick;
-__include OceanResolve;
+__include OceanFftStages;
+__include OceanFftEntryPoints;

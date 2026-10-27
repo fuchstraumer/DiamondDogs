@@ -86,7 +86,7 @@ namespace ocean
                                            std::string_view state_on, bool* value, const ImGuiFontSet& fonts,
                                            AccentTone accent_tone);
 
-    /** @brief Draws the 4-band horizontal cascade enable selector strip. */
+    /** @brief Draws the horizontal cascade enable selector strip, one band per cascade. */
     void DrawCascadeBandStrip(const ImGuiFontSet& fonts, const std::array<float, k_CascadeCount>& length_scales,
                               std::array<bool, k_CascadeCount>& cascade_enabled);
 

@@ -37,6 +37,7 @@
 #include "vulkan/vulkan_core.h"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -46,6 +47,7 @@
 #include <memory>
 #include <numbers>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -60,10 +62,6 @@ namespace
     constexpr std::string_view k_RenderModule{ "OceanRender" };
     constexpr std::array<std::string_view, 2> k_SurfaceEntryPoints{ "OceanSurfaceVS", "OceanSurfaceFS" };
     constexpr std::array<std::string_view, 2> k_SeabedEntryPoints{ "SeabedVS", "SeabedFS" };
-    // hardware MSAA for the ocean pass: lower when the device supports less (a render setting, eventually)
-    constexpr uint32_t k_MaxMsaaSamples = 8u;
-    // anisotropic filtering of the surface textures: lower when the device supports less
-    constexpr float k_MaxAnisotropy = 16.0f;
     // the estimate of GPU timer scopes per frame (the panel shows any that were dropped)
     constexpr uint32_t k_MaxGpuTimerScopes = 32u;
     // the weight of the newest frame in each scope's rolling average
@@ -74,14 +72,15 @@ namespace
     {
         std::array<std::array<float, 4>, 4> ViewProjectionRows{};
         std::array<float, 4> CameraPositionTime{};
-        std::array<float, 4> LengthScales{};
-        std::array<float, 4> CascadeWeights{};
+        // float4[2] in the shader, so eight cascades fit
+        std::array<float, 8> LengthScales{};
+        std::array<float, 8> CascadeWeights{};
         std::array<float, 4> SunDirectionSeabedDepth{};
         std::array<float, 4> LodParameters{};
         // x: WhitecapThreshold, y: FoamAmount, z: FoamSpread, w: FoamContrast
         std::array<float, 4> WhitecapParameters{ 0.5f, 1.0f, 1.0f, 1.0f };
     };
-    static_assert(sizeof(OceanViewParameters) == 160u);
+    static_assert(sizeof(OceanViewParameters) == 192u);
 
     // OceanGridParameters, the push constants of both vertex stages
     struct OceanGridParameters
@@ -196,12 +195,13 @@ void OceanScene::Initialize(void* user_data)
     VkPhysicalDeviceFeatures features{};
     vkGetPhysicalDeviceFeatures(vkPhysicalDevice, &features);
 
-    if (features.samplerAnisotropy == VK_TRUE)
+    if (features.samplerAnisotropy == VK_TRUE && settings.MaxAnisotropy > 1.0f)
     {
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(vkPhysicalDevice, &properties);
         samplerInfo.AnisotropyEnabled = true;
-        samplerInfo.MaxAnisotropy = std::min(k_MaxAnisotropy, properties.limits.maxSamplerAnisotropy);
+        samplerInfo.MaxAnisotropy = std::min(settings.MaxAnisotropy, properties.limits.maxSamplerAnisotropy);
+        anisotropy = samplerInfo.MaxAnisotropy;
     }
 
     sampler = WaitForResource(resources->CreateSampler(samplerInfo), "the ocean sampler");
@@ -228,6 +228,8 @@ void OceanScene::Initialize(void* user_data)
 
     createRenderTargets();
     createRenderPrograms();
+    std::cout << std::format("OceanFft: msaa {}x, anisotropy {}x, grid {}\n", static_cast<uint32_t>(msaaSamples), anisotropy, settings.GridResolution)
+        << std::flush;
 
     const ImGuiModuleCreateInfo imguiInfo
     {
@@ -326,7 +328,7 @@ void OceanScene::createRenderTargets()
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(vkPhysicalDevice, &properties);
         const VkSampleCountFlags supported = properties.limits.framebufferColorSampleCounts & properties.limits.framebufferDepthSampleCounts;
-        for (uint32_t samples = k_MaxMsaaSamples; samples > 1u; samples >>= 1u)
+        for (uint32_t samples = settings.MaxMsaaSamples; samples > 1u; samples >>= 1u)
         {
             if ((supported & samples) != 0u)
             {
@@ -499,10 +501,17 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::Capture:
         captureRequest = command.Text.empty() ? std::format("capture_{:06}", frameNumber) : command.Text;
         break;
+    case SceneCommand::Kind::Preset:
+        setSeaStatePreset(command.Text);
+        break;
+    case SceneCommand::Kind::Sea:
+        setSeaStateField(command.Text, v[0]);
+        break;
+    case SceneCommand::Kind::Cascade:
+        setCascade(static_cast<uint32_t>(v[0]), command.Text == "on");
+        break;
     case SceneCommand::Kind::Print:
-        std::cout << std::format("frame {} time {:.4f} camera {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f}\n", frameNumber, simulationTime,
-            state.Yaw / k_DegreesToRadians, state.Pitch / k_DegreesToRadians, state.Distance, state.Target[0], state.Target[1], state.Target[2])
-            << std::flush;
+        printState();
         break;
     case SceneCommand::Kind::Quit:
         quitRequested = true;
@@ -517,6 +526,65 @@ void OceanScene::applySeaState()
     const ocean::SeaStateResult result = ocean::ApplySeaState(seaState, spectrum);
     spectrum = result.Spectrum;
     seaReadout = result.Readout;
+}
+
+void OceanScene::seaStateEdited()
+{
+    applySeaState();
+    spectrumChanged = true;
+}
+
+void OceanScene::setSeaStatePreset(std::string_view _name)
+{
+    const ocean::SeaStatePreset* preset = FindSeaStatePreset(_name);
+    if (preset == nullptr)
+    {
+        return;
+    }
+
+    seaState = preset->State;
+    seaStateEdited();
+}
+
+void OceanScene::setSeaStateField(std::string_view _name, float _value)
+{
+    const SeaStateField* field = FindSeaStateField(_name);
+    if (field == nullptr)
+    {
+        return;
+    }
+
+    seaState.*(field->Member) = _value;
+    seaStateEdited();
+}
+
+void OceanScene::setCascade(uint32_t _cascade, bool _enabled)
+{
+    cascadeEnabled[_cascade] = _enabled;
+}
+
+void OceanScene::printState() const
+{
+    const ArcballCamera::State& state = camera.Current;
+    std::cout << std::format("frame {} time {:.4f} camera {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f}\n", frameNumber, simulationTime,
+        state.Yaw / k_DegreesToRadians, state.Pitch / k_DegreesToRadians, state.Distance, state.Target[0], state.Target[1], state.Target[2]);
+
+    std::cout << "sea";
+    for (const SeaStateField& field : SeaStateFields())
+    {
+        std::cout << std::format(" {}={}", field.Name, seaState.*field.Member);
+    }
+
+    std::cout << "\ncascades enabled";
+    for (uint32_t cascade = 0u; cascade < ocean::k_CascadeCount; ++cascade)
+    {
+        if (cascadeEnabled[cascade])
+        {
+            std::cout << ' ' << cascade;
+        }
+    }
+
+    std::cout << '\n' << std::flush;
 }
 
 void OceanScene::drawPanel()
@@ -698,8 +766,7 @@ void OceanScene::drawPanel()
 
         if (seaStateChanged)
         {
-            applySeaState();
-            spectrumChanged = true;
+            seaStateEdited();
         }
 
         if (ocean::DrawSectionHeader("SURFACE  //  CASCADES & TIME", fonts, headerFontMode, ocean::AccentTone::Cyan, true))
@@ -979,11 +1046,29 @@ void OceanScene::writeViewParameters()
     std::memcpy(viewBufferPointers[currentFrame], &view, sizeof(view));
 }
 
-uint32_t OceanScene::ringResolution(uint32_t ring) const noexcept
+uint32_t GridRingResolution(uint32_t grid_resolution, uint32_t min_resolution, uint32_t ring) noexcept
 {
     // halved per ring, so neighbouring rings are a power of two apart and their edges stitch exactly
-    const uint32_t shifted = ring < 31u ? (settings.GridResolution >> ring) : 0u;
-    return std::max(shifted, settings.GridMinResolution);
+    const uint32_t shifted = ring < 31u ? (grid_resolution >> ring) : 0u;
+    return std::max(shifted, min_resolution);
+}
+
+bool GridStitches(uint32_t grid_resolution, uint32_t rings, uint32_t min_resolution) noexcept
+{
+    // draws ring r with the resolution of ring r + 1 as its outer edge, so the pair from 0 to rings + 1 must divide evenly
+    const auto stitches = [grid_resolution, min_resolution](uint32_t ring)
+    {
+        const uint32_t inner = GridRingResolution(grid_resolution, min_resolution, ring);
+        const uint32_t outer = GridRingResolution(grid_resolution, min_resolution, ring + 1u);
+        return outer > 0u && inner % outer == 0u && std::has_single_bit(inner / outer);
+    };
+
+    return grid_resolution >= min_resolution && std::ranges::all_of(std::views::iota(0u, rings + 1u), stitches);
+}
+
+uint32_t OceanScene::ringResolution(uint32_t ring) const noexcept
+{
+    return GridRingResolution(settings.GridResolution, settings.GridMinResolution, ring);
 }
 
 void OceanScene::recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgram& program, const std::array<float, 2>& origin, float tile_size,

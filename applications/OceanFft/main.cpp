@@ -28,9 +28,15 @@
 
 // The OceanFft demo: a square of FFT ocean over a seabed, with an orbit camera and an ImGui panel.
 //   --frames=N      render N frames and exit (for unattended runs)
-//   --size=N        IFFT size: 128, 256, 512 (default) or 1024
+//   --size=N        IFFT size: 128, 256 or 512 (default)
 //   --no-wave-ops   use the variant without subgroup operations, even when the device supports them
+//   --unfused       run the separate tick, IFFT and resolve passes instead of the two fused kernels
 //   --validation=off  run without the validation layer even when it is installed, for the GPU timings panel
+//   --msaa=N         highest MSAA sample count: 1, 2, 4 or 8 (default 8). The scene uses the highest count up to N that
+//                    the device supports. 1 turns MSAA off
+//   --aniso=N        anisotropic filtering of the surface: 1, 2, 4, 8 or 16 (default 16). 1 turns it off
+//   --grid-resolution=N   quads per edge of the center tile (default 384). Each ring halves the one inside it, down to 6,
+//                    so N must be 6 times a power of two (192, 384, ...)
 // Capture and scripted control (see SceneCommands.hpp for the command language):
 //   --capture=DIR        write captures to DIR (default "captures")
 //   --capture-count=K    capture K frames, the first at --capture-first=F (default 0), one every --capture-every=N
@@ -41,9 +47,13 @@
 //   --stdin              also read commands from standard input
 namespace
 {
+    constexpr std::array<uint32_t, 4> k_MsaaChoices{ 1u, 2u, 4u, 8u };
+    constexpr std::array<uint32_t, 5> k_AnisotropyChoices{ 1u, 2u, 4u, 8u, 16u };
+
     struct CommandLine
     {
         bool NoWaveOps{ false };
+        bool Unfused{ false };
         bool Stdin{ false };
         std::optional<std::string> Script;
     };
@@ -115,6 +125,25 @@ namespace
         return result.ec == std::errc{} && result.ptr == text.data() + text.size();
     }
 
+    // true when the text is a number from choices, which is what each flag takes
+    template<size_t N>
+    bool ParseChoice(std::string_view text, const std::array<uint32_t, N>& choices, uint32_t& value)
+    {
+        uint32_t parsed = 0u;
+        if (!ParseNumber(text, parsed))
+        {
+            return false;
+        }
+
+        if (!std::ranges::contains(choices, parsed))
+        {
+            return false;
+        }
+
+        value = parsed;
+        return true;
+    }
+
     void ParseArguments(int argc, char* argv[], OceanSceneSettings& settings, CommandLine& command_line)
     {
         constexpr float k_DegreesToRadians = std::numbers::pi_v<float> / 180.0f;
@@ -124,6 +153,10 @@ namespace
             if (argument == "--no-wave-ops")
             {
                 command_line.NoWaveOps = true;
+            }
+            else if (argument == "--unfused")
+            {
+                command_line.Unfused = true;
             }
             else if (argument == "--stdin")
             {
@@ -176,13 +209,49 @@ namespace
                 const std::string_view value = argument.substr(7);
                 uint32_t size = 0u;
                 if (std::from_chars(value.data(), value.data() + value.size(), size).ec == std::errc{} &&
-                    (size == 128u || size == 256u || size == 512u || size == 1024u))
+                    (size == 128u || size == 256u || size == 512u))
                 {
                     settings.Simulation.Size = size;
                 }
                 else
                 {
-                    std::cerr << "--size must be 128, 256, 512 or 1024\n";
+                    std::cerr << "--size must be 128, 256 or 512\n";
+                }
+            }
+            else if (argument.starts_with("--msaa="))
+            {
+                uint32_t samples = 0u;
+                if (ParseChoice(argument.substr(7), k_MsaaChoices, samples))
+                {
+                    settings.MaxMsaaSamples = samples;
+                }
+                else
+                {
+                    std::cerr << "--msaa must be 1, 2, 4 or 8\n";
+                }
+            }
+            else if (argument.starts_with("--aniso="))
+            {
+                uint32_t anisotropy = 0u;
+                if (ParseChoice(argument.substr(8), k_AnisotropyChoices, anisotropy))
+                {
+                    settings.MaxAnisotropy = static_cast<float>(anisotropy);
+                }
+                else
+                {
+                    std::cerr << "--aniso must be 1, 2, 4, 8 or 16\n";
+                }
+            }
+            else if (argument.starts_with("--grid-resolution="))
+            {
+                uint32_t resolution = 0u;
+                if (ParseNumber(argument.substr(18), resolution) && GridStitches(resolution, settings.GridRings, settings.GridMinResolution))
+                {
+                    settings.GridResolution = resolution;
+                }
+                else
+                {
+                    std::cerr << "--grid-resolution must be 6 times a power of two (for example 192 or 384), so the rings stitch\n";
                 }
             }
         }
@@ -235,6 +304,7 @@ int main(int argc, char* argv[])
     CommandLine commandLine{};
     ParseArguments(argc, argv, settings, commandLine);
     settings.Simulation.WaveSize = commandLine.NoWaveOps ? 0u : ocean::PickWaveSize(*rhiSystem->GetDevice());
+    settings.Simulation.FusedKernels = !commandLine.Unfused;
 
     SceneCommands commands;
     if (commandLine.Script.has_value())

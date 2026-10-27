@@ -47,7 +47,7 @@ namespace ocean
         constexpr std::string_view k_ModuleName{ "OceanFft" };
         constexpr uint64_t k_TimeoutNs = 10'000'000'000ull;
 
-        // the push constant blocks of OceanFftCommon.slang, OceanTick.slang and OceanResolve.slang
+        // the push constant blocks of OceanFftCommon.slang and OceanFftEntryPoints.slang
         struct IfftPushConstants
         {
             uint32_t Transpose{ 0u };
@@ -75,11 +75,14 @@ namespace ocean
             Tick,
             IfftRadix4,
             Resolve,
+            TickRows,
+            ColumnsResolve,
             Count
         };
         constexpr std::array<std::string_view, static_cast<size_t>(Pass::Count)> k_EntryPoints
         {
-            "SpectrumInitCS", "SpectrumConjugateCS", "OceanTickCS", "IfftRadix4CS", "OceanResolveCS"
+            "SpectrumInitCS", "SpectrumConjugateCS", "OceanTickCS", "IfftRadix4CS", "OceanResolveCS",
+            "OceanTickRowsCS", "OceanColumnsResolveCS"
         };
 
         struct PassProgram
@@ -126,7 +129,7 @@ namespace ocean
         std::array<PassProgram, static_cast<size_t>(Pass::Count)> Programs;
         VkDescriptorPool DescriptorPool{ VK_NULL_HANDLE };
 
-        std::array<GraphicsResource, k_CascadeCount> Buffers{};
+        std::array<GraphicsResource, 4u> Buffers{};
         std::array<uint64_t, 4> BufferBytes{};
         GraphicsResource CascadeParamsBuffer;
         GraphicsResource SpectrumParamsBuffer;
@@ -256,7 +259,7 @@ namespace ocean
         // excludes k = 0 (the mean height), and the last cascade has no upper bound
         constexpr float k_SamplesPerWavelength = 6.0f;
         CascadeParameters parameters{};
-        parameters.LengthScales = length_scales;
+        std::ranges::copy(length_scales, parameters.LengthScales.begin());
         parameters.Dimensions = { size, size };
         float lowerBound = 0.0001f;
 
@@ -413,7 +416,7 @@ namespace ocean
 
         // buffers: every spectrum buffer has one element per (x, y, cascade). IfftInput has two slices of that
         const uint64_t elementCount = uint64_t{ size } * size * k_CascadeCount;
-        const std::array<uint64_t, 4> bufferBytes{ elementCount * 4u, elementCount * 4u, elementCount * 8u, elementCount * 8u * 2u };
+        const std::array<uint64_t, 4> bufferBytes{ elementCount * 4u, elementCount * 4u, elementCount * 2u, elementCount * 8u * 2u };
         static std::array<std::string_view, 4> k_BufferNames
         {
             "Ocean_h0K",
@@ -445,8 +448,9 @@ namespace ocean
             info.Usage = ImageUsageBits::UavComputeShader |
                          ImageUsageBits::SampledImage |
                          ImageUsageBits::SrvFragmentShader |
-                         ImageUsageBits::SrvComputeShader;
-            info.Format = CommonFormats::RG16_Float; // two-element half image
+                         ImageUsageBits::SrvComputeShader |
+                         ImageUsageBits::TransferSource; // copies out are for tests
+            info.Format = CommonFormats::R16_Float; // one-element half image: k_i^2
             info.Width = size;
             info.Height = size;
             info.ArrayLayers = k_CascadeCount;
@@ -577,7 +581,7 @@ namespace ocean
         pyramid::MipTargetCreateInfo whitecapInfo
         {
             .Image=reinterpret_cast<VkImage>(impl->WhitecapsImage.VkHandle),
-            .Format=VK_FORMAT_R16G16_SFLOAT,
+            .Format=VK_FORMAT_R16_SFLOAT,
             .Width=size,
             .Height=size,
             .MipLevels=impl->MipLevels,
@@ -627,7 +631,9 @@ namespace ocean
         for (size_t passIndex = 0; passIndex < impl->Programs.size(); ++passIndex)
         {
             const std::string_view entryPoint = k_EntryPoints[passIndex];
-            const bool isIfft = passIndex == static_cast<size_t>(Pass::IfftRadix4);
+            const bool isIfft = passIndex == static_cast<size_t>(Pass::IfftRadix4) ||
+                                passIndex == static_cast<size_t>(Pass::TickRows) ||
+                                passIndex == static_cast<size_t>(Pass::ColumnsResolve);
             rhi::ManifestProgramOptions options{};
 
             if (isIfft && settings.WaveSize != 0u)
@@ -736,24 +742,47 @@ namespace ocean
         const uint32_t groups = impl->SpectrumGroups();
 
         // a scope's timestamps are written when all earlier work is done, so each pass's time is its own
+        if (impl->Settings.FusedKernels)
         {
-            const rhi::ScopedGpuTimer timer(timers, "Spectrum tick");
-            impl->Bind(command_buffer, Pass::Tick);
-            PushConstants(command_buffer, *impl->Program(Pass::Tick).Program, TickPushConstants{ time_seconds });
-            command_buffer.Dispatch(groups, groups, 1);
-            ComputeBarrier(command_buffer);
-        }
+            // one workgroup per 4 rows (or columns) of one cascade, with both slices inside
+            const uint32_t yGroups = impl->Settings.Size / 4u;
 
-        {
-            const rhi::ScopedGpuTimer timer(timers, "IFFT");
-            RecordIfft(command_buffer);
-        }
+            {
+                const rhi::ScopedGpuTimer timer(timers, "Tick + IFFT rows");
+                impl->Bind(command_buffer, Pass::TickRows);
+                PushConstants(command_buffer, *impl->Program(Pass::TickRows).Program, TickPushConstants{ time_seconds });
+                command_buffer.Dispatch(1, yGroups, k_CascadeCount);
+                ComputeBarrier(command_buffer);
+            }
 
+            {
+                const rhi::ScopedGpuTimer timer(timers, "IFFT columns + Resolve");
+                impl->Bind(command_buffer, Pass::ColumnsResolve);
+                PushConstants(command_buffer, *impl->Program(Pass::ColumnsResolve).Program, ResolvePushConstants{ impl->Settings.Choppiness });
+                command_buffer.Dispatch(1, yGroups, k_CascadeCount);
+            }
+        }
+        else
         {
-            const rhi::ScopedGpuTimer timer(timers, "Resolve");
-            impl->Bind(command_buffer, Pass::Resolve);
-            PushConstants(command_buffer, *impl->Program(Pass::Resolve).Program, ResolvePushConstants{ impl->Settings.Choppiness });
-            command_buffer.Dispatch(groups, groups, k_CascadeCount);
+            {
+                const rhi::ScopedGpuTimer timer(timers, "Spectrum tick");
+                impl->Bind(command_buffer, Pass::Tick);
+                PushConstants(command_buffer, *impl->Program(Pass::Tick).Program, TickPushConstants{ time_seconds });
+                command_buffer.Dispatch(groups, groups, 1);
+                ComputeBarrier(command_buffer);
+            }
+
+            {
+                const rhi::ScopedGpuTimer timer(timers, "IFFT");
+                RecordIfft(command_buffer);
+            }
+
+            {
+                const rhi::ScopedGpuTimer timer(timers, "Resolve");
+                impl->Bind(command_buffer, Pass::Resolve);
+                PushConstants(command_buffer, *impl->Program(Pass::Resolve).Program, ResolvePushConstants{ impl->Settings.Choppiness });
+                command_buffer.Dispatch(groups, groups, k_CascadeCount);
+            }
         }
 
         {
@@ -773,6 +802,11 @@ namespace ocean
     void OceanSimulation::SetChoppiness(float choppiness) noexcept
     {
         impl->Settings.Choppiness = choppiness;
+    }
+
+    void OceanSimulation::SetFusedKernels(bool fused) noexcept
+    {
+        impl->Settings.FusedKernels = fused;
     }
 
     const OceanSimulationSettings& OceanSimulation::Settings() const noexcept

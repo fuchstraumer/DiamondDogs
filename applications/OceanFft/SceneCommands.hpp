@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "SeaState.hpp"
 
 /** One line of the demo's command language. Angles are degrees, lengths meters. One command per line, '#' starts a
  *  comment. The same commands come from --script=file and, with --stdin, from standard input between frames.
@@ -24,10 +25,15 @@
  *    time seconds                          set the simulation time
  *    dt seconds                            fixed simulation step per frame (0 goes back to real time)
  *    pause on|off
+ *    preset name                           apply a sea state preset by name (Glassy, Breezy, Fresh, Rough, Gale,
+ *                                          Long swell), as the preset buttons do
+ *    sea field value                       set one sea state field by its C++ name (WindForce, Openness, ...), as its
+ *                                          slider does. print writes the same names
+ *    cascade index on|off                  enable or disable one cascade, index 0 to 4
  *    capture [name]                        write this frame to <capture dir>/<name>.png. The commands after it
  *                                          run on the next frame, so the capture sees only the ones before it
  *    wait frames                           render this many frames before the next command
- *    print                                 print the camera and the time to stdout
+ *    print                                 print the camera, the time, the sea state and the enabled cascades to stdout
  *    quit
  */
 struct SceneCommand
@@ -42,6 +48,9 @@ struct SceneCommand
         Time,
         TimeStep,
         Pause,
+        Preset,
+        Sea,
+        Cascade,
         Capture,
         Wait,
         Print,
@@ -55,6 +64,20 @@ struct SceneCommand
 
     [[nodiscard]] static std::expected<SceneCommand, std::string> Parse(std::string_view line);
 };
+
+/** One float field of the sea state. Name is the C++ member name, which the sea command accepts in any case */
+struct SeaStateField
+{
+    std::string_view Name;
+    float ocean::SeaState::* Member;
+};
+
+/** @brief Returns the field whose name matches, ignoring case, or null when no field matches */
+[[nodiscard]] const SeaStateField* FindSeaStateField(std::string_view name);
+/** @brief Returns the preset whose name matches, ignoring case, or null when no preset matches */
+[[nodiscard]] const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name);
+/** @brief Returns every float field of the sea state, in declaration order */
+[[nodiscard]] const std::array<SeaStateField, 16>& SeaStateFields() noexcept;
 
 /** Holds the lines from the script and stdin, and hands out the commands for each frame. Push may be called from any
  *  thread. The stdin reader pushes through the queue. Every other method runs on the frame thread. */

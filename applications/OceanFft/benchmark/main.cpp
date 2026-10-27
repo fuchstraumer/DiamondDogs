@@ -26,8 +26,8 @@
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
-// OceanFftBenchmark: GPU time per compute pass of the ocean simulation, for every IFFT size, radix and wave-op
-// setting. Headless, with no validation layer, so nothing but the passes is measured. Needs GPU timers, so it only
+// OceanFftBenchmark: GPU time per compute pass of the ocean simulation, for every IFFT size, radix, wave-op setting
+// and path (fused or unfused kernels). Headless, with no validation layer, so nothing but the passes is measured. Needs GPU timers, so it only
 // measures in Debug and RelWithDebInfo; use RelWithDebInfo, on an otherwise idle GPU.
 namespace
 {
@@ -36,7 +36,12 @@ namespace
     constexpr uint32_t k_MeasuredBatches = 4u;
     constexpr uint32_t k_ScopesPerTick = 8u;
     constexpr float k_TickSeconds = 1.0f / 60.0f;
-    constexpr std::array<std::string_view, 5> k_Scopes{ "Tick", "Spectrum tick", "IFFT", "Resolve", "Mips" };
+    // the fused path records the two fused scopes, the unfused path the three separate ones. A scope that a path does
+    // not record prints a dash
+    constexpr std::array<std::string_view, 7> k_Scopes
+    {
+        "Tick", "Tick + IFFT rows", "IFFT columns + Resolve", "Spectrum tick", "IFFT", "Resolve", "Mips"
+    };
 
     struct Percentiles
     {
@@ -174,7 +179,7 @@ int main()
     std::cout << std::format("{}, timestamp period {} ns. {} ticks per configuration after {} warm-up ticks. Times in microseconds, median / p95\n",
         properties.deviceName, properties.limits.timestampPeriod, k_TicksPerBatch * k_MeasuredBatches, k_TicksPerBatch * k_WarmupBatches);
 
-    std::string header = std::format("{:>5} {:>7} {:>5}", "size", "radix", "wave");
+    std::string header = std::format("{:>5} {:>7} {:>5} {:>8}", "size", "radix", "wave", "path");
 
     for (const std::string_view scope : k_Scopes)
     {
@@ -195,27 +200,38 @@ int main()
             waveSizes.push_back(waveSize);
         }
 
-        for (const uint32_t size : { 128u, 256u, 512u, 1024u })
+        for (const uint32_t size : { 128u, 256u, 512u })
         {
             for (const uint32_t wave : waveSizes)
             {
-                ocean::OceanSimulationSettings settings{};
-                settings.Size = size;
-                settings.WaveSize = wave;
-                // the demo's default sea, swell included
-                settings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, settings.Spectrum).Spectrum;
-
-                const std::unordered_map<uint64_t, std::vector<double>> samples = RunConfiguration(device, resources, **library, pool, settings);
-                std::string line = std::format("{:>5} {:>7} {:>5}", size, "4", wave == 0u ? "off" : std::to_string(wave));
-
-                for (const std::string_view scope : k_Scopes)
+                for (const bool fused : { true, false })
                 {
-                    const auto found = samples.find(rhi::HashGpuTimerName(scope));
-                    const Percentiles measured = found != samples.end() ? Measure(found->second) : Percentiles{};
-                    line += std::format(" | {:>7.1f} {:>7.1f}", measured.Median * 1e-3, measured.P95 * 1e-3);
-                }
+                    ocean::OceanSimulationSettings settings{};
+                    settings.Size = size;
+                    settings.WaveSize = wave;
+                    settings.FusedKernels = fused;
+                    // the demo's default sea, swell included
+                    settings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, settings.Spectrum).Spectrum;
 
-                std::cout << line << std::endl;
+                    const std::unordered_map<uint64_t, std::vector<double>> samples = RunConfiguration(device, resources, **library, pool, settings);
+                    std::string line = std::format("{:>5} {:>7} {:>5} {:>8}", size, "4", wave == 0u ? "off" : std::to_string(wave), fused ? "fused" : "unfused");
+
+                    for (const std::string_view scope : k_Scopes)
+                    {
+                        const auto found = samples.find(rhi::HashGpuTimerName(scope));
+
+                        if (found == samples.end())
+                        {
+                            line += std::format(" | {:>15}", "-");
+                            continue;
+                        }
+
+                        const Percentiles measured = Measure(found->second);
+                        line += std::format(" | {:>7.1f} {:>7.1f}", measured.Median * 1e-3, measured.P95 * 1e-3);
+                    }
+
+                    std::cout << line << std::endl;
+                }
             }
         }
     }
