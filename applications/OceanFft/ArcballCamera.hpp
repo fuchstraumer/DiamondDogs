@@ -22,7 +22,9 @@ public:
 
     float FovY{ 0.9f };
     float NearPlane{ 0.25f };
-    float FarPlane{ 5000.0f };
+    // far enough for a camera at MaxDistance looking at the whole ring grid around it
+    float FarPlane{ 25000.0f };
+    static constexpr float MaxDistance{ 10000.0f };
     State Current;
 
     /** @brief Mouse deltas in pixels: rotate turns by the drag, pan moves the target along the view plane. */

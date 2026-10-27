@@ -60,7 +60,9 @@ OceanSurfaceVaryings OceanSurfaceVS(uint vertexId : SV_VertexID, uint instanceId
         if (weight > 0.0f)
         {
             const float3 uvw = float3(CascadeUv(surfaceXZ, cascade), float(cascade));
-            displacement += Displacement.SampleLevel(OceanSampler, uvw, CascadeLod(cascade, quadSize)).xyz * weight;
+            const float3 sampled = Displacement.SampleLevel(OceanSampler, uvw, CascadeLod(cascade, quadSize)).xyz;
+            const float2 horizontal = CascadeToWorld(sampled.xz, cascade);
+            displacement += float3(horizontal.x, sampled.y, horizontal.y) * weight;
         }
     }
 

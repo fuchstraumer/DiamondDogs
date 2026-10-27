@@ -1,0 +1,16 @@
+# Long swell from high altitude: the long, gentle undulation. Run with --capture=DIR.
+preset Long swell
+ui off
+dt 0.0166667
+time 30
+wait 30
+camera 0 15 1500
+wait 10
+capture swell_15deg_1500
+camera 0 8 800
+wait 10
+capture swell_8deg_800
+camera 45 30 2000
+wait 10
+capture swell_30deg_2000
+quit

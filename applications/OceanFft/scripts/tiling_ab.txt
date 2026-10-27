@@ -1,0 +1,78 @@
+# Tiling A/B on overdriven Gale: base (foam weights 1, rotate off), default foam weights, then rotate on.
+# Run with --capture=DIR. Each camera is captured three times in the same frozen sea.
+preset Gale
+sea HeightScale 1.6
+choppiness 1.5
+sea WhitecapThreshold 0.8
+sea FoamAmount 1.3
+sea FoamSpread 1.3
+ui off
+dt 0.0166667
+time 30
+pause on
+wait 30
+camera 30 35 250
+foamweight 0 1
+foamweight 1 1
+foamweight 2 1
+foamweight 3 1
+foamweight 4 1
+rotate off
+wait 5
+capture ab_1_base
+foamweight 3 0.7
+foamweight 4 0.35
+wait 5
+capture ab_1_foam
+rotate on
+wait 5
+capture ab_1_foam_rot
+camera 30 20 400
+foamweight 0 1
+foamweight 1 1
+foamweight 2 1
+foamweight 3 1
+foamweight 4 1
+rotate off
+wait 5
+capture ab_2_base
+foamweight 3 0.7
+foamweight 4 0.35
+wait 5
+capture ab_2_foam
+rotate on
+wait 5
+capture ab_2_foam_rot
+camera 0 89.4 1200
+foamweight 0 1
+foamweight 1 1
+foamweight 2 1
+foamweight 3 1
+foamweight 4 1
+rotate off
+wait 5
+capture ab_3_base
+foamweight 3 0.7
+foamweight 4 0.35
+wait 5
+capture ab_3_foam
+rotate on
+wait 5
+capture ab_3_foam_rot
+camera 30 25 4000
+foamweight 0 1
+foamweight 1 1
+foamweight 2 1
+foamweight 3 1
+foamweight 4 1
+rotate off
+wait 5
+capture ab_4_base
+foamweight 3 0.7
+foamweight 4 0.35
+wait 5
+capture ab_4_foam
+rotate on
+wait 5
+capture ab_4_foam_rot
+quit

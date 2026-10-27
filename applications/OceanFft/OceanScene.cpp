@@ -75,12 +75,14 @@ namespace
         // float4[2] in the shader, so eight cascades fit
         std::array<float, 8> LengthScales{};
         std::array<float, 8> CascadeWeights{};
+        std::array<float, 8> FoamWeights{};
         std::array<float, 4> SunDirectionSeabedDepth{};
+        // x: fade distance in patch lengths, y: mip 0 size in texels, z: 1 when cascades are rotated, w: unused
         std::array<float, 4> LodParameters{};
         // x: WhitecapThreshold, y: FoamAmount, z: FoamSpread, w: FoamContrast
         std::array<float, 4> WhitecapParameters{ 0.5f, 1.0f, 1.0f, 1.0f };
     };
-    static_assert(sizeof(OceanViewParameters) == 192u);
+    static_assert(sizeof(OceanViewParameters) == 224u);
 
     // OceanGridParameters, the push constants of both vertex stages
     struct OceanGridParameters
@@ -92,6 +94,10 @@ namespace
         uint32_t Ring{ 0u };
         uint32_t OuterResolution{ 1u };
     };
+
+    // the display scaling in OceanShading.slang: these must stay equal to k_PaperWhiteNits and k_ScRgbRefNits there
+    constexpr float k_ScRgbRefNits = 80.0f;
+    constexpr float k_PaperWhiteNits = 348.0f;
 
     constexpr float k_DegreesToRadians = std::numbers::pi_v<float> / 180.0f;
 
@@ -467,7 +473,7 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::Camera:
         state.Yaw = v[0] * k_DegreesToRadians;
         state.Pitch = std::clamp(v[1] * k_DegreesToRadians, -k_MaxPitch, k_MaxPitch);
-        state.Distance = std::clamp(v[2], 2.0f, 2000.0f);
+        state.Distance = std::clamp(v[2], 2.0f, ArcballCamera::MaxDistance);
         if (command.ValueCount == 6u)
         {
             state.Target = { v[3], v[4], v[5] };
@@ -498,6 +504,12 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::Pause:
         paused = command.Text == "on";
         break;
+    case SceneCommand::Kind::Choppiness:
+        choppiness = std::max(v[0], 0.0f);
+        break;
+    case SceneCommand::Kind::Ui:
+        showUi = command.Text == "on";
+        break;
     case SceneCommand::Kind::Capture:
         captureRequest = command.Text.empty() ? std::format("capture_{:06}", frameNumber) : command.Text;
         break;
@@ -509,6 +521,12 @@ void OceanScene::runCommand(const SceneCommand& command)
         break;
     case SceneCommand::Kind::Cascade:
         setCascade(static_cast<uint32_t>(v[0]), command.Text == "on");
+        break;
+    case SceneCommand::Kind::FoamWeight:
+        setFoamWeight(static_cast<uint32_t>(v[0]), v[1]);
+        break;
+    case SceneCommand::Kind::Rotate:
+        rotateCascades = command.Text == "on";
         break;
     case SceneCommand::Kind::Print:
         printState();
@@ -563,6 +581,11 @@ void OceanScene::setCascade(uint32_t _cascade, bool _enabled)
     cascadeEnabled[_cascade] = _enabled;
 }
 
+void OceanScene::setFoamWeight(uint32_t _cascade, float _weight)
+{
+    foamWeights[_cascade] = std::max(_weight, 0.0f);
+}
+
 void OceanScene::printState() const
 {
     const ArcballCamera::State& state = camera.Current;
@@ -584,6 +607,13 @@ void OceanScene::printState() const
         }
     }
 
+    std::cout << "\nfoam weights";
+    for (const float weight : foamWeights)
+    {
+        std::cout << ' ' << weight;
+    }
+
+    std::cout << "\nrotate cascades " << (rotateCascades ? "on" : "off");
     std::cout << '\n' << std::flush;
 }
 
@@ -821,6 +851,15 @@ void OceanScene::drawPanel()
                 ocean::AccentTone::Amber);
 
             ocean::DrawCascadeBandStrip(fonts, simulationSettings.LengthScales, cascadeEnabled);
+
+            (void)ocean::DrawTelemetryToggle(
+                "##rotate_cascades",
+                "Rotate cascades (tiling A/B)",
+                "ALIGNED",
+                "ROTATED",
+                &rotateCascades,
+                fonts,
+                ocean::AccentTone::Amber);
         }
 
         if (ocean::DrawSectionHeader("FOAM & WHITECAPS  //  COVERAGE & DYNAMICS", fonts, headerFontMode, ocean::AccentTone::Ice, true))
@@ -876,6 +915,24 @@ void OceanScene::drawPanel()
                 fonts,
                 ocean::AccentTone::Ice,
                 false);
+
+            for (uint32_t cascade = 0u; cascade < ocean::k_CascadeCount; ++cascade)
+            {
+                const std::string sliderId = std::format("##foam_weight_{}", cascade);
+                const std::string sliderLabel = std::format("Foam weight {:.1f} m", simulationSettings.LengthScales[cascade]);
+                (void)ocean::DrawArtistSlider(
+                    sliderId.c_str(),
+                    sliderLabel,
+                    "0: cascade adds no foam, 1: as computed",
+                    &foamWeights[cascade],
+                    0.0f,
+                    1.5f,
+                    std::format("{:.2f}", foamWeights[cascade]),
+                    "x",
+                    fonts,
+                    ocean::AccentTone::Ice,
+                    false);
+            }
         }
 
         if (ocean::DrawSectionHeader("SCENE  //  ENVIRONMENT & UI", fonts, headerFontMode, ocean::AccentTone::Amber, false))
@@ -998,7 +1055,11 @@ void OceanScene::update()
     }
 
     collectGpuTimings();
-    drawPanel();
+
+    if (showUi)
+    {
+        drawPanel();
+    }
 
     if (!paused)
     {
@@ -1035,11 +1096,12 @@ void OceanScene::writeViewParameters()
     {
         view.LengthScales[cascade] = simulationSettings.LengthScales[cascade];
         view.CascadeWeights[cascade] = cascadeEnabled[cascade] ? 1.0f : 0.0f;
+        view.FoamWeights[cascade] = foamWeights[cascade];
     }
 
     const float cosElevation = std::cos(sunElevation);
     view.SunDirectionSeabedDepth = { std::sin(sunAzimuth) * cosElevation, std::sin(sunElevation), std::cos(sunAzimuth) * cosElevation, seabedDepth };
-    view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), 0.0f, 0.0f };
+    view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), rotateCascades ? 1.0f : 0.0f, 0.0f };
     view.WhitecapParameters = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.FoamSpread, seaState.FoamContrast };
 
     // beginFrame waited on this frame's fence, so the GPU is done with this frame's buffer
@@ -1178,9 +1240,7 @@ void OceanScene::recordCommands()
 
     const rhi::ImageViewHandle swapchainView{ reinterpret_cast<uint64_t>(swapchain->ImageViewHandle(currentAcquiredImage)) };
     rhi::ColorAttachment colorAttachment{};
-    static const float k_ScRgbRefNits = 80.0f;
-    static const float k_PaperWhiteNits = 348.0f;
-    static const float k_peakScRgb = k_PaperWhiteNits / k_ScRgbRefNits;
+    constexpr float k_peakScRgb = k_PaperWhiteNits / k_ScRgbRefNits;
     colorAttachment.ClearValue = rhi::ClearColorValue{ 0.30f * k_peakScRgb, 0.45f * k_peakScRgb, 0.65f * k_peakScRgb, 1.0f };
     if (multisampled)
     {
@@ -1289,6 +1349,12 @@ void OceanScene::recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi:
         source.Height = static_cast<uint32_t>(extent.y);
         source.Format = swapchain->ImageFormat();
         source.Encoding = encoding.value_or(capture::CaptureEncoding::sRGB);
+        // the shader scales scRGB up to the display's paper white, which would clip the 8-bit capture
+        if (source.Encoding == capture::CaptureEncoding::LinearExtendedSRGB)
+        {
+            source.LinearScale = k_ScRgbRefNits / k_PaperWhiteNits;
+        }
+
         // the copy barrier also moves the image on to PresentSource
         if (encoding.has_value() && frameCapture->RecordCopy(command_buffer, currentFrame, source, std::move(*name)))
         {

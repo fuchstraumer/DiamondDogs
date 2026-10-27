@@ -38,11 +38,15 @@ float EvaluateWhitecapCoverage(float2 surface_xz, float distance)
         if (enabled > 0.0f)
         {
             const float3 uvw = float3(CascadeUv(surface_xz, cascade), float(cascade));
-            // k_i = J - 1 + 1/n, where J is Displacement.w
-            const float mu = Displacement.Sample(OceanSampler, uvw).w - 1.0f + 1.0f / float(OCEAN_CASCADE_COUNT);
+            // k_i = J - 1 + 1/n, where J is Displacement.w. The foam weight scales its deviation from the rest value
+            // 1/n, and the variance of k_i with it squared
+            const float rest = 1.0f / float(OCEAN_CASCADE_COUNT);
+            const float jacobianDeviation = Displacement.Sample(OceanSampler, uvw).w - 1.0f;
+            const float kMean = jacobianDeviation + rest;
             const float secondMoment = Whitecaps.Sample(OceanSampler, uvw);
-            muA += mu;
-            varA += max(0.0f, secondMoment - mu * mu);
+            const float foamWeight = ViewFoamWeight(cascade);
+            muA += rest + foamWeight * jacobianDeviation;
+            varA += foamWeight * foamWeight * max(0.0f, secondMoment - kMean * kMean);
         }
         else
         {
@@ -95,8 +99,8 @@ internal SurfaceSample SampleSurface(float2 surface_xz)
             const float4 derivatives = Derivatives.Sample(OceanSampler, uvw) * weight;
             const float4 displacement = Displacement.Sample(OceanSampler, uvw);
 
-            totalSlope += derivatives.xy;
-            totalStretch += derivatives.zw;
+            totalSlope += CascadeToWorld(derivatives.xy, cascade);
+            totalStretch += CascadeStretchToWorld(derivatives.zw, cascade);
 
             // Jacobian in displacement.w: calm water is 1.0, crest compression is < 1.0, folding occurs below ~0.3.
             // Only highlight breaking crests where surface is folded AND height is positive.
@@ -138,6 +142,7 @@ float4 OceanSurfaceFS(OceanSurfaceVaryings input) : SV_Target
     float3 color = lerp(waterBase, foamRadiance, whitecaps) + sun.xxx;
 
     // scale hdr to match my monitor paper white
+    // k_PaperWhiteNits and k_ScRgbRefNits must stay equal to the ones in OceanScene.cpp, which scales captures back
     static const float k_PaperWhiteNits = 348.0f;
     static const float k_PeakNits = 600.0f;
     static const float k_ScRgbRefNits = 80.0f;

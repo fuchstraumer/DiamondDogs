@@ -1,0 +1,22 @@
+# Gale sea: top-down, oblique and grazing captures. Run with --capture=DIR.
+# A positive pitch puts the camera above the target and looks down. 89.4 is just short of the pitch limit (89.43).
+preset Gale
+dt 0.0166667
+time 30
+wait 30
+camera 0 89.4 150
+wait 10
+capture gale_top_150
+camera 0 89.4 600
+wait 10
+capture gale_top_600
+camera 0 89.4 2000
+wait 10
+capture gale_top_2000
+camera 0 30 300
+wait 10
+capture gale_oblique_300
+camera 0 5 20
+wait 10
+capture gale_grazing_20
+quit

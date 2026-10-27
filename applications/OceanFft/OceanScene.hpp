@@ -49,9 +49,9 @@ struct OceanSceneSettings
     uint32_t GridMinResolution{ 6u };
     /** @brief The highest MSAA sample count: 1, 2, 4 or 8. The scene uses the highest count up to this one that the color
      *  and depth attachments both support. 1 turns MSAA off */
-    uint32_t MaxMsaaSamples{ 8u };
+    uint32_t MaxMsaaSamples{ 4u };
     /** @brief The anisotropic filtering of the surface sampler: 1, 2, 4, 8 or 16. 1 turns it off. The device limit caps it */
-    float MaxAnisotropy{ 16.0f };
+    float MaxAnisotropy{ 4.0f };
     std::optional<ArcballCamera::State> InitialCamera;
     /** @brief Captures go here, from the schedule and from capture commands */
     std::filesystem::path CaptureDirectory{ "captures" };
@@ -115,6 +115,7 @@ private:
     void setSeaStatePreset(std::string_view _name);
     void setSeaStateField(std::string_view _name, float _value);
     void setCascade(uint32_t _cascade, bool _enabled);
+    void setFoamWeight(uint32_t _cascade, float _weight);
     /** @brief Prints the camera, the time, the sea state and the enabled cascades, for the print command */
     void printState() const;
     void writeViewParameters();
@@ -149,6 +150,10 @@ private:
     ocean::SeaStateReadout seaReadout{};
     ocean::SpectrumParameters spectrum{};
     std::array<bool, ocean::k_CascadeCount> cascadeEnabled{ true, true, true, true, true };
+    // per-cascade weight on the whitecap model's foam, 1 is as computed. Scene state, not part of the sea state
+    std::array<float, ocean::k_CascadeCount> foamWeights{ 1.0f, 1.0f, 1.0f, 0.7f, 0.35f };
+    // tiling A/B: sample each cascade through its own rotation and offset (see CascadeUv in OceanRenderCommon.slang)
+    bool rotateCascades{ false };
     float choppiness{ 1.0f };
     float timeScale{ 1.0f };
     float simulationTime{ 0.0f };
@@ -159,6 +164,7 @@ private:
     float sunAzimuth{ 2.2f };
     ocean::HeaderFontMode headerFontMode{ ocean::HeaderFontMode::Blinker };
     bool paused{ false };
+    bool showUi{ true };
     bool spectrumChanged{ false };
     bool needsInitialize{ true };
     bool setup{ false };

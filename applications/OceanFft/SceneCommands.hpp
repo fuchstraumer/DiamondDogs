@@ -25,11 +25,16 @@
  *    time seconds                          set the simulation time
  *    dt seconds                            fixed simulation step per frame (0 goes back to real time)
  *    pause on|off
+ *    choppiness value                      the horizontal displacement multiplier (lambda), as the UI slider
+ *    ui on|off                             show or hide the panel, for clean captures
  *    preset name                           apply a sea state preset by name (Glassy, Breezy, Fresh, Rough, Gale,
  *                                          Long swell), as the preset buttons do
  *    sea field value                       set one sea state field by its C++ name (WindForce, Openness, ...), as its
  *                                          slider does. print writes the same names
  *    cascade index on|off                  enable or disable one cascade, index 0 to 4
+ *    foamweight index value                set one cascade's foam weight (0 to 1.5 in the UI, 1 is the whitecap
+ *                                          model as computed), index 0 to 4
+ *    rotate on|off                         rotate and offset each cascade's lattice when sampled (tiling A/B)
  *    capture [name]                        write this frame to <capture dir>/<name>.png. The commands after it
  *                                          run on the next frame, so the capture sees only the ones before it
  *    wait frames                           render this many frames before the next command
@@ -48,9 +53,13 @@ struct SceneCommand
         Time,
         TimeStep,
         Pause,
+        Choppiness,
+        Ui,
         Preset,
         Sea,
         Cascade,
+        FoamWeight,
+        Rotate,
         Capture,
         Wait,
         Print,

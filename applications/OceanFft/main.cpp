@@ -32,9 +32,9 @@
 //   --no-wave-ops   use the variant without subgroup operations, even when the device supports them
 //   --unfused       run the separate tick, IFFT and resolve passes instead of the two fused kernels
 //   --validation=off  run without the validation layer even when it is installed, for the GPU timings panel
-//   --msaa=N         highest MSAA sample count: 1, 2, 4 or 8 (default 8). The scene uses the highest count up to N that
+//   --msaa=N         highest MSAA sample count: 1, 2, 4 or 8 (default 4). The scene uses the highest count up to N that
 //                    the device supports. 1 turns MSAA off
-//   --aniso=N        anisotropic filtering of the surface: 1, 2, 4, 8 or 16 (default 16). 1 turns it off
+//   --aniso=N        anisotropic filtering of the surface: 1, 2, 4, 8 or 16 (default 4). 1 turns it off
 //   --grid-resolution=N   quads per edge of the center tile (default 384). Each ring halves the one inside it, down to 6,
 //                    so N must be 6 times a power of two (192, 384, ...)
 // Capture and scripted control (see SceneCommands.hpp for the command language):

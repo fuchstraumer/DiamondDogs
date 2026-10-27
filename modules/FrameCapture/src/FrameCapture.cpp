@@ -98,7 +98,7 @@ namespace capture
         }
 
         /** Converts the copied texels to tightly packed 8-bit sRGB RGB, dropping alpha */
-        std::vector<uint8_t> ConvertToSrgb8(std::span<const std::byte> pixels, uint32_t width, uint32_t height, ImageFormat format, CaptureEncoding encoding)
+        std::vector<uint8_t> ConvertToSrgb8(std::span<const std::byte> pixels, uint32_t width, uint32_t height, ImageFormat format, CaptureEncoding encoding, float linear_scale)
         {
             const size_t count = size_t{ width } * height;
             std::vector<uint8_t> rgb(count * 3u);
@@ -179,6 +179,10 @@ namespace capture
                     rgb[(i * 3u) + 2u] = static_cast<uint8_t>(std::lroundf(std::clamp(b, 0.0f, 1.0f) * 255.0f));
                     continue;
                 }
+
+                r *= linear_scale;
+                g *= linear_scale;
+                b *= linear_scale;
 
                 rgb[(i * 3u) + 0u] = EncodeSrgb(r);
                 rgb[(i * 3u) + 1u] = EncodeSrgb(g);
@@ -309,6 +313,7 @@ namespace capture
         slot.Height = source.Height;
         slot.Format = source.Format;
         slot.Encoding = source.Encoding;
+        slot.LinearScale = source.LinearScale;
         slot.Name = std::move(name);
         return true;
     }
@@ -351,6 +356,7 @@ namespace capture
         job.Height = slot.Height;
         job.Format = slot.Format;
         job.Encoding = slot.Encoding;
+        job.LinearScale = slot.LinearScale;
         job.Path = directory / (slot.Name + ".png");
         const uint64_t bytes = uint64_t{ slot.Width } * slot.Height * BytesPerPixel(slot.Format);
 
@@ -423,7 +429,7 @@ namespace capture
                 return;
             }
 
-            const std::vector<uint8_t> rgb = ConvertToSrgb8(job.Pixels, job.Width, job.Height, job.Format, job.Encoding);
+            const std::vector<uint8_t> rgb = ConvertToSrgb8(job.Pixels, job.Width, job.Height, job.Format, job.Encoding, job.LinearScale);
             const int result = stbi_write_png(job.Path.string().c_str(), static_cast<int>(job.Width), static_cast<int>(job.Height), 3,
                 rgb.data(), static_cast<int>(job.Width * 3u));
             if (result == 0)

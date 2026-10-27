@@ -37,9 +37,13 @@ namespace
         { "time", { SceneCommand::Kind::Time, 1u, 1u, false } },
         { "dt", { SceneCommand::Kind::TimeStep, 1u, 1u, false } },
         { "pause", { SceneCommand::Kind::Pause, 0u, 0u, true } },
+        { "choppiness", { SceneCommand::Kind::Choppiness, 1u, 1u, false } },
+        { "ui", { SceneCommand::Kind::Ui, 0u, 0u, true } },
         { "preset", { SceneCommand::Kind::Preset, 0u, 0u, false } },
         { "sea", { SceneCommand::Kind::Sea, 0u, 0u, false } },
         { "cascade", { SceneCommand::Kind::Cascade, 0u, 0u, false } },
+        { "foamweight", { SceneCommand::Kind::FoamWeight, 0u, 0u, false } },
+        { "rotate", { SceneCommand::Kind::Rotate, 0u, 0u, true } },
         { "capture", { SceneCommand::Kind::Capture, 0u, 0u, true } },
         { "wait", { SceneCommand::Kind::Wait, 1u, 1u, false } },
         { "print", { SceneCommand::Kind::Print, 0u, 0u, false } },
@@ -100,6 +104,7 @@ namespace
     std::expected<SceneCommand, std::string> ParsePreset(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseSea(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseCascade(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseFoamWeight(const std::vector<std::string_view>& words);
 }
 
 std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view line)
@@ -137,6 +142,11 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
         return ParseCascade(words);
     }
 
+    if (shape.Kind == Kind::FoamWeight)
+    {
+        return ParseFoamWeight(words);
+    }
+
     SceneCommand command{};
     command.Type = shape.Kind;
     if (shape.TakesText)
@@ -147,9 +157,10 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
         }
 
         command.Text = words.size() == 2u ? std::string{ words[1] } : std::string{};
-        if (command.Type == Kind::Pause && command.Text != "on" && command.Text != "off")
+        const bool takesOnOff = command.Type == Kind::Pause || command.Type == Kind::Ui || command.Type == Kind::Rotate;
+        if (takesOnOff && command.Text != "on" && command.Text != "off")
         {
-            return std::unexpected(std::string{ "pause takes on or off" });
+            return std::unexpected(std::string{ words[0] } + " takes on or off");
         }
 
         return command;
@@ -419,6 +430,40 @@ namespace
         command.Text = std::string{ state };
         command.Values[0] = static_cast<float>(index);
         command.ValueCount = 1u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseFoamWeight(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "foamweight takes a cascade index and a value" });
+        }
+
+        const std::string_view indexWord = words[1];
+        int32_t index = -1;
+        const std::from_chars_result result = std::from_chars(indexWord.data(), indexWord.data() + indexWord.size(), index);
+        if (result.ec != std::errc{} || result.ptr != indexWord.data() + indexWord.size())
+        {
+            return std::unexpected(std::string{ "foamweight: '" } + std::string{ indexWord } + "' is not a whole number");
+        }
+
+        if (index < 0 || index >= static_cast<int32_t>(ocean::k_CascadeCount))
+        {
+            return std::unexpected("foamweight: index must be 0 to " + std::to_string(ocean::k_CascadeCount - 1u));
+        }
+
+        float value = 0.0f;
+        if (!ParseFloat(words[2], value))
+        {
+            return std::unexpected(std::string{ "foamweight: '" } + std::string{ words[2] } + "' is not a number");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::FoamWeight;
+        command.Values[0] = static_cast<float>(index);
+        command.Values[1] = value;
+        command.ValueCount = 2u;
         return command;
     }
 }

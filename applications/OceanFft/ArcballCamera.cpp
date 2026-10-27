@@ -11,7 +11,6 @@ namespace
     constexpr float k_RotateRadiansPerPixel = 0.005f;
     constexpr float k_ZoomPerStep = 0.9f;
     constexpr float k_MinDistance = 2.0f;
-    constexpr float k_MaxDistance = 2000.0f;
     // just short of straight up or down, where the view's right vector is undefined
     constexpr float k_MaxPitch = 0.5f * std::numbers::pi_v<float> - 0.01f;
 
@@ -64,7 +63,7 @@ void ArcballCamera::Pan(float dx_pixels, float dy_pixels, float viewport_height_
 
 void ArcballCamera::Zoom(float wheel_steps) noexcept
 {
-    Current.Distance = std::clamp(Current.Distance * std::pow(k_ZoomPerStep, wheel_steps), k_MinDistance, k_MaxDistance);
+    Current.Distance = std::clamp(Current.Distance * std::pow(k_ZoomPerStep, wheel_steps), k_MinDistance, MaxDistance);
 }
 
 ArcballCamera::Vector3 ArcballCamera::Position() const noexcept

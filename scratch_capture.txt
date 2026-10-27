@@ -1,0 +1,11 @@
+camera 34.38 20.05 60.0 0.0 0.0 0.0
+time 5.0
+wait 2
+capture ocean_close_new
+camera 34.38 20.05 160.0 0.0 0.0 0.0
+wait 2
+capture ocean_mid_new
+camera 34.38 20.05 450.0 0.0 0.0 0.0
+wait 2
+capture ocean_far_new
+quit

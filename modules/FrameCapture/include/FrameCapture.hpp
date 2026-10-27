@@ -56,6 +56,10 @@ namespace capture
         rhi::ImageLayout CurrentLayout{ rhi::ImageLayout::ColorAttachment };
         rhi::PipelineStage SrcStages{ rhi::PipelineStage::ColorAttachmentOutput };
         rhi::Access SrcAccess{ rhi::Access::ColorAttachmentWrite };
+        /** @brief Multiplies the linear values before the clamp and the sRGB encode. Used for LinearExtendedSRGB, and
+         *  for HDR10_PQ after the PQ decode (the values are linear scRGB there). Ignored for sRGB, which is already
+         *  encoded */
+        float LinearScale{ 1.0f };
         /** @brief The layout the image is left in, for example PresentSource for a swapchain image */
         rhi::ImageLayout FinalLayout{ rhi::ImageLayout::PresentSource };
     };
@@ -102,6 +106,7 @@ namespace capture
             uint32_t Height{ 0u };
             ImageFormat Format;
             CaptureEncoding Encoding{ CaptureEncoding::sRGB };
+            float LinearScale{ 1.0f };
             std::string Name;
         };
 
@@ -114,6 +119,7 @@ namespace capture
             uint32_t Height;
             ImageFormat Format;
             CaptureEncoding Encoding;
+            float LinearScale;
             std::filesystem::path Path;
         };
 
