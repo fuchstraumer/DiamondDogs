@@ -158,35 +158,3 @@ internal half2 ComplexDiv(in half2 a, in half2 b)
     return ComplexMul(a, ComplexConj(b)) * denom.xx;
 }
 
-internal half2 IfftRadix2PhaseRotation(
-    in const uint threadIdx,
-    in const uint stage)
-{
-    const uint logStep = 1u << stage;
-    const uint groupSize = logStep << 1;
-    const uint j = threadIdx & (logStep - 1);
-    const half theta = -half(OceanFft_2PI) * half(j) / half(groupSize);
-    half2 phaseRotation = ComplexExp(theta);
-    phaseRotation.y *= -1.0h; // we are always doing the IFFT, so we need to conjugate the phase rotation
-    return phaseRotation;
-}
-
-internal half4 IfftRadix2WaveOpsStep(
-    in half4 threadData,
-    in const uint threadIdx,
-    in const uint stage)
-{
-    const uint logStep = 1u << stage;
-    const uint partnerIdx = WaveGetLaneIndex() ^ logStep;
-    const uint groupSize = logStep << 1;
-    const uint j = threadIdx & (logStep - 1);
-    const half theta = -half(OceanFft_2PI) * half(j) / half(groupSize);
-    half2 phaseRotation = ComplexExp(theta);
-    phaseRotation.y *= -1.0h; // we are always doing the IFFT, so we need to conjugate the phase rotation
-    const bool isLow = (threadIdx & logStep) == 0;
-    half4 partnerData = WaveReadLaneAt(threadData, partnerIdx);
-    half4 a = isLow ? threadData : partnerData;
-    half4 b = isLow ? partnerData : threadData;
-    half4 rotated = half4(ComplexMul(phaseRotation, b.xy), ComplexMul(phaseRotation, b.zw));
-    return isLow ? (a + rotated) * IFFT_RADIX2_SCALE_FACTOR : (a - rotated) * IFFT_RADIX2_SCALE_FACTOR;
-}
