@@ -3,12 +3,15 @@ __include OceanFftDims;
 __include OceanFftBindings;
 __include OceanFftCommon;
 
+
+
 // renaming these slightly from radix-2 impl, as either the linter is paranoid and thinks we have
 // ambiguous names, or its going to actually be a problem. not worth the risk so removing this
 namespace Radix4
 {
-    internal groupshared half4 s_DataA[IFFT_SIZE];
-    internal groupshared half4 s_DataB[IFFT_SIZE];
+    // Single shared memory buffer: each thread owns an entire butterfly (4 elements),
+    // eliminating the need for a ping-pong buffer pair.
+    internal groupshared half4 s_Data[IFFT_SIZE];
 }
 
 
@@ -111,13 +114,21 @@ internal void Radix4Twiddles(uint logStep,
 {
     const uint groupSize = logStep << 2; // 4 * logStep
     const uint j = outputIndex & (logStep - 1); // outputIndex % logStep
-    const half theta = (-half(OceanFft_2PI) / half(groupSize)) * half(j);
-    twiddle1 = ComplexExp(theta);
-    twiddle2 = ComplexExp(2.0h * theta);
-    twiddle3 = ComplexExp(3.0h * theta);
-    twiddle1.y *= -1.0h;
-    twiddle2.y *= -1.0h;
-    twiddle3.y *= -1.0h;
+    if (j == 0u)
+    {
+        twiddle1 = half2(1.0h, 0.0h);
+        twiddle2 = half2(1.0h, 0.0h);
+        twiddle3 = half2(1.0h, 0.0h);
+        return;
+    }
+    const float theta = (-float(OceanFft_2PI) / float(groupSize)) * float(j);
+    float s, c;
+    sincos(theta, s, c);
+    twiddle1 = half2(half(c), half(-s));
+    twiddle2 = half2(half(c * c - s * s), half(-2.0f * s * c));
+    const float c3 = c * (c * c - 3.0f * s * s);
+    const float s3 = s * (3.0f * c * c - s * s);
+    twiddle3 = half2(half(c3), half(-s3));
 }
 
 internal void ButterflyValues_Radix4(uint logStep,
@@ -163,210 +174,150 @@ internal void Radix4Combine(half4 a0,
     y3 = s02m + rotM;
 }
 
-// "Radix-4" IFFT - not actually pure radix-4, it decomposes as needed into radix-4 stages
-half4 DoIfftRadix4(in const uint threadIdx, in const half4 input)
-{
-    using namespace Radix4;
-
-    bool pingPong = false;
-    uint startStage = 0;
-
-    if (IFFT_USE_WAVE_OPS)
-    {
-        // Direct-to-registers: wave stages run without initial LDS roundtrip or barrier
-        half4 threadData = input;
-        uint bitOffset = 0;
-        const uint lane = threadIdx & (IFFT_WAVE_SIZE - 1u);
-
-        // Radix-4 stages within the wave
-        [unroll(IFFT_LOG4_WAVE_SIZE)]
-        for (; bitOffset + 2 <= firstbithigh(IFFT_WAVE_SIZE); bitOffset += 2)
-        {
-            const uint logStep = 1u << bitOffset;
-            const uint groupBase = lane & ~(3u << bitOffset);
-
-            const half4 v0 = WaveReadLaneAt(threadData, groupBase | (0u << bitOffset));
-            const half4 v1 = WaveReadLaneAt(threadData, groupBase | (1u << bitOffset));
-            const half4 v2 = WaveReadLaneAt(threadData, groupBase | (2u << bitOffset));
-            const half4 v3 = WaveReadLaneAt(threadData, groupBase | (3u << bitOffset));
-
-            half4 a0 = v0;
-            half4 a1, a2, a3;
-            if (bitOffset == 0)
-            {
-                // Twiddles are identically (1.0h, 0.0h) for the first stage
-                a1 = v1;
-                a2 = v2;
-                a3 = v3;
-            }
-            else
-            {
-                half2 tw1, tw2, tw3;
-                Radix4Twiddles(logStep, threadIdx, tw1, tw2, tw3);
-                a1 = half4(ComplexMul(tw1, v1.xy), ComplexMul(tw1, v1.zw));
-                a2 = half4(ComplexMul(tw2, v2.xy), ComplexMul(tw2, v2.zw));
-                a3 = half4(ComplexMul(tw3, v3.xy), ComplexMul(tw3, v3.zw));
-            }
-
-            half4 y0, y1, y2, y3;
-            Radix4Combine(a0, a1, a2, a3, y0, y1, y2, y3);
-
-            // get relative index of this digit in current group
-            const uint myDigit = (lane >> bitOffset) & 3u;
-            switch (myDigit)
-            {
-                case 0: threadData = y0; break;
-                case 1: threadData = y1; break;
-                case 2: threadData = y2; break;
-                case 3: threadData = y3; break;
-            }
-            threadData *= IFFT_RADIX4_SCALE_FACTOR;
-        }
-
-        // Store to LDS linearly for cross-warp stages: perfectly coalesced, zero bank conflicts
-        s_DataA[threadIdx] = half4(threadData);
-        GroupMemoryBarrierWithGroupSync();
-        startStage = bitOffset;
-    }
-    else
-    {
-        // Linear conflict-free store into LDS, followed by a single barrier
-        s_DataA[threadIdx] = input;
-        GroupMemoryBarrierWithGroupSync();
-    }
-
-    // Remaining radix-4 stages via LDS, ping-ponging
-    uint bitOffset = startStage;
-    for (; bitOffset + 2 <= IFFT_LOG2_SIZE; bitOffset += 2)
-    {
-        const uint logStep = 1u << bitOffset;
-        uint4 inputIndices;
-        half2 tw1, tw2, tw3;
-        ButterflyValues_Radix4(logStep, threadIdx, inputIndices, tw1, tw2, tw3);
-
-        const half4 v0 = pingPong ? s_DataB[inputIndices.x] : s_DataA[inputIndices.x];
-        const half4 v1 = pingPong ? s_DataB[inputIndices.y] : s_DataA[inputIndices.y];
-        const half4 v2 = pingPong ? s_DataB[inputIndices.z] : s_DataA[inputIndices.z];
-        const half4 v3 = pingPong ? s_DataB[inputIndices.w] : s_DataA[inputIndices.w];
-
-        const half4 a0 = v0;
-        half4 a1, a2, a3;
-        if (bitOffset == 0)
-        {
-            a1 = v1;
-            a2 = v2;
-            a3 = v3;
-        }
-        else
-        {
-            a1 = half4(ComplexMul(tw1, v1.xy), ComplexMul(tw1, v1.zw));
-            a2 = half4(ComplexMul(tw2, v2.xy), ComplexMul(tw2, v2.zw));
-            a3 = half4(ComplexMul(tw3, v3.xy), ComplexMul(tw3, v3.zw));
-        }
-
-        half4 y0, y1, y2, y3;
-        Radix4Combine(a0, a1, a2, a3, y0, y1, y2, y3);
-
-        const uint myDigit = (threadIdx >> bitOffset) & 3u;
-        half4 result = half4(0.0h);
-        switch (myDigit)
-        {
-            case 0:
-                result = y0;
-                break;
-            case 1:
-                result = y1;
-                break;
-            case 2:
-                result = y2;
-                break;
-            case 3:
-                result = y3;
-                break;
-        }
-
-        if (pingPong)
-        {
-            s_DataA[threadIdx] = half4(result) * IFFT_RADIX4_SCALE_FACTOR;
-        }
-        else
-        {
-            s_DataB[threadIdx] = half4(result) * IFFT_RADIX4_SCALE_FACTOR;
-        }
-
-        pingPong = !pingPong;
-        GroupMemoryBarrierWithGroupSync();
-    }
-
-    // Trailing radix-2 stage for the one leftover bit when IFFT_LOG2_SIZE is odd (e.g. 512, where 9 = 4*2 + 1).
-    // For odd sizes this fires whether wave ops are enabled or not.
-    if (bitOffset < IFFT_LOG2_SIZE)
-    {
-        const uint logStep = 1u << (IFFT_LOG2_SIZE - 1u);
-        const uint groupSize = logStep << 1;
-        const uint j = threadIdx & (logStep - 1);
-        const half theta = -half(OceanFft_2PI) * half(j) / half(groupSize);
-        half2 phaseRotation = ComplexExp(theta);
-        phaseRotation.y *= -1.0h; // we are always doing the IFFT, so we need to conjugate the phase rotation
-
-        const uint partnerIdx = threadIdx ^ logStep;
-        half4 sourceData = pingPong ? s_DataB[threadIdx] : s_DataA[threadIdx];
-        half4 partnerData = pingPong ? s_DataB[partnerIdx] : s_DataA[partnerIdx];
-
-        const bool isLow = (threadIdx & logStep) == 0;
-        half4 a = isLow ? sourceData : partnerData;
-        half4 b = isLow ? partnerData : sourceData;
-        half4 rotated = half4(ComplexMul(phaseRotation, b.xy), ComplexMul(phaseRotation, b.zw));
-
-        if (pingPong)
-        {
-            s_DataA[threadIdx] = isLow ? half4(a + rotated) : half4(a - rotated);
-            s_DataA[threadIdx] *= IFFT_RADIX2_SCALE_FACTOR;
-        }
-        else
-        {
-            s_DataB[threadIdx] = isLow ? half4(a + rotated) : half4(a - rotated);
-            s_DataB[threadIdx] *= IFFT_RADIX2_SCALE_FACTOR;
-        }
-
-        pingPong = !pingPong;
-
-        GroupMemoryBarrierWithGroupSync();
-    }
-
-    return pingPong ? half4(s_DataB[threadIdx]) : half4(s_DataA[threadIdx]);
-}
-
-
 // one row of one slice per workgroup: dispatch (1, IFFT_SIZE, IFFT_NUM_WAVE_CASCADES * IFFT_NUM_SLICES), once with
-// Transpose false (rows) and once with it true (columns). The parameters are push constants on SPIR-V
+// Transpose false (rows) and once with it true (columns).
+// Each thread processes 4 elements (one full radix-4 butterfly per thread), reducing workgroup thread count by 4x.
 [shader("compute")]
-[numthreads(IFFT_SIZE, 1, 1)]
+[numthreads(IFFT_RADIX4_THREADS, 1, 1)]
 void IfftRadix4CS(
     uniform IfftParameters IfftParams,
     in uint3 dispatchThreadID : SV_DispatchThreadID,
     in uint3 groupID : SV_GroupID)
 {
-    uint threadIdx = dispatchThreadID.x;
-    uint gatherCoord = InvDigitReverse4(threadIdx);
+    using namespace Radix4;
+    const uint threadIdx = dispatchThreadID.x;
+    const uint baseLinearIndex = IFFT_SIZE * IFFT_SIZE * groupID.z;
 
-    uint2 readTargetIndex;
-    uint2 writeTargetIndex;
-
-    if (IfftParams.Transpose)
+    // 1. Gather 4 inputs from global memory into thread registers
+    half4 in0, in1, in2, in3;
+    [unroll]
+    for (uint k = 0u; k < 4u; ++k)
     {
-        readTargetIndex = uint2(dispatchThreadID.y, gatherCoord);
-        writeTargetIndex = dispatchThreadID.yx;
+        const uint coord = 4u * threadIdx + k;
+        const uint gatherCoord = InvDigitReverse4(coord);
+        uint readIndex;
+        if (IfftParams.Transpose)
+        {
+            readIndex = baseLinearIndex + IFFT_SIZE * gatherCoord + dispatchThreadID.y;
+        }
+        else
+        {
+            readIndex = baseLinearIndex + IFFT_SIZE * dispatchThreadID.y + gatherCoord;
+        }
+
+        const half4 val = IfftInput[readIndex];
+        if (k == 0u) in0 = val;
+        else if (k == 1u) in1 = val;
+        else if (k == 2u) in2 = val;
+        else in3 = val;
     }
-    else
+
+    // 2. Stage 0: 100% in registers! Twiddles are identically (1.0h, 0.0h)
+    half4 v0, v1, v2, v3;
+    Radix4Combine(in0, in1, in2, in3, v0, v1, v2, v3);
+    v0 *= IFFT_RADIX4_SCALE_FACTOR;
+    v1 *= IFFT_RADIX4_SCALE_FACTOR;
+    v2 *= IFFT_RADIX4_SCALE_FACTOR;
+    v3 *= IFFT_RADIX4_SCALE_FACTOR;
+
+    // 3. Store Stage 0 outputs to single LDS buffer
+    s_Data[4u * threadIdx + 0u] = v0;
+    s_Data[4u * threadIdx + 1u] = v1;
+    s_Data[4u * threadIdx + 2u] = v2;
+    s_Data[4u * threadIdx + 3u] = v3;
+    GroupMemoryBarrierWithGroupSync();
+
+    // 4. Remaining radix-4 stages via LDS (stages 1 to IFFT_LOG4_SIZE - 1)
+    for (uint bitOffset = 2u; bitOffset + 2u <= IFFT_LOG2_SIZE; bitOffset += 2u)
     {
-        readTargetIndex = uint2(gatherCoord, dispatchThreadID.y);
-        writeTargetIndex = dispatchThreadID.xy;
+        const uint logStep = 1u << bitOffset;
+        const uint groupSize = logStep << 2;
+        const uint p = threadIdx / logStep;
+        const uint j = threadIdx % logStep;
+        const uint groupBase = p * groupSize;
+
+        const uint idx0 = groupBase + j;
+        const uint idx1 = idx0 + logStep;
+        const uint idx2 = idx0 + 2u * logStep;
+        const uint idx3 = idx0 + 3u * logStep;
+
+        half4 a0 = s_Data[idx0];
+        half4 a1 = s_Data[idx1];
+        half4 a2 = s_Data[idx2];
+        half4 a3 = s_Data[idx3];
+
+        half2 tw1, tw2, tw3;
+        Radix4Twiddles(logStep, j, tw1, tw2, tw3);
+
+        a1 = half4(ComplexMul(tw1, a1.xy), ComplexMul(tw1, a1.zw));
+        a2 = half4(ComplexMul(tw2, a2.xy), ComplexMul(tw2, a2.zw));
+        a3 = half4(ComplexMul(tw3, a3.xy), ComplexMul(tw3, a3.zw));
+
+        half4 y0, y1, y2, y3;
+        Radix4Combine(a0, a1, a2, a3, y0, y1, y2, y3);
+
+        s_Data[idx0] = y0 * IFFT_RADIX4_SCALE_FACTOR;
+        s_Data[idx1] = y1 * IFFT_RADIX4_SCALE_FACTOR;
+        s_Data[idx2] = y2 * IFFT_RADIX4_SCALE_FACTOR;
+        s_Data[idx3] = y3 * IFFT_RADIX4_SCALE_FACTOR;
+
+        GroupMemoryBarrierWithGroupSync();
     }
 
-    uint readIndex = IFFT_SIZE * IFFT_SIZE * groupID.z + IFFT_SIZE * readTargetIndex.y + readTargetIndex.x;
-    uint writeIndex = IFFT_SIZE * IFFT_SIZE * groupID.z + IFFT_SIZE * writeTargetIndex.y + writeTargetIndex.x;
+    // 5. Trailing radix-2 stage for odd IFFT_LOG2_SIZE (e.g. 512, 128)
+    if (IFFT_LOG4_REMAINDER != 0u)
+    {
+        const uint halfSize = IFFT_SIZE >> 1u;
+        const uint quarterSize = IFFT_SIZE >> 2u;
 
-    half4 input = IfftInput[readIndex];
-    IfftInput[writeIndex] = DoIfftRadix4(threadIdx, input);
+        const uint j0 = threadIdx;
+        const uint j1 = threadIdx + quarterSize;
+
+        half4 a0 = s_Data[j0];
+        half4 b0 = s_Data[j0 + halfSize];
+        half4 a1 = s_Data[j1];
+        half4 b1 = s_Data[j1 + halfSize];
+
+        half2 rot0;
+        if (j0 == 0u)
+        {
+            rot0 = half2(1.0h, 0.0h);
+        }
+        else
+        {
+            const float theta0 = (-float(OceanFft_2PI) / float(IFFT_SIZE)) * float(j0);
+            float s0, c0;
+            sincos(theta0, s0, c0);
+            rot0 = half2(half(c0), half(-s0));
+        }
+        const half2 rot1 = half2(-rot0.y, rot0.x);
+
+        half4 rot_b0 = half4(ComplexMul(rot0, b0.xy), ComplexMul(rot0, b0.zw));
+        half4 rot_b1 = half4(ComplexMul(rot1, b1.xy), ComplexMul(rot1, b1.zw));
+
+        s_Data[j0] = (a0 + rot_b0) * IFFT_RADIX2_SCALE_FACTOR;
+        s_Data[j0 + halfSize] = (a0 - rot_b0) * IFFT_RADIX2_SCALE_FACTOR;
+        s_Data[j1] = (a1 + rot_b1) * IFFT_RADIX2_SCALE_FACTOR;
+        s_Data[j1 + halfSize] = (a1 - rot_b1) * IFFT_RADIX2_SCALE_FACTOR;
+
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    // 6. Write 4 outputs to global memory in natural order
+    [unroll]
+    for (uint k = 0u; k < 4u; ++k)
+    {
+        const uint coord = 4u * threadIdx + k;
+        uint writeIndex;
+        if (IfftParams.Transpose)
+        {
+            writeIndex = baseLinearIndex + IFFT_SIZE * coord + dispatchThreadID.y;
+        }
+        else
+        {
+            writeIndex = baseLinearIndex + IFFT_SIZE * dispatchThreadID.y + coord;
+        }
+
+        IfftInput[writeIndex] = s_Data[coord];
+    }
 }

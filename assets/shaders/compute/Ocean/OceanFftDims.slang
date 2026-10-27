@@ -17,6 +17,7 @@ internal const static uint IFFT_NUM_SLICES = 2u;
 
 // these are no all downstream of the above
 internal const static uint IFFT_LOG2_SIZE = firstbithigh(IFFT_SIZE);
+internal const static uint IFFT_RADIX4_THREADS = IFFT_SIZE / 4u;
 internal const static uint IFFT_LOG4_SIZE = IFFT_LOG2_SIZE / 2u;
 // get remainder so we know how many radix-2 stages we need after radix-4 stages
 internal const static uint IFFT_LOG4_REMAINDER = IFFT_LOG2_SIZE % 2u;
