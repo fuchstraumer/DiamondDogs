@@ -14,10 +14,14 @@ public struct OceanViewParameters
     public float4 LengthScales[2];
     // per-cascade weights on displacement and slopes: 1 is the simulation as computed, 0 turns a cascade off (A/B)
     public float4 CascadeWeights[2];
+    // per-cascade weights on the foam: 1 is Dupuy's coverage as computed, 0 leaves the cascade at rest. They scale the
+    // cascade's deviation from rest, so a small patch can be kept from stamping its tiling onto the foam
+    public float4 FoamWeights[2];
     // xyz: unit vector towards the sun, w: seabed depth in meters (positive down)
     public float4 SunDirectionSeabedDepth;
     // x: the cascade fade distance in patch lengths. Cascade c fades out between x * LengthScales[c] and twice that,
-    // so waves far smaller than a pixel stop shimmering. y: texels along an edge of mip 0 of the textures. zw unused
+    // so waves far smaller than a pixel stop shimmering. y: texels along an edge of mip 0 of the textures.
+    // z: 1 rotates and offsets each cascade's lattice (tiling A/B, see CascadeUv), 0 samples them all aligned. w unused
     public float4 LodParameters;
     // x: WhitecapThreshold (breaking trigger [0, 1] -> [-0.2, 0.2]), y: FoamAmount (coverage scale),
     // z: FoamSpread (footprint dispersion), w: FoamContrast (falloff gamma)
@@ -76,6 +80,53 @@ internal float ViewCascadeWeight(uint cascade)
     return View.CascadeWeights[cascade >> 2u][cascade & 3u];
 }
 
+internal float ViewFoamWeight(uint cascade)
+{
+    return View.FoamWeights[cascade >> 2u][cascade & 3u];
+}
+
+// the angle of cascade `cascade`'s lattice in radians: the golden angle per cascade, so no two lattices line up. 0 when off
+internal float CascadeAngle(uint cascade)
+{
+    return View.LodParameters.z > 0.5f ? float(cascade) * 2.39996323f : 0.0f;
+}
+
+// the fixed uv offset of cascade `cascade`, so the lattices don't share an origin either. 0 when off
+internal float2 CascadeOffset(uint cascade)
+{
+    return View.LodParameters.z > 0.5f ? frac(float(cascade) * float2(0.7548777f, 0.5698403f)) : float2(0.0f);
+}
+
+// R_c * v, with R_c the rotation by CascadeAngle (the identity when off)
+internal float2 WorldToCascade(float2 v, uint cascade)
+{
+    float sine;
+    float cosine;
+    sincos(CascadeAngle(cascade), sine, cosine);
+    return float2(cosine * v.x - sine * v.y, sine * v.x + cosine * v.y);
+}
+
+// R_c^T * v: a vector sampled in the cascade's rotated frame (a displacement or a gradient), back in the world frame
+internal float2 CascadeToWorld(float2 v, uint cascade)
+{
+    float sine;
+    float cosine;
+    sincos(CascadeAngle(cascade), sine, cosine);
+    return float2(cosine * v.x + sine * v.y, -sine * v.x + cosine * v.y);
+}
+
+// (dDx/dx, dDz/dz) of the cascade's frame, in the world frame. R^T A R would need the off-diagonal term, which is not
+// stored, so this takes the diagonal of it as if the off-diagonal were zero
+internal float2 CascadeStretchToWorld(float2 stretch, uint cascade)
+{
+    float sine;
+    float cosine;
+    sincos(CascadeAngle(cascade), sine, cosine);
+    const float cosineSq = cosine * cosine;
+    const float sineSq = sine * sine;
+    return float2(cosineSq * stretch.x + sineSq * stretch.y, sineSq * stretch.x + cosineSq * stretch.y);
+}
+
 // A cascade's weight at a horizontal distance from the camera: the A/B weight, faded out once its waves are far
 // below a pixel
 internal float CascadeDistanceWeight(uint cascade, float distance)
@@ -113,7 +164,7 @@ internal float4 WorldToClip(float3 world_position)
 
 internal float2 CascadeUv(float2 world_xz, uint cascade)
 {
-    return world_xz / ViewLengthScale(cascade);
+    return WorldToCascade(world_xz, cascade) / ViewLengthScale(cascade) + CascadeOffset(cascade);
 }
 
 // Six vertices per quad, two triangles, no vertex or index buffer. Returns the quad corner in [0, 1]^2
