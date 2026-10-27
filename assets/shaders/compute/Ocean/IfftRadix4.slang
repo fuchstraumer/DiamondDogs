@@ -3,321 +3,267 @@ __include OceanFftDims;
 __include OceanFftBindings;
 __include OceanFftCommon;
 
+// radix-4 decimation-in-time IFFT. each workgroup transforms 4 lines (rows, or columns when Transpose is
+// set) with IFFT_SIZE threads, so a line gets IFFT_RADIX4_THREADS threads, and each thread does one whole
+// butterfly per stage: 4 elements in, the same 4 slots out. no two threads share a slot within a stage,
+// so every stage runs in place in one LDS buffer with one barrier. (the first version gave each element
+// its own thread, so all 4 threads of a butterfly computed it and kept one output each, and it needed
+// ping-pong buffers)
+//
+// stage 0 runs in registers, stage 1 on wave shuffles, the rest through LDS. odd log2 sizes (128, 512)
+// finish with one radix-2 stage
+//
+// a stage with stride S splits a line into groups of 4S. butterfly j of a group reads the elements at
+// base + j + k * S, multiplies element k by w^k with w = e^(+2*pi*i * j / 4S), and runs a 4-point DFT on
+// the result. each half4 packs two complex values (xy and zw), so this is two transforms at once
 
+// unique name rather than a namespace: groupshared declarations land at module scope, next to the radix-2
+// kernel's
+internal groupshared half4 s_Radix4Data[4u * IFFT_SIZE];
 
-// renaming these slightly from radix-2 impl, as either the linter is paranoid and thinks we have
-// ambiguous names, or its going to actually be a problem. not worth the risk so removing this
-namespace Radix4
+// rows sit row-major. columns interleave the 4 lines, because the column pass puts the 4 lines on
+// adjacent lanes, and this keeps those lanes on adjacent addresses
+internal uint Radix4LdsIndex(bool transpose, uint lineIdx, uint elemIdx)
 {
-    // Single shared memory buffer: each thread owns an entire butterfly (4 elements),
-    // eliminating the need for a ping-pong buffer pair.
-    internal groupshared half4 s_Data[IFFT_SIZE];
+    if (transpose)
+    {
+        return (elemIdx << 2u) | lineIdx;
+    }
+
+    return lineIdx * IFFT_SIZE + elemIdx;
 }
 
-
-// Base-4 digit-reversal of the low FFT_LOG2_SIZE bits of idx.
-internal uint DigitReverse4(uint idx)
+internal uint Radix4GlobalIndex(bool transpose, uint sliceBase, uint lineCoord, uint elemIdx)
 {
-    if (IFFT_LOG4_REMAINDER == 0)
+    if (transpose)
     {
-        // Unchanged - this is correct as-is for even FFT_LOG2_SIZE.
-        uint x = idx;
-        x = ((x >> 2) & 0x33333333) | ((x & 0x33333333) << 2);
-        x = ((x & 0x0F0F0F0F) << 4) | ((x & 0xF0F0F0F0) >> 4);
-        x = ((x & 0x00FF00FF) << 8) | ((x & 0xFF00FF00) >> 8);
-        x = (x << 16) | (x >> 16);
-        return x >> (32u - IFFT_LOG2_SIZE);
+        return sliceBase + IFFT_SIZE * elemIdx + lineCoord;
     }
-    else
-    {
-        // Odd FFT_LOG2_SIZE (e.g. 512): bit-position permutation pi(i), verified
-        // against the actual radix-4 x4 + radix-2 stage order in DoIFFT_Radix4.
-        const uint L = IFFT_LOG2_SIZE;
-        uint result = 0u;
-        [unroll(IFFT_LOG2_SIZE)]
-        for (uint i = 0; i < L; ++i)
-        {
-            if (bool((idx >> i) & 1u))
-            {
-                uint pi;
-                if (i == 0)
-                {
-                    pi = L - 1u;
-                }
-                else if ((i & 1u) == 0u)
-                {
-                    pi = L - i;
-                }
-                else
-                {
-                    pi = L - 2u - i;
-                }
-                result |= (1u << pi);
-            }
-        }
-        return result;
-    }
+
+    return sliceBase + IFFT_SIZE * lineCoord + elemIdx;
 }
 
-// Inverse base-4 digit-reversal: exact inverse permutation of DigitReverse4
-internal uint InvDigitReverse4(uint idx)
+// returns the input index that DIT wants at `position`. for 512 = 2 * 4^4, the position
+// d4 + 4*d3 + 16*d2 + 64*d1 + 256*b reads input b + 2*d1 + 8*d2 + 32*d3 + 128*d4: the radix-4 digits
+// reverse, and the radix-2 digit b (odd sizes only) moves from the bottom to the top, because the radix-2
+// stage runs last
+internal uint InvDigitReverse4(uint position)
 {
-    if (IFFT_LOG4_REMAINDER == 0)
-    {
-        // Even FFT_LOG2_SIZE is an involution: reverse is its own inverse.
-        uint x = idx;
-        x = ((x >> 2) & 0x33333333) | ((x & 0x33333333) << 2);
-        x = ((x & 0x0F0F0F0F) << 4) | ((x & 0xF0F0F0F0) >> 4);
-        x = ((x & 0x00FF00FF) << 8) | ((x & 0xFF00FF00) >> 8);
-        x = (x << 16) | (x >> 16);
-        return x >> (32u - IFFT_LOG2_SIZE);
-    }
-    else
-    {
-        // Odd FFT_LOG2_SIZE: exact inverse bit permutation of DigitReverse4
-        const uint L = IFFT_LOG2_SIZE;
-        uint result = 0u;
-        [unroll(IFFT_LOG2_SIZE)]
-        for (uint j = 0; j < L; ++j)
-        {
-            if (bool((idx >> j) & 1u))
-            {
-                uint inv_pi;
-                if (j == L - 1u)
-                {
-                    inv_pi = 0u;
-                }
-                else if (j == 0u)
-                {
-                    inv_pi = L - 2u;
-                }
-                else if ((j & 1u) == 1u)
-                {
-                    inv_pi = L - j;
-                }
-                else
-                {
-                    inv_pi = L - 2u - j;
-                }
-                result |= (1u << inv_pi);
-            }
-        }
-        return result;
-    }
+    const uint radix4Bits = IFFT_LOG2_SIZE - IFFT_LOG4_REMAINDER;
+    const uint radix4Digits = position & ((1u << radix4Bits) - 1u);
+
+    // reversebits() reverses the digit order but also flips the two bits inside each digit, so swap each
+    // bit pair back
+    const uint flipped = reversebits(radix4Digits) >> (32u - radix4Bits);
+    const uint reversed = ((flipped & 0x55555555u) << 1u) | ((flipped >> 1u) & 0x55555555u);
+
+    return (reversed << IFFT_LOG4_REMAINDER) | (position >> radix4Bits);
 }
 
-internal void Radix4Twiddles(uint logStep,
-                    uint outputIndex,
-                    out half2 twiddle1,
-                    out half2 twiddle2,
-                    out half2 twiddle3)
+// w^1, w^2 and w^3 for butterfly j of the stage with this stride. one sincos in float, then the double-
+// and triple-angle identities. float matters here: a theta in half is off by up to ~0.004 rad near 2*pi
+internal void Radix4Twiddles(uint stride, uint j, out half2 twiddle1, out half2 twiddle2, out half2 twiddle3)
 {
-    const uint groupSize = logStep << 2; // 4 * logStep
-    const uint j = outputIndex & (logStep - 1); // outputIndex % logStep
-    if (j == 0u)
-    {
-        twiddle1 = half2(1.0h, 0.0h);
-        twiddle2 = half2(1.0h, 0.0h);
-        twiddle3 = half2(1.0h, 0.0h);
-        return;
-    }
-    const float theta = (-float(OceanFft_2PI) / float(groupSize)) * float(j);
-    float s, c;
+    const float theta = (OceanFft_2PI / float(4u * stride)) * float(j);
+    float s;
+    float c;
     sincos(theta, s, c);
-    twiddle1 = half2(half(c), half(-s));
-    twiddle2 = half2(half(c * c - s * s), half(-2.0f * s * c));
+
+    const float c2 = c * c - s * s;
+    const float s2 = 2.0f * s * c;
     const float c3 = c * (c * c - 3.0f * s * s);
     const float s3 = s * (3.0f * c * c - s * s);
-    twiddle3 = half2(half(c3), half(-s3));
+
+    twiddle1 = half2(half(c), half(s));
+    twiddle2 = half2(half(c2), half(s2));
+    twiddle3 = half2(half(c3), half(s3));
 }
 
-internal void ButterflyValues_Radix4(uint logStep,
-                            uint outputIndex,
-                            out uint4 inputIndices,
-                            out half2 twiddle1,
-                            out half2 twiddle2,
-                            out half2 twiddle3)
+internal half4 Radix4Rotate(half4 value, half2 twiddle)
 {
-    Radix4Twiddles(logStep, outputIndex, twiddle1, twiddle2, twiddle3);
-    const uint groupSize = logStep << 2;
-    const uint j = outputIndex & (logStep - 1); // outputIndex % logStep
-    // outputIndex - (outputIndex % groupSize)
-    const uint groupBase = outputIndex & ~(groupSize - 1); 
-    inputIndices = uint4(
-        groupBase + j,
-        groupBase + j + logStep,
-        groupBase + j + 2 * logStep,
-        groupBase + j + 3 * logStep);
+    return half4(ComplexMul(twiddle, value.xy), ComplexMul(twiddle, value.zw));
 }
 
-internal void Radix4Combine(half4 a0,
-                   half4 a1,
-                   half4 a2,
-                   half4 a3,
-                   out half4 y0,
-                   out half4 y1,
-                   out half4 y2,
-                   out half4 y3)
+// the 4-point inverse DFT y_m = sum_k a_k * i^(mk), scaled by 1/4. i^(mk) is only ever +-1 or +-i, so
+// it's adds and swizzles, no multiplies
+internal void Radix4Combine(inout half4 a0, inout half4 a1, inout half4 a2, inout half4 a3)
 {
-    const half4 s02p = a0 + a2;
-    const half4 s02m = a0 - a2;
-    const half4 s13p = a1 + a3;
-    const half4 s13m = a1 - a3;
+    const half4 sum02 = a0 + a2;
+    const half4 diff02 = a0 - a2;
+    const half4 sum13 = a1 + a3;
+    const half4 diff13 = a1 - a3;
+    const half4 diff13TimesI = half4(ComplexMulI(diff13.xy), ComplexMulI(diff13.zw));
 
-    y0 = s02p + s13p;
-    y2 = s02p - s13p;
-
-    const half4 rotP = half4(ComplexMulI(s13m.xy),    ComplexMulI(s13m.zw));
-    const half4 rotM = half4(ComplexMulNegI(s13m.xy), ComplexMulNegI(s13m.zw));
-
-    y1 = s02m + rotP;
-    y3 = s02m + rotM;
+    a0 = (sum02 + sum13) * IFFT_RADIX4_SCALE_FACTOR;
+    a1 = (diff02 + diff13TimesI) * IFFT_RADIX4_SCALE_FACTOR;
+    a2 = (sum02 - sum13) * IFFT_RADIX4_SCALE_FACTOR;
+    a3 = (diff02 - diff13TimesI) * IFFT_RADIX4_SCALE_FACTOR;
 }
 
-// one row of one slice per workgroup: dispatch (1, IFFT_SIZE, IFFT_NUM_WAVE_CASCADES * IFFT_NUM_SLICES), once with
-// Transpose false (rows) and once with it true (columns).
-// Each thread processes 4 elements (one full radix-4 butterfly per thread), reducing workgroup thread count by 4x.
+internal void Radix4Butterfly(uint stride, uint j,
+                              inout half4 a0, inout half4 a1, inout half4 a2, inout half4 a3)
+{
+    half2 twiddle1;
+    half2 twiddle2;
+    half2 twiddle3;
+    Radix4Twiddles(stride, j, twiddle1, twiddle2, twiddle3);
+
+    a1 = Radix4Rotate(a1, twiddle1);
+    a2 = Radix4Rotate(a2, twiddle2);
+    a3 = Radix4Rotate(a3, twiddle3);
+    Radix4Combine(a0, a1, a2, a3);
+}
+
+// reads the input element that DIT wants at `position`. the digit reversal happens here, on the global
+// read: the old LDS scatter sent all 32 lanes of a warp to one bank pair. a row is 4KB, so the scattered
+// reads stay in L1
+internal half4 Radix4LoadInput(bool transpose, uint sliceBase, uint lineCoord, uint position)
+{
+    return IfftInput[Radix4GlobalIndex(transpose, sliceBase, lineCoord, InvDigitReverse4(position))];
+}
+
+internal void Radix4LoadLds(bool transpose, uint lineIdx, uint firstElem, uint stride,
+                            out half4 a0, out half4 a1, out half4 a2, out half4 a3)
+{
+    a0 = s_Radix4Data[Radix4LdsIndex(transpose, lineIdx, firstElem)];
+    a1 = s_Radix4Data[Radix4LdsIndex(transpose, lineIdx, firstElem + stride)];
+    a2 = s_Radix4Data[Radix4LdsIndex(transpose, lineIdx, firstElem + 2u * stride)];
+    a3 = s_Radix4Data[Radix4LdsIndex(transpose, lineIdx, firstElem + 3u * stride)];
+}
+
+internal void Radix4StoreLds(bool transpose, uint lineIdx, uint firstElem, uint stride,
+                             half4 a0, half4 a1, half4 a2, half4 a3)
+{
+    s_Radix4Data[Radix4LdsIndex(transpose, lineIdx, firstElem)] = a0;
+    s_Radix4Data[Radix4LdsIndex(transpose, lineIdx, firstElem + stride)] = a1;
+    s_Radix4Data[Radix4LdsIndex(transpose, lineIdx, firstElem + 2u * stride)] = a2;
+    s_Radix4Data[Radix4LdsIndex(transpose, lineIdx, firstElem + 3u * stride)] = a3;
+}
+
+// one round of the stage 1 transpose: the lower lane of each pair swaps its (hi0, hi1) for the upper
+// lane's (lo0, lo1). each lane sends only the pair that its partner wants, so 2 shuffles instead of 4.
+// (the previous version shuffled all 4 values and threw half of them away)
+internal void Radix4ExchangePairs(bool isUpper, uint partnerLane,
+                                  inout half4 lo0, inout half4 lo1, inout half4 hi0, inout half4 hi1)
+{
+    const half4 received0 = WaveReadLaneAt(isUpper ? lo0 : hi0, partnerLane);
+    const half4 received1 = WaveReadLaneAt(isUpper ? lo1 : hi1, partnerLane);
+
+    lo0 = isUpper ? received0 : lo0;
+    lo1 = isUpper ? received1 : lo1;
+    hi0 = isUpper ? hi0 : received0;
+    hi1 = isUpper ? hi1 : received1;
+}
+
+// the radix-2 butterfly on elements j and j + N/2 of a line
+internal void Radix4TailButterfly(bool transpose, uint lineIdx, uint j, half2 twiddle)
+{
+    const uint lowIdx = Radix4LdsIndex(transpose, lineIdx, j);
+    const uint highIdx = Radix4LdsIndex(transpose, lineIdx, j + IFFT_SIZE / 2u);
+    const half4 low = s_Radix4Data[lowIdx];
+    const half4 high = Radix4Rotate(s_Radix4Data[highIdx], twiddle);
+
+    s_Radix4Data[lowIdx] = (low + high) * IFFT_RADIX2_SCALE_FACTOR;
+    s_Radix4Data[highIdx] = (low - high) * IFFT_RADIX2_SCALE_FACTOR;
+}
+
+// dispatch (1, IFFT_SIZE / 4, IFFT_NUM_WAVE_CASCADES * IFFT_NUM_SLICES) twice: Transpose false for the
+// rows, then true for the columns. the parameters are push constants on SPIR-V
 [shader("compute")]
-[numthreads(IFFT_RADIX4_THREADS, 1, 1)]
+[numthreads(IFFT_SIZE, 1, 1)]
 void IfftRadix4CS(
     uniform IfftParameters IfftParams,
     in uint3 dispatchThreadID : SV_DispatchThreadID,
     in uint3 groupID : SV_GroupID)
 {
-    using namespace Radix4;
+    const bool transpose = IfftParams.Transpose;
     const uint threadIdx = dispatchThreadID.x;
-    const uint baseLinearIndex = IFFT_SIZE * IFFT_SIZE * groupID.z;
+    const uint sliceBase = IFFT_SIZE * IFFT_SIZE * groupID.z;
 
-    // 1. Gather 4 inputs from global memory into thread registers
-    half4 in0, in1, in2, in3;
-    [unroll]
-    for (uint k = 0u; k < 4u; ++k)
+    // rows: a line's threads are contiguous, so a wave walks along one row. columns: the 4 lines
+    // interleave, so lanes 0-3 read 4 adjacent columns of one row, a full 32B sector (one column per lane
+    // used 8B of each sector)
+    const uint lineIdx = transpose ? (threadIdx & 3u) : (threadIdx / IFFT_RADIX4_THREADS);
+    const uint lineThread = transpose ? (threadIdx >> 2u) : (threadIdx % IFFT_RADIX4_THREADS);
+    const uint lineCoord = 4u * groupID.y + lineIdx;
+
+    // stage 0: DIT positions 4 * lineThread + k are one whole butterfly with every twiddle at 1, so it
+    // needs no LDS
+    const uint firstPosition = 4u * lineThread;
+    half4 v0 = Radix4LoadInput(transpose, sliceBase, lineCoord, firstPosition);
+    half4 v1 = Radix4LoadInput(transpose, sliceBase, lineCoord, firstPosition + 1u);
+    half4 v2 = Radix4LoadInput(transpose, sliceBase, lineCoord, firstPosition + 2u);
+    half4 v3 = Radix4LoadInput(transpose, sliceBase, lineCoord, firstPosition + 3u);
+    Radix4Combine(v0, v1, v2, v3);
+
+    uint firstLdsBitOffset = 2u;
+
+    // the column pass spreads 4 neighbor threads over lanes 4 apart, so stage 1 needs 16 lanes
+    if (IFFT_USE_WAVE_OPS && IFFT_WAVE_SIZE >= 16u)
     {
-        const uint coord = 4u * threadIdx + k;
-        const uint gatherCoord = InvDigitReverse4(coord);
-        uint readIndex;
-        if (IfftParams.Transpose)
-        {
-            readIndex = baseLinearIndex + IFFT_SIZE * gatherCoord + dispatchThreadID.y;
-        }
-        else
-        {
-            readIndex = baseLinearIndex + IFFT_SIZE * dispatchThreadID.y + gatherCoord;
-        }
+        // stage 1 groups 4 neighbor threads. thread m of a group has row m of a 4x4 tile (its v_k is group
+        // element 4m + k), and butterfly m wants column m. so transpose the tile: transpose each 2x2 block
+        // between threads 1 apart, then swap the off-diagonal blocks between threads 2 apart.
+        // waves are runs of consecutive threads in a 1D group, so this is the lane index
+        const uint lane = threadIdx & (IFFT_WAVE_SIZE - 1u);
+        const uint laneStride = transpose ? 4u : 1u;
+        Radix4ExchangePairs(bool(lineThread & 1u), lane ^ laneStride, v0, v2, v1, v3);
+        Radix4ExchangePairs(bool(lineThread & 2u), lane ^ (2u * laneStride), v0, v1, v2, v3);
 
-        const half4 val = IfftInput[readIndex];
-        if (k == 0u) in0 = val;
-        else if (k == 1u) in1 = val;
-        else if (k == 2u) in2 = val;
-        else in3 = val;
+        const uint j = lineThread & 3u;
+        Radix4Butterfly(4u, j, v0, v1, v2, v3);
+
+        // in the row pass this store is 4-way bank conflicted (4 contiguous lanes, then a 128B jump). the
+        // column pass is clean
+        Radix4StoreLds(transpose, lineIdx, ((lineThread >> 2u) << 4u) + j, 4u, v0, v1, v2, v3);
+        firstLdsBitOffset = 4u;
+    }
+    else
+    {
+        Radix4StoreLds(transpose, lineIdx, firstPosition, 1u, v0, v1, v2, v3);
     }
 
-    // 2. Stage 0: 100% in registers! Twiddles are identically (1.0h, 0.0h)
-    half4 v0, v1, v2, v3;
-    Radix4Combine(in0, in1, in2, in3, v0, v1, v2, v3);
-    v0 *= IFFT_RADIX4_SCALE_FACTOR;
-    v1 *= IFFT_RADIX4_SCALE_FACTOR;
-    v2 *= IFFT_RADIX4_SCALE_FACTOR;
-    v3 *= IFFT_RADIX4_SCALE_FACTOR;
-
-    // 3. Store Stage 0 outputs to single LDS buffer
-    s_Data[4u * threadIdx + 0u] = v0;
-    s_Data[4u * threadIdx + 1u] = v1;
-    s_Data[4u * threadIdx + 2u] = v2;
-    s_Data[4u * threadIdx + 3u] = v3;
     GroupMemoryBarrierWithGroupSync();
 
-    // 4. Remaining radix-4 stages via LDS (stages 1 to IFFT_LOG4_SIZE - 1)
-    for (uint bitOffset = 2u; bitOffset + 2u <= IFFT_LOG2_SIZE; bitOffset += 2u)
+    for (uint bitOffset = firstLdsBitOffset; bitOffset + 2u <= IFFT_LOG2_SIZE; bitOffset += 2u)
     {
-        const uint logStep = 1u << bitOffset;
-        const uint groupSize = logStep << 2;
-        const uint p = threadIdx / logStep;
-        const uint j = threadIdx % logStep;
-        const uint groupBase = p * groupSize;
+        const uint stride = 1u << bitOffset;
+        const uint j = lineThread & (stride - 1u);
+        const uint firstElem = ((lineThread >> bitOffset) << (bitOffset + 2u)) + j;
 
-        const uint idx0 = groupBase + j;
-        const uint idx1 = idx0 + logStep;
-        const uint idx2 = idx0 + 2u * logStep;
-        const uint idx3 = idx0 + 3u * logStep;
-
-        half4 a0 = s_Data[idx0];
-        half4 a1 = s_Data[idx1];
-        half4 a2 = s_Data[idx2];
-        half4 a3 = s_Data[idx3];
-
-        half2 tw1, tw2, tw3;
-        Radix4Twiddles(logStep, j, tw1, tw2, tw3);
-
-        a1 = half4(ComplexMul(tw1, a1.xy), ComplexMul(tw1, a1.zw));
-        a2 = half4(ComplexMul(tw2, a2.xy), ComplexMul(tw2, a2.zw));
-        a3 = half4(ComplexMul(tw3, a3.xy), ComplexMul(tw3, a3.zw));
-
-        half4 y0, y1, y2, y3;
-        Radix4Combine(a0, a1, a2, a3, y0, y1, y2, y3);
-
-        s_Data[idx0] = y0 * IFFT_RADIX4_SCALE_FACTOR;
-        s_Data[idx1] = y1 * IFFT_RADIX4_SCALE_FACTOR;
-        s_Data[idx2] = y2 * IFFT_RADIX4_SCALE_FACTOR;
-        s_Data[idx3] = y3 * IFFT_RADIX4_SCALE_FACTOR;
-
+        half4 a0;
+        half4 a1;
+        half4 a2;
+        half4 a3;
+        Radix4LoadLds(transpose, lineIdx, firstElem, stride, a0, a1, a2, a3);
+        Radix4Butterfly(stride, j, a0, a1, a2, a3);
+        Radix4StoreLds(transpose, lineIdx, firstElem, stride, a0, a1, a2, a3);
         GroupMemoryBarrierWithGroupSync();
     }
 
-    // 5. Trailing radix-2 stage for odd IFFT_LOG2_SIZE (e.g. 512, 128)
+    // odd log2 sizes: one radix-2 stage with stride N/2. each thread does butterflies j and j + N/4, and
+    // the second twiddle is the first times e^(i*pi/2) = i, so one sincos covers both
     if (IFFT_LOG4_REMAINDER != 0u)
     {
-        const uint halfSize = IFFT_SIZE >> 1u;
-        const uint quarterSize = IFFT_SIZE >> 2u;
+        float s;
+        float c;
+        sincos((OceanFft_2PI / float(IFFT_SIZE)) * float(lineThread), s, c);
+        const half2 twiddle = half2(half(c), half(s));
 
-        const uint j0 = threadIdx;
-        const uint j1 = threadIdx + quarterSize;
-
-        half4 a0 = s_Data[j0];
-        half4 b0 = s_Data[j0 + halfSize];
-        half4 a1 = s_Data[j1];
-        half4 b1 = s_Data[j1 + halfSize];
-
-        half2 rot0;
-        if (j0 == 0u)
-        {
-            rot0 = half2(1.0h, 0.0h);
-        }
-        else
-        {
-            const float theta0 = (-float(OceanFft_2PI) / float(IFFT_SIZE)) * float(j0);
-            float s0, c0;
-            sincos(theta0, s0, c0);
-            rot0 = half2(half(c0), half(-s0));
-        }
-        const half2 rot1 = half2(-rot0.y, rot0.x);
-
-        half4 rot_b0 = half4(ComplexMul(rot0, b0.xy), ComplexMul(rot0, b0.zw));
-        half4 rot_b1 = half4(ComplexMul(rot1, b1.xy), ComplexMul(rot1, b1.zw));
-
-        s_Data[j0] = (a0 + rot_b0) * IFFT_RADIX2_SCALE_FACTOR;
-        s_Data[j0 + halfSize] = (a0 - rot_b0) * IFFT_RADIX2_SCALE_FACTOR;
-        s_Data[j1] = (a1 + rot_b1) * IFFT_RADIX2_SCALE_FACTOR;
-        s_Data[j1 + halfSize] = (a1 - rot_b1) * IFFT_RADIX2_SCALE_FACTOR;
-
+        Radix4TailButterfly(transpose, lineIdx, lineThread, twiddle);
+        Radix4TailButterfly(transpose, lineIdx, lineThread + IFFT_RADIX4_THREADS, ComplexMulI(twiddle));
         GroupMemoryBarrierWithGroupSync();
     }
 
-    // 6. Write 4 outputs to global memory in natural order
+    // natural order out, in place: every read of these lines happened before the first barrier.
+    // element k * N/4 + lineThread rather than 4 * lineThread + k, so that adjacent lanes touch adjacent
+    // elements. that keeps the LDS read conflict-free and the row pass's global store coalesced
+    // (4 * lineThread + k put lanes 32B apart: a 4-way bank conflict, and 8B written per 32B sector)
     [unroll]
     for (uint k = 0u; k < 4u; ++k)
     {
-        const uint coord = 4u * threadIdx + k;
-        uint writeIndex;
-        if (IfftParams.Transpose)
-        {
-            writeIndex = baseLinearIndex + IFFT_SIZE * coord + dispatchThreadID.y;
-        }
-        else
-        {
-            writeIndex = baseLinearIndex + IFFT_SIZE * dispatchThreadID.y + coord;
-        }
-
-        IfftInput[writeIndex] = s_Data[coord];
+        const uint elemIdx = k * IFFT_RADIX4_THREADS + lineThread;
+        const half4 result = s_Radix4Data[Radix4LdsIndex(transpose, lineIdx, elemIdx)];
+        IfftInput[Radix4GlobalIndex(transpose, sliceBase, lineCoord, elemIdx)] = result;
     }
 }
