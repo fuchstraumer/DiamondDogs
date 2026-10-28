@@ -7,7 +7,7 @@
 ocean_physical_parameter_ranges:
   - name: wind_speed
     min: 0.01
-    max: 30.0
+    max: 1.0
     unit: m/s
 
   - name: fetch_length
@@ -17,7 +17,7 @@ ocean_physical_parameter_ranges:
 
   - name: swell
     min: 0.0
-    max: 30.0
+    max: 1.0
     unit: None
 
   - name: omega_ratio

@@ -743,14 +743,18 @@ void OceanScene::drawPanel()
     const ImGuiFontSet& fonts = imgui->Fonts();
     const ocean::OceanSimulationSettings& simulationSettings = simulation->Settings();
 
-    if (ocean::BeginTelemetryPanel("Ocean", fonts, headerFontMode))
+    if (ocean::BeginTelemetryPanel("Ocean", fonts, headerFontMode, &showUi))
     {
-        ocean::DrawTelemetryBanner(fonts, headerFontMode, simulationSettings);
+        ocean::DrawTelemetryBanner(fonts, headerFontMode, simulationSettings, &showUi);
         ocean::DrawSeaReadoutCard(fonts, seaState, seaReadout);
+        (void)ocean::DrawSimulationTransportBar(fonts, &paused, &timeScale, ocean::AccentTone::Amber);
+        (void)ocean::DrawTelemetryTabBar(fonts, currentTab, ocean::AccentTone::Cyan);
 
-        // every change runs the sea state pipe and recomputes the initial spectrum (cheap, but it waits for the device)
         bool seaStateChanged = false;
-        if (ocean::DrawSectionHeader("SEA STATE  //  ARTIST DOMAIN", fonts, headerFontMode, ocean::AccentTone::Cyan, true))
+
+        switch (currentTab)
+        {
+        case ocean::TelemetryTab::SeaState:
         {
             seaStateChanged |= ocean::DrawPresetGrid(fonts, seaState);
 
@@ -895,7 +899,6 @@ void OceanScene::drawPanel()
 
             ocean::DrawSubSectionDivider("AMPLITUDE ENVELOPE", fonts, headerFontMode, ocean::AccentTone::Ice);
 
-            // 1 is physical; the GodotOceanWaves and Ocean-URP references sit near 2.8
             seaStateChanged |= ocean::DrawArtistSlider(
                 "##height_scale",
                 "Height scale",
@@ -908,19 +911,10 @@ void OceanScene::drawPanel()
                 fonts,
                 ocean::AccentTone::Ice,
                 false);
+            break;
         }
 
-        if (ocean::DrawSectionHeader("SPECTRUM  //  PHYSICS DOMAIN", fonts, headerFontMode, ocean::AccentTone::Ice, false))
-        {
-            spectrumChanged |= ocean::DrawSpectrumPhysicsInspector(fonts, spectrum);
-        }
-
-        if (seaStateChanged)
-        {
-            seaStateEdited();
-        }
-
-        if (ocean::DrawSectionHeader("SURFACE  //  CASCADES & TIME", fonts, headerFontMode, ocean::AccentTone::Cyan, true))
+        case ocean::TelemetryTab::Surface:
         {
             (void)ocean::DrawArtistSlider(
                 "##choppiness",
@@ -935,7 +929,6 @@ void OceanScene::drawPanel()
                 ocean::AccentTone::Cyan,
                 false);
 
-            // each cascade fades out from this many of its own patch lengths away
             (void)ocean::DrawArtistSlider(
                 "##detail_distance",
                 "Detail distance",
@@ -962,15 +955,7 @@ void OceanScene::drawPanel()
                 ocean::AccentTone::Cyan,
                 false);
 
-            (void)ocean::DrawTelemetryToggle(
-                "##sim_paused",
-                "Simulation clock",
-                "RUNNING",
-                "PAUSED",
-                &paused,
-                fonts,
-                ocean::AccentTone::Amber);
-
+            ocean::DrawSubSectionDivider("CASCADE BANDS", fonts, headerFontMode, ocean::AccentTone::Cyan);
             ocean::DrawCascadeBandStrip(fonts, simulationSettings.LengthScales, cascadeEnabled);
 
             (void)ocean::DrawTelemetryToggle(
@@ -981,9 +966,10 @@ void OceanScene::drawPanel()
                 &rotateCascades,
                 fonts,
                 ocean::AccentTone::Amber);
+            break;
         }
 
-        if (ocean::DrawSectionHeader("FOAM & WHITECAPS  //  COVERAGE & DYNAMICS", fonts, headerFontMode, ocean::AccentTone::Ice, true))
+        case ocean::TelemetryTab::Foam:
         {
             (void)ocean::DrawArtistSlider(
                 "##whitecap_threshold",
@@ -1024,6 +1010,7 @@ void OceanScene::drawPanel()
                 ocean::AccentTone::Ice,
                 false);
 
+            ocean::DrawSubSectionDivider("PER-CASCADE WEIGHTS", fonts, headerFontMode, ocean::AccentTone::Ice);
             for (uint32_t cascade = 0u; cascade < ocean::k_CascadeCount; ++cascade)
             {
                 const std::string sliderId = std::format("##foam_weight_{}", cascade);
@@ -1097,9 +1084,22 @@ void OceanScene::drawPanel()
                 fonts,
                 ocean::AccentTone::Ice,
                 false);
+            break;
         }
 
-        if (ocean::DrawSectionHeader("SCENE  //  ENVIRONMENT & UI", fonts, headerFontMode, ocean::AccentTone::Amber, false))
+        case ocean::TelemetryTab::Physics:
+        {
+            spectrumChanged |= ocean::DrawSpectrumPhysicsInspector(fonts, spectrum);
+            break;
+        }
+
+        case ocean::TelemetryTab::Timings:
+        {
+            drawTimingsPanel();
+            break;
+        }
+
+        case ocean::TelemetryTab::Scene:
         {
             (void)ocean::DrawArtistSlider(
                 "##seabed_depth",
@@ -1161,12 +1161,17 @@ void OceanScene::drawPanel()
             ImGui::PushFont(fonts.BodyItalic);
             ImGui::TextColored(ImVec4{ 0.48f, 0.60f, 0.72f, 1.0f }, "Left drag: orbit   |   Right/middle drag: pan   |   Wheel: zoom");
             ImGui::PopFont();
+            break;
+        }
         }
 
-        drawTimingsPanel();
-    }
+        if (seaStateChanged)
+        {
+            seaStateEdited();
+        }
 
-    ocean::EndTelemetryPanel();
+        ocean::EndTelemetryPanel();
+    }
 }
 
 void OceanScene::drawPersistentFoamControls()
@@ -1333,6 +1338,10 @@ void OceanScene::update()
     if (showUi)
     {
         drawPanel();
+    }
+    else
+    {
+        (void)ocean::DrawRestoreMenuButton(imgui->Fonts(), &showUi);
     }
 
     // the foam advances by the same step as the simulation time, so a paused sea holds its foam

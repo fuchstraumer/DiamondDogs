@@ -7,7 +7,7 @@ __include OceanFftGenerated;
 internal float GetDimensionlessFetch(in float fetch, in float windSpeed)
 {
     // 1000.0f = 1km in meters, and we divide by windSpeed^2 to get a dimensionless number
-    return abs((fetch * 1000.0f * OceanFft_G) / (windSpeed * windSpeed));
+    return min(abs((fetch * 1000.0f * OceanFft_G) / (windSpeed * windSpeed)), 1e6f);
 }
 
 internal float GetJonswapAlpha(in float dimensionlessFetch)
@@ -36,8 +36,10 @@ internal float KitaiGorodskiiDepthCorrection(in float omega, in float depth)
     // (which isn't happening), but this is a good compromise and is nice and branchless and still clamped
     // bizarrely, horvath's own tanh approximation is actually a worse fit than all of the alternatives. i think he chose it for boundary
     // condition handling happening gracefully
-    const float omegaH = omega * sqrt(depth * OceanFft_InvG);
-    return smoothstep(0.0f, 2.0f, omegaH);
+    const float omegaH = clamp(omega * sqrt(depth * OceanFft_InvG), 0.0f, 2.0f);
+    const float low = 0.5f * omegaH * omegaH;
+    const float high = 1.0f - 0.5f * (2.0f - omegaH) * (2.0f - omegaH);
+    return (omegaH <= 1.0f) ? low : high;
 }
 
 // all ocean spectra are some form of alpha-beta spectrum, so I'm implementing this here to try and shove it into my brain
@@ -112,7 +114,11 @@ internal float DonelanBannerBeta(in float omega, in float peakOmega)
 {
     // Watching occupancy and VGPRs get bigger the more of this we implement.... sad
     const float omegaOverPeakOmega = omega / peakOmega;
-    if (omegaOverPeakOmega < 0.95f)
+    if (omegaOverPeakOmega < 0.56f)
+    {
+        return 1.24f;
+    }
+    else if (omegaOverPeakOmega < 0.95f)
     {
         return 2.61f * pow(omegaOverPeakOmega, 1.3f);
     }

@@ -50,7 +50,7 @@ def donelan_banner_beta(omega_ratio: np.ndarray) -> np.ndarray:
     """ Donelan-Banner beta for omega / peakOmega, the same branches as DonelanBannerBeta in Spectra.slang """
     x = np.asarray(omega_ratio, dtype=np.float64)
     high = 10.0 ** (-0.4 + 0.8393 * np.exp(-0.567 * np.log(x * x)))
-    return np.where(x < 0.95, 2.61 * x ** 1.3, np.where(x < 1.6, 2.28 * x ** -1.3, high))
+    return np.where(x < 0.56, 1.24, np.where(x < 0.95, 2.61 * x ** 1.3, np.where(x < 1.6, 2.28 * x ** -1.3, high)))
 
 
 def calculate_parameter_space(wind_speed_bounds: ValueBounds,
@@ -77,7 +77,8 @@ def calculate_parameter_space(wind_speed_bounds: ValueBounds,
     fetch_space = np.linspace(fetch_length_bounds.min, fetch_length_bounds.max, axis_resolution)
     swell_space = np.linspace(swell_bounds.min, swell_bounds.max, axis_resolution)
     # The important factor shaping the spreading is the ratio of omega to peakOmega, so thankfully we can just evaluate the ratio space directly
-    omega_ratio_space = np.linspace(ratio_min, ratio_max, axis_resolution)
+    breakpoints = np.array([b for b in (0.56, float(np.nextafter(0.95, 0.0)), 0.95, 1.0, 1.6) if ratio_min <= b <= ratio_max], dtype=np.float64)
+    omega_ratio_space = np.unique(np.concatenate([np.linspace(ratio_min, ratio_max, axis_resolution), breakpoints]))
 
     wind_speed_grid, fetch_grid, swell_grid, omega_ratio_grid = np.meshgrid(wind_speed_space, fetch_space, swell_space, omega_ratio_space, indexing='ij')
 
@@ -85,12 +86,12 @@ def calculate_parameter_space(wind_speed_bounds: ValueBounds,
     # chi = dimensionless fetch
     g = 9.81
     # important note: fetch_grid is in km, so we multiply by 1000 to convert to m for the dimensionless fetch calculation!
-    chi = (g * fetch_grid * 1000.0) / (wind_speed_grid ** 2)
+    chi = np.minimum((g * fetch_grid * 1000.0) / (wind_speed_grid ** 2), 1.0e6)
     nu_peak = 3.5 * (chi ** -0.33)
     peakOmega = 2 * np.pi * nu_peak * g / wind_speed_grid
 
     # Swell s - additive factor to the spreading function based on swell
-    s_swell = 16.1 * np.tanh(1.0 / omega_ratio_grid) * (swell_grid**2)
+    s_swell = np.minimum(16.1 * np.tanh(1.0 / omega_ratio_grid) * (swell_grid**2), 16.0)
     s_swell_bounds = ValueBounds(max(0.0, float(np.min(s_swell))), float(np.max(s_swell)))
 
     # Hasselman s - the spreading factor based on the Hasselman model
@@ -418,7 +419,7 @@ def write_cpp_lut(output_dir: Path, array_name: str, data: np.ndarray, width: in
     write_if_changed(output_dir / f"{array_name}.cpp", source.getvalue())
 
 
-def generate_db_lut_sampling_function(beta_bounds: ValueBounds, swell_bounds: ValueBounds) -> str:
+def generate_db_lut_sampling_function(beta_bounds: ValueBounds, swell_bounds: ValueBounds, resolution: int = 256) -> str:
     """
     Generates SampleDonelanBannerLUT. It reads the normTexture and normSampler globals directly: the cook records
     sampler and texture pairs by tracing them back to bound variables, which a function parameter hides. SampleLevel,
@@ -426,6 +427,8 @@ def generate_db_lut_sampling_function(beta_bounds: ValueBounds, swell_bounds: Va
     """
     beta_range = beta_bounds.max - beta_bounds.min
     swell_range = swell_bounds.max - swell_bounds.min
+    uv_scale = (resolution - 1.0) / resolution
+    uv_bias = 0.5 / resolution
 
     lines = [
         "// Donelan-Banner normalization Q(beta, s) from the LUT: x = beta (linear), y = swell s (square root mapped)",
@@ -433,7 +436,8 @@ def generate_db_lut_sampling_function(beta_bounds: ValueBounds, swell_bounds: Va
         "{",
         f"    const float u = saturate((beta - {slang_float(beta_bounds.min)}) / {slang_float(beta_range)});",
         f"    const float v = sqrt(saturate((swell - {slang_float(swell_bounds.min)}) / {slang_float(swell_range)}));",
-        "    return normTexture.SampleLevel(normSampler, float2(u, v), 0.0f).r;",
+        f"    const float2 uv = mad(float2(u, v), {slang_float(uv_scale)}, {slang_float(uv_bias)});",
+        "    return normTexture.SampleLevel(normSampler, uv, 0.0f).r;",
         "}",
         "",
     ]
@@ -518,5 +522,5 @@ if __name__ == "__main__":
 
     mitsuyasu_str = get_polynomial_fit_function_str(S_MitsuyasuBounds, "Mitsuyasu", config_args["mitsuyasu_polynomial_degree"])
     hasselman_str = get_polynomial_fit_function_str(S_HasselmanBounds, "Hasselman", config_args["hasselmann_polynomial_degree"])
-    sampling_function_str = generate_db_lut_sampling_function(BetaBounds, S_SwellBounds)
+    sampling_function_str = generate_db_lut_sampling_function(BetaBounds, S_SwellBounds, db_params.resolution)
     write_shader_snippets_to_file(shader_dir, "OceanFftGenerated.slang", [mitsuyasu_str, hasselman_str, sampling_function_str])
