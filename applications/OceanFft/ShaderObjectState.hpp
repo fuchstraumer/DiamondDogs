@@ -12,8 +12,11 @@ struct ShaderObjectDrawState
     bool DepthWrite{ true };
     bool AlphaBlend{ false };
     VkCullModeFlags CullMode{ VK_CULL_MODE_NONE };
+    VkPolygonMode PolygonMode{ VK_POLYGON_MODE_FILL };
     /** @brief Must match the sample count of the attachments being rendered to */
     VkSampleCountFlagBits Samples{ VK_SAMPLE_COUNT_1_BIT };
+    VkLineRasterizationModeEXT LineRasterizationMode{ VK_LINE_RASTERIZATION_MODE_DEFAULT_EXT };
+    bool LineStippleEnable{ false };
 };
 
 /** @brief Loads the EXT entry points. Call once, after the device exists */

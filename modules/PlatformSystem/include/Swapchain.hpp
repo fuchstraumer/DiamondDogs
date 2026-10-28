@@ -3,7 +3,7 @@
 #define DIAMOND_DOGS_PLATFORM_SYSTEM_SWAPCHAIN_HPP
 #include "PlatformTypes.hpp"
 #include "ImageDataFormats.hpp"
-#include "Math.hpp"
+#include "math/Math.hpp"
 #include <cstdint>
 #include <chrono>
 #include <memory>

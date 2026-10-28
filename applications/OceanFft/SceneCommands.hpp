@@ -18,6 +18,8 @@
  *  comment. The same commands come from --script=file and, with --stdin, from standard input between frames.
  *
  *    camera yaw pitch distance [tx ty tz]   set the orbit camera (absolute)
+ *    camera_reset                          reset the orbit camera to its default view
+ *    lookat ex ey ez tx ty tz              set the camera from eye and target world coordinates
  *    orbit dyaw dpitch                     turn the camera around its target
  *    pan dx dy                             move the target in the view plane, in viewport heights
  *    move dx dy dz                         move the target in world space
@@ -40,11 +42,26 @@
  *                                          removes its specular), specular (0 to 2, the sun highlight scale, 0 is off),
  *                                          albedo (0 to 4, the brightness gain of the foam texture), normal (0 to 2, its normal strength)
  *    foamreset                             rebuild the persistent foam by replaying its history
- *    rotate on|off                       rotate and offset each cascade's lattice when sampled (tiling A/B)
+ *    rotate on|off                         rotate and offset each cascade's lattice when sampled (tiling A/B)
+ *    sky preset                            set the sky preset (preetham, aurora, day, night, overcast, twilight)
+ *    sky_res 8k|16k                        set sky texture resolution (8k downsampled or 16k full)
+ *    sky_intensity value                   set sky radiance multiplier
+ *    tonemap name                          set tonemapper (agx, neutral, passthrough, falsecolor)
+ *    exposure ev                           set exposure in EV stops
+ *    bloom on|off                          enable or disable bloom
+ *    bloom intensity [scatter]             set bloom intensity and optional scatter
+ *    cdlod on|off                          enable or disable CDLOD terrain tessellation
+ *    cdlod_scale value                     set CDLOD LOD distance multiplier
+ *    cdlod_morph value                     set CDLOD morph start ratio (0.1 to 0.95)
+ *    cdlod_max_level value                 set CDLOD maximum subdivision level (1 to 14, 0 for auto)
+ *    wireframe on|off                      enable or disable wireframe polygon mode
+ *    brdf field value                      set BRDF parameter: sss, leadr, foam_roughness, seabed_roughness
+ *    async_compute on|off                  enable or disable async compute execution
  *    capture [name]                        write this frame to <capture dir>/<name>.png. The commands after it
  *                                          run on the next frame, so the capture sees only the ones before it
+ *    sync [token]                          flush device idle, flush captures, and print READY <token> frame=<frame>
  *    wait frames                           render this many frames before the next command
- *    print                                 print the camera, the time, the sea state and the enabled cascades to stdout
+ *    print                                 print the camera, sky, tonemap, exposure, bloom, CDLOD, sea state, and cascades
  *    quit
  */
 struct SceneCommand
@@ -52,6 +69,8 @@ struct SceneCommand
     enum class Kind : uint8_t
     {
         Camera,
+        CameraReset,
+        LookAt,
         Orbit,
         Pan,
         Move,
@@ -69,7 +88,22 @@ struct SceneCommand
         Shading,
         FoamReset,
         Rotate,
+        Sky,
+        SkyRes,
+        SkyIntensity,
+        Tonemap,
+        Exposure,
+        Bloom,
+        Cdlod,
+        CdlodScale,
+        CdlodMorph,
+        CdlodMaxLevel,
+        Wireframe,
+        Brdf,
+        AsyncCompute,
+        Tab,
         Capture,
+        Sync,
         Wait,
         Print,
         Quit,

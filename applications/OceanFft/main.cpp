@@ -103,6 +103,21 @@ namespace
         return std::filesystem::path{ OCEAN_FFT_MANIFEST };
     }
 
+    std::filesystem::path FindColorPipeManifest()
+    {
+        std::array<wchar_t, 32768> modulePath{};
+        const DWORD length = GetModuleFileNameW(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
+        const std::filesystem::path beside = std::filesystem::path{ std::wstring_view{ modulePath.data(), length } }.parent_path() / "ColorPipe.ldmanifest";
+        std::error_code error;
+
+        if (length != 0u && std::filesystem::exists(beside, error))
+        {
+            return beside;
+        }
+
+        return std::filesystem::path{ OCEAN_FFT_COLOR_PIPE_MANIFEST };
+    }
+
     std::filesystem::path FindFonts()
     {
         std::array<wchar_t, 32768> modulePath{};
@@ -134,6 +149,22 @@ namespace
         }
 
         return std::filesystem::path{ OCEAN_FFT_FOAM_DIR };
+    }
+
+    std::filesystem::path FindSeabedMaterialDirectory()
+    {
+        std::array<wchar_t, 32768> modulePath{};
+        const DWORD length = GetModuleFileNameW(nullptr, modulePath.data(), static_cast<DWORD>(modulePath.size()));
+        const std::filesystem::path besideDirectory = std::filesystem::path{ std::wstring_view{ modulePath.data(), length } }.parent_path();
+        const std::filesystem::path besideFile = besideDirectory / (std::string{ OCEAN_FFT_SEABED_NAME } + "_Albedo.ktx");
+        std::error_code error;
+
+        if (length != 0u && std::filesystem::exists(besideFile, error))
+        {
+            return besideDirectory;
+        }
+
+        return std::filesystem::path{ OCEAN_FFT_SEABED_DIR };
     }
 
     template<typename T>
@@ -317,9 +348,12 @@ int main(int argc, char* argv[])
 
     OceanSceneSettings settings{};
     settings.ManifestPath = FindManifest();
+    settings.ColorPipeManifestPath = FindColorPipeManifest();
     settings.FontDirectory = FindFonts();
     settings.FoamMaterialDirectory = FindFoamMaterialDirectory();
     settings.FoamMaterialName = OCEAN_FFT_FOAM_NAME;
+    settings.SeabedMaterialDirectory = FindSeabedMaterialDirectory();
+    settings.SeabedMaterialName = OCEAN_FFT_SEABED_NAME;
     settings.ValidationEnabled = rhiCreateInfo.ValidationLevel != rhi::ValidationLayers::None;
     CommandLine commandLine{};
     ParseArguments(argc, argv, settings, commandLine);

@@ -33,6 +33,8 @@ namespace
     const std::unordered_map<std::string_view, CommandShape> k_Commands
     {
         { "camera", { SceneCommand::Kind::Camera, 3u, 6u, false } },
+        { "camera_reset", { SceneCommand::Kind::CameraReset, 0u, 0u, false } },
+        { "lookat", { SceneCommand::Kind::LookAt, 6u, 6u, false } },
         { "orbit", { SceneCommand::Kind::Orbit, 2u, 2u, false } },
         { "pan", { SceneCommand::Kind::Pan, 2u, 2u, false } },
         { "move", { SceneCommand::Kind::Move, 3u, 3u, false } },
@@ -50,7 +52,22 @@ namespace
         { "shading", { SceneCommand::Kind::Shading, 0u, 0u, false } },
         { "foamreset", { SceneCommand::Kind::FoamReset, 0u, 0u, false } },
         { "rotate", { SceneCommand::Kind::Rotate, 0u, 0u, true } },
+        { "sky", { SceneCommand::Kind::Sky, 0u, 0u, false } },
+        { "sky_res", { SceneCommand::Kind::SkyRes, 0u, 0u, true } },
+        { "sky_intensity", { SceneCommand::Kind::SkyIntensity, 1u, 1u, false } },
+        { "tonemap", { SceneCommand::Kind::Tonemap, 0u, 0u, false } },
+        { "exposure", { SceneCommand::Kind::Exposure, 1u, 1u, false } },
+        { "bloom", { SceneCommand::Kind::Bloom, 0u, 0u, false } },
+        { "cdlod", { SceneCommand::Kind::Cdlod, 0u, 0u, true } },
+        { "cdlod_scale", { SceneCommand::Kind::CdlodScale, 1u, 1u, false } },
+        { "cdlod_morph", { SceneCommand::Kind::CdlodMorph, 1u, 1u, false } },
+        { "cdlod_max_level", { SceneCommand::Kind::CdlodMaxLevel, 1u, 1u, false } },
+        { "wireframe", { SceneCommand::Kind::Wireframe, 0u, 0u, true } },
+        { "brdf", { SceneCommand::Kind::Brdf, 0u, 0u, false } },
+        { "async_compute", { SceneCommand::Kind::AsyncCompute, 0u, 0u, true } },
+        { "tab", { SceneCommand::Kind::Tab, 0u, 0u, true } },
         { "capture", { SceneCommand::Kind::Capture, 0u, 0u, true } },
+        { "sync", { SceneCommand::Kind::Sync, 0u, 0u, true } },
         { "wait", { SceneCommand::Kind::Wait, 1u, 1u, false } },
         { "print", { SceneCommand::Kind::Print, 0u, 0u, false } },
         { "quit", { SceneCommand::Kind::Quit, 0u, 0u, false } },
@@ -83,6 +100,11 @@ namespace
     const std::array<std::string_view, 4> k_ShadingFields
     {
         "underwater", "specular", "albedo", "normal"
+    };
+
+    const std::array<std::string_view, 4> k_BrdfFields
+    {
+        "sss", "leadr", "foam_roughness", "seabed_roughness"
     };
 
     std::vector<std::string_view> SplitWords(std::string_view line)
@@ -122,6 +144,10 @@ namespace
     std::expected<SceneCommand, std::string> ParseFoamWeight(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseFoam(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseShading(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSky(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseTonemap(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseBloom(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseBrdf(const std::vector<std::string_view>& words);
 }
 
 std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view line)
@@ -174,6 +200,26 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
         return ParseShading(words);
     }
 
+    if (shape.Kind == Kind::Sky)
+    {
+        return ParseSky(words);
+    }
+
+    if (shape.Kind == Kind::Tonemap)
+    {
+        return ParseTonemap(words);
+    }
+
+    if (shape.Kind == Kind::Bloom)
+    {
+        return ParseBloom(words);
+    }
+
+    if (shape.Kind == Kind::Brdf)
+    {
+        return ParseBrdf(words);
+    }
+
     SceneCommand command{};
     command.Type = shape.Kind;
     if (shape.TakesText)
@@ -184,10 +230,16 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
         }
 
         command.Text = words.size() == 2u ? std::string{ words[1] } : std::string{};
-        const bool takesOnOff = command.Type == Kind::Pause || command.Type == Kind::Ui || command.Type == Kind::Rotate;
+        const bool takesOnOff = command.Type == Kind::Pause || command.Type == Kind::Ui || command.Type == Kind::Rotate ||
+                                command.Type == Kind::Cdlod || command.Type == Kind::Wireframe || command.Type == Kind::AsyncCompute;
         if (takesOnOff && command.Text != "on" && command.Text != "off")
         {
             return std::unexpected(std::string{ words[0] } + " takes on or off");
+        }
+
+        if (command.Type == Kind::SkyRes && command.Text != "8k" && command.Text != "16k")
+        {
+            return std::unexpected(std::string{ "sky_res takes 8k or 16k" });
         }
 
         return command;
@@ -335,7 +387,7 @@ std::vector<SceneCommand> SceneCommands::TakeForFrame()
         }
 
         // a capture takes this frame as the commands so far left it, so the ones after it wait for the next frame
-        const bool endsFrame = parsed->Type == SceneCommand::Kind::Capture;
+        const bool endsFrame = parsed->Type == SceneCommand::Kind::Capture || parsed->Type == SceneCommand::Kind::Sync;
         commands.push_back(std::move(*parsed));
         if (endsFrame)
         {
@@ -386,6 +438,11 @@ namespace
             }
 
             name += words[i];
+        }
+
+        if (EqualsIgnoreCase(name, "storm"))
+        {
+            name = "GaleFoam";
         }
 
         if (FindSeaStatePreset(name) == nullptr)
@@ -550,6 +607,194 @@ namespace
 
         SceneCommand command{};
         command.Type = SceneCommand::Kind::Shading;
+        command.Text = std::string{ *field };
+        command.Values[0] = value;
+        command.ValueCount = 1u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSky(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u)
+        {
+            return std::unexpected(std::string{ "sky takes a preset name" });
+        }
+
+        std::string name;
+        for (size_t i = 1; i < words.size(); ++i)
+        {
+            if (i > 1u)
+            {
+                name += '_';
+            }
+            name += words[i];
+        }
+
+        std::string lower;
+        lower.reserve(name.size());
+        for (char c : name)
+        {
+            lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        }
+
+        std::string canonical;
+        if (lower == "preetham" || lower == "analytic_preetham" || lower == "analytic preetham")
+        {
+            canonical = "preetham";
+        }
+        else if (lower == "aurora" || lower == "auroral" || lower == "auroral_night" || lower == "auroral night")
+        {
+            canonical = "aurora";
+        }
+        else if (lower == "day" || lower == "bright_day" || lower == "bright day")
+        {
+            canonical = "day";
+        }
+        else if (lower == "night" || lower == "starry_night" || lower == "starry night")
+        {
+            canonical = "night";
+        }
+        else if (lower == "overcast" || lower == "overcast_evening" || lower == "overcast evening")
+        {
+            canonical = "overcast";
+        }
+        else if (lower == "twilight")
+        {
+            canonical = "twilight";
+        }
+        else
+        {
+            return std::unexpected(std::string{ "sky: unknown preset '" } + name + "'");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Sky;
+        command.Text = std::move(canonical);
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseTonemap(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u)
+        {
+            return std::unexpected(std::string{ "tonemap takes a tonemapper name" });
+        }
+
+        std::string name;
+        for (size_t i = 1; i < words.size(); ++i)
+        {
+            if (i > 1u)
+            {
+                name += '_';
+            }
+            name += words[i];
+        }
+
+        std::string lower;
+        lower.reserve(name.size());
+        for (char c : name)
+        {
+            lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        }
+
+        std::string canonical;
+        if (lower == "agx")
+        {
+            canonical = "agx";
+        }
+        else if (lower == "neutral" || lower == "khronos_neutral" || lower == "khronos neutral")
+        {
+            canonical = "neutral";
+        }
+        else if (lower == "passthrough")
+        {
+            canonical = "passthrough";
+        }
+        else if (lower == "falsecolor" || lower == "false_color" || lower == "false_color_ev" || lower == "false color" || lower == "false color ev")
+        {
+            canonical = "falsecolor";
+        }
+        else
+        {
+            return std::unexpected(std::string{ "tonemap: unknown tonemapper '" } + name + "'");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Tonemap;
+        command.Text = std::move(canonical);
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseBloom(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u || words.size() > 3u)
+        {
+            return std::unexpected(std::string{ "bloom takes on|off or <intensity> [scatter]" });
+        }
+
+        if (words[1] == "on" || words[1] == "off")
+        {
+            if (words.size() != 2u)
+            {
+                return std::unexpected(std::string{ "bloom on|off takes no other arguments" });
+            }
+
+            SceneCommand command{};
+            command.Type = SceneCommand::Kind::Bloom;
+            command.Text = std::string{ words[1] };
+            return command;
+        }
+
+        float intensity = 0.0f;
+        if (!ParseFloat(words[1], intensity))
+        {
+            return std::unexpected(std::string{ "bloom: '" } + std::string{ words[1] } + "' is not a number or on|off");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Bloom;
+        command.Values[0] = intensity;
+        command.ValueCount = 1u;
+
+        if (words.size() == 3u)
+        {
+            float scatter = 0.0f;
+            if (!ParseFloat(words[2], scatter))
+            {
+                return std::unexpected(std::string{ "bloom: '" } + std::string{ words[2] } + "' is not a number");
+            }
+            command.Values[1] = scatter;
+            command.ValueCount = 2u;
+        }
+
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseBrdf(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "brdf takes a field and a value" });
+        }
+
+        const auto field = std::ranges::find_if(k_BrdfFields, [&words](std::string_view name)
+        {
+            return EqualsIgnoreCase(name, words[1]);
+        });
+
+        if (field == k_BrdfFields.end())
+        {
+            return std::unexpected(std::string{ "brdf: unknown field '" } + std::string{ words[1] } + "'");
+        }
+
+        float value = 0.0f;
+        if (!ParseFloat(words[2], value))
+        {
+            return std::unexpected(std::string{ "brdf: '" } + std::string{ words[2] } + "' is not a number");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Brdf;
         command.Text = std::string{ *field };
         command.Values[0] = value;
         command.ValueCount = 1u;

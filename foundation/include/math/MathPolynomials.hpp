@@ -18,7 +18,7 @@ namespace math::detail
 
 // 2^f on [-0.5, 0.5]: 2^f = e^(f ln2), so term n is ln2^n / n!. Six terms leaves
 // (ln2^7 / 7!) * 0.5^7 ~= 1.2e-7, under one float ulp - a minimax fit would save an op, not accuracy.
-constexpr float k_Exp2Poly1 = std::numbers::ln2_v<float>;    // ln2
+constexpr float k_Exp2Poly1 = 0.693147181f;    // ln2
 constexpr float k_Exp2Poly2 = 0.240226507f;    // ln2^2 / 2
 constexpr float k_Exp2Poly3 = 0.0555041087f;   // ln2^3 / 6
 constexpr float k_Exp2Poly4 = 0.00961812911f;  // ln2^4 / 24

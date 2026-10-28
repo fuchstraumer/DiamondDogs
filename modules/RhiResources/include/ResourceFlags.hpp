@@ -148,6 +148,12 @@ enum class BufferUsageBits : uint64_t
     AllIndirect = IndirectCompute | IndirectDraw | IndirectRaytracing,
     AllTransfer = CopySource | CopyDestination,
 
+    // Aliases for common buffer roles
+    StorageBuffer = AllShaderSRV | AllShaderUAV,
+    IndexBuffer = VertexOrIndex,
+    TransferDst = CopyDestination,
+    IndirectBuffer = AllIndirect,
+
     // Collected flags for pipeline stages
     AllVertexStage = VertexShaderUBO | VertexShaderSRV | VertexShaderUAV,
     AllFragmentStage = FragmentShaderUBO | FragmentShaderSRV | FragmentShaderUAV,

@@ -13,6 +13,7 @@ class ResourceContext;
 
 namespace rhi
 {
+    class GpuTimerBlock;
     struct CommandBuffer;
     class Device;
     class ShaderLibrary;
@@ -86,7 +87,7 @@ namespace ocean
         void FillView(std::array<float, 4>& persistent_foam_parameters, std::array<float, 4>& foam_drift, std::array<float, 4>& foam_residual) const noexcept;
         /** @brief Records the barriers and the dispatch that integrate one step. Records only a one-time layout
          *  change while the foam is disabled. frame_index selects the descriptor set of that frame's view buffer */
-        void RecordStep(rhi::CommandBuffer& command_buffer, uint32_t frame_index);
+        void RecordStep(rhi::CommandBuffer& command_buffer, uint32_t frame_index, rhi::GpuTimerBlock* timer_block = nullptr);
         /** @brief Makes the next RecordStep clear the foam */
         void Invalidate() noexcept;
 

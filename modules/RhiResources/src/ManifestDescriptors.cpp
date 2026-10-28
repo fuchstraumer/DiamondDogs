@@ -120,7 +120,11 @@ std::optional<std::string> WriteManifestDescriptors(
                 continue;
             }
 
-            const auto found = resources.find(resource.Name());
+            auto found = resources.find(resource.Name());
+            if (found == resources.end() && !resource.ScopeName().empty())
+            {
+                found = resources.find(resource.ScopeName());
+            }
             if (found == resources.end())
             {
                 return std::format("{} reads {}, which this host does not provide", entryPoint, resource.Name());
@@ -183,12 +187,17 @@ std::optional<std::string> WriteManifestPointerAddresses(
                 continue;
             }
 
-            if (!written.insert(resource.Name()).second)
+            const std::string_view identifier = !resource.ScopeName().empty() ? resource.ScopeName() : resource.Name();
+            if (!written.insert(identifier).second)
             {
                 continue;
             }
 
-            const auto found = resources.find(resource.Name());
+            auto found = resources.find(resource.Name());
+            if (found == resources.end() && !resource.ScopeName().empty())
+            {
+                found = resources.find(resource.ScopeName());
+            }
             if (found == resources.end())
             {
                 return std::format("{} reads {}, which this host does not provide", entryPoint, resource.Name());

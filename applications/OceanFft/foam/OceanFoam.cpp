@@ -1,4 +1,6 @@
 #include "OceanFoam.hpp"
+#include "GpuTimers.hpp"
+#include "RhiSystem.hpp"
 #include "CommandBuffer.hpp"
 #include "Device.hpp"
 #include "ImageDataFormats.hpp"
@@ -86,7 +88,7 @@ namespace ocean
         bool LayoutReady{ false };
 
         void RecordLayoutChange(rhi::CommandBuffer& command_buffer);
-        void RecordDispatch(rhi::CommandBuffer& command_buffer, uint32_t frame_index);
+        void RecordDispatch(rhi::CommandBuffer& command_buffer, uint32_t frame_index, rhi::GpuTimerBlock* timer_block);
     };
 
     OceanFoamImpl::~OceanFoamImpl()
@@ -124,8 +126,14 @@ namespace ocean
         LayoutReady = true;
     }
 
-    void OceanFoamImpl::RecordDispatch(rhi::CommandBuffer& command_buffer, uint32_t frame_index)
+    void OceanFoamImpl::RecordDispatch(rhi::CommandBuffer& command_buffer, uint32_t frame_index, rhi::GpuTimerBlock* timer_block)
     {
+        std::optional<rhi::ScopedGpuTimer> timer;
+        if (timer_block != nullptr)
+        {
+            timer.emplace(*timer_block, "Foam step");
+        }
+
         // the simulation wrote Displacement, Derivatives and Whitecaps (and the last frame's draws sampled the clipmap), and this
         // step reads both and rewrites the clipmap in place
         const rhi::GlobalBarrier inputsToStep
@@ -189,6 +197,8 @@ namespace ocean
         }
 
         impl->ClipmapImage = imageReply->GetResource();
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->ClipmapImage.VkHandle, "Ocean_FoamClipmap_Image");
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->ClipmapImage.VkViewHandle, "Ocean_FoamClipmap_View");
 
         rhi::ShaderLibraryResult<const lodestone::ManifestIndex*> index = library.ModuleIndex(k_RenderModule);
 
@@ -214,6 +224,7 @@ namespace ocean
         }
 
         impl->Program = std::move(*program);
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT, impl->Program->PipelineLayout().Get(), "OceanFoam_PipelineLayout");
 
         // per set: the view uniform, Displacement, Derivatives and Whitecaps, the sampler, and the clipmap as a storage image
         const uint32_t setCount = static_cast<uint32_t>(view_buffers.size());
@@ -231,6 +242,7 @@ namespace ocean
         {
             return std::unexpected(std::string{ "foam descriptor pool creation failed" });
         }
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(impl->DescriptorPool), "OceanFoam_DescriptorPool");
 
         const VkDescriptorSetLayout setLayout = impl->Program->SetLayouts()[0].As<VkDescriptorSetLayout>();
 
@@ -243,6 +255,7 @@ namespace ocean
             {
                 return std::unexpected(std::string{ "foam descriptor set allocation failed" });
             }
+            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(set), std::format("OceanFoam_DescriptorSet_{}", impl->Sets.size() - 1u).c_str());
 
             // the compute passes keep every texture in General
             const BoundResources bound
@@ -311,7 +324,7 @@ namespace ocean
         foam_residual = { settings.ResidualAmount, settings.ResidualSoftness, settings.TextureTileSize, 0.0f };
     }
 
-    void OceanFoam::RecordStep(rhi::CommandBuffer& command_buffer, uint32_t frame_index)
+    void OceanFoam::RecordStep(rhi::CommandBuffer& command_buffer, uint32_t frame_index, rhi::GpuTimerBlock* timer_block)
     {
         // the draws bind the clipmap in General even while the foam is off, so the layout change happens once, here
         if (!impl->LayoutReady)
@@ -326,7 +339,7 @@ namespace ocean
             return;
         }
 
-        impl->RecordDispatch(command_buffer, frame_index);
+        impl->RecordDispatch(command_buffer, frame_index, timer_block);
         impl->PreviousOrigins = impl->Origins;
         impl->HasHistory = true;
     }

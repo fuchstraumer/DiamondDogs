@@ -7,3 +7,21 @@ OceanResolveCS = ["IFFT_USE_WAVE_OPS", "IFFT_WAVE_SIZE"]
 
 [OceanFft.targets.wgsl]
 MaxVariants = 64
+
+[OceanRender.InertAxesForEntryPoints]
+OceanSurfaceVS = ["OCEAN_USE_WAVE_OPS", "OCEAN_WAVE_SIZE"]
+OceanFoamStepCS = ["OCEAN_USE_WAVE_OPS", "OCEAN_WAVE_SIZE"]
+SeabedVS = ["OCEAN_USE_WAVE_OPS", "OCEAN_WAVE_SIZE"]
+SeabedFS = ["OCEAN_USE_WAVE_OPS", "OCEAN_WAVE_SIZE"]
+
+[OceanRender.targets.spirv]
+MaxVariants = 8
+
+[Quadtree.InertAxesForEntryPoints]
+QuadtreeBuildIndirectArgsCS = ["QUADTREE_USE_WAVE_OPS", "QUADTREE_WAVE_SIZE"]
+
+[Quadtree.targets.spirv]
+MaxVariants = 8
+
+[OceanEnvironment.targets.spirv]
+MaxVariants = 1

@@ -357,7 +357,14 @@ namespace capture
         job.Format = slot.Format;
         job.Encoding = slot.Encoding;
         job.LinearScale = slot.LinearScale;
-        job.Path = directory / (slot.Name + ".png");
+        std::filesystem::path capturePath = slot.Name;
+        if (capturePath.extension() != ".png")
+        {
+            capturePath += ".png";
+        }
+        job.Path = capturePath.is_absolute() ? capturePath : (directory / capturePath);
+        std::error_code ec;
+        std::filesystem::create_directories(job.Path.parent_path(), ec);
         const uint64_t bytes = uint64_t{ slot.Width } * slot.Height * BytesPerPixel(slot.Format);
 
         // the map invalidates GPUToCPU memory, so the copy's writes are visible

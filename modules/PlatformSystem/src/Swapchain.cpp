@@ -1,7 +1,7 @@
 #include "Swapchain.hpp"
 #include "ImageDataFormats.hpp"
 #include "ImageDataFormatsVulkan.hpp"
-#include "Math.hpp"
+#include "math/Math.hpp"
 #include "PlatformTypes.hpp"
 #include "SwapchainImpl.hpp"
 #include "vulkan/vulkan_core.h"

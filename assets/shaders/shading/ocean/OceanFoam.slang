@@ -99,6 +99,11 @@ internal float SampleFoamLevelSmooth(float2 uv, uint level, float size)
 // Each level fades out over the outer part of its window, where filtering would reach across the wrap
 internal float SamplePersistentFoam(float2 surface_xz)
 {
+    if (View.PersistentFoamParameters.x <= 0.0f)
+    {
+        return 0.0f;
+    }
+
     uint width;
     uint height;
     uint layers;
@@ -116,8 +121,15 @@ internal float SamplePersistentFoam(float2 surface_xz)
         const float extent = FoamTexelSize(level) * size;
         const float2 offset = abs(framePosition - centerFrame) / (0.5f * extent);
         const float weight = remaining * (1.0f - smoothstep(0.7f, 0.9f, max(offset.x, offset.y)));
-        foam += weight * SampleFoamLevelSmooth(framePosition / extent, level, size);
-        remaining -= weight;
+        if (weight > 0.0f)
+        {
+            const float2 uv = framePosition / extent;
+            const float sampleVal = (level == 0u)
+                ? SampleFoamLevelSmooth(uv, 0u, size)
+                : FoamClipmap.SampleLevel(OceanSampler, float3(uv, float(level)), 0.0f);
+            foam += weight * sampleVal;
+            remaining -= weight;
+        }
     }
 
     return foam;
@@ -130,6 +142,7 @@ internal struct FoamMaterial
     float Mask;
     float3 Albedo;
     float2 NormalXY;
+    float Roughness;
 };
 
 // the foam material at a world position, in the drift frame so it travels with the stored foam
@@ -143,6 +156,7 @@ internal FoamMaterial SampleFoamMaterial(float2 surface_xz)
     material.Mask = surface.r;
     material.Albedo = saturate(surface.a * View.FoamTextureParameters.x * View.FoamTextureTint.rgb);
     material.NormalXY = FoamNormal.Sample(OceanSampler, uv) * 2.0f - 1.0f;
+    material.Roughness = clamp(surface.b * Frame.FoamRoughnessScale, 0.0f, 1.0f);
     return material;
 }
 

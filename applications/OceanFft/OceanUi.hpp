@@ -1,7 +1,9 @@
 #pragma once
 #ifndef DIAMOND_DOGS_OCEAN_UI_HPP
 #define DIAMOND_DOGS_OCEAN_UI_HPP
+#include "DisplayTarget.hpp"
 #include "ImGuiModule.hpp"
+#include "OceanEnvironment.hpp"
 #include "OceanSimulation.hpp"
 #include "SeaState.hpp"
 #include <array>
@@ -115,9 +117,17 @@ namespace ocean
     /** @brief Draws the derived physics spectrum inspector (spreading selector, seed, and resolved JONSWAP values). */
     [[nodiscard]] bool DrawSpectrumPhysicsInspector(const ImGuiFontSet& fonts, SpectrumParameters& spectrum);
 
+    /** @brief Draws the 6 HDRI skydome presets as a button grid. */
+    [[nodiscard]] bool DrawSkyPresetGrid(const ImGuiFontSet& fonts, OceanSkyPreset& active_preset);
+
+    /** @brief Draws the tonemapper presets (AgX, KhronosNeutral, Passthrough, FalseColorEv) as a button grid. */
+    [[nodiscard]] bool DrawTonemapperGrid(const ImGuiFontSet& fonts, color::TonemapperKind& active_tonemapper);
+
     /** @brief Draws the GPU timings table with hierarchical tree ticks and proportional duration bars. */
     void DrawGpuTimingsSection(const ImGuiFontSet& fonts, HeaderFontMode font_mode, const rhi::GpuTimers& gpu_timers,
-                               const std::unordered_map<uint64_t, double>& timing_averages);
+                               const std::unordered_map<uint64_t, double>& timing_averages,
+                               const rhi::GpuTimers* async_timers = nullptr,
+                               const std::unordered_map<uint64_t, double>* async_timing_averages = nullptr);
 }
 
 #endif // !DIAMOND_DOGS_OCEAN_UI_HPP

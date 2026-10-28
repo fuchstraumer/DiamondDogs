@@ -3,7 +3,7 @@
 #define DIAMOND_DOGS_RHI_TYPES_HPP
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
-#include "Math.hpp"
+#include "math/Math.hpp"
 #include <cstdint>
 #include <span>
 #include <optional>

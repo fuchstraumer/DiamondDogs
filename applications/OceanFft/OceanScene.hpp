@@ -2,7 +2,12 @@
 #ifndef DIAMOND_DOGS_OCEAN_SCENE_HPP
 #define DIAMOND_DOGS_OCEAN_SCENE_HPP
 #include "ArcballCamera.hpp"
+#include "ColorPipe.hpp"
 #include "FoamMaterial.hpp"
+#include "OceanCdlod.hpp"
+#include "OceanEnvironment.hpp"
+#include "SeabedMaterial.hpp"
+#include "Semaphore.hpp"
 #include "FrameCapture.hpp"
 #include "GpuTimers.hpp"
 #include "OceanFoam.hpp"
@@ -38,11 +43,16 @@ struct OceanSceneSettings
     ocean::OceanSimulationSettings Simulation{};
     /** @brief The cooked shader bundle (OceanFft.ldmanifest) */
     std::filesystem::path ManifestPath;
+    /** @brief The cooked ColorPipe shader bundle (ColorPipe.ldmanifest) */
+    std::filesystem::path ColorPipeManifestPath;
     /** @brief Root folder of the UI fonts (assets/fonts or the copy beside the executable) */
     std::filesystem::path FontDirectory;
     /** @brief The folder of the packed foam textures, and the material name that prefixes their file names */
     std::filesystem::path FoamMaterialDirectory;
     std::string FoamMaterialName;
+    /** @brief The folder of the packed seabed textures, and the material name that prefixes their file names */
+    std::filesystem::path SeabedMaterialDirectory;
+    std::string SeabedMaterialName;
     /** @brief Whether the instance has the validation layer, so debug object names can be set */
     bool ValidationEnabled{ false };
     /** @brief The surface: tiles of GridSize meters in GridRings rings around the camera's tile. The center tile has
@@ -134,6 +144,8 @@ private:
     /** @brief Binds program and draws instance_count tiles of one ring (see OceanGridParameters in OceanRenderCommon.slang) */
     void recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgram& program, const std::array<float, 2>& origin, float tile_size,
                     uint32_t resolution, uint32_t ring, uint32_t outer_resolution, uint32_t instance_count, bool alpha_blend) const;
+    void updateSurfaceDescriptors();
+    void updateCdlodSettings() noexcept;
     [[nodiscard]] uint32_t ringResolution(uint32_t ring) const noexcept;
 
     OceanSceneSettings settings;
@@ -159,6 +171,7 @@ private:
     std::vector<void*> viewBufferPointers;
 
     ArcballCamera camera;
+    ArcballCamera::State initialCameraState{};
     // the editor values, and what they measure. spectrum is the sea state run through ApplySeaState
     ocean::SeaState seaState{};
     ocean::SeaStateReadout seaReadout{};
@@ -217,6 +230,47 @@ private:
     // exponential, per scope hash, in nanoseconds
     std::unique_ptr<rhi::GpuTimers> gpuTimers;
     std::unordered_map<uint64_t, double> gpuTimingAverages;
+
+    std::unique_ptr<rhi::ShaderLibrary> colorPipeLibrary;
+    std::unique_ptr<color::ColorPipe> colorPipe;
+    std::unique_ptr<ocean::OceanCdlod> cdlod;
+    std::unique_ptr<ocean::OceanEnvironment> environment;
+    std::optional<ocean::SeabedMaterial> seabedMaterial;
+
+    std::vector<GraphicsResource> frameConstantsBuffers;
+    std::vector<void*> frameConstantsBufferPointers;
+
+    // Async Compute queue execution
+    bool useAsyncCompute{ false };
+    bool hasAsyncComputeQueue{ false };
+    std::vector<std::unique_ptr<rhi::CommandPool>> asyncCommandPools;
+    std::unique_ptr<rhi::TimelineSemaphore> asyncTimeline;
+    uint64_t asyncTimelineValue{ 0ull };
+    std::unique_ptr<rhi::GpuTimers> asyncGpuTimers;
+    std::unordered_map<uint64_t, double> asyncGpuTimingAverages;
+
+    // CDLOD controls
+    bool useCdlod{ true };
+    float lodDistanceScale{ 1.4f };
+    float morphStartRatio{ 0.65f };
+    std::optional<uint32_t> cdlodMaxLevelOverride;
+    bool wireframe{ false };
+
+    // Ocean Environment controls
+    ocean::OceanSkyPreset skyPreset{ ocean::OceanSkyPreset::BrightDay };
+    bool downsample8k{ true };
+    float skyIntensityScale{ 1.0f };
+
+    // Shading & BRDF controls
+    float sssStrength{ 0.5f };
+    float leadrSlopeVarianceScale{ 1.0f };
+    float foamRoughnessScale{ 1.0f };
+    float seabedRoughnessScale{ 1.0f };
+
+    // ColorPipe controls
+    color::TonemapperKind tonemapper{ color::TonemapperKind::AgX };
+    float exposureEv{ 0.0f };
+    color::BloomSettings bloomSettings{ .Enabled = true, .Intensity = 0.04f, .Scatter = 0.7f };
 };
 
 #endif //!DIAMOND_DOGS_OCEAN_SCENE_HPP

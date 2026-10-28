@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
-#include "utility/Delegate.hpp"
+#include "utility/delegate.hpp"
 #include "PlatformSystem.hpp"
 #include "PlatformTypes.hpp"
 #include "Swapchain.hpp"

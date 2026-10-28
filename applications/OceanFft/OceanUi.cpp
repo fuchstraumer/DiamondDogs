@@ -1,15 +1,20 @@
 #include "OceanUi.hpp"
 #include "GpuTimers.hpp"
+#include "ImGuiModule.hpp"
+#include "OceanSimulation.hpp"
+#include "SeaState.hpp"
 #include "imgui.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <numbers>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 namespace ocean
 {
@@ -612,8 +617,8 @@ namespace ocean
             const ImVec2 labelSize = ImGui::CalcTextSize(k_Tabs[i].Label.data(), k_Tabs[i].Label.data() + k_Tabs[i].Label.size());
             const ImVec2 textPos
             {
-                tabPosMin.x + 0.5f * (tabWidth - labelSize.x),
-                tabPosMin.y + 0.5f * (k_TabHeight - labelSize.y) - 1.0f
+                tabPosMin.x + (0.5f * (tabWidth - labelSize.x)),
+                tabPosMin.y + (0.5f * (k_TabHeight - labelSize.y)) - 1.0f
             };
             drawList->AddText(
                 textPos,
@@ -826,6 +831,158 @@ namespace ocean
             };
             const ImU32 textCol = active ? k_ColorButtonTextActive : k_ColorButtonText;
             drawList->AddText(textPos, textCol, labelStr.c_str());
+        }
+
+        ImGui::PopFont();
+        ImGui::Dummy(ImVec2{ 0.0f, 2.0f });
+        return changed;
+    }
+
+    bool DrawSkyPresetGrid(const ImGuiFontSet& fonts, OceanSkyPreset& active_preset)
+    {
+        bool changed = false;
+        struct SkyPresetInfo
+        {
+            OceanSkyPreset Preset;
+            std::string_view Name;
+        };
+        constexpr std::array<SkyPresetInfo, 6> k_Presets
+        {{
+            { OceanSkyPreset::AnalyticPreetham, "Preetham" },
+            { OceanSkyPreset::BrightDay, "Bright Day" },
+            { OceanSkyPreset::Twilight, "Twilight" },
+            { OceanSkyPreset::OvercastEvening, "Overcast" },
+            { OceanSkyPreset::StarryNight, "Starry Night" },
+            { OceanSkyPreset::AuroralNight, "Auroral" }
+        }};
+
+        const float availWidth = ImGui::GetContentRegionAvail().x;
+        constexpr int32_t k_Cols = 3;
+        constexpr float k_Gap = 5.0f;
+        constexpr float k_ButtonHeight = 24.0f;
+        const float buttonWidth = (availWidth - k_Gap * static_cast<float>(k_Cols - 1)) / static_cast<float>(k_Cols);
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        ImGui::PushFont(fonts.SectionBlinker);
+
+        for (size_t i = 0; i < k_Presets.size(); ++i)
+        {
+            if (i % k_Cols != 0)
+            {
+                ImGui::SameLine(0.0f, k_Gap);
+            }
+
+            const auto& item = k_Presets[i];
+            const bool active = active_preset == item.Preset;
+            const std::string buttonId = std::format("##sky_preset_{}", i);
+            const ImVec2 minPos = ImGui::GetCursorScreenPos();
+            const ImVec2 maxPos{ minPos.x + buttonWidth, minPos.y + k_ButtonHeight };
+
+            if (ImGui::InvisibleButton(buttonId.c_str(), ImVec2{ buttonWidth, k_ButtonHeight }))
+            {
+                active_preset = item.Preset;
+                changed = true;
+            }
+
+            const bool hovered = ImGui::IsItemHovered();
+            const float hoverT = SmoothHoverState(ImGui::GetItemID(), hovered || active);
+
+            const ImU32 fillCol = active ?
+                k_ColorButtonBgActive :
+                (hovered ? k_ColorButtonBgHover : k_ColorButtonBg);
+            const ImU32 borderCol = active ?
+                k_ColorButtonBorderActive :
+                DynamicBorderColor(static_cast<uint8_t>(18 + 40 * hoverT));
+
+            DrawChamferedRect(drawList, minPos, maxPos, 5.0f, fillCol, borderCol, 1.0f);
+
+            if (active)
+            {
+                drawList->AddLine(
+                    ImVec2{ minPos.x + 1.0f, maxPos.y - 1.0f },
+                    ImVec2{ maxPos.x - 5.0f, maxPos.y - 1.0f },
+                    k_ColorButtonIndicator,
+                    1.5f);
+            }
+
+            const ImVec2 textSize = ImGui::CalcTextSize(item.Name.data(), item.Name.data() + item.Name.size());
+            const ImVec2 textPos{ minPos.x + (buttonWidth - textSize.x) * 0.5f, minPos.y + (k_ButtonHeight - textSize.y) * 0.5f };
+            drawList->AddText(textPos, active ? k_ColorButtonTextActive : k_ColorButtonText, item.Name.data(), item.Name.data() + item.Name.size());
+        }
+
+        ImGui::PopFont();
+        ImGui::Dummy(ImVec2{ 0.0f, 2.0f });
+        return changed;
+    }
+
+    bool DrawTonemapperGrid(const ImGuiFontSet& fonts, color::TonemapperKind& active_tonemapper)
+    {
+        bool changed = false;
+        struct TonemapperInfo
+        {
+            color::TonemapperKind Kind;
+            std::string_view Name;
+        };
+        constexpr std::array<TonemapperInfo, 4> k_Tonemappers
+        {{
+            { color::TonemapperKind::AgX, "AgX" },
+            { color::TonemapperKind::KhronosNeutral, "Khronos" },
+            { color::TonemapperKind::Passthrough, "Pass" },
+            { color::TonemapperKind::FalseColorEv, "False Color" }
+        }};
+
+        const float availWidth = ImGui::GetContentRegionAvail().x;
+        constexpr int32_t k_Cols = 4;
+        constexpr float k_Gap = 5.0f;
+        constexpr float k_ButtonHeight = 24.0f;
+        const float buttonWidth = (availWidth - k_Gap * static_cast<float>(k_Cols - 1)) / static_cast<float>(k_Cols);
+
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        ImGui::PushFont(fonts.SectionBlinker);
+
+        for (size_t i = 0; i < k_Tonemappers.size(); ++i)
+        {
+            if (i > 0)
+            {
+                ImGui::SameLine(0.0f, k_Gap);
+            }
+
+            const auto& item = k_Tonemappers[i];
+            const bool active = active_tonemapper == item.Kind;
+            const std::string buttonId = std::format("##tonemapper_{}", i);
+            const ImVec2 minPos = ImGui::GetCursorScreenPos();
+            const ImVec2 maxPos{ minPos.x + buttonWidth, minPos.y + k_ButtonHeight };
+
+            if (ImGui::InvisibleButton(buttonId.c_str(), ImVec2{ buttonWidth, k_ButtonHeight }))
+            {
+                active_tonemapper = item.Kind;
+                changed = true;
+            }
+
+            const bool hovered = ImGui::IsItemHovered();
+            const float hoverT = SmoothHoverState(ImGui::GetItemID(), hovered || active);
+
+            const ImU32 fillCol = active ?
+                k_ColorButtonBgActive :
+                (hovered ? k_ColorButtonBgHover : k_ColorButtonBg);
+            const ImU32 borderCol = active ?
+                k_ColorButtonBorderActive :
+                DynamicBorderColor(static_cast<uint8_t>(18 + 40 * hoverT));
+
+            DrawChamferedRect(drawList, minPos, maxPos, 5.0f, fillCol, borderCol, 1.0f);
+
+            if (active)
+            {
+                drawList->AddLine(
+                    ImVec2{ minPos.x + 1.0f, maxPos.y - 1.0f },
+                    ImVec2{ maxPos.x - 5.0f, maxPos.y - 1.0f },
+                    k_ColorButtonIndicator,
+                    1.5f);
+            }
+
+            const ImVec2 textSize = ImGui::CalcTextSize(item.Name.data(), item.Name.data() + item.Name.size());
+            const ImVec2 textPos{ minPos.x + (buttonWidth - textSize.x) * 0.5f, minPos.y + (k_ButtonHeight - textSize.y) * 0.5f };
+            drawList->AddText(textPos, active ? k_ColorButtonTextActive : k_ColorButtonText, item.Name.data(), item.Name.data() + item.Name.size());
         }
 
         ImGui::PopFont();
@@ -1367,121 +1524,142 @@ namespace ocean
         return changed;
     }
 
+    namespace
+    {
+        void DrawTimingTableInternal(const char* table_id, const ImGuiFontSet& fonts, const rhi::GpuTimers& gpu_timers,
+                                     const std::unordered_map<uint64_t, double>& timing_averages)
+        {
+            if (!gpu_timers.Active())
+            {
+                ImGui::PushFont(fonts.BodyItalic);
+                ImGui::TextColored(k_ColorVecMutedStatus, "%s", std::string{ gpu_timers.InactiveReason() }.c_str());
+                ImGui::PopFont();
+                return;
+            }
+
+            const std::optional<rhi::GpuTimingBlock> latest = gpu_timers.Latest();
+            if (!latest.has_value())
+            {
+                ImGui::PushFont(fonts.BodyItalic);
+                ImGui::TextColored(k_ColorVecMutedStatus, "Waiting for first completed frame...");
+                ImGui::PopFont();
+                return;
+            }
+
+            const double topLevelMs = std::max(latest->TopLevelNanoseconds * 1e-6, 0.001);
+            constexpr ImGuiTableFlags k_TableFlags = ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX;
+
+            if (ImGui::BeginTable(table_id, 3, k_TableFlags))
+            {
+                ImGui::TableSetupColumn("SCOPE", ImGuiTableColumnFlags_WidthStretch, 2.2f);
+                ImGui::TableSetupColumn("AVG (ms)", ImGuiTableColumnFlags_WidthStretch, 0.9f);
+                ImGui::TableSetupColumn("LAST (ms)", ImGuiTableColumnFlags_WidthStretch, 0.9f);
+
+                ImGui::PushFont(fonts.SectionBlinker);
+                ImGui::TableHeadersRow();
+                ImGui::PopFont();
+
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+                for (const rhi::GpuTiming& timing : latest->Timings)
+                {
+                    const std::string_view name = gpu_timers.Name(timing.Hash);
+                    const auto averageIter = timing_averages.find(timing.Hash);
+                    const double avgMs = averageIter != timing_averages.end() ? averageIter->second * 1e-6 : 0.0;
+                    const double lastMs = timing.Nanoseconds * 1e-6;
+                    const float ratio = static_cast<float>(std::clamp(avgMs / topLevelMs, 0.0, 1.0));
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+
+                    const ImVec2 cellMin = ImGui::GetCursorScreenPos();
+                    const float rowWidth = ImGui::GetContentRegionAvail().x;
+                    const float barWidth = rowWidth * ratio;
+
+                    if (barWidth > 1.0f)
+                    {
+                        const ImU32 barCol = timing.Depth == 0u ?
+                            k_ColorTimingBarRoot :
+                            k_ColorTimingBarChild;
+                        drawList->AddRectFilled(
+                            ImVec2{ cellMin.x, cellMin.y + 1.0f },
+                            ImVec2{ cellMin.x + barWidth, cellMin.y + 19.0f },
+                            barCol);
+                        drawList->AddLine(
+                            ImVec2{ cellMin.x, cellMin.y + 19.0f },
+                            ImVec2{ cellMin.x + barWidth, cellMin.y + 19.0f },
+                            k_ColorTimingBarUnderline,
+                            1.0f);
+                    }
+
+                    const float indentPx = static_cast<float>(timing.Depth) * 14.0f;
+                    if (timing.Depth > 0u)
+                    {
+                        const float tickX = cellMin.x + indentPx - 9.0f;
+                        const float tickY = cellMin.y + 9.0f;
+                        drawList->AddLine(
+                            ImVec2{ tickX, tickY - 5.0f },
+                            ImVec2{ tickX, tickY },
+                            k_ColorTimingTreeTick,
+                            1.0f);
+                        drawList->AddLine(
+                            ImVec2{ tickX, tickY },
+                            ImVec2{ tickX + 5.0f, tickY },
+                            k_ColorTimingTreeTick,
+                            1.0f);
+                    }
+
+                    ImGui::SetCursorScreenPos(ImVec2{ cellMin.x + indentPx, cellMin.y });
+                    const ImVec4 scopeColor = timing.Depth == 0u ?
+                        k_ColorVecTimingRoot :
+                        k_ColorVecTimingChild;
+                    ImGui::TextColored(scopeColor, "%.*s", static_cast<int>(name.size()), name.data());
+
+                    ImGui::TableNextColumn();
+                    ImGui::PushFont(fonts.BodyBold);
+                    ImGui::TextColored(k_ColorVecTimingAvg, "%.3f", avgMs);
+                    ImGui::PopFont();
+
+                    ImGui::TableNextColumn();
+                    ImGui::TextColored(k_ColorVecTimingLast, "%.3f", lastMs);
+                }
+
+                ImGui::EndTable();
+            }
+
+            ImGui::PushFont(fonts.BodyItalic);
+            ImGui::TextColored(
+                k_ColorVecTimingFooter,
+                "Scoped GPU total: %.3f ms   |   Dropped: %u scopes, %llu frames   |   Lost: %llu",
+                topLevelMs,
+                latest->DroppedScopes,
+                static_cast<unsigned long long>(gpu_timers.DroppedBlocks()),
+                static_cast<unsigned long long>(gpu_timers.LostBlocks()));
+            ImGui::PopFont();
+        }
+    }
+
     void DrawGpuTimingsSection(const ImGuiFontSet& fonts, HeaderFontMode font_mode, const rhi::GpuTimers& gpu_timers,
-                               const std::unordered_map<uint64_t, double>& timing_averages)
+                               const std::unordered_map<uint64_t, double>& timing_averages,
+                               const rhi::GpuTimers* async_timers,
+                               const std::unordered_map<uint64_t, double>* async_timing_averages)
     {
         if (!DrawSectionHeader("GPU TIMINGS", fonts, font_mode, AccentTone::Ice, true))
         {
             return;
         }
 
-        if (!gpu_timers.Active())
+        if (async_timers != nullptr && async_timers->Active() && async_timing_averages != nullptr)
         {
-            ImGui::PushFont(fonts.BodyItalic);
-            ImGui::TextColored(k_ColorVecMutedStatus, "%s", std::string{ gpu_timers.InactiveReason() }.c_str());
-            ImGui::PopFont();
-            return;
+            DrawSubSectionDivider("GRAPHICS QUEUE", fonts, font_mode, AccentTone::Cyan);
+            DrawTimingTableInternal("GpuTimingsGraphics", fonts, gpu_timers, timing_averages);
+            DrawSubSectionDivider("ASYNC COMPUTE QUEUE", fonts, font_mode, AccentTone::Amber);
+            DrawTimingTableInternal("GpuTimingsAsyncCompute", fonts, *async_timers, *async_timing_averages);
         }
-
-        const std::optional<rhi::GpuTimingBlock> latest = gpu_timers.Latest();
-        if (!latest.has_value())
+        else
         {
-            ImGui::PushFont(fonts.BodyItalic);
-            ImGui::TextColored(k_ColorVecMutedStatus, "Waiting for first completed frame...");
-            ImGui::PopFont();
-            return;
+            DrawTimingTableInternal("GpuTimingsTelemetry", fonts, gpu_timers, timing_averages);
         }
-
-        const double topLevelMs = std::max(latest->TopLevelNanoseconds * 1e-6, 0.001);
-        constexpr ImGuiTableFlags k_TableFlags = ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX;
-
-        if (ImGui::BeginTable("GpuTimingsTelemetry", 3, k_TableFlags))
-        {
-            ImGui::TableSetupColumn("SCOPE", ImGuiTableColumnFlags_WidthStretch, 2.2f);
-            ImGui::TableSetupColumn("AVG (ms)", ImGuiTableColumnFlags_WidthStretch, 0.9f);
-            ImGui::TableSetupColumn("LAST (ms)", ImGuiTableColumnFlags_WidthStretch, 0.9f);
-
-            ImGui::PushFont(fonts.SectionBlinker);
-            ImGui::TableHeadersRow();
-            ImGui::PopFont();
-
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-            for (const rhi::GpuTiming& timing : latest->Timings)
-            {
-                const std::string_view name = gpu_timers.Name(timing.Hash);
-                const auto averageIter = timing_averages.find(timing.Hash);
-                const double avgMs = averageIter != timing_averages.end() ? averageIter->second * 1e-6 : 0.0;
-                const double lastMs = timing.Nanoseconds * 1e-6;
-                const float ratio = static_cast<float>(std::clamp(avgMs / topLevelMs, 0.0, 1.0));
-
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-
-                const ImVec2 cellMin = ImGui::GetCursorScreenPos();
-                const float rowWidth = ImGui::GetContentRegionAvail().x;
-                const float barWidth = rowWidth * ratio;
-
-                if (barWidth > 1.0f)
-                {
-                    const ImU32 barCol = timing.Depth == 0u ?
-                        k_ColorTimingBarRoot :
-                        k_ColorTimingBarChild;
-                    drawList->AddRectFilled(
-                        ImVec2{ cellMin.x, cellMin.y + 1.0f },
-                        ImVec2{ cellMin.x + barWidth, cellMin.y + 19.0f },
-                        barCol);
-                    drawList->AddLine(
-                        ImVec2{ cellMin.x, cellMin.y + 19.0f },
-                        ImVec2{ cellMin.x + barWidth, cellMin.y + 19.0f },
-                        k_ColorTimingBarUnderline,
-                        1.0f);
-                }
-
-                const float indentPx = static_cast<float>(timing.Depth) * 14.0f;
-                if (timing.Depth > 0u)
-                {
-                    const float tickX = cellMin.x + indentPx - 9.0f;
-                    const float tickY = cellMin.y + 9.0f;
-                    drawList->AddLine(
-                        ImVec2{ tickX, tickY - 5.0f },
-                        ImVec2{ tickX, tickY },
-                        k_ColorTimingTreeTick,
-                        1.0f);
-                    drawList->AddLine(
-                        ImVec2{ tickX, tickY },
-                        ImVec2{ tickX + 5.0f, tickY },
-                        k_ColorTimingTreeTick,
-                        1.0f);
-                }
-
-                ImGui::SetCursorScreenPos(ImVec2{ cellMin.x + indentPx, cellMin.y });
-                const ImVec4 scopeColor = timing.Depth == 0u ?
-                    k_ColorVecTimingRoot :
-                    k_ColorVecTimingChild;
-                ImGui::TextColored(scopeColor, "%.*s", static_cast<int>(name.size()), name.data());
-
-                ImGui::TableNextColumn();
-                ImGui::PushFont(fonts.BodyBold);
-                ImGui::TextColored(k_ColorVecTimingAvg, "%.3f", avgMs);
-                ImGui::PopFont();
-
-                ImGui::TableNextColumn();
-                ImGui::TextColored(k_ColorVecTimingLast, "%.3f", lastMs);
-            }
-
-            ImGui::EndTable();
-        }
-
-        ImGui::PushFont(fonts.BodyItalic);
-        ImGui::TextColored(
-            k_ColorVecTimingFooter,
-            "Scoped GPU total: %.3f ms   |   Dropped: %u scopes, %llu frames   |   Lost: %llu",
-            topLevelMs,
-            latest->DroppedScopes,
-            static_cast<unsigned long long>(gpu_timers.DroppedBlocks()),
-            static_cast<unsigned long long>(gpu_timers.LostBlocks()));
-        ImGui::PopFont();
     }
 
     namespace

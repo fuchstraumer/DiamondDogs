@@ -1,0 +1,5 @@
+[Quadtree.InertAxesForEntryPoints]
+QuadtreeBuildIndirectArgsCS = ["QUADTREE_USE_WAVE_OPS", "QUADTREE_WAVE_SIZE"]
+
+[Quadtree.targets.spirv]
+MaxVariants = 8

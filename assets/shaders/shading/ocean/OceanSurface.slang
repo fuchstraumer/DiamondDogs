@@ -13,44 +13,91 @@ public struct OceanSurfaceVaryings
 };
 
 [shader("vertex")]
-OceanSurfaceVaryings OceanSurfaceVS(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID, uniform OceanGridParameters Grid)
+OceanSurfaceVaryings OceanSurfaceVS(
+    uint vertexId : SV_VertexID,
+    uint instanceId : SV_InstanceID,
+    uniform OceanGridParameters Grid)
 {
-    uint2 quad;
-    const float2 corner = GridCorner(vertexId, Grid.Resolution, quad);
-    uint2 vertex = quad + uint2(corner);
-    const int2 tile = RingTile(Grid.Ring, instanceId);
+    float2 surfaceXZ = float2(0.0f);
+    float quadSize = 1.0f;
 
-    // on an edge that borders the coarser next ring, snap onto that ring's vertices: the triangles there collapse,
-    // and the two rings share every edge vertex
-    bool onOuterEdge = false;
-
-    if (Grid.OuterResolution < Grid.Resolution)
+    if (Frame.UseCdlod != 0u)
     {
-        const uint ratio = Grid.Resolution / Grid.OuterResolution;
-        const int r = int(Grid.Ring);
-        const bool onOuterX = (tile.x == r && vertex.x == Grid.Resolution) || (tile.x == -r && vertex.x == 0u);
-        const bool onOuterZ = (tile.y == r && vertex.y == Grid.Resolution) || (tile.y == -r && vertex.y == 0u);
-        onOuterEdge = onOuterX || onOuterZ;
+        const OceanPatchVertex patchVertex = PatchVertices.Load(vertexId);
+        const OceanCdlodPatch patch = SelectedPatches.Load(instanceId);
 
-        if (onOuterX)
+        float2 gridCoord = patchVertex.GridUv * 64.0f;
+        const uint2 iCoord = uint2(round(gridCoord));
+        const uint edgeMask = (patch.LodAndEdgeMask >> 4u) & 0xFu;
+
+        if ((edgeMask & 1u) != 0u && iCoord.x == 0u)
         {
-            vertex.y = (vertex.y / ratio) * ratio;
+            gridCoord.y = float((iCoord.y / 2u) * 2u);
         }
 
-        if (onOuterZ)
+        if ((edgeMask & 2u) != 0u && iCoord.x >= 64u)
         {
-            vertex.x = (vertex.x / ratio) * ratio;
+            gridCoord.y = float((iCoord.y / 2u) * 2u);
         }
+
+        if ((edgeMask & 4u) != 0u && iCoord.y == 0u)
+        {
+            gridCoord.x = float((iCoord.x / 2u) * 2u);
+        }
+
+        if ((edgeMask & 8u) != 0u && iCoord.y >= 64u)
+        {
+            gridCoord.x = float((iCoord.x / 2u) * 2u);
+        }
+
+        const float2 unmorphedWorldXz = patch.WorldOriginXz + patchVertex.GridUv * patch.PatchScale;
+        const float vertexDistance = length(unmorphedWorldXz - View.CameraPositionTime.xz);
+        const float morphFactor = saturate((vertexDistance - patch.MorphStart) * patch.InvMorphRange);
+
+        const float2 morphOffset = frac(gridCoord * 0.5f) * 2.0f;
+        const float2 morphedGridCoord = gridCoord - morphOffset * morphFactor;
+        const float2 morphedUv = morphedGridCoord / 64.0f;
+
+        surfaceXZ = patch.WorldOriginXz + morphedUv * patch.PatchScale;
+        quadSize = patch.PatchScale / 64.0f;
+    }
+    else
+    {
+        uint2 quad;
+        const float2 corner = GridCorner(vertexId, Grid.Resolution, quad);
+        uint2 vertex = quad + uint2(corner);
+        const int2 tile = RingTile(Grid.Ring, instanceId);
+
+        // on an edge that borders the coarser next ring, snap onto that ring's vertices: the triangles there collapse,
+        // and the two rings share every edge vertex
+        bool onOuterEdge = false;
+
+        if (Grid.OuterResolution < Grid.Resolution)
+        {
+            const uint ratio = Grid.Resolution / Grid.OuterResolution;
+            const int r = int(Grid.Ring);
+            const bool onOuterX = (tile.x == r && vertex.x == Grid.Resolution) || (tile.x == -r && vertex.x == 0u);
+            const bool onOuterZ = (tile.y == r && vertex.y == Grid.Resolution) || (tile.y == -r && vertex.y == 0u);
+            onOuterEdge = onOuterX || onOuterZ;
+
+            if (onOuterX)
+            {
+                vertex.y = (vertex.y / ratio) * ratio;
+            }
+
+            if (onOuterZ)
+            {
+                vertex.x = (vertex.x / ratio) * ratio;
+            }
+        }
+
+        surfaceXZ = Grid.Origin + (float2(tile) + float2(vertex) / float(Grid.Resolution)) * Grid.Size;
+
+        const uint lodResolution = onOuterEdge ? Grid.OuterResolution : Grid.Resolution;
+        quadSize = Grid.Size / float(lodResolution);
     }
 
-    // a power-of-two ratio between rings keeps these exact, so shared edge vertices land on the same position
-    const float2 surfaceXZ = Grid.Origin + (float2(tile) + float2(vertex) / float(Grid.Resolution)) * Grid.Size;
     const float distance = length(surfaceXZ - View.CameraPositionTime.xz);
-    // waves shorter than two quads would alias into the vertex positions, so each cascade is read at the mip whose
-    // texels are as wide as this ring's quads. a shared edge vertex reads the coarser ring's mip, as that ring does:
-    // with two different mips the rings displaced it differently, and the seam cracked open
-    const uint lodResolution = onOuterEdge ? Grid.OuterResolution : Grid.Resolution;
-    const float quadSize = Grid.Size / float(lodResolution);
 
     float3 displacement = float3(0.0f);
     [unroll]

@@ -16,6 +16,8 @@ namespace
     PFN_vkCmdSetColorBlendEquationEXT pfn_vkCmdSetColorBlendEquationEXT = nullptr;
     PFN_vkCmdSetColorWriteMaskEXT pfn_vkCmdSetColorWriteMaskEXT = nullptr;
     PFN_vkCmdSetLogicOpEnableEXT pfn_vkCmdSetLogicOpEnableEXT = nullptr;
+    PFN_vkCmdSetLineRasterizationModeEXT pfn_vkCmdSetLineRasterizationModeEXT = nullptr;
+    PFN_vkCmdSetLineStippleEnableEXT pfn_vkCmdSetLineStippleEnableEXT = nullptr;
 
     template<typename Function>
     void Load(VkDevice device, Function& function, const char* name)
@@ -41,6 +43,8 @@ void LoadShaderObjectStateFunctions(VkDevice device)
     Load(device, pfn_vkCmdSetColorBlendEquationEXT, "vkCmdSetColorBlendEquationEXT");
     Load(device, pfn_vkCmdSetColorWriteMaskEXT, "vkCmdSetColorWriteMaskEXT");
     Load(device, pfn_vkCmdSetLogicOpEnableEXT, "vkCmdSetLogicOpEnableEXT");
+    Load(device, pfn_vkCmdSetLineRasterizationModeEXT, "vkCmdSetLineRasterizationModeEXT");
+    Load(device, pfn_vkCmdSetLineStippleEnableEXT, "vkCmdSetLineStippleEnableEXT");
 }
 
 void SetShaderObjectDrawState(VkCommandBuffer command_buffer, const ShaderObjectDrawState& state)
@@ -52,10 +56,21 @@ void SetShaderObjectDrawState(VkCommandBuffer command_buffer, const ShaderObject
 
     pfn_vkCmdSetDepthClampEnableEXT(command_buffer, VK_FALSE);
     vkCmdSetRasterizerDiscardEnable(command_buffer, VK_FALSE);
-    pfn_vkCmdSetPolygonModeEXT(command_buffer, VK_POLYGON_MODE_FILL);
+    pfn_vkCmdSetPolygonModeEXT(command_buffer, state.PolygonMode);
     vkCmdSetCullMode(command_buffer, state.CullMode);
     vkCmdSetFrontFace(command_buffer, VK_FRONT_FACE_COUNTER_CLOCKWISE);
     vkCmdSetDepthBiasEnable(command_buffer, VK_FALSE);
+    vkCmdSetLineWidth(command_buffer, 1.0f);
+
+    if (pfn_vkCmdSetLineRasterizationModeEXT != nullptr)
+    {
+        pfn_vkCmdSetLineRasterizationModeEXT(command_buffer, state.LineRasterizationMode);
+    }
+
+    if (pfn_vkCmdSetLineStippleEnableEXT != nullptr)
+    {
+        pfn_vkCmdSetLineStippleEnableEXT(command_buffer, state.LineStippleEnable ? VK_TRUE : VK_FALSE);
+    }
 
     pfn_vkCmdSetRasterizationSamplesEXT(command_buffer, state.Samples);
     // one 32-bit word covers up to 32 samples
@@ -66,12 +81,14 @@ void SetShaderObjectDrawState(VkCommandBuffer command_buffer, const ShaderObject
 
     const VkBool32 blendEnable = state.AlphaBlend ? VK_TRUE : VK_FALSE;
     pfn_vkCmdSetColorBlendEnableEXT(command_buffer, 0, 1, &blendEnable);
+
     constexpr VkColorBlendEquationEXT k_AlphaBlend
     {
         VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK_BLEND_OP_ADD,
         VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_BLEND_OP_ADD
     };
     pfn_vkCmdSetColorBlendEquationEXT(command_buffer, 0, 1, &k_AlphaBlend);
+    
     constexpr VkColorComponentFlags k_WriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     pfn_vkCmdSetColorWriteMaskEXT(command_buffer, 0, 1, &k_WriteMask);
     pfn_vkCmdSetLogicOpEnableEXT(command_buffer, VK_FALSE);

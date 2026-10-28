@@ -6,5 +6,8 @@ ColorCompositeVS = ["TONEMAPPER", "ENCODE"]
 [ColorComposite.targets.spirv]
 MaxVariants = 24
 
+[ColorBloom.InertAxesForEntryPoints]
+ColorBloomUpsampleCS = ["USE_KARIS_AVERAGE"]
+
 [ColorBloom.targets.spirv]
-MaxVariants = 1
+MaxVariants = 2

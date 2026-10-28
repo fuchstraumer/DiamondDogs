@@ -1,4 +1,6 @@
 implementing OceanRender;
+import LodestoneAttributes;
+import LodestoneShims;
 
 public static const uint OCEAN_CASCADE_COUNT = 5u;
 
@@ -176,28 +178,84 @@ internal float CascadeLod(uint cascade, float spacing)
     return max(0.0f, log2(spacing / texelSize));
 }
 
-ConstantBuffer<OceanViewParameters> View;
+public ConstantBuffer<OceanViewParameters> View;
 // written by OceanResolveCS: (x, y, z) displacement in meters, w the Jacobian of the horizontal displacement
-Texture2DArray<float4> Displacement;
+public Texture2DArray<float4> Displacement;
 // written by OceanResolveCS: (dHeight/dx, dHeight/dz, dDx/dx, dDz/dz)
-Texture2DArray<float4> Derivatives;
+public Texture2DArray<float4> Derivatives;
 // linear, repeat: each cascade tiles with its own patch size
-SamplerState OceanSampler;
+public SamplerState OceanSampler;
 // written by OceanResolveCS for the whitecap coverage. x: k_i^2 (the mean of k_i is in Displacement.w), y: dDx/dz,
 // the Jacobian tensor's off-diagonal. [IFFT_SIZE, IFFT_SIZE, CASCADE_COUNT]
 [format("rg16f")]
-Texture2DArray<float2> Whitecaps;
+public Texture2DArray<float2> Whitecaps;
 // the persistent foam clipmap, one layer per level (OceanFoam.slang): OceanFoamStepCS writes it as storage, the
 // fragment stage samples it. Both bind the same image
 [format("r16f")]
-RWTexture2DArray<float> FoamClipmapStorage;
+public RWTexture2DArray<float> FoamClipmapStorage;
 [format("r16f")]
-Texture2DArray<float> FoamClipmap;
+public Texture2DArray<float> FoamClipmap;
 // the foam material, packed by assets/scripts/foam_texture_pack.py. r: opacity mask, histogram-equalized (uniform, so
 // the dissolve keeps area), g: height, b: roughness, a: albedo luminance (linear)
-Texture2D<float4> FoamSurface;
+public Texture2D<float4> FoamSurface;
 // rg: tangent-space normal xy (OpenGL convention), unorm: * 2 - 1 gives [-1, 1]
-Texture2D<float2> FoamNormal;
+public Texture2D<float2> FoamNormal;
+
+public struct OceanPatchVertex
+{
+    public float2 GridUv;
+};
+
+public struct OceanCdlodPatch
+{
+    public float2 WorldOriginXz;
+    public float PatchScale;
+    public uint LodAndEdgeMask;
+    public float MorphStart;
+    public float InvMorphRange;
+    public float2 Padding;
+};
+
+public extern struct PatchVerticesBuffer : IReadBuffer<OceanPatchVertex>;
+public extern struct SelectedPatchesBuffer : IReadBuffer<OceanCdlodPatch>;
+
+public PatchVerticesBuffer PatchVertices;
+public SelectedPatchesBuffer SelectedPatches;
+
+public struct FrameConstants
+{
+    public float4 SkyShCoeffs[9];
+    public float3 SunRadianceAp1;
+    public float FoamRoughnessScale;
+    public float3 WaterScatterColorAp1;
+    public float SssStrength;
+    public float3 SeabedTintAp1;
+    public float SeabedRoughnessScale;
+    public uint UseCdlod;
+    public uint UseSkyTexture;
+    public float SkyIntensityScale;
+    public float LeadrSlopeVarianceScale;
+    public property float3 FoamAlbedoTint
+    {
+        get
+        {
+            return View.FoamTextureTint.xyz;
+        }
+    }
+};
+
+public ConstantBuffer<FrameConstants> Frame;
+
+[ls_extent_2d("8192", "4096")]
+public Texture2D<float4> SkyDomeTexture;
+public SamplerState SkyDomeSampler;
+[ls_extent_2d("2048", "2048")]
+public Texture2D<float4> SeabedAlbedoTexture;
+[ls_extent_2d("2048", "2048")]
+public Texture2D<float4> SeabedOrdTexture;
+[ls_extent_2d("2048", "2048")]
+public Texture2D<float2> SeabedNormalTexture;
+public SamplerState SeabedSampler;
 
 internal float4 WorldToClip(float3 world_position)
 {

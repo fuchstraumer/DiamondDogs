@@ -84,8 +84,7 @@ namespace color
         struct BloomDownsamplePushConstants
         {
             float TexelSize[2]{ 0.0f, 0.0f };
-            uint32_t UseKarisAverage{ 0u };
-            float Padding{ 0.0f };
+            float Padding[2]{ 0.0f, 0.0f };
         };
         static_assert(sizeof(BloomDownsamplePushConstants) == 16u);
 
@@ -135,8 +134,10 @@ namespace color
 
         const lodestone::ManifestIndex* BloomIndex{ nullptr };
         lodestone::VariantKey BloomDownsampleVariant{};
+        lodestone::VariantKey BloomDownsampleKarisVariant{};
         lodestone::VariantKey BloomUpsampleVariant{};
         std::unique_ptr<rhi::ManifestProgram> BloomDownsampleProgram;
+        std::unique_ptr<rhi::ManifestProgram> BloomDownsampleKarisProgram;
         std::unique_ptr<rhi::ManifestProgram> BloomUpsampleProgram;
 
         VkDescriptorPool BloomDescriptorPool{ VK_NULL_HANDLE };
@@ -388,10 +389,11 @@ namespace color
                     timer.emplace(*timers, "Bloom downsample");
                 }
 
-                RhiAssert(command_buffer.BindShaders(impl->BloomDownsampleProgram->Program()));
-
                 for (size_t i = 0; i < k_BloomMipCount; ++i)
                 {
+                    const auto& currentProgram = (i == 0) ? impl->BloomDownsampleKarisProgram : impl->BloomDownsampleProgram;
+                    RhiAssert(command_buffer.BindShaders(currentProgram->Program()));
+
                     if (i > 0)
                     {
                         const rhi::ImageBarrier downBarrier
@@ -410,15 +412,14 @@ namespace color
                     const BloomDownsamplePushConstants pc
                     {
                         .TexelSize = { 1.0f / static_cast<float>(srcExtent.Width), 1.0f / static_cast<float>(srcExtent.Height) },
-                        .UseKarisAverage = (i == 0) ? 1u : 0u,
-                        .Padding = 0.0f
+                        .Padding = { 0.0f, 0.0f }
                     };
 
                     const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(impl->BloomDownsampleSets[i]) };
-                    command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Compute, impl->BloomDownsampleProgram->PipelineLayout(), 0u, std::span{ &set, 1 });
+                    command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Compute, currentProgram->PipelineLayout(), 0u, std::span{ &set, 1 });
 
-                    const std::optional<rhi::PushConstantRange> range = impl->BloomDownsampleProgram->PushConstants();
-                    command_buffer.PushConstants(impl->BloomDownsampleProgram->PipelineLayout(), range->StageFlags, 0u, std::as_bytes(std::span{ &pc, 1 }));
+                    const std::optional<rhi::PushConstantRange> range = currentProgram->PushConstants();
+                    command_buffer.PushConstants(currentProgram->PipelineLayout(), range->StageFlags, 0u, std::as_bytes(std::span{ &pc, 1 }));
 
                     command_buffer.Dispatch((dstExtent.Width + 7u) / 8u, (dstExtent.Height + 7u) / 8u, 1u);
                 }
@@ -810,8 +811,16 @@ namespace color
             impl.BloomIndex = *bloomIndex;
 
             const std::array<std::string_view, 1> downEntry{ k_BloomDownsampleEntry };
-            std::expected<lodestone::VariantKey, lodestone::QueryError> downVariant = impl.BloomIndex->Query().SingleFor(downEntry);
+            std::expected<lodestone::VariantKey, lodestone::QueryError> downVariant =
+                impl.BloomIndex->Query().Where("USE_KARIS_AVERAGE", false).SingleFor(downEntry);
             if (!downVariant.has_value())
+            {
+                return ColorPipeError::CompositeVariantMissing;
+            }
+
+            std::expected<lodestone::VariantKey, lodestone::QueryError> downVariantKaris =
+                impl.BloomIndex->Query().Where("USE_KARIS_AVERAGE", true).SingleFor(downEntry);
+            if (!downVariantKaris.has_value())
             {
                 return ColorPipeError::CompositeVariantMissing;
             }
@@ -823,6 +832,13 @@ namespace color
                 return ColorPipeError::ProgramCreationFailed;
             }
 
+            rhi::ShaderLibraryResult<std::unique_ptr<rhi::ManifestProgram>> downProgramKaris =
+                impl.Library->CreateProgram(impl.Device->Handle(), k_BloomModuleName, *downVariantKaris, downEntry);
+            if (!downProgramKaris.has_value())
+            {
+                return ColorPipeError::ProgramCreationFailed;
+            }
+
             const std::optional<rhi::PushConstantRange> downRange = (*downProgram)->PushConstants();
             if (!downRange.has_value() || downRange->Size != sizeof(BloomDownsamplePushConstants))
             {
@@ -830,9 +846,14 @@ namespace color
             }
             impl.BloomDownsampleProgram = std::move(*downProgram);
             impl.BloomDownsampleVariant = *downVariant;
+            impl.BloomDownsampleKarisProgram = std::move(*downProgramKaris);
+            impl.BloomDownsampleKarisVariant = *downVariantKaris;
             rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
                 impl.BloomDownsampleProgram->PipelineLayout().Get(),
                 "ColorPipe_BloomDownsamplePipelineLayout");
+            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+                impl.BloomDownsampleKarisProgram->PipelineLayout().Get(),
+                "ColorPipe_BloomDownsampleKarisPipelineLayout");
 
             const std::array<std::string_view, 1> upEntry{ k_BloomUpsampleEntry };
             std::expected<lodestone::VariantKey, lodestone::QueryError> upVariant = impl.BloomIndex->Query().SingleFor(upEntry);

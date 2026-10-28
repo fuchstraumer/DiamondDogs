@@ -217,18 +217,18 @@ namespace color
             return Multiply(Rec709ToRec2020(), linearRec709);
         }
 
-        constexpr Mat3d k_AgxInset
+        constexpr Mat3d k_Ap1ToAgxInset
         { {
-            std::array<double, 3>{ 0.842398929049532, 0.0784301651048638, 0.0791709058456046 },
-            std::array<double, 3>{ 0.0423989290495314, 0.8784301651048639, 0.0791709058456047 },
-            std::array<double, 3>{ 0.0423989290495315, 0.0784301651048638, 0.8791709058456048 },
+            std::array<double, 3>{ 1.4242167303573248, -0.44453410335192245, 0.020317372994598713 },
+            std::array<double, 3>{ -0.044029197774698277, 0.96554338243400251, 0.078485815340695361 },
+            std::array<double, 3>{ 0.04097325078724233, -0.050275587678294958, 1.0093023368910528 },
         } };
 
-        constexpr Mat3d k_AgxOutset
+        constexpr Mat3d k_AgxOutsetToRec2020
         { {
-            std::array<double, 3>{  1.1970013386880847, -0.0980377063810797, -0.0989636323070057 },
-            std::array<double, 3>{ -0.0529986613119142,  1.15196229361892,   -0.0989636323070059 },
-            std::array<double, 3>{ -0.0529986613119143, -0.0980377063810798,  1.151036367692994 },
+            std::array<double, 3>{ 0.73125620860645901, 0.31356609159127502, -0.044822300197734338 },
+            std::array<double, 3>{ 0.033372950385875823, 1.051387787463244, -0.08476073784911943 },
+            std::array<double, 3>{ -0.032509362717976532, 0.011978928465452423, 1.0205304342525243 },
         } };
 
         constexpr double k_AgxMinEv = -12.473931188332412;
@@ -289,8 +289,7 @@ namespace color
 
         Vec3d TonemapAgX(const Vec3d& exposed_ap1, const DisplayTarget& target) noexcept
         {
-            const Vec3d rec709 = Clamp(Multiply(Ap1ToRec709(), exposed_ap1), 0.0, std::numeric_limits<double>::infinity());
-            const Vec3d inset = Multiply(k_AgxInset, rec709);
+            const Vec3d inset = Multiply(k_Ap1ToAgxInset, exposed_ap1);
             const Vec3d logColor{
                 std::clamp(std::log2(std::max(inset.X, 1.0e-10)), k_AgxMinEv, k_AgxMaxEv),
                 std::clamp(std::log2(std::max(inset.Y, 1.0e-10)), k_AgxMinEv, k_AgxMaxEv),
@@ -306,9 +305,7 @@ namespace color
                 AgxDefaultContrastApprox(normLog.Y),
                 AgxDefaultContrastApprox(normLog.Z)
             };
-            const Vec3d outset = Multiply(k_AgxOutset, curved);
-            const Vec3d srgbLinear = Clamp(outset, 0.0, 1.0);
-            const Vec3d rec2020 = Multiply(Rec709ToRec2020(), srgbLinear);
+            const Vec3d rec2020 = Multiply(k_AgxOutsetToRec2020, curved);
             return Clamp(rec2020, 0.0, HeadroomOf(target));
         }
 

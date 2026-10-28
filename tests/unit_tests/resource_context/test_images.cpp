@@ -152,7 +152,7 @@ TEST_F(ResourceContextTest, StandaloneSamplerCreateAndDestroy)
     SamplerCreateInfo info{};
     info.MagFilter = ImageFilteringMode::Nearest;
     info.AddressU = SamplerCreateInfo::AddressMode::ClampToEdge;
-    std::shared_ptr<GraphicsResourceReply> reply = context->CreateSampler(info, nullptr);
+    std::shared_ptr<GraphicsResourceReply> reply = context->CreateSampler(info);
     ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
     const GraphicsResource sampler = reply->GetResource();
     EXPECT_EQ(sampler.Type, ResourceType::Sampler);
