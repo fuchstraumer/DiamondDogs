@@ -1,42 +1,42 @@
 #pragma once
 // WASM SIMD128 implementations for math::Quaternion. Included from MathBackendWASM.inl; include
 // nothing here, re-entering that cycle would parse every definition below twice.
-namespace velox::math
+namespace math
 {
 
-VX_MATH_FORCEINLINE Quaternion::Quaternion() noexcept
+DD_MATH_FORCEINLINE Quaternion::Quaternion() noexcept
     : data{ wasm_f32x4_const(0.0f, 0.0f, 0.0f, 1.0f) }
 {
 }
 
-VX_MATH_FORCEINLINE Quaternion::Quaternion(float x, float y, float z, float w) noexcept
+DD_MATH_FORCEINLINE Quaternion::Quaternion(float x, float y, float z, float w) noexcept
     : data{ wasm_f32x4_make(x, y, z, w) }
 {
 }
 
-VX_MATH_FORCEINLINE Quaternion::Quaternion(Vector vec) noexcept
+DD_MATH_FORCEINLINE Quaternion::Quaternion(Vector vec) noexcept
     : data{ vec.Data() }
 {
 }
 
-VX_MATH_FORCEINLINE Quaternion::operator Vector() const noexcept
+DD_MATH_FORCEINLINE Quaternion::operator Vector() const noexcept
 {
     return Vector{ data };
 }
 
-VX_MATH_FORCEINLINE float Quaternion::x() const noexcept
+DD_MATH_FORCEINLINE float Quaternion::x() const noexcept
 {
     return wasm_f32x4_extract_lane(data, 0);
 }
-VX_MATH_FORCEINLINE float Quaternion::y() const noexcept
+DD_MATH_FORCEINLINE float Quaternion::y() const noexcept
 {
     return wasm_f32x4_extract_lane(data, 1);
 }
-VX_MATH_FORCEINLINE float Quaternion::z() const noexcept
+DD_MATH_FORCEINLINE float Quaternion::z() const noexcept
 {
     return wasm_f32x4_extract_lane(data, 2);
 }
-VX_MATH_FORCEINLINE float Quaternion::w() const noexcept
+DD_MATH_FORCEINLINE float Quaternion::w() const noexcept
 {
     return wasm_f32x4_extract_lane(data, 3);
 }
@@ -46,7 +46,7 @@ VX_MATH_FORCEINLINE float Quaternion::w() const noexcept
 // ij = k, jk = i, ki = j, ii = jj = kk = -1.
 //
 // `*this` applies first, then `second` (DirectXMath's order, i.e. the product second * this).
-VX_MATH_FORCEINLINE Quaternion Quaternion::Multiply(Quaternion second) const noexcept
+DD_MATH_FORCEINLINE Quaternion Quaternion::Multiply(Quaternion second) const noexcept
 {
     const v128_t lhs = data;
     const v128_t rhs = second.data;
@@ -74,39 +74,39 @@ VX_MATH_FORCEINLINE Quaternion Quaternion::Multiply(Quaternion second) const noe
     return Quaternion{ result };
 }
 
-VX_MATH_FORCEINLINE Quaternion Quaternion::Conjugate() const noexcept
+DD_MATH_FORCEINLINE Quaternion Quaternion::Conjugate() const noexcept
 {
     return Quaternion{ wasm_f32x4_mul(data, wasm_f32x4_const(-1.0f, -1.0f, -1.0f, 1.0f)) };
 }
 
-VX_MATH_FORCEINLINE Quaternion Quaternion::Inverse() const noexcept
+DD_MATH_FORCEINLINE Quaternion Quaternion::Inverse() const noexcept
 {
     const v128_t lengthSq = Vector{ data }.DotVec<4>(Vector{ data }).Data();
     const v128_t conjugated = wasm_f32x4_mul(data, wasm_f32x4_const(-1.0f, -1.0f, -1.0f, 1.0f));
     return Quaternion{ wasm_f32x4_div(conjugated, lengthSq) };
 }
 
-VX_MATH_FORCEINLINE Quaternion Quaternion::Normalize() const noexcept
+DD_MATH_FORCEINLINE Quaternion Quaternion::Normalize() const noexcept
 {
     return Quaternion{ Vector{ data }.Normalize<4>().Data() };
 }
 
-VX_MATH_FORCEINLINE float Quaternion::Dot(Quaternion other) const noexcept
+DD_MATH_FORCEINLINE float Quaternion::Dot(Quaternion other) const noexcept
 {
     return Vector{ data }.Dot<4>(Vector{ other.data });
 }
 
-VX_MATH_FORCEINLINE float Quaternion::Length() const noexcept
+DD_MATH_FORCEINLINE float Quaternion::Length() const noexcept
 {
     return Vector{ data }.Length<4>();
 }
 
-VX_MATH_FORCEINLINE float Quaternion::LengthSq() const noexcept
+DD_MATH_FORCEINLINE float Quaternion::LengthSq() const noexcept
 {
     return Vector{ data }.LengthSq<4>();
 }
 
-VX_MATH_FORCEINLINE bool Quaternion::IsIdentity() const noexcept
+DD_MATH_FORCEINLINE bool Quaternion::IsIdentity() const noexcept
 {
     const v128_t identity = wasm_f32x4_const(0.0f, 0.0f, 0.0f, 1.0f);
     return VectorMask{ wasm_f32x4_eq(data, identity) }.AllTrue<4>();
@@ -117,7 +117,7 @@ VX_MATH_FORCEINLINE bool Quaternion::IsIdentity() const noexcept
 // i.e, the Rogrigues' rotation formula to significantly reduce instruction count
 // means we are ignoring the w of the input vector, but this is rarely a problem
 // (since our most common case, especially on the CPU, is rotating 3D vecs)
-VX_MATH_FORCEINLINE Vector Quaternion::RotateVector(Vector vec) const noexcept
+DD_MATH_FORCEINLINE Vector Quaternion::RotateVector(Vector vec) const noexcept
 {
     // zero the .w of the quaternion and input vector, and broadcast the scalar part of the quaternion
     const Vector axis{ wasm_f32x4_replace_lane(data, 3, 0.0f) };
@@ -133,12 +133,12 @@ VX_MATH_FORCEINLINE Vector Quaternion::RotateVector(Vector vec) const noexcept
     return Vector{ result };
 }
 
-VX_MATH_FORCEINLINE Matrix Quaternion::ToMatrix() const noexcept
+DD_MATH_FORCEINLINE Matrix Quaternion::ToMatrix() const noexcept
 {
     return Matrix::RotationQuaternion(*this);
 }
 
-VX_MATH_FORCEINLINE void Quaternion::ToAxisAngle(Vector& out_axis, float& out_radians) const noexcept
+DD_MATH_FORCEINLINE void Quaternion::ToAxisAngle(Vector& out_axis, float& out_radians) const noexcept
 {
     out_axis = Vector{ wasm_f32x4_replace_lane(data, 3, 0.0f) };
     // clamped: a quaternion drifted past unit length would hand std::acos an out-of-range argument
@@ -146,17 +146,17 @@ VX_MATH_FORCEINLINE void Quaternion::ToAxisAngle(Vector& out_axis, float& out_ra
     out_radians = 2.0f * std::acos(scalarPart);
 }
 
-VX_MATH_FORCEINLINE Quaternion Quaternion::Identity() noexcept
+DD_MATH_FORCEINLINE Quaternion Quaternion::Identity() noexcept
 {
     return Quaternion{ wasm_f32x4_const(0.0f, 0.0f, 0.0f, 1.0f) };
 }
 
-VX_MATH_FORCEINLINE Quaternion Quaternion::RotationAxis(Vector axis, float radians) noexcept
+DD_MATH_FORCEINLINE Quaternion Quaternion::RotationAxis(Vector axis, float radians) noexcept
 {
     return RotationNormal(axis.Normalize<3>(), radians);
 }
 
-VX_MATH_FORCEINLINE Quaternion Quaternion::RotationNormal(Vector normal_axis, float radians) noexcept
+DD_MATH_FORCEINLINE Quaternion Quaternion::RotationNormal(Vector normal_axis, float radians) noexcept
 {
     const float halfAngle = radians * 0.5f;
     const float sinHalf = std::sin(halfAngle);
@@ -167,7 +167,7 @@ VX_MATH_FORCEINLINE Quaternion Quaternion::RotationNormal(Vector normal_axis, fl
     return Quaternion{ wasm_f32x4_replace_lane(scaled, 3, cosHalf) };
 }
 
-VX_MATH_FORCEINLINE Quaternion Quaternion::RotationRollPitchYaw(float pitch,
+DD_MATH_FORCEINLINE Quaternion Quaternion::RotationRollPitchYaw(float pitch,
                                                                 float yaw,
                                                                 float roll) noexcept
 {

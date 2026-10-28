@@ -4,8 +4,7 @@ set(foundation_source_files
     "include/ImageDataFormatsVulkan.hpp"
     "include/Unit.hpp"
     "include/Handle.hpp"
-    "src/ImageDataFormats.cpp"
-    "src/miMallocOverride.cpp")
+    "src/ImageDataFormats.cpp")
 
 set(foundation_async_source_files
     "include/async/FrameNames.hpp"
@@ -67,18 +66,27 @@ set(reactors_source_files
     "include/reactors/AllocationReactor.hpp"
     "src/reactors/AllocationReactor.cpp")
 
+
+if(NOT EMSCRIPTEN)
+    set(math_backend_source_files
+        "include/math/MathBackendDX.inl"
+        "include/math/QuaternionBackendDX.inl"
+        "include/math/TranscendentalBackendDX.inl")
+elseif(EMSCRIPTEN)
+    set(math_backend_source_files
+        "include/math/MathBackendWASM.inl"
+        "include/math/QuaternionBackendWASM.inl"
+        "include/math/TranscendentalBackendWASM.inl")
+else()
+    message(FATAL_ERROR "Unsupported platform for math backend source files")
+endif()
+
 set(maths_source_files
-    "include/Math.hpp"
     "include/math/Math.hpp"
     "include/math/Math.inl"
-    "include/math/MathBackendDX.inl"
-    "include/math/MathBackendWASM.inl"
     "include/math/MathHashes.hpp"
     "include/math/MathPolynomials.hpp"
-    "include/math/QuaternionBackendDX.inl"
-    "include/math/QuaternionBackendWASM.inl"
-    "include/math/TranscendentalBackendDX.inl"
-    "include/math/TranscendentalBackendWASM.inl")
+    ${math_backend_source_files})
 
 source_group("foundation" FILES ${foundation_source_files})
 source_group("async" FILES ${foundation_async_source_files})

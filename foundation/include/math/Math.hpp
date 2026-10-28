@@ -1,51 +1,49 @@
 #pragma once
-#ifndef VELOX_RHI_MATH_HPP
-#define VELOX_RHI_MATH_HPP
+#ifndef DIAMONDDOGS_FOUNDATION_MATH_HPP
+#define DIAMONDDOGS_FOUNDATION_MATH_HPP
+#include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
-#include <cmath>
-#include <cassert>
 #include <limits>
 #include <numbers>
-#include <utility>
 
 #include "math/MathPolynomials.hpp"
 
 // needed early to prefix the swizzle accessors
 #if defined(_MSC_VER)
-#define VX_MATH_FORCEINLINE __forceinline
+#define DD_MATH_FORCEINLINE __forceinline
 #elif defined(__clang__)
-#define VX_MATH_FORCEINLINE __attribute__((always_inline)) inline
+#define DD_MATH_FORCEINLINE __attribute__((always_inline)) inline
 #elif defined(__GNUC__)
-#define VX_MATH_FORCEINLINE __attribute__((always_inline)) inline
+#define DD_MATH_FORCEINLINE __attribute__((always_inline)) inline
 #else
-#define VX_MATH_FORCEINLINE inline
+#define DD_MATH_FORCEINLINE inline
 #endif
 
 
 // Autodetects Emscripten and selects the WASM SIMD128 backend; otherwise falls
-// back to DirectXMath. Override with VX_MATH_FORCE_BACKEND_WASM or
-// VX_MATH_FORCE_BACKEND_DIRECTX to force a specific backend
-#if defined(VX_MATH_FORCE_BACKEND_WASM) && defined(VX_MATH_FORCE_BACKEND_DIRECTX)
-    #error "Define at most one of VX_MATH_FORCE_BACKEND_WASM / VX_MATH_FORCE_BACKEND_DIRECTX"
-#elif defined(VX_MATH_FORCE_BACKEND_WASM)
-    #define VX_MATH_BACKEND_WASM 1
-#elif defined(VX_MATH_FORCE_BACKEND_DIRECTX)
-    #define VX_MATH_BACKEND_WASM 0
+// back to DirectXMath. Override with DD_MATH_FORCE_BACKEND_WASM or
+// DD_MATH_FORCE_BACKEND_DIRECTX to force a specific backend
+#if defined(DD_MATH_FORCE_BACKEND_WASM) && defined(DD_MATH_FORCE_BACKEND_DIRECTX)
+    #error "Define at most one of DD_MATH_FORCE_BACKEND_WASM / DD_MATH_FORCE_BACKEND_DIRECTX"
+#elif defined(DD_MATH_FORCE_BACKEND_WASM)
+    #define DD_MATH_BACKEND_WASM 1
+#elif defined(DD_MATH_FORCE_BACKEND_DIRECTX)
+    #define DD_MATH_BACKEND_WASM 0
 #elif defined(__EMSCRIPTEN__)
-    #define VX_MATH_BACKEND_WASM 1
+    #define DD_MATH_BACKEND_WASM 1
 #else
-    #define VX_MATH_BACKEND_WASM 0
+    #define DD_MATH_BACKEND_WASM 0
 #endif
 
-#if VX_MATH_BACKEND_WASM
+#if DD_MATH_BACKEND_WASM
     #include <wasm_simd128.h>
 #else
     #include <DirectXMath.h>
 #endif
 
-// VX_MATH_RELAXED_SIMD opts the WASM backend into relaxed-simd: relaxed_madd / nmadd, relaxed_min /
+// DD_MATH_RELAXED_SIMD opts the WASM backend into relaxed-simd: relaxed_madd / nmadd, relaxed_min /
 // max, relaxed_trunc, relaxed_laneselect. Every use has a plain-SIMD #else fallback. Set by the
 // VELOX_RHI_MATH_RELAXED_SIMD CMake option, which also passes -mrelaxed-simd; the builtins do not
 // compile without it, so never define this by hand.
@@ -54,19 +52,20 @@
 // todo-ship: runtime capability check with two compiled variants
 // Use analytical solutions and approximations in key locations to reduce
 // instruction count (called SHORTCUTS because there's a few diff types of opts, not just approximation)
-#define VX_MATH_USE_SHORTCUTS
+#define DD_MATH_USE_SHORTCUTS
 
-namespace velox::math
+namespace math
 {
+
 // Swizzle generation macros - these create combinations from storage members
 #define SWIZZLE_2(a, b) \
-    constexpr VX_MATH_FORCEINLINE Float2 a##b() const noexcept { return Float2(a, b); }
+    constexpr DD_MATH_FORCEINLINE Float2 a##b() const noexcept { return Float2(a, b); }
 
 #define SWIZZLE_3(a, b, c) \
-    constexpr VX_MATH_FORCEINLINE Float3 a##b##c() const noexcept { return Float3(a, b, c); }
+    constexpr DD_MATH_FORCEINLINE Float3 a##b##c() const noexcept { return Float3(a, b, c); }
 
 #define SWIZZLE_4(a, b, c, d) \
-    constexpr VX_MATH_FORCEINLINE Float4 a##b##c##d() const noexcept { return Float4(a, b, c, d); }
+    constexpr DD_MATH_FORCEINLINE Float4 a##b##c##d() const noexcept { return Float4(a, b, c, d); }
 
 // Forward declarations
 struct Float3;

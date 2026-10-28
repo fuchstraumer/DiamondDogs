@@ -1,7 +1,8 @@
 #pragma once
-#ifndef VELOX_RHI_MATH_POLYNOMIALS_HPP
-#define VELOX_RHI_MATH_POLYNOMIALS_HPP
+#ifndef DIAMONDDOGS_MATH_POLYNOMIALS_HPP
+#define DIAMONDDOGS_MATH_POLYNOMIALS_HPP
 #include <cstdint>
+#include <numbers>
 
 // Coefficients shared by the scalar and SIMD transcendentals, in one place so they cannot drift. A
 // coefficient differing between the two gives two plausible answers off in the fifth decimal, which
@@ -12,12 +13,12 @@
 // g_XMSinCoefficients0/1 and g_XMCosCoefficients0/1) and are *not* Taylor values - they are perturbed
 // to flatten worst-case error, which buys the same accuracy two degrees lower. Their resemblance to
 // 1/6 and 1/120 is why an edit here is easy to make and hard to notice.
-namespace velox::math::detail
+namespace math::detail
 {
 
 // 2^f on [-0.5, 0.5]: 2^f = e^(f ln2), so term n is ln2^n / n!. Six terms leaves
 // (ln2^7 / 7!) * 0.5^7 ~= 1.2e-7, under one float ulp - a minimax fit would save an op, not accuracy.
-constexpr float k_Exp2Poly1 = 0.693147181f;    // ln2
+constexpr float k_Exp2Poly1 = std::numbers::ln2_v<float>;    // ln2
 constexpr float k_Exp2Poly2 = 0.240226507f;    // ln2^2 / 2
 constexpr float k_Exp2Poly3 = 0.0555041087f;   // ln2^3 / 6
 constexpr float k_Exp2Poly4 = 0.00961812911f;  // ln2^4 / 24
@@ -80,6 +81,6 @@ constexpr float k_Log10Of2 = 0.301029996f;
 // modified NR corrections: Walczyk, Moroz & Cieslinski, Entropy 23(1), 2021
 constexpr uint32_t k_ReciprocalSqrtSeed = 0x5F375A86u;
 
-} // namespace velox::math::detail
+} // namespace math::detail
 
-#endif // !VELOX_RHI_MATH_POLYNOMIALS_HPP
+#endif // !DIAMONDDOGS_MATH_POLYNOMIALS_HPP

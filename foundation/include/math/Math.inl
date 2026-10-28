@@ -1,11 +1,12 @@
 #pragma once
+#include "math/Math.hpp"
 // Implementation file for Math.hpp. This file holds the *portable* bits -
 // storage-type (Float2/3/4, Float3x3/4x3/4x4) implementations
 // Reference implementation, including DirectXMath SIMD inline: 
 // https://github.com/fuchstraumer/DiamondDogs/blob/master/foundation/include/math/Math.inl
 // other SIMD backends are in MathBackendWASM.inl and MathBackendDX.inl
 
-namespace velox::math
+namespace math
 {
 // ================================
 // Float2 implementations
@@ -511,7 +512,7 @@ constexpr Float4x4 Float4x4::Zero() noexcept
 
 // The proxy carries the Vector until a conversion operator picks the destination width; those
 // operators need SIMD and live in the backend .inl files
-VX_MATH_FORCEINLINE detail::FromVectorProxy FromVector(Vector vec) noexcept
+DD_MATH_FORCEINLINE detail::FromVectorProxy FromVector(Vector vec) noexcept
 {
     return detail::FromVectorProxy{ vec };
 }
@@ -519,34 +520,34 @@ VX_MATH_FORCEINLINE detail::FromVectorProxy FromVector(Vector vec) noexcept
 // Scalar on purpose: one value in, one out, and a splat-then-extract round trip would cost more than
 // the arithmetic. Coefficients come from math/MathPolynomials.hpp, shared with the SIMD paths.
 
-constexpr VX_MATH_FORCEINLINE float DegreesToRadians(float degrees) noexcept
+constexpr DD_MATH_FORCEINLINE float DegreesToRadians(float degrees) noexcept
 {
     return degrees * (std::numbers::pi_v<float> / 180.0f);
 }
 
-constexpr VX_MATH_FORCEINLINE float RadiansToDegrees(float radians) noexcept
+constexpr DD_MATH_FORCEINLINE float RadiansToDegrees(float radians) noexcept
 {
     return radians * (180.0f / std::numbers::pi_v<float>);
 }
 
-constexpr VX_MATH_FORCEINLINE float Lerp(float from, float to, float t) noexcept
+constexpr DD_MATH_FORCEINLINE float Lerp(float from, float to, float t) noexcept
 {
     return from + (to - from) * t;
 }
 
-constexpr VX_MATH_FORCEINLINE float Clamp(float value, float min, float max) noexcept
+constexpr DD_MATH_FORCEINLINE float Clamp(float value, float min, float max) noexcept
 {
     return value < min ? min : (value > max ? max : value);
 }
 
-constexpr VX_MATH_FORCEINLINE float Saturate(float value) noexcept
+constexpr DD_MATH_FORCEINLINE float Saturate(float value) noexcept
 {
     return Clamp(value, 0.0f, 1.0f);
 }
 
 // x - 2pi * round(x / 2pi). Round-to-nearest, not truncation: truncating leaves the negative half
 // unreduced
-constexpr VX_MATH_FORCEINLINE float ModAngles(float radians) noexcept
+constexpr DD_MATH_FORCEINLINE float ModAngles(float radians) noexcept
 {
     constexpr float k_TwoPi = 2.0f * std::numbers::pi_v<float>;
     constexpr float k_ReciprocalTwoPi = 1.0f / k_TwoPi;
@@ -566,7 +567,7 @@ namespace detail
         float cosSign;
     };
 
-    constexpr VX_MATH_FORCEINLINE ScalarTrigReduction ReduceForTrigScalar(float radians) noexcept
+    constexpr DD_MATH_FORCEINLINE ScalarTrigReduction ReduceForTrigScalar(float radians) noexcept
     {
         constexpr float k_Pi = std::numbers::pi_v<float>;
         constexpr float k_HalfPi = k_Pi * 0.5f;
@@ -583,7 +584,7 @@ namespace detail
         return ScalarTrigReduction{ signedPi - wrapped, -1.0f };
     }
 
-    constexpr VX_MATH_FORCEINLINE float SinPolynomialScalar(float angle) noexcept
+    constexpr DD_MATH_FORCEINLINE float SinPolynomialScalar(float angle) noexcept
     {
         const float squared = angle * angle;
         float polynomial = k_SinPoly11;
@@ -595,7 +596,7 @@ namespace detail
         return polynomial * angle;
     }
 
-    constexpr VX_MATH_FORCEINLINE float CosPolynomialScalar(float angle) noexcept
+    constexpr DD_MATH_FORCEINLINE float CosPolynomialScalar(float angle) noexcept
     {
         const float squared = angle * angle;
         float polynomial = k_CosPoly10;
@@ -606,7 +607,7 @@ namespace detail
         return polynomial * squared + 1.0f;
     }
 
-    constexpr VX_MATH_FORCEINLINE float SinPolynomialScalarEst(float angle) noexcept
+    constexpr DD_MATH_FORCEINLINE float SinPolynomialScalarEst(float angle) noexcept
     {
         const float squared = angle * angle;
         float polynomial = k_SinEstPoly7;
@@ -616,7 +617,7 @@ namespace detail
         return polynomial * angle;
     }
 
-    constexpr VX_MATH_FORCEINLINE float CosPolynomialScalarEst(float angle) noexcept
+    constexpr DD_MATH_FORCEINLINE float CosPolynomialScalarEst(float angle) noexcept
     {
         const float squared = angle * angle;
         float polynomial = k_CosEstPoly6;
@@ -626,26 +627,26 @@ namespace detail
     }
 } // namespace detail
 
-VX_MATH_FORCEINLINE ScalarSinCos SinCos(float radians) noexcept
+DD_MATH_FORCEINLINE ScalarSinCos SinCos(float radians) noexcept
 {
     const detail::ScalarTrigReduction reduction = detail::ReduceForTrigScalar(radians);
     return ScalarSinCos{ detail::SinPolynomialScalar(reduction.angle),
                          detail::CosPolynomialScalar(reduction.angle) * reduction.cosSign };
 }
 
-VX_MATH_FORCEINLINE ScalarSinCos SinCosEst(float radians) noexcept
+DD_MATH_FORCEINLINE ScalarSinCos SinCosEst(float radians) noexcept
 {
     const detail::ScalarTrigReduction reduction = detail::ReduceForTrigScalar(radians);
     return ScalarSinCos{ detail::SinPolynomialScalarEst(reduction.angle),
                          detail::CosPolynomialScalarEst(reduction.angle) * reduction.cosSign };
 }
 
-VX_MATH_FORCEINLINE float Sin(float radians) noexcept
+DD_MATH_FORCEINLINE float Sin(float radians) noexcept
 {
     return detail::SinPolynomialScalar(detail::ReduceForTrigScalar(radians).angle);
 }
 
-VX_MATH_FORCEINLINE float Cos(float radians) noexcept
+DD_MATH_FORCEINLINE float Cos(float radians) noexcept
 {
     const detail::ScalarTrigReduction reduction = detail::ReduceForTrigScalar(radians);
     return detail::CosPolynomialScalar(reduction.angle) * reduction.cosSign;
@@ -774,7 +775,7 @@ constexpr Float3 operator*(const Float4x4& mat, const Float3& vec) noexcept
     );
 }
 
-VX_MATH_FORCEINLINE float Tan(float radians) noexcept
+DD_MATH_FORCEINLINE float Tan(float radians) noexcept
 {
     const ScalarSinCos pair = SinCos(radians);
     return pair.sin / pair.cos;
@@ -807,7 +808,7 @@ inline float ATan(float value) noexcept
     return (value < 0.0f ? -k_HalfPi : k_HalfPi) - inner;
 }
 
-VX_MATH_FORCEINLINE float ATan2(float y, float x) noexcept
+DD_MATH_FORCEINLINE float ATan2(float y, float x) noexcept
 {
     constexpr float k_Pi = std::numbers::pi_v<float>;
 
@@ -824,23 +825,23 @@ VX_MATH_FORCEINLINE float ATan2(float y, float x) noexcept
     return base + (y < 0.0f ? -k_Pi : k_Pi);
 }
 
-VX_MATH_FORCEINLINE float ASin(float value) noexcept
+DD_MATH_FORCEINLINE float ASin(float value) noexcept
 {
     return ATan2(value, std::sqrt(1.0f - value * value));
 }
 
-VX_MATH_FORCEINLINE float ACos(float value) noexcept
+DD_MATH_FORCEINLINE float ACos(float value) noexcept
 {
     return ATan2(std::sqrt(1.0f - value * value), value);
 }
 
-VX_MATH_FORCEINLINE float Pow(float base, float exponent) noexcept
+DD_MATH_FORCEINLINE float Pow(float base, float exponent) noexcept
 {
     return Exp2(exponent * Log2(base));
 }
 
 // 1 - 2 / (e^2x + 1); saturates to 1 rather than producing inf/inf where the difference form would
-VX_MATH_FORCEINLINE float TanH(float value) noexcept
+DD_MATH_FORCEINLINE float TanH(float value) noexcept
 {
     return 1.0f - 2.0f / (Exp2(2.0f * value * detail::k_Log2OfE) + 1.0f);
 }
@@ -848,7 +849,7 @@ VX_MATH_FORCEINLINE float TanH(float value) noexcept
 // Shortest arc: q and -q are the same rotation, so a negative dot means the other representation is
 // nearer and negating one endpoint avoids interpolating the long way round. Near-parallel endpoints
 // fall back to a normalized lerp, where sin(theta) is too small to divide by.
-VX_MATH_FORCEINLINE Quaternion Quaternion::Slerp(Quaternion from, Quaternion to, float t) noexcept
+DD_MATH_FORCEINLINE Quaternion Quaternion::Slerp(Quaternion from, Quaternion to, float t) noexcept
 {
     float cosine = from.Dot(to);
     Quaternion target = to;

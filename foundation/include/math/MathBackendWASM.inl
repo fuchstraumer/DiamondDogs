@@ -5,12 +5,12 @@
 // Do not include Math.hpp/Math.inl from here: this file is reached *through* them, and re-entering
 // that cycle would parse every definition below twice (the pragma above only takes effect once the
 // nested inclusion has already completed). Match MathBackendDX.inl - include nothing.
-namespace velox::math
+namespace math
 {
 namespace detail
 {
     // a * b + c
-    VX_MATH_FORCEINLINE v128_t MulAdd(v128_t a, v128_t b, v128_t c) noexcept
+    DD_MATH_FORCEINLINE v128_t MulAdd(v128_t a, v128_t b, v128_t c) noexcept
     {
 #if defined(VX_MATH_RELAXED_SIMD)
         return wasm_f32x4_relaxed_madd(a, b, c);
@@ -20,7 +20,7 @@ namespace detail
     }
 
     // c - a * b
-    VX_MATH_FORCEINLINE v128_t NegMulAdd(v128_t a, v128_t b, v128_t c) noexcept
+    DD_MATH_FORCEINLINE v128_t NegMulAdd(v128_t a, v128_t b, v128_t c) noexcept
     {
 #if defined(VX_MATH_RELAXED_SIMD)
         return wasm_f32x4_relaxed_nmadd(a, b, c);
@@ -52,50 +52,50 @@ namespace detail
 // VectorMask Implementation (WASM SIMD128)
 // ================================
 
-VX_MATH_FORCEINLINE VectorMask::VectorMask() noexcept
+DD_MATH_FORCEINLINE VectorMask::VectorMask() noexcept
     : data{ wasm_i32x4_const_splat(0) }
 {
 }
 
-VX_MATH_FORCEINLINE VectorMask VectorMask::operator&(VectorMask rhs) const noexcept
+DD_MATH_FORCEINLINE VectorMask VectorMask::operator&(VectorMask rhs) const noexcept
 {
     return VectorMask{ wasm_v128_and(data, rhs.data) };
 }
 
-VX_MATH_FORCEINLINE VectorMask VectorMask::operator|(VectorMask rhs) const noexcept
+DD_MATH_FORCEINLINE VectorMask VectorMask::operator|(VectorMask rhs) const noexcept
 {
     return VectorMask{ wasm_v128_or(data, rhs.data) };
 }
 
-VX_MATH_FORCEINLINE VectorMask VectorMask::operator^(VectorMask rhs) const noexcept
+DD_MATH_FORCEINLINE VectorMask VectorMask::operator^(VectorMask rhs) const noexcept
 {
     return VectorMask{ wasm_v128_xor(data, rhs.data) };
 }
 
-VX_MATH_FORCEINLINE VectorMask VectorMask::operator~() const noexcept
+DD_MATH_FORCEINLINE VectorMask VectorMask::operator~() const noexcept
 {
     return VectorMask{ wasm_v128_not(data) };
 }
 
-VX_MATH_FORCEINLINE VectorMask& VectorMask::operator&=(VectorMask rhs) noexcept
+DD_MATH_FORCEINLINE VectorMask& VectorMask::operator&=(VectorMask rhs) noexcept
 {
     data = wasm_v128_and(data, rhs.data);
     return *this;
 }
 
-VX_MATH_FORCEINLINE VectorMask& VectorMask::operator|=(VectorMask rhs) noexcept
+DD_MATH_FORCEINLINE VectorMask& VectorMask::operator|=(VectorMask rhs) noexcept
 {
     data = wasm_v128_or(data, rhs.data);
     return *this;
 }
 
-VX_MATH_FORCEINLINE VectorMask& VectorMask::operator^=(VectorMask rhs) noexcept
+DD_MATH_FORCEINLINE VectorMask& VectorMask::operator^=(VectorMask rhs) noexcept
 {
     data = wasm_v128_xor(data, rhs.data);
     return *this;
 }
 
-VX_MATH_FORCEINLINE uint32_t VectorMask::LaneBits() const noexcept
+DD_MATH_FORCEINLINE uint32_t VectorMask::LaneBits() const noexcept
 {
     return static_cast<uint32_t>(wasm_i32x4_bitmask(data));
 }
@@ -112,23 +112,23 @@ namespace detail
 } // namespace detail
 
 template<int N>
-VX_MATH_FORCEINLINE bool VectorMask::AllTrue() const noexcept
+DD_MATH_FORCEINLINE bool VectorMask::AllTrue() const noexcept
 {
     return (LaneBits() & detail::LaneBitsFor<N>()) == detail::LaneBitsFor<N>();
 }
 
 template<int N>
-VX_MATH_FORCEINLINE bool VectorMask::AnyTrue() const noexcept
+DD_MATH_FORCEINLINE bool VectorMask::AnyTrue() const noexcept
 {
     return (LaneBits() & detail::LaneBitsFor<N>()) != 0u;
 }
 
-VX_MATH_FORCEINLINE VectorMask VectorMask::AllSet() noexcept
+DD_MATH_FORCEINLINE VectorMask VectorMask::AllSet() noexcept
 {
     return VectorMask{ wasm_i32x4_const_splat(-1) };
 }
 
-VX_MATH_FORCEINLINE VectorMask VectorMask::AllClear() noexcept
+DD_MATH_FORCEINLINE VectorMask VectorMask::AllClear() noexcept
 {
     return VectorMask{ wasm_i32x4_const_splat(0) };
 }
@@ -137,94 +137,94 @@ VX_MATH_FORCEINLINE VectorMask VectorMask::AllClear() noexcept
 // Vector SIMD Implementation (WASM SIMD128)
 // ================================
 
-VX_MATH_FORCEINLINE Vector::Vector() noexcept
+DD_MATH_FORCEINLINE Vector::Vector() noexcept
     : data{ wasm_f32x4_splat(0.0f) }
 {
 }
 
-VX_MATH_FORCEINLINE Vector::Vector(float x, float y, float z, float w) noexcept
+DD_MATH_FORCEINLINE Vector::Vector(float x, float y, float z, float w) noexcept
     : data{ wasm_f32x4_make(x, y, z, w) }
 {
 }
 
-VX_MATH_FORCEINLINE Vector::Vector(float x, float y, float z) noexcept
+DD_MATH_FORCEINLINE Vector::Vector(float x, float y, float z) noexcept
     : data{ wasm_f32x4_make(x, y, z, 0.0f) }
 {
 }
 
-VX_MATH_FORCEINLINE Vector::Vector(float x, float y) noexcept
+DD_MATH_FORCEINLINE Vector::Vector(float x, float y) noexcept
     : data{ wasm_f32x4_make(x, y, 0.0f, 0.0f) }
 {
 }
 
-VX_MATH_FORCEINLINE Vector::Vector(float scalar) noexcept
+DD_MATH_FORCEINLINE Vector::Vector(float scalar) noexcept
     : data{ wasm_f32x4_splat(scalar) }
 {
 }
 
 // Component accessors
-VX_MATH_FORCEINLINE float Vector::x() const noexcept
+DD_MATH_FORCEINLINE float Vector::x() const noexcept
 {
     return wasm_f32x4_extract_lane(data, 0);
 }
-VX_MATH_FORCEINLINE float Vector::y() const noexcept
+DD_MATH_FORCEINLINE float Vector::y() const noexcept
 {
     return wasm_f32x4_extract_lane(data, 1);
 }
-VX_MATH_FORCEINLINE float Vector::z() const noexcept
+DD_MATH_FORCEINLINE float Vector::z() const noexcept
 {
     return wasm_f32x4_extract_lane(data, 2);
 }
-VX_MATH_FORCEINLINE float Vector::w() const noexcept
+DD_MATH_FORCEINLINE float Vector::w() const noexcept
 {
     return wasm_f32x4_extract_lane(data, 3);
 }
 
 // Static factory methods
-VX_MATH_FORCEINLINE Vector Vector::Zero() noexcept
+DD_MATH_FORCEINLINE Vector Vector::Zero() noexcept
 {
     return Vector{ wasm_f32x4_splat(0.0f) };
 }
-VX_MATH_FORCEINLINE Vector Vector::Replicate(float scalar) noexcept
+DD_MATH_FORCEINLINE Vector Vector::Replicate(float scalar) noexcept
 {
     return Vector{ wasm_f32x4_splat(scalar) };
 }
-VX_MATH_FORCEINLINE Vector Vector::Identity() noexcept
+DD_MATH_FORCEINLINE Vector Vector::Identity() noexcept
 {
     return Vector{ wasm_f32x4_splat(1.0f) };
 }
 
 // Arithmetic operators
-VX_MATH_FORCEINLINE Vector Vector::operator+(Vector rhs) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::operator+(Vector rhs) const noexcept
 {
     return Vector{ wasm_f32x4_add(data, rhs.data) };
 }
-VX_MATH_FORCEINLINE Vector Vector::operator-(Vector rhs) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::operator-(Vector rhs) const noexcept
 {
     return Vector{ wasm_f32x4_sub(data, rhs.data) };
 }
-VX_MATH_FORCEINLINE Vector Vector::operator*(Vector rhs) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::operator*(Vector rhs) const noexcept
 {
     return Vector{ wasm_f32x4_mul(data, rhs.data) };
 }
-VX_MATH_FORCEINLINE Vector Vector::operator/(Vector rhs) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::operator/(Vector rhs) const noexcept
 {
     return Vector{ wasm_f32x4_div(data, rhs.data) };
 }
-VX_MATH_FORCEINLINE Vector Vector::operator*(float scalar) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::operator*(float scalar) const noexcept
 {
     return Vector{ wasm_f32x4_mul(data, wasm_f32x4_splat(scalar)) };
 }
-VX_MATH_FORCEINLINE Vector Vector::operator/(float scalar) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::operator/(float scalar) const noexcept
 {
     return Vector{ wasm_f32x4_div(data, wasm_f32x4_splat(scalar)) };
 }
-VX_MATH_FORCEINLINE Vector Vector::operator-() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::operator-() const noexcept
 {
     return Vector{ wasm_f32x4_neg(data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::MultiplyAdd(Vector factor, Vector addend) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::MultiplyAdd(Vector factor, Vector addend) const noexcept
 {
 #if defined(VX_MATH_RELAXED_SIMD)
     return Vector{ wasm_f32x4_relaxed_madd(data, factor.data, addend.data) };
@@ -234,46 +234,46 @@ VX_MATH_FORCEINLINE Vector Vector::MultiplyAdd(Vector factor, Vector addend) con
 }
 
 // Compound assignment operators
-VX_MATH_FORCEINLINE Vector& Vector::operator+=(Vector rhs) noexcept
+DD_MATH_FORCEINLINE Vector& Vector::operator+=(Vector rhs) noexcept
 {
     data = wasm_f32x4_add(data, rhs.data);
     return *this;
 }
-VX_MATH_FORCEINLINE Vector& Vector::operator-=(Vector rhs) noexcept
+DD_MATH_FORCEINLINE Vector& Vector::operator-=(Vector rhs) noexcept
 {
     data = wasm_f32x4_sub(data, rhs.data);
     return *this;
 }
-VX_MATH_FORCEINLINE Vector& Vector::operator*=(Vector rhs) noexcept
+DD_MATH_FORCEINLINE Vector& Vector::operator*=(Vector rhs) noexcept
 {
     data = wasm_f32x4_mul(data, rhs.data);
     return *this;
 }
-VX_MATH_FORCEINLINE Vector& Vector::operator/=(Vector rhs) noexcept
+DD_MATH_FORCEINLINE Vector& Vector::operator/=(Vector rhs) noexcept
 {
     data = wasm_f32x4_div(data, rhs.data);
     return *this;
 }
-VX_MATH_FORCEINLINE Vector& Vector::operator*=(float scalar) noexcept
+DD_MATH_FORCEINLINE Vector& Vector::operator*=(float scalar) noexcept
 {
     data = wasm_f32x4_mul(data, wasm_f32x4_splat(scalar));
     return *this;
 }
-VX_MATH_FORCEINLINE Vector& Vector::operator/=(float scalar) noexcept
+DD_MATH_FORCEINLINE Vector& Vector::operator/=(float scalar) noexcept
 {
     data = wasm_f32x4_div(data, wasm_f32x4_splat(scalar));
     return *this;
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Reciprocal() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Reciprocal() const noexcept
 {
     return Vector{ wasm_f32x4_div(wasm_f32x4_splat(1.0f), data) };
 }
-VX_MATH_FORCEINLINE Vector Vector::Sqrt() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Sqrt() const noexcept
 {
     return Vector{ wasm_f32x4_sqrt(data) };
 }
-VX_MATH_FORCEINLINE Vector Vector::ReciprocalSqrt() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::ReciprocalSqrt() const noexcept
 {
     return Vector{ wasm_f32x4_div(wasm_f32x4_splat(1.0f), wasm_f32x4_sqrt(data)) };
 }
@@ -284,7 +284,7 @@ VX_MATH_FORCEINLINE Vector Vector::ReciprocalSqrt() const noexcept
 namespace detail
 {
     // two shuffle/add pairs sum all four lanes, total ending up in every one
-    VX_MATH_FORCEINLINE v128_t HorizontalSum4(v128_t vec) noexcept
+    DD_MATH_FORCEINLINE v128_t HorizontalSum4(v128_t vec) noexcept
     {
         vec = wasm_f32x4_add(vec, wasm_i32x4_shuffle(vec, vec, 2, 3, 0, 1));
         return wasm_f32x4_add(vec, wasm_i32x4_shuffle(vec, vec, 1, 0, 3, 2));
@@ -292,7 +292,7 @@ namespace detail
 } // namespace detail
 
 template<>
-VX_MATH_FORCEINLINE Vector Vector::DotVec<2>(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::DotVec<2>(Vector other) const noexcept
 {
     const v128_t products = wasm_f32x4_mul(data, other.data);
     const v128_t zero = wasm_f32x4_splat(0.0f);
@@ -302,13 +302,13 @@ VX_MATH_FORCEINLINE Vector Vector::DotVec<2>(Vector other) const noexcept
 }
 
 template<>
-VX_MATH_FORCEINLINE float Vector::Dot<2>(Vector other) const noexcept
+DD_MATH_FORCEINLINE float Vector::Dot<2>(Vector other) const noexcept
 {
     return wasm_f32x4_extract_lane(DotVec<2>(other).data, 0);
 }
 
 template<>
-VX_MATH_FORCEINLINE Vector Vector::DotVec<3>(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::DotVec<3>(Vector other) const noexcept
 {
     const v128_t products = wasm_f32x4_mul(data, other.data);
     const v128_t zero = wasm_f32x4_splat(0.0f);
@@ -318,32 +318,32 @@ VX_MATH_FORCEINLINE Vector Vector::DotVec<3>(Vector other) const noexcept
 }
 
 template<>
-VX_MATH_FORCEINLINE float Vector::Dot<3>(Vector other) const noexcept
+DD_MATH_FORCEINLINE float Vector::Dot<3>(Vector other) const noexcept
 {
     return wasm_f32x4_extract_lane(DotVec<3>(other).data, 0);
 }
 
 template<>
-VX_MATH_FORCEINLINE Vector Vector::DotVec<4>(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::DotVec<4>(Vector other) const noexcept
 {
     return Vector{ detail::HorizontalSum4(wasm_f32x4_mul(data, other.data)) };
 }
 
 template<>
-VX_MATH_FORCEINLINE float Vector::Dot<4>(Vector other) const noexcept
+DD_MATH_FORCEINLINE float Vector::Dot<4>(Vector other) const noexcept
 {
     return wasm_f32x4_extract_lane(DotVec<4>(other).data, 0);
 }
 
 template<int N>
-VX_MATH_FORCEINLINE float Vector::LengthSq() const noexcept
+DD_MATH_FORCEINLINE float Vector::LengthSq() const noexcept
 {
     static_assert(N >= 2 && N <= 4, "LengthSq dimensionality must be 2, 3, or 4");
     return Dot<N>(*this);
 }
 
 template<int N>
-VX_MATH_FORCEINLINE float Vector::Length() const noexcept
+DD_MATH_FORCEINLINE float Vector::Length() const noexcept
 {
     static_assert(N >= 2 && N <= 4, "Length dimensionality must be 2, 3, or 4");
     return std::sqrt(Dot<N>(*this));
@@ -352,14 +352,14 @@ VX_MATH_FORCEINLINE float Vector::Length() const noexcept
 // DotVec splats the squared length, so the divide stays in the vector domain - no lane extraction,
 // no scalar sqrt. Zero length yields infinities rather than being special-cased.
 template<int N>
-VX_MATH_FORCEINLINE Vector Vector::Normalize() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Normalize() const noexcept
 {
     static_assert(N >= 2 && N <= 4, "Normalize dimensionality must be 2, 3, or 4");
     const v128_t lengthSq = DotVec<N>(*this).Data();
     return Vector{ wasm_f32x4_div(data, wasm_f32x4_sqrt(lengthSq)) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Cross(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Cross(Vector other) const noexcept
 {
     // we might be able to get this to use less registers?
     v128_t vYZXW = wasm_i32x4_shuffle(data, data, 1, 2, 0, 3);
@@ -371,7 +371,7 @@ VX_MATH_FORCEINLINE Vector Vector::Cross(Vector other) const noexcept
     return Vector{ wasm_f32x4_sub(vYZXW, vSelfZXYW) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Lerp(Vector target, float t) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Lerp(Vector target, float t) const noexcept
 {
     const v128_t diff = wasm_f32x4_sub(target.data, data);
 #if defined(VX_MATH_RELAXED_SIMD)
@@ -383,7 +383,7 @@ VX_MATH_FORCEINLINE Vector Vector::Lerp(Vector target, float t) const noexcept
 
 // incident - 2 * dot(incident, normal) * normal. relaxed_nmadd is -(a * b) + c, i.e. this in one op
 template<int N>
-VX_MATH_FORCEINLINE Vector Vector::Reflect(Vector normal) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Reflect(Vector normal) const noexcept
 {
     static_assert(N >= 2 && N <= 4, "Reflect dimensionality must be 2, 3, or 4");
     const v128_t scaledDot = wasm_f32x4_mul(DotVec<N>(normal).Data(), wasm_f32x4_splat(2.0f));
@@ -401,7 +401,7 @@ VX_MATH_FORCEINLINE Vector Vector::Reflect(Vector normal) const noexcept
 // None of Min/Max/Clamp/Saturate is safe for NaN scrubbing - use IsNaN() and Select() for that.
 namespace detail
 {
-    VX_MATH_FORCEINLINE v128_t FastMin(v128_t a, v128_t b) noexcept
+    DD_MATH_FORCEINLINE v128_t FastMin(v128_t a, v128_t b) noexcept
     {
 #if defined(VX_MATH_RELAXED_SIMD)
         return wasm_f32x4_relaxed_min(a, b);
@@ -410,7 +410,7 @@ namespace detail
 #endif
     }
 
-    VX_MATH_FORCEINLINE v128_t FastMax(v128_t a, v128_t b) noexcept
+    DD_MATH_FORCEINLINE v128_t FastMax(v128_t a, v128_t b) noexcept
     {
 #if defined(VX_MATH_RELAXED_SIMD)
         return wasm_f32x4_relaxed_max(a, b);
@@ -420,146 +420,146 @@ namespace detail
     }
 } // namespace detail
 
-VX_MATH_FORCEINLINE Vector Vector::Clamp(Vector min, Vector max) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Clamp(Vector min, Vector max) const noexcept
 {
     return Vector{ detail::FastMin(detail::FastMax(data, min.data), max.data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Saturate() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Saturate() const noexcept
 {
     return Vector{ detail::FastMin(detail::FastMax(data, wasm_f32x4_const_splat(0.0f)),
                                    wasm_f32x4_const_splat(1.0f)) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Abs() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Abs() const noexcept
 {
     return Vector{ wasm_f32x4_abs(data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Min(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Min(Vector other) const noexcept
 {
     return Vector{ detail::FastMin(data, other.data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Max(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Max(Vector other) const noexcept
 {
     return Vector{ detail::FastMax(data, other.data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Infinity() noexcept
+DD_MATH_FORCEINLINE Vector Vector::Infinity() noexcept
 {
     return Vector{ wasm_f32x4_const_splat(std::numeric_limits<float>::infinity()) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::QuietNaN() noexcept
+DD_MATH_FORCEINLINE Vector Vector::QuietNaN() noexcept
 {
     return Vector{ wasm_f32x4_const_splat(std::numeric_limits<float>::quiet_NaN()) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Epsilon() noexcept
+DD_MATH_FORCEINLINE Vector Vector::Epsilon() noexcept
 {
     return Vector{ wasm_f32x4_const_splat(std::numeric_limits<float>::epsilon()) };
 }
 
 
-VX_MATH_FORCEINLINE VectorMask Vector::CompareEqual(Vector other) const noexcept
+DD_MATH_FORCEINLINE VectorMask Vector::CompareEqual(Vector other) const noexcept
 {
     return VectorMask{ wasm_f32x4_eq(data, other.data) };
 }
 
-VX_MATH_FORCEINLINE VectorMask Vector::CompareNotEqual(Vector other) const noexcept
+DD_MATH_FORCEINLINE VectorMask Vector::CompareNotEqual(Vector other) const noexcept
 {
     return VectorMask{ wasm_f32x4_ne(data, other.data) };
 }
 
-VX_MATH_FORCEINLINE VectorMask Vector::CompareLess(Vector other) const noexcept
+DD_MATH_FORCEINLINE VectorMask Vector::CompareLess(Vector other) const noexcept
 {
     return VectorMask{ wasm_f32x4_lt(data, other.data) };
 }
 
-VX_MATH_FORCEINLINE VectorMask Vector::CompareLessOrEqual(Vector other) const noexcept
+DD_MATH_FORCEINLINE VectorMask Vector::CompareLessOrEqual(Vector other) const noexcept
 {
     return VectorMask{ wasm_f32x4_le(data, other.data) };
 }
 
-VX_MATH_FORCEINLINE VectorMask Vector::CompareGreater(Vector other) const noexcept
+DD_MATH_FORCEINLINE VectorMask Vector::CompareGreater(Vector other) const noexcept
 {
     return VectorMask{ wasm_f32x4_gt(data, other.data) };
 }
 
-VX_MATH_FORCEINLINE VectorMask Vector::CompareGreaterOrEqual(Vector other) const noexcept
+DD_MATH_FORCEINLINE VectorMask Vector::CompareGreaterOrEqual(Vector other) const noexcept
 {
     return VectorMask{ wasm_f32x4_ge(data, other.data) };
 }
 
-VX_MATH_FORCEINLINE VectorMask Vector::CompareNearEqual(Vector other, Vector epsilon) const noexcept
+DD_MATH_FORCEINLINE VectorMask Vector::CompareNearEqual(Vector other, Vector epsilon) const noexcept
 {
     const v128_t difference = wasm_f32x4_abs(wasm_f32x4_sub(data, other.data));
     return VectorMask{ wasm_f32x4_le(difference, epsilon.data) };
 }
 
 // A NaN is the only value that compares unequal to itself
-VX_MATH_FORCEINLINE VectorMask Vector::IsNaN() const noexcept
+DD_MATH_FORCEINLINE VectorMask Vector::IsNaN() const noexcept
 {
     return VectorMask{ wasm_f32x4_ne(data, data) };
 }
 
-VX_MATH_FORCEINLINE VectorMask Vector::IsInfinite() const noexcept
+DD_MATH_FORCEINLINE VectorMask Vector::IsInfinite() const noexcept
 {
     const v128_t magnitude = wasm_f32x4_abs(data);
     return VectorMask{ wasm_f32x4_eq(magnitude, wasm_f32x4_const_splat(std::numeric_limits<float>::infinity())) };
 }
 
 
-VX_MATH_FORCEINLINE Vector Vector::AndInt(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::AndInt(Vector other) const noexcept
 {
     return Vector{ wasm_v128_and(data, other.data) };
 }
 
 // Note the operand order: this clears the bits that `other` has set, i.e. `~other & this`
-VX_MATH_FORCEINLINE Vector Vector::AndNotInt(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::AndNotInt(Vector other) const noexcept
 {
     return Vector{ wasm_v128_andnot(data, other.data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::OrInt(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::OrInt(Vector other) const noexcept
 {
     return Vector{ wasm_v128_or(data, other.data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::XorInt(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::XorInt(Vector other) const noexcept
 {
     return Vector{ wasm_v128_xor(data, other.data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::NorInt(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::NorInt(Vector other) const noexcept
 {
     return Vector{ wasm_v128_not(wasm_v128_or(data, other.data)) };
 }
 
 // All four are single native instructions on wasm, where SSE needs SSE4.1's _mm_round_ps
 
-VX_MATH_FORCEINLINE Vector Vector::Round() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Round() const noexcept
 {
     return Vector{ wasm_f32x4_nearest(data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Truncate() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Truncate() const noexcept
 {
     return Vector{ wasm_f32x4_trunc(data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Floor() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Floor() const noexcept
 {
     return Vector{ wasm_f32x4_floor(data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Ceil() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Ceil() const noexcept
 {
     return Vector{ wasm_f32x4_ceil(data) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::Mod(Vector divisor) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Mod(Vector divisor) const noexcept
 {
     const v128_t quotient = wasm_f32x4_trunc(wasm_f32x4_div(data, divisor.data));
     return Vector{ detail::NegMulAdd(quotient, divisor.data, data) };
@@ -567,7 +567,7 @@ VX_MATH_FORCEINLINE Vector Vector::Mod(Vector divisor) const noexcept
 
 // x - 2pi * round(x / 2pi). Round-to-nearest is what makes this land in [-pi, pi] rather than
 // [0, 2pi) - truncation toward zero would leave the negative half unreduced
-VX_MATH_FORCEINLINE Vector Vector::ModAngles() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::ModAngles() const noexcept
 {
     constexpr float k_TwoPi = 2.0f * std::numbers::pi_v<float>;
     constexpr float k_ReciprocalTwoPi = 1.0f / k_TwoPi;
@@ -578,38 +578,38 @@ VX_MATH_FORCEINLINE Vector Vector::ModAngles() const noexcept
 }
 
 
-VX_MATH_FORCEINLINE Vector Vector::SplatX() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::SplatX() const noexcept
 {
     return Vector{ wasm_i32x4_shuffle(data, data, 0, 0, 0, 0) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::SplatY() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::SplatY() const noexcept
 {
     return Vector{ wasm_i32x4_shuffle(data, data, 1, 1, 1, 1) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::SplatZ() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::SplatZ() const noexcept
 {
     return Vector{ wasm_i32x4_shuffle(data, data, 2, 2, 2, 2) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::SplatW() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::SplatW() const noexcept
 {
     return Vector{ wasm_i32x4_shuffle(data, data, 3, 3, 3, 3) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::MergeXY(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::MergeXY(Vector other) const noexcept
 {
     return Vector{ wasm_i32x4_shuffle(data, other.data, 0, 4, 1, 5) };
 }
 
-VX_MATH_FORCEINLINE Vector Vector::MergeZW(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::MergeZW(Vector other) const noexcept
 {
     return Vector{ wasm_i32x4_shuffle(data, other.data, 2, 6, 3, 7) };
 }
 
 template<int X, int Y, int Z, int W>
-VX_MATH_FORCEINLINE Vector Vector::Swizzle() const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Swizzle() const noexcept
 {
     static_assert(X >= 0 && X <= 3 && Y >= 0 && Y <= 3 && Z >= 0 && Z <= 3 && W >= 0 && W <= 3,
                   "Swizzle lane indices must be 0-3");
@@ -617,7 +617,7 @@ VX_MATH_FORCEINLINE Vector Vector::Swizzle() const noexcept
 }
 
 template<int X, int Y, int Z, int W>
-VX_MATH_FORCEINLINE Vector Vector::Permute(Vector other) const noexcept
+DD_MATH_FORCEINLINE Vector Vector::Permute(Vector other) const noexcept
 {
     static_assert(X >= 0 && X <= 7 && Y >= 0 && Y <= 7 && Z >= 0 && Z <= 7 && W >= 0 && W <= 7,
                   "Permute lane indices must be 0-7 (0-3 select this vector, 4-7 select the other)");
@@ -628,7 +628,7 @@ VX_MATH_FORCEINLINE Vector Vector::Permute(Vector other) const noexcept
 // Free Function Implementations (Vector)
 // ================================
 
-VX_MATH_FORCEINLINE Vector Select(VectorMask mask, Vector when_clear, Vector when_set) noexcept
+DD_MATH_FORCEINLINE Vector Select(VectorMask mask, Vector when_clear, Vector when_set) noexcept
 {
 #if defined(VX_MATH_RELAXED_SIMD)
     // relaxed_laneselect leaves non-canonical masks implementation-defined, which is fine: every
@@ -639,36 +639,36 @@ VX_MATH_FORCEINLINE Vector Select(VectorMask mask, Vector when_clear, Vector whe
 #endif
 }
 
-VX_MATH_FORCEINLINE Vector operator*(float scalar, Vector vec) noexcept
+DD_MATH_FORCEINLINE Vector operator*(float scalar, Vector vec) noexcept
 {
     return vec * scalar;
 }
 
-VX_MATH_FORCEINLINE Vector ToVector(const Float2& in) noexcept
+DD_MATH_FORCEINLINE Vector ToVector(const Float2& in) noexcept
 {
     return Vector{ wasm_f32x4_make(in.x, in.y, 0.0f, 0.0f) };
 }
 
-VX_MATH_FORCEINLINE Vector ToVector(const Float3& in) noexcept
+DD_MATH_FORCEINLINE Vector ToVector(const Float3& in) noexcept
 {
     return Vector{ wasm_f32x4_make(in.x, in.y, in.z, 0.0f) };
 }
 
-VX_MATH_FORCEINLINE Vector ToVector(const Float4& in) noexcept
+DD_MATH_FORCEINLINE Vector ToVector(const Float4& in) noexcept
 {
     return Vector{ wasm_f32x4_make(in.x, in.y, in.z, in.w) };
 }
 
 namespace detail
 {
-    VX_MATH_FORCEINLINE FromVectorProxy::operator Float2() const noexcept
+    DD_MATH_FORCEINLINE FromVectorProxy::operator Float2() const noexcept
     {
         Float2 result;
         wasm_v128_store64_lane(&result, vec.Data(), 0);
         return result;
     }
 
-    VX_MATH_FORCEINLINE FromVectorProxy::operator Float3() const noexcept
+    DD_MATH_FORCEINLINE FromVectorProxy::operator Float3() const noexcept
     {
         // there is no wasm_f32x4_store3_lane, so we have to extract each lane individually (unsurprisingly)
         // this is still potentially one less instruction than doing lane-by-lane stores though
@@ -678,7 +678,7 @@ namespace detail
         return result;
     }
 
-    VX_MATH_FORCEINLINE FromVectorProxy::operator Float4() const noexcept
+    DD_MATH_FORCEINLINE FromVectorProxy::operator Float4() const noexcept
     {
         Float4 result;
         wasm_v128_store(&result, vec.Data());
@@ -690,7 +690,7 @@ namespace detail
 // SIMD Matrix Implementation (WASM SIMD128)
 // ================================
 
-VX_MATH_FORCEINLINE Matrix::Matrix() noexcept
+DD_MATH_FORCEINLINE Matrix::Matrix() noexcept
     : data{ wasm_f32x4_make(1.0f, 0.0f, 0.0f, 0.0f),
             wasm_f32x4_make(0.0f, 1.0f, 0.0f, 0.0f),
             wasm_f32x4_make(0.0f, 0.0f, 1.0f, 0.0f),
@@ -698,7 +698,7 @@ VX_MATH_FORCEINLINE Matrix::Matrix() noexcept
 {
 }
 
-VX_MATH_FORCEINLINE Matrix::Matrix(float m00,
+DD_MATH_FORCEINLINE Matrix::Matrix(float m00,
                                    float m01,
                                    float m02,
                                    float m03,
@@ -721,17 +721,17 @@ VX_MATH_FORCEINLINE Matrix::Matrix(float m00,
 {
 }
 
-VX_MATH_FORCEINLINE Matrix::Matrix(Vector row0, Vector row1, Vector row2, Vector row3) noexcept
+DD_MATH_FORCEINLINE Matrix::Matrix(Vector row0, Vector row1, Vector row2, Vector row3) noexcept
     : data{ row0.Data(), row1.Data(), row2.Data(), row3.Data() }
 {
 }
 
-VX_MATH_FORCEINLINE Vector Matrix::GetRow(size_t index) const noexcept
+DD_MATH_FORCEINLINE Vector Matrix::GetRow(size_t index) const noexcept
 {
     return Vector{ data[index] };
 }
 
-VX_MATH_FORCEINLINE void Matrix::SetRow(size_t index, Vector row) noexcept
+DD_MATH_FORCEINLINE void Matrix::SetRow(size_t index, Vector row) noexcept
 {
     data[index] = row.Data();
 }
@@ -741,7 +741,7 @@ VX_MATH_FORCEINLINE void Matrix::SetRow(size_t index, Vector row) noexcept
 // promoted out of memory when the index is a runtime value, costing a store/load round trip per call.
 namespace detail
 {
-    VX_MATH_FORCEINLINE float ExtractLane(v128_t vec, size_t lane) noexcept
+    DD_MATH_FORCEINLINE float ExtractLane(v128_t vec, size_t lane) noexcept
     {
         switch (lane)
         {
@@ -756,7 +756,7 @@ namespace detail
         }
     }
 
-    VX_MATH_FORCEINLINE v128_t ReplaceLane(v128_t vec, size_t lane, float value) noexcept
+    DD_MATH_FORCEINLINE v128_t ReplaceLane(v128_t vec, size_t lane, float value) noexcept
     {
         switch (lane)
         {
@@ -772,7 +772,7 @@ namespace detail
     }
 } // namespace detail
 
-VX_MATH_FORCEINLINE Vector Matrix::GetColumn(size_t index) const noexcept
+DD_MATH_FORCEINLINE Vector Matrix::GetColumn(size_t index) const noexcept
 {
     return Vector{ detail::ExtractLane(data[0], index),
                    detail::ExtractLane(data[1], index),
@@ -780,7 +780,7 @@ VX_MATH_FORCEINLINE Vector Matrix::GetColumn(size_t index) const noexcept
                    detail::ExtractLane(data[3], index) };
 }
 
-VX_MATH_FORCEINLINE void Matrix::SetColumn(size_t index, Vector column) noexcept
+DD_MATH_FORCEINLINE void Matrix::SetColumn(size_t index, Vector column) noexcept
 {
     const v128_t columnData = column.Data();
     data[0] = detail::ReplaceLane(data[0], index, wasm_f32x4_extract_lane(columnData, 0));
@@ -789,17 +789,17 @@ VX_MATH_FORCEINLINE void Matrix::SetColumn(size_t index, Vector column) noexcept
     data[3] = detail::ReplaceLane(data[3], index, wasm_f32x4_extract_lane(columnData, 3));
 }
 
-VX_MATH_FORCEINLINE float Matrix::operator[](size_t row, size_t col) const noexcept
+DD_MATH_FORCEINLINE float Matrix::operator[](size_t row, size_t col) const noexcept
 {
     return detail::ExtractLane(data[row], col);
 }
 
-VX_MATH_FORCEINLINE void Matrix::SetElement(size_t row, size_t col, float value) noexcept
+DD_MATH_FORCEINLINE void Matrix::SetElement(size_t row, size_t col, float value) noexcept
 {
     data[row] = detail::ReplaceLane(data[row], col, value);
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::operator+(const Matrix& rhs) const noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::operator+(const Matrix& rhs) const noexcept
 {
     return Matrix{ wasm_f32x4_add(data[0], rhs.data[0]),
                    wasm_f32x4_add(data[1], rhs.data[1]),
@@ -807,7 +807,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::operator+(const Matrix& rhs) const noexcept
                    wasm_f32x4_add(data[3], rhs.data[3]) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::operator-(const Matrix& rhs) const noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::operator-(const Matrix& rhs) const noexcept
 {
     return Matrix{ wasm_f32x4_sub(data[0], rhs.data[0]),
                    wasm_f32x4_sub(data[1], rhs.data[1]),
@@ -819,7 +819,7 @@ namespace detail
 {
     // Row-vector * row-major matrix multiply for a single row:
     // result = sum_i row[i] * mat.row(i)
-    VX_MATH_FORCEINLINE v128_t MulRowByMatrix(v128_t row, const v128_t m[4]) noexcept
+    DD_MATH_FORCEINLINE v128_t MulRowByMatrix(v128_t row, const v128_t m[4]) noexcept
     {
 #if defined(VX_MATH_RELAXED_SIMD)
         v128_t r = wasm_f32x4_mul(wasm_i32x4_shuffle(row, row, 0, 0, 0, 0), m[0]);
@@ -837,7 +837,7 @@ namespace detail
     }
 } // namespace detail
 
-VX_MATH_FORCEINLINE Matrix Matrix::operator*(const Matrix& rhs) const noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::operator*(const Matrix& rhs) const noexcept
 {
     return Matrix{ detail::MulRowByMatrix(data[0], rhs.data),
                    detail::MulRowByMatrix(data[1], rhs.data),
@@ -845,7 +845,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::operator*(const Matrix& rhs) const noexcept
                    detail::MulRowByMatrix(data[3], rhs.data) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::operator*(float scalar) const noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::operator*(float scalar) const noexcept
 {
     v128_t s = wasm_f32x4_splat(scalar);
     return Matrix{ wasm_f32x4_mul(data[0], s),
@@ -854,14 +854,14 @@ VX_MATH_FORCEINLINE Matrix Matrix::operator*(float scalar) const noexcept
                    wasm_f32x4_mul(data[3], s) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::operator-() const noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::operator-() const noexcept
 {
     return Matrix{
         wasm_f32x4_neg(data[0]), wasm_f32x4_neg(data[1]), wasm_f32x4_neg(data[2]), wasm_f32x4_neg(data[3])
     };
 }
 
-VX_MATH_FORCEINLINE Matrix& Matrix::operator+=(const Matrix& rhs) noexcept
+DD_MATH_FORCEINLINE Matrix& Matrix::operator+=(const Matrix& rhs) noexcept
 {
     data[0] = wasm_f32x4_add(data[0], rhs.data[0]);
     data[1] = wasm_f32x4_add(data[1], rhs.data[1]);
@@ -870,7 +870,7 @@ VX_MATH_FORCEINLINE Matrix& Matrix::operator+=(const Matrix& rhs) noexcept
     return *this;
 }
 
-VX_MATH_FORCEINLINE Matrix& Matrix::operator-=(const Matrix& rhs) noexcept
+DD_MATH_FORCEINLINE Matrix& Matrix::operator-=(const Matrix& rhs) noexcept
 {
     data[0] = wasm_f32x4_sub(data[0], rhs.data[0]);
     data[1] = wasm_f32x4_sub(data[1], rhs.data[1]);
@@ -879,13 +879,13 @@ VX_MATH_FORCEINLINE Matrix& Matrix::operator-=(const Matrix& rhs) noexcept
     return *this;
 }
 
-VX_MATH_FORCEINLINE Matrix& Matrix::operator*=(const Matrix& rhs) noexcept
+DD_MATH_FORCEINLINE Matrix& Matrix::operator*=(const Matrix& rhs) noexcept
 {
     *this = *this * rhs;
     return *this;
 }
 
-VX_MATH_FORCEINLINE Matrix& Matrix::operator*=(float scalar) noexcept
+DD_MATH_FORCEINLINE Matrix& Matrix::operator*=(float scalar) noexcept
 {
     v128_t s = wasm_f32x4_splat(scalar);
     data[0] = wasm_f32x4_mul(data[0], s);
@@ -895,12 +895,12 @@ VX_MATH_FORCEINLINE Matrix& Matrix::operator*=(float scalar) noexcept
     return *this;
 }
 
-VX_MATH_FORCEINLINE Vector Matrix::operator*(Vector vec) const noexcept
+DD_MATH_FORCEINLINE Vector Matrix::operator*(Vector vec) const noexcept
 {
     return Vector{ detail::MulRowByMatrix(vec.Data(), data) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::Transpose() const noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::Transpose() const noexcept
 {
     // Standard 4x4 SIMD transpose (the _MM_TRANSPOSE4_PS pattern).
     v128_t tmp0 = wasm_i32x4_shuffle(data[0], data[1], 0, 4, 1, 5);
@@ -1006,7 +1006,7 @@ inline Matrix Matrix::Inverse() const noexcept
                    wasm_f32x4_mul(row3, reciprocal) };
 }
 
-VX_MATH_FORCEINLINE float Matrix::Determinant() const noexcept
+DD_MATH_FORCEINLINE float Matrix::Determinant() const noexcept
 {
     alignas(16) float m[4][4];
     wasm_v128_store(m[0], data[0]);
@@ -1017,12 +1017,12 @@ VX_MATH_FORCEINLINE float Matrix::Determinant() const noexcept
 }
 
 // Static factory methods for transformations
-VX_MATH_FORCEINLINE Matrix Matrix::Translation(Vector translation) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::Translation(Vector translation) noexcept
 {
     return Translation(translation.x(), translation.y(), translation.z());
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::Translation(float x, float y, float z) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::Translation(float x, float y, float z) noexcept
 {
     return Matrix{ wasm_f32x4_make(1.0f, 0.0f, 0.0f, 0.0f),
                    wasm_f32x4_make(0.0f, 1.0f, 0.0f, 0.0f),
@@ -1030,12 +1030,12 @@ VX_MATH_FORCEINLINE Matrix Matrix::Translation(float x, float y, float z) noexce
                    wasm_f32x4_make(x, y, z, 1.0f) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::Scale(Vector scale) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::Scale(Vector scale) noexcept
 {
     return Scale(scale.x(), scale.y(), scale.z());
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::Scale(float x, float y, float z) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::Scale(float x, float y, float z) noexcept
 {
     return Matrix{ wasm_f32x4_make(x, 0.0f, 0.0f, 0.0f),
                    wasm_f32x4_make(0.0f, y, 0.0f, 0.0f),
@@ -1043,14 +1043,14 @@ VX_MATH_FORCEINLINE Matrix Matrix::Scale(float x, float y, float z) noexcept
                    wasm_f32x4_make(0.0f, 0.0f, 0.0f, 1.0f) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::Scale(float uniform_scale) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::Scale(float uniform_scale) noexcept
 {
     return Scale(uniform_scale, uniform_scale, uniform_scale);
 }
 
 // Row-vector, row-major, matching DirectXMath's XMMatrixRotationX/Y/Z. SinCos rather than separate
 // sin and cos calls: they share one range reduction, so the pair costs about 1.3x one of them.
-VX_MATH_FORCEINLINE Matrix Matrix::RotationX(float radians) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::RotationX(float radians) noexcept
 {
     const ScalarSinCos angle = SinCos(radians);
     const float s = angle.sin;
@@ -1061,7 +1061,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::RotationX(float radians) noexcept
                    wasm_f32x4_make(0.0f, 0.0f, 0.0f, 1.0f) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::RotationY(float radians) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::RotationY(float radians) noexcept
 {
     const ScalarSinCos angle = SinCos(radians);
     const float s = angle.sin;
@@ -1072,7 +1072,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::RotationY(float radians) noexcept
                    wasm_f32x4_make(0.0f, 0.0f, 0.0f, 1.0f) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::RotationZ(float radians) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::RotationZ(float radians) noexcept
 {
     const ScalarSinCos angle = SinCos(radians);
     const float s = angle.sin;
@@ -1084,7 +1084,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::RotationZ(float radians) noexcept
 }
 
 // Rodrigues' rotation formula, row-vector convention.
-VX_MATH_FORCEINLINE Matrix Matrix::RotationAxis(Vector axis, float radians) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::RotationAxis(Vector axis, float radians) noexcept
 {
     Vector n = axis.Normalize<3>();
     float x = n.x(), y = n.y(), z = n.z();
@@ -1098,7 +1098,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::RotationAxis(Vector axis, float radians) noex
 
 // Standard quaternion-to-matrix, row-vector convention (matches
 // DirectXMath's XMMatrixRotationQuaternion).
-VX_MATH_FORCEINLINE Matrix Matrix::RotationQuaternion(Quaternion rotation) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::RotationQuaternion(Quaternion rotation) noexcept
 {
     float x = rotation.x(), y = rotation.y(), z = rotation.z(), w = rotation.w();
 
@@ -1111,7 +1111,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::RotationQuaternion(Quaternion rotation) noexc
 }
 
 // Forwards to the quaternion form so the composition order is defined in one place
-VX_MATH_FORCEINLINE Matrix Matrix::RotationRollPitchYaw(float pitch, float yaw, float roll) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::RotationRollPitchYaw(float pitch, float yaw, float roll) noexcept
 {
     return Matrix::RotationQuaternion(Quaternion::RotationRollPitchYaw(pitch, yaw, roll));
 }
@@ -1120,7 +1120,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::RotationRollPitchYaw(float pitch, float yaw, 
 // 0-2 of a rotation have w == 0, so the * T step only drops the translation into row 3. Three
 // multiplies and a lane write against ~90 emitted instructions, and more accurate too - the general
 // path accumulates rounding through dot products whose terms are nearly all exact zeros.
-VX_MATH_FORCEINLINE Matrix Matrix::TRS(Vector translation, Quaternion rotation_quaternion, Vector scale) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::TRS(Vector translation, Quaternion rotation_quaternion, Vector scale) noexcept
 {
     const Matrix rotation = Matrix::RotationQuaternion(rotation_quaternion);
     const v128_t scaleData = scale.Data();
@@ -1133,7 +1133,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::TRS(Vector translation, Quaternion rotation_q
 
 // A rotation origin leaves the linear part identical and only shifts the translation row to
 // t + Ro - Ro * R, with Ro passing through the *unscaled* rotation.
-VX_MATH_FORCEINLINE Matrix Matrix::TRS(Vector translation,
+DD_MATH_FORCEINLINE Matrix Matrix::TRS(Vector translation,
                                        Quaternion rotation_quaternion,
                                        Vector scale,
                                        Vector rotation_origin) noexcept
@@ -1152,7 +1152,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::TRS(Vector translation,
                    translationRow };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::LookAt(Vector eye, Vector target, Vector up) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::LookAt(Vector eye, Vector target, Vector up) noexcept
 {
     Vector zaxis = (eye - target).Normalize<3>();
     Vector xaxis = up.Cross(zaxis).Normalize<3>();
@@ -1164,7 +1164,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::LookAt(Vector eye, Vector target, Vector up) 
                    wasm_f32x4_make(-xaxis.Dot<3>(eye), -yaxis.Dot<3>(eye), -zaxis.Dot<3>(eye), 1.0f) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::LookTo(Vector eye, Vector direction, Vector up) noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::LookTo(Vector eye, Vector direction, Vector up) noexcept
 {
     Vector zaxis = (-direction).Normalize<3>();
     Vector xaxis = up.Cross(zaxis).Normalize<3>();
@@ -1180,7 +1180,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::LookTo(Vector eye, Vector direction, Vector u
 // DirectXMath-backed source.
 namespace detail
 {
-    VX_MATH_FORCEINLINE Matrix PerspectiveFovLH(float fov_y_radians,
+    DD_MATH_FORCEINLINE Matrix PerspectiveFovLH(float fov_y_radians,
                                                 float aspect_ratio,
                                                 float near_plane,
                                                 float far_plane) noexcept
@@ -1196,7 +1196,7 @@ namespace detail
     }
 } // namespace detail
 
-VX_MATH_FORCEINLINE Matrix Matrix::Perspective(float fov_y_radians,
+DD_MATH_FORCEINLINE Matrix Matrix::Perspective(float fov_y_radians,
                                                float aspect_ratio,
                                                float near_plane,
                                                float far_plane) noexcept
@@ -1204,7 +1204,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::Perspective(float fov_y_radians,
     return detail::PerspectiveFovLH(fov_y_radians, aspect_ratio, near_plane, far_plane);
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::PerspectiveLH(float fov_y_radians,
+DD_MATH_FORCEINLINE Matrix Matrix::PerspectiveLH(float fov_y_radians,
                                                  float aspect_ratio,
                                                  float near_plane,
                                                  float far_plane) noexcept
@@ -1212,7 +1212,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::PerspectiveLH(float fov_y_radians,
     return detail::PerspectiveFovLH(fov_y_radians, aspect_ratio, near_plane, far_plane);
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::PerspectiveRH(float fov_y_radians,
+DD_MATH_FORCEINLINE Matrix Matrix::PerspectiveRH(float fov_y_radians,
                                                  float aspect_ratio,
                                                  float near_plane,
                                                  float far_plane) noexcept
@@ -1227,7 +1227,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::PerspectiveRH(float fov_y_radians,
                    wasm_f32x4_make(0.0f, 0.0f, range * near_plane, 0.0f) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::Orthographic(float width,
+DD_MATH_FORCEINLINE Matrix Matrix::Orthographic(float width,
                                                 float height,
                                                 float near_plane,
                                                 float far_plane) noexcept
@@ -1235,7 +1235,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::Orthographic(float width,
     return OrthographicLH(width, height, near_plane, far_plane);
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::OrthographicLH(float width,
+DD_MATH_FORCEINLINE Matrix Matrix::OrthographicLH(float width,
                                                   float height,
                                                   float near_plane,
                                                   float far_plane) noexcept
@@ -1247,7 +1247,7 @@ VX_MATH_FORCEINLINE Matrix Matrix::OrthographicLH(float width,
                    wasm_f32x4_make(0.0f, 0.0f, -range * near_plane, 1.0f) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::OrthographicRH(float width,
+DD_MATH_FORCEINLINE Matrix Matrix::OrthographicRH(float width,
                                                   float height,
                                                   float near_plane,
                                                   float far_plane) noexcept
@@ -1259,24 +1259,24 @@ VX_MATH_FORCEINLINE Matrix Matrix::OrthographicRH(float width,
                    wasm_f32x4_make(0.0f, 0.0f, range * near_plane, 1.0f) };
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::Identity() noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::Identity() noexcept
 {
     return Matrix{};
 }
 
-VX_MATH_FORCEINLINE Matrix Matrix::Zero() noexcept
+DD_MATH_FORCEINLINE Matrix Matrix::Zero() noexcept
 {
     v128_t z = wasm_f32x4_splat(0.0f);
     return Matrix{ z, z, z, z };
 }
 
-VX_MATH_FORCEINLINE bool Matrix::IsIdentity() const noexcept
+DD_MATH_FORCEINLINE bool Matrix::IsIdentity() const noexcept
 {
     Matrix identity{};
     return IsNearlyEqual(identity, 0.0f);
 }
 
-VX_MATH_FORCEINLINE bool Matrix::IsNearlyEqual(const Matrix& other, float epsilon) const noexcept
+DD_MATH_FORCEINLINE bool Matrix::IsNearlyEqual(const Matrix& other, float epsilon) const noexcept
 {
     v128_t eps = wasm_f32x4_splat(epsilon);
     for (int i = 0; i < 4; ++i)
@@ -1297,7 +1297,7 @@ VX_MATH_FORCEINLINE bool Matrix::IsNearlyEqual(const Matrix& other, float epsilo
 // ================================
 
 template<int N>
-VX_MATH_FORCEINLINE Vector Transform(Vector vector, Matrix matrix) noexcept
+DD_MATH_FORCEINLINE Vector Transform(Vector vector, Matrix matrix) noexcept
 {
     static_assert(N >= 2 && N <= 4, "Transform dimensionality must be 2, 3, or 4");
     if constexpr (N == 4)
@@ -1326,20 +1326,20 @@ VX_MATH_FORCEINLINE Vector Transform(Vector vector, Matrix matrix) noexcept
     }
 }
 
-VX_MATH_FORCEINLINE Vector TransformNormal(Vector normal, Matrix matrix) noexcept
+DD_MATH_FORCEINLINE Vector TransformNormal(Vector normal, Matrix matrix) noexcept
 {
     // Directions transform by the upper-left 3x3 only (w forced to 0 so
     // translation doesn't leak in). use replace_lane again to zero out the w lane
     return matrix * Vector{ wasm_f32x4_replace_lane(normal.Data(), 3, 0.0f) };
 }
 
-VX_MATH_FORCEINLINE Matrix operator*(float scalar, const Matrix& mat) noexcept
+DD_MATH_FORCEINLINE Matrix operator*(float scalar, const Matrix& mat) noexcept
 {
     return mat * scalar;
 }
 
 // Matrix conversion functions
-VX_MATH_FORCEINLINE Matrix ToMatrix(const Float3x3& storage) noexcept
+DD_MATH_FORCEINLINE Matrix ToMatrix(const Float3x3& storage) noexcept
 {
     const auto& m = storage.Data();
     return Matrix{ wasm_f32x4_make(m[0][0], m[0][1], m[0][2], 0.0f),
@@ -1348,7 +1348,7 @@ VX_MATH_FORCEINLINE Matrix ToMatrix(const Float3x3& storage) noexcept
                    wasm_f32x4_make(0.0f, 0.0f, 0.0f, 1.0f) };
 }
 
-VX_MATH_FORCEINLINE Matrix ToMatrix(const Float4x3& storage) noexcept
+DD_MATH_FORCEINLINE Matrix ToMatrix(const Float4x3& storage) noexcept
 {
     const auto& m = storage.Data();
     return Matrix{ wasm_f32x4_make(m[0][0], m[0][1], m[0][2], 0.0f),
@@ -1357,7 +1357,7 @@ VX_MATH_FORCEINLINE Matrix ToMatrix(const Float4x3& storage) noexcept
                    wasm_f32x4_make(m[3][0], m[3][1], m[3][2], 1.0f) };
 }
 
-VX_MATH_FORCEINLINE Matrix ToMatrix(const Float4x4& storage) noexcept
+DD_MATH_FORCEINLINE Matrix ToMatrix(const Float4x4& storage) noexcept
 {
     const auto& m = storage.Data();
     return Matrix{ wasm_f32x4_make(m[0][0], m[0][1], m[0][2], m[0][3]),
@@ -1371,7 +1371,7 @@ VX_MATH_FORCEINLINE Matrix ToMatrix(const Float4x4& storage) noexcept
 // The three-wide types have a row stride of 3 floats, so they need a 64- plus a 32-bit lane store.
 namespace detail
 {
-    VX_MATH_FORCEINLINE void StoreRowXYZ(float* dest, v128_t row) noexcept
+    DD_MATH_FORCEINLINE void StoreRowXYZ(float* dest, v128_t row) noexcept
     {
         wasm_v128_store64_lane(dest, row, 0);
         wasm_v128_store32_lane(dest + 2, row, 2);
@@ -1379,7 +1379,7 @@ namespace detail
 } // namespace detail
 
 template<>
-VX_MATH_FORCEINLINE Float3x3 FromMatrix(const Matrix& mat) noexcept
+DD_MATH_FORCEINLINE Float3x3 FromMatrix(const Matrix& mat) noexcept
 {
     const Matrix::NativeType rows = mat.Data();
     Float3x3 result;
@@ -1390,7 +1390,7 @@ VX_MATH_FORCEINLINE Float3x3 FromMatrix(const Matrix& mat) noexcept
 }
 
 template<>
-VX_MATH_FORCEINLINE Float4x3 FromMatrix(const Matrix& mat) noexcept
+DD_MATH_FORCEINLINE Float4x3 FromMatrix(const Matrix& mat) noexcept
 {
     const Matrix::NativeType rows = mat.Data();
     Float4x3 result;
@@ -1402,7 +1402,7 @@ VX_MATH_FORCEINLINE Float4x3 FromMatrix(const Matrix& mat) noexcept
 }
 
 template<>
-VX_MATH_FORCEINLINE Float4x4 FromMatrix(const Matrix& mat) noexcept
+DD_MATH_FORCEINLINE Float4x4 FromMatrix(const Matrix& mat) noexcept
 {
     const Matrix::NativeType rows = mat.Data();
     Float4x4 result;
