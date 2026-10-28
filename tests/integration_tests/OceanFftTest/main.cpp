@@ -354,11 +354,11 @@ namespace
         const uint32_t size = settings.Size;
         const uint64_t spectrumElements = uint64_t{ size } * size * ocean::k_CascadeCount;
 
-        // Displacement and Derivatives (rgba16f), then Whitecaps (r16f): mip 0 of every layer
+        // Displacement and Derivatives (rgba16f), then Whitecaps (rg16f): mip 0 of every layer
         const uint64_t textureBytes = spectrumElements * 8u;
         const uint64_t derivativesOffset = textureBytes;
         const uint64_t whitecapsOffset = textureBytes * 2u;
-        const uint64_t readbackBytes = whitecapsOffset + spectrumElements * 2u;
+        const uint64_t readbackBytes = whitecapsOffset + spectrumElements * 4u;
 
         // the first run also computes the spectrum, and the second run reuses it: both ticks see the same h0(k) and time
         const auto run = [&](bool fused, bool initialize, const Readback& readback)
@@ -418,7 +418,7 @@ namespace
         {
             Field{ "Displacement", 0u, spectrumElements * 4u },
             Field{ "Derivatives", derivativesOffset, spectrumElements * 4u },
-            Field{ "Whitecaps", whitecapsOffset, spectrumElements }
+            Field{ "Whitecaps", whitecapsOffset, spectrumElements * 2u }
         };
 
         int32_t failures = 0;

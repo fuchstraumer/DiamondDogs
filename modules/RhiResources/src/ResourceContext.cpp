@@ -73,6 +73,10 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateSampler(
 {
     CreateSamplerMessage message;
     message.SamplerInfo = create_info;
+    if (message.SamplerInfo.Name.empty())
+    {
+        message.SamplerInfo.Name = sampler_name;
+    }
     message.Name = sampler_name;
     message.Reply = std::make_shared<GraphicsResourceReply>(ResourceDomain::GPUOnly, ResourceType::Sampler);
     std::shared_ptr<GraphicsResourceReply> reply = message.Reply;

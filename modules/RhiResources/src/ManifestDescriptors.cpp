@@ -7,7 +7,9 @@
 #include "ShaderManifestLayout.hpp"
 #include "VariantKey.hpp"
 #include "vulkan/vulkan_core.h"
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <format>
 #include <optional>
@@ -107,6 +109,11 @@ std::optional<std::string> WriteManifestDescriptors(
 
         for (const lodestone::manifest::ResolvedResource resource : variantView->EntryPoint(*entryPointIndex).Layout())
         {
+            if (resource.Placement() == lodestone::PlacementKind::Pointer)
+            {
+                continue;
+            }
+
             const uint32_t binding = resource.PlacementValue().Word1;
             if (!written.insert(binding).second)
             {
@@ -142,5 +149,60 @@ std::optional<std::string> WriteManifestDescriptors(
     }
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    return std::nullopt;
+}
+
+std::optional<std::string> WriteManifestPointerAddresses(
+    std::span<std::byte> target_bytes,
+    const lodestone::ManifestIndex& index,
+    lodestone::VariantKey variant,
+    std::span<const std::string_view> entry_points,
+    const BoundResources& resources)
+{
+    const lodestone::manifest::EnvironmentView& environment = index.View();
+    std::optional<lodestone::manifest::VariantView> variantView = environment.VariantByKey(variant);
+    if (!variantView.has_value())
+    {
+        return std::string{ "the variant is not in the environment" };
+    }
+
+    std::set<std::string_view> written;
+
+    for (const std::string_view entryPoint : entry_points)
+    {
+        lodestone::manifest::ManifestResult<uint32_t> entryPointIndex = environment.Module().FindEntryPointIndex(entryPoint);
+        if (!entryPointIndex.has_value())
+        {
+            return std::format("{} is not in the module", entryPoint);
+        }
+
+        for (const lodestone::manifest::ResolvedResource resource : variantView->EntryPoint(*entryPointIndex).Layout())
+        {
+            if (resource.Placement() != lodestone::PlacementKind::Pointer)
+            {
+                continue;
+            }
+
+            if (!written.insert(resource.Name()).second)
+            {
+                continue;
+            }
+
+            const auto found = resources.find(resource.Name());
+            if (found == resources.end())
+            {
+                return std::format("{} reads {}, which this host does not provide", entryPoint, resource.Name());
+            }
+
+            if (resource.ValueOffset() + sizeof(uint64_t) > target_bytes.size())
+            {
+                return std::format("{}: offset {} exceeds target span size {}", resource.Name(), resource.ValueOffset(), target_bytes.size());
+            }
+
+            const uint64_t address = found->second.Resource.DeviceAddress;
+            std::memcpy(target_bytes.data() + resource.ValueOffset(), &address, sizeof(uint64_t));
+        }
+    }
+
     return std::nullopt;
 }

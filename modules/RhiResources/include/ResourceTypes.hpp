@@ -133,6 +133,7 @@ struct SamplerCreateInfo
     // std::optional<RGBAColor> CustomBorderColor;
 
     bool UnnormalizedCoordinates{ false };
+    std::string_view Name{};
 };
 
 struct ImageCreateInfo
@@ -171,6 +172,7 @@ struct GraphicsResource
     uint64_t VkHandle{ 0u };
     uint64_t VkViewHandle{ 0u };
     uint64_t VkSamplerHandle{ 0u };
+    uint64_t DeviceAddress{ 0u };
 };
 
 #endif //!DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP

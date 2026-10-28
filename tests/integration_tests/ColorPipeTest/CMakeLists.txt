@@ -3,7 +3,7 @@ lodestone_add_shader_cook(color_pipe_test_shaders
     TARGETS spirv
     POLICY_FILE "${COLOR_PIPE_COMPOSITE_POLICY_FILE}"
     INCLUDE_DIRS ${COLOR_PIPE_COMPOSITE_INCLUDE_DIRS}
-    MODULES "${COLOR_PIPE_COMPOSITE_SHADER_MODULE}")
+    MODULES "${COLOR_PIPE_COMPOSITE_SHADER_MODULE}" "${COLOR_PIPE_BLOOM_SHADER_MODULE}")
 # the cook reads ddColorGenerated.slang, so the generator runs first
 add_dependencies(color_pipe_test_shaders color_pipe_shader_data)
 set_target_properties(color_pipe_test_shaders PROPERTIES FOLDER "Tests/Integration Tests")

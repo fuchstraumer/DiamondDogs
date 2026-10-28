@@ -83,7 +83,29 @@ namespace
         EncodingCase{ color::DisplayEncoding::Hdr10Pq, "PQ", "A2B10G10R10_UNORM_PACK32", ImageFormat{ ImageComponentFormats::A2B10G10R10, ImageDataType::UNorm }, ColorSpace::HDR10_ST2084, 4u, 1023.0, 3.0 },
     };
 
-    constexpr std::array<color::TonemapperKind, 2> k_Tonemappers{ color::TonemapperKind::Passthrough, color::TonemapperKind::FalseColorEv };
+    constexpr std::array<color::TonemapperKind, 4> k_Tonemappers
+    {
+        color::TonemapperKind::Passthrough,
+        color::TonemapperKind::FalseColorEv,
+        color::TonemapperKind::KhronosNeutral,
+        color::TonemapperKind::AgX
+    };
+
+    [[nodiscard]] constexpr std::string_view TonemapperName(color::TonemapperKind kind) noexcept
+    {
+        switch (kind)
+        {
+        case color::TonemapperKind::Passthrough:
+            return "Passthrough";
+        case color::TonemapperKind::FalseColorEv:
+            return "FalseColorEv";
+        case color::TonemapperKind::KhronosNeutral:
+            return "KhronosNeutral";
+        case color::TonemapperKind::AgX:
+        return "AgX";
+        default: return "Unknown";
+        }
+    }
 
     // scene values are exactly representable as half floats, so that the reference sees what the shader reads
     struct Pattern
@@ -1000,8 +1022,8 @@ namespace
         for (const CaseReport& report : reports)
         {
             const bool passed = Passed(*report.Encoding, report.SceneOnly) && Passed(*report.Encoding, report.WithUi);
-            (passed ? std::cout : std::cerr) << std::format("[{}] {} {} ({}), {}: scene only {}; with UI {}\n", passed ? "pass" : "FAIL",
-                report.Tonemapper == color::TonemapperKind::Passthrough ? "Passthrough " : "FalseColorEv", report.Encoding->Name, report.Encoding->FormatName,
+            (passed ? std::cout : std::cerr) << std::format("[{}] {:<14} {} ({}), {}: scene only {}; with UI {}\n", passed ? "pass" : "FAIL",
+                TonemapperName(report.Tonemapper), report.Encoding->Name, report.Encoding->FormatName,
                 report.Stage, Describe(*report.Encoding, report.SceneOnly), Describe(*report.Encoding, report.WithUi));
             failures += passed ? 0 : 1;
         }
@@ -1026,7 +1048,7 @@ namespace
                 }
 
                 std::cout << std::format("{:<14}{:<10}{:<28}{:>12.4f}{:>12.4f}\n",
-                    tonemapper == color::TonemapperKind::Passthrough ? "Passthrough" : "FalseColorEv", encoding.Name, encoding.FormatName, sceneOnly, withUi);
+                    TonemapperName(tonemapper), encoding.Name, encoding.FormatName, sceneOnly, withUi);
             }
         }
 

@@ -13,7 +13,6 @@ namespace
     [[nodiscard]] VkComponentSwizzle ToVkSwizzle(ComponentSwizzle swizzle) noexcept;
 
     constexpr BufferUsageBits k_DeviceAddressUsages =
-        BufferUsageBits::DeviceAddressBuffer |
         BufferUsageBits::AccelerationStructureBuild |
         BufferUsageBits::ShaderBindingTable |
         BufferUsageBits::AccelerationStructureBuildScratch;
@@ -62,6 +61,10 @@ VkBufferUsageFlags ToVkBufferUsage(BufferUsageBits usage, bool has_texel_view) n
     if (HasAny(usage, BufferUsageBits::ConditionalRendering))
     {
         result |= VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT;
+    }
+    if (HasAny(usage, BufferUsageBits::DeviceAddressBuffer))
+    {
+        result |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     }
     return result;
 }

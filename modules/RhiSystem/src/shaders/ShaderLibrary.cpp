@@ -505,11 +505,9 @@ namespace
         for (const lodestone::manifest::MergedResource& merged : layout)
         {
             const lodestone::manifest::ResolvedResource& resource = merged.Resource;
-            // the merge already rejects every placement that isn't Bound, so this only guards a future
-            // Lodestone that lifts that restriction before this renderer handles the new placements
-            if (resource.Placement() != lodestone::PlacementKind::Bound)
+            if (resource.Placement() == lodestone::PlacementKind::Pointer)
             {
-                return std::unexpected(rhi::ShaderLibraryError::UnsupportedResourcePlacement);
+                continue;
             }
 
             std::expected<VkDescriptorType, rhi::ShaderLibraryError> descriptorType = ToVkDescriptorType(resource);

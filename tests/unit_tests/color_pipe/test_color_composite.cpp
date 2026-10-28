@@ -66,9 +66,51 @@ TEST(ColorCompositeTest, PassthroughNeverExceedsTheHeadroom)
 
 TEST(ColorCompositeTest, UnwrittenTonemappersGiveNaN)
 {
-    const color::Vec3d tonemapped = color::Tonemap(color::TonemapperKind::AgX, color::Vec3d{ 0.18, 0.18, 0.18 }, SdrTarget());
+    const color::Vec3d tonemapped = color::Tonemap(color::TonemapperKind::Invalid, color::Vec3d{ 0.18, 0.18, 0.18 }, SdrTarget());
 
     EXPECT_TRUE(std::isnan(tonemapped.X));
+}
+
+TEST(ColorCompositeTest, KhronosNeutralPreservesGrayAndRespectsHeadroom)
+{
+    const color::DisplayTarget target = SdrTarget();
+    const double headroom = color::HeadroomOf(target);
+    const color::Vec3d gray = color::Tonemap(color::TonemapperKind::KhronosNeutral, color::Vec3d{ 0.18, 0.18, 0.18 }, target);
+
+    EXPECT_TRUE(std::isfinite(gray.X));
+    EXPECT_NEAR(gray.X, gray.Y, 1.0e-9);
+    EXPECT_NEAR(gray.Z, gray.Y, 1.0e-9);
+    EXPECT_GT(gray.Y, 0.0);
+    EXPECT_LE(gray.Y, headroom);
+
+    const color::Vec3d highlight = color::Tonemap(color::TonemapperKind::KhronosNeutral, color::Vec3d{ 100.0, 50.0, 200.0 }, target);
+    EXPECT_TRUE(std::isfinite(highlight.X));
+    EXPECT_TRUE(std::isfinite(highlight.Y));
+    EXPECT_TRUE(std::isfinite(highlight.Z));
+    EXPECT_LE(highlight.X, headroom);
+    EXPECT_LE(highlight.Y, headroom);
+    EXPECT_LE(highlight.Z, headroom);
+}
+
+TEST(ColorCompositeTest, AgXPreservesGrayAndRespectsHeadroom)
+{
+    const color::DisplayTarget target = SdrTarget();
+    const double headroom = color::HeadroomOf(target);
+    const color::Vec3d gray = color::Tonemap(color::TonemapperKind::AgX, color::Vec3d{ 0.18, 0.18, 0.18 }, target);
+
+    EXPECT_TRUE(std::isfinite(gray.X));
+    EXPECT_NEAR(gray.X, gray.Y, 1.0e-9);
+    EXPECT_NEAR(gray.Z, gray.Y, 1.0e-9);
+    EXPECT_GT(gray.Y, 0.0);
+    EXPECT_LE(gray.Y, headroom);
+
+    const color::Vec3d highlight = color::Tonemap(color::TonemapperKind::AgX, color::Vec3d{ 100.0, 50.0, 200.0 }, target);
+    EXPECT_TRUE(std::isfinite(highlight.X));
+    EXPECT_TRUE(std::isfinite(highlight.Y));
+    EXPECT_TRUE(std::isfinite(highlight.Z));
+    EXPECT_LE(highlight.X, headroom);
+    EXPECT_LE(highlight.Y, headroom);
+    EXPECT_LE(highlight.Z, headroom);
 }
 
 TEST(ColorCompositeTest, AGrayStaysGrayThroughEveryEncoding)

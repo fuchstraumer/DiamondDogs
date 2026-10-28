@@ -23,7 +23,8 @@ const static GraphicsResource k_NullGraphicsRsrc = GraphicsResource{ ResourceDom
                                                                      k_EnttNullEntityUi32,
                                                                      k_VkNullHandleUi64,
                                                                      k_VkNullHandleUi64,
-                                                                     k_VkNullHandleUi64 };
+                                                                     k_VkNullHandleUi64,
+                                                                     0u };
 
 MessageReply::MessageReply(MessageReply&& other) noexcept
     : status(other.status.load(std::memory_order_relaxed))
@@ -230,6 +231,7 @@ GraphicsResourceReply::RhiResourceTypeAndEntityHandle::operator bool() const noe
 GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceType _type) :
     resourceTypeAndEntityHandle{ RhiResourceTypeAndEntityHandle(_domain, _type, entt::null) },
     vkSamplerHandle{ 0u },
+    deviceAddress{ 0u },
     vkHandleAndView{ k_NullAtomic128 }
 {}
 
@@ -237,6 +239,7 @@ GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceTyp
     ResourceTransferReply(_device),
     resourceTypeAndEntityHandle{ RhiResourceTypeAndEntityHandle(_domain, _type, entt::null) },
     vkSamplerHandle{ 0u },
+    deviceAddress{ 0u },
     vkHandleAndView{ k_NullAtomic128 }
 {
 }
@@ -252,12 +255,14 @@ GraphicsResource GraphicsResourceReply::GetResource() const noexcept
     {
         CasData128 handleAndView = vkHandleAndView.load(std::memory_order_acquire);
         uint64_t samplerHandle = vkSamplerHandle.load(std::memory_order_acquire);
+        uint64_t devAddress = deviceAddress.load(std::memory_order_acquire);
         return GraphicsResource(static_cast<ResourceDomain>(typeAndEntity.Domain),
                                 static_cast<ResourceType>(typeAndEntity.Type),
                                 typeAndEntity.EntityHandle,
                                 handleAndView.low,
                                 handleAndView.high,
-                                samplerHandle);
+                                samplerHandle,
+                                devAddress);
     }
 
     return k_NullGraphicsRsrc;
@@ -269,13 +274,19 @@ void GraphicsResourceReply::setGraphicsResource(
     const uint32_t entity_handle,
     const uint64_t vk_handle,
     const uint64_t vk_view_handle,
-    const uint64_t vk_sampler_handle) noexcept
+    const uint64_t vk_sampler_handle,
+    const uint64_t device_address) noexcept
 {
     // Set the entity handle last, since we check that to see if the whole thing is valid/completed
     // if checks just to save atomic stores if not needed
     if (vk_sampler_handle != 0u)
     {
         vkSamplerHandle.store(vk_sampler_handle, std::memory_order_release);
+    }
+
+    if (device_address != 0u)
+    {
+        deviceAddress.store(device_address, std::memory_order_release);
     }
 
     if (vk_handle != 0u || vk_view_handle != 0u)
@@ -293,6 +304,7 @@ void GraphicsResourceReply::setGraphicsResourceRelaxed(const GraphicsResource& r
     // on and why we can use relaxed stores
     vkHandleAndView.store(CasData128{ resource.VkHandle, resource.VkViewHandle }, std::memory_order_relaxed);
     vkSamplerHandle.store(resource.VkSamplerHandle, std::memory_order_relaxed);
+    deviceAddress.store(resource.DeviceAddress, std::memory_order_relaxed);
     resourceTypeAndEntityHandle.store(RhiResourceTypeAndEntityHandle(resource.Domain, resource.Type, resource.EntityHandle), std::memory_order_relaxed);
 }
 

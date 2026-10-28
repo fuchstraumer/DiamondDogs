@@ -4,7 +4,7 @@
 
 GraphicsResource GraphicsResource::Null() noexcept
 {
-    return GraphicsResource{ ResourceDomain::Invalid, ResourceType::Invalid, entt::null, 0u, 0u, 0u };
+    return GraphicsResource{ ResourceDomain::Invalid, ResourceType::Invalid, entt::null, 0u, 0u, 0u, 0u };
 }
 
 bool GraphicsResource::operator==(const GraphicsResource& other) const noexcept
@@ -14,7 +14,8 @@ bool GraphicsResource::operator==(const GraphicsResource& other) const noexcept
            EntityHandle == other.EntityHandle &&
            VkHandle == other.VkHandle &&
            VkViewHandle == other.VkViewHandle &&
-           VkSamplerHandle == other.VkSamplerHandle;
+           VkSamplerHandle == other.VkSamplerHandle &&
+           DeviceAddress == other.DeviceAddress;
 }
 
 bool GraphicsResource::operator!=(const GraphicsResource& other) const noexcept

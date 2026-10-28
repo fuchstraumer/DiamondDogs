@@ -70,6 +70,10 @@ void ResourceContextImpl::Construct(const ResourceContextCreateInfo& create_info
     VmaAllocatorCreateInfo createInfo{};
     // only the worker thread allocates, so the library does not need to sync for us
     createInfo.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
+    if (create_info.DeviceAddressesEnabled)
+    {
+        createInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+    }
     createInfo.physicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
     createInfo.device = device->Handle().As<VkDevice>();
     createInfo.instance = instance;
@@ -316,6 +320,18 @@ std::optional<GraphicsResource> ResourceContextImpl::createBufferEntity(const Bu
             return std::nullopt;
         }
     }
+    
+    uint64_t deviceAddress = 0u;
+    if ((storedInfo.Usage & BufferUsageBits::DeviceAddressBuffer) != BufferUsageBits::Invalid)
+    {
+        const VkBufferDeviceAddressInfo addressInfo
+        {
+            VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            nullptr,
+            bufferHandle
+        };
+        deviceAddress = vkGetBufferDeviceAddress(device->Handle().As<VkDevice>(), &addressInfo);
+    }
 
     return GraphicsResource
     {
@@ -324,7 +340,8 @@ std::optional<GraphicsResource> ResourceContextImpl::createBufferEntity(const Bu
         static_cast<uint32_t>(newEntity),
         reinterpret_cast<uint64_t>(bufferHandle),
         reinterpret_cast<uint64_t>(bufferView),
-        0u
+        0u,
+        deviceAddress
     };
 }
 
@@ -389,7 +406,8 @@ void ResourceContextImpl::completeWithResource(GraphicsResourceReply& reply, con
         resource.EntityHandle,
         resource.VkHandle,
         resource.VkViewHandle,
-        resource.VkSamplerHandle);
+        resource.VkSamplerHandle,
+        resource.DeviceAddress);
 }
 
 void ResourceContextImpl::processCreateSamplerMessage(CreateSamplerMessage&& message)
@@ -398,7 +416,7 @@ void ResourceContextImpl::processCreateSamplerMessage(CreateSamplerMessage&& mes
 
     const entt::entity newEntity = resourceRegistry.create();
     resourceRegistry.emplace<ResourceFlags>(newEntity, ResourceType::Sampler, ResourceCreationFlags::None, ResourceDomain::GPUOnly);
-    VkSampler sampler = createSampler(newEntity, message.SamplerInfo, message.Name);
+    VkSampler sampler = createSampler(newEntity, message.SamplerInfo, message.SamplerInfo.Name);
     if (sampler == VK_NULL_HANDLE)
     {
         destroyEntityResources(newEntity);

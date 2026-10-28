@@ -203,13 +203,15 @@ private:
         const uint32_t entity_handle,
         const uint64_t vk_handle,
         const uint64_t vk_view_handle,
-        const uint64_t vk_sampler_handle) noexcept;
+        const uint64_t vk_sampler_handle,
+        const uint64_t device_address = 0u) noexcept;
     /** @brief Relaxed version of SetGraphicsResource for use when already synchronized, or to push piecemeal updates without atomicity before a final atomic commit. */
     void setGraphicsResourceRelaxed(const GraphicsResource& resource) noexcept;
     
     std::atomic<RhiResourceTypeAndEntityHandle> resourceTypeAndEntityHandle;
     static_assert(decltype(resourceTypeAndEntityHandle)::is_always_lock_free, "std::atomic<RhiResourceTypeAndEntityHandle> is not lock-free on this platform/using this compiler");
     std::atomic<uint64_t> vkSamplerHandle;
+    std::atomic<uint64_t> deviceAddress{ 0u };
     atomic128 vkHandleAndView;
 };
 

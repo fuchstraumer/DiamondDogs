@@ -25,6 +25,7 @@ struct ResourceContextCreateInfo
     const rhi::Device* Device{ nullptr };       ///< The logical device to use for resource operations
     uint32_t VulkanApiVersion{ 0u };            ///< The packed API version the instance was created with (RhiSystem::GetVulkanApiVersion)
     bool ValidationEnabled{ false };            ///< Whether Vulkan validation layers are enabled
+    bool DeviceAddressesEnabled{ false };       ///< Whether this session needs device addresses enabled for buffers
 };
 
 /// Semaphore value used to signal when transfer operations are complete
