@@ -18,6 +18,7 @@
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
+#include "RhiSystem.hpp"
 #include "RhiTypes.hpp"
 #include "ShaderLibrary.hpp"
 #include "ShaderManifestIndex.hpp"
@@ -48,8 +49,18 @@ namespace color
         constexpr std::string_view k_TonemapperAxisName{ "TONEMAPPER" };
         constexpr std::string_view k_EncodeAxisName{ "ENCODE" };
 
-        constexpr std::array<TonemapperKind, 2> k_WrittenTonemappers{ TonemapperKind::Passthrough, TonemapperKind::FalseColorEv };
+        constexpr std::array<TonemapperKind, 4> k_WrittenTonemappers{
+            TonemapperKind::Passthrough,
+            TonemapperKind::FalseColorEv,
+            TonemapperKind::KhronosNeutral,
+            TonemapperKind::AgX
+        };
         constexpr size_t k_TonemapperKindCount = 5u;
+
+        constexpr std::string_view k_BloomModuleName{ "ColorBloom" };
+        constexpr std::string_view k_BloomDownsampleEntry{ "ColorBloomDownsampleCS" };
+        constexpr std::string_view k_BloomUpsampleEntry{ "ColorBloomUpsampleCS" };
+        constexpr size_t k_BloomMipCount = 6u;
 
         // the scene and the UI rest in this layout between composites
         constexpr rhi::ImageLayout k_RestingLayout = rhi::ImageLayout::Attachment;
@@ -66,9 +77,25 @@ namespace color
             float PaperWhiteNits{ 0.0f };
             float PeakNits{ 0.0f };
             float BlackNits{ 0.0f };
-            float Padding{ 0.0f };
+            float BloomIntensity{ 0.0f };
         };
         static_assert(sizeof(DisplayParameters) == 16u);
+
+        struct BloomDownsamplePushConstants
+        {
+            float TexelSize[2]{ 0.0f, 0.0f };
+            uint32_t UseKarisAverage{ 0u };
+            float Padding{ 0.0f };
+        };
+        static_assert(sizeof(BloomDownsamplePushConstants) == 16u);
+
+        struct BloomUpsamplePushConstants
+        {
+            float CoarseTexelSize[2]{ 0.0f, 0.0f };
+            float Scatter{ 0.0f };
+            float Padding{ 0.0f };
+        };
+        static_assert(sizeof(BloomUpsamplePushConstants) == 16u);
     }
 
     struct CompositeProgram
@@ -101,6 +128,21 @@ namespace color
         GraphicsResource Ui{};
         GraphicsResource ExposureBuffer{};
 
+        BloomSettings Bloom{};
+        std::array<GraphicsResource, k_BloomMipCount> BloomDownsample;
+        std::array<GraphicsResource, k_BloomMipCount - 1u> BloomUpsample;
+        GraphicsResource LinearSampler;
+
+        const lodestone::ManifestIndex* BloomIndex{ nullptr };
+        lodestone::VariantKey BloomDownsampleVariant{};
+        lodestone::VariantKey BloomUpsampleVariant{};
+        std::unique_ptr<rhi::ManifestProgram> BloomDownsampleProgram;
+        std::unique_ptr<rhi::ManifestProgram> BloomUpsampleProgram;
+
+        VkDescriptorPool BloomDescriptorPool{ VK_NULL_HANDLE };
+        std::array<VkDescriptorSet, k_BloomMipCount> BloomDownsampleSets{};
+        std::array<VkDescriptorSet, k_BloomMipCount - 1u> BloomUpsampleSets{};
+
         // indexed by TonemapperKind, empty for kinds without a program
         std::array<CompositeProgram, k_TonemapperKindCount> Programs;
         VkDescriptorPool DescriptorPool{ VK_NULL_HANDLE };
@@ -109,13 +151,32 @@ namespace color
 
     namespace
     {
+        struct Extent2D
+        {
+            uint32_t Width{ 0u };
+            uint32_t Height{ 0u };
+        };
+
+        [[nodiscard]] constexpr Extent2D BloomDownsampleExtent(uint32_t base_width, uint32_t base_height, size_t mip_index) noexcept
+        {
+            uint32_t w = std::max(1u, base_width >> 1);
+            uint32_t h = std::max(1u, base_height >> 1);
+            for (size_t i = 0; i < mip_index; ++i)
+            {
+                w = std::max(1u, w >> 1);
+                h = std::max(1u, h >> 1);
+            }
+            return Extent2D{ w, h };
+        }
+
         [[nodiscard]] std::string_view TonemapperTypeName(TonemapperKind kind) noexcept;
         [[nodiscard]] std::string_view EncodingCaseName(DisplayEncoding encoding) noexcept;
         [[nodiscard]] GraphicsResource WaitForResource(const std::shared_ptr<GraphicsResourceReply>& reply);
-        [[nodiscard]] ImageCreateInfo MakeTargetInfo(ImageFormat format, uint32_t width, uint32_t height);
+        [[nodiscard]] ImageCreateInfo MakeTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name = {}, std::string_view view_name = {});
+        [[nodiscard]] ImageCreateInfo MakeBloomTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name = {}, std::string_view view_name = {});
         [[nodiscard]] ColorTargetView MakeTargetView(const GraphicsResource& resource, ImageFormat format, uint32_t width, uint32_t height) noexcept;
         [[nodiscard]] SwapchainHdrMetadata MakeHdrMetadata(const DisplayTarget& target) noexcept;
-        [[nodiscard]] DisplayParameters MakeDisplayParameters(const DisplayTarget& target) noexcept;
+        [[nodiscard]] DisplayParameters MakeDisplayParameters(const DisplayTarget& target, const BloomSettings& bloom) noexcept;
         [[nodiscard]] CompositeProgram& ProgramOf(ColorPipeImpl& impl, TonemapperKind kind) noexcept;
         [[nodiscard]] ColorPipeError BuildPrograms(ColorPipeImpl& impl);
         [[nodiscard]] ColorPipeError CreateDescriptorSets(ColorPipeImpl& impl);
@@ -130,6 +191,11 @@ namespace color
 
     ColorPipeImpl::~ColorPipeImpl()
     {
+        if (BloomDescriptorPool != VK_NULL_HANDLE)
+        {
+            vkDestroyDescriptorPool(Device->Handle().As<VkDevice>(), BloomDescriptorPool, nullptr);
+        }
+
         if (DescriptorPool != VK_NULL_HANDLE)
         {
             vkDestroyDescriptorPool(Device->Handle().As<VkDevice>(), DescriptorPool, nullptr);
@@ -137,6 +203,7 @@ namespace color
 
         DestroyTargets(*this);
         DestroyResourceIfCreated(*this, ExposureBuffer);
+        DestroyResourceIfCreated(*this, LinearSampler);
     }
 
     ColorPipeResult<std::unique_ptr<ColorPipe>> ColorPipe::Create(const ColorPipeCreateInfo& create_info)
@@ -192,6 +259,22 @@ namespace color
             return std::unexpected(error);
         }
 
+        SamplerCreateInfo samplerInfo{};
+        samplerInfo.MagFilter = ImageFilteringMode::Linear;
+        samplerInfo.MinFilter = ImageFilteringMode::Linear;
+        samplerInfo.MipFilter = ImageFilteringMode::Linear;
+        samplerInfo.AddressU = SamplerCreateInfo::AddressMode::ClampToEdge;
+        samplerInfo.AddressV = SamplerCreateInfo::AddressMode::ClampToEdge;
+        samplerInfo.AddressW = SamplerCreateInfo::AddressMode::ClampToEdge;
+        samplerInfo.Name = "ColorPipe_LinearSampler";
+        impl->LinearSampler = WaitForResource(impl->Resources->CreateSampler(samplerInfo, "ColorPipe_LinearSampler"));
+
+        if (!impl->LinearSampler)
+        {
+            return std::unexpected(ColorPipeError::ResourceCreationFailed);
+        }
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_SAMPLER, impl->LinearSampler.VkSamplerHandle, "ColorPipe_LinearSampler");
+
         if (const ColorPipeError error = CreateExposureBuffer(*impl); error != ColorPipeError::Success)
         {
             return std::unexpected(error);
@@ -240,6 +323,16 @@ namespace color
         impl->ExposureEv = exposure_ev;
     }
 
+    void ColorPipe::SetBloomSettings(const BloomSettings& settings) noexcept
+    {
+        impl->Bloom = settings;
+    }
+
+    const BloomSettings& ColorPipe::GetBloomSettings() const noexcept
+    {
+        return impl->Bloom;
+    }
+
     ColorPipeError ColorPipe::SetTonemapper(TonemapperKind kind) noexcept
     {
         if (ProgramOf(*impl, kind).Program == nullptr)
@@ -261,14 +354,7 @@ namespace color
 
     void ColorPipe::RecordComposite(rhi::CommandBuffer& command_buffer, rhi::ImageViewHandle output_view, rhi::GpuTimerBlock* timers)
     {
-        std::optional<rhi::ScopedGpuTimer> timer;
-
-        if (timers != nullptr)
-        {
-            timer.emplace(*timers, "Color composite");
-        }
-
-        // written in the queue, so that a frame in flight reads its own value
+        // exposure buffer barrier
         const rhi::GlobalBarrier readToWrite
         {
             rhi::PipelineStage::FragmentShader, rhi::Access::ShaderStorageRead,
@@ -283,54 +369,223 @@ namespace color
             rhi::PipelineStage::AllTransfer, rhi::Access::TransferWrite,
             rhi::PipelineStage::FragmentShader, rhi::Access::ShaderStorageRead
         };
-        const std::array<rhi::ImageBarrier, 2> toRead
+
+        if (impl->Bloom.Enabled)
         {
-            rhi::ImageBarrier
+            const rhi::ImageBarrier sceneToRead
             {
                 rhi::ImageHandle{ impl->Scene.VkHandle },
                 rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite,
-                rhi::PipelineStage::FragmentShader, rhi::Access::ShaderSampledRead,
+                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderSampledRead,
                 k_RestingLayout, k_ReadLayout, k_ColorRange
-            },
-            rhi::ImageBarrier
+            };
+            command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &writeToRead, 1 }, {}, std::span{ &sceneToRead, 1 } });
+
             {
-                rhi::ImageHandle{ impl->Ui.VkHandle },
-                rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite,
-                rhi::PipelineStage::FragmentShader, rhi::Access::ShaderSampledRead,
-                k_RestingLayout, k_ReadLayout, k_ColorRange
-            },
-        };
-        command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &writeToRead, 1 }, {}, toRead });
+                std::optional<rhi::ScopedGpuTimer> timer;
+                if (timers != nullptr)
+                {
+                    timer.emplace(*timers, "Bloom downsample");
+                }
 
-        rhi::ColorAttachment outputAttachment{};
-        outputAttachment.ImageView = output_view;
-        outputAttachment.Layout = rhi::ImageLayout::ColorAttachment;
-        outputAttachment.LoadOp = rhi::LoadOp::DontCare;
-        outputAttachment.StoreOp = rhi::StoreOp::Store;
+                RhiAssert(command_buffer.BindShaders(impl->BloomDownsampleProgram->Program()));
 
-        rhi::RenderingInfo renderingInfo{};
-        renderingInfo.ColorAttachments = std::span{ &outputAttachment, 1 };
-        renderingInfo.RenderArea = rhi::Rect2D{ 0, 0, impl->Width, impl->Height };
-        command_buffer.BeginRendering(renderingInfo);
+                for (size_t i = 0; i < k_BloomMipCount; ++i)
+                {
+                    if (i > 0)
+                    {
+                        const rhi::ImageBarrier downBarrier
+                        {
+                            rhi::ImageHandle{ impl->BloomDownsample[i - 1].VkHandle },
+                            rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+                            rhi::PipelineStage::ComputeShader, rhi::Access::ShaderSampledRead,
+                            rhi::ImageLayout::General, rhi::ImageLayout::General, k_ColorRange
+                        };
+                        command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &downBarrier, 1 } });
+                    }
 
-        const rhi::Viewport viewport{ 0.0f, 0.0f, static_cast<float>(impl->Width), static_cast<float>(impl->Height), 0.0f, 1.0f };
-        command_buffer.SetViewports(std::span{ &viewport, 1 });
-        command_buffer.SetScissors(std::span{ &renderingInfo.RenderArea, 1 });
+                    const Extent2D srcExtent = (i == 0) ? Extent2D{ impl->Width, impl->Height } : BloomDownsampleExtent(impl->Width, impl->Height, i - 1);
+                    const Extent2D dstExtent = BloomDownsampleExtent(impl->Width, impl->Height, i);
 
-        const CompositeProgram& composite = ProgramOf(*impl, impl->Tonemapper);
-        RhiAssert(command_buffer.BindShaders(composite.Program->Program()));
-        impl->DrawState.Record(command_buffer.Handle().As<VkCommandBuffer>());
+                    const BloomDownsamplePushConstants pc
+                    {
+                        .TexelSize = { 1.0f / static_cast<float>(srcExtent.Width), 1.0f / static_cast<float>(srcExtent.Height) },
+                        .UseKarisAverage = (i == 0) ? 1u : 0u,
+                        .Padding = 0.0f
+                    };
 
-        const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(composite.Set) };
-        command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Graphics, composite.Program->PipelineLayout(), 0u, std::span{ &set, 1 });
+                    const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(impl->BloomDownsampleSets[i]) };
+                    command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Compute, impl->BloomDownsampleProgram->PipelineLayout(), 0u, std::span{ &set, 1 });
 
-        // the range exists: creation checked the layout
-        const std::optional<rhi::PushConstantRange> range = composite.Program->PushConstants();
-        const DisplayParameters parameters = MakeDisplayParameters(impl->Target);
-        command_buffer.PushConstants(composite.Program->PipelineLayout(), range->StageFlags, 0u, std::as_bytes(std::span{ &parameters, 1 }));
+                    const std::optional<rhi::PushConstantRange> range = impl->BloomDownsampleProgram->PushConstants();
+                    command_buffer.PushConstants(impl->BloomDownsampleProgram->PipelineLayout(), range->StageFlags, 0u, std::as_bytes(std::span{ &pc, 1 }));
 
-        command_buffer.Draw(3u, 1u, 0u, 0u);
-        command_buffer.EndRendering();
+                    command_buffer.Dispatch((dstExtent.Width + 7u) / 8u, (dstExtent.Height + 7u) / 8u, 1u);
+                }
+            }
+
+            {
+                std::optional<rhi::ScopedGpuTimer> timer;
+                if (timers != nullptr)
+                {
+                    timer.emplace(*timers, "Bloom upsample");
+                }
+
+                RhiAssert(command_buffer.BindShaders(impl->BloomUpsampleProgram->Program()));
+
+                for (int32_t i = static_cast<int32_t>(k_BloomMipCount - 2u); i >= 0; --i)
+                {
+                    if (i == static_cast<int32_t>(k_BloomMipCount - 2u))
+                    {
+                        const std::array<rhi::ImageBarrier, 2> upInputBarriers
+                        {
+                            rhi::ImageBarrier
+                            {
+                                rhi::ImageHandle{ impl->BloomDownsample[5].VkHandle },
+                                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+                                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderSampledRead,
+                                rhi::ImageLayout::General, rhi::ImageLayout::General, k_ColorRange
+                            },
+                            rhi::ImageBarrier
+                            {
+                                rhi::ImageHandle{ impl->BloomDownsample[4].VkHandle },
+                                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+                                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderSampledRead,
+                                rhi::ImageLayout::General, rhi::ImageLayout::General, k_ColorRange
+                            }
+                        };
+                        command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, upInputBarriers });
+                    }
+                    else
+                    {
+                        const rhi::ImageBarrier upBarrier
+                        {
+                            rhi::ImageHandle{ impl->BloomUpsample[i + 1].VkHandle },
+                            rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+                            rhi::PipelineStage::ComputeShader, rhi::Access::ShaderSampledRead,
+                            rhi::ImageLayout::General, rhi::ImageLayout::General, k_ColorRange
+                        };
+                        command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &upBarrier, 1 } });
+                    }
+
+                    if (i == 0)
+                    {
+                        const rhi::ImageBarrier destBarrier
+                        {
+                            rhi::ImageHandle{ impl->BloomUpsample[0].VkHandle },
+                            rhi::PipelineStage::FragmentShader, rhi::Access::ShaderSampledRead,
+                            rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+                            k_ReadLayout, rhi::ImageLayout::General, k_ColorRange
+                        };
+                        command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &destBarrier, 1 } });
+                    }
+
+                    const Extent2D coarseExtent = (i == static_cast<int32_t>(k_BloomMipCount - 2u))
+                        ? BloomDownsampleExtent(impl->Width, impl->Height, 5)
+                        : BloomDownsampleExtent(impl->Width, impl->Height, i + 1);
+                    const Extent2D dstExtent = BloomDownsampleExtent(impl->Width, impl->Height, i);
+
+                    const BloomUpsamplePushConstants pc
+                    {
+                        .CoarseTexelSize = { 1.0f / static_cast<float>(coarseExtent.Width), 1.0f / static_cast<float>(coarseExtent.Height) },
+                        .Scatter = impl->Bloom.Scatter,
+                        .Padding = 0.0f
+                    };
+
+                    const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(impl->BloomUpsampleSets[i]) };
+                    command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Compute, impl->BloomUpsampleProgram->PipelineLayout(), 0u, std::span{ &set, 1 });
+
+                    const std::optional<rhi::PushConstantRange> range = impl->BloomUpsampleProgram->PushConstants();
+                    command_buffer.PushConstants(impl->BloomUpsampleProgram->PipelineLayout(), range->StageFlags, 0u, std::as_bytes(std::span{ &pc, 1 }));
+
+                    command_buffer.Dispatch((dstExtent.Width + 7u) / 8u, (dstExtent.Height + 7u) / 8u, 1u);
+                }
+            }
+
+            const std::array<rhi::ImageBarrier, 3> toComposite
+            {
+                rhi::ImageBarrier
+                {
+                    rhi::ImageHandle{ impl->Scene.VkHandle },
+                    rhi::PipelineStage::ComputeShader, rhi::Access::ShaderSampledRead,
+                    rhi::PipelineStage::FragmentShader, rhi::Access::ShaderSampledRead,
+                    k_ReadLayout, k_ReadLayout, k_ColorRange
+                },
+                rhi::ImageBarrier
+                {
+                    rhi::ImageHandle{ impl->Ui.VkHandle },
+                    rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite,
+                    rhi::PipelineStage::FragmentShader, rhi::Access::ShaderSampledRead,
+                    k_RestingLayout, k_ReadLayout, k_ColorRange
+                },
+                rhi::ImageBarrier
+                {
+                    rhi::ImageHandle{ impl->BloomUpsample[0].VkHandle },
+                    rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+                    rhi::PipelineStage::FragmentShader, rhi::Access::ShaderSampledRead,
+                    rhi::ImageLayout::General, k_ReadLayout, k_ColorRange
+                }
+            };
+            command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, toComposite });
+        }
+        else
+        {
+            const std::array<rhi::ImageBarrier, 2> toRead
+            {
+                rhi::ImageBarrier
+                {
+                    rhi::ImageHandle{ impl->Scene.VkHandle },
+                    rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite,
+                    rhi::PipelineStage::FragmentShader, rhi::Access::ShaderSampledRead,
+                    k_RestingLayout, k_ReadLayout, k_ColorRange
+                },
+                rhi::ImageBarrier
+                {
+                    rhi::ImageHandle{ impl->Ui.VkHandle },
+                    rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite,
+                    rhi::PipelineStage::FragmentShader, rhi::Access::ShaderSampledRead,
+                    k_RestingLayout, k_ReadLayout, k_ColorRange
+                },
+            };
+            command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &writeToRead, 1 }, {}, toRead });
+        }
+
+        {
+            std::optional<rhi::ScopedGpuTimer> timer;
+            if (timers != nullptr)
+            {
+                timer.emplace(*timers, "Color composite");
+            }
+
+            rhi::ColorAttachment outputAttachment{};
+            outputAttachment.ImageView = output_view;
+            outputAttachment.Layout = rhi::ImageLayout::ColorAttachment;
+            outputAttachment.LoadOp = rhi::LoadOp::DontCare;
+            outputAttachment.StoreOp = rhi::StoreOp::Store;
+
+            rhi::RenderingInfo renderingInfo{};
+            renderingInfo.ColorAttachments = std::span{ &outputAttachment, 1 };
+            renderingInfo.RenderArea = rhi::Rect2D{ 0, 0, impl->Width, impl->Height };
+            command_buffer.BeginRendering(renderingInfo);
+
+            const rhi::Viewport viewport{ 0.0f, 0.0f, static_cast<float>(impl->Width), static_cast<float>(impl->Height), 0.0f, 1.0f };
+            command_buffer.SetViewports(std::span{ &viewport, 1 });
+            command_buffer.SetScissors(std::span{ &renderingInfo.RenderArea, 1 });
+
+            const CompositeProgram& composite = ProgramOf(*impl, impl->Tonemapper);
+            RhiAssert(command_buffer.BindShaders(composite.Program->Program()));
+            impl->DrawState.Record(command_buffer.Handle().As<VkCommandBuffer>());
+
+            const rhi::DescriptorSetHandle set{ reinterpret_cast<uint64_t>(composite.Set) };
+            command_buffer.BindDescriptorSets(rhi::PipelineBindPoint::Graphics, composite.Program->PipelineLayout(), 0u, std::span{ &set, 1 });
+
+            const std::optional<rhi::PushConstantRange> range = composite.Program->PushConstants();
+            const DisplayParameters parameters = MakeDisplayParameters(impl->Target, impl->Bloom);
+            command_buffer.PushConstants(composite.Program->PipelineLayout(), range->StageFlags, 0u, std::as_bytes(std::span{ &parameters, 1 }));
+
+            command_buffer.Draw(3u, 1u, 0u, 0u);
+            command_buffer.EndRendering();
+        }
 
         const std::array<rhi::ImageBarrier, 2> toResting
         {
@@ -424,7 +679,7 @@ namespace color
             return reply->GetResource();
         }
 
-        ImageCreateInfo MakeTargetInfo(ImageFormat format, uint32_t width, uint32_t height)
+        ImageCreateInfo MakeTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name, std::string_view view_name)
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
@@ -435,9 +690,30 @@ namespace color
             info.Width = width;
             info.Height = height;
             info.Depth = 1u;
+            info.Name = name;
             info.ViewInfo = ImageViewCreateInfo{};
             info.ViewInfo->ViewType = ImageViewType::Type2D;
             info.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
+            info.ViewInfo->Name = view_name;
+
+            return info;
+        }
+
+        ImageCreateInfo MakeBloomTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name, std::string_view view_name)
+        {
+            ImageCreateInfo info{};
+            info.Domain = ResourceDomain::GPUOnly;
+            info.Usage = ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::UavComputeShader | ImageUsageBits::SrvFragmentShader | ImageUsageBits::TransferDestination;
+            info.Type = ImageType::Type2D;
+            info.Format = format;
+            info.Width = width;
+            info.Height = height;
+            info.Depth = 1u;
+            info.Name = name;
+            info.ViewInfo = ImageViewCreateInfo{};
+            info.ViewInfo->ViewType = ImageViewType::Type2D;
+            info.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
+            info.ViewInfo->Name = view_name;
 
             return info;
         }
@@ -468,9 +744,9 @@ namespace color
             return metadata;
         }
 
-        DisplayParameters MakeDisplayParameters(const DisplayTarget& target) noexcept
+        DisplayParameters MakeDisplayParameters(const DisplayTarget& target, const BloomSettings& bloom) noexcept
         {
-            return DisplayParameters{ target.PaperWhiteNits, target.PeakNits, target.BlackNits, 0.0f };
+            return DisplayParameters{ target.PaperWhiteNits, target.PeakNits, target.BlackNits, bloom.Enabled ? bloom.Intensity : 0.0f };
         }
 
         CompositeProgram& ProgramOf(ColorPipeImpl& impl, TonemapperKind kind) noexcept
@@ -510,7 +786,6 @@ namespace color
                     return ColorPipeError::ProgramCreationFailed;
                 }
 
-                // the shader and this file declare the block twice, so the size is checked here
                 const std::optional<rhi::PushConstantRange> range = (*program)->PushConstants();
 
                 if (!range.has_value() || range->Size != sizeof(DisplayParameters))
@@ -521,7 +796,68 @@ namespace color
                 CompositeProgram& composite = ProgramOf(impl, kind);
                 composite.Program = std::move(*program);
                 composite.Variant = *variant;
+
+                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+                    composite.Program->PipelineLayout().Get(),
+                    std::format("ColorPipe_CompositePipelineLayout_{}", TonemapperTypeName(kind)).c_str());
             }
+
+            rhi::ShaderLibraryResult<const lodestone::ManifestIndex*> bloomIndex = impl.Library->ModuleIndex(k_BloomModuleName);
+            if (!bloomIndex.has_value())
+            {
+                return ColorPipeError::CompositeModuleMissing;
+            }
+            impl.BloomIndex = *bloomIndex;
+
+            const std::array<std::string_view, 1> downEntry{ k_BloomDownsampleEntry };
+            std::expected<lodestone::VariantKey, lodestone::QueryError> downVariant = impl.BloomIndex->Query().SingleFor(downEntry);
+            if (!downVariant.has_value())
+            {
+                return ColorPipeError::CompositeVariantMissing;
+            }
+
+            rhi::ShaderLibraryResult<std::unique_ptr<rhi::ManifestProgram>> downProgram =
+                impl.Library->CreateProgram(impl.Device->Handle(), k_BloomModuleName, *downVariant, downEntry);
+            if (!downProgram.has_value())
+            {
+                return ColorPipeError::ProgramCreationFailed;
+            }
+
+            const std::optional<rhi::PushConstantRange> downRange = (*downProgram)->PushConstants();
+            if (!downRange.has_value() || downRange->Size != sizeof(BloomDownsamplePushConstants))
+            {
+                return ColorPipeError::ShaderLayoutMismatch;
+            }
+            impl.BloomDownsampleProgram = std::move(*downProgram);
+            impl.BloomDownsampleVariant = *downVariant;
+            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+                impl.BloomDownsampleProgram->PipelineLayout().Get(),
+                "ColorPipe_BloomDownsamplePipelineLayout");
+
+            const std::array<std::string_view, 1> upEntry{ k_BloomUpsampleEntry };
+            std::expected<lodestone::VariantKey, lodestone::QueryError> upVariant = impl.BloomIndex->Query().SingleFor(upEntry);
+            if (!upVariant.has_value())
+            {
+                return ColorPipeError::CompositeVariantMissing;
+            }
+
+            rhi::ShaderLibraryResult<std::unique_ptr<rhi::ManifestProgram>> upProgram =
+                impl.Library->CreateProgram(impl.Device->Handle(), k_BloomModuleName, *upVariant, upEntry);
+            if (!upProgram.has_value())
+            {
+                return ColorPipeError::ProgramCreationFailed;
+            }
+
+            const std::optional<rhi::PushConstantRange> upRange = (*upProgram)->PushConstants();
+            if (!upRange.has_value() || upRange->Size != sizeof(BloomUpsamplePushConstants))
+            {
+                return ColorPipeError::ShaderLayoutMismatch;
+            }
+            impl.BloomUpsampleProgram = std::move(*upProgram);
+            impl.BloomUpsampleVariant = *upVariant;
+            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+                impl.BloomUpsampleProgram->PipelineLayout().Get(),
+                "ColorPipe_BloomUpsamplePipelineLayout");
 
             return ColorPipeError::Success;
         }
@@ -531,10 +867,11 @@ namespace color
             const VkDevice device = impl.Device->Handle().As<VkDevice>();
             const uint32_t setCount = static_cast<uint32_t>(k_WrittenTonemappers.size());
 
-            const std::array<VkDescriptorPoolSize, 2> poolSizes
+            const std::array<VkDescriptorPoolSize, 3> poolSizes
             {
-                VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 2u * setCount },
+                VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 3u * setCount },
                 VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, setCount },
+                VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, setCount },
             };
             const VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0u,
                 setCount, static_cast<uint32_t>(poolSizes.size()), poolSizes.data() };
@@ -543,6 +880,7 @@ namespace color
             {
                 return ColorPipeError::DescriptorSetupFailed;
             }
+            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(impl.DescriptorPool), "ColorPipe_DescriptorPool");
 
             for (const TonemapperKind kind : k_WrittenTonemappers)
             {
@@ -554,6 +892,49 @@ namespace color
                 {
                     return ColorPipeError::DescriptorSetupFailed;
                 }
+
+                const std::string name = std::format("ColorPipe_CompositeSet_{}", TonemapperTypeName(kind));
+                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(composite.Set), name.c_str());
+            }
+
+            constexpr uint32_t bloomSetCount = static_cast<uint32_t>(k_BloomMipCount + (k_BloomMipCount - 1u));
+            const std::array<VkDescriptorPoolSize, 3> bloomPoolSizes
+            {
+                VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 16u },
+                VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, 11u },
+                VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 11u },
+            };
+            const VkDescriptorPoolCreateInfo bloomPoolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0u,
+                bloomSetCount, static_cast<uint32_t>(bloomPoolSizes.size()), bloomPoolSizes.data() };
+
+            if (vkCreateDescriptorPool(device, &bloomPoolInfo, nullptr, &impl.BloomDescriptorPool) != VK_SUCCESS)
+            {
+                return ColorPipeError::DescriptorSetupFailed;
+            }
+            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_POOL, reinterpret_cast<uint64_t>(impl.BloomDescriptorPool), "ColorPipe_BloomDescriptorPool");
+
+            const VkDescriptorSetLayout downLayout = impl.BloomDownsampleProgram->SetLayouts()[0].As<VkDescriptorSetLayout>();
+            for (size_t i = 0; i < k_BloomMipCount; ++i)
+            {
+                const VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, impl.BloomDescriptorPool, 1u, &downLayout };
+                if (vkAllocateDescriptorSets(device, &setInfo, &impl.BloomDownsampleSets[i]) != VK_SUCCESS)
+                {
+                    return ColorPipeError::DescriptorSetupFailed;
+                }
+                const std::string name = std::format("ColorPipe_BloomDownsampleSet_{}", i);
+                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(impl.BloomDownsampleSets[i]), name.c_str());
+            }
+
+            const VkDescriptorSetLayout upLayout = impl.BloomUpsampleProgram->SetLayouts()[0].As<VkDescriptorSetLayout>();
+            for (size_t i = 0; i < k_BloomMipCount - 1u; ++i)
+            {
+                const VkDescriptorSetAllocateInfo setInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, impl.BloomDescriptorPool, 1u, &upLayout };
+                if (vkAllocateDescriptorSets(device, &setInfo, &impl.BloomUpsampleSets[i]) != VK_SUCCESS)
+                {
+                    return ColorPipeError::DescriptorSetupFailed;
+                }
+                const std::string name = std::format("ColorPipe_BloomUpsampleSet_{}", i);
+                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_DESCRIPTOR_SET, reinterpret_cast<uint64_t>(impl.BloomUpsampleSets[i]), name.c_str());
             }
 
             return ColorPipeError::Success;
@@ -567,6 +948,8 @@ namespace color
                 { "SceneTarget", BoundResource{ impl.Scene, k_ReadVkLayout, {} } },
                 { "UiTarget", BoundResource{ impl.Ui, k_ReadVkLayout, {} } },
                 { "ExposureEv", BoundResource{ impl.ExposureBuffer, VK_IMAGE_LAYOUT_UNDEFINED, {} } },
+                { "BloomTarget", BoundResource{ impl.BloomUpsample[0], k_ReadVkLayout, {} } },
+                { "BloomSampler", BoundResource{ impl.LinearSampler, VK_IMAGE_LAYOUT_UNDEFINED, {} } },
             };
 
             for (const TonemapperKind kind : k_WrittenTonemappers)
@@ -574,6 +957,48 @@ namespace color
                 const CompositeProgram& composite = ProgramOf(impl, kind);
                 const std::optional<std::string> error = WriteManifestDescriptors(device, composite.Set, *impl.Index, composite.Variant, k_EntryPoints, bound);
 
+                if (error.has_value())
+                {
+                    return ColorPipeError::DescriptorSetupFailed;
+                }
+            }
+
+            const std::array<std::string_view, 1> downEntry{ k_BloomDownsampleEntry };
+            for (size_t i = 0; i < k_BloomMipCount; ++i)
+            {
+                const GraphicsResource& source = (i == 0) ? impl.Scene : impl.BloomDownsample[i - 1];
+                const VkImageLayout sourceLayout = (i == 0) ? k_ReadVkLayout : VK_IMAGE_LAYOUT_GENERAL;
+
+                const BoundResources downBound
+                {
+                    { "SourceMip", BoundResource{ source, sourceLayout, {} } },
+                    { "LinearSampler", BoundResource{ impl.LinearSampler, VK_IMAGE_LAYOUT_UNDEFINED, {} } },
+                    { "DestMip", BoundResource{ impl.BloomDownsample[i], VK_IMAGE_LAYOUT_GENERAL, {} } },
+                };
+
+                const std::optional<std::string> error = WriteManifestDescriptors(device, impl.BloomDownsampleSets[i], *impl.BloomIndex, impl.BloomDownsampleVariant, downEntry, downBound);
+                if (error.has_value())
+                {
+                    return ColorPipeError::DescriptorSetupFailed;
+                }
+            }
+
+            const std::array<std::string_view, 1> upEntry{ k_BloomUpsampleEntry };
+            for (size_t i = 0; i < k_BloomMipCount - 1u; ++i)
+            {
+                const GraphicsResource& coarse = (i == k_BloomMipCount - 2u) ? impl.BloomDownsample[k_BloomMipCount - 1u] : impl.BloomUpsample[i + 1u];
+                const GraphicsResource& fine = impl.BloomDownsample[i];
+                const GraphicsResource& dest = impl.BloomUpsample[i];
+
+                const BoundResources upBound
+                {
+                    { "CoarseMip", BoundResource{ coarse, VK_IMAGE_LAYOUT_GENERAL, {} } },
+                    { "FineMip", BoundResource{ fine, VK_IMAGE_LAYOUT_GENERAL, {} } },
+                    { "LinearSampler", BoundResource{ impl.LinearSampler, VK_IMAGE_LAYOUT_UNDEFINED, {} } },
+                    { "DestMip", BoundResource{ dest, VK_IMAGE_LAYOUT_GENERAL, {} } },
+                };
+
+                const std::optional<std::string> error = WriteManifestDescriptors(device, impl.BloomUpsampleSets[i], *impl.BloomIndex, impl.BloomUpsampleVariant, upEntry, upBound);
                 if (error.has_value())
                 {
                     return ColorPipeError::DescriptorSetupFailed;
@@ -589,21 +1014,69 @@ namespace color
             info.Domain = ResourceDomain::GPUOnly;
             info.Usage = BufferUsageBits::FragmentShaderSRV | BufferUsageBits::CopyDestination;
             info.Size = k_ExposureBufferBytes;
+            info.Name = "ColorPipe_ExposureBuffer";
             impl.ExposureBuffer = WaitForResource(impl.Resources->CreateBuffer(info, {}));
 
-            return impl.ExposureBuffer ? ColorPipeError::Success : ColorPipeError::ResourceCreationFailed;
+            if (!impl.ExposureBuffer)
+            {
+                return ColorPipeError::ResourceCreationFailed;
+            }
+
+            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_BUFFER, impl.ExposureBuffer.VkHandle, "ColorPipe_ExposureBuffer");
+            return ColorPipeError::Success;
         }
 
         ColorPipeError CreateTargets(ColorPipeImpl& impl, uint32_t width, uint32_t height)
         {
-            impl.Scene = WaitForResource(impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA16_Float, width, height), {}));
-            impl.Ui = WaitForResource(impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA8_UNorm, width, height), {}));
+            impl.Scene = WaitForResource(impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA16_Float, width, height, "ColorPipe_Scene", "ColorPipe_Scene_View"), {}));
+            impl.Ui = WaitForResource(impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA8_UNorm, width, height, "ColorPipe_Ui", "ColorPipe_Ui_View"), {}));
 
             if (!impl.Scene || !impl.Ui)
             {
                 DestroyTargets(impl);
 
                 return ColorPipeError::ResourceCreationFailed;
+            }
+
+            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.Scene.VkHandle, "ColorPipe_Scene");
+            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.Scene.VkViewHandle, "ColorPipe_Scene_View");
+            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.Ui.VkHandle, "ColorPipe_Ui");
+            rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.Ui.VkViewHandle, "ColorPipe_Ui_View");
+
+            for (size_t i = 0; i < k_BloomMipCount; ++i)
+            {
+                const Extent2D extent = BloomDownsampleExtent(width, height, i);
+                const std::string name = std::format("ColorPipe_BloomDownsample_{}", i);
+                const std::string viewName = std::format("ColorPipe_BloomDownsample_{}_View", i);
+                impl.BloomDownsample[i] = WaitForResource(impl.Resources->CreateImage(
+                    MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name, viewName), {}));
+
+                if (!impl.BloomDownsample[i])
+                {
+                    DestroyTargets(impl);
+                    return ColorPipeError::ResourceCreationFailed;
+                }
+
+                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.BloomDownsample[i].VkHandle, name.c_str());
+                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.BloomDownsample[i].VkViewHandle, viewName.c_str());
+            }
+
+            for (size_t i = 0; i < k_BloomMipCount - 1u; ++i)
+            {
+                const Extent2D extent = BloomDownsampleExtent(width, height, i);
+                const std::string name = std::format("ColorPipe_BloomUpsample_{}", i);
+                const std::string viewName = std::format("ColorPipe_BloomUpsample_{}_View", i);
+                impl.BloomUpsample[i] = WaitForResource(impl.Resources->CreateImage(
+                    MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name, viewName), {}));
+
+                if (!impl.BloomUpsample[i])
+                {
+                    DestroyTargets(impl);
+                    return ColorPipeError::ResourceCreationFailed;
+                }
+
+                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl.BloomUpsample[i].VkHandle, name.c_str());
+                rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl.BloomUpsample[i].VkViewHandle, viewName.c_str());
             }
 
             impl.Width = width;
@@ -625,25 +1098,55 @@ namespace color
             rhi::CommandBuffer commandBuffer(commandPool.GetCommandBuffer(0u));
             RhiAssert(commandBuffer.Begin());
 
-            // a new image has no contents to keep
-            const std::array<rhi::ImageBarrier, 2> toResting
+            std::vector<rhi::ImageBarrier> barriers;
+            barriers.reserve(3 + k_BloomMipCount + (k_BloomMipCount - 1u));
+
+            barriers.push_back(rhi::ImageBarrier
             {
-                rhi::ImageBarrier
+                rhi::ImageHandle{ impl.Scene.VkHandle },
+                rhi::PipelineStage::None, rhi::Access::None,
+                rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentRead | rhi::Access::ColorAttachmentWrite,
+                rhi::ImageLayout::Undefined, k_RestingLayout, k_ColorRange
+            });
+            barriers.push_back(rhi::ImageBarrier
+            {
+                rhi::ImageHandle{ impl.Ui.VkHandle },
+                rhi::PipelineStage::None, rhi::Access::None,
+                rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentRead | rhi::Access::ColorAttachmentWrite,
+                rhi::ImageLayout::Undefined, k_RestingLayout, k_ColorRange
+            });
+
+            barriers.push_back(rhi::ImageBarrier
+            {
+                rhi::ImageHandle{ impl.BloomUpsample[0].VkHandle },
+                rhi::PipelineStage::None, rhi::Access::None,
+                rhi::PipelineStage::FragmentShader, rhi::Access::ShaderSampledRead,
+                rhi::ImageLayout::Undefined, k_ReadLayout, k_ColorRange
+            });
+
+            for (size_t i = 0; i < k_BloomMipCount; ++i)
+            {
+                barriers.push_back(rhi::ImageBarrier
                 {
-                    rhi::ImageHandle{ impl.Scene.VkHandle },
+                    rhi::ImageHandle{ impl.BloomDownsample[i].VkHandle },
                     rhi::PipelineStage::None, rhi::Access::None,
-                    rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentRead | rhi::Access::ColorAttachmentWrite,
-                    rhi::ImageLayout::Undefined, k_RestingLayout, k_ColorRange
-                },
-                rhi::ImageBarrier
+                    rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite | rhi::Access::ShaderSampledRead,
+                    rhi::ImageLayout::Undefined, rhi::ImageLayout::General, k_ColorRange
+                });
+            }
+
+            for (size_t i = 1; i < k_BloomMipCount - 1u; ++i)
+            {
+                barriers.push_back(rhi::ImageBarrier
                 {
-                    rhi::ImageHandle{ impl.Ui.VkHandle },
+                    rhi::ImageHandle{ impl.BloomUpsample[i].VkHandle },
                     rhi::PipelineStage::None, rhi::Access::None,
-                    rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentRead | rhi::Access::ColorAttachmentWrite,
-                    rhi::ImageLayout::Undefined, k_RestingLayout, k_ColorRange
-                },
-            };
-            commandBuffer.Barrier(rhi::DependencyInfo{ {}, {}, toResting });
+                    rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite | rhi::Access::ShaderSampledRead,
+                    rhi::ImageLayout::Undefined, rhi::ImageLayout::General, k_ColorRange
+                });
+            }
+
+            commandBuffer.Barrier(rhi::DependencyInfo{ {}, {}, barriers });
             RhiAssert(commandBuffer.End());
 
             const rhi::CommandBufferHandle handle = commandBuffer.Handle();
@@ -661,6 +1164,14 @@ namespace color
         {
             DestroyResourceIfCreated(impl, impl.Scene);
             DestroyResourceIfCreated(impl, impl.Ui);
+            for (size_t i = 0; i < k_BloomMipCount; ++i)
+            {
+                DestroyResourceIfCreated(impl, impl.BloomDownsample[i]);
+            }
+            for (size_t i = 0; i < k_BloomMipCount - 1u; ++i)
+            {
+                DestroyResourceIfCreated(impl, impl.BloomUpsample[i]);
+            }
         }
 
         void DestroyResourceIfCreated(ColorPipeImpl& impl, GraphicsResource& resource)

@@ -24,6 +24,8 @@ Texture2D<float4> SceneTarget;
 // premultiplied, sRGB-encoded
 Texture2D<float4> UiTarget;
 StructuredBuffer<float> ExposureEv;
+Texture2D<float4> BloomTarget;
+SamplerState BloomSampler;
 
 public struct CompositeVaryings
 {
@@ -97,7 +99,17 @@ float4 ColorCompositeFS(CompositeVaryings input, uniform DisplayParameters Displ
     const float4 ui = UiTarget.Load(texel);
     const float exposureEv = ExposureEv[0];
 
-    const float3 exposed = scene * exp2(exposureEv);
+    float3 combinedScene = scene;
+    if (Display.BloomIntensity > 0.0)
+    {
+        uint w, h;
+        SceneTarget.GetDimensions(w, h);
+        const float2 uv = input.Position.xy / float2(w, h);
+        const float3 bloom = BloomTarget.SampleLevel(BloomSampler, uv, 0.0).rgb;
+        combinedScene = lerp(scene, bloom, Display.BloomIntensity);
+    }
+
+    const float3 exposed = combinedScene * exp2(exposureEv);
 
     TONEMAPPER tonemapper = {};
     const float3 tonemapped = tonemapper.Tonemap(exposed, Display);

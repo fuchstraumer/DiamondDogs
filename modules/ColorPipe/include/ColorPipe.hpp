@@ -36,6 +36,13 @@ namespace color
         uint32_t Height{ 0u };
     };
 
+    struct BloomSettings
+    {
+        bool Enabled{ false };
+        float Intensity{ 0.04f };
+        float Scatter{ 0.7f };
+    };
+
     struct ColorPipeCreateInfo
     {
         rhi::Device* Device{ nullptr };
@@ -80,6 +87,9 @@ namespace color
         /** @brief Sets the exposure in stops for the next RecordComposite. */
         void SetExposureEv(float exposure_ev) noexcept;
 
+        void SetBloomSettings(const BloomSettings& settings) noexcept;
+        [[nodiscard]] const BloomSettings& GetBloomSettings() const noexcept;
+
         /** @brief Selects the tonemapper of the next RecordComposite. Fails for a kind that has no program yet. */
         [[nodiscard]] ColorPipeError SetTonemapper(TonemapperKind kind) noexcept;
 
@@ -88,7 +98,7 @@ namespace color
 
         /** @brief Records the composite pass. `output_view` is in the ColorAttachment layout, has the size of the pipe,
          *  and has the format of Surface. `timers` can be null. */
-        void RecordComposite(rhi::CommandBuffer& command_buffer, rhi::ImageViewHandle output_view, rhi::GpuTimerBlock* timers);
+        void RecordComposite(rhi::CommandBuffer& command_buffer, rhi::ImageViewHandle output_view, rhi::GpuTimerBlock* timers = nullptr);
 
         /** @brief Rebuilds the targets at the extent of the swapchain, and sets its HDR metadata. The device must be idle. */
         [[nodiscard]] ColorPipeError OnSwapchainRecreated();
