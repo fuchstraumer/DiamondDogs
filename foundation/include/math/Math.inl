@@ -422,7 +422,7 @@ constexpr bool Float4x3::operator!=(const Float4x3& rhs) const noexcept
 
 constexpr Float4x3 Float4x3::Identity() noexcept
 {
-    return Float4x3();
+    return {};
 }
 
 constexpr Float4x3 Float4x3::Zero() noexcept
@@ -449,10 +449,6 @@ constexpr Float4x4::Float4x4(const Float3x3& mat3x3) noexcept
 {
 }
 
-constexpr Float4 Float4x4::Row(size_t index) const noexcept
-{
-    return Float4(m[index][0], m[index][1], m[index][2], m[index][3]);
-}
 
 constexpr void Float4x4::SetRow(size_t index, const Float4& row) noexcept
 {
@@ -464,8 +460,9 @@ constexpr void Float4x4::SetRow(size_t index, const Float4& row) noexcept
 
 constexpr Float4 Float4x4::Column(size_t index) const noexcept
 {
-    return Float4(m[0][index], m[1][index], m[2][index], m[3][index]);
+    return { m[0][index], m[1][index], m[2][index], m[3][index] };
 }
+
 
 constexpr void Float4x4::SetColumn(size_t index, const Float4& column) noexcept
 {

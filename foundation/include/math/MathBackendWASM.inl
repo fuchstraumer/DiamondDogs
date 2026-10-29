@@ -194,31 +194,67 @@ DD_MATH_FORCEINLINE Vector Vector::Identity() noexcept
     return Vector{ wasm_f32x4_splat(1.0f) };
 }
 
+DD_MATH_FORCEINLINE Vector Vector::Up() noexcept
+{
+    return Vector{ wasm_f32x4_make(0.0f, 1.0f, 0.0f, 0.0f) };
+}
+
+DD_MATH_FORCEINLINE Vector Vector::Down() noexcept
+{
+    return Vector{ wasm_f32x4_make(0.0f, -1.0f, 0.0f, 0.0f) };
+}
+
+DD_MATH_FORCEINLINE Vector Vector::Right() noexcept
+{
+    return Vector{ wasm_f32x4_make(1.0f, 0.0f, 0.0f, 0.0f) };
+}
+
+DD_MATH_FORCEINLINE Vector Vector::Left() noexcept
+{
+    return Vector{ wasm_f32x4_make(-1.0f, 0.0f, 0.0f, 0.0f) };
+}
+
+DD_MATH_FORCEINLINE Vector Vector::Forward() noexcept
+{
+    return Vector{ wasm_f32x4_make(0.0f, 0.0f, 1.0f, 0.0f) };
+}
+
+DD_MATH_FORCEINLINE Vector Vector::Backward() noexcept
+{
+    return Vector{ wasm_f32x4_make(0.0f, 0.0f, -1.0f, 0.0f) };
+}
+
 // Arithmetic operators
 DD_MATH_FORCEINLINE Vector Vector::operator+(Vector rhs) const noexcept
 {
     return Vector{ wasm_f32x4_add(data, rhs.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator-(Vector rhs) const noexcept
 {
     return Vector{ wasm_f32x4_sub(data, rhs.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator*(Vector rhs) const noexcept
 {
     return Vector{ wasm_f32x4_mul(data, rhs.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator/(Vector rhs) const noexcept
 {
     return Vector{ wasm_f32x4_div(data, rhs.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator*(float scalar) const noexcept
 {
     return Vector{ wasm_f32x4_mul(data, wasm_f32x4_splat(scalar)) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator/(float scalar) const noexcept
 {
     return Vector{ wasm_f32x4_div(data, wasm_f32x4_splat(scalar)) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator-() const noexcept
 {
     return Vector{ wasm_f32x4_neg(data) };
@@ -239,26 +275,31 @@ DD_MATH_FORCEINLINE Vector& Vector::operator+=(Vector rhs) noexcept
     data = wasm_f32x4_add(data, rhs.data);
     return *this;
 }
+
 DD_MATH_FORCEINLINE Vector& Vector::operator-=(Vector rhs) noexcept
 {
     data = wasm_f32x4_sub(data, rhs.data);
     return *this;
 }
+
 DD_MATH_FORCEINLINE Vector& Vector::operator*=(Vector rhs) noexcept
 {
     data = wasm_f32x4_mul(data, rhs.data);
     return *this;
 }
+
 DD_MATH_FORCEINLINE Vector& Vector::operator/=(Vector rhs) noexcept
 {
     data = wasm_f32x4_div(data, rhs.data);
     return *this;
 }
+
 DD_MATH_FORCEINLINE Vector& Vector::operator*=(float scalar) noexcept
 {
     data = wasm_f32x4_mul(data, wasm_f32x4_splat(scalar));
     return *this;
 }
+
 DD_MATH_FORCEINLINE Vector& Vector::operator/=(float scalar) noexcept
 {
     data = wasm_f32x4_div(data, wasm_f32x4_splat(scalar));
@@ -269,10 +310,12 @@ DD_MATH_FORCEINLINE Vector Vector::Reciprocal() const noexcept
 {
     return Vector{ wasm_f32x4_div(wasm_f32x4_splat(1.0f), data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Sqrt() const noexcept
 {
     return Vector{ wasm_f32x4_sqrt(data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::ReciprocalSqrt() const noexcept
 {
     return Vector{ wasm_f32x4_div(wasm_f32x4_splat(1.0f), wasm_f32x4_sqrt(data)) };

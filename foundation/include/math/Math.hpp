@@ -53,11 +53,14 @@
 // max, relaxed_trunc, relaxed_laneselect. Every use has a plain-SIMD #else fallback. Set by the
 // VELOX_RHI_MATH_RELAXED_SIMD CMake option, which also passes -mrelaxed-simd; the builtins do not
 // compile without it, so never define this by hand.
+
 // This does NOT degrade at runtime - a module carrying relaxed opcodes fails validation outright on an
 // engine without support. Chrome 114+, Firefox 120+, Safari 18+ are fine; older mobile is not.
 // todo-ship: runtime capability check with two compiled variants
+
 // Use analytical solutions and approximations in key locations to reduce
 // instruction count (called SHORTCUTS because there's a few diff types of opts, not just approximation)
+// On by default for now since these are (generally) safe without undue accuracy impacts
 #define DD_MATH_USE_SHORTCUTS
 
 namespace math
@@ -103,6 +106,20 @@ struct ScalarSinCos
  * to the SIMD type via ToVector/ToMatrix, and back via FromVector/FromMatrix
  * when you're done.
  *
+ * When to stay in the unoptimized storage types (Float2/3/4, Float3x3/4x3/4x4):
+ * - One off operations, like singular add/fmas or a length/dot product calculation
+ * - Highly branchy logic, where using VectorMask and running both branches isn't efficient or desirable
+ * - Repeated component-wise access: extracting scalar values from the SIMD types
+ *   is *quite* inefficient
+ *
+ * When to prefer the optimized SIMD types (Vector, Matrix):
+ * - If you're doing 3 or more vector math ops, use the SIMD types
+ * - Any kind of matrix math: extracting rows or columns is fine, but as soon
+ *   as you start doing matrix arithmetic at all... go to SIMD. Even for one matmul.
+ * - Most transcendentals are likely good candidates, as the polynomial fittings 
+ *   used in the SIMD implementations are generally well-fitted for most uses in our
+     engines, unless you're targeting somewhere where precision is of the utmost importance.
+ *
  * -----------------------------------------------------------------------
  * Removed / deferred during the WASM port (add back if/when needed):
  * -----------------------------------------------------------------------
@@ -121,7 +138,7 @@ struct ScalarSinCos
  *   already present in the original file; it's preserved here rather
  *   than silently "fixed", but it's worth deciding intentionally for a
  *   new WebGPU target rather than inheriting it by accident.
- */
+*/
 
 struct Float2
 {
@@ -319,7 +336,7 @@ public:
 
     union
     {
-        struct { float x, y, z, w; };
+        struct { float x{ 0.0f }, y{ 0.0f }, z{ 0.0f }, w{ 0.0f }; };
         struct { float r, g, b, a; };
         struct { float u, v, s, t; };
     };
@@ -342,10 +359,10 @@ public:
     VectorMask() noexcept;
 #if VX_MATH_BACKEND_WASM
     VectorMask(v128_t mask) noexcept : data{mask} {}
-    v128_t Data() const noexcept { return data; }
+    [[nodiscard]] v128_t Data() const noexcept { return data; }
 #else
     VectorMask(DirectX::XMVECTOR mask) noexcept : data{mask} {}
-    DirectX::XMVECTOR Data() const noexcept { return data; }
+    [[nodiscard]] DirectX::XMVECTOR Data() const noexcept { return data; }
 #endif
 
     VectorMask(const VectorMask& other) noexcept = default;
@@ -364,14 +381,14 @@ public:
 
     /** @brief True when every one of the first N lanes is set */
     template<int N>
-    bool AllTrue() const noexcept;
+    [[nodiscard]] bool AllTrue() const noexcept;
 
     /** @brief True when any of the first N lanes is set */
     template<int N>
-    bool AnyTrue() const noexcept;
+    [[nodiscard]] bool AnyTrue() const noexcept;
 
     /** @brief One bit per lane, lane 0 in bit 0 */
-    uint32_t LaneBits() const noexcept;
+    [[nodiscard]] uint32_t LaneBits() const noexcept;
 
     static VectorMask AllSet() noexcept;
     static VectorMask AllClear() noexcept;
@@ -425,13 +442,13 @@ public:
 #endif
 
     /** @note Accessing a single scalar value in this vector type is comparatively slow */
-    float x() const noexcept;
+    [[nodiscard]] float x() const noexcept;
     /** @note Accessing a single scalar value in this vector type is comparatively slow */
-    float y() const noexcept;
+    [[nodiscard]] float y() const noexcept;
     /** @note Accessing a single scalar value in this vector type is comparatively slow */
-    float z() const noexcept;
+    [[nodiscard]] float z() const noexcept;
     /** @note Accessing a single scalar value in this vector type is comparatively slow */
-    float w() const noexcept;
+    [[nodiscard]] float w() const noexcept;
 
     // Arithmetic operators
     Vector operator+(Vector rhs) const noexcept;
@@ -442,9 +459,8 @@ public:
     Vector operator/(float scalar) const noexcept;
     Vector operator-() const noexcept;
 
-    // Gated on VX_MATH_RELAXED_SIMD (see top of file); always available, the
-    // define only changes which instruction it lowers to on the WASM backend.
-    Vector MultiplyAdd(Vector factor, Vector addend) const noexcept;
+    // on WebAssembly, this only lowers to a true fused FMA instruction if VX_MATH_RELAXED_SIMD is defined :'(
+    [[nodiscard]] Vector MultiplyAdd(Vector factor, Vector addend) const noexcept;
 
     // Compound assignment operators
     Vector& operator+=(Vector rhs) noexcept;
@@ -454,84 +470,84 @@ public:
     Vector& operator*=(float scalar) noexcept;
     Vector& operator/=(float scalar) noexcept;
 
-    Vector Reciprocal() const noexcept;
-    Vector Sqrt() const noexcept;
-    Vector ReciprocalSqrt() const noexcept;
+    [[nodiscard]] Vector Reciprocal() const noexcept;
+    [[nodiscard]] Vector Sqrt() const noexcept;
+    [[nodiscard]] Vector ReciprocalSqrt() const noexcept;
 
     template<int N>
-    Vector Normalize() const noexcept;
+    [[nodiscard]] Vector Normalize() const noexcept;
 
     template<int N>
-    float Length() const noexcept;
+    [[nodiscard]] float Length() const noexcept;
 
     template<int N>
-    float LengthSq() const noexcept;
+    [[nodiscard]] float LengthSq() const noexcept;
 
-    Vector Cross(Vector other) const noexcept;
+    [[nodiscard]] Vector Cross(Vector other) const noexcept;
 
     template<int N>
-    Vector DotVec(Vector other) const noexcept;
+    [[nodiscard]] Vector DotVec(Vector other) const noexcept;
     
     // Scalar dot product will involve at least one extra instruction. Favor vector returning Dot<N>
     template<int N>
-    float Dot(Vector other) const noexcept;
+    [[nodiscard]] float Dot(Vector other) const noexcept;
 
-    Vector Lerp(Vector target, float t) const noexcept;
+    [[nodiscard]] Vector Lerp(Vector target, float t) const noexcept;
 
     template<int N>
-    Vector Reflect(Vector normal) const noexcept;
+    [[nodiscard]] Vector Reflect(Vector normal) const noexcept;
 
-    Vector Clamp(Vector min, Vector max) const noexcept;
-    Vector Saturate() const noexcept;
-    Vector Abs() const noexcept;
-    Vector Min(Vector other) const noexcept;
-    Vector Max(Vector other) const noexcept;
-    Vector Pow(float exponent) const noexcept;
-    Vector Pow(Vector exponent) const noexcept;
+    [[nodiscard]] Vector Clamp(Vector min, Vector max) const noexcept;
+    [[nodiscard]] Vector Saturate() const noexcept;
+    [[nodiscard]] Vector Abs() const noexcept;
+    [[nodiscard]] Vector Min(Vector other) const noexcept;
+    [[nodiscard]] Vector Max(Vector other) const noexcept;
+    [[nodiscard]] Vector Pow(float exponent) const noexcept;
+    [[nodiscard]] Vector Pow(Vector exponent) const noexcept;
 
     // NaN operands compare false everywhere except CompareNotEqual
-    VectorMask CompareEqual(Vector other) const noexcept;
-    VectorMask CompareNotEqual(Vector other) const noexcept;
-    VectorMask CompareLess(Vector other) const noexcept;
-    VectorMask CompareLessOrEqual(Vector other) const noexcept;
-    VectorMask CompareGreater(Vector other) const noexcept;
-    VectorMask CompareGreaterOrEqual(Vector other) const noexcept;
-    VectorMask CompareNearEqual(Vector other, Vector epsilon) const noexcept;
-    VectorMask IsNaN() const noexcept;
-    VectorMask IsInfinite() const noexcept;
+    [[nodiscard]] VectorMask CompareEqual(Vector other) const noexcept;
+    [[nodiscard]] VectorMask CompareNotEqual(Vector other) const noexcept;
+    [[nodiscard]] VectorMask CompareLess(Vector other) const noexcept;
+    [[nodiscard]] VectorMask CompareLessOrEqual(Vector other) const noexcept;
+    [[nodiscard]] VectorMask CompareGreater(Vector other) const noexcept;
+    [[nodiscard]] VectorMask CompareGreaterOrEqual(Vector other) const noexcept;
+    [[nodiscard]] VectorMask CompareNearEqual(Vector other, Vector epsilon) const noexcept;
+    [[nodiscard]] VectorMask IsNaN() const noexcept;
+    [[nodiscard]] VectorMask IsInfinite() const noexcept;
 
     // Lanes as raw bit patterns, for exponent and sign work. To combine predicates, use VectorMask
-    Vector AndInt(Vector other) const noexcept;
-    Vector AndNotInt(Vector other) const noexcept;
-    Vector OrInt(Vector other) const noexcept;
-    Vector XorInt(Vector other) const noexcept;
-    Vector NorInt(Vector other) const noexcept;
+    [[nodiscard]] Vector AndInt(Vector other) const noexcept;
+    [[nodiscard]] Vector AndNotInt(Vector other) const noexcept;
+    [[nodiscard]] Vector OrInt(Vector other) const noexcept;
+    [[nodiscard]] Vector XorInt(Vector other) const noexcept;
+    [[nodiscard]] Vector NorInt(Vector other) const noexcept;
 
     // Round is to-nearest-even, matching both backends' native instruction
-    Vector Round() const noexcept;
-    Vector Truncate() const noexcept;
-    Vector Floor() const noexcept;
-    Vector Ceil() const noexcept;
+    [[nodiscard]] Vector Round() const noexcept;
+    [[nodiscard]] Vector Truncate() const noexcept;
+    [[nodiscard]] Vector Floor() const noexcept;
+    [[nodiscard]] Vector Ceil() const noexcept;
     /** @brief Remainder of this / divisor, truncated toward zero, so the sign follows the dividend */
-    Vector Mod(Vector divisor) const noexcept;
+    [[nodiscard]] Vector Mod(Vector divisor) const noexcept;
     /** @brief Wraps each lane into [-pi, pi] */
-    Vector ModAngles() const noexcept;
+    [[nodiscard]] Vector ModAngles() const noexcept;
 
-    Vector SplatX() const noexcept;
-    Vector SplatY() const noexcept;
-    Vector SplatZ() const noexcept;
-    Vector SplatW() const noexcept;
+    [[nodiscard]] Vector SplatX() const noexcept;
+    [[nodiscard]] Vector SplatY() const noexcept;
+    [[nodiscard]] Vector SplatZ() const noexcept;
+    [[nodiscard]] Vector SplatW() const noexcept;
     /** @brief (this.x, other.x, this.y, other.y) */
-    Vector MergeXY(Vector other) const noexcept;
+    [[nodiscard]] Vector MergeXY(Vector other) const noexcept;
     /** @brief (this.z, other.z, this.w, other.w) */
-    Vector MergeZW(Vector other) const noexcept;
+    [[nodiscard]] Vector MergeZW(Vector other) const noexcept;
 
     // Lane indices 0-3 for X-W
     template<int X, int Y, int Z, int W>
-    Vector Swizzle() const noexcept;
+    [[nodiscard]] Vector Swizzle() const noexcept;
     // As above, but 4-7 index `other`
     template<int X, int Y, int Z, int W>
-    Vector Permute(Vector other) const noexcept;
+    [[nodiscard]] Vector Permute(Vector other) const noexcept;
 
     // Every error figure below is the *measured* worst case from the accuracy sweeps in
     // tests/unit_tests/MathTests.cpp, taken as the worse of the two backends. Nothing here is
@@ -544,62 +560,62 @@ public:
      * @note That bound is DirectXMath's ~1.0e-5; the WASM series measures ~1.9e-7. The tighter figure
      * exists only on the web target.
      */
-    Vector Exp2() const noexcept;
+    [[nodiscard]] Vector Exp2() const noexcept;
     /** @brief Relative error under 1e-4. Falls back to Exp2 on DirectXMath */
-    Vector Exp2Est() const noexcept;
+    [[nodiscard]] Vector Exp2Est() const noexcept;
     /** @brief Absolute error under 2e-6. Negative input yields NaN, zero yields -infinity */
-    Vector Log2() const noexcept;
+    [[nodiscard]] Vector Log2() const noexcept;
     /** @brief Absolute error under 1e-5 */
-    Vector Log2Est() const noexcept;
+    [[nodiscard]] Vector Log2Est() const noexcept;
 
     /** @brief Prefer this over separate Sin/Cos - they share a range reduction */
-    SinCosResult SinCos() const noexcept;
-    SinCosResult SinCosEst() const noexcept;
+    [[nodiscard]] SinCosResult SinCos() const noexcept;
+    [[nodiscard]] SinCosResult SinCosEst() const noexcept;
     /** @brief Absolute error under 3e-7 within one period, 5e-6 out to +-40 radians */
-    Vector Sin() const noexcept;
+    [[nodiscard]] Vector Sin() const noexcept;
     /** @brief Absolute error under 3e-7 within one period, 5e-6 out to +-40 radians */
-    Vector Cos() const noexcept;
+    [[nodiscard]] Vector Cos() const noexcept;
     /** @brief Absolute error under 2e-5 */
-    Vector SinEst() const noexcept;
+    [[nodiscard]] Vector SinEst() const noexcept;
     /** @brief Absolute error under 2e-5 */
-    Vector CosEst() const noexcept;
+    [[nodiscard]] Vector CosEst() const noexcept;
 
     /** @brief Sin/Cos, so accuracy degrades near the poles at odd multiples of pi/2 */
-    Vector Tan() const noexcept;
-    Vector TanEst() const noexcept;
+    [[nodiscard]] Vector Tan() const noexcept;
+    [[nodiscard]] Vector TanEst() const noexcept;
 
     /** @brief Input outside [-1, 1] yields NaN. Absolute error under 1e-5 */
-    Vector ASin() const noexcept;
+    [[nodiscard]] Vector ASin() const noexcept;
     /** @brief Input outside [-1, 1] yields NaN. Absolute error under 1e-5 */
-    Vector ACos() const noexcept;
+    [[nodiscard]] Vector ACos() const noexcept;
     /** @brief Result in [-pi/2, pi/2]. Absolute error under 1e-6 */
-    Vector ATan() const noexcept;
+    [[nodiscard]] Vector ATan() const noexcept;
 
     /** @brief Absolute error under 1e-5; saturates to +-1 rather than overflowing */
-    Vector TanH() const noexcept;
+    [[nodiscard]] Vector TanH() const noexcept;
     /** @brief Overflows to infinity past |x| ~= 89.
      *  @note A difference of two exponentials, so relative error is poor near zero where sinh(x) -> x
      *  and the two terms cancel. Absolute error stays under 2e-4. */
-    Vector SinH() const noexcept;
+    [[nodiscard]] Vector SinH() const noexcept;
     /** @brief Overflows to infinity past |x| ~= 89 */
-    Vector CosH() const noexcept;
+    [[nodiscard]] Vector CosH() const noexcept;
 
     // Est forms of the reciprocals. Backend-dependent accuracy, and more so than the polynomial
     // approximations: DirectXMath has hardware rcp/rsqrt, wasm has neither. On wasm, reciprocal and
     // square root are already single instructions, so only ReciprocalSqrtEst actually approximates -
     // via a seeded Newton-Raphson step, landing near 2e-3 against DirectXMath's ~4e-4.
-    Vector ReciprocalEst() const noexcept;
-    Vector ReciprocalSqrtEst() const noexcept;
-    Vector SqrtEst() const noexcept;
+    [[nodiscard]] Vector ReciprocalEst() const noexcept;
+    [[nodiscard]] Vector ReciprocalSqrtEst() const noexcept;
+    [[nodiscard]] Vector SqrtEst() const noexcept;
 
     template<int N>
-    Vector NormalizeEst() const noexcept;
+    [[nodiscard]] Vector NormalizeEst() const noexcept;
 
     template<int N>
-    float LengthEst() const noexcept;
+    [[nodiscard]] float LengthEst() const noexcept;
 
     template<int N>
-    float ReciprocalLengthEst() const noexcept;
+    [[nodiscard]] float ReciprocalLengthEst() const noexcept;
 
     static Vector Replicate(float scalar) noexcept;
     static Vector Zero() noexcept;
@@ -619,6 +635,14 @@ public:
     static Vector Infinity() noexcept;
     static Vector QuietNaN() noexcept;
     static Vector Epsilon() noexcept;
+    
+    // RH coordinate system basis vectors, assuming a right-handed system with Y up and Z forward
+    static Vector Up() noexcept;
+    static Vector Down() noexcept;
+    static Vector Right() noexcept;
+    static Vector Left() noexcept;
+    static Vector Forward() noexcept;
+    static Vector Backward() noexcept;
 
 private:
 #if VX_MATH_BACKEND_WASM
@@ -634,8 +658,8 @@ private:
  */
 struct SinCosResult
 {
-    Vector sin;
-    Vector cos;
+    Vector Sin;
+    Vector Cos;
 };
 
 /**
@@ -659,10 +683,10 @@ public:
 
 #if VX_MATH_BACKEND_WASM
     explicit Quaternion(v128_t vec) noexcept : data{vec} {}
-    v128_t Data() const noexcept { return data; }
+    [[nodiscard]] v128_t Data() const noexcept { return data; }
 #else
     explicit Quaternion(DirectX::XMVECTOR vec) noexcept : data{vec} {}
-    DirectX::XMVECTOR Data() const noexcept { return data; }
+    [[nodiscard]] DirectX::XMVECTOR Data() const noexcept { return data; }
 #endif
 
     Quaternion(const Quaternion& other) noexcept = default;
@@ -673,14 +697,14 @@ public:
     /** @brief Implicit, so a Quaternion can be stored or passed to Vector-taking interop */
     operator Vector() const noexcept;
 
-    /** @note Accessing a single scalar value in this type is comparatively slow */
-    float x() const noexcept;
-    /** @note Accessing a single scalar value in this type is comparatively slow */
-    float y() const noexcept;
-    /** @note Accessing a single scalar value in this type is comparatively slow */
-    float z() const noexcept;
-    /** @note Accessing a single scalar value in this type is comparatively slow */
-    float w() const noexcept;
+    /** Accessing a single scalar value in this type is comparatively slow */
+    [[nodiscard]] float x() const noexcept;
+    /** Accessing a single scalar value in this type is comparatively slow */
+    [[nodiscard]] float y() const noexcept;
+    /** Accessing a single scalar value in this type is comparatively slow */
+    [[nodiscard]] float z() const noexcept;
+    /** Accessing a single scalar value in this type is comparatively slow */
+    [[nodiscard]] float w() const noexcept;
 
     /**
      * @brief Composition. **This rotation applies first, then `second`.**
@@ -689,26 +713,26 @@ public:
      * reads. Named rather than operator* so the order has somewhere to live: backwards, it yields
      * rotations that look fine alone and only go wrong once they compose.
      */
-    Quaternion Multiply(Quaternion second) const noexcept;
+    [[nodiscard]] Quaternion Multiply(Quaternion second) const noexcept;
 
     /** @brief Negates the vector part; for a unit quaternion this is also the inverse */
-    Quaternion Conjugate() const noexcept;
+    [[nodiscard]] Quaternion Conjugate() const noexcept;
     /** @brief Conjugate over squared length, so correct for non-unit quaternions too */
-    Quaternion Inverse() const noexcept;
-    Quaternion Normalize() const noexcept;
+    [[nodiscard]] Quaternion Inverse() const noexcept;
+    [[nodiscard]] Quaternion Normalize() const noexcept;
 
-    float Dot(Quaternion other) const noexcept;
-    float Length() const noexcept;
-    float LengthSq() const noexcept;
+    [[nodiscard]] float Dot(Quaternion other) const noexcept;
+    [[nodiscard]] float Length() const noexcept;
+    [[nodiscard]] float LengthSq() const noexcept;
 
-    bool IsIdentity() const noexcept;
+    [[nodiscard]] bool IsIdentity() const noexcept;
 
     /** @brief 3-vector only: input w ignored, output w zero. Cheaper, but *not* a 4D rotation - for
      *  that, multiply by Matrix::RotationQuaternion(*this) instead. */
-    Vector RotateVector(Vector vec) const noexcept;
+    [[nodiscard]] Vector RotateVector(Vector vec) const noexcept;
 
     /** @brief Equivalent to Matrix::RotationQuaternion(*this) */
-    Matrix ToMatrix() const noexcept;
+    [[nodiscard]] Matrix ToMatrix() const noexcept;
 
     /** @brief Axis has magnitude sin(angle/2) and w == 0; normalize if you need it unit.
      *  @note Partly scalar, so comparatively slow. Use sparingly. */
@@ -794,10 +818,7 @@ public:
         return self.m[row][col];
     }
 
-    constexpr Float3 Row(size_t index) const noexcept;
     constexpr void SetRow(size_t index, const Float3& row) noexcept;
-
-    constexpr Float3 Column(size_t index) const noexcept;
     constexpr void SetColumn(size_t index, const Float3& column) noexcept;
 
     template <class Self>
@@ -812,6 +833,84 @@ public:
     // Static factory methods
     static constexpr Float3x3 Identity() noexcept;
     static constexpr Float3x3 Zero() noexcept;
+
+    struct RowProxy
+    {
+        const Float3x3& Matrix;
+        size_t RowIdx;
+
+        [[nodiscard]] constexpr operator Float2() const noexcept
+        {
+            return Float2{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1] };
+        }
+
+        [[nodiscard]] constexpr operator Float3() const noexcept
+        {
+            return Float3{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1], Matrix.m[RowIdx][2] };
+        }
+
+        [[nodiscard]] constexpr operator Float4() const noexcept
+        {
+            return Float4{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1], Matrix.m[RowIdx][2], 0.0f };
+        }
+
+        [[nodiscard]] constexpr operator Vector() const noexcept
+        {
+            return Vector{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1], Matrix.m[RowIdx][2], 0.0f };
+        }
+    };
+
+    // Note: does *not* work with auto type deduction directly, because the return type
+    // is a proxy type, and C++ cannot deduce the return type of a proxy like this automatically
+    [[nodiscard]] constexpr RowProxy Row(size_t index) const noexcept
+    {
+        return RowProxy{ *this, index };
+    }
+
+    // `GetRow()` uses explicit templating to allow compatability with auto, or if 
+    // users just prefer to explicitly specify the return type.
+    template<typename T>
+    [[nodiscard]] constexpr T GetRow(size_t idx) const noexcept
+    {
+        return Row(idx);
+    }
+
+    struct ColumnProxy
+    {
+        const Float3x3& Matrix;
+        size_t ColIdx;
+
+        [[nodiscard]] constexpr operator Float2() const noexcept
+        {
+            return Float2{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx] };
+        }
+
+        [[nodiscard]] constexpr operator Float3() const noexcept
+        {
+            return Float3{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx], Matrix.m[2][ColIdx] };
+        }
+
+        [[nodiscard]] constexpr operator Float4() const noexcept
+        {
+            return Float4{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx], Matrix.m[2][ColIdx], 0.0f };
+        }
+
+        [[nodiscard]] constexpr operator Vector() const noexcept
+        {
+            return Vector{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx], Matrix.m[2][ColIdx], 0.0f };
+        }
+    };
+
+    [[nodiscard]] constexpr ColumnProxy Column(size_t index) const noexcept
+    {
+        return ColumnProxy{ *this, index };
+    }
+
+    template<typename T>
+    [[nodiscard]] constexpr T GetColumn(size_t idx) const noexcept
+    {
+        return Column(idx);
+    }
 
 private:
     float m[3][3];
@@ -867,10 +966,7 @@ public:
         return self.m[row][col];
     }
 
-    constexpr Float3 Row(size_t index) const noexcept;
     constexpr void SetRow(size_t index, const Float3& row) noexcept;
-
-    constexpr Float4 Column(size_t index) const noexcept;
     constexpr void SetColumn(size_t index, const Float4& column) noexcept;
 
     template <class Self>
@@ -884,6 +980,81 @@ public:
 
     static constexpr Float4x3 Identity() noexcept;
     static constexpr Float4x3 Zero() noexcept;
+
+    struct RowProxy
+    {
+        const Float4x3& Matrix;
+        size_t RowIdx{ 0u };
+
+        [[nodiscard]] constexpr operator Float2() const noexcept
+        {
+            return Float2{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1] };
+        }
+
+        [[nodiscard]] constexpr operator Float3() const noexcept
+        {
+            return Float3{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1], Matrix.m[RowIdx][2] };
+        }
+
+        [[nodiscard]] constexpr operator Float4() const noexcept
+        {
+            return Float4{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1], Matrix.m[RowIdx][2], 0.0f };
+        }
+
+        [[nodiscard]] constexpr operator Vector() const noexcept
+        {
+            return Vector{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1], Matrix.m[RowIdx][2], 0.0f };
+        }
+
+    };
+
+    [[nodiscard]] constexpr RowProxy Row(size_t index) const noexcept
+    {
+        return RowProxy{ *this, index };
+    }
+
+    template<typename T>
+    [[nodiscard]] constexpr T GetRow(size_t index) const noexcept
+    {
+        return Row(index);
+    }
+
+    struct ColumnProxy
+    {
+        const Float4x3& Matrix;
+        size_t ColIdx{ 0u };
+
+        [[nodiscard]] constexpr operator Float2() const noexcept
+        {
+            return Float2{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx] };
+        }
+
+        [[nodiscard]] constexpr operator Float3() const noexcept
+        {
+            return Float3{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx], Matrix.m[2][ColIdx] };
+        }
+
+        [[nodiscard]] constexpr operator Float4() const noexcept
+        {
+            return Float4{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx], Matrix.m[2][ColIdx], Matrix.m[3][ColIdx] };
+        }
+        
+        [[nodiscard]] constexpr operator Vector() const noexcept
+        {
+            return Vector{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx], Matrix.m[2][ColIdx], Matrix.m[3][ColIdx] };
+        }
+    };
+
+    [[nodiscard]] constexpr ColumnProxy Column(size_t index) const noexcept
+    {
+        return ColumnProxy{ *this, index };
+    }
+
+    template<typename T>
+    [[nodiscard]] constexpr T GetColumn(size_t index) const noexcept
+    {
+        return Column(index);
+    }
 
 private:
     float m[4][3];
@@ -967,10 +1138,9 @@ public:
         };
     }
 
-    constexpr Float4 Row(size_t index) const noexcept;
     constexpr void SetRow(size_t index, const Float4& row) noexcept;
 
-    constexpr Float4 Column(size_t index) const noexcept;
+    [[nodiscard]] constexpr Float4 Column(size_t index) const noexcept;
     constexpr void SetColumn(size_t index, const Float4& column) noexcept;
 
     template <class Self>
@@ -984,6 +1154,81 @@ public:
 
     static constexpr Float4x4 Identity() noexcept;
     static constexpr Float4x4 Zero() noexcept;
+
+    struct RowProxy
+    {
+        const Float4x4& Matrix;
+        size_t RowIdx{ 0u };
+        // defined later after complete Vector definition
+        [[nodiscard]] constexpr operator Vector() const noexcept
+        {
+            return Vector{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1], Matrix.m[RowIdx][2], Matrix.m[RowIdx][3] };
+        }
+
+        [[nodiscard]] constexpr operator Float2() const noexcept
+        {
+            return Float2{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1] };
+        }
+
+        [[nodiscard]] constexpr operator Float3() const noexcept
+        {
+            return Float3{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1], Matrix.m[RowIdx][2] };
+        }
+
+        [[nodiscard]] constexpr operator Float4() const noexcept
+        {
+            return Float4{ Matrix.m[RowIdx][0], Matrix.m[RowIdx][1], Matrix.m[RowIdx][2], Matrix.m[RowIdx][3] };
+        }
+
+    };
+
+    [[nodiscard]] constexpr RowProxy Row(size_t index) const noexcept
+    {
+        return RowProxy{ *this, index };
+    }
+
+    template<typename T>
+    [[nodiscard]] constexpr T GetRow(size_t idx) const noexcept
+    {
+        return Row(idx);
+    }
+
+    struct ColumnProxy
+    {
+        const Float4x4& Matrix;
+        size_t ColIdx{ 0u };
+
+        [[nodiscard]] constexpr operator Float2() const noexcept
+        {
+            return Float2{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx] };
+        }
+
+        [[nodiscard]] constexpr operator Float3() const noexcept
+        {
+            return Float3{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx], Matrix.m[2][ColIdx] };
+        }
+
+        [[nodiscard]] constexpr operator Float4() const noexcept
+        {
+            return Float4{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx], Matrix.m[2][ColIdx], Matrix.m[3][ColIdx] };
+        }
+
+        [[nodiscard]] constexpr operator Vector() const noexcept
+        {
+            return Vector{ Matrix.m[0][ColIdx], Matrix.m[1][ColIdx], Matrix.m[2][ColIdx], Matrix.m[3][ColIdx] };
+        }
+    };
+
+    [[nodiscard]] constexpr ColumnProxy Column(size_t index) const noexcept
+    {
+        return ColumnProxy{ *this, index };
+    }
+
+    template<typename T>
+    [[nodiscard]] constexpr T GetColumn(size_t idx) const noexcept
+    {
+        return Column(idx);
+    }
 
 private:
     float m[4][4];
@@ -1037,11 +1282,11 @@ public:
 #endif
 
     // Row access
-    Vector GetRow(size_t index) const noexcept;
+    [[nodiscard]] Vector GetRow(size_t index) const noexcept;
     void SetRow(size_t index, Vector row) noexcept;
 
     // Column access
-    Vector GetColumn(size_t index) const noexcept;
+    [[nodiscard]] Vector GetColumn(size_t index) const noexcept;
     void SetColumn(size_t index, Vector column) noexcept;
 
     // Element access. Read-only: SIMD lanes aren't addressable as float&,

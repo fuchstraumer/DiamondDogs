@@ -9,12 +9,10 @@
 class ArcballCamera
 {
 public:
-    using Vector3 = math::Float3;
-    using Matrix4 = math::Float4x4;
 
     struct State
     {
-        Vector3 Target{ 0.0f, 0.0f, 0.0f };
+        math::Float3 Target{ 0.0f, 0.0f, 0.0f };
         float Yaw{ 0.6f };      // radians around +y, 0 looks along -z
         float Pitch{ 0.35f };   // radians above the horizon
         float Distance{ 120.0f };
@@ -33,13 +31,13 @@ public:
     /** @brief Positive steps move closer. */
     void Zoom(float wheel_steps) noexcept;
 
-    [[nodiscard]] Vector3 Position() const noexcept;
-    [[nodiscard]] Matrix4 View() const noexcept;
-    [[nodiscard]] Matrix4 ViewRotationOnly() const noexcept;
+    [[nodiscard]] math::Float3 Position() const noexcept;
+    [[nodiscard]] math::Float4x4 View() const noexcept;
+    [[nodiscard]] math::Float4x4 ViewRotationOnly() const noexcept;
     /** @brief Vulkan clip space Reverse-Z [1, 0]: y down, depth 1 at the near plane and 0 at the far plane. */
-    [[nodiscard]] Matrix4 Projection(float aspect) const noexcept;
-    [[nodiscard]] Matrix4 ViewProjection(float aspect) const noexcept;
-    [[nodiscard]] Matrix4 ViewRotationProjection(float aspect) const noexcept;
+    [[nodiscard]] math::Float4x4 Projection(float aspect) const noexcept;
+    [[nodiscard]] math::Float4x4 ViewProjection(float aspect) const noexcept;
+    [[nodiscard]] math::Float4x4 ViewRotationProjection(float aspect) const noexcept;
 };
 
 #endif //!DIAMOND_DOGS_OCEAN_ARCBALL_CAMERA_HPP

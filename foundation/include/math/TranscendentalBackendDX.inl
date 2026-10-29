@@ -1,4 +1,5 @@
 #pragma once
+#include "math/Math.hpp"
 // DirectXMath transcendentals for math::Vector. Included from MathBackendDX.inl; include nothing.
 //
 // Forwarding: DirectXMath already handles the edge cases the WASM side spells out by hand. Results do
