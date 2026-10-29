@@ -25,3 +25,9 @@ MaxVariants = 8
 
 [OceanEnvironment.targets.spirv]
 MaxVariants = 1
+
+[OceanAtmosphere.targets.spirv]
+MaxVariants = 1
+
+[OceanDeferred.targets.spirv]
+MaxVariants = 1

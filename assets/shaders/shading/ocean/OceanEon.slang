@@ -21,9 +21,7 @@ internal float FastAcosPositive(float x)
 [ForceInline]
 internal float FastAcos(float x)
 {
-    const float ax = saturate(abs(x));
-    const float res = sqrt(1.0f - ax) * (1.5707963f + ax * (-0.2145988f + ax * (0.0889789f - 0.0501743f * ax)));
-    return x < 0.0f ? (EON_PI - res) : res;
+    return acos(clamp(x, -1.0f, 1.0f));
 }
 
 internal float EvaluateFonSingleDirectionalAlbedo(float mu, float r, float Af, float Bf)

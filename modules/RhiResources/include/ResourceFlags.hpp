@@ -152,6 +152,7 @@ enum class BufferUsageBits : uint64_t
     StorageBuffer = AllShaderSRV | AllShaderUAV,
     IndexBuffer = VertexOrIndex,
     TransferDst = CopyDestination,
+    TransferSrc = CopySource,
     IndirectBuffer = AllIndirect,
 
     // Collected flags for pipeline stages

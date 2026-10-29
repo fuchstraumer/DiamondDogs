@@ -4,6 +4,7 @@
 #include "ArcballCamera.hpp"
 #include "ColorPipe.hpp"
 #include "FoamMaterial.hpp"
+#include "OceanAtmosphere.hpp"
 #include "OceanCdlod.hpp"
 #include "OceanEnvironment.hpp"
 #include "SeabedMaterial.hpp"
@@ -114,6 +115,10 @@ private:
     };
 
     void createRenderPrograms();
+    void createDeferredPrograms();
+    void setupDeferredDescriptors();
+    void updateDeferredDescriptors();
+    void recordDeferredPipeline(rhi::CommandBuffer& cmd, rhi::GpuTimerBlock& timerBlock, const math::Float2& extent, float aspect, const ArcballCamera::Vector3& cameraPosition);
     void createRenderTargets();
     void destroyRenderTargets();
     void updateCamera();
@@ -271,6 +276,60 @@ private:
     color::TonemapperKind tonemapper{ color::TonemapperKind::AgX };
     float exposureEv{ 0.0f };
     color::BloomSettings bloomSettings{ .Enabled = true, .Intensity = 0.04f, .Scatter = 0.7f };
+
+    // Bruneton Atmosphere (Phase 4B)
+    std::unique_ptr<ocean::OceanAtmosphere> atmosphere;
+    bool useBrunetonAtmosphere{ false };
+    bool atmosphereSettingsChanged{ false };
+
+    // Deferred & Temporal Path (Phases 4C & 4D)
+    bool useDeferredPath{ false };
+    bool useSpecularAa{ true };
+    float specularAaStrength{ 1.0f };
+    bool useTaa{ true };
+    float taaBlendAlpha{ 0.1f };
+    float ssrIntensity{ 1.0f };
+    bool useAutoExposure{ true };
+    float autoExposureSpeed{ 1.0f };
+    uint32_t historyPingPong{ 0u };
+    bool taaHistoryInitialized{ false };
+
+    // Temporal tracking
+    ArcballCamera::Matrix4 prevViewProj{};
+    std::array<float, 2> jitterOffsetNdc{ 0.0f, 0.0f };
+    std::array<float, 2> prevJitterOffsetNdc{ 0.0f, 0.0f };
+
+    // Deferred Programs & Descriptors
+    DrawProgram surfaceGBuffer;
+    std::unique_ptr<rhi::ManifestProgram> specularAaProgram;
+    std::unique_ptr<rhi::ManifestProgram> hiZProgram;
+    std::unique_ptr<rhi::ManifestProgram> deferredLightingProgram;
+    std::unique_ptr<rhi::ManifestProgram> taaResolveProgram;
+    std::unique_ptr<rhi::ManifestProgram> autoExposureProgram;
+
+    VkDescriptorPool deferredDescriptorPool{ VK_NULL_HANDLE };
+    std::vector<VkDescriptorSet> specularAaSets;
+    VkDescriptorSet hiZSet{ VK_NULL_HANDLE };
+    std::vector<std::array<VkDescriptorSet, 2>> deferredLightingSets;
+    std::vector<std::array<VkDescriptorSet, 2>> taaResolveSets;
+    VkDescriptorSet autoExposureSet{ VK_NULL_HANDLE };
+
+    // Deferred Render Targets & Resources
+    GraphicsResource gbufferNormalSigma;
+    GraphicsResource gbufferNormalSigmaFiltered;
+    GraphicsResource gbufferFoamSss;
+    GraphicsResource gbufferMotionFoam;
+    GraphicsResource seabedColorImage;
+    GraphicsResource seabedDepthImage;
+    GraphicsResource oceanDepthImage;
+    GraphicsResource hdrLightingImage;
+    std::array<GraphicsResource, 2> taaHistoryImages;
+    GraphicsResource hiZImage;
+    GraphicsResource linearClampSampler;
+    GraphicsResource pointClampSampler;
+    GraphicsResource exposureStateBuffer;
+    GraphicsResource atmoParamsBuffer;
+    void* atmoParamsPointer{ nullptr };
 };
 
 #endif //!DIAMOND_DOGS_OCEAN_SCENE_HPP

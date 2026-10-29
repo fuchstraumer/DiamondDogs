@@ -1,6 +1,16 @@
+#include "ImageDataFormats.hpp"
+#include "ResourceContext.hpp"
 #include "ResourceContextFixture.hpp"
+#include "ResourceFlags.hpp"
+#include "ResourceMessageReply.hpp"
+#include "ResourceTypes.hpp"
 #include <array>
+#include <cstdint>
 #include <cstring>
+#include <gtest/gtest.h>
+#include <memory>
+#include <span>
+#include <vector>
 
 namespace
 {
@@ -128,9 +138,7 @@ TEST_F(ResourceContextTest, NamedBufferKeepsItsName)
 {
     BufferCreateInfo info = DeviceLocalStorageBuffer(64u);
     info.Flags = ResourceCreationFlags::UserDataAsNameString;
-    // the name is copied while the message is processed, so a temporary is enough
-    std::string name = "NamedBufferKeepsItsName";
-    info.UserData = name.data();
+    info.Name = "NamedBufferKeepsItsName";
     const GraphicsResource buffer = CreateBufferAndWait(info, {});
     EXPECT_TRUE(static_cast<bool>(buffer));
 }

@@ -11,8 +11,8 @@ bool NodeSubdivides(float2 minXz, float scale, uint level)
     {
         return false;
     }
-    const float2 clampedCam = clamp(QuadtreeParams.CameraPosition.xz, minXz, minXz + scale);
-    const float distanceToNode = length(QuadtreeParams.CameraPosition.xz - clampedCam);
+    const float3 nodeCenter3D = float3(minXz.x + 0.5f * scale, 0.0f, minXz.y + 0.5f * scale);
+    const float distanceToNode = max(0.0f, length(QuadtreeParams.CameraPosition.xyz - nodeCenter3D) - 0.70710678f * scale);
     const float lodRange = scale * QuadtreeParams.LodDistanceScale;
     return distanceToNode < lodRange;
 }
@@ -40,8 +40,13 @@ void QuadtreeUpdateCS(
     const float2 minXz = rootOrigin + float2(pos.xy) * nodeScale;
     const float2 maxXz = minXz + nodeScale;
 
-    const float3 minPoint = float3(minXz.x, -QuadtreeParams.MaxWaveHeight, minXz.y);
-    const float3 maxPoint = float3(maxXz.x, +QuadtreeParams.MaxWaveHeight, maxXz.y);
+    const float2 nearXz = clamp(QuadtreeParams.CameraPosition.xz, minXz, maxXz) - QuadtreeParams.CameraPosition.xz;
+    const float2 farXz = max(abs(minXz - QuadtreeParams.CameraPosition.xz), abs(maxXz - QuadtreeParams.CameraPosition.xz));
+    const float earthRadius = 6371000.0f;
+    const float minCurveDrop = -0.5f * dot(farXz, farXz) / earthRadius;
+    const float maxCurveDrop = -0.5f * dot(nearXz, nearXz) / earthRadius;
+    const float3 minPoint = float3(minXz.x, minCurveDrop - QuadtreeParams.MaxWaveHeight, minXz.y);
+    const float3 maxPoint = float3(maxXz.x, maxCurveDrop + QuadtreeParams.MaxWaveHeight, maxXz.y);
 
     bool culled = false;
     [unroll]
@@ -106,7 +111,7 @@ void QuadtreeUpdateCS(
             const float lodRange = nodeScale * QuadtreeParams.LodDistanceScale;
             const float parentLodRange = parentScale * QuadtreeParams.LodDistanceScale;
             morphStart = lerp(lodRange, parentLodRange, QuadtreeParams.MorphStartRatio);
-            const float morphEnd = parentLodRange;
+            const float morphEnd = parentLodRange - 0.70710678f * parentScale;
             invMorphRange = 1.0f / max(morphEnd - morphStart, 1e-4f);
         }
 

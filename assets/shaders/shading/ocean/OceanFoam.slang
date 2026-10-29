@@ -64,7 +64,40 @@ void OceanFoamStepCS(uniform OceanFoamStepParameters StepParams, uint3 id : SV_D
     // unbiased: biasing the injection by the foam itself would feed back and run away
     const float coverage = EvaluateWhitecapCoverage(surfaceXZ, float2(texelSize, 0.0f), float2(0.0f, texelSize), 0.0f);
 
-    const float previous = (StepParams.Reset != 0u || entered) ? 0.0f : FoamClipmapStorage[id];
+    float previous = 0.0f;
+    if (StepParams.Reset == 0u)
+    {
+        if (!entered)
+        {
+            previous = FoamClipmapStorage[id];
+        }
+        else if (level == 0u)
+        {
+            const float texelSize1 = FoamTexelSize(1u);
+            const float2 framePos = (float2(absolute) + 0.5f) * texelSize;
+            const float2 texel1 = framePos / texelSize1 - 0.5f;
+            const int2 baseTexel1 = int2(floor(texel1));
+            const int2 prevOrigin1 = StepParams.PreviousOrigins.zw;
+
+            if (all(baseTexel1 >= prevOrigin1) && all(baseTexel1 + 1 < prevOrigin1 + size))
+            {
+                const float2 f = texel1 - float2(baseTexel1);
+
+                const int2 c00 = ((baseTexel1 % size) + size) % size;
+                const int2 c10 = (((baseTexel1 + int2(1, 0)) % size) + size) % size;
+                const int2 c01 = (((baseTexel1 + int2(0, 1)) % size) + size) % size;
+                const int2 c11 = (((baseTexel1 + int2(1, 1)) % size) + size) % size;
+
+                const float s00 = FoamClipmapStorage[uint3(uint2(c00), 1u)];
+                const float s10 = FoamClipmapStorage[uint3(uint2(c10), 1u)];
+                const float s01 = FoamClipmapStorage[uint3(uint2(c01), 1u)];
+                const float s11 = FoamClipmapStorage[uint3(uint2(c11), 1u)];
+
+                previous = lerp(lerp(s00, s10, f.x), lerp(s01, s11, f.x), f.y);
+            }
+        }
+    }
+
     FoamClipmapStorage[id] = saturate(previous * StepParams.DecayFactor + StepParams.ProductionStep * coverage);
 }
 
@@ -120,7 +153,7 @@ internal float SamplePersistentFoam(float2 surface_xz)
     {
         const float extent = FoamTexelSize(level) * size;
         const float2 offset = abs(framePosition - centerFrame) / (0.5f * extent);
-        const float weight = remaining * (1.0f - smoothstep(0.7f, 0.9f, max(offset.x, offset.y)));
+        const float weight = remaining * (1.0f - smoothstep(0.55f, 0.92f, max(offset.x, offset.y)));
         if (weight > 0.0f)
         {
             const float2 uv = framePosition / extent;

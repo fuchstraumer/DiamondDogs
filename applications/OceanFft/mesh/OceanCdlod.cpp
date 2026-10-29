@@ -6,6 +6,7 @@
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
 #include "ResourceMessageReply.hpp"
+#include "ResourceTypes.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
@@ -19,9 +20,11 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <expected>
 #include <format>
 #include <memory>
 #include <optional>
@@ -188,11 +191,11 @@ namespace ocean
 
         if (Resources != nullptr)
         {
-            for (size_t i = 0u; i < ParamsBuffers.size(); ++i)
+            for (const auto & ParamsBuffer : ParamsBuffers)
             {
-                if (ParamsBuffers[i])
+                if (ParamsBuffer)
                 {
-                    std::shared_ptr<MessageReply> reply = Resources->DestroyResource(ParamsBuffers[i]);
+                    std::shared_ptr<MessageReply> reply = Resources->DestroyResource(ParamsBuffer);
                     if (reply != nullptr)
                     {
                         reply->WaitForCompletion(k_TimeoutNs);
@@ -349,7 +352,7 @@ namespace ocean
         BufferCreateInfo indirectInfo{};
         indirectInfo.Domain = ResourceDomain::GPUOnly;
         indirectInfo.Flags = ResourceCreationFlags::UserDataAsNameString;
-        indirectInfo.Usage = BufferUsageBits::IndirectBuffer | BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
+        indirectInfo.Usage = BufferUsageBits::IndirectBuffer | BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst | BufferUsageBits::TransferSrc;
         indirectInfo.Size = sizeof(VkDrawIndexedIndirectCommand);
         indirectInfo.Name = "Ocean_CdlodIndirectArgs";
         std::shared_ptr<GraphicsResourceReply> indirectReply = resources.CreateBuffer(indirectInfo, std::span{ &indirectUpload, 1 });
@@ -634,7 +637,7 @@ namespace ocean
         params.FrustumPlanes = camera.FrustumPlanes;
         params.CameraPosition = camera.CameraPosition;
         params.WorldExtent = impl->Settings.WorldExtent;
-        const float snap = impl->Settings.WorldExtent / 64.0f;
+        const float snap = 64.0f;
         params.RootCenter[0] = std::round(camera.CameraPosition[0] / snap) * snap;
         params.RootCenter[1] = std::round(camera.CameraPosition[2] / snap) * snap;
         params.MaxWaveHeight = impl->Settings.MaxWaveHeight;

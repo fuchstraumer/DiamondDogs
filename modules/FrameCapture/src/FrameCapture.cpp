@@ -1,4 +1,5 @@
 #include "FrameCapture.hpp"
+#include "math/Math.hpp"
 #include "CommandBuffer.hpp"
 #include "ImageDataFormats.hpp"
 #include "ResourceContext.hpp"
@@ -51,19 +52,7 @@ namespace capture
 
         float HalfToFloat(uint16_t half) noexcept
         {
-            const uint32_t sign = uint32_t{ half & 0x8000u } << 16u;
-            const uint32_t exponent = (half >> 10u) & 0x1Fu;
-            const uint32_t mantissa = half & 0x3FFu;
-            if (exponent == 0u)
-            {
-                // zero or subnormal: mantissa * 2^-24
-                const float value = std::ldexp(static_cast<float>(mantissa), -24);
-                return sign != 0u ? -value : value;
-            }
-            const uint32_t bits = exponent == 31u ?
-                (sign | 0x7F800000u | (mantissa << 13u)) :
-                (sign | ((exponent + 112u) << 23u) | (mantissa << 13u));
-            return std::bit_cast<float>(bits);
+            return math::HalfToFloat(half);
         }
 
         uint8_t EncodeSrgb(float linear) noexcept
@@ -89,12 +78,15 @@ namespace capture
 
         void Bt2020ToBt709(float& r, float& g, float& b) noexcept
         {
-            const float r709 = (1.6605f * r) - (0.5876f * g) - (0.0728f * b);
-            const float g709 = (-0.1246f * r) + (1.1329f * g) - (0.0083f * b);
-            const float b709 = (-0.0182f * r) - (0.1006f * g) + (1.1187f * b);
-            r = r709;
-            g = g709;
-            b = b709;
+            constexpr math::Float3x3 k_Bt2020ToBt709{
+                 1.6605f, -0.5876f, -0.0728f,
+                -0.1246f,  1.1329f, -0.0083f,
+                -0.0182f, -0.1006f,  1.1187f
+            };
+            const math::Float3 rgb709 = k_Bt2020ToBt709 * math::Float3{ r, g, b };
+            r = rgb709.x;
+            g = rgb709.y;
+            b = rgb709.z;
         }
 
         /** Converts the copied texels to tightly packed 8-bit sRGB RGB, dropping alpha */

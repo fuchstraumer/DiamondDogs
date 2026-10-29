@@ -17,6 +17,7 @@ struct ShaderObjectDrawState
     VkSampleCountFlagBits Samples{ VK_SAMPLE_COUNT_1_BIT };
     VkLineRasterizationModeEXT LineRasterizationMode{ VK_LINE_RASTERIZATION_MODE_DEFAULT_EXT };
     bool LineStippleEnable{ false };
+    uint32_t ColorAttachmentCount{ 1u };
 };
 
 /** @brief Loads the EXT entry points. Call once, after the device exists */

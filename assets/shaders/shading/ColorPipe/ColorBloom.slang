@@ -98,7 +98,7 @@ void ColorBloomDownsampleCS(uint3 dispatchThreadId : SV_DispatchThreadID, unifor
         downsample += (b + dTap + f + h) * 0.0625f;
     }
 
-    DestMip[dispatchThreadId.xy] = float4(downsample, 1.0f);
+    DestMip[dispatchThreadId.xy] = float4(any(isnan(downsample)) || any(isinf(downsample)) ? float3(0.0f) : downsample, 1.0f);
 }
 
 [shader("compute")]
@@ -133,5 +133,5 @@ void ColorBloomUpsampleCS(uint3 dispatchThreadId : SV_DispatchThreadID, uniform 
     const float3 finer = FineMip.Load(int3(dispatchThreadId.xy, 0)).rgb;
 
     const float3 blended = lerp(finer, upsampled, push.Scatter);
-    DestMip[dispatchThreadId.xy] = float4(blended, 1.0f);
+    DestMip[dispatchThreadId.xy] = float4(any(isnan(blended)) || any(isinf(blended)) ? float3(0.0f) : blended, 1.0f);
 }

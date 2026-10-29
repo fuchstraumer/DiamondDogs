@@ -226,7 +226,7 @@ OceanSkyVaryings OceanSkyVS(uint vertexId : SV_VertexID, uniform SkyPushConstant
 {
     const float2 corner = float2(float((vertexId << 1) & 2), float(vertexId & 2));
     const float2 ndc = corner * 2.0f - 1.0f;
-    const float4 clipPos = float4(ndc, 1.0f, 1.0f);
+    const float4 clipPos = float4(ndc, 0.0f, 1.0f);
 
     const float4 worldH = float4(
         dot(sky.InvViewProjRow0, clipPos),
@@ -236,8 +236,9 @@ OceanSkyVaryings OceanSkyVS(uint vertexId : SV_VertexID, uniform SkyPushConstant
     );
 
     OceanSkyVaryings output;
-    output.Position = float4(ndc, 1.0f, 1.0f);
-    output.WorldViewRay = worldH.xyz / worldH.w - sky.CameraPosition.xyz;
+    output.Position = float4(ndc, 0.0f, 1.0f);
+    const float3 worldPos = (abs(worldH.w) > 1e-7f) ? (worldH.xyz / worldH.w) : worldH.xyz;
+    output.WorldViewRay = worldPos - sky.CameraPosition.xyz;
     return output;
 }
 
@@ -248,19 +249,67 @@ SamplerState SkyDomeSampler;
 [ForceInline]
 internal float FastAcos(float x)
 {
-    const float ax = saturate(abs(x));
-    const float res = sqrt(1.0f - ax) * (1.5707963f + ax * (-0.2145988f + ax * (0.0889789f - 0.0501743f * ax)));
-    return x < 0.0f ? (ENV_PI - res) : res;
+    return acos(clamp(x, -1.0f, 1.0f));
+}
+
+[ForceInline]
+internal float3 SampleEquirectangularSky(
+    Texture2D<float4> skyTex,
+    SamplerState skySampler,
+    float3 dir)
+{
+    const float phi = atan2(dir.z, dir.x);
+    const float theta = acos(clamp(dir.y, -1.0f, 1.0f));
+    const float2 uv = float2(phi * (0.5f / ENV_PI) + 0.5f, theta * (1.0f / ENV_PI));
+    return skyTex.Sample(skySampler, uv).rgb;
+}
+
+[ForceInline]
+internal float3 SampleEquirectangularSkyLevel(
+    Texture2D<float4> skyTex,
+    SamplerState skySampler,
+    float3 dir,
+    float lod)
+{
+    const float phi = atan2(dir.z, dir.x);
+    const float theta = acos(clamp(dir.y, -1.0f, 1.0f));
+    const float2 uv = float2(phi * (0.5f / ENV_PI) + 0.5f, theta * (1.0f / ENV_PI));
+    return skyTex.SampleLevel(skySampler, uv, lod).rgb;
+}
+
+[ForceInline]
+internal float3 SampleEquirectangularSkyGrad(
+    Texture2D<float4> skyTex,
+    SamplerState skySampler,
+    float3 dir,
+    float2 ddxUv,
+    float2 ddyUv,
+    float roughnessBias)
+{
+    const float phi = atan2(dir.z, dir.x);
+    const float theta = acos(clamp(dir.y, -1.0f, 1.0f));
+    const float2 uv = float2(phi * (0.5f / ENV_PI) + 0.5f, theta * (1.0f / ENV_PI));
+
+    float2 ddx = ddxUv;
+    ddx.x -= round(ddx.x);
+    float2 ddy = ddyUv;
+    ddy.x -= round(ddy.x);
+
+    const float maxGrad = 0.25f;
+    ddx = clamp(ddx, float2(-maxGrad), float2(maxGrad));
+    ddy = clamp(ddy, float2(-maxGrad), float2(maxGrad));
+
+    const float gradScale = exp2(roughnessBias);
+    ddx *= gradScale;
+    ddy *= gradScale;
+
+    return skyTex.SampleGrad(skySampler, uv, ddx, ddy).rgb;
 }
 
 [shader("fragment")]
 float4 OceanSkyFS(OceanSkyVaryings input, uniform SkyPushConstants sky) : SV_Target
 {
     const float3 ray = normalize(input.WorldViewRay);
-    const float theta = FastAcos(clamp(ray.y, -1.0f, 1.0f));
-    const float phi = atan2(ray.z, ray.x);
-    const float u = phi * (0.5f / ENV_PI) + 0.5f;
-    const float v = theta * (1.0f / ENV_PI);
-    const float4 sampled = SkyDomeTexture.SampleLevel(SkyDomeSampler, float2(u, v), sky.Lod);
-    return float4(sampled.rgb * sky.Exposure, 1.0f);
+    const float3 sampled = SampleEquirectangularSkyLevel(SkyDomeTexture, SkyDomeSampler, ray, sky.Lod);
+    return float4(sampled * sky.Exposure, 1.0f);
 }

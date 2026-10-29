@@ -5,6 +5,7 @@
 #include "DisplayTarget.hpp"
 #include "ImageDataFormats.hpp"
 #include "PlatformTypes.hpp"
+#include "ResourceTypes.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include <cstdint>
@@ -81,6 +82,7 @@ namespace color
 
         /** @brief Returns the RGBA16F target for the scene-linear AP1 scene. */
         [[nodiscard]] ColorTargetView SceneTarget() const noexcept;
+        [[nodiscard]] GraphicsResource SceneResource() const noexcept;
         /** @brief Returns the RGBA8 UNORM target for Dear ImGui. Clear it to transparent. */
         [[nodiscard]] ColorTargetView UiTarget() const noexcept;
 

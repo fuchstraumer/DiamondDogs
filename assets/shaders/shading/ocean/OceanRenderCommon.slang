@@ -235,6 +235,17 @@ public struct FrameConstants
     public uint UseSkyTexture;
     public float SkyIntensityScale;
     public float LeadrSlopeVarianceScale;
+    public float4 PrevViewProjectionRows[4];
+    public float2 JitterOffsetNdc;
+    public float2 PrevJitterOffsetNdc;
+    public uint UseBrunetonAtmosphere;
+    public uint UseDeferredPath;
+    public uint UseSpecularAa;
+    public uint UseTaa;
+    public float SpecularAaStrength;
+    public float SsrIntensity;
+    public float TaaBlendAlpha;
+    public float AutoExposureSpeed;
     public property float3 FoamAlbedoTint
     {
         get
@@ -262,6 +273,13 @@ internal float4 WorldToClip(float3 world_position)
     const float4 position = float4(world_position, 1.0f);
     return float4(dot(View.ViewProjectionRows[0], position), dot(View.ViewProjectionRows[1], position),
                   dot(View.ViewProjectionRows[2], position), dot(View.ViewProjectionRows[3], position));
+}
+
+internal float4 PrevWorldToClip(float3 world_position)
+{
+    const float4 position = float4(world_position, 1.0f);
+    return float4(dot(Frame.PrevViewProjectionRows[0], position), dot(Frame.PrevViewProjectionRows[1], position),
+                  dot(Frame.PrevViewProjectionRows[2], position), dot(Frame.PrevViewProjectionRows[3], position));
 }
 
 internal float2 CascadeUv(float2 world_xz, uint cascade)

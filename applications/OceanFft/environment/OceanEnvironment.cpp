@@ -1,3 +1,4 @@
+
 #if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -5,9 +6,12 @@
 #endif
 
 #include "OceanEnvironment.hpp"
+#include "math/Math.hpp"
+#include "OceanSimulation.hpp"
 #include "../ShaderObjectState.hpp"
 
 #include "ColorSpaces.hpp"
+#include "ExrLoader.hpp"
 #include "ImageDataFormats.hpp"
 #include "ManifestDescriptors.hpp"
 #include "ResourceContext.hpp"
@@ -20,6 +24,11 @@
 #include "Device.hpp"
 #include "RhiAssert.hpp"
 #include "RhiSystem.hpp"
+#include "ResourceTypes.hpp"
+#include "RhiFlags.hpp"
+#include "RhiHandle.hpp"
+#include "RhiTypes.hpp"
+#include "VariantKey.hpp"
 
 #if __has_include("SourcePaths.hpp")
 #include "SourcePaths.hpp"
@@ -27,7 +36,17 @@
 #else
 #define HAS_SOURCE_PATHS 0
 #endif
-
+#include <array>
+#include <cstdint>
+#include <expected>
+#include <filesystem>
+#include <memory>
+#include <numbers>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -36,10 +55,12 @@
 #include <iostream>
 #include <vector>
 
+#include "vulkan/vulkan_core.h"
+
 namespace
 {
     constexpr uint64_t k_TimeoutNs = 10'000'000'000ull;
-    constexpr float k_Pi = 3.14159265358979323846f;
+    constexpr float k_Pi = std::numbers::pi_v<float>;
 
     constexpr std::string_view k_ModuleName = "OceanEnvironment";
     constexpr std::string_view k_PreethamEntry = "OceanEnvPreethamCS";
@@ -132,10 +153,12 @@ namespace
         std::array<float, 3>& out_dominant_dir,
         std::array<float, 3>& out_dominant_radiance)
     {
-        float len = std::sqrt(sun_dir[0] * sun_dir[0] + sun_dir[1] * sun_dir[1] + sun_dir[2] * sun_dir[2]);
-        const std::array<float, 3> s = (len > 1e-5f)
-            ? std::array<float, 3>{ sun_dir[0] / len, sun_dir[1] / len, sun_dir[2] / len }
-            : std::array<float, 3>{ 0.0f, 1.0f, 0.0f };
+        const math::Vector sunVec{ sun_dir[0], sun_dir[1], sun_dir[2], 0.0f };
+        const float lenSq = sunVec.LengthSq<3>();
+        const math::Float3 sFloat = (lenSq > 1e-10f)
+            ? static_cast<math::Float3>(math::FromVector(sunVec.Normalize<3>()))
+            : math::Float3{ 0.0f, 1.0f, 0.0f };
+        const std::array<float, 3> s{ sFloat.x, sFloat.y, sFloat.z };
 
         out_dominant_dir = s;
 
@@ -149,9 +172,14 @@ namespace
         PerezCoeffs cx{ -0.01925f * T - 0.25922f, -0.06651f * T + 0.00081f, -0.00041f * T + 0.21247f, -0.06409f * T - 0.89887f, -0.00325f * T + 0.04517f };
         PerezCoeffs cz{ -0.01669f * T - 0.26078f, -0.08864f * T + 0.00921f, -0.00516f * T + 0.21023f, -0.06029f * T - 1.65369f, -0.00373f * T + 0.05291f };
 
+        // Conversion from photometric units (cd/m^2, lux) to scene-referred linear AP1 units,
+        // calibrated against DaySkyHDRI071B (~3.8 peak direct sun irradiance, ~0.8-1.5 ambient sky SH).
+        constexpr float k_PhotometricToScene = 1.0f / 22000.0f;
+        constexpr float k_SolarSolidAngle = 6.8e-5f;
+
         const float chi = (4.0f / 9.0f - T / 120.0f) * (k_Pi - 2.0f * thetaS);
         float Yz = (4.0453f * T - 4.9710f) * std::tan(chi) - 0.2155f * T + 2.4192f;
-        Yz = std::max(0.0f, Yz) * 1000.0f;
+        Yz = std::max(0.0f, Yz) * 1000.0f * k_PhotometricToScene;
 
         const float thetaS2 = thetaS * thetaS;
         const float thetaS3 = thetaS2 * thetaS;
@@ -166,13 +194,14 @@ namespace
                        + (0.00317f * T2 - 0.04517f * T + 0.06670f) * thetaS
                        + (0.00516f * T + 0.26688f);
 
-        // Preetham direct solar radiance
+        // Preetham direct solar radiance / irradiance
         if (s[1] > 0.0f)
         {
             const float airMass = 1.0f / std::max(0.02f, s[1]);
             const float solarTrans = std::exp(-0.1f * T * airMass);
             const float sunLuminance = 1.3e9f * solarTrans * exposure;
-            out_dominant_radiance = { sunLuminance * 1.0f, sunLuminance * 0.95f, sunLuminance * 0.88f };
+            const float sunIrradiance = sunLuminance * k_SolarSolidAngle * k_PhotometricToScene;
+            out_dominant_radiance = { sunIrradiance * 1.0f, sunIrradiance * 0.95f, sunIrradiance * 0.88f };
         }
         else
         {
@@ -188,10 +217,12 @@ namespace
         const float denomX = std::max(1e-6f, EvaluatePerez(cx, 1.0f, thetaS, cosSunZenith));
         const float denomZ = std::max(1e-6f, EvaluatePerez(cz, 1.0f, thetaS, cosSunZenith));
 
-        // XYZ to AP1 linear matrix (transposed for column vector mul)
-        constexpr float m00 = 1.64102338f,  m01 = -0.324803294f, m02 = -0.236424695f;
-        constexpr float m10 = -0.663662859f, m11 = 1.61533159f,  m12 = 0.0167563477f;
-        constexpr float m20 = 0.0117218943f, m21 = -0.008284442f, m22 = 0.988394859f;
+        // XYZ to AP1 linear matrix
+        constexpr math::Float3x3 k_XyzToAp1{
+            1.64102338f,  -0.324803294f, -0.236424695f,
+            -0.663662859f, 1.61533159f,   0.0167563477f,
+            0.0117218943f, -0.008284442f, 0.988394859f
+        };
 
         std::array<std::array<double, 3>, 9> shAccum{};
 
@@ -199,18 +230,18 @@ namespace
         {
             const float v = (static_cast<float>(j) + 0.5f) / static_cast<float>(gridH);
             const float theta = v * k_Pi;
-            const float sinTheta = std::sin(theta);
-            const float cosTheta = std::cos(theta);
+            const auto [sinTheta, cosTheta] = math::SinCos(theta);
             const float dOmega = sinTheta * dOmegaFactor;
 
             for (uint32_t i = 0; i < gridW; ++i)
             {
                 const float u = (static_cast<float>(i) + 0.5f) / static_cast<float>(gridW);
                 const float phi = (u - 0.5f) * 2.0f * k_Pi;
+                const auto [sinPhi, cosPhi] = math::SinCos(phi);
 
-                const float dirX = sinTheta * std::cos(phi);
+                const float dirX = sinTheta * cosPhi;
                 const float dirY = cosTheta;
-                const float dirZ = sinTheta * std::sin(phi);
+                const float dirZ = sinTheta * sinPhi;
 
                 const float cosView = std::max(0.001f, dirY);
                 const float cosGamma = std::clamp(dirX * s[0] + dirY * s[1] + dirZ * s[2], -1.0f, 1.0f);
@@ -227,9 +258,10 @@ namespace
                 const float X = (x / y) * Y;
                 const float Z = std::max(0.0f, (1.0f - x - y) / y * Y);
 
-                float r = m00 * X + m01 * Y + m02 * Z;
-                float g = m10 * X + m11 * Y + m12 * Z;
-                float b = m20 * X + m21 * Y + m22 * Z;
+                const math::Float3 rgb = k_XyzToAp1 * math::Float3{ X, Y, Z };
+                float r = rgb.x;
+                float g = rgb.y;
+                float b = rgb.z;
 
                 r = std::max(0.0f, r) * exposure;
                 g = std::max(0.0f, g) * exposure;
@@ -517,23 +549,121 @@ namespace ocean
                 DominantLightDirection,
                 DominantLightRadiance);
 
-            // Default resolution for Preetham: 4096 x 2048
-            ExtentW = 4096u;
-            ExtentH = 2048u;
+            // Default resolution for Preetham: 2048 x 1024
+            ExtentW = 2048u;
+            ExtentH = 1024u;
             MipLevels = static_cast<uint32_t>(std::bit_width(std::max(ExtentW, ExtentH)));
 
             // Prepare mip 0 CPU buffer
             std::vector<uint16_t> mip0Pixels(static_cast<size_t>(ExtentW) * static_cast<size_t>(ExtentH) * 4u);
-            // Filled with baseline sky in AP1 linear
-            for (size_t y = 0; y < ExtentH; ++y)
+
+            const math::Vector sunVec{ Settings.SunDirection[0], Settings.SunDirection[1], Settings.SunDirection[2], 0.0f };
+            const float lenSq = sunVec.LengthSq<3>();
+            const math::Float3 sFloat = (lenSq > 1e-10f)
+                ? static_cast<math::Float3>(math::FromVector(sunVec.Normalize<3>()))
+                : math::Float3{ 0.0f, 1.0f, 0.0f };
+            const std::array<float, 3> s{ sFloat.x, sFloat.y, sFloat.z };
+
+            const float cosSunZenith = std::clamp(s[1], 0.001f, 1.0f);
+            const float thetaS = std::acos(cosSunZenith);
+            const float T = std::clamp(Settings.PreethamTurbidity, 1.0f, 10.0f);
+            const float T2 = T * T;
+
+            const PerezCoeffs cy{ 0.17872f * T - 1.46303f, -0.35540f * T + 0.42749f, -0.02266f * T + 5.32505f, 0.12064f * T - 2.57705f, -0.06696f * T + 0.37027f };
+            const PerezCoeffs cx{ -0.01925f * T - 0.25922f, -0.06651f * T + 0.00081f, -0.00041f * T + 0.21247f, -0.06409f * T - 0.89887f, -0.00325f * T + 0.04517f };
+            const PerezCoeffs cz{ -0.01669f * T - 0.26078f, -0.08864f * T + 0.00921f, -0.00516f * T + 0.21023f, -0.06029f * T - 1.65369f, -0.00373f * T + 0.05291f };
+
+            constexpr float k_PhotometricToScene = 1.0f / 22000.0f;
+            const float chi = (4.0f / 9.0f - T / 120.0f) * (k_Pi - 2.0f * thetaS);
+            float Yz = (4.0453f * T - 4.9710f) * std::tan(chi) - 0.2155f * T + 2.4192f;
+            Yz = std::max(0.0f, Yz) * 1000.0f * k_PhotometricToScene;
+
+            const float thetaS2 = thetaS * thetaS;
+            const float thetaS3 = thetaS2 * thetaS;
+
+            const float xz = (0.00166f * T2 - 0.02903f * T + 0.11693f) * thetaS3
+                           + (-0.00375f * T2 + 0.06377f * T - 0.21196f) * thetaS2
+                           + (0.00209f * T2 - 0.03202f * T + 0.06052f) * thetaS
+                           + (0.00394f * T + 0.25886f);
+
+            const float yz = (0.00275f * T2 - 0.04214f * T + 0.15346f) * thetaS3
+                           + (-0.00610f * T2 + 0.08970f * T - 0.26756f) * thetaS2
+                           + (0.00317f * T2 - 0.04517f * T + 0.06670f) * thetaS
+                           + (0.00516f * T + 0.26688f);
+
+            const float denomY = std::max(1e-6f, EvaluatePerez(cy, 1.0f, thetaS, cosSunZenith));
+            const float denomX = std::max(1e-6f, EvaluatePerez(cx, 1.0f, thetaS, cosSunZenith));
+            const float denomZ = std::max(1e-6f, EvaluatePerez(cz, 1.0f, thetaS, cosSunZenith));
+
+            constexpr math::Float3x3 k_XyzToAp1{
+                1.64102338f,  -0.324803294f, -0.236424695f,
+                -0.663662859f, 1.61533159f,   0.0167563477f,
+                0.0117218943f, -0.008284442f, 0.988394859f
+            };
+
+            constexpr float k_CosSolarDisk = 0.99996f;
+
+            for (uint32_t y = 0; y < ExtentH; ++y)
             {
-                for (size_t x = 0; x < ExtentW; ++x)
+                const float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(ExtentH);
+                const float theta = v * k_Pi;
+                const auto [sinTheta, cosTheta] = math::SinCos(theta);
+
+                for (uint32_t x = 0; x < ExtentW; ++x)
                 {
-                    const size_t idx = (y * ExtentW + x) * 4u;
-                    mip0Pixels[idx + 0] = 0x3800; // 0.5
-                    mip0Pixels[idx + 1] = 0x3900; // 0.6
-                    mip0Pixels[idx + 2] = 0x3a00; // 0.75
-                    mip0Pixels[idx + 3] = 0x3c00; // 1.0
+                    const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(ExtentW);
+                    const float phi = (u - 0.5f) * 2.0f * k_Pi;
+                    const auto [sinPhi, cosPhi] = math::SinCos(phi);
+
+                    const float dirX = sinTheta * cosPhi;
+                    const float dirY = cosTheta;
+                    const float dirZ = sinTheta * sinPhi;
+
+                    const float cosView = std::max(0.001f, dirY);
+                    const float cosGamma = std::clamp(dirX * s[0] + dirY * s[1] + dirZ * s[2], -1.0f, 1.0f);
+                    const float gamma = std::acos(cosGamma);
+
+                    const float fY = EvaluatePerez(cy, cosView, gamma, cosGamma) / denomY;
+                    const float fx = EvaluatePerez(cx, cosView, gamma, cosGamma) / denomX;
+                    const float fy = EvaluatePerez(cz, cosView, gamma, cosGamma) / denomZ;
+
+                    const float Y = Yz * fY;
+                    const float chrX = xz * fx;
+                    const float chrY = std::max(1e-4f, yz * fy);
+
+                    const float X = (chrX / chrY) * Y;
+                    const float Z = std::max(0.0f, (1.0f - chrX - chrY) / chrY * Y);
+
+                    const math::Float3 rgb = k_XyzToAp1 * math::Float3{ X, Y, Z };
+                    float r = rgb.x;
+                    float g = rgb.y;
+                    float b = rgb.z;
+
+                    r = std::max(0.0f, r) * Settings.Exposure;
+                    g = std::max(0.0f, g) * Settings.Exposure;
+                    b = std::max(0.0f, b) * Settings.Exposure;
+
+                    if (cosGamma > k_CosSolarDisk)
+                    {
+                        const float diskRadiance = 40.0f * Settings.Exposure;
+                        r += diskRadiance * 1.0f;
+                        g += diskRadiance * 0.95f;
+                        b += diskRadiance * 0.88f;
+                    }
+
+                    if (dirY < 0.0f)
+                    {
+                        const float groundFade = 0.15f * std::exp(dirY * 8.0f);
+                        r *= groundFade;
+                        g *= groundFade;
+                        b *= groundFade;
+                    }
+
+                    const size_t idx = (static_cast<size_t>(y) * ExtentW + x) * 4u;
+                    mip0Pixels[idx + 0] = math::FloatToHalf(r);
+                    mip0Pixels[idx + 1] = math::FloatToHalf(g);
+                    mip0Pixels[idx + 2] = math::FloatToHalf(b);
+                    mip0Pixels[idx + 3] = math::FloatToHalf(1.0f);
                 }
             }
 
@@ -961,9 +1091,10 @@ namespace ocean
     void OceanEnvironment::RecordSkyBackground(
         rhi::CommandBuffer& cmd,
         rhi::GpuTimerBlock* timer_block,
-        const std::array<std::array<float, 4>, 4>& inv_view_proj,
-        const std::array<float, 3>& camera_pos,
-        float lod)
+        const math::Float4x4& inv_view_proj,
+        const math::Float3& camera_pos,
+        float lod,
+        std::optional<VkSampleCountFlagBits> sample_count_override)
     {
         if (!impl->SkyDomeImage || impl->SkyProgram == nullptr)
         {
@@ -983,11 +1114,11 @@ namespace ocean
             .DepthWrite = false,
             .AlphaBlend = false,
             .CullMode = VK_CULL_MODE_NONE,
-            .Samples = impl->Settings.Samples
+            .Samples = sample_count_override.value_or(impl->Settings.Samples)
         });
 
-        // Allow far plane depth (1.0) to pass where depth buffer was cleared to 1.0 and no ocean geometry was rendered
-        vkCmdSetDepthCompareOp(cmd.Handle().As<VkCommandBuffer>(), VK_COMPARE_OP_LESS_OR_EQUAL);
+        // Allow far plane depth (0.0) to pass where depth buffer was cleared to 0.0 and no ocean geometry was rendered
+        vkCmdSetDepthCompareOp(cmd.Handle().As<VkCommandBuffer>(), VK_COMPARE_OP_GREATER_OR_EQUAL);
 
         if (impl->SkyDescriptorSet != VK_NULL_HANDLE)
         {
@@ -1008,11 +1139,11 @@ namespace ocean
         };
 
         const SkyPushConstants skyPush{
-            .InvViewProjRow0 = inv_view_proj[0],
-            .InvViewProjRow1 = inv_view_proj[1],
-            .InvViewProjRow2 = inv_view_proj[2],
-            .InvViewProjRow3 = inv_view_proj[3],
-            .CameraPosition = { camera_pos[0], camera_pos[1], camera_pos[2], 1.0f },
+            .InvViewProjRow0 = { inv_view_proj[0][0], inv_view_proj[0][1], inv_view_proj[0][2], inv_view_proj[0][3] },
+            .InvViewProjRow1 = { inv_view_proj[1][0], inv_view_proj[1][1], inv_view_proj[1][2], inv_view_proj[1][3] },
+            .InvViewProjRow2 = { inv_view_proj[2][0], inv_view_proj[2][1], inv_view_proj[2][2], inv_view_proj[2][3] },
+            .InvViewProjRow3 = { inv_view_proj[3][0], inv_view_proj[3][1], inv_view_proj[3][2], inv_view_proj[3][3] },
+            .CameraPosition = { camera_pos.x, camera_pos.y, camera_pos.z, 1.0f },
             .Exposure = impl->Settings.Exposure,
             .Lod = lod,
             .Pad = { 0.0f, 0.0f }

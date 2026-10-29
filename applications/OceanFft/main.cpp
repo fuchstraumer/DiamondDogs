@@ -211,9 +211,9 @@ namespace
             {
                 command_line.Stdin = true;
             }
-            else if (argument.starts_with("--script="))
+            else if (argument.starts_with("--script=") || argument.starts_with("--commands="))
             {
-                command_line.Script = std::string{ argument.substr(9) };
+                command_line.Script = std::string{ argument.starts_with("--script=") ? argument.substr(9) : argument.substr(11) };
             }
             else if (argument.starts_with("--capture="))
             {

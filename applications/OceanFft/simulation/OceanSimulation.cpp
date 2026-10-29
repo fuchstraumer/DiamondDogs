@@ -1,4 +1,5 @@
 #include "OceanSimulation.hpp"
+#include "math/Math.hpp"
 #include "RhiSystem.hpp"
 #include "DonelanBannerNormLUT.hpp"
 #include "ImageDataFormats.hpp"
@@ -917,50 +918,11 @@ namespace ocean
 
     float HalfToFloat(uint16_t value) noexcept
     {
-        const uint32_t sign = (value & 0x8000u) << 16u;
-        const uint32_t exponent = (value >> 10u) & 0x1Fu;
-        const uint32_t mantissa = value & 0x3FFu;
-
-        if (exponent == 0u)
-        {
-            // zero or denormal: mantissa * 2^-24
-            const float magnitude = std::ldexp(static_cast<float>(mantissa), -24);
-            return sign != 0u ? -magnitude : magnitude;
-        }
-
-        if (exponent == 31u)
-        {
-            return std::bit_cast<float>(sign | 0x7F800000u | (mantissa << 13u));
-        }
-
-        return std::bit_cast<float>(sign | ((exponent + 112u) << 23u) | (mantissa << 13u));
+        return math::HalfToFloat(value);
     }
 
     uint16_t FloatToHalf(float value) noexcept
     {
-        const uint32_t bits = std::bit_cast<uint32_t>(value);
-        const uint16_t sign = static_cast<uint16_t>((bits >> 16u) & 0x8000u);
-        const float magnitude = std::fabs(value);
-
-        if (std::isnan(value))
-        {
-            return static_cast<uint16_t>(sign | 0x7E00u);
-        }
-
-        if (magnitude >= 65520.0f)
-        {
-            return static_cast<uint16_t>(sign | 0x7C00u);
-        }
-
-        if (magnitude < 6.103515625e-05f)
-        {
-            // denormal: round to the nearest multiple of 2^-24
-            return static_cast<uint16_t>(sign | static_cast<uint16_t>(std::nearbyint(magnitude * 16777216.0f)));
-        }
-        
-        // round to nearest even on the 13 dropped mantissa bits
-        const uint32_t magnitudeBits = bits & 0x7FFFFFFFu;
-        const uint32_t rounded = magnitudeBits + 0x0FFFu + ((magnitudeBits >> 13u) & 1u);
-        return static_cast<uint16_t>(sign | ((rounded - (112u << 23u)) >> 13u));
+        return math::FloatToHalf(value);
     }
 }

@@ -21,6 +21,8 @@
 #endif
 
 #include "ExrLoader.hpp"
+#include "math/Math.hpp"
+#include "OceanSimulation.hpp"
 
 #if __has_include("ColorSpaces.hpp")
 #include "ColorSpaces.hpp"
@@ -48,7 +50,10 @@ typedef Byte Bytef;
 #ifdef _MSC_VER
 #pragma warning (disable: 4060 4100 4245 4505 4702 4530)
 #endif
-#if defined(__GNUC__)
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wunused-parameter"
+#pragma clang diagnostic ignored "-Wunused-function"
+#elif defined(__GNUC__)
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
@@ -60,32 +65,6 @@ typedef Byte Bytef;
 namespace
 {
     constexpr float k_Pi = 3.14159265358979323846f;
-
-    // IEEE-754 single-precision to half-precision float conversion
-    inline uint16_t FloatToHalf(float val) noexcept
-    {
-        uint32_t x = 0;
-        std::memcpy(&x, &val, sizeof(float));
-        const uint32_t sign = (x >> 16) & 0x8000u;
-        const int32_t exp = static_cast<int32_t>((x >> 23) & 0xffu) - 127;
-        uint32_t mant = x & 0x7fffffu;
-
-        if (exp > 15)
-        {
-            return static_cast<uint16_t>(sign | 0x7c00u | (mant ? 0x0200u : 0u));
-        }
-        if (exp < -14)
-        {
-            if (exp < -24)
-            {
-                return static_cast<uint16_t>(sign);
-            }
-            mant |= 0x800000u;
-            mant >>= (-14 - exp);
-            return static_cast<uint16_t>(sign | (mant >> 13));
-        }
-        return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exp + 15) << 10) | (mant >> 13));
-    }
 }
 
 namespace ocean
@@ -171,15 +150,11 @@ namespace ocean
 
         // Obtain Rec.709 to AP1 conversion matrix via Bradford adaptation
         const color::Mat3d mat = color::RgbToRgb(color::Rec709, color::AP1, color::ChromaticAdaptation::Bradford);
-        const float m00 = static_cast<float>(mat.Rows[0][0]);
-        const float m01 = static_cast<float>(mat.Rows[0][1]);
-        const float m02 = static_cast<float>(mat.Rows[0][2]);
-        const float m10 = static_cast<float>(mat.Rows[1][0]);
-        const float m11 = static_cast<float>(mat.Rows[1][1]);
-        const float m12 = static_cast<float>(mat.Rows[1][2]);
-        const float m20 = static_cast<float>(mat.Rows[2][0]);
-        const float m21 = static_cast<float>(mat.Rows[2][1]);
-        const float m22 = static_cast<float>(mat.Rows[2][2]);
+        const math::Float3x3 rec709ToAp1{
+            static_cast<float>(mat.Rows[0][0]), static_cast<float>(mat.Rows[0][1]), static_cast<float>(mat.Rows[0][2]),
+            static_cast<float>(mat.Rows[1][0]), static_cast<float>(mat.Rows[1][1]), static_cast<float>(mat.Rows[1][2]),
+            static_cast<float>(mat.Rows[2][0]), static_cast<float>(mat.Rows[2][1]), static_cast<float>(mat.Rows[2][2])
+        };
 
         ExrImageResult result{};
         result.Width = finalW;
@@ -240,19 +215,16 @@ namespace ocean
                         }
 
                         // Convert Rec.709 linear to AP1 linear
-                        float rAp1 = m00 * r + m01 * g + m02 * b;
-                        float gAp1 = m10 * r + m11 * g + m12 * b;
-                        float bAp1 = m20 * r + m21 * g + m22 * b;
-
-                        rAp1 = std::max(0.0f, rAp1);
-                        gAp1 = std::max(0.0f, gAp1);
-                        bAp1 = std::max(0.0f, bAp1);
+                        const math::Float3 ap1 = rec709ToAp1 * math::Float3{ r, g, b };
+                        const float rAp1 = std::clamp(std::isfinite(ap1.x) ? ap1.x : 0.0f, 0.0f, 65504.0f);
+                        const float gAp1 = std::clamp(std::isfinite(ap1.y) ? ap1.y : 0.0f, 0.0f, 65504.0f);
+                        const float bAp1 = std::clamp(std::isfinite(ap1.z) ? ap1.z : 0.0f, 0.0f, 65504.0f);
 
                         const size_t dstIdx = dstRowOffset + static_cast<size_t>(x) * 4u;
-                        result.PixelsFp16[dstIdx + 0] = FloatToHalf(rAp1);
-                        result.PixelsFp16[dstIdx + 1] = FloatToHalf(gAp1);
-                        result.PixelsFp16[dstIdx + 2] = FloatToHalf(bAp1);
-                        result.PixelsFp16[dstIdx + 3] = FloatToHalf(1.0f);
+                        result.PixelsFp16[dstIdx + 0] = math::FloatToHalf(rAp1);
+                        result.PixelsFp16[dstIdx + 1] = math::FloatToHalf(gAp1);
+                        result.PixelsFp16[dstIdx + 2] = math::FloatToHalf(bAp1);
+                        result.PixelsFp16[dstIdx + 3] = math::FloatToHalf(1.0f);
                     }
                 }
             });

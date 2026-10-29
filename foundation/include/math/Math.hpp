@@ -1,6 +1,8 @@
 #pragma once
 #ifndef DIAMONDDOGS_FOUNDATION_MATH_HPP
 #define DIAMONDDOGS_FOUNDATION_MATH_HPP
+#include <array>
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <cstddef>
@@ -35,6 +37,10 @@
     #define DD_MATH_BACKEND_WASM 1
 #else
     #define DD_MATH_BACKEND_WASM 0
+#endif
+
+#ifndef VX_MATH_BACKEND_WASM
+    #define VX_MATH_BACKEND_WASM DD_MATH_BACKEND_WASM
 #endif
 
 #if DD_MATH_BACKEND_WASM
@@ -184,6 +190,10 @@ public:
     constexpr Float3& operator=(const Float3& other) noexcept = default;
     constexpr Float3& operator=(Float3&& other) noexcept = default;
 
+    // std::array interop
+    constexpr Float3(const std::array<float, 3>& arr) noexcept : x(arr[0]), y(arr[1]), z(arr[2]) {}
+    constexpr operator std::array<float, 3>() const noexcept { return { x, y, z }; }
+
     template <class Self>
     constexpr auto&& operator[](this Self&& self, size_t index) noexcept
     {
@@ -254,6 +264,10 @@ public:
     constexpr Float4(Float4&& other) noexcept = default;
     constexpr Float4& operator=(const Float4& other) noexcept = default;
     constexpr Float4& operator=(Float4&& other) noexcept = default;
+
+    // std::array interop
+    constexpr Float4(const std::array<float, 4>& arr) noexcept : x(arr[0]), y(arr[1]), z(arr[2]), w(arr[3]) {}
+    constexpr operator std::array<float, 4>() const noexcept { return { x, y, z, w }; }
 
     template <class Self>
     constexpr auto&& operator[](this Self&& self, size_t index) noexcept
@@ -765,6 +779,13 @@ public:
     constexpr Float3x3& operator=(const Float3x3& other) noexcept = default;
     constexpr Float3x3& operator=(Float3x3&& other) noexcept = default;
 
+    template <class Self>
+    constexpr auto&& operator[](this Self&& self, size_t row) noexcept
+    {
+        assert(row < 3);
+        return self.m[row];
+    }
+
     // C++23 multidimensional subscript operator; const/non-const collapsed via deducing this.
     template <class Self>
     constexpr auto&& operator[](this Self&& self, size_t row, size_t col) noexcept
@@ -914,10 +935,36 @@ public:
     constexpr Float4x4& operator=(Float4x4&& other) noexcept = default;
 
     template <class Self>
+    constexpr auto&& operator[](this Self&& self, size_t row) noexcept
+    {
+        assert(row < 4);
+        return self.m[row];
+    }
+
+    template <class Self>
     constexpr auto&& operator[](this Self&& self, size_t row, size_t col) noexcept
     {
         assert(row < 4 && col < 4);
         return self.m[row][col];
+    }
+
+    // std::array interop
+    constexpr Float4x4(const std::array<std::array<float, 4>, 4>& arr) noexcept
+        : m{
+            {arr[0][0], arr[0][1], arr[0][2], arr[0][3]},
+            {arr[1][0], arr[1][1], arr[1][2], arr[1][3]},
+            {arr[2][0], arr[2][1], arr[2][2], arr[2][3]},
+            {arr[3][0], arr[3][1], arr[3][2], arr[3][3]}
+        } {}
+
+    constexpr operator std::array<std::array<float, 4>, 4>() const noexcept
+    {
+        return std::array<std::array<float, 4>, 4>{
+            std::array<float, 4>{ m[0][0], m[0][1], m[0][2], m[0][3] },
+            std::array<float, 4>{ m[1][0], m[1][1], m[1][2], m[1][3] },
+            std::array<float, 4>{ m[2][0], m[2][1], m[2][2], m[2][3] },
+            std::array<float, 4>{ m[3][0], m[3][1], m[3][2], m[3][3] }
+        };
     }
 
     constexpr Float4 Row(size_t index) const noexcept;
@@ -1222,6 +1269,25 @@ namespace detail
 }
 
 detail::FromVectorProxy FromVector(Vector vec) noexcept;
+
+/**
+ * @brief Converts a 32-bit float to a 16-bit half-precision float (IEEE 754 round-to-nearest-even).
+ */
+uint16_t FloatToHalf(float value) noexcept;
+
+/**
+ * @brief Converts a 16-bit half-precision float to a 32-bit float.
+ */
+float HalfToFloat(uint16_t value) noexcept;
+
+/**
+ * @brief Extracts normalized frustum planes from a row-major view-projection matrix.
+ * 
+ * Planes are returned in order: Left, Right, Bottom, Top, Near, Far.
+ * Each plane normal (xyz) is unit length, and w is the plane distance.
+ * Inward-pointing convention: dot(plane.xyz, p) + plane.w >= 0 inside frustum.
+ */
+std::array<Float4, 6> ExtractFrustumPlanes(const Float4x4& view_proj, bool reverse_z = true) noexcept;
 
 #undef SWIZZLE_2
 #undef SWIZZLE_3

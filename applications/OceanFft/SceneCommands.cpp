@@ -66,6 +66,11 @@ namespace
         { "brdf", { SceneCommand::Kind::Brdf, 0u, 0u, false } },
         { "async_compute", { SceneCommand::Kind::AsyncCompute, 0u, 0u, true } },
         { "tab", { SceneCommand::Kind::Tab, 0u, 0u, true } },
+        { "deferred", { SceneCommand::Kind::Deferred, 0u, 0u, true } },
+        { "spec_aa", { SceneCommand::Kind::SpecAa, 0u, 0u, false } },
+        { "taa", { SceneCommand::Kind::Taa, 0u, 0u, false } },
+        { "ssr", { SceneCommand::Kind::Ssr, 0u, 0u, false } },
+        { "auto_exposure", { SceneCommand::Kind::AutoExposure, 0u, 0u, false } },
         { "capture", { SceneCommand::Kind::Capture, 0u, 0u, true } },
         { "sync", { SceneCommand::Kind::Sync, 0u, 0u, true } },
         { "wait", { SceneCommand::Kind::Wait, 1u, 1u, false } },
@@ -148,6 +153,10 @@ namespace
     std::expected<SceneCommand, std::string> ParseTonemap(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseBloom(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseBrdf(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSpecAa(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseTaa(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSsr(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseAutoExposure(const std::vector<std::string_view>& words);
 }
 
 std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view line)
@@ -220,6 +229,26 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
         return ParseBrdf(words);
     }
 
+    if (shape.Kind == Kind::SpecAa)
+    {
+        return ParseSpecAa(words);
+    }
+
+    if (shape.Kind == Kind::Taa)
+    {
+        return ParseTaa(words);
+    }
+
+    if (shape.Kind == Kind::Ssr)
+    {
+        return ParseSsr(words);
+    }
+
+    if (shape.Kind == Kind::AutoExposure)
+    {
+        return ParseAutoExposure(words);
+    }
+
     SceneCommand command{};
     command.Type = shape.Kind;
     if (shape.TakesText)
@@ -231,7 +260,7 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
 
         command.Text = words.size() == 2u ? std::string{ words[1] } : std::string{};
         const bool takesOnOff = command.Type == Kind::Pause || command.Type == Kind::Ui || command.Type == Kind::Rotate ||
-                                command.Type == Kind::Cdlod || command.Type == Kind::Wireframe || command.Type == Kind::AsyncCompute;
+                                command.Type == Kind::Cdlod || command.Type == Kind::Wireframe || command.Type == Kind::AsyncCompute || command.Type == Kind::Deferred;
         if (takesOnOff && command.Text != "on" && command.Text != "off")
         {
             return std::unexpected(std::string{ words[0] } + " takes on or off");
@@ -662,6 +691,10 @@ namespace
         {
             canonical = "twilight";
         }
+        else if (lower == "bruneton" || lower == "atmosphere" || lower == "bruneton_atmosphere")
+        {
+            canonical = "bruneton";
+        }
         else
         {
             return std::unexpected(std::string{ "sky: unknown preset '" } + name + "'");
@@ -799,5 +832,213 @@ namespace
         command.Values[0] = value;
         command.ValueCount = 1u;
         return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSpecAa(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u || words.size() > 3u)
+        {
+            return std::unexpected(std::string{ "spec_aa takes on|off or <strength> or on|off <strength>" });
+        }
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::SpecAa;
+        if (words.size() == 2u)
+        {
+            if (words[1] == "off")
+            {
+                cmd.Text = "off";
+                cmd.Values[0] = 0.0f;
+                cmd.ValueCount = 1u;
+            }
+            else if (words[1] == "on")
+            {
+                cmd.Text = "on";
+                cmd.Values[0] = 1.0f;
+                cmd.ValueCount = 1u;
+            }
+            else
+            {
+                float val = 0.0f;
+                if (!ParseFloat(words[1], val))
+                {
+                    return std::unexpected(std::string{ "spec_aa: '" } + std::string{ words[1] } + "' is not a number or on/off");
+                }
+                cmd.Text = "on";
+                cmd.Values[0] = val;
+                cmd.ValueCount = 1u;
+            }
+        }
+        else
+        {
+            if (words[1] != "on" && words[1] != "off")
+            {
+                return std::unexpected(std::string{ "spec_aa: first argument must be on or off" });
+            }
+            float val = 0.0f;
+            if (!ParseFloat(words[2], val))
+            {
+                return std::unexpected(std::string{ "spec_aa: '" } + std::string{ words[2] } + "' is not a number");
+            }
+            cmd.Text = std::string{ words[1] };
+            cmd.Values[0] = val;
+            cmd.ValueCount = 1u;
+        }
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseTaa(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u || words.size() > 3u)
+        {
+            return std::unexpected(std::string{ "taa takes on|off or <blend alpha> or on|off <blend alpha>" });
+        }
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::Taa;
+        if (words.size() == 2u)
+        {
+            if (words[1] == "off")
+            {
+                cmd.Text = "off";
+                cmd.Values[0] = 0.0f;
+                cmd.ValueCount = 1u;
+            }
+            else if (words[1] == "on")
+            {
+                cmd.Text = "on";
+                cmd.Values[0] = 0.1f;
+                cmd.ValueCount = 1u;
+            }
+            else
+            {
+                float val = 0.0f;
+                if (!ParseFloat(words[1], val))
+                {
+                    return std::unexpected(std::string{ "taa: '" } + std::string{ words[1] } + "' is not a number or on/off");
+                }
+                cmd.Text = "on";
+                cmd.Values[0] = val;
+                cmd.ValueCount = 1u;
+            }
+        }
+        else
+        {
+            if (words[1] != "on" && words[1] != "off")
+            {
+                return std::unexpected(std::string{ "taa: first argument must be on or off" });
+            }
+            float val = 0.0f;
+            if (!ParseFloat(words[2], val))
+            {
+                return std::unexpected(std::string{ "taa: '" } + std::string{ words[2] } + "' is not a number");
+            }
+            cmd.Text = std::string{ words[1] };
+            cmd.Values[0] = val;
+            cmd.ValueCount = 1u;
+        }
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSsr(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u || words.size() > 3u)
+        {
+            return std::unexpected(std::string{ "ssr takes on|off or <intensity> or on|off <intensity>" });
+        }
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::Ssr;
+        if (words.size() == 2u)
+        {
+            if (words[1] == "off")
+            {
+                cmd.Text = "off";
+                cmd.Values[0] = 0.0f;
+                cmd.ValueCount = 1u;
+            }
+            else if (words[1] == "on")
+            {
+                cmd.Text = "on";
+                cmd.Values[0] = 1.0f;
+                cmd.ValueCount = 1u;
+            }
+            else
+            {
+                float val = 0.0f;
+                if (!ParseFloat(words[1], val))
+                {
+                    return std::unexpected(std::string{ "ssr: '" } + std::string{ words[1] } + "' is not a number or on/off");
+                }
+                cmd.Text = "on";
+                cmd.Values[0] = val;
+                cmd.ValueCount = 1u;
+            }
+        }
+        else
+        {
+            if (words[1] != "on" && words[1] != "off")
+            {
+                return std::unexpected(std::string{ "ssr: first argument must be on or off" });
+            }
+            float val = 0.0f;
+            if (!ParseFloat(words[2], val))
+            {
+                return std::unexpected(std::string{ "ssr: '" } + std::string{ words[2] } + "' is not a number");
+            }
+            cmd.Text = std::string{ words[1] };
+            cmd.Values[0] = (words[1] == "off") ? 0.0f : val;
+            cmd.ValueCount = 1u;
+        }
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseAutoExposure(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u || words.size() > 3u)
+        {
+            return std::unexpected(std::string{ "auto_exposure takes on|off or <speed> or on|off <speed>" });
+        }
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::AutoExposure;
+        if (words.size() == 2u)
+        {
+            if (words[1] == "off")
+            {
+                cmd.Text = "off";
+                cmd.Values[0] = 0.0f;
+                cmd.ValueCount = 1u;
+            }
+            else if (words[1] == "on")
+            {
+                cmd.Text = "on";
+                cmd.Values[0] = 1.0f;
+                cmd.ValueCount = 1u;
+            }
+            else
+            {
+                float val = 0.0f;
+                if (!ParseFloat(words[1], val))
+                {
+                    return std::unexpected(std::string{ "auto_exposure: '" } + std::string{ words[1] } + "' is not a number or on/off");
+                }
+                cmd.Text = "on";
+                cmd.Values[0] = val;
+                cmd.ValueCount = 1u;
+            }
+        }
+        else
+        {
+            if (words[1] != "on" && words[1] != "off")
+            {
+                return std::unexpected(std::string{ "auto_exposure: first argument must be on or off" });
+            }
+            float val = 0.0f;
+            if (!ParseFloat(words[2], val))
+            {
+                return std::unexpected(std::string{ "auto_exposure: '" } + std::string{ words[2] } + "' is not a number");
+            }
+            cmd.Text = std::string{ words[1] };
+            cmd.Values[0] = val;
+            cmd.ValueCount = 1u;
+        }
+        return cmd;
     }
 }

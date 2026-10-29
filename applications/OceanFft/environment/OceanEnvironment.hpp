@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_OCEAN_ENVIRONMENT_HPP
 
 #include "ExrLoader.hpp"
+#include "math/Math.hpp"
 #include "ResourceTypes.hpp"
 #include <vulkan/vulkan_core.h>
 
@@ -165,9 +166,21 @@ namespace ocean
         void RecordSkyBackground(
             rhi::CommandBuffer& cmd,
             rhi::GpuTimerBlock* timer_block,
+            const math::Float4x4& inv_view_proj,
+            const math::Float3& camera_pos,
+            float lod = 0.0f,
+            std::optional<VkSampleCountFlagBits> sample_count_override = std::nullopt);
+
+        void RecordSkyBackground(
+            rhi::CommandBuffer& cmd,
+            rhi::GpuTimerBlock* timer_block,
             const std::array<std::array<float, 4>, 4>& inv_view_proj,
             const std::array<float, 3>& camera_pos,
-            float lod = 0.0f);
+            float lod = 0.0f,
+            std::optional<VkSampleCountFlagBits> sample_count_override = std::nullopt)
+        {
+            RecordSkyBackground(cmd, timer_block, math::Float4x4{ inv_view_proj }, math::Float3{ camera_pos }, lod, sample_count_override);
+        }
 
     private:
         explicit OceanEnvironment(std::unique_ptr<OceanEnvironmentImpl>&& impl) noexcept;

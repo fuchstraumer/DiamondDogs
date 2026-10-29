@@ -875,6 +875,93 @@ DD_MATH_FORCEINLINE Quaternion Quaternion::Slerp(Quaternion from, Quaternion to,
     return Quaternion{ static_cast<Vector>(from) * fromWeight + static_cast<Vector>(target) * toWeight };
 }
 
+// ============================================================================
+// Half-precision float conversions (IEEE-754 round-to-nearest-even)
+// ============================================================================
+inline float HalfToFloat(uint16_t value) noexcept
+{
+    const uint32_t sign = (static_cast<uint32_t>(value) & 0x8000u) << 16u;
+    const uint32_t exponent = (static_cast<uint32_t>(value) >> 10u) & 0x1Fu;
+    const uint32_t mantissa = static_cast<uint32_t>(value) & 0x3FFu;
+
+    if (exponent == 0u)
+    {
+        // zero or denormal: mantissa * 2^-24
+        const float magnitude = std::ldexp(static_cast<float>(mantissa), -24);
+        return sign != 0u ? -magnitude : magnitude;
+    }
+
+    if (exponent == 31u)
+    {
+        return std::bit_cast<float>(sign | 0x7F800000u | (mantissa << 13u));
+    }
+
+    return std::bit_cast<float>(sign | ((exponent + 112u) << 23u) | (mantissa << 13u));
+}
+
+inline uint16_t FloatToHalf(float value) noexcept
+{
+    const uint32_t bits = std::bit_cast<uint32_t>(value);
+    const uint16_t sign = static_cast<uint16_t>((bits >> 16u) & 0x8000u);
+    const float magnitude = std::fabs(value);
+
+    if (std::isnan(value))
+    {
+        return static_cast<uint16_t>(sign | 0x7E00u);
+    }
+
+    if (magnitude >= 65520.0f)
+    {
+        return static_cast<uint16_t>(sign | 0x7C00u);
+    }
+
+    if (magnitude < 6.103515625e-05f)
+    {
+        // denormal: round to the nearest multiple of 2^-24
+        return static_cast<uint16_t>(sign | static_cast<uint16_t>(std::nearbyint(magnitude * 16777216.0f)));
+    }
+
+    // round to nearest even on the 13 dropped mantissa bits
+    const uint32_t magnitudeBits = bits & 0x7FFFFFFFu;
+    const uint32_t rounded = magnitudeBits + 0x0FFFu + ((magnitudeBits >> 13u) & 1u);
+    return static_cast<uint16_t>(sign | ((rounded - (112u << 23u)) >> 13u));
+}
+
+// ============================================================================
+// Frustum plane extraction
+// ============================================================================
+inline std::array<Float4, 6> ExtractFrustumPlanes(const Float4x4& view_proj, bool reverse_z) noexcept
+{
+    const Float4 r0 = view_proj.Row(0);
+    const Float4 r1 = view_proj.Row(1);
+    const Float4 r2 = view_proj.Row(2);
+    const Float4 r3 = view_proj.Row(3);
+
+    std::array<Float4, 6> planes{
+        r3 + r0, // Left:   row3 + row0
+        r3 - r0, // Right:  row3 - row0
+        r3 + r1, // Bottom: row3 + row1
+        r3 - r1, // Top:    row3 - row1
+        reverse_z ? (r3 - r2) : r2, // Near: reverse_z ? (z_clip <= w_clip) : (z_clip >= 0)
+        reverse_z ? r2 : (r3 - r2)  // Far:  reverse_z ? (z_clip >= 0) : (z_clip <= w_clip)
+    };
+
+    for (auto& plane : planes)
+    {
+        const float len = std::sqrt(plane.x * plane.x + plane.y * plane.y + plane.z * plane.z);
+        if (len > 1e-7f)
+        {
+            const float inv_len = 1.0f / len;
+            plane.x *= inv_len;
+            plane.y *= inv_len;
+            plane.z *= inv_len;
+            plane.w *= inv_len;
+        }
+    }
+
+    return planes;
+}
+
 } // namespace math
 
 // ============================================================================

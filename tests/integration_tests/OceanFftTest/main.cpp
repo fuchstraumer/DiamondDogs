@@ -10,6 +10,10 @@
 #include "RhiAssert.hpp"
 #include "RhiSystem.hpp"
 #include "ShaderLibrary.hpp"
+#include "ShaderManifestIndex.hpp"
+#include "OceanCdlod.hpp"
+#include "ExrLoader.hpp"
+#include "SourcePaths.hpp"
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
 #include <array>
@@ -129,6 +133,19 @@ namespace
                 return {};
             }
             std::memcpy(values.data(), static_cast<const std::byte*>(map->GetPointer()) + offset, count * sizeof(uint16_t));
+            (void)resources.UnmapBuffer(buffer, bytes, 0u)->WaitForCompletion(k_TimeoutNs);
+            return values;
+        }
+
+        [[nodiscard]] std::vector<uint32_t> ReadWords(uint64_t offset, uint64_t count) const
+        {
+            std::vector<uint32_t> values(count);
+            std::shared_ptr<PointerMessageReply> map = resources.MapBuffer(buffer, bytes, 0u);
+            if (map->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            {
+                return {};
+            }
+            std::memcpy(values.data(), static_cast<const std::byte*>(map->GetPointer()) + offset, count * sizeof(uint32_t));
             (void)resources.UnmapBuffer(buffer, bytes, 0u)->WaitForCompletion(k_TimeoutNs);
             return values;
         }
@@ -762,6 +779,311 @@ namespace
 
         return failures;
     }
+
+    [[nodiscard]] int32_t TestComputeCdlodMaxLevel()
+    {
+        int32_t failures = 0;
+        const auto check = [&](bool condition, std::string_view desc)
+        {
+            if (!condition)
+            {
+                std::cerr << std::format("[ComputeCdlodMaxLevel] FAIL: {}\n", desc);
+                ++failures;
+            }
+        };
+
+        const float worldExtent = 4096.0f;
+        const uint32_t baseGridCount = 64u;
+        const uint32_t fftSize = 512u;
+
+        // Test active cascade lengths from default ocean simulation settings
+        const std::array<float, ocean::k_CascadeCount> cascades{ 1024.0f, 238.0f, 55.4f, 12.9f, 3.0f };
+        for (size_t i = 0; i < cascades.size(); ++i)
+        {
+            const uint32_t level = ocean::ComputeCdlodMaxLevel(worldExtent, baseGridCount, fftSize, cascades[i], 9u);
+            check(level >= 1u && level <= 9u, std::format("cascade {} (length {} m) level {} outside [1, 9]", i, cascades[i], level));
+        }
+
+        // Expected levels for known inputs:
+        // cascade 0 (1024m): ratio = (4096*512)/(64*1024) = 32 -> log2(32) = 5
+        const uint32_t level1024 = ocean::ComputeCdlodMaxLevel(worldExtent, baseGridCount, fftSize, 1024.0f, 9u);
+        check(level1024 == 5u, std::format("level for 1024m expected 5, got {}", level1024));
+
+        // cascade 4 (3.0m): ratio = 2097152 / 192 = 10922.66 -> ceil(log2) = 14 -> clamped to 9
+        const uint32_t level3 = ocean::ComputeCdlodMaxLevel(worldExtent, baseGridCount, fftSize, 3.0f, 9u);
+        check(level3 == 9u, std::format("level for 3.0m expected 9, got {}", level3));
+
+        // Edge cases
+        check(ocean::ComputeCdlodMaxLevel(0.0f, baseGridCount, fftSize, 3.0f, 9u) == 9u, "zero world extent clamped to 9u");
+        check(ocean::ComputeCdlodMaxLevel(worldExtent, 0u, fftSize, 3.0f, 9u) == 9u, "zero base grid count clamped to 9u");
+        check(ocean::ComputeCdlodMaxLevel(worldExtent, baseGridCount, 0u, 3.0f, 9u) == 9u, "zero fft size clamped to 9u");
+        check(ocean::ComputeCdlodMaxLevel(worldExtent, baseGridCount, fftSize, -1.0f, 9u) == 9u, "negative cascade length clamped to 9u");
+
+        // Small ratio <= 1.0f returns 1u
+        check(ocean::ComputeCdlodMaxLevel(100.0f, 64u, 64u, 200.0f, 9u) == 1u, "ratio <= 1.0f expected 1u");
+
+        // Custom max allowed level clamping
+        check(ocean::ComputeCdlodMaxLevel(worldExtent, baseGridCount, fftSize, 3.0f, 6u) == 6u, "custom max 6u clamp");
+
+        // Default cap (11u) verification
+        check(ocean::ComputeCdlodMaxLevel(worldExtent, baseGridCount, fftSize, 3.0f) == 13u, "default max allowed level is 13u");
+        check(ocean::ComputeCdlodMaxLevel(0.0f, baseGridCount, fftSize, 3.0f) == 13u, "zero world extent clamped to 13u default");
+
+        if (failures == 0)
+        {
+            std::cout << "[ComputeCdlodMaxLevel] PASS: all cascade levels clamped correctly within [1, 9]\n";
+        }
+        return failures;
+    }
+
+    [[nodiscard]] int32_t TestShaderVariants(const TestContext& context)
+    {
+        int32_t failures = 0;
+        const auto check = [&](bool condition, std::string_view desc)
+        {
+            if (!condition)
+            {
+                std::cerr << std::format("[ShaderVariants] FAIL: {}\n", desc);
+                ++failures;
+            }
+        };
+
+        // 1. Module "Quadtree"
+        auto quadtreeIndexResult = context.Library.ModuleIndex("Quadtree");
+        if (!quadtreeIndexResult.has_value())
+        {
+            std::cerr << std::format("[ShaderVariants] FAIL: Module Quadtree: {}\n", rhi::ToString(quadtreeIndexResult.error()));
+            return 1;
+        }
+        const lodestone::ManifestIndex* quadtreeIndex = *quadtreeIndexResult;
+        const std::array<std::string_view, 1> updateEntry{ "QuadtreeUpdateCS" };
+        const std::array<std::string_view, 1> buildEntry{ "QuadtreeBuildIndirectArgsCS" };
+
+        // Quadtree scalar variant (QUADTREE_USE_WAVE_OPS = false)
+        auto quadScalarQuery = quadtreeIndex->Query().Where("QUADTREE_USE_WAVE_OPS", false);
+        auto varUpdateScalar = quadScalarQuery.SingleFor(updateEntry);
+        check(varUpdateScalar.has_value(), "QuadtreeUpdateCS resolves with QUADTREE_USE_WAVE_OPS=false");
+        auto varBuildScalar = quadScalarQuery.SingleFor(buildEntry);
+        check(varBuildScalar.has_value(), "QuadtreeBuildIndirectArgsCS resolves with QUADTREE_USE_WAVE_OPS=false");
+
+        if (varUpdateScalar.has_value())
+        {
+            auto prog = context.Library.CreateProgram(context.Device.Handle(), "Quadtree", *varUpdateScalar, updateEntry);
+            check(prog.has_value(), "CreateProgram QuadtreeUpdateCS (scalar) succeeded");
+        }
+        if (varBuildScalar.has_value())
+        {
+            auto prog = context.Library.CreateProgram(context.Device.Handle(), "Quadtree", *varBuildScalar, buildEntry);
+            check(prog.has_value(), "CreateProgram QuadtreeBuildIndirectArgsCS (scalar) succeeded");
+        }
+
+        // Quadtree wave variant (QUADTREE_USE_WAVE_OPS = true, wave size 32)
+        auto quadWaveQuery = quadtreeIndex->Query()
+            .Where("QUADTREE_USE_WAVE_OPS", true)
+            .Where("QUADTREE_WAVE_SIZE", 32u);
+        auto varUpdateWave = quadWaveQuery.SingleFor(updateEntry);
+        check(varUpdateWave.has_value(), "QuadtreeUpdateCS resolves with QUADTREE_USE_WAVE_OPS=true");
+        auto varBuildWave = quadWaveQuery.SingleFor(buildEntry);
+        check(varBuildWave.has_value(), "QuadtreeBuildIndirectArgsCS resolves with QUADTREE_USE_WAVE_OPS=true");
+
+        // 2. Module "OceanRender"
+        auto renderIndexResult = context.Library.ModuleIndex("OceanRender");
+        if (!renderIndexResult.has_value())
+        {
+            std::cerr << std::format("[ShaderVariants] FAIL: Module OceanRender: {}\n", rhi::ToString(renderIndexResult.error()));
+            return failures + 1;
+        }
+        const lodestone::ManifestIndex* renderIndex = *renderIndexResult;
+        constexpr std::array<std::string_view, 2> surfaceEntry{ "OceanSurfaceVS", "OceanSurfaceFS" };
+        constexpr std::array<std::string_view, 2> seabedEntry{ "SeabedVS", "SeabedFS" };
+
+        // OceanRender scalar variant (OCEAN_USE_WAVE_OPS = false)
+        auto renderScalarQuery = renderIndex->Query().Where("OCEAN_USE_WAVE_OPS", false);
+        auto varSurfaceScalar = renderScalarQuery.SingleFor(surfaceEntry);
+        check(varSurfaceScalar.has_value(), "OceanRender surface resolves with OCEAN_USE_WAVE_OPS=false");
+        auto varSeabedScalar = renderScalarQuery.SingleFor(seabedEntry);
+        check(varSeabedScalar.has_value(), "OceanRender seabed resolves with OCEAN_USE_WAVE_OPS=false");
+
+        if (varSurfaceScalar.has_value())
+        {
+            auto prog = context.Library.CreateProgram(context.Device.Handle(), "OceanRender", *varSurfaceScalar, surfaceEntry);
+            check(prog.has_value(), "CreateProgram OceanSurface (scalar) succeeded");
+        }
+        if (varSeabedScalar.has_value())
+        {
+            auto prog = context.Library.CreateProgram(context.Device.Handle(), "OceanRender", *varSeabedScalar, seabedEntry);
+            check(prog.has_value(), "CreateProgram Seabed (scalar) succeeded");
+        }
+
+        // OceanRender wave variant (OCEAN_USE_WAVE_OPS = true, wave size 32)
+        auto renderWaveQuery = renderIndex->Query()
+            .Where("OCEAN_USE_WAVE_OPS", true)
+            .Where("OCEAN_WAVE_SIZE", 32u);
+        auto varSurfaceWave = renderWaveQuery.SingleFor(surfaceEntry);
+        check(varSurfaceWave.has_value(), "OceanRender surface resolves with OCEAN_USE_WAVE_OPS=true");
+        auto varSeabedWave = renderWaveQuery.SingleFor(seabedEntry);
+        check(varSeabedWave.has_value(), "OceanRender seabed resolves with OCEAN_USE_WAVE_OPS=true");
+
+        if (failures == 0)
+        {
+            std::cout << "[ShaderVariants] PASS: Quadtree and OceanRender capability variants resolve cleanly via ShaderLibrary\n";
+        }
+        return failures;
+    }
+
+    [[nodiscard]] int32_t TestOceanCdlod(const TestContext& context)
+    {
+        int32_t failures = 0;
+        const auto check = [&](bool condition, std::string_view desc)
+        {
+            if (!condition)
+            {
+                std::cerr << std::format("[OceanCdlod] FAIL: {}\n", desc);
+                ++failures;
+            }
+        };
+
+        ocean::OceanCdlodSettings settings{};
+        settings.WorldExtent = 4096.0f;
+        settings.MaxLevel = 9u;
+        settings.BaseGridCount = 64u;
+        settings.MaxSelectedPatches = 16384u;
+        settings.MaxNodes = 131072u;
+
+        auto cdlodResult = ocean::OceanCdlod::Create(context.Device, context.Resources, context.Library, 1u, settings);
+        if (!cdlodResult.has_value())
+        {
+            std::cerr << std::format("[OceanCdlod] creation failed: {}\n", cdlodResult.error());
+            return 1;
+        }
+
+        auto& cdlod = **cdlodResult;
+        check(cdlod.GridVertexBuffer().VkHandle != 0u, "GridVertexBuffer is valid");
+        check(cdlod.GridIndexBuffer().VkHandle != 0u, "GridIndexBuffer is valid");
+        check(cdlod.SelectedPatchesBuffer().VkHandle != 0u, "SelectedPatchesBuffer is valid");
+        check(cdlod.IndirectDrawBuffer().VkHandle != 0u, "IndirectDrawBuffer is valid");
+        check(cdlod.IndexCount() == 64u * 64u * 6u, std::format("IndexCount expected 24576, got {}", cdlod.IndexCount()));
+
+        ocean::OceanCdlodCameraState camera{};
+        camera.CameraPosition = { 0.0f, 25.0f, -100.0f };
+        for (int i = 0; i < 6; ++i)
+        {
+            camera.FrustumPlanes[i] = { 0.0f, 0.0f, 0.0f, 10000.0f };
+        }
+
+        const uint64_t indirectBytes = sizeof(VkDrawIndexedIndirectCommand);
+        Readback readback(context.Resources, indirectBytes);
+
+        const bool submitted = readback.Valid() && Submit(context.Device, [&](rhi::CommandBuffer& cmd)
+        {
+            cdlod.RecordUpdate(cmd, 0u, camera, nullptr);
+            ComputeToCopyBarrier(cmd);
+            const rhi::BufferCopy region{ 0u, 0u, indirectBytes };
+            cmd.CopyBuffer(rhi::BufferHandle{ cdlod.IndirectDrawBuffer().VkHandle }, readback.Handle(), std::span{ &region, 1 });
+            CopyToHostBarrier(cmd);
+        });
+        check(submitted, "RecordUpdate dispatch finished without GPU error");
+
+        if (submitted)
+        {
+            const std::vector<uint32_t> args = readback.ReadWords(0u, 5u);
+            check(args.size() == 5u, "readback args size is 5 words");
+            if (args.size() == 5u)
+            {
+                check(args[0] == 64u * 64u * 6u, std::format("indirect indexCount expected 24576, got {}", args[0]));
+                check(args[1] > 0u, std::format("indirect instanceCount (selected patches) expected > 0, got {}", args[1]));
+            }
+        }
+
+        if (failures == 0)
+        {
+            std::cout << "[OceanCdlod] PASS: buffers allocated, quadtree updated, indirect args generated cleanly\n";
+        }
+        return failures;
+    }
+
+    [[nodiscard]] int32_t TestExrLoader()
+    {
+        int32_t failures = 0;
+        const auto check = [&](bool condition, std::string_view desc)
+        {
+            if (!condition)
+            {
+                std::cerr << std::format("[ExrLoader] FAIL: {}\n", desc);
+                ++failures;
+            }
+        };
+
+        // 1. Math regression check: EvaluateShIrradiance
+        // L0 isotropic test: sh[0] = { 2.0f, 3.0f, 4.0f, 1.0f }, rest 0
+        ocean::SphericalHarmonicsL2 sh{};
+        sh[0] = { 2.0f, 3.0f, 4.0f, 1.0f };
+        constexpr float Y0 = 0.28209479f;
+        const std::array<std::array<float, 3>, 4> testNormals{
+            std::array<float, 3>{ 1.0f, 0.0f, 0.0f },
+            std::array<float, 3>{ 0.0f, 1.0f, 0.0f },
+            std::array<float, 3>{ 0.0f, 0.0f, 1.0f },
+            std::array<float, 3>{ 0.57735f, 0.57735f, 0.57735f }
+        };
+        for (const auto& n : testNormals)
+        {
+            const auto irr = ocean::EvaluateShIrradiance(sh, n);
+            check(std::abs(irr[0] - 2.0f * Y0) < 1e-4f, "SH L0 isotropic R match");
+            check(std::abs(irr[1] - 3.0f * Y0) < 1e-4f, "SH L0 isotropic G match");
+            check(std::abs(irr[2] - 4.0f * Y0) < 1e-4f, "SH L0 isotropic B match");
+        }
+
+        // L1 directional test: sh[1] (Y-aligned)
+        ocean::SphericalHarmonicsL2 shY{};
+        shY[0] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        shY[1] = { 2.0f, 2.0f, 2.0f, 1.0f };
+        const auto irrUp = ocean::EvaluateShIrradiance(shY, { 0.0f, 1.0f, 0.0f });
+        const auto irrDown = ocean::EvaluateShIrradiance(shY, { 0.0f, -1.0f, 0.0f });
+        check(irrUp[0] > irrDown[0], "SH L1 upper hemisphere irradiance > lower hemisphere");
+        check(irrDown[0] >= 0.0f && irrDown[1] >= 0.0f && irrDown[2] >= 0.0f, "SH irradiance clamped non-negative");
+
+        // 2. EXR loading regression check
+        const std::filesystem::path exrPath = DiamondDogs::GetSourceRelativePath("third_party/basis_universal/test_files/memorial.exr");
+        if (std::filesystem::exists(exrPath))
+        {
+            ocean::ExrLoadOptions options{};
+            options.TargetMaxWidth = 1024u;
+            auto result = ocean::LoadExrEnvironmentMap(exrPath, options);
+            if (!result.has_value())
+            {
+                check(false, std::format("LoadExrEnvironmentMap failed: {}", result.error()));
+            }
+            else
+            {
+                check(result->Width > 0u && result->Height > 0u, "EXR dimensions valid");
+                check(result->PixelsFp16.size() == static_cast<size_t>(result->Width) * result->Height * 4u, "FP16 pixel count matches dimensions");
+
+                const float dirLen = std::sqrt(
+                    result->DominantLightDirection[0] * result->DominantLightDirection[0] +
+                    result->DominantLightDirection[1] * result->DominantLightDirection[1] +
+                    result->DominantLightDirection[2] * result->DominantLightDirection[2]);
+                check(std::abs(dirLen - 1.0f) < 1e-2f, std::format("DominantLightDirection is unit length (got {})", dirLen));
+                check(result->DominantLightDirection[1] >= 0.0f, "Dominant light in upper hemisphere (+Y >= 0)");
+                check(result->DominantLightRadiance[0] >= 0.0f && result->DominantLightRadiance[1] >= 0.0f && result->DominantLightRadiance[2] >= 0.0f,
+                      "Dominant light radiance is non-negative");
+
+                check(result->SphericalHarmonics[0][0] > 0.0f && result->SphericalHarmonics[0][1] > 0.0f && result->SphericalHarmonics[0][2] > 0.0f,
+                      "EXR L0 diffuse coefficient is strictly positive");
+                const auto zenithIrr = ocean::EvaluateShIrradiance(result->SphericalHarmonics, { 0.0f, 1.0f, 0.0f });
+                check(zenithIrr[0] > 0.0f && zenithIrr[1] > 0.0f && zenithIrr[2] > 0.0f, "EXR zenith diffuse irradiance is positive");
+            }
+        }
+        else
+        {
+            std::cerr << std::format("[ExrLoader] WARNING: test file not found at '{}'\n", exrPath.string());
+        }
+
+        if (failures == 0)
+        {
+            std::cout << "[ExrLoader] PASS: L2 SH irradiance and dominant light extraction match reference expectations\n";
+        }
+        return failures;
+    }
 }
 
 int main()
@@ -782,10 +1104,14 @@ int main()
     }
 
     int32_t failures = 0;
+    failures += TestComputeCdlodMaxLevel();
+    failures += TestExrLoader();
     {
         ResourceContext resources;
         resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
         const TestContext context{ *rhiSystem->GetDevice(), resources, **library, ocean::PickWaveSize(*rhiSystem->GetDevice()) };
+        failures += TestShaderVariants(context);
+        failures += TestOceanCdlod(context);
         if (context.WaveSize == 0u)
         {
             std::cout << "This device can't run the wave-op variants (subgroup size, size control or shuffles): testing without wave ops only\n";

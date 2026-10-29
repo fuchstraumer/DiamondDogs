@@ -45,11 +45,11 @@ namespace ocean
     {
         std::array<std::array<float, 4>, 6> FrustumPlanes{};
         std::array<float, 3> CameraPosition{};
-        float WorldExtent{ 4096.0f };
+        float WorldExtent{ 131072.0f };
         std::array<float, 2> RootCenter{};
         float MaxWaveHeight{ 20.0f };
         float MorphStartRatio{ 0.65f };
-        uint32_t MaxLevel{ 9u };
+        uint32_t MaxLevel{ 13u };
         uint32_t BaseGridCount{ 64u };
         float LodDistanceScale{ 1.4f };
         uint32_t MaxNodes{ 131072u };
@@ -66,10 +66,10 @@ namespace ocean
 
     struct OceanCdlodSettings
     {
-        float WorldExtent{ 4096.0f };
+        float WorldExtent{ 131072.0f };
         float MaxWaveHeight{ 20.0f };
         float MorphStartRatio{ 0.65f };
-        uint32_t MaxLevel{ 9u };
+        uint32_t MaxLevel{ 13u };
         uint32_t BaseGridCount{ 64u };
         float LodDistanceScale{ 1.4f };
         uint32_t MaxSelectedPatches{ 16384u };
@@ -88,11 +88,11 @@ namespace ocean
         uint32_t base_grid_count,
         uint32_t fft_size,
         float min_cascade_length,
-        uint32_t max_allowed_level = 9u) noexcept
+        uint32_t max_allowed_level = 13u) noexcept
     {
         if (base_grid_count == 0u || fft_size == 0u || min_cascade_length <= 0.0f || world_extent <= 0.0f)
         {
-            return 9u;
+            return max_allowed_level;
         }
         const float ratio = (world_extent * static_cast<float>(fft_size)) /
                             (static_cast<float>(base_grid_count) * min_cascade_length);

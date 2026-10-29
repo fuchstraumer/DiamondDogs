@@ -106,15 +106,20 @@ lodestone_add_shader_cook(ocean_fft_shaders
     TARGETS spirv
     POLICY_FILE "${OCEAN_FFT_SHADER_DIR}/OceanFftPolicy.toml"
     INCLUDE_DIRS "${OCEAN_FFT_GENERATED_SHADER_DIR}"
+                 "${PROJECT_SOURCE_DIR}/assets/shaders/common/Color"
+                 "${CMAKE_BINARY_DIR}/generated/shaders/Color"
+                 "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean"
     OPTIONS --O3 --g3
     MODULES "${OCEAN_FFT_SHADER_DIR}/OceanFft.slang"
             "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanRender.slang"
             "${PROJECT_SOURCE_DIR}/assets/shaders/compute/Quadtree/Quadtree.slang"
             "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanEnvironment.slang"
+            "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanAtmosphere.slang"
+            "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean/OceanDeferred.slang"
             "${GPU_PYRAMID_SHADER_MODULE}")
 set_target_properties(ocean_fft_shaders PROPERTIES FOLDER "Applications/OceanFft")
-# the cook reads OceanFftGenerated.slang, so the generator runs first
-add_dependencies(ocean_fft_shaders ocean_fft_support_data)
+# the cook reads OceanFftGenerated.slang and ddColorGenerated.slang, so the generators run first
+add_dependencies(ocean_fft_shaders ocean_fft_support_data color_pipe_shader_data)
 
 add_library(ocean_simulation STATIC
     "simulation/OceanSimulation.cpp"
@@ -170,6 +175,8 @@ add_executable(OceanFft
     "environment/ExrLoader.hpp"
     "environment/OceanEnvironment.cpp"
     "environment/OceanEnvironment.hpp"
+    "environment/OceanAtmosphere.cpp"
+    "environment/OceanAtmosphere.hpp"
     "${DIAMOND_DOGS_TEST_FIXTURES}/VulkanScene.cpp"
     "${DIAMOND_DOGS_TEST_FIXTURES}/VulkanScene.hpp"
     "${DIAMOND_DOGS_TEST_FIXTURES}/FrameLimit.cpp"

@@ -18,8 +18,12 @@ SeabedVaryings SeabedVS(uint vertexId : SV_VertexID, uniform OceanGridParameters
     const float2 corner = GridCorner(vertexId, Grid.Resolution, quad);
     const float2 xz = Grid.Origin + (float2(quad) + corner) * (Grid.Size / float(Grid.Resolution));
 
+    const float2 dXz = xz - View.CameraPositionTime.xz;
+    const float curveDrop = -0.5f * dot(dXz, dXz) / 6371000.0f;
+    const float3 worldPosition = float3(xz.x, -View.SunDirectionSeabedDepth.w + curveDrop, xz.y);
+
     SeabedVaryings output;
-    output.WorldPosition = float3(xz.x, -View.SunDirectionSeabedDepth.w, xz.y);
+    output.WorldPosition = worldPosition;
     output.Position = WorldToClip(output.WorldPosition);
     return output;
 }

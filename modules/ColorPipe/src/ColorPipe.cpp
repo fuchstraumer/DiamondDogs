@@ -314,6 +314,11 @@ namespace color
         return MakeTargetView(impl->Scene, CommonFormats::RGBA16_Float, impl->Width, impl->Height);
     }
 
+    GraphicsResource ColorPipe::SceneResource() const noexcept
+    {
+        return impl->Scene;
+    }
+
     ColorTargetView ColorPipe::UiTarget() const noexcept
     {
         return MakeTargetView(impl->Ui, CommonFormats::RGBA8_UNorm, impl->Width, impl->Height);
@@ -684,8 +689,8 @@ namespace color
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
-            // TransferDestination lets a test fill the target
-            info.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvFragmentShader | ImageUsageBits::TransferDestination;
+            // TransferDestination lets a test fill the target, UavComputeShader allows storage write (TAA resolve)
+            info.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvFragmentShader | ImageUsageBits::TransferDestination | ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader;
             info.Type = ImageType::Type2D;
             info.Format = format;
             info.Width = width;

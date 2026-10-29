@@ -1,5 +1,7 @@
 #include "ShaderObjectState.hpp"
 #include "vulkan/vulkan_core.h"
+#include <algorithm>
+#include <array>
 #include <stdexcept>
 
 namespace
@@ -79,23 +81,27 @@ void SetShaderObjectDrawState(VkCommandBuffer command_buffer, const ShaderObject
     pfn_vkCmdSetAlphaToCoverageEnableEXT(command_buffer, VK_FALSE);
     pfn_vkCmdSetAlphaToOneEnableEXT(command_buffer, VK_FALSE);
 
+    const uint32_t attachmentCount = std::clamp(state.ColorAttachmentCount, 1u, 4u);
     const VkBool32 blendEnable = state.AlphaBlend ? VK_TRUE : VK_FALSE;
-    pfn_vkCmdSetColorBlendEnableEXT(command_buffer, 0, 1, &blendEnable);
+    const std::array<VkBool32, 4> blendEnables{ blendEnable, blendEnable, blendEnable, blendEnable };
+    pfn_vkCmdSetColorBlendEnableEXT(command_buffer, 0, attachmentCount, blendEnables.data());
 
     constexpr VkColorBlendEquationEXT k_AlphaBlend
     {
         VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK_BLEND_OP_ADD,
         VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_BLEND_OP_ADD
     };
-    pfn_vkCmdSetColorBlendEquationEXT(command_buffer, 0, 1, &k_AlphaBlend);
+    const std::array<VkColorBlendEquationEXT, 4> blendEquations{ k_AlphaBlend, k_AlphaBlend, k_AlphaBlend, k_AlphaBlend };
+    pfn_vkCmdSetColorBlendEquationEXT(command_buffer, 0, attachmentCount, blendEquations.data());
     
     constexpr VkColorComponentFlags k_WriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    pfn_vkCmdSetColorWriteMaskEXT(command_buffer, 0, 1, &k_WriteMask);
+    const std::array<VkColorComponentFlags, 4> writeMasks{ k_WriteMask, k_WriteMask, k_WriteMask, k_WriteMask };
+    pfn_vkCmdSetColorWriteMaskEXT(command_buffer, 0, attachmentCount, writeMasks.data());
     pfn_vkCmdSetLogicOpEnableEXT(command_buffer, VK_FALSE);
 
     vkCmdSetDepthTestEnable(command_buffer, state.DepthTest ? VK_TRUE : VK_FALSE);
     vkCmdSetDepthWriteEnable(command_buffer, state.DepthWrite ? VK_TRUE : VK_FALSE);
-    vkCmdSetDepthCompareOp(command_buffer, VK_COMPARE_OP_LESS);
+    vkCmdSetDepthCompareOp(command_buffer, VK_COMPARE_OP_GREATER_OR_EQUAL);
     vkCmdSetDepthBoundsTestEnable(command_buffer, VK_FALSE);
     vkCmdSetStencilTestEnable(command_buffer, VK_FALSE);
 }
