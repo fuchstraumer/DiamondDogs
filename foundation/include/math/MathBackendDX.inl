@@ -99,18 +99,22 @@ DD_MATH_FORCEINLINE Vector::Vector() noexcept
     : data{ DirectX::XMVectorZero() }
 {
 }
+
 DD_MATH_FORCEINLINE Vector::Vector(float x, float y, float z, float w) noexcept
     : data{ DirectX::XMVectorSet(x, y, z, w) }
 {
 }
+
 DD_MATH_FORCEINLINE Vector::Vector(float x, float y, float z) noexcept
     : data{ DirectX::XMVectorSet(x, y, z, 0.0f) }
 {
 }
+
 DD_MATH_FORCEINLINE Vector::Vector(float x, float y) noexcept
     : data{ DirectX::XMVectorSet(x, y, 0.0f, 0.0f) }
 {
 }
+
 DD_MATH_FORCEINLINE Vector::Vector(float scalar) noexcept
     : data{ DirectX::XMVectorReplicate(scalar) }
 {
@@ -121,14 +125,17 @@ DD_MATH_FORCEINLINE float Vector::x() const noexcept
 {
     return DirectX::XMVectorGetX(data);
 }
+
 DD_MATH_FORCEINLINE float Vector::y() const noexcept
 {
     return DirectX::XMVectorGetY(data);
 }
+
 DD_MATH_FORCEINLINE float Vector::z() const noexcept
 {
     return DirectX::XMVectorGetZ(data);
 }
+
 DD_MATH_FORCEINLINE float Vector::w() const noexcept
 {
     return DirectX::XMVectorGetW(data);
@@ -139,13 +146,45 @@ DD_MATH_FORCEINLINE Vector Vector::Zero() noexcept
 {
     return Vector{ DirectX::XMVectorZero() };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Replicate(float scalar) noexcept
 {
     return Vector{ DirectX::XMVectorReplicate(scalar) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Identity() noexcept
 {
     return Vector{ DirectX::XMVectorSet(1.0f, 1.0f, 1.0f, 1.0f) };
+}
+
+DD_MATH_FORCEINLINE Vector Vector::Up() noexcept
+{
+    return Vector{ DirectX::XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f) };
+}
+
+DD_MATH_FORCEINLINE Vector Vector::Down() noexcept
+{
+    return Vector{ DirectX::XMVectorSet(0.0f, -1.0f, 0.0f, 0.0f) };
+}
+
+DD_MATH_FORCEINLINE Vector Vector::Left() noexcept
+{
+    return Vector{ DirectX::XMVectorSet(-1.0f, 0.0f, 0.0f, 0.0f) };
+}
+
+DD_MATH_FORCEINLINE Vector Vector::Right() noexcept
+{
+    return Vector{ DirectX::XMVectorSet(1.0f, 0.0f, 0.0f, 0.0f) };
+}
+
+DD_MATH_FORCEINLINE Vector Vector::Forward() noexcept
+{
+    return Vector{ DirectX::XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f) };
+}
+
+DD_MATH_FORCEINLINE Vector Vector::Backward() noexcept
+{
+    return Vector{ DirectX::XMVectorSet(0.0f, 0.0f, -1.0f, 0.0f) };
 }
 
 // Arithmetic operators
@@ -153,26 +192,32 @@ DD_MATH_FORCEINLINE Vector Vector::operator+(Vector rhs) const noexcept
 {
     return Vector{ DirectX::XMVectorAdd(data, rhs.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator-(Vector rhs) const noexcept
 {
     return Vector{ DirectX::XMVectorSubtract(data, rhs.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator*(Vector rhs) const noexcept
 {
     return Vector{ DirectX::XMVectorMultiply(data, rhs.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator/(Vector rhs) const noexcept
 {
     return Vector{ DirectX::XMVectorDivide(data, rhs.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator*(float scalar) const noexcept
 {
     return Vector{ DirectX::XMVectorScale(data, scalar) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator/(float scalar) const noexcept
 {
     return Vector{ DirectX::XMVectorDivide(data, DirectX::XMVectorReplicate(scalar)) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::operator-() const noexcept
 {
     return Vector{ DirectX::XMVectorNegate(data) };
@@ -190,11 +235,13 @@ DD_MATH_FORCEINLINE Vector& Vector::operator+=(Vector rhs) noexcept
     data = DirectX::XMVectorAdd(data, rhs.data);
     return *this;
 }
+
 DD_MATH_FORCEINLINE Vector& Vector::operator-=(Vector rhs) noexcept
 {
     data = DirectX::XMVectorSubtract(data, rhs.data);
     return *this;
 }
+
 DD_MATH_FORCEINLINE Vector& Vector::operator*=(Vector rhs) noexcept
 {
     data = DirectX::XMVectorMultiply(data, rhs.data);
@@ -205,11 +252,13 @@ DD_MATH_FORCEINLINE Vector& Vector::operator/=(Vector rhs) noexcept
     data = DirectX::XMVectorDivide(data, rhs.data);
     return *this;
 }
+
 DD_MATH_FORCEINLINE Vector& Vector::operator*=(float scalar) noexcept
 {
     data = DirectX::XMVectorScale(data, scalar);
     return *this;
 }
+
 // True divide, not a reciprocal multiply: wasm has no scale-by-reciprocal, and matching keeps the
 // two backends agreeing to the last bit.
 DD_MATH_FORCEINLINE Vector& Vector::operator/=(float scalar) noexcept
@@ -222,10 +271,12 @@ DD_MATH_FORCEINLINE Vector Vector::Reciprocal() const noexcept
 {
     return Vector{ DirectX::XMVectorReciprocal(data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Sqrt() const noexcept
 {
     return Vector{ DirectX::XMVectorSqrt(data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::ReciprocalSqrt() const noexcept
 {
     return Vector{ DirectX::XMVectorReciprocalSqrt(data) };
@@ -336,26 +387,32 @@ DD_MATH_FORCEINLINE Vector Vector::Clamp(Vector min, Vector max) const noexcept
 {
     return Vector{ DirectX::XMVectorClamp(data, min.data, max.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Saturate() const noexcept
 {
     return Vector{ DirectX::XMVectorSaturate(data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Abs() const noexcept
 {
     return Vector{ DirectX::XMVectorAbs(data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Min(Vector other) const noexcept
 {
     return Vector{ DirectX::XMVectorMin(data, other.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Max(Vector other) const noexcept
 {
     return Vector{ DirectX::XMVectorMax(data, other.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Pow(float exponent) const noexcept
 {
     return Vector{ DirectX::XMVectorPow(data, DirectX::XMVectorReplicate(exponent)) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Pow(Vector exponent) const noexcept
 {
     return Vector{ DirectX::XMVectorPow(data, exponent.data) };
@@ -365,10 +422,12 @@ DD_MATH_FORCEINLINE Vector Vector::Abs(Vector vec) noexcept
 {
     return Vector{ DirectX::XMVectorAbs(vec.data) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Pow(Vector base, float exponent) noexcept
 {
     return Vector{ DirectX::XMVectorPow(base.data, DirectX::XMVectorReplicate(exponent)) };
 }
+
 DD_MATH_FORCEINLINE Vector Vector::Pow(Vector base, Vector exponent) noexcept
 {
     return Vector{ DirectX::XMVectorPow(base.data, exponent.data) };
@@ -559,10 +618,12 @@ DD_MATH_FORCEINLINE Vector ToVector(const Float2& in) noexcept
 {
     return Vector{ DirectX::XMVectorSet(in.x, in.y, 0.0f, 0.0f) };
 }
+
 DD_MATH_FORCEINLINE Vector ToVector(const Float3& in) noexcept
 {
     return Vector{ DirectX::XMVectorSet(in.x, in.y, in.z, 0.0f) };
 }
+
 DD_MATH_FORCEINLINE Vector ToVector(const Float4& in) noexcept
 {
     return Vector{ DirectX::XMVectorSet(in.x, in.y, in.z, in.w) };
@@ -632,6 +693,7 @@ DD_MATH_FORCEINLINE Vector Matrix::GetRow(size_t index) const noexcept
 {
     return Vector{ data.r[index] };
 }
+
 DD_MATH_FORCEINLINE void Matrix::SetRow(size_t index, Vector row) noexcept
 {
     data.r[index] = row.Data();
@@ -765,14 +827,17 @@ DD_MATH_FORCEINLINE Matrix Matrix::Translation(float x, float y, float z) noexce
 {
     return Matrix{ DirectX::XMMatrixTranslation(x, y, z) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::Scale(Vector scale) noexcept
 {
     return Matrix{ DirectX::XMMatrixScalingFromVector(scale.Data()) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::Scale(float x, float y, float z) noexcept
 {
     return Matrix{ DirectX::XMMatrixScaling(x, y, z) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::Scale(float uniform_scale) noexcept
 {
     return Matrix{ DirectX::XMMatrixScaling(uniform_scale, uniform_scale, uniform_scale) };
@@ -782,18 +847,22 @@ DD_MATH_FORCEINLINE Matrix Matrix::RotationX(float radians) noexcept
 {
     return Matrix{ DirectX::XMMatrixRotationX(radians) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::RotationY(float radians) noexcept
 {
     return Matrix{ DirectX::XMMatrixRotationY(radians) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::RotationZ(float radians) noexcept
 {
     return Matrix{ DirectX::XMMatrixRotationZ(radians) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::RotationAxis(Vector axis, float radians) noexcept
 {
     return Matrix{ DirectX::XMMatrixRotationAxis(axis.Data(), radians) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::RotationQuaternion(Quaternion rotation) noexcept
 {
     return Matrix{ DirectX::XMMatrixRotationQuaternion(rotation.Data()) };
@@ -846,6 +915,7 @@ DD_MATH_FORCEINLINE Matrix Matrix::LookAt(Vector eye, Vector target, Vector up) 
 {
     return Matrix{ DirectX::XMMatrixLookAtRH(eye.Data(), target.Data(), up.Data()) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::LookTo(Vector eye, Vector direction, Vector up) noexcept
 {
     return Matrix{ DirectX::XMMatrixLookToRH(eye.Data(), direction.Data(), up.Data()) };
@@ -858,6 +928,7 @@ DD_MATH_FORCEINLINE Matrix Matrix::Perspective(float fov_y_radians,
 {
     return Matrix{ DirectX::XMMatrixPerspectiveFovLH(fov_y_radians, aspect_ratio, near_plane, far_plane) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::PerspectiveLH(float fov_y_radians,
                                                  float aspect_ratio,
                                                  float near_plane,
@@ -865,6 +936,7 @@ DD_MATH_FORCEINLINE Matrix Matrix::PerspectiveLH(float fov_y_radians,
 {
     return Matrix{ DirectX::XMMatrixPerspectiveFovLH(fov_y_radians, aspect_ratio, near_plane, far_plane) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::PerspectiveRH(float fov_y_radians,
                                                  float aspect_ratio,
                                                  float near_plane,
@@ -872,6 +944,7 @@ DD_MATH_FORCEINLINE Matrix Matrix::PerspectiveRH(float fov_y_radians,
 {
     return Matrix{ DirectX::XMMatrixPerspectiveFovRH(fov_y_radians, aspect_ratio, near_plane, far_plane) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::Orthographic(float width,
                                                 float height,
                                                 float near_plane,
@@ -879,6 +952,7 @@ DD_MATH_FORCEINLINE Matrix Matrix::Orthographic(float width,
 {
     return Matrix{ DirectX::XMMatrixOrthographicLH(width, height, near_plane, far_plane) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::OrthographicLH(float width,
                                                   float height,
                                                   float near_plane,
@@ -886,6 +960,7 @@ DD_MATH_FORCEINLINE Matrix Matrix::OrthographicLH(float width,
 {
     return Matrix{ DirectX::XMMatrixOrthographicLH(width, height, near_plane, far_plane) };
 }
+
 DD_MATH_FORCEINLINE Matrix Matrix::OrthographicRH(float width,
                                                   float height,
                                                   float near_plane,
