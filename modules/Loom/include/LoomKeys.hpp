@@ -71,6 +71,15 @@ namespace loom
     {
         std::string_view Name;
         uint64_t Hash{ 0u };
+        constexpr bool operator==(const KeyRef& other) const noexcept
+        {
+            return Hash == other.Hash;
+        }
+
+        constexpr bool operator!=(const KeyRef& other) const noexcept
+        {
+            return !(*this == other);
+        }
     };
 
     // tag types for disambiguating keys on type, so we can check at compile-time
