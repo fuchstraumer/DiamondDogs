@@ -329,6 +329,8 @@ public:
     SWIZZLE_4(y, y, y, y)
     SWIZZLE_4(z, z, z, z)
     SWIZZLE_4(w, w, w, w)
+    SWIZZLE_4(b, g, r, a)
+    SWIZZLE_4(a, r, g, b)
     SWIZZLE_3(x, y, z)
     SWIZZLE_3(r, g, b)
     SWIZZLE_2(x, y)
@@ -336,7 +338,7 @@ public:
 
     union
     {
-        struct { float x{ 0.0f }, y{ 0.0f }, z{ 0.0f }, w{ 0.0f }; };
+        struct { float x, y, z, w; };
         struct { float r, g, b, a; };
         struct { float u, v, s, t; };
     };
@@ -1140,7 +1142,6 @@ public:
 
     constexpr void SetRow(size_t index, const Float4& row) noexcept;
 
-    [[nodiscard]] constexpr Float4 Column(size_t index) const noexcept;
     constexpr void SetColumn(size_t index, const Float4& column) noexcept;
 
     template <class Self>

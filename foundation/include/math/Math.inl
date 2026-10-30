@@ -328,21 +328,11 @@ constexpr Float3x3::Float3x3(const Float4x4& mat4x4) noexcept
 {
 }
 
-constexpr Float3 Float3x3::Row(size_t index) const noexcept
-{
-    return Float3(m[index][0], m[index][1], m[index][2]);
-}
-
 constexpr void Float3x3::SetRow(size_t index, const Float3& row) noexcept
 {
     m[index][0] = row.x;
     m[index][1] = row.y;
     m[index][2] = row.z;
-}
-
-constexpr Float3 Float3x3::Column(size_t index) const noexcept
-{
-    return Float3(m[0][index], m[1][index], m[2][index]);
 }
 
 constexpr void Float3x3::SetColumn(size_t index, const Float3& column) noexcept
@@ -382,21 +372,11 @@ constexpr Float3x3 Float3x3::Zero() noexcept
 // Matrix4x3 Storage Implementation
 // ================================
 
-constexpr Float3 Float4x3::Row(size_t index) const noexcept
-{
-    return Float3(m[index][0], m[index][1], m[index][2]);
-}
-
 constexpr void Float4x3::SetRow(size_t index, const Float3& row) noexcept
 {
     m[index][0] = row.x;
     m[index][1] = row.y;
     m[index][2] = row.z;
-}
-
-constexpr Float4 Float4x3::Column(size_t index) const noexcept
-{
-    return Float4(m[0][index], m[1][index], m[2][index], m[3][index]);
 }
 
 constexpr void Float4x3::SetColumn(size_t index, const Float4& column) noexcept
@@ -449,7 +429,6 @@ constexpr Float4x4::Float4x4(const Float3x3& mat3x3) noexcept
 {
 }
 
-
 constexpr void Float4x4::SetRow(size_t index, const Float4& row) noexcept
 {
     m[index][0] = row.x;
@@ -457,12 +436,6 @@ constexpr void Float4x4::SetRow(size_t index, const Float4& row) noexcept
     m[index][2] = row.z;
     m[index][3] = row.w;
 }
-
-constexpr Float4 Float4x4::Column(size_t index) const noexcept
-{
-    return { m[0][index], m[1][index], m[2][index], m[3][index] };
-}
-
 
 constexpr void Float4x4::SetColumn(size_t index, const Float4& column) noexcept
 {
