@@ -1,4 +1,6 @@
 #pragma once
+#include <numbers>
+
 #include "math/Math.hpp"
 // Implementation file for Math.hpp. This file holds the *portable* bits -
 // storage-type (Float2/3/4, Float3x3/4x3/4x4) implementations
@@ -315,6 +317,16 @@ constexpr Float4 operator*(float scalar, const Float4& vec) noexcept
     return vec * scalar;
 }
 
+constexpr bool Float4::AnyOf(float value) const noexcept
+{
+    return x == value || y == value || z == value || w == value;
+}
+
+constexpr bool Float4::AllOf(float value) const noexcept
+{
+    return x == value && y == value && z == value && w == value;
+}
+
 // ================================
 // Matrix3x3 Storage Implementation
 // ================================
@@ -502,7 +514,7 @@ constexpr DD_MATH_FORCEINLINE float RadiansToDegrees(float radians) noexcept
 
 constexpr DD_MATH_FORCEINLINE float Lerp(float from, float to, float t) noexcept
 {
-    return from + (to - from) * t;
+    return from + ((to - from) * t);
 }
 
 constexpr DD_MATH_FORCEINLINE float Clamp(float value, float min, float max) noexcept
@@ -525,7 +537,7 @@ constexpr DD_MATH_FORCEINLINE float ModAngles(float radians) noexcept
     const float revolutions = radians * k_ReciprocalTwoPi;
     // hand-rolled because std::round is not reliably constexpr; equivalent for any angle magnitude
     const float rounded = static_cast<float>(static_cast<int32_t>(revolutions + (revolutions < 0.0f ? -0.5f : 0.5f)));
-    return radians - k_TwoPi * rounded;
+    return radians - (k_TwoPi * rounded);
 }
 
 namespace detail
@@ -558,11 +570,11 @@ namespace detail
     {
         const float squared = angle * angle;
         float polynomial = k_SinPoly11;
-        polynomial = polynomial * squared + k_SinPoly9;
-        polynomial = polynomial * squared + k_SinPoly7;
-        polynomial = polynomial * squared + k_SinPoly5;
-        polynomial = polynomial * squared + k_SinPoly3;
-        polynomial = polynomial * squared + 1.0f;
+        polynomial = (polynomial * squared) + k_SinPoly9;
+        polynomial = (polynomial * squared) + k_SinPoly7;
+        polynomial = (polynomial * squared) + k_SinPoly5;
+        polynomial = (polynomial * squared) + k_SinPoly3;
+        polynomial = (polynomial * squared) + 1.0f;
         return polynomial * angle;
     }
 
@@ -570,20 +582,20 @@ namespace detail
     {
         const float squared = angle * angle;
         float polynomial = k_CosPoly10;
-        polynomial = polynomial * squared + k_CosPoly8;
-        polynomial = polynomial * squared + k_CosPoly6;
-        polynomial = polynomial * squared + k_CosPoly4;
-        polynomial = polynomial * squared + k_CosPoly2;
-        return polynomial * squared + 1.0f;
+        polynomial = (polynomial * squared) + k_CosPoly8;
+        polynomial = (polynomial * squared) + k_CosPoly6;
+        polynomial = (polynomial * squared) + k_CosPoly4;
+        polynomial = (polynomial * squared) + k_CosPoly2;
+        return (polynomial * squared) + 1.0f;
     }
 
     constexpr DD_MATH_FORCEINLINE float SinPolynomialScalarEst(float angle) noexcept
     {
         const float squared = angle * angle;
         float polynomial = k_SinEstPoly7;
-        polynomial = polynomial * squared + k_SinEstPoly5;
-        polynomial = polynomial * squared + k_SinEstPoly3;
-        polynomial = polynomial * squared + 1.0f;
+        polynomial = (polynomial * squared) + k_SinEstPoly5;
+        polynomial = (polynomial * squared) + k_SinEstPoly3;
+        polynomial = (polynomial * squared) + 1.0f;
         return polynomial * angle;
     }
 
@@ -591,10 +603,11 @@ namespace detail
     {
         const float squared = angle * angle;
         float polynomial = k_CosEstPoly6;
-        polynomial = polynomial * squared + k_CosEstPoly4;
-        polynomial = polynomial * squared + k_CosEstPoly2;
-        return polynomial * squared + 1.0f;
+        polynomial = (polynomial * squared) + k_CosEstPoly4;
+        polynomial = (polynomial * squared) + k_CosEstPoly2;
+        return (polynomial * squared) + 1.0f;
     }
+
 } // namespace detail
 
 DD_MATH_FORCEINLINE ScalarSinCos SinCos(float radians) noexcept
@@ -629,12 +642,12 @@ inline float Exp2(float value) noexcept
     const float fraction = value - nearest;
 
     float polynomial = detail::k_Exp2Poly6;
-    polynomial = polynomial * fraction + detail::k_Exp2Poly5;
-    polynomial = polynomial * fraction + detail::k_Exp2Poly4;
-    polynomial = polynomial * fraction + detail::k_Exp2Poly3;
-    polynomial = polynomial * fraction + detail::k_Exp2Poly2;
-    polynomial = polynomial * fraction + detail::k_Exp2Poly1;
-    polynomial = polynomial * fraction + 1.0f;
+    polynomial = (polynomial * fraction) + detail::k_Exp2Poly5;
+    polynomial = (polynomial * fraction) + detail::k_Exp2Poly4;
+    polynomial = (polynomial * fraction) + detail::k_Exp2Poly3;
+    polynomial = (polynomial * fraction) + detail::k_Exp2Poly2;
+    polynomial = (polynomial * fraction) + detail::k_Exp2Poly1;
+    polynomial = (polynomial * fraction) + 1.0f;
 
     const int32_t biasedExponent = static_cast<int32_t>(nearest) + 127;
     const uint32_t scaleBits = static_cast<uint32_t>(biasedExponent) << 23;
@@ -656,7 +669,7 @@ inline float Log2(float value) noexcept
     float mantissa = 0.0f;
     std::memcpy(&mantissa, &mantissaBits, sizeof(mantissa));
 
-    constexpr float k_Sqrt2 = 1.41421356f;
+    constexpr float k_Sqrt2 = std::numbers::sqrt2_v<float>;
     if (mantissa > k_Sqrt2)
     {
         mantissa *= 0.5f;
@@ -667,9 +680,9 @@ inline float Log2(float value) noexcept
     const float ratioSquared = ratio * ratio;
 
     float series = detail::k_Log2Poly7;
-    series = series * ratioSquared + detail::k_Log2Poly5;
-    series = series * ratioSquared + detail::k_Log2Poly3;
-    series = series * ratioSquared + detail::k_Log2Poly1;
+    series = (series * ratioSquared) + detail::k_Log2Poly5;
+    series = (series * ratioSquared) + detail::k_Log2Poly3;
+    series = (series * ratioSquared) + detail::k_Log2Poly1;
 
     return exponent + series * ratio * detail::k_Log2Scale;
 }
@@ -761,14 +774,14 @@ inline float ATan(float value) noexcept
 
     const float squared = reduced * reduced;
     float polynomial = detail::k_ATanPoly17;
-    polynomial = polynomial * squared + detail::k_ATanPoly15;
-    polynomial = polynomial * squared + detail::k_ATanPoly13;
-    polynomial = polynomial * squared + detail::k_ATanPoly11;
-    polynomial = polynomial * squared + detail::k_ATanPoly9;
-    polynomial = polynomial * squared + detail::k_ATanPoly7;
-    polynomial = polynomial * squared + detail::k_ATanPoly5;
-    polynomial = polynomial * squared + detail::k_ATanPoly3;
-    polynomial = polynomial * squared + 1.0f;
+    polynomial = (polynomial * squared) + detail::k_ATanPoly15;
+    polynomial = (polynomial * squared) + detail::k_ATanPoly13;
+    polynomial = (polynomial * squared) + detail::k_ATanPoly11;
+    polynomial = (polynomial * squared) + detail::k_ATanPoly9;
+    polynomial = (polynomial * squared) + detail::k_ATanPoly7;
+    polynomial = (polynomial * squared) + detail::k_ATanPoly5;
+    polynomial = (polynomial * squared) + detail::k_ATanPoly3;
+    polynomial = (polynomial * squared) + 1.0f;
     const float inner = polynomial * reduced;
 
     if (magnitude <= 1.0f)
@@ -797,12 +810,12 @@ DD_MATH_FORCEINLINE float ATan2(float y, float x) noexcept
 
 DD_MATH_FORCEINLINE float ASin(float value) noexcept
 {
-    return ATan2(value, std::sqrt(1.0f - value * value));
+    return ATan2(value, std::sqrt(1.0f - (value * value)));
 }
 
 DD_MATH_FORCEINLINE float ACos(float value) noexcept
 {
-    return ATan2(std::sqrt(1.0f - value * value), value);
+    return ATan2(std::sqrt(1.0f - (value * value)), value);
 }
 
 DD_MATH_FORCEINLINE float Pow(float base, float exponent) noexcept
@@ -813,7 +826,7 @@ DD_MATH_FORCEINLINE float Pow(float base, float exponent) noexcept
 // 1 - 2 / (e^2x + 1); saturates to 1 rather than producing inf/inf where the difference form would
 DD_MATH_FORCEINLINE float TanH(float value) noexcept
 {
-    return 1.0f - 2.0f / (Exp2(2.0f * value * detail::k_Log2OfE) + 1.0f);
+    return 1.0f - (2.0f / (Exp2(2.0f * value * detail::k_Log2OfE) + 1.0f));
 }
 
 // Shortest arc: q and -q are the same rotation, so a negative dot means the other representation is
@@ -918,7 +931,7 @@ inline std::array<Float4, 6> ExtractFrustumPlanes(const Float4x4& view_proj, boo
 
     for (auto& plane : planes)
     {
-        const float len = std::sqrt(plane.x * plane.x + plane.y * plane.y + plane.z * plane.z);
+        const float len = std::sqrt((plane.x * plane.x) + (plane.y * plane.y) + (plane.z * plane.z));
         if (len > 1e-7f)
         {
             const float inv_len = 1.0f / len;

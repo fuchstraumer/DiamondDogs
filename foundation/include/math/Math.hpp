@@ -317,6 +317,9 @@ public:
     constexpr bool operator==(const Float4& rhs) const noexcept;
     constexpr bool operator!=(const Float4& rhs) const noexcept;
 
+    [[nodiscard]] constexpr bool AnyOf(float value) const noexcept;
+    [[nodiscard]] constexpr bool AllOf(float value) const noexcept;
+
     // Swizzle accessors - 4D permutations. will expand if missing any later
     SWIZZLE_4(x, y, z, w)
     SWIZZLE_4(x, y, w, z)
