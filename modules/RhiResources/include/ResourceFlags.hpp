@@ -299,19 +299,20 @@ enum class ImageFilteringMode : uint8_t
 };
 
 /** @brief Comparison operations for sampler depth testing or other comparison-based sampling operations
- *  @note Maps 1:1 to Vulkan values currently, down to the ordering and values
+    @note: To disambiguate between unset values and valid, None and Never no longer overlap, so this does
+    **not** mirror Vulkan exactly.
  */
 enum class ImageCompareOp : uint8_t
 {
     None = 0,
-    Never = None,
-    Less,
-    Equal,
-    LessOrEqual,
-    Greater,
-    NotEqual,
-    GreaterOrEqual,
-    Always
+    Never = 1,
+    Less = 2,
+    Equal = 3,
+    LessOrEqual = 4,
+    Greater = 5,
+    NotEqual = 6,
+    GreaterOrEqual = 7,
+    Always = 8
 };
 
 MAKE_ENUM_CLASS_FLAGS(ResourceCreationFlags)

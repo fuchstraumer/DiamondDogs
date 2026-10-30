@@ -256,8 +256,29 @@ VkBorderColor ToVkBorderColor(SamplerCreateInfo::ImageBorderColor color) noexcep
 
 VkCompareOp ToVkCompareOp(ImageCompareOp op) noexcept
 {
-    // ImageCompareOp matches VkCompareOp value for value, Never and None both being 0
-    return static_cast<VkCompareOp>(op);
+    switch (op)
+    {
+    case ImageCompareOp::None:
+        return VK_COMPARE_OP_MAX_ENUM;
+    case ImageCompareOp::Never:
+        return VK_COMPARE_OP_NEVER;
+    case ImageCompareOp::Less:
+        return VK_COMPARE_OP_LESS;
+    case ImageCompareOp::Equal:
+        return VK_COMPARE_OP_EQUAL;
+    case ImageCompareOp::LessOrEqual:
+        return VK_COMPARE_OP_LESS_OR_EQUAL;
+    case ImageCompareOp::Greater:
+        return VK_COMPARE_OP_GREATER;
+    case ImageCompareOp::NotEqual:
+        return VK_COMPARE_OP_NOT_EQUAL;
+    case ImageCompareOp::GreaterOrEqual:
+        return VK_COMPARE_OP_GREATER_OR_EQUAL;
+    case ImageCompareOp::Always:
+        return VK_COMPARE_OP_ALWAYS;
+    default:
+        return VK_COMPARE_OP_MAX_ENUM;
+    }
 }
 
 VkSamplerCreateInfo ToVkSamplerCreateInfo(const SamplerCreateInfo& create_info) noexcept

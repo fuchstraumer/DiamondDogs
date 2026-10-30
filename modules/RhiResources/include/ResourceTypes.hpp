@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #include "ResourceFlags.hpp"
 #include "ImageDataFormats.hpp"
+#include "math/Math.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -129,8 +130,9 @@ struct SamplerCreateInfo
     float MaxLod{ 1e10f };
 
     ImageBorderColor BorderColor{ ImageBorderColor::None };
-    // leaving undefined for now since we don't have RGBA color object yet
-    // std::optional<RGBAColor> CustomBorderColor;
+    // all values set to -1.0, so that validation checks in the rendergraph
+    // can catch when this is not properly set (-1.0f, invalid color, because 0.0f is fine)
+    math::Float4 CustomBorderColor{ -1.0f, -1.0f, -1.0f, -1.0f };
 
     bool UnnormalizedCoordinates{ false };
     std::string_view Name{};
