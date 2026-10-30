@@ -1,13 +1,10 @@
 #pragma once
 #ifndef DIAMOND_DOGS_LOOM_GRAPH_BUILDER_HPP
 #define DIAMOND_DOGS_LOOM_GRAPH_BUILDER_HPP
-#include "LoomError.hpp"
-#include "LoomDiagnostic.hpp"
 #include "LoomKeys.hpp"
 #include "Declarations.hpp"
 #include "PassBuilders.hpp"
 #include "SequenceBuilder.hpp"
-#include <cstdint>
 #include <memory>
 #include <string_view>
 #include <source_location>

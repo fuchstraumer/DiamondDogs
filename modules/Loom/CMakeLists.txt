@@ -15,6 +15,7 @@ set(LOOM_HEADERS
 
 set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Declarations.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/FrozenGraph.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GraphBuilder.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/JsonWriter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomDiagnostic.cpp"

@@ -38,7 +38,7 @@ enum class ImageComponentFormats : uint8_t
     R5G6B5,       // 5-bit red, 6-bit green, 5-bit blue
     R5G5B5A1,     // 5-bit RGB, 1-bit alpha
     R4G4B4A4,     // 4-bit RGBA
-    B10G11R11,    // 10-bit BGR, 11-bit green, 11-bit red, UNORM PACK32 (HDR colorbuffer)
+    // No B10G11R11: blue has one mantissa bit fewer than red and green, so repeated blending drifts toward yellow.
 
     // High precision formats
     R64,
@@ -86,7 +86,7 @@ enum class ImageDataType : uint8_t
 struct ImageFormat
 {
     ImageComponentFormats ComponentFormat{ ImageComponentFormats::Invalid };
-    ImageDataType DataType{ ImageDataType::Default };
+    ImageDataType DataType{ ImageDataType::Invalid };
     
     // Convenience constructors
     constexpr ImageFormat() = default;
@@ -223,8 +223,6 @@ namespace CommonFormats
     // Common HDR formats
     constexpr ImageFormat HDR_RGB16 = {ImageComponentFormats::RGB16, ImageDataType::Float};
     constexpr ImageFormat HDR_RGBA16 = {ImageComponentFormats::RGBA16, ImageDataType::Float};
-    constexpr ImageFormat HDR_A2R10G10B10 = {ImageComponentFormats::A2R10G10B10, ImageDataType::UNorm};
-    constexpr ImageFormat HDR_B10G11R11 = {ImageComponentFormats::B10G11R11, ImageDataType::UNorm};
-}
+    constexpr ImageFormat HDR_A2R10G10B10 = {ImageComponentFormats::A2R10G10B10, ImageDataType::UNorm};}
 
 #endif //!FOUNDATION_IMAGE_DATA_FORMATS_HPP

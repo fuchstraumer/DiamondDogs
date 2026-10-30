@@ -76,26 +76,32 @@ VkImageUsageFlags ToVkImageUsage(ImageUsageBits usage) noexcept
     {
         result |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     }
+    
     if (HasAny(usage, ImageUsageBits::TransferDestination))
     {
         result |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     }
+
     if (HasAny(usage, ImageUsageBits::AllShaderSRV | ImageUsageBits::SampledImage))
     {
         result |= VK_IMAGE_USAGE_SAMPLED_BIT;
     }
+
     if (HasAny(usage, ImageUsageBits::AllShaderUAV))
     {
         result |= VK_IMAGE_USAGE_STORAGE_BIT;
     }
+
     if (HasAny(usage, ImageUsageBits::AllRenderTarget))
     {
         result |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     }
+
     if (HasAny(usage, ImageUsageBits::AllDsRead | ImageUsageBits::AllDsWrite))
     {
         result |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     }
+
     if (HasAny(usage, ImageUsageBits::ShadingRateImage))
     {
         result |= VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;

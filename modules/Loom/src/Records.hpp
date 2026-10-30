@@ -107,7 +107,7 @@ namespace loom
 
     struct DispatchRecord
     {
-        DispatchForm Form;
+        DispatchForm Form{ DispatchForm::Invalid };
         KeyRef Resource;                    // ThreadsOver: the image. Indirect: the argument buffer. Threads: empty.
         int32_t X{ -1 };
         int32_t Y{ -1 };
@@ -118,7 +118,7 @@ namespace loom
     // Step 7 adds the color, depth and raster state records, and the Record pass's uses and recorder.
     struct DrawRecord
     {
-        DrawForm Form;
+        DrawForm Form{ DrawForm::Invalid };
         KeyRef Arguments;                   // DrawIndirect only
         int32_t VertexOrIndexCount{ -1 };
         int32_t InstanceCount{ -1 };
@@ -169,7 +169,13 @@ namespace loom
 
         std::vector<AnchorUseRecord> After;
         std::vector<AnchorUseRecord> Before;
-        std::vector<PassRecord> Passes;     // source order is the run order (Q3d)
+        // Source order is the run order - but only within a single sequence. This makes
+        // it easier for local reasoning and manipulation of passes within the sequence,
+        // without having to consider the global order of passes across different sequences
+        // outside of the local sequence a user is working on.
+        std::vector<PassRecord> Passes;
+        // ExposedAnchors are extension points - anchors exposed to other passes or sequences, which
+        // can be used to inject custom behaviors at the given anchor points.
         std::vector<ExposedAnchorRecord> ExposedAnchors;
     };
 

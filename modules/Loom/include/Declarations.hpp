@@ -3,7 +3,8 @@
 #define DIAMOND_DOGS_LOOM_DECLARATIONS_HPP
 #include "LoomKeys.hpp"
 #include "ImageDataFormats.hpp"
-#include <array>
+#include "math/Math.hpp"
+#include "ResourceTypes.hpp"
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -164,7 +165,7 @@ namespace loom
     struct SamplerDeclaration
     {
         ResourceKey<Sampler> Key;
-        // where do we get it's info?
+        SamplerCreateInfo CreateInfo;
     };
 
     // What the caller promises about an imported image. Bind and Size check bindings against it at compile time,
@@ -202,9 +203,13 @@ namespace loom
         };
 
         Kind Kind{ Kind::Invalid };
-        std::array<float, 4> ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f };    // in the target's own encoding, Clear only
+        math::Float4 ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f };    // in the target's own encoding, Clear only
 
         static OutputFallback Clear(float red, float green, float blue, float alpha) noexcept;
+        /** @brief KeepLast has serious expense, and requires copies of each presented frame. We have to pay
+          * this even when the fallback is not used, just in case it might be. Use extremely sparingly. */
+        // todo-ship: What are some better ways we could handle this, potentially? It's effectively saying what's
+        // our fallback for a missed frame, i.e, performance is bad so we need to re-use a prev frame?
         static OutputFallback KeepLast() noexcept;
     };
 
