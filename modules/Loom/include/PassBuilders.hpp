@@ -39,11 +39,11 @@ namespace loom
 
         void Bind(std::string_view binding_name, ResourceKey<Buffer> resource,
                   std::source_location where = std::source_location::current());
-        void Bind(std::string_view binding_name, ResourceKey<Buffer> resource, Narrow narrow,
+        void Bind(std::string_view binding_name, ResourceKey<Buffer> resource, AccessModifier access,
                   std::source_location where = std::source_location::current());
         void Bind(std::string_view binding_name, ResourceKey<Image> resource,
                   std::source_location where = std::source_location::current());
-        void Bind(std::string_view binding_name, ResourceKey<Image> resource, Narrow narrow,
+        void Bind(std::string_view binding_name, ResourceKey<Image> resource, AccessModifier access,
                   std::source_location where = std::source_location::current());
         void Bind(std::string_view binding_name, ResourceKey<Sampler> resource,
                   std::source_location where = std::source_location::current());

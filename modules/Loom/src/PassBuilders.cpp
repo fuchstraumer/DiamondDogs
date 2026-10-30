@@ -28,16 +28,16 @@ namespace loom
             return bind;
         }
 
-        // The public Narrow has no "reflected" value; an Invalid one maps to Invalid, and Freeze reports it (LM101).
-        BindNarrowing ToBindNarrowing(Narrow narrow) noexcept
+        // The public AccessModifier has no "reflected" value; an Invalid one maps to Invalid, and Freeze reports it (LM101).
+        BindNarrowing ToBindNarrowing(AccessModifier access) noexcept
         {
-            switch (narrow)
+            switch (access)
             {
-            case Narrow::Invalid:
+            case AccessModifier::Invalid:
                 return BindNarrowing::Invalid;
-            case Narrow::ReadOnly:
+            case AccessModifier::ReadOnly:
                 return BindNarrowing::ReadOnly;
-            case Narrow::WriteOnly:
+            case AccessModifier::WriteOnly:
                 return BindNarrowing::WriteOnly;
             }
 
@@ -88,10 +88,10 @@ namespace loom
         record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Buffer, BindNarrowing::Reflected, false, where));
     }
 
-    void DispatchBuilder::Bind(std::string_view binding_name, ResourceKey<Buffer> resource, Narrow narrow,
+    void DispatchBuilder::Bind(std::string_view binding_name, ResourceKey<Buffer> resource, AccessModifier access,
         std::source_location where)
     {
-        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Buffer, ToBindNarrowing(narrow), false, where));
+        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Buffer, ToBindNarrowing(access), false, where));
     }
 
     void DispatchBuilder::Bind(std::string_view binding_name, ResourceKey<Image> resource, std::source_location where)
@@ -99,10 +99,10 @@ namespace loom
         record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Image, BindNarrowing::Reflected, false, where));
     }
 
-    void DispatchBuilder::Bind(std::string_view binding_name, ResourceKey<Image> resource, Narrow narrow,
+    void DispatchBuilder::Bind(std::string_view binding_name, ResourceKey<Image> resource, AccessModifier access,
         std::source_location where)
     {
-        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Image, ToBindNarrowing(narrow), false, where));
+        record->Binds.push_back(MakeBind(binding_name, resource.ToRef(), ResourceKind::Image, ToBindNarrowing(access), false, where));
     }
 
     void DispatchBuilder::Bind(std::string_view binding_name, ResourceKey<Sampler> resource, std::source_location where)

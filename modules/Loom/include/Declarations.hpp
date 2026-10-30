@@ -48,8 +48,8 @@ namespace loom
         OnTrigger = 4, // graph.Trigger(key) fires this item
     };
 
-    // How a Bind narrows the reflected access (V1). A narrowing may remove access, never add it (LM303).
-    enum class Narrow : uint8_t
+    // How a Bind changes the reflected access (V1). A modifier may remove access, never add it (LM303).
+    enum class AccessModifier : uint8_t
     {
         Invalid = 0,
         ReadOnly = 1,
