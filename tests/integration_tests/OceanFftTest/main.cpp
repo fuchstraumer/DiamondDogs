@@ -14,6 +14,12 @@
 #include "OceanCdlod.hpp"
 #include "ExrLoader.hpp"
 #include "SourcePaths.hpp"
+#include "OceanAtmosphere.hpp"
+#include "ManifestDescriptors.hpp"
+#include "ImageDataFormats.hpp"
+#include "ResourceFlags.hpp"
+#include "ResourceTypes.hpp"
+#include "ResourceMessageReply.hpp"
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
 #include <array>
@@ -1084,6 +1090,531 @@ namespace
         }
         return failures;
     }
+
+    [[nodiscard]] GraphicsResource WaitForResource(const std::shared_ptr<GraphicsResourceReply>& reply)
+    {
+        if (reply == nullptr || reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        {
+            return GraphicsResource{};
+        }
+        return reply->GetResource();
+    }
+
+    struct alignas(16) FrameConstants
+    {
+        std::array<std::array<float, 4>, 9> SkyShCoeffs{};
+        std::array<float, 3> SunRadianceAp1{ 1.0f, 1.0f, 1.0f };
+        float FoamRoughnessScale{ 1.0f };
+        std::array<float, 3> WaterScatterColorAp1{ 0.02f, 0.15f, 0.2f };
+        float SssStrength{ 0.5f };
+        std::array<float, 3> SeabedTintAp1{ 0.6f, 0.5f, 0.4f };
+        float SeabedRoughnessScale{ 1.0f };
+        uint32_t UseCdlod{ 1u };
+        uint32_t UseSkyTexture{ 1u };
+        float SkyIntensityScale{ 1.0f };
+        float LeadrSlopeVarianceScale{ 1.0f };
+        std::array<std::array<float, 4>, 4> PrevViewProjectionRows{};
+        std::array<float, 2> JitterOffsetNdc{ 0.0f, 0.0f };
+        std::array<float, 2> PrevJitterOffsetNdc{ 0.0f, 0.0f };
+        uint32_t UseBrunetonAtmosphere{ 0u };
+        uint32_t UseDeferredPath{ 0u };
+        uint32_t UseSpecularAa{ 1u };
+        uint32_t UseTaa{ 1u };
+        float SpecularAaStrength{ 1.0f };
+        float SsrIntensity{ 1.0f };
+        float TaaBlendAlpha{ 0.1f };
+        float AutoExposureSpeed{ 1.0f };
+    };
+    static_assert(sizeof(FrameConstants) == 320u);
+
+    struct alignas(16) SpecularAaPushConstants
+    {
+        std::array<uint32_t, 2> Dimensions{};
+        float SpecularAaStrength{ 1.0f };
+        float Padding{ 0.0f };
+    };
+    static_assert(sizeof(SpecularAaPushConstants) == 16u);
+
+    struct alignas(16) TaaPushConstants
+    {
+        std::array<uint32_t, 2> Dimensions{};
+        std::array<float, 2> InvDimensions{};
+    };
+    static_assert(sizeof(TaaPushConstants) == 16u);
+
+    template<typename T>
+    void PushProgramConstants(rhi::CommandBuffer& cmd, const rhi::ManifestProgram& program, const T& data)
+    {
+        if (const std::optional<rhi::PushConstantRange> range = program.PushConstants(); range.has_value())
+        {
+            cmd.PushConstants(program.PipelineLayout(), range->StageFlags, 0u,
+                std::as_bytes(std::span{ &data, 1 }).first(std::min<size_t>(sizeof(T), range->Size)));
+        }
+    }
+
+    [[nodiscard]] int32_t TestDeferredAndAtmosphere(const TestContext& context)
+    {
+        int32_t failures = 0;
+        const auto check = [&](bool condition, std::string_view desc)
+        {
+            if (!condition)
+            {
+                std::cerr << std::format("[DeferredAndAtmosphere] FAIL: {}\n", desc);
+                ++failures;
+            }
+        };
+
+        // -----------------------------------------------------------------------------------------
+        // Part 1: Bruneton Atmospheric Scattering Precomputation Verification
+        // -----------------------------------------------------------------------------------------
+        ocean::OceanAtmosphereSettings atmoSettings{};
+        auto atmoResult = ocean::OceanAtmosphere::Create(context.Device, context.Resources, context.Library, atmoSettings);
+        check(atmoResult.has_value(), "OceanAtmosphere::Create succeeded");
+        if (!atmoResult.has_value())
+        {
+            return failures + 1;
+        }
+        auto& atmo = **atmoResult;
+
+        // Transmittance LUT: 256x64 RGBA16F (131,072 bytes)
+        // Irradiance LUT: 64x16 RGBA16F (8,192 bytes)
+        Readback transReadback(context.Resources, 131072u);
+        Readback irrReadback(context.Resources, 8192u);
+
+        const bool atmoSubmitted = transReadback.Valid() && irrReadback.Valid() && Submit(context.Device, [&](rhi::CommandBuffer& cmd)
+        {
+            atmo.RecordPrecompute(cmd);
+
+            auto transitionImage = [&](const GraphicsResource& res, rhi::ImageLayout oldLayout, rhi::ImageLayout newLayout, rhi::Access srcAccess, rhi::Access dstAccess)
+            {
+                const rhi::ImageBarrier barrier{
+                    .Image = rhi::ImageHandle{ res.VkHandle },
+                    .SrcStages = rhi::PipelineStage::ComputeShader | rhi::PipelineStage::AllTransfer,
+                    .SrcAccess = srcAccess,
+                    .DstStages = rhi::PipelineStage::AllTransfer,
+                    .DstAccess = dstAccess,
+                    .OldLayout = oldLayout,
+                    .NewLayout = newLayout,
+                    .Range = rhi::ImageSubresourceRange{
+                        .Aspects = rhi::ImageAspect::Color,
+                        .BaseMipLevel = 0u,
+                        .LevelCount = 1u,
+                        .BaseArrayLayer = 0u,
+                        .LayerCount = 1u
+                    }
+                };
+                cmd.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &barrier, 1 } });
+            };
+
+            transitionImage(atmo.TransmittanceLut(), rhi::ImageLayout::ShaderReadOnly, rhi::ImageLayout::TransferSource, rhi::Access::ShaderSampledRead, rhi::Access::TransferRead);
+            transitionImage(atmo.IrradianceLut(), rhi::ImageLayout::ShaderReadOnly, rhi::ImageLayout::TransferSource, rhi::Access::ShaderSampledRead, rhi::Access::TransferRead);
+
+            rhi::BufferImageCopy transRegion{};
+            transRegion.Width = 256u;
+            transRegion.Height = 64u;
+            transRegion.LayerCount = 1u;
+            cmd.CopyImageToBuffer(rhi::ImageHandle{ atmo.TransmittanceLut().VkHandle }, rhi::ImageLayout::TransferSource, transReadback.Handle(), std::span{ &transRegion, 1 });
+
+            rhi::BufferImageCopy irrRegion{};
+            irrRegion.Width = 64u;
+            irrRegion.Height = 16u;
+            irrRegion.LayerCount = 1u;
+            cmd.CopyImageToBuffer(rhi::ImageHandle{ atmo.IrradianceLut().VkHandle }, rhi::ImageLayout::TransferSource, irrReadback.Handle(), std::span{ &irrRegion, 1 });
+
+            CopyToHostBarrier(cmd);
+        });
+        check(atmoSubmitted, "Atmosphere precompute submitted and executed without GPU error");
+
+        if (atmoSubmitted)
+        {
+            const std::vector<float> trans = transReadback.ReadHalves(0u, 256u * 64u * 4u);
+            check(trans.size() == 256u * 64u * 4u, "Transmittance LUT readback size is 256*64*4");
+            if (trans.size() == 256u * 64u * 4u)
+            {
+                // (x=0, y=0) corresponds to zenith at sea level
+                const float tR = trans[0];
+                const float tG = trans[1];
+                const float tB = trans[2];
+                check(tR > 0.0f && tG > 0.0f && tB > 0.0f, "Zenith transmittance is positive");
+                check(tR > tG && tG > tB, "Rayleigh chromatic ordering tR > tG > tB holds");
+
+                // Reference green transmittance: exp(-tau_g) ~= exp(-0.1420) ~= 0.8676
+                constexpr float expectedTG = 0.8676f;
+                const float tGError = std::abs(tG - expectedTG) / expectedTG;
+                check(tGError < 0.02f, std::format("Zenith green transmittance matches reference within 2% (expected ~{:.4f}, got {:.4f}, err: {:.2f}%)", expectedTG, tG, tGError * 100.0f));
+
+                // Monotonicity along mu for r = Rg (y = 0 row):
+                // Transmittance decreases monotonically as x increases from 0 (zenith) to 255 (horizon)
+                bool monotonic = true;
+                for (uint32_t x = 0; x < 255; ++x)
+                {
+                    const float cur = trans[(0 * 256 + x) * 4 + 1];
+                    const float nxt = trans[(0 * 256 + x + 1) * 4 + 1];
+                    if (nxt > cur + 1e-4f)
+                    {
+                        monotonic = false;
+                        break;
+                    }
+                }
+                check(monotonic, "Transmittance along mu at sea level decreases monotonically from zenith to horizon");
+                check(trans[(0 * 256 + 255) * 4 + 1] < tG, "Horizon transmittance is strictly lower than zenith transmittance");
+            }
+
+            const std::vector<float> irr = irrReadback.ReadHalves(0u, 64u * 16u * 4u);
+            check(irr.size() == 64u * 16u * 4u, "Irradiance LUT readback size is 64*16*4");
+            if (irr.size() == 64u * 16u * 4u)
+            {
+                bool nonNegative = true;
+                for (float v : irr)
+                {
+                    if (v < -1e-4f)
+                    {
+                        nonNegative = false;
+                        break;
+                    }
+                }
+                check(nonNegative, "Irradiance LUT values are all non-negative");
+                const float zenithIrrR = irr[(0 * 64 + 63) * 4 + 0];
+                check(zenithIrrR > 0.0f, "Zenith ground irradiance is positive");
+            }
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // Part 2: Deferred Compute Passes (OceanSpecularAaCS and OceanTaaResolveCS)
+        // -----------------------------------------------------------------------------------------
+        auto defIndexResult = context.Library.ModuleIndex("OceanDeferred");
+        check(defIndexResult.has_value(), "Module OceanDeferred found");
+        if (!defIndexResult.has_value())
+        {
+            return failures + 1;
+        }
+        const lodestone::ManifestIndex* defIndex = *defIndexResult;
+        lodestone::ManifestQueryBuilder defQuery = defIndex->Query();
+
+        const std::array<std::string_view, 1> specAaSpan{ "OceanSpecularAaCS" };
+        auto specAaVariant = *defQuery.SingleFor(specAaSpan);
+        auto specAaProgramResult = context.Library.CreateProgram(context.Device.Handle(), "OceanDeferred", specAaVariant, specAaSpan);
+        check(specAaProgramResult.has_value(), "CreateProgram OceanSpecularAaCS succeeded");
+
+        const std::array<std::string_view, 1> taaSpan{ "OceanTaaResolveCS" };
+        auto taaVariant = *defQuery.SingleFor(taaSpan);
+        auto taaProgramResult = context.Library.CreateProgram(context.Device.Handle(), "OceanDeferred", taaVariant, taaSpan);
+        check(taaProgramResult.has_value(), "CreateProgram OceanTaaResolveCS succeeded");
+
+        if (!specAaProgramResult.has_value() || !taaProgramResult.has_value())
+        {
+            return failures + 1;
+        }
+
+        auto& specAaProgram = *specAaProgramResult;
+        auto& taaProgram = *taaProgramResult;
+        const VkDevice vkDevice = context.Device.Handle().As<VkDevice>();
+
+        const std::array<VkDescriptorPoolSize, 4> poolSizes{{
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 8u },
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 8u },
+            { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 8u },
+            { VK_DESCRIPTOR_TYPE_SAMPLER, 8u },
+        }};
+        const VkDescriptorPoolCreateInfo poolInfo{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .maxSets = 8u,
+            .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
+            .pPoolSizes = poolSizes.data()
+        };
+        VkDescriptorPool testDescPool = VK_NULL_HANDLE;
+        RhiAssert(rhi::Result(vkCreateDescriptorPool(vkDevice, &poolInfo, nullptr, &testDescPool)));
+
+        std::vector<GraphicsResource> testResources;
+        auto autoDestroy = [&](GraphicsResource res) -> GraphicsResource
+        {
+            testResources.push_back(res);
+            return res;
+        };
+
+        // FrameConstants uniform buffer
+        FrameConstants frameConstants{};
+        frameConstants.UseSpecularAa = 1u;
+        frameConstants.SpecularAaStrength = 1.0f;
+        frameConstants.UseTaa = 1u;
+        frameConstants.TaaBlendAlpha = 0.25f;
+
+        BufferCreateInfo frameInfo{};
+        frameInfo.Domain = ResourceDomain::CPUToGPU;
+        frameInfo.Usage = BufferUsageBits::ComputeShaderUBO;
+        frameInfo.Size = sizeof(FrameConstants);
+        const RhiBufferResourceData frameData{ std::as_bytes(std::span{ &frameConstants, 1 }), 0u };
+        GraphicsResource frameBuffer = autoDestroy(WaitForResource(context.Resources.CreateBuffer(frameInfo, std::span{ &frameData, 1 })));
+
+        constexpr uint32_t k_TestDim = 32u;
+        const uint64_t imageBytes = k_TestDim * k_TestDim * 4u * sizeof(uint16_t);
+
+        auto createImage = [&](ImageUsageBits usage, const char* name) -> GraphicsResource
+        {
+            ImageCreateInfo info{};
+            info.Domain = ResourceDomain::GPUOnly;
+            info.Usage = usage;
+            info.Type = ImageType::Type2D;
+            info.Format = CommonFormats::RGBA16_Float;
+            info.Width = k_TestDim;
+            info.Height = k_TestDim;
+            info.Depth = 1u;
+            info.MipLevels = 1u;
+            info.ArrayLayers = 1u;
+            info.Name = name;
+            info.ViewInfo = ImageViewCreateInfo{};
+            info.ViewInfo->ViewType = ImageViewType::Type2D;
+            info.ViewInfo->Range.LevelCount = 1u;
+            info.ViewInfo->Range.LayerCount = 1u;
+            return autoDestroy(WaitForResource(context.Resources.CreateImage(info, {})));
+        };
+
+        GraphicsResource gbufferNormalSigmaIn = createImage(ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination, "TestNormalSigmaIn");
+        GraphicsResource gbufferNormalSigmaOut = createImage(ImageUsageBits::UavComputeShader | ImageUsageBits::TransferSource, "TestNormalSigmaOut");
+        GraphicsResource gbufferMotionFoam = createImage(ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination, "TestMotionFoam");
+        GraphicsResource hdrLightingInput = createImage(ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination, "TestHdrLightingInput");
+        GraphicsResource historyImage = createImage(ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination, "TestHistoryImage");
+        GraphicsResource hdrResolvedOutput = createImage(ImageUsageBits::UavComputeShader | ImageUsageBits::TransferSource, "TestHdrResolvedOutput");
+        GraphicsResource nextHistoryOutput = createImage(ImageUsageBits::UavComputeShader | ImageUsageBits::TransferSource, "TestNextHistoryOutput");
+
+        // Prepare synthetic test pattern
+        std::vector<uint16_t> normalUploadData(k_TestDim * k_TestDim * 4u);
+        std::vector<uint16_t> motionUploadData(k_TestDim * k_TestDim * 4u, 0u);
+        std::vector<uint16_t> lightingUploadData(k_TestDim * k_TestDim * 4u);
+        std::vector<uint16_t> historyUploadData(k_TestDim * k_TestDim * 4u);
+
+        for (uint32_t y = 0; y < k_TestDim; ++y)
+        {
+            for (uint32_t x = 0; x < k_TestDim; ++x)
+            {
+                const size_t idx = (y * k_TestDim + x) * 4u;
+                // Normal slope: step edge along x = 16
+                const float nx = (x >= 16u) ? 0.6f : 0.0f;
+                const float ny = 0.0f;
+                const float sigSq = 0.01f;
+                normalUploadData[idx + 0] = ocean::FloatToHalf(nx);
+                normalUploadData[idx + 1] = ocean::FloatToHalf(ny);
+                normalUploadData[idx + 2] = ocean::FloatToHalf(sigSq);
+                normalUploadData[idx + 3] = ocean::FloatToHalf(sigSq);
+
+                // HDR lighting: uniform 1.0f
+                lightingUploadData[idx + 0] = ocean::FloatToHalf(1.0f);
+                lightingUploadData[idx + 1] = ocean::FloatToHalf(1.0f);
+                lightingUploadData[idx + 2] = ocean::FloatToHalf(1.0f);
+                lightingUploadData[idx + 3] = ocean::FloatToHalf(1.0f);
+
+                // History: initial 0.0f
+                historyUploadData[idx + 0] = ocean::FloatToHalf(0.0f);
+                historyUploadData[idx + 1] = ocean::FloatToHalf(0.0f);
+                historyUploadData[idx + 2] = ocean::FloatToHalf(0.0f);
+                historyUploadData[idx + 3] = ocean::FloatToHalf(1.0f);
+            }
+        }
+
+        BufferCreateInfo uploadInfo{};
+        uploadInfo.Domain = ResourceDomain::CPUToGPU;
+        uploadInfo.Usage = BufferUsageBits::CopySource;
+        uploadInfo.Size = imageBytes * 4u;
+
+        std::vector<uint16_t> combinedUpload;
+        combinedUpload.reserve(k_TestDim * k_TestDim * 16u);
+        combinedUpload.insert(combinedUpload.end(), normalUploadData.begin(), normalUploadData.end());
+        combinedUpload.insert(combinedUpload.end(), motionUploadData.begin(), motionUploadData.end());
+        combinedUpload.insert(combinedUpload.end(), lightingUploadData.begin(), lightingUploadData.end());
+        combinedUpload.insert(combinedUpload.end(), historyUploadData.begin(), historyUploadData.end());
+
+        const RhiBufferResourceData uploadResourceData{ std::as_bytes(std::span{ combinedUpload }), 0u };
+        GraphicsResource stagingBuffer = autoDestroy(WaitForResource(context.Resources.CreateBuffer(uploadInfo, std::span{ &uploadResourceData, 1 })));
+
+        Readback specAaReadback(context.Resources, imageBytes);
+        Readback taaReadback(context.Resources, imageBytes);
+
+        // Descriptor sets
+        const VkDescriptorSetLayout specLayout = specAaProgram->SetLayouts()[0].As<VkDescriptorSetLayout>();
+        VkDescriptorSet specSet = VK_NULL_HANDLE;
+        const VkDescriptorSetAllocateInfo specAllocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, testDescPool, 1, &specLayout };
+        RhiAssert(rhi::Result(vkAllocateDescriptorSets(vkDevice, &specAllocInfo, &specSet)));
+
+        const BoundResources specBound{
+            { "Frame", { frameBuffer } },
+            { "GBufferNormalSigmaIn", { gbufferNormalSigmaIn, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL } },
+            { "GBufferNormalSigmaOut", { gbufferNormalSigmaOut, VK_IMAGE_LAYOUT_GENERAL } },
+        };
+        (void)WriteManifestDescriptors(vkDevice, specSet, *defIndex, specAaVariant, specAaSpan, specBound);
+
+        const VkDescriptorSetLayout taaLayout = taaProgram->SetLayouts()[0].As<VkDescriptorSetLayout>();
+        VkDescriptorSet taaSet = VK_NULL_HANDLE;
+        const VkDescriptorSetAllocateInfo taaAllocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, testDescPool, 1, &taaLayout };
+        RhiAssert(rhi::Result(vkAllocateDescriptorSets(vkDevice, &taaAllocInfo, &taaSet)));
+
+        const BoundResources taaBound{
+            { "Frame", { frameBuffer } },
+            { "GBufferMotionFoam", { gbufferMotionFoam, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL } },
+            { "HistoryColorTexture", { historyImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL } },
+            { "LinearClampSampler", { atmo.Sampler() } },
+            { "HdrLightingInput", { hdrLightingInput, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL } },
+            { "HdrResolvedOutput", { hdrResolvedOutput, VK_IMAGE_LAYOUT_GENERAL } },
+            { "NextHistoryOutput", { nextHistoryOutput, VK_IMAGE_LAYOUT_GENERAL } },
+        };
+        (void)WriteManifestDescriptors(vkDevice, taaSet, *defIndex, taaVariant, taaSpan, taaBound);
+
+        const bool computeSubmitted = specAaReadback.Valid() && taaReadback.Valid() && Submit(context.Device, [&](rhi::CommandBuffer& cmd)
+        {
+            auto transition = [&](const GraphicsResource& res, rhi::ImageLayout oldLayout, rhi::ImageLayout newLayout, rhi::Access srcAccess, rhi::Access dstAccess, rhi::PipelineStage srcStage, rhi::PipelineStage dstStage)
+            {
+                const rhi::ImageBarrier barrier{
+                    .Image = rhi::ImageHandle{ res.VkHandle },
+                    .SrcStages = srcStage,
+                    .SrcAccess = srcAccess,
+                    .DstStages = dstStage,
+                    .DstAccess = dstAccess,
+                    .OldLayout = oldLayout,
+                    .NewLayout = newLayout,
+                    .Range = rhi::ImageSubresourceRange{
+                        .Aspects = rhi::ImageAspect::Color,
+                        .BaseMipLevel = 0u,
+                        .LevelCount = 1u,
+                        .BaseArrayLayer = 0u,
+                        .LayerCount = 1u
+                    }
+                };
+                cmd.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &barrier, 1 } });
+            };
+
+            // 1. Transition inputs to TransferDst
+            transition(gbufferNormalSigmaIn, rhi::ImageLayout::Undefined, rhi::ImageLayout::TransferDestination, rhi::Access::None, rhi::Access::TransferWrite, rhi::PipelineStage::None, rhi::PipelineStage::AllTransfer);
+            transition(gbufferMotionFoam, rhi::ImageLayout::Undefined, rhi::ImageLayout::TransferDestination, rhi::Access::None, rhi::Access::TransferWrite, rhi::PipelineStage::None, rhi::PipelineStage::AllTransfer);
+            transition(hdrLightingInput, rhi::ImageLayout::Undefined, rhi::ImageLayout::TransferDestination, rhi::Access::None, rhi::Access::TransferWrite, rhi::PipelineStage::None, rhi::PipelineStage::AllTransfer);
+            transition(historyImage, rhi::ImageLayout::Undefined, rhi::ImageLayout::TransferDestination, rhi::Access::None, rhi::Access::TransferWrite, rhi::PipelineStage::None, rhi::PipelineStage::AllTransfer);
+
+            // 2. Copy staging buffer to images
+            auto copySub = [&](const GraphicsResource& dst, uint64_t offset)
+            {
+                rhi::BufferImageCopy region{};
+                region.BufferOffset = offset;
+                region.Width = k_TestDim;
+                region.Height = k_TestDim;
+                region.LayerCount = 1u;
+                cmd.CopyBufferToImage(rhi::BufferHandle{ stagingBuffer.VkHandle }, rhi::ImageHandle{ dst.VkHandle }, rhi::ImageLayout::TransferDestination, std::span{ &region, 1 });
+            };
+
+            copySub(gbufferNormalSigmaIn, 0u);
+            copySub(gbufferMotionFoam, imageBytes);
+            copySub(hdrLightingInput, imageBytes * 2u);
+            copySub(historyImage, imageBytes * 3u);
+
+            // 3. Transition to ShaderReadOnly / General
+            transition(gbufferNormalSigmaIn, rhi::ImageLayout::TransferDestination, rhi::ImageLayout::ShaderReadOnly, rhi::Access::TransferWrite, rhi::Access::ShaderSampledRead, rhi::PipelineStage::AllTransfer, rhi::PipelineStage::ComputeShader);
+            transition(gbufferNormalSigmaOut, rhi::ImageLayout::Undefined, rhi::ImageLayout::General, rhi::Access::None, rhi::Access::ShaderStorageWrite, rhi::PipelineStage::None, rhi::PipelineStage::ComputeShader);
+
+            // 4. Dispatch OceanSpecularAaCS
+            RhiAssert(cmd.BindShaders(specAaProgram->Program()));
+            const rhi::DescriptorSetHandle specHandle{ reinterpret_cast<uint64_t>(specSet) };
+            cmd.BindDescriptorSets(rhi::PipelineBindPoint::Compute, specAaProgram->PipelineLayout(), 0, std::span{ &specHandle, 1 });
+            const SpecularAaPushConstants specPush{
+                .Dimensions = { k_TestDim, k_TestDim },
+                .SpecularAaStrength = 1.0f,
+                .Padding = 0.0f
+            };
+            PushProgramConstants(cmd, *specAaProgram, specPush);
+            cmd.Dispatch((k_TestDim + 7u) / 8u, (k_TestDim + 7u) / 8u, 1u);
+
+            // 5. Transition TAA images and dispatch OceanTaaResolveCS
+            transition(gbufferMotionFoam, rhi::ImageLayout::TransferDestination, rhi::ImageLayout::ShaderReadOnly, rhi::Access::TransferWrite, rhi::Access::ShaderSampledRead, rhi::PipelineStage::AllTransfer, rhi::PipelineStage::ComputeShader);
+            transition(hdrLightingInput, rhi::ImageLayout::TransferDestination, rhi::ImageLayout::ShaderReadOnly, rhi::Access::TransferWrite, rhi::Access::ShaderSampledRead, rhi::PipelineStage::AllTransfer, rhi::PipelineStage::ComputeShader);
+            transition(historyImage, rhi::ImageLayout::TransferDestination, rhi::ImageLayout::ShaderReadOnly, rhi::Access::TransferWrite, rhi::Access::ShaderSampledRead, rhi::PipelineStage::AllTransfer, rhi::PipelineStage::ComputeShader);
+            transition(hdrResolvedOutput, rhi::ImageLayout::Undefined, rhi::ImageLayout::General, rhi::Access::None, rhi::Access::ShaderStorageWrite, rhi::PipelineStage::None, rhi::PipelineStage::ComputeShader);
+            transition(nextHistoryOutput, rhi::ImageLayout::Undefined, rhi::ImageLayout::General, rhi::Access::None, rhi::Access::ShaderStorageWrite, rhi::PipelineStage::None, rhi::PipelineStage::ComputeShader);
+
+            RhiAssert(cmd.BindShaders(taaProgram->Program()));
+            const rhi::DescriptorSetHandle taaHandle{ reinterpret_cast<uint64_t>(taaSet) };
+            cmd.BindDescriptorSets(rhi::PipelineBindPoint::Compute, taaProgram->PipelineLayout(), 0, std::span{ &taaHandle, 1 });
+            const TaaPushConstants taaPush{
+                .Dimensions = { k_TestDim, k_TestDim },
+                .InvDimensions = { 1.0f / float(k_TestDim), 1.0f / float(k_TestDim) }
+            };
+            PushProgramConstants(cmd, *taaProgram, taaPush);
+            cmd.Dispatch((k_TestDim + 7u) / 8u, (k_TestDim + 7u) / 8u, 1u);
+
+            // 6. Transition outputs to TransferSrc and copy to Readback
+            transition(gbufferNormalSigmaOut, rhi::ImageLayout::General, rhi::ImageLayout::TransferSource, rhi::Access::ShaderStorageWrite, rhi::Access::TransferRead, rhi::PipelineStage::ComputeShader, rhi::PipelineStage::AllTransfer);
+            transition(hdrResolvedOutput, rhi::ImageLayout::General, rhi::ImageLayout::TransferSource, rhi::Access::ShaderStorageWrite, rhi::Access::TransferRead, rhi::PipelineStage::ComputeShader, rhi::PipelineStage::AllTransfer);
+
+            rhi::BufferImageCopy specRegion{};
+            specRegion.Width = k_TestDim;
+            specRegion.Height = k_TestDim;
+            specRegion.LayerCount = 1u;
+            cmd.CopyImageToBuffer(rhi::ImageHandle{ gbufferNormalSigmaOut.VkHandle }, rhi::ImageLayout::TransferSource, specAaReadback.Handle(), std::span{ &specRegion, 1 });
+
+            rhi::BufferImageCopy taaRegion{};
+            taaRegion.Width = k_TestDim;
+            taaRegion.Height = k_TestDim;
+            taaRegion.LayerCount = 1u;
+            cmd.CopyImageToBuffer(rhi::ImageHandle{ hdrResolvedOutput.VkHandle }, rhi::ImageLayout::TransferSource, taaReadback.Handle(), std::span{ &taaRegion, 1 });
+
+            CopyToHostBarrier(cmd);
+        });
+
+        check(computeSubmitted, "Deferred compute dispatches (Specular AA + TAA) finished without GPU error");
+        if (computeSubmitted)
+        {
+            const std::vector<float> specData = specAaReadback.ReadHalves(0u, k_TestDim * k_TestDim * 4u);
+            check(specData.size() == k_TestDim * k_TestDim * 4u, "Specular AA readback size matches");
+            if (specData.size() == k_TestDim * k_TestDim * 4u)
+            {
+                // Flat region: (x = 5, y = 16)
+                const size_t flatIdx = (16u * k_TestDim + 5u) * 4u;
+                const float flatSigX = specData[flatIdx + 2];
+                check(std::abs(flatSigX - 0.01f) < 0.005f, std::format("Flat region variance unchanged (~0.01, got {:.4f})", flatSigX));
+
+                // Edge region: (x = 16, y = 16)
+                const size_t edgeIdx = (16u * k_TestDim + 16u) * 4u;
+                const float edgeSigX = specData[edgeIdx + 2];
+                check(edgeSigX > 0.05f, std::format("Normal edge variance increased by Specular AA (>0.05, got {:.4f})", edgeSigX));
+
+                bool noNan = true;
+                for (float v : specData)
+                {
+                    if (std::isnan(v) || std::isinf(v)) { noNan = false; break; }
+                }
+                check(noNan, "No NaN or Inf in Specular AA output");
+            }
+
+            const std::vector<float> taaData = taaReadback.ReadHalves(0u, k_TestDim * k_TestDim * 4u);
+            check(taaData.size() == k_TestDim * k_TestDim * 4u, "TAA readback size matches");
+            if (taaData.size() == k_TestDim * k_TestDim * 4u)
+            {
+                bool noNan = true;
+                for (float v : taaData)
+                {
+                    if (std::isnan(v) || std::isinf(v)) { noNan = false; break; }
+                }
+                check(noNan, "No NaN or Inf in TAA resolved output");
+
+                const size_t centerIdx = (16u * k_TestDim + 16u) * 4u;
+                const float centerR = taaData[centerIdx + 0];
+                check(centerR > 0.5f && centerR <= 1.05f, std::format("TAA output converges toward 1.0 (got {:.4f})", centerR));
+            }
+        }
+
+        // Cleanup resources
+        for (const GraphicsResource& res : testResources)
+        {
+            if (res)
+            {
+                (void)context.Resources.DestroyResource(res)->WaitForCompletion(k_TimeoutNs);
+            }
+        }
+        vkDestroyDescriptorPool(vkDevice, testDescPool, nullptr);
+
+        if (failures == 0)
+        {
+            std::cout << "[DeferredAndAtmosphere] PASS: Atmosphere LUTs verified and Deferred compute passes executed cleanly\n";
+        }
+        return failures;
+    }
 }
 
 int main()
@@ -1112,6 +1643,7 @@ int main()
         const TestContext context{ *rhiSystem->GetDevice(), resources, **library, ocean::PickWaveSize(*rhiSystem->GetDevice()) };
         failures += TestShaderVariants(context);
         failures += TestOceanCdlod(context);
+        failures += TestDeferredAndAtmosphere(context);
         if (context.WaveSize == 0u)
         {
             std::cout << "This device can't run the wave-op variants (subgroup size, size control or shuffles): testing without wave ops only\n";

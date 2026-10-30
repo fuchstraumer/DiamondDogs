@@ -3,7 +3,8 @@
 ADD_INTEGRATION_TEST(OceanFftTest
     "main.cpp"
     "${PROJECT_SOURCE_DIR}/applications/OceanFft/mesh/OceanCdlod.cpp"
-    "${PROJECT_SOURCE_DIR}/applications/OceanFft/environment/ExrLoader.cpp")
+    "${PROJECT_SOURCE_DIR}/applications/OceanFft/environment/ExrLoader.cpp"
+    "${PROJECT_SOURCE_DIR}/applications/OceanFft/environment/OceanAtmosphere.cpp")
 target_include_directories(OceanFftTest PRIVATE
     "${PROJECT_SOURCE_DIR}/applications/OceanFft/mesh"
     "${PROJECT_SOURCE_DIR}/applications/OceanFft/environment"
