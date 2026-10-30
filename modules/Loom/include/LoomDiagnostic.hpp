@@ -18,6 +18,7 @@ namespace loom
         None = 0,
         Text = 1,
         Integer = 2,
+        Real = 3,
     };
 
     // One side of a comparison. LM101: FieldName "Lifetime", no value. LM109: FieldName "Layers", Integer 0.
@@ -29,6 +30,7 @@ namespace loom
         DiagnosticValueKind Kind;
         std::string_view Text;
         int64_t Integer;
+        double Real;
     };
 
     struct Diagnostic

@@ -69,6 +69,7 @@ namespace loom
             case DiagnosticValueKind::None:    break;
             case DiagnosticValueKind::Text:    std::format_to(std::back_inserter(out), "{}{}", separator, value.Text); break;
             case DiagnosticValueKind::Integer: std::format_to(std::back_inserter(out), "{}{}", separator, value.Integer); break;
+            case DiagnosticValueKind::Real:    std::format_to(std::back_inserter(out), "{}{}", separator, value.Real); break;
             }
 
             out.push_back('\n');
@@ -109,6 +110,7 @@ namespace loom
             case DiagnosticValueKind::None:    break;
             case DiagnosticValueKind::Text:    writer.KeyString("text", value.Text); break;
             case DiagnosticValueKind::Integer: writer.KeyInt("integer", value.Integer); break;
+            case DiagnosticValueKind::Real:    writer.KeyDouble("real", value.Real); break;
             }
 
             writer.EndObject();
