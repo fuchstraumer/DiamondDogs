@@ -132,7 +132,7 @@ struct SamplerCreateInfo
     ImageBorderColor BorderColor{ ImageBorderColor::None };
     // all values set to -1.0, so that validation checks in the rendergraph
     // can catch when this is not properly set (-1.0f, invalid color, because 0.0f is fine)
-    math::Float4 CustomBorderColor{ -1.0f, -1.0f, -1.0f, -1.0f };
+    std::optional<math::Float4> CustomBorderColor{ std::nullopt };
 
     bool UnnormalizedCoordinates{ false };
     std::string_view Name{};
