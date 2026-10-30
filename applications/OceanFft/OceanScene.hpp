@@ -118,7 +118,7 @@ private:
     void createDeferredPrograms();
     void setupDeferredDescriptors();
     void updateDeferredDescriptors();
-    void recordDeferredPipeline(rhi::CommandBuffer& cmd, rhi::GpuTimerBlock& timerBlock, const math::Float2& extent, float aspect, const ArcballCamera::Vector3& cameraPosition);
+    void recordDeferredPipeline(rhi::CommandBuffer& cmd, rhi::GpuTimerBlock& timerBlock, const math::Float2& extent, float aspect, const math::Float3& cameraPosition);
     void createRenderTargets();
     void destroyRenderTargets();
     void updateCamera();
@@ -295,7 +295,7 @@ private:
     bool taaHistoryInitialized{ false };
 
     // Temporal tracking
-    ArcballCamera::Matrix4 prevViewProj{};
+    math::Float4x4 prevViewProj{};
     std::array<float, 2> jitterOffsetNdc{ 0.0f, 0.0f };
     std::array<float, 2> prevJitterOffsetNdc{ 0.0f, 0.0f };
 

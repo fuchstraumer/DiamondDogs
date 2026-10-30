@@ -186,7 +186,7 @@ namespace
     };
     static_assert(sizeof(AutoExposurePushConstants) == 32u);
 
-    ocean::OceanCdlodCameraState ComputeCdlodCamera(const ArcballCamera::Matrix4& vp, const ArcballCamera::Vector3& camPos) noexcept
+    ocean::OceanCdlodCameraState ComputeCdlodCamera(const math::Float4x4& vp, const math::Float3& camPos) noexcept
     {
         ocean::OceanCdlodCameraState state{};
         state.CameraPosition = { camPos.x, camPos.y, camPos.z };
@@ -2813,7 +2813,7 @@ void OceanScene::advanceFoam(double delta_seconds)
     foam->SetSettings(foamSettings);
     // centered on the orbit target, not the eye: zoom and orbit then leave the window where it is, so a paused
     // camera move does not scroll it and replay the foam
-    const ArcballCamera::Vector3 target = camera.Current.Target;
+    const math::Float3 target = camera.Current.Target;
     foam->Advance(delta_seconds, { target[0], target[2] }, spectrum.LocalWindDirection, spectrum.WindSpeed);
 
     FoamReplayInputs inputs{};
@@ -2839,11 +2839,11 @@ void OceanScene::advanceFoam(double delta_seconds)
 void OceanScene::writeViewParameters()
 {
     const math::Float2 extent = swapchain->GetExtent();
-    const ArcballCamera::Vector3 position = camera.Position();
+    const math::Float3 position = camera.Position();
     const ocean::OceanSimulationSettings& simulationSettings = simulation->Settings();
     const float aspect = extent.x / std::max(extent.y, 1.0f);
-    const ArcballCamera::Matrix4 baseViewProj = camera.ViewProjection(aspect);
-    ArcballCamera::Matrix4 jitteredViewProj = baseViewProj;
+    const math::Float4x4 baseViewProj = camera.ViewProjection(aspect);
+    math::Float4x4 jitteredViewProj = baseViewProj;
 
     constexpr std::array<std::array<float, 2>, 8> k_Halton8 = {{
         { 0.0f, -0.33333334f },
@@ -3010,7 +3010,7 @@ void OceanScene::recordDeferredPipeline(
     rhi::GpuTimerBlock& timerBlock,
     const math::Float2& extent,
     float aspect,
-    const ArcballCamera::Vector3& cameraPosition)
+    const math::Float3& cameraPosition)
 {
     const uint32_t width = static_cast<uint32_t>(extent.x);
     const uint32_t height = static_cast<uint32_t>(extent.y);
@@ -3136,9 +3136,9 @@ void OceanScene::recordDeferredPipeline(
 
         if (!useBrunetonAtmosphere && environment)
         {
-            const ArcballCamera::Matrix4 rotViewProj = camera.ViewRotationProjection(aspect);
-            const ArcballCamera::Matrix4 invRotViewProj = math::FromMatrix<ArcballCamera::Matrix4>(math::ToMatrix(rotViewProj).Inverse());
-            environment->RecordSkyBackground(cmd, &timerBlock, invRotViewProj, ArcballCamera::Vector3{ 0.0f, 0.0f, 0.0f }, 0.0f, VK_SAMPLE_COUNT_1_BIT);
+            const math::Float4x4 rotViewProj = camera.ViewRotationProjection(aspect);
+            const math::Float4x4 invRotViewProj = math::FromMatrix<math::Float4x4>(math::ToMatrix(rotViewProj).Inverse());
+            environment->RecordSkyBackground(cmd, &timerBlock, invRotViewProj, math::Float3{ 0.0f, 0.0f, 0.0f }, 0.0f, VK_SAMPLE_COUNT_1_BIT);
         }
 
         RhiAssert(cmd.BindShaders(seabed.Program->Program()));
@@ -3397,9 +3397,9 @@ void OceanScene::recordDeferredPipeline(
         const rhi::DescriptorSetHandle setHandle{ reinterpret_cast<uint64_t>(deferredLightingSets[currentFrame][historyPingPong]) };
         cmd.BindDescriptorSets(rhi::PipelineBindPoint::Compute, deferredLightingProgram->PipelineLayout(), 0, std::span{ &setHandle, 1 });
 
-        const ArcballCamera::Matrix4 viewProj = camera.ViewProjection(aspect);
+        const math::Float4x4 viewProj = camera.ViewProjection(aspect);
         DeferredLightingPushConstants push{};
-        push.InvViewProjection = math::FromMatrix<ArcballCamera::Matrix4>(math::ToMatrix(viewProj).Inverse());
+        push.InvViewProjection = math::FromMatrix<math::Float4x4>(math::ToMatrix(viewProj).Inverse());
         push.Dimensions = { width, height };
         push.InvDimensions = { 1.0f / extent.x, 1.0f / extent.y };
 
@@ -3515,9 +3515,9 @@ void OceanScene::recordCommands()
     writeViewParameters();
 
     const math::Float2 extent = swapchain->GetExtent();
-    const ArcballCamera::Vector3 cameraPosition = camera.Position();
+    const math::Float3 cameraPosition = camera.Position();
     const float aspect = extent.x / std::max(extent.y, 1.0f);
-    const ArcballCamera::Matrix4 viewProj = camera.ViewProjection(aspect);
+    const math::Float4x4 viewProj = camera.ViewProjection(aspect);
     const ocean::OceanCdlodCameraState cdlodCamera = ComputeCdlodCamera(viewProj, cameraPosition);
 
     const bool replayFoam = foamReplayPending && foam->Settings().Enabled;
@@ -3542,7 +3542,7 @@ void OceanScene::recordCommands()
         if (replayFoam)
         {
             const rhi::ScopedGpuTimer timer(computeTimerBlock, "Foam replay");
-            const ArcballCamera::Vector3 target = camera.Current.Target;
+            const math::Float3 target = camera.Current.Target;
             ocean::RecordFoamReplay(computeCmd, *simulation, *foam, currentFrame, static_cast<double>(simulationTime),
                 { target[0], target[2] }, spectrum.LocalWindDirection, spectrum.WindSpeed);
         }
@@ -3595,7 +3595,7 @@ void OceanScene::recordCommands()
         if (replayFoam)
         {
             const rhi::ScopedGpuTimer timer(timerBlock, "Foam replay");
-            const ArcballCamera::Vector3 target = camera.Current.Target;
+            const math::Float3 target = camera.Current.Target;
             ocean::RecordFoamReplay(cmd, *simulation, *foam, currentFrame, static_cast<double>(simulationTime),
                 { target[0], target[2] }, spectrum.LocalWindDirection, spectrum.WindSpeed);
         }
@@ -3722,9 +3722,9 @@ void OceanScene::recordCommands()
         // 1. Fullscreen Sky Background
         if (environment)
         {
-            const ArcballCamera::Matrix4 rotViewProj = camera.ViewRotationProjection(aspect);
-            const ArcballCamera::Matrix4 invRotViewProj = math::FromMatrix<ArcballCamera::Matrix4>(math::ToMatrix(rotViewProj).Inverse());
-            environment->RecordSkyBackground(cmd, &timerBlock, invRotViewProj, ArcballCamera::Vector3{ 0.0f, 0.0f, 0.0f }, 0.0f);
+            const math::Float4x4 rotViewProj = camera.ViewRotationProjection(aspect);
+            const math::Float4x4 invRotViewProj = math::FromMatrix<math::Float4x4>(math::ToMatrix(rotViewProj).Inverse());
+            environment->RecordSkyBackground(cmd, &timerBlock, invRotViewProj, math::Float3{ 0.0f, 0.0f, 0.0f }, 0.0f);
         }
 
         // 2. Seabed Draw

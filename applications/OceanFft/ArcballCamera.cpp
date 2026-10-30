@@ -73,7 +73,7 @@ Float4x4 ArcballCamera::View() const noexcept
 
 Float4x4 ArcballCamera::ViewRotationOnly() const noexcept
 {
-    Matrix4 view = View();
+    Float4x4 view = View();
     view[0][3] = 0.0f;
     view[1][3] = 0.0f;
     view[2][3] = 0.0f;
@@ -87,7 +87,7 @@ Float4x4 ArcballCamera::Projection(float aspect) const noexcept
     const float f = 1.0f / math::Tan(0.5f * FovY);
     const float scale = NearPlane / (FarPlane - NearPlane);
     const float bias = (FarPlane * NearPlane) / (FarPlane - NearPlane);
-    return Matrix4
+    return Float4x4
     {
         f / aspect, 0.0f, 0.0f, 0.0f,
         0.0f, -f, 0.0f, 0.0f,
@@ -98,10 +98,10 @@ Float4x4 ArcballCamera::Projection(float aspect) const noexcept
 
 Float4x4 ArcballCamera::ViewProjection(float aspect) const noexcept
 {
-    return math::FromMatrix<Matrix4>(math::ToMatrix(Projection(aspect)) * math::ToMatrix(View()));
+    return math::FromMatrix<Float4x4>(math::ToMatrix(Projection(aspect)) * math::ToMatrix(View()));
 }
 
 Float4x4 ArcballCamera::ViewRotationProjection(float aspect) const noexcept
 {
-    return math::FromMatrix<Matrix4>(math::ToMatrix(Projection(aspect)) * math::ToMatrix(ViewRotationOnly()));
+    return math::FromMatrix<Float4x4>(math::ToMatrix(Projection(aspect)) * math::ToMatrix(ViewRotationOnly()));
 }
