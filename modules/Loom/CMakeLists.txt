@@ -5,7 +5,12 @@ set(LOOM_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomDiagnostic.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomError.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomKeys.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/PassBuilders.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ResourceFuture.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/SequenceBuilder.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/FrozenGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/JsonWriter.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Records.hpp"
 )
 
 set(LOOM_SOURCES
@@ -14,6 +19,8 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/JsonWriter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomDiagnostic.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomError.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/PassBuilders.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/SequenceBuilder.cpp"
 )
 
 add_module(loom

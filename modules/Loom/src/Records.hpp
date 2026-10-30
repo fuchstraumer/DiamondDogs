@@ -36,11 +36,11 @@ namespace loom
         Record = 3
     };
 
-    // The public Narrow has no "not narrowed" value, because a caller states that by calling the overload without one.
+    // The public AccessModifier has no "not narrowed" value, because a caller states that by calling the overload without one.
     enum class BindNarrowing : uint8_t
     {
         Invalid = 0,
-        Reflected = 1,      // the Bind overload without a Narrow: use the shader's access as reflected
+        Reflected = 1,      // the Bind overload without an AccessModifier: use the shader's access as reflected
         ReadOnly = 2,
         WriteOnly = 3
     };

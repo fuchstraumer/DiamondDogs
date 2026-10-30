@@ -4,6 +4,7 @@ set(LOOM_TEST_SOURCES
     test_main.cpp
     test_diagnostics.cpp
     test_builder.cpp
+    test_frozen_graph.cpp
 )
 
 add_unit_test_target(loom_tests

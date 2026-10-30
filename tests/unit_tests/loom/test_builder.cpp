@@ -47,7 +47,7 @@ TEST(LoomBuilder, LocationsAreTheCallersLines)
     const uint32_t addLine = __LINE__ + 1;
     graph.AddDispatch(k_Init, loom::RunPolicy::Once, loom::QueueAffinity::Graphics, [&](loom::DispatchBuilder& pass) {
         pass.Shader("Ocean", "InitCS");
-        pass.Bind("h0K", k_Spectrum, loom::Narrow::WriteOnly);
+        pass.Bind("h0K", k_Spectrum, loom::AccessModifier::WriteOnly);
     });
 
     const loom::GraphRecord& record = graph.Record();
@@ -91,7 +91,7 @@ TEST(LoomBuilder, RecordsWhatEachCallSaid)
         pass.After(loom::BeginFrameAnchor);
         pass.Before(k_Done);
         pass.Bind("h0K", k_Spectrum);
-        pass.Bind("Args", k_Args, loom::Narrow::ReadOnly);
+        pass.Bind("Args", k_Args, loom::AccessModifier::ReadOnly);
         pass.BindPrevious("Last", k_Spectrum);
         pass.Params(k_SpectrumParams);
         pass.DispatchThreads(64, 32, 1);
