@@ -52,7 +52,11 @@ namespace loom
             CatalogEntry{ LM204, "LM204", k_Error,
                                "More than one variant matches the pins." },
             CatalogEntry{ LM205, "LM205", k_Warning,
-                               "An axis is unpinned and the device does not decide it. The declared default is used." },
+                               "An axis is unpinned and no capability rule chooses it. The declared default is used." },
+            CatalogEntry{ LM206, "LM206", k_Warning,
+                               "A graph pin names an axis that no resolved module declares." },
+            CatalogEntry{ LM207, "LM207", k_Error,
+                               "Variants match the pins, but the device can run none of them." },
 
             CatalogEntry{ LM301, "LM301", k_Error,
                                "A Bind name is in no variant of the entry point." },
@@ -187,10 +191,12 @@ namespace loom
             return "Order";
         case DiagnosticStage::Layout:  
             return "Layout";
-        case DiagnosticStage::Runtime: 
+        case DiagnosticStage::Runtime:
             return "Runtime";
         }
 
+        // No default above, so a new enumerator gets a switch warning. This line is for a value outside the enum.
+        return "Invalid";
     }
 
     std::string_view ToString(DiagnosticSeverity severity) noexcept
@@ -209,6 +215,7 @@ namespace loom
             return "Fatal";
         }
 
+        return "Invalid";
     }
 
     std::string_view SummaryOf(DiagnosticCode code) noexcept

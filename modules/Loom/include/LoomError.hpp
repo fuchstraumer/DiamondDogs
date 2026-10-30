@@ -50,6 +50,8 @@ namespace loom
         LM203 = 203, // No variant matches
         LM204 = 204, // More than one variant matches
         LM205 = 205, // An axis is unpinned, and the declared default is used
+        LM206 = 206, // A graph pin names an axis that no resolved module declares
+        LM207 = 207, // Variants match the pins, but the device can run none of them
 
         // Bind
         LM301 = 301, // A Bind name is in no variant of the entry point
