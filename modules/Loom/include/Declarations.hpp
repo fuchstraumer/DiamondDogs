@@ -1,8 +1,11 @@
 #pragma once
 #ifndef DIAMOND_DOGS_LOOM_DECLARATIONS_HPP
 #define DIAMOND_DOGS_LOOM_DECLARATIONS_HPP
-#include <cstdint>
 #include "LoomKeys.hpp"
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <variant>
 
 namespace loom
 {
@@ -45,6 +48,37 @@ namespace loom
         OnTrigger = 4, // graph.Trigger(key) fires this item
     };
 
+    // How a Bind narrows the reflected access (V1). A narrowing may remove access, never add it (LM303).
+    enum class Narrow : uint8_t
+    {
+        Invalid = 0,
+        ReadOnly = 1,
+        WriteOnly = 2
+    };
+
+    // Thin shim type to allow us to represent lodestone::AxisValue without leaking lodestone
+    // includes outside of loom::
+    struct AxisValue
+    {
+        struct EnumName
+        {
+            std::string Name;
+        };
+
+        struct InterfaceName
+        {
+            std::string Name;
+        };
+
+
+        static AxisValue Unsigned(uint32_t value) noexcept;
+        static AxisValue Boolean(bool value) noexcept;
+        static AxisValue EnumCase(std::string_view value) noexcept;
+        static AxisValue Interface(std::string_view value) noexcept;
+        // std::monostate gives us a default invalid state for this
+        std::variant<std::monostate, uint32_t, bool, EnumName, InterfaceName> Value;
+    };
+
     struct SizeSource
     {
         enum class Kind : uint8_t
@@ -54,7 +88,7 @@ namespace loom
             Bytes = 2
         };
         Kind Kind{ Kind::Invalid };
-        uint64_t Size{ 0 };
+        int64_t Size{ -1 };     // signed, so a negative byte count reaches Freeze as itself (LM109), not wrapped
 
         static SizeSource Derived() noexcept;
         static SizeSource Bytes(int64_t byte_count) noexcept;
@@ -70,10 +104,12 @@ namespace loom
             Fixed = 2,
             Target = 3
         };
+        
         Kind Kind{ Kind::Invalid };
-        int32_t Width{ 0 };
-        int32_t Height{ 0 };
-        int32_t Depth{ 0 };
+        int32_t Width{ -1 };
+        int32_t Height{ -1 };
+        int32_t Depth{ -1 };
+        KeyRef Target;          // OfTarget only
         float Scale{ 1.0f };
 
         static ExtentSource Derived() noexcept;
