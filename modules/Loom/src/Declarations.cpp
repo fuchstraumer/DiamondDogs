@@ -96,4 +96,43 @@ namespace loom
         return source;
     }
 
+    ImageExpectation ImageExpectation::Exact(ImageFormat format, int32_t width, int32_t height, int32_t depth,
+        int32_t mip_levels, int32_t layers) noexcept
+    {
+        return ImageExpectation
+        {
+            .Kind = Kind::Exact,
+            .Format = format,
+            .Width = width,
+            .Height = height,
+            .Depth = depth,
+            .MipLevels = mip_levels,
+            .Layers = layers
+        };
+    }
+
+    ImageExpectation ImageExpectation::AnyExtent(ImageFormat format, int32_t layers) noexcept
+    {
+        ImageExpectation expectation{};
+        expectation.Kind = Kind::AnyExtent;
+        expectation.Format = format;
+        expectation.Layers = layers;
+        return expectation;
+    }
+
+    OutputFallback OutputFallback::Clear(float red, float green, float blue, float alpha) noexcept
+    {
+        OutputFallback fallback{};
+        fallback.Kind = Kind::Clear;
+        fallback.ClearColor = { red, green, blue, alpha };
+        return fallback;
+    }
+
+    OutputFallback OutputFallback::KeepLast() noexcept
+    {
+        OutputFallback fallback{};
+        fallback.Kind = Kind::KeepLast;
+        return fallback;
+    }
+
 }

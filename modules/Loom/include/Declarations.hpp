@@ -2,6 +2,8 @@
 #ifndef DIAMOND_DOGS_LOOM_DECLARATIONS_HPP
 #define DIAMOND_DOGS_LOOM_DECLARATIONS_HPP
 #include "LoomKeys.hpp"
+#include "ImageDataFormats.hpp"
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -165,8 +167,46 @@ namespace loom
         // where do we get it's info?
     };
 
-    struct ImageExpectation{};
-    struct OutputFallback{};
+    // What the caller promises about an imported image. Bind and Size check bindings against it at compile time,
+    // before the image exists, and Realize checks the supplied image against it when its future is Created (LM701).
+    struct ImageExpectation
+    {
+        enum class Kind : uint8_t
+        {
+            Invalid = 0,
+            Exact = 1,          // extent and mip count are known when the graph is built
+            AnyExtent = 2       // extent and mip count come with the content, as for a texture loaded from disk
+        };
+
+        Kind Kind{ Kind::Invalid };
+        ImageFormat Format;
+        int32_t Width{ -1 };
+        int32_t Height{ -1 };
+        int32_t Depth{ -1 };
+        int32_t MipLevels{ -1 };
+        int32_t Layers{ -1 };
+
+        static ImageExpectation Exact(ImageFormat format, int32_t width, int32_t height, int32_t depth,
+            int32_t mip_levels, int32_t layers) noexcept;
+        static ImageExpectation AnyExtent(ImageFormat format, int32_t layers) noexcept;
+    };
+
+    // What a frame target shows when the pass that writes it is skipped (Q4), so the frame still presents.
+    struct OutputFallback
+    {
+        enum class Kind : uint8_t
+        {
+            Invalid = 0,
+            Clear = 1,
+            KeepLast = 2        // the last image the target presented
+        };
+
+        Kind Kind{ Kind::Invalid };
+        std::array<float, 4> ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f };    // in the target's own encoding, Clear only
+
+        static OutputFallback Clear(float red, float green, float blue, float alpha) noexcept;
+        static OutputFallback KeepLast() noexcept;
+    };
 
     struct ImportDeclaration
     {
