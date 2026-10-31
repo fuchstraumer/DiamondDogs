@@ -78,9 +78,6 @@ enum class ImageDataType : uint8_t
     Float,      // Floating point
     UFloat,     // Unsigned floating point (for special packed formats)
     sRGB,       // sRGB color space
-    
-    // Default for most formats
-    Default = UNorm
 };
 
 struct ImageFormat
@@ -90,7 +87,7 @@ struct ImageFormat
     
     // Convenience constructors
     constexpr ImageFormat() = default;
-    constexpr ImageFormat(ImageComponentFormats components, ImageDataType dataType = ImageDataType::Default)
+    constexpr ImageFormat(ImageComponentFormats components, ImageDataType dataType = ImageDataType::UNorm)
         : ComponentFormat(components), DataType(dataType) {}
     
     // Equality operators for easy comparison
@@ -128,7 +125,7 @@ struct ImageFormatDescriptor
  * - GetImageFormat("rgba8", ImageDataType::SRGB) -> RGBA8 in sRGB color space
  * - GetImageFormat("a2r10g10b10", ImageDataType::UInt) -> 10-bit RGB, 2-bit alpha as unsigned int
  */
-ImageFormat GetImageFormat(const char* formatName, ImageDataType dataType = ImageDataType::Default) noexcept;
+ImageFormat GetImageFormat(const char* formatName, ImageDataType dataType = ImageDataType::UNorm) noexcept;
 
 /**
  * @brief Create a ResourceFormat using component format and data type
@@ -136,7 +133,7 @@ ImageFormat GetImageFormat(const char* formatName, ImageDataType dataType = Imag
  * @param dataType Data type (UNorm, Float, etc.)
  * @return ImageFormat struct
  */
-constexpr ImageFormat MakeImageFormat(ImageComponentFormats components, ImageDataType dataType = ImageDataType::Default) noexcept
+constexpr ImageFormat MakeImageFormat(ImageComponentFormats components, ImageDataType dataType = ImageDataType::UNorm) noexcept
 {
     return ImageFormat{components, dataType};
 }

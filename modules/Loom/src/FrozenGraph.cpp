@@ -37,6 +37,17 @@ std::optional<FrozenGraph> Freeze(const GraphRecord& record, DiagnosticSink& sin
     // check resources up to this point
     freeze::CheckDeclarations(context);
 
+    // freeze's own resolve step. not the Resolve *stage* itself, this is like name resolution
+    // or symbol resolution, run after Publish built the full symbol table to resolve against
+    freeze::ResolvePasses(context, passSources);
+    freeze::ResolveSequenceRanges(context);
+    // runs after ResolveSequenceRanges, as it depends on the resolved ranges to
+    // check for non-empty sequences (which are an error)
+    freeze::ResolveSequences(context);
+    freeze::ResolveImageTargets(context);
+    freeze::ResolveOutputs(context);
+    freeze::ResolveAnchorOrders(context);
+
     if (sink.ErrorCount() > errorsBefore)
     {
         return std::nullopt;

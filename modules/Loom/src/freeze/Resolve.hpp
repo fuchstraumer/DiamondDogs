@@ -55,10 +55,7 @@ namespace loom::freeze
     }
 
     inline std::vector<FrozenAnchorUse> ResolveAnchorUses(FreezeContext& context, const std::vector<AnchorUseRecord>& uses)
-    {
-        std::vector<FrozenAnchorUse> resolved;
-        resolved.reserve(uses.size());
-        
+    { 
         auto toFrozen = [&](const AnchorUseRecord& use) -> FrozenAnchorUse
         {
             return FrozenAnchorUse
@@ -152,7 +149,7 @@ namespace loom::freeze
             .Pins = source.Pass->Pins
         };
 
-        if (source.Pass->Shaders.empty() || source.Pass->Shaders.size() > 1)
+        if (source.Pass->Shaders.size() != 1)
         {
             Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM105, source.Pass->Where);
             context.Sink.Report(diag);
@@ -224,11 +221,11 @@ namespace loom::freeze
     inline void ResolvePasses(FreezeContext& context, const std::vector<PassSource>& sources)
     {
         // sources has at least been sorted to be in declaration order
-        auto toFrozen = [&](const PassSource& bind)
+        context.Graph.Passes.reserve(sources.size());
+        for (const auto& source : sources)
         {
-            return ResolvePass(context, bind);
-        };
-        context.Graph.Passes = sources | std::views::transform(toFrozen) | std::ranges::to<std::vector>();
+            context.Graph.Passes.emplace_back(ResolvePass(context, source));
+        }
     }
 
     inline void ResolveSequenceRanges(FreezeContext& context)
@@ -257,14 +254,14 @@ namespace loom::freeze
         }
     }
 
-    inline void ResolveSequences(FreezeContext& context, std::vector<SequenceRecord>& sequences)
+    inline void ResolveSequences(FreezeContext& context)
     {
         for (auto&& [seqIdx, frozenSequence] : context.Graph.Sequences | std::views::enumerate)
         {
             // In publish, we built the frozen sequences from sequence records: the two tables should be
             // parallel... so we can use the seqIdx to find the original, which we need to get the anchors
             // from to resolve them
-            const SequenceRecord& sequence = sequences[seqIdx];
+            const SequenceRecord& sequence = context.Record.Sequences[seqIdx];
             frozenSequence.After = ResolveAnchorUses(context, sequence.After);
             frozenSequence.Before = ResolveAnchorUses(context, sequence.Before);
 
@@ -278,7 +275,7 @@ namespace loom::freeze
         }
     }
 
-    inline void ResolveImageTargets(FreezeContext& context, std::vector<FrameTargetImportRecord>& targets)
+    inline void ResolveImageTargets(FreezeContext& context)
     {
         for (FrozenImage& image : context.Graph.Images)
         {
@@ -296,12 +293,12 @@ namespace loom::freeze
         }
     }
 
-    inline void ResolveOutputs(FreezeContext& context, const std::vector<DeclarationRecord<OutputDeclaration>>& outputs)
+    inline void ResolveOutputs(FreezeContext& context)
     {
         // make sure that each frame target is only claimed by a single output, to avoid conflicts and double usage errors
-        std::vector<int32_t> claimedBy(outputs.size(), -1);
+        std::vector<int32_t> claimedBy(context.Graph.FrameTargets.size(), -1);
 
-        for (const auto&& [ idx, output ] : outputs | std::views::enumerate)
+        for (const auto&& [ idx, output ] : context.Record.Outputs | std::views::enumerate)
         {
             const int32_t targetIdx = ResolveKey(context,
                                                  output.Value.Target.ToRef(),
