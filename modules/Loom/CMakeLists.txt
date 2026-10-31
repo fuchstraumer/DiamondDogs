@@ -9,7 +9,7 @@ set(LOOM_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PassStatements.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ResourceFuture.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/SequenceBuilder.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/FrozenGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/FrozenGraph.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Freeze.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Publish.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Resolve.hpp"
@@ -22,7 +22,7 @@ set(LOOM_HEADERS
 
 set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Declarations.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/FrozenGraph.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/FrozenGraph.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GraphBuilder.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/JsonWriter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomDiagnostic.cpp"

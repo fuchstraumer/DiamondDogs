@@ -1,10 +1,10 @@
 #include "FrozenGraph.hpp"
 #include "LoomDiagnostic.hpp"
 #include "Records.hpp"
-#include "freeze/Freeze.hpp"
-#include "freeze/Publish.hpp"
-#include "freeze/Resolve.hpp"
-#include "freeze/Validate.hpp"
+#include "Freeze.hpp"
+#include "Publish.hpp"
+#include "Resolve.hpp"
+#include "Validate.hpp"
 #include <cstdint>
 #include <optional>
 #include <utility>
