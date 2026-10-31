@@ -64,7 +64,25 @@ namespace loom
         {
             DispatchBuilder builder{ pass, run_policy, queue_affinity, where };
             std::forward<Build>(build)(builder);
-            commitDispatch(builder);
+            commitPass(builder);
+        }
+
+        template<typename Build>
+        void AddDraw(PassKey pass, RunPolicy run_policy, QueueAffinity queue_affinity, Build&& build,
+                     std::source_location where = std::source_location::current())
+        {
+            DrawBuilder builder{ pass, run_policy, queue_affinity, where };
+            std::forward<Build>(build)(builder);
+            commitPass(builder);
+        }
+
+        template<typename Build>
+        void AddRecord(PassKey pass, RunPolicy run_policy, QueueAffinity queue_affinity, Build&& build,
+                       std::source_location where = std::source_location::current())
+        {
+            RecordBuilder builder{ pass, run_policy, queue_affinity, where };
+            std::forward<Build>(build)(builder);
+            commitPass(builder);
         }
 
         template<typename Build>
@@ -76,14 +94,12 @@ namespace loom
             commitSequence(builder);
         }
 
-        // AddDraw and AddRecord come with step 7, with DrawBuilder and RecordBuilder.
-
         // What the builder recorded, for Freeze and for tests. GraphRecord is defined in src/Records.hpp.
         [[nodiscard]] const GraphRecord& Record() const noexcept;
 
     private:
         // The committers take the child builder, not its record: the records are incomplete in this header.
-        void commitDispatch(DispatchBuilder& pass);
+        void commitPass(PassBuilder& pass);
         void commitSequence(SequenceBuilder& sequence);
 
         std::unique_ptr<GraphRecord> record;

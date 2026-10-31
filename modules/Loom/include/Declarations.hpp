@@ -153,7 +153,7 @@ namespace loom
     {
         ResourceKey<Image> Key;
         ResourceLifetime Lifetime{ ResourceLifetime::Invalid };
-        // TextureFormat Format{}; // todo: bring this in from req. includes
+        ImageFormat Format;     // foundation's type, not Lodestone's, so callers never include Lodestone (S3)
         ExtentSource Extent;
         MipSource Mips;
         int32_t Layers{ -1 }; // -1 default means not setting this can be checked exactly as an error

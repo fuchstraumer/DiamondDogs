@@ -58,6 +58,11 @@ namespace loom::freeze
             ReportMissing(context, "Lifetime", decl.Where);
         }
 
+        if (!image.Format.IsValid())
+        {
+            ReportMissing(context, "Format", decl.Where);
+        }
+
         // "Derived" images come from the reflection, so we can't check them here when resolving
         // user-declared values
         if (image.Extent.Kind == ExtentSource::Kind::Invalid)

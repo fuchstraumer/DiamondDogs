@@ -74,7 +74,7 @@ namespace loom
         return *record;
     }
 
-    void GraphBuilder::commitDispatch(DispatchBuilder& pass)
+    void GraphBuilder::commitPass(PassBuilder& pass)
     {
         std::unique_ptr<PassRecord> passRecord = pass.takeRecord();
         passRecord->DeclarationOrder = record->NextDeclarationOrder++;

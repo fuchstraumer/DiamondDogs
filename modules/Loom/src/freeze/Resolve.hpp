@@ -2,6 +2,8 @@
 #ifndef DIAMOND_DOGS_LOOM_FREEZE_RESOLVE_HPP
 #define DIAMOND_DOGS_LOOM_FREEZE_RESOLVE_HPP
 #include "Freeze.hpp"
+#include "ResolveDraw.hpp"
+#include "ResolveKey.hpp"
 #include "FrozenGraph.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
@@ -16,43 +18,6 @@
 // Step 3: replace every name a record uses with an index into the frozen tables (LM103, LM104, LM107).
 namespace loom::freeze
 {
-
-    inline int32_t ResolveKey(FreezeContext& context, KeyRef key, KeyClass expected_kind, std::source_location where)
-    {
-        const auto found = context.Keys.find(key.Hash);
-
-        if (found == context.Keys.end())
-        {
-            DiagnosticCode missingCode =
-                (expected_kind == KeyClass::Anchor) ? DiagnosticCode::LM104 : DiagnosticCode::LM103;
-            Diagnostic diag = MakeDiagnostic(missingCode, where);
-            diag.Resource = key;
-            context.Sink.Report(diag);
-            return -1; // return an invalid index
-        }
-
-        if (found->second.Class != expected_kind)
-        {
-            Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM107, where);
-            diag.OtherWhere = found->second.Where;
-            diag.Resource = key;
-            context.Sink.Report(diag);
-            return -1; // return an invalid index
-        }
-
-        return found->second.Index;
-    }
-
-    inline ResourceIndex ResolveResource(FreezeContext& context, KeyRef key, KeyClass expected_kind,
-                                         std::source_location where)
-    {
-        return ResourceIndex{ ResolveKey(context, key, expected_kind, where) };
-    }
-
-    inline AnchorIndex ResolveAnchor(FreezeContext& context, KeyRef key, std::source_location where)
-    {
-        return AnchorIndex{ ResolveKey(context, key, KeyClass::Anchor, where) };
-    }
 
     inline std::vector<FrozenAnchorUse> ResolveAnchorUses(FreezeContext& context, const std::vector<AnchorUseRecord>& uses)
     { 
@@ -129,6 +94,43 @@ namespace loom::freeze
         }
     }
 
+    // What dispatch and draw passes share: exactly one shader (LM105), the binds and the params.
+    inline void ResolveShaderStatements(FreezeContext& context, const PassRecord& pass, FrozenPass& frozen)
+    {
+        if (pass.Shaders.size() != 1)
+        {
+            Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM105, pass.Where);
+            context.Sink.Report(diag);
+        }
+        else [[likely]]
+        {
+            frozen.Shader = pass.Shaders.front();
+        }
+
+        frozen.Binds = ResolveBinds(context, pass.Binds);
+        frozen.Params = pass.Params;
+    }
+
+    // Exactly one dispatch: none is LM110, two is LM106 with both lines.
+    inline void ResolveDispatchStatement(FreezeContext& context, const PassRecord& pass, FrozenPass& frozen)
+    {
+        if (pass.Dispatches.empty())
+        {
+            Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM110, pass.Where);
+            context.Sink.Report(diag);
+        }
+        else if (pass.Dispatches.size() > 1)
+        {
+            Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM106, pass.Dispatches[0].Where);
+            diag.OtherWhere = pass.Dispatches[1].Where;
+            context.Sink.Report(diag);
+        }
+        else
+        {
+            frozen.Dispatch = ResolveDispatch(context, pass.Dispatches.front());
+        }
+    }
+
     inline FrozenPass ResolvePass(FreezeContext& context, const PassSource& source)
     {
         // Build the frozen pass starting now: 
@@ -149,70 +151,26 @@ namespace loom::freeze
             .Pins = source.Pass->Pins
         };
 
-        if (source.Pass->Shaders.size() != 1)
-        {
-            Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM105, source.Pass->Where);
-            context.Sink.Report(diag);
-        }
-        else [[likely]]
-        {
-            frozenPass.Shader = source.Pass->Shaders.front();
-        }
-
         // fairly straightforward: just convert the named records into indexed records
         frozenPass.Before = ResolveAnchorUses(context, source.Pass->Before);
         frozenPass.After = ResolveAnchorUses(context, source.Pass->After);
-        frozenPass.Binds = ResolveBinds(context, source.Pass->Binds);
-        frozenPass.Params = source.Pass->Params;
 
-        const auto dispatchCount = std::ssize(source.Pass->Dispatches);
-        const auto drawCount = std::ssize(source.Pass->Draws);
-        const bool bothEmpty = (dispatchCount == 0 && drawCount == 0);
-        const bool bothNonEmpty = (dispatchCount > 0 && drawCount > 0);
-
-        // the first three errors all report two locations (which makes it way easier to track down srcloc)
-        auto reportTwoLocError = [&context](const std::source_location& first, const std::source_location& second)
+        // Each builder records only its own kind's statements, so each kind checks only its own.
+        switch (source.Pass->Kind)
         {
-            Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM106, first);
-            diag.OtherWhere = second;
-            context.Sink.Report(diag);
-        };
-
-        // a pass cannot have both dispatches AND draws, nor should it be totally empty
-        if (bothNonEmpty)
-        {
-            const DispatchRecord& dispatch = source.Pass->Dispatches.front();
-            const DrawRecord& draw = source.Pass->Draws.front();
-            reportTwoLocError(dispatch.Where, draw.Where);
-        }
-        else if (dispatchCount > 1)
-        {
-            // can only have one dispatch per pass, so report an error if there are multiple
-            const DispatchRecord& firstDispatch = source.Pass->Dispatches[0];
-            const DispatchRecord& nextDispatch = source.Pass->Dispatches[1];
-            reportTwoLocError(firstDispatch.Where, nextDispatch.Where);
-        }
-        else if (drawCount > 1)
-        {
-            // can only have one draw per pass, so report an error if there are multiple
-            const DrawRecord& firstDraw = source.Pass->Draws[0];
-            const DrawRecord& nextDraw = source.Pass->Draws[1];
-            reportTwoLocError(firstDraw.Where, nextDraw.Where);
-        }
-        else if (bothEmpty)
-        {
-            // a pass must have either a dispatch or a draw
-            Diagnostic diag = MakeDiagnostic(DiagnosticCode::LM110, source.Pass->Where);
-            context.Sink.Report(diag);
-        }
-        else if (dispatchCount == 1)
-        {
-            const DispatchRecord& dispatchRecord = source.Pass->Dispatches[0];
-            frozenPass.Dispatch = ResolveDispatch(context, dispatchRecord);
-        }
-        else if (drawCount == 1)
-        {
-            // todo: add FrozenDraw struct
+        case PassKind::Dispatch:
+            ResolveShaderStatements(context, *source.Pass, frozenPass);
+            ResolveDispatchStatement(context, *source.Pass, frozenPass);
+            break;
+        case PassKind::Draw:
+            ResolveShaderStatements(context, *source.Pass, frozenPass);
+            ResolveDrawStatements(context, *source.Pass, frozenPass);
+            break;
+        case PassKind::Record:
+            ResolveRecordStatements(context, *source.Pass, frozenPass);
+            break;
+        case PassKind::Invalid:
+            break;
         }
 
         return frozenPass;

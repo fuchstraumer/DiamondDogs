@@ -46,6 +46,7 @@ namespace loom
         LM110 = 110, // A pass has neither a dispatch nor a draw statement
         LM111 = 111, // A sequence is empty
         LM112 = 112, // A frame target has two outputs
+        LM113 = 113, // A statement that may appear at most once appears twice
 
         // Resolve
         LM201 = 201, // Unknown module or entry point

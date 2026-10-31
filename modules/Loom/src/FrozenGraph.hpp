@@ -4,7 +4,9 @@
 #include "Declarations.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomKeys.hpp"
+#include "PassStatements.hpp"
 #include "Records.hpp"
+#include "RhiFlags.hpp"
 #include <cstdint>
 #include <optional>
 #include <source_location>
@@ -144,7 +146,71 @@ namespace loom
         std::source_location Where;
     };
 
-    // Step 7 adds the draw statement and the raster state.
+    struct FrozenDraw
+    {
+        DrawForm Form{ DrawForm::Invalid };
+        ResourceIndex Arguments;            // DrawIndirect only
+        int32_t VertexOrIndexCount{ -1 };
+        int32_t InstanceCount{ -1 };
+        int32_t FirstVertexOrIndex{ -1 };
+        int32_t FirstInstance{ -1 };
+        int32_t VertexOffset{ k_UnsetVertexOffset };
+        std::source_location Where;
+    };
+
+    // Exactly one of Image and FrameTarget is valid, as TargetKind says.
+    struct FrozenColorTarget
+    {
+        int32_t Slot{ -1 };
+        TargetKind Kind{ TargetKind::Invalid };
+        ResourceIndex Image;
+        FrameTargetIndex FrameTarget;
+        ColorLoad Load;
+        AttachmentStore Store{ AttachmentStore::Invalid };
+        BlendMode Blend{ BlendMode::Invalid };
+        std::source_location Where;
+    };
+
+    // Image is invalid when the draw has no depth target.
+    struct FrozenDepthTarget
+    {
+        ResourceIndex Image;
+        DepthLoad Load;
+        AttachmentStore Store{ AttachmentStore::Invalid };
+        rhi::CompareOp Compare{ rhi::CompareOp::Never };
+        DepthWrite Write{ DepthWrite::Invalid };
+        std::source_location Where;
+    };
+
+    struct FrozenVertexBuffer
+    {
+        int32_t Slot{ -1 };
+        ResourceIndex Buffer;
+        std::source_location Where;
+    };
+
+    // Buffer is invalid when the draw has no index buffer.
+    struct FrozenIndexBuffer
+    {
+        ResourceIndex Buffer;
+        IndexType Type{ IndexType::Invalid };
+        std::source_location Where;
+    };
+
+    // A Record pass's use. For an image, exactly one of Resource and FrameTarget is valid, as Target says.
+    struct FrozenUse
+    {
+        ResourceKind Kind{ ResourceKind::Invalid };
+        TargetKind Target{ TargetKind::Invalid };
+        ResourceIndex Resource;
+        FrameTargetIndex FrameTarget;
+        ResourceAccess Access{ ResourceAccess::Invalid };
+        ImageUse AsImage{ ImageUse::Invalid };
+        BufferUse AsBuffer{ BufferUse::Invalid };
+        std::source_location Where;
+    };
+
+    // One row for every pass kind. The fields that belong to another kind keep their invalid values.
     struct FrozenPass
     {
         KeyRef Key;
@@ -167,7 +233,21 @@ namespace loom
         std::vector<FrozenAnchorUse> Before;
         std::vector<FrozenBind> Binds;
         std::vector<ParamsRecord> Params;
+
+        // Dispatch passes
         FrozenDispatch Dispatch;
+
+        // Draw passes
+        FrozenDraw Draw;
+        std::vector<FrozenColorTarget> Colors;
+        FrozenDepthTarget Depth;
+        RasterState Raster;                 // RasterState's defaults when the draw stated none
+        std::vector<FrozenVertexBuffer> VertexBuffers;
+        FrozenIndexBuffer Index;
+
+        // Record passes
+        std::vector<FrozenUse> Uses;
+        Delegate<void(RecordContext&)> Recorder;
     };
 
     // A sequence's passes are contiguous in FrozenGraph::Passes, in source order, because the builder gives them

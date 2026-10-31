@@ -3,6 +3,8 @@
 #define DIAMOND_DOGS_LOOM_RECORDS_HPP
 #include "Declarations.hpp"
 #include "LoomKeys.hpp"
+#include "PassStatements.hpp"
+#include "utility/delegate.hpp"
 #include <cstdint>
 #include <limits>
 #include <source_location>
@@ -115,7 +117,6 @@ namespace loom
         std::source_location Where;
     };
 
-    // Step 7 adds the color, depth and raster state records, and the Record pass's uses and recorder.
     struct DrawRecord
     {
         DrawForm Form{ DrawForm::Invalid };
@@ -125,6 +126,73 @@ namespace loom
         int32_t FirstVertexOrIndex{ -1 };
         int32_t FirstInstance{ -1 };
         int32_t VertexOffset{ k_UnsetVertexOffset };    // DrawIndexed only. Negative offsets are legal, so -1 is not "unset".
+        std::source_location Where;
+    };
+
+    // A color target or a Record use names either a graph image or a frame target (the swapchain, for example).
+    enum class TargetKind : uint8_t
+    {
+        Invalid = 0,
+        Image = 1,
+        FrameTarget = 2
+    };
+
+    struct ColorTargetRecord
+    {
+        int32_t Slot{ -1 };
+        KeyRef Target;
+        TargetKind Kind{ TargetKind::Invalid };
+        ColorLoad Load;
+        AttachmentStore Store{ AttachmentStore::Invalid };
+        BlendMode Blend{ BlendMode::Invalid };
+        std::source_location Where;
+    };
+
+    struct DepthTargetRecord
+    {
+        KeyRef Target;
+        DepthLoad Load;
+        AttachmentStore Store{ AttachmentStore::Invalid };
+        rhi::CompareOp Compare{ rhi::CompareOp::Never };
+        DepthWrite Write{ DepthWrite::Invalid };
+        std::source_location Where;
+    };
+
+    struct RasterStateRecord
+    {
+        RasterState State;
+        std::source_location Where;
+    };
+
+    struct VertexBufferRecord
+    {
+        int32_t Slot{ -1 };
+        KeyRef Buffer;
+        std::source_location Where;
+    };
+
+    struct IndexBufferRecord
+    {
+        KeyRef Buffer;
+        IndexType Type{ IndexType::Invalid };
+        std::source_location Where;
+    };
+
+    // One Uses statement of a Record pass. Use is the ImageUse or BufferUse value that Kind selects.
+    struct UseRecord
+    {
+        KeyRef Resource;
+        ResourceKind Kind{ ResourceKind::Invalid };
+        TargetKind Target{ TargetKind::Invalid };       // images only: a graph image or a frame target
+        ResourceAccess Access{ ResourceAccess::Invalid };
+        ImageUse AsImage{ ImageUse::Invalid };
+        BufferUse AsBuffer{ BufferUse::Invalid };
+        std::source_location Where;
+    };
+
+    struct RecorderRecord
+    {
+        Delegate<void(RecordContext&)> Callback;
         std::source_location Where;
     };
 
@@ -147,7 +215,18 @@ namespace loom
         std::vector<BindRecord> Binds;
         std::vector<ParamsRecord> Params;
         std::vector<DispatchRecord> Dispatches;
+
+        // Draw passes. Depth, raster state and index buffer may appear at most once (LM113); a vector lets Freeze see two.
         std::vector<DrawRecord> Draws;
+        std::vector<ColorTargetRecord> Colors;
+        std::vector<DepthTargetRecord> Depths;
+        std::vector<RasterStateRecord> RasterStates;
+        std::vector<VertexBufferRecord> VertexBuffers;
+        std::vector<IndexBufferRecord> IndexBuffers;
+
+        // Record passes
+        std::vector<UseRecord> Uses;
+        std::vector<RecorderRecord> Recorders;
     };
 
     // Sequences

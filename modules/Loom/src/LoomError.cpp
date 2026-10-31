@@ -48,6 +48,8 @@ namespace loom
                               "A sequence is empty after the first pass or has an invalid pass count." },
             CatalogEntry{ LM112, "LM112", k_Error,
                               "A frame target is claimed by more than one output." },
+            CatalogEntry{ LM113, "LM113", k_Error,
+                              "A statement that may appear at most once appears twice (a depth target, raster state, index buffer, or one color or vertex slot)." },
 
             CatalogEntry{ LM201, "LM201", k_Error,
                               "Unknown module or entry point." },

@@ -38,7 +38,7 @@ namespace loom
         record->ExposedAnchors.push_back(exposed);
     }
 
-    void SequenceBuilder::commitPass(DispatchBuilder& pass)
+    void SequenceBuilder::commitPass(PassBuilder& pass)
     {
         std::unique_ptr<PassRecord> passRecord = pass.takeRecord();
         record->Passes.push_back(std::move(*passRecord));

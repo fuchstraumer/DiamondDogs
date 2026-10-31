@@ -6,12 +6,15 @@ set(LOOM_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomError.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomKeys.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PassBuilders.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/PassStatements.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ResourceFuture.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/SequenceBuilder.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FrozenGraph.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Freeze.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Publish.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Resolve.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/ResolveDraw.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/ResolveKey.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Validate.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/JsonWriter.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Records.hpp"
@@ -25,6 +28,7 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomDiagnostic.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomError.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PassBuilders.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/PassStatements.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/SequenceBuilder.cpp"
 )
 
