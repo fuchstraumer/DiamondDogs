@@ -155,7 +155,6 @@ namespace loom
     struct ExposedAnchorRecord
     {
         KeyRef Anchor;
-
         // The count of passes in the sequence before the ExposeAnchor call. The anchor sits after pass Position - 1
         // and before pass Position (Q3d). 0 is the start of the sequence; Passes.size() is the end.
         int32_t Position{ -1 };

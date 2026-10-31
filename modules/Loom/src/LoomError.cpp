@@ -42,6 +42,12 @@ namespace loom
                               "A graph pin is set twice." },
             CatalogEntry{ LM109, "LM109", k_Error,
                               "A value is out of range." },
+            CatalogEntry{ LM110, "LM110", k_Error,
+                              "A pass has neither a dispatch nor a draw." },
+            CatalogEntry{ LM111, "LM111", k_Error,
+                              "A sequence is empty after the first pass or has an invalid pass count." },
+            CatalogEntry{ LM112, "LM112", k_Error,
+                              "A frame target is claimed by more than one output." },
 
             CatalogEntry{ LM201, "LM201", k_Error,
                               "Unknown module or entry point." },

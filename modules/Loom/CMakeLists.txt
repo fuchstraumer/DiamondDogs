@@ -9,6 +9,10 @@ set(LOOM_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ResourceFuture.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/SequenceBuilder.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FrozenGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Freeze.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Publish.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Resolve.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Validate.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/JsonWriter.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Records.hpp"
 )
@@ -34,6 +38,9 @@ target_include_directories(loom PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/../RhiResources/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../RhiSystem/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../foundation/include")
+
+# The freeze/ headers include the stage headers in src/ by name.
+target_include_directories(loom PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # link only the backend modules, do *not* link a graphics API or 
 # use any of it's headers; that'll make emscripten transition way worse.

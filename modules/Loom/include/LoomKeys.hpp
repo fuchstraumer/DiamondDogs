@@ -80,6 +80,12 @@ namespace loom
         {
             return !(*this == other);
         }
+
+        constexpr bool operator<(const KeyRef& other) const noexcept
+        {
+            return Hash < other.Hash;
+        }
+        
     };
 
     // tag types for disambiguating keys on type, so we can check at compile-time

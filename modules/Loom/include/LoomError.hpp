@@ -43,6 +43,9 @@ namespace loom
         LM107 = 107, // A key is declared with two kinds
         LM108 = 108, // A graph pin is set twice
         LM109 = 109, // A value is out of range
+        LM110 = 110, // A pass has neither a dispatch nor a draw statement
+        LM111 = 111, // A sequence is empty
+        LM112 = 112, // A frame target has two outputs
 
         // Resolve
         LM201 = 201, // Unknown module or entry point

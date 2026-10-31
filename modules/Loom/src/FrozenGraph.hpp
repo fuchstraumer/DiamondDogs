@@ -71,6 +71,7 @@ namespace loom
     {
         ImageDeclaration Declaration;
         FrameTargetIndex ExtentTarget;      // valid only when Declaration.Extent.Kind is Target
+        std::source_location Where;
     };
 
     struct FrozenFrameTarget

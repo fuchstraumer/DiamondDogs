@@ -192,6 +192,12 @@ namespace loom
         static ImageExpectation AnyExtent(ImageFormat format, int32_t layers) noexcept;
     };
 
+    struct ImportDeclaration
+    {
+        ResourceKey<Image> Key;
+        ImageExpectation Expectation;
+    };
+
     // What a frame target shows when the pass that writes it is skipped (Q4), so the frame still presents.
     struct OutputFallback
     {
@@ -211,12 +217,6 @@ namespace loom
         // todo-ship: What are some better ways we could handle this, potentially? It's effectively saying what's
         // our fallback for a missed frame, i.e, performance is bad so we need to re-use a prev frame?
         static OutputFallback KeepLast() noexcept;
-    };
-
-    struct ImportDeclaration
-    {
-        ResourceKey<Image> Key;
-        ImageExpectation Expectation;
     };
 
     struct OutputDeclaration
