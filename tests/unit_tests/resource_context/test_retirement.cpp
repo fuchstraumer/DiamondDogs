@@ -2,7 +2,7 @@
 #include "ResourceContext.hpp"
 #include "ResourceContextFixture.hpp"
 #include "ResourceFlags.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include "Semaphore.hpp"
 #include <cstdint>
@@ -30,47 +30,49 @@ namespace
 TEST_F(ResourceContextTest, DestroyWaitsForTheConsumerTimeline)
 {
     rhi::TimelineSemaphore timeline(rhiSystem->GetDevice()->Handle());
-    ASSERT_EQ(context->RegisterConsumerTimeline(timeline.Handle())->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    ASSERT_EQ(context->Wait(context->RegisterConsumerTimeline(timeline.Handle()), k_TimeoutNs), rhi::FutureState::Complete);
 
     // the owner is recording the frame that signals 5
     const ConsumerTimelineValue pending{ timeline.Handle(), 5u };
     context->Tick(std::span{ &pending, 1u });
 
     const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(256u), {});
-    std::shared_ptr<MessageReply> destroy = context->DestroyResource(buffer);
-    EXPECT_EQ(destroy->WaitForCompletion(k_ShortWaitNs), MessageReply::Status::Timeout);
+    rhi::OperationFuture destroy = context->DestroyResource(buffer);
+    EXPECT_EQ(context->Wait(destroy, k_ShortWaitNs), rhi::FutureState::Pending);
 
-    // a retiring resource is refused at once. this reply also orders the counter read after the destroy
-    EXPECT_EQ(context->FillBuffer(buffer, 0u, 0u, 256u)->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+    // a retiring resource is refused at once. this future also orders the counter read after the destroy
+    const rhi::OperationFuture refusedFill = context->FillBuffer(buffer, 0u, 0u, 256u);
+    EXPECT_EQ(context->Wait(refusedFill, k_TimeoutNs), rhi::FutureState::Failed);
+    EXPECT_EQ(refusedFill.Error(), rhi::ResourceError::ResourceRetiring);
     EXPECT_EQ(context->Counters().RetirementsPending, 1);
 
     // a tick before the GPU passes the value frees nothing
     context->Tick(std::span{ &pending, 1u });
-    EXPECT_EQ(destroy->WaitForCompletion(k_ShortWaitNs), MessageReply::Status::Timeout);
+    EXPECT_EQ(context->Wait(destroy, k_ShortWaitNs), rhi::FutureState::Pending);
 
     ASSERT_TRUE(timeline.SetValue(5u).IsSuccess());
     context->Tick(std::span{ &pending, 1u });
-    EXPECT_EQ(destroy->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    EXPECT_EQ(context->Wait(destroy, k_TimeoutNs), rhi::FutureState::Complete);
     EXPECT_EQ(context->Counters().RetirementsPending, 0);
 
-    EXPECT_EQ(context->UnregisterConsumerTimeline(timeline.Handle())->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    EXPECT_EQ(context->Wait(context->UnregisterConsumerTimeline(timeline.Handle()), k_TimeoutNs), rhi::FutureState::Complete);
 }
 
 TEST_F(ResourceContextTest, UnregisteringATimelineReleasesItsWaits)
 {
     rhi::TimelineSemaphore timeline(rhiSystem->GetDevice()->Handle());
-    ASSERT_EQ(context->RegisterConsumerTimeline(timeline.Handle())->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    ASSERT_EQ(context->Wait(context->RegisterConsumerTimeline(timeline.Handle()), k_TimeoutNs), rhi::FutureState::Complete);
     const ConsumerTimelineValue pending{ timeline.Handle(), 3u };
     context->Tick(std::span{ &pending, 1u });
 
     const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(256u), {});
-    std::shared_ptr<MessageReply> destroy = context->DestroyResource(buffer);
-    EXPECT_EQ(destroy->WaitForCompletion(k_ShortWaitNs), MessageReply::Status::Timeout);
+    rhi::OperationFuture destroy = context->DestroyResource(buffer);
+    EXPECT_EQ(context->Wait(destroy, k_ShortWaitNs), rhi::FutureState::Pending);
 
     // the owner waited for its frames, then unregisters: nothing waits on this timeline after that
     ASSERT_TRUE(timeline.SetValue(3u).IsSuccess());
-    EXPECT_EQ(context->UnregisterConsumerTimeline(timeline.Handle())->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
-    EXPECT_EQ(destroy->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    EXPECT_EQ(context->Wait(context->UnregisterConsumerTimeline(timeline.Handle()), k_TimeoutNs), rhi::FutureState::Complete);
+    EXPECT_EQ(context->Wait(destroy, k_TimeoutNs), rhi::FutureState::Complete);
 }
 
 TEST_F(ResourceContextTest, RegistrationRefusesDuplicatesAndOverflow)
@@ -83,18 +85,25 @@ TEST_F(ResourceContextTest, RegistrationRefusesDuplicatesAndOverflow)
 
     for (int32_t i = 0; i < k_MaxConsumerTimelines; ++i)
     {
-        EXPECT_EQ(context->RegisterConsumerTimeline(timelines[i]->Handle())->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+        EXPECT_EQ(context->Wait(context->RegisterConsumerTimeline(timelines[i]->Handle()), k_TimeoutNs), rhi::FutureState::Complete);
     }
 
-    EXPECT_EQ(context->RegisterConsumerTimeline(timelines[0]->Handle())->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
-    EXPECT_EQ(context->RegisterConsumerTimeline(timelines.back()->Handle())->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+    const rhi::OperationFuture duplicate = context->RegisterConsumerTimeline(timelines[0]->Handle());
+    EXPECT_EQ(context->Wait(duplicate, k_TimeoutNs), rhi::FutureState::Failed);
+    EXPECT_EQ(duplicate.Error(), rhi::ResourceError::TimelineAlreadyRegistered);
+
+    const rhi::OperationFuture overflow = context->RegisterConsumerTimeline(timelines.back()->Handle());
+    EXPECT_EQ(context->Wait(overflow, k_TimeoutNs), rhi::FutureState::Failed);
+    EXPECT_EQ(overflow.Error(), rhi::ResourceError::NoFreeTimelineSlot);
 
     for (int32_t i = 0; i < k_MaxConsumerTimelines; ++i)
     {
-        EXPECT_EQ(context->UnregisterConsumerTimeline(timelines[i]->Handle())->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+        EXPECT_EQ(context->Wait(context->UnregisterConsumerTimeline(timelines[i]->Handle()), k_TimeoutNs), rhi::FutureState::Complete);
     }
 
-    EXPECT_EQ(context->UnregisterConsumerTimeline(timelines[0]->Handle())->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+    const rhi::OperationFuture missing = context->UnregisterConsumerTimeline(timelines[0]->Handle());
+    EXPECT_EQ(context->Wait(missing, k_TimeoutNs), rhi::FutureState::Failed);
+    EXPECT_EQ(missing.Error(), rhi::ResourceError::TimelineNotRegistered);
 }
 
 TEST_F(ResourceContextTest, ManyTransfersCompleteFromFewCounterReads)
@@ -104,16 +113,16 @@ TEST_F(ResourceContextTest, ManyTransfersCompleteFromFewCounterReads)
     const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(k_BufferBytes), {});
     const ResourceContextCounters before = context->Counters();
 
-    std::vector<std::shared_ptr<ResourceTransferReply>> replies;
-    replies.reserve(k_FillCount);
+    std::vector<rhi::OperationFuture> fills;
+    fills.reserve(k_FillCount);
     for (int32_t i = 0; i < k_FillCount; ++i)
     {
-        replies.push_back(context->FillBuffer(buffer, static_cast<uint32_t>(i), 0u, k_BufferBytes));
+        fills.push_back(context->FillBuffer(buffer, static_cast<uint32_t>(i), 0u, k_BufferBytes));
     }
 
-    for (const std::shared_ptr<ResourceTransferReply>& reply : replies)
+    for (const rhi::OperationFuture& fill : fills)
     {
-        ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+        ASSERT_EQ(context->Wait(fill, k_TimeoutNs), rhi::FutureState::Complete);
     }
 
     const ResourceContextCounters after = context->Counters();
@@ -142,23 +151,23 @@ TEST_F(ResourceContextTest, DestroyWaitsForQueuedUploads)
     const std::vector<uint32_t> words = MakeWordPattern(static_cast<uint32_t>(k_UploadBytes / sizeof(uint32_t)), 0x5EEDu);
     const RhiBufferResourceData data{ std::as_bytes(std::span{ words }), 0u };
 
-    std::vector<std::shared_ptr<MessageReply>> destroys;
+    std::vector<rhi::OperationFuture> destroys;
     for (int32_t i = 0; i < 8; ++i)
     {
         const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(k_UploadBytes), {});
-        std::shared_ptr<ResourceTransferReply> upload = context->SetBufferData(buffer, std::span{ &data, 1u });
+        rhi::OperationFuture upload = context->SetBufferData(buffer, std::span{ &data, 1u });
         destroys.push_back(context->DestroyResource(buffer));
 
         // the destroy completes only after the upload's ticket passed
-        ASSERT_EQ(destroys.back()->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
-        EXPECT_EQ(upload->GetStatus(), MessageReply::Status::Completed);
+        ASSERT_EQ(context->Wait(destroys.back(), k_TimeoutNs), rhi::FutureState::Complete);
+        EXPECT_EQ(upload.State(), rhi::FutureState::Complete);
     }
 }
 
 TEST_F(ResourceContextTest, ShutdownFreesQueuedRetirements)
 {
     rhi::TimelineSemaphore timeline(rhiSystem->GetDevice()->Handle());
-    ASSERT_EQ(context->RegisterConsumerTimeline(timeline.Handle())->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    ASSERT_EQ(context->Wait(context->RegisterConsumerTimeline(timeline.Handle()), k_TimeoutNs), rhi::FutureState::Complete);
     const ConsumerTimelineValue pending{ timeline.Handle(), 100u };
     context->Tick(std::span{ &pending, 1u });
 
@@ -170,22 +179,20 @@ TEST_F(ResourceContextTest, ShutdownFreesQueuedRetirements)
     buffers.push_back(CreateBufferAndWait(DeviceLocalStorageBuffer(4096u), std::span{ &data, 1u }));
     buffers.push_back(CreateBufferAndWait(DeviceLocalStorageBuffer(4096u), {}));
 
-    std::vector<std::shared_ptr<MessageReply>> destroys;
+    std::vector<rhi::OperationFuture> destroys;
     for (const GraphicsResource& buffer : buffers)
     {
         destroys.push_back(context->DestroyResource(buffer));
     }
 
     // orders the counter read after the destroys
-    EXPECT_EQ(context->FillBuffer(buffers[0], 0u, 0u, 4096u)->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+    EXPECT_EQ(context->Wait(context->FillBuffer(buffers[0], 0u, 0u, 4096u), k_TimeoutNs), rhi::FutureState::Failed);
     EXPECT_EQ(context->Counters().RetirementsPending, 3);
 
-    // the owner waits for its frames before it destroys the context. the context must free the queue, not leak it
+    // the owner waits for its frames before it destroys the context. the context must free the queue, not leak it: a
+    // leaked buffer shows as a validation error at vkDestroyDevice, which fails the run. the futures go first, because
+    // a future must not outlive its context
     ASSERT_TRUE(timeline.SetValue(100u).IsSuccess());
+    destroys.clear();
     context.reset();
-
-    for (const std::shared_ptr<MessageReply>& destroy : destroys)
-    {
-        EXPECT_EQ(destroy->GetStatus(), MessageReply::Status::Completed);
-    }
 }

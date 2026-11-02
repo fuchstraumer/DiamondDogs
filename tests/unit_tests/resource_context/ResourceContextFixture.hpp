@@ -24,7 +24,10 @@ protected:
 
     /** Returns the GPUToCPU buffer that the source buffer's first size_bytes were copied into, read back as words. */
     [[nodiscard]] std::vector<uint32_t> ReadBackWords(const GraphicsResource& source, size_t size_bytes);
-    /** Creates a buffer and waits for it. Fails the test when the reply does not complete. */
+    /** Destroys the test's context, then makes a new one with a future table of `max_futures` slots. The old context
+     *  goes first: two contexts would submit to the same transfer queue from two threads. */
+    void RecreateContext(int32_t max_futures);
+    /** Creates a buffer and waits for it. Fails the test when the future does not complete. */
     [[nodiscard]] GraphicsResource CreateBufferAndWait(const BufferCreateInfo& create_info, std::span<const RhiBufferResourceData> initial_data);
     void DestroyAndWait(const GraphicsResource& resource);
 

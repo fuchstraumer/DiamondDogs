@@ -22,21 +22,29 @@ void ResourceContextTest::TearDownTestSuite()
 void ResourceContextTest::SetUp()
 {
     ASSERT_NE(rhiSystem, nullptr);
-    context = std::make_unique<ResourceContext>();
-    const ResourceContextCreateInfo createInfo
-    {
-        rhiSystem->GetInstance(),
-        rhiSystem->GetDevice(),
-        rhiSystem->GetVulkanApiVersion(),
-        true
-    };
-    ASSERT_EQ(context->Initialize(createInfo), ResourceContextError::Success);
+    RecreateContext(k_DefaultMaxFutures);
 }
 
 void ResourceContextTest::TearDown()
 {
     // destroys every resource the test left alive, which is part of what the suite checks
     context.reset();
+}
+
+void ResourceContextTest::RecreateContext(int32_t max_futures)
+{
+    context.reset();
+    context = std::make_unique<ResourceContext>();
+    const ResourceContextCreateInfo createInfo
+    {
+        rhiSystem->GetInstance(),
+        rhiSystem->GetDevice(),
+        rhiSystem->GetVulkanApiVersion(),
+        true,
+        false,
+        max_futures
+    };
+    ASSERT_EQ(context->Initialize(createInfo), ResourceContextError::Success);
 }
 
 std::vector<uint32_t> ResourceContextTest::ReadBackWords(const GraphicsResource& source, size_t size_bytes)
@@ -47,18 +55,18 @@ std::vector<uint32_t> ResourceContextTest::ReadBackWords(const GraphicsResource&
     readbackInfo.Size = size_bytes;
     GraphicsResource readback = CreateBufferAndWait(readbackInfo, {});
 
-    std::shared_ptr<ResourceTransferReply> copyReply = context->CopyBufferContents(source, readback);
-    EXPECT_EQ(copyReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    rhi::OperationFuture copyReply = context->CopyBufferContents(source, readback);
+    EXPECT_EQ(context->Wait(copyReply, k_TimeoutNs), rhi::FutureState::Complete);
 
-    std::shared_ptr<PointerMessageReply> mapReply = context->MapBuffer(readback, size_bytes, 0u);
-    EXPECT_EQ(mapReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    rhi::ResourceFuture<void*> mapReply = context->MapBuffer(readback, size_bytes, 0u);
+    EXPECT_EQ(context->Wait(mapReply, k_TimeoutNs), rhi::FutureState::Complete);
     std::vector<uint32_t> words(size_bytes / sizeof(uint32_t));
-    if (mapReply->GetPointer() != nullptr)
+    if (mapReply.Get() != nullptr)
     {
-        std::memcpy(words.data(), mapReply->GetPointer(), size_bytes);
+        std::memcpy(words.data(), mapReply.Get(), size_bytes);
     }
-    std::shared_ptr<MessageReply> unmapReply = context->UnmapBuffer(readback, size_bytes, 0u);
-    EXPECT_EQ(unmapReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    rhi::OperationFuture unmapReply = context->UnmapBuffer(readback, size_bytes, 0u);
+    EXPECT_EQ(context->Wait(unmapReply, k_TimeoutNs), rhi::FutureState::Complete);
 
     DestroyAndWait(readback);
     return words;
@@ -66,15 +74,15 @@ std::vector<uint32_t> ResourceContextTest::ReadBackWords(const GraphicsResource&
 
 GraphicsResource ResourceContextTest::CreateBufferAndWait(const BufferCreateInfo& create_info, std::span<const RhiBufferResourceData> initial_data)
 {
-    std::shared_ptr<GraphicsResourceReply> reply = context->CreateBuffer(create_info, initial_data);
-    EXPECT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
-    return reply->GetResource();
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateBuffer(create_info, initial_data);
+    EXPECT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
+    return reply.Get();
 }
 
 void ResourceContextTest::DestroyAndWait(const GraphicsResource& resource)
 {
-    std::shared_ptr<MessageReply> reply = context->DestroyResource(resource);
-    EXPECT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    rhi::OperationFuture reply = context->DestroyResource(resource);
+    EXPECT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
 }
 
 std::vector<uint32_t> MakeWordPattern(uint32_t count, uint32_t seed)

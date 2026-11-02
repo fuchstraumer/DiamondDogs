@@ -9,6 +9,7 @@ set(RESOURCE_CONTEXT_TEST_SOURCES
     test_images.cpp
     test_concurrency.cpp
     test_retirement.cpp
+    test_futures.cpp
 )
 
 set(resource_context_test_link_targets
