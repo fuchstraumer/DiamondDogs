@@ -352,41 +352,6 @@ Swapchain* PlatformWindowSystem::GetActiveSwapchain() noexcept
 }
 
 // Event listener registration methods
-void PlatformWindowSystem::AddCursorPosEventListener(const CursorPosEvent& listener, void* user_data)
-{
-    impl->AddCursorPosEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddCursorEnterEventListener(const CursorEnterEvent& listener, void* user_data)
-{
-    impl->AddCursorEnterEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddScrollEventListener(const ScrollEvent& listener, void* user_data)
-{
-    impl->AddScrollEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddCharEventListener(const CharEvent& listener, void* user_data)
-{
-    impl->AddCharEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddPathDropEventListener(const PathDropEvent& listener, void* user_data)
-{ 
-    impl->AddPathDropEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddMouseButtonEventListener(const MouseButtonEvent& listener, void* user_data)
-{ 
-    impl->AddMouseButtonEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddKeyboardKeyEventListener(const KeyboardKeyEvent& listener, void* user_data)
-{ 
-    impl->AddKeyboardKeyEventListener(std::move(listener), user_data);
-}
-
 void PlatformWindowSystem::AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data)
 {
     impl->AddShouldResizeEventListener(std::move(listener), user_data);
@@ -467,11 +432,6 @@ void PlatformWindowSystem::GetFramebufferSize(int& w, int& h) const
     glfwGetFramebufferSize(impl->Window, &w, &h);
 }
 
-int PlatformWindowSystem::GetMouseButton(int button) const
-{
-    return glfwGetMouseButton(impl->Window, button);
-}
-
 void PlatformWindowSystem::GetCursorPosition(double& x, double& y) const
 {
     glfwGetCursorPos(impl->Window, &x, &y);
@@ -490,16 +450,6 @@ int PlatformWindowSystem::GetWindowAttribute(int attrib) const
 void PlatformWindowSystem::SetWindowAttribute(int attrib, int value)
 {
     glfwSetWindowAttrib(impl->Window, attrib, value);
-}
-
-int PlatformWindowSystem::GetInputMode(int mode) const
-{
-    return glfwGetInputMode(impl->Window, mode);
-}
-
-void PlatformWindowSystem::SetInputMode(int mode, int val)
-{
-    glfwSetInputMode(impl->Window, mode, val);
 }
 
 void PlatformWindowSystem::SetWindowShouldClose(bool should_close)

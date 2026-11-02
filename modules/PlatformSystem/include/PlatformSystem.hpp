@@ -8,13 +8,6 @@
 #include <vector>
 
 
-using CursorPosEvent = Delegate<void(const Events::CursorPosEventData&, void* user_data)>;
-using CursorEnterEvent = Delegate<void(const int, void* user_data)>;
-using ScrollEvent = Delegate<void(const Events::ScrollEventData&, void* user_data)>;
-using CharEvent = Delegate<void(const char, void* user_data)>;
-using PathDropEvent = Delegate<void(const Events::PathDropEventData&, void* user_data)>;
-using MouseButtonEvent = Delegate<void(const Events::MouseButtonEventData&, void* user_data)>;
-using KeyboardKeyEvent = Delegate<void(const Events::KeyboardKeyEventData&, void* user_data)>;
 using ShouldResizeEvent = Delegate<void(const Events::ShouldResizeEventData&, void* user_data)>;
 using ShouldCloseEvent = Delegate<void(void* user_data)>;
 
@@ -62,13 +55,6 @@ public:
     /** @brief Returns the mutable swapchain, for Swapchain::SetHdrMetadata. */
     [[nodiscard]] Swapchain* GetActiveSwapchain() noexcept;
 
-    void AddCursorPosEventListener(const CursorPosEvent& listener, void* user_data);
-    void AddCursorEnterEventListener(const CursorEnterEvent& listener, void* user_data);
-    void AddScrollEventListener(const ScrollEvent& listener, void* user_data);
-    void AddCharEventListener(const CharEvent& listener, void* user_data);
-    void AddPathDropEventListener(const PathDropEvent& listener, void* user_data);
-    void AddMouseButtonEventListener(const MouseButtonEvent& listener, void* user_data);
-    void AddKeyboardKeyEventListener(const KeyboardKeyEvent& listener, void* user_data);
     void AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data);
     void AddShouldCloseEventListener(const ShouldCloseEvent& listener, void* user_data);
 
@@ -101,13 +87,10 @@ public:
     void SetWindowSize(int w, int h);
     void GetWindowPos(int& x, int& y) const;
     void GetFramebufferSize(int& w, int& h) const;
-    [[nodiscard]] int GetMouseButton(int button) const;
     void GetCursorPosition(double& x, double& y) const;
     void SetCursorPosition(double x, double y);
     [[nodiscard]] int GetWindowAttribute(int attrib) const;
     void SetWindowAttribute(int attrib, int value);
-    [[nodiscard]] int GetInputMode(int mode) const;
-    void SetInputMode(int mode, int val);
     void SetWindowShouldClose(bool should_close);
 
     static bool IsHDREnabledOnSystem() noexcept;

@@ -36,24 +36,10 @@ struct PlatformSystemImpl
     void Update();
     void WaitForEvents();
     void SetInputAssembler(input::FrameAssembler* assembler);
-    void AddCursorPosEventListener(const CursorPosEvent& listener, void* user_data);
-    void AddCursorEnterEventListener(const CursorEnterEvent& listener, void* user_data);
-    void AddScrollEventListener(const ScrollEvent& listener, void* user_data);
-    void AddCharEventListener(const CharEvent& listener, void* user_data);
-    void AddPathDropEventListener(const PathDropEvent& listener, void* user_data);
-    void AddMouseButtonEventListener(const MouseButtonEvent& listener, void* user_data);
-    void AddKeyboardKeyEventListener(const KeyboardKeyEvent& listener, void* user_data);
     void AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data);
     void AddShouldCloseEventListener(const ShouldCloseEvent& listener, void* user_data);
 };
 
-void CursorPosCallback(GLFWwindow* window, double pos_x, double pos_y);
-void CursorEnterCallback(GLFWwindow* window, int enter);
-void ScrollCallback(GLFWwindow* window, double x_offset, double y_offset);
-void CharCallback(GLFWwindow* window, unsigned int code);
-void PathDropCallback(GLFWwindow* window, int count, const char** paths);
-void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
-void KeyboardKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 void ResizeCallback(GLFWwindow* window, int width, int height);
 void ShouldCloseCallback(GLFWwindow* window);
 
