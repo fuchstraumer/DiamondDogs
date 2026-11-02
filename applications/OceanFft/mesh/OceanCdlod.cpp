@@ -248,7 +248,6 @@ namespace ocean
         const RhiBufferResourceData vertexData{ std::as_bytes(std::span{ vertices }), 0u };
         BufferCreateInfo vertexInfo{};
         vertexInfo.Domain = ResourceDomain::GPUOnly;
-        vertexInfo.Flags = ResourceCreationFlags::UserDataAsNameString;
         vertexInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
         vertexInfo.Size = vertices.size() * sizeof(OceanPatchVertex);
         vertexInfo.Name = "Ocean_CdlodGridVertexBuffer";
@@ -265,7 +264,6 @@ namespace ocean
         const RhiBufferResourceData indexData{ std::as_bytes(std::span{ indices }), 0u };
         BufferCreateInfo indexInfo{};
         indexInfo.Domain = ResourceDomain::GPUOnly;
-        indexInfo.Flags = ResourceCreationFlags::UserDataAsNameString;
         indexInfo.Usage = BufferUsageBits::IndexBuffer | BufferUsageBits::TransferDst;
         indexInfo.Size = indices.size() * sizeof(uint32_t);
         indexInfo.Name = "Ocean_CdlodGridIndexBuffer";
@@ -284,7 +282,6 @@ namespace ocean
         const RhiBufferResourceData rootKeyUpload{ std::as_bytes(std::span{ rootKeyData }), 0u };
         BufferCreateInfo nodesAInfo{};
         nodesAInfo.Domain = ResourceDomain::GPUOnly;
-        nodesAInfo.Flags = ResourceCreationFlags::UserDataAsNameString;
         nodesAInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
         nodesAInfo.Size = maxNodes * sizeof(uint32_t);
         nodesAInfo.Name = "Ocean_CdlodNodesA";
@@ -299,7 +296,6 @@ namespace ocean
 
         BufferCreateInfo nodesBInfo{};
         nodesBInfo.Domain = ResourceDomain::GPUOnly;
-        nodesBInfo.Flags = ResourceCreationFlags::UserDataAsNameString;
         nodesBInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
         nodesBInfo.Size = maxNodes * sizeof(uint32_t);
         nodesBInfo.Name = "Ocean_CdlodNodesB";
@@ -317,7 +313,6 @@ namespace ocean
         const RhiBufferResourceData countsUpload{ std::as_bytes(std::span{ initialCounts }), 0u };
         BufferCreateInfo countsInfo{};
         countsInfo.Domain = ResourceDomain::GPUOnly;
-        countsInfo.Flags = ResourceCreationFlags::UserDataAsNameString;
         countsInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
         countsInfo.Size = initialCounts.size() * sizeof(uint32_t);
         countsInfo.Name = "Ocean_CdlodNodeCounts";
@@ -334,7 +329,6 @@ namespace ocean
         impl->AllocatedMaxSelectedPatches = maxPatches;
         BufferCreateInfo patchesInfo{};
         patchesInfo.Domain = ResourceDomain::GPUOnly;
-        patchesInfo.Flags = ResourceCreationFlags::UserDataAsNameString;
         patchesInfo.Usage = BufferUsageBits::StorageBuffer;
         patchesInfo.Size = maxPatches * sizeof(OceanCdlodPatch);
         patchesInfo.Name = "Ocean_CdlodSelectedPatches";
@@ -351,7 +345,6 @@ namespace ocean
         const RhiBufferResourceData indirectUpload{ std::as_bytes(std::span{ initialIndirect }), 0u };
         BufferCreateInfo indirectInfo{};
         indirectInfo.Domain = ResourceDomain::GPUOnly;
-        indirectInfo.Flags = ResourceCreationFlags::UserDataAsNameString;
         indirectInfo.Usage = BufferUsageBits::IndirectBuffer | BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst | BufferUsageBits::TransferSrc;
         indirectInfo.Size = sizeof(VkDrawIndexedIndirectCommand);
         indirectInfo.Name = "Ocean_CdlodIndirectArgs";
@@ -375,7 +368,7 @@ namespace ocean
             paramsNames.push_back(std::format("Ocean_CdlodParams_{}", frame));
             BufferCreateInfo paramsInfo{};
             paramsInfo.Domain = ResourceDomain::CPUToGPU;
-            paramsInfo.Flags = ResourceCreationFlags::PersistentlyMapped | ResourceCreationFlags::UserDataAsNameString;
+            paramsInfo.Flags = ResourceCreationFlags::PersistentlyMapped;
             paramsInfo.Usage = BufferUsageBits::ComputeShaderUBO;
             paramsInfo.Size = sizeof(OceanQuadtreeParams);
             paramsInfo.Name = paramsNames.back();

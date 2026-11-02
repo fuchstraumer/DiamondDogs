@@ -383,7 +383,6 @@ namespace ocean
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
-            info.Flags = ResourceCreationFlags::UserDataAsNameString;
             // storage for the step, sampled by the step and by the surface, and a transfer destination for tests and clears
             info.Usage = ImageUsageBits::UavComputeShader |
                          ImageUsageBits::SampledImage |

@@ -310,7 +310,6 @@ namespace ocean
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
-            info.Flags = ResourceCreationFlags::UserDataAsNameString;
             info.Usage = usage;
             info.Format = CommonFormats::RG16_Float;
             info.Width = size;
@@ -479,7 +478,6 @@ namespace ocean
         {
             BufferCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
-            info.Flags = ResourceCreationFlags::UserDataAsNameString;
             // copies both ways, so tests can upload IFFT input and read every buffer back
             info.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource | BufferUsageBits::CopyDestination;
             info.Size = bufferBytes[i];

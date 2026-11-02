@@ -41,8 +41,7 @@ enum class ResourceType : uint16_t
 enum class ResourceCreationFlags : uint16_t
 {
     None = 0,
-    /** @brief User data pointer is a null-terminated string naming the resource */
-    UserDataAsNameString = 1 << 0,
+    // bit 0 was UserDataAsNameString. Names are now the create infos' Name field
     /** @brief Place the resource in its own dedicated memory allocation */
     DedicatedMemory = 1 << 1,
     /** @brief Map the resource as part of creation process */

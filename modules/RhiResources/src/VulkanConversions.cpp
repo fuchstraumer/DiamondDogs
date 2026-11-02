@@ -12,15 +12,20 @@ namespace
     [[nodiscard]] bool HasAny(ResourceCreationFlags flags, ResourceCreationFlags mask) noexcept;
     [[nodiscard]] VkComponentSwizzle ToVkSwizzle(ComponentSwizzle swizzle) noexcept;
 
-    constexpr BufferUsageBits k_DeviceAddressUsages =
+    constexpr BufferUsageBits k_RaytracingUsages =
         BufferUsageBits::AccelerationStructureBuild |
         BufferUsageBits::ShaderBindingTable |
         BufferUsageBits::AccelerationStructureBuildScratch;
 }
 
-bool BufferUsageIsSupported(BufferUsageBits usage) noexcept
+bool BufferUsageIsSupported(BufferUsageBits usage, bool device_addresses_enabled) noexcept
 {
-    return !HasAny(usage, k_DeviceAddressUsages);
+    if (HasAny(usage, k_RaytracingUsages))
+    {
+        return false;
+    }
+
+    return device_addresses_enabled || !HasAny(usage, BufferUsageBits::DeviceAddressBuffer);
 }
 
 VkBufferUsageFlags ToVkBufferUsage(BufferUsageBits usage, bool has_texel_view) noexcept

@@ -101,6 +101,7 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
     // set last: Destroy() treats a null device as "never initialized"
     device = create_info.Device;
     validationEnabled = create_info.ValidationEnabled;
+    deviceAddressesEnabled = create_info.DeviceAddressesEnabled;
     StartWorker();
     return ResourceContextError::Success;
 }
@@ -256,7 +257,7 @@ void ResourceContextImpl::processMessage(CreateImageMessage&& message)
 
 std::optional<GraphicsResource> ResourceContextImpl::createBufferEntity(const BufferCreateInfo& info, const DebugName& name)
 {
-    if (info.Domain == ResourceDomain::Invalid || info.Size == 0u || !BufferUsageIsSupported(info.Usage))
+    if (info.Domain == ResourceDomain::Invalid || info.Size == 0u || !BufferUsageIsSupported(info.Usage, deviceAddressesEnabled))
     {
         return std::nullopt;
     }
@@ -569,7 +570,6 @@ void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
     if (const BufferCreateInfo* bufferInfo = resourceRegistry.try_get<BufferCreateInfo>(srcEntity))
     {
         BufferCreateInfo copyInfo = *bufferInfo;
-        copyInfo.Flags = copyInfo.Flags & ~ResourceCreationFlags::UserDataAsNameString;
         copyInfo.Name = {};
         if (message.CopyContents)
         {
@@ -580,7 +580,6 @@ void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
     else if (const ImageCreateInfo* imageInfo = resourceRegistry.try_get<ImageCreateInfo>(srcEntity))
     {
         ImageCreateInfo copyInfo = *imageInfo;
-        copyInfo.Flags = copyInfo.Flags & ~ResourceCreationFlags::UserDataAsNameString;
         copyInfo.Name = {};
         if (message.CopyContents)
         {

@@ -135,6 +135,7 @@ private:
     // ResourceContext assumes VK_SHARING_MODE_CONCURRENT across these, so that the transfer queue needs no ownership transfers
     std::vector<uint32_t> queueFamilyIndices;
     bool validationEnabled{ false };
+    bool deviceAddressesEnabled{ false };
 };
 
 

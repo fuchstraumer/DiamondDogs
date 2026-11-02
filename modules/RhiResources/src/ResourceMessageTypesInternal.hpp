@@ -37,6 +37,8 @@ struct DebugName
     int8_t Length{ 0 };
 };
 
+static_assert(sizeof(DebugName) == 64, "DebugName is sized to one cache line");
+
 // Users still call functions with the old API on the surface, but we translate to these internal structures
 // so that we can place them in the message queue (type erased by being shoved in a variant, effectively)
 

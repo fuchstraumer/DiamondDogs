@@ -13,16 +13,16 @@
 DebugName::DebugName(std::string_view name) noexcept
 {
     // one byte stays free for the terminator, which the zero-initialized array already provides
-    Length = static_cast<int32_t>(std::min(name.size(), static_cast<size_t>(k_Capacity - 1)));
+    Length = static_cast<int8_t>(std::min(name.size(), static_cast<size_t>(k_Capacity - 1)));
     std::memcpy(Text.data(), name.data(), static_cast<size_t>(Length));
 }
 
 DebugName DebugName::WithSuffix(std::string_view suffix) const noexcept
 {
     DebugName result = *this;
-    const int32_t suffixLength = static_cast<int32_t>(std::min(suffix.size(), static_cast<size_t>(k_Capacity - 1 - Length)));
+    const int8_t suffixLength = static_cast<int8_t>(std::min(suffix.size(), static_cast<size_t>(k_Capacity - 1 - Length)));
     std::memcpy(result.Text.data() + Length, suffix.data(), static_cast<size_t>(suffixLength));
-    result.Length = Length + suffixLength;
+    result.Length = static_cast<int8_t>(Length + suffixLength);
     return result;
 }
 

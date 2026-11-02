@@ -12,9 +12,9 @@
     work left is translating those into Vulkan values at the point of creation.
 */
 
-/** @brief Returns false for usages that need buffer device address: DeviceAddressBuffer and the raytracing usages.
- *  Those are refused until the device address and bindless design is settled. */
-[[nodiscard]] bool BufferUsageIsSupported(BufferUsageBits usage) noexcept;
+/** @brief Returns false for the raytracing usages, which are refused until raytracing is designed. Returns false for
+ *  DeviceAddressBuffer when the context was created without device addresses: VMA asserts on that buffer. */
+[[nodiscard]] bool BufferUsageIsSupported(BufferUsageBits usage, bool device_addresses_enabled) noexcept;
 
 /** @brief Returns the Vulkan usage flags for the usage bits. Transfer usage comes only from CopySource and
  *  CopyDestination: the flags have a cost on some hardware, so they are not added to every buffer. */

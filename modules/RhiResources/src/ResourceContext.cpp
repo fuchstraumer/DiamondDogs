@@ -78,12 +78,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateImage(
     message.Name = DebugName(create_info.Name);
     message.ImageInfo.Name = {};
 
-    // the view and the sampler take their names from the image, so their own views are never read
-    if (message.ImageInfo.ViewInfo.has_value())
-    {
-        message.ImageInfo.ViewInfo->Name = {};
-    }
-
+    // the sampler takes its name from the image, so its own view is never read
     if (message.ImageInfo.SamplerInfo.has_value())
     {
         message.ImageInfo.SamplerInfo->Name = {};

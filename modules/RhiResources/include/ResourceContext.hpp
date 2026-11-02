@@ -90,8 +90,7 @@ public:
      * the buffer is created in a transferring state and is not complete until the upload finishes. Host-visible
      * buffers are written directly; device-local buffers go through the transfer system.
      *
-     * @param create_info Domain, usage, size and creation flags. `UserData` is the name string when the flags
-     * contain `UserDataAsNameString`.
+     * @param create_info Domain, usage, size, creation flags and an optional debug name.
      * @param initial_data Initial data regions, written one after another from offset 0. Empty for none.
      * @return Shared pointer to reply object for tracking creation progress
      */

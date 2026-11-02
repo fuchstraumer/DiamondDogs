@@ -43,7 +43,7 @@ struct BufferCreateInfo
     /** @brief If this member is given, the buffer will be created with a correponding BufferView object. Otherwise, we won't create a view. */
     std::optional<ImageFormat> ViewFormat{ std::nullopt };
     /** @brief Optional debug name. ResourceContext copies it when the create call is made, so the string only has to
-     *  live until the call returns. Names longer than 63 characters are truncated. */
+     *  live until the call returns. Names longer than 62 characters are truncated. */
     std::string_view Name;
 };
 
@@ -80,7 +80,6 @@ struct ImageViewCreateInfo
     ImageRange Range{};
     /** @brief If provided, will reinterpret the format of the base image to the given image for this view */
     std::optional<ImageFormat> FormatOverride{ std::nullopt };
-    std::string_view Name; // leaving this empty is valid behavior
 };
 
 struct SamplerCreateInfo
