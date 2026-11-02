@@ -2,6 +2,7 @@ module OceanRender;
 
 import LodestoneAttributes;
 import LodestoneShims;
+import ddEon;
 
 [ls_axis_boolean][ls_axis_kind("capability")]
 public extern static const bool OCEAN_USE_WAVE_OPS = true;
@@ -13,7 +14,7 @@ public extern static const uint OCEAN_WAVE_SIZE = 32u;
 // flat seabed under it (Seabed.slang). They read the Displacement and Derivatives textures that the OceanFft compute
 // module writes, one array layer per cascade.
 __include OceanRenderCommon;
-__include OceanEon;
+__include OceanSkySampling;
 __include OceanWhitecaps;
 __include OceanFoam;
 __include OceanSurface;

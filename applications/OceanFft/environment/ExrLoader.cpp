@@ -148,12 +148,14 @@ namespace ocean
         const uint32_t finalW = needDownsample ? (origW / 2u) : origW;
         const uint32_t finalH = needDownsample ? (origH / 2u) : origH;
 
-        // Obtain Rec.709 to AP1 conversion matrix via Bradford adaptation
+        // Obtain Rec.709 to AP1 conversion matrix via Bradford adaptation. color::Mat3d multiplies a column vector and
+        // math::Float3x3 * Float3 multiplies a row vector, so the storage matrix is the transpose. Copying the rows
+        // as-is turned grey into (0.70, 1.37, 0.93): the cyan cast on every HDRI sky.
         const color::Mat3d mat = color::RgbToRgb(color::Rec709, color::AP1, color::ChromaticAdaptation::Bradford);
         const math::Float3x3 rec709ToAp1{
-            static_cast<float>(mat.Rows[0][0]), static_cast<float>(mat.Rows[0][1]), static_cast<float>(mat.Rows[0][2]),
-            static_cast<float>(mat.Rows[1][0]), static_cast<float>(mat.Rows[1][1]), static_cast<float>(mat.Rows[1][2]),
-            static_cast<float>(mat.Rows[2][0]), static_cast<float>(mat.Rows[2][1]), static_cast<float>(mat.Rows[2][2])
+            static_cast<float>(mat.Rows[0][0]), static_cast<float>(mat.Rows[1][0]), static_cast<float>(mat.Rows[2][0]),
+            static_cast<float>(mat.Rows[0][1]), static_cast<float>(mat.Rows[1][1]), static_cast<float>(mat.Rows[2][1]),
+            static_cast<float>(mat.Rows[0][2]), static_cast<float>(mat.Rows[1][2]), static_cast<float>(mat.Rows[2][2])
         };
 
         ExrImageResult result{};
@@ -322,17 +324,13 @@ namespace ocean
             }
         }
 
-        // Apply Funk-Hecke cosine lobe convolution factors for diffuse irradiance
-        const double A0 = std::numbers::pi;
-        const double A1 = 2.09439510239319549231;
-        const double A2 = 0.78539816339744830962;
-
-        const std::array<double, 9> A_factors{ A0, A1, A1, A1, A2, A2, A2, A2, A2 };
+        // radiance coefficients: the shader's Ramamoorthi-Hanrahan constants already apply the cosine lobe, so
+        // multiplying by it here as well made the irradiance pi times too bright (and up to 8x on downward normals)
         for (size_t k = 0u; k < 9u; ++k)
         {
-            result.SphericalHarmonics[k][0] = static_cast<float>(shAccum[k][0] * A_factors[k]);
-            result.SphericalHarmonics[k][1] = static_cast<float>(shAccum[k][1] * A_factors[k]);
-            result.SphericalHarmonics[k][2] = static_cast<float>(shAccum[k][2] * A_factors[k]);
+            result.SphericalHarmonics[k][0] = static_cast<float>(shAccum[k][0]);
+            result.SphericalHarmonics[k][1] = static_cast<float>(shAccum[k][1]);
+            result.SphericalHarmonics[k][2] = static_cast<float>(shAccum[k][2]);
             result.SphericalHarmonics[k][3] = 1.0f;
         }
 

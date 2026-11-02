@@ -241,7 +241,7 @@ float4 OceanSurfaceFS(OceanSurfaceVaryings input) : SV_Target
     {
         const float phi = atan2(reflectDir.z, reflectDir.x);
         const float theta = acos(clamp(reflectDir.y, -1.0f, 1.0f));
-        const float2 skyUv = float2(phi * EON_INV_2PI + 0.5f, theta * EON_INV_PI);
+        const float2 skyUv = float2(phi * k_SkyInv2Pi + 0.5f, theta * k_SkyInvPi);
 
         float2 ddxUv = ddx(skyUv);
         ddxUv.x -= round(ddxUv.x);
@@ -280,7 +280,8 @@ float4 OceanSurfaceFS(OceanSurfaceVaryings input) : SV_Target
     }
     else
     {
-        skyRadiance = EvaluateSkyShIrradiance(reflectDir, Frame.SkyShCoeffs) * Frame.SkyIntensityScale;
+        // irradiance / pi is the cosine-weighted mean radiance around the reflection direction
+        skyRadiance = EvaluateShIrradiance(reflectDir, Frame.SkyShCoeffs) * (k_SkyInvPi * Frame.SkyIntensityScale);
     }
 
     if (any(isnan(skyRadiance)) || any(isinf(skyRadiance)) || all(skyRadiance <= float3(1e-4f)))
@@ -319,10 +320,10 @@ float4 OceanSurfaceFS(OceanSurfaceVaryings input) : SV_Target
     const float dSunCam2 = dSunCam * dSunCam;
     const float forwardScatter = dSunCam2 * dSunCam2;
     const float crestFactor = saturate(max(0.0f, surface.DisplacementY) * 0.8f + 0.1f);
-    const float3 clampedSunRadiance = min(Frame.SunRadianceAp1, float3(12.0f));
-    const float3 crestSss = clampedSunRadiance * Frame.WaterScatterColorAp1 * (forwardScatter * crestFactor * Frame.SssStrength);
-    const float3 skyZenithIrradiance = EvaluateSkyShIrradiance(float3(0.0f, 1.0f, 0.0f), Frame.SkyShCoeffs) * Frame.SkyIntensityScale;
-    const float3 bodyScatter = Frame.WaterScatterColorAp1 * (saturate(toSun.y) * Frame.SunRadianceAp1 * 0.04f + skyZenithIrradiance * 0.08f);
+    // the author's scatter terms from before the deferred pass: the body scatter follows the reflected sky, so the
+    // swells pick up the sky's variation
+    const float3 crestSss = Frame.SunRadianceAp1 * Frame.WaterScatterColorAp1 * (forwardScatter * crestFactor * Frame.SssStrength);
+    const float3 bodyScatter = Frame.WaterScatterColorAp1 * (saturate(toSun.y) * Frame.SunRadianceAp1 * 0.12f + skyRadiance * 0.25f);
 
     const float3 underwaterColor = float3(0.05f, 0.14f, 0.16f);
     const float3 waterSubsurface = lerp(bodyScatter, underwaterColor * Frame.WaterScatterColorAp1, underwaterFoam) + crestSss;
@@ -349,7 +350,7 @@ float4 OceanSurfaceFS(OceanSurfaceVaryings input) : SV_Target
         const float3 foamNormal = normalize(surface.Normal + View.FoamTextureParameters.y * float3(material.NormalXY.x, 0.0f, material.NormalXY.y));
 
         const float3 foamDirect = EvaluateEonDirect(foamAlbedo, foamRoughness, foamNormal, toCamera, toSun) * Frame.SunRadianceAp1;
-        const float3 skyIrradiance = EvaluateSkyShIrradiance(foamNormal, Frame.SkyShCoeffs) * Frame.SkyIntensityScale;
+        const float3 skyIrradiance = EvaluateShIrradiance(foamNormal, Frame.SkyShCoeffs) * Frame.SkyIntensityScale;
         const float3 foamIbl = EvaluateEonIbl(foamAlbedo, foamRoughness, foamNormal, toCamera, skyIrradiance);
         foamRadiance = foamDirect + foamIbl;
     }

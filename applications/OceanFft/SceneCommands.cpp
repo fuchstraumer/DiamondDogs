@@ -75,6 +75,7 @@ namespace
         { "sync", { SceneCommand::Kind::Sync, 0u, 0u, true } },
         { "wait", { SceneCommand::Kind::Wait, 1u, 1u, false } },
         { "print", { SceneCommand::Kind::Print, 0u, 0u, false } },
+        { "resize", { SceneCommand::Kind::Resize, 2u, 2u, false } },
         { "quit", { SceneCommand::Kind::Quit, 0u, 0u, false } },
     };
 

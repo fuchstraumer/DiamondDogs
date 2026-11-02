@@ -217,11 +217,11 @@ namespace
         const float denomX = std::max(1e-6f, EvaluatePerez(cx, 1.0f, thetaS, cosSunZenith));
         const float denomZ = std::max(1e-6f, EvaluatePerez(cz, 1.0f, thetaS, cosSunZenith));
 
-        // XYZ to AP1 linear matrix
+        // XYZ to AP1, stored transposed: math::Float3x3 * Float3 multiplies a row vector
         constexpr math::Float3x3 k_XyzToAp1{
-            1.64102338f,  -0.324803294f, -0.236424695f,
-            -0.663662859f, 1.61533159f,   0.0167563477f,
-            0.0117218943f, -0.008284442f, 0.988394859f
+            1.64102338f,   -0.663662859f, 0.0117218943f,
+            -0.324803294f, 1.61533159f,   -0.008284442f,
+            -0.236424695f, 0.0167563477f, 0.988394859f
         };
 
         std::array<std::array<double, 3>, 9> shAccum{};
@@ -295,16 +295,12 @@ namespace
             }
         }
 
-        const double A0 = 3.14159265358979323846;
-        const double A1 = 2.09439510239319549231;
-        const double A2 = 0.78539816339744830962;
-        const std::array<double, 9> A_factors{ A0, A1, A1, A1, A2, A2, A2, A2, A2 };
-
+        // radiance coefficients: the shader's Ramamoorthi-Hanrahan constants already apply the cosine lobe
         for (size_t k = 0u; k < 9u; ++k)
         {
-            out_sh[k][0] = static_cast<float>(shAccum[k][0] * A_factors[k]);
-            out_sh[k][1] = static_cast<float>(shAccum[k][1] * A_factors[k]);
-            out_sh[k][2] = static_cast<float>(shAccum[k][2] * A_factors[k]);
+            out_sh[k][0] = static_cast<float>(shAccum[k][0]);
+            out_sh[k][1] = static_cast<float>(shAccum[k][1]);
+            out_sh[k][2] = static_cast<float>(shAccum[k][2]);
             out_sh[k][3] = 1.0f;
         }
     }
@@ -595,10 +591,11 @@ namespace ocean
             const float denomX = std::max(1e-6f, EvaluatePerez(cx, 1.0f, thetaS, cosSunZenith));
             const float denomZ = std::max(1e-6f, EvaluatePerez(cz, 1.0f, thetaS, cosSunZenith));
 
+            // XYZ to AP1, stored transposed: math::Float3x3 * Float3 multiplies a row vector
             constexpr math::Float3x3 k_XyzToAp1{
-                1.64102338f,  -0.324803294f, -0.236424695f,
-                -0.663662859f, 1.61533159f,   0.0167563477f,
-                0.0117218943f, -0.008284442f, 0.988394859f
+                1.64102338f,   -0.663662859f, 0.0117218943f,
+                -0.324803294f, 1.61533159f,   -0.008284442f,
+                -0.236424695f, 0.0167563477f, 0.988394859f
             };
 
             constexpr float k_CosSolarDisk = 0.99996f;

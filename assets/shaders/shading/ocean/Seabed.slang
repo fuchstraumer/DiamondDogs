@@ -60,7 +60,7 @@ float4 SeabedFS(SeabedVaryings input) : SV_Target
     const float3 directDiffuse = EvaluateEonDirect(albedo, roughness, normal, toCamera, toSun) * incidentSun;
 
     // Ambient sky irradiance with spherical harmonics and depth attenuation
-    const float3 skyIrradiance = EvaluateSkyShIrradiance(normal, Frame.SkyShCoeffs)
+    const float3 skyIrradiance = EvaluateShIrradiance(normal, Frame.SkyShCoeffs)
         * exp(-waterExtinction * depth) * Frame.SkyIntensityScale;
     const float3 iblDiffuse = EvaluateEonIbl(albedo, roughness, normal, toCamera, skyIrradiance);
 

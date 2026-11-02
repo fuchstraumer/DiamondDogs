@@ -111,6 +111,7 @@ struct SceneCommand
         Sync,
         Wait,
         Print,
+        Resize,
         Quit,
     };
 

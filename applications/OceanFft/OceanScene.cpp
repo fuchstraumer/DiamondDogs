@@ -240,9 +240,8 @@ namespace
         uint32_t OuterResolution{ 1u };
     };
 
-    // the display scaling in OceanShading.slang: these must stay equal to k_PaperWhiteNits and k_ScRgbRefNits there
+    // scRGB defines 1.0 as 80 nits, the same reference that ddColor uses
     constexpr float k_ScRgbRefNits = 80.0f;
-    constexpr float k_PaperWhiteNits = 348.0f;
 
     constexpr float k_DegreesToRadians = std::numbers::pi_v<float> / 180.0f;
 
@@ -730,6 +729,9 @@ void OceanScene::updateSurfaceDescriptors()
             Fail(std::format("OceanScene: {}", *error));
         }
     }
+
+    // the deferred sets bind the same sky dome image and sampler
+    updateDeferredDescriptors();
 }
 
 void OceanScene::createDeferredPrograms()
@@ -1065,20 +1067,18 @@ void OceanScene::createRenderTargets()
     depthInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Depth;
     depthImage = WaitForResource(resources->CreateImage(depthInfo, {}), "the depth image");
 
-    if (msaaSamples == VK_SAMPLE_COUNT_1_BIT)
+    if (msaaSamples != VK_SAMPLE_COUNT_1_BIT)
     {
-        return;
+        // Resolves into ColorPipe::SceneTarget (RGBA16_Float)
+        ImageCreateInfo colorInfo = depthInfo;
+        colorInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite;
+        colorInfo.Format = CommonFormats::RGBA16_Float;
+        colorInfo.Name = "Ocean_MsaaColorImage";
+        colorInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
+        msaaColorImage = WaitForResource(resources->CreateImage(colorInfo, {}), "the multisampled color image");
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, msaaColorImage.VkHandle, "Ocean_MsaaColorImage");
+        rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, msaaColorImage.VkViewHandle, "Ocean_MsaaColorImageView");
     }
-
-    // Resolves into ColorPipe::SceneTarget (RGBA16_Float)
-    ImageCreateInfo colorInfo = depthInfo;
-    colorInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite;
-    colorInfo.Format = CommonFormats::RGBA16_Float;
-    colorInfo.Name = "Ocean_MsaaColorImage";
-    colorInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
-    msaaColorImage = WaitForResource(resources->CreateImage(colorInfo, {}), "the multisampled color image");
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, msaaColorImage.VkHandle, "Ocean_MsaaColorImage");
-    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, msaaColorImage.VkViewHandle, "Ocean_MsaaColorImageView");
 
     // Deferred Render Targets
     ImageCreateInfo hdrInfo{};
@@ -1230,11 +1230,14 @@ void OceanScene::onSwapchainRecreated()
 {
     // recreateSwapchain waited for the device, so nothing still uses the old targets
     destroyRenderTargets();
-    createRenderTargets();
+
+    // the deferred descriptors bind the color pipe's scene target, so it must be recreated first
     if (colorPipe)
     {
         (void)colorPipe->OnSwapchainRecreated();
     }
+
+    createRenderTargets();
     if (environment)
     {
         environment->SetSampleCount(msaaSamples);
@@ -1503,26 +1506,32 @@ void OceanScene::runCommand(const SceneCommand& command)
             useBrunetonAtmosphere = false;
             skyPreset = ocean::OceanSkyPreset::AnalyticPreetham;
         }
-        else if (command.Text == "aurora") { useBrunetonAtmosphere = false; 
+        else if (command.Text == "aurora")
         {
-            skyPreset = ocean::OceanSkyPreset::AuroralNight;;
-        } }
-        else if (command.Text == "day") { useBrunetonAtmosphere = false; 
+            useBrunetonAtmosphere = false;
+            skyPreset = ocean::OceanSkyPreset::AuroralNight;
+        }
+        else if (command.Text == "day")
         {
-            skyPreset = ocean::OceanSkyPreset::BrightDay;;
-        } }
-        else if (command.Text == "night") { useBrunetonAtmosphere = false; 
+            useBrunetonAtmosphere = false;
+            skyPreset = ocean::OceanSkyPreset::BrightDay;
+        }
+        else if (command.Text == "night")
         {
-            skyPreset = ocean::OceanSkyPreset::StarryNight;;
-        } }
-        else if (command.Text == "overcast") { useBrunetonAtmosphere = false; 
+            useBrunetonAtmosphere = false;
+            skyPreset = ocean::OceanSkyPreset::StarryNight;
+        }
+        else if (command.Text == "overcast")
         {
-            skyPreset = ocean::OceanSkyPreset::OvercastEvening;;
-        } }
-        else if (command.Text == "twilight") { useBrunetonAtmosphere = false; 
+            useBrunetonAtmosphere = false;
+            skyPreset = ocean::OceanSkyPreset::OvercastEvening;
+        }
+        else if (command.Text == "twilight")
         {
-            skyPreset = ocean::OceanSkyPreset::Twilight;;
-        } }
+            useBrunetonAtmosphere = false;
+            skyPreset = ocean::OceanSkyPreset::Twilight;
+        }
+
         if (environment)
         {
             device->WaitDeviceIdle();
@@ -1684,6 +1693,9 @@ void OceanScene::runCommand(const SceneCommand& command)
         {
             std::cout << std::format("READY {} frame={}", command.Text, frameNumber) << std::endl;
         }
+        break;
+    case SceneCommand::Kind::Resize:
+        platformSystem->SetWindowSize(static_cast<int>(v[0]), static_cast<int>(v[1]));
         break;
     case SceneCommand::Kind::Quit:
         quitRequested = true;
@@ -3536,7 +3548,10 @@ void OceanScene::recordCommands()
         RhiAssert(computePool.Reset());
         rhi::CommandBuffer computeCmd(computePool.GetCommandBuffer(0));
         RhiAssert(computeCmd.Begin());
-        rhi::GpuTimerBlock computeTimerBlock(*asyncGpuTimers, computeCmd, frameNumber);
+
+        // the timer block is collected against the async timeline, so its submission is the value this submit signals
+        const uint64_t signalVal = asyncTimelineValue + 1u;
+        rhi::GpuTimerBlock computeTimerBlock(*asyncGpuTimers, computeCmd, signalVal);
 
         if (needsInitialize)
         {
@@ -3566,7 +3581,7 @@ void OceanScene::recordCommands()
         }
         RhiAssert(computeCmd.End());
 
-        const uint64_t signalVal = ++asyncTimelineValue;
+        asyncTimelineValue = signalVal;
         const rhi::SemaphoreSubmitInfo signalInfo{ asyncTimeline->Handle(), signalVal, rhi::PipelineStage::ComputeShader };
         const rhi::CommandBufferHandle computeCmdHandle = computePool.GetCommandBuffer(0);
         const rhi::SubmitInfo computeSubmit{ {}, std::span{ &computeCmdHandle, 1 }, std::span{ &signalInfo, 1 } };
@@ -3844,7 +3859,8 @@ void OceanScene::recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi:
         source.Height = static_cast<uint32_t>(extent.y);
         source.Format = swapchain->ImageFormat();
         source.Encoding = encoding.value_or(capture::CaptureEncoding::sRGB);
-        source.LinearScale = colorPipe ? (k_ScRgbRefNits / colorPipe->Target().PaperWhiteNits) : (k_ScRgbRefNits / k_PaperWhiteNits);
+        // the composite scales paper white to the display's SDR white, so a capture divides it back out
+        source.LinearScale = k_ScRgbRefNits / colorPipe->Target().PaperWhiteNits;
 
         std::string captureName = std::move(*name);
         std::filesystem::path target = captureName;

@@ -4,6 +4,7 @@ import LodestoneAttributes;
 import LodestoneShims;
 import OceanAtmosphere;
 import ddColor;
+import ddEon;
 
 // OceanDeferred.slang
 // Deferred ocean rendering post-passes:
@@ -13,10 +14,7 @@ import ddColor;
 // 4. OceanTaaResolveCS: Variance-clipped Karis-weighted Temporal Antialiasing.
 // 5. OceanAutoExposureCS: Single-pass shared-memory log2 luminance reduction and eye adaptation.
 
-internal static const float DEFERRED_PI = 3.14159265358979323846f;
 internal static const float DEFERRED_INV_PI = 0.31830988618379067154f;
-internal static const float DEFERRED_CONST1_FON = 0.287813735748f;
-internal static const float DEFERRED_CONST2_FON = 0.072237894236f;
 
 public struct OceanViewParameters
 {
@@ -277,106 +275,6 @@ internal float EvaluateBrunetonFresnel(float3 V, float3 N, float2 sigmaSq)
 }
 
 [ForceInline]
-internal float DeferredFastAcosPositive(float x)
-{
-    const float cx = saturate(x);
-    return sqrt(1.0f - cx) * (1.5707963f + cx * (-0.2145988f + cx * (0.0889789f - 0.0501743f * cx)));
-}
-
-internal float EvaluateFonSingleDirectionalAlbedo(float mu, float r, float Af, float Bf)
-{
-    const float muClamped = saturate(mu);
-    const float s = sqrt(max(0.0f, 1.0f - muClamped * muClamped));
-    const float safeMu = max(1e-5f, muClamped);
-    const float acosMu = DeferredFastAcosPositive(muClamped);
-    const float g = s * (acosMu - s * muClamped) + (2.0f / 3.0f) * ((s / safeMu) * (1.0f - s * s * s) - s);
-    return Af + (Bf * DEFERRED_INV_PI) * g;
-}
-
-internal float3 EvaluateEonDirectionalAlbedo(float3 rho, float r, float mu)
-{
-    const float roughness = clamp(r, 0.0f, 1.0f);
-    if (roughness <= 1e-4f)
-    {
-        return saturate(rho);
-    }
-
-    const float af = 1.0f / (1.0f + DEFERRED_CONST1_FON * roughness);
-    const float bf = roughness * af;
-    const float avgEf = af * (1.0f + DEFERRED_CONST2_FON * roughness);
-
-    const float ef = EvaluateFonSingleDirectionalAlbedo(mu, roughness, af, bf);
-    const float3 clampedRho = saturate(rho);
-    const float3 denom = max(float3(1e-6f), float3(1.0f) - clampedRho * (1.0f - avgEf));
-    const float3 rhoMs = (clampedRho * clampedRho) * avgEf / denom;
-
-    return clampedRho * ef + rhoMs * max(0.0f, 1.0f - ef);
-}
-
-internal float3 EvaluateEonDirect(float3 rho, float r, float3 N, float3 V, float3 L)
-{
-    const float nDotL = saturate(dot(N, L));
-    const float nDotV = saturate(dot(N, V));
-
-    if (nDotL <= 1e-6f || nDotV <= 1e-6f)
-    {
-        return float3(0.0f);
-    }
-
-    const float roughness = clamp(r, 0.0f, 1.0f);
-    const float3 clampedRho = saturate(rho);
-
-    if (roughness <= 1e-4f)
-    {
-        return clampedRho * (DEFERRED_INV_PI * nDotL);
-    }
-
-    const float af = 1.0f / (1.0f + DEFERRED_CONST1_FON * roughness);
-    const float bf = roughness * af;
-    const float avgEf = af * (1.0f + DEFERRED_CONST2_FON * roughness);
-
-    const float s = dot(V, L) - nDotL * nDotV;
-    const float sOverT = s > 0.0f ? s / max(nDotL, nDotV) : s;
-    const float3 fSs = (clampedRho * DEFERRED_INV_PI) * (af * (1.0f + roughness * sOverT));
-
-    const float efL = EvaluateFonSingleDirectionalAlbedo(nDotL, roughness, af, bf);
-    const float efV = EvaluateFonSingleDirectionalAlbedo(nDotV, roughness, af, bf);
-
-    const float3 denomMs = max(float3(1e-6f), float3(1.0f) - clampedRho * (1.0f - avgEf));
-    const float3 rhoMs = (clampedRho * clampedRho) * avgEf / denomMs;
-
-    const float compL = max(0.0f, 1.0f - efL);
-    const float compV = max(0.0f, 1.0f - efV);
-    const float denomAvg = max(1e-6f, 1.0f - avgEf);
-    const float3 fMs = (rhoMs * DEFERRED_INV_PI) * ((compL * compV) / denomAvg);
-
-    return (fSs + fMs) * nDotL;
-}
-
-internal float3 EvaluateEonIbl(float3 rho, float r, float3 N, float3 V, float3 irradiance)
-{
-    const float nDotV = saturate(dot(N, V));
-    return EvaluateEonDirectionalAlbedo(rho, r, nDotV) * irradiance;
-}
-
-internal float3 EvaluateSkyShIrradiance(float3 N, float4 shCoeffs[9])
-{
-    const float c1 = 0.429043f;
-    const float c2 = 0.511664f;
-    const float c3 = 0.743125f;
-    const float c4 = 0.886227f;
-    const float c5 = 0.247708f;
-
-    const float3 irradiance = c4 * shCoeffs[0].xyz
-                            + 2.0f * c2 * (shCoeffs[3].xyz * N.x + shCoeffs[1].xyz * N.y + shCoeffs[2].xyz * N.z)
-                            + c1 * shCoeffs[8].xyz * (N.x * N.x - N.y * N.y)
-                            + c3 * shCoeffs[6].xyz * (N.z * N.z) - c5 * shCoeffs[6].xyz
-                            + 2.0f * c1 * (shCoeffs[4].xyz * N.x * N.y + shCoeffs[7].xyz * N.x * N.z + shCoeffs[5].xyz * N.y * N.z);
-
-    return max(float3(0.0f), irradiance);
-}
-
-[ForceInline]
 internal float3 RgbToYCoCg(float3 c)
 {
     return float3(
@@ -602,7 +500,8 @@ void OceanDeferredLightingCS(
     }
     else
     {
-        skyRadiance = EvaluateSkyShIrradiance(reflectDir, Frame.SkyShCoeffs) * Frame.SkyIntensityScale;
+        // irradiance / pi is the cosine-weighted mean radiance around the reflection direction
+        skyRadiance = EvaluateShIrradiance(reflectDir, Frame.SkyShCoeffs) * (DEFERRED_INV_PI * Frame.SkyIntensityScale);
     }
 
     // Hi-Z / Screen-Space wave crest reflections (SSR)
@@ -674,10 +573,10 @@ void OceanDeferredLightingCS(
     const float dSunCam2 = dSunCam * dSunCam;
     const float forwardScatter = dSunCam2 * dSunCam2;
     const float crestFactor = saturate(max(0.0f, displacementY) * 0.8f + 0.1f);
-    const float3 clampedSunRadiance = min(Frame.SunRadianceAp1, float3(12.0f));
-    const float3 crestSss = clampedSunRadiance * Frame.WaterScatterColorAp1 * (forwardScatter * crestFactor * Frame.SssStrength);
-    const float3 skyZenithIrradiance = EvaluateSkyShIrradiance(float3(0.0f, 1.0f, 0.0f), Frame.SkyShCoeffs) * Frame.SkyIntensityScale;
-    const float3 bodyScatter = Frame.WaterScatterColorAp1 * (saturate(toSun.y) * Frame.SunRadianceAp1 * 0.04f + skyZenithIrradiance * 0.08f);
+    // the author's scatter terms from before the deferred pass: the body scatter follows the reflected sky, so the
+    // swells pick up the sky's variation
+    const float3 crestSss = Frame.SunRadianceAp1 * Frame.WaterScatterColorAp1 * (forwardScatter * crestFactor * Frame.SssStrength);
+    const float3 bodyScatter = Frame.WaterScatterColorAp1 * (saturate(toSun.y) * Frame.SunRadianceAp1 * 0.12f + skyRadiance * 0.25f);
 
     const float3 underwaterColor = float3(0.05f, 0.14f, 0.16f);
     const float3 waterSubsurface = lerp(bodyScatter, underwaterColor * Frame.WaterScatterColorAp1, underwaterFoam) + crestSss;
@@ -696,7 +595,7 @@ void OceanDeferredLightingCS(
         const float3 foamAlbedo = gFoamSss.w * View.FoamTextureTint.xyz;
         const float3 foamNormal = normalize(normal + View.FoamTextureParameters.y * float3(foamNormalXy.x, 0.0f, foamNormalXy.y));
         const float3 foamDirect = EvaluateEonDirect(foamAlbedo, foamRoughness, foamNormal, toCamera, toSun) * Frame.SunRadianceAp1;
-        const float3 skyIrradiance = EvaluateSkyShIrradiance(foamNormal, Frame.SkyShCoeffs) * Frame.SkyIntensityScale;
+        const float3 skyIrradiance = EvaluateShIrradiance(foamNormal, Frame.SkyShCoeffs) * Frame.SkyIntensityScale;
         const float3 foamIbl = EvaluateEonIbl(foamAlbedo, foamRoughness, foamNormal, toCamera, skyIrradiance);
         foamRadiance = foamDirect + foamIbl;
     }
