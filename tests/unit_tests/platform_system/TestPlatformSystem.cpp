@@ -4,8 +4,12 @@
 #include "PlatformSystem.hpp"
 #include "PlatformTypes.hpp"
 #include "Swapchain.hpp"
+#include <atomic>
+#include <cmath>
 #include <filesystem>
 #include <memory>
+#include <thread>
+#include <chrono>
 
 constexpr static PlatformWindowCreateInfo k_SDefaultCreateInfo
 {
@@ -250,12 +254,6 @@ TEST_F(PlatformSystemTest, WindowAndInputManagement)
     EXPECT_NO_THROW({
         platformSystem->SetCursorPosition(100.0, 100.0);
     });
-    
-    // Test mouse button state (should not crash)
-    EXPECT_NO_THROW({
-        int buttonState = platformSystem->GetMouseButton(0); // Left mouse button
-        (void)buttonState; // Suppress unused variable warning
-    });
 }
 
 // Test HDR support query
@@ -312,54 +310,16 @@ TEST_F(PlatformSystemTest, ShouldCloseBehavior)
 }
 
 // Static callback functions for event testing
-static std::atomic<int> k_SCursorPosEvents{0};
-static std::atomic<int> k_SCursorEnterEvents{0};
-static std::atomic<int> k_SScrollEvents{0};
-static std::atomic<int> k_SCharEvents{0};
-static std::atomic<int> k_SPathDropEvents{0};
-static std::atomic<int> k_SMouseButtonEvents{0};
-static std::atomic<int> k_SKeyboardEvents{0};
 static std::atomic<int> k_SResizeEvents{0};
 static std::atomic<int> k_SCloseEvents{0};
+static std::atomic<int> k_SLastResizeWidth{0};
+static std::atomic<int> k_SLastResizeHeight{0};
 
-static void TestCursorPosCallback(const Events::CursorPosEventData&, void*)
-{
-    k_SCursorPosEvents++;
-}
-
-static void TestCursorEnterCallback(const int, void*)
-{
-    k_SCursorEnterEvents++;
-}
-
-static void TestScrollCallback(const Events::ScrollEventData&, void*)
-{
-    k_SScrollEvents++;
-}
-
-static void TestCharCallback(const char, void*)
-{
-    k_SCharEvents++;
-}
-
-static void TestPathDropCallback(const Events::PathDropEventData&, void*)
-{
-    k_SPathDropEvents++;
-}
-
-static void TestMouseButtonCallback(const Events::MouseButtonEventData&, void*)
-{
-    k_SMouseButtonEvents++;
-}
-
-static void TestKeyboardCallback(const Events::KeyboardKeyEventData&, void*)
-{
-    k_SKeyboardEvents++;
-}
-
-static void TestResizeCallback(const Events::ShouldResizeEventData&, void*)
+static void TestResizeCallback(const Events::ShouldResizeEventData& event_data, void*)
 {
     k_SResizeEvents++;
+    k_SLastResizeWidth = event_data.Width;
+    k_SLastResizeHeight = event_data.Height;
 }
 
 static void TestCloseCallback(void*)
@@ -367,71 +327,32 @@ static void TestCloseCallback(void*)
     k_SCloseEvents++;
 }
 
-// Test event listener registration
-TEST_F(PlatformSystemTest, EventListenerRegistration)
+// The resize listener fires when the window changes size, and the close listener fires once on close
+TEST_F(PlatformSystemTest, ResizeAndCloseListeners)
 {
     auto createInfo = getTestCreateInfo();
     auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
-    
-    // Reset event counters
-    k_SCursorPosEvents = 0;
-    k_SCursorEnterEvents = 0;
-    k_SScrollEvents = 0;
-    k_SCharEvents = 0;
-    k_SPathDropEvents = 0;
-    k_SMouseButtonEvents = 0;
-    k_SKeyboardEvents = 0;
+
     k_SResizeEvents = 0;
     k_SCloseEvents = 0;
-    
-    // Register event listeners using function pointers
-    EXPECT_NO_THROW({
-        platformSystem->AddCursorPosEventListener(
-            CursorPosEvent::Create<TestCursorPosCallback>(), nullptr);
-            
-        platformSystem->AddCursorEnterEventListener(
-            CursorEnterEvent::Create<TestCursorEnterCallback>(), nullptr);
-            
-        platformSystem->AddScrollEventListener(
-            ScrollEvent::Create<TestScrollCallback>(), nullptr);
-            
-        platformSystem->AddCharEventListener(
-            CharEvent::Create<TestCharCallback>(), nullptr);
-            
-        platformSystem->AddPathDropEventListener(
-            PathDropEvent::Create<TestPathDropCallback>(), nullptr);
-            
-        platformSystem->AddMouseButtonEventListener(
-            MouseButtonEvent::Create<TestMouseButtonCallback>(), nullptr);
-            
-        platformSystem->AddKeyboardKeyEventListener(
-            KeyboardKeyEvent::Create<TestKeyboardCallback>(), nullptr);
-            
-        platformSystem->AddShouldResizeEventListener(
-            ShouldResizeEvent::Create<TestResizeCallback>(), nullptr);
-            
-        platformSystem->AddShouldCloseEventListener(
-            ShouldCloseEvent::Create<TestCloseCallback>(), nullptr);
-    });
-    
-    // Process some update cycles to ensure event system is working
-    for (int i = 0; i < 5; ++i)
-    {
-        platformSystem->Update();
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    
-    // Event counters might still be 0 since we're not generating actual events,
-    // but registration should not have crashed
-    EXPECT_GE(k_SCursorPosEvents.load(), 0);
-    EXPECT_GE(k_SCursorEnterEvents.load(), 0);
-    EXPECT_GE(k_SScrollEvents.load(), 0);
-    EXPECT_GE(k_SCharEvents.load(), 0);
-    EXPECT_GE(k_SPathDropEvents.load(), 0);
-    EXPECT_GE(k_SMouseButtonEvents.load(), 0);
-    EXPECT_GE(k_SKeyboardEvents.load(), 0);
-    EXPECT_GE(k_SResizeEvents.load(), 0);
-    EXPECT_GE(k_SCloseEvents.load(), 0);
+
+    platformSystem->AddShouldResizeEventListener(ShouldResizeEvent::Create<TestResizeCallback>(), nullptr);
+    platformSystem->AddShouldCloseEventListener(ShouldCloseEvent::Create<TestCloseCallback>(), nullptr);
+
+    constexpr int k_NewWidth = 640;
+    constexpr int k_NewHeight = 480;
+    platformSystem->SetWindowSize(k_NewWidth, k_NewHeight);
+    platformSystem->Update();
+
+    EXPECT_GE(k_SResizeEvents.load(), 1);
+    EXPECT_EQ(k_SLastResizeWidth.load(), k_NewWidth);
+    EXPECT_EQ(k_SLastResizeHeight.load(), k_NewHeight);
+    EXPECT_EQ(k_SCloseEvents.load(), 0);
+
+    platformSystem->SetWindowShouldClose(true);
+    platformSystem->Update();
+
+    EXPECT_EQ(k_SCloseEvents.load(), 1);
 }
 
 // Test window attribute manipulation
@@ -454,29 +375,6 @@ TEST_F(PlatformSystemTest, WindowAttributeManipulation)
     EXPECT_NO_THROW({
         // These should not crash, even if the attributes are not settable
         platformSystem->SetWindowAttribute(0x20005, 1); // GLFW_DECORATED
-    });
-}
-
-// Test input mode manipulation
-TEST_F(PlatformSystemTest, InputModeManipulation)
-{
-    auto createInfo = getTestCreateInfo();
-    auto platformSystem = std::make_unique<PlatformWindowSystem>(createInfo);
-    
-    // Test cursor modes
-    EXPECT_NO_THROW({
-        int cursorMode = platformSystem->GetInputMode(0x00033001); // GLFW_CURSOR
-        platformSystem->SetInputMode(0x00033001, 0x00034001); // GLFW_CURSOR_NORMAL
-        
-        (void)cursorMode; // Suppress unused variable warning
-    });
-    
-    // Test sticky keys mode
-    EXPECT_NO_THROW({
-        int stickyKeys = platformSystem->GetInputMode(0x00033002); // GLFW_STICKY_KEYS
-        platformSystem->SetInputMode(0x00033002, 0); // Disable sticky keys
-        
-        (void)stickyKeys; // Suppress unused variable warning
     });
 }
 

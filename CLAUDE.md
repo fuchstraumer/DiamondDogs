@@ -180,7 +180,10 @@ She reads and audits every line, so code must not look dense. Whitespace is free
 - **Between chunks:** separate chunks of straight-line code where the work changes step, for example a result
   variable declared at the top, then the setup below it.
 - **No padding inside braces:** no blank line right after `{` or right before `}`. `else` stays attached to its `if`.
-  Short `case` bodies inside a `switch` stay compact.
+  Inside a `switch`, no blank lines between cases. Only a case that returns a value stays on one line; every other
+  case puts its label, statement and `break` on separate lines (the style file shows it).
+- **Private member functions are camelCase**, like private member variables (`applyButtonDown`). The style file has
+  the rule.
 - **Comments:** a comment line can take the place of a blank line.
 - **Reference files:** `applications/OceanFft/OceanScene.cpp` and `SceneCommands.cpp`.
 - **Scope:** apply this to new code and to code being edited. Don't reformat files that aren't otherwise being

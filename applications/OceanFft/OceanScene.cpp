@@ -13,6 +13,8 @@
 #include "FrameCapture.hpp"
 #include "GpuTimers.hpp"
 #include "ImGuiModule.hpp"
+#include "InputFrame.hpp"
+#include "InputTypes.hpp"
 #include "ImageDataFormats.hpp"
 #include "ManifestDescriptors.hpp"
 #include "FoamMaterial.hpp"
@@ -76,6 +78,9 @@ namespace
     constexpr uint32_t k_MaxGpuTimerScopes = 128u;
     // the weight of the newest frame in each scope's rolling average
     constexpr double k_GpuTimingSmoothing = 0.05;
+    // the most input events and typed code points that one frame keeps. Events past this count are dropped and counted
+    constexpr int32_t k_InputEventCapacity = 1024;
+    constexpr int32_t k_InputTextCapacity = 256;
 
     // prints the message to stderr, then throws it, so that a failed setup is never silent
     [[noreturn]] void Fail(std::string_view message);
@@ -299,6 +304,7 @@ namespace
 OceanScene::OceanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platform_system, OceanSceneSettings _settings) :
     VulkanScene(rhi_system, platform_system),
     settings{ _settings },
+    inputAssembler{ k_InputEventCapacity, k_InputTextCapacity },
     spectrum{ _settings.Simulation.Spectrum },
     choppiness{ _settings.Simulation.Choppiness }
 {
@@ -322,6 +328,8 @@ OceanScene::~OceanScene()
 
 void OceanScene::Initialize(void* user_data)
 {
+    platformSystem->SetInputAssembler(&inputAssembler);
+
     createFrameSyncObjects();
     commandPools.reserve(numFramebuffers);
     for (uint32_t i = 0; i < numFramebuffers; ++i)
@@ -1250,6 +1258,8 @@ void OceanScene::onSwapchainRecreated()
 
 void OceanScene::Destroy()
 {
+    platformSystem->SetInputAssembler(nullptr);
+
     // main() calls this explicitly and the destructor calls it again, so the second call must be a no-op
     if (!setup)
     {
@@ -1328,7 +1338,7 @@ void OceanScene::Destroy()
     commandPools.clear();
 }
 
-void OceanScene::updateCamera()
+void OceanScene::updateCamera(const input::InputFrame& input)
 {
     const ImGuiIO& io = ImGui::GetIO();
     if (io.WantCaptureMouse)
@@ -1336,19 +1346,23 @@ void OceanScene::updateCamera()
         return;
     }
 
-    if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+    const input::ControlState& mouseX = input.State(input::ControlId::MouseX);
+    const input::ControlState& mouseY = input.State(input::ControlId::MouseY);
+    const input::ControlState& wheelY = input.State(input::ControlId::WheelY);
+
+    if (input.State(input::ControlId::MouseLeft).Down)
     {
-        camera.Rotate(io.MouseDelta.x, io.MouseDelta.y);
+        camera.Rotate(mouseX.Delta, mouseY.Delta);
     }
 
-    if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+    if (input.State(input::ControlId::MouseRight).Down || input.State(input::ControlId::MouseMiddle).Down)
     {
-        camera.Pan(io.MouseDelta.x, io.MouseDelta.y, swapchain->GetExtent().y);
+        camera.Pan(mouseX.Delta, mouseY.Delta, swapchain->GetExtent().y);
     }
 
-    if (io.MouseWheel != 0.0f)
+    if (wheelY.Delta != 0.0f)
     {
-        camera.Zoom(io.MouseWheel);
+        camera.Zoom(wheelY.Delta);
     }
 }
 
@@ -2781,8 +2795,10 @@ void OceanScene::drawTimingsPanel()
 
 void OceanScene::update()
 {
+    const input::InputFrame& input = inputAssembler.FinishFrame();
+
     imgui->BeginFrame();
-    updateCamera();
+    updateCamera(input);
 
     if (settings.Commands != nullptr)
     {
@@ -2828,6 +2844,9 @@ void OceanScene::update()
 
     simulation->SetChoppiness(choppiness);
     advanceFoam(foamStep);
+
+    // the events of the next platformSystem->Update() collect into a clean frame
+    inputAssembler.StartFrame();
 }
 
 void OceanScene::advanceFoam(double delta_seconds)

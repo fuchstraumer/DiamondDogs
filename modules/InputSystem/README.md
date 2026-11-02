@@ -3,9 +3,15 @@
 InputSystem is the platform-free core of engine input. It defines one control space, one raw event record, the
 `FrameAssembler` that turns events into an `InputFrame`, and a text log for record and replay.
 
-**Status.** No platform source exists yet: nothing translates GLFW or Win32 input into `InputEvent`. Nothing in the
-engine uses this module yet. The module depends on `foundation` through `ADD_MODULE` only, and includes no GLFW, Win32
+**Status.** The GLFW source exists (below), and the OceanFft camera reads it. No Win32 source exists yet. The module depends on `foundation` through `ADD_MODULE` only, and includes no GLFW, Win32
 or Vulkan header. The tests, `input_system_tests`, run with no window and no GPU.
+
+**GLFW source.** `GlfwInputSource` in `modules/PlatformSystem/src` translates the GLFW callbacks into `InputEvent`
+records and appends them to a `FrameAssembler`. Call `PlatformWindowSystem::SetInputAssembler(&assembler)` once, and
+then each frame call `assembler.StartFrame()`, `PlatformWindowSystem::Update()` (the callbacks run inside it), and
+`assembler.FinishFrame()`. The caller keeps the assembler alive until it passes null or destroys the window system.
+`OceanScene` in `applications/OceanFft` shows the pattern: `update()` calls `FinishFrame()` at its top and `StartFrame()` at its
+end, so that a frame that skips `update()` (a failed swapchain acquire) keeps its events for the next frame. `Destroy()` passes null first.
 
 ## The control space
 

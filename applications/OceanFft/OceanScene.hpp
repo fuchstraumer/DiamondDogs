@@ -10,6 +10,7 @@
 #include "SeabedMaterial.hpp"
 #include "Semaphore.hpp"
 #include "FrameCapture.hpp"
+#include "InputFrame.hpp"
 #include "GpuTimers.hpp"
 #include "OceanFoam.hpp"
 #include "OceanSimulation.hpp"
@@ -121,7 +122,7 @@ private:
     void recordDeferredPipeline(rhi::CommandBuffer& cmd, rhi::GpuTimerBlock& timerBlock, const math::Float2& extent, float aspect, const math::Float3& cameraPosition);
     void createRenderTargets();
     void destroyRenderTargets();
-    void updateCamera();
+    void updateCamera(const input::InputFrame& input);
     void runCommand(const SceneCommand& command);
     void recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image);
     void drawPanel();
@@ -154,6 +155,8 @@ private:
     [[nodiscard]] uint32_t ringResolution(uint32_t ring) const noexcept;
 
     OceanSceneSettings settings;
+    // the window's input events collect here between two update() calls
+    input::FrameAssembler inputAssembler;
     std::unique_ptr<ResourceContext> resources;
     std::unique_ptr<rhi::ShaderLibrary> library;
     std::unique_ptr<ocean::OceanSimulation> simulation;
