@@ -109,7 +109,7 @@ namespace
 
     struct GpuBuffers
     {
-        std::shared_ptr<GraphicsResourceReply> InputReply;
+        rhi::ResourceFuture<GraphicsResource> InputReply;
         GraphicsResource Input;
         std::vector<GraphicsResource> Outputs;
         GraphicsResource Readback;
@@ -142,7 +142,7 @@ namespace
     [[nodiscard]] color::Vec3d Apply(double (*function)(double) noexcept, const color::Vec3d& input);
     [[nodiscard]] color::Vec3d SignalOf(const color::Vec3d& input);
     [[nodiscard]] double ErrorOf(ErrorMetric metric, const color::Vec3d& gpu, const color::Vec3d& reference);
-    [[nodiscard]] bool WaitUntilResourceIsKnown(const GraphicsResourceReply& reply) noexcept;
+    [[nodiscard]] bool WaitUntilResourceIsKnown(const rhi::ResourceFuture<GraphicsResource>& future) noexcept;
     [[nodiscard]] std::optional<GpuBuffers> CreateBuffers(ResourceContext& resources, std::span<const float> samples);
     void DestroyBuffers(ResourceContext& resources, const GpuBuffers& buffers);
     [[nodiscard]] bool RecordAndSubmit(rhi::Device& device, const rhi::ManifestProgram& program, VkDescriptorSet descriptor_set, const GpuBuffers& buffers, int32_t sample_count);
@@ -298,22 +298,22 @@ namespace
         }
     }
 
-    bool WaitUntilResourceIsKnown(const GraphicsResourceReply& reply) noexcept
+    bool WaitUntilResourceIsKnown(const rhi::ResourceFuture<GraphicsResource>& future) noexcept
     {
-        // the handles are known once the reply reaches Transferring. the dispatch waits for the upload on the GPU,
-        // through the reply's semaphore, so the CPU does not wait for the transfer itself
+        // the handles are known once the future reaches Created. the dispatch waits for the upload on the GPU,
+        // through the future's ticket on the transfer timeline, so the CPU does not wait for the transfer itself
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
 
         while (std::chrono::steady_clock::now() < deadline)
         {
-            const MessageReply::Status status = reply.GetStatus();
+            const rhi::FutureState status = future.State();
 
-            if (status == MessageReply::Status::Transferring || status == MessageReply::Status::Completed)
+            if (status == rhi::FutureState::Created || status == rhi::FutureState::Complete)
             {
                 return true;
             }
 
-            if (status == MessageReply::Status::Failed)
+            if (status == rhi::FutureState::Failed)
             {
                 return false;
             }
@@ -330,7 +330,7 @@ namespace
         GpuBuffers buffers{};
 
         // the input is device-local, so its upload goes through the transfer system, and the dispatch waits on the
-        // reply's semaphore
+        // future's ticket
         const RhiBufferResourceData inputData{ std::as_bytes(samples), 0u };
         BufferCreateInfo inputInfo{};
         inputInfo.Domain = ResourceDomain::GPUOnly;
@@ -342,7 +342,7 @@ namespace
         outputInfo.Domain = ResourceDomain::GPUOnly;
         outputInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource;
         outputInfo.Size = sampleBytes;
-        std::vector<std::shared_ptr<GraphicsResourceReply>> outputReplies;
+        std::vector<rhi::ResourceFuture<GraphicsResource>> outputReplies;
 
         for (size_t outputIndex = 0; outputIndex < k_Cases.size(); ++outputIndex)
         {
@@ -353,14 +353,14 @@ namespace
         readbackInfo.Domain = ResourceDomain::GPUToCPU;
         readbackInfo.Usage = BufferUsageBits::CopyDestination;
         readbackInfo.Size = sampleBytes * k_Cases.size();
-        std::shared_ptr<GraphicsResourceReply> readbackReply = resources.CreateBuffer(readbackInfo, {});
+        rhi::ResourceFuture<GraphicsResource> readbackReply = resources.CreateBuffer(readbackInfo, {});
 
-        bool created = WaitUntilResourceIsKnown(*buffers.InputReply);
-        created = created && readbackReply->WaitForCompletion(k_TimeoutNs) == MessageReply::Status::Completed;
+        bool created = WaitUntilResourceIsKnown(buffers.InputReply);
+        created = created && resources.Wait(readbackReply, k_TimeoutNs) == rhi::FutureState::Complete;
 
-        for (const std::shared_ptr<GraphicsResourceReply>& reply : outputReplies)
+        for (const rhi::ResourceFuture<GraphicsResource>& reply : outputReplies)
         {
-            created = created && reply->WaitForCompletion(k_TimeoutNs) == MessageReply::Status::Completed;
+            created = created && resources.Wait(reply, k_TimeoutNs) == rhi::FutureState::Complete;
         }
 
         if (!created)
@@ -368,12 +368,12 @@ namespace
             return std::nullopt;
         }
 
-        buffers.Input = buffers.InputReply->GetResource();
-        buffers.Readback = readbackReply->GetResource();
+        buffers.Input = buffers.InputReply.Get();
+        buffers.Readback = readbackReply.Get();
 
-        for (const std::shared_ptr<GraphicsResourceReply>& reply : outputReplies)
+        for (const rhi::ResourceFuture<GraphicsResource>& reply : outputReplies)
         {
-            buffers.Outputs.push_back(reply->GetResource());
+            buffers.Outputs.push_back(reply.Get());
         }
 
         return buffers;
@@ -388,7 +388,7 @@ namespace
         {
             if (resource)
             {
-                (void)resources.DestroyResource(resource)->WaitForCompletion(k_TimeoutNs);
+                (void)resources.Wait(resources.DestroyResource(resource), k_TimeoutNs);
             }
         }
     }
@@ -422,8 +422,8 @@ namespace
         commandBuffer.Barrier(rhi::DependencyInfo{ std::span{ &toHost, 1 }, {}, {} });
         RhiAssert(commandBuffer.End());
 
-        // the input upload runs on the transfer queue, and signals the reply's semaphore when it finishes
-        const rhi::SemaphoreSubmitInfo uploadWait{ rhi::TimelineSemaphoreHandle{ buffers.InputReply->SemaphoreHandle() }, buffers.InputReply->SemaphoreValue(), rhi::PipelineStage::ComputeShader };
+        // the input upload runs on the transfer queue, and signals the future's ticket on the transfer timeline when it finishes
+        const rhi::SemaphoreSubmitInfo uploadWait{ buffers.InputReply.Completion().Semaphore, buffers.InputReply.Completion().Value, rhi::PipelineStage::ComputeShader };
         const rhi::CommandBufferHandle commandBufferHandle = commandBuffer.Handle();
         rhi::Fence fence(device.Handle());
         RhiAssert(rhi::QueueSubmit(device.GetGeneralQueue(), rhi::SubmitInfo{ std::span{ &uploadWait, 1 }, std::span{ &commandBufferHandle, 1 }, {} }, fence.Handle()));
@@ -543,19 +543,19 @@ namespace
         else
         {
             const uint64_t readbackBytes = samples.size() * sizeof(float) * k_Cases.size();
-            std::shared_ptr<PointerMessageReply> mapReply = resources.MapBuffer(buffers->Readback, readbackBytes, 0u);
+            rhi::ResourceFuture<void*> mapReply = resources.MapBuffer(buffers->Readback, readbackBytes, 0u);
 
-            if (mapReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            if (resources.Wait(mapReply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 std::cerr << "MapBuffer failed on the readback buffer\n";
                 failures = 1;
             }
             else
             {
-                const std::span<const float> gpuOutputs{ static_cast<const float*>(mapReply->GetPointer()), samples.size() * k_Cases.size() };
+                const std::span<const float> gpuOutputs{ static_cast<const float*>(mapReply.Get()), samples.size() * k_Cases.size() };
                 failures = CompareOutputs(samples, gpuOutputs);
 
-                if (resources.UnmapBuffer(buffers->Readback, readbackBytes, 0u)->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+                if (resources.Wait(resources.UnmapBuffer(buffers->Readback, readbackBytes, 0u), k_TimeoutNs) != rhi::FutureState::Complete)
                 {
                     std::cerr << "UnmapBuffer failed\n";
                     ++failures;

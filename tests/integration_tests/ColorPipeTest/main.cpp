@@ -11,7 +11,7 @@
 #include "Queue.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
@@ -177,7 +177,7 @@ namespace
     [[nodiscard]] Pattern BuildPattern();
     [[nodiscard]] bool IsFalseColorAmbiguous(const color::Vec3d& scene, double exposure_ev) noexcept;
     [[nodiscard]] DisplayColorCapabilities LgCapabilities() noexcept;
-    [[nodiscard]] GraphicsResource WaitForResource(const std::shared_ptr<GraphicsResourceReply>& reply);
+    [[nodiscard]] GraphicsResource WaitForResource(const ResourceContext& resources, const rhi::ResourceFuture<GraphicsResource>& future);
     [[nodiscard]] bool Submit(rhi::Device& device, const std::function<void(rhi::CommandBuffer&)>& record);
     [[nodiscard]] OutputPixel DecodePixel(const EncodingCase& encoding, const std::byte* texel) noexcept;
     [[nodiscard]] double ErrorInUnits(const EncodingCase& encoding, double gpu_value, double reference_encoded, double largest_reference_encoded) noexcept;
@@ -462,14 +462,14 @@ namespace
         return capabilities;
     }
 
-    GraphicsResource WaitForResource(const std::shared_ptr<GraphicsResourceReply>& reply)
+    GraphicsResource WaitForResource(const ResourceContext& resources, const rhi::ResourceFuture<GraphicsResource>& future)
     {
-        if (reply == nullptr || reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (resources.Wait(future, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return GraphicsResource::Null();
         }
 
-        return reply->GetResource();
+        return future.Get();
     }
 
     bool Submit(rhi::Device& device, const std::function<void(rhi::CommandBuffer&)>& record)
@@ -583,20 +583,20 @@ namespace
         sceneInfo.Usage = BufferUsageBits::CopySource;
         sceneInfo.Size = sceneHalves.size() * sizeof(uint16_t);
         const RhiBufferResourceData sceneData{ std::as_bytes(std::span{ sceneHalves }), 0u };
-        runner.SceneUpload = WaitForResource(context.Resources.CreateBuffer(sceneInfo, std::span{ &sceneData, 1 }));
+        runner.SceneUpload = WaitForResource(context.Resources, context.Resources.CreateBuffer(sceneInfo, std::span{ &sceneData, 1 }));
 
         BufferCreateInfo uiInfo{};
         uiInfo.Domain = ResourceDomain::CPUToGPU;
         uiInfo.Usage = BufferUsageBits::CopySource;
         uiInfo.Size = uiBytes.size();
         const RhiBufferResourceData uiData{ std::as_bytes(std::span{ uiBytes }), 0u };
-        runner.UiUpload = WaitForResource(context.Resources.CreateBuffer(uiInfo, std::span{ &uiData, 1 }));
+        runner.UiUpload = WaitForResource(context.Resources, context.Resources.CreateBuffer(uiInfo, std::span{ &uiData, 1 }));
 
         BufferCreateInfo readbackInfo{};
         readbackInfo.Domain = ResourceDomain::GPUToCPU;
         readbackInfo.Usage = BufferUsageBits::CopyDestination;
         readbackInfo.Size = pixelCount * runner.Encoding->BytesPerPixel;
-        runner.Readback = WaitForResource(context.Resources.CreateBuffer(readbackInfo, {}));
+        runner.Readback = WaitForResource(context.Resources, context.Resources.CreateBuffer(readbackInfo, {}));
 
         ImageCreateInfo outputInfo{};
         outputInfo.Domain = ResourceDomain::GPUOnly;
@@ -609,7 +609,7 @@ namespace
         outputInfo.ViewInfo = ImageViewCreateInfo{};
         outputInfo.ViewInfo->ViewType = ImageViewType::Type2D;
         outputInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
-        runner.Output = WaitForResource(context.Resources.CreateImage(outputInfo, {}));
+        runner.Output = WaitForResource(context.Resources, context.Resources.CreateImage(outputInfo, {}));
 
         runner.TargetsFilled = false;
 
@@ -622,7 +622,7 @@ namespace
         {
             if (*resource)
             {
-                (void)context.Resources.DestroyResource(*resource)->WaitForCompletion(k_TimeoutNs);
+                (void)context.Resources.Wait(context.Resources.DestroyResource(*resource), k_TimeoutNs);
                 *resource = GraphicsResource{};
             }
         }
@@ -745,15 +745,15 @@ namespace
 
         const size_t pixelCount = size_t{ runner.Width } * runner.Height;
         const uint64_t readbackBytes = pixelCount * encoding.BytesPerPixel;
-        std::shared_ptr<PointerMessageReply> mapReply = context.Resources.MapBuffer(runner.Readback, readbackBytes, 0u);
+        rhi::ResourceFuture<void*> mapReply = context.Resources.MapBuffer(runner.Readback, readbackBytes, 0u);
 
-        if (mapReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (context.Resources.Wait(mapReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             std::cerr << std::format("[{}] MapBuffer failed on the readback buffer\n", encoding.Name);
             return std::nullopt;
         }
 
-        const std::byte* mapped = static_cast<const std::byte*>(mapReply->GetPointer());
+        const std::byte* mapped = static_cast<const std::byte*>(mapReply.Get());
         std::vector<OutputPixel> pixels;
         pixels.reserve(pixelCount);
 
@@ -762,7 +762,7 @@ namespace
             pixels.push_back(DecodePixel(encoding, mapped + pixel * encoding.BytesPerPixel));
         }
 
-        if (context.Resources.UnmapBuffer(runner.Readback, readbackBytes, 0u)->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (context.Resources.Wait(context.Resources.UnmapBuffer(runner.Readback, readbackBytes, 0u), k_TimeoutNs) != rhi::FutureState::Complete)
         {
             std::cerr << std::format("[{}] UnmapBuffer failed\n", encoding.Name);
             return std::nullopt;

@@ -2,7 +2,7 @@
 #include "ImageDataFormats.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include <gli/gli.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -71,7 +71,7 @@ namespace ocean
         if (!normal.has_value())
         {
             // the surface image exists already, so a failed load must destroy it
-            (void)resources.DestroyResource(*surface)->WaitForCompletion(k_TimeoutNs);
+            (void)resources.Wait(resources.DestroyResource(*surface), k_TimeoutNs);
             return std::unexpected(std::format("{}: {}", normalPath.string(), normal.error()));
         }
 
@@ -91,7 +91,7 @@ namespace ocean
         {
             if (*image)
             {
-                (void)resources->DestroyResource(*image)->WaitForCompletion(k_TimeoutNs);
+                (void)resources->Wait(resources->DestroyResource(*image), k_TimeoutNs);
             }
         }
     }
@@ -225,12 +225,12 @@ namespace
         info.ViewInfo->Range.LevelCount = levels;
         info.Name = name;
 
-        std::shared_ptr<GraphicsResourceReply> reply = resources.CreateImage(info, mipData);
-        if (reply == nullptr || reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        rhi::ResourceFuture<GraphicsResource> reply = resources.CreateImage(info, mipData);
+        if (resources.Wait(reply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return std::unexpected(std::string{ "creating the GPU image failed" });
         }
 
-        return reply->GetResource();
+        return reply.Get();
     }
 }

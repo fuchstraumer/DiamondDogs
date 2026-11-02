@@ -5,7 +5,7 @@
 #include "ManifestDescriptors.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
@@ -195,11 +195,7 @@ namespace ocean
             {
                 if (ParamsBuffer)
                 {
-                    std::shared_ptr<MessageReply> reply = Resources->DestroyResource(ParamsBuffer);
-                    if (reply != nullptr)
-                    {
-                        reply->WaitForCompletion(k_TimeoutNs);
-                    }
+                    (void)Resources->Wait(Resources->DestroyResource(ParamsBuffer), k_TimeoutNs);
                 }
             }
 
@@ -207,11 +203,7 @@ namespace ocean
             {
                 if (res)
                 {
-                    std::shared_ptr<MessageReply> reply = Resources->DestroyResource(res);
-                    if (reply != nullptr)
-                    {
-                        reply->WaitForCompletion(k_TimeoutNs);
-                    }
+                    (void)Resources->Wait(Resources->DestroyResource(res), k_TimeoutNs);
                 }
             };
 
@@ -251,14 +243,14 @@ namespace ocean
         vertexInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
         vertexInfo.Size = vertices.size() * sizeof(OceanPatchVertex);
         vertexInfo.Name = "Ocean_CdlodGridVertexBuffer";
-        std::shared_ptr<GraphicsResourceReply> vertexReply = resources.CreateBuffer(vertexInfo, std::span{ &vertexData, 1 });
+        rhi::ResourceFuture<GraphicsResource> vertexReply = resources.CreateBuffer(vertexInfo, std::span{ &vertexData, 1 });
 
-        if (vertexReply == nullptr || vertexReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (resources.Wait(vertexReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return std::unexpected(std::string{ "creating Ocean_CdlodGridVertexBuffer failed" });
         }
 
-        impl->GridVertexBuffer = vertexReply->GetResource();
+        impl->GridVertexBuffer = vertexReply.Get();
 
         const std::vector<uint32_t> indices = GenerateGridIndices();
         const RhiBufferResourceData indexData{ std::as_bytes(std::span{ indices }), 0u };
@@ -267,14 +259,14 @@ namespace ocean
         indexInfo.Usage = BufferUsageBits::IndexBuffer | BufferUsageBits::TransferDst;
         indexInfo.Size = indices.size() * sizeof(uint32_t);
         indexInfo.Name = "Ocean_CdlodGridIndexBuffer";
-        std::shared_ptr<GraphicsResourceReply> indexReply = resources.CreateBuffer(indexInfo, std::span{ &indexData, 1 });
+        rhi::ResourceFuture<GraphicsResource> indexReply = resources.CreateBuffer(indexInfo, std::span{ &indexData, 1 });
 
-        if (indexReply == nullptr || indexReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (resources.Wait(indexReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return std::unexpected(std::string{ "creating Ocean_CdlodGridIndexBuffer failed" });
         }
 
-        impl->GridIndexBuffer = indexReply->GetResource();
+        impl->GridIndexBuffer = indexReply.Get();
 
         const uint32_t maxNodes = std::max(settings.MaxNodes, 1024u);
         impl->AllocatedMaxNodes = maxNodes;
@@ -285,28 +277,28 @@ namespace ocean
         nodesAInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
         nodesAInfo.Size = maxNodes * sizeof(uint32_t);
         nodesAInfo.Name = "Ocean_CdlodNodesA";
-        std::shared_ptr<GraphicsResourceReply> nodesAReply = resources.CreateBuffer(nodesAInfo, std::span{ &rootKeyUpload, 1 });
+        rhi::ResourceFuture<GraphicsResource> nodesAReply = resources.CreateBuffer(nodesAInfo, std::span{ &rootKeyUpload, 1 });
 
-        if (nodesAReply == nullptr || nodesAReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (resources.Wait(nodesAReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return std::unexpected(std::string{ "creating Ocean_CdlodNodesA failed" });
         }
 
-        impl->NodesA = nodesAReply->GetResource();
+        impl->NodesA = nodesAReply.Get();
 
         BufferCreateInfo nodesBInfo{};
         nodesBInfo.Domain = ResourceDomain::GPUOnly;
         nodesBInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
         nodesBInfo.Size = maxNodes * sizeof(uint32_t);
         nodesBInfo.Name = "Ocean_CdlodNodesB";
-        std::shared_ptr<GraphicsResourceReply> nodesBReply = resources.CreateBuffer(nodesBInfo, {});
+        rhi::ResourceFuture<GraphicsResource> nodesBReply = resources.CreateBuffer(nodesBInfo, {});
 
-        if (nodesBReply == nullptr || nodesBReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (resources.Wait(nodesBReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return std::unexpected(std::string{ "creating Ocean_CdlodNodesB failed" });
         }
 
-        impl->NodesB = nodesBReply->GetResource();
+        impl->NodesB = nodesBReply.Get();
 
         std::array<uint32_t, 32> initialCounts{};
         initialCounts[1] = 1u;
@@ -316,14 +308,14 @@ namespace ocean
         countsInfo.Usage = BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst;
         countsInfo.Size = initialCounts.size() * sizeof(uint32_t);
         countsInfo.Name = "Ocean_CdlodNodeCounts";
-        std::shared_ptr<GraphicsResourceReply> countsReply = resources.CreateBuffer(countsInfo, std::span{ &countsUpload, 1 });
+        rhi::ResourceFuture<GraphicsResource> countsReply = resources.CreateBuffer(countsInfo, std::span{ &countsUpload, 1 });
 
-        if (countsReply == nullptr || countsReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (resources.Wait(countsReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return std::unexpected(std::string{ "creating Ocean_CdlodNodeCounts failed" });
         }
 
-        impl->NodeCounts = countsReply->GetResource();
+        impl->NodeCounts = countsReply.Get();
 
         const uint32_t maxPatches = std::max(settings.MaxSelectedPatches, 256u);
         impl->AllocatedMaxSelectedPatches = maxPatches;
@@ -332,14 +324,14 @@ namespace ocean
         patchesInfo.Usage = BufferUsageBits::StorageBuffer;
         patchesInfo.Size = maxPatches * sizeof(OceanCdlodPatch);
         patchesInfo.Name = "Ocean_CdlodSelectedPatches";
-        std::shared_ptr<GraphicsResourceReply> patchesReply = resources.CreateBuffer(patchesInfo, {});
+        rhi::ResourceFuture<GraphicsResource> patchesReply = resources.CreateBuffer(patchesInfo, {});
 
-        if (patchesReply == nullptr || patchesReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (resources.Wait(patchesReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return std::unexpected(std::string{ "creating Ocean_CdlodSelectedPatches failed" });
         }
 
-        impl->SelectedPatches = patchesReply->GetResource();
+        impl->SelectedPatches = patchesReply.Get();
 
         const std::array<uint32_t, 5> initialIndirect{ k_TotalIndices, 0u, 0u, 0u, 0u };
         const RhiBufferResourceData indirectUpload{ std::as_bytes(std::span{ initialIndirect }), 0u };
@@ -348,14 +340,14 @@ namespace ocean
         indirectInfo.Usage = BufferUsageBits::IndirectBuffer | BufferUsageBits::StorageBuffer | BufferUsageBits::TransferDst | BufferUsageBits::TransferSrc;
         indirectInfo.Size = sizeof(VkDrawIndexedIndirectCommand);
         indirectInfo.Name = "Ocean_CdlodIndirectArgs";
-        std::shared_ptr<GraphicsResourceReply> indirectReply = resources.CreateBuffer(indirectInfo, std::span{ &indirectUpload, 1 });
+        rhi::ResourceFuture<GraphicsResource> indirectReply = resources.CreateBuffer(indirectInfo, std::span{ &indirectUpload, 1 });
 
-        if (indirectReply == nullptr || indirectReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (resources.Wait(indirectReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return std::unexpected(std::string{ "creating Ocean_CdlodIndirectArgs failed" });
         }
 
-        impl->IndirectDrawArgs = indirectReply->GetResource();
+        impl->IndirectDrawArgs = indirectReply.Get();
 
         impl->ParamsBuffers.reserve(frame_count);
         impl->ParamsPointers.reserve(frame_count);
@@ -372,23 +364,23 @@ namespace ocean
             paramsInfo.Usage = BufferUsageBits::ComputeShaderUBO;
             paramsInfo.Size = sizeof(OceanQuadtreeParams);
             paramsInfo.Name = paramsNames.back();
-            std::shared_ptr<GraphicsResourceReply> paramsReply = resources.CreateBuffer(paramsInfo, {});
+            rhi::ResourceFuture<GraphicsResource> paramsReply = resources.CreateBuffer(paramsInfo, {});
 
-            if (paramsReply == nullptr || paramsReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            if (resources.Wait(paramsReply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 return std::unexpected(std::format("creating Ocean_CdlodParams_{} failed", frame));
             }
 
-            const GraphicsResource& paramsRes = impl->ParamsBuffers.emplace_back(paramsReply->GetResource());
+            const GraphicsResource& paramsRes = impl->ParamsBuffers.emplace_back(paramsReply.Get());
 
-            std::shared_ptr<PointerMessageReply> mapReply = resources.MapBuffer(paramsRes, sizeof(OceanQuadtreeParams), 0u);
+            rhi::ResourceFuture<void*> mapReply = resources.MapBuffer(paramsRes, sizeof(OceanQuadtreeParams), 0u);
 
-            if (mapReply == nullptr || mapReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            if (resources.Wait(mapReply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 return std::unexpected(std::format("mapping Ocean_CdlodParams_{} failed", frame));
             }
 
-            impl->ParamsPointers.push_back(mapReply->GetPointer());
+            impl->ParamsPointers.push_back(mapReply.Get());
         }
 
         rhi::ShaderLibraryResult<const lodestone::ManifestIndex*> index = library.ModuleIndex(k_ModuleName);

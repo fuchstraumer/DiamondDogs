@@ -8,7 +8,7 @@
 #include "OceanSimulation.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
@@ -105,8 +105,7 @@ namespace ocean
 
         if (ClipmapImage)
         {
-            std::shared_ptr<MessageReply> reply = Resources->DestroyResource(ClipmapImage);
-            reply->WaitForCompletion(k_TimeoutNs);
+            (void)Resources->Wait(Resources->DestroyResource(ClipmapImage), k_TimeoutNs);
         }
     }
 
@@ -191,14 +190,14 @@ namespace ocean
         impl->Settings = settings;
         const VkDevice vkDevice = device.Handle().As<VkDevice>();
 
-        std::shared_ptr<GraphicsResourceReply> imageReply = resources.CreateImage(MakeClipmapImageInfo(settings.Resolution), {});
+        rhi::ResourceFuture<GraphicsResource> imageReply = resources.CreateImage(MakeClipmapImageInfo(settings.Resolution), {});
 
-        if (imageReply == nullptr || imageReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (resources.Wait(imageReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return std::unexpected(std::string{ "creating the foam clipmap failed" });
         }
 
-        impl->ClipmapImage = imageReply->GetResource();
+        impl->ClipmapImage = imageReply.Get();
         rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, impl->ClipmapImage.VkHandle, "Ocean_FoamClipmap_Image");
         rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, impl->ClipmapImage.VkViewHandle, "Ocean_FoamClipmap_View");
 

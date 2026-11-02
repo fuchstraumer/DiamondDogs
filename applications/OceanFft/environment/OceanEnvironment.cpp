@@ -16,7 +16,7 @@
 #include "ManifestDescriptors.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "GpuTimers.hpp"
 #include "ShaderLibrary.hpp"
 #include "ShaderManifestIndex.hpp"
@@ -383,13 +383,13 @@ namespace ocean
 
         if (SkyDomeSampler)
         {
-            (void)Resources->DestroyResource(SkyDomeSampler)->WaitForCompletion(k_TimeoutNs);
+            (void)Resources->Wait(Resources->DestroyResource(SkyDomeSampler), k_TimeoutNs);
             SkyDomeSampler = GraphicsResource{};
         }
 
         if (SkyDomeImage)
         {
-            (void)Resources->DestroyResource(SkyDomeImage)->WaitForCompletion(k_TimeoutNs);
+            (void)Resources->Wait(Resources->DestroyResource(SkyDomeImage), k_TimeoutNs);
             SkyDomeImage = GraphicsResource{};
         }
     }
@@ -688,13 +688,13 @@ namespace ocean
             imgInfo.ViewInfo->Range.LevelCount = MipLevels;
             imgInfo.Name = "Ocean_SkyDomeImage";
 
-            std::shared_ptr<GraphicsResourceReply> imgReply = Resources->CreateImage(imgInfo, std::span{ &mipData, 1 });
-            if (imgReply == nullptr || imgReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            rhi::ResourceFuture<GraphicsResource> imgReply = Resources->CreateImage(imgInfo, std::span{ &mipData, 1 });
+            if (Resources->Wait(imgReply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 std::cerr << "OceanEnvironment: failed to create GPU image for Analytic Preetham\n";
                 return false;
             }
-            SkyDomeImage = imgReply->GetResource();
+            SkyDomeImage = imgReply.Get();
             SetDebugName(*Device, VK_OBJECT_TYPE_IMAGE, SkyDomeImage.VkHandle, "Ocean_SkyDomeImage");
             SetDebugName(*Device, VK_OBJECT_TYPE_IMAGE_VIEW, SkyDomeImage.VkViewHandle, "Ocean_SkyDomeView");
         }
@@ -743,13 +743,13 @@ namespace ocean
             imgInfo.ViewInfo->Range.LevelCount = MipLevels;
             imgInfo.Name = "Ocean_SkyDomeImage";
 
-            std::shared_ptr<GraphicsResourceReply> imgReply = Resources->CreateImage(imgInfo, std::span{ &mipData, 1 });
-            if (imgReply == nullptr || imgReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            rhi::ResourceFuture<GraphicsResource> imgReply = Resources->CreateImage(imgInfo, std::span{ &mipData, 1 });
+            if (Resources->Wait(imgReply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 std::cerr << "OceanEnvironment: failed to create GPU image for EXR HDRI\n";
                 return false;
             }
-            SkyDomeImage = imgReply->GetResource();
+            SkyDomeImage = imgReply.Get();
             SetDebugName(*Device, VK_OBJECT_TYPE_IMAGE, SkyDomeImage.VkHandle, "Ocean_SkyDomeImage");
             SetDebugName(*Device, VK_OBJECT_TYPE_IMAGE_VIEW, SkyDomeImage.VkViewHandle, "Ocean_SkyDomeView");
         }
@@ -766,13 +766,13 @@ namespace ocean
         sampInfo.MaxLod = static_cast<float>(MipLevels);
         sampInfo.Name = "Ocean_SkyDomeSampler";
 
-        std::shared_ptr<GraphicsResourceReply> sampReply = Resources->CreateSampler(sampInfo, "Ocean_SkyDomeSampler");
-        if (sampReply == nullptr || sampReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        rhi::ResourceFuture<GraphicsResource> sampReply = Resources->CreateSampler(sampInfo);
+        if (Resources->Wait(sampReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             std::cerr << "OceanEnvironment: failed to create skydome sampler\n";
             return false;
         }
-        SkyDomeSampler = sampReply->GetResource();
+        SkyDomeSampler = sampReply.Get();
         SetDebugName(*Device, VK_OBJECT_TYPE_SAMPLER, SkyDomeSampler.VkSamplerHandle, "Ocean_SkyDomeSampler");
 
         // Create per-mip image views for downsampling

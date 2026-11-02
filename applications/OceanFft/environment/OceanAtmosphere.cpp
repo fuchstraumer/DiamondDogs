@@ -13,7 +13,7 @@
 #include "ManifestDescriptors.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
@@ -177,7 +177,7 @@ namespace ocean
         {
             if (res)
             {
-                (void)Resources->DestroyResource(res)->WaitForCompletion(k_TimeoutNs);
+                (void)Resources->Wait(Resources->DestroyResource(res), k_TimeoutNs);
                 res = GraphicsResource{};
             }
         };
@@ -215,13 +215,13 @@ namespace ocean
             info.ViewInfo->Range.LevelCount = 1u;
             info.ViewInfo->Range.LayerCount = 1u;
 
-            std::shared_ptr<GraphicsResourceReply> reply = Resources->CreateImage(info, {});
-            if (reply == nullptr || reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            rhi::ResourceFuture<GraphicsResource> reply = Resources->CreateImage(info, {});
+            if (Resources->Wait(reply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 std::cerr << "OceanAtmosphere: failed to create 2D image " << name << "\n";
                 return std::nullopt;
             }
-            GraphicsResource res = reply->GetResource();
+            GraphicsResource res = reply.Get();
             SetDebugName(*Device, VK_OBJECT_TYPE_IMAGE, res.VkHandle, name);
             SetDebugName(*Device, VK_OBJECT_TYPE_IMAGE_VIEW, res.VkViewHandle, name);
             return res;
@@ -247,13 +247,13 @@ namespace ocean
             info.ViewInfo->Range.LevelCount = 1u;
             info.ViewInfo->Range.LayerCount = 1u;
 
-            std::shared_ptr<GraphicsResourceReply> reply = Resources->CreateImage(info, {});
-            if (reply == nullptr || reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            rhi::ResourceFuture<GraphicsResource> reply = Resources->CreateImage(info, {});
+            if (Resources->Wait(reply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 std::cerr << "OceanAtmosphere: failed to create 3D image " << name << "\n";
                 return std::nullopt;
             }
-            GraphicsResource res = reply->GetResource();
+            GraphicsResource res = reply.Get();
             SetDebugName(*Device, VK_OBJECT_TYPE_IMAGE, res.VkHandle, name);
             SetDebugName(*Device, VK_OBJECT_TYPE_IMAGE_VIEW, res.VkViewHandle, name);
             return res;
@@ -346,13 +346,13 @@ namespace ocean
         sampInfo.MaxLod = 0.0f;
         sampInfo.Name = "Ocean_AtmoSampler";
 
-        std::shared_ptr<GraphicsResourceReply> sampReply = Resources->CreateSampler(sampInfo, "Ocean_AtmoSampler");
-        if (sampReply == nullptr || sampReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        rhi::ResourceFuture<GraphicsResource> sampReply = Resources->CreateSampler(sampInfo);
+        if (Resources->Wait(sampReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             std::cerr << "OceanAtmosphere: failed to create sampler\n";
             return false;
         }
-        LinearSampler = sampReply->GetResource();
+        LinearSampler = sampReply.Get();
         SetDebugName(*Device, VK_OBJECT_TYPE_SAMPLER, LinearSampler.VkSamplerHandle, "Ocean_AtmoSampler");
 
         return true;

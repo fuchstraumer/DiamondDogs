@@ -13,7 +13,7 @@
 #include "Queue.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
@@ -172,7 +172,7 @@ namespace color
 
         [[nodiscard]] std::string_view TonemapperTypeName(TonemapperKind kind) noexcept;
         [[nodiscard]] std::string_view EncodingCaseName(DisplayEncoding encoding) noexcept;
-        [[nodiscard]] GraphicsResource WaitForResource(const std::shared_ptr<GraphicsResourceReply>& reply);
+        [[nodiscard]] GraphicsResource WaitForResource(const ResourceContext& resources, const rhi::ResourceFuture<GraphicsResource>& future);
         [[nodiscard]] ImageCreateInfo MakeTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name);
         [[nodiscard]] ImageCreateInfo MakeBloomTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name);
         [[nodiscard]] ColorTargetView MakeTargetView(const GraphicsResource& resource, ImageFormat format, uint32_t width, uint32_t height) noexcept;
@@ -268,7 +268,7 @@ namespace color
         samplerInfo.AddressV = SamplerCreateInfo::AddressMode::ClampToEdge;
         samplerInfo.AddressW = SamplerCreateInfo::AddressMode::ClampToEdge;
         samplerInfo.Name = "ColorPipe_LinearSampler";
-        impl->LinearSampler = WaitForResource(impl->Resources->CreateSampler(samplerInfo, "ColorPipe_LinearSampler"));
+        impl->LinearSampler = WaitForResource(*impl->Resources, impl->Resources->CreateSampler(samplerInfo));
 
         if (!impl->LinearSampler)
         {
@@ -675,14 +675,14 @@ namespace color
             }
         }
 
-        GraphicsResource WaitForResource(const std::shared_ptr<GraphicsResourceReply>& reply)
+        GraphicsResource WaitForResource(const ResourceContext& resources, const rhi::ResourceFuture<GraphicsResource>& future)
         {
-            if (reply == nullptr || reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            if (resources.Wait(future, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 return GraphicsResource::Null();
             }
 
-            return reply->GetResource();
+            return future.Get();
         }
 
         ImageCreateInfo MakeTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name)
@@ -1039,7 +1039,7 @@ namespace color
             info.Usage = BufferUsageBits::FragmentShaderSRV | BufferUsageBits::CopyDestination;
             info.Size = k_ExposureBufferBytes;
             info.Name = "ColorPipe_ExposureBuffer";
-            impl.ExposureBuffer = WaitForResource(impl.Resources->CreateBuffer(info, {}));
+            impl.ExposureBuffer = WaitForResource(*impl.Resources, impl.Resources->CreateBuffer(info, {}));
 
             if (!impl.ExposureBuffer)
             {
@@ -1052,8 +1052,8 @@ namespace color
 
         ColorPipeError CreateTargets(ColorPipeImpl& impl, uint32_t width, uint32_t height)
         {
-            impl.Scene = WaitForResource(impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA16_Float, width, height, "ColorPipe_Scene"), {}));
-            impl.Ui = WaitForResource(impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA8_UNorm, width, height, "ColorPipe_Ui"), {}));
+            impl.Scene = WaitForResource(*impl.Resources, impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA16_Float, width, height, "ColorPipe_Scene"), {}));
+            impl.Ui = WaitForResource(*impl.Resources, impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA8_UNorm, width, height, "ColorPipe_Ui"), {}));
 
             if (!impl.Scene || !impl.Ui)
             {
@@ -1072,7 +1072,7 @@ namespace color
                 const Extent2D extent = BloomDownsampleExtent(width, height, i);
                 const std::string name = std::format("ColorPipe_BloomDownsample_{}", i);
                 const std::string viewName = std::format("ColorPipe_BloomDownsample_{}_View", i);
-                impl.BloomDownsample[i] = WaitForResource(impl.Resources->CreateImage(
+                impl.BloomDownsample[i] = WaitForResource(*impl.Resources, impl.Resources->CreateImage(
                     MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name), {}));
 
                 if (!impl.BloomDownsample[i])
@@ -1090,7 +1090,7 @@ namespace color
                 const Extent2D extent = BloomDownsampleExtent(width, height, i);
                 const std::string name = std::format("ColorPipe_BloomUpsample_{}", i);
                 const std::string viewName = std::format("ColorPipe_BloomUpsample_{}_View", i);
-                impl.BloomUpsample[i] = WaitForResource(impl.Resources->CreateImage(
+                impl.BloomUpsample[i] = WaitForResource(*impl.Resources, impl.Resources->CreateImage(
                     MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name), {}));
 
                 if (!impl.BloomUpsample[i])
@@ -1205,7 +1205,7 @@ namespace color
                 return;
             }
 
-            (void)impl.Resources->DestroyResource(resource)->WaitForCompletion(k_TimeoutNs);
+            (void)impl.Resources->Wait(impl.Resources->DestroyResource(resource), k_TimeoutNs);
             resource = GraphicsResource{};
         }
 

@@ -3,7 +3,7 @@
 #include "ImageDataFormats.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiSystem.hpp"
 #include "gli/format.hpp"
@@ -109,14 +109,14 @@ namespace
         info.ViewInfo->Range.LevelCount = levels;
         info.Name = name;
 
-        std::shared_ptr<GraphicsResourceReply> reply = resources.CreateImage(info, mipData);
-        if (reply == nullptr || reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        rhi::ResourceFuture<GraphicsResource> reply = resources.CreateImage(info, mipData);
+        if (resources.Wait(reply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             std::cerr << std::format("LoadSeabedMaterial: creating GPU image '{}' failed\n", name);
             return std::nullopt;
         }
 
-        return reply->GetResource();
+        return reply.Get();
     }
 
     void SetDebugUtilsObjectName(rhi::Device& device, VkObjectType object_type, uint64_t handle, const char* name)
@@ -149,7 +149,7 @@ namespace ocean
         {
             if (*res)
             {
-                (void)resources.DestroyResource(*res)->WaitForCompletion(k_TimeoutNs);
+                (void)resources.Wait(resources.DestroyResource(*res), k_TimeoutNs);
                 *res = GraphicsResource{};
             }
         }
@@ -198,7 +198,7 @@ namespace ocean
             CreateSampledImage(resources, *ordTexture, CommonFormats::RGBA8_UNorm, "Ocean_SeabedOrd");
         if (!ord.has_value())
         {
-            (void)resources.DestroyResource(*albedo)->WaitForCompletion(k_TimeoutNs);
+            (void)resources.Wait(resources.DestroyResource(*albedo), k_TimeoutNs);
             return std::nullopt;
         }
 
@@ -206,8 +206,8 @@ namespace ocean
             CreateSampledImage(resources, *normalTexture, CommonFormats::RG8_UNorm, "Ocean_SeabedNormal");
         if (!normal.has_value())
         {
-            (void)resources.DestroyResource(*albedo)->WaitForCompletion(k_TimeoutNs);
-            (void)resources.DestroyResource(*ord)->WaitForCompletion(k_TimeoutNs);
+            (void)resources.Wait(resources.DestroyResource(*albedo), k_TimeoutNs);
+            (void)resources.Wait(resources.DestroyResource(*ord), k_TimeoutNs);
             return std::nullopt;
         }
 
@@ -233,17 +233,18 @@ namespace ocean
             }
         }
 
-        std::shared_ptr<GraphicsResourceReply> samplerReply = resources.CreateSampler(samplerInfo, "Ocean_SeabedSampler");
-        if (samplerReply == nullptr || samplerReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        samplerInfo.Name = "Ocean_SeabedSampler";
+        rhi::ResourceFuture<GraphicsResource> samplerReply = resources.CreateSampler(samplerInfo);
+        if (resources.Wait(samplerReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             std::cerr << "LoadSeabedMaterial: creating GPU sampler failed\n";
-            (void)resources.DestroyResource(*albedo)->WaitForCompletion(k_TimeoutNs);
-            (void)resources.DestroyResource(*ord)->WaitForCompletion(k_TimeoutNs);
-            (void)resources.DestroyResource(*normal)->WaitForCompletion(k_TimeoutNs);
+            (void)resources.Wait(resources.DestroyResource(*albedo), k_TimeoutNs);
+            (void)resources.Wait(resources.DestroyResource(*ord), k_TimeoutNs);
+            (void)resources.Wait(resources.DestroyResource(*normal), k_TimeoutNs);
             return std::nullopt;
         }
 
-        GraphicsResource sampler = samplerReply->GetResource();
+        GraphicsResource sampler = samplerReply.Get();
 
         // Set debug names on all created Vulkan resources
         SetDebugUtilsObjectName(device, VK_OBJECT_TYPE_IMAGE, albedo->VkHandle, "Ocean_SeabedAlbedo");

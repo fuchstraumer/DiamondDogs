@@ -127,14 +127,14 @@ namespace
         return fence.Wait();
     }
 
-    [[nodiscard]] GraphicsResource WaitForResource(const std::shared_ptr<GraphicsResourceReply>& reply)
+    [[nodiscard]] GraphicsResource WaitForResource(const ResourceContext& resources, const rhi::ResourceFuture<GraphicsResource>& future)
     {
-        if (reply == nullptr || reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (resources.Wait(future, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return GraphicsResource::Null();
         }
 
-        return reply->GetResource();
+        return future.Get();
     }
 
     [[nodiscard]] uint32_t LevelSize(uint32_t size, uint32_t level) noexcept
@@ -292,13 +292,13 @@ namespace
         uploadInfo.Usage = BufferUsageBits::CopySource;
         uploadInfo.Size = levelZero.size() * channelBytes;
         const RhiBufferResourceData uploadData{ half ? std::as_bytes(std::span{ levelZeroHalves }) : std::as_bytes(std::span{ levelZero }), 0u };
-        const GraphicsResource upload = WaitForResource(resources.CreateBuffer(uploadInfo, std::span{ &uploadData, 1 }));
+        const GraphicsResource upload = WaitForResource(resources, resources.CreateBuffer(uploadInfo, std::span{ &uploadData, 1 }));
 
         BufferCreateInfo readbackInfo{};
         readbackInfo.Domain = ResourceDomain::GPUToCPU;
         readbackInfo.Usage = BufferUsageBits::CopyDestination;
         readbackInfo.Size = readbackBytes;
-        const GraphicsResource readback = WaitForResource(resources.CreateBuffer(readbackInfo, {}));
+        const GraphicsResource readback = WaitForResource(resources, resources.CreateBuffer(readbackInfo, {}));
 
         ImageCreateInfo imageInfo{};
         imageInfo.Domain = ResourceDomain::GPUOnly;
@@ -315,7 +315,7 @@ namespace
         imageInfo.ViewInfo->ViewType = ImageViewType::Type2DArray;
         imageInfo.ViewInfo->Range.LevelCount = mipLevels;
         imageInfo.ViewInfo->Range.LayerCount = test.Layers;
-        const GraphicsResource image = WaitForResource(resources.CreateImage(imageInfo, {}));
+        const GraphicsResource image = WaitForResource(resources, resources.CreateImage(imageInfo, {}));
 
         const auto destroy = [&]()
         {
@@ -323,7 +323,7 @@ namespace
             {
                 if (resource)
                 {
-                    (void)resources.DestroyResource(resource)->WaitForCompletion(k_TimeoutNs);
+                    (void)resources.Wait(resources.DestroyResource(resource), k_TimeoutNs);
                 }
             }
         };
@@ -396,9 +396,9 @@ namespace
 
             // every level as floats; the offsets below count floats, not bytes
             std::vector<float> levels(readbackBytes / channelBytes);
-            std::shared_ptr<PointerMessageReply> map = resources.MapBuffer(readback, readbackBytes, 0u);
+            rhi::ResourceFuture<void*> map = resources.MapBuffer(readback, readbackBytes, 0u);
 
-            if (map->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            if (resources.Wait(map, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 std::cerr << std::format("[{}] mapping the readback failed\n", name);
                 destroy();
@@ -408,15 +408,15 @@ namespace
             if (half)
             {
                 std::vector<uint16_t> halves(levels.size());
-                std::memcpy(halves.data(), map->GetPointer(), readbackBytes);
+                std::memcpy(halves.data(), map.Get(), readbackBytes);
                 std::ranges::transform(halves, levels.begin(), HalfToFloat);
             }
             else
             {
-                std::memcpy(levels.data(), map->GetPointer(), readbackBytes);
+                std::memcpy(levels.data(), map.Get(), readbackBytes);
             }
 
-            (void)resources.UnmapBuffer(readback, readbackBytes, 0u)->WaitForCompletion(k_TimeoutNs);
+            (void)resources.Wait(resources.UnmapBuffer(readback, readbackBytes, 0u), k_TimeoutNs);
 
             // the upload must have arrived unchanged, or nothing below means anything
             const std::span<const float> gpuLevelZero = std::span{ levels }.first(levelZero.size());

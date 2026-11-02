@@ -4,7 +4,7 @@
 #include "ImageDataFormats.hpp"
 #include "ResourceContext.hpp"
 #include "ResourceFlags.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
@@ -230,7 +230,7 @@ namespace capture
         {
             if (slot.Buffer)
             {
-                (void)resources.DestroyResource(slot.Buffer)->WaitForCompletion(k_TimeoutNs);
+                (void)resources.Wait(resources.DestroyResource(slot.Buffer), k_TimeoutNs);
             }
         }
     }
@@ -360,16 +360,16 @@ namespace capture
         const uint64_t bytes = uint64_t{ slot.Width } * slot.Height * BytesPerPixel(slot.Format);
 
         // the map invalidates GPUToCPU memory, so the copy's writes are visible
-        std::shared_ptr<PointerMessageReply> map = resources.MapBuffer(slot.Buffer, bytes, 0u);
-        if (map->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed || map->GetPointer() == nullptr)
+        rhi::ResourceFuture<void*> map = resources.MapBuffer(slot.Buffer, bytes, 0u);
+        if (resources.Wait(map, k_TimeoutNs) != rhi::FutureState::Complete || map.Get() == nullptr)
         {
             failed.fetch_add(1u);
             return;
         }
 
-        const std::byte* data = static_cast<const std::byte*>(map->GetPointer());
+        const std::byte* data = static_cast<const std::byte*>(map.Get());
         job.Pixels.assign(data, data + bytes);
-        (void)resources.UnmapBuffer(slot.Buffer, bytes, 0u)->WaitForCompletion(k_TimeoutNs);
+        (void)resources.Wait(resources.UnmapBuffer(slot.Buffer, bytes, 0u), k_TimeoutNs);
 
         // each job holds a whole frame (about 20 MB at 3440x1440), so at most one job per slot waits for the writer
         const uint32_t cap = static_cast<uint32_t>(slots.size());
@@ -389,7 +389,7 @@ namespace capture
         // the slot's last frame is done (the caller waited its fence), so its old buffer can go
         if (slot.Buffer)
         {
-            (void)resources.DestroyResource(slot.Buffer)->WaitForCompletion(k_TimeoutNs);
+            (void)resources.Wait(resources.DestroyResource(slot.Buffer), k_TimeoutNs);
             slot.Buffer = GraphicsResource{};
             slot.Bytes = 0u;
         }
@@ -398,14 +398,14 @@ namespace capture
         info.Domain = ResourceDomain::GPUToCPU;
         info.Usage = BufferUsageBits::CopyDestination;
         info.Size = bytes;
-        std::shared_ptr<GraphicsResourceReply> reply = resources.CreateBuffer(info, {});
-        if (reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        rhi::ResourceFuture<GraphicsResource> reply = resources.CreateBuffer(info, {});
+        if (resources.Wait(reply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             std::cerr << "FrameCapture: could not create a readback buffer of " << bytes << " bytes\n";
             return false;
         }
         
-        slot.Buffer = reply->GetResource();
+        slot.Buffer = reply.Get();
         slot.Bytes = bytes;
         return true;
     }

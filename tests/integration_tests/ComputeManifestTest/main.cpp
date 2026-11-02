@@ -33,8 +33,8 @@
 // so the test also proves that the CPU and the shader agree on the layout.
 //
 // Every buffer comes from ResourceContext, one per path through it: Params is host-visible and written directly,
-// Output is device-local and its sentinel fill goes through the transfer system (the dispatch waits on the reply's
-// timeline semaphore), and Readback is a GPUToCPU buffer read through MapBuffer.
+// Output is device-local and its sentinel fill goes through the transfer system (the dispatch waits on the future's
+// ticket on the transfer timeline), and Readback is a GPUToCPU buffer read through MapBuffer.
 
 namespace
 {
@@ -57,7 +57,7 @@ namespace
     [[nodiscard]] uint32_t PcgHash(uint32_t value) noexcept;
     [[nodiscard]] uint32_t ExpectedWord(uint32_t index, bool hash_twice) noexcept;
     [[nodiscard]] std::optional<ParamsLayout> ReadParamsLayout(const lodestone::ManifestIndex& index, lodestone::VariantKey variant);
-    [[nodiscard]] bool WaitUntilResourceIsKnown(const GraphicsResourceReply& reply) noexcept;
+    [[nodiscard]] bool WaitUntilResourceIsKnown(const rhi::ResourceFuture<GraphicsResource>& future) noexcept;
     [[nodiscard]] int32_t RunVariant(rhi::RhiSystem& rhi_system, ResourceContext& resources, const rhi::ShaderLibrary& library, bool hash_twice);
 
     constexpr uint64_t k_TimeoutNs = 5'000'000'000ull;
@@ -173,19 +173,19 @@ namespace
         return layout;
     }
 
-    bool WaitUntilResourceIsKnown(const GraphicsResourceReply& reply) noexcept
+    bool WaitUntilResourceIsKnown(const rhi::ResourceFuture<GraphicsResource>& future) noexcept
     {
-        // the handles are known once the reply reaches Transferring. the dispatch waits for the upload on the GPU,
-        // through the reply's semaphore, so the CPU does not wait for the transfer itself
+        // the handles are known once the future reaches Created. the dispatch waits for the upload on the GPU,
+        // through the future's ticket on the transfer timeline, so the CPU does not wait for the transfer itself
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(k_TimeoutNs);
         while (std::chrono::steady_clock::now() < deadline)
         {
-            const MessageReply::Status status = reply.GetStatus();
-            if (status == MessageReply::Status::Transferring || status == MessageReply::Status::Completed)
+            const rhi::FutureState status = future.State();
+            if (status == rhi::FutureState::Created || status == rhi::FutureState::Complete)
             {
                 return true;
             }
-            if (status == MessageReply::Status::Failed)
+            if (status == rhi::FutureState::Failed)
             {
                 return false;
             }
@@ -239,7 +239,7 @@ namespace
         paramsInfo.Domain = ResourceDomain::CPUToGPU;
         paramsInfo.Usage = BufferUsageBits::ComputeShaderUBO;
         paramsInfo.Size = paramsBytes;
-        std::shared_ptr<GraphicsResourceReply> paramsReply = resources.CreateBuffer(paramsInfo, std::span{ &paramsInitial, 1u });
+        rhi::ResourceFuture<GraphicsResource> paramsReply = resources.CreateBuffer(paramsInfo, std::span{ &paramsInitial, 1u });
 
         const size_t outputBytes = sizeof(uint32_t) * k_ElementCount;
         const std::vector<uint32_t> sentinel(k_ElementCount, k_Sentinel);
@@ -249,24 +249,24 @@ namespace
         // the dispatch result is copied to the readback buffer. the sentinel upload adds CopyDestination itself
         outputInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopySource;
         outputInfo.Size = outputBytes;
-        std::shared_ptr<GraphicsResourceReply> outputReply = resources.CreateBuffer(outputInfo, std::span{ &outputInitial, 1u });
+        rhi::ResourceFuture<GraphicsResource> outputReply = resources.CreateBuffer(outputInfo, std::span{ &outputInitial, 1u });
 
         BufferCreateInfo readbackInfo{};
         readbackInfo.Domain = ResourceDomain::GPUToCPU;
         readbackInfo.Usage = BufferUsageBits::CopyDestination;
         readbackInfo.Size = outputBytes;
-        std::shared_ptr<GraphicsResourceReply> readbackReply = resources.CreateBuffer(readbackInfo, {});
+        rhi::ResourceFuture<GraphicsResource> readbackReply = resources.CreateBuffer(readbackInfo, {});
 
-        if (paramsReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed ||
-            readbackReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed ||
-            !WaitUntilResourceIsKnown(*outputReply))
+        if (resources.Wait(paramsReply, k_TimeoutNs) != rhi::FutureState::Complete ||
+            resources.Wait(readbackReply, k_TimeoutNs) != rhi::FutureState::Complete ||
+            !WaitUntilResourceIsKnown(outputReply))
         {
             std::cerr << std::format("[{}] ResourceContext did not create the buffers\n", variantName);
             return 1;
         }
-        const GraphicsResource params = paramsReply->GetResource();
-        const GraphicsResource output = outputReply->GetResource();
-        const GraphicsResource readback = readbackReply->GetResource();
+        const GraphicsResource params = paramsReply.Get();
+        const GraphicsResource output = outputReply.Get();
+        const GraphicsResource readback = readbackReply.Get();
 
         constexpr VkDescriptorPoolSize k_PoolSizes[2]
         {
@@ -317,8 +317,8 @@ namespace
             commandBuffer.Barrier(rhi::DependencyInfo{ std::span{ &toHost, 1 }, {}, {} });
             RhiAssert(commandBuffer.End());
 
-            // the sentinel upload runs on the transfer queue, and signals the output reply's semaphore when it finishes
-            const rhi::SemaphoreSubmitInfo uploadWait{ rhi::TimelineSemaphoreHandle{ outputReply->SemaphoreHandle() }, outputReply->SemaphoreValue(), rhi::PipelineStage::ComputeShader };
+            // the sentinel upload runs on the transfer queue, and signals the output future's ticket when it finishes
+            const rhi::SemaphoreSubmitInfo uploadWait{ outputReply.Completion().Semaphore, outputReply.Completion().Value, rhi::PipelineStage::ComputeShader };
             const rhi::CommandBufferHandle commandBufferHandle = commandBuffer.Handle();
             rhi::Fence fence(device.Handle());
             RhiAssert(rhi::QueueSubmit(device.GetGeneralQueue(), rhi::SubmitInfo{ std::span{ &uploadWait, 1 }, std::span{ &commandBufferHandle, 1 }, {} }, fence.Handle()));
@@ -329,13 +329,13 @@ namespace
             }
         }
 
-        std::shared_ptr<PointerMessageReply> mapReply = resources.MapBuffer(readback, outputBytes, 0u);
-        if (mapReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        rhi::ResourceFuture<void*> mapReply = resources.MapBuffer(readback, outputBytes, 0u);
+        if (resources.Wait(mapReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             std::cerr << std::format("[{}] MapBuffer failed on the readback buffer\n", variantName);
             return 1;
         }
-        const std::span<const uint32_t> outputWords{ static_cast<const uint32_t*>(mapReply->GetPointer()), k_ElementCount };
+        const std::span<const uint32_t> outputWords{ static_cast<const uint32_t*>(mapReply.Get()), k_ElementCount };
 
         uint32_t mismatches = 0u;
         for (uint32_t i = 0; i < k_ElementCount; ++i)
@@ -351,8 +351,8 @@ namespace
             }
         }
 
-        std::shared_ptr<MessageReply> unmapReply = resources.UnmapBuffer(readback, outputBytes, 0u);
-        if (unmapReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        rhi::OperationFuture unmapReply = resources.UnmapBuffer(readback, outputBytes, 0u);
+        if (resources.Wait(unmapReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             std::cerr << std::format("[{}] UnmapBuffer failed\n", variantName);
             ++mismatches;
@@ -361,8 +361,8 @@ namespace
         vkDestroyDescriptorPool(vkDevice, descriptorPool, nullptr);
         for (const GraphicsResource& resource : { params, output, readback })
         {
-            std::shared_ptr<MessageReply> destroyReply = resources.DestroyResource(resource);
-            if (destroyReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            rhi::OperationFuture destroyReply = resources.DestroyResource(resource);
+            if (resources.Wait(destroyReply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 std::cerr << std::format("[{}] DestroyResource failed\n", variantName);
                 ++mismatches;

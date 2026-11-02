@@ -107,6 +107,7 @@ lodestone_add_shader_cook(ocean_fft_shaders
     POLICY_FILE "${OCEAN_FFT_SHADER_DIR}/OceanFftPolicy.toml"
     INCLUDE_DIRS "${OCEAN_FFT_GENERATED_SHADER_DIR}"
                  "${PROJECT_SOURCE_DIR}/assets/shaders/common/Color"
+                 "${PROJECT_SOURCE_DIR}/assets/shaders/common/Lighting"
                  "${CMAKE_BINARY_DIR}/generated/shaders/Color"
                  "${PROJECT_SOURCE_DIR}/assets/shaders/shading/ocean"
     OPTIONS --O3 --g3
