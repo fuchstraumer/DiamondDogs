@@ -5,6 +5,7 @@
 #include "ResourceFuture.hpp"
 #include "containers/mwsrQueue.hpp"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -80,6 +81,9 @@ private:
         // the future slot of each transfer in the batch
         std::vector<int32_t> Futures;
         std::vector<std::unique_ptr<UploadBuffer>> Staging;
+        // the waits of the one transfer that this batch holds. WaitCount is 0 for a batch with no wait
+        std::array<rhi::TransferWait, rhi::k_MaxTransferWaits> Waits{};
+        int32_t WaitCount{ 0 };
     };
 
     void startWorker();
@@ -89,10 +93,11 @@ private:
     void drainMessages();
 
     /** @brief Returns the recording command buffer, after the barrier that orders this transfer after the ones before
-     *  it. Starts a batch when none is recording, and submits a full one first. Returns null when Vulkan fails. */
-    [[nodiscard]] VkCommandBuffer beginTransfer();
-    /** @brief Adds a recorded transfer to the batch. `staging` may be null. */
-    void endTransfer(int32_t future_slot, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket);
+     *  it. Starts a batch when none is recording, and submits a full one first. A transfer with waits goes alone in
+     *  its batch: the batch that is open is submitted first, unless it holds no transfer. Returns null when Vulkan fails. */
+    [[nodiscard]] VkCommandBuffer beginTransfer(const TransferWaitSet& waits);
+    /** @brief Adds a recorded transfer to the batch. `staging` may be null. A transfer with waits is submitted at once. */
+    void endTransfer(int32_t future_slot, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket, const TransferWaitSet& waits);
     /** @brief Fails the future. The ticket still counts as consumed, so the next submit signals it. */
     void failTransfer(int32_t future_slot, uint64_t ticket, rhi::ResourceError error);
     /** @brief Fails every transfer in the recording batch with `error`, and returns the batch to the free list. */

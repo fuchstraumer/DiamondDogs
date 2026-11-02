@@ -39,12 +39,9 @@
 [[nodiscard]] VkCompareOp ToVkCompareOp(ImageCompareOp op) noexcept;
 [[nodiscard]] VkSamplerCreateInfo ToVkSamplerCreateInfo(const SamplerCreateInfo& create_info) noexcept;
 
-/** @brief Returns the image layout that the usage bits need. Used by the barriers and by the transfer system, which
- *  moves an uploaded image into this layout. */
+/** @brief Returns the image layout that the usage bits need. Used by the barriers and by the context, which derives
+ *  the layouts of a transfer from the caller's usages. */
 [[nodiscard]] VkImageLayout ImageLayoutFromUsageBits(ImageUsageBits bits) noexcept;
-/** @brief Returns the layout that the transfer system leaves an image in: the usage's layout, or GENERAL when the usage
- *  names no layout. ResourceContextImpl records the same value, so that the next transfer starts from it. */
-[[nodiscard]] VkImageLayout ImageLayoutAfterTransfer(ImageUsageBits bits) noexcept;
 
 [[nodiscard]] VmaMemoryUsage ToVmaMemoryUsage(ResourceDomain domain) noexcept;
 /** @brief Returns the allocation flags for the creation flags. Host-visible domains get a host access flag when the

@@ -1,6 +1,7 @@
 #pragma once
 #ifndef RESOURCE_MESSAGE_TYPES_INTERNAL_HPP
 #define RESOURCE_MESSAGE_TYPES_INTERNAL_HPP
+#include "ResourceFuture.hpp"
 #include "ResourceTypes.hpp"
 
 #include <array>
@@ -37,6 +38,13 @@ struct DebugName
 };
 
 static_assert(sizeof(DebugName) == 64, "DebugName is sized to one cache line");
+
+/** @brief The waits of one transfer call, in a fixed array so that the message needs no allocation. */
+struct TransferWaitSet
+{
+    std::array<rhi::TransferWait, rhi::k_MaxTransferWaits> Items{};
+    int32_t Count{ 0 };
+};
 
 // Users still call functions with the old API on the surface, but we translate to these internal structures
 // so that we can place them in the message queue (type erased by being shoved in a variant, effectively). `Future` is
@@ -119,6 +127,8 @@ struct CreateImageMessage
     ImageCreateInfo ImageInfo;
     DebugName Name;
     std::optional<InternalResourceDataContainer> InitialData = std::nullopt;
+    // the usage that the image has after the upload. read only when InitialData has a value
+    ImageUsageBits UsageAfterUpload{ ImageUsageBits::Invalid };
     int32_t Future{ -1 };
 };
 
@@ -143,6 +153,7 @@ struct SetBufferDataMessage
 
     GraphicsResource DestBuffer{ GraphicsResource::Null() };
     InternalResourceDataContainer Data;
+    TransferWaitSet Waits;
     int32_t Future{ -1 };
 };
 
@@ -161,6 +172,8 @@ struct SetImageDataMessage
 
     GraphicsResource DestImage{ GraphicsResource::Null() };
     InternalResourceDataContainer Data;
+    rhi::ImageUsageTransition Usage;
+    TransferWaitSet Waits;
     int32_t Future{ -1 };
 };
 
@@ -170,6 +183,7 @@ struct FillResourceMessage
     uint32_t Value{ 0 };
     size_t Offset{ 0 };
     size_t Size{ 0 };
+    TransferWaitSet Waits;
     int32_t Future{ -1 };
 };
 
@@ -192,15 +206,38 @@ struct UnmapResourceMessage
 struct CopyResourceMessage
 {
     GraphicsResource SourceResource{ GraphicsResource::Null() };
+    // CopyBuffer sends false and CopyImage sends true. a source of the other kind fails with WrongResourceKind
+    bool SourceIsImage{ false };
     // not copying contents just means using the source like a template I guess
     bool CopyContents = false;
+    // read only for an image source with contents
+    rhi::ImageUsageTransition SourceUsage;
+    ImageUsageBits CopyUsageAfter{ ImageUsageBits::Invalid };
+    TransferWaitSet Waits;
     int32_t Future{ -1 };
+};
+
+// the public call decides the kind. the worker fails with WrongResourceKind when a resource is not of the kind
+enum class CopyKind : uint8_t
+{
+    Invalid = 0,
+    BufferToBuffer = 1,
+    ImageToBuffer = 2,
+    BufferToImage = 3,
+    ImageToImage = 4,
 };
 
 struct CopyResourceContentsMessage
 {
+    CopyKind Kind{ CopyKind::Invalid };
     GraphicsResource SourceResource{ GraphicsResource::Null() };
     GraphicsResource DestinationResource{ GraphicsResource::Null() };
+    // each is read only when that side is an image
+    rhi::ImageUsageTransition SourceUsage;
+    rhi::ImageUsageTransition DestinationUsage;
+    // true for the new image of CopyImage: it has no layout yet, so its transfer starts from UNDEFINED
+    bool DestinationStartsUndefined{ false };
+    TransferWaitSet Waits;
     int32_t Future{ -1 };
 };
 
@@ -278,8 +315,10 @@ struct TransferSystemReqImageInfo
 {
     VkImage ImageHandle{ VK_NULL_HANDLE };
     ImageCreateInfo CreateInfo;
-    // the layout image is in when transfer starts. UNDEFINED until the first upload, then the usage's layout
-    VkImageLayout CurrentLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+    // the layout the image is in when the transfer starts, and the layout the transfer leaves it in. the worker
+    // derives both from the caller's usages, and the transfer thread uses them as they come
+    VkImageLayout BeforeLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+    VkImageLayout AfterLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
 };
 
 struct TransferSystemSetBufferDataMessage
@@ -288,6 +327,7 @@ struct TransferSystemSetBufferDataMessage
     InternalResourceDataContainer Data;
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
+    TransferWaitSet Waits;
 };
 
 struct TransferSystemSetImageDataMessage
@@ -296,6 +336,7 @@ struct TransferSystemSetImageDataMessage
     InternalResourceDataContainer Data;
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
+    TransferWaitSet Waits;
 };
 
 struct TransferSystemFillBufferMessage
@@ -306,6 +347,7 @@ struct TransferSystemFillBufferMessage
     size_t Size{ 0u };
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
+    TransferWaitSet Waits;
 };
 
 struct TransferSystemCopyBufferToBufferMessage
@@ -314,6 +356,7 @@ struct TransferSystemCopyBufferToBufferMessage
     TransferSystemReqBufferInfo DstBufferInfo;
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
+    TransferWaitSet Waits;
 };
 
 struct TransferSystemCopyImageToImageMessage
@@ -322,6 +365,7 @@ struct TransferSystemCopyImageToImageMessage
     TransferSystemReqImageInfo DstImageInfo;
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
+    TransferWaitSet Waits;
 };
 
 struct TransferSystemCopyImageToBufferMessage
@@ -330,6 +374,7 @@ struct TransferSystemCopyImageToBufferMessage
     TransferSystemReqBufferInfo BufferInfo;
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
+    TransferWaitSet Waits;
 };
 
 struct TransferSystemCopyBufferToImageMessage
@@ -338,6 +383,7 @@ struct TransferSystemCopyBufferToImageMessage
     TransferSystemReqImageInfo ImageInfo;
     int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
+    TransferWaitSet Waits;
 };
 
 /** @brief Tells the transfer thread to return, so that it can block on an empty queue instead of polling a flag. */

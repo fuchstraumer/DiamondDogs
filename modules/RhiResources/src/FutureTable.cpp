@@ -91,6 +91,14 @@ namespace rhi
             return "NoFreeTimelineSlot";
         case ResourceError::TimelineNotRegistered:
             return "TimelineNotRegistered";
+        case ResourceError::InvalidUsageTransition:
+            return "InvalidUsageTransition";
+        case ResourceError::TooManyWaits:
+            return "TooManyWaits";
+        case ResourceError::InvalidWait:
+            return "InvalidWait";
+        case ResourceError::WaitOnHostWrite:
+            return "WaitOnHostWrite";
         }
 
         return "Unknown ResourceError";

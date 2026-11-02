@@ -360,12 +360,6 @@ VkImageLayout ImageLayoutFromUsageBits(ImageUsageBits bits) noexcept
     return VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
-VkImageLayout ImageLayoutAfterTransfer(ImageUsageBits bits) noexcept
-{
-    const VkImageLayout layout = ImageLayoutFromUsageBits(bits);
-    return layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_GENERAL : layout;
-}
-
 VmaMemoryUsage ToVmaMemoryUsage(ResourceDomain domain) noexcept
 {
     switch (domain)

@@ -52,6 +52,16 @@ namespace
     [[nodiscard]] bool CanBeTransferDestination(const entt::registry& registry, entt::entity entity) noexcept;
     /** @brief Image to image copies need the same aspect, extent, layers and mips (for now). */
     [[nodiscard]] bool ImagesHaveTheSameShape(const ImageCreateInfo& src, const ImageCreateInfo& dst) noexcept;
+    /** @brief Returns true when `usage` is non-zero and every bit of it is in the usage that the image was created with. */
+    [[nodiscard]] bool UsageIsValidForImage(ImageUsageBits image_usage, ImageUsageBits usage) noexcept;
+    [[nodiscard]] bool TransitionIsValidForImage(ImageUsageBits image_usage, rhi::ImageUsageTransition transition) noexcept;
+    /** @brief Returns the layout that an image is in when a transfer starts, from the usage the caller gave as Before.
+     *  This is the only place that derives it, so that a discard option becomes one branch here. */
+    [[nodiscard]] VkImageLayout LayoutBeforeTransfer(ImageUsageBits before) noexcept;
+    /** @brief Returns true when every wait has a semaphore and a non-zero value. */
+    [[nodiscard]] bool WaitsAreValid(const TransferWaitSet& waits) noexcept;
+    /** @brief Returns true when the copy kind matches the kinds of the two resources. */
+    [[nodiscard]] bool CopyKindMatches(CopyKind kind, bool src_is_buffer, bool dst_is_buffer) noexcept;
 }
 
 ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateInfo& create_info)
@@ -258,7 +268,7 @@ void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
     {
         // pass responsiblity on to transfer system now, transferring ownership of data with a move
         futures.StoreResource(message.Future, *createdResource);
-        enqueueBufferUpload(newEntity, std::move(*message.InitialData), message.Future);
+        enqueueBufferUpload(newEntity, std::move(*message.InitialData), TransferWaitSet{}, message.Future);
         return;
     }
 
@@ -277,6 +287,13 @@ void ResourceContextImpl::processMessage(CreateImageMessage&& message)
         message.ImageInfo.Usage |= ImageUsageBits::TransferDestination;
     }
 
+    // before the image exists, so that a bad usage leaves nothing to clean up
+    if (message.InitialData.has_value() && !UsageIsValidForImage(message.ImageInfo.Usage, message.UsageAfterUpload))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidUsageTransition);
+        return;
+    }
+
     const std::expected<GraphicsResource, rhi::ResourceError> createdResource = createImageEntity(message.ImageInfo, message.Name);
     if (!createdResource.has_value())
     {
@@ -287,7 +304,9 @@ void ResourceContextImpl::processMessage(CreateImageMessage&& message)
     if (message.InitialData.has_value())
     {
         futures.StoreResource(message.Future, *createdResource);
-        enqueueImageUpload(entt::entity(createdResource->EntityHandle), std::move(*message.InitialData), message.Future);
+        const entt::entity newEntity = entt::entity(createdResource->EntityHandle);
+        const TransferSystemReqImageInfo imageInfo = newImageTransferInfo(newEntity, message.UsageAfterUpload);
+        enqueueImageUpload(imageInfo, newEntity, std::move(*message.InitialData), TransferWaitSet{}, message.Future);
         return;
     }
 
@@ -367,7 +386,6 @@ std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::createI
     const entt::entity newEntity = resourceRegistry.create();
     resourceRegistry.emplace<ResourceFlags>(newEntity, resourceType, info.Flags, info.Domain);
     const ImageCreateInfo& storedInfo = resourceRegistry.emplace<ImageCreateInfo>(newEntity, info);
-    resourceRegistry.emplace<TrackedImageLayout>(newEntity);
     if (!name.Empty())
     {
         resourceRegistry.emplace<DebugName>(newEntity, name);
@@ -456,8 +474,21 @@ void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
 
     if (allocationIsHostVisible(*entity))
     {
+        // the worker writes this memory at once, so a wait would block the worker thread
+        if (message.Waits.Count > 0)
+        {
+            futures.Fail(message.Future, rhi::ResourceError::WaitOnHostWrite);
+            return;
+        }
+
         setBufferDataHostOnly(*entity, message.Data);
         futures.Complete(message.Future);
+        return;
+    }
+
+    if (!WaitsAreValid(message.Waits))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidWait);
         return;
     }
 
@@ -467,7 +498,7 @@ void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
         return;
     }
 
-    enqueueBufferUpload(*entity, std::move(message.Data), message.Future);
+    enqueueBufferUpload(*entity, std::move(message.Data), message.Waits, message.Future);
 }
 
 void ResourceContextImpl::processMessage(SetImageDataMessage&& message)
@@ -479,13 +510,26 @@ void ResourceContextImpl::processMessage(SetImageDataMessage&& message)
         return;
     }
 
+    if (!WaitsAreValid(message.Waits))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidWait);
+        return;
+    }
+
     if (!CanBeTransferDestination(resourceRegistry, *entity))
     {
         futures.Fail(message.Future, rhi::ResourceError::MissingTransferUsage);
         return;
     }
 
-    enqueueImageUpload(*entity, std::move(message.Data), message.Future);
+    if (!TransitionIsValidForImage(resourceRegistry.get<ImageCreateInfo>(*entity).Usage, message.Usage))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidUsageTransition);
+        return;
+    }
+
+    const TransferSystemReqImageInfo imageInfo = imageTransferInfo(*entity, message.Usage);
+    enqueueImageUpload(imageInfo, *entity, std::move(message.Data), message.Waits, message.Future);
 }
 
 void ResourceContextImpl::processMessage(FillResourceMessage&& message)
@@ -494,6 +538,12 @@ void ResourceContextImpl::processMessage(FillResourceMessage&& message)
     if (!entity.has_value())
     {
         futures.Fail(message.Future, entity.error());
+        return;
+    }
+
+    if (!WaitsAreValid(message.Waits))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidWait);
         return;
     }
 
@@ -520,7 +570,7 @@ void ResourceContextImpl::processMessage(FillResourceMessage&& message)
         message.Future
     };
 
-    enqueueTransfer(std::move(fillBufferMessage), std::span(&*entity, 1));
+    enqueueTransfer(std::move(fillBufferMessage), std::span(&*entity, 1), message.Waits);
 }
 
 void ResourceContextImpl::processMessage(MapResourceMessage&& message)
@@ -612,10 +662,39 @@ void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
     }
 
     const entt::entity srcEntity = *resolvedSource;
+    const BufferCreateInfo* bufferInfo = resourceRegistry.try_get<BufferCreateInfo>(srcEntity);
+    const ImageCreateInfo* imageInfo = resourceRegistry.try_get<ImageCreateInfo>(srcEntity);
+
+    // CopyBuffer takes buffers and CopyImage takes images. a sampler has no copy path, and fails below
+    if ((bufferInfo != nullptr && message.SourceIsImage) || (imageInfo != nullptr && !message.SourceIsImage))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::WrongResourceKind);
+        return;
+    }
+
+    // the waits belong to the copy of the contents, and they are checked before the copy exists as the usages are
+    if (message.CopyContents && !WaitsAreValid(message.Waits))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidWait);
+        return;
+    }
+
+    // the usages are checked before the copy exists, so that a bad usage leaves nothing to clean up
+    if (imageInfo != nullptr && message.CopyContents)
+    {
+        const ImageUsageBits copyUsage = imageInfo->Usage | ImageUsageBits::TransferDestination;
+        const bool usagesAreValid = TransitionIsValidForImage(imageInfo->Usage, message.SourceUsage) &&
+                                    UsageIsValidForImage(copyUsage, message.CopyUsageAfter);
+        if (!usagesAreValid)
+        {
+            futures.Fail(message.Future, rhi::ResourceError::InvalidUsageTransition);
+            return;
+        }
+    }
 
     // the source's name string belongs to the source, so the copy goes unnamed. a sampler has no copy path
     std::expected<GraphicsResource, rhi::ResourceError> created = std::unexpected(rhi::ResourceError::UnsupportedCopy);
-    if (const BufferCreateInfo* bufferInfo = resourceRegistry.try_get<BufferCreateInfo>(srcEntity))
+    if (bufferInfo != nullptr)
     {
         BufferCreateInfo copyInfo = *bufferInfo;
         copyInfo.Name = {};
@@ -623,9 +702,10 @@ void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
         {
             copyInfo.Usage |= BufferUsageBits::CopyDestination;
         }
+
         created = createBufferEntity(copyInfo, DebugName{});
     }
-    else if (const ImageCreateInfo* imageInfo = resourceRegistry.try_get<ImageCreateInfo>(srcEntity))
+    else if (imageInfo != nullptr)
     {
         ImageCreateInfo copyInfo = *imageInfo;
         copyInfo.Name = {};
@@ -633,6 +713,7 @@ void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
         {
             copyInfo.Usage |= ImageUsageBits::TransferDestination;
         }
+
         created = createImageEntity(copyInfo, DebugName{});
     }
 
@@ -649,7 +730,16 @@ void ResourceContextImpl::processMessage(CopyResourceMessage&& message)
     }
 
     futures.StoreResource(message.Future, *created);
-    CopyResourceContentsMessage copyMessage{ message.SourceResource, *created, message.Future };
+
+    CopyResourceContentsMessage copyMessage;
+    copyMessage.Kind = message.SourceIsImage ? CopyKind::ImageToImage : CopyKind::BufferToBuffer;
+    copyMessage.SourceResource = message.SourceResource;
+    copyMessage.SourceUsage = message.SourceUsage;
+    copyMessage.DestinationResource = *created;
+    copyMessage.DestinationUsage = rhi::ImageUsageTransition{ ImageUsageBits::Invalid, message.CopyUsageAfter };
+    copyMessage.DestinationStartsUndefined = true;
+    copyMessage.Waits = message.Waits;
+    copyMessage.Future = message.Future;
     processMessage(std::move(copyMessage));
 }
 
@@ -669,6 +759,12 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
         return;
     }
 
+    if (!WaitsAreValid(message.Waits))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidWait);
+        return;
+    }
+
     const entt::entity srcEntity = *resolvedSource;
     const entt::entity dstEntity = *resolvedDestination;
 
@@ -682,6 +778,12 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
         return;
     }
 
+    if (!CopyKindMatches(message.Kind, srcIsBuffer, dstIsBuffer))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::WrongResourceKind);
+        return;
+    }
+
     if (!CanBeTransferSource(resourceRegistry, srcEntity) || !CanBeTransferDestination(resourceRegistry, dstEntity))
     {
         futures.Fail(message.Future, rhi::ResourceError::MissingTransferUsage);
@@ -690,7 +792,7 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
 
     // the transfer thread trusts every message it gets, so the checks that need both create infos happen here
     const std::array<entt::entity, 2> touched{ srcEntity, dstEntity };
-    if (srcIsBuffer && dstIsBuffer)
+    if (message.Kind == CopyKind::BufferToBuffer)
     {
         if (resourceRegistry.get<BufferCreateInfo>(srcEntity).Size > resourceRegistry.get<BufferCreateInfo>(dstEntity).Size)
         {
@@ -698,10 +800,25 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
             return;
         }
 
-        enqueueTransfer(TransferSystemCopyBufferToBufferMessage{ bufferTransferInfo(srcEntity), bufferTransferInfo(dstEntity), message.Future }, touched);
+        enqueueTransfer(TransferSystemCopyBufferToBufferMessage{ bufferTransferInfo(srcEntity), bufferTransferInfo(dstEntity), message.Future }, touched, message.Waits);
         return;
     }
-    else if (srcIsImage && dstIsImage)
+
+    if (srcIsImage && !TransitionIsValidForImage(resourceRegistry.get<ImageCreateInfo>(srcEntity).Usage, message.SourceUsage))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidUsageTransition);
+        return;
+    }
+
+    // a fresh image (the copy that CopyImage made) has no Before usage, and CopyImage checked its After usage already
+    const bool dstUsageIsChecked = dstIsImage && !message.DestinationStartsUndefined;
+    if (dstUsageIsChecked && !TransitionIsValidForImage(resourceRegistry.get<ImageCreateInfo>(dstEntity).Usage, message.DestinationUsage))
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidUsageTransition);
+        return;
+    }
+
+    if (message.Kind == CopyKind::ImageToImage)
     {
         if (!ImagesHaveTheSameShape(resourceRegistry.get<ImageCreateInfo>(srcEntity), resourceRegistry.get<ImageCreateInfo>(dstEntity)))
         {
@@ -709,16 +826,23 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
             return;
         }
 
-        enqueueTransfer(TransferSystemCopyImageToImageMessage{ imageTransferInfo(srcEntity), imageTransferInfo(dstEntity), message.Future }, touched);
-        return;
-    }
-    else if (srcIsBuffer && dstIsImage)
-    {
-        enqueueTransfer(TransferSystemCopyBufferToImageMessage{ bufferTransferInfo(srcEntity), imageTransferInfo(dstEntity), message.Future }, touched);
+        const TransferSystemReqImageInfo srcInfo = imageTransferInfo(srcEntity, message.SourceUsage);
+        const TransferSystemReqImageInfo dstInfo = message.DestinationStartsUndefined ?
+            newImageTransferInfo(dstEntity, message.DestinationUsage.After) :
+            imageTransferInfo(dstEntity, message.DestinationUsage);
+        enqueueTransfer(TransferSystemCopyImageToImageMessage{ srcInfo, dstInfo, message.Future }, touched, message.Waits);
         return;
     }
 
-    enqueueTransfer(TransferSystemCopyImageToBufferMessage{ imageTransferInfo(srcEntity), bufferTransferInfo(dstEntity), message.Future }, touched);
+    if (message.Kind == CopyKind::BufferToImage)
+    {
+        const TransferSystemReqImageInfo dstInfo = imageTransferInfo(dstEntity, message.DestinationUsage);
+        enqueueTransfer(TransferSystemCopyBufferToImageMessage{ bufferTransferInfo(srcEntity), dstInfo, message.Future }, touched, message.Waits);
+        return;
+    }
+
+    const TransferSystemReqImageInfo srcInfo = imageTransferInfo(srcEntity, message.SourceUsage);
+    enqueueTransfer(TransferSystemCopyImageToBufferMessage{ srcInfo, bufferTransferInfo(dstEntity), message.Future }, touched, message.Waits);
 }
 
 void ResourceContextImpl::processMessage(DestroyResourceMessage&& message)
@@ -860,11 +984,12 @@ void ResourceContextImpl::processMessage([[maybe_unused]] TransferProgressMessag
 }
 
 template<typename TransferMessage>
-void ResourceContextImpl::enqueueTransfer(TransferMessage&& message, std::span<const entt::entity> touched_entities)
+void ResourceContextImpl::enqueueTransfer(TransferMessage&& message, std::span<const entt::entity> touched_entities, const TransferWaitSet& waits)
 {
     // the worker is the only producer for the transfer queue, so a plain counter gives tickets that rise in queue order
     const uint64_t ticket = ++lastIssuedTicket;
     message.Ticket = ticket;
+    message.Waits = waits;
     futures.SetTransferring(message.Future, ticket);
 
     for (const entt::entity entity : touched_entities)
@@ -1261,7 +1386,7 @@ bool ResourceContextImpl::allocationIsHostVisible(entt::entity entity) const
     return (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0u;
 }
 
-void ResourceContextImpl::enqueueBufferUpload(entt::entity entity, InternalResourceDataContainer&& data, int32_t future_slot)
+void ResourceContextImpl::enqueueBufferUpload(entt::entity entity, InternalResourceDataContainer&& data, const TransferWaitSet& waits, int32_t future_slot)
 {
     TransferSystemSetBufferDataMessage setBufferDataMessage
     {
@@ -1270,19 +1395,24 @@ void ResourceContextImpl::enqueueBufferUpload(entt::entity entity, InternalResou
         future_slot
     };
 
-    enqueueTransfer(std::move(setBufferDataMessage), std::span(&entity, 1));
+    enqueueTransfer(std::move(setBufferDataMessage), std::span(&entity, 1), waits);
 }
 
-void ResourceContextImpl::enqueueImageUpload(entt::entity entity, InternalResourceDataContainer&& data, int32_t future_slot)
+void ResourceContextImpl::enqueueImageUpload(
+    const TransferSystemReqImageInfo& image_info,
+    entt::entity entity,
+    InternalResourceDataContainer&& data,
+    const TransferWaitSet& waits,
+    int32_t future_slot)
 {
     TransferSystemSetImageDataMessage setImageDataMessage
     {
-        imageTransferInfo(entity),
+        image_info,
         std::move(data),
         future_slot
     };
 
-    enqueueTransfer(std::move(setImageDataMessage), std::span(&entity, 1));
+    enqueueTransfer(std::move(setImageDataMessage), std::span(&entity, 1), waits);
 }
 
 TransferSystemReqBufferInfo ResourceContextImpl::bufferTransferInfo(entt::entity entity) const
@@ -1290,14 +1420,26 @@ TransferSystemReqBufferInfo ResourceContextImpl::bufferTransferInfo(entt::entity
     return TransferSystemReqBufferInfo{ resourceRegistry.get<VkBuffer>(entity), resourceRegistry.get<BufferCreateInfo>(entity) };
 }
 
-TransferSystemReqImageInfo ResourceContextImpl::imageTransferInfo(entt::entity entity)
+TransferSystemReqImageInfo ResourceContextImpl::imageTransferInfo(entt::entity entity, rhi::ImageUsageTransition usage) const
 {
-    const ImageCreateInfo& createInfo = resourceRegistry.get<ImageCreateInfo>(entity);
-    TrackedImageLayout& tracked = resourceRegistry.get<TrackedImageLayout>(entity);
-    TransferSystemReqImageInfo result{ resourceRegistry.get<VkImage>(entity), createInfo, tracked.Layout };
-    // the transfer system leaves every image it touches in this layout
-    tracked.Layout = ImageLayoutAfterTransfer(createInfo.Usage);
-    return result;
+    return TransferSystemReqImageInfo
+    {
+        resourceRegistry.get<VkImage>(entity),
+        resourceRegistry.get<ImageCreateInfo>(entity),
+        LayoutBeforeTransfer(usage.Before),
+        ImageLayoutFromUsageBits(usage.After)
+    };
+}
+
+TransferSystemReqImageInfo ResourceContextImpl::newImageTransferInfo(entt::entity entity, ImageUsageBits usage_after) const
+{
+    return TransferSystemReqImageInfo
+    {
+        resourceRegistry.get<VkImage>(entity),
+        resourceRegistry.get<ImageCreateInfo>(entity),
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        ImageLayoutFromUsageBits(usage_after)
+    };
 }
 
 void ResourceContextImpl::setObjectName(VkObjectType object_type, uint64_t handle, const DebugName& name) const
@@ -1370,6 +1512,47 @@ namespace
                src.Height == dst.Height &&
                src.Depth == dst.Depth &&
                src.MipLevels == dst.MipLevels;
+    }
+
+    bool WaitsAreValid(const TransferWaitSet& waits) noexcept
+    {
+        for (int32_t i = 0; i < waits.Count; ++i)
+        {
+            const rhi::TransferWait& wait = waits.Items[static_cast<size_t>(i)];
+            if (wait.Semaphore.Get() == 0u || wait.Value == 0u)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool UsageIsValidForImage(ImageUsageBits image_usage, ImageUsageBits usage) noexcept
+    {
+        return usage != ImageUsageBits::Invalid && (usage & image_usage) == usage;
+    }
+
+    bool TransitionIsValidForImage(ImageUsageBits image_usage, rhi::ImageUsageTransition transition) noexcept
+    {
+        return UsageIsValidForImage(image_usage, transition.Before) && UsageIsValidForImage(image_usage, transition.After);
+    }
+
+    VkImageLayout LayoutBeforeTransfer(ImageUsageBits before) noexcept
+    {
+        return ImageLayoutFromUsageBits(before);
+    }
+
+    bool CopyKindMatches(CopyKind kind, bool src_is_buffer, bool dst_is_buffer) noexcept
+    {
+        switch (kind)
+        {
+        case CopyKind::BufferToBuffer: return src_is_buffer && dst_is_buffer;
+        case CopyKind::ImageToBuffer: return !src_is_buffer && dst_is_buffer;
+        case CopyKind::BufferToImage: return src_is_buffer && !dst_is_buffer;
+        case CopyKind::ImageToImage: return !src_is_buffer && !dst_is_buffer;
+        default: return false;
+        }
     }
 
     bool CanBeTransferSource(const entt::registry& registry, entt::entity entity) noexcept

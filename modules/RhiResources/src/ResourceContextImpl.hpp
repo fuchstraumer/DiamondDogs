@@ -67,12 +67,6 @@ private:
         int32_t Count{ 0 };
     };
 
-    // the layout that the transfer system last left an image in. images start UNDEFINED
-    struct TrackedImageLayout
-    {
-        VkImageLayout Layout{ VK_IMAGE_LAYOUT_UNDEFINED };
-    };
-
     // the last ticket of a transfer that reads or writes the entity. a destroy waits for it, queued or in flight
     struct LastTransferTicket
     {
@@ -124,9 +118,9 @@ private:
     void processMessage(TransferProgressMessage&& message) noexcept;
 
     /** @brief Issues the next ticket, publishes it in the future with the Created state, records it on every entity
-     *  the transfer touches, and enqueues the transfer. The only path into the transfer system. */
+     *  the transfer touches, and enqueues the transfer with its waits. The only path into the transfer system. */
     template<typename TransferMessage>
-    void enqueueTransfer(TransferMessage&& message, std::span<const entt::entity> touched_entities);
+    void enqueueTransfer(TransferMessage&& message, std::span<const entt::entity> touched_entities, const TransferWaitSet& waits);
 
     /** @brief Destroys every retiring resource whose timelines and transfer ticket have all passed. Cheap when nothing
      *  waits, so the worker calls it after every message. */
@@ -160,11 +154,14 @@ private:
     [[nodiscard]] bool allocationIsHostVisible(entt::entity entity) const;
     // in case of host-visible buffers (e.g. UBOs and such) we just handle it in the resource context instead of the transfer system
     void setBufferDataHostOnly(entt::entity entity, InternalResourceDataContainer& data_container);
-    void enqueueBufferUpload(entt::entity entity, InternalResourceDataContainer&& data, int32_t future_slot);
-    void enqueueImageUpload(entt::entity entity, InternalResourceDataContainer&& data, int32_t future_slot);
+    void enqueueBufferUpload(entt::entity entity, InternalResourceDataContainer&& data, const TransferWaitSet& waits, int32_t future_slot);
+    void enqueueImageUpload(const TransferSystemReqImageInfo& image_info, entt::entity entity, InternalResourceDataContainer&& data, const TransferWaitSet& waits, int32_t future_slot);
     [[nodiscard]] TransferSystemReqBufferInfo bufferTransferInfo(entt::entity entity) const;
-    /** @brief Returns the image's transfer info, and records the layout that the transfer will leave the image in. */
-    [[nodiscard]] TransferSystemReqImageInfo imageTransferInfo(entt::entity entity);
+    /** @brief Returns the image's transfer info. The layouts come from the caller's usages, and the context keeps no
+     *  layout state of its own. */
+    [[nodiscard]] TransferSystemReqImageInfo imageTransferInfo(entt::entity entity, rhi::ImageUsageTransition usage) const;
+    /** @brief Returns the transfer info for an image that no transfer or GPU work has touched: it starts UNDEFINED. */
+    [[nodiscard]] TransferSystemReqImageInfo newImageTransferInfo(entt::entity entity, ImageUsageBits usage_after) const;
     void setObjectName(VkObjectType object_type, uint64_t handle, const DebugName& name) const;
 
     /** @brief Destroys every API object that the entity has, and the entity. Used for destroy messages, for creation

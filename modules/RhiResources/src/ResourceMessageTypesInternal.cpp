@@ -160,6 +160,7 @@ SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, std::sp
 SetBufferDataMessage::SetBufferDataMessage(SetBufferDataMessage&& other) noexcept :
     DestBuffer{ other.DestBuffer },
     Data{ std::move(other.Data) },
+    Waits{ other.Waits },
     Future{ other.Future }
 {}
 
@@ -169,6 +170,7 @@ SetBufferDataMessage& SetBufferDataMessage::operator=(SetBufferDataMessage&& oth
     {
         DestBuffer = other.DestBuffer;
         Data = std::move(other.Data);
+        Waits = other.Waits;
         Future = other.Future;
     }
     return *this;
@@ -177,6 +179,8 @@ SetBufferDataMessage& SetBufferDataMessage::operator=(SetBufferDataMessage&& oth
 SetImageDataMessage::SetImageDataMessage(SetImageDataMessage&& other) noexcept :
     DestImage{ other.DestImage },
     Data{ std::move(other.Data) },
+    Usage{ other.Usage },
+    Waits{ other.Waits },
     Future{ other.Future }
 {}
 
@@ -197,6 +201,8 @@ SetImageDataMessage& SetImageDataMessage::operator=(SetImageDataMessage&& other)
     {
         DestImage = other.DestImage;
         Data = std::move(other.Data);
+        Usage = other.Usage;
+        Waits = other.Waits;
         Future = other.Future;
     }
     return *this;

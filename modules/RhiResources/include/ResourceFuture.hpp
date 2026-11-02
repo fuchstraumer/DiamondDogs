@@ -69,6 +69,14 @@ namespace rhi
         /** @brief k_MaxConsumerTimelines timelines are registered already. */
         NoFreeTimelineSlot = 23,
         TimelineNotRegistered = 24,
+        /** @brief An image usage of 0, or a Before or After usage that the image was not created with. */
+        InvalidUsageTransition = 25,
+        /** @brief A transfer call got more than k_MaxTransferWaits waits. The call failed on the calling thread. */
+        TooManyWaits = 26,
+        /** @brief A wait with a null semaphore or a value of 0. */
+        InvalidWait = 27,
+        /** @brief A wait on a SetBufferData of a host-visible buffer. The worker writes that memory at once. */
+        WaitOnHostWrite = 28,
     };
 
     [[nodiscard]] std::string_view ToString(ResourceError error) noexcept;
@@ -80,6 +88,18 @@ namespace rhi
         TimelineSemaphoreHandle Semaphore;
         uint64_t Value{ 0u };
         bool Submitted{ false };
+    };
+
+    /** @brief The most waits that one transfer call takes. */
+    constexpr inline int32_t k_MaxTransferWaits = 4;
+
+    /** @brief A value on a timeline semaphore that a transfer waits for before it runs on the GPU. The value must
+     *  be non-zero. The caller must make sure that a submit already signals this value, or will signal it without
+     *  waiting for this transfer. Otherwise the GPU can deadlock. */
+    struct TransferWait
+    {
+        TimelineSemaphoreHandle Semaphore;
+        uint64_t Value{ 0u };
     };
 
     /** @brief Use with ResourceContext::Wait to wait with no time limit. */

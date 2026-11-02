@@ -16,6 +16,7 @@
 #include "vulkan/vulkan_core.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <limits>
@@ -58,6 +59,12 @@ namespace
     [[nodiscard]] VkImageAspectFlags AspectMaskForImage(const ImageCreateInfo& create_info) noexcept;
     [[nodiscard]] VkImageSubresourceRange WholeImageRange(const ImageCreateInfo& create_info) noexcept;
     [[nodiscard]] VkExtent3D ImageExtent(const ImageCreateInfo& create_info) noexcept;
+    /** @brief Writes one wait info for each distinct semaphore into `out`, with the largest value that any wait gives
+     *  for it, and returns the count. A timeline that two waits name needs only the larger value. */
+    [[nodiscard]] uint32_t MergeWaits(
+        const std::array<rhi::TransferWait, rhi::k_MaxTransferWaits>& waits,
+        int32_t wait_count,
+        std::array<VkSemaphoreSubmitInfo, rhi::k_MaxTransferWaits>& out) noexcept;
 }
 
 ResourceTransferSystem::ResourceTransferSystem() = default;
@@ -299,9 +306,14 @@ void ResourceTransferSystem::drainMessages()
     }
 }
 
-VkCommandBuffer ResourceTransferSystem::beginTransfer()
+VkCommandBuffer ResourceTransferSystem::beginTransfer(const TransferWaitSet& waits)
 {
-    if (recording.has_value() && recording->TransferCount >= k_MaxTransfersPerBatch)
+    const bool batchIsFull = recording.has_value() && recording->TransferCount >= k_MaxTransfersPerBatch;
+
+    // the transfers before a waiting one must not wait with it, so they are submitted now. an empty batch has nothing
+    // to submit, and the waiting transfer uses it
+    const bool mustSubmitEarlierTransfers = waits.Count > 0 && recording.has_value() && recording->TransferCount > 0;
+    if (batchIsFull || mustSubmitEarlierTransfers)
     {
         submitBatch();
     }
@@ -319,7 +331,7 @@ VkCommandBuffer ResourceTransferSystem::beginTransfer()
     return cmd;
 }
 
-void ResourceTransferSystem::endTransfer(int32_t future_slot, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket)
+void ResourceTransferSystem::endTransfer(int32_t future_slot, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket, const TransferWaitSet& waits)
 {
     if (staging != nullptr)
     {
@@ -331,6 +343,14 @@ void ResourceTransferSystem::endTransfer(int32_t future_slot, std::unique_ptr<Up
     recording->TransferCount += 1;
     highestConsumedTicket = std::max(highestConsumedTicket, ticket);
     transfersRecorded.fetch_add(1, std::memory_order_relaxed);
+
+    // the batch holds this one transfer, because beginTransfer submitted the batch that was open
+    if (waits.Count > 0)
+    {
+        recording->Waits = waits.Items;
+        recording->WaitCount = waits.Count;
+        submitBatch();
+    }
 }
 
 void ResourceTransferSystem::failTransfer(int32_t future_slot, uint64_t ticket, rhi::ResourceError error)
@@ -369,6 +389,8 @@ bool ResourceTransferSystem::startBatch()
 
     TransferBatch batch = std::move(freeBatches.back());
     freeBatches.pop_back();
+
+    batch.WaitCount = 0;
 
     // the timeline passed this batch's value before it came back, so the GPU is done with its command buffer
     if (!batch.Pool->Reset().IsSuccess())
@@ -412,9 +434,13 @@ void ResourceTransferSystem::submitBatch()
     const uint64_t signalValue = highestConsumedTicket;
     VkCommandBufferSubmitInfo commandInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, nullptr, VK_NULL_HANDLE, 0u };
     uint32_t commandCount = 0u;
+    std::array<VkSemaphoreSubmitInfo, rhi::k_MaxTransferWaits> waitInfos{};
+    uint32_t waitCount = 0u;
 
     if (recording.has_value())
     {
+        waitCount = MergeWaits(recording->Waits, recording->WaitCount, waitInfos);
+
         const VkCommandBuffer cmd = recording->Pool->GetCommandBuffer(0).As<VkCommandBuffer>();
         const rhi::VkDebugUtilsFunctions& debugFns = device->GetDebugUtilFns();
         if (debugFns.vkCmdEndDebugUtilsLabel != nullptr)
@@ -431,6 +457,7 @@ void ResourceTransferSystem::submitBatch()
         {
             // nothing of this batch runs. its tickets are still signaled below, so their waits end
             failRecordingBatch(signalValue, rhi::ResourceError::RecordingFailed);
+            waitCount = 0u;
         }
     }
 
@@ -448,8 +475,8 @@ void ResourceTransferSystem::submitBatch()
         VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
         nullptr,
         0u,
-        0u,
-        nullptr,
+        waitCount,
+        waitCount != 0u ? waitInfos.data() : nullptr,
         commandCount,
         commandCount != 0u ? &commandInfo : nullptr,
         1u,
@@ -570,7 +597,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetBufferDataMessage&&
         return;
     }
 
-    const VkCommandBuffer cmd = beginTransfer();
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
     {
         failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
@@ -581,7 +608,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetBufferDataMessage&&
 
     // no barrier after the copy: other queues see the write through the transfer timeline, which consumers wait on
     dataVector.clear();
-    endTransfer(message.Future, std::move(staging), message.Ticket);
+    endTransfer(message.Future, std::move(staging), message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& message)
@@ -589,7 +616,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
     const ImageCreateInfo& imageInfo = message.ImageInfo.CreateInfo;
     const VkImage imageHandle = message.ImageInfo.ImageHandle;
     const VkImageSubresourceRange range = WholeImageRange(imageInfo);
-    const VkImageLayout finalLayout = ImageLayoutAfterTransfer(imageInfo.Usage);
+    const VkImageLayout finalLayout = message.ImageInfo.AfterLayout;
 
     InternalResourceDataContainer::ImageDataVector& imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.Data.DataVector);
 
@@ -601,7 +628,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
         return;
     }
 
-    const VkCommandBuffer cmd = beginTransfer();
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
     {
         failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
@@ -610,7 +637,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
 
     // required, unlike with buffers. forces a layout transition. stages are limited to the ones a transfer queue has
     RecordImageLayoutTransition(cmd, imageHandle, range,
-        message.ImageInfo.CurrentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        message.ImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     vkCmdCopyBufferToImage(
@@ -626,12 +653,12 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
     imageDataVector.clear();
-    endTransfer(message.Future, std::move(staging), message.Ticket);
+    endTransfer(message.Future, std::move(staging), message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemFillBufferMessage&& message)
 {
-    const VkCommandBuffer cmd = beginTransfer();
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
     {
         failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
@@ -639,7 +666,7 @@ void ResourceTransferSystem::processMessage(TransferSystemFillBufferMessage&& me
     }
 
     vkCmdFillBuffer(cmd, message.BufferInfo.BufferHandle, message.Offset, message.Size, message.Value);
-    endTransfer(message.Future, nullptr, message.Ticket);
+    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToBufferMessage&& message)
@@ -652,7 +679,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToBufferMess
         message.SrcBufferInfo.CreateInfo.Size
     };
 
-    const VkCommandBuffer cmd = beginTransfer();
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
     {
         failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
@@ -660,7 +687,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToBufferMess
     }
 
     vkCmdCopyBuffer(cmd, message.SrcBufferInfo.BufferHandle, message.DstBufferInfo.BufferHandle, 1, &copy);
-    endTransfer(message.Future, nullptr, message.Ticket);
+    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessage&& message)
@@ -689,10 +716,10 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessag
         imageCopies.push_back(VkImageCopy{ subresource, VkOffset3D{ 0, 0, 0 }, subresource, VkOffset3D{ 0, 0, 0 }, mipExtent });
     }
 
-    const VkImageLayout srcFinal = ImageLayoutAfterTransfer(srcInfo.Usage);
-    const VkImageLayout dstFinal = ImageLayoutAfterTransfer(dstInfo.Usage);
+    const VkImageLayout srcFinal = message.SrcImageInfo.AfterLayout;
+    const VkImageLayout dstFinal = message.DstImageInfo.AfterLayout;
 
-    const VkCommandBuffer cmd = beginTransfer();
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
     {
         failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
@@ -700,11 +727,11 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessag
     }
 
     RecordImageLayoutTransition(cmd, srcHandle, srcRange,
-        message.SrcImageInfo.CurrentLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        message.SrcImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
     RecordImageLayoutTransition(cmd, dstHandle, dstRange,
-        message.DstImageInfo.CurrentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        message.DstImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     // fixed: the copy named the usage layouts (shader read, attachment) instead of the transfer layouts
@@ -722,7 +749,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessag
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    endTransfer(message.Future, nullptr, message.Ticket);
+    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessage&& message)
@@ -743,7 +770,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessa
         ImageExtent(srcInfo)
     };
 
-    const VkCommandBuffer cmd = beginTransfer();
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
     {
         failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
@@ -751,18 +778,18 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessa
     }
 
     RecordImageLayoutTransition(cmd, srcHandle, srcRange,
-        message.ImageInfo.CurrentLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        message.ImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
     vkCmdCopyImageToBuffer(cmd, srcHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, message.BufferInfo.BufferHandle, 1u, &copyParams);
     RecordImageLayoutTransition(cmd, srcHandle, srcRange,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, ImageLayoutAfterTransfer(srcInfo.Usage),
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, message.ImageInfo.AfterLayout,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_NONE,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
     // no barrier for the buffer: the host sees the write once the timeline passes the ticket (GPUToCPU memory is
     // host-coherent or invalidated on map)
 
-    endTransfer(message.Future, nullptr, message.Ticket);
+    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessage&& message)
@@ -782,7 +809,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessa
         ImageExtent(dstInfo)
     };
 
-    const VkCommandBuffer cmd = beginTransfer();
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
     {
         failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
@@ -790,17 +817,17 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessa
     }
 
     RecordImageLayoutTransition(cmd, dstHandle, dstRange,
-        message.ImageInfo.CurrentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        message.ImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     // fixed: the copy named the usage layout instead of TRANSFER_DST_OPTIMAL
     vkCmdCopyBufferToImage(cmd, message.BufferInfo.BufferHandle, dstHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copyParams);
     RecordImageLayoutTransition(cmd, dstHandle, dstRange,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, ImageLayoutAfterTransfer(dstInfo.Usage),
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, message.ImageInfo.AfterLayout,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    endTransfer(message.Future, nullptr, message.Ticket);
+    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage([[maybe_unused]] TransferSystemExitMessage&& message) noexcept
@@ -868,5 +895,46 @@ namespace
     VkExtent3D ImageExtent(const ImageCreateInfo& create_info) noexcept
     {
         return VkExtent3D{ create_info.Width, std::max(create_info.Height, 1u), std::max(create_info.Depth, 1u) };
+    }
+
+    uint32_t MergeWaits(
+        const std::array<rhi::TransferWait, rhi::k_MaxTransferWaits>& waits,
+        int32_t wait_count,
+        std::array<VkSemaphoreSubmitInfo, rhi::k_MaxTransferWaits>& out) noexcept
+    {
+        uint32_t merged = 0u;
+        for (int32_t i = 0; i < wait_count; ++i)
+        {
+            const rhi::TransferWait& wait = waits[static_cast<size_t>(i)];
+            const VkSemaphore semaphore = reinterpret_cast<VkSemaphore>(wait.Semaphore.Get());
+
+            bool found = false;
+            for (uint32_t j = 0; j < merged; ++j)
+            {
+                if (out[j].semaphore == semaphore)
+                {
+                    out[j].value = std::max(out[j].value, wait.Value);
+                    found = true;
+                }
+            }
+
+            if (found)
+            {
+                continue;
+            }
+
+            out[merged] = VkSemaphoreSubmitInfo
+            {
+                VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                nullptr,
+                semaphore,
+                wait.Value,
+                VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+                0u
+            };
+            ++merged;
+        }
+
+        return merged;
     }
 }

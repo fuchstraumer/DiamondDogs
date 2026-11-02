@@ -68,7 +68,8 @@ the ticket, the `GraphicsResource`, and the mapped pointer.
 `rhi::ResourceError` says why a future failed. `rhi::ToString` gives the name. The resolve step returns
 `StaleResource`, `WrongResourceKind` or `ResourceRetiring`. The create checks return `InvalidCreateInfo` or
 `UnsupportedUsage`. The transfer checks return `MissingTransferUsage`, `InvalidFillRange`, `CopySizeMismatch`,
-`CopyShapeMismatch` or `UnsupportedCopy`. The transfer thread returns `StagingFailed`, `RecordingFailed` or
+`CopyShapeMismatch`, `UnsupportedCopy`, `InvalidUsageTransition`, `TooManyWaits`, `InvalidWait` or `WaitOnHostWrite`.
+The transfer thread returns `StagingFailed`, `RecordingFailed` or
 `SubmitFailed`. The timeline calls return `InvalidTimeline`, `TimelineAlreadyRegistered`, `NoFreeTimelineSlot` or
 `TimelineNotRegistered`.
 
@@ -140,6 +141,86 @@ A consumer on another queue uses `Completion()`, which returns an `rhi::GpuWait`
 
 `Wait` on the CPU waits for the state to leave `Pending`, then for the ticket on the timeline, then for the final
 state. Only the transfer thread writes the final state of a transfer. A future makes no Vulkan object of its own.
+
+## Image usage handoff and inbound waits
+
+The context does not track the layout of an image. It cannot know what other queues do to the image after a
+transfer. The caller knows the last GPU use of the image, so the caller says it in every transfer call.
+
+A transfer on an existing image takes an `rhi::ImageUsageTransition`, which has two fields:
+
+| Field | Means |
+|---|---|
+| `Before` | The usage of the image on the GPU just before the transfer runs. |
+| `After` | The usage that the image must have after the transfer. |
+
+The usages are `ImageUsageBits`, the same words as `ResourceBarriers` uses. No Vulkan type is in the public calls.
+The worker derives both layouts from the usages with `ImageLayoutFromUsageBits`. The transfer thread uses the layouts
+as they come.
+
+- **A new image.** The only source of `UNDEFINED` is a new image. `CreateImage(info)` makes an image with no data.
+  `CreateImage(info, initial_data, usage_after_upload)` uploads from `UNDEFINED` and leaves the image in the layout of
+  `usage_after_upload`. The context adds `TransferDestination` to the create usage.
+- **An existing image.** `SetImageData`, `CopyImageToBuffer`, `CopyBufferToImage` and `CopyImageContents` take the
+  transition for each image side. `CopyImage` takes the transition of the source and the resting usage of the new
+  image. The new image starts from `UNDEFINED`.
+- **Buffers.** `CopyBufferContents` is for two buffers. It fails with `WrongResourceKind` when a side is an image.
+  `CopyBuffer` fails with `WrongResourceKind` for an image, and `CopyImage` fails with it for a buffer.
+- **No discard.** `Before` must name a real usage. A call cannot ask for the old contents to be discarded.
+
+**Choose `Before` with care.** If `Before` does not match the layout that the image is in on the GPU, the barrier of the
+transfer starts from the wrong old layout. Validation reports it at the submit.
+
+The checks run on the worker, before the transfer exists. `Before` and `After` must each be non-zero. Each must be a
+subset of the usage that the image was created with. Otherwise the future fails with `InvalidUsageTransition`. The
+check stops a usage that gives a layout that validation rejects later, far from the cause.
+
+### Inbound waits
+
+A transfer can wait for GPU work on another queue. `SetBufferData`, `SetImageData`, `FillBuffer`, `CopyBuffer`,
+`CopyImage`, `CopyBufferContents`, `CopyImageToBuffer`, `CopyBufferToImage` and `CopyImageContents` take
+`std::span<const rhi::TransferWait> waits` as their last parameter. An empty span means no wait. The create calls,
+`MapBuffer`, `UnmapBuffer` and `DestroyResource` take none.
+
+Each `rhi::TransferWait` has a `Semaphore` (a timeline) and a `Value`. The transfer does not start on the GPU until the
+timeline reaches every value. A call takes at most `rhi::k_MaxTransferWaits` (4) waits. The message stores them in a
+fixed array, so no heap memory is used.
+
+**The caller owns this rule: an inbound wait must name a value whose signal is already submitted, or will be submitted
+by work that does not wait for this transfer.** The context does not check it. If the rule is broken, the GPU can
+deadlock: the transfer waits for a frame, and the frame waits for the transfer. The render graph will check the rule. A
+signal from the host is also a submitted signal.
+
+The calls fail in these ways:
+
+| Error | Cause | Where it fails |
+|---|---|---|
+| `TooManyWaits` | More than 4 waits. | On the calling thread, before any message exists. The future is `Failed` when the call returns. |
+| `InvalidWait` | A wait with a null semaphore or a value of 0. | On the worker. |
+| `WaitOnHostWrite` | A wait on `SetBufferData` of a host-visible buffer. | On the worker. The worker writes that memory at once, and a wait would block the worker thread. |
+
+`CopyBuffer` with `copy_contents` false makes no transfer, so it ignores its waits.
+
+### The own-batch rule, and what it does not fix
+
+A queue runs the commands of one submit in order, and a semaphore signal waits for all commands that were submitted
+before it. So a blocked transfer would hold every transfer in its batch. To protect the transfers issued before it, a
+transfer with waits goes in a batch of its own:
+
+1. The transfer thread submits the open batch, if it holds a transfer. It does not submit an empty batch.
+2. It records the waiting transfer alone in a fresh batch.
+3. It submits that batch at once. Each wait is in `pWaitSemaphoreInfos`, with the all-transfer stage. When two waits
+   name the same semaphore, only the larger value is used.
+4. The batch signals its ticket as usual. Completion and retirement do not change.
+
+The rule does not help the transfers issued **after** the waiting one. They go in later batches, and their signals come
+after the blocked batch on the same queue. They cannot complete before the wait is released. The tickets stay in order,
+which the completion code needs. A second transfer queue would remove this limit. It is not built.
+
+### In-frame copies
+
+In-frame copies are not for this API. A readback of the target of the current frame is work for the render graph. It
+records the copy on its own command buffer. The copy calls of the context are for work outside a frame.
 
 ## Destroy and retirement
 

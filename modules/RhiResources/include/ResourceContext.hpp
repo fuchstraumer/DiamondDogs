@@ -141,17 +141,29 @@ public:
         std::span<const RhiBufferResourceData> initial_data);
 
     /**
-     * @brief Create an image, with a view when `createInfo.ViewInfo` is set and a sampler when
-     * `createInfo.SamplerInfo` is set (the resource type is then CombinedImageSampler). With initialData, the
-     * transfer system uploads the data and moves the image to the layout that its usage asks for.
+     * @brief Create an image with no data, with a view when `createInfo.ViewInfo` is set and a sampler when
+     * `createInfo.SamplerInfo` is set (the resource type is then CombinedImageSampler). The image has no defined
+     * layout until the first transfer or the first barrier on the GPU.
      *
      * @param create_info Domain, usage, format, extent and optional view and sampler
-     * @param initial_data Initial data, one element per mip level and array layer range. Empty for none.
+     * @return Future for tracking creation progress
+     */
+    [[nodiscard]] rhi::ResourceFuture<GraphicsResource> CreateImage(const ImageCreateInfo& create_info);
+
+    /**
+     * @brief Create an image and upload data to it. The transfer system moves the image from UNDEFINED to the layout
+     * that `usage_after_upload` needs. The context adds TransferDestination to the create usage.
+     *
+     * @param create_info Domain, usage, format, extent and optional view and sampler
+     * @param initial_data Initial data, one element per mip level and array layer range
+     * @param usage_after_upload The usage of the image's first GPU use. It must be non-zero and a subset of the usage
+     *        of the image, or the future fails with InvalidUsageTransition.
      * @return Future for tracking creation progress
      */
     [[nodiscard]] rhi::ResourceFuture<GraphicsResource> CreateImage(
         const ImageCreateInfo& create_info,
-        std::span<const RhiImageResourceData> initial_data);
+        std::span<const RhiImageResourceData> initial_data,
+        ImageUsageBits usage_after_upload);
 
     /**
      * @brief Create a sampler
@@ -171,24 +183,40 @@ public:
      * 
      * @param buffer The target buffer resource to update
      * @param data The data regions to upload
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     *        A host-visible buffer is written at once, so a wait there fails with WaitOnHostWrite.
      * @return Future for tracking transfer progress
      */
     [[nodiscard]] rhi::OperationFuture SetBufferData(
         GraphicsResource buffer,
-        std::span<const RhiBufferResourceData> data);
+        std::span<const RhiBufferResourceData> data,
+        std::span<const rhi::TransferWait> waits);
 
     /**
-     * @brief Upload data to an existing image, including specific mip levels and array layers.
-     * Uses staging buffers and performs layout transitions as needed.
-     * 
+     * @brief Upload data to an existing image, including specific mip levels and array layers. Uses staging buffers.
+     * The transfer moves the image from the layout of `usage.Before` to the layout of `usage.After`. The caller knows
+     * the image's last GPU use, so the caller gives `Before`.
+     *
      * @param image The target image resource to update
+     * @param usage The usage of the image before the transfer, and the usage it must have after it
      * @param data The data regions to upload
-     * @return Future for tracking transfer progress
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     * @return Future for tracking transfer progress. Fails with InvalidUsageTransition for a usage that is not valid.
      */
     [[nodiscard]] rhi::OperationFuture SetImageData(
         GraphicsResource image,
-        std::span<const RhiImageResourceData> data);
-        
+        rhi::ImageUsageTransition usage,
+        std::span<const RhiImageResourceData> data,
+        std::span<const rhi::TransferWait> waits);
+
     /**
      * @brief Fill a buffer region with a repeating 32-bit value
      * 
@@ -196,6 +224,11 @@ public:
      * @param value The 32-bit value to repeat throughout the region
      * @param offset Byte offset from the start of the buffer
      * @param size Number of bytes to fill (must be multiple of 4)
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
      * @return Future for tracking transfer progress
      * 
      * @note This is implemented using vkCmdFillBuffer for optimal performance, so the size parameter must be a multiple of 4 bytes
@@ -204,7 +237,8 @@ public:
         GraphicsResource buffer,
         uint32_t value,
         size_t offset,
-        size_t size);
+        size_t size,
+        std::span<const rhi::TransferWait> waits);
         
     /**
      * @brief Map a buffer region into CPU-accessible memory
@@ -239,36 +273,118 @@ public:
      * 
      * @param src The source buffer to copy from
      * @param copy_contents Whether to copy the buffer's contents or just create an empty buffer with the same properties
-     * @return Future of the new buffer resource
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     *        The waits apply to the copy of the contents. Without contents, they are ignored.
+     * @return Future of the new buffer resource. Fails with WrongResourceKind when `src` is an image.
      */
-    [[nodiscard]] rhi::ResourceFuture<GraphicsResource> CopyBuffer(GraphicsResource src, bool copy_contents);
+    [[nodiscard]] rhi::ResourceFuture<GraphicsResource> CopyBuffer(
+        GraphicsResource src,
+        bool copy_contents,
+        std::span<const rhi::TransferWait> waits);
 
     /**
-     * @brief Create a copy of an existing image
-     * 
+     * @brief Create a copy of an existing image, with its contents. The new image starts from UNDEFINED and ends in
+     * the layout that `copy_usage_after` needs.
+     *
      * @param src The source image to copy from
-     * @return Future of the new image resource
-     * 
-     * @note Proper image layout transitions are handled automatically
+     * @param src_usage The usage of the source before the copy, and the usage it must have after the copy
+     * @param copy_usage_after The usage of the new image after the copy. It must be non-zero and a subset of the usage
+     *        of the source plus TransferDestination, which the new image gets.
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     * @return Future of the new image resource. Fails with WrongResourceKind when `src` is a buffer, and with
+     *         InvalidUsageTransition for a usage that is not valid.
      */
-    [[nodiscard]] rhi::ResourceFuture<GraphicsResource> CopyImage(GraphicsResource src);
-    
+    [[nodiscard]] rhi::ResourceFuture<GraphicsResource> CopyImage(
+        GraphicsResource src,
+        rhi::ImageUsageTransition src_usage,
+        ImageUsageBits copy_usage_after,
+        std::span<const rhi::TransferWait> waits);
+
     /**
-     * @brief Copy contents from one buffer to another existing buffer
-     * 
+     * @brief Copy the contents of one buffer to another existing buffer. The entire source is copied.
+     *
      * @param src The source buffer to copy from
      * @param dst The destination buffer to copy to
-     * @return Future for tracking transfer progress
-     * 
-     * @note The entire source buffer is copied to the destination buffer
-     * @note Uses GPU-side copy operations for optimal performance
-     * @note Either side may be an image: image to buffer copies mip 0 of every layer, tightly packed from offset 0
-     *       (the readback path; the image needs TransferSource usage and the buffer CopyDestination), and buffer to
-     *       image is the reverse
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     * @return Future for tracking transfer progress. Fails with WrongResourceKind when either side is an image.
      */
     [[nodiscard]] rhi::OperationFuture CopyBufferContents(
         GraphicsResource src,
-        GraphicsResource dst);
+        GraphicsResource dst,
+        std::span<const rhi::TransferWait> waits);
+
+    /**
+     * @brief Copy mip 0 of every layer of an image into a buffer, tightly packed from offset 0 (the readback path).
+     * The image needs TransferSource usage and the buffer CopyDestination usage.
+     *
+     * @param image The source image
+     * @param image_usage The usage of the image before the copy, and the usage it must have after the copy
+     * @param buffer The destination buffer
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     * @return Future for tracking transfer progress
+     */
+    [[nodiscard]] rhi::OperationFuture CopyImageToBuffer(
+        GraphicsResource image,
+        rhi::ImageUsageTransition image_usage,
+        GraphicsResource buffer,
+        std::span<const rhi::TransferWait> waits);
+
+    /**
+     * @brief Copy a whole buffer into mip 0 of every layer of an image, tightly packed from offset 0. The buffer needs
+     * CopySource usage and the image TransferDestination usage.
+     *
+     * @param buffer The source buffer
+     * @param image The destination image
+     * @param image_usage The usage of the image before the copy, and the usage it must have after the copy
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     * @return Future for tracking transfer progress
+     */
+    [[nodiscard]] rhi::OperationFuture CopyBufferToImage(
+        GraphicsResource buffer,
+        GraphicsResource image,
+        rhi::ImageUsageTransition image_usage,
+        std::span<const rhi::TransferWait> waits);
+
+    /**
+     * @brief Copy every mip level and layer of one image into another existing image of the same shape.
+     *
+     * @param src The source image
+     * @param src_usage The usage of the source before the copy, and the usage it must have after the copy
+     * @param dst The destination image
+     * @param dst_usage The usage of the destination before the copy, and the usage it must have after the copy
+     * @param waits Up to k_MaxTransferWaits timeline values that the transfer waits for on the GPU. Empty for none.
+     *        **The caller must make sure that a submit already signals each value, or will signal it without waiting
+     *        for this transfer.** Otherwise the GPU can deadlock. The context does not check this. A call with more
+     *        waits fails at once with TooManyWaits. A wait with a null semaphore or a value of 0 fails with
+     *        InvalidWait.
+     * @return Future for tracking transfer progress
+     */
+    [[nodiscard]] rhi::OperationFuture CopyImageContents(
+        GraphicsResource src,
+        rhi::ImageUsageTransition src_usage,
+        GraphicsResource dst,
+        rhi::ImageUsageTransition dst_usage,
+        std::span<const rhi::TransferWait> waits);
 
     /**
      * @brief Destroy a graphics resource and free its memory, once the GPU is done with it.

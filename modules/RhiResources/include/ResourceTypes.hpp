@@ -162,6 +162,17 @@ struct ImageCreateInfo
     std::string_view Name;
 };
 
+namespace rhi
+{
+    /** @brief The image's usage on the GPU just before the transfer runs, and the usage it must have after the transfer.
+     *  Both must be non-zero, and each must be a subset of the usage the image was created with. */
+    struct ImageUsageTransition
+    {
+        ImageUsageBits Before{ ImageUsageBits::Invalid };
+        ImageUsageBits After{ ImageUsageBits::Invalid };
+    };
+}
+
 /** @brief The most consumer timelines that a ResourceContext checks before it frees a destroyed resource. */
 constexpr inline int32_t k_MaxConsumerTimelines = 4;
 
