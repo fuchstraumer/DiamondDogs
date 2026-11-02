@@ -2,6 +2,7 @@
 #ifndef CORE_THREADING_MWSR_QUEUE_HPP
 #define CORE_THREADING_MWSR_QUEUE_HPP
 #include "reactors/casReactor.hpp"
+#include <atomic>
 #include <bit>
 #include <cstdint>
 #include <cassert>
@@ -602,6 +603,8 @@ private:
     alignas(k_SharedStateAlignment) atomic128 exitData;
     alignas(k_SharedStateAlignment) detail::LockedThreadsList<T> lockedWriters;
     detail::LockedSingleThread lockedReader;
+    // written only on the blocking path, so it shares a line with the locked lists and not with the CAS targets
+    std::atomic<int64_t> blockedPushes{ 0 };
 
     T readCache[detail::mwsrQueueSize - 1u];
     size_t readCacheBegin{ 0u };
@@ -651,6 +654,7 @@ public:
         auto [newId, willLock] = entrance.allocateNextID();
         if (willLock)
         {
+            blockedPushes.fetch_add(1, std::memory_order_relaxed);
             lockedWriters.lockAndWait(newId);
             entrance.unlock();
         }
@@ -664,6 +668,15 @@ public:
         {
             lockedReader.unlock();
         }
+    }
+
+    /**
+     * @brief Returns how many push() calls found the queue full and blocked. A count, for tests and profiling: it is
+     * relaxed, so it orders nothing.
+     */
+    [[nodiscard]] int64_t BlockedPushCount() const noexcept
+    {
+        return blockedPushes.load(std::memory_order_relaxed);
     }
 
     bool try_push(T item) noexcept
