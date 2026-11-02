@@ -185,6 +185,10 @@ public:
     constexpr bool operator==(const Float2& rhs) const noexcept;
     constexpr bool operator!=(const Float2& rhs) const noexcept;
 
+    [[nodiscard]] float Length() const noexcept;
+    [[nodiscard]] float LengthSquared() const noexcept;
+    [[nodiscard]] float Dot(const Float2& other) const noexcept;
+
     union
     {
         struct { float x, y; };
@@ -241,6 +245,11 @@ public:
     // Comparison operators
     constexpr bool operator==(const Float3& rhs) const noexcept;
     constexpr bool operator!=(const Float3& rhs) const noexcept;
+
+    [[nodiscard]] float Length() const noexcept;
+    [[nodiscard]] float LengthSquared() const noexcept;
+    [[nodiscard]] float Dot(const Float3& other) const noexcept;
+    [[nodiscard]] static Float3 RotateAroundY(const Float3& value, float radians) noexcept;
 
     SWIZZLE_3(x, y, z)
     SWIZZLE_3(x, z, y)
@@ -317,6 +326,11 @@ public:
     constexpr bool operator==(const Float4& rhs) const noexcept;
     constexpr bool operator!=(const Float4& rhs) const noexcept;
 
+    [[nodiscard]] float Length() const noexcept;
+    [[nodiscard]] float LengthSquared() const noexcept;
+    [[nodiscard]] float Dot(const Float4& other) const noexcept;
+
+    [[nodiscard]] constexpr bool NoneOf(float value) const noexcept;
     [[nodiscard]] constexpr bool AnyOf(float value) const noexcept;
     [[nodiscard]] constexpr bool AllOf(float value) const noexcept;
 

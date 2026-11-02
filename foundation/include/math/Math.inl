@@ -100,6 +100,21 @@ constexpr inline bool Float2::operator!=(const Float2& rhs) const noexcept
     return !(*this == rhs);
 }
 
+inline float Float2::Length() const noexcept
+{
+    return std::sqrtf((x * x) + (y * y));
+}
+
+inline float Float2::LengthSquared() const noexcept
+{
+    return (x * x) + (y * y);
+}
+
+inline float Float2::Dot(const Float2& other) const noexcept
+{
+    return (x * other.x) + (y * other.y);
+}
+
 // ================================
 // Float3 implementations
 // ================================
@@ -194,6 +209,33 @@ constexpr bool Float3::operator==(const Float3& rhs) const noexcept
 constexpr bool Float3::operator!=(const Float3& rhs) const noexcept
 {
     return !(*this == rhs);
+}
+
+inline float Float3::Length() const noexcept
+{
+    return std::sqrtf((x * x) + (y * y) + (z * z));
+}
+
+inline float Float3::LengthSquared() const noexcept
+{
+    return (x * x) + (y * y) + (z * z);
+}
+
+inline float Float3::Dot(const Float3& other) const noexcept
+{
+    return (x * other.x) + (y * other.y) + (z * other.z);
+}
+
+inline Float3 Float3::RotateAroundY(const Float3& value, float radians) noexcept
+{
+    // the same sense as yaw: +radians turns +z toward +x
+    const math::ScalarSinCos sinCos = SinCos(radians);
+    return math::Float3
+    {
+        (value.x * sinCos.cos) + (value.z * sinCos.sin),
+        value.y,
+        (-value.x * sinCos.sin) + (value.z * sinCos.cos),
+    };
 }
 
 // ================================
@@ -296,6 +338,21 @@ constexpr bool Float4::operator==(const Float4& rhs) const noexcept
 constexpr bool Float4::operator!=(const Float4& rhs) const noexcept
 {
     return !(*this == rhs);
+}
+
+inline float Float4::Length() const noexcept
+{
+    return std::sqrtf((x * x) + (y * y) + (z * z) + (w * w));
+}
+
+inline float Float4::LengthSquared() const noexcept
+{
+    return (x * x) + (y * y) + (z * z) + (w * w);
+}
+
+inline float Float4::Dot(const Float4& other) const noexcept
+{
+    return (x * other.x) + (y * other.y) + (z * other.z) + (w * other.w);
 }
 
 // ================================
