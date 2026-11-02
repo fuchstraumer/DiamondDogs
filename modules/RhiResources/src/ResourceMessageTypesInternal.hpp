@@ -1,7 +1,6 @@
 #pragma once
 #ifndef RESOURCE_MESSAGE_TYPES_INTERNAL_HPP
 #define RESOURCE_MESSAGE_TYPES_INTERNAL_HPP
-#include "ResourceMessageReply.hpp"
 #include "ResourceTypes.hpp"
 
 #include <array>
@@ -40,7 +39,8 @@ struct DebugName
 static_assert(sizeof(DebugName) == 64, "DebugName is sized to one cache line");
 
 // Users still call functions with the old API on the surface, but we translate to these internal structures
-// so that we can place them in the message queue (type erased by being shoved in a variant, effectively)
+// so that we can place them in the message queue (type erased by being shoved in a variant, effectively). `Future` is
+// the index of the call's slot in the context's future table: the handlers write the result there
 
 // Because users just provide pointers to raw data, we need to take a copy of the data so that exiting
 // the function once they finish enqueuing the message doesn't invalidate the data right before we use it.
@@ -109,7 +109,7 @@ struct CreateBufferMessage
     BufferCreateInfo BufferInfo;
     DebugName Name;
     std::optional<InternalResourceDataContainer> InitialData = std::nullopt;
-    std::shared_ptr<GraphicsResourceReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 // an image with a SamplerInfo becomes a CombinedImageSampler, which replaced
@@ -119,14 +119,14 @@ struct CreateImageMessage
     ImageCreateInfo ImageInfo;
     DebugName Name;
     std::optional<InternalResourceDataContainer> InitialData = std::nullopt;
-    std::shared_ptr<GraphicsResourceReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 struct CreateSamplerMessage
 {
     SamplerCreateInfo SamplerInfo;
     DebugName Name;
-    std::shared_ptr<GraphicsResourceReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 struct SetBufferDataMessage
@@ -135,7 +135,7 @@ struct SetBufferDataMessage
     SetBufferDataMessage(GraphicsResource _destBuffer, std::span<const RhiBufferResourceData> data) noexcept;
     SetBufferDataMessage(GraphicsResource _destBuffer,
                          InternalResourceDataContainer&& _data,
-                         std::shared_ptr<ResourceTransferReply>&& reply) noexcept;
+                         int32_t future_slot) noexcept;
     SetBufferDataMessage(const SetBufferDataMessage&) = delete;
     SetBufferDataMessage& operator=(const SetBufferDataMessage&) = delete;
     SetBufferDataMessage(SetBufferDataMessage&& other) noexcept;
@@ -143,7 +143,7 @@ struct SetBufferDataMessage
 
     GraphicsResource DestBuffer{ GraphicsResource::Null() };
     InternalResourceDataContainer Data;
-    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 struct SetImageDataMessage
@@ -153,7 +153,7 @@ struct SetImageDataMessage
     // for use when transferring rest of work to the transfer system
     SetImageDataMessage(GraphicsResource _destImage,
                         InternalResourceDataContainer&& _data,
-                        std::shared_ptr<ResourceTransferReply>&& reply) noexcept;
+                        int32_t future_slot) noexcept;
     SetImageDataMessage(const SetImageDataMessage&) = delete;
     SetImageDataMessage& operator=(const SetImageDataMessage&) = delete;
     SetImageDataMessage(SetImageDataMessage&& other) noexcept;
@@ -161,7 +161,7 @@ struct SetImageDataMessage
 
     GraphicsResource DestImage{ GraphicsResource::Null() };
     InternalResourceDataContainer Data;
-    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 struct FillResourceMessage
@@ -170,7 +170,7 @@ struct FillResourceMessage
     uint32_t Value{ 0 };
     size_t Offset{ 0 };
     size_t Size{ 0 };
-    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 struct MapResourceMessage
@@ -178,7 +178,7 @@ struct MapResourceMessage
     GraphicsResource Resource{ GraphicsResource::Null() };
     size_t Size{ 0 };
     size_t Offset{ 0 };
-    std::shared_ptr<PointerMessageReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 struct UnmapResourceMessage
@@ -186,7 +186,7 @@ struct UnmapResourceMessage
     GraphicsResource Resource{ GraphicsResource::Null() };
     size_t Size{ 0 };
     size_t Offset{ 0 };
-    std::shared_ptr<MessageReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 struct CopyResourceMessage
@@ -194,20 +194,20 @@ struct CopyResourceMessage
     GraphicsResource SourceResource{ GraphicsResource::Null() };
     // not copying contents just means using the source like a template I guess
     bool CopyContents = false;
-    std::shared_ptr<GraphicsResourceReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 struct CopyResourceContentsMessage
 {
     GraphicsResource SourceResource{ GraphicsResource::Null() };
     GraphicsResource DestinationResource{ GraphicsResource::Null() };
-    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 struct DestroyResourceMessage
 {
     GraphicsResource Resource{ GraphicsResource::Null() };
-    std::shared_ptr<MessageReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 /** @brief Tells the worker thread to return. Shutdown is a message so that the worker can block on the queue instead
@@ -233,13 +233,13 @@ struct TickMessage
 struct RegisterConsumerTimelineMessage
 {
     uint64_t Semaphore{ 0u };
-    std::shared_ptr<MessageReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 struct UnregisterConsumerTimelineMessage
 {
     uint64_t Semaphore{ 0u };
-    std::shared_ptr<MessageReply> Reply{ nullptr };
+    int32_t Future{ -1 };
 };
 
 /** @brief Sent by the transfer thread when its completed ticket moves, so that a worker blocked on an empty queue checks
@@ -286,7 +286,7 @@ struct TransferSystemSetBufferDataMessage
 {
     TransferSystemReqBufferInfo BufferInfo;
     InternalResourceDataContainer Data;
-    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
 };
 
@@ -294,7 +294,7 @@ struct TransferSystemSetImageDataMessage
 {
     TransferSystemReqImageInfo ImageInfo;
     InternalResourceDataContainer Data;
-    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
 };
 
@@ -304,7 +304,7 @@ struct TransferSystemFillBufferMessage
     uint32_t Value{ 0u };
     size_t Offset{ 0u };
     size_t Size{ 0u };
-    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
 };
 
@@ -312,7 +312,7 @@ struct TransferSystemCopyBufferToBufferMessage
 {
     TransferSystemReqBufferInfo SrcBufferInfo;
     TransferSystemReqBufferInfo DstBufferInfo;
-    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
 };
 
@@ -320,7 +320,7 @@ struct TransferSystemCopyImageToImageMessage
 {
     TransferSystemReqImageInfo SrcImageInfo;
     TransferSystemReqImageInfo DstImageInfo;
-    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
 };
 
@@ -328,7 +328,7 @@ struct TransferSystemCopyImageToBufferMessage
 {
     TransferSystemReqImageInfo ImageInfo;
     TransferSystemReqBufferInfo BufferInfo;
-    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
 };
 
@@ -336,7 +336,7 @@ struct TransferSystemCopyBufferToImageMessage
 {
     TransferSystemReqBufferInfo BufferInfo;
     TransferSystemReqImageInfo ImageInfo;
-    std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    int32_t Future{ -1 };
     uint64_t Ticket{ 0u };
 };
 

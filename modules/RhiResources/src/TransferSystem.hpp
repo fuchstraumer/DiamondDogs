@@ -2,7 +2,7 @@
 #ifndef DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #define DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #include "ResourceMessageTypesInternal.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "containers/mwsrQueue.hpp"
 
 #include <atomic>
@@ -19,6 +19,7 @@ namespace rhi
 {
     class CommandPool;
     class Device;
+    class FutureTable;
 }
 
 struct UploadBuffer;
@@ -48,12 +49,14 @@ public:
     ResourceTransferSystem();
     ~ResourceTransferSystem();
 
-    /** @brief `context_queue` receives a TransferProgressMessage each time the completed ticket moves. */
+    /** @brief `context_queue` receives a TransferProgressMessage each time the completed ticket moves. The transfer
+     *  thread writes the final state of each transfer's future into `future_table`. */
     [[nodiscard]] ResourceContextError Initialize(
         const rhi::Device* _device,
         VkInstance instance,
         uint32_t vulkan_api_version,
-        mwsrQueue<ResourceMessagePayloadType>* context_queue);
+        mwsrQueue<ResourceMessagePayloadType>* context_queue,
+        rhi::FutureTable* future_table);
 
     /** @brief Only the context worker calls this, so the tickets in the queue rise in queue order. */
     void EnqueueTransfer(TransferPayloadType&& payload);
@@ -74,7 +77,8 @@ private:
         std::unique_ptr<rhi::CommandPool> Pool;
         uint64_t SignalValue{ 0u };
         int32_t TransferCount{ 0 };
-        std::vector<std::shared_ptr<ResourceTransferReply>> Replies;
+        // the future slot of each transfer in the batch
+        std::vector<int32_t> Futures;
         std::vector<std::unique_ptr<UploadBuffer>> Staging;
     };
 
@@ -88,9 +92,11 @@ private:
      *  it. Starts a batch when none is recording, and submits a full one first. Returns null when Vulkan fails. */
     [[nodiscard]] VkCommandBuffer beginTransfer();
     /** @brief Adds a recorded transfer to the batch. `staging` may be null. */
-    void endTransfer(std::shared_ptr<ResourceTransferReply>&& reply, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket);
-    /** @brief Fails the reply. The ticket still counts as consumed, so the next submit signals it. */
-    void failTransfer(std::shared_ptr<ResourceTransferReply>&& reply, uint64_t ticket);
+    void endTransfer(int32_t future_slot, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket);
+    /** @brief Fails the future. The ticket still counts as consumed, so the next submit signals it. */
+    void failTransfer(int32_t future_slot, uint64_t ticket, rhi::ResourceError error);
+    /** @brief Fails every transfer in the recording batch with `error`, and returns the batch to the free list. */
+    void failRecordingBatch(uint64_t ticket, rhi::ResourceError error);
     [[nodiscard]] bool startBatch();
     /** @brief Submits the recording batch. With nothing recorded, still submits a signal when a failed transfer
      *  consumed a ticket that no submit covers, so that no wait on that ticket hangs. */
@@ -113,6 +119,7 @@ private:
 
     mwsrQueue<TransferPayloadType> messageQueue;
     mwsrQueue<ResourceMessagePayloadType>* contextQueue{ nullptr };
+    rhi::FutureTable* futures{ nullptr };
 
     bool initialized = false;
 

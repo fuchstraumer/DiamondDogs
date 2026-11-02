@@ -4,7 +4,8 @@
 #include "ResourceContext.hpp"
 #include "CommandPool.hpp"
 #include "Device.hpp"
-#include "ResourceMessageReply.hpp"
+#include "FutureTable.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceMessageTypesInternal.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiResult.hpp"
@@ -70,7 +71,8 @@ ResourceContextError ResourceTransferSystem::Initialize(
     const rhi::Device* _device,
     VkInstance instance,
     uint32_t vulkan_api_version,
-    mwsrQueue<ResourceMessagePayloadType>* context_queue)
+    mwsrQueue<ResourceMessagePayloadType>* context_queue,
+    rhi::FutureTable* future_table)
 {
     if (initialized)
     {
@@ -79,6 +81,7 @@ ResourceContextError ResourceTransferSystem::Initialize(
 
     device = _device;
     contextQueue = context_queue;
+    futures = future_table;
 
     // a dedicated transfer queue when the device has one. otherwise the second graphics queue, and the general queue
     // only as the last resort: that queue is shared with the application, which then races our submits
@@ -147,7 +150,7 @@ ResourceContextError ResourceTransferSystem::Initialize(
             return ResourceContextError::TransferSetupFailed;
         }
 
-        batch.Replies.reserve(k_MaxTransfersPerBatch);
+        batch.Futures.reserve(k_MaxTransfersPerBatch);
         batch.Staging.reserve(k_MaxTransfersPerBatch);
     }
 
@@ -316,7 +319,7 @@ VkCommandBuffer ResourceTransferSystem::beginTransfer()
     return cmd;
 }
 
-void ResourceTransferSystem::endTransfer(std::shared_ptr<ResourceTransferReply>&& reply, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket)
+void ResourceTransferSystem::endTransfer(int32_t future_slot, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket)
 {
     if (staging != nullptr)
     {
@@ -324,17 +327,31 @@ void ResourceTransferSystem::endTransfer(std::shared_ptr<ResourceTransferReply>&
         recording->Staging.push_back(std::move(staging));
     }
 
-    recording->Replies.push_back(std::move(reply));
+    recording->Futures.push_back(future_slot);
     recording->TransferCount += 1;
     highestConsumedTicket = std::max(highestConsumedTicket, ticket);
     transfersRecorded.fetch_add(1, std::memory_order_relaxed);
 }
 
-void ResourceTransferSystem::failTransfer(std::shared_ptr<ResourceTransferReply>&& reply, uint64_t ticket)
+void ResourceTransferSystem::failTransfer(int32_t future_slot, uint64_t ticket, rhi::ResourceError error)
 {
-    reply->setStatus(MessageReply::Status::Failed);
+    futures->Fail(future_slot, error);
     highestConsumedTicket = std::max(highestConsumedTicket, ticket);
     transfersFailed.fetch_add(1, std::memory_order_relaxed);
+}
+
+void ResourceTransferSystem::failRecordingBatch(uint64_t ticket, rhi::ResourceError error)
+{
+    for (const int32_t futureSlot : recording->Futures)
+    {
+        failTransfer(futureSlot, ticket, error);
+    }
+
+    recording->Futures.clear();
+    recording->Staging.clear();
+    recording->TransferCount = 0;
+    freeBatches.push_back(std::move(*recording));
+    recording.reset();
 }
 
 bool ResourceTransferSystem::startBatch()
@@ -413,16 +430,7 @@ void ResourceTransferSystem::submitBatch()
         else
         {
             // nothing of this batch runs. its tickets are still signaled below, so their waits end
-            for (std::shared_ptr<ResourceTransferReply>& reply : recording->Replies)
-            {
-                failTransfer(std::move(reply), signalValue);
-            }
-
-            recording->Replies.clear();
-            recording->Staging.clear();
-            recording->TransferCount = 0;
-            freeBatches.push_back(std::move(*recording));
-            recording.reset();
+            failRecordingBatch(signalValue, rhi::ResourceError::RecordingFailed);
         }
     }
 
@@ -456,16 +464,7 @@ void ResourceTransferSystem::submitBatch()
     {
         if (recording.has_value())
         {
-            for (std::shared_ptr<ResourceTransferReply>& reply : recording->Replies)
-            {
-                failTransfer(std::move(reply), signalValue);
-            }
-
-            recording->Replies.clear();
-            recording->Staging.clear();
-            recording->TransferCount = 0;
-            freeBatches.push_back(std::move(*recording));
-            recording.reset();
+            failRecordingBatch(signalValue, rhi::ResourceError::SubmitFailed);
         }
 
         // the host signals the value instead, once the earlier submits are done: a host signal must not pass a pending
@@ -481,9 +480,9 @@ void ResourceTransferSystem::submitBatch()
         return;
     }
 
-    for (const std::shared_ptr<ResourceTransferReply>& reply : recording->Replies)
+    for (const int32_t futureSlot : recording->Futures)
     {
-        reply->setSubmitted();
+        futures->SetSubmitted(futureSlot);
     }
 
     recording->SignalValue = signalValue;
@@ -510,12 +509,12 @@ void ResourceTransferSystem::pollCompletion()
     while (!inflightBatches.empty() && inflightBatches.front().SignalValue <= value)
     {
         TransferBatch& batch = inflightBatches.front();
-        for (const std::shared_ptr<ResourceTransferReply>& reply : batch.Replies)
+        for (const int32_t futureSlot : batch.Futures)
         {
-            reply->setStatus(MessageReply::Status::Completed);
+            futures->Complete(futureSlot);
         }
 
-        batch.Replies.clear();
+        batch.Futures.clear();
         batch.Staging.clear();
         batch.TransferCount = 0;
         freeBatches.push_back(std::move(batch));
@@ -567,14 +566,14 @@ void ResourceTransferSystem::processMessage(TransferSystemSetBufferDataMessage&&
     const std::optional<std::vector<VkBufferCopy>> bufferCopies = staging->SetData(dataVector);
     if (!bufferCopies.has_value())
     {
-        failTransfer(std::move(message.Reply), message.Ticket);
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::StagingFailed);
         return;
     }
 
     const VkCommandBuffer cmd = beginTransfer();
     if (cmd == VK_NULL_HANDLE)
     {
-        failTransfer(std::move(message.Reply), message.Ticket);
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
         return;
     }
 
@@ -582,7 +581,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetBufferDataMessage&&
 
     // no barrier after the copy: other queues see the write through the transfer timeline, which consumers wait on
     dataVector.clear();
-    endTransfer(std::move(message.Reply), std::move(staging), message.Ticket);
+    endTransfer(message.Future, std::move(staging), message.Ticket);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& message)
@@ -598,14 +597,14 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
     const std::optional<std::vector<VkBufferImageCopy>> bufferImageCopies = staging->SetData(imageDataVector, range.aspectMask);
     if (!bufferImageCopies.has_value())
     {
-        failTransfer(std::move(message.Reply), message.Ticket);
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::StagingFailed);
         return;
     }
 
     const VkCommandBuffer cmd = beginTransfer();
     if (cmd == VK_NULL_HANDLE)
     {
-        failTransfer(std::move(message.Reply), message.Ticket);
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
         return;
     }
 
@@ -627,7 +626,7 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
     imageDataVector.clear();
-    endTransfer(std::move(message.Reply), std::move(staging), message.Ticket);
+    endTransfer(message.Future, std::move(staging), message.Ticket);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemFillBufferMessage&& message)
@@ -635,12 +634,12 @@ void ResourceTransferSystem::processMessage(TransferSystemFillBufferMessage&& me
     const VkCommandBuffer cmd = beginTransfer();
     if (cmd == VK_NULL_HANDLE)
     {
-        failTransfer(std::move(message.Reply), message.Ticket);
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
         return;
     }
 
     vkCmdFillBuffer(cmd, message.BufferInfo.BufferHandle, message.Offset, message.Size, message.Value);
-    endTransfer(std::move(message.Reply), nullptr, message.Ticket);
+    endTransfer(message.Future, nullptr, message.Ticket);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToBufferMessage&& message)
@@ -656,12 +655,12 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToBufferMess
     const VkCommandBuffer cmd = beginTransfer();
     if (cmd == VK_NULL_HANDLE)
     {
-        failTransfer(std::move(message.Reply), message.Ticket);
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
         return;
     }
 
     vkCmdCopyBuffer(cmd, message.SrcBufferInfo.BufferHandle, message.DstBufferInfo.BufferHandle, 1, &copy);
-    endTransfer(std::move(message.Reply), nullptr, message.Ticket);
+    endTransfer(message.Future, nullptr, message.Ticket);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessage&& message)
@@ -696,7 +695,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessag
     const VkCommandBuffer cmd = beginTransfer();
     if (cmd == VK_NULL_HANDLE)
     {
-        failTransfer(std::move(message.Reply), message.Ticket);
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
         return;
     }
 
@@ -723,7 +722,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessag
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    endTransfer(std::move(message.Reply), nullptr, message.Ticket);
+    endTransfer(message.Future, nullptr, message.Ticket);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessage&& message)
@@ -747,7 +746,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessa
     const VkCommandBuffer cmd = beginTransfer();
     if (cmd == VK_NULL_HANDLE)
     {
-        failTransfer(std::move(message.Reply), message.Ticket);
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
         return;
     }
 
@@ -763,7 +762,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessa
     // no barrier for the buffer: the host sees the write once the timeline passes the ticket (GPUToCPU memory is
     // host-coherent or invalidated on map)
 
-    endTransfer(std::move(message.Reply), nullptr, message.Ticket);
+    endTransfer(message.Future, nullptr, message.Ticket);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessage&& message)
@@ -786,7 +785,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessa
     const VkCommandBuffer cmd = beginTransfer();
     if (cmd == VK_NULL_HANDLE)
     {
-        failTransfer(std::move(message.Reply), message.Ticket);
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
         return;
     }
 
@@ -801,7 +800,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessa
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    endTransfer(std::move(message.Reply), nullptr, message.Ticket);
+    endTransfer(message.Future, nullptr, message.Ticket);
 }
 
 void ResourceTransferSystem::processMessage([[maybe_unused]] TransferSystemExitMessage&& message) noexcept

@@ -1,5 +1,4 @@
 #include "ResourceMessageTypesInternal.hpp"
-#include "ResourceMessageReply.hpp"
 #include "ResourceTypes.hpp"
 #include <algorithm>
 #include <cstddef>
@@ -145,10 +144,10 @@ InternalResourceDataContainer::InternalResourceDataContainer(std::span<const Rhi
     DataVector = std::move(bufferData);
 }
 
-SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, InternalResourceDataContainer&& _data, std::shared_ptr<ResourceTransferReply>&& reply) noexcept :
+SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, InternalResourceDataContainer&& _data, int32_t future_slot) noexcept :
     DestBuffer{ _destBuffer },
     Data{ std::move(_data) },
-    Reply{ std::move(reply) }
+    Future{ future_slot }
 {}
 
 SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, std::span<const RhiBufferResourceData> data) noexcept :
@@ -156,11 +155,12 @@ SetBufferDataMessage::SetBufferDataMessage(GraphicsResource _destBuffer, std::sp
     Data{ InternalResourceDataContainer(data) }
 {}
 
-// fixed: the move constructors and assignments dropped the reply, so the reply that SetBufferData returned never completed
+// fixed: the move constructors and assignments dropped the reply (now the future slot), so the reply that SetBufferData
+// returned never completed
 SetBufferDataMessage::SetBufferDataMessage(SetBufferDataMessage&& other) noexcept :
     DestBuffer{ other.DestBuffer },
     Data{ std::move(other.Data) },
-    Reply{ std::move(other.Reply) }
+    Future{ other.Future }
 {}
 
 SetBufferDataMessage& SetBufferDataMessage::operator=(SetBufferDataMessage&& other) noexcept
@@ -169,7 +169,7 @@ SetBufferDataMessage& SetBufferDataMessage::operator=(SetBufferDataMessage&& oth
     {
         DestBuffer = other.DestBuffer;
         Data = std::move(other.Data);
-        Reply = std::move(other.Reply);
+        Future = other.Future;
     }
     return *this;
 }
@@ -177,7 +177,7 @@ SetBufferDataMessage& SetBufferDataMessage::operator=(SetBufferDataMessage&& oth
 SetImageDataMessage::SetImageDataMessage(SetImageDataMessage&& other) noexcept :
     DestImage{ other.DestImage },
     Data{ std::move(other.Data) },
-    Reply{ std::move(other.Reply) }
+    Future{ other.Future }
 {}
 
 SetImageDataMessage::SetImageDataMessage(GraphicsResource _destImage, std::span<const RhiImageResourceData> data) noexcept :
@@ -185,10 +185,10 @@ SetImageDataMessage::SetImageDataMessage(GraphicsResource _destImage, std::span<
     Data{ InternalResourceDataContainer(data) }
 {}
 
-SetImageDataMessage::SetImageDataMessage(GraphicsResource _destImage, InternalResourceDataContainer&& _data, std::shared_ptr<ResourceTransferReply>&& reply) noexcept :
+SetImageDataMessage::SetImageDataMessage(GraphicsResource _destImage, InternalResourceDataContainer&& _data, int32_t future_slot) noexcept :
     DestImage{ _destImage },
     Data{ std::move(_data) },
-    Reply{ std::move(reply) }
+    Future{ future_slot }
 {}
 
 SetImageDataMessage& SetImageDataMessage::operator=(SetImageDataMessage&& other) noexcept
@@ -197,7 +197,7 @@ SetImageDataMessage& SetImageDataMessage::operator=(SetImageDataMessage&& other)
     {
         DestImage = other.DestImage;
         Data = std::move(other.Data);
-        Reply = std::move(other.Reply);
+        Future = other.Future;
     }
     return *this;
 }

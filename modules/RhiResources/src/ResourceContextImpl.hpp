@@ -5,13 +5,15 @@
 #ifndef RESOURCE_CONTEXT_IMPL_HPP
 #define RESOURCE_CONTEXT_IMPL_HPP
 #include "ResourceTypes.hpp"
-#include "ResourceMessageReply.hpp"
+#include "FutureTable.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceMessageTypesInternal.hpp"
 #include "TransferSystem.hpp"
 #include "containers/mwsrQueue.hpp"
 
 #include <array>
 #include <atomic>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <span>
@@ -45,10 +47,8 @@ public:
     void SetExitWorker();
     void StartWorker();
 
-    /** @brief Returns the device, so that ResourceContext can create replies that wait on the transfer timeline. */
-    [[nodiscard]] const rhi::Device* Device() const noexcept;
-    /** @brief The transfer system's timeline semaphore, as a VkSemaphore cast to uint64_t. 0 before Construct. */
-    [[nodiscard]] uint64_t TransferTimeline() const noexcept;
+    /** @brief Returns the future table. ResourceContext allocates a future from it for every call. */
+    [[nodiscard]] rhi::FutureTable& Futures() noexcept;
     [[nodiscard]] ResourceContextCounters Counters() const noexcept;
 
 private:
@@ -98,7 +98,7 @@ private:
         entt::entity Entity{ entt::null };
         std::array<uint64_t, k_MaxConsumerTimelines> TimelineValues{};
         uint64_t TransferTicket{ 0u };
-        std::shared_ptr<MessageReply> Reply{ nullptr };
+        int32_t Future{ -1 };
     };
 
     void processMessages();
@@ -123,8 +123,8 @@ private:
     void processMessage(UnregisterConsumerTimelineMessage&& message);
     void processMessage(TransferProgressMessage&& message) noexcept;
 
-    /** @brief Issues the next ticket, publishes it in the reply with the Transferring status, records it on every
-     *  entity the transfer touches, and enqueues the transfer. The only path into the transfer system. */
+    /** @brief Issues the next ticket, publishes it in the future with the Created state, records it on every entity
+     *  the transfer touches, and enqueues the transfer. The only path into the transfer system. */
     template<typename TransferMessage>
     void enqueueTransfer(TransferMessage&& message, std::span<const entt::entity> touched_entities);
 
@@ -136,19 +136,18 @@ private:
 
     /** @brief Returns the entity that `resource` refers to, when that entity is alive, is a buffer, and its buffer
      *  handle matches the one in `resource`. Every message that takes a buffer from a caller resolves it here. */
-    [[nodiscard]] std::optional<entt::entity> resolveBuffer(const GraphicsResource& resource) const;
+    [[nodiscard]] std::expected<entt::entity, rhi::ResourceError> resolveBuffer(const GraphicsResource& resource) const;
     /** @brief Returns the entity that `resource` refers to, when that entity is alive, is an image, and its image
      *  handle matches the one in `resource`. */
-    [[nodiscard]] std::optional<entt::entity> resolveImage(const GraphicsResource& resource) const;
+    [[nodiscard]] std::expected<entt::entity, rhi::ResourceError> resolveImage(const GraphicsResource& resource) const;
     /** @brief Returns the entity that `resource` refers to, when it is a buffer, an image or a sampler, and its handle
      *  matches. Used by the messages that accept any kind of resource. */
-    [[nodiscard]] std::optional<entt::entity> resolveResource(const GraphicsResource& resource) const;
+    [[nodiscard]] std::expected<entt::entity, rhi::ResourceError> resolveResource(const GraphicsResource& resource) const;
 
-    /** @brief Creates the entity and every API object that the create info asks for. Leaves the reply alone, so that a
-     *  copy can follow creation before the reply completes. */
-    [[nodiscard]] std::optional<GraphicsResource> createBufferEntity(const BufferCreateInfo& info, const DebugName& name);
-    [[nodiscard]] std::optional<GraphicsResource> createImageEntity(const ImageCreateInfo& info, const DebugName& name);
-    static void completeWithResource(GraphicsResourceReply& reply, const GraphicsResource& resource) noexcept;
+    /** @brief Creates the entity and every API object that the create info asks for. Leaves the future alone, so that
+     *  a copy can follow creation before the future completes. */
+    [[nodiscard]] std::expected<GraphicsResource, rhi::ResourceError> createBufferEntity(const BufferCreateInfo& info, const DebugName& name);
+    [[nodiscard]] std::expected<GraphicsResource, rhi::ResourceError> createImageEntity(const ImageCreateInfo& info, const DebugName& name);
 
     // each of these names its object after the entity's DebugName component, when the entity has one
     VkBuffer createBuffer(entt::entity new_entity, const BufferCreateInfo& buffer_info);
@@ -161,8 +160,8 @@ private:
     [[nodiscard]] bool allocationIsHostVisible(entt::entity entity) const;
     // in case of host-visible buffers (e.g. UBOs and such) we just handle it in the resource context instead of the transfer system
     void setBufferDataHostOnly(entt::entity entity, InternalResourceDataContainer& data_container);
-    void enqueueBufferUpload(entt::entity entity, InternalResourceDataContainer&& data, std::shared_ptr<ResourceTransferReply>&& reply);
-    void enqueueImageUpload(entt::entity entity, InternalResourceDataContainer&& data, std::shared_ptr<ResourceTransferReply>&& reply);
+    void enqueueBufferUpload(entt::entity entity, InternalResourceDataContainer&& data, int32_t future_slot);
+    void enqueueImageUpload(entt::entity entity, InternalResourceDataContainer&& data, int32_t future_slot);
     [[nodiscard]] TransferSystemReqBufferInfo bufferTransferInfo(entt::entity entity) const;
     /** @brief Returns the image's transfer info, and records the layout that the transfer will leave the image in. */
     [[nodiscard]] TransferSystemReqImageInfo imageTransferInfo(entt::entity entity);
@@ -190,6 +189,8 @@ private:
 
     // Primarily used to contain our info structures and allocation structures
     entt::registry resourceRegistry;
+    // declared before the transfer system, so that it is destroyed after the last thread that writes it
+    rhi::FutureTable futures;
     ResourceTransferSystem transferSystem;
 
     const rhi::Device* device = nullptr;

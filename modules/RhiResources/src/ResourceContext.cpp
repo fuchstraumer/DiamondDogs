@@ -1,7 +1,8 @@
 #include "ResourceContext.hpp"
+#include "FutureTable.hpp"
 #include "ResourceContextImpl.hpp"
 #include "ResourceFlags.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceMessageTypesInternal.hpp"
 #include "ResourceTypes.hpp"
 #include <algorithm>
@@ -49,37 +50,51 @@ ResourceContextError ResourceContext::Initialize(const ResourceContextCreateInfo
     return impl->Construct(create_info);
 }
 
-std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
+// every call allocates its future first. a full table gives a future that is already Failed, and then the call sends
+// no message, because no slot exists for the worker to write
+
+rhi::ResourceFuture<GraphicsResource> ResourceContext::CreateBuffer(
     const BufferCreateInfo& create_info,
     std::span<const RhiBufferResourceData> initial_data)
 {
+    rhi::ResourceFuture<GraphicsResource> future = impl->Futures().AllocateResource();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     CreateBufferMessage message;
     message.BufferInfo = create_info;
     message.Name = DebugName(create_info.Name);
     message.BufferInfo.Name = {};
+    message.Future = slot;
 
     if (!initial_data.empty())
     {
         message.InitialData = InternalResourceDataContainer(initial_data);
     }
 
-    // replies that may reach the transfer system own a timeline semaphore, which the transfer signals
-    message.Reply = std::make_shared<GraphicsResourceReply>(create_info.Domain, ResourceType::Buffer, impl->Device(), impl->TransferTimeline());
-    std::shared_ptr<GraphicsResourceReply> reply = message.Reply;
-
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateImage(
+rhi::ResourceFuture<GraphicsResource> ResourceContext::CreateImage(
     const ImageCreateInfo& create_info,
     std::span<const RhiImageResourceData> initial_data)
 {
+    rhi::ResourceFuture<GraphicsResource> future = impl->Futures().AllocateResource();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     CreateImageMessage message;
     message.ImageInfo = create_info;
     message.Name = DebugName(create_info.Name);
     message.ImageInfo.Name = {};
+    message.Future = slot;
 
     // the sampler takes its name from the image, so its own view is never read
     if (message.ImageInfo.SamplerInfo.has_value())
@@ -92,185 +107,234 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateImage(
         message.InitialData = InternalResourceDataContainer(initial_data);
     }
 
-    const ResourceType resourceType = create_info.SamplerInfo.has_value() ? ResourceType::CombinedImageSampler : ResourceType::Image;
-    message.Reply = std::make_shared<GraphicsResourceReply>(create_info.Domain, resourceType, impl->Device(), impl->TransferTimeline());
-    std::shared_ptr<GraphicsResourceReply> reply = message.Reply;
-
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateSampler(
-    const SamplerCreateInfo& create_info,
-    std::string_view sampler_name)
+rhi::ResourceFuture<GraphicsResource> ResourceContext::CreateSampler(const SamplerCreateInfo& create_info)
 {
+    rhi::ResourceFuture<GraphicsResource> future = impl->Futures().AllocateResource();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     CreateSamplerMessage message;
     message.SamplerInfo = create_info;
-    message.Name = DebugName(create_info.Name.empty() ? sampler_name : create_info.Name);
+    message.Name = DebugName(create_info.Name);
     message.SamplerInfo.Name = {};
-    message.Reply = std::make_shared<GraphicsResourceReply>(ResourceDomain::GPUOnly, ResourceType::Sampler);
-    std::shared_ptr<GraphicsResourceReply> reply = message.Reply;
+    message.Future = slot;
 
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<ResourceTransferReply> ResourceContext::SetBufferData(
+rhi::OperationFuture ResourceContext::SetBufferData(
     GraphicsResource buffer,
     std::span<const RhiBufferResourceData> data)
 {
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     SetBufferDataMessage message(buffer, data);
-    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device(), impl->TransferTimeline());
-    std::shared_ptr<ResourceTransferReply> reply = message.Reply;
+    message.Future = slot;
 
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<ResourceTransferReply> ResourceContext::SetImageData(
+rhi::OperationFuture ResourceContext::SetImageData(
     GraphicsResource image,
     std::span<const RhiImageResourceData> data)
 {
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     SetImageDataMessage message(image, data);
-    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device(), impl->TransferTimeline());
-    std::shared_ptr<ResourceTransferReply> reply = message.Reply;
+    message.Future = slot;
 
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<ResourceTransferReply> ResourceContext::FillBuffer(
+rhi::OperationFuture ResourceContext::FillBuffer(
     GraphicsResource buffer,
     uint32_t value,
     size_t offset,
     size_t size)
 {
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     FillResourceMessage message;
     message.Resource = buffer;
     message.Value = value;
     message.Offset = offset;
     message.Size = size;
-    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device(), impl->TransferTimeline());
-    std::shared_ptr<ResourceTransferReply> reply = message.Reply;
+    message.Future = slot;
 
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<PointerMessageReply> ResourceContext::MapBuffer(
+rhi::ResourceFuture<void*> ResourceContext::MapBuffer(
     GraphicsResource buffer,
     size_t size,
     size_t offset)
 {
+    rhi::ResourceFuture<void*> future = impl->Futures().AllocatePointer();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     MapResourceMessage message;
     message.Resource = buffer;
     message.Size = size;
     message.Offset = offset;
-    message.Reply = std::make_shared<PointerMessageReply>();
-    std::shared_ptr<PointerMessageReply> reply = message.Reply;
+    message.Future = slot;
 
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<MessageReply> ResourceContext::UnmapBuffer(
+rhi::OperationFuture ResourceContext::UnmapBuffer(
     GraphicsResource buffer,
     size_t size,
     size_t offset)
 {
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     UnmapResourceMessage message;
     message.Resource = buffer;
     message.Size = size;
     message.Offset = offset;
-    message.Reply = std::make_shared<MessageReply>();
-    std::shared_ptr<MessageReply> reply = message.Reply;
+    message.Future = slot;
 
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<GraphicsResourceReply> ResourceContext::CopyBuffer(
+rhi::ResourceFuture<GraphicsResource> ResourceContext::CopyBuffer(
     GraphicsResource src,
     bool copy_contents)
 {
+    rhi::ResourceFuture<GraphicsResource> future = impl->Futures().AllocateResource();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     CopyResourceMessage message;
     message.SourceResource = src;
     message.CopyContents = copy_contents;
-    message.Reply = std::make_shared<GraphicsResourceReply>(src.Domain, ResourceType::Buffer, impl->Device(), impl->TransferTimeline());
-    std::shared_ptr<GraphicsResourceReply> reply = message.Reply;
+    message.Future = slot;
 
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<GraphicsResourceReply> ResourceContext::CopyImage(GraphicsResource src_image)
+rhi::ResourceFuture<GraphicsResource> ResourceContext::CopyImage(GraphicsResource src_image)
 {
     // fixed: declared, never defined
+    rhi::ResourceFuture<GraphicsResource> future = impl->Futures().AllocateResource();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     CopyResourceMessage message;
     message.SourceResource = src_image;
     message.CopyContents = true;
-    message.Reply = std::make_shared<GraphicsResourceReply>(src_image.Domain, src_image.Type, impl->Device(), impl->TransferTimeline());
-    std::shared_ptr<GraphicsResourceReply> reply = message.Reply;
+    message.Future = slot;
 
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<ResourceTransferReply> ResourceContext::CopyBufferContents(
+rhi::OperationFuture ResourceContext::CopyBufferContents(
     GraphicsResource src,
     GraphicsResource dst)
 {
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     CopyResourceContentsMessage message;
     message.SourceResource = src;
     message.DestinationResource = dst;
-    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device(), impl->TransferTimeline());
-    std::shared_ptr<ResourceTransferReply> reply = message.Reply;
+    message.Future = slot;
 
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<MessageReply> ResourceContext::DestroyResource(
+rhi::OperationFuture ResourceContext::DestroyResource(
     GraphicsResource resource)
 {
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
+
     DestroyResourceMessage message;
     message.Resource = resource;
-    message.Reply = std::make_shared<MessageReply>();
-    std::shared_ptr<MessageReply> reply = message.Reply;
+    message.Future = slot;
 
     impl->PushMessage(std::move(message));
-
-    return reply;
+    return future;
 }
 
-std::shared_ptr<MessageReply> ResourceContext::RegisterConsumerTimeline(rhi::TimelineSemaphoreHandle timeline)
+rhi::OperationFuture ResourceContext::RegisterConsumerTimeline(rhi::TimelineSemaphoreHandle timeline)
 {
-    RegisterConsumerTimelineMessage message{ timeline.Get(), std::make_shared<MessageReply>() };
-    std::shared_ptr<MessageReply> reply = message.Reply;
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
 
-    impl->PushMessage(std::move(message));
-
-    return reply;
+    impl->PushMessage(RegisterConsumerTimelineMessage{ timeline.Get(), slot });
+    return future;
 }
 
-std::shared_ptr<MessageReply> ResourceContext::UnregisterConsumerTimeline(rhi::TimelineSemaphoreHandle timeline)
+rhi::OperationFuture ResourceContext::UnregisterConsumerTimeline(rhi::TimelineSemaphoreHandle timeline)
 {
-    UnregisterConsumerTimelineMessage message{ timeline.Get(), std::make_shared<MessageReply>() };
-    std::shared_ptr<MessageReply> reply = message.Reply;
+    rhi::OperationFuture future = impl->Futures().AllocateOperation();
+    const int32_t slot = rhi::FutureTable::SlotOf(future);
+    if (rhi::FutureTable::IsFullTableSlot(slot))
+    {
+        return future;
+    }
 
-    impl->PushMessage(std::move(message));
-
-    return reply;
+    impl->PushMessage(UnregisterConsumerTimelineMessage{ timeline.Get(), slot });
+    return future;
 }
 
 void ResourceContext::Tick(std::span<const ConsumerTimelineValue> pending_values)
@@ -284,6 +348,18 @@ void ResourceContext::Tick(std::span<const ConsumerTimelineValue> pending_values
 
     message.Count = static_cast<int32_t>(count);
     impl->PushMessage(std::move(message));
+}
+
+rhi::FutureState ResourceContext::Wait(const rhi::OperationFuture& future, uint64_t timeout_ns) const
+{
+    // the future's own table, so that a future of another context still waits correctly
+    const rhi::FutureTable* table = rhi::FutureTable::TableOf(future);
+    if (table == nullptr)
+    {
+        return rhi::FutureState::Invalid;
+    }
+
+    return table->Wait(rhi::FutureTable::SlotOf(future), timeout_ns);
 }
 
 ResourceContextCounters ResourceContext::Counters() const noexcept
