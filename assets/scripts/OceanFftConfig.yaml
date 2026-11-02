@@ -39,7 +39,7 @@ ocean_numerical_parameter_ranges:
   # Ocean resolution - must be power-of-2 for FFT to work. power-of-4 sizes give us better performance on some GPUs,
   # but that would leave us with relatively few options if we used that alone. 
   - name: fft_resolution
-    values: [128, 256, 512, 1024] # the IFFT kernels run at most 1024
+    values: [128, 256, 512] # the IFFT kernels run at most 1024
     unit: px
 
   # This sets the absolute max of wave cascades - performance scaling may drop some cascades

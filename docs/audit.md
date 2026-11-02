@@ -17,7 +17,7 @@ Lodestone-cooked SPIR-V).
 | foundation | Builds, 320/320 tests pass | `mwsrQueue` read-ID limit fixed 2026-10-20 (section 4.1). |
 | RhiSystem | Builds, 31/31 tests pass, zero validation messages | Runtime Slang compiler removed (3 tests went with it). Command recording is `CommandBuffer` methods plus `rhi::QueueSubmit` (section 9). |
 | PlatformSystem | Builds, 33/33 tests pass | Swapchain recreation implemented 2026-10-20, tested by `--resize` (section 4.3). |
-| RhiResources | Builds, 26/26 tests pass on a real device, zero validation messages, also with synchronization validation (`VK_KHRONOS_VALIDATION_VALIDATE_SYNC=true`) | Ported onto RhiSystem (section 4.4, log). Design questions in section 10. |
+| RhiResources | Builds, 26/26 tests pass on a real device, zero validation messages, also with synchronization validation (`VK_KHRONOS_VALIDATION_VALIDATE_SYNC=true`) | Ported onto RhiSystem (`docs/rhi-resources-agent.md`). |
 | ImGuiModule | Builds. ImGuiTest: 180 frames, and 150 with `--resize`, zero validation messages with sync validation | Official `imgui_impl_glfw` + `imgui_impl_vulkan` (dynamic rendering). The custom ImGuiWrapper is deleted (section 4.5). |
 | TriangleTest | 240 frames, full validation, clean | `--frames=N` added for unattended runs. Correction: `ValidationLayers::WithSynchronization` loads the sync2 emulation layer, not synchronization validation. Sync validation needs `VK_KHRONOS_VALIDATION_VALIDATE_SYNC=true` (or VkValidationFeaturesEXT). |
 | ComputeManifestTest | Passes, exact | Lodestone cook, `rhi::ShaderLibrary`, headless dispatch, CPU comparison. Every buffer now comes from `ResourceContext` (host path, transfer path with a semaphore wait, readback map). |
@@ -60,7 +60,7 @@ in this session (section 3).
 - `tests/unit_tests/rhi_system/CMakeLists.txt` listed `TestShaderBlob.cpp`, which does not exist in the
   repository. Removed from the list. (It may exist uncommitted on another machine.)
 - `resource_context_tests` linked a library named `resource_context` that no target produces. Now links
-  `rhi_resources` (which does not compile yet, see 4.4).
+  `rhi_resources` (which does not compile yet; see `docs/rhi-resources-agent.md`).
 - DiamondDogs' own Slang (`third_party/slang`, v2026.10.2) is no longer built. Slang now comes from Lodestone
   (v2026.19-87), see section 5. `cmake/ConfigureSlang.cmake` is deleted.
 
@@ -175,44 +175,8 @@ in this session (section 3).
 
 ### 4.4 RhiResources
 
-Ported 2026-10-19 (second session). The design is unchanged: message-passing `ResourceContext`, reply objects,
-EnTT registry, a worker thread, and a transfer system on its own thread. What changed:
+Moved to `docs/rhi-resources-agent.md`, section 6.
 
-- **VulpesRender to RhiSystem.** `ResourceContextCreateInfo` takes `rhi::Instance`, `rhi::Device`, the packed API
-  version and a validation flag. Command pools are `rhi::CommandPool`, fences `rhi::Fence`, names go through
-  `RhiSystem::SetObjectName`.
-- **`thsvs` to sync2.** `ResourceBarriers.cpp` compiles (enum tests use `!= Invalid`). The transfer system records its
-  own sync2 barriers, limited to the stages a transfer queue supports.
-- **Old flag types to `ResourceFlags.hpp`.** `CreateImage` takes `ImageCreateInfo`, `CreateSampler` takes
-  `SamplerCreateInfo`. `CreateInfoWrappers` is replaced by `VulkanConversions` (our create infos to Vulkan values).
-- `TransferSystem.hpp` moved from `include/` to `src/`: it includes internal message types and VMA.
-- 24 real tests in `tests/unit_tests/resource_context` (buffers, images, samplers, copies, fills, maps, a 4-thread
-  stress test, shutdown with queued work). The placeholders are deleted.
-
-Defects found and fixed during the port (the module never ran, so none of these showed before):
-
-| Defect | Effect |
-|---|---|
-| Every transfer process function built its `TransferCommand` as a local. | Nothing recorded was ever submitted. The destructor then waited one second and threw. |
-| The batch fence was created after `vkQueueSubmit` and not passed to it. | Any wait on it never returned. |
-| `ForceCompleteTransfers` joined the worker without telling it to exit, and `destroy()` restarted the worker. | Deadlock on shutdown. |
-| `~ResourceContext` did nothing. | Worker threads still joinable at destruction: `std::terminate`. |
-| `destroy()` discarded queued messages and cleared the registry without destroying objects. | Replies never completed; every live resource leaked. |
-| Buffers and images were destroyed with `vkDestroy*`, not VMA. | Every allocation leaked. |
-| The sampler destroy compared against the image handle. | Destroying a sampler always failed. |
-| `createImage`/`createBufferView` and their callers both emplaced the same component. | EnTT assert on any image or buffer view. |
-| The registry was read with `VkBufferCreateInfo`/`VkImageCreateInfo`, but the wrapper types were stored. | Every Set/Fill/Copy failed. |
-| `SetBufferDataMessage`/`SetImageDataMessage` move operations dropped the reply. | Those replies never completed. |
-| `IsCompleted()` returned true for every status but Invalid; `WaitForCompletion` waited for Completed only. | Pending read as done; a Failed reply waited until the timeout (forever by default). |
-| A reply with a semaphore always waited on the semaphore. | Hang for any reply that never reached the transfer system. |
-| `UploadBuffer::SetData` (images) sized the vector and also emplaced each copy; it used the image's layer count for every region. | Every region recorded twice; wrong layer counts. |
-| The image upload asserted `sharingMode != EXCLUSIVE` (inverted). Copies named usage layouts instead of transfer layouts. | Assert, or invalid copies. |
-| Image barriers in `ResourceBarriers.cpp` had an empty subresource range. Depth writes used the fragment shader stage. `RenderTargetRead|Write` mapped to a read-only layout. `SampledImage` alone mapped to no layout (assert). | Invalid barriers. |
-| `setBufferDataHostOnly` existed but nothing called it, and it always unmapped. | Host-visible buffers went through staging; persistently mapped buffers lost their mapping. |
-| Map ignored the offset; Unmap never completed its reply; `CopyBuffer` did nothing; `CopyImage` was never defined. | |
-| `GraphicsResource` comparison operators were `constexpr` and defined in a `.cpp`. | Unusable from any other translation unit. |
-| The transfer system's message dispatch used explicit specializations in class scope. | MSVC-only. |
-| `foundation`: `mwsrQueue.hpp` defined a non-inline namespace-scope `thread_local`. | LNK2005 as soon as two translation units include the queue. |
 ### 4.5 ImGuiModule
 
 Moved to the official Dear ImGui backends (2026-10-19, second session). `ImGuiModule` creates the context, inits
@@ -338,7 +302,7 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 1. ~~Push constants through `ShaderLibrary`~~: done 2026-10-21 for the ocean demo (`ManifestProgram::PushConstants`).
    OceanFftTest is its test: the IFFT, tick and resolve passes all take their per-dispatch data as push constants.
 2. **RhiResources upgrades** (docs/rhi-resources-design.md, the author's design): the transfer timeline,
-   retirement, streaming, buffer device address, bindless. Questions in section 10. The design is the author's,
+   retirement, streaming, buffer device address, bindless. Questions in `docs/rhi-resources-agent.md`, section 7. The design is the author's,
    so this one starts with a session together. L17's `RequiredBufferUsage` may feed `BufferUsageBits`.
 3. **Enable device features by request** (section 4.2 proposal). Needed before BDA (bufferDeviceAddress) is
    enabled on purpose rather than by accident, and to turn `robustBufferAccess` off.
@@ -356,7 +320,7 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 - 2026-10-19. First audit. Branch `dev/lodestone` from `origin/dev/rhi`. Build green for foundation, RhiSystem,
   PlatformSystem, TriangleTest, ComputeManifestTest. Lodestone integrated (sibling checkout). Fixes in section 3.
   Paused before the RhiResources port: headers read, no RhiResources code changed yet. Nothing is committed in
-  either repository. Next: port RhiResources onto RhiSystem (section 4.4), then move ImGuiModule to the official
+  either repository. Next: port RhiResources onto RhiSystem (`docs/rhi-resources-agent.md`, section 6), then move ImGuiModule to the official
   Dear ImGui GLFW and Vulkan backends (dynamic rendering), then port the agent instructions from Lodestone.
 - 2026-10-19 (second session). Step 1 done: `ShaderCompiler`, `ShaderCompilerReply`, `ShaderCompilerMessages`,
   `ShaderBlob`, `TestShaderCompiler` deleted. `ShaderTypes.hpp` lost the compile options, `ShaderStage`, and the
@@ -364,12 +328,12 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
   Every `copy_slang_dlls_to_target` call is gone, and the integration test DLL copy skips an empty list (it failed
   the link step). No Slang DLL sits beside any test now. All suites green, zero validation messages
   (rhi_system 25/25: the 3 removed tests were the compiler's). No Lodestone capability was missing for this step.
-- 2026-10-19 (second session, cont.). Step 2 done: RhiResources ported and tested (section 4.4). ComputeManifestTest
+- 2026-10-19 (second session, cont.). Step 2 done: RhiResources ported and tested (`docs/rhi-resources-agent.md`, section 6). ComputeManifestTest
   now takes every buffer from `ResourceContext`. All suites green with zero validation messages, and also with
   `VK_KHRONOS_VALIDATION_VALIDATE_SYNC=true`. The setting is proven to take effect: it caught a real present hazard in the first ImGuiTest draft. One hang during the run: a VMA debug assert (destroy of a mapped buffer)
   opened a dialog and blocked the unattended test. Fixed in the context (destroy undoes user maps), and noted: a Debug
   assert in an unattended run blocks until the runner's timeout. Step 3 (the design note) is left for the session with
-  the author, as she asked. Inputs for it are in section 10.
+  the author, as she asked. Inputs for it are in `docs/rhi-resources-agent.md`, section 7.
 - 2026-10-19 (second session, cont.). Step 4 done: ImGuiModule on the official backends, ImGuiTest added (section
   4.5). TriangleTest and ImGuiTest pass 180 frames under sync validation. Correction to an earlier line in this file:
   `ValidationLayers::WithSynchronization` loads the sync2 emulation layer; sync validation itself is the environment
@@ -380,7 +344,7 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
   "Response style" and "Code style" sections (copied, with Lodestone as the source of truth), DiamondDogs' own
   conventions kept, the rules they superseded listed, and the PR review section unchanged. One contradiction in the
   old file is flagged, not resolved: it gave the depth range as both [0,1] and [-1,1]. Nothing is committed.
-- 2026-10-20. Author's answers applied (section 10): spans of bytes for initial data, opt-in transfer usage bits
+- 2026-10-20. Author's answers applied (`docs/rhi-resources-agent.md`, section 7): spans of bytes for initial data, opt-in transfer usage bits
   (new `ImageUsageBits::TransferSource`), two new tests (26 total). Depth range recorded as [-1,1] with Claude's
   objection. The design note is now its own file, `docs/rhi-resources-design.md`. All suites green under sync
   validation. Nothing is committed.
@@ -628,59 +592,14 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
   weights (default 1, 1, 1, 0.7, 0.35) put the foam on the crests. The rotation toggle rotates each cascade's wave
   field, so it also turns that cascade's wave direction: wrong for a wind-aligned sea. Offsets alone keep direction.
 
-## 10. RhiResources: questions for the author, and inputs for the design session
+### 2026-11-01 (Opus: RhiResources Steps 0, A and B)
 
-### Questions (the port made a choice; each one is easy to reverse)
+- The RhiResources agent keeps its state, decisions and log in `docs/rhi-resources-agent.md`.
 
-1. `CreateBuffer` and `CreateImage` lost their separate `userData` parameter, because `BufferCreateInfo::UserData`
-   and `ImageCreateInfo::UserData` carry the same thing. Keep it that way?
-2. Initial data is still pointer plus count, as in your API. The house style asks for `std::span`. Change it?
-3. Every buffer and image gets `TRANSFER_SRC | TRANSFER_DST` usage, so that Set/Fill/Copy work on any resource.
-   Before, `TRANSFER_DST` was added only with initial data, so `FillBuffer` on a buffer created empty always failed.
-   Keep "always", or add a usage bit for it?
-4. `DeviceAddressBuffer` and the raytracing usages are refused (the reply fails) until the device address design
-   exists. VMA would also need `VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT`, and RhiSystem has no feature query.
-5. `ResourceBarriers` now takes `rhi::CommandBufferHandle` and spans, and `ImageBarrierInfo` gained an `ImageRange`
-   (a layout transition is invalid without an aspect mask). `ExecuteImageBarriers` and `ExecuteBarriers` were
-   declared but never defined; now they batch into one `vkCmdPipelineBarrier2`.
-6. `ImageLayoutFromUsageBits` changed order: read-only layout only when no attachment write is set; storage (UAV)
-   before sampled, so an image that is both stays in GENERAL; `SampledImage` maps to read-only.
+### 2026-11-02 (Opus: OceanFft debug night)
 
-### Answers (author, 2026-10-20), and what changed
+- Sky cast, IBL scale and deferred crashes fixed, not committed. Details in `docs/ocean-agent.md`, section 8.
 
-1. The `userData` parameter stays gone.
-2. Initial data is a `std::span` of regions, and each region's `Data` is a `std::span<const std::byte>` (build it with
-   `std::as_bytes`). Done.
-3. Transfer usage is opt-in: `CopySource`/`CopyDestination` on buffers, `TransferSource` (new) and
-   `TransferDestination` on images. The context adds the destination bit only when it stages data itself (initial
-   data on a device-local resource, the target of `CopyBuffer`/`CopyImage`). Set, Fill and Copy fail the reply when
-   the bit is missing. Done, with tests. `ImageLayoutFromUsageBits` now ranks the transfer bits last, so an
-   uploaded texture rests in its shader layout.
-4. The device address refusal stays until there is implementation progress.
-5. and 6. Accepted as they are.
-7. Depth range: the author picked [-1,1]. Claude's objection, recorded so it is not lost: on Vulkan, [-1,1] needs
-   `VK_EXT_depth_clip_control`, and it gives less float precision than [0,1], not more (half of the float range maps
-   near the middle of the depth range). The precision-best layout is reversed-Z with [0,1] and a float depth buffer.
-   Revisit before the planet renderer depends on it.
-### Inputs for the transfer, streaming, device address and bindless design
+### 2026-11-02 (Opus: RhiResources Step C)
 
-Facts that the port found, for the session that writes the design note:
-
-- **Cross-queue visibility.** The transfer queue signals the reply's timeline semaphore (value 2), and a consumer
-  must wait on it in its own submit. ComputeManifestTest shows the pattern. Nothing makes a host-side
-  `WaitForCompletion` enough on its own for another queue, strictly speaking.
-- **One `VkSemaphore` per reply**, created on the caller's thread, and one command pool plus one staging buffer per
-  transfer. Fine for tests; the obvious cost centre for streaming. One timeline per transfer queue with increasing
-  values would remove the per-reply semaphore.
-- **Concurrent sharing.** Every buffer and image is `VK_SHARING_MODE_CONCURRENT` across the unique graphics, compute
-  and transfer families, as `ResourceBarriers.hpp` assumed. This removes ownership transfers, but some drivers
-  disable image compression for concurrent images. Worth measuring before streaming textures.
-- **Queue choice.** A dedicated transfer family when it exists (it does here: 2 queues). Otherwise graphics queue 1,
-  and queue 0 as the last resort, which races the application's submits (`todo-ship` in `TransferSystem.cpp`).
-- **Layout tracking** follows only the transfer system (`TrackedImageLayout`). Barriers that the user records
-  through `ResourceBarriers` are invisible to it, so a Set after a user transition starts from a stale layout.
-- **Copies issued by the context cannot wait on user work.** `CopyBufferContents` after a dispatch has no way to
-  wait for that dispatch's semaphore. The tests copy only what the transfer queue itself wrote.
-- **No image readback.** `CopyImageToBuffer` is still "not implemented", so image uploads are checked for validity,
-  not for content.
-- **Two VMA allocators** (context thread and transfer thread), each externally synchronized.
+- Futures replace the reply API. Details in `docs/rhi-resources-agent.md`, section 8.

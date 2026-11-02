@@ -18,7 +18,10 @@ __pycache__/
 *.xls
 
 modules/ResourceContext/chat.md
-
+.github/skills/
+docs/
+assets/textures/hdri/
+assets/textures/
 fix-submodules.ps1
 docs/agent-scripts/logs/
 docs/our-machinery/

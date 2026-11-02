@@ -31,7 +31,7 @@ cmake --preset ninja-msvc
 ```
 
 ```bat
-cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests TriangleTest ComputeManifestTest ImGuiTest
+cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests loom_tests TriangleTest ComputeManifestTest ImGuiTest
 ```
 
 A third preset, `ninja-msvc-static` (in `build/ninja-msvc-static`), links the static C runtime into everything,
@@ -84,6 +84,7 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `rhi_system_tests` | Instance and device creation per API version, extension resolution, shader objects. |
 | `platform_system_tests` | Displays, windows, swapchain creation, JSON configuration. |
 | `resource_context_tests` | `ResourceContext` on a real device: every create path, uploads read back word for word, fills, copies, maps, samplers, four threads at once, and shutdown with queued work. |
+| `loom_tests` | Loom with no GPU: the diagnostic catalog, the sinks (counts, text and JSON Lines output), and the JSON writer. Freeze and the later stages add their suites here. |
 | `ComputeManifestTest` | The cook-to-dispatch path. Lodestone cooks `HashFill.slang`, `rhi::ShaderLibrary` selects each variant, `ResourceContext` creates every buffer, and every output word matches the CPU. |
 | `GpuPyramidTest` | `pyramid::MipGenerator` fills every level of rgba32f and rgba16f 2D arrays, on the fast and the general pipeline, for power-of-two, odd and non-square sizes. Each level matches the CPU reduction of the level above it: min and max bit for bit, averages within float rounding. |
 | `OceanFftTest` | The ocean compute chain (IFFT kernels, spectrum, tick, resolve, mips) against double precision on the CPU. |
@@ -112,11 +113,12 @@ VMA asserts this way when a mapped allocation is destroyed.
 ## RhiResources in one paragraph
 
 Any thread calls `ResourceContext`, which turns the call into a message, pushes it on an MWSR queue, and returns a
-reply. The worker thread owns the EnTT registry and a VMA allocator, creates the objects, and writes host-visible
-data directly. Device-local data goes to the transfer system, which owns its own thread, allocator, staging buffers,
-and command pools, and submits to the transfer queue. Each transfer signals the reply's timeline semaphore to
-`k_TransferCompleteSemaphoreValue`. A consumer on another queue must wait on that semaphore in its own submit:
-`ComputeManifestTest` shows the pattern. Every resource uses concurrent sharing across the queue families, so no
+future (a slot in the context's lock-free `FutureTable`; `ResourceContext::Wait` blocks on it). The worker thread owns
+the EnTT registry and a VMA allocator, creates the objects, and writes host-visible data directly. Device-local data
+goes to the transfer system, which owns its own thread, allocator, staging buffers, and command pools, and submits to
+the transfer queue. Each transfer gets a ticket on the transfer timeline. `future.Completion()` returns the timeline
+and the ticket, and a consumer on another queue must wait on them in its own submit: `ComputeManifestTest` shows the
+pattern. Destroy every future before its context. Every resource uses concurrent sharing across the queue families, so no
 ownership transfer exists. The author likes this design. Keep it.
 
 ## Working with this author
