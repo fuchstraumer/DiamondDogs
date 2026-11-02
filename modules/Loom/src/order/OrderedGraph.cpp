@@ -1,0 +1,421 @@
+#include "order/OrderedGraph.hpp"
+#include "LoomDiagnostic.hpp"
+#include "LoomError.hpp"
+#include "LoomKeys.hpp"
+#include "PassStatements.hpp"
+#include "freeze/FrozenGraph.hpp"
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
+#include <functional>
+#include <iterator>
+#include <optional>
+#include <queue>
+#include <ranges>
+#include <source_location>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace loom
+{
+    namespace order
+    {
+        void AddEdge(OrderContext& context, NodeIndex from, NodeIndex to,
+                     EdgeReason reason, std::source_location where);
+        void AddAnchorEdges(OrderContext& context);
+        void AddFrameBoundEdges(OrderContext& context);
+        void AddSequenceEdges(OrderContext& context);
+        void GatherAccesses(OrderContext& context);
+        void AddDataFlowEdges(OrderContext& context);
+        void BuildSuccessors(OrderContext& context);
+        std::optional<std::vector<NodeIndex>> SortNodes(OrderContext& context);
+        Reachability ComputeReachability(OrderContext& context, const std::vector<NodeIndex>& ordered_nodes);
+        void CheckHazards(OrderContext& context, const Reachability& reachability);
+
+        void ReportCycle(const OrderContext& context, const std::vector<NodeIndex>& emitted);
+        void ReportCycleEdges(const OrderContext& context, const std::vector<int32_t>& cycle_edges);
+        std::string_view EdgeReasonName(EdgeReason reason) noexcept;
+        KeyRef PassOfEdge(const OrderContext& context, const OrderEdge& edge);
+    }
+
+    std::optional<OrderedGraph> Order(const FrozenGraph& frozen,
+                                      const BindAccessTable& binds,
+                                      DiagnosticSink& sink)
+    {
+        using namespace order;
+        const int32_t nodeCount = static_cast<int32_t>(frozen.Passes.size()) +
+                                  static_cast<int32_t>(frozen.Anchors.size());
+        const int32_t slotCount = static_cast<int32_t>(frozen.Resources.size()) +
+                                  static_cast<int32_t>(frozen.FrameTargets.size());
+        OrderContext context
+        {
+            .Frozen=frozen,
+            .Binds=binds,
+            .Sink=sink,
+            .PassCount=static_cast<int32_t>(frozen.Passes.size()),
+            .NodeCount=nodeCount,
+            .SlotCount=slotCount,
+        };
+        context.PassAccesses.reserve(context.PassCount);
+        context.Edges.reserve(context.PassCount * 4);
+
+        AddAnchorEdges(context);
+        AddFrameBoundEdges(context);
+        AddSequenceEdges(context);
+        BuildSuccessors(context);
+        auto sortNodesResult = SortNodes(context);
+        if (!sortNodesResult.has_value())
+        {
+            return std::nullopt;
+        }
+        else
+        {
+            const auto& orderedNodes = *sortNodesResult;
+            // copy each pass node (pass.Value < context.PassCount) into result passes
+            OrderedGraph result;
+            auto filterFn = [&](NodeIndex node) { return node.Value < context.PassCount; };
+            auto toPassIdx = [&](NodeIndex node) { return PassIndex{ node.Value }; };
+            // important: filter *then* transform, otherwise you pay a perf penalty
+            result.Passes = orderedNodes |
+                            std::views::filter(filterFn) |
+                            std::views::transform(toPassIdx) |
+                            std::ranges::to<std::vector>();
+            result.Edges = std::move(context.Edges);
+            return result;
+        }
+    }
+
+    namespace order
+    {
+
+        void AddEdge(OrderContext& context, NodeIndex from, NodeIndex to,
+                     EdgeReason reason, std::source_location where)
+        {
+            context.Edges.emplace_back(from,
+                                       to,
+                                       reason,
+                                       ResourceSlot{ -1 },
+                                       where);
+        }
+
+        void AddAnchorEdges(OrderContext& context)
+        {
+            for (const FrozenAnchorOrder& anchorOrder : context.Frozen.AnchorOrders)
+            {
+                const NodeIndex earlyNode = NodeOfAnchor(context, anchorOrder.Earlier);
+                const NodeIndex lateNode = NodeOfAnchor(context, anchorOrder.Later);
+                AddEdge(context, earlyNode, lateNode, EdgeReason::AnchorOrder, anchorOrder.Where);
+            }
+
+            for (int32_t i = 0; i < context.PassCount; ++i)
+            {
+                const FrozenPass& pass = context.Frozen.Passes[i];
+                const NodeIndex passNode = NodeOfPass(PassIndex{ i });
+
+                for (const FrozenAnchorUse& use : pass.After)
+                {
+                    const NodeIndex earlierNode = NodeOfAnchor(context, use.Anchor);
+                    AddEdge(context, earlierNode, passNode, EdgeReason::After, use.Where);
+                }
+
+                for (const FrozenAnchorUse& use : pass.Before)
+                {
+                    const NodeIndex laterNode = NodeOfAnchor(context, use.Anchor);
+                    AddEdge(context, passNode, laterNode, EdgeReason::Before, use.Where);
+                }
+            }
+        }
+
+        void AddFrameBoundEdges(OrderContext& context)
+        {
+            const NodeIndex begin = NodeOfAnchor(context, k_BeginFrameAnchorIndex);
+            const NodeIndex end = NodeOfAnchor(context, k_EndFrameAnchorIndex);
+
+            for (int32_t i = 0; i < context.PassCount; ++i)
+            {
+                const NodeIndex passNode = NodeOfPass(PassIndex{ i });
+                const std::source_location& where = context.Frozen.Passes[i].Where;
+
+                // every pass gets these anchors - because they all have to occur within these bounds
+                AddEdge(context, begin, passNode, EdgeReason::FrameBounds, where);
+                AddEdge(context, passNode, end, EdgeReason::FrameBounds, where);
+            }
+
+            // This walk has to start after the index of the built-in anchors - otherwise we'd be adding
+            // cyclic deps of these anchors to themselves!
+            for (int32_t anchorIndex = k_EndFrameAnchorIndex.Value + 1; anchorIndex < std::ssize(context.Frozen.Anchors); ++anchorIndex)
+            {
+                const NodeIndex anchorNode = NodeOfAnchor(context, AnchorIndex{ anchorIndex });
+                const std::source_location& where = context.Frozen.Anchors[anchorIndex].Where;
+                // and now it really is just this simple: add the frame ordering anchors, exactly as above.
+                AddEdge(context, begin, anchorNode, EdgeReason::FrameBounds, where);
+                AddEdge(context, anchorNode, end, EdgeReason::FrameBounds, where);
+            }
+        }
+
+        void AddSequenceEdges(OrderContext& context)
+        {
+            // first step: chain the passes within each sequence
+            // second step: the sequences own `After` `Before` anchors
+            // third step: the exposed anchors, finally! 
+            // realize that a sequence is not *itself* a node in the grpah: it is manifested
+            // through the passes it "contains" (refers to as a span, really)
+            // this in turn is why we don't need to add the frame bounds here - 
+            // the passes already did that!
+            for (const FrozenSequence& sequence : context.Frozen.Sequences)
+            {
+                const int32_t firstPass = sequence.FirstPass.Value;
+                const int32_t lastPass = firstPass + sequence.PassCount - 1;
+                // we don't touch the actual last pass, because pass+1 there is not in our sequence!
+                for (int32_t passIdx = firstPass; passIdx < lastPass; ++passIdx)
+                {
+                    const NodeIndex currPassNode = NodeOfPass(PassIndex{ passIdx });
+                    const NodeIndex nextPassNode = NodeOfPass(PassIndex{ passIdx + 1 });
+                    // Where is the *later* passes location, bc that's what *SET* the position!
+                    const std::source_location& where = context.Frozen.Passes[passIdx + 1].Where;
+                    AddEdge(context, currPassNode, nextPassNode, EdgeReason::SequenceChain, where);
+                }
+
+                const NodeIndex firstPassNode = NodeOfPass(PassIndex{ firstPass });
+                // now we need to add the sequence's own anchors
+                for (const FrozenAnchorUse& anchor : sequence.After)
+                {
+                    const NodeIndex anchorNode = NodeOfAnchor(context, anchor.Anchor);
+                    AddEdge(context, anchorNode, firstPassNode, EdgeReason::After, anchor.Where);
+                }
+
+                // but now we use the actual last pass - to make sure that it still receives the proper
+                // edges and ordering that it needs!
+                const NodeIndex lastPassNode = NodeOfPass(PassIndex{ lastPass });
+                for (const FrozenAnchorUse& anchor : sequence.Before)
+                {
+                    const NodeIndex anchorNode = NodeOfAnchor(context, anchor.Anchor);
+                    AddEdge(context, lastPassNode, anchorNode, EdgeReason::Before, anchor.Where);
+                }
+
+                // ExposedAnchors hold `Position`, the location of the anchor within this position.
+                // This means that the ordering is relative to this sequence, so based on the value
+                // of each position `k` , we need to apply before/after ordering as needed.
+            }
+        }
+
+        void BuildSuccessors(OrderContext& context)
+        {
+            context.Successors.assign(context.NodeCount, {});
+
+            for (int32_t edgeIndex = 0; edgeIndex < std::ssize(context.Edges); ++edgeIndex)
+            {
+                const OrderEdge& currEdge = context.Edges[edgeIndex];
+                const int32_t fromIdx = currEdge.From.Value;
+                context.Successors[fromIdx].emplace_back(edgeIndex);
+            }
+        }
+
+        std::optional<std::vector<NodeIndex>> SortNodes(OrderContext& context)
+        {
+            // Build in-degree counts for each node based on traversing the edges.
+            std::vector<int32_t> inDegree(context.NodeCount, 0);
+            for (const OrderEdge& edge : context.Edges)
+            {
+                const int32_t toIdx = edge.To.Value;
+                ++inDegree[toIdx];
+            }
+
+            using MinHeap = std::priority_queue<int32_t, std::vector<int32_t>, std::greater<>>;
+            // get the initial nodes of degree 0
+            auto filterFn = [&inDegree](int32_t idx)->bool
+            {
+                return inDegree[idx] == 0;
+            };
+            auto zeroInDegreeNodes = std::views::iota(int32_t{0}, context.NodeCount) |
+                                     std::views::filter(filterFn);
+            MinHeap readyNodes(zeroInDegreeNodes.begin(), zeroInDegreeNodes.end());
+
+            std::vector<NodeIndex> sortedNodes;
+
+            while (!readyNodes.empty())
+            {
+                const int32_t currNodeIdx = readyNodes.top();
+                readyNodes.pop();
+
+                sortedNodes.push_back(NodeIndex{ currNodeIdx });
+                // okay, now we need to go update the successors!
+                // remember that successors was written with fromIdx, so this list
+                // gives us all the edges pointing *TO* a node from currNode
+                const auto& nodeSuccessors = context.Successors[currNodeIdx];
+                for (const int32_t edgeIdx : nodeSuccessors)
+                {
+                    const OrderEdge& edge = context.Edges[edgeIdx];
+                    const int32_t toIdx = edge.To.Value;
+                    --inDegree[toIdx];
+                    if (inDegree[toIdx] == 0)
+                    {
+                        readyNodes.push(toIdx);
+                    }
+                }
+            }
+            
+            if (std::ssize(sortedNodes) != context.NodeCount)
+            {
+                // there was a cycle!
+                ReportCycle(context, sortedNodes);
+                return std::nullopt;
+            }
+
+            return sortedNodes;
+        }
+
+        void ReportCycle(const OrderContext& context, const std::vector<NodeIndex>& emitted)
+        {
+            std::vector<uint8_t> wasEmitted(context.NodeCount, 0);
+            for (const NodeIndex node : emitted)
+            {
+                wasEmitted[node.Value] = 1;
+            }
+
+            // find first un-emitted node; we'll start the walk here
+            auto iter = std::ranges::find(wasEmitted, 0);
+            assert(iter != wasEmitted.end()); // this would be a weird failure, but catch it just in case
+            const int32_t firstUnemittedNode =
+                static_cast<int32_t>(std::distance(wasEmitted.begin(), iter));
+            
+
+
+            // when a node was first reached
+            std::vector<int32_t> stepOfNode(context.NodeCount, -1);
+            stepOfNode[firstUnemittedNode] = 0; // mark the first step for the starting node
+            // edge indices actually reached in walk, newest last
+            std::vector<int32_t> walkEdges;
+            int32_t repeatedNode = -1;
+
+            // now run the walk
+            int32_t currentNode = firstUnemittedNode;
+            while (repeatedNode == -1)
+            {
+                bool stepped = false;
+                for (auto&& [idx, edge] : context.Edges | std::views::enumerate)
+                {
+                    if (edge.To.Value != currentNode)
+                    {
+                        continue;
+                    }
+
+                    const int32_t fromIdx = edge.From.Value;
+                    // if this isn't a leftover, skip it
+                    if (wasEmitted[fromIdx] != 0u)
+                    {
+                        continue;
+                    }
+
+                    walkEdges.push_back(static_cast<int32_t>(idx));
+
+                    if (stepOfNode[fromIdx] != -1)
+                    {
+                        // found our repeated node, which indicates a cycle in the graph
+                        repeatedNode = fromIdx;
+                        stepped = true;
+                        break;
+                    }
+
+                    stepOfNode[fromIdx] = static_cast<int32_t>(walkEdges.size());
+                    currentNode = fromIdx;
+                    stepped = true;
+                    break;
+                }
+                // best to assert instead of have an infinite loop
+                assert(stepped);
+            }
+
+            // The walk ran backwards, so it's edges are newest first. Keep only the cycle (from the repeated node's
+            // first visit on), not the path that led into it, and turn it to run forwards.
+            std::vector<int32_t> cycleEdges(walkEdges.begin() + stepOfNode[repeatedNode], walkEdges.end());
+            std::ranges::reverse(cycleEdges);
+
+            ReportCycleEdges(context, cycleEdges);
+        }
+
+        std::string_view EdgeReasonName(EdgeReason reason) noexcept
+        {
+            switch (reason)
+            {
+            case EdgeReason::Invalid:       return "Invalid";
+            case EdgeReason::After:         return "After";
+            case EdgeReason::Before:        return "Before";
+            case EdgeReason::AnchorOrder:   return "AnchorOrder";
+            case EdgeReason::FrameBounds:   return "FrameBounds";
+            case EdgeReason::SequenceChain: return "SequenceChain";
+            case EdgeReason::ExposedAnchor: return "ExposedAnchor";
+            case EdgeReason::DataFlow:      return "DataFlow";
+            }
+
+            return "Invalid";
+        }
+
+        // The pass at either end of an edge, or an empty key when both ends are anchors.
+        KeyRef PassOfEdge(const OrderContext& context, const OrderEdge& edge)
+        {
+            if (edge.From.Value < context.PassCount)
+            {
+                return context.Frozen.Passes[edge.From.Value].Key;
+            }
+
+            if (edge.To.Value < context.PassCount)
+            {
+                return context.Frozen.Passes[edge.To.Value].Key;
+            }
+
+            return KeyRef{};
+        }
+
+        // One LM501 error at the first edge, then one note per edge in forward order, as a compiler prints "required
+        // from here". A Diagnostic holds one location, so a cycle of any length needs the notes.
+        void ReportCycleEdges(const OrderContext& context, const std::vector<int32_t>& cycle_edges)
+        {
+            const OrderEdge& first = context.Edges[cycle_edges.front()];
+
+            Diagnostic error
+            {
+                .Code = DiagnosticCode::LM501,
+                .Severity = DiagnosticSeverity::Error,
+                .Where = first.Where,
+            };
+
+            // Name a pass on the cycle if it has one. An anchor-only cycle (OrderAnchors both ways) has none.
+            for (const int32_t edgeIndex : cycle_edges)
+            {
+                error.Pass = PassOfEdge(context, context.Edges[edgeIndex]);
+
+                if (!error.Pass.Name.empty())
+                {
+                    break;
+                }
+            }
+
+            context.Sink.Report(error);
+
+            for (const int32_t edgeIndex : cycle_edges)
+            {
+                const OrderEdge& edge = context.Edges[edgeIndex];
+
+                Diagnostic note
+                {
+                    .Code = DiagnosticCode::LM501,
+                    .Severity = DiagnosticSeverity::Note,
+                    .Where = edge.Where,
+                    .Pass = PassOfEdge(context, edge),
+                };
+
+                note.Actual = DiagnosticValue
+                {
+                    .FieldName = "Reason",
+                    .Kind = DiagnosticValueKind::Text,
+                    .Text = EdgeReasonName(edge.Reason),
+                };
+
+                context.Sink.Report(note);
+            }
+        }
+    }
+
+}

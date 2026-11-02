@@ -30,6 +30,8 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PassBuilders.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PassStatements.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/SequenceBuilder.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/order/OrderedGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/order/OrderedGraph.cpp"
 )
 
 add_module(loom
