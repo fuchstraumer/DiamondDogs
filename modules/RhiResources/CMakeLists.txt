@@ -11,8 +11,6 @@ ADD_MODULE(rhi_resources
     "src/ResourceContext.cpp"
     "src/ResourceContextImpl.cpp"
     "src/ResourceContextImpl.hpp"
-    "src/ResourceDataArena.hpp"
-    "src/ResourceDataArena.cpp"
     "src/ResourceMessageReply.cpp"
     "src/ResourceMessageTypesInternal.hpp"
     "src/ResourceMessageTypesInternal.cpp"
