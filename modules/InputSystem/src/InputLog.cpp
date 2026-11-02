@@ -1,6 +1,9 @@
 #include "InputLog.hpp"
 #include "InputTypes.hpp"
+#include <algorithm>
 #include <charconv>
+#include <cctype>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <optional>
@@ -20,6 +23,8 @@ namespace
 
     void AppendFloat(std::string& out, float value);
 
+    void AppendControl(std::string& out, input::ControlId control);
+
     void AppendEvent(std::string& out, const input::InputEvent& event);
 
     [[nodiscard]] std::optional<std::string_view> FindValue(std::string_view line, std::string_view key);
@@ -31,6 +36,9 @@ namespace
 
     [[nodiscard]] input::InputLogError ReadNameField(std::string_view line, std::string_view key,
         std::string_view& out);
+
+    [[nodiscard]] input::InputLogError ReadControlField(std::string_view line, std::string_view key,
+        input::ControlId& out);
 
     [[nodiscard]] input::InputLogResult<input::InputEvent> ParseLine(std::string_view line);
 
@@ -70,7 +78,10 @@ namespace input
 
     InputLogResult<std::vector<InputEvent>> ReadInputLog(std::string_view text)
     {
+        const std::ptrdiff_t lineCount = std::ranges::count(text, '\n') + 1;
+
         std::vector<InputEvent> events;
+        events.reserve(static_cast<size_t>(lineCount));
 
         while (!text.empty())
         {
@@ -117,15 +128,31 @@ namespace
         out.append(buffer, result.ptr);
     }
 
+    void AppendControl(std::string& out, input::ControlId control)
+    {
+        // a nonzero control with no name makes ToString return "Invalid", which ParseControlId maps to zero
+        const bool hasName = input::ParseControlId(input::ToString(control)) == control;
+
+        if (hasName)
+        {
+            out += '"';
+            out += input::ToString(control);
+            out += '"';
+            return;
+        }
+
+        AppendInteger(out, static_cast<int64_t>(control));
+    }
+
     void AppendEvent(std::string& out, const input::InputEvent& event)
     {
         out += "{\"t\":";
         AppendInteger(out, event.TimestampNs);
         out += ",\"kind\":\"";
         out += input::ToString(event.Kind);
-        out += "\",\"control\":\"";
-        out += input::ToString(event.Control);
-        out += "\",\"device\":\"";
+        out += "\",\"control\":";
+        AppendControl(out, event.Control);
+        out += ",\"device\":\"";
         out += input::ToString(event.Device);
         out += "\",\"index\":";
         AppendInteger(out, event.DeviceIndex);
@@ -243,6 +270,54 @@ namespace
         return input::InputLogError::Success;
     }
 
+    input::InputLogError ReadControlField(std::string_view line, std::string_view key, input::ControlId& out)
+    {
+        const std::optional<std::string_view> token = FindValue(line, key);
+
+        if (!token)
+        {
+            return input::InputLogError::MissingKey;
+        }
+
+        const bool quoted = token->size() >= 2 && token->front() == '"' && token->back() == '"';
+
+        if (quoted)
+        {
+            const std::string_view name = token->substr(1, token->size() - 2);
+            const std::optional<input::ControlId> control = input::ParseControlId(name);
+
+            if (!control)
+            {
+                return input::InputLogError::UnknownControl;
+            }
+
+            out = *control;
+
+            return input::InputLogError::Success;
+        }
+
+        // an unquoted token must be a number, so a bare word is a malformed line and not a malformed number
+        const unsigned char firstChar = token->empty() ? 0 : static_cast<unsigned char>(token->front());
+        const bool startsLikeNumber = std::isdigit(firstChar) || firstChar == '-';
+
+        if (!startsLikeNumber)
+        {
+            return input::InputLogError::MalformedLine;
+        }
+
+        int64_t value = 0;
+        const input::InputLogError error = ReadIntegerField(line, key, 0, input::k_ControlCount - 1, value);
+
+        if (error != input::InputLogError::Success)
+        {
+            return error;
+        }
+
+        out = static_cast<input::ControlId>(value);
+
+        return input::InputLogError::Success;
+    }
+
     input::InputLogResult<input::InputEvent> ParseLine(std::string_view line)
     {
         if (line.front() != '{' || line.back() != '}')
@@ -257,7 +332,7 @@ namespace
         int64_t flags = 0;
         int64_t codePoint = 0;
         std::string_view kindName;
-        std::string_view controlName;
+        input::ControlId control = input::ControlId::Invalid;
         std::string_view deviceName;
 
         input::InputLogError error = ReadIntegerField(line, "t", INT64_MIN, INT64_MAX, timestamp);
@@ -269,7 +344,7 @@ namespace
 
         if (error == input::InputLogError::Success)
         {
-            error = ReadNameField(line, "control", controlName);
+            error = ReadControlField(line, "control", control);
         }
 
         if (error == input::InputLogError::Success)
@@ -319,13 +394,6 @@ namespace
             return std::unexpected(input::InputLogError::UnknownKind);
         }
 
-        const std::optional<input::ControlId> control = input::ParseControlId(controlName);
-
-        if (!control)
-        {
-            return std::unexpected(input::InputLogError::UnknownControl);
-        }
-
         const std::optional<input::DeviceKind> device = input::ParseDeviceKind(deviceName);
 
         if (!device)
@@ -335,7 +403,7 @@ namespace
 
         event.TimestampNs = timestamp;
         event.CodePoint = static_cast<uint32_t>(codePoint);
-        event.Control = *control;
+        event.Control = control;
         event.Kind = *kind;
         event.Device = *device;
         event.DeviceIndex = static_cast<uint8_t>(deviceIndex);

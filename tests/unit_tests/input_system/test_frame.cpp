@@ -290,7 +290,44 @@ TEST(FrameAssembler, TextBeyondCapacityIsCountedAsDropped)
     ASSERT_EQ(frame.Text().size(), 2u);
     EXPECT_EQ(frame.Text()[0], U'a');
     EXPECT_EQ(frame.Text()[1], U'b');
-    EXPECT_EQ(frame.DroppedEventCount(), 2);
+    EXPECT_EQ(frame.DroppedTextCount(), 2);
+    EXPECT_EQ(frame.DroppedEventCount(), 0);
+}
+
+TEST(FrameAssembler, EachDroppedCodePointCountsOnceInTheTextCounter)
+{
+    input::FrameAssembler assembler(k_EventCapacity, 1);
+    assembler.StartFrame();
+    assembler.Append(MakeText(U'a'));
+
+    EXPECT_EQ(assembler.FinishFrame().DroppedTextCount(), 0);
+
+    assembler.Append(MakeText(U'b'));
+
+    EXPECT_EQ(assembler.FinishFrame().DroppedTextCount(), 1);
+
+    assembler.Append(MakeText(U'c'));
+
+    EXPECT_EQ(assembler.FinishFrame().DroppedTextCount(), 2);
+    EXPECT_EQ(assembler.FinishFrame().DroppedEventCount(), 0);
+
+    assembler.StartFrame();
+
+    EXPECT_EQ(assembler.FinishFrame().DroppedTextCount(), 0);
+}
+
+TEST(FrameAssembler, TextEventOnAFullEventListCountsOnlyAsADroppedEvent)
+{
+    input::FrameAssembler assembler(1, k_TextCapacity);
+    assembler.StartFrame();
+    assembler.Append(MakeButton(input::InputEventKind::ButtonDown, input::ControlId::KeyA, 1));
+    assembler.Append(MakeText(U'a'));
+
+    const input::InputFrame& frame = assembler.FinishFrame();
+
+    ASSERT_EQ(frame.Text().size(), 1u);
+    EXPECT_EQ(frame.DroppedEventCount(), 1);
+    EXPECT_EQ(frame.DroppedTextCount(), 0);
 }
 
 TEST(FrameAssembler, CaptureFollowsTheDeviceClassOfTheControl)

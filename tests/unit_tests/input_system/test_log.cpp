@@ -168,3 +168,58 @@ TEST(InputLog, ErrorNamesAreDistinct)
     EXPECT_EQ(input::ToString(input::InputLogError::MissingKey), "MissingKey");
     EXPECT_EQ(input::ToString(input::InputLogError::Success), "Success");
 }
+
+TEST(InputLog, UnnamedControlsRoundTripAsBareIntegers)
+{
+    std::array<input::InputEvent, 3> events{};
+
+    events[0].Kind = input::InputEventKind::ButtonDown;
+    events[0].Control = static_cast<input::ControlId>(0x0032);
+    events[0].Device = input::DeviceKind::Keyboard;
+
+    events[1].Kind = input::InputEventKind::ButtonUp;
+    events[1].Control = static_cast<input::ControlId>(0x0150);
+    events[1].Device = input::DeviceKind::Mouse;
+
+    events[2].Kind = input::InputEventKind::ButtonDown;
+    events[2].Control = input::ControlId::KeyW;
+    events[2].Device = input::DeviceKind::Keyboard;
+
+    const std::string text = input::WriteInputLog(events);
+
+    EXPECT_NE(text.find("\"control\":50,"), std::string::npos);
+    EXPECT_NE(text.find("\"control\":336,"), std::string::npos);
+    EXPECT_NE(text.find("\"control\":\"KeyW\","), std::string::npos);
+
+    const input::InputLogResult<std::vector<input::InputEvent>> result = input::ReadInputLog(text);
+
+    ASSERT_TRUE(result.has_value()) << input::ToString(result.error());
+    ASSERT_EQ(result->size(), events.size());
+
+    for (size_t eventIndex = 0; eventIndex < events.size(); ++eventIndex)
+    {
+        ExpectSameEvent(events[eventIndex], (*result)[eventIndex]);
+    }
+}
+
+TEST(InputLog, InvalidControlStaysQuoted)
+{
+    std::array<input::InputEvent, 1> events{};
+    events[0].Kind = input::InputEventKind::FocusGained;
+
+    const std::string text = input::WriteInputLog(events);
+
+    EXPECT_NE(text.find("\"control\":\"Invalid\","), std::string::npos);
+}
+
+TEST(InputLog, ControlIntegerOutsideTheSpaceIsRejected)
+{
+    EXPECT_EQ(ReadError(GoodLineWith("\"KeyW\"", "768")), input::InputLogError::MalformedNumber);
+    EXPECT_EQ(ReadError(GoodLineWith("\"KeyW\"", "-1")), input::InputLogError::MalformedNumber);
+    EXPECT_EQ(ReadError(GoodLineWith("\"KeyW\"", "767")), input::InputLogError::Success);
+}
+
+TEST(InputLog, UnknownQuotedControlNameIsStillRejected)
+{
+    EXPECT_EQ(ReadError(GoodLineWith("KeyW", "NoSuchKey")), input::InputLogError::UnknownControl);
+}

@@ -76,8 +76,12 @@ namespace input
         /** @brief Returns true when the capture flags include the device class of the control. */
         [[nodiscard]] bool IsCaptured(ControlId control) const noexcept;
 
-        /** @brief Returns how many events and code points did not fit in this frame. */
+        /** @brief Returns how many events did not fit in this frame, or had a control outside the control space.
+         * Code points are counted in DroppedTextCount. */
         [[nodiscard]] int32_t DroppedEventCount() const noexcept;
+
+        /** @brief Returns how many code points did not fit in the text list of this frame. */
+        [[nodiscard]] int32_t DroppedTextCount() const noexcept;
 
     private:
 
@@ -91,6 +95,7 @@ namespace input
         bool hasFocus = true;
         CaptureFlags capture = CaptureFlags::Invalid;
         int32_t droppedEventCount = 0;
+        int32_t droppedTextCount = 0;
     };
 
     /** @brief Builds one InputFrame at a time from the events that a platform source appends. */
@@ -117,17 +122,13 @@ namespace input
 
     private:
 
-        void ApplyToState(const InputEvent& event) noexcept;
-
-        void ApplyButtonDown(const InputEvent& event) noexcept;
-
-        void ApplyButtonUp(const InputEvent& event) noexcept;
-
-        void AppendText(uint32_t code_point) noexcept;
-
-        void StoreEvent(const InputEvent& event) noexcept;
-
-        void ReleaseHeldControls(int64_t timestamp_ns) noexcept;
+        void applyToState(const InputEvent& event) noexcept;
+        void applyButtonDown(const InputEvent& event) noexcept;
+        void applyButtonUp(const InputEvent& event) noexcept;
+        void applyCursorPosition(const InputEvent& event) noexcept;
+        void appendText(uint32_t code_point) noexcept;
+        void storeEvent(const InputEvent& event) noexcept;
+        void releaseHeldControls(int64_t timestamp_ns) noexcept;
 
         std::vector<InputEvent> events;
         std::vector<uint32_t> text;
@@ -139,6 +140,7 @@ namespace input
         bool hasFocus;
         CaptureFlags capture;
         int32_t droppedEventCount;
+        int32_t droppedTextCount;
         InputFrame frame;
     };
 }

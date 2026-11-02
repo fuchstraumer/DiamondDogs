@@ -71,19 +71,20 @@ Rules:
 - **Edges.** `ButtonDown` on a control that is down (key repeat) changes nothing, so `PressedThisFrame` and
   `LastChangeNs` keep the values of the first press. A press and a release in one frame leave both flags true and
   `Down` false. `ButtonUp` on a control that is up changes nothing.
-- **Persistence.** `StartFrame` clears the events, the text, the edge flags, every `Delta`, the dropped count and the
+- **Persistence.** `StartFrame` clears the events, the text, the edge flags, every `Delta`, both dropped counts and the
   capture flags. `Down`, `Value`, `LastChangeNs`, the cursor and the focus state persist. Focus starts as gained.
 - **Axes.** `AxisValue` sets `Value`. `AxisDelta` adds `X` to `Delta`. `LastChangeNs` is for buttons only.
 - **Full event list.** If an `AxisDelta` or a `CursorPosition` arrives when the list is full, and the last stored
   event has the same kind and control, the new event folds into it: deltas sum, a cursor overwrites, and the newer
   timestamp wins. Any other event is dropped and counted in `DroppedEventCount`. The state is already correct in
   both cases, so a dropped button edge is still seen as `Down` and `PressedThisFrame`.
-- **Full text list.** A code point that does not fit is dropped and counted.
+- **Full text list.** A code point that does not fit is dropped and counted in `DroppedTextCount`. The Text event
+  itself still goes through the event list, so a full event list can also count it in `DroppedEventCount`.
 - **Focus loss.** `FocusLost` sets the focus state to lost. Then, for every control that is down, the assembler
   appends a `ButtonUp` with the `Synthesized` flag and the same timestamp, through the same `Append` path. No key
   sticks.
 - **Control outside the space.** A button or axis event whose control is `Invalid` or not below `k_ControlCount` is
-  dropped and counted.
+  dropped and counted in `DroppedEventCount`.
 - **Capture.** `SetCapture` stores which device classes the UI took this frame. `IsCaptured` tests the device class
   of a control. The raw state is not changed, and the consumer decides what to do.
 
@@ -98,10 +99,13 @@ hand-off, which is not part of this module yet.
 {"t":123456,"kind":"ButtonDown","control":"KeyW","device":"Keyboard","index":0,"mods":0,"flags":0,"x":0,"y":0,"cp":0}
 ```
 
-`mods` and `flags` are the raw bit values. Floats use `std::to_chars` in the shortest form, so they round trip
+`mods` and `flags` are the raw bit values. A control that has no name (a value inside the control space that the
+name table does not list) is written as a bare integer, for example `"control":50`. Control 0 is written as
+`"Invalid"`. Floats use `std::to_chars` in the shortest form, so they round trip
 exactly. The function builds the whole string, and the caller writes it in one operation.
 
-`ReadInputLog` parses the text with `std::string_view::find` and `std::from_chars`. It skips blank lines. It checks
+`ReadInputLog` parses the text with `std::string_view::find` and `std::from_chars`. It reserves the event vector once, from the count of newline characters. It skips blank lines. The `control` field
+can be a quoted name or an unquoted integer from 0 to `k_ControlCount - 1`. It checks
 each record where it enters and returns the first error as an `InputLogError`: `MalformedLine`, `MissingKey`,
 `UnknownControl`, `UnknownKind`, `UnknownDevice` or `MalformedNumber` (also a number that does not fit its field,
 such as `index` above 255 or `cp` above 0x10FFFF). The error does not carry a line number yet.

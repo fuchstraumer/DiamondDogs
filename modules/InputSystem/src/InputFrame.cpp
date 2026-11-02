@@ -66,6 +66,11 @@ namespace input
         return droppedEventCount;
     }
 
+    int32_t InputFrame::DroppedTextCount() const noexcept
+    {
+        return droppedTextCount;
+    }
+
     FrameAssembler::FrameAssembler(int32_t event_capacity, int32_t text_capacity) :
       states{},
       eventCapacity{ event_capacity },
@@ -74,7 +79,8 @@ namespace input
       cursorY{ 0.0f },
       hasFocus{ true },
       capture{ CaptureFlags::Invalid },
-      droppedEventCount{ 0 }
+      droppedEventCount{ 0 },
+      droppedTextCount{ 0 }
     {
         events.reserve(static_cast<size_t>(event_capacity));
         text.reserve(static_cast<size_t>(text_capacity));
@@ -85,6 +91,7 @@ namespace input
         events.clear();
         text.clear();
         droppedEventCount = 0;
+        droppedTextCount = 0;
         capture = CaptureFlags::Invalid;
 
         for (ControlState& state : states)
@@ -103,12 +110,12 @@ namespace input
             return;
         }
 
-        ApplyToState(event);
-        StoreEvent(event);
+        applyToState(event);
+        storeEvent(event);
 
         if (event.Kind == InputEventKind::FocusLost)
         {
-            ReleaseHeldControls(event.TimestampNs);
+            releaseHeldControls(event.TimestampNs);
         }
     }
 
@@ -127,30 +134,45 @@ namespace input
         frame.hasFocus = hasFocus;
         frame.capture = capture;
         frame.droppedEventCount = droppedEventCount;
+        frame.droppedTextCount = droppedTextCount;
 
         return frame;
     }
 
-    void FrameAssembler::ApplyToState(const InputEvent& event) noexcept
+    void FrameAssembler::applyToState(const InputEvent& event) noexcept
     {
         switch (event.Kind)
         {
-        case InputEventKind::ButtonDown: ApplyButtonDown(event); break;
-        case InputEventKind::ButtonUp: ApplyButtonUp(event); break;
-        case InputEventKind::AxisValue: states[static_cast<size_t>(event.Control)].Value = event.X; break;
-        case InputEventKind::AxisDelta: states[static_cast<size_t>(event.Control)].Delta += event.X; break;
-        case InputEventKind::Text: AppendText(event.CodePoint); break;
-        case InputEventKind::FocusGained: hasFocus = true; break;
-        case InputEventKind::FocusLost: hasFocus = false; break;
-        case InputEventKind::CursorPosition:
-            cursorX = event.X;
-            cursorY = event.Y;
+        case InputEventKind::ButtonDown:
+            applyButtonDown(event);
             break;
-        default: break;
+        case InputEventKind::ButtonUp:
+            applyButtonUp(event);
+            break;
+        case InputEventKind::AxisValue:
+            states[static_cast<size_t>(event.Control)].Value = event.X;
+            break;
+        case InputEventKind::AxisDelta:
+            states[static_cast<size_t>(event.Control)].Delta += event.X;
+            break;
+        case InputEventKind::Text:
+            appendText(event.CodePoint);
+            break;
+        case InputEventKind::FocusGained:
+            hasFocus = true;
+            break;
+        case InputEventKind::FocusLost:
+            hasFocus = false;
+            break;
+        case InputEventKind::CursorPosition:
+            applyCursorPosition(event);
+            break;
+        default:
+            break;
         }
     }
 
-    void FrameAssembler::ApplyButtonDown(const InputEvent& event) noexcept
+    void FrameAssembler::applyButtonDown(const InputEvent& event) noexcept
     {
         ControlState& state = states[static_cast<size_t>(event.Control)];
 
@@ -166,7 +188,7 @@ namespace input
         state.LastChangeNs = event.TimestampNs;
     }
 
-    void FrameAssembler::ApplyButtonUp(const InputEvent& event) noexcept
+    void FrameAssembler::applyButtonUp(const InputEvent& event) noexcept
     {
         ControlState& state = states[static_cast<size_t>(event.Control)];
 
@@ -181,18 +203,24 @@ namespace input
         state.LastChangeNs = event.TimestampNs;
     }
 
-    void FrameAssembler::AppendText(uint32_t code_point) noexcept
+    void FrameAssembler::applyCursorPosition(const InputEvent& event) noexcept
+    {
+        cursorX = event.X;
+        cursorY = event.Y;
+    }
+
+    void FrameAssembler::appendText(uint32_t code_point) noexcept
     {
         if (std::ssize(text) >= textCapacity)
         {
-            ++droppedEventCount;
+            ++droppedTextCount;
             return;
         }
 
         text.push_back(code_point);
     }
 
-    void FrameAssembler::StoreEvent(const InputEvent& event) noexcept
+    void FrameAssembler::storeEvent(const InputEvent& event) noexcept
     {
         if (std::ssize(events) < eventCapacity)
         {
@@ -209,7 +237,7 @@ namespace input
         ++droppedEventCount;
     }
 
-    void FrameAssembler::ReleaseHeldControls(int64_t timestamp_ns) noexcept
+    void FrameAssembler::releaseHeldControls(int64_t timestamp_ns) noexcept
     {
         for (int32_t controlIndex = 0; controlIndex < k_ControlCount; ++controlIndex)
         {
@@ -227,7 +255,7 @@ namespace input
             release.Device = DeviceOf(control);
             release.Flags = EventFlags::Synthesized;
 
-            Append(release);
+            storeEvent(release);
         }
     }
 }
