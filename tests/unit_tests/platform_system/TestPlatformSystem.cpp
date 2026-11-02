@@ -307,6 +307,12 @@ TEST_F(PlatformSystemTest, ShouldCloseBehavior)
     platformSystem->SetWindowShouldClose(true);
     platformSystem->Update();
     EXPECT_EQ(k_SShouldCloseCallbackCount, 1);
+
+    // the window outlives the close request, and a standing request does not fire the listeners again
+    platformSystem->Update();
+    EXPECT_EQ(k_SShouldCloseCallbackCount, 1);
+    EXPECT_TRUE(platformSystem->ShouldWindowClose());
+    EXPECT_NE(platformSystem->GetWindowHandle(), nullptr);
 }
 
 // Static callback functions for event testing

@@ -31,6 +31,8 @@ struct PlatformSystemImpl
     std::unique_ptr<PlatformSurface> ActiveSurface;
     std::unique_ptr<Swapchain> ActiveSwapchain;
     GlfwInputSource InputSource;
+    // The close listeners fire once per close request, not once per Update while the request stands
+    bool CloseReported = false;
     // Deletes GLFWwindow, but does not terminate GLFW (done in dtor)
     void Destroy();
     void Update();

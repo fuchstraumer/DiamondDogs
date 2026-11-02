@@ -255,11 +255,15 @@ void PlatformSystemImpl::Update()
 
     glfwPollEvents();
 
-    if (glfwWindowShouldClose(Window))
+    // the owner destroys the window: its frame loop still reads the window after a close request
+    const bool closeRequested = glfwWindowShouldClose(Window) != GLFW_FALSE;
+
+    if (closeRequested && !CloseReported)
     {
         ShouldCloseCallback(Window);
-        Destroy();
     }
+
+    CloseReported = closeRequested;
 }
 
 void PlatformSystemImpl::WaitForEvents()
