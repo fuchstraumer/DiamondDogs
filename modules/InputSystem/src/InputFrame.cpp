@@ -255,6 +255,7 @@ namespace input
             release.Device = DeviceOf(control);
             release.Flags = EventFlags::Synthesized;
 
+            applyButtonUp(release);
             storeEvent(release);
         }
     }

@@ -429,6 +429,11 @@ void PlatformWindowSystem::WaitForEvents()
     impl->WaitForEvents();
 }
 
+void PlatformWindowSystem::SetInputAssembler(input::FrameAssembler* assembler)
+{
+    impl->SetInputAssembler(assembler);
+}
+
 bool PlatformWindowSystem::ShouldWindowClose() const
 {
     return glfwWindowShouldClose(impl->Window) != 0;

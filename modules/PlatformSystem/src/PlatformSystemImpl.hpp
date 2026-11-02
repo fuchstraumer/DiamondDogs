@@ -4,6 +4,7 @@
 #include "PlatformTypes.hpp"
 #include "PlatformSystem.hpp" // unfortunate, but has delegate type aliases
 #include "events/PlatformEvents.hpp"
+#include "GlfwInputSource.hpp"
 #include <vector>
 #include <memory>
 
@@ -29,10 +30,12 @@ struct PlatformSystemImpl
     std::unique_ptr<CallbackStorage> Callbacks;
     std::unique_ptr<PlatformSurface> ActiveSurface;
     std::unique_ptr<Swapchain> ActiveSwapchain;
+    GlfwInputSource InputSource;
     // Deletes GLFWwindow, but does not terminate GLFW (done in dtor)
     void Destroy();
     void Update();
     void WaitForEvents();
+    void SetInputAssembler(input::FrameAssembler* assembler);
     void AddCursorPosEventListener(const CursorPosEvent& listener, void* user_data);
     void AddCursorEnterEventListener(const CursorEnterEvent& listener, void* user_data);
     void AddScrollEventListener(const ScrollEvent& listener, void* user_data);

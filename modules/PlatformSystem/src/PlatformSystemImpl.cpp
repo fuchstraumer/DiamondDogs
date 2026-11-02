@@ -3,6 +3,8 @@
 #include "ImageDataFormats.hpp"
 #include "Swapchain.hpp"
 #include "PlatformSurface.hpp"
+#include <chrono>
+#include <cstdint>
 #include <vector>
 #include <unordered_map>
 #include <stdexcept>
@@ -17,6 +19,37 @@
 
 
 static DisplayInfo k_SPrimaryDisplay;
+
+namespace
+{
+    struct FramebufferScale
+    {
+        float X;
+        float Y;
+    };
+
+    int64_t NowNanoseconds() noexcept;
+
+    FramebufferScale FramebufferScaleOf(GLFWwindow* window) noexcept;
+
+    PlatformSystemImpl& ImplOf(GLFWwindow* window) noexcept;
+
+    void InstallInputCallbacks(GLFWwindow* window) noexcept;
+
+    void InputKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
+
+    void InputCharCallback(GLFWwindow* window, unsigned int code_point);
+
+    void InputMouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+
+    void InputCursorPositionCallback(GLFWwindow* window, double pos_x, double pos_y);
+
+    void InputScrollCallback(GLFWwindow* window, double x_offset, double y_offset);
+
+    void InputFocusCallback(GLFWwindow* window, int focused);
+
+    void InputCursorEnterCallback(GLFWwindow* window, int entered);
+}
 
 struct CallbackStorage
 {
@@ -333,6 +366,9 @@ PlatformSystemImpl::PlatformSystemImpl(const PlatformWindowCreateInfo& create_in
 
     // Set this impl as the user pointer for callbacks
     glfwSetWindowUserPointer(Window, this);
+
+    // These go in before any ImGui backend init, because that backend chains the callbacks that exist at that time
+    InstallInputCallbacks(Window);
 }
 
 PlatformSystemImpl::~PlatformSystemImpl()
@@ -369,6 +405,13 @@ void PlatformSystemImpl::Update()
 void PlatformSystemImpl::WaitForEvents()
 {
     glfwWaitEvents();
+}
+
+void PlatformSystemImpl::SetInputAssembler(input::FrameAssembler* assembler)
+{
+    const bool focused = Window != nullptr && glfwGetWindowAttrib(Window, GLFW_FOCUSED) != GLFW_FALSE;
+
+    InputSource.SetAssembler(assembler, NowNanoseconds(), focused);
 }
 
 void PlatformSystemImpl::AddCursorPosEventListener(const CursorPosEvent& listener, void* user_data)
@@ -449,5 +492,93 @@ void PlatformSystemImpl::AddShouldCloseEventListener(const ShouldCloseEvent& lis
     if (user_data != nullptr)
     {
         Callbacks->ShouldCloseEventUserData[listener.hash()] = user_data;
+    }
+}
+
+namespace
+{
+    int64_t NowNanoseconds() noexcept
+    {
+        const auto sinceEpoch = std::chrono::steady_clock::now().time_since_epoch();
+
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(sinceEpoch).count();
+    }
+
+    FramebufferScale FramebufferScaleOf(GLFWwindow* window) noexcept
+    {
+        int windowWidth = 0;
+        int windowHeight = 0;
+        int framebufferWidth = 0;
+        int framebufferHeight = 0;
+        glfwGetWindowSize(window, &windowWidth, &windowHeight);
+        glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+
+        FramebufferScale scale{ 1.0f, 1.0f };
+
+        if (windowWidth > 0 && windowHeight > 0)
+        {
+            scale.X = static_cast<float>(framebufferWidth) / static_cast<float>(windowWidth);
+            scale.Y = static_cast<float>(framebufferHeight) / static_cast<float>(windowHeight);
+        }
+
+        return scale;
+    }
+
+    PlatformSystemImpl& ImplOf(GLFWwindow* window) noexcept
+    {
+        return *reinterpret_cast<PlatformSystemImpl*>(glfwGetWindowUserPointer(window));
+    }
+
+    void InstallInputCallbacks(GLFWwindow* window) noexcept
+    {
+        glfwSetKeyCallback(window, InputKeyCallback);
+        glfwSetCharCallback(window, InputCharCallback);
+        glfwSetMouseButtonCallback(window, InputMouseButtonCallback);
+        glfwSetCursorPosCallback(window, InputCursorPositionCallback);
+        glfwSetScrollCallback(window, InputScrollCallback);
+        glfwSetWindowFocusCallback(window, InputFocusCallback);
+        glfwSetCursorEnterCallback(window, InputCursorEnterCallback);
+    }
+
+    void InputKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
+    {
+        static_cast<void>(scancode);
+
+        ImplOf(window).InputSource.OnKey(NowNanoseconds(), key, action, mods);
+    }
+
+    void InputCharCallback(GLFWwindow* window, unsigned int code_point)
+    {
+        ImplOf(window).InputSource.OnChar(NowNanoseconds(), code_point);
+    }
+
+    void InputMouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
+    {
+        ImplOf(window).InputSource.OnMouseButton(NowNanoseconds(), button, action, mods);
+    }
+
+    void InputCursorPositionCallback(GLFWwindow* window, double pos_x, double pos_y)
+    {
+        const FramebufferScale scale = FramebufferScaleOf(window);
+        const float framebufferX = static_cast<float>(pos_x) * scale.X;
+        const float framebufferY = static_cast<float>(pos_y) * scale.Y;
+
+        ImplOf(window).InputSource.OnCursorPosition(NowNanoseconds(), framebufferX, framebufferY);
+    }
+
+    void InputScrollCallback(GLFWwindow* window, double x_offset, double y_offset)
+    {
+        ImplOf(window).InputSource.OnScroll(
+            NowNanoseconds(), static_cast<float>(x_offset), static_cast<float>(y_offset));
+    }
+
+    void InputFocusCallback(GLFWwindow* window, int focused)
+    {
+        ImplOf(window).InputSource.OnFocus(NowNanoseconds(), focused != GLFW_FALSE);
+    }
+
+    void InputCursorEnterCallback(GLFWwindow* window, int entered)
+    {
+        ImplOf(window).InputSource.OnCursorEnter(entered != GLFW_FALSE);
     }
 }

@@ -22,6 +22,11 @@ using ShouldCloseEvent = Delegate<void(void* user_data)>;
 struct PlatformSystemImpl;
 class Swapchain;
 
+namespace input
+{
+    class FrameAssembler;
+}
+
 /**
  * @brief System that owns the core GLFW window and handles input events
  */
@@ -66,6 +71,13 @@ public:
     void AddKeyboardKeyEventListener(const KeyboardKeyEvent& listener, void* user_data);
     void AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data);
     void AddShouldCloseEventListener(const ShouldCloseEvent& listener, void* user_data);
+
+    /** @brief Sets the assembler that receives the input events of this window, or null to discard them. A non-null
+     * assembler at once receives one focus event with the real focus state of the window. The caller keeps the
+     * assembler alive until it passes null or destroys this system. Each frame, call
+     * `assembler.StartFrame(); Update(); const InputFrame& frame = assembler.FinishFrame();`, because the GLFW
+     * callbacks run inside Update. */
+    void SetInputAssembler(input::FrameAssembler* assembler);
 
     /** @brief Display is chosen during window creation, and isn't managed by `DisplaySystem` as it's later in the init process. */
     [[nodiscard]] const DisplayInfo& GetActiveDisplayInfo() const noexcept;
