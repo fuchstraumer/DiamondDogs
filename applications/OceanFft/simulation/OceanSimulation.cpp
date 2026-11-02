@@ -494,7 +494,7 @@ namespace ocean
                                                       ImageUsageBits::SrvComputeShader |
                                                       ImageUsageBits::TransferSource; // copies out are for tests
         rhi::ResourceFuture<GraphicsResource> whitecapReply =
-            resources.CreateImage(MakeCascadeScalarImageInfo(size, impl->MipLevels, k_ScalarImageUsage, "Ocean_Whitecaps"), {});
+            resources.CreateImage(MakeCascadeScalarImageInfo(size, impl->MipLevels, k_ScalarImageUsage, "Ocean_Whitecaps"));
 
         const CascadeParameters cascadeParameters = MakeCascadeParameters(size, settings.LengthScales);
         const RhiBufferResourceData cascadeData{ std::as_bytes(std::span{ &cascadeParameters, 1 }), 0u };
@@ -536,7 +536,7 @@ namespace ocean
         lutSampler.AddressV = SamplerCreateInfo::AddressMode::ClampToEdge;
         lutSampler.AddressW = SamplerCreateInfo::AddressMode::ClampToEdge;
         lutInfo.SamplerInfo = lutSampler;
-        rhi::ResourceFuture<GraphicsResource> lutReply = resources.CreateImage(lutInfo, std::span{ &lutData, 1 });
+        rhi::ResourceFuture<GraphicsResource> lutReply = resources.CreateImage(lutInfo, std::span{ &lutData, 1 }, ImageUsageBits::SrvComputeShader);
 
         std::array<rhi::ResourceFuture<GraphicsResource>, k_OutputImageCount> imageReplies;
 
@@ -558,7 +558,7 @@ namespace ocean
             info.ViewInfo->ViewType = ImageViewType::Type2DArray;
             info.ViewInfo->Range.LevelCount = impl->MipLevels;
             info.ViewInfo->Range.LayerCount = k_CascadeCount;
-            reply = resources.CreateImage(info, {});
+            reply = resources.CreateImage(info);
         }
 
         for (size_t i = 0; i < bufferReplies.size(); ++i)
@@ -865,7 +865,7 @@ namespace ocean
     {
         impl->Settings.Spectrum = spectrum;
         const RhiBufferResourceData data{ std::as_bytes(std::span{ &spectrum, 1 }), 0u };
-        const rhi::OperationFuture future = impl->Resources->SetBufferData(impl->SpectrumParamsBuffer, std::span{ &data, 1 });
+        const rhi::OperationFuture future = impl->Resources->SetBufferData(impl->SpectrumParamsBuffer, std::span{ &data, 1 }, {});
         return impl->Resources->Wait(future, k_TimeoutNs) == rhi::FutureState::Complete;
     }
 

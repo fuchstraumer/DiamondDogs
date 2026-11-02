@@ -292,7 +292,7 @@ namespace
             value = ocean::FloatToHalf(distribution(generator));
         }
         const RhiBufferResourceData inputData{ std::as_bytes(std::span{ input }), 0u };
-        rhi::OperationFuture upload = context.Resources.SetBufferData(ocean.GetBuffer(ocean::OceanSimulation::Buffer::IfftInput), std::span{ &inputData, 1 });
+        rhi::OperationFuture upload = context.Resources.SetBufferData(ocean.GetBuffer(ocean::OceanSimulation::Buffer::IfftInput), std::span{ &inputData, 1 }, {});
         if (context.Resources.Wait(upload, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             std::cerr << std::format("[IFFT {}] the input upload failed\n", name);
@@ -1368,7 +1368,7 @@ namespace
             info.ViewInfo->ViewType = ImageViewType::Type2D;
             info.ViewInfo->Range.LevelCount = 1u;
             info.ViewInfo->Range.LayerCount = 1u;
-            return autoDestroy(WaitForResource(context.Resources, context.Resources.CreateImage(info, {})));
+            return autoDestroy(WaitForResource(context.Resources, context.Resources.CreateImage(info)));
         };
 
         GraphicsResource gbufferNormalSigmaIn = createImage(ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination, "TestNormalSigmaIn");

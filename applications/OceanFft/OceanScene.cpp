@@ -50,6 +50,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -71,6 +72,26 @@
 namespace
 {
     constexpr uint64_t k_TimeoutNs = 10'000'000'000ull;
+
+    /** Prints the time of each startup step and the total, flushed, so a piped run shows where startup goes. */
+    class StartupClock
+    {
+    public:
+        StartupClock() noexcept : start(std::chrono::steady_clock::now()), last(start) {}
+
+        void Mark(std::string_view step)
+        {
+            const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+            const double stepMs = std::chrono::duration<double, std::milli>(now - last).count();
+            const double totalMs = std::chrono::duration<double, std::milli>(now - start).count();
+            std::cout << std::format("[startup] {:>8.1f} ms  {:>8.1f} ms total  {}\n", stepMs, totalMs, step) << std::flush;
+            last = now;
+        }
+
+    private:
+        std::chrono::steady_clock::time_point start;
+        std::chrono::steady_clock::time_point last;
+    };
     constexpr std::string_view k_RenderModule{ "OceanRender" };
     constexpr std::array<std::string_view, 2> k_SurfaceEntryPoints{ "OceanSurfaceVS", "OceanSurfaceFS" };
     constexpr std::array<std::string_view, 2> k_SeabedEntryPoints{ "SeabedVS", "SeabedFS" };
@@ -328,6 +349,7 @@ OceanScene::~OceanScene()
 
 void OceanScene::Initialize(void* user_data)
 {
+    StartupClock startup;
     platformSystem->SetInputAssembler(&inputAssembler);
 
     createFrameSyncObjects();
@@ -342,6 +364,7 @@ void OceanScene::Initialize(void* user_data)
     // one block per frame command buffer, plus one: a frame's block is collected only after its fence has passed
     gpuTimers = std::make_unique<rhi::GpuTimers>(*device, rhi::GpuTimersCreateInfo{ device->GetQueueFamilyIndices().Graphics, numFramebuffers + 1u, k_MaxGpuTimerScopes });
     LoadShaderObjectStateFunctions(vkDevice);
+    startup.Mark("frame sync, command pools, GPU timers");
 
     resources = std::make_unique<ResourceContext>();
     const ResourceContextError resourcesResult = resources->Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), settings.ValidationEnabled });
@@ -357,6 +380,7 @@ void OceanScene::Initialize(void* user_data)
     }
 
     library = std::move(*opened);
+    startup.Mark("ResourceContext, ocean shader library");
 
     auto created = ocean::OceanSimulation::Create(*device, *resources, *library, settings.Simulation);
     if (!created.has_value())
@@ -365,6 +389,7 @@ void OceanScene::Initialize(void* user_data)
     }
 
     simulation = std::move(*created);
+    startup.Mark("OceanSimulation::Create");
 
     // linear and repeating: each cascade tiles with its own patch size. Anisotropic, because most of the water is seen
     // at a grazing angle, where one trilinear lookup blurs the waves away
@@ -411,6 +436,7 @@ void OceanScene::Initialize(void* user_data)
     }
 
     foamMaterial = std::move(*loadedMaterial);
+    startup.Mark("sampler, view buffers, FoamMaterial::Load");
 
     // the foam binds the view buffers and the sampler, so it is created after them and destroyed before them
     auto createdFoam = ocean::OceanFoam::Create(*device, *resources, *library, *simulation, viewBuffers, sampler, foamSettings);
@@ -420,6 +446,7 @@ void OceanScene::Initialize(void* user_data)
     }
 
     foam = std::move(*createdFoam);
+    startup.Mark("OceanFoam::Create");
 
     // ColorPipe library and pipeline
     auto libResult = rhi::ShaderLibrary::Open(settings.ColorPipeManifestPath);
@@ -471,6 +498,7 @@ void OceanScene::Initialize(void* user_data)
     colorPipe = std::move(*pipeResult);
     colorPipe->SetBloomSettings(bloomSettings);
     colorPipe->SetExposureEv(exposureEv);
+    startup.Mark("ColorPipe library and Create");
 
     // Ocean CDLOD
     ocean::OceanCdlodSettings cdlodSettings{};
@@ -495,6 +523,7 @@ void OceanScene::Initialize(void* user_data)
         Fail(std::format("OceanScene: creating OceanCdlod failed: {}", cdlodResult.error()));
     }
     cdlod = std::move(*cdlodResult);
+    startup.Mark("OceanCdlod::Create");
 
     // Ocean Environment (Sky, SH, Pyramidal mip gen)
     ocean::OceanEnvironmentSettings envSettings{};
@@ -506,13 +535,17 @@ void OceanScene::Initialize(void* user_data)
         Fail(std::format("OceanScene: creating OceanEnvironment failed: {}", envResult.error()));
     }
     environment = std::move(*envResult);
+    startup.Mark("OceanEnvironment::Create");
     (void)environment->SetPreset(skyPreset);
+    startup.Mark("OceanEnvironment::SetPreset");
 
     // Seabed Material
     if (!settings.SeabedMaterialDirectory.empty())
     {
         seabedMaterial = ocean::LoadSeabedMaterial(settings.SeabedMaterialDirectory, settings.SeabedMaterialName, *resources, *device);
     }
+
+    startup.Mark("LoadSeabedMaterial");
 
     // Async Compute queue setup
     hasAsyncComputeQueue = device->GetComputeQueueCount() > 0 && device->GetComputeQueue(0) != device->GetGraphicsQueue(0);
@@ -568,9 +601,14 @@ void OceanScene::Initialize(void* user_data)
         Fail(std::format("OceanScene: creating OceanAtmosphere failed: {}", atmoRes.error()));
     }
 
+    startup.Mark("async compute setup, frame constants, OceanAtmosphere::Create");
+
     createRenderPrograms();
+    startup.Mark("createRenderPrograms");
     createDeferredPrograms();
+    startup.Mark("createDeferredPrograms");
     createRenderTargets();
+    startup.Mark("createRenderTargets");
     std::cout << std::format("OceanFft: msaa {}x, anisotropy {}x, grid {}\n", static_cast<uint32_t>(msaaSamples), anisotropy, settings.GridResolution)
         << std::flush;
 
@@ -587,6 +625,7 @@ void OceanScene::Initialize(void* user_data)
         settings.FontDirectory
     };
     imgui = std::make_unique<ImGuiModule>(imguiInfo);
+    startup.Mark("ImGuiModule");
 
     // capture only costs anything on the frames it copies, but it needs transfer source usage on the swapchain
     if (settings.Capture.Count > 0u || settings.Commands != nullptr)
@@ -601,6 +640,7 @@ void OceanScene::Initialize(void* user_data)
         }
     }
 
+    startup.Mark("frame capture");
     setup = true;
 }
 
@@ -1077,7 +1117,7 @@ void OceanScene::createRenderTargets()
     depthInfo.ViewInfo = ImageViewCreateInfo{};
     depthInfo.ViewInfo->ViewType = ImageViewType::Type2D;
     depthInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Depth;
-    depthImage = WaitForResource(*resources, resources->CreateImage(depthInfo, {}), "the depth image");
+    depthImage = WaitForResource(*resources, resources->CreateImage(depthInfo), "the depth image");
 
     if (msaaSamples != VK_SAMPLE_COUNT_1_BIT)
     {
@@ -1087,7 +1127,7 @@ void OceanScene::createRenderTargets()
         colorInfo.Format = CommonFormats::RGBA16_Float;
         colorInfo.Name = "Ocean_MsaaColorImage";
         colorInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
-        msaaColorImage = WaitForResource(*resources, resources->CreateImage(colorInfo, {}), "the multisampled color image");
+        msaaColorImage = WaitForResource(*resources, resources->CreateImage(colorInfo), "the multisampled color image");
         rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE, msaaColorImage.VkHandle, "Ocean_MsaaColorImage");
         rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_IMAGE_VIEW, msaaColorImage.VkViewHandle, "Ocean_MsaaColorImageView");
     }
@@ -1108,32 +1148,32 @@ void OceanScene::createRenderTargets()
     hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite |
                     ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader;
     hdrInfo.Name = "Ocean_GBufferNormalSigma";
-    gbufferNormalSigma = WaitForResource(*resources, resources->CreateImage(hdrInfo, {}), "GBufferNormalSigma");
+    gbufferNormalSigma = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferNormalSigma");
 
     hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination;
     hdrInfo.Name = "Ocean_GBufferNormalSigmaFiltered";
-    gbufferNormalSigmaFiltered = WaitForResource(*resources, resources->CreateImage(hdrInfo, {}), "GBufferNormalSigmaFiltered");
+    gbufferNormalSigmaFiltered = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferNormalSigmaFiltered");
 
     hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader;
     hdrInfo.Name = "Ocean_GBufferFoamSss";
-    gbufferFoamSss = WaitForResource(*resources, resources->CreateImage(hdrInfo, {}), "GBufferFoamSss");
+    gbufferFoamSss = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferFoamSss");
 
     hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader;
     hdrInfo.Name = "Ocean_GBufferMotionFoam";
-    gbufferMotionFoam = WaitForResource(*resources, resources->CreateImage(hdrInfo, {}), "GBufferMotionFoam");
+    gbufferMotionFoam = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferMotionFoam");
 
     hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader;
     hdrInfo.Name = "Ocean_SeabedColorImage";
-    seabedColorImage = WaitForResource(*resources, resources->CreateImage(hdrInfo, {}), "SeabedColorImage");
+    seabedColorImage = WaitForResource(*resources, resources->CreateImage(hdrInfo), "SeabedColorImage");
 
     hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination;
     hdrInfo.Name = "Ocean_HdrLightingImage";
-    hdrLightingImage = WaitForResource(*resources, resources->CreateImage(hdrInfo, {}), "HdrLightingImage");
+    hdrLightingImage = WaitForResource(*resources, resources->CreateImage(hdrInfo), "HdrLightingImage");
 
     for (size_t i = 0; i < 2; ++i)
     {
         hdrInfo.Name = (i == 0) ? "Ocean_TaaHistory0" : "Ocean_TaaHistory1";
-        taaHistoryImages[i] = WaitForResource(*resources, resources->CreateImage(hdrInfo, {}), "TaaHistoryImage");
+        taaHistoryImages[i] = WaitForResource(*resources, resources->CreateImage(hdrInfo), "TaaHistoryImage");
     }
 
     ImageCreateInfo depthTargetInfo{};
@@ -1150,10 +1190,10 @@ void OceanScene::createRenderTargets()
     depthTargetInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Depth;
 
     depthTargetInfo.Name = "Ocean_SeabedDepthImage";
-    seabedDepthImage = WaitForResource(*resources, resources->CreateImage(depthTargetInfo, {}), "SeabedDepthImage");
+    seabedDepthImage = WaitForResource(*resources, resources->CreateImage(depthTargetInfo), "SeabedDepthImage");
 
     depthTargetInfo.Name = "Ocean_OceanDepthImage";
-    oceanDepthImage = WaitForResource(*resources, resources->CreateImage(depthTargetInfo, {}), "OceanDepthImage");
+    oceanDepthImage = WaitForResource(*resources, resources->CreateImage(depthTargetInfo), "OceanDepthImage");
 
     ImageCreateInfo hiZInfo{};
     hiZInfo.Domain = ResourceDomain::GPUOnly;
@@ -1168,7 +1208,7 @@ void OceanScene::createRenderTargets()
     hiZInfo.ViewInfo->ViewType = ImageViewType::Type2D;
     hiZInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
     hiZInfo.Name = "Ocean_HiZImage";
-    hiZImage = WaitForResource(*resources, resources->CreateImage(hiZInfo, {}), "HiZImage");
+    hiZImage = WaitForResource(*resources, resources->CreateImage(hiZInfo), "HiZImage");
 
     SamplerCreateInfo linearClampInfo{};
     linearClampInfo.MagFilter = ImageFilteringMode::Linear;

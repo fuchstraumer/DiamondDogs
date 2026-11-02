@@ -215,7 +215,7 @@ namespace ocean
             info.ViewInfo->Range.LevelCount = 1u;
             info.ViewInfo->Range.LayerCount = 1u;
 
-            rhi::ResourceFuture<GraphicsResource> reply = Resources->CreateImage(info, {});
+            rhi::ResourceFuture<GraphicsResource> reply = Resources->CreateImage(info);
             if (Resources->Wait(reply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 std::cerr << "OceanAtmosphere: failed to create 2D image " << name << "\n";
@@ -247,7 +247,7 @@ namespace ocean
             info.ViewInfo->Range.LevelCount = 1u;
             info.ViewInfo->Range.LayerCount = 1u;
 
-            rhi::ResourceFuture<GraphicsResource> reply = Resources->CreateImage(info, {});
+            rhi::ResourceFuture<GraphicsResource> reply = Resources->CreateImage(info);
             if (Resources->Wait(reply, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 std::cerr << "OceanAtmosphere: failed to create 3D image " << name << "\n";

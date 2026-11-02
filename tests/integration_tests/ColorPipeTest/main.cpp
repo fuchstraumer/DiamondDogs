@@ -609,7 +609,7 @@ namespace
         outputInfo.ViewInfo = ImageViewCreateInfo{};
         outputInfo.ViewInfo->ViewType = ImageViewType::Type2D;
         outputInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
-        runner.Output = WaitForResource(context.Resources, context.Resources.CreateImage(outputInfo, {}));
+        runner.Output = WaitForResource(context.Resources, context.Resources.CreateImage(outputInfo));
 
         runner.TargetsFilled = false;
 

@@ -315,7 +315,7 @@ namespace
         imageInfo.ViewInfo->ViewType = ImageViewType::Type2DArray;
         imageInfo.ViewInfo->Range.LevelCount = mipLevels;
         imageInfo.ViewInfo->Range.LayerCount = test.Layers;
-        const GraphicsResource image = WaitForResource(resources, resources.CreateImage(imageInfo, {}));
+        const GraphicsResource image = WaitForResource(resources, resources.CreateImage(imageInfo));
 
         const auto destroy = [&]()
         {

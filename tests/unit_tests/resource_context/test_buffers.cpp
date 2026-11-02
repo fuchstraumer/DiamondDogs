@@ -92,7 +92,7 @@ TEST_F(ResourceContextTest, SetBufferDataReplacesContents)
     const RhiBufferResourceData data{ std::as_bytes(std::span{ words }), 0u };
     const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(data.Data.size()), {});
 
-    rhi::OperationFuture setReply = context->SetBufferData(buffer, std::span{ &data, 1u });
+    rhi::OperationFuture setReply = context->SetBufferData(buffer, std::span{ &data, 1u }, {});
     ASSERT_EQ(context->Wait(setReply, k_TimeoutNs), rhi::FutureState::Complete);
     EXPECT_EQ(ReadBackWords(buffer, data.Data.size()), words);
 }
@@ -102,7 +102,7 @@ TEST_F(ResourceContextTest, FillBufferWritesTheValue)
     constexpr size_t k_Bytes = 1024u;
     const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(k_Bytes), {});
 
-    rhi::OperationFuture fillReply = context->FillBuffer(buffer, 0xA5A5A5A5u, 0u, k_Bytes);
+    rhi::OperationFuture fillReply = context->FillBuffer(buffer, 0xA5A5A5A5u, 0u, k_Bytes, {});
     ASSERT_EQ(context->Wait(fillReply, k_TimeoutNs), rhi::FutureState::Complete);
     EXPECT_EQ(ReadBackWords(buffer, k_Bytes), std::vector<uint32_t>(k_Bytes / sizeof(uint32_t), 0xA5A5A5A5u));
 }
@@ -110,7 +110,7 @@ TEST_F(ResourceContextTest, FillBufferWritesTheValue)
 TEST_F(ResourceContextTest, FillBufferRejectsAnUnalignedOffset)
 {
     const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(64u), {});
-    rhi::OperationFuture fillReply = context->FillBuffer(buffer, 0u, 2u, 16u);
+    rhi::OperationFuture fillReply = context->FillBuffer(buffer, 0u, 2u, 16u, {});
     EXPECT_EQ(context->Wait(fillReply, k_TimeoutNs), rhi::FutureState::Failed);
 }
 
@@ -120,7 +120,7 @@ TEST_F(ResourceContextTest, CopyBufferDuplicatesContents)
     const RhiBufferResourceData data{ std::as_bytes(std::span{ words }), 0u };
     const GraphicsResource source = CreateBufferAndWait(DeviceLocalStorageBuffer(data.Data.size()), std::span{ &data, 1u });
 
-    rhi::ResourceFuture<GraphicsResource> copyReply = context->CopyBuffer(source, true);
+    rhi::ResourceFuture<GraphicsResource> copyReply = context->CopyBuffer(source, true, {});
     ASSERT_EQ(context->Wait(copyReply, k_TimeoutNs), rhi::FutureState::Complete);
     const GraphicsResource copy = copyReply.Get();
     ASSERT_TRUE(static_cast<bool>(copy));
@@ -201,7 +201,7 @@ TEST_F(ResourceContextTest, TransferWithoutTheUsageBitFails)
     info.Size = 64u;
     const GraphicsResource buffer = CreateBufferAndWait(info, {});
 
-    rhi::OperationFuture fillReply = context->FillBuffer(buffer, 0u, 0u, 64u);
+    rhi::OperationFuture fillReply = context->FillBuffer(buffer, 0u, 0u, 64u, {});
     EXPECT_EQ(context->Wait(fillReply, k_TimeoutNs), rhi::FutureState::Failed);
 
     BufferCreateInfo readbackInfo{};
@@ -209,7 +209,7 @@ TEST_F(ResourceContextTest, TransferWithoutTheUsageBitFails)
     readbackInfo.Usage = BufferUsageBits::CopyDestination;
     readbackInfo.Size = 64u;
     const GraphicsResource readback = CreateBufferAndWait(readbackInfo, {});
-    rhi::OperationFuture copyReply = context->CopyBufferContents(buffer, readback);
+    rhi::OperationFuture copyReply = context->CopyBufferContents(buffer, readback, {});
     EXPECT_EQ(context->Wait(copyReply, k_TimeoutNs), rhi::FutureState::Failed);
 }
 
@@ -224,7 +224,7 @@ TEST_F(ResourceContextTest, StagedInitialDataAddsOnlyTheDestinationBit)
     info.Size = data.Data.size();
     const GraphicsResource buffer = CreateBufferAndWait(info, std::span{ &data, 1u });
 
-    rhi::ResourceFuture<GraphicsResource> copyReply = context->CopyBuffer(buffer, true);
+    rhi::ResourceFuture<GraphicsResource> copyReply = context->CopyBuffer(buffer, true, {});
     EXPECT_EQ(context->Wait(copyReply, k_TimeoutNs), rhi::FutureState::Failed);
 }
 
@@ -239,16 +239,16 @@ TEST_F(ResourceContextTest, EveryBufferMessageRefusesAMismatchedHandle)
 
     const std::vector<uint32_t> words = MakeWordPattern(16u, 7u);
     const RhiBufferResourceData data{ std::as_bytes(std::span{ words }), 0u };
-    rhi::OperationFuture setReply = context->SetBufferData(forged, std::span{ &data, 1u });
+    rhi::OperationFuture setReply = context->SetBufferData(forged, std::span{ &data, 1u }, {});
     EXPECT_EQ(context->Wait(setReply, k_TimeoutNs), rhi::FutureState::Failed);
 
-    rhi::OperationFuture fillReply = context->FillBuffer(forged, 0u, 0u, k_Bytes);
+    rhi::OperationFuture fillReply = context->FillBuffer(forged, 0u, 0u, k_Bytes, {});
     EXPECT_EQ(context->Wait(fillReply, k_TimeoutNs), rhi::FutureState::Failed);
 
-    rhi::OperationFuture copyContentsReply = context->CopyBufferContents(forged, buffer);
+    rhi::OperationFuture copyContentsReply = context->CopyBufferContents(forged, buffer, {});
     EXPECT_EQ(context->Wait(copyContentsReply, k_TimeoutNs), rhi::FutureState::Failed);
 
-    rhi::ResourceFuture<GraphicsResource> copyReply = context->CopyBuffer(forged, true);
+    rhi::ResourceFuture<GraphicsResource> copyReply = context->CopyBuffer(forged, true, {});
     EXPECT_EQ(context->Wait(copyReply, k_TimeoutNs), rhi::FutureState::Failed);
 
     rhi::OperationFuture destroyReply = context->DestroyResource(forged);

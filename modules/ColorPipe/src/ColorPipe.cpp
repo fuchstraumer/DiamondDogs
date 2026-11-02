@@ -1052,8 +1052,8 @@ namespace color
 
         ColorPipeError CreateTargets(ColorPipeImpl& impl, uint32_t width, uint32_t height)
         {
-            impl.Scene = WaitForResource(*impl.Resources, impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA16_Float, width, height, "ColorPipe_Scene"), {}));
-            impl.Ui = WaitForResource(*impl.Resources, impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA8_UNorm, width, height, "ColorPipe_Ui"), {}));
+            impl.Scene = WaitForResource(*impl.Resources, impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA16_Float, width, height, "ColorPipe_Scene")));
+            impl.Ui = WaitForResource(*impl.Resources, impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA8_UNorm, width, height, "ColorPipe_Ui")));
 
             if (!impl.Scene || !impl.Ui)
             {
@@ -1073,7 +1073,7 @@ namespace color
                 const std::string name = std::format("ColorPipe_BloomDownsample_{}", i);
                 const std::string viewName = std::format("ColorPipe_BloomDownsample_{}_View", i);
                 impl.BloomDownsample[i] = WaitForResource(*impl.Resources, impl.Resources->CreateImage(
-                    MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name), {}));
+                    MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name)));
 
                 if (!impl.BloomDownsample[i])
                 {
@@ -1091,7 +1091,7 @@ namespace color
                 const std::string name = std::format("ColorPipe_BloomUpsample_{}", i);
                 const std::string viewName = std::format("ColorPipe_BloomUpsample_{}_View", i);
                 impl.BloomUpsample[i] = WaitForResource(*impl.Resources, impl.Resources->CreateImage(
-                    MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name), {}));
+                    MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name)));
 
                 if (!impl.BloomUpsample[i])
                 {

@@ -49,15 +49,35 @@ void ResourceContextTest::RecreateContext(int32_t max_futures)
 
 std::vector<uint32_t> ResourceContextTest::ReadBackWords(const GraphicsResource& source, size_t size_bytes)
 {
+    GraphicsResource readback = CreateReadbackBuffer(size_bytes);
+
+    rhi::OperationFuture copyReply = context->CopyBufferContents(source, readback, {});
+    EXPECT_EQ(context->Wait(copyReply, k_TimeoutNs), rhi::FutureState::Complete);
+
+    return ReadWordsAndDestroy(readback, size_bytes);
+}
+
+std::vector<uint32_t> ResourceContextTest::ReadBackImageWords(const GraphicsResource& image, rhi::ImageUsageTransition usage, size_t size_bytes)
+{
+    GraphicsResource readback = CreateReadbackBuffer(size_bytes);
+
+    rhi::OperationFuture copyReply = context->CopyImageToBuffer(image, usage, readback, {});
+    EXPECT_EQ(context->Wait(copyReply, k_TimeoutNs), rhi::FutureState::Complete);
+
+    return ReadWordsAndDestroy(readback, size_bytes);
+}
+
+GraphicsResource ResourceContextTest::CreateReadbackBuffer(size_t size_bytes)
+{
     BufferCreateInfo readbackInfo{};
     readbackInfo.Domain = ResourceDomain::GPUToCPU;
     readbackInfo.Usage = BufferUsageBits::CopyDestination;
     readbackInfo.Size = size_bytes;
-    GraphicsResource readback = CreateBufferAndWait(readbackInfo, {});
+    return CreateBufferAndWait(readbackInfo, {});
+}
 
-    rhi::OperationFuture copyReply = context->CopyBufferContents(source, readback);
-    EXPECT_EQ(context->Wait(copyReply, k_TimeoutNs), rhi::FutureState::Complete);
-
+std::vector<uint32_t> ResourceContextTest::ReadWordsAndDestroy(const GraphicsResource& readback, size_t size_bytes)
+{
     rhi::ResourceFuture<void*> mapReply = context->MapBuffer(readback, size_bytes, 0u);
     EXPECT_EQ(context->Wait(mapReply, k_TimeoutNs), rhi::FutureState::Complete);
     std::vector<uint32_t> words(size_bytes / sizeof(uint32_t));
@@ -65,10 +85,11 @@ std::vector<uint32_t> ResourceContextTest::ReadBackWords(const GraphicsResource&
     {
         std::memcpy(words.data(), mapReply.Get(), size_bytes);
     }
+
     rhi::OperationFuture unmapReply = context->UnmapBuffer(readback, size_bytes, 0u);
     EXPECT_EQ(context->Wait(unmapReply, k_TimeoutNs), rhi::FutureState::Complete);
-
     DestroyAndWait(readback);
+
     return words;
 }
 

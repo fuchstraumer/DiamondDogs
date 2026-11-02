@@ -10,6 +10,8 @@ set(RESOURCE_CONTEXT_TEST_SOURCES
     test_concurrency.cpp
     test_retirement.cpp
     test_futures.cpp
+    test_handoff.cpp
+    test_waits.cpp
 )
 
 set(resource_context_test_link_targets

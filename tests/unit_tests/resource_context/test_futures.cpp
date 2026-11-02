@@ -118,7 +118,7 @@ TEST_F(ResourceContextTest, FullTableFailsAtOnceAndReusesReleasedSlots)
     EXPECT_EQ(context->Counters().FuturesLive, k_SmallTableLive);
 
     // the full-table slot is shared, so a second overflow gets the same answer
-    rhi::OperationFuture secondOverflow = context->FillBuffer(GraphicsResource::Null(), 0u, 0u, 4u);
+    rhi::OperationFuture secondOverflow = context->FillBuffer(GraphicsResource::Null(), 0u, 0u, 4u, {});
     EXPECT_EQ(secondOverflow.Error(), rhi::ResourceError::FutureTableFull);
     EXPECT_EQ(context->Counters().FutureTableFull, 2);
 
@@ -182,7 +182,7 @@ TEST_F(ResourceContextTest, FutureDroppedDuringTransferFreesItsSlot)
         const RhiBufferResourceData data{ std::as_bytes(std::span{ words }), 0u };
 
         {
-            rhi::OperationFuture upload = context->SetBufferData(buffer, std::span{ &data, 1u });
+            rhi::OperationFuture upload = context->SetBufferData(buffer, std::span{ &data, 1u }, {});
             ASSERT_NE(upload.Error(), rhi::ResourceError::FutureTableFull) << "iteration " << iteration;
 
             if (!upload.IsDone())
@@ -234,7 +234,7 @@ TEST_F(ResourceContextTest, EveryFailurePathReportsItsError)
     noTransferInfo.Size = 256u;
     const GraphicsResource noTransfer = CreateBufferAndWait(noTransferInfo, {});
 
-    rhi::ResourceFuture<GraphicsResource> imageFuture = context->CreateImage(SmallTexture(), {});
+    rhi::ResourceFuture<GraphicsResource> imageFuture = context->CreateImage(SmallTexture());
     ASSERT_EQ(context->Wait(imageFuture, k_TimeoutNs), rhi::FutureState::Complete);
     const GraphicsResource image = imageFuture.Get();
 
@@ -259,13 +259,13 @@ TEST_F(ResourceContextTest, EveryFailurePathReportsItsError)
     std::vector<Case> cases;
     cases.push_back({ "zero-size buffer", context->CreateBuffer(zeroSize, {}), rhi::ResourceError::InvalidCreateInfo });
     cases.push_back({ "device address without the feature", context->CreateBuffer(addressUsage, {}), rhi::ResourceError::UnsupportedUsage });
-    cases.push_back({ "fill of a destroyed buffer", context->FillBuffer(destroyed, 0u, 0u, 64u), rhi::ResourceError::StaleResource });
+    cases.push_back({ "fill of a destroyed buffer", context->FillBuffer(destroyed, 0u, 0u, 64u, {}), rhi::ResourceError::StaleResource });
     cases.push_back({ "map of an image", context->MapBuffer(image, 64u, 0u), rhi::ResourceError::WrongResourceKind });
-    cases.push_back({ "fill without CopyDestination", context->FillBuffer(noTransfer, 0u, 0u, 64u), rhi::ResourceError::MissingTransferUsage });
-    cases.push_back({ "fill at offset 2", context->FillBuffer(deviceLocal, 0u, 2u, 64u), rhi::ResourceError::InvalidFillRange });
-    cases.push_back({ "copy into a smaller buffer", context->CopyBufferContents(deviceLocal, small), rhi::ResourceError::CopySizeMismatch });
+    cases.push_back({ "fill without CopyDestination", context->FillBuffer(noTransfer, 0u, 0u, 64u, {}), rhi::ResourceError::MissingTransferUsage });
+    cases.push_back({ "fill at offset 2", context->FillBuffer(deviceLocal, 0u, 2u, 64u, {}), rhi::ResourceError::InvalidFillRange });
+    cases.push_back({ "copy into a smaller buffer", context->CopyBufferContents(deviceLocal, small, {}), rhi::ResourceError::CopySizeMismatch });
     cases.push_back({ "map of device-local memory", context->MapBuffer(deviceLocal, 64u, 0u), rhi::ResourceError::NotHostVisible });
-    cases.push_back({ "copy of a sampler", context->CopyBuffer(sampler, false), rhi::ResourceError::UnsupportedCopy });
+    cases.push_back({ "copy of a sampler", context->CopyBuffer(sampler, false, {}), rhi::ResourceError::UnsupportedCopy });
     cases.push_back({ "register a null timeline", context->RegisterConsumerTimeline(rhi::TimelineSemaphoreHandle{}), rhi::ResourceError::InvalidTimeline });
 
     for (const Case& entry : cases)

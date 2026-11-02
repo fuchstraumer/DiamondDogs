@@ -190,7 +190,7 @@ namespace ocean
         impl->Settings = settings;
         const VkDevice vkDevice = device.Handle().As<VkDevice>();
 
-        rhi::ResourceFuture<GraphicsResource> imageReply = resources.CreateImage(MakeClipmapImageInfo(settings.Resolution), {});
+        rhi::ResourceFuture<GraphicsResource> imageReply = resources.CreateImage(MakeClipmapImageInfo(settings.Resolution));
 
         if (resources.Wait(imageReply, k_TimeoutNs) != rhi::FutureState::Complete)
         {

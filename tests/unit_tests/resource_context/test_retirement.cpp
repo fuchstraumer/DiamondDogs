@@ -41,7 +41,7 @@ TEST_F(ResourceContextTest, DestroyWaitsForTheConsumerTimeline)
     EXPECT_EQ(context->Wait(destroy, k_ShortWaitNs), rhi::FutureState::Pending);
 
     // a retiring resource is refused at once. this future also orders the counter read after the destroy
-    const rhi::OperationFuture refusedFill = context->FillBuffer(buffer, 0u, 0u, 256u);
+    const rhi::OperationFuture refusedFill = context->FillBuffer(buffer, 0u, 0u, 256u, {});
     EXPECT_EQ(context->Wait(refusedFill, k_TimeoutNs), rhi::FutureState::Failed);
     EXPECT_EQ(refusedFill.Error(), rhi::ResourceError::ResourceRetiring);
     EXPECT_EQ(context->Counters().RetirementsPending, 1);
@@ -117,7 +117,7 @@ TEST_F(ResourceContextTest, ManyTransfersCompleteFromFewCounterReads)
     fills.reserve(k_FillCount);
     for (int32_t i = 0; i < k_FillCount; ++i)
     {
-        fills.push_back(context->FillBuffer(buffer, static_cast<uint32_t>(i), 0u, k_BufferBytes));
+        fills.push_back(context->FillBuffer(buffer, static_cast<uint32_t>(i), 0u, k_BufferBytes, {}));
     }
 
     for (const rhi::OperationFuture& fill : fills)
@@ -155,7 +155,7 @@ TEST_F(ResourceContextTest, DestroyWaitsForQueuedUploads)
     for (int32_t i = 0; i < 8; ++i)
     {
         const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(k_UploadBytes), {});
-        rhi::OperationFuture upload = context->SetBufferData(buffer, std::span{ &data, 1u });
+        rhi::OperationFuture upload = context->SetBufferData(buffer, std::span{ &data, 1u }, {});
         destroys.push_back(context->DestroyResource(buffer));
 
         // the destroy completes only after the upload's ticket passed
@@ -186,7 +186,7 @@ TEST_F(ResourceContextTest, ShutdownFreesQueuedRetirements)
     }
 
     // orders the counter read after the destroys
-    EXPECT_EQ(context->Wait(context->FillBuffer(buffers[0], 0u, 0u, 4096u), k_TimeoutNs), rhi::FutureState::Failed);
+    EXPECT_EQ(context->Wait(context->FillBuffer(buffers[0], 0u, 0u, 4096u, {}), k_TimeoutNs), rhi::FutureState::Failed);
     EXPECT_EQ(context->Counters().RetirementsPending, 3);
 
     // the owner waits for its frames before it destroys the context. the context must free the queue, not leak it: a

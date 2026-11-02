@@ -225,7 +225,7 @@ namespace
         info.ViewInfo->Range.LevelCount = levels;
         info.Name = name;
 
-        rhi::ResourceFuture<GraphicsResource> reply = resources.CreateImage(info, mipData);
+        rhi::ResourceFuture<GraphicsResource> reply = resources.CreateImage(info, mipData, ImageUsageBits::SrvFragmentShader);
         if (resources.Wait(reply, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return std::unexpected(std::string{ "creating the GPU image failed" });
