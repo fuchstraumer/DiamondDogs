@@ -11,9 +11,11 @@
 #include "RhiSystem.hpp"
 #include "UploadBuffer.hpp"
 #include "VulkanConversions.hpp"
+#include "containers/mwsrQueue.hpp"
 #include "vulkan/vulkan_core.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>

@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <vector>
 
 constexpr static VkBufferCreateInfo k_DefaultStagingBufferCreateInfo
@@ -43,11 +44,12 @@ UploadBuffer::UploadBuffer(UploadBuffer&& other) noexcept :
     Buffer(other.Buffer),
     Allocation(other.Allocation),
     Allocator(other.Allocator),
-    mappedPtr(other.mappedPtr),
+    MappedPtr(other.MappedPtr),
     Size(other.Size)
 {
     other.Buffer = VK_NULL_HANDLE;
     other.Allocation = VK_NULL_HANDLE;
+    other.MappedPtr = nullptr;
 }
 
 UploadBuffer& UploadBuffer::operator=(UploadBuffer&& other) noexcept
@@ -57,10 +59,11 @@ UploadBuffer& UploadBuffer::operator=(UploadBuffer&& other) noexcept
         Buffer = other.Buffer;
         Allocation = other.Allocation;
         Allocator = other.Allocator;
-        mappedPtr = other.mappedPtr;
+        MappedPtr = other.MappedPtr;
         Size = other.Size;
         other.Buffer = VK_NULL_HANDLE;
         other.Allocation = VK_NULL_HANDLE;
+        other.MappedPtr = nullptr;
     }
     return *this;
 }
@@ -154,6 +157,7 @@ bool UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
         &Buffer,
         &Allocation,
         &resultAllocInfo);
+    
     if (result != VK_SUCCESS)
     {
         Buffer = VK_NULL_HANDLE;
@@ -161,7 +165,7 @@ bool UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
         return false;
     }
 
-    mappedPtr = resultAllocInfo.pMappedData;
+    MappedPtr = resultAllocInfo.pMappedData;
     Size = size;
 
     if constexpr (RHI_SYSTEM_USE_DEBUG_INFO && RHI_SYSTEM_VALIDATION_ENABLED)
@@ -175,10 +179,10 @@ bool UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
     return true;
 }
 
-void UploadBuffer::setDataAtOffset(const void* data, size_t data_size, size_t offset)
+void UploadBuffer::setDataAtOffset(const void* data, size_t data_size, size_t offset) const
 {
     assert((data_size + offset) <= Size);
-    auto* destAddress = reinterpret_cast<std::byte*>(mappedPtr) + offset;
+    auto* destAddress = reinterpret_cast<std::byte*>(MappedPtr) + offset;
     std::memcpy(destAddress, data, data_size);
     // the allocation is host-visible but may not be coherent
     vmaFlushAllocation(Allocator, Allocation, offset, data_size);
