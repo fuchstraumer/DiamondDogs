@@ -351,7 +351,7 @@ void VulkanTriangle::setupUniformBuffer()
 void VulkanTriangle::setupCommandPool()
 {
     using namespace rhi;
-    // one pool per frame in flight: CommandPool is reset whole, after beginFrame() waits on that frame's fence
+    // one pool per frame in flight: CommandPool is reset whole, after beginFrame() waits on the frame timeline
     commandPools.reserve(numFramebuffers);
     for (uint32_t i = 0; i < numFramebuffers; ++i)
     {

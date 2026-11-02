@@ -15,12 +15,14 @@
 #include "vulkan/vulkan_core.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <thread>
 #include <type_traits>
@@ -46,6 +48,8 @@ namespace
     // that records a transfer checks it here, at the surface, and fails the reply instead of recording invalid commands
     [[nodiscard]] bool CanBeTransferSource(const entt::registry& registry, entt::entity entity) noexcept;
     [[nodiscard]] bool CanBeTransferDestination(const entt::registry& registry, entt::entity entity) noexcept;
+    /** @brief Image to image copies need the same aspect, extent, layers and mips (for now). */
+    [[nodiscard]] bool ImagesHaveTheSameShape(const ImageCreateInfo& src, const ImageCreateInfo& dst) noexcept;
 }
 
 ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateInfo& create_info)
@@ -90,7 +94,7 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
         return ResourceContextError::AllocatorCreationFailed;
     }
 
-    const ResourceContextError transferResult = transferSystem.Initialize(create_info.Device, instance, create_info.VulkanApiVersion);
+    const ResourceContextError transferResult = transferSystem.Initialize(create_info.Device, instance, create_info.VulkanApiVersion, &messageQueue);
     if (transferResult != ResourceContextError::Success)
     {
         vmaDestroyAllocator(allocatorHandle);
@@ -124,10 +128,20 @@ void ResourceContextImpl::Destroy()
             break;
         }
         dispatchMessage(std::move(*message));
+        retireReady();
     }
 
     // destroy transfer system, which may have pending resources and transfers
     transferSystem.destroy();
+
+    // the owner waits for its own frames before it destroys the context, and the transfer queue is idle now
+    for (RetiringResource& entry : retiring)
+    {
+        retire(entry);
+    }
+
+    retiring.clear();
+    retirementsPending.store(0, std::memory_order_relaxed);
 
     // now traverse the registry for live entities and destroy their resources
     std::vector<entt::entity> liveEntities;
@@ -173,6 +187,30 @@ const rhi::Device* ResourceContextImpl::Device() const noexcept
     return device;
 }
 
+uint64_t ResourceContextImpl::TransferTimeline() const noexcept
+{
+    return transferSystem.TimelineHandle();
+}
+
+ResourceContextCounters ResourceContextImpl::Counters() const noexcept
+{
+    const TransferSystemCounters transfer = transferSystem.Counters();
+    return ResourceContextCounters
+    {
+        messagesProcessed.load(std::memory_order_relaxed),
+        transfer.TransfersRecorded,
+        transfer.TransfersFailed,
+        transfer.BatchesSubmitted,
+        transfer.CompletionReads,
+        consumerTimelineReads.load(std::memory_order_relaxed),
+        transfer.BytesStaged,
+        resourcesRetired.load(std::memory_order_relaxed),
+        retirementsPending.load(std::memory_order_relaxed),
+        messageQueue.BlockedPushCount(),
+        transfer.BlockedPushes
+    };
+}
+
 void ResourceContextImpl::processMessages()
 {
     // fixed: we used to use an exponential backoff sleeper, which was totally pointless since mwsr queue
@@ -185,12 +223,14 @@ void ResourceContextImpl::processMessages()
             return;
         }
         dispatchMessage(std::move(message));
+        retireReady();
     }
 }
 
 void ResourceContextImpl::dispatchMessage(ResourceMessagePayloadType&& message)
 {
     std::visit([this](auto&& alternative) { processMessage(std::forward<decltype(alternative)>(alternative)); }, std::move(message));
+    messagesProcessed.fetch_add(1, std::memory_order_relaxed);
 }
 
 void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
@@ -215,7 +255,6 @@ void ResourceContextImpl::processMessage(CreateBufferMessage&& message)
     {
         // pass responsiblity on to transfer system now, transferring ownership of data with a move
         message.Reply->setGraphicsResourceRelaxed(*createdResource);
-        message.Reply->setStatus(MessageReply::Status::Transferring);
         enqueueBufferUpload(newEntity, std::move(*message.InitialData), std::move(message.Reply));
         return;
     }
@@ -247,7 +286,6 @@ void ResourceContextImpl::processMessage(CreateImageMessage&& message)
     if (message.InitialData.has_value())
     {
         message.Reply->setGraphicsResourceRelaxed(*createdResource);
-        message.Reply->setStatus(MessageReply::Status::Transferring);
         enqueueImageUpload(entt::entity(createdResource->EntityHandle), std::move(*message.InitialData), std::move(message.Reply));
         return;
     }
@@ -429,7 +467,6 @@ void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
         return;
     }
 
-    message.Reply->setStatus(MessageReply::Status::Transferring);
     enqueueBufferUpload(*entity, std::move(message.Data), std::move(message.Reply));
 }
 
@@ -442,7 +479,6 @@ void ResourceContextImpl::processMessage(SetImageDataMessage&& message)
         return;
     }
 
-    message.Reply->setStatus(MessageReply::Status::Transferring);
     enqueueImageUpload(*entity, std::move(message.Data), std::move(message.Reply));
 }
 
@@ -463,8 +499,6 @@ void ResourceContextImpl::processMessage(FillResourceMessage&& message)
         return;
     }
 
-    message.Reply->setStatus(MessageReply::Status::Transferring);
-
     TransferSystemFillBufferMessage fillBufferMessage
     {
         bufferTransferInfo(*entity),
@@ -474,7 +508,7 @@ void ResourceContextImpl::processMessage(FillResourceMessage&& message)
         std::move(message.Reply)
     };
 
-    transferSystem.EnqueueTransfer(std::move(fillBufferMessage));
+    enqueueTransfer(std::move(fillBufferMessage), std::span(&*entity, 1));
 }
 
 void ResourceContextImpl::processMessage(MapResourceMessage&& message)
@@ -628,29 +662,38 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
         return;
     }
 
-    // Switch message type based on resource types involved
+    // the transfer thread trusts every message it gets, so the checks that need both create infos happen here
+    const std::array<entt::entity, 2> touched{ srcEntity, dstEntity };
     if (srcIsBuffer && dstIsBuffer)
     {
-        message.Reply->setStatus(MessageReply::Status::Transferring);
-        transferSystem.EnqueueTransfer(TransferSystemCopyBufferToBufferMessage{ bufferTransferInfo(srcEntity), bufferTransferInfo(dstEntity), std::move(message.Reply) });
+        if (resourceRegistry.get<BufferCreateInfo>(srcEntity).Size > resourceRegistry.get<BufferCreateInfo>(dstEntity).Size)
+        {
+            message.Reply->setStatus(MessageReply::Status::Failed);
+            return;
+        }
+
+        enqueueTransfer(TransferSystemCopyBufferToBufferMessage{ bufferTransferInfo(srcEntity), bufferTransferInfo(dstEntity), std::move(message.Reply) }, touched);
         return;
     }
     else if (srcIsImage && dstIsImage)
     {
-        message.Reply->setStatus(MessageReply::Status::Transferring);
-        transferSystem.EnqueueTransfer(TransferSystemCopyImageToImageMessage{ imageTransferInfo(srcEntity), imageTransferInfo(dstEntity), std::move(message.Reply) });
+        if (!ImagesHaveTheSameShape(resourceRegistry.get<ImageCreateInfo>(srcEntity), resourceRegistry.get<ImageCreateInfo>(dstEntity)))
+        {
+            message.Reply->setStatus(MessageReply::Status::Failed);
+            return;
+        }
+
+        enqueueTransfer(TransferSystemCopyImageToImageMessage{ imageTransferInfo(srcEntity), imageTransferInfo(dstEntity), std::move(message.Reply) }, touched);
         return;
     }
     else if (srcIsBuffer && dstIsImage)
     {
-        message.Reply->setStatus(MessageReply::Status::Transferring);
-        transferSystem.EnqueueTransfer(TransferSystemCopyBufferToImageMessage{ bufferTransferInfo(srcEntity), imageTransferInfo(dstEntity), std::move(message.Reply) });
+        enqueueTransfer(TransferSystemCopyBufferToImageMessage{ bufferTransferInfo(srcEntity), imageTransferInfo(dstEntity), std::move(message.Reply) }, touched);
         return;
     }
     else if (srcIsImage && dstIsBuffer)
     {
-        message.Reply->setStatus(MessageReply::Status::Transferring);
-        transferSystem.EnqueueTransfer(TransferSystemCopyImageToBufferMessage{ imageTransferInfo(srcEntity), bufferTransferInfo(dstEntity), std::move(message.Reply) });
+        enqueueTransfer(TransferSystemCopyImageToBufferMessage{ imageTransferInfo(srcEntity), bufferTransferInfo(dstEntity), std::move(message.Reply) }, touched);
         return;
     }
 
@@ -667,8 +710,36 @@ void ResourceContextImpl::processMessage(DestroyResourceMessage&& message)
         return;
     }
 
-    destroyEntityResources(*entity);
-    message.Reply->setStatus(MessageReply::Status::Completed);
+    // the values are recorded now: work that the owner records after this destroy cannot use the resource
+    RetiringResource entry{ *entity };
+    bool mustWait = false;
+    for (size_t i = 0; i < consumerTimelines.size(); ++i)
+    {
+        const ConsumerTimelineSlot& slot = consumerTimelines[i];
+        if (slot.Semaphore != 0u && slot.PendingValue > slot.CompletedValue)
+        {
+            entry.TimelineValues[i] = slot.PendingValue;
+            mustWait = true;
+        }
+    }
+
+    const LastTransferTicket* lastTicket = resourceRegistry.try_get<LastTransferTicket>(*entity);
+    if (lastTicket != nullptr && lastTicket->Value > transferSystem.CompletedTicket())
+    {
+        entry.TransferTicket = lastTicket->Value;
+        mustWait = true;
+    }
+
+    entry.Reply = std::move(message.Reply);
+    if (!mustWait)
+    {
+        retire(entry);
+        return;
+    }
+
+    resourceRegistry.emplace<Retiring>(*entity);
+    retiring.push_back(std::move(entry));
+    retirementsPending.store(static_cast<int64_t>(retiring.size()), std::memory_order_relaxed);
 }
 
 void ResourceContextImpl::processMessage([[maybe_unused]] ExitWorkerMessage&& message) noexcept
@@ -677,10 +748,166 @@ void ResourceContextImpl::processMessage([[maybe_unused]] ExitWorkerMessage&& me
     // consumed it, so this never runs. it exists so that the dispatch stays exhaustive
 }
 
+void ResourceContextImpl::processMessage(TickMessage&& message)
+{
+    for (int32_t i = 0; i < message.Count; ++i)
+    {
+        const ConsumerTimelinePoint& point = message.Points[static_cast<size_t>(i)];
+        for (ConsumerTimelineSlot& slot : consumerTimelines)
+        {
+            if (slot.Semaphore == point.Semaphore && point.Semaphore != 0u)
+            {
+                slot.PendingValue = std::max(slot.PendingValue, point.PendingValue);
+            }
+        }
+    }
+
+    // one counter read per registered timeline per tick, not one per resource
+    for (ConsumerTimelineSlot& slot : consumerTimelines)
+    {
+        if (slot.Semaphore == 0u)
+        {
+            continue;
+        }
+
+        uint64_t value = 0u;
+        if (vkGetSemaphoreCounterValue(device->Handle().As<VkDevice>(), reinterpret_cast<VkSemaphore>(slot.Semaphore), &value) == VK_SUCCESS)
+        {
+            slot.CompletedValue = value;
+        }
+
+        consumerTimelineReads.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+void ResourceContextImpl::processMessage(RegisterConsumerTimelineMessage&& message)
+{
+    ConsumerTimelineSlot* freeSlot = nullptr;
+    for (ConsumerTimelineSlot& slot : consumerTimelines)
+    {
+        if (slot.Semaphore == message.Semaphore)
+        {
+            freeSlot = nullptr;
+            break;
+        }
+
+        if (slot.Semaphore == 0u && freeSlot == nullptr)
+        {
+            freeSlot = &slot;
+        }
+    }
+
+    if (message.Semaphore == 0u || freeSlot == nullptr)
+    {
+        message.Reply->setStatus(MessageReply::Status::Failed);
+        return;
+    }
+
+    *freeSlot = ConsumerTimelineSlot{ message.Semaphore, 0u, 0u };
+    message.Reply->setStatus(MessageReply::Status::Completed);
+}
+
+void ResourceContextImpl::processMessage(UnregisterConsumerTimelineMessage&& message)
+{
+    for (size_t i = 0; i < consumerTimelines.size(); ++i)
+    {
+        if (consumerTimelines[i].Semaphore != message.Semaphore || message.Semaphore == 0u)
+        {
+            continue;
+        }
+
+        // the owner unregisters only after the GPU passed every value it reported, so nothing waits on this one now
+        for (RetiringResource& entry : retiring)
+        {
+            entry.TimelineValues[i] = 0u;
+        }
+
+        consumerTimelines[i] = ConsumerTimelineSlot{};
+        message.Reply->setStatus(MessageReply::Status::Completed);
+        return;
+    }
+
+    message.Reply->setStatus(MessageReply::Status::Failed);
+}
+
+void ResourceContextImpl::processMessage([[maybe_unused]] TransferProgressMessage&& message) noexcept
+{
+    // nothing to do here: the worker runs retireReady() after every message
+}
+
+template<typename TransferMessage>
+void ResourceContextImpl::enqueueTransfer(TransferMessage&& message, std::span<const entt::entity> touched_entities)
+{
+    // the worker is the only producer for the transfer queue, so a plain counter gives tickets that rise in queue order
+    const uint64_t ticket = ++lastIssuedTicket;
+    message.Ticket = ticket;
+    message.Reply->setTicket(ticket);
+    message.Reply->setStatus(MessageReply::Status::Transferring);
+
+    for (const entt::entity entity : touched_entities)
+    {
+        resourceRegistry.emplace_or_replace<LastTransferTicket>(entity, ticket);
+    }
+
+    transferSystem.EnqueueTransfer(std::forward<TransferMessage>(message));
+}
+
+void ResourceContextImpl::retireReady()
+{
+    if (retiring.empty())
+    {
+        return;
+    }
+
+    const uint64_t completedTicket = transferSystem.CompletedTicket();
+    size_t index = 0u;
+    while (index < retiring.size())
+    {
+        if (!isReadyToRetire(retiring[index], completedTicket))
+        {
+            ++index;
+            continue;
+        }
+
+        // the count drops before the reply completes, so a caller that sees the reply also sees the count
+        RetiringResource entry = std::move(retiring[index]);
+        retiring[index] = std::move(retiring.back());
+        retiring.pop_back();
+        retirementsPending.store(static_cast<int64_t>(retiring.size()), std::memory_order_relaxed);
+        retire(entry);
+    }
+}
+
+bool ResourceContextImpl::isReadyToRetire(const RetiringResource& entry, uint64_t completed_ticket) const noexcept
+{
+    if (entry.TransferTicket > completed_ticket)
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < consumerTimelines.size(); ++i)
+    {
+        if (entry.TimelineValues[i] > consumerTimelines[i].CompletedValue)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void ResourceContextImpl::retire(RetiringResource& entry)
+{
+    destroyEntityResources(entry.Entity);
+    entry.Reply->setStatus(MessageReply::Status::Completed);
+    entry.Reply.reset();
+    resourcesRetired.fetch_add(1, std::memory_order_relaxed);
+}
+
 std::optional<entt::entity> ResourceContextImpl::resolveBuffer(const GraphicsResource& resource) const
 {
     const entt::entity entity = entt::entity(resource.EntityHandle);
-    if (!resourceRegistry.valid(entity))
+    if (!resourceRegistry.valid(entity) || resourceRegistry.all_of<Retiring>(entity))
     {
         return std::nullopt;
     }
@@ -698,7 +925,7 @@ std::optional<entt::entity> ResourceContextImpl::resolveBuffer(const GraphicsRes
 std::optional<entt::entity> ResourceContextImpl::resolveImage(const GraphicsResource& resource) const
 {
     const entt::entity entity = entt::entity(resource.EntityHandle);
-    if (!resourceRegistry.valid(entity))
+    if (!resourceRegistry.valid(entity) || resourceRegistry.all_of<Retiring>(entity))
     {
         return std::nullopt;
     }
@@ -715,7 +942,7 @@ std::optional<entt::entity> ResourceContextImpl::resolveImage(const GraphicsReso
 std::optional<entt::entity> ResourceContextImpl::resolveResource(const GraphicsResource& resource) const
 {
     const entt::entity entity = entt::entity(resource.EntityHandle);
-    if (!resourceRegistry.valid(entity))
+    if (!resourceRegistry.valid(entity) || resourceRegistry.all_of<Retiring>(entity))
     {
         return std::nullopt;
     }
@@ -993,7 +1220,8 @@ void ResourceContextImpl::enqueueBufferUpload(entt::entity entity, InternalResou
         std::move(data),
         std::move(reply)
     };
-    transferSystem.EnqueueTransfer(std::move(setBufferDataMessage));
+
+    enqueueTransfer(std::move(setBufferDataMessage), std::span(&entity, 1));
 }
 
 void ResourceContextImpl::enqueueImageUpload(entt::entity entity, InternalResourceDataContainer&& data, std::shared_ptr<ResourceTransferReply>&& reply)
@@ -1004,7 +1232,8 @@ void ResourceContextImpl::enqueueImageUpload(entt::entity entity, InternalResour
         std::move(data),
         std::move(reply)
     };
-    transferSystem.EnqueueTransfer(std::move(setImageDataMessage));
+
+    enqueueTransfer(std::move(setImageDataMessage), std::span(&entity, 1));
 }
 
 TransferSystemReqBufferInfo ResourceContextImpl::bufferTransferInfo(entt::entity entity) const
@@ -1080,6 +1309,18 @@ namespace
     bool HasFlag(ResourceCreationFlags flags, ResourceCreationFlags flag) noexcept
     {
         return (flags & flag) != ResourceCreationFlags::None;
+    }
+
+    bool ImagesHaveTheSameShape(const ImageCreateInfo& src, const ImageCreateInfo& dst) noexcept
+    {
+        const VkImageAspectFlags srcAspect = ToVkImageAspect(AspectFromVkFormat(ToVkFormat(src.Format)));
+        const VkImageAspectFlags dstAspect = ToVkImageAspect(AspectFromVkFormat(ToVkFormat(dst.Format)));
+        return srcAspect == dstAspect &&
+               src.ArrayLayers == dst.ArrayLayers &&
+               src.Width == dst.Width &&
+               src.Height == dst.Height &&
+               src.Depth == dst.Depth &&
+               src.MipLevels == dst.MipLevels;
     }
 
     bool CanBeTransferSource(const entt::registry& registry, entt::entity entity) noexcept

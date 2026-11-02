@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_HPP
 #include "ResourceTypes.hpp"
 #include "ResourceMessageReply.hpp"
+#include "RhiHandle.hpp"
 #include <cstdint>
 #include <cstddef>
 #include <memory>
@@ -38,12 +39,42 @@ enum class ResourceContextError : uint8_t
     InvalidCreateInfo = 3,
     /** @brief VMA could not create an allocator, for the context or for its transfer system. */
     AllocatorCreationFailed = 4,
+    /** @brief The transfer system could not create its timeline semaphore or its command pools. */
+    TransferSetupFailed = 5,
 };
 
 [[nodiscard]] std::string_view ToString(ResourceContextError error) noexcept;
 
-/// Semaphore value used to signal when transfer operations are complete
-constexpr static uint64_t k_TransferCompleteSemaphoreValue = 2u;
+/**
+ * @brief A timeline that the owner signals, and the value that its latest submitted or recording work will signal.
+ * The context frees a destroyed resource only after every registered timeline passed the value it had at the destroy.
+ */
+struct ConsumerTimelineValue
+{
+    rhi::TimelineSemaphoreHandle Timeline;
+    uint64_t PendingValue{ 0u };
+};
+
+/** @brief Counts for tests and profiling. Each is read with a relaxed load, so together they are not one snapshot. */
+struct ResourceContextCounters
+{
+    int64_t MessagesProcessed{ 0 };
+    int64_t TransfersRecorded{ 0 };
+    int64_t TransfersFailed{ 0 };
+    int64_t TransferBatchesSubmitted{ 0 };
+    /** @brief Reads of the transfer timeline's counter. One read completes every transfer at or below the value. */
+    int64_t TransferCompletionReads{ 0 };
+    /** @brief Reads of consumer timeline counters: one per registered timeline per Tick. */
+    int64_t ConsumerTimelineReads{ 0 };
+    int64_t BytesStaged{ 0 };
+    int64_t ResourcesRetired{ 0 };
+    /** @brief Destroyed resources that still wait for a timeline. */
+    int64_t RetirementsPending{ 0 };
+    /** @brief Calls that found the context's message queue full and blocked. */
+    int64_t ContextPushesBlocked{ 0 };
+    /** @brief Times the context worker found the transfer queue full and blocked. */
+    int64_t TransferPushesBlocked{ 0 };
+};
 
 class ResourceContextImpl;
 
@@ -232,16 +263,44 @@ public:
         GraphicsResource dst);
 
     /**
-     * @brief Destroy a graphics resource and free its memory
-     * 
+     * @brief Destroy a graphics resource and free its memory, once the GPU is done with it.
+     *
+     * The destroy records the pending value of every registered consumer timeline, and the last transfer that touches
+     * the resource. The objects are freed, and the reply completes, once all of those have passed. With nothing to wait
+     * for, that happens at once. From the moment the context processes the destroy, every other call that names the
+     * resource fails.
+     *
      * @param resource The resource to destroy
-     * @return Shared pointer to reply object for tracking completion
-     * 
+     * @return Shared pointer to reply object, which completes when the objects are freed
+     *
      * @note All associated Vulkan objects (buffer/image, view, sampler) are destroyed, with memory returned to the allocator
-     * @note It's safe to destroy resources that are still being used by in-flight GPU commands
      */
     [[nodiscard]] std::shared_ptr<MessageReply> DestroyResource(
         GraphicsResource resource);
+
+    /**
+     * @brief Adds a timeline that destroys wait for, such as the renderer's frame timeline. At most
+     * k_MaxConsumerTimelines at once. The reply fails when the timeline is already registered or no slot is free.
+     */
+    [[nodiscard]] std::shared_ptr<MessageReply> RegisterConsumerTimeline(rhi::TimelineSemaphoreHandle timeline);
+
+    /**
+     * @brief Removes a timeline. Call it only after the GPU passed every value you reported for it: resources waiting
+     * on it no longer wait. The semaphore may be destroyed once the reply completes.
+     */
+    [[nodiscard]] std::shared_ptr<MessageReply> UnregisterConsumerTimeline(rhi::TimelineSemaphoreHandle timeline);
+
+    /**
+     * @brief The owner's per-frame call. Reports each registered timeline's pending value: the value that the work
+     * recorded from now on will signal at the latest. The context reads each registered timeline's counter once, and
+     * frees the resources whose waits passed. Call it before recording a frame, so that a destroy issued while
+     * recording waits for that frame. Values for timelines that are not registered are ignored, and so is every value
+     * after the first k_MaxConsumerTimelines.
+     */
+    void Tick(std::span<const ConsumerTimelineValue> pending_values);
+
+    /** @brief Returns the counters. Safe from any thread. */
+    [[nodiscard]] ResourceContextCounters Counters() const noexcept;
 
 private:
     std::unique_ptr<ResourceContextImpl> impl;

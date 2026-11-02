@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace
@@ -58,9 +59,10 @@ TEST_F(ResourceContextTest, DeviceLocalBufferUploadsThroughTransferSystem)
 
     std::shared_ptr<GraphicsResourceReply> reply = context->CreateBuffer(DeviceLocalStorageBuffer(data.Data.size()), std::span{ &data, 1u });
     ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
-    // the transfer signals the reply's timeline semaphore, which other queues wait on before they use the buffer
+    // the transfer signals the transfer timeline at the reply's ticket, which other queues wait on before they use the buffer
     EXPECT_NE(reply->SemaphoreHandle(), 0u);
-    EXPECT_EQ(reply->SemaphoreValue(), k_TransferCompleteSemaphoreValue);
+    EXPECT_GT(reply->SemaphoreValue(), 0u);
+    EXPECT_TRUE(reply->IsSubmitted());
 
     const GraphicsResource buffer = reply->GetResource();
     EXPECT_EQ(ReadBackWords(buffer, data.Data.size()), words);
@@ -137,13 +139,12 @@ TEST_F(ResourceContextTest, TexelBufferViewIsCreatedWhenFormatIsGiven)
 TEST_F(ResourceContextTest, NamedBufferKeepsItsName)
 {
     BufferCreateInfo info = DeviceLocalStorageBuffer(64u);
-    info.Flags = ResourceCreationFlags::UserDataAsNameString;
     info.Name = "NamedBufferKeepsItsName";
     const GraphicsResource buffer = CreateBufferAndWait(info, {});
     EXPECT_TRUE(static_cast<bool>(buffer));
 }
 
-TEST_F(ResourceContextTest, DeviceAddressUsageIsRefusedForNow)
+TEST_F(ResourceContextTest, DeviceAddressUsageIsRefusedWhenNotEnabled)
 {
     BufferCreateInfo info = DeviceLocalStorageBuffer(64u);
     info.Usage = BufferUsageBits::DeviceAddressBuffer;
@@ -225,4 +226,52 @@ TEST_F(ResourceContextTest, StagedInitialDataAddsOnlyTheDestinationBit)
 
     std::shared_ptr<GraphicsResourceReply> copyReply = context->CopyBuffer(buffer, true);
     EXPECT_EQ(copyReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+}
+
+TEST_F(ResourceContextTest, EveryBufferMessageRefusesAMismatchedHandle)
+{
+    // the entity is alive, but the buffer handle is not the one the registry stores, as for a stale GraphicsResource
+    // whose entity index and version were reused. every message must refuse it, not only Map and Destroy
+    constexpr size_t k_Bytes = 64u;
+    const GraphicsResource buffer = CreateBufferAndWait(DeviceLocalStorageBuffer(k_Bytes), {});
+    GraphicsResource forged = buffer;
+    forged.VkHandle = buffer.VkHandle ^ 0x10u;
+
+    const std::vector<uint32_t> words = MakeWordPattern(16u, 7u);
+    const RhiBufferResourceData data{ std::as_bytes(std::span{ words }), 0u };
+    std::shared_ptr<ResourceTransferReply> setReply = context->SetBufferData(forged, std::span{ &data, 1u });
+    EXPECT_EQ(setReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+
+    std::shared_ptr<ResourceTransferReply> fillReply = context->FillBuffer(forged, 0u, 0u, k_Bytes);
+    EXPECT_EQ(fillReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+
+    std::shared_ptr<ResourceTransferReply> copyContentsReply = context->CopyBufferContents(forged, buffer);
+    EXPECT_EQ(copyContentsReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+
+    std::shared_ptr<GraphicsResourceReply> copyReply = context->CopyBuffer(forged, true);
+    EXPECT_EQ(copyReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+
+    std::shared_ptr<MessageReply> destroyReply = context->DestroyResource(forged);
+    EXPECT_EQ(destroyReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+
+    // the real handle still works, so the refusals above did not touch the buffer
+    DestroyAndWait(buffer);
+}
+
+TEST_F(ResourceContextTest, NamesAreCopiedWhenTheCallIsMade)
+{
+    // the name outlives nothing: its string is freed and overwritten before the worker can read the message. names
+    // longer than the copy's capacity are truncated, and the view takes a suffix that no longer fits
+    std::shared_ptr<GraphicsResourceReply> reply;
+    {
+        std::string name(200u, 'n');
+        BufferCreateInfo info = DeviceLocalStorageBuffer(256u);
+        info.ViewFormat = ImageFormat{ ImageComponentFormats::R32, ImageDataType::Float };
+        info.Name = name;
+        reply = context->CreateBuffer(info, {});
+        name.assign(name.size(), 'x');
+    }
+
+    ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    DestroyAndWait(reply->GetResource());
 }

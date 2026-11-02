@@ -24,7 +24,7 @@ void ImGuiScene::Initialize(void* user_data)
 {
     createFrameSyncObjects();
 
-    // one pool per frame in flight, reset after beginFrame() waits on that frame's fence
+    // one pool per frame in flight, reset after beginFrame() waits on the frame timeline
     commandPools.reserve(numFramebuffers);
     for (uint32_t i = 0; i < numFramebuffers; ++i)
     {

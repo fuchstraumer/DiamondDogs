@@ -3,11 +3,9 @@
 #include "ResourceTypes.hpp"
 #include "entt/entt.hpp"
 #include "Device.hpp"
-#include "ResourceContext.hpp"
 #include "threading/atomic128.hpp"
 
 #include <atomic>
-#include <cassert>
 #include <cstdint>
 #include <limits>
 #include <vulkan/vulkan_core.h>
@@ -84,36 +82,12 @@ void MessageReply::setStatus(Status _status) noexcept
 ResourceTransferReply::ResourceTransferReply() : device{ nullptr }
 {}
 
-ResourceTransferReply::ResourceTransferReply(const rhi::Device* _device) : device{ _device }
-{
-    VkSemaphoreTypeCreateInfo semaphoreTypeInfo
-    {
-        VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
-        nullptr,
-        VK_SEMAPHORE_TYPE_TIMELINE,
-        0u
-    };
-    VkSemaphoreCreateInfo semaphoreInfo
-    {
-        VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        &semaphoreTypeInfo,
-        0u
-    };
-    VkSemaphore semaphore = VK_NULL_HANDLE;
-    VkResult result = vkCreateSemaphore(device->Handle().As<VkDevice>(), &semaphoreInfo, nullptr, &semaphore);
-    assert(result == VK_SUCCESS);
-    semaphoreHandle = reinterpret_cast<uint64_t>(semaphore);
-}
+ResourceTransferReply::ResourceTransferReply(const rhi::Device* _device, uint64_t transfer_timeline) :
+    semaphoreHandle{ transfer_timeline },
+    device{ _device }
+{}
 
-ResourceTransferReply::~ResourceTransferReply()
-{
-    if (semaphoreHandle != 0u)
-    {
-        vkDestroySemaphore(device->Handle().As<VkDevice>(),
-                           reinterpret_cast<VkSemaphore>(semaphoreHandle),
-                           nullptr);
-    }
-}
+ResourceTransferReply::~ResourceTransferReply() = default;
 
 uint64_t ResourceTransferReply::SemaphoreHandle() const noexcept
 {
@@ -122,77 +96,100 @@ uint64_t ResourceTransferReply::SemaphoreHandle() const noexcept
 
 uint64_t ResourceTransferReply::SemaphoreValue() const noexcept
 {
-    VkSemaphore semaphore = reinterpret_cast<VkSemaphore>(semaphoreHandle);
-    uint64_t semaphoreValue = 0u;
-    VkResult result = vkGetSemaphoreCounterValue(device->Handle().As<VkDevice>(), semaphore, &semaphoreValue);
-    assert(result == VK_SUCCESS);
-    return semaphoreValue;
+    return ticket.load(std::memory_order_acquire);
+}
+
+bool ResourceTransferReply::IsSubmitted() const noexcept
+{
+    return submitted.load(std::memory_order_acquire);
+}
+
+void ResourceTransferReply::setTicket(uint64_t value) noexcept
+{
+    ticket.store(value, std::memory_order_relaxed);
+}
+
+void ResourceTransferReply::setSubmitted() noexcept
+{
+    submitted.store(true, std::memory_order_release);
 }
 
 MessageReply::Status ResourceTransferReply::WaitForCompletion(uint64_t timeout_ns) noexcept
 {
     // this is not actually a transfer reply, so waiting for completion is just using base class implementation
-    if (device == nullptr && semaphoreHandle == 0u)
+    if (device == nullptr || semaphoreHandle == 0u)
     {
         return MessageReply::WaitForCompletion(timeout_ns);
     }
-    
-    // fixed: we always check the CPU-side status and wait on that, since many resources don't actually need
-    // to use the transfer system. if the transfer system sets the status, then we will wait on the GPU semaphore as needed.
-    const std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
-    while (status.load(std::memory_order_acquire) == Status::Invalid || status.load(std::memory_order_acquire) == Status::Pending)
+
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point startTime = Clock::now();
+    const auto remainingNs = [&]() -> uint64_t
     {
-        if (timeout_ns != std::numeric_limits<uint64_t>::max())
+        if (timeout_ns == std::numeric_limits<uint64_t>::max())
         {
-            const int64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
-            if (std::cmp_greater_equal(elapsedNs , timeout_ns))
-            {
-                return Status::Timeout;
-            }
+            return timeout_ns;
         }
-        std::this_thread::yield();
-    }
 
-    if (status.load(std::memory_order_acquire) != Status::Transferring)
+        const int64_t elapsedNs = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - startTime).count();
+        return std::cmp_greater_equal(elapsedNs, timeout_ns) ? 0u : timeout_ns - static_cast<uint64_t>(elapsedNs);
+    };
+
+    // many resources never reach the transfer system, so the CPU-side status comes first
+    Status current = status.load(std::memory_order_acquire);
+    while (current == Status::Invalid || current == Status::Pending)
     {
-        return status.load(std::memory_order_acquire);
-    }
-    else
-    {
-        // In short, the reason we go through this song and dance is so that the transfer system
-        // does not have to block to submit it's work. It just submits transfer commands, and then eventually
-        // the completed transfer will update the semaphore value indicating that the transfer is complete.
-        VkSemaphore semaphore = reinterpret_cast<VkSemaphore>(semaphoreHandle);
-        const uint64_t semaphoreWaitValue = k_TransferCompleteSemaphoreValue;
-        VkSemaphoreWaitInfo waitInfo
-        {
-            VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-            nullptr,
-            0u,
-            1u,
-            &semaphore,
-            &semaphoreWaitValue
-        };
-
-        VkResult result = vkWaitSemaphores(device->Handle().As<VkDevice>(),
-                                           &waitInfo,
-                                           timeout_ns);
-
-        if (result == VK_TIMEOUT) [[unlikely]]
+        if (remainingNs() == 0u)
         {
             return Status::Timeout;
         }
-        else if (result != VK_SUCCESS) [[unlikely]]
-        {
-            return Status::Failed;
-        }
-        else
-        {
-            setStatus(Status::Completed);
-            return Status::Completed;
-        }
+
+        std::this_thread::yield();
+        current = status.load(std::memory_order_acquire);
     }
 
+    if (current != Status::Transferring)
+    {
+        return current;
+    }
+
+    // sleep on the GPU instead of spinning. a host wait may name a value that no submit has signaled yet
+    const VkSemaphore semaphore = reinterpret_cast<VkSemaphore>(semaphoreHandle);
+    const uint64_t waitValue = ticket.load(std::memory_order_relaxed);
+    const VkSemaphoreWaitInfo waitInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+        nullptr,
+        0u,
+        1u,
+        &semaphore,
+        &waitValue
+    };
+
+    const VkResult result = vkWaitSemaphores(device->Handle().As<VkDevice>(), &waitInfo, remainingNs());
+    if (result == VK_TIMEOUT)
+    {
+        return Status::Timeout;
+    }
+
+    if (result != VK_SUCCESS)
+    {
+        return Status::Failed;
+    }
+
+    // only the transfer thread writes the final status, so a transfer that failed during recording stays Failed. it
+    // reads the timeline once per loop, so this wait is short
+    while (!IsCompleted())
+    {
+        if (remainingNs() == 0u)
+        {
+            return Status::Timeout;
+        }
+
+        std::this_thread::yield();
+    }
+
+    return status.load(std::memory_order_acquire);
 }
 
 GraphicsResourceReply::RhiResourceTypeAndEntityHandle::RhiResourceTypeAndEntityHandle() noexcept :
@@ -235,8 +232,8 @@ GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceTyp
     vkHandleAndView{ k_NullAtomic128 }
 {}
 
-GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceType _type, const rhi::Device* _device) :
-    ResourceTransferReply(_device),
+GraphicsResourceReply::GraphicsResourceReply(ResourceDomain _domain, ResourceType _type, const rhi::Device* _device, uint64_t transfer_timeline) :
+    ResourceTransferReply(_device, transfer_timeline),
     resourceTypeAndEntityHandle{ RhiResourceTypeAndEntityHandle(_domain, _type, entt::null) },
     vkSamplerHandle{ 0u },
     deviceAddress{ 0u },

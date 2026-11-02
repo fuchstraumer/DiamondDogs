@@ -10,6 +10,7 @@
 #include "Swapchain.hpp"
 #include "vulkan/vulkan_core.h"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -45,8 +46,6 @@ void VulkanScene::Render(void* user_data)
         recreateSwapchain();
         return;
     }
-    // reset only once a submit will follow: an acquire that fails would leave the fence unsignaled forever
-    resetFrameFence();
     update();
     recordCommands();
     draw();
@@ -64,6 +63,16 @@ uint32_t VulkanScene::SwapchainRecreationCount() const noexcept
     return swapchainRecreationCount;
 }
 
+rhi::TimelineSemaphoreHandle VulkanScene::FrameTimeline() const noexcept
+{
+    return frameTimeline != nullptr ? frameTimeline->Handle() : rhi::TimelineSemaphoreHandle{};
+}
+
+uint64_t VulkanScene::FrameValueBeingRecorded() const noexcept
+{
+    return frameValue;
+}
+
 size_t VulkanScene::CurrentFramebufferIdx() const
 {
     return static_cast<size_t>(currentAcquiredImage);
@@ -74,7 +83,15 @@ void VulkanScene::createFrameSyncObjects()
     using namespace rhi;
     imageAvailableSemaphores.reserve(numFramebuffers);
     renderFinishedSemaphores.reserve(numFramebuffers);
-    inFlightFences.reserve(numFramebuffers);
+
+    frameTimeline = std::make_unique<TimelineSemaphore>(device->Handle());
+    if (!frameTimeline->Handle().IsValid())
+    {
+        throw std::runtime_error("Failed to create the frame synchronization objects");
+    }
+
+    RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, frameTimeline->Handle().Get(), "FrameTimeline");
+    frameValue = 1u;
 
     for (uint32_t i = 0; i < numFramebuffers; ++i)
     {
@@ -91,13 +108,6 @@ void VulkanScene::createFrameSyncObjects()
             throw std::runtime_error("Failed to create the frame synchronization objects");
         }
         RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, renderFinished.Handle().Get(), std::format("RenderFinishedSemaphore_{}", i).c_str());
-
-        const Fence& inFlight = inFlightFences.emplace_back(device->Handle(), CreateFenceSignaled{ true });
-        if (!inFlight.Handle().IsValid())
-        {
-            throw std::runtime_error("Failed to create the frame synchronization objects");
-        }
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_FENCE, inFlight.Handle().Get(), std::format("InFlightFence_{}", i).c_str());
     }
 
     firstFrame.resize(numFramebuffers, true);
@@ -105,40 +115,59 @@ void VulkanScene::createFrameSyncObjects()
 
 void VulkanScene::destroyFrameSyncObjects()
 {
-    for (const rhi::Fence& fence : inFlightFences)
+    // the last submitted frame signaled frameValue - 1
+    if (!waitForFrameValue(frameValue - 1u))
     {
-        if (!fence.Wait(1000000000))
-        {
-            throw std::runtime_error("A frame fence did not signal");
-        }
+        throw std::runtime_error("The frame timeline did not reach the last submitted frame");
     }
 
     imageAvailableSemaphores.clear();
     renderFinishedSemaphores.clear();
-    inFlightFences.clear();
+    frameTimeline.reset();
     firstFrame.clear();
     currentFrame = 0;
 }
 
 void VulkanScene::beginFrame()
 {
-    if (!inFlightFences[currentFrame].Wait(1000000000))
+    // the frame numFramebuffers before this one used the same slot
+    if (frameValue > numFramebuffers && !waitForFrameValue(frameValue - numFramebuffers))
     {
-        throw std::runtime_error("The frame fence did not signal");
+        throw std::runtime_error("The frame timeline did not signal");
     }
 }
 
-void VulkanScene::resetFrameFence()
+bool VulkanScene::waitForFrameValue(uint64_t value) const
 {
-    inFlightFences[currentFrame].Reset();
+    if (value == 0u)
+    {
+        return true;
+    }
+
+    const VkSemaphore timeline = frameTimeline->Handle().As<VkSemaphore>();
+    const VkSemaphoreWaitInfo waitInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+        nullptr,
+        0u,
+        1u,
+        &timeline,
+        &value
+    };
+
+    return vkWaitSemaphores(vkDevice, &waitInfo, 1000000000) == VK_SUCCESS;
 }
 
 void VulkanScene::submitFrame(const rhi::CommandBufferHandle& command_buffer)
 {
     const rhi::SemaphoreSubmitInfo imageAvailable{ imageAvailableSemaphores[currentFrame].Handle(), rhi::PipelineStage::ColorAttachmentOutput };
-    const rhi::SemaphoreSubmitInfo renderFinished{ renderFinishedSemaphores[currentAcquiredImage].Handle(), rhi::PipelineStage::AllGraphics };
-    const rhi::SubmitInfo submit{ std::span{ &imageAvailable, 1 }, std::span{ &command_buffer, 1 }, std::span{ &renderFinished, 1 } };
-    RhiAssert(rhi::QueueSubmit(device->GetGraphicsQueue(0), submit, inFlightFences[currentFrame].Handle()));
+    const std::array<rhi::SemaphoreSubmitInfo, 2> signals
+    {
+        rhi::SemaphoreSubmitInfo{ renderFinishedSemaphores[currentAcquiredImage].Handle(), rhi::PipelineStage::AllGraphics },
+        rhi::SemaphoreSubmitInfo{ frameTimeline->Handle(), frameValue, rhi::PipelineStage::AllGraphics }
+    };
+    const rhi::SubmitInfo submit{ std::span{ &imageAvailable, 1 }, std::span{ &command_buffer, 1 }, std::span{ signals } };
+    RhiAssert(rhi::QueueSubmit(device->GetGraphicsQueue(0), submit, rhi::FenceHandle{}));
 }
 
 void VulkanScene::recreateSwapchain()
@@ -245,4 +274,6 @@ void VulkanScene::endFrame()
     }
 
     currentFrame = (currentFrame + 1) % numFramebuffers;
+    // endFrame runs only after a submit, so every value up to frameValue - 1 has a signal
+    ++frameValue;
 }

@@ -35,14 +35,18 @@ public:
     size_t CurrentFramebufferIdx() const;
     /** @brief Returns how many times the scene recreated the swapchain after an out of date or suboptimal result */
     uint32_t SwapchainRecreationCount() const noexcept;
+    /** @brief The frame timeline. Frame N signals value N when its submit completes, starting at 1. */
+    [[nodiscard]] rhi::TimelineSemaphoreHandle FrameTimeline() const noexcept;
+    /** @brief The value that the frame being recorded signals: the pending value to give ResourceContext::Tick. */
+    [[nodiscard]] uint64_t FrameValueBeingRecorded() const noexcept;
 
 protected:
 
     void createFrameSyncObjects();
     void destroyFrameSyncObjects();
 
+    /** @brief Waits until the frame that last used this frame slot finished on the GPU. */
     virtual void beginFrame();
-    void resetFrameFence();
     virtual void limitFrame();
     virtual void update() = 0;
     /** @brief Returns false when the swapchain is out of date, and no image was acquired */
@@ -51,9 +55,12 @@ protected:
     virtual void draw() = 0;
     virtual void present();
     virtual void endFrame();
-    /** @brief Submits the frame's command buffer: waits on the acquire semaphore, signals the present semaphore and the frame fence */
+    /** @brief Submits the frame's command buffer: waits on the acquire semaphore, signals the present semaphore and
+     *  the frame timeline at FrameValueBeingRecorded() */
     void submitFrame(const rhi::CommandBufferHandle& command_buffer);
     void recreateSwapchain();
+    /** @brief Waits up to one second for the frame timeline to reach `value`. Returns false on a timeout or an error. */
+    [[nodiscard]] bool waitForFrameValue(uint64_t value) const;
     /** @brief Called after the swapchain was recreated, to rebuild anything sized to it */
     virtual void onSwapchainRecreated();
 
@@ -75,7 +82,9 @@ protected:
     std::vector<rhi::BinarySemaphore> imageAvailableSemaphores;
     // indexed by the acquired swapchain image: presentation holds it until that image is acquired again
     std::vector<rhi::BinarySemaphore> renderFinishedSemaphores;
-    std::vector<rhi::Fence> inFlightFences;
+    // one timeline replaces a fence per frame slot: slot reuse waits for the value of the frame that used it last
+    std::unique_ptr<rhi::TimelineSemaphore> frameTimeline;
+    uint64_t frameValue{ 1u };
     std::vector<bool> firstFrame;
 
 };

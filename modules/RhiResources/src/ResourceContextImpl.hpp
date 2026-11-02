@@ -10,8 +10,11 @@
 #include "TransferSystem.hpp"
 #include "containers/mwsrQueue.hpp"
 
+#include <array>
+#include <atomic>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -22,6 +25,7 @@
 #include <entt/entity/registry.hpp>
 
 struct ResourceContextCreateInfo;
+struct ResourceContextCounters;
 enum class ResourceContextError : uint8_t;
 
 namespace rhi
@@ -41,8 +45,11 @@ public:
     void SetExitWorker();
     void StartWorker();
 
-    /** @brief Returns the device, so that ResourceContext can create replies that own a timeline semaphore. */
+    /** @brief Returns the device, so that ResourceContext can create replies that wait on the transfer timeline. */
     [[nodiscard]] const rhi::Device* Device() const noexcept;
+    /** @brief The transfer system's timeline semaphore, as a VkSemaphore cast to uint64_t. 0 before Construct. */
+    [[nodiscard]] uint64_t TransferTimeline() const noexcept;
+    [[nodiscard]] ResourceContextCounters Counters() const noexcept;
 
 private:
 
@@ -66,6 +73,34 @@ private:
         VkImageLayout Layout{ VK_IMAGE_LAYOUT_UNDEFINED };
     };
 
+    // the last ticket of a transfer that reads or writes the entity. a destroy waits for it, queued or in flight
+    struct LastTransferTicket
+    {
+        uint64_t Value{ 0u };
+    };
+
+    // a destroyed entity that waits for the GPU. the resolve functions refuse it, so no new work can name it
+    struct Retiring
+    {
+    };
+
+    // CompletedValue is read once per Tick. PendingValue is the highest value the owner reported
+    struct ConsumerTimelineSlot
+    {
+        uint64_t Semaphore{ 0u };
+        uint64_t PendingValue{ 0u };
+        uint64_t CompletedValue{ 0u };
+    };
+
+    // a value of 0 waits for nothing. TimelineValues is indexed like consumerTimelines
+    struct RetiringResource
+    {
+        entt::entity Entity{ entt::null };
+        std::array<uint64_t, k_MaxConsumerTimelines> TimelineValues{};
+        uint64_t TransferTicket{ 0u };
+        std::shared_ptr<MessageReply> Reply{ nullptr };
+    };
+
     void processMessages();
     void dispatchMessage(ResourceMessagePayloadType&& message);
 
@@ -83,6 +118,21 @@ private:
     void processMessage(CopyResourceContentsMessage&& message);
     void processMessage(DestroyResourceMessage&& message);
     void processMessage(ExitWorkerMessage&& message) noexcept;
+    void processMessage(TickMessage&& message);
+    void processMessage(RegisterConsumerTimelineMessage&& message);
+    void processMessage(UnregisterConsumerTimelineMessage&& message);
+    void processMessage(TransferProgressMessage&& message) noexcept;
+
+    /** @brief Issues the next ticket, publishes it in the reply with the Transferring status, records it on every
+     *  entity the transfer touches, and enqueues the transfer. The only path into the transfer system. */
+    template<typename TransferMessage>
+    void enqueueTransfer(TransferMessage&& message, std::span<const entt::entity> touched_entities);
+
+    /** @brief Destroys every retiring resource whose timelines and transfer ticket have all passed. Cheap when nothing
+     *  waits, so the worker calls it after every message. */
+    void retireReady();
+    [[nodiscard]] bool isReadyToRetire(const RetiringResource& entry, uint64_t completed_ticket) const noexcept;
+    void retire(RetiringResource& entry);
 
     /** @brief Returns the entity that `resource` refers to, when that entity is alive, is a buffer, and its buffer
      *  handle matches the one in `resource`. Every message that takes a buffer from a caller resolves it here. */
@@ -124,6 +174,17 @@ private:
 
     mwsrQueue<ResourceMessagePayloadType> messageQueue;
     std::thread workerThread;
+
+    // worker thread only
+    std::array<ConsumerTimelineSlot, k_MaxConsumerTimelines> consumerTimelines{};
+    std::vector<RetiringResource> retiring;
+    uint64_t lastIssuedTicket{ 0u };
+
+    // written by the worker with relaxed stores, read by Counters()
+    std::atomic<int64_t> messagesProcessed{ 0 };
+    std::atomic<int64_t> consumerTimelineReads{ 0 };
+    std::atomic<int64_t> resourcesRetired{ 0 };
+    std::atomic<int64_t> retirementsPending{ 0 };
 
     VmaAllocator allocatorHandle{ VK_NULL_HANDLE };
 

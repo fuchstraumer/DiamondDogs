@@ -4,6 +4,7 @@
 #include "ResourceMessageReply.hpp"
 #include "ResourceMessageTypesInternal.hpp"
 #include "ResourceTypes.hpp"
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -25,6 +26,8 @@ std::string_view ToString(ResourceContextError error) noexcept
         return "InvalidCreateInfo";
     case ResourceContextError::AllocatorCreationFailed:
         return "AllocatorCreationFailed";
+    case ResourceContextError::TransferSetupFailed:
+        return "TransferSetupFailed";
     }
 
     return "Unknown ResourceContextError";
@@ -61,7 +64,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
     }
 
     // replies that may reach the transfer system own a timeline semaphore, which the transfer signals
-    message.Reply = std::make_shared<GraphicsResourceReply>(create_info.Domain, ResourceType::Buffer, impl->Device());
+    message.Reply = std::make_shared<GraphicsResourceReply>(create_info.Domain, ResourceType::Buffer, impl->Device(), impl->TransferTimeline());
     std::shared_ptr<GraphicsResourceReply> reply = message.Reply;
 
     impl->PushMessage(std::move(message));
@@ -90,7 +93,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateImage(
     }
 
     const ResourceType resourceType = create_info.SamplerInfo.has_value() ? ResourceType::CombinedImageSampler : ResourceType::Image;
-    message.Reply = std::make_shared<GraphicsResourceReply>(create_info.Domain, resourceType, impl->Device());
+    message.Reply = std::make_shared<GraphicsResourceReply>(create_info.Domain, resourceType, impl->Device(), impl->TransferTimeline());
     std::shared_ptr<GraphicsResourceReply> reply = message.Reply;
 
     impl->PushMessage(std::move(message));
@@ -119,7 +122,7 @@ std::shared_ptr<ResourceTransferReply> ResourceContext::SetBufferData(
     std::span<const RhiBufferResourceData> data)
 {
     SetBufferDataMessage message(buffer, data);
-    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device());
+    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device(), impl->TransferTimeline());
     std::shared_ptr<ResourceTransferReply> reply = message.Reply;
 
     impl->PushMessage(std::move(message));
@@ -132,7 +135,7 @@ std::shared_ptr<ResourceTransferReply> ResourceContext::SetImageData(
     std::span<const RhiImageResourceData> data)
 {
     SetImageDataMessage message(image, data);
-    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device());
+    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device(), impl->TransferTimeline());
     std::shared_ptr<ResourceTransferReply> reply = message.Reply;
 
     impl->PushMessage(std::move(message));
@@ -151,7 +154,7 @@ std::shared_ptr<ResourceTransferReply> ResourceContext::FillBuffer(
     message.Value = value;
     message.Offset = offset;
     message.Size = size;
-    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device());
+    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device(), impl->TransferTimeline());
     std::shared_ptr<ResourceTransferReply> reply = message.Reply;
 
     impl->PushMessage(std::move(message));
@@ -200,7 +203,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CopyBuffer(
     CopyResourceMessage message;
     message.SourceResource = src;
     message.CopyContents = copy_contents;
-    message.Reply = std::make_shared<GraphicsResourceReply>(src.Domain, ResourceType::Buffer, impl->Device());
+    message.Reply = std::make_shared<GraphicsResourceReply>(src.Domain, ResourceType::Buffer, impl->Device(), impl->TransferTimeline());
     std::shared_ptr<GraphicsResourceReply> reply = message.Reply;
 
     impl->PushMessage(std::move(message));
@@ -214,7 +217,7 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CopyImage(GraphicsResour
     CopyResourceMessage message;
     message.SourceResource = src_image;
     message.CopyContents = true;
-    message.Reply = std::make_shared<GraphicsResourceReply>(src_image.Domain, src_image.Type, impl->Device());
+    message.Reply = std::make_shared<GraphicsResourceReply>(src_image.Domain, src_image.Type, impl->Device(), impl->TransferTimeline());
     std::shared_ptr<GraphicsResourceReply> reply = message.Reply;
 
     impl->PushMessage(std::move(message));
@@ -229,7 +232,7 @@ std::shared_ptr<ResourceTransferReply> ResourceContext::CopyBufferContents(
     CopyResourceContentsMessage message;
     message.SourceResource = src;
     message.DestinationResource = dst;
-    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device());
+    message.Reply = std::make_shared<ResourceTransferReply>(impl->Device(), impl->TransferTimeline());
     std::shared_ptr<ResourceTransferReply> reply = message.Reply;
 
     impl->PushMessage(std::move(message));
@@ -248,4 +251,42 @@ std::shared_ptr<MessageReply> ResourceContext::DestroyResource(
     impl->PushMessage(std::move(message));
 
     return reply;
+}
+
+std::shared_ptr<MessageReply> ResourceContext::RegisterConsumerTimeline(rhi::TimelineSemaphoreHandle timeline)
+{
+    RegisterConsumerTimelineMessage message{ timeline.Get(), std::make_shared<MessageReply>() };
+    std::shared_ptr<MessageReply> reply = message.Reply;
+
+    impl->PushMessage(std::move(message));
+
+    return reply;
+}
+
+std::shared_ptr<MessageReply> ResourceContext::UnregisterConsumerTimeline(rhi::TimelineSemaphoreHandle timeline)
+{
+    UnregisterConsumerTimelineMessage message{ timeline.Get(), std::make_shared<MessageReply>() };
+    std::shared_ptr<MessageReply> reply = message.Reply;
+
+    impl->PushMessage(std::move(message));
+
+    return reply;
+}
+
+void ResourceContext::Tick(std::span<const ConsumerTimelineValue> pending_values)
+{
+    TickMessage message;
+    const size_t count = std::min(pending_values.size(), message.Points.size());
+    for (size_t i = 0; i < count; ++i)
+    {
+        message.Points[i] = ConsumerTimelinePoint{ pending_values[i].Timeline.Get(), pending_values[i].PendingValue };
+    }
+
+    message.Count = static_cast<int32_t>(count);
+    impl->PushMessage(std::move(message));
+}
+
+ResourceContextCounters ResourceContext::Counters() const noexcept
+{
+    return impl->Counters();
 }

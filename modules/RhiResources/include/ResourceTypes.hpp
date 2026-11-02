@@ -162,6 +162,9 @@ struct ImageCreateInfo
     std::string_view Name;
 };
 
+/** @brief The most consumer timelines that a ResourceContext checks before it frees a destroyed resource. */
+constexpr inline int32_t k_MaxConsumerTimelines = 4;
+
 struct GraphicsResource
 {
     static GraphicsResource Null() noexcept;

@@ -86,45 +86,51 @@ protected:
 
 /**
  * @brief Reply class for operations that involve GPU transfers
- * 
- * ResourceTransferReply extends MessageReply with additional functionality for tracking
- * GPU transfer operations using Vulkan timeline semaphores. This allows for fine-grained
- * synchronization with GPU command execution. This is a separate class as we can (and often
- * will) do resource transfers without creating a new resource.
+ *
+ * A transfer is identified by a ticket: a value on the transfer system's one timeline semaphore. The context worker
+ * issues the ticket when it hands the transfer to the transfer system, and the batch that carries the transfer signals
+ * a value at or above it. A reply creates no Vulkan object. This is a separate class as we can (and often will) do
+ * resource transfers without creating a new resource.
  */
 class ResourceTransferReply : public MessageReply
 {
 public:
-    /// Default constructor
+    /// Default constructor, for replies that never transfer
     ResourceTransferReply();
-    /// Constructor with device for semaphore operations
-    ResourceTransferReply(const rhi::Device* _device);
+    /** @brief `transfer_timeline` is the transfer system's timeline semaphore (a VkSemaphore cast to uint64_t). The
+     *  reply only reads it, and it stays valid while the ResourceContext lives. */
+    ResourceTransferReply(const rhi::Device* _device, uint64_t transfer_timeline);
     /// Virtual destructor
     virtual ~ResourceTransferReply();
 
     /**
-     * @brief Get the timeline semaphore value for this transfer operation
-     * 
-     * @return Semaphore value that will be signaled when transfer completes. 0 if no transfer is associated with this reply
-     * 
-     * @note This is the value stored in the semaphore object, NOT the Vulkan semaphore handle.
+     * @brief Get the value to wait for on SemaphoreHandle(): this transfer's ticket.
+     *
+     * @return The ticket. 0 when no transfer was enqueued (a host-visible write, for example), or before the status
+     * reached Transferring. Read the status first.
      */
     uint64_t SemaphoreValue() const noexcept;
-    
+
     /**
-     * @brief Get the handle to the timeline semaphore used for this transfer
-     * 
-     * @return Vulkan semaphore handle (cast to uint64_t)
+     * @brief Get the transfer system's timeline semaphore. Every transfer reply of one context returns the same handle.
+     *
+     * @return Vulkan semaphore handle (cast to uint64_t), or 0 for a reply that never transfers
      */
     uint64_t SemaphoreHandle() const noexcept;
 
     /**
+     * @brief Returns true once a queue submit that signals SemaphoreValue() was made. A GPU wait on the value is valid
+     * only after that: a submit must not wait on a value that no submit will signal.
+     */
+    bool IsSubmitted() const noexcept;
+
+    /**
      * @brief Wait for completion including any associated GPU transfers
-     * 
+     *
      * @param timeoutNs Timeout in nanoseconds (default: no timeout)
      * @return Final status after waiting
-     * 
-     * @note Waits for both CPU-side completion and GPU-side transfer completion
+     *
+     * @note Sleeps on the transfer timeline while the GPU works, then waits for the transfer system to set the status
      */
     Status WaitForCompletion(uint64_t timeout_ns = std::numeric_limits<uint64_t>::max()) noexcept final;
 
@@ -132,8 +138,15 @@ protected:
     friend class ResourceContextImpl;
     friend class ResourceTransferSystem;
 
+    /** @brief Called by the context worker before it sets Transferring. The release store of the status publishes it. */
+    void setTicket(uint64_t value) noexcept;
+    /** @brief Called by the transfer thread after the submit that signals this ticket returned. */
+    void setSubmitted() noexcept;
+
     uint64_t semaphoreHandle{ 0u };
     const rhi::Device* device{ nullptr };
+    std::atomic<uint64_t> ticket{ 0u };
+    std::atomic<bool> submitted{ false };
 };
 
 /**
@@ -176,7 +189,7 @@ class GraphicsResourceReply final : public ResourceTransferReply
 public:
 
     GraphicsResourceReply(ResourceDomain _domain, ResourceType _type);
-    GraphicsResourceReply(ResourceDomain _domain, ResourceType _type, const rhi::Device* _device);
+    GraphicsResourceReply(ResourceDomain _domain, ResourceType _type, const rhi::Device* _device, uint64_t transfer_timeline);
 
     ~GraphicsResourceReply();
     GraphicsResourceReply(const GraphicsResourceReply&) = delete;

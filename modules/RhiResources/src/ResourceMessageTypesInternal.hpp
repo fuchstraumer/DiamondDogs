@@ -216,6 +216,38 @@ struct ExitWorkerMessage
 {
 };
 
+/** @brief One timeline's pending value, as the owner reported it in Tick. Semaphore is a VkSemaphore cast to uint64_t. */
+struct ConsumerTimelinePoint
+{
+    uint64_t Semaphore{ 0u };
+    uint64_t PendingValue{ 0u };
+};
+
+/** @brief The owner's per-frame call. Fixed size, so that the message needs no allocation. */
+struct TickMessage
+{
+    std::array<ConsumerTimelinePoint, k_MaxConsumerTimelines> Points{};
+    int32_t Count{ 0 };
+};
+
+struct RegisterConsumerTimelineMessage
+{
+    uint64_t Semaphore{ 0u };
+    std::shared_ptr<MessageReply> Reply{ nullptr };
+};
+
+struct UnregisterConsumerTimelineMessage
+{
+    uint64_t Semaphore{ 0u };
+    std::shared_ptr<MessageReply> Reply{ nullptr };
+};
+
+/** @brief Sent by the transfer thread when its completed ticket moves, so that a worker blocked on an empty queue checks
+ *  its retirements. It carries nothing: the worker reads the published ticket itself. */
+struct TransferProgressMessage
+{
+};
+
 using ResourceMessagePayloadType = std::variant<CreateBufferMessage,
                                                 CreateImageMessage,
                                                 CreateSamplerMessage,
@@ -227,7 +259,11 @@ using ResourceMessagePayloadType = std::variant<CreateBufferMessage,
                                                 CopyResourceMessage,
                                                 CopyResourceContentsMessage,
                                                 DestroyResourceMessage,
-                                                ExitWorkerMessage>;
+                                                ExitWorkerMessage,
+                                                TickMessage,
+                                                RegisterConsumerTimelineMessage,
+                                                UnregisterConsumerTimelineMessage,
+                                                TransferProgressMessage>;
 
 // following message types are broadly the same, but feature extra info to reduce need for thread sync or
 // safety concerns with transfer system.
@@ -251,6 +287,7 @@ struct TransferSystemSetBufferDataMessage
     TransferSystemReqBufferInfo BufferInfo;
     InternalResourceDataContainer Data;
     std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    uint64_t Ticket{ 0u };
 };
 
 struct TransferSystemSetImageDataMessage
@@ -258,6 +295,7 @@ struct TransferSystemSetImageDataMessage
     TransferSystemReqImageInfo ImageInfo;
     InternalResourceDataContainer Data;
     std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    uint64_t Ticket{ 0u };
 };
 
 struct TransferSystemFillBufferMessage
@@ -267,6 +305,7 @@ struct TransferSystemFillBufferMessage
     size_t Offset{ 0u };
     size_t Size{ 0u };
     std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    uint64_t Ticket{ 0u };
 };
 
 struct TransferSystemCopyBufferToBufferMessage
@@ -274,6 +313,7 @@ struct TransferSystemCopyBufferToBufferMessage
     TransferSystemReqBufferInfo SrcBufferInfo;
     TransferSystemReqBufferInfo DstBufferInfo;
     std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    uint64_t Ticket{ 0u };
 };
 
 struct TransferSystemCopyImageToImageMessage
@@ -281,6 +321,7 @@ struct TransferSystemCopyImageToImageMessage
     TransferSystemReqImageInfo SrcImageInfo;
     TransferSystemReqImageInfo DstImageInfo;
     std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    uint64_t Ticket{ 0u };
 };
 
 struct TransferSystemCopyImageToBufferMessage
@@ -288,6 +329,7 @@ struct TransferSystemCopyImageToBufferMessage
     TransferSystemReqImageInfo ImageInfo;
     TransferSystemReqBufferInfo BufferInfo;
     std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    uint64_t Ticket{ 0u };
 };
 
 struct TransferSystemCopyBufferToImageMessage
@@ -295,6 +337,12 @@ struct TransferSystemCopyBufferToImageMessage
     TransferSystemReqBufferInfo BufferInfo;
     TransferSystemReqImageInfo ImageInfo;
     std::shared_ptr<ResourceTransferReply> Reply{ nullptr };
+    uint64_t Ticket{ 0u };
+};
+
+/** @brief Tells the transfer thread to return, so that it can block on an empty queue instead of polling a flag. */
+struct TransferSystemExitMessage
+{
 };
 
 using TransferPayloadType = std::variant<TransferSystemSetBufferDataMessage,
@@ -303,6 +351,7 @@ using TransferPayloadType = std::variant<TransferSystemSetBufferDataMessage,
                                          TransferSystemCopyBufferToBufferMessage,
                                          TransferSystemCopyImageToImageMessage,
                                          TransferSystemCopyImageToBufferMessage,
-                                         TransferSystemCopyBufferToImageMessage>;
+                                         TransferSystemCopyBufferToImageMessage,
+                                         TransferSystemExitMessage>;
 
 #endif // RESOURCE_MESSAGE_TYPES_INTERNAL_HPP
