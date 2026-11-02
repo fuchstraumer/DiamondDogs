@@ -112,12 +112,13 @@ namespace ocean
 
     void OceanFoamImpl::RecordLayoutChange(rhi::CommandBuffer& command_buffer)
     {
+        // compute stages only: this records on the async compute queue too, which has no graphics stages
         const rhi::ImageBarrier toGeneral
         {
             .Image=rhi::ImageHandle{ ClipmapImage.VkHandle },
             .SrcStages=rhi::PipelineStage::None,
             .SrcAccess=rhi::Access::None,
-            .DstStages=rhi::PipelineStage::ComputeShader | rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader,
+            .DstStages=OceanFoam::k_StepStages,
             .DstAccess=rhi::Access::ShaderSampledRead | rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite,
             .OldLayout=rhi::ImageLayout::Undefined,
             .NewLayout=rhi::ImageLayout::General
@@ -134,13 +135,13 @@ namespace ocean
             timer.emplace(*timer_block, "Foam step");
         }
 
-        // the simulation wrote Displacement, Derivatives and Whitecaps (and the last frame's draws sampled the clipmap), and this
-        // step reads both and rewrites the clipmap in place
+        // the simulation (or the previous replay step) wrote Displacement, Derivatives, Whitecaps and the clipmap, and this
+        // step reads them and rewrites the clipmap in place. the caller orders the last frame's draws before this step
         const rhi::GlobalBarrier inputsToStep
         {
-            rhi::PipelineStage::ComputeShader | rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader,
+            OceanFoam::k_StepStages,
             rhi::Access::ShaderStorageWrite,
-            rhi::PipelineStage::ComputeShader,
+            OceanFoam::k_StepStages,
             rhi::Access::ShaderSampledRead | rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite
         };
         command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &inputsToStep, 1 }, {}, {} });
@@ -158,12 +159,13 @@ namespace ocean
         const uint32_t groups = static_cast<uint32_t>(Settings.Resolution / k_GroupSize);
         command_buffer.Dispatch(groups, groups, k_ClipmapLevels);
 
-        // the draws sample the clipmap, and the next tick or step must not overwrite what this step reads before it ends
+        // the next tick or step must not overwrite what this step reads before it ends. the caller orders this step
+        // before the draws that sample the clipmap
         const rhi::GlobalBarrier stepToReaders
         {
-            rhi::PipelineStage::ComputeShader,
+            OceanFoam::k_StepStages,
             rhi::Access::ShaderStorageWrite,
-            rhi::PipelineStage::ComputeShader | rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader,
+            OceanFoam::k_StepStages,
             rhi::Access::ShaderSampledRead | rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite
         };
         command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &stepToReaders, 1 }, {}, {} });

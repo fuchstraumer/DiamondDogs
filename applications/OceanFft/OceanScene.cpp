@@ -1266,7 +1266,9 @@ void OceanScene::Destroy()
         seabedMaterial.reset();
     }
 
+    // the atmosphere frees its LUTs through the resource context, so it must go before resources.reset() below
     environment.reset();
+    atmosphere.reset();
     cdlod.reset();
     colorPipe.reset();
     colorPipeLibrary.reset();
@@ -2700,8 +2702,8 @@ void OceanScene::drawPersistentFoamControls()
 
 void OceanScene::collectGpuTimings()
 {
-    // beginFrame waited on this slot's fence, which frame frameNumber - numFramebuffers signaled: it and every
-    // earlier frame have finished
+    // beginFrame waited on the frame timeline for the frame that used this slot last, frameNumber - numFramebuffers:
+    // it and every earlier frame have finished
     const uint64_t framesInFlight = numFramebuffers;
     const uint64_t completedBefore = frameNumber >= framesInFlight ? frameNumber - framesInFlight + 1u : 0u;
     gpuTimers->Collect(completedBefore);
@@ -2902,7 +2904,7 @@ void OceanScene::writeViewParameters()
     view.FoamTextureTint = { foamTint[0], foamTint[1], foamTint[2], 0.0f };
     foam->FillView(view.PersistentFoamParameters, view.FoamDrift, view.FoamResidualParameters);
 
-    // beginFrame waited on this frame's fence, so the GPU is done with this frame's buffer
+    // beginFrame waited on the frame timeline for this slot, so the GPU is done with this frame's buffer
     std::memcpy(viewBufferPointers[currentFrame], &view, sizeof(view));
 
     // Update FrameConstants
@@ -3880,11 +3882,13 @@ void OceanScene::draw()
         const rhi::SemaphoreSubmitInfo imageAvailable{ imageAvailableSemaphores[currentFrame].Handle(), rhi::PipelineStage::ColorAttachmentOutput };
         const rhi::SemaphoreSubmitInfo computeFinished{ asyncTimeline->Handle(), asyncTimelineValue, rhi::PipelineStage::VertexShader | rhi::PipelineStage::FragmentShader };
         const rhi::SemaphoreSubmitInfo renderFinished{ renderFinishedSemaphores[currentAcquiredImage].Handle(), rhi::PipelineStage::AllGraphics };
+        const rhi::SemaphoreSubmitInfo frameFinished{ FrameTimeline(), FrameValueBeingRecorded(), rhi::PipelineStage::AllGraphics };
 
         const std::array<rhi::SemaphoreSubmitInfo, 2> waits{ imageAvailable, computeFinished };
+        const std::array<rhi::SemaphoreSubmitInfo, 2> signals{ renderFinished, frameFinished };
         const rhi::CommandBufferHandle gfxCmdHandle = commandPools[currentFrame]->GetCommandBuffer(0);
-        const rhi::SubmitInfo submit{ waits, std::span{ &gfxCmdHandle, 1 }, std::span{ &renderFinished, 1 } };
-        RhiAssert(rhi::QueueSubmit(device->GetGraphicsQueue(0), submit, inFlightFences[currentFrame].Handle()));
+        const rhi::SubmitInfo submit{ waits, std::span{ &gfxCmdHandle, 1 }, signals };
+        RhiAssert(rhi::QueueSubmit(device->GetGraphicsQueue(0), submit, rhi::FenceHandle{}));
     }
     else
     {

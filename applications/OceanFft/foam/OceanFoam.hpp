@@ -2,6 +2,7 @@
 #ifndef DIAMOND_DOGS_OCEAN_FOAM_HPP
 #define DIAMOND_DOGS_OCEAN_FOAM_HPP
 #include "ResourceTypes.hpp"
+#include "RhiFlags.hpp"
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -85,8 +86,14 @@ namespace ocean
         /** @brief Writes the foam fields of the view parameters (PersistentFoamParameters, FoamDrift and
          *  FoamResidualParameters in OceanRenderCommon.slang). Call it after Advance */
         void FillView(std::array<float, 4>& persistent_foam_parameters, std::array<float, 4>& foam_drift, std::array<float, 4>& foam_residual) const noexcept;
+        /** @brief The only stages that RecordStep's barriers name, so that it can record on a compute-only queue */
+        static constexpr rhi::PipelineStage k_StepStages = rhi::PipelineStage::ComputeShader;
+
         /** @brief Records the barriers and the dispatch that integrate one step. Records only a one-time layout
-         *  change while the foam is disabled. frame_index selects the descriptor set of that frame's view buffer */
+         *  change while the foam is disabled. frame_index selects the descriptor set of that frame's view buffer.
+         *  The barriers order the step against compute work only. The caller orders the clipmap against the draws:
+         *  draws before the step (WAR), and the step before the draws (from k_StepStages, ShaderStorageWrite). On a
+         *  separate compute queue, the graphics submit's semaphore wait does the second */
         void RecordStep(rhi::CommandBuffer& command_buffer, uint32_t frame_index, rhi::GpuTimerBlock* timer_block = nullptr);
         /** @brief Makes the next RecordStep clear the foam */
         void Invalidate() noexcept;
