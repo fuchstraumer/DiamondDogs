@@ -197,6 +197,25 @@ namespace loom
                 // ExposedAnchors hold `Position`, the location of the anchor within this position.
                 // This means that the ordering is relative to this sequence, so based on the value
                 // of each position `k` , we need to apply before/after ordering as needed.
+                for (const auto& anchorIdx : sequence.ExposedAnchors)
+                {
+                    // Generate a lazy view of passes within this sequence - should make building the ordering edges a little easier
+                    // to follow along with
+                    const FrozenAnchor& anchor = context.Frozen.Anchors[anchorIdx.Value];
+                    const NodeIndex anchorNode = NodeOfAnchor(context, anchorIdx);
+                    
+                    if (anchor.Position > 0)
+                    {
+                        const NodeIndex passNode = NodeOfPass(PassIndex{ anchor.Position - 1 });
+                        AddEdge(context, passNode, anchorNode, EdgeReason::ExposedAnchor, anchor.Where);
+                    }
+
+                    if (anchor.Position < sequence.PassCount)
+                    {
+                        const NodeIndex passNode = NodeOfPass(PassIndex{ anchor.Position });
+                        AddEdge(context, anchorNode, passNode, EdgeReason::ExposedAnchor, anchor.Where);
+                    }
+                }
             }
         }
 
