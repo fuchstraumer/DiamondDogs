@@ -8,6 +8,7 @@ set(LOOM_TEST_SOURCES
     test_frozen_graph.cpp
     test_freeze_resolve.cpp
     test_freeze_draw.cpp
+    test_order.cpp
 )
 
 add_unit_test_target(loom_tests

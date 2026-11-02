@@ -7,6 +7,11 @@ set(FOUNDATION_TEST_SOURCES
     # Async tests
     async/test_task_scheduler.cpp
 
+    # Content key tests
+    content/test_encode.cpp
+    content/test_keys.cpp
+    content/test_text_sink.cpp
+
     # Threading tests
     threading/test_atomic128.cpp
     threading/test_critical_section.cpp

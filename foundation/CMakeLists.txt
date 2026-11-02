@@ -19,6 +19,19 @@ set(foundation_async_source_files
     "src/async/Scheduler.cpp"
     "src/async/Timeline.cpp")
 
+set(foundation_content_source_files
+    "include/content/CanonicalSink.hpp"
+    "include/content/Encode.hpp"
+    "include/content/HashSink.hpp"
+    "include/content/Key.hpp"
+    "include/content/RecipeKey.hpp"
+    "include/content/TextSink.hpp"
+    "include/reflect/Describe.hpp"
+    "src/content/HashSink.cpp"
+    "src/content/Key.cpp"
+    "src/content/RecipeKey.cpp"
+    "src/content/TextSink.cpp")
+
 set(foundation_containers_source_files
     "include/containers/CircularBuffer.hpp"
     "include/containers/ConcurrentDeque.hpp"
@@ -90,6 +103,7 @@ set(maths_source_files
 
 source_group("foundation" FILES ${foundation_source_files})
 source_group("async" FILES ${foundation_async_source_files})
+source_group("content" FILES ${foundation_content_source_files})
 source_group("containers" FILES ${foundation_containers_source_files})
 source_group("threading" FILES ${threading_source_files} ${threading_platform_source_files})
 source_group("utility" FILES ${utility_source_files})
@@ -99,6 +113,7 @@ source_group("events" FILES ${event_source_files})
 
 add_library(foundation STATIC
     ${foundation_async_source_files}
+    ${foundation_content_source_files}
     ${foundation_source_files}
     ${foundation_containers_source_files}
     ${threading_source_files}
@@ -114,6 +129,9 @@ target_include_directories(foundation PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include/")
 
 target_link_libraries(foundation PUBLIC mimalloc-static)
+
+# xxHash comes from Lodestone's checkout (see cmake/ConfigureLodestone.cmake). PRIVATE, so no header of ours shows it.
+target_link_libraries(foundation PRIVATE xxHash::xxhash)
 
 if(WIN32)
     # FrameSymbolizer reads function names with DbgHelp in every build below Release (RelWithDebInfo defines NDEBUG too,
