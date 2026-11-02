@@ -42,7 +42,9 @@ struct BufferCreateInfo
     size_t Size{ 0u };
     /** @brief If this member is given, the buffer will be created with a correponding BufferView object. Otherwise, we won't create a view. */
     std::optional<ImageFormat> ViewFormat{ std::nullopt };
-    std::string_view Name; // leaving this empty is valid behavior
+    /** @brief Optional debug name. ResourceContext copies it when the create call is made, so the string only has to
+     *  live until the call returns. Names longer than 63 characters are truncated. */
+    std::string_view Name;
 };
 
 /** @brief Describes a specific range within an image, including mip levels and array layers, used for creating image views or specifying subresource ranges in image operations. */
@@ -157,7 +159,8 @@ struct ImageCreateInfo
     std::optional<ImageViewCreateInfo> ViewInfo{ std::nullopt };
     /** @brief Optional sampler info - if present we will create a sampler with this image, if not no sampler will be created. */
     std::optional<SamplerCreateInfo> SamplerInfo{ std::nullopt };
-    std::string_view Name; // leaving this empty is valid behavior
+    /** @brief Optional debug name, copied as `BufferCreateInfo::Name` is. The view and the sampler are named after it. */
+    std::string_view Name;
 };
 
 struct GraphicsResource

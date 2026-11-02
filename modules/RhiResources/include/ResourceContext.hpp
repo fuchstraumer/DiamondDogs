@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <memory>
 #include <span>
+#include <string_view>
 
 namespace rhi
 {
@@ -27,6 +28,19 @@ struct ResourceContextCreateInfo
     bool ValidationEnabled{ false };            ///< Whether Vulkan validation layers are enabled
     bool DeviceAddressesEnabled{ false };       ///< Whether this session needs device addresses enabled for buffers
 };
+
+enum class ResourceContextError : uint8_t
+{
+    Invalid = 0,
+    Success = 1,
+    AlreadyInitialized = 2,
+    /** @brief The create info has no instance or no device. */
+    InvalidCreateInfo = 3,
+    /** @brief VMA could not create an allocator, for the context or for its transfer system. */
+    AllocatorCreationFailed = 4,
+};
+
+[[nodiscard]] std::string_view ToString(ResourceContextError error) noexcept;
 
 /// Semaphore value used to signal when transfer operations are complete
 constexpr static uint64_t k_TransferCompleteSemaphoreValue = 2u;
@@ -64,13 +78,12 @@ public:
     ResourceContext& operator=(const ResourceContext&) = delete;
 
     /**
-     * @brief Initialize the ResourceContext with the given configuration
-     * 
-     * @param createInfo Configuration structure containing device pointers and options
-     * 
-     * @note Must be called before any other operations, as this starts background worker threads for processing resource operations
+     * @brief Initializes the ResourceContext with the given configuration, and starts its worker threads. Must be
+     * called before any other operation. On failure, no thread is started and the context stays uninitialized.
+     *
+     * @param create_info Configuration structure containing device pointers and options
      */
-    void Initialize(const ResourceContextCreateInfo& createInfo);
+    [[nodiscard]] ResourceContextError Initialize(const ResourceContextCreateInfo& create_info);
 
     /**
      * @brief Create a buffer, with a buffer view when `createInfo.ViewFormat` is set. If initial_data is provided,

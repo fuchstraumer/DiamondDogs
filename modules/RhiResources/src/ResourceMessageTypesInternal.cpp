@@ -1,12 +1,45 @@
 #include "ResourceMessageTypesInternal.hpp"
 #include "ResourceMessageReply.hpp"
 #include "ResourceTypes.hpp"
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <memory>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <utility>
+
+DebugName::DebugName(std::string_view name) noexcept
+{
+    // one byte stays free for the terminator, which the zero-initialized array already provides
+    Length = static_cast<int32_t>(std::min(name.size(), static_cast<size_t>(k_Capacity - 1)));
+    std::memcpy(Text.data(), name.data(), static_cast<size_t>(Length));
+}
+
+DebugName DebugName::WithSuffix(std::string_view suffix) const noexcept
+{
+    DebugName result = *this;
+    const int32_t suffixLength = static_cast<int32_t>(std::min(suffix.size(), static_cast<size_t>(k_Capacity - 1 - Length)));
+    std::memcpy(result.Text.data() + Length, suffix.data(), static_cast<size_t>(suffixLength));
+    result.Length = Length + suffixLength;
+    return result;
+}
+
+std::string_view DebugName::View() const noexcept
+{
+    return std::string_view(Text.data(), static_cast<size_t>(Length));
+}
+
+const char* DebugName::CString() const noexcept
+{
+    return Text.data();
+}
+
+bool DebugName::Empty() const noexcept
+{
+    return Length == 0;
+}
 
 
 InternalResourceDataContainer::BufferData::BufferData(const RhiBufferResourceData& _data) :

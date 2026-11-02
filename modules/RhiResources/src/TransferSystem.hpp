@@ -25,6 +25,8 @@ namespace rhi
 struct UploadBuffer;
 
 /** @brief Moved from include/ to src/: it includes the internal message types and VMA, and only ResourceContextImpl uses it. */
+enum class ResourceContextError : uint8_t;
+
 class ResourceTransferSystem
 {
 public:
@@ -36,9 +38,7 @@ public:
     ResourceTransferSystem();
     ~ResourceTransferSystem();
 
-    void Initialize(const rhi::Device* _device, VkInstance instance, uint32_t vulkan_api_version);
-    // bad, but there are some places we may need to do this - like swapchain resize or device loss events
-    void ForceCompleteTransfers();
+    [[nodiscard]] ResourceContextError Initialize(const rhi::Device* _device, VkInstance instance, uint32_t vulkan_api_version);
 
     void EnqueueTransfer(TransferPayloadType&& payload);
 
@@ -75,15 +75,21 @@ private:
         TransferCommand(TransferCommand&& other) noexcept;
         TransferCommand& operator=(TransferCommand&& other) noexcept;
 
+        /** @brief Creates the command pool and command buffer, and begins recording. Returns false, and fails the reply,
+         *  when Vulkan cannot create them. */
+        [[nodiscard]] bool BeginRecording();
         [[nodiscard]] VkCommandBuffer CmdBuffer() const noexcept;
-        void EndRecording();
+        /** @brief Ends recording. Returns false, and fails the reply, when Vulkan reports an error. */
+        [[nodiscard]] bool EndRecording();
+        /** @brief Sets the reply to Failed and releases it. Used when the transfer cannot be recorded or submitted. */
+        void Fail() noexcept;
         [[nodiscard]] MessageReply::Status WaitForCompletion(uint64_t timeout_ns);
         [[nodiscard]] VkSemaphore Semaphore() const;
         [[nodiscard]] UploadBuffer* GetUploadBuffer() noexcept;
 
     private:
-        void createCommandPool(uint32_t queue_family_index);
         const rhi::Device* device;
+        uint32_t queueFamilyIndex;
         VmaAllocator allocatorHandle;
         std::shared_ptr<ResourceTransferReply> reply;
         std::unique_ptr<rhi::CommandPool> commandPool;
@@ -97,13 +103,14 @@ private:
     void waitForCommandsToComplete(std::chrono::milliseconds timeout);
     void processRemainingAndWait();
 
-    void processSetBufferDataMessage(TransferSystemSetBufferDataMessage&& message);
-    void processSetImageDataMessage(TransferSystemSetImageDataMessage&& message);
-    void processFillBufferMessage(TransferSystemFillBufferMessage&& message);
-    void processCopyBufferToBufferMessage(TransferSystemCopyBufferToBufferMessage&& message);
-    void processCopyImageToImageMessage(TransferSystemCopyImageToImageMessage&& message);
-    void processCopyImageToBufferMessage(TransferSystemCopyImageToBufferMessage&& message);
-    void processCopyBufferToImageMessage(TransferSystemCopyBufferToImageMessage&& message);
+    // one overload per alternative of TransferPayloadType, so that a message type without a handler fails to compile
+    void processMessage(TransferSystemSetBufferDataMessage&& message);
+    void processMessage(TransferSystemSetImageDataMessage&& message);
+    void processMessage(TransferSystemFillBufferMessage&& message);
+    void processMessage(TransferSystemCopyBufferToBufferMessage&& message);
+    void processMessage(TransferSystemCopyImageToImageMessage&& message);
+    void processMessage(TransferSystemCopyImageToBufferMessage&& message);
+    void processMessage(TransferSystemCopyBufferToImageMessage&& message);
 
     mwsrQueue<TransferPayloadType> messageQueue;
 

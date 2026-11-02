@@ -22,6 +22,7 @@
 #include <entt/entity/registry.hpp>
 
 struct ResourceContextCreateInfo;
+enum class ResourceContextError : uint8_t;
 
 namespace rhi
 {
@@ -32,14 +33,9 @@ class ResourceContextImpl
 {
 public:
 
-    void Construct(const ResourceContextCreateInfo& create_info);
+    [[nodiscard]] ResourceContextError Construct(const ResourceContextCreateInfo& create_info);
     void Destroy();
-    /**
-     * @brief Locks current thread and forces it to wait for all pending operations to complete, unlike how it used to be (required per-frame ticks).
-     * Useful for when you want to flush all operations, e.g, swapchain events or key engine boundary events.
-    */
-    void Update();
-    
+
     /** @brief Adds a message - using by-value since we will always be moving this data */
     void PushMessage(ResourceMessagePayloadType message);
     void SetExitWorker();
@@ -71,32 +67,45 @@ private:
     };
 
     void processMessages();
-    void processMessage(ResourceMessagePayloadType&& message);
+    void dispatchMessage(ResourceMessagePayloadType&& message);
 
-    // I don't want to blow up the header implementing the above functions, so they're redeclared here explicitly to be implemented in the .cpp. Sorry :(
-    void processCreateBufferMessage(CreateBufferMessage&& message);
-    void processCreateImageMessage(CreateImageMessage&& message);
-    void processCreateSamplerMessage(CreateSamplerMessage&& message);
-    void processSetBufferDataMessage(SetBufferDataMessage&& message);
-    void processSetImageDataMessage(SetImageDataMessage&& message);
-    void processFillResourceMessage(FillResourceMessage&& message);
-    void processMapResourceMessage(MapResourceMessage&& message);
-    void processUnmapResourceMessage(UnmapResourceMessage&& message);
-    void processCopyResourceMessage(CopyResourceMessage&& message);
-    void processCopyResourceContentsMessage(CopyResourceContentsMessage&& message);
-    void processDestroyResourceMessage(DestroyResourceMessage&& message);
+    // one overload per alternative of ResourceMessagePayloadType, so that a message type without a handler fails to
+    // compile instead of being dropped
+    void processMessage(CreateBufferMessage&& message);
+    void processMessage(CreateImageMessage&& message);
+    void processMessage(CreateSamplerMessage&& message);
+    void processMessage(SetBufferDataMessage&& message);
+    void processMessage(SetImageDataMessage&& message);
+    void processMessage(FillResourceMessage&& message);
+    void processMessage(MapResourceMessage&& message);
+    void processMessage(UnmapResourceMessage&& message);
+    void processMessage(CopyResourceMessage&& message);
+    void processMessage(CopyResourceContentsMessage&& message);
+    void processMessage(DestroyResourceMessage&& message);
+    void processMessage(ExitWorkerMessage&& message) noexcept;
+
+    /** @brief Returns the entity that `resource` refers to, when that entity is alive, is a buffer, and its buffer
+     *  handle matches the one in `resource`. Every message that takes a buffer from a caller resolves it here. */
+    [[nodiscard]] std::optional<entt::entity> resolveBuffer(const GraphicsResource& resource) const;
+    /** @brief Returns the entity that `resource` refers to, when that entity is alive, is an image, and its image
+     *  handle matches the one in `resource`. */
+    [[nodiscard]] std::optional<entt::entity> resolveImage(const GraphicsResource& resource) const;
+    /** @brief Returns the entity that `resource` refers to, when it is a buffer, an image or a sampler, and its handle
+     *  matches. Used by the messages that accept any kind of resource. */
+    [[nodiscard]] std::optional<entt::entity> resolveResource(const GraphicsResource& resource) const;
 
     /** @brief Creates the entity and every API object that the create info asks for. Leaves the reply alone, so that a
      *  copy can follow creation before the reply completes. */
-    [[nodiscard]] std::optional<GraphicsResource> createBufferEntity(const BufferCreateInfo& info);
-    [[nodiscard]] std::optional<GraphicsResource> createImageEntity(const ImageCreateInfo& info);
+    [[nodiscard]] std::optional<GraphicsResource> createBufferEntity(const BufferCreateInfo& info, const DebugName& name);
+    [[nodiscard]] std::optional<GraphicsResource> createImageEntity(const ImageCreateInfo& info, const DebugName& name);
     static void completeWithResource(GraphicsResourceReply& reply, const GraphicsResource& resource) noexcept;
 
+    // each of these names its object after the entity's DebugName component, when the entity has one
     VkBuffer createBuffer(entt::entity new_entity, const BufferCreateInfo& buffer_info);
     VkBufferView createBufferView(entt::entity new_entity, const BufferCreateInfo& buffer_info);
     VkImage createImage(entt::entity new_entity, const ImageCreateInfo& image_info);
     VkImageView createImageView(entt::entity new_entity, const ImageCreateInfo& image_info);
-    VkSampler createSampler(entt::entity new_entity, const SamplerCreateInfo& sampler_info, std::string_view user_name_str);
+    VkSampler createSampler(entt::entity new_entity, const SamplerCreateInfo& sampler_info, std::string_view suffix);
 
     /** @brief Returns true when the allocation landed in host-visible memory, so data can be written without the transfer system. */
     [[nodiscard]] bool allocationIsHostVisible(entt::entity entity) const;
@@ -107,13 +116,11 @@ private:
     [[nodiscard]] TransferSystemReqBufferInfo bufferTransferInfo(entt::entity entity) const;
     /** @brief Returns the image's transfer info, and records the layout that the transfer will leave the image in. */
     [[nodiscard]] TransferSystemReqImageInfo imageTransferInfo(entt::entity entity);
-    void setObjectName(VkObjectType object_type, uint64_t handle, std::string_view name) const;
+    void setObjectName(VkObjectType object_type, uint64_t handle, const DebugName& name) const;
 
     /** @brief Destroys every API object that the entity has, and the entity. Used for destroy messages, for creation
      *  failures part-way through, and for resources still alive at shutdown. */
     void destroyEntityResources(entt::entity entity);
-
-    void writeStatsJsonFile(const char* output_file);
 
     mwsrQueue<ResourceMessagePayloadType> messageQueue;
     std::thread workerThread;

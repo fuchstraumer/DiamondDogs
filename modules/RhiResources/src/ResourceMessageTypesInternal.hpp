@@ -4,6 +4,7 @@
 #include "ResourceMessageReply.hpp"
 #include "ResourceTypes.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -13,6 +14,28 @@
 #include <variant>
 #include <vector>
 #include <vulkan/vulkan_core.h>
+
+/** @brief A debug name, copied on the calling thread when the message is built. The create infos carry a
+ *  `std::string_view`, and the caller's string may be gone by the time the worker reads the message, so we copy it
+ *  into this fixed buffer instead of keeping the view. Longer names are truncated. The text is always
+ *  null-terminated, because Vulkan's object naming reads a C string. */
+struct DebugName
+{
+    static constexpr int32_t k_Capacity = 64;
+
+    DebugName() noexcept = default;
+    explicit DebugName(std::string_view name) noexcept;
+
+    /** @brief Returns this name followed by `suffix`, truncated to the capacity. Used to name views and samplers
+     *  after the resource that owns them. */
+    [[nodiscard]] DebugName WithSuffix(std::string_view suffix) const noexcept;
+    [[nodiscard]] std::string_view View() const noexcept;
+    [[nodiscard]] const char* CString() const noexcept;
+    [[nodiscard]] bool Empty() const noexcept;
+
+    std::array<char, k_Capacity> Text{};
+    int32_t Length{ 0 };
+};
 
 // Users still call functions with the old API on the surface, but we translate to these internal structures
 // so that we can place them in the message queue (type erased by being shoved in a variant, effectively)
@@ -77,9 +100,12 @@ struct InternalResourceDataContainer
     InternalResourceDataContainer() noexcept;
 };
 
+// the create infos in these messages always have empty `Name` views: ResourceContext copies the name into `Name`
+// on the calling thread, then clears the view, so that no stored create info refers to the caller's string
 struct CreateBufferMessage
 {
     BufferCreateInfo BufferInfo;
+    DebugName Name;
     std::optional<InternalResourceDataContainer> InitialData = std::nullopt;
     std::shared_ptr<GraphicsResourceReply> Reply{ nullptr };
 };
@@ -89,6 +115,7 @@ struct CreateBufferMessage
 struct CreateImageMessage
 {
     ImageCreateInfo ImageInfo;
+    DebugName Name;
     std::optional<InternalResourceDataContainer> InitialData = std::nullopt;
     std::shared_ptr<GraphicsResourceReply> Reply{ nullptr };
 };
@@ -96,7 +123,7 @@ struct CreateImageMessage
 struct CreateSamplerMessage
 {
     SamplerCreateInfo SamplerInfo;
-    std::string_view Name;
+    DebugName Name;
     std::shared_ptr<GraphicsResourceReply> Reply{ nullptr };
 };
 

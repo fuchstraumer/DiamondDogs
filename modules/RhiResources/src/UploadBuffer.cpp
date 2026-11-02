@@ -73,7 +73,7 @@ UploadBuffer::~UploadBuffer()
     }
 }
 
-std::vector<VkBufferCopy> UploadBuffer::SetData(
+std::optional<std::vector<VkBufferCopy>> UploadBuffer::SetData(
     const InternalResourceDataContainer::BufferDataVector& data_vector)
 {
     VkDeviceSize totalSize = 0;
@@ -82,7 +82,11 @@ std::vector<VkBufferCopy> UploadBuffer::SetData(
         totalSize += static_cast<VkDeviceSize>(data.Size);
     }
 
-    createAndAllocateBuffer(totalSize);
+    if (!createAndAllocateBuffer(totalSize))
+    {
+        return std::nullopt;
+    }
+
     std::vector<VkBufferCopy> bufferCopies(data_vector.size());
     VkDeviceSize offset = 0;
     for (size_t i = 0; i < data_vector.size(); ++i)
@@ -97,7 +101,7 @@ std::vector<VkBufferCopy> UploadBuffer::SetData(
     return bufferCopies;
 }
 
-std::vector<VkBufferImageCopy> UploadBuffer::SetData(
+std::optional<std::vector<VkBufferImageCopy>> UploadBuffer::SetData(
     const InternalResourceDataContainer::ImageDataVector& image_data_vector,
     VkImageAspectFlags aspect_mask)
 {
@@ -108,7 +112,11 @@ std::vector<VkBufferImageCopy> UploadBuffer::SetData(
         totalSize += static_cast<VkDeviceSize>(data.Size);
     }
 
-    createAndAllocateBuffer(totalSize);
+    if (!createAndAllocateBuffer(totalSize))
+    {
+        return std::nullopt;
+    }
+
     // fixed: this sized the vector to the element count and then also emplaced each copy, so every region was recorded
     // twice, the second time over the first. it also used the image's layer count for every element
     std::vector<VkBufferImageCopy> bufferImageCopies(image_data_vector.size());
@@ -133,7 +141,7 @@ std::vector<VkBufferImageCopy> UploadBuffer::SetData(
     return bufferImageCopies;
 }
 
-void UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
+bool UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
 {
     VkBufferCreateInfo createInfo = k_DefaultStagingBufferCreateInfo;
     createInfo.size = size;
@@ -146,7 +154,13 @@ void UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
         &Buffer,
         &Allocation,
         &resultAllocInfo);
-    assert(result == VK_SUCCESS);
+    if (result != VK_SUCCESS)
+    {
+        Buffer = VK_NULL_HANDLE;
+        Allocation = VK_NULL_HANDLE;
+        return false;
+    }
+
     mappedPtr = resultAllocInfo.pMappedData;
     Size = size;
 
@@ -157,6 +171,8 @@ void UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
             reinterpret_cast<uint64_t>(Buffer),
             "TransferSystem_UploadBuffer");
     }
+
+    return true;
 }
 
 void UploadBuffer::setDataAtOffset(const void* data, size_t data_size, size_t offset)

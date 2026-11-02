@@ -11,6 +11,25 @@
 #include <string_view>
 #include <utility>
 
+std::string_view ToString(ResourceContextError error) noexcept
+{
+    switch (error)
+    {
+    case ResourceContextError::Invalid:
+        return "Invalid";
+    case ResourceContextError::Success:
+        return "Success";
+    case ResourceContextError::AlreadyInitialized:
+        return "AlreadyInitialized";
+    case ResourceContextError::InvalidCreateInfo:
+        return "InvalidCreateInfo";
+    case ResourceContextError::AllocatorCreationFailed:
+        return "AllocatorCreationFailed";
+    }
+
+    return "Unknown ResourceContextError";
+}
+
 ResourceContext::ResourceContext()
 {
     impl = std::make_unique<ResourceContextImpl>();
@@ -22,9 +41,9 @@ ResourceContext::~ResourceContext()
     impl->Destroy();
 }
 
-void ResourceContext::Initialize(const ResourceContextCreateInfo& create_info)
+ResourceContextError ResourceContext::Initialize(const ResourceContextCreateInfo& create_info)
 {
-    impl->Construct(create_info);
+    return impl->Construct(create_info);
 }
 
 std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
@@ -33,6 +52,9 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateBuffer(
 {
     CreateBufferMessage message;
     message.BufferInfo = create_info;
+    message.Name = DebugName(create_info.Name);
+    message.BufferInfo.Name = {};
+
     if (!initial_data.empty())
     {
         message.InitialData = InternalResourceDataContainer(initial_data);
@@ -53,6 +75,20 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateImage(
 {
     CreateImageMessage message;
     message.ImageInfo = create_info;
+    message.Name = DebugName(create_info.Name);
+    message.ImageInfo.Name = {};
+
+    // the view and the sampler take their names from the image, so their own views are never read
+    if (message.ImageInfo.ViewInfo.has_value())
+    {
+        message.ImageInfo.ViewInfo->Name = {};
+    }
+
+    if (message.ImageInfo.SamplerInfo.has_value())
+    {
+        message.ImageInfo.SamplerInfo->Name = {};
+    }
+
     if (!initial_data.empty())
     {
         message.InitialData = InternalResourceDataContainer(initial_data);
@@ -73,11 +109,8 @@ std::shared_ptr<GraphicsResourceReply> ResourceContext::CreateSampler(
 {
     CreateSamplerMessage message;
     message.SamplerInfo = create_info;
-    if (message.SamplerInfo.Name.empty())
-    {
-        message.SamplerInfo.Name = sampler_name;
-    }
-    message.Name = sampler_name;
+    message.Name = DebugName(create_info.Name.empty() ? sampler_name : create_info.Name);
+    message.SamplerInfo.Name = {};
     message.Reply = std::make_shared<GraphicsResourceReply>(ResourceDomain::GPUOnly, ResourceType::Sampler);
     std::shared_ptr<GraphicsResourceReply> reply = message.Reply;
 
