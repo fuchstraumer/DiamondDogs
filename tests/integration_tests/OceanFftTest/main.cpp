@@ -19,7 +19,7 @@
 #include "ImageDataFormats.hpp"
 #include "ResourceFlags.hpp"
 #include "ResourceTypes.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include <vulkan/vulkan_core.h>
 #include <algorithm>
 #include <array>
@@ -96,17 +96,17 @@ namespace
             info.Domain = ResourceDomain::GPUToCPU;
             info.Usage = BufferUsageBits::CopyDestination;
             info.Size = bytes;
-            std::shared_ptr<GraphicsResourceReply> reply = resources.CreateBuffer(info, {});
-            if (reply->WaitForCompletion(k_TimeoutNs) == MessageReply::Status::Completed)
+            rhi::ResourceFuture<GraphicsResource> reply = resources.CreateBuffer(info, {});
+            if (resources.Wait(reply, k_TimeoutNs) == rhi::FutureState::Complete)
             {
-                buffer = reply->GetResource();
+                buffer = reply.Get();
             }
         }
         ~Readback()
         {
             if (buffer)
             {
-                (void)resources.DestroyResource(buffer)->WaitForCompletion(k_TimeoutNs);
+                (void)resources.Wait(resources.DestroyResource(buffer), k_TimeoutNs);
             }
         }
         [[nodiscard]] bool Valid() const noexcept { return static_cast<bool>(buffer); }
@@ -115,44 +115,44 @@ namespace
         [[nodiscard]] std::vector<float> ReadHalves(uint64_t offset, uint64_t count) const
         {
             std::vector<float> values;
-            std::shared_ptr<PointerMessageReply> map = resources.MapBuffer(buffer, bytes, 0u);
-            if (map->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            rhi::ResourceFuture<void*> map = resources.MapBuffer(buffer, bytes, 0u);
+            if (resources.Wait(map, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 return values;
             }
-            const uint16_t* halves = reinterpret_cast<const uint16_t*>(static_cast<const std::byte*>(map->GetPointer()) + offset);
+            const uint16_t* halves = reinterpret_cast<const uint16_t*>(static_cast<const std::byte*>(map.Get()) + offset);
             values.reserve(count);
             for (uint64_t i = 0; i < count; ++i)
             {
                 values.push_back(ocean::HalfToFloat(halves[i]));
             }
-            (void)resources.UnmapBuffer(buffer, bytes, 0u)->WaitForCompletion(k_TimeoutNs);
+            (void)resources.Wait(resources.UnmapBuffer(buffer, bytes, 0u), k_TimeoutNs);
             return values;
         }
 
         [[nodiscard]] std::vector<uint16_t> ReadRaw(uint64_t offset, uint64_t count) const
         {
             std::vector<uint16_t> values(count);
-            std::shared_ptr<PointerMessageReply> map = resources.MapBuffer(buffer, bytes, 0u);
-            if (map->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            rhi::ResourceFuture<void*> map = resources.MapBuffer(buffer, bytes, 0u);
+            if (resources.Wait(map, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 return {};
             }
-            std::memcpy(values.data(), static_cast<const std::byte*>(map->GetPointer()) + offset, count * sizeof(uint16_t));
-            (void)resources.UnmapBuffer(buffer, bytes, 0u)->WaitForCompletion(k_TimeoutNs);
+            std::memcpy(values.data(), static_cast<const std::byte*>(map.Get()) + offset, count * sizeof(uint16_t));
+            (void)resources.Wait(resources.UnmapBuffer(buffer, bytes, 0u), k_TimeoutNs);
             return values;
         }
 
         [[nodiscard]] std::vector<uint32_t> ReadWords(uint64_t offset, uint64_t count) const
         {
             std::vector<uint32_t> values(count);
-            std::shared_ptr<PointerMessageReply> map = resources.MapBuffer(buffer, bytes, 0u);
-            if (map->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+            rhi::ResourceFuture<void*> map = resources.MapBuffer(buffer, bytes, 0u);
+            if (resources.Wait(map, k_TimeoutNs) != rhi::FutureState::Complete)
             {
                 return {};
             }
-            std::memcpy(values.data(), static_cast<const std::byte*>(map->GetPointer()) + offset, count * sizeof(uint32_t));
-            (void)resources.UnmapBuffer(buffer, bytes, 0u)->WaitForCompletion(k_TimeoutNs);
+            std::memcpy(values.data(), static_cast<const std::byte*>(map.Get()) + offset, count * sizeof(uint32_t));
+            (void)resources.Wait(resources.UnmapBuffer(buffer, bytes, 0u), k_TimeoutNs);
             return values;
         }
 
@@ -292,8 +292,8 @@ namespace
             value = ocean::FloatToHalf(distribution(generator));
         }
         const RhiBufferResourceData inputData{ std::as_bytes(std::span{ input }), 0u };
-        std::shared_ptr<ResourceTransferReply> upload = context.Resources.SetBufferData(ocean.GetBuffer(ocean::OceanSimulation::Buffer::IfftInput), std::span{ &inputData, 1 });
-        if (upload->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        rhi::OperationFuture upload = context.Resources.SetBufferData(ocean.GetBuffer(ocean::OceanSimulation::Buffer::IfftInput), std::span{ &inputData, 1 });
+        if (context.Resources.Wait(upload, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             std::cerr << std::format("[IFFT {}] the input upload failed\n", name);
             return 1;
@@ -1091,13 +1091,13 @@ namespace
         return failures;
     }
 
-    [[nodiscard]] GraphicsResource WaitForResource(const std::shared_ptr<GraphicsResourceReply>& reply)
+    [[nodiscard]] GraphicsResource WaitForResource(const ResourceContext& resources, const rhi::ResourceFuture<GraphicsResource>& future)
     {
-        if (reply == nullptr || reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+        if (resources.Wait(future, k_TimeoutNs) != rhi::FutureState::Complete)
         {
             return GraphicsResource{};
         }
-        return reply->GetResource();
+        return future.Get();
     }
 
     struct alignas(16) FrameConstants
@@ -1346,7 +1346,7 @@ namespace
         frameInfo.Usage = BufferUsageBits::ComputeShaderUBO;
         frameInfo.Size = sizeof(FrameConstants);
         const RhiBufferResourceData frameData{ std::as_bytes(std::span{ &frameConstants, 1 }), 0u };
-        GraphicsResource frameBuffer = autoDestroy(WaitForResource(context.Resources.CreateBuffer(frameInfo, std::span{ &frameData, 1 })));
+        GraphicsResource frameBuffer = autoDestroy(WaitForResource(context.Resources, context.Resources.CreateBuffer(frameInfo, std::span{ &frameData, 1 })));
 
         constexpr uint32_t k_TestDim = 32u;
         const uint64_t imageBytes = k_TestDim * k_TestDim * 4u * sizeof(uint16_t);
@@ -1368,7 +1368,7 @@ namespace
             info.ViewInfo->ViewType = ImageViewType::Type2D;
             info.ViewInfo->Range.LevelCount = 1u;
             info.ViewInfo->Range.LayerCount = 1u;
-            return autoDestroy(WaitForResource(context.Resources.CreateImage(info, {})));
+            return autoDestroy(WaitForResource(context.Resources, context.Resources.CreateImage(info, {})));
         };
 
         GraphicsResource gbufferNormalSigmaIn = createImage(ImageUsageBits::SampledImage | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination, "TestNormalSigmaIn");
@@ -1426,7 +1426,7 @@ namespace
         combinedUpload.insert(combinedUpload.end(), historyUploadData.begin(), historyUploadData.end());
 
         const RhiBufferResourceData uploadResourceData{ std::as_bytes(std::span{ combinedUpload }), 0u };
-        GraphicsResource stagingBuffer = autoDestroy(WaitForResource(context.Resources.CreateBuffer(uploadInfo, std::span{ &uploadResourceData, 1 })));
+        GraphicsResource stagingBuffer = autoDestroy(WaitForResource(context.Resources, context.Resources.CreateBuffer(uploadInfo, std::span{ &uploadResourceData, 1 })));
 
         Readback specAaReadback(context.Resources, imageBytes);
         Readback taaReadback(context.Resources, imageBytes);
@@ -1604,7 +1604,7 @@ namespace
         {
             if (res)
             {
-                (void)context.Resources.DestroyResource(res)->WaitForCompletion(k_TimeoutNs);
+                (void)context.Resources.Wait(context.Resources.DestroyResource(res), k_TimeoutNs);
             }
         }
         vkDestroyDescriptorPool(vkDevice, testDescPool, nullptr);
