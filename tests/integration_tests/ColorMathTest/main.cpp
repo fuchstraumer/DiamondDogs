@@ -423,7 +423,7 @@ namespace
         RhiAssert(commandBuffer.End());
 
         // the input upload runs on the transfer queue, and signals the reply's semaphore when it finishes
-        const rhi::SemaphoreSubmitInfo uploadWait{ rhi::TimelineSemaphoreHandle{ buffers.InputReply->SemaphoreHandle() }, k_TransferCompleteSemaphoreValue, rhi::PipelineStage::ComputeShader };
+        const rhi::SemaphoreSubmitInfo uploadWait{ rhi::TimelineSemaphoreHandle{ buffers.InputReply->SemaphoreHandle() }, buffers.InputReply->SemaphoreValue(), rhi::PipelineStage::ComputeShader };
         const rhi::CommandBufferHandle commandBufferHandle = commandBuffer.Handle();
         rhi::Fence fence(device.Handle());
         RhiAssert(rhi::QueueSubmit(device.GetGeneralQueue(), rhi::SubmitInfo{ std::span{ &uploadWait, 1 }, std::span{ &commandBufferHandle, 1 }, {} }, fence.Handle()));

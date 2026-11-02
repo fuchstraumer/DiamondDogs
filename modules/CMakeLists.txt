@@ -46,6 +46,8 @@ add_subdirectory(ColorPipe)
 # This module provides imgui as a basic debugging UI
 # that sits just BARELY over the resource and rendering contexts
 add_subdirectory(ImGuiModule)
+# input control space, frame assembly, and record and replay; no platform source yet
+add_subdirectory(InputSystem)
 #add_subdirectory(material_module)
 #add_subdirectory(content_compiler)
 #add_subdirectory(terrain_module)

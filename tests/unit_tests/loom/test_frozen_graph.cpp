@@ -1,5 +1,5 @@
 #include "Declarations.hpp"
-#include "FrozenGraph.hpp"
+#include "freeze/FrozenGraph.hpp"
 #include "GraphBuilder.hpp"
 #include "ImageDataFormats.hpp"
 #include "LoomDiagnostic.hpp"

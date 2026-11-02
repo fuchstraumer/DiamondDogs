@@ -173,8 +173,8 @@ namespace color
         [[nodiscard]] std::string_view TonemapperTypeName(TonemapperKind kind) noexcept;
         [[nodiscard]] std::string_view EncodingCaseName(DisplayEncoding encoding) noexcept;
         [[nodiscard]] GraphicsResource WaitForResource(const std::shared_ptr<GraphicsResourceReply>& reply);
-        [[nodiscard]] ImageCreateInfo MakeTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name = {}, std::string_view view_name = {});
-        [[nodiscard]] ImageCreateInfo MakeBloomTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name = {}, std::string_view view_name = {});
+        [[nodiscard]] ImageCreateInfo MakeTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name);
+        [[nodiscard]] ImageCreateInfo MakeBloomTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name);
         [[nodiscard]] ColorTargetView MakeTargetView(const GraphicsResource& resource, ImageFormat format, uint32_t width, uint32_t height) noexcept;
         [[nodiscard]] SwapchainHdrMetadata MakeHdrMetadata(const DisplayTarget& target) noexcept;
         [[nodiscard]] DisplayParameters MakeDisplayParameters(const DisplayTarget& target, const BloomSettings& bloom) noexcept;
@@ -685,7 +685,7 @@ namespace color
             return reply->GetResource();
         }
 
-        ImageCreateInfo MakeTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name, std::string_view view_name)
+        ImageCreateInfo MakeTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name)
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
@@ -700,12 +700,11 @@ namespace color
             info.ViewInfo = ImageViewCreateInfo{};
             info.ViewInfo->ViewType = ImageViewType::Type2D;
             info.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
-            info.ViewInfo->Name = view_name;
 
             return info;
         }
 
-        ImageCreateInfo MakeBloomTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name, std::string_view view_name)
+        ImageCreateInfo MakeBloomTargetInfo(ImageFormat format, uint32_t width, uint32_t height, std::string_view name)
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
@@ -719,7 +718,6 @@ namespace color
             info.ViewInfo = ImageViewCreateInfo{};
             info.ViewInfo->ViewType = ImageViewType::Type2D;
             info.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
-            info.ViewInfo->Name = view_name;
 
             return info;
         }
@@ -1054,8 +1052,8 @@ namespace color
 
         ColorPipeError CreateTargets(ColorPipeImpl& impl, uint32_t width, uint32_t height)
         {
-            impl.Scene = WaitForResource(impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA16_Float, width, height, "ColorPipe_Scene", "ColorPipe_Scene_View"), {}));
-            impl.Ui = WaitForResource(impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA8_UNorm, width, height, "ColorPipe_Ui", "ColorPipe_Ui_View"), {}));
+            impl.Scene = WaitForResource(impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA16_Float, width, height, "ColorPipe_Scene"), {}));
+            impl.Ui = WaitForResource(impl.Resources->CreateImage(MakeTargetInfo(CommonFormats::RGBA8_UNorm, width, height, "ColorPipe_Ui"), {}));
 
             if (!impl.Scene || !impl.Ui)
             {
@@ -1075,7 +1073,7 @@ namespace color
                 const std::string name = std::format("ColorPipe_BloomDownsample_{}", i);
                 const std::string viewName = std::format("ColorPipe_BloomDownsample_{}_View", i);
                 impl.BloomDownsample[i] = WaitForResource(impl.Resources->CreateImage(
-                    MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name, viewName), {}));
+                    MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name), {}));
 
                 if (!impl.BloomDownsample[i])
                 {
@@ -1093,7 +1091,7 @@ namespace color
                 const std::string name = std::format("ColorPipe_BloomUpsample_{}", i);
                 const std::string viewName = std::format("ColorPipe_BloomUpsample_{}_View", i);
                 impl.BloomUpsample[i] = WaitForResource(impl.Resources->CreateImage(
-                    MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name, viewName), {}));
+                    MakeBloomTargetInfo(CommonFormats::RGBA16_Float, extent.Width, extent.Height, name), {}));
 
                 if (!impl.BloomUpsample[i])
                 {

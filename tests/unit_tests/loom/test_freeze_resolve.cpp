@@ -1,4 +1,4 @@
-#include "FrozenGraph.hpp"
+#include "freeze/FrozenGraph.hpp"
 #include "GraphBuilder.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
