@@ -4,7 +4,7 @@
 #include "VulkanScene.hpp"
 #include "CommonCreationFunctions.hpp"
 #include "RhiHandle.hpp"
-#include "Math.hpp"
+#include "math/Math.hpp"
 #include <vector>
 
 namespace rhi

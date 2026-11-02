@@ -30,7 +30,7 @@ void ResourceContextTest::SetUp()
         rhiSystem->GetVulkanApiVersion(),
         true
     };
-    context->Initialize(createInfo);
+    ASSERT_EQ(context->Initialize(createInfo), ResourceContextError::Success);
 }
 
 void ResourceContextTest::TearDown()

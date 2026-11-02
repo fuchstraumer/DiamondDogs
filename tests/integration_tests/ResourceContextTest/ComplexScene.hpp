@@ -8,7 +8,7 @@
 #include "ResourceMessageReply.hpp"
 #include <vector>
 #include <atomic>
-#include "Math.hpp"
+#include "math/Math.hpp"
 
 using namespace math;
 

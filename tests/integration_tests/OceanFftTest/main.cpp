@@ -1639,7 +1639,13 @@ int main()
     failures += TestExrLoader();
     {
         ResourceContext resources;
-        resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+        if (resourcesResult != ResourceContextError::Success)
+        {
+            std::cerr << std::format("OceanFftTest: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
+            return 1;
+        }
+
         const TestContext context{ *rhiSystem->GetDevice(), resources, **library, ocean::PickWaveSize(*rhiSystem->GetDevice()) };
         failures += TestShaderVariants(context);
         failures += TestOceanCdlod(context);

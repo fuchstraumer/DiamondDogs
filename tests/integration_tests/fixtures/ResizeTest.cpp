@@ -1,5 +1,5 @@
 #include "ResizeTest.hpp"
-#include "Math.hpp"
+#include "math/Math.hpp"
 #include "PlatformSystem.hpp"
 #include "Swapchain.hpp"
 #include <array>

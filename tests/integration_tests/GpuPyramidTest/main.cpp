@@ -512,7 +512,13 @@ int main()
 
     {
         ResourceContext resources;
-        resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+        if (resourcesResult != ResourceContextError::Success)
+        {
+            std::cerr << std::format("GpuPyramidTest: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
+            return 1;
+        }
+
         rhi::Device& device = *rhiSystem->GetDevice();
 
         for (const TestCase& test : k_Cases)

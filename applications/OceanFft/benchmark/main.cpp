@@ -190,7 +190,13 @@ int main()
 
     {
         ResourceContext resources;
-        resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), false });
+        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), false });
+        if (resourcesResult != ResourceContextError::Success)
+        {
+            std::cerr << std::format("OceanFftBenchmark: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
+            return 1;
+        }
+
         rhi::CommandPool pool(device.Handle(), rhi::CommandPool::Type::Compute, device.GetQueueFamilyIndices().Graphics);
         RhiAssert(pool.AllocateCommandBuffers(1));
         std::vector<uint32_t> waveSizes{ 0u };

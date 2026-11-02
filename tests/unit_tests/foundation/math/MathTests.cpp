@@ -1,4 +1,4 @@
-#include "Math.hpp"
+#include "math/Math.hpp"
 #include "math/MathHashes.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
@@ -16,7 +16,7 @@
 namespace
 {
 
-using namespace velox::math;
+using namespace math;
 
 constexpr float k_Tight = 2e-4f;
 constexpr float k_Loose = 1e-3f;

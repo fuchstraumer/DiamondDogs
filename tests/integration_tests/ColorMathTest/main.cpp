@@ -172,7 +172,13 @@ int main()
 
     {
         ResourceContext resources;
-        resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+        if (resourcesResult != ResourceContextError::Success)
+        {
+            std::cerr << std::format("ColorMathTest: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
+            return 1;
+        }
+
         failures = RunAll(*rhiSystem, resources, **library);
     }
 

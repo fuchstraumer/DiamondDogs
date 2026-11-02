@@ -21,7 +21,7 @@
  *  null-terminated, because Vulkan's object naming reads a C string. */
 struct DebugName
 {
-    static constexpr int32_t k_Capacity = 64;
+    static constexpr int32_t k_Capacity = 63;
 
     DebugName() noexcept = default;
     explicit DebugName(std::string_view name) noexcept;
@@ -34,7 +34,7 @@ struct DebugName
     [[nodiscard]] bool Empty() const noexcept;
 
     std::array<char, k_Capacity> Text{};
-    int32_t Length{ 0 };
+    int8_t Length{ 0 };
 };
 
 // Users still call functions with the old API on the surface, but we translate to these internal structures

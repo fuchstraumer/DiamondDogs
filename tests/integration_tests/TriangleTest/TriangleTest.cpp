@@ -13,7 +13,7 @@
 #include "Swapchain.hpp"
 #include "RhiResult.hpp"
 #include "RhiAssert.hpp"
-#include "Math.hpp"
+#include "math/Math.hpp"
 #include "VulkanScene.hpp"
 #include "vulkan/vulkan_core.h"
 #include <cassert>

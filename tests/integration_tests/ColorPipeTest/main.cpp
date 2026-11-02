@@ -226,7 +226,13 @@ int main()
 
     {
         ResourceContext resources;
-        resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+        if (resourcesResult != ResourceContextError::Success)
+        {
+            std::cerr << std::format("ColorPipeTest: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
+            return 1;
+        }
+
         const TestContext context{ *rhiSystem->GetDevice(), resources, **library, pattern };
 
         for (const EncodingCase& encoding : k_Encodings)

@@ -83,7 +83,13 @@ int main()
     int32_t failures = 0;
     {
         ResourceContext resources;
-        resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+        const ResourceContextError resourcesResult = resources.Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), true });
+        if (resourcesResult != ResourceContextError::Success)
+        {
+            std::cerr << std::format("ComputeManifestTest: ResourceContext::Initialize failed: {}\n", ToString(resourcesResult));
+            return 1;
+        }
+
         for (const bool hashTwice : { false, true })
         {
             failures += RunVariant(*rhiSystem, resources, **library, hashTwice);

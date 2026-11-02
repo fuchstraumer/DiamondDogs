@@ -167,3 +167,42 @@ TEST_F(ResourceContextTest, ImageWithoutFormatFails)
     std::shared_ptr<GraphicsResourceReply> reply = context->CreateImage(info, {});
     EXPECT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
 }
+
+TEST_F(ResourceContextTest, ImageAndSamplerMessagesRefuseAMismatchedHandle)
+{
+    ImageCreateInfo info = SampledTexture(8u, 8u);
+    info.Usage = info.Usage | ImageUsageBits::TransferDestination;
+    info.ViewInfo = ImageViewCreateInfo{};
+    info.SamplerInfo = SamplerCreateInfo{};
+    info.Name = "a combined image sampler whose name is long enough to be truncated when the view is named";
+    std::shared_ptr<GraphicsResourceReply> imageReply = context->CreateImage(info, {});
+    ASSERT_EQ(imageReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    const GraphicsResource image = imageReply->GetResource();
+    GraphicsResource forgedImage = image;
+    forgedImage.VkHandle = image.VkHandle ^ 0x10u;
+
+    const std::vector<uint32_t> texels = MakeWordPattern(64u, 13u);
+    RhiImageResourceData data{};
+    data.Data = std::as_bytes(std::span{ texels });
+    data.Width = 8u;
+    data.Height = 8u;
+    std::shared_ptr<ResourceTransferReply> setReply = context->SetImageData(forgedImage, std::span{ &data, 1u });
+    EXPECT_EQ(setReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+
+    std::shared_ptr<GraphicsResourceReply> copyReply = context->CopyImage(forgedImage);
+    EXPECT_EQ(copyReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+
+    std::shared_ptr<MessageReply> destroyImageReply = context->DestroyResource(forgedImage);
+    EXPECT_EQ(destroyImageReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+
+    std::shared_ptr<GraphicsResourceReply> samplerReply = context->CreateSampler(SamplerCreateInfo{}, "ImageAndSamplerMessagesRefuseAMismatchedHandle");
+    ASSERT_EQ(samplerReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    const GraphicsResource sampler = samplerReply->GetResource();
+    GraphicsResource forgedSampler = sampler;
+    forgedSampler.VkSamplerHandle = sampler.VkSamplerHandle ^ 0x10u;
+    std::shared_ptr<MessageReply> destroySamplerReply = context->DestroyResource(forgedSampler);
+    EXPECT_EQ(destroySamplerReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+
+    DestroyAndWait(sampler);
+    DestroyAndWait(image);
+}

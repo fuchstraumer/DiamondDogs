@@ -184,7 +184,7 @@ struct HDRCapabilities
     float sdrWhiteLevel{ 80.0f }; // in nits
     uint32_t BitsPerColorChannel{ 8 };
     /** @brief Swapchain image format */
-    ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::Default };
+    ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::UNorm };
     /** @brief Color space that was chosen during swapchain creation */
     ColorSpace ActiveColorSpace{ ColorSpace::sRGB_Nonlinear };
 };
@@ -238,7 +238,7 @@ struct SwapchainCreateInfo
     /** @brief Desired color space for the swapchain */
     ColorSpace DesiredColorSpace{ ColorSpace::sRGB_Nonlinear };
     /** @brief Optional image format to use for swapchain. If left to invalid default values, will auto-choose format: does not enable HDR */
-    ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::Default };
+    ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::UNorm };
     /** @brief When set, the swapchain uses exactly this pair and ignores the other format fields. Creation throws when the
      * surface does not offer it. The caller sets the HDR metadata with `Swapchain::SetHdrMetadata`. */
     std::optional<SurfaceFormatPair> ExplicitSurfaceFormat{ std::nullopt };

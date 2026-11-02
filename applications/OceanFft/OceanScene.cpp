@@ -333,7 +333,11 @@ void OceanScene::Initialize(void* user_data)
     LoadShaderObjectStateFunctions(vkDevice);
 
     resources = std::make_unique<ResourceContext>();
-    resources->Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), settings.ValidationEnabled });
+    const ResourceContextError resourcesResult = resources->Initialize(ResourceContextCreateInfo{ rhiSystem->GetInstance(), rhiSystem->GetDevice(), rhiSystem->GetVulkanApiVersion(), settings.ValidationEnabled });
+    if (resourcesResult != ResourceContextError::Success)
+    {
+        Fail(std::format("OceanScene: ResourceContext::Initialize failed: {}", ToString(resourcesResult)));
+    }
 
     rhi::ShaderLibraryResult<std::unique_ptr<rhi::ShaderLibrary>> opened = rhi::ShaderLibrary::Open(settings.ManifestPath);
     if (!opened.has_value())
