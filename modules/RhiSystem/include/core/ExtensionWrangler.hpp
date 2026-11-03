@@ -1,10 +1,10 @@
 #pragma once
 #ifndef RENDERING_CONTEXT_EXTENSION_WRANGLER_HPP
 #define RENDERING_CONTEXT_EXTENSION_WRANGLER_HPP
+#include <cstddef>
 #include <cstdint>
 #include <vulkan/vulkan_core.h>
 #include <memory>
-#include <optional>
 #include <string_view>
 #include <expected>
 #include <vector>
@@ -15,7 +15,7 @@ struct ExtensionDependencies
 {
 private:
     friend class ExtensionWrangler;
-    ExtensionDependencies(uint32_t numInstanceExtensionDeps, uint32_t numDeviceExtensionDeps);
+    ExtensionDependencies(uint32_t num_instance_extension_deps, uint32_t num_device_extension_deps);
 public:
     ~ExtensionDependencies();
     ExtensionDependencies(const ExtensionDependencies&) = delete;
@@ -25,22 +25,22 @@ public:
 
     bool IsOnlyVersionDependent() const
     {
-        return numInstanceExtensionDeps == 0 && numDeviceExtensionDeps == 0 && versionDep != 0;
+        return NumInstanceExtensionDeps == 0 && NumDeviceExtensionDeps == 0 && VersionDep != 0;
     }
 
-    uint32_t versionDep;
+    uint32_t VersionDep;
 
-    uint32_t numInstanceExtensionDeps;
-    const char** instanceExtensionDeps;
-    uint32_t numDeviceExtensionDeps;
-    const char** deviceExtensionDeps;
+    uint32_t NumInstanceExtensionDeps;
+    const char** InstanceExtensionDeps;
+    uint32_t NumDeviceExtensionDeps;
+    const char** DeviceExtensionDeps;
 };
 
 class ExtensionWrangler
 {
 public:
 
-    enum class DependencyError
+    enum class DependencyError : uint8_t
     {
         Invalid,
         NoExtensionsProvided,
@@ -51,6 +51,9 @@ public:
         ExtensionNotInstanceOrDeviceExtension,
         CurrentApiVersionDoesNotSupportExtension
     };
+
+    template<typename T>
+    using Result = std::expected<T, DependencyError>;
 
     /**
      * @brief Constructs an ExtensionWrangler instance. Can be used before the Vulkan instance or a physical device is created by passing VK_NULL_HANDLE for the _physicalDevice parameter.
@@ -64,35 +67,35 @@ public:
     ~ExtensionWrangler() noexcept;
 
     /** @brief Useful to know if a physical device has been attached already, or if it's not and we need it that we need to handle that. */
-    bool HasValidPhysicalDevice() const noexcept;
+    [[nodiscard]] bool HasValidPhysicalDevice() const noexcept;
     /** @brief Set the physical device */
-    void SetPhysicalDevice(VkPhysicalDevice _physicalDevice) noexcept;
+    void SetPhysicalDevice(VkPhysicalDevice physical_device) noexcept;
     /** @brief Simple query for is an extension is supported or not */
-    bool IsExtensionSupported(const std::string_view extensionName) const;
+    [[nodiscard]] bool IsExtensionSupported(const std::string_view extension_name) const;
     /** @brief Simply query for if a set of extensions is supported or not */
-    bool AreExtensionsSupported(const size_t numExtensions, const std::string_view* extensionNames) const;
-    bool ExtensionIsDeviceExtension(const std::string_view extensionName) const;
-    bool ExtensionIsInstanceExtension(const std::string_view extensionName) const;
+    [[nodiscard]] bool AreExtensionsSupported(const size_t num_extensions, const std::string_view* extension_names) const;
+    [[nodiscard]] bool ExtensionIsDeviceExtension(const std::string_view extension_name) const;
+    [[nodiscard]] bool ExtensionIsInstanceExtension(const std::string_view extension_name) const;
     /** @brief If an extension is core in the current Vulkan API version in use in this environment, then it does not need to be explicitly enabled at all. */
-    bool ExtensionCoreInActiveVersion(const std::string_view extensionName) const;
+    [[nodiscard]] bool ExtensionCoreInActiveVersion(const std::string_view extension_name) const;
 
     /** @brief Returns all device extensions whose names start with the given prefix that are supported by the current physical device and not already promoted to core.
      * Useful for bulk-enabling a family of related extensions (e.g. prefix "VK_KHR_maintenance").
      */
-    std::vector<std::string_view> GetSupportedExtensionsByPrefix(std::string_view prefix) const;
+    [[nodiscard]] std::vector<std::string_view> GetSupportedExtensionsByPrefix(std::string_view prefix) const;
 
     /** @brief Returns an instance of the ExtensionDependencies struct containing all required dependencies for the specified extension. */
-    std::expected<ExtensionDependencies, DependencyError> GetExtensionDependencies(const std::string_view extensionName) const;
+    [[nodiscard]] Result<ExtensionDependencies> GetExtensionDependencies(const std::string_view extension_name) const;
     /** @brief Returns a deduplicated instance of ExtensionDependencies with all required dependencies for the specified set of extensions (i.e, the common set of required dependencies) */
-    std::expected<ExtensionDependencies, DependencyError> GetExtensionDependencies(std::span<std::string_view> extensionNames) const;
+    [[nodiscard]] Result<ExtensionDependencies> GetExtensionDependencies(std::span<std::string_view> extension_names) const;
 
-    enum class GetVersionFeatures
+    enum class GetVersionFeatures : uint8_t
     {
         True,
         False
     };
 
-    enum class CollectDependencies
+    enum class CollectDependencies : uint8_t
     {
         True,
         False
@@ -104,14 +107,15 @@ public:
      * @param collectDependencies Whether to collect dependencies for the extensions (default: false)
      * @return A VkPhysicalDeviceFeatures2 struct with the pNext chain populated with the features for the given extensions
      */
-    std::expected<VkPhysicalDeviceFeatures2, DependencyError> GetExtensionFeatures(
-        std::span<std::string_view> extensionNames,
-        GetVersionFeatures getVersionFeatures = GetVersionFeatures::False,
-        CollectDependencies collectDependencies = CollectDependencies::False) const;
+    [[nodiscard]] Result<VkPhysicalDeviceFeatures2> GetExtensionFeatures(
+        std::span<std::string_view> extension_names,
+        GetVersionFeatures get_version_features = GetVersionFeatures::False,
+        CollectDependencies collect_dependencies = CollectDependencies::False) const;
 
 private:
 
-    std::expected<ExtensionDependencies, DependencyError> getExtensionDependenciesInternal(const std::string_view extensionName, const size_t extensionIndex) const;
+    [[nodiscard]] Result<ExtensionDependencies>
+        getExtensionDependenciesInternal(const std::string_view extension_name, const size_t extension_index) const;
 
     uint32_t apiVersion;
     VkPhysicalDevice physicalDevice;

@@ -140,6 +140,100 @@ namespace rhi
         MutableRawBuffer
     };
 
+    // The values below match VK_PIPELINE_STAGE_2_*, VK_ACCESS_2_* and VkImageLayout (VulkanConversions.hpp checks them),
+    // like LoadOp and StoreOp, so the Vulkan backend casts. A DX12 backend would map them to D3D12_BARRIER_SYNC/ACCESS.
+    enum class PipelineStage : uint64_t
+    {
+        None = 0,
+        TopOfPipe = 0x00000001ull,
+        DrawIndirect = 0x00000002ull,
+        VertexInput = 0x00000004ull,
+        VertexShader = 0x00000008ull,
+        FragmentShader = 0x00000080ull,
+        EarlyFragmentTests = 0x00000100ull,
+        LateFragmentTests = 0x00000200ull,
+        ColorAttachmentOutput = 0x00000400ull,
+        ComputeShader = 0x00000800ull,
+        AllTransfer = 0x00001000ull,
+        BottomOfPipe = 0x00002000ull,
+        Host = 0x00004000ull,
+        AllGraphics = 0x00008000ull,
+        AllCommands = 0x00010000ull,
+        TaskShader = 0x00080000ull,
+        MeshShader = 0x00100000ull,
+        Copy = 0x100000000ull,
+        Resolve = 0x200000000ull,
+        Blit = 0x400000000ull,
+        Clear = 0x800000000ull,
+    };
+
+    MAKE_ENUM_CLASS_FLAGS(PipelineStage);
+
+    enum class Access : uint64_t
+    {
+        None = 0,
+        IndirectCommandRead = 0x00000001ull,
+        IndexRead = 0x00000002ull,
+        VertexAttributeRead = 0x00000004ull,
+        UniformRead = 0x00000008ull,
+        InputAttachmentRead = 0x00000010ull,
+        ShaderRead = 0x00000020ull,
+        ShaderWrite = 0x00000040ull,
+        ColorAttachmentRead = 0x00000080ull,
+        ColorAttachmentWrite = 0x00000100ull,
+        DepthStencilAttachmentRead = 0x00000200ull,
+        DepthStencilAttachmentWrite = 0x00000400ull,
+        TransferRead = 0x00000800ull,
+        TransferWrite = 0x00001000ull,
+        HostRead = 0x00002000ull,
+        HostWrite = 0x00004000ull,
+        MemoryRead = 0x00008000ull,
+        MemoryWrite = 0x00010000ull,
+        ShaderSampledRead = 0x100000000ull,
+        ShaderStorageRead = 0x200000000ull,
+        ShaderStorageWrite = 0x400000000ull,
+    };
+
+    MAKE_ENUM_CLASS_FLAGS(Access);
+
+    enum class ImageLayout : uint32_t
+    {
+        Undefined = 0,
+        General = 1,
+        ColorAttachment = 2,
+        DepthStencilAttachment = 3,
+        DepthStencilReadOnly = 4,
+        ShaderReadOnly = 5,
+        TransferSource = 6,
+        TransferDestination = 7,
+        Preinitialized = 8,
+        ReadOnly = 1000314000,
+        Attachment = 1000314001,
+        PresentSource = 1000001002,
+    };
+
+    enum class ImageAspect : uint32_t
+    {
+        None = 0,
+        Color = 1 << 0,
+        Depth = 1 << 1,
+        Stencil = 1 << 2,
+    };
+
+    MAKE_ENUM_CLASS_FLAGS(ImageAspect);
+
+    enum class PipelineBindPoint : uint8_t
+    {
+        Graphics,
+        Compute,
+    };
+
+    enum class IndexType : uint8_t
+    {
+        Uint16,
+        Uint32,
+    };
+
 }
 
 #endif //!RHI_SYSTEM_RHI_FLAGS_HPP

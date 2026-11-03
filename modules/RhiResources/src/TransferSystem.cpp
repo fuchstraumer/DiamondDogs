@@ -4,26 +4,25 @@
 #include "ResourceContext.hpp"
 #include "CommandPool.hpp"
 #include "Device.hpp"
-#include "Fence.hpp"
-#include "ResourceMessageReply.hpp"
+#include "FutureTable.hpp"
+#include "ResourceFuture.hpp"
 #include "ResourceMessageTypesInternal.hpp"
 #include "ResourceTypes.hpp"
 #include "RhiResult.hpp"
 #include "RhiSystem.hpp"
 #include "UploadBuffer.hpp"
 #include "VulkanConversions.hpp"
-#include "threading/ExponentialBackoffSleeper.hpp"
+#include "containers/mwsrQueue.hpp"
 #include "vulkan/vulkan_core.h"
 
 #include <algorithm>
-#include <cassert>
-#include <chrono>
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <thread>
-#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -38,6 +37,14 @@ constexpr static VkDebugUtilsLabelEXT k_QueueDebugLabel
 
 namespace
 {
+    // batches in flight before the transfer thread waits on the GPU for the oldest one
+    constexpr int32_t k_BatchCount = 4;
+    // a full batch is submitted at once, so that one long burst of messages still reaches the GPU in pieces
+    constexpr int32_t k_MaxTransfersPerBatch = 64;
+    // how long the transfer thread sleeps on the timeline while batches are in flight and the queue is empty. it is
+    // also the longest a new message waits in that state
+    constexpr uint64_t k_IdleWaitNs = 500'000u;
+
     void RecordTransferOrderingBarrier(VkCommandBuffer cmd) noexcept;
     void RecordImageLayoutTransition(
         VkCommandBuffer cmd,
@@ -52,126 +59,12 @@ namespace
     [[nodiscard]] VkImageAspectFlags AspectMaskForImage(const ImageCreateInfo& create_info) noexcept;
     [[nodiscard]] VkImageSubresourceRange WholeImageRange(const ImageCreateInfo& create_info) noexcept;
     [[nodiscard]] VkExtent3D ImageExtent(const ImageCreateInfo& create_info) noexcept;
-}
-
-ResourceTransferSystem::TransferCommand::TransferCommand(
-    const rhi::Device* _device,
-    uint32_t queue_family_index,
-    VmaAllocator _allocator,
-    std::shared_ptr<ResourceTransferReply>&& _reply) :
-    device(_device),
-    allocatorHandle(_allocator),
-    reply(std::move(_reply))
-{
-    createCommandPool(queue_family_index);
-    uploadBuffer = std::make_unique<UploadBuffer>(allocatorHandle);
-}
-
-ResourceTransferSystem::TransferCommand::TransferCommand(
-    const rhi::Device* _device,
-    uint32_t queue_family_index,
-    std::shared_ptr<ResourceTransferReply>&& _reply) :
-    device(_device), // still need this to create command pool
-    allocatorHandle(VK_NULL_HANDLE),
-    reply(std::move(_reply)),
-    uploadBuffer(nullptr)
-{
-    createCommandPool(queue_family_index);
-}
-
-ResourceTransferSystem::TransferCommand::TransferCommand(TransferCommand&& other) noexcept :
-    device(other.device),
-    allocatorHandle(other.allocatorHandle),
-    reply(std::move(other.reply)),
-    commandPool(std::move(other.commandPool)),
-    uploadBuffer(std::move(other.uploadBuffer))
-{}
-
-ResourceTransferSystem::TransferCommand& ResourceTransferSystem::TransferCommand::operator=(TransferCommand&& other) noexcept
-{
-    if (this != &other)
-    {
-        device = other.device;
-        reply = std::move(other.reply);
-        allocatorHandle = other.allocatorHandle;
-        commandPool = std::move(other.commandPool);
-        uploadBuffer = std::move(other.uploadBuffer);
-    }
-    return *this;
-}
-
-ResourceTransferSystem::TransferCommand::~TransferCommand()
-{
-    // really shoudn't get to this point but .... just in case
-    // (ideally reply is reset after submission success)
-    if (reply && !reply->IsCompleted())
-    {
-        reply->WaitForCompletion(std::numeric_limits<uint64_t>::max());
-    }
-}
-
-VkCommandBuffer ResourceTransferSystem::TransferCommand::CmdBuffer() const noexcept
-{
-    return commandPool->GetCommandBuffer(0).As<VkCommandBuffer>();
-}
-
-void ResourceTransferSystem::TransferCommand::EndRecording()
-{
-    const rhi::VkDebugUtilsFunctions& debugFns = device->GetDebugUtilFns();
-    if (debugFns.vkCmdEndDebugUtilsLabel != nullptr)
-    {
-        debugFns.vkCmdEndDebugUtilsLabel(CmdBuffer());
-    }
-    VkResult result = vkEndCommandBuffer(CmdBuffer());
-    assert(result == VK_SUCCESS);
-}
-
-MessageReply::Status ResourceTransferSystem::TransferCommand::WaitForCompletion(uint64_t timeout_ns)
-{
-    MessageReply::Status status = reply->WaitForCompletion(timeout_ns);
-    if (status == MessageReply::Status::Timeout)
-    {
-        return status;
-    }
-
-    // completed or failed: the GPU is done with the pool and the upload buffer either way
-    reply.reset();
-    uploadBuffer.reset();
-    commandPool.reset();
-    return status;
-}
-
-VkSemaphore ResourceTransferSystem::TransferCommand::Semaphore() const
-{
-    return reinterpret_cast<VkSemaphore>(reply->SemaphoreHandle());
-}
-
-UploadBuffer* ResourceTransferSystem::TransferCommand::GetUploadBuffer() noexcept
-{
-    return uploadBuffer.get();
-}
-
-void ResourceTransferSystem::TransferCommand::createCommandPool(uint32_t queue_family_index)
-{
-    commandPool = std::make_unique<rhi::CommandPool>(device->Handle(), rhi::CommandPool::Type::Transfer, queue_family_index);
-    rhi::Result allocResult = commandPool->AllocateCommandBuffers(1);
-    assert(allocResult.IsSuccess());
-
-    VkCommandBufferBeginInfo beginInfo = {};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VkResult result = vkBeginCommandBuffer(CmdBuffer(), &beginInfo);
-    assert(result == VK_SUCCESS);
-
-    const rhi::VkDebugUtilsFunctions& debugFns = device->GetDebugUtilFns();
-    if (debugFns.vkCmdBeginDebugUtilsLabel != nullptr)
-    {
-        debugFns.vkCmdBeginDebugUtilsLabel(CmdBuffer(), &k_QueueDebugLabel);
-    }
-
-    // every transfer is ordered after the transfers before it on this queue. submissions on one queue give no memory
-    // dependency, so an upload followed by a copy of the same buffer would race without this
-    RecordTransferOrderingBarrier(CmdBuffer());
+    /** @brief Writes one wait info for each distinct semaphore into `out`, with the largest value that any wait gives
+     *  for it, and returns the count. A timeline that two waits name needs only the larger value. */
+    [[nodiscard]] uint32_t MergeWaits(
+        const std::array<rhi::TransferWait, rhi::k_MaxTransferWaits>& waits,
+        int32_t wait_count,
+        std::array<VkSemaphoreSubmitInfo, rhi::k_MaxTransferWaits>& out) noexcept;
 }
 
 ResourceTransferSystem::ResourceTransferSystem() = default;
@@ -181,14 +74,21 @@ ResourceTransferSystem::~ResourceTransferSystem()
     destroy();
 }
 
-void ResourceTransferSystem::Initialize(const rhi::Device* _device, VkInstance instance, uint32_t vulkan_api_version)
+ResourceContextError ResourceTransferSystem::Initialize(
+    const rhi::Device* _device,
+    VkInstance instance,
+    uint32_t vulkan_api_version,
+    mwsrQueue<ResourceMessagePayloadType>* context_queue,
+    rhi::FutureTable* future_table)
 {
     if (initialized)
     {
-        return;
+        return ResourceContextError::AlreadyInitialized;
     }
 
     device = _device;
+    contextQueue = context_queue;
+    futures = future_table;
 
     // a dedicated transfer queue when the device has one. otherwise the second graphics queue, and the general queue
     // only as the last resort: that queue is shared with the application, which then races our submits
@@ -214,76 +114,56 @@ void ResourceTransferSystem::Initialize(const rhi::Device* _device, VkInstance i
     createInfo.vulkanApiVersion = vulkan_api_version;
 
     VkResult result = vmaCreateAllocator(&createInfo, &allocatorHandle);
-    assert(result == VK_SUCCESS);
+    if (result != VK_SUCCESS)
+    {
+        allocatorHandle = VK_NULL_HANDLE;
+        device = nullptr;
+        return ResourceContextError::AllocatorCreationFailed;
+    }
+
+    const VkSemaphoreTypeCreateInfo timelineTypeInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+        nullptr,
+        VK_SEMAPHORE_TYPE_TIMELINE,
+        0u
+    };
+    const VkSemaphoreCreateInfo timelineInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        &timelineTypeInfo,
+        0u
+    };
+
+    result = vkCreateSemaphore(device->Handle().As<VkDevice>(), &timelineInfo, nullptr, &timeline);
+    if (result != VK_SUCCESS)
+    {
+        timeline = VK_NULL_HANDLE;
+        destroy();
+        return ResourceContextError::TransferSetupFailed;
+    }
+
+    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(timeline), "ResourceContext_TransferTimeline");
+
+    freeBatches.reserve(k_BatchCount);
+    inflightBatches.reserve(k_BatchCount);
+    for (int32_t i = 0; i < k_BatchCount; ++i)
+    {
+        TransferBatch& batch = freeBatches.emplace_back();
+        batch.Pool = std::make_unique<rhi::CommandPool>(device->Handle(), rhi::CommandPool::Type::Transfer, transferQueueFamily);
+        if (batch.Pool->Handle().As<VkCommandPool>() == VK_NULL_HANDLE || !batch.Pool->AllocateCommandBuffers(1).IsSuccess())
+        {
+            destroy();
+            return ResourceContextError::TransferSetupFailed;
+        }
+
+        batch.Futures.reserve(k_MaxTransfersPerBatch);
+        batch.Staging.reserve(k_MaxTransfersPerBatch);
+    }
 
     initialized = true;
-    StartWorker();
-}
-
-void ResourceTransferSystem::StartWorker()
-{
-    shouldExitWorker.store(false);
-    workerThread = std::thread(&ResourceTransferSystem::workerThreadJob, this);
-}
-
-void ResourceTransferSystem::StopWorker()
-{
-    if (workerThread.joinable())
-    {
-        shouldExitWorker.store(true);
-        workerThread.join();
-    }
-}
-
-void ResourceTransferSystem::destroy()
-{
-    if (!initialized)
-    {
-        return;
-    }
-
-    StopWorker();
-    processRemainingAndWait();
-    vmaDestroyAllocator(allocatorHandle);
-    allocatorHandle = VK_NULL_HANDLE;
-    device = nullptr;
-    initialized = false;
-}
-
-void ResourceTransferSystem::ForceCompleteTransfers()
-{
-    // fixed: this joined the worker without telling it to exit (a deadlock), and destroy() called it and so started the
-    // worker again on a system that was being destroyed
-    const bool restartWorker = workerThread.joinable();
-    StopWorker();
-    processRemainingAndWait();
-    if (restartWorker)
-    {
-        StartWorker();
-    }
-}
-
-void ResourceTransferSystem::processRemainingAndWait()
-{
-    // only called with the worker stopped, so this thread is the queue's only reader
-    while (processMessages(std::chrono::milliseconds::max()))
-    {
-    }
-
-    if (!commands.empty())
-    {
-        submitTransferCommands();
-    }
-
-    for (InflightCommandBatch& batch : inflightCommandBatches)
-    {
-        batch.Fence->Wait();
-        for (TransferCommand& command : batch.Commands)
-        {
-            [[maybe_unused]] MessageReply::Status status = command.WaitForCompletion(std::numeric_limits<uint64_t>::max());
-        }
-    }
-    inflightCommandBatches.clear();
+    startWorker();
+    return ResourceContextError::Success;
 }
 
 void ResourceTransferSystem::EnqueueTransfer(TransferPayloadType&& payload)
@@ -291,323 +171,534 @@ void ResourceTransferSystem::EnqueueTransfer(TransferPayloadType&& payload)
     messageQueue.push(std::move(payload));
 }
 
+uint64_t ResourceTransferSystem::TimelineHandle() const noexcept
+{
+    return reinterpret_cast<uint64_t>(timeline);
+}
+
+uint64_t ResourceTransferSystem::CompletedTicket() const noexcept
+{
+    return completedTicket.load(std::memory_order_acquire);
+}
+
+TransferSystemCounters ResourceTransferSystem::Counters() const noexcept
+{
+    return TransferSystemCounters
+    {
+        transfersRecorded.load(std::memory_order_relaxed),
+        transfersFailed.load(std::memory_order_relaxed),
+        batchesSubmitted.load(std::memory_order_relaxed),
+        completionReads.load(std::memory_order_relaxed),
+        bytesStaged.load(std::memory_order_relaxed),
+        messageQueue.BlockedPushCount()
+    };
+}
+
+void ResourceTransferSystem::startWorker()
+{
+    exitRequested = false;
+    workerThread = std::thread(&ResourceTransferSystem::workerThreadJob, this);
+}
+
+void ResourceTransferSystem::stopWorker()
+{
+    if (workerThread.joinable())
+    {
+        // messages pushed before this one are processed by the worker, any pushed after it by processRemainingAndWait
+        messageQueue.push(TransferSystemExitMessage{});
+        workerThread.join();
+    }
+}
+
+void ResourceTransferSystem::destroy()
+{
+    if (initialized)
+    {
+        stopWorker();
+        processRemainingAndWait();
+    }
+
+    // the staging buffers belong to this allocator, so the batches go first
+    recording.reset();
+    freeBatches.clear();
+    inflightBatches.clear();
+
+    if (timeline != VK_NULL_HANDLE)
+    {
+        vkDestroySemaphore(device->Handle().As<VkDevice>(), timeline, nullptr);
+        timeline = VK_NULL_HANDLE;
+    }
+
+    if (allocatorHandle != VK_NULL_HANDLE)
+    {
+        vmaDestroyAllocator(allocatorHandle);
+        allocatorHandle = VK_NULL_HANDLE;
+    }
+
+    device = nullptr;
+    initialized = false;
+}
+
+void ResourceTransferSystem::processRemainingAndWait()
+{
+    // only called with the worker stopped, so this thread is the queue's only reader
+    exitRequested = false;
+    drainMessages();
+    submitBatch();
+
+    if (lastSignaledValue == 0u)
+    {
+        return;
+    }
+
+    const VkSemaphoreWaitInfo waitInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+        nullptr,
+        0u,
+        1u,
+        &timeline,
+        &lastSignaledValue
+    };
+
+    [[maybe_unused]] const VkResult result = vkWaitSemaphores(device->Handle().As<VkDevice>(), &waitInfo, std::numeric_limits<uint64_t>::max());
+    pollCompletion();
+}
+
 void ResourceTransferSystem::workerThreadJob()
 {
-    // 2ms chosen as it's about half of one frame at 240hz, which is small but still enough to do work CPU-side on this thread
-    // Rest of the 2ms will be used to submit commands and wait for them to complete
-    static constexpr std::chrono::milliseconds k_MessageProcessingTimeout = std::chrono::milliseconds(2);
-    // 1ms chosen to give us less time than the message processing, but still enough for GPU to do work
-    // PCI bus goes WHIRRRRRRRRRRRRRRRRR
-    static constexpr std::chrono::milliseconds k_CommandSubmissionTimeout = std::chrono::milliseconds(1);
-
-    // Create a backoff sleeper with custom parameters for transfer system
-    // Use a smaller min sleep time (1ms) since transfers are often time-sensitive
-    foundation::ExponentialBackoffSleeper sleeper(
-        std::chrono::milliseconds(1),  // min sleep
-        std::chrono::milliseconds(30), // max sleep
-        0.2f,                          // less jitter (20%)
-        1.5f                           // gentler backoff multiplier
-    );
-
-    while (!shouldExitWorker.load())
+    while (!exitRequested)
     {
-        bool didWork = false;
-
-        // Process messages with timeout
-        didWork = processMessages(k_MessageProcessingTimeout);
-
-        // Submit any pending commands
-        if (!commands.empty())
+        // nothing recorded and nothing in flight: sleep on the queue until a message arrives
+        const bool idle = !recording.has_value() && inflightBatches.empty() && highestConsumedTicket <= lastSignaledValue;
+        if (idle)
         {
-            submitTransferCommands();
-            didWork = true;
+            dispatchMessage(messageQueue.pop());
         }
 
-        // Wait for in-flight commands to complete
-        if (!inflightCommandBatches.empty())
-        {
-            waitForCommandsToComplete(k_CommandSubmissionTimeout);
-            didWork = true;
-        }
+        drainMessages();
+        submitBatch();
+        pollCompletion();
 
-        // Adjust sleep behavior based on whether we did any work
-        if (didWork)
+        if (!exitRequested && !inflightBatches.empty())
         {
-            sleeper.reset();
-        }
-        else
-        {
-            sleeper.sleepAndBackoff();
+            waitForOldestBatch(k_IdleWaitNs);
         }
     }
 }
 
-bool ResourceTransferSystem::processMessages(std::chrono::milliseconds timeout)
+void ResourceTransferSystem::dispatchMessage(TransferPayloadType&& message)
 {
-    using clock = std::chrono::steady_clock;
-    const clock::time_point start = clock::now();
-    bool processedMessages = false;
+    std::visit([this](auto&& alternative) { processMessage(std::forward<decltype(alternative)>(alternative)); }, std::move(message));
+}
 
-    // fixed: dispatch went through explicit specializations of a member template declared in class scope, which only
-    // MSVC accepts. an overload set on the process functions does the same job
-    auto MessageVisitor =
-        [this](auto&& message)
-        {
-            using T = std::decay_t<decltype(message)>;
-            if constexpr (std::is_same_v<T, TransferSystemSetBufferDataMessage>)
-            {
-                processSetBufferDataMessage(std::move(message));
-            }
-            else if constexpr (std::is_same_v<T, TransferSystemSetImageDataMessage>)
-            {
-                processSetImageDataMessage(std::move(message));
-            }
-            else if constexpr (std::is_same_v<T, TransferSystemFillBufferMessage>)
-            {
-                processFillBufferMessage(std::move(message));
-            }
-            else if constexpr (std::is_same_v<T, TransferSystemCopyBufferToBufferMessage>)
-            {
-                processCopyBufferToBufferMessage(std::move(message));
-            }
-            else if constexpr (std::is_same_v<T, TransferSystemCopyImageToImageMessage>)
-            {
-                processCopyImageToImageMessage(std::move(message));
-            }
-            else if constexpr (std::is_same_v<T, TransferSystemCopyImageToBufferMessage>)
-            {
-                processCopyImageToBufferMessage(std::move(message));
-            }
-            else if constexpr (std::is_same_v<T, TransferSystemCopyBufferToImageMessage>)
-            {
-                processCopyBufferToImageMessage(std::move(message));
-            }
-        };
-
-    // We will process messages until we've exceeded our time limit, or the queue is empty
-    while (true)
+void ResourceTransferSystem::drainMessages()
+{
+    while (!exitRequested)
     {
         std::optional<TransferPayloadType> message = messageQueue.try_pop();
         if (!message.has_value())
         {
-            // No messages to process, break out of the loop and let caller know we didn't do any work
-            return processedMessages;
+            return;
         }
 
-        std::visit(MessageVisitor, std::move(*message));
-        processedMessages = true;
-
-        if ((clock::now() - start) > timeout)
-        {
-            return processedMessages;
-        }
+        dispatchMessage(std::move(*message));
     }
 }
 
-void ResourceTransferSystem::submitTransferCommands()
+VkCommandBuffer ResourceTransferSystem::beginTransfer(const TransferWaitSet& waits)
 {
-    std::vector<VkCommandBuffer> cmdBuffers;
-    std::vector<VkSemaphore> signalSemaphores;
-    cmdBuffers.reserve(commands.size());
-    signalSemaphores.reserve(commands.size());
-    const std::vector<uint64_t> signalValues(commands.size(), k_TransferCompleteSemaphoreValue);
+    const bool batchIsFull = recording.has_value() && recording->TransferCount >= k_MaxTransfersPerBatch;
 
-    for (auto& command : commands)
+    // the transfers before a waiting one must not wait with it, so they are submitted now. an empty batch has nothing
+    // to submit, and the waiting transfer uses it
+    const bool mustSubmitEarlierTransfers = waits.Count > 0 && recording.has_value() && recording->TransferCount > 0;
+    if (batchIsFull || mustSubmitEarlierTransfers)
     {
-        cmdBuffers.emplace_back(command.CmdBuffer());
-        signalSemaphores.emplace_back(command.Semaphore());
+        submitBatch();
     }
 
-    VkTimelineSemaphoreSubmitInfo timelineInfo = {};
-    timelineInfo.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    timelineInfo.pSignalSemaphoreValues = signalValues.data();
-    timelineInfo.signalSemaphoreValueCount = static_cast<uint32_t>(signalValues.size());
+    if (!recording.has_value() && !startBatch())
+    {
+        return VK_NULL_HANDLE;
+    }
 
-    VkSubmitInfo submitInfo = {};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.pNext = &timelineInfo;
-    submitInfo.commandBufferCount = static_cast<uint32_t>(cmdBuffers.size());
-    submitInfo.pCommandBuffers = cmdBuffers.data();
-    submitInfo.signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size());
-    submitInfo.pSignalSemaphores = signalSemaphores.data();
+    const VkCommandBuffer cmd = recording->Pool->GetCommandBuffer(0).As<VkCommandBuffer>();
 
-    // fixed: the fence was created after the submit and never passed to it, so waiting on it never returned
-    std::unique_ptr<rhi::Fence> batchFence = std::make_unique<rhi::Fence>(device->Handle());
-    VkResult result = vkQueueSubmit(transferQueue, 1, &submitInfo, batchFence->Handle().As<VkFence>());
-    assert(result == VK_SUCCESS);
-
-    inflightCommandBatches.emplace_back(std::move(commands), std::move(batchFence));
-    commands.clear();
+    // every transfer is ordered after the transfers before it on this queue, in this batch and in earlier ones. an
+    // upload followed by a copy of the same buffer would race without this
+    RecordTransferOrderingBarrier(cmd);
+    return cmd;
 }
 
-void ResourceTransferSystem::waitForCommandsToComplete(std::chrono::milliseconds timeout)
+void ResourceTransferSystem::endTransfer(int32_t future_slot, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket, const TransferWaitSet& waits)
 {
-    using clock = std::chrono::steady_clock;
-    const clock::time_point waitStart = clock::now();
-    const clock::time_point waitEnd = waitStart + timeout;
-    for (auto batchIter = inflightCommandBatches.begin(); batchIter != inflightCommandBatches.end();)
+    if (staging != nullptr)
     {
-        const clock::time_point nowOuter = clock::now();
-        if (nowOuter >= waitEnd)
+        bytesStaged.fetch_add(static_cast<int64_t>(staging->Size), std::memory_order_relaxed);
+        recording->Staging.push_back(std::move(staging));
+    }
+
+    recording->Futures.push_back(future_slot);
+    recording->TransferCount += 1;
+    highestConsumedTicket = std::max(highestConsumedTicket, ticket);
+    transfersRecorded.fetch_add(1, std::memory_order_relaxed);
+
+    // the batch holds this one transfer, because beginTransfer submitted the batch that was open
+    if (waits.Count > 0)
+    {
+        recording->Waits = waits.Items;
+        recording->WaitCount = waits.Count;
+        submitBatch();
+    }
+}
+
+void ResourceTransferSystem::failTransfer(int32_t future_slot, uint64_t ticket, rhi::ResourceError error)
+{
+    futures->Fail(future_slot, error);
+    highestConsumedTicket = std::max(highestConsumedTicket, ticket);
+    transfersFailed.fetch_add(1, std::memory_order_relaxed);
+}
+
+void ResourceTransferSystem::failRecordingBatch(uint64_t ticket, rhi::ResourceError error)
+{
+    for (const int32_t futureSlot : recording->Futures)
+    {
+        failTransfer(futureSlot, ticket, error);
+    }
+
+    recording->Futures.clear();
+    recording->Staging.clear();
+    recording->TransferCount = 0;
+    freeBatches.push_back(std::move(*recording));
+    recording.reset();
+}
+
+bool ResourceTransferSystem::startBatch()
+{
+    if (freeBatches.empty())
+    {
+        // every batch is in flight. this is the one place the transfer thread waits on the GPU without a timeout
+        waitForOldestBatch(std::numeric_limits<uint64_t>::max());
+    }
+
+    if (freeBatches.empty())
+    {
+        return false;
+    }
+
+    TransferBatch batch = std::move(freeBatches.back());
+    freeBatches.pop_back();
+
+    batch.WaitCount = 0;
+
+    // the timeline passed this batch's value before it came back, so the GPU is done with its command buffer
+    if (!batch.Pool->Reset().IsSuccess())
+    {
+        freeBatches.push_back(std::move(batch));
+        return false;
+    }
+
+    const VkCommandBuffer cmd = batch.Pool->GetCommandBuffer(0).As<VkCommandBuffer>();
+    const VkCommandBufferBeginInfo beginInfo
+    {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        nullptr,
+        VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+        nullptr
+    };
+
+    if (vkBeginCommandBuffer(cmd, &beginInfo) != VK_SUCCESS)
+    {
+        freeBatches.push_back(std::move(batch));
+        return false;
+    }
+
+    const rhi::VkDebugUtilsFunctions& debugFns = device->GetDebugUtilFns();
+    if (debugFns.vkCmdBeginDebugUtilsLabel != nullptr)
+    {
+        debugFns.vkCmdBeginDebugUtilsLabel(cmd, &k_QueueDebugLabel);
+    }
+
+    recording = std::move(batch);
+    return true;
+}
+
+void ResourceTransferSystem::submitBatch()
+{
+    if (!recording.has_value() && highestConsumedTicket <= lastSignaledValue)
+    {
+        return;
+    }
+
+    const uint64_t signalValue = highestConsumedTicket;
+    VkCommandBufferSubmitInfo commandInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, nullptr, VK_NULL_HANDLE, 0u };
+    uint32_t commandCount = 0u;
+    std::array<VkSemaphoreSubmitInfo, rhi::k_MaxTransferWaits> waitInfos{};
+    uint32_t waitCount = 0u;
+
+    if (recording.has_value())
+    {
+        waitCount = MergeWaits(recording->Waits, recording->WaitCount, waitInfos);
+
+        const VkCommandBuffer cmd = recording->Pool->GetCommandBuffer(0).As<VkCommandBuffer>();
+        const rhi::VkDebugUtilsFunctions& debugFns = device->GetDebugUtilFns();
+        if (debugFns.vkCmdEndDebugUtilsLabel != nullptr)
         {
-            break;
+            debugFns.vkCmdEndDebugUtilsLabel(cmd);
         }
 
-        for (auto iter = batchIter->Commands.begin(); iter != batchIter->Commands.end();)
+        if (vkEndCommandBuffer(cmd) == VK_SUCCESS)
         {
-            const clock::time_point nowInner = clock::now();
-            if (nowInner >= waitEnd)
-            {
-                break;
-            }
-
-            // Calculate remaining time in nanoseconds
-            const int64_t remaining = std::chrono::duration_cast<std::chrono::nanoseconds>(waitEnd - nowInner).count();
-
-            MessageReply::Status status = iter->WaitForCompletion(static_cast<uint64_t>(remaining));
-            if (status == MessageReply::Status::Timeout)
-            {
-                // we'll get em next time
-                // (maybe worth checking to see if we've hit a TDR?)
-                break;
-            }
-            
-            // I wonder how much time we burn in erasing the command and running the destructor?
-            // Probably doesn't matter since commands are still in flight, but still
-            iter = batchIter->Commands.erase(iter);
-        }
-
-        if (batchIter->Commands.empty())
-        {
-            // every command signalled, so the fence is signalled too
-            batchIter = inflightCommandBatches.erase(batchIter);
+            commandInfo.commandBuffer = cmd;
+            commandCount = 1u;
         }
         else
         {
-            ++batchIter;
+            // nothing of this batch runs. its tickets are still signaled below, so their waits end
+            failRecordingBatch(signalValue, rhi::ResourceError::RecordingFailed);
+            waitCount = 0u;
         }
+    }
+
+    const VkSemaphoreSubmitInfo signalInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+        nullptr,
+        timeline,
+        signalValue,
+        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        0u
+    };
+    const VkSubmitInfo2 submitInfo
+    {
+        VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+        nullptr,
+        0u,
+        waitCount,
+        waitCount != 0u ? waitInfos.data() : nullptr,
+        commandCount,
+        commandCount != 0u ? &commandInfo : nullptr,
+        1u,
+        &signalInfo
+    };
+
+    const VkResult result = vkQueueSubmit2(transferQueue, 1u, &submitInfo, VK_NULL_HANDLE);
+    lastSignaledValue = signalValue;
+    batchesSubmitted.fetch_add(1, std::memory_order_relaxed);
+
+    if (result != VK_SUCCESS)
+    {
+        if (recording.has_value())
+        {
+            failRecordingBatch(signalValue, rhi::ResourceError::SubmitFailed);
+        }
+
+        // the host signals the value instead, once the earlier submits are done: a host signal must not pass a pending
+        // GPU signal. on a lost device both fail, and the waits end with an error
+        [[maybe_unused]] const VkResult idleResult = vkQueueWaitIdle(transferQueue);
+        const VkSemaphoreSignalInfo hostSignal{ VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO, nullptr, timeline, signalValue };
+        [[maybe_unused]] const VkResult signalResult = vkSignalSemaphore(device->Handle().As<VkDevice>(), &hostSignal);
+        return;
+    }
+
+    if (!recording.has_value())
+    {
+        return;
+    }
+
+    for (const int32_t futureSlot : recording->Futures)
+    {
+        futures->SetSubmitted(futureSlot);
+    }
+
+    recording->SignalValue = signalValue;
+    inflightBatches.push_back(std::move(*recording));
+    recording.reset();
+}
+
+void ResourceTransferSystem::pollCompletion()
+{
+    const uint64_t previous = completedTicket.load(std::memory_order_relaxed);
+    if (lastSignaledValue <= previous)
+    {
+        return;
+    }
+
+    uint64_t value = 0u;
+    if (vkGetSemaphoreCounterValue(device->Handle().As<VkDevice>(), timeline, &value) != VK_SUCCESS)
+    {
+        return;
+    }
+
+    completionReads.fetch_add(1, std::memory_order_relaxed);
+
+    while (!inflightBatches.empty() && inflightBatches.front().SignalValue <= value)
+    {
+        TransferBatch& batch = inflightBatches.front();
+        for (const int32_t futureSlot : batch.Futures)
+        {
+            futures->Complete(futureSlot);
+        }
+
+        batch.Futures.clear();
+        batch.Staging.clear();
+        batch.TransferCount = 0;
+        freeBatches.push_back(std::move(batch));
+        inflightBatches.erase(inflightBatches.begin());
+    }
+
+    if (value > previous)
+    {
+        completedTicket.store(value, std::memory_order_release);
+
+        // never blocks: when the queue is full, the worker has messages to process, and it checks retirements after each
+        [[maybe_unused]] const bool pushed = contextQueue->try_push(TransferProgressMessage{});
     }
 }
 
-// fixed, in every process function below: each one built its TransferCommand as a local, so the recorded command was
-// destroyed at the end of the function and never submitted (the destructor then waited a second and threw). each
-// command now moves into `commands`, which the worker submits
-
-void ResourceTransferSystem::processSetBufferDataMessage(TransferSystemSetBufferDataMessage&& message)
+void ResourceTransferSystem::waitForOldestBatch(uint64_t timeout_ns)
 {
-    const VkBuffer bufferHandle = message.bufferInfo.bufferHandle;
+    if (inflightBatches.empty())
+    {
+        return;
+    }
 
-    TransferCommand transferCommand(device, transferQueueFamily, allocatorHandle, std::move(message.reply));
+    const uint64_t waitValue = inflightBatches.front().SignalValue;
+    const VkSemaphoreWaitInfo waitInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+        nullptr,
+        0u,
+        1u,
+        &timeline,
+        &waitValue
+    };
 
-    // note that this is copying to an API managed staging buffer, not just another raw data buffer like our data container. will only be briefly duplicated
-    InternalResourceDataContainer::BufferDataVector& dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(message.data.DataVector);
-
-    UploadBuffer* uploadBuffer = transferCommand.GetUploadBuffer();
-    std::vector<VkBufferCopy> bufferCopies = uploadBuffer->SetData(dataVector);
-
-    VkCommandBuffer cmd = transferCommand.CmdBuffer();
-    vkCmdCopyBuffer(cmd, uploadBuffer->Buffer, bufferHandle, static_cast<uint32_t>(bufferCopies.size()), bufferCopies.data());
-
-    // no barrier after the copy: other queues see the write through the reply's semaphore, which consumers wait on
-    transferCommand.EndRecording();
-    dataVector.clear();
-    commands.emplace_back(std::move(transferCommand));
+    const VkResult result = vkWaitSemaphores(device->Handle().As<VkDevice>(), &waitInfo, timeout_ns);
+    if (result == VK_SUCCESS)
+    {
+        pollCompletion();
+    }
 }
 
-void ResourceTransferSystem::processSetImageDataMessage(TransferSystemSetImageDataMessage&& message)
+void ResourceTransferSystem::processMessage(TransferSystemSetBufferDataMessage&& message)
 {
-    const ImageCreateInfo& imageInfo = message.imageInfo.createInfo;
-    const VkImage imageHandle = message.imageInfo.imageHandle;
+    const VkBuffer bufferHandle = message.BufferInfo.BufferHandle;
+
+    // note that this is copying to an API managed staging buffer, not just another raw data buffer like our data container. will only be briefly duplicated
+    InternalResourceDataContainer::BufferDataVector& dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(message.Data.DataVector);
+
+    std::unique_ptr<UploadBuffer> staging = std::make_unique<UploadBuffer>(allocatorHandle);
+    const std::optional<std::vector<VkBufferCopy>> bufferCopies = staging->SetData(dataVector);
+    if (!bufferCopies.has_value())
+    {
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::StagingFailed);
+        return;
+    }
+
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
+    if (cmd == VK_NULL_HANDLE)
+    {
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
+        return;
+    }
+
+    vkCmdCopyBuffer(cmd, staging->Buffer, bufferHandle, static_cast<uint32_t>(bufferCopies->size()), bufferCopies->data());
+
+    // no barrier after the copy: other queues see the write through the transfer timeline, which consumers wait on
+    dataVector.clear();
+    endTransfer(message.Future, std::move(staging), message.Ticket, message.Waits);
+}
+
+void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& message)
+{
+    const ImageCreateInfo& imageInfo = message.ImageInfo.CreateInfo;
+    const VkImage imageHandle = message.ImageInfo.ImageHandle;
     const VkImageSubresourceRange range = WholeImageRange(imageInfo);
-    const VkImageLayout finalLayout = ImageLayoutAfterTransfer(imageInfo.Usage);
+    const VkImageLayout finalLayout = message.ImageInfo.AfterLayout;
 
-    TransferCommand transferCommand(device, transferQueueFamily, allocatorHandle, std::move(message.reply));
-    InternalResourceDataContainer::ImageDataVector& imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.data.DataVector);
+    InternalResourceDataContainer::ImageDataVector& imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.Data.DataVector);
 
-    UploadBuffer* uploadBuffer = transferCommand.GetUploadBuffer();
-    std::vector<VkBufferImageCopy> bufferImageCopies = uploadBuffer->SetData(imageDataVector, range.aspectMask);
+    std::unique_ptr<UploadBuffer> staging = std::make_unique<UploadBuffer>(allocatorHandle);
+    const std::optional<std::vector<VkBufferImageCopy>> bufferImageCopies = staging->SetData(imageDataVector, range.aspectMask);
+    if (!bufferImageCopies.has_value())
+    {
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::StagingFailed);
+        return;
+    }
 
-    VkCommandBuffer cmd = transferCommand.CmdBuffer();
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
+    if (cmd == VK_NULL_HANDLE)
+    {
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
+        return;
+    }
 
     // required, unlike with buffers. forces a layout transition. stages are limited to the ones a transfer queue has
     RecordImageLayoutTransition(cmd, imageHandle, range,
-        message.imageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        message.ImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     vkCmdCopyBufferToImage(
         cmd,
-        uploadBuffer->Buffer,
+        staging->Buffer,
         imageHandle,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        static_cast<uint32_t>(bufferImageCopies.size()),
-        bufferImageCopies.data());
+        static_cast<uint32_t>(bufferImageCopies->size()),
+        bufferImageCopies->data());
     RecordImageLayoutTransition(cmd, imageHandle, range,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, finalLayout,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    transferCommand.EndRecording();
     imageDataVector.clear();
-    commands.emplace_back(std::move(transferCommand));
+    endTransfer(message.Future, std::move(staging), message.Ticket, message.Waits);
 }
 
-void ResourceTransferSystem::processFillBufferMessage(TransferSystemFillBufferMessage&& message)
+void ResourceTransferSystem::processMessage(TransferSystemFillBufferMessage&& message)
 {
-    const VkBuffer bufferHandle = message.bufferInfo.bufferHandle;
-
-    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
-    VkCommandBuffer cmd = transferCommand.CmdBuffer();
-    vkCmdFillBuffer(cmd, bufferHandle, message.offset, message.size, message.value);
-    transferCommand.EndRecording();
-    commands.emplace_back(std::move(transferCommand));
-}
-
-void ResourceTransferSystem::processCopyBufferToBufferMessage(TransferSystemCopyBufferToBufferMessage&& message)
-{
-    const BufferCreateInfo& srcInfo = message.srcBufferInfo.createInfo;
-    const BufferCreateInfo& dstInfo = message.dstBufferInfo.createInfo;
-    if (srcInfo.Size > dstInfo.Size)
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
+    if (cmd == VK_NULL_HANDLE)
     {
-        message.reply->setStatus(MessageReply::Status::Failed);
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
         return;
     }
 
+    vkCmdFillBuffer(cmd, message.BufferInfo.BufferHandle, message.Offset, message.Size, message.Value);
+    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
+}
+
+void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToBufferMessage&& message)
+{
+    // the context worker checked that the source fits in the destination
     const VkBufferCopy copy
     {
         0u,
         0u,
-        srcInfo.Size
+        message.SrcBufferInfo.CreateInfo.Size
     };
 
-    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
-    VkCommandBuffer cmd = transferCommand.CmdBuffer();
-    vkCmdCopyBuffer(cmd, message.srcBufferInfo.bufferHandle, message.dstBufferInfo.bufferHandle, 1, &copy);
-    transferCommand.EndRecording();
-    commands.emplace_back(std::move(transferCommand));
-}
-
-void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyImageToImageMessage&& message)
-{
-    const ImageCreateInfo& srcInfo = message.srcImageInfo.createInfo;
-    const ImageCreateInfo& dstInfo = message.dstImageInfo.createInfo;
-    const VkImage srcHandle = message.srcImageInfo.imageHandle;
-    const VkImage dstHandle = message.dstImageInfo.imageHandle;
-    const VkImageSubresourceRange srcRange = WholeImageRange(srcInfo);
-    const VkImageSubresourceRange dstRange = WholeImageRange(dstInfo);
-
-    if (srcRange.aspectMask != dstRange.aspectMask ||
-        srcInfo.ArrayLayers != dstInfo.ArrayLayers ||
-        srcInfo.Width != dstInfo.Width ||
-        srcInfo.Height != dstInfo.Height ||
-        srcInfo.Depth != dstInfo.Depth ||
-        srcInfo.MipLevels != dstInfo.MipLevels)
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
+    if (cmd == VK_NULL_HANDLE)
     {
-        // if these traits don't match, we can't copy (for now)
-        // may need to investigate and return to this later, but most of these traits
-        // shouldn't be a problem. may need to specify copy region/layer somehow
-        message.reply->setStatus(MessageReply::Status::Failed);
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
         return;
     }
+
+    vkCmdCopyBuffer(cmd, message.SrcBufferInfo.BufferHandle, message.DstBufferInfo.BufferHandle, 1, &copy);
+    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
+}
+
+void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessage&& message)
+{
+    // the context worker checked that the two images have the same shape
+    const ImageCreateInfo& srcInfo = message.SrcImageInfo.CreateInfo;
+    const ImageCreateInfo& dstInfo = message.DstImageInfo.CreateInfo;
+    const VkImage srcHandle = message.SrcImageInfo.ImageHandle;
+    const VkImage dstHandle = message.DstImageInfo.ImageHandle;
+    const VkImageSubresourceRange srcRange = WholeImageRange(srcInfo);
+    const VkImageSubresourceRange dstRange = WholeImageRange(dstInfo);
 
     const VkExtent3D extent = ImageExtent(srcInfo);
     std::vector<VkImageCopy> imageCopies;
@@ -625,17 +716,22 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
         imageCopies.push_back(VkImageCopy{ subresource, VkOffset3D{ 0, 0, 0 }, subresource, VkOffset3D{ 0, 0, 0 }, mipExtent });
     }
 
-    const VkImageLayout srcFinal = ImageLayoutAfterTransfer(srcInfo.Usage);
-    const VkImageLayout dstFinal = ImageLayoutAfterTransfer(dstInfo.Usage);
+    const VkImageLayout srcFinal = message.SrcImageInfo.AfterLayout;
+    const VkImageLayout dstFinal = message.DstImageInfo.AfterLayout;
 
-    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
-    VkCommandBuffer cmd = transferCommand.CmdBuffer();
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
+    if (cmd == VK_NULL_HANDLE)
+    {
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
+        return;
+    }
+
     RecordImageLayoutTransition(cmd, srcHandle, srcRange,
-        message.srcImageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        message.SrcImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
     RecordImageLayoutTransition(cmd, dstHandle, dstRange,
-        message.dstImageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        message.DstImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     // fixed: the copy named the usage layouts (shader read, attachment) instead of the transfer layouts
@@ -653,20 +749,53 @@ void ResourceTransferSystem::processCopyImageToImageMessage(TransferSystemCopyIm
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    transferCommand.EndRecording();
-    commands.emplace_back(std::move(transferCommand));
+    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
 }
 
-void ResourceTransferSystem::processCopyImageToBufferMessage(TransferSystemCopyImageToBufferMessage&& message)
+void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessage&& message)
 {
-    // Not implemented and I really don't want to do it right now lol
-    message.reply->setStatus(MessageReply::Status::Failed);
+    const ImageCreateInfo& srcInfo = message.ImageInfo.CreateInfo;
+    const VkImage srcHandle = message.ImageInfo.ImageHandle;
+    const VkImageSubresourceRange srcRange = WholeImageRange(srcInfo);
+
+    // the mirror of the buffer to image copy: mip 0 of every layer, tightly packed from offset 0. the caller sizes the
+    // buffer (width * height * depth * layers * texel size); there is no format size table to check it here
+    const VkBufferImageCopy copyParams
+    {
+        0u,
+        0u,
+        0u,
+        VkImageSubresourceLayers{ srcRange.aspectMask, 0u, 0u, srcInfo.ArrayLayers },
+        VkOffset3D{ 0, 0, 0 },
+        ImageExtent(srcInfo)
+    };
+
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
+    if (cmd == VK_NULL_HANDLE)
+    {
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
+        return;
+    }
+
+    RecordImageLayoutTransition(cmd, srcHandle, srcRange,
+        message.ImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+    vkCmdCopyImageToBuffer(cmd, srcHandle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, message.BufferInfo.BufferHandle, 1u, &copyParams);
+    RecordImageLayoutTransition(cmd, srcHandle, srcRange,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, message.ImageInfo.AfterLayout,
+        VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_NONE,
+        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
+    // no barrier for the buffer: the host sees the write once the timeline passes the ticket (GPUToCPU memory is
+    // host-coherent or invalidated on map)
+
+    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
 }
 
-void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyBufferToImageMessage&& message)
+void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessage&& message)
 {
-    const ImageCreateInfo& dstInfo = message.imageInfo.createInfo;
-    const VkImage dstHandle = message.imageInfo.imageHandle;
+    const ImageCreateInfo& dstInfo = message.ImageInfo.CreateInfo;
+    const VkImage dstHandle = message.ImageInfo.ImageHandle;
     const VkImageSubresourceRange dstRange = WholeImageRange(dstInfo);
 
     // copies the whole buffer into mip 0 of every layer, tightly packed
@@ -680,21 +809,30 @@ void ResourceTransferSystem::processCopyBufferToImageMessage(TransferSystemCopyB
         ImageExtent(dstInfo)
     };
 
-    TransferCommand transferCommand(device, transferQueueFamily, std::move(message.reply));
-    VkCommandBuffer cmd = transferCommand.CmdBuffer();
+    const VkCommandBuffer cmd = beginTransfer(message.Waits);
+    if (cmd == VK_NULL_HANDLE)
+    {
+        failTransfer(message.Future, message.Ticket, rhi::ResourceError::RecordingFailed);
+        return;
+    }
+
     RecordImageLayoutTransition(cmd, dstHandle, dstRange,
-        message.imageInfo.currentLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        message.ImageInfo.BeforeLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     // fixed: the copy named the usage layout instead of TRANSFER_DST_OPTIMAL
-    vkCmdCopyBufferToImage(cmd, message.bufferInfo.bufferHandle, dstHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copyParams);
+    vkCmdCopyBufferToImage(cmd, message.BufferInfo.BufferHandle, dstHandle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &copyParams);
     RecordImageLayoutTransition(cmd, dstHandle, dstRange,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, ImageLayoutAfterTransfer(dstInfo.Usage),
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, message.ImageInfo.AfterLayout,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    transferCommand.EndRecording();
-    commands.emplace_back(std::move(transferCommand));
+    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
+}
+
+void ResourceTransferSystem::processMessage([[maybe_unused]] TransferSystemExitMessage&& message) noexcept
+{
+    exitRequested = true;
 }
 
 namespace
@@ -757,5 +895,46 @@ namespace
     VkExtent3D ImageExtent(const ImageCreateInfo& create_info) noexcept
     {
         return VkExtent3D{ create_info.Width, std::max(create_info.Height, 1u), std::max(create_info.Depth, 1u) };
+    }
+
+    uint32_t MergeWaits(
+        const std::array<rhi::TransferWait, rhi::k_MaxTransferWaits>& waits,
+        int32_t wait_count,
+        std::array<VkSemaphoreSubmitInfo, rhi::k_MaxTransferWaits>& out) noexcept
+    {
+        uint32_t merged = 0u;
+        for (int32_t i = 0; i < wait_count; ++i)
+        {
+            const rhi::TransferWait& wait = waits[static_cast<size_t>(i)];
+            const VkSemaphore semaphore = reinterpret_cast<VkSemaphore>(wait.Semaphore.Get());
+
+            bool found = false;
+            for (uint32_t j = 0; j < merged; ++j)
+            {
+                if (out[j].semaphore == semaphore)
+                {
+                    out[j].value = std::max(out[j].value, wait.Value);
+                    found = true;
+                }
+            }
+
+            if (found)
+            {
+                continue;
+            }
+
+            out[merged] = VkSemaphoreSubmitInfo
+            {
+                VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                nullptr,
+                semaphore,
+                wait.Value,
+                VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT,
+                0u
+            };
+            ++merged;
+        }
+
+        return merged;
     }
 }

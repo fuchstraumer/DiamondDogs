@@ -1,12 +1,15 @@
 #include "Semaphore.hpp"
-#include "Device.hpp"
-#include <vulkan/vulkan_core.h>
+#include "RhiHandle.hpp"
+#include "RhiResult.hpp"
 #include <cassert>
+#include <cstdint>
+#include <utility>
+#include <vulkan/vulkan_core.h>
 
 namespace rhi
 {
 #ifdef RHI_SYSTEM_USE_VULKAN
-    BinarySemaphore::BinarySemaphore(DeviceHandle device) 
+    BinarySemaphore::BinarySemaphore(const DeviceHandle& device) 
         : device{ device }, handle{ BinarySemaphoreHandle{0} }
     {
         VkSemaphoreCreateInfo createInfo{};
@@ -57,7 +60,7 @@ namespace rhi
         return handle;
     }
 
-    TimelineSemaphore::TimelineSemaphore(DeviceHandle device) 
+    TimelineSemaphore::TimelineSemaphore(const DeviceHandle& device) 
         : device{ device }, handle{ TimelineSemaphoreHandle{0} }, currentValue{ 0u }
     {
         VkSemaphoreTypeCreateInfo timelineCreateInfo{};
@@ -121,8 +124,8 @@ namespace rhi
 
     Result TimelineSemaphore::GetValue(uint64_t& value) const noexcept
     {
-        VkResult vk_result = vkGetSemaphoreCounterValue(device.As<VkDevice>(), handle.As<VkSemaphore>(), &value);
-        if (vk_result == VK_SUCCESS)
+        VkResult vkResult = vkGetSemaphoreCounterValue(device.As<VkDevice>(), handle.As<VkSemaphore>(), &value);
+        if (vkResult == VK_SUCCESS)
         {
             // might want to log if value == currentValue, saying that the value hasn't changed since last checked?
             currentValue = value;
@@ -130,7 +133,7 @@ namespace rhi
         }
         else
         {
-            return Result(vk_result);
+            return Result(vkResult);
         }
     }
 
@@ -140,25 +143,25 @@ namespace rhi
         signalInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
         signalInfo.semaphore = handle.As<VkSemaphore>();
         signalInfo.value = value;
-        VkResult vk_result = vkSignalSemaphore(device.As<VkDevice>(), &signalInfo);
-        if (vk_result == VK_SUCCESS)
+        VkResult vkResult = vkSignalSemaphore(device.As<VkDevice>(), &signalInfo);
+        if (vkResult == VK_SUCCESS)
         {
             currentValue = value;
             return Result::Success();
         }
         else
         {
-            return Result(vk_result);
+            return Result(vkResult);
         }
     }
 
-    Result TimelineSemaphore::Increment(uint64_t newValue) noexcept
+    Result TimelineSemaphore::Increment(uint64_t amount) noexcept
     {
-        const uint64_t new_value = currentValue + 1;
-        Result result = SetValue(new_value);
+        const uint64_t newValue = currentValue + amount;
+        Result result = SetValue(newValue);
         if (result.IsSuccess())
         {
-            newValue = new_value;
+            currentValue = newValue;
             return Result::Success();
         }
         else

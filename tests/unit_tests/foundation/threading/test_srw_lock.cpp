@@ -13,26 +13,26 @@ class SRWLockTest : public ::testing::Test
 {
 protected:
     void SetUp() override {
-        shared_data = 0;
-        reader_count = 0;
+        sharedData = 0;
+        readerCount = 0;
     }
 
     SrwLock lock;
-    std::atomic<int> shared_data{0};
-    std::atomic<int> reader_count{0};
+    std::atomic<int> sharedData{0};
+    std::atomic<int> readerCount{0};
 };
 
 TEST_F(SRWLockTest, ExclusiveWriteLock)
 {
     lock.lock_exclusive();
     
-    int temp = shared_data.load();
+    int temp = sharedData.load();
     std::this_thread::sleep_for(std::chrono::microseconds(1));
-    shared_data.store(temp + 1);
+    sharedData.store(temp + 1);
     
     lock.unlock_exclusive();
     
-    EXPECT_EQ(shared_data.load(), 1);
+    EXPECT_EQ(sharedData.load(), 1);
 }
 
 TEST_F(SRWLockTest, SharedReadLock)
@@ -40,7 +40,7 @@ TEST_F(SRWLockTest, SharedReadLock)
     lock.lock_shared();
     
     // Read operation
-    int value = shared_data.load();
+    int value = sharedData.load();
     (void)value; // Prevent unused variable warning
     
     lock.unlock_shared();
@@ -50,36 +50,36 @@ TEST_F(SRWLockTest, SharedReadLock)
 
 TEST_F(SRWLockTest, MultipleReaders)
 {
-    constexpr int num_readers = 10;
-    constexpr int reads_per_reader = 1000;
+    constexpr int k_NumReaders = 10;
+    constexpr int k_ReadsPerReader = 1000;
     
     std::vector<std::thread> readers;
-    std::atomic<int> total_reads{0};
+    std::atomic<int> totalReads{0};
     
-    auto reader_worker = [&]()
+    auto readerWorker = [&]()
     {
-        for (int i = 0; i < reads_per_reader; ++i)
+        for (int i = 0; i < k_ReadsPerReader; ++i)
         {
             lock.lock_shared();
             
-            reader_count.fetch_add(1);
-            int value = shared_data.load();
+            readerCount.fetch_add(1);
+            int value = sharedData.load();
             (void)value; // Use the value to prevent optimization
             
             // Simulate some read work
             std::this_thread::yield();
             
-            reader_count.fetch_sub(1);
-            total_reads.fetch_add(1);
+            readerCount.fetch_sub(1);
+            totalReads.fetch_add(1);
             
             lock.unlock_shared();
         }
     };
     
     // Launch reader threads
-    for (int i = 0; i < num_readers; ++i)
+    for (int i = 0; i < k_NumReaders; ++i)
     {
-        readers.emplace_back(reader_worker);
+        readers.emplace_back(readerWorker);
     }
     
     // Wait for completion
@@ -88,67 +88,67 @@ TEST_F(SRWLockTest, MultipleReaders)
         reader.join();
     }
     
-    EXPECT_EQ(total_reads.load(), num_readers * reads_per_reader);
-    EXPECT_EQ(reader_count.load(), 0); // All readers should have finished
+    EXPECT_EQ(totalReads.load(), k_NumReaders * k_ReadsPerReader);
+    EXPECT_EQ(readerCount.load(), 0); // All readers should have finished
 }
 
 TEST_F(SRWLockTest, ReaderWriterExclusion)
 {
-    constexpr int num_readers = 5;
-    constexpr int num_writers = 2;
-    constexpr int operations = 100;
+    constexpr int k_NumReaders = 5;
+    constexpr int k_NumWriters = 2;
+    constexpr int k_Operations = 100;
     
     std::vector<std::thread> threads;
-    std::atomic<bool> stop_flag{false};
-    std::atomic<int> concurrent_readers{0};
-    std::atomic<int> active_writers{0};
-    std::atomic<bool> exclusion_violated{false};
+    std::atomic<bool> stopFlag{false};
+    std::atomic<int> concurrentReaders{0};
+    std::atomic<int> activeWriters{0};
+    std::atomic<bool> exclusionViolated{false};
     
-    auto reader_worker = [&]()
+    auto readerWorker = [&]()
     {
-        for (int i = 0; i < operations && !stop_flag.load(); ++i)
+        for (int i = 0; i < k_Operations && !stopFlag.load(); ++i)
         {
             lock.lock_shared();
             
-            int readers = concurrent_readers.fetch_add(1) + 1;
-            int writers = active_writers.load();
+            int readers = concurrentReaders.fetch_add(1) + 1;
+            int writers = activeWriters.load();
             
             // Check: no writers should be active when readers are reading
             if (writers > 0)
             {
-                exclusion_violated = true;
+                exclusionViolated = true;
             }
             
             // Simulate read work
             std::this_thread::sleep_for(std::chrono::microseconds(1));
             
-            concurrent_readers.fetch_sub(1);
+            concurrentReaders.fetch_sub(1);
             lock.unlock_shared();
             
             std::this_thread::yield();
         }
     };
     
-    auto writer_worker = [&]()
+    auto writerWorker = [&]()
     {
-        for (int i = 0; i < operations && !stop_flag.load(); ++i)
+        for (int i = 0; i < k_Operations && !stopFlag.load(); ++i)
         {
             lock.lock_exclusive();
             
-            int writers = active_writers.fetch_add(1) + 1;
-            int readers = concurrent_readers.load();
+            int writers = activeWriters.fetch_add(1) + 1;
+            int readers = concurrentReaders.load();
             
             // Check: no readers or other writers should be active
             if (readers > 0 || writers > 1)
             {
-                exclusion_violated = true;
+                exclusionViolated = true;
             }
             
             // Simulate write work
-            shared_data.fetch_add(1);
+            sharedData.fetch_add(1);
             std::this_thread::sleep_for(std::chrono::microseconds(1));
             
-            active_writers.fetch_sub(1);
+            activeWriters.fetch_sub(1);
             lock.unlock_exclusive();
             
             std::this_thread::yield();
@@ -156,18 +156,18 @@ TEST_F(SRWLockTest, ReaderWriterExclusion)
     };
     
     // Launch threads
-    for (int i = 0; i < num_readers; ++i)
+    for (int i = 0; i < k_NumReaders; ++i)
     {
-        threads.emplace_back(reader_worker);
+        threads.emplace_back(readerWorker);
     }
-    for (int i = 0; i < num_writers; ++i)
+    for (int i = 0; i < k_NumWriters; ++i)
     {
-        threads.emplace_back(writer_worker);
+        threads.emplace_back(writerWorker);
     }
     
     // Let them run for a while
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    stop_flag = true;
+    stopFlag = true;
     
     // Wait for completion
     for (auto& thread : threads)
@@ -175,41 +175,41 @@ TEST_F(SRWLockTest, ReaderWriterExclusion)
         thread.join();
     }
     
-    EXPECT_FALSE(exclusion_violated.load()) << "Reader-writer exclusion was violated";
-    EXPECT_EQ(concurrent_readers.load(), 0);
-    EXPECT_EQ(active_writers.load(), 0);
+    EXPECT_FALSE(exclusionViolated.load()) << "Reader-writer exclusion was violated";
+    EXPECT_EQ(concurrentReaders.load(), 0);
+    EXPECT_EQ(activeWriters.load(), 0);
 }
 
 TEST_F(SRWLockTest, PerformanceComparison)
 {
-    constexpr int operations = 50000;
+    constexpr int k_Operations = 50000;
     
     // Test exclusive lock performance
-    auto start_exclusive = std::chrono::high_resolution_clock::now();
-    for (int i = 0; i < operations; ++i)
+    auto startExclusive = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < k_Operations; ++i)
     {
         lock.lock_exclusive();
-        shared_data.fetch_add(1);
+        sharedData.fetch_add(1);
         lock.unlock_exclusive();
     }
-    auto end_exclusive = std::chrono::high_resolution_clock::now();
-    auto duration_exclusive = std::chrono::duration_cast<std::chrono::microseconds>(end_exclusive - start_exclusive);
+    auto endExclusive = std::chrono::high_resolution_clock::now();
+    auto durationExclusive = std::chrono::duration_cast<std::chrono::microseconds>(endExclusive - startExclusive);
     
     // Test shared lock performance
-    auto start_shared = std::chrono::high_resolution_clock::now();
-    for (int i = 0; i < operations; ++i)
+    auto startShared = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < k_Operations; ++i)
     {
         lock.lock_shared();
-        volatile int value = shared_data.load();
+        volatile int value = sharedData.load();
         (void)value;
         lock.unlock_shared();
     }
-    auto end_shared = std::chrono::high_resolution_clock::now();
-    auto duration_shared = std::chrono::duration_cast<std::chrono::microseconds>(end_shared - start_shared);
+    auto endShared = std::chrono::high_resolution_clock::now();
+    auto durationShared = std::chrono::duration_cast<std::chrono::microseconds>(endShared - startShared);
     
-    std::cout << "Exclusive locks: " << duration_exclusive.count() << " microseconds\n";
-    std::cout << "Shared locks: " << duration_shared.count() << " microseconds\n";
-    std::cout << "Shared/Exclusive ratio: " << (static_cast<double>(duration_shared.count()) / duration_exclusive.count()) << "\n";
+    std::cout << "Exclusive locks: " << durationExclusive.count() << " microseconds\n";
+    std::cout << "Shared locks: " << durationShared.count() << " microseconds\n";
+    std::cout << "Shared/Exclusive ratio: " << (static_cast<double>(durationShared.count()) / durationExclusive.count()) << "\n";
 }
 
 } // namespace threading

@@ -59,12 +59,16 @@ meaning, and don't always reach for highly abstract verbiage. As a reminder some
 - **Indentation**: 4 spaces always (no tabs) for cross-platform consistency
 - **Brackets**: Always go on new lines
 - **Control Flow**: Always use braces for if statements, even single-line ones
-- **Naming**: PascalCase for public APIs, camelCase for private members, snake_case for parameters
+- **Naming**: PascalCase for public APIs, camelCase for private members, snake_case for parameters.
+  "Private members" includes private member functions: `void applyButtonDown(const InputEvent& event)`, not
+  `ApplyButtonDown`. Functions in an anonymous namespace are not members and stay PascalCase
 - **Single-word parameters**: snake_case and camelCase converge for a single token, so a single-word
   parameter can silently collide with a member of the same name. Prefix those with an underscore
-  (`_instance`, `_createInfo`). Most compilers still resolve the member initialization correctly, but
-  it is a silent killer when they don't, and the prefix is free. Multi-word parameters stay snake_case
-  and need no prefix (`create_info`, `module_path`)
+  (`_instance`, `_createInfo`) in constructors and member functions, where a member of that name can
+  exist. Most compilers still resolve the member initialization correctly, but it is a silent killer
+  when they don't, and the prefix is free. Free functions have no members to collide with, so their
+  parameters take no prefix (`main(int argc, char** argv)`, `Luminance(const Gamut& gamut, ...)`).
+  Multi-word parameters stay snake_case and need no prefix (`create_info`, `module_path`)
 - **Member prefixes**: `m_` must NEVER be used as prefix for member variables
 - **Array and aggregate initializers**: The opening brace goes on its own line, as every other brace
   does. One element per line when the list does not fit on one line:
@@ -84,7 +88,22 @@ Struct::Struct(int _val0, int _val1, int _val2) :
   val2{ _val2 }
 {}
 ```
-- **Switch Statements**: if a case is going to do more than return a value or call a function, pull that logic out into a separate function with a descriptive name. If brackets would need to be inserted to initialize variables in the case: pull it out into a separate function. Treat switch statements in this usage like a table of functions to be called
+- **Switch Statements**: if a case is going to do more than return a value or call a function, pull that logic out into a separate function with a descriptive name. If brackets would need to be inserted to initialize variables in the case: pull it out into a separate function. Treat switch statements in this usage like a table of functions to be called.
+  Layout: a case that only returns a value may stay on one line (`case Kind::Text: return "Text";`). Any other
+  case puts the label, the statement and the `break` each on its own line, with no blank lines between cases:
+```cpp
+switch (event.Kind)
+{
+case InputEventKind::ButtonDown:
+    applyButtonDown(event);
+    break;
+case InputEventKind::FocusLost:
+    hasFocus = false;
+    break;
+default:
+    break;
+}
+```
 - **Comment usage**: Avoid as much as absolutely possible. Comments are no subsititute for descriptive code: I would rather have function names that are 80 characters long than comments that will rapidly drift from the source. Absolutely no comments depicting categories of code: that should be inferred from how functions are grouped (in the same order as they are declared, and in declaration order in the definition file)
 - **Local variables**: If doing repeated operations, prefer longer variable names. use `deltaX` instead of `dX`, assign variables to const during long chains of mathematical operations (almost like writing scalarized SSA code), and favor being readable over being clever or taking shortcuts. We will save shortcuts and esoteric performant code for profiling results
 - **Eagerly factor out common logic**: If some bit of code is greater than 4-5 lines and being duplicated, factor it out into a common function.
@@ -243,6 +262,14 @@ for valid paths and directories.
   - **Message Passing**: as such, interfaces between modules of code that may need to talk to each  other should
     use message-passing paradigms. This allows for better thread isolation of work, and encourages a validate-
     try-commit model that is more recoverable.
+  - **Atomics over mutexes**: always prefer atomics, ownership handoff (one thread owns the data until it hands it
+    over with a release store), or a single-threaded coalesce step (for example at the start or end of a frame) to a
+    mutex. A mutex serializes every thread that touches it. It also tends to spread, because the next fix adds a
+    second lock. `rhi::GpuTimers` is the pattern: atomic compare-exchange to take a block, a release store to hand it
+    back, and a coalesce step for everything shared.
+  - **Tell the author about every mutex**: if you think a mutex (or `shared_mutex`, `condition_variable`, or any
+    other lock) is needed, do not add it quietly. Say so in your reply, explain why atomics or ownership handoff do
+    not work there, and get her agreement first. When you change code that already has a lock, say so too.
 - **Memory**: Avoid dynamic allocations as often as possible. On web targets, we are running in a virtual env
   with a pre-allocated linear span of memory. We must be frugal with memory, and should favor using statically
   allocated arenas and being efficient with our choice of datatypes.

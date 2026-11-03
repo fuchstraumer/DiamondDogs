@@ -2,12 +2,15 @@
 #include "Device.hpp"
 #include "PlatformSystem.hpp"
 #include "PlatformTypes.hpp"
+#include "Queue.hpp"
+#include "RhiTypes.hpp"
 #include "RhiAssert.hpp"
 #include "RhiResult.hpp"
 #include "RhiSystem.hpp"
 #include "Swapchain.hpp"
 #include "vulkan/vulkan_core.h"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -27,8 +30,10 @@ VulkanScene::VulkanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platf
     vkPhysicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
 
     numFramebuffers = swapchain->ImageCount();
-    limiterA = std::chrono::system_clock::now();
-    limiterB = std::chrono::system_clock::now();
+    if (swapchain != nullptr)
+    {
+        frameLimiter.SetTargetFramerate(static_cast<double>(swapchain->RefreshRate()));
+    }
 }
 
 VulkanScene::~VulkanScene() {}
@@ -41,8 +46,6 @@ void VulkanScene::Render(void* user_data)
         recreateSwapchain();
         return;
     }
-    // reset only once a submit will follow: an acquire that fails would leave the fence unsignaled forever
-    resetFrameFence();
     update();
     recordCommands();
     draw();
@@ -60,6 +63,16 @@ uint32_t VulkanScene::SwapchainRecreationCount() const noexcept
     return swapchainRecreationCount;
 }
 
+rhi::TimelineSemaphoreHandle VulkanScene::FrameTimeline() const noexcept
+{
+    return frameTimeline != nullptr ? frameTimeline->Handle() : rhi::TimelineSemaphoreHandle{};
+}
+
+uint64_t VulkanScene::FrameValueBeingRecorded() const noexcept
+{
+    return frameValue;
+}
+
 size_t VulkanScene::CurrentFramebufferIdx() const
 {
     return static_cast<size_t>(currentAcquiredImage);
@@ -68,28 +81,33 @@ size_t VulkanScene::CurrentFramebufferIdx() const
 void VulkanScene::createFrameSyncObjects()
 {
     using namespace rhi;
-    constexpr static VkSemaphoreCreateInfo semaphoreInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, nullptr, 0 };
-    constexpr static VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, nullptr, VK_FENCE_CREATE_SIGNALED_BIT };
-    imageAvailableSemaphores.resize(numFramebuffers);
-    renderFinishedSemaphores.resize(numFramebuffers);
-    inFlightFences.resize(numFramebuffers);
+    imageAvailableSemaphores.reserve(numFramebuffers);
+    renderFinishedSemaphores.reserve(numFramebuffers);
+
+    frameTimeline = std::make_unique<TimelineSemaphore>(device->Handle());
+    if (!frameTimeline->Handle().IsValid())
+    {
+        throw std::runtime_error("Failed to create the frame synchronization objects");
+    }
+
+    RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, frameTimeline->Handle().Get(), "FrameTimeline");
+    frameValue = 1u;
 
     for (uint32_t i = 0; i < numFramebuffers; ++i)
     {
-        Result result = FromVulkan(vkCreateSemaphore(vkDevice, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]));
-        RhiAssert(result);
-        
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, (uint64_t)imageAvailableSemaphores[i], std::format("ImageAvailableSemaphore_{}", i).c_str());
+        const BinarySemaphore& imageAvailable = imageAvailableSemaphores.emplace_back(device->Handle());
+        if (!imageAvailable.Handle().IsValid())
+        {
+            throw std::runtime_error("Failed to create the frame synchronization objects");
+        }
+        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, imageAvailable.Handle().Get(), std::format("ImageAvailableSemaphore_{}", i).c_str());
 
-        result = vkCreateSemaphore(vkDevice, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]);
-        RhiAssert(result);
-
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, (uint64_t)renderFinishedSemaphores[i], std::format("RenderFinishedSemaphore_{}", i).c_str());
-
-        result = vkCreateFence(vkDevice, &fenceInfo, nullptr, &inFlightFences[i]);
-        RhiAssert(result);
-
-        RhiSystem::SetObjectName(VK_OBJECT_TYPE_FENCE, (uint64_t)inFlightFences[i], std::format("InFlightFence_{}", i).c_str());
+        const BinarySemaphore& renderFinished = renderFinishedSemaphores.emplace_back(device->Handle());
+        if (!renderFinished.Handle().IsValid())
+        {
+            throw std::runtime_error("Failed to create the frame synchronization objects");
+        }
+        RhiSystem::SetObjectName(VK_OBJECT_TYPE_SEMAPHORE, renderFinished.Handle().Get(), std::format("RenderFinishedSemaphore_{}", i).c_str());
     }
 
     firstFrame.resize(numFramebuffers, true);
@@ -97,42 +115,64 @@ void VulkanScene::createFrameSyncObjects()
 
 void VulkanScene::destroyFrameSyncObjects()
 {
-    for (size_t i = 0; i < numFramebuffers; ++i)
+    // the last submitted frame signaled frameValue - 1
+    if (!waitForFrameValue(frameValue - 1u))
     {
-        vkDestroySemaphore(vkDevice, imageAvailableSemaphores[i], nullptr);
-        vkDestroySemaphore(vkDevice, renderFinishedSemaphores[i], nullptr);
-        VkFence currFence = inFlightFences[i];
-        rhi::Result result = vkWaitForFences(vkDevice, 1, &currFence, VK_TRUE, 1000000000);
-        RhiAssert(result);
-        vkDestroyFence(vkDevice, inFlightFences[i], nullptr);
+        throw std::runtime_error("The frame timeline did not reach the last submitted frame");
     }
 
     imageAvailableSemaphores.clear();
     renderFinishedSemaphores.clear();
-    inFlightFences.clear();
+    frameTimeline.reset();
     firstFrame.clear();
     currentFrame = 0;
 }
 
 void VulkanScene::beginFrame()
 {
-    VkDevice vkDevice = device->Handle().As<VkDevice>();
-    VkFence currFence = inFlightFences[currentFrame];
-    rhi::Result result = vkWaitForFences(vkDevice, 1, &currFence, VK_TRUE, 1000000000);
-    RhiAssert(result);
+    // the frame numFramebuffers before this one used the same slot
+    if (frameValue > numFramebuffers && !waitForFrameValue(frameValue - numFramebuffers))
+    {
+        throw std::runtime_error("The frame timeline did not signal");
+    }
 }
 
-void VulkanScene::resetFrameFence()
+bool VulkanScene::waitForFrameValue(uint64_t value) const
 {
-    VkFence currFence = inFlightFences[currentFrame];
-    rhi::Result result = vkResetFences(vkDevice, 1, &currFence);
-    RhiAssert(result);
+    if (value == 0u)
+    {
+        return true;
+    }
+
+    const VkSemaphore timeline = frameTimeline->Handle().As<VkSemaphore>();
+    const VkSemaphoreWaitInfo waitInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+        nullptr,
+        0u,
+        1u,
+        &timeline,
+        &value
+    };
+
+    return vkWaitSemaphores(vkDevice, &waitInfo, 1000000000) == VK_SUCCESS;
+}
+
+void VulkanScene::submitFrame(const rhi::CommandBufferHandle& command_buffer)
+{
+    const rhi::SemaphoreSubmitInfo imageAvailable{ imageAvailableSemaphores[currentFrame].Handle(), rhi::PipelineStage::ColorAttachmentOutput };
+    const std::array<rhi::SemaphoreSubmitInfo, 2> signals
+    {
+        rhi::SemaphoreSubmitInfo{ renderFinishedSemaphores[currentAcquiredImage].Handle(), rhi::PipelineStage::AllGraphics },
+        rhi::SemaphoreSubmitInfo{ frameTimeline->Handle(), frameValue, rhi::PipelineStage::AllGraphics }
+    };
+    const rhi::SubmitInfo submit{ std::span{ &imageAvailable, 1 }, std::span{ &command_buffer, 1 }, std::span{ signals } };
+    RhiAssert(rhi::QueueSubmit(device->GetGraphicsQueue(0), submit, rhi::FenceHandle{}));
 }
 
 void VulkanScene::recreateSwapchain()
 {
-    rhi::Result result = vkDeviceWaitIdle(vkDevice);
-    RhiAssert(result);
+    device->WaitDeviceIdle();
     const SwapchainRecreateResult recreateResult = platformSystem->RecreateSwapchain();
     if (recreateResult == SwapchainRecreateResult::SurfaceHasZeroArea)
     {
@@ -153,29 +193,26 @@ void VulkanScene::recreateSwapchain()
 
 void VulkanScene::onSwapchainRecreated()
 {
+    if (swapchain != nullptr)
+    {
+        frameLimiter.SetTargetFramerate(static_cast<double>(swapchain->RefreshRate()));
+        frameLimiter.Reset();
+    }
 }
 
 void VulkanScene::limitFrame()
 {
-    limiterA = std::chrono::system_clock::now();
-    std::chrono::duration<double, std::milli> work_time = limiterA - limiterB;
-    if (work_time.count() < 16.0)
-    {
-        std::chrono::duration<double, std::milli> delta_ms(16.0 - work_time.count());
-            auto delta_ms_dur = std::chrono::duration_cast<std::chrono::milliseconds>(delta_ms);
-            std::this_thread::sleep_for(std::chrono::milliseconds(delta_ms_dur.count()));
-    }
-    limiterB = std::chrono::system_clock::now();
+    frameLimiter.WaitNextFrame();
 }
 
 bool VulkanScene::acquireImage()
 {
-    VkSemaphore currAcquireSemaphore = imageAvailableSemaphores[currentFrame];
+    VkSemaphore currAcquireSemaphore = imageAvailableSemaphores[currentFrame].Handle().As<VkSemaphore>();
     VkSwapchainKHR vkSwapchain = reinterpret_cast<VkSwapchainKHR>(swapchain->GetNativeHandle());
     // we should only ever be using the first device, and this is a bitmask so that means it can't be zero (its not an index)
-    constexpr static uint32_t RootDeviceMask = 0x1;
+    constexpr static uint32_t k_RootDeviceMask = 0x1;
 
-    const VkAcquireNextImageInfoKHR acquire_info
+    const VkAcquireNextImageInfoKHR acquireInfo
     {
         VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR,
         nullptr,
@@ -183,10 +220,10 @@ bool VulkanScene::acquireImage()
         1000000000,
         currAcquireSemaphore,
         VK_NULL_HANDLE,
-        RootDeviceMask
+        k_RootDeviceMask
     };
 
-    const VkResult result = vkAcquireNextImage2KHR(vkDevice, &acquire_info, &currentAcquiredImage);
+    const VkResult result = vkAcquireNextImage2KHR(vkDevice, &acquireInfo, &currentAcquiredImage);
     if (result == VK_ERROR_OUT_OF_DATE_KHR)
     {
         return false;
@@ -203,11 +240,11 @@ bool VulkanScene::acquireImage()
 
 void VulkanScene::present()
 {
-    VkResult present_results[1]{ VK_SUCCESS };
-    VkSemaphore currRenderCompleteSemaphore = renderFinishedSemaphores[currentFrame];
+    VkResult presentResults[1]{ VK_SUCCESS };
+    VkSemaphore currRenderCompleteSemaphore = renderFinishedSemaphores[currentAcquiredImage].Handle().As<VkSemaphore>();
     VkSwapchainKHR vkSwapchain = reinterpret_cast<VkSwapchainKHR>(swapchain->GetNativeHandle());
 
-    const VkPresentInfoKHR present_info
+    const VkPresentInfoKHR presentInfo
     {
         VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         nullptr,
@@ -216,11 +253,11 @@ void VulkanScene::present()
         1,
         &vkSwapchain,
         &currentAcquiredImage,
-        present_results
+        presentResults
     };
 
-    VkQueue GraphicsQueue = device->GetGraphicsQueue(0).As<VkQueue>();
-    const VkResult result = vkQueuePresentKHR(GraphicsQueue, &present_info);
+    VkQueue graphicsQueue = device->GetGraphicsQueue(0).As<VkQueue>();
+    const VkResult result = vkQueuePresentKHR(graphicsQueue, &presentInfo);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {
         swapchainOutOfDate = true;
@@ -237,4 +274,6 @@ void VulkanScene::endFrame()
     }
 
     currentFrame = (currentFrame + 1) % numFramebuffers;
+    // endFrame runs only after a submit, so every value up to frameValue - 1 has a signal
+    ++frameValue;
 }

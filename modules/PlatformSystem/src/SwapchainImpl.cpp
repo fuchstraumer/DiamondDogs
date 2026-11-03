@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <map>
+#include <vector>
 
 // Allows us to rank surface formats based on how "good" we believe they are
 // We place higher scores on formats we believe best for HDR, including suitable HDR color spaces
@@ -39,9 +40,9 @@ namespace std
 }
 
 // needed as otherwise sType and pNext would be uninitialized and cause validation errors when we query for capabilities with extended structures
-constexpr static VkSurfaceCapabilities2KHR DefaultSurfaceCapabilities2KHR = { VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR, nullptr };
+constexpr static VkSurfaceCapabilities2KHR k_DefaultSurfaceCapabilities2Khr = { VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR, nullptr };
 
-static const std::unordered_map<VkSurfaceFormatKHR, size_t> s_VkSurfaceFormatScores
+static const std::unordered_map<VkSurfaceFormatKHR, size_t> k_SVkSurfaceFormatScores
 {
     // 16-bit floating point formats - highest priority (1000+ points)
     { { VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_HDR10_ST2084_EXT }, 1300 },
@@ -210,19 +211,29 @@ VkPresentModeKHR ToVkPresentMode(const PresentMode mode) noexcept
     }
 }
 
+// i have no idea how clang decides (incorrectly) that these are unused, but it sure does!
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-function"
+#endif
+
 static bool operator==(const VkSurfaceFormatKHR& lhs, const VkSurfaceFormatKHR& rhs) noexcept
 {
     return (lhs.format == rhs.format) && (lhs.colorSpace == rhs.colorSpace);
 }
 
-static bool operator==(const VkSurfaceFormat2KHR& vkSurfaceFormat, const AppSurfaceFormat& appSurfaceFormat) noexcept
+static bool operator==(const VkSurfaceFormat2KHR& vk_surface_format, const AppSurfaceFormat& app_surface_format) noexcept
 {
-    const VkFormat appVkFormat = ToVkFormat(appSurfaceFormat.Format);
-    const VkColorSpaceKHR appColorSpace = ToVkColorSpace(appSurfaceFormat.Space);
-    return (vkSurfaceFormat.surfaceFormat.format == appVkFormat) && (vkSurfaceFormat.surfaceFormat.colorSpace == appColorSpace);
+    const VkFormat appVkFormat = ToVkFormat(app_surface_format.Format);
+    const VkColorSpaceKHR appColorSpace = ToVkColorSpace(app_surface_format.Space);
+    return (vk_surface_format.surfaceFormat.format == appVkFormat) && (vk_surface_format.surfaceFormat.colorSpace == appColorSpace);
 }
 
-SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sfc) : capabilities(DefaultSurfaceCapabilities2KHR)
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
+
+SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sfc) : capabilities(k_DefaultSurfaceCapabilities2Khr)
 {
     const VkPhysicalDeviceSurfaceInfo2KHR surfaceInfo = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR, nullptr, sfc };
     // Query surface capabilities
@@ -242,14 +253,42 @@ SwapchainInfo::SwapchainInfo(const VkPhysicalDevice& dvc, const VkSurfaceKHR& sf
 
 }
 
+std::vector<SurfaceFormatPair> QuerySurfaceFormatPairs(const SwapchainCreateInfo& create_info)
+{
+    const rhi::Device* device = reinterpret_cast<const rhi::Device*>(create_info.RhiDevice);
+    const VkPhysicalDevice physicalDevice = device->GetPhysicalDevice().As<VkPhysicalDevice>();
+    const VkSurfaceKHR surface = reinterpret_cast<VkSurfaceKHR>(create_info.VkSurfaceHandle);
+
+    uint32_t formatCount = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
+    std::vector<VkSurfaceFormatKHR> surfaceFormats(formatCount);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, surfaceFormats.data());
+
+    std::vector<SurfaceFormatPair> pairs;
+    pairs.reserve(surfaceFormats.size());
+
+    for (const VkSurfaceFormatKHR& surfaceFormat : surfaceFormats)
+    {
+        const ImageFormat format = FromVkFormat(surfaceFormat.format);
+        const ColorSpace space = FromVkColorSpace(surfaceFormat.colorSpace);
+
+        if (format.IsValid() && space != ColorSpace::Invalid)
+        {
+            pairs.push_back(SurfaceFormatPair{ format, space });
+        }
+    }
+
+    return pairs;
+}
+
 VkSurfaceFormatKHR SwapchainInfo::FindBestFormat() const noexcept
 {
     // Create new unordered_map to hold scores for available formats, but use an ordered map and swap key-values to sort by score
     std::map<size_t, VkSurfaceFormatKHR> availableFormatScores;
     for (const auto& format : formats)
     {
-        auto it = s_VkSurfaceFormatScores.find(format);
-        if (it != s_VkSurfaceFormatScores.end())
+        auto it = k_SVkSurfaceFormatScores.find(format);
+        if (it != k_SVkSurfaceFormatScores.end())
         {
             availableFormatScores[it->second] = format;
         }
@@ -269,7 +308,7 @@ VkSurfaceFormatKHR SwapchainInfo::FindBestFormat() const noexcept
     return bestFormat;
 }
 
-VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& requestedFormat) const noexcept
+VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& requested_format) const noexcept
 {
     if (formats.empty())
     {
@@ -279,7 +318,7 @@ VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& re
     // 1. First priority: Exact match
     for (const auto& format : formats)
     {
-        if (format.format == requestedFormat.format && format.colorSpace == requestedFormat.colorSpace)
+        if (format.format == requested_format.format && format.colorSpace == requested_format.colorSpace)
         {
             return format;
         }
@@ -292,10 +331,10 @@ VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& re
     
     for (const auto& format : formats)
     {
-        if (format.format == requestedFormat.format)
+        if (format.format == requested_format.format)
         {
-            auto it = s_VkSurfaceFormatScores.find(format);
-            size_t score = (it != s_VkSurfaceFormatScores.end()) ? it->second : 0;
+            auto it = k_SVkSurfaceFormatScores.find(format);
+            size_t score = (it != k_SVkSurfaceFormatScores.end()) ? it->second : 0;
             if (score > bestSameFormatScore)
             {
                 bestSameFormatScore = score;
@@ -316,10 +355,10 @@ VkSurfaceFormatKHR SwapchainInfo::FindClosestFormat(const VkSurfaceFormatKHR& re
     
     for (const auto& format : formats)
     {
-        if (format.colorSpace == requestedFormat.colorSpace)
+        if (format.colorSpace == requested_format.colorSpace)
         {
-            auto it = s_VkSurfaceFormatScores.find(format);
-            size_t score = (it != s_VkSurfaceFormatScores.end()) ? it->second : 0;
+            auto it = k_SVkSurfaceFormatScores.find(format);
+            size_t score = (it != k_SVkSurfaceFormatScores.end()) ? it->second : 0;
             if (score > bestSameColorSpaceScore)
             {
                 bestSameColorSpaceScore = score;
@@ -345,8 +384,7 @@ SwapchainImpl::SwapchainImpl(const SwapchainCreateInfo& create_info) :
     Extent{ .width=0, .height=0 },
     MinImageCount{ create_info.MinImageCount },
     ImageCount{ 0 },
-    PresentMode{ VK_PRESENT_MODE_FIFO_KHR },
-    Swapchain{ VK_NULL_HANDLE }
+    PresentMode{ VK_PRESENT_MODE_FIFO_KHR }
 {
     rhi::Device* device = reinterpret_cast<rhi::Device*>(create_info.RhiDevice);
     ParentDevice = device->Handle().As<VkDevice>();
@@ -375,6 +413,11 @@ VkSwapchainCreateInfoKHR SwapchainImpl::getCreateInfo(const SwapchainCreateInfo&
     swapchainCreateInfo.imageArrayLayers = 1; // always 1 unless doing stereoscopic 3D
     // will need color attachment bits because we also write to the swapchain images, not just present them
     swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    // transfer source lets FrameCapture copy the presented image out, when the surface allows it
+    if ((Info->capabilities.surfaceCapabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0u)
+    {
+        swapchainCreateInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
     swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; // assume only one queue family for now
     swapchainCreateInfo.queueFamilyIndexCount = 0;
     swapchainCreateInfo.pQueueFamilyIndices = nullptr;
@@ -391,6 +434,22 @@ VkSwapchainCreateInfoKHR SwapchainImpl::getCreateInfo(const SwapchainCreateInfo&
 
 void SwapchainImpl::Create(const SwapchainCreateInfo& create_info)
 {
+    if (create_info.RefreshRate > 1.0f)
+    {
+        RefreshRate = create_info.RefreshRate;
+    }
+    else if (create_info.PlatformSystemPtr != nullptr)
+    {
+        const auto* platformSystem = reinterpret_cast<const PlatformWindowSystem*>(create_info.PlatformSystemPtr);
+        const auto& displayInfo = platformSystem->GetActiveDisplayInfo();
+        const float queriedRate = displayInfo.RefreshRateCapabilities.RefreshRate;
+        RefreshRate = (queriedRate > 1.0f) ? queriedRate : 60.0f;
+    }
+    else
+    {
+        RefreshRate = 60.0f;
+    }
+
     querySurface(create_info);
     chooseSurfaceFormat(create_info);
     Extent = chooseExtent(create_info);
@@ -407,6 +466,21 @@ void SwapchainImpl::Create(const SwapchainCreateInfo& create_info)
 
 SwapchainRecreateResult SwapchainImpl::Recreate(const SwapchainCreateInfo& create_info)
 {
+    if (create_info.RefreshRate > 1.0f)
+    {
+        RefreshRate = create_info.RefreshRate;
+    }
+    else if (create_info.PlatformSystemPtr != nullptr)
+    {
+        const auto* platformSystem = reinterpret_cast<const PlatformWindowSystem*>(create_info.PlatformSystemPtr);
+        const auto& displayInfo = platformSystem->GetActiveDisplayInfo();
+        const float queriedRate = displayInfo.RefreshRateCapabilities.RefreshRate;
+        if (queriedRate > 1.0f)
+        {
+            RefreshRate = queriedRate;
+        }
+    }
+
     querySurface(create_info);
     const VkExtent2D newExtent = chooseExtent(create_info);
     if (newExtent.width == 0u || newExtent.height == 0u)
@@ -446,8 +520,29 @@ void SwapchainImpl::chooseSurfaceFormat(const SwapchainCreateInfo& create_info)
     // recall that VkSurfaceFormatKHR has two members: VkFormat format and VkColorSpaceKHR colorSpace, so that we're aware of both.
     // We'll need the former to set the swapchain image format, and the latter to inform the rendering pipeline and tonemapper about the color space in use.
     
+    // a near match is an error: the caller needs exactly this encoding
+    if (create_info.ExplicitSurfaceFormat.has_value())
+    {
+        const VkSurfaceFormatKHR requestedPair
+        {
+            ToVkFormat(create_info.ExplicitSurfaceFormat->Format),
+            ToVkColorSpace(create_info.ExplicitSurfaceFormat->Space)
+        };
+
+        const auto offered = std::ranges::find_if(Info->formats, [&requestedPair](const VkSurfaceFormatKHR& surface_format)
+        {
+            return surface_format.format == requestedPair.format && surface_format.colorSpace == requestedPair.colorSpace;
+        });
+
+        if (offered == Info->formats.end())
+        {
+            throw std::runtime_error("The surface does not offer the explicitly requested format and color space pair");
+        }
+
+        VulkanFormat = *offered;
+    }
     // Check if user specified a specific format, if so try to find closest match
-    if (create_info.SwapchainFormat.ComponentFormat != ImageComponentFormats::Invalid)
+    else if (create_info.SwapchainFormat.ComponentFormat != ImageComponentFormats::Invalid)
     {
         // User requested a specific format, try to find the closest match
         VkColorSpaceKHR preferredColorSpace = ToVkColorSpace(create_info.DesiredColorSpace);
@@ -472,8 +567,8 @@ VkExtent2D SwapchainImpl::chooseExtent(const SwapchainCreateInfo& create_info) c
     // the extent used to come from the active display info, which is the whole screen on the JSON path. The
     // surface knows the real size of the window
     const VkSurfaceCapabilitiesKHR& capabilities = Info->capabilities.surfaceCapabilities;
-    constexpr uint32_t surfaceTakesSwapchainExtent = std::numeric_limits<uint32_t>::max();
-    if (capabilities.currentExtent.width != surfaceTakesSwapchainExtent)
+    constexpr uint32_t k_SurfaceTakesSwapchainExtent = std::numeric_limits<uint32_t>::max();
+    if (capabilities.currentExtent.width != k_SurfaceTakesSwapchainExtent)
     {
         return capabilities.currentExtent;
     }
@@ -509,61 +604,94 @@ void SwapchainImpl::createSwapchainHandle(const SwapchainCreateInfo& create_info
     PresentMode = swapchainCreateInfo.presentMode;
 }
 
+void SwapchainImpl::ApplyHdrMetadata(const SwapchainHdrMetadata& metadata)
+{
+    const rhi::Device* device = reinterpret_cast<const rhi::Device*>(CreateInfo.RhiDevice);
+
+    if (!device->HasExtension(VK_EXT_HDR_METADATA_EXTENSION_NAME))
+    {
+        return;
+    }
+
+    VkHdrMetadataEXT hdrMetadata{};
+    hdrMetadata.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
+    hdrMetadata.pNext = nullptr;
+    hdrMetadata.displayPrimaryRed.x = metadata.RedPrimaryX;
+    hdrMetadata.displayPrimaryRed.y = metadata.RedPrimaryY;
+    hdrMetadata.displayPrimaryGreen.x = metadata.GreenPrimaryX;
+    hdrMetadata.displayPrimaryGreen.y = metadata.GreenPrimaryY;
+    hdrMetadata.displayPrimaryBlue.x = metadata.BluePrimaryX;
+    hdrMetadata.displayPrimaryBlue.y = metadata.BluePrimaryY;
+    hdrMetadata.whitePoint.x = metadata.WhitePointX;
+    hdrMetadata.whitePoint.y = metadata.WhitePointY;
+    hdrMetadata.maxLuminance = metadata.MaxLuminance;
+    hdrMetadata.minLuminance = metadata.MinLuminance;
+    hdrMetadata.maxContentLightLevel = metadata.MaxContentLightLevel;
+    hdrMetadata.maxFrameAverageLightLevel = metadata.MaxFrameAverageLightLevel;
+
+    auto vkSetHdrMetadataEXT = reinterpret_cast<PFN_vkSetHdrMetadataEXT>(vkGetDeviceProcAddr(ParentDevice, "vkSetHdrMetadataEXT"));
+
+    if (vkSetHdrMetadataEXT == nullptr)
+    {
+        throw std::runtime_error("Failed to get function pointer for vkSetHdrMetadataEXT, even with extension enabled and HDR on.");
+    }
+
+    vkSetHdrMetadataEXT(ParentDevice, 1, &Swapchain, &hdrMetadata);
+}
+
 void SwapchainImpl::setHdrMetadata(const SwapchainCreateInfo& create_info)
 {
+    // the caller sets the metadata
+    if (create_info.ExplicitSurfaceFormat.has_value())
+    {
+        return;
+    }
+
     const rhi::Device* device = reinterpret_cast<const rhi::Device*>(create_info.RhiDevice);
     assert(create_info.PlatformSystemPtr != nullptr && "PlatformSystemPtr must be set in SwapchainCreateInfo");
     const PlatformWindowSystem* platformSystem = reinterpret_cast<const PlatformWindowSystem*>(create_info.PlatformSystemPtr);
     const DisplayInfo& displayInfo = platformSystem->GetActiveDisplayInfo();
 
-    if (device->HasExtension(VK_EXT_HDR_METADATA_EXTENSION_NAME))
+    if (!device->HasExtension(VK_EXT_HDR_METADATA_EXTENSION_NAME))
     {
-        // if HDR meatadata extension is supported, we can set HDR metadata on the swapchain if we're using an HDR format
-        bool isHDRFormat = false;
-        switch (ToVkFormat(create_info.SwapchainFormat))
-        {
-            case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
-            case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
-            case VK_FORMAT_R16G16B16A16_SFLOAT:
-            case VK_FORMAT_R16G16B16A16_UNORM:
-                isHDRFormat = true;
-                break;
-            default:
-                isHDRFormat = false;
-                break;
-        }
-
-        if (isHDRFormat)
-        {
-            VkHdrMetadataEXT hdrMetadata{};
-            hdrMetadata.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
-            hdrMetadata.pNext = nullptr;
-            hdrMetadata.displayPrimaryRed.x = displayInfo.ColorCapabilities.RedPrimaryX;
-            hdrMetadata.displayPrimaryRed.y = displayInfo.ColorCapabilities.RedPrimaryY;
-            hdrMetadata.displayPrimaryGreen.x = displayInfo.ColorCapabilities.GreenPrimaryX;
-            hdrMetadata.displayPrimaryGreen.y = displayInfo.ColorCapabilities.GreenPrimaryY;
-            hdrMetadata.displayPrimaryBlue.x = displayInfo.ColorCapabilities.BluePrimaryX;
-            hdrMetadata.displayPrimaryBlue.y = displayInfo.ColorCapabilities.BluePrimaryY;
-            hdrMetadata.whitePoint.x = displayInfo.ColorCapabilities.WhitePointX;
-            hdrMetadata.whitePoint.y = displayInfo.ColorCapabilities.WhitePointY;
-            hdrMetadata.maxLuminance = displayInfo.ColorCapabilities.MaxLuminance;
-            hdrMetadata.minLuminance = displayInfo.ColorCapabilities.MinLuminance;
-            hdrMetadata.maxContentLightLevel = displayInfo.ColorCapabilities.MaxLuminance * 0.9f; // set based on preferences. we can add a config for this later
-            hdrMetadata.maxFrameAverageLightLevel = displayInfo.ColorCapabilities.MaxAverageLuminance;
-
-            // get function pointer for vkSetHdrMetadataEXT
-            auto vkSetHdrMetadataEXT =
-                reinterpret_cast<PFN_vkSetHdrMetadataEXT>(vkGetDeviceProcAddr(ParentDevice, "vkSetHdrMetadataEXT"));
-            if (vkSetHdrMetadataEXT != nullptr)
-            {
-                vkSetHdrMetadataEXT(ParentDevice, 1, &Swapchain, &hdrMetadata);
-            }
-            else
-            {
-                throw std::runtime_error("Failed to get function pointer for vkSetHdrMetadataEXT, even with extension enabled and HDR on.");
-            }
-        }
+        return;
     }
+
+    // if HDR meatadata extension is supported, we can set HDR metadata on the swapchain if we're using an HDR format
+    bool isHDRFormat = false;
+    switch (ToVkFormat(create_info.SwapchainFormat))
+    {
+        case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
+        case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+        case VK_FORMAT_R16G16B16A16_SFLOAT:
+        case VK_FORMAT_R16G16B16A16_UNORM:
+            isHDRFormat = true;
+            break;
+        default:
+            isHDRFormat = false;
+            break;
+    }
+
+    if (!isHDRFormat)
+    {
+        return;
+    }
+
+    const DisplayColorCapabilities& capabilities = displayInfo.ColorCapabilities;
+    SwapchainHdrMetadata metadata{};
+    metadata.RedPrimaryX = capabilities.RedPrimaryX;
+    metadata.RedPrimaryY = capabilities.RedPrimaryY;
+    metadata.GreenPrimaryX = capabilities.GreenPrimaryX;
+    metadata.GreenPrimaryY = capabilities.GreenPrimaryY;
+    metadata.BluePrimaryX = capabilities.BluePrimaryX;
+    metadata.BluePrimaryY = capabilities.BluePrimaryY;
+    metadata.WhitePointX = capabilities.WhitePointX;
+    metadata.WhitePointY = capabilities.WhitePointY;
+    metadata.MaxLuminance = capabilities.MaxLuminance;
+    metadata.MinLuminance = capabilities.MinLuminance;
+    metadata.MaxContentLightLevel = capabilities.MaxLuminance * 0.9f; // set based on preferences. we can add a config for this later
+    metadata.MaxFrameAverageLightLevel = capabilities.MaxAverageLuminance;
+    ApplyHdrMetadata(metadata);
 }
 
 void SwapchainImpl::Destroy()

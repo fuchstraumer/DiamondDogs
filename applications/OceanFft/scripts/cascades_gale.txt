@@ -1,0 +1,47 @@
+# Gale sea from 600 m, top-down: each cascade alone, then all cascades on again. Run with --capture=DIR.
+preset Gale
+dt 0.0166667
+time 30
+wait 30
+camera 0 89.4 600
+cascade 0 on
+cascade 1 off
+cascade 2 off
+cascade 3 off
+cascade 4 off
+wait 10
+capture gale_only_cascade_0
+cascade 0 off
+cascade 1 on
+cascade 2 off
+cascade 3 off
+cascade 4 off
+wait 10
+capture gale_only_cascade_1
+cascade 0 off
+cascade 1 off
+cascade 2 on
+cascade 3 off
+cascade 4 off
+wait 10
+capture gale_only_cascade_2
+cascade 0 off
+cascade 1 off
+cascade 2 off
+cascade 3 on
+cascade 4 off
+wait 10
+capture gale_only_cascade_3
+cascade 0 off
+cascade 1 off
+cascade 2 off
+cascade 3 off
+cascade 4 on
+wait 10
+capture gale_only_cascade_4
+cascade 0 on
+cascade 1 on
+cascade 2 on
+cascade 3 on
+cascade 4 on
+quit

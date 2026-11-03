@@ -29,9 +29,9 @@ TEST_F(ResourceContextTest, ImageWithViewUploadsInitialData)
     ImageCreateInfo info = SampledTexture(k_Size, k_Size);
     info.ViewInfo = ImageViewCreateInfo{};
 
-    std::shared_ptr<GraphicsResourceReply> reply = context->CreateImage(info, std::span{ &data, 1u });
-    ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
-    const GraphicsResource image = reply->GetResource();
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info, std::span{ &data, 1u }, ImageUsageBits::SampledImage);
+    ASSERT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
+    const GraphicsResource image = reply.Get();
     EXPECT_EQ(image.Type, ResourceType::Image);
     EXPECT_NE(image.VkHandle, 0u);
     EXPECT_NE(image.VkViewHandle, 0u);
@@ -45,9 +45,9 @@ TEST_F(ResourceContextTest, ImageWithSamplerIsACombinedImageSampler)
     info.ViewInfo = ImageViewCreateInfo{};
     info.SamplerInfo = SamplerCreateInfo{};
 
-    std::shared_ptr<GraphicsResourceReply> reply = context->CreateImage(info, {});
-    ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
-    const GraphicsResource image = reply->GetResource();
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info);
+    ASSERT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
+    const GraphicsResource image = reply.Get();
     EXPECT_EQ(image.Type, ResourceType::CombinedImageSampler);
     EXPECT_NE(image.VkSamplerHandle, 0u);
     DestroyAndWait(image);
@@ -55,7 +55,7 @@ TEST_F(ResourceContextTest, ImageWithSamplerIsACombinedImageSampler)
 
 TEST_F(ResourceContextTest, SetImageDataAfterAnEarlierUpload)
 {
-    // the second upload starts from the layout the first one left, which validation checks on submit
+    // the second upload starts from the usage that the caller says the first one left, which validation checks on submit
     constexpr uint32_t k_Size = 8u;
     const std::vector<uint32_t> texels = MakeWordPattern(k_Size * k_Size, 11u);
     RhiImageResourceData data{};
@@ -63,10 +63,11 @@ TEST_F(ResourceContextTest, SetImageDataAfterAnEarlierUpload)
     data.Width = k_Size;
     data.Height = k_Size;
 
-    std::shared_ptr<GraphicsResourceReply> reply = context->CreateImage(SampledTexture(k_Size, k_Size), std::span{ &data, 1u });
-    ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
-    std::shared_ptr<ResourceTransferReply> setReply = context->SetImageData(reply->GetResource(), std::span{ &data, 1u });
-    EXPECT_EQ(setReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(SampledTexture(k_Size, k_Size), std::span{ &data, 1u }, ImageUsageBits::SampledImage);
+    ASSERT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
+    const rhi::ImageUsageTransition sampledToSampled{ ImageUsageBits::SampledImage, ImageUsageBits::SampledImage };
+    rhi::OperationFuture setReply = context->SetImageData(reply.Get(), sampledToSampled, std::span{ &data, 1u }, {});
+    EXPECT_EQ(context->Wait(setReply, k_TimeoutNs), rhi::FutureState::Complete);
 }
 
 TEST_F(ResourceContextTest, MipLevelsAndLayersUploadPerRegion)
@@ -86,8 +87,8 @@ TEST_F(ResourceContextTest, MipLevelsAndLayersUploadPerRegion)
     data[0] = RhiImageResourceData{ std::as_bytes(std::span{ mip0 }), k_Size, k_Size, 0u, 2u, 0u, 1u };
     data[1] = RhiImageResourceData{ std::as_bytes(std::span{ mip1 }), k_Size / 2u, k_Size / 2u, 0u, 2u, 1u, 1u };
 
-    std::shared_ptr<GraphicsResourceReply> reply = context->CreateImage(info, data);
-    EXPECT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info, data, ImageUsageBits::SampledImage);
+    EXPECT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
 }
 
 TEST_F(ResourceContextTest, DepthImageWithoutData)
@@ -101,9 +102,9 @@ TEST_F(ResourceContextTest, DepthImageWithoutData)
     info.Height = 128u;
     info.ViewInfo = ImageViewCreateInfo{};
 
-    std::shared_ptr<GraphicsResourceReply> reply = context->CreateImage(info, {});
-    ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
-    EXPECT_NE(reply->GetResource().VkViewHandle, 0u);
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info);
+    ASSERT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
+    EXPECT_NE(reply.Get().VkViewHandle, 0u);
 }
 
 TEST_F(ResourceContextTest, CopyImageDuplicatesTheImage)
@@ -117,12 +118,36 @@ TEST_F(ResourceContextTest, CopyImageDuplicatesTheImage)
 
     ImageCreateInfo info = SampledTexture(k_Size, k_Size);
     info.Usage |= ImageUsageBits::TransferSource;
-    std::shared_ptr<GraphicsResourceReply> reply = context->CreateImage(info, std::span{ &data, 1u });
-    ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info, std::span{ &data, 1u }, ImageUsageBits::SampledImage);
+    ASSERT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
 
-    std::shared_ptr<GraphicsResourceReply> copyReply = context->CopyImage(reply->GetResource());
-    ASSERT_EQ(copyReply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
-    EXPECT_NE(copyReply->GetResource().VkHandle, reply->GetResource().VkHandle);
+    const rhi::ImageUsageTransition sampledToSampled{ ImageUsageBits::SampledImage, ImageUsageBits::SampledImage };
+    rhi::ResourceFuture<GraphicsResource> copyReply = context->CopyImage(reply.Get(), sampledToSampled, ImageUsageBits::SampledImage, {});
+    ASSERT_EQ(context->Wait(copyReply, k_TimeoutNs), rhi::FutureState::Complete);
+    EXPECT_NE(copyReply.Get().VkHandle, reply.Get().VkHandle);
+}
+
+TEST_F(ResourceContextTest, ImageReadsBackIntoABuffer)
+{
+    constexpr uint32_t k_Size = 32u;
+    const std::vector<uint32_t> texels = MakeWordPattern(k_Size * k_Size, 7u);
+    RhiImageResourceData data{};
+    data.Data = std::as_bytes(std::span{ texels });
+    data.Width = k_Size;
+    data.Height = k_Size;
+
+    ImageCreateInfo info = SampledTexture(k_Size, k_Size);
+    info.Usage |= ImageUsageBits::TransferSource;
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info, std::span{ &data, 1u }, ImageUsageBits::SampledImage);
+    ASSERT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
+
+    // twice, so the second copy starts from the usage that the first one left
+    const rhi::ImageUsageTransition sampledToSampled{ ImageUsageBits::SampledImage, ImageUsageBits::SampledImage };
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        const std::vector<uint32_t> words = ReadBackImageWords(reply.Get(), sampledToSampled, texels.size() * sizeof(uint32_t));
+        EXPECT_EQ(words, texels);
+    }
 }
 
 TEST_F(ResourceContextTest, StandaloneSamplerCreateAndDestroy)
@@ -130,9 +155,9 @@ TEST_F(ResourceContextTest, StandaloneSamplerCreateAndDestroy)
     SamplerCreateInfo info{};
     info.MagFilter = ImageFilteringMode::Nearest;
     info.AddressU = SamplerCreateInfo::AddressMode::ClampToEdge;
-    std::shared_ptr<GraphicsResourceReply> reply = context->CreateSampler(info, nullptr);
-    ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
-    const GraphicsResource sampler = reply->GetResource();
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateSampler(info);
+    ASSERT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
+    const GraphicsResource sampler = reply.Get();
     EXPECT_EQ(sampler.Type, ResourceType::Sampler);
     EXPECT_NE(sampler.VkSamplerHandle, 0u);
     DestroyAndWait(sampler);
@@ -142,6 +167,46 @@ TEST_F(ResourceContextTest, ImageWithoutFormatFails)
 {
     ImageCreateInfo info = SampledTexture(16u, 16u);
     info.Format = ImageFormat{};
-    std::shared_ptr<GraphicsResourceReply> reply = context->CreateImage(info, {});
-    EXPECT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Failed);
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info);
+    EXPECT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Failed);
+}
+
+TEST_F(ResourceContextTest, ImageAndSamplerMessagesRefuseAMismatchedHandle)
+{
+    ImageCreateInfo info = SampledTexture(8u, 8u);
+    info.Usage = info.Usage | ImageUsageBits::TransferDestination;
+    info.ViewInfo = ImageViewCreateInfo{};
+    info.SamplerInfo = SamplerCreateInfo{};
+    info.Name = "a combined image sampler whose name is long enough to be truncated when the view is named";
+    rhi::ResourceFuture<GraphicsResource> imageReply = context->CreateImage(info);
+    ASSERT_EQ(context->Wait(imageReply, k_TimeoutNs), rhi::FutureState::Complete);
+    const GraphicsResource image = imageReply.Get();
+    GraphicsResource forgedImage = image;
+    forgedImage.VkHandle = image.VkHandle ^ 0x10u;
+
+    const std::vector<uint32_t> texels = MakeWordPattern(64u, 13u);
+    RhiImageResourceData data{};
+    data.Data = std::as_bytes(std::span{ texels });
+    data.Width = 8u;
+    data.Height = 8u;
+    const rhi::ImageUsageTransition sampledToSampled{ ImageUsageBits::SampledImage, ImageUsageBits::SampledImage };
+    rhi::OperationFuture setReply = context->SetImageData(forgedImage, sampledToSampled, std::span{ &data, 1u }, {});
+    EXPECT_EQ(context->Wait(setReply, k_TimeoutNs), rhi::FutureState::Failed);
+
+    rhi::ResourceFuture<GraphicsResource> copyReply = context->CopyImage(forgedImage, sampledToSampled, ImageUsageBits::SampledImage, {});
+    EXPECT_EQ(context->Wait(copyReply, k_TimeoutNs), rhi::FutureState::Failed);
+
+    rhi::OperationFuture destroyImageReply = context->DestroyResource(forgedImage);
+    EXPECT_EQ(context->Wait(destroyImageReply, k_TimeoutNs), rhi::FutureState::Failed);
+
+    rhi::ResourceFuture<GraphicsResource> samplerReply = context->CreateSampler(SamplerCreateInfo{ .Name = "ImageAndSamplerMessagesRefuseAMismatchedHandle" });
+    ASSERT_EQ(context->Wait(samplerReply, k_TimeoutNs), rhi::FutureState::Complete);
+    const GraphicsResource sampler = samplerReply.Get();
+    GraphicsResource forgedSampler = sampler;
+    forgedSampler.VkSamplerHandle = sampler.VkSamplerHandle ^ 0x10u;
+    rhi::OperationFuture destroySamplerReply = context->DestroyResource(forgedSampler);
+    EXPECT_EQ(context->Wait(destroySamplerReply, k_TimeoutNs), rhi::FutureState::Failed);
+
+    DestroyAndWait(sampler);
+    DestroyAndWait(image);
 }

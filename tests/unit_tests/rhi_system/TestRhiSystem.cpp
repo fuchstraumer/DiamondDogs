@@ -27,7 +27,7 @@ protected:
         }
     }
 
-    rhi::RhiSystemCreateInfo GetBaseCreateInfo()
+    rhi::RhiSystemCreateInfo getBaseCreateInfo()
     {
         rhi::RhiSystemCreateInfo createInfo{};
         createInfo.ApplicationName = "RhiSystemTest";
@@ -47,7 +47,7 @@ protected:
 // Test basic RHI system construction with CreateInfo
 TEST_F(RhiSystemTest, BasicCreateInfoConstruction)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     EXPECT_NO_THROW({
         auto rhiSystem = std::make_unique<rhi::RhiSystem>(createInfo);
         EXPECT_NE(rhiSystem, nullptr);
@@ -72,7 +72,7 @@ TEST_F(RhiSystemTest, MinimalConfiguration)
 // Test Vulkan 1.0 API version, to see if we can still create an instance of this version
 TEST_F(RhiSystemTest, Vulkan10ApiVersion)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.VkVersion = rhi::ApiVersion::Vulkan10;
 
     EXPECT_NO_THROW({
@@ -85,7 +85,7 @@ TEST_F(RhiSystemTest, Vulkan10ApiVersion)
 // Test Vulkan 1.1 API version (another key version for use)
 TEST_F(RhiSystemTest, Vulkan11ApiVersion)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.VkVersion = rhi::ApiVersion::Vulkan11;
 
     EXPECT_NO_THROW({
@@ -97,7 +97,7 @@ TEST_F(RhiSystemTest, Vulkan11ApiVersion)
 
 // Test Latest API version
 TEST_F(RhiSystemTest, LatestApiVersion) {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.VkVersion = rhi::ApiVersion::Latest;
 
     EXPECT_NO_THROW({
@@ -120,7 +120,7 @@ TEST_F(RhiSystemTest, ValidationLayers)
 
     for (const auto& level : validationLevels)
     {
-        auto createInfo = GetBaseCreateInfo();
+        auto createInfo = getBaseCreateInfo();
         createInfo.ValidationLevel = level;
 
         EXPECT_NO_THROW({
@@ -142,7 +142,7 @@ TEST_F(RhiSystemTest, WithDeviceExtensions)
         "VK_KHR_get_memory_requirements2",
     };
 
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.RequestedDeviceExtensions = deviceExtensionNames;
     createInfo.ShaderCacheDir = tempShaderCacheDir.string();
 
@@ -182,7 +182,7 @@ TEST_F(RhiSystemTest, ObjectNaming)
 // Test optional instance extensions
 TEST_F(RhiSystemTest, OptionalInstanceExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     std::vector<std::string> optionalExtensions
     {
         "VK_EXT_validation_features",  // May or may not be available
@@ -205,7 +205,7 @@ TEST_F(RhiSystemTest, OptionalInstanceExtensions)
 // Test optional device extensions
 TEST_F(RhiSystemTest, OptionalDeviceExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
     createInfo.RequiredDeviceExtensions = { "VK_KHR_maintenance1" };
     createInfo.RequestedDeviceExtensions = {
@@ -230,7 +230,7 @@ TEST_F(RhiSystemTest, OptionalDeviceExtensions)
 // Test mixing required and optional extensions
 TEST_F(RhiSystemTest, MixedExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     
     // Instance extensions
     createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
@@ -259,7 +259,7 @@ TEST_F(RhiSystemTest, MixedExtensions)
 // Test presentation support extensions (platform specific)
 TEST_F(RhiSystemTest, PresentationExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.RequiredInstanceExtensions =
     {
         "VK_EXT_debug_utils",
@@ -291,7 +291,7 @@ TEST_F(RhiSystemTest, PresentationExtensions)
 // Test empty extension lists (should still work)
 TEST_F(RhiSystemTest, NoExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.ValidationLevel = rhi::ValidationLayers::None;
     // Leave all extension vectors empty
 
@@ -306,7 +306,7 @@ TEST_F(RhiSystemTest, NoExtensions)
 // Test Vulkan 1.3+ specific extensions
 TEST_F(RhiSystemTest, Vulkan13Extensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.VkVersion = rhi::ApiVersion::Vulkan13;
     createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
     
@@ -329,7 +329,7 @@ TEST_F(RhiSystemTest, Vulkan13Extensions)
 // Test handling of potentially unsupported extensions
 TEST_F(RhiSystemTest, UnsupportedOptionalExtensions)
 {
-    auto createInfo = GetBaseCreateInfo();
+    auto createInfo = getBaseCreateInfo();
     createInfo.RequiredInstanceExtensions = {"VK_EXT_debug_utils"};
     
     // Add some extensions that might not be supported everywhere
@@ -348,4 +348,41 @@ TEST_F(RhiSystemTest, UnsupportedOptionalExtensions)
         EXPECT_NE(rhiSystem->GetDevice(), nullptr);
         EXPECT_FALSE(rhiSystem->GetDevice()->HasExtension("VK_ARM_data_graph"));
     });
+}
+
+// Destroy used to dereference the device unconditionally, so the destructor crashed after an explicit Destroy
+TEST_F(RhiSystemTest, DestroyTwiceIsSafe)
+{
+    auto rhiSystem = std::make_unique<rhi::RhiSystem>(getBaseCreateInfo());
+    rhiSystem->Destroy();
+    EXPECT_EQ(rhiSystem->GetDevice(), nullptr);
+    EXPECT_EQ(rhiSystem->GetInstance(), nullptr);
+    EXPECT_NO_THROW(rhiSystem->Destroy());
+    EXPECT_NO_THROW(rhiSystem.reset());
+}
+
+// "1.2" used to parse as 1.0.0, and every patch component as 0
+TEST(SplitVersionString, ParsesEveryComponent)
+{
+    struct Case { const char* Text; uint32_t Major, Minor, Patch; };
+    constexpr Case k_Cases[]
+    {
+        { "1", 1, 0, 0 },
+        { "1.2", 1, 2, 0 },
+        { "1.2.3", 1, 2, 3 },
+        { "10.20.30", 10, 20, 30 },
+        { "2.", 2, 0, 0 },
+        { "", 0, 0, 0 },
+        { "x.y", 0, 0, 0 },
+    };
+    for (const Case& c : k_Cases)
+    {
+        uint32_t major = 99u;
+        uint32_t minor = 99u;
+        uint32_t patch = 99u;
+        rhi::detail::SplitVersionString(c.Text, major, minor, patch);
+        EXPECT_EQ(major, c.Major) << c.Text;
+        EXPECT_EQ(minor, c.Minor) << c.Text;
+        EXPECT_EQ(patch, c.Patch) << c.Text;
+    }
 }

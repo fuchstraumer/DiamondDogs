@@ -4,6 +4,7 @@
 #include "PlatformTypes.hpp"
 #include "PlatformSystem.hpp" // unfortunate, but has delegate type aliases
 #include "events/PlatformEvents.hpp"
+#include "GlfwInputSource.hpp"
 #include <vector>
 #include <memory>
 
@@ -29,28 +30,18 @@ struct PlatformSystemImpl
     std::unique_ptr<CallbackStorage> Callbacks;
     std::unique_ptr<PlatformSurface> ActiveSurface;
     std::unique_ptr<Swapchain> ActiveSwapchain;
+    GlfwInputSource InputSource;
+    // The close listeners fire once per close request, not once per Update while the request stands
+    bool CloseReported = false;
     // Deletes GLFWwindow, but does not terminate GLFW (done in dtor)
     void Destroy();
     void Update();
     void WaitForEvents();
-    void AddCursorPosEventListener(CursorPosEvent listener, void* userData);
-    void AddCursorEnterEventListener(CursorEnterEvent listener, void* userData);
-    void AddScrollEventListener(ScrollEvent listener, void* userData);
-    void AddCharEventListener(CharEvent listener, void* userData);
-    void AddPathDropEventListener(PathDropEvent listener, void* userData);
-    void AddMouseButtonEventListener(MouseButtonEvent listener, void* userData);
-    void AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* userData);
-    void AddShouldResizeEventListener(ShouldResizeEvent listener, void* userData);
-    void AddShouldCloseEventListener(ShouldCloseEvent listener, void* userData);
+    void SetInputAssembler(input::FrameAssembler* assembler);
+    void AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data);
+    void AddShouldCloseEventListener(const ShouldCloseEvent& listener, void* user_data);
 };
 
-void CursorPosCallback(GLFWwindow* window, double pos_x, double pos_y);
-void CursorEnterCallback(GLFWwindow* window, int enter);
-void ScrollCallback(GLFWwindow* window, double x_offset, double y_offset);
-void CharCallback(GLFWwindow* window, unsigned int code);
-void PathDropCallback(GLFWwindow* window, int count, const char** paths);
-void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
-void KeyboardKeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 void ResizeCallback(GLFWwindow* window, int width, int height);
 void ShouldCloseCallback(GLFWwindow* window);
 

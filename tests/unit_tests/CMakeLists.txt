@@ -45,6 +45,7 @@ function(add_unit_test_target TARGET_NAME TEST_SOURCES LINK_LIBRARIES)
     set_target_properties(${TARGET_NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 
     set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Tests/UnitTests")
+    diamond_dogs_add_pch(${TARGET_NAME} TEST)
     
     # Discover and register tests with CTest
     gtest_discover_tests(${TARGET_NAME})
@@ -55,6 +56,9 @@ add_subdirectory(foundation)
 add_subdirectory(rhi_system)
 add_subdirectory(platform_system) 
 add_subdirectory(resource_context)
+add_subdirectory(color_pipe)
+add_subdirectory(loom)
+add_subdirectory(input_system)
 
 # Add other module test directories as they become available
 # add_subdirectory(content_compiler)

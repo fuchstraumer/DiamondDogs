@@ -8,12 +8,12 @@
 #define FORCE_INLINE __forceinline
 #include <stdlib.h>
 
-FORCE_INLINE uint32_t rotl32(uint32_t x, int r)
+FORCE_INLINE uint32_t Rotl32(uint32_t x, int r)
 {
     return _rotl(x, r);
 }
 
-FORCE_INLINE uint64_t rotl64(uint64_t x, int r)
+FORCE_INLINE uint64_t Rotl64(uint64_t x, int r)
 {
     return _rotl64(x, r);
 }
@@ -34,7 +34,7 @@ FORCE_INLINE uint64_t rotl64(uint64_t x, int r)
 
 #endif
 
-FORCE_INLINE constexpr uint64_t fmix64(uint64_t k) noexcept
+FORCE_INLINE constexpr uint64_t Fmix64(uint64_t k) noexcept
 {
     k ^= k >> 33LLU;
     k *= 0xff51afd7ed558ccdLLU;
@@ -52,10 +52,10 @@ uint64_t MurmurHash2(const void* key, const size_t len, const uint64_t seed) noe
 {
     static_assert(std::is_same_v<size_t, uint64_t>, "uint64_t and size_t need to be the same for this code to work!");
     static_assert(sizeof(void*) == 8u, "This hash only works on 64-bit platforms!");
-    constexpr uint64_t hashConstantM = 0xc6a4a7935bd1e995LLU;
-    constexpr uint64_t hashConstantR = 47LLU;
+    constexpr uint64_t k_HashConstantM = 0xc6a4a7935bd1e995LLU;
+    constexpr uint64_t k_HashConstantR = 47LLU;
 
-    uint64_t hashResult = seed ^ (static_cast<uint64_t>(len) * hashConstantM);
+    uint64_t hashResult = seed ^ (static_cast<uint64_t>(len) * k_HashConstantM);
 
     const uint64_t* data = reinterpret_cast<const uint64_t*>(key);
     const uint64_t* end = data + (len / 8u);
@@ -64,12 +64,12 @@ uint64_t MurmurHash2(const void* key, const size_t len, const uint64_t seed) noe
     {
         uint64_t k = *data++;
 
-        k *= hashConstantM;
-        k ^= k >> hashConstantR;
-        k *= hashConstantM;
+        k *= k_HashConstantM;
+        k ^= k >> k_HashConstantR;
+        k *= k_HashConstantM;
 
         hashResult ^= k;
-        hashResult *= hashConstantM;
+        hashResult *= k_HashConstantM;
     }
 
     const uint8_t* data2 = reinterpret_cast<const uint8_t*>(data);
@@ -90,7 +90,7 @@ uint64_t MurmurHash2(const void* key, const size_t len, const uint64_t seed) noe
         hashResult ^= static_cast<uint64_t>(data2[1]) <<  8LLU; [[fallthrough]] ;
     case 1:
         hashResult ^= static_cast<uint64_t>(data2[0]) <<  0LLU;
-        hashResult *= hashConstantM; [[fallthrough]] ;
+        hashResult *= k_HashConstantM; [[fallthrough]] ;
     case 0:
         break;
     default:
@@ -101,9 +101,9 @@ uint64_t MurmurHash2(const void* key, const size_t len, const uint64_t seed) noe
 #endif
     }
 
-    hashResult ^= hashResult >> hashConstantR;
-    hashResult *= hashConstantM;
-    hashResult ^= hashResult >> hashConstantR;
+    hashResult ^= hashResult >> k_HashConstantR;
+    hashResult *= k_HashConstantM;
+    hashResult ^= hashResult >> k_HashConstantR;
 
     return hashResult;
 }
@@ -115,43 +115,43 @@ murmur_hash_result_t MurmurHash3(const void* key, size_t len, const uint32_t see
 {
     static_assert(std::is_same_v<size_t, uint64_t>, "uint64_t and size_t need to be the same for this code to work!");
     const uint8_t* data = reinterpret_cast<const uint8_t*>(key);
-    const size_t num_blocks = len / 16u;
+    const size_t numBlocks = len / 16u;
 
     uint64_t hash0{ static_cast<uint64_t>(seed) };
     uint64_t hash1{ static_cast<uint64_t>(seed) };
 
-    constexpr uint64_t hashConstant0 = 0x87c37b91114253d5LLU;
-    constexpr uint64_t hashConstant1 = 0x4cf5ad432745937fLLU;
+    constexpr uint64_t k_HashConstant0 = 0x87c37b91114253d5LLU;
+    constexpr uint64_t k_HashConstant1 = 0x4cf5ad432745937fLLU;
 
     const uint64_t* blocks = reinterpret_cast<const uint64_t*>(data);
 
-    for (size_t i = 0; i < num_blocks; ++i)
+    for (size_t i = 0; i < numBlocks; ++i)
     {
         uint64_t k0 = blocks[i * 2u + 0u];
 
-        k0 *= hashConstant0;
-        k0 = rotl64(k0, 31);
-        k0 *= hashConstant1;
+        k0 *= k_HashConstant0;
+        k0 = Rotl64(k0, 31);
+        k0 *= k_HashConstant1;
         hash0 ^= k0;
 
-        hash0 = rotl64(hash0, 27);
+        hash0 = Rotl64(hash0, 27);
         hash0 += hash1;
         hash0 = hash0 * 5LLU + static_cast<uint64_t>(0x52dce729);
 
         uint64_t k1 = blocks[i * 2u + 1u];
 
-        k1 *= hashConstant1;
-        k1 = rotl64(k1, 33);
-        k1 *= hashConstant0;
+        k1 *= k_HashConstant1;
+        k1 = Rotl64(k1, 33);
+        k1 *= k_HashConstant0;
         hash1 ^= k1;
 
-        hash1 = rotl64(hash1, 31);
+        hash1 = Rotl64(hash1, 31);
         hash1 += hash0;
         hash1 = hash1 * 5LLU + static_cast<uint64_t>(0x38495ab5);
 
     }
 
-    const uint8_t* tail = reinterpret_cast<const uint8_t*>(data + num_blocks * 16u);
+    const uint8_t* tail = reinterpret_cast<const uint8_t*>(data + numBlocks * 16u);
 
     uint64_t k0{ 0u };
     uint64_t k1{ 0u };
@@ -172,9 +172,9 @@ murmur_hash_result_t MurmurHash3(const void* key, size_t len, const uint32_t see
         k1 ^= static_cast<uint64_t>(tail[ 9]) <<  8LLU; [[fallthrough]] ;
     case 9:
         k1 ^= static_cast<uint64_t>(tail[ 8]) <<  0LLU;
-        k1 *= hashConstant1;
-        k1 = rotl64(k1, 33);
-        k1 *= hashConstant0;
+        k1 *= k_HashConstant1;
+        k1 = Rotl64(k1, 33);
+        k1 *= k_HashConstant0;
         hash1 ^= k1;
         [[fallthrough]] ;
     case 8:
@@ -193,9 +193,9 @@ murmur_hash_result_t MurmurHash3(const void* key, size_t len, const uint32_t see
         k0 ^= static_cast<uint64_t>(tail[1]) <<  8LLU; [[fallthrough]] ;
     case 1:
         k0 ^= static_cast<uint64_t>(tail[0]) <<  0LLU;
-        k0 *= hashConstant0;
-        k0 = rotl64(k0, 31);
-        k0 *= hashConstant1;
+        k0 *= k_HashConstant0;
+        k0 = Rotl64(k0, 31);
+        k0 *= k_HashConstant1;
         hash0 ^= k0;
         [[fallthrough]] ;
     case 0:
@@ -212,8 +212,8 @@ murmur_hash_result_t MurmurHash3(const void* key, size_t len, const uint32_t see
     hash0 += hash1;
     hash1 += hash0;
 
-    hash0 = fmix64(hash0);
-    hash1 = fmix64(hash1);
+    hash0 = Fmix64(hash0);
+    hash1 = Fmix64(hash1);
 
     hash0 += hash1;
     hash1 += hash0;

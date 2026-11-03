@@ -3,9 +3,11 @@
 #define DIAMOND_DOGS_PLATFORM_SYSTEM_SWAPCHAIN_HPP
 #include "PlatformTypes.hpp"
 #include "ImageDataFormats.hpp"
-#include "Math.hpp"
+#include "math/Math.hpp"
 #include <cstdint>
+#include <chrono>
 #include <memory>
+#include <vector>
 
 struct SwapchainImpl;
 
@@ -18,6 +20,10 @@ public:
     Swapchain& operator=(const Swapchain&) = delete;
     Swapchain(Swapchain&& other) noexcept;
     Swapchain& operator=(Swapchain&& other) noexcept;
+
+    /** @brief Returns the pairs that the surface offers, in driver order, without a swapchain. Pairs that this module
+     * does not map are left out. */
+    [[nodiscard]] static std::vector<SurfaceFormatPair> QuerySurfaceFormats(const SwapchainCreateInfo& create_info);
 
     /** @brief Takes swapchain create info as we may have adjusted parameters that caused the recreation to occur.
      *
@@ -39,8 +45,16 @@ public:
     [[nodiscard]] ImageFormat ImageFormat() const noexcept;
     [[nodiscard]] ColorSpace ColorSpace() const noexcept;
     [[nodiscard]] PresentMode PresentMode() const noexcept;
+    [[nodiscard]] float RefreshRate() const noexcept;
+    [[nodiscard]] std::chrono::duration<double, std::milli> TargetFrameInterval() const noexcept;
     [[nodiscard]] void* ImageHandle(uint32_t index) const noexcept;
     [[nodiscard]] void* ImageViewHandle(uint32_t index) const noexcept;
+    /** @brief True when the images have transfer source usage, so FrameCapture can copy them out */
+    [[nodiscard]] bool SupportsTransferSource() const noexcept;
+
+    /** @brief Sets the static HDR metadata of the current swapchain. Does nothing without VK_EXT_hdr_metadata. Call it
+     * again after a recreation. */
+    void SetHdrMetadata(const SwapchainHdrMetadata& metadata);
 
 private:
     std::unique_ptr<SwapchainImpl> impl;

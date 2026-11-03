@@ -1,32 +1,36 @@
-if(WIN32)
-    # We also need PDB repair utilities on windows to make sure plugin PDBs work right
-    set(foundation_plugin_manager_sources 
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Win32/PluginManagerImpl.hpp" 
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Win32/PluginManagerImpl.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Win32/PDB_Helpers.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Win32/PDB_Helpers.cpp"
-    )
-    set(plugin_manager_impl_include_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Win32")
-elseif(UNIX)
-    set(foundation_plugin_manager_sources
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Unix/PluginManagerImpl.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Unix/PluginManagerImpl.cpp"
-    )
-    set(plugin_manager_impl_include_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/foundation/Unix")
-endif()
 
 set(foundation_source_files
     "include/ImageDataFormats.hpp"
     "include/ImageDataFormatsVulkan.hpp"
     "include/Unit.hpp"
-    "include/foundation/CoreAPIs.hpp"
-    "include/foundation/Handle.hpp"
-    "include/foundation/PluginAPI.hpp"
-    "include/foundation/PluginManager.hpp"
-    "src/foundation/PluginManager.cpp"
-    "src/ImageDataFormats.cpp"
-    "src/miMallocOverride.cpp"
-    ${foundation_plugin_manager_sources})
+    "include/Handle.hpp"
+    "src/ImageDataFormats.cpp")
+
+set(foundation_async_source_files
+    "include/async/FrameNames.hpp"
+    "include/async/FrameStatistics.hpp"
+    "include/async/Promise.hpp"
+    "include/async/Scheduler.hpp"
+    "include/async/Task.hpp"
+    "include/async/Timeline.hpp"
+    "include/async/TimelineSource.hpp"
+    "src/async/FrameNames.cpp"
+    "src/async/Promise.cpp"
+    "src/async/Scheduler.cpp"
+    "src/async/Timeline.cpp")
+
+set(foundation_content_source_files
+    "include/content/CanonicalSink.hpp"
+    "include/content/Encode.hpp"
+    "include/content/HashSink.hpp"
+    "include/content/Key.hpp"
+    "include/content/RecipeKey.hpp"
+    "include/content/TextSink.hpp"
+    "include/reflect/Describe.hpp"
+    "src/content/HashSink.cpp"
+    "src/content/Key.cpp"
+    "src/content/RecipeKey.cpp"
+    "src/content/TextSink.cpp")
 
 set(foundation_containers_source_files
     "include/containers/CircularBuffer.hpp"
@@ -37,10 +41,13 @@ set(threading_source_files
     "include/threading/atomic128.hpp"
     "include/threading/concurrent_vector.hpp"
     "include/threading/CriticalSection.hpp"
-    "include/threading/SrwLock.hpp"
     "include/threading/ExponentialBackoffSleeper.hpp"
+    "include/threading/FrameLimiter.hpp"
+    "include/threading/PrecisionTimer.hpp"
+    "include/threading/SrwLock.hpp"
     "src/threading/atomic128.cpp"
-    "src/threading/ExponentialBackoffSleeper.cpp")
+    "src/threading/ExponentialBackoffSleeper.cpp"
+    "src/threading/FrameLimiter.cpp")
 
 set(event_source_files
     "include/events/DisplayEvents.hpp"
@@ -50,10 +57,12 @@ set(event_source_files
 if(WIN32)
     set(threading_platform_source_files
         "src/threading/win32/CriticalSectionWin32.cpp"
+        "src/threading/win32/PrecisionTimerWin32.cpp"
         "src/threading/win32/SrwLockWin32.cpp")
 elseif(UNIX)
     set(threading_platform_source_files
         "src/threading/unix/CriticalSectionUnix.cpp"
+        "src/threading/unix/PrecisionTimerUnix.cpp"
         "src/threading/unix/SrwLockUnix.cpp")
 endif()
 
@@ -70,11 +79,31 @@ set(reactors_source_files
     "include/reactors/AllocationReactor.hpp"
     "src/reactors/AllocationReactor.cpp")
 
+
+if(NOT EMSCRIPTEN)
+    set(math_backend_source_files
+        "include/math/MathBackendDX.inl"
+        "include/math/QuaternionBackendDX.inl"
+        "include/math/TranscendentalBackendDX.inl")
+elseif(EMSCRIPTEN)
+    set(math_backend_source_files
+        "include/math/MathBackendWASM.inl"
+        "include/math/QuaternionBackendWASM.inl"
+        "include/math/TranscendentalBackendWASM.inl")
+else()
+    message(FATAL_ERROR "Unsupported platform for math backend source files")
+endif()
+
 set(maths_source_files
-    "include/Math.hpp"
-    "include/math/Math.inl")
+    "include/math/Math.hpp"
+    "include/math/Math.inl"
+    "include/math/MathHashes.hpp"
+    "include/math/MathPolynomials.hpp"
+    ${math_backend_source_files})
 
 source_group("foundation" FILES ${foundation_source_files})
+source_group("async" FILES ${foundation_async_source_files})
+source_group("content" FILES ${foundation_content_source_files})
 source_group("containers" FILES ${foundation_containers_source_files})
 source_group("threading" FILES ${threading_source_files} ${threading_platform_source_files})
 source_group("utility" FILES ${utility_source_files})
@@ -83,6 +112,8 @@ source_group("maths" FILES ${maths_source_files})
 source_group("events" FILES ${event_source_files})
 
 add_library(foundation STATIC
+    ${foundation_async_source_files}
+    ${foundation_content_source_files}
     ${foundation_source_files}
     ${foundation_containers_source_files}
     ${threading_source_files}
@@ -92,25 +123,22 @@ add_library(foundation STATIC
     ${reactors_source_files}
     ${maths_source_files})
 
-set(foundation_vpr_include_dirs
-    "../third_party/vulpesrender/alloc/include"
-    "../third_party/vulpesrender/command/include"
-    "../third_party/vulpesrender/common"
-    "../third_party/vulpesrender/core/include"
-    "../third_party/vulpesrender/render/include"
-    "../third_party/vulpesrender/resource/include"
-    "../third_party/vulpesrender/sync/include")
-
 target_include_directories(foundation PRIVATE
-    "../modules/common"
-    ${foundation_vpr_include_dirs}
     "../third_party"
-    "../third_party/glm"
     ${Vulkan_INCLUDE_DIR}
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/"
-    ${plugin_manager_impl_include_dir})
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/")
 
 target_link_libraries(foundation PUBLIC mimalloc-static)
+
+# xxHash comes from Lodestone's checkout (see cmake/ConfigureLodestone.cmake). PRIVATE, so no header of ours shows it.
+target_link_libraries(foundation PRIVATE xxHash::xxhash)
+
+if(WIN32)
+    # FrameSymbolizer reads function names with DbgHelp in every build below Release (RelWithDebInfo defines NDEBUG too,
+    # so NDEBUG can't decide this)
+    target_link_libraries(foundation PUBLIC dbghelp winmm)
+    target_compile_definitions(foundation PUBLIC "FOUNDATION_ASYNC_SYMBOLS=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
+endif()
 
 if(UNIX)
     target_link_libraries(foundation PUBLIC "c++fs" "dl" "pthread")
@@ -137,3 +165,5 @@ endif()
 
 # Put foundation in the Modules folder in the IDE, avoiding root clutter (and it is just the root module, really)
 set_target_properties(foundation PROPERTIES FOLDER "Modules")
+
+diamond_dogs_add_pch(foundation LIBRARY)

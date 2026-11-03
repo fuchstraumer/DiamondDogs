@@ -1,9 +1,9 @@
 #pragma once
 #ifndef DIAMOND_DOGS_RHI_COMMAND_POOL_HPP
 #define DIAMOND_DOGS_RHI_COMMAND_POOL_HPP
-#include "utility/EnumFlagUtils.hpp"
 #include "RhiHandle.hpp"
 #include "RhiResult.hpp"
+#include <cstdint>
 #include <memory>
 
 namespace rhi
@@ -20,7 +20,7 @@ namespace rhi
     class CommandPool
     {
     public:
-        enum class Type
+        enum class Type : uint8_t
         {
             Graphics,
             Compute,
@@ -32,7 +32,7 @@ namespace rhi
          *  @param poolType The type of command buffers this pool will allocate
          *  @param queueFamilyIndex The queue family index to associate with this pool. Ignored on DX12
          */
-        CommandPool(DeviceHandle device, Type poolType, uint32_t queueFamilyIndex = 0);
+        CommandPool(const DeviceHandle& device, Type pool_type, uint32_t queue_family_index = 0);
         ~CommandPool();
         
         CommandPool(const CommandPool&) = delete;
@@ -40,16 +40,16 @@ namespace rhi
         CommandPool(CommandPool&& other) noexcept;
         CommandPool& operator=(CommandPool&& other) noexcept;
 
-        CommandPoolHandle Handle() const noexcept;
+        [[nodiscard]] CommandPoolHandle Handle() const noexcept;
         
-        Type GetType() const noexcept;
+        [[nodiscard]] Type GetType() const noexcept;
 
         /** @brief Allocates command buffers from the pool. */
-        Result AllocateCommandBuffers(uint32_t count) noexcept;
+        [[nodiscard]] Result AllocateCommandBuffers(uint32_t count) noexcept;
         /** @brief Retrieves a command buffer from the pool. If you attempt to retrieve beyond the end of the pool, an invalid handle is returned.
          *  @note Wrap these in CommandBuffer objects to manage their lifetimes and recording state, as the raw handles do not manage that for you.
          */
-        CommandBufferHandle GetCommandBuffer(uint32_t idx) const noexcept;
+        [[nodiscard]] CommandBufferHandle GetCommandBuffer(uint32_t idx) const noexcept;
         /** @brief Resets the whole command pool, returning all command buffers contained to their initial state for recording into again. */
         Result Reset() noexcept;
 

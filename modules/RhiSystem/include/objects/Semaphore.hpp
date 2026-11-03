@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_RHI_SEMAPHORE_HPP
 #include "RhiHandle.hpp"
 #include "RhiResult.hpp"
+#include <cstdint>
 
 namespace rhi
 {
@@ -10,13 +11,13 @@ namespace rhi
     class BinarySemaphore
     {
     public:
-        BinarySemaphore(const DeviceHandle device);
+        BinarySemaphore(const DeviceHandle& device);
         ~BinarySemaphore();
         BinarySemaphore(const BinarySemaphore&) = delete;
         BinarySemaphore& operator=(const BinarySemaphore&) = delete;
         BinarySemaphore(BinarySemaphore&& other) noexcept;
         BinarySemaphore& operator=(BinarySemaphore&& other) noexcept;
-        BinarySemaphoreHandle Handle() const noexcept;
+        [[nodiscard]] BinarySemaphoreHandle Handle() const noexcept;
     private:
         DeviceHandle device;
         BinarySemaphoreHandle handle;
@@ -25,7 +26,7 @@ namespace rhi
     class TimelineSemaphore
     {
     public:
-        TimelineSemaphore(const DeviceHandle device);
+        TimelineSemaphore(const DeviceHandle& device);
         ~TimelineSemaphore();
         TimelineSemaphore(const TimelineSemaphore&) = delete;
         TimelineSemaphore& operator=(const TimelineSemaphore&) = delete;
@@ -34,7 +35,7 @@ namespace rhi
         TimelineSemaphoreHandle Handle() const noexcept;
         Result GetValue(uint64_t& value) const noexcept;
         Result SetValue(uint64_t value) noexcept;
-        Result Increment(uint64_t newValue = 0) noexcept;
+        Result Increment(uint64_t amount = 1) noexcept;
     private:
         DeviceHandle device;
         TimelineSemaphoreHandle handle;

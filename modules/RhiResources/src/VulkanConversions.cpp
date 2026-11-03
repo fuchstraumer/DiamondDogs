@@ -3,7 +3,9 @@
 #include "ResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include "vulkan/vulkan_core.h"
+#include <algorithm>
 #include <cstdint>
+#include <span>
 
 namespace
 {
@@ -12,16 +14,20 @@ namespace
     [[nodiscard]] bool HasAny(ResourceCreationFlags flags, ResourceCreationFlags mask) noexcept;
     [[nodiscard]] VkComponentSwizzle ToVkSwizzle(ComponentSwizzle swizzle) noexcept;
 
-    constexpr BufferUsageBits k_DeviceAddressUsages =
-        BufferUsageBits::DeviceAddressBuffer |
+    constexpr BufferUsageBits k_RaytracingUsages =
         BufferUsageBits::AccelerationStructureBuild |
         BufferUsageBits::ShaderBindingTable |
         BufferUsageBits::AccelerationStructureBuildScratch;
 }
 
-bool BufferUsageIsSupported(BufferUsageBits usage) noexcept
+bool BufferUsageIsSupported(BufferUsageBits usage, bool device_addresses_enabled) noexcept
 {
-    return !HasAny(usage, k_DeviceAddressUsages);
+    if (HasAny(usage, k_RaytracingUsages))
+    {
+        return false;
+    }
+
+    return device_addresses_enabled || !HasAny(usage, BufferUsageBits::DeviceAddressBuffer);
 }
 
 VkBufferUsageFlags ToVkBufferUsage(BufferUsageBits usage, bool has_texel_view) noexcept
@@ -63,6 +69,10 @@ VkBufferUsageFlags ToVkBufferUsage(BufferUsageBits usage, bool has_texel_view) n
     {
         result |= VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT;
     }
+    if (HasAny(usage, BufferUsageBits::DeviceAddressBuffer))
+    {
+        result |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    }
     return result;
 }
 
@@ -73,31 +83,77 @@ VkImageUsageFlags ToVkImageUsage(ImageUsageBits usage) noexcept
     {
         result |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     }
+    
     if (HasAny(usage, ImageUsageBits::TransferDestination))
     {
         result |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     }
+
     if (HasAny(usage, ImageUsageBits::AllShaderSRV | ImageUsageBits::SampledImage))
     {
         result |= VK_IMAGE_USAGE_SAMPLED_BIT;
     }
+
     if (HasAny(usage, ImageUsageBits::AllShaderUAV))
     {
         result |= VK_IMAGE_USAGE_STORAGE_BIT;
     }
+
     if (HasAny(usage, ImageUsageBits::AllRenderTarget))
     {
         result |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     }
+
     if (HasAny(usage, ImageUsageBits::AllDsRead | ImageUsageBits::AllDsWrite))
     {
         result |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     }
+
     if (HasAny(usage, ImageUsageBits::ShadingRateImage))
     {
         result |= VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
     }
     return result;
+}
+
+VkBufferCreateInfo ToVkBufferCreateInfo(const BufferCreateInfo& create_info, std::span<const uint32_t> queue_family_indices) noexcept
+{
+    return VkBufferCreateInfo
+    {
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0u,
+        static_cast<VkDeviceSize>(create_info.Size),
+        ToVkBufferUsage(create_info.Usage, create_info.ViewFormat.has_value()),
+        queue_family_indices.size() > 1u ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
+        static_cast<uint32_t>(queue_family_indices.size()),
+        queue_family_indices.data()
+    };
+}
+
+VkImageCreateInfo ToVkImageCreateInfo(const ImageCreateInfo& create_info, std::span<const uint32_t> queue_family_indices) noexcept
+{
+    const bool isCube = create_info.ViewInfo.has_value() && create_info.ViewInfo->ViewType == ImageViewType::Cube;
+
+    return VkImageCreateInfo
+    {
+        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        nullptr,
+        isCube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0u,
+        ToVkImageType(create_info.Type),
+        ToVkFormat(create_info.Format),
+        VkExtent3D{ create_info.Width, std::max(create_info.Height, 1u), std::max(create_info.Depth, 1u) },
+        create_info.MipLevels,
+        create_info.ArrayLayers,
+        // the VkSampleCountFlagBits values are the counts themselves
+        static_cast<VkSampleCountFlagBits>(std::max(create_info.SampleCount, 1u)),
+        VK_IMAGE_TILING_OPTIMAL,
+        ToVkImageUsage(create_info.Usage),
+        queue_family_indices.size() > 1u ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
+        static_cast<uint32_t>(queue_family_indices.size()),
+        queue_family_indices.data(),
+        VK_IMAGE_LAYOUT_UNDEFINED
+    };
 }
 
 VkImageType ToVkImageType(ImageType type) noexcept
@@ -253,8 +309,29 @@ VkBorderColor ToVkBorderColor(SamplerCreateInfo::ImageBorderColor color) noexcep
 
 VkCompareOp ToVkCompareOp(ImageCompareOp op) noexcept
 {
-    // ImageCompareOp matches VkCompareOp value for value, Never and None both being 0
-    return static_cast<VkCompareOp>(op);
+    switch (op)
+    {
+    case ImageCompareOp::None:
+        return VK_COMPARE_OP_MAX_ENUM;
+    case ImageCompareOp::Never:
+        return VK_COMPARE_OP_NEVER;
+    case ImageCompareOp::Less:
+        return VK_COMPARE_OP_LESS;
+    case ImageCompareOp::Equal:
+        return VK_COMPARE_OP_EQUAL;
+    case ImageCompareOp::LessOrEqual:
+        return VK_COMPARE_OP_LESS_OR_EQUAL;
+    case ImageCompareOp::Greater:
+        return VK_COMPARE_OP_GREATER;
+    case ImageCompareOp::NotEqual:
+        return VK_COMPARE_OP_NOT_EQUAL;
+    case ImageCompareOp::GreaterOrEqual:
+        return VK_COMPARE_OP_GREATER_OR_EQUAL;
+    case ImageCompareOp::Always:
+        return VK_COMPARE_OP_ALWAYS;
+    default:
+        return VK_COMPARE_OP_MAX_ENUM;
+    }
 }
 
 VkSamplerCreateInfo ToVkSamplerCreateInfo(const SamplerCreateInfo& create_info) noexcept
@@ -284,7 +361,11 @@ VkSamplerCreateInfo ToVkSamplerCreateInfo(const SamplerCreateInfo& create_info) 
 
 VkImageLayout ImageLayoutFromUsageBits(ImageUsageBits bits) noexcept
 {
-    if (HasAny(bits, ImageUsageBits::PresentSource))
+    if (HasAny(bits, ImageUsageBits::Discard))
+    {
+        return VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+    else if (HasAny(bits, ImageUsageBits::PresentSource))
     {
         return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     }
@@ -323,12 +404,6 @@ VkImageLayout ImageLayoutFromUsageBits(ImageUsageBits bits) noexcept
         return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     }
     return VK_IMAGE_LAYOUT_UNDEFINED;
-}
-
-VkImageLayout ImageLayoutAfterTransfer(ImageUsageBits bits) noexcept
-{
-    const VkImageLayout layout = ImageLayoutFromUsageBits(bits);
-    return layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_GENERAL : layout;
 }
 
 VmaMemoryUsage ToVmaMemoryUsage(ResourceDomain domain) noexcept

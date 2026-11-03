@@ -34,15 +34,16 @@ enum class ResourceType : uint16_t
     Image,
     ImageView,
     Sampler,
-    CombinedImageSampler
+    CombinedImageSampler,
+    /** @brief A block of device memory that placed resources are bound into. Made by `rhi::placement::CreateMemoryHeap`. */
+    Heap
 };
 
 /** @brief Combinations of flag bits that control resource creation behavior and specific usage hints */
 enum class ResourceCreationFlags : uint16_t
 {
     None = 0,
-    /** @brief User data pointer is a null-terminated string naming the resource */
-    UserDataAsNameString = 1 << 0,
+    // bit 0 was UserDataAsNameString. Names are now the create infos' Name field
     /** @brief Place the resource in its own dedicated memory allocation */
     DedicatedMemory = 1 << 1,
     /** @brief Map the resource as part of creation process */
@@ -148,6 +149,13 @@ enum class BufferUsageBits : uint64_t
     AllIndirect = IndirectCompute | IndirectDraw | IndirectRaytracing,
     AllTransfer = CopySource | CopyDestination,
 
+    // Aliases for common buffer roles
+    StorageBuffer = AllShaderSRV | AllShaderUAV,
+    IndexBuffer = VertexOrIndex,
+    TransferDst = CopyDestination,
+    TransferSrc = CopySource,
+    IndirectBuffer = AllIndirect,
+
     // Collected flags for pipeline stages
     AllVertexStage = VertexShaderUBO | VertexShaderSRV | VertexShaderUAV,
     AllFragmentStage = FragmentShaderUBO | FragmentShaderSRV | FragmentShaderUAV,
@@ -219,6 +227,10 @@ enum class ImageUsageBits : uint64_t
 
     /** @brief Image used as source for copy/transfer operations */
     TransferSource = 1 << 20,
+
+    /** @brief Valid only as `ImageUsageTransition::Before`, and only alone. The old contents of the image do not matter,
+     *  and the transition starts from UNDEFINED. */
+    Discard = 1 << 21,
 
     // All flags after this point are reserved for internal usage in resource barrier generation, and should not be used by users
     // Collected flags for common *access* patterns (also useful with layouts, since that understandably tends to mirror access patterns)
@@ -292,19 +304,20 @@ enum class ImageFilteringMode : uint8_t
 };
 
 /** @brief Comparison operations for sampler depth testing or other comparison-based sampling operations
- *  @note Maps 1:1 to Vulkan values currently, down to the ordering and values
+    @note: To disambiguate between unset values and valid, None and Never no longer overlap, so this does
+    **not** mirror Vulkan exactly.
  */
 enum class ImageCompareOp : uint8_t
 {
     None = 0,
-    Never = None,
-    Less,
-    Equal,
-    LessOrEqual,
-    Greater,
-    NotEqual,
-    GreaterOrEqual,
-    Always
+    Never = 1,
+    Less = 2,
+    Equal = 3,
+    LessOrEqual = 4,
+    Greater = 5,
+    NotEqual = 6,
+    GreaterOrEqual = 7,
+    Always = 8
 };
 
 MAKE_ENUM_CLASS_FLAGS(ResourceCreationFlags)

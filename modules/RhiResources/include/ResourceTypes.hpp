@@ -3,9 +3,12 @@
 #define DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP
 #include "ResourceFlags.hpp"
 #include "ImageDataFormats.hpp"
+#include "math/Math.hpp"
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
+#include <string_view>
 
 /**
  * @brief Contains definitions for user-facing resource data structures for use with the resource context and RHI.
@@ -15,14 +18,14 @@
  *  Build Data with std::as_bytes(std::span{ values }). The context copies the bytes before the call returns. */
 struct RhiBufferResourceData
 {
-    std::span<const std::byte> Data{};
+    std::span<const std::byte> Data;
     size_t DataAlignment{ 0u };
 };
 
 /** @brief Holds the raw data and some dimensional metadata that will be made the contents of an image resource. */
 struct RhiImageResourceData
 {
-    std::span<const std::byte> Data{};
+    std::span<const std::byte> Data;
     uint32_t Width{ 0u };
     uint32_t Height{ 0u };
     uint32_t ArrayLayer{ 0u };
@@ -39,8 +42,9 @@ struct BufferCreateInfo
     size_t Size{ 0u };
     /** @brief If this member is given, the buffer will be created with a correponding BufferView object. Otherwise, we won't create a view. */
     std::optional<ImageFormat> ViewFormat{ std::nullopt };
-    /** @brief User-defined data pointer that can be associated with the buffer for application-specific purposes. */
-    void* UserData{ nullptr };
+    /** @brief Optional debug name. ResourceContext copies it when the create call is made, so the string only has to
+     *  live until the call returns. Names longer than 62 characters are truncated. */
+    std::string_view Name;
 };
 
 /** @brief Describes a specific range within an image, including mip levels and array layers, used for creating image views or specifying subresource ranges in image operations. */
@@ -76,8 +80,6 @@ struct ImageViewCreateInfo
     ImageRange Range{};
     /** @brief If provided, will reinterpret the format of the base image to the given image for this view */
     std::optional<ImageFormat> FormatOverride{ std::nullopt };
-    /** @brief User-defined data pointer that can be associated with the image view for application-specific purposes. */
-    void* UserData{ nullptr };
 };
 
 struct SamplerCreateInfo
@@ -129,10 +131,12 @@ struct SamplerCreateInfo
     float MaxLod{ 1e10f };
 
     ImageBorderColor BorderColor{ ImageBorderColor::None };
-    // leaving undefined for now since we don't have RGBA color object yet
-    // std::optional<RGBAColor> CustomBorderColor;
+    // all values set to -1.0, so that validation checks in the rendergraph
+    // can catch when this is not properly set (-1.0f, invalid color, because 0.0f is fine)
+    std::optional<math::Float4> CustomBorderColor{ std::nullopt };
 
     bool UnnormalizedCoordinates{ false };
+    std::string_view Name{};
 };
 
 struct ImageCreateInfo
@@ -141,19 +145,37 @@ struct ImageCreateInfo
     ResourceCreationFlags Flags{ ResourceCreationFlags::None };
     ImageUsageBits Usage{ ImageUsageBits::Invalid };
     ImageType Type{ ImageType::Invalid };
-    ImageFormat Format{};
+    ImageFormat Format;
     uint32_t Width{ 0u };
     uint32_t Height{ 0u };
     uint32_t Depth{ 0u };
     uint32_t MipLevels{ 1u };
     uint32_t ArrayLayers{ 1u };
+    /** @brief Samples per texel: 1, or a power of two the device supports for this format and usage (multisampled
+     *  render targets). A multisampled image has one mip level and cannot take initial data */
+    uint32_t SampleCount{ 1u };
     /** @brief Optional view info - if present we will create a view with this image, if not no view will be created. */
     std::optional<ImageViewCreateInfo> ViewInfo{ std::nullopt };
     /** @brief Optional sampler info - if present we will create a sampler with this image, if not no sampler will be created. */
     std::optional<SamplerCreateInfo> SamplerInfo{ std::nullopt };
-    /** @brief User-defined data pointer that can be associated with the image for application-specific purposes. */
-    void* UserData{ nullptr };
+    /** @brief Optional debug name, copied as `BufferCreateInfo::Name` is. The view and the sampler are named after it. */
+    std::string_view Name;
 };
+
+namespace rhi
+{
+    /** @brief The image's usage on the GPU just before the transfer runs, and the usage it must have after the transfer.
+     *  Both must be non-zero, and each must be a subset of the usage the image was created with. `Before` can also be
+     *  `ImageUsageBits::Discard` alone: the old contents do not matter, and the transfer starts from UNDEFINED. */
+    struct ImageUsageTransition
+    {
+        ImageUsageBits Before{ ImageUsageBits::Invalid };
+        ImageUsageBits After{ ImageUsageBits::Invalid };
+    };
+}
+
+/** @brief The most consumer timelines that a ResourceContext checks before it frees a destroyed resource. */
+constexpr inline int32_t k_MaxConsumerTimelines = 4;
 
 struct GraphicsResource
 {
@@ -169,6 +191,7 @@ struct GraphicsResource
     uint64_t VkHandle{ 0u };
     uint64_t VkViewHandle{ 0u };
     uint64_t VkSamplerHandle{ 0u };
+    uint64_t DeviceAddress{ 0u };
 };
 
 #endif //!DIAMOND_DOGS_RESOURCE_CONTEXT_TYPES_HPP

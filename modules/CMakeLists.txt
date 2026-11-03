@@ -26,6 +26,7 @@ function(add_module NAME)
     endif()
     set_target_properties(${NAME} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
     set_target_properties(${NAME} PROPERTIES FOLDER "Modules")
+    diamond_dogs_add_pch(${NAME} LIBRARY)
 endfunction()
 
 
@@ -35,9 +36,18 @@ endfunction()
 add_subdirectory(RhiSystem)
 add_subdirectory(PlatformSystem)
 add_subdirectory(RhiResources)
+add_subdirectory(Loom)
+# copies rendered images out to PNG files
+add_subdirectory(FrameCapture)
+# fills mip chains with compute shaders (NvproPyramid)
+add_subdirectory(GpuPyramid)
+# color math for the HDR pipe: gamut matrices, luminance, transfer functions and Kelvin, in double
+add_subdirectory(ColorPipe)
 # This module provides imgui as a basic debugging UI
 # that sits just BARELY over the resource and rendering contexts
 add_subdirectory(ImGuiModule)
+# input control space, frame assembly, and record and replay; no platform source yet
+add_subdirectory(InputSystem)
 #add_subdirectory(material_module)
 #add_subdirectory(content_compiler)
 #add_subdirectory(terrain_module)

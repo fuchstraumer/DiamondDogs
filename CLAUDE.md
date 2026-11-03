@@ -11,7 +11,7 @@ Write your text in ASD-STE100 (Simplified Technical English), as the style file 
 
 DiamondDogs is a Vulkan engine that the author uses for research. Its current job is to host the noise graph and
 planet generator (the plan is in `C:\SoftwareDev\CUDA_Noise\noise-audit-and-slang-plan.md`). The live modules are
-`foundation`, `RhiSystem`, `PlatformSystem`, `RhiResources`, and `ImGuiModule`. Everything else in `modules/` is out
+`foundation`, `RhiSystem`, `PlatformSystem`, `RhiResources`, `FrameCapture`, `GpuPyramid`, `ColorPipe`, and `ImGuiModule`. Everything else in `modules/` is out
 of the build; `docs/audit.md` section 6 says which to keep.
 
 **Lodestone is the only shader path.** Lodestone (`../Lodestone`, a sibling checkout, not a submodule) cooks Slang to
@@ -31,8 +31,16 @@ cmake --preset ninja-msvc
 ```
 
 ```bat
-cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests TriangleTest ComputeManifestTest ImGuiTest
+cmake --build build/ninja-msvc --config Debug --target foundation_tests rhi_system_tests platform_system_tests resource_context_tests loom_tests TriangleTest ComputeManifestTest ImGuiTest
 ```
+
+A third preset, `ninja-msvc-static` (in `build/ninja-msvc-static`), links the static C runtime into everything,
+Slang included, for builds that run on other machines. Build its `OceanFft_package` target in Release. The result,
+`package/OceanFft-Release`, needs only a GPU driver with Vulkan. The preset also sets `CMAKE_POLICY_DEFAULT_CMP0091`
+to NEW, because the root `cmake_minimum_required(VERSION 3.10)` leaves that policy OLD, and OLD ignores
+`CMAKE_MSVC_RUNTIME_LIBRARY`. It sets glfw's `USE_MSVC_RUNTIME_LIBRARY_DLL` OFF too. Check the result with
+`dumpbin /dependents`: no `VCRUNTIME140.dll` or `MSVCP140.dll`. The same target in the other presets copies the
+VC++ runtime DLLs next to the exe instead (app-local deployment).
 
 CMake sets `MSVC` for clang-cl too, so `if(MSVC)` means "cl-style flags", not "cl.exe". clang-cl has no `/MP` (and
 gtest builds with `-WX`, so the warning fails the build) and no SVML library (`_XM_SVML_INTRINSICS_` breaks
@@ -42,6 +50,11 @@ Requirements:
 
 - Lodestone at `../Lodestone` with its submodules. `-DDIAMOND_DOGS_LODESTONE_DIR=<path>` overrides it.
 - Python with `lark` (`python -m pip install --user lark`). The extension header generator imports it.
+- The same Python needs numpy and pyyaml (`python -m pip install --user numpy pyyaml`). OceanFft's
+  `assets/scripts/ocean_fft_support.py` build step imports them, and configure fails without them. On this machine
+  CMake picks `C:\Python315`.
+- A Python with Pillow and numpy packs the OceanFft foam textures. Set it with
+  `-DOCEAN_FFT_TEXTURE_PYTHON=C:/Python313/python.exe`. Configure fails without it.
 - CMake 4.x. `third_party/gli` asks for CMake 3.1, so the root file sets `CMAKE_POLICY_VERSION_MINIMUM` around it.
 
 For agents on Windows: run builds and tests through PowerShell. The Bash tool runs in a sandbox, and its writes
@@ -71,9 +84,16 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `rhi_system_tests` | Instance and device creation per API version, extension resolution, shader objects. |
 | `platform_system_tests` | Displays, windows, swapchain creation, JSON configuration. |
 | `resource_context_tests` | `ResourceContext` on a real device: every create path, uploads read back word for word, fills, copies, maps, samplers, four threads at once, and shutdown with queued work. |
+| `loom_tests` | Loom with no GPU: the diagnostic catalog, the sinks (counts, text and JSON Lines output), and the JSON writer. Freeze and the later stages add their suites here. |
 | `ComputeManifestTest` | The cook-to-dispatch path. Lodestone cooks `HashFill.slang`, `rhi::ShaderLibrary` selects each variant, `ResourceContext` creates every buffer, and every output word matches the CPU. |
+| `GpuPyramidTest` | `pyramid::MipGenerator` fills every level of rgba32f and rgba16f 2D arrays, on the fast and the general pipeline, for power-of-two, odd and non-square sizes. Each level matches the CPU reduction of the level above it: min and max bit for bit, averages within float rounding. |
+| `OceanFftTest` | The ocean compute chain (IFFT kernels, spectrum, tick, resolve, mips) against double precision on the CPU. |
 | `TriangleTest` | A windowed frame loop with shader objects and dynamic rendering. With `--resize`, swapchain recreation and depth images rebuilt at the new size. |
 | `ImGuiTest` | `ImGuiModule` on the official backends draws the demo window. With `--resize`, swapchain recreation. |
+| `color_pipe_tests` | The double-precision color reference (gamuts, adaptation, transfer functions, Kelvin), `ChooseSurface` and `ResolveDisplayTarget` on the author's real display pairs, and the CPU model of the composite. |
+| `ColorMathTest` | Every `ddColor` Slang function against the double reference, on the GPU. |
+| `ColorPipeTest` | The HDR composite, headless: each tonemapper x encoding against the CPU model of the whole composite, within about one code value. |
+| `DisplayProbe` | Not a test: prints the display's Vulkan surface pairs, DXGI and DisplayConfig data, read-only. `--platform` adds PlatformSystem's view. |
 
 ## Where the code lives
 
@@ -82,7 +102,9 @@ VMA asserts this way when a mapped allocation is destroyed.
 | `foundation/` | Containers, math, threading, delegates, image formats. No graphics API. |
 | `modules/RhiSystem/` | Instance, device, extensions, command pools, fences, semaphores, shader objects, and `ShaderLibrary` (the Lodestone client). `GenerateExtensionAndFeatureHeaders.py` writes the extension tables from `vk.xml`. |
 | `modules/PlatformSystem/` | GLFW windows, displays, the swapchain. |
-| `modules/RhiResources/` | `ResourceContext`: buffers, images, samplers, uploads, through messages to a worker thread and a transfer thread. |
+| `modules/RhiResources/` | `ResourceContext`: buffers, images, samplers, uploads, through messages to a worker thread and a transfer thread. Also `WriteManifestDescriptors`, which writes a descriptor set from the names, bindings and array counts that the cook reflected. |
+| `modules/GpuPyramid/` | `pyramid::MipGenerator`: fills mip chains with compute shaders. The shaders, `assets/shaders/compute/Pyramid`, are a Slang transcription of NVIDIA's nvpro_pyramid (Apache 2.0, attribution in each file). A consumer cooks `GPU_PYRAMID_SHADER_MODULE` into its own bundle. |
+| `modules/ColorPipe/` | The HDR color pipe. `color_math` is the double-precision CPU reference. `color_pipe` is the runtime: the scene and UI targets, and the composite (exposure, tonemapper, display primaries, encode). `README.md` explains it. |
 | `modules/ImGuiModule/` | Dear ImGui on `imgui_impl_glfw` and `imgui_impl_vulkan`. |
 | `cmake/ConfigureLodestone.cmake` | Adds Lodestone, and works around its embedding issues (each one is listed in the Lodestone requests file). |
 | `tests/unit_tests/`, `tests/integration_tests/` | Google Test suites, and executables with their own `main`. |
@@ -91,16 +113,29 @@ VMA asserts this way when a mapped allocation is destroyed.
 ## RhiResources in one paragraph
 
 Any thread calls `ResourceContext`, which turns the call into a message, pushes it on an MWSR queue, and returns a
-reply. The worker thread owns the EnTT registry and a VMA allocator, creates the objects, and writes host-visible
-data directly. Device-local data goes to the transfer system, which owns its own thread, allocator, staging buffers,
-and command pools, and submits to the transfer queue. Each transfer signals the reply's timeline semaphore to
-`k_TransferCompleteSemaphoreValue`. A consumer on another queue must wait on that semaphore in its own submit:
-`ComputeManifestTest` shows the pattern. Every resource uses concurrent sharing across the queue families, so no
+future (a slot in the context's lock-free `FutureTable`; `ResourceContext::Wait` blocks on it). The worker thread owns
+the EnTT registry and a VMA allocator, creates the objects, and writes host-visible data directly. Device-local data
+goes to the transfer system, which owns its own thread, allocator, staging buffers, and command pools, and submits to
+the transfer queue. Each transfer gets a ticket on the transfer timeline. `future.Completion()` returns the timeline
+and the ticket, and a consumer on another queue must wait on them in its own submit: `ComputeManifestTest` shows the
+pattern. Destroy every future before its context. Every resource uses concurrent sharing across the queue families, so no
 ownership transfer exists. The author likes this design. Keep it.
 
 ## Working with this author
 
 The author is a woman. Use she and her.
+
+Read `docs/working-relationship.md` at the start of every session, and again after a compaction. It explains who she
+is, how she works, the tone of this partnership, and how the planner works with subagents. Keep it current: when you
+learn something new about how to work with her, add it there.
+
+New since the ninth session (2026-10-22):
+
+- **Explanations go in module READMEs, not in code comments.** Code keeps only short "why" lines. Agents and humans
+  both read the README.
+- **She stages work herself**, sometimes during an agent's run, to watch the diffs and split the commits. Never touch
+  the git index. Tell her if it differs from what you expect.
+- **Teach before you delegate** where she says a topic is new to her. Use first principles and concrete numbers.
 
 Blunt and specific beats reassuring. If a plan is wrong, say which part and why. Check a claim rather than hedge it.
 
@@ -110,6 +145,49 @@ are hers: plan and explain, and do not write that code unless she asks. Conversi
 She dislikes default arguments. Propose an explicit argument, an overload, or a named constant instead.
 
 Commit only when she asks.
+
+What eight sessions of working with her showed (2026-10-21):
+
+- **Report results straight.** When a change measures slower, say so with the numbers, then find out why. She
+  wants the real outcome, not a positive spin. The nvpro_pyramid port first measured slower than the code it
+  replaced. The cause was found and fixed, and the docs record both.
+- **Design forks:** bring her a question with a recommendation and the reason, and she answers fast. When she says
+  "go ahead exactly as you planned, no notes", do that, and do not grow the scope.
+- **Approvals are as wide as their words.** "Feel free to edit the file over in Lodestone" meant the requests doc,
+  not Lodestone's source. Read approvals narrowly. Stub on the DiamondDogs side, and add a request row (see "What this repository is now").
+- **Locks:** she has been hurt by mutexes ("ask me how I know ._."). Tell her before you add any lock, and offer an
+  atomic, an ownership handoff or a single-threaded coalesce step first.
+- **Credit:** credit other people's work fully. Ported code keeps its license and copyright, says plainly that the
+  algorithm is not ours, and lists what we changed ("building on the greats who came before us").
+- **Tone:** candid, warm and a little dry. She jokes and apologizes for interruptions (gaming on the GPU, usage
+  limits). Answer in kind briefly, then get back to the work. No flattery, no padding.
+- **The chat UI can hide text.** In the desktop app's next-step box, a recap and question can be all she sees. Put
+  every answer, finding and decision in the message text itself. Never write "below" about content that is only in
+  the box.
+- **Practical context:** the RTX 4080 desktop is shared with her games, so check that the GPU is idle before you
+  benchmark. Her spouse runs packaged demo builds on a laptop with a 4080: keep the `ninja-msvc-static` package
+  working.
+
+### Code spacing
+
+She reads and audits every line, so code must not look dense. Whitespace is free. In C++:
+
+- **Before a block:** put a blank line before each control block or brace block (`if`/`else`, `for`, `while`,
+  `switch`, a scoped `{}`, a multi-line lambda). Variables that exist only to feed that block's test sit directly
+  above it, with no blank line, as part of its chunk.
+- **After a block:** put a blank line after each closing `}`, before the next statement. That includes `continue`,
+  `break` and the final `return`.
+- **Between chunks:** separate chunks of straight-line code where the work changes step, for example a result
+  variable declared at the top, then the setup below it.
+- **No padding inside braces:** no blank line right after `{` or right before `}`. `else` stays attached to its `if`.
+  Inside a `switch`, no blank lines between cases. Only a case that returns a value stays on one line; every other
+  case puts its label, statement and `break` on separate lines (the style file shows it).
+- **Private member functions are camelCase**, like private member variables (`applyButtonDown`). The style file has
+  the rule.
+- **Comments:** a comment line can take the place of a blank line.
+- **Reference files:** `applications/OceanFft/OceanScene.cpp` and `SceneCommands.cpp`.
+- **Scope:** apply this to new code and to code being edited. Don't reformat files that aren't otherwise being
+  touched.
 
 ## Documents
 

@@ -25,14 +25,14 @@ TEST_F(ResourceContextTest, ManyThreadsCreateUploadAndDestroy)
                 info.Usage = BufferUsageBits::ComputeShaderSRV;
                 info.Size = data.Data.size();
 
-                std::shared_ptr<GraphicsResourceReply> reply = context->CreateBuffer(info, std::span{ &data, 1u });
-                if (reply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+                rhi::ResourceFuture<GraphicsResource> reply = context->CreateBuffer(info, std::span{ &data, 1u });
+                if (context->Wait(reply, k_TimeoutNs) != rhi::FutureState::Complete)
                 {
                     ++failures;
                     continue;
                 }
-                std::shared_ptr<MessageReply> destroyReply = context->DestroyResource(reply->GetResource());
-                if (destroyReply->WaitForCompletion(k_TimeoutNs) != MessageReply::Status::Completed)
+                rhi::OperationFuture destroyReply = context->DestroyResource(reply.Get());
+                if (context->Wait(destroyReply, k_TimeoutNs) != rhi::FutureState::Complete)
                 {
                     ++failures;
                 }
@@ -66,21 +66,22 @@ TEST_F(ResourceContextTest, RequestAfterIdleIsServedPromptly)
         info.Usage = BufferUsageBits::ComputeShaderSRV;
         info.Size = 256u;
         const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-        std::shared_ptr<GraphicsResourceReply> reply = context->CreateBuffer(info, {});
-        ASSERT_EQ(reply->WaitForCompletion(k_TimeoutNs), MessageReply::Status::Completed);
+        rhi::ResourceFuture<GraphicsResource> reply = context->CreateBuffer(info, {});
+        ASSERT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
         const std::chrono::steady_clock::duration latency = std::chrono::steady_clock::now() - start;
 
         EXPECT_LT(latency, k_MaxLatency) << "round " << round << " took "
             << std::chrono::duration_cast<std::chrono::milliseconds>(latency).count() << "ms";
-        DestroyAndWait(reply->GetResource());
+        DestroyAndWait(reply.Get());
     }
 }
 
-TEST_F(ResourceContextTest, ShutdownWithPendingWorkCompletesEveryReply)
+TEST_F(ResourceContextTest, ShutdownWithPendingWorkFinishesEveryCall)
 {
-    // the context is destroyed while messages are still queued. every reply must still finish, and every resource must
-    // be destroyed before the device is (the validation layer reports leaks at vkDestroyDevice)
-    std::vector<std::shared_ptr<GraphicsResourceReply>> replies;
+    // the context is destroyed while messages are still queued. every resource must be destroyed before the device is
+    // (the validation layer reports leaks at vkDestroyDevice). a future must not outlive its context, so the futures
+    // are released while their calls are still pending: the worker and the transfer thread then free their slots
+    std::vector<rhi::ResourceFuture<GraphicsResource>> futures;
     const std::vector<uint32_t> words = MakeWordPattern(1024u, 42u);
     const RhiBufferResourceData data{ std::as_bytes(std::span{ words }), 0u };
     for (uint32_t i = 0; i < 32u; ++i)
@@ -89,12 +90,9 @@ TEST_F(ResourceContextTest, ShutdownWithPendingWorkCompletesEveryReply)
         info.Domain = ResourceDomain::GPUOnly;
         info.Usage = BufferUsageBits::ComputeShaderSRV;
         info.Size = data.Data.size();
-        replies.push_back(context->CreateBuffer(info, std::span{ &data, 1u }));
+        futures.push_back(context->CreateBuffer(info, std::span{ &data, 1u }));
     }
 
+    futures.clear();
     context.reset();
-    for (const std::shared_ptr<GraphicsResourceReply>& reply : replies)
-    {
-        EXPECT_TRUE(reply->IsCompleted());
-    }
 }

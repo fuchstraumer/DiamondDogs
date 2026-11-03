@@ -4,6 +4,7 @@
 #include "ImageDataFormats.hpp"
 #include <cstdint>
 #include <limits>
+#include <optional>
 
 enum class PlatformWindowMode
 {
@@ -91,21 +92,33 @@ enum class PresentMode : uint8_t
     VerticalSyncLatestReady = 7
 };
 
+/** @brief Tells a consumer which query produced a display value. */
+enum class DisplayValueSource : uint8_t
+{
+    Invalid = 0,
+    /** @brief Read from DXGI (`IDXGIOutput6::GetDesc1`). */
+    Dxgi,
+    /** @brief Parsed from the monitor's EDID. */
+    Edid,
+    /** @brief No query produced the value, so it holds a default. */
+    Fallback
+};
+
 /** @brief HDR/WCG information as queried from appropriate platform APIs, before system and swapchain initialization. Informs further configuration and usage. */
 struct DisplayColorCapabilities
 {
     // HDR (High Dynamic Range) support
     bool hdrSupported{ false };
     bool hdrEnabled{ false };
-    bool hdrCanBeToggled{ false };  // Some systems may not allow programmatic HDR toggling
+    // true when Windows reports that policy limits advanced color on this display. Read only: nothing here changes display state.
+    bool advancedColorLimitedByPolicy{ false };
     
     // WCG (Wide Color Gamut) support - can be independent of HDR
     bool wcgSupported{ false };
     bool wcgEnabled{ false };
-    bool wcgCanBeToggled{ false };
     
     // Additional metadata
-    float sdrWhiteLevel{ 80.0f }; // Default SDR white level in nits
+    float sdrWhiteLevel{ 80.0f }; // SDR white level in nits (80 nits is the default)
     uint32_t bitsPerColorChannel{ 8 };
 
     enum class ColorModes : uint8_t
@@ -117,12 +130,17 @@ struct DisplayColorCapabilities
     };
     ColorModes ColorMode{ ColorModes::Invalid };
 
-    // Following parameters are extracted from EDID, if available. Manufacturer may not provide these, or they could be incorrect (spruced up, usually, to look better in marketing material)
+    // Where MaxLuminance, MinLuminance and MaxAverageLuminance came from
+    DisplayValueSource LuminanceSource{ DisplayValueSource::Invalid };
+    // Where the primaries and the white point came from
+    DisplayValueSource ChromaticitySource{ DisplayValueSource::Invalid };
+
+    // Following parameters come from DXGI when it provides them, and from EDID otherwise. Manufacturer may not provide these, or they could be incorrect (spruced up, usually, to look better in marketing material)
     float MaxLuminance{ 0.0f }; // in nits
     float MinLuminance{ 0.0f }; // in nits
     float MaxAverageLuminance{ 0.0f }; // in nits
 
-    // Chromaticity coordinates, if available from EDID
+    // Chromaticity coordinates, if available from DXGI or EDID
     float RedPrimaryX{ 0.0f };
     float RedPrimaryY{ 0.0f };
     float GreenPrimaryX{ 0.0f };
@@ -166,7 +184,7 @@ struct HDRCapabilities
     float sdrWhiteLevel{ 80.0f }; // in nits
     uint32_t BitsPerColorChannel{ 8 };
     /** @brief Swapchain image format */
-    ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::Default };
+    ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::UNorm };
     /** @brief Color space that was chosen during swapchain creation */
     ColorSpace ActiveColorSpace{ ColorSpace::sRGB_Nonlinear };
 };
@@ -186,6 +204,30 @@ struct DisplayInfo
     DisplayRefreshRateCapabilities RefreshRateCapabilities;
 };
 
+/** @brief One image format and color space that a surface can present */
+struct SurfaceFormatPair
+{
+    ImageFormat Format;
+    ColorSpace Space;
+};
+
+/** @brief The static HDR metadata of a swapchain (VK_EXT_hdr_metadata), in nits and CIE 1931 xy */
+struct SwapchainHdrMetadata
+{
+    float RedPrimaryX{ 0.0f };
+    float RedPrimaryY{ 0.0f };
+    float GreenPrimaryX{ 0.0f };
+    float GreenPrimaryY{ 0.0f };
+    float BluePrimaryX{ 0.0f };
+    float BluePrimaryY{ 0.0f };
+    float WhitePointX{ 0.0f };
+    float WhitePointY{ 0.0f };
+    float MaxLuminance{ 0.0f };
+    float MinLuminance{ 0.0f };
+    float MaxContentLightLevel{ 0.0f };
+    float MaxFrameAverageLightLevel{ 0.0f };
+};
+
 struct SwapchainCreateInfo
 {
     void* RhiDevice{ nullptr };
@@ -196,9 +238,13 @@ struct SwapchainCreateInfo
     /** @brief Desired color space for the swapchain */
     ColorSpace DesiredColorSpace{ ColorSpace::sRGB_Nonlinear };
     /** @brief Optional image format to use for swapchain. If left to invalid default values, will auto-choose format: does not enable HDR */
-    ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::Default };
+    ImageFormat SwapchainFormat{ ImageComponentFormats::Invalid, ImageDataType::UNorm };
+    /** @brief When set, the swapchain uses exactly this pair and ignores the other format fields. Creation throws when the
+     * surface does not offer it. The caller sets the HDR metadata with `Swapchain::SetHdrMetadata`. */
+    std::optional<SurfaceFormatPair> ExplicitSurfaceFormat{ std::nullopt };
     /** @brief Presentation mode/VSync mode to attempt to apply to this swapchain. Will choose "best" option if left to default. */
     PresentMode SwapchainPresentMode{ PresentMode::Invalid };
+    float RefreshRate{ 0.0f };
     /** @brief If set to true, will ensure HDR is supported and enabled for this swapchain. Compatible with blank/default `DesiredColorSpace` and `SwapchainFormat`.
      * If those are set to specific HDR-capable values, will attempt to use those instead. */
     bool TryEnableHDR{ false };

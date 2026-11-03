@@ -1,0 +1,1045 @@
+#include "SceneCommands.hpp"
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <charconv>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <thread>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+#include "OceanSimulation.hpp"
+#include "SeaState.hpp"
+
+namespace
+{
+    struct CommandShape
+    {
+        SceneCommand::Kind Kind;
+        uint32_t MinValues;
+        uint32_t MaxValues;
+        bool TakesText;
+    };
+
+    const std::unordered_map<std::string_view, CommandShape> k_Commands
+    {
+        { "camera", { SceneCommand::Kind::Camera, 3u, 6u, false } },
+        { "camera_reset", { SceneCommand::Kind::CameraReset, 0u, 0u, false } },
+        { "lookat", { SceneCommand::Kind::LookAt, 6u, 6u, false } },
+        { "orbit", { SceneCommand::Kind::Orbit, 2u, 2u, false } },
+        { "pan", { SceneCommand::Kind::Pan, 2u, 2u, false } },
+        { "move", { SceneCommand::Kind::Move, 3u, 3u, false } },
+        { "zoom", { SceneCommand::Kind::Zoom, 1u, 1u, false } },
+        { "time", { SceneCommand::Kind::Time, 1u, 1u, false } },
+        { "dt", { SceneCommand::Kind::TimeStep, 1u, 1u, false } },
+        { "pause", { SceneCommand::Kind::Pause, 0u, 0u, true } },
+        { "choppiness", { SceneCommand::Kind::Choppiness, 1u, 1u, false } },
+        { "ui", { SceneCommand::Kind::Ui, 0u, 0u, true } },
+        { "preset", { SceneCommand::Kind::Preset, 0u, 0u, false } },
+        { "sea", { SceneCommand::Kind::Sea, 0u, 0u, false } },
+        { "cascade", { SceneCommand::Kind::Cascade, 0u, 0u, false } },
+        { "foamweight", { SceneCommand::Kind::FoamWeight, 0u, 0u, false } },
+        { "foam", { SceneCommand::Kind::Foam, 0u, 0u, false } },
+        { "shading", { SceneCommand::Kind::Shading, 0u, 0u, false } },
+        { "foamreset", { SceneCommand::Kind::FoamReset, 0u, 0u, false } },
+        { "rotate", { SceneCommand::Kind::Rotate, 0u, 0u, true } },
+        { "sky", { SceneCommand::Kind::Sky, 0u, 0u, false } },
+        { "sky_res", { SceneCommand::Kind::SkyRes, 0u, 0u, true } },
+        { "sky_intensity", { SceneCommand::Kind::SkyIntensity, 1u, 1u, false } },
+        { "tonemap", { SceneCommand::Kind::Tonemap, 0u, 0u, false } },
+        { "exposure", { SceneCommand::Kind::Exposure, 1u, 1u, false } },
+        { "bloom", { SceneCommand::Kind::Bloom, 0u, 0u, false } },
+        { "cdlod", { SceneCommand::Kind::Cdlod, 0u, 0u, true } },
+        { "cdlod_scale", { SceneCommand::Kind::CdlodScale, 1u, 1u, false } },
+        { "cdlod_morph", { SceneCommand::Kind::CdlodMorph, 1u, 1u, false } },
+        { "cdlod_max_level", { SceneCommand::Kind::CdlodMaxLevel, 1u, 1u, false } },
+        { "wireframe", { SceneCommand::Kind::Wireframe, 0u, 0u, true } },
+        { "brdf", { SceneCommand::Kind::Brdf, 0u, 0u, false } },
+        { "async_compute", { SceneCommand::Kind::AsyncCompute, 0u, 0u, true } },
+        { "tab", { SceneCommand::Kind::Tab, 0u, 0u, true } },
+        { "deferred", { SceneCommand::Kind::Deferred, 0u, 0u, true } },
+        { "spec_aa", { SceneCommand::Kind::SpecAa, 0u, 0u, false } },
+        { "taa", { SceneCommand::Kind::Taa, 0u, 0u, false } },
+        { "ssr", { SceneCommand::Kind::Ssr, 0u, 0u, false } },
+        { "auto_exposure", { SceneCommand::Kind::AutoExposure, 0u, 0u, false } },
+        { "capture", { SceneCommand::Kind::Capture, 0u, 0u, true } },
+        { "sync", { SceneCommand::Kind::Sync, 0u, 0u, true } },
+        { "wait", { SceneCommand::Kind::Wait, 1u, 1u, false } },
+        { "print", { SceneCommand::Kind::Print, 0u, 0u, false } },
+        { "resize", { SceneCommand::Kind::Resize, 2u, 2u, false } },
+        { "quit", { SceneCommand::Kind::Quit, 0u, 0u, false } },
+    };
+
+    const std::array<SeaStateField, 15> k_SeaStateFields
+    {
+        SeaStateField{ "WindForce", &ocean::SeaState::WindForce },
+        SeaStateField{ "Openness", &ocean::SeaState::Openness },
+        SeaStateField{ "WindDirection", &ocean::SeaState::WindDirection },
+        SeaStateField{ "Spread", &ocean::SeaState::Spread },
+        SeaStateField{ "Regularity", &ocean::SeaState::Regularity },
+        SeaStateField{ "RippleDetail", &ocean::SeaState::RippleDetail },
+        SeaStateField{ "Depth", &ocean::SeaState::Depth },
+        SeaStateField{ "SwellHeight", &ocean::SeaState::SwellHeight },
+        SeaStateField{ "SwellPeriod", &ocean::SeaState::SwellPeriod },
+        SeaStateField{ "SwellDirection", &ocean::SeaState::SwellDirection },
+        SeaStateField{ "SwellOrder", &ocean::SeaState::SwellOrder },
+        SeaStateField{ "HeightScale", &ocean::SeaState::HeightScale },
+        SeaStateField{ "WhitecapThreshold", &ocean::SeaState::WhitecapThreshold },
+        SeaStateField{ "FoamAmount", &ocean::SeaState::FoamAmount },
+        SeaStateField{ "CrestSharpness", &ocean::SeaState::CrestSharpness },
+    };
+
+    const std::array<std::string_view, 8> k_FoamFields
+    {
+        "enable", "raise", "decay", "gain", "drift", "residual", "softness", "scale"
+    };
+
+    const std::array<std::string_view, 4> k_ShadingFields
+    {
+        "underwater", "specular", "albedo", "normal"
+    };
+
+    const std::array<std::string_view, 4> k_BrdfFields
+    {
+        "sss", "leadr", "foam_roughness", "seabed_roughness"
+    };
+
+    std::vector<std::string_view> SplitWords(std::string_view line)
+    {
+        std::vector<std::string_view> words;
+
+        size_t start = 0;
+        while (start < line.size())
+        {
+            while (start < line.size() && (line[start] == ' ' || line[start] == '\t' || line[start] == ','))
+            {
+                ++start;
+            }
+
+            size_t end = start;
+            while (end < line.size() && line[end] != ' ' && line[end] != '\t' && line[end] != ',')
+            {
+                ++end;
+            }
+
+            if (end > start)
+            {
+                words.push_back(line.substr(start, end - start));
+            }
+
+            start = end;
+        }
+
+        return words;
+    }
+
+    bool EqualsIgnoreCase(std::string_view left, std::string_view right);
+    bool ParseFloat(std::string_view word, float& value);
+    std::expected<SceneCommand, std::string> ParsePreset(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSea(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseCascade(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseFoamWeight(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseFoam(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseShading(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSky(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseTonemap(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseBloom(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseBrdf(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSpecAa(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseTaa(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSsr(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseAutoExposure(const std::vector<std::string_view>& words);
+}
+
+std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view line)
+{
+    if (const size_t comment = line.find('#'); comment != std::string_view::npos)
+    {
+        line = line.substr(0, comment);
+    }
+
+    const std::vector<std::string_view> words = SplitWords(line);
+    if (words.empty())
+    {
+        return std::unexpected(std::string{});
+    }
+
+    const auto found = k_Commands.find(words[0]);
+    if (found == k_Commands.end())
+    {
+        return std::unexpected(std::string{ "unknown command '" } + std::string{ words[0] } + "'");
+    }
+
+    const CommandShape& shape = found->second;
+    if (shape.Kind == Kind::Preset)
+    {
+        return ParsePreset(words);
+    }
+
+    if (shape.Kind == Kind::Sea)
+    {
+        return ParseSea(words);
+    }
+
+    if (shape.Kind == Kind::Cascade)
+    {
+        return ParseCascade(words);
+    }
+
+    if (shape.Kind == Kind::FoamWeight)
+    {
+        return ParseFoamWeight(words);
+    }
+
+    if (shape.Kind == Kind::Foam)
+    {
+        return ParseFoam(words);
+    }
+
+    if (shape.Kind == Kind::Shading)
+    {
+        return ParseShading(words);
+    }
+
+    if (shape.Kind == Kind::Sky)
+    {
+        return ParseSky(words);
+    }
+
+    if (shape.Kind == Kind::Tonemap)
+    {
+        return ParseTonemap(words);
+    }
+
+    if (shape.Kind == Kind::Bloom)
+    {
+        return ParseBloom(words);
+    }
+
+    if (shape.Kind == Kind::Brdf)
+    {
+        return ParseBrdf(words);
+    }
+
+    if (shape.Kind == Kind::SpecAa)
+    {
+        return ParseSpecAa(words);
+    }
+
+    if (shape.Kind == Kind::Taa)
+    {
+        return ParseTaa(words);
+    }
+
+    if (shape.Kind == Kind::Ssr)
+    {
+        return ParseSsr(words);
+    }
+
+    if (shape.Kind == Kind::AutoExposure)
+    {
+        return ParseAutoExposure(words);
+    }
+
+    SceneCommand command{};
+    command.Type = shape.Kind;
+    if (shape.TakesText)
+    {
+        if (words.size() > 2u)
+        {
+            return std::unexpected(std::string{ words[0] } + " takes at most one word");
+        }
+
+        command.Text = words.size() == 2u ? std::string{ words[1] } : std::string{};
+        const bool takesOnOff = command.Type == Kind::Pause || command.Type == Kind::Ui || command.Type == Kind::Rotate ||
+                                command.Type == Kind::Cdlod || command.Type == Kind::Wireframe || command.Type == Kind::AsyncCompute || command.Type == Kind::Deferred;
+        if (takesOnOff && command.Text != "on" && command.Text != "off")
+        {
+            return std::unexpected(std::string{ words[0] } + " takes on or off");
+        }
+
+        if (command.Type == Kind::SkyRes && command.Text != "8k" && command.Text != "16k")
+        {
+            return std::unexpected(std::string{ "sky_res takes 8k or 16k" });
+        }
+
+        return command;
+    }
+
+    const size_t valueCount = words.size() - 1u;
+    if (valueCount < shape.MinValues || valueCount > shape.MaxValues || (command.Type == Kind::Camera && valueCount != 3u && valueCount != 6u))
+    {
+        return std::unexpected(std::string{ words[0] } + ": wrong number of values");
+    }
+
+    for (size_t i = 0; i < valueCount; ++i)
+    {
+        const std::string_view word = words[i + 1u];
+        float value = 0.0f;
+        const std::from_chars_result result = std::from_chars(word.data(), word.data() + word.size(), value);
+        if (result.ec != std::errc{} || result.ptr != word.data() + word.size())
+        {
+            return std::unexpected(std::string{ words[0] } + ": '" + std::string{ word } + "' is not a number");
+        }
+
+        command.Values[i] = value;
+    }
+
+    command.ValueCount = static_cast<uint32_t>(valueCount);
+    if (command.Type == Kind::Wait && command.Values[0] < 0.0f)
+    {
+        return std::unexpected(std::string{ "wait takes a frame count of 0 or more" });
+    }
+
+    return command;
+}
+
+const SeaStateField* FindSeaStateField(std::string_view name)
+{
+    const auto found = std::ranges::find_if(k_SeaStateFields, [name](const SeaStateField& field)
+    {
+        return EqualsIgnoreCase(field.Name, name);
+    });
+
+    return found != k_SeaStateFields.end() ? &*found : nullptr;
+}
+
+const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name)
+{
+    const std::array<ocean::SeaStatePreset, 6>& presets = ocean::SeaStatePresets();
+    const auto found = std::ranges::find_if(presets, [name](const ocean::SeaStatePreset& preset)
+    {
+        return EqualsIgnoreCase(preset.Name, name);
+    });
+
+    return found != presets.end() ? &*found : nullptr;
+}
+
+const std::array<SeaStateField, 15>& SeaStateFields() noexcept
+{
+    return k_SeaStateFields;
+}
+
+std::expected<void, std::string> SceneCommands::LoadScript(const std::filesystem::path& path)
+{
+    std::ifstream file(path);
+    if (!file)
+    {
+        return std::unexpected("cannot open " + path.string());
+    }
+
+    std::string line;
+    while (std::getline(file, line))
+    {
+        lines.push_back(std::move(line));
+    }
+
+    return {};
+}
+
+void SceneCommands::StartStdin()
+{
+    // detached: getline blocks until a line or end of file, and the process can exit while it waits. The thread
+    // holds its own copy of the queue pointer, so a line that arrives after this object is destroyed still has a queue.
+    std::thread([queue = incoming]
+    {
+        std::string line;
+        while (std::getline(std::cin, line))
+        {
+            queue->push(std::move(line));
+        }
+    }).detach();
+}
+
+void SceneCommands::Push(std::string line)
+{
+    incoming->push(std::move(line));
+}
+
+void SceneCommands::drainIncoming() const
+{
+    std::optional<std::string> line = incoming->try_pop();
+    while (line.has_value())
+    {
+        lines.push_back(std::move(*line));
+        line = incoming->try_pop();
+    }
+}
+
+std::vector<SceneCommand> SceneCommands::TakeForFrame()
+{
+    drainIncoming();
+
+    std::vector<SceneCommand> commands;
+
+    if (waitFrames > 0u)
+    {
+        --waitFrames;
+        return commands;
+    }
+
+    while (!lines.empty())
+    {
+        const std::string line = std::move(lines.front());
+        lines.pop_front();
+
+        std::expected<SceneCommand, std::string> parsed = SceneCommand::Parse(line);
+        if (!parsed.has_value())
+        {
+            if (!parsed.error().empty())
+            {
+                std::cerr << "command '" << line << "': " << parsed.error() << "\n";
+            }
+
+            continue;
+        }
+
+        if (parsed->Type == SceneCommand::Kind::Wait)
+        {
+            // this frame is the first of the wait
+            const uint32_t frames = static_cast<uint32_t>(parsed->Values[0]);
+            waitFrames = frames > 0u ? frames - 1u : 0u;
+            if (frames > 0u)
+            {
+                break;
+            }
+
+            continue;
+        }
+
+        // a capture takes this frame as the commands so far left it, so the ones after it wait for the next frame
+        const bool endsFrame = parsed->Type == SceneCommand::Kind::Capture || parsed->Type == SceneCommand::Kind::Sync;
+        commands.push_back(std::move(*parsed));
+        if (endsFrame)
+        {
+            break;
+        }
+    }
+
+    return commands;
+}
+
+bool SceneCommands::Busy() const
+{
+    drainIncoming();
+
+    return waitFrames > 0u || !lines.empty();
+}
+
+namespace
+{
+    bool EqualsIgnoreCase(std::string_view left, std::string_view right)
+    {
+        return std::ranges::equal(left, right, [](char a, char b)
+        {
+            return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+        });
+    }
+
+    bool ParseFloat(std::string_view word, float& value)
+    {
+        const std::from_chars_result result = std::from_chars(word.data(), word.data() + word.size(), value);
+        return result.ec == std::errc{} && result.ptr == word.data() + word.size();
+    }
+
+    std::expected<SceneCommand, std::string> ParsePreset(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u)
+        {
+            return std::unexpected(std::string{ "preset takes a name" });
+        }
+
+        // a preset name can have spaces ("Long swell"), so the words after the command are joined back together
+        std::string name;
+        for (size_t i = 1; i < words.size(); ++i)
+        {
+            if (i > 1u)
+            {
+                name += ' ';
+            }
+
+            name += words[i];
+        }
+
+        if (EqualsIgnoreCase(name, "storm"))
+        {
+            name = "GaleFoam";
+        }
+
+        if (FindSeaStatePreset(name) == nullptr)
+        {
+            return std::unexpected(std::string{ "preset: unknown preset '" } + name + "'");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Preset;
+        command.Text = std::move(name);
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSea(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "sea takes a field name and a value" });
+        }
+
+        const SeaStateField* field = FindSeaStateField(words[1]);
+        if (field == nullptr)
+        {
+            return std::unexpected(std::string{ "sea: unknown field '" } + std::string{ words[1] } + "'");
+        }
+
+        float value = 0.0f;
+        if (!ParseFloat(words[2], value))
+        {
+            return std::unexpected(std::string{ "sea: '" } + std::string{ words[2] } + "' is not a number");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Sea;
+        command.Text = std::string{ field->Name };
+        command.Values[0] = value;
+        command.ValueCount = 1u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseCascade(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "cascade takes an index and on or off" });
+        }
+
+        const std::string_view indexWord = words[1];
+        int32_t index = -1;
+        const std::from_chars_result result = std::from_chars(indexWord.data(), indexWord.data() + indexWord.size(), index);
+        if (result.ec != std::errc{} || result.ptr != indexWord.data() + indexWord.size())
+        {
+            return std::unexpected(std::string{ "cascade: '" } + std::string{ indexWord } + "' is not a whole number");
+        }
+
+        if (index < 0 || index >= static_cast<int32_t>(ocean::k_CascadeCount))
+        {
+            return std::unexpected("cascade: index must be 0 to " + std::to_string(ocean::k_CascadeCount - 1u));
+        }
+
+        const std::string_view state = words[2];
+        if (state != "on" && state != "off")
+        {
+            return std::unexpected(std::string{ "cascade takes on or off" });
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Cascade;
+        command.Text = std::string{ state };
+        command.Values[0] = static_cast<float>(index);
+        command.ValueCount = 1u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseFoamWeight(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "foamweight takes a cascade index and a value" });
+        }
+
+        const std::string_view indexWord = words[1];
+        int32_t index = -1;
+        const std::from_chars_result result = std::from_chars(indexWord.data(), indexWord.data() + indexWord.size(), index);
+        if (result.ec != std::errc{} || result.ptr != indexWord.data() + indexWord.size())
+        {
+            return std::unexpected(std::string{ "foamweight: '" } + std::string{ indexWord } + "' is not a whole number");
+        }
+
+        if (index < 0 || index >= static_cast<int32_t>(ocean::k_CascadeCount))
+        {
+            return std::unexpected("foamweight: index must be 0 to " + std::to_string(ocean::k_CascadeCount - 1u));
+        }
+
+        float value = 0.0f;
+        if (!ParseFloat(words[2], value))
+        {
+            return std::unexpected(std::string{ "foamweight: '" } + std::string{ words[2] } + "' is not a number");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::FoamWeight;
+        command.Values[0] = static_cast<float>(index);
+        command.Values[1] = value;
+        command.ValueCount = 2u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseFoam(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "foam takes a field and a value" });
+        }
+
+        const auto field = std::ranges::find_if(k_FoamFields, [&words](std::string_view name)
+        {
+            return EqualsIgnoreCase(name, words[1]);
+        });
+
+        if (field == k_FoamFields.end())
+        {
+            return std::unexpected(std::string{ "foam: unknown field '" } + std::string{ words[1] } + "'");
+        }
+
+        float value = 0.0f;
+        if (!ParseFloat(words[2], value))
+        {
+            return std::unexpected(std::string{ "foam: '" } + std::string{ words[2] } + "' is not a number");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Foam;
+        command.Text = std::string{ *field };
+        command.Values[0] = value;
+        command.ValueCount = 1u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseShading(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "shading takes a field and a value" });
+        }
+
+        const auto field = std::ranges::find_if(k_ShadingFields, [&words](std::string_view name)
+        {
+            return EqualsIgnoreCase(name, words[1]);
+        });
+
+        if (field == k_ShadingFields.end())
+        {
+            return std::unexpected(std::string{ "shading: unknown field '" } + std::string{ words[1] } + "'");
+        }
+
+        float value = 0.0f;
+        if (!ParseFloat(words[2], value))
+        {
+            return std::unexpected(std::string{ "shading: '" } + std::string{ words[2] } + "' is not a number");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Shading;
+        command.Text = std::string{ *field };
+        command.Values[0] = value;
+        command.ValueCount = 1u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSky(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u)
+        {
+            return std::unexpected(std::string{ "sky takes a preset name" });
+        }
+
+        std::string name;
+        for (size_t i = 1; i < words.size(); ++i)
+        {
+            if (i > 1u)
+            {
+                name += '_';
+            }
+            name += words[i];
+        }
+
+        std::string lower;
+        lower.reserve(name.size());
+        for (char c : name)
+        {
+            lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        }
+
+        std::string canonical;
+        if (lower == "preetham" || lower == "analytic_preetham" || lower == "analytic preetham")
+        {
+            canonical = "preetham";
+        }
+        else if (lower == "aurora" || lower == "auroral" || lower == "auroral_night" || lower == "auroral night")
+        {
+            canonical = "aurora";
+        }
+        else if (lower == "day" || lower == "bright_day" || lower == "bright day")
+        {
+            canonical = "day";
+        }
+        else if (lower == "night" || lower == "starry_night" || lower == "starry night")
+        {
+            canonical = "night";
+        }
+        else if (lower == "overcast" || lower == "overcast_evening" || lower == "overcast evening")
+        {
+            canonical = "overcast";
+        }
+        else if (lower == "twilight")
+        {
+            canonical = "twilight";
+        }
+        else if (lower == "bruneton" || lower == "atmosphere" || lower == "bruneton_atmosphere")
+        {
+            canonical = "bruneton";
+        }
+        else
+        {
+            return std::unexpected(std::string{ "sky: unknown preset '" } + name + "'");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Sky;
+        command.Text = std::move(canonical);
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseTonemap(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u)
+        {
+            return std::unexpected(std::string{ "tonemap takes a tonemapper name" });
+        }
+
+        std::string name;
+        for (size_t i = 1; i < words.size(); ++i)
+        {
+            if (i > 1u)
+            {
+                name += '_';
+            }
+            name += words[i];
+        }
+
+        std::string lower;
+        lower.reserve(name.size());
+        for (char c : name)
+        {
+            lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+        }
+
+        std::string canonical;
+        if (lower == "agx")
+        {
+            canonical = "agx";
+        }
+        else if (lower == "neutral" || lower == "khronos_neutral" || lower == "khronos neutral")
+        {
+            canonical = "neutral";
+        }
+        else if (lower == "passthrough")
+        {
+            canonical = "passthrough";
+        }
+        else if (lower == "falsecolor" || lower == "false_color" || lower == "false_color_ev" || lower == "false color" || lower == "false color ev")
+        {
+            canonical = "falsecolor";
+        }
+        else
+        {
+            return std::unexpected(std::string{ "tonemap: unknown tonemapper '" } + name + "'");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Tonemap;
+        command.Text = std::move(canonical);
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseBloom(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u || words.size() > 3u)
+        {
+            return std::unexpected(std::string{ "bloom takes on|off or <intensity> [scatter]" });
+        }
+
+        if (words[1] == "on" || words[1] == "off")
+        {
+            if (words.size() != 2u)
+            {
+                return std::unexpected(std::string{ "bloom on|off takes no other arguments" });
+            }
+
+            SceneCommand command{};
+            command.Type = SceneCommand::Kind::Bloom;
+            command.Text = std::string{ words[1] };
+            return command;
+        }
+
+        float intensity = 0.0f;
+        if (!ParseFloat(words[1], intensity))
+        {
+            return std::unexpected(std::string{ "bloom: '" } + std::string{ words[1] } + "' is not a number or on|off");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Bloom;
+        command.Values[0] = intensity;
+        command.ValueCount = 1u;
+
+        if (words.size() == 3u)
+        {
+            float scatter = 0.0f;
+            if (!ParseFloat(words[2], scatter))
+            {
+                return std::unexpected(std::string{ "bloom: '" } + std::string{ words[2] } + "' is not a number");
+            }
+            command.Values[1] = scatter;
+            command.ValueCount = 2u;
+        }
+
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseBrdf(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "brdf takes a field and a value" });
+        }
+
+        const auto field = std::ranges::find_if(k_BrdfFields, [&words](std::string_view name)
+        {
+            return EqualsIgnoreCase(name, words[1]);
+        });
+
+        if (field == k_BrdfFields.end())
+        {
+            return std::unexpected(std::string{ "brdf: unknown field '" } + std::string{ words[1] } + "'");
+        }
+
+        float value = 0.0f;
+        if (!ParseFloat(words[2], value))
+        {
+            return std::unexpected(std::string{ "brdf: '" } + std::string{ words[2] } + "' is not a number");
+        }
+
+        SceneCommand command{};
+        command.Type = SceneCommand::Kind::Brdf;
+        command.Text = std::string{ *field };
+        command.Values[0] = value;
+        command.ValueCount = 1u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSpecAa(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u || words.size() > 3u)
+        {
+            return std::unexpected(std::string{ "spec_aa takes on|off or <strength> or on|off <strength>" });
+        }
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::SpecAa;
+        if (words.size() == 2u)
+        {
+            if (words[1] == "off")
+            {
+                cmd.Text = "off";
+                cmd.Values[0] = 0.0f;
+                cmd.ValueCount = 1u;
+            }
+            else if (words[1] == "on")
+            {
+                cmd.Text = "on";
+                cmd.Values[0] = 1.0f;
+                cmd.ValueCount = 1u;
+            }
+            else
+            {
+                float val = 0.0f;
+                if (!ParseFloat(words[1], val))
+                {
+                    return std::unexpected(std::string{ "spec_aa: '" } + std::string{ words[1] } + "' is not a number or on/off");
+                }
+                cmd.Text = "on";
+                cmd.Values[0] = val;
+                cmd.ValueCount = 1u;
+            }
+        }
+        else
+        {
+            if (words[1] != "on" && words[1] != "off")
+            {
+                return std::unexpected(std::string{ "spec_aa: first argument must be on or off" });
+            }
+            float val = 0.0f;
+            if (!ParseFloat(words[2], val))
+            {
+                return std::unexpected(std::string{ "spec_aa: '" } + std::string{ words[2] } + "' is not a number");
+            }
+            cmd.Text = std::string{ words[1] };
+            cmd.Values[0] = val;
+            cmd.ValueCount = 1u;
+        }
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseTaa(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u || words.size() > 3u)
+        {
+            return std::unexpected(std::string{ "taa takes on|off or <blend alpha> or on|off <blend alpha>" });
+        }
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::Taa;
+        if (words.size() == 2u)
+        {
+            if (words[1] == "off")
+            {
+                cmd.Text = "off";
+                cmd.Values[0] = 0.0f;
+                cmd.ValueCount = 1u;
+            }
+            else if (words[1] == "on")
+            {
+                cmd.Text = "on";
+                cmd.Values[0] = 0.1f;
+                cmd.ValueCount = 1u;
+            }
+            else
+            {
+                float val = 0.0f;
+                if (!ParseFloat(words[1], val))
+                {
+                    return std::unexpected(std::string{ "taa: '" } + std::string{ words[1] } + "' is not a number or on/off");
+                }
+                cmd.Text = "on";
+                cmd.Values[0] = val;
+                cmd.ValueCount = 1u;
+            }
+        }
+        else
+        {
+            if (words[1] != "on" && words[1] != "off")
+            {
+                return std::unexpected(std::string{ "taa: first argument must be on or off" });
+            }
+            float val = 0.0f;
+            if (!ParseFloat(words[2], val))
+            {
+                return std::unexpected(std::string{ "taa: '" } + std::string{ words[2] } + "' is not a number");
+            }
+            cmd.Text = std::string{ words[1] };
+            cmd.Values[0] = val;
+            cmd.ValueCount = 1u;
+        }
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSsr(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u || words.size() > 3u)
+        {
+            return std::unexpected(std::string{ "ssr takes on|off or <intensity> or on|off <intensity>" });
+        }
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::Ssr;
+        if (words.size() == 2u)
+        {
+            if (words[1] == "off")
+            {
+                cmd.Text = "off";
+                cmd.Values[0] = 0.0f;
+                cmd.ValueCount = 1u;
+            }
+            else if (words[1] == "on")
+            {
+                cmd.Text = "on";
+                cmd.Values[0] = 1.0f;
+                cmd.ValueCount = 1u;
+            }
+            else
+            {
+                float val = 0.0f;
+                if (!ParseFloat(words[1], val))
+                {
+                    return std::unexpected(std::string{ "ssr: '" } + std::string{ words[1] } + "' is not a number or on/off");
+                }
+                cmd.Text = "on";
+                cmd.Values[0] = val;
+                cmd.ValueCount = 1u;
+            }
+        }
+        else
+        {
+            if (words[1] != "on" && words[1] != "off")
+            {
+                return std::unexpected(std::string{ "ssr: first argument must be on or off" });
+            }
+            float val = 0.0f;
+            if (!ParseFloat(words[2], val))
+            {
+                return std::unexpected(std::string{ "ssr: '" } + std::string{ words[2] } + "' is not a number");
+            }
+            cmd.Text = std::string{ words[1] };
+            cmd.Values[0] = (words[1] == "off") ? 0.0f : val;
+            cmd.ValueCount = 1u;
+        }
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseAutoExposure(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u || words.size() > 3u)
+        {
+            return std::unexpected(std::string{ "auto_exposure takes on|off or <speed> or on|off <speed>" });
+        }
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::AutoExposure;
+        if (words.size() == 2u)
+        {
+            if (words[1] == "off")
+            {
+                cmd.Text = "off";
+                cmd.Values[0] = 0.0f;
+                cmd.ValueCount = 1u;
+            }
+            else if (words[1] == "on")
+            {
+                cmd.Text = "on";
+                cmd.Values[0] = 1.0f;
+                cmd.ValueCount = 1u;
+            }
+            else
+            {
+                float val = 0.0f;
+                if (!ParseFloat(words[1], val))
+                {
+                    return std::unexpected(std::string{ "auto_exposure: '" } + std::string{ words[1] } + "' is not a number or on/off");
+                }
+                cmd.Text = "on";
+                cmd.Values[0] = val;
+                cmd.ValueCount = 1u;
+            }
+        }
+        else
+        {
+            if (words[1] != "on" && words[1] != "off")
+            {
+                return std::unexpected(std::string{ "auto_exposure: first argument must be on or off" });
+            }
+            float val = 0.0f;
+            if (!ParseFloat(words[2], val))
+            {
+                return std::unexpected(std::string{ "auto_exposure: '" } + std::string{ words[2] } + "' is not a number");
+            }
+            cmd.Text = std::string{ words[1] };
+            cmd.Values[0] = val;
+            cmd.ValueCount = 1u;
+        }
+        return cmd;
+    }
+}

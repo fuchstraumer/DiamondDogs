@@ -2,13 +2,14 @@
 #ifndef DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #define DIAMOND_DOGS_RESOURCE_TRANSFER_SYSTEM_HPP
 #include "ResourceMessageTypesInternal.hpp"
-#include "ResourceMessageReply.hpp"
+#include "ResourceFuture.hpp"
 #include "containers/mwsrQueue.hpp"
 
+#include <array>
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 #include <thread>
 
@@ -19,12 +20,25 @@ namespace rhi
 {
     class CommandPool;
     class Device;
-    class Fence;
+    class FutureTable;
 }
 
 struct UploadBuffer;
 
 /** @brief Moved from include/ to src/: it includes the internal message types and VMA, and only ResourceContextImpl uses it. */
+enum class ResourceContextError : uint8_t;
+
+/** @brief The transfer system's counts, for tests and profiling. Each is written by one thread with relaxed stores. */
+struct TransferSystemCounters
+{
+    int64_t TransfersRecorded{ 0 };
+    int64_t TransfersFailed{ 0 };
+    int64_t BatchesSubmitted{ 0 };
+    int64_t CompletionReads{ 0 };
+    int64_t BytesStaged{ 0 };
+    int64_t BlockedPushes{ 0 };
+};
+
 class ResourceTransferSystem
 {
 public:
@@ -36,97 +50,106 @@ public:
     ResourceTransferSystem();
     ~ResourceTransferSystem();
 
-    void Initialize(const rhi::Device* _device, VkInstance instance, uint32_t vulkan_api_version);
-    // bad, but there are some places we may need to do this - like swapchain resize or device loss events
-    void ForceCompleteTransfers();
+    /** @brief `context_queue` receives a TransferProgressMessage each time the completed ticket moves. The transfer
+     *  thread writes the final state of each transfer's future into `future_table`. */
+    [[nodiscard]] ResourceContextError Initialize(
+        const rhi::Device* _device,
+        VkInstance instance,
+        uint32_t vulkan_api_version,
+        mwsrQueue<ResourceMessagePayloadType>* context_queue,
+        rhi::FutureTable* future_table);
 
+    /** @brief Only the context worker calls this, so the tickets in the queue rise in queue order. */
     void EnqueueTransfer(TransferPayloadType&& payload);
 
-    void StartWorker();
-    void StopWorker();
+    /** @brief The timeline semaphore that every batch signals, as a VkSemaphore cast to uint64_t. */
+    [[nodiscard]] uint64_t TimelineHandle() const noexcept;
+    /** @brief The highest ticket that the GPU finished. Every ticket at or below it is complete or failed. */
+    [[nodiscard]] uint64_t CompletedTicket() const noexcept;
+    [[nodiscard]] TransferSystemCounters Counters() const noexcept;
 
 private:
 
     friend class ResourceContextImpl;
 
-    class TransferCommand
+    // one command buffer per batch, reused. a batch returns to the free list when the timeline passes its value
+    struct TransferBatch
     {
-    public:
-        TransferCommand(
-            const rhi::Device* _device,
-            uint32_t queue_family_index,
-            VmaAllocator _allocator,
-            std::shared_ptr<ResourceTransferReply>&& _reply);
-
-        // not using an upload buffer, is for resources that are already allocated and just need
-        // data written to them (so still needs device to create command pool)
-        TransferCommand(
-            const rhi::Device* _device,
-            uint32_t queue_family_index,
-            std::shared_ptr<ResourceTransferReply>&& _reply);
-
-        // fixed: this used to throw after a one second wait. a submitted command pool cannot be freed before the GPU
-        // finishes with it, so this waits as long as it takes
-        ~TransferCommand();
-
-        TransferCommand(const TransferCommand&) = delete;
-        TransferCommand& operator=(const TransferCommand&) = delete;
-
-        TransferCommand(TransferCommand&& other) noexcept;
-        TransferCommand& operator=(TransferCommand&& other) noexcept;
-
-        [[nodiscard]] VkCommandBuffer CmdBuffer() const noexcept;
-        void EndRecording();
-        [[nodiscard]] MessageReply::Status WaitForCompletion(uint64_t timeout_ns);
-        [[nodiscard]] VkSemaphore Semaphore() const;
-        [[nodiscard]] UploadBuffer* GetUploadBuffer() noexcept;
-
-    private:
-        void createCommandPool(uint32_t queue_family_index);
-        const rhi::Device* device;
-        VmaAllocator allocatorHandle;
-        std::shared_ptr<ResourceTransferReply> reply;
-        std::unique_ptr<rhi::CommandPool> commandPool;
-        std::unique_ptr<UploadBuffer> uploadBuffer;
+        std::unique_ptr<rhi::CommandPool> Pool;
+        uint64_t SignalValue{ 0u };
+        int32_t TransferCount{ 0 };
+        // the future slot of each transfer in the batch
+        std::vector<int32_t> Futures;
+        std::vector<std::unique_ptr<UploadBuffer>> Staging;
+        // the waits of the one transfer that this batch holds. WaitCount is 0 for a batch with no wait
+        std::array<rhi::TransferWait, rhi::k_MaxTransferWaits> Waits{};
+        int32_t WaitCount{ 0 };
     };
 
-    // worker thread job, pops messages from the queue and processes them
+    void startWorker();
+    void stopWorker();
     void workerThreadJob();
-    bool processMessages(std::chrono::milliseconds timeout);
-    void submitTransferCommands();
-    void waitForCommandsToComplete(std::chrono::milliseconds timeout);
-    void processRemainingAndWait();
+    void dispatchMessage(TransferPayloadType&& message);
+    void drainMessages();
 
-    void processSetBufferDataMessage(TransferSystemSetBufferDataMessage&& message);
-    void processSetImageDataMessage(TransferSystemSetImageDataMessage&& message);
-    void processFillBufferMessage(TransferSystemFillBufferMessage&& message);
-    void processCopyBufferToBufferMessage(TransferSystemCopyBufferToBufferMessage&& message);
-    void processCopyImageToImageMessage(TransferSystemCopyImageToImageMessage&& message);
-    void processCopyImageToBufferMessage(TransferSystemCopyImageToBufferMessage&& message);
-    void processCopyBufferToImageMessage(TransferSystemCopyBufferToImageMessage&& message);
+    /** @brief Returns the recording command buffer, after the barrier that orders this transfer after the ones before
+     *  it. Starts a batch when none is recording, and submits a full one first. A transfer with waits goes alone in
+     *  its batch: the batch that is open is submitted first, unless it holds no transfer. Returns null when Vulkan fails. */
+    [[nodiscard]] VkCommandBuffer beginTransfer(const TransferWaitSet& waits);
+    /** @brief Adds a recorded transfer to the batch. `staging` may be null. A transfer with waits is submitted at once. */
+    void endTransfer(int32_t future_slot, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket, const TransferWaitSet& waits);
+    /** @brief Fails the future. The ticket still counts as consumed, so the next submit signals it. */
+    void failTransfer(int32_t future_slot, uint64_t ticket, rhi::ResourceError error);
+    /** @brief Fails every transfer in the recording batch with `error`, and returns the batch to the free list. */
+    void failRecordingBatch(uint64_t ticket, rhi::ResourceError error);
+    [[nodiscard]] bool startBatch();
+    /** @brief Submits the recording batch. With nothing recorded, still submits a signal when a failed transfer
+     *  consumed a ticket that no submit covers, so that no wait on that ticket hangs. */
+    void submitBatch();
+    /** @brief One read of the timeline counter. Retires every batch at or below it, and publishes the value. */
+    void pollCompletion();
+    void waitForOldestBatch(uint64_t timeout_ns);
+    void processRemainingAndWait();
+    void destroy();
+
+    // one overload per alternative of TransferPayloadType, so that a message type without a handler fails to compile
+    void processMessage(TransferSystemSetBufferDataMessage&& message);
+    void processMessage(TransferSystemSetImageDataMessage&& message);
+    void processMessage(TransferSystemFillBufferMessage&& message);
+    void processMessage(TransferSystemCopyBufferToBufferMessage&& message);
+    void processMessage(TransferSystemCopyImageToImageMessage&& message);
+    void processMessage(TransferSystemCopyImageToBufferMessage&& message);
+    void processMessage(TransferSystemCopyBufferToImageMessage&& message);
+    void processMessage(TransferSystemExitMessage&& message) noexcept;
 
     mwsrQueue<TransferPayloadType> messageQueue;
-
-    void destroy();
+    mwsrQueue<ResourceMessagePayloadType>* contextQueue{ nullptr };
+    rhi::FutureTable* futures{ nullptr };
 
     bool initialized = false;
 
-    struct InflightCommandBatch
-    {
-        // need to move commands that have been submitted out of the class vector, so that we don't
-        // add to them during the next batch and accidentally dual-submit commands!
-        std::vector<TransferCommand> Commands;
-        // optional and rarely used, but useful if we have to force wait for some reason or another
-        // (potentially swapchain resize or device loss? need to assess more)
-        std::unique_ptr<rhi::Fence> Fence;
-    };
-    std::vector<InflightCommandBatch> inflightCommandBatches;
+    // all of these belong to the transfer thread, and to the destroying thread once it has joined
+    std::optional<TransferBatch> recording;
+    std::vector<TransferBatch> freeBatches;
+    // in signal order, oldest first
+    std::vector<TransferBatch> inflightBatches;
+    uint64_t highestConsumedTicket{ 0u };
+    uint64_t lastSignaledValue{ 0u };
+    bool exitRequested{ false };
 
-    std::vector<TransferCommand> commands;
+    // the one value other threads read. written by the transfer thread with release
+    std::atomic<uint64_t> completedTicket{ 0u };
+
+    std::atomic<int64_t> transfersRecorded{ 0 };
+    std::atomic<int64_t> transfersFailed{ 0 };
+    std::atomic<int64_t> batchesSubmitted{ 0 };
+    std::atomic<int64_t> completionReads{ 0 };
+    std::atomic<int64_t> bytesStaged{ 0 };
+
     const rhi::Device* device{ nullptr };
     VmaAllocator allocatorHandle{ VK_NULL_HANDLE };
+    VkSemaphore timeline{ VK_NULL_HANDLE };
     std::thread workerThread;
-    std::atomic<bool> shouldExitWorker{ false };
     // since we may spawn multiple instances of this system, we need to know which queue to submit
     // since splitting up work across queues is part of the benefit of multiple instances! :)
     VkQueue transferQueue{ VK_NULL_HANDLE };

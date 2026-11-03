@@ -7,7 +7,7 @@
 
 // volatile needed to avoid any potential reordering or compiler caching the value in a register
 template<typename DestType, typename SourceType>
-[[nodiscard]] static volatile DestType* atomic_address_as(SourceType& source) noexcept
+[[nodiscard]] static volatile DestType* AtomicAddressAs(SourceType& source) noexcept
 {
     return &reinterpret_cast<volatile DestType&>(source);
 }
@@ -30,7 +30,7 @@ CasData128 atomic128::load() const noexcept
 
 CasData128 atomic128::load(const std::memory_order order) const noexcept
 {
-    volatile long long* const storagePtr = const_cast<long long*>(atomic_address_as<const long long>(data));
+    volatile long long* const storagePtr = const_cast<long long*>(AtomicAddressAs<const long long>(data));
     CasData128 result{};
     _InterlockedCompareExchange128(storagePtr, 0, 0, &reinterpret_cast<long long&>(result.low));
     return reinterpret_cast<CasData128&>(result);
@@ -52,12 +52,11 @@ CasData128 atomic128::exchange(const CasData128 value) noexcept
 
 bool atomic128::compare_exchange_strong(CasData128& expected, CasData128 desired, const std::memory_order order /*= std::memory_order_seq_cst*/) noexcept
 {
-    CasData128 desiredCopy{ desired };
     CasData128 expectedTemp{ expected };
     unsigned char result = _InterlockedCompareExchange128(
-        atomic_address_as<long long>(data.low),
-        desiredCopy.high,
-        desiredCopy.low,
+        AtomicAddressAs<long long>(data.low),
+        desired.high,
+        desired.low,
         reinterpret_cast<long long*>(&expectedTemp.low));
 
     if (result == 0)

@@ -1,14 +1,16 @@
 #include "Fence.hpp"
-#include "Device.hpp"
-#include <vulkan/vulkan_core.h>
-#include <utility>
+#include "RhiHandle.hpp"
+#include <cstdint>
 #include <stdexcept>
+#include <utility>
+#include <vulkan/vulkan_core.h>
 
 namespace rhi
 {
 #ifdef RHI_SYSTEM_USE_VULKAN
-    Fence::Fence(DeviceHandle device, CreateFenceSignaled signaled) 
-        : device{ device }, handle{ FenceHandle{0} }
+    Fence::Fence(const DeviceHandle& _device, CreateFenceSignaled signaled) 
+        : device{ _device },
+          handle{ FenceHandle{0} }
     {
         VkFenceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -90,10 +92,10 @@ namespace rhi
         }
     }
 
-    bool Fence::Wait(uint64_t timeoutNs) const
+    bool Fence::Wait(uint64_t timeout_ns) const
     {
         const VkFence vkFence = handle.As<VkFence>();
-        const VkResult result = vkWaitForFences(device.As<VkDevice>(), 1, &vkFence, VK_TRUE, timeoutNs);
+        const VkResult result = vkWaitForFences(device.As<VkDevice>(), 1, &vkFence, VK_TRUE, timeout_ns);
         if (result == VK_SUCCESS)
         {
             return true;

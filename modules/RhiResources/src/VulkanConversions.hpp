@@ -3,6 +3,8 @@
 #define RESOURCE_CONTEXT_VULKAN_CONVERSIONS_HPP
 #include "ResourceFlags.hpp"
 #include "ResourceTypes.hpp"
+#include <cstdint>
+#include <span>
 #include <vulkan/vulkan_core.h>
 #include <vk_mem_alloc.h>
 
@@ -12,9 +14,9 @@
     work left is translating those into Vulkan values at the point of creation.
 */
 
-/** @brief Returns false for usages that need buffer device address: DeviceAddressBuffer and the raytracing usages.
- *  Those are refused until the device address and bindless design is settled. */
-[[nodiscard]] bool BufferUsageIsSupported(BufferUsageBits usage) noexcept;
+/** @brief Returns false for the raytracing usages, which are refused until raytracing is designed. Returns false for
+ *  DeviceAddressBuffer when the context was created without device addresses: VMA asserts on that buffer. */
+[[nodiscard]] bool BufferUsageIsSupported(BufferUsageBits usage, bool device_addresses_enabled) noexcept;
 
 /** @brief Returns the Vulkan usage flags for the usage bits. Transfer usage comes only from CopySource and
  *  CopyDestination: the flags have a cost on some hardware, so they are not added to every buffer. */
@@ -22,6 +24,14 @@
 /** @brief Returns the Vulkan usage flags for the usage bits. Transfer usage comes only from TransferSource and
  *  TransferDestination. */
 [[nodiscard]] VkImageUsageFlags ToVkImageUsage(ImageUsageBits usage) noexcept;
+
+/** @brief Returns the Vulkan create info for the buffer. The create path and the memory requirements query both call
+ *  this, so that a query answers for the buffer that the create makes. The result points into `queue_family_indices`,
+ *  which must outlive it. */
+[[nodiscard]] VkBufferCreateInfo ToVkBufferCreateInfo(const BufferCreateInfo& create_info, std::span<const uint32_t> queue_family_indices) noexcept;
+/** @brief As ToVkBufferCreateInfo, for an image. Adds the cube-compatible flag for a cube view, concurrent sharing
+ *  across the queue families, optimal tiling and the sample count. */
+[[nodiscard]] VkImageCreateInfo ToVkImageCreateInfo(const ImageCreateInfo& create_info, std::span<const uint32_t> queue_family_indices) noexcept;
 
 [[nodiscard]] VkImageType ToVkImageType(ImageType type) noexcept;
 [[nodiscard]] VkImageViewType ToVkImageViewType(ImageViewType type) noexcept;
@@ -39,12 +49,9 @@
 [[nodiscard]] VkCompareOp ToVkCompareOp(ImageCompareOp op) noexcept;
 [[nodiscard]] VkSamplerCreateInfo ToVkSamplerCreateInfo(const SamplerCreateInfo& create_info) noexcept;
 
-/** @brief Returns the image layout that the usage bits need. Used by the barriers and by the transfer system, which
- *  moves an uploaded image into this layout. */
+/** @brief Returns the image layout that the usage bits need. Used by the barriers and by the context, which derives
+ *  the layouts of a transfer from the caller's usages. */
 [[nodiscard]] VkImageLayout ImageLayoutFromUsageBits(ImageUsageBits bits) noexcept;
-/** @brief Returns the layout that the transfer system leaves an image in: the usage's layout, or GENERAL when the usage
- *  names no layout. ResourceContextImpl records the same value, so that the next transfer starts from it. */
-[[nodiscard]] VkImageLayout ImageLayoutAfterTransfer(ImageUsageBits bits) noexcept;
 
 [[nodiscard]] VmaMemoryUsage ToVmaMemoryUsage(ResourceDomain domain) noexcept;
 /** @brief Returns the allocation flags for the creation flags. Host-visible domains get a host access flag when the

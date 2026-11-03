@@ -28,7 +28,8 @@ Checks: >
   -readability-convert-member-functions-to-static,
   -cppcoreguidelines-pro-type-reinterpret-cast,
   -modernize-use-using,
-  -readability-else-after-return
+  -readability-else-after-return,
+  -cppcoreguidelines-special-member-functions
 
 WarningsAsErrors: ''
 HeaderFilterRegex: '.*(foundation|modules|tests|applications)/.*'

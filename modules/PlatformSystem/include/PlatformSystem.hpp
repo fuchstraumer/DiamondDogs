@@ -2,24 +2,23 @@
 #ifndef PLATFORM_SYSTEM_HPP
 #define PLATFORM_SYSTEM_HPP
 #include "events/PlatformEvents.hpp"
-#include "utility/Delegate.hpp"
+#include "utility/delegate.hpp"
 #include "PlatformTypes.hpp"
 #include <memory>
+#include <vector>
 
 
-using CursorPosEvent = Delegate<void(const Events::CursorPosEventData&, void* user_data)>;
-using CursorEnterEvent = Delegate<void(const int, void* user_data)>;
-using ScrollEvent = Delegate<void(const Events::ScrollEventData&, void* user_data)>;
-using CharEvent = Delegate<void(const char, void* user_data)>;
-using PathDropEvent = Delegate<void(const Events::PathDropEventData&, void* user_data)>;
-using MouseButtonEvent = Delegate<void(const Events::MouseButtonEventData&, void* user_data)>;
-using KeyboardKeyEvent = Delegate<void(const Events::KeyboardKeyEventData&, void* user_data)>;
 using ShouldResizeEvent = Delegate<void(const Events::ShouldResizeEventData&, void* user_data)>;
 using ShouldCloseEvent = Delegate<void(void* user_data)>;
 
 // PlatformSystem uses PImpl mostly to avoid any GLFW includes leaking into the public API
 struct PlatformSystemImpl;
 class Swapchain;
+
+namespace input
+{
+    class FrameAssembler;
+}
 
 /**
  * @brief System that owns the core GLFW window and handles input events
@@ -41,22 +40,30 @@ public:
 
     // Default swapchain just uses display info that we got from window creation as creation parameters. Also creates a surface using display parameters
     void CreateDefaultSwapchain(void* rhi_instance, void* rhi_device);
+    /** @brief Returns the pairs that the window's surface offers, in driver order. Creates the surface when the window has none.
+     * The HDR pairs need `VK_EXT_swapchain_colorspace`. */
+    [[nodiscard]] std::vector<SurfaceFormatPair> QuerySurfaceFormats(void* rhi_instance, void* rhi_device);
+    /** @brief Like CreateDefaultSwapchain, but with exactly `surface_format`, which must come from QuerySurfaceFormats.
+     * Throws when the surface does not offer it. Sets no HDR metadata. */
+    void CreateSwapchainWithSurfaceFormat(void* rhi_instance, void* rhi_device, const SurfaceFormatPair& surface_format);
     void CreateSwapchain(const SwapchainCreateInfo& create_info);
     void DestroySwapchain();
     /** @brief Recreates the active swapchain at the window's current size, with its last create info. Call it after
      * a present or acquire returns out of date or suboptimal, once the device has finished with the old images. */
     [[nodiscard]] SwapchainRecreateResult RecreateSwapchain();
     [[nodiscard]] const Swapchain* GetActiveSwapchain() const noexcept;
+    /** @brief Returns the mutable swapchain, for Swapchain::SetHdrMetadata. */
+    [[nodiscard]] Swapchain* GetActiveSwapchain() noexcept;
 
-    void AddCursorPosEventListener(CursorPosEvent listener, void* user_data);
-    void AddCursorEnterEventListener(CursorEnterEvent listener, void* user_data);
-    void AddScrollEventListener(ScrollEvent listener, void* user_data);
-    void AddCharEventListener(CharEvent listener, void* user_data);
-    void AddPathDropEventListener(PathDropEvent listener, void* user_data);
-    void AddMouseButtonEventListener(MouseButtonEvent listener, void* user_data);
-    void AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* user_data);
-    void AddShouldResizeEventListener(ShouldResizeEvent listener, void* user_data);
-    void AddShouldCloseEventListener(ShouldCloseEvent listener, void* user_data);
+    void AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data);
+    void AddShouldCloseEventListener(const ShouldCloseEvent& listener, void* user_data);
+
+    /** @brief Sets the assembler that receives the input events of this window, or null to discard them. A non-null
+     * assembler at once receives one focus event with the real focus state of the window. The caller keeps the
+     * assembler alive until it passes null or destroys this system. Each frame, call
+     * `assembler.StartFrame(); Update(); const InputFrame& frame = assembler.FinishFrame();`, because the GLFW
+     * callbacks run inside Update. */
+    void SetInputAssembler(input::FrameAssembler* assembler);
 
     /** @brief Display is chosen during window creation, and isn't managed by `DisplaySystem` as it's later in the init process. */
     [[nodiscard]] const DisplayInfo& GetActiveDisplayInfo() const noexcept;
@@ -80,13 +87,10 @@ public:
     void SetWindowSize(int w, int h);
     void GetWindowPos(int& x, int& y) const;
     void GetFramebufferSize(int& w, int& h) const;
-    [[nodiscard]] int GetMouseButton(int button) const;
     void GetCursorPosition(double& x, double& y) const;
     void SetCursorPosition(double x, double y);
     [[nodiscard]] int GetWindowAttribute(int attrib) const;
     void SetWindowAttribute(int attrib, int value);
-    [[nodiscard]] int GetInputMode(int mode) const;
-    void SetInputMode(int mode, int val);
     void SetWindowShouldClose(bool should_close);
 
     static bool IsHDREnabledOnSystem() noexcept;

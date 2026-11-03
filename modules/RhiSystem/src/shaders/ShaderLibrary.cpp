@@ -1,12 +1,30 @@
 #include "ShaderLibrary.hpp"
+#include "RhiFlags.hpp"
+#include "RhiHandle.hpp"
+#include "RhiTypes.hpp"
+#include "ShaderLibraryTypes.hpp"
+#include "ShaderManifestFormat.hpp"
+#include "ShaderManifestLayout.hpp"
 #include "ShaderProgram.hpp"
 #include "ShaderTypes.hpp"
 #include "ShaderManifest.hpp"
 #include "ShaderManifestIndex.hpp"
+#include "VariantKey.hpp"
 #include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <filesystem>
 #include <fstream>
+#include <ios>
+#include <memory>
+#include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
@@ -18,10 +36,10 @@ namespace
     };
 
     [[nodiscard]] rhi::ShaderLibraryResult<std::vector<std::byte>> ReadManifestBytes(const std::filesystem::path& manifest_path);
-    [[nodiscard]] std::string_view SpirvEntryPointName(std::span<const uint32_t> words) noexcept;
     [[nodiscard]] std::expected<VkDescriptorType, rhi::ShaderLibraryError> ToVkDescriptorType(const lodestone::manifest::ResolvedResource& resource) noexcept;
     [[nodiscard]] VkShaderStageFlags ToVkShaderStages(lodestone::ShaderStageKind stages) noexcept;
     [[nodiscard]] rhi::ShaderStageFlags ToRhiShaderStage(lodestone::ShaderStageKind stage) noexcept;
+    [[nodiscard]] rhi::ShaderStageFlags ToRhiShaderStages(lodestone::ShaderStageKind stages) noexcept;
     [[nodiscard]] rhi::ShaderLibraryResult<std::vector<DescriptorSetBindings>> CollectSetBindings(const lodestone::manifest::MergedLayoutView& layout);
     void DestroyLayouts(VkDevice device, std::span<const rhi::DescriptorSetLayoutHandle> set_layouts, VkPipelineLayout pipeline_layout) noexcept;
 }
@@ -30,13 +48,19 @@ namespace rhi
 {
     struct ManifestProgramImpl
     {
+        ManifestProgramImpl() noexcept = default;
         ~ManifestProgramImpl();
+        ManifestProgramImpl(const ManifestProgramImpl&) = delete;
+        ManifestProgramImpl& operator=(const ManifestProgramImpl&) = delete;
+        ManifestProgramImpl(ManifestProgramImpl&&) noexcept = default;
+        ManifestProgramImpl& operator=(ManifestProgramImpl&&) noexcept = default;
 
         DeviceHandle Device;
         std::unique_ptr<ShaderProgram> Program;
         std::vector<DescriptorSetLayoutHandle> SetLayouts;
         PipelineLayoutHandle PipelineLayout;
         std::array<uint32_t, 3> Workgroup{ 1u, 1u, 1u };
+        std::optional<PushConstantRange> PushConstants;
     };
 
     struct ShaderLibraryModule
@@ -127,6 +151,11 @@ namespace rhi
         return impl->Workgroup;
     }
 
+    std::optional<PushConstantRange> ManifestProgram::PushConstants() const noexcept
+    {
+        return impl->PushConstants;
+    }
+
     ShaderLibrary::ShaderLibrary(std::unique_ptr<ShaderLibraryImpl>&& _impl) noexcept :
         impl{ std::move(_impl) }
     {
@@ -153,6 +182,7 @@ namespace rhi
         {
             return std::unexpected(ShaderLibraryError::ManifestInvalid);
         }
+
         libraryImpl->Bundle = *bundle;
 
         const int32_t profileIndex = libraryImpl->Bundle.FindProfile(profile_name);
@@ -160,21 +190,25 @@ namespace rhi
         {
             return std::unexpected(ShaderLibraryError::ProfileNotInManifest);
         }
+
         std::span<const lodestone::manifest::Profile> profiles = libraryImpl->Bundle.Profiles();
         if (profiles[profileIndex].CodeFormat != lodestone::ShaderCodeFormat::Spirv)
         {
             return std::unexpected(ShaderLibraryError::ProfileNotSpirv);
         }
+
         libraryImpl->ProfileIndex = static_cast<uint32_t>(profileIndex);
 
         for (uint32_t moduleIndex = 0; moduleIndex < libraryImpl->Bundle.ModuleCount(); ++moduleIndex)
         {
             lodestone::manifest::ManifestResult<lodestone::manifest::EnvironmentView> environment =
                 libraryImpl->Bundle.OpenEnvironment(libraryImpl->ProfileIndex, moduleIndex);
+
             if (!environment.has_value())
             {
                 return std::unexpected(ShaderLibraryError::EnvironmentInvalid);
             }
+
             ShaderLibraryModule libraryModule;
             libraryModule.Environment = std::make_unique<lodestone::manifest::EnvironmentView>(*environment);
             libraryModule.Index = std::make_unique<lodestone::ManifestIndex>(*libraryModule.Environment);
@@ -188,18 +222,21 @@ namespace rhi
     ShaderLibraryResult<const lodestone::ManifestIndex*> ShaderLibrary::ModuleIndex(std::string_view module_name) const
     {
         ShaderLibraryResult<const ShaderLibraryModule*> libraryModule = impl->FindModule(module_name);
+
         if (!libraryModule.has_value())
         {
             return std::unexpected(libraryModule.error());
         }
+
         return (*libraryModule)->Index.get();
     }
 
     ShaderLibraryResult<std::unique_ptr<ManifestProgram>> ShaderLibrary::CreateProgram(
-        DeviceHandle device,
+        const DeviceHandle& device,
         std::string_view module_name,
         lodestone::VariantKey variant,
-        std::span<const std::string_view> entry_points) const
+        std::span<const std::string_view> entry_points,
+        const ManifestProgramOptions& options) const
     {
         if (entry_points.empty())
         {
@@ -221,13 +258,16 @@ namespace rhi
 
         std::vector<lodestone::manifest::EntryPointInstanceView> instances;
         instances.reserve(entry_points.size());
+
         for (const std::string_view entryPointName : entry_points)
         {
             lodestone::manifest::ManifestResult<uint32_t> entryPointIndex = environment.Module().FindEntryPointIndex(entryPointName);
+
             if (!entryPointIndex.has_value())
             {
                 return std::unexpected(ShaderLibraryError::EntryPointNotInModule);
             }
+
             if (environment.FindEntryPointInstance(*entryPointIndex, variant) == nullptr)
             {
                 return std::unexpected(ShaderLibraryError::EntryPointNotInVariant);
@@ -262,11 +302,14 @@ namespace rhi
                 static_cast<uint32_t>(set.Bindings.size()),
                 set.Bindings.data()
             };
+
             VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+
             if (vkCreateDescriptorSetLayout(vkDevice, &setLayoutInfo, nullptr, &setLayout) != VK_SUCCESS)
             {
                 return std::unexpected(ShaderLibraryError::DescriptorSetLayoutCreationFailed);
             }
+
             DescriptorSetLayoutHandle& setLayoutHandle = programImpl->SetLayouts.emplace_back();
             setLayoutHandle.Set(setLayout);
         }
@@ -278,8 +321,17 @@ namespace rhi
             vkSetLayouts.push_back(setLayout.As<VkDescriptorSetLayout>());
         }
 
-        // todo: push constants. The cook reflects entry point `uniform` parameters, but how they appear in the
-        // manifest is still an open Lodestone question (see todo.md), so cooked programs use none for now
+        // Slang puts every stage's push constant block at offset 0, and Merge checked that the blocks agree where they
+        // overlap, so one range covers the pipeline (Lodestone C1)
+        std::vector<PushConstantRange> pushConstantRanges;
+        VkPushConstantRange vkPushConstantRange{};
+        if (const std::optional<lodestone::manifest::MergedPushConstants> pushConstants = mergedLayout->PushConstants())
+        {
+            programImpl->PushConstants = PushConstantRange{ ToRhiShaderStages(pushConstants->Stages), 0u, pushConstants->Constants.ByteSize() };
+            pushConstantRanges.push_back(*programImpl->PushConstants);
+            vkPushConstantRange = VkPushConstantRange{ ToVkShaderStages(pushConstants->Stages), 0u, pushConstants->Constants.ByteSize() };
+        }
+
         const VkPipelineLayoutCreateInfo pipelineLayoutInfo
         {
             VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
@@ -287,30 +339,34 @@ namespace rhi
             0,
             static_cast<uint32_t>(vkSetLayouts.size()),
             vkSetLayouts.data(),
-            0,
-            nullptr
+            programImpl->PushConstants.has_value() ? 1u : 0u,
+            programImpl->PushConstants.has_value() ? &vkPushConstantRange : nullptr
         };
+
         VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+
         if (vkCreatePipelineLayout(vkDevice, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS)
         {
             return std::unexpected(ShaderLibraryError::PipelineLayoutCreationFailed);
         }
+
         programImpl->PipelineLayout.Set(pipelineLayout);
 
         // ShaderBinaryOptions keeps spans and an entry point name, so this storage must outlive program creation
         std::vector<ShaderBinaryOptions> binaryOptions;
         binaryOptions.reserve(instances.size());
-        for (const lodestone::manifest::EntryPointInstanceView& instance : instances)
+        for (size_t i = 0; i < instances.size(); ++i)
         {
-            // the cooked SPIR-V does not keep the Slang entry point name: Slang names every SPIR-V entry point
-            // "main". Read the name from the code itself, so a change on the Slang side can't break us silently
-            const std::span<const uint32_t> words = instance.SpirvWords();
+            // the cook fails when OpEntryPoint differs from the manifest's entry point name, so the requested name is the SPIR-V name
+            const lodestone::manifest::EntryPointInstanceView& instance = instances[i];
             binaryOptions.emplace_back(
-                words,
+                instance.SpirvWords(),
                 ToRhiShaderStage(instance.Stage()),
-                SpirvEntryPointName(words),
-                std::span<PushConstantRange>{},
+                entry_points[i],
+                std::span<PushConstantRange>{ pushConstantRanges },
                 std::span<DescriptorSetLayoutHandle>{ programImpl->SetLayouts });
+            binaryOptions.back().RequiredSubgroupSize = options.RequiredSubgroupSize;
+            binaryOptions.back().RequireFullSubgroups = options.RequireFullSubgroups;
         }
 
         const lodestone::WorkgroupSize workgroup = instances.front().Workgroup();
@@ -335,48 +391,27 @@ namespace
         {
             return std::unexpected(rhi::ShaderLibraryError::ManifestFileUnreadable);
         }
+
         const std::streamsize fileSize = manifestFile.tellg();
         if (fileSize <= 0)
         {
             return std::unexpected(rhi::ShaderLibraryError::ManifestFileUnreadable);
         }
+
         std::vector<std::byte> bytes(static_cast<size_t>(fileSize));
         manifestFile.seekg(0, std::ios::beg);
         if (!manifestFile.read(reinterpret_cast<char*>(bytes.data()), fileSize))
         {
             return std::unexpected(rhi::ShaderLibraryError::ManifestFileUnreadable);
         }
-        return bytes;
-    }
 
-    std::string_view SpirvEntryPointName(std::span<const uint32_t> words) noexcept
-    {
-        // SPIR-V: a 5 word header, then instructions whose first word is (word count << 16) | opcode.
-        // OpEntryPoint (opcode 15) stores the execution model, the function id, then a null-terminated name
-        constexpr uint32_t k_HeaderWordCount = 5u;
-        constexpr uint32_t k_OpEntryPoint = 15u;
-        constexpr uint32_t k_NameWordOffset = 3u;
-        size_t position = k_HeaderWordCount;
-        while (position < words.size())
-        {
-            const uint32_t opcode = words[position] & 0xFFFFu;
-            const uint32_t wordCount = words[position] >> 16u;
-            if (wordCount == 0u)
-            {
-                break;
-            }
-            if (opcode == k_OpEntryPoint && wordCount > k_NameWordOffset)
-            {
-                return std::string_view{ reinterpret_cast<const char*>(words.data() + position + k_NameWordOffset) };
-            }
-            position += wordCount;
-        }
-        return std::string_view{ "main" };
+        return bytes;
     }
 
     std::expected<VkDescriptorType, rhi::ShaderLibraryError> ToVkDescriptorType(const lodestone::manifest::ResolvedResource& resource) noexcept
     {
         const bool writable = resource.Access() != lodestone::ResourceAccess::ReadOnly;
+
         switch (resource.Kind())
         {
             case lodestone::BindingKind::Sampler: return VK_DESCRIPTOR_TYPE_SAMPLER;
@@ -395,7 +430,7 @@ namespace
 
     VkShaderStageFlags ToVkShaderStages(lodestone::ShaderStageKind stages) noexcept
     {
-        constexpr std::pair<lodestone::ShaderStageKind, VkShaderStageFlagBits> stageTable[]
+        constexpr std::pair<lodestone::ShaderStageKind, VkShaderStageFlagBits> k_StageTable[]
         {
             { lodestone::ShaderStageKind::Vertex, VK_SHADER_STAGE_VERTEX_BIT },
             { lodestone::ShaderStageKind::Hull, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT },
@@ -416,11 +451,24 @@ namespace
             { lodestone::ShaderStageKind::Task, VK_SHADER_STAGE_TASK_BIT_EXT },
         };
         VkShaderStageFlags result = 0;
-        for (const auto& [stage, vkStage] : stageTable)
+        for (const auto& [stage, vkStage] : k_StageTable)
         {
             if ((static_cast<uint32_t>(stages) & static_cast<uint32_t>(stage)) != 0u)
             {
                 result |= vkStage;
+            }
+        }
+        return result;
+    }
+
+    rhi::ShaderStageFlags ToRhiShaderStages(lodestone::ShaderStageKind stages) noexcept
+    {
+        rhi::ShaderStageFlags result = rhi::ShaderStageFlags::None;
+        for (uint32_t bit = 1u; bit < static_cast<uint32_t>(lodestone::ShaderStageKind::Count); bit <<= 1u)
+        {
+            if ((static_cast<uint32_t>(stages) & bit) != 0u)
+            {
+                result |= ToRhiShaderStage(static_cast<lodestone::ShaderStageKind>(bit));
             }
         }
         return result;
@@ -457,31 +505,32 @@ namespace
         for (const lodestone::manifest::MergedResource& merged : layout)
         {
             const lodestone::manifest::ResolvedResource& resource = merged.Resource;
-            // the merge already rejects every placement that isn't Bound, so this only guards a future
-            // Lodestone that lifts that restriction before this renderer handles the new placements
-            if (resource.Placement() != lodestone::PlacementKind::Bound)
+            if (resource.Placement() == lodestone::PlacementKind::Pointer)
             {
-                return std::unexpected(rhi::ShaderLibraryError::UnsupportedResourcePlacement);
+                continue;
             }
+
             std::expected<VkDescriptorType, rhi::ShaderLibraryError> descriptorType = ToVkDescriptorType(resource);
+
             if (!descriptorType.has_value())
             {
                 return std::unexpected(descriptorType.error());
             }
+
             const lodestone::manifest::PlacementPayload placement = resource.PlacementValue();
             const uint32_t setIndex = placement.Word0;
             if (sets.size() <= setIndex)
             {
                 sets.resize(setIndex + 1u);
             }
-            sets[setIndex].Bindings.push_back(VkDescriptorSetLayoutBinding
-            {
-                placement.Word1,
-                *descriptorType,
-                std::max(resource.ArrayCount(), 1u),
-                ToVkShaderStages(merged.Stages),
-                nullptr
-            });
+
+            sets[setIndex].Bindings.emplace_back(placement.Word1,
+                                                 *descriptorType,
+                                                 std::max(resource.ArrayCount(),
+                                                 1u),
+                                                 ToVkShaderStages(merged.Stages),
+                                                 nullptr);
+
         }
         return sets;
     }
@@ -492,6 +541,7 @@ namespace
         {
             vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
         }
+        
         for (const rhi::DescriptorSetLayoutHandle& setLayout : set_layouts)
         {
             vkDestroyDescriptorSetLayout(device, setLayout.As<VkDescriptorSetLayout>(), nullptr);

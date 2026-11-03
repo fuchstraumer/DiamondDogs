@@ -1,5 +1,0 @@
-#include "Material.hpp"
-#include "DescriptorBinder.hpp"
-#include "ResourceContext.hpp"
-#include "ResourceLoader.hpp"
-#include "RenderingContext.hpp"

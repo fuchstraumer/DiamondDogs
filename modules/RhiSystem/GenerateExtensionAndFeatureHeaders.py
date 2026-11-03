@@ -325,133 +325,67 @@ def ParseDependencyString(dependencyString):
     dependencyAST = parser.parse(dependencyString)
     return transformer.transform(dependencyAST)
 
+def DependencyASTToDnf(node):
+    '''
+    Flattens a dependency AST into disjunctive normal form: a list of alternatives, any one of which satisfies the
+    dependency. Each alternative is (frozenset of extension names, minimum version name).
+    '''
+    if node['type'] == 'VERSION':
+        return [(frozenset(), node['name'])]
+    elif node['type'] == 'EXTENSION':
+        return [(frozenset([node['name']]), 'VK_VERSION_1_0')]
+    elif node['type'] == 'OR':
+        result = []
+        for term in node['terms']:
+            result.extend(DependencyASTToDnf(term))
+        return result
+    else:  # AND
+        result = [(frozenset(), 'VK_VERSION_1_0')]
+        for factor in node['factors']:
+            result = [(leftExts | rightExts, max(leftVersion, rightVersion, key=VersionNameSortKey))
+                      for (leftExts, leftVersion) in result
+                      for (rightExts, rightVersion) in DependencyASTToDnf(factor)]
+        return result
+
+def VersionNameSortKey(versionName):
+    '''
+    Sort key for VK_VERSION_X_Y names, numeric so that a VK_VERSION_1_10 would sort after VK_VERSION_1_9
+    '''
+    major, minor = versionName.removeprefix('VK_VERSION_').split('_')
+    return (int(major), int(minor))
+
 def ProcessDependencyAST(extensionObject, dependencyAST, versionNameList):
     '''
-    Processes a dependency AST for a given extension object, updating the extensionObject's dependencies
-    with the dependencies found in the AST.
+    Processes a dependency AST for a given extension object, filling extensionObject.dependencies with one entry
+    per version. Each entry lists the extensions to enable at that version, plus the version the chosen alternative
+    requires when that is above 1.0. A version where no alternative is satisfiable lists only the lowest version
+    any alternative needs, which the runtime lookup reports as "this API version does not support the extension".
     Args:
         extensionObject: ExtensionWithDependencies object to update
         dependencyAST: AST representation of the dependencies
         versionNameList: List of valid Vulkan version names
     '''
-    # Initialize the dependencies dictionary if it doesn't exist
+    # fixed: this used to walk the AST with a version stack that dropped version requirements, so a row could
+    # read "for VK_VERSION_1_0 ... requires VK_VERSION_1_0" where vk.xml says the extension needs 1.1
+    alternatives = list(dict.fromkeys(DependencyASTToDnf(dependencyAST[0])))
     extensionObject.dependencies = {}
-
-    # Keep stack of dependencies and versions we're currently processing,
-    # pushing to the queue as we find new values and popping or applying 
-    # the stack as we finish with the AND/OR nodes as appropriate.
-    version_stack = []
-    version_stack.append(versionNameList[0])
-    # Initialize the dependencies entry for the initial version
-    extensionObject.dependencies[versionNameList[0]] = []
-    extension_stack = []
-
-    
-    # Helper function to process OR nodes (alternative dependency paths)
-    def process_or_node(node):
-        nonlocal version_stack, extension_stack
-        for term in node['terms']:
-            type = process_node(term)
-            if type == 'VERSION':
-                next_version_name = term['name']
-                if next_version_name not in extensionObject.dependencies:
-                    extensionObject.dependencies[next_version_name] = []
-                extensionObject.dependencies[version_stack[-1]].extend(extension_stack)
-                version_stack.append(next_version_name)
-                extension_stack = []
-        return 'OR'
-
-    # Helper function to process AND nodes (dependencies that must all be satisfied)
-    def process_and_node(node):
-        nonlocal version_stack, extension_stack
-        for factor in node['factors']:
-            type = process_node(factor)
-            if type == 'VERSION':
-                version_stack.pop()
-                version_stack.append(factor['name'])
-        return 'AND'
-    
-    # Helper function to process leaf nodes (VERSION or EXTENSION)
-    def process_leaf_node(node):
-        nonlocal version_stack, extension_stack
-        if node['type'] == 'VERSION':
-            version_name = node['name']
-            if version_name not in extensionObject.dependencies:
-                extensionObject.dependencies[version_name] = []
-            return 'VERSION'
-        elif node['type'] == 'EXTENSION':
-            extension_name = node['name']
-            extension_stack.append(extension_name)
-            return 'EXTENSION'
-
-    # Main recursive function to process any node type
-    def process_node(node):
-        nonlocal version_stack, extension_stack
-        if node['type'] == 'OR':
-            return process_or_node(node)
-        elif node['type'] == 'AND':
-            return process_and_node(node)
-        else:  # VERSION or EXTENSION
-            return process_leaf_node(node)
-    
-    # Start processing from the root node. Start with VK_VERSION_1_0 as leaves without versions
-    # should end up there anyways, or will be processed during finalization.
-    process_node(dependencyAST[0])
-    if len(extension_stack) > 0:
-        # Apply extensions in stack to versions from current version to end of available versions
-        for version in versionNameList[versionNameList.index(version_stack[-1]):]:
-            if version not in extensionObject.dependencies:
-                extensionObject.dependencies[version] = []
-            extensionObject.dependencies[version].extend(extension_stack)
+    for version in versionNameList:
+        satisfiable = [alt for alt in alternatives if VersionNameSortKey(alt[1]) <= VersionNameSortKey(version)]
+        if len(satisfiable) == 0:
+            lowestVersion = min((alt[1] for alt in alternatives), key=VersionNameSortKey)
+            extensionObject.dependencies[version] = [lowestVersion]
+            continue
+        # the runtime can only enable one alternative, so take the one needing the fewest extensions
+        extensions, requiredVersion = min(satisfiable, key=lambda alt: (len(alt[0]), VersionNameSortKey(alt[1]), sorted(alt[0])))
+        dependencies = sorted(extensions)
+        if requiredVersion != 'VK_VERSION_1_0':
+            dependencies.append(requiredVersion)
+        extensionObject.dependencies[version] = dependencies
 
 def FinalizeDependencies(extensionObject, versionNameList):
     '''
-    Finalizes the dependencies for an extension object, using the known version dependencies
-    to forward fill and backward invalidate in the dependencies for versions as appropriate.
+    Marks the versions where the extension is core.
     '''
-
-    if len(extensionObject.dependencies) == 1:
-        # If there's only one version, we don't need to do anything
-        return
-
-    # First, we need to find the earliest version that has dependencies when the list has more than 
-    # one version: this indicates the first version that supports the extension.
-    firstVersionWithDependencies = None
-    for version, dependencies in extensionObject.dependencies.items():
-        if firstVersionWithDependencies is None and len(dependencies) > 0:
-            firstVersionWithDependencies = version
-            break
-
-    # Starting with the first version with dependencies (which should now be the front of the dict), 
-    # we need to iterate through dependency ranges (gaps between versions) and add dependencies from the previous
-    # version to the next version if it's not already in the list.
-    # Create a local copy to iterate over, because we're going to be modifying the dependencies list as we go
-    extensionDependenciesCopy = extensionObject.dependencies.copy()
-    for version, dependencies in extensionDependenciesCopy.items():
-        found_current = False
-        versionsToAdd = []
-        for versionName in versionNameList:
-            if found_current:
-                # The key is that we're looking for the next version that hasn't had deps added yet
-                # Add them to the list, and continue
-                if versionName not in extensionObject.dependencies:
-                    versionsToAdd.append(versionName)
-                    continue
-                # We found the next version with dependencies or which appeared in the AST,
-                # ending our inclusive range of versions with dependencies to update
-                elif versionName in extensionObject.dependencies:
-                    break
-            elif versionName == version:
-                found_current = True
-        
-        # If there's no next version with dependencies, we're done with this version
-        # Note: we DO still propagate empty dep lists (meaning "needs only the version") to later versions
-        if len(versionsToAdd) == 0:
-            continue
-        else:
-            # Add dependencies from the current version to the next version
-            for versionToAdd in versionsToAdd:
-                extensionObject.dependencies[versionToAdd] = dependencies
 
     # handle promotedTo case, by propagating promoted status to later versions than the promotedTo version
     if extensionObject.promotedTo is not None and extensionObject.promotedTo in versionNameList:
@@ -461,17 +395,9 @@ def FinalizeDependencies(extensionObject, versionNameList):
         for version in versionNameList[promotedToVersionIndex:]:
             extensionObject.dependencies[version] = ["PromotedToCore"]
     
-    # Check if any version has "PromotedToCore" and infer promotedTo if not already set
-    if extensionObject.promotedTo is None:
-        for version, dependencies in extensionObject.dependencies.items():
-            if dependencies == ["PromotedToCore"]:
-                extensionObject.promotedTo = version
-                break
-
-    # Empty dependency lists now indicate that at that version, all we need is the extension itself. This
+    # Empty dependency lists indicate that at that version, all we need is the extension itself. This
     # is different from being promoted, however.
-    # Sort the dependencies list based on version name
-    extensionObject.dependencies = dict(sorted(extensionObject.dependencies.items()))
+    extensionObject.dependencies = dict(sorted(extensionObject.dependencies.items(), key=lambda item: VersionNameSortKey(item[0])))
 
 def FindAllExtensionsDependencies(extensionObjects, versions):
     '''
@@ -746,6 +672,10 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
                                 # Extension was promoted to core in this version
                                 dependencyIndices.append(version)
                                 continue
+                            if dependency.startswith('VK_VERSION_'):
+                                # the alternative chosen for this version needs a core version above 1.0
+                                dependencyIndices.append(dependency)
+                                continue
                             if dependency in extensionNameToIndexDict:
                                 dependencyIndices.append(extensionNameToIndexDict[dependency])
                     
@@ -802,8 +732,8 @@ def WriteExtensionDependencyTable(extensionObjects, versions, fileStream):
                 
                 if dependencyIndices:
                     for depIdx in dependencyIndices:
-                        if depIdx == version:
-                            dependencyNames.append(f"requires {version}")
+                        if isinstance(depIdx, str):
+                            dependencyNames.append(f"requires {depIdx}")
                         else:
                             depName = next((ext.name for ext in extensionObjects if ext.nameIndex == depIdx), f"Index_{depIdx}")
                             dependencyNames.append(depName)

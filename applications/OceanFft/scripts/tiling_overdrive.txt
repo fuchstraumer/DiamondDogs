@@ -1,0 +1,25 @@
+# Gale, overdriven to make the tiling easy to see: more height, chop and foam. Run with --capture=DIR.
+# The top-down views stay inside the fade distance of the 12.9 m and 55.4 m cascades (15 patch lengths).
+preset Gale
+sea HeightScale 1.6
+choppiness 1.5
+sea WhitecapThreshold 0.8
+sea FoamAmount 1.3
+sea FoamSpread 1.3
+ui off
+dt 0.0166667
+time 30
+wait 30
+camera 0 89.4 150
+wait 10
+capture overdrive_top_150
+camera 0 89.4 400
+wait 10
+capture overdrive_top_400
+camera 30 35 250
+wait 10
+capture overdrive_oblique35_250
+camera 30 20 400
+wait 10
+capture overdrive_oblique20_400
+quit

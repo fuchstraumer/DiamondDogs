@@ -72,6 +72,11 @@ namespace rhi
         // Push constants need to be provided separately since we don't reflect on them
         std::span<PushConstantRange> PushConstants{};
         std::span<rhi::DescriptorSetLayoutHandle> DescriptorLayouts{};
+        // Compute only. Code that exchanges data across lanes (wave ops) and assumes lane == local thread index needs
+        // both: a fixed subgroup size, and every subgroup full. The workgroup X size must be a multiple of the size.
+        // 0 leaves the size to the driver. Needs the subgroupSizeControl and computeFullSubgroups features (1.3)
+        uint32_t RequiredSubgroupSize{ 0u };
+        bool RequireFullSubgroups{ false };
     };
 
 }

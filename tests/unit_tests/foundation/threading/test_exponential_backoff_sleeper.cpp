@@ -43,7 +43,7 @@ TEST_F(ExponentialBackoffSleeperTest, ExponentialGrowth)
 {
     ExponentialBackoffSleeper sleeper;
     
-    std::vector<int64_t> sleep_times;
+    std::vector<int64_t> sleepTimes;
     
     // Measure several sleep iterations
     for (int i = 0; i < 5; ++i)
@@ -53,17 +53,17 @@ TEST_F(ExponentialBackoffSleeperTest, ExponentialGrowth)
         auto end = std::chrono::high_resolution_clock::now();
         
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        sleep_times.push_back(duration.count());
+        sleepTimes.push_back(duration.count());
     }
     
     // Each sleep should generally be longer than the previous (with some tolerance for timing variation)
-    for (size_t i = 1; i < sleep_times.size(); ++i)
+    for (size_t i = 1; i < sleepTimes.size(); ++i)
     {
-        std::cout << "Sleep " << i << ": " << sleep_times[i] << " microseconds\n";
+        std::cout << "Sleep " << i << ": " << sleepTimes[i] << " microseconds\n";
     }
     
     // At least the later sleeps should be longer than the early ones
-    EXPECT_LT(sleep_times[0], sleep_times[sleep_times.size() - 1]) 
+    EXPECT_LT(sleepTimes[0], sleepTimes[sleepTimes.size() - 1]) 
         << "Sleep time should increase exponentially";
 }
 
@@ -108,7 +108,7 @@ TEST_F(ExponentialBackoffSleeperTest, MaximumSleepTime)
     }
     
     // Measure a few sleeps at maximum
-    std::vector<int64_t> max_sleep_times;
+    std::vector<int64_t> maxSleepTimes;
     for (int i = 0; i < 3; ++i)
     {
         auto start = std::chrono::high_resolution_clock::now();
@@ -116,22 +116,22 @@ TEST_F(ExponentialBackoffSleeperTest, MaximumSleepTime)
         auto end = std::chrono::high_resolution_clock::now();
         
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        max_sleep_times.push_back(duration.count());
+        maxSleepTimes.push_back(duration.count());
     }
     
     // Sleep times should have converged to a maximum and be relatively stable
-    int64_t min_time = *std::min_element(max_sleep_times.begin(), max_sleep_times.end());
-    int64_t max_time = *std::max_element(max_sleep_times.begin(), max_sleep_times.end());
+    int64_t minTime = *std::min_element(maxSleepTimes.begin(), maxSleepTimes.end());
+    int64_t maxTime = *std::max_element(maxSleepTimes.begin(), maxSleepTimes.end());
     
     std::cout << "Maximum sleep times: ";
-    for (auto time : max_sleep_times)
+    for (auto time : maxSleepTimes)
     {
         std::cout << time << " ";
     }
     std::cout << "microseconds\n";
     
     // There should be some reasonable maximum (not growing forever)
-    EXPECT_LT(max_time, 100000) << "Sleep time should have a reasonable maximum";
+    EXPECT_LT(maxTime, 100000) << "Sleep time should have a reasonable maximum";
 }
 
 TEST_F(ExponentialBackoffSleeperTest, ThreadSafety)
@@ -139,23 +139,23 @@ TEST_F(ExponentialBackoffSleeperTest, ThreadSafety)
     // Test that multiple threads can use the same sleeper safely
     ExponentialBackoffSleeper sleeper;
     
-    constexpr int num_threads = 4;
-    constexpr int sleeps_per_thread = 10;
+    constexpr int k_NumThreads = 4;
+    constexpr int k_SleepsPerThread = 10;
     
     std::vector<std::thread> threads;
-    std::atomic<int> completed_sleeps{0};
+    std::atomic<int> completedSleeps{0};
     
     auto worker = [&]()
     {
-        for (int i = 0; i < sleeps_per_thread; ++i)
+        for (int i = 0; i < k_SleepsPerThread; ++i)
         {
             sleeper.sleep();
-            completed_sleeps.fetch_add(1);
+            completedSleeps.fetch_add(1);
         }
     };
     
     // Launch threads
-    for (int i = 0; i < num_threads; ++i)
+    for (int i = 0; i < k_NumThreads; ++i)
     {
         threads.emplace_back(worker);
     }
@@ -166,7 +166,7 @@ TEST_F(ExponentialBackoffSleeperTest, ThreadSafety)
         thread.join();
     }
     
-    EXPECT_EQ(completed_sleeps.load(), num_threads * sleeps_per_thread);
+    EXPECT_EQ(completedSleeps.load(), k_NumThreads * k_SleepsPerThread);
 }
 
 TEST_F(ExponentialBackoffSleeperTest, SpinWaitIntegration)
@@ -174,7 +174,7 @@ TEST_F(ExponentialBackoffSleeperTest, SpinWaitIntegration)
     // Test typical usage pattern in a spin-wait loop
     ExponentialBackoffSleeper sleeper;
     std::atomic<bool> condition{false};
-    std::atomic<int> spin_count{0};
+    std::atomic<int> spinCount{0};
     
     // Thread that will set the condition after a delay
     std::thread setter([&]()
@@ -187,14 +187,14 @@ TEST_F(ExponentialBackoffSleeperTest, SpinWaitIntegration)
     while (!condition.load())
     {
         sleeper.sleep();
-        spin_count.fetch_add(1);
+        spinCount.fetch_add(1);
     }
     
     setter.join();
     
-    std::cout << "Spin wait completed after " << spin_count.load() << " iterations\n";
-    EXPECT_GT(spin_count.load(), 0);
-    EXPECT_LT(spin_count.load(), 10000) << "Should not spin excessively";
+    std::cout << "Spin wait completed after " << spinCount.load() << " iterations\n";
+    EXPECT_GT(spinCount.load(), 0);
+    EXPECT_LT(spinCount.load(), 10000) << "Should not spin excessively";
 }
 
 } // namespace threading

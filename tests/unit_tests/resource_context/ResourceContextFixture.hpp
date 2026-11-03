@@ -22,9 +22,19 @@ protected:
     void SetUp() override;
     void TearDown() override;
 
-    /** Returns the GPUToCPU buffer that the source buffer's first size_bytes were copied into, read back as words. */
+    /** Returns the first size_bytes of the source buffer, copied into a GPUToCPU buffer and read back as words. */
     [[nodiscard]] std::vector<uint32_t> ReadBackWords(const GraphicsResource& source, size_t size_bytes);
-    /** Creates a buffer and waits for it. Fails the test when the reply does not complete. */
+    /** Returns the first size_bytes of the image's mip 0, copied into a GPUToCPU buffer and read back as words. The
+     *  usage is the image's usage before the copy and the usage it must have after. */
+    [[nodiscard]] std::vector<uint32_t> ReadBackImageWords(const GraphicsResource& image, rhi::ImageUsageTransition usage, size_t size_bytes);
+    /** Creates the GPUToCPU buffer that a readback copies into. */
+    [[nodiscard]] GraphicsResource CreateReadbackBuffer(size_t size_bytes);
+    /** Maps the readback buffer, copies out its words and destroys it. */
+    [[nodiscard]] std::vector<uint32_t> ReadWordsAndDestroy(const GraphicsResource& readback, size_t size_bytes);
+    /** Destroys the test's context, then makes a new one with a future table of `max_futures` slots. The old context
+     *  goes first: two contexts would submit to the same transfer queue from two threads. */
+    void RecreateContext(int32_t max_futures);
+    /** Creates a buffer and waits for it. Fails the test when the future does not complete. */
     [[nodiscard]] GraphicsResource CreateBufferAndWait(const BufferCreateInfo& create_info, std::span<const RhiBufferResourceData> initial_data);
     void DestroyAndWait(const GraphicsResource& resource);
 

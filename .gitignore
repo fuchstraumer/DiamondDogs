@@ -7,7 +7,24 @@ assets/glTF/
 GeneratedExtensionHeader.hpp
 .cursorignore
 .cursor/
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.so
+*.dll
+*.dylib
+*.db
+*.xls
 
 modules/ResourceContext/chat.md
-
+.github/skills/
+docs/
+assets/textures/hdri/
+assets/textures/
 fix-submodules.ps1
+docs/agent-scripts/logs/
+docs/our-machinery/
+
+assets/shaders/common/Color/ddColorGenerated.slang
+assets/shaders/compute/Ocean/OceanFftGenerated.slang

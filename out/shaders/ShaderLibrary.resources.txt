@@ -1,0 +1,19 @@
+Lodestone resource report
+For each resource: where each creation field comes from.
+  shader      the shader fixes the value for every variant
+  per-variant the shader fixes the value for each variant, and the named axes change it
+  cpu         the renderer must supply the value
+A buffer with no cpu field is complete. A texture or a sampler always needs values from the renderer
+(mip levels, sampler state), so the count names buffers only.
+
+module OceanEnvironment, target spirv: 0 of 0 buffers complete
+  DstMip : StorageTexture, read by OceanEnvDownsampleMipCS
+    usage: shader, dimension: shader, format: shader, extent: cpu, layers: shader, mips: cpu, samples: shader
+  OutPreethamMip0 : StorageTexture, read by OceanEnvPreethamCS
+    usage: shader, dimension: shader, format: shader, extent: cpu, layers: shader, mips: cpu, samples: shader
+  SkyDomeSampler : Sampler, read by OceanSkyFS
+    sampler: cpu
+  SkyDomeTexture : Texture, read by OceanSkyFS
+    usage: shader, dimension: shader, format: cpu, extent: cpu, layers: shader, mips: cpu, samples: shader
+  SrcMip : Texture, read by OceanEnvDownsampleMipCS
+    usage: shader, dimension: shader, format: cpu, extent: cpu, layers: shader, mips: cpu, samples: shader

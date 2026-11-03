@@ -63,11 +63,6 @@ static const std::unordered_map<std::string, PresentMode> k_PresentModeFromStrMa
     { "VerticalSyncLatestReady", PresentMode::VerticalSyncLatestReady }
 };
 
-static ImageFormat ImageFormatFromString(const std::string_view& image_format_str)
-{
-    return ImageFormat{};
-}
-
 // Pile of defaults for various values, used as fallback when config doesn't contain them
 constexpr static uint32_t k_DefaultInitialWidth = 800;
 constexpr static uint32_t k_DefaultInitialHeight = 600;
@@ -78,6 +73,8 @@ constexpr static uint32_t k_DefaultSwapchainImageCount = 2;
 constexpr static ImageFormat k_DefaultSDRFormat = CommonFormats::RGBA8_SRGB;
 // for now, this format seems to be common in retrieved metadata from the system APIs
 constexpr static ImageFormat k_DefaultHDRFormat = CommonFormats::HDR_A2R10G10B10;
+
+static void EnsureSurface(PlatformSystemImpl& impl, void* rhi_instance, void* rhi_device);
 
 PlatformWindowSystem::PlatformWindowSystem(const char* json_path, void* rhi_instance, void* rhi_device)
 {
@@ -218,6 +215,7 @@ PlatformWindowSystem::PlatformWindowSystem(const char* json_path, void* rhi_inst
     swapchainInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
     swapchainInfo.MinImageCount = swapchainImageCount;
     swapchainInfo.SwapchainPresentMode = presentMode;
+    swapchainInfo.RefreshRate = impl->ActiveDisplay.RefreshRateCapabilities.RefreshRate;
     swapchainInfo.TryEnableHDR = enableHDR;
     if (enableHDR)
     {
@@ -261,16 +259,7 @@ void PlatformWindowSystem::Destroy()
 
 void PlatformWindowSystem::CreateDefaultSwapchain(void* rhi_instance, void* rhi_device)
 {
-    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(rhi_instance);
-    const uint64_t vkInstanceHandle = instance->Handle().Get();
-    rhi::Device* device = reinterpret_cast<rhi::Device*>(rhi_device);
-    const uint64_t vkPhysicalDeviceHandle = device->GetPhysicalDevice().Get();
-    
-    if (!impl->ActiveSurface)
-    {
-        // Create default platform surface
-        impl->ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle, vkPhysicalDeviceHandle, impl->Window);
-    }
+    EnsureSurface(*impl, rhi_instance, rhi_device);
 
     if (impl->ActiveSwapchain)
     {
@@ -288,10 +277,45 @@ void PlatformWindowSystem::CreateDefaultSwapchain(void* rhi_instance, void* rhi_
     createInfo.DisplayIndex = 0u;
     createInfo.MinImageCount = k_DefaultSwapchainImageCount;
     createInfo.SwapchainPresentMode = k_DefaultPresentMode;
+    createInfo.RefreshRate = displayInfo.RefreshRateCapabilities.RefreshRate;
     createInfo.TryEnableHDR = enableHDR;
     createInfo.SwapchainFormat = enableHDR ? k_DefaultHDRFormat : k_DefaultSDRFormat;
     createInfo.DesiredColorSpace = enableHDR ? displayInfo.ColorCapabilities.DetectedColorSpace : k_DefaultColorSpace;
     createInfo.HdrColorCapabilities = displayInfo.ColorCapabilities;
+    impl->ActiveSwapchain = std::make_unique<Swapchain>(createInfo);
+}
+
+std::vector<SurfaceFormatPair> PlatformWindowSystem::QuerySurfaceFormats(void* rhi_instance, void* rhi_device)
+{
+    EnsureSurface(*impl, rhi_instance, rhi_device);
+
+    SwapchainCreateInfo createInfo{};
+    createInfo.RhiDevice = rhi_device;
+    createInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
+
+    return Swapchain::QuerySurfaceFormats(createInfo);
+}
+
+void PlatformWindowSystem::CreateSwapchainWithSurfaceFormat(void* rhi_instance, void* rhi_device, const SurfaceFormatPair& surface_format)
+{
+    EnsureSurface(*impl, rhi_instance, rhi_device);
+
+    if (impl->ActiveSwapchain)
+    {
+        DestroySwapchain();
+    }
+
+    SwapchainCreateInfo createInfo{};
+    createInfo.RhiDevice = rhi_device;
+    createInfo.PlatformWindowHandle = impl->Window;
+    createInfo.VkSurfaceHandle = impl->ActiveSurface->GetVkSurface();
+    createInfo.PlatformSystemPtr = this;
+    createInfo.DisplayIndex = 0u;
+    createInfo.MinImageCount = k_DefaultSwapchainImageCount;
+    createInfo.SwapchainPresentMode = k_DefaultPresentMode;
+    createInfo.RefreshRate = impl->ActiveDisplay.RefreshRateCapabilities.RefreshRate;
+    createInfo.HdrColorCapabilities = impl->ActiveDisplay.ColorCapabilities;
+    createInfo.ExplicitSurfaceFormat = surface_format;
     impl->ActiveSwapchain = std::make_unique<Swapchain>(createInfo);
 }
 
@@ -322,48 +346,18 @@ const Swapchain* PlatformWindowSystem::GetActiveSwapchain() const noexcept
     return impl->ActiveSwapchain.get();
 }
 
+Swapchain* PlatformWindowSystem::GetActiveSwapchain() noexcept
+{
+    return impl->ActiveSwapchain.get();
+}
+
 // Event listener registration methods
-void PlatformWindowSystem::AddCursorPosEventListener(CursorPosEvent listener, void* user_data)
-{
-    impl->AddCursorPosEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddCursorEnterEventListener(CursorEnterEvent listener, void* user_data)
-{
-    impl->AddCursorEnterEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddScrollEventListener(ScrollEvent listener, void* user_data)
-{
-    impl->AddScrollEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddCharEventListener(CharEvent listener, void* user_data)
-{
-    impl->AddCharEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddPathDropEventListener(PathDropEvent listener, void* user_data)
-{ 
-    impl->AddPathDropEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddMouseButtonEventListener(MouseButtonEvent listener, void* user_data)
-{ 
-    impl->AddMouseButtonEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddKeyboardKeyEventListener(KeyboardKeyEvent listener, void* user_data)
-{ 
-    impl->AddKeyboardKeyEventListener(std::move(listener), user_data);
-}
-
-void PlatformWindowSystem::AddShouldResizeEventListener(ShouldResizeEvent listener, void* user_data)
+void PlatformWindowSystem::AddShouldResizeEventListener(const ShouldResizeEvent& listener, void* user_data)
 {
     impl->AddShouldResizeEventListener(std::move(listener), user_data);
 }
 
-void PlatformWindowSystem::AddShouldCloseEventListener(ShouldCloseEvent listener, void* user_data)
+void PlatformWindowSystem::AddShouldCloseEventListener(const ShouldCloseEvent& listener, void* user_data)
 {
     impl->AddShouldCloseEventListener(std::move(listener), user_data);
 }
@@ -400,6 +394,11 @@ void PlatformWindowSystem::WaitForEvents()
     impl->WaitForEvents();
 }
 
+void PlatformWindowSystem::SetInputAssembler(input::FrameAssembler* assembler)
+{
+    impl->SetInputAssembler(assembler);
+}
+
 bool PlatformWindowSystem::ShouldWindowClose() const
 {
     return glfwWindowShouldClose(impl->Window) != 0;
@@ -433,11 +432,6 @@ void PlatformWindowSystem::GetFramebufferSize(int& w, int& h) const
     glfwGetFramebufferSize(impl->Window, &w, &h);
 }
 
-int PlatformWindowSystem::GetMouseButton(int button) const
-{
-    return glfwGetMouseButton(impl->Window, button);
-}
-
 void PlatformWindowSystem::GetCursorPosition(double& x, double& y) const
 {
     glfwGetCursorPos(impl->Window, &x, &y);
@@ -458,16 +452,6 @@ void PlatformWindowSystem::SetWindowAttribute(int attrib, int value)
     glfwSetWindowAttrib(impl->Window, attrib, value);
 }
 
-int PlatformWindowSystem::GetInputMode(int mode) const
-{
-    return glfwGetInputMode(impl->Window, mode);
-}
-
-void PlatformWindowSystem::SetInputMode(int mode, int val)
-{
-    glfwSetInputMode(impl->Window, mode, val);
-}
-
 void PlatformWindowSystem::SetWindowShouldClose(bool should_close)
 {
     glfwSetWindowShouldClose(impl->Window, should_close ? GLFW_TRUE : GLFW_FALSE);
@@ -476,4 +460,18 @@ void PlatformWindowSystem::SetWindowShouldClose(bool should_close)
 DisplayInfo PlatformWindowSystem::GetPrimaryDisplayInfo() noexcept
 {
     return RetrievePlatformPrimaryDisplayInfo();
+}
+
+static void EnsureSurface(PlatformSystemImpl& impl, void* rhi_instance, void* rhi_device)
+{
+    if (impl.ActiveSurface)
+    {
+        return;
+    }
+
+    rhi::Instance* instance = reinterpret_cast<rhi::Instance*>(rhi_instance);
+    const uint64_t vkInstanceHandle = instance->Handle().Get();
+    rhi::Device* device = reinterpret_cast<rhi::Device*>(rhi_device);
+    const uint64_t vkPhysicalDeviceHandle = device->GetPhysicalDevice().Get();
+    impl.ActiveSurface = std::make_unique<PlatformSurface>(vkInstanceHandle, vkPhysicalDeviceHandle, impl.Window);
 }

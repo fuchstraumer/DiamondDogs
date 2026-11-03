@@ -19,18 +19,24 @@ set(RHI_CORE_HEADERS
     "include/core/RhiFlags.hpp"
     "include/core/RhiTypes.hpp")
 
-set(RHI_CORE_SOURCES 
+set(RHI_CORE_SOURCES
     "src/core/ExtensionWrangler.cpp"
     "src/core/ExtensionPack.cpp"
+    "src/core/RhiAssert.cpp"
     "src/core/RhiSystem.cpp")
+
+set(RHI_CORE_INTERNAL_HEADERS
+    "src/core/VulkanConversions.hpp")
 
 set(RHI_OBJECT_HEADERS
     "include/objects/CommandBuffer.hpp"
     "include/objects/CommandPool.hpp"
     "include/objects/Device.hpp"
     "include/objects/Fence.hpp"
+    "include/objects/GpuTimeline.hpp"
     "include/objects/Instance.hpp"
-    "include/objects/RhiFunctions.hpp"
+    "include/objects/Queue.hpp"
+    "include/objects/QueryPool.hpp"
     "include/objects/RhiHandle.hpp"
     "include/objects/RhiResult.hpp"
     "include/objects/Semaphore.hpp")
@@ -40,26 +46,39 @@ set(RHI_OBJECT_SOURCES
     "src/objects/CommandPool.cpp"
     "src/objects/Device.cpp"
     "src/objects/Fence.cpp"
+    "src/objects/GpuTimeline.cpp"
     "src/objects/Instance.cpp"
-    "src/objects/RhiFunctionsVk.cpp"
+    "src/objects/Queue.cpp"
+    "src/objects/QueryPool.cpp"
     "src/objects/RhiResult.cpp"
     "src/objects/Semaphore.cpp")
 
 set(RHI_SHADER_SYSTEM_HEADERS
-    "include/shaders/PipelineExecutableInfo.hpp"
+    "include/shaders/ExecutableStatistics.hpp"
     "include/shaders/ShaderLibrary.hpp"
     "include/shaders/ShaderProgram.hpp"
     "include/shaders/ShaderTypes.hpp")
 
 set(RHI_SHADER_SYSTEM_SOURCES
-    "src/shaders/PipelineExecutableInfo.cpp"
+    "src/shaders/ExecutableStatistics.cpp"
     "src/shaders/ShaderLibrary.cpp"
     "src/shaders/ShaderProgram.cpp")
 
+set(RHI_PROFILING_HEADERS
+    "include/profiling/GpuTimers.hpp")
+
+set(RHI_PROFILING_SOURCES
+    "src/profiling/GpuTimers.cpp")
+
 ADD_MODULE(rhi_system
-    "${RHI_CORE_HEADERS}" "${RHI_CORE_SOURCES}"
+    "${RHI_CORE_HEADERS}" "${RHI_CORE_SOURCES}" "${RHI_CORE_INTERNAL_HEADERS}"
     "${RHI_OBJECT_HEADERS}" "${RHI_OBJECT_SOURCES}"
-    "${RHI_SHADER_SYSTEM_HEADERS}" "${RHI_SHADER_SYSTEM_SOURCES}")
+    "${RHI_SHADER_SYSTEM_HEADERS}" "${RHI_SHADER_SYSTEM_SOURCES}"
+    "${RHI_PROFILING_HEADERS}" "${RHI_PROFILING_SOURCES}")
+
+# GPU timers (GpuTimers.hpp) run in every build below Release: Debug and RelWithDebInfo. NDEBUG can't decide this,
+# because RelWithDebInfo defines it too. PUBLIC, so every target that sees the header agrees on which classes it has
+target_compile_definitions(rhi_system PUBLIC "RHI_GPU_TIMERS_ENABLED=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
 
 if(RHI_SYSTEM_GRAPHICS_API STREQUAL "Vulkan")
     target_link_libraries(rhi_system PUBLIC ${Vulkan_LIBRARY})
@@ -79,6 +98,7 @@ TARGET_INCLUDE_DIRECTORIES(rhi_system PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/core"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/objects"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/profiling"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/shaders")
 
 source_group("Core\\include" FILES ${RHI_CORE_HEADERS})
@@ -88,6 +108,8 @@ source_group("Objects\\include" FILES ${RHI_OBJECT_HEADERS})
 source_group("Objects\\src" FILES ${RHI_OBJECT_SOURCES})
 source_group("Shaders\\include" FILES ${RHI_SHADER_SYSTEM_HEADERS})
 source_group("Shaders\\src" FILES ${RHI_SHADER_SYSTEM_SOURCES})
+source_group("Profiling\\include" FILES ${RHI_PROFILING_HEADERS})
+source_group("Profiling\\src" FILES ${RHI_PROFILING_SOURCES})
 
 IF(RHI_SYSTEM_USE_DEBUG_INFO)
     TARGET_COMPILE_DEFINITIONS(rhi_system PUBLIC RHI_SYSTEM_USE_DEBUG_INFO_CONF)

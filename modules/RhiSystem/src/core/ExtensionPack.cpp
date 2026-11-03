@@ -1,7 +1,18 @@
 #include "ExtensionPack.hpp"
 #include "ExtensionWrangler.hpp"
+#include "RhiFlags.hpp"
+#include "vulkan/vulkan_core.h"
+#include <cstdint>
+#include <expected>
+#include <limits>
+#include <memory>
+#include <span>
 #include <stdexcept>
 #include <algorithm>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -11,7 +22,7 @@ namespace
         const std::vector<std::string>& optional);
     std::vector<std::string> MergeExtensionsWithDependencies(
         std::span<const std::string_view> requested,
-        uint32_t dependencyCount,
+        uint32_t dependency_count,
         const char* const* dependencies);
     std::vector<const char*> PointersToNames(const std::vector<std::string>& names);
 }
@@ -22,8 +33,7 @@ namespace rhi
     ExtensionPack::ExtensionPack(ApiVersion preferred_version) noexcept :
         apiVersion{ preferred_version },
         deviceFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, nullptr },
-        extensionWrangler{ nullptr },
-        deviceExtensionsResolved{ false }
+        extensionWrangler{ nullptr }
     {
     }
 
@@ -91,10 +101,11 @@ namespace rhi
             case ApiVersion::Vulkan14:
                 [[fallthrough]];
             case ApiVersion::Latest:
-                [[fallthrough]];
-            default:
                 return VK_API_VERSION_1_4;
+            case ApiVersion::None:
+                std::unreachable();
         }
+        return std::numeric_limits<uint32_t>::max(); // unreachable but silences warnings
     }
 
     void ExtensionPack::AddRequiredInstanceExtensions(std::vector<std::string> extensions)
@@ -127,14 +138,14 @@ namespace rhi
 
         // instance dependency failures were ignored before this change too: a required extension the
         // loader doesn't know still fails at vkCreateInstance, with a clearer message than ours
-        const uint32_t dependencyCount = deps.has_value() ? deps->numInstanceExtensionDeps : 0u;
-        const char* const* dependencies = deps.has_value() ? deps->instanceExtensionDeps : nullptr;
+        const uint32_t dependencyCount = deps.has_value() ? deps->NumInstanceExtensionDeps : 0u;
+        const char* const* dependencies = deps.has_value() ? deps->InstanceExtensionDeps : nullptr;
         enabledInstanceExtNames = MergeExtensionsWithDependencies(requested, dependencyCount, dependencies);
         instanceExtensions = PointersToNames(enabledInstanceExtNames);
         instanceExtensionsResolved = true;
     }
 
-    void ExtensionPack::SetPhysicalDevice(VkPhysicalDevice physicalDevice) noexcept
+    void ExtensionPack::SetPhysicalDevice(VkPhysicalDevice physical_device) noexcept
     {
         // if already resolved or physical device already set, don't need to do this step
         if (deviceExtensionsResolved || (extensionWrangler && extensionWrangler->HasValidPhysicalDevice()))
@@ -142,7 +153,7 @@ namespace rhi
             return;
         }
 
-        extensionWrangler->SetPhysicalDevice(physicalDevice);
+        extensionWrangler->SetPhysicalDevice(physical_device);
     }
 
     void ExtensionPack::AddRequiredDeviceExtensions(std::vector<std::string> extensions)
@@ -169,19 +180,17 @@ namespace rhi
 
         for (const std::string_view ext : maintenanceExts)
         {
-            const bool alreadyRequired =
-                std::find(requiredDeviceExts.begin(), requiredDeviceExts.end(), ext) != requiredDeviceExts.end();
-            const bool alreadyOptional =
-                std::find(optionalDeviceExts.begin(), optionalDeviceExts.end(), ext) != optionalDeviceExts.end();
+            const bool alreadyRequired = std::ranges::contains(requiredDeviceExts, ext);
+            const bool alreadyOptional = std::ranges::contains(optionalDeviceExts, ext);
 
-            if (!alreadyRequired && !alreadyOptional && MaintenanceDependenciesSatisfied(ext))
+            if (!alreadyRequired && !alreadyOptional && maintenanceDependenciesSatisfied(ext))
             {
                 optionalDeviceExts.emplace_back(ext);
             }
         }
     }
 
-    bool ExtensionPack::MaintenanceDependenciesSatisfied(std::string_view extension_name) const
+    bool ExtensionPack::maintenanceDependenciesSatisfied(std::string_view extension_name) const
     {
         // the instance already exists when maintenance extensions are gathered, so an extension that needs an
         // instance extension we didn't enable, or a newer API version, can't be enabled. A 1.0 instance hit both:
@@ -192,14 +201,16 @@ namespace rhi
         {
             return deps.error() == ExtensionWrangler::DependencyError::NoDependenciesForExtension;
         }
-        for (uint32_t i = 0; i < deps->numInstanceExtensionDeps; ++i)
+
+        for (uint32_t i = 0; i < deps->NumInstanceExtensionDeps; ++i)
         {
-            const std::string_view instanceDependency{ deps->instanceExtensionDeps[i] };
+            const std::string_view instanceDependency{ deps->InstanceExtensionDeps[i] };
             if (std::ranges::find(enabledInstanceExtNames, instanceDependency) == enabledInstanceExtNames.end())
             {
                 return false;
             }
         }
+
         return true;
     }
 
@@ -236,8 +247,8 @@ namespace rhi
                 throw std::runtime_error("Failed to resolve device extension dependencies: " + std::to_string(static_cast<int>(deps.error())));
             }
 
-            const uint32_t dependencyCount = deps.has_value() ? deps->numDeviceExtensionDeps : 0u;
-            const char* const* dependencies = deps.has_value() ? deps->deviceExtensionDeps : nullptr;
+            const uint32_t dependencyCount = deps.has_value() ? deps->NumDeviceExtensionDeps : 0u;
+            const char* const* dependencies = deps.has_value() ? deps->DeviceExtensionDeps : nullptr;
             std::vector<std::string> nextNames = MergeExtensionsWithDependencies(currentNames, dependencyCount, dependencies);
             const bool reachedFixedPoint = nextNames.size() == mergedNames.size();
             mergedNames = std::move(nextNames);
@@ -332,13 +343,13 @@ namespace
 
     std::vector<std::string> MergeExtensionsWithDependencies(
         std::span<const std::string_view> requested,
-        uint32_t dependencyCount,
+        uint32_t dependency_count,
         const char* const* dependencies)
     {
         std::vector<std::string> merged;
-        merged.reserve(requested.size() + dependencyCount);
+        merged.reserve(requested.size() + dependency_count);
         merged.insert(merged.end(), requested.begin(), requested.end());
-        for (uint32_t i = 0; i < dependencyCount; ++i)
+        for (uint32_t i = 0; i < dependency_count; ++i)
         {
             merged.emplace_back(dependencies[i]);
         }

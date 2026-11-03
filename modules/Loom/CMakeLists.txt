@@ -1,0 +1,53 @@
+
+set(LOOM_HEADERS
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/Declarations.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/GraphBuilder.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomDiagnostic.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomError.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomKeys.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/PassBuilders.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/PassStatements.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/ResourceFuture.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/SequenceBuilder.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/FrozenGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Freeze.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Publish.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Resolve.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/ResolveDraw.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/ResolveKey.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Validate.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/JsonWriter.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Records.hpp"
+)
+
+set(LOOM_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Declarations.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/FrozenGraph.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/GraphBuilder.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/JsonWriter.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomDiagnostic.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomError.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/PassBuilders.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/PassStatements.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/SequenceBuilder.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/order/OrderedGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/order/OrderedGraph.cpp"
+)
+
+add_module(loom
+    ${LOOM_HEADERS}
+    ${LOOM_SOURCES}
+)
+
+target_include_directories(loom PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../RhiResources/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../RhiSystem/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../foundation/include")
+
+# The freeze/ headers include the stage headers in src/ by name.
+target_include_directories(loom PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+# link only the backend modules, do *not* link a graphics API or 
+# use any of it's headers; that'll make emscripten transition way worse.
+target_link_libraries(loom PUBLIC rhi_system rhi_resources)

@@ -20,6 +20,9 @@ ADD_MODULE(imgui_module
     ${imgui_source_files}
     "src/ImGuiModule.cpp")
 
+# the Dear ImGui sources are third-party code, so they compile without our PCH
+set_source_files_properties(${imgui_source_files} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 target_link_libraries(imgui_module PUBLIC rhi_system glfw ${Vulkan_LIBRARY})
 
 # users call ImGui:: directly, so the imgui folder is public
