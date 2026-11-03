@@ -29,7 +29,6 @@ namespace loom
     using NodeIndex = FrozenIndex<struct NodeIndexTag>;
     using ResourceSlot = FrozenIndex<struct ResourceSlotTag>;
 
-
     struct OrderEdge
     {
         NodeIndex From{ -1 };

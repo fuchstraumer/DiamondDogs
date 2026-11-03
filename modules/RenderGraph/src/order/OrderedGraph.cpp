@@ -22,12 +22,51 @@ namespace loom
 {
     namespace order
     {
-        void AddEdge(OrderContext& context, NodeIndex from, NodeIndex to,
-                     EdgeReason reason, std::source_location where);
+        /** @brief After running `GatherAccesses`, we have a table indexed on 
+         * on the *pass*, where each row within that table contains the a `PassAccess`
+         * struct for each *SLOT* that is accessed by that pass.
+         *
+         * To complete the data flow analysis, we need to collate these accesses by slot,
+         * creating two tables indexed on the *slot*, where each row contains the indices
+         * of passes that either write to or read from that slot.
+         */
+        struct CollatedAccesses
+        {
+            std::vector<std::vector<int32_t>> Writers;
+            // For ReadData, we store both indices as we 
+            // later want to look up the `Where` for it-
+            // as we only apply that on Readers as a rule
+            struct ReadData
+            {
+                int32_t PassIdx;
+                int32_t AccessIdx;
+            };
+            std::vector<std::vector<ReadData>> Readers;
+        };
+
+        void AddEdge(OrderContext& context,
+                     NodeIndex from,
+                     NodeIndex to,
+                     EdgeReason reason,
+                     std::source_location where,
+                     ResourceSlot slot = ResourceSlot{ -1 });
         void AddAnchorEdges(OrderContext& context);
         void AddFrameBoundEdges(OrderContext& context);
         void AddSequenceEdges(OrderContext& context);
+        void AppendBindingAccesses(const std::vector<ResourceAccess>& inputs,
+                                  std::vector<PassAccess>& results,
+                                  const FrozenPass& pass);
+        void AppendRecordAccesses(OrderContext& context,
+                                  std::vector<PassAccess>& results,
+                                  const FrozenPass& pass);
+        ResourceAccess ColorTargetAccess(const FrozenColorTarget& color);
+        ResourceAccess DepthTargetAccess(const FrozenDepthTarget& depth);
+        void AppendDrawAccesses(const OrderContext& context,
+                                std::vector<PassAccess>& results,
+                                const FrozenPass& pass);
+        void AppendDispatchAccesses(std::vector<PassAccess>& results, const FrozenPass& pass);
         void GatherAccesses(OrderContext& context);
+        CollatedAccesses CollateAccessesBySlot(OrderContext& context);
         void AddDataFlowEdges(OrderContext& context);
         void BuildSuccessors(OrderContext& context);
         std::optional<std::vector<NodeIndex>> SortNodes(OrderContext& context);
@@ -72,6 +111,7 @@ namespace loom
         AddFrameBoundEdges(context);
         AddSequenceEdges(context);
         GatherAccesses(context);
+        AddDataFlowEdges(context);
         BuildSuccessors(context);
         auto sortNodesResult = SortNodes(context);
         if (!sortNodesResult.has_value())
@@ -98,13 +138,17 @@ namespace loom
     namespace order
     {
 
-        void AddEdge(OrderContext& context, NodeIndex from, NodeIndex to,
-                     EdgeReason reason, std::source_location where)
+        void AddEdge(OrderContext& context,
+                     NodeIndex from,
+                     NodeIndex to,
+                     EdgeReason reason,
+                     std::source_location where,
+                     ResourceSlot slot)
         {
             context.Edges.emplace_back(from,
                                        to,
                                        reason,
-                                       ResourceSlot{ -1 },
+                                       slot,
                                        where);
         }
 
@@ -215,13 +259,13 @@ namespace loom
                     
                     if (anchor.Position > 0)
                     {
-                        const NodeIndex passNode = NodeOfPass(PassIndex{ anchor.Position - 1 });
+                        const NodeIndex passNode = NodeOfPass(PassIndex{ firstPass + anchor.Position - 1 });
                         AddEdge(context, passNode, anchorNode, EdgeReason::ExposedAnchor, anchor.Where);
                     }
 
                     if (anchor.Position < sequence.PassCount)
                     {
-                        const NodeIndex passNode = NodeOfPass(PassIndex{ anchor.Position });
+                        const NodeIndex passNode = NodeOfPass(PassIndex{ firstPass + anchor.Position });
                         AddEdge(context, anchorNode, passNode, EdgeReason::ExposedAnchor, anchor.Where);
                     }
                 }
@@ -369,6 +413,111 @@ namespace loom
                 AppendRecordAccesses(context, results, pass);
                 AppendDispatchAccesses(results, pass);
                 AppendDrawAccesses(context, results, pass);
+            }
+        }
+
+        CollatedAccesses CollateAccessesBySlot(OrderContext& context)
+        {
+            using ReadData = CollatedAccesses::ReadData;
+            CollatedAccesses collated;
+            collated.Readers.resize(context.SlotCount);
+            collated.Writers.resize(context.SlotCount);
+
+            for (int32_t passIdx = 0; passIdx < context.PassCount; ++passIdx)
+            {
+                for (auto&& [accessIdx, access] : std::views::enumerate(context.PassAccesses[passIdx]))
+                {
+                    const int32_t slotIdx = access.Slot.Value;
+                    std::vector<ReadData>& readers = collated.Readers[slotIdx];
+                    std::vector<int32_t>& writers = collated.Writers[slotIdx];
+
+                    if (access.Previous)
+                    {
+                        continue;
+                    }
+
+                    auto pushReader = [&readers, passIdx, accessIdx] ()
+                    {
+                        if (!readers.empty() && (readers.back().PassIdx == passIdx))
+                        {
+                            return;
+                        }
+
+                        // have to cast bc enumerate gives us ptrdiff_t
+                        ReadData readData
+                        {
+                            .PassIdx = passIdx,
+                            .AccessIdx = static_cast<int32_t>(accessIdx)
+                        };
+
+                        readers.push_back(readData);
+                    };
+
+                    auto pushWriter = [&writers, passIdx] ()
+                    {
+                        if (!writers.empty() && (writers.back() == passIdx))
+                        {
+                            return;
+                        }
+
+                        writers.push_back(passIdx);
+                    };
+
+                    switch (access.Access)
+                    {
+                    case ResourceAccess::Read:
+                        pushReader();
+                        break;
+                    case ResourceAccess::Write:
+                        pushWriter();
+                        break;
+                    case ResourceAccess::ReadWrite:
+                        pushReader();
+                        pushWriter();
+                        break;
+                    case ResourceAccess::Invalid:
+                        assert(false && "Invalid resource access");
+                        break;
+                    }
+                }
+            }
+
+            return collated;
+        }
+
+        void AddDataFlowEdges(OrderContext& context)
+        {
+            // data indexed by pass -> data indexed by slot
+            CollatedAccesses collated = CollateAccessesBySlot(context);
+            // now that we have collated accesses by slot, we can iterate over each slot
+            // and determine the data flow edges based on the read and write accesses for that slot
+            for (int32_t slotIdx = 0; slotIdx < context.SlotCount; ++slotIdx)
+            {
+                const auto& readers = collated.Readers[slotIdx];
+                const auto& writers = collated.Writers[slotIdx];
+                if (writers.size() != 1)
+                {
+                    continue;
+                }
+
+                const PassIndex writerPass{ writers.front() };
+                for (const auto& reader : readers)
+                {
+                    const PassIndex readerPass{ reader.PassIdx };
+                    if (readerPass == writerPass)
+                    {
+                        continue;
+                    }
+
+                    const auto& accesses = context.PassAccesses[readerPass];
+                    const auto& where = accesses[reader.AccessIdx].Where;
+                    AddEdge(context,
+                            NodeOfPass(writerPass),
+                            NodeOfPass(readerPass),
+                            EdgeReason::DataFlow,
+                            where,
+                            ResourceSlot{ slotIdx });
+                }
             }
         }
 
