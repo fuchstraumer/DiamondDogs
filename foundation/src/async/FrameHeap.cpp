@@ -239,14 +239,16 @@ namespace
     {
         switch (backend)
         {
+        case foundation::FrameBackend::Mimalloc:
+            return mi_malloc(block_size);
 #ifdef _WIN32
         case foundation::FrameBackend::WindowsHeap:
             return HeapAlloc(GetProcessHeap(), 0, block_size);
 #endif
         case foundation::FrameBackend::CrtMalloc:
             return std::malloc(block_size);
-        default:
-            return mi_malloc(block_size);
+        case foundation::FrameBackend::Invalid:
+            std::unreachable();
         }
     }
 
@@ -254,6 +256,9 @@ namespace
     {
         switch (backend)
         {
+        case foundation::FrameBackend::Mimalloc:
+            mi_free_size(block, block_size);
+            break;
 #ifdef _WIN32
         case foundation::FrameBackend::WindowsHeap:
             HeapFree(GetProcessHeap(), 0, block);
@@ -262,9 +267,8 @@ namespace
         case foundation::FrameBackend::CrtMalloc:
             std::free(block);
             break;
-        default:
-            mi_free_size(block, block_size);
-            break;
+        case foundation::FrameBackend::Invalid:
+            std::unreachable();
         }
     }
 }

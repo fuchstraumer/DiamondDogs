@@ -1,5 +1,6 @@
 #include "async/Scheduler.hpp"
 #include "async/FrameHeap.hpp"
+#include "async/FrameStatistics.hpp"
 #include "async/Task.hpp"
 #include "async/Timeline.hpp"
 #include "async/TimelineSource.hpp"
@@ -15,6 +16,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace foundation
 {
@@ -272,33 +274,6 @@ void Scheduler::appendBacktrace(std::string& output, const BasePromise* waiter, 
         std::string description = symbolizer.DescribeFrame(promise->FrameAddress);
         std::format_to(std::back_inserter(output), "    frame {}\n", description);
     }
-}
-
-bool YieldAwaiter::await_ready() const noexcept
-{
-    return false;
-}
-
-void YieldAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept
-{
-    // Owner is null when the awaiting coroutine is not a Task: its promise has no await_transform to bind us
-    assert(Owner != nullptr);
-    Owner->ParkUntilNextTick(handle, Waiter);
-}
-
-void YieldAwaiter::await_resume() const noexcept
-{
-}
-
-void YieldAwaiter::BindOwner(Scheduler* scheduler, BasePromise* awaiting) noexcept
-{
-    Owner = scheduler;
-    Waiter = awaiting;
-}
-
-YieldAwaiter Yield() noexcept
-{
-    return YieldAwaiter{};
 }
 
 }

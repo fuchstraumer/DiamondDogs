@@ -59,6 +59,7 @@ add_subdirectory(resource_context)
 add_subdirectory(color_pipe)
 add_subdirectory(loom)
 add_subdirectory(input_system)
+add_subdirectory(ocean_camera)
 add_subdirectory(content_compiler)
 
 # Add other module test directories as they become available

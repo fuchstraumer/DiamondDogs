@@ -2,6 +2,7 @@
 #include "async/Scheduler.hpp"
 #include <atomic>
 #include <cassert>
+#include <coroutine>
 #include <cstdint>
 
 namespace foundation

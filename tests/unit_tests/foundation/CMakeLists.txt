@@ -5,6 +5,8 @@ set(FOUNDATION_TEST_SOURCES
     test_main.cpp
 
     # Async tests
+    async/test_frame_heap.cpp
+    async/test_post_and_yield.cpp
     async/test_task_scheduler.cpp
 
     # Content key tests
@@ -28,6 +30,7 @@ set(FOUNDATION_TEST_SOURCES
     # Utility tests
     utility/test_delegate.cpp
     utility/test_multicast_delegate.cpp
+    utility/test_mimalloc_override.cpp
     utility/test_murmur_hash.cpp
     utility/test_tagged_bool.cpp
     utility/test_xxhash.cpp

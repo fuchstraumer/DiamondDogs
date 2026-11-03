@@ -22,7 +22,8 @@ set(foundation_async_source_files
     "src/async/FrameNames.cpp"
     "src/async/Promise.cpp"
     "src/async/Scheduler.cpp"
-    "src/async/Timeline.cpp")
+    "src/async/Timeline.cpp"
+    "src/async/Yield.cpp")
 
 set(foundation_content_source_files
     "include/content/ByteStreamSink.hpp"
