@@ -1,10 +1,8 @@
 #pragma once
 #ifndef DIAMOND_DOGS_CC_RECIPE_PARAMS_HPP
 #define DIAMOND_DOGS_CC_RECIPE_PARAMS_HPP
-
 #include "ContentTypes.hpp"
 #include "reflect/Describe.hpp"
-
 #include <string_view>
 #include <tuple>
 

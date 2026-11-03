@@ -1,13 +1,11 @@
 #pragma once
 #ifndef DIAMOND_DOGS_CC_INGEST_HPP
 #define DIAMOND_DOGS_CC_INGEST_HPP
-
 #include "ContentDiagnostic.hpp"
 #include "ContentTypes.hpp"
 #include "KindRegistry.hpp"
 #include "ParamsBox.hpp"
 #include "RecipeTable.hpp"
-
 #include <cstdint>
 #include <expected>
 #include <string>

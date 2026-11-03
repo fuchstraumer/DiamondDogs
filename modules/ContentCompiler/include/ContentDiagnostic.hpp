@@ -1,7 +1,6 @@
 #pragma once
 #ifndef DIAMOND_DOGS_CC_CONTENT_DIAGNOSTIC_HPP
 #define DIAMOND_DOGS_CC_CONTENT_DIAGNOSTIC_HPP
-
 #include <cstdint>
 #include <string>
 #include <vector>

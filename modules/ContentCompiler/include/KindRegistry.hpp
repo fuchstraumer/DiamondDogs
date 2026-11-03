@@ -1,14 +1,12 @@
 #pragma once
 #ifndef DIAMOND_DOGS_CC_KIND_REGISTRY_HPP
 #define DIAMOND_DOGS_CC_KIND_REGISTRY_HPP
-
 #include "ContentDiagnostic.hpp"
 #include "ContentTypes.hpp"
 #include "ExecutorTypes.hpp"
 #include "ParamsBox.hpp"
 #include "async/Task.hpp"
 #include "reflect/Describe.hpp"
-
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -70,7 +68,7 @@ namespace cc
     };
 
     // Run takes the params as a pointer to the kind's Params type, which the thunk of Register<K> casts back.
-    using KindRunFunction = foundation::Task<Result> (*)(const void* params, Inputs inputs, Context& context);
+    using KindRunFunction = foundation::Task<Result>(*)(const void* params, Inputs inputs, Context& context);
 
     struct KindOps
     {

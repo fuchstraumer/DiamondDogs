@@ -1,14 +1,12 @@
 #pragma once
 #ifndef DIAMOND_DOGS_CC_RECIPE_TABLE_HPP
 #define DIAMOND_DOGS_CC_RECIPE_TABLE_HPP
-
 #include "ContentDiagnostic.hpp"
 #include "ContentTypes.hpp"
 #include "KindRegistry.hpp"
 #include "ParamsBox.hpp"
 #include "content/Key.hpp"
 #include "content/RecipeKey.hpp"
-
 #include <cstddef>
 #include <deque>
 #include <expected>

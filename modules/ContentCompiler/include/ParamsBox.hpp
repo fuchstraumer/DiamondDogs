@@ -1,11 +1,9 @@
 #pragma once
 #ifndef DIAMOND_DOGS_CC_PARAMS_BOX_HPP
 #define DIAMOND_DOGS_CC_PARAMS_BOX_HPP
-
 #include "content/CanonicalSink.hpp"
 #include "content/Encode.hpp"
 #include "reflect/Describe.hpp"
-
 #include <optional>
 #include <string>
 #include <string_view>
