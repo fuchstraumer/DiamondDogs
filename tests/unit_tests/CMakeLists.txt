@@ -59,9 +59,9 @@ add_subdirectory(resource_context)
 add_subdirectory(color_pipe)
 add_subdirectory(loom)
 add_subdirectory(input_system)
+add_subdirectory(content_compiler)
 
 # Add other module test directories as they become available
-# add_subdirectory(content_compiler)
 # add_subdirectory(material_module)
 # add_subdirectory(render_graph)
 # add_subdirectory(imgui_module)

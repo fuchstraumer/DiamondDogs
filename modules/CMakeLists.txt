@@ -49,6 +49,7 @@ add_subdirectory(ImGuiModule)
 # input control space, frame assembly, and record and replay; no platform source yet
 add_subdirectory(InputSystem)
 #add_subdirectory(material_module)
-#add_subdirectory(content_compiler)
+# recipes, kinds and ingestion of the content compiler; depends on foundation only
+add_subdirectory(ContentCompiler)
 #add_subdirectory(terrain_module)
 #add_subdirectory(vtf_module)

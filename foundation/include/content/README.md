@@ -11,7 +11,9 @@ choice is in doubt, the encoding chooses the miss.
 | `reflect/Describe.hpp` | `Describe<T>`, `Field`, `EnumCase`, and the concepts `DescribedStruct` and `DescribedEnum`. |
 | `Key.hpp` | `Key<Tag>`, the aliases `RecipeKey`, `BlobKey`, `ArtifactHash`, the map hasher and the hex text. |
 | `CanonicalSink.hpp` | The abstract sink and the one-byte tags. |
-| `HashSink.hpp` | The sink that feeds XXH3-128 in streaming mode. |
+| `ByteStreamSink.hpp` | The one writer of the byte layout. It has a pure-virtual `Append(const std::byte*, size_t)`. |
+| `HashSink.hpp` | The sink that feeds XXH3-128 in streaming mode. It implements `Append` only. |
+| `BytesSink.hpp` | The sink that appends the same bytes to a `std::vector<std::byte>`. It implements `Append` only. |
 | `TextSink.hpp` | The sink that prints the same walk as indented text. |
 | `Encode.hpp` | `Encode` (the one template that walks a value) and `FindNaN`. |
 | `RecipeKey.hpp` | `MakeRecipeKey`, `HashBlob`, `RecipeInput`, `KeyError`. |
@@ -92,10 +94,25 @@ foundation::content::Encode(params, sink);
 std::println("{}", sink.Text());
 ```
 
+## One layout, two sinks
+
+`ByteStreamSink` writes every tag, width, length and little-endian value, once, in `ByteStreamSink.cpp`. Its
+`CanonicalSink` functions are `final`. `HashSink` and `BytesSink` only say where the bytes go, so the two cannot
+disagree about the layout.
+
+- `HashSink` passes each chunk to XXH3-128. `Finish` returns the hash.
+- `BytesSink` appends each chunk to a vector. `Bytes` reads it, and `TakeBytes` moves it out. The content compiler
+  keeps these bytes with each recipe, so that two recipes with one key can be compared byte for byte.
+- XXH3-128 over the bytes of a `BytesSink` equals `HashSink::Finish` for the same walk. XXH3 streaming gives the same
+  hash for any split of the input.
+- `TextSink` is separate. It prints the walk as text, and it does not write bytes.
+
 ## Notes on the implementation
 
 - `HashSink` keeps the XXH3 state in a fixed, aligned buffer inside the object. `xxhash.h` is included only in
   `HashSink.cpp`, and `foundation` links xxHash PRIVATE. A key costs no allocation.
 - `CanonicalSink` is virtual, so the encoder is one template and the sinks are ordinary classes in source files.
+- Each write on a byte sink costs one more virtual call, `Append`, for each chunk (the tag, the width, the value). The
+  chunks are the same ones that `HashSink` fed to XXH3 before the split.
 - `FindNaN` is a separate walk over the same descriptors. It runs before the hash, so a refused parameter never
   produces a key.

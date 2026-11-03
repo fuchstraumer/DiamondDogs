@@ -43,8 +43,8 @@ namespace foundation::content
 
     namespace detail
     {
-        void BeginRecipeKey(HashSink& sink, std::string_view kind, uint32_t kind_version);
-        void AppendRecipeInputs(HashSink& sink, std::span<const RecipeInput> inputs);
+        void BeginRecipeKey(CanonicalSink& sink, std::string_view kind, uint32_t kind_version);
+        void AppendRecipeInputs(CanonicalSink& sink, std::span<const RecipeInput> inputs);
         RecipeKey FinishRecipeKey(const HashSink& sink) noexcept;
     }
 

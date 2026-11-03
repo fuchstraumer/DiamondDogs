@@ -16,7 +16,7 @@ namespace foundation::content
 {
     namespace detail
     {
-        void BeginRecipeKey(HashSink& sink, std::string_view kind, uint32_t kind_version)
+        void BeginRecipeKey(CanonicalSink& sink, std::string_view kind, uint32_t kind_version)
         {
             sink.WriteString(k_RecipeDomain);
             sink.WriteInt(k_EncodingVersion, 4, false);
@@ -24,7 +24,7 @@ namespace foundation::content
             sink.WriteInt(kind_version, 4, false);
         }
 
-        void AppendRecipeInputs(HashSink& sink, std::span<const RecipeInput> inputs)
+        void AppendRecipeInputs(CanonicalSink& sink, std::span<const RecipeInput> inputs)
         {
             sink.BeginArray(inputs.size());
 

@@ -20,6 +20,8 @@ set(foundation_async_source_files
     "src/async/Timeline.cpp")
 
 set(foundation_content_source_files
+    "include/content/ByteStreamSink.hpp"
+    "include/content/BytesSink.hpp"
     "include/content/CanonicalSink.hpp"
     "include/content/Encode.hpp"
     "include/content/HashSink.hpp"
@@ -27,6 +29,8 @@ set(foundation_content_source_files
     "include/content/RecipeKey.hpp"
     "include/content/TextSink.hpp"
     "include/reflect/Describe.hpp"
+    "src/content/ByteStreamSink.cpp"
+    "src/content/BytesSink.cpp"
     "src/content/HashSink.cpp"
     "src/content/Key.cpp"
     "src/content/RecipeKey.cpp"

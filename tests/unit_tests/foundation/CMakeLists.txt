@@ -8,6 +8,7 @@ set(FOUNDATION_TEST_SOURCES
     async/test_task_scheduler.cpp
 
     # Content key tests
+    content/test_bytes_sink.cpp
     content/test_encode.cpp
     content/test_keys.cpp
     content/test_text_sink.cpp
