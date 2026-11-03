@@ -61,10 +61,3 @@ add_subdirectory(loom)
 add_subdirectory(input_system)
 add_subdirectory(ocean_camera)
 add_subdirectory(content_compiler)
-
-# Add other module test directories as they become available
-# add_subdirectory(material_module)
-# add_subdirectory(render_graph)
-# add_subdirectory(imgui_module)
-# add_subdirectory(terrain_module)
-# add_subdirectory(vtf_module)

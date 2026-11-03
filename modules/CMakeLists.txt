@@ -29,10 +29,6 @@ function(add_module NAME)
     diamond_dogs_add_pch(${NAME} LIBRARY)
 endfunction()
 
-
-#add_subdirectory(ecs_module)
-#add_subdirectory(rendergraph_module)
-#add_subdirectory(TaskGraph)  # Shelved - coroutine-based task system for later
 add_subdirectory(RhiSystem)
 add_subdirectory(PlatformSystem)
 add_subdirectory(RhiResources)
@@ -48,8 +44,5 @@ add_subdirectory(ColorPipe)
 add_subdirectory(ImGuiModule)
 # input control space, frame assembly, and record and replay; no platform source yet
 add_subdirectory(InputSystem)
-#add_subdirectory(material_module)
 # recipes, kinds and ingestion of the content compiler; depends on foundation only
 add_subdirectory(ContentCompiler)
-#add_subdirectory(terrain_module)
-#add_subdirectory(vtf_module)
