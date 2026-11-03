@@ -105,7 +105,7 @@ namespace loom
 
         inline ResourceSlot SlotOfFrameTarget(const OrderContext& context, FrameTargetIndex target)
         {
-            const int32_t offset = context.SlotCount;
+            const int32_t offset = static_cast<int32_t>(context.Frozen.Resources.size());
             return ResourceSlot{ offset + target.Value };
         }
     }

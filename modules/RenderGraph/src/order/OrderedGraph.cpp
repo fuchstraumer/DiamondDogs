@@ -3,6 +3,7 @@
 #include "LoomError.hpp"
 #include "LoomKeys.hpp"
 #include "PassStatements.hpp"
+#include "Records.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include <algorithm>
 #include <cassert>
@@ -57,12 +58,20 @@ namespace loom
             .NodeCount=nodeCount,
             .SlotCount=slotCount,
         };
-        context.PassAccesses.reserve(context.PassCount);
+        context.PassAccesses.resize(context.PassCount, {});
+        for (auto& vec : context.PassAccesses)
+        {
+            // should be overkill in most cases, but still should be of aid
+            // (plus, it's a vector of vectors... repeated reallocs are easy to make happen)
+            vec.reserve(16u);
+        }
+
         context.Edges.reserve(context.PassCount * 4);
 
         AddAnchorEdges(context);
         AddFrameBoundEdges(context);
         AddSequenceEdges(context);
+        GatherAccesses(context);
         BuildSuccessors(context);
         auto sortNodesResult = SortNodes(context);
         if (!sortNodesResult.has_value())
@@ -216,6 +225,150 @@ namespace loom
                         AddEdge(context, anchorNode, passNode, EdgeReason::ExposedAnchor, anchor.Where);
                     }
                 }
+            }
+        }
+
+        void AppendBindingAccesses(const std::vector<ResourceAccess>& inputs,
+                                  std::vector<PassAccess>& results,
+                                  const FrozenPass& pass)
+        {
+            for (auto&& [bindIdx, binding] : std::views::enumerate(pass.Binds))
+            {
+                const ResourceSlot slot = SlotOfResource(binding.Resource);
+                const ResourceAccess& access = inputs[bindIdx];
+                PassAccess result
+                {
+                    .Slot = slot,
+                    .Access = access,
+                    .Previous = binding.Previous,
+                    .Where = binding.Where
+                };
+                results.emplace_back(result);
+            }
+        }
+
+        void AppendRecordAccesses(OrderContext& context,
+                                  std::vector<PassAccess>& results,
+                                  const FrozenPass& pass)
+        {
+            for (auto&& [recordIdx, record] : std::views::enumerate(pass.Uses))
+            {
+                ResourceSlot slot{};
+                if (record.Target != TargetKind::FrameTarget)
+                {
+                    slot = SlotOfResource(record.Resource);
+                }
+                else
+                {
+                    slot = SlotOfFrameTarget(context, record.FrameTarget);
+                }
+
+                results.emplace_back(PassAccess{ .Slot = slot,
+                                                 .Access = record.Access,
+                                                 .Previous = false,
+                                                 .Where = record.Where });
+            }
+        }
+
+        // A ThreadsOver dispatch names its image only for the extent, so the image is not an access.
+        void AppendDispatchAccesses(std::vector<PassAccess>& results, const FrozenPass& pass)
+        {
+            if (pass.Dispatch.Form != DispatchForm::Indirect)
+            {
+                return;
+            }
+
+            results.push_back(PassAccess{ .Slot = SlotOfResource(pass.Dispatch.Resource),
+                                          .Access = ResourceAccess::Read,
+                                          .Previous = false,
+                                          .Where = pass.Dispatch.Where });
+        }
+
+        // Keep reads the old contents, and so does any blend but Opaque. Clear and DontCare never read them.
+        ResourceAccess ColorTargetAccess(const FrozenColorTarget& color)
+        {
+            const bool readsOld = color.Load.Kind == ColorLoad::Kind::Keep || color.Blend != BlendMode::Opaque;
+            return readsOld ? ResourceAccess::ReadWrite : ResourceAccess::Write;
+        }
+
+        // Keep with writes off is a depth test only. A Clear writes the target, even with depth writes off.
+        ResourceAccess DepthTargetAccess(const FrozenDepthTarget& depth)
+        {
+            const bool keeps = depth.Load.Kind == DepthLoad::Kind::Keep;
+            const bool writes = depth.Write == DepthWrite::Enabled;
+
+            if (keeps)
+            {
+                return writes ? ResourceAccess::ReadWrite : ResourceAccess::Read;
+            }
+
+            return ResourceAccess::Write;
+        }
+
+        void AppendDrawAccesses(const OrderContext& context, std::vector<PassAccess>& results, const FrozenPass& pass)
+        {
+            if (pass.Draw.Form == DrawForm::DrawIndirect)
+            {
+                results.push_back(PassAccess{ .Slot = SlotOfResource(pass.Draw.Arguments),
+                                              .Access = ResourceAccess::Read,
+                                              .Previous = false,
+                                              .Where = pass.Draw.Where });
+            }
+
+            for (const FrozenVertexBuffer& vertex : pass.VertexBuffers)
+            {
+                results.push_back(PassAccess{ .Slot = SlotOfResource(vertex.Buffer),
+                                              .Access = ResourceAccess::Read,
+                                              .Previous = false,
+                                              .Where = vertex.Where });
+            }
+
+            if (pass.Index.Buffer.IsValid())
+            {
+                results.push_back(PassAccess{ .Slot = SlotOfResource(pass.Index.Buffer),
+                                              .Access = ResourceAccess::Read,
+                                              .Previous = false,
+                                              .Where = pass.Index.Where });
+            }
+
+            for (const FrozenColorTarget& color : pass.Colors)
+            {
+                const ResourceSlot slot = color.Kind == TargetKind::FrameTarget
+                                              ? SlotOfFrameTarget(context, color.FrameTarget)
+                                              : SlotOfResource(color.Image);
+
+                results.push_back(PassAccess{ .Slot = slot,
+                                              .Access = ColorTargetAccess(color),
+                                              .Previous = false,
+                                              .Where = color.Where });
+            }
+
+            if (pass.Depth.Image.IsValid())
+            {
+                results.push_back(PassAccess{ .Slot = SlotOfResource(pass.Depth.Image),
+                                              .Access = DepthTargetAccess(pass.Depth),
+                                              .Previous = false,
+                                              .Where = pass.Depth.Where });
+            }
+        }
+
+        // One PassAccess per resource touch, from every statement that can name a resource. The fields of the other
+        // pass kinds keep their invalid values, so each Append adds nothing for a pass of another kind.
+        void GatherAccesses(OrderContext& context)
+        {
+            for (int32_t i = 0; i < context.PassCount; ++i)
+            {
+                // the bind access information coming *in* to this pass/stage
+                const std::vector<ResourceAccess>& inputs = context.Binds.Accesses[i];
+                // Where we will write results
+                std::vector<PassAccess>& results = context.PassAccesses[i];
+                const FrozenPass& pass = context.Frozen.Passes[i];
+                assert(inputs.size() == pass.Binds.size());
+
+                AppendBindingAccesses(inputs, results, pass);
+                AppendRecordAccesses(context, results, pass);
+                AppendDispatchAccesses(results, pass);
+                AppendDrawAccesses(context, results, pass);
             }
         }
 

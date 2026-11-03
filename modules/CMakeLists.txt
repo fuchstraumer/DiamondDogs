@@ -32,7 +32,7 @@ endfunction()
 add_subdirectory(RhiSystem)
 add_subdirectory(PlatformSystem)
 add_subdirectory(RhiResources)
-add_subdirectory(Loom)
+add_subdirectory(RenderGraph)
 # copies rendered images out to PNG files
 add_subdirectory(FrameCapture)
 # fills mip chains with compute shaders (NvproPyramid)
