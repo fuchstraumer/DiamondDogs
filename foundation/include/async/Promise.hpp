@@ -24,7 +24,7 @@ namespace foundation
         BasePromise* Awaiting{ nullptr }; // awaiting promise used to read async backtrace
         void* FrameAddress{ nullptr }; // used by async backtrace to print names
 
-        // every promise type inherits these, so every coroutine frame is counted (see FrameStatistics.hpp)
+        // every promise type inherits these, so every coroutine frame goes through FrameHeap and is counted
         static void* operator new(std::size_t size);
         static void operator delete(void* frame, std::size_t size) noexcept;
     };

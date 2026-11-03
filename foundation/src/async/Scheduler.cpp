@@ -1,7 +1,9 @@
 #include "async/Scheduler.hpp"
+#include "async/FrameHeap.hpp"
 #include "async/Task.hpp"
 #include "async/Timeline.hpp"
 #include "async/TimelineSource.hpp"
+#include "async/Yield.hpp"
 #include <algorithm>
 #include <cassert>
 #include <coroutine>
@@ -17,8 +19,10 @@
 namespace foundation
 {
 
-Scheduler::Scheduler() noexcept
+Scheduler::Scheduler() noexcept : ownerThread{ std::this_thread::get_id() }
 {
+    // the first root's frame is created before Spawn, so the heap is bound here and not on the first call
+    frameHeap.BindToCurrentThread();
 }
 
 Scheduler::~Scheduler()
@@ -32,13 +36,18 @@ Scheduler::~Scheduler()
 #endif
 
     // a root's frame owns the Tasks it is awaiting, so destroying the roots destroys every frame below them. Roots
-    // that never started are in `roots` too
+    // that never started are in `roots` too. Ready and yielded frames belong to a root as well
     parked.clear();
+    ready.clear();
+    yielded.clear();
+    yieldedPreviously.clear();
 
     for (std::coroutine_handle<> root : roots)
     {
         root.destroy();
     }
+
+    frameHeap.UnbindFromCurrentThread();
 }
 
 void Scheduler::Spawn(Task<void>&& root)
@@ -62,14 +71,35 @@ void Scheduler::Park(const Timeline& source, uint64_t target_value, std::corouti
     parked.push_back(ParkedFrame{ &source, target_value, handle, waiter, tickCount });
 }
 
+void Scheduler::ParkUntilNextTick(std::coroutine_handle<> handle, BasePromise* waiter)
+{
+    checkOwnerThread();
+    yielded.push_back(ReadyFrame{ handle, waiter, tickCount });
+}
+
+void Scheduler::Post(std::coroutine_handle<> handle)
+{
+    Post(handle, nullptr);
+}
+
+void Scheduler::Post(std::coroutine_handle<> handle, BasePromise* waiter)
+{
+    checkOwnerThread();
+    ready.push_back(ReadyFrame{ handle, waiter, tickCount });
+}
+
 void Scheduler::Tick()
 {
     checkOwnerThread();
     ++tickCount;
 
+    // taken before any frame runs: a frame that yields in this Tick lands in `yielded` and waits for the next one
+    std::swap(yieldedPreviously, yielded);
+
     pollSources();
     resumeReachedFrames();
     startSpawnedRoots();
+    runReadyList();
     destroyFinishedRoots();
 }
 
@@ -111,6 +141,11 @@ int64_t Scheduler::TickCount() const noexcept
     return tickCount;
 }
 
+FrameStatisticsSnapshot Scheduler::FrameStatistics() const noexcept
+{
+    return frameHeap.Snapshot();
+}
+
 std::string Scheduler::DumpState() const
 {
     std::string output;
@@ -120,27 +155,18 @@ std::string Scheduler::DumpState() const
         std::format_to(std::back_inserter(output), "parked: timeline {} target {} (value {}), {} ticks\n",
                        static_cast<const void*>(frame.Source), frame.TargetValue, frame.Source->Value(),
                        tickCount - frame.ParkedAtTick);
-
-        for (const BasePromise* promise = frame.Waiter; promise != nullptr; promise = promise->Awaiting)
-        {
-            std::string description = symbolizer.DescribeFrame(promise->FrameAddress);
-            std::format_to(std::back_inserter(output), "    frame {}\n", description);
-        }
+        appendBacktrace(output, frame.Waiter, frame.Handle);
     }
+
+    appendReadyFrames(output, "ready", ready);
+    appendReadyFrames(output, "yielded", yielded);
 
     return output;
 }
 
-void Scheduler::checkOwnerThread() noexcept
+void Scheduler::checkOwnerThread() const noexcept
 {
-    const std::thread::id current = std::this_thread::get_id();
-
-    if (ownerThread == std::thread::id{})
-    {
-        ownerThread = current;
-    }
-
-    assert(ownerThread == current && "a Scheduler is used from one owner thread only");
+    assert(ownerThread == std::this_thread::get_id() && "a Scheduler is used from its owner thread only");
 }
 
 void Scheduler::pollSources()
@@ -185,6 +211,28 @@ void Scheduler::resumeReachedFrames()
     }
 }
 
+void Scheduler::runReadyList()
+{
+    // a resumed frame can yield again, which appends to `yielded`, and it can post, which appends to `ready`
+    for (const ReadyFrame& frame : yieldedPreviously)
+    {
+        frame.Handle.resume();
+    }
+
+    yieldedPreviously.clear();
+
+    while (!ready.empty())
+    {
+        draining.clear();
+        std::swap(draining, ready);
+
+        for (const ReadyFrame& frame : draining)
+        {
+            frame.Handle.resume();
+        }
+    }
+}
+
 void Scheduler::destroyFinishedRoots()
 {
     std::erase_if(roots,
@@ -198,6 +246,59 @@ void Scheduler::destroyFinishedRoots()
                       root.destroy();
                       return true;
                   });
+}
+
+void Scheduler::appendReadyFrames(std::string& output, const char* label, const std::vector<ReadyFrame>& frames) const
+{
+    for (const ReadyFrame& frame : frames)
+    {
+        std::format_to(std::back_inserter(output), "{}: {} ticks\n", label, tickCount - frame.QueuedAtTick);
+        appendBacktrace(output, frame.Waiter, frame.Handle);
+    }
+}
+
+void Scheduler::appendBacktrace(std::string& output, const BasePromise* waiter, std::coroutine_handle<> handle) const
+{
+    // a frame that was posted by handle only has no promise to walk, so it prints its own frame
+    if (waiter == nullptr)
+    {
+        std::string description = symbolizer.DescribeFrame(handle.address());
+        std::format_to(std::back_inserter(output), "    frame {}\n", description);
+        return;
+    }
+
+    for (const BasePromise* promise = waiter; promise != nullptr; promise = promise->Awaiting)
+    {
+        std::string description = symbolizer.DescribeFrame(promise->FrameAddress);
+        std::format_to(std::back_inserter(output), "    frame {}\n", description);
+    }
+}
+
+bool YieldAwaiter::await_ready() const noexcept
+{
+    return false;
+}
+
+void YieldAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept
+{
+    // Owner is null when the awaiting coroutine is not a Task: its promise has no await_transform to bind us
+    assert(Owner != nullptr);
+    Owner->ParkUntilNextTick(handle, Waiter);
+}
+
+void YieldAwaiter::await_resume() const noexcept
+{
+}
+
+void YieldAwaiter::BindOwner(Scheduler* scheduler, BasePromise* awaiting) noexcept
+{
+    Owner = scheduler;
+    Waiter = awaiting;
+}
+
+YieldAwaiter Yield() noexcept
+{
+    return YieldAwaiter{};
 }
 
 }

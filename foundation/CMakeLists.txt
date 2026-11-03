@@ -4,9 +4,12 @@ set(foundation_source_files
     "include/ImageDataFormatsVulkan.hpp"
     "include/Unit.hpp"
     "include/Handle.hpp"
-    "src/ImageDataFormats.cpp")
+    "src/ImageDataFormats.cpp"
+    # Replaces global new/delete with mimalloc in every executable that links foundation
+    "src/miMallocOverride.cpp")
 
 set(foundation_async_source_files
+    "include/async/FrameHeap.hpp"
     "include/async/FrameNames.hpp"
     "include/async/FrameStatistics.hpp"
     "include/async/Promise.hpp"
@@ -14,6 +17,8 @@ set(foundation_async_source_files
     "include/async/Task.hpp"
     "include/async/Timeline.hpp"
     "include/async/TimelineSource.hpp"
+    "include/async/Yield.hpp"
+    "src/async/FrameHeap.cpp"
     "src/async/FrameNames.cpp"
     "src/async/Promise.cpp"
     "src/async/Scheduler.cpp"
