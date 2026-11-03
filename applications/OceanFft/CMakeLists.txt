@@ -153,6 +153,18 @@ target_link_libraries(ocean_foam PUBLIC ocean_simulation PRIVATE gli)
 set_target_properties(ocean_foam PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
 diamond_dogs_add_pch(ocean_foam LIBRARY)
 
+add_library(ocean_camera STATIC
+    "camera/ArcballCamera.cpp"
+    "camera/ArcballCamera.hpp"
+    "camera/ArcballController.cpp"
+    "camera/ArcballController.hpp")
+target_include_directories(ocean_camera PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/camera"
+    "${PROJECT_SOURCE_DIR}/foundation/include")
+target_link_libraries(ocean_camera PUBLIC foundation)
+set_target_properties(ocean_camera PROPERTIES FOLDER "Applications/OceanFft" CXX_STANDARD 23 CXX_STANDARD_REQUIRED YES)
+diamond_dogs_add_pch(ocean_camera LIBRARY)
+
 # The demo itself. It borrows the VulkanScene frame loop from the integration test fixtures until there is an
 # application framework to put it in.
 set(DIAMOND_DOGS_TEST_FIXTURES "${PROJECT_SOURCE_DIR}/tests/integration_tests/fixtures")

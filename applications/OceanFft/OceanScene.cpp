@@ -1468,6 +1468,17 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::Capture:
         captureRequest = command.Text.empty() ? std::format("capture_{:06}", frameNumber) : command.Text;
         break;
+    case SceneCommand::Kind::CaptureBurst:
+        captureBurstName = command.Text;
+        captureBurstRemaining = static_cast<int32_t>(v[0]);
+        captureBurstIndex = 0;
+        break;
+    case SceneCommand::Kind::AtmosDebug:
+        atmosphereDebugMode = static_cast<int32_t>(v[0]);
+        break;
+    case SceneCommand::Kind::SsrDebug:
+        ssrDebugMode = static_cast<int32_t>(v[0]);
+        break;
     case SceneCommand::Kind::Preset:
         setSeaStatePreset(command.Text);
         if (command.Text == "GaleFoam")
@@ -1928,6 +1939,29 @@ void OceanScene::printState() const
         sssStrength, leadrSlopeVarianceScale, foamRoughnessScale, seabedRoughnessScale);
     std::cout << std::format("\nasync compute {}", (useAsyncCompute && hasAsyncComputeQueue) ? "on" : "off");
     std::cout << '\n' << std::flush;
+}
+
+void OceanScene::drawDebugModeCombo(
+    const char* label,
+    std::span<const std::string_view> mode_names,
+    int32_t& selected_mode)
+{
+    const std::string currentName{ mode_names[static_cast<size_t>(selected_mode)] };
+
+    if (ImGui::BeginCombo(label, currentName.c_str()))
+    {
+        for (int32_t index = 0; index < static_cast<int32_t>(mode_names.size()); ++index)
+        {
+            const std::string modeName{ mode_names[static_cast<size_t>(index)] };
+            const bool selected = index == selected_mode;
+            if (ImGui::Selectable(modeName.c_str(), selected))
+            {
+                selected_mode = index;
+            }
+        }
+
+        ImGui::EndCombo();
+    }
 }
 
 void OceanScene::drawPanel()
@@ -2452,6 +2486,8 @@ void OceanScene::drawPanel()
             (void)ocean::DrawArtistSlider("##taa_alpha", "TAA alpha", "blend rate", &taaBlendAlpha, 0.01f, 0.5f, std::format("{:.2f}", taaBlendAlpha), "", fonts, ocean::AccentTone::Cyan, false);
             (void)ocean::DrawArtistSlider("##ssr_int", "SSR intensity", "crest reflections", &ssrIntensity, 0.0f, 2.0f, std::format("{:.2f}", ssrIntensity), "", fonts, ocean::AccentTone::Ice, false);
             (void)ocean::DrawTelemetryToggle("##auto_exp", "Auto exposure", "OFF", "ON", &useAutoExposure, fonts, ocean::AccentTone::Amber);
+            drawDebugModeCombo("Atmosphere debug", AtmosphereDebugModeNames(), atmosphereDebugMode);
+            drawDebugModeCombo("SSR debug", SsrDebugModeNames(), ssrDebugMode);
 
             ocean::DrawSubSectionDivider("SKY & ENVIRONMENT", fonts, headerFontMode, ocean::AccentTone::Amber);
             if (ocean::DrawSkyPresetGrid(fonts, skyPreset))
@@ -2973,7 +3009,8 @@ void OceanScene::writeViewParameters()
     view.SunDirectionSeabedDepth = { sunDir[0], sunDir[1], sunDir[2], seabedDepth };
     view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), rotateCascades ? 1.0f : 0.0f, 0.0f };
     view.WhitecapParameters = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.CrestSharpness, 0.0f };
-    view.ShadingParameters = { underwaterFoam, sunSpecular, 0.0f, 0.0f };
+    view.ShadingParameters = { underwaterFoam, sunSpecular, static_cast<float>(atmosphereDebugMode),
+        static_cast<float>(ssrDebugMode) };
     const std::array<float, 3> foamTint = foamMaterial->Tint();
     view.FoamTextureParameters = { foamAlbedoGain, foamNormalStrength, 0.0f, 0.0f };
     view.FoamTextureTint = { foamTint[0], foamTint[1], foamTint[2], 0.0f };
@@ -3907,6 +3944,13 @@ void OceanScene::recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi:
 {
     std::optional<std::string> name = std::move(captureRequest);
     captureRequest.reset();
+    if (!name.has_value() && captureBurstRemaining > 0)
+    {
+        name = std::format("{}_{:03}", captureBurstName, captureBurstIndex);
+        ++captureBurstIndex;
+        --captureBurstRemaining;
+    }
+
     if (!name.has_value() && settings.Capture.Due(frameNumber))
     {
         name = std::format("frame_{:06}", frameNumber);

@@ -126,7 +126,6 @@ public float PhaseFunctionMie(float nu, float g)
 // -------------------------------------------------------------------------------------------------
 
 // Converts physical (r, mu) to normalized 2D texture coordinates for TransmittanceLut
-[ForceInline]
 public float2 GetTransmittanceUV(AtmosphereParameters params, float r, float mu)
 {
     const float Rg = params.BottomRadiusKm;
@@ -146,7 +145,6 @@ public float2 GetTransmittanceUV(AtmosphereParameters params, float r, float mu)
 }
 
 // Converts normalized (u_mu, u_r) back to physical (r, mu)
-[ForceInline]
 public void GetRadiusAndMuFromTransmittanceUV(
     AtmosphereParameters params,
     float2 uv,
@@ -170,7 +168,6 @@ public void GetRadiusAndMuFromTransmittanceUV(
 }
 
 // Converts physical (r, mu_s) to normalized 2D texture coordinates for IrradianceLut
-[ForceInline]
 public float2 GetIrradianceUV(AtmosphereParameters params, float r, float mu_s)
 {
     const float Rg = params.BottomRadiusKm;
@@ -181,7 +178,6 @@ public float2 GetIrradianceUV(AtmosphereParameters params, float r, float mu_s)
 }
 
 // Converts normalized (u_mu_s, u_r) back to physical (r, mu_s)
-[ForceInline]
 public void GetRadiusAndMuSFromIrradianceUV(
     AtmosphereParameters params,
     float2 uv,
@@ -196,7 +192,6 @@ public void GetRadiusAndMuSFromIrradianceUV(
 }
 
 // Converts physical (r, mu, mu_s, nu) to normalized 4D coordinates
-[ForceInline]
 public float4 GetInscatterUV(
     AtmosphereParameters params,
     float r,
@@ -239,8 +234,138 @@ public float4 GetInscatterUV(
     return float4(u_mu_s, u_nu, u_mu, u_r);
 }
 
+// -------------------------------------------------------------------------------------------------
+// Height-based lookup coordinates for the runtime. Near sea level r = Rg + h is about 6360 km, and a float
+// there has a spacing of 0.49 m, so r * r has a spacing of 4 km^2 while rho^2 = r^2 - Rg^2 is about 12.7 km^2
+// per metre of height. Every function below takes the height h above the ground (km) and the product r * mu
+// (km), computes rho^2 = h * (2 Rg + h) directly, and never forms a difference of two large squares.
+// The precompute kernels keep the r-based functions above, so the LUT contents do not change.
+// -------------------------------------------------------------------------------------------------
+
+// r^2 - Rg^2 in square metres for a position in metres relative to the world origin. The earth centre is at
+// (0, -Rg, 0), so r^2 = |p|^2 + 2 Rg p.y + Rg^2.
+public float ExcessRadiusSquaredMeters(float3 worldMeters, float groundMeters)
+{
+    return dot(worldMeters, worldMeters) + 2.0f * groundMeters * worldMeters.y;
+}
+
+// Height above the ground radius in metres, from r - R = (r^2 - R^2) / (r + R).
+public float ExactHeightMeters(float3 worldMeters, float groundMeters)
+{
+    const float numerator = ExcessRadiusSquaredMeters(worldMeters, groundMeters);
+    const float radiusMeters = sqrt(max(0.0f, numerator + groundMeters * groundMeters));
+    return numerator / (radiusMeters + groundMeters);
+}
+
+// Converts (h, r * mu) to normalized 2D texture coordinates for TransmittanceLut, with the same mapping as
+// GetTransmittanceUV.
+public float2 GetTransmittanceUVFromHeight(AtmosphereParameters params, float heightKm, float radiusTimesMuKm)
+{
+    const float Rg = params.BottomRadiusKm;
+    const float Rt = params.TopRadiusKm;
+    const float H = sqrt(max(0.0f, Rt * Rt - Rg * Rg));
+    const float height = max(heightKm, 0.0f);
+    const float radius = Rg + height;
+    const float rho = sqrt(height * (2.0f * Rg + height));
+    const float topHeight = (Rt - Rg) - height;
+
+    const float delta = radiusTimesMuKm * radiusTimesMuKm + topHeight * (Rt + radius);
+    const float d = max(0.0f, -radiusTimesMuKm + sqrt(max(0.0f, delta)));
+
+    const float d_min = topHeight;
+    const float d_max = rho + H;
+
+    const float u_mu = clamp((d - d_min) / max(1e-4f, d_max - d_min), 0.0f, 1.0f);
+    const float u_r = clamp(rho / max(1e-4f, H), 0.0f, 1.0f);
+    return float2(u_mu, u_r);
+}
+
+// True when the ray from height h with r * mu hits the ground (r * mu < -rho).
+public bool RayIntersectsGroundFromHeight(AtmosphereParameters params, float heightKm, float radiusTimesMuKm)
+{
+    const float Rg = params.BottomRadiusKm;
+    const float height = max(heightKm, 0.0f);
+    const float rho = sqrt(height * (2.0f * Rg + height));
+    return radiusTimesMuKm < -rho;
+}
+
+// u_mu of GetInscatterUV from (h, r * mu). The LUT half (ground or sky) is an input, because Bruneton 2017 looks up
+// the second point of a segment in the half that the camera ray uses: a branch of the point's own mu would flip between
+// the two lookups near the horizon, and the difference of the two lookups would be garbage there.
+// Bruneton and Neyret 2008 / Bruneton 2017 (BSD-3, Eric Bruneton), without the r^2 - Rg^2 cancellation near sea level
+public float StableInscatterMuCoordinate(
+    AtmosphereParameters params,
+    float heightKm,
+    float radiusTimesMuKm,
+    bool rayIntersectsGround)
+{
+    const float Rg = params.BottomRadiusKm;
+    const float Rt = params.TopRadiusKm;
+    const float height = max(heightKm, 0.0f);
+    const float radius = Rg + height;
+    const float rhoSquared = height * (2.0f * Rg + height);
+    const float rho = sqrt(rhoSquared);
+    const float topHeight = (Rt - Rg) - height;
+    const float cap = sqrt(max(0.0f, Rt * Rt - Rg * Rg));
+
+    float coordinate;
+
+    if (rayIntersectsGround)
+    {
+        // Viewing ray intersects the ground
+        const float deltaGround = radiusTimesMuKm * radiusTimesMuKm - rhoSquared;
+        // d = -r mu - sqrt(delta) = rho^2 / (-r mu + sqrt(delta)) removes the subtraction of two nearly equal lengths
+        const float d = rhoSquared / max(1e-6f, -radiusTimesMuKm + sqrt(max(0.0f, deltaGround)));
+        const float denom = max(1e-4f, rho - height);
+        coordinate = clamp(0.5f - 0.5f * ((d - height) / denom), 0.0f, 0.499999f);
+    }
+    else
+    {
+        // Viewing ray exits top of atmosphere
+        const float deltaTop = radiusTimesMuKm * radiusTimesMuKm + topHeight * (Rt + radius);
+        const float d = -radiusTimesMuKm + sqrt(max(0.0f, deltaTop));
+        const float denom = max(1e-4f, (rho + cap) - topHeight);
+        coordinate = clamp(0.5f + 0.5f * ((d - topHeight) / denom), 0.5f, 1.0f);
+    }
+
+    return coordinate;
+}
+
+// Converts (h, r * mu, mu_s, nu) to normalized 4D coordinates, with the same mapping as GetInscatterUV.
+public float4 GetInscatterUVFromHeight(
+    AtmosphereParameters params,
+    float heightKm,
+    float radiusTimesMuKm,
+    bool rayIntersectsGround,
+    float mu_s,
+    float nu)
+{
+    const float Rg = params.BottomRadiusKm;
+    const float Rt = params.TopRadiusKm;
+    const float H = sqrt(max(0.0f, Rt * Rt - Rg * Rg));
+    const float height = max(heightKm, 0.0f);
+    const float rho = sqrt(height * (2.0f * Rg + height));
+
+    const float u_mu = StableInscatterMuCoordinate(params, heightKm, radiusTimesMuKm, rayIntersectsGround);
+    const float u_r = clamp(rho / max(1e-4f, H), 0.0f, 1.0f);
+    const float u_mu_s = clamp((1.0f - exp(-3.0f * mu_s - 0.6f)) / (1.0f - exp(-3.6f)), 0.0f, 1.0f);
+    const float u_nu = clamp((1.0f + nu) * 0.5f, 0.0f, 1.0f);
+
+    return float4(u_mu_s, u_nu, u_mu, u_r);
+}
+
+// Converts (h, mu_s) to normalized 2D texture coordinates for IrradianceLut, with the same mapping as
+// GetIrradianceUV.
+public float2 GetIrradianceUVFromHeight(AtmosphereParameters params, float heightKm, float mu_s)
+{
+    const float Rg = params.BottomRadiusKm;
+    const float Rt = params.TopRadiusKm;
+    const float u_r = clamp(heightKm / max(1e-4f, Rt - Rg), 0.0f, 1.0f);
+    const float u_mu_s = clamp((mu_s + 1.0f) * 0.5f, 0.0f, 1.0f);
+    return float2(u_mu_s, u_r);
+}
+
 // Decodes thread coordinates (x in [0..255], y in [0..127], z in [0..31]) to physical (r, mu, mu_s, nu, d_ray)
-[ForceInline]
 public void GetPhysicalFromInscatterTexel(
     AtmosphereParameters params,
     uint3 id,
@@ -302,7 +427,7 @@ public void GetPhysicalFromInscatterTexel(
 // Texture Sampling Helpers
 // -------------------------------------------------------------------------------------------------
 
-[ForceInline]
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
 public float3 SampleTransmittanceLut(
     Texture2D<float4> lut,
     SamplerState samp,
@@ -314,7 +439,7 @@ public float3 SampleTransmittanceLut(
     return lut.SampleLevel(samp, uv, 0.0f).rgb;
 }
 
-[ForceInline]
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
 public float3 SampleIrradianceLut(
     Texture2D<float4> lut,
     SamplerState samp,
@@ -326,22 +451,16 @@ public float3 SampleIrradianceLut(
     return lut.SampleLevel(samp, uv, 0.0f).rgb;
 }
 
-[ForceInline]
-public float4 SampleInscatterLut4D(
+// Samples the packed 4D LUT at the vertical texture coordinate v, with quadrilinear interpolation across nu tiles.
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
+internal float4 SampleInscatterLutAtTextureV(
     Texture3D<float4> lut,
     SamplerState samp,
-    AtmosphereParameters params,
-    float r,
-    float mu,
-    float mu_s,
-    float nu)
+    float u_mu_s,
+    float u_nu,
+    float v,
+    float u_r)
 {
-    const float4 uv4 = GetInscatterUV(params, r, mu, mu_s, nu);
-    const float u_mu_s = uv4.x;
-    const float u_nu = uv4.y;
-    const float u_mu = uv4.z;
-    const float u_r = uv4.w;
-
     // Map into 3D texture dimensions (256 x 128 x 32) with quadrilinear interpolation across nu tiles
     const float f_nu = u_nu * 7.0f;
     const float tile_0 = floor(f_nu);
@@ -352,12 +471,87 @@ public float4 SampleInscatterLut4D(
     const float u_0 = (tile_0 * 32.0f + x_local) / 256.0f;
     const float u_1 = (tile_1 * 32.0f + x_local) / 256.0f;
 
-    const float v = (u_mu * 127.0f + 0.5f) / 128.0f;
     const float w = (u_r * 31.0f + 0.5f) / 32.0f;
 
     const float4 s0 = lut.SampleLevel(samp, float3(u_0, v, w), 0.0f);
     const float4 s1 = lut.SampleLevel(samp, float3(u_1, v, w), 0.0f);
     return lerp(s0, s1, frac_nu);
+}
+
+// The lookup that the precompute kernels use.
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
+public float4 SampleInscatterLutAtUV(Texture3D<float4> lut, SamplerState samp, float4 uv4)
+{
+    const float v = (uv4.z * 127.0f + 0.5f) / 128.0f;
+    return SampleInscatterLutAtTextureV(lut, samp, uv4.x, uv4.y, v, uv4.w);
+}
+
+// The runtime lookup. Rows 0 to 63 of the LUT hold rays that hit the ground and rows 64 to 127 hold rays that exit the
+// atmosphere, and the two halves meet at u_mu = 0.5 (nadir next to zenith). A bilinear sample closer than half a
+// texel to that seam mixes the two halves. A point at sea level has a ground ray with u_mu within 0.001 of 0.5, so it
+// would take part of its in-scatter from a ray that points straight up. Each half is clamped to its own texel centers.
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
+public float4 SampleInscatterLutAtUVWithoutSeamMixing(Texture3D<float4> lut, SamplerState samp, float4 uv4)
+{
+    const float unclampedV = (uv4.z * 127.0f + 0.5f) / 128.0f;
+    const float halfTexel = 0.5f / 128.0f;
+    const float v = (uv4.z < 0.5f)
+        ? clamp(unclampedV, halfTexel, 0.5f - halfTexel)
+        : clamp(unclampedV, 0.5f + halfTexel, 1.0f - halfTexel);
+    return SampleInscatterLutAtTextureV(lut, samp, uv4.x, uv4.y, v, uv4.w);
+}
+
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
+public float4 SampleInscatterLut4D(
+    Texture3D<float4> lut,
+    SamplerState samp,
+    AtmosphereParameters params,
+    float r,
+    float mu,
+    float mu_s,
+    float nu)
+{
+    const float4 uv4 = GetInscatterUV(params, r, mu, mu_s, nu);
+    return SampleInscatterLutAtUV(lut, samp, uv4);
+}
+
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
+public float3 SampleTransmittanceLutAtHeight(
+    Texture2D<float4> lut,
+    SamplerState samp,
+    AtmosphereParameters params,
+    float heightKm,
+    float radiusTimesMuKm)
+{
+    const float2 uv = GetTransmittanceUVFromHeight(params, heightKm, radiusTimesMuKm);
+    return lut.SampleLevel(samp, uv, 0.0f).rgb;
+}
+
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
+public float3 SampleIrradianceLutAtHeight(
+    Texture2D<float4> lut,
+    SamplerState samp,
+    AtmosphereParameters params,
+    float heightKm,
+    float mu_s)
+{
+    const float2 uv = GetIrradianceUVFromHeight(params, heightKm, mu_s);
+    return lut.SampleLevel(samp, uv, 0.0f).rgb;
+}
+
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
+public float4 SampleInscatterLut4DAtHeight(
+    Texture3D<float4> lut,
+    SamplerState samp,
+    AtmosphereParameters params,
+    float heightKm,
+    float radiusTimesMuKm,
+    bool rayIntersectsGround,
+    float mu_s,
+    float nu)
+{
+    const float4 uv4 = GetInscatterUVFromHeight(params, heightKm, radiusTimesMuKm, rayIntersectsGround, mu_s, nu);
+    return SampleInscatterLutAtUVWithoutSeamMixing(lut, samp, uv4);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -728,39 +922,65 @@ void AtmosphereMultipleScatteringCS(
 
 // -------------------------------------------------------------------------------------------------
 // Clean Public Runtime Evaluation Functions (converting Rec.709 to AP1 linear space)
+// Positions are in metres relative to the world origin: the sea surface at rest is y = 0, and the earth centre is
+// at (0, -Rg, 0). No function forms a position in earth-centred km.
 // -------------------------------------------------------------------------------------------------
 
+// Camera quantities for a view ray: height above the ground and the products r * mu and r * mu_s, in km.
+public struct CameraRayKm
+{
+    public float HeightKm;
+    public float RadiusTimesMuKm;
+    public float RadiusTimesMuSunKm;
+    public float MuSun;
+};
+
+public CameraRayKm ComputeCameraRayKm(AtmosphereParameters params, float3 cameraPosMeters, float3 viewDir, float3 sunDir)
+{
+    const float groundMeters = params.BottomRadiusKm * 1000.0f;
+    const float heightMeters = ExactHeightMeters(cameraPosMeters, groundMeters);
+    const float radiusMeters = groundMeters + heightMeters;
+    const float radiusTimesMuMeters = dot(cameraPosMeters, viewDir) + groundMeters * viewDir.y;
+    const float radiusTimesMuSunMeters = dot(cameraPosMeters, sunDir) + groundMeters * sunDir.y;
+
+    CameraRayKm ray;
+    ray.HeightKm = heightMeters * 0.001f;
+    ray.RadiusTimesMuKm = radiusTimesMuMeters * 0.001f;
+    ray.RadiusTimesMuSunKm = radiusTimesMuSunMeters * 0.001f;
+    ray.MuSun = radiusTimesMuSunMeters / radiusMeters;
+    return ray;
+}
+
 // Evaluates spectral transmittance between camera position and top of atmosphere along viewDir
-[ForceInline]
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
 public float3 EvaluateAtmosphereTransmittance(
     Texture2D<float4> transmittanceLut,
     SamplerState atmoSampler,
     AtmosphereParameters params,
-    float3 cameraPosKm,
+    float3 cameraPosMeters,
     float3 viewDir)
 {
-    const float r = length(cameraPosKm);
-    const float mu = dot(cameraPosKm, viewDir) / max(1e-4f, r);
-    return SampleTransmittanceLut(transmittanceLut, atmoSampler, params, r, mu);
+    const CameraRayKm ray = ComputeCameraRayKm(params, cameraPosMeters, viewDir, float3(0.0f, 1.0f, 0.0f));
+    return SampleTransmittanceLutAtHeight(transmittanceLut, atmoSampler, params, ray.HeightKm, ray.RadiusTimesMuKm);
 }
 
 // Evaluates sky radiance along view ray in AP1 linear space
-[ForceInline]
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
 public float3 EvaluateAtmosphereSkyRadiance(
     Texture3D<float4> inscatterLut,
     Texture2D<float4> transmittanceLut,
     SamplerState atmoSampler,
     AtmosphereParameters params,
-    float3 cameraPosKm,
+    float3 cameraPosMeters,
     float3 viewDir,
     float3 sunDir)
 {
-    const float r = length(cameraPosKm);
-    const float mu = dot(cameraPosKm, viewDir) / max(1e-4f, r);
-    const float mu_s = dot(cameraPosKm, sunDir) / max(1e-4f, r);
+    const CameraRayKm ray = ComputeCameraRayKm(params, cameraPosMeters, viewDir, sunDir);
     const float nu = dot(viewDir, sunDir);
 
-    const float4 inscatter = SampleInscatterLut4D(inscatterLut, atmoSampler, params, r, mu, mu_s, nu);
+    const bool rayIntersectsGround = RayIntersectsGroundFromHeight(params, ray.HeightKm, ray.RadiusTimesMuKm);
+    const float4 inscatter = SampleInscatterLut4DAtHeight(
+        inscatterLut, atmoSampler, params, ray.HeightKm, ray.RadiusTimesMuKm, rayIntersectsGround, ray.MuSun, nu);
     const float3 C_star = inscatter.rgb;
     const float C_M_r = inscatter.a;
 
@@ -776,54 +996,103 @@ public float3 EvaluateAtmosphereSkyRadiance(
     static const float k_CosSolarRadius = 0.99996f; // ~0.267 degrees solar disk
     if (nu >= k_CosSolarRadius)
     {
-        const float3 T_sun = SampleTransmittanceLut(transmittanceLut, atmoSampler, params, r, mu_s);
+        const float3 T_sun = SampleTransmittanceLutAtHeight(
+            transmittanceLut, atmoSampler, params, ray.HeightKm, ray.RadiusTimesMuSunKm);
         radianceRec709 += T_sun * (params.SolarIrradiance / (ATMO_PI * (1.0f - k_CosSolarRadius)));
     }
 
     return Rec709ToAp1(radianceRec709);
 }
 
-// Evaluates aerial perspective along ray segment [cameraPosKm, targetPosKm] in AP1 linear space
-[ForceInline]
+// The inputs of the aerial perspective lookups for the segment [camera, target], in km. The target values come from
+// the camera values and the distance d (Bruneton 2017): r_p^2 = r^2 + 2 r mu d + d^2, r_p mu_p = r mu + d, and
+// r_p mu_s_p = r mu_s + d nu. The target height is (r_p^2 - Rg^2) / (r_p + Rg), with r^2 - Rg^2 taken from the camera
+// position directly.
+public struct AerialPerspectiveGeometry
+{
+    public float CameraHeightKm;
+    public float CameraRadiusTimesMuKm;
+    public float CameraMuSun;
+    public bool RayIntersectsGround;
+    public float TargetHeightKm;
+    public float TargetRadiusTimesMuKm;
+    public float TargetMuSun;
+    public float Nu;
+};
+
+public AerialPerspectiveGeometry ComputeAerialPerspectiveGeometry(
+    AtmosphereParameters params,
+    float3 cameraPosMeters,
+    float3 targetPosMeters,
+    float3 sunDir)
+{
+    const float groundMeters = params.BottomRadiusKm * 1000.0f;
+    const float3 offsetMeters = targetPosMeters - cameraPosMeters;
+    const float distanceMeters = length(offsetMeters);
+    const float3 viewDir = (distanceMeters > 0.1f) ? (offsetMeters / distanceMeters) : float3(0.0f, 1.0f, 0.0f);
+    const float nu = dot(viewDir, sunDir);
+
+    const float cameraExcess = ExcessRadiusSquaredMeters(cameraPosMeters, groundMeters);
+    const float cameraRadius = groundMeters + ExactHeightMeters(cameraPosMeters, groundMeters);
+    const float cameraRadiusTimesMu = dot(cameraPosMeters, viewDir) + groundMeters * viewDir.y;
+    const float cameraRadiusTimesMuSun = dot(cameraPosMeters, sunDir) + groundMeters * sunDir.y;
+
+    const float targetExcess = cameraExcess + distanceMeters * distanceMeters + 2.0f * cameraRadiusTimesMu * distanceMeters;
+    const float targetRadius = sqrt(max(1.0f, groundMeters * groundMeters + targetExcess));
+    const float targetHeight = targetExcess / (targetRadius + groundMeters);
+    const float targetRadiusTimesMu = cameraRadiusTimesMu + distanceMeters;
+    const float targetRadiusTimesMuSun = cameraRadiusTimesMuSun + distanceMeters * nu;
+
+    AerialPerspectiveGeometry geometry;
+    geometry.CameraHeightKm = (cameraRadius - groundMeters) * 0.001f;
+    geometry.CameraRadiusTimesMuKm = cameraRadiusTimesMu * 0.001f;
+    geometry.CameraMuSun = cameraRadiusTimesMuSun / cameraRadius;
+    geometry.RayIntersectsGround = RayIntersectsGroundFromHeight(
+        params, geometry.CameraHeightKm, geometry.CameraRadiusTimesMuKm);
+    geometry.TargetHeightKm = targetHeight * 0.001f;
+    geometry.TargetRadiusTimesMuKm = targetRadiusTimesMu * 0.001f;
+    geometry.TargetMuSun = targetRadiusTimesMuSun / targetRadius;
+    geometry.Nu = nu;
+    return geometry;
+}
+
+// Evaluates aerial perspective along ray segment [cameraPosMeters, targetPosMeters] in AP1 linear space
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
 public AerialPerspectiveResult EvaluateAtmosphereAerialPerspective(
     Texture3D<float4> inscatterLut,
     Texture2D<float4> transmittanceLut,
     SamplerState atmoSampler,
     AtmosphereParameters params,
-    float3 cameraPosKm,
-    float3 targetPosKm,
+    float3 cameraPosMeters,
+    float3 targetPosMeters,
     float3 sunDir)
 {
-    const float3 segment = targetPosKm - cameraPosKm;
-    const float dist = length(segment);
-    const float3 vDir = (dist > 1e-4f) ? (segment / dist) : float3(0.0f, 1.0f, 0.0f);
-
-    const float r_cam = length(cameraPosKm);
-    const float mu_cam = dot(cameraPosKm, vDir) / max(1e-4f, r_cam);
-    const float mu_s_cam = dot(cameraPosKm, sunDir) / max(1e-4f, r_cam);
-    const float nu = dot(vDir, sunDir);
-
-    const float r_target = length(targetPosKm);
-    const float mu_target = dot(targetPosKm, vDir) / max(1e-4f, r_target);
-    const float mu_s_target = dot(targetPosKm, sunDir) / max(1e-4f, r_target);
+    const AerialPerspectiveGeometry g = ComputeAerialPerspectiveGeometry(params, cameraPosMeters, targetPosMeters, sunDir);
 
     float3 segmentTransmittance;
-    if (mu_cam < 0.0f)
+    if (g.CameraRadiusTimesMuKm < 0.0f)
     {
-        const float3 T_target = SampleTransmittanceLut(transmittanceLut, atmoSampler, params, r_target, -mu_target);
-        const float3 T_cam = SampleTransmittanceLut(transmittanceLut, atmoSampler, params, r_cam, -mu_cam);
+        const float3 T_target = SampleTransmittanceLutAtHeight(
+            transmittanceLut, atmoSampler, params, g.TargetHeightKm, -g.TargetRadiusTimesMuKm);
+        const float3 T_cam = SampleTransmittanceLutAtHeight(
+            transmittanceLut, atmoSampler, params, g.CameraHeightKm, -g.CameraRadiusTimesMuKm);
         segmentTransmittance = clamp(T_target / max(float3(1e-4f), T_cam), float3(0.0f), float3(1.0f));
     }
     else
     {
-        const float3 T_cam = SampleTransmittanceLut(transmittanceLut, atmoSampler, params, r_cam, mu_cam);
-        const float3 T_target = SampleTransmittanceLut(transmittanceLut, atmoSampler, params, r_target, mu_target);
+        const float3 T_cam = SampleTransmittanceLutAtHeight(
+            transmittanceLut, atmoSampler, params, g.CameraHeightKm, g.CameraRadiusTimesMuKm);
+        const float3 T_target = SampleTransmittanceLutAtHeight(
+            transmittanceLut, atmoSampler, params, g.TargetHeightKm, g.TargetRadiusTimesMuKm);
         segmentTransmittance = clamp(T_cam / max(float3(1e-4f), T_target), float3(0.0f), float3(1.0f));
     }
 
     // Difference of precomputed integrals: S(x, x_0) = S(x, v) - T(x, x_0) * S(x_0, v)
-    const float4 s_cam = SampleInscatterLut4D(inscatterLut, atmoSampler, params, r_cam, mu_cam, mu_s_cam, nu);
-    const float4 s_target = SampleInscatterLut4D(inscatterLut, atmoSampler, params, r_target, mu_target, mu_s_target, nu);
+    // Both lookups use the LUT half of the camera ray (Bruneton 2017)
+    const float4 s_cam = SampleInscatterLut4DAtHeight(
+        inscatterLut, atmoSampler, params, g.CameraHeightKm, g.CameraRadiusTimesMuKm, g.RayIntersectsGround, g.CameraMuSun, g.Nu);
+    const float4 s_target = SampleInscatterLut4DAtHeight(
+        inscatterLut, atmoSampler, params, g.TargetHeightKm, g.TargetRadiusTimesMuKm, g.RayIntersectsGround, g.TargetMuSun, g.Nu);
 
     const float3 inscatterRec709 = max(float3(0.0f, 0.0f, 0.0f), s_cam.rgb - segmentTransmittance * s_target.rgb);
 
@@ -834,21 +1103,21 @@ public AerialPerspectiveResult EvaluateAtmosphereAerialPerspective(
 }
 
 // Evaluates direct + diffuse solar irradiance on a horizontal surface in AP1 linear space
-[ForceInline]
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
 public float3 EvaluateAtmosphereSunIrradiance(
     Texture2D<float4> irradianceLut,
     Texture2D<float4> transmittanceLut,
     SamplerState atmoSampler,
     AtmosphereParameters params,
-    float3 positionKm,
+    float3 positionMeters,
     float3 sunDir)
 {
-    const float r = length(positionKm);
-    const float mu_s = dot(positionKm, sunDir) / max(1e-4f, r);
+    const CameraRayKm ray = ComputeCameraRayKm(params, positionMeters, sunDir, sunDir);
 
-    const float3 directT = SampleTransmittanceLut(transmittanceLut, atmoSampler, params, r, mu_s);
-    const float3 directE = params.SolarIrradiance * directT * max(0.0f, mu_s);
-    const float3 diffuseE = SampleIrradianceLut(irradianceLut, atmoSampler, params, r, mu_s);
+    const float3 directT = SampleTransmittanceLutAtHeight(
+        transmittanceLut, atmoSampler, params, ray.HeightKm, ray.RadiusTimesMuSunKm);
+    const float3 directE = params.SolarIrradiance * directT * max(0.0f, ray.MuSun);
+    const float3 diffuseE = SampleIrradianceLutAtHeight(irradianceLut, atmoSampler, params, ray.HeightKm, ray.MuSun);
 
     const float3 totalIrradianceRec709 = directE + diffuseE;
     return Rec709ToAp1(totalIrradianceRec709);

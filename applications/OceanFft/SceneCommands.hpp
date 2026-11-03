@@ -59,6 +59,13 @@
  *    async_compute on|off                  enable or disable async compute execution
  *    capture [name]                        write this frame to <capture dir>/<name>.png. The commands after it
  *                                          run on the next frame, so the capture sees only the ones before it
+ *    capture_burst count name              write this frame and the next count-1 frames to <capture dir>/<name>_000.png,
+ *                                          <name>_001.png, and so on. The commands after it run after the last frame
+ *    atmosdebug mode                       replace the deferred lighting output with a scalar from the Bruneton aerial
+ *                                          perspective (off, heighterror, muerror, museam, inscatter, transmittance,
+ *                                          constant, lutformula, luttotal, museamcam)
+ *    ssrdebug mode                         replace the deferred lighting output with a scalar from the SSR march
+ *                                          (off, hit, weight, step, thickness, distance)
  *    sync [token]                          flush device idle, flush captures, and print READY <token> frame=<frame>
  *    wait frames                           render this many frames before the next command
  *    print                                 print the camera, sky, tonemap, exposure, bloom, CDLOD, sea state, and cascades
@@ -108,6 +115,9 @@ struct SceneCommand
         Ssr,
         AutoExposure,
         Capture,
+        CaptureBurst,
+        AtmosDebug,
+        SsrDebug,
         Sync,
         Wait,
         Print,
@@ -134,6 +144,14 @@ struct SeaStateField
 [[nodiscard]] const SeaStateField* FindSeaStateField(std::string_view name);
 /** @brief Returns the preset whose name matches, ignoring case, or null when no preset matches */
 [[nodiscard]] const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name);
+/** @brief Returns the atmosphere debug mode names. The index of a name is the mode number that the shader reads */
+[[nodiscard]] const std::array<std::string_view, 10>& AtmosphereDebugModeNames() noexcept;
+/** @brief Returns the index of the atmosphere debug mode whose name matches, or -1 when no mode matches */
+[[nodiscard]] int32_t FindAtmosphereDebugMode(std::string_view name);
+/** @brief Returns the SSR debug mode names. The index of a name is the mode number that the shader reads */
+[[nodiscard]] const std::array<std::string_view, 6>& SsrDebugModeNames() noexcept;
+/** @brief Returns the index of the SSR debug mode whose name matches, or -1 when no mode matches */
+[[nodiscard]] int32_t FindSsrDebugMode(std::string_view name);
 /** @brief Returns every float field of the sea state, in declaration order */
 [[nodiscard]] const std::array<SeaStateField, 15>& SeaStateFields() noexcept;
 

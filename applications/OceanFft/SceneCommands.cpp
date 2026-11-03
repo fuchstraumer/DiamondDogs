@@ -72,6 +72,9 @@ namespace
         { "ssr", { SceneCommand::Kind::Ssr, 0u, 0u, false } },
         { "auto_exposure", { SceneCommand::Kind::AutoExposure, 0u, 0u, false } },
         { "capture", { SceneCommand::Kind::Capture, 0u, 0u, true } },
+        { "capture_burst", { SceneCommand::Kind::CaptureBurst, 0u, 0u, false } },
+        { "atmosdebug", { SceneCommand::Kind::AtmosDebug, 0u, 0u, false } },
+        { "ssrdebug", { SceneCommand::Kind::SsrDebug, 0u, 0u, false } },
         { "sync", { SceneCommand::Kind::Sync, 0u, 0u, true } },
         { "wait", { SceneCommand::Kind::Wait, 1u, 1u, false } },
         { "print", { SceneCommand::Kind::Print, 0u, 0u, false } },
@@ -158,6 +161,33 @@ namespace
     std::expected<SceneCommand, std::string> ParseTaa(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseSsr(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseAutoExposure(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseCaptureBurst(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseAtmosDebug(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSsrDebug(const std::vector<std::string_view>& words);
+
+    const std::array<std::string_view, 10> k_AtmosphereDebugModes
+    {
+        "off",
+        "heighterror",
+        "muerror",
+        "museam",
+        "inscatter",
+        "transmittance",
+        "constant",
+        "lutformula",
+        "luttotal",
+        "museamcam",
+    };
+
+    const std::array<std::string_view, 6> k_SsrDebugModes
+    {
+        "off",
+        "hit",
+        "weight",
+        "step",
+        "thickness",
+        "distance",
+    };
 }
 
 std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view line)
@@ -250,6 +280,21 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
         return ParseAutoExposure(words);
     }
 
+    if (shape.Kind == Kind::CaptureBurst)
+    {
+        return ParseCaptureBurst(words);
+    }
+
+    if (shape.Kind == Kind::AtmosDebug)
+    {
+        return ParseAtmosDebug(words);
+    }
+
+    if (shape.Kind == Kind::SsrDebug)
+    {
+        return ParseSsrDebug(words);
+    }
+
     SceneCommand command{};
     command.Type = shape.Kind;
     if (shape.TakesText)
@@ -327,6 +372,48 @@ const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name)
 const std::array<SeaStateField, 15>& SeaStateFields() noexcept
 {
     return k_SeaStateFields;
+}
+
+const std::array<std::string_view, 10>& AtmosphereDebugModeNames() noexcept
+{
+    return k_AtmosphereDebugModes;
+}
+
+int32_t FindAtmosphereDebugMode(std::string_view name)
+{
+    const auto matchesName = [name](std::string_view mode)
+    {
+        return EqualsIgnoreCase(mode, name);
+    };
+
+    const auto found = std::ranges::find_if(k_AtmosphereDebugModes, matchesName);
+    if (found == k_AtmosphereDebugModes.end())
+    {
+        return -1;
+    }
+
+    return static_cast<int32_t>(found - k_AtmosphereDebugModes.begin());
+}
+
+const std::array<std::string_view, 6>& SsrDebugModeNames() noexcept
+{
+    return k_SsrDebugModes;
+}
+
+int32_t FindSsrDebugMode(std::string_view name)
+{
+    const auto matchesName = [name](std::string_view mode)
+    {
+        return EqualsIgnoreCase(mode, name);
+    };
+
+    const auto found = std::ranges::find_if(k_SsrDebugModes, matchesName);
+    if (found == k_SsrDebugModes.end())
+    {
+        return -1;
+    }
+
+    return static_cast<int32_t>(found - k_SsrDebugModes.begin());
 }
 
 std::expected<void, std::string> SceneCommands::LoadScript(const std::filesystem::path& path)
@@ -417,7 +504,14 @@ std::vector<SceneCommand> SceneCommands::TakeForFrame()
         }
 
         // a capture takes this frame as the commands so far left it, so the ones after it wait for the next frame
-        const bool endsFrame = parsed->Type == SceneCommand::Kind::Capture || parsed->Type == SceneCommand::Kind::Sync;
+        const bool endsFrame = parsed->Type == SceneCommand::Kind::Capture || parsed->Type == SceneCommand::Kind::Sync ||
+                               parsed->Type == SceneCommand::Kind::CaptureBurst;
+        if (parsed->Type == SceneCommand::Kind::CaptureBurst)
+        {
+            // the burst takes this frame and the next count-1 frames, so the commands after it wait for those
+            waitFrames = static_cast<uint32_t>(parsed->Values[0]) - 1u;
+        }
+
         commands.push_back(std::move(*parsed));
         if (endsFrame)
         {
@@ -1040,6 +1134,75 @@ namespace
             cmd.Values[0] = val;
             cmd.ValueCount = 1u;
         }
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseCaptureBurst(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 3u)
+        {
+            return std::unexpected(std::string{ "capture_burst takes a frame count and a name" });
+        }
+
+        int32_t count = 0;
+        const std::from_chars_result result = std::from_chars(words[1].data(), words[1].data() + words[1].size(), count);
+        if (result.ec != std::errc{} || result.ptr != words[1].data() + words[1].size() || count < 1)
+        {
+            return std::unexpected(std::string{ "capture_burst: '" } + std::string{ words[1] } + "' is not a frame count of 1 or more");
+        }
+
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::CaptureBurst;
+        cmd.Text = std::string{ words[2] };
+        cmd.Values[0] = static_cast<float>(count);
+        cmd.ValueCount = 1u;
+
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseAtmosDebug(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 2u)
+        {
+            return std::unexpected(std::string{ "atmosdebug takes a mode name" });
+        }
+
+        const int32_t mode = FindAtmosphereDebugMode(words[1]);
+        if (mode < 0)
+        {
+            return std::unexpected(std::string{ "atmosdebug: unknown mode '" } + std::string{ words[1] } + "'");
+        }
+
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::AtmosDebug;
+        cmd.Text = std::string{ words[1] };
+        cmd.Values[0] = static_cast<float>(mode);
+        cmd.ValueCount = 1u;
+
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSsrDebug(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 2u)
+        {
+            return std::unexpected(std::string{ "ssrdebug takes a mode name" });
+        }
+
+        const int32_t mode = FindSsrDebugMode(words[1]);
+        if (mode < 0)
+        {
+            const std::string modeName{ words[1] };
+
+            return std::unexpected("ssrdebug: unknown mode '" + modeName + "'");
+        }
+
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::SsrDebug;
+        cmd.Text = std::string{ words[1] };
+        cmd.Values[0] = static_cast<float>(mode);
+        cmd.ValueCount = 1u;
+
         return cmd;
     }
 }

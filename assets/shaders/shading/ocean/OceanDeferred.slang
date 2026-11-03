@@ -193,7 +193,6 @@ public struct AutoExposurePushConstants
 // Helper Functions
 // -------------------------------------------------------------------------------------------------
 
-[ForceInline]
 internal float3 ClipToWorld(float4 clip, float4 invVp[4])
 {
     const float4 worldH = float4(
@@ -205,13 +204,11 @@ internal float3 ClipToWorld(float4 clip, float4 invVp[4])
     return worldH.xyz / max(1e-7f, worldH.w);
 }
 
-[ForceInline]
 internal float Erfc(float x)
 {
     return 2.0f * exp(-x * x) / (2.319f * x + sqrt(4.0f + 1.52f * x * x));
 }
 
-[ForceInline]
 internal float Lambda(float cosTheta, float sigmaSq)
 {
     const float v = cosTheta / sqrt(max(1e-5f, (1.0f - cosTheta * cosTheta) * (2.0f * sigmaSq)));
@@ -258,7 +255,6 @@ internal float EvaluateOceanSpecular(
     return (fresnel * p) / max(1e-5f, denom);
 }
 
-[ForceInline]
 internal float EvaluateBrunetonMeanFresnel(float cosThetaV, float sigmaV)
 {
     const float exponent = 5.0f * exp(-2.69f * sigmaV);
@@ -266,7 +262,6 @@ internal float EvaluateBrunetonMeanFresnel(float cosThetaV, float sigmaV)
     return pow(max(0.0f, 1.0f - cosThetaV), exponent) / max(1e-5f, denom);
 }
 
-[ForceInline]
 internal float EvaluateBrunetonFresnel(float3 V, float3 N, float2 sigmaSq)
 {
     const float cosThetaV = saturate(dot(V, N));
@@ -274,7 +269,6 @@ internal float EvaluateBrunetonFresnel(float3 V, float3 N, float2 sigmaSq)
     return 0.02f + 0.98f * EvaluateBrunetonMeanFresnel(cosThetaV, sigmaV);
 }
 
-[ForceInline]
 internal float3 RgbToYCoCg(float3 c)
 {
     return float3(
@@ -284,7 +278,6 @@ internal float3 RgbToYCoCg(float3 c)
     );
 }
 
-[ForceInline]
 internal float3 YCoCgToRgb(float3 c)
 {
     return float3(
@@ -370,6 +363,239 @@ void OceanHiZDownsampleCS(
 }
 
 // -------------------------------------------------------------------------------------------------
+// Atmosphere debug modes (deferred path with the Bruneton sky only). View.ShadingParameters.z stores the mode.
+// A mode replaces the lighting output with the gray value s, and a reader decodes value = s * scale
+// (value = (s - 0.5) * 2 * scale for the signed modes). Sky pixels are written magenta so that a reader can mask them.
+//   1 heighterror    scale 1.0 m     |target height the runtime derives from the camera and the distance - target height from its position|
+//   2 muerror        scale 0.0001    |mu_target the runtime derives - mu_target from the target position|
+//   3 museam         signed, 0.05    mu_target - mu_horizon(h_target), runtime values
+//   4 inscatter      scale 2.0       luminance of the aerial perspective in-scatter (AP1)
+//   5 transmittance  scale 1.0       mean of the RGB segment transmittance
+//   6 constant       s = 0.5         readback check
+//   7 lutformula     scale 64 texels |u_mu by the OLD float formula - u_mu by the stable formula|, both on the old km chain
+//                                    (shows the error that the fix removed; it does not run in the shading path)
+//   8 luttotal       scale 64 texels |u_mu the runtime looks up - u_mu from the target position and the stable formula|
+//   9 museamcam      signed, 0.05    mu_cam - mu_horizon(h_cam), runtime values
+// -------------------------------------------------------------------------------------------------
+
+internal static const uint ATMOS_DEBUG_OFF = 0u;
+internal static const uint ATMOS_DEBUG_HEIGHT_ERROR = 1u;
+internal static const uint ATMOS_DEBUG_MU_ERROR = 2u;
+internal static const uint ATMOS_DEBUG_MU_SEAM = 3u;
+internal static const uint ATMOS_DEBUG_INSCATTER = 4u;
+internal static const uint ATMOS_DEBUG_TRANSMITTANCE = 5u;
+internal static const uint ATMOS_DEBUG_CONSTANT = 6u;
+internal static const uint ATMOS_DEBUG_LUT_FORMULA = 7u;
+internal static const uint ATMOS_DEBUG_LUT_TOTAL = 8u;
+internal static const uint ATMOS_DEBUG_MU_SEAM_CAMERA = 9u;
+
+internal struct AtmosphereDebugValues
+{
+    float HeightErrorMeters;
+    float MuError;
+    float MuSeam;
+    float MuSeamCamera;
+    float InscatterLuminance;
+    float TransmittanceMean;
+    float LutFormulaTexels;
+    float LutTotalTexels;
+};
+
+internal uint GetAtmosphereDebugMode()
+{
+    return uint(View.ShadingParameters.z + 0.5f);
+}
+
+// mode 3 and 9: mu of the horizon at a height above the ground, from the height directly: 1 - (R/r)^2 = h (2R + h) / r^2
+internal float HorizonMu(float heightMeters, float groundMeters)
+{
+    const float height = max(heightMeters, 0.0f);
+    return -sqrt(height * (2.0f * groundMeters + height)) / (groundMeters + height);
+}
+
+// The u_mu formula that GetInscatterUV had before the fix: float on r and mu, with r^2 - Rg^2 as a difference of two
+// large squares. Kept here only so that the lutformula mode can show its error. The runtime does not call it.
+internal float OldFloatInscatterMuCoordinate(float r, float mu)
+{
+    const float Rg = Atmosphere.BottomRadiusKm;
+    const float Rt = Atmosphere.TopRadiusKm;
+    const float H = sqrt(max(0.0f, Rt * Rt - Rg * Rg));
+    const float rho = sqrt(max(0.0f, r * r - Rg * Rg));
+    const float mu_horiz = (r > 0.0f) ? (-rho / r) : 0.0f;
+
+    float u_mu;
+
+    if (mu < mu_horiz)
+    {
+        const float delta_g = r * r * (mu * mu - 1.0f) + Rg * Rg;
+        const float d = -r * mu - sqrt(max(0.0f, delta_g));
+        const float d_min = r - Rg;
+        const float d_max = rho;
+        const float denom = max(1e-4f, d_max - d_min);
+        u_mu = clamp(0.5f - 0.5f * ((d - d_min) / denom), 0.0f, 0.499999f);
+    }
+    else
+    {
+        const float delta_t = r * r * (mu * mu - 1.0f) + Rt * Rt;
+        const float d = -r * mu + sqrt(max(0.0f, delta_t));
+        const float d_min = Rt - r;
+        const float d_max = rho + H;
+        const float denom = max(1e-4f, d_max - d_min);
+        u_mu = clamp(0.5f + 0.5f * ((d - d_min) / denom), 0.5f, 1.0f);
+    }
+
+    return u_mu;
+}
+
+// The runtime chain of EvaluateAtmosphereAerialPerspective (the height and r * mu of the target that it looks up),
+// against the same values taken from the target position directly, and the old chain in earth-centred km.
+internal AtmosphereDebugValues ComputeAtmosphereDebugValues(
+    float3 cameraWorld,
+    float3 targetWorld,
+    float3 toSun,
+    AerialPerspectiveResult ap)
+{
+    const float groundKm = Atmosphere.BottomRadiusKm;
+    const float groundMeters = groundKm * 1000.0f;
+
+    // what the runtime looks up
+    const AerialPerspectiveGeometry geometry = ComputeAerialPerspectiveGeometry(Atmosphere, cameraWorld, targetWorld, toSun);
+    const float runtimeTargetHeightMeters = geometry.TargetHeightKm * 1000.0f;
+    const float runtimeTargetRadiusKm = groundKm + geometry.TargetHeightKm;
+    const float runtimeTargetMu = geometry.TargetRadiusTimesMuKm / runtimeTargetRadiusKm;
+    const float runtimeCameraRadiusKm = groundKm + geometry.CameraHeightKm;
+    const float runtimeCameraMu = geometry.CameraRadiusTimesMuKm / runtimeCameraRadiusKm;
+    const float runtimeCoordinate = StableInscatterMuCoordinate(
+        Atmosphere, geometry.TargetHeightKm, geometry.TargetRadiusTimesMuKm, geometry.RayIntersectsGround);
+
+    // the same values from the target position directly
+    const float3 offsetMeters = targetWorld - cameraWorld;
+    const float distanceMeters = max(length(offsetMeters), 1.0e-3f);
+    const float3 exactDir = offsetMeters / distanceMeters;
+    const float targetHeightMeters = ExactHeightMeters(targetWorld, groundMeters);
+    const float targetRadiusTimesMuMeters = dot(targetWorld, exactDir) + groundMeters * exactDir.y;
+    const float directTargetMu = targetRadiusTimesMuMeters / (groundMeters + targetHeightMeters);
+    const float cameraHeightMeters = ExactHeightMeters(cameraWorld, groundMeters);
+    const float exactCoordinate = StableInscatterMuCoordinate(
+        Atmosphere, targetHeightMeters * 0.001f, targetRadiusTimesMuMeters * 0.001f, geometry.RayIntersectsGround);
+
+    // the old chain: positions in earth-centred km, then the old float formula, then the stable formula on the same inputs
+    const float3 cameraPosKm = cameraWorld * 0.001f + float3(0.0f, groundKm, 0.0f);
+    const float3 targetPosKm = targetWorld * 0.001f + float3(0.0f, groundKm, 0.0f);
+    const float3 segment = targetPosKm - cameraPosKm;
+    const float dist = length(segment);
+    const float3 vDir = (dist > 1e-4f) ? (segment / dist) : float3(0.0f, 1.0f, 0.0f);
+    const float oldTargetRadius = length(targetPosKm);
+    const float oldTargetMu = dot(targetPosKm, vDir) / max(1e-4f, oldTargetRadius);
+    const float oldCoordinate = OldFloatInscatterMuCoordinate(oldTargetRadius, oldTargetMu);
+    const float stableOnOldInputs = StableInscatterMuCoordinate(
+        Atmosphere,
+        oldTargetRadius - groundKm,
+        oldTargetRadius * oldTargetMu,
+        RayIntersectsGroundFromHeight(Atmosphere, oldTargetRadius - groundKm, oldTargetRadius * oldTargetMu));
+
+    AtmosphereDebugValues values;
+    values.HeightErrorMeters = abs(runtimeTargetHeightMeters - targetHeightMeters);
+    values.MuError = abs(runtimeTargetMu - directTargetMu);
+    values.MuSeam = runtimeTargetMu - HorizonMu(runtimeTargetHeightMeters, groundMeters);
+    values.MuSeamCamera = runtimeCameraMu - HorizonMu(cameraHeightMeters, groundMeters);
+    values.InscatterLuminance = dot(ap.InscatterAP1, float3(0.2722287f, 0.6740818f, 0.0536895f));
+    values.TransmittanceMean = (ap.Transmittance.x + ap.Transmittance.y + ap.Transmittance.z) * (1.0f / 3.0f);
+    values.LutFormulaTexels = abs(oldCoordinate - stableOnOldInputs) * 127.0f;
+    values.LutTotalTexels = abs(runtimeCoordinate - exactCoordinate) * 127.0f;
+
+    return values;
+}
+
+// returns the gray value s of the mode, in [0, 1]
+internal float EncodeAtmosphereDebugScalar(uint mode, AtmosphereDebugValues values)
+{
+    float scalar = 0.0f;
+
+    if (mode == ATMOS_DEBUG_HEIGHT_ERROR)
+    {
+        scalar = values.HeightErrorMeters / 1.0f;
+    }
+    else if (mode == ATMOS_DEBUG_MU_ERROR)
+    {
+        scalar = values.MuError / 0.0001f;
+    }
+    else if (mode == ATMOS_DEBUG_MU_SEAM)
+    {
+        scalar = 0.5f + values.MuSeam / (2.0f * 0.05f);
+    }
+    else if (mode == ATMOS_DEBUG_INSCATTER)
+    {
+        scalar = values.InscatterLuminance / 2.0f;
+    }
+    else if (mode == ATMOS_DEBUG_TRANSMITTANCE)
+    {
+        scalar = values.TransmittanceMean;
+    }
+    else if (mode == ATMOS_DEBUG_CONSTANT)
+    {
+        scalar = 0.5f;
+    }
+    else if (mode == ATMOS_DEBUG_LUT_FORMULA)
+    {
+        scalar = values.LutFormulaTexels / 64.0f;
+    }
+    else if (mode == ATMOS_DEBUG_LUT_TOTAL)
+    {
+        scalar = values.LutTotalTexels / 64.0f;
+    }
+    else if (mode == ATMOS_DEBUG_MU_SEAM_CAMERA)
+    {
+        scalar = 0.5f + values.MuSeamCamera / (2.0f * 0.05f);
+    }
+
+    return saturate(scalar);
+}
+
+// -------------------------------------------------------------------------------------------------
+// SSR debug modes. View.ShadingParameters.w stores the mode. A mode replaces the lighting output with the gray value
+// s, and a reader decodes value = s * scale. Sky pixels are written magenta so that a reader can mask them. A pixel
+// that the march does not reach (SSR off, or a reflection ray that points high) reads 0 in every mode.
+//   1 hit        scale 1     1 when the march hits, 0 when it misses
+//   2 weight     scale 2     the final hitWeight, which SsrIntensity caps (the UI allows 2)
+//   3 step       scale 12    hit step + 1 (the march has 12 steps), 0 for a miss
+//   4 thickness  scale 10 m  view depth in metres by which the ray is behind the scene surface at the hit
+//   5 distance   scale 25 m  ray distance from the shaded point at the hit
+// -------------------------------------------------------------------------------------------------
+
+internal static const int SSR_STEP_COUNT = 12;
+internal static const float SSR_MIN_THICKNESS_METERS = 0.25f;
+internal static const float SSR_DISTANCE_FADE_START_METERS = 12.0f;
+internal static const float SSR_DISTANCE_FADE_END_METERS = 22.0f;
+internal static const float SSR_PIXEL_GATE_START = 1.5f;
+internal static const float SSR_PIXEL_GATE_END = 4.5f;
+
+internal static const uint SSR_DEBUG_OFF = 0u;
+internal static const uint SSR_DEBUG_HIT = 1u;
+internal static const uint SSR_DEBUG_WEIGHT = 2u;
+internal static const uint SSR_DEBUG_STEP = 3u;
+internal static const uint SSR_DEBUG_THICKNESS = 4u;
+internal static const uint SSR_DEBUG_DISTANCE = 5u;
+
+internal uint GetSsrDebugMode()
+{
+    return uint(View.ShadingParameters.w + 0.5f);
+}
+
+internal float EncodeSsrDebugScalar(uint mode, float hit, float weight, int hitStep, float thicknessMeters, float distanceMeters)
+{
+    switch (mode)
+    {
+    case SSR_DEBUG_HIT: return hit;
+    case SSR_DEBUG_WEIGHT: return weight * 0.5f;
+    case SSR_DEBUG_STEP: return float(hitStep + 1) / 12.0f;
+    case SSR_DEBUG_THICKNESS: return saturate(thicknessMeters / 10.0f);
+    case SSR_DEBUG_DISTANCE: return saturate(distanceMeters / 25.0f);
+    default: return 0.0f;
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
 // 3. OceanDeferredLightingCS
 // Deferred shading with dual-depth refraction, wave-crest SSR, EON foam, and aerial perspective.
 // -------------------------------------------------------------------------------------------------
@@ -392,21 +618,32 @@ void OceanDeferredLightingCS(
 
     if (oceanDepth <= 0.0f)
     {
+        if (GetSsrDebugMode() != SSR_DEBUG_OFF)
+        {
+            HdrLightingOutput[coord] = float4(1.0f, 0.0f, 1.0f, 1.0f);
+            return;
+        }
+
         if (Frame.UseBrunetonAtmosphere != 0u)
         {
+            if (GetAtmosphereDebugMode() != ATMOS_DEBUG_OFF)
+            {
+                HdrLightingOutput[coord] = float4(1.0f, 0.0f, 1.0f, 1.0f);
+                return;
+            }
+
             const float2 uv = (float2(coord) + 0.5f) * Push.InvDimensions;
             const float2 ndc = uv * 2.0f - 1.0f;
             const float4 clipFar = float4(ndc.x, ndc.y, 0.0f, 1.0f);
             const float3 worldFar = ClipToWorld(clipFar, Push.InvViewProjection);
             const float3 viewDir = normalize(worldFar - View.CameraPositionTime.xyz);
             const float3 toSun = View.SunDirectionSeabedDepth.xyz;
-            const float3 cameraPosKm = View.CameraPositionTime.xyz * 0.001f + float3(0.0f, Atmosphere.BottomRadiusKm, 0.0f);
             const float3 skyRadiance = EvaluateAtmosphereSkyRadiance(
                 InscatterLut,
                 TransmittanceLut,
                 AtmosphereLinearSampler,
                 Atmosphere,
-                cameraPosKm,
+                View.CameraPositionTime.xyz,
                 viewDir,
                 toSun
             );
@@ -479,13 +716,12 @@ void OceanDeferredLightingCS(
     float3 skyRadiance = float3(0.0f);
     if (Frame.UseBrunetonAtmosphere != 0u)
     {
-        const float3 cameraPosKm = View.CameraPositionTime.xyz * 0.001f + float3(0.0f, Atmosphere.BottomRadiusKm, 0.0f);
         skyRadiance = EvaluateAtmosphereSkyRadiance(
             InscatterLut,
             TransmittanceLut,
             AtmosphereLinearSampler,
             Atmosphere,
-            cameraPosKm,
+            View.CameraPositionTime.xyz,
             reflectDir,
             toSun
         ) * Frame.SkyIntensityScale;
@@ -504,18 +740,31 @@ void OceanDeferredLightingCS(
         skyRadiance = EvaluateShIrradiance(reflectDir, Frame.SkyShCoeffs) * (DEFERRED_INV_PI * Frame.SkyIntensityScale);
     }
 
-    // Hi-Z / Screen-Space wave crest reflections (SSR)
+    // Screen-space wave crest reflections (SSR). A fixed 12 step linear march of about 22 m along the reflection
+    // ray. It reads the full resolution depth only and never touches the Hi-Z mips. A step hits when the ray is behind
+    // the depth surface by less than a thickness in metres of view depth. The thickness limit is the step length,
+    // with a floor, because a ray that crosses the surface between two steps can be that far behind it. The hit
+    // weight fades by thickness, by ray distance, by screen distance from the shaded pixel and by screen edge, so no
+    // binary boundary remains. SsrIntensity is the maximum weight.
     float3 reflectionColor = skyRadiance;
+    float ssrDebugHit = 0.0f;
+    float ssrDebugWeight = 0.0f;
+    int ssrDebugStep = -1;
+    float ssrDebugThickness = 0.0f;
+    float ssrDebugDistance = 0.0f;
     if (Frame.SsrIntensity > 0.0f && reflectDir.y < 0.25f)
     {
         float hitWeight = 0.0f;
         float3 hitColor = float3(0.0f);
         float rayDist = 0.2f;
+        int hitStep = -1;
+        float hitThicknessMeters = 0.0f;
 
         [unroll]
-        for (int step = 0; step < 12; ++step)
+        for (int step = 0; step < SSR_STEP_COUNT; ++step)
         {
-            rayDist += 0.3f * pow(1.3f, float(step));
+            const float stepLength = 0.3f * pow(1.3f, float(step));
+            rayDist += stepLength;
             const float3 marchPos = oceanWorldPos + reflectDir * rayDist;
             const float4 marchClip = float4(
                 dot(View.ViewProjectionRows[0], float4(marchPos, 1.0f)),
@@ -524,30 +773,78 @@ void OceanDeferredLightingCS(
                 dot(View.ViewProjectionRows[3], float4(marchPos, 1.0f))
             );
 
-            if (marchClip.w > 0.01f)
+            if (marchClip.w <= 0.01f)
             {
-                const float2 marchUv = (marchClip.xy / marchClip.w) * 0.5f + 0.5f;
-                const float marchDepth = marchClip.z / marchClip.w;
-
-                if (all(marchUv >= 0.0f) && all(marchUv <= 1.0f))
-                {
-                    const float sceneDepth = OceanDepthTexture.SampleLevel(PointClampSampler, marchUv, 0.0f);
-                    const float thickness = (sceneDepth - marchDepth) / max(sceneDepth, 1e-4f);
-                    if (sceneDepth > marchDepth && thickness > 0.0f && thickness < 0.05f)
-                    {
-                        const float edgeFade = saturate(1.0f - max(abs(marchUv.x * 2.0f - 1.0f), abs(marchUv.y * 2.0f - 1.0f)));
-                        const float3 sampledColor = HistoryColorTexture.SampleLevel(LinearClampSampler, marchUv, 0.0f).rgb;
-                        if (!any(isnan(sampledColor)) && !any(isinf(sampledColor)))
-                        {
-                            hitColor = max(float3(0.0f), sampledColor);
-                            hitWeight = edgeFade * Frame.SsrIntensity;
-                        }
-                        break;
-                    }
-                }
+                continue;
             }
+
+            const float2 marchNdc = marchClip.xy / marchClip.w;
+            const float2 marchUv = marchNdc * 0.5f + 0.5f;
+            const float marchDepth = marchClip.z / marchClip.w;
+
+            if (!all(marchUv >= 0.0f) || !all(marchUv <= 1.0f))
+            {
+                continue;
+            }
+
+            // a ray that stays inside the shaded pixel reads the pixel's own depth, which is a false hit
+            const float pixelDistance = length((marchUv - uv) * float2(Push.Dimensions));
+            const float pixelGate = smoothstep(SSR_PIXEL_GATE_START, SSR_PIXEL_GATE_END, pixelDistance);
+
+            if (pixelGate <= 0.0f)
+            {
+                continue;
+            }
+
+            const float sceneDepth = OceanDepthTexture.SampleLevel(PointClampSampler, marchUv, 0.0f);
+
+            if (sceneDepth <= marchDepth)
+            {
+                continue;
+            }
+
+            const float3 sceneWorldPos = ClipToWorld(float4(marchNdc, sceneDepth, 1.0f), Push.InvViewProjection);
+            const float sceneViewDepth = dot(View.ViewProjectionRows[3], float4(sceneWorldPos, 1.0f));
+            const float thicknessMeters = marchClip.w - sceneViewDepth;
+            const float thicknessLimit = max(SSR_MIN_THICKNESS_METERS, stepLength);
+
+            if (thicknessMeters <= 0.0f || thicknessMeters >= thicknessLimit)
+            {
+                continue;
+            }
+
+            const float thicknessFade = 1.0f - smoothstep(0.5f * thicknessLimit, thicknessLimit, thicknessMeters);
+            const float distanceFade = 1.0f - smoothstep(SSR_DISTANCE_FADE_START_METERS, SSR_DISTANCE_FADE_END_METERS, rayDist);
+            const float edgeFade = saturate(1.0f - max(abs(marchUv.x * 2.0f - 1.0f), abs(marchUv.y * 2.0f - 1.0f)));
+            const float3 sampledColor = HistoryColorTexture.SampleLevel(LinearClampSampler, marchUv, 0.0f).rgb;
+
+            hitStep = step;
+            hitThicknessMeters = thicknessMeters;
+
+            if (!any(isnan(sampledColor)) && !any(isinf(sampledColor)))
+            {
+                hitColor = max(float3(0.0f), sampledColor);
+                hitWeight = edgeFade * thicknessFade * distanceFade * pixelGate * Frame.SsrIntensity;
+            }
+
+            break;
         }
+
         reflectionColor = lerp(skyRadiance, hitColor, hitWeight);
+
+        ssrDebugHit = hitStep >= 0 ? 1.0f : 0.0f;
+        ssrDebugWeight = hitWeight;
+        ssrDebugStep = hitStep;
+        ssrDebugThickness = hitThicknessMeters;
+        ssrDebugDistance = hitStep >= 0 ? rayDist : 0.0f;
+    }
+
+    const uint ssrDebugMode = GetSsrDebugMode();
+    if (ssrDebugMode != SSR_DEBUG_OFF)
+    {
+        const float ssrScalar = EncodeSsrDebugScalar(ssrDebugMode, ssrDebugHit, ssrDebugWeight, ssrDebugStep, ssrDebugThickness, ssrDebugDistance);
+        HdrLightingOutput[coord] = float4(ssrScalar, ssrScalar, ssrScalar, 1.0f);
+        return;
     }
 
     // Ross-Bruneton-LEADR specular BRDF and Bruneton Fresnel
@@ -605,18 +902,25 @@ void OceanDeferredLightingCS(
     // Bruneton (2008) Aerial Perspective
     if (Frame.UseBrunetonAtmosphere != 0u)
     {
-        const float3 cameraPosKm = View.CameraPositionTime.xyz * 0.001f + float3(0.0f, Atmosphere.BottomRadiusKm, 0.0f);
-        const float3 targetPosKm = oceanWorldPos * 0.001f + float3(0.0f, Atmosphere.BottomRadiusKm, 0.0f);
         const AerialPerspectiveResult ap = EvaluateAtmosphereAerialPerspective(
             InscatterLut,
             TransmittanceLut,
             AtmosphereLinearSampler,
             Atmosphere,
-            cameraPosKm,
-            targetPosKm,
+            View.CameraPositionTime.xyz,
+            oceanWorldPos,
             toSun
         );
         finalColor = finalColor * ap.Transmittance + ap.InscatterAP1;
+
+        const uint debugMode = GetAtmosphereDebugMode();
+        if (debugMode != ATMOS_DEBUG_OFF)
+        {
+            const AtmosphereDebugValues debugValues = ComputeAtmosphereDebugValues(View.CameraPositionTime.xyz, oceanWorldPos, toSun, ap);
+            const float debugScalar = EncodeAtmosphereDebugScalar(debugMode, debugValues);
+            HdrLightingOutput[coord] = float4(debugScalar, debugScalar, debugScalar, 1.0f);
+            return;
+        }
     }
     else
     {

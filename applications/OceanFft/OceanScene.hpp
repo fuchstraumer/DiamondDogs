@@ -24,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <span>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -126,6 +127,8 @@ private:
     void runCommand(const SceneCommand& command);
     void recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image);
     void drawPanel();
+    /** @brief Draws a combo that picks a shader debug mode by name. The index of the name is the mode number */
+    void drawDebugModeCombo(const char* label, std::span<const std::string_view> mode_names, int32_t& selected_mode);
     void drawTimingsPanel();
     /** @brief The frame's coalesce step for the GPU timers: collects finished frames into the rolling averages */
     void collectGpuTimings();
@@ -232,6 +235,14 @@ private:
     bool quitRequested{ false };
     uint64_t frameNumber{ 0u };
     std::optional<std::string> captureRequest;
+    // a capture_burst command: the frames left to capture, the index of the next one, and the name prefix
+    int32_t captureBurstRemaining{ 0 };
+    int32_t captureBurstIndex{ 0 };
+    std::string captureBurstName;
+    // the index of the atmosphere debug mode in the shader's table. 0 is off
+    int32_t atmosphereDebugMode{ 0 };
+    // the index of the SSR debug mode in the shader's table. 0 is off
+    int32_t ssrDebugMode{ 0 };
     std::unique_ptr<capture::FrameCapture> frameCapture;
 
     // GPU timer scopes on the graphics queue, one block per frame command buffer (inactive in Release). Averages are
