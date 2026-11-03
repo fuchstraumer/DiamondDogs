@@ -165,7 +165,8 @@ struct ImageCreateInfo
 namespace rhi
 {
     /** @brief The image's usage on the GPU just before the transfer runs, and the usage it must have after the transfer.
-     *  Both must be non-zero, and each must be a subset of the usage the image was created with. */
+     *  Both must be non-zero, and each must be a subset of the usage the image was created with. `Before` can also be
+     *  `ImageUsageBits::Discard` alone: the old contents do not matter, and the transfer starts from UNDEFINED. */
     struct ImageUsageTransition
     {
         ImageUsageBits Before{ ImageUsageBits::Invalid };

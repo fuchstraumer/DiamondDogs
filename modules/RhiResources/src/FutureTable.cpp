@@ -99,6 +99,10 @@ namespace rhi
             return "InvalidWait";
         case ResourceError::WaitOnHostWrite:
             return "WaitOnHostWrite";
+        case ResourceError::InvalidPlacement:
+            return "InvalidPlacement";
+        case ResourceError::HeapInUse:
+            return "HeapInUse";
         }
 
         return "Unknown ResourceError";

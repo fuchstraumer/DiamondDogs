@@ -11,6 +11,7 @@ set(RESOURCE_CONTEXT_TEST_SOURCES
     test_retirement.cpp
     test_futures.cpp
     test_handoff.cpp
+    test_placement.cpp
     test_waits.cpp
 )
 

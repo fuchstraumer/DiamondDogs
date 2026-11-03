@@ -378,6 +378,18 @@ namespace
 
     std::optional<ImageLayouts> GetImageLayouts(const ImageUsageBits before, const ImageUsageBits after) noexcept
     {
+        // a discard before starts from UNDEFINED, which always needs a barrier, also when the layouts match
+        if (before == ImageUsageBits::Discard)
+        {
+            const VkImageLayout discardAfterLayout = ImageLayoutFromUsageBits(after);
+            if (after == ImageUsageBits::Invalid || discardAfterLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+            {
+                return std::nullopt;
+            }
+
+            return ImageLayouts{VK_IMAGE_LAYOUT_UNDEFINED, discardAfterLayout};
+        }
+
         // If either usage is invalid, we can't do anything meaningful. if they're the same, no transition needed
         if ((before == ImageUsageBits::Invalid || after == ImageUsageBits::Invalid) || (before == after))
         {
@@ -416,8 +428,10 @@ namespace
 
         VkImageMemoryBarrier2 imageBarrier{};
         imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        imageBarrier.srcStageMask = GetPipelineStageFromImageUsageBits(barrier.BeforeUsage);
-        imageBarrier.srcAccessMask = GetAccessMaskFromImageUsageBits(barrier.BeforeUsage);
+        // a discard before has no prior work to wait for here: the caller's semaphores or the ordering barrier do that
+        const bool beforeIsDiscard = barrier.BeforeUsage == ImageUsageBits::Discard;
+        imageBarrier.srcStageMask = beforeIsDiscard ? VK_PIPELINE_STAGE_2_NONE : GetPipelineStageFromImageUsageBits(barrier.BeforeUsage);
+        imageBarrier.srcAccessMask = beforeIsDiscard ? VK_ACCESS_2_NONE : GetAccessMaskFromImageUsageBits(barrier.BeforeUsage);
         imageBarrier.dstStageMask = GetPipelineStageFromImageUsageBits(barrier.AfterUsage);
         imageBarrier.dstAccessMask = GetAccessMaskFromImageUsageBits(barrier.AfterUsage);
         imageBarrier.oldLayout = layouts->BeforeLayout;

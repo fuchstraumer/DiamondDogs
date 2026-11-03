@@ -77,6 +77,11 @@ namespace rhi
         InvalidWait = 27,
         /** @brief A wait on a SetBufferData of a host-visible buffer. The worker writes that memory at once. */
         WaitOnHostWrite = 28,
+        /** @brief A placed resource whose offset is not a multiple of its alignment, that does not fit in the heap, or
+         *  whose memory type the heap does not have. */
+        InvalidPlacement = 29,
+        /** @brief A destroy of a heap that still has placed resources that are not freed yet. The heap stays alive. */
+        HeapInUse = 30,
     };
 
     [[nodiscard]] std::string_view ToString(ResourceError error) noexcept;

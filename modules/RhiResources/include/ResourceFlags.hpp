@@ -34,7 +34,9 @@ enum class ResourceType : uint16_t
     Image,
     ImageView,
     Sampler,
-    CombinedImageSampler
+    CombinedImageSampler,
+    /** @brief A block of device memory that placed resources are bound into. Made by `rhi::placement::CreateMemoryHeap`. */
+    Heap
 };
 
 /** @brief Combinations of flag bits that control resource creation behavior and specific usage hints */
@@ -225,6 +227,10 @@ enum class ImageUsageBits : uint64_t
 
     /** @brief Image used as source for copy/transfer operations */
     TransferSource = 1 << 20,
+
+    /** @brief Valid only as `ImageUsageTransition::Before`, and only alone. The old contents of the image do not matter,
+     *  and the transition starts from UNDEFINED. */
+    Discard = 1 << 21,
 
     // All flags after this point are reserved for internal usage in resource barrier generation, and should not be used by users
     // Collected flags for common *access* patterns (also useful with layouts, since that understandably tends to mirror access patterns)

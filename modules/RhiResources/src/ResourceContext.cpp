@@ -16,8 +16,6 @@
 
 namespace
 {
-    /** @brief Builds the create message with the name copied on the calling thread. Leaves the data and the usage after upload empty. */
-    [[nodiscard]] CreateImageMessage MakeCreateImageMessage(const ImageCreateInfo& create_info, int32_t future_slot);
     /** @brief Allocates the future for a copy between existing resources and pushes the message. A full table pushes nothing. */
     [[nodiscard]] rhi::OperationFuture PushCopyContents(
         ResourceContextImpl& impl,
@@ -80,11 +78,7 @@ rhi::ResourceFuture<GraphicsResource> ResourceContext::CreateBuffer(
         return future;
     }
 
-    CreateBufferMessage message;
-    message.BufferInfo = create_info;
-    message.Name = DebugName(create_info.Name);
-    message.BufferInfo.Name = {};
-    message.Future = slot;
+    CreateBufferMessage message = MakeCreateBufferMessage(create_info, slot);
 
     if (!initial_data.empty())
     {
@@ -475,23 +469,6 @@ ResourceContextCounters ResourceContext::Counters() const noexcept
 
 namespace
 {
-    CreateImageMessage MakeCreateImageMessage(const ImageCreateInfo& create_info, int32_t future_slot)
-    {
-        CreateImageMessage message;
-        message.ImageInfo = create_info;
-        message.Name = DebugName(create_info.Name);
-        message.ImageInfo.Name = {};
-        message.Future = future_slot;
-
-        // the sampler takes its name from the image, so its own view is never read
-        if (message.ImageInfo.SamplerInfo.has_value())
-        {
-            message.ImageInfo.SamplerInfo->Name = {};
-        }
-
-        return message;
-    }
-
     rhi::OperationFuture PushCopyContents(
         ResourceContextImpl& impl,
         CopyResourceContentsMessage&& message,

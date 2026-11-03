@@ -3,6 +3,8 @@
 #define RESOURCE_CONTEXT_VULKAN_CONVERSIONS_HPP
 #include "ResourceFlags.hpp"
 #include "ResourceTypes.hpp"
+#include <cstdint>
+#include <span>
 #include <vulkan/vulkan_core.h>
 #include <vk_mem_alloc.h>
 
@@ -22,6 +24,14 @@
 /** @brief Returns the Vulkan usage flags for the usage bits. Transfer usage comes only from TransferSource and
  *  TransferDestination. */
 [[nodiscard]] VkImageUsageFlags ToVkImageUsage(ImageUsageBits usage) noexcept;
+
+/** @brief Returns the Vulkan create info for the buffer. The create path and the memory requirements query both call
+ *  this, so that a query answers for the buffer that the create makes. The result points into `queue_family_indices`,
+ *  which must outlive it. */
+[[nodiscard]] VkBufferCreateInfo ToVkBufferCreateInfo(const BufferCreateInfo& create_info, std::span<const uint32_t> queue_family_indices) noexcept;
+/** @brief As ToVkBufferCreateInfo, for an image. Adds the cube-compatible flag for a cube view, concurrent sharing
+ *  across the queue families, optimal tiling and the sample count. */
+[[nodiscard]] VkImageCreateInfo ToVkImageCreateInfo(const ImageCreateInfo& create_info, std::span<const uint32_t> queue_family_indices) noexcept;
 
 [[nodiscard]] VkImageType ToVkImageType(ImageType type) noexcept;
 [[nodiscard]] VkImageViewType ToVkImageViewType(ImageViewType type) noexcept;

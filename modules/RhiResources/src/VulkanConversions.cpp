@@ -3,7 +3,9 @@
 #include "ResourceFlags.hpp"
 #include "ResourceTypes.hpp"
 #include "vulkan/vulkan_core.h"
+#include <algorithm>
 #include <cstdint>
+#include <span>
 
 namespace
 {
@@ -112,6 +114,46 @@ VkImageUsageFlags ToVkImageUsage(ImageUsageBits usage) noexcept
         result |= VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
     }
     return result;
+}
+
+VkBufferCreateInfo ToVkBufferCreateInfo(const BufferCreateInfo& create_info, std::span<const uint32_t> queue_family_indices) noexcept
+{
+    return VkBufferCreateInfo
+    {
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0u,
+        static_cast<VkDeviceSize>(create_info.Size),
+        ToVkBufferUsage(create_info.Usage, create_info.ViewFormat.has_value()),
+        queue_family_indices.size() > 1u ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
+        static_cast<uint32_t>(queue_family_indices.size()),
+        queue_family_indices.data()
+    };
+}
+
+VkImageCreateInfo ToVkImageCreateInfo(const ImageCreateInfo& create_info, std::span<const uint32_t> queue_family_indices) noexcept
+{
+    const bool isCube = create_info.ViewInfo.has_value() && create_info.ViewInfo->ViewType == ImageViewType::Cube;
+
+    return VkImageCreateInfo
+    {
+        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        nullptr,
+        isCube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0u,
+        ToVkImageType(create_info.Type),
+        ToVkFormat(create_info.Format),
+        VkExtent3D{ create_info.Width, std::max(create_info.Height, 1u), std::max(create_info.Depth, 1u) },
+        create_info.MipLevels,
+        create_info.ArrayLayers,
+        // the VkSampleCountFlagBits values are the counts themselves
+        static_cast<VkSampleCountFlagBits>(std::max(create_info.SampleCount, 1u)),
+        VK_IMAGE_TILING_OPTIMAL,
+        ToVkImageUsage(create_info.Usage),
+        queue_family_indices.size() > 1u ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
+        static_cast<uint32_t>(queue_family_indices.size()),
+        queue_family_indices.data(),
+        VK_IMAGE_LAYOUT_UNDEFINED
+    };
 }
 
 VkImageType ToVkImageType(ImageType type) noexcept
@@ -319,7 +361,11 @@ VkSamplerCreateInfo ToVkSamplerCreateInfo(const SamplerCreateInfo& create_info) 
 
 VkImageLayout ImageLayoutFromUsageBits(ImageUsageBits bits) noexcept
 {
-    if (HasAny(bits, ImageUsageBits::PresentSource))
+    if (HasAny(bits, ImageUsageBits::Discard))
+    {
+        return VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+    else if (HasAny(bits, ImageUsageBits::PresentSource))
     {
         return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     }

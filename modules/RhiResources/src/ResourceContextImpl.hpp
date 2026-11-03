@@ -51,6 +51,12 @@ public:
     [[nodiscard]] rhi::FutureTable& Futures() noexcept;
     [[nodiscard]] ResourceContextCounters Counters() const noexcept;
 
+    /** @brief Returns the logical device. Valid from Construct on. */
+    [[nodiscard]] VkDevice VulkanDevice() const noexcept;
+    /** @brief Returns the queue families that every resource is shared across. Fixed by Construct, so any thread can
+     *  read it. */
+    [[nodiscard]] std::span<const uint32_t> QueueFamilies() const noexcept;
+
 private:
 
     struct ResourceFlags
@@ -65,6 +71,22 @@ private:
     struct UserMapCount
     {
         int32_t Count{ 0 };
+    };
+
+    // a heap made by CreateMemoryHeap. PlacementCount is the number of placed resources that are not freed yet: it
+    // goes up when one is created and down when its objects are freed, because the GPU can use the memory until then
+    struct MemoryHeap
+    {
+        VkDeviceMemory Memory{ VK_NULL_HANDLE };
+        uint32_t MemoryTypeIndex{ 0u };
+        uint64_t Size{ 0u };
+        int32_t PlacementCount{ 0 };
+    };
+
+    // the heap that a placed resource is bound into. the resource owns no VmaAllocation
+    struct PlacedIn
+    {
+        entt::entity Heap{ entt::null };
     };
 
     // the last ticket of a transfer that reads or writes the entity. a destroy waits for it, queued or in flight
@@ -103,6 +125,9 @@ private:
     void processMessage(CreateBufferMessage&& message);
     void processMessage(CreateImageMessage&& message);
     void processMessage(CreateSamplerMessage&& message);
+    void processMessage(CreateMemoryHeapMessage&& message);
+    void processMessage(CreatePlacedBufferMessage&& message);
+    void processMessage(CreatePlacedImageMessage&& message);
     void processMessage(SetBufferDataMessage&& message);
     void processMessage(SetImageDataMessage&& message);
     void processMessage(FillResourceMessage&& message);
@@ -138,10 +163,29 @@ private:
      *  matches. Used by the messages that accept any kind of resource. */
     [[nodiscard]] std::expected<entt::entity, rhi::ResourceError> resolveResource(const GraphicsResource& resource) const;
 
+    /** @brief Returns the entity of the heap that `resource` refers to, when that entity is alive and is a heap, and
+     *  its memory handle matches. */
+    [[nodiscard]] std::expected<entt::entity, rhi::ResourceError> resolveHeap(const GraphicsResource& resource) const;
+
     /** @brief Creates the entity and every API object that the create info asks for. Leaves the future alone, so that
      *  a copy can follow creation before the future completes. */
     [[nodiscard]] std::expected<GraphicsResource, rhi::ResourceError> createBufferEntity(const BufferCreateInfo& info, const DebugName& name);
     [[nodiscard]] std::expected<GraphicsResource, rhi::ResourceError> createImageEntity(const ImageCreateInfo& info, const DebugName& name);
+
+    // an entity is made in three steps, so that a normal and a placed resource share the first and the last. begin
+    // validates the info and adds the registry components. the middle step makes the buffer or image and its memory.
+    // finish makes the views and the sampler, and returns the GraphicsResource. a failed finish destroys the entity
+    [[nodiscard]] std::expected<entt::entity, rhi::ResourceError> beginBufferEntity(const BufferCreateInfo& info, const DebugName& name);
+    [[nodiscard]] std::expected<GraphicsResource, rhi::ResourceError> finishBufferEntity(entt::entity entity);
+    [[nodiscard]] std::expected<entt::entity, rhi::ResourceError> beginImageEntity(const ImageCreateInfo& info, const DebugName& name);
+    [[nodiscard]] std::expected<GraphicsResource, rhi::ResourceError> finishImageEntity(entt::entity entity);
+
+    /** @brief Makes the buffer or image, binds it into the heap at the offset and adds PlacedIn. Returns
+     *  InvalidPlacement, with nothing made, when the placement does not fit. */
+    [[nodiscard]] rhi::ResourceError placeBuffer(entt::entity new_entity, const BufferCreateInfo& buffer_info, entt::entity heap_entity, uint64_t offset);
+    [[nodiscard]] rhi::ResourceError placeImage(entt::entity new_entity, const ImageCreateInfo& image_info, entt::entity heap_entity, uint64_t offset);
+    /** @brief Adds PlacedIn to the entity and counts it in the heap. Used after a bind succeeded. */
+    void registerPlacement(entt::entity new_entity, entt::entity heap_entity);
 
     // each of these names its object after the entity's DebugName component, when the entity has one
     VkBuffer createBuffer(entt::entity new_entity, const BufferCreateInfo& buffer_info);

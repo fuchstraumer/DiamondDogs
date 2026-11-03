@@ -139,6 +139,37 @@ struct CreateSamplerMessage
     int32_t Future{ -1 };
 };
 
+/** @brief Returns the create message with the name copied on the calling thread and the view cleared. Leaves the data
+ *  and the usage after upload empty. */
+[[nodiscard]] CreateBufferMessage MakeCreateBufferMessage(const BufferCreateInfo& create_info, int32_t future_slot);
+/** @brief As MakeCreateBufferMessage, for an image. The sampler takes its name from the image. */
+[[nodiscard]] CreateImageMessage MakeCreateImageMessage(const ImageCreateInfo& create_info, int32_t future_slot);
+
+/** @brief Asks for a block of device-local memory. The worker checks both fields. */
+struct CreateMemoryHeapMessage
+{
+    uint64_t Size{ 0u };
+    uint32_t MemoryTypeBits{ 0u };
+    DebugName Name;
+    int32_t Future{ -1 };
+};
+
+/** @brief A buffer or image that is bound to memory in a heap at an offset, instead of allocating its own. The create
+ *  message in it never has initial data. */
+struct CreatePlacedBufferMessage
+{
+    CreateBufferMessage Create;
+    GraphicsResource Heap{ GraphicsResource::Null() };
+    uint64_t Offset{ 0u };
+};
+
+struct CreatePlacedImageMessage
+{
+    CreateImageMessage Create;
+    GraphicsResource Heap{ GraphicsResource::Null() };
+    uint64_t Offset{ 0u };
+};
+
 struct SetBufferDataMessage
 {
     SetBufferDataMessage() noexcept = default;
@@ -288,6 +319,9 @@ struct TransferProgressMessage
 using ResourceMessagePayloadType = std::variant<CreateBufferMessage,
                                                 CreateImageMessage,
                                                 CreateSamplerMessage,
+                                                CreateMemoryHeapMessage,
+                                                CreatePlacedBufferMessage,
+                                                CreatePlacedImageMessage,
                                                 SetBufferDataMessage,
                                                 SetImageDataMessage,
                                                 FillResourceMessage,

@@ -93,6 +93,119 @@ TEST_F(ResourceContextTest, SetImageDataTwiceThenReadBack)
     DestroyAndWait(image);
 }
 
+TEST_F(ResourceContextTest, DiscardUploadReplacesTheWholeImage)
+{
+    const std::vector<uint32_t> first = MakeWordPattern(k_Size * k_Size, 51u);
+    const std::vector<uint32_t> second = MakeWordPattern(k_Size * k_Size, 52u);
+    const RhiImageResourceData firstData = WholeImageData(first);
+    const RhiImageResourceData secondData = WholeImageData(second);
+
+    const ImageCreateInfo info = HandoffImageInfo(k_ImageUsage);
+    rhi::ResourceFuture<GraphicsResource> reply = context->CreateImage(info, std::span{ &firstData, 1u }, ImageUsageBits::SampledImage);
+    ASSERT_EQ(context->Wait(reply, k_TimeoutNs), rhi::FutureState::Complete);
+    const GraphicsResource image = reply.Get();
+
+    // the image is in the sampled layout, and the caller says that its contents do not matter
+    const rhi::ImageUsageTransition discardToSampled{ ImageUsageBits::Discard, ImageUsageBits::SampledImage };
+    rhi::OperationFuture secondReply = context->SetImageData(image, discardToSampled, std::span{ &secondData, 1u }, {});
+    ASSERT_EQ(context->Wait(secondReply, k_TimeoutNs), rhi::FutureState::Complete);
+
+    EXPECT_EQ(ReadBackImageWords(image, k_SampledToSampled, k_ImageBytes), second);
+    DestroyAndWait(image);
+}
+
+TEST_F(ResourceContextTest, DiscardOnACopyDestination)
+{
+    const std::vector<uint32_t> sourceTexels = MakeWordPattern(k_Size * k_Size, 61u);
+    const std::vector<uint32_t> oldTexels = MakeWordPattern(k_Size * k_Size, 62u);
+    const RhiImageResourceData sourceData = WholeImageData(sourceTexels);
+    const RhiImageResourceData oldData = WholeImageData(oldTexels);
+
+    const ImageCreateInfo info = HandoffImageInfo(k_ImageUsage);
+    rhi::ResourceFuture<GraphicsResource> sourceReply = context->CreateImage(info, std::span{ &sourceData, 1u }, ImageUsageBits::SampledImage);
+    ASSERT_EQ(context->Wait(sourceReply, k_TimeoutNs), rhi::FutureState::Complete);
+    const GraphicsResource source = sourceReply.Get();
+
+    rhi::ResourceFuture<GraphicsResource> destinationReply = context->CreateImage(info, std::span{ &oldData, 1u }, ImageUsageBits::SampledImage);
+    ASSERT_EQ(context->Wait(destinationReply, k_TimeoutNs), rhi::FutureState::Complete);
+    const GraphicsResource destination = destinationReply.Get();
+
+    const rhi::ImageUsageTransition discardToSampled{ ImageUsageBits::Discard, ImageUsageBits::SampledImage };
+    rhi::OperationFuture copyReply = context->CopyImageContents(source, k_SampledToSampled, destination, discardToSampled, {});
+    ASSERT_EQ(context->Wait(copyReply, k_TimeoutNs), rhi::FutureState::Complete);
+
+    EXPECT_EQ(ReadBackImageWords(destination, k_SampledToSampled, k_ImageBytes), sourceTexels);
+    EXPECT_EQ(ReadBackImageWords(source, k_SampledToSampled, k_ImageBytes), sourceTexels);
+
+    DestroyAndWait(source);
+    DestroyAndWait(destination);
+}
+
+TEST_F(ResourceContextTest, DiscardRefusals)
+{
+    const std::vector<uint32_t> texels = MakeWordPattern(k_Size * k_Size, 71u);
+    const RhiImageResourceData data = WholeImageData(texels);
+
+    const ImageCreateInfo info = HandoffImageInfo(k_ImageUsage);
+    rhi::ResourceFuture<GraphicsResource> imageReply = context->CreateImage(info, std::span{ &data, 1u }, ImageUsageBits::SampledImage);
+    ASSERT_EQ(context->Wait(imageReply, k_TimeoutNs), rhi::FutureState::Complete);
+    const GraphicsResource image = imageReply.Get();
+
+    rhi::ResourceFuture<GraphicsResource> otherReply = context->CreateImage(info, std::span{ &data, 1u }, ImageUsageBits::SampledImage);
+    ASSERT_EQ(context->Wait(otherReply, k_TimeoutNs), rhi::FutureState::Complete);
+    const GraphicsResource other = otherReply.Get();
+
+    const GraphicsResource readback = CreateReadbackBuffer(k_ImageBytes);
+
+    const rhi::ImageUsageTransition discardAfter{ ImageUsageBits::SampledImage, ImageUsageBits::Discard };
+    const rhi::ImageUsageTransition discardBoth{ ImageUsageBits::Discard, ImageUsageBits::Discard };
+    const rhi::ImageUsageTransition discardWithSampled{ ImageUsageBits::Discard | ImageUsageBits::SampledImage, ImageUsageBits::SampledImage };
+    const rhi::ImageUsageTransition afterWithDiscard{ ImageUsageBits::Discard, ImageUsageBits::SampledImage | ImageUsageBits::Discard };
+    // a transfer that reads the image needs defined contents, so a discard before is refused on a source
+    const rhi::ImageUsageTransition discardSource{ ImageUsageBits::Discard, ImageUsageBits::SampledImage };
+    ImageCreateInfo discardInfo = info;
+    discardInfo.Usage |= ImageUsageBits::Discard;
+
+    struct Case
+    {
+        const char* Name;
+        rhi::OperationFuture Future;
+        rhi::ResourceError Expected;
+    };
+
+    std::vector<Case> cases;
+    cases.push_back({ "set data with a discard after", context->SetImageData(image, discardAfter, std::span{ &data, 1u }, {}), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "set data with a discard before and after", context->SetImageData(image, discardBoth, std::span{ &data, 1u }, {}), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "set data with a discard and sampled before", context->SetImageData(image, discardWithSampled, std::span{ &data, 1u }, {}), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "set data with a discard and sampled after", context->SetImageData(image, afterWithDiscard, std::span{ &data, 1u }, {}), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "copy out with a discard after", context->CopyImageToBuffer(image, discardAfter, readback, {}), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "image copy with a discard destination after", context->CopyImageContents(image, k_SampledToSampled, other, discardAfter, {}), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "new image copy with a discard resting usage", context->CopyImage(image, k_SampledToSampled, ImageUsageBits::Discard, {}), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "copy out with a discard source", context->CopyImageToBuffer(image, discardSource, readback, {}), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "image copy with a discard source", context->CopyImageContents(image, discardSource, other, k_SampledToSampled, {}), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "new image copy with a discard source", context->CopyImage(image, discardSource, ImageUsageBits::SampledImage, {}), rhi::ResourceError::InvalidUsageTransition });
+    cases.push_back({ "create with a discard in the usage", context->CreateImage(discardInfo), rhi::ResourceError::InvalidCreateInfo });
+    cases.push_back({ "create with a discard in the usage and data", context->CreateImage(discardInfo, std::span{ &data, 1u }, ImageUsageBits::SampledImage), rhi::ResourceError::InvalidCreateInfo });
+    cases.push_back({ "create with a discard after upload", context->CreateImage(info, std::span{ &data, 1u }, ImageUsageBits::Discard), rhi::ResourceError::InvalidCreateInfo });
+
+    for (const Case& entry : cases)
+    {
+        EXPECT_EQ(context->Wait(entry.Future, k_TimeoutNs), rhi::FutureState::Failed) << entry.Name;
+        EXPECT_EQ(entry.Future.Error(), entry.Expected)
+            << entry.Name << ": got " << rhi::ToString(entry.Future.Error()) << ", expected " << rhi::ToString(entry.Expected);
+    }
+
+    cases.clear();
+
+    // the refused calls changed nothing
+    EXPECT_EQ(ReadBackImageWords(image, k_SampledToSampled, k_ImageBytes), texels);
+
+    for (const GraphicsResource& resource : { image, other, readback })
+    {
+        DestroyAndWait(resource);
+    }
+}
+
 TEST_F(ResourceContextTest, UsageTransitionErrors)
 {
     const std::vector<uint32_t> texels = MakeWordPattern(k_Size * k_Size, 41u);

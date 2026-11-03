@@ -19,7 +19,7 @@ Each call returns one of three move-only types, declared in `ResourceFuture.hpp`
 
 | Type | Returned by | `Get()` |
 |---|---|---|
-| `rhi::ResourceFuture<GraphicsResource>` | `CreateBuffer`, `CreateImage`, `CreateSampler`, `CopyBuffer`, `CopyImage` | The resource |
+| `rhi::ResourceFuture<GraphicsResource>` | `CreateBuffer`, `CreateImage`, `CreateSampler`, `CopyBuffer`, `CopyImage`, and the placement calls `CreateMemoryHeap`, `CreatePlacedBuffer`, `CreatePlacedImage` | The resource |
 | `rhi::ResourceFuture<void*>` | `MapBuffer` | The mapped pointer |
 | `rhi::OperationFuture` | Every other call | None |
 
@@ -69,7 +69,8 @@ the ticket, the `GraphicsResource`, and the mapped pointer.
 `StaleResource`, `WrongResourceKind` or `ResourceRetiring`. The create checks return `InvalidCreateInfo` or
 `UnsupportedUsage`. The transfer checks return `MissingTransferUsage`, `InvalidFillRange`, `CopySizeMismatch`,
 `CopyShapeMismatch`, `UnsupportedCopy`, `InvalidUsageTransition`, `TooManyWaits`, `InvalidWait` or `WaitOnHostWrite`.
-The transfer thread returns `StagingFailed`, `RecordingFailed` or
+The placed creates return `InvalidPlacement`, and a destroy of a heap that still has
+placed resources returns `HeapInUse`. The transfer thread returns `StagingFailed`, `RecordingFailed` or
 `SubmitFailed`. The timeline calls return `InvalidTimeline`, `TimelineAlreadyRegistered`, `NoFreeTimelineSlot` or
 `TimelineNotRegistered`.
 
@@ -166,7 +167,15 @@ as they come.
   image. The new image starts from `UNDEFINED`.
 - **Buffers.** `CopyBufferContents` is for two buffers. It fails with `WrongResourceKind` when a side is an image.
   `CopyBuffer` fails with `WrongResourceKind` for an image, and `CopyImage` fails with it for a buffer.
-- **No discard.** `Before` must name a real usage. A call cannot ask for the old contents to be discarded.
+- **Discard.** `ImageUsageBits::Discard` as `Before` says that the old contents of the image do not matter. The
+  transition starts from `UNDEFINED`. A barrier from `ResourceBarriers` gets no source stage and no source access. The
+  caller must still order the transfer after earlier work on other queues, with inbound waits or with its own
+  semaphores. A `Discard` upload that covers only part of the image leaves the rest of the image undefined. `Discard`
+  is valid only as `Before` of an image that the transfer writes, and only alone. A transfer that reads the image needs
+  defined contents. As `After`, as `Before` of a copy source, combined with another bit, in a create usage, or as
+  `usage_after_upload`, it fails: with
+  `InvalidUsageTransition` for the transitions, and with `InvalidCreateInfo` for a create call. On WebGPU (a future
+  backend) a copy needs no layout, so `Discard` becomes a no-op there.
 
 **Choose `Before` with care.** If `Before` does not match the layout that the image is in on the GPU, the barrier of the
 transfer starts from the wrong old layout. Validation reports it at the submit.
@@ -221,6 +230,73 @@ which the completion code needs. A second transfer queue would remove this limit
 
 In-frame copies are not for this API. A readback of the target of the current frame is work for the render graph. It
 records the copy on its own command buffer. The copy calls of the context are for work outside a frame.
+
+## Placed resources
+
+Placed resources let two buffers or images share the same memory (aliasing). The render graph uses them for transient
+targets whose lifetimes do not overlap. The calls are free functions in `ResourcePlacement.hpp`, namespace
+`rhi::placement`. They are for the Vulkan backend only: WebGPU has no heaps and no memory placement, and its backend
+aliases memory by reusing whole textures. `ResourceContext.hpp` has no placement call. It only declares the functions
+as friends, so that they can reach the impl.
+
+### Queries
+
+`GetImageMemoryRequirements` and `GetBufferMemoryRequirements` return a `MemoryRequirements` (`Size`, `Alignment`,
+`MemoryTypeBits`). They run on the calling thread with `vkGetDeviceImageMemoryRequirements` and
+`vkGetDeviceBufferMemoryRequirements`. They send no message and take no lock, so a graph can pack offsets while it
+compiles. The create path and the query both call `ToVkImageCreateInfo` or `ToVkBufferCreateInfo`, so the answer is for
+the object that the create makes. Pass the usage that you create with. A create info that `CreateImage` refuses (an
+extent of 0, an invalid format, a buffer size of 0) gives all zeros.
+
+### Heaps
+
+`CreateMemoryHeap` allocates one block of device-local memory. The worker calls `vmaAllocateMemory` with
+`VMA_MEMORY_USAGE_UNKNOWN`, the required flag `DEVICE_LOCAL`, and the dedicated-memory flag. The AUTO usages cannot be
+used, because VMA asserts when it does not know what the memory is for. A dedicated allocation starts at offset 0 of its
+own `VkDeviceMemory`, so the offsets that you give are offsets into real device memory. The heap is a `GraphicsResource`
+with `ResourceType::Heap`. A size or a `MemoryTypeBits` of 0 fails with `InvalidCreateInfo`. To make one heap for
+several resources, AND their `MemoryTypeBits` together.
+
+### Placed creates
+
+`CreatePlacedImage` and `CreatePlacedBuffer` take a create info and a `Placement` (`Heap`, `Offset`). There are no
+initial data overloads. The domain must be `GPUOnly`, or the future fails with `InvalidCreateInfo`.
+
+On the worker:
+
+1. The heap is resolved. A stale, retiring or non-heap resource fails as it does for any other call: `StaleResource`,
+   `ResourceRetiring` or `WrongResourceKind`.
+2. The context creates the raw `VkImage` or `VkBuffer`, and reads its real memory requirements.
+3. It checks three things: the offset is a multiple of the alignment, the offset and the size are inside the heap, and the
+   memory type of the heap is in `MemoryTypeBits`. A failure destroys the raw object and fails with `InvalidPlacement`.
+4. It binds the memory with `vmaBindImageMemory2` or `vmaBindBufferMemory2` at the offset. It does not use
+   `vmaCreateAliasingImage2`, because that call asserts on a bad placement and these checks must answer first.
+5. Views, the sampler, names and the registry components follow the normal create path. A placed entity has a `PlacedIn`
+   component and no `VmaAllocation`.
+
+A placed resource has no data and no defined layout. **The first write of a placed image must use `Before =
+ImageUsageBits::Discard`.** After another resource used the same memory, the old layout is meaningless, and a `Discard`
+starts the transition from `UNDEFINED`. The inbound ordering is the same transfer queue, so the ordering barrier of the
+transfer covers the hazard between two aliasing images that use the transfer system. Work on other queues needs the
+caller's semaphores or inbound waits.
+
+`CopyBuffer` and `CopyImage` of a placed resource make a normal resource with its own allocation, not another placed
+one. `MapBuffer` and `UnmapBuffer` on a placed buffer fail with `NotHostVisible`.
+
+### Placement count and HeapInUse
+
+The heap counts its placed resources. The count goes up when a placed resource is created. It goes down when the placed
+resource is **freed**, after its retirement, and not when its destroy is requested, because the GPU can use the memory
+until then. `DestroyResource` on a heap with a count above 0 fails with `HeapInUse`, and the heap stays alive and
+usable. A heap with a count of 0 goes through the normal destroy and retirement, and its free calls `vmaFreeMemory`.
+A placed resource frees only its Vulkan object and its views, because `vmaDestroyImage` and `vmaDestroyBuffer` destroy
+only the Vulkan object when the allocation is null. At shutdown the context frees every placed resource before any heap.
+
+### Overlap is not checked
+
+The context does not check which placements overlap. Overlap is the purpose of aliasing. The caller owns the lifetimes:
+the GPU must be done with one aliasing resource before the next one is used, and the next one must start with a
+`Discard` write.
 
 ## Destroy and retirement
 

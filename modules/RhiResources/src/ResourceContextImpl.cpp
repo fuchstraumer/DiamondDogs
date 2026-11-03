@@ -54,14 +54,21 @@ namespace
     [[nodiscard]] bool ImagesHaveTheSameShape(const ImageCreateInfo& src, const ImageCreateInfo& dst) noexcept;
     /** @brief Returns true when `usage` is non-zero and every bit of it is in the usage that the image was created with. */
     [[nodiscard]] bool UsageIsValidForImage(ImageUsageBits image_usage, ImageUsageBits usage) noexcept;
+    /** @brief Returns true when both usages are valid for the image. Used for an image that a transfer reads, whose
+     *  contents must be defined. */
     [[nodiscard]] bool TransitionIsValidForImage(ImageUsageBits image_usage, rhi::ImageUsageTransition transition) noexcept;
+    /** @brief As TransitionIsValidForImage, but Before can also be Discard alone, because the transfer writes the image. */
+    [[nodiscard]] bool DestinationTransitionIsValidForImage(ImageUsageBits image_usage, rhi::ImageUsageTransition transition) noexcept;
     /** @brief Returns the layout that an image is in when a transfer starts, from the usage the caller gave as Before.
-     *  This is the only place that derives it, so that a discard option becomes one branch here. */
+     *  This is the only place that derives it. Discard gives UNDEFINED. */
     [[nodiscard]] VkImageLayout LayoutBeforeTransfer(ImageUsageBits before) noexcept;
     /** @brief Returns true when every wait has a semaphore and a non-zero value. */
     [[nodiscard]] bool WaitsAreValid(const TransferWaitSet& waits) noexcept;
     /** @brief Returns true when the copy kind matches the kinds of the two resources. */
     [[nodiscard]] bool CopyKindMatches(CopyKind kind, bool src_is_buffer, bool dst_is_buffer) noexcept;
+    /** @brief Returns true when a resource with these requirements fits at the offset: aligned, inside the heap, and
+     *  of a memory type that the resource allows. */
+    [[nodiscard]] bool PlacementFits(const VkMemoryRequirements& requirements, uint64_t offset, uint64_t heap_size, uint32_t heap_memory_type_index) noexcept;
 }
 
 ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateInfo& create_info)
@@ -161,13 +168,21 @@ void ResourceContextImpl::Destroy()
     retirementsPending.store(0, std::memory_order_relaxed);
 
     // now traverse the registry for live entities and destroy their resources
+    // heaps go last: a heap must outlive the placed resources that are bound into it
     std::vector<entt::entity> liveEntities;
+    std::vector<entt::entity> liveHeaps;
     for (const entt::entity entity : resourceRegistry.view<ResourceFlags>())
     {
-        liveEntities.push_back(entity);
+        std::vector<entt::entity>& destination = resourceRegistry.all_of<MemoryHeap>(entity) ? liveHeaps : liveEntities;
+        destination.push_back(entity);
     }
-    
+
     for (const entt::entity entity : liveEntities)
+    {
+        destroyEntityResources(entity);
+    }
+
+    for (const entt::entity entity : liveHeaps)
     {
         destroyEntityResources(entity);
     }
@@ -204,6 +219,16 @@ rhi::FutureTable& ResourceContextImpl::Futures() noexcept
     return futures;
 }
 
+
+VkDevice ResourceContextImpl::VulkanDevice() const noexcept
+{
+    return device->Handle().As<VkDevice>();
+}
+
+std::span<const uint32_t> ResourceContextImpl::QueueFamilies() const noexcept
+{
+    return queueFamilyIndices;
+}
 
 ResourceContextCounters ResourceContextImpl::Counters() const noexcept
 {
@@ -287,6 +312,15 @@ void ResourceContextImpl::processMessage(CreateImageMessage&& message)
         message.ImageInfo.Usage |= ImageUsageBits::TransferDestination;
     }
 
+    // a discard is a transition word, and no image has it as a usage
+    const bool createUsesDiscard = (message.ImageInfo.Usage & ImageUsageBits::Discard) != ImageUsageBits::Invalid ||
+                                   (message.InitialData.has_value() && (message.UsageAfterUpload & ImageUsageBits::Discard) != ImageUsageBits::Invalid);
+    if (createUsesDiscard)
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidCreateInfo);
+        return;
+    }
+
     // before the image exists, so that a bad usage leaves nothing to clean up
     if (message.InitialData.has_value() && !UsageIsValidForImage(message.ImageInfo.Usage, message.UsageAfterUpload))
     {
@@ -315,6 +349,25 @@ void ResourceContextImpl::processMessage(CreateImageMessage&& message)
 
 std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::createBufferEntity(const BufferCreateInfo& info, const DebugName& name)
 {
+    const std::expected<entt::entity, rhi::ResourceError> begun = beginBufferEntity(info, name);
+    if (!begun.has_value())
+    {
+        return std::unexpected(begun.error());
+    }
+
+    const BufferCreateInfo& storedInfo = resourceRegistry.get<BufferCreateInfo>(*begun);
+    VkBuffer bufferHandle = createBuffer(*begun, storedInfo);
+    if (bufferHandle == VK_NULL_HANDLE)
+    {
+        destroyEntityResources(*begun);
+        return std::unexpected(rhi::ResourceError::AllocationFailed);
+    }
+
+    return finishBufferEntity(*begun);
+}
+
+std::expected<entt::entity, rhi::ResourceError> ResourceContextImpl::beginBufferEntity(const BufferCreateInfo& info, const DebugName& name)
+{
     if (info.Domain == ResourceDomain::Invalid || info.Size == 0u)
     {
         return std::unexpected(rhi::ResourceError::InvalidCreateInfo);
@@ -327,18 +380,19 @@ std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::createB
 
     const entt::entity newEntity = resourceRegistry.create();
     resourceRegistry.emplace<ResourceFlags>(newEntity, ResourceType::Buffer, info.Flags, info.Domain);
-    const BufferCreateInfo& storedInfo = resourceRegistry.emplace<BufferCreateInfo>(newEntity, info);
+    resourceRegistry.emplace<BufferCreateInfo>(newEntity, info);
     if (!name.Empty())
     {
         resourceRegistry.emplace<DebugName>(newEntity, name);
     }
 
-    VkBuffer bufferHandle = createBuffer(newEntity, storedInfo);
-    if (bufferHandle == VK_NULL_HANDLE)
-    {
-        destroyEntityResources(newEntity);
-        return std::unexpected(rhi::ResourceError::AllocationFailed);
-    }
+    return newEntity;
+}
+
+std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::finishBufferEntity(entt::entity newEntity)
+{
+    const BufferCreateInfo& storedInfo = resourceRegistry.get<BufferCreateInfo>(newEntity);
+    const VkBuffer bufferHandle = resourceRegistry.get<VkBuffer>(newEntity);
 
     VkBufferView bufferView = VK_NULL_HANDLE;
     if (storedInfo.ViewFormat.has_value())
@@ -365,7 +419,7 @@ std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::createB
 
     return GraphicsResource
     {
-        info.Domain,
+        storedInfo.Domain,
         ResourceType::Buffer,
         static_cast<uint32_t>(newEntity),
         reinterpret_cast<uint64_t>(bufferHandle),
@@ -377,6 +431,25 @@ std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::createB
 
 std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::createImageEntity(const ImageCreateInfo& info, const DebugName& name)
 {
+    const std::expected<entt::entity, rhi::ResourceError> begun = beginImageEntity(info, name);
+    if (!begun.has_value())
+    {
+        return std::unexpected(begun.error());
+    }
+
+    const ImageCreateInfo& storedInfo = resourceRegistry.get<ImageCreateInfo>(*begun);
+    VkImage imageHandle = createImage(*begun, storedInfo);
+    if (imageHandle == VK_NULL_HANDLE)
+    {
+        destroyEntityResources(*begun);
+        return std::unexpected(rhi::ResourceError::AllocationFailed);
+    }
+
+    return finishImageEntity(*begun);
+}
+
+std::expected<entt::entity, rhi::ResourceError> ResourceContextImpl::beginImageEntity(const ImageCreateInfo& info, const DebugName& name)
+{
     if (info.Domain == ResourceDomain::Invalid || info.Width == 0u || !info.Format.IsValid())
     {
         return std::unexpected(rhi::ResourceError::InvalidCreateInfo);
@@ -385,18 +458,20 @@ std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::createI
     const ResourceType resourceType = info.SamplerInfo.has_value() ? ResourceType::CombinedImageSampler : ResourceType::Image;
     const entt::entity newEntity = resourceRegistry.create();
     resourceRegistry.emplace<ResourceFlags>(newEntity, resourceType, info.Flags, info.Domain);
-    const ImageCreateInfo& storedInfo = resourceRegistry.emplace<ImageCreateInfo>(newEntity, info);
+    resourceRegistry.emplace<ImageCreateInfo>(newEntity, info);
     if (!name.Empty())
     {
         resourceRegistry.emplace<DebugName>(newEntity, name);
     }
 
-    VkImage imageHandle = createImage(newEntity, storedInfo);
-    if (imageHandle == VK_NULL_HANDLE)
-    {
-        destroyEntityResources(newEntity);
-        return std::unexpected(rhi::ResourceError::AllocationFailed);
-    }
+    return newEntity;
+}
+
+std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::finishImageEntity(entt::entity newEntity)
+{
+    const ImageCreateInfo& storedInfo = resourceRegistry.get<ImageCreateInfo>(newEntity);
+    const ResourceType resourceType = resourceRegistry.get<ResourceFlags>(newEntity).Type;
+    const VkImage imageHandle = resourceRegistry.get<VkImage>(newEntity);
 
     VkImageView imageView = VK_NULL_HANDLE;
     if (storedInfo.ViewInfo.has_value())
@@ -422,7 +497,7 @@ std::expected<GraphicsResource, rhi::ResourceError> ResourceContextImpl::createI
 
     return GraphicsResource
     {
-        info.Domain,
+        storedInfo.Domain,
         resourceType,
         static_cast<uint32_t>(newEntity),
         reinterpret_cast<uint64_t>(imageHandle),
@@ -461,6 +536,147 @@ void ResourceContextImpl::processMessage(CreateSamplerMessage&& message)
     };
 
     futures.CompleteWithResource(message.Future, created);
+}
+
+void ResourceContextImpl::processMessage(CreateMemoryHeapMessage&& message)
+{
+    if (message.Size == 0u || message.MemoryTypeBits == 0u)
+    {
+        futures.Fail(message.Future, rhi::ResourceError::InvalidCreateInfo);
+        return;
+    }
+
+    // a dedicated allocation starts at offset 0 of its own VkDeviceMemory, so every alignment fits. the AUTO usages
+    // cannot be used here, because VMA only knows what a buffer or an image needs when it creates one
+    const VkMemoryRequirements requirements{ message.Size, 1u, message.MemoryTypeBits };
+    const VmaAllocationCreateInfo allocCreateInfo
+    {
+        VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT,
+        VMA_MEMORY_USAGE_UNKNOWN,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        0u,
+        0u,
+        VK_NULL_HANDLE,
+        nullptr,
+        0.0f
+    };
+
+    VmaAllocation allocation = VK_NULL_HANDLE;
+    VmaAllocationInfo allocationInfo{};
+    const VkResult result = vmaAllocateMemory(allocatorHandle, &requirements, &allocCreateInfo, &allocation, &allocationInfo);
+    if (result != VK_SUCCESS)
+    {
+        futures.Fail(message.Future, rhi::ResourceError::AllocationFailed);
+        return;
+    }
+
+    const entt::entity newEntity = resourceRegistry.create();
+    resourceRegistry.emplace<ResourceFlags>(newEntity, ResourceType::Heap, ResourceCreationFlags::None, ResourceDomain::GPUOnly);
+    resourceRegistry.emplace<MemoryHeap>(newEntity, allocationInfo.deviceMemory, allocationInfo.memoryType, message.Size, 0);
+    resourceRegistry.emplace<VmaAllocation>(newEntity, allocation);
+
+    if (!message.Name.Empty())
+    {
+        resourceRegistry.emplace<DebugName>(newEntity, message.Name);
+        setObjectName(VK_OBJECT_TYPE_DEVICE_MEMORY, reinterpret_cast<uint64_t>(allocationInfo.deviceMemory), message.Name);
+        vmaSetAllocationName(allocatorHandle, allocation, message.Name.CString());
+    }
+
+    const GraphicsResource created
+    {
+        ResourceDomain::GPUOnly,
+        ResourceType::Heap,
+        static_cast<uint32_t>(newEntity),
+        reinterpret_cast<uint64_t>(allocationInfo.deviceMemory),
+        0u,
+        0u,
+        0u
+    };
+
+    futures.CompleteWithResource(message.Future, created);
+}
+
+void ResourceContextImpl::processMessage(CreatePlacedBufferMessage&& message)
+{
+    const BufferCreateInfo& info = message.Create.BufferInfo;
+    if (info.Domain != ResourceDomain::GPUOnly)
+    {
+        futures.Fail(message.Create.Future, rhi::ResourceError::InvalidCreateInfo);
+        return;
+    }
+
+    const std::expected<entt::entity, rhi::ResourceError> heap = resolveHeap(message.Heap);
+    if (!heap.has_value())
+    {
+        futures.Fail(message.Create.Future, heap.error());
+        return;
+    }
+
+    const std::expected<entt::entity, rhi::ResourceError> begun = beginBufferEntity(info, message.Create.Name);
+    if (!begun.has_value())
+    {
+        futures.Fail(message.Create.Future, begun.error());
+        return;
+    }
+
+    const rhi::ResourceError placed = placeBuffer(*begun, resourceRegistry.get<BufferCreateInfo>(*begun), *heap, message.Offset);
+    if (placed != rhi::ResourceError::Success)
+    {
+        destroyEntityResources(*begun);
+        futures.Fail(message.Create.Future, placed);
+        return;
+    }
+
+    const std::expected<GraphicsResource, rhi::ResourceError> created = finishBufferEntity(*begun);
+    if (!created.has_value())
+    {
+        futures.Fail(message.Create.Future, created.error());
+        return;
+    }
+
+    futures.CompleteWithResource(message.Create.Future, *created);
+}
+
+void ResourceContextImpl::processMessage(CreatePlacedImageMessage&& message)
+{
+    const ImageCreateInfo& info = message.Create.ImageInfo;
+    const bool usesDiscard = (info.Usage & ImageUsageBits::Discard) != ImageUsageBits::Invalid;
+    if (info.Domain != ResourceDomain::GPUOnly || usesDiscard)
+    {
+        futures.Fail(message.Create.Future, rhi::ResourceError::InvalidCreateInfo);
+        return;
+    }
+
+    const std::expected<entt::entity, rhi::ResourceError> heap = resolveHeap(message.Heap);
+    if (!heap.has_value())
+    {
+        futures.Fail(message.Create.Future, heap.error());
+        return;
+    }
+
+    const std::expected<entt::entity, rhi::ResourceError> begun = beginImageEntity(info, message.Create.Name);
+    if (!begun.has_value())
+    {
+        futures.Fail(message.Create.Future, begun.error());
+        return;
+    }
+
+    const rhi::ResourceError placed = placeImage(*begun, resourceRegistry.get<ImageCreateInfo>(*begun), *heap, message.Offset);
+    if (placed != rhi::ResourceError::Success)
+    {
+        destroyEntityResources(*begun);
+        futures.Fail(message.Create.Future, placed);
+        return;
+    }
+
+    const std::expected<GraphicsResource, rhi::ResourceError> created = finishImageEntity(*begun);
+    if (!created.has_value())
+    {
+        futures.Fail(message.Create.Future, created.error());
+        return;
+    }
+
+    futures.CompleteWithResource(message.Create.Future, *created);
 }
 
 void ResourceContextImpl::processMessage(SetBufferDataMessage&& message)
@@ -522,7 +738,7 @@ void ResourceContextImpl::processMessage(SetImageDataMessage&& message)
         return;
     }
 
-    if (!TransitionIsValidForImage(resourceRegistry.get<ImageCreateInfo>(*entity).Usage, message.Usage))
+    if (!DestinationTransitionIsValidForImage(resourceRegistry.get<ImageCreateInfo>(*entity).Usage, message.Usage))
     {
         futures.Fail(message.Future, rhi::ResourceError::InvalidUsageTransition);
         return;
@@ -631,7 +847,15 @@ void ResourceContextImpl::processMessage(UnmapResourceMessage&& message)
         return;
     }
 
-    const VmaAllocation allocation = resourceRegistry.get<VmaAllocation>(*entity);
+    // a placed buffer owns no allocation, and is device-local
+    const VmaAllocation* allocationPointer = resourceRegistry.try_get<VmaAllocation>(*entity);
+    if (allocationPointer == nullptr)
+    {
+        futures.Fail(message.Future, rhi::ResourceError::NotHostVisible);
+        return;
+    }
+
+    const VmaAllocation allocation = *allocationPointer;
     const ResourceFlags& flags = resourceRegistry.get<ResourceFlags>(*entity);
 
     // host writes become visible to the device at the next submit, once they are flushed
@@ -812,7 +1036,7 @@ void ResourceContextImpl::processMessage(CopyResourceContentsMessage&& message)
 
     // a fresh image (the copy that CopyImage made) has no Before usage, and CopyImage checked its After usage already
     const bool dstUsageIsChecked = dstIsImage && !message.DestinationStartsUndefined;
-    if (dstUsageIsChecked && !TransitionIsValidForImage(resourceRegistry.get<ImageCreateInfo>(dstEntity).Usage, message.DestinationUsage))
+    if (dstUsageIsChecked && !DestinationTransitionIsValidForImage(resourceRegistry.get<ImageCreateInfo>(dstEntity).Usage, message.DestinationUsage))
     {
         futures.Fail(message.Future, rhi::ResourceError::InvalidUsageTransition);
         return;
@@ -851,6 +1075,13 @@ void ResourceContextImpl::processMessage(DestroyResourceMessage&& message)
     if (!entity.has_value())
     {
         futures.Fail(message.Future, entity.error());
+        return;
+    }
+
+    const MemoryHeap* heap = resourceRegistry.try_get<MemoryHeap>(*entity);
+    if (heap != nullptr && heap->PlacementCount > 0)
+    {
+        futures.Fail(message.Future, rhi::ResourceError::HeapInUse);
         return;
     }
 
@@ -1108,6 +1339,33 @@ std::expected<entt::entity, rhi::ResourceError> ResourceContextImpl::resolveImag
     return entity;
 }
 
+std::expected<entt::entity, rhi::ResourceError> ResourceContextImpl::resolveHeap(const GraphicsResource& resource) const
+{
+    const entt::entity entity = entt::entity(resource.EntityHandle);
+    if (!resourceRegistry.valid(entity))
+    {
+        return std::unexpected(rhi::ResourceError::StaleResource);
+    }
+
+    const MemoryHeap* heap = resourceRegistry.try_get<MemoryHeap>(entity);
+    if (heap == nullptr)
+    {
+        return std::unexpected(rhi::ResourceError::WrongResourceKind);
+    }
+
+    if (reinterpret_cast<uint64_t>(heap->Memory) != resource.VkHandle)
+    {
+        return std::unexpected(rhi::ResourceError::StaleResource);
+    }
+
+    if (resourceRegistry.all_of<Retiring>(entity))
+    {
+        return std::unexpected(rhi::ResourceError::ResourceRetiring);
+    }
+
+    return entity;
+}
+
 std::expected<entt::entity, rhi::ResourceError> ResourceContextImpl::resolveResource(const GraphicsResource& resource) const
 {
     const entt::entity entity = entt::entity(resource.EntityHandle);
@@ -1124,6 +1382,11 @@ std::expected<entt::entity, rhi::ResourceError> ResourceContextImpl::resolveReso
     if (resourceRegistry.all_of<VkImage>(entity))
     {
         return resolveImage(resource);
+    }
+
+    if (resourceRegistry.all_of<MemoryHeap>(entity))
+    {
+        return resolveHeap(resource);
     }
 
     // a sampler has no main handle, so its sampler handle is the one we compare
@@ -1143,17 +1406,7 @@ std::expected<entt::entity, rhi::ResourceError> ResourceContextImpl::resolveReso
 
 VkBuffer ResourceContextImpl::createBuffer(entt::entity new_entity, const BufferCreateInfo& buffer_info)
 {
-    const VkBufferCreateInfo vkBufferInfo
-    {
-        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-        nullptr,
-        0u,
-        static_cast<VkDeviceSize>(buffer_info.Size),
-        ToVkBufferUsage(buffer_info.Usage, buffer_info.ViewFormat.has_value()),
-        queueFamilyIndices.size() > 1u ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
-        static_cast<uint32_t>(queueFamilyIndices.size()),
-        queueFamilyIndices.data()
-    };
+    const VkBufferCreateInfo vkBufferInfo = ToVkBufferCreateInfo(buffer_info, queueFamilyIndices);
 
     const VmaAllocationCreateInfo allocCreateInfo
     {
@@ -1218,6 +1471,93 @@ VkBufferView ResourceContextImpl::createBufferView(entt::entity new_entity, cons
     return bufferView;
 }
 
+rhi::ResourceError ResourceContextImpl::placeBuffer(entt::entity new_entity, const BufferCreateInfo& buffer_info, entt::entity heap_entity, uint64_t offset)
+{
+    const VkDevice vkDevice = VulkanDevice();
+    const VkBufferCreateInfo vkBufferInfo = ToVkBufferCreateInfo(buffer_info, queueFamilyIndices);
+
+    VkBuffer bufferHandle = VK_NULL_HANDLE;
+    if (vkCreateBuffer(vkDevice, &vkBufferInfo, nullptr, &bufferHandle) != VK_SUCCESS)
+    {
+        return rhi::ResourceError::AllocationFailed;
+    }
+
+    // the real requirements of this buffer decide, whatever the caller's query said
+    VkMemoryRequirements requirements{};
+    vkGetBufferMemoryRequirements(vkDevice, bufferHandle, &requirements);
+
+    const MemoryHeap& heap = resourceRegistry.get<MemoryHeap>(heap_entity);
+    if (!PlacementFits(requirements, offset, heap.Size, heap.MemoryTypeIndex))
+    {
+        vkDestroyBuffer(vkDevice, bufferHandle, nullptr);
+        return rhi::ResourceError::InvalidPlacement;
+    }
+
+    // not vmaCreateAliasingBuffer2: it asserts on a bad placement, and the check above must be the one that answers
+    const VmaAllocation heapAllocation = resourceRegistry.get<VmaAllocation>(heap_entity);
+    if (vmaBindBufferMemory2(allocatorHandle, heapAllocation, offset, bufferHandle, nullptr) != VK_SUCCESS)
+    {
+        vkDestroyBuffer(vkDevice, bufferHandle, nullptr);
+        return rhi::ResourceError::AllocationFailed;
+    }
+
+    resourceRegistry.emplace<VkBuffer>(new_entity, bufferHandle);
+    registerPlacement(new_entity, heap_entity);
+
+    if (const DebugName* debugName = resourceRegistry.try_get<DebugName>(new_entity))
+    {
+        setObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(bufferHandle), *debugName);
+    }
+
+    return rhi::ResourceError::Success;
+}
+
+rhi::ResourceError ResourceContextImpl::placeImage(entt::entity new_entity, const ImageCreateInfo& image_info, entt::entity heap_entity, uint64_t offset)
+{
+    const VkDevice vkDevice = VulkanDevice();
+    const VkImageCreateInfo vkImageInfo = ToVkImageCreateInfo(image_info, queueFamilyIndices);
+
+    VkImage imageHandle = VK_NULL_HANDLE;
+    if (vkCreateImage(vkDevice, &vkImageInfo, nullptr, &imageHandle) != VK_SUCCESS)
+    {
+        return rhi::ResourceError::AllocationFailed;
+    }
+
+    VkMemoryRequirements requirements{};
+    vkGetImageMemoryRequirements(vkDevice, imageHandle, &requirements);
+
+    const MemoryHeap& heap = resourceRegistry.get<MemoryHeap>(heap_entity);
+    if (!PlacementFits(requirements, offset, heap.Size, heap.MemoryTypeIndex))
+    {
+        vkDestroyImage(vkDevice, imageHandle, nullptr);
+        return rhi::ResourceError::InvalidPlacement;
+    }
+
+    // not vmaCreateAliasingImage2, for the reason given in placeBuffer
+    const VmaAllocation heapAllocation = resourceRegistry.get<VmaAllocation>(heap_entity);
+    if (vmaBindImageMemory2(allocatorHandle, heapAllocation, offset, imageHandle, nullptr) != VK_SUCCESS)
+    {
+        vkDestroyImage(vkDevice, imageHandle, nullptr);
+        return rhi::ResourceError::AllocationFailed;
+    }
+
+    resourceRegistry.emplace<VkImage>(new_entity, imageHandle);
+    registerPlacement(new_entity, heap_entity);
+
+    if (const DebugName* debugName = resourceRegistry.try_get<DebugName>(new_entity))
+    {
+        setObjectName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(imageHandle), *debugName);
+    }
+
+    return rhi::ResourceError::Success;
+}
+
+void ResourceContextImpl::registerPlacement(entt::entity new_entity, entt::entity heap_entity)
+{
+    resourceRegistry.emplace<PlacedIn>(new_entity, heap_entity);
+    resourceRegistry.get<MemoryHeap>(heap_entity).PlacementCount += 1;
+}
+
 void ResourceContextImpl::setBufferDataHostOnly(entt::entity entity, InternalResourceDataContainer& data_container)
 {
     const VmaAllocation alloc = resourceRegistry.get<VmaAllocation>(entity);
@@ -1254,25 +1594,7 @@ void ResourceContextImpl::setBufferDataHostOnly(entt::entity entity, InternalRes
 
 VkImage ResourceContextImpl::createImage(entt::entity new_entity, const ImageCreateInfo& image_info)
 {
-    const VkImageCreateInfo vkImageInfo
-    {
-        VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-        nullptr,
-        image_info.ViewInfo.has_value() && image_info.ViewInfo->ViewType == ImageViewType::Cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0u,
-        ToVkImageType(image_info.Type),
-        ToVkFormat(image_info.Format),
-        VkExtent3D{ image_info.Width, std::max(image_info.Height, 1u), std::max(image_info.Depth, 1u) },
-        image_info.MipLevels,
-        image_info.ArrayLayers,
-        // the VkSampleCountFlagBits values are the counts themselves
-        static_cast<VkSampleCountFlagBits>(std::max(image_info.SampleCount, 1u)),
-        VK_IMAGE_TILING_OPTIMAL,
-        ToVkImageUsage(image_info.Usage),
-        queueFamilyIndices.size() > 1u ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE,
-        static_cast<uint32_t>(queueFamilyIndices.size()),
-        queueFamilyIndices.data(),
-        VK_IMAGE_LAYOUT_UNDEFINED
-    };
+    const VkImageCreateInfo vkImageInfo = ToVkImageCreateInfo(image_info, queueFamilyIndices);
 
     const VmaAllocationCreateInfo allocCreateInfo
     {
@@ -1481,14 +1803,27 @@ void ResourceContextImpl::destroyEntityResources(entt::entity entity)
         }
     }
 
+    // a placed resource has no allocation. VMA then destroys only the Vulkan object, and the heap keeps the memory
+    const VmaAllocation allocationHandle = (allocation != nullptr) ? *allocation : VK_NULL_HANDLE;
     if (const VkImage* image = resourceRegistry.try_get<VkImage>(entity))
     {
-        vmaDestroyImage(allocatorHandle, *image, *allocation);
+        vmaDestroyImage(allocatorHandle, *image, allocationHandle);
     }
 
     if (const VkBuffer* buffer = resourceRegistry.try_get<VkBuffer>(entity))
     {
-        vmaDestroyBuffer(allocatorHandle, *buffer, *allocation);
+        vmaDestroyBuffer(allocatorHandle, *buffer, allocationHandle);
+    }
+
+    if (resourceRegistry.all_of<MemoryHeap>(entity))
+    {
+        vmaFreeMemory(allocatorHandle, allocationHandle);
+    }
+
+    // the memory is not in use by this resource from here on, so the heap may be destroyed
+    if (const PlacedIn* placedIn = resourceRegistry.try_get<PlacedIn>(entity))
+    {
+        resourceRegistry.get<MemoryHeap>(placedIn->Heap).PlacementCount -= 1;
     }
 
     resourceRegistry.destroy(entity);
@@ -1538,6 +1873,12 @@ namespace
         return UsageIsValidForImage(image_usage, transition.Before) && UsageIsValidForImage(image_usage, transition.After);
     }
 
+    bool DestinationTransitionIsValidForImage(ImageUsageBits image_usage, rhi::ImageUsageTransition transition) noexcept
+    {
+        const bool beforeIsValid = transition.Before == ImageUsageBits::Discard || UsageIsValidForImage(image_usage, transition.Before);
+        return beforeIsValid && UsageIsValidForImage(image_usage, transition.After);
+    }
+
     VkImageLayout LayoutBeforeTransfer(ImageUsageBits before) noexcept
     {
         return ImageLayoutFromUsageBits(before);
@@ -1553,6 +1894,15 @@ namespace
         case CopyKind::ImageToImage: return !src_is_buffer && !dst_is_buffer;
         default: return false;
         }
+    }
+
+    bool PlacementFits(const VkMemoryRequirements& requirements, uint64_t offset, uint64_t heap_size, uint32_t heap_memory_type_index) noexcept
+    {
+        const bool isAligned = (offset % requirements.alignment) == 0u;
+        // compared as a size left over, so that offset + size cannot overflow
+        const bool isInside = offset <= heap_size && requirements.size <= heap_size - offset;
+        const bool typeIsAllowed = (requirements.memoryTypeBits & (1u << heap_memory_type_index)) != 0u;
+        return isAligned && isInside && typeIsAllowed;
     }
 
     bool CanBeTransferSource(const entt::registry& registry, entt::entity entity) noexcept

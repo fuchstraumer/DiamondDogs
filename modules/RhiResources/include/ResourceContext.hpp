@@ -87,6 +87,21 @@ struct ResourceContextCounters
 };
 
 class ResourceContextImpl;
+class ResourceContext;
+
+namespace rhi::placement
+{
+    struct MemoryRequirements;
+    struct MemoryHeapCreateInfo;
+    struct Placement;
+
+    // declared in ResourcePlacement.hpp. They are declared here only so that ResourceContext can befriend them
+    MemoryRequirements GetImageMemoryRequirements(const ResourceContext& context, const ImageCreateInfo& create_info);
+    MemoryRequirements GetBufferMemoryRequirements(const ResourceContext& context, const BufferCreateInfo& create_info);
+    ResourceFuture<GraphicsResource> CreateMemoryHeap(ResourceContext& context, const MemoryHeapCreateInfo& create_info);
+    ResourceFuture<GraphicsResource> CreatePlacedImage(ResourceContext& context, const ImageCreateInfo& create_info, Placement placement);
+    ResourceFuture<GraphicsResource> CreatePlacedBuffer(ResourceContext& context, const BufferCreateInfo& create_info, Placement placement);
+}
 
 /**
  * @brief Main interface for asynchronous GPU resource management
@@ -434,6 +449,13 @@ public:
     [[nodiscard]] ResourceContextCounters Counters() const noexcept;
 
 private:
+    // the Vulkan-only placement calls reach the impl through these. see ResourcePlacement.hpp
+    friend rhi::placement::MemoryRequirements rhi::placement::GetImageMemoryRequirements(const ResourceContext& context, const ImageCreateInfo& create_info);
+    friend rhi::placement::MemoryRequirements rhi::placement::GetBufferMemoryRequirements(const ResourceContext& context, const BufferCreateInfo& create_info);
+    friend rhi::ResourceFuture<GraphicsResource> rhi::placement::CreateMemoryHeap(ResourceContext& context, const rhi::placement::MemoryHeapCreateInfo& create_info);
+    friend rhi::ResourceFuture<GraphicsResource> rhi::placement::CreatePlacedImage(ResourceContext& context, const ImageCreateInfo& create_info, rhi::placement::Placement placement);
+    friend rhi::ResourceFuture<GraphicsResource> rhi::placement::CreatePlacedBuffer(ResourceContext& context, const BufferCreateInfo& create_info, rhi::placement::Placement placement);
+
     std::unique_ptr<ResourceContextImpl> impl;
 };
 

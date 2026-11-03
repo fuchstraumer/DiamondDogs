@@ -207,3 +207,30 @@ SetImageDataMessage& SetImageDataMessage::operator=(SetImageDataMessage&& other)
     }
     return *this;
 }
+
+CreateBufferMessage MakeCreateBufferMessage(const BufferCreateInfo& create_info, int32_t future_slot)
+{
+    CreateBufferMessage message;
+    message.BufferInfo = create_info;
+    message.Name = DebugName(create_info.Name);
+    message.BufferInfo.Name = {};
+    message.Future = future_slot;
+    return message;
+}
+
+CreateImageMessage MakeCreateImageMessage(const ImageCreateInfo& create_info, int32_t future_slot)
+{
+    CreateImageMessage message;
+    message.ImageInfo = create_info;
+    message.Name = DebugName(create_info.Name);
+    message.ImageInfo.Name = {};
+    message.Future = future_slot;
+
+    // the sampler takes its name from the image, so its own view is never read
+    if (message.ImageInfo.SamplerInfo.has_value())
+    {
+        message.ImageInfo.SamplerInfo->Name = {};
+    }
+
+    return message;
+}
