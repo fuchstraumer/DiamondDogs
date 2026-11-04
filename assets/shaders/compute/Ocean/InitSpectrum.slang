@@ -7,6 +7,9 @@ __include Spectra;
 internal const static uint OCEAN_FFT_SPREAD_MODE_MITSUYASU = 0u;
 internal const static uint OCEAN_FFT_SPREAD_MODE_HASSELMAN = 1u;
 internal const static uint OCEAN_FFT_SPREAD_MODE_DONELAN_BANNER = 2u;
+internal const static uint OCEAN_FFT_SPREAD_MODE_ELFOUHAILY = 3u;
+internal const static uint OCEAN_FFT_SPREAD_MODE_HYBRID = 4u;
+internal const static uint OCEAN_FFT_SPREAD_MODE_EWANS = 5u;
 
 internal const static uint OCEAN_FFT_SPECTRUM_JONSWAP = 0u;
 internal const static uint OCEAN_FFT_SPECTRUM_ELFOUHAILY = 1u;
@@ -89,6 +92,7 @@ internal float CascadeContribution(in float k, in uint cascade)
 
 internal float DirectionalSpreading(
     in float thetaIn,
+    in float kLength,
     in float omega,
     in float peakOmega,
     in uniform float windSpeed,
@@ -102,6 +106,7 @@ internal float DirectionalSpreading(
     // since we can swap in approximate trig functions that are only valid in that range
     theta = theta - OceanFft_2PI * round(theta / OceanFft_2PI);
     float spread = 0.0f;
+
     if (DirectionalSpreadingMode == OCEAN_FFT_SPREAD_MODE_MITSUYASU)
     {
         spread = MitsuyasuDirectionalSpread(theta, omega, peakOmega, windSpeed, swellAmount);
@@ -113,6 +118,18 @@ internal float DirectionalSpreading(
     else if (DirectionalSpreadingMode == OCEAN_FFT_SPREAD_MODE_DONELAN_BANNER)
     {
         spread = DonelanBannerDirectionalSpreading(theta, omega, peakOmega, swellAmount);
+    }
+    else if (DirectionalSpreadingMode == OCEAN_FFT_SPREAD_MODE_ELFOUHAILY)
+    {
+        spread = ElfouhailyDirectionalSpreading(theta, kLength, omega, peakOmega, windSpeed, swellAmount);
+    }
+    else if (DirectionalSpreadingMode == OCEAN_FFT_SPREAD_MODE_HYBRID)
+    {
+        spread = HybridDirectionalSpreading(theta, kLength, omega, peakOmega, windSpeed, swellAmount);
+    }
+    else if (DirectionalSpreadingMode == OCEAN_FFT_SPREAD_MODE_EWANS)
+    {
+        spread = EwansDirectionalSpreading(theta, omega, peakOmega, swellAmount);
     }
 
     // now get into range
@@ -174,6 +191,7 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
         }
 
         float directionalComponent = DirectionalSpreading(theta,
+                                                          kLength,
                                                           omega,
                                                           peakOmega,
                                                           SpectrumParams.WindSpeed,
@@ -192,6 +210,7 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
             const float swellFetch = GetDimensionlessFetch(SpectrumParams.SwellFetch, SpectrumParams.SwellWindSpeed);
             const float swellPeakOmega = GetJonswapPeakOmega(swellFetch, SpectrumParams.SwellWindSpeed);
             const float swellDirectional = DirectionalSpreading(theta,
+                                                                kLength,
                                                                 omega,
                                                                 swellPeakOmega,
                                                                 SpectrumParams.SwellWindSpeed,

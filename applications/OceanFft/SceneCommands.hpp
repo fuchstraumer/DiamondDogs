@@ -44,6 +44,7 @@
  *    foamreset                             rebuild the persistent foam by replaying its history
  *    rotate on|off                         rotate and offset each cascade's lattice when sampled (tiling A/B)
  *    spectrum jonswap|elfouhaily           set energy spectrum model (JONSWAP or Elfouhaily)
+ *    spreading model                       set directional spreading model (mitsuyasu, hasselmann, donelan, elfouhaily, hybrid, ewans)
  *    sky preset                            set the sky preset (preetham, aurora, day, night, overcast, twilight)
  *    sky_res 8k|16k                        set sky texture resolution (8k downsampled or 16k full)
  *    sky_intensity value                   set sky radiance multiplier
@@ -98,6 +99,7 @@ struct SceneCommand
         FoamReset,
         Rotate,
         Spectrum,
+        Spreading,
         Sky,
         SkyRes,
         SkyIntensity,

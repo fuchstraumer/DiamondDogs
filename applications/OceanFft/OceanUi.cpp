@@ -1468,7 +1468,7 @@ namespace ocean
         ImGui::PopFont();
         ImGui::Dummy(ImVec2{ 0.0f, 2.0f });
 
-        // directional spreading model 3-way selector
+        // directional spreading model 6-way selector (2 rows x 3 columns)
         const ImVec2 rowMin = ImGui::GetCursorScreenPos();
         const float availWidth = ImGui::GetContentRegionAvail().x;
         drawList->AddText(
@@ -1478,25 +1478,33 @@ namespace ocean
             k_ColorTextLabel,
             "Spreading model");
 
-        constexpr std::array<std::string_view, 3> k_Models{ "MITSUYASU", "HASSELMANN", "DONELAN" };
+        constexpr std::array<std::string_view, 6> k_Models
+        {
+            "MITSUYASU", "HASSELMANN", "DONELAN",
+            "ELFOUHAILY", "HYBRID", "EWANS"
+        };
         const float segLeft = rowMin.x + k_LabelColumnWidth;
         const float segWidth = availWidth - k_LabelColumnWidth - 8.0f;
         constexpr float k_Gap = 4.0f;
         const float cellW = (segWidth - 2.0f * k_Gap) / 3.0f;
         constexpr float k_CellH = 24.0f;
 
-        ImGui::SetCursorScreenPos(ImVec2{ segLeft, rowMin.y });
         ImGui::PushFont(fonts.SectionBlinker);
-        for (int32_t m = 0; m < 3; ++m)
+
+        for (int32_t m = 0; m < 6; ++m)
         {
-            if (m > 0)
+            const int32_t row = m / 3;
+            const int32_t col = m % 3;
+            const ImVec2 cMin
             {
-                ImGui::SameLine(0.0f, k_Gap);
-            }
+                segLeft + static_cast<float>(col) * (cellW + k_Gap),
+                rowMin.y + static_cast<float>(row) * (k_CellH + k_Gap)
+            };
+            const ImVec2 cMax{ cMin.x + cellW, cMin.y + k_CellH };
+            ImGui::SetCursorScreenPos(cMin);
 
             const std::string btnId = std::format("##spread_mode_{}", m);
-            const ImVec2 cMin = ImGui::GetCursorScreenPos();
-            const ImVec2 cMax{ cMin.x + cellW, cMin.y + k_CellH };
+
             if (ImGui::InvisibleButton(btnId.c_str(), ImVec2{ cellW, k_CellH }))
             {
                 spectrum.DirectionalSpreadingMode = static_cast<uint32_t>(m);
@@ -1522,7 +1530,9 @@ namespace ocean
                 modelName.data(),
                 modelName.data() + modelName.size());
         }
+
         ImGui::PopFont();
+        ImGui::SetCursorScreenPos(ImVec2{ rowMin.x, rowMin.y + 2.0f * k_CellH + k_Gap + 4.0f });
 
         // seed input row
         const ImVec2 seedMin = ImGui::GetCursorScreenPos();

@@ -304,3 +304,89 @@ internal float DonelanBannerDirectionalSpreading(
     const float swell = SwellDirectionalSpreading(theta, omega, peakOmega, swellAmount);
     return (db2 * swell) * norm;
 }
+
+// Elfouhaily et al. (1997) Eq. 49-59 with analytical one-sided fold (1 + cos(theta)).
+// Integrates to 1 over [-pi, pi] because cos(theta) and cos(2*theta)*cos(theta) integrate to 0.
+internal float ElfouhailyDirectionalSpreading(
+    in float theta,
+    in float kLength,
+    in float omega,
+    in float peakOmega,
+    in float windSpeed,
+    in float swellAmount)
+{
+    const float c = max(omega / max(kLength, 1.0e-6f), 1.0e-6f);
+    const float cp = OceanFft_G / max(peakOmega, 1.0e-4f);
+    const float cd = (0.8f + 0.065f * windSpeed) * 1.0e-3f;
+    const float uStar = sqrt(cd) * windSpeed;
+
+    static const float a0 = 0.173286795f; // ln(2) / 4
+    static const float ap = 4.0f;
+    const float am = 0.13f * (uStar / OceanFft_Cm);
+    const float deltaBase = tanh(a0 + ap * pow(c / cp, 2.5f) + am * pow(OceanFft_Cm / c, 2.5f));
+    const float swell = saturate(SwellShaper(omega, peakOmega, swellAmount) / 16.0f);
+    const float delta = lerp(deltaBase, 1.0f, swell);
+    return (0.5f / OceanFft_PI) * (1.0f + delta * cos(2.0f * theta)) * (1.0f + cos(theta));
+}
+
+// Smooth transition in log10(k / kp) from Donelan-Banner below ~4*kp to Elfouhaily above ~25*kp.
+internal float HybridDirectionalSpreading(
+    in float theta,
+    in float kLength,
+    in float omega,
+    in float peakOmega,
+    in float windSpeed,
+    in float swellAmount)
+{
+    const float kp = max((peakOmega * peakOmega) * OceanFft_InvG, 1.0e-6f);
+    const float logKRatio = log10(max(kLength / kp, 1.0e-4f));
+    const float blend = smoothstep(0.6f, 1.4f, logKRatio);
+    const float db = DonelanBannerDirectionalSpreading(theta, omega, peakOmega, swellAmount);
+    const float elf = ElfouhailyDirectionalSpreading(theta, kLength, omega, peakOmega, windSpeed, swellAmount);
+    return lerp(db, elf, blend);
+}
+
+// Ewans (1998) J. Phys. Oceanogr. 28(3) Eq. 4.1, 6.4, 6.5: bimodal wrapped double-Gaussian.
+// Normalized to 1 over [-pi, pi] by periodicity of the wrapped Gaussian sum.
+internal float EwansDirectionalSpreading(
+    in float theta,
+    in float omega,
+    in float peakOmega,
+    in float swellAmount)
+{
+    const float r = max(omega / max(peakOmega, 1.0e-4f), 0.2f);
+    float deltaDeg = 14.93f;
+    float sigmaDeg = 11.38f;
+
+    if (r < 1.0f)
+    {
+        sigmaDeg = min(11.38f + 5.357f * pow(r, -7.929f), 120.0f);
+    }
+    else
+    {
+        deltaDeg = exp(5.453f - 2.750f / r);
+        sigmaDeg = 32.13f - 15.39f / (r * r);
+    }
+
+    const float swell = SwellShaper(omega, peakOmega, swellAmount);
+    const float narrow = rsqrt(1.0f + 0.5f * swell);
+    static const float k_DegToRad = OceanFft_PI / 180.0f;
+    const float delta = 0.5f * deltaDeg * narrow * k_DegToRad;
+    const float sigma = max(sigmaDeg * narrow * k_DegToRad, 0.05f);
+    const float invTwoSigma2 = 0.5f / (sigma * sigma);
+    // 1 / (2 * sqrt(2 * pi) * sigma) = 0.19947114 / sigma
+    const float norm = 0.19947114f / sigma;
+
+    float sum = 0.0f;
+
+    [unroll]
+    for (int m = -1; m <= 1; ++m)
+    {
+        const float shift = float(m) * OceanFft_2PI;
+        const float d1 = theta - delta + shift;
+        const float d2 = theta + delta + shift;
+        sum += exp(-d1 * d1 * invTwoSigma2) + exp(-d2 * d2 * invTwoSigma2);
+    }
+
+    return norm * sum;
+}

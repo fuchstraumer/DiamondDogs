@@ -1527,6 +1527,34 @@ void OceanScene::runCommand(const SceneCommand& command)
         spectrum.EnergySpectrumModel = (command.Text == "elfouhaily") ? 1u : 0u;
         seaStateEdited();
         break;
+    case SceneCommand::Kind::Spreading:
+        if (command.Text == "mitsuyasu")
+        {
+            spectrum.DirectionalSpreadingMode = 0u;
+        }
+        else if (command.Text == "hasselmann")
+        {
+            spectrum.DirectionalSpreadingMode = 1u;
+        }
+        else if (command.Text == "donelan")
+        {
+            spectrum.DirectionalSpreadingMode = 2u;
+        }
+        else if (command.Text == "elfouhaily")
+        {
+            spectrum.DirectionalSpreadingMode = 3u;
+        }
+        else if (command.Text == "hybrid")
+        {
+            spectrum.DirectionalSpreadingMode = 4u;
+        }
+        else if (command.Text == "ewans")
+        {
+            spectrum.DirectionalSpreadingMode = 5u;
+        }
+
+        spectrumChanged = true;
+        break;
     case SceneCommand::Kind::Print:
         printState();
         break;
@@ -1946,6 +1974,12 @@ void OceanScene::printState() const
 
     std::cout << "\nrotate cascades " << (rotateCascades ? "on" : "off");
     std::cout << "\nspectrum model " << (spectrum.EnergySpectrumModel == 1u ? "elfouhaily" : "jonswap");
+    constexpr std::array<std::string_view, 6> k_SpreadingModelNames
+    {
+        "mitsuyasu", "hasselmann", "donelan", "elfouhaily", "hybrid", "ewans"
+    };
+    const size_t spreadingIdx = std::min<size_t>(spectrum.DirectionalSpreadingMode, k_SpreadingModelNames.size() - 1u);
+    std::cout << "\nspreading model " << k_SpreadingModelNames[spreadingIdx];
     std::cout << std::format("\nsky {} res {} intensity {:.2f}",
         ocean::SkyPresetName(skyPreset), downsample8k ? "8k" : "16k", skyIntensityScale);
     std::string_view tonemapperName = "unknown";

@@ -39,11 +39,22 @@ namespace ocean
         Elfouhaily = 2,
     };
 
+    enum class DirectionalSpreadingModel : uint8_t
+    {
+        Invalid = 0,
+        Mitsuyasu = 1,
+        Hasselmann = 2,
+        DonelanBanner = 3,
+        Elfouhaily = 4,
+        Hybrid = 5,
+        Ewans = 6,
+    };
+
     /** @brief SpectrumParameters in OceanFftCommon.slang, std140. Create() checks it against the manifest. */
     struct SpectrumParameters
     {
         uint32_t NoiseSeed{ 1u };
-        uint32_t DirectionalSpreadingMode{ 0u }; // 0 Mitsuyasu, 1 Hasselman, 2 Donelan-Banner
+        uint32_t DirectionalSpreadingMode{ 0u }; // 0 Mitsuyasu, 1 Hasselman, 2 Donelan-Banner, 3 Elfouhaily, 4 Hybrid, 5 Ewans
         float WindSpeed{ 10.0f };                // m/s
         float Fetch{ 100.0f };                   // km
         float Depth{ 50.0f };                    // m

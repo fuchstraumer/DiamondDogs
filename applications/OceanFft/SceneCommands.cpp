@@ -53,6 +53,7 @@ namespace
         { "foamreset", { SceneCommand::Kind::FoamReset, 0u, 0u, false } },
         { "rotate", { SceneCommand::Kind::Rotate, 0u, 0u, true } },
         { "spectrum", { SceneCommand::Kind::Spectrum, 0u, 0u, true } },
+        { "spreading", { SceneCommand::Kind::Spreading, 0u, 0u, true } },
         { "sky", { SceneCommand::Kind::Sky, 0u, 0u, false } },
         { "sky_res", { SceneCommand::Kind::SkyRes, 0u, 0u, true } },
         { "sky_intensity", { SceneCommand::Kind::SkyIntensity, 1u, 1u, false } },
@@ -322,6 +323,17 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
         if (command.Type == Kind::Spectrum && command.Text != "jonswap" && command.Text != "elfouhaily")
         {
             return std::unexpected(std::string{ "spectrum takes jonswap or elfouhaily" });
+        }
+
+        if (command.Type == Kind::Spreading &&
+            command.Text != "mitsuyasu" &&
+            command.Text != "hasselmann" &&
+            command.Text != "donelan" &&
+            command.Text != "elfouhaily" &&
+            command.Text != "hybrid" &&
+            command.Text != "ewans")
+        {
+            return std::unexpected(std::string{ "spreading takes mitsuyasu, hasselmann, donelan, elfouhaily, hybrid or ewans" });
         }
 
         return command;

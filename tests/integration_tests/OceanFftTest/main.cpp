@@ -261,8 +261,11 @@ namespace
 
     [[nodiscard]] std::string Describe(const ocean::OceanSimulationSettings& settings)
     {
-        constexpr std::array<std::string_view, 3> k_SpreadingNames{ "Mitsuyasu", "Hasselmann", "Donelan-Banner" };
-        const uint32_t spreading = std::min(settings.Spectrum.DirectionalSpreadingMode, 2u);
+        constexpr std::array<std::string_view, 6> k_SpreadingNames
+        {
+            "Mitsuyasu", "Hasselmann", "Donelan-Banner", "Elfouhaily", "Hybrid", "Ewans"
+        };
+        const uint32_t spreading = std::min(settings.Spectrum.DirectionalSpreadingMode, 5u);
         const std::string_view spectrumName = (settings.Spectrum.EnergySpectrumModel == 1u) ? "Elfouhaily" : "JONSWAP";
         return std::format("size {} {} {} {} {}", settings.Size,
             settings.WaveSize == 0u ? std::string{ "no wave ops" } : std::format("wave {}", settings.WaveSize), k_SpreadingNames[spreading],
@@ -1870,7 +1873,7 @@ int main()
 
         // every spreading function is normalized over the circle, so each one must give the same plausible wave height.
         // Donelan-Banner reads the generated LUT, so this also checks its upload and its axis mapping
-        for (const uint32_t spreading : { 0u, 1u, 2u })
+        for (const uint32_t spreading : { 0u, 1u, 2u, 3u, 4u, 5u })
         {
             ocean::OceanSimulationSettings settings{};
             settings.Size = 256u;
@@ -1911,6 +1914,22 @@ int main()
         elfouhailyLogSettings.Spectrum.EnergySpectrumModel = 1u;
         elfouhailyLogSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, elfouhailyLogSettings.Spectrum).Spectrum;
         failures += TestPipeline(context, elfouhailyLogSettings, 3.25f);
+
+        ocean::OceanSimulationSettings elfouhailyHybridSettings{};
+        elfouhailyHybridSettings.Size = 512u;
+        elfouhailyHybridSettings.WaveSize = context.WaveSize;
+        elfouhailyHybridSettings.Spectrum.EnergySpectrumModel = 1u;
+        elfouhailyHybridSettings.Spectrum.DirectionalSpreadingMode = 4u;
+        elfouhailyHybridSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, elfouhailyHybridSettings.Spectrum).Spectrum;
+        failures += TestPipeline(context, elfouhailyHybridSettings, 3.25f);
+
+        ocean::OceanSimulationSettings elfouhailyEwansSettings{};
+        elfouhailyEwansSettings.Size = 512u;
+        elfouhailyEwansSettings.WaveSize = context.WaveSize;
+        elfouhailyEwansSettings.Spectrum.EnergySpectrumModel = 1u;
+        elfouhailyEwansSettings.Spectrum.DirectionalSpreadingMode = 5u;
+        elfouhailyEwansSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, elfouhailyEwansSettings.Spectrum).Spectrum;
+        failures += TestPipeline(context, elfouhailyEwansSettings, 3.25f);
     }
 
     if (failures != 0)
