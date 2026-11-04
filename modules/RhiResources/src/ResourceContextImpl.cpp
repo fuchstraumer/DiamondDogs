@@ -79,7 +79,8 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
     }
 
     // one slot is shared by the futures of a full table, so a table of one slot could hold no future
-    if (create_info.Instance == nullptr || create_info.Device == nullptr || create_info.MaxFutures < 2)
+    if (create_info.Instance == nullptr || create_info.Device == nullptr || create_info.MaxFutures < 2 ||
+        create_info.StagingRingSize < k_MinStagingRingSize)
     {
         return ResourceContextError::InvalidCreateInfo;
     }
@@ -114,7 +115,7 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
         return ResourceContextError::AllocatorCreationFailed;
     }
 
-    const ResourceContextError transferResult = transferSystem.Initialize(create_info.Device, instance, create_info.VulkanApiVersion, &messageQueue, &futures);
+    const ResourceContextError transferResult = transferSystem.Initialize(create_info.Device, instance, create_info.VulkanApiVersion, &messageQueue, &futures, create_info.StagingRingSize);
     if (transferResult != ResourceContextError::Success)
     {
         vmaDestroyAllocator(allocatorHandle);
@@ -247,7 +248,10 @@ ResourceContextCounters ResourceContextImpl::Counters() const noexcept
         messageQueue.BlockedPushCount(),
         transfer.BlockedPushes,
         futures.LiveCount(),
-        futures.FullCount()
+        futures.FullCount(),
+        transfer.StagingRingStalls,
+        transfer.StagingDedicatedUploads,
+        transfer.StagingRingBytesInUse
     };
 }
 

@@ -12,16 +12,20 @@
 #include "RhiSystem.hpp"
 #include "UploadBuffer.hpp"
 #include "VulkanConversions.hpp"
+#include "containers/RingAllocator.hpp"
 #include "containers/mwsrQueue.hpp"
 #include "vulkan/vulkan_core.h"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <thread>
 #include <utility>
 #include <variant>
@@ -44,6 +48,10 @@ namespace
     // how long the transfer thread sleeps on the timeline while batches are in flight and the queue is empty. it is
     // also the longest a new message waits in that state
     constexpr uint64_t k_IdleWaitNs = 500'000u;
+    // the ranges that the ring can hold at once. every transfer in a batch holds one until its ticket completes
+    constexpr int32_t k_MaxRingRanges = 2 * k_BatchCount * k_MaxTransfersPerBatch;
+    // the buffer offset alignment of a buffer upload. buffer copies need none, and 16 keeps the memcpy of each range aligned
+    constexpr uint64_t k_BufferStagingAlignment = 16u;
 
     void RecordTransferOrderingBarrier(VkCommandBuffer cmd) noexcept;
     void RecordImageLayoutTransition(
@@ -79,7 +87,8 @@ ResourceContextError ResourceTransferSystem::Initialize(
     VkInstance instance,
     uint32_t vulkan_api_version,
     mwsrQueue<ResourceMessagePayloadType>* context_queue,
-    rhi::FutureTable* future_table)
+    rhi::FutureTable* future_table,
+    uint64_t staging_ring_size)
 {
     if (initialized)
     {
@@ -119,6 +128,13 @@ ResourceContextError ResourceTransferSystem::Initialize(
         allocatorHandle = VK_NULL_HANDLE;
         device = nullptr;
         return ResourceContextError::AllocatorCreationFailed;
+    }
+
+    const ResourceContextError ringResult = createStagingRing(staging_ring_size);
+    if (ringResult != ResourceContextError::Success)
+    {
+        destroy();
+        return ringResult;
     }
 
     const VkSemaphoreTypeCreateInfo timelineTypeInfo
@@ -190,8 +206,52 @@ TransferSystemCounters ResourceTransferSystem::Counters() const noexcept
         batchesSubmitted.load(std::memory_order_relaxed),
         completionReads.load(std::memory_order_relaxed),
         bytesStaged.load(std::memory_order_relaxed),
-        messageQueue.BlockedPushCount()
+        messageQueue.BlockedPushCount(),
+        ringStalls.load(std::memory_order_relaxed),
+        dedicatedUploads.load(std::memory_order_relaxed),
+        ringBytesInUse.load(std::memory_order_relaxed)
     };
+}
+
+ResourceContextError ResourceTransferSystem::createStagingRing(uint64_t size)
+{
+    const VkBufferCreateInfo bufferInfo
+    {
+        VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        nullptr,
+        0,
+        size,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_SHARING_MODE_EXCLUSIVE,
+        0,
+        nullptr
+    };
+    VmaAllocationCreateInfo allocationInfo{};
+    allocationInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+
+    VmaAllocationInfo resultInfo{};
+    const VkResult result = vmaCreateBuffer(allocatorHandle, &bufferInfo, &allocationInfo, &ringBuffer, &ringAllocation, &resultInfo);
+    if (result != VK_SUCCESS)
+    {
+        ringBuffer = VK_NULL_HANDLE;
+        ringAllocation = VK_NULL_HANDLE;
+        return ResourceContextError::TransferSetupFailed;
+    }
+
+    // a ring that is not mapped is useless. destroy() frees the buffer
+    if (resultInfo.pMappedData == nullptr)
+    {
+        return ResourceContextError::TransferSetupFailed;
+    }
+
+    std::byte* mappedPtr = static_cast<std::byte*>(resultInfo.pMappedData);
+    const size_t mappedSize = static_cast<size_t>(resultInfo.size);
+
+    ringMapped = std::span<std::byte>(mappedPtr, mappedSize);
+    ring.emplace(size, k_MaxRingRanges);
+    rhi::RhiSystem::SetObjectName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(ringBuffer), "ResourceContext_StagingRing");
+    return ResourceContextError::Success;
 }
 
 void ResourceTransferSystem::startWorker()
@@ -223,6 +283,15 @@ void ResourceTransferSystem::destroy()
     freeBatches.clear();
     inflightBatches.clear();
 
+    ring.reset();
+    if (ringBuffer != VK_NULL_HANDLE)
+    {
+        vmaDestroyBuffer(allocatorHandle, ringBuffer, ringAllocation);
+        ringBuffer = VK_NULL_HANDLE;
+        ringAllocation = VK_NULL_HANDLE;
+        ringMapped = std::span<std::byte>{};
+    }
+
     if (timeline != VK_NULL_HANDLE)
     {
         vkDestroySemaphore(device->Handle().As<VkDevice>(), timeline, nullptr);
@@ -245,24 +314,7 @@ void ResourceTransferSystem::processRemainingAndWait()
     exitRequested = false;
     drainMessages();
     submitBatch();
-
-    if (lastSignaledValue == 0u)
-    {
-        return;
-    }
-
-    const VkSemaphoreWaitInfo waitInfo
-    {
-        VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-        nullptr,
-        0u,
-        1u,
-        &timeline,
-        &lastSignaledValue
-    };
-
-    [[maybe_unused]] const VkResult result = vkWaitSemaphores(device->Handle().As<VkDevice>(), &waitInfo, std::numeric_limits<uint64_t>::max());
-    pollCompletion();
+    waitForSignaledTickets();
 }
 
 void ResourceTransferSystem::workerThreadJob()
@@ -331,12 +383,139 @@ VkCommandBuffer ResourceTransferSystem::beginTransfer(const TransferWaitSet& wai
     return cmd;
 }
 
-void ResourceTransferSystem::endTransfer(int32_t future_slot, std::unique_ptr<UploadBuffer>&& staging, uint64_t ticket, const TransferWaitSet& waits)
+std::optional<ResourceTransferSystem::StagingGrant> ResourceTransferSystem::acquireStaging(uint64_t size, uint64_t alignment, uint64_t ticket)
 {
-    if (staging != nullptr)
+    if (size == 0u)
     {
-        bytesStaged.fetch_add(static_cast<int64_t>(staging->Size), std::memory_order_relaxed);
-        recording->Staging.push_back(std::move(staging));
+        return std::nullopt;
+    }
+
+    // a transfer that can never fit in the ring gets a buffer of its own
+    if (size > ring->Capacity())
+    {
+        return createDedicatedStaging(size);
+    }
+
+    const std::optional<RingRange> range = allocateFromRing(size, alignment, ticket);
+    if (!range.has_value())
+    {
+        return std::nullopt;
+    }
+
+    StagingGrant grant;
+    std::span<std::byte> mappedSubspan = ringMapped.subspan(range->Offset, range->Size);
+    grant.Destination = StagingDestination{ ringBuffer, range->Offset, mappedSubspan };
+    grant.Size = range->Size;
+    return grant;
+}
+
+std::optional<ResourceTransferSystem::StagingGrant> ResourceTransferSystem::createDedicatedStaging(uint64_t size)
+{
+    StagingGrant grant;
+    grant.Dedicated = std::make_unique<UploadBuffer>(allocatorHandle);
+    if (!grant.Dedicated->Create(size))
+    {
+        return std::nullopt;
+    }
+
+    grant.Destination = grant.Dedicated->Destination();
+    grant.Size = size;
+    dedicatedUploads.fetch_add(1, std::memory_order_relaxed);
+    return grant;
+}
+
+std::optional<RingRange> ResourceTransferSystem::allocateFromRing(uint64_t size, uint64_t alignment, uint64_t ticket)
+{
+    std::optional<RingRange> range = ring->Allocate(size, alignment, ticket);
+    if (range.has_value())
+    {
+        return range;
+    }
+
+    // batches that finished on the GPU may not be polled yet. this is not a stall
+    pollCompletion();
+    range = ring->Allocate(size, alignment, ticket);
+    if (range.has_value())
+    {
+        return range;
+    }
+
+    ringStalls.fetch_add(1, std::memory_order_relaxed);
+
+    while (!range.has_value())
+    {
+        if (!waitForRingSpace())
+        {
+            // nothing is left to wait for, and a ring this size must have fit the range. this is a defect, or a lost device
+            assert(false && "the staging ring is empty and still refuses a range that fits in it");
+            return std::nullopt;
+        }
+
+        range = ring->Allocate(size, alignment, ticket);
+    }
+
+    return range;
+}
+
+bool ResourceTransferSystem::waitForRingSpace()
+{
+    const uint64_t completedBefore = completedTicket.load(std::memory_order_relaxed);
+
+    // the oldest ranges may belong to transfers that are recorded and not submitted
+    submitBatch();
+
+    if (!inflightBatches.empty())
+    {
+        waitForOldestBatch(std::numeric_limits<uint64_t>::max());
+    }
+    else
+    {
+        waitForSignaledTickets();
+    }
+
+    return completedTicket.load(std::memory_order_relaxed) > completedBefore;
+}
+
+void ResourceTransferSystem::waitForSignaledTickets()
+{
+    if (lastSignaledValue == 0u)
+    {
+        return;
+    }
+
+    const VkSemaphoreWaitInfo waitInfo
+    {
+        VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+        nullptr,
+        0u,
+        1u,
+        &timeline,
+        &lastSignaledValue
+    };
+
+    [[maybe_unused]] const VkResult result = vkWaitSemaphores(device->Handle().As<VkDevice>(), &waitInfo, std::numeric_limits<uint64_t>::max());
+    pollCompletion();
+}
+
+void ResourceTransferSystem::flushStaging(const StagingGrant& staging)
+{
+    if (staging.Dedicated != nullptr)
+    {
+        staging.Dedicated->Flush();
+        return;
+    }
+
+    // the ring memory may not be coherent
+    vmaFlushAllocation(allocatorHandle, ringAllocation, staging.Destination.Offset, staging.Size);
+}
+
+void ResourceTransferSystem::endTransfer(int32_t future_slot, StagingGrant&& staging, uint64_t ticket, const TransferWaitSet& waits)
+{
+    bytesStaged.fetch_add(static_cast<int64_t>(staging.Size), std::memory_order_relaxed);
+
+    if (staging.Dedicated != nullptr)
+    {
+        recording->Staging.push_back(std::move(staging.Dedicated));
     }
 
     recording->Futures.push_back(future_slot);
@@ -548,6 +727,10 @@ void ResourceTransferSystem::pollCompletion()
         inflightBatches.erase(inflightBatches.begin());
     }
 
+    // the timeline passed these tickets, so the GPU is done reading the ranges that were staged for them
+    ring->ReleaseThrough(value);
+    ringBytesInUse.store(static_cast<int64_t>(ring->UsedBytes()), std::memory_order_relaxed);
+
     if (value > previous)
     {
         completedTicket.store(value, std::memory_order_release);
@@ -589,13 +772,15 @@ void ResourceTransferSystem::processMessage(TransferSystemSetBufferDataMessage&&
     // note that this is copying to an API managed staging buffer, not just another raw data buffer like our data container. will only be briefly duplicated
     InternalResourceDataContainer::BufferDataVector& dataVector = std::get<InternalResourceDataContainer::BufferDataVector>(message.Data.DataVector);
 
-    std::unique_ptr<UploadBuffer> staging = std::make_unique<UploadBuffer>(allocatorHandle);
-    const std::optional<std::vector<VkBufferCopy>> bufferCopies = staging->SetData(dataVector);
-    if (!bufferCopies.has_value())
+    std::optional<StagingGrant> staging = acquireStaging(StagedBufferSize(dataVector), k_BufferStagingAlignment, message.Ticket);
+    if (!staging.has_value())
     {
         failTransfer(message.Future, message.Ticket, rhi::ResourceError::StagingFailed);
         return;
     }
+
+    const std::vector<VkBufferCopy> bufferCopies = WriteBufferData(staging->Destination, dataVector);
+    flushStaging(*staging);
 
     const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
@@ -604,11 +789,11 @@ void ResourceTransferSystem::processMessage(TransferSystemSetBufferDataMessage&&
         return;
     }
 
-    vkCmdCopyBuffer(cmd, staging->Buffer, bufferHandle, static_cast<uint32_t>(bufferCopies->size()), bufferCopies->data());
+    vkCmdCopyBuffer(cmd, staging->Destination.Buffer, bufferHandle, static_cast<uint32_t>(bufferCopies.size()), bufferCopies.data());
 
     // no barrier after the copy: other queues see the write through the transfer timeline, which consumers wait on
     dataVector.clear();
-    endTransfer(message.Future, std::move(staging), message.Ticket, message.Waits);
+    endTransfer(message.Future, std::move(*staging), message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& message)
@@ -620,13 +805,16 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
 
     InternalResourceDataContainer::ImageDataVector& imageDataVector = std::get<InternalResourceDataContainer::ImageDataVector>(message.Data.DataVector);
 
-    std::unique_ptr<UploadBuffer> staging = std::make_unique<UploadBuffer>(allocatorHandle);
-    const std::optional<std::vector<VkBufferImageCopy>> bufferImageCopies = staging->SetData(imageDataVector, range.aspectMask);
-    if (!bufferImageCopies.has_value())
+    const uint64_t stagingAlignment = ImageStagingAlignment(imageInfo.Format);
+    std::optional<StagingGrant> staging = acquireStaging(StagedImageSize(imageDataVector, stagingAlignment), stagingAlignment, message.Ticket);
+    if (!staging.has_value())
     {
         failTransfer(message.Future, message.Ticket, rhi::ResourceError::StagingFailed);
         return;
     }
+
+    const std::vector<VkBufferImageCopy> bufferImageCopies = WriteImageData(staging->Destination, imageDataVector, range.aspectMask, stagingAlignment);
+    flushStaging(*staging);
 
     const VkCommandBuffer cmd = beginTransfer(message.Waits);
     if (cmd == VK_NULL_HANDLE)
@@ -642,18 +830,18 @@ void ResourceTransferSystem::processMessage(TransferSystemSetImageDataMessage&& 
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     vkCmdCopyBufferToImage(
         cmd,
-        staging->Buffer,
+        staging->Destination.Buffer,
         imageHandle,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        static_cast<uint32_t>(bufferImageCopies->size()),
-        bufferImageCopies->data());
+        static_cast<uint32_t>(bufferImageCopies.size()),
+        bufferImageCopies.data());
     RecordImageLayoutTransition(cmd, imageHandle, range,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, finalLayout,
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
     imageDataVector.clear();
-    endTransfer(message.Future, std::move(staging), message.Ticket, message.Waits);
+    endTransfer(message.Future, std::move(*staging), message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemFillBufferMessage&& message)
@@ -666,7 +854,7 @@ void ResourceTransferSystem::processMessage(TransferSystemFillBufferMessage&& me
     }
 
     vkCmdFillBuffer(cmd, message.BufferInfo.BufferHandle, message.Offset, message.Size, message.Value);
-    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
+    endTransfer(message.Future, StagingGrant{}, message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToBufferMessage&& message)
@@ -687,7 +875,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToBufferMess
     }
 
     vkCmdCopyBuffer(cmd, message.SrcBufferInfo.BufferHandle, message.DstBufferInfo.BufferHandle, 1, &copy);
-    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
+    endTransfer(message.Future, StagingGrant{}, message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessage&& message)
@@ -749,7 +937,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToImageMessag
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
+    endTransfer(message.Future, StagingGrant{}, message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessage&& message)
@@ -789,7 +977,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyImageToBufferMessa
     // no barrier for the buffer: the host sees the write once the timeline passes the ticket (GPUToCPU memory is
     // host-coherent or invalidated on map)
 
-    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
+    endTransfer(message.Future, StagingGrant{}, message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessage&& message)
@@ -827,7 +1015,7 @@ void ResourceTransferSystem::processMessage(TransferSystemCopyBufferToImageMessa
         VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE);
 
-    endTransfer(message.Future, nullptr, message.Ticket, message.Waits);
+    endTransfer(message.Future, StagingGrant{}, message.Ticket, message.Waits);
 }
 
 void ResourceTransferSystem::processMessage([[maybe_unused]] TransferSystemExitMessage&& message) noexcept

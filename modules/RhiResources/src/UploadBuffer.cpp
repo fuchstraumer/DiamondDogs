@@ -1,4 +1,5 @@
 #include "UploadBuffer.hpp"
+#include "ImageDataFormats.hpp"
 #include "ResourceMessageTypesInternal.hpp"
 #include "RhiSystem.hpp"
 #include "vulkan/vulkan_core.h"
@@ -6,8 +7,16 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <optional>
+#include <numeric>
+#include <ranges>
+#include <span>
 #include <vector>
+
+namespace
+{
+    [[nodiscard]] uint64_t AlignUp(uint64_t value, uint64_t alignment) noexcept;
+    [[nodiscard]] uint64_t TexelBlockBytes(ImageComponentFormats format) noexcept;
+}
 
 constexpr static VkBufferCreateInfo k_DefaultStagingBufferCreateInfo
 {
@@ -32,9 +41,92 @@ constexpr static VmaAllocationCreateInfo k_DefaultAllocationCreateInfo
     nullptr
 };
 
-// buffer to image copies need the buffer offset to be a multiple of the texel block size (and 4, on a transfer queue).
-// 16 covers every uncompressed format and every block-compressed one
-constexpr static VkDeviceSize k_ImageCopyOffsetAlignment = 16u;
+// a buffer to image copy on a transfer queue needs the buffer offset to be a multiple of 4, besides the texel block size
+constexpr static uint64_t k_TransferQueueOffsetAlignment = 4u;
+
+uint64_t StagedBufferSize(const InternalResourceDataContainer::BufferDataVector& data_vector) noexcept
+{
+    uint64_t totalSize = 0u;
+    for (const InternalResourceDataContainer::BufferData& data : data_vector)
+    {
+        totalSize += static_cast<uint64_t>(data.Size);
+    }
+
+    return totalSize;
+}
+
+uint64_t StagedImageSize(const InternalResourceDataContainer::ImageDataVector& image_data_vector, uint64_t alignment) noexcept
+{
+    uint64_t totalSize = 0u;
+    for (const InternalResourceDataContainer::ImageData& data : image_data_vector)
+    {
+        totalSize = AlignUp(totalSize, alignment) + static_cast<uint64_t>(data.Size);
+    }
+
+    return totalSize;
+}
+
+uint64_t ImageStagingAlignment(const ImageFormat& format) noexcept
+{
+    return std::lcm(TexelBlockBytes(format.ComponentFormat), k_TransferQueueOffsetAlignment);
+}
+
+std::vector<VkBufferCopy> WriteBufferData(
+    const StagingDestination& destination,
+    const InternalResourceDataContainer::BufferDataVector& data_vector)
+{
+    std::vector<VkBufferCopy> bufferCopies(data_vector.size());
+    uint64_t offset = 0u;
+    std::span<std::byte> runningSpan = destination.Mapped;
+
+    for (auto&& [index, data] : std::views::enumerate(data_vector))
+    {
+        runningSpan = runningSpan.subspan(offset);
+        std::memcpy(runningSpan.data(), data.Data.get(), data.Size);
+
+        VkBufferCopy& copy = bufferCopies[static_cast<size_t>(index)];
+        copy.srcOffset = destination.Offset + offset;
+        copy.dstOffset = offset;
+        copy.size = data.Size;
+        offset += static_cast<uint64_t>(data.Size);
+    }
+
+    return bufferCopies;
+}
+
+std::vector<VkBufferImageCopy> WriteImageData(
+    const StagingDestination& destination,
+    const InternalResourceDataContainer::ImageDataVector& image_data_vector,
+    VkImageAspectFlags aspect_mask,
+    uint64_t alignment)
+{
+    // fixed: this sized the vector to the element count and then also emplaced each copy, so every region was recorded
+    // twice, the second time over the first. it also used the image's layer count for every element
+    std::vector<VkBufferImageCopy> bufferImageCopies(image_data_vector.size());
+    uint64_t offset = 0u;
+    std::span<std::byte> runningSpan = destination.Mapped;
+
+    for (auto&& [index, data] : std::views::enumerate(image_data_vector))
+    {
+        offset = AlignUp(offset, alignment);
+        runningSpan = runningSpan.subspan(offset);
+        std::memcpy(runningSpan.data(), data.Data.get(), data.Size);
+
+        VkBufferImageCopy& copy = bufferImageCopies[static_cast<size_t>(index)];
+        copy.bufferOffset = destination.Offset + offset;
+        copy.bufferRowLength = 0u;
+        copy.bufferImageHeight = 0u;
+        copy.imageSubresource.aspectMask = aspect_mask;
+        copy.imageSubresource.baseArrayLayer = data.ArrayLayer;
+        copy.imageSubresource.layerCount = data.NumLayers;
+        copy.imageSubresource.mipLevel = data.MipLevel;
+        copy.imageOffset = VkOffset3D{ 0, 0, 0 };
+        copy.imageExtent = VkExtent3D{ data.Width, data.Height, 1u };
+        offset += static_cast<uint64_t>(data.Size);
+    }
+
+    return bufferImageCopies;
+}
 
 UploadBuffer::UploadBuffer(VmaAllocator allocator) :
     Allocator{ allocator }
@@ -44,12 +136,12 @@ UploadBuffer::UploadBuffer(UploadBuffer&& other) noexcept :
     Buffer(other.Buffer),
     Allocation(other.Allocation),
     Allocator(other.Allocator),
-    MappedPtr(other.MappedPtr),
+    Mapped(other.Mapped),
     Size(other.Size)
 {
     other.Buffer = VK_NULL_HANDLE;
     other.Allocation = VK_NULL_HANDLE;
-    other.MappedPtr = nullptr;
+    other.Mapped = std::span<std::byte>{};
 }
 
 UploadBuffer& UploadBuffer::operator=(UploadBuffer&& other) noexcept
@@ -59,11 +151,11 @@ UploadBuffer& UploadBuffer::operator=(UploadBuffer&& other) noexcept
         Buffer = other.Buffer;
         Allocation = other.Allocation;
         Allocator = other.Allocator;
-        MappedPtr = other.MappedPtr;
+        Mapped = other.Mapped;
         Size = other.Size;
         other.Buffer = VK_NULL_HANDLE;
         other.Allocation = VK_NULL_HANDLE;
-        other.MappedPtr = nullptr;
+        other.Mapped = std::span<std::byte>{};
     }
     return *this;
 }
@@ -76,75 +168,7 @@ UploadBuffer::~UploadBuffer()
     }
 }
 
-std::optional<std::vector<VkBufferCopy>> UploadBuffer::SetData(
-    const InternalResourceDataContainer::BufferDataVector& data_vector)
-{
-    VkDeviceSize totalSize = 0;
-    for (const auto& data : data_vector)
-    {
-        totalSize += static_cast<VkDeviceSize>(data.Size);
-    }
-
-    if (!createAndAllocateBuffer(totalSize))
-    {
-        return std::nullopt;
-    }
-
-    std::vector<VkBufferCopy> bufferCopies(data_vector.size());
-    VkDeviceSize offset = 0;
-    for (size_t i = 0; i < data_vector.size(); ++i)
-    {
-        setDataAtOffset(data_vector[i].Data.get(), data_vector[i].Size, offset);
-        bufferCopies[i].size = data_vector[i].Size;
-        bufferCopies[i].dstOffset = offset;
-        bufferCopies[i].srcOffset = offset;
-        offset += data_vector[i].Size;
-    }
-
-    return bufferCopies;
-}
-
-std::optional<std::vector<VkBufferImageCopy>> UploadBuffer::SetData(
-    const InternalResourceDataContainer::ImageDataVector& image_data_vector,
-    VkImageAspectFlags aspect_mask)
-{
-    VkDeviceSize totalSize = 0;
-    for (const auto& data : image_data_vector)
-    {
-        totalSize = ((totalSize + k_ImageCopyOffsetAlignment - 1u) / k_ImageCopyOffsetAlignment) * k_ImageCopyOffsetAlignment;
-        totalSize += static_cast<VkDeviceSize>(data.Size);
-    }
-
-    if (!createAndAllocateBuffer(totalSize))
-    {
-        return std::nullopt;
-    }
-
-    // fixed: this sized the vector to the element count and then also emplaced each copy, so every region was recorded
-    // twice, the second time over the first. it also used the image's layer count for every element
-    std::vector<VkBufferImageCopy> bufferImageCopies(image_data_vector.size());
-    VkDeviceSize offset = 0;
-    for (size_t i = 0; i < image_data_vector.size(); ++i)
-    {
-        offset = ((offset + k_ImageCopyOffsetAlignment - 1u) / k_ImageCopyOffsetAlignment) * k_ImageCopyOffsetAlignment;
-        setDataAtOffset(image_data_vector[i].Data.get(), image_data_vector[i].Size, offset);
-        VkBufferImageCopy& copy = bufferImageCopies[i];
-        copy.bufferOffset = offset;
-        copy.bufferRowLength = 0u;
-        copy.bufferImageHeight = 0u;
-        copy.imageSubresource.aspectMask = aspect_mask;
-        copy.imageSubresource.baseArrayLayer = image_data_vector[i].ArrayLayer;
-        copy.imageSubresource.layerCount = image_data_vector[i].NumLayers;
-        copy.imageSubresource.mipLevel = image_data_vector[i].MipLevel;
-        copy.imageOffset = VkOffset3D{ 0, 0, 0 };
-        copy.imageExtent = VkExtent3D{ image_data_vector[i].Width, image_data_vector[i].Height, 1u };
-        offset += static_cast<VkDeviceSize>(image_data_vector[i].Size);
-    }
-
-    return bufferImageCopies;
-}
-
-bool UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
+bool UploadBuffer::Create(VkDeviceSize size)
 {
     VkBufferCreateInfo createInfo = k_DefaultStagingBufferCreateInfo;
     createInfo.size = size;
@@ -157,7 +181,7 @@ bool UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
         &Buffer,
         &Allocation,
         &resultAllocInfo);
-    
+
     if (result != VK_SUCCESS)
     {
         Buffer = VK_NULL_HANDLE;
@@ -165,7 +189,9 @@ bool UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
         return false;
     }
 
-    MappedPtr = resultAllocInfo.pMappedData;
+    std::byte* mappedPtr = static_cast<std::byte*>(resultAllocInfo.pMappedData);
+    Mapped = std::span<std::byte>{ mappedPtr, static_cast<size_t>(size) };
+
     Size = size;
 
     if constexpr (RHI_SYSTEM_USE_DEBUG_INFO && RHI_SYSTEM_VALIDATION_ENABLED)
@@ -179,11 +205,104 @@ bool UploadBuffer::createAndAllocateBuffer(VkDeviceSize size)
     return true;
 }
 
-void UploadBuffer::setDataAtOffset(const void* data, size_t data_size, size_t offset) const
+StagingDestination UploadBuffer::Destination() const noexcept
 {
-    assert((data_size + offset) <= Size);
-    auto* destAddress = reinterpret_cast<std::byte*>(MappedPtr) + offset;
-    std::memcpy(destAddress, data, data_size);
-    // the allocation is host-visible but may not be coherent
-    vmaFlushAllocation(Allocator, Allocation, offset, data_size);
+    return StagingDestination{ Buffer, 0u, Mapped };
+}
+
+void UploadBuffer::Flush() const
+{
+    vmaFlushAllocation(Allocator, Allocation, 0u, Size);
+}
+
+namespace
+{
+    uint64_t AlignUp(uint64_t value, uint64_t alignment) noexcept
+    {
+        const uint64_t remainder = value % alignment;
+        return remainder == 0u ? value : value + (alignment - remainder);
+    }
+
+    uint64_t TexelBlockBytes(ImageComponentFormats format) noexcept
+    {
+        switch (format)
+        {
+        case ImageComponentFormats::R8:
+            return 1u;
+        case ImageComponentFormats::R16:
+            return 2u;
+        case ImageComponentFormats::R32:
+            return 4u;
+        case ImageComponentFormats::RG8:
+            return 2u;
+        case ImageComponentFormats::RG16:
+            return 4u;
+        case ImageComponentFormats::RG32:
+            return 8u;
+        case ImageComponentFormats::RGB8:
+            return 3u;
+        case ImageComponentFormats::RGB16:
+            return 6u;
+        case ImageComponentFormats::RGB32:
+            return 12u;
+        case ImageComponentFormats::RGBA8:
+            return 4u;
+        case ImageComponentFormats::BGRA8:
+            return 4u;
+        case ImageComponentFormats::RGBA16:
+            return 8u;
+        case ImageComponentFormats::RGBA32:
+            return 16u;
+        case ImageComponentFormats::A2R10G10B10:
+            return 4u;
+        case ImageComponentFormats::A2B10G10R10:
+            return 4u;
+        case ImageComponentFormats::R5G6B5:
+            return 2u;
+        case ImageComponentFormats::R5G5B5A1:
+            return 2u;
+        case ImageComponentFormats::R4G4B4A4:
+            return 2u;
+        case ImageComponentFormats::R64:
+            return 8u;
+        case ImageComponentFormats::RG64:
+            return 16u;
+        case ImageComponentFormats::RGB64:
+            return 24u;
+        case ImageComponentFormats::RGBA64:
+            return 32u;
+        case ImageComponentFormats::D16:
+            return 2u;
+        case ImageComponentFormats::D24:
+            return 4u;
+        case ImageComponentFormats::D32:
+            return 4u;
+        case ImageComponentFormats::D24S8:
+            return 4u;
+        case ImageComponentFormats::D32S8:
+            return 4u;
+        case ImageComponentFormats::S8:
+            return 1u;
+        case ImageComponentFormats::BC1:
+            return 8u;
+        case ImageComponentFormats::BC2:
+            return 16u;
+        case ImageComponentFormats::BC3:
+            return 16u;
+        case ImageComponentFormats::BC4:
+            return 8u;
+        case ImageComponentFormats::BC5:
+            return 16u;
+        case ImageComponentFormats::BC6H:
+            return 16u;
+        case ImageComponentFormats::BC7:
+            return 16u;
+        case ImageComponentFormats::Invalid:
+        case ImageComponentFormats::Count:
+            break;
+        }
+
+        // an invalid format fails at the image create, so the least common multiple falls back to 4
+        return 1u;
+    }
 }

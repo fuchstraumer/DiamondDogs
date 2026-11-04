@@ -34,6 +34,9 @@ protected:
     /** Destroys the test's context, then makes a new one with a future table of `max_futures` slots. The old context
      *  goes first: two contexts would submit to the same transfer queue from two threads. */
     void RecreateContext(int32_t max_futures);
+    /** Destroys the test's context, then makes a new one with `max_futures` future slots and a staging ring of
+     *  `staging_ring_size` bytes. */
+    void RecreateContextWithRing(int32_t max_futures, uint64_t staging_ring_size);
     /** Creates a buffer and waits for it. Fails the test when the future does not complete. */
     [[nodiscard]] GraphicsResource CreateBufferAndWait(const BufferCreateInfo& create_info, std::span<const RhiBufferResourceData> initial_data);
     void DestroyAndWait(const GraphicsResource& resource);

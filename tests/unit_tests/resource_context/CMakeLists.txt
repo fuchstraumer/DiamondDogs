@@ -13,6 +13,7 @@ set(RESOURCE_CONTEXT_TEST_SOURCES
     test_handoff.cpp
     test_placement.cpp
     test_waits.cpp
+    test_staging_ring.cpp
 )
 
 set(resource_context_test_link_targets
