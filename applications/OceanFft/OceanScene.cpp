@@ -130,8 +130,14 @@ namespace
         float SsrIntensity{ 1.0f };
         float TaaBlendAlpha{ 0.1f };
         float AutoExposureSpeed{ 1.0f };
+        std::array<float, 3> WaterLeavingReflectanceAp1{};
+        float BodyReflectanceScale{ 1.0f };
     };
-    static_assert(sizeof(FrameConstants) == 320u);
+    static_assert(sizeof(FrameConstants) == 336u);
+
+    // Remote-sensing reflectance R_rs of clear open ocean in sr^-1, at about 670, 555 and 443 nm. The body radiance
+    // of the water is R_rs times the downwelling irradiance
+    constexpr std::array<float, 3> k_OpenOceanReflectanceAp1{ 0.0003f, 0.0018f, 0.0060f };
 
     constexpr std::string_view k_DeferredModule{ "OceanDeferred" };
     constexpr std::array<std::string_view, 2> k_GBufferEntryPoints{ "OceanSurfaceVS", "OceanSurfaceGBufferFS" };
@@ -270,6 +276,11 @@ namespace
     constexpr float k_ScRgbRefNits = 80.0f;
 
     constexpr float k_DegreesToRadians = std::numbers::pi_v<float> / 180.0f;
+
+    // Preetham's model is not valid below the horizon. Bruneton's inscatter LUT covers mu_s down to -0.2, about -11.5
+    // degrees, which is civil twilight and the start of nautical twilight
+    constexpr float k_MinPreethamSunElevationDeg = 1.0f;
+    constexpr float k_MinBrunetonSunElevationDeg = -11.0f;
 
     /** @brief How the swapchain encodes color, or nothing when FrameCapture cannot convert it */
     std::optional<capture::CaptureEncoding> CaptureEncodingFor(ImageFormat format, ColorSpace color_space)
@@ -595,6 +606,11 @@ void OceanScene::Initialize(void* user_data)
     if (atmoRes.has_value())
     {
         atmosphere = std::move(*atmoRes);
+
+        if (!atmosphere->CreateLightingSlots(numFramebuffers))
+        {
+            Fail("OceanScene: creating the atmosphere lighting slots failed");
+        }
     }
     else
     {
@@ -1624,6 +1640,10 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::SkyIntensity:
         skyIntensityScale = std::max(v[0], 0.0f);
         break;
+    case SceneCommand::Kind::Sun:
+        sunElevation = v[0] * k_DegreesToRadians;
+        sunAzimuth = v[1] * k_DegreesToRadians;
+        break;
     case SceneCommand::Kind::Tonemap:
         if (command.Text == "agx")
         {
@@ -1705,6 +1725,10 @@ void OceanScene::runCommand(const SceneCommand& command)
         if (command.Text == "sss")
         {
             sssStrength = std::max(v[0], 0.0f);
+        }
+        else if (command.Text == "body")
+        {
+            bodyReflectanceScale = std::max(v[0], 0.0f);
         }
         else if (command.Text == "leadr")
         {
@@ -1935,10 +1959,23 @@ void OceanScene::printState() const
         cdlod ? cdlod->Settings().MaxLevel : 0u,
         cdlodMaxLevelOverride.has_value() ? "manual" : "auto",
         wireframe ? "on" : "off");
-    std::cout << std::format("\nbrdf sss {:.2f} leadr {:.2f} foam_roughness {:.2f} seabed_roughness {:.2f}",
-        sssStrength, leadrSlopeVarianceScale, foamRoughnessScale, seabedRoughnessScale);
+    std::cout << std::format("\nbrdf sss {:.2f} body {:.2f} leadr {:.2f} foam_roughness {:.2f} seabed_roughness {:.2f}",
+        sssStrength, bodyReflectanceScale, leadrSlopeVarianceScale, foamRoughnessScale, seabedRoughnessScale);
     std::cout << std::format("\nasync compute {}", (useAsyncCompute && hasAsyncComputeQueue) ? "on" : "off");
     std::cout << '\n' << std::flush;
+}
+
+std::array<float, 3> OceanScene::sunDirection() const noexcept
+{
+    if (!useBrunetonAtmosphere && environment && skyPreset != ocean::OceanSkyPreset::AnalyticPreetham)
+    {
+        return environment->DominantLightDirection();
+    }
+
+    const float minElevation = (useBrunetonAtmosphere ? k_MinBrunetonSunElevationDeg : k_MinPreethamSunElevationDeg) * k_DegreesToRadians;
+    const float elevation = std::max(sunElevation, minElevation);
+    const float cosElevation = std::cos(elevation);
+    return { std::sin(sunAzimuth) * cosElevation, std::sin(elevation), std::cos(sunAzimuth) * cosElevation };
 }
 
 void OceanScene::drawDebugModeCombo(
@@ -2433,13 +2470,14 @@ void OceanScene::drawPanel()
                 ocean::AccentTone::Cyan,
                 true);
 
-            float sunElevationDeg = sunElevation / k_DegreesToRadians;
+            const float minSunElevationDeg = useBrunetonAtmosphere ? k_MinBrunetonSunElevationDeg : k_MinPreethamSunElevationDeg;
+            float sunElevationDeg = std::max(sunElevation / k_DegreesToRadians, minSunElevationDeg);
             if (ocean::DrawArtistSlider(
                     "##sun_elevation",
                     "Sun elevation",
                     "horizon -> zenith",
                     &sunElevationDeg,
-                    1.0f,
+                    minSunElevationDeg,
                     90.0f,
                     std::format("{:.1f}", sunElevationDeg),
                     "deg",
@@ -2492,6 +2530,9 @@ void OceanScene::drawPanel()
             ocean::DrawSubSectionDivider("SKY & ENVIRONMENT", fonts, headerFontMode, ocean::AccentTone::Amber);
             if (ocean::DrawSkyPresetGrid(fonts, skyPreset))
             {
+                // a preset is a sky of its own, the same as the sky scene commands
+                useBrunetonAtmosphere = false;
+
                 if (environment)
                 {
                     device->WaitDeviceIdle();
@@ -2623,6 +2664,19 @@ void OceanScene::drawPanel()
                 0.0f,
                 2.0f,
                 std::format("{:.2f}", sssStrength),
+                "",
+                fonts,
+                ocean::AccentTone::Cyan,
+                false);
+
+            (void)ocean::DrawArtistSlider(
+                "##body_reflectance",
+                "Body reflectance",
+                "x open-ocean R_rs",
+                &bodyReflectanceScale,
+                0.25f,
+                4.0f,
+                std::format("{:.2f}", bodyReflectanceScale),
                 "",
                 fonts,
                 ocean::AccentTone::Cyan,
@@ -3000,12 +3054,7 @@ void OceanScene::writeViewParameters()
         view.FoamWeights[cascade] = foamWeights[cascade];
     }
 
-    const float cosElevation = std::cos(sunElevation);
-    std::array<float, 3> sunDir{ std::sin(sunAzimuth) * cosElevation, std::sin(sunElevation), std::cos(sunAzimuth) * cosElevation };
-    if (environment && skyPreset != ocean::OceanSkyPreset::AnalyticPreetham)
-    {
-        sunDir = environment->DominantLightDirection();
-    }
+    const std::array<float, 3> sunDir = sunDirection();
     view.SunDirectionSeabedDepth = { sunDir[0], sunDir[1], sunDir[2], seabedDepth };
     view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), rotateCascades ? 1.0f : 0.0f, 0.0f };
     view.WhitecapParameters = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.CrestSharpness, 0.0f };
@@ -3026,9 +3075,22 @@ void OceanScene::writeViewParameters()
         frameConstants.SkyShCoeffs = environment->SphericalHarmonics();
         frameConstants.SunRadianceAp1 = environment->DominantLightRadiance();
     }
+
+    // Bruneton lights the water itself. The values come from this slot's previous frame, so they lag the sun
+    // sliders by the number of frames in flight
+    const std::optional<ocean::OceanAtmosphereLighting> atmosphereLighting =
+        (useBrunetonAtmosphere && atmosphere) ? atmosphere->ReadLighting(currentFrame) : std::nullopt;
+
+    if (atmosphereLighting.has_value())
+    {
+        frameConstants.SkyShCoeffs = atmosphereLighting->SkyShCoeffs;
+        frameConstants.SunRadianceAp1 = atmosphereLighting->SunIrradianceAp1;
+    }
     frameConstants.FoamRoughnessScale = foamRoughnessScale;
     frameConstants.WaterScatterColorAp1 = { 0.02f, 0.15f, 0.2f };
     frameConstants.SssStrength = sssStrength;
+    frameConstants.WaterLeavingReflectanceAp1 = k_OpenOceanReflectanceAp1;
+    frameConstants.BodyReflectanceScale = bodyReflectanceScale;
     frameConstants.SeabedTintAp1 = { 0.6f, 0.5f, 0.4f };
     frameConstants.SeabedRoughnessScale = seabedRoughnessScale;
     frameConstants.UseCdlod = useCdlod ? 1u : 0u;
@@ -3739,6 +3801,12 @@ void OceanScene::recordCommands()
     {
         atmosphere->RecordPrecompute(cmd, &timerBlock);
         atmosphereSettingsChanged = false;
+    }
+
+    if (atmosphere && useBrunetonAtmosphere)
+    {
+        const std::array<float, 3> sunDir = sunDirection();
+        atmosphere->RecordLighting(cmd, currentFrame, math::Float3{ sunDir[0], sunDir[1], sunDir[2] });
     }
 
     if (environment)

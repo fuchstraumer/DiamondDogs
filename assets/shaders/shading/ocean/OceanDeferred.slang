@@ -58,6 +58,8 @@ public struct FrameConstants
     public float SsrIntensity;
     public float TaaBlendAlpha;
     public float AutoExposureSpeed;
+    public float3 WaterLeavingReflectanceAp1;
+    public float BodyReflectanceScale;
     public property float3 FoamAlbedoTint
     {
         get
@@ -873,7 +875,11 @@ void OceanDeferredLightingCS(
     // the author's scatter terms from before the deferred pass: the body scatter follows the reflected sky, so the
     // swells pick up the sky's variation
     const float3 crestSss = Frame.SunRadianceAp1 * Frame.WaterScatterColorAp1 * (forwardScatter * crestFactor * Frame.SssStrength);
-    const float3 bodyScatter = Frame.WaterScatterColorAp1 * (saturate(toSun.y) * Frame.SunRadianceAp1 * 0.12f + skyRadiance * 0.25f);
+    // body radiance = water-leaving reflectance (sr^-1) x downwelling irradiance: the sun on a horizontal surface plus
+    // the sky. The reflectance is that of clear open ocean
+    const float3 skyDownwelling = EvaluateShIrradiance(float3(0.0f, 1.0f, 0.0f), Frame.SkyShCoeffs) * Frame.SkyIntensityScale;
+    const float3 downwellingIrradiance = saturate(toSun.y) * Frame.SunRadianceAp1 + skyDownwelling;
+    const float3 bodyScatter = Frame.WaterLeavingReflectanceAp1 * (Frame.BodyReflectanceScale * downwellingIrradiance);
 
     const float3 underwaterColor = float3(0.05f, 0.14f, 0.16f);
     const float3 waterSubsurface = lerp(bodyScatter, underwaterColor * Frame.WaterScatterColorAp1, underwaterFoam) + crestSss;

@@ -246,6 +246,8 @@ public struct FrameConstants
     public float SsrIntensity;
     public float TaaBlendAlpha;
     public float AutoExposureSpeed;
+    public float3 WaterLeavingReflectanceAp1;
+    public float BodyReflectanceScale;
     public property float3 FoamAlbedoTint
     {
         get

@@ -129,6 +129,9 @@ private:
     void drawPanel();
     /** @brief Draws a combo that picks a shader debug mode by name. The index of the name is the mode number */
     void drawDebugModeCombo(const char* label, std::span<const std::string_view> mode_names, int32_t& selected_mode);
+    /** @brief Returns the direction to the sun. Bruneton and Preetham take it from the sun sliders, the HDRI presets
+     *  from the brightest pixel of the HDRI */
+    [[nodiscard]] std::array<float, 3> sunDirection() const noexcept;
     void drawTimingsPanel();
     /** @brief The frame's coalesce step for the GPU timers: collects finished frames into the rolling averages */
     void collectGpuTimings();
@@ -282,6 +285,8 @@ private:
 
     // Shading & BRDF controls
     float sssStrength{ 0.5f };
+    // scales the open-ocean water-leaving reflectance of the body scatter. 1 is clear open ocean
+    float bodyReflectanceScale{ 1.0f };
     float leadrSlopeVarianceScale{ 1.0f };
     float foamRoughnessScale{ 1.0f };
     float seabedRoughnessScale{ 1.0f };

@@ -46,6 +46,7 @@
  *    sky preset                            set the sky preset (preetham, aurora, day, night, overcast, twilight)
  *    sky_res 8k|16k                        set sky texture resolution (8k downsampled or 16k full)
  *    sky_intensity value                   set sky radiance multiplier
+ *    sun elevation azimuth                 set the sun of the Bruneton and Preetham skies, in degrees
  *    tonemap name                          set tonemapper (agx, neutral, passthrough, falsecolor)
  *    exposure ev                           set exposure in EV stops
  *    bloom on|off                          enable or disable bloom
@@ -55,7 +56,7 @@
  *    cdlod_morph value                     set CDLOD morph start ratio (0.1 to 0.95)
  *    cdlod_max_level value                 set CDLOD maximum subdivision level (1 to 14, 0 for auto)
  *    wireframe on|off                      enable or disable wireframe polygon mode
- *    brdf field value                      set BRDF parameter: sss, leadr, foam_roughness, seabed_roughness
+ *    brdf field value                      set BRDF parameter: sss, body, leadr, foam_roughness, seabed_roughness
  *    async_compute on|off                  enable or disable async compute execution
  *    capture [name]                        write this frame to <capture dir>/<name>.png. The commands after it
  *                                          run on the next frame, so the capture sees only the ones before it
@@ -98,6 +99,7 @@ struct SceneCommand
         Sky,
         SkyRes,
         SkyIntensity,
+        Sun,
         Tonemap,
         Exposure,
         Bloom,

@@ -964,6 +964,37 @@ public float3 EvaluateAtmosphereTransmittance(
     return SampleTransmittanceLutAtHeight(transmittanceLut, atmoSampler, params, ray.HeightKm, ray.RadiusTimesMuKm);
 }
 
+// Turns an inscatter LUT value into radiance. The LUT stores Rayleigh in rgb and Mie red in alpha with the phase
+// functions divided out, so every reader multiplies them back in. The full Mie colour comes from spectral
+// proportionality with Rayleigh
+public float3 ApplyInscatterPhaseFunctions(AtmosphereParameters params, float4 inscatter, float nu)
+{
+    const float3 C_star = inscatter.rgb;
+    const float C_M_r = inscatter.a;
+
+    const float3 betaR = params.RayleighScattering;
+    const float3 betaM = params.MieScattering;
+    const float ratioFactor = (C_M_r / max(1e-6f, C_star.r)) * (betaR.r / max(1e-6f, betaM.r));
+    const float3 C_M = C_star * ratioFactor * (betaM / max(float3(1e-6f, 1e-6f, 1e-6f), betaR));
+
+    return PhaseFunctionRayleigh(nu) * C_star + PhaseFunctionMie(nu, params.MieAnisotropy) * C_M;
+}
+
+// Evaluates the scattered sky radiance along a view ray in Rec.709 linear space, without the sun disk
+[ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
+public float3 EvaluateAtmosphereScatteredRadianceRec709(
+    Texture3D<float4> inscatterLut,
+    SamplerState atmoSampler,
+    AtmosphereParameters params,
+    CameraRayKm ray,
+    float nu)
+{
+    const bool rayIntersectsGround = RayIntersectsGroundFromHeight(params, ray.HeightKm, ray.RadiusTimesMuKm);
+    const float4 inscatter = SampleInscatterLut4DAtHeight(
+        inscatterLut, atmoSampler, params, ray.HeightKm, ray.RadiusTimesMuKm, rayIntersectsGround, ray.MuSun, nu);
+    return ApplyInscatterPhaseFunctions(params, inscatter, nu);
+}
+
 // Evaluates sky radiance along view ray in AP1 linear space
 [ForceInline] // Lodestone reflection traces texture and sampler parameters only through inlined calls
 public float3 EvaluateAtmosphereSkyRadiance(
@@ -977,20 +1008,7 @@ public float3 EvaluateAtmosphereSkyRadiance(
 {
     const CameraRayKm ray = ComputeCameraRayKm(params, cameraPosMeters, viewDir, sunDir);
     const float nu = dot(viewDir, sunDir);
-
-    const bool rayIntersectsGround = RayIntersectsGroundFromHeight(params, ray.HeightKm, ray.RadiusTimesMuKm);
-    const float4 inscatter = SampleInscatterLut4DAtHeight(
-        inscatterLut, atmoSampler, params, ray.HeightKm, ray.RadiusTimesMuKm, rayIntersectsGround, ray.MuSun, nu);
-    const float3 C_star = inscatter.rgb;
-    const float C_M_r = inscatter.a;
-
-    // Reconstruct full RGB Mie scattering vector via spectral proportionality
-    const float3 betaR = params.RayleighScattering;
-    const float3 betaM = params.MieScattering;
-    const float ratioFactor = (C_M_r / max(1e-6f, C_star.r)) * (betaR.r / max(1e-6f, betaM.r));
-    const float3 C_M = C_star * ratioFactor * (betaM / max(float3(1e-6f, 1e-6f, 1e-6f), betaR));
-
-    float3 radianceRec709 = PhaseFunctionRayleigh(nu) * C_star + PhaseFunctionMie(nu, params.MieAnisotropy) * C_M;
+    float3 radianceRec709 = EvaluateAtmosphereScatteredRadianceRec709(inscatterLut, atmoSampler, params, ray, nu);
 
     // Add direct solar disk if viewing ray points directly into sun
     static const float k_CosSolarRadius = 0.99996f; // ~0.267 degrees solar disk
@@ -1094,7 +1112,10 @@ public AerialPerspectiveResult EvaluateAtmosphereAerialPerspective(
     const float4 s_target = SampleInscatterLut4DAtHeight(
         inscatterLut, atmoSampler, params, g.TargetHeightKm, g.TargetRadiusTimesMuKm, g.RayIntersectsGround, g.TargetMuSun, g.Nu);
 
-    const float3 inscatterRec709 = max(float3(0.0f, 0.0f, 0.0f), s_cam.rgb - segmentTransmittance * s_target.rgb);
+    // Mie red in alpha attenuates with the red transmittance, as in Bruneton's reference GetSkyRadianceToPoint
+    const float4 attenuation = float4(segmentTransmittance, segmentTransmittance.r);
+    const float4 segmentInscatter = max(float4(0.0f), s_cam - attenuation * s_target);
+    const float3 inscatterRec709 = ApplyInscatterPhaseFunctions(params, segmentInscatter, g.Nu);
 
     AerialPerspectiveResult result;
     result.Transmittance = segmentTransmittance;
@@ -1121,4 +1142,119 @@ public float3 EvaluateAtmosphereSunIrradiance(
 
     const float3 totalIrradianceRec709 = directE + diffuseE;
     return Rec709ToAp1(totalIrradianceRec709);
+}
+
+
+// -------------------------------------------------------------------------------------------------
+// 7. AtmosphereLightingCS
+// Lights the water from the atmosphere. One group projects the sea-level sky onto the 9 SH coefficients that the
+// HDRI path computes on the CPU (same basis), and writes the sun irradiance after transmittance. The host reads the
+// result back into the frame constants.
+// -------------------------------------------------------------------------------------------------
+
+public struct AtmosphereLightingPush
+{
+    public AtmosphereParameters Params;
+    public float4 SunDirection;
+};
+
+// Elements 0 to 8 are the SH coefficients of the sky radiance in AP1. Element 9 is the sun irradiance in AP1, with
+// the visible fraction of the sun disk in w
+RWStructuredBuffer<float4> AtmosphereLightingWrite;
+
+static const uint ATMO_LIGHTING_THREADS = 64u;
+static const uint ATMO_LIGHTING_SAMPLES_PER_THREAD = 16u;
+static const uint ATMO_LIGHTING_MAX_WAVES = 16u;
+static const float ATMO_SIN_SUN_RADIUS = 0.00465f;
+
+groupshared float3 g_LightingWaveSums[ATMO_LIGHTING_MAX_WAVES][9];
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void AtmosphereLightingCS(
+    uint groupIndex : SV_GroupIndex,
+    uniform AtmosphereLightingPush push)
+{
+    const AtmosphereParameters params = push.Params;
+    const float3 sunDir = push.SunDirection.xyz;
+    const float3 seaLevel = float3(0.0f, 0.0f, 0.0f);
+    const uint sampleCount = ATMO_LIGHTING_THREADS * ATMO_LIGHTING_SAMPLES_PER_THREAD;
+    const float dOmega = (4.0f * ATMO_PI) / float(sampleCount);
+
+    float3 sh[9];
+
+    for (uint k = 0u; k < 9u; ++k)
+    {
+        sh[k] = float3(0.0f, 0.0f, 0.0f);
+    }
+
+    for (uint s = 0u; s < ATMO_LIGHTING_SAMPLES_PER_THREAD; ++s)
+    {
+        // Fibonacci sphere, so each sample covers the same solid angle
+        const uint i = groupIndex * ATMO_LIGHTING_SAMPLES_PER_THREAD + s;
+        const float y = 1.0f - 2.0f * (float(i) + 0.5f) / float(sampleCount);
+        const float ring = sqrt(max(0.0f, 1.0f - y * y));
+        const float phi = float(i) * 2.399963229728653f;
+        const float3 dir = float3(cos(phi) * ring, y, sin(phi) * ring);
+
+        // the sun disk stays out: the water gets the sun as its direct term
+        const CameraRayKm ray = ComputeCameraRayKm(params, seaLevel, dir, sunDir);
+        const float3 scattered = EvaluateAtmosphereScatteredRadianceRec709(
+            InscatterLut, AtmosphereLinearSampler, params, ray, dot(dir, sunDir));
+        const float3 radiance = Rec709ToAp1(scattered) * dOmega;
+
+        sh[0] += radiance * 0.28209479f;
+        sh[1] += radiance * (0.48860251f * dir.y);
+        sh[2] += radiance * (0.48860251f * dir.z);
+        sh[3] += radiance * (0.48860251f * dir.x);
+        sh[4] += radiance * (1.0925484f * dir.x * dir.y);
+        sh[5] += radiance * (1.0925484f * dir.y * dir.z);
+        sh[6] += radiance * (0.31539156f * (3.0f * dir.z * dir.z - 1.0f));
+        sh[7] += radiance * (1.0925484f * dir.x * dir.z);
+        sh[8] += radiance * (0.5462742f * (dir.x * dir.x - dir.y * dir.y));
+    }
+
+    // reduce within each wave, then across the waves
+    const uint laneCount = WaveGetLaneCount();
+    const uint waveIndex = groupIndex / laneCount;
+
+    for (uint k = 0u; k < 9u; ++k)
+    {
+        const float3 waveSum = WaveActiveSum(sh[k]);
+
+        if (WaveIsFirstLane())
+        {
+            g_LightingWaveSums[waveIndex][k] = waveSum;
+        }
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (groupIndex != 0u)
+    {
+        return;
+    }
+
+    const uint waveCount = (ATMO_LIGHTING_THREADS + laneCount - 1u) / laneCount;
+
+    for (uint k = 0u; k < 9u; ++k)
+    {
+        float3 total = float3(0.0f, 0.0f, 0.0f);
+
+        for (uint w = 0u; w < waveCount; ++w)
+        {
+            total += g_LightingWaveSums[w][k];
+        }
+
+        AtmosphereLightingWrite[k] = float4(total, 1.0f);
+    }
+
+    // a ray below the horizon has no transmittance to the top, so the lookup stays at the horizon, and the visible
+    // fraction of the disk fades the sun out over its own diameter
+    const CameraRayKm sunRay = ComputeCameraRayKm(params, seaLevel, sunDir, sunDir);
+    const float3 sunTransmittance = SampleTransmittanceLutAtHeight(
+        TransmittanceLut, AtmosphereLinearSampler, params, sunRay.HeightKm, max(0.0f, sunRay.RadiusTimesMuSunKm));
+    const float visibleFraction = saturate(0.5f + 0.5f * sunDir.y / ATMO_SIN_SUN_RADIUS);
+    const float3 sunIrradiance = Rec709ToAp1(params.SolarIrradiance * sunTransmittance) * visibleFraction;
+    AtmosphereLightingWrite[9] = float4(sunIrradiance, visibleFraction);
 }

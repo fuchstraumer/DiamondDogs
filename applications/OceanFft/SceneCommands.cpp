@@ -55,6 +55,7 @@ namespace
         { "sky", { SceneCommand::Kind::Sky, 0u, 0u, false } },
         { "sky_res", { SceneCommand::Kind::SkyRes, 0u, 0u, true } },
         { "sky_intensity", { SceneCommand::Kind::SkyIntensity, 1u, 1u, false } },
+        { "sun", { SceneCommand::Kind::Sun, 2u, 2u, false } },
         { "tonemap", { SceneCommand::Kind::Tonemap, 0u, 0u, false } },
         { "exposure", { SceneCommand::Kind::Exposure, 1u, 1u, false } },
         { "bloom", { SceneCommand::Kind::Bloom, 0u, 0u, false } },
@@ -111,9 +112,9 @@ namespace
         "underwater", "specular", "albedo", "normal"
     };
 
-    const std::array<std::string_view, 4> k_BrdfFields
+    const std::array<std::string_view, 5> k_BrdfFields
     {
-        "sss", "leadr", "foam_roughness", "seabed_roughness"
+        "sss", "body", "leadr", "foam_roughness", "seabed_roughness"
     };
 
     std::vector<std::string_view> SplitWords(std::string_view line)
