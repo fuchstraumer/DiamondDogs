@@ -110,6 +110,72 @@ internal float2 DispersionRelationWithDerivative(in float kLength, in float dept
     return result;
 }
 
+// Elfouhaily et al. (1997) Eq. 37: dimensionless inverse wave age Omega_c from dimensionless fetch X
+internal float GetElfouhailyInverseWaveAge(in float dimensionlessFetch)
+{
+    static const float x0 = 2.2e4f;
+    const float ratio = max(dimensionlessFetch / x0, 1.0e-4f);
+    const float tanhTerm = tanh(pow(ratio, 0.4f));
+    return min(0.84f * pow(max(tanhTerm, 1.0e-4f), -0.75f), 5.0f);
+}
+
+internal float GetElfouhailyPeakWavenumber(in float inverseWaveAge, in float windSpeed)
+{
+    return OceanFft_G * (inverseWaveAge * inverseWaveAge) / max(windSpeed * windSpeed, 1.0e-4f);
+}
+
+internal float GetElfouhailyPeakOmega(in float dimensionlessFetch, in float windSpeed, in float depth)
+{
+    const float inverseWaveAge = GetElfouhailyInverseWaveAge(dimensionlessFetch);
+    const float kp = GetElfouhailyPeakWavenumber(inverseWaveAge, windSpeed);
+    return DispersionRelation(kp, depth);
+}
+
+// Elfouhaily et al. (1997) Eq. 30-44: 1D omnidirectional wavenumber spectrum S(k) = k^-3 * (B_l(k) + B_h(k))
+// with L_PM multiplied into F_m (Eq. 41) so B_h vanishes below the gravity peak k_p, and Wu (1980) neutral drag u_*.
+internal float ElfouhailyRadialSpectrum(
+    in float kLength,
+    in float omega,
+    in float windSpeed,
+    in float fetch,
+    in float depth,
+    in float gamma)
+{
+    const float dimensionlessFetch = GetDimensionlessFetch(fetch, windSpeed);
+    const float omegaC = GetElfouhailyInverseWaveAge(dimensionlessFetch);
+    const float kp = GetElfouhailyPeakWavenumber(omegaC, windSpeed);
+    const float omegaP = DispersionRelation(kp, depth);
+    const float cp = omegaP / kp;
+    const float c = max(omega / kLength, 1.0e-6f);
+
+    // Long-wave curvature spectrum B_l (Eq. 31-37)
+    const float alphaP = 6.0e-3f * sqrt(omegaC);
+    const float gammaBase = (omegaC <= 1.0f) ? 1.7f : (1.7f + 6.0f * log10(omegaC));
+    const float gammaEff = max(1.0f, gammaBase * (gamma / 3.3f));
+    const float sigma = 0.08f * (1.0f + 4.0f / (omegaC * omegaC * omegaC));
+    const float sqrtKOverKp = sqrt(kLength / kp);
+    const float kpOverK = kp / kLength;
+    const float lpm = exp(-1.25f * kpOverK * kpOverK);
+    const float peakDiff = sqrtKOverKp - 1.0f;
+    const float gammaExp = exp(-(peakDiff * peakDiff) / (2.0f * sigma * sigma));
+    const float jp = pow(gammaEff, gammaExp);
+    const float fp = lpm * jp * exp(-(omegaC / sqrt(10.0f)) * peakDiff);
+    const float bl = 0.5f * alphaP * (cp / c) * fp;
+
+    // Short-wave curvature spectrum B_h (Eq. 40-44) with Wu (1980) friction velocity u_*
+    const float cd = (0.8f + 0.065f * windSpeed) * 1.0e-3f;
+    const float uStar = sqrt(cd) * windSpeed;
+    const float logUStarOverCm = log(max(uStar, 1.0e-4f) / OceanFft_Cm);
+    const float alphaM = 1.0e-2f * ((uStar <= OceanFft_Cm) ? (1.0f + logUStarOverCm) : (1.0f + 3.0f * logUStarOverCm));
+    const float kOverKmDiff = (kLength / OceanFft_Km) - 1.0f;
+    const float fm = lpm * exp(-0.25f * kOverKmDiff * kOverKmDiff);
+    const float bh = 0.5f * alphaM * (OceanFft_Cm / c) * fm;
+
+    const float invK3 = 1.0f / (kLength * kLength * kLength);
+    const float correction = KitaiGorodskiiDepthCorrection(omega, depth);
+    return (bl + bh) * invK3 * correction;
+}
+
 internal float DonelanBannerBeta(in float omega, in float peakOmega)
 {
     // Watching occupancy and VGPRs get bigger the more of this we implement.... sad

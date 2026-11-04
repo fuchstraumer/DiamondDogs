@@ -9,6 +9,8 @@ internal const static float OceanFft_2PI = 6.283185307179586476925286766559f;
 internal const static float OceanFft_G = 9.81f;
 internal const static float OceanFft_InvG = 1.0f / OceanFft_G;
 internal const static float OceanFft_SigmaOverRho = 0.074e-3f; // surface tension over density of water
+internal const static float OceanFft_Km = 370.0f; // gravity-capillary peak wavenumber (rad/m), sqrt(2 * g / SigmaOverRho)
+internal const static float OceanFft_Cm = 0.23f;  // minimum phase speed at k_m (m/s), sqrt(2 * g / Km)
 
 public struct SpectrumParameters
 {
@@ -33,6 +35,8 @@ public struct SpectrumParameters
     float SwellPeakingFactor;
     float SwellSpread;
     float SwellFadeLength;
+    // 0: JONSWAP (Hasselmann et al. 1973), 1: Elfouhaily et al. (1997) unified gravity-capillary spectrum
+    uint EnergySpectrumModel;
 };
 
 // each per-cascade array holds eight cascades in two float4s. Read them through the helpers below

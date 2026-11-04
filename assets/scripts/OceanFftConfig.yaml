@@ -20,11 +20,11 @@ ocean_physical_parameter_ranges:
     max: 1.0
     unit: None
 
+  # omega/peakOmega range seen in practice -- DB branches at 0.95 and 1.6; spectrum negligible outside this
   - name: omega_ratio
     min: 0.05
     max: 8.0
     unit: None
-    # omega/peakOmega range seen in practice -- DB branches at 0.95 and 1.6; spectrum negligible outside this
 
     # We use a log-space distribution for cascades based on the wavelength range, so that each cascade represents
     # an approx similar range of detail in terms of frequency. Ideally, better distr. than linear cascade spacing

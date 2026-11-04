@@ -1528,6 +1528,10 @@ void OceanScene::runCommand(const SceneCommand& command)
         cascadeLayout = (command.Text == "log") ? ocean::CascadeLayout::LogBands : ocean::CascadeLayout::Legacy;
         cascadeLayoutChanged = true;
         break;
+    case SceneCommand::Kind::Spectrum:
+        spectrum.EnergySpectrumModel = (command.Text == "elfouhaily") ? 1u : 0u;
+        seaStateEdited();
+        break;
     case SceneCommand::Kind::Print:
         printState();
         break;
@@ -1947,6 +1951,7 @@ void OceanScene::printState() const
 
     std::cout << "\nrotate cascades " << (rotateCascades ? "on" : "off");
     std::cout << "\ncascade layout " << (cascadeLayout == ocean::CascadeLayout::LogBands ? "log" : "legacy");
+    std::cout << "\nspectrum model " << (spectrum.EnergySpectrumModel == 1u ? "elfouhaily" : "jonswap");
     std::cout << std::format("\nsky {} res {} intensity {:.2f}",
         ocean::SkyPresetName(skyPreset), downsample8k ? "8k" : "16k", skyIntensityScale);
     std::string_view tonemapperName = "unknown";
@@ -2465,7 +2470,12 @@ void OceanScene::drawPanel()
 
         case ocean::TelemetryTab::Physics:
         {
-            spectrumChanged |= ocean::DrawSpectrumPhysicsInspector(fonts, spectrum);
+            if (ocean::DrawSpectrumPhysicsInspector(fonts, spectrum))
+            {
+                seaReadout = ocean::MeasureSpectrum(spectrum);
+                spectrumChanged = true;
+            }
+
             break;
         }
 

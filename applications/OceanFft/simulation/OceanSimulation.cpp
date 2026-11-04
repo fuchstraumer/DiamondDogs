@@ -387,7 +387,8 @@ namespace ocean
                     { "SwellFetch", offsetof(SpectrumParameters, SwellFetch) },
                     { "SwellPeakingFactor", offsetof(SpectrumParameters, SwellPeakingFactor) },
                     { "SwellSpread", offsetof(SpectrumParameters, SwellSpread) },
-                    { "SwellFadeLength", offsetof(SpectrumParameters, SwellFadeLength) }
+                    { "SwellFadeLength", offsetof(SpectrumParameters, SwellFadeLength) },
+                    { "EnergySpectrumModel", offsetof(SpectrumParameters, EnergySpectrumModel) }
                 }
                 },
             };

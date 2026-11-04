@@ -1408,6 +1408,66 @@ namespace ocean
         bool changed = false;
         ImDrawList* drawList = ImGui::GetWindowDrawList();
 
+        // energy spectrum model 2-way selector
+        const ImVec2 energyRowMin = ImGui::GetCursorScreenPos();
+        const float energyAvailWidth = ImGui::GetContentRegionAvail().x;
+        drawList->AddText(
+            fonts.Body,
+            16.0f,
+            ImVec2{ energyRowMin.x + 2.0f, energyRowMin.y + 4.0f },
+            k_ColorTextLabel,
+            "Energy spectrum");
+
+        constexpr std::array<std::string_view, 2> k_EnergyModels{ "JONSWAP", "ELFOUHAILY" };
+        const float energySegLeft = energyRowMin.x + k_LabelColumnWidth;
+        const float energySegWidth = energyAvailWidth - k_LabelColumnWidth - 8.0f;
+        constexpr float k_EnergyGap = 4.0f;
+        const float energyCellW = (energySegWidth - k_EnergyGap) / 2.0f;
+        constexpr float k_EnergyCellH = 24.0f;
+
+        ImGui::SetCursorScreenPos(ImVec2{ energySegLeft, energyRowMin.y });
+        ImGui::PushFont(fonts.SectionBlinker);
+
+        for (int32_t m = 0; m < 2; ++m)
+        {
+            if (m > 0)
+            {
+                ImGui::SameLine(0.0f, k_EnergyGap);
+            }
+
+            const std::string btnId = std::format("##energy_model_{}", m);
+            const ImVec2 cMin = ImGui::GetCursorScreenPos();
+            const ImVec2 cMax{ cMin.x + energyCellW, cMin.y + k_EnergyCellH };
+
+            if (ImGui::InvisibleButton(btnId.c_str(), ImVec2{ energyCellW, k_EnergyCellH }))
+            {
+                spectrum.EnergySpectrumModel = static_cast<uint32_t>(m);
+                changed = true;
+            }
+
+            const bool selected = spectrum.EnergySpectrumModel == static_cast<uint32_t>(m);
+            const bool hovered = ImGui::IsItemHovered();
+            DrawChamferedRect(
+                drawList,
+                cMin,
+                cMax,
+                4.0f,
+                selected ? k_ColorSegmentOnBg : k_ColorSegmentOffBg,
+                selected ? k_ColorSegmentOnBorder : (hovered ? k_ColorBandHoverBorder : k_ColorBandOffBorder),
+                1.0f);
+
+            const std::string_view modelName = k_EnergyModels[static_cast<size_t>(m)];
+            const ImVec2 tSize = ImGui::CalcTextSize(modelName.data(), modelName.data() + modelName.size());
+            drawList->AddText(
+                ImVec2{ cMin.x + 0.5f * (energyCellW - tSize.x), cMin.y + 0.5f * (k_EnergyCellH - tSize.y) - 0.5f },
+                selected ? k_ColorButtonTextActive : k_ColorSegmentOffText,
+                modelName.data(),
+                modelName.data() + modelName.size());
+        }
+
+        ImGui::PopFont();
+        ImGui::Dummy(ImVec2{ 0.0f, 2.0f });
+
         // directional spreading model 3-way selector
         const ImVec2 rowMin = ImGui::GetCursorScreenPos();
         const float availWidth = ImGui::GetContentRegionAvail().x;

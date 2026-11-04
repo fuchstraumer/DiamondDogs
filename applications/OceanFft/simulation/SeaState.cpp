@@ -15,6 +15,15 @@ namespace ocean
     {
         constexpr float k_G = 9.81f;
         constexpr float k_TwoPi = 2.0f * std::numbers::pi_v<float>;
+        constexpr float k_SigmaOverRho = 0.074e-3f;
+        constexpr float k_ElfouhailyKm = 370.0f;
+        constexpr float k_ElfouhailyCm = 0.23f;
+
+        double KitaigorodskiiDepthCorrection(double omega, double depth) noexcept
+        {
+            const double omegaH = std::clamp(omega * std::sqrt(depth / k_G), 0.0, 2.0);
+            return (omegaH <= 1.0) ? (0.5 * omegaH * omegaH) : (1.0 - 0.5 * (2.0 - omegaH) * (2.0 - omegaH));
+        }
 
         // the dimensionless fetch g F / U^2 at which JONSWAP's peak (3.5 chi^-0.33 g / U) reaches Pierson-Moskowitz's
         // (0.13 g / U): past it the sea is fully developed, and more fetch changes little
@@ -78,8 +87,7 @@ namespace ocean
                 const double ratio = peakOmega / omega;
                 const double base = alpha * k_G * k_G / std::pow(omega, 5.0) * std::exp(-1.25 * ratio * ratio * ratio * ratio);
 
-                const double omegaH = std::clamp(omega * std::sqrt(depth / k_G) / 2.0, 0.0, 1.0);
-                const double depthCorrection = omegaH * omegaH * (3.0 - 2.0 * omegaH);
+                const double depthCorrection = KitaigorodskiiDepthCorrection(omega, depth);
                 const double k = omega * omega / k_G;
                 const double fade = std::exp(-static_cast<double>(fade_length) * fade_length * k * k);
 
@@ -99,6 +107,90 @@ namespace ocean
         float DeepWaterWavelength(float omega) noexcept
         {
             return k_TwoPi * k_G / (omega * omega);
+        }
+
+        float DispersionOmega(float k_length, float depth) noexcept
+        {
+            const float capillaryTerm = k_SigmaOverRho * k_length * k_length * k_length;
+            const float gravityTerm = k_G * k_length;
+            const float depthTerm = std::tanh(std::min(k_length * depth, 10.0f));
+            return std::sqrt((gravityTerm + capillaryTerm) * depthTerm);
+        }
+
+        float ElfouhailyInverseWaveAge(float wind_speed, float fetch_km) noexcept
+        {
+            const float chi = DimensionlessFetch(wind_speed, fetch_km);
+            const float ratio = std::max(chi / 2.2e4f, 1.0e-4f);
+            const float tanhTerm = std::tanh(std::pow(ratio, 0.4f));
+            return std::min(0.84f * std::pow(std::max(tanhTerm, 1.0e-4f), -0.75f), 5.0f);
+        }
+
+        float ElfouhailyPeakOmega(float wind_speed, float fetch_km, float depth) noexcept
+        {
+            const float omegaC = ElfouhailyInverseWaveAge(wind_speed, fetch_km);
+            const float kp = k_G * (omegaC * omegaC) / std::max(wind_speed * wind_speed, 1.0e-4f);
+            return DispersionOmega(kp, depth);
+        }
+
+        float ElfouhailyVariance(float wind_speed, float fetch_km, float gamma, float fade_length, float depth) noexcept
+        {
+            const double omegaC = ElfouhailyInverseWaveAge(wind_speed, fetch_km);
+            const double kp = k_G * (omegaC * omegaC) / std::max(static_cast<double>(wind_speed) * wind_speed, 1.0e-4);
+            const double omegaP = DispersionOmega(static_cast<float>(kp), depth);
+            const double cp = omegaP / kp;
+            const double alphaP = 6.0e-3 * std::sqrt(omegaC);
+            const double gammaBase = (omegaC <= 1.0) ? 1.7 : (1.7 + 6.0 * std::log10(omegaC));
+            const double gammaEff = std::max(1.0, gammaBase * (static_cast<double>(gamma) / 3.3));
+            const double sigma = 0.08 * (1.0 + 4.0 / (omegaC * omegaC * omegaC));
+
+            const double cd = (0.8 + 0.065 * wind_speed) * 1.0e-3;
+            const double uStar = std::sqrt(cd) * wind_speed;
+            const double logUStarOverCm = std::log(std::max(uStar, 1.0e-4) / k_ElfouhailyCm);
+            const double alphaM = 1.0e-2 * ((uStar <= k_ElfouhailyCm) ? (1.0 + logUStarOverCm) : (1.0 + 3.0 * logUStarOverCm));
+
+            constexpr int32_t k_Samples = 4096;
+            const double kMin = std::max(1.0e-4, 0.001 * kp);
+            const double kMax = 2000.0;
+            const double logLow = std::log(kMin);
+            const double logHigh = std::log(kMax);
+            const double step = (logHigh - logLow) / static_cast<double>(k_Samples - 1);
+            double variance = 0.0;
+            double previous = 0.0;
+
+            for (int32_t i = 0; i < k_Samples; ++i)
+            {
+                const double k = std::exp(logLow + step * static_cast<double>(i));
+                const double omega = std::sqrt((k_G * k + k_SigmaOverRho * k * k * k) * std::tanh(std::min(k * depth, 10.0)));
+                const double c = std::max(omega / k, 1.0e-6);
+
+                const double sqrtKOverKp = std::sqrt(k / kp);
+                const double kpOverK = kp / k;
+                const double lpm = std::exp(-1.25 * kpOverK * kpOverK);
+                const double peakDiff = sqrtKOverKp - 1.0;
+                const double gammaExp = std::exp(-(peakDiff * peakDiff) / (2.0 * sigma * sigma));
+                const double jp = std::pow(gammaEff, gammaExp);
+                const double fp = lpm * jp * std::exp(-(omegaC / std::sqrt(10.0)) * peakDiff);
+                const double bl = 0.5 * alphaP * (cp / c) * fp;
+
+                const double kOverKmDiff = (k / k_ElfouhailyKm) - 1.0;
+                const double fm = lpm * std::exp(-0.25 * kOverKmDiff * kOverKmDiff);
+                const double bh = 0.5 * alphaM * (k_ElfouhailyCm / c) * fm;
+
+                const double depthCorrection = KitaigorodskiiDepthCorrection(omega, depth);
+                const double fade = std::exp(-static_cast<double>(fade_length) * fade_length * k * k);
+                const double sk = ((bl + bh) / (k * k * k)) * depthCorrection * fade;
+                // d k = k d(log k)
+                const double integrand = sk * k;
+
+                if (i > 0)
+                {
+                    variance += 0.5 * (previous + integrand) * step;
+                }
+
+                previous = integrand;
+            }
+
+            return static_cast<float>(variance);
         }
     }
 
@@ -185,7 +277,10 @@ namespace ocean
 
     SeaStateReadout MeasureSpectrum(const SpectrumParameters& spectrum) noexcept
     {
-        const float windVariance = JonswapVariance(spectrum.WindSpeed, spectrum.Fetch, spectrum.PeakingFactor, spectrum.FadeLength, spectrum.Depth);
+        const bool useElfouhaily = spectrum.EnergySpectrumModel == 1u;
+        const float windVariance = useElfouhaily ?
+            ElfouhailyVariance(spectrum.WindSpeed, spectrum.Fetch, spectrum.PeakingFactor, spectrum.FadeLength, spectrum.Depth) :
+            JonswapVariance(spectrum.WindSpeed, spectrum.Fetch, spectrum.PeakingFactor, spectrum.FadeLength, spectrum.Depth);
         const float swellVariance = spectrum.SwellScale > 0.0f ?
             spectrum.SwellScale * JonswapVariance(spectrum.SwellWindSpeed, spectrum.SwellFetch, spectrum.SwellPeakingFactor, spectrum.SwellFadeLength, spectrum.Depth) :
             0.0f;
@@ -197,13 +292,15 @@ namespace ocean
         readout.WindSeaHeight = 4.0f * std::sqrt(windVariance) * scale;
         readout.SwellHeight = 4.0f * std::sqrt(swellVariance) * scale;
 
-        const float peakOmega = JonswapPeakOmega(spectrum.WindSpeed, spectrum.Fetch);
+        const float peakOmega = useElfouhaily ?
+            ElfouhailyPeakOmega(spectrum.WindSpeed, spectrum.Fetch, spectrum.Depth) :
+            JonswapPeakOmega(spectrum.WindSpeed, spectrum.Fetch);
         readout.PeakPeriod = k_TwoPi / peakOmega;
         readout.PeakWavelength = DeepWaterWavelength(peakOmega);
         readout.SwellWavelength = DeepWaterWavelength(JonswapPeakOmega(spectrum.SwellWindSpeed, spectrum.SwellFetch));
         readout.WindSpeed = spectrum.WindSpeed;
 
-        const int force = static_cast<int>(std::lround(WindSpeedToBeaufort(spectrum.WindSpeed)));
+        const int32_t force = static_cast<int32_t>(std::lround(WindSpeedToBeaufort(spectrum.WindSpeed)));
         readout.BeaufortName = k_BeaufortNames[static_cast<size_t>(std::clamp(force, 0, 12))];
         return readout;
     }

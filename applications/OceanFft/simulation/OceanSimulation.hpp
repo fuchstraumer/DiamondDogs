@@ -32,6 +32,13 @@ namespace rhi
 // The persistent foam is not part of this chain: it lives in applications/OceanFft/foam.
 namespace ocean
 {
+    enum class OmnidirectionalSpectrum : uint8_t
+    {
+        Invalid = 0,
+        Jonswap = 1,
+        Elfouhaily = 2,
+    };
+
     /** @brief SpectrumParameters in OceanFftCommon.slang, std140. Create() checks it against the manifest. */
     struct SpectrumParameters
     {
@@ -57,6 +64,7 @@ namespace ocean
         float SwellPeakingFactor{ 7.0f };        // a swell is narrow-banded
         float SwellSpread{ 2.0f };               // narrows the swell's spreading lobe, like SwellAmount for the wind sea
         float SwellFadeLength{ 1.0f };           // m: a swell has no short waves
+        uint32_t EnergySpectrumModel{ 0u };      // 0 JONSWAP, 1 Elfouhaily
     };
 
     /** @brief CascadeParameters in OceanFftCommon.slang, std140. Each per-cascade array is float4[2] in the shader, so
@@ -70,7 +78,7 @@ namespace ocean
         std::array<float, 2> Pad0{};
     };
     static_assert(sizeof(CascadeParameters) == 112u);
-    static_assert(sizeof(SpectrumParameters) == 72u);
+    static_assert(sizeof(SpectrumParameters) == 76u);
 
     constexpr uint32_t k_CascadeCount = 5u;
     static_assert(k_CascadeCount <= 8u);
