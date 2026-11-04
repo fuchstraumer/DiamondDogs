@@ -43,6 +43,8 @@
 #pragma clang diagnostic pop
 #endif
 
+static_assert(static_cast<uint32_t>(k_MaxMemoryHeaps) == VK_MAX_MEMORY_HEAPS, "k_MaxMemoryHeaps must match the Vulkan limit");
+
 namespace
 {
     [[nodiscard]] bool HasFlag(ResourceCreationFlags flags, ResourceCreationFlags flag) noexcept;
@@ -103,6 +105,13 @@ ResourceContextError ResourceContextImpl::Construct(const ResourceContextCreateI
     {
         createInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
     }
+
+    memoryBudgetExtensionEnabled = create_info.Device->HasExtension("VK_EXT_memory_budget");
+    if (memoryBudgetExtensionEnabled)
+    {
+        createInfo.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
+    }
+
     createInfo.physicalDevice = create_info.Device->GetPhysicalDevice().As<VkPhysicalDevice>();
     createInfo.device = create_info.Device->Handle().As<VkDevice>();
     createInfo.instance = instance;
@@ -253,6 +262,25 @@ ResourceContextCounters ResourceContextImpl::Counters() const noexcept
         transfer.StagingDedicatedUploads,
         transfer.StagingRingBytesInUse
     };
+}
+
+MemoryBudgetSnapshot ResourceContextImpl::MemoryBudgets() const noexcept
+{
+    // acquire pairs with the release in publishMemoryBudgets: the values read below are from that publish or a newer one
+    MemoryBudgetSnapshot snapshot{};
+    snapshot.TickSequence = memoryBudgetSequence.load(std::memory_order_acquire);
+    snapshot.HeapCount = memoryHeapCount.load(std::memory_order_relaxed);
+    snapshot.FromExtension = memoryBudgetFromExtension.load(std::memory_order_relaxed);
+
+    for (int32_t heapIndex = 0; heapIndex < snapshot.HeapCount; ++heapIndex)
+    {
+        const size_t index = static_cast<size_t>(heapIndex);
+        snapshot.Heaps[index].BudgetBytes = heapBudgets[index].load(std::memory_order_relaxed);
+        snapshot.Heaps[index].UsageBytes = heapUsages[index].load(std::memory_order_relaxed);
+        snapshot.Heaps[index].DeviceLocal = heapsAreDeviceLocal[index].load(std::memory_order_relaxed);
+    }
+
+    return snapshot;
 }
 
 void ResourceContextImpl::processMessages()
@@ -1157,6 +1185,32 @@ void ResourceContextImpl::processMessage(TickMessage&& message)
 
         consumerTimelineReads.fetch_add(1, std::memory_order_relaxed);
     }
+
+    publishMemoryBudgets();
+}
+
+void ResourceContextImpl::publishMemoryBudgets()
+{
+    const VkPhysicalDeviceMemoryProperties* memoryProperties = nullptr;
+    vmaGetMemoryProperties(allocatorHandle, &memoryProperties);
+
+    std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> budgets{};
+    vmaGetHeapBudgets(allocatorHandle, budgets.data());
+
+    const int32_t heapCount = static_cast<int32_t>(memoryProperties->memoryHeapCount);
+    for (int32_t heapIndex = 0; heapIndex < heapCount; ++heapIndex)
+    {
+        const size_t index = static_cast<size_t>(heapIndex);
+        const bool isDeviceLocal = (memoryProperties->memoryHeaps[index].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0u;
+
+        heapBudgets[index].store(budgets[index].budget, std::memory_order_relaxed);
+        heapUsages[index].store(budgets[index].usage, std::memory_order_relaxed);
+        heapsAreDeviceLocal[index].store(isDeviceLocal, std::memory_order_relaxed);
+    }
+
+    memoryBudgetFromExtension.store(memoryBudgetExtensionEnabled, std::memory_order_relaxed);
+    memoryHeapCount.store(heapCount, std::memory_order_relaxed);
+    memoryBudgetSequence.fetch_add(1, std::memory_order_release);
 }
 
 void ResourceContextImpl::processMessage(RegisterConsumerTimelineMessage&& message)

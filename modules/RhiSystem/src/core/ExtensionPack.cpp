@@ -166,6 +166,14 @@ namespace rhi
         optionalDeviceExts = std::move(extensions);
     }
 
+    void ExtensionPack::AddOptionalDeviceExtension(std::string extension_name)
+    {
+        if (!std::ranges::contains(optionalDeviceExts, extension_name))
+        {
+            optionalDeviceExts.emplace_back(std::move(extension_name));
+        }
+    }
+
     void ExtensionPack::AddAllSupportedMaintenanceExtensions()
     {
         // maintenance1 to 3 are core in 1.1, and every later one needs 1.1. The generated dependency table does not

@@ -4,6 +4,7 @@
 #include "ResourceTypes.hpp"
 #include "ResourceFuture.hpp"
 #include "RhiHandle.hpp"
+#include <array>
 #include <cstdint>
 #include <cstddef>
 #include <memory>
@@ -98,6 +99,31 @@ struct ResourceContextCounters
     int64_t StagingDedicatedUploads{ 0 };
     /** @brief The bytes of the staging ring that were in use at the last poll of the transfer timeline. */
     int64_t StagingRingBytesInUse{ 0 };
+};
+
+/** @brief The largest number of memory heaps that a Vulkan device reports (VK_MAX_MEMORY_HEAPS). */
+constexpr inline int32_t k_MaxMemoryHeaps = 16;
+
+/** @brief The budget and the usage of one memory heap, in bytes. DeviceLocal is true for a heap of device-local memory. */
+struct MemoryHeapBudget
+{
+    uint64_t BudgetBytes{ 0u };
+    uint64_t UsageBytes{ 0u };
+    bool DeviceLocal{ false };
+};
+
+/**
+ * @brief The memory budget that the last Tick published. Each heap's values are read one after another with relaxed
+ * loads, so they are not one consistent snapshot across heaps. HeapCount is 0 before the first Tick. FromExtension is
+ * true when the usage comes from VK_EXT_memory_budget, and false when VMA estimates it. TickSequence counts the Ticks
+ * that published a budget.
+ */
+struct MemoryBudgetSnapshot
+{
+    std::array<MemoryHeapBudget, k_MaxMemoryHeaps> Heaps{};
+    int32_t HeapCount{ 0 };
+    bool FromExtension{ false };
+    int64_t TickSequence{ 0 };
 };
 
 class ResourceContextImpl;
@@ -461,6 +487,13 @@ public:
 
     /** @brief Returns the counters. Safe from any thread. */
     [[nodiscard]] ResourceContextCounters Counters() const noexcept;
+
+    /**
+     * @brief Returns the memory budget that the last Tick published. Safe from any thread, with no lock and no blocking
+     * call. The worker publishes it once per Tick, because the allocator is externally synchronized and only the worker
+     * may query it.
+     */
+    [[nodiscard]] MemoryBudgetSnapshot MemoryBudgets() const noexcept;
 
 private:
     // the Vulkan-only placement calls reach the impl through these. see ResourcePlacement.hpp

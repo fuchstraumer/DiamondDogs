@@ -636,6 +636,8 @@ namespace rhi
         const QueueFamilyIndices& queueIndices = impl->QueueFamilyIndices;
         extensions.SetPhysicalDevice(impl->PhysicalDevice);
         extensions.AddAllSupportedMaintenanceExtensions();
+        // optional, so that a device without it still creates. ResourceContext asks HasExtension for it
+        extensions.AddOptionalDeviceExtension("VK_EXT_memory_budget");
         extensions.ResolveDeviceDependencies();
         
         // Collect unique queue families

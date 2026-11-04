@@ -263,9 +263,10 @@ namespace
     {
         constexpr std::array<std::string_view, 3> k_SpreadingNames{ "Mitsuyasu", "Hasselmann", "Donelan-Banner" };
         const uint32_t spreading = std::min(settings.Spectrum.DirectionalSpreadingMode, 2u);
-        return std::format("size {} {} {} {}", settings.Size,
+        const std::string_view layoutName = (settings.Layout == ocean::CascadeLayout::LogBands) ? "log" : "legacy";
+        return std::format("size {} {} {} {} {}", settings.Size,
             settings.WaveSize == 0u ? std::string{ "no wave ops" } : std::format("wave {}", settings.WaveSize), k_SpreadingNames[spreading],
-            settings.FusedKernels ? "fused" : "unfused");
+            settings.FusedKernels ? "fused" : "unfused", layoutName);
     }
 
     int32_t TestIfft(const TestContext& context, const ocean::OceanSimulationSettings& settings)
@@ -630,7 +631,7 @@ namespace
             {
                 const uint64_t index = cascade * planeElements + element;
                 // k follows from the thread position and the cascade, as WaveSpacing computes it on the GPU
-                const double waveSpacing = 2.0 * std::numbers::pi / static_cast<double>(settings.LengthScales[cascade]);
+                const double waveSpacing = 2.0 * std::numbers::pi / static_cast<double>(ocean.Settings().LengthScales[cascade]);
                 const int64_t offsetX = static_cast<int64_t>(element % size) - static_cast<int64_t>(size / 2u);
                 const int64_t offsetY = static_cast<int64_t>(element / size) - static_cast<int64_t>(size / 2u);
                 const double kx = waveSpacing * static_cast<double>(offsetX);
@@ -782,6 +783,84 @@ namespace
         (readoutPassed ? std::cout : std::cerr) << std::format("[pipeline {}] sea state readout {:.2f} m, GPU {:.2f} m (ratio {:.3f}, limits 0.9 to 1.1)\n",
             name, readoutHeight, significantHeight, readoutRatio);
         failures += readoutPassed ? 0 : 1;
+
+        return failures;
+    }
+
+    [[nodiscard]] int32_t TestCascadeLayouts()
+    {
+        int32_t failures = 0;
+        const auto check = [&](bool condition, std::string_view desc)
+        {
+            if (!condition)
+            {
+                std::cerr << std::format("[CascadeLayouts] FAIL: {}\n", desc);
+                ++failures;
+            }
+        };
+
+        const std::array<uint32_t, 3> sizes{ 128u, 256u, 512u };
+        const std::array<ocean::CascadeLayout, 2> layouts{ ocean::CascadeLayout::Legacy, ocean::CascadeLayout::LogBands };
+
+        for (const uint32_t size : sizes)
+        {
+            for (const ocean::CascadeLayout layout : layouts)
+            {
+                const ocean::CascadeParameters params = ocean::MakeCascadeParameters(size, layout, ocean::k_LegacyLengthScales);
+                const std::string desc = std::format("size {} layout {}", size, (layout == ocean::CascadeLayout::LogBands) ? "log" : "legacy");
+
+                check(params.Dimensions[0] == size && params.Dimensions[1] == size, std::format("{}: dimensions match size", desc));
+
+                for (int32_t c = 0; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
+                {
+                    check(params.LengthScales[static_cast<size_t>(c)] > 0.0f, std::format("{}: length scale {} is positive", desc, c));
+
+                    if (c > 0)
+                    {
+                        check(params.LengthScales[static_cast<size_t>(c)] < params.LengthScales[static_cast<size_t>(c - 1)],
+                            std::format("{}: length scale {} strictly less than {}", desc, c, c - 1));
+                    }
+                }
+
+                check(params.CutoffsLow[0] > 0.0f, std::format("{}: CutoffsLow[0] is positive", desc));
+
+                for (int32_t c = 0; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
+                {
+                    check(params.CutoffsHigh[static_cast<size_t>(c)] > params.CutoffsLow[static_cast<size_t>(c)],
+                        std::format("{}: CutoffsHigh[{}] > CutoffsLow[{}]", desc, c, c));
+
+                    if (c > 0)
+                    {
+                        check(std::abs(params.CutoffsLow[static_cast<size_t>(c)] - params.CutoffsHigh[static_cast<size_t>(c - 1)]) < 1e-5f,
+                            std::format("{}: CutoffsLow[{}] matches CutoffsHigh[{}]", desc, c, c - 1));
+                    }
+                }
+            }
+        }
+
+        const ocean::CascadeParameters log512 = ocean::MakeCascadeParameters(512u, ocean::CascadeLayout::LogBands, ocean::k_LegacyLengthScales);
+        check(log512.CutoffsHigh[ocean::k_CascadeCount - 1u] > 360.0f, "LogBands 512: finest cutoff high > 360");
+
+        for (int32_t c = 1; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
+        {
+            const float minLength = 6.0f * (2.0f * std::numbers::pi_v<float> / log512.CutoffsLow[static_cast<size_t>(c)]) - 1e-3f;
+            check(log512.LengthScales[static_cast<size_t>(c)] >= minLength,
+                std::format("LogBands 512: cascade {} length scale >= 6 * (2 pi / k_low)", c));
+        }
+
+        for (int32_t c = 0; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
+        {
+            const float margin = (std::numbers::pi_v<float> * 512.0f / log512.LengthScales[static_cast<size_t>(c)]) / log512.CutoffsHigh[static_cast<size_t>(c)];
+            check(margin >= 2.0f - 1e-3f, std::format("LogBands 512: cascade {} margin >= 2.0", c));
+        }
+
+        const float lastMargin = (std::numbers::pi_v<float> * 512.0f / log512.LengthScales[ocean::k_CascadeCount - 1u]) / log512.CutoffsHigh[ocean::k_CascadeCount - 1u];
+        check(lastMargin >= 4.0f - 1e-2f, std::format("LogBands 512: cascade 4 margin >= 4.0 (got {:.3f})", lastMargin));
+
+        if (failures == 0)
+        {
+            std::cout << "[CascadeLayouts] PASS: Legacy and LogBands cascade tables verified across sizes\n";
+        }
 
         return failures;
     }
@@ -1635,6 +1714,7 @@ int main()
     }
 
     int32_t failures = 0;
+    failures += TestCascadeLayouts();
     failures += TestComputeCdlodMaxLevel();
     failures += TestExrLoader();
     {
@@ -1695,6 +1775,13 @@ int main()
         // the default settings above run the fused kernels: run the unfused passes through the same checks too
         seaStateSettings.FusedKernels = false;
         failures += TestPipeline(context, seaStateSettings, 3.25f);
+
+        ocean::OceanSimulationSettings logBandsSettings{};
+        logBandsSettings.Size = 512u;
+        logBandsSettings.WaveSize = context.WaveSize;
+        logBandsSettings.Layout = ocean::CascadeLayout::LogBands;
+        logBandsSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, logBandsSettings.Spectrum).Spectrum;
+        failures += TestPipeline(context, logBandsSettings, 3.25f);
     }
 
     if (failures != 0)
