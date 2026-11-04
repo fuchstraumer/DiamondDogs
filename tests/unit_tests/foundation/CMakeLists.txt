@@ -26,6 +26,7 @@ set(FOUNDATION_TEST_SOURCES
     # Container tests
     containers/test_circular_buffer.cpp
     containers/test_mwsr_queue.cpp
+    containers/test_ring_allocator.cpp
     
     # Utility tests
     utility/test_delegate.cpp
