@@ -94,6 +94,7 @@ TEST_F(GpuTimelineTest, CoroutineResumesAfterTheGpuSignalsTheSemaphore)
     ASSERT_TRUE(scheduler.Idle()) << scheduler.DumpState();
     EXPECT_TRUE(finished);
     EXPECT_EQ(timeline.Mirror().Value(), signalValue);
+    EXPECT_FALSE(timeline.Mirror().Failed()) << "a healthy device never fails the mirror";
 
     ASSERT_TRUE(fence.Wait(k_TimeoutNs));
     scheduler.RemoveSource(timeline);
@@ -147,7 +148,7 @@ namespace
     foundation::Task<void> AwaitMirrorThenRecord(const foundation::Timeline& mirror, uint64_t target_value,
                                                  bool& finished)
     {
-        co_await mirror.Until(target_value);
-        finished = true;
+        const foundation::TimelineWait result = co_await mirror.Until(target_value);
+        finished = result == foundation::TimelineWait::Reached;
     }
 }

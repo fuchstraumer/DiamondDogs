@@ -1,7 +1,6 @@
 #include "GpuTimeline.hpp"
 #include "RhiHandle.hpp"
 #include "RhiResult.hpp"
-#include <cassert>
 #include <cstdint>
 #include <print>
 
@@ -32,14 +31,19 @@ namespace rhi
 
     void GpuTimeline::Poll()
     {
+        if (mirror.Failed())
+        {
+            return;
+        }
+
         uint64_t counter = 0u;
         const Result result = semaphore.GetValue(counter);
 
         if (!result.IsSuccess())
         {
-            // a lost device ends up here, and every later Poll reports it again
-            std::println(stderr, "[async] GpuTimeline::Poll could not read the semaphore counter");
-            assert(false && "vkGetSemaphoreCounterValue failed");
+            // a lost device ends up here. Fail wakes every parked frame, and later Polls return at the top
+            std::println(stderr, "[async] GpuTimeline::Poll could not read the semaphore counter, so the timeline failed");
+            mirror.Fail();
             return;
         }
 

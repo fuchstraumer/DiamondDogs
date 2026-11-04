@@ -5,23 +5,43 @@
 #include <coroutine>
 #include <cstdint>
 
+namespace
+{
+    constexpr uint64_t k_FailedBit = uint64_t{ 1 } << 63;
+}
+
 namespace foundation
 {
     
-Timeline::Timeline() noexcept : value{ 0u } 
+Timeline::Timeline() noexcept : state{ 0u } 
 {
 }
 
 void Timeline::Signal(uint64_t _value) noexcept
 {
-    assert(_value >= value.load(std::memory_order_relaxed));
-    value.store(_value, std::memory_order_release);
-    value.notify_all();
+    const uint64_t current = state.load(std::memory_order_relaxed);
+    assert((_value & k_FailedBit) == 0u && "a timeline value has 63 bits");
+    assert(_value >= (current & ~k_FailedBit));
+
+    // the signaler is the only writer, so keeping the flag of `current` cannot lose a Fail
+    state.store(_value | (current & k_FailedBit), std::memory_order_release);
+    state.notify_all();
+}
+
+void Timeline::Fail() noexcept
+{
+    state.fetch_or(k_FailedBit, std::memory_order_release);
+    state.notify_all();
 }
 
 uint64_t Timeline::Value() const noexcept
 {
-    return value.load(std::memory_order_acquire);
+    return state.load(std::memory_order_acquire) & ~k_FailedBit;
+}
+
+bool Timeline::Failed() const noexcept
+{
+    return (state.load(std::memory_order_acquire) & k_FailedBit) != 0u;
 }
 
 bool Timeline::Reached(uint64_t _value) const noexcept
@@ -29,14 +49,17 @@ bool Timeline::Reached(uint64_t _value) const noexcept
     return Value() >= _value;
 }
 
-void Timeline::Wait(uint64_t _value) const noexcept
+TimelineWait Timeline::Wait(uint64_t _value) const noexcept
 {
-    uint64_t observed = value.load(std::memory_order_acquire);
-    while (observed < _value)
+    uint64_t observed = state.load(std::memory_order_acquire);
+
+    while ((observed & ~k_FailedBit) < _value && (observed & k_FailedBit) == 0u)
     {
-        value.wait(observed, std::memory_order_acquire);
-        observed = value.load(std::memory_order_acquire);
+        state.wait(observed, std::memory_order_acquire);
+        observed = state.load(std::memory_order_acquire);
     }
+
+    return (observed & ~k_FailedBit) >= _value ? TimelineWait::Reached : TimelineWait::Failed;
 }
 
 TimelineAwaiter Timeline::Until(uint64_t _value) const noexcept
@@ -46,7 +69,7 @@ TimelineAwaiter Timeline::Until(uint64_t _value) const noexcept
 
 bool TimelineAwaiter::await_ready() const noexcept
 {
-    return Source->Reached(TargetValue);
+    return Source->Reached(TargetValue) || Source->Failed();
 }
 
 void TimelineAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept
@@ -56,8 +79,15 @@ void TimelineAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept
     Owner->Park(*Source, TargetValue, handle, Waiter);
 }
 
-void TimelineAwaiter::await_resume() const noexcept
+TimelineWait TimelineAwaiter::await_resume() const noexcept
 {
+    if (Source->Reached(TargetValue))
+    {
+        return TimelineWait::Reached;
+    }
+
+    assert(Source->Failed() && "a frame resumes only when its target is reached or its timeline failed");
+    return TimelineWait::Failed;
 }
 
 void TimelineAwaiter::BindOwner(Scheduler* scheduler, BasePromise* awaiting) noexcept

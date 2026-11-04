@@ -95,6 +95,9 @@ void Scheduler::Tick()
     checkOwnerThread();
     ++tickCount;
 
+    // an older scheduler that ticks while a newer one lives on this thread must still allocate from its own heap
+    FrameHeap* const previousHeap = frameHeap.MakeCurrent();
+
     // taken before any frame runs: a frame that yields in this Tick lands in `yielded` and waits for the next one
     std::swap(yieldedPreviously, yielded);
 
@@ -103,6 +106,8 @@ void Scheduler::Tick()
     startSpawnedRoots();
     runReadyList();
     destroyFinishedRoots();
+
+    FrameHeap::RestoreCurrent(previousHeap);
 }
 
 void Scheduler::AddSource(TimelineSource& source)
@@ -198,7 +203,7 @@ void Scheduler::resumeReachedFrames()
     std::erase_if(parked,
                   [this](const ParkedFrame& frame)
                   {
-                      if (!frame.Source->Reached(frame.TargetValue))
+                      if (!frame.Source->Reached(frame.TargetValue) && !frame.Source->Failed())
                       {
                           return false;
                       }

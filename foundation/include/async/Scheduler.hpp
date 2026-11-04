@@ -57,7 +57,7 @@ public:
     void RemoveSource(TimelineSource& source);
     /** @brief Does these steps in order:
      * - polls every source
-     * - resumes parked frames whose target is reached
+     * - resumes parked frames whose target is reached or whose timeline failed
      * - starts spawned roots
      * - runs the ready list: first the frames that yielded in the previous Tick, then the posted frames, until no
      *   posted frame is left, because a resumed frame can post again

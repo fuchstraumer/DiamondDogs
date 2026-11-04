@@ -34,13 +34,17 @@ namespace
 
     FrameHeader* HeaderOfFrame(void* frame) noexcept;
     void* FrameOfBlock(void* block) noexcept;
+#if FOUNDATION_ASYNC_FRAME_STATISTICS
     foundation::FrameHeap* OwnerOfFrame(void* frame) noexcept;
+#endif
     void* AllocateFromBackend(foundation::FrameBackend backend, std::size_t block_size) noexcept;
     void FreeToBackend(foundation::FrameBackend backend, void* block, std::size_t block_size) noexcept;
 }
 
 namespace foundation
 {
+
+#if FOUNDATION_ASYNC_FRAME_STATISTICS
 
 void FrameCounters::RecordAllocation(std::size_t size) noexcept
 {
@@ -75,6 +79,23 @@ void FrameCounters::raisePeak(uint64_t candidate) noexcept
     {
     }
 }
+
+#else
+
+void FrameCounters::RecordAllocation(std::size_t) noexcept
+{
+}
+
+void FrameCounters::RecordFree(std::size_t) noexcept
+{
+}
+
+FrameStatisticsSnapshot FrameCounters::Snapshot() const noexcept
+{
+    return FrameStatisticsSnapshot{};
+}
+
+#endif
 
 FrameHeap::FrameHeap() noexcept : heap{ mi_heap_new() }
 {
@@ -119,6 +140,20 @@ void FrameHeap::UnbindFromCurrentThread() noexcept
     previousHeap = nullptr;
     ownerTheap = nullptr;
     bound = false;
+}
+
+FrameHeap* FrameHeap::MakeCurrent() noexcept
+{
+    assert(bound);
+
+    FrameHeap* previous = currentHeap;
+    currentHeap = this;
+    return previous;
+}
+
+void FrameHeap::RestoreCurrent(FrameHeap* previous) noexcept
+{
+    currentHeap = previous;
 }
 
 FrameStatisticsSnapshot FrameHeap::Snapshot() const noexcept
@@ -175,12 +210,14 @@ void* FrameHeap::AllocateFrame(std::size_t size)
 
     ::new (block) FrameHeader{ routedHeap, backend };
 
+#if FOUNDATION_ASYNC_FRAME_STATISTICS
     processCounters.RecordAllocation(size);
 
     if (routedHeap != nullptr)
     {
         routedHeap->counters.RecordAllocation(size);
     }
+#endif
 
     return FrameOfBlock(block);
 }
@@ -188,6 +225,8 @@ void* FrameHeap::AllocateFrame(std::size_t size)
 void FrameHeap::FreeFrame(void* frame, std::size_t size) noexcept
 {
     FrameHeader* header = HeaderOfFrame(frame);
+
+#if FOUNDATION_ASYNC_FRAME_STATISTICS
     FrameHeap* owner = OwnerOfFrame(frame);
 
     processCounters.RecordFree(size);
@@ -196,6 +235,7 @@ void FrameHeap::FreeFrame(void* frame, std::size_t size) noexcept
     {
         owner->counters.RecordFree(size);
     }
+#endif
 
     const FrameBackend backend = header->Backend;
 
@@ -229,11 +269,13 @@ namespace
         return static_cast<std::byte*>(block) + sizeof(FrameHeader);
     }
 
+#if FOUNDATION_ASYNC_FRAME_STATISTICS
     foundation::FrameHeap* OwnerOfFrame(void* frame) noexcept
     {
         const FrameHeader* header = HeaderOfFrame(frame);
         return header->Owner;
     }
+#endif
 
     void* AllocateFromBackend(foundation::FrameBackend backend, std::size_t block_size) noexcept
     {
@@ -248,8 +290,12 @@ namespace
         case foundation::FrameBackend::CrtMalloc:
             return std::malloc(block_size);
         case foundation::FrameBackend::Invalid:
-            std::unreachable();
+            break;
         }
+
+        // an unknown backend, or WindowsHeap off Windows: the caller turns null into bad_alloc
+        assert(false && "unknown frame backend");
+        return nullptr;
     }
 
     void FreeToBackend(foundation::FrameBackend backend, void* block, std::size_t block_size) noexcept
