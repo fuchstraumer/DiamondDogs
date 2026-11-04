@@ -98,6 +98,9 @@ namespace loom
             return Reaches(reach, lhs, rhs) || Reaches(reach, rhs, lhs);
         }
 
+        // Reads context.Edges and context.Successors. ordered_nodes must be a topological order of every node.
+        Reachability ComputeReachability(OrderContext& context, const std::vector<NodeIndex>& ordered_nodes);
+
         inline NodeIndex NodeOfPass(PassIndex pass)
         {
             return NodeIndex{ pass.Value };

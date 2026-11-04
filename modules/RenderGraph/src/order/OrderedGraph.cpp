@@ -24,7 +24,7 @@ namespace loom
 {
     namespace order
     {
-        /** @brief After running `GatherAccesses`, we have a table indexed on 
+        /** @brief After running `GatherAccesses`, we have a table indexed on
          * on the *pass*, where each row within that table contains the a `PassAccess`
          * struct for each *SLOT* that is accessed by that pass.
          *
@@ -35,7 +35,7 @@ namespace loom
         struct CollatedAccesses
         {
             std::vector<std::vector<int32_t>> Writers;
-            // For ReadData, we store both indices as we 
+            // For ReadData, we store both indices as we
             // later want to look up the `Where` for it-
             // as we only apply that on Readers as a rule
             struct ReadData
@@ -72,7 +72,6 @@ namespace loom
         void AddDataFlowEdges(OrderContext& context);
         void BuildSuccessors(OrderContext& context);
         std::optional<std::vector<NodeIndex>> SortNodes(OrderContext& context);
-        Reachability ComputeReachability(OrderContext& context, const std::vector<NodeIndex>& ordered_nodes);
         void CheckHazards(OrderContext& context, const Reachability& reachability);
 
         void ReportCycle(const OrderContext& context, const std::vector<NodeIndex>& emitted);
@@ -123,6 +122,7 @@ namespace loom
         else
         {
             const auto& orderedNodes = *sortNodesResult;
+            const Reachability reachability = ComputeReachability(context, orderedNodes);
             // copy each pass node (pass.Value < context.PassCount) into result passes
             OrderedGraph result;
             auto filterFn = [&](NodeIndex node) { return node.Value < context.PassCount; };
@@ -213,10 +213,10 @@ namespace loom
         {
             // first step: chain the passes within each sequence
             // second step: the sequences own `After` `Before` anchors
-            // third step: the exposed anchors, finally! 
+            // third step: the exposed anchors, finally!
             // realize that a sequence is not *itself* a node in the grpah: it is manifested
             // through the passes it "contains" (refers to as a span, really)
-            // this in turn is why we don't need to add the frame bounds here - 
+            // this in turn is why we don't need to add the frame bounds here -
             // the passes already did that!
             for (const FrozenSequence& sequence : context.Frozen.Sequences)
             {
@@ -258,7 +258,7 @@ namespace loom
                     // to follow along with
                     const FrozenAnchor& anchor = context.Frozen.Anchors[anchorIdx.Value];
                     const NodeIndex anchorNode = NodeOfAnchor(context, anchorIdx);
-                    
+
                     if (anchor.Position > 0)
                     {
                         const NodeIndex passNode = NodeOfPass(PassIndex{ firstPass + anchor.Position - 1 });
@@ -578,7 +578,7 @@ namespace loom
                     }
                 }
             }
-            
+
             if (std::ssize(sortedNodes) != context.NodeCount)
             {
                 // there was a cycle!
@@ -592,10 +592,10 @@ namespace loom
         Reachability ComputeReachability(OrderContext& context, const std::vector<NodeIndex>& ordered_nodes)
         {
             Reachability result;
-            result.WordsPerNode = static_cast<int64_t>(int64_t{ context.NodeCount } + 64) / int64_t{ 64 };
+            result.WordsPerNode = (int64_t{ context.NodeCount } + 63) / int64_t{ 64 };
             const size_t numEntries = static_cast<size_t>(context.NodeCount * result.WordsPerNode);
             result.Bits.assign(numEntries, 0ull);
-            
+
             // safe to use one span the whole time here, and just "copy" from it to subspan as needed
             // bc we fully allocate upfront. so that's nice!
             std::span<uint64_t> allBits{ result.Bits };
@@ -608,15 +608,17 @@ namespace loom
                 for (const int32_t edgeIndex : context.Successors[node.Value])
                 {
                     const int32_t successor = context.Edges[edgeIndex].To.Value;
+                    row[successor / 64] |= 1ull << (successor % 64);
                     const size_t successorOffset = static_cast<size_t>(successor * result.WordsPerNode);
-                    const std::span<uint64_t> successorRow = allBits.subspan(successorOffset,
-                                                                             static_cast<size_t>(result.WordsPerNode));
-                    for (int32_t i = 0; std::cmp_less(i ,result.WordsPerNode); ++i)
+                    const std::span<const uint64_t> successorRow = allBits.subspan(successorOffset,
+                                                                                   static_cast<size_t>(result.WordsPerNode));
+                    for (int64_t word = 0; word < result.WordsPerNode; ++word)
                     {
-                        row[i] |= successorRow[i];
+                        row[word] |= successorRow[word];
                     }
                 }
             }
+
             return result;
         }
 
@@ -633,7 +635,7 @@ namespace loom
             assert(iter != wasEmitted.end()); // this would be a weird failure, but catch it just in case
             const int32_t firstUnemittedNode =
                 static_cast<int32_t>(std::distance(wasEmitted.begin(), iter));
-            
+
 
 
             // when a node was first reached

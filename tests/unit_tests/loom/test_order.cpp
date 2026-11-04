@@ -487,3 +487,196 @@ TEST(Order, DataEdgeAgainstAnchorsIsLM501)
 
     EXPECT_EQ(dataFlowNotes, 1);
 }
+
+// Reachability tests build the edges, successors and topological order by hand. A failure here is in
+// ComputeReachability, not in the edge builders or the sort.
+namespace
+{
+
+    struct TestEdge
+    {
+        int32_t From{ -1 };
+        int32_t To{ -1 };
+    };
+
+    loom::order::Reachability ReachabilityOf(int32_t pass_count,
+                                             int32_t node_count,
+                                             const std::vector<TestEdge>& edges,
+                                             const std::vector<int32_t>& topological_order)
+    {
+        const loom::FrozenGraph frozen{};
+        const loom::BindAccessTable binds{};
+        loom::CollectingSink sink;
+        loom::order::OrderContext context{
+            .Frozen = frozen,
+            .Binds = binds,
+            .Sink = sink,
+            .PassCount = pass_count,
+            .NodeCount = node_count,
+            .SlotCount = 0,
+        };
+        context.Successors.resize(static_cast<size_t>(node_count));
+
+        for (const TestEdge& edge : edges)
+        {
+            context.Successors[edge.From].push_back(static_cast<int32_t>(context.Edges.size()));
+            context.Edges.push_back(loom::OrderEdge{
+                .From = loom::NodeIndex{ edge.From },
+                .To = loom::NodeIndex{ edge.To },
+                .Reason = loom::EdgeReason::After,
+            });
+        }
+
+        std::vector<loom::NodeIndex> ordered;
+
+        for (const int32_t node : topological_order)
+        {
+            ordered.push_back(loom::NodeIndex{ node });
+        }
+
+        return loom::order::ComputeReachability(context, ordered);
+    }
+
+    bool Reaches(const loom::order::Reachability& reach, int32_t from, int32_t to)
+    {
+        return loom::order::Reaches(reach, loom::NodeIndex{ from }, loom::NodeIndex{ to });
+    }
+
+    bool Ordered(const loom::order::Reachability& reach, int32_t lhs, int32_t rhs)
+    {
+        return loom::order::Ordered(reach, loom::NodeIndex{ lhs }, loom::NodeIndex{ rhs });
+    }
+
+    // A chain 0 -> 1 -> ... -> (count - 1), in index order.
+    std::vector<TestEdge> ChainEdges(int32_t count)
+    {
+        std::vector<TestEdge> edges;
+
+        for (int32_t node = 0; node + 1 < count; ++node)
+        {
+            edges.push_back(TestEdge{ .From = node, .To = node + 1 });
+        }
+
+        return edges;
+    }
+
+    std::vector<int32_t> IndexOrder(int32_t count)
+    {
+        std::vector<int32_t> order;
+
+        for (int32_t node = 0; node < count; ++node)
+        {
+            order.push_back(node);
+        }
+
+        return order;
+    }
+
+}
+
+// The row of a node holds its successors and everything they reach. Nothing reaches backwards.
+TEST(OrderReachability, ChainReachesTransitively)
+{
+    const loom::order::Reachability reach = ReachabilityOf(3, 3, ChainEdges(3), IndexOrder(3));
+
+    EXPECT_TRUE(Reaches(reach, 0, 1));
+    EXPECT_TRUE(Reaches(reach, 1, 2));
+    EXPECT_TRUE(Reaches(reach, 0, 2)) << "0 reaches 2 only through 1";
+    EXPECT_FALSE(Reaches(reach, 1, 0));
+    EXPECT_FALSE(Reaches(reach, 2, 0));
+    EXPECT_FALSE(Reaches(reach, 2, 1));
+}
+
+// The topological order is not the index order: 2 -> 0 -> 1. The fill must follow the order it is given.
+TEST(OrderReachability, FollowsTheGivenOrderNotTheIndexOrder)
+{
+    const std::vector<TestEdge> edges{ { .From = 2, .To = 0 }, { .From = 0, .To = 1 } };
+    const loom::order::Reachability reach = ReachabilityOf(3, 3, edges, { 2, 0, 1 });
+
+    EXPECT_TRUE(Reaches(reach, 2, 1));
+    EXPECT_FALSE(Reaches(reach, 1, 2));
+}
+
+// 0 -> 1 -> 3 and 0 -> 2 -> 3. The two middle nodes have no path between them, so they are unordered.
+TEST(OrderReachability, DiamondSidesAreUnordered)
+{
+    const std::vector<TestEdge> edges{
+        { .From = 0, .To = 1 },
+        { .From = 0, .To = 2 },
+        { .From = 1, .To = 3 },
+        { .From = 2, .To = 3 },
+    };
+    const loom::order::Reachability reach = ReachabilityOf(4, 4, edges, IndexOrder(4));
+
+    EXPECT_TRUE(Reaches(reach, 0, 3));
+    EXPECT_TRUE(Ordered(reach, 3, 0)) << "Ordered is symmetric";
+    EXPECT_FALSE(Ordered(reach, 1, 2));
+}
+
+// A node with no edges is ordered with nothing.
+TEST(OrderReachability, IsolatedNodeIsUnordered)
+{
+    const std::vector<TestEdge> edges{ { .From = 0, .To = 1 } };
+    const loom::order::Reachability reach = ReachabilityOf(3, 3, edges, IndexOrder(3));
+
+    EXPECT_FALSE(Ordered(reach, 0, 2));
+    EXPECT_FALSE(Ordered(reach, 1, 2));
+}
+
+// Passes 0 and 1, anchor node 2: 0 -> anchor -> 1. The anchor does no work, but it orders the passes.
+TEST(OrderReachability, PathThroughAnchorOrdersPasses)
+{
+    const std::vector<TestEdge> edges{ { .From = 0, .To = 2 }, { .From = 2, .To = 1 } };
+    const loom::order::Reachability reach = ReachabilityOf(2, 3, edges, { 0, 2, 1 });
+
+    EXPECT_TRUE(Reaches(reach, 0, 1));
+    EXPECT_FALSE(Reaches(reach, 1, 0));
+}
+
+// The closure is strict: in a DAG no node reaches itself.
+TEST(OrderReachability, NoNodeReachesItself)
+{
+    const loom::order::Reachability reach = ReachabilityOf(4, 4, ChainEdges(4), IndexOrder(4));
+
+    for (int32_t node = 0; node < 4; ++node)
+    {
+        EXPECT_FALSE(Reaches(reach, node, node)) << "node " << node;
+    }
+}
+
+// A row is ceil(NodeCount / 64) words: exactly one word at 64 nodes, two at 65.
+TEST(OrderReachability, WordsPerNodeRoundsUp)
+{
+    EXPECT_EQ(ReachabilityOf(1, 1, {}, IndexOrder(1)).WordsPerNode, 1);
+    EXPECT_EQ(ReachabilityOf(64, 64, {}, IndexOrder(64)).WordsPerNode, 1);
+    EXPECT_EQ(ReachabilityOf(65, 65, {}, IndexOrder(65)).WordsPerNode, 2);
+}
+
+// 130 nodes make three words per row. Bits 63, 64, 127, 128 and 129 cross the word boundaries, and bits past 31
+// fail if a shift is done in 32 bits.
+TEST(OrderReachability, ChainCrossesWordBoundaries)
+{
+    const int32_t count = 130;
+    const loom::order::Reachability reach = ReachabilityOf(count, count, ChainEdges(count), IndexOrder(count));
+
+    ASSERT_EQ(reach.WordsPerNode, 3);
+
+    for (const int32_t target : { 1, 31, 32, 40, 63, 64, 127, 128, 129 })
+    {
+        EXPECT_TRUE(Reaches(reach, 0, target)) << "0 to " << target;
+    }
+
+    EXPECT_TRUE(Reaches(reach, 63, 64));
+    EXPECT_TRUE(Reaches(reach, 64, 129));
+    EXPECT_FALSE(Reaches(reach, 64, 63));
+    EXPECT_FALSE(Reaches(reach, 129, 0));
+
+    // Spot-check every pair: i reaches j exactly when i < j.
+    for (int32_t from = 0; from < count; from += 7)
+    {
+        for (int32_t to = 0; to < count; to += 5)
+        {
+            EXPECT_EQ(Reaches(reach, from, to), from < to) << from << " to " << to;
+        }
+    }
+}
