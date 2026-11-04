@@ -150,6 +150,10 @@ if(WIN32)
     target_compile_definitions(foundation PUBLIC "FOUNDATION_ASYNC_SYMBOLS=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
 endif()
 
+# The frame counters cost atomics on the allocation path, so Release and MinSizeRel compile them out. NDEBUG can't decide
+# this: RelWithDebInfo defines it and keeps the counters
+target_compile_definitions(foundation PUBLIC "FOUNDATION_ASYNC_FRAME_STATISTICS=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
+
 if(UNIX)
     target_link_libraries(foundation PUBLIC "c++fs" "dl" "pthread")
 endif()

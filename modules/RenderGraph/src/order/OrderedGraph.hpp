@@ -86,6 +86,18 @@ namespace loom
             std::vector<uint64_t> Bits; // effectively flattened bit matrix
         };
 
+        inline bool Reaches(const Reachability& reach, NodeIndex from, NodeIndex to)
+        {
+            const uint64_t word = reach.Bits[(from.Value * reach.WordsPerNode) + (to.Value / 64)];
+            const uint64_t mask = uint64_t{ 1 } << (to.Value % 64);
+            return (word & mask) != 0;
+        }
+
+        inline bool Ordered(const Reachability& reach, NodeIndex lhs, NodeIndex rhs)
+        {
+            return Reaches(reach, lhs, rhs) || Reaches(reach, rhs, lhs);
+        }
+
         inline NodeIndex NodeOfPass(PassIndex pass)
         {
             return NodeIndex{ pass.Value };

@@ -25,8 +25,10 @@ When the pointer is set:
 - Binding remembers the previously current heap. The destructor restores it.
 - Two schedulers on one thread nest. The one constructed last owns the routing, and schedulers must be destroyed in
   reverse order. Destroying them out of order asserts.
-- `Tick` does not rebind. Ticking an older scheduler while a newer one lives on the same thread allocates the children
-  of the older scheduler in the newer heap.
+- `Tick` rebinds. It makes its own heap the current heap for its duration and restores the previous heap at the end
+  (two thread-local writes). Ticking an older scheduler while a newer one lives on the same thread allocates the
+  children of the older scheduler in the older heap. The root frame is different: `Spawn` runs outside `Tick`, so the
+  heap that is current at that time serves the root.
 
 Counters:
 
@@ -34,6 +36,9 @@ Counters:
   total frames of one heap.
 - `foundation::FrameStatistics()` returns the same counters for every frame in the process, routed or not.
 - The counters are relaxed atomics, because another thread can free a frame.
+- The counters exist only when `FOUNDATION_ASYNC_FRAME_STATISTICS` is 1. CMake sets it to 0 in Release and MinSizeRel,
+  and to 1 in the other configurations (`NDEBUG` cannot decide this, because RelWithDebInfo defines it and keeps the
+  counters). When it is 0, the allocation path has no atomics, and both snapshot functions return zeros.
 
 Limits:
 
@@ -43,7 +48,22 @@ Limits:
 - A frame is never over-aligned. There is no `align_val_t` overload. A static assert checks this.
 - Cost: each frame updates two sets of atomic counters (process and heap). In a Release build, three runs of one
   million small tasks each, this made the scheduler heap about 8 ns slower for each frame (27 ns against 19 ns). With
-  the heap counters removed, both measured the same. A consumer that needs the speed can drop the heap counters.
+  the heap counters removed, both measured the same. Release builds now compile the counters out.
+
+## Timeline failure
+
+A `Timeline` has a terminal failed state, for a signaler that can never signal again (a lost GPU device).
+
+- `Fail()` is called by the signaler only, like `Signal`. `Failed()` reads the flag with acquire semantics. The flag
+  and the value share one atomic word (the top bit is the flag), so that one `notify_all` wakes a blocked `Wait`.
+  A timeline value therefore has 63 bits.
+- A parked frame resumes on the first `Tick` that sees its target reached or its timeline failed. `co_await
+  timeline.Until(n)` returns `TimelineWait::Reached` or `TimelineWait::Failed`, and the result is `[[nodiscard]]`.
+  Check it: after `Failed`, the value that the frame waited for was never reached.
+- `Wait` returns the same enum, and returns `Failed` instead of blocking forever.
+- `Fail` never changes what `Reached(n)` says. A target that was reached before the failure still gives `Reached`.
+- `rhi::GpuTimeline::Poll` calls `Fail` once when `vkGetSemaphoreCounterValue` fails, and prints one line. Later polls
+  do nothing.
 
 ## Post and Yield: the ready list
 

@@ -7,6 +7,7 @@
 #include "PassStatements.hpp"
 #include "Records.hpp"
 #include "RhiFlags.hpp"
+#include "utility/Delegate.hpp"
 #include <cstdint>
 #include <optional>
 #include <source_location>

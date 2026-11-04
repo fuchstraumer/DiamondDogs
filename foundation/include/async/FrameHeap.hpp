@@ -24,7 +24,7 @@ enum class FrameBackend : uint8_t
 
 /**@brief Counters for coroutine frames. A frame can be freed on a different thread than the one that allocated it, so
  * the counters are atomics. They use relaxed ordering because they are statistics, and no other code orders its work
- * by them. */
+ * by them. When FOUNDATION_ASYNC_FRAME_STATISTICS is 0, the class has no members and Snapshot returns zeros. */
 class FrameCounters
 {
 public:
@@ -33,12 +33,14 @@ public:
     [[nodiscard]] FrameStatisticsSnapshot Snapshot() const noexcept;
 
 private:
+#if FOUNDATION_ASYNC_FRAME_STATISTICS
     void raisePeak(uint64_t candidate) noexcept;
 
     std::atomic<int64_t> liveFrames{ 0 };
     std::atomic<uint64_t> liveBytes{ 0u };
     std::atomic<uint64_t> peakLiveBytes{ 0u };
     std::atomic<int64_t> totalFrames{ 0 };
+#endif
 };
 
 /**@brief A mimalloc heap that stores the coroutine frames of one Scheduler, and the counters of those frames.
@@ -64,6 +66,12 @@ public:
     /** @brief Restores the heap that was current before BindToCurrentThread. Asserts when this heap is not the
      * current heap of the calling thread, which means heaps were unbound out of order or on the wrong thread. */
     void UnbindFromCurrentThread() noexcept;
+    /** @brief Makes this bound heap the current heap of the calling thread for a while, and returns the heap that was
+     * current. Pair it with RestoreCurrent on the same thread. Scheduler::Tick uses this so that the frames created
+     * during a Tick come from the heap of the Scheduler that ticks. */
+    [[nodiscard]] FrameHeap* MakeCurrent() noexcept;
+    /** @brief Makes `previous`, which MakeCurrent returned, the current heap of the calling thread again. */
+    static void RestoreCurrent(FrameHeap* previous) noexcept;
     [[nodiscard]] FrameStatisticsSnapshot Snapshot() const noexcept;
 
     /** @brief Returns the heap that is bound to the calling thread, or null. */

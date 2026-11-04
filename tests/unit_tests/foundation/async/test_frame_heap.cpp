@@ -22,9 +22,12 @@ using foundation::FrameStatisticsSnapshot;
 using foundation::Scheduler;
 using foundation::Task;
 using foundation::Timeline;
+using foundation::TimelineWait;
 
 namespace
 {
+    constexpr bool k_HasFrameStatistics = FOUNDATION_ASYNC_FRAME_STATISTICS != 0;
+
     Task<void> ReturnImmediately();
     Task<void> LeafWaitsForTimeline(const Timeline& timeline, uint64_t target_value);
     Task<void> MiddleAwaitsLeaf(const Timeline& timeline, uint64_t target_value);
@@ -36,6 +39,11 @@ namespace
 
 TEST(FrameHeapTest, EveryFrameOfAChainIsCountedInItsOwnSchedulerAndNotInASecondOne)
 {
+    if (!k_HasFrameStatistics)
+    {
+        GTEST_SKIP() << "the frame counters are compiled out of this configuration";
+    }
+
     Timeline timeline;
     Scheduler first;
     first.Spawn(RootAwaitsMiddle(timeline, 1u));
@@ -70,6 +78,11 @@ TEST(FrameHeapTest, EveryFrameOfAChainIsCountedInItsOwnSchedulerAndNotInASecondO
 
 TEST(FrameHeapTest, WhenTheChainFinishesEveryCounterReturnsToItsStart)
 {
+    if (!k_HasFrameStatistics)
+    {
+        GTEST_SKIP() << "the frame counters are compiled out of this configuration";
+    }
+
     Timeline timeline;
     const FrameStatisticsSnapshot processBefore = FrameStatistics();
 
@@ -102,6 +115,11 @@ TEST(FrameHeapTest, WhenTheChainFinishesEveryCounterReturnsToItsStart)
 
 TEST(FrameHeapTest, AFrameCreatedOnAThreadWithNoSchedulerUsesTheDefaultHeapAndIsFreedCorrectly)
 {
+    if (!k_HasFrameStatistics)
+    {
+        GTEST_SKIP() << "the frame counters are compiled out of this configuration";
+    }
+
     Scheduler scheduler;
     const FrameStatisticsSnapshot processBefore = FrameStatistics();
     FrameHeap* currentOnWorker = FrameHeap::Current();
@@ -163,8 +181,46 @@ TEST(FrameHeapTest, SchedulersDestroyedInOrderRestoreTheCurrentHeapEachTime)
     EXPECT_EQ(FrameHeap::Current(), original);
 }
 
+TEST(FrameHeapTest, TickingTheOlderSchedulerCountsItsFramesInTheOlderHeapAndRestoresTheRouting)
+{
+    if (!k_HasFrameStatistics)
+    {
+        GTEST_SKIP() << "the frame counters are compiled out of this configuration";
+    }
+
+    Timeline timeline;
+    Scheduler older;
+    FrameHeap* const olderHeap = FrameHeap::Current();
+
+    {
+        Scheduler newer;
+        FrameHeap* const newerHeap = FrameHeap::Current();
+        ASSERT_NE(newerHeap, olderHeap);
+
+        // the root frame is created by this call, so the newer heap serves it. The middle and leaf frames are created
+        // during the Tick of the older scheduler
+        older.Spawn(RootAwaitsMiddle(timeline, 1u));
+        older.Tick();
+
+        EXPECT_EQ(older.FrameStatistics().TotalFrames, 2) << "the middle task and the leaf task";
+        EXPECT_EQ(newer.FrameStatistics().TotalFrames, 1) << "only the root, which Spawn created";
+        EXPECT_EQ(FrameHeap::Current(), newerHeap) << "Tick restores the routing that it found";
+
+        timeline.Signal(1u);
+        older.Tick();
+        EXPECT_TRUE(older.Idle());
+    }
+
+    EXPECT_EQ(FrameHeap::Current(), olderHeap);
+}
+
 TEST(FrameHeapTest, AFrameFreedOnAnotherThreadBalancesTheHeapThatAllocatedIt)
 {
+    if (!k_HasFrameStatistics)
+    {
+        GTEST_SKIP() << "the frame counters are compiled out of this configuration";
+    }
+
     Scheduler scheduler;
     const FrameStatisticsSnapshot processBefore = FrameStatistics();
     Task<void> task = ReturnImmediately();
@@ -235,7 +291,8 @@ namespace
 
     Task<void> LeafWaitsForTimeline(const Timeline& timeline, uint64_t target_value)
     {
-        co_await timeline.Until(target_value);
+        const TimelineWait result = co_await timeline.Until(target_value);
+        EXPECT_EQ(result, TimelineWait::Reached);
     }
 
     Task<void> MiddleAwaitsLeaf(const Timeline& timeline, uint64_t target_value)
@@ -290,8 +347,12 @@ namespace
 
         EXPECT_TRUE(scheduler.Idle());
 
-        const int64_t expectedInHeap = use_scheduler_heap ? int64_t{ k_TotalFrames } + k_WarmUpBatches * k_BatchSize : 0;
-        EXPECT_EQ(scheduler.FrameStatistics().TotalFrames, expectedInHeap);
+        if (k_HasFrameStatistics)
+        {
+            const int64_t expectedInHeap =
+                use_scheduler_heap ? int64_t{ k_TotalFrames } + k_WarmUpBatches * k_BatchSize : 0;
+            EXPECT_EQ(scheduler.FrameStatistics().TotalFrames, expectedInHeap);
+        }
 
         const std::chrono::nanoseconds elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);
         return static_cast<double>(elapsed.count()) / static_cast<double>(k_TotalFrames);

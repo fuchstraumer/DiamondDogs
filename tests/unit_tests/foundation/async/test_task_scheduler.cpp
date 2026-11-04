@@ -19,10 +19,13 @@ using foundation::FrameStatisticsSnapshot;
 using foundation::Scheduler;
 using foundation::Task;
 using foundation::Timeline;
+using foundation::TimelineWait;
 using foundation::TimelineSource;
 
 namespace
 {
+    constexpr bool k_HasFrameStatistics = FOUNDATION_ASYNC_FRAME_STATISTICS != 0;
+
     // increments a counter while it is alive, so a test can count the live frames that hold one
     struct LiveFrameGuard
     {
@@ -43,6 +46,7 @@ namespace
     Task<void> MiddleAwaitsLeaf(const Timeline& timeline, uint64_t target_value, int32_t& live_count);
     Task<void> RootAwaitsMiddle(const Timeline& timeline, uint64_t target_value, int32_t& live_count);
     int32_t CountOccurrences(const std::string& text, const std::string& pattern);
+    Task<void> WaitThenRecordResult(const Timeline& timeline, uint64_t target_value, TimelineWait& result);
 
     // signals a timeline from Poll, so a test can see when the Scheduler polls
     class SignalingSource final : public TimelineSource
@@ -169,7 +173,8 @@ TEST(TaskSchedulerTest, WaitBlocksAWorkerUntilItsTargetIsReached)
     std::thread worker(
         [&timeline, &woke]()
         {
-            timeline.Wait(2u);
+            const TimelineWait waited = timeline.Wait(2u);
+            EXPECT_EQ(waited, TimelineWait::Reached);
             woke.store(true, std::memory_order::release);
         });
 
@@ -180,6 +185,111 @@ TEST(TaskSchedulerTest, WaitBlocksAWorkerUntilItsTargetIsReached)
     timeline.Signal(2u);
     worker.join();
     EXPECT_TRUE(woke.load(std::memory_order::acquire));
+}
+
+TEST(TaskSchedulerTest, WaitReturnsFailedInsteadOfBlockingForeverWhenTheTimelineFails)
+{
+    Timeline timeline;
+    std::atomic<bool> woke{ false };
+    TimelineWait result = TimelineWait::Invalid;
+
+    std::thread worker(
+        [&timeline, &woke, &result]()
+        {
+            result = timeline.Wait(5u);
+            woke.store(true, std::memory_order::release);
+        });
+
+    timeline.Signal(1u);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT_FALSE(woke.load(std::memory_order::acquire)) << "1 does not reach a target of 5";
+
+    timeline.Fail();
+    worker.join();
+    EXPECT_TRUE(woke.load(std::memory_order::acquire));
+    EXPECT_EQ(result, TimelineWait::Failed);
+    EXPECT_TRUE(timeline.Failed());
+}
+
+TEST(TaskSchedulerTest, WaitReturnsReachedWhenTheTargetIsReached)
+{
+    Timeline timeline;
+    timeline.Signal(3u);
+
+    EXPECT_EQ(timeline.Wait(3u), TimelineWait::Reached);
+    EXPECT_EQ(timeline.Wait(2u), TimelineWait::Reached);
+}
+
+TEST(TaskSchedulerTest, FailAfterAValueWasReachedDoesNotChangeWhatReachedSays)
+{
+    Timeline timeline;
+    timeline.Signal(4u);
+    EXPECT_FALSE(timeline.Failed());
+
+    timeline.Fail();
+
+    EXPECT_TRUE(timeline.Failed());
+    EXPECT_EQ(timeline.Value(), 4u);
+    EXPECT_TRUE(timeline.Reached(4u));
+    EXPECT_TRUE(timeline.Reached(1u));
+    EXPECT_FALSE(timeline.Reached(5u)) << "a failed timeline does not reach values it never reached";
+    EXPECT_EQ(timeline.Wait(4u), TimelineWait::Reached) << "a reached target wins over the failure";
+    EXPECT_EQ(timeline.Wait(5u), TimelineWait::Failed);
+}
+
+TEST(TaskSchedulerTest, AFrameParkedOnATimelineThatFailsResumesOnTheNextTickWithFailed)
+{
+    Timeline timeline;
+    Scheduler scheduler;
+    TimelineWait result = TimelineWait::Invalid;
+
+    scheduler.Spawn(WaitThenRecordResult(timeline, 3u, result));
+    scheduler.Tick();
+    EXPECT_EQ(scheduler.ParkedCount(), 1);
+    EXPECT_EQ(result, TimelineWait::Invalid);
+
+    timeline.Signal(1u);
+    scheduler.Tick();
+    EXPECT_EQ(scheduler.ParkedCount(), 1) << "1 does not reach a target of 3";
+
+    timeline.Fail();
+    scheduler.Tick();
+    EXPECT_EQ(result, TimelineWait::Failed);
+    EXPECT_EQ(scheduler.ParkedCount(), 0);
+    EXPECT_TRUE(scheduler.Idle());
+}
+
+TEST(TaskSchedulerTest, AFrameThatAwaitsAnAlreadyFailedTimelineDoesNotParkAndGetsFailed)
+{
+    Timeline timeline;
+    Scheduler scheduler;
+    TimelineWait result = TimelineWait::Invalid;
+
+    timeline.Fail();
+    scheduler.Spawn(WaitThenRecordResult(timeline, 3u, result));
+    scheduler.Tick();
+
+    EXPECT_EQ(result, TimelineWait::Failed);
+    EXPECT_EQ(scheduler.ParkedCount(), 0);
+    EXPECT_TRUE(scheduler.Idle());
+}
+
+TEST(TaskSchedulerTest, AFrameParkedOnAReachedTimelineGetsReachedEvenWhenTheTimelineFailedAfterwards)
+{
+    Timeline timeline;
+    Scheduler scheduler;
+    TimelineWait result = TimelineWait::Invalid;
+
+    scheduler.Spawn(WaitThenRecordResult(timeline, 2u, result));
+    scheduler.Tick();
+    EXPECT_EQ(scheduler.ParkedCount(), 1);
+
+    timeline.Signal(2u);
+    timeline.Fail();
+    scheduler.Tick();
+
+    EXPECT_EQ(result, TimelineWait::Reached);
+    EXPECT_TRUE(scheduler.Idle());
 }
 
 TEST(TaskSchedulerTest, TargetReachedDuringATickResumesOnTheNextTick)
@@ -312,6 +422,11 @@ TEST(TaskSchedulerTest, ARootThatSpawnsARootStartsTheNewRootOnALaterTick)
 
 TEST(TaskSchedulerTest, FrameStatisticsCountEveryFrameOfAChain)
 {
+    if (!k_HasFrameStatistics)
+    {
+        GTEST_SKIP() << "the frame counters are compiled out of this configuration";
+    }
+
     Timeline timeline;
     int32_t liveCount = 0;
     const FrameStatisticsSnapshot before = FrameStatistics();
@@ -383,7 +498,8 @@ namespace
 
     Task<int32_t> ChildAwaitsThenReturns(const Timeline& timeline, uint64_t target_value, int32_t return_value)
     {
-        co_await timeline.Until(target_value);
+        const TimelineWait waited = co_await timeline.Until(target_value);
+        EXPECT_EQ(waited, TimelineWait::Reached);
         co_return return_value;
     }
 
@@ -392,22 +508,30 @@ namespace
         result = co_await ChildAwaitsThenReturns(timeline, target_value, 7);
     }
 
+    Task<void> WaitThenRecordResult(const Timeline& timeline, uint64_t target_value, TimelineWait& result)
+    {
+        result = co_await timeline.Until(target_value);
+    }
+
     Task<void> WaitThenCount(const Timeline& timeline, uint64_t target_value, int32_t& counter)
     {
-        co_await timeline.Until(target_value);
+        const TimelineWait waited = co_await timeline.Until(target_value);
+        EXPECT_EQ(waited, TimelineWait::Reached);
         ++counter;
     }
 
     Task<void> WaitThenSignal(const Timeline& wait_on, uint64_t target_value, Timeline& signal, uint64_t signal_value)
     {
-        co_await wait_on.Until(target_value);
+        const TimelineWait waited = co_await wait_on.Until(target_value);
+        EXPECT_EQ(waited, TimelineWait::Reached);
         signal.Signal(signal_value);
     }
 
     Task<void> WaitThenRecordThread(const Timeline& timeline, const int32_t& payload, std::thread::id& resumed_on,
                                     int32_t& observed_payload)
     {
-        co_await timeline.Until(1u);
+        const TimelineWait waited = co_await timeline.Until(1u);
+        EXPECT_EQ(waited, TimelineWait::Reached);
         resumed_on = std::this_thread::get_id();
         observed_payload = payload;
     }
@@ -415,7 +539,8 @@ namespace
     Task<void> LeafAwaitsTimeline(const Timeline& timeline, uint64_t target_value, int32_t& live_count)
     {
         LiveFrameGuard guard{ live_count };
-        co_await timeline.Until(target_value);
+        const TimelineWait waited = co_await timeline.Until(target_value);
+        EXPECT_EQ(waited, TimelineWait::Reached);
     }
 
     Task<void> MiddleAwaitsLeaf(const Timeline& timeline, uint64_t target_value, int32_t& live_count)
@@ -448,7 +573,8 @@ namespace
 
     Task<std::unique_ptr<int32_t>> ChildReturnsUniquePointer(const Timeline& timeline, uint64_t target_value)
     {
-        co_await timeline.Until(target_value);
+        const TimelineWait waited = co_await timeline.Until(target_value);
+        EXPECT_EQ(waited, TimelineWait::Reached);
         co_return std::make_unique<int32_t>(9);
     }
 

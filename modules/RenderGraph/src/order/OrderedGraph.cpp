@@ -7,6 +7,7 @@
 #include "freeze/FrozenGraph.hpp"
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <iterator>
@@ -14,6 +15,7 @@
 #include <queue>
 #include <ranges>
 #include <source_location>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -509,7 +511,7 @@ namespace loom
                         continue;
                     }
 
-                    const auto& accesses = context.PassAccesses[readerPass];
+                    const auto& accesses = context.PassAccesses[readerPass.Value];
                     const auto& where = accesses[reader.AccessIdx].Where;
                     AddEdge(context,
                             NodeOfPass(writerPass),
@@ -585,6 +587,37 @@ namespace loom
             }
 
             return sortedNodes;
+        }
+
+        Reachability ComputeReachability(OrderContext& context, const std::vector<NodeIndex>& ordered_nodes)
+        {
+            Reachability result;
+            result.WordsPerNode = static_cast<int64_t>(int64_t{ context.NodeCount } + 64) / int64_t{ 64 };
+            const size_t numEntries = static_cast<size_t>(context.NodeCount * result.WordsPerNode);
+            result.Bits.assign(numEntries, 0ull);
+            
+            // safe to use one span the whole time here, and just "copy" from it to subspan as needed
+            // bc we fully allocate upfront. so that's nice!
+            std::span<uint64_t> allBits{ result.Bits };
+
+            for (const NodeIndex node : ordered_nodes | std::views::reverse)
+            {
+                const size_t offset = static_cast<size_t>(node.Value * result.WordsPerNode);
+                const std::span<uint64_t> row = allBits.subspan(offset,
+                                                                static_cast<size_t>(result.WordsPerNode));
+                for (const int32_t edgeIndex : context.Successors[node.Value])
+                {
+                    const int32_t successor = context.Edges[edgeIndex].To.Value;
+                    const size_t successorOffset = static_cast<size_t>(successor * result.WordsPerNode);
+                    const std::span<uint64_t> successorRow = allBits.subspan(successorOffset,
+                                                                             static_cast<size_t>(result.WordsPerNode));
+                    for (int32_t i = 0; std::cmp_less(i ,result.WordsPerNode); ++i)
+                    {
+                        row[i] |= successorRow[i];
+                    }
+                }
+            }
+            return result;
         }
 
         void ReportCycle(const OrderContext& context, const std::vector<NodeIndex>& emitted)

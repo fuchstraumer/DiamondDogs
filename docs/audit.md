@@ -600,6 +600,16 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 
 - Sky cast, IBL scale and deferred crashes fixed, not committed. Details in `docs/ocean-agent.md`, section 8.
 
+### 2026-11-03 (Opus, ocean agent: Bruneton and SSR corruption)
+
+- Bruneton LUT precision and SSR self-hit fixed, spectrum plan written, not committed. Details in `docs/ocean-agent.md`,
+  section 8.
+
 ### 2026-11-02 (Opus: RhiResources Step C)
 
 - Futures replace the reply API. Details in `docs/rhi-resources-agent.md`, section 8.
+
+### 2026-11-02 (Opus: RhiResources Discard and placed resources)
+
+- `Discard` usage and placed resources (Vulkan-only `ResourcePlacement.hpp`), not committed. Details in
+  `docs/rhi-resources-agent.md`, section 8.
