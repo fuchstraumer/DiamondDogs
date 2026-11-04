@@ -13,6 +13,7 @@ internal const static uint OCEAN_FFT_SPREAD_MODE_EWANS = 5u;
 
 internal const static uint OCEAN_FFT_SPECTRUM_JONSWAP = 0u;
 internal const static uint OCEAN_FFT_SPECTRUM_ELFOUHAILY = 1u;
+internal const static uint OCEAN_FFT_SPECTRUM_BRINGER = 2u;
 
 internal uint4 Rand4DPCG32(in int4 p)
 {
@@ -172,6 +173,17 @@ void SpectrumInitCS(uint3 dispatchThreadID : SV_DispatchThreadID,
         {
             peakOmega = GetElfouhailyPeakOmega(dimensionlessFetch, SpectrumParams.WindSpeed, SpectrumParams.Depth);
             windRadialSpectrum = ElfouhailyRadialSpectrum(
+                kLength,
+                omega,
+                SpectrumParams.WindSpeed,
+                SpectrumParams.Fetch,
+                SpectrumParams.Depth,
+                SpectrumParams.PeakingFactor);
+        }
+        else if (SpectrumParams.EnergySpectrumModel == OCEAN_FFT_SPECTRUM_BRINGER)
+        {
+            peakOmega = GetElfouhailyPeakOmega(dimensionlessFetch, SpectrumParams.WindSpeed, SpectrumParams.Depth);
+            windRadialSpectrum = BringerRadialSpectrum(
                 kLength,
                 omega,
                 SpectrumParams.WindSpeed,

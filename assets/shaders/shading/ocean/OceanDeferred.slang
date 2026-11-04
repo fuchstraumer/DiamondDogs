@@ -584,6 +584,39 @@ internal uint GetSsrDebugMode()
     return uint(View.ShadingParameters.w + 0.5f);
 }
 
+internal static const uint SURF_DEBUG_OFF = 0u;
+internal static const uint SURF_DEBUG_NORMAL = 1u;
+internal static const uint SURF_DEBUG_SLOPE = 2u;
+internal static const uint SURF_DEBUG_STRETCH = 3u;
+internal static const uint SURF_DEBUG_JACOBIAN = 4u;
+internal static const uint SURF_DEBUG_LEAN_SIGMA = 5u;
+internal static const uint SURF_DEBUG_MIP_LEVEL = 6u;
+internal static const uint SURF_DEBUG_CASCADE_WEIGHTS = 7u;
+internal static const uint SURF_DEBUG_REFLECT_DIR = 8u;
+internal static const uint SURF_DEBUG_FOAM_TERMS = 9u;
+internal static const uint SURF_DEBUG_SPECULAR_SPLIT = 10u;
+
+internal uint GetSurfaceDebugMode()
+{
+    return uint(View.LodParameters.w + 0.5f);
+}
+
+internal float ViewLengthScale(uint cascade)
+{
+    return View.LengthScales[cascade >> 2u][cascade & 3u];
+}
+
+internal float ViewCascadeWeight(uint cascade)
+{
+    return View.CascadeWeights[cascade >> 2u][cascade & 3u];
+}
+
+internal float CascadeDistanceWeight(uint cascade, float distance)
+{
+    const float fadeStart = View.LodParameters.x * ViewLengthScale(cascade);
+    return ViewCascadeWeight(cascade) * (1.0f - smoothstep(fadeStart, 2.0f * fadeStart, distance));
+}
+
 internal float EncodeSsrDebugScalar(uint mode, float hit, float weight, int hitStep, float thicknessMeters, float distanceMeters)
 {
     switch (mode)
@@ -620,6 +653,12 @@ void OceanDeferredLightingCS(
 
     if (oceanDepth <= 0.0f)
     {
+        if (GetSurfaceDebugMode() != SURF_DEBUG_OFF)
+        {
+            HdrLightingOutput[coord] = float4(0.05f, 0.05f, 0.08f, 1.0f);
+            return;
+        }
+
         if (GetSsrDebugMode() != SSR_DEBUG_OFF)
         {
             HdrLightingOutput[coord] = float4(1.0f, 0.0f, 1.0f, 1.0f);
@@ -904,6 +943,52 @@ void OceanDeferredLightingCS(
     }
 
     float3 finalColor = lerp(waterRadiance, foamRadiance, whitecaps);
+
+    const uint surfDebugMode = GetSurfaceDebugMode();
+    if (surfDebugMode != SURF_DEBUG_OFF)
+    {
+        float3 debugColor = float3(0.0f);
+        if (surfDebugMode == SURF_DEBUG_NORMAL)
+        {
+            debugColor = float3(normal.x * 0.5f + 0.5f, saturate(normal.y), normal.z * 0.5f + 0.5f);
+        }
+        else if (surfDebugMode == SURF_DEBUG_LEAN_SIGMA)
+        {
+            debugColor = float3(saturate(sigmaSq.x * 10.0f), saturate(sigmaSq.y * 10.0f), 0.0f);
+        }
+        else if (surfDebugMode == SURF_DEBUG_CASCADE_WEIGHTS)
+        {
+            const float dist = length(oceanWorldPos.xz - View.CameraPositionTime.xz);
+            debugColor = float3(CascadeDistanceWeight(2u, dist), CascadeDistanceWeight(3u, dist), CascadeDistanceWeight(4u, dist));
+        }
+        else if (surfDebugMode == SURF_DEBUG_REFLECT_DIR)
+        {
+            const float3 rawReflect = reflect(-toCamera, normal);
+            if (rawReflect.y <= 0.01f)
+            {
+                debugColor = float3(1.0f, 0.0f, 0.0f);
+            }
+            else
+            {
+                debugColor = float3(rawReflect.x * 0.5f + 0.5f, saturate(rawReflect.y), rawReflect.z * 0.5f + 0.5f);
+            }
+        }
+        else if (surfDebugMode == SURF_DEBUG_FOAM_TERMS)
+        {
+            debugColor = float3(saturate(whitecaps), saturate(1.0f - specularMask), 0.0f);
+        }
+        else if (surfDebugMode == SURF_DEBUG_SPECULAR_SPLIT)
+        {
+            const float3 ap1Lum = float3(0.2722287f, 0.6740818f, 0.0536895f);
+            const float reflLum = dot(reflectionColor * effectiveFresnel, ap1Lum);
+            const float specLum = dot(sunSpecularRadiance * specularMask, ap1Lum);
+            const float sssLum = dot(waterSubsurface * waterOpacity * (1.0f - effectiveFresnel), ap1Lum);
+            debugColor = float3(saturate(reflLum * 0.5f), saturate(specLum * 0.5f), saturate(sssLum * 4.0f));
+        }
+
+        HdrLightingOutput[coord] = float4(debugColor, 1.0f);
+        return;
+    }
 
     // Bruneton (2008) Aerial Perspective
     if (Frame.UseBrunetonAtmosphere != 0u)

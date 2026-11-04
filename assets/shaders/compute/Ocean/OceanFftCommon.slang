@@ -11,6 +11,8 @@ internal const static float OceanFft_InvG = 1.0f / OceanFft_G;
 internal const static float OceanFft_SigmaOverRho = 0.074e-3f; // surface tension over density of water
 internal const static float OceanFft_Km = 370.0f; // gravity-capillary peak wavenumber (rad/m), sqrt(2 * g / SigmaOverRho)
 internal const static float OceanFft_Cm = 0.23f;  // minimum phase speed at k_m (m/s), sqrt(2 * g / Km)
+internal const static float OceanFft_BringerK1 = 3.9269908169872414f; // 2 * pi / 1.6 rad/m (Bringer et al. 2014 Eq. VI.36)
+internal const static float OceanFft_BringerK3 = 308.0f;              // gravity-capillary peak wavenumber (rad/m)
 
 public struct SpectrumParameters
 {
@@ -35,7 +37,7 @@ public struct SpectrumParameters
     float SwellPeakingFactor;
     float SwellSpread;
     float SwellFadeLength;
-    // 0: JONSWAP (Hasselmann et al. 1973), 1: Elfouhaily et al. (1997) unified gravity-capillary spectrum
+    // 0: JONSWAP (Hasselmann et al. 1973), 1: Elfouhaily et al. (1997), 2: Elfouhaily + Bringer et al. (2014) short waves
     uint EnergySpectrumModel;
 };
 

@@ -119,32 +119,50 @@ internal float GetElfouhailyInverseWaveAge(in float dimensionlessFetch)
     return min(0.84f * pow(max(tanhTerm, 1.0e-4f), -0.75f), 5.0f);
 }
 
-internal float GetElfouhailyPeakWavenumber(in float inverseWaveAge, in float windSpeed)
+// Solves omega^2 = g * k * tanh(k * depth) for k using Eckart's guess and 2 Newton-Raphson steps.
+internal float GetShoaledWavenumber(in float omega, in float depth)
 {
-    return OceanFft_G * (inverseWaveAge * inverseWaveAge) / max(windSpeed * windSpeed, 1.0e-4f);
+    const float kDeep = max((omega * omega) * OceanFft_InvG, 1.0e-6f);
+    const float x = min(kDeep * depth, 10.0f);
+    float k = kDeep * rsqrt(tanh(max(x, 1.0e-6f)));
+
+    [unroll]
+    for (int iter = 0; iter < 2; ++iter)
+    {
+        const float kd = min(k * depth, 10.0f);
+        const float th = tanh(kd);
+        const float ch = cosh(kd);
+        const float sech2 = 1.0f / (ch * ch);
+        const float f = k * th - kDeep;
+        const float df = max(th + k * depth * sech2, 1.0e-6f);
+        k = max(k - f / df, 1.0e-6f);
+    }
+
+    return k;
 }
 
 internal float GetElfouhailyPeakOmega(in float dimensionlessFetch, in float windSpeed, in float depth)
 {
-    const float inverseWaveAge = GetElfouhailyInverseWaveAge(dimensionlessFetch);
-    const float kp = GetElfouhailyPeakWavenumber(inverseWaveAge, windSpeed);
-    return DispersionRelation(kp, depth);
+    const float omegaC = GetElfouhailyInverseWaveAge(dimensionlessFetch);
+    return OceanFft_G * omegaC / max(windSpeed, 1.0e-4f);
 }
 
-// Elfouhaily et al. (1997) Eq. 30-44: 1D omnidirectional wavenumber spectrum S(k) = k^-3 * (B_l(k) + B_h(k))
-// with L_PM multiplied into F_m (Eq. 41) so B_h vanishes below the gravity peak k_p, and Wu (1980) neutral drag u_*.
-internal float ElfouhailyRadialSpectrum(
+internal float GetElfouhailyPeakWavenumber(in float dimensionlessFetch, in float windSpeed, in float depth)
+{
+    const float omegaP = GetElfouhailyPeakOmega(dimensionlessFetch, windSpeed, depth);
+    return GetShoaledWavenumber(omegaP, depth);
+}
+
+// Evaluates Elfouhaily et al. (1997) dimensionless curvature spectrum B_E(k) = B_l(k) + B_h(k) at wavenumber kLength.
+internal float ElfouhailyCurvatureB(
     in float kLength,
     in float omega,
+    in float kp,
+    in float omegaP,
+    in float omegaC,
     in float windSpeed,
-    in float fetch,
-    in float depth,
     in float gamma)
 {
-    const float dimensionlessFetch = GetDimensionlessFetch(fetch, windSpeed);
-    const float omegaC = GetElfouhailyInverseWaveAge(dimensionlessFetch);
-    const float kp = GetElfouhailyPeakWavenumber(omegaC, windSpeed);
-    const float omegaP = DispersionRelation(kp, depth);
     const float cp = omegaP / kp;
     const float c = max(omega / kLength, 1.0e-6f);
 
@@ -171,9 +189,81 @@ internal float ElfouhailyRadialSpectrum(
     const float fm = lpm * exp(-0.25f * kOverKmDiff * kOverKmDiff);
     const float bh = 0.5f * alphaM * (OceanFft_Cm / c) * fm;
 
-    const float invK3 = 1.0f / (kLength * kLength * kLength);
-    const float correction = KitaiGorodskiiDepthCorrection(omega, depth);
-    return (bl + bh) * invK3 * correction;
+    return bl + bh;
+}
+
+internal float ElfouhailyRadialSpectrum(
+    in float kLength,
+    in float omega,
+    in float windSpeed,
+    in float fetch,
+    in float depth,
+    in float gamma)
+{
+    const float dimensionlessFetch = GetDimensionlessFetch(fetch, windSpeed);
+    const float omegaC = GetElfouhailyInverseWaveAge(dimensionlessFetch);
+    const float omegaP = OceanFft_G * omegaC / max(windSpeed, 1.0e-4f);
+    const float kp = GetShoaledWavenumber(omegaP, depth);
+    const float bTotal = ElfouhailyCurvatureB(kLength, omega, kp, omegaP, omegaC, windSpeed, gamma);
+    return bTotal / (kLength * kLength * kLength);
+}
+
+// Bringer, Chapron, Mouche, Guerin (2014) IEEE TGRS 52(1) Eq. VI.36-37:
+// Uses Elfouhaily for k < k_1 = 2*pi/1.6 and the 3-branch WCA radar/optical short-wave curvature B_sw(k) for k >= k_1.
+internal float BringerRadialSpectrum(
+    in float kLength,
+    in float omega,
+    in float windSpeed,
+    in float fetch,
+    in float depth,
+    in float gamma)
+{
+    const float dimensionlessFetch = GetDimensionlessFetch(fetch, windSpeed);
+    const float omegaC = GetElfouhailyInverseWaveAge(dimensionlessFetch);
+    const float omegaP = OceanFft_G * omegaC / max(windSpeed, 1.0e-4f);
+    const float kp = GetShoaledWavenumber(omegaP, depth);
+
+    float bTotal = 0.0f;
+
+    if (kLength < OceanFft_BringerK1)
+    {
+        bTotal = ElfouhailyCurvatureB(kLength, omega, kp, omegaP, omegaC, windSpeed, gamma);
+    }
+    else
+    {
+        const float omega1 = DispersionRelation(OceanFft_BringerK1, depth);
+        const float b1 = ElfouhailyCurvatureB(OceanFft_BringerK1, omega1, kp, omegaP, omegaC, windSpeed, gamma);
+
+        const float u = clamp(windSpeed, 5.0f, 15.0f);
+        const float u2 = u * u;
+        const float u3 = u2 * u;
+        const float u4 = u2 * u2;
+        const float u5 = u4 * u;
+
+        const float g1 = 6.1e-2f * u - 3.3e-2f;
+        const float g2 = -1.314e-4f * u5 + 7.036e-3f * u4 - 1.468e-1f * u3 + 1.4741f * u2 - 6.9122f * u + 12.162f;
+        const float g3 = 1.5378e-4f * u5 - 7.1804e-3f * u4 + 1.2835e-1f * u3 - 1.095f * u2 + 4.4721f * u - 5.52f;
+        const float cPeak = -8.6e-6f * u3 + 3.0e-4f * u2 - 1.6e-3f * u + 5.1e-3f;
+
+        const float kpOverK = kp / kLength;
+        const float lpm = exp(-1.25f * kpOverK * kpOverK);
+
+        if (kLength <= OceanFft_BringerK3)
+        {
+            const float logKOverK1 = log10(max(kLength / OceanFft_BringerK1, 1.0e-6f));
+            const float logKOverK3 = log10(max(kLength / OceanFft_BringerK3, 1.0e-6f));
+            const float bDip = b1 * exp(-g1 * logKOverK1 * logKOverK1);
+            const float bCap = lpm * cPeak * exp(-g2 * logKOverK3 * logKOverK3);
+            bTotal = max(bDip, bCap);
+        }
+        else
+        {
+            const float kRatio = kLength / OceanFft_BringerK3;
+            bTotal = lpm * cPeak * exp(-g3 * (kRatio * kRatio - 1.0f));
+        }
+    }
+
+    return bTotal / (kLength * kLength * kLength);
 }
 
 internal float DonelanBannerBeta(in float omega, in float peakOmega)

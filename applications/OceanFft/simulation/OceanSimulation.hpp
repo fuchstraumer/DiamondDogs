@@ -37,6 +37,7 @@ namespace ocean
         Invalid = 0,
         Jonswap = 1,
         Elfouhaily = 2,
+        Bringer = 3,
     };
 
     enum class DirectionalSpreadingModel : uint8_t
@@ -75,7 +76,7 @@ namespace ocean
         float SwellPeakingFactor{ 7.0f };        // a swell is narrow-banded
         float SwellSpread{ 2.0f };               // narrows the swell's spreading lobe, like SwellAmount for the wind sea
         float SwellFadeLength{ 1.0f };           // m: a swell has no short waves
-        uint32_t EnergySpectrumModel{ 0u };      // 0 JONSWAP, 1 Elfouhaily
+        uint32_t EnergySpectrumModel{ 0u };      // 0 JONSWAP, 1 Elfouhaily, 2 Bringer
     };
 
     /** @brief CascadeParameters in OceanFftCommon.slang, std140. Each per-cascade array is float4[2] in the shader, so

@@ -1495,6 +1495,9 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::SsrDebug:
         ssrDebugMode = static_cast<int32_t>(v[0]);
         break;
+    case SceneCommand::Kind::SurfDebug:
+        surfaceDebugMode = static_cast<int32_t>(v[0]);
+        break;
     case SceneCommand::Kind::Preset:
         setSeaStatePreset(command.Text);
         if (command.Text == "GaleFoam")
@@ -1524,7 +1527,19 @@ void OceanScene::runCommand(const SceneCommand& command)
         rotateCascades = command.Text == "on";
         break;
     case SceneCommand::Kind::Spectrum:
-        spectrum.EnergySpectrumModel = (command.Text == "elfouhaily") ? 1u : 0u;
+        if (command.Text == "bringer")
+        {
+            spectrum.EnergySpectrumModel = 2u;
+        }
+        else if (command.Text == "elfouhaily")
+        {
+            spectrum.EnergySpectrumModel = 1u;
+        }
+        else
+        {
+            spectrum.EnergySpectrumModel = 0u;
+        }
+
         seaStateEdited();
         break;
     case SceneCommand::Kind::Spreading:
@@ -1803,6 +1818,10 @@ void OceanScene::runCommand(const SceneCommand& command)
         {
             currentTab = ocean::TelemetryTab::SeaState;
         }
+        else if (command.Text == "debug")
+        {
+            currentTab = ocean::TelemetryTab::Debug;
+        }
         break;
     case SceneCommand::Kind::Sync:
         device->WaitDeviceIdle();
@@ -1973,7 +1992,12 @@ void OceanScene::printState() const
     std::cout << std::format("\nshading underwater {} specular {} albedo {} normal {}", underwaterFoam, sunSpecular, foamAlbedoGain, foamNormalStrength);
 
     std::cout << "\nrotate cascades " << (rotateCascades ? "on" : "off");
-    std::cout << "\nspectrum model " << (spectrum.EnergySpectrumModel == 1u ? "elfouhaily" : "jonswap");
+    constexpr std::array<std::string_view, 3> k_SpectrumModelNames
+    {
+        "jonswap", "elfouhaily", "bringer"
+    };
+    const size_t spectrumIdx = std::min<size_t>(spectrum.EnergySpectrumModel, k_SpectrumModelNames.size() - 1u);
+    std::cout << "\nspectrum model " << k_SpectrumModelNames[spectrumIdx];
     constexpr std::array<std::string_view, 6> k_SpreadingModelNames
     {
         "mitsuyasu", "hasselmann", "donelan", "elfouhaily", "hybrid", "ewans"
@@ -2568,8 +2592,6 @@ void OceanScene::drawPanel()
             (void)ocean::DrawArtistSlider("##taa_alpha", "TAA alpha", "blend rate", &taaBlendAlpha, 0.01f, 0.5f, std::format("{:.2f}", taaBlendAlpha), "", fonts, ocean::AccentTone::Cyan, false);
             (void)ocean::DrawArtistSlider("##ssr_int", "SSR intensity", "crest reflections", &ssrIntensity, 0.0f, 2.0f, std::format("{:.2f}", ssrIntensity), "", fonts, ocean::AccentTone::Ice, false);
             (void)ocean::DrawTelemetryToggle("##auto_exp", "Auto exposure", "OFF", "ON", &useAutoExposure, fonts, ocean::AccentTone::Amber);
-            drawDebugModeCombo("Atmosphere debug", AtmosphereDebugModeNames(), atmosphereDebugMode);
-            drawDebugModeCombo("SSR debug", SsrDebugModeNames(), ssrDebugMode);
 
             ocean::DrawSubSectionDivider("SKY & ENVIRONMENT", fonts, headerFontMode, ocean::AccentTone::Amber);
             if (ocean::DrawSkyPresetGrid(fonts, skyPreset))
@@ -2781,6 +2803,38 @@ void OceanScene::drawPanel()
             ImGui::PushFont(fonts.BodyItalic);
             ImGui::TextColored(ImVec4{ 0.48f, 0.60f, 0.72f, 1.0f }, "Left drag: orbit   |   Right/middle drag: pan   |   Wheel: zoom");
             ImGui::PopFont();
+            break;
+        }
+        case ocean::TelemetryTab::Debug:
+        {
+            ocean::DrawSubSectionDivider("SURFACE & SHADING DEBUG", fonts, headerFontMode, ocean::AccentTone::Amber);
+            drawDebugModeCombo("Surface debug", SurfaceDebugModeNames(), surfaceDebugMode);
+            if (surfaceDebugMode != 0)
+            {
+                if (ImGui::Button("Reset surface debug"))
+                {
+                    surfaceDebugMode = 0;
+                }
+            }
+
+            (void)ocean::DrawTelemetryToggle(
+                "##debug_wireframe",
+                "Wireframe mode",
+                "FILL",
+                "LINES",
+                &wireframe,
+                fonts,
+                ocean::AccentTone::Amber);
+            (void)ocean::DrawTelemetryToggle("##debug_deferred", "Deferred path", "OFF", "ON", &useDeferredPath, fonts, ocean::AccentTone::Cyan);
+            (void)ocean::DrawTelemetryToggle("##debug_spec_aa", "Specular AA", "OFF", "ON", &useSpecularAa, fonts, ocean::AccentTone::Cyan);
+            (void)ocean::DrawTelemetryToggle("##debug_taa", "Temporal AA", "OFF", "ON", &useTaa, fonts, ocean::AccentTone::Cyan);
+
+            ocean::DrawSubSectionDivider("CASCADE BANDS", fonts, headerFontMode, ocean::AccentTone::Cyan);
+            ocean::DrawCascadeBandStrip(fonts, simulationSettings.LengthScales, cascadeEnabled);
+
+            ocean::DrawSubSectionDivider("DEFERRED PASS DEBUG", fonts, headerFontMode, ocean::AccentTone::Amber);
+            drawDebugModeCombo("Atmosphere debug", AtmosphereDebugModeNames(), atmosphereDebugMode);
+            drawDebugModeCombo("SSR debug", SsrDebugModeNames(), ssrDebugMode);
             break;
         }
         }
@@ -3100,7 +3154,7 @@ void OceanScene::writeViewParameters()
 
     const std::array<float, 3> sunDir = sunDirection();
     view.SunDirectionSeabedDepth = { sunDir[0], sunDir[1], sunDir[2], seabedDepth };
-    view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), rotateCascades ? 1.0f : 0.0f, 0.0f };
+    view.LodParameters = { lodScale, static_cast<float>(simulation->Settings().Size), rotateCascades ? 1.0f : 0.0f, static_cast<float>(surfaceDebugMode) };
     view.WhitecapParameters = { seaState.WhitecapThreshold, seaState.FoamAmount, seaState.CrestSharpness, 0.0f };
     view.ShadingParameters = { underwaterFoam, sunSpecular, static_cast<float>(atmosphereDebugMode),
         static_cast<float>(ssrDebugMode) };

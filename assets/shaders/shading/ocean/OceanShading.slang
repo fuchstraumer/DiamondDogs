@@ -10,6 +10,12 @@ internal struct SurfaceSample
     float3 Normal;
     float2 SigmaSq;
     float DisplacementY;
+    float2 RawSlope;
+    float2 TotalStretch;
+    float2 FwidthVariance;
+    float JacobianMuA;
+    float FinestMipLevel;
+    float3 CascadeWeightRgb;
 };
 
 internal void SampleSurfaceAndWhitecaps(
@@ -30,6 +36,7 @@ internal void SampleSurfaceAndWhitecaps(
     float varA = 0.0f;
     float3 tensor = float3(0.0f);
     const float rest = 1.0f / float(OCEAN_CASCADE_COUNT);
+    float finestMipLevel = 0.0f;
 
     [unroll]
     for (uint cascade = 0; cascade < OCEAN_CASCADE_COUNT; ++cascade)
@@ -43,6 +50,13 @@ internal void SampleSurfaceAndWhitecaps(
         {
             const float2 ddxUv = WorldToCascade(ddxXz, cascade) / ViewLengthScale(cascade);
             const float2 ddyUv = WorldToCascade(ddyXz, cascade) / ViewLengthScale(cascade);
+            if (cascade == OCEAN_CASCADE_COUNT - 1u)
+            {
+                const float2 ddxTexel = ddxUv * View.LodParameters.y;
+                const float2 ddyTexel = ddyUv * View.LodParameters.y;
+                const float rho = max(length(ddxTexel), length(ddyTexel));
+                finestMipLevel = max(0.0f, log2(max(1e-6f, rho)));
+            }
             const float3 uvw = float3(CascadeUv(surface_xz, cascade), float(cascade));
             const float4 derivatives = Derivatives.SampleGrad(OceanSampler, uvw, ddxUv, ddyUv);
             const float4 moments = Whitecaps.SampleGrad(OceanSampler, uvw, ddxUv, ddyUv);
@@ -84,12 +98,22 @@ internal void SampleSurfaceAndWhitecaps(
         }
         else
         {
+            if (cascade == OCEAN_CASCADE_COUNT - 1u)
+            {
+                const float2 ddxUv = WorldToCascade(ddxXz, cascade) / ViewLengthScale(cascade);
+                const float2 ddyUv = WorldToCascade(ddyXz, cascade) / ViewLengthScale(cascade);
+                const float2 ddxTexel = ddxUv * View.LodParameters.y;
+                const float2 ddyTexel = ddyUv * View.LodParameters.y;
+                const float rho = max(length(ddxTexel), length(ddyTexel));
+                finestMipLevel = max(0.0f, log2(max(1e-6f, rho)));
+            }
             muA += rest;
         }
     }
 
     const float2 slopeFwidth = fwidth(totalSlope);
-    unresolvedVariance += 0.5f * (slopeFwidth * slopeFwidth);
+    const float2 fwidthVariance = 0.5f * (slopeFwidth * slopeFwidth);
+    unresolvedVariance += fwidthVariance;
 
     const float2 slope = totalSlope / max(float2(0.1f), 1.0f + totalStretch);
     surface.Normal = normalize(float3(-slope.x, 1.0f, -slope.y));
@@ -98,6 +122,11 @@ internal void SampleSurfaceAndWhitecaps(
     const float2 leadrVariance = unresolvedVariance * Frame.LeadrSlopeVarianceScale;
     surface.SigmaSq = max(float2(1e-4f), baseVariance + leadrVariance);
     surface.DisplacementY = wave_height;
+    surface.RawSlope = totalSlope;
+    surface.TotalStretch = totalStretch;
+    surface.FwidthVariance = fwidthVariance;
+    surface.FinestMipLevel = finestMipLevel;
+    surface.CascadeWeightRgb = float3(CascadeDistanceWeight(2u, distance), CascadeDistanceWeight(3u, distance), CascadeDistanceWeight(4u, distance));
 
     // Crest sharpness
     const float jxx = 1.0f + tensor.x;
@@ -105,6 +134,7 @@ internal void SampleSurfaceAndWhitecaps(
     const float halfDifference = 0.5f * (jxx - jzz);
     const float minorEigenvalue = 0.5f * (jxx + jzz) - sqrt(halfDifference * halfDifference + tensor.z * tensor.z);
     muA = lerp(muA, minorEigenvalue, saturate(View.WhitecapParameters.z));
+    surface.JacobianMuA = muA;
 
     const float sigmaSq = max(1e-4f, varA);
     const float sigmaA = sqrt(sigmaSq);
@@ -180,6 +210,111 @@ internal float EvaluateBrunetonFresnel(float3 V, float3 N, float2 sigmaSq)
     const float cosThetaV = saturate(dot(V, N));
     const float sigmaV = sqrt(0.5f * (sigmaSq.x + sigmaSq.y));
     return 0.02f + 0.98f * EvaluateBrunetonMeanFresnel(cosThetaV, sigmaV);
+}
+
+internal float3 EvaluateSurfaceDebugColor(
+    uint mode,
+    SurfaceSample surface,
+    float3 toCamera,
+    float breaking,
+    float underwaterFoam,
+    float storedFoam,
+    float specularMask,
+    float effectiveFresnel,
+    float3 skyRadiance,
+    float3 sunSpecularRadiance,
+    float3 waterSubsurface,
+    float waterOpacity)
+{
+    if (mode == SURF_DEBUG_NORMAL)
+    {
+        return float3(surface.Normal.x * 0.5f + 0.5f, saturate(surface.Normal.y), surface.Normal.z * 0.5f + 0.5f);
+    }
+    if (mode == SURF_DEBUG_SLOPE)
+    {
+        const float2 stretchedSlope = surface.RawSlope / max(float2(0.1f), 1.0f + surface.TotalStretch);
+        const float stretchRatio = length(stretchedSlope) / max(1e-4f, length(surface.RawSlope));
+        return float3(
+            saturate(surface.RawSlope.x * 0.5f + 0.5f),
+            saturate(surface.RawSlope.y * 0.5f + 0.5f),
+            saturate((stretchRatio - 1.0f) * 0.25f));
+    }
+    if (mode == SURF_DEBUG_STRETCH)
+    {
+        // 1 + totalStretch: <= 0.105 is clamped (bright magenta), < 0.3 is warning red/orange, 1.0 is mid-gray, > 1.0 is cyan/blue
+        const float minDenom = min(1.0f + surface.TotalStretch.x, 1.0f + surface.TotalStretch.y);
+        if (minDenom <= 0.105f)
+        {
+            return float3(1.0f, 0.0f, 1.0f);
+        }
+        if (minDenom < 0.5f)
+        {
+            const float t = saturate((0.5f - minDenom) / 0.4f);
+            return lerp(float3(1.0f, 0.8f, 0.0f), float3(1.0f, 0.05f, 0.0f), t);
+        }
+        const float expand = saturate((minDenom - 0.5f) / 1.5f);
+        return lerp(float3(0.2f, 0.2f, 0.2f), float3(0.1f, 0.7f, 1.0f), expand);
+    }
+    if (mode == SURF_DEBUG_JACOBIAN)
+    {
+        // Jacobian muA: <= 0 (folding/breaking) is red, 0..1 is yellow->gray, > 1 is blue
+        const float j = surface.JacobianMuA;
+        if (j <= 0.0f)
+        {
+            return float3(1.0f, 0.0f, 0.0f);
+        }
+        if (j < 1.0f)
+        {
+            return lerp(float3(1.0f, 0.75f, 0.0f), float3(0.25f, 0.25f, 0.25f), j);
+        }
+        return lerp(float3(0.25f, 0.25f, 0.25f), float3(0.1f, 0.5f, 1.0f), saturate((j - 1.0f) * 0.8f));
+    }
+    if (mode == SURF_DEBUG_LEAN_SIGMA)
+    {
+        // R: SigmaSq.x * 10, G: SigmaSq.y * 10, B: fwidth variance contribution * 20
+        const float fwVar = surface.FwidthVariance.x + surface.FwidthVariance.y;
+        return float3(saturate(surface.SigmaSq.x * 10.0f), saturate(surface.SigmaSq.y * 10.0f), saturate(fwVar * 20.0f));
+    }
+    if (mode == SURF_DEBUG_MIP_LEVEL)
+    {
+        // Color code finest cascade mip level: 0=red, 1=orange, 2=yellow, 3=green, 4=cyan, 5+=blue
+        const float m = clamp(surface.FinestMipLevel, 0.0f, 6.0f);
+        if (m < 1.0f) return lerp(float3(1.0f, 0.0f, 0.0f), float3(1.0f, 0.5f, 0.0f), m);
+        if (m < 2.0f) return lerp(float3(1.0f, 0.5f, 0.0f), float3(1.0f, 1.0f, 0.0f), m - 1.0f);
+        if (m < 3.0f) return lerp(float3(1.0f, 1.0f, 0.0f), float3(0.0f, 0.9f, 0.2f), m - 2.0f);
+        if (m < 4.0f) return lerp(float3(0.0f, 0.9f, 0.2f), float3(0.0f, 0.8f, 1.0f), m - 3.0f);
+        return lerp(float3(0.0f, 0.8f, 1.0f), float3(0.1f, 0.1f, 1.0f), saturate((m - 4.0f) * 0.5f));
+    }
+    if (mode == SURF_DEBUG_CASCADE_WEIGHTS)
+    {
+        // R = Cascade 2 (78 m), G = Cascade 3 (8.6 m), B = Cascade 4 (0.96 m)
+        return surface.CascadeWeightRgb;
+    }
+    if (mode == SURF_DEBUG_REFLECT_DIR)
+    {
+        const float3 rawReflect = reflect(-toCamera, surface.Normal);
+        if (rawReflect.y <= 0.01f)
+        {
+            // Bright red where the horizon clamp (reflectDir.y = max(0.01, reflectDir.y)) fires
+            return float3(1.0f, 0.0f, 0.0f);
+        }
+        return float3(rawReflect.x * 0.5f + 0.5f, saturate(rawReflect.y), rawReflect.z * 0.5f + 0.5f);
+    }
+    if (mode == SURF_DEBUG_FOAM_TERMS)
+    {
+        // R = breaking, G = 1 - specularMask (specular suppression from underwaterFoam), B = storedFoam
+        return float3(saturate(breaking), saturate(1.0f - specularMask), saturate(storedFoam));
+    }
+    if (mode == SURF_DEBUG_SPECULAR_SPLIT)
+    {
+        // R = luminance of sky reflection * Fresnel, G = luminance of sun specular * mask, B = luminance of subsurface * 4
+        const float3 ap1Lum = float3(0.2722287f, 0.6740818f, 0.0536895f);
+        const float reflLum = dot(skyRadiance * effectiveFresnel, ap1Lum);
+        const float specLum = dot(sunSpecularRadiance * specularMask, ap1Lum);
+        const float sssLum = dot(waterSubsurface * waterOpacity * (1.0f - effectiveFresnel), ap1Lum);
+        return float3(saturate(reflLum * 0.5f), saturate(specLum * 0.5f), saturate(sssLum * 4.0f));
+    }
+    return float3(0.0f);
 }
 
 [shader("fragment")]
@@ -365,9 +500,30 @@ float4 OceanSurfaceFS(OceanSurfaceVaryings input) : SV_Target
         foamRadiance = foamDirect + foamIbl;
     }
 
+
     // Unclamped AP1 scene-linear radiance
     const float3 finalColor = lerp(waterRadiance, foamRadiance, whitecaps);
     const float surfaceAlpha = saturate(lerp(waterOpacity, 1.0f, effectiveFresnel) + whitecaps);
+
+    const uint surfDebugMode = GetSurfaceDebugMode();
+    if (surfDebugMode != SURF_DEBUG_OFF)
+    {
+        const float3 debugColor = EvaluateSurfaceDebugColor(
+            surfDebugMode,
+            surface,
+            toCamera,
+            breaking,
+            underwaterFoam,
+            storedFoam,
+            specularMask,
+            effectiveFresnel,
+            skyRadiance,
+            sunSpecularRadiance,
+            waterSubsurface,
+            waterOpacity);
+        return float4(debugColor, 1.0f);
+    }
+
     return float4(finalColor, surfaceAlpha);
 }
 

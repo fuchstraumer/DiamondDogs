@@ -23,7 +23,7 @@ public struct OceanViewParameters
     public float4 SunDirectionSeabedDepth;
     // x: the cascade fade distance in patch lengths. Cascade c fades out between x * LengthScales[c] and twice that,
     // so waves far smaller than a pixel stop shimmering. y: texels along an edge of mip 0 of the textures.
-    // z: 1 rotates and offsets each cascade's lattice (tiling A/B, see CascadeUv), 0 samples them all aligned. w unused
+    // z: 1 rotates and offsets each cascade's lattice (tiling A/B, see CascadeUv), 0 samples them all aligned. w: surface debug mode (0 is off)
     public float4 LodParameters;
     // x: WhitecapThreshold (breaking trigger [0, 1] -> [-0.2, 0.2]), y: FoamAmount (coverage scale),
     // z: CrestSharpness (0: Dupuy's determinant, 1: the tensor's smaller eigenvalue), w unused
@@ -103,6 +103,23 @@ internal float ViewCascadeWeight(uint cascade)
 internal float ViewFoamWeight(uint cascade)
 {
     return View.FoamWeights[cascade >> 2u][cascade & 3u];
+}
+
+internal static const uint SURF_DEBUG_OFF = 0u;
+internal static const uint SURF_DEBUG_NORMAL = 1u;
+internal static const uint SURF_DEBUG_SLOPE = 2u;
+internal static const uint SURF_DEBUG_STRETCH = 3u;
+internal static const uint SURF_DEBUG_JACOBIAN = 4u;
+internal static const uint SURF_DEBUG_LEAN_SIGMA = 5u;
+internal static const uint SURF_DEBUG_MIP_LEVEL = 6u;
+internal static const uint SURF_DEBUG_CASCADE_WEIGHTS = 7u;
+internal static const uint SURF_DEBUG_REFLECT_DIR = 8u;
+internal static const uint SURF_DEBUG_FOAM_TERMS = 9u;
+internal static const uint SURF_DEBUG_SPECULAR_SPLIT = 10u;
+
+internal uint GetSurfaceDebugMode()
+{
+    return uint(View.LodParameters.w + 0.5f);
 }
 
 // the angle of cascade `cascade`'s lattice in radians: the golden angle per cascade, so no two lattices line up. 0 when off

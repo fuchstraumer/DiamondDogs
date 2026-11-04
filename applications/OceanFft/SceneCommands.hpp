@@ -43,7 +43,7 @@
  *                                          albedo (0 to 4, the brightness gain of the foam texture), normal (0 to 2, its normal strength)
  *    foamreset                             rebuild the persistent foam by replaying its history
  *    rotate on|off                         rotate and offset each cascade's lattice when sampled (tiling A/B)
- *    spectrum jonswap|elfouhaily           set energy spectrum model (JONSWAP or Elfouhaily)
+ *    spectrum jonswap|elfouhaily|bringer   set energy spectrum model (JONSWAP, Elfouhaily, or Bringer)
  *    spreading model                       set directional spreading model (mitsuyasu, hasselmann, donelan, elfouhaily, hybrid, ewans)
  *    sky preset                            set the sky preset (preetham, aurora, day, night, overcast, twilight)
  *    sky_res 8k|16k                        set sky texture resolution (8k downsampled or 16k full)
@@ -69,6 +69,7 @@
  *                                          constant, lutformula, luttotal, museamcam)
  *    ssrdebug mode                         replace the deferred lighting output with a scalar from the SSR march
  *                                          (off, hit, weight, step, thickness, distance)
+ *    surfdebug mode                        replace surface output with a diagnostic layer (off, normal, slope, stretch, jacobian, leansigma, miplevel, cascades, reflectdir, foamterms, specsplit)
  *    sync [token]                          flush device idle, flush captures, and print READY <token> frame=<frame>
  *    wait frames                           render this many frames before the next command
  *    print                                 print the camera, sky, tonemap, exposure, bloom, CDLOD, sea state, and cascades
@@ -124,6 +125,7 @@ struct SceneCommand
         CaptureBurst,
         AtmosDebug,
         SsrDebug,
+        SurfDebug,
         Sync,
         Wait,
         Print,
@@ -158,6 +160,10 @@ struct SeaStateField
 [[nodiscard]] const std::array<std::string_view, 6>& SsrDebugModeNames() noexcept;
 /** @brief Returns the index of the SSR debug mode whose name matches, or -1 when no mode matches */
 [[nodiscard]] int32_t FindSsrDebugMode(std::string_view name);
+/** @brief Returns the surface debug mode names. The index of a name is the mode number that the shader reads */
+[[nodiscard]] const std::array<std::string_view, 11>& SurfaceDebugModeNames() noexcept;
+/** @brief Returns the index of the surface debug mode whose name matches, or -1 when no mode matches */
+[[nodiscard]] int32_t FindSurfaceDebugMode(std::string_view name);
 /** @brief Returns every float field of the sea state, in declaration order */
 [[nodiscard]] const std::array<SeaStateField, 15>& SeaStateFields() noexcept;
 

@@ -78,6 +78,7 @@ namespace
         { "capture_burst", { SceneCommand::Kind::CaptureBurst, 0u, 0u, false } },
         { "atmosdebug", { SceneCommand::Kind::AtmosDebug, 0u, 0u, false } },
         { "ssrdebug", { SceneCommand::Kind::SsrDebug, 0u, 0u, false } },
+        { "surfdebug", { SceneCommand::Kind::SurfDebug, 0u, 0u, false } },
         { "sync", { SceneCommand::Kind::Sync, 0u, 0u, true } },
         { "wait", { SceneCommand::Kind::Wait, 1u, 1u, false } },
         { "print", { SceneCommand::Kind::Print, 0u, 0u, false } },
@@ -167,6 +168,7 @@ namespace
     std::expected<SceneCommand, std::string> ParseCaptureBurst(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseAtmosDebug(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseSsrDebug(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseSurfDebug(const std::vector<std::string_view>& words);
 
     const std::array<std::string_view, 10> k_AtmosphereDebugModes
     {
@@ -190,6 +192,21 @@ namespace
         "step",
         "thickness",
         "distance",
+    };
+
+    const std::array<std::string_view, 11> k_SurfaceDebugModes
+    {
+        "off",
+        "normal",
+        "slope",
+        "stretch",
+        "jacobian",
+        "leansigma",
+        "miplevel",
+        "cascades",
+        "reflectdir",
+        "foamterms",
+        "specsplit",
     };
 }
 
@@ -298,6 +315,11 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
         return ParseSsrDebug(words);
     }
 
+    if (shape.Kind == Kind::SurfDebug)
+    {
+        return ParseSurfDebug(words);
+    }
+
     SceneCommand command{};
     command.Type = shape.Kind;
     if (shape.TakesText)
@@ -320,9 +342,9 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
             return std::unexpected(std::string{ "sky_res takes 8k or 16k" });
         }
 
-        if (command.Type == Kind::Spectrum && command.Text != "jonswap" && command.Text != "elfouhaily")
+        if (command.Type == Kind::Spectrum && command.Text != "jonswap" && command.Text != "elfouhaily" && command.Text != "bringer")
         {
-            return std::unexpected(std::string{ "spectrum takes jonswap or elfouhaily" });
+            return std::unexpected(std::string{ "spectrum takes jonswap, elfouhaily or bringer" });
         }
 
         if (command.Type == Kind::Spreading &&
@@ -433,6 +455,27 @@ int32_t FindSsrDebugMode(std::string_view name)
     }
 
     return static_cast<int32_t>(found - k_SsrDebugModes.begin());
+}
+
+const std::array<std::string_view, 11>& SurfaceDebugModeNames() noexcept
+{
+    return k_SurfaceDebugModes;
+}
+
+int32_t FindSurfaceDebugMode(std::string_view name)
+{
+    const auto matchesName = [name](std::string_view mode)
+    {
+        return EqualsIgnoreCase(mode, name);
+    };
+
+    const auto found = std::ranges::find_if(k_SurfaceDebugModes, matchesName);
+    if (found == k_SurfaceDebugModes.end())
+    {
+        return -1;
+    }
+
+    return static_cast<int32_t>(found - k_SurfaceDebugModes.begin());
 }
 
 std::expected<void, std::string> SceneCommands::LoadScript(const std::filesystem::path& path)
@@ -1218,6 +1261,30 @@ namespace
 
         SceneCommand cmd{};
         cmd.Type = SceneCommand::Kind::SsrDebug;
+        cmd.Text = std::string{ words[1] };
+        cmd.Values[0] = static_cast<float>(mode);
+        cmd.ValueCount = 1u;
+
+        return cmd;
+    }
+
+    std::expected<SceneCommand, std::string> ParseSurfDebug(const std::vector<std::string_view>& words)
+    {
+        if (words.size() != 2u)
+        {
+            return std::unexpected(std::string{ "surfdebug takes a mode name" });
+        }
+
+        const int32_t mode = FindSurfaceDebugMode(words[1]);
+        if (mode < 0)
+        {
+            const std::string modeName{ words[1] };
+
+            return std::unexpected("surfdebug: unknown mode '" + modeName + "'");
+        }
+
+        SceneCommand cmd{};
+        cmd.Type = SceneCommand::Kind::SurfDebug;
         cmd.Text = std::string{ words[1] };
         cmd.Values[0] = static_cast<float>(mode);
         cmd.ValueCount = 1u;

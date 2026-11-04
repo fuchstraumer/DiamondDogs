@@ -552,46 +552,53 @@ namespace ocean
         ImDrawList* drawList = ImGui::GetWindowDrawList();
         const ImVec2 barMin = ImGui::GetCursorScreenPos();
         const float availWidth = ImGui::GetContentRegionAvail().x;
-        constexpr float k_TabHeight = 26.0f;
+        constexpr float k_TabHeight = 24.0f;
+        constexpr float k_Gap = 4.0f;
 
         struct TabItem
         {
             TelemetryTab Tab;
             std::string_view Label;
         };
-        constexpr std::array<TabItem, 6> k_Tabs
+
+        constexpr std::array<TabItem, 4> k_Row0Tabs
         {{
             { TelemetryTab::SeaState, "SEA STATE" },
             { TelemetryTab::Surface, "SURFACE" },
             { TelemetryTab::Foam, "FOAM" },
             { TelemetryTab::Physics, "PHYSICS" },
-            { TelemetryTab::Timings, "TIMINGS" },
-            { TelemetryTab::Scene, "SCENE" },
         }};
 
-        const float gap = 3.0f;
-        const float totalGaps = gap * static_cast<float>(k_Tabs.size() - 1);
-        const float tabWidth = (availWidth - totalGaps) / static_cast<float>(k_Tabs.size());
+        constexpr std::array<TabItem, 3> k_Row1Tabs
+        {{
+            { TelemetryTab::Timings, "TIMINGS" },
+            { TelemetryTab::Scene, "SCENE" },
+            { TelemetryTab::Debug, "DEBUG" },
+        }};
+
         const ToneColors toneColors = ResolveTone(tone);
 
         ImGui::PushFont(fonts.SectionBlinker);
-        for (size_t i = 0; i < k_Tabs.size(); ++i)
+
+        // Row 0
+        const float tabWidth0 = (availWidth - static_cast<float>(k_Row0Tabs.size() - 1) * k_Gap) / static_cast<float>(k_Row0Tabs.size());
+        for (size_t i = 0; i < k_Row0Tabs.size(); ++i)
         {
-            const ImVec2 tabPosMin{ barMin.x + static_cast<float>(i) * (tabWidth + gap), barMin.y };
-            const ImVec2 tabPosMax{ tabPosMin.x + tabWidth, barMin.y + k_TabHeight };
+            const ImVec2 tabPosMin{ barMin.x + static_cast<float>(i) * (tabWidth0 + k_Gap), barMin.y };
+            const ImVec2 tabPosMax{ tabPosMin.x + tabWidth0, barMin.y + k_TabHeight };
 
             ImGui::SetCursorScreenPos(tabPosMin);
-            const std::string tabBtnId = std::format("##hud_tab_{}", i);
-            if (ImGui::InvisibleButton(tabBtnId.c_str(), ImVec2{ tabWidth, k_TabHeight }))
+            const std::string tabBtnId = std::format("##hud_tab_0_{}", i);
+            if (ImGui::InvisibleButton(tabBtnId.c_str(), ImVec2{ tabWidth0, k_TabHeight }))
             {
-                if (active_tab != k_Tabs[i].Tab)
+                if (active_tab != k_Row0Tabs[i].Tab)
                 {
-                    active_tab = k_Tabs[i].Tab;
+                    active_tab = k_Row0Tabs[i].Tab;
                     changed = true;
                 }
             }
 
-            const bool isActive = (active_tab == k_Tabs[i].Tab);
+            const bool isActive = (active_tab == k_Row0Tabs[i].Tab);
             const bool isHovered = ImGui::IsItemHovered();
             const float highlight = SmoothHoverState(ImGui::GetItemID(), isActive || isHovered);
 
@@ -614,22 +621,78 @@ namespace ocean
                     2.0f);
             }
 
-            const ImVec2 labelSize = ImGui::CalcTextSize(k_Tabs[i].Label.data(), k_Tabs[i].Label.data() + k_Tabs[i].Label.size());
+            const ImVec2 labelSize = ImGui::CalcTextSize(k_Row0Tabs[i].Label.data(), k_Row0Tabs[i].Label.data() + k_Row0Tabs[i].Label.size());
             const ImVec2 textPos
             {
-                tabPosMin.x + (0.5f * (tabWidth - labelSize.x)),
+                tabPosMin.x + (0.5f * (tabWidth0 - labelSize.x)),
                 tabPosMin.y + (0.5f * (k_TabHeight - labelSize.y)) - 1.0f
             };
             drawList->AddText(
                 textPos,
                 isActive ? k_ColorTextHeader : (isHovered ? k_ColorTextHeaderHover : k_ColorTextLabel),
-                k_Tabs[i].Label.data(),
-                k_Tabs[i].Label.data() + k_Tabs[i].Label.size());
+                k_Row0Tabs[i].Label.data(),
+                k_Row0Tabs[i].Label.data() + k_Row0Tabs[i].Label.size());
         }
+
+        // Row 1
+        const float row1Y = barMin.y + k_TabHeight + k_Gap;
+        const float tabWidth1 = (availWidth - static_cast<float>(k_Row1Tabs.size() - 1) * k_Gap) / static_cast<float>(k_Row1Tabs.size());
+        for (size_t i = 0; i < k_Row1Tabs.size(); ++i)
+        {
+            const ImVec2 tabPosMin{ barMin.x + static_cast<float>(i) * (tabWidth1 + k_Gap), row1Y };
+            const ImVec2 tabPosMax{ tabPosMin.x + tabWidth1, row1Y + k_TabHeight };
+
+            ImGui::SetCursorScreenPos(tabPosMin);
+            const std::string tabBtnId = std::format("##hud_tab_1_{}", i);
+            if (ImGui::InvisibleButton(tabBtnId.c_str(), ImVec2{ tabWidth1, k_TabHeight }))
+            {
+                if (active_tab != k_Row1Tabs[i].Tab)
+                {
+                    active_tab = k_Row1Tabs[i].Tab;
+                    changed = true;
+                }
+            }
+
+            const bool isActive = (active_tab == k_Row1Tabs[i].Tab);
+            const bool isHovered = ImGui::IsItemHovered();
+            const float highlight = SmoothHoverState(ImGui::GetItemID(), isActive || isHovered);
+
+            const ImU32 fillCol = isActive ?
+                IM_COL32(28, 36, 46, 255) :
+                (isHovered ? IM_COL32(20, 26, 34, 240) : IM_COL32(11, 14, 18, 230));
+
+            const ImU32 borderCol = isActive ?
+                IM_COL32(110, 135, 160, 160) :
+                DynamicBorderColor(static_cast<uint8_t>(20 + 40 * highlight));
+
+            DrawChamferedRect(drawList, tabPosMin, tabPosMax, 3.0f, fillCol, borderCol, 1.0f);
+
+            if (isActive)
+            {
+                drawList->AddLine(
+                    ImVec2{ tabPosMin.x + 2.0f, tabPosMax.y - 1.0f },
+                    ImVec2{ tabPosMax.x - 2.0f, tabPosMax.y - 1.0f },
+                    toneColors.Primary,
+                    2.0f);
+            }
+
+            const ImVec2 labelSize = ImGui::CalcTextSize(k_Row1Tabs[i].Label.data(), k_Row1Tabs[i].Label.data() + k_Row1Tabs[i].Label.size());
+            const ImVec2 textPos
+            {
+                tabPosMin.x + (0.5f * (tabWidth1 - labelSize.x)),
+                tabPosMin.y + (0.5f * (k_TabHeight - labelSize.y)) - 1.0f
+            };
+            drawList->AddText(
+                textPos,
+                isActive ? k_ColorTextHeader : (isHovered ? k_ColorTextHeaderHover : k_ColorTextLabel),
+                k_Row1Tabs[i].Label.data(),
+                k_Row1Tabs[i].Label.data() + k_Row1Tabs[i].Label.size());
+        }
+
         ImGui::PopFont();
 
         // Separation hairline under tabs
-        const float lineY = barMin.y + k_TabHeight + 4.0f;
+        const float lineY = row1Y + k_TabHeight + 4.0f;
         drawList->AddLine(
             ImVec2{ barMin.x, lineY },
             ImVec2{ barMin.x + availWidth, lineY },
@@ -1408,7 +1471,7 @@ namespace ocean
         bool changed = false;
         ImDrawList* drawList = ImGui::GetWindowDrawList();
 
-        // energy spectrum model 2-way selector
+        // energy spectrum model 3-way selector
         const ImVec2 energyRowMin = ImGui::GetCursorScreenPos();
         const float energyAvailWidth = ImGui::GetContentRegionAvail().x;
         drawList->AddText(
@@ -1418,17 +1481,17 @@ namespace ocean
             k_ColorTextLabel,
             "Energy spectrum");
 
-        constexpr std::array<std::string_view, 2> k_EnergyModels{ "JONSWAP", "ELFOUHAILY" };
+        constexpr std::array<std::string_view, 3> k_EnergyModels{ "JONSWAP", "ELFOUHAILY", "BRINGER" };
         const float energySegLeft = energyRowMin.x + k_LabelColumnWidth;
         const float energySegWidth = energyAvailWidth - k_LabelColumnWidth - 8.0f;
         constexpr float k_EnergyGap = 4.0f;
-        const float energyCellW = (energySegWidth - k_EnergyGap) / 2.0f;
+        const float energyCellW = (energySegWidth - 2.0f * k_EnergyGap) / 3.0f;
         constexpr float k_EnergyCellH = 24.0f;
 
         ImGui::SetCursorScreenPos(ImVec2{ energySegLeft, energyRowMin.y });
         ImGui::PushFont(fonts.SectionBlinker);
 
-        for (int32_t m = 0; m < 2; ++m)
+        for (int32_t m = 0; m < 3; ++m)
         {
             if (m > 0)
             {

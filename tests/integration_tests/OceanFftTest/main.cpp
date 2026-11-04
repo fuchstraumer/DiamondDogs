@@ -266,7 +266,9 @@ namespace
             "Mitsuyasu", "Hasselmann", "Donelan-Banner", "Elfouhaily", "Hybrid", "Ewans"
         };
         const uint32_t spreading = std::min(settings.Spectrum.DirectionalSpreadingMode, 5u);
-        const std::string_view spectrumName = (settings.Spectrum.EnergySpectrumModel == 1u) ? "Elfouhaily" : "JONSWAP";
+        constexpr std::array<std::string_view, 3> k_SpectrumNames{ "JONSWAP", "Elfouhaily", "Bringer" };
+        const uint32_t spectrumIdx = std::min(settings.Spectrum.EnergySpectrumModel, 2u);
+        const std::string_view spectrumName = k_SpectrumNames[spectrumIdx];
         return std::format("size {} {} {} {} {}", settings.Size,
             settings.WaveSize == 0u ? std::string{ "no wave ops" } : std::format("wave {}", settings.WaveSize), k_SpreadingNames[spreading],
             settings.FusedKernels ? "fused" : "unfused", spectrumName);
@@ -822,11 +824,12 @@ namespace
 
         if (breezyState && freshState && galeState)
         {
-            const std::array<uint32_t, 2> models{ 0u, 1u };
+            const std::array<uint32_t, 3> models{ 0u, 1u, 2u };
 
             for (const uint32_t model : models)
             {
-                const std::string_view modelName = (model == 1u) ? "Elfouhaily" : "JONSWAP";
+                constexpr std::array<std::string_view, 3> modelNames{ "JONSWAP", "Elfouhaily", "Bringer" };
+                const std::string_view modelName = modelNames[std::min(model, 2u)];
                 ocean::SpectrumParameters base{};
                 base.EnergySpectrumModel = model;
 
@@ -880,30 +883,35 @@ namespace
                     rFade0.WindSeaHeight, rFade01.WindSeaHeight));
         }
 
-        // Check that for EnergySpectrumModel = 1u (Elfouhaily), shallow water (Depth = 4.0f) yields strictly smaller
-        // WindSeaHeight than deep water (Depth = 50.0f) at the same wind and fetch.
+        // Check that for EnergySpectrumModel = 1u (Elfouhaily) and 2u (Bringer), shallow water (Depth = 4.0f) yields strictly smaller
+        // WindSeaHeight and strictly shorter PeakWavelength (shoaling) than deep water (Depth = 50.0f) at the same wind and fetch.
+        for (const uint32_t model : { 1u, 2u })
         {
-            ocean::SpectrumParameters elfShallow{};
-            elfShallow.EnergySpectrumModel = 1u;
-            elfShallow.WindSpeed = 10.0f;
-            elfShallow.Fetch = 100.0f;
-            elfShallow.Depth = 4.0f;
-            elfShallow.FadeLength = 0.01f;
+            const std::string_view name = (model == 2u) ? "Bringer" : "Elfouhaily";
+            ocean::SpectrumParameters shallow{};
+            shallow.EnergySpectrumModel = model;
+            shallow.WindSpeed = 10.0f;
+            shallow.Fetch = 100.0f;
+            shallow.Depth = 4.0f;
+            shallow.FadeLength = 0.01f;
 
-            ocean::SpectrumParameters elfDeep = elfShallow;
-            elfDeep.Depth = 50.0f;
+            ocean::SpectrumParameters deep = shallow;
+            deep.Depth = 50.0f;
 
-            const ocean::SeaStateReadout rShallow = ocean::MeasureSpectrum(elfShallow);
-            const ocean::SeaStateReadout rDeep = ocean::MeasureSpectrum(elfDeep);
+            const ocean::SeaStateReadout rShallow = ocean::MeasureSpectrum(shallow);
+            const ocean::SeaStateReadout rDeep = ocean::MeasureSpectrum(deep);
 
             check(rShallow.WindSeaHeight < rDeep.WindSeaHeight,
-                std::format("Elfouhaily: shallow water Depth=4m WindSeaHeight ({:.4f}) < deep Depth=50m ({:.4f})",
-                    rShallow.WindSeaHeight, rDeep.WindSeaHeight));
+                std::format("{}: shallow water Depth=4m WindSeaHeight ({:.4f}) < deep Depth=50m ({:.4f})",
+                    name, rShallow.WindSeaHeight, rDeep.WindSeaHeight));
+            check(rShallow.PeakWavelength < rDeep.PeakWavelength,
+                std::format("{}: shallow water Depth=4m PeakWavelength ({:.4f}) < deep Depth=50m ({:.4f})",
+                    name, rShallow.PeakWavelength, rDeep.PeakWavelength));
         }
 
         if (failures == 0)
         {
-            std::cout << "[ElfouhailySpectrum] PASS: Elfouhaily omnidirectional spectrum and depth correction verified\n";
+            std::cout << "[ElfouhailySpectrum] PASS: Elfouhaily and Bringer spectra, shoaling, and depth correction verified\n";
         }
 
         return failures;
@@ -1930,6 +1938,14 @@ int main()
         elfouhailyEwansSettings.Spectrum.DirectionalSpreadingMode = 5u;
         elfouhailyEwansSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, elfouhailyEwansSettings.Spectrum).Spectrum;
         failures += TestPipeline(context, elfouhailyEwansSettings, 3.25f);
+
+        ocean::OceanSimulationSettings bringerHybridSettings{};
+        bringerHybridSettings.Size = 512u;
+        bringerHybridSettings.WaveSize = context.WaveSize;
+        bringerHybridSettings.Spectrum.EnergySpectrumModel = 2u;
+        bringerHybridSettings.Spectrum.DirectionalSpreadingMode = 4u;
+        bringerHybridSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, bringerHybridSettings.Spectrum).Spectrum;
+        failures += TestPipeline(context, bringerHybridSettings, 3.25f);
     }
 
     if (failures != 0)

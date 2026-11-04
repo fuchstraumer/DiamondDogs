@@ -246,6 +246,8 @@ private:
     int32_t atmosphereDebugMode{ 0 };
     // the index of the SSR debug mode in the shader's table. 0 is off
     int32_t ssrDebugMode{ 0 };
+    // the index of the surface debug mode in the shader's table. 0 is off
+    int32_t surfaceDebugMode{ 0 };
     std::unique_ptr<capture::FrameCapture> frameCapture;
 
     // GPU timer scopes on the graphics queue, one block per frame command buffer (inactive in Release). Averages are
