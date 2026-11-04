@@ -140,7 +140,7 @@ namespace ocean
             const double cp = omegaP / kp;
             const double alphaP = 6.0e-3 * std::sqrt(omegaC);
             const double gammaBase = (omegaC <= 1.0) ? 1.7 : (1.7 + 6.0 * std::log10(omegaC));
-            const double gammaEff = std::max(1.0, gammaBase * (static_cast<double>(gamma) / 3.3));
+            const double gammaEff = std::max(1.0, gammaBase * (static_cast<double>(gamma) / 1.7));
             const double sigma = 0.08 * (1.0 + 4.0 / (omegaC * omegaC * omegaC));
 
             const double cd = (0.8 + 0.065 * wind_speed) * 1.0e-3;
@@ -207,7 +207,8 @@ namespace ocean
         wind.Fetch = std::exp(std::lerp(std::log(sheltered), std::log(fullyDeveloped), openness));
 
         wind.PeakingFactor = 1.0f + 6.0f * std::clamp(state.Regularity, 0.0f, 3.0f);
-        wind.FadeLength = 0.1f * (1.0f - std::clamp(state.RippleDetail, 0.0f, 1.0f));
+        const float fadeComplement = 1.0f - std::clamp(state.RippleDetail, 0.0f, 1.0f);
+        wind.FadeLength = 0.08f * fadeComplement * fadeComplement * fadeComplement;
         return wind;
     }
 
@@ -245,8 +246,6 @@ namespace ocean
     SpectrumParameters BuildSpectrum(const SpectrumParameters& base, const WindSeaPhysics& wind, const SwellPhysics& swell,
                                      const SpreadingPhysics& spreading, float height_scale, float depth) noexcept
     {
-        constexpr float k_DegreesToRadians = std::numbers::pi_v<float> / 180.0f;
-
         SpectrumParameters spectrum = base;
         spectrum.WindSpeed = wind.WindSpeed;
         spectrum.Fetch = wind.Fetch;

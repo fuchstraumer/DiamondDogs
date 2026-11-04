@@ -263,11 +263,10 @@ namespace
     {
         constexpr std::array<std::string_view, 3> k_SpreadingNames{ "Mitsuyasu", "Hasselmann", "Donelan-Banner" };
         const uint32_t spreading = std::min(settings.Spectrum.DirectionalSpreadingMode, 2u);
-        const std::string_view layoutName = (settings.Layout == ocean::CascadeLayout::LogBands) ? "log" : "legacy";
         const std::string_view spectrumName = (settings.Spectrum.EnergySpectrumModel == 1u) ? "Elfouhaily" : "JONSWAP";
-        return std::format("size {} {} {} {} {} {}", settings.Size,
+        return std::format("size {} {} {} {} {}", settings.Size,
             settings.WaveSize == 0u ? std::string{ "no wave ops" } : std::format("wave {}", settings.WaveSize), k_SpreadingNames[spreading],
-            settings.FusedKernels ? "fused" : "unfused", layoutName, spectrumName);
+            settings.FusedKernels ? "fused" : "unfused", spectrumName);
     }
 
     int32_t TestIfft(const TestContext& context, const ocean::OceanSimulationSettings& settings)
@@ -920,45 +919,41 @@ namespace
         };
 
         const std::array<uint32_t, 3> sizes{ 128u, 256u, 512u };
-        const std::array<ocean::CascadeLayout, 2> layouts{ ocean::CascadeLayout::Legacy, ocean::CascadeLayout::LogBands };
 
         for (const uint32_t size : sizes)
         {
-            for (const ocean::CascadeLayout layout : layouts)
+            const ocean::CascadeParameters params = ocean::MakeCascadeParameters(size);
+            const std::string desc = std::format("size {}", size);
+
+            check(params.Dimensions[0] == size && params.Dimensions[1] == size, std::format("{}: dimensions match size", desc));
+
+            for (int32_t c = 0; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
             {
-                const ocean::CascadeParameters params = ocean::MakeCascadeParameters(size, layout, ocean::k_LegacyLengthScales);
-                const std::string desc = std::format("size {} layout {}", size, (layout == ocean::CascadeLayout::LogBands) ? "log" : "legacy");
+                check(params.LengthScales[static_cast<size_t>(c)] > 0.0f, std::format("{}: length scale {} is positive", desc, c));
 
-                check(params.Dimensions[0] == size && params.Dimensions[1] == size, std::format("{}: dimensions match size", desc));
-
-                for (int32_t c = 0; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
+                if (c > 0)
                 {
-                    check(params.LengthScales[static_cast<size_t>(c)] > 0.0f, std::format("{}: length scale {} is positive", desc, c));
-
-                    if (c > 0)
-                    {
-                        check(params.LengthScales[static_cast<size_t>(c)] < params.LengthScales[static_cast<size_t>(c - 1)],
-                            std::format("{}: length scale {} strictly less than {}", desc, c, c - 1));
-                    }
+                    check(params.LengthScales[static_cast<size_t>(c)] < params.LengthScales[static_cast<size_t>(c - 1)],
+                        std::format("{}: length scale {} strictly less than {}", desc, c, c - 1));
                 }
+            }
 
-                check(params.CutoffsLow[0] > 0.0f, std::format("{}: CutoffsLow[0] is positive", desc));
+            check(params.CutoffsLow[0] > 0.0f, std::format("{}: CutoffsLow[0] is positive", desc));
 
-                for (int32_t c = 0; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
+            for (int32_t c = 0; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
+            {
+                check(params.CutoffsHigh[static_cast<size_t>(c)] > params.CutoffsLow[static_cast<size_t>(c)],
+                    std::format("{}: CutoffsHigh[{}] > CutoffsLow[{}]", desc, c, c));
+
+                if (c > 0)
                 {
-                    check(params.CutoffsHigh[static_cast<size_t>(c)] > params.CutoffsLow[static_cast<size_t>(c)],
-                        std::format("{}: CutoffsHigh[{}] > CutoffsLow[{}]", desc, c, c));
-
-                    if (c > 0)
-                    {
-                        check(std::abs(params.CutoffsLow[static_cast<size_t>(c)] - params.CutoffsHigh[static_cast<size_t>(c - 1)]) < 1e-5f,
-                            std::format("{}: CutoffsLow[{}] matches CutoffsHigh[{}]", desc, c, c - 1));
-                    }
+                    check(std::abs(params.CutoffsLow[static_cast<size_t>(c)] - params.CutoffsHigh[static_cast<size_t>(c - 1)]) < 1e-5f,
+                        std::format("{}: CutoffsLow[{}] matches CutoffsHigh[{}]", desc, c, c - 1));
                 }
             }
         }
 
-        const ocean::CascadeParameters log512 = ocean::MakeCascadeParameters(512u, ocean::CascadeLayout::LogBands, ocean::k_LegacyLengthScales);
+        const ocean::CascadeParameters log512 = ocean::MakeCascadeParameters(512u);
         check(log512.CutoffsHigh[ocean::k_CascadeCount - 1u] > 360.0f, "LogBands 512: finest cutoff high > 360");
 
         for (int32_t c = 1; c < static_cast<int32_t>(ocean::k_CascadeCount); ++c)
@@ -979,7 +974,7 @@ namespace
 
         if (failures == 0)
         {
-            std::cout << "[CascadeLayouts] PASS: Legacy and LogBands cascade tables verified across sizes\n";
+            std::cout << "[CascadeLayouts] PASS: LogBands cascade tables verified across sizes\n";
         }
 
         return failures;
@@ -1900,14 +1895,12 @@ int main()
         ocean::OceanSimulationSettings logBandsSettings{};
         logBandsSettings.Size = 512u;
         logBandsSettings.WaveSize = context.WaveSize;
-        logBandsSettings.Layout = ocean::CascadeLayout::LogBands;
         logBandsSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, logBandsSettings.Spectrum).Spectrum;
         failures += TestPipeline(context, logBandsSettings, 3.25f);
 
         ocean::OceanSimulationSettings elfouhailyWindSeaSettings{};
         elfouhailyWindSeaSettings.Size = 256u;
         elfouhailyWindSeaSettings.WaveSize = context.WaveSize;
-        elfouhailyWindSeaSettings.Layout = ocean::CascadeLayout::Legacy;
         elfouhailyWindSeaSettings.Spectrum.EnergySpectrumModel = 1u;
         elfouhailyWindSeaSettings.Spectrum.SwellScale = 0.0f;
         failures += TestPipeline(context, elfouhailyWindSeaSettings, 3.25f);
@@ -1915,7 +1908,6 @@ int main()
         ocean::OceanSimulationSettings elfouhailyLogSettings{};
         elfouhailyLogSettings.Size = 512u;
         elfouhailyLogSettings.WaveSize = context.WaveSize;
-        elfouhailyLogSettings.Layout = ocean::CascadeLayout::LogBands;
         elfouhailyLogSettings.Spectrum.EnergySpectrumModel = 1u;
         elfouhailyLogSettings.Spectrum = ocean::ApplySeaState(ocean::SeaState{}, elfouhailyLogSettings.Spectrum).Spectrum;
         failures += TestPipeline(context, elfouhailyLogSettings, 3.25f);

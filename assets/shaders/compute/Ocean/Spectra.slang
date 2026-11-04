@@ -151,7 +151,7 @@ internal float ElfouhailyRadialSpectrum(
     // Long-wave curvature spectrum B_l (Eq. 31-37)
     const float alphaP = 6.0e-3f * sqrt(omegaC);
     const float gammaBase = (omegaC <= 1.0f) ? 1.7f : (1.7f + 6.0f * log10(omegaC));
-    const float gammaEff = max(1.0f, gammaBase * (gamma / 3.3f));
+    const float gammaEff = max(1.0f, gammaBase * (gamma / 1.7f));
     const float sigma = 0.08f * (1.0f + 4.0f / (omegaC * omegaC * omegaC));
     const float sqrtKOverKp = sqrt(kLength / kp);
     const float kpOverK = kp / kLength;

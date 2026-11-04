@@ -274,48 +274,20 @@ namespace ocean
         return supported ? waveSize : 0u;
     }
 
-    CascadeParameters MakeCascadeParameters(uint32_t size, const std::array<float, k_CascadeCount>& length_scales) noexcept
+    CascadeParameters MakeCascadeParameters(uint32_t size) noexcept
     {
-        // cascade i takes the wave numbers below six samples per wavelength of cascade i + 1. The lowest bound
-        // excludes k = 0 (the mean height), and the last cascade has no upper bound
-        constexpr float k_SamplesPerWavelength = 6.0f;
+        const auto it = std::ranges::find_if(k_GeneratedCascadeTables, [size](const GeneratedCascadeTable& entry)
+        {
+            return entry.Resolution == size;
+        });
+        const GeneratedCascadeTable& table = (it != k_GeneratedCascadeTables.end()) ? *it : k_GeneratedCascadeTables.back();
+
         CascadeParameters parameters{};
-        std::ranges::copy(length_scales, parameters.LengthScales.begin());
+        std::copy_n(table.LengthScales.begin(), k_CascadeCount, parameters.LengthScales.begin());
+        std::copy_n(table.CutoffsLow.begin(), k_CascadeCount, parameters.CutoffsLow.begin());
+        std::copy_n(table.CutoffsHigh.begin(), k_CascadeCount, parameters.CutoffsHigh.begin());
         parameters.Dimensions = { size, size };
-        float lowerBound = 0.0001f;
-
-        for (uint32_t i = 0; i < k_CascadeCount; ++i)
-        {
-            parameters.CutoffsLow[i] = lowerBound;
-            const float upperBound = (i + 1u < k_CascadeCount) ?
-                2.0f * std::numbers::pi_v<float> / length_scales[i + 1u] * k_SamplesPerWavelength :
-                9999.0f;
-            parameters.CutoffsHigh[i] = upperBound;
-            lowerBound = upperBound;
-        }
-
         return parameters;
-    }
-
-    CascadeParameters MakeCascadeParameters(uint32_t size, CascadeLayout layout, const std::array<float, k_CascadeCount>& legacy_length_scales) noexcept
-    {
-        if (layout == CascadeLayout::LogBands)
-        {
-            const auto it = std::ranges::find_if(k_GeneratedCascadeTables, [size](const GeneratedCascadeTable& entry)
-            {
-                return entry.Resolution == size;
-            });
-            const GeneratedCascadeTable& table = (it != k_GeneratedCascadeTables.end()) ? *it : k_GeneratedCascadeTables.back();
-
-            CascadeParameters parameters{};
-            std::copy_n(table.LengthScales.begin(), k_CascadeCount, parameters.LengthScales.begin());
-            std::copy_n(table.CutoffsLow.begin(), k_CascadeCount, parameters.CutoffsLow.begin());
-            std::copy_n(table.CutoffsHigh.begin(), k_CascadeCount, parameters.CutoffsHigh.begin());
-            parameters.Dimensions = { size, size };
-            return parameters;
-        }
-
-        return MakeCascadeParameters(size, legacy_length_scales);
     }
 
     namespace
@@ -520,7 +492,7 @@ namespace ocean
         rhi::ResourceFuture<GraphicsResource> whitecapReply =
             resources.CreateImage(MakeCascadeScalarImageInfo(size, impl->MipLevels, k_ScalarImageUsage, "Ocean_Whitecaps"));
 
-        const CascadeParameters cascadeParameters = MakeCascadeParameters(size, settings.Layout, settings.LengthScales);
+        const CascadeParameters cascadeParameters = MakeCascadeParameters(size);
         std::copy_n(cascadeParameters.LengthScales.begin(), k_CascadeCount, impl->Settings.LengthScales.begin());
         const RhiBufferResourceData cascadeData{ std::as_bytes(std::span{ &cascadeParameters, 1 }), 0u };
         BufferCreateInfo cascadeInfo{};
@@ -884,16 +856,6 @@ namespace ocean
     void OceanSimulation::RecordTick(rhi::CommandBuffer& command_buffer, float time_seconds) const
     {
         impl->RecordTickPasses(command_buffer, nullptr, time_seconds);
-    }
-
-    bool OceanSimulation::SetCascadeLayout(CascadeLayout _layout)
-    {
-        impl->Settings.Layout = _layout;
-        const CascadeParameters cascadeParameters = MakeCascadeParameters(impl->Settings.Size, _layout, k_LegacyLengthScales);
-        std::copy_n(cascadeParameters.LengthScales.begin(), k_CascadeCount, impl->Settings.LengthScales.begin());
-        const RhiBufferResourceData data{ std::as_bytes(std::span{ &cascadeParameters, 1 }), 0u };
-        const rhi::OperationFuture future = impl->Resources->SetBufferData(impl->CascadeParamsBuffer, std::span{ &data, 1 }, {});
-        return impl->Resources->Wait(future, k_TimeoutNs) == rhi::FutureState::Complete;
     }
 
     bool OceanSimulation::SetSpectrum(const SpectrumParameters& spectrum)
