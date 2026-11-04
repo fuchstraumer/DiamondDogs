@@ -2,6 +2,7 @@
 #include "math/Math.hpp"
 #include "RhiSystem.hpp"
 #include "DonelanBannerNormLUT.hpp"
+#include "OceanFftCascades.hpp"
 #include "ImageDataFormats.hpp"
 #include "ManifestDescriptors.hpp"
 #include "CommandBuffer.hpp"
@@ -296,6 +297,27 @@ namespace ocean
         return parameters;
     }
 
+    CascadeParameters MakeCascadeParameters(uint32_t size, CascadeLayout layout, const std::array<float, k_CascadeCount>& legacy_length_scales) noexcept
+    {
+        if (layout == CascadeLayout::LogBands)
+        {
+            const auto it = std::ranges::find_if(k_GeneratedCascadeTables, [size](const GeneratedCascadeTable& entry)
+            {
+                return entry.Resolution == size;
+            });
+            const GeneratedCascadeTable& table = (it != k_GeneratedCascadeTables.end()) ? *it : k_GeneratedCascadeTables.back();
+
+            CascadeParameters parameters{};
+            std::copy_n(table.LengthScales.begin(), k_CascadeCount, parameters.LengthScales.begin());
+            std::copy_n(table.CutoffsLow.begin(), k_CascadeCount, parameters.CutoffsLow.begin());
+            std::copy_n(table.CutoffsHigh.begin(), k_CascadeCount, parameters.CutoffsHigh.begin());
+            parameters.Dimensions = { size, size };
+            return parameters;
+        }
+
+        return MakeCascadeParameters(size, legacy_length_scales);
+    }
+
     namespace
     {
         void OpenTimer(std::optional<rhi::ScopedGpuTimer>& timer, rhi::GpuTimerBlock* timers, std::string_view name)
@@ -311,7 +333,7 @@ namespace ocean
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
             info.Usage = usage;
-            info.Format = CommonFormats::RG16_Float;
+            info.Format = CommonFormats::RGBA16_Float;
             info.Width = size;
             info.Height = size;
             info.ArrayLayers = k_CascadeCount;
@@ -487,7 +509,8 @@ namespace ocean
         }
 
         // the whitecaps images, one per cascade. pre-fill with zeroes just on init.
-        // two-channel half image: x = k_i^2, y = dDx/dz (the crest sharpness term). The tick fills it every frame
+        // four-channel half image: x = k_i^2, y = dDx/dz (the crest sharpness term), z, w = the squared slopes (the
+        // shading's slope variance). The tick fills it every frame
         constexpr ImageUsageBits k_ScalarImageUsage = ImageUsageBits::UavComputeShader |
                                                       ImageUsageBits::SampledImage |
                                                       ImageUsageBits::SrvFragmentShader |
@@ -496,7 +519,8 @@ namespace ocean
         rhi::ResourceFuture<GraphicsResource> whitecapReply =
             resources.CreateImage(MakeCascadeScalarImageInfo(size, impl->MipLevels, k_ScalarImageUsage, "Ocean_Whitecaps"));
 
-        const CascadeParameters cascadeParameters = MakeCascadeParameters(size, settings.LengthScales);
+        const CascadeParameters cascadeParameters = MakeCascadeParameters(size, settings.Layout, settings.LengthScales);
+        std::copy_n(cascadeParameters.LengthScales.begin(), k_CascadeCount, impl->Settings.LengthScales.begin());
         const RhiBufferResourceData cascadeData{ std::as_bytes(std::span{ &cascadeParameters, 1 }), 0u };
         BufferCreateInfo cascadeInfo{};
         cascadeInfo.Domain = ResourceDomain::CPUToGPU;
@@ -615,7 +639,7 @@ namespace ocean
         pyramid::MipTargetCreateInfo whitecapInfo
         {
             .Image=reinterpret_cast<VkImage>(impl->WhitecapsImage.VkHandle),
-            .Format=VK_FORMAT_R16G16_SFLOAT,
+            .Format=VK_FORMAT_R16G16B16A16_SFLOAT,
             .Width=size,
             .Height=size,
             .MipLevels=impl->MipLevels,
@@ -859,6 +883,16 @@ namespace ocean
     void OceanSimulation::RecordTick(rhi::CommandBuffer& command_buffer, float time_seconds) const
     {
         impl->RecordTickPasses(command_buffer, nullptr, time_seconds);
+    }
+
+    bool OceanSimulation::SetCascadeLayout(CascadeLayout _layout)
+    {
+        impl->Settings.Layout = _layout;
+        const CascadeParameters cascadeParameters = MakeCascadeParameters(impl->Settings.Size, _layout, k_LegacyLengthScales);
+        std::copy_n(cascadeParameters.LengthScales.begin(), k_CascadeCount, impl->Settings.LengthScales.begin());
+        const RhiBufferResourceData data{ std::as_bytes(std::span{ &cascadeParameters, 1 }), 0u };
+        const rhi::OperationFuture future = impl->Resources->SetBufferData(impl->CascadeParamsBuffer, std::span{ &data, 1 }, {});
+        return impl->Resources->Wait(future, k_TimeoutNs) == rhi::FutureState::Complete;
     }
 
     bool OceanSimulation::SetSpectrum(const SpectrumParameters& spectrum)

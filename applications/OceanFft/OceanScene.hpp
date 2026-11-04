@@ -220,6 +220,8 @@ private:
     FoamReplayInputs lastReplayInputs{};
     // tiling A/B: sample each cascade through its own rotation and offset (see CascadeUv in OceanRenderCommon.slang)
     bool rotateCascades{ false };
+    ocean::CascadeLayout cascadeLayout{ ocean::CascadeLayout::Legacy };
+    bool cascadeLayoutChanged{ false };
     float choppiness{ 1.0f };
     float timeScale{ 1.0f };
     float simulationTime{ 0.0f };

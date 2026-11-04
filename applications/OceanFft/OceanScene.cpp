@@ -338,6 +338,7 @@ OceanScene::OceanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platfor
     settings{ _settings },
     inputAssembler{ k_InputEventCapacity, k_InputTextCapacity },
     spectrum{ _settings.Simulation.Spectrum },
+    cascadeLayout{ _settings.Simulation.Layout },
     choppiness{ _settings.Simulation.Choppiness }
 {
     // the simulation starts from the sea state, not from the raw spectrum defaults
@@ -1523,6 +1524,10 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::Rotate:
         rotateCascades = command.Text == "on";
         break;
+    case SceneCommand::Kind::Layout:
+        cascadeLayout = (command.Text == "log") ? ocean::CascadeLayout::LogBands : ocean::CascadeLayout::Legacy;
+        cascadeLayoutChanged = true;
+        break;
     case SceneCommand::Kind::Print:
         printState();
         break;
@@ -1941,6 +1946,7 @@ void OceanScene::printState() const
     std::cout << std::format("\nshading underwater {} specular {} albedo {} normal {}", underwaterFoam, sunSpecular, foamAlbedoGain, foamNormalStrength);
 
     std::cout << "\nrotate cascades " << (rotateCascades ? "on" : "off");
+    std::cout << "\ncascade layout " << (cascadeLayout == ocean::CascadeLayout::LogBands ? "log" : "legacy");
     std::cout << std::format("\nsky {} res {} intensity {:.2f}",
         ocean::SkyPresetName(skyPreset), downsample8k ? "8k" : "16k", skyIntensityScale);
     std::string_view tonemapperName = "unknown";
@@ -2220,6 +2226,20 @@ void OceanScene::drawPanel()
 
             ocean::DrawSubSectionDivider("CASCADE BANDS", fonts, headerFontMode, ocean::AccentTone::Cyan);
             ocean::DrawCascadeBandStrip(fonts, simulationSettings.LengthScales, cascadeEnabled);
+
+            bool logBandsLayout = cascadeLayout == ocean::CascadeLayout::LogBands;
+            if (ocean::DrawTelemetryToggle(
+                    "##cascade_layout",
+                    "Cascade layout",
+                    "LEGACY",
+                    "LOG BANDS",
+                    &logBandsLayout,
+                    fonts,
+                    ocean::AccentTone::Cyan))
+            {
+                cascadeLayout = logBandsLayout ? ocean::CascadeLayout::LogBands : ocean::CascadeLayout::Legacy;
+                cascadeLayoutChanged = true;
+            }
 
             (void)ocean::DrawTelemetryToggle(
                 "##rotate_cascades",
@@ -2957,6 +2977,19 @@ void OceanScene::update()
         const float step = settings.FixedTimeStep > 0.0f ? settings.FixedTimeStep : ImGui::GetIO().DeltaTime;
         simulationTime += step * timeScale;
         foamStep = static_cast<double>(step) * static_cast<double>(timeScale);
+    }
+
+    if (cascadeLayoutChanged)
+    {
+        device->WaitDeviceIdle();
+        if (!simulation->SetCascadeLayout(cascadeLayout))
+        {
+            Fail("OceanScene: writing the cascade parameters failed");
+        }
+        updateCdlodSettings();
+        needsInitialize = true;
+        cascadeLayoutChanged = false;
+        foamReplayPending = true;
     }
 
     if (spectrumChanged)

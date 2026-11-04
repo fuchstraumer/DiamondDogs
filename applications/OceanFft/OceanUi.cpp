@@ -1388,7 +1388,10 @@ namespace ocean
                 ledCol,
                 2.0f);
 
-            const std::string bandLabel = std::format("{:.0f} m", length_scales[static_cast<size_t>(cascade)]);
+            const float scale = length_scales[static_cast<size_t>(cascade)];
+            const std::string bandLabel = (scale < 1.0f) ?
+                std::format("{:.2f} m", scale) :
+                ((scale < 10.0f) ? std::format("{:.1f} m", scale) : std::format("{:.0f} m", scale));
             const ImVec2 textSize = ImGui::CalcTextSize(bandLabel.c_str());
             drawList->AddText(
                 ImVec2{ cellMin.x + 0.5f * (cellWidth - textSize.x), cellMin.y + 8.0f },

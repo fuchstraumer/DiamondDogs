@@ -43,6 +43,7 @@
  *                                          albedo (0 to 4, the brightness gain of the foam texture), normal (0 to 2, its normal strength)
  *    foamreset                             rebuild the persistent foam by replaying its history
  *    rotate on|off                         rotate and offset each cascade's lattice when sampled (tiling A/B)
+ *    layout legacy|log                     set cascade length scale layout (legacy fixed or log bands)
  *    sky preset                            set the sky preset (preetham, aurora, day, night, overcast, twilight)
  *    sky_res 8k|16k                        set sky texture resolution (8k downsampled or 16k full)
  *    sky_intensity value                   set sky radiance multiplier
@@ -96,6 +97,7 @@ struct SceneCommand
         Shading,
         FoamReset,
         Rotate,
+        Layout,
         Sky,
         SkyRes,
         SkyIntensity,

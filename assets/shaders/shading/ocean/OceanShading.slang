@@ -25,7 +25,6 @@ internal void SampleSurfaceAndWhitecaps(
     float2 totalStretch = float2(0.0f);
     float2 unresolvedVariance = float2(0.0f);
     const float distance = length(surface_xz - View.CameraPositionTime.xz);
-    const float footprint = max(length(ddxXz), length(ddyXz));
 
     float muA = 0.0f;
     float varA = 0.0f;
@@ -35,36 +34,43 @@ internal void SampleSurfaceAndWhitecaps(
     [unroll]
     for (uint cascade = 0; cascade < OCEAN_CASCADE_COUNT; ++cascade)
     {
+        // enabled is the A/B weight alone. weight adds the distance fade
+        const float enabled = ViewCascadeWeight(cascade);
         const float weight = CascadeDistanceWeight(cascade, distance);
         const float foamWeight = ViewFoamWeight(cascade);
 
-        if (weight > 0.0f || foamWeight > 0.0f)
+        if (enabled > 0.0f || foamWeight > 0.0f)
         {
             const float2 ddxUv = WorldToCascade(ddxXz, cascade) / ViewLengthScale(cascade);
             const float2 ddyUv = WorldToCascade(ddyXz, cascade) / ViewLengthScale(cascade);
             const float3 uvw = float3(CascadeUv(surface_xz, cascade), float(cascade));
             const float4 derivatives = Derivatives.SampleGrad(OceanSampler, uvw, ddxUv, ddyUv);
+            const float4 moments = Whitecaps.SampleGrad(OceanSampler, uvw, ddxUv, ddyUv);
 
-            if (weight > 0.0f)
+            if (enabled > 0.0f)
             {
-                const float texelSize = ViewLengthScale(cascade) / View.LodParameters.y;
-                const float lodFactor = saturate(log2(max(1.0f, footprint / texelSize)) * 0.25f);
-                const float filterWeight = weight * (1.0f - lodFactor);
-
-                const float4 scaledDeriv = derivatives * filterWeight;
-                const float2 worldSlope = CascadeToWorld(scaledDeriv.xy, cascade);
-                totalSlope += worldSlope;
+                // the mips already average the slope over the footprint, so the normal takes it as sampled
+                const float4 scaledDeriv = derivatives * weight;
+                totalSlope += CascadeToWorld(scaledDeriv.xy, cascade);
                 totalStretch += CascadeStretchToWorld(scaledDeriv.zw, cascade);
 
-                const float2 rawWorldSlope = CascadeToWorld(derivatives.xy, cascade);
-                unresolvedVariance += (1.0f - filterWeight) * (rawWorldSlope * rawWorldSlope);
+                // LEAN mapping (Olano and Baker 2010): the mean of the squared slope minus the square of the mean slope
+                // is the variance that the footprint hides. The slope that the distance fade takes out of the normal
+                // is added to it, so a faded cascade becomes roughness and its energy stays in the highlight.
+                // The second moment of (enabled * s - weight * mean) is enabled^2 var + (enabled - weight)^2 mean^2
+                const float2 meanSlope = derivatives.xy;
+                const float2 hiddenVariance = max(float2(0.0f), moments.zw - meanSlope * meanSlope);
+                const float fadedPart = enabled - weight;
+                const float2 cascadeVariance = (enabled * enabled) * hiddenVariance + (fadedPart * fadedPart) * (meanSlope * meanSlope);
+                // only the diagonal of the slope covariance is stored, so the rotation drops its off-diagonal term, as
+                // CascadeStretchToWorld does
+                unresolvedVariance += CascadeStretchToWorld(cascadeVariance, cascade);
             }
 
             if (foamWeight > 0.0f)
             {
-                const float jacobianDeviation = Displacement.Sample(OceanSampler, uvw).w - 1.0f;
+                const float jacobianDeviation = Displacement.SampleGrad(OceanSampler, uvw, ddxUv, ddyUv).w - 1.0f;
                 const float kMean = jacobianDeviation + rest;
-                const float2 moments = Whitecaps.Sample(OceanSampler, uvw);
                 const float2 stretch = derivatives.zw;
 
                 muA += rest + foamWeight * jacobianDeviation;

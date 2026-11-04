@@ -44,7 +44,7 @@ ocean_numerical_parameter_ranges:
 
   # This sets the absolute max of wave cascades - performance scaling may drop some cascades
   - name: num_wave_cascades_max
-    value: 4
+    value: 5
 
   # Scales parameters to ensure at least this many waves are present in each cascade, helps hide artifacts
   - name: min_waves_per_cascade

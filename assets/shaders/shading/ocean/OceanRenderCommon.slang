@@ -186,9 +186,10 @@ public Texture2DArray<float4> Derivatives;
 // linear, repeat: each cascade tiles with its own patch size
 public SamplerState OceanSampler;
 // written by OceanResolveCS for the whitecap coverage. x: k_i^2 (the mean of k_i is in Displacement.w), y: dDx/dz,
-// the Jacobian tensor's off-diagonal. [IFFT_SIZE, IFFT_SIZE, CASCADE_COUNT]
-[format("rg16f")]
-public Texture2DArray<float2> Whitecaps;
+// the Jacobian tensor's off-diagonal. z, w: (dHeight/dx)^2, (dHeight/dz)^2, the second moments of the slopes in
+// Derivatives.xy. [IFFT_SIZE, IFFT_SIZE, CASCADE_COUNT]
+[format("rgba16f")]
+public Texture2DArray<float4> Whitecaps;
 // the persistent foam clipmap, one layer per level (OceanFoam.slang): OceanFoamStepCS writes it as storage, the
 // fragment stage samples it. Both bind the same image
 [format("r16f")]

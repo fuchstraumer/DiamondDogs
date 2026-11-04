@@ -23,7 +23,9 @@ set(OCEAN_FFT_GENERATED_SOURCES
     "${OCEAN_FFT_GENERATED_DIR}/DonelanBannerNormLUT.cpp"
     "${OCEAN_FFT_GENERATED_DIR}/DonelanBannerNormLUT.hpp"
     "${OCEAN_FFT_GENERATED_DIR}/SinCosLUT.cpp"
-    "${OCEAN_FFT_GENERATED_DIR}/SinCosLUT.hpp")
+    "${OCEAN_FFT_GENERATED_DIR}/SinCosLUT.hpp"
+    "${OCEAN_FFT_GENERATED_DIR}/OceanFftCascades.cpp"
+    "${OCEAN_FFT_GENERATED_DIR}/OceanFftCascades.hpp")
 set(OCEAN_FFT_SUPPORT_STAMP "${OCEAN_FFT_GENERATED_DIR}/ocean_fft_support.stamp")
 add_custom_command(
     OUTPUT "${OCEAN_FFT_SUPPORT_STAMP}"

@@ -75,6 +75,15 @@ namespace ocean
     constexpr uint32_t k_CascadeCount = 5u;
     static_assert(k_CascadeCount <= 8u);
 
+    enum class CascadeLayout : uint8_t
+    {
+        Invalid = 0,
+        Legacy = 1,
+        LogBands = 2,
+    };
+
+    constexpr std::array<float, k_CascadeCount> k_LegacyLengthScales{ 1024.0f, 238.0f, 55.4f, 12.9f, 3.0f };
+
     struct OceanSimulationSettings
     {
         /** @brief One of the IFFT_SIZE axis values: 128, 256, 512 */
@@ -84,6 +93,7 @@ namespace ocean
         uint32_t WaveSize{ 0u };
         /** @brief The patch size of each cascade, in meters, largest first */
         std::array<float, k_CascadeCount> LengthScales{ 1024.0f, 238.0f, 55.4f, 12.9f, 3.0f };
+        CascadeLayout Layout{ CascadeLayout::Legacy };
         SpectrumParameters Spectrum{};
         float Choppiness{ 1.0f };
         /** @brief true records the two fused kernels (tick + IFFT rows, IFFT columns + resolve) instead of the tick, the
@@ -97,6 +107,7 @@ namespace ocean
 
     /** @brief Non-overlapping bands: each cascade covers the wave numbers that the next, smaller one samples too coarsely */
     [[nodiscard]] CascadeParameters MakeCascadeParameters(uint32_t size, const std::array<float, k_CascadeCount>& length_scales) noexcept;
+    [[nodiscard]] CascadeParameters MakeCascadeParameters(uint32_t size, CascadeLayout layout, const std::array<float, k_CascadeCount>& legacy_length_scales) noexcept;
 
     struct OceanSimulationImpl;
 
@@ -142,6 +153,9 @@ namespace ocean
         void RecordTick(rhi::CommandBuffer& command_buffer, float time_seconds) const;
         /** @brief Only the two IFFT passes over IfftInput, in place. For tests */
         void RecordIfft(rhi::CommandBuffer& command_buffer) const;
+
+        /** @brief Writes cascade parameters for the selected layout into the uniform buffer and updates Settings().LengthScales. */
+        [[nodiscard]] bool SetCascadeLayout(CascadeLayout _layout);
 
         /** @brief Writes new spectrum parameters, which RecordInitialize then uses. The caller makes sure no
          *  submitted work still reads the uniform buffer */
