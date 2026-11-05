@@ -69,7 +69,7 @@ struct OceanSceneSettings
      *  and depth attachments both support. 1 turns MSAA off */
     uint32_t MaxMsaaSamples{ 4u };
     /** @brief The anisotropic filtering of the surface sampler: 1, 2, 4, 8 or 16. 1 turns it off. The device limit caps it */
-    float MaxAnisotropy{ 4.0f };
+    float MaxAnisotropy{ 8.0f };
     std::optional<ArcballCamera::State> InitialCamera;
     /** @brief Captures go here, from the schedule and from capture commands */
     std::filesystem::path CaptureDirectory{ "captures" };

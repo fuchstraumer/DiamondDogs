@@ -31,6 +31,9 @@ internal void SampleSurfaceAndWhitecaps(
     float2 totalStretch = float2(0.0f);
     float2 unresolvedVariance = float2(0.0f);
     const float distance = length(surface_xz - View.CameraPositionTime.xz);
+    const float3 viewOffset = View.CameraPositionTime.xyz - float3(surface_xz.x, wave_height, surface_xz.y);
+    const float dist3D = max(0.1f, length(viewOffset));
+    const float cosElevation = saturate(abs(viewOffset.y) / dist3D);
 
     float muA = 0.0f;
     float varA = 0.0f;
@@ -41,22 +44,25 @@ internal void SampleSurfaceAndWhitecaps(
     [unroll]
     for (uint cascade = 0; cascade < OCEAN_CASCADE_COUNT; ++cascade)
     {
-        // enabled is the A/B weight alone. weight adds the distance fade
         const float enabled = ViewCascadeWeight(cascade);
-        const float weight = CascadeDistanceWeight(cascade, distance);
+        const float distWeight = CascadeGrazingDistanceWeight(cascade, distance, cosElevation);
         const float foamWeight = ViewFoamWeight(cascade);
+
+        const float2 ddxUv = WorldToCascade(ddxXz, cascade) / ViewLengthScale(cascade);
+        const float2 ddyUv = WorldToCascade(ddyXz, cascade) / ViewLengthScale(cascade);
+        const float2 ddxTexel = ddxUv * View.LodParameters.y;
+        const float2 ddyTexel = ddyUv * View.LodParameters.y;
+        const float rho = max(length(ddxTexel), length(ddyTexel));
+        if (cascade == OCEAN_CASCADE_COUNT - 1u)
+        {
+            finestMipLevel = max(0.0f, log2(max(1e-6f, rho)));
+        }
+
+        const float nyquistFade = (cascade >= 1u) ? (1.0f - smoothstep(2.0f, 6.0f, rho)) : 1.0f;
+        const float weight = distWeight * nyquistFade;
 
         if (enabled > 0.0f || foamWeight > 0.0f)
         {
-            const float2 ddxUv = WorldToCascade(ddxXz, cascade) / ViewLengthScale(cascade);
-            const float2 ddyUv = WorldToCascade(ddyXz, cascade) / ViewLengthScale(cascade);
-            if (cascade == OCEAN_CASCADE_COUNT - 1u)
-            {
-                const float2 ddxTexel = ddxUv * View.LodParameters.y;
-                const float2 ddyTexel = ddyUv * View.LodParameters.y;
-                const float rho = max(length(ddxTexel), length(ddyTexel));
-                finestMipLevel = max(0.0f, log2(max(1e-6f, rho)));
-            }
             const float3 uvw = float3(CascadeUv(surface_xz, cascade), float(cascade));
             const float4 derivatives = Derivatives.SampleGrad(OceanSampler, uvw, ddxUv, ddyUv);
             const float4 moments = Whitecaps.SampleGrad(OceanSampler, uvw, ddxUv, ddyUv);
@@ -98,25 +104,16 @@ internal void SampleSurfaceAndWhitecaps(
         }
         else
         {
-            if (cascade == OCEAN_CASCADE_COUNT - 1u)
-            {
-                const float2 ddxUv = WorldToCascade(ddxXz, cascade) / ViewLengthScale(cascade);
-                const float2 ddyUv = WorldToCascade(ddyXz, cascade) / ViewLengthScale(cascade);
-                const float2 ddxTexel = ddxUv * View.LodParameters.y;
-                const float2 ddyTexel = ddyUv * View.LodParameters.y;
-                const float rho = max(length(ddxTexel), length(ddyTexel));
-                finestMipLevel = max(0.0f, log2(max(1e-6f, rho)));
-            }
             muA += rest;
         }
     }
 
-    const float2 slopeFwidth = fwidth(totalSlope);
-    const float2 fwidthVariance = 0.5f * (slopeFwidth * slopeFwidth);
-    unresolvedVariance += fwidthVariance;
-
     const float2 slope = totalSlope / max(float2(0.1f), 1.0f + totalStretch);
     surface.Normal = normalize(float3(-slope.x, 1.0f, -slope.y));
+
+    const float2 dNx = ddx_fine(surface.Normal.xz);
+    const float2 dNy = ddy_fine(surface.Normal.xz);
+    const float2 fwidthVariance = float2(dNx.x * dNx.x + dNy.x * dNy.x, dNx.y * dNx.y + dNy.y * dNy.y);
 
     const float2 baseVariance = float2(0.005f, 0.005f);
     const float2 leadrVariance = unresolvedVariance * Frame.LeadrSlopeVarianceScale;
@@ -126,7 +123,10 @@ internal void SampleSurfaceAndWhitecaps(
     surface.TotalStretch = totalStretch;
     surface.FwidthVariance = fwidthVariance;
     surface.FinestMipLevel = finestMipLevel;
-    surface.CascadeWeightRgb = float3(CascadeDistanceWeight(2u, distance), CascadeDistanceWeight(3u, distance), CascadeDistanceWeight(4u, distance));
+    surface.CascadeWeightRgb = float3(
+        CascadeGrazingDistanceWeight(2u, distance, cosElevation),
+        CascadeGrazingDistanceWeight(3u, distance, cosElevation),
+        CascadeGrazingDistanceWeight(4u, distance, cosElevation));
 
     // Crest sharpness
     const float jxx = 1.0f + tensor.x;
@@ -207,8 +207,10 @@ internal float EvaluateBrunetonMeanFresnel(float cosThetaV, float sigmaV)
 
 internal float EvaluateBrunetonFresnel(float3 V, float3 N, float2 sigmaSq)
 {
-    const float cosThetaV = saturate(dot(V, N));
-    const float sigmaV = sqrt(0.5f * (sigmaSq.x + sigmaSq.y));
+    const float sigmaV = sqrt(max(0.0f, 0.5f * (sigmaSq.x + sigmaSq.y)));
+    const float mu = dot(V, N);
+    const float muMin = clamp(0.08f + 0.30f * sigmaV, 0.08f, 0.22f);
+    const float cosThetaV = saturate(0.5f * (mu + sqrt(mu * mu + muMin * muMin)));
     return 0.02f + 0.98f * EvaluateBrunetonMeanFresnel(cosThetaV, sigmaV);
 }
 
@@ -292,13 +294,16 @@ internal float3 EvaluateSurfaceDebugColor(
     }
     if (mode == SURF_DEBUG_REFLECT_DIR)
     {
-        const float3 rawReflect = reflect(-toCamera, surface.Normal);
-        if (rawReflect.y <= 0.01f)
+        const float3 rawReflectDir = reflect(-toCamera, surface.Normal);
+        if (rawReflectDir.y <= 0.0f)
         {
-            // Bright red where the horizon clamp (reflectDir.y = max(0.01, reflectDir.y)) fires
             return float3(1.0f, 0.0f, 0.0f);
         }
-        return float3(rawReflect.x * 0.5f + 0.5f, saturate(rawReflect.y), rawReflect.z * 0.5f + 0.5f);
+        const float elev = saturate(sqrt(max(0.0f, rawReflectDir.y)));
+        return float3(
+            (rawReflectDir.x * 0.5f + 0.5f) * 0.40f,
+            0.25f + 0.75f * elev,
+            (rawReflectDir.z * 0.5f + 0.5f) * 0.80f);
     }
     if (mode == SURF_DEBUG_FOAM_TERMS)
     {
@@ -361,6 +366,11 @@ float4 OceanSurfaceFS(OceanSurfaceVaryings input) : SV_Target
     }
 
     const float3 toCamera = normalize(View.CameraPositionTime.xyz - input.WorldPosition);
+    if (Frame.UseSpecularAa != 0u)
+    {
+        surface.SigmaSq += max(0.0f, Frame.SpecularAaStrength) * surface.FwidthVariance;
+    }
+    surface.Normal = RegularizeGrazingNormal(toCamera, surface.Normal, surface.SigmaSq);
     const float3 toSun = View.SunDirectionSeabedDepth.xyz;
 
     // Construct local tangent frame on ocean surface

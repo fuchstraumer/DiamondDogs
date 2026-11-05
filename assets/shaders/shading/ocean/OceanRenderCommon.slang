@@ -183,8 +183,45 @@ internal float3 CascadeTensorToWorld(float3 tensor, uint cascade)
 // below a pixel
 internal float CascadeDistanceWeight(uint cascade, float distance)
 {
-    const float fadeStart = View.LodParameters.x * ViewLengthScale(cascade);
+    const float fineScale = (cascade >= 2u) ? 0.65f : 1.0f;
+    const float fadeStart = View.LodParameters.x * ViewLengthScale(cascade) * fineScale;
     return ViewCascadeWeight(cascade) * (1.0f - smoothstep(fadeStart, 2.0f * fadeStart, distance));
+}
+
+// Grazing-aware cascade distance weight for fragment slope evaluation. Foreshortening at low camera elevation
+// compresses vertical wave spacing by 1 / cosElevation, so fine cascades fade into LEAN roughness earlier.
+internal float CascadeGrazingDistanceWeight(uint cascade, float distance, float cosElevation)
+{
+    const float grazingScale = (cascade >= 2u) ? clamp(sqrt(max(0.04f, cosElevation)), 0.30f, 1.0f) : 1.0f;
+    const float fineScale = (cascade >= 2u) ? 0.55f : 1.0f;
+    const float fadeStart = View.LodParameters.x * ViewLengthScale(cascade) * fineScale * grazingScale;
+    return ViewCascadeWeight(cascade) * (1.0f - smoothstep(fadeStart, 2.0f * fadeStart, distance));
+}
+
+// Smoothly limits away-facing wave back-slopes (nv < 0) to the Smith visible-normal masking bound so back-slopes
+// reflect the ambient mid-sky (reflect(-V, N).y >= 0.55 * V.y) instead of clamping onto the 0-degree horizon band.
+internal float3 RegularizeGrazingNormal(float3 V, float3 N, float2 sigmaSq)
+{
+    const float2 vHorizXz = V.xz;
+    const float vHorizLen = length(vHorizXz);
+    if (vHorizLen < 1e-4f)
+    {
+        return N;
+    }
+
+    const float2 vDirXz = vHorizXz / vHorizLen;
+    const float nv = dot(N.xz, vDirXz);
+    const float2 nPerpXz = N.xz - nv * vDirXz;
+
+    const float sigmaV = sqrt(max(0.0f, 0.5f * (sigmaSq.x + sigmaSq.y)));
+    const float effectiveVy = max(0.05f, V.y + 0.20f * sigmaV);
+    const float nvMin = -0.18f * (effectiveVy / vHorizLen) * N.y;
+    const float diff = nv - nvMin;
+    const float smoothness = 0.08f * N.y;
+    const float nvMasked = nvMin + 0.5f * (diff + sqrt(diff * diff + smoothness * smoothness));
+
+    const float2 maskedXz = nPerpXz + nvMasked * vDirXz;
+    return normalize(float3(maskedXz.x, max(0.25f, N.y), maskedXz.y));
 }
 
 // The mip of cascade `cascade` whose texels are `spacing` meters wide: the level that holds no wave finer than a grid

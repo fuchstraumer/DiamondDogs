@@ -3265,7 +3265,7 @@ void OceanScene::recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgra
     RhiAssert(command_buffer.BindShaders(program.Program->Program()));
     SetShaderObjectDrawState(command_buffer.Handle().As<VkCommandBuffer>(), ShaderObjectDrawState{
         .DepthTest = true,
-        .DepthWrite = !alpha_blend,
+        .DepthWrite = true,
         .AlphaBlend = alpha_blend,
         .CullMode = VK_CULL_MODE_NONE,
         .PolygonMode = wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,
@@ -4037,7 +4037,7 @@ void OceanScene::recordCommands()
             RhiAssert(cmd.BindShaders(surface.Program->Program()));
             SetShaderObjectDrawState(cmd.Handle().As<VkCommandBuffer>(), ShaderObjectDrawState{
                 .DepthTest = true,
-                .DepthWrite = false,
+                .DepthWrite = true,
                 .AlphaBlend = true,
                 .CullMode = VK_CULL_MODE_NONE,
                 .PolygonMode = wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL,

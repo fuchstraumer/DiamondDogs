@@ -266,9 +266,37 @@ internal float EvaluateBrunetonMeanFresnel(float cosThetaV, float sigmaV)
 
 internal float EvaluateBrunetonFresnel(float3 V, float3 N, float2 sigmaSq)
 {
-    const float cosThetaV = saturate(dot(V, N));
-    const float sigmaV = sqrt(0.5f * (sigmaSq.x + sigmaSq.y));
+    const float sigmaV = sqrt(max(0.0f, 0.5f * (sigmaSq.x + sigmaSq.y)));
+    const float mu = dot(V, N);
+    const float muMin = clamp(0.08f + 0.30f * sigmaV, 0.08f, 0.22f);
+    const float cosThetaV = saturate(0.5f * (mu + sqrt(mu * mu + muMin * muMin)));
     return 0.02f + 0.98f * EvaluateBrunetonMeanFresnel(cosThetaV, sigmaV);
+}
+
+// Smoothly limits away-facing wave back-slopes (nv < 0) to the Smith visible-normal masking bound so back-slopes
+// reflect the ambient mid-sky (reflect(-V, N).y >= 0.55 * V.y) instead of clamping onto the 0-degree horizon band.
+internal float3 RegularizeGrazingNormal(float3 V, float3 N, float2 sigmaSq)
+{
+    const float2 vHorizXz = V.xz;
+    const float vHorizLen = length(vHorizXz);
+    if (vHorizLen < 1e-4f)
+    {
+        return N;
+    }
+
+    const float2 vDirXz = vHorizXz / vHorizLen;
+    const float nv = dot(N.xz, vDirXz);
+    const float2 nPerpXz = N.xz - nv * vDirXz;
+
+    const float sigmaV = sqrt(max(0.0f, 0.5f * (sigmaSq.x + sigmaSq.y)));
+    const float effectiveVy = max(0.05f, V.y + 0.20f * sigmaV);
+    const float nvMin = -0.18f * (effectiveVy / vHorizLen) * N.y;
+    const float diff = nv - nvMin;
+    const float smoothness = 0.08f * N.y;
+    const float nvMasked = nvMin + 0.5f * (diff + sqrt(diff * diff + smoothness * smoothness));
+
+    const float2 maskedXz = nPerpXz + nvMasked * vDirXz;
+    return normalize(float3(maskedXz.x, max(0.25f, N.y), maskedXz.y));
 }
 
 internal float3 RgbToYCoCg(float3 c)
@@ -703,7 +731,7 @@ void OceanDeferredLightingCS(
     const float4 gNormalSigma = GBufferNormalSigmaFiltered.Load(int3(coord, 0));
     const float2 normalXz = gNormalSigma.xy;
     const float normalY = sqrt(max(0.0f, 1.0f - dot(normalXz, normalXz)));
-    const float3 normal = normalize(float3(normalXz.x, normalY, normalXz.y));
+    float3 normal = normalize(float3(normalXz.x, normalY, normalXz.y));
     const float2 sigmaSq = gNormalSigma.zw;
 
     const float4 gFoamSss = GBufferFoamSss.Load(int3(coord, 0));
@@ -716,6 +744,7 @@ void OceanDeferredLightingCS(
     const float2 foamNormalXy = gMotionFoam.zw;
 
     const float3 toCamera = normalize(View.CameraPositionTime.xyz - oceanWorldPos);
+    normal = RegularizeGrazingNormal(toCamera, normal, sigmaSq);
     const float3 toSun = View.SunDirectionSeabedDepth.xyz;
 
     const float3 tangentX = normalize(abs(normal.y) < 0.999f
@@ -964,13 +993,17 @@ void OceanDeferredLightingCS(
         else if (surfDebugMode == SURF_DEBUG_REFLECT_DIR)
         {
             const float3 rawReflect = reflect(-toCamera, normal);
-            if (rawReflect.y <= 0.01f)
+            if (rawReflect.y <= 0.0f)
             {
                 debugColor = float3(1.0f, 0.0f, 0.0f);
             }
             else
             {
-                debugColor = float3(rawReflect.x * 0.5f + 0.5f, saturate(rawReflect.y), rawReflect.z * 0.5f + 0.5f);
+                const float elev = saturate(sqrt(max(0.0f, rawReflect.y)));
+                debugColor = float3(
+                    (rawReflect.x * 0.5f + 0.5f) * 0.40f,
+                    0.25f + 0.75f * elev,
+                    (rawReflect.z * 0.5f + 0.5f) * 0.80f);
             }
         }
         else if (surfDebugMode == SURF_DEBUG_FOAM_TERMS)
