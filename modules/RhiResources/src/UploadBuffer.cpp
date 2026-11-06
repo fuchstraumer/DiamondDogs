@@ -77,12 +77,12 @@ std::vector<VkBufferCopy> WriteBufferData(
 {
     std::vector<VkBufferCopy> bufferCopies(data_vector.size());
     uint64_t offset = 0u;
-    std::span<std::byte> runningSpan = destination.Mapped;
 
     for (auto&& [index, data] : std::views::enumerate(data_vector))
     {
-        runningSpan = runningSpan.subspan(offset);
-        std::memcpy(runningSpan.data(), data.Data.get(), data.Size);
+        const std::span<std::byte> target = destination.Mapped.subspan(offset, data.Size);
+
+        std::memcpy(target.data(), data.Data.get(), data.Size);
 
         VkBufferCopy& copy = bufferCopies[static_cast<size_t>(index)];
         copy.srcOffset = destination.Offset + offset;
@@ -104,13 +104,14 @@ std::vector<VkBufferImageCopy> WriteImageData(
     // twice, the second time over the first. it also used the image's layer count for every element
     std::vector<VkBufferImageCopy> bufferImageCopies(image_data_vector.size());
     uint64_t offset = 0u;
-    std::span<std::byte> runningSpan = destination.Mapped;
 
     for (auto&& [index, data] : std::views::enumerate(image_data_vector))
     {
         offset = AlignUp(offset, alignment);
-        runningSpan = runningSpan.subspan(offset);
-        std::memcpy(runningSpan.data(), data.Data.get(), data.Size);
+
+        const std::span<std::byte> target = destination.Mapped.subspan(offset, data.Size);
+
+        std::memcpy(target.data(), data.Data.get(), data.Size);
 
         VkBufferImageCopy& copy = bufferImageCopies[static_cast<size_t>(index)];
         copy.bufferOffset = destination.Offset + offset;

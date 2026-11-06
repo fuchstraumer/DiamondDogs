@@ -12,12 +12,14 @@ set(FOUNDATION_TEST_SOURCES
     # Content key tests
     content/test_bytes_sink.cpp
     content/test_encode.cpp
+    content/test_encode_erased.cpp
     content/test_keys.cpp
     content/test_text_sink.cpp
 
     # Reflection tests
     reflect/test_describe.cpp
     reflect/test_type_info.cpp
+    reflect/test_value_access.cpp
 
     # Threading tests
     threading/test_atomic128.cpp
