@@ -15,6 +15,10 @@ set(FOUNDATION_TEST_SOURCES
     content/test_keys.cpp
     content/test_text_sink.cpp
 
+    # Reflection tests
+    reflect/test_describe.cpp
+    reflect/test_type_info.cpp
+
     # Threading tests
     threading/test_atomic128.cpp
     threading/test_critical_section.cpp

@@ -1105,7 +1105,7 @@ namespace
             return failures + 1;
         }
         const lodestone::ManifestIndex* renderIndex = *renderIndexResult;
-        constexpr std::array<std::string_view, 2> surfaceEntry{ "OceanSurfaceVS", "OceanSurfaceFS" };
+        constexpr std::array<std::string_view, 2> surfaceEntry{ "OceanSurfaceVS", "OceanSurfaceGBufferFS" };
         constexpr std::array<std::string_view, 2> seabedEntry{ "SeabedVS", "SeabedFS" };
 
         // OceanRender scalar variant (OCEAN_USE_WAVE_OPS = false)

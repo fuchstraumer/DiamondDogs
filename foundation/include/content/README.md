@@ -8,7 +8,7 @@ choice is in doubt, the encoding chooses the miss.
 
 | File | Holds |
 |---|---|
-| `reflect/Describe.hpp` | `Describe<T>`, `Field`, `EnumCase`, and the concepts `DescribedStruct` and `DescribedEnum`. |
+| `reflect/Describe.hpp` | `Describe<T>`, `Field`, `EnumCase`, and the concepts `DescribedStruct` and `DescribedEnum`. `reflect/README.md` covers metadata and `TypeInfo`. |
 | `Key.hpp` | `Key<Tag>`, the aliases `RecipeKey`, `BlobKey`, `ArtifactHash`, the map hasher and the hex text. |
 | `CanonicalSink.hpp` | The abstract sink and the one-byte tags. |
 | `ByteStreamSink.hpp` | The one writer of the byte layout. It has a pure-virtual `Append(const std::byte*, size_t)`. |
