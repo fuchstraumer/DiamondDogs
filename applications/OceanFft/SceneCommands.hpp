@@ -13,6 +13,7 @@
 #include <string_view>
 #include <vector>
 #include "SeaState.hpp"
+#include "reflect/TypeInfo.hpp"
 
 /** One line of the demo's command language. Angles are degrees, lengths meters. One command per line, '#' starts a
  *  comment. The same commands come from --script=file and, with --stdin, from standard input between frames.
@@ -141,15 +142,9 @@ struct SceneCommand
     [[nodiscard]] static std::expected<SceneCommand, std::string> Parse(std::string_view line);
 };
 
-/** One float field of the sea state. Name is the C++ member name, which the sea command accepts in any case */
-struct SeaStateField
-{
-    std::string_view Name;
-    float ocean::SeaState::* Member;
-};
-
-/** @brief Returns the field whose name matches, ignoring case, or null when no field matches */
-[[nodiscard]] const SeaStateField* FindSeaStateField(std::string_view name);
+/** @brief Returns the sea state field whose name matches, ignoring case, or null when no field matches. The
+ *  sea command accepts a C++ member name in any case */
+[[nodiscard]] const foundation::reflect::FieldInfo* FindSeaStateField(std::string_view name);
 /** @brief Returns the preset whose name matches, ignoring case, or null when no preset matches */
 [[nodiscard]] const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name);
 /** @brief Returns the atmosphere debug mode names. The index of a name is the mode number that the shader reads */
@@ -164,8 +159,6 @@ struct SeaStateField
 [[nodiscard]] const std::array<std::string_view, 11>& SurfaceDebugModeNames() noexcept;
 /** @brief Returns the index of the surface debug mode whose name matches, or -1 when no mode matches */
 [[nodiscard]] int32_t FindSurfaceDebugMode(std::string_view name);
-/** @brief Returns every float field of the sea state, in declaration order */
-[[nodiscard]] const std::array<SeaStateField, 15>& SeaStateFields() noexcept;
 
 /** Holds the lines from the script and stdin, and hands out the commands for each frame. Push may be called from any
  *  thread. The stdin reader pushes through the queue. Every other method runs on the frame thread. */

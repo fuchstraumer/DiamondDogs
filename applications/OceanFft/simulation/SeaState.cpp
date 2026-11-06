@@ -1,13 +1,11 @@
 #include "SeaState.hpp"
 #include "OceanSimulation.hpp"
-#include "reflect/Describe.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <numbers>
 #include <string_view>
-#include <tuple>
 
 namespace ocean
 {
@@ -508,37 +506,3 @@ namespace ocean
         return k_Presets;
     }
 }
-
-// The descriptor lives here until a second file encodes a SeaState (a preset save, a recipe key). Then it moves to
-// SeaState.hpp, because every file that encodes a type must see its specialization.
-template<>
-struct foundation::reflect::Describe<ocean::SeaState>
-{
-    using SeaState = ocean::SeaState;
-
-    static constexpr std::string_view Name{ "ocean.SeaState" };
-
-    static constexpr std::tuple Fields
-    {
-        Field<SeaState, float>{ "WindForce", &SeaState::WindForce },
-        Field<SeaState, float>{ "Openness", &SeaState::Openness },
-        Field<SeaState, float>{ "WindDirection", &SeaState::WindDirection },
-        Field<SeaState, float>{ "Spread", &SeaState::Spread },
-        Field<SeaState, float>{ "Regularity", &SeaState::Regularity },
-        Field<SeaState, float>{ "RippleDetail", &SeaState::RippleDetail },
-        Field<SeaState, float>{ "Depth", &SeaState::Depth },
-        Field<SeaState, float>{ "SwellHeight", &SeaState::SwellHeight },
-        Field<SeaState, float>{ "SwellPeriod", &SeaState::SwellPeriod },
-        Field<SeaState, float>{ "SwellDirection", &SeaState::SwellDirection },
-        Field<SeaState, float>{ "SwellOrder", &SeaState::SwellOrder },
-        Field<SeaState, float>{ "HeightScale", &SeaState::HeightScale },
-        Field<SeaState, float>{ "WhitecapThreshold", &SeaState::WhitecapThreshold },
-        Field<SeaState, float>{ "FoamAmount", &SeaState::FoamAmount },
-        Field<SeaState, float>{ "CrestSharpness", &SeaState::CrestSharpness },
-    };
-};
-
-static_assert(foundation::reflect::DescribedStruct<ocean::SeaState>);
-
-// a new SeaState field changes the size, so this fails until the field is in the descriptor too
-static_assert(sizeof(ocean::SeaState) == 15 * sizeof(float), "add the new SeaState field to its descriptor");

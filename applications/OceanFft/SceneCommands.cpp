@@ -7,9 +7,12 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -19,6 +22,9 @@
 #include <vector>
 #include "OceanSimulation.hpp"
 #include "SeaState.hpp"
+#include "SeaState.reflect.hpp"
+#include "reflect/TypeInfo.hpp"
+#include "reflect/ValueAccess.hpp"
 
 namespace
 {
@@ -84,25 +90,6 @@ namespace
         { "print", { SceneCommand::Kind::Print, 0u, 0u, false } },
         { "resize", { SceneCommand::Kind::Resize, 2u, 2u, false } },
         { "quit", { SceneCommand::Kind::Quit, 0u, 0u, false } },
-    };
-
-    const std::array<SeaStateField, 15> k_SeaStateFields
-    {
-        SeaStateField{ "WindForce", &ocean::SeaState::WindForce },
-        SeaStateField{ "Openness", &ocean::SeaState::Openness },
-        SeaStateField{ "WindDirection", &ocean::SeaState::WindDirection },
-        SeaStateField{ "Spread", &ocean::SeaState::Spread },
-        SeaStateField{ "Regularity", &ocean::SeaState::Regularity },
-        SeaStateField{ "RippleDetail", &ocean::SeaState::RippleDetail },
-        SeaStateField{ "Depth", &ocean::SeaState::Depth },
-        SeaStateField{ "SwellHeight", &ocean::SeaState::SwellHeight },
-        SeaStateField{ "SwellPeriod", &ocean::SeaState::SwellPeriod },
-        SeaStateField{ "SwellDirection", &ocean::SeaState::SwellDirection },
-        SeaStateField{ "SwellOrder", &ocean::SeaState::SwellOrder },
-        SeaStateField{ "HeightScale", &ocean::SeaState::HeightScale },
-        SeaStateField{ "WhitecapThreshold", &ocean::SeaState::WhitecapThreshold },
-        SeaStateField{ "FoamAmount", &ocean::SeaState::FoamAmount },
-        SeaStateField{ "CrestSharpness", &ocean::SeaState::CrestSharpness },
     };
 
     const std::array<std::string_view, 8> k_FoamFields
@@ -389,14 +376,19 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
     return command;
 }
 
-const SeaStateField* FindSeaStateField(std::string_view name)
+const foundation::reflect::FieldInfo* FindSeaStateField(std::string_view name)
 {
-    const auto found = std::ranges::find_if(k_SeaStateFields, [name](const SeaStateField& field)
+    const std::span<const foundation::reflect::FieldInfo> fields =
+        foundation::reflect::GetTypeInfo<ocean::SeaState>().Fields;
+
+    const auto matchesName = [name](const foundation::reflect::FieldInfo& field)
     {
         return EqualsIgnoreCase(field.Name, name);
-    });
+    };
 
-    return found != k_SeaStateFields.end() ? &*found : nullptr;
+    const auto found = std::ranges::find_if(fields, matchesName);
+
+    return found != fields.end() ? std::addressof(*found) : nullptr;
 }
 
 const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name)
@@ -407,12 +399,7 @@ const ocean::SeaStatePreset* FindSeaStatePreset(std::string_view name)
         return EqualsIgnoreCase(preset.Name, name);
     });
 
-    return found != presets.end() ? &*found : nullptr;
-}
-
-const std::array<SeaStateField, 15>& SeaStateFields() noexcept
-{
-    return k_SeaStateFields;
+    return found != presets.end() ? std::addressof(*found) : nullptr;
 }
 
 const std::array<std::string_view, 10>& AtmosphereDebugModeNames() noexcept
@@ -642,6 +629,21 @@ namespace
         return command;
     }
 
+    std::string DescribeRefusedSeaValue(const foundation::reflect::FieldInfo& field,
+                                        std::string_view value_word,
+                                        foundation::reflect::ValueError error)
+    {
+        std::string message = std::format("sea: {} {}: {}", field.Name, value_word,
+                                          foundation::reflect::ValueErrorText(error));
+
+        if (error == foundation::reflect::ValueError::OutOfRange && field.Metadata.Range.has_value())
+        {
+            message += std::format(" ({} to {})", field.Metadata.Range->Min, field.Metadata.Range->Max);
+        }
+
+        return message;
+    }
+
     std::expected<SceneCommand, std::string> ParseSea(const std::vector<std::string_view>& words)
     {
         if (words.size() != 3u)
@@ -649,7 +651,7 @@ namespace
             return std::unexpected(std::string{ "sea takes a field name and a value" });
         }
 
-        const SeaStateField* field = FindSeaStateField(words[1]);
+        const foundation::reflect::FieldInfo* field = FindSeaStateField(words[1]);
         if (field == nullptr)
         {
             return std::unexpected(std::string{ "sea: unknown field '" } + std::string{ words[1] } + "'");
@@ -659,6 +661,20 @@ namespace
         if (!ParseFloat(words[2], value))
         {
             return std::unexpected(std::string{ "sea: '" } + std::string{ words[2] } + "' is not a number");
+        }
+
+        // a write to a scratch value, so that a refused value fails on its script line, not later in a frame
+        ocean::SeaState scratch{};
+
+        const std::expected<void, foundation::reflect::PathError> written = foundation::reflect::SetValue(
+            foundation::reflect::GetTypeInfo<ocean::SeaState>(),
+            &scratch,
+            field->Name,
+            foundation::reflect::ScalarValue{ static_cast<double>(value) });
+
+        if (!written.has_value())
+        {
+            return std::unexpected(DescribeRefusedSeaValue(*field, words[2], written.error().Code));
         }
 
         SceneCommand command{};

@@ -129,6 +129,7 @@ add_library(ocean_simulation STATIC
     "simulation/OceanSimulation.hpp"
     "simulation/SeaState.cpp"
     "simulation/SeaState.hpp"
+    "simulation/SeaState.reflect.hpp"
     ${OCEAN_FFT_GENERATED_SOURCES})
 target_include_directories(ocean_simulation PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/simulation")
 target_include_directories(ocean_simulation PRIVATE "${OCEAN_FFT_GENERATED_DIR}")

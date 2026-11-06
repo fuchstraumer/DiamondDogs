@@ -23,6 +23,7 @@
 #include "OceanFoam.hpp"
 #include "OceanSimulation.hpp"
 #include "OceanUi.hpp"
+#include "reflect/ValueAccess.hpp"
 #include "PlatformSystem.hpp"
 #include "PlatformTypes.hpp"
 #include "ResourceContext.hpp"
@@ -31,6 +32,7 @@
 #include "ResourceTypes.hpp"
 #include "SceneCommands.hpp"
 #include "SeaState.hpp"
+#include "SeaState.reflect.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
@@ -1764,13 +1766,19 @@ void OceanScene::setSeaStatePreset(std::string_view _name)
 
 void OceanScene::setSeaStateField(std::string_view _name, float _value)
 {
-    const SeaStateField* field = FindSeaStateField(_name);
-    if (field == nullptr)
+    const std::expected<void, foundation::reflect::PathError> written = foundation::reflect::SetValue(
+        foundation::reflect::GetTypeInfo<ocean::SeaState>(),
+        &seaState,
+        _name,
+        foundation::reflect::ScalarValue{ static_cast<double>(_value) });
+
+    if (!written.has_value())
     {
+        std::cerr << std::format("sea {} {}: {}\n", _name, _value,
+                                 foundation::reflect::ValueErrorText(written.error().Code));
         return;
     }
 
-    seaState.*(field->Member) = _value;
     if (_name == "Depth")
     {
         seabedDepth = _value;
@@ -1852,9 +1860,13 @@ void OceanScene::printState() const
         state.Yaw / k_DegreesToRadians, state.Pitch / k_DegreesToRadians, state.Distance, state.Target[0], state.Target[1], state.Target[2]);
 
     std::cout << "sea";
-    for (const SeaStateField& field : SeaStateFields())
+    const foundation::reflect::TypeInfo& seaStateInfo = foundation::reflect::GetTypeInfo<ocean::SeaState>();
+
+    for (const foundation::reflect::FieldInfo& field : seaStateInfo.Fields)
     {
-        std::cout << std::format(" {}={}", field.Name, seaState.*field.Member);
+        const float value = *static_cast<const float*>(foundation::reflect::FieldAddress(field, &seaState));
+
+        std::cout << std::format(" {}={}", field.Name, value);
     }
 
     std::cout << "\ncascades enabled";

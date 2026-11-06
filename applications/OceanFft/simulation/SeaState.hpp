@@ -16,6 +16,7 @@
 // Each stage is a small pure function on plain structs, so each one can be tested and replaced on its own.
 namespace ocean
 {
+    // SeaState.reflect.hpp describes these fields. A new field goes there too.
     /** @brief The editor domain. Every value is in units an artist can judge by eye */
     struct SeaState
     {
