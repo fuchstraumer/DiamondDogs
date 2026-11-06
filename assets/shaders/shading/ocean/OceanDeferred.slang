@@ -981,14 +981,17 @@ void OceanDeferredLightingCS(
         {
             debugColor = float3(normal.x * 0.5f + 0.5f, saturate(normal.y), normal.z * 0.5f + 0.5f);
         }
+        else if (surfDebugMode == SURF_DEBUG_SLOPE
+              || surfDebugMode == SURF_DEBUG_STRETCH
+              || surfDebugMode == SURF_DEBUG_JACOBIAN
+              || surfDebugMode == SURF_DEBUG_MIP_LEVEL
+              || surfDebugMode == SURF_DEBUG_CASCADE_WEIGHTS)
+        {
+            debugColor = gFoamSss.xyz;
+        }
         else if (surfDebugMode == SURF_DEBUG_LEAN_SIGMA)
         {
             debugColor = float3(saturate(sigmaSq.x * 10.0f), saturate(sigmaSq.y * 10.0f), 0.0f);
-        }
-        else if (surfDebugMode == SURF_DEBUG_CASCADE_WEIGHTS)
-        {
-            const float dist = length(oceanWorldPos.xz - View.CameraPositionTime.xz);
-            debugColor = float3(CascadeDistanceWeight(2u, dist), CascadeDistanceWeight(3u, dist), CascadeDistanceWeight(4u, dist));
         }
         else if (surfDebugMode == SURF_DEBUG_REFLECT_DIR)
         {

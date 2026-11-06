@@ -153,9 +153,6 @@ private:
     /** @brief Prints the camera, the time, the sea state and the enabled cascades, for the print command */
     void printState() const;
     void writeViewParameters();
-    /** @brief Binds program and draws instance_count tiles of one ring (see OceanGridParameters in OceanRenderCommon.slang) */
-    void recordDraw(rhi::CommandBuffer& command_buffer, const DrawProgram& program, const std::array<float, 2>& origin, float tile_size,
-                    uint32_t resolution, uint32_t ring, uint32_t outer_resolution, uint32_t instance_count, bool alpha_blend) const;
     void updateSurfaceDescriptors();
     void updateCdlodSettings() noexcept;
     [[nodiscard]] uint32_t ringResolution(uint32_t ring) const noexcept;
@@ -172,13 +169,8 @@ private:
     std::vector<std::unique_ptr<rhi::CommandPool>> commandPools;
 
     VkDescriptorPool descriptorPool{ VK_NULL_HANDLE };
-    DrawProgram surface;
     DrawProgram seabed;
     GraphicsResource sampler;
-    GraphicsResource depthImage;
-    // the scene renders at msaaSamples into msaaColorImage and depthImage, and resolves into the swapchain image
-    GraphicsResource msaaColorImage;
-    VkSampleCountFlagBits msaaSamples{ VK_SAMPLE_COUNT_1_BIT };
     // the anisotropy the surface sampler uses, 1 when filtering is off
     float anisotropy{ 1.0f };
     std::vector<GraphicsResource> viewBuffers;
@@ -304,7 +296,6 @@ private:
     bool atmosphereSettingsChanged{ false };
 
     // Deferred & Temporal Path (Phases 4C & 4D)
-    bool useDeferredPath{ false };
     bool useSpecularAa{ true };
     float specularAaStrength{ 1.0f };
     bool useTaa{ true };

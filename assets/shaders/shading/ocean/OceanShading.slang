@@ -147,91 +147,17 @@ internal void SampleSurfaceAndWhitecaps(
     whitecaps = saturate(rawCoverage * foamAmount);
 }
 
-internal float Erfc(float x)
+internal bool IsGBufferSurfaceDebugMode(uint mode)
 {
-    return 2.0f * exp(-x * x) / (2.319f * x + sqrt(4.0f + 1.52f * x * x));
+    return mode == SURF_DEBUG_SLOPE
+        || mode == SURF_DEBUG_STRETCH
+        || mode == SURF_DEBUG_JACOBIAN
+        || mode == SURF_DEBUG_MIP_LEVEL
+        || mode == SURF_DEBUG_CASCADE_WEIGHTS;
 }
 
-internal float Lambda(float cosTheta, float sigmaSq)
+internal float3 EvaluateGBufferSurfaceDebug(uint mode, SurfaceSample surface)
 {
-    const float v = cosTheta / sqrt(max(1e-5f, (1.0f - cosTheta * cosTheta) * (2.0f * sigmaSq)));
-    return max(0.0f, (exp(-v * v) - v * 1.77245385f * Erfc(v)) / max(1e-5f, 2.0f * v * 1.77245385f));
-}
-
-internal float EvaluateOceanSpecular(
-    float3 L,
-    float3 V,
-    float3 N,
-    float3 Tx,
-    float3 Ty,
-    float2 sigmaSq)
-{
-    const float3 H = normalize(L + V);
-    const float zH = max(1e-4f, dot(H, N));
-    const float zetax = dot(H, Tx) / zH;
-    const float zetay = dot(H, Ty) / zH;
-    const float zL = max(0.001f, dot(L, N));
-    const float zV = max(0.001f, dot(V, N));
-    const float zH2 = zH * zH;
-
-    const float p = exp(-0.5f * (zetax * zetax / sigmaSq.x + zetay * zetay / sigmaSq.y))
-        / (2.0f * 3.14159265f * sqrt(sigmaSq.x * sigmaSq.y));
-
-    const float vx = dot(V, Tx);
-    const float vy = dot(V, Ty);
-    const float vLenSq = vx * vx + vy * vy;
-    const float cosV2 = (vLenSq > 1e-6f) ? (vx * vx / vLenSq) : 1.0f;
-    const float sigmaV2 = sigmaSq.x * cosV2 + sigmaSq.y * (1.0f - cosV2);
-
-    const float lx = dot(L, Tx);
-    const float ly = dot(L, Ty);
-    const float lLenSq = lx * lx + ly * ly;
-    const float cosL2 = (lLenSq > 1e-6f) ? (lx * lx / lLenSq) : 1.0f;
-    const float sigmaL2 = sigmaSq.x * cosL2 + sigmaSq.y * (1.0f - cosL2);
-
-    const float tVh = 1.0f - saturate(dot(V, H));
-    const float tVh2 = tVh * tVh;
-    const float tVh5 = tVh2 * tVh2 * tVh;
-    const float fresnel = 0.02f + 0.98f * tVh5;
-    const float denom = (1.0f + Lambda(zL, sigmaL2) + Lambda(zV, sigmaV2)) * zV * zH2 * zH2 * 4.0f;
-
-    return (fresnel * p) / max(1e-5f, denom);
-}
-
-internal float EvaluateBrunetonMeanFresnel(float cosThetaV, float sigmaV)
-{
-    const float exponent = 5.0f * exp(-2.69f * sigmaV);
-    const float denom = 1.0f + 22.7f * pow(max(0.0f, sigmaV), 1.5f);
-    return pow(max(0.0f, 1.0f - cosThetaV), exponent) / max(1e-5f, denom);
-}
-
-internal float EvaluateBrunetonFresnel(float3 V, float3 N, float2 sigmaSq)
-{
-    const float sigmaV = sqrt(max(0.0f, 0.5f * (sigmaSq.x + sigmaSq.y)));
-    const float mu = dot(V, N);
-    const float muMin = clamp(0.08f + 0.30f * sigmaV, 0.08f, 0.22f);
-    const float cosThetaV = saturate(0.5f * (mu + sqrt(mu * mu + muMin * muMin)));
-    return 0.02f + 0.98f * EvaluateBrunetonMeanFresnel(cosThetaV, sigmaV);
-}
-
-internal float3 EvaluateSurfaceDebugColor(
-    uint mode,
-    SurfaceSample surface,
-    float3 toCamera,
-    float breaking,
-    float underwaterFoam,
-    float storedFoam,
-    float specularMask,
-    float effectiveFresnel,
-    float3 skyRadiance,
-    float3 sunSpecularRadiance,
-    float3 waterSubsurface,
-    float waterOpacity)
-{
-    if (mode == SURF_DEBUG_NORMAL)
-    {
-        return float3(surface.Normal.x * 0.5f + 0.5f, saturate(surface.Normal.y), surface.Normal.z * 0.5f + 0.5f);
-    }
     if (mode == SURF_DEBUG_SLOPE)
     {
         const float2 stretchedSlope = surface.RawSlope / max(float2(0.1f), 1.0f + surface.TotalStretch);
@@ -243,7 +169,6 @@ internal float3 EvaluateSurfaceDebugColor(
     }
     if (mode == SURF_DEBUG_STRETCH)
     {
-        // 1 + totalStretch: <= 0.105 is clamped (bright magenta), < 0.3 is warning red/orange, 1.0 is mid-gray, > 1.0 is cyan/blue
         const float minDenom = min(1.0f + surface.TotalStretch.x, 1.0f + surface.TotalStretch.y);
         if (minDenom <= 0.105f)
         {
@@ -259,7 +184,6 @@ internal float3 EvaluateSurfaceDebugColor(
     }
     if (mode == SURF_DEBUG_JACOBIAN)
     {
-        // Jacobian muA: <= 0 (folding/breaking) is red, 0..1 is yellow->gray, > 1 is blue
         const float j = surface.JacobianMuA;
         if (j <= 0.0f)
         {
@@ -271,15 +195,8 @@ internal float3 EvaluateSurfaceDebugColor(
         }
         return lerp(float3(0.25f, 0.25f, 0.25f), float3(0.1f, 0.5f, 1.0f), saturate((j - 1.0f) * 0.8f));
     }
-    if (mode == SURF_DEBUG_LEAN_SIGMA)
-    {
-        // R: SigmaSq.x * 10, G: SigmaSq.y * 10, B: fwidth variance contribution * 20
-        const float fwVar = surface.FwidthVariance.x + surface.FwidthVariance.y;
-        return float3(saturate(surface.SigmaSq.x * 10.0f), saturate(surface.SigmaSq.y * 10.0f), saturate(fwVar * 20.0f));
-    }
     if (mode == SURF_DEBUG_MIP_LEVEL)
     {
-        // Color code finest cascade mip level: 0=red, 1=orange, 2=yellow, 3=green, 4=cyan, 5+=blue
         const float m = clamp(surface.FinestMipLevel, 0.0f, 6.0f);
         if (m < 1.0f) return lerp(float3(1.0f, 0.0f, 0.0f), float3(1.0f, 0.5f, 0.0f), m);
         if (m < 2.0f) return lerp(float3(1.0f, 0.5f, 0.0f), float3(1.0f, 1.0f, 0.0f), m - 1.0f);
@@ -289,252 +206,9 @@ internal float3 EvaluateSurfaceDebugColor(
     }
     if (mode == SURF_DEBUG_CASCADE_WEIGHTS)
     {
-        // R = Cascade 2 (78 m), G = Cascade 3 (8.6 m), B = Cascade 4 (0.96 m)
         return surface.CascadeWeightRgb;
     }
-    if (mode == SURF_DEBUG_REFLECT_DIR)
-    {
-        const float3 rawReflectDir = reflect(-toCamera, surface.Normal);
-        if (rawReflectDir.y <= 0.0f)
-        {
-            return float3(1.0f, 0.0f, 0.0f);
-        }
-        const float elev = saturate(sqrt(max(0.0f, rawReflectDir.y)));
-        return float3(
-            (rawReflectDir.x * 0.5f + 0.5f) * 0.40f,
-            0.25f + 0.75f * elev,
-            (rawReflectDir.z * 0.5f + 0.5f) * 0.80f);
-    }
-    if (mode == SURF_DEBUG_FOAM_TERMS)
-    {
-        // R = breaking, G = 1 - specularMask (specular suppression from underwaterFoam), B = storedFoam
-        return float3(saturate(breaking), saturate(1.0f - specularMask), saturate(storedFoam));
-    }
-    if (mode == SURF_DEBUG_SPECULAR_SPLIT)
-    {
-        // R = luminance of sky reflection * Fresnel, G = luminance of sun specular * mask, B = luminance of subsurface * 4
-        const float3 ap1Lum = float3(0.2722287f, 0.6740818f, 0.0536895f);
-        const float reflLum = dot(skyRadiance * effectiveFresnel, ap1Lum);
-        const float specLum = dot(sunSpecularRadiance * specularMask, ap1Lum);
-        const float sssLum = dot(waterSubsurface * waterOpacity * (1.0f - effectiveFresnel), ap1Lum);
-        return float3(saturate(reflLum * 0.5f), saturate(specLum * 0.5f), saturate(sssLum * 4.0f));
-    }
     return float3(0.0f);
-}
-
-[shader("fragment")]
-float4 OceanSurfaceFS(OceanSurfaceVaryings input) : SV_Target
-{
-    // Evaluate persistent foam before the cascade loop
-    const bool persistent = View.PersistentFoamParameters.x > 0.5f;
-    const float storedFoam = persistent ? SamplePersistentFoam(input.SurfaceXZ) : 0.0f;
-    const float thresholdBias = View.PersistentFoamParameters.y * storedFoam;
-
-    const float2 ddxXz = ddx(input.SurfaceXZ);
-    const float2 ddyXz = ddy(input.SurfaceXZ);
-
-    // Fused surface derivatives and whitecaps coverage
-    SurfaceSample surface;
-    float breaking;
-    SampleSurfaceAndWhitecaps(input.SurfaceXZ, ddxXz, ddyXz, input.WorldPosition.y, thresholdBias, surface, breaking);
-
-    // Candidate foam coverage for early-out gating
-    const float maxResidualArea = persistent ? saturate(max(0.0f, View.FoamResidualParameters.x) * storedFoam) : 0.0f;
-    const float candidateFoam = max(breaking, maxResidualArea);
-
-    bool needFoamSampling;
-    if (OCEAN_USE_WAVE_OPS && OCEAN_WAVE_SIZE > 0u)
-    {
-        needFoamSampling = WaveActiveAnyTrue(candidateFoam > 1.0e-4f);
-    }
-    else
-    {
-        needFoamSampling = (candidateFoam > 1.0e-4f);
-    }
-
-    FoamMaterial material = {};
-    float whitecaps = breaking;
-
-    if (needFoamSampling)
-    {
-        material = SampleFoamMaterial(input.SurfaceXZ);
-        if (persistent && maxResidualArea > 0.0f)
-        {
-            const float residual = EvaluateResidualFoam(input.SurfaceXZ, ddxXz, ddyXz, storedFoam, material.Mask);
-            whitecaps = max(breaking, residual);
-        }
-    }
-
-    const float3 toCamera = normalize(View.CameraPositionTime.xyz - input.WorldPosition);
-    if (Frame.UseSpecularAa != 0u)
-    {
-        surface.SigmaSq += max(0.0f, Frame.SpecularAaStrength) * surface.FwidthVariance;
-    }
-    surface.Normal = RegularizeGrazingNormal(toCamera, surface.Normal, surface.SigmaSq);
-    const float3 toSun = View.SunDirectionSeabedDepth.xyz;
-
-    // Construct local tangent frame on ocean surface
-    const float3 tangentX = normalize(abs(surface.Normal.y) < 0.999f
-        ? cross(float3(0.0f, 1.0f, 0.0f), surface.Normal)
-        : float3(1.0f, 0.0f, 0.0f));
-    const float3 tangentY = cross(surface.Normal, tangentX);
-
-    // Underwater foam mixes bubble scattering into water column
-    const float underwaterFoam = saturate(View.ShadingParameters.x * max(breaking, saturate(View.FoamResidualParameters.x * storedFoam)));
-
-    // Sky reflection with LEADR-biased sampling
-    float3 reflectDir = reflect(-toCamera, surface.Normal);
-    reflectDir.y = max(0.01f, reflectDir.y);
-    reflectDir = normalize(reflectDir);
-
-    float3 skyRadiance = float3(0.0f);
-    if (Frame.UseSkyTexture != 0u)
-    {
-        const float phi = atan2(reflectDir.z, reflectDir.x);
-        const float theta = acos(clamp(reflectDir.y, -1.0f, 1.0f));
-        const float2 skyUv = float2(phi * k_SkyInv2Pi + 0.5f, theta * k_SkyInvPi);
-
-        float2 ddxUv = ddx(skyUv);
-        ddxUv.x -= round(ddxUv.x);
-        float2 ddyUv = ddy(skyUv);
-        ddyUv.x -= round(ddyUv.x);
-
-        const float roughnessBias = 0.5f * log2(max(1.0f, (surface.SigmaSq.x + surface.SigmaSq.y) * 128.0f));
-        skyRadiance = SampleEquirectangularSkyGrad(
-            SkyDomeTexture,
-            SkyDomeSampler,
-            reflectDir,
-            ddxUv,
-            ddyUv,
-            roughnessBias) * Frame.SkyIntensityScale;
-
-        // Attenuate the sky reflection above the ambient sky threshold when analytical
-        // Ross-Bruneton sun specular is active so the sun glint is not double-counted
-        const float specularGain = max(0.0f, View.ShadingParameters.y);
-        if (specularGain > 0.0f && any(Frame.SunRadianceAp1 > 0.0f))
-        {
-            const float avgSkyIrradiance = max(Frame.SkyShCoeffs[0].x, max(Frame.SkyShCoeffs[0].y, Frame.SkyShCoeffs[0].z));
-            const float maxSkyLuminance = max(6.0f, avgSkyIrradiance * 2.5f);
-            if (any(isnan(skyRadiance)) || any(isinf(skyRadiance)))
-            {
-                skyRadiance = float3(maxSkyLuminance);
-            }
-            else
-            {
-                const float skyLum = dot(skyRadiance, float3(0.2722287f, 0.6740818f, 0.0536895f));
-                if (skyLum > maxSkyLuminance)
-                {
-                    skyRadiance *= (maxSkyLuminance / max(1e-4f, skyLum));
-                }
-            }
-        }
-    }
-    else
-    {
-        // irradiance / pi is the cosine-weighted mean radiance around the reflection direction
-        skyRadiance = EvaluateShIrradiance(reflectDir, Frame.SkyShCoeffs) * (k_SkyInvPi * Frame.SkyIntensityScale);
-    }
-
-    if (any(isnan(skyRadiance)) || any(isinf(skyRadiance)) || all(skyRadiance <= float3(1e-4f)))
-    {
-        skyRadiance = lerp(float3(0.35f, 0.5f, 0.7f), float3(0.08f, 0.2f, 0.45f), saturate(reflectDir.y));
-    }
-
-    // Specular ocean BRDF and Bruneton effective Fresnel
-    const float effectiveFresnel = EvaluateBrunetonFresnel(toCamera, surface.Normal, surface.SigmaSq);
-    const float specularGain = max(0.0f, View.ShadingParameters.y);
-    const float specularSun = EvaluateOceanSpecular(
-        toSun,
-        toCamera,
-        surface.Normal,
-        tangentX,
-        tangentY,
-        surface.SigmaSq) * specularGain;
-    const float3 sunSpecularRadiance = Frame.SunRadianceAp1 * specularSun;
-
-    const float tUf = 1.0f - underwaterFoam;
-    const float tUf2 = tUf * tUf;
-    const float tUf5 = tUf2 * tUf2 * tUf;
-    const float specularMask = tUf5 * (1.0f - whitecaps);
-
-    // Water column attenuation and optical depth
-    const float depth = max(0.1f, View.SunDirectionSeabedDepth.w);
-    const float3 waterExtinction = float3(0.22f, 0.045f, 0.015f);
-    const float viewPathLength = depth / max(0.01f, toCamera.y);
-    const float3 viewAttenuation = exp(-waterExtinction * viewPathLength);
-    const float viewTransmission = dot(viewAttenuation, float3(0.2126f, 0.7152f, 0.0722f));
-    float waterOpacity = saturate(1.0f - viewTransmission);
-    waterOpacity = saturate(lerp(waterOpacity, 1.0f, smoothstep(1500.0f, 3000.0f, length(input.WorldPosition.xz - View.CameraPositionTime.xz))));
-
-    // Directional forward crest SSS and water body scattering in AP1
-    const float dSunCam = saturate(dot(-toSun, toCamera));
-    const float dSunCam2 = dSunCam * dSunCam;
-    const float forwardScatter = dSunCam2 * dSunCam2;
-    const float crestFactor = saturate(max(0.0f, surface.DisplacementY) * 0.8f + 0.1f);
-    // the author's scatter terms from before the deferred pass: the body scatter follows the reflected sky, so the
-    // swells pick up the sky's variation
-    const float3 crestSss = Frame.SunRadianceAp1 * Frame.WaterScatterColorAp1 * (forwardScatter * crestFactor * Frame.SssStrength);
-    // body radiance = water-leaving reflectance (sr^-1) x downwelling irradiance: the sun on a horizontal surface plus
-    // the sky. The reflectance is that of clear open ocean
-    const float3 skyDownwelling = EvaluateShIrradiance(float3(0.0f, 1.0f, 0.0f), Frame.SkyShCoeffs) * Frame.SkyIntensityScale;
-    const float3 downwellingIrradiance = saturate(toSun.y) * Frame.SunRadianceAp1 + skyDownwelling;
-    const float3 bodyScatter = Frame.WaterLeavingReflectanceAp1 * (Frame.BodyReflectanceScale * downwellingIrradiance);
-
-    const float3 underwaterColor = float3(0.05f, 0.14f, 0.16f);
-    const float3 waterSubsurface = lerp(bodyScatter, underwaterColor * Frame.WaterScatterColorAp1, underwaterFoam) + crestSss;
-
-    // Combined water surface radiance
-    const float3 waterRadiance = lerp(waterSubsurface * waterOpacity, skyRadiance, effectiveFresnel) + sunSpecularRadiance * specularMask;
-
-    // Portsmouth et al. (2024) EON rough diffuse foam shading gated by wave early-out
-    float3 foamRadiance = float3(0.0f);
-    bool needFoamLighting;
-    if (OCEAN_USE_WAVE_OPS && OCEAN_WAVE_SIZE > 0u)
-    {
-        needFoamLighting = WaveActiveAnyTrue(whitecaps > 1.0e-4f);
-    }
-    else
-    {
-        needFoamLighting = (whitecaps > 1.0e-4f);
-    }
-
-    if (needFoamLighting)
-    {
-        const float foamRoughness = material.Roughness;
-        const float3 foamAlbedo = material.Albedo;
-        const float3 foamNormal = normalize(surface.Normal + View.FoamTextureParameters.y * float3(material.NormalXY.x, 0.0f, material.NormalXY.y));
-
-        const float3 foamDirect = EvaluateEonDirect(foamAlbedo, foamRoughness, foamNormal, toCamera, toSun) * Frame.SunRadianceAp1;
-        const float3 skyIrradiance = EvaluateShIrradiance(foamNormal, Frame.SkyShCoeffs) * Frame.SkyIntensityScale;
-        const float3 foamIbl = EvaluateEonIbl(foamAlbedo, foamRoughness, foamNormal, toCamera, skyIrradiance);
-        foamRadiance = foamDirect + foamIbl;
-    }
-
-
-    // Unclamped AP1 scene-linear radiance
-    const float3 finalColor = lerp(waterRadiance, foamRadiance, whitecaps);
-    const float surfaceAlpha = saturate(lerp(waterOpacity, 1.0f, effectiveFresnel) + whitecaps);
-
-    const uint surfDebugMode = GetSurfaceDebugMode();
-    if (surfDebugMode != SURF_DEBUG_OFF)
-    {
-        const float3 debugColor = EvaluateSurfaceDebugColor(
-            surfDebugMode,
-            surface,
-            toCamera,
-            breaking,
-            underwaterFoam,
-            storedFoam,
-            specularMask,
-            effectiveFresnel,
-            skyRadiance,
-            sunSpecularRadiance,
-            waterSubsurface,
-            waterOpacity);
-        return float4(debugColor, 1.0f);
-    }
-
-    return float4(finalColor, surfaceAlpha);
 }
 
 public struct OceanSurfaceGBufferOutput
@@ -594,7 +268,15 @@ OceanSurfaceGBufferOutput OceanSurfaceGBufferFS(OceanSurfaceVaryings input)
 
     OceanSurfaceGBufferOutput output;
     output.GBufferNormalSigma = float4(surface.Normal.x, surface.Normal.z, surface.SigmaSq.x, surface.SigmaSq.y);
-    output.GBufferFoamSss = float4(whitecaps, underwaterFoam, material.Roughness, foamLum);
+    const uint surfDebugMode = GetSurfaceDebugMode();
+    if (IsGBufferSurfaceDebugMode(surfDebugMode))
+    {
+        output.GBufferFoamSss = float4(EvaluateGBufferSurfaceDebug(surfDebugMode, surface), 1.0f);
+    }
+    else
+    {
+        output.GBufferFoamSss = float4(whitecaps, underwaterFoam, material.Roughness, foamLum);
+    }
     output.GBufferMotionFoamAlbedo = float4(motionUv.x, motionUv.y, material.NormalXY.x, material.NormalXY.y);
     return output;
 }
