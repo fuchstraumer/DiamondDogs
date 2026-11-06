@@ -36,6 +36,8 @@ namespace foundation::reflect
         std::string_view Doc;
         bool ReadOnly{ false };
         bool Hidden{ false };
+        // a command call must give this field
+        bool Required{ false };
     };
 
     template<typename Owner, typename Member>

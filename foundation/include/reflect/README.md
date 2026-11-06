@@ -48,6 +48,7 @@ Recipe keys ignore metadata, the type doc and enum case docs. Editing them never
 | `Doc` | One or two sentences for a reader who sees only this field. |
 | `ReadOnly` | Tools may read this field and must not write it. |
 | `Hidden` | Tools leave this field out of listings. Use it for large or noisy data. |
+| `Required` | A command call must give this field. Use it on the top-level fields of a command's `Params`. |
 
 `CheckStructDescriptor` and `CheckEnumDescriptor` fail the build for a duplicate field name, a duplicate case name, or
 a range with `Min > Max` or a NaN limit. `Encode` and `GetTypeInfo` both call them.
