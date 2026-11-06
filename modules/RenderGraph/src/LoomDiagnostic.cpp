@@ -1,5 +1,5 @@
 #include "LoomDiagnostic.hpp"
-#include "JsonWriter.hpp"
+#include "content/JsonWriter.hpp"
 #include "LoomError.hpp"
 #include "LoomKeys.hpp"
 #include <cstdint>
@@ -75,7 +75,7 @@ namespace loom
             out.push_back('\n');
         }
 
-        void WriteJsonLocation(detail::JsonWriter& writer, std::string_view name, const std::source_location& where)
+        void WriteJsonLocation(foundation::content::JsonWriter& writer, std::string_view name, const std::source_location& where)
         {
             writer.Key(name);
             writer.BeginObject();
@@ -86,7 +86,7 @@ namespace loom
         }
 
         // The hash is a hex string: a 64-bit integer does not survive a reader that parses numbers as doubles.
-        void WriteJsonKey(detail::JsonWriter& writer, std::string_view name, const KeyRef& key)
+        void WriteJsonKey(foundation::content::JsonWriter& writer, std::string_view name, const KeyRef& key)
         {
             writer.Key(name);
             writer.BeginObject();
@@ -95,7 +95,7 @@ namespace loom
             writer.EndObject();
         }
 
-        void WriteJsonValue(detail::JsonWriter& writer, std::string_view name, const DiagnosticValue& value)
+        void WriteJsonValue(foundation::content::JsonWriter& writer, std::string_view name, const DiagnosticValue& value)
         {
             writer.Key(name);
             writer.BeginObject();
@@ -229,7 +229,7 @@ namespace loom
 
     std::string FormatJson(const Diagnostic& diagnostic)
     {
-        detail::JsonWriter writer{ detail::JsonStyle::Compact };
+        foundation::content::JsonWriter writer{ foundation::content::JsonStyle::Compact };
         writer.BeginObject();
         writer.KeyString("code", ToString(diagnostic.Code));
         writer.KeyString("stage", ToString(StageOf(diagnostic.Code)));
@@ -280,7 +280,7 @@ namespace loom
         writer.EndObject();
 
         // Every container above is closed, so Finish cannot fail. An empty line marks it if a later edit breaks that.
-        detail::JsonResult<std::string> document = writer.Finish();
+        foundation::content::JsonResult<std::string> document = writer.Finish();
         std::string out = document.has_value() ? std::move(*document) : std::string{};
         out.push_back('\n');
         return out;

@@ -15,6 +15,8 @@ choice is in doubt, the encoding chooses the miss.
 | `HashSink.hpp` | The sink that feeds XXH3-128 in streaming mode. It implements `Append` only. |
 | `BytesSink.hpp` | The sink that appends the same bytes to a `std::vector<std::byte>`. It implements `Append` only. |
 | `TextSink.hpp` | The sink that prints the same walk as indented text. |
+| `JsonSink.hpp` | The sink that writes the same walk as one JSON document, for tools. It never feeds a key. |
+| `JsonWriter.hpp` | The low-level JSON writer. A copy of Lodestone's writer, which Loom's diagnostics also use. |
 | `Encode.hpp` | `Encode` (the one template that walks a value) and `FindNaN`. |
 | `RecipeKey.hpp` | `MakeRecipeKey`, `HashBlob`, `RecipeInput`, `KeyError`. |
 

@@ -16,7 +16,6 @@ set(LOOM_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/ResolveDraw.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/ResolveKey.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Validate.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/JsonWriter.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Records.hpp"
 )
 
@@ -24,7 +23,6 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Declarations.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/FrozenGraph.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/GraphBuilder.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/JsonWriter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomDiagnostic.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/LoomError.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PassBuilders.cpp"

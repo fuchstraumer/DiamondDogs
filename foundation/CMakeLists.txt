@@ -32,6 +32,8 @@ set(foundation_content_source_files
     "include/content/Encode.hpp"
     "include/content/EncodeErased.hpp"
     "include/content/HashSink.hpp"
+    "include/content/JsonSink.hpp"
+    "include/content/JsonWriter.hpp"
     "include/content/Key.hpp"
     "include/content/RecipeKey.hpp"
     "include/content/TextSink.hpp"
@@ -39,6 +41,8 @@ set(foundation_content_source_files
     "src/content/BytesSink.cpp"
     "src/content/EncodeErased.cpp"
     "src/content/HashSink.cpp"
+    "src/content/JsonSink.cpp"
+    "src/content/JsonWriter.cpp"
     "src/content/Key.cpp"
     "src/content/RecipeKey.cpp"
     "src/content/TextSink.cpp")

@@ -1,6 +1,6 @@
 #pragma once
-#ifndef DIAMOND_DOGS_LOOM_JSON_WRITER_HPP
-#define DIAMOND_DOGS_LOOM_JSON_WRITER_HPP
+#ifndef DIAMOND_DOGS_FOUNDATION_CONTENT_JSON_WRITER_HPP
+#define DIAMOND_DOGS_FOUNDATION_CONTENT_JSON_WRITER_HPP
 #include <cstdint>
 #include <expected>
 #include <string>
@@ -8,8 +8,9 @@
 #include <vector>
 
 // A copy of Lodestone's tools/json/JsonWriter (same author, MIT). Changes: the style is an explicit argument, not a
-// default; a control character escapes as \u00XX with both hex digits; Loom's namespace and spacing.
-namespace loom::detail
+// default; a control character escapes as \u00XX with both hex digits; a Float overload that writes the shortest
+// text for a float; the namespace and spacing of this repository.
+namespace foundation::content
 {
 
     enum class JsonWriterError : uint8_t
@@ -50,6 +51,7 @@ namespace loom::detail
         void Int(int64_t value) noexcept;
         void UInt(uint64_t value) noexcept;
         void Double(double value) noexcept;
+        void Float(float value) noexcept;
         void Bool(bool value) noexcept;
         void Null() noexcept;
 
@@ -90,4 +92,4 @@ namespace loom::detail
 
 }
 
-#endif // !DIAMOND_DOGS_LOOM_JSON_WRITER_HPP
+#endif // !DIAMOND_DOGS_FOUNDATION_CONTENT_JSON_WRITER_HPP

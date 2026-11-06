@@ -1,4 +1,4 @@
-#include "JsonWriter.hpp"
+#include "content/JsonWriter.hpp"
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 
-namespace loom::detail
+namespace foundation::content
 {
 
     std::string_view ToString(JsonWriterError error) noexcept
@@ -98,6 +98,14 @@ namespace loom::detail
     }
 
     void JsonWriter::Double(double value) noexcept
+    {
+        beforeValue();
+        char digits[32];
+        const auto result = std::to_chars(digits, digits + sizeof(digits), value);
+        buffer.append(digits, result.ptr);
+    }
+
+    void JsonWriter::Float(float value) noexcept
     {
         beforeValue();
         char digits[32];
