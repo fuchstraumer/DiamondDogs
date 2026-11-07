@@ -47,6 +47,10 @@ set(foundation_content_source_files
     "src/content/RecipeKey.cpp"
     "src/content/TextSink.cpp")
 
+set(foundation_net_source_files
+    "include/net/Socket.hpp"
+    "src/net/SocketWin32.cpp")
+
 set(foundation_reflect_source_files
     "include/reflect/Describe.hpp"
     "include/reflect/TypeInfo.hpp"
@@ -127,6 +131,7 @@ set(maths_source_files
 source_group("foundation" FILES ${foundation_source_files})
 source_group("async" FILES ${foundation_async_source_files})
 source_group("content" FILES ${foundation_content_source_files})
+source_group("net" FILES ${foundation_net_source_files})
 source_group("reflect" FILES ${foundation_reflect_source_files})
 source_group("containers" FILES ${foundation_containers_source_files})
 source_group("threading" FILES ${threading_source_files} ${threading_platform_source_files})
@@ -138,6 +143,7 @@ source_group("events" FILES ${event_source_files})
 add_library(foundation STATIC
     ${foundation_async_source_files}
     ${foundation_content_source_files}
+    ${foundation_net_source_files}
     ${foundation_reflect_source_files}
     ${foundation_source_files}
     ${foundation_containers_source_files}
@@ -161,7 +167,7 @@ target_link_libraries(foundation PRIVATE xxHash::xxhash)
 if(WIN32)
     # FrameSymbolizer reads function names with DbgHelp in every build below Release (RelWithDebInfo defines NDEBUG too,
     # so NDEBUG can't decide this)
-    target_link_libraries(foundation PUBLIC dbghelp winmm)
+    target_link_libraries(foundation PUBLIC dbghelp winmm ws2_32)
     target_compile_definitions(foundation PUBLIC "FOUNDATION_ASYNC_SYMBOLS=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
 endif()
 

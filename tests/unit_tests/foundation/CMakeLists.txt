@@ -17,6 +17,9 @@ set(FOUNDATION_TEST_SOURCES
     content/test_keys.cpp
     content/test_text_sink.cpp
 
+    # Socket tests, over real loopback connections
+    net/test_socket.cpp
+
     # Reflection tests
     reflect/test_describe.cpp
     reflect/test_type_info.cpp

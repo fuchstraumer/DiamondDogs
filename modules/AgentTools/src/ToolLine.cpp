@@ -1,14 +1,12 @@
 #include "ToolLine.hpp"
 #include "ToolRegistry.hpp"
 #include "ToolReply.hpp"
+#include "ToolRequests.hpp"
 #include "ToolResult.hpp"
-#include "content/JsonSink.hpp"
-#include "content/JsonWriter.hpp"
 #include "reflect/ValueAccess.hpp"
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
-#include <expected>
 #include <format>
 #include <string>
 #include <string_view>
@@ -32,11 +30,6 @@ namespace
                      const std::vector<std::string_view>& words,
                      std::string_view line,
                      agent::PendingReply reply);
-    void RunGet(const agent::ToolRegistry& registry, std::string_view path, agent::PendingReply reply);
-    void RunSet(agent::ToolRegistry& registry,
-                std::string_view path,
-                std::string_view value,
-                agent::PendingReply reply);
     void RunCall(agent::ToolRegistry& registry,
                  const std::vector<std::string_view>& words,
                  agent::PendingReply reply);
@@ -56,11 +49,11 @@ namespace agent
         }
         else if (verb == "get" && words.size() == 2u)
         {
-            RunGet(registry, words[1], std::move(reply));
+            detail::AnswerGet(registry, words[1], std::move(reply));
         }
         else if (verb == "set" && words.size() == 3u)
         {
-            RunSet(registry, words[1], words[2], std::move(reply));
+            detail::AnswerSet(registry, words[1], ParseValue(words[2]), std::move(reply));
         }
         else if (verb == "call" && words.size() >= 2u)
         {
@@ -151,59 +144,15 @@ namespace
                      std::string_view line,
                      agent::PendingReply reply)
     {
-        if (words.size() == 1u)
-        {
-            reply.CompleteWithJson(registry.DescribeAll());
-            return;
-        }
-
-        if (words.size() != 2u)
+        if (words.size() > 2u)
         {
             reply.Fail(MakeLineFailure(std::string{ k_Usage }, line));
             return;
         }
 
-        std::expected<std::string, agent::ToolResult> schema = registry.Describe(words[1]);
+        const std::string_view path = words.size() == 2u ? words[1] : std::string_view{};
 
-        if (!schema.has_value())
-        {
-            reply.Fail(std::move(schema.error()));
-            return;
-        }
-
-        reply.CompleteWithJson(std::move(*schema));
-    }
-
-    void RunGet(const agent::ToolRegistry& registry, std::string_view path, agent::PendingReply reply)
-    {
-        foundation::content::JsonSink json{ foundation::content::JsonStyle::Compact };
-        agent::ToolResult value = registry.GetValue(path, json);
-
-        if (!value.Succeeded())
-        {
-            reply.Fail(std::move(value));
-            return;
-        }
-
-        foundation::content::JsonResult<std::string> document = json.Finish();
-
-        reply.CompleteWithJson(std::move(*document));
-    }
-
-    void RunSet(agent::ToolRegistry& registry,
-                std::string_view path,
-                std::string_view value,
-                agent::PendingReply reply)
-    {
-        agent::ToolResult written = registry.SetValue(path, ParseValue(value));
-
-        if (!written.Succeeded())
-        {
-            reply.Fail(std::move(written));
-            return;
-        }
-
-        RunGet(registry, path, std::move(reply));
+        agent::detail::AnswerDescribe(registry, path, std::move(reply));
     }
 
     void RunCall(agent::ToolRegistry& registry,

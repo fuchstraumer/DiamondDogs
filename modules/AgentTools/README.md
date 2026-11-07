@@ -1,7 +1,7 @@
 # AgentTools: the self-describing tool surface
 
 Namespace `agent`. This module lets a tool discover, read, write and call what an application exposes. It depends on
-`foundation` only. It has no socket, no JSON parser and no Python. Those are the next layers.
+`foundation`, and on nlohmann in one private source file. The Python sidecar is the next layer.
 
 ```text
 Agent <-> MCP over stdio <-> Python sidecar <-> JSON-RPC over loopback <-> this registry
@@ -19,7 +19,10 @@ modify, and act on the engine and it's runtime data at the same depth and granul
 | `ToolResult.hpp` | `ToolResultCode`, and `ToolResult`, the status record of a request. |
 | `ToolResult.reflect.hpp` | The descriptors of `ToolResultCode` and `ToolResult`. |
 | `ToolLine.hpp` | `RunToolLine`: one request from a line of text, for scripts and consoles. |
+| `ToolServer.hpp` | `ToolServer`: JSON-RPC over loopback. See "Transport". |
 | `src/ToolSchema.*` | Writes JSON Schema from a `TypeInfo`. |
+| `src/ToolRequests.*` | Describe, get and set. `ToolLine` and `ToolServer` share these. |
+| `src/ToolRpc.*` | Line framing, request parsing, flattening, and reply text. No socket, so tests call it directly. The only nlohmann user. |
 
 ## Registration
 
@@ -126,6 +129,79 @@ Schemas are JSON Schema, with a few additions: `x-unit`, `x-type` (the descripto
 There are no locks. `Freeze` ends registration, and the tables never change after it. Every request runs on the thread
 that owns the objects. Only the frame thread calls the registry in `OceanFft`.
 
+## Transport
+
+`ToolServer` speaks JSON-RPC 2.0 over TCP on 127.0.0.1, with one JSON message per line. Try it by hand with any TCP
+client.
+
+```text
+sidecar <-> TCP <-> socket thread <-> two mwsrQueues <-> frame thread <-> ToolRegistry
+```
+
+- The socket thread reads bytes, splits lines, parses JSON, and writes replies.
+- The frame thread calls `Pump(registry, max_requests)` once per frame. Only `Pump` calls the registry. The budget
+  keeps a flood of requests from stretching a frame.
+- The threads share two queues and one atomic stop flag. This code adds no lock, and it uses only the non-blocking
+  queue calls.
+
+| Method | Params | Result |
+|---|---|---|
+| `tool.describe` | `path` (optional) | One schema, or every schema without a path. |
+| `tool.get` | `path` | The value. |
+| `tool.set` | `path`, `value` (one scalar) | The value that the field now contains. |
+| `tool.call` | `name`, `arguments` (optional object) | The reply of the command. |
+| `server.ping` | none | `{"Pong":true}`. The socket thread answers this, with no pump. |
+
+```text
+{"jsonrpc":"2.0","id":1,"method":"tool.call","params":{"name":"camera.lookat","arguments":{"Eye":[0,30,80],"Target":[0,0,0]}}}
+```
+
+**A stalled frame:** a ping that succeeds while `frame.info` does not return means that the engine lives and its frame
+is stuck. When the client has a full queue of unanswered requests, the socket is not read, so a ping also waits.
+
+**Errors:**
+
+| Code | Meaning |
+|---|---|
+| -32700 | The line is not JSON. |
+| -32600 | The request is malformed, or the line is above 1 MiB. Batches, notifications and ids that are not integers are refused. |
+| -32601 | The method does not exist. |
+| -32602 | The params are wrong, including an unknown param name. |
+| -32000 | The registry refused the request. `data` contains the `ToolResult`, with its suggestions. |
+| -32001 | Another client is connected. |
+
+A malformed line never ends the connection.
+
+**Flattening:** `{"Eye":[1,2],"Lens":{"Fov":60}}` becomes the arguments `Eye[0]`, `Eye[1]` and `Lens.Fov`. These are the
+limits:
+
+- `null`, an empty array and an empty object are refused, because they would write nothing.
+- Nesting deeper than 32 levels is refused, because the walk recurses.
+- nlohmann keeps only the last of two equal keys, so `DuplicateArgument` cannot see this case.
+
+**What goes wrong, and what the server does:**
+
+- **Reused ids.** A client can disconnect during `frame.wait`, and the next client can use the same id. So the server
+  assigns its own request ids, and a reply for an older connection is dropped. A request from a closed client that is
+  already in the queue still runs.
+- **Moved strings.** `NamedValue` contains views, and a move of a short `std::string` moves its bytes. So a queued
+  request owns its strings, and `Pump` makes the views just before the call.
+- **A full queue.** `mwsrQueue` holds 63 items through `try_push`, and that call destroys its argument when the queue is
+  full. So the queues store raw pointers, and the sender keeps the `unique_ptr` until a push succeeds. A reply that does
+  not fit waits in a frame-thread list for the next `Pump`. A request that does not fit stops the socket reads, and TCP
+  then slows the client.
+- **A client that does not read.** Above 16 MiB of unsent bytes the server stops reading requests, which bounds every
+  buffer. Each `send` is capped at 64 KiB, because Winsock accepts a non-blocking send of any size while its send buffer
+  has room. Without the cap, the whole backlog moves into kernel memory, and the limit never sees it.
+- **End of file.** The server treats end of file as a closed client, so a client must keep its socket open until the
+  last reply.
+
+**Lifetime:** a `ToolServer` must outlive every `PendingReply`, because a reply points to it. `Stop` sends the replies
+that exist and closes the port. A reply after `Stop` is dropped.
+
+**Safety:** the server binds 127.0.0.1 with `SO_EXCLUSIVEADDRUSE`, and it accepts one client at a time. There is no
+token, so any local process can write values while the server runs. An application starts the server only on request.
+
 ## In OceanFft
 
 `applications/OceanFft/OceanSceneTools.cpp` defines what tools can see of the scene. Scripts reach it with the `tool`
@@ -138,3 +214,8 @@ tool describe camera.set
 ```
 
 The `sea` command also writes through the registry. The other text commands stay on their old path until they move.
+
+`--tool-port=N` starts the server. `--tool-port=0` lets the system choose, and the demo prints
+`tool server listening on 127.0.0.1:<port>` before the slow startup work. `main` owns the server, so it outlives the
+scene and every waiting reply. Up to 32 requests run per frame, in `tickToolSurface`, at the same point in the frame as
+script commands. A bad port stops the demo with exit code 1.
