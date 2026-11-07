@@ -49,6 +49,7 @@ set(foundation_content_source_files
 
 set(foundation_net_source_files
     "include/net/Socket.hpp"
+    "src/net/SocketWaker.cpp"
     "src/net/SocketWin32.cpp")
 
 set(foundation_reflect_source_files

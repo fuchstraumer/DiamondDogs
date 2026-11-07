@@ -23,6 +23,7 @@ namespace
     using foundation::net::SocketIo;
     using foundation::net::SocketIoKind;
     using foundation::net::SocketResult;
+    using foundation::net::SocketWaker;
     using foundation::net::TcpSocket;
 
     constexpr std::chrono::seconds k_Deadline{ 10 };
@@ -157,6 +158,83 @@ TEST_F(SocketTest, ConnectWithNoListenerFails)
 
     ASSERT_FALSE(connected.has_value());
     EXPECT_EQ(connected.error(), SocketResult::ConnectFailed);
+}
+
+TEST_F(SocketTest, AWakeEndsAPollThatStartsLater)
+{
+    std::expected<SocketWaker, SocketResult> waker = SocketWaker::Create();
+
+    ASSERT_TRUE(waker.has_value());
+
+    waker->Wake();
+
+    std::array<PollEntry, 1u> entries{ PollEntry{ .Socket = &waker->WaitSocket(), .WantRead = true } };
+
+    foundation::net::Poll(entries, static_cast<int32_t>(std::chrono::milliseconds{ k_Deadline }.count()));
+
+    EXPECT_TRUE(entries[0].Readable);
+}
+
+TEST_F(SocketTest, AWakeEndsAPollThatAlreadyWaits)
+{
+    std::expected<SocketWaker, SocketResult> waker = SocketWaker::Create();
+
+    ASSERT_TRUE(waker.has_value());
+
+    std::array<PollEntry, 1u> entries{ PollEntry{ .Socket = &waker->WaitSocket(), .WantRead = true } };
+
+    const auto wakeSoon = [&waker]()
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds{ 50 });
+        waker->Wake();
+    };
+
+    std::thread waking{ wakeSoon };
+
+    foundation::net::Poll(entries, static_cast<int32_t>(std::chrono::milliseconds{ k_Deadline }.count()));
+    waking.join();
+
+    EXPECT_TRUE(entries[0].Readable);
+}
+
+TEST_F(SocketTest, DrainEmptiesEveryWake)
+{
+    std::expected<SocketWaker, SocketResult> waker = SocketWaker::Create();
+
+    ASSERT_TRUE(waker.has_value());
+
+    // more than the drain's chunk of 256 bytes
+    for (int32_t count = 0; count < 1000; ++count)
+    {
+        waker->Wake();
+    }
+
+    std::array<PollEntry, 1u> entries{ PollEntry{ .Socket = &waker->WaitSocket(), .WantRead = true } };
+
+    foundation::net::Poll(entries, static_cast<int32_t>(std::chrono::milliseconds{ k_Deadline }.count()));
+    ASSERT_TRUE(entries[0].Readable);
+
+    // long enough for every byte to arrive, so that one drain must empty the socket
+    std::this_thread::sleep_for(std::chrono::milliseconds{ 100 });
+    waker->Drain();
+    foundation::net::Poll(entries, 20);
+
+    EXPECT_FALSE(entries[0].Readable);
+}
+
+TEST_F(SocketTest, WakeNeverBlocksOnAFullBuffer)
+{
+    std::expected<SocketWaker, SocketResult> waker = SocketWaker::Create();
+
+    ASSERT_TRUE(waker.has_value());
+
+    // nothing drains these. A blocking send would hang here, and the run would time out
+    for (int32_t count = 0; count < 200000; ++count)
+    {
+        waker->Wake();
+    }
+
+    SUCCEED();
 }
 
 TEST_F(SocketTest, MovingASocketLeavesTheSourceClosed)

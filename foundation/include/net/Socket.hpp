@@ -106,6 +106,27 @@ namespace foundation::net
     /** @brief Waits until one entry is ready, or until the timeout ends. Takes up to k_MaxPollEntries entries.
      *  An entry can want neither read nor write, and it still reports Failed. */
     void Poll(std::span<PollEntry> entries, int32_t timeout_milliseconds) noexcept;
+    /** @brief Returns the port of the other end of a connection, or -1 when it has none. */
+    [[nodiscard]] int32_t PeerPort(const TcpSocket& socket) noexcept;
+
+    /** Lets one thread end another thread's Poll. Add WaitSocket to the poll, and call Drain when it is readable. A
+     *  wake stays in the socket until a Drain, so a wake that comes before the Poll is not lost. Call Wake on one
+     *  thread, and Drain on one other thread. */
+    class SocketWaker
+    {
+    public:
+        [[nodiscard]] static std::expected<SocketWaker, SocketResult> Create() noexcept;
+
+        void Wake() noexcept;
+        void Drain() noexcept;
+        [[nodiscard]] const TcpSocket& WaitSocket() const noexcept;
+
+    private:
+        SocketWaker() noexcept = default;
+
+        TcpSocket writer;
+        TcpSocket reader;
+    };
 }
 
 #endif // !DIAMOND_DOGS_FOUNDATION_NET_SOCKET_HPP

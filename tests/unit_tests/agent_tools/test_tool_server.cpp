@@ -5,6 +5,7 @@
 #include "nlohmann/json.hpp"
 #include "reflect/Describe.hpp"
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -28,6 +29,9 @@ namespace
     constexpr std::chrono::milliseconds k_QuietPeriod{ 60 };
     constexpr int32_t k_LargeBudget = 100000;
     constexpr size_t k_BlobBytes = 512u * 1024u;
+    // half of the server's backstop timeout. A lost wake waits for that timeout, so it fails this limit
+    constexpr std::chrono::milliseconds k_WakeLimit{ 500 };
+    constexpr int32_t k_WakeAttempts = 5;
 
     struct Weather
     {
@@ -360,6 +364,72 @@ TEST_F(ToolServerTest, AReplyForAClosedClientIsNotDeliveredToTheNextClient)
     EXPECT_TRUE(PumpAndExpectQuiet(next));
 }
 
+// each test keeps its fastest attempt, so that a busy machine cannot fail it. These prove that the frame thread
+// wakes the socket thread: without the wake, the reply waits for the backstop timeout
+TEST_F(ToolServerTest, AReplyDuringAPumpWakesTheSocketThread)
+{
+    std::chrono::steady_clock::duration fastest = std::chrono::hours{ 1 };
+
+    for (int32_t attempt = 0; attempt < k_WakeAttempts; ++attempt)
+    {
+        client.Send(MakeRequest(attempt, "tool.get", R"({"path":"test.weather.WindForce"})"));
+        std::this_thread::sleep_for(k_QuietPeriod);
+
+        const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+
+        server.Pump(registry, k_LargeBudget);
+
+        const std::optional<std::string> line = client.TryReadLine(k_ReplyDeadline);
+
+        ASSERT_TRUE(line.has_value());
+        fastest = std::min(fastest, std::chrono::steady_clock::now() - start);
+    }
+
+    EXPECT_LT(fastest, k_WakeLimit);
+}
+
+// a reply from a later frame, like frame.wait: Pump runs no request, and it must still wake the socket thread
+TEST_F(ToolServerTest, AReplyBetweenPumpsWakesTheSocketThread)
+{
+    std::chrono::steady_clock::duration fastest = std::chrono::hours{ 1 };
+
+    for (int32_t attempt = 0; attempt < k_WakeAttempts; ++attempt)
+    {
+        client.Send(MakeHold(attempt));
+
+        while (hold.Held.empty())
+        {
+            server.Pump(registry, k_LargeBudget);
+        }
+
+        std::this_thread::sleep_for(k_QuietPeriod);
+
+        const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+
+        hold.Held.back().Complete(agent::NoReply{});
+        hold.Held.clear();
+        server.Pump(registry, k_LargeBudget);
+
+        const std::optional<std::string> line = client.TryReadLine(k_ReplyDeadline);
+
+        ASSERT_TRUE(line.has_value());
+        fastest = std::min(fastest, std::chrono::steady_clock::now() - start);
+    }
+
+    EXPECT_LT(fastest, k_WakeLimit);
+}
+
+TEST_F(ToolServerTest, StopDoesNotWaitForTheBackstop)
+{
+    std::this_thread::sleep_for(k_QuietPeriod);
+
+    const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+
+    server.Stop();
+
+    EXPECT_LT(std::chrono::steady_clock::now() - start, k_WakeLimit);
+}
+
 TEST_F(ToolServerTest, PumpHonorsItsBudget)
 {
     client.Send(MakeHold(17) + MakeHold(18) + MakeHold(19));
@@ -392,6 +462,8 @@ TEST_F(ToolServerTest, RequestsBeyondTheQueueSizeWaitAndNoneIsLost)
     client.Send(requests);
     std::this_thread::sleep_for(k_QuietPeriod);
 
+    const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+
     for (int32_t index = 0; index < k_RequestCount; ++index)
     {
         Json reply = PumpUntilReply(client);
@@ -400,6 +472,10 @@ TEST_F(ToolServerTest, RequestsBeyondTheQueueSizeWaitAndNoneIsLost)
     }
 
     EXPECT_EQ(weather.WindForce, static_cast<float>((k_RequestCount - 1) % 12));
+
+    // the socket thread waits for room in the queue about eight times here. Without a wake, each wait is a full
+    // backstop timeout
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds{ 4 });
 }
 
 // one burst larger than the reply queue, in one call on the frame thread, which must not block
@@ -416,10 +492,19 @@ TEST_F(ToolServerTest, RepliesBeyondTheQueueSizeWaitAndKeepTheirOrder)
 
     client.Send(requests);
 
+    // long enough for the request queue to fill and the socket thread to sleep
+    std::this_thread::sleep_for(k_QuietPeriod);
+
+    const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+
     while (std::ssize(hold.Held) < k_ReplyCount)
     {
         server.Pump(registry, k_LargeBudget);
     }
+
+    // these commands send no reply yet, so only the pop can wake the socket thread when it waits for room in the
+    // queue. Without that wake, this takes a full backstop timeout. Measured: under 50 ms, and about 950 ms without
+    EXPECT_LT(std::chrono::steady_clock::now() - start, k_WakeLimit);
 
     for (agent::ReplyToken<agent::NoReply>& token : hold.Held)
     {
@@ -437,10 +522,12 @@ TEST_F(ToolServerTest, RepliesBeyondTheQueueSizeWaitAndKeepTheirOrder)
 }
 
 // this client asks for far more than the 16 MiB limit on unsent bytes, and reads nothing at first. The server
-// must stop reading requests, so that only about 32 replies plus the 63 slot queue run past the limit
+// must stop reading requests. Measured runs of 300: 65 or 124 to 128 with the limit (the second is one more queue of
+// 63), and 191 to 300 with no limit. Without the cap on bytes per send it was 130 to 195, so this test catches a missing
+// cap only some of the time
 TEST_F(ToolServerTest, AClientThatStopsReadingStopsBeingReadAndLosesNothing)
 {
-    constexpr int32_t k_ReplyCount = 200;
+    constexpr int32_t k_ReplyCount = 300;
     constexpr int32_t k_MostRunsWhileNotReading = 150;
     constexpr std::chrono::seconds k_StallPeriod{ 1 };
 
@@ -456,9 +543,11 @@ TEST_F(ToolServerTest, AClientThatStopsReadingStopsBeingReadAndLosesNothing)
     int32_t lastRunCount = -1;
     std::chrono::steady_clock::time_point lastChange = std::chrono::steady_clock::now();
 
+    // a large budget puts many replies into one wake, so that the socket thread has a large batch for one send. That
+    // batch is what the cap on bytes per send stops from moving into kernel memory
     while (blob.RunCount < k_ReplyCount && std::chrono::steady_clock::now() - lastChange < k_StallPeriod)
     {
-        server.Pump(registry, 1);
+        server.Pump(registry, k_LargeBudget);
 
         if (blob.RunCount != lastRunCount)
         {

@@ -18,6 +18,15 @@ const int32_t port = LocalPort(*listener);
   `Failed`, so a caller that has paused its reads still sees a hangup.
 - Nagle's algorithm is off on every connection, because these sockets carry small requests and replies.
 
+## Waking a poll
+
+`SocketWaker` ends another thread's `Poll` from any point in the frame. It is a private loopback connection: `Wake` sends
+one byte, and the other thread polls `WaitSocket` and calls `Drain`. The byte stays in the socket, so a `Wake` before the
+`Poll` is not lost, and this needs no atomic flag or memory-order argument.
+
+`Wake` is one non-blocking system call. Call it once per batch of work, not once per item. A full send buffer drops the
+byte, which is safe, because the bytes that fill the buffer already wake the poll.
+
 ## A trap in Send
 
 Winsock accepts a non-blocking send of **any size** while its send buffer has room. So a caller that passes its whole

@@ -263,6 +263,21 @@ namespace foundation::net
         return accepted;
     }
 
+    int32_t PeerPort(const TcpSocket& socket) noexcept
+    {
+        sockaddr_in address{};
+        int addressLength = sizeof(address);
+
+        if (getpeername(static_cast<SOCKET>(socket.Handle()),
+                        reinterpret_cast<sockaddr*>(&address),
+                        &addressLength) != 0)
+        {
+            return -1;
+        }
+
+        return static_cast<int32_t>(ntohs(address.sin_port));
+    }
+
     void Poll(std::span<PollEntry> entries, int32_t timeout_milliseconds) noexcept
     {
         assert(std::ssize(entries) <= k_MaxPollEntries);
