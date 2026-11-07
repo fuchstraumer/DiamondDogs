@@ -70,6 +70,7 @@ namespace
     Task<void> ChainLevelA(std::vector<int32_t>& log);
     Task<void> SpawnedRoot(std::vector<int32_t>& log);
     Task<void> RootThatSpawnsRoot(Scheduler& scheduler, std::vector<int32_t>& log);
+    Task<void> SpawnNextLink(Scheduler& scheduler, int32_t remaining, int32_t& started);
 }
 
 TEST(TaskSchedulerTest, ParentReceivesTheValueOfAChildThatAwaitedATimeline)
@@ -403,20 +404,35 @@ TEST(TaskSchedulerTest, AChainOfThreeVoidTasksRunsDownAndReturnsUp)
     EXPECT_TRUE(scheduler.Idle());
 }
 
-TEST(TaskSchedulerTest, ARootThatSpawnsARootStartsTheNewRootOnALaterTick)
+TEST(TaskSchedulerTest, ARootThatSpawnsARootStartsTheNewRootInTheSameTickAfterTheSpawnerEnds)
 {
     Scheduler scheduler;
     std::vector<int32_t> log;
 
     scheduler.Spawn(RootThatSpawnsRoot(scheduler, log));
-    scheduler.Tick();
-    const std::vector<int32_t> afterFirstTick{ 1 };
-    EXPECT_EQ(log, afterFirstTick) << "the spawned root does not start in the Tick that spawned it";
-    EXPECT_EQ(scheduler.RootCount(), 1);
+    EXPECT_TRUE(log.empty()) << "a root spawned outside a Tick waits for the next Tick";
 
     scheduler.Tick();
-    const std::vector<int32_t> afterSecondTick{ 1, 2 };
-    EXPECT_EQ(log, afterSecondTick);
+
+    // the spawner logs 1, spawns, and logs 3 before it ends; only then does the new root log 2
+    const std::vector<int32_t> expected{ 1, 3, 2 };
+    EXPECT_EQ(log, expected);
+    EXPECT_TRUE(scheduler.Idle()) << "the new root finished in the same Tick, so it was destroyed in it";
+}
+
+// A chain where each root spawns the next must not take one Tick for each link
+TEST(TaskSchedulerTest, AChainOf300SpawnsRunsInOneTick)
+{
+    constexpr int32_t k_Links = 300;
+
+    Scheduler scheduler;
+    int32_t started = 0;
+
+    scheduler.Spawn(SpawnNextLink(scheduler, k_Links, started));
+    scheduler.Tick();
+
+    EXPECT_EQ(started, k_Links + 1);
+    EXPECT_EQ(scheduler.TickCount(), 1);
     EXPECT_TRUE(scheduler.Idle());
 }
 
@@ -615,6 +631,19 @@ namespace
     {
         log.push_back(1);
         scheduler.Spawn(SpawnedRoot(log));
+        log.push_back(3);
+        co_return;
+    }
+
+    Task<void> SpawnNextLink(Scheduler& scheduler, int32_t remaining, int32_t& started)
+    {
+        ++started;
+
+        if (remaining > 0)
+        {
+            scheduler.Spawn(SpawnNextLink(scheduler, remaining - 1, started));
+        }
+
         co_return;
     }
 

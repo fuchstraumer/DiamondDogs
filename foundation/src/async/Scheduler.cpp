@@ -63,6 +63,14 @@ void Scheduler::Spawn(Task<void>&& root)
     promise.Awaiting = nullptr;
 
     roots.push_back(handle);
+
+    // inside a Tick the ready list starts it in this Tick, so a chain of spawns does not take one Tick for each link
+    if (ticking)
+    {
+        ready.push_back(ReadyFrame{ handle, &promise, tickCount });
+        return;
+    }
+
     spawned.push_back(handle);
 }
 
@@ -93,7 +101,9 @@ void Scheduler::Post(std::coroutine_handle<> handle, BasePromise* waiter)
 void Scheduler::Tick()
 {
     checkOwnerThread();
+    assert(!ticking && "Tick is not reentrant");
     ++tickCount;
+    ticking = true;
 
     // an older scheduler that ticks while a newer one lives on this thread must still allocate from its own heap
     FrameHeap* const previousHeap = frameHeap.MakeCurrent();
@@ -107,6 +117,7 @@ void Scheduler::Tick()
     runReadyList();
     destroyFinishedRoots();
 
+    ticking = false;
     FrameHeap::RestoreCurrent(previousHeap);
 }
 
@@ -206,7 +217,7 @@ void Scheduler::pollSources()
 
 void Scheduler::startSpawnedRoots()
 {
-    // a starting root can spawn another root, so take the list before resuming any of them
+    // these roots were spawned outside a Tick. A root spawned while this loop runs goes on the ready list instead
     starting.clear();
     std::swap(starting, spawned);
 

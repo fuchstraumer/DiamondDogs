@@ -18,8 +18,8 @@ struct BasePromise;
 class Timeline;
 class TimelineSource;
 
-/**@brief Runs coroutines on one owner thread, which is the thread that constructs the Scheduler. Spawned roots start
- * on the next Tick, and frames parked on a Timeline resume on the first Tick that sees their target reached. Every
+/**@brief Runs coroutines on one owner thread, which is the thread that constructs the Scheduler. Roots spawned outside a
+ * Tick start on the next Tick, roots spawned during a Tick start in that Tick, and frames parked on a Timeline resume on the first Tick that sees their target reached. Every
  * call must come from the owner thread. A Timeline may be signaled from any thread.
  *
  * The Scheduler owns a FrameHeap and binds it to the owner thread. Every coroutine frame that the owner thread creates
@@ -37,7 +37,9 @@ public:
     Scheduler(Scheduler&&) = delete;
     Scheduler& operator=(Scheduler&&) = delete;
 
-    /** @brief Takes ownership of a root task. It starts on the next Tick, and its frame is destroyed when it finishes. */
+    /** @brief Takes ownership of a root task. Its frame is destroyed when it finishes. Called outside a Tick, the root
+     * starts on the next Tick. Called during a Tick (from a running frame), the root goes on the ready list and starts
+     * later in the same Tick, after the frame that is running now suspends or finishes. */
     void Spawn(Task<void>&& root);
     /** @brief Called by TimelineAwaiter::await_suspend. `waiter` is the promise of the parked frame. */
     void Park(const Timeline& source, uint64_t target_value, std::coroutine_handle<> handle, BasePromise* waiter);
@@ -125,6 +127,8 @@ private:
     mutable FrameSymbolizer symbolizer; // DumpState is const but a symbolizer starts its DbgHelp session on first use
     std::thread::id ownerThread{};
     int64_t tickCount{ 0 };
+    // true while Tick runs: Spawn then posts the root instead of keeping it for the next Tick
+    bool ticking{ false };
 };
 
 }

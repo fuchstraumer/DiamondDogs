@@ -1,4 +1,5 @@
 #include "content/RecipeKey.hpp"
+#include "content/CanonicalSink.hpp"
 #include "content/HashSink.hpp"
 #include "content/Key.hpp"
 #include <cassert>

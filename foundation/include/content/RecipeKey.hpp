@@ -1,7 +1,6 @@
 #pragma once
 #ifndef DIAMOND_DOGS_FOUNDATION_CONTENT_RECIPE_KEY_HPP
 #define DIAMOND_DOGS_FOUNDATION_CONTENT_RECIPE_KEY_HPP
-
 #include "content/Encode.hpp"
 #include "content/HashSink.hpp"
 #include "content/Key.hpp"

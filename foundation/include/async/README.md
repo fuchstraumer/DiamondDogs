@@ -74,13 +74,18 @@ Order of one `Tick`:
 
 1. Poll the sources.
 2. Resume the parked frames whose target is reached.
-3. Start the spawned roots.
+3. Start the roots that were spawned outside a `Tick`.
 4. Run the ready list. Frames that yielded in the previous `Tick` go first, in the order they yielded. Then the posted
    frames go, in the order they were posted. A resumed frame can post again, so the list is drained until it is empty.
 5. Destroy the finished roots.
 
 Rules:
 
+- **A root spawned during a `Tick` starts in that `Tick`** (changed 2026-11-07). `Spawn` from a running frame puts the
+  root on the ready list, like `Post`, so it starts after the running frame suspends or ends. Before this change it
+  waited for the next `Tick`, so a chain where each root spawns the next took one `Tick` for each link: 300 links were
+  5 s at 60 Hz. A root spawned outside a `Tick` still starts in step 3 of the next one. `Tick` asserts that it is not
+  reentrant.
 - `Post` is for the owner thread only. The posted frame resumes later in the same `Tick`, after the running frame
   suspends or ends. `Post` never resumes a frame inline.
 - A handle posted outside a `Tick` resumes in the next `Tick`.
