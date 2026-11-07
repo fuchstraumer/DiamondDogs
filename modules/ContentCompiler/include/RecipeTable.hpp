@@ -8,6 +8,7 @@
 #include "content/Key.hpp"
 #include "content/RecipeKey.hpp"
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <expected>
 #include <optional>
@@ -23,6 +24,8 @@ namespace cc
         // points into the static slot array of the consumer's kind
         std::string_view Slot;
         RecipeId Source;
+        // the index into the Outputs of the producer's kind; the key hashes the name of that output
+        int32_t Output{ -1 };
     };
 
     struct Recipe
@@ -67,7 +70,7 @@ namespace cc
         Lookup(const foundation::content::RecipeKey& _key, std::span<const std::byte> _bytes) const;
 
         // Prepares the recipe, looks it up, and adds it when it is new. The sources of the inputs must be in this
-        // table already.
+        // table already, and each Output must be an index into the outputs of the source's kind.
         std::expected<RecipeId, Diagnostic> Intern(const KindRegistry& _registry, KindId _kind,
                                                    Quality _level, const ParamsBox& _params,
                                                    std::span<const RecipeInputRef> _inputs);

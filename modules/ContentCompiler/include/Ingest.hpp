@@ -23,6 +23,8 @@ namespace cc
     {
         // producer, authored index
         uint32_t FromNode{ 0 };
+        // the name of the output of the producer's kind; every edge names one, also for a kind with one output
+        std::string FromOutput;
         // consumer
         uint32_t ToNode{ 0 };
         std::string ToSlot;

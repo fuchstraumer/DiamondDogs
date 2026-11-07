@@ -68,7 +68,10 @@ namespace cctest
         static constexpr uint32_t Version{ 1 };
         using Params = ConstParams;
         static constexpr std::array<cc::Slot, 0> Slots{};
-        static constexpr cc::ArtifactKind Output{ cc::ArtifactKind::CpuBytes };
+        static constexpr std::array Outputs
+        {
+            cc::Output{ "Value", cc::ArtifactKind::CpuBytes },
+        };
 
         static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
@@ -83,7 +86,10 @@ namespace cctest
         {
             cc::Slot{ "Source", cc::SlotUse::Required, cc::ArtifactKind::CpuBytes },
         };
-        static constexpr cc::ArtifactKind Output{ cc::ArtifactKind::CpuBytes };
+        static constexpr std::array Outputs
+        {
+            cc::Output{ "Value", cc::ArtifactKind::CpuBytes },
+        };
 
         static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
@@ -100,7 +106,10 @@ namespace cctest
             cc::Slot{ "B", cc::SlotUse::Required, cc::ArtifactKind::CpuBytes },
             cc::Slot{ "Mask", cc::SlotUse::Optional, cc::ArtifactKind::CpuBytes },
         };
-        static constexpr cc::ArtifactKind Output{ cc::ArtifactKind::CpuBytes };
+        static constexpr std::array Outputs
+        {
+            cc::Output{ "Value", cc::ArtifactKind::CpuBytes },
+        };
 
         static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
@@ -112,7 +121,10 @@ namespace cctest
         static constexpr uint32_t Version{ 1 };
         using Params = ImageParams;
         static constexpr std::array<cc::Slot, 0> Slots{};
-        static constexpr cc::ArtifactKind Output{ cc::ArtifactKind::GpuImage };
+        static constexpr std::array Outputs
+        {
+            cc::Output{ "Image", cc::ArtifactKind::GpuImage },
+        };
 
         static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
@@ -127,17 +139,58 @@ namespace cctest
         {
             cc::Slot{ "Source", cc::SlotUse::Required, cc::ArtifactKind::GpuImage },
         };
-        static constexpr cc::ArtifactKind Output{ cc::ArtifactKind::GpuImage };
+        static constexpr std::array Outputs
+        {
+            cc::Output{ "Image", cc::ArtifactKind::GpuImage },
+        };
 
         static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
 
-    // Returns a registry with the five kinds above, registered in that order and frozen.
+    // no inputs, three outputs: two GPU images and CPU bytes
+    struct MultiKind
+    {
+        static constexpr std::string_view Name{ "test.Multi" };
+        static constexpr uint32_t Version{ 1 };
+        using Params = ImageParams;
+        static constexpr std::array<cc::Slot, 0> Slots{};
+        static constexpr std::array Outputs
+        {
+            cc::Output{ "Height", cc::ArtifactKind::GpuImage },
+            cc::Output{ "Normal", cc::ArtifactKind::GpuImage },
+            cc::Output{ "Stats", cc::ArtifactKind::CpuBytes },
+        };
+
+        static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
+    };
+
+    // MultiKind with its outputs in the opposite order: the name and the version are the same
+    struct MultiReorderedKind
+    {
+        static constexpr std::string_view Name{ "test.Multi" };
+        static constexpr uint32_t Version{ 1 };
+        using Params = ImageParams;
+        static constexpr std::array<cc::Slot, 0> Slots{};
+        static constexpr std::array Outputs
+        {
+            cc::Output{ "Stats", cc::ArtifactKind::CpuBytes },
+            cc::Output{ "Normal", cc::ArtifactKind::GpuImage },
+            cc::Output{ "Height", cc::ArtifactKind::GpuImage },
+        };
+
+        static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
+    };
+
+    // Returns a registry with the six kinds above (not the reordered one), registered in that order and frozen.
     cc::KindRegistry MakeFrozenRegistry();
+
+    // Returns a registry with MultiReorderedKind and SharpenKind, in that order, frozen.
+    cc::KindRegistry MakeFrozenRegistryWithReorderedMulti();
 
     // Returns the authored index of the new node.
     uint32_t AddNode(cc::AuthoredGraph& graph, std::string_view kind_name, cc::ParamsBox params);
-    void Connect(cc::AuthoredGraph& graph, uint32_t from_node, uint32_t to_node, std::string_view slot);
+    void Connect(cc::AuthoredGraph& graph, uint32_t from_node, std::string_view from_output, uint32_t to_node,
+                 std::string_view slot);
 
     std::vector<cc::DiagnosticCode> CodesOf(const std::vector<cc::Diagnostic>& diagnostics);
 }

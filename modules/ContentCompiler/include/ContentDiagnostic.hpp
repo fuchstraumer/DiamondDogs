@@ -29,6 +29,7 @@ namespace cc
         DanglingEdge,
         KeyCollision,
         SlotAlreadyConnected,
+        UnknownOutput,
     };
 
     struct Diagnostic

@@ -62,7 +62,7 @@ TEST(RecipeTableTest, KeyOfAKindWithOneInputEqualsTheTypedKey)
     const cc::RecipeId source =
         InternOrFail(table, registry, "test.Const", cc::Quality::Final, cc::ParamsBox::Make(sourceParams), {});
 
-    const std::array<cc::RecipeInputRef, 1> inputs{ cc::RecipeInputRef{ "Source", source } };
+    const std::array<cc::RecipeInputRef, 1> inputs{ cc::RecipeInputRef{ "Source", source, 0 } };
     const cc::RecipeId scale =
         InternOrFail(table, registry, "test.Scale", cc::Quality::Final, cc::ParamsBox::Make(scaleParams), inputs);
 
@@ -71,7 +71,7 @@ TEST(RecipeTableTest, KeyOfAKindWithOneInputEqualsTheTypedKey)
 
     const std::array<foundation::content::RecipeInput, 1> referenceInputs
     {
-        foundation::content::RecipeInput{ "Source", sourceKey },
+        foundation::content::RecipeInput{ "Source", sourceKey, "Value" },
     };
 
     EXPECT_EQ(table.Get(scale).Key, ReferenceKey("test.Scale", 3, cc::Quality::Final, scaleParams, referenceInputs));
@@ -94,21 +94,74 @@ TEST(RecipeTableTest, KeyOfAKindWithTwoInputsAndAnAbsentOptionalSlotEqualsTheTyp
     // Mask is optional and has no edge, so it is not in the list
     const std::array<cc::RecipeInputRef, 2> inputs
     {
-        cc::RecipeInputRef{ "A", first },
-        cc::RecipeInputRef{ "B", second },
+        cc::RecipeInputRef{ "A", first, 0 },
+        cc::RecipeInputRef{ "B", second, 0 },
     };
 
     const cc::RecipeId blend =
         InternOrFail(table, registry, "test.Blend", cc::Quality::Preview, cc::ParamsBox::Make(blendParams), inputs);
 
+    const foundation::content::RecipeKey firstKey =
+        ReferenceKey("test.Const", 1, cc::Quality::Preview, firstParams, {});
+    const foundation::content::RecipeKey secondKey =
+        ReferenceKey("test.Const", 1, cc::Quality::Preview, secondParams, {});
+
     const std::array<foundation::content::RecipeInput, 2> referenceInputs
     {
-        foundation::content::RecipeInput{ "A", ReferenceKey("test.Const", 1, cc::Quality::Preview, firstParams, {}) },
-        foundation::content::RecipeInput{ "B", ReferenceKey("test.Const", 1, cc::Quality::Preview, secondParams, {}) },
+        foundation::content::RecipeInput{ "A", firstKey, "Value" },
+        foundation::content::RecipeInput{ "B", secondKey, "Value" },
     };
 
     EXPECT_EQ(table.Get(blend).Key,
               ReferenceKey("test.Blend", 2, cc::Quality::Preview, blendParams, referenceInputs));
+}
+
+TEST(RecipeTableTest, KeyOfARecipeThatReadsANonFirstOutputEqualsTheTypedKey)
+{
+    const cc::KindRegistry registry = cctest::MakeFrozenRegistry();
+    cc::RecipeTable table;
+
+    const cctest::ImageParams multiParams{ 64 };
+    const cctest::ScaleParams sharpenParams{ 1.5f };
+
+    const cc::RecipeId multi =
+        InternOrFail(table, registry, "test.Multi", cc::Quality::Final, cc::ParamsBox::Make(multiParams), {});
+
+    // Normal is the second output of test.Multi
+    const std::array<cc::RecipeInputRef, 1> inputs{ cc::RecipeInputRef{ "Source", multi, 1 } };
+    const cc::RecipeId sharpen =
+        InternOrFail(table, registry, "test.Sharpen", cc::Quality::Final, cc::ParamsBox::Make(sharpenParams), inputs);
+
+    const foundation::content::RecipeKey multiKey =
+        ReferenceKey("test.Multi", 1, cc::Quality::Final, multiParams, {});
+
+    const std::array<foundation::content::RecipeInput, 1> referenceInputs
+    {
+        foundation::content::RecipeInput{ "Source", multiKey, "Normal" },
+    };
+
+    EXPECT_EQ(table.Get(sharpen).Key,
+              ReferenceKey("test.Sharpen", 1, cc::Quality::Final, sharpenParams, referenceInputs));
+    EXPECT_EQ(table.Get(sharpen).Inputs[0].Output, 1);
+}
+
+TEST(RecipeTableTest, TwoRecipesThatReadDifferentOutputsOfOneProducerGetDifferentKeysAndIds)
+{
+    const cc::KindRegistry registry = cctest::MakeFrozenRegistry();
+    cc::RecipeTable table;
+
+    const cc::RecipeId multi =
+        InternOrFail(table, registry, "test.Multi", cc::Quality::Final, cc::ParamsBox::Make(cctest::ImageParams{ 64 }), {});
+    const cc::ParamsBox sharpenBox = cc::ParamsBox::Make(cctest::ScaleParams{ 1.5f });
+
+    const std::array<cc::RecipeInputRef, 1> readsHeight{ cc::RecipeInputRef{ "Source", multi, 0 } };
+    const std::array<cc::RecipeInputRef, 1> readsNormal{ cc::RecipeInputRef{ "Source", multi, 1 } };
+
+    const cc::RecipeId height = InternOrFail(table, registry, "test.Sharpen", cc::Quality::Final, sharpenBox, readsHeight);
+    const cc::RecipeId normal = InternOrFail(table, registry, "test.Sharpen", cc::Quality::Final, sharpenBox, readsNormal);
+
+    EXPECT_NE(height, normal);
+    EXPECT_NE(table.Get(height).Key, table.Get(normal).Key);
 }
 
 TEST(RecipeTableTest, QualityChangesTheKey)
@@ -148,7 +201,7 @@ TEST(RecipeTableTest, ARecipeStoresItsKindLevelParamsAndInputsInSlotOrder)
     const cc::RecipeId source =
         InternOrFail(table, registry, "test.Const", cc::Quality::Final, cc::ParamsBox::Make(cctest::ConstParams{}), {});
 
-    const std::array<cc::RecipeInputRef, 1> inputs{ cc::RecipeInputRef{ "Source", source } };
+    const std::array<cc::RecipeInputRef, 1> inputs{ cc::RecipeInputRef{ "Source", source, 0 } };
     const cc::RecipeId scale =
         InternOrFail(table, registry, "test.Scale", cc::Quality::Final,
                      cc::ParamsBox::Make(cctest::ScaleParams{ 6.0f }), inputs);

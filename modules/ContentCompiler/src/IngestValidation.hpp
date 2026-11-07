@@ -16,6 +16,7 @@
 namespace cc::detail
 {
     inline constexpr int32_t k_NoNode = -1;
+    inline constexpr int32_t k_NoOutput = -1;
 
     // What phase 2 of Ingest reads. It is complete only when ValidateGraph returned no diagnostic.
     struct ValidatedGraph
@@ -24,6 +25,9 @@ namespace cc::detail
         std::vector<KindId> NodeKinds;
         // For each node and each slot of its kind, the authored index of the producer, or k_NoNode.
         std::vector<std::vector<int32_t>> SlotProducers;
+        // For each node and each slot, the index into the producer's Outputs, or k_NoOutput where SlotProducers
+        // is k_NoNode.
+        std::vector<std::vector<int32_t>> SlotOutputs;
         // Kahn's algorithm, ties broken by the lowest authored index
         std::vector<int32_t> TopologicalOrder;
     };

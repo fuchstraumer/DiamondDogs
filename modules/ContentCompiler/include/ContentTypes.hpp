@@ -61,6 +61,12 @@ namespace cc
         SlotUse Use{ SlotUse::Invalid };
         ArtifactKind Accepts{ ArtifactKind::Invalid };
     };
+
+    struct Output
+    {
+        std::string_view Name;
+        ArtifactKind Produces{ ArtifactKind::Invalid };
+    };
 }
 
 namespace foundation::reflect

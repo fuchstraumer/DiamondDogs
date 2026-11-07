@@ -2,6 +2,7 @@
 
 #include "async/Scheduler.hpp"
 #include "async/Task.hpp"
+#include "async/Timeline.hpp"
 #include "async/Yield.hpp"
 
 #include <coroutine>
@@ -11,6 +12,8 @@
 
 using foundation::Scheduler;
 using foundation::Task;
+using foundation::Timeline;
+using foundation::TimelineWait;
 using foundation::Yield;
 
 namespace
@@ -38,6 +41,8 @@ namespace
     Task<void> YieldTwice(std::vector<int32_t>& log);
     Task<void> ChildYields(std::vector<int32_t>& log);
     Task<void> ParentAwaitsYieldingChild(std::vector<int32_t>& log);
+    Task<void> SuspendThenYieldThenPark(std::coroutine_handle<>& slot, const Timeline& timeline,
+                                        std::vector<int32_t>& log);
     int32_t CountOccurrences(const std::string& text, const std::string& pattern);
 }
 
@@ -182,6 +187,41 @@ TEST(YieldTest, DumpStateListsYieldedAndReadyFramesLikeParkedFrames)
     EXPECT_TRUE(scheduler.DumpState().empty());
 }
 
+// Task asserts HoldsFrame is false before it destroys a frame, so a frame that waits in a queue must be found there
+TEST(HoldsFrameTest, AFrameIsHeldWhilePostedYieldedOrParkedAndNotAfterItResumes)
+{
+    Scheduler scheduler;
+    Timeline timeline;
+    std::coroutine_handle<> slot{};
+    std::vector<int32_t> log;
+
+    scheduler.Spawn(SuspendThenYieldThenPark(slot, timeline, log));
+    scheduler.Tick();
+    ASSERT_TRUE(slot);
+    EXPECT_EQ(log, (std::vector<int32_t>{ 1 }));
+    EXPECT_FALSE(scheduler.HoldsFrame(slot)) << "the frame suspended into a slot that the scheduler does not know";
+
+    scheduler.Post(slot);
+    EXPECT_TRUE(scheduler.HoldsFrame(slot)) << "posted";
+
+    scheduler.Tick();
+    EXPECT_EQ(log, (std::vector<int32_t>{ 1, 2 }));
+    EXPECT_TRUE(scheduler.HoldsFrame(slot)) << "yielded";
+
+    scheduler.Tick();
+    EXPECT_EQ(log, (std::vector<int32_t>{ 1, 2, 3 }));
+    EXPECT_EQ(scheduler.ParkedCount(), 1);
+    EXPECT_TRUE(scheduler.HoldsFrame(slot)) << "parked";
+
+    timeline.Signal(1u);
+    EXPECT_TRUE(scheduler.HoldsFrame(slot)) << "a reached target does not resume the frame before the next Tick";
+
+    scheduler.Tick();
+    EXPECT_EQ(log, (std::vector<int32_t>{ 1, 2, 3, 4 }));
+    EXPECT_FALSE(scheduler.HoldsFrame(slot));
+    EXPECT_TRUE(scheduler.Idle());
+}
+
 namespace
 {
     SuspendIntoSlot::SuspendIntoSlot(std::coroutine_handle<>& _slot) noexcept : slot{ _slot }
@@ -255,6 +295,20 @@ namespace
     {
         log.push_back(1);
         co_await ChildYields(log);
+        log.push_back(4);
+    }
+
+    Task<void> SuspendThenYieldThenPark(std::coroutine_handle<>& slot, const Timeline& timeline,
+                                        std::vector<int32_t>& log)
+    {
+        log.push_back(1);
+        co_await SuspendIntoSlot{ slot };
+        log.push_back(2);
+        co_await Yield();
+        log.push_back(3);
+
+        const TimelineWait wait = co_await timeline.Until(1u);
+        EXPECT_EQ(wait, TimelineWait::Reached);
         log.push_back(4);
     }
 

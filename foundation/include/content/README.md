@@ -18,7 +18,7 @@ choice is in doubt, the encoding chooses the miss.
 | `JsonSink.hpp` | The sink that writes the same walk as one JSON document, for tools. It never feeds a key. |
 | `JsonWriter.hpp` | The low-level JSON writer. A copy of Lodestone's writer, which Loom's diagnostics also use. |
 | `Encode.hpp` | `Encode` (the one template that walks a value) and `FindNaN`. |
-| `RecipeKey.hpp` | `MakeRecipeKey`, `HashBlob`, `RecipeInput`, `KeyError`. |
+| `RecipeKey.hpp` | `MakeRecipeKey`, `HashBlob`, `RecipeInput` (slot, source key, output name), `KeyError`. |
 
 ## How to describe a type
 
@@ -78,12 +78,25 @@ The consequences:
 2. The kind name and the kind version.
 3. The parameters, through `Encode`.
 4. The input count, then for each input the slot name, the alternative name (`RecipeKey` or `BlobKey`) and the key.
+   For a `RecipeKey` input only, the name of the output that the input reads follows the key, as a string. A
+   `BlobKey` input writes nothing more. `AppendRecipeInputs` asserts that a recipe input has a non-empty output and
+   that a blob input has an empty one.
+
+A kind can make several artifacts (outputs), and two consumers of one producer can read different outputs. The output
+is in the key so that these two consumers get two keys. The key holds the name of the output and not its index, so
+that reordering the outputs of a kind does not change what an old key means. Renaming an output changes the keys of
+its readers, which is a deliberate cache miss.
 
 `HashBlob` hashes the domain `"dd.blob"`, the encoding version, the byte count, then the bytes. A blob key and a recipe
 key can never be equal by accident of content, and the two types do not convert into each other.
 
 When the encoding changes on purpose, raise `k_EncodingVersion`. The known-answer tests in `test_keys.cpp` fail first,
-and that is their job.
+and that is their job. The version is 2 since the output name entered the stream. The version also enters
+`HashBlob`, so every blob key changed with it.
+
+The expected keys come from `tests/unit_tests/foundation/content/known_answer_keys.py`. It is an independent encoder,
+written from the stream description above with the `xxhash` Python module. It prints the keys of the known-answer
+tests. `--old` prints the keys of version 1, where an input has no output name.
 
 ## Why a key changed
 

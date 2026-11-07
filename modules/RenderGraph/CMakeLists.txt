@@ -7,7 +7,6 @@ set(LOOM_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/LoomKeys.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PassBuilders.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/PassStatements.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/ResourceFuture.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/SequenceBuilder.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/FrozenGraph.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/freeze/Freeze.hpp"

@@ -182,7 +182,7 @@ TEST(BytesSinkTest, BytesHashToTheKnownAnswerOfNoiseParams)
 
     const std::vector<std::byte> bytes = bytestest::RecipeBytes("noise", 1, params, {});
 
-    EXPECT_EQ(bytestest::Hex(bytestest::HashOfBytes(bytes)), "9a843c0a08b33a636e7a925cfef7a7de");
+    EXPECT_EQ(bytestest::Hex(bytestest::HashOfBytes(bytes)), "7ba4e24170aa9638c3960df276b86f8c");
 }
 
 TEST(BytesSinkTest, BytesHashToTheKnownAnswerOfVectorAndOptional)
@@ -191,7 +191,7 @@ TEST(BytesSinkTest, BytesHashToTheKnownAnswerOfVectorAndOptional)
 
     const std::vector<std::byte> bytes = bytestest::RecipeBytes("tile", 3, params, {});
 
-    EXPECT_EQ(bytestest::Hex(bytestest::HashOfBytes(bytes)), "3babc3b1f65eaf20f2f08da72fa44e7a");
+    EXPECT_EQ(bytestest::Hex(bytestest::HashOfBytes(bytes)), "707ed9479c755ec6b61963abc2e5829b");
 }
 
 TEST(BytesSinkTest, BytesHashToTheKnownAnswerOfNestedParamsWithInputs)
@@ -206,13 +206,13 @@ TEST(BytesSinkTest, BytesHashToTheKnownAnswerOfNestedParamsWithInputs)
 
     const std::array<RecipeInput, 2> inputs
     {
-        RecipeInput{ "heights", RecipeKey{ 1, 2 } },
-        RecipeInput{ "mask", BlobKey{ 3, 4 } },
+        RecipeInput{ "heights", RecipeKey{ 1, 2 }, "Value" },
+        RecipeInput{ "mask", BlobKey{ 3, 4 }, "" },
     };
 
     const std::vector<std::byte> bytes = bytestest::RecipeBytes("planet", 2, params, inputs);
 
-    EXPECT_EQ(bytestest::Hex(bytestest::HashOfBytes(bytes)), "f22ec2af40f874f2c7f72f3c067c90d8");
+    EXPECT_EQ(bytestest::Hex(bytestest::HashOfBytes(bytes)), "888ebf680a4890b877c43aaaa94b26d6");
 }
 
 TEST(BytesSinkTest, BytesHashToTheSameValueAsHashSinkForEveryWriteKind)

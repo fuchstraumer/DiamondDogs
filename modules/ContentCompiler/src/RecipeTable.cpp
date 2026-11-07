@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <expected>
 #include <format>
+#include <iterator>
 #include <optional>
 #include <span>
 #include <string>
@@ -87,7 +88,12 @@ namespace cc
         for (const RecipeInputRef& input : _inputs)
         {
             const Recipe& source = Get(input.Source);
-            keyInputs.push_back(foundation::content::RecipeInput{ input.Slot, source.Key });
+            const std::span<const Output> sourceOutputs = _registry.Ops(source.Kind).Outputs;
+            assert(input.Output >= 0 && input.Output < std::ssize(sourceOutputs) &&
+                   "the output index is not an output of the source's kind");
+
+            const Output& sourceOutput = sourceOutputs[input.Output];
+            keyInputs.push_back(foundation::content::RecipeInput{ input.Slot, source.Key, sourceOutput.Name });
         }
 
         PreparedRecipe prepared = Prepare(_registry, _kind, _level, _params, keyInputs);

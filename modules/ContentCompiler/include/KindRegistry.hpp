@@ -47,9 +47,38 @@ namespace cc
 
             return true;
         }
+
+        // constexpr for the same reason: at least one output, a name each, no repeated name, a real artifact kind
+        constexpr bool OutputsAreWellFormed(std::span<const Output> outputs) noexcept
+        {
+            if (outputs.empty())
+            {
+                return false;
+            }
+
+            for (size_t index = 0; index < outputs.size(); ++index)
+            {
+                const Output& output = outputs[index];
+
+                if (output.Name.empty() || output.Produces == ArtifactKind::Invalid)
+                {
+                    return false;
+                }
+
+                for (size_t earlier = 0; earlier < index; ++earlier)
+                {
+                    if (outputs[earlier].Name == output.Name)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
     }
 
-    // A kind is a struct with a name, a version, a params type, its slots, its output and a Run function.
+    // A kind is a struct with a name, a version, a params type, its slots, its outputs and a Run function.
     template<typename K>
     concept Kind = requires
     {
@@ -59,8 +88,7 @@ namespace cc
         typename K::Params;
         requires foundation::reflect::DescribedStruct<typename K::Params>;
         requires detail::SlotsAreWellFormed(std::span<const Slot>{ K::Slots });
-        { K::Output } -> std::convertible_to<ArtifactKind>;
-        requires (K::Output != ArtifactKind::Invalid);
+        requires detail::OutputsAreWellFormed(std::span<const Output>{ K::Outputs });
         {
             K::Run(std::declval<const typename K::Params&>(), std::declval<Inputs>(),
                    std::declval<Context&>())
@@ -76,7 +104,8 @@ namespace cc
         uint32_t Version{ 0 };
         // points into the kind's static array
         std::span<const Slot> Slots;
-        ArtifactKind Output{ ArtifactKind::Invalid };
+        // points into the kind's static array
+        std::span<const Output> Outputs;
         const void* ParamsType{ nullptr };
         std::string_view ParamsTypeName;
         KindRunFunction Run{ nullptr };
@@ -100,7 +129,7 @@ namespace cc
                 .Name = K::Name,
                 .Version = K::Version,
                 .Slots = std::span<const Slot>{ K::Slots },
-                .Output = K::Output,
+                .Outputs = std::span<const Output>{ K::Outputs },
                 .ParamsType = ParamsTypeIdentity<typename K::Params>(),
                 .ParamsTypeName = foundation::reflect::Describe<typename K::Params>::Name,
                 .Run = &RunKind<K>,

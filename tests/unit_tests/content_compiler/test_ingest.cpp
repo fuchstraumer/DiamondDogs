@@ -147,12 +147,12 @@ TEST(IngestTest, ConnectingAnOptionalSlotChangesTheRecipe)
     const uint32_t a = cctest::AddNode(without, "test.Const", ConstBox());
     const uint32_t b = cctest::AddNode(without, "test.Scale", ScaleBox(1.0f));
     const uint32_t blend = cctest::AddNode(without, "test.Blend", cc::ParamsBox::Make(cctest::BlendParams{}));
-    cctest::Connect(without, a, blend, "A");
-    cctest::Connect(without, a, b, "Source");
-    cctest::Connect(without, b, blend, "B");
+    cctest::Connect(without, a, "Value", blend, "A");
+    cctest::Connect(without, a, "Value", b, "Source");
+    cctest::Connect(without, b, "Value", blend, "B");
 
     cc::AuthoredGraph with = without;
-    cctest::Connect(with, a, blend, "Mask");
+    cctest::Connect(with, a, "Value", blend, "Mask");
 
     const cc::IngestResult plain = IngestOrFail(without, cc::Quality::Final, registry, table);
     const cc::IngestResult masked = IngestOrFail(with, cc::Quality::Final, registry, table);
@@ -177,10 +177,10 @@ TEST(IngestTest, TheOrderOfTheAuthoredNodesDoesNotChangeTheRecipes)
     const uint32_t c = cctest::AddNode(backwards, "test.Scale", ScaleBox(3.0f));
     const uint32_t b = cctest::AddNode(backwards, "test.Scale", ScaleBox(2.0f));
     const uint32_t a = cctest::AddNode(backwards, "test.Const", ConstBox());
-    cctest::Connect(backwards, a, b, "Source");
-    cctest::Connect(backwards, a, c, "Source");
-    cctest::Connect(backwards, b, d, "A");
-    cctest::Connect(backwards, c, d, "B");
+    cctest::Connect(backwards, a, "Value", b, "Source");
+    cctest::Connect(backwards, a, "Value", c, "Source");
+    cctest::Connect(backwards, b, "Value", d, "A");
+    cctest::Connect(backwards, c, "Value", d, "B");
 
     const cc::IngestResult forward = IngestOrFail(MakeDiamond(), cc::Quality::Final, registry, table);
     const cc::IngestResult reversed = IngestOrFail(backwards, cc::Quality::Final, registry, table);
@@ -204,7 +204,7 @@ TEST(IngestTest, NodesAreInternedInTopologicalOrderWithTheLowestIndexFirst)
     cctest::ConstParams other;
     other.Seed = 1;
     const uint32_t producer = cctest::AddNode(graph, "test.Const", cc::ParamsBox::Make(other));
-    cctest::Connect(graph, producer, consumer, "Source");
+    cctest::Connect(graph, producer, "Value", consumer, "Source");
 
     const cc::IngestResult result = IngestOrFail(graph, cc::Quality::Final, registry, table);
 
@@ -229,10 +229,10 @@ TEST(IngestTest, AThreeNodeCycleIsRefusedWithExactlyThoseNodes)
     const uint32_t second = cctest::AddNode(graph, "test.Scale", ScaleBox(2.0f));
     const uint32_t third = cctest::AddNode(graph, "test.Scale", ScaleBox(3.0f));
     const uint32_t downstream = cctest::AddNode(graph, "test.Scale", ScaleBox(4.0f));
-    cctest::Connect(graph, first, second, "Source");
-    cctest::Connect(graph, second, third, "Source");
-    cctest::Connect(graph, third, first, "Source");
-    cctest::Connect(graph, third, downstream, "Source");
+    cctest::Connect(graph, first, "Value", second, "Source");
+    cctest::Connect(graph, second, "Value", third, "Source");
+    cctest::Connect(graph, third, "Value", first, "Source");
+    cctest::Connect(graph, third, "Value", downstream, "Source");
 
     const std::vector<cc::Diagnostic> diagnostics = RefusalOf(graph, registry, table);
 
@@ -250,7 +250,7 @@ TEST(IngestTest, ANodeThatFeedsItselfIsACycleOfOne)
 
     cc::AuthoredGraph graph;
     const uint32_t node = cctest::AddNode(graph, "test.Scale", ScaleBox(1.0f));
-    cctest::Connect(graph, node, node, "Source");
+    cctest::Connect(graph, node, "Value", node, "Source");
 
     const std::vector<cc::Diagnostic> diagnostics = RefusalOf(graph, registry, table);
 
@@ -345,7 +345,7 @@ TEST(IngestTest, AnEdgeToANodeThatDoesNotExistIsRefused)
 
     cc::AuthoredGraph graph;
     const uint32_t source = cctest::AddNode(graph, "test.Const", ConstBox());
-    cctest::Connect(graph, source, 9, "Source");
+    cctest::Connect(graph, source, "Value", 9, "Source");
 
     const std::vector<cc::Diagnostic> diagnostics = RefusalOf(graph, registry, table);
 
@@ -362,7 +362,7 @@ TEST(IngestTest, AnEdgeFromANodeThatDoesNotExistIsRefused)
 
     cc::AuthoredGraph graph;
     const uint32_t consumer = cctest::AddNode(graph, "test.Scale", ScaleBox(1.0f));
-    cctest::Connect(graph, 7, consumer, "Source");
+    cctest::Connect(graph, 7, "Value", consumer, "Source");
 
     const std::vector<cc::Diagnostic> diagnostics = RefusalOf(graph, registry, table);
 
@@ -382,7 +382,7 @@ TEST(IngestTest, AnEdgeIntoASlotThatDoesNotExistIsRefused)
     cc::AuthoredGraph graph;
     const uint32_t source = cctest::AddNode(graph, "test.Const", ConstBox());
     const uint32_t consumer = cctest::AddNode(graph, "test.Scale", ScaleBox(1.0f));
-    cctest::Connect(graph, source, consumer, "Nope");
+    cctest::Connect(graph, source, "Value", consumer, "Nope");
 
     const std::vector<cc::Diagnostic> diagnostics = RefusalOf(graph, registry, table);
 
@@ -404,8 +404,8 @@ TEST(IngestTest, TwoEdgesIntoOneSlotAreRefused)
     const uint32_t first = cctest::AddNode(graph, "test.Const", ConstBox());
     const uint32_t second = cctest::AddNode(graph, "test.Const", cc::ParamsBox::Make(other));
     const uint32_t consumer = cctest::AddNode(graph, "test.Scale", ScaleBox(1.0f));
-    cctest::Connect(graph, first, consumer, "Source");
-    cctest::Connect(graph, second, consumer, "Source");
+    cctest::Connect(graph, first, "Value", consumer, "Source");
+    cctest::Connect(graph, second, "Value", consumer, "Source");
 
     const std::vector<cc::Diagnostic> diagnostics = RefusalOf(graph, registry, table);
 
@@ -423,7 +423,7 @@ TEST(IngestTest, ARequiredSlotWithNoEdgeIsRefused)
     cc::AuthoredGraph graph;
     const uint32_t source = cctest::AddNode(graph, "test.Const", ConstBox());
     const uint32_t blend = cctest::AddNode(graph, "test.Blend", cc::ParamsBox::Make(cctest::BlendParams{}));
-    cctest::Connect(graph, source, blend, "A");
+    cctest::Connect(graph, source, "Value", blend, "A");
 
     const std::vector<cc::Diagnostic> diagnostics = RefusalOf(graph, registry, table);
 
@@ -443,7 +443,7 @@ TEST(IngestTest, AProducerOfTheWrongArtifactKindIsRefused)
     cc::AuthoredGraph graph;
     const uint32_t source = cctest::AddNode(graph, "test.Const", ConstBox());
     const uint32_t sharpen = cctest::AddNode(graph, "test.Sharpen", ScaleBox(1.0f));
-    cctest::Connect(graph, source, sharpen, "Source");
+    cctest::Connect(graph, source, "Value", sharpen, "Source");
 
     const std::vector<cc::Diagnostic> diagnostics = RefusalOf(graph, registry, table);
 
@@ -461,11 +461,138 @@ TEST(IngestTest, AMatchingGpuProducerIsAccepted)
     cc::AuthoredGraph graph;
     const uint32_t image = cctest::AddNode(graph, "test.Image", cc::ParamsBox::Make(cctest::ImageParams{ 256 }));
     const uint32_t sharpen = cctest::AddNode(graph, "test.Sharpen", ScaleBox(1.0f));
-    cctest::Connect(graph, image, sharpen, "Source");
+    cctest::Connect(graph, image, "Image", sharpen, "Source");
 
     const cc::IngestResult result = IngestOrFail(graph, cc::Quality::Final, registry, table);
 
     EXPECT_EQ(result.NodeRecipes.size(), 2u);
+}
+
+TEST(IngestTest, TwoConsumersThatReadDifferentOutputsOfOneProducerGetDifferentKeysAndIds)
+{
+    const cc::KindRegistry registry = cctest::MakeFrozenRegistry();
+    cc::RecipeTable table;
+
+    // the two consumers are equal except for the output that they read
+    cc::AuthoredGraph graph;
+    const uint32_t multi = cctest::AddNode(graph, "test.Multi", cc::ParamsBox::Make(cctest::ImageParams{ 256 }));
+    const uint32_t readsHeight = cctest::AddNode(graph, "test.Sharpen", ScaleBox(1.0f));
+    const uint32_t readsNormal = cctest::AddNode(graph, "test.Sharpen", ScaleBox(1.0f));
+    cctest::Connect(graph, multi, "Height", readsHeight, "Source");
+    cctest::Connect(graph, multi, "Normal", readsNormal, "Source");
+
+    const cc::IngestResult result = IngestOrFail(graph, cc::Quality::Final, registry, table);
+
+    // a refused graph returns ids of zero, which Get must not see
+    ASSERT_EQ(table.Count(), 3u);
+    EXPECT_NE(result.NodeRecipes[readsHeight], result.NodeRecipes[readsNormal]);
+    EXPECT_NE(table.Get(result.NodeRecipes[readsHeight]).Key, table.Get(result.NodeRecipes[readsNormal]).Key);
+    EXPECT_EQ(table.Count(), 3u);
+}
+
+TEST(IngestTest, AnUnknownOutputIsRefusedAndLeavesTheRequiredSlotMissing)
+{
+    const cc::KindRegistry registry = cctest::MakeFrozenRegistry();
+    cc::RecipeTable table;
+
+    cc::AuthoredGraph graph;
+    const uint32_t multi = cctest::AddNode(graph, "test.Multi", cc::ParamsBox::Make(cctest::ImageParams{ 256 }));
+    const uint32_t sharpen = cctest::AddNode(graph, "test.Sharpen", ScaleBox(1.0f));
+    cctest::Connect(graph, multi, "Specular", sharpen, "Source");
+
+    const std::vector<cc::Diagnostic> diagnostics = RefusalOf(graph, registry, table);
+
+    EXPECT_THAT(cctest::CodesOf(diagnostics),
+                ElementsAre(cc::DiagnosticCode::UnknownOutput, cc::DiagnosticCode::MissingRequiredSlot));
+    ASSERT_EQ(diagnostics.size(), 2u);
+    EXPECT_THAT(diagnostics[0].Nodes, ElementsAre(multi));
+    EXPECT_THAT(diagnostics[1].Nodes, ElementsAre(sharpen));
+    EXPECT_NE(diagnostics[0].Message.find("\"Specular\""), std::string::npos);
+    EXPECT_NE(diagnostics[0].Message.find("test.Multi"), std::string::npos);
+    EXPECT_NE(diagnostics[0].Message.find("\"Height\", \"Normal\", \"Stats\""), std::string::npos);
+    EXPECT_EQ(table.Count(), 0u);
+}
+
+TEST(IngestTest, TheSlotIsCheckedAgainstTheNamedOutputAndNotAgainstTheFirstOutput)
+{
+    const cc::KindRegistry registry = cctest::MakeFrozenRegistry();
+
+    // Multi makes GPU images as outputs 0 and 1, and CPU bytes as output 2. Scale takes CPU bytes.
+    cc::AuthoredGraph refused;
+    const uint32_t imageProducer = cctest::AddNode(refused, "test.Multi", cc::ParamsBox::Make(cctest::ImageParams{ 256 }));
+    const uint32_t imageConsumer = cctest::AddNode(refused, "test.Scale", ScaleBox(1.0f));
+    cctest::Connect(refused, imageProducer, "Height", imageConsumer, "Source");
+
+    cc::AuthoredGraph accepted;
+    const uint32_t bytesProducer = cctest::AddNode(accepted, "test.Multi", cc::ParamsBox::Make(cctest::ImageParams{ 256 }));
+    const uint32_t bytesConsumer = cctest::AddNode(accepted, "test.Scale", ScaleBox(1.0f));
+    cctest::Connect(accepted, bytesProducer, "Stats", bytesConsumer, "Source");
+
+    cc::RecipeTable refusedTable;
+    const std::vector<cc::Diagnostic> diagnostics = RefusalOf(refused, registry, refusedTable);
+
+    ASSERT_EQ(diagnostics.size(), 1u);
+    EXPECT_EQ(diagnostics[0].Code, cc::DiagnosticCode::SlotKindMismatch);
+    EXPECT_THAT(diagnostics[0].Nodes, ElementsAre(imageConsumer));
+
+    cc::RecipeTable acceptedTable;
+    const cc::IngestResult result = IngestOrFail(accepted, cc::Quality::Final, registry, acceptedTable);
+
+    EXPECT_EQ(result.NodeRecipes.size(), 2u);
+}
+
+TEST(IngestTest, ReorderingTheOutputsOfAKindDoesNotChangeTheKeyOfAnEdgeByName)
+{
+    const cc::KindRegistry original = cctest::MakeFrozenRegistry();
+    const cc::KindRegistry reordered = cctest::MakeFrozenRegistryWithReorderedMulti();
+
+    // Height is output 0 of the original kind and output 2 of the reordered kind
+    cc::AuthoredGraph graph;
+    const uint32_t multi = cctest::AddNode(graph, "test.Multi", cc::ParamsBox::Make(cctest::ImageParams{ 256 }));
+    const uint32_t sharpen = cctest::AddNode(graph, "test.Sharpen", ScaleBox(1.0f));
+    cctest::Connect(graph, multi, "Height", sharpen, "Source");
+
+    cc::RecipeTable originalTable;
+    cc::RecipeTable reorderedTable;
+    const cc::IngestResult originalResult = IngestOrFail(graph, cc::Quality::Final, original, originalTable);
+    const cc::IngestResult reorderedResult = IngestOrFail(graph, cc::Quality::Final, reordered, reorderedTable);
+
+    // a refused graph returns ids of zero, which Get must not see
+    ASSERT_EQ(originalTable.Count(), 2u);
+    ASSERT_EQ(reorderedTable.Count(), 2u);
+    EXPECT_EQ(originalTable.Get(originalResult.NodeRecipes[multi]).Key,
+              reorderedTable.Get(reorderedResult.NodeRecipes[multi]).Key);
+    EXPECT_EQ(originalTable.Get(originalResult.NodeRecipes[sharpen]).Key,
+              reorderedTable.Get(reorderedResult.NodeRecipes[sharpen]).Key);
+    EXPECT_EQ(originalTable.Get(originalResult.NodeRecipes[sharpen]).Inputs[0].Output, 0);
+    EXPECT_EQ(reorderedTable.Get(reorderedResult.NodeRecipes[sharpen]).Inputs[0].Output, 2);
+}
+
+TEST(IngestTest, TheRecipeInputStoresTheIndexOfANonFirstOutput)
+{
+    const cc::KindRegistry registry = cctest::MakeFrozenRegistry();
+    cc::RecipeTable table;
+
+    cc::AuthoredGraph graph;
+    const uint32_t multi = cctest::AddNode(graph, "test.Multi", cc::ParamsBox::Make(cctest::ImageParams{ 256 }));
+    const uint32_t readsNormal = cctest::AddNode(graph, "test.Sharpen", ScaleBox(1.0f));
+    const uint32_t readsStats = cctest::AddNode(graph, "test.Scale", ScaleBox(1.0f));
+    cctest::Connect(graph, multi, "Normal", readsNormal, "Source");
+    cctest::Connect(graph, multi, "Stats", readsStats, "Source");
+
+    const cc::IngestResult result = IngestOrFail(graph, cc::Quality::Final, registry, table);
+
+    // a refused graph returns ids of zero, which Get must not see
+    ASSERT_EQ(table.Count(), 3u);
+
+    const cc::Recipe& normalRecipe = table.Get(result.NodeRecipes[readsNormal]);
+    const cc::Recipe& statsRecipe = table.Get(result.NodeRecipes[readsStats]);
+
+    ASSERT_EQ(normalRecipe.Inputs.size(), 1u);
+    ASSERT_EQ(statsRecipe.Inputs.size(), 1u);
+    EXPECT_EQ(normalRecipe.Inputs[0].Output, 1);
+    EXPECT_EQ(statsRecipe.Inputs[0].Output, 2);
+    EXPECT_EQ(normalRecipe.Inputs[0].Source, result.NodeRecipes[multi]);
 }
 
 TEST(IngestTest, AGraphWithSeveralDifferentErrorsReportsAllOfThem)
@@ -483,8 +610,8 @@ TEST(IngestTest, AGraphWithSeveralDifferentErrorsReportsAllOfThem)
     cctest::AddNode(graph, "test.Scale", ScaleBox(1.0f));
     const uint32_t loopA = cctest::AddNode(graph, "test.Scale", ScaleBox(2.0f));
     const uint32_t loopB = cctest::AddNode(graph, "test.Scale", ScaleBox(3.0f));
-    cctest::Connect(graph, loopA, loopB, "Source");
-    cctest::Connect(graph, loopB, loopA, "Source");
+    cctest::Connect(graph, loopA, "Value", loopB, "Source");
+    cctest::Connect(graph, loopB, "Value", loopA, "Source");
 
     const std::vector<cc::Diagnostic> diagnostics = RefusalOf(graph, registry, table);
 
@@ -503,7 +630,7 @@ TEST(IngestTest, AKeyCollisionOnALaterNodeRefusesTheGraphAndAddsNothing)
     cc::AuthoredGraph graph;
     const uint32_t source = cctest::AddNode(graph, "test.Const", ConstBox());
     const uint32_t consumer = cctest::AddNode(graph, "test.Scale", ScaleBox(1.0f));
-    cctest::Connect(graph, source, consumer, "Source");
+    cctest::Connect(graph, source, "Value", consumer, "Source");
 
     // a scratch table tells what the keys of the two nodes are
     cc::RecipeTable scratch;
@@ -622,10 +749,10 @@ namespace
         const uint32_t middle = cctest::AddNode(graph, "test.Scale", ScaleBox(middle_factor));
         const uint32_t last = cctest::AddNode(graph, "test.Scale", ScaleBox(4.0f));
         const uint32_t side = cctest::AddNode(graph, "test.Scale", ScaleBox(5.0f));
-        cctest::Connect(graph, source, first, "Source");
-        cctest::Connect(graph, first, middle, "Source");
-        cctest::Connect(graph, middle, last, "Source");
-        cctest::Connect(graph, source, side, "Source");
+        cctest::Connect(graph, source, "Value", first, "Source");
+        cctest::Connect(graph, first, "Value", middle, "Source");
+        cctest::Connect(graph, middle, "Value", last, "Source");
+        cctest::Connect(graph, source, "Value", side, "Source");
 
         return graph;
     }
@@ -637,10 +764,10 @@ namespace
         const uint32_t b = cctest::AddNode(graph, "test.Scale", ScaleBox(2.0f));
         const uint32_t c = cctest::AddNode(graph, "test.Scale", ScaleBox(3.0f));
         const uint32_t d = cctest::AddNode(graph, "test.Blend", cc::ParamsBox::Make(cctest::BlendParams{}));
-        cctest::Connect(graph, a, b, "Source");
-        cctest::Connect(graph, a, c, "Source");
-        cctest::Connect(graph, b, d, "A");
-        cctest::Connect(graph, c, d, "B");
+        cctest::Connect(graph, a, "Value", b, "Source");
+        cctest::Connect(graph, a, "Value", c, "Source");
+        cctest::Connect(graph, b, "Value", d, "A");
+        cctest::Connect(graph, c, "Value", d, "B");
 
         return graph;
     }
@@ -653,10 +780,10 @@ namespace
         const uint32_t b = cctest::AddNode(graph, "test.Scale", ScaleBox(2.0f));
         const uint32_t c = cctest::AddNode(graph, "test.Scale", ScaleBox(3.0f));
         const uint32_t d = cctest::AddNode(graph, "test.Blend", cc::ParamsBox::Make(cctest::BlendParams{}));
-        cctest::Connect(graph, firstA, b, "Source");
-        cctest::Connect(graph, secondA, c, "Source");
-        cctest::Connect(graph, b, d, "A");
-        cctest::Connect(graph, c, d, "B");
+        cctest::Connect(graph, firstA, "Value", b, "Source");
+        cctest::Connect(graph, secondA, "Value", c, "Source");
+        cctest::Connect(graph, b, "Value", d, "A");
+        cctest::Connect(graph, c, "Value", d, "B");
 
         return graph;
     }

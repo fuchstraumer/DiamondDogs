@@ -17,7 +17,7 @@ The module depends on `foundation` only. It has no Vulkan, no `rhi` and no Loom.
 
 | File | Holds |
 |---|---|
-| `ContentTypes.hpp` | `Quality`, `ArtifactKind`, `SlotUse`, `KindId`, `RecipeId`, `Slot`. |
+| `ContentTypes.hpp` | `Quality`, `ArtifactKind`, `SlotUse`, `KindId`, `RecipeId`, `Slot`, `Output`. |
 | `ContentDiagnostic.hpp` | `Severity`, `DiagnosticCode`, `Diagnostic`. |
 | `ExecutorTypes.hpp` | Placeholders (`Context`, `Inputs`, `Result`) so that `Register<K>` compiles. T4 replaces them. |
 | `ParamsBox.hpp` | `ParamsBox`: one kind's params, type-erased. |
@@ -39,7 +39,10 @@ struct ScaleKind
     {
         cc::Slot{ "Source", cc::SlotUse::Required, cc::ArtifactKind::CpuBytes },
     };
-    static constexpr cc::ArtifactKind Output{ cc::ArtifactKind::CpuBytes };
+    static constexpr std::array Outputs
+    {
+        cc::Output{ "Value", cc::ArtifactKind::CpuBytes },
+    };
 
     static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
 };
@@ -48,13 +51,26 @@ registry.Register<ScaleKind>();
 registry.Freeze();
 ```
 
+A kind can make more than one artifact, for example a height image and a normal image from one dispatch. Each one is
+an `Output` with a name and the kind of artifact that it produces:
+
+```cpp
+static constexpr std::array Outputs
+{
+    cc::Output{ "Height", cc::ArtifactKind::GpuImage },
+    cc::Output{ "Normal", cc::ArtifactKind::GpuImage },
+    cc::Output{ "Stats", cc::ArtifactKind::CpuBytes },
+};
+```
+
 The `Kind` concept checks all of this at compile time. A slot needs a name, a use and an accepted kind. Slot names must
-differ inside one kind. `Output` must not be `Invalid`. A kind that breaks a rule does not compile, so `Register`
+differ inside one kind. A kind needs at least one output. An output needs a non-empty name and a `Produces` that is not
+`Invalid`. Output names must differ inside one kind. A kind that breaks a rule does not compile, so `Register`
 has no runtime error for these.
 
 `Register<K>` is the only template that touches a kind. It builds a `KindOps` table. The table stores the name, the
-version, a span over the kind's static slot array, the output kind, the identity of the params type, and a `Run`
-function pointer. The pointer takes the params as `const void*`. T3 never calls `Run`.
+version, a span over the kind's static slot array, a span over its static output array, the identity of the params
+type, and a `Run` function pointer. The pointer takes the params as `const void*`. T3 never calls `Run`.
 
 A second `Register` of one name returns `DuplicateKindName`. `Register` after `Freeze` asserts.
 
@@ -74,9 +90,18 @@ The stream is the one that `foundation::content::MakeRecipeKey` writes for `Reci
 
 1. the domain, the encoding version, the kind name and the kind version;
 2. the struct `cc.RecipeParams` with the fields `Quality` and `Params`;
-3. the inputs in slot order: the slot name and the key of the input recipe.
+3. the inputs in slot order: the slot name, the key of the input recipe, and the name of the output that the slot
+   reads.
 
 An optional slot with no edge is absent from the list. A connected optional slot changes the key.
+
+Every edge names the output that it reads, also for a kind with one output. Two consumers that are equal except for the
+output that they read get two keys and two ids. The key uses the name of the output and not its index. Reordering the
+outputs of a kind therefore keeps the keys of its readers, and renaming an output changes them.
+
+`RecipeInputRef::Output` is the index of that output in the `Outputs` of the producer's kind. Ingestion resolves the
+name to the index, and the executor uses the index. `RecipeTable::Intern` takes the index, looks up the name in the
+registry through the kind of the source recipe, and asserts that the index is in range.
 
 `Quality` is in every key (Preview and Final are different recipes). `RecipeTable` writes the stream through the
 type-erased path of `ParamsBox`, into a `BytesSink`. The tests make the same key through the typed path of
@@ -102,19 +127,25 @@ that a node of a graph will get, and ingests the graph.
 
 **Phase 1 validates everything and collects every diagnostic.** It does not stop at the first. It checks, in this
 order of output: node kinds and params (unknown kind, params type, NaN with its field path), edges (dangling, unknown
-slot, a slot that already has an edge, slot kind mismatch), required slots, and cycles.
+slot, a slot that already has an edge, unknown output, slot kind mismatch), required slots, and cycles.
 
 | Code | `Nodes` holds |
 |---|---|
 | `UnknownKind`, `ParamsTypeMismatch`, `NaNParameter` | the node |
 | `DanglingEdge` | the end of the edge that exists (none if both ends are missing) |
 | `UnknownSlot`, `SlotAlreadyConnected`, `SlotKindMismatch` | the consumer |
+| `UnknownOutput` | the producer |
 | `MissingRequiredSlot` | the node |
 | `CycleDetected` | the nodes of one cycle, in edge order, starting at the lowest index |
 
 `FieldPath` of a NaN is relative to the kind's params, for example `Nested.Weights[2]`.
 
-A dangling edge fills no slot, so the required slot behind it is also reported missing.
+A dangling edge fills no slot, so the required slot behind it is also reported missing. An edge with an unknown output
+fills no slot either, so the required slot behind it is also reported missing.
+
+`UnknownOutput` names the output and the kind of the producer, and lists the outputs that the kind has.
+`SlotKindMismatch` compares the `Accepts` of the slot with the `Produces` of the output that the edge names, not with
+a property of the whole kind. `ValidatedGraph` stores the output index of each filled slot beside the producer.
 
 `SlotAlreadyConnected` is not in the list of codes in the plan. Two edges into one slot needed a code.
 

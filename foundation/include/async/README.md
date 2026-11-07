@@ -94,7 +94,28 @@ Rules:
 - `DumpState` lists ready and yielded frames with `ready: N ticks` and `yielded: N ticks`, followed by the frame lines,
   like parked frames.
 
-## Shared<T>: one result, many awaiters (designed 2026-11-06, not built yet)
+## Destroying a Task
+
+Cancellation is cooperative. Code stops starting new work, and a frame that already started runs to its end. So a
+`Task` must never destroy a frame that its `Scheduler` will resume later: `Tick` would resume freed memory.
+
+- `Task`'s destructor and move assignment assert `!scheduler.HoldsFrame(frame)` before they destroy a frame (Debug only).
+- `HoldsFrame` searches the queues of frames that wait: `parked`, `ready` and `yielded`. It does not search the batch
+  that the running `Tick` resumes now (`draining`, `resuming`, `yieldedPreviously`), because those lists keep entries
+  that already ran until their loop ends, and a search there would report frames that are free. So the assert can miss
+  a bad destroy. It never reports a good one.
+- The `Scheduler` destructor clears its queues before it destroys the live roots, so teardown with live work does not
+  assert. Only a destroy during normal running does.
+- `Task.hpp` only forward-declares `Scheduler`, so the assert calls `detail::SchedulerHoldsFrame`, which
+  `Scheduler.cpp` defines.
+- `HoldsFrameTest` in `test_post_and_yield.cpp` checks each queue (posted, yielded, parked) and the release after the
+  resume. The assert itself has no test: a Debug assert opens a dialog and blocks an unattended run.
+
+## Shared<T>: one result, many awaiters (designed 2026-11-06, not built)
+
+Not built, and no consumer. The content compiler's executor uses rows and counters instead (decided 2026-11-07): a
+node that many nodes read stores its result once, and each reader receives it when it starts. This design stays here
+for a future consumer that needs many awaiters on one coroutine.
 
 `Task<T>` has one awaiter. `Shared<T>` wraps a `Task<T>`, so that many coroutines can await one run of it. It is for the
 owner thread only: plain fields, no atomics, no locks.

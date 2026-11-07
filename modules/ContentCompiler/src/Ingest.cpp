@@ -96,6 +96,7 @@ namespace
             const cc::KindId kindId = validated.NodeKinds[node];
             const std::span<const cc::Slot> slots = registry.Ops(kindId).Slots;
             const std::vector<int32_t>& producers = validated.SlotProducers[node];
+            const std::vector<int32_t>& outputIndices = validated.SlotOutputs[node];
 
             std::vector<foundation::content::RecipeInput> keyInputs;
 
@@ -109,7 +110,12 @@ namespace
                     continue;
                 }
 
-                keyInputs.push_back(foundation::content::RecipeInput{ slots[slotIndex].Name, prepared[producer].Key });
+                const cc::KindId producerKindId = validated.NodeKinds[producer];
+                const std::span<const cc::Output> producerOutputs = registry.Ops(producerKindId).Outputs;
+                const cc::Output& output = producerOutputs[outputIndices[slotIndex]];
+
+                keyInputs.push_back(
+                    foundation::content::RecipeInput{ slots[slotIndex].Name, prepared[producer].Key, output.Name });
             }
 
             prepared[node] = cc::RecipeTable::Prepare(registry, kindId, quality, graph.Nodes[node].Params, keyInputs);
@@ -161,6 +167,7 @@ namespace
                                                  std::span<const cc::RecipeId> nodeRecipes)
     {
         const std::vector<int32_t>& producers = validated.SlotProducers[node];
+        const std::vector<int32_t>& outputIndices = validated.SlotOutputs[node];
         std::vector<cc::RecipeInputRef> inputs;
 
         // slot order, and an optional slot with no edge is left out
@@ -173,7 +180,8 @@ namespace
                 continue;
             }
 
-            inputs.push_back(cc::RecipeInputRef{ slots[slotIndex].Name, nodeRecipes[producer] });
+            inputs.push_back(
+                cc::RecipeInputRef{ slots[slotIndex].Name, nodeRecipes[producer], outputIndices[slotIndex] });
         }
 
         return inputs;

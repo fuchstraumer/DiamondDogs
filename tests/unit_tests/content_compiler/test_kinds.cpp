@@ -41,6 +41,16 @@ namespace cctest
         co_return cc::Result{};
     }
 
+    foundation::Task<cc::Result> MultiKind::Run(const Params&, cc::Inputs, cc::Context&)
+    {
+        co_return cc::Result{};
+    }
+
+    foundation::Task<cc::Result> MultiReorderedKind::Run(const Params&, cc::Inputs, cc::Context&)
+    {
+        co_return cc::Result{};
+    }
+
     cc::KindRegistry MakeFrozenRegistry()
     {
         cc::KindRegistry registry;
@@ -49,6 +59,21 @@ namespace cctest
                                    registry.Register<ScaleKind>().has_value() &&
                                    registry.Register<BlendKind>().has_value() &&
                                    registry.Register<ImageKind>().has_value() &&
+                                   registry.Register<SharpenKind>().has_value() &&
+                                   registry.Register<MultiKind>().has_value();
+        assert(allRegistered);
+        (void)allRegistered;
+
+        registry.Freeze();
+
+        return registry;
+    }
+
+    cc::KindRegistry MakeFrozenRegistryWithReorderedMulti()
+    {
+        cc::KindRegistry registry;
+
+        const bool allRegistered = registry.Register<MultiReorderedKind>().has_value() &&
                                    registry.Register<SharpenKind>().has_value();
         assert(allRegistered);
         (void)allRegistered;
@@ -65,9 +90,10 @@ namespace cctest
         return static_cast<uint32_t>(graph.Nodes.size()) - 1;
     }
 
-    void Connect(cc::AuthoredGraph& graph, uint32_t from_node, uint32_t to_node, std::string_view slot)
+    void Connect(cc::AuthoredGraph& graph, uint32_t from_node, std::string_view from_output, uint32_t to_node,
+                 std::string_view slot)
     {
-        graph.Edges.push_back(cc::AuthoredEdge{ from_node, to_node, std::string{ slot } });
+        graph.Edges.push_back(cc::AuthoredEdge{ from_node, std::string{ from_output }, to_node, std::string{ slot } });
     }
 
     std::vector<cc::DiagnosticCode> CodesOf(const std::vector<cc::Diagnostic>& diagnostics)

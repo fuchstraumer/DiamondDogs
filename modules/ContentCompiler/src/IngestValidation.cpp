@@ -40,6 +40,8 @@ namespace
     void CheckRequiredSlots(const cc::KindRegistry& registry, const cc::detail::ValidatedGraph& validated,
                             std::vector<cc::Diagnostic>& diagnostics);
     std::optional<size_t> FindSlot(std::span<const cc::Slot> slots, std::string_view name);
+    std::optional<size_t> FindOutput(std::span<const cc::Output> outputs, std::string_view name);
+    std::string ListOutputNames(std::span<const cc::Output> outputs);
     std::vector<int32_t> SortTopologically(int32_t nodeCount, std::span<const EdgeEnds> edges);
     std::vector<int32_t> FindCycle(int32_t nodeCount, std::span<const EdgeEnds> edges,
                                    std::span<const int32_t> sortedOrder);
@@ -84,6 +86,7 @@ namespace cc::detail
         std::vector<EdgeEnds> structuralEdges;
         validated.NodeKinds.assign(graph.Nodes.size(), KindId{});
         validated.SlotProducers.assign(graph.Nodes.size(), {});
+        validated.SlotOutputs.assign(graph.Nodes.size(), {});
 
         for (int32_t index = 0; index < nodeCount; ++index)
         {
@@ -155,6 +158,7 @@ namespace
         const cc::KindOps& kind = registry.Ops(*kindId);
         validated.NodeKinds[index] = *kindId;
         validated.SlotProducers[index].assign(kind.Slots.size(), cc::detail::k_NoNode);
+        validated.SlotOutputs[index].assign(kind.Slots.size(), cc::detail::k_NoOutput);
 
         CheckParams(index, node, kind, diagnostics);
     }
@@ -255,24 +259,42 @@ namespace
             return;
         }
 
-        producer = from;
-
         const cc::KindId producerKindId = validated.NodeKinds[from];
 
         // UnknownKind is reported for the producer already
         if (producerKindId.Value == 0)
         {
+            producer = from;
+
             return;
         }
 
         const cc::KindOps& producerKind = registry.Ops(producerKindId);
-        const cc::Slot& slot = consumerKind.Slots[*slotIndex];
+        const std::optional<size_t> outputIndex = FindOutput(producerKind.Outputs, edge.FromOutput);
 
-        if (producerKind.Output != slot.Accepts)
+        // an edge with an unknown output fills no slot, as a dangling edge does
+        if (!outputIndex.has_value())
+        {
+            const std::string outputNames = ListOutputNames(producerKind.Outputs);
+            const std::string message = std::format(
+                "edge {} reads the output \"{}\" of node {}, and kind \"{}\" has no such output (it has: {})",
+                edgeIndex, edge.FromOutput, edge.FromNode, producerKind.Name, outputNames);
+            diagnostics.push_back(MakeNodeError(cc::DiagnosticCode::UnknownOutput, edge.FromNode, message));
+
+            return;
+        }
+
+        producer = from;
+        validated.SlotOutputs[to][*slotIndex] = static_cast<int32_t>(*outputIndex);
+
+        const cc::Slot& slot = consumerKind.Slots[*slotIndex];
+        const cc::Output& output = producerKind.Outputs[*outputIndex];
+
+        if (output.Produces != slot.Accepts)
         {
             const std::string message = std::format(
-                "edge {}: kind \"{}\" of node {} makes an artifact that slot \"{}\" refuses",
-                edgeIndex, producerKind.Name, edge.FromNode, slot.Name);
+                "edge {}: output \"{}\" of kind \"{}\" of node {} makes an artifact that slot \"{}\" refuses",
+                edgeIndex, output.Name, producerKind.Name, edge.FromNode, slot.Name);
             diagnostics.push_back(MakeNodeError(cc::DiagnosticCode::SlotKindMismatch, edge.ToNode, message));
         }
     }
@@ -320,6 +342,37 @@ namespace
         }
 
         return static_cast<size_t>(found - slots.begin());
+    }
+
+    std::optional<size_t> FindOutput(std::span<const cc::Output> outputs, std::string_view name)
+    {
+        const auto found = std::ranges::find(outputs, name, &cc::Output::Name);
+
+        if (found == outputs.end())
+        {
+            return std::nullopt;
+        }
+
+        return static_cast<size_t>(found - outputs.begin());
+    }
+
+    std::string ListOutputNames(std::span<const cc::Output> outputs)
+    {
+        std::string names;
+
+        for (const cc::Output& output : outputs)
+        {
+            if (!names.empty())
+            {
+                names += ", ";
+            }
+
+            names += '"';
+            names += output.Name;
+            names += '"';
+        }
+
+        return names;
     }
 
     std::vector<int32_t> SortTopologically(int32_t nodeCount, std::span<const EdgeEnds> edges)
