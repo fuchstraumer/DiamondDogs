@@ -5,6 +5,7 @@
 #include "PlatformSystem.hpp"
 #include "RhiSystem.hpp"
 #include "SceneCommands.hpp"
+#include "ToolServer.hpp"
 #define WIN32_LEAN_AND_MEAN
 // Windows.h first: libloaderapi.h and minwindef.h need the target architecture macros it sets
 #include <Windows.h>
@@ -45,10 +46,13 @@
 //   --camera=YAW,PITCH,DISTANCE[,TX,TY,TZ]   initial camera, degrees and meters
 //   --script=FILE        run the commands in FILE between frames
 //   --stdin              also read commands from standard input
+//   --tool-port=N        serve agent tools on 127.0.0.1:N. 0 lets the system choose, and the demo prints the port
 namespace
 {
     constexpr std::array<uint32_t, 4> k_MsaaChoices{ 1u, 2u, 4u, 8u };
     constexpr std::array<uint32_t, 5> k_AnisotropyChoices{ 1u, 2u, 4u, 8u, 16u };
+    // ToolServer::Start refuses this, so a --tool-port that does not parse stops the demo
+    constexpr int32_t k_RefusedToolPort = -1;
 
     struct CommandLine
     {
@@ -56,6 +60,7 @@ namespace
         bool Unfused{ false };
         bool Stdin{ false };
         std::optional<std::string> Script;
+        std::optional<int32_t> ToolPort;
     };
 
     // The validation layer comes with the Vulkan SDK, not with the GPU driver. On a machine without the SDK the demo
@@ -215,6 +220,12 @@ namespace
             {
                 command_line.Script = std::string{ argument.starts_with("--script=") ? argument.substr(9) : argument.substr(11) };
             }
+            else if (argument.starts_with("--tool-port="))
+            {
+                int32_t port = 0;
+
+                command_line.ToolPort = ParseNumber(argument.substr(12), port) ? port : k_RefusedToolPort;
+            }
             else if (argument.starts_with("--capture="))
             {
                 settings.CaptureDirectory = std::string{ argument.substr(10) };
@@ -363,9 +374,11 @@ int main(int argc, char* argv[])
     SceneCommands commands;
     if (commandLine.Script.has_value())
     {
-        if (const std::expected<void, std::string> loaded = commands.LoadScript(*commandLine.Script); !loaded.has_value())
+        const ScriptResult loaded = commands.LoadScript(*commandLine.Script);
+
+        if (loaded != ScriptResult::Success)
         {
-            std::cerr << "--script: " << loaded.error() << "\n";
+            std::cerr << "--script: " << ToString(loaded) << ": " << *commandLine.Script << "\n";
             return 1;
         }
     }
@@ -378,6 +391,22 @@ int main(int argc, char* argv[])
     if (commandLine.Script.has_value() || commandLine.Stdin)
     {
         settings.Commands = &commands;
+    }
+
+    agent::ToolServer toolServer;
+
+    if (commandLine.ToolPort.has_value())
+    {
+        const agent::ToolServerResult started = toolServer.Start(*commandLine.ToolPort);
+
+        if (started != agent::ToolServerResult::Success)
+        {
+            std::cerr << "--tool-port: " << agent::ToString(started) << ": " << *commandLine.ToolPort << "\n";
+            return 1;
+        }
+
+        std::cout << "tool server listening on 127.0.0.1:" << toolServer.Port() << std::endl;
+        settings.Tools = &toolServer;
     }
 
     int exitCode = 0;

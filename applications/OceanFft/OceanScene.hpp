@@ -41,6 +41,11 @@ namespace rhi
     class ShaderLibrary;
 }
 
+namespace agent
+{
+    class ToolServer;
+}
+
 struct OceanSceneSettings
 {
     ocean::OceanSimulationSettings Simulation{};
@@ -78,6 +83,8 @@ struct OceanSceneSettings
     float FixedTimeStep{ 0.0f };
     /** @brief Commands from a script or stdin, run between frames. May be null */
     SceneCommands* Commands{ nullptr };
+    /** @brief The server for agent tools, pumped once per frame. It must outlive the scene. May be null */
+    agent::ToolServer* Tools{ nullptr };
 };
 
 /** @brief Returns the quads per edge of one ring. Each ring halves the one inside it, down to min_resolution */
@@ -141,6 +148,11 @@ private:
     void seaStateEdited();
     void setSeaStatePreset(std::string_view _name);
     void setSeaStateField(std::string_view _name, float _value);
+    void createToolSurface();
+    /** @brief Counts down the tool requests that wait for frames, and runs new requests. Runs once per frame, on
+     *  the frame thread */
+    void tickToolSurface();
+    void runToolLine(std::string_view line);
     void setCascade(uint32_t _cascade, bool _enabled);
     void setFoamWeight(uint32_t _cascade, float _weight);
     /** @brief Sets one persistent foam field by the name that the foam command uses */
@@ -229,6 +241,13 @@ private:
     bool setup{ false };
     bool quitRequested{ false };
     uint64_t frameNumber{ 0u };
+    struct ToolSurface;
+    struct ToolSurfaceDeleter
+    {
+        void operator()(ToolSurface* surface) const noexcept;
+    };
+    // what agent tools can see of this scene. OceanSceneTools.cpp defines it, so that this header stays free of it
+    std::unique_ptr<ToolSurface, ToolSurfaceDeleter> toolSurface;
     std::optional<std::string> captureRequest;
     // a capture_burst command: the frames left to capture, the index of the next one, and the name prefix
     int32_t captureBurstRemaining{ 0 };

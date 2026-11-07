@@ -88,6 +88,7 @@ namespace
         { "sync", { SceneCommand::Kind::Sync, 0u, 0u, true } },
         { "wait", { SceneCommand::Kind::Wait, 1u, 1u, false } },
         { "print", { SceneCommand::Kind::Print, 0u, 0u, false } },
+        { "tool", { SceneCommand::Kind::Tool, 0u, 0u, true } },
         { "resize", { SceneCommand::Kind::Resize, 2u, 2u, false } },
         { "quit", { SceneCommand::Kind::Quit, 0u, 0u, false } },
     };
@@ -140,6 +141,7 @@ namespace
     bool ParseFloat(std::string_view word, float& value);
     std::expected<SceneCommand, std::string> ParsePreset(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseSea(const std::vector<std::string_view>& words);
+    std::expected<SceneCommand, std::string> ParseTool(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseCascade(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseFoamWeight(const std::vector<std::string_view>& words);
     std::expected<SceneCommand, std::string> ParseFoam(const std::vector<std::string_view>& words);
@@ -225,6 +227,11 @@ std::expected<SceneCommand, std::string> SceneCommand::Parse(std::string_view li
     if (shape.Kind == Kind::Sea)
     {
         return ParseSea(words);
+    }
+
+    if (shape.Kind == Kind::Tool)
+    {
+        return ParseTool(words);
     }
 
     if (shape.Kind == Kind::Cascade)
@@ -465,12 +472,24 @@ int32_t FindSurfaceDebugMode(std::string_view name)
     return static_cast<int32_t>(found - k_SurfaceDebugModes.begin());
 }
 
-std::expected<void, std::string> SceneCommands::LoadScript(const std::filesystem::path& path)
+std::string_view ToString(ScriptResult error) noexcept
+{
+    switch (error)
+    {
+    case ScriptResult::Invalid: return "Invalid";
+    case ScriptResult::Success: return "Success";
+    case ScriptResult::CannotOpen: return "CannotOpen";
+    }
+
+    return "Unknown";
+}
+
+ScriptResult SceneCommands::LoadScript(const std::filesystem::path& path)
 {
     std::ifstream file(path);
     if (!file)
     {
-        return std::unexpected("cannot open " + path.string());
+        return ScriptResult::CannotOpen;
     }
 
     std::string line;
@@ -479,7 +498,7 @@ std::expected<void, std::string> SceneCommands::LoadScript(const std::filesystem
         lines.push_back(std::move(line));
     }
 
-    return {};
+    return ScriptResult::Success;
 }
 
 void SceneCommands::StartStdin()
@@ -631,12 +650,12 @@ namespace
 
     std::string DescribeRefusedSeaValue(const foundation::reflect::FieldInfo& field,
                                         std::string_view value_word,
-                                        foundation::reflect::ValueError error)
+                                        foundation::reflect::ValueResult error)
     {
         std::string message = std::format("sea: {} {}: {}", field.Name, value_word,
-                                          foundation::reflect::ValueErrorText(error));
+                                          foundation::reflect::ValueResultText(error));
 
-        if (error == foundation::reflect::ValueError::OutOfRange && field.Metadata.Range.has_value())
+        if (error == foundation::reflect::ValueResult::OutOfRange && field.Metadata.Range.has_value())
         {
             message += std::format(" ({} to {})", field.Metadata.Range->Min, field.Metadata.Range->Max);
         }
@@ -666,15 +685,15 @@ namespace
         // a write to a scratch value, so that a refused value fails on its script line, not later in a frame
         ocean::SeaState scratch{};
 
-        const std::expected<void, foundation::reflect::PathError> written = foundation::reflect::SetValue(
+        const foundation::reflect::PathResult written = foundation::reflect::SetValue(
             foundation::reflect::GetTypeInfo<ocean::SeaState>(),
             &scratch,
             field->Name,
             foundation::reflect::ScalarValue{ static_cast<double>(value) });
 
-        if (!written.has_value())
+        if (!written.Succeeded())
         {
-            return std::unexpected(DescribeRefusedSeaValue(*field, words[2], written.error().Code));
+            return std::unexpected(DescribeRefusedSeaValue(*field, words[2], written.Code));
         }
 
         SceneCommand command{};
@@ -682,6 +701,26 @@ namespace
         command.Text = std::string{ field->Name };
         command.Values[0] = value;
         command.ValueCount = 1u;
+        return command;
+    }
+
+    std::expected<SceneCommand, std::string> ParseTool(const std::vector<std::string_view>& words)
+    {
+        if (words.size() < 2u)
+        {
+            return std::unexpected(std::string{ "tool takes a request: describe, get, set or call" });
+        }
+
+        SceneCommand command{};
+
+        command.Type = SceneCommand::Kind::Tool;
+
+        for (size_t index = 1u; index < words.size(); ++index)
+        {
+            command.Text += words[index];
+            command.Text += ' ';
+        }
+
         return command;
     }
 

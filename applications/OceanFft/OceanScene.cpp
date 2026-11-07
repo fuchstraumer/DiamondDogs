@@ -23,7 +23,6 @@
 #include "OceanFoam.hpp"
 #include "OceanSimulation.hpp"
 #include "OceanUi.hpp"
-#include "reflect/ValueAccess.hpp"
 #include "PlatformSystem.hpp"
 #include "PlatformTypes.hpp"
 #include "ResourceContext.hpp"
@@ -33,6 +32,7 @@
 #include "SceneCommands.hpp"
 #include "SeaState.hpp"
 #include "SeaState.reflect.hpp"
+#include "reflect/TypeInfo.hpp"
 #include "RhiAssert.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
@@ -343,6 +343,7 @@ OceanScene::OceanScene(rhi::RhiSystem* rhi_system, PlatformWindowSystem* platfor
 {
     // the simulation starts from the sea state, not from the raw spectrum defaults
     applySeaState();
+    createToolSurface();
     settings.Simulation.Spectrum = spectrum;
 
     camera.Current.Distance = 0.6f * settings.GridSize;
@@ -1463,6 +1464,9 @@ void OceanScene::runCommand(const SceneCommand& command)
     case SceneCommand::Kind::Print:
         printState();
         break;
+    case SceneCommand::Kind::Tool:
+        runToolLine(command.Text);
+        break;
     case SceneCommand::Kind::CameraReset:
         camera.Current = initialCameraState;
         break;
@@ -1761,28 +1765,6 @@ void OceanScene::setSeaStatePreset(std::string_view _name)
 
     seaState = preset->State;
     seabedDepth = seaState.Depth;
-    seaStateEdited();
-}
-
-void OceanScene::setSeaStateField(std::string_view _name, float _value)
-{
-    const std::expected<void, foundation::reflect::PathError> written = foundation::reflect::SetValue(
-        foundation::reflect::GetTypeInfo<ocean::SeaState>(),
-        &seaState,
-        _name,
-        foundation::reflect::ScalarValue{ static_cast<double>(_value) });
-
-    if (!written.has_value())
-    {
-        std::cerr << std::format("sea {} {}: {}\n", _name, _value,
-                                 foundation::reflect::ValueErrorText(written.error().Code));
-        return;
-    }
-
-    if (_name == "Depth")
-    {
-        seabedDepth = _value;
-    }
     seaStateEdited();
 }
 
@@ -2924,6 +2906,8 @@ void OceanScene::update()
 
     imgui->BeginFrame();
     updateCamera(input);
+
+    tickToolSurface();
 
     if (settings.Commands != nullptr)
     {

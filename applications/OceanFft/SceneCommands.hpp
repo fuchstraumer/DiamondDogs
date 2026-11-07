@@ -12,8 +12,16 @@
 #include <string>
 #include <string_view>
 #include <vector>
-#include "SeaState.hpp"
-#include "reflect/TypeInfo.hpp"
+
+namespace foundation::reflect
+{
+    struct FieldInfo;
+}
+
+namespace ocean
+{
+    struct SeaStatePreset;
+}
 
 /** One line of the demo's command language. Angles are degrees, lengths meters. One command per line, '#' starts a
  *  comment. The same commands come from --script=file and, with --stdin, from standard input between frames.
@@ -74,6 +82,8 @@
  *    sync [token]                          flush device idle, flush captures, and print READY <token> frame=<frame>
  *    wait frames                           render this many frames before the next command
  *    print                                 print the camera, sky, tonemap, exposure, bloom, CDLOD, sea state, and cascades
+ *    tool request                          run a request on the agent tool registry and print tool <id> ok|error <json>:
+ *                                          describe [path], get path, set path value, call name [argument=value ...]
  *    quit
  */
 struct SceneCommand
@@ -130,6 +140,7 @@ struct SceneCommand
         Sync,
         Wait,
         Print,
+        Tool,
         Resize,
         Quit,
     };
@@ -160,13 +171,22 @@ struct SceneCommand
 /** @brief Returns the index of the surface debug mode whose name matches, or -1 when no mode matches */
 [[nodiscard]] int32_t FindSurfaceDebugMode(std::string_view name);
 
+enum class ScriptResult : uint8_t
+{
+    Invalid = 0,
+    Success = 1,
+    CannotOpen,
+};
+
+[[nodiscard]] std::string_view ToString(ScriptResult error) noexcept;
+
 /** Holds the lines from the script and stdin, and hands out the commands for each frame. Push may be called from any
  *  thread. The stdin reader pushes through the queue. Every other method runs on the frame thread. */
 class SceneCommands
 {
 public:
-    /** @brief Appends the file's lines. Returns an error when it cannot be read */
-    [[nodiscard]] std::expected<void, std::string> LoadScript(const std::filesystem::path& path);
+    /** @brief Appends the file's lines */
+    [[nodiscard]] ScriptResult LoadScript(const std::filesystem::path& path);
     /** @brief Starts a detached thread that reads stdin until end of file */
     void StartStdin();
     void Push(std::string line);
