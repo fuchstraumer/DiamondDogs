@@ -222,7 +222,18 @@ tool describe camera.set
 The `sea` command also writes through the registry. The other text commands stay on their old path until they move.
 
 The scene exposes these commands: `camera.get`, `camera.set`, `camera.lookat`, `frame.info` (with the screen size),
-`frame.wait`, `frame.pause`, `debug.view` (the shader debug views by name), `app.quit`, and three captures:
+`frame.wait`, `frame.pause`, `debug.view` (the shader debug views by name), `app.quit`, three time commands, and three
+captures:
+
+| Command | Result |
+|---|---|
+| `frame.time` | Sets the simulation time (a double, which the shaders get as a float), rebuilds the foam for it, and replies after `SettleFrames` frames. |
+| `frame.step` | Pauses, then advances by exactly `Seconds` on each of `Frames` frames. The time is the double base plus N steps, so it does not drift. |
+| `frame.repeatable` | Stops TAA (jitter and resolve) and makes auto exposure reach its target in one frame, so a paused time renders the same bytes whatever came before. |
+
+The first frame at a new time still reflects the old one, because SSR samples the previous frame. That is why
+`SettleFrames` defaults to 2. With repeatable frames on, the measured images were identical after 0 settle frames
+through the sidecar, because a capture always records at least one frame after the reply.
 
 | Command | Result |
 |---|---|

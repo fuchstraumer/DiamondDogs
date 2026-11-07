@@ -26,6 +26,10 @@
 
 namespace ocean_tools
 {
+    // frames that a held time renders before the reply. SSR reflects the previous frame, so the first frame at a new
+    // time still shows some of the old one. Measured: with frame.repeatable on, the second frame is already exact
+    constexpr int32_t k_DefaultSettleFrames = 2;
+
     struct CameraReply
     {
         float Yaw{ 0.0f };
@@ -52,6 +56,7 @@ namespace ocean_tools
         uint64_t Frame{ 0u };
         float SimulationTime{ 0.0f };
         bool Paused{ false };
+        bool Repeatable{ false };
         int32_t ScreenWidth{ 0 };
         int32_t ScreenHeight{ 0 };
     };
@@ -64,6 +69,24 @@ namespace ocean_tools
     struct FramePauseParams
     {
         bool Paused{ false };
+    };
+
+    struct FrameTimeParams
+    {
+        double Time{ 0.0 };
+        int32_t SettleFrames{ k_DefaultSettleFrames };
+    };
+
+    struct FrameStepParams
+    {
+        int32_t Frames{ 0 };
+        double Seconds{ 0.0 };
+        int32_t SettleFrames{ k_DefaultSettleFrames };
+    };
+
+    struct FrameRepeatableParams
+    {
+        bool Enabled{ false };
     };
 
     struct CaptureScreenParams
@@ -208,8 +231,104 @@ struct foundation::reflect::Describe<ocean_tools::FrameReply>
         Field<FrameReply, uint64_t>{ "Frame", &FrameReply::Frame },
         Field<FrameReply, float>{ "SimulationTime", &FrameReply::SimulationTime, { .Unit = "s" } },
         Field<FrameReply, bool>{ "Paused", &FrameReply::Paused },
+        Field<FrameReply, bool>
+        {
+            "Repeatable",
+            &FrameReply::Repeatable,
+            { .Doc = "True while frame.repeatable is on." },
+        },
         Field<FrameReply, int32_t>{ "ScreenWidth", &FrameReply::ScreenWidth, { .Unit = "px" } },
         Field<FrameReply, int32_t>{ "ScreenHeight", &FrameReply::ScreenHeight, { .Unit = "px" } },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<ocean_tools::FrameTimeParams>
+{
+    using FrameTimeParams = ocean_tools::FrameTimeParams;
+
+    static constexpr std::string_view Name{ "ocean.FrameTimeParams" };
+    static constexpr std::tuple Fields
+    {
+        Field<FrameTimeParams, double>
+        {
+            "Time",
+            &FrameTimeParams::Time,
+            {
+                .Unit = "s",
+                .Range = FieldRange{ 0.0, 100000.0 },
+                .Doc = "The simulation time. The compute shaders get it as a 32-bit float, and the reply returns "
+                       "that float.",
+                .Required = true,
+            },
+        },
+        Field<FrameTimeParams, int32_t>
+        {
+            "SettleFrames",
+            &FrameTimeParams::SettleFrames,
+            {
+                .Range = FieldRange{ 0.0, 1000.0 },
+                .Doc = "Frames to render at this time before the reply.",
+            },
+        },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<ocean_tools::FrameStepParams>
+{
+    using FrameStepParams = ocean_tools::FrameStepParams;
+
+    static constexpr std::string_view Name{ "ocean.FrameStepParams" };
+    static constexpr std::tuple Fields
+    {
+        Field<FrameStepParams, int32_t>
+        {
+            "Frames",
+            &FrameStepParams::Frames,
+            {
+                .Range = FieldRange{ 1.0, 100000.0 },
+                .Doc = "The number of steps. Each step is one frame.",
+                .Required = true,
+            },
+        },
+        Field<FrameStepParams, double>
+        {
+            "Seconds",
+            &FrameStepParams::Seconds,
+            {
+                .Unit = "s",
+                .Range = FieldRange{ 0.0001, 10.0 },
+                .Doc = "The simulation time of each step. The time scale does not apply.",
+                .Required = true,
+            },
+        },
+        Field<FrameStepParams, int32_t>
+        {
+            "SettleFrames",
+            &FrameStepParams::SettleFrames,
+            {
+                .Range = FieldRange{ 0.0, 1000.0 },
+                .Doc = "Frames to render at the last step's time before the reply.",
+            },
+        },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<ocean_tools::FrameRepeatableParams>
+{
+    using FrameRepeatableParams = ocean_tools::FrameRepeatableParams;
+
+    static constexpr std::string_view Name{ "ocean.FrameRepeatableParams" };
+    static constexpr std::tuple Fields
+    {
+        Field<FrameRepeatableParams, bool>
+        {
+            "Enabled",
+            &FrameRepeatableParams::Enabled,
+            { .Required = true },
+        },
     };
 };
 
@@ -539,8 +658,56 @@ struct OceanScene::ToolSurface
         static constexpr std::string_view Name{ "frame.pause" };
         static constexpr std::string_view Doc{
             "Stops or starts the simulation and the foam. Frames still render, and TAA still jitters by up to a pixel, "
-            "so two captures of a paused sea differ slightly unless TAA is off." };
+            "so two captures of a paused sea differ slightly unless frame.repeatable is on." };
         using Params = ocean_tools::FramePauseParams;
+        using Reply = ocean_tools::FrameReply;
+
+        void Run(const Params& params, agent::ReplyToken<Reply> token);
+
+        OceanScene& Scene;
+    };
+
+    struct FrameTimeCommand
+    {
+        static constexpr std::string_view Name{ "frame.time" };
+        static constexpr std::string_view Doc{
+            "Sets the simulation time, rebuilds the foam for it, and replies after SettleFrames frames. Paused, every "
+            "frame then renders this time. Running, the sea continues from it. With frame.repeatable on, a paused time "
+            "gives the same image each time, whatever came before." };
+        using Params = ocean_tools::FrameTimeParams;
+        using Reply = ocean_tools::FrameReply;
+
+        void Run(const Params& params, agent::ReplyToken<Reply> token);
+
+        OceanScene& Scene;
+        std::vector<PendingWait>& Waits;
+    };
+
+    struct FrameStepCommand
+    {
+        static constexpr std::string_view Name{ "frame.step" };
+        static constexpr std::string_view Doc{
+            "Pauses the sea, then advances it by Seconds on each of the next Frames frames, and replies after "
+            "SettleFrames more frames. N steps from a time T that frame.time set store the same float as frame.time "
+            "with T + N x Seconds, computed in double. The foam advances step by step, so with foam on, a stepped frame and a "
+            "frame.time frame can differ." };
+        using Params = ocean_tools::FrameStepParams;
+        using Reply = ocean_tools::FrameReply;
+
+        void Run(const Params& params, agent::ReplyToken<Reply> token);
+
+        OceanScene& Scene;
+        std::vector<PendingWait>& Waits;
+    };
+
+    struct FrameRepeatableCommand
+    {
+        static constexpr std::string_view Name{ "frame.repeatable" };
+        static constexpr std::string_view Doc{
+            "Makes paused frames repeatable: TAA stops (no jitter and no resolve, so edges alias), and auto exposure "
+            "goes to its target in one frame. A paused time then gives the same image byte for byte, whatever came "
+            "before. Use it with frame.time or frame.step for A/B captures. Off restores TAA and the adaptation." };
+        using Params = ocean_tools::FrameRepeatableParams;
         using Reply = ocean_tools::FrameReply;
 
         void Run(const Params& params, agent::ReplyToken<Reply> token);
@@ -669,6 +836,9 @@ struct OceanScene::ToolSurface
     FrameInfoCommand FrameInfo;
     FrameWaitCommand FrameWait;
     FramePauseCommand FramePause;
+    FrameTimeCommand FrameTime;
+    FrameStepCommand FrameStep;
+    FrameRepeatableCommand FrameRepeatable;
     AppQuitCommand AppQuit;
     DebugViewCommand DebugView;
     CaptureScreenCommand CaptureScreen;
@@ -739,6 +909,9 @@ OceanScene::ToolSurface::ToolSurface(OceanScene& scene) :
     FrameInfo{ scene },
     FrameWait{ scene, Waits },
     FramePause{ scene },
+    FrameTime{ scene, Waits },
+    FrameStep{ scene, Waits },
+    FrameRepeatable{ scene },
     AppQuit{ scene },
     DebugView{ scene },
     CaptureScreen{ *this },
@@ -757,6 +930,9 @@ OceanScene::ToolSurface::ToolSurface(OceanScene& scene) :
         Registry.AddCommand(FrameInfo),
         Registry.AddCommand(FrameWait),
         Registry.AddCommand(FramePause),
+        Registry.AddCommand(FrameTime),
+        Registry.AddCommand(FrameStep),
+        Registry.AddCommand(FrameRepeatable),
         Registry.AddCommand(AppQuit),
         Registry.AddCommand(DebugView),
         Registry.AddCommand(CaptureScreen),
@@ -988,6 +1164,7 @@ ocean_tools::FrameReply OceanScene::ToolSurface::ReadFrame(const OceanScene& sce
         .Frame = scene.frameNumber,
         .SimulationTime = scene.simulationTime,
         .Paused = scene.paused,
+        .Repeatable = scene.repeatableFrames,
         .ScreenWidth = static_cast<int32_t>(extent.x),
         .ScreenHeight = static_cast<int32_t>(extent.y),
     };
@@ -1042,6 +1219,47 @@ void OceanScene::ToolSurface::FrameWaitCommand::Run(const Params& params, agent:
 void OceanScene::ToolSurface::FramePauseCommand::Run(const Params& params, agent::ReplyToken<Reply> token)
 {
     Scene.paused = params.Paused;
+    token.Complete(ReadFrame(Scene));
+}
+
+void OceanScene::ToolSurface::FrameTimeCommand::Run(const Params& params, agent::ReplyToken<Reply> token)
+{
+    // a step in progress would move the time on from here
+    Scene.stepFramesLeft = 0;
+    Scene.commandedTime = params.Time;
+    Scene.simulationTime = static_cast<float>(params.Time);
+    // the foam is history: a replay rebuilds it for the new time, as if the sea had run up to it
+    Scene.foamReplayPending = true;
+
+    if (params.SettleFrames == 0)
+    {
+        token.Complete(ReadFrame(Scene));
+        return;
+    }
+
+    Waits.push_back(PendingWait{ .FramesLeft = params.SettleFrames, .Token = std::move(token) });
+}
+
+void OceanScene::ToolSurface::FrameStepCommand::Run(const Params& params, agent::ReplyToken<Reply> token)
+{
+    Scene.paused = true;
+    Scene.stepFramesLeft = params.Frames;
+    Scene.stepIndex = 0;
+    Scene.stepSeconds = params.Seconds;
+
+    // a step from a time that a tool set adds to that double, so that N steps from T store the same float as
+    // frame.time with T + N x Seconds. After the sea ran, the float is the only time there is
+    const bool timeIsCommanded = static_cast<float>(Scene.commandedTime) == Scene.simulationTime;
+
+    Scene.stepBaseTime = timeIsCommanded ? Scene.commandedTime : static_cast<double>(Scene.simulationTime);
+
+    // update() takes the first step later in this frame, so the last step is in the frame before the wait ends
+    Waits.push_back(PendingWait{ .FramesLeft = params.Frames + params.SettleFrames, .Token = std::move(token) });
+}
+
+void OceanScene::ToolSurface::FrameRepeatableCommand::Run(const Params& params, agent::ReplyToken<Reply> token)
+{
+    Scene.repeatableFrames = params.Enabled;
     token.Complete(ReadFrame(Scene));
 }
 

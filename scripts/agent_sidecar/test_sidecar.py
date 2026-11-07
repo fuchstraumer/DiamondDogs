@@ -14,7 +14,9 @@ import threading
 import time
 import unittest
 
+import numpy
 from mcp.client import Client
+from PIL import Image as PillowImage
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import diamond_dogs_mcp as sidecar  # noqa: E402
@@ -145,6 +147,10 @@ class SidecarTest(unittest.TestCase):
             "capture.screen": lambda params: ("result", {"Path": png_path, "Width": 1, "Height": 1}),
             "capture.pixel": lambda params: ("result", {"Srgb8": [1, 2, 3]}),
             "app.quit": lambda params: ("result", {"Frame": 7}),
+            "frame.pause": lambda params: ("result", {"Paused": params["arguments"]["Paused"]}),
+            "frame.repeatable": lambda params: ("result", {"Repeatable": params["arguments"]["Enabled"]}),
+            "frame.time": lambda params: ("result", {"SimulationTime": params["arguments"]["Time"]}),
+            "frame.step": lambda params: ("result", {"Frames": params["arguments"]["Frames"]}),
             "never.answers": lambda params: ("silent", None),
             "refuses": lambda params: ("error", {"code": -32000, "message": "the value is outside the limits",
                                                  "data": {"Code": "ValueRefused", "Suggestions": ["WindForce"]}}),
@@ -165,11 +171,12 @@ class SidecarTest(unittest.TestCase):
         result = await self.tool("engine_connect", {"port": self.fake.port})
         self.assertFalse(result.is_error, result)
 
-    async def test_tools_list_has_twelve_tools_with_object_schemas(self):
+    async def test_tools_list_has_fifteen_tools_with_object_schemas(self):
         tools = (await self.client.list_tools()).tools
         self.assertEqual(sorted(tool.name for tool in tools), sorted([
             "engine_launch", "engine_connect", "engine_status", "engine_stop", "describe", "get", "set", "call",
-            "wait_frames", "capture_screen", "capture_region", "capture_pixel"]))
+            "wait_frames", "capture_screen", "capture_region", "capture_pixel", "hold_time", "step_time",
+            "capture_diff"]))
 
         for tool in tools:
             self.assertEqual(tool.input_schema["type"], "object", tool.name)
@@ -286,6 +293,57 @@ class SidecarTest(unittest.TestCase):
 
         self.assertEqual(self.fake.most_in_flight, 1)
 
+    async def test_hold_time_pauses_turns_on_repeatable_frames_and_sets_the_time(self):
+        await self.connect()
+        result = await self.tool("hold_time", {"time": 12.5})
+        self.assertFalse(result.is_error, result)
+        sent = [(request["params"].get("name"), request["params"].get("arguments")) for request in self.fake.received[-3:]]
+        self.assertEqual(sent, [("frame.pause", {"Paused": True}), ("frame.repeatable", {"Enabled": True}),
+                                ("frame.time", {"Time": 12.5, "SettleFrames": 2})])
+
+    async def test_step_time_sends_its_step(self):
+        await self.connect()
+        await self.tool("step_time", {"frames": 16, "seconds": 0.03125, "settle_frames": 0})
+        self.assertEqual(self.fake.received[-1]["params"]["arguments"], {"Frames": 16, "Seconds": 0.03125,
+                                                                         "SettleFrames": 0})
+
+    async def test_capture_diff_of_one_file_is_identical(self):
+        result = await self.tool("capture_diff", {"path_a": str(self.png), "path_b": str(self.png)})
+        self.assertFalse(result.is_error, result)
+        report = json_text(result, 0)
+        self.assertTrue(report["identical"])
+        self.assertEqual(report["changed_pixels"], 0)
+        self.assertEqual(len(result.content), 1)
+
+    async def test_capture_diff_measures_a_change_and_returns_a_heat_map(self):
+        first = numpy.zeros((4, 6, 3), numpy.uint8)
+        second = first.copy()
+        second[1, 2] = (3, 0, 0)
+        second[2, 4] = (0, 6, 1)
+        first_path = pathlib.Path(self.folder.name) / "first.png"
+        second_path = pathlib.Path(self.folder.name) / "second.png"
+        PillowImage.fromarray(first).save(first_path)
+        PillowImage.fromarray(second).save(second_path)
+        result = await self.tool("capture_diff", {"path_a": str(first_path), "path_b": str(second_path)})
+        report = json_text(result, 0)
+        self.assertFalse(report["identical"])
+        self.assertEqual(report["max_difference_rgb"], [3, 6, 1])
+        self.assertEqual(report["changed_pixels"], 2)
+        self.assertEqual(report["changed_box"], {"x": 2, "y": 1, "width": 3, "height": 2})
+        self.assertEqual(result.content[1].type, "image")
+        heat = numpy.asarray(PillowImage.open(report["heat_map"]))
+        self.assertEqual((int(heat[2, 4]), int(heat[1, 2]), int(heat[0, 0])), (255, 127, 0))
+
+    async def test_capture_diff_refuses_different_sizes_and_other_files(self):
+        small = pathlib.Path(self.folder.name) / "small.png"
+        PillowImage.fromarray(numpy.zeros((2, 2, 3), numpy.uint8)).save(small)
+        sizes = await self.tool("capture_diff", {"path_a": str(self.png), "path_b": str(small)})
+        self.assertTrue(sizes.is_error)
+        self.assertIn("different sizes", text(sizes, 0))
+        other = await self.tool("capture_diff", {"path_a": str(self.png), "path_b": __file__})
+        self.assertTrue(other.is_error)
+        self.assertIn("not a PNG", text(other, 0))
+
     async def test_close_leaves_an_engine_it_did_not_launch_running(self):
         await self.connect()
         self.owner.run_blocking(self.owner.engine.close)
@@ -320,7 +378,7 @@ class StdioTest(unittest.TestCase):
         lines = output.decode().splitlines()
         self.assertEqual(len(lines), 2, errors.decode(errors="replace"))
         self.assertEqual(json.loads(lines[0])["result"]["protocolVersion"], "2025-06-18")
-        self.assertEqual(len(json.loads(lines[1])["result"]["tools"]), 12)
+        self.assertEqual(len(json.loads(lines[1])["result"]["tools"]), 15)
 
 
 if __name__ == "__main__":

@@ -246,6 +246,17 @@ private:
     ocean::HeaderFontMode headerFontMode{ ocean::HeaderFontMode::Blinker };
     ocean::TelemetryTab currentTab{ ocean::TelemetryTab::SeaState };
     bool paused{ false };
+    // repeatable frames, for tools: no TAA jitter or resolve, and auto exposure goes to its target at once. A paused
+    // frame then depends only on the scene and the time, once SSR (which reads the previous frame) has settled
+    bool repeatableFrames{ false };
+    // the last time that a tool set, in double. simulationTime is its float while no frame has run the sea since
+    double commandedTime{ 0.0 };
+    // a tool step: the paused sea advances stepSeconds per frame for stepFramesLeft frames. The time is computed as
+    // stepBaseTime + stepIndex x stepSeconds in double, so it does not collect rounding error from frame to frame
+    int32_t stepFramesLeft{ 0 };
+    int32_t stepIndex{ 0 };
+    double stepSeconds{ 0.0 };
+    double stepBaseTime{ 0.0 };
     bool showUi{ true };
     bool spectrumChanged{ false };
     bool needsInitialize{ true };

@@ -4,7 +4,8 @@
     python check_engine.py <OceanFft.exe> demo <output folder>
 
 checks compares independent results: two captures of a paused sea with TAA off, a region against a crop of the full
-capture, the downsample against a linear box average, and pixels against the PNG. It needs numpy and Pillow.
+capture, the downsample against a linear box average, pixels against the PNG, and one held time reached by a jump and by
+steps. It needs the MCP SDK, numpy and Pillow, so run it with the Python that has them.
 demo captures the default sea, a shallow gale and a glassy swell from one fixed camera, and stacks them.
 """
 import io
@@ -57,6 +58,79 @@ def capture(client, tool, arguments):
 def validation_lines(client):
     status = client.json_tool("engine_status", {"log_lines": 400})
     return [line for line in status["log"].splitlines() if "Validation Error" in line or "VUID" in line]
+
+
+def held_capture(client, name):
+    reply = client.json_tool("capture_screen", {"downsample": 1, "name": name, "include_image": False})
+    return reply["Path"]
+
+
+def diff(client, path_a, path_b):
+    is_error, text, image = client.tool("capture_diff", {"path_a": path_a, "path_b": path_b})
+    if is_error:
+        raise RuntimeError(f"capture_diff failed: {text}")
+    return json.loads(text), image
+
+
+def run_repeatable_checks(client, window_arguments):
+    """A held time must give the same bytes whatever came before it, and a different time must not. This launch keeps
+    TAA and auto exposure on, as the demo starts, because repeatable mode exists to remove their history."""
+    client.json_tool("engine_launch", {"arguments": [*window_arguments, "--size=128"]})
+    client.json_tool("wait_frames", {"frames": 60})
+    held = client.json_tool("hold_time", {"time": 10.0})
+    check(held["SimulationTime"] == 10.0 and held["Paused"] and held["Repeatable"],
+          f"hold_time 10 pauses in repeatable mode at {held['SimulationTime']}")
+    direct = held_capture(client, "check_time_direct")
+
+    # TAA jitter cycles through 8 offsets, so three captures that agree rule out a jitter that only matched by chance
+    for index in (1, 2):
+        report, _ = diff(client, direct, held_capture(client, f"check_time_again_{index}"))
+        check(report["identical"], f"capture {index + 1} of one held time is identical: {report['changed_pixels']} "
+                                   f"pixels changed")
+
+    # reach the same time after a bright debug view far away, so that exposure and TAA carry a different history
+    client.json_tool("hold_time", {"time": 37.3, "settle_frames": 0})
+    client.json_tool("call", {"name": "debug.view", "arguments": {"Surface": "normal"}})
+    client.json_tool("wait_frames", {"frames": 30})
+    client.json_tool("call", {"name": "debug.view", "arguments": {"Surface": "off"}})
+    client.json_tool("hold_time", {"time": 9.5})
+    stepped = client.json_tool("step_time", {"frames": 16, "seconds": 0.03125})
+    check(stepped["SimulationTime"] == 10.0, f"16 steps of 1/32 s from 9.5 reach {stepped['SimulationTime']}")
+    report, heat_map = diff(client, direct, held_capture(client, "check_time_stepped"))
+    check(report["identical"] and heat_map is None,
+          f"time 10 after another history, by steps, is identical: {report['changed_pixels']} pixels changed, "
+          f"max {report['max_difference_rgb']}")
+
+    # 3.3 and 1/60 have no exact binary form. Steps added to the float base land one float away from the double sum,
+    # and a settle of 0 makes the reply come right after the last step
+    client.json_tool("hold_time", {"time": 3.3})
+    awkward = client.json_tool("step_time", {"frames": 7, "seconds": 1.0 / 60.0, "settle_frames": 0})
+    expected = client.json_tool("hold_time", {"time": 3.3 + 7 * (1.0 / 60.0)})
+    check(awkward["SimulationTime"] == expected["SimulationTime"],
+          f"7 steps of 1/60 s from 3.3 store the float of 3.3 + 7/60: {awkward['SimulationTime']} and "
+          f"{expected['SimulationTime']}")
+
+    client.json_tool("hold_time", {"time": 10.5})
+    report, heat_map = diff(client, direct, held_capture(client, "check_time_later"))
+    check(not report["identical"] and heat_map is not None and report["changed_fraction"] > 0.1,
+          f"time 10.5 differs from time 10: {report['changed_fraction']:.3f} of the pixels, "
+          f"max {report['max_difference_rgb']}")
+
+    off = client.json_tool("call", {"name": "frame.repeatable", "arguments": {"Enabled": False}})
+    check(not off["Repeatable"], "frame.repeatable turns off")
+
+    for tool, arguments, label in (
+        ("hold_time", {"time": -1}, "a negative time is refused"),
+        ("step_time", {"frames": 1, "seconds": 0}, "a step of 0 s is refused"),
+        ("call", {"name": "frame.step", "arguments": {"Frames": 0, "Seconds": 0.1}}, "a step of 0 frames is refused"),
+    ):
+        is_error, text, _ = client.tool(tool, arguments)
+        check(is_error, f"{label}: {text.splitlines()[0] if text else ''}")
+
+    lines = validation_lines(client)
+    stopped = client.json_tool("engine_stop", {})
+    check(stopped["exit_code"] == 0, f"the second engine exited with {stopped['exit_code']}")
+    check(not lines, f"{len(lines)} validation lines in the second engine")
 
 
 def run_checks(client, window_arguments):
@@ -127,6 +201,8 @@ def run_checks(client, window_arguments):
         stopped = client.json_tool("engine_stop", {})
         check(stopped["exit_code"] == 0, f"the engine exited with {stopped['exit_code']}")
         check(not lines, f"{len(lines)} validation lines")
+
+    run_repeatable_checks(client, window_arguments)
 
 
 # found by trying five states on a contact sheet. A fully developed gale reads as gentle undulation from this camera,

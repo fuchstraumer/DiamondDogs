@@ -147,6 +147,8 @@ namespace
     constexpr std::string_view k_DeferredLightingEntry{ "OceanDeferredLightingCS" };
     constexpr std::string_view k_TaaResolveEntry{ "OceanTaaResolveCS" };
     constexpr std::string_view k_AutoExposureEntry{ "OceanAutoExposureCS" };
+    // an adaptation speed at which one frame reaches the target exposure
+    constexpr float k_InstantAdaptationSpeed = 1.0e4f;
 
     template<typename T>
     void PushProgramConstants(rhi::CommandBuffer& cmd, const rhi::ManifestProgram& program, const T& data)
@@ -2936,7 +2938,16 @@ void OceanScene::update()
     // the foam advances by the same step as the simulation time, so a paused sea holds its foam
     double foamStep = 0.0;
 
-    if (!paused)
+    if (paused && stepFramesLeft > 0)
+    {
+        // a tool step advances by exactly its step, whatever this frame took
+        ++stepIndex;
+        --stepFramesLeft;
+        commandedTime = stepBaseTime + static_cast<double>(stepIndex) * stepSeconds;
+        simulationTime = static_cast<float>(commandedTime);
+        foamStep = stepSeconds;
+    }
+    else if (!paused)
     {
         const float step = settings.FixedTimeStep > 0.0f ? settings.FixedTimeStep : ImGui::GetIO().DeltaTime;
         simulationTime += step * timeScale;
@@ -3011,7 +3022,7 @@ void OceanScene::writeViewParameters()
         { -0.875f, 0.7777778f }
     }};
 
-    if (useTaa)
+    if (useTaa && !repeatableFrames)
     {
         const auto [jx, jy] = k_Halton8[frameNumber % 8];
         jitterOffsetNdc[0] = (jx / extent.x) * 2.0f;
@@ -3087,7 +3098,9 @@ void OceanScene::writeViewParameters()
     frameConstants.UseBrunetonAtmosphere = useBrunetonAtmosphere ? 1u : 0u;
     frameConstants.UseDeferredPath = 1u;
     frameConstants.UseSpecularAa = useSpecularAa ? 1u : 0u;
-    frameConstants.UseTaa = useTaa ? 1u : 0u;
+    // without jitter TAA only blends a frame with older copies of itself, which adds nothing but a slow tail of
+    // earlier frames. With it off, the resolve writes this frame alone to the history
+    frameConstants.UseTaa = useTaa && !repeatableFrames ? 1u : 0u;
     frameConstants.SpecularAaStrength = specularAaStrength;
     frameConstants.SsrIntensity = ssrIntensity;
     frameConstants.TaaBlendAlpha = taaBlendAlpha;
@@ -3617,10 +3630,12 @@ void OceanScene::recordDeferredPipeline(
         const rhi::DescriptorSetHandle setHandle{ reinterpret_cast<uint64_t>(autoExposureSet) };
         cmd.BindDescriptorSets(rhi::PipelineBindPoint::Compute, autoExposureProgram->PipelineLayout(), 0, std::span{ &setHandle, 1 });
 
+        // exp(-0.016 x 1e4) is 0 in float, so a repeatable frame's exposure equals its target, with no history
+        const float adaptationSpeed = repeatableFrames ? k_InstantAdaptationSpeed : autoExposureSpeed;
         const AutoExposurePushConstants push{
             .Dimensions = { width, height },
             .DeltaTime = 0.016f,
-            .AdaptationSpeed = autoExposureSpeed,
+            .AdaptationSpeed = adaptationSpeed,
             .MinLogLum = -8.0f,
             .MaxLogLum = 4.0f,
             .Padding = { 0.0f, 0.0f }

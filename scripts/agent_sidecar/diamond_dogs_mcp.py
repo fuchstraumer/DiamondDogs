@@ -23,6 +23,7 @@ import time
 from typing import Annotated, Any
 
 try:
+    import anyio
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.server.mcpserver.exceptions import ToolError
     from pydantic import Field
@@ -232,6 +233,62 @@ def inline_image(path):
     return Image(data=data, format="png")
 
 
+def compare_pngs(path_a, path_b):
+    """Compares two PNG captures pixel by pixel. Writes a heat map next to the first PNG when they differ, and returns
+    the report. Needs numpy and Pillow, which only this tool uses."""
+    try:
+        import numpy
+        from PIL import Image as PillowImage
+    except ImportError as missing:
+        raise ToolError(f"capture_diff needs numpy and Pillow ({missing}). Install them for {sys.executable}.") from None
+
+    images = []
+
+    for path in (path_a, path_b):
+        file = pathlib.Path(path)
+
+        if file.suffix.lower() != ".png" or not file.is_file():
+            raise ToolError(f"'{path}' is not a PNG file. Pass the Path from a capture reply.")
+
+        images.append(numpy.asarray(PillowImage.open(file).convert("RGB")).astype(numpy.int16))
+
+    first, second = images
+
+    if first.shape != second.shape:
+        raise ToolError(f"the captures have different sizes: {first.shape[1]}x{first.shape[0]} and "
+                        f"{second.shape[1]}x{second.shape[0]}")
+
+    difference = numpy.abs(first - second)
+    largest = difference.max(axis=2)
+    changed = largest > 0
+    report = {
+        "width": int(first.shape[1]),
+        "height": int(first.shape[0]),
+        "identical": not bool(changed.any()),
+        "max_difference_rgb": [int(value) for value in difference.max(axis=(0, 1))],
+        "mean_difference": float(difference.mean()),
+        "changed_pixels": int(changed.sum()),
+        "changed_fraction": float(changed.mean()),
+    }
+
+    if not changed.any():
+        return report, None
+
+    rows, columns = numpy.nonzero(changed)
+    report["changed_box"] = {
+        "x": int(columns.min()), "y": int(rows.min()),
+        "width": int(columns.max() - columns.min() + 1), "height": int(rows.max() - rows.min() + 1),
+    }
+
+    # black where the captures agree. The largest difference is white, so a difference of one code value shows too
+    scale = 255.0 / float(largest.max())
+    heat_map = pathlib.Path(path_a).with_name(f"diff_{pathlib.Path(path_a).stem}_{pathlib.Path(path_b).stem}.png")
+    PillowImage.fromarray((largest * scale).astype(numpy.uint8), "L").save(heat_map)
+    report["heat_map"] = str(heat_map)
+    report["heat_map_code_values_per_step"] = 1.0 / scale
+    return report, heat_map
+
+
 class EngineThread:
     """One thread owns the engine and its connection. The SDK can run tool calls at the same time, and the connection
     takes one request at a time, so a tool hands its work to this thread and awaits the result. There is no lock: the
@@ -253,7 +310,8 @@ class EngineThread:
 
 
 INSTRUCTIONS = ("Call engine_launch, then describe. Change values with set or call, wait_frames for the change to show, "
-                "then capture_screen to see it.")
+                "then capture_screen to see it. For an A/B comparison, call hold_time (or step_time) before each "
+                "capture, so that both captures show the same simulation time, then capture_diff.")
 
 HideUi = Annotated[bool, Field(description="Hides the panel on the captured frame only.")]
 CaptureName = Annotated[str | None, Field(description="The file name without .png: letters, digits, '_' and '-'. "
@@ -261,10 +319,15 @@ CaptureName = Annotated[str | None, Field(description="The file name without .pn
 IncludeImage = Annotated[bool, Field(description="Returns the PNG as an image.")]
 PixelCoordinate = Annotated[int, Field(ge=0, description="Pixels from the left or top edge of the final image.")]
 PixelCount = Annotated[int, Field(ge=1, description="A size in pixels.")]
+SettleFrames = Annotated[int, Field(ge=0, le=1000, description="Frames to render at the time before the reply.")]
+
+
+def frames_timeout(frames):
+    return DEFAULT_TIMEOUT_SECONDS + frames * SECONDS_PER_FRAME_ALLOWANCE
 
 
 def build_server(owner):
-    """Returns the MCP server with its 12 tools. Every tool runs its engine work on the owner's thread."""
+    """Returns the MCP server with its 15 tools. Every tool runs its engine work on the owner's thread."""
     server = MCPServer(SERVER_NAME, version=SERVER_VERSION, instructions=INSTRUCTIONS)
     engine = owner.engine
 
@@ -284,6 +347,28 @@ def build_server(owner):
 
         if include_image:
             content.append(inline_image(result["Path"]))
+
+        return content
+
+    def hold(time, settle_frames):
+        engine.request("tool.call", {"name": "frame.pause", "arguments": {"Paused": True}}, DEFAULT_TIMEOUT_SECONDS)
+        engine.request("tool.call", {"name": "frame.repeatable", "arguments": {"Enabled": True}},
+                       DEFAULT_TIMEOUT_SECONDS)
+        params = {"name": "frame.time", "arguments": {"Time": time, "SettleFrames": settle_frames}}
+        return engine.request("tool.call", params, frames_timeout(settle_frames))
+
+    def step(frames, seconds, settle_frames):
+        engine.request("tool.call", {"name": "frame.repeatable", "arguments": {"Enabled": True}},
+                       DEFAULT_TIMEOUT_SECONDS)
+        params = {"name": "frame.step", "arguments": {"Frames": frames, "Seconds": seconds, "SettleFrames": settle_frames}}
+        return engine.request("tool.call", params, frames_timeout(frames + settle_frames))
+
+    def diff(path_a, path_b, include_image):
+        report, heat_map = compare_pngs(path_a, path_b)
+        content = [report]
+
+        if include_image and heat_map is not None:
+            content.append(inline_image(heat_map))
 
         return content
 
@@ -354,9 +439,34 @@ def build_server(owner):
 
     @tool("Returns after this many frames. Use it after a change, so that the simulation shows the change.")
     async def wait_frames(frames: Annotated[int, Field(ge=0)]):
-        timeout_seconds = DEFAULT_TIMEOUT_SECONDS + frames * SECONDS_PER_FRAME_ALLOWANCE
         params = {"name": "frame.wait", "arguments": {"Frames": frames}}
-        return await request("tool.call", params, timeout_seconds)
+        return await request("tool.call", params, frames_timeout(frames))
+
+    @tool("Pauses the sea at this exact simulation time, in repeatable mode, so that a capture is the same byte for "
+          "byte each time. Repeatable mode turns TAA off, so edges alias. Use it before each capture of an A/B "
+          "comparison. frame.repeatable with Enabled false restores TAA.")
+    async def hold_time(
+            time: Annotated[float, Field(ge=0, le=100000, description="Seconds of simulation time.")],
+            settle_frames: SettleFrames = 2):
+        return await owner.run(hold, time, settle_frames)
+
+    @tool("Advances the paused sea by exactly `seconds` on each of `frames` frames, in repeatable mode, then holds. "
+          "N steps from a time that hold_time set reach the same time as hold_time with time + N x seconds. Use it to "
+          "watch a wave fold step by step.")
+    async def step_time(
+            frames: Annotated[int, Field(ge=1, le=100000)],
+            seconds: Annotated[float, Field(ge=0.0001, le=10, description="Simulation seconds per step.")],
+            settle_frames: SettleFrames = 2):
+        return await owner.run(step, frames, seconds, settle_frames)
+
+    @tool("Compares two PNG captures pixel by pixel: whether they are identical, the largest and mean difference in "
+          "8-bit code values, how many pixels changed, and the box around them. Returns a heat map when they differ: "
+          "black where they agree, and white at the largest difference.")
+    async def capture_diff(
+            path_a: Annotated[str, Field(description="The Path from a capture reply.")],
+            path_b: Annotated[str, Field(description="The Path from a second capture reply, the same size.")],
+            include_image: Annotated[bool, Field(description="Returns the heat map as an image.")] = True):
+        return await anyio.to_thread.run_sync(diff, path_a, path_b, include_image)
 
     @tool("Captures the whole final image, downsampled by averaging in linear light, and returns it.")
     async def capture_screen(
