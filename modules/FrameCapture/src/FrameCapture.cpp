@@ -10,14 +10,17 @@
 #include "RhiHandle.hpp"
 #include "RhiTypes.hpp"
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <system_error>
@@ -87,6 +90,135 @@ namespace capture
             r = rgb709.x;
             g = rgb709.y;
             b = rgb709.z;
+        }
+
+        float DecodeSrgb(float encoded) noexcept
+        {
+            const float value = std::clamp(encoded, 0.0f, 1.0f);
+            return value <= 0.04045f ? value / 12.92f : std::pow((value + 0.055f) / 1.055f, 2.4f);
+        }
+
+        /** Returns one texel as linear BT.709, the same decode that ConvertToSrgb8 does before its encode. An sRGB
+         *  source is decoded with the sRGB curve, and takes no LinearScale, as in ConvertToSrgb8 */
+        std::array<float, 3> DecodeLinear(std::span<const std::byte> pixels, size_t index, ImageFormat format, CaptureEncoding encoding, float linear_scale)
+        {
+            float r = 0.0f;
+            float g = 0.0f;
+            float b = 0.0f;
+
+            switch (format.ComponentFormat)
+            {
+            case ImageComponentFormats::RGBA8:
+            case ImageComponentFormats::BGRA8:
+            {
+                const uint8_t* texel = reinterpret_cast<const uint8_t*>(pixels.data()) + (index * 4u);
+                const bool bgra = format.ComponentFormat == ImageComponentFormats::BGRA8;
+
+                r = texel[bgra ? 2u : 0u] / 255.0f;
+                g = texel[1u] / 255.0f;
+                b = texel[bgra ? 0u : 2u] / 255.0f;
+                break;
+            }
+            case ImageComponentFormats::A2B10G10R10:
+            case ImageComponentFormats::A2R10G10B10:
+            {
+                uint32_t word = 0u;
+
+                std::memcpy(&word, pixels.data() + (index * 4u), 4u);
+
+                const float low = static_cast<float>(word & 0x3FFu) / 1023.0f;
+                const float mid = static_cast<float>((word >> 10u) & 0x3FFu) / 1023.0f;
+                const float high = static_cast<float>((word >> 20u) & 0x3FFu) / 1023.0f;
+                const bool redLow = format.ComponentFormat == ImageComponentFormats::A2B10G10R10;
+
+                r = redLow ? low : high;
+                g = mid;
+                b = redLow ? high : low;
+                break;
+            }
+            case ImageComponentFormats::RGBA16:
+            {
+                uint16_t halves[3]{};
+
+                std::memcpy(halves, pixels.data() + (index * 8u), sizeof(halves));
+                r = HalfToFloat(halves[0]);
+                g = HalfToFloat(halves[1]);
+                b = HalfToFloat(halves[2]);
+                break;
+            }
+            default:
+                break;
+            }
+
+            if (encoding == CaptureEncoding::sRGB)
+            {
+                return { DecodeSrgb(r), DecodeSrgb(g), DecodeSrgb(b) };
+            }
+
+            if (encoding == CaptureEncoding::HDR10_PQ)
+            {
+                r = DecodePq(r);
+                g = DecodePq(g);
+                b = DecodePq(b);
+                Bt2020ToBt709(r, g, b);
+            }
+
+            return { r * linear_scale, g * linear_scale, b * linear_scale };
+        }
+
+        /** Averages each factor x factor block in linear light, and encodes the result as 8-bit sRGB RGB */
+        std::vector<uint8_t> DownsampleToSrgb8(std::span<const std::byte> pixels, uint32_t width, uint32_t height, uint32_t factor,
+                                               ImageFormat format, CaptureEncoding encoding, float linear_scale, uint32_t& out_width, uint32_t& out_height)
+        {
+            out_width = (width + factor - 1u) / factor;
+            out_height = (height + factor - 1u) / factor;
+
+            std::vector<uint8_t> rgb(size_t{ out_width } * out_height * 3u);
+
+            for (uint32_t blockY = 0u; blockY < out_height; ++blockY)
+            {
+                for (uint32_t blockX = 0u; blockX < out_width; ++blockX)
+                {
+                    const uint32_t endX = std::min((blockX + 1u) * factor, width);
+                    const uint32_t endY = std::min((blockY + 1u) * factor, height);
+                    std::array<double, 3> sum{};
+                    uint32_t count = 0u;
+
+                    for (uint32_t y = blockY * factor; y < endY; ++y)
+                    {
+                        for (uint32_t x = blockX * factor; x < endX; ++x)
+                        {
+                            const std::array<float, 3> linear = DecodeLinear(pixels, (size_t{ y } * width) + x, format, encoding, linear_scale);
+
+                            // NaN and negative values count as black, as the encode would write them
+                            sum[0] += linear[0] > 0.0f ? std::min(linear[0], 1.0f) : 0.0f;
+                            sum[1] += linear[1] > 0.0f ? std::min(linear[1], 1.0f) : 0.0f;
+                            sum[2] += linear[2] > 0.0f ? std::min(linear[2], 1.0f) : 0.0f;
+                            ++count;
+                        }
+                    }
+
+                    const size_t out = ((size_t{ blockY } * out_width) + blockX) * 3u;
+
+                    rgb[out + 0u] = EncodeSrgb(static_cast<float>(sum[0] / count));
+                    rgb[out + 1u] = EncodeSrgb(static_cast<float>(sum[1] / count));
+                    rgb[out + 2u] = EncodeSrgb(static_cast<float>(sum[2] / count));
+                }
+            }
+
+            return rgb;
+        }
+
+        std::string ToHex(std::span<const std::byte> bytes)
+        {
+            std::string text;
+
+            for (const std::byte value : bytes)
+            {
+                text += std::format("{:02X}", std::to_integer<uint32_t>(value));
+            }
+
+            return text;
         }
 
         /** Converts the copied texels to tightly packed 8-bit sRGB RGB, dropping alpha */
@@ -262,7 +394,58 @@ namespace capture
         Slot& slot = slots[slot_index % slots.size()];
         drainSlot(slot);
 
-        if (!IsSupported(source.Format, source.Encoding) || source.Width == 0u || source.Height == 0u)
+        if (!recordCopy(command_buffer, slot, source))
+        {
+            return false;
+        }
+
+        slot.Name = std::move(name);
+        slot.Ticket = 0u;
+        slot.Output = CaptureOutput::Png;
+        return true;
+    }
+
+    std::optional<uint64_t> FrameCapture::RecordTrackedCopy(rhi::CommandBuffer& command_buffer,
+                                                            uint32_t slot_index,
+                                                            const CaptureSource& source,
+                                                            std::string name,
+                                                            CaptureOutput output)
+    {
+        Slot& slot = slots[slot_index % slots.size()];
+        drainSlot(slot);
+
+        if (!recordCopy(command_buffer, slot, source))
+        {
+            return std::nullopt;
+        }
+
+        slot.Name = std::move(name);
+        slot.Ticket = nextTicket++;
+        slot.Output = output;
+
+        return slot.Ticket;
+    }
+
+    void FrameCapture::Collect(uint32_t slot_index)
+    {
+        drainSlot(slots[slot_index % slots.size()]);
+    }
+
+    std::vector<CaptureResult> FrameCapture::TakeResults()
+    {
+        std::vector<CaptureResult> finished;
+
+        while (std::optional<CaptureResult> result = results.try_pop())
+        {
+            finished.push_back(std::move(*result));
+        }
+
+        return finished;
+    }
+
+    bool FrameCapture::recordCopy(rhi::CommandBuffer& command_buffer, Slot& slot, const CaptureSource& source)
+    {
+        if (!IsSupported(source.Format, source.Encoding) || source.Width == 0u || source.Height == 0u || source.Downsample == 0u)
         {
             return false;
         }
@@ -285,6 +468,8 @@ namespace capture
         command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &toTransfer, 1 } });
 
         rhi::BufferImageCopy region{};
+        region.OffsetX = source.OffsetX;
+        region.OffsetY = source.OffsetY;
         region.Width = source.Width;
         region.Height = source.Height;
         command_buffer.CopyImageToBuffer(source.Image, rhi::ImageLayout::TransferSource, rhi::BufferHandle{ slot.Buffer.VkHandle }, std::span{ &region, 1 });
@@ -306,7 +491,7 @@ namespace capture
         slot.Format = source.Format;
         slot.Encoding = source.Encoding;
         slot.LinearScale = source.LinearScale;
-        slot.Name = std::move(name);
+        slot.Downsample = source.Downsample;
         return true;
     }
 
@@ -349,6 +534,9 @@ namespace capture
         job.Format = slot.Format;
         job.Encoding = slot.Encoding;
         job.LinearScale = slot.LinearScale;
+        job.Downsample = slot.Downsample;
+        job.Ticket = slot.Ticket;
+        job.Output = slot.Output;
         std::filesystem::path capturePath = slot.Name;
         if (capturePath.extension() != ".png")
         {
@@ -364,6 +552,7 @@ namespace capture
         if (resources.Wait(map, k_TimeoutNs) != rhi::FutureState::Complete || map.Get() == nullptr)
         {
             failed.fetch_add(1u);
+            reportFailure(job);
             return;
         }
 
@@ -428,22 +617,73 @@ namespace capture
                 return;
             }
 
-            const std::vector<uint8_t> rgb = ConvertToSrgb8(job.Pixels, job.Width, job.Height, job.Format, job.Encoding, job.LinearScale);
-            const int result = stbi_write_png(job.Path.string().c_str(), static_cast<int>(job.Width), static_cast<int>(job.Height), 3,
-                rgb.data(), static_cast<int>(job.Width * 3u));
-            if (result == 0)
-            {
-                std::cerr << "FrameCapture: writing " << job.Path.string() << " failed\n";
-                failed.fetch_add(1u);
-            }
-            else
-            {
-                written.fetch_add(1u);
-            }
+            writeJob(job);
 
             // the counts are stored before outstanding drops, so Flush sees them
             outstanding.fetch_sub(1u);
             outstanding.notify_all();
+        }
+    }
+
+    void FrameCapture::reportFailure(const Job& job)
+    {
+        if (job.Ticket != 0u)
+        {
+            results.push(CaptureResult{ .Ticket = job.Ticket, .Succeeded = false });
+        }
+    }
+
+    void FrameCapture::writeJob(const Job& job)
+    {
+        if (job.Output == CaptureOutput::PixelValues)
+        {
+            const std::span<const std::byte> texel{ job.Pixels.data(), job.Pixels.size() / (size_t{ job.Width } * job.Height) };
+            const std::vector<uint8_t> encoded = ConvertToSrgb8(job.Pixels, 1u, 1u, job.Format, job.Encoding, job.LinearScale);
+
+            written.fetch_add(1u);
+            results.push(CaptureResult
+            {
+                .Ticket = job.Ticket,
+                .Succeeded = true,
+                .Width = 1u,
+                .Height = 1u,
+                .LinearRgb = DecodeLinear(job.Pixels, 0u, job.Format, job.Encoding, job.LinearScale),
+                .Srgb8 = { encoded[0], encoded[1], encoded[2] },
+                .RawHex = ToHex(texel),
+            });
+            return;
+        }
+
+        uint32_t width = job.Width;
+        uint32_t height = job.Height;
+        std::vector<uint8_t> rgb;
+
+        // a factor of 1 keeps the original conversion, so a full capture is byte for byte what it was before downsampling
+        if (job.Downsample == 1u)
+        {
+            rgb = ConvertToSrgb8(job.Pixels, job.Width, job.Height, job.Format, job.Encoding, job.LinearScale);
+        }
+        else
+        {
+            rgb = DownsampleToSrgb8(job.Pixels, job.Width, job.Height, job.Downsample, job.Format, job.Encoding, job.LinearScale, width, height);
+        }
+
+        const int result = stbi_write_png(job.Path.string().c_str(), static_cast<int>(width), static_cast<int>(height), 3,
+            rgb.data(), static_cast<int>(width * 3u));
+
+        if (result == 0)
+        {
+            std::cerr << "FrameCapture: writing " << job.Path.string() << " failed\n";
+            failed.fetch_add(1u);
+            reportFailure(job);
+            return;
+        }
+
+        written.fetch_add(1u);
+
+        if (job.Ticket != 0u)
+        {
+            results.push(CaptureResult{ .Ticket = job.Ticket, .Succeeded = true, .Path = job.Path, .Width = width, .Height = height });
         }
     }
 }

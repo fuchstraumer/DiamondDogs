@@ -645,7 +645,7 @@ void OceanScene::Initialize(void* user_data)
     startup.Mark("ImGuiModule");
 
     // capture only costs anything on the frames it copies, but it needs transfer source usage on the swapchain
-    if (settings.Capture.Count > 0u || settings.Commands != nullptr)
+    if (settings.Capture.Count > 0u || settings.Commands != nullptr || settings.Tools != nullptr)
     {
         if (swapchain->SupportsTransferSource())
         {
@@ -2919,11 +2919,16 @@ void OceanScene::update()
 
     collectGpuTimings();
 
-    if (showUi)
+    toolCaptureThisFrame = frameCapture != nullptr && toolCaptureWaiting() && !scriptCaptureDue();
+
+    // a tool capture can ask for a frame that shows only the scene
+    const bool hideUiForCapture = toolCaptureThisFrame && toolCaptureHidesUi();
+
+    if (!hideUiForCapture && showUi)
     {
         drawPanel();
     }
-    else
+    else if (!hideUiForCapture)
     {
         (void)ocean::DrawRestoreMenuButton(imgui->Fonts(), &showUi);
     }
@@ -3833,8 +3838,42 @@ void OceanScene::recordCommands()
     ++frameNumber;
 }
 
+bool OceanScene::scriptCaptureDue() const noexcept
+{
+    return captureRequest.has_value() || captureBurstRemaining > 0 || settings.Capture.Due(frameNumber);
+}
+
+std::optional<capture::CaptureSource> OceanScene::swapchainCaptureSource(rhi::ImageHandle image) const
+{
+    const std::optional<capture::CaptureEncoding> encoding = CaptureEncodingFor(swapchain->ImageFormat(), swapchain->ColorSpace());
+
+    if (!encoding.has_value())
+    {
+        return std::nullopt;
+    }
+
+    const math::Float2 extent = swapchain->GetExtent();
+    capture::CaptureSource source{};
+
+    source.Image = image;
+    source.Width = static_cast<uint32_t>(extent.x);
+    source.Height = static_cast<uint32_t>(extent.y);
+    source.Format = swapchain->ImageFormat();
+    source.Encoding = *encoding;
+    // the composite scales paper white to the display's SDR white, so a capture divides it back out
+    source.LinearScale = k_ScRgbRefNits / colorPipe->Target().PaperWhiteNits;
+
+    return source;
+}
+
 void OceanScene::recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image)
 {
+    // this frame's fence wait freed the slot, so its earlier capture can go to the writer now
+    if (frameCapture != nullptr)
+    {
+        frameCapture->Collect(currentFrame);
+    }
+
     std::optional<std::string> name = std::move(captureRequest);
     captureRequest.reset();
     if (!name.has_value() && captureBurstRemaining > 0)
@@ -3877,6 +3916,11 @@ void OceanScene::recordPresentOrCapture(rhi::CommandBuffer& command_buffer, rhi:
             return;
         }
         std::cerr << "OceanFft: this swapchain format cannot be captured\n";
+    }
+
+    if (!name.has_value() && toolCaptureThisFrame && recordToolCapture(command_buffer, image))
+    {
+        return;
     }
 
     constexpr rhi::ImageSubresourceRange k_ColorRange{ rhi::ImageAspect::Color, 0, 1, 0, 1 };

@@ -47,6 +47,9 @@
 //   --script=FILE        run the commands in FILE between frames
 //   --stdin              also read commands from standard input
 //   --tool-port=N        serve agent tools on 127.0.0.1:N. 0 lets the system choose, and the demo prints the port
+// Window:
+//   --window=WxH         the size of the window (default 1920x1080)
+//   --borderless         a borderless window that covers the primary display, at the display's size
 namespace
 {
     constexpr std::array<uint32_t, 4> k_MsaaChoices{ 1u, 2u, 4u, 8u };
@@ -177,6 +180,47 @@ namespace
     {
         const std::from_chars_result result = std::from_chars(text.data(), text.data() + text.size(), value);
         return result.ec == std::errc{} && result.ptr == text.data() + text.size();
+    }
+
+    struct WindowArguments
+    {
+        uint32_t Width{ 1920u };
+        uint32_t Height{ 1080u };
+        bool Borderless{ false };
+        bool Valid{ true };
+    };
+
+    // the window exists before the other arguments are parsed, so these are looked for first
+    WindowArguments ParseWindowArguments(int argc, char* argv[])
+    {
+        WindowArguments window{};
+
+        for (int index = 1; index < argc; ++index)
+        {
+            const std::string_view argument{ argv[index] };
+
+            if (argument == "--borderless")
+            {
+                window.Borderless = true;
+                continue;
+            }
+
+            if (!argument.starts_with("--window="))
+            {
+                continue;
+            }
+
+            const std::string_view size = argument.substr(9);
+            const size_t separator = size.find('x');
+            const bool parsed = separator != std::string_view::npos &&
+                                ParseNumber(size.substr(0, separator), window.Width) &&
+                                ParseNumber(size.substr(separator + 1), window.Height);
+
+            window.Valid = parsed && window.Width >= 64u && window.Height >= 64u && window.Width <= 16384u &&
+                           window.Height <= 16384u;
+        }
+
+        return window;
     }
 
     // true when the text is a number from choices, which is what each flag takes
@@ -342,13 +386,21 @@ int main(int argc, char* argv[])
     };
     std::unique_ptr<rhi::RhiSystem> rhiSystem = std::make_unique<rhi::RhiSystem>(rhiCreateInfo);
 
+    const WindowArguments window = ParseWindowArguments(argc, argv);
+
+    if (!window.Valid)
+    {
+        std::cerr << "--window takes WIDTHxHEIGHT, each from 64 to 16384, for example --window=3440x1440\n";
+        return 1;
+    }
+
     const PlatformWindowCreateInfo platformCreateInfo
     {
         "DiamondDogs - OceanFft",
         nullptr, // use primary display
-        PlatformWindowMode::Windowed,
-        1920,
-        1080,
+        window.Borderless ? PlatformWindowMode::FullScreenWindowed : PlatformWindowMode::Windowed,
+        window.Width,
+        window.Height,
         100,
         100,
         60.0f,

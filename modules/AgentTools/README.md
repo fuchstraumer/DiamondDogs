@@ -143,6 +143,11 @@ sidecar <-> TCP <-> socket thread <-> two mwsrQueues <-> frame thread <-> ToolRe
   keeps a flood of requests from stretching a frame.
 - The threads share two queues and one atomic stop flag. This code adds no lock, and it uses only the non-blocking
   queue calls.
+- The socket thread sleeps in `Poll`. At the end of a `Pump` with work, the frame thread makes one non-blocking `send` on a
+  private `SocketWaker`, so a reply goes out at once. The frame thread touches no other socket.
+
+**Latency:** the round trip of a tool call is about one frame, because only the frame thread can run a handler. `server.ping`
+shows what the socket itself costs, which is about 20 us.
 
 | Method | Params | Result |
 |---|---|---|
@@ -190,8 +195,9 @@ limits:
   full. So the queues store raw pointers, and the sender keeps the `unique_ptr` until a push succeeds. A reply that does
   not fit waits in a frame-thread list for the next `Pump`. A request that does not fit stops the socket reads, and TCP
   then slows the client.
-- **A client that does not read.** Above 16 MiB of unsent bytes the server stops reading requests, which bounds every
-  buffer. Each `send` is capped at 64 KiB, because Winsock accepts a non-blocking send of any size while its send buffer
+- **A client that does not read.** Above 16 MiB of unsent bytes the server stops reading requests. This limit is soft: the
+  requests that are already in the queues still finish. With 512 KiB replies and a client that reads nothing, 65 of 300
+  requests ran, or 124 to 128 when one more queue was in flight. Each `send` is capped at 64 KiB, because Winsock accepts a non-blocking send of any size while its send buffer
   has room. Without the cap, the whole backlog moves into kernel memory, and the limit never sees it.
 - **End of file.** The server treats end of file as a closed client, so a client must keep its socket open until the
   last reply.
@@ -214,6 +220,19 @@ tool describe camera.set
 ```
 
 The `sea` command also writes through the registry. The other text commands stay on their old path until they move.
+
+The scene exposes these commands: `camera.get`, `camera.set`, `camera.lookat`, `frame.info` (with the screen size),
+`frame.wait`, `frame.pause`, `debug.view` (the shader debug views by name), `app.quit`, and three captures:
+
+| Command | Result |
+|---|---|
+| `capture.screen` | The final image as a PNG, downsampled by averaging in linear light (`Downsample`, 1 to 16). |
+| `capture.region` | One rectangle of the final image at full resolution. |
+| `capture.pixel` | One pixel: linear BT.709 (1.0 is paper white), the 8-bit sRGB value, and the stored bytes in hexadecimal. |
+
+A capture replies after the file exists, a few frames later. `HideUi` hides the panel on the captured frame only. A file
+name may use only letters, digits, `_` and `-`, so that a tool cannot write outside the capture folder. One frame records
+one capture, and a script, burst or scheduled capture takes the frame first.
 
 `--tool-port=N` starts the server. `--tool-port=0` lets the system choose, and the demo prints
 `tool server listening on 127.0.0.1:<port>` before the slow startup work. `main` owns the server, so it outlives the

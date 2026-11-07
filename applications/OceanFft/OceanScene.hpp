@@ -153,6 +153,17 @@ private:
      *  the frame thread */
     void tickToolSurface();
     void runToolLine(std::string_view line);
+    /** @brief True when a tool capture waits, and when the next one hides the panel */
+    [[nodiscard]] bool toolCaptureWaiting() const noexcept;
+    [[nodiscard]] bool toolCaptureHidesUi() const noexcept;
+    /** @brief Records the oldest tool capture into this frame. Returns false when it recorded nothing, and the image
+     *  still needs its move to PresentSource */
+    [[nodiscard]] bool recordToolCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image);
+    /** @brief True when a script, burst or scheduled capture takes this frame */
+    [[nodiscard]] bool scriptCaptureDue() const noexcept;
+    /** @brief Returns the swapchain image as a whole-screen capture source, or nothing when its format cannot be
+     *  captured */
+    [[nodiscard]] std::optional<capture::CaptureSource> swapchainCaptureSource(rhi::ImageHandle image) const;
     void setCascade(uint32_t _cascade, bool _enabled);
     void setFoamWeight(uint32_t _cascade, float _weight);
     /** @brief Sets one persistent foam field by the name that the foam command uses */
@@ -249,6 +260,8 @@ private:
     // what agent tools can see of this scene. OceanSceneTools.cpp defines it, so that this header stays free of it
     std::unique_ptr<ToolSurface, ToolSurfaceDeleter> toolSurface;
     std::optional<std::string> captureRequest;
+    // update() decides this, so that the panel can hide on the frame that a tool capture records
+    bool toolCaptureThisFrame{ false };
     // a capture_burst command: the frames left to capture, the index of the next one, and the name prefix
     int32_t captureBurstRemaining{ 0 };
     int32_t captureBurstIndex{ 0 };

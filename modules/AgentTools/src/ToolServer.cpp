@@ -46,7 +46,8 @@ namespace
     using agent::detail::QueuedReply;
     using agent::detail::QueuedRequest;
 
-    constexpr int32_t k_PollMilliseconds = 5;
+    // only a defect reaches this timeout. Every event has a socket or a wake, so an idle server sleeps
+    constexpr int32_t k_PollBackstopMilliseconds = 1000;
     constexpr int64_t k_MaxLineBytes = 1024 * 1024;
     constexpr size_t k_ReceiveChunkBytes = 64u * 1024u;
     // a client that stops reading stops being read, which bounds this buffer and every queue behind it
@@ -118,6 +119,10 @@ namespace agent
         // the frame thread alone touches the members below
         std::vector<std::unique_ptr<QueuedReply>> ReplyOverflow;
         std::optional<foundation::net::NetworkSession> Network;
+        // the frame thread calls Wake, and the socket thread calls Drain. Start and Stop set this with no thread running
+        std::optional<foundation::net::SocketWaker> Waker;
+        // a reply went into the queue since the last wake
+        bool ReplyPushed{ false };
         std::thread SocketThread;
         int32_t OpenPort{ -1 };
         bool Running{ false };
@@ -171,7 +176,16 @@ namespace agent
             return MapSocketResult(listener.error());
         }
 
+        std::expected<foundation::net::SocketWaker, foundation::net::SocketResult> waker =
+            foundation::net::SocketWaker::Create();
+
+        if (!waker.has_value())
+        {
+            return MapSocketResult(waker.error());
+        }
+
         state->Network.emplace(std::move(*network));
+        state->Waker.emplace(std::move(*waker));
         state->OpenPort = foundation::net::LocalPort(*listener);
         state->StopRequested.store(false, std::memory_order_relaxed);
         state->Running = true;
@@ -189,18 +203,29 @@ namespace agent
     {
         state->FlushReplyOverflow();
 
-        for (int32_t count = 0; count < max_requests; ++count)
+        int32_t requestsRun = 0;
+
+        while (requestsRun < max_requests)
         {
             const std::optional<QueuedRequest*> popped = state->Requests.try_pop();
 
             if (!popped.has_value())
             {
-                return;
+                break;
             }
 
             const std::unique_ptr<QueuedRequest> request{ *popped };
 
             RunRequest(registry, request->Body, PendingReply{ *state, request->RequestId });
+            ++requestsRun;
+        }
+
+        // one wake per pump, after the work, so that the socket thread finds every reply at once. A pop also needs a
+        // wake: the socket thread can be waiting for room in the full request queue
+        if (requestsRun > 0 || state->ReplyPushed)
+        {
+            state->Waker->Wake();
+            state->ReplyPushed = false;
         }
     }
 
@@ -213,10 +238,13 @@ namespace agent
 
         state->FlushReplyOverflow();
         state->StopRequested.store(true, std::memory_order_release);
+        state->Waker->Wake();
         state->SocketThread.join();
         state->DiscardQueuedMessages();
         state->OpenPort = -1;
         state->Running = false;
+        state->ReplyPushed = false;
+        state->Waker.reset();
         state->Network.reset();
     }
 
@@ -260,6 +288,7 @@ namespace agent
         while (sent < ReplyOverflow.size() && Replies.try_push(ReplyOverflow[sent].get()))
         {
             static_cast<void>(ReplyOverflow[sent].release());
+            ReplyPushed = true;
             ++sent;
         }
 
@@ -295,15 +324,16 @@ namespace agent
         {
             stopping = StopRequested.load(std::memory_order_acquire);
 
-            std::array<foundation::net::PollEntry, 2u> entries{};
+            std::array<foundation::net::PollEntry, 3u> entries{};
 
             entries[0] = foundation::net::PollEntry{ .Socket = &side.Listener, .WantRead = true };
+            entries[1] = foundation::net::PollEntry{ .Socket = &Waker->WaitSocket(), .WantRead = true };
 
             const bool connected = side.Connection.IsOpen();
 
             if (connected)
             {
-                entries[1] = foundation::net::PollEntry
+                entries[2] = foundation::net::PollEntry
                 {
                     .Socket = &side.Connection,
                     .WantRead = WantsToRead(side),
@@ -311,13 +341,20 @@ namespace agent
                 };
             }
 
-            foundation::net::Poll(std::span{ entries.data(), connected ? 2u : 1u }, k_PollMilliseconds);
+            const int32_t pollMilliseconds = stopping ? 0 : k_PollBackstopMilliseconds;
 
-            if (connected && entries[1].Readable)
+            foundation::net::Poll(std::span{ entries.data(), connected ? 3u : 2u }, pollMilliseconds);
+
+            if (entries[1].Readable)
+            {
+                Waker->Drain();
+            }
+
+            if (connected && entries[2].Readable)
             {
                 ReceiveBytes(side);
             }
-            else if (connected && entries[1].Failed)
+            else if (connected && entries[2].Failed)
             {
                 // nothing else reports a hangup while the socket is not being read, and poll would spin on it
                 CloseConnection(side);
@@ -342,8 +379,16 @@ namespace agent
             return;
         }
 
-        while (side.Connection.IsOpen() && side.Unsent.size() - side.UnsentStart <= k_MaxUnsentBytes)
+        while (side.Connection.IsOpen())
         {
+            // the frame thread can empty the queue as fast as this loop fills it, so the limit needs fresh numbers
+            DrainReplies(side);
+
+            if (side.Unsent.size() - side.UnsentStart > k_MaxUnsentBytes)
+            {
+                return;
+            }
+
             const std::optional<rpc::FramedLine> line = side.Framer.Next();
 
             if (!line.has_value())
