@@ -153,6 +153,26 @@ FrameStatisticsSnapshot Scheduler::FrameStatistics() const noexcept
     return frameHeap.Snapshot();
 }
 
+bool Scheduler::HoldsFrame(std::coroutine_handle<> frame) const noexcept
+{
+    // only the queues of frames that wait to be resumed. `draining`, `resuming` and `yieldedPreviously` keep entries
+    // that already ran until the end of their loop, so a check there would report frames that are free
+    const auto isFrame = [frame](const auto& entry) { return entry.Handle == frame; };
+
+    return std::ranges::any_of(parked, isFrame) || std::ranges::any_of(ready, isFrame) ||
+           std::ranges::any_of(yielded, isFrame);
+}
+
+namespace detail
+{
+
+bool SchedulerHoldsFrame(const Scheduler& scheduler, std::coroutine_handle<> frame) noexcept
+{
+    return scheduler.HoldsFrame(frame);
+}
+
+}
+
 std::string Scheduler::DumpState() const
 {
     std::string output;

@@ -74,6 +74,10 @@ public:
     [[nodiscard]] int64_t TickCount() const noexcept;
     /** @brief Returns the counters of the coroutine frames in the heap of this Scheduler. */
     [[nodiscard]] FrameStatisticsSnapshot FrameStatistics() const noexcept;
+    /** @brief Returns true when the frame is parked, posted or yielded, and not yet resumed. A Task asserts this is
+     * false before it destroys its frame. A frame in the batch that the running Tick resumes now is not reported, so a
+     * false result does not prove that the frame is free. */
+    [[nodiscard]] bool HoldsFrame(std::coroutine_handle<> frame) const noexcept;
     /** @brief Returns one line for each parked frame (its target, the current value, the ticks parked), and one line
      * for each ready or yielded frame (the ticks since it was posted or yielded). Each line is followed by the frame
      * descriptions of its async backtrace (function names where DbgHelp is available, else addresses), from the
