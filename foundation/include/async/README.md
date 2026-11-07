@@ -93,3 +93,46 @@ Rules:
   posted frame. Without it, `DumpState` prints one line for the frame.
 - `DumpState` lists ready and yielded frames with `ready: N ticks` and `yielded: N ticks`, followed by the frame lines,
   like parked frames.
+
+## Shared<T>: one result, many awaiters (designed 2026-11-06, not built yet)
+
+`Task<T>` has one awaiter. `Shared<T>` wraps a `Task<T>`, so that many coroutines can await one run of it. It is for the
+owner thread only: plain fields, no atomics, no locks.
+
+Decisions:
+
+- **Lazy.** The first awaiter starts it. A `Shared` that nobody awaits never runs.
+- **It runs to the end.** Cancellation is cooperative, so nothing stops a started `Shared` from outside.
+- **Awaiters borrow it.** One owner holds the `Shared` (the executor's in-flight table). There is no reference count.
+- **`co_await shared` returns `const T&`.** Every awaiter reads the one stored result. `T` is not void.
+- **No allocation for each waiter.** The awaiter object lives in the awaiting frame, and it is the node of the waiter list.
+- **An awaiter of a finished `Shared` does not suspend.** `await_ready` is true, and the result returns at once.
+
+### Ordering rules and traps
+
+Each rule says what breaks if the code ignores it.
+
+1. **The result reference is valid only until the awaiter's next suspension.** The owner can destroy the `Shared` at any
+   safe point after that. `const T& r = co_await shared; co_await Yield(); Use(r);` reads freed memory, and no compiler
+   reports it. To keep a result across a suspension, copy it.
+2. **Code that runs inside the `Shared` must never destroy the `Shared`.** The running frame belongs to the `Shared`, so
+   this frees the frame while it runs. A task must not erase its own table entry when it finishes.
+3. **The owner destroys a `Shared` only at a safe point: `Started() == false`, or `Done()` and `PendingWaiters() == 0`.**
+   A waiter counts as pending until its `await_resume` runs. A woken waiter can sit on the ready list after `Done()` is
+   true, so `Done()` alone is not enough. The destructor asserts this condition.
+4. **Wake order: detach the list, post every waiter but the first, then transfer to the first.** The first waiter runs
+   at once, and it can finish and destroy its own frame, which holds a list node. After that transfer, the waking code
+   must not touch the list. The other waiters run later in the same `Tick`, in the order they arrived.
+5. **A suspended waiter must not be destroyed.** Its frame holds a list node, and the wake would write through a dangling
+   pointer. Cooperative cancellation keeps a waiter suspended until the result arrives, so normal work never does this.
+   Only teardown can (rule 6).
+6. **Teardown: drain first.** Neither destruction order is safe while work is in flight. If the owner of a `Shared` goes
+   first, a frame that the scheduler has parked is freed, and `Tick` resumes freed memory. If the scheduler goes first,
+   the frames outlive their `FrameHeap`, and the awaiting roots are destroyed while they are on a waiter list. So the
+   owner stops new work and ticks the scheduler until every `Shared` is at a safe point. It is then destroyed, before
+   the scheduler. A lost device cannot hang this drain, because the timeline fails (see "Timeline failure").
+7. **All awaiters share one scheduler.** Awaiting from another scheduler asserts. A wake would post a frame to the wrong
+   owner.
+8. **The backtrace goes through the first awaiter only.** The frames of the wrapped task name the first awaiter as
+   `Awaiting`. `DumpState` shows the other waiters on their own, and it does not show them from the shared work. A frame
+   cleared at completion leaves no dangling `Awaiting` pointer.

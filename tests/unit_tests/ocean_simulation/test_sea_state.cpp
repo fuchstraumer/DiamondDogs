@@ -6,12 +6,15 @@
 #include "content/BytesSink.hpp"
 #include "content/Encode.hpp"
 #include "content/EncodeErased.hpp"
+#include "reflect/TypeInfo.hpp"
 #include "reflect/ValueAccess.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <expected>
+#include <filesystem>
+#include <fstream>
 #include <span>
 #include <string>
 #include <string_view>
@@ -22,11 +25,11 @@ namespace
 {
     using foundation::reflect::FieldInfo;
     using foundation::reflect::GetTypeInfo;
-    using foundation::reflect::PathError;
+    using foundation::reflect::PathResult;
     using foundation::reflect::ScalarValue;
     using foundation::reflect::SetValue;
     using foundation::reflect::TypeInfo;
-    using foundation::reflect::ValueError;
+    using foundation::reflect::ValueResult;
     using ocean::SeaState;
 
     using MemberPair = std::pair<std::string_view, float SeaState::*>;
@@ -71,10 +74,10 @@ namespace
             const float value = *static_cast<const float*>(foundation::reflect::FieldAddress(field, &state));
 
             SeaState copy = state;
-            const std::expected<void, PathError> written =
+            const PathResult written =
                 SetValue(SeaInfo(), &copy, field.Name, ScalarValue{ static_cast<double>(value) });
 
-            EXPECT_TRUE(written.has_value()) << label << " " << field.Name << " = " << value;
+            EXPECT_TRUE(written.Succeeded()) << label << " " << field.Name << " = " << value;
         }
     }
 }
@@ -144,7 +147,7 @@ TEST(SeaStateDescriptorTest, EachWriteReachesOnlyItsMember)
         // every limit in the descriptor contains 0.75, except the minimum of SwellPeriod
         const double value = name == "SwellPeriod" ? 3.25 : 0.75;
 
-        ASSERT_TRUE(SetValue(SeaInfo(), &after, name, ScalarValue{ value }).has_value()) << name;
+        ASSERT_TRUE(SetValue(SeaInfo(), &after, name, ScalarValue{ value }).Succeeded()) << name;
         EXPECT_EQ(after.*member, static_cast<float>(value)) << name;
 
         for (const auto& [otherName, otherMember] : k_ExpectedMembers)
@@ -177,11 +180,10 @@ TEST(SeaStateDescriptorTest, WritesOutsideTheLimitsLeaveTheStateUnchanged)
 
     for (const auto& [name, value] : refusals)
     {
-        const std::expected<void, PathError> written =
-            SetValue(SeaInfo(), &state, name, ScalarValue{ value });
+        const PathResult written = SetValue(SeaInfo(), &state, name, ScalarValue{ value });
 
-        ASSERT_FALSE(written.has_value()) << name;
-        EXPECT_EQ(written.error().Code, ValueError::OutOfRange) << name;
+        ASSERT_FALSE(written.Succeeded()) << name;
+        EXPECT_EQ(written.Code, ValueResult::OutOfRange) << name;
     }
 
     EXPECT_EQ(EncodedBytes(state), before);
@@ -246,4 +248,48 @@ TEST(SeaCommandTest, FindSeaStateFieldIgnoresCase)
     ASSERT_NE(field, nullptr);
     EXPECT_EQ(field->Name, "SwellPeriod");
     EXPECT_EQ(FindSeaStateField("Nope"), nullptr);
+}
+
+TEST(SceneCommandParse, ToolKeepsTheRequestText)
+{
+    const std::expected<SceneCommand, std::string> command = SceneCommand::Parse("tool set ocean.sea.Depth 12");
+
+    ASSERT_TRUE(command.has_value());
+    EXPECT_EQ(command->Type, SceneCommand::Kind::Tool);
+    EXPECT_EQ(command->Text, "set ocean.sea.Depth 12 ");
+}
+
+TEST(SceneCommandParse, ToolNeedsARequest)
+{
+    EXPECT_FALSE(SceneCommand::Parse("tool").has_value());
+}
+
+TEST(SceneCommandsLoadScript, MissingFileIsRefusedAndQueuesNothing)
+{
+    SceneCommands commands;
+
+    const ScriptResult loaded = commands.LoadScript("this_script_does_not_exist.txt");
+
+    EXPECT_EQ(loaded, ScriptResult::CannotOpen);
+    EXPECT_FALSE(commands.Busy());
+}
+
+TEST(SceneCommandsLoadScript, ReadableFileQueuesItsLines)
+{
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "diamond_dogs_load_script_test.txt";
+
+    {
+        std::ofstream file(path);
+        file << "pause on\n";
+    }
+
+    SceneCommands commands;
+
+    const ScriptResult loaded = commands.LoadScript(path);
+
+    std::filesystem::remove(path);
+
+    EXPECT_EQ(loaded, ScriptResult::Success);
+    EXPECT_TRUE(commands.Busy());
 }

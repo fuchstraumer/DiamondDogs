@@ -18,6 +18,8 @@ namespace foundation::reflect
 {
     namespace
     {
+        constexpr PathResult k_PathSucceeded{ ValueResult::Success, 0 };
+
         template<typename Integer>
         int64_t ReadStored(const void* value) noexcept
         {
@@ -56,7 +58,7 @@ namespace foundation::reflect
             }
         }
 
-        std::optional<PathError> UnwrapActiveValue(ResolvedValue& resolved, int32_t offset) noexcept
+        [[nodiscard]] PathResult UnwrapActiveValue(ResolvedValue& resolved, int32_t offset) noexcept
         {
             while (resolved.Type->Kind == TypeKind::Optional || resolved.Type->Kind == TypeKind::Variant)
             {
@@ -66,7 +68,7 @@ namespace foundation::reflect
 
                 if (contained == nullptr)
                 {
-                    return PathError{ ValueError::NoActiveValue, offset };
+                    return PathResult{ ValueResult::NoActiveValue, offset };
                 }
 
                 const TypeInfo& containedType =
@@ -78,27 +80,29 @@ namespace foundation::reflect
                 resolved.Address = contained;
             }
 
-            return std::nullopt;
+            return k_PathSucceeded;
         }
 
-        std::optional<PathError> StepIntoField(ResolvedValue& resolved, std::string_view name,
-                                                int32_t offset) noexcept
+        [[nodiscard]] PathResult StepIntoField(ResolvedValue& resolved,
+                                              std::string_view name,
+                                              int32_t offset) noexcept
         {
-            if (std::optional<PathError> error = UnwrapActiveValue(resolved, offset))
+            const PathResult unwrapped = UnwrapActiveValue(resolved, offset);
+            if (!unwrapped.Succeeded())
             {
-                return error;
+                return unwrapped;
             }
 
             if (resolved.Type->Kind != TypeKind::Struct)
             {
-                return PathError{ ValueError::NotAStruct, offset };
+                return PathResult{ ValueResult::NotAStruct, offset };
             }
 
             const FieldInfo* field = FindField(*resolved.Type, name);
 
             if (field == nullptr)
             {
-                return PathError{ ValueError::UnknownField, offset };
+                return PathResult{ ValueResult::UnknownField, offset };
             }
 
             resolved.Address = FieldAddress(*field, resolved.Address);
@@ -106,32 +110,34 @@ namespace foundation::reflect
             resolved.Metadata = &field->Metadata;
             resolved.Writable = resolved.Writable && !field->Metadata.ReadOnly;
 
-            return std::nullopt;
+            return k_PathSucceeded;
         }
 
-        std::optional<PathError> StepIntoElement(ResolvedValue& resolved, int64_t index,
-                                                  int32_t offset) noexcept
+        [[nodiscard]] PathResult StepIntoElement(ResolvedValue& resolved,
+                                                int64_t index,
+                                                int32_t offset) noexcept
         {
-            if (std::optional<PathError> error = UnwrapActiveValue(resolved, offset))
+            const PathResult unwrapped = UnwrapActiveValue(resolved, offset);
+            if (!unwrapped.Succeeded())
             {
-                return error;
+                return unwrapped;
             }
 
             if (resolved.Type->Kind != TypeKind::Sequence)
             {
-                return PathError{ ValueError::NotASequence, offset };
+                return PathResult{ ValueResult::NotASequence, offset };
             }
 
             if (index >= resolved.Type->ElementCount(resolved.Address))
             {
-                return PathError{ ValueError::IndexOutOfRange, offset };
+                return PathResult{ ValueResult::IndexOutOfRange, offset };
             }
 
             resolved.Address = resolved.Type->ElementAt(resolved.Address, index);
             resolved.Writable = resolved.Writable && resolved.Type->ElementsAreWritable;
             resolved.Type = &resolved.Type->Element();
 
-            return std::nullopt;
+            return k_PathSucceeded;
         }
 
         bool IsDigit(char character) noexcept
@@ -173,19 +179,19 @@ namespace foundation::reflect
             return name;
         }
 
-        std::optional<ValueError> CheckRange(const FieldMetadata* metadata, double value) noexcept
+        [[nodiscard]] ValueResult CheckRange(const FieldMetadata* metadata, double value) noexcept
         {
             if (metadata == nullptr || !metadata->Range.has_value())
             {
-                return std::nullopt;
+                return ValueResult::Success;
             }
 
             if (value < metadata->Range->Min || value > metadata->Range->Max)
             {
-                return ValueError::OutOfRange;
+                return ValueResult::OutOfRange;
             }
 
-            return std::nullopt;
+            return ValueResult::Success;
         }
 
         float NarrowLimit(double limit) noexcept
@@ -197,19 +203,19 @@ namespace foundation::reflect
 
         // compares at float precision, so that a value read from the field and written back is never refused. A
         // limit of 0.1 is below 0.1f as a double.
-        std::optional<ValueError> CheckFloat32Range(const FieldMetadata* metadata, float value) noexcept
+        [[nodiscard]] ValueResult CheckFloat32Range(const FieldMetadata* metadata, float value) noexcept
         {
             if (metadata == nullptr || !metadata->Range.has_value())
             {
-                return std::nullopt;
+                return ValueResult::Success;
             }
 
             if (value < NarrowLimit(metadata->Range->Min) || value > NarrowLimit(metadata->Range->Max))
             {
-                return ValueError::OutOfRange;
+                return ValueResult::OutOfRange;
             }
 
-            return std::nullopt;
+            return ValueResult::Success;
         }
 
         std::optional<double> ScalarAsNumber(const ScalarValue& value) noexcept
@@ -232,48 +238,50 @@ namespace foundation::reflect
             return std::nullopt;
         }
 
-        std::optional<ValueError> WriteFloat(const ResolvedValue& resolved, void* address,
-                                             const ScalarValue& value) noexcept
+        [[nodiscard]] ValueResult WriteFloat(const ResolvedValue& resolved,
+                                            void* address,
+                                            const ScalarValue& value) noexcept
         {
             const std::optional<double> number = ScalarAsNumber(value);
 
             if (!number.has_value())
             {
-                return ValueError::WrongValueType;
+                return ValueResult::WrongValueType;
             }
 
             if (!std::isfinite(*number))
             {
-                return ValueError::NotFinite;
+                return ValueResult::NotFinite;
             }
 
             if (resolved.Type->Kind == TypeKind::Float64)
             {
-                if (std::optional<ValueError> error = CheckRange(resolved.Metadata, *number))
+                const ValueResult inRange = CheckRange(resolved.Metadata, *number);
+                if (inRange != ValueResult::Success)
                 {
-                    return error;
+                    return inRange;
                 }
 
                 *static_cast<double*>(address) = *number;
 
-                return std::nullopt;
+                return ValueResult::Success;
             }
 
             if (std::abs(*number) > static_cast<double>(std::numeric_limits<float>::max()))
             {
-                return ValueError::OutOfRange;
+                return ValueResult::OutOfRange;
             }
 
             const float narrowed = static_cast<float>(*number);
-
-            if (std::optional<ValueError> error = CheckFloat32Range(resolved.Metadata, narrowed))
+            const ValueResult inRange = CheckFloat32Range(resolved.Metadata, narrowed);
+            if (inRange != ValueResult::Success)
             {
-                return error;
+                return inRange;
             }
 
             *static_cast<float*>(address) = narrowed;
 
-            return std::nullopt;
+            return ValueResult::Success;
         }
 
         // returns the bits to store, or nothing when the value does not fit the width and sign of the field
@@ -311,89 +319,94 @@ namespace foundation::reflect
             return fits ? std::optional<int64_t>{ integer } : std::nullopt;
         }
 
-        std::optional<ValueError> WriteInteger(const ResolvedValue& resolved, void* address,
-                                               const ScalarValue& value) noexcept
+        [[nodiscard]] ValueResult WriteInteger(const ResolvedValue& resolved,
+                                              void* address,
+                                              const ScalarValue& value) noexcept
         {
             if (!std::holds_alternative<int64_t>(value) && !std::holds_alternative<uint64_t>(value))
             {
-                return ValueError::WrongValueType;
+                return ValueResult::WrongValueType;
             }
 
             const std::optional<int64_t> bits = FitInteger(*resolved.Type, value);
 
             if (!bits.has_value())
             {
-                return ValueError::OutOfRange;
+                return ValueResult::OutOfRange;
             }
 
-            if (std::optional<ValueError> error = CheckRange(resolved.Metadata, *ScalarAsNumber(value)))
+            const ValueResult inRange = CheckRange(resolved.Metadata, *ScalarAsNumber(value));
+            if (inRange != ValueResult::Success)
             {
-                return error;
+                return inRange;
             }
 
             WriteIntegerBits(*resolved.Type, address, *bits);
 
-            return std::nullopt;
+            return ValueResult::Success;
         }
 
-        std::optional<ValueError> WriteEnumCase(const ResolvedValue& resolved, void* address,
-                                                const ScalarValue& value) noexcept
+        [[nodiscard]] ValueResult WriteEnumCase(const ResolvedValue& resolved,
+                                               void* address,
+                                               const ScalarValue& value) noexcept
         {
             const std::string_view* caseName = std::get_if<std::string_view>(&value);
 
             if (caseName == nullptr)
             {
-                return ValueError::WrongValueType;
+                return ValueResult::WrongValueType;
             }
 
             const EnumCaseInfo* enumCase = FindEnumCase(*resolved.Type, *caseName);
 
             if (enumCase == nullptr)
             {
-                return ValueError::UnknownEnumCase;
+                return ValueResult::UnknownEnumCase;
             }
 
             WriteIntegerBits(*resolved.Type, address, enumCase->Value);
 
-            return std::nullopt;
+            return ValueResult::Success;
         }
 
-        std::optional<ValueError> WriteBool(void* address, const ScalarValue& value) noexcept
+        [[nodiscard]] ValueResult WriteBool(void* address, const ScalarValue& value) noexcept
         {
             const bool* flag = std::get_if<bool>(&value);
 
             if (flag == nullptr)
             {
-                return ValueError::WrongValueType;
+                return ValueResult::WrongValueType;
             }
 
             *static_cast<bool*>(address) = *flag;
 
-            return std::nullopt;
+            return ValueResult::Success;
         }
 
-        std::optional<ValueError> WriteString(const ResolvedValue& resolved, void* address,
-                                              const ScalarValue& value)
+        [[nodiscard]] ValueResult WriteString(const ResolvedValue& resolved,
+                                             void* address,
+                                             const ScalarValue& value)
         {
             const std::string_view* text = std::get_if<std::string_view>(&value);
 
             if (text == nullptr)
             {
-                return ValueError::WrongValueType;
+                return ValueResult::WrongValueType;
             }
 
             if (resolved.Type->WriteString == nullptr)
             {
-                return ValueError::ReadOnly;
+                return ValueResult::ReadOnly;
             }
 
             resolved.Type->WriteString(address, *text);
 
-            return std::nullopt;
+            return ValueResult::Success;
         }
 
-        std::optional<ValueError> WriteScalar(const ResolvedValue& resolved, void* address,
-                                              const ScalarValue& value)
+        [[nodiscard]] ValueResult WriteScalar(const ResolvedValue& resolved,
+                                             void* address,
+                                             const ScalarValue& value)
         {
             switch (resolved.Type->Kind)
             {
@@ -410,7 +423,7 @@ namespace foundation::reflect
             case TypeKind::Enum:
                 return WriteEnumCase(resolved, address, value);
             default:
-                return ValueError::NotAScalar;
+                return ValueResult::NotAScalar;
             }
         }
     }
@@ -430,7 +443,7 @@ namespace foundation::reflect
         }
     }
 
-    std::expected<ResolvedValue, PathError> ResolvePath(const TypeInfo& root, const void* object,
+    std::expected<ResolvedValue, PathResult> ResolvePath(const TypeInfo& root, const void* object,
                                                         std::string_view path)
     {
         ResolvedValue resolved{ .Type = &root, .Address = object };
@@ -441,7 +454,7 @@ namespace foundation::reflect
         {
             const int32_t offset = static_cast<int32_t>(position);
             const char first = path[position];
-            std::optional<PathError> error;
+            PathResult step{ k_PathSucceeded };
 
             if (first == '[')
             {
@@ -449,10 +462,10 @@ namespace foundation::reflect
 
                 if (!index.has_value())
                 {
-                    return std::unexpected(PathError{ ValueError::MalformedPath, offset });
+                    return std::unexpected(PathResult{ ValueResult::MalformedPath, offset });
                 }
 
-                error = StepIntoElement(resolved, *index, offset);
+                step = StepIntoElement(resolved, *index, offset);
             }
             else
             {
@@ -461,7 +474,7 @@ namespace foundation::reflect
                 // a name must follow a dot, and a dot must separate a name from what comes before it
                 if (startsWithDot == (position == 0))
                 {
-                    return std::unexpected(PathError{ ValueError::MalformedPath, offset });
+                    return std::unexpected(PathResult{ ValueResult::MalformedPath, offset });
                 }
 
                 position += startsWithDot ? 1 : 0;
@@ -470,83 +483,79 @@ namespace foundation::reflect
 
                 if (name.empty())
                 {
-                    return std::unexpected(PathError{ ValueError::MalformedPath, offset });
+                    return std::unexpected(PathResult{ ValueResult::MalformedPath, offset });
                 }
 
-                error = StepIntoField(resolved, name, offset);
+                step = StepIntoField(resolved, name, offset);
             }
 
-            if (error.has_value())
+            if (!step.Succeeded())
             {
-                return std::unexpected(*error);
+                return std::unexpected(step);
             }
         }
 
         return resolved;
     }
 
-    std::expected<void, PathError> SetValue(const TypeInfo& root, void* object, std::string_view path,
-                                            const ScalarValue& value)
+    PathResult SetValue(const TypeInfo& root, void* object, std::string_view path, const ScalarValue& value)
     {
-        std::expected<ResolvedValue, PathError> resolved = ResolvePath(root, object, path);
+        std::expected<ResolvedValue, PathResult> resolved = ResolvePath(root, object, path);
 
         if (!resolved.has_value())
         {
-            return std::unexpected(resolved.error());
+            return resolved.error();
         }
 
         const int32_t pathEnd = static_cast<int32_t>(path.size());
-
-        if (std::optional<PathError> error = UnwrapActiveValue(*resolved, pathEnd))
+        const PathResult unwrapped = UnwrapActiveValue(*resolved, pathEnd);
+        if (!unwrapped.Succeeded())
         {
-            return std::unexpected(*error);
+            return unwrapped;
         }
 
         if (!resolved->Writable)
         {
-            return std::unexpected(PathError{ ValueError::ReadOnly, pathEnd });
+            return PathResult{ ValueResult::ReadOnly, pathEnd };
         }
 
         // the caller passed a non-const object, and ResolvePath only read through it
         void* address = const_cast<void*>(resolved->Address);
 
-        if (std::optional<ValueError> error = WriteScalar(*resolved, address, value))
-        {
-            return std::unexpected(PathError{ *error, pathEnd });
-        }
-
-        return {};
+        return PathResult{ WriteScalar(*resolved, address, value), pathEnd };
     }
 
-    std::string_view ValueErrorText(ValueError error) noexcept
+    std::string_view ValueResultText(ValueResult error) noexcept
     {
         switch (error)
         {
-        case ValueError::Invalid:
+        case ValueResult::Invalid:
+            return "the error code was never set";
+        case ValueResult::Success:
             return "no error";
-        case ValueError::MalformedPath:
+        case ValueResult::MalformedPath:
             return "the path is malformed";
-        case ValueError::UnknownField:
+        case ValueResult::UnknownField:
             return "the type has no field with this name";
-        case ValueError::NotAStruct:
+        case ValueResult::NotAStruct:
             return "a field name follows a value that is not a struct";
-        case ValueError::NotASequence:
+        case ValueResult::NotASequence:
             return "an index follows a value that is not a sequence";
-        case ValueError::IndexOutOfRange:
+        case ValueResult::IndexOutOfRange:
             return "the index is past the end of the sequence";
-        case ValueError::NoActiveValue:
+        case ValueResult::NoActiveValue:
             return "the path crosses an empty optional or a valueless variant";
-        case ValueError::ReadOnly:
+        case ValueResult::ReadOnly:
             return "the value is read-only";
-        case ValueError::NotAScalar:
+        case ValueResult::NotAScalar:
             return "only a bool, number, string or enum value can be written";
-        case ValueError::WrongValueType:
+        case ValueResult::WrongValueType:
             return "the new value has the wrong type for this field";
-        case ValueError::UnknownEnumCase:
+        case ValueResult::UnknownEnumCase:
             return "the enum has no case with this name";
-        case ValueError::NotFinite:
+        case ValueResult::NotFinite:
             return "the new value is NaN or infinite";
-        case ValueError::OutOfRange:
+        case ValueResult::OutOfRange:
             return "the new value is outside the limits of this field";
         }
 

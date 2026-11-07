@@ -46,3 +46,5 @@ add_subdirectory(ImGuiModule)
 add_subdirectory(InputSystem)
 # recipes, kinds and ingestion of the content compiler; depends on foundation only
 add_subdirectory(ContentCompiler)
+# the self-describing tool surface for agents; depends on foundation only
+add_subdirectory(AgentTools)

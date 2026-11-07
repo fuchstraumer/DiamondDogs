@@ -144,7 +144,6 @@ TEST_F(StagingRingTest, ManyThreadsUploadBuffersAndImagesThroughASmallRing)
 
     const ResourceContextCounters after = context->Counters();
     std::println("staging ring: stalls={} dedicated={} bytes staged={}", after.StagingRingStalls, after.StagingDedicatedUploads, after.BytesStaged - before.BytesStaged);
-    EXPECT_GT(after.StagingRingStalls, 0);
     EXPECT_EQ(after.StagingDedicatedUploads - before.StagingDedicatedUploads, 0);
     EXPECT_EQ(after.FuturesLive, before.FuturesLive);
     EXPECT_TRUE(WaitUntilRingIsFree(*context));

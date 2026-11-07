@@ -86,12 +86,13 @@ A path is a list of field names and indices: `Spectrum.Bands[2].Height`, `Grid[1
 - Optionals and variants are transparent. A name or an index applies to the contained value, or to the active
   alternative. An empty optional returns `NoActiveValue`.
 - `Hidden` removes a field from listings only. A path can still reach it.
-- `PathError::Offset` is the position in the path where the walk stopped, so that a tool can point at the bad step.
+- `PathResult::Offset` is the position in the path where the walk stopped, so that a tool can point at the bad step.
 
 ## Writing through the table
 
 `SetValue(type, object, path, value)` writes one scalar. It makes every check before it writes, so a refused write
-changes nothing. Tests compare the encoded bytes before and after each refusal.
+changes nothing. Tests compare the encoded bytes before and after each refusal. It returns a `PathResult`, and
+`Succeeded()` is the check.
 
 | Field kind | Accepts | Refuses |
 |---|---|---|

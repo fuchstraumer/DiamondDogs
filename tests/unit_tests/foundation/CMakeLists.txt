@@ -13,6 +13,7 @@ set(FOUNDATION_TEST_SOURCES
     content/test_bytes_sink.cpp
     content/test_encode.cpp
     content/test_encode_erased.cpp
+    content/test_json_sink.cpp
     content/test_keys.cpp
     content/test_text_sink.cpp
 

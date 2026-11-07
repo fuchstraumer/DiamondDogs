@@ -2,6 +2,7 @@
 
 #include "content/BytesSink.hpp"
 #include "content/Encode.hpp"
+#include "reflect/TypeInfo.hpp"
 #include "reflect/ValueAccess.hpp"
 
 #include <algorithm>
@@ -166,14 +167,14 @@ namespace
 {
     using accesstest::Root;
     using foundation::reflect::GetTypeInfo;
-    using foundation::reflect::PathError;
+    using foundation::reflect::PathResult;
     using foundation::reflect::ResolvedValue;
     using foundation::reflect::ResolvePath;
     using foundation::reflect::ScalarValue;
     using foundation::reflect::SetValue;
     using foundation::reflect::TypeInfo;
     using foundation::reflect::TypeKind;
-    using foundation::reflect::ValueError;
+    using foundation::reflect::ValueResult;
 
     const TypeInfo& RootInfo()
     {
@@ -190,26 +191,25 @@ namespace
 
     void ExpectWritten(Root& root, std::string_view path, const ScalarValue& value)
     {
-        const std::expected<void, PathError> result = SetValue(RootInfo(), &root, path, value);
+        const PathResult result = SetValue(RootInfo(), &root, path, value);
 
-        ASSERT_TRUE(result.has_value()) << path << ": "
-                                        << foundation::reflect::ValueErrorText(result.error().Code);
+        ASSERT_TRUE(result.Succeeded()) << path << ": " << foundation::reflect::ValueResultText(result.Code);
     }
 
     // the property that the agent tools rely on: a refused write changes no byte of the object
-    void ExpectRefused(Root& root, std::string_view path, const ScalarValue& value, ValueError expected)
+    void ExpectRefused(Root& root, std::string_view path, const ScalarValue& value, ValueResult expected)
     {
         const std::vector<std::byte> before = EncodedBytes(root);
-        const std::expected<void, PathError> result = SetValue(RootInfo(), &root, path, value);
+        const PathResult result = SetValue(RootInfo(), &root, path, value);
 
-        ASSERT_FALSE(result.has_value()) << path;
-        EXPECT_EQ(result.error().Code, expected) << path;
+        ASSERT_FALSE(result.Succeeded()) << path;
+        EXPECT_EQ(result.Code, expected) << path;
         EXPECT_EQ(EncodedBytes(root), before) << path;
     }
 
-    void ExpectPathError(const Root& root, std::string_view path, ValueError expected, int32_t offset)
+    void ExpectPathError(const Root& root, std::string_view path, ValueResult expected, int32_t offset)
     {
-        const std::expected<ResolvedValue, PathError> result = ResolvePath(RootInfo(), &root, path);
+        const std::expected<ResolvedValue, PathResult> result = ResolvePath(RootInfo(), &root, path);
 
         ASSERT_FALSE(result.has_value()) << path;
         EXPECT_EQ(result.error().Code, expected) << path;
@@ -220,7 +220,7 @@ namespace
 TEST(ReflectValueAccessTest, EmptyPathReturnsTheRoot)
 {
     const Root root{};
-    const std::expected<ResolvedValue, PathError> resolved = ResolvePath(RootInfo(), &root, "");
+    const std::expected<ResolvedValue, PathResult> resolved = ResolvePath(RootInfo(), &root, "");
 
     ASSERT_TRUE(resolved.has_value());
     EXPECT_EQ(resolved->Address, &root);
@@ -239,7 +239,7 @@ TEST(ReflectValueAccessTest, PathsReachNestedElementsAndKeepTheAddress)
 
     const auto addressOf = [&root](std::string_view path) -> const void*
     {
-        const std::expected<ResolvedValue, PathError> resolved = ResolvePath(RootInfo(), &root, path);
+        const std::expected<ResolvedValue, PathResult> resolved = ResolvePath(RootInfo(), &root, path);
 
         return resolved.has_value() ? resolved->Address : nullptr;
     };
@@ -258,46 +258,52 @@ TEST(ReflectValueAccessTest, MalformedPathsReportTheirOffset)
 {
     const Root root{};
 
-    ExpectPathError(root, ".Flag", ValueError::MalformedPath, 0);
-    ExpectPathError(root, "Nested.", ValueError::MalformedPath, 6);
-    ExpectPathError(root, "Nested..Value", ValueError::MalformedPath, 6);
-    ExpectPathError(root, "Fixed[", ValueError::MalformedPath, 5);
-    ExpectPathError(root, "Fixed[]", ValueError::MalformedPath, 5);
-    ExpectPathError(root, "Fixed[-1]", ValueError::MalformedPath, 5);
-    ExpectPathError(root, "Fixed[1", ValueError::MalformedPath, 5);
-    ExpectPathError(root, "Fixed[x]", ValueError::MalformedPath, 5);
-    ExpectPathError(root, "Fixed[99999999999999999999]", ValueError::MalformedPath, 5);
-    ExpectPathError(root, "Fixed[1]Value", ValueError::MalformedPath, 8);
+    ExpectPathError(root, ".Flag", ValueResult::MalformedPath, 0);
+    ExpectPathError(root, "Nested.", ValueResult::MalformedPath, 6);
+    ExpectPathError(root, "Nested..Value", ValueResult::MalformedPath, 6);
+    ExpectPathError(root, "Fixed[", ValueResult::MalformedPath, 5);
+    ExpectPathError(root, "Fixed[]", ValueResult::MalformedPath, 5);
+    ExpectPathError(root, "Fixed[-1]", ValueResult::MalformedPath, 5);
+    ExpectPathError(root, "Fixed[1", ValueResult::MalformedPath, 5);
+    ExpectPathError(root, "Fixed[x]", ValueResult::MalformedPath, 5);
+    ExpectPathError(root, "Fixed[99999999999999999999]", ValueResult::MalformedPath, 5);
+    ExpectPathError(root, "Fixed[1]Value", ValueResult::MalformedPath, 8);
+}
+
+TEST(ReflectValueAccessTest, AnUnsetPathErrorIsNotASuccess)
+{
+    EXPECT_FALSE(PathResult{}.Succeeded());
+    EXPECT_TRUE(PathResult{ .Code = ValueResult::Success }.Succeeded());
 }
 
 TEST(ReflectValueAccessTest, WalkErrorsNameTheFailedStep)
 {
     const Root root{};
 
-    ExpectPathError(root, "Nope", ValueError::UnknownField, 0);
-    ExpectPathError(root, "flag", ValueError::UnknownField, 0);
-    ExpectPathError(root, "Nested.Nope", ValueError::UnknownField, 6);
-    ExpectPathError(root, "Flag.Value", ValueError::NotAStruct, 4);
-    ExpectPathError(root, "Flag[0]", ValueError::NotASequence, 4);
-    ExpectPathError(root, "Fixed[3]", ValueError::IndexOutOfRange, 5);
-    ExpectPathError(root, "Leaves[0]", ValueError::IndexOutOfRange, 6);
-    ExpectPathError(root, "MaybeLeaf.Value", ValueError::NoActiveValue, 9);
-    ExpectPathError(root, "MaybeList[0]", ValueError::NoActiveValue, 9);
-    ExpectPathError(root, "Choice.Count", ValueError::UnknownField, 6);
+    ExpectPathError(root, "Nope", ValueResult::UnknownField, 0);
+    ExpectPathError(root, "flag", ValueResult::UnknownField, 0);
+    ExpectPathError(root, "Nested.Nope", ValueResult::UnknownField, 6);
+    ExpectPathError(root, "Flag.Value", ValueResult::NotAStruct, 4);
+    ExpectPathError(root, "Flag[0]", ValueResult::NotASequence, 4);
+    ExpectPathError(root, "Fixed[3]", ValueResult::IndexOutOfRange, 5);
+    ExpectPathError(root, "Leaves[0]", ValueResult::IndexOutOfRange, 6);
+    ExpectPathError(root, "MaybeLeaf.Value", ValueResult::NoActiveValue, 9);
+    ExpectPathError(root, "MaybeList[0]", ValueResult::NoActiveValue, 9);
+    ExpectPathError(root, "Choice.Count", ValueResult::UnknownField, 6);
 }
 
 TEST(ReflectValueAccessTest, ReadOnlyAppliesToTheWholeSubtree)
 {
     Root root{};
 
-    const std::expected<ResolvedValue, PathError> inside =
+    const std::expected<ResolvedValue, PathResult> inside =
         ResolvePath(RootInfo(), &root, "ReadOnlyLeaf.Value");
 
     ASSERT_TRUE(inside.has_value());
     EXPECT_FALSE(inside->Writable);
 
-    ExpectRefused(root, "ReadOnlyLeaf.Value", 1.0, ValueError::ReadOnly);
-    ExpectRefused(root, "Nested.Locked", 1.0, ValueError::ReadOnly);
+    ExpectRefused(root, "ReadOnlyLeaf.Value", 1.0, ValueResult::ReadOnly);
+    ExpectRefused(root, "Nested.Locked", 1.0, ValueResult::ReadOnly);
     ExpectWritten(root, "Nested.Value", 1.0);
     EXPECT_EQ(root.Nested.Value, 1.0f);
 }
@@ -314,8 +320,8 @@ TEST(ReflectValueAccessTest, ConstSpanElementsAndViewsAreReadOnly)
 {
     Root root{};
 
-    ExpectRefused(root, "ConstSpan[0]", int64_t{ 9 }, ValueError::ReadOnly);
-    ExpectRefused(root, "View", std::string_view{ "text" }, ValueError::ReadOnly);
+    ExpectRefused(root, "ConstSpan[0]", int64_t{ 9 }, ValueResult::ReadOnly);
+    ExpectRefused(root, "View", std::string_view{ "text" }, ValueResult::ReadOnly);
     EXPECT_EQ(accesstest::k_ConstSource[0], 1u);
 }
 
@@ -384,13 +390,13 @@ TEST(ReflectValueAccessTest, WrongValueTypesAreRefused)
 {
     Root root{};
 
-    ExpectRefused(root, "Flag", int64_t{ 1 }, ValueError::WrongValueType);
-    ExpectRefused(root, "Tiny", 1.0, ValueError::WrongValueType);
-    ExpectRefused(root, "Tiny", true, ValueError::WrongValueType);
-    ExpectRefused(root, "Single", true, ValueError::WrongValueType);
-    ExpectRefused(root, "Single", std::string_view{ "1.0" }, ValueError::WrongValueType);
-    ExpectRefused(root, "Text", 1.0, ValueError::WrongValueType);
-    ExpectRefused(root, "Form", int64_t{ 1 }, ValueError::WrongValueType);
+    ExpectRefused(root, "Flag", int64_t{ 1 }, ValueResult::WrongValueType);
+    ExpectRefused(root, "Tiny", 1.0, ValueResult::WrongValueType);
+    ExpectRefused(root, "Tiny", true, ValueResult::WrongValueType);
+    ExpectRefused(root, "Single", true, ValueResult::WrongValueType);
+    ExpectRefused(root, "Single", std::string_view{ "1.0" }, ValueResult::WrongValueType);
+    ExpectRefused(root, "Text", 1.0, ValueResult::WrongValueType);
+    ExpectRefused(root, "Form", int64_t{ 1 }, ValueResult::WrongValueType);
 }
 
 TEST(ReflectValueAccessTest, ContainersAreNotScalars)
@@ -398,18 +404,18 @@ TEST(ReflectValueAccessTest, ContainersAreNotScalars)
     Root root{};
     root.MaybeLeaf = accesstest::Leaf{};
 
-    ExpectRefused(root, "", 1.0, ValueError::NotAScalar);
-    ExpectRefused(root, "Nested", 1.0, ValueError::NotAScalar);
-    ExpectRefused(root, "Fixed", 1.0, ValueError::NotAScalar);
-    ExpectRefused(root, "MaybeLeaf", 1.0, ValueError::NotAScalar);
-    ExpectRefused(root, "Choice", 1.0, ValueError::NotAScalar);
+    ExpectRefused(root, "", 1.0, ValueResult::NotAScalar);
+    ExpectRefused(root, "Nested", 1.0, ValueResult::NotAScalar);
+    ExpectRefused(root, "Fixed", 1.0, ValueResult::NotAScalar);
+    ExpectRefused(root, "MaybeLeaf", 1.0, ValueResult::NotAScalar);
+    ExpectRefused(root, "Choice", 1.0, ValueResult::NotAScalar);
 }
 
 TEST(ReflectValueAccessTest, OptionalScalarsWriteOnlyWhenFilled)
 {
     Root root{};
 
-    ExpectRefused(root, "MaybeNumber", 1.0, ValueError::NoActiveValue);
+    ExpectRefused(root, "MaybeNumber", 1.0, ValueResult::NoActiveValue);
     EXPECT_FALSE(root.MaybeNumber.has_value());
 
     root.MaybeNumber = 0.0f;
@@ -422,13 +428,13 @@ TEST(ReflectValueAccessTest, IntegersMustFitWidthAndSign)
 {
     Root root{};
 
-    ExpectRefused(root, "Tiny", int64_t{ 128 }, ValueError::OutOfRange);
-    ExpectRefused(root, "Tiny", int64_t{ -129 }, ValueError::OutOfRange);
-    ExpectRefused(root, "Tiny", uint64_t{ 128u }, ValueError::OutOfRange);
-    ExpectRefused(root, "TinyUnsigned", int64_t{ -1 }, ValueError::OutOfRange);
-    ExpectRefused(root, "TinyUnsigned", int64_t{ 256 }, ValueError::OutOfRange);
-    ExpectRefused(root, "Big", std::numeric_limits<uint64_t>::max(), ValueError::OutOfRange);
-    ExpectRefused(root, "BigUnsigned", int64_t{ -1 }, ValueError::OutOfRange);
+    ExpectRefused(root, "Tiny", int64_t{ 128 }, ValueResult::OutOfRange);
+    ExpectRefused(root, "Tiny", int64_t{ -129 }, ValueResult::OutOfRange);
+    ExpectRefused(root, "Tiny", uint64_t{ 128u }, ValueResult::OutOfRange);
+    ExpectRefused(root, "TinyUnsigned", int64_t{ -1 }, ValueResult::OutOfRange);
+    ExpectRefused(root, "TinyUnsigned", int64_t{ 256 }, ValueResult::OutOfRange);
+    ExpectRefused(root, "Big", std::numeric_limits<uint64_t>::max(), ValueResult::OutOfRange);
+    ExpectRefused(root, "BigUnsigned", int64_t{ -1 }, ValueResult::OutOfRange);
 
     ExpectWritten(root, "Tiny", int64_t{ 127 });
     EXPECT_EQ(root.Tiny, 127);
@@ -445,14 +451,14 @@ TEST(ReflectValueAccessTest, RangesAreInclusive)
 {
     Root root{};
 
-    ExpectRefused(root, "Ranged", int64_t{ -1 }, ValueError::OutOfRange);
-    ExpectRefused(root, "Ranged", int64_t{ 11 }, ValueError::OutOfRange);
+    ExpectRefused(root, "Ranged", int64_t{ -1 }, ValueResult::OutOfRange);
+    ExpectRefused(root, "Ranged", int64_t{ 11 }, ValueResult::OutOfRange);
     ExpectWritten(root, "Ranged", int64_t{ 0 });
     ExpectWritten(root, "Ranged", int64_t{ 10 });
     EXPECT_EQ(root.Ranged, 10);
 
-    ExpectRefused(root, "Nested.Value", -0.001, ValueError::OutOfRange);
-    ExpectRefused(root, "Nested.Value", 10.001, ValueError::OutOfRange);
+    ExpectRefused(root, "Nested.Value", -0.001, ValueResult::OutOfRange);
+    ExpectRefused(root, "Nested.Value", 10.001, ValueResult::OutOfRange);
     ExpectWritten(root, "Nested.Value", 0.0);
     ExpectWritten(root, "Nested.Value", 10.0);
     EXPECT_EQ(root.Nested.Value, 10.0f);
@@ -463,7 +469,7 @@ TEST(ReflectValueAccessTest, RangeOfAFieldAppliesToItsElements)
     Root root{};
     root.RangedList.resize(2);
 
-    ExpectRefused(root, "RangedList[1]", 1.5, ValueError::OutOfRange);
+    ExpectRefused(root, "RangedList[1]", 1.5, ValueResult::OutOfRange);
     ExpectWritten(root, "RangedList[1]", 0.5);
     EXPECT_EQ(root.RangedList[1], 0.5f);
 }
@@ -478,7 +484,7 @@ TEST(ReflectValueAccessTest, Float32ValueReadBackIsNeverRefusedByItsOwnLimit)
     ExpectWritten(root, "Tenth", static_cast<double>(root.Tenth));
     EXPECT_EQ(root.Tenth, 0.1f);
 
-    ExpectRefused(root, "Tenth", 0.2, ValueError::OutOfRange);
+    ExpectRefused(root, "Tenth", 0.2, ValueResult::OutOfRange);
 }
 
 TEST(ReflectValueAccessTest, LimitWithoutAnEndAcceptsTheLargestValues)
@@ -490,7 +496,7 @@ TEST(ReflectValueAccessTest, LimitWithoutAnEndAcceptsTheLargestValues)
     ExpectWritten(root, "NoUpper", largestFloat);
     EXPECT_EQ(root.NoUpper, std::numeric_limits<float>::max());
 
-    ExpectRefused(root, "NoUpper", -1.0, ValueError::OutOfRange);
+    ExpectRefused(root, "NoUpper", -1.0, ValueResult::OutOfRange);
 }
 
 TEST(ReflectValueAccessTest, NonFiniteValuesAreRefused)
@@ -500,20 +506,20 @@ TEST(ReflectValueAccessTest, NonFiniteValuesAreRefused)
     const double nan = std::numeric_limits<double>::quiet_NaN();
     const double infinity = std::numeric_limits<double>::infinity();
 
-    ExpectRefused(root, "Single", nan, ValueError::NotFinite);
-    ExpectRefused(root, "Single", infinity, ValueError::NotFinite);
-    ExpectRefused(root, "Single", -infinity, ValueError::NotFinite);
-    ExpectRefused(root, "Precise", nan, ValueError::NotFinite);
-    ExpectRefused(root, "Precise", infinity, ValueError::NotFinite);
-    ExpectRefused(root, "NoUpper", infinity, ValueError::NotFinite);
+    ExpectRefused(root, "Single", nan, ValueResult::NotFinite);
+    ExpectRefused(root, "Single", infinity, ValueResult::NotFinite);
+    ExpectRefused(root, "Single", -infinity, ValueResult::NotFinite);
+    ExpectRefused(root, "Precise", nan, ValueResult::NotFinite);
+    ExpectRefused(root, "Precise", infinity, ValueResult::NotFinite);
+    ExpectRefused(root, "NoUpper", infinity, ValueResult::NotFinite);
 }
 
 TEST(ReflectValueAccessTest, DoubleTooLargeForFloat32IsRefused)
 {
     Root root{};
 
-    ExpectRefused(root, "Single", 1.0e300, ValueError::OutOfRange);
-    ExpectRefused(root, "Single", -1.0e300, ValueError::OutOfRange);
+    ExpectRefused(root, "Single", 1.0e300, ValueResult::OutOfRange);
+    ExpectRefused(root, "Single", -1.0e300, ValueResult::OutOfRange);
 
     ExpectWritten(root, "Precise", 1.0e300);
     EXPECT_EQ(root.Precise, 1.0e300);
@@ -523,17 +529,17 @@ TEST(ReflectValueAccessTest, UnknownEnumCasesAreRefused)
 {
     Root root{};
 
-    ExpectRefused(root, "Form", std::string_view{ "Hexagon" }, ValueError::UnknownEnumCase);
-    ExpectRefused(root, "Form", std::string_view{ "round" }, ValueError::UnknownEnumCase);
+    ExpectRefused(root, "Form", std::string_view{ "Hexagon" }, ValueResult::UnknownEnumCase);
+    ExpectRefused(root, "Form", std::string_view{ "round" }, ValueResult::UnknownEnumCase);
 }
 
 TEST(ReflectValueAccessTest, PathErrorsAlsoRefuseTheWrite)
 {
     Root root{};
 
-    ExpectRefused(root, "Nope", 1.0, ValueError::UnknownField);
-    ExpectRefused(root, "Fixed[9]", 1.0, ValueError::IndexOutOfRange);
-    ExpectRefused(root, "Fixed[", 1.0, ValueError::MalformedPath);
+    ExpectRefused(root, "Nope", 1.0, ValueResult::UnknownField);
+    ExpectRefused(root, "Fixed[9]", 1.0, ValueResult::IndexOutOfRange);
+    ExpectRefused(root, "Fixed[", 1.0, ValueResult::MalformedPath);
 }
 
 TEST(ReflectValueAccessTest, ReadIntegerBitsExtendsAsTheEncodingDoes)
@@ -553,25 +559,25 @@ TEST(ReflectValueAccessTest, ReadIntegerBitsExtendsAsTheEncodingDoes)
 
 TEST(ReflectValueAccessTest, EveryErrorHasText)
 {
-    const std::array<ValueError, 12> errors
+    const std::array<ValueResult, 12> errors
     {
-        ValueError::MalformedPath,
-        ValueError::UnknownField,
-        ValueError::NotAStruct,
-        ValueError::NotASequence,
-        ValueError::IndexOutOfRange,
-        ValueError::NoActiveValue,
-        ValueError::ReadOnly,
-        ValueError::NotAScalar,
-        ValueError::WrongValueType,
-        ValueError::UnknownEnumCase,
-        ValueError::NotFinite,
-        ValueError::OutOfRange,
+        ValueResult::MalformedPath,
+        ValueResult::UnknownField,
+        ValueResult::NotAStruct,
+        ValueResult::NotASequence,
+        ValueResult::IndexOutOfRange,
+        ValueResult::NoActiveValue,
+        ValueResult::ReadOnly,
+        ValueResult::NotAScalar,
+        ValueResult::WrongValueType,
+        ValueResult::UnknownEnumCase,
+        ValueResult::NotFinite,
+        ValueResult::OutOfRange,
     };
 
-    for (const ValueError error : errors)
+    for (const ValueResult error : errors)
     {
-        const std::string_view text = foundation::reflect::ValueErrorText(error);
+        const std::string_view text = foundation::reflect::ValueResultText(error);
 
         EXPECT_FALSE(text.empty());
         EXPECT_NE(text, "no error");

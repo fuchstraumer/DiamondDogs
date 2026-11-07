@@ -1,0 +1,238 @@
+#include "ToolLine.hpp"
+#include "ToolRegistry.hpp"
+#include "ToolReply.hpp"
+#include "ToolResult.hpp"
+#include "content/JsonSink.hpp"
+#include "content/JsonWriter.hpp"
+#include "reflect/ValueAccess.hpp"
+#include <charconv>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <format>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
+
+namespace
+{
+    using foundation::reflect::ScalarValue;
+
+    constexpr std::string_view k_Usage{
+        "describe [path], get path, set path value, or call command [argument=value ...]" };
+
+    [[nodiscard]] std::vector<std::string_view> SplitWords(std::string_view line);
+    [[nodiscard]] ScalarValue ParseValue(std::string_view word);
+    template<typename Number>
+    [[nodiscard]] bool ParseWholeWord(std::string_view word, Number& number);
+    [[nodiscard]] agent::ToolResult MakeLineFailure(std::string message, std::string_view line);
+    void RunDescribe(const agent::ToolRegistry& registry,
+                     const std::vector<std::string_view>& words,
+                     std::string_view line,
+                     agent::PendingReply reply);
+    void RunGet(const agent::ToolRegistry& registry, std::string_view path, agent::PendingReply reply);
+    void RunSet(agent::ToolRegistry& registry,
+                std::string_view path,
+                std::string_view value,
+                agent::PendingReply reply);
+    void RunCall(agent::ToolRegistry& registry,
+                 const std::vector<std::string_view>& words,
+                 agent::PendingReply reply);
+}
+
+namespace agent
+{
+    void RunToolLine(ToolRegistry& registry, std::string_view line, ReplySink& sink, int64_t request_id)
+    {
+        PendingReply reply{ sink, request_id };
+        const std::vector<std::string_view> words = SplitWords(line);
+        const std::string_view verb = words.empty() ? std::string_view{} : words[0];
+
+        if (verb == "describe")
+        {
+            RunDescribe(registry, words, line, std::move(reply));
+        }
+        else if (verb == "get" && words.size() == 2u)
+        {
+            RunGet(registry, words[1], std::move(reply));
+        }
+        else if (verb == "set" && words.size() == 3u)
+        {
+            RunSet(registry, words[1], words[2], std::move(reply));
+        }
+        else if (verb == "call" && words.size() >= 2u)
+        {
+            RunCall(registry, words, std::move(reply));
+        }
+        else
+        {
+            reply.Fail(MakeLineFailure(std::string{ k_Usage }, line));
+        }
+    }
+}
+
+namespace
+{
+    std::vector<std::string_view> SplitWords(std::string_view line)
+    {
+        std::vector<std::string_view> words;
+        size_t position = line.find_first_not_of(' ');
+
+        while (position != std::string_view::npos)
+        {
+            const size_t end = line.find(' ', position);
+
+            words.push_back(line.substr(position, end == std::string_view::npos ? end : end - position));
+            position = line.find_first_not_of(' ', end);
+        }
+
+        return words;
+    }
+
+    ScalarValue ParseValue(std::string_view word)
+    {
+        if (word == "true")
+        {
+            return ScalarValue{ true };
+        }
+
+        if (word == "false")
+        {
+            return ScalarValue{ false };
+        }
+
+        int64_t signedValue = 0;
+
+        if (ParseWholeWord(word, signedValue))
+        {
+            return ScalarValue{ signedValue };
+        }
+
+        uint64_t unsignedValue = 0u;
+
+        if (ParseWholeWord(word, unsignedValue))
+        {
+            return ScalarValue{ unsignedValue };
+        }
+
+        double floatingValue = 0.0;
+
+        if (ParseWholeWord(word, floatingValue))
+        {
+            return ScalarValue{ floatingValue };
+        }
+
+        return ScalarValue{ word };
+    }
+
+    template<typename Number>
+    bool ParseWholeWord(std::string_view word, Number& number)
+    {
+        const char* end = word.data() + word.size();
+        const std::from_chars_result result = std::from_chars(word.data(), end, number);
+
+        return result.ec == std::errc{} && result.ptr == end;
+    }
+
+    agent::ToolResult MakeLineFailure(std::string message, std::string_view line)
+    {
+        return agent::ToolResult
+        {
+            .Code = agent::ToolResultCode::MalformedLine,
+            .Message = std::move(message),
+            .Path = std::string{ line },
+        };
+    }
+
+    void RunDescribe(const agent::ToolRegistry& registry,
+                     const std::vector<std::string_view>& words,
+                     std::string_view line,
+                     agent::PendingReply reply)
+    {
+        if (words.size() == 1u)
+        {
+            reply.CompleteWithJson(registry.DescribeAll());
+            return;
+        }
+
+        if (words.size() != 2u)
+        {
+            reply.Fail(MakeLineFailure(std::string{ k_Usage }, line));
+            return;
+        }
+
+        std::expected<std::string, agent::ToolResult> schema = registry.Describe(words[1]);
+
+        if (!schema.has_value())
+        {
+            reply.Fail(std::move(schema.error()));
+            return;
+        }
+
+        reply.CompleteWithJson(std::move(*schema));
+    }
+
+    void RunGet(const agent::ToolRegistry& registry, std::string_view path, agent::PendingReply reply)
+    {
+        foundation::content::JsonSink json{ foundation::content::JsonStyle::Compact };
+        agent::ToolResult value = registry.GetValue(path, json);
+
+        if (!value.Succeeded())
+        {
+            reply.Fail(std::move(value));
+            return;
+        }
+
+        foundation::content::JsonResult<std::string> document = json.Finish();
+
+        reply.CompleteWithJson(std::move(*document));
+    }
+
+    void RunSet(agent::ToolRegistry& registry,
+                std::string_view path,
+                std::string_view value,
+                agent::PendingReply reply)
+    {
+        agent::ToolResult written = registry.SetValue(path, ParseValue(value));
+
+        if (!written.Succeeded())
+        {
+            reply.Fail(std::move(written));
+            return;
+        }
+
+        RunGet(registry, path, std::move(reply));
+    }
+
+    void RunCall(agent::ToolRegistry& registry,
+                 const std::vector<std::string_view>& words,
+                 agent::PendingReply reply)
+    {
+        std::vector<agent::NamedValue> arguments;
+
+        arguments.reserve(words.size() - 2u);
+
+        for (size_t index = 2u; index < words.size(); ++index)
+        {
+            const std::string_view word = words[index];
+            const size_t equals = word.find('=');
+
+            if (equals == std::string_view::npos)
+            {
+                reply.Fail(MakeLineFailure(std::format("the argument '{}' needs the form name=value", word),
+                           word));
+                return;
+            }
+
+            arguments.push_back(agent::NamedValue
+            {
+                .Path = word.substr(0u, equals),
+                .Value = ParseValue(word.substr(equals + 1u)),
+            });
+        }
+
+        registry.Call(words[1], arguments, std::move(reply));
+    }
+}
