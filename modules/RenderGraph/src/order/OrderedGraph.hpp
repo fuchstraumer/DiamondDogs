@@ -3,6 +3,7 @@
 #define DIAMOND_DOGS_LOOM_ORDERED_GRAPH_HPP
 #include "PassStatements.hpp"
 #include "freeze/FrozenGraph.hpp"
+#include "LoomKeys.hpp"
 #include <cstdint>
 #include <optional>
 #include <source_location>
@@ -86,10 +87,14 @@ namespace loom
             std::vector<uint64_t> Bits; // effectively flattened bit matrix
         };
 
-        inline bool Reaches(const Reachability& reach, NodeIndex from, NodeIndex to)
+        inline bool Reaches(const Reachability& reach, NodeIndex row, NodeIndex col)
         {
-            const uint64_t word = reach.Bits[(from.Value * reach.WordsPerNode) + (to.Value / 64)];
-            const uint64_t mask = uint64_t{ 1 } << (to.Value % 64);
+            // check: is bit `col` in row `row` set, which indicates whether that the pass at `row`
+            // reaches the pass at `col`
+            // row.value*reach.WordsPerNode: base offset to get to the start of row
+            // col.value/64 = offset based on word size
+            const uint64_t word = reach.Bits[(row.Value * reach.WordsPerNode) + (col.Value / 64)];
+            const uint64_t mask = uint64_t{ 1 } << (col.Value % 64);
             return (word & mask) != 0;
         }
 
@@ -121,6 +126,21 @@ namespace loom
         {
             const int32_t offset = static_cast<int32_t>(context.Frozen.Resources.size());
             return ResourceSlot{ offset + target.Value };
+        }
+
+        inline KeyRef ResourceOfSlot(const OrderContext& context, ResourceSlot slot)
+        {
+            const int32_t resourceCount = static_cast<int32_t>(context.Frozen.Resources.size());
+            // remember our slots are a kind of flattened index space where the first `resourceCount` slots correspond to actual resources
+            // and the slots after that are for frame targets
+            if (slot.Value < resourceCount)
+            {
+                return context.Frozen.Resources[slot.Value].Key;
+            }
+            else
+            {
+                return context.Frozen.FrameTargets[slot.Value - resourceCount].Key;
+            }
         }
     }
 

@@ -17,6 +17,7 @@
 #include <source_location>
 #include <span>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -34,16 +35,24 @@ namespace loom
          */
         struct CollatedAccesses
         {
-            std::vector<std::vector<int32_t>> Writers;
-            // For ReadData, we store both indices as we
-            // later want to look up the `Where` for it-
-            // as we only apply that on Readers as a rule
-            struct ReadData
+            // we store the actual accessIdx for retrieving `where` and other
+            // data stored on the access struct as needed
+            struct AccessRef
             {
                 int32_t PassIdx;
                 int32_t AccessIdx;
             };
-            std::vector<std::vector<ReadData>> Readers;
+            std::vector<std::vector<AccessRef>> Writers;
+            std::vector<std::vector<AccessRef>> Readers;
+        };
+
+        struct Hazard
+        {
+            int32_t LowPass{ -1 };
+            int32_t HighPass{ -1 };
+            int32_t Slot{ -1 };
+            std::source_location LowWhere;
+            std::source_location HighWhere;
         };
 
         void AddEdge(OrderContext& context,
@@ -69,10 +78,18 @@ namespace loom
         void AppendDispatchAccesses(std::vector<PassAccess>& results, const FrozenPass& pass);
         void GatherAccesses(OrderContext& context);
         CollatedAccesses CollateAccessesBySlot(OrderContext& context);
-        void AddDataFlowEdges(OrderContext& context);
+        void AddDataFlowEdges(OrderContext& context, const CollatedAccesses& collated);
         void BuildSuccessors(OrderContext& context);
         std::optional<std::vector<NodeIndex>> SortNodes(OrderContext& context);
-        void CheckHazards(OrderContext& context, const Reachability& reachability);
+        void RecordHazard(const OrderContext& context,
+                          std::vector<Hazard>& hazards,
+                          int32_t slot,
+                          const CollatedAccesses::AccessRef& lhs,
+                          const CollatedAccesses::AccessRef& rhs);
+        void ReportHazards(const OrderContext& context, const std::vector<Hazard>& hazards);
+        void CheckHazards(OrderContext& context,
+                          const CollatedAccesses& collated,
+                          const Reachability& reachability);
 
         void ReportCycle(const OrderContext& context, const std::vector<NodeIndex>& emitted);
         void ReportCycleEdges(const OrderContext& context, const std::vector<int32_t>& cycle_edges);
@@ -112,7 +129,9 @@ namespace loom
         AddFrameBoundEdges(context);
         AddSequenceEdges(context);
         GatherAccesses(context);
-        AddDataFlowEdges(context);
+        // data indexed by pass -> data indexed by slot
+        CollatedAccesses collated = CollateAccessesBySlot(context);
+        AddDataFlowEdges(context, collated);
         BuildSuccessors(context);
         auto sortNodesResult = SortNodes(context);
         if (!sortNodesResult.has_value())
@@ -123,6 +142,15 @@ namespace loom
         {
             const auto& orderedNodes = *sortNodesResult;
             const Reachability reachability = ComputeReachability(context, orderedNodes);
+
+            const int32_t errorsBefore = context.Sink.ErrorCount();
+            CheckHazards(context, collated, reachability);
+            // if we found hazards, then we can't return a valid ordered graph
+            if (context.Sink.ErrorCount() != errorsBefore)
+            {
+                return std::nullopt;
+            }
+
             // copy each pass node (pass.Value < context.PassCount) into result passes
             OrderedGraph result;
             auto filterFn = [&](NodeIndex node) { return node.Value < context.PassCount; };
@@ -420,7 +448,7 @@ namespace loom
 
         CollatedAccesses CollateAccessesBySlot(OrderContext& context)
         {
-            using ReadData = CollatedAccesses::ReadData;
+            using AccessRef = CollatedAccesses::AccessRef;
             CollatedAccesses collated;
             collated.Readers.resize(context.SlotCount);
             collated.Writers.resize(context.SlotCount);
@@ -430,8 +458,8 @@ namespace loom
                 for (auto&& [accessIdx, access] : std::views::enumerate(context.PassAccesses[passIdx]))
                 {
                     const int32_t slotIdx = access.Slot.Value;
-                    std::vector<ReadData>& readers = collated.Readers[slotIdx];
-                    std::vector<int32_t>& writers = collated.Writers[slotIdx];
+                    std::vector<AccessRef>& readers = collated.Readers[slotIdx];
+                    std::vector<AccessRef>& writers = collated.Writers[slotIdx];
 
                     if (access.Previous)
                     {
@@ -446,7 +474,7 @@ namespace loom
                         }
 
                         // have to cast bc enumerate gives us ptrdiff_t
-                        ReadData readData
+                        AccessRef readData
                         {
                             .PassIdx = passIdx,
                             .AccessIdx = static_cast<int32_t>(accessIdx)
@@ -455,14 +483,20 @@ namespace loom
                         readers.push_back(readData);
                     };
 
-                    auto pushWriter = [&writers, passIdx] ()
+                    auto pushWriter = [&writers, passIdx, accessIdx] ()
                     {
-                        if (!writers.empty() && (writers.back() == passIdx))
+                        if (!writers.empty() && (writers.back().PassIdx == passIdx))
                         {
                             return;
                         }
 
-                        writers.push_back(passIdx);
+                        AccessRef writeData
+                        {
+                            .PassIdx = passIdx,
+                            .AccessIdx = static_cast<int32_t>(accessIdx)
+                        };
+
+                        writers.push_back(writeData);
                     };
 
                     switch (access.Access)
@@ -487,10 +521,8 @@ namespace loom
             return collated;
         }
 
-        void AddDataFlowEdges(OrderContext& context)
+        void AddDataFlowEdges(OrderContext& context, const CollatedAccesses& collated)
         {
-            // data indexed by pass -> data indexed by slot
-            CollatedAccesses collated = CollateAccessesBySlot(context);
             // now that we have collated accesses by slot, we can iterate over each slot
             // and determine the data flow edges based on the read and write accesses for that slot
             for (int32_t slotIdx = 0; slotIdx < context.SlotCount; ++slotIdx)
@@ -502,7 +534,8 @@ namespace loom
                     continue;
                 }
 
-                const PassIndex writerPass{ writers.front() };
+                const CollatedAccesses::AccessRef& writerRef = writers.front();
+                const PassIndex writerPass{ writerRef.PassIdx };
                 for (const auto& reader : readers)
                 {
                     const PassIndex readerPass{ reader.PassIdx };
@@ -620,6 +653,122 @@ namespace loom
             }
 
             return result;
+        }
+
+        void RecordHazard(const OrderContext& context,
+                          std::vector<Hazard>& hazards,
+                          int32_t slot,
+                          const CollatedAccesses::AccessRef& lhs,
+                          const CollatedAccesses::AccessRef& rhs)
+        {
+            const bool inOrder = lhs.PassIdx < rhs.PassIdx;
+            const CollatedAccesses::AccessRef& low = inOrder ? lhs : rhs;
+            const CollatedAccesses::AccessRef& high = inOrder ? rhs : lhs;
+            const std::source_location& lowWhere = context.PassAccesses[low.PassIdx][low.AccessIdx].Where;
+            const std::source_location& highWhere = context.PassAccesses[high.PassIdx][high.AccessIdx].Where;
+            hazards.push_back({ low.PassIdx, high.PassIdx, slot, lowWhere, highWhere });
+        }
+
+        void ReportHazards(const OrderContext& context, const std::vector<Hazard>& hazards)
+        {
+            for (size_t i = 0; i < hazards.size(); ++i)
+            {
+                const Hazard& curr = hazards[i];
+                const bool samePair = (i > 0) &&
+                                      (curr.LowPass == hazards[i - 1].LowPass) &&
+                                      (curr.HighPass == hazards[i - 1].HighPass);
+
+                if (samePair && (hazards[i - 1].Slot == curr.Slot))
+                {
+                    continue;
+                }
+
+                Diagnostic diagnostic
+                {
+                    .Code = DiagnosticCode::LM502,
+                    .Severity = samePair ? DiagnosticSeverity::Note : DiagnosticSeverity::Error,
+                    .Where = curr.LowWhere,
+                    .OtherWhere = curr.HighWhere,
+                    .Pass = context.Frozen.Passes[curr.LowPass].Key,
+                    .Resource = ResourceOfSlot(context, ResourceSlot{ curr.Slot })
+                };
+
+                DiagnosticValue diagValue
+                {
+                    .FieldName = "OtherPass",
+                    .Kind = DiagnosticValueKind::Text,
+                    .Text = context.Frozen.Passes[curr.HighPass].Key.Name
+                };
+
+                diagnostic.Actual = diagValue;
+
+                context.Sink.Report(diagnostic);
+            }
+        }
+
+        void CheckHazards(OrderContext& context, const CollatedAccesses& collated, const Reachability& reachability)
+        {
+            std::vector<Hazard> hazards;
+
+            for (int32_t slot = 0; slot < context.SlotCount; ++slot)
+            {
+                const auto& writers = collated.Writers[slot];
+                const auto& readers = collated.Readers[slot];
+
+                // no writers: there's no way to have hazards if this slot is only read
+                // one writer: `AddDataFlowEdges` would have already added the necessary
+                // edges to prevent hazards, and this check runs after the sort. that means
+                // we already know for a fact that the writer is ordered correctly
+                if (writers.size() <= 1)
+                {
+                    continue;
+                }
+
+                // write-write: ever pair of writer passes
+                for (size_t first = 0; first < writers.size(); ++first)
+                {
+                    const NodeIndex firstNode{ writers[first].PassIdx };
+                    for (size_t second = first + 1; second < writers.size(); ++second)
+                    {
+                        const NodeIndex secondNode{ writers[second].PassIdx };
+                        if (!Ordered(reachability, firstNode, secondNode))
+                        {
+                            RecordHazard(context, hazards, slot, writers[first], writers[second]);
+                        }
+                    }
+                }
+
+                // write-read: every writer against every reader
+                for (const auto writer : writers)
+                {
+                    const NodeIndex writerNode{ writer.PassIdx };
+
+                    for (const auto reader : readers)
+                    {
+                        const NodeIndex readerNode{ reader.PassIdx };
+                        // If we are investigating a read-write resource,
+                        // we need to check for self-reference. A hazard
+                        // cannot occur inside the same pass.
+                        if (writerNode == readerNode)
+                        {
+                            continue;
+                        }
+
+                        if (!Ordered(reachability, writerNode, readerNode))
+                        {
+                            RecordHazard(context, hazards, slot, writer, reader);
+                        }
+                    }
+                }
+            }
+
+            auto hazardKey = [](const Hazard& hazard)
+            {
+                return std::tuple{ hazard.LowPass, hazard.HighPass, hazard.Slot };
+            };
+
+            std::ranges::stable_sort(hazards, {}, hazardKey);
+            ReportHazards(context, hazards);
         }
 
         void ReportCycle(const OrderContext& context, const std::vector<NodeIndex>& emitted)

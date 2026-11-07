@@ -355,13 +355,20 @@ TEST(Order, OneWriterOrdersItsReader)
 }
 
 // Two writers: the graph does not pick which one the reader follows. No data edges; the declaration order stays.
+// A sequence orders the three passes, because two unordered writers are LM502.
 TEST(Order, TwoWritersAddNoDataEdges)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
     graph.Declare(MakeBuffer());
-    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
-    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
-    graph.AddDispatch(k_Third, k_EveryFrame, k_Graphics, BindData);
+
+    auto buildTick = [](loom::SequenceBuilder& tick)
+    {
+        tick.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+        tick.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
+        tick.AddDispatch(k_Third, k_EveryFrame, k_Graphics, BindData);
+    };
+
+    graph.AddSequence(k_Tick, buildTick);
 
     loom::CollectingSink sink;
     const std::optional<loom::OrderedGraph> ordered =
@@ -486,6 +493,303 @@ TEST(Order, DataEdgeAgainstAnchorsIsLM501)
     }
 
     EXPECT_EQ(dataFlowNotes, 1);
+}
+
+// Hazards (LM502)
+
+namespace
+{
+
+    constexpr loom::ResourceKey<loom::Buffer> k_Other{ "Test.Other" };
+
+    loom::BufferDeclaration MakeOtherBuffer()
+    {
+        loom::BufferDeclaration buffer = MakeBuffer();
+        buffer.Key = k_Other;
+        return buffer;
+    }
+
+    void BindDataAndOther(loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.Bind("Data", k_Data);
+        pass.Bind("Other", k_Other);
+    }
+
+    std::vector<loom::Diagnostic> ErrorsOf(const loom::CollectingSink& sink)
+    {
+        std::vector<loom::Diagnostic> errors;
+
+        for (const loom::Diagnostic& diagnostic : sink.Diagnostics())
+        {
+            if (diagnostic.Severity == loom::DiagnosticSeverity::Error)
+            {
+                errors.push_back(diagnostic);
+            }
+        }
+
+        return errors;
+    }
+
+}
+
+// Two writers with no stated order. One error, at the lower pass's Bind, that names the other pass and its Bind.
+TEST(Order, UnorderedWritersAreLM502)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    uint32_t firstLine = 0;
+    uint32_t secondLine = 0;
+
+    auto writeFirst = [&firstLine](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        firstLine = std::source_location::current().line() + 1;
+        pass.Bind("Data", k_Data);
+    };
+
+    auto writeSecond = [&secondLine](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        secondLine = std::source_location::current().line() + 1;
+        pass.Bind("Data", k_Data);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, writeFirst);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, writeSecond);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_Write } });
+
+    ASSERT_FALSE(ordered.has_value());
+    ASSERT_EQ(sink.Diagnostics().size(), 1u);
+
+    const loom::Diagnostic& error = sink.Diagnostics()[0];
+    EXPECT_EQ(error.Code, loom::DiagnosticCode::LM502);
+    EXPECT_EQ(error.Severity, loom::DiagnosticSeverity::Error);
+    EXPECT_EQ(error.Pass.Hash, k_First.Hash);
+    EXPECT_EQ(error.Resource.Hash, k_Data.Hash);
+    EXPECT_EQ(error.Actual.Text, k_Second.Name);
+    EXPECT_EQ(error.Where.line(), firstLine);
+    EXPECT_EQ(error.OtherWhere.line(), secondLine);
+}
+
+// Reader 0, writers 1 and 2, all unordered. The write-read loop finds (writer 1, reader 0), so the pair must be turned
+// round: every error names the lower pass, and the errors come in pair order.
+TEST(Order, HazardNamesTheLowerPassFirst)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
+    graph.AddDispatch(k_Third, k_EveryFrame, k_Graphics, BindData);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Read }, { k_Write }, { k_Write } });
+
+    ASSERT_FALSE(ordered.has_value());
+
+    const std::vector<loom::Diagnostic> errors = ErrorsOf(sink);
+    ASSERT_EQ(errors.size(), 3u);
+    EXPECT_EQ(sink.NoteCount(), 0);
+
+    // (0, 1), (0, 2), (1, 2)
+    EXPECT_EQ(errors[0].Pass.Hash, k_First.Hash);
+    EXPECT_EQ(errors[0].Actual.Text, k_Second.Name);
+    EXPECT_EQ(errors[1].Pass.Hash, k_First.Hash);
+    EXPECT_EQ(errors[1].Actual.Text, k_Third.Name);
+    EXPECT_EQ(errors[2].Pass.Hash, k_Second.Hash);
+    EXPECT_EQ(errors[2].Actual.Text, k_Third.Name);
+}
+
+// Her HDR example. Writers {0, 1}, readers {1, 2}: pass 1 is ReadWrite. An anchor orders 0 before 2. The pair (0, 1)
+// comes from the write-write loop and again from the write-read loop. It must be reported once.
+TEST(Order, PairFromBothLoopsIsReportedOnce)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.DeclareAnchor(k_AnchorA);
+
+    auto writeBeforeA = [](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.Before(k_AnchorA);
+    };
+
+    auto readAfterA = [](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.After(k_AnchorA);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, writeBeforeA);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
+    graph.AddDispatch(k_Third, k_EveryFrame, k_Graphics, readAfterA);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_ReadWrite }, { k_Read } });
+
+    ASSERT_FALSE(ordered.has_value());
+    EXPECT_EQ(sink.NoteCount(), 0) << "a duplicate of a pair's slot is dropped, not turned into a note";
+
+    const std::vector<loom::Diagnostic> errors = ErrorsOf(sink);
+    ASSERT_EQ(errors.size(), 2u);
+    EXPECT_EQ(errors[0].Pass.Hash, k_First.Hash);
+    EXPECT_EQ(errors[0].Actual.Text, k_Second.Name);
+    EXPECT_EQ(errors[1].Pass.Hash, k_Second.Hash);
+    EXPECT_EQ(errors[1].Actual.Text, k_Third.Name);
+}
+
+// One pair conflicts on two slots: one error for the pair, then a note for the second slot.
+TEST(Order, SecondSlotOfAPairIsANote)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.Declare(MakeOtherBuffer());
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindDataAndOther);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindDataAndOther);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write, k_Write }, { k_Write, k_Write } });
+
+    ASSERT_FALSE(ordered.has_value());
+    ASSERT_EQ(sink.Diagnostics().size(), 2u);
+
+    const loom::Diagnostic& error = sink.Diagnostics()[0];
+    EXPECT_EQ(error.Severity, loom::DiagnosticSeverity::Error);
+    EXPECT_EQ(error.Resource.Hash, k_Data.Hash);
+
+    const loom::Diagnostic& note = sink.Diagnostics()[1];
+    EXPECT_EQ(note.Code, loom::DiagnosticCode::LM502);
+    EXPECT_EQ(note.Severity, loom::DiagnosticSeverity::Note);
+    EXPECT_EQ(note.Resource.Hash, k_Other.Hash);
+    EXPECT_EQ(note.Pass.Hash, k_First.Hash);
+}
+
+// The slot loop finds (0, 1) on Data, then (1, 2) on Data, then (0, 1) on Other. Only the sort puts the two (0, 1)
+// records together, so that Other becomes a note under the pair's error and not a second error.
+TEST(Order, SortGroupsAPairAcrossSlots)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.Declare(MakeOtherBuffer());
+    graph.DeclareAnchor(k_AnchorA);
+
+    auto writeBeforeA = [](loom::DispatchBuilder& pass)
+    {
+        BindDataAndOther(pass);
+        pass.Before(k_AnchorA);
+    };
+
+    auto writeAfterA = [](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.After(k_AnchorA);
+    };
+
+    // 0 -> anchor -> 2 orders the pair (0, 2), so Data's hazards are (0, 1) and (1, 2).
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, writeBeforeA);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindDataAndOther);
+    graph.AddDispatch(k_Third, k_EveryFrame, k_Graphics, writeAfterA);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write, k_Write }, { k_Write, k_Write }, { k_Write } });
+
+    ASSERT_FALSE(ordered.has_value());
+    EXPECT_EQ(sink.ErrorCount(), 2);
+    ASSERT_EQ(sink.NoteCount(), 1);
+    ASSERT_EQ(sink.Diagnostics().size(), 3u);
+
+    EXPECT_EQ(sink.Diagnostics()[0].Resource.Hash, k_Data.Hash);
+    EXPECT_EQ(sink.Diagnostics()[0].Actual.Text, k_Second.Name);
+    EXPECT_EQ(sink.Diagnostics()[1].Severity, loom::DiagnosticSeverity::Note);
+    EXPECT_EQ(sink.Diagnostics()[1].Resource.Hash, k_Other.Hash);
+    EXPECT_EQ(sink.Diagnostics()[2].Pass.Hash, k_Second.Hash);
+    EXPECT_EQ(sink.Diagnostics()[2].Actual.Text, k_Third.Name);
+}
+
+// A sequence orders a writer, a ReadWrite pass and a reader. The ReadWrite pass is in both lists, and the strict
+// closure does not order a pass with itself, so the check must skip that self-pair.
+TEST(Order, OrderedWritersAndReadWriteSelfPairAreClean)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+
+    auto buildTick = [](loom::SequenceBuilder& tick)
+    {
+        tick.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+        tick.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
+        tick.AddDispatch(k_Third, k_EveryFrame, k_Graphics, BindData);
+    };
+
+    graph.AddSequence(k_Tick, buildTick);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_ReadWrite }, { k_Read } });
+
+    ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
+    EXPECT_TRUE(sink.Diagnostics().empty());
+}
+
+// The two writers are ordered. The BindPrevious reader is not ordered with either, but it reads last frame's
+// version, so it is not a hazard.
+TEST(Order, PreviousReadIsNotAHazard)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBufferWithHistory());
+
+    auto readPrevious = [](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.BindPrevious("Data", k_Data);
+    };
+
+    auto buildTick = [](loom::SequenceBuilder& tick)
+    {
+        tick.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+        tick.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
+    };
+
+    graph.AddSequence(k_Tick, buildTick);
+    graph.AddDispatch(k_Third, k_EveryFrame, k_Graphics, readPrevious);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_Write }, { k_Read } });
+
+    ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
+    EXPECT_TRUE(sink.Diagnostics().empty());
+}
+
+// The sink already holds an error from an earlier stage. A clean graph must still order: Order() fails on the errors
+// that its own checks add, not on the total.
+TEST(Order, EarlierErrorsDoNotFailACleanGraph)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::FrozenGraph> frozen = loom::Freeze(graph.Record(), sink);
+    ASSERT_TRUE(frozen.has_value());
+
+    const loom::Diagnostic earlier
+    {
+        .Code = loom::DiagnosticCode::LM501,
+        .Severity = loom::DiagnosticSeverity::Error,
+    };
+    sink.Report(earlier);
+
+    const loom::BindAccessTable binds{ .Accesses = { { k_Write } } };
+    const std::optional<loom::OrderedGraph> ordered = loom::Order(*frozen, binds, sink);
+
+    EXPECT_TRUE(ordered.has_value());
+    EXPECT_EQ(sink.ErrorCount(), 1);
 }
 
 // Reachability tests build the edges, successors and topological order by hand. A failure here is in
