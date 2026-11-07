@@ -666,7 +666,7 @@ namespace loom
             const CollatedAccesses::AccessRef& high = inOrder ? rhs : lhs;
             const std::source_location& lowWhere = context.PassAccesses[low.PassIdx][low.AccessIdx].Where;
             const std::source_location& highWhere = context.PassAccesses[high.PassIdx][high.AccessIdx].Where;
-            hazards.push_back({ low.PassIdx, high.PassIdx, slot, lowWhere, highWhere });
+            hazards.push_back({ .LowPass=low.PassIdx, .HighPass=high.PassIdx, .Slot=slot, .LowWhere=lowWhere, .HighWhere=highWhere });
         }
 
         void ReportHazards(const OrderContext& context, const std::vector<Hazard>& hazards)
@@ -727,7 +727,7 @@ namespace loom
                 // write-write: ever pair of writer passes
                 for (size_t first = 0; first < writers.size(); ++first)
                 {
-                    const NodeIndex firstNode{ writers[first].PassIdx };
+                    const NodeIndex firstNode = NodeOfPass(PassIndex{ writers[first].PassIdx });
                     for (size_t second = first + 1; second < writers.size(); ++second)
                     {
                         const NodeIndex secondNode{ writers[second].PassIdx };
@@ -747,8 +747,7 @@ namespace loom
                     {
                         const NodeIndex readerNode{ reader.PassIdx };
                         // If we are investigating a read-write resource,
-                        // we need to check for self-reference. A hazard
-                        // cannot occur inside the same pass.
+                        // we need to check for self-reference
                         if (writerNode == readerNode)
                         {
                             continue;
@@ -762,11 +761,12 @@ namespace loom
                 }
             }
 
-            auto hazardKey = [](const Hazard& hazard)
+            const auto hazardKey = [](const Hazard& hazard)
             {
                 return std::tuple{ hazard.LowPass, hazard.HighPass, hazard.Slot };
             };
-
+            // using hazardKey extracts the three numeric components of the hazard that we can 
+            // use to sort (and `{}` becomes default sort comparator, std::less<> by default)
             std::ranges::stable_sort(hazards, {}, hazardKey);
             ReportHazards(context, hazards);
         }
