@@ -152,7 +152,12 @@ public Texture2D<float4> HdrResolvedInput;
 [ls_element_count("1")]
 public RWStructuredBuffer<float4> ExposureStateBuffer;
 
+// the exposure in stops that the color pipe's composite reads (ColorPipe's ExposureSource::Consumer)
+[ls_element_count("1")]
+public RWStructuredBuffer<float> CompositeExposureEv;
+
 internal groupshared float s_SharedLogLum[256];
+internal static const float k_MiddleGray = 0.18f;
 
 // Push constant definitions
 public struct SpecularAaPushConstants
@@ -188,7 +193,9 @@ public struct AutoExposurePushConstants
     public float AdaptationSpeed;
     public float MinLogLum;
     public float MaxLogLum;
-    public float2 Padding;
+    // stops added to the metered exposure
+    public float CompensationEv;
+    public float Padding;
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -1186,11 +1193,15 @@ void OceanAutoExposureCS(
         const float prevAdaptedLum = (prevState.x > 1e-4f) ? prevState.x : targetLum;
 
         const float speed = max(0.01f, Push.AdaptationSpeed);
-        const float adaptedLum = prevAdaptedLum + (targetLum - prevAdaptedLum) * (1.0f - exp(-Push.DeltaTime * speed));
+        // the history term decays to exactly 0 at a large speed, so the result is then exactly the target
+        const float adaptedLum = targetLum + (prevAdaptedLum - targetLum) * exp(-Push.DeltaTime * speed);
 
         const float targetEv = log2(max(1e-4f, targetLum * 8.0f));
         const float adaptedEv = log2(max(1e-4f, adaptedLum * 8.0f));
 
         ExposureStateBuffer[0] = float4(adaptedLum, targetEv, adaptedEv, avgLogLum);
+
+        // the adapted average luminance maps to middle gray
+        CompositeExposureEv[0] = log2(k_MiddleGray / adaptedLum) + Push.CompensationEv;
     }
 }

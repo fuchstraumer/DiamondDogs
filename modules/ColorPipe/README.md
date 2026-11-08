@@ -54,8 +54,17 @@ Each frame uses three images and one buffer.
 - **Composite**: `RecordComposite` draws one fullscreen triangle. The fragment shader reads both targets with `Load`
   and writes the output image. It is a fragment pass and not a compute pass, because swapchain images do not reliably
   support storage usage, and an `_SRGB` format never does.
-- **EV buffer**: a small storage buffer that the fragment shader reads (element 0 is the EV in stops). `RecordComposite`
-  writes it in the queue. The adaptation pass will write it later, and the composite will not change.
+- **EV buffer** (`ColorPipe::ExposureResource`): a small storage buffer that the fragment shader reads (element 0 is
+  the EV in stops). `SetExposureSource` selects who writes it:
+  - `ExposureSource::Manual` (the default): `RecordComposite` fills it with the value of `SetExposureEv`, in the queue.
+  - `ExposureSource::Consumer`: a pass of the consumer writes it on the GPU before `RecordComposite`, for example an
+    auto exposure pass, and `RecordComposite` does not touch it. Nothing returns to the CPU, so there is no readback
+    stall. The consumer places both barriers: from `FragmentShader` `ShaderStorageRead` before its write (the last
+    composite read the buffer), and to `FragmentShader` `ShaderStorageRead` after it. OceanFft's
+    `OceanAutoExposureCS` is the first consumer: it writes `log2(0.18 / adapted luminance) + compensation`.
+
+  The composite is the same in both modes, so a consumer pass is correct when the image at its EV equals the image at
+  the same float set by hand. OceanFft's `check_engine.py` checks exactly that, byte for byte.
 
 ### Layouts
 
@@ -152,8 +161,9 @@ Rules:
   one short submit on the general queue.
 - The consumer calls `OnSwapchainRecreated` after each swapchain recreation. A headless pipe (no swapchain) sets
   `Width` and `Height`, and calls `Resize` directly.
-- The consumer calls `SetExposureEv`, `SetTonemapper` and `SetOverrides` at any time. The next `RecordComposite` uses
-  the new values.
+- The consumer calls `SetExposureEv`, `SetExposureSource`, `SetTonemapper` and `SetOverrides` at any time. The next
+  `RecordComposite` uses the new values.
+- The scene target and the EV buffer have transfer source usage, so that a capture tool can copy them.
 
 ## How it is tested
 

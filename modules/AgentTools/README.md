@@ -222,7 +222,7 @@ tool describe camera.set
 The `sea` command also writes through the registry. The other text commands stay on their old path until they move.
 
 The scene exposes these commands: `camera.get`, `camera.set`, `camera.lookat`, `frame.info` (with the screen size),
-`frame.wait`, `frame.pause`, `debug.view` (the shader debug views by name), `app.quit`, three time commands, and three
+`frame.wait`, `frame.pause`, `debug.view` (the shader debug views by name), `app.quit`, three time commands, and four
 captures:
 
 | Command | Result |
@@ -241,9 +241,24 @@ through the sidecar, because a capture always records at least one frame after t
 | `capture.region` | One rectangle of the final image at full resolution. |
 | `capture.pixel` | One pixel: linear BT.709 (1.0 is paper white), the 8-bit sRGB value, and the stored bytes in hexadecimal. |
 
+| `capture.target` | One intermediate image or buffer, unchanged, in a `.bin` file: the stored values, rows top first, channels interleaved. The reply has the numpy dtype, the shape, the channel names, and a scale and bias that make a picture of each channel. |
+
 A capture replies after the file exists, a few frames later. `HideUi` hides the panel on the captured frame only. A file
 name may use only letters, digits, `_` and `-`, so that a tool cannot write outside the capture folder. One frame records
 one capture, and a script, burst or scheduled capture takes the frame first.
+
+**Targets.** `capture.target` copies at the end of the frame, after the composite, so every target holds this frame's
+values. A hand-written table in `OceanSceneTools.cpp` (`k_CaptureTargets`, and `SourceOf` for the layout and the last
+access of each one at that point) lists them: `scene`, `hdr_lighting`, `normal_sigma`, `normal_sigma_filtered`,
+`foam_sss`, `motion_foam`, `seabed_color`, `ocean_depth`, `seabed_depth`, `hiz`, `exposure_state` and `exposure_ev`. A
+wrong name fails, and the error lists each target with its channels. Each new target is a row in the table and a case in
+`SourceOf`, and its image needs transfer source usage. A Loom tap will replace the table when Loom records OceanFft:
+the graph knows the layouts and places the barriers itself. The copy's barrier back to the target's layout blocks all
+later work (`AllCommands`), because the next frame's barriers expect the target untouched. That costs nothing that
+matters on a debug path.
+
+**`ocean.exposure`** is the second object, after `ocean.sea`: `Auto`, `Ev` (the compensation with `Auto` on, the
+exposure with it off) and `Speed`. The scene reads it each frame, so a write needs no callback.
 
 `--tool-port=N` starts the server. `--tool-port=0` lets the system choose, and the demo prints
 `tool server listening on 127.0.0.1:<port>` before the slow startup work. `main` owns the server, so it outlives the

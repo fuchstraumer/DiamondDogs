@@ -120,6 +120,7 @@ namespace color
         DisplayTarget Target{};
         TonemapperKind Tonemapper{ TonemapperKind::Invalid };
         float ExposureEv{ 0.0f };
+        ExposureSource Exposure{ ExposureSource::Manual };
 
         uint32_t Width{ 0u };
         uint32_t Height{ 0u };
@@ -329,6 +330,21 @@ namespace color
         impl->ExposureEv = exposure_ev;
     }
 
+    void ColorPipe::SetExposureSource(ExposureSource source) noexcept
+    {
+        impl->Exposure = source;
+    }
+
+    ExposureSource ColorPipe::GetExposureSource() const noexcept
+    {
+        return impl->Exposure;
+    }
+
+    GraphicsResource ColorPipe::ExposureResource() const noexcept
+    {
+        return impl->ExposureBuffer;
+    }
+
     void ColorPipe::SetBloomSettings(const BloomSettings& settings) noexcept
     {
         impl->Bloom = settings;
@@ -360,15 +376,18 @@ namespace color
 
     void ColorPipe::RecordComposite(rhi::CommandBuffer& command_buffer, rhi::ImageViewHandle output_view, rhi::GpuTimerBlock* timers)
     {
-        // exposure buffer barrier
-        const rhi::GlobalBarrier readToWrite
+        // a Consumer pass already wrote the exposure, and placed its own barriers
+        if (impl->Exposure == ExposureSource::Manual)
         {
-            rhi::PipelineStage::FragmentShader, rhi::Access::ShaderStorageRead,
-            rhi::PipelineStage::AllTransfer, rhi::Access::TransferWrite
-        };
-        command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &readToWrite, 1 }, {}, {} });
+            const rhi::GlobalBarrier readToWrite
+            {
+                rhi::PipelineStage::FragmentShader, rhi::Access::ShaderStorageRead,
+                rhi::PipelineStage::AllTransfer, rhi::Access::TransferWrite
+            };
+            command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &readToWrite, 1 }, {}, {} });
 
-        command_buffer.FillBuffer(rhi::BufferHandle{ impl->ExposureBuffer.VkHandle }, 0u, sizeof(float), std::bit_cast<uint32_t>(impl->ExposureEv));
+            command_buffer.FillBuffer(rhi::BufferHandle{ impl->ExposureBuffer.VkHandle }, 0u, sizeof(float), std::bit_cast<uint32_t>(impl->ExposureEv));
+        }
 
         const rhi::GlobalBarrier writeToRead
         {
@@ -689,8 +708,10 @@ namespace color
         {
             ImageCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
-            // TransferDestination lets a test fill the target, UavComputeShader allows storage write (TAA resolve)
-            info.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvFragmentShader | ImageUsageBits::TransferDestination | ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader;
+            // TransferDestination lets a test fill the target, TransferSource lets a capture tool copy it, UavComputeShader
+            // allows storage write (TAA resolve)
+            info.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvFragmentShader | ImageUsageBits::TransferDestination |
+                         ImageUsageBits::TransferSource | ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader;
             info.Type = ImageType::Type2D;
             info.Format = format;
             info.Width = width;
@@ -1036,7 +1057,9 @@ namespace color
         {
             BufferCreateInfo info{};
             info.Domain = ResourceDomain::GPUOnly;
-            info.Usage = BufferUsageBits::FragmentShaderSRV | BufferUsageBits::CopyDestination;
+            // a Consumer pass writes it from compute, and a capture tool copies it
+            info.Usage = BufferUsageBits::FragmentShaderSRV | BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopyDestination |
+                         BufferUsageBits::CopySource;
             info.Size = k_ExposureBufferBytes;
             info.Name = "ColorPipe_ExposureBuffer";
             impl.ExposureBuffer = WaitForResource(*impl.Resources, impl.Resources->CreateBuffer(info, {}));

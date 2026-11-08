@@ -46,6 +46,17 @@ namespace agent
     class ToolServer;
 }
 
+/** @brief The exposure of the final image. The tools expose it as ocean.exposure */
+struct ExposureSettings
+{
+    // on: a GPU pass meters the scene each frame, and Ev adds to that. Off: Ev is the exposure
+    bool Auto{ true };
+    // stops
+    float Ev{ 0.0f };
+    // how fast the auto exposure follows the scene, in 1/s
+    float Speed{ 1.0f };
+};
+
 struct OceanSceneSettings
 {
     ocean::OceanSimulationSettings Simulation{};
@@ -330,7 +341,7 @@ private:
 
     // ColorPipe controls
     color::TonemapperKind tonemapper{ color::TonemapperKind::AgX };
-    float exposureEv{ 0.0f };
+    ExposureSettings exposure{};
     color::BloomSettings bloomSettings{ .Enabled = true, .Intensity = 0.04f, .Scatter = 0.7f };
 
     // Bruneton Atmosphere (Phase 4B)
@@ -344,8 +355,6 @@ private:
     bool useTaa{ true };
     float taaBlendAlpha{ 0.1f };
     float ssrIntensity{ 1.0f };
-    bool useAutoExposure{ true };
-    float autoExposureSpeed{ 1.0f };
     uint32_t historyPingPong{ 0u };
     bool taaHistoryInitialized{ false };
 
@@ -368,6 +377,10 @@ private:
     std::vector<std::array<VkDescriptorSet, 2>> deferredLightingSets;
     std::vector<std::array<VkDescriptorSet, 2>> taaResolveSets;
     VkDescriptorSet autoExposureSet{ VK_NULL_HANDLE };
+    // false until the first auto exposure pass clears the state buffer
+    bool exposureStateCleared{ false };
+    // the wall-clock time of this frame, which the auto exposure adapts over
+    float exposureDeltaSeconds{ 0.0f };
 
     // Deferred Render Targets & Resources
     GraphicsResource gbufferNormalSigma;

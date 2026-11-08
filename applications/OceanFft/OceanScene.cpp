@@ -217,7 +217,8 @@ namespace
         float AdaptationSpeed{ 1.0f };
         float MinLogLum{ -8.0f };
         float MaxLogLum{ 4.0f };
-        std::array<float, 2> Padding{ 0.0f, 0.0f };
+        float CompensationEv{ 0.0f };
+        float Padding{ 0.0f };
     };
     static_assert(sizeof(AutoExposurePushConstants) == 32u);
 
@@ -512,7 +513,7 @@ void OceanScene::Initialize(void* user_data)
     }
     colorPipe = std::move(*pipeResult);
     colorPipe->SetBloomSettings(bloomSettings);
-    colorPipe->SetExposureEv(exposureEv);
+    colorPipe->SetExposureEv(exposure.Ev);
     startup.Mark("ColorPipe library and Create");
 
     // Ocean CDLOD
@@ -999,6 +1000,7 @@ void OceanScene::updateDeferredDescriptors()
     const BoundResources autoExpBound{
         { "HdrResolvedInput", { colorPipe ? colorPipe->SceneResource() : GraphicsResource{}, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL } },
         { "ExposureStateBuffer", { exposureStateBuffer } },
+        { "CompositeExposureEv", { colorPipe ? colorPipe->ExposureResource() : GraphicsResource{} } },
     };
     (void)WriteManifestDescriptors(vkDevice, autoExposureSet, **deferredIndex, autoExpVariant, autoExpSpan, autoExpBound);
 }
@@ -1046,6 +1048,9 @@ void OceanScene::createRenderTargets()
 {
     const math::Float2 extent = swapchain->GetExtent();
 
+    // a capture tool copies these targets (capture.target)
+    constexpr ImageUsageBits k_CaptureUsage = ImageUsageBits::TransferSource;
+
     // Deferred Render Targets
     ImageCreateInfo hdrInfo{};
     hdrInfo.Domain = ResourceDomain::GPUOnly;
@@ -1060,27 +1065,27 @@ void OceanScene::createRenderTargets()
     hdrInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
 
     hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite |
-                    ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader;
+                    ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferNormalSigma";
     gbufferNormalSigma = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferNormalSigma");
 
-    hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination;
+    hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferNormalSigmaFiltered";
     gbufferNormalSigmaFiltered = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferNormalSigmaFiltered");
 
-    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader;
+    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferFoamSss";
     gbufferFoamSss = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferFoamSss");
 
-    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader;
+    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     hdrInfo.Name = "Ocean_GBufferMotionFoam";
     gbufferMotionFoam = WaitForResource(*resources, resources->CreateImage(hdrInfo), "GBufferMotionFoam");
 
-    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader;
+    hdrInfo.Usage = ImageUsageBits::RenderTargetRead | ImageUsageBits::RenderTargetWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     hdrInfo.Name = "Ocean_SeabedColorImage";
     seabedColorImage = WaitForResource(*resources, resources->CreateImage(hdrInfo), "SeabedColorImage");
 
-    hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination;
+    hdrInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | ImageUsageBits::TransferDestination | k_CaptureUsage;
     hdrInfo.Name = "Ocean_HdrLightingImage";
     hdrLightingImage = WaitForResource(*resources, resources->CreateImage(hdrInfo), "HdrLightingImage");
 
@@ -1098,7 +1103,7 @@ void OceanScene::createRenderTargets()
     depthTargetInfo.Height = static_cast<uint32_t>(extent.y);
     depthTargetInfo.Depth = 1u;
     depthTargetInfo.SampleCount = 1u;
-    depthTargetInfo.Usage = ImageUsageBits::DepthRead | ImageUsageBits::DepthWrite | ImageUsageBits::SrvComputeShader;
+    depthTargetInfo.Usage = ImageUsageBits::DepthRead | ImageUsageBits::DepthWrite | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     depthTargetInfo.ViewInfo = ImageViewCreateInfo{};
     depthTargetInfo.ViewInfo->ViewType = ImageViewType::Type2D;
     depthTargetInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Depth;
@@ -1117,7 +1122,7 @@ void OceanScene::createRenderTargets()
     hiZInfo.Height = (static_cast<uint32_t>(extent.y) + 1u) / 2u;
     hiZInfo.Depth = 1u;
     hiZInfo.SampleCount = 1u;
-    hiZInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader;
+    hiZInfo.Usage = ImageUsageBits::UavComputeShader | ImageUsageBits::SrvComputeShader | k_CaptureUsage;
     hiZInfo.ViewInfo = ImageViewCreateInfo{};
     hiZInfo.ViewInfo->ViewType = ImageViewType::Type2D;
     hiZInfo.ViewInfo->Range.AspectMask = ImageAspectFlags::Color;
@@ -1141,10 +1146,12 @@ void OceanScene::createRenderTargets()
 
     BufferCreateInfo expInfo{};
     expInfo.Domain = ResourceDomain::GPUOnly;
-    expInfo.Usage = BufferUsageBits::ComputeShaderUAV;
+    // CopyDestination for the clear before the first auto exposure pass, CopySource for a capture tool
+    expInfo.Usage = BufferUsageBits::ComputeShaderUAV | BufferUsageBits::CopyDestination | BufferUsageBits::CopySource;
     expInfo.Size = sizeof(float) * 4;
     expInfo.Name = "Ocean_ExposureStateBuffer";
     exposureStateBuffer = WaitForResource(*resources, resources->CreateBuffer(expInfo, {}), "exposure state buffer");
+    exposureStateCleared = false;
 
     BufferCreateInfo atmoInfo{};
     atmoInfo.Domain = ResourceDomain::CPUToGPU;
@@ -1516,10 +1523,10 @@ void OceanScene::runCommand(const SceneCommand& command)
         }
         break;
     case SceneCommand::Kind::AutoExposure:
-        useAutoExposure = command.Text == "on";
+        exposure.Auto = command.Text == "on";
         if (command.ValueCount > 0u)
         {
-            autoExposureSpeed = v[0];
+            exposure.Speed = v[0];
         }
         break;
     case SceneCommand::Kind::Sky:
@@ -1609,10 +1616,10 @@ void OceanScene::runCommand(const SceneCommand& command)
         }
         break;
     case SceneCommand::Kind::Exposure:
-        exposureEv = v[0];
+        exposure.Ev = v[0];
         if (colorPipe)
         {
-            colorPipe->SetExposureEv(exposureEv);
+            colorPipe->SetExposureEv(exposure.Ev);
         }
         break;
     case SceneCommand::Kind::Bloom:
@@ -1899,7 +1906,7 @@ void OceanScene::printState() const
     default: break;
     }
     std::cout << std::format("\ntonemap {} exposure {:.2f} EV bloom {} intensity {:.4f} scatter {:.2f}",
-        tonemapperName, exposureEv, bloomSettings.Enabled ? "on" : "off", bloomSettings.Intensity, bloomSettings.Scatter);
+        tonemapperName, exposure.Ev, bloomSettings.Enabled ? "on" : "off", bloomSettings.Intensity, bloomSettings.Scatter);
     std::cout << std::format("\ncdlod {} scale {:.2f} morph {:.2f} max_level {} ({}) wireframe {}",
         useCdlod ? "on" : "off", lodDistanceScale, morphStartRatio,
         cdlod ? cdlod->Settings().MaxLevel : 0u,
@@ -2473,7 +2480,7 @@ void OceanScene::drawPanel()
             (void)ocean::DrawTelemetryToggle("##use_taa", "Temporal AA", "OFF", "ON", &useTaa, fonts, ocean::AccentTone::Cyan);
             (void)ocean::DrawArtistSlider("##taa_alpha", "TAA alpha", "blend rate", &taaBlendAlpha, 0.01f, 0.5f, std::format("{:.2f}", taaBlendAlpha), "", fonts, ocean::AccentTone::Cyan, false);
             (void)ocean::DrawArtistSlider("##ssr_int", "SSR intensity", "crest reflections", &ssrIntensity, 0.0f, 2.0f, std::format("{:.2f}", ssrIntensity), "", fonts, ocean::AccentTone::Ice, false);
-            (void)ocean::DrawTelemetryToggle("##auto_exp", "Auto exposure", "OFF", "ON", &useAutoExposure, fonts, ocean::AccentTone::Amber);
+            (void)ocean::DrawTelemetryToggle("##auto_exp", "Auto exposure", "OFF", "ON", &exposure.Auto, fonts, ocean::AccentTone::Amber);
 
             ocean::DrawSubSectionDivider("SKY & ENVIRONMENT", fonts, headerFontMode, ocean::AccentTone::Amber);
             if (ocean::DrawSkyPresetGrid(fonts, skyPreset))
@@ -2532,10 +2539,10 @@ void OceanScene::drawPanel()
                     "##exposure_ev",
                     "Exposure EV",
                     "stops of exposure compensation",
-                    &exposureEv,
+                    &exposure.Ev,
                     -6.0f,
                     6.0f,
-                    std::format("{:+.1f}", exposureEv),
+                    std::format("{:+.1f}", exposure.Ev),
                     "EV",
                     fonts,
                     ocean::AccentTone::Ice,
@@ -2543,7 +2550,7 @@ void OceanScene::drawPanel()
             {
                 if (colorPipe)
                 {
-                    colorPipe->SetExposureEv(exposureEv);
+                    colorPipe->SetExposureEv(exposure.Ev);
                 }
             }
 
@@ -2935,6 +2942,9 @@ void OceanScene::update()
         (void)ocean::DrawRestoreMenuButton(imgui->Fonts(), &showUi);
     }
 
+    // the eye adapts in real time, paused or not. A fixed step keeps a scripted run repeatable
+    exposureDeltaSeconds = settings.FixedTimeStep > 0.0f ? settings.FixedTimeStep : ImGui::GetIO().DeltaTime;
+
     // the foam advances by the same step as the simulation time, so a paused sea holds its foam
     double foamStep = 0.0;
 
@@ -3104,7 +3114,7 @@ void OceanScene::writeViewParameters()
     frameConstants.SpecularAaStrength = specularAaStrength;
     frameConstants.SsrIntensity = ssrIntensity;
     frameConstants.TaaBlendAlpha = taaBlendAlpha;
-    frameConstants.AutoExposureSpeed = autoExposureSpeed;
+    frameConstants.AutoExposureSpeed = exposure.Speed;
 
     std::memcpy(frameConstantsBufferPointers[currentFrame], &frameConstants, sizeof(FrameConstants));
 
@@ -3612,11 +3622,30 @@ void OceanScene::recordDeferredPipeline(
     }
     historyPingPong = nextPingPong;
 
-    // 7. Auto Exposure Compute Pass
+    // 7. Auto Exposure Compute Pass. It writes the composite's exposure, so the color pipe does not
     const color::ColorTargetView sceneTarget = colorPipe->SceneTarget();
-    if (useAutoExposure)
+
+    colorPipe->SetExposureEv(exposure.Ev);
+    colorPipe->SetExposureSource(exposure.Auto ? color::ExposureSource::Consumer : color::ExposureSource::Manual);
+
+    if (exposure.Auto)
     {
         const rhi::ScopedGpuTimer timer(timerBlock, "Auto Exposure");
+        const rhi::BufferHandle stateBuffer{ exposureStateBuffer.VkHandle };
+
+        // the state holds the adapted luminance, so a new buffer starts from zero: the pass then takes its target
+        if (!exposureStateCleared)
+        {
+            const rhi::GlobalBarrier readToClear{
+                rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite,
+                rhi::PipelineStage::AllTransfer, rhi::Access::TransferWrite
+            };
+
+            cmd.Barrier(rhi::DependencyInfo{ std::span{ &readToClear, 1 }, {}, {} });
+            cmd.FillBuffer(stateBuffer, 0u, sizeof(float) * 4u, 0u);
+            exposureStateCleared = true;
+        }
+
         const rhi::ImageBarrier sceneToSampled{
             sceneTarget.Image,
             rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
@@ -3624,21 +3653,29 @@ void OceanScene::recordDeferredPipeline(
             rhi::ImageLayout::General, rhi::ImageLayout::ShaderReadOnly,
             k_ColorRange
         };
-        cmd.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &sceneToSampled, 1 } });
+        // the last composite read the exposure, and the clear above may have written the state
+        const rhi::GlobalBarrier beforeWrite{
+            rhi::PipelineStage::FragmentShader | rhi::PipelineStage::AllTransfer, rhi::Access::ShaderStorageRead | rhi::Access::TransferWrite,
+            rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageRead | rhi::Access::ShaderStorageWrite
+        };
+
+        cmd.Barrier(rhi::DependencyInfo{ std::span{ &beforeWrite, 1 }, {}, std::span{ &sceneToSampled, 1 } });
 
         RhiAssert(cmd.BindShaders(autoExposureProgram->Program()));
         const rhi::DescriptorSetHandle setHandle{ reinterpret_cast<uint64_t>(autoExposureSet) };
         cmd.BindDescriptorSets(rhi::PipelineBindPoint::Compute, autoExposureProgram->PipelineLayout(), 0, std::span{ &setHandle, 1 });
 
-        // exp(-0.016 x 1e4) is 0 in float, so a repeatable frame's exposure equals its target, with no history
-        const float adaptationSpeed = repeatableFrames ? k_InstantAdaptationSpeed : autoExposureSpeed;
+        // exp(-1 x 1e4) is 0 in float, so a repeatable frame's exposure equals its target, with no history
+        const float adaptationSpeed = repeatableFrames ? k_InstantAdaptationSpeed : exposure.Speed;
+        const float adaptationSeconds = repeatableFrames ? 1.0f : exposureDeltaSeconds;
         const AutoExposurePushConstants push{
             .Dimensions = { width, height },
-            .DeltaTime = 0.016f,
+            .DeltaTime = adaptationSeconds,
             .AdaptationSpeed = adaptationSpeed,
             .MinLogLum = -8.0f,
             .MaxLogLum = 4.0f,
-            .Padding = { 0.0f, 0.0f }
+            .CompensationEv = exposure.Ev,
+            .Padding = 0.0f
         };
         PushProgramConstants(cmd, *autoExposureProgram, push);
         cmd.Dispatch(1u, 1u, 1u);
@@ -3650,7 +3687,12 @@ void OceanScene::recordDeferredPipeline(
             rhi::ImageLayout::ShaderReadOnly, rhi::ImageLayout::ColorAttachment,
             k_ColorRange
         };
-        cmd.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &sceneToColorPipe, 1 } });
+        const rhi::GlobalBarrier exposureToComposite{
+            rhi::PipelineStage::ComputeShader, rhi::Access::ShaderStorageWrite,
+            rhi::PipelineStage::FragmentShader, rhi::Access::ShaderStorageRead
+        };
+
+        cmd.Barrier(rhi::DependencyInfo{ std::span{ &exposureToComposite, 1 }, {}, std::span{ &sceneToColorPipe, 1 } });
     }
     else
     {

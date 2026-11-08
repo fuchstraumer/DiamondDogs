@@ -44,6 +44,16 @@ namespace color
         float Scatter{ 0.7f };
     };
 
+    /** @brief Where the composite's exposure comes from */
+    enum class ExposureSource : uint8_t
+    {
+        /** @brief RecordComposite writes the value of SetExposureEv to the exposure buffer */
+        Manual,
+        /** @brief A pass of the consumer writes the exposure buffer on the GPU, before RecordComposite, for example an
+         *  auto exposure pass. RecordComposite does not write it. See ExposureResource */
+        Consumer,
+    };
+
     struct ColorPipeCreateInfo
     {
         rhi::Device* Device{ nullptr };
@@ -86,8 +96,18 @@ namespace color
         /** @brief Returns the RGBA8 UNORM target for Dear ImGui. Clear it to transparent. */
         [[nodiscard]] ColorTargetView UiTarget() const noexcept;
 
-        /** @brief Sets the exposure in stops for the next RecordComposite. */
+        /** @brief Sets the exposure in stops for the next RecordComposite. Manual only. */
         void SetExposureEv(float exposure_ev) noexcept;
+
+        /** @brief Selects who writes the exposure buffer for the next RecordComposite. Manual at creation. */
+        void SetExposureSource(ExposureSource source) noexcept;
+        [[nodiscard]] ExposureSource GetExposureSource() const noexcept;
+
+        /** @brief Returns the exposure buffer: one float, the exposure in stops, that the composite reads in its
+         *  fragment shader. A Consumer pass writes it from a compute shader. That pass owns both barriers: from
+         *  FragmentShader ShaderStorageRead before its write (the last composite read it), and to FragmentShader
+         *  ShaderStorageRead after it. */
+        [[nodiscard]] GraphicsResource ExposureResource() const noexcept;
 
         void SetBloomSettings(const BloomSettings& settings) noexcept;
         [[nodiscard]] const BloomSettings& GetBloomSettings() const noexcept;

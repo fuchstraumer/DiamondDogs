@@ -44,6 +44,8 @@ namespace capture
         Png,
         /** @brief The values of one texel, with no file */
         PixelValues,
+        /** @brief The copied bytes, unchanged, in a .bin file: texels in rows, top row first, with no padding */
+        Raw,
     };
 
     /** @brief The result of a tracked capture, which TakeResults returns */
@@ -53,6 +55,8 @@ namespace capture
         bool Succeeded{ false };
         /** @brief The file that was written. Empty for PixelValues */
         std::filesystem::path Path;
+        /** @brief Raw only: the size of the written file */
+        uint64_t Bytes{ 0u };
         /** @brief The size of the written image, after the downsample */
         uint32_t Width{ 0u };
         uint32_t Height{ 0u };
@@ -93,6 +97,13 @@ namespace capture
         float LinearScale{ 1.0f };
         /** @brief The layout the image is left in, for example PresentSource for a swapchain image */
         rhi::ImageLayout FinalLayout{ rhi::ImageLayout::PresentSource };
+        /** @brief The work after the capture that uses the image. The barrier back to FinalLayout blocks it. A swapchain
+         *  image needs nothing: the present waits for its semaphore. An image that later commands use needs their
+         *  stages and accesses, or AllCommands with MemoryRead and MemoryWrite */
+        rhi::PipelineStage DstStages{ rhi::PipelineStage::Copy };
+        rhi::Access DstAccess{ rhi::Access::None };
+        /** @brief Color, or Depth for a depth image. Only Raw copies Depth */
+        rhi::ImageAspect Aspect{ rhi::ImageAspect::Color };
         /** @brief The top-left texel of the copy. Width and Height are the size of the copied area. The caller checks
          *  that the area is inside the image */
         int32_t OffsetX{ 0 };
@@ -102,13 +113,28 @@ namespace capture
         uint32_t Downsample{ 1u };
     };
 
+    /** @brief A range of a buffer to copy unchanged, the work that last wrote it, and the work after the capture that
+     *  writes it again */
+    struct BufferCaptureSource
+    {
+        rhi::BufferHandle Buffer;
+        uint64_t Offset{ 0u };
+        uint64_t Bytes{ 0u };
+        rhi::PipelineStage SrcStages{ rhi::PipelineStage::AllCommands };
+        rhi::Access SrcAccess{ rhi::Access::MemoryWrite };
+        rhi::PipelineStage DstStages{ rhi::PipelineStage::AllCommands };
+    };
+
     /** Copies rendered images to PNG files (8-bit sRGB, RGB) without stalling the frame.
      *
      *  There is one readback buffer per slot (use one slot per frame in flight). RecordCopy records the image to buffer
      *  copy into a frame's command buffer. The copy is read the next time that slot is used, when the frame's fence has
      *  already been waited, or in Flush. A worker thread converts the pixels and writes the file.
      *
-     *  The image needs transfer source usage (see Swapchain::SupportsTransferSource). */
+     *  The image needs transfer source usage (see Swapchain::SupportsTransferSource).
+     *
+     *  Raw copies keep the stored bytes of an image or a buffer, for data that a PNG cannot hold: normals, depth,
+     *  HDR values. They share the slots, so one slot holds one copy of any kind. */
     class FrameCapture
     {
     public:
@@ -118,6 +144,8 @@ namespace capture
         FrameCapture& operator=(const FrameCapture&) = delete;
 
         [[nodiscard]] static bool IsSupported(ImageFormat format, CaptureEncoding encoding) noexcept;
+        /** @brief Returns the size of one texel that Raw copies, or 0 when Raw cannot copy the format */
+        [[nodiscard]] static uint32_t RawTexelBytes(ImageFormat format) noexcept;
 
         /** @brief Records the copy of source into slot's buffer, and leaves the image in source.FinalLayout.
          *
@@ -133,6 +161,13 @@ namespace capture
                                                                 const CaptureSource& source,
                                                                 std::string name,
                                                                 CaptureOutput output);
+
+        /** @brief Records the copy of a buffer range, and reports a Raw result through TakeResults. Returns the ticket,
+         *  or nothing when nothing was recorded */
+        [[nodiscard]] std::optional<uint64_t> RecordTrackedBufferCopy(rhi::CommandBuffer& command_buffer,
+                                                                      uint32_t slot,
+                                                                      const BufferCaptureSource& source,
+                                                                      std::string name);
 
         /** @brief Hands the slot's earlier capture to the writer. Call it once per frame after the slot's fence wait,
          *  so that a capture is written without waiting for the next capture or a Flush */
@@ -153,7 +188,9 @@ namespace capture
         struct Slot
         {
             GraphicsResource Buffer{};
+            // the size of Buffer, and the bytes that the pending copy wrote
             uint64_t Bytes{ 0u };
+            uint64_t CopiedBytes{ 0u };
             bool Pending{ false };
             uint32_t Width{ 0u };
             uint32_t Height{ 0u };
@@ -185,9 +222,10 @@ namespace capture
 
         void drainSlot(Slot& slot);
         bool ensureBuffer(Slot& slot, uint64_t bytes);
-        [[nodiscard]] bool recordCopy(rhi::CommandBuffer& command_buffer, Slot& slot, const CaptureSource& source);
+        [[nodiscard]] bool recordCopy(rhi::CommandBuffer& command_buffer, Slot& slot, const CaptureSource& source, CaptureOutput output);
         void reportFailure(const Job& job);
         void writeJob(const Job& job);
+        void writeRaw(const Job& job);
         void waitForOutstandingBelow(uint32_t limit);
         void writerLoop();
 

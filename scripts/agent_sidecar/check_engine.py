@@ -4,8 +4,9 @@
     python check_engine.py <OceanFft.exe> demo <output folder>
 
 checks compares independent results: two captures of a paused sea with TAA off, a region against a crop of the full
-capture, the downsample against a linear box average, pixels against the PNG, and one held time reached by a jump and by
-steps. It needs the MCP SDK, numpy and Pillow, so run it with the Python that has them.
+capture, the downsample against a linear box average, pixels against the PNG, one held time reached by a jump and by
+steps, raw targets against each other (Hi-Z against the depth it reduces), and the auto exposure against numpy and
+against the same exposure set by hand. It needs the MCP SDK, numpy and Pillow, so run it with the Python that has them.
 demo captures the default sea, a shallow gale and a glassy swell from one fixed camera, and stacks them.
 """
 import io
@@ -72,6 +73,93 @@ def diff(client, path_a, path_b):
     return json.loads(text), image
 
 
+# AP1 luminance weights, as ddColor and the auto exposure pass use them
+AP1_Y = numpy.array([0.2722287, 0.6740818, 0.0536895])
+# the GPU sums float logs in 256 threads, so its mean differs from numpy's double mean by rounding only. A wrong
+# weight or clamp moves the mean by more than 1e-3
+MEAN_LOG_TOLERANCE = 1.0e-4
+
+
+def target(client, name):
+    """Returns the capture_target report and the values as a height x width x channels array."""
+    report = client.json_tool("capture_target", {"target": name, "include_image": False})
+    values = numpy.fromfile(report["Path"], dtype=report["Dtype"])
+    return report, values.reshape(report["Height"], report["Width"], report["Channels"])
+
+
+def run_target_checks(client, screen):
+    """Raw targets at a held time. The exposure checks compare the GPU's metering with numpy, and the composite's image
+    at the metered exposure with the image at the same exposure set by hand."""
+    width, height = screen
+    expected_sizes = {"scene": (width, height, 4, 2), "normal_sigma": (width, height, 4, 2),
+                      "ocean_depth": (width, height, 1, 4), "hiz": ((width + 1) // 2, (height + 1) // 2, 1, 4),
+                      "exposure_state": (1, 1, 4, 4), "exposure_ev": (1, 1, 1, 4)}
+
+    for name, (target_width, target_height, channels, bytes_per_channel) in expected_sizes.items():
+        report, values = target(client, name)
+        size = pathlib.Path(report["Path"]).stat().st_size
+        check(values.shape == (target_height, target_width, channels) and
+              size == target_width * target_height * channels * bytes_per_channel,
+              f"capture_target {name} is {report['Width']}x{report['Height']}x{report['Channels']} {report['Dtype']}, "
+              f"{size} bytes")
+
+    _, first = target(client, "scene")
+    _, second = target(client, "scene")
+    check(first.tobytes() == second.tobytes(), "two raw captures of the held scene are identical")
+
+    # Hi-Z keeps the nearest depth of each 2x2 block, and reverse Z makes that the largest. An odd size clamps the block
+    _, depth = target(client, "ocean_depth")
+    _, hiz = target(client, "hiz")
+    padded = numpy.pad(depth[..., 0], ((0, height % 2), (0, width % 2)), mode="edge")
+    blocks = padded.reshape(padded.shape[0] // 2, 2, padded.shape[1] // 2, 2).max(axis=(1, 3))
+    check(numpy.array_equal(blocks, hiz[..., 0]) and depth.max() > 0.0,
+          f"hiz equals the 2x2 maximum of ocean_depth in every texel (depth max {float(depth.max()):.6f})")
+
+    luminance = first[..., :3].astype(numpy.float64) @ AP1_Y
+    mean_log = numpy.clip(numpy.log2(numpy.maximum(1e-4, luminance)), -8.0, 4.0).mean()
+    _, state = target(client, "exposure_state")
+    _, metered = target(client, "exposure_ev")
+    adapted, gpu_mean = float(state[0, 0, 0]), float(state[0, 0, 3])
+    metered_ev = float(metered[0, 0, 0])
+    check(abs(gpu_mean - mean_log) < MEAN_LOG_TOLERANCE,
+          f"the GPU's mean log2 luminance {gpu_mean:.7f} equals numpy's {mean_log:.7f} (difference "
+          f"{gpu_mean - mean_log:.2e})")
+    check(abs(adapted / 2.0 ** gpu_mean - 1.0) < 1e-6,
+          f"repeatable mode adapts at once: adapted luminance {adapted:.7f}, target {2.0 ** gpu_mean:.7f}")
+    check(abs(metered_ev - numpy.log2(0.18 / adapted)) < 1e-5,
+          f"the metered exposure {metered_ev:.6f} EV maps the adapted luminance to 18% gray")
+
+    auto_image = held_capture(client, "check_exposure_auto")
+    client.json_tool("set", {"path": "ocean.exposure.Auto", "value": False})
+    client.json_tool("set", {"path": "ocean.exposure.Ev", "value": metered_ev})
+    client.json_tool("wait_frames", {"frames": 2})
+    _, manual = target(client, "exposure_ev")
+    check(manual.tobytes() == metered.tobytes(), f"ocean.exposure.Ev {float(manual[0, 0, 0]):.6f} stores the "
+                                                 f"metered float")
+    report, _ = diff(client, auto_image, held_capture(client, "check_exposure_manual"))
+    check(report["identical"], f"the composite at the metered exposure set by hand is identical to auto exposure: "
+                               f"{report['changed_pixels']} pixels changed")
+
+    client.json_tool("set", {"path": "ocean.exposure.Ev", "value": 0.0})
+    client.json_tool("wait_frames", {"frames": 2})
+    report, _ = diff(client, auto_image, held_capture(client, "check_exposure_zero"))
+    check(abs(metered_ev) < 0.1 or not report["identical"],
+          f"exposure 0 differs from the metered {metered_ev:.3f} EV: mean difference "
+          f"{report['mean_difference']:.1f} code values")
+
+    client.json_tool("set", {"path": "ocean.exposure.Auto", "value": True})
+    client.json_tool("set", {"path": "ocean.exposure.Ev", "value": 1.0})
+    client.json_tool("wait_frames", {"frames": 2})
+    _, compensated = target(client, "exposure_ev")
+    check(abs(float(compensated[0, 0, 0]) - metered_ev - 1.0) < 1e-5,
+          f"a compensation of +1 EV gives {float(compensated[0, 0, 0]):.6f} EV")
+    client.json_tool("set", {"path": "ocean.exposure.Ev", "value": 0.0})
+    client.json_tool("wait_frames", {"frames": 2})
+
+    is_error, text, _ = client.tool("capture_target", {"target": "no_such_target"})
+    check(is_error and "exposure_ev" in text, "an unknown target is refused, and the error lists the targets")
+
+
 def run_repeatable_checks(client, window_arguments):
     """A held time must give the same bytes whatever came before it, and a different time must not. This launch keeps
     TAA and auto exposure on, as the demo starts, because repeatable mode exists to remove their history."""
@@ -116,6 +204,11 @@ def run_repeatable_checks(client, window_arguments):
           f"time 10.5 differs from time 10: {report['changed_fraction']:.3f} of the pixels, "
           f"max {report['max_difference_rgb']}")
 
+    # the raw targets and the exposure, at a held time with TAA and auto exposure on
+    client.json_tool("hold_time", {"time": 10.0})
+    frame = client.json_tool("call", {"name": "frame.info"})
+    run_target_checks(client, (frame["ScreenWidth"], frame["ScreenHeight"]))
+
     off = client.json_tool("call", {"name": "frame.repeatable", "arguments": {"Enabled": False}})
     check(not off["Repeatable"], "frame.repeatable turns off")
 
@@ -136,8 +229,9 @@ def run_repeatable_checks(client, window_arguments):
 def run_checks(client, window_arguments):
     with tempfile.TemporaryDirectory() as folder:
         script = pathlib.Path(folder) / "taa_off.txt"
-        # TAA jitters the projection by up to a pixel each frame, so a paused sea differs between frames with it on
-        script.write_text("taa off\n")
+        # TAA jitters the projection by up to a pixel each frame, and auto exposure keeps adapting, so a paused sea
+        # differs between frames with either on. The second launch checks them in repeatable mode
+        script.write_text("taa off\nauto_exposure off\n")
         client.json_tool("engine_launch", {"arguments": [*window_arguments, "--size=128", f"--script={script}"]})
         client.json_tool("wait_frames", {"frames": 60})
         paused = client.json_tool("call", {"name": "frame.pause", "arguments": {"Paused": True}})

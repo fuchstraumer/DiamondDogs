@@ -48,9 +48,12 @@ claude mcp add diamond-dogs -- C:/Python315/python.exe C:/SoftwareDev/DiamondDog
 | `hold_time` | Pauses at an exact simulation time in repeatable mode, so that a capture is the same byte for byte each time. |
 | `step_time` | Advances the paused sea by an exact step per frame, for N frames, in repeatable mode. |
 | `capture_diff` | Compares two captures: identical or not, the largest and mean difference, the changed pixels and their box, and a heat map. |
+| `capture_target` | Copies one intermediate image or buffer unchanged (the HDR scene, the G-buffer, depth, Hi-Z, the exposure). Returns the shape, the min, max, mean and NaN count of each channel, one texel on request, and a picture. |
 
 The engine's own commands, which `call` runs: `camera.get`, `camera.set`, `camera.lookat`, `frame.info`, `frame.wait`,
-`frame.pause`, `frame.time`, `frame.step`, `frame.repeatable`, `debug.view`, `app.quit`, and the three captures. `describe` lists them with their schemas.
+`frame.pause`, `frame.time`, `frame.step`, `frame.repeatable`, `debug.view`, `app.quit`, and the four captures. The
+objects, which `get` and `set` reach: `ocean.sea` (the sea state) and `ocean.exposure` (`Auto`, `Ev`, `Speed`).
+`describe` lists them with their schemas.
 
 Useful engine arguments for `engine_launch`: `--window=WxH`, `--borderless` (the display's full size), `--size=128|256|512`,
 `--dt=SECONDS` (a fixed simulation step, so that runs repeat), and `--script=FILE`.
@@ -65,10 +68,11 @@ Useful engine arguments for `engine_launch`: `--window=WxH`, `--borderless` (the
 - **Captures are files.** The engine writes PNGs to its `captures` folder, and the reply contains the absolute path. An
   inline image above 8 MiB is left out, with a note. Use a downsample or a region.
 - **Paused is not static, unless it is repeatable.** `frame.pause` stops the simulation, but TAA still jitters by up to a
-  pixel each frame, so two captures of a paused sea differ by up to 76 code values at edges. `hold_time` and
-  `step_time` turn on repeatable mode (`frame.repeatable`): TAA stops (no jitter and no resolve, so edges alias), and
-  auto exposure reaches its target in one frame (today the image does not use the auto exposure). A paused time then gives the same bytes whatever came before it:
-  `check_engine.py` reaches time 10 by a jump and by 16 steps from 9.5, after a jump from 37.3, and compares.
+  pixel each frame, so two captures of a paused sea differ by up to 76 code values at edges, and auto exposure keeps
+  adapting toward its target. `hold_time` and `step_time` turn on repeatable mode (`frame.repeatable`): TAA stops (no
+  jitter and no resolve, so edges alias), and auto exposure reaches its target in one frame, exactly. A paused time then
+  gives the same bytes whatever came before it: `check_engine.py` reaches time 10 by a jump and by 16 steps from 9.5,
+  after a jump from 37.3, and compares.
 - **Times are exact.** The compute shaders get the time as a 32-bit float, and every reply returns that float. The
   engine keeps the double that a tool sent, and N steps add to it in double, so N steps of `s` from `T` store the same
   float as `hold_time` with `T + N * s`. A time that the sea reached by running is only a float.
@@ -78,6 +82,19 @@ Useful engine arguments for `engine_launch`: `--window=WxH`, `--borderless` (the
 - **A/B recipe.** `hold_time` T, `capture_screen` (keep its `Path`), change one thing, `hold_time` T again,
   `capture_screen`, then `capture_diff` with both paths. `identical: true` means that the change has no visible effect
   at T. `capture_diff` compares 8-bit PNGs, so a change below one code value does not show.
+- **Raw targets.** `capture_target` copies at the end of a frame, after the composite. It writes three files next to
+  each other in the engine's `captures` folder: `<name>.bin` (the stored values: rows top first, channels interleaved),
+  `<name>.json` (the engine's reply: dtype, shape, channel names, what the target holds) and, for an image,
+  `<name>.png` (a picture). The reply gives the numpy line that reads the `.bin`. The picture shows each channel as
+  `clamp(value x scale + bias, 0, 1)` with no transfer curve, and the engine declares the scale and bias per target:
+  normals as `n x 0.5 + 0.5`, motion x 50 around 0.5, depth and HDR color as they are. Read values from the `.bin`, not
+  from the picture. A target capture takes a frame like any capture, so a capture of the screen and of a target at one
+  held time come from two frames: hold the time first.
+- **Auto exposure.** `ocean.exposure.Auto` on (the default): a GPU pass meters the scene each frame. It takes the mean
+  of log2 of the AP1 luminance over every texel, with each log clamped to [-8, 4], adapts toward it at `Speed`, and
+  writes `log2(0.18 / adapted) + Ev` for the composite. `capture_target exposure_ev` returns the exposure that the
+  frame used, and `exposure_state` the metering. To compare with a fixed exposure, set `Auto` false and `Ev` to that
+  float: the image is the same byte for byte.
 - **Debug views go through the tonemapper.** `debug.view` changes what the final image shows, so the colors are not raw
   values. Use them to see where something happens.
 - **Shutdown.** When the MCP client closes stdin, the sidecar stops an engine that it launched, and leaves an engine that
@@ -92,8 +109,8 @@ Useful engine arguments for `engine_launch`: `--window=WxH`, `--borderless` (the
 
 | File | Needs | Proves |
 |---|---|---|
-| `test_sidecar.py` | The SDK, numpy, Pillow | Every tool's mapping and schema, `capture_diff` on known images, refusals, timeouts, stale replies, one request at a time to the engine, and the real stdio process, against a fake engine. The tests use the SDK's in-process client. `python -m unittest test_sidecar` |
-| `check_engine.py ... checks` | The SDK, numpy, Pillow, a built OceanFft | The real engine through MCP. Two paused captures are identical, a region equals the crop of the full capture, the downsample equals a linear box average, pixels equal the PNG, a debug view off restores the image, a held time is identical by a jump and by steps, steps of 1/60 s land on the same float as a jump, a different time differs, and bad input is refused. |
+| `test_sidecar.py` | The SDK, numpy, Pillow | Every tool's mapping and schema, `capture_diff` on known images, `capture_target` statistics, texel and picture on a known `.bin`, refusals, timeouts, stale replies, one request at a time to the engine, and the real stdio process, against a fake engine. The tests use the SDK's in-process client. `python -m unittest test_sidecar` |
+| `check_engine.py ... checks` | The SDK, numpy, Pillow, a built OceanFft | The real engine through MCP. Two paused captures are identical, a region equals the crop of the full capture, the downsample equals a linear box average, pixels equal the PNG, a debug view off restores the image, a held time is identical by a jump and by steps, steps of 1/60 s land on the same float as a jump, a different time differs, and bad input is refused. Raw targets have their sizes, two raw captures agree, and Hi-Z equals the 2x2 maximum of the depth it reduces. The GPU's mean log luminance equals numpy's, the metered EV maps it to 18% gray, the image at that EV set by hand is identical, and the compensation adds 1 EV. |
 | `check_engine.py ... demo DIR` | The SDK, numpy, Pillow, a built OceanFft | Captures three sea states and three debug views, for a person to look at. |
 
 `mcp_client.py` is the small MCP client that `check_engine.py` uses. It writes the JSON-RPC lines itself and does not

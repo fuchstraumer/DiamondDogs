@@ -139,6 +139,13 @@ class SidecarTest(unittest.TestCase):
         self.png = pathlib.Path(self.folder.name) / "shot.png"
         self.png.write_bytes(TINY_PNG)
         png_path = str(self.png)
+        # a 3x2 target with two channels, and one NaN, as capture.target writes it: rows top first, channels interleaved
+        self.target_values = numpy.array([[[0.5, -1.0], [1.0, 0.0], [-0.5, 2.0]],
+                                          [[0.25, numpy.nan], [0.0, 1.0], [2.0, -2.0]]], numpy.float16)
+        self.target_bin = pathlib.Path(self.folder.name) / "target.bin"
+        self.target_values.tofile(self.target_bin)
+        self.buffer_bin = pathlib.Path(self.folder.name) / "buffer.bin"
+        numpy.array([1.5], numpy.float32).tofile(self.buffer_bin)
         self.fake = FakeEngine({
             "tool.get": lambda params: ("result", 5.0),
             "tool.set": lambda params: ("result", params["value"]),
@@ -151,12 +158,29 @@ class SidecarTest(unittest.TestCase):
             "frame.repeatable": lambda params: ("result", {"Repeatable": params["arguments"]["Enabled"]}),
             "frame.time": lambda params: ("result", {"SimulationTime": params["arguments"]["Time"]}),
             "frame.step": lambda params: ("result", {"Frames": params["arguments"]["Frames"]}),
+            "capture.target": self.target_reply,
             "never.answers": lambda params: ("silent", None),
             "refuses": lambda params: ("error", {"code": -32000, "message": "the value is outside the limits",
                                                  "data": {"Code": "ValueRefused", "Suggestions": ["WindForce"]}}),
         })
         self.fake.handlers["frame.info"] = slow_frame_info(self.fake)
         self.owner = sidecar.EngineThread(sidecar.Engine(None))
+
+    def target_reply(self, params):
+        """An image target, a one-element buffer, and a target whose file is too short for its shape."""
+        name = params["arguments"]["Target"]
+        image = {"Path": str(self.target_bin), "Target": name, "Dtype": "float16", "Width": 3, "Height": 2,
+                 "Channels": 2, "ChannelNames": "a,b", "Bytes": 24, "ShowScale": [0.5, 1.0, 0.0, 0.0],
+                 "ShowBias": [0.5, 0.0, 0.0, 0.0], "Doc": "a test image", "Frame": 9}
+
+        if name == "buffer":
+            return "result", {**image, "Path": str(self.buffer_bin), "Dtype": "float32", "Width": 1, "Height": 1,
+                              "Channels": 1, "ChannelNames": "ev"}
+
+        if name == "short":
+            return "result", {**image, "Height": 3}
+
+        return "result", image
 
     def tearDown(self):
         self.owner.run_blocking(self.owner.engine.disconnect)
@@ -171,12 +195,12 @@ class SidecarTest(unittest.TestCase):
         result = await self.tool("engine_connect", {"port": self.fake.port})
         self.assertFalse(result.is_error, result)
 
-    async def test_tools_list_has_fifteen_tools_with_object_schemas(self):
+    async def test_tools_list_has_sixteen_tools_with_object_schemas(self):
         tools = (await self.client.list_tools()).tools
         self.assertEqual(sorted(tool.name for tool in tools), sorted([
             "engine_launch", "engine_connect", "engine_status", "engine_stop", "describe", "get", "set", "call",
             "wait_frames", "capture_screen", "capture_region", "capture_pixel", "hold_time", "step_time",
-            "capture_diff"]))
+            "capture_diff", "capture_target"]))
 
         for tool in tools:
             self.assertEqual(tool.input_schema["type"], "object", tool.name)
@@ -344,6 +368,48 @@ class SidecarTest(unittest.TestCase):
         self.assertTrue(other.is_error)
         self.assertIn("not a PNG", text(other, 0))
 
+    async def test_capture_target_reports_each_channel_a_texel_and_a_picture(self):
+        await self.connect()
+        result = await self.tool("capture_target", {"target": "image", "name": "probe", "pixel_x": 2, "pixel_y": 1})
+        self.assertFalse(result.is_error, result)
+        self.assertEqual(self.fake.received[-1]["params"]["arguments"], {"Target": "image", "Name": "probe"})
+        report = json_text(result, 0)
+        first, second = report["statistics"]
+        self.assertEqual((first["channel"], first["min"], first["max"], first["nan"]), ("a", -0.5, 2.0, 0))
+        self.assertAlmostEqual(first["mean"], 3.25 / 6.0)
+        # the NaN is counted, and left out of the other statistics
+        self.assertEqual((second["min"], second["max"], second["nan"]), (-2.0, 2.0, 1))
+        self.assertEqual(report["texel"]["values"], {"a": 2.0, "b": -2.0})
+        self.assertEqual(json.loads(pathlib.Path(report["header"]).read_text())["Channels"], 2)
+        # red is a x 0.5 + 0.5 and green is b, both clamped to [0, 1], and blue is empty
+        picture = numpy.asarray(PillowImage.open(report["picture"]))
+        self.assertEqual(picture.shape, (2, 3, 3))
+        self.assertEqual(picture[0, 0].tolist(), [191, 0, 0])
+        self.assertEqual(picture[0, 2].tolist(), [64, 255, 0])
+        self.assertEqual(picture[1, 0].tolist(), [159, 0, 0])
+        self.assertEqual(result.content[1].type, "image")
+
+    async def test_capture_target_of_a_buffer_has_no_picture(self):
+        await self.connect()
+        result = await self.tool("capture_target", {"target": "buffer"})
+        self.assertFalse(result.is_error, result)
+        report = json_text(result, 0)
+        self.assertEqual(report["statistics"][0]["max"], 1.5)
+        self.assertNotIn("picture", report)
+        self.assertEqual(len(result.content), 1)
+
+    async def test_capture_target_refuses_a_short_file_and_half_a_texel(self):
+        await self.connect()
+        short = await self.tool("capture_target", {"target": "short"})
+        self.assertTrue(short.is_error)
+        self.assertIn("holds 12 values", text(short, 0))
+        half = await self.tool("capture_target", {"target": "image", "pixel_x": 1})
+        self.assertTrue(half.is_error)
+        self.assertIn("both pixel_x and pixel_y", text(half, 0))
+        outside = await self.tool("capture_target", {"target": "image", "pixel_x": 3, "pixel_y": 0})
+        self.assertTrue(outside.is_error)
+        self.assertIn("not inside", text(outside, 0))
+
     async def test_close_leaves_an_engine_it_did_not_launch_running(self):
         await self.connect()
         self.owner.run_blocking(self.owner.engine.close)
@@ -378,7 +444,7 @@ class StdioTest(unittest.TestCase):
         lines = output.decode().splitlines()
         self.assertEqual(len(lines), 2, errors.decode(errors="replace"))
         self.assertEqual(json.loads(lines[0])["result"]["protocolVersion"], "2025-06-18")
-        self.assertEqual(len(json.loads(lines[1])["result"]["tools"]), 15)
+        self.assertEqual(len(json.loads(lines[1])["result"]["tools"]), 16)
 
 
 if __name__ == "__main__":

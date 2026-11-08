@@ -18,11 +18,13 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <utility>
@@ -51,6 +53,11 @@ namespace capture
             default:
                 return 0u;
             }
+        }
+
+        std::string_view ExtensionFor(CaptureOutput output) noexcept
+        {
+            return output == CaptureOutput::Raw ? ".bin" : ".png";
         }
 
         float HalfToFloat(uint16_t half) noexcept
@@ -389,12 +396,33 @@ namespace capture
         return true;
     }
 
+    uint32_t FrameCapture::RawTexelBytes(ImageFormat format) noexcept
+    {
+        switch (format.ComponentFormat)
+        {
+        case ImageComponentFormats::R8: return 1u;
+        case ImageComponentFormats::R16: return 2u;
+        case ImageComponentFormats::RG8: return 2u;
+        case ImageComponentFormats::R32: return 4u;
+        case ImageComponentFormats::RG16: return 4u;
+        case ImageComponentFormats::RGBA8: return 4u;
+        case ImageComponentFormats::BGRA8: return 4u;
+        case ImageComponentFormats::A2B10G10R10: return 4u;
+        case ImageComponentFormats::A2R10G10B10: return 4u;
+        case ImageComponentFormats::D32: return 4u;
+        case ImageComponentFormats::RG32: return 8u;
+        case ImageComponentFormats::RGBA16: return 8u;
+        case ImageComponentFormats::RGBA32: return 16u;
+        default: return 0u;
+        }
+    }
+
     bool FrameCapture::RecordCopy(rhi::CommandBuffer& command_buffer, uint32_t slot_index, const CaptureSource& source, std::string name)
     {
         Slot& slot = slots[slot_index % slots.size()];
         drainSlot(slot);
 
-        if (!recordCopy(command_buffer, slot, source))
+        if (!recordCopy(command_buffer, slot, source, CaptureOutput::Png))
         {
             return false;
         }
@@ -414,7 +442,7 @@ namespace capture
         Slot& slot = slots[slot_index % slots.size()];
         drainSlot(slot);
 
-        if (!recordCopy(command_buffer, slot, source))
+        if (!recordCopy(command_buffer, slot, source, output))
         {
             return std::nullopt;
         }
@@ -422,6 +450,53 @@ namespace capture
         slot.Name = std::move(name);
         slot.Ticket = nextTicket++;
         slot.Output = output;
+
+        return slot.Ticket;
+    }
+
+    std::optional<uint64_t> FrameCapture::RecordTrackedBufferCopy(rhi::CommandBuffer& command_buffer,
+                                                                  uint32_t slot_index,
+                                                                  const BufferCaptureSource& source,
+                                                                  std::string name)
+    {
+        Slot& slot = slots[slot_index % slots.size()];
+
+        drainSlot(slot);
+
+        if (source.Bytes == 0u || !ensureBuffer(slot, source.Bytes))
+        {
+            return std::nullopt;
+        }
+
+        const rhi::GlobalBarrier toCopy{ source.SrcStages, source.SrcAccess, rhi::PipelineStage::Copy, rhi::Access::TransferRead };
+
+        command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &toCopy, 1 }, {}, {} });
+
+        const rhi::BufferCopy region{ .SrcOffset = source.Offset, .DstOffset = 0u, .Size = source.Bytes };
+
+        command_buffer.CopyBuffer(source.Buffer, rhi::BufferHandle{ slot.Buffer.VkHandle }, std::span{ &region, 1 });
+
+        // the host reads the copy, and later writes to the source wait for the copy's read
+        const std::array<rhi::GlobalBarrier, 2> afterCopy
+        {
+            rhi::GlobalBarrier{ rhi::PipelineStage::Copy, rhi::Access::TransferWrite, rhi::PipelineStage::Host, rhi::Access::HostRead },
+            rhi::GlobalBarrier{ rhi::PipelineStage::Copy, rhi::Access::None, source.DstStages, rhi::Access::None },
+        };
+
+        command_buffer.Barrier(rhi::DependencyInfo{ afterCopy, {}, {} });
+
+        slot.Pending = true;
+        slot.CopiedBytes = source.Bytes;
+        // a buffer is one row of bytes
+        slot.Width = static_cast<uint32_t>(source.Bytes);
+        slot.Height = 1u;
+        slot.Format = ImageFormat{ ImageComponentFormats::R8, ImageDataType::UInt };
+        slot.Encoding = CaptureEncoding::sRGB;
+        slot.LinearScale = 1.0f;
+        slot.Downsample = 1u;
+        slot.Name = std::move(name);
+        slot.Ticket = nextTicket++;
+        slot.Output = CaptureOutput::Raw;
 
         return slot.Ticket;
     }
@@ -443,31 +518,41 @@ namespace capture
         return finished;
     }
 
-    bool FrameCapture::recordCopy(rhi::CommandBuffer& command_buffer, Slot& slot, const CaptureSource& source)
+    bool FrameCapture::recordCopy(rhi::CommandBuffer& command_buffer, Slot& slot, const CaptureSource& source, CaptureOutput output)
     {
-        if (!IsSupported(source.Format, source.Encoding) || source.Width == 0u || source.Height == 0u || source.Downsample == 0u)
+        const bool raw = output == CaptureOutput::Raw;
+        const uint32_t texelBytes = raw ? RawTexelBytes(source.Format) : BytesPerPixel(source.Format);
+        // only Raw keeps depth, and Raw never downsamples, so its bytes are the stored bytes
+        const bool supported = raw ? (texelBytes != 0u && source.Downsample == 1u)
+                                   : (IsSupported(source.Format, source.Encoding) && source.Aspect == rhi::ImageAspect::Color);
+
+        if (!supported || source.Width == 0u || source.Height == 0u || source.Downsample == 0u)
         {
             return false;
         }
 
-        const uint64_t bytes = uint64_t{ source.Width } * source.Height * BytesPerPixel(source.Format);
+        const uint64_t bytes = uint64_t{ source.Width } * source.Height * texelBytes;
+
         if (!ensureBuffer(slot, bytes))
         {
             return false;
         }
 
-        constexpr rhi::ImageSubresourceRange k_ColorRange{ rhi::ImageAspect::Color, 0, 1, 0, 1 };
+        const rhi::ImageSubresourceRange range{ source.Aspect, 0, 1, 0, 1 };
         const rhi::ImageBarrier toTransfer
         {
             source.Image,
             source.SrcStages, source.SrcAccess,
             rhi::PipelineStage::Copy, rhi::Access::TransferRead,
             source.CurrentLayout, rhi::ImageLayout::TransferSource,
-            k_ColorRange
+            range
         };
+
         command_buffer.Barrier(rhi::DependencyInfo{ {}, {}, std::span{ &toTransfer, 1 } });
 
         rhi::BufferImageCopy region{};
+
+        region.Aspect = source.Aspect;
         region.OffsetX = source.OffsetX;
         region.OffsetY = source.OffsetY;
         region.Width = source.Width;
@@ -478,14 +563,16 @@ namespace capture
         {
             source.Image,
             rhi::PipelineStage::Copy, rhi::Access::None,
-            rhi::PipelineStage::Copy, rhi::Access::None,
+            source.DstStages, source.DstAccess,
             rhi::ImageLayout::TransferSource, source.FinalLayout,
-            k_ColorRange
+            range
         };
         const rhi::GlobalBarrier toHost{ rhi::PipelineStage::Copy, rhi::Access::TransferWrite, rhi::PipelineStage::Host, rhi::Access::HostRead };
+
         command_buffer.Barrier(rhi::DependencyInfo{ std::span{ &toHost, 1 }, {}, std::span{ &toFinal, 1 } });
 
         slot.Pending = true;
+        slot.CopiedBytes = bytes;
         slot.Width = source.Width;
         slot.Height = source.Height;
         slot.Format = source.Format;
@@ -538,14 +625,17 @@ namespace capture
         job.Ticket = slot.Ticket;
         job.Output = slot.Output;
         std::filesystem::path capturePath = slot.Name;
-        if (capturePath.extension() != ".png")
+        const std::string_view extension = ExtensionFor(slot.Output);
+
+        if (capturePath.extension() != extension)
         {
-            capturePath += ".png";
+            capturePath += extension;
         }
+
         job.Path = capturePath.is_absolute() ? capturePath : (directory / capturePath);
         std::error_code ec;
         std::filesystem::create_directories(job.Path.parent_path(), ec);
-        const uint64_t bytes = uint64_t{ slot.Width } * slot.Height * BytesPerPixel(slot.Format);
+        const uint64_t bytes = slot.CopiedBytes;
 
         // the map invalidates GPUToCPU memory, so the copy's writes are visible
         rhi::ResourceFuture<void*> map = resources.MapBuffer(slot.Buffer, bytes, 0u);
@@ -654,6 +744,12 @@ namespace capture
             return;
         }
 
+        if (job.Output == CaptureOutput::Raw)
+        {
+            writeRaw(job);
+            return;
+        }
+
         uint32_t width = job.Width;
         uint32_t height = job.Height;
         std::vector<uint8_t> rgb;
@@ -684,6 +780,37 @@ namespace capture
         if (job.Ticket != 0u)
         {
             results.push(CaptureResult{ .Ticket = job.Ticket, .Succeeded = true, .Path = job.Path, .Width = width, .Height = height });
+        }
+    }
+
+    void FrameCapture::writeRaw(const Job& job)
+    {
+        std::ofstream file(job.Path, std::ios::binary | std::ios::trunc);
+
+        file.write(reinterpret_cast<const char*>(job.Pixels.data()), static_cast<std::streamsize>(job.Pixels.size()));
+        file.close();
+
+        if (!file)
+        {
+            std::cerr << "FrameCapture: writing " << job.Path.string() << " failed\n";
+            failed.fetch_add(1u);
+            reportFailure(job);
+            return;
+        }
+
+        written.fetch_add(1u);
+
+        if (job.Ticket != 0u)
+        {
+            results.push(CaptureResult
+            {
+                .Ticket = job.Ticket,
+                .Succeeded = true,
+                .Path = job.Path,
+                .Bytes = job.Pixels.size(),
+                .Width = job.Width,
+                .Height = job.Height,
+            });
         }
     }
 }

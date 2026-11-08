@@ -32,7 +32,7 @@ except ImportError as missing:
              f"\"{sys.executable}\" -m pip install --user \"mcp>=2,<3\"")
 
 SERVER_NAME = "diamond-dogs"
-SERVER_VERSION = "0.2.0"
+SERVER_VERSION = "0.3.0"
 PORT_LINE = re.compile(r"tool server listening on 127\.0\.0\.1:(\d+)")
 DEFAULT_TIMEOUT_SECONDS = 10.0
 LAUNCH_TIMEOUT_SECONDS = 180.0
@@ -289,6 +289,77 @@ def compare_pngs(path_a, path_b):
     return report, heat_map
 
 
+def read_target(reply, pixel):
+    """Reads the .bin of a capture.target reply. Writes the reply as a JSON header next to it, and a picture PNG for an
+    image, and returns statistics per channel, the values of one texel when asked, and the picture's path. Needs numpy
+    and Pillow."""
+    try:
+        import numpy
+        from PIL import Image as PillowImage
+    except ImportError as missing:
+        raise ToolError(f"capture_target needs numpy and Pillow ({missing}). Install them for {sys.executable}.") from None
+
+    path = pathlib.Path(reply["Path"])
+    width, height, channels = reply["Width"], reply["Height"], reply["Channels"]
+    values = numpy.fromfile(path, dtype=reply["Dtype"])
+
+    if values.size != width * height * channels:
+        raise ToolError(f"{path.name} holds {values.size} values, and the reply describes {width}x{height}x{channels}")
+
+    values = values.reshape(height, width, channels).astype(numpy.float64)
+    names = reply["ChannelNames"].split(",")
+    header = path.with_suffix(".json")
+    header.write_text(json.dumps(reply, indent=2))
+
+    statistics = []
+
+    for index, channel_name in enumerate(names):
+        channel = values[..., index]
+        finite = channel[numpy.isfinite(channel)]
+        statistics.append({
+            "channel": channel_name,
+            "min": float(finite.min()) if finite.size else None,
+            "max": float(finite.max()) if finite.size else None,
+            "mean": float(finite.mean()) if finite.size else None,
+            "nan": int(numpy.isnan(channel).sum()),
+            "inf": int(numpy.isinf(channel).sum()),
+        })
+
+    report = {key: reply[key] for key in ("Target", "Path", "Dtype", "Width", "Height", "Channels", "Frame", "Doc")}
+    report["header"] = str(header)
+    report["numpy"] = (f"numpy.fromfile(path, dtype='{reply['Dtype']}').reshape({height}, {width}, {channels})")
+    report["statistics"] = statistics
+
+    if pixel is not None:
+        x, y = pixel
+
+        if not (0 <= x < width and 0 <= y < height):
+            raise ToolError(f"the texel ({x}, {y}) is not inside the {width}x{height} target")
+
+        report["texel"] = {"x": x, "y": y, "values": {name: float(values[y, x, i]) for i, name in enumerate(names)}}
+
+    if width * height == 1:
+        return report, None
+
+    # the engine declares the mapping for each target: clamp(value x scale + bias, 0, 1), with no transfer curve
+    scale = numpy.array(reply["ShowScale"][:channels])
+    bias = numpy.array(reply["ShowBias"][:channels])
+    shown = numpy.clip(numpy.nan_to_num(values) * scale + bias, 0.0, 1.0)
+    pixels = numpy.round(shown * 255.0).astype(numpy.uint8)
+    picture = path.with_suffix(".png")
+
+    if channels == 1:
+        PillowImage.fromarray(pixels[..., 0], "L").save(picture)
+    else:
+        rgb = numpy.zeros((height, width, 3), dtype=numpy.uint8)
+        rgb[..., :min(channels, 3)] = pixels[..., :3]
+        PillowImage.fromarray(rgb, "RGB").save(picture)
+
+    report["picture"] = str(picture)
+    report["picture_mapping"] = {"scale": reply["ShowScale"], "bias": reply["ShowBias"]}
+    return report, picture
+
+
 class EngineThread:
     """One thread owns the engine and its connection. The SDK can run tool calls at the same time, and the connection
     takes one request at a time, so a tool hands its work to this thread and awaits the result. There is no lock: the
@@ -311,7 +382,8 @@ class EngineThread:
 
 INSTRUCTIONS = ("Call engine_launch, then describe. Change values with set or call, wait_frames for the change to show, "
                 "then capture_screen to see it. For an A/B comparison, call hold_time (or step_time) before each "
-                "capture, so that both captures show the same simulation time, then capture_diff.")
+                "capture, so that both captures show the same simulation time, then capture_diff. For exact values "
+                "(normals, depth, HDR color, the exposure), use capture_target.")
 
 HideUi = Annotated[bool, Field(description="Hides the panel on the captured frame only.")]
 CaptureName = Annotated[str | None, Field(description="The file name without .png: letters, digits, '_' and '-'. "
@@ -327,7 +399,7 @@ def frames_timeout(frames):
 
 
 def build_server(owner):
-    """Returns the MCP server with its 15 tools. Every tool runs its engine work on the owner's thread."""
+    """Returns the MCP server with its 16 tools. Every tool runs its engine work on the owner's thread."""
     server = MCPServer(SERVER_NAME, version=SERVER_VERSION, instructions=INSTRUCTIONS)
     engine = owner.engine
 
@@ -489,6 +561,36 @@ def build_server(owner):
             include_image: IncludeImage = True):
         capture_arguments = {"X": x, "Y": y, "Width": width, "Height": height, "HideUi": hide_ui}
         return await owner.run(capture, "capture.region", capture_arguments, name, include_image)
+
+    @tool("Copies one intermediate image or buffer of the frame unchanged, at the end of a frame: the HDR scene, the "
+          "G-buffer, depth, Hi-Z, or the auto exposure. Returns its type, shape, and the min, max, mean and NaN count "
+          "of each channel, and writes a .bin with a JSON header. With pixel_x and pixel_y, returns that texel's "
+          "values. The picture shows each channel as clamp(value x scale + bias), with the scale and bias that the "
+          "engine declares for the target. A wrong target name fails, and the error lists the targets.")
+    async def capture_target(
+            target: Annotated[str, Field(description="The target name, for example scene, normal_sigma, ocean_depth, "
+                                                     "exposure_ev.")],
+            name: CaptureName = None,
+            pixel_x: Annotated[int | None, Field(ge=0, description="A texel to read, with pixel_y.")] = None,
+            pixel_y: Annotated[int | None, Field(ge=0, description="A texel to read, with pixel_x.")] = None,
+            include_image: Annotated[bool, Field(description="Returns the picture as an image.")] = True):
+        if (pixel_x is None) != (pixel_y is None):
+            raise ToolError("give both pixel_x and pixel_y, or neither")
+
+        arguments = {"Target": target}
+
+        if name:
+            arguments["Name"] = name
+
+        reply = await request("tool.call", {"name": "capture.target", "arguments": arguments}, CAPTURE_TIMEOUT_SECONDS)
+        pixel = (pixel_x, pixel_y) if pixel_x is not None else None
+        report, picture = await anyio.to_thread.run_sync(read_target, reply, pixel)
+        content = [report]
+
+        if include_image and picture is not None:
+            content.append(inline_image(picture))
+
+        return content
 
     @tool("Returns one pixel of the final image: linear BT.709 (1.0 is paper white), 8-bit sRGB, and the stored bytes.")
     async def capture_pixel(x: PixelCoordinate, y: PixelCoordinate, hide_ui: HideUi = True):
