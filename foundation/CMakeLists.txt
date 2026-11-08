@@ -63,7 +63,9 @@ set(foundation_reflect_source_files
 set(foundation_containers_source_files
     "include/containers/CircularBuffer.hpp"
     "include/containers/ConcurrentDeque.hpp"
-    "include/containers/mwsrQueue.hpp")
+    "include/containers/LruCache.hpp"
+    "include/containers/mwsrQueue.hpp"
+    "include/containers/SmallVector.hpp")
 
 set(threading_source_files
     "include/threading/atomic128.hpp"

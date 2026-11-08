@@ -34,9 +34,12 @@ set(FOUNDATION_TEST_SOURCES
     threading/test_precision_timer.cpp
     
     # Container tests
+    containers/LifetimeTracked.cpp
     containers/test_circular_buffer.cpp
+    containers/test_lru_cache.cpp
     containers/test_mwsr_queue.cpp
     containers/test_ring_allocator.cpp
+    containers/test_small_vector.cpp
     
     # Utility tests
     utility/test_delegate.cpp
