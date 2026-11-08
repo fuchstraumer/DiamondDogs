@@ -19,7 +19,10 @@ The module depends on `foundation` only. It has no Vulkan, no `rhi` and no Loom.
 |---|---|
 | `ContentTypes.hpp` | `Quality`, `ArtifactKind`, `SlotUse`, `KindId`, `RecipeId`, `Slot`, `Output`. |
 | `ContentDiagnostic.hpp` | `Severity`, `DiagnosticCode`, `Diagnostic`. |
-| `ExecutorTypes.hpp` | Placeholders (`Context`, `Inputs`, `Result`) so that `Register<K>` compiles. T4 replaces them. |
+| `ExecutorTypes.hpp` | What a kind's `Run` sees: `Inputs`, `Context`, `KindResult`, `Artifact`, `ArtifactRef`, `ContentError`. |
+| `ArtifactTable.hpp` | `ArtifactTable`: every artifact, by slot and generation, with a holder count. |
+| `Executor.hpp` | `Executor`, `Root`, `RootView`, `Transience`. A skeleton: see "Executor". |
+| `src/NodeRow.hpp` | `NodeRow` and `NodeState`: one row per recipe. |
 | `ParamsBox.hpp` | `ParamsBox`: one kind's params, type-erased. |
 | `KindRegistry.hpp` | The `Kind` concept, `KindOps`, `KindRegistry`. |
 | `RecipeParams.hpp` | `RecipeParams<P>`: the struct that a recipe key encodes as its parameters. |
@@ -44,7 +47,7 @@ struct ScaleKind
         cc::Output{ "Value", cc::ArtifactKind::CpuBytes },
     };
 
-    static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
+    static foundation::Task<cc::KindResult> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
 };
 
 registry.Register<ScaleKind>();
@@ -169,3 +172,38 @@ repeats.
 
 `content_compiler_tests` covers the proofs of the T3 brief. The test kinds are in `test_kinds.hpp`. Their `Run`
 functions exist only so that the kinds register.
+
+## Executor (T4, skeleton, 2026-11-07)
+
+The types, the artifact table, `Root`, and the run coroutine are written. The four parts that decide correctness are
+stubs that assert: `want`, `unwant`, `cancel` and `complete`. Their contracts are comments in `src/Executor.cpp`. No
+test runs the executor yet. The artifact table has no test yet either; it gets one with the executor tests.
+
+**One row per recipe.** `rows[recipeId]` grows beside the recipe table. The row is the in-flight entry, the memory
+cache and the failure memo, so no second table can disagree with it.
+
+**Two counters.**
+
+- `Unresolved`: the inputs that have not succeeded yet. This is the in-degree counter of Kahn's algorithm. At 0 the
+  row is spawned. A `Spawn` during a `Tick` starts in that `Tick`, so a chain of nodes runs in one `Tick`.
+- `Wanted`: the reasons to keep the row. Each root that targets it counts 1, and each dependent that is Waiting,
+  Ready or Running counts 1.
+
+| Event | Effect |
+|---|---|
+| `Wanted` 0 to 1 on an `Idle` row | It becomes `Waiting`, and wants each input in turn. |
+| `Unresolved` reaches 0 on a wanted row | `Ready`: its run is spawned. |
+| `Wanted` reaches 0 on a `Waiting` row | Cancelled: back to `Idle`, and it releases each input in turn. No frame exists yet. |
+| `Wanted` reaches 0 on a `Ready` row | Its run cancels it when it starts. This avoids a second spawn if it is wanted again first. |
+| The run starts | `Running`. It is never cancelled from here, and its result is cached, because it is correct. |
+| The run finishes | `Succeeded` or `Failed`. Each dependent is told; a failure fails the dependents with `InputFailed`. Then the row releases its inputs. |
+
+Two old rules come free from `Wanted`. A running node pins its inputs, because it still counts in their `Wanted`. A
+shared node is not cancelled by one requester, because the other requester still counts.
+
+**What a kind writes.** `Run(const Params&, Inputs, Context&)` returns `foundation::Task<KindResult>`. It sets each
+output with `context.SetOutput(index, artifact)` and reports diagnostics with `context.Report`. `KindResult` holds
+only a status, so it is trivially copyable. A failure's diagnostics stay in the executor under a `FailureId`.
+
+**Teardown.** Destroy every `Root` first. Then call `Shutdown()`, tick the scheduler until `Idle()`, and destroy the
+executor. The destructor asserts `Idle()`.

@@ -142,6 +142,7 @@ namespace loom
                 return context.Frozen.FrameTargets[slot.Value - resourceCount].Key;
             }
         }
+
     }
 
 } // namespace loom

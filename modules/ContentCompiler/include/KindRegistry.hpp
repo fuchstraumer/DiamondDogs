@@ -92,11 +92,11 @@ namespace cc
         {
             K::Run(std::declval<const typename K::Params&>(), std::declval<Inputs>(),
                    std::declval<Context&>())
-        } -> std::same_as<foundation::Task<Result>>;
+        } -> std::same_as<foundation::Task<KindResult>>;
     };
 
     // Run takes the params as a pointer to the kind's Params type, which the thunk of Register<K> casts back.
-    using KindRunFunction = foundation::Task<Result>(*)(const void* params, Inputs inputs, Context& context);
+    using KindRunFunction = foundation::Task<KindResult>(*)(const void* params, Inputs inputs, Context& context);
 
     struct KindOps
     {
@@ -114,7 +114,7 @@ namespace cc
     namespace detail
     {
         template<typename K>
-        foundation::Task<Result> RunKind(const void* params, Inputs inputs, Context& context)
+        foundation::Task<KindResult> RunKind(const void* params, Inputs inputs, Context& context)
         {
             const typename K::Params& typedParams = *static_cast<const typename K::Params*>(params);
 

@@ -23,7 +23,7 @@ namespace badkinds
             cc::Output{ "Value", cc::ArtifactKind::CpuBytes },
         };
 
-        static foundation::Task<cc::Result> Run(const Params&, cc::Inputs, cc::Context&);
+        static foundation::Task<cc::KindResult> Run(const Params&, cc::Inputs, cc::Context&);
     };
 
     struct DuplicateSlotKind
@@ -41,7 +41,7 @@ namespace badkinds
             cc::Output{ "Value", cc::ArtifactKind::CpuBytes },
         };
 
-        static foundation::Task<cc::Result> Run(const Params&, cc::Inputs, cc::Context&);
+        static foundation::Task<cc::KindResult> Run(const Params&, cc::Inputs, cc::Context&);
     };
 
     struct NoOutputsKind
@@ -52,7 +52,7 @@ namespace badkinds
         static constexpr std::array<cc::Slot, 0> Slots{};
         static constexpr std::array<cc::Output, 0> Outputs{};
 
-        static foundation::Task<cc::Result> Run(const Params&, cc::Inputs, cc::Context&);
+        static foundation::Task<cc::KindResult> Run(const Params&, cc::Inputs, cc::Context&);
     };
 
     struct EmptyOutputNameKind
@@ -63,7 +63,7 @@ namespace badkinds
         static constexpr std::array<cc::Slot, 0> Slots{};
         static constexpr std::array Outputs{ cc::Output{ "", cc::ArtifactKind::CpuBytes } };
 
-        static foundation::Task<cc::Result> Run(const Params&, cc::Inputs, cc::Context&);
+        static foundation::Task<cc::KindResult> Run(const Params&, cc::Inputs, cc::Context&);
     };
 
     struct DuplicateOutputNameKind
@@ -78,7 +78,7 @@ namespace badkinds
             cc::Output{ "Height", cc::ArtifactKind::CpuBytes },
         };
 
-        static foundation::Task<cc::Result> Run(const Params&, cc::Inputs, cc::Context&);
+        static foundation::Task<cc::KindResult> Run(const Params&, cc::Inputs, cc::Context&);
     };
 
     struct InvalidProducesKind
@@ -89,7 +89,7 @@ namespace badkinds
         static constexpr std::array<cc::Slot, 0> Slots{};
         static constexpr std::array Outputs{ cc::Output{ "Value", cc::ArtifactKind::Invalid } };
 
-        static foundation::Task<cc::Result> Run(const Params&, cc::Inputs, cc::Context&);
+        static foundation::Task<cc::KindResult> Run(const Params&, cc::Inputs, cc::Context&);
     };
 
     struct UndescribedParams
@@ -108,7 +108,7 @@ namespace badkinds
             cc::Output{ "Value", cc::ArtifactKind::CpuBytes },
         };
 
-        static foundation::Task<cc::Result> Run(const Params&, cc::Inputs, cc::Context&);
+        static foundation::Task<cc::KindResult> Run(const Params&, cc::Inputs, cc::Context&);
     };
 
     struct WrongRunKind

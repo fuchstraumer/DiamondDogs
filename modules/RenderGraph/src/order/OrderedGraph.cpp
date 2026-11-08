@@ -95,6 +95,11 @@ namespace loom
         void ReportCycleEdges(const OrderContext& context, const std::vector<int32_t>& cycle_edges);
         std::string_view EdgeReasonName(EdgeReason reason) noexcept;
         KeyRef PassOfEdge(const OrderContext& context, const OrderEdge& edge);
+        
+        std::vector<int32_t> PositionsOf(const OrderContext& context, const std::vector<NodeIndex>& ordered_nodes);
+        // True when resource at the given slot must outlive the frame - or come from outside of it (e.g, loaded/generated asset)
+        bool IsPersistent(const OrderContext& context, ResourceSlot slot);
+        
     }
 
     std::optional<OrderedGraph> Order(const FrozenGraph& frozen,
@@ -921,6 +926,40 @@ namespace loom
                 context.Sink.Report(note);
             }
         }
+
+        
+        std::vector<int32_t> PositionsOf(const OrderContext& context, const std::vector<NodeIndex>& ordered_nodes)
+        {
+            // inverse of ordered_nodes: `positions[node]` gives the index of `node` in `ordered_nodes`
+            std::vector<int32_t> positions(ordered_nodes.size(), -1);
+            for (int32_t i = 0; i < static_cast<int32_t>(ordered_nodes.size()); ++i)
+            {
+                positions[ordered_nodes[i].Value] = i;
+            }
+            return positions;
+        }
+
+        bool IsPersistent(const OrderContext& context, ResourceSlot slot)
+        {
+            // What do we need to know if a resource is persistent? 
+            // We can check the following:
+            // - Does it have history?
+            // - Is it imported?
+            // - Is it a graph output?
+            // - Was it given with a bundle of initial data?
+            const FrozenResource& resource = context.Frozen.Resources[slot.Value];
+            bool isPersistent = false;
+
+            if (resource.Kind == ResourceKind::Sampler)
+            {
+                // when are samplers not persistent? what would that look like?
+                // samplers don't have transient state though, so can they even be non-persistent in our view of them?
+                return true;
+            }
+
+            return isPersistent;
+        }
+
     }
 
 }

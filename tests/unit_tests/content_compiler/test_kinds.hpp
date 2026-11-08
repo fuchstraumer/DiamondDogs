@@ -73,7 +73,7 @@ namespace cctest
             cc::Output{ "Value", cc::ArtifactKind::CpuBytes },
         };
 
-        static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
+        static foundation::Task<cc::KindResult> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
 
     // one required input
@@ -91,7 +91,7 @@ namespace cctest
             cc::Output{ "Value", cc::ArtifactKind::CpuBytes },
         };
 
-        static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
+        static foundation::Task<cc::KindResult> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
 
     // two required inputs and one optional input
@@ -111,7 +111,7 @@ namespace cctest
             cc::Output{ "Value", cc::ArtifactKind::CpuBytes },
         };
 
-        static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
+        static foundation::Task<cc::KindResult> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
 
     // a GPU artifact with no inputs
@@ -126,7 +126,7 @@ namespace cctest
             cc::Output{ "Image", cc::ArtifactKind::GpuImage },
         };
 
-        static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
+        static foundation::Task<cc::KindResult> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
 
     // takes a GPU image, so a CPU producer in front of it is a slot kind mismatch
@@ -144,7 +144,7 @@ namespace cctest
             cc::Output{ "Image", cc::ArtifactKind::GpuImage },
         };
 
-        static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
+        static foundation::Task<cc::KindResult> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
 
     // no inputs, three outputs: two GPU images and CPU bytes
@@ -161,7 +161,7 @@ namespace cctest
             cc::Output{ "Stats", cc::ArtifactKind::CpuBytes },
         };
 
-        static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
+        static foundation::Task<cc::KindResult> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
 
     // MultiKind with its outputs in the opposite order: the name and the version are the same
@@ -178,7 +178,7 @@ namespace cctest
             cc::Output{ "Height", cc::ArtifactKind::GpuImage },
         };
 
-        static foundation::Task<cc::Result> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
+        static foundation::Task<cc::KindResult> Run(const Params& params, cc::Inputs inputs, cc::Context& context);
     };
 
     // Returns a registry with the six kinds above (not the reordered one), registered in that order and frozen.

@@ -16,39 +16,39 @@
 // The tests never run a kind, so each Run only has to exist.
 namespace cctest
 {
-    foundation::Task<cc::Result> ConstKind::Run(const Params&, cc::Inputs, cc::Context&)
+    foundation::Task<cc::KindResult> ConstKind::Run(const Params&, cc::Inputs, cc::Context&)
     {
-        co_return cc::Result{};
+        co_return cc::KindResult{};
     }
 
-    foundation::Task<cc::Result> ScaleKind::Run(const Params&, cc::Inputs, cc::Context&)
+    foundation::Task<cc::KindResult> ScaleKind::Run(const Params&, cc::Inputs, cc::Context&)
     {
-        co_return cc::Result{};
+        co_return cc::KindResult{};
     }
 
-    foundation::Task<cc::Result> BlendKind::Run(const Params&, cc::Inputs, cc::Context&)
+    foundation::Task<cc::KindResult> BlendKind::Run(const Params&, cc::Inputs, cc::Context&)
     {
-        co_return cc::Result{};
+        co_return cc::KindResult{};
     }
 
-    foundation::Task<cc::Result> ImageKind::Run(const Params&, cc::Inputs, cc::Context&)
+    foundation::Task<cc::KindResult> ImageKind::Run(const Params&, cc::Inputs, cc::Context&)
     {
-        co_return cc::Result{};
+        co_return cc::KindResult{};
     }
 
-    foundation::Task<cc::Result> SharpenKind::Run(const Params&, cc::Inputs, cc::Context&)
+    foundation::Task<cc::KindResult> SharpenKind::Run(const Params&, cc::Inputs, cc::Context&)
     {
-        co_return cc::Result{};
+        co_return cc::KindResult{};
     }
 
-    foundation::Task<cc::Result> MultiKind::Run(const Params&, cc::Inputs, cc::Context&)
+    foundation::Task<cc::KindResult> MultiKind::Run(const Params&, cc::Inputs, cc::Context&)
     {
-        co_return cc::Result{};
+        co_return cc::KindResult{};
     }
 
-    foundation::Task<cc::Result> MultiReorderedKind::Run(const Params&, cc::Inputs, cc::Context&)
+    foundation::Task<cc::KindResult> MultiReorderedKind::Run(const Params&, cc::Inputs, cc::Context&)
     {
-        co_return cc::Result{};
+        co_return cc::KindResult{};
     }
 
     cc::KindRegistry MakeFrozenRegistry()

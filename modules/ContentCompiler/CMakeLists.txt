@@ -1,6 +1,8 @@
 set(CONTENT_COMPILER_HEADERS
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/ArtifactTable.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ContentDiagnostic.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ContentTypes.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/Executor.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/ExecutorTypes.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/Ingest.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/KindRegistry.hpp"
@@ -8,10 +10,14 @@ set(CONTENT_COMPILER_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/RecipeParams.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/RecipeTable.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/IngestValidation.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/NodeRow.hpp"
 )
 
 set(CONTENT_COMPILER_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ArtifactTable.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ContentTypes.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Executor.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ExecutorTypes.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Ingest.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/IngestValidation.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KindRegistry.cpp"
