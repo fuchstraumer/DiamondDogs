@@ -1,13 +1,8 @@
 #pragma once
 #ifndef DIAMOND_DOGS_CC_INGEST_VALIDATION_HPP
 #define DIAMOND_DOGS_CC_INGEST_VALIDATION_HPP
-
 #include "ContentDiagnostic.hpp"
 #include "ContentTypes.hpp"
-#include "Ingest.hpp"
-#include "KindRegistry.hpp"
-#include "RecipeTable.hpp"
-
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -15,6 +10,10 @@
 
 namespace cc::detail
 {
+    struct AuthoredGraph;
+    class KindRegistry;
+    struct PreparedRecipe;
+    
     inline constexpr int32_t k_NoNode = -1;
     inline constexpr int32_t k_NoOutput = -1;
 
@@ -43,7 +42,8 @@ namespace cc::detail
     std::vector<BatchCollision> FindBatchCollisions(std::span<const PreparedRecipe> prepared);
 
     // Phase 1 of Ingest: finds every refusal in the graph and changes nothing else.
-    std::vector<Diagnostic> ValidateGraph(const AuthoredGraph& graph, const KindRegistry& registry,
+    std::vector<Diagnostic> ValidateGraph(const AuthoredGraph& graph,
+                                          const KindRegistry& registry,
                                           ValidatedGraph& validated);
 }
 

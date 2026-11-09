@@ -90,6 +90,10 @@ namespace cc
     // - Wanted 0 to 1 on an Idle row: the row becomes Waiting. For each input: add this row to the input's Dependents
     //   if the input has not succeeded, add 1 to the input's Wanted (which may start the input in turn), and count
     //   the unfinished inputs into Unresolved. With Unresolved 0 the row is spawned (spawnRun).
+    // - An input that is already Failed (a memo from an earlier run) never finishes again, so it must not be waited
+    //   on: the row fails at once with InputFailed and that input's Origin. A row that fails this way during the walk
+    //   may already be in the Dependents of the row that wanted it, so the failure cascades as in complete. Share
+    //   that cascade with complete; do not write it twice.
     // - A Waiting, Ready, Running, Succeeded or Failed row only gains the count.
     void Executor::want(RecipeId /*_recipe*/, Transience /*_transience*/)
     {

@@ -3,9 +3,7 @@
 #define DIAMOND_DOGS_CC_INGEST_HPP
 #include "ContentDiagnostic.hpp"
 #include "ContentTypes.hpp"
-#include "KindRegistry.hpp"
 #include "ParamsBox.hpp"
-#include "RecipeTable.hpp"
 #include <cstdint>
 #include <expected>
 #include <string>
@@ -13,6 +11,10 @@
 
 namespace cc
 {
+    struct AuthoredGraph;
+    class KindRegistry;
+    class RecipeTable;
+
     struct AuthoredNode
     {
         std::string KindName;
@@ -44,7 +46,8 @@ namespace cc
 
     // Validates the whole graph and collects every diagnostic. A graph with an error adds nothing to the
     // table. The registry must be frozen.
-    std::expected<IngestResult, std::vector<Diagnostic>> Ingest(const AuthoredGraph& graph, Quality quality,
+    std::expected<IngestResult, std::vector<Diagnostic>> Ingest(const AuthoredGraph& graph,
+                                                                Quality quality,
                                                                 const KindRegistry& registry,
                                                                 RecipeTable& recipes);
 }

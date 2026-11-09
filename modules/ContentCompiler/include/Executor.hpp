@@ -57,7 +57,7 @@ namespace cc
         void addRoot(Root& _root);
         void removeRoot(Root& _root);
 
-        // The three parts that decide correctness. Each walk is iterative, never recursive.
+        // The four parts that decide correctness. Each walk is iterative, never recursive.
         // Adds one to the row's Wanted; on 0 to 1 it starts an Idle row and its unfinished inputs.
         void want(RecipeId _recipe, Transience _transience);
         // Takes one from the row's Wanted; at 0 it cancels a Waiting row and releases its inputs.

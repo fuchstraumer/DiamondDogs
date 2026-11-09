@@ -34,19 +34,19 @@ namespace
                    cc::detail::ValidatedGraph& validated, std::vector<cc::Diagnostic>& diagnostics);
     void CheckParams(int32_t index, const cc::AuthoredNode& node, const cc::KindOps& kind,
                      std::vector<cc::Diagnostic>& diagnostics);
-    void CheckEdge(int32_t edgeIndex, const cc::AuthoredEdge& edge, const cc::KindRegistry& registry,
-                   cc::detail::ValidatedGraph& validated, std::vector<EdgeEnds>& structuralEdges,
+    void CheckEdge(int32_t edge_index, const cc::AuthoredEdge& edge, const cc::KindRegistry& registry,
+                   cc::detail::ValidatedGraph& validated, std::vector<EdgeEnds>& structural_edges,
                    std::vector<cc::Diagnostic>& diagnostics);
     void CheckRequiredSlots(const cc::KindRegistry& registry, const cc::detail::ValidatedGraph& validated,
                             std::vector<cc::Diagnostic>& diagnostics);
     std::optional<size_t> FindSlot(std::span<const cc::Slot> slots, std::string_view name);
     std::optional<size_t> FindOutput(std::span<const cc::Output> outputs, std::string_view name);
     std::string ListOutputNames(std::span<const cc::Output> outputs);
-    std::vector<int32_t> SortTopologically(int32_t nodeCount, std::span<const EdgeEnds> edges);
-    std::vector<int32_t> FindCycle(int32_t nodeCount, std::span<const EdgeEnds> edges,
-                                   std::span<const int32_t> sortedOrder);
+    std::vector<int32_t> SortTopologically(int32_t node_count, std::span<const EdgeEnds> edges);
+    std::vector<int32_t> FindCycle(int32_t node_count, std::span<const EdgeEnds> edges,
+                                   std::span<const int32_t> sorted_order);
     int32_t LowestUnsortedPredecessor(int32_t node, std::span<const EdgeEnds> edges,
-                                      const std::vector<bool>& isSorted);
+                                      const std::vector<bool>& is_sorted);
 }
 
 namespace cc::detail
@@ -190,8 +190,11 @@ namespace
         diagnostics.push_back(std::move(diagnostic));
     }
 
-    void CheckEdge(int32_t edgeIndex, const cc::AuthoredEdge& edge, const cc::KindRegistry& registry,
-                   cc::detail::ValidatedGraph& validated, std::vector<EdgeEnds>& structuralEdges,
+    void CheckEdge(int32_t edge_index,
+                   const cc::AuthoredEdge& edge,
+                   const cc::KindRegistry& registry,
+                   cc::detail::ValidatedGraph& validated,
+                   std::vector<EdgeEnds>& structural_edges,
                    std::vector<cc::Diagnostic>& diagnostics)
     {
         const size_t nodeCount = validated.NodeKinds.size();
@@ -214,7 +217,7 @@ namespace
 
             const std::string message = std::format(
                 "edge {} runs from node {} to node {}, and the graph has {} nodes",
-                edgeIndex, edge.FromNode, edge.ToNode, nodeCount);
+                edge_index, edge.FromNode, edge.ToNode, nodeCount);
             diagnostics.push_back(
                 MakeError(cc::DiagnosticCode::DanglingEdge, std::move(existingNodes), message));
 
@@ -223,7 +226,7 @@ namespace
 
         const int32_t from = static_cast<int32_t>(edge.FromNode);
         const int32_t to = static_cast<int32_t>(edge.ToNode);
-        structuralEdges.push_back(EdgeEnds{ from, to });
+        structural_edges.push_back(EdgeEnds{ from, to });
 
         const cc::KindId consumerKindId = validated.NodeKinds[to];
 
@@ -239,8 +242,8 @@ namespace
         if (!slotIndex.has_value())
         {
             const std::string message = std::format(
-                "edge {} goes to slot \"{}\", and kind \"{}\" has no such slot",
-                edgeIndex, edge.ToSlot, consumerKind.Name);
+                R"(edge {} goes to slot "{}", and kind "{}" has no such slot)",
+                edge_index, edge.ToSlot, consumerKind.Name);
             diagnostics.push_back(MakeNodeError(cc::DiagnosticCode::UnknownSlot, edge.ToNode, message));
 
             return;
@@ -252,7 +255,7 @@ namespace
         {
             const std::string message = std::format(
                 "edge {} goes to slot \"{}\" of node {}, which has an edge there",
-                edgeIndex, edge.ToSlot, edge.ToNode);
+                edge_index, edge.ToSlot, edge.ToNode);
             diagnostics.push_back(
                 MakeNodeError(cc::DiagnosticCode::SlotAlreadyConnected, edge.ToNode, message));
 
@@ -277,8 +280,8 @@ namespace
         {
             const std::string outputNames = ListOutputNames(producerKind.Outputs);
             const std::string message = std::format(
-                "edge {} reads the output \"{}\" of node {}, and kind \"{}\" has no such output (it has: {})",
-                edgeIndex, edge.FromOutput, edge.FromNode, producerKind.Name, outputNames);
+                R"(edge {} reads the output "{}" of node {}, and kind "{}" has no such output (it has: {}))",
+                edge_index, edge.FromOutput, edge.FromNode, producerKind.Name, outputNames);
             diagnostics.push_back(MakeNodeError(cc::DiagnosticCode::UnknownOutput, edge.FromNode, message));
 
             return;
@@ -293,8 +296,8 @@ namespace
         if (output.Produces != slot.Accepts)
         {
             const std::string message = std::format(
-                "edge {}: output \"{}\" of kind \"{}\" of node {} makes an artifact that slot \"{}\" refuses",
-                edgeIndex, output.Name, producerKind.Name, edge.FromNode, slot.Name);
+                R"(edge {}: output "{}" of kind "{}" of node {} makes an artifact that slot "{}" refuses)",
+                edge_index, output.Name, producerKind.Name, edge.FromNode, slot.Name);
             diagnostics.push_back(MakeNodeError(cc::DiagnosticCode::SlotKindMismatch, edge.ToNode, message));
         }
     }
@@ -375,10 +378,10 @@ namespace
         return names;
     }
 
-    std::vector<int32_t> SortTopologically(int32_t nodeCount, std::span<const EdgeEnds> edges)
+    std::vector<int32_t> SortTopologically(int32_t node_count, std::span<const EdgeEnds> edges)
     {
-        std::vector<int32_t> incomingCounts(nodeCount, 0);
-        std::vector<std::vector<int32_t>> successors(nodeCount);
+        std::vector<int32_t> incomingCounts(node_count, 0);
+        std::vector<std::vector<int32_t>> successors(node_count);
 
         for (const EdgeEnds& edge : edges)
         {
@@ -387,9 +390,9 @@ namespace
         }
 
         // a min-heap, so that of the nodes that are ready the lowest authored index goes first
-        std::priority_queue<int32_t, std::vector<int32_t>, std::greater<int32_t>> ready;
+        std::priority_queue<int32_t, std::vector<int32_t>, std::greater<>> ready;
 
-        for (int32_t node = 0; node < nodeCount; ++node)
+        for (int32_t node = 0; node < node_count; ++node)
         {
             if (incomingCounts[node] == 0)
             {
@@ -398,7 +401,7 @@ namespace
         }
 
         std::vector<int32_t> order;
-        order.reserve(nodeCount);
+        order.reserve(node_count);
 
         while (!ready.empty())
         {
@@ -420,12 +423,12 @@ namespace
         return order;
     }
 
-    std::vector<int32_t> FindCycle(int32_t nodeCount, std::span<const EdgeEnds> edges,
-                                   std::span<const int32_t> sortedOrder)
+    std::vector<int32_t> FindCycle(int32_t node_count, std::span<const EdgeEnds> edges,
+                                   std::span<const int32_t> sorted_order)
     {
-        std::vector<bool> isSorted(nodeCount, false);
+        std::vector<bool> isSorted(node_count, false);
 
-        for (const int32_t node : sortedOrder)
+        for (const int32_t node : sorted_order)
         {
             isSorted[node] = true;
         }
@@ -437,7 +440,7 @@ namespace
         // repeat a node, and the walk between the two visits is a cycle. Nodes only downstream of a cycle are
         // not on it.
         std::vector<int32_t> walk;
-        std::vector<int32_t> positionInWalk(nodeCount, -1);
+        std::vector<int32_t> positionInWalk(node_count, -1);
 
         while (positionInWalk[node] < 0)
         {
@@ -456,13 +459,13 @@ namespace
     }
 
     int32_t LowestUnsortedPredecessor(int32_t node, std::span<const EdgeEnds> edges,
-                                      const std::vector<bool>& isSorted)
+                                      const std::vector<bool>& is_sorted)
     {
         int32_t lowest = cc::detail::k_NoNode;
 
         for (const EdgeEnds& edge : edges)
         {
-            const bool isCandidate = edge.To == node && !isSorted[edge.From];
+            const bool isCandidate = edge.To == node && !is_sorted[edge.From];
 
             if (isCandidate && (lowest == cc::detail::k_NoNode || edge.From < lowest))
             {
