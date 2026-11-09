@@ -613,3 +613,24 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 
 - `Discard` usage and placed resources (Vulkan-only `ResourcePlacement.hpp`), not committed. Details in
   `docs/rhi-resources-agent.md`, section 8.
+
+### 2026-11-05 (Opus: agent tooling, TypeInfo phases 1 and 2)
+
+- Metadata and `TypeInfo` added, not committed. Plan and decisions in `docs/agent-tools-plan.md`.
+- Phases 3 to 5 added, not committed: `EncodeErased`, `ValueAccess`, `SeaState` on the table. Upload bug found in `UploadBuffer.cpp`, not fixed: see `docs/agent-tools-plan.md`, "Facts found".
+- Agent tools step 7b added, not committed: `ToolServer` and `OceanFft --tool-port`. Details in `docs/tools-agent.md`.
+
+### 2026-11-06 (Opus: render graph)
+
+- Render graph work now has its own handbook: `docs/rendergraph-agent.md`.
+- Agent tools 7c and 7d built overnight 2026-11-07, not committed: MCP sidecar, captures, debug views. Details in `docs/tools-agent.md`.
+
+### 2026-11-07 (Opus: content compiler)
+
+- Executor decided (rows and counters), batch 1 built, not committed: recipe outputs (key encoding version 2), the `Task` destroy assert, Loom's stub `ResourceFuture.hpp` deleted. Details in `docs/content-compiler-plan.md`, "Decisions (the author, 2026-11-07)" and "Batch 1 results".
+- Same-Tick `Spawn` built, and the T4 executor skeleton written (rows and counters), not committed. Six questions for the author in `docs/content-compiler-plan.md`, "T4 design: rows and counters".
+
+### 2026-11-07 (Opus: tools)
+
+- Raw target capture (debug-view stage 2) and auto exposure applied to the composite, not committed. Details in `docs/tools-agent.md`, log and section 4.
+- 2026-11-07: GPU timings tool (`frame.timings`, sidecar `gpu_timings`). Details in `docs/tools-agent.md`.

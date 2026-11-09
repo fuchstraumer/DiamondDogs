@@ -63,6 +63,7 @@ set(foundation_reflect_source_files
 set(foundation_containers_source_files
     "include/containers/CircularBuffer.hpp"
     "include/containers/ConcurrentDeque.hpp"
+    "include/containers/DenseHashMap.hpp"
     "include/containers/LruCache.hpp"
     "include/containers/mwsrQueue.hpp"
     "include/containers/SmallVector.hpp")

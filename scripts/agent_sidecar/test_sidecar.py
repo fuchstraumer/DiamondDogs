@@ -159,6 +159,7 @@ class SidecarTest(unittest.TestCase):
             "frame.time": lambda params: ("result", {"SimulationTime": params["arguments"]["Time"]}),
             "frame.step": lambda params: ("result", {"Frames": params["arguments"]["Frames"]}),
             "capture.target": self.target_reply,
+            "frame.timings": self.timings_reply,
             "never.answers": lambda params: ("silent", None),
             "refuses": lambda params: ("error", {"code": -32000, "message": "the value is outside the limits",
                                                  "data": {"Code": "ValueRefused", "Suggestions": ["WindForce"]}}),
@@ -182,6 +183,30 @@ class SidecarTest(unittest.TestCase):
 
         return "result", image
 
+    @staticmethod
+    def timings_reply(params):
+        """Two nested graphics scopes and one async scope. Frames 3 makes a Debug build with validation on and one
+        dropped scope; any other count makes a clean optimized build."""
+        frames = params["arguments"]["Frames"]
+        debug = frames == 3
+
+        def stats(samples):
+            ordered = sorted(samples)
+            return {"Frames": len(samples), "MedianUs": ordered[len(ordered) // 2], "MeanUs": sum(samples) / len(samples),
+                    "MinUs": ordered[0], "MaxUs": ordered[-1], "SamplesUs": samples}
+
+        return "result", {
+            "Frames": frames, "FirstFrame": 40, "LastFrame": 40 + frames - 1, "AsyncSubmissions": frames,
+            "FrameIntervalUs": 16666.5, "Busy": stats([1000.0, 1200.0, 1100.0]), "Optimized": not debug,
+            "Validation": debug, "Paused": False, "Repeatable": False, "ScreenWidth": 1280, "ScreenHeight": 720,
+            "DroppedScopes": 1 if debug else 0, "DroppedBlocks": 0, "LostBlocks": 0,
+            "Scopes": [
+                {"Name": "Ocean scene pass", "Queue": "graphics", "Depth": 0, "Time": stats([900.0, 1100.0, 1000.0])},
+                {"Name": "Deferred Lighting", "Queue": "graphics", "Depth": 1, "Time": stats([250.5, 260.25, 255.0])},
+                {"Name": "Ocean simulation", "Queue": "async compute", "Depth": 0, "Time": stats([80.0, 82.0, 81.0])},
+            ],
+        }
+
     def tearDown(self):
         self.owner.run_blocking(self.owner.engine.disconnect)
         self.owner.executor.shutdown()
@@ -195,12 +220,12 @@ class SidecarTest(unittest.TestCase):
         result = await self.tool("engine_connect", {"port": self.fake.port})
         self.assertFalse(result.is_error, result)
 
-    async def test_tools_list_has_sixteen_tools_with_object_schemas(self):
+    async def test_tools_list_has_seventeen_tools_with_object_schemas(self):
         tools = (await self.client.list_tools()).tools
         self.assertEqual(sorted(tool.name for tool in tools), sorted([
             "engine_launch", "engine_connect", "engine_status", "engine_stop", "describe", "get", "set", "call",
             "wait_frames", "capture_screen", "capture_region", "capture_pixel", "hold_time", "step_time",
-            "capture_diff", "capture_target"]))
+            "capture_diff", "capture_target", "gpu_timings"]))
 
         for tool in tools:
             self.assertEqual(tool.input_schema["type"], "object", tool.name)
@@ -410,6 +435,45 @@ class SidecarTest(unittest.TestCase):
         self.assertTrue(outside.is_error)
         self.assertIn("not inside", text(outside, 0))
 
+    async def test_gpu_timings_returns_a_table_indented_by_depth(self):
+        await self.connect()
+        result = await self.tool("gpu_timings", {"frames": 30})
+        self.assertFalse(result.is_error, result)
+        self.assertEqual(self.fake.received[-1]["params"], {"name": "frame.timings", "arguments": {"Frames": 30}})
+        report = json_text(result, 0)
+        self.assertEqual((report["Frames"], report["FirstFrame"], report["LastFrame"]), (30, 40, 69))
+        self.assertEqual(report["warnings"], [])
+        self.assertNotIn("reply", report)
+        header, scene, lighting, simulation, busy = report["table"]
+        self.assertTrue(header.startswith("scope") and header.endswith("max us"))
+        self.assertTrue(scene.startswith("Ocean scene pass "))
+        self.assertTrue(lighting.startswith("  Deferred Lighting "))
+        self.assertIn("async compute", simulation)
+        # the median of 250.5, 255 and 260.25, and the numbers align right
+        self.assertIn(" 255.00 ", lighting)
+        self.assertEqual(len({len(line) for line in report["table"]}), 1)
+        self.assertTrue(busy.startswith("busy (sum of the top scopes)"))
+        self.assertTrue(busy.endswith("1200.00"))
+
+    async def test_gpu_timings_warns_when_the_times_are_not_fit_to_compare(self):
+        await self.connect()
+        report = json_text(await self.tool("gpu_timings", {"frames": 3, "include_samples": True}), 0)
+        debug, validation, missing = report["warnings"]
+        self.assertIn("Debug build", debug)
+        self.assertIn("--validation=off", validation)
+        self.assertIn("1 dropped scopes", missing)
+        self.assertEqual(report["reply"]["Scopes"][1]["Time"]["SamplesUs"], [250.5, 260.25, 255.0])
+
+    async def test_gpu_timings_refuses_a_count_outside_its_limits(self):
+        await self.connect()
+        sent = len(self.fake.received)
+
+        for frames in (0, 601):
+            result = await self.tool("gpu_timings", {"frames": frames})
+            self.assertTrue(result.is_error, frames)
+
+        self.assertEqual(len(self.fake.received), sent)
+
     async def test_close_leaves_an_engine_it_did_not_launch_running(self):
         await self.connect()
         self.owner.run_blocking(self.owner.engine.close)
@@ -444,7 +508,7 @@ class StdioTest(unittest.TestCase):
         lines = output.decode().splitlines()
         self.assertEqual(len(lines), 2, errors.decode(errors="replace"))
         self.assertEqual(json.loads(lines[0])["result"]["protocolVersion"], "2025-06-18")
-        self.assertEqual(len(json.loads(lines[1])["result"]["tools"]), 16)
+        self.assertEqual(len(json.loads(lines[1])["result"]["tools"]), 17)
 
 
 if __name__ == "__main__":

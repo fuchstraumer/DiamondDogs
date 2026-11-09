@@ -222,8 +222,8 @@ tool describe camera.set
 The `sea` command also writes through the registry. The other text commands stay on their old path until they move.
 
 The scene exposes these commands: `camera.get`, `camera.set`, `camera.lookat`, `frame.info` (with the screen size),
-`frame.wait`, `frame.pause`, `debug.view` (the shader debug views by name), `app.quit`, three time commands, and four
-captures:
+`frame.wait`, `frame.pause`, `debug.view` (the shader debug views by name), `app.quit`, `frame.timings`, three time
+commands, and four captures:
 
 | Command | Result |
 |---|---|
@@ -256,6 +256,16 @@ wrong name fails, and the error lists each target with its channels. Each new ta
 the graph knows the layouts and places the barriers itself. The copy's barrier back to the target's layout blocks all
 later work (`AllCommands`), because the next frame's barriers expect the target untouched. That costs nothing that
 matters on a debug path.
+
+**`frame.timings`** replies with the GPU time of every timer scope over the next `Frames` frames (1 to 600): the
+median, mean, min and max in microseconds, and every sample. It reads the blocks that `collectGpuTimings` already takes
+from `rhi::GpuTimers` for the timings panel, so it adds no queries and no waits. The request keeps the frame number of
+the frame that runs it (that frame records later with the same number) and the next async compute timeline value, and
+takes only blocks at or after them, so a frame recorded before the request is never measured. It replies in the frame
+that collects the last block, a few frames after that block is recorded. The samples are floats in microseconds; the
+statistics are computed in double from those floats. The reply also says whether the build is optimized and whether
+validation runs, because both change the times. Release compiles the timers out, and the command fails there with the
+timers' own reason.
 
 **`ocean.exposure`** is the second object, after `ocean.sea`: `Auto`, `Ev` (the compensation with `Auto` on, the
 exposure with it off) and `Speed`. The scene reads it each frame, so a write needs no callback.

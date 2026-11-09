@@ -32,7 +32,7 @@ except ImportError as missing:
              f"\"{sys.executable}\" -m pip install --user \"mcp>=2,<3\"")
 
 SERVER_NAME = "diamond-dogs"
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = "0.4.0"
 PORT_LINE = re.compile(r"tool server listening on 127\.0\.0\.1:(\d+)")
 DEFAULT_TIMEOUT_SECONDS = 10.0
 LAUNCH_TIMEOUT_SECONDS = 180.0
@@ -44,6 +44,8 @@ LOG_LINES_KEPT = 400
 MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024
 # the writer thread encodes a full-size PNG, which takes a second or more in a Debug build
 CAPTURE_TIMEOUT_SECONDS = 60.0
+# frames in flight between recording a frame and its timings: more than enough for the demo's two or three
+TIMING_SETTLE_FRAMES = 10
 
 
 def log(message):
@@ -360,6 +362,52 @@ def read_target(reply, pixel):
     return report, picture
 
 
+TIMING_FIELDS = ("Frames", "FirstFrame", "LastFrame", "AsyncSubmissions", "FrameIntervalUs", "Optimized", "Validation",
+                 "Paused", "Repeatable", "ScreenWidth", "ScreenHeight", "DroppedScopes", "DroppedBlocks", "LostBlocks")
+
+
+def timing_row(label, queue, time):
+    return (label, queue, str(time["Frames"]), f"{time['MedianUs']:.2f}", f"{time['MeanUs']:.2f}",
+            f"{time['MinUs']:.2f}", f"{time['MaxUs']:.2f}")
+
+
+def summarize_timings(reply, include_samples):
+    """Turns a frame.timings reply into a report: the context of the measurement, warnings when the times are not fit to
+    compare, and a table with one line per scope, indented by its depth. The samples stay out unless asked for."""
+    warnings = []
+
+    if not reply["Optimized"]:
+        warnings.append("Debug build: compare times only between optimized builds (RelWithDebInfo).")
+
+    if reply["Validation"]:
+        warnings.append("The validation layer is on, and it can change the times. Launch with --validation=off to "
+                        "compare times.")
+
+    if reply["DroppedScopes"] or reply["DroppedBlocks"] or reply["LostBlocks"]:
+        warnings.append(f"Some timings are missing: {reply['DroppedScopes']} dropped scopes, {reply['DroppedBlocks']} "
+                        f"dropped blocks, {reply['LostBlocks']} lost blocks.")
+
+    rows = [("scope", "queue", "frames", "median us", "mean us", "min us", "max us")]
+
+    for scope in reply["Scopes"]:
+        rows.append(timing_row("  " * scope["Depth"] + scope["Name"], scope["Queue"], scope["Time"]))
+
+    rows.append(timing_row("busy (sum of the top scopes)", "graphics", reply["Busy"]))
+    widths = [max(len(row[column]) for row in rows) for column in range(len(rows[0]))]
+    # the names align left and the numbers align right
+    table = ["  ".join(cell.ljust(width) if column < 2 else cell.rjust(width)
+                       for column, (cell, width) in enumerate(zip(row, widths))) for row in rows]
+
+    report = {key: reply[key] for key in TIMING_FIELDS}
+    report["warnings"] = warnings
+    report["table"] = table
+
+    if include_samples:
+        report["reply"] = reply
+
+    return report
+
+
 class EngineThread:
     """One thread owns the engine and its connection. The SDK can run tool calls at the same time, and the connection
     takes one request at a time, so a tool hands its work to this thread and awaits the result. There is no lock: the
@@ -383,7 +431,7 @@ class EngineThread:
 INSTRUCTIONS = ("Call engine_launch, then describe. Change values with set or call, wait_frames for the change to show, "
                 "then capture_screen to see it. For an A/B comparison, call hold_time (or step_time) before each "
                 "capture, so that both captures show the same simulation time, then capture_diff. For exact values "
-                "(normals, depth, HDR color, the exposure), use capture_target.")
+                "(normals, depth, HDR color, the exposure), use capture_target. For GPU cost, use gpu_timings.")
 
 HideUi = Annotated[bool, Field(description="Hides the panel on the captured frame only.")]
 CaptureName = Annotated[str | None, Field(description="The file name without .png: letters, digits, '_' and '-'. "
@@ -399,7 +447,7 @@ def frames_timeout(frames):
 
 
 def build_server(owner):
-    """Returns the MCP server with its 16 tools. Every tool runs its engine work on the owner's thread."""
+    """Returns the MCP server with its 17 tools. Every tool runs its engine work on the owner's thread."""
     server = MCPServer(SERVER_NAME, version=SERVER_VERSION, instructions=INSTRUCTIONS)
     engine = owner.engine
 
@@ -591,6 +639,20 @@ def build_server(owner):
             content.append(inline_image(picture))
 
         return content
+
+    @tool("Measures the GPU time of every timer scope over the next `frames` frames: the median, mean, min and max in "
+          "microseconds, in a table indented by nesting. Only frames from this call on count, so a change made before "
+          "it is in every measured frame. For an A/B comparison, change one thing between two calls. Compare times "
+          "only from a RelWithDebInfo build launched with --validation=off: the warnings say when that is not so. "
+          "Release builds have no timers, and the call fails there.")
+    async def gpu_timings(
+            frames: Annotated[int, Field(ge=1, le=600, description="Frames to measure.")] = 120,
+            include_samples: Annotated[bool, Field(description="Adds the engine's whole reply, with one sample per "
+                                                               "frame for each scope.")] = False):
+        params = {"name": "frame.timings", "arguments": {"Frames": frames}}
+        # the reply waits for the GPU to finish the last frame, a few frames after it is recorded
+        reply = await request("tool.call", params, frames_timeout(frames + TIMING_SETTLE_FRAMES))
+        return summarize_timings(reply, include_samples)
 
     @tool("Returns one pixel of the final image: linear BT.709 (1.0 is paper white), 8-bit sRGB, and the stored bytes.")
     async def capture_pixel(x: PixelCoordinate, y: PixelCoordinate, hide_ui: HideUi = True):

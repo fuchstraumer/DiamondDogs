@@ -49,18 +49,22 @@ claude mcp add diamond-dogs -- C:/Python315/python.exe C:/SoftwareDev/DiamondDog
 | `step_time` | Advances the paused sea by an exact step per frame, for N frames, in repeatable mode. |
 | `capture_diff` | Compares two captures: identical or not, the largest and mean difference, the changed pixels and their box, and a heat map. |
 | `capture_target` | Copies one intermediate image or buffer unchanged (the HDR scene, the G-buffer, depth, Hi-Z, the exposure). Returns the shape, the min, max, mean and NaN count of each channel, one texel on request, and a picture. |
+| `gpu_timings` | The GPU time of every timer scope over the next N frames: median, mean, min and max in microseconds, in a table indented by nesting, with warnings when the times are not fit to compare. `include_samples` adds one sample per frame. |
 
 The engine's own commands, which `call` runs: `camera.get`, `camera.set`, `camera.lookat`, `frame.info`, `frame.wait`,
-`frame.pause`, `frame.time`, `frame.step`, `frame.repeatable`, `debug.view`, `app.quit`, and the four captures. The
+`frame.pause`, `frame.time`, `frame.step`, `frame.repeatable`, `frame.timings`, `debug.view`, `app.quit`, and the
+four captures. The
 objects, which `get` and `set` reach: `ocean.sea` (the sea state) and `ocean.exposure` (`Auto`, `Ev`, `Speed`).
 `describe` lists them with their schemas.
 
 Useful engine arguments for `engine_launch`: `--window=WxH`, `--borderless` (the display's full size), `--size=128|256|512`,
-`--dt=SECONDS` (a fixed simulation step, so that runs repeat), and `--script=FILE`.
+`--dt=SECONDS` (a fixed simulation step, so that runs repeat), `--validation=off` (for times to compare), and
+`--script=FILE`.
 
 ## Behavior to know
 
-- **Timeouts.** Each call waits 10 s by default; `wait_frames` adds 0.1 s per frame, and a capture waits 60 s. On a
+- **Timeouts.** Each call waits 10 s by default; `wait_frames` and `gpu_timings` add 0.1 s per frame, and a capture
+  waits 60 s. On a
   timeout the sidecar pings the engine. A ping that works means that the frames stopped: tool calls run only while frames
   render, and a minimized window renders none. The request stays queued, and it runs when frames start again.
 - **One client.** The engine accepts one connection. `engine_connect` fails with a clear message when another client
@@ -95,6 +99,19 @@ Useful engine arguments for `engine_launch`: `--window=WxH`, `--borderless` (the
   writes `log2(0.18 / adapted) + Ev` for the composite. `capture_target exposure_ev` returns the exposure that the
   frame used, and `exposure_state` the metering. To compare with a fixed exposure, set `Auto` false and `Ev` to that
   float: the image is the same byte for byte.
+- **GPU timings.** `gpu_timings` measures only frames from the call on: the engine notes the frame number when the
+  request runs, and leaves out every timer block from an earlier frame, also the ones still in flight. So a `set` before
+  the call is in every measured frame. For an A/B comparison: `gpu_timings`, change one thing, `gpu_timings` again, and
+  compare the medians. The median resists the occasional slow frame; the max shows it.
+  - **Which build.** Release has no timers (they are compiled out), and the call fails. A Debug build and the validation
+    layer both change the times, and the warnings say so. Times to compare come from RelWithDebInfo, launched with
+    `--validation=off`.
+  - **A shared GPU.** A timestamp counts everything the GPU did between two points, also another process's work. With a
+    game running, one scope (Specular AA) measured a 6.7 ms median and a 9 us minimum in the same 30 frames. Check that the GPU is idle
+    (`nvidia-smi`) before a measurement. Nothing in the reply can tell.
+  - **What a scope holds.** Each timestamp waits for every earlier command on its queue, so a scope also holds the
+    barrier waits at its start. A scope opened more than once in a frame gives one sample, its total. `busy` is the sum of
+    the top scopes per frame: how long the graphics queue worked. Work outside every scope is not in it.
 - **Debug views go through the tonemapper.** `debug.view` changes what the final image shows, so the colors are not raw
   values. Use them to see where something happens.
 - **Shutdown.** When the MCP client closes stdin, the sidecar stops an engine that it launched, and leaves an engine that
@@ -109,8 +126,8 @@ Useful engine arguments for `engine_launch`: `--window=WxH`, `--borderless` (the
 
 | File | Needs | Proves |
 |---|---|---|
-| `test_sidecar.py` | The SDK, numpy, Pillow | Every tool's mapping and schema, `capture_diff` on known images, `capture_target` statistics, texel and picture on a known `.bin`, refusals, timeouts, stale replies, one request at a time to the engine, and the real stdio process, against a fake engine. The tests use the SDK's in-process client. `python -m unittest test_sidecar` |
-| `check_engine.py ... checks` | The SDK, numpy, Pillow, a built OceanFft | The real engine through MCP. Two paused captures are identical, a region equals the crop of the full capture, the downsample equals a linear box average, pixels equal the PNG, a debug view off restores the image, a held time is identical by a jump and by steps, steps of 1/60 s land on the same float as a jump, a different time differs, and bad input is refused. Raw targets have their sizes, two raw captures agree, and Hi-Z equals the 2x2 maximum of the depth it reduces. The GPU's mean log luminance equals numpy's, the metered EV maps it to 18% gray, the image at that EV set by hand is identical, and the compensation adds 1 EV. |
+| `test_sidecar.py` | The SDK, numpy, Pillow | Every tool's mapping and schema, `capture_diff` on known images, `capture_target` statistics, texel and picture on a known `.bin`, the `gpu_timings` table, warnings and limits, refusals, timeouts, stale replies, one request at a time to the engine, and the real stdio process, against a fake engine. The tests use the SDK's in-process client. `python -m unittest test_sidecar` |
+| `check_engine.py ... checks` | The SDK, numpy, Pillow, a built OceanFft | The real engine through MCP. Two paused captures are identical, a region equals the crop of the full capture, the downsample equals a linear box average, pixels equal the PNG, a debug view off restores the image, a held time is identical by a jump and by steps, steps of 1/60 s land on the same float as a jump, a different time differs, and bad input is refused. Raw targets have their sizes, two raw captures agree, and Hi-Z equals the 2x2 maximum of the depth it reduces. The GPU's mean log luminance equals numpy's, the metered EV maps it to 18% gray, the image at that EV set by hand is identical, and the compensation adds 1 EV. GPU timings: each scope's median, mean, min and max equal numpy's on its samples, no scope is shorter than the scopes nested in it, the busy time is the sum of the top scopes, the units are microseconds, and the Auto Exposure scope is in no measured frame after auto exposure turns off and in every one after it turns on (so frames from before the request are left out). In Release, the call fails. |
 | `check_engine.py ... demo DIR` | The SDK, numpy, Pillow, a built OceanFft | Captures three sea states and three debug views, for a person to look at. |
 
 `mcp_client.py` is the small MCP client that `check_engine.py` uses. It writes the JSON-RPC lines itself and does not

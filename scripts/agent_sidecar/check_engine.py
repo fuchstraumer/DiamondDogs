@@ -5,8 +5,8 @@
 
 checks compares independent results: two captures of a paused sea with TAA off, a region against a crop of the full
 capture, the downsample against a linear box average, pixels against the PNG, one held time reached by a jump and by
-steps, raw targets against each other (Hi-Z against the depth it reduces), and the auto exposure against numpy and
-against the same exposure set by hand. It needs the MCP SDK, numpy and Pillow, so run it with the Python that has them.
+steps, raw targets against each other (Hi-Z against the depth it reduces), the auto exposure against numpy and
+against the same exposure set by hand, and the GPU timings against numpy and against their own nesting. It needs the MCP SDK, numpy and Pillow, so run it with the Python that has them.
 demo captures the default sea, a shallow gale and a glassy swell from one fixed camera, and stacks them.
 """
 import io
@@ -23,6 +23,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from mcp_client import McpClient  # noqa: E402
 
 failures = []
+# main() sets it from the executable's folder
+TIMERS_EXPECTED = True
 
 
 def check(condition, label):
@@ -160,6 +162,96 @@ def run_target_checks(client, screen):
     check(is_error and "exposure_ev" in text, "an unknown target is refused, and the error lists the targets")
 
 
+TIMING_FRAMES = 30
+
+
+def matches_numpy(time):
+    """The engine's median, min and max must equal numpy's on the same float samples, and the mean must agree to
+    rounding: both sum in double, in a different order. The JSON holds each sample as its shortest float text, so it
+    goes through float32 to get the engine's value back."""
+    samples = numpy.array(time["SamplesUs"], dtype=numpy.float32).astype(numpy.float64)
+    return (samples.size == time["Frames"] > 0 and time["MedianUs"] == float(numpy.median(samples)) and
+            time["MinUs"] == float(samples.min()) and time["MaxUs"] == float(samples.max()) and
+            abs(time["MeanUs"] - float(samples.mean())) <= 1e-9 * float(samples.mean()))
+
+
+def timings(client, frames):
+    report = client.json_tool("gpu_timings", {"frames": frames, "include_samples": True})
+    return report, report["reply"], {scope["Name"]: scope for scope in report["reply"]["Scopes"]}
+
+
+def run_timing_checks(client, timers_expected):
+    """GPU timings in a held frame. Each statistic is checked against numpy on the samples, each scope against the
+    scopes nested in it, and the busy time against the top scopes. Auto exposure has a scope only while it is on, which
+    shows that frames recorded before the request are not measured."""
+    if not timers_expected:
+        is_error, text, _ = client.tool("gpu_timings", {"frames": 5})
+        check(is_error and "Release" in text, f"gpu_timings fails in Release: {text.splitlines()[0] if text else ''}")
+        return
+
+    report, reply, by_name = timings(client, TIMING_FRAMES)
+    print("\n".join(report["table"]), flush=True)
+    complete = reply["DroppedBlocks"] == 0 and reply["LostBlocks"] == 0
+    check(reply["Frames"] == TIMING_FRAMES and (not complete or reply["LastFrame"] - reply["FirstFrame"] + 1 ==
+                                                TIMING_FRAMES),
+          f"gpu_timings measured frames {reply['FirstFrame']} to {reply['LastFrame']}")
+    check((not reply["Optimized"]) == ("Debug build" in " ".join(report["warnings"])),
+          f"the warnings match the build: {report['warnings']}")
+
+    expected = ("Ocean scene pass", "Deferred Lighting", "Hi-Z Downsample", "TAA Resolve", "Auto Exposure")
+    missing = [name for name in expected if by_name.get(name, {}).get("Time", {}).get("Frames") != TIMING_FRAMES]
+    check(not missing, f"every frame has the expected scopes (missing: {missing})")
+
+    wrong = [scope["Name"] for scope in reply["Scopes"] if not matches_numpy(scope["Time"])]
+    check(not wrong and matches_numpy(reply["Busy"]),
+          f"the median, mean, min and max of {len(reply['Scopes'])} scopes and the busy time equal numpy's (wrong: "
+          f"{wrong})")
+
+    # a scope's time holds the scopes nested in it: each timestamp waits for every earlier command on its queue
+    graphics = [scope for scope in reply["Scopes"] if scope["Queue"] == "graphics"]
+    outgrown = []
+
+    for index, parent in enumerate(graphics):
+        children = []
+
+        for scope in graphics[index + 1:]:
+            if scope["Depth"] <= parent["Depth"]:
+                break
+
+            if scope["Depth"] == parent["Depth"] + 1:
+                children.append(scope)
+
+        everywhere = all(scope["Time"]["Frames"] == TIMING_FRAMES for scope in [parent, *children])
+
+        if children and everywhere and sum(child["Time"]["MeanUs"] for child in children) > parent["Time"]["MeanUs"] + 0.01:
+            outgrown.append(parent["Name"])
+
+    check(not outgrown, f"no scope is shorter than the scopes nested in it (shorter: {outgrown})")
+
+    top = sum(sum(scope["Time"]["SamplesUs"]) for scope in graphics if scope["Depth"] == 0) / reply["Frames"]
+    check(abs(top - reply["Busy"]["MeanUs"]) <= 1e-4 * top,
+          f"the mean busy time {reply['Busy']['MeanUs']:.2f} us is the sum of the top scopes, {top:.2f} us")
+
+    # nanoseconds read as microseconds, or the reverse, fails one of these by a factor of 1000
+    lighting = by_name["Deferred Lighting"]["Time"]["MedianUs"]
+    check(5.0 < lighting and reply["Busy"]["MeanUs"] <= 1.05 * reply["FrameIntervalUs"],
+          f"Deferred Lighting takes {lighting:.1f} us, and the GPU is busy {reply['Busy']['MeanUs']:.0f} us of each "
+          f"{reply['FrameIntervalUs']:.0f} us frame")
+
+    # this set is answered in an earlier frame than the timings request
+    client.json_tool("set", {"path": "ocean.exposure.Auto", "value": False})
+    _, off, off_names = timings(client, 10)
+    check(off["Frames"] == 10 and "Auto Exposure" not in off_names,
+          "with auto exposure off, no measured frame has its scope")
+    client.json_tool("set", {"path": "ocean.exposure.Auto", "value": True})
+    _, on, on_names = timings(client, 10)
+    frames_with = on_names.get("Auto Exposure", {}).get("Time", {}).get("Frames")
+    check(frames_with == 10, f"with auto exposure on again, every measured frame has its scope: {frames_with} of 10")
+
+    is_error, text, _ = client.tool("call", {"name": "frame.timings", "arguments": {"Frames": 0}})
+    check(is_error, f"frame.timings refuses 0 frames: {text.splitlines()[0] if text else ''}")
+
+
 def run_repeatable_checks(client, window_arguments):
     """A held time must give the same bytes whatever came before it, and a different time must not. This launch keeps
     TAA and auto exposure on, as the demo starts, because repeatable mode exists to remove their history."""
@@ -208,6 +300,7 @@ def run_repeatable_checks(client, window_arguments):
     client.json_tool("hold_time", {"time": 10.0})
     frame = client.json_tool("call", {"name": "frame.info"})
     run_target_checks(client, (frame["ScreenWidth"], frame["ScreenHeight"]))
+    run_timing_checks(client, TIMERS_EXPECTED)
 
     off = client.json_tool("call", {"name": "frame.repeatable", "arguments": {"Enabled": False}})
     check(not off["Repeatable"], "frame.repeatable turns off")
@@ -366,7 +459,10 @@ def run_demo(client, output):
 
 
 def main():
+    global TIMERS_EXPECTED
     executable, mode = sys.argv[1], sys.argv[2]
+    # the GPU timers are compiled out of Release and MinSizeRel only
+    TIMERS_EXPECTED = pathlib.Path(executable).parent.name not in ("Release", "MinSizeRel")
     client = McpClient(executable)
     try:
         if mode == "checks":

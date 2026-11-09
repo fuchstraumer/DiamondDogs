@@ -28,7 +28,13 @@ set(LOOM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PassStatements.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/SequenceBuilder.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/order/OrderedGraph.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/order/OrderContext.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/order/OrderedGraph.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/order/Accesses.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/order/Edges.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/order/Sort.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/order/DataChecks.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/order/Liveness.cpp"
 )
 
 add_module(loom

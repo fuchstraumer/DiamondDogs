@@ -1,10 +1,13 @@
+#include "Declarations.hpp"
 #include "freeze/FrozenGraph.hpp"
 #include "GraphBuilder.hpp"
+#include "ImageDataFormats.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "LoomKeys.hpp"
 #include "PassBuilders.hpp"
 #include "freeze_test_helpers.hpp"
+#include "order/OrderContext.hpp"
 #include "order/OrderedGraph.hpp"
 #include <cstdint>
 #include <optional>
@@ -110,6 +113,14 @@ namespace
         loom::BufferDeclaration buffer = MakeBuffer();
         buffer.HistoryDepth = 1;
         buffer.NoHistoryAction = loom::OnNoHistory::Clear;
+        return buffer;
+    }
+
+    // The CPU writes it before the frame, so it has a source and needs no writer pass.
+    loom::BufferDeclaration MakeUploadBuffer()
+    {
+        loom::BufferDeclaration buffer = MakeBuffer();
+        buffer.Cpu = loom::CpuAccess::Upload;
         return buffer;
     }
 
@@ -355,7 +366,8 @@ TEST(Order, OneWriterOrdersItsReader)
 }
 
 // Two writers: the graph does not pick which one the reader follows. No data edges; the declaration order stays.
-// A sequence orders the three passes, because two unordered writers are LM502.
+// A sequence orders the three passes, because two unordered writers are LM502. The reader sits between the writers,
+// because a reader first in the sequence would read before any write (LM503).
 TEST(Order, TwoWritersAddNoDataEdges)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
@@ -372,7 +384,7 @@ TEST(Order, TwoWritersAddNoDataEdges)
 
     loom::CollectingSink sink;
     const std::optional<loom::OrderedGraph> ordered =
-        FreezeAndOrderWithAccesses(graph, sink, { { k_Read }, { k_Write }, { k_Write } });
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_Read }, { k_Write } });
 
     ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
     EXPECT_TRUE(DataFlowEdges(*ordered).empty());
@@ -404,11 +416,12 @@ TEST(Order, TwoWriteBindsInOnePassAreOneWriter)
     EXPECT_EQ(PassOrder(*ordered), (std::vector<int32_t>{ 1, 0 }));
 }
 
-// A ReadWrite pass is the writer and one of the readers. It gets no edge to itself, so there is no cycle.
+// A ReadWrite pass is the writer and one of the readers. It gets no edge to itself, so there is no cycle. The buffer
+// is an upload buffer: on a transient, a ReadWrite first writer reads undefined contents (LM503).
 TEST(Order, ReadWritePassHasNoSelfEdge)
 {
     loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
-    graph.Declare(MakeBuffer());
+    graph.Declare(MakeUploadBuffer());
     graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
     graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
 
@@ -733,7 +746,7 @@ TEST(Order, OrderedWritersAndReadWriteSelfPairAreClean)
         FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_ReadWrite }, { k_Read } });
 
     ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
-    EXPECT_TRUE(sink.Diagnostics().empty());
+    EXPECT_EQ(sink.ErrorCount(), 0) << "the subject is errors; LM504 and LM505 warnings may appear";
 }
 
 // The two writers are ordered. The BindPrevious reader is not ordered with either, but it reads last frame's
@@ -763,7 +776,7 @@ TEST(Order, PreviousReadIsNotAHazard)
         FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_Write }, { k_Read } });
 
     ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
-    EXPECT_TRUE(sink.Diagnostics().empty());
+    EXPECT_EQ(sink.ErrorCount(), 0) << "the subject is errors; LM504 and LM505 warnings may appear";
 }
 
 // The sink already holds an error from an earlier stage. A clean graph must still order: Order() fails on the errors
@@ -790,6 +803,706 @@ TEST(Order, EarlierErrorsDoNotFailACleanGraph)
 
     EXPECT_TRUE(ordered.has_value());
     EXPECT_EQ(sink.ErrorCount(), 1);
+}
+
+// Reads before writes (LM503)
+
+namespace
+{
+
+    loom::BufferDeclaration MakeOtherUploadBuffer()
+    {
+        loom::BufferDeclaration buffer = MakeOtherBuffer();
+        buffer.Cpu = loom::CpuAccess::Upload;
+        return buffer;
+    }
+
+}
+
+// A transient that no pass writes. The read sees undefined memory: one error at the read, with no writer to name.
+TEST(Order, ReadWithNoWriterIsLM503)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    uint32_t readLine = 0;
+
+    auto read = [&readLine](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        readLine = std::source_location::current().line() + 1;
+        pass.Bind("Data", k_Data);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, read);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_Read } });
+
+    ASSERT_FALSE(ordered.has_value());
+    ASSERT_EQ(sink.Diagnostics().size(), 1u);
+
+    const loom::Diagnostic& error = sink.Diagnostics()[0];
+    EXPECT_EQ(error.Code, loom::DiagnosticCode::LM503);
+    EXPECT_EQ(error.Severity, loom::DiagnosticSeverity::Error);
+    EXPECT_EQ(error.Pass.Hash, k_First.Hash);
+    EXPECT_EQ(error.Resource.Hash, k_Data.Hash);
+    EXPECT_EQ(error.Where.line(), readLine);
+    EXPECT_EQ(error.OtherWhere.line(), 0u) << "no writer, so no second location";
+    EXPECT_TRUE(error.Actual.Text.empty());
+}
+
+// A sequence runs the reader before both writers (two writers, so no data edge moves it). The error names the first
+// writer and its Bind. Data is the reader's first access and the writer's second, so the writer's location must come
+// from the writer's own access list.
+TEST(Order, ReaderBeforeFirstWriterIsLM503)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.Declare(MakeOtherUploadBuffer());
+    uint32_t readLine = 0;
+    uint32_t writeLine = 0;
+
+    auto readDataThenOther = [&readLine](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        readLine = std::source_location::current().line() + 1;
+        pass.Bind("Data", k_Data);
+        pass.Bind("Other", k_Other);
+    };
+
+    auto readOtherThenWriteData = [&writeLine](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.Bind("Other", k_Other);
+        writeLine = std::source_location::current().line() + 1;
+        pass.Bind("Data", k_Data);
+    };
+
+    auto buildTick = [&readDataThenOther, &readOtherThenWriteData](loom::SequenceBuilder& tick)
+    {
+        tick.AddDispatch(k_First, k_EveryFrame, k_Graphics, readDataThenOther);
+        tick.AddDispatch(k_Second, k_EveryFrame, k_Graphics, readOtherThenWriteData);
+        tick.AddDispatch(k_Third, k_EveryFrame, k_Graphics, BindData);
+    };
+
+    graph.AddSequence(k_Tick, buildTick);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Read, k_Read }, { k_Read, k_Write }, { k_Write } });
+
+    ASSERT_FALSE(ordered.has_value());
+    ASSERT_EQ(sink.Diagnostics().size(), 1u) << "Other is an upload buffer, so its read is clean";
+
+    const loom::Diagnostic& error = sink.Diagnostics()[0];
+    EXPECT_EQ(error.Code, loom::DiagnosticCode::LM503);
+    EXPECT_EQ(error.Pass.Hash, k_First.Hash);
+    EXPECT_EQ(error.Resource.Hash, k_Data.Hash);
+    EXPECT_EQ(error.Where.line(), readLine);
+    EXPECT_EQ(error.OtherWhere.line(), writeLine);
+    EXPECT_EQ(error.Actual.Text, k_Second.Name);
+}
+
+// A ReadWrite pass (a Keep load, a blend, a `+=`) is the first writer and reads before it writes. Equal positions are
+// LM503. The read and the write are one statement, so both locations are that Bind.
+TEST(Order, ReadWriteFirstWriterIsLM503)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    uint32_t bindLine = 0;
+
+    auto readWrite = [&bindLine](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        bindLine = std::source_location::current().line() + 1;
+        pass.Bind("Data", k_Data);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, readWrite);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_ReadWrite } });
+
+    ASSERT_FALSE(ordered.has_value());
+    ASSERT_EQ(sink.Diagnostics().size(), 1u);
+    EXPECT_EQ(sink.Diagnostics()[0].Code, loom::DiagnosticCode::LM503);
+    EXPECT_EQ(sink.Diagnostics()[0].Where.line(), bindLine);
+    EXPECT_EQ(sink.Diagnostics()[0].OtherWhere.line(), bindLine);
+    EXPECT_EQ(sink.Diagnostics()[0].Actual.Text, k_First.Name);
+}
+
+// Anchors run the passes in reverse declaration order: Third (write), Second (read), First (write). The first writer
+// is the one that runs first, Third, not the lowest pass index, First. Chosen by pass index, the reader would wrongly
+// come before it.
+TEST(Order, FirstWriterIsFoundByRunOrder)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.DeclareAnchor(k_AnchorA);
+    graph.DeclareAnchor(k_AnchorB);
+    graph.OrderAnchors(k_AnchorA, k_AnchorB);
+
+    auto writeAfterB = [](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.After(k_AnchorB);
+    };
+
+    auto readBetween = [](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.After(k_AnchorA);
+        pass.Before(k_AnchorB);
+    };
+
+    auto writeBeforeA = [](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.Before(k_AnchorA);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, writeAfterB);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, readBetween);
+    graph.AddDispatch(k_Third, k_EveryFrame, k_Graphics, writeBeforeA);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_Read }, { k_Write } });
+
+    ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
+    EXPECT_EQ(sink.ErrorCount(), 0) << "the subject is errors; LM504 and LM505 warnings may appear";
+    EXPECT_EQ(PassOrder(*ordered), (std::vector<int32_t>{ 2, 1, 0 }));
+}
+
+// Two readers and no writer. The anchor runs Second first, so the error is at Second: the earliest reader by run
+// order, not by pass index.
+TEST(Order, ReportIsAtTheEarliestReaderByRunOrder)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.DeclareAnchor(k_AnchorA);
+
+    auto readAfterA = [](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.After(k_AnchorA);
+    };
+
+    auto readBeforeA = [](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.Before(k_AnchorA);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, readAfterA);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, readBeforeA);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_Read }, { k_Read } });
+
+    ASSERT_FALSE(ordered.has_value());
+    ASSERT_EQ(sink.Diagnostics().size(), 1u) << "one error per slot, not one per reader";
+    EXPECT_EQ(sink.Diagnostics()[0].Code, loom::DiagnosticCode::LM503);
+    EXPECT_EQ(sink.Diagnostics()[0].Pass.Hash, k_Second.Hash);
+}
+
+// The CPU writes an upload buffer before the frame: a source. A read with no writer pass is the normal case.
+TEST(Order, UploadBufferNeedsNoWriter)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeUploadBuffer());
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_Read } });
+
+    ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
+    EXPECT_EQ(sink.ErrorCount(), 0) << "the subject is errors; LM504 and LM505 warnings may appear";
+}
+
+// An import arrives with its contents (a texture from disk, a content compiler artifact): a source.
+TEST(Order, ImportNeedsNoWriter)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    const ImageFormat format{ ImageComponentFormats::R8, ImageDataType::UNorm };
+    graph.Import(loom::ImportDeclaration{ .Key = k_DataAsImage, .Expectation = loom::ImageExpectation::AnyExtent(format, 1) });
+
+    auto readImport = [](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.Bind("Data", k_DataAsImage);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, readImport);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_Read } });
+
+    ASSERT_TRUE(ordered.has_value()) << sink.Diagnostics().size() << " diagnostics";
+    EXPECT_EQ(sink.ErrorCount(), 0) << "the subject is errors; LM504 and LM505 warnings may appear";
+}
+
+// Data has an LM502 hazard, so its positions mean nothing and LM503 skips it. Other is clean of hazards and read with
+// no writer, so it still gets its LM503: the skip is per slot, not for the whole graph.
+TEST(Order, HazardSkipsOnlyItsOwnSlot)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.Declare(MakeOtherBuffer());
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindDataAndOther);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write, k_Read }, { k_Write } });
+
+    ASSERT_FALSE(ordered.has_value());
+
+    const std::vector<loom::Diagnostic> errors = ErrorsOf(sink);
+    ASSERT_EQ(errors.size(), 2u);
+    EXPECT_EQ(errors[0].Code, loom::DiagnosticCode::LM502);
+    EXPECT_EQ(errors[0].Resource.Hash, k_Data.Hash);
+    EXPECT_EQ(errors[1].Code, loom::DiagnosticCode::LM503);
+    EXPECT_EQ(errors[1].Resource.Hash, k_Other.Hash);
+}
+
+// Dead writes (LM504) and orphan passes (LM505)
+
+namespace
+{
+
+    constexpr loom::ResourceKey<loom::Buffer> k_Mid{ "Test.Mid" };
+
+    std::vector<loom::Diagnostic> WithCode(const loom::CollectingSink& sink, loom::DiagnosticCode code)
+    {
+        std::vector<loom::Diagnostic> matches;
+
+        for (const loom::Diagnostic& diagnostic : sink.Diagnostics())
+        {
+            if (diagnostic.Code == code)
+            {
+                matches.push_back(diagnostic);
+            }
+        }
+
+        return matches;
+    }
+
+    loom::BufferDeclaration MakeReadbackBuffer()
+    {
+        loom::BufferDeclaration buffer = MakeBuffer();
+        buffer.Cpu = loom::CpuAccess::Readback;
+        return buffer;
+    }
+
+    loom::BufferDeclaration MakeOtherBufferWithHistory()
+    {
+        loom::BufferDeclaration buffer = MakeOtherBuffer();
+        buffer.HistoryDepth = 1;
+        buffer.NoHistoryAction = loom::OnNoHistory::Clear;
+        return buffer;
+    }
+
+    loom::BufferDeclaration MakeMidBuffer()
+    {
+        loom::BufferDeclaration buffer = MakeBuffer();
+        buffer.Key = k_Mid;
+        return buffer;
+    }
+
+    void DrawToBackbuffer(loom::DrawBuilder& pass)
+    {
+        pass.Shaders("Test", "MainVS", "MainPS");
+        pass.Color(0, k_Backbuffer, loom::ColorLoad::DontCare(), loom::AttachmentStore::Store, loom::BlendMode::Opaque);
+        pass.Draw(3, 1, 0, 0);
+    }
+
+}
+
+// Second overwrites First's write before anything reads it. The warning names the write and the pass that
+// overwrote it. A warning does not fail Order().
+TEST(Order, OverwrittenWriteIsLM504)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBufferWithHistory());
+    uint32_t firstLine = 0;
+    uint32_t secondLine = 0;
+
+    auto writeFirst = [&firstLine](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        firstLine = std::source_location::current().line() + 1;
+        pass.Bind("Data", k_Data);
+    };
+
+    auto writeSecond = [&secondLine](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        secondLine = std::source_location::current().line() + 1;
+        pass.Bind("Data", k_Data);
+    };
+
+    auto buildTick = [&writeFirst, &writeSecond](loom::SequenceBuilder& tick)
+    {
+        tick.AddDispatch(k_First, k_EveryFrame, k_Graphics, writeFirst);
+        tick.AddDispatch(k_Second, k_EveryFrame, k_Graphics, writeSecond);
+    };
+
+    graph.AddSequence(k_Tick, buildTick);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_Write } });
+
+    ASSERT_TRUE(ordered.has_value()) << "warnings do not fail Order()";
+
+    // History is a sink, but a sink sees only the last write: First is dead, Second is live
+    const std::vector<loom::Diagnostic> dead = WithCode(sink, loom::DiagnosticCode::LM504);
+    ASSERT_EQ(dead.size(), 1u);
+    EXPECT_EQ(dead[0].Severity, loom::DiagnosticSeverity::Warning);
+    EXPECT_EQ(dead[0].Pass.Hash, k_First.Hash);
+    EXPECT_EQ(dead[0].Resource.Hash, k_Data.Hash);
+    EXPECT_EQ(dead[0].Where.line(), firstLine);
+    EXPECT_EQ(dead[0].OtherWhere.line(), secondLine);
+    EXPECT_EQ(dead[0].Actual.Text, k_Second.Name);
+}
+
+// The only write, and nothing reads it: no reader, and a transient has no sink. No pass overwrote it.
+TEST(Order, LastWriteWithNoSinkIsLM504)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_Write } });
+
+    ASSERT_TRUE(ordered.has_value());
+
+    const std::vector<loom::Diagnostic> dead = WithCode(sink, loom::DiagnosticCode::LM504);
+    ASSERT_EQ(dead.size(), 1u);
+    EXPECT_EQ(dead[0].Pass.Hash, k_First.Hash);
+    EXPECT_EQ(dead[0].OtherWhere.line(), 0u);
+    EXPECT_TRUE(dead[0].Actual.Text.empty());
+}
+
+// The reader between the writers keeps First live; history keeps Second live. A reader after Second reads Second's
+// write, not First's, so the windows must end at the next writer.
+TEST(Order, ReaderInTheWindowKeepsTheWriteLive)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBufferWithHistory());
+
+    auto buildTick = [](loom::SequenceBuilder& tick)
+    {
+        tick.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+        tick.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
+        tick.AddDispatch(k_Third, k_EveryFrame, k_Graphics, BindData);
+    };
+
+    graph.AddSequence(k_Tick, buildTick);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_Read }, { k_Write } });
+
+    ASSERT_TRUE(ordered.has_value());
+    EXPECT_TRUE(WithCode(sink, loom::DiagnosticCode::LM504).empty());
+}
+
+// The same three passes, with the reader last. Now no reader sits between the writers: First is dead.
+TEST(Order, ReaderAfterTheNextWriteDoesNotSaveTheWrite)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+
+    auto buildTick = [](loom::SequenceBuilder& tick)
+    {
+        tick.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+        tick.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
+        tick.AddDispatch(k_Third, k_EveryFrame, k_Graphics, BindData);
+    };
+
+    graph.AddSequence(k_Tick, buildTick);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_Write }, { k_Read } });
+
+    ASSERT_TRUE(ordered.has_value());
+
+    const std::vector<loom::Diagnostic> dead = WithCode(sink, loom::DiagnosticCode::LM504);
+    ASSERT_EQ(dead.size(), 1u);
+    EXPECT_EQ(dead[0].Pass.Hash, k_First.Hash);
+}
+
+// Second is ReadWrite (a blend onto First's clear): it reads First's write, so First is live. History keeps
+// Second live. Every pass reaches the sink, so there is no warning at all.
+TEST(Order, ReadWriteNextWriterKeepsTheWriteLive)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBufferWithHistory());
+
+    auto buildTick = [](loom::SequenceBuilder& tick)
+    {
+        tick.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+        tick.AddDispatch(k_Second, k_EveryFrame, k_Graphics, BindData);
+    };
+
+    graph.AddSequence(k_Tick, buildTick);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_ReadWrite } });
+
+    ASSERT_TRUE(ordered.has_value());
+    EXPECT_TRUE(sink.Diagnostics().empty()) << sink.Diagnostics().size() << " diagnostics";
+}
+
+// A ReadWrite pass's read sees the write before it, never its own. On an upload buffer (a source, so not LM503) with
+// no sink, its write is dead.
+TEST(Order, ReadWriteDoesNotReadItsOwnWrite)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeUploadBuffer());
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_ReadWrite } });
+
+    ASSERT_TRUE(ordered.has_value());
+    EXPECT_EQ(WithCode(sink, loom::DiagnosticCode::LM504).size(), 1u);
+}
+
+// Each kind of sink keeps a last write live: readback (the CPU reads it), an import (its owner reads it), and a frame
+// target that the graph outputs (the present reads it).
+TEST(Order, ReadbackKeepsTheLastWriteLive)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeReadbackBuffer());
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_Write } });
+
+    ASSERT_TRUE(ordered.has_value());
+    EXPECT_TRUE(sink.Diagnostics().empty()) << sink.Diagnostics().size() << " diagnostics";
+}
+
+TEST(Order, ImportKeepsTheLastWriteLive)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    const ImageFormat format{ ImageComponentFormats::R8, ImageDataType::UNorm };
+    graph.Import(loom::ImportDeclaration{ .Key = k_DataAsImage, .Expectation = loom::ImageExpectation::AnyExtent(format, 1) });
+
+    auto writeImport = [](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.Bind("Data", k_DataAsImage);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, writeImport);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { { k_Write } });
+
+    ASSERT_TRUE(ordered.has_value());
+    EXPECT_TRUE(sink.Diagnostics().empty()) << sink.Diagnostics().size() << " diagnostics";
+}
+
+TEST(Order, OutputFrameTargetKeepsTheLastWriteLive)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Import(k_Backbuffer);
+    graph.Output(loom::OutputDeclaration{ .Target = k_Backbuffer, .OnSkip = loom::OutputFallback::Clear(0.0f, 0.0f, 0.0f, 1.0f) });
+    graph.AddDraw(k_First, k_EveryFrame, k_Graphics, DrawToBackbuffer);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { {} });
+
+    ASSERT_TRUE(ordered.has_value());
+    EXPECT_TRUE(sink.Diagnostics().empty()) << sink.Diagnostics().size() << " diagnostics";
+}
+
+// The same draw with no Output: nothing presents the frame target, so the write is dead and the pass is an orphan.
+TEST(Order, FrameTargetWithoutOutputIsNotASink)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Import(k_Backbuffer);
+    graph.AddDraw(k_First, k_EveryFrame, k_Graphics, DrawToBackbuffer);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { {} });
+
+    ASSERT_TRUE(ordered.has_value());
+    EXPECT_EQ(WithCode(sink, loom::DiagnosticCode::LM504).size(), 1u);
+    EXPECT_EQ(WithCode(sink, loom::DiagnosticCode::LM505).size(), 1u);
+}
+
+// A frame target has no source (its contents are undefined after acquire). A Keep load is a ReadWrite first writer:
+// LM503 on the frame-target slot.
+TEST(Order, KeepLoadOfAFrameTargetIsLM503)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Import(k_Backbuffer);
+    graph.Output(loom::OutputDeclaration{ .Target = k_Backbuffer, .OnSkip = loom::OutputFallback::Clear(0.0f, 0.0f, 0.0f, 1.0f) });
+
+    auto keepBackbuffer = [](loom::DrawBuilder& pass)
+    {
+        pass.Shaders("Test", "MainVS", "MainPS");
+        pass.Color(0, k_Backbuffer, loom::ColorLoad::Keep(), loom::AttachmentStore::Store, loom::BlendMode::Opaque);
+        pass.Draw(3, 1, 0, 0);
+    };
+
+    graph.AddDraw(k_First, k_EveryFrame, k_Graphics, keepBackbuffer);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered = FreezeAndOrderWithAccesses(graph, sink, { {} });
+
+    ASSERT_FALSE(ordered.has_value());
+    ASSERT_EQ(sink.Diagnostics().size(), 1u) << "the warnings do not run on a graph with errors";
+    EXPECT_EQ(sink.Diagnostics()[0].Code, loom::DiagnosticCode::LM503);
+    EXPECT_EQ(sink.Diagnostics()[0].Resource.Hash, k_Backbuffer.Hash);
+}
+
+// First feeds Second, Second feeds Third, and Third writes a history buffer (a sink). The walk goes back from Third
+// through two hops, so no pass is an orphan.
+TEST(Order, ChainToASinkHasNoOrphans)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.Declare(MakeMidBuffer());
+    graph.Declare(MakeOtherBufferWithHistory());
+
+    auto readDataWriteMid = [](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.Bind("Data", k_Data);
+        pass.Bind("Mid", k_Mid);
+    };
+
+    auto readMidWriteOther = [](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.Bind("Mid", k_Mid);
+        pass.Bind("Other", k_Other);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, readDataWriteMid);
+    graph.AddDispatch(k_Third, k_EveryFrame, k_Graphics, readMidWriteOther);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_Read, k_Write }, { k_Read, k_Write } });
+
+    ASSERT_TRUE(ordered.has_value());
+    EXPECT_TRUE(sink.Diagnostics().empty()) << sink.Diagnostics().size() << " diagnostics";
+}
+
+// The same chain, but Third writes a transient. Its write is dead, and nothing reaches a sink: every pass is an
+// orphan, each reported at its declaration.
+TEST(Order, ChainToADeadEndIsAllOrphans)
+{
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBuffer());
+    graph.Declare(MakeMidBuffer());
+    graph.Declare(MakeOtherBuffer());
+
+    auto readDataWriteMid = [](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.Bind("Data", k_Data);
+        pass.Bind("Mid", k_Mid);
+    };
+
+    auto readMidWriteOther = [](loom::DispatchBuilder& pass)
+    {
+        ShaderAndThreads(pass);
+        pass.Bind("Mid", k_Mid);
+        pass.Bind("Other", k_Other);
+    };
+
+    const uint32_t firstLine = std::source_location::current().line() + 1;
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, BindData);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, readDataWriteMid);
+    graph.AddDispatch(k_Third, k_EveryFrame, k_Graphics, readMidWriteOther);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Write }, { k_Read, k_Write }, { k_Read, k_Write } });
+
+    ASSERT_TRUE(ordered.has_value());
+    EXPECT_EQ(WithCode(sink, loom::DiagnosticCode::LM504).size(), 1u) << "only Third's write is dead";
+
+    const std::vector<loom::Diagnostic> orphans = WithCode(sink, loom::DiagnosticCode::LM505);
+    ASSERT_EQ(orphans.size(), 3u);
+    EXPECT_EQ(orphans[0].Severity, loom::DiagnosticSeverity::Warning);
+    EXPECT_EQ(orphans[0].Pass.Hash, k_First.Hash);
+    EXPECT_EQ(orphans[0].Where.line(), firstLine);
+    EXPECT_EQ(orphans[1].Pass.Hash, k_Second.Hash);
+    EXPECT_EQ(orphans[2].Pass.Hash, k_Third.Hash);
+}
+
+// Anchors run four passes in reverse declaration order: Fourth writes, Third reads, Second writes, First reads.
+// Writers[slot] and Readers[slot] come in pass-index order, so the check must sort both by run order. Sorted, each
+// write has its reader and the graph is clean.
+TEST(Order, WindowsFollowRunOrderNotDeclarationOrder)
+{
+    constexpr loom::PassKey k_Fourth{ "Test.Fourth" };
+    constexpr loom::AnchorKey k_AnchorC{ "Test.AnchorC" };
+
+    loom::GraphBuilder graph{ "Test.Graph", "Test.Library" };
+    graph.Declare(MakeBufferWithHistory());
+    graph.DeclareAnchor(k_AnchorA);
+    graph.DeclareAnchor(k_AnchorB);
+    graph.DeclareAnchor(k_AnchorC);
+    graph.OrderAnchors(k_AnchorA, k_AnchorB);
+    graph.OrderAnchors(k_AnchorB, k_AnchorC);
+
+    auto afterC = [k_AnchorC](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.After(k_AnchorC);
+    };
+
+    auto betweenBAndC = [k_AnchorC](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.After(k_AnchorB);
+        pass.Before(k_AnchorC);
+    };
+
+    auto betweenAAndB = [](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.After(k_AnchorA);
+        pass.Before(k_AnchorB);
+    };
+
+    auto beforeA = [](loom::DispatchBuilder& pass)
+    {
+        BindData(pass);
+        pass.Before(k_AnchorA);
+    };
+
+    graph.AddDispatch(k_First, k_EveryFrame, k_Graphics, afterC);
+    graph.AddDispatch(k_Second, k_EveryFrame, k_Graphics, betweenBAndC);
+    graph.AddDispatch(k_Third, k_EveryFrame, k_Graphics, betweenAAndB);
+    graph.AddDispatch(k_Fourth, k_EveryFrame, k_Graphics, beforeA);
+
+    loom::CollectingSink sink;
+    const std::optional<loom::OrderedGraph> ordered =
+        FreezeAndOrderWithAccesses(graph, sink, { { k_Read }, { k_Write }, { k_Read }, { k_Write } });
+
+    ASSERT_TRUE(ordered.has_value());
+    EXPECT_EQ(PassOrder(*ordered), (std::vector<int32_t>{ 3, 2, 1, 0 }));
+    EXPECT_TRUE(WithCode(sink, loom::DiagnosticCode::LM504).empty());
+
+    // First and Third only read, so they write nothing a sink sees; Fourth feeds only Third. Second reaches the sink.
+    const std::vector<loom::Diagnostic> orphans = WithCode(sink, loom::DiagnosticCode::LM505);
+    ASSERT_EQ(orphans.size(), 3u);
+    EXPECT_EQ(orphans[0].Pass.Hash, k_First.Hash);
+    EXPECT_EQ(orphans[1].Pass.Hash, k_Third.Hash);
+    EXPECT_EQ(orphans[2].Pass.Hash, k_Fourth.Hash);
 }
 
 // Reachability tests build the edges, successors and topological order by hand. A failure here is in
