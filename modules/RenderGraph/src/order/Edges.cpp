@@ -18,10 +18,10 @@ namespace loom::order
                     ResourceSlot slot)
     {
         context.Edges.emplace_back(from,
-                                    to,
-                                    reason,
-                                    slot,
-                                    where);
+                                   to,
+                                   reason,
+                                   slot,
+                                   where);
     }
 
     void AddAnchorEdges(OrderContext& context)

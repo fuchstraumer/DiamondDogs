@@ -3,10 +3,11 @@
 #define DIAMOND_DOGS_LOOM_ORDERED_GRAPH_HPP
 #include "PassStatements.hpp"
 #include "freeze/FrozenGraph.hpp"
-#include "LoomKeys.hpp"
+#include "content/JsonWriter.hpp"
 #include <cstdint>
 #include <optional>
 #include <source_location>
+#include <string>
 #include <vector>
 
 namespace loom
@@ -54,6 +55,15 @@ namespace loom
     std::optional<OrderedGraph> Order(const FrozenGraph& frozen,
                                       const BindAccessTable& binds,
                                       DiagnosticSink& sink);
+
+    // Q3e. Text: the run order, and each pass's incoming edges with reason and location. Then the anchor orders.
+    std::string Explain(const FrozenGraph& frozen, const OrderedGraph& ordered);
+    // One pass: its place in the order, the edges into it (upstream) and out of it (downstream). One hop each.
+    std::string ExplainPass(const FrozenGraph& frozen, const OrderedGraph& ordered, PassIndex pass);
+    // The same data for an agent: every pass with both edge lists, then the anchor orders
+    foundation::content::JsonResult<std::string> ExplainJson(const FrozenGraph& frozen,
+                                                             const OrderedGraph& ordered,
+                                                             foundation::content::JsonStyle style);
 
 } // namespace loom
 

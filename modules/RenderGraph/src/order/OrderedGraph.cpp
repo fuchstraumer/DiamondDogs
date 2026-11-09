@@ -30,6 +30,7 @@ namespace loom
             .NodeCount=nodeCount,
             .SlotCount=slotCount,
         };
+        
         context.PassAccesses.resize(context.PassCount, {});
         for (auto& vec : context.PassAccesses)
         {
