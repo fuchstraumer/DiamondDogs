@@ -55,12 +55,14 @@ set(RHI_OBJECT_SOURCES
 
 set(RHI_SHADER_SYSTEM_HEADERS
     "include/shaders/ExecutableStatistics.hpp"
+    "include/shaders/ShaderBundle.hpp"
     "include/shaders/ShaderLibrary.hpp"
     "include/shaders/ShaderProgram.hpp"
     "include/shaders/ShaderTypes.hpp")
 
 set(RHI_SHADER_SYSTEM_SOURCES
     "src/shaders/ExecutableStatistics.cpp"
+    "src/shaders/ShaderBundle.cpp"
     "src/shaders/ShaderLibrary.cpp"
     "src/shaders/ShaderProgram.cpp")
 

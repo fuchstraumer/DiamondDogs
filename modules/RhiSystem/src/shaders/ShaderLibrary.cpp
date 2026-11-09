@@ -1,4 +1,5 @@
 #include "ShaderLibrary.hpp"
+#include "ShaderBundle.hpp"
 #include "RhiFlags.hpp"
 #include "RhiHandle.hpp"
 #include "RhiTypes.hpp"
@@ -16,14 +17,11 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
-#include <fstream>
-#include <ios>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 #include <vulkan/vulkan_core.h>
@@ -35,7 +33,7 @@ namespace
         std::vector<VkDescriptorSetLayoutBinding> Bindings;
     };
 
-    [[nodiscard]] rhi::ShaderLibraryResult<std::vector<std::byte>> ReadManifestBytes(const std::filesystem::path& manifest_path);
+    [[nodiscard]] rhi::ShaderLibraryError ToShaderLibraryError(rhi::ShaderBundleError error) noexcept;
     [[nodiscard]] std::expected<VkDescriptorType, rhi::ShaderLibraryError> ToVkDescriptorType(const lodestone::manifest::ResolvedResource& resource) noexcept;
     [[nodiscard]] VkShaderStageFlags ToVkShaderStages(lodestone::ShaderStageKind stages) noexcept;
     [[nodiscard]] rhi::ShaderStageFlags ToRhiShaderStage(lodestone::ShaderStageKind stage) noexcept;
@@ -63,21 +61,15 @@ namespace rhi
         std::optional<PushConstantRange> PushConstants;
     };
 
-    struct ShaderLibraryModule
-    {
-        // views returned by the environment keep a pointer to it, so it lives on the heap and never moves
-        std::unique_ptr<lodestone::manifest::EnvironmentView> Environment;
-        std::unique_ptr<lodestone::ManifestIndex> Index;
-    };
-
+    // The device-free half (bytes, environments, indices) is the bundle. The library adds the Vulkan objects.
     struct ShaderLibraryImpl
     {
-        std::vector<std::byte> ManifestBytes;
-        lodestone::manifest::BundleView Bundle;
-        uint32_t ProfileIndex{ 0u };
-        std::unordered_map<std::string, ShaderLibraryModule> Modules;
+        explicit ShaderLibraryImpl(ShaderBundle&& bundle) noexcept :
+            Bundle{ std::move(bundle) }
+        {
+        }
 
-        [[nodiscard]] ShaderLibraryResult<const ShaderLibraryModule*> FindModule(std::string_view module_name) const;
+        ShaderBundle Bundle;
     };
 
     ManifestProgramImpl::~ManifestProgramImpl()
@@ -85,16 +77,6 @@ namespace rhi
         // the shader objects reference the set layouts, so they go first
         Program.reset();
         DestroyLayouts(Device.As<VkDevice>(), SetLayouts, PipelineLayout.As<VkPipelineLayout>());
-    }
-
-    ShaderLibraryResult<const ShaderLibraryModule*> ShaderLibraryImpl::FindModule(std::string_view module_name) const
-    {
-        auto moduleIter = Modules.find(std::string{ module_name });
-        if (moduleIter == Modules.end())
-        {
-            return std::unexpected(ShaderLibraryError::ModuleNotInManifest);
-        }
-        return &moduleIter->second;
     }
 
     std::string_view ToString(ShaderLibraryError error) noexcept
@@ -167,68 +149,37 @@ namespace rhi
         const std::filesystem::path& manifest_path,
         std::string_view profile_name)
     {
-        ShaderLibraryResult<std::vector<std::byte>> bytes = ReadManifestBytes(manifest_path);
-        if (!bytes.has_value())
-        {
-            return std::unexpected(bytes.error());
-        }
+        ShaderBundleResult<ShaderBundle> bundle = ShaderBundle::Open(manifest_path, profile_name);
 
-        auto libraryImpl = std::make_unique<ShaderLibraryImpl>();
-        libraryImpl->ManifestBytes = std::move(*bytes);
-
-        lodestone::manifest::ManifestResult<lodestone::manifest::BundleView> bundle =
-            lodestone::manifest::BundleView::Open(libraryImpl->ManifestBytes);
         if (!bundle.has_value())
         {
-            return std::unexpected(ShaderLibraryError::ManifestInvalid);
+            return std::unexpected(ToShaderLibraryError(bundle.error()));
         }
 
-        libraryImpl->Bundle = *bundle;
-
-        const int32_t profileIndex = libraryImpl->Bundle.FindProfile(profile_name);
-        if (profileIndex < 0)
-        {
-            return std::unexpected(ShaderLibraryError::ProfileNotInManifest);
-        }
-
-        std::span<const lodestone::manifest::Profile> profiles = libraryImpl->Bundle.Profiles();
-        if (profiles[profileIndex].CodeFormat != lodestone::ShaderCodeFormat::Spirv)
+        // the bundle reads any profile; this library creates Vulkan objects, so it needs SPIR-V
+        if (bundle->Profile().CodeFormat != lodestone::ShaderCodeFormat::Spirv)
         {
             return std::unexpected(ShaderLibraryError::ProfileNotSpirv);
         }
 
-        libraryImpl->ProfileIndex = static_cast<uint32_t>(profileIndex);
+        return std::make_unique<ShaderLibrary>(std::make_unique<ShaderLibraryImpl>(std::move(*bundle)));
+    }
 
-        for (uint32_t moduleIndex = 0; moduleIndex < libraryImpl->Bundle.ModuleCount(); ++moduleIndex)
-        {
-            lodestone::manifest::ManifestResult<lodestone::manifest::EnvironmentView> environment =
-                libraryImpl->Bundle.OpenEnvironment(libraryImpl->ProfileIndex, moduleIndex);
-
-            if (!environment.has_value())
-            {
-                return std::unexpected(ShaderLibraryError::EnvironmentInvalid);
-            }
-
-            ShaderLibraryModule libraryModule;
-            libraryModule.Environment = std::make_unique<lodestone::manifest::EnvironmentView>(*environment);
-            libraryModule.Index = std::make_unique<lodestone::ManifestIndex>(*libraryModule.Environment);
-            const std::string_view moduleName = libraryImpl->Bundle.Module(moduleIndex).Name();
-            libraryImpl->Modules.emplace(std::string{ moduleName }, std::move(libraryModule));
-        }
-
-        return std::make_unique<ShaderLibrary>(std::move(libraryImpl));
+    const ShaderBundle& ShaderLibrary::Bundle() const noexcept
+    {
+        return impl->Bundle;
     }
 
     ShaderLibraryResult<const lodestone::ManifestIndex*> ShaderLibrary::ModuleIndex(std::string_view module_name) const
     {
-        ShaderLibraryResult<const ShaderLibraryModule*> libraryModule = impl->FindModule(module_name);
+        ShaderBundleResult<const lodestone::ManifestIndex*> index = impl->Bundle.ModuleIndex(module_name);
 
-        if (!libraryModule.has_value())
+        if (!index.has_value())
         {
-            return std::unexpected(libraryModule.error());
+            return std::unexpected(ToShaderLibraryError(index.error()));
         }
 
-        return (*libraryModule)->Index.get();
+        return *index;
     }
 
     ShaderLibraryResult<std::unique_ptr<ManifestProgram>> ShaderLibrary::CreateProgram(
@@ -243,12 +194,15 @@ namespace rhi
             return std::unexpected(ShaderLibraryError::NoEntryPointsRequested);
         }
 
-        ShaderLibraryResult<const ShaderLibraryModule*> libraryModule = impl->FindModule(module_name);
-        if (!libraryModule.has_value())
+        ShaderBundleResult<const lodestone::manifest::EnvironmentView*> moduleEnvironment =
+            impl->Bundle.ModuleEnvironment(module_name);
+
+        if (!moduleEnvironment.has_value())
         {
-            return std::unexpected(libraryModule.error());
+            return std::unexpected(ToShaderLibraryError(moduleEnvironment.error()));
         }
-        const lodestone::manifest::EnvironmentView& environment = *(*libraryModule)->Environment;
+
+        const lodestone::manifest::EnvironmentView& environment = **moduleEnvironment;
 
         std::optional<lodestone::manifest::VariantView> variantView = environment.VariantByKey(variant);
         if (!variantView.has_value())
@@ -384,28 +338,21 @@ namespace rhi
 
 namespace
 {
-    rhi::ShaderLibraryResult<std::vector<std::byte>> ReadManifestBytes(const std::filesystem::path& manifest_path)
+    rhi::ShaderLibraryError ToShaderLibraryError(rhi::ShaderBundleError error) noexcept
     {
-        std::ifstream manifestFile(manifest_path, std::ios::binary | std::ios::ate);
-        if (!manifestFile.is_open())
+        switch (error)
         {
-            return std::unexpected(rhi::ShaderLibraryError::ManifestFileUnreadable);
+            case rhi::ShaderBundleError::FileUnreadable: return rhi::ShaderLibraryError::ManifestFileUnreadable;
+            case rhi::ShaderBundleError::BundleInvalid: return rhi::ShaderLibraryError::ManifestInvalid;
+            case rhi::ShaderBundleError::ProfileNotInBundle: return rhi::ShaderLibraryError::ProfileNotInManifest;
+            case rhi::ShaderBundleError::EnvironmentInvalid: return rhi::ShaderLibraryError::EnvironmentInvalid;
+            case rhi::ShaderBundleError::ModuleNotInBundle: return rhi::ShaderLibraryError::ModuleNotInManifest;
+            case rhi::ShaderBundleError::Invalid:
+            case rhi::ShaderBundleError::Success:
+                return rhi::ShaderLibraryError::Invalid;
         }
 
-        const std::streamsize fileSize = manifestFile.tellg();
-        if (fileSize <= 0)
-        {
-            return std::unexpected(rhi::ShaderLibraryError::ManifestFileUnreadable);
-        }
-
-        std::vector<std::byte> bytes(static_cast<size_t>(fileSize));
-        manifestFile.seekg(0, std::ios::beg);
-        if (!manifestFile.read(reinterpret_cast<char*>(bytes.data()), fileSize))
-        {
-            return std::unexpected(rhi::ShaderLibraryError::ManifestFileUnreadable);
-        }
-
-        return bytes;
+        return rhi::ShaderLibraryError::Invalid;
     }
 
     std::expected<VkDescriptorType, rhi::ShaderLibraryError> ToVkDescriptorType(const lodestone::manifest::ResolvedResource& resource) noexcept
