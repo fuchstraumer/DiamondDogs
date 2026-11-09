@@ -39,6 +39,8 @@ add_subdirectory(FrameCapture)
 add_subdirectory(GpuPyramid)
 # color math for the HDR pipe: gamut matrices, luminance, transfer functions and Kelvin, in double
 add_subdirectory(ColorPipe)
+# the noise field library (Slang) and its cook; the C++ side comes with the content compiler kinds
+add_subdirectory(NoiseGraph)
 # This module provides imgui as a basic debugging UI
 # that sits just BARELY over the resource and rendering contexts
 add_subdirectory(ImGuiModule)
