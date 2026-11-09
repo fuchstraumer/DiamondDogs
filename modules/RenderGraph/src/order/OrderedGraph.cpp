@@ -1,4 +1,5 @@
 #include "order/OrderedGraph.hpp"
+#include "Declarations.hpp"
 #include "LoomDiagnostic.hpp"
 #include "LoomError.hpp"
 #include "LoomKeys.hpp"
@@ -11,6 +12,7 @@
 #include <cstdint>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <queue>
 #include <ranges>
@@ -26,7 +28,7 @@ namespace loom
     namespace order
     {
         /** @brief After running `GatherAccesses`, we have a table indexed on
-         * on the *pass*, where each row within that table contains the a `PassAccess`
+         * on the *pass*, where each row within that table contains a `PassAccess`
          * struct for each *SLOT* that is accessed by that pass.
          *
          * To complete the data flow analysis, we need to collate these accesses by slot,
@@ -87,9 +89,32 @@ namespace loom
                           const CollatedAccesses::AccessRef& lhs,
                           const CollatedAccesses::AccessRef& rhs);
         void ReportHazards(const OrderContext& context, const std::vector<Hazard>& hazards);
-        void CheckHazards(OrderContext& context,
-                          const CollatedAccesses& collated,
-                          const Reachability& reachability);
+        std::vector<uint8_t> CheckHazards(OrderContext& context,
+                                          const CollatedAccesses& collated,
+                                          const Reachability& reachability);
+        void ReportReadBeforeWrite(const OrderContext& context,
+                                    const ResourceSlot slot,
+                                    const CollatedAccesses::AccessRef& first_reader,
+                                    const CollatedAccesses::AccessRef& first_writer);
+        void CheckReadsBeforeWrites(OrderContext& context,
+                                    const CollatedAccesses& collated,
+                                    const std::vector<int32_t>& positions,
+                                    const std::vector<uint8_t>& hazard_slots);
+        // What LM504 learns about the writes, for LM505 to walk.
+        struct Liveness
+        {
+            std::vector<std::vector<int32_t>> Feeders; // [reader pass] -> the writer passes whose write it reads
+            std::vector<uint8_t> Roots;                // [pass] is 1 when a sink reads one of its writes
+        };
+
+        void ReportDeadWrite(const OrderContext& context,
+                             ResourceSlot slot,
+                             const CollatedAccesses::AccessRef& writer,
+                             const CollatedAccesses::AccessRef& next_writer);
+        Liveness CheckDeadWrites(OrderContext& context,
+                                 const CollatedAccesses& collated,
+                                 const std::vector<int32_t>& positions);
+        void CheckOrphans(OrderContext& context, const Liveness& liveness);
 
         void ReportCycle(const OrderContext& context, const std::vector<NodeIndex>& emitted);
         void ReportCycleEdges(const OrderContext& context, const std::vector<int32_t>& cycle_edges);
@@ -97,8 +122,9 @@ namespace loom
         KeyRef PassOfEdge(const OrderContext& context, const OrderEdge& edge);
         
         std::vector<int32_t> PositionsOf(const OrderContext& context, const std::vector<NodeIndex>& ordered_nodes);
-        // True when resource at the given slot must outlive the frame - or come from outside of it (e.g, loaded/generated asset)
-        bool IsPersistent(const OrderContext& context, ResourceSlot slot);
+        // True when resource at the given slot has a source (for it's contents) from outside the frame/graph
+        bool HasSource(const OrderContext& context, ResourceSlot slot);
+        bool HasSink(const OrderContext& context, ResourceSlot slot);
         
     }
 
@@ -149,12 +175,20 @@ namespace loom
             const Reachability reachability = ComputeReachability(context, orderedNodes);
 
             const int32_t errorsBefore = context.Sink.ErrorCount();
-            CheckHazards(context, collated, reachability);
+            const std::vector<uint8_t> hazardSlots = CheckHazards(context, collated, reachability);
+            const std::vector<int32_t> positions = PositionsOf(context, orderedNodes);
+            CheckReadsBeforeWrites(context, collated, positions, hazardSlots);
+
             // if we found hazards, then we can't return a valid ordered graph
             if (context.Sink.ErrorCount() != errorsBefore)
             {
                 return std::nullopt;
             }
+
+            // The warnings run only on a graph with no errors: the author fixes those first, and LM504 needs every
+            // pair with a writer to be ordered, which a clean LM502 proves
+            const Liveness liveness = CheckDeadWrites(context, collated, positions);
+            CheckOrphans(context, liveness);
 
             // copy each pass node (pass.Value < context.PassCount) into result passes
             OrderedGraph result;
@@ -711,7 +745,7 @@ namespace loom
             }
         }
 
-        void CheckHazards(OrderContext& context, const CollatedAccesses& collated, const Reachability& reachability)
+        std::vector<uint8_t> CheckHazards(OrderContext& context, const CollatedAccesses& collated, const Reachability& reachability)
         {
             std::vector<Hazard> hazards;
 
@@ -774,6 +808,94 @@ namespace loom
             // use to sort (and `{}` becomes default sort comparator, std::less<> by default)
             std::ranges::stable_sort(hazards, {}, hazardKey);
             ReportHazards(context, hazards);
+            
+            std::vector<uint8_t> hazardSlots(context.SlotCount, 0);
+            for (const auto& hazard : hazards)
+            {
+                hazardSlots[hazard.Slot] = 1;
+            }
+
+            return hazardSlots;
+        }
+
+        void ReportReadBeforeWrite(const OrderContext& context,
+                                    const ResourceSlot slot,
+                                    const CollatedAccesses::AccessRef& first_reader,
+                                    const CollatedAccesses::AccessRef& first_writer)
+        {
+            const auto& passAccesses = context.PassAccesses[first_reader.PassIdx];
+            const auto& where = passAccesses[first_reader.AccessIdx].Where;
+            Diagnostic diag
+            {
+                .Code = DiagnosticCode::LM503,
+                .Severity = DiagnosticSeverity::Error,
+                .Where = where,
+                .Pass = context.Frozen.Passes[first_reader.PassIdx].Key,
+                .Resource = ResourceOfSlot(context, slot)
+            };
+
+            if (first_writer.PassIdx != -1)
+            {
+                const auto& writerAccesses = context.PassAccesses[first_writer.PassIdx];
+                const auto& otherWhere = writerAccesses[first_writer.AccessIdx].Where;
+                diag.OtherWhere = otherWhere;
+                DiagnosticValue diagValue
+                {
+                    .FieldName = "OtherPass",
+                    .Kind = DiagnosticValueKind::Text,
+                    .Text = context.Frozen.Passes[first_writer.PassIdx].Key.Name
+                };
+                diag.Actual = diagValue;
+            }
+
+            context.Sink.Report(diag);
+        }
+
+        void CheckReadsBeforeWrites(OrderContext& context,
+                                    const CollatedAccesses& collated,
+                                    const std::vector<int32_t>& positions,
+                                    const std::vector<uint8_t>& hazard_slots)
+        {
+            using AccessRef = CollatedAccesses::AccessRef;
+            for (int32_t i = 0; i < context.SlotCount; ++i)
+            {
+                const auto& readers = collated.Readers[i];
+                const bool hasSource = HasSource(context, ResourceSlot{i});
+                const bool hasHazard = hazard_slots[i] != 0;
+                // if nothing reads this, if it has data sources outside the graph, or if we already
+                // marked that it has a hazard - skip it
+                if (readers.empty() || hasSource || hasHazard)
+                {
+                    continue;
+                }
+
+                const auto positionOf = [&positions](const AccessRef& ref)
+                {
+                    const NodeIndex node = NodeOfPass(PassIndex{ref.PassIdx});
+                    return positions[node.Value];
+                };
+
+                const AccessRef firstReader = std::ranges::min(readers, {}, positionOf);
+
+                const auto& writers = collated.Writers[i];
+
+                // We have no writers, but we also already know we don't have any input data
+                // sources for this slot - that's a problem!
+                if (writers.empty())
+                {
+                    static constexpr AccessRef k_InvalidWriter{ -1, -1 };
+                    ReportReadBeforeWrite(context, ResourceSlot{i}, firstReader, k_InvalidWriter);
+                    continue;
+                }
+
+                const AccessRef firstWriter = std::ranges::min(writers, {}, positionOf);
+
+                if (positionOf(firstReader) <= positionOf(firstWriter))
+                {
+                    ReportReadBeforeWrite(context, ResourceSlot{i}, firstReader, firstWriter);
+                }
+
+            }
         }
 
         void ReportCycle(const OrderContext& context, const std::vector<NodeIndex>& emitted)
@@ -789,8 +911,6 @@ namespace loom
             assert(iter != wasEmitted.end()); // this would be a weird failure, but catch it just in case
             const int32_t firstUnemittedNode =
                 static_cast<int32_t>(std::distance(wasEmitted.begin(), iter));
-
-
 
             // when a node was first reached
             std::vector<int32_t> stepOfNode(context.NodeCount, -1);
@@ -939,25 +1059,257 @@ namespace loom
             return positions;
         }
 
-        bool IsPersistent(const OrderContext& context, ResourceSlot slot)
+        bool HasSource(const OrderContext& context, ResourceSlot slot)
         {
-            // What do we need to know if a resource is persistent? 
-            // We can check the following:
-            // - Does it have history?
-            // - Is it imported?
-            // - Is it a graph output?
-            // - Was it given with a bundle of initial data?
-            const FrozenResource& resource = context.Frozen.Resources[slot.Value];
-            bool isPersistent = false;
-
-            if (resource.Kind == ResourceKind::Sampler)
+            const int32_t resourceCount = static_cast<int32_t>(context.Frozen.Resources.size());
+            if (slot.Value >= resourceCount)
             {
-                // when are samplers not persistent? what would that look like?
-                // samplers don't have transient state though, so can they even be non-persistent in our view of them?
+                // Slot is a frame target, meaning it does not have an external source
+                return false;
+            }
+
+            const FrozenResource& resource = context.Frozen.Resources[slot.Value];
+            if (resource.Origin == ResourceOrigin::Imported)
+            {
+                // Imported resources have an external source
                 return true;
             }
 
-            return isPersistent;
+            auto bufferHasSrc = [&](const int32_t decl_index) -> bool
+            {
+                const BufferDeclaration& bufferDecl = context.Frozen.Buffers[decl_index];
+                return bufferDecl.Cpu == CpuAccess::Upload;
+            };
+
+            auto imageHasSrc = [&](const int32_t decl_index) -> bool
+            {
+                const FrozenImage& image = context.Frozen.Images[decl_index];
+                return image.Declaration.Cpu == CpuAccess::Upload;
+            };
+
+            const int32_t declIndex = resource.DeclarationIndex;
+            switch (resource.Kind)
+            {
+            case ResourceKind::Buffer:
+                return bufferHasSrc(declIndex);
+            case ResourceKind::Image:
+                return imageHasSrc(declIndex);
+            case ResourceKind::Sampler:
+                // samplers have a source by virtue of not having real "contents" that create hazards
+                return true;
+            case ResourceKind::Invalid:
+                std::unreachable(); // resources have all had their kind set by now
+            }
+
+            // Otherwise, the resource does not have an external source
+            // (initial data fields don't yet exist)
+            return false;
+        }
+
+        bool HasSink(const OrderContext& context, ResourceSlot slot)
+        {
+            const int32_t resourceCount = static_cast<int32_t>(context.Frozen.Resources.size());
+
+            if (slot.Value >= resourceCount)
+            {
+                // A frame target is a sink only when the graph declares it as an output: the present reads it
+                const int32_t target = slot.Value - resourceCount;
+                const auto isThisTarget = [target](const FrozenOutput& output) { return output.Target.Value == target; };
+                return std::ranges::any_of(context.Frozen.Outputs, isThisTarget);
+            }
+
+            const FrozenResource& resource = context.Frozen.Resources[slot.Value];
+
+            // Before the Kind switch: an import's DeclarationIndex points into Imports, not Images
+            if (resource.Origin == ResourceOrigin::Imported)
+            {
+                return true;
+            }
+
+            const int32_t declIndex = resource.DeclarationIndex;
+
+            switch (resource.Kind)
+            {
+            case ResourceKind::Buffer:
+            {
+                // History: next frame's BindPrevious reads it. Readback: the CPU reads it after the frame
+                const BufferDeclaration& buffer = context.Frozen.Buffers[declIndex];
+                return buffer.HistoryDepth > 0 || buffer.Cpu == CpuAccess::Readback;
+            }
+            case ResourceKind::Image:
+            {
+                const ImageDeclaration& image = context.Frozen.Images[declIndex].Declaration;
+                return image.HistoryDepth > 0 || image.Cpu == CpuAccess::Readback;
+            }
+            case ResourceKind::Sampler:
+                // No pass writes a sampler, so LM504 never asks
+                return false;
+            case ResourceKind::Invalid:
+                std::unreachable();
+            }
+
+            return false;
+        }
+
+        void ReportDeadWrite(const OrderContext& context,
+                             ResourceSlot slot,
+                             const CollatedAccesses::AccessRef& writer,
+                             const CollatedAccesses::AccessRef& next_writer)
+        {
+            Diagnostic diagnostic
+            {
+                .Code = DiagnosticCode::LM504,
+                .Severity = DiagnosticSeverity::Warning,
+                .Where = context.PassAccesses[writer.PassIdx][writer.AccessIdx].Where,
+                .Pass = context.Frozen.Passes[writer.PassIdx].Key,
+                .Resource = ResourceOfSlot(context, slot)
+            };
+
+            // The last writer has no next writer: its data reaches the end of the frame, and no sink reads it there
+            if (next_writer.PassIdx != -1)
+            {
+                diagnostic.OtherWhere = context.PassAccesses[next_writer.PassIdx][next_writer.AccessIdx].Where;
+                diagnostic.Actual = DiagnosticValue
+                {
+                    .FieldName = "OverwrittenBy",
+                    .Kind = DiagnosticValueKind::Text,
+                    .Text = context.Frozen.Passes[next_writer.PassIdx].Key.Name
+                };
+            }
+
+            context.Sink.Report(diagnostic);
+        }
+
+        Liveness CheckDeadWrites(OrderContext& context,
+                                 const CollatedAccesses& collated,
+                                 const std::vector<int32_t>& positions)
+        {
+            using AccessRef = CollatedAccesses::AccessRef;
+
+            Liveness liveness
+            {
+                .Feeders = std::vector<std::vector<int32_t>>(context.PassCount),
+                .Roots = std::vector<uint8_t>(context.PassCount, 0)
+            };
+
+            const auto positionOf = [&positions](const AccessRef& ref)
+            {
+                const NodeIndex node = NodeOfPass(PassIndex{ ref.PassIdx });
+                return positions[node.Value];
+            };
+
+            // Reused across slots, so the loop allocates only when a slot has more accesses than any before it
+            std::vector<AccessRef> writers;
+            std::vector<AccessRef> readers;
+
+            for (int32_t slot = 0; slot < context.SlotCount; ++slot)
+            {
+                if (collated.Writers[slot].empty())
+                {
+                    continue;
+                }
+
+                // Every pair with a writer is ordered (LM502 is clean when this runs), so positions are the true order
+                writers.assign(collated.Writers[slot].begin(), collated.Writers[slot].end());
+                readers.assign(collated.Readers[slot].begin(), collated.Readers[slot].end());
+                std::ranges::sort(writers, {}, positionOf);
+                std::ranges::sort(readers, {}, positionOf);
+
+                const bool hasSink = HasSink(context, ResourceSlot{ slot });
+                const size_t writerCount = writers.size();
+                size_t nextReader = 0;
+
+                // Writer i's data lives strictly after writer i and up to writer i + 1. Each reader falls in
+                // exactly one window, so one cursor walks the readers once for the whole slot.
+                for (size_t i = 0; i < writerCount; ++i)
+                {
+                    const AccessRef& writer = writers[i];
+                    const int32_t start = positionOf(writer);
+                    const bool isLast = (i + 1 == writerCount);
+                    const int32_t end = isLast ? std::numeric_limits<int32_t>::max() : positionOf(writers[i + 1]);
+
+                    // A reader at the writer's own position is a ReadWrite writer: it read the previous write
+                    while (nextReader < readers.size() && positionOf(readers[nextReader]) <= start)
+                    {
+                        ++nextReader;
+                    }
+
+                    bool isLive = false;
+
+                    // Inclusive end: a ReadWrite next writer sits in the readers at `end`, and it reads this write
+                    while (nextReader < readers.size() && positionOf(readers[nextReader]) <= end)
+                    {
+                        liveness.Feeders[readers[nextReader].PassIdx].push_back(writer.PassIdx);
+                        isLive = true;
+                        ++nextReader;
+                    }
+
+                    if (isLast && hasSink)
+                    {
+                        liveness.Roots[writer.PassIdx] = 1;
+                        isLive = true;
+                    }
+
+                    if (!isLive)
+                    {
+                        static constexpr AccessRef k_NoWriter{ -1, -1 };
+                        const AccessRef& nextWriter = isLast ? k_NoWriter : writers[i + 1];
+                        ReportDeadWrite(context, ResourceSlot{ slot }, writer, nextWriter);
+                    }
+                }
+            }
+
+            return liveness;
+        }
+
+        void CheckOrphans(OrderContext& context, const Liveness& liveness)
+        {
+            // Mark: every pass that a root reaches, walking from each reader back to the writers that feed it
+            std::vector<uint8_t> marked = liveness.Roots;
+            std::vector<int32_t> worklist;
+
+            for (int32_t pass = 0; pass < context.PassCount; ++pass)
+            {
+                if (marked[pass] != 0)
+                {
+                    worklist.push_back(pass);
+                }
+            }
+
+            while (!worklist.empty())
+            {
+                const int32_t reader = worklist.back();
+                worklist.pop_back();
+
+                for (const int32_t writer : liveness.Feeders[reader])
+                {
+                    if (marked[writer] == 0)
+                    {
+                        marked[writer] = 1;
+                        worklist.push_back(writer);
+                    }
+                }
+            }
+
+            // Sweep: an unmarked pass does work that no output ever sees
+            for (int32_t pass = 0; pass < context.PassCount; ++pass)
+            {
+                if (marked[pass] != 0)
+                {
+                    continue;
+                }
+
+                const FrozenPass& frozenPass = context.Frozen.Passes[pass];
+                const Diagnostic diagnostic
+                {
+                    .Code = DiagnosticCode::LM505,
+                    .Severity = DiagnosticSeverity::Warning,
+                    .Where = frozenPass.Where,
+                    .Pass = frozenPass.Key
+                };
+
+                context.Sink.Report(diagnostic);
+            }
         }
 
     }
