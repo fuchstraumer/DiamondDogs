@@ -634,3 +634,7 @@ Not ordered by the author yet. Roughly in order of how much they unblock the noi
 
 - Raw target capture (debug-view stage 2) and auto exposure applied to the composite, not committed. Details in `docs/tools-agent.md`, log and section 4.
 - 2026-11-07: GPU timings tool (`frame.timings`, sidecar `gpu_timings`). Details in `docs/tools-agent.md`.
+
+### 2026-11-08 (Opus: noise shaders)
+
+- Noise field library (Slang, M1 and M2 plus value nodes), spikes S1 to S5, cook target `noise_shaders`, not committed. Details in `docs/noise-shaders-agent.md`.
