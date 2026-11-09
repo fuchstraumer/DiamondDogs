@@ -10,6 +10,7 @@
 #include "reflect/Describe.hpp"
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
@@ -17,6 +18,7 @@
 #include <iostream>
 #include <numbers>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -167,6 +169,49 @@ namespace ocean_tools
         std::array<float, 4> ShowBias{};
         std::string Doc;
         uint64_t Frame{ 0u };
+    };
+
+    struct FrameTimingsParams
+    {
+        int32_t Frames{ 0 };
+    };
+
+    struct GpuTimingStats
+    {
+        int32_t Frames{ 0 };
+        double MedianUs{ 0.0 };
+        double MeanUs{ 0.0 };
+        double MinUs{ 0.0 };
+        double MaxUs{ 0.0 };
+        std::vector<float> SamplesUs;
+    };
+
+    struct GpuScopeTiming
+    {
+        std::string Name;
+        std::string Queue;
+        int32_t Depth{ 0 };
+        GpuTimingStats Time;
+    };
+
+    struct FrameTimingsReply
+    {
+        int32_t Frames{ 0 };
+        uint64_t FirstFrame{ 0u };
+        uint64_t LastFrame{ 0u };
+        int32_t AsyncSubmissions{ 0 };
+        double FrameIntervalUs{ 0.0 };
+        GpuTimingStats Busy;
+        bool Optimized{ false };
+        bool Validation{ false };
+        bool Paused{ false };
+        bool Repeatable{ false };
+        int32_t ScreenWidth{ 0 };
+        int32_t ScreenHeight{ 0 };
+        uint64_t DroppedScopes{ 0u };
+        uint64_t DroppedBlocks{ 0u };
+        uint64_t LostBlocks{ 0u };
+        std::vector<GpuScopeTiming> Scopes;
     };
 }
 
@@ -670,6 +715,151 @@ struct foundation::reflect::Describe<ExposureSettings>
 };
 
 template<>
+struct foundation::reflect::Describe<ocean_tools::FrameTimingsParams>
+{
+    using FrameTimingsParams = ocean_tools::FrameTimingsParams;
+
+    static constexpr std::string_view Name{ "ocean.FrameTimingsParams" };
+    static constexpr std::tuple Fields
+    {
+        Field<FrameTimingsParams, int32_t>
+        {
+            "Frames",
+            &FrameTimingsParams::Frames,
+            {
+                .Range = FieldRange{ 1.0, 600.0 },
+                .Doc = "The number of frames to measure, from the frame that runs this request.",
+                .Required = true,
+            },
+        },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<ocean_tools::GpuTimingStats>
+{
+    using GpuTimingStats = ocean_tools::GpuTimingStats;
+
+    static constexpr std::string_view Name{ "ocean.GpuTimingStats" };
+    static constexpr std::tuple Fields
+    {
+        Field<GpuTimingStats, int32_t>
+        {
+            "Frames",
+            &GpuTimingStats::Frames,
+            { .Doc = "The frames that had this scope. Each sample is one frame." },
+        },
+        Field<GpuTimingStats, double>{ "MedianUs", &GpuTimingStats::MedianUs, { .Unit = "us" } },
+        Field<GpuTimingStats, double>{ "MeanUs", &GpuTimingStats::MeanUs, { .Unit = "us" } },
+        Field<GpuTimingStats, double>{ "MinUs", &GpuTimingStats::MinUs, { .Unit = "us" } },
+        Field<GpuTimingStats, double>{ "MaxUs", &GpuTimingStats::MaxUs, { .Unit = "us" } },
+        Field<GpuTimingStats, std::vector<float>>
+        {
+            "SamplesUs",
+            &GpuTimingStats::SamplesUs,
+            { .Unit = "us", .Doc = "One value per frame, in frame order." },
+        },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<ocean_tools::GpuScopeTiming>
+{
+    using GpuScopeTiming = ocean_tools::GpuScopeTiming;
+
+    static constexpr std::string_view Name{ "ocean.GpuScopeTiming" };
+    static constexpr std::tuple Fields
+    {
+        Field<GpuScopeTiming, std::string>{ "Name", &GpuScopeTiming::Name },
+        Field<GpuScopeTiming, std::string>
+        {
+            "Queue",
+            &GpuScopeTiming::Queue,
+            { .Doc = "graphics or async compute. Times on two queues can overlap." },
+        },
+        Field<GpuScopeTiming, int32_t>
+        {
+            "Depth",
+            &GpuScopeTiming::Depth,
+            { .Doc = "0 for a top scope. A scope is inside the nearest earlier scope with a smaller depth." },
+        },
+        Field<GpuScopeTiming, ocean_tools::GpuTimingStats>
+        {
+            "Time",
+            &GpuScopeTiming::Time,
+            { .Doc = "A scope opened more than once in a frame gives one sample: its total." },
+        },
+    };
+};
+
+template<>
+struct foundation::reflect::Describe<ocean_tools::FrameTimingsReply>
+{
+    using FrameTimingsReply = ocean_tools::FrameTimingsReply;
+
+    static constexpr std::string_view Name{ "ocean.FrameTimingsReply" };
+    static constexpr std::tuple Fields
+    {
+        Field<FrameTimingsReply, int32_t>{ "Frames", &FrameTimingsReply::Frames },
+        Field<FrameTimingsReply, uint64_t>{ "FirstFrame", &FrameTimingsReply::FirstFrame },
+        Field<FrameTimingsReply, uint64_t>{ "LastFrame", &FrameTimingsReply::LastFrame },
+        Field<FrameTimingsReply, int32_t>
+        {
+            "AsyncSubmissions",
+            &FrameTimingsReply::AsyncSubmissions,
+            { .Doc = "Async compute submissions measured. 0 when the async compute queue is off." },
+        },
+        Field<FrameTimingsReply, double>
+        {
+            "FrameIntervalUs",
+            &FrameTimingsReply::FrameIntervalUs,
+            { .Unit = "us", .Doc = "The mean time between frames on the CPU clock, while the frames ran." },
+        },
+        Field<FrameTimingsReply, ocean_tools::GpuTimingStats>
+        {
+            "Busy",
+            &FrameTimingsReply::Busy,
+            { .Doc = "The sum of the graphics queue's top scopes in each frame: how long the GPU worked on it." },
+        },
+        Field<FrameTimingsReply, bool>
+        {
+            "Optimized",
+            &FrameTimingsReply::Optimized,
+            { .Doc = "False in a Debug build. Compare times only between optimized builds." },
+        },
+        Field<FrameTimingsReply, bool>
+        {
+            "Validation",
+            &FrameTimingsReply::Validation,
+            { .Doc = "True when the validation layer runs. It adds work, so compare times only with it off." },
+        },
+        Field<FrameTimingsReply, bool>{ "Paused", &FrameTimingsReply::Paused },
+        Field<FrameTimingsReply, bool>{ "Repeatable", &FrameTimingsReply::Repeatable },
+        Field<FrameTimingsReply, int32_t>{ "ScreenWidth", &FrameTimingsReply::ScreenWidth, { .Unit = "px" } },
+        Field<FrameTimingsReply, int32_t>{ "ScreenHeight", &FrameTimingsReply::ScreenHeight, { .Unit = "px" } },
+        Field<FrameTimingsReply, uint64_t>
+        {
+            "DroppedScopes",
+            &FrameTimingsReply::DroppedScopes,
+            { .Doc = "Scopes past the timers' limit per frame, which have no time. Not 0 means a scope is missing." },
+        },
+        Field<FrameTimingsReply, uint64_t>
+        {
+            "DroppedBlocks",
+            &FrameTimingsReply::DroppedBlocks,
+            { .Doc = "Frames with no timer block while this ran, on either queue. Those frames are not measured." },
+        },
+        Field<FrameTimingsReply, uint64_t>{ "LostBlocks", &FrameTimingsReply::LostBlocks },
+        Field<FrameTimingsReply, std::vector<ocean_tools::GpuScopeTiming>>
+        {
+            "Scopes",
+            &FrameTimingsReply::Scopes,
+            { .Doc = "Each scope in the order it first ran. Depth gives the nesting." },
+        },
+    };
+};
+
+template<>
 struct foundation::reflect::Describe<ocean_tools::FrameWaitParams>
 {
     using FrameWaitParams = ocean_tools::FrameWaitParams;
@@ -818,6 +1008,14 @@ namespace
     [[nodiscard]] std::string JoinNames(const std::array<std::string_view, Count>& names);
     [[nodiscard]] std::string DebugViewChoices();
     [[nodiscard]] std::string_view EncodingName(capture::CaptureEncoding encoding) noexcept;
+    /** @brief The median, mean, min and max of one scope's samples. The samples move into the result */
+    [[nodiscard]] ocean_tools::GpuTimingStats SummarizeTimings(std::vector<float> samples_us);
+
+#ifdef NDEBUG
+    constexpr bool k_OptimizedBuild = true;
+#else
+    constexpr bool k_OptimizedBuild = false;
+#endif
 
     class StdoutReplies final : public agent::ReplySink
     {
@@ -1080,10 +1278,73 @@ struct OceanScene::ToolSurface
         ToolSurface& Surface;
     };
 
+    // one scope's samples in a frame.timings request, one per frame that had the scope
+    struct ScopeSamples
+    {
+        uint64_t Hash{ 0u };
+        TimerQueue Queue{ TimerQueue::Graphics };
+        int32_t Depth{ 0 };
+        std::vector<float> SamplesUs;
+    };
+
+    // a frame.timings request, which takes blocks as the GPU finishes them
+    struct PendingTimings
+    {
+        int32_t FramesWanted{ 0 };
+        // blocks recorded before the request ran are not measured: a setting changed before it is in every frame
+        uint64_t FirstFrame{ 0u };
+        uint64_t FirstAsyncSubmission{ 0u };
+        int32_t FramesTaken{ 0 };
+        int32_t AsyncTaken{ 0 };
+        uint64_t LastFrame{ 0u };
+        uint64_t DroppedScopes{ 0u };
+        uint64_t DroppedBlocksAtStart{ 0u };
+        uint64_t LostBlocksAtStart{ 0u };
+        std::chrono::steady_clock::time_point Started{};
+        // the CPU time when the frame after the last measured frame began
+        std::optional<std::chrono::steady_clock::time_point> Ended;
+        std::vector<float> BusyUs;
+        std::vector<ScopeSamples> Scopes;
+        agent::ReplyToken<ocean_tools::FrameTimingsReply> Token;
+    };
+
+    struct FrameTimingsCommand
+    {
+        static constexpr std::string_view Name{ "frame.timings" };
+        static constexpr std::string_view Doc{
+            "Measures the GPU time of every timer scope over the next Frames frames, and replies when the GPU has "
+            "finished the last one. Only frames from this request on count, so a change made by an earlier request, "
+            "also one earlier in the same batch, is in every measured frame. Each scope returns its median, mean, "
+            "min, max and every sample, in microseconds. Compare times only when Optimized is true and Validation is "
+            "false: build RelWithDebInfo and run with --validation=off. Release builds have no timers, and this "
+            "command fails there." };
+        using Params = ocean_tools::FrameTimingsParams;
+        using Reply = ocean_tools::FrameTimingsReply;
+
+        void Run(const Params& params, agent::ReplyToken<Reply> token);
+
+        ToolSurface& Surface;
+    };
+
     explicit ToolSurface(OceanScene& scene);
 
     void TickWaits();
     void TickCaptures();
+    /** @brief Notes the CPU time at which each timings request's frames are all recorded */
+    void TickTimings();
+    void AddTimings(std::span<const rhi::GpuTimingBlock> blocks, TimerQueue queue);
+    void FinishTimings();
+    /** @brief Builds the reply, and moves the samples out of the request */
+    [[nodiscard]] ocean_tools::FrameTimingsReply ReplyFor(PendingTimings& pending) const;
+
+    struct BlockCounts
+    {
+        uint64_t Dropped{ 0u };
+        uint64_t Lost{ 0u };
+    };
+
+    /** @brief The dropped and lost blocks of both queues' timers, since they were created */
+    [[nodiscard]] BlockCounts CountBlocks() const noexcept;
     /** @brief Checks the area against the screen and the name, and queues the capture. Fails the token on a refusal */
     void QueueCapture(QueuedCapture request);
     [[nodiscard]] bool RecordCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image);
@@ -1101,6 +1362,7 @@ struct OceanScene::ToolSurface
     std::vector<PendingWait> Waits;
     std::deque<QueuedCapture> CaptureQueue;
     std::vector<CaptureInFlight> CapturesInFlight;
+    std::vector<PendingTimings> Timings;
     int64_t NextCaptureNumber{ 1 };
     CameraGetCommand CameraGet;
     CameraSetCommand CameraSet;
@@ -1117,6 +1379,7 @@ struct OceanScene::ToolSurface
     CaptureRegionCommand CaptureRegion;
     CapturePixelCommand CapturePixel;
     CaptureTargetCommand CaptureTargetCmd;
+    FrameTimingsCommand FrameTimings;
     agent::ToolRegistry Registry;
     int64_t NextRequestId{ 1 };
 };
@@ -1135,6 +1398,7 @@ void OceanScene::tickToolSurface()
 {
     toolSurface->TickWaits();
     toolSurface->TickCaptures();
+    toolSurface->TickTimings();
 
     if (settings.Tools != nullptr)
     {
@@ -1160,6 +1424,16 @@ bool OceanScene::toolCaptureHidesUi() const noexcept
 bool OceanScene::recordToolCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image)
 {
     return toolSurface->RecordCapture(command_buffer, image);
+}
+
+void OceanScene::feedToolTimings(std::span<const rhi::GpuTimingBlock> blocks, TimerQueue queue)
+{
+    toolSurface->AddTimings(blocks, queue);
+}
+
+void OceanScene::finishToolTimings()
+{
+    toolSurface->FinishTimings();
 }
 
 void OceanScene::setSeaStateField(std::string_view _name, float _value)
@@ -1190,7 +1464,8 @@ OceanScene::ToolSurface::ToolSurface(OceanScene& scene) :
     CaptureScreen{ *this },
     CaptureRegion{ *this },
     CapturePixel{ *this },
-    CaptureTargetCmd{ *this }
+    CaptureTargetCmd{ *this },
+    FrameTimings{ *this }
 {
     const agent::ObjectChanged seaChanged = agent::ObjectChanged::Create<ToolSurface,
         &ToolSurface::SeaStateChanged>(this);
@@ -1214,6 +1489,7 @@ OceanScene::ToolSurface::ToolSurface(OceanScene& scene) :
         Registry.AddCommand(CaptureRegion),
         Registry.AddCommand(CapturePixel),
         Registry.AddCommand(CaptureTargetCmd),
+        Registry.AddCommand(FrameTimings),
     };
 
     for (const agent::ToolResultCode error : errors)
@@ -1265,6 +1541,155 @@ void OceanScene::ToolSurface::TickCaptures()
         FinishCapture(*found, result);
         CapturesInFlight.erase(found);
     }
+}
+
+void OceanScene::ToolSurface::TickTimings()
+{
+    for (PendingTimings& pending : Timings)
+    {
+        const uint64_t frameAfterLast = pending.FirstFrame + static_cast<uint64_t>(pending.FramesWanted);
+
+        if (!pending.Ended.has_value() && Scene.frameNumber >= frameAfterLast)
+        {
+            pending.Ended = std::chrono::steady_clock::now();
+        }
+    }
+}
+
+void OceanScene::ToolSurface::AddTimings(std::span<const rhi::GpuTimingBlock> blocks, TimerQueue queue)
+{
+    const bool graphics = queue == TimerQueue::Graphics;
+
+    for (PendingTimings& pending : Timings)
+    {
+        for (const rhi::GpuTimingBlock& block : blocks)
+        {
+            const uint64_t first = graphics ? pending.FirstFrame : pending.FirstAsyncSubmission;
+            int32_t& taken = graphics ? pending.FramesTaken : pending.AsyncTaken;
+
+            // a block recorded before the request is not measured, and neither is one past the count
+            if (block.Submission < first || taken >= pending.FramesWanted)
+            {
+                continue;
+            }
+
+            ++taken;
+            pending.DroppedScopes += block.DroppedScopes;
+
+            if (graphics)
+            {
+                pending.LastFrame = block.Submission;
+                pending.BusyUs.push_back(static_cast<float>(block.TopLevelNanoseconds / 1000.0));
+            }
+
+            // a scope opened more than once in a frame gives one sample, its total, as in the timings panel
+            std::vector<std::pair<size_t, double>> frameTotals;
+
+            for (const rhi::GpuTiming& timing : block.Timings)
+            {
+                const auto matchesTiming = [&timing, queue](const ScopeSamples& samples) { return samples.Hash == timing.Hash && samples.Queue == queue; };
+                auto known = std::ranges::find_if(pending.Scopes, matchesTiming);
+
+                if (known == pending.Scopes.end())
+                {
+                    pending.Scopes.push_back(ScopeSamples{ .Hash = timing.Hash, .Queue = queue, .Depth = static_cast<int32_t>(timing.Depth) });
+                    known = std::prev(pending.Scopes.end());
+                }
+
+                const size_t scope = static_cast<size_t>(std::distance(pending.Scopes.begin(), known));
+                const auto matchesScope = [scope](const std::pair<size_t, double>& total) { return total.first == scope; };
+                const auto total = std::ranges::find_if(frameTotals, matchesScope);
+
+                if (total == frameTotals.end())
+                {
+                    frameTotals.emplace_back(scope, timing.Nanoseconds);
+                }
+                else
+                {
+                    total->second += timing.Nanoseconds;
+                }
+            }
+
+            for (const auto& [scope, nanoseconds] : frameTotals)
+            {
+                pending.Scopes[scope].SamplesUs.push_back(static_cast<float>(nanoseconds / 1000.0));
+            }
+        }
+    }
+}
+
+void OceanScene::ToolSurface::FinishTimings()
+{
+    const auto isFinished = [](const PendingTimings& pending) { return pending.FramesTaken >= pending.FramesWanted; };
+
+    for (PendingTimings& pending : Timings)
+    {
+        if (isFinished(pending))
+        {
+            pending.Token.Complete(ReplyFor(pending));
+        }
+    }
+
+    std::erase_if(Timings, isFinished);
+}
+
+ocean_tools::FrameTimingsReply OceanScene::ToolSurface::ReplyFor(PendingTimings& pending) const
+{
+    const std::chrono::steady_clock::time_point ended = pending.Ended.value_or(std::chrono::steady_clock::now());
+    const std::chrono::duration<double, std::micro> elapsed = ended - pending.Started;
+    const math::Float2 extent = Scene.swapchain->GetExtent();
+    const BlockCounts counts = CountBlocks();
+
+    ocean_tools::FrameTimingsReply reply
+    {
+        .Frames = pending.FramesTaken,
+        .FirstFrame = pending.FirstFrame,
+        .LastFrame = pending.LastFrame,
+        .AsyncSubmissions = pending.AsyncTaken,
+        .FrameIntervalUs = elapsed.count() / static_cast<double>(pending.FramesWanted),
+        .Busy = SummarizeTimings(std::move(pending.BusyUs)),
+        .Optimized = k_OptimizedBuild,
+        .Validation = Scene.settings.ValidationEnabled,
+        .Paused = Scene.paused,
+        .Repeatable = Scene.repeatableFrames,
+        .ScreenWidth = static_cast<int32_t>(extent.x),
+        .ScreenHeight = static_cast<int32_t>(extent.y),
+        .DroppedScopes = pending.DroppedScopes,
+        .DroppedBlocks = counts.Dropped - pending.DroppedBlocksAtStart,
+        .LostBlocks = counts.Lost - pending.LostBlocksAtStart,
+    };
+
+    reply.Scopes.reserve(pending.Scopes.size());
+
+    for (ScopeSamples& samples : pending.Scopes)
+    {
+        const bool graphics = samples.Queue == TimerQueue::Graphics;
+        const rhi::GpuTimers& timers = graphics ? *Scene.gpuTimers : *Scene.asyncGpuTimers;
+        const std::string_view name = timers.Name(samples.Hash);
+
+        reply.Scopes.push_back(ocean_tools::GpuScopeTiming
+        {
+            .Name = name.empty() ? std::format("scope {:016x}", samples.Hash) : std::string{ name },
+            .Queue = graphics ? "graphics" : "async compute",
+            .Depth = samples.Depth,
+            .Time = SummarizeTimings(std::move(samples.SamplesUs)),
+        });
+    }
+
+    return reply;
+}
+
+OceanScene::ToolSurface::BlockCounts OceanScene::ToolSurface::CountBlocks() const noexcept
+{
+    BlockCounts counts{ .Dropped = Scene.gpuTimers->DroppedBlocks(), .Lost = Scene.gpuTimers->LostBlocks() };
+
+    if (Scene.asyncGpuTimers != nullptr)
+    {
+        counts.Dropped += Scene.asyncGpuTimers->DroppedBlocks();
+        counts.Lost += Scene.asyncGpuTimers->LostBlocks();
+    }
+
+    return counts;
 }
 
 void OceanScene::ToolSurface::QueueCapture(QueuedCapture request)
@@ -1801,8 +2226,67 @@ void OceanScene::ToolSurface::CaptureTargetCommand::Run(const Params& params, ag
     });
 }
 
+void OceanScene::ToolSurface::FrameTimingsCommand::Run(const Params& params, agent::ReplyToken<Reply> token)
+{
+    const rhi::GpuTimers& timers = *Surface.Scene.gpuTimers;
+
+    if (!timers.Active())
+    {
+        token.Fail(std::format("the GPU timers are off: {}. Debug and RelWithDebInfo builds have them.", timers.InactiveReason()));
+        return;
+    }
+
+    const BlockCounts counts = Surface.CountBlocks();
+
+    // this frame records later with frameNumber as its submission, and its async work signals the next value
+    Surface.Timings.push_back(PendingTimings
+    {
+        .FramesWanted = params.Frames,
+        .FirstFrame = Surface.Scene.frameNumber,
+        .FirstAsyncSubmission = Surface.Scene.asyncTimelineValue + 1u,
+        .DroppedBlocksAtStart = counts.Dropped,
+        .LostBlocksAtStart = counts.Lost,
+        .Started = std::chrono::steady_clock::now(),
+        .Token = std::move(token),
+    });
+}
+
 namespace
 {
+    ocean_tools::GpuTimingStats SummarizeTimings(std::vector<float> samples_us)
+    {
+        ocean_tools::GpuTimingStats stats{};
+
+        stats.Frames = static_cast<int32_t>(samples_us.size());
+
+        if (samples_us.empty())
+        {
+            return stats;
+        }
+
+        std::vector<float> sorted = samples_us;
+
+        std::ranges::sort(sorted);
+
+        // an even count takes the mean of the two middle values, as numpy.median does
+        const size_t middle = sorted.size() / 2u;
+        const double upper = static_cast<double>(sorted[middle]);
+
+        stats.MedianUs = sorted.size() % 2u == 0u ? 0.5 * (static_cast<double>(sorted[middle - 1u]) + upper) : upper;
+
+        double sum = 0.0;
+        for (const float sample : sorted)
+        {
+            sum += static_cast<double>(sample);
+        }
+
+        stats.MeanUs = sum / static_cast<double>(sorted.size());
+        stats.MinUs = static_cast<double>(sorted.front());
+        stats.MaxUs = static_cast<double>(sorted.back());
+        stats.SamplesUs = std::move(samples_us);
+        return stats;
+    }
+
     std::optional<size_t> FindCaptureTarget(std::string_view name) noexcept
     {
         for (size_t i = 0; i < k_CaptureTargets.size(); ++i)

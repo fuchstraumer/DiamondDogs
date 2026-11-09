@@ -2854,8 +2854,12 @@ void OceanScene::collectGpuTimings()
     const uint64_t completedBefore = frameNumber >= framesInFlight ? frameNumber - framesInFlight + 1u : 0u;
     gpuTimers->Collect(completedBefore);
 
+    const std::vector<rhi::GpuTimingBlock> completed = gpuTimers->TakeCompleted();
+
+    feedToolTimings(completed, TimerQueue::Graphics);
+
     // every finished frame feeds the averages, so none is skipped when two finish between updates
-    for (const rhi::GpuTimingBlock& block : gpuTimers->TakeCompleted())
+    for (const rhi::GpuTimingBlock& block : completed)
     {
         // a scope opened more than once in a frame counts once, with its total
         std::unordered_map<uint64_t, double> totals;
@@ -2882,7 +2886,12 @@ void OceanScene::collectGpuTimings()
         if (asyncTimeline->GetValue(completedValue).IsSuccess())
         {
             asyncGpuTimers->Collect(completedValue + 1u);
-            for (const rhi::GpuTimingBlock& block : asyncGpuTimers->TakeCompleted())
+
+            const std::vector<rhi::GpuTimingBlock> asyncCompleted = asyncGpuTimers->TakeCompleted();
+
+            feedToolTimings(asyncCompleted, TimerQueue::AsyncCompute);
+
+            for (const rhi::GpuTimingBlock& block : asyncCompleted)
             {
                 std::unordered_map<uint64_t, double> totals;
                 for (const rhi::GpuTiming& timing : block.Timings)
@@ -2900,6 +2909,8 @@ void OceanScene::collectGpuTimings()
             }
         }
     }
+
+    finishToolTimings();
 }
 
 void OceanScene::drawTimingsPanel()

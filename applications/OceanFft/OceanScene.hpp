@@ -170,6 +170,17 @@ private:
     /** @brief Records the oldest tool capture into this frame. Returns false when it recorded nothing, and the image
      *  still needs its move to PresentSource */
     [[nodiscard]] bool recordToolCapture(rhi::CommandBuffer& command_buffer, rhi::ImageHandle image);
+
+    enum class TimerQueue : uint8_t
+    {
+        Graphics,
+        AsyncCompute,
+    };
+
+    /** @brief Gives the waiting frame.timings requests the blocks that one queue's GPU timers just collected */
+    void feedToolTimings(std::span<const rhi::GpuTimingBlock> blocks, TimerQueue queue);
+    /** @brief Replies to each frame.timings request that has all its frames. Runs after both queues are fed */
+    void finishToolTimings();
     /** @brief True when a script, burst or scheduled capture takes this frame */
     [[nodiscard]] bool scriptCaptureDue() const noexcept;
     /** @brief Returns the swapchain image as a whole-screen capture source, or nothing when its format cannot be
