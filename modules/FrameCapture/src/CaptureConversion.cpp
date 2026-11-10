@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <format>
+#include <ranges>
 #include <span>
 #include <string>
 #include <utility>
@@ -50,6 +51,35 @@ namespace
 
     [[nodiscard]] float ClampUnit(float value) noexcept;
     [[nodiscard]] uint8_t QuantizeEncodedValue(float encoded) noexcept;
+    [[nodiscard]] size_t RoundUpToLanes(size_t count) noexcept;
+    [[nodiscard]] math::Vector LoadLanes(const float* lanes) noexcept;
+    void StoreLanes(float* lanes, math::Vector value) noexcept;
+
+    constexpr float k_PqM1 = 0.1593017578125f;
+    constexpr float k_PqM2 = 78.84375f;
+    constexpr float k_PqC1 = 0.8359375f;
+    constexpr float k_PqC2 = 18.8515625f;
+    constexpr float k_PqC3 = 18.6875f;
+
+    // Each stage runs over a whole chunk so that the std::pow calls in a stage do not depend on each other. The
+    // CPU overlaps independent calls, and one texel at a time it cannot: a PQ convert was 24% slower that way.
+    constexpr size_t k_ChunkTexels = 64u;
+
+    struct TexelChunk
+    {
+        std::array<float, k_ChunkTexels> Red;
+        std::array<float, k_ChunkTexels> Green;
+        std::array<float, k_ChunkTexels> Blue;
+    };
+
+    void DecodeSrgbRun(std::array<float, k_ChunkTexels>& values, size_t count) noexcept;
+    void DecodePqRun(std::array<float, k_ChunkTexels>& values, size_t count) noexcept;
+    void ScaleRun(std::array<float, k_ChunkTexels>& values, size_t count, float scale) noexcept;
+    void ConvertBt2020ToBt709Run(TexelChunk& chunk, size_t count) noexcept;
+    void EncodeChannel(const std::array<float, k_ChunkTexels>& linear, size_t count, std::span<uint8_t> out, size_t channel) noexcept;
+    void EncodeChunk(const TexelChunk& chunk, size_t count, std::span<uint8_t> out) noexcept;
+    void QuantizeChunk(const TexelChunk& chunk, size_t count, std::span<uint8_t> out) noexcept;
+    void AccumulateClamped(const TexelChunk& chunk, size_t first, size_t count, uint32_t factor, std::span<double> sums) noexcept;
 
     template<TexelLayout Layout>
     [[nodiscard]] constexpr size_t BytesPerTexel() noexcept
@@ -121,30 +151,6 @@ namespace
         }
     }
 
-    // an sRGB source decodes with the sRGB curve and takes no linear scale
-    template<CaptureEncoding Encoding>
-    [[nodiscard]] Rgb Linearize(Rgb texel, float linear_scale) noexcept
-    {
-        if constexpr (Encoding == CaptureEncoding::sRGB)
-        {
-            return Rgb{ capture::conversion::DecodeSrgb(texel.Red),
-                        capture::conversion::DecodeSrgb(texel.Green),
-                        capture::conversion::DecodeSrgb(texel.Blue) };
-        }
-        else
-        {
-            if constexpr (Encoding == CaptureEncoding::HDR10_PQ)
-            {
-                texel.Red = capture::conversion::DecodePq(texel.Red);
-                texel.Green = capture::conversion::DecodePq(texel.Green);
-                texel.Blue = capture::conversion::DecodePq(texel.Blue);
-                capture::conversion::Bt2020ToBt709(texel.Red, texel.Green, texel.Blue);
-            }
-
-            return Rgb{ texel.Red * linear_scale, texel.Green * linear_scale, texel.Blue * linear_scale };
-        }
-    }
-
     template<typename Callable>
     auto DispatchTexelLayout(TexelLayout layout, Callable&& callable)
     {
@@ -179,79 +185,135 @@ namespace
         }
     }
 
+    template<TexelLayout Layout>
+    void LoadChunk(std::span<const std::byte> pixels, size_t first, size_t count, TexelChunk& chunk) noexcept
+    {
+        for (size_t i = 0; i < count; ++i)
+        {
+            const Rgb texel = LoadTexel<Layout>(pixels, first + i);
+
+            chunk.Red[i] = texel.Red;
+            chunk.Green[i] = texel.Green;
+            chunk.Blue[i] = texel.Blue;
+        }
+    }
+
+    template<CaptureEncoding Encoding>
+    void LinearizeChunk(TexelChunk& chunk, size_t count, float linear_scale) noexcept
+    {
+        if constexpr (Encoding == CaptureEncoding::sRGB)
+        {
+            DecodeSrgbRun(chunk.Red, count);
+            DecodeSrgbRun(chunk.Green, count);
+            DecodeSrgbRun(chunk.Blue, count);
+        }
+        else
+        {
+            if constexpr (Encoding == CaptureEncoding::HDR10_PQ)
+            {
+                DecodePqRun(chunk.Red, count);
+                DecodePqRun(chunk.Green, count);
+                DecodePqRun(chunk.Blue, count);
+                ConvertBt2020ToBt709Run(chunk, count);
+            }
+
+            ScaleRun(chunk.Red, count, linear_scale);
+            ScaleRun(chunk.Green, count, linear_scale);
+            ScaleRun(chunk.Blue, count, linear_scale);
+        }
+    }
+
     template<TexelLayout Layout, CaptureEncoding Encoding>
     void ConvertTexels(std::span<const std::byte> pixels, std::span<uint8_t> rgb, float linear_scale) noexcept
     {
         const size_t count = rgb.size() / 3u;
 
-        for (size_t i = 0; i < count; ++i)
+        if constexpr (Encoding == CaptureEncoding::sRGB && (Layout == TexelLayout::Rgba8 || Layout == TexelLayout::Bgra8))
         {
-            const std::span<uint8_t, 3> out = rgb.subspan(i * 3u).first<3>();
-
-            if constexpr (Encoding == CaptureEncoding::sRGB && (Layout == TexelLayout::Rgba8 || Layout == TexelLayout::Bgra8))
+            for (size_t i = 0; i < count; ++i)
             {
+                const std::span<uint8_t, 3> out = rgb.subspan(i * 3u).first<3>();
                 const std::array<uint8_t, 3> codes = LoadCodes8<Layout>(pixels, i);
 
                 out[0] = codes[0];
                 out[1] = codes[1];
                 out[2] = codes[2];
             }
-            else if constexpr (Encoding == CaptureEncoding::sRGB)
-            {
-                // packed 10-bit and half float values that are already sRGB encoded
-                const Rgb texel = LoadTexel<Layout>(pixels, i);
+        }
+        else
+        {
+            TexelChunk chunk{};
 
-                out[0] = QuantizeEncodedValue(texel.Red);
-                out[1] = QuantizeEncodedValue(texel.Green);
-                out[2] = QuantizeEncodedValue(texel.Blue);
-            }
-            else
+            for (size_t first = 0; first < count; first += k_ChunkTexels)
             {
-                const Rgb linear = Linearize<Encoding>(LoadTexel<Layout>(pixels, i), linear_scale);
+                const size_t chunkCount = std::min(k_ChunkTexels, count - first);
+                const std::span<uint8_t> out = rgb.subspan(first * 3u, chunkCount * 3u);
 
-                out[0] = capture::conversion::EncodeSrgb(linear.Red);
-                out[1] = capture::conversion::EncodeSrgb(linear.Green);
-                out[2] = capture::conversion::EncodeSrgb(linear.Blue);
+                LoadChunk<Layout>(pixels, first, chunkCount, chunk);
+
+                if constexpr (Encoding == CaptureEncoding::sRGB)
+                {
+                    // packed 10-bit and half float values that are already sRGB encoded
+                    QuantizeChunk(chunk, chunkCount, out);
+                }
+                else
+                {
+                    LinearizeChunk<Encoding>(chunk, chunkCount, linear_scale);
+                    EncodeChunk(chunk, chunkCount, out);
+                }
             }
         }
     }
 
+    // Decodes each source row of a block row in chunks and adds it to one running sum per output column. Every
+    // block then sums its texels in row-major order, as a per-block loop would.
     template<TexelLayout Layout, CaptureEncoding Encoding>
     void AverageBlocks(std::span<const std::byte> pixels, uint32_t width, uint32_t height, uint32_t factor,
-                       uint32_t out_width, uint32_t out_height, float linear_scale, std::span<uint8_t> rgb) noexcept
+                       uint32_t out_width, uint32_t out_height, float linear_scale, std::span<uint8_t> rgb)
     {
+        std::vector<double> sums(size_t{ out_width } * 3u);
+        TexelChunk chunk{};
+
         for (uint32_t blockY = 0u; blockY < out_height; ++blockY)
         {
             const uint32_t startY = blockY * factor;
             const uint32_t endY = std::min(startY + factor, height);
+            const double blockHeight = static_cast<double>(endY - startY);
 
-            for (uint32_t blockX = 0u; blockX < out_width; ++blockX)
+            std::ranges::fill(sums, 0.0);
+
+            for (uint32_t y = startY; y < endY; ++y)
             {
-                const uint32_t startX = blockX * factor;
-                const uint32_t endX = std::min(startX + factor, width);
-                std::array<double, 3> sum{};
+                const std::span<const std::byte> row = pixels.subspan(size_t{ y } * width * BytesPerTexel<Layout>());
 
-                for (uint32_t y = startY; y < endY; ++y)
+                for (size_t first = 0; first < width; first += k_ChunkTexels)
                 {
-                    const std::span<const std::byte> row = pixels.subspan(size_t{ y } * width * BytesPerTexel<Layout>());
+                    const size_t chunkCount = std::min(k_ChunkTexels, size_t{ width } - first);
 
-                    for (uint32_t x = startX; x < endX; ++x)
-                    {
-                        const Rgb linear = Linearize<Encoding>(LoadTexel<Layout>(row, x), linear_scale);
+                    LoadChunk<Layout>(row, first, chunkCount, chunk);
+                    LinearizeChunk<Encoding>(chunk, chunkCount, linear_scale);
+                    AccumulateClamped(chunk, first, chunkCount, factor, sums);
+                }
+            }
 
-                        // NaN and negative values count as black, as the encode would write them
-                        sum[0] += ClampUnit(linear.Red);
-                        sum[1] += ClampUnit(linear.Green);
-                        sum[2] += ClampUnit(linear.Blue);
-                    }
+            for (size_t firstBlock = 0; firstBlock < out_width; firstBlock += k_ChunkTexels)
+            {
+                const size_t chunkCount = std::min(k_ChunkTexels, size_t{ out_width } - firstBlock);
+
+                for (size_t i = 0; i < chunkCount; ++i)
+                {
+                    const size_t blockX = firstBlock + i;
+                    const uint32_t blockWidth = std::min(factor, width - static_cast<uint32_t>(blockX) * factor);
+                    const double count = static_cast<double>(blockWidth) * blockHeight;
+
+                    chunk.Red[i] = static_cast<float>(sums[(blockX * 3u) + 0u] / count);
+                    chunk.Green[i] = static_cast<float>(sums[(blockX * 3u) + 1u] / count);
+                    chunk.Blue[i] = static_cast<float>(sums[(blockX * 3u) + 2u] / count);
                 }
 
-                const double count = static_cast<double>(endX - startX) * (endY - startY);
-                const std::span<uint8_t, 3> out = rgb.subspan(((size_t{ blockY } * out_width) + blockX) * 3u).first<3>();
+                const size_t outFirst = ((size_t{ blockY } * out_width) + firstBlock) * 3u;
 
-                out[0] = capture::conversion::EncodeSrgb(static_cast<float>(sum[0] / count));
-                out[1] = capture::conversion::EncodeSrgb(static_cast<float>(sum[1] / count));
-                out[2] = capture::conversion::EncodeSrgb(static_cast<float>(sum[2] / count));
+                EncodeChunk(chunk, chunkCount, rgb.subspan(outFirst, chunkCount * 3u));
             }
         }
     }
@@ -277,11 +339,14 @@ namespace capture::conversion
 
     uint8_t EncodeSrgb(float linear) noexcept
     {
-        // NaN goes to 0, through the clamp's comparisons
-        const float value = linear > 0.0f ? std::min(linear, 1.0f) : 0.0f;
-        const float encoded = value <= 0.0031308f ? 12.92f * value : (1.055f * std::pow(value, 1.0f / 2.4f)) - 0.055f;
+        // one value goes through the chunk stage, so that it agrees bit for bit with ConvertToSrgb8
+        std::array<float, k_ChunkTexels> lanes{};
+        std::array<uint8_t, 3> code{};
 
-        return static_cast<uint8_t>((encoded * 255.0f) + 0.5f);
+        lanes[0] = linear;
+        EncodeChannel(lanes, 1u, code, 0u);
+
+        return code[0];
     }
 
     float DecodeSrgb(float encoded) noexcept
@@ -293,13 +358,8 @@ namespace capture::conversion
 
     float DecodePq(float encoded) noexcept
     {
-        constexpr float m1 = 0.1593017578125f;
-        constexpr float m2 = 78.84375f;
-        constexpr float c1 = 0.8359375f;
-        constexpr float c2 = 18.8515625f;
-        constexpr float c3 = 18.6875f;
-        const float p = std::pow(std::clamp(encoded, 0.0f, 1.0f), 1.0f / m2);
-        const float nits = 10000.0f * std::pow(std::max(p - c1, 0.0f) / (c2 - (c3 * p)), 1.0f / m1);
+        const float p = std::pow(std::clamp(encoded, 0.0f, 1.0f), 1.0f / k_PqM2);
+        const float nits = 10000.0f * std::pow(std::max(p - k_PqC1, 0.0f) / (k_PqC2 - (k_PqC3 * p)), 1.0f / k_PqM1);
 
         return nits / 80.0f;
     }
@@ -323,15 +383,19 @@ namespace capture::conversion
 
     math::Float3 DecodeLinear(std::span<const std::byte> pixels, size_t index, ImageFormat format, CaptureEncoding encoding, float linear_scale)
     {
-        return DispatchTexelLayout(ClassifyLayout(format), [&]<TexelLayout Layout>()
-        {
-            return DispatchEncoding(encoding, [&]<CaptureEncoding Encoding>()
-            {
-                const Rgb linear = Linearize<Encoding>(LoadTexel<Layout>(pixels, index), linear_scale);
+        // one texel goes through the chunk stages, so that it agrees bit for bit with ConvertToSrgb8
+        TexelChunk chunk{};
 
-                return math::Float3{ linear.Red, linear.Green, linear.Blue };
+        DispatchTexelLayout(ClassifyLayout(format), [&]<TexelLayout Layout>()
+        {
+            DispatchEncoding(encoding, [&]<CaptureEncoding Encoding>()
+            {
+                LoadChunk<Layout>(pixels, index, 1u, chunk);
+                LinearizeChunk<Encoding>(chunk, 1u, linear_scale);
             });
         });
+
+        return math::Float3{ chunk.Red[0], chunk.Green[0], chunk.Blue[0] };
     }
 
     std::vector<uint8_t> ConvertToSrgb8(std::span<const std::byte> pixels, uint32_t width, uint32_t height, ImageFormat format, CaptureEncoding encoding, float linear_scale)
@@ -399,5 +463,126 @@ namespace
     uint8_t QuantizeEncodedValue(float encoded) noexcept
     {
         return static_cast<uint8_t>(std::lroundf(ClampUnit(encoded) * 255.0f));
+    }
+
+    size_t RoundUpToLanes(size_t count) noexcept
+    {
+        return (count + 3u) & ~size_t{ 3u };
+    }
+
+    math::Vector LoadLanes(const float* lanes) noexcept
+    {
+        return math::Vector{ _mm_loadu_ps(lanes) };
+    }
+
+    void StoreLanes(float* lanes, math::Vector value) noexcept
+    {
+        _mm_storeu_ps(lanes, value.Data());
+    }
+
+    // The run functions work on whole four-lane groups, so they touch up to three lanes past count. Those lanes are
+    // inside the chunk arrays and hold finite values, and nothing reads them.
+    void DecodeSrgbRun(std::array<float, k_ChunkTexels>& values, size_t count) noexcept
+    {
+        const size_t lanes = RoundUpToLanes(count);
+        const math::Vector zero = math::Vector::Replicate(0.0f);
+        const math::Vector one = math::Vector::Replicate(1.0f);
+
+        for (size_t i = 0; i < lanes; i += 4u)
+        {
+            const math::Vector encoded = LoadLanes(&values[i]).Clamp(zero, one);
+            const math::Vector curved = ((encoded + math::Vector::Replicate(0.055f)) / 1.055f).Pow(2.4f);
+            const math::Vector linearPart = encoded / 12.92f;
+            const math::VectorMask isLinearPart = encoded.CompareLessOrEqual(math::Vector::Replicate(0.04045f));
+
+            StoreLanes(&values[i], math::Select(isLinearPart, curved, linearPart));
+        }
+    }
+
+    void DecodePqRun(std::array<float, k_ChunkTexels>& values, size_t count) noexcept
+    {
+        const size_t lanes = RoundUpToLanes(count);
+        const math::Vector zero = math::Vector::Replicate(0.0f);
+        const math::Vector one = math::Vector::Replicate(1.0f);
+
+        for (size_t i = 0; i < lanes; i += 4u)
+        {
+            const math::Vector power = LoadLanes(&values[i]).Clamp(zero, one).Pow(1.0f / k_PqM2);
+            const math::Vector numerator = (power - math::Vector::Replicate(k_PqC1)).Max(zero);
+            const math::Vector denominator = math::Vector::Replicate(k_PqC2) - (power * k_PqC3);
+            const math::Vector nits = (numerator / denominator).Pow(1.0f / k_PqM1) * 10000.0f;
+
+            StoreLanes(&values[i], nits / 80.0f);
+        }
+    }
+
+    void ScaleRun(std::array<float, k_ChunkTexels>& values, size_t count, float scale) noexcept
+    {
+        for (size_t i = 0; i < count; ++i)
+        {
+            values[i] *= scale;
+        }
+    }
+
+    void ConvertBt2020ToBt709Run(TexelChunk& chunk, size_t count) noexcept
+    {
+        for (size_t i = 0; i < count; ++i)
+        {
+            capture::conversion::Bt2020ToBt709(chunk.Red[i], chunk.Green[i], chunk.Blue[i]);
+        }
+    }
+
+    void EncodeChannel(const std::array<float, k_ChunkTexels>& linear, size_t count, std::span<uint8_t> out, size_t channel) noexcept
+    {
+        std::array<float, k_ChunkTexels> clamped{};
+        std::array<float, k_ChunkTexels> powered{};
+        const size_t lanes = RoundUpToLanes(count);
+
+        for (size_t i = 0; i < count; ++i)
+        {
+            clamped[i] = ClampUnit(linear[i]);
+        }
+
+        for (size_t i = 0; i < lanes; i += 4u)
+        {
+            StoreLanes(&powered[i], LoadLanes(&clamped[i]).Pow(1.0f / 2.4f));
+        }
+
+        for (size_t i = 0; i < count; ++i)
+        {
+            const float encoded = clamped[i] <= 0.0031308f ? 12.92f * clamped[i] : (1.055f * powered[i]) - 0.055f;
+
+            out[(i * 3u) + channel] = static_cast<uint8_t>((encoded * 255.0f) + 0.5f);
+        }
+    }
+
+    void EncodeChunk(const TexelChunk& chunk, size_t count, std::span<uint8_t> out) noexcept
+    {
+        EncodeChannel(chunk.Red, count, out, 0u);
+        EncodeChannel(chunk.Green, count, out, 1u);
+        EncodeChannel(chunk.Blue, count, out, 2u);
+    }
+
+    void QuantizeChunk(const TexelChunk& chunk, size_t count, std::span<uint8_t> out) noexcept
+    {
+        for (size_t i = 0; i < count; ++i)
+        {
+            out[(i * 3u) + 0u] = QuantizeEncodedValue(chunk.Red[i]);
+            out[(i * 3u) + 1u] = QuantizeEncodedValue(chunk.Green[i]);
+            out[(i * 3u) + 2u] = QuantizeEncodedValue(chunk.Blue[i]);
+        }
+    }
+
+    void AccumulateClamped(const TexelChunk& chunk, size_t first, size_t count, uint32_t factor, std::span<double> sums) noexcept
+    {
+        for (size_t i = 0; i < count; ++i)
+        {
+            const size_t blockX = (first + i) / factor;
+
+            // NaN and negative values count as black, as the encode would write them
+            sums[(blockX * 3u) + 0u] += ClampUnit(chunk.Red[i]);
+            sums[(blockX * 3u) + 1u] += ClampUnit(chunk.Green[i]);
+            sums[(blockX * 3u) + 2u] += ClampUnit(chunk.Blue[i]);
+        }
     }
 }
