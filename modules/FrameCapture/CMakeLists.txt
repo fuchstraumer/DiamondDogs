@@ -1,6 +1,8 @@
 # Copies rendered images out to 8-bit sRGB PNG files, for screenshots and for agents watching a scene change.
 ADD_MODULE(frame_capture
     "include/FrameCapture.hpp"
+    "src/CaptureConversion.hpp"
+    "src/CaptureConversion.cpp"
     "src/FrameCapture.cpp")
 
 target_include_directories(frame_capture PUBLIC
