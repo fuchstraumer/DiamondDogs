@@ -12,8 +12,250 @@
 #include <span>
 #include <string>
 #include <utility>
-#include <utility>
 #include <vector>
+
+namespace
+{
+    using capture::CaptureEncoding;
+
+    enum class TexelLayout : uint8_t
+    {
+        Invalid = 0,
+        Rgba8,
+        Bgra8,
+        A2B10G10R10,
+        A2R10G10B10,
+        Rgba16Half,
+    };
+
+    struct Rgb
+    {
+        float Red;
+        float Green;
+        float Blue;
+    };
+
+    constexpr TexelLayout ClassifyLayout(ImageFormat format) noexcept
+    {
+        switch (format.ComponentFormat)
+        {
+        case ImageComponentFormats::RGBA8: return TexelLayout::Rgba8;
+        case ImageComponentFormats::BGRA8: return TexelLayout::Bgra8;
+        case ImageComponentFormats::A2B10G10R10: return TexelLayout::A2B10G10R10;
+        case ImageComponentFormats::A2R10G10B10: return TexelLayout::A2R10G10B10;
+        case ImageComponentFormats::RGBA16: return TexelLayout::Rgba16Half;
+        default: return TexelLayout::Invalid;
+        }
+    }
+
+    [[nodiscard]] float ClampUnit(float value) noexcept;
+    [[nodiscard]] uint8_t QuantizeEncodedValue(float encoded) noexcept;
+
+    template<TexelLayout Layout>
+    [[nodiscard]] constexpr size_t BytesPerTexel() noexcept
+    {
+        return Layout == TexelLayout::Rgba16Half ? 8u : 4u;
+    }
+
+    template<TexelLayout Layout>
+    [[nodiscard]] std::array<uint8_t, 3> LoadCodes8(std::span<const std::byte> pixels, size_t index) noexcept
+    {
+        const std::span<const std::byte, 4> texel = pixels.subspan(index * 4u).first<4>();
+        const uint8_t first = std::to_integer<uint8_t>(texel[0]);
+        const uint8_t second = std::to_integer<uint8_t>(texel[1]);
+        const uint8_t third = std::to_integer<uint8_t>(texel[2]);
+
+        if constexpr (Layout == TexelLayout::Bgra8)
+        {
+            return { third, second, first };
+        }
+        else
+        {
+            return { first, second, third };
+        }
+    }
+
+    // each layout is decoded to non-linear (or already linear) channel values in [0, 1], except half floats
+    template<TexelLayout Layout>
+    [[nodiscard]] Rgb LoadTexel(std::span<const std::byte> pixels, size_t index) noexcept
+    {
+        if constexpr (Layout == TexelLayout::Rgba8 || Layout == TexelLayout::Bgra8)
+        {
+            const std::array<uint8_t, 3> codes = LoadCodes8<Layout>(pixels, index);
+
+            return Rgb{ codes[0] / 255.0f, codes[1] / 255.0f, codes[2] / 255.0f };
+        }
+        else if constexpr (Layout == TexelLayout::A2B10G10R10 || Layout == TexelLayout::A2R10G10B10)
+        {
+            const std::span<const std::byte, 4> texel = pixels.subspan(index * 4u).first<4>();
+            uint32_t word = 0u;
+
+            std::memcpy(&word, texel.data(), sizeof(word));
+
+            const float low = static_cast<float>(word & 0x3FFu) / 1023.0f;
+            const float mid = static_cast<float>((word >> 10u) & 0x3FFu) / 1023.0f;
+            const float high = static_cast<float>((word >> 20u) & 0x3FFu) / 1023.0f;
+
+            // A2B10G10R10 keeps red in the low bits, A2R10G10B10 keeps blue there
+            if constexpr (Layout == TexelLayout::A2B10G10R10)
+            {
+                return Rgb{ low, mid, high };
+            }
+            else
+            {
+                return Rgb{ high, mid, low };
+            }
+        }
+        else if constexpr (Layout == TexelLayout::Rgba16Half)
+        {
+            const std::span<const std::byte, 6> texel = pixels.subspan(index * 8u).first<6>();
+            uint16_t halves[3]{};
+
+            std::memcpy(halves, texel.data(), sizeof(halves));
+
+            return Rgb{ math::HalfToFloat(halves[0]), math::HalfToFloat(halves[1]), math::HalfToFloat(halves[2]) };
+        }
+        else
+        {
+            return Rgb{ 0.0f, 0.0f, 0.0f };
+        }
+    }
+
+    // an sRGB source decodes with the sRGB curve and takes no linear scale
+    template<CaptureEncoding Encoding>
+    [[nodiscard]] Rgb Linearize(Rgb texel, float linear_scale) noexcept
+    {
+        if constexpr (Encoding == CaptureEncoding::sRGB)
+        {
+            return Rgb{ capture::conversion::DecodeSrgb(texel.Red),
+                        capture::conversion::DecodeSrgb(texel.Green),
+                        capture::conversion::DecodeSrgb(texel.Blue) };
+        }
+        else
+        {
+            if constexpr (Encoding == CaptureEncoding::HDR10_PQ)
+            {
+                texel.Red = capture::conversion::DecodePq(texel.Red);
+                texel.Green = capture::conversion::DecodePq(texel.Green);
+                texel.Blue = capture::conversion::DecodePq(texel.Blue);
+                capture::conversion::Bt2020ToBt709(texel.Red, texel.Green, texel.Blue);
+            }
+
+            return Rgb{ texel.Red * linear_scale, texel.Green * linear_scale, texel.Blue * linear_scale };
+        }
+    }
+
+    template<typename Callable>
+    auto DispatchTexelLayout(TexelLayout layout, Callable&& callable)
+    {
+        switch (layout)
+        {
+        case TexelLayout::Rgba8:
+            return callable.template operator()<TexelLayout::Rgba8>();
+        case TexelLayout::Bgra8:
+            return callable.template operator()<TexelLayout::Bgra8>();
+        case TexelLayout::A2B10G10R10:
+            return callable.template operator()<TexelLayout::A2B10G10R10>();
+        case TexelLayout::A2R10G10B10:
+            return callable.template operator()<TexelLayout::A2R10G10B10>();
+        case TexelLayout::Rgba16Half:
+            return callable.template operator()<TexelLayout::Rgba16Half>();
+        default:
+            return callable.template operator()<TexelLayout::Invalid>();
+        }
+    }
+
+    template<typename Callable>
+    auto DispatchEncoding(CaptureEncoding encoding, Callable&& callable)
+    {
+        switch (encoding)
+        {
+        case CaptureEncoding::sRGB:
+            return callable.template operator()<CaptureEncoding::sRGB>();
+        case CaptureEncoding::HDR10_PQ:
+            return callable.template operator()<CaptureEncoding::HDR10_PQ>();
+        default:
+            return callable.template operator()<CaptureEncoding::LinearExtendedSRGB>();
+        }
+    }
+
+    template<TexelLayout Layout, CaptureEncoding Encoding>
+    void ConvertTexels(std::span<const std::byte> pixels, std::span<uint8_t> rgb, float linear_scale) noexcept
+    {
+        const size_t count = rgb.size() / 3u;
+
+        for (size_t i = 0; i < count; ++i)
+        {
+            const std::span<uint8_t, 3> out = rgb.subspan(i * 3u).first<3>();
+
+            if constexpr (Encoding == CaptureEncoding::sRGB && (Layout == TexelLayout::Rgba8 || Layout == TexelLayout::Bgra8))
+            {
+                const std::array<uint8_t, 3> codes = LoadCodes8<Layout>(pixels, i);
+
+                out[0] = codes[0];
+                out[1] = codes[1];
+                out[2] = codes[2];
+            }
+            else if constexpr (Encoding == CaptureEncoding::sRGB)
+            {
+                // packed 10-bit and half float values that are already sRGB encoded
+                const Rgb texel = LoadTexel<Layout>(pixels, i);
+
+                out[0] = QuantizeEncodedValue(texel.Red);
+                out[1] = QuantizeEncodedValue(texel.Green);
+                out[2] = QuantizeEncodedValue(texel.Blue);
+            }
+            else
+            {
+                const Rgb linear = Linearize<Encoding>(LoadTexel<Layout>(pixels, i), linear_scale);
+
+                out[0] = capture::conversion::EncodeSrgb(linear.Red);
+                out[1] = capture::conversion::EncodeSrgb(linear.Green);
+                out[2] = capture::conversion::EncodeSrgb(linear.Blue);
+            }
+        }
+    }
+
+    template<TexelLayout Layout, CaptureEncoding Encoding>
+    void AverageBlocks(std::span<const std::byte> pixels, uint32_t width, uint32_t height, uint32_t factor,
+                       uint32_t out_width, uint32_t out_height, float linear_scale, std::span<uint8_t> rgb) noexcept
+    {
+        for (uint32_t blockY = 0u; blockY < out_height; ++blockY)
+        {
+            const uint32_t startY = blockY * factor;
+            const uint32_t endY = std::min(startY + factor, height);
+
+            for (uint32_t blockX = 0u; blockX < out_width; ++blockX)
+            {
+                const uint32_t startX = blockX * factor;
+                const uint32_t endX = std::min(startX + factor, width);
+                std::array<double, 3> sum{};
+
+                for (uint32_t y = startY; y < endY; ++y)
+                {
+                    const std::span<const std::byte> row = pixels.subspan(size_t{ y } * width * BytesPerTexel<Layout>());
+
+                    for (uint32_t x = startX; x < endX; ++x)
+                    {
+                        const Rgb linear = Linearize<Encoding>(LoadTexel<Layout>(row, x), linear_scale);
+
+                        // NaN and negative values count as black, as the encode would write them
+                        sum[0] += ClampUnit(linear.Red);
+                        sum[1] += ClampUnit(linear.Green);
+                        sum[2] += ClampUnit(linear.Blue);
+                    }
+                }
+
+                const double count = static_cast<double>(endX - startX) * (endY - startY);
+                const std::span<uint8_t, 3> out = rgb.subspan(((size_t{ blockY } * out_width) + blockX) * 3u).first<3>();
+
+                out[0] = capture::conversion::EncodeSrgb(static_cast<float>(sum[0] / count));
+                out[1] = capture::conversion::EncodeSrgb(static_cast<float>(sum[1] / count));
+                out[2] = capture::conversion::EncodeSrgb(static_cast<float>(sum[2] / count));
+            }
+        }
+    }
+}
 
 namespace capture::conversion
 {
@@ -81,167 +323,28 @@ namespace capture::conversion
 
     math::Float3 DecodeLinear(std::span<const std::byte> pixels, size_t index, ImageFormat format, CaptureEncoding encoding, float linear_scale)
     {
-        float r = 0.0f;
-        float g = 0.0f;
-        float b = 0.0f;
-
-        switch (format.ComponentFormat)
+        return DispatchTexelLayout(ClassifyLayout(format), [&]<TexelLayout Layout>()
         {
-        case ImageComponentFormats::RGBA8:
-        case ImageComponentFormats::BGRA8:
-        {
-            const uint8_t* texel = reinterpret_cast<const uint8_t*>(pixels.data()) + (index * 4u);
-            const bool bgra = format.ComponentFormat == ImageComponentFormats::BGRA8;
+            return DispatchEncoding(encoding, [&]<CaptureEncoding Encoding>()
+            {
+                const Rgb linear = Linearize<Encoding>(LoadTexel<Layout>(pixels, index), linear_scale);
 
-            r = texel[bgra ? 2u : 0u] / 255.0f;
-            g = texel[1u] / 255.0f;
-            b = texel[bgra ? 0u : 2u] / 255.0f;
-            break;
-        }
-        case ImageComponentFormats::A2B10G10R10:
-        case ImageComponentFormats::A2R10G10B10:
-        {
-            uint32_t word = 0u;
-
-            std::memcpy(&word, pixels.data() + (index * 4u), 4u);
-
-            const float low = static_cast<float>(word & 0x3FFu) / 1023.0f;
-            const float mid = static_cast<float>((word >> 10u) & 0x3FFu) / 1023.0f;
-            const float high = static_cast<float>((word >> 20u) & 0x3FFu) / 1023.0f;
-            const bool redLow = format.ComponentFormat == ImageComponentFormats::A2B10G10R10;
-
-            r = redLow ? low : high;
-            g = mid;
-            b = redLow ? high : low;
-            break;
-        }
-        case ImageComponentFormats::RGBA16:
-        {
-            uint16_t halves[3]{};
-
-            std::memcpy(halves, pixels.data() + (index * 8u), sizeof(halves));
-            r = math::HalfToFloat(halves[0]);
-            g = math::HalfToFloat(halves[1]);
-            b = math::HalfToFloat(halves[2]);
-            break;
-        }
-        default:
-            break;
-        }
-
-        if (encoding == CaptureEncoding::sRGB)
-        {
-            return math::Float3{ DecodeSrgb(r), DecodeSrgb(g), DecodeSrgb(b) };
-        }
-
-        if (encoding == CaptureEncoding::HDR10_PQ)
-        {
-            r = DecodePq(r);
-            g = DecodePq(g);
-            b = DecodePq(b);
-            Bt2020ToBt709(r, g, b);
-        }
-
-        return math::Float3{ r * linear_scale, g * linear_scale, b * linear_scale };
+                return math::Float3{ linear.Red, linear.Green, linear.Blue };
+            });
+        });
     }
 
     std::vector<uint8_t> ConvertToSrgb8(std::span<const std::byte> pixels, uint32_t width, uint32_t height, ImageFormat format, CaptureEncoding encoding, float linear_scale)
     {
-        const size_t count = size_t{ width } * height;
-        std::vector<uint8_t> rgb(count * 3u);
+        std::vector<uint8_t> rgb(size_t{ width } * height * 3u);
 
-        for (size_t i = 0; i < count; ++i)
+        DispatchTexelLayout(ClassifyLayout(format), [&]<TexelLayout Layout>()
         {
-            float r = 0.0f;
-            float g = 0.0f;
-            float b = 0.0f;
-            bool encoded = false;
-
-            switch (format.ComponentFormat)
+            DispatchEncoding(encoding, [&]<CaptureEncoding Encoding>()
             {
-            case ImageComponentFormats::RGBA8:
-            case ImageComponentFormats::BGRA8:
-            {
-                const uint8_t* texel = reinterpret_cast<const uint8_t*>(pixels.data()) + (i * 4u);
-                const bool bgra = format.ComponentFormat == ImageComponentFormats::BGRA8;
-
-                if (encoding == CaptureEncoding::sRGB)
-                {
-                    rgb[(i * 3u) + 0u] = texel[bgra ? 2u : 0u];
-                    rgb[(i * 3u) + 1u] = texel[1u];
-                    rgb[(i * 3u) + 2u] = texel[bgra ? 0u : 2u];
-                    encoded = true;
-                }
-                else
-                {
-                    r = texel[bgra ? 2u : 0u] / 255.0f;
-                    g = texel[1u] / 255.0f;
-                    b = texel[bgra ? 0u : 2u] / 255.0f;
-                }
-
-                break;
-            }
-            case ImageComponentFormats::A2B10G10R10:
-            case ImageComponentFormats::A2R10G10B10:
-            {
-                uint32_t word = 0u;
-
-                std::memcpy(&word, pixels.data() + (i * 4u), 4u);
-
-                const float low = static_cast<float>(word & 0x3FFu) / 1023.0f;
-                const float mid = static_cast<float>((word >> 10u) & 0x3FFu) / 1023.0f;
-                const float high = static_cast<float>((word >> 20u) & 0x3FFu) / 1023.0f;
-                // A2B10G10R10 keeps red in the low bits, A2R10G10B10 keeps blue there
-                const bool redLow = format.ComponentFormat == ImageComponentFormats::A2B10G10R10;
-
-                r = redLow ? low : high;
-                g = mid;
-                b = redLow ? high : low;
-                break;
-            }
-            case ImageComponentFormats::RGBA16:
-            {
-                uint16_t halves[3]{};
-
-                std::memcpy(halves, pixels.data() + (i * 8u), sizeof(halves));
-                r = math::HalfToFloat(halves[0]);
-                g = math::HalfToFloat(halves[1]);
-                b = math::HalfToFloat(halves[2]);
-                break;
-            }
-            default:
-                break;
-            }
-
-            if (encoded)
-            {
-                continue;
-            }
-
-            if (encoding == CaptureEncoding::HDR10_PQ)
-            {
-                r = DecodePq(r);
-                g = DecodePq(g);
-                b = DecodePq(b);
-                Bt2020ToBt709(r, g, b);
-            }
-            else if (encoding == CaptureEncoding::sRGB)
-            {
-                // packed 10-bit values that are already sRGB encoded
-                rgb[(i * 3u) + 0u] = static_cast<uint8_t>(std::lroundf(std::clamp(r, 0.0f, 1.0f) * 255.0f));
-                rgb[(i * 3u) + 1u] = static_cast<uint8_t>(std::lroundf(std::clamp(g, 0.0f, 1.0f) * 255.0f));
-                rgb[(i * 3u) + 2u] = static_cast<uint8_t>(std::lroundf(std::clamp(b, 0.0f, 1.0f) * 255.0f));
-                continue;
-            }
-
-            r *= linear_scale;
-            g *= linear_scale;
-            b *= linear_scale;
-
-            rgb[(i * 3u) + 0u] = EncodeSrgb(r);
-            rgb[(i * 3u) + 1u] = EncodeSrgb(g);
-            rgb[(i * 3u) + 2u] = EncodeSrgb(b);
-        }
+                ConvertTexels<Layout, Encoding>(pixels, rgb, linear_scale);
+            });
+        });
 
         return rgb;
     }
@@ -261,38 +364,13 @@ namespace capture::conversion
 
         std::vector<uint8_t> rgb(size_t{ out_width } * out_height * 3u);
 
-        for (int32_t blockY = 0u; std::cmp_less(blockY , out_height); ++blockY)
+        DispatchTexelLayout(ClassifyLayout(format), [&]<TexelLayout Layout>()
         {
-            for (int32_t blockX = 0u; std::cmp_less(blockX , out_width); ++blockX)
+            DispatchEncoding(encoding, [&]<CaptureEncoding Encoding>()
             {
-                const uint32_t endX = std::min((blockX + 1u) * factor, width);
-                const uint32_t endY = std::min((blockY + 1u) * factor, height);
-                std::array<double, 3> sum{};
-                uint32_t count = 0u;
-
-                const int32_t startY = static_cast<int32_t>(blockY * factor);
-                for (int32_t y = startY; std::cmp_less(y , endY); ++y)
-                {
-                    const int32_t startX = static_cast<int32_t>(blockX * factor);
-                    for (int32_t x = startX; std::cmp_less(x , endX); ++x)
-                    {
-                        math::Float3 linear = DecodeLinear(pixels, (size_t{ y } * width) + x, format, encoding, linear_scale);
-
-                        // NaN and negative values count as black, as the encode would write them
-                        sum[0] += linear[0] > 0.0f ? std::min(linear[0], 1.0f) : 0.0f;
-                        sum[1] += linear[1] > 0.0f ? std::min(linear[1], 1.0f) : 0.0f;
-                        sum[2] += linear[2] > 0.0f ? std::min(linear[2], 1.0f) : 0.0f;
-                        ++count;
-                    }
-                }
-
-                const size_t out = ((size_t{ blockY } * out_width) + blockX) * 3u;
-
-                rgb[out + 0u] = EncodeSrgb(static_cast<float>(sum[0] / count));
-                rgb[out + 1u] = EncodeSrgb(static_cast<float>(sum[1] / count));
-                rgb[out + 2u] = EncodeSrgb(static_cast<float>(sum[2] / count));
-            }
-        }
+                AverageBlocks<Layout, Encoding>(pixels, width, height, factor, out_width, out_height, linear_scale, rgb);
+            });
+        });
 
         return rgb;
     }
@@ -307,5 +385,19 @@ namespace capture::conversion
         }
 
         return text;
+    }
+}
+
+namespace
+{
+
+    float ClampUnit(float value) noexcept
+    {
+        return value > 0.0f ? std::min(value, 1.0f) : 0.0f;
+    }
+
+    uint8_t QuantizeEncodedValue(float encoded) noexcept
+    {
+        return static_cast<uint8_t>(std::lroundf(ClampUnit(encoded) * 255.0f));
     }
 }
